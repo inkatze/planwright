@@ -211,6 +211,7 @@ record "REQ-L1.5: the context threshold knob" knob handover-context 70
 record "REQ-L1.5: the wake ceiling knob" knob handover-wakes 150
 record "REQ-L1.5: the compaction ceiling knob" knob handover-compactions 2
 record "the mascot knob defaults to animated" knob mascot 2
+record "the usage stop knob is the value admission reads" knob usage-hold 90
 record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "the reviews TTL knob, in seconds" knob reviews-ttl 300
@@ -360,6 +361,19 @@ printf 'mission_control_handover_compactions: 0\n' >>"$tracked"
 mc_run mc-panel.sh digest --program alpha --knobs --now 1030
 record "a zero compaction ceiling is refused" unreadable "knob mission_control_handover_compactions"
 setup_tracked=$(grep -v '^mission_control_handover_compactions' "$tracked")
+printf '%s\n' "$setup_tracked" >"$tracked"
+
+# The usage stop: `off` reads as 0 (no stop), a bad value is unreadable and
+# never a default.
+printf 'mission_control_usage_hold: off\n' >>"$tracked"
+mc_run mc-panel.sh digest --program alpha --knobs --now 1030
+record "an off usage stop reads as 0" knob usage-hold 0
+setup_tracked=$(grep -v '^mission_control_usage_hold' "$tracked")
+printf '%s\n' "$setup_tracked" >"$tracked"
+printf 'mission_control_usage_hold: 250\n' >>"$tracked"
+mc_run mc-panel.sh digest --program alpha --knobs --now 1030
+record "an out-of-range usage stop is unreadable, not a default" unreadable "knob mission_control_usage_hold"
+setup_tracked=$(grep -v '^mission_control_usage_hold' "$tracked")
 printf '%s\n' "$setup_tracked" >"$tracked"
 
 # REQ-L1.8: the holder record's kind tells a launched holder, which hands

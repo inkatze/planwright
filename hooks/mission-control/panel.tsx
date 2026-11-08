@@ -159,8 +159,14 @@ export function instruments(view: PanelView): Instruments {
   }
 }
 
-// The usage stop line: past it only work the operator asked for starts.
-export const USAGE_STOP_PCT = 95
+// The usage stop is the percent admission holds launches at (the digest's
+// usage-hold knob, 0 when the stop is off); unread, it is unknown, never a default.
+export type UsageStop = number | 'off' | null
+export function usageStop(view: PanelView): UsageStop {
+  const v = view.digest?.knobs['usage-hold']
+  return v === undefined ? null : v === 0 ? 'off' : v
+}
+const stopWord = (stop: UsageStop) => (stop === null ? 'stop unknown' : stop === 'off' ? 'no stop set' : `stop at ${stop}%`)
 const WINDOW_NAME: Record<string, string> = { five_hour: '5-hour', seven_day: 'weekly' }
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -177,11 +183,12 @@ export function resetWord(iso: string | undefined, nowMs: number): string {
 }
 
 export function usageLines(view: PanelView, nowMs: number): { name: string; percent: number; text: string }[] {
+  const stop = usageStop(view)
   return view.rateLimits.map(r => {
     const name = WINDOW_NAME[r.kind] ?? r.kind.replace(/_/g, ' ')
     const pct = Math.round(r.percentUsed)
     const reset = resetWord(r.resetsAt, nowMs)
-    return { name, percent: r.percentUsed, text: `${name} ${pct}% used · stop at ${USAGE_STOP_PCT}%${reset ? ` · ${reset}` : ''}` }
+    return { name, percent: r.percentUsed, text: `${name} ${pct}% used · ${stopWord(stop)}${reset ? ` · ${reset}` : ''}` }
   })
 }
 
@@ -416,6 +423,8 @@ function Meters(t: Table, view: PanelView, surface: RenderSurface) {
   const isPic = hasPictures(t, surface)
   const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
   const windows = usageLines(view, Date.now())
+  const stop = usageStop(view)
+  const stopMark = typeof stop === 'number' ? [{ at: stop, color: COLOR.red }] : []
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text bold>Context</Text>
@@ -440,12 +449,10 @@ function Meters(t: Table, view: PanelView, surface: RenderSurface) {
           {isPic && (
             <t.Image
               key={`usage-${w.name}`}
-              source={barPicture(w.percent, w.percent >= USAGE_STOP_PCT ? COLOR.red : w.percent >= 70 ? COLOR.yellow : COLOR.blue, [
-                { at: USAGE_STOP_PCT, color: COLOR.red },
-              ])}
+              source={barPicture(w.percent, typeof stop === 'number' && w.percent >= stop ? COLOR.red : w.percent >= 70 ? COLOR.yellow : COLOR.blue, stopMark)}
               columns={BAR_COLUMNS}
               rows={1}
-              alt={bar(w.percent, [USAGE_STOP_PCT])}
+              alt={bar(w.percent, typeof stop === 'number' ? [stop] : [])}
             />
           )}
         </Box>

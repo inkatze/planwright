@@ -101,6 +101,9 @@ Usage:
                                              trigger's thresholds
         knob<TAB>mascot<TAB>0|1|2            with --knobs: the mascot, off,
                                              a still frame or animated
+        knob<TAB>usage-hold<TAB><n>          with --knobs: the usage percent
+                                             admission holds launches at,
+                                             0 when the stop is off
         flight<TAB><worker><TAB><scope><TAB><backend><TAB>working|waiting|stuck
                                              a fleet registry session seen
                                              live (its process or tmux
@@ -778,6 +781,11 @@ parse_pct() {
   mc_valid_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 100 ] || return 1
   printf '%s\n' "$1"
 }
+# The usage stop is what the usage-window duty holds launches at: a percent,
+# or `off` (no proactive stop) as 0.
+parse_usage_hold() {
+  case $1 in off) printf '0\n' ;; *) parse_pct "$1" ;; esac
+}
 # The mascot knob reads animated, still or off as 2, 1 or 0.
 parse_mascot() {
   case $1 in animated) printf '2\n' ;; still) printf '1\n' ;; off) printf '0\n' ;; *) return 1 ;; esac
@@ -938,7 +946,8 @@ knobs() {
     handover-context:mission_control_handover_context:parse_pct \
     handover-wakes:mission_control_handover_wakes:parse_positive \
     handover-compactions:mission_control_handover_compactions:parse_positive \
-    mascot:mission_control_panel_mascot:parse_mascot; do
+    mascot:mission_control_panel_mascot:parse_mascot \
+    usage-hold:mission_control_usage_hold:parse_usage_hold; do
     kn_name=${kn%%:*}
     kn_rest=${kn#*:}
     if kn_v=$(mc_knob "${kn_rest%%:*}" "${kn_rest#*:}"); then

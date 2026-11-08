@@ -673,8 +673,46 @@ test('context and usage say their marks and stop line in words', async ($, on) =
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
   expect(t).toContain('Context 42% used · hands over at 70% · compacts at 95%')
-  expect(t.some(l => /^5-hour 31% used · stop at 95%/.test(l))).toBe(true)
+  expect(t.some(l => /^5-hour 31% used · stop unknown/.test(l))).toBe(true)
   await ui.unmount()
+})
+
+// The stop line is the value admission reads, never a drawn-in default.
+const usageText = async ($: Parameters<typeof boot>[0], on: Parameters<typeof world>[0], extra: string[]) => {
+  const w = world(on, { digest: digestText({ extra }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await rows(ui)).find(l => l.startsWith('5-hour'))
+  const bars = await pictures(ui, 'Image')
+  await ui.unmount()
+  return { t, bars }
+}
+
+// The red mark of a stop at `pct`, read back from the bar's own pixels.
+const markAt = (bars: { key?: unknown; source?: unknown }[], pct: number) => {
+  const src = bars.find(b => b.key === 'usage-5-hour')?.source as { rgba: string; width: number } | undefined
+  if (!src) return undefined
+  const px = Uint8Array.fromBase64(src.rgba)
+  const i = (0 * src.width + (Math.round((pct / 100) * src.width) - 1)) * 4
+  return (px[i]! << 16) | (px[i + 1]! << 8) | px[i + 2]!
+}
+
+test('the usage stop line is the value admission reads', async ($, on) => {
+  const { t, bars } = await usageText($, on, ['knob\tusage-hold\t90'])
+  expect(t).toMatch(/^5-hour 31% used · stop at 90%/)
+  expect(markAt(bars, 90)).toBe(0xd55e00)
+})
+
+test('a usage stop that cannot be read is shown as unknown, with no stop mark drawn', async ($, on) => {
+  const { t, bars } = await usageText($, on, [])
+  expect(t).toMatch(/stop unknown/)
+  expect(markAt(bars, 90)).not.toBe(0xd55e00)
+  expect(markAt(bars, 95)).not.toBe(0xd55e00)
+})
+
+test('a usage stop that is off says so', async ($, on) => {
+  const { t } = await usageText($, on, ['knob\tusage-hold\t0'])
+  expect(t).toMatch(/no stop set/)
 })
 
 test('the mascot knob keeps its meaning with pictures: off draws no grid, still holds one frame', async ($, on) => {
