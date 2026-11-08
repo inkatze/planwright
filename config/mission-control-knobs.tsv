@@ -43,6 +43,7 @@ audit-idle-period	mission_control_audit_idle_after	scripts/mc-audit.sh
 stall-window	mission_control_stall_window	scripts/mc-stall.sh
 escalation-window	mission_control_escalation_window	scripts/mc-escalate.sh
 escalation-hub	mission_control_escalation_hub	scripts/mc-escalate.sh
+escalation-relay-hub	mission_control_escalation_hub	scripts/mc-pane-answer.sh
 reclaim-audit-files	mission_control_reclaim_files	scripts/mc-reclaim.sh
 deadline-horizon	mission_control_deadline_horizon	scripts/mc-deadlines.sh
 draft-clipboard	mission_control_clipboard	scripts/mc-inbox.sh

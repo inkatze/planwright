@@ -41,7 +41,8 @@ nothing in the record shows that as a cause.
 
 Caveat: the replay is not exact. Some requests ran under 0.66.0 and 0.67.0,
 which are no longer an installed root the guard trusts, and some worktrees
-are gone. Both effects push the replay toward defer.
+are gone. Both effects push the replay toward defer, so its approval count
+is a lower bound: the guard would approve at least that many, perhaps more.
 
 **The guard's write policy is switched off, and switching it on helps only
 at the margin.** The self-approval arms (`worker_self_approval`:
