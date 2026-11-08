@@ -645,6 +645,13 @@ expect_no_out "a path the program could not report is not matched" "$neutral_hom
 printf '%s\n' "$tracked_good" >"$tracked"
 : >"$CRON_FIXTURE"
 
+printf '%s\n' "$tracked_good" | sed 's|^program_alpha_duties: .*|program_alpha_duties: [inbox, inbox]|' >"$tracked"
+cfg doctor --program alpha
+printf '%s\n' "$tracked_good" >"$tracked"
+expect_rc "doctor with an unreadable duty list still reports" 0
+expect_out "an unreadable duty list is an unknown duties check, never clean" "unknown${tab}duties${tab}the enabled or default duties could not be read"
+expect_no_out "an unreadable duty list names no duty off" "duty-off${tab}"
+
 printf '%s\n' '- not flat' 'mission_control_stall_window: 30m' >"$layer"
 printf '%s\n' 'mission_control_tick_cadence: 7m' >>"$tracked"
 cfg doctor --program alpha
@@ -669,6 +676,14 @@ printf '%s\n' 'mission_control_kb_index_budget: 0150' >"$layer"
 cfg doctor --program alpha
 rm -f "$layer"
 expect_out "a value equal to the shipped one only as a number is an override" "override${tab}mission_control_kb_index_budget${tab}adopter${tab}0150${tab}150"
+
+printf '%s\n' 'mission_control_default_duties: [inbox, readiness-check]' >"$layer"
+printf '%s\n' "$tracked_good" | sed 's|^program_alpha_duties: .*|program_alpha_duties: [inbox]|' >"$tracked"
+cfg doctor --program alpha
+printf '%s\n' "$tracked_good" >"$tracked"
+rm -f "$layer"
+expect_out "a default duty is judged against the default list the layers resolve" "duty-off${tab}readiness-check"
+expect_no_out "a shipped default duty a layer drops from the list is not named" "duty-off${tab}session-keeper"
 
 printf '%s\n' 'mission_control_launch_backend: bogus' >>"$tracked"
 cfg doctor --program alpha
