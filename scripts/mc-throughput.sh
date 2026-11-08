@@ -592,13 +592,17 @@ pick() {
     | sort -t '	' -k1,1r -k2,2r -k3,3 | head -n 1 | cut -f3-
 }
 
-top_line() { # top_line <measure lines>: sets TOP (the candidate line or empty)
-  TOP=$(pick "$(candidates "$1")")
-  TOP_TEXT=""
+# top_line <measure lines> <candidates>: sets TOP (the top candidate's line
+# or empty), its text in two parts, TOP_HEAD (the bottleneck) and TOP_NOTE
+# (any unknown source, else empty), and TOP_TEXT, the two together.
+top_line() {
+  TOP=$(pick "$2")
+  TOP_HEAD="" TOP_NOTE="" TOP_TEXT=""
   [ -n "$TOP" ] || return 0
   tl_unknown=$(printf '%s\n' "$1" | awk -F '\t' '$1 == "source" && $3 == "unknown" { printf "%s%s (%s)", (n++ ? "; " : ""), $2, $4 }')
-  TOP_TEXT="Top bottleneck over the last $(printf '%s' "$WINDOW" | awk '{ s = $1; if (s % 86400 == 0) print s / 86400 "d"; else if (s % 3600 == 0) print s / 3600 "h"; else print int(s / 60) "m" }'): $(printf '%s\n' "$TOP" | cut -f5)"
-  [ -z "$tl_unknown" ] || TOP_TEXT="$TOP_TEXT. Not measured: $tl_unknown"
+  TOP_HEAD="Top bottleneck over the last $(printf '%s' "$WINDOW" | awk '{ s = $1; if (s % 86400 == 0) print s / 86400 "d"; else if (s % 3600 == 0) print s / 3600 "h"; else print int(s / 60) "m" }'): $(printf '%s\n' "$TOP" | cut -f5)"
+  [ -z "$tl_unknown" ] || TOP_NOTE=". Not measured: $tl_unknown"
+  TOP_TEXT="$TOP_HEAD$TOP_NOTE"
 }
 
 curve() {
@@ -697,7 +701,7 @@ case $verb in
     load_program
     m=$(measure)
     printf '%s\n' "$m"
-    top_line "$m"
+    top_line "$m" "$(candidates "$m")"
     if [ -n "$TOP" ]; then
       printf 'top\t%s\t%s\t%s\n' "$(printf '%s\n' "$TOP" | cut -f1)" "$(printf '%s\n' "$TOP" | cut -f3)" "$TOP_TEXT"
     else
@@ -721,33 +725,44 @@ case $verb in
     worsen=$(mc_knob mission_control_throughput_worsen mc_parse_count) || exit 1
     load_knobs
     load_program
+    [ "$HOME_OK" = 1 ] || mc_fail "the home of program $program does not resolve"
+    kb="$PHOME/kb/throughput"
     m=$(measure)
     printf '%s\n' "$m"
     c=$(candidates "$m")
-    top_line "$m"
-    home=$PHOME
-    [ "$HOME_OK" = 1 ] || mc_fail "the home of program $program does not resolve"
-    kb="$home/kb/throughput"
+    top_line "$m" "$c"
     mkdir -p "$kb" || mc_fail "cannot create $kb"
+    cv=$(curve)
+    trap mc_kb_unlock EXIT
+    mc_kb_lock "$program" throughput/measure.tsv
     {
       printf '# format: 1\n'
       printf 'measured\t%s\n' "$NOW"
       printf '%s\n' "$m"
     } | mc_write "$kb/measure.tsv" || mc_fail "cannot write $kb/measure.tsv"
-    cv=$(curve)
     {
       printf '# format: 1\n'
       printf 'measured\t%s\n' "$NOW"
       printf '%s\n' "$cv" | awk -F '\t' '$1 != "request"'
     } | mc_write "$kb/cost-curve.tsv" || mc_fail "cannot write $kb/cost-curve.tsv"
+    mc_kb_unlock
     raised="$RUNTIME/throughput-raised"
     prev=""
     if [ -f "$raised" ]; then
       prev=$(cat "$raised") || mc_fail "cannot read $raised"
     fi
-    # Only what is still a bottleneck stays remembered.
+    # What is still a bottleneck stays remembered, and so does what this
+    # run could not see, so a source's recovery raises nothing it already
+    # raised.
     live=$(printf '%s\n' "$c" | cut -f1)
-    kept=$(printf '%s\n' "$prev" | LIVE=$live awk -F '\t' 'BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") k[l[i]] = 1 } NF >= 2 && ($1 in k)')
+    blind=$(printf '%s\n' "$m" | awk -F '\t' '$1 == "source" && $3 == "unknown" { print $2 }')
+    kept=$(printf '%s\n' "$prev" | LIVE=$live BLIND=$blind awk -F '\t' '
+      function src(k) { if (k ~ /^ci:/) return "ci"; if (k ~ /^step:/) return "steps"; return k }
+      BEGIN {
+        n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") k[l[i]] = 1
+        n = split(ENVIRON["BLIND"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") b[l[i]] = 1
+      }
+      NF >= 2 && (($1 in k) || (src($1) in b))')
     if [ -n "$TOP" ]; then
       key=$(printf '%s\n' "$TOP" | cut -f1)
       total=$(printf '%s\n' "$TOP" | cut -f3)
@@ -757,15 +772,21 @@ case $verb in
       else
         subject=$key
         mc_valid_handle "$subject" || subject=$(mc_subject throughput "$key")
-        text=$(printf '%s' "$TOP_TEXT" | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
-        mc_event emit --program "$program" --now "$NOW" -- throughput-bottleneck "$subject" "$text" >/dev/null || mc_fail "the throughput-bottleneck event was refused"
+        # The note on what went unmeasured is kept whole; the bottleneck's
+        # own text gives way to fit the event's text bound.
+        note=$(printf '%s' "$TOP_NOTE" | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
+        text=""
+        [ "${#note}" -ge 500 ] || text=$(printf '%s' "$TOP_HEAD" | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-$((500 - ${#note})))
+        mc_event emit --program "$program" --now "$NOW" -- throughput-bottleneck "$subject" "$text$note" >/dev/null || mc_fail "the throughput-bottleneck event was refused"
         kept=$(printf '%s\n' "$kept" | K=$key awk -F '\t' 'NF && $1 != ENVIRON["K"]')
         kept="${kept:+$kept
 }$key	$total"
         printf 'raised\t%s\t%s\n' "$key" "$total"
       fi
     fi
-    { [ -z "$kept" ] || printf '%s\n' "$kept"; } | mc_write "$raised" || mc_fail "cannot write $raised"
+    # The pass is stamped before the memory is written, so a failed write
+    # cannot repeat an emitted event on every pass inside the interval.
     printf '%s\n' "$NOW" | mc_write "$last" || mc_fail "cannot write $last"
+    { [ -z "$kept" ] || printf '%s\n' "$kept"; } | mc_write "$raised" || mc_fail "cannot write $raised"
     ;;
 esac

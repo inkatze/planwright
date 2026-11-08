@@ -267,19 +267,95 @@ expect_out "the same bottleneck, no worse, is held" "held${tab}step:polish${tab}
 events
 if [ "$(count_raised)" = 1 ]; then ok "a held bottleneck emits nothing"; else fail "a held bottleneck emitted: $(count_raised) events"; fi
 
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$steps/000002"
+  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 7200))
+  expect_rc "a watch that cannot read the step records" 0
+  expect_no_out "raises nothing" "raised"
+  chmod 755 "$steps/000002"
+  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 10800))
+  expect_out "a bottleneck its source could not see for a pass is held, not raised again" "held${tab}step:polish${tab}4800"
+else
+  ok "a source unread for a pass (skipped as root)"
+fi
+
 rec "$steps/000002/006-step-pre-pr.rec" polish 2026-11-01T12:00:00Z 2026-11-01T12:50:00Z passed 000002 006
-mc_run mc-throughput.sh watch --program alpha --now $((NOW + 7200))
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 14400))
 expect_out "a bottleneck grown past the worsen percent is raised again" "raised${tab}step:polish${tab}7800"
 events
 if [ "$(count_raised)" = 2 ]; then ok "the worsened bottleneck emits once more"; else fail "expected two events, got $(count_raised)"; fi
 
 printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 2h}\n' >>"$tracked"
-mc_run mc-throughput.sh watch --program alpha --now $((NOW + 10800))
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 18000))
+expect_rc "a watch with no bottleneck" 0
 expect_no_out "no bottleneck, nothing raised" "raised"
 expect_no_out "and nothing held" "held"
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
-mc_run mc-throughput.sh watch --program alpha --now $((NOW + 14400))
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 21600))
 expect_out "a bottleneck that cleared and returned is raised afresh" "raised${tab}step:polish${tab}7800"
+
+runtime="$fleet/mission-control/alpha"
+if [ "$(id -u)" -ne 0 ]; then
+  rm -f "$runtime/throughput-raised"
+  mkdir "$runtime/throughput-raised"
+  chmod 500 "$runtime/throughput-raised"
+  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 25200))
+  expect_rc "a memory that cannot be written fails the watch" 1
+  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 26100))
+  expect_eq "but the pass was stamped, so the next pass raises nothing again" "skipped${tab}interval"
+  chmod 700 "$runtime/throughput-raised"
+  rmdir "$runtime/throughput-raised"
+else
+  ok "an unwritable memory (skipped as root)"
+fi
+
+rm -f "$runtime/throughput-last"
+lock_token=$(mc_env /bin/bash "$repo_root/scripts/mc-kb.sh" lock --program alpha throughput/measure.tsv --holder $$ 2>/dev/null)
+printf 'mission_control_kb_lock_wait: 1\n' >>"$tracked"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 28800))
+expect_rc "a knowledge-base write another writer holds fails" 1
+expect_err "naming the lock" "kb/throughput/measure.tsv"
+(mc_env /bin/bash "$repo_root/scripts/mc-kb.sh" unlock --program alpha throughput/measure.tsv --token "$lock_token") >/dev/null 2>&1
+grep -v '^mission_control_kb_lock_wait' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+
+cp "$tracked" "$tracked.keep"
+sed "s#^program_alpha_home: .*#program_alpha_home: $repo/home#" "$tracked.keep" >"$tracked"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 28800))
+expect_rc "a watch whose program home does not resolve fails" 1
+expect_no_out "before it measures anything" "source${tab}"
+mv "$tracked.keep" "$tracked"
+
+# The note on what went unmeasured survives the event's text bound whole.
+if [ "$(id -u)" -ne 0 ]; then
+  # A path that brings the note to about 450 bytes, whatever TMPDIR is.
+  pad=$(((450 - 60 - ${#tmp}) / 2))
+  long="$tmp/$(printf '%0*d' "$pad" 0)/$(printf '%0*d' "$pad" 0)"
+  mkdir -p "${long%/*}"
+  git -C "$repo" worktree add -q -b long "$long" 2>/dev/null || fail "fixture long worktree"
+  mkdir -p "$long/.claude/steps/000001"
+  chmod 000 "$long/.claude/steps/000001"
+  mkdir -p "$stall"
+  printf '1793500000:t1\thash\t%s\tbusy-unchanged\n' $((NOW + 28800 - 7200)) >"$stall/mc-alpha-worker-0000000001"
+  rm -f "$runtime/throughput-last" "$runtime/throughput-raised"
+  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 28800))
+  expect_out "a stall raised beside an unread source with a long reason" "raised${tab}stalls${tab}7200"
+  events
+  ev=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "throughput-bottleneck" && $4 == "stalls" { t = $5 } END { print t }')
+  case $ev in
+    *"Not measured: "*"steps (cannot read the step records of $long)") ok "the unmeasured note is whole" ;;
+    *) fail "the unmeasured note was cut: $ev" ;;
+  esac
+  case $ev in
+    "Top bottleneck over the last 1d: Stalled"*) ok "the bottleneck's own text gave way" ;;
+    *) fail "the bottleneck's text is missing: $ev" ;;
+  esac
+  if [ "${#ev}" -le 500 ]; then ok "within the event's text bound"; else fail "the event text is ${#ev} bytes"; fi
+  chmod 755 "$long/.claude/steps/000001"
+  git -C "$repo" worktree remove --force "$long" 2>/dev/null
+  rm -rf "$stall"
+else
+  ok "the unmeasured note under the text bound (skipped as root)"
+fi
 
 # ---------------------------------------------------------------------------
 # Knobs.
@@ -292,6 +368,7 @@ grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && m
 printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 2h, extra: 1m}\n' >>"$tracked"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "an unknown threshold key fails" 1
+expect_err "naming the knob" "mission_control_throughput_thresholds"
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 
 printf 'mission_control_throughput_ci_runs: 101\n' >>"$tracked"
