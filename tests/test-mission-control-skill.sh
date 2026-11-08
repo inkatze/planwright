@@ -125,6 +125,18 @@ need "D-19: no identifiers in items" "a spec, task or decision identifier never 
 need "REQ-H1.4: mode and age named" "its mode and age"
 need "REQ-H1.4: a cited-only class is said so" "only a \`cited\` source"
 need "REQ-F1.11: drafts go to the clipboard" "scripts/mc-inbox.sh\`'s \`draft"
+# Quiet by default: an unasked turn is rendered, so a routine act cannot
+# reach the operator, and the shared wording lives in tower-comms.
+need "unasked turns are rendered by the report" "scripts/mc-inbox.sh\`'s \`report"
+need "a routine event raises no turn" "A routine event raises no turn"
+need "a routine act is never said" "A routine act is logged with its undo entry and decision, never said"
+comms="$REPO_ROOT/doctrine/tower-comms.md"
+comms_body=$(tr '\n' ' ' <"$comms" | tr -s ' ')
+for n in "An unasked turn carries only a decision waiting on the operator, a blocker, a failure, or a landing" \
+  "one lead line, no acknowledgement" "five lines at most, decisions exempt" "is logged, never narrated" \
+  "with nothing owed, it says nothing" "a denial's exact text, a refusal's reason"; do
+  if has "$comms_body" "$n"; then ok "tower-comms: $n"; else fail "doctrine/tower-comms.md lacks '$n'"; fi
+done
 
 # Acting on the operator's behalf, decisions and proposals.
 need "REQ-A1.4: never a per-session step" "never hand the operator a per-session step"
