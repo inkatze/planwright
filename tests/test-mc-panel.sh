@@ -193,10 +193,24 @@ record "REQ-H1.4: a record source carries no age" source decisions specs record 
 record "REQ-H1.4: a class with no source is cited" source designs - cited -
 record "REQ-F1.1: knowledge-base freshness, the index's age" kb 130
 record "REQ-M1.8: interruptions per hour, with their age" measure interruptions_per_hour 2.5 130
+mkdir -p "$tmp/proc"
+printf '1.53 0.90 0.50 1/200 99\n' >"$tmp/proc/loadavg"
+printf 'processor\t: 0\nprocessor\t: 1\n' >"$tmp/proc/cpuinfo"
+printf 'MemTotal:       1000 kB\nMemAvailable:    250 kB\n' >"$tmp/proc/meminfo"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "the host's load in hundredths, its cores and the memory still available" host 153 2 25
+printf '0.29 0.90 0.50 1/200 99\n' >"$tmp/proc/loadavg"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "a load of 0.29 rounds to 29, not 28" host 29 2 25
+rm -f "$tmp/proc/loadavg" "$tmp/proc/meminfo"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "a host reading that cannot be made is a dash, not zero" host - 2 -
+mc_run mc-panel.sh digest --program alpha --target mc-alpha --knobs --now 1030
 record "REQ-M1.8: the settled share" measure settled_share 80 130
 record "REQ-L1.5: the context threshold knob" knob handover-context 70
 record "REQ-L1.5: the wake ceiling knob" knob handover-wakes 150
 record "REQ-L1.5: the compaction ceiling knob" knob handover-compactions 2
+record "the mascot knob defaults to animated" knob mascot 2
 record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "the reviews TTL knob, in seconds" knob reviews-ttl 300
@@ -778,7 +792,9 @@ else
   fail "a record rewritten unchanged dropped the acknowledgment"
 fi
 mc_run mc-panel.sh ack --session "$sid_a"
-mc_run mc-panel.sh activate --program alpha --session "$sid_a" --pid 1 --now 5002
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_a" >"$fleet/mission-control/_panel/sessions/1"
+run_with CLAUDE_CODE_SESSION_ID="$sid_a" -- mc-panel.sh activate --program alpha --pid 1 --now 5002
+rm -f "$fleet/mission-control/_panel/sessions/1"
 if [ ! -e "$act/$sid_a.ack" ]; then
   ok "a record from another process drops an acknowledgment a crashed one left"
 else
@@ -787,9 +803,9 @@ fi
 run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --now 5002
 mc_run mc-panel.sh ack --session "$sid_a"
 # No session-start record names sid_c, so its process cannot be told.
-mc_run mc-panel.sh activate --program alpha --session "$sid_c" --now 5002
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5002
 mc_run mc-panel.sh ack --session "$sid_c"
-mc_run mc-panel.sh activate --program alpha --session "$sid_c" --now 5002
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5002
 if [ "$(field "$act/$sid_c" pid)" = - ] && [ ! -e "$act/$sid_c.ack" ]; then
   ok "a record whose process cannot be told never keeps an acknowledgment"
 else
@@ -877,7 +893,7 @@ else
   fail "retirement for exit left '$(ls "$act")'"
 fi
 if [ -f "$act/$sid_a" ]; then ok "and leaves another session's record alone"; else fail "retirement for exit touched another session's record"; fi
-mc_run mc-panel.sh retire --session "$sid_c"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire
 if [ ! -e "$act/$sid_c.exit" ]; then ok "a plain retirement clears the exit marker"; else fail "the exit marker outlived a plain retirement"; fi
 run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5120
 run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --exit --program alpha
@@ -892,7 +908,8 @@ printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_c" >"$act/$sid_c.exit"
 run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5130
 expect_rc "the activation over an old exit marker succeeds" 0
 if [ ! -e "$act/$sid_c.exit" ]; then ok "a new activation clears an old exit marker"; else fail "an old exit marker outlived a new activation"; fi
-mc_run mc-panel.sh retire --session "$sid_c"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire
+expect_rc "the session retires its new activation" 0
 for bad in "retire --exit --program alpha --session $sid_a" "retire --exit" "lookup --exit" "ack --exit" "prune --exit" "digest --program alpha --exit"; do
   # shellcheck disable=SC2086 # the words split on purpose
   mc_run mc-panel.sh $bad
@@ -910,18 +927,52 @@ fi
 rm -f "$act/$sid_c.exit"
 
 # The pid a record carries is a live process whose session-start record
-# names the session, never an inherited CLAUDE_PID naming another.
+# names the session.
 printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_d" >"$fleet/mission-control/_panel/sessions/$dead_pid"
-run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --session "$sid_d" --now 5150
+run_with CLAUDE_CODE_SESSION_ID="$sid_d" -- mc-panel.sh activate --program alpha --now 5150
 if [ "$(field "$act/$sid_d" pid)" = - ]; then
-  ok "an inherited CLAUDE_PID and a dead process both stay out of the record"
+  ok "a dead process stays out of the record"
 else
   fail "the record carries pid '$(field "$act/$sid_d" pid)'"
 fi
+rm -f "$act/$sid_d"
+
+# Activate and retire act for the caller's own session only.
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --session "$sid_d" --now 5160
+expect_rc "activate refuses another session's --session" 2
+if [ ! -e "$act/$sid_d" ]; then ok "and writes no record for it"; else fail "activate wrote a record for another session"; fi
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --pid "$dead_pid" --now 5160
+expect_rc "activate refuses a --pid whose session-start record names another session" 2
+if [ "$(field "$act/$sid_a" pid)" = "$live_pid" ]; then
+  ok "and leaves the session's record as it was"
+else
+  fail "a refused --pid rewrote the record to pid '$(field "$act/$sid_a" pid)'"
+fi
+run_with CLAUDE_CODE_SESSION_ID="$sid_d" -- mc-panel.sh activate --program alpha --pid "$live_pid" --now 5160
+expect_rc "activate refuses another session's process as its --pid" 2
 rm -f "$fleet/mission-control/_panel/sessions/$dead_pid" "$act/$sid_d"
+run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh retire --session "$sid_a"
+expect_rc "retire refuses another session's --session" 2
+if [ -f "$act/$sid_a" ]; then ok "and leaves that session's record"; else fail "retire removed another session's record"; fi
+run_with -- mc-panel.sh retire --session "$sid_a"
+expect_rc "retire with no session to tell its own from says so" 4
+# A record this host process wrote under an id a /clear left behind is its
+# own.
+printf 'format\t1\nprogram\talpha\ntarget\talpha\nsession\t%s\npid\t%s\nwritten\t1\n' "$sid_b" "$live_pid" >"$act/$sid_b"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh retire --session "$sid_b"
+expect_rc "retire takes a record this host process wrote under an earlier id" 0
+if [ ! -e "$act/$sid_b" ]; then ok "and removes it"; else fail "the earlier id's record survived its retire"; fi
+printf 'format\t1\nprogram\talpha\ntarget\talpha\nsession\t%s\npid\t%s\nwritten\t1\n' "$sid_b" "$dead_pid" >"$act/$sid_b"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh retire --session "$sid_b"
+expect_rc "retire refuses an earlier id's record another process wrote" 2
+if [ -f "$act/$sid_b" ]; then ok "and leaves it"; else fail "retire removed another process's earlier-id record"; fi
+rm -f "$act/$sid_b"
+run_with CLAUDE_PID="$live_pid" -- mc-panel.sh activate --program alpha --session "$sid_a" --now 5170
+expect_rc "activate takes a --session naming this session" 0
 
 # The keeper removes a record whose session has no live process.
-mc_run mc-panel.sh activate --program alpha --session "$sid_d" --pid "$dead_pid" --now 5200
+printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_d" >"$fleet/mission-control/_panel/sessions/$dead_pid"
+run_with CLAUDE_CODE_SESSION_ID="$sid_d" -- mc-panel.sh activate --program alpha --pid "$dead_pid" --now 5200
 mc_run mc-panel.sh ack --session "$sid_d"
 mc_run mc-keeper.sh watch --program alpha
 if [ ! -e "$act/$sid_d" ] && [ ! -e "$act/$sid_d.ack" ]; then
@@ -930,7 +981,7 @@ else
   fail "the keeper left the dead session's record"
 fi
 if [ -f "$act/$sid_a" ]; then ok "and keeps a live session's"; else fail "the keeper removed a live session's record"; fi
-mc_run mc-panel.sh activate --program alpha --session "$sid_d" --now 5300
+run_with CLAUDE_CODE_SESSION_ID="$sid_d" -- mc-panel.sh activate --program alpha --now 5300
 mc_run mc-panel.sh prune
 if [ "$(field "$act/$sid_d" pid)" = - ] && [ -f "$act/$sid_d" ]; then
   ok "a record with no process to test is kept"
@@ -944,7 +995,7 @@ expect_rc "prune passes over a FIFO named like a record without reading it" 0
 rm -f "$act/$sid_b"
 fifo="$fleet/mission-control/_panel/sessions/$dead_pid"
 mkfifo "$fifo"
-(mc_run mc-panel.sh activate --program alpha --session "$sid_d" --now 5400) &
+(run_with CLAUDE_CODE_SESSION_ID="$sid_d" -- mc-panel.sh activate --program alpha --now 5400) &
 bg=$!
 n=0
 while kill -0 "$bg" 2>/dev/null && [ "$n" -lt 50 ]; do

@@ -1037,6 +1037,16 @@ mission_control_kb_lock_wait: 5
 # before scripts/mc-stall.sh reads it busy-unchanged. A cadence; time alone
 # never makes a stall, only beside a busy marker and an unchanged pane.
 mission_control_stall_window: 10m
+# How long past its owner's alarm a worker request may stay pending, or a
+# mission control's own dialog stay open, before scripts/mc-escalate.sh
+# raises it to the hub; at twice the window it reaches the operator. A
+# cadence.
+mission_control_escalation_window: 15m
+# The program whose mission control hears what another program's mission
+# control left unanswered, before the operator does: a program name, or
+# none to go straight to the operator. A program never escalates to itself,
+# and a hub whose holder does not read live counts as none.
+mission_control_escalation_hub: hub
 # The ignored audit files scripts/mc-reclaim.sh copies into the program
 # home's reclaim folder before a worktree goes: worktree-relative paths, a
 # `*` allowed in the last component, a directory taken whole.
@@ -1055,6 +1065,9 @@ mission_control_panel_refresh: 10s
 # How long the panel's reviews-at-a-glance snapshot (scripts/mc-reviews.sh)
 # is kept before the panel's reviews check reads the forge again. A cadence.
 mission_control_reviews_ttl: 5m
+# The panel's mascot, Prop pal: animated, still (one frame per state, for
+# reduced motion) or off (nothing drawn).
+mission_control_panel_mascot: animated
 # The handover trigger: the measured context percent at which the session
 # raises its handover, the completed-wake count that stands in where the
 # harness measures no context (a wake is one duty trigger or one operator
@@ -1063,6 +1076,22 @@ mission_control_reviews_ttl: 5m
 mission_control_handover_context: 70
 mission_control_handover_wakes: 150
 mission_control_handover_compactions: 2
+# The panel's health line (scripts/mc-panel.sh health): the bounds past which
+# it flags what the duties should have caught. A live worker registered
+# longer than the worker age; one still live this long after the attention
+# store saw its pull request merge; a permission prompt pending this long;
+# the program's mission control held on its own dialog this long; a CI job
+# whose median queue time is at least this percent of its median run and at
+# least the floor (at or past the floor with no finished run, whatever the share);
+# a session idle this long. Cadences, but the share, a
+# whole percent from 1 to 100.
+mission_control_health_worker_age: 4h
+mission_control_health_merged_grace: 10m
+mission_control_health_permission_wait: 5m
+mission_control_health_stuck_after: 5m
+mission_control_health_ci_queue_share: 50
+mission_control_health_ci_queue_floor: 2m
+mission_control_health_idle_after: 30m
 # How long a successor waits for its predecessor to release the program
 # name before it retires the predecessor itself and takes the name. A
 # cadence.

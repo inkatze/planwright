@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { PanelView } from '../../types'
 import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
 import type { Install } from './digest'
-import { Band, Pane } from './panel'
+import { Band, isMascotMoving, Pane } from './panel'
 
 const PANE = 'mission-control'
 const TITLE = 'Mission control'
@@ -340,8 +340,36 @@ async function claim($: EngineInterface) {
 
 // On its own timer, so the lease the relay reads never lapses between
 // redraws, whatever the redraw cadence.
+// The context reading goes with it, for the health line every mission
+// control's panel draws: the threshold only where this session hands over.
 async function restampPresence($: EngineInterface) {
-  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--refresh', '--target', ctx.target])
+  const c = ctx
+  if (!c) return
+  const v = await view($)
+  // Read now, not from the last redraw, which a long refresh cadence leaves
+  // older than the reading's freshness window.
+  let pct: number | undefined
+  try {
+    pct = (await $.session.usage()).context.percent
+  } catch {
+    pct = undefined
+  }
+  // A stand-down or another program's activation during the reads.
+  if (ctx !== c) return
+  const threshold = v?.digest?.holder === 'registry' ? v.digest.knobs['handover-context'] : undefined
+  await run($, 'mc-panel.sh', [
+    'presence',
+    '--program',
+    c.program,
+    '--refresh',
+    '--target',
+    c.target,
+    '--context',
+    // A reading the script refuses would fail the lease restamp with it.
+    typeof pct === 'number' && Number.isFinite(pct) ? String(Math.min(100, Math.max(0, Math.round(pct)))) : '-',
+    '--threshold',
+    threshold === undefined ? '-' : String(threshold),
+  ])
 }
 
 async function tick($: EngineInterface) {
@@ -354,13 +382,15 @@ async function sweep($: EngineInterface) {
   await patch($, x => ({ ...x, frame: x.frame + 1 }))
 }
 
-// The radar sweeps only while a wake is held for a busy session, so an idle
-// panel costs no redraws.
+// The radar sweeps while a wake is held for a busy session, or while the
+// mascot has motion in a shown pane, so an idle or hidden panel costs no redraws.
 async function syncRadar($: EngineInterface) {
   const v = await view($)
   const held = v !== null && (await isHeld($, v))
-  if (held && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
-  if (!held && radar) {
+  const isShown = v !== null && isMascotMoving(v) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+  const moving = held || isShown
+  if (moving && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
+  if (!moving && radar) {
     radar.cancel()
     radar = null
   }

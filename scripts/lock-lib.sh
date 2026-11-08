@@ -76,6 +76,12 @@
 #                          runners never arm or relay over each other
 #   scripts/mc-stall.sh    a session's stall sample, so two passes never
 #                          decide from one sample or emit one event twice
+#   scripts/mc-escalate.sh a program's escalation pass, so two passes never
+#                          raise one escalation twice
+#   scripts/mc-pane-answer.sh   a program's dialog answer, so one decision
+#                          never answers twice; it also holds the escalation
+#                          pass lock above from its last check of the dialog
+#                          through the keystroke and the record's drop
 #   scripts/mc-reclaim.sh  a reclaim folder, so two reclaims of one branch
 #                          never copy into or roll back the same folder
 #   scripts/mc-config.sh   the adopter layer's planwright.yml, so two writes
@@ -87,6 +93,8 @@
 #                          track never re-points a session mid-retire
 #   scripts/work-repo-registry.sh   the work-repository registry, so
 #                          concurrent registrations each land their entry
+#   scripts/spend-record.sh   a mission-control program's spend store, so
+#                          concurrent records each land a whole row
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is

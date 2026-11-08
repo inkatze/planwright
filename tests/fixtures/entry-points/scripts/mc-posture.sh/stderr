@@ -1,0 +1,1 @@
+match ^usage: mc-posture check \[--settings <file>\]\.\.\. \[--project <dir>\] \[--managed <file>\]$

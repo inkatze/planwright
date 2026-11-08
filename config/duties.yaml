@@ -49,8 +49,8 @@ duties:
                stall-turn-ended-background, stall-idle-question, stall-busy-unchanged,
                stall-unknown, session-landed, pending-prompt, pending-prompt-overdue,
                stream-json-worker-dead, worker-handover-due,
-               worker-retired-idle]
-    watchers: [scripts/mc-keeper.sh@2m/low]
+               worker-retired-idle, mission-control-escalated]
+    watchers: [scripts/mc-keeper.sh@2m/low, scripts/mc-escalate.sh@1m/low]
     wake: session-landed
     rules: [session-lifecycle]
     kinds: [blocker]
