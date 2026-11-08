@@ -90,7 +90,8 @@ a one-line summary of what it saves you. The ones that ship cover keeping
 sessions moving and closing them when their work lands, turning what waits
 on you into decide-ready items and drafts, checking that a pull request is
 really ready before it is offered, predicting overlapping changes and merge
-order, letting known dates set priorities, preparing what you need before a
+order, letting known dates set priorities, measuring where the work's time
+goes and raising the biggest bottleneck, preparing what you need before a
 decision, recording how to undo each act, checking what was done against
 your rules, and noticing what you keep doing by hand. The last three
 do not run in the background yet, and turning them on changes nothing for

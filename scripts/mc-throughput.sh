@@ -35,12 +35,12 @@ as they stand now):
              one forge page) of each program repository's GitHub remote
              (gh api, jq), runs last updated before the window skipped and
              every page of a run's jobs read: the queue time (created to
-             started; a job still queued counts to now, one that finished
-             unstarted to its finish, never below zero) against the run
-             time (started to completed). With more than one repository a
-             key is prefixed with its owner/name. A repository with no
-             GitHub remote, or not on this machine, is named in the source
-             line, not measured.
+             started; a job neither completed nor in progress counts to
+             now, one that finished unstarted to its finish, never below
+             zero) against the run time (started to completed). With more
+             than one GitHub repository measured, a key is prefixed with
+             its owner/name. A repository with no GitHub remote, or not on
+             this machine, is named in the source line, not measured.
   approvals  every permission request in the program's stream-json worker
              journals (<fleet home>/streamjson/<session>/journal, a regular
              file): received to answered, a pending one counted to now
@@ -55,8 +55,9 @@ as they stand now):
              aside) in the program repositories' worktrees (a repository
              not on this machine named in the source line) and the program
              home's reclaimed copies, read with `step-record.sh list`, per
-             step id, naming the branch of the slowest; a record identical
-             in every field to one already read is a copy
+             step id, naming the branch of the slowest; a record with the
+             same step, branch, run, sequence, point, start and end as one
+             already read is a copy
 A stream-json session is the program's when its registry row names the
 program, or, with no row, when its name is the launcher's readable form
 mc-<program>-<kind>-<10 hex>. A source that cannot be read is named
@@ -64,7 +65,8 @@ unknown, with the reason, and contributes nothing: an unread source is
 never shown as zero.
 
 THE TOP BOTTLENECK: a measurement is a bottleneck when its typical value
-(the median wait, run or step; the longest stall) reaches its threshold in
+(the median CI queue or permission wait, or the median step run; the
+longest stall) reaches its threshold in
 mission_control_throughput_thresholds. Of those, the top one is the one
 that cost the most time in all over the window (ties: the larger typical
 value against its threshold, then the key). A total counts only the time
@@ -88,8 +90,9 @@ Usage:
         top<TAB><key><TAB><total s><TAB><text>   or   top<TAB>none
   mc-throughput.sh curve --program <p> [--now <epoch>]
       cost per model request against context size, from each of the
-      program's stream-json sessions' event captures written inside the
-      window (jq; a frame that does not parse is skipped alone):
+      program's stream-json sessions' event captures last written inside
+      the window, each read whole (jq; a frame that does not parse is
+      skipped alone):
         source<TAB>cost<TAB>ok|unknown<TAB><detail>
         request<TAB><session><TAB><n><TAB><percent|-><TAB><context tokens>
           <TAB><window|-><TAB><cost>
@@ -132,7 +135,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-throughput.sh measure|top|curve|watch --program <p> [--now <epoch>]; mc-throughput.sh --help"
+  mc_usage_fail "usage: mc-throughput.sh measure|top|curve --program <p> [--now <epoch>]; mc-throughput.sh watch [--program <p>] [--now <epoch>]; mc-throughput.sh --help"
 }
 
 case ${1:-} in
@@ -191,8 +194,8 @@ knob_secs() { # knob_secs <key>
   ks=$(mc_knob "$1" mc_parse_cadence) || exit 1
   mc_seconds "$ks"
 }
-# load_window: the window, for every verb that reads; load_knobs: it and the
-# thresholds, for a verb that measures.
+# load_window: the window, for every verb that reads; load_knobs: it, the
+# thresholds and the CI run count, for a verb that measures.
 load_window() {
   WINDOW=$(knob_secs mission_control_throughput_window) || exit 1
   SINCE=$((NOW - WINDOW))
