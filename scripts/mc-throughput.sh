@@ -290,6 +290,8 @@ slug_of() {
 
 # The jq definition every forge read shares: a name with its control bytes
 # (C0, DEL, C1) dropped, so forge text never reaches a terminal or a store raw.
+# Fields are joined with a tab rather than @tsv, which would double a
+# backslash that `read` then keeps; clean leaves no tab or newline to join.
 # shellcheck disable=SC2016 # a jq program
 JQ_CLEAN='def clean: tostring | explode | map(select(. >= 32 and . != 127 and (. < 128 or . > 159))) | implode;'
 
@@ -299,7 +301,7 @@ ci_runs() {
   cr_json=$(bounded gh api "repos/$1/actions/runs?per_page=$2" 2>/dev/null) || return 1
   printf '%s\n' "$cr_json" | SINCE=$SINCE jq -r "$JQ_CLEAN"' .workflow_runs[]
     | select(((.updated_at // "") | try fromdateiso8601 catch (env.SINCE | tonumber)) >= (env.SINCE | tonumber))
-    | [(.id | tostring), (.name | clean)] | @tsv' 2>/dev/null
+    | [(.id | clean), (.name | clean)] | join("\t")' 2>/dev/null
 }
 
 # ci_jobs <slug> <run id> <workflow>: <slug><TAB><workflow / job><TAB>
@@ -308,7 +310,8 @@ ci_runs() {
 ci_jobs() {
   cj_json=$(bounded gh api --paginate "repos/$1/actions/runs/$2/jobs?per_page=100" 2>/dev/null) || return 1
   printf '%s\n' "$cj_json" | W=$3 S=$1 jq -r "$JQ_CLEAN"' .jobs[] | select(.conclusion != "skipped")
-    | [env.S, env.W + " / " + (.name | clean), .status, .created_at, (.started_at // "-"), (.completed_at // "-")] | @tsv' 2>/dev/null
+    | [env.S, env.W + " / " + (.name | clean), (.status | clean), (.created_at | clean),
+      (.started_at // "-" | clean), (.completed_at // "-" | clean)] | join("\t")' 2>/dev/null
 }
 
 measure_ci() {

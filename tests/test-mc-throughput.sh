@@ -87,6 +87,7 @@ cat >"$tmp/gh/jobs-101.json" <<'EOF'
  {"name":"linux","status":"completed","conclusion":"success","created_at":"2026-11-01T11:00:00Z","started_at":"2026-11-01T11:00:05Z","completed_at":"2026-11-01T11:05:00Z"},
  {"name":"never-started","status":"completed","conclusion":"cancelled","created_at":"2026-11-01T11:00:00Z","started_at":null,"completed_at":"2026-11-01T11:02:00Z"},
  {"name":"clock\u001b[2Jskew","status":"completed","conclusion":"success","created_at":"2026-11-01T11:00:10Z","started_at":"2026-11-01T11:00:00Z","completed_at":"2026-11-01T11:01:00Z"},
+ {"name":"back\\slash","status":"completed","conclusion":"success","created_at":"2026-11-01T11:00:00Z","started_at":"2026-11-01T11:00:01Z","completed_at":"2026-11-01T11:00:02Z"},
  {"name":"skipped-job","status":"completed","conclusion":"skipped","created_at":"2026-11-01T08:00:00Z","started_at":"2026-11-01T08:00:00Z","completed_at":"2026-11-01T08:00:00Z"}]}
 EOF
 cat >"$tmp/gh/jobs-102.json" <<'EOF'
@@ -181,6 +182,7 @@ expect_out "a job still queued counts its wait to now" "ci${tab}ci / queued-job$
 expect_out "a job that finished unstarted waited until it finished, with no run time" "ci${tab}ci / never-started${tab}1${tab}120${tab}120${tab}120${tab}-"
 expect_out "a forge clock skew never makes a wait negative, and a job name loses its control bytes" "ci${tab}ci / clock[2Jskew${tab}1${tab}0${tab}0${tab}0${tab}60"
 expect_no_out "a skipped job is not measured" "skipped-job"
+expect_out "a backslash in a job name is kept as written" "ci${tab}ci / back\\slash${tab}1${tab}1${tab}1${tab}1${tab}1"
 expect_out "permission waits: answered and pending, inside the window, this program's workers only" \
   "approvals${tab}permission${tab}5${tab}90${tab}730${tab}400${tab}mc-alpha-worker-0000000002${tab}1${tab}400"
 expect_out "a stalled session" "stall${tab}mc-alpha-worker-0000000001${tab}busy-unchanged${tab}7200"
