@@ -301,6 +301,12 @@ case $verb in
     ;;
   capture-pane)
     [ -f "$TMUX_STUB/$n.name" ] || exit 1
+    # A window with a .switch count shows .pane2 from that capture on.
+    if [ -f "$TMUX_STUB/$n.switch" ]; then
+      c=$(($(cat "$TMUX_STUB/$n.count" 2>/dev/null || echo 0) + 1))
+      echo "$c" >"$TMUX_STUB/$n.count"
+      [ "$c" -lt "$(cat "$TMUX_STUB/$n.switch")" ] || { cat "$TMUX_STUB/$n.pane2"; exit 0; }
+    fi
     cat "$TMUX_STUB/$n.pane"
     ;;
   kill-window) rm -f "$TMUX_STUB/$n.name" ;;
@@ -378,9 +384,18 @@ sj_row mc-alpha-worker-sjended "$t1" "$t1" "Done." true
 sj_row mc-alpha-worker-sjstale $((t1 + 5)) "$t1" "Done."
 bound_row mc-alpha-ad-hoc-idle ad-hoc 30 "$t1" "$tmp/idle.pane"
 bound_row mc-beta-worker-idle worker 31 "$t1" "$tmp/idle.pane"
+# Input lands after the watch's own stall scan: the re-check samples again.
+bound_row mc-alpha-worker-typed worker 32 "$t1" "$tmp/idle.pane"
+cp "$tmp/busy.pane" "$tmp/tmux/32.pane2"
+echo 1000 >"$tmp/tmux/32.switch"
+sj_row mc-alpha-worker-sjbig "$t1" "$t1" "Done."
+awk 'BEGIN { for (i = 0; i < 12000; i++) printf "{\"type\":\"assistant\",\"pad\":\"%0100d\"}\n", i }' >>"$fleet/streamjson/mc-alpha-worker-sjbig/events.jsonl"
 sed -i.bak 's/^program\talpha$/program\tbeta/' "$sessions/mc-beta-worker-idle" && rm -f "$sessions/mc-beta-worker-idle.bak"
 bound_env() { mc_env env PATH="$tmp/bin:$PATH" TMUX_STUB="$tmp/tmux" "$@"; }
 (bound_env /bin/bash "$repo_root/scripts/mc-stall.sh" scan --program alpha --now "$t1" >/dev/null 2>&1)
+# Captures per sample, so the switch lands on the re-check's, after the
+# watch's own scan.
+echo $(($(cat "$tmp/tmux/32.count") * 2 + 1)) >"$tmp/tmux/32.switch"
 # The stall scan sampled mc-alpha-worker-again's first launch; its relaunch
 # under the same name has no sample of its own yet.
 relaunch_row mc-alpha-worker-again $((t1 + 10))
@@ -400,6 +415,7 @@ expect_out "an ad-hoc session is bound too" "retire${tab}mc-alpha-ad-hoc-idle${t
 expect_no_out "another program's session is its own program's" "mc-beta-worker-idle"
 expect_no_out "a stream-json turn that ended in error is not idle" "mc-alpha-worker-sjended"
 expect_no_out "nor one whose result predates its launch" "mc-alpha-worker-sjstale"
+expect_out "a result event past the log's last mebibyte is still read" "retire${tab}mc-alpha-worker-sjbig${tab}"
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 60)) 2>"$tmp/stderr")
 RC=$?
 expect_rc "bounds inside the bound" 0
@@ -413,7 +429,7 @@ expect_out "a shorter idle knob retires sooner" "retire${tab}mc-alpha-worker-idl
 expect_out "a shorter lifetime knob hands over sooner" "handover${tab}mc-alpha-worker-young${tab}${t1}${tab}lived 1801s, bound 1800s"
 expect_no_out "a session past both bounds is retired, not asked to hand over" "handover${tab}mc-alpha-worker-idle"
 cp "$tmp/tracked.keep" "$tracked"
-for s in mc-alpha-worker-sjasks mc-alpha-worker-sjended mc-alpha-worker-sjstale; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
+for s in mc-alpha-worker-sjasks mc-alpha-worker-sjended mc-alpha-worker-sjstale mc-alpha-worker-sjbig; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
 
 # watch acts: the idle session is retired through the launcher, its window
 # closed and row gone; each old one's handover is announced once per launch.
@@ -429,6 +445,8 @@ expect_out "an idle stream-json session is retired too" "announced${tab}worker-r
 if [ ! -e "$sessions/mc-alpha-worker-sjidle" ]; then ok "and its row released"; else fail "the stream-json session's row stayed: $ERR"; fi
 expect_out "the lifetime handover is announced" "announced${tab}worker-handover-due${tab}mc-alpha-reviewer-old"
 expect_out "each session's own" "announced${tab}worker-handover-due${tab}mc-alpha-worker-old"
+expect_no_out "input since the scan stops the retire" "worker-retired-idle${tab}mc-alpha-worker-typed"
+if [ -e "$sessions/mc-alpha-worker-typed" ]; then ok "and the session stays"; else fail "a session typed into was retired"; fi
 if [ -e "$sessions/mc-alpha-reviewer-old" ] && [ -e "$sessions/mc-alpha-worker-kickoff" ]; then
   ok "a handover leaves the session running, and a kickoff relay stays"
 else
@@ -478,10 +496,20 @@ printf '#!/bin/sh\nexit 1\n' >"$tmp/scripts-alt/mc-stall.sh"
 mv "$tmp/scripts-alt/mission-control-launch.sh" "$tmp/scripts-alt/mission-control-launch.real.sh"
 cat >"$tmp/scripts-alt/mission-control-launch.sh" <<'EOF'
 #!/bin/bash
-[ "$1" = retire ] && { printf 'retire\t%s\tpartial\n' "$2"; exit 6; }
+if [ "$1" = retire ]; then
+  case $2 in
+    *-sjgone)
+      rm -f "$PLANWRIGHT_FLEET_STATE_DIR/mission-control/sessions/$2"
+      exit 3
+      ;;
+    *) printf 'retire\t%s\tpartial\n' "$2" ;;
+  esac
+  exit 6
+fi
 exec /bin/bash "$(dirname "$0")/mission-control-launch.real.sh" "$@"
 EOF
 sj_row mc-alpha-worker-sjidle2 "$t1" "$t1" "Done."
+sj_row mc-alpha-worker-sjgone "$t1" "$t1" "Done."
 relaunch_row mc-alpha-reviewer-old 2
 bound_row mc-alpha-worker-idle2 worker 29 "$t1" "$tmp/idle.pane"
 printf '%s:t\th\t%s\tidle\n' "$t1" "$t1" >"$fleet/mission-control/alpha/stall/mc-alpha-worker-idle2"
@@ -497,11 +525,13 @@ else
 fi
 case $ERR in *"mc-alpha-worker-idle2 is idle past its bound, left for a pass whose stall scan succeeds"*) ok "and says so" ;; *) fail "the skipped retire was not reported: $ERR" ;; esac
 case $ERR in *"the idle session mc-alpha-worker-sjidle2 was not fully retired: retire"*) ok "a stream-json retire is still tried, and its failure reported" ;; *) fail "the stream-json retire on a failed scan: $ERR" ;; esac
+case $ERR in *mc-alpha-worker-sjgone*) fail "a session retired meanwhile was reported: $ERR" ;; *) ok "a session retired meanwhile is not a failed retire" ;; esac
 
 kill "$bound_pid" 2>/dev/null
 rm -rf "$tmp/scripts-alt"
 for s in mc-alpha-reviewer-old mc-alpha-worker-young mc-alpha-worker-asks mc-alpha-tower-old mc-alpha-worker-old \
-  mc-alpha-worker-kickoff mc-alpha-worker-again mc-alpha-worker-idle2 mc-beta-worker-idle mc-alpha-worker-sjidle2; do
+  mc-alpha-worker-kickoff mc-alpha-worker-again mc-alpha-worker-idle2 mc-beta-worker-idle mc-alpha-worker-sjidle2 \
+  mc-alpha-worker-sjgone mc-alpha-worker-typed; do
   rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"
 done
 

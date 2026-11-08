@@ -514,13 +514,13 @@ request_handover() {
 }
 
 # still_due <session> <launched> <backend> <cutoff>: the bounds' verdict
-# holds now: the registry row is still the launch and rung decided on, and
-# the session is still idle since before the cutoff. A tmux pane is sampled
+# holds now: the registry row is still the launch decided on, and the
+# session is still idle since before the cutoff. A tmux pane is sampled
 # again first, so input since the pass's stall scan counts.
 still_due() {
   sd_row="$(mc_fleet_home)/mission-control/sessions/$1"
   [ -f "$sd_row" ] && [ ! -L "$sd_row" ] || return 1
-  [ "$(mc_kv "$sd_row" launched)" = "$2" ] && [ "$(mc_kv "$sd_row" backend)" = "$3" ] || return 1
+  [ "$(mc_kv "$sd_row" launched)" = "$2" ] || return 1
   case $3 in
     tmux)
       /bin/bash "$script_dir/mc-stall.sh" classify --program "$program" ${now:+--now "$now"} "$1" >/dev/null 2>&1 || return 1
