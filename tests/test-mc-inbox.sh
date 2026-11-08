@@ -122,6 +122,17 @@ Failure: The export work died twice
 Landed: PR 1 merged
 Landed: PR 2 merged
 3 more; ask to see them all"
+{
+  printf 'decision\tD1\n'
+  for n in 1 2 3 4 5; do printf 'landed\tPR %s merged\n' "$n"; done
+} >"$tmp/report"
+report "$tmp/report"
+expect_eq "five lines besides a decision fit whole" "Decision: D1
+Landed: PR 1 merged
+Landed: PR 2 merged
+Landed: PR 3 merged
+Landed: PR 4 merged
+Landed: PR 5 merged"
 printf 'decision\tPick the retry policy\nlanded\tGot it.\nlanded\tThanks, PR 12 merged\nlanded\tPR 12 merged\nlanded\tThanks to the retry fix, PR 13 merged\nblocker\tgh is not signed in\n' >"$tmp/report"
 report "$tmp/report"
 expect_eq "no acknowledgement and no repeat reach the operator, the rest verbatim" "Decision: Pick the retry policy
@@ -136,6 +147,12 @@ report "$tmp/report"
 expect_rc "an unknown class fails the report" 1
 expect_err "and is named" "unknown class(es): blockr"
 expect_eq "a class is read whatever its case and spacing" "Failure: The export work died twice"
+printf 'de\033]0;x\007cide\tfoo\n' >"$tmp/report"
+report "$tmp/report"
+case $ERR in
+  *"$(printf '\033')"* | *"$(printf '\007')"*) fail "an unknown class reaches stderr with its control bytes" ;;
+  *) ok "an unknown class is named without its control bytes" ;;
+esac
 
 # ---------------------------------------------------------------------------
 # REQ-F1.7: an item is answerable alone, every field present.

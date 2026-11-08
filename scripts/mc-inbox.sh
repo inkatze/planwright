@@ -46,12 +46,13 @@ Usage:
       unasked turn or push, holding only the classes owed to the operator
       (decision, blocker, failure, landed), one `<Class>: <text>` line
       each, in that order, so the first line is the lead. Every decision
-      line is shown; the cap binds the rest, at most five lines: past five,
-      four (each class's first, then in order) and a count of the rest. An act or routine line and a repeat are
-      dropped, and a leading acknowledgement (got it, thanks, on it...) is
-      cut, each counted on stderr, so none reaches the operator; with
-      nothing left, stdout is empty and the turn says nothing. A line of
-      any other class is named on stderr and the exit is 1, the rest
+      line is shown; the other lines are capped at five: past five, four
+      (each class's first, then in order) and a count of those hidden.
+      An act or routine line and a repeat are dropped, and a leading
+      acknowledgement (got it, thanks, on it...) is cut, each counted on
+      stderr, so none reaches the operator; with nothing left, stdout is
+      empty and the turn says nothing. A line of any other class is named
+      on stderr, stripped of control bytes, and the exit is 1, the rest
       still rendered.
   mc-inbox.sh item --link <url> --does <text> --asked <text> --right <text>
                    --option <label>=<effect>... --recommend <text>
@@ -119,6 +120,7 @@ case $verb in
         n = split("decision blocker failure landed", c, " ")
         split("Decision Blocker Failure Landed", h, " ")
         for (i = 1; i <= n; i++) owed[c[i]] = i
+        dc = owed["decision"]
         quiet["act"] = 1; quiet["routine"] = 1
         ack = "^(got it|understood|thanks|thank you|will do|on it|okay|sure)([.,!:;-]+ *|$)"
       }
@@ -129,7 +131,7 @@ case $verb in
         x = substr($0, length($1) + 2); gsub(/^ +| +$/, "", x)
       }
       k in quiet { dropped++; next }
-      !(k in owed) { unknown = unknown " " k; next }
+      !(k in owed) { gsub(/[^[:print:]]/, "", k); unknown = unknown " " k; next }
       {
         cut = 0
         while (match(tolower(x), ack)) { x = substr(x, RLENGTH + 1); cut = 1; acks++ }
@@ -142,12 +144,12 @@ case $verb in
         # A decision must stay answerable from the report alone, so the cap
         # binds only the other classes. Past five, four lines show: each
         # class first, then in order, so no class hides behind another.
-        show[1] = m[1]
-        if (total - m[1] <= 5) { for (i = 2; i <= n; i++) show[i] = m[i] }
+        show[dc] = m[dc]
+        if (total - m[dc] <= 5) { for (i = 1; i <= n; i++) show[i] = m[i] }
         else {
           left = 4
-          for (i = 2; i <= n; i++) if (m[i] && left) { show[i] = 1; left-- }
-          for (i = 2; i <= n; i++) while (left && show[i] < m[i]) { show[i]++; left-- }
+          for (i = 1; i <= n; i++) if (i != dc && m[i] && left) { show[i] = 1; left-- }
+          for (i = 1; i <= n; i++) while (i != dc && left && show[i] < m[i]) { show[i]++; left-- }
         }
         for (i = 1; i <= n; i++) for (j = 1; j <= show[i]; j++) { print h[i] ": " t[i, j]; shown++ }
         if (total > shown) printf "%d more; ask to see them all\n", total - shown
