@@ -46,8 +46,8 @@ merge impossible, and workflow injection refusable. Inside the account the worke
 with planwright's worker profile kept as a tripwire that only ever allows or denies.
 
 **What it retires.** For Mac workers: the per-command vetting loop, the worker command guard's
-auto-approval role and the pre-approval lists (under `bypassPermissions`; under `dontAsk` their
-allows remain the list of what may run), the stream-json permission queue's traffic, and the
+auto-approval role and the pre-approval lists as approvers (under `dontAsk` their allows remain
+the list of what may run), the stream-json permission queue's traffic, and the
 pending-prompt alarms and sweeps. They stay for this host's local workers until those move into an
 isolated account too (the last migration phase, an open question).
 
@@ -89,8 +89,9 @@ options and a recommendation. The first one, the credential shape, is the one th
 
 Three layers, from the outside in:
 
-1. **The OS boundary (the real one).** The work account is a standard macOS user. It cannot write
-   the owner's home, the Homebrew prefix, `/Applications` or system settings, and cannot escalate
+1. **The OS boundary (the real one).** The work account is a standard macOS user. It cannot read
+   or write the owner's home (made unreadable to other accounts, `chmod 700`, before any worker
+   runs), cannot write the Homebrew prefix, `/Applications` or system settings, and cannot escalate
    (no admin group, no sudo rule). Everything the worker can damage is the account's own home and
    the world-writable shared directories (`/Users/Shared`, the temporary directories).
 2. **The GitHub boundary (the hub).** The account can read GitHub but not write it. Every write is
@@ -106,12 +107,13 @@ Three layers, from the outside in:
    on macOS: filesystem limits and a network allowlist) is the candidate for the same layer, after
    a probe.
 
-**What "prompts off" means is a build decision.** In `dontAsk` mode anything not pre-approved is
-denied, so the worker command guard's allow rules stay load-bearing. In `bypassPermissions` mode
-allow rules have no effect but deny rules still hold, and the tools that need a person
-(`AskUserQuestion` among them) still prompt, so the profile must deny them. Either way an isolated
-worker that raises a permission request is denied and alarmed, and the sandbox runs with its
-unsandboxed retry off (`allowUnsandboxedCommands: false`).
+**"Prompts off" means `dontAsk` mode.** Anything not pre-approved is denied, so the worker
+command guard's allow rules stay load-bearing, and the profile also denies the tools that need a
+person (`AskUserQuestion` among them). `bypassPermissions` is not an option: the fleet dispatch
+guard refuses it at launch (`scripts/fleet-dispatch-guard.sh check-launch`, as it refuses `auto`
+under `fleet-autonomy` D-19), because it takes the allowlist out of the approval path, and this
+design does not reverse that. An isolated worker that raises a permission request is denied and
+alarmed, and the sandbox runs with its unsandboxed retry off (`allowUnsandboxedCommands: false`).
 
 A worker's life: the hub dispatches through the channel. The worker runs its whole cadence on the
 Mac (implementation, tests, polish), commits and asks to publish. The hub publishes and opens the
@@ -242,10 +244,15 @@ inside the account limit an honest or runaway worker only.
 What it **can** do:
 
 - Run any code as the work account, and read or change anything that account owns, including
-  **other Mac workers' worktrees and request queues** in the same account. Under Q6 (a) the hub
-  cannot tell which worker wrote a request, so a worker can get tampered commits published on
-  another worker's branch; the publish checks bound what such tampering can push. Per-worker
-  accounts would close it fully (Q6).
+  **other Mac workers' worktrees and request queues** in the same account. Under Q6 (a) a request
+  has no authenticated origin: the hub cannot tell which worker wrote it, and no secret the hub
+  hands a worker stays out of another same-account worker's reach. So one worker can file any
+  verb in another's queue: publish tampered commits on its branch (the publish checks bound what
+  that can push), reply to and resolve its bot threads without a fix, and report it done. "Its own
+  PR" then means the queue's PR, not the writer's, and review convergence on any Mac PR is only
+  as trustworthy as every worker in the account. What still holds: no worker can merge, touch
+  main or a tag, or reach a PR outside the hub's dispatch records, and CI and the operator's merge
+  stay independent. Per-worker accounts close it fully (Q6).
 - Read the second Claude subscription's login and spend or steal that account's usage. This is the
   one credential that must live there. The sandbox keeps an honest worker's Bash commands away from
   it, but it covers Bash only (not the Read tool, hooks or `compute`), and a compromised worker
@@ -267,9 +274,8 @@ What it **can** do:
 
 What it **cannot** do:
 
-- Write the owner's files, the Homebrew prefix, `/Applications` or system settings, or escalate:
-  a standard account, no sudo rule, the owner's home not writable. Reading parts of the owner's
-  home depends on that home's permissions (Q7).
+- Read or write the owner's files, write the Homebrew prefix, `/Applications` or system settings,
+  or escalate: a standard account, no sudo rule, the owner's home unreadable to other accounts.
 - Under Q1 (a): push any branch, merge, mark ready, close any PR, edit any PR except its own
   through the hub's verbs, or touch main or a tag. The account holds no write credential, and the
   hub pushes exactly one ref named by its own record.
@@ -306,7 +312,7 @@ drift, not compromise**: a compromised account can answer them falsely. They ass
 
 - no admin group, and `sudo -n true` fails;
 - writes to the Homebrew prefix, `/Applications` and the owner's home fail;
-- reads of the owner's home fail, if Q7 chooses that;
+- reads of the owner's home fail;
 - no `gh` login, no GitHub SSH key, no signing key and no 1Password token;
 - a push of a canary ref with the read-only token, against a canary repository the token also
   selects, is refused by GitHub;
@@ -357,11 +363,12 @@ credential; the log can. The audit's own output is reported, never silently gree
 
 0. **Clean the account** (a dotfiles PR): sign out the operator's `gh`, remove the GitHub keys,
    the signing key and the 1Password token; install the read-only token and the account profile,
-   without the isolated worker settings (phase 2 turns those on); pin the account's authorized
-   keys (Q7). Removal is not revocation (`gh auth logout` revokes
-   nothing), so the operator also revokes the removed keys and the `gh` token on GitHub and rotates
-   the 1Password service token. Revoking the GitHub CLI app's access revokes every `gh` token,
-   this host's included, so this host signs in again afterwards. Until the request verbs exist,
+   without the isolated worker settings (phase 2 turns those on); make the owner's home unreadable
+   to other accounts (`chmod 700`); pin the account's authorized keys (Q7). Removal is not
+   revocation (`gh auth logout` revokes nothing), so the operator also revokes the removed keys and
+   the `gh` token on GitHub and rotates the 1Password service token. Revoking the GitHub CLI app's
+   access revokes every `gh` token, this host's included, so this host signs in again afterwards.
+   Until the request verbs exist,
    Mac workers use `remote-worker-rung`'s fetch-back path (REQ-B1.7, still to be built) for
    delivery, with the hub pushing; a session on this host opens the PR and runs the post-PR steps.
    Remote prompts are vetted by hand through the channel's `pending` and `answer` verbs (each call
@@ -425,16 +432,21 @@ environment. The trade-off: a compromised account can read this token, which liv
 (b) Keep the keychain login and unlock it by hand after each reboot; a compromised account can
 still use it while unlocked.
 
-**Q6. One work account, or one per worker slot?** (a) **Recommended now:** one account. Cross-worker
-tampering is bounded by the publish checks and review. (b) One account per slot: full isolation
-between workers, at the cost of per-account setup and caches. Revisit if the Mac runs untrusted
-inputs routinely.
+**Q6. One work account, or one per worker slot?** (a) **Recommended now:** one account. Any worker
+can file requests in another's queue (Section 4), so a compromised worker can push commits to,
+resolve bot threads on and report done any other Mac PR in flight. The publish checks bound what
+it can push; merge, main and tags stay out of reach; CI and your merge review are the independent
+signals; but the hub's review-convergence reading of a Mac PR can be forged while another worker
+shares the account. (b) One account per slot: the OS then authenticates each queue's writer, so
+"its own PR" and convergence hold per worker, at the cost of per-account setup and caches.
+Revisit if the Mac runs untrusted inputs routinely.
 
-**Q7. Hardening the Mac further (a dotfiles PR).** (a) **Recommended:** both of the following.
-sshd reads the work account's keys only from a root-owned file, so a worker cannot add a backdoor
-key. The owner's home is made unreadable to other accounts (`chmod 700`), which the owner's own
-apps never notice. (b) Only the sshd change. (c) Neither: accept persistence and reads of the
-owner's readable files.
+**Q7. Pinning the work account's SSH keys (a dotfiles PR).** (a) **Recommended:** sshd reads the
+work account's keys only from a root-owned file, so a worker cannot add a backdoor key. (b) Leave
+the account's `authorized_keys` unmanaged: accept that persistence. Making the owner's home
+unreadable to other accounts (`chmod 700`, which the owner's own apps never notice) is not part of
+this question: your decision rules out access to the owner's files (Sources), so phase 0 does it
+and the boundary probe asserts it.
 
 **Q8. Spend caps for prompt-free workers.** (a) **Recommended:** a per-unit wall-clock and turn cap
 enforced by the Mac's supervisor, set from measured unit sizes, ending the worker with a named
@@ -518,6 +530,8 @@ settled decisions and requirements.
 - This repository's ruleset, workflow permissions and secrets, read through the GitHub API on
   2026-11-07, and `.github/workflows/`.
 - `scripts/worker-command-guard.sh`, `config/worker-settings.json`, `scripts/policy-guard.sh`,
+  `scripts/fleet-dispatch-guard.sh` (its refused launch modes, tested in
+  `tests/test-fleet-dispatch-guard.sh`),
   `hooks/hooks.json` and the standing rules on Mac workers (full workers, inside the work account)
   and the ready flip on reviewer convergence.
 - GitHub documentation: fine-grained tokens are scoped by repository and permission, not branch,
