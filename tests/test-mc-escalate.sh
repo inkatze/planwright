@@ -451,7 +451,6 @@ rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa" "$fleet/mission-control/al
 req mc-alpha-worker-aaaaaaaaaa r7-0007 "$T0"
 esc scan --program alpha --now $((T0 + 2800))
 before=$(count_of "$(hub_events)" "r7-0007")
-esc scan --program alpha --now $((T0 + 2860))
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$reg/mc-alpha-worker-aaaaaaaaaa"
   esc scan --program alpha --now $((T0 + 2860))
