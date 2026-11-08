@@ -127,15 +127,14 @@ Usage:
             a registered session of the program started on another rung
             than mission_control_launch_backend now resolves to: a
             per-call --backend, or a knob changed since the launch
-        cron<TAB><line>             a crontab line naming planwright or
-            claude in any case, or a repository or the home of the
-            program, tabs printed as blanks, control bytes dropped and
-            every NAME=value on it printed NAME=<redacted>; a crontab
-            that cannot be listed reads as none; redaction fails
-            closed, so an = inside quotes, one whose value holds an
-            escape, a substitution, a paren or a %, and any = past a
-            substitution, a paren, a % or a comment blank the rest of
-            the line
+        cron<TAB><word><TAB><match>  a crontab line naming a repository or
+            the home of the program, or planwright or claude in any case:
+            never the line, only the first word of its command (the name,
+            for an environment line), cut at its first character outside
+            letters, digits and _ . / + ~ - with the cut marked <redacted>
+            (TOKEN=<redacted>), and the text that matched, the path first,
+            else the name as the line spells it; a crontab that cannot be
+            listed reads as none
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for launches, also a
             session whose row names no known rung; for overrides, also a
@@ -817,76 +816,52 @@ doctor_cron() {
     || ! dc_home=$(/bin/bash "$script_dir/mc-program.sh" get "$1" home 2>/dev/null); then
     printf 'unknown\tcron\tthe program repositories or home could not be read, so lines naming them are not listed\n'
   fi
-  # Every NAME=value is blanked: a crontab line is where credentials sit,
-  # and a reported line travels into items and the program home. The scan
-  # fails closed rather than model shell grammar: any = outside a value is
-  # an assignment, and an = inside quotes, one whose value meets an escape,
-  # a substitution, a paren or a cron %, and any = past a substitution, a
-  # paren, a % or a comment blanks the rest of the line. Control bytes go
-  # first, so none can hide an = the scan would miss.
+  # A crontab line is where credentials sit, in any shape (an assignment, a
+  # header, a URL password, text after cron's %), and a reported line travels
+  # into items and the program home. So the report never carries the line:
+  # only the command's first word, cut where its plain characters end, and
+  # the text that matched. Control bytes go first, so none can hide a cut.
   printf '%s\n' "$dc_tab" | mc_clean_text | DC_PATHS="$dc_paths${nl}$dc_home" DC_Q="'" awk '
     BEGIN {
       n = split(ENVIRON["DC_PATHS"], needle, "\n")
       sq = ENVIRON["DC_Q"]
       dq = "\""
       # crontab(5): a line whose first word runs straight into an =, blanks
-      # allowed around it, is an environment line, its value the rest.
+      # allowed around it, is an environment line, with no command.
       envre = "^ *(" dq "[^" dq "]*" dq "|" sq "[^" sq "]*" sq "|[^ =" dq sq "]+) *="
     }
-    # value_end(s, i, enc): the index of the blank ending the value at i, or
-    # past the end of s; enc is the quote the = sits inside, if any.
-    function value_end(s, i, enc,   len, c, q) {
-      len = length(s)
-      if (enc != "") return len + 1
-      q = ""
-      for (; i <= len; i++) {
-        c = substr(s, i, 1)
-        if (index("\\`(%", c) || (c == "$" && index("({[" sq dq, substr(s, i + 1, 1)))) return len + 1
-        if (q != "") { if (c == q) q = "" }
-        else if (c == sq || c == dq) q = c
-        else if (c == " ") return i
+    # The word cron runs: past @keyword or the five time fields, or the
+    # name of an environment line; a schedule cron would refuse has none.
+    function word(s,   f, nf, at, i) {
+      nf = split(s, f, " ")
+      if (f[1] ~ /^@[A-Za-z]+$/) at = 2
+      else if (match(s, envre)) at = 1
+      else {
+        at = 6
+        for (i = 1; i <= 5; i++) if (f[i] !~ /^[0-9A-Za-z*\/,-]+$/) return ""
       }
-      return len + 1
+      return at <= nf ? f[at] : ""
     }
-    # Past a substitution, a paren, a cron % or a comment the shell quoting
-    # the scan tracks no longer holds, so any later = blanks the rest.
-    function redact(s,   out, len, i, c, q, last, e, name, lost) {
-      if (match(s, envre)) {
-        name = substr(s, 1, RLENGTH - 1)
-        gsub(/^ +| +$/, "", name)
-        # A quoted name may hold an =, cron setting the part past it.
-        if (index(name, "=")) return substr(name, 1, index(name, "=")) "<redacted>"
-        return name "=<redacted>"
-      }
-      out = ""
-      q = ""
-      last = 1
-      len = length(s)
-      for (i = 1; i <= len; i++) {
-        c = substr(s, i, 1)
-        if (c == "\\" && q != sq) {
-          i++
-          if (substr(s, i, 1) != "=") continue
-          c = "="
-        }
-        if (index("`(%", c) || (c == "$" && index("({[" sq dq, substr(s, i + 1, 1))) || (c == "#" && substr(s, i - 1, 1) == " ")) lost = 1
-        if (c == "=") {
-          e = lost ? len + 1 : value_end(s, i + 1, q)
-          out = out substr(s, last, i + 1 - last) "<redacted>"
-          last = e
-          i = e - 1
-        } else if (q == "" && (c == sq || c == dq)) q = c
-        else if (c == q) q = ""
-      }
-      return out substr(s, last)
+    # Only plain characters print; at the first other one the word is cut,
+    # keeping a cut =, so TOKEN=value reads TOKEN=<redacted>.
+    function plain(w,   cut) {
+      match(w, /^[A-Za-z0-9_.\/+~-]*/)
+      if (w != "" && RLENGTH == length(w)) return w
+      cut = substr(w, RLENGTH + 1, 1) == "=" ? "=" : ""
+      return substr(w, 1, RLENGTH) cut "<redacted>"
     }
-    # Tabs become blanks first, so the scan tests a single blank character.
+    # A program path is the most telling match, so it is tried first; the two
+    # names match in any case and print as the line spells them.
+    function matched(s,   i, low, at) {
+      for (i = 1; i <= n; i++) if (needle[i] != "" && index(s, needle[i])) return needle[i]
+      low = tolower(s)
+      if ((at = index(low, "planwright"))) return substr(s, at, 10)
+      if ((at = index(low, "claude"))) return substr(s, at, 6)
+      return ""
+    }
     { gsub(/\t/, " ") }
     /^ *(#|$)/ { next }
-    # The two names match in any case (PLANWRIGHT_ROOT=, Claude-sweep.sh);
-    # a path matches only as spelled, as the filesystem reads it.
-    index(tolower($0), "planwright") || index(tolower($0), "claude") { print "cron\t" redact($0); next }
-    { for (i = 1; i <= n; i++) if (needle[i] != "" && index($0, needle[i])) { print "cron\t" redact($0); next } }'
+    { m = matched($0); if (m != "") print "cron\t" plain(word($0)) "\t" m }'
 }
 
 v_doctor() {

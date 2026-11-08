@@ -501,37 +501,38 @@ session_row mc-alpha-worker-1111111111 alpha tmux
 session_row mc-alpha-worker-2222222222 alpha stream-json
 session_row mc-beta-worker-3333333333 beta tmux
 session_row mc-alpha-worker-4444444444 alpha ''
-# Shell forms the redaction does not model, each a crontab line, then
-# " ==> " and the report line it must read as: blanked to the end of the
-# line where the scan fails closed.
+# Shell forms no redaction could model, each a crontab line, then " ==> "
+# and the command word and match the report must read as (a blank standing
+# for the tab): never an argument, and a word past the plain characters cut
+# where they end.
 shapes="$tmp/cron-shapes.txt"
 cat >"$shapes" <<'SHAPES'
-30 * * * * T=`echo lk-j lk-k` planwright ==> 30 * * * * T=<redacted>
-31 * * * * T=${X:-lk-l lk-m} planwright ==> 31 * * * * T=<redacted>
-32 * * * * TOKEN="$(cat "/x lk-n") lk-o" planwright ==> 32 * * * * TOKEN=<redacted>
-33 * * * * T=$'a\'b lk-p' planwright ==> 33 * * * * T=<redacted>
-34 * * * * sh -c 'TOKEN='\''lk-q lk-r'\'' planwright' ==> 34 * * * * sh -c 'TOKEN=<redacted>
-1PLANWRIGHT_TOKEN=lk-s lk-t ==> 1PLANWRIGHT_TOKEN=<redacted>
-@PLANWRIGHT_TOKEN=lk-u lk-v ==> @PLANWRIGHT_TOKEN=<redacted>
-35 * * * * \TOKEN=lk-w planwright ==> 35 * * * * \TOKEN=<redacted> planwright
-36 * * * * env "TOKEN"=lk-x TOKEN"="lk-y planwright ==> 36 * * * * env "TOKEN"=<redacted> TOKEN"=<redacted>
-37 * * * * T+=lk-z A[0]=lk-0 planwright ==> 37 * * * * T+=<redacted> A[0]=<redacted> planwright
-0=lk-01 claude ==> 0=<redacted>
-*=lk-02 planwright ==> *=<redacted>
-39 * * * * T=$(case a in a) echo lk-05 lk-06;; esac) planwright ==> 39 * * * * T=<redacted>
-  planwright_secret=lk-07 lk-08 ==> planwright_secret=<redacted>
-@reboot T=lk-09 /opt/planwright/r ==> @reboot T=<redacted> /opt/planwright/r
--*/5 * * * * T=lk-10 /opt/planwright/dash ==> -*/5 * * * * T=<redacted> /opt/planwright/dash
-41 * * * * [ "$a" = "$b" ] && planwright ==> 41 * * * * [ "$a" =<redacted> "$b" ] && planwright
-42 * * * * echo "$(grep "it's" /f)" 'TOKEN=lk-20 lk-21' planwright ==> 42 * * * * echo "$(grep "it's" /f)" 'TOKEN=<redacted>
-43 * * * * echo "`echo "'"`" 'K=lk-22 lk-23' planwright ==> 43 * * * * echo "`echo "'"`" 'K=<redacted>
-44 * * * * bash -c $'echo it\'s; TOKEN=lk-24 lk-25\' planwright' ==> 44 * * * * bash -c $'echo it\'s; TOKEN=<redacted>
-45 * * * * T=$[1 + lk-26] planwright ==> 45 * * * * T=<redacted>
-46 * * * * planwright # don't 'TOKEN=lk-27 lk-28' ==> 46 * * * * planwright # don't 'TOKEN=<redacted>
-47 * * * * planwright %it's 'TOKEN=lk-29 lk-2a' ==> 47 * * * * planwright %it's 'TOKEN=<redacted>
-48 * * * * T=lk-2b%lk-2c lk-2d planwright ==> 48 * * * * T=<redacted>
-"PLANWRIGHT_TOKEN=lk-2e"=lk-2f ==> "PLANWRIGHT_TOKEN=<redacted>
-'claude=lk-2g lk-2h'=lk-2i ==> 'claude=<redacted>
+30 * * * * T=`echo lk-j lk-k` planwright ==> T=<redacted> planwright
+31 * * * * T=${X:-lk-l lk-m} planwright ==> T=<redacted> planwright
+32 * * * * TOKEN="$(cat "/x lk-n") lk-o" planwright ==> TOKEN=<redacted> planwright
+33 * * * * T=$'a\'b lk-p' planwright ==> T=<redacted> planwright
+34 * * * * sh -c 'TOKEN='\''lk-q lk-r'\'' planwright' ==> sh planwright
+1PLANWRIGHT_TOKEN=lk-s lk-t ==> 1PLANWRIGHT_TOKEN=<redacted> PLANWRIGHT
+@PLANWRIGHT_TOKEN=lk-u lk-v ==> <redacted> PLANWRIGHT
+35 * * * * \TOKEN=lk-w planwright ==> <redacted> planwright
+36 * * * * env "TOKEN"=lk-x TOKEN"="lk-y planwright ==> env planwright
+37 * * * * T+=lk-z A[0]=lk-0 planwright ==> T+=<redacted> planwright
+0=lk-01 claude ==> 0=<redacted> claude
+*=lk-02 planwright ==> <redacted> planwright
+39 * * * * T=$(case a in a) echo lk-05 lk-06;; esac) planwright ==> T=<redacted> planwright
+  planwright_secret=lk-07 lk-08 ==> planwright_secret=<redacted> planwright
+@reboot T=lk-09 /opt/planwright/r ==> T=<redacted> planwright
+-*/5 * * * * T=lk-10 /opt/planwright/dash ==> T=<redacted> planwright
+41 * * * * [ "$a" = "$b" ] && planwright ==> <redacted> planwright
+42 * * * * echo "$(grep "it's" /f)" 'TOKEN=lk-20 lk-21' planwright ==> echo planwright
+43 * * * * echo "`echo "'"`" 'K=lk-22 lk-23' planwright ==> echo planwright
+44 * * * * bash -c $'echo it\'s; TOKEN=lk-24 lk-25\' planwright' ==> bash planwright
+45 * * * * T=$[1 + lk-26] planwright ==> T=<redacted> planwright
+46 * * * * planwright # don't 'TOKEN=lk-27 lk-28' ==> planwright planwright
+47 * * * * planwright %it's 'TOKEN=lk-29 lk-2a' ==> planwright planwright
+48 * * * * T=lk-2b%lk-2c lk-2d planwright ==> T=<redacted> planwright
+"PLANWRIGHT_TOKEN=lk-2e"=lk-2f ==> <redacted> PLANWRIGHT
+'claude=lk-2g lk-2h'=lk-2i ==> <redacted> claude
 SHAPES
 {
   printf '# a comment naming planwright\n'
@@ -555,6 +556,8 @@ SHAPES
   printf '*/12 * * * * cd %s && ./x.sh\n' "$neutral_repo"
   printf '%s\n' '*/25 * * * * /MCDOC-NEUTRAL-HOME/alpha/x.sh'
   printf '38 * * * * T=abc\\\033"lk-03 lk-04" /opt/planwright/a\n'
+  printf '%s\n' "50 * * * * curl -H 'Authorization: Bearer lk-b1' https://bot:lk-b2@api.example/planwright --token lk-b3 -o /dev/null%lk-b4"
+  printf '%s\n' '51 * * * * https://bot:lk-b5@api.example/claude' '52 * * * * /opt/planwright/x%lk-b6' '53 * * * * --token=lk-b7 planwright'
   sed 's/ ==> .*//' "$shapes"
 } >"$CRON_FIXTURE"
 printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
@@ -574,43 +577,41 @@ expect_no_out "a session on the knob's rung is not named" "mc-alpha-worker-22222
 expect_no_out "another program's session is not named" "mc-beta-worker-3333333333"
 expect_out "a session whose row names no rung is an unknown launches check" "unknown${tab}launches${tab}mc-alpha-worker-4444444444 names no rung"
 expect_no_out "a session whose row names no rung is not read as another rung" "launch-backend${tab}mc-alpha-worker-4444444444"
-expect_out "a cron line naming planwright is named" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
-expect_out "a cron line in a program repository is named" "cron${tab}*/10 * * * * cd $repo && ./sweep.sh"
-expect_out "a cron line naming only the program home is named" "cron${tab}*/20 * * * * $neutral_home/tick.sh"
-expect_out "a cron line naming only a program repository is named" "cron${tab}*/12 * * * * cd $neutral_repo && ./x.sh"
-expect_no_out "a program path matches only as spelled" "/MCDOC-NEUTRAL-HOME"
-expect_out "every NAME=value on a reported cron line is blanked" "cron${tab}*/15 * * * * PLANWRIGHT_TOKEN=<redacted> API_KEY=<redacted> NOTE=<redacted> /opt/hub/claude-run.sh --key=<redacted>"
-for want in \
-  '1 * * * * T=<redacted> /opt/planwright/a' \
-  '2 * * * * T=<redacted> /opt/planwright/b' \
-  '3 * * * * T=<redacted>' \
-  '4 * * * * T=<redacted>' \
-  '5 * * * * T=<redacted>' \
-  "6 * * * * curl -d 'token=<redacted>" \
-  '7 * * * * /opt/planwright/g T=<redacted>' \
-  'planwright_token=<redacted>' \
-  '8 * * * * TOKEN=<redacted> /opt/planwright/h' \
-  '9 * * * * /opt/planwright/i' \
-  '38 * * * * T=<redacted>'; do
-  if printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$want"; then
-    ok "a quoted, escaped, open or environment value is blanked whole: $want"
+cron_line() { # cron_line <label> <word> <match>: one report line reads exactly so
+  if printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$2${tab}$3"; then
+    ok "$1: $2 $3"
   else
-    fail "no report line reads exactly: cron<TAB>$want"
+    fail "$1: no report line reads exactly: cron<TAB>$2<TAB>$3"
   fi
+}
+cron_line "a cron line naming planwright is named by its command word" /opt/hub/w.sh planwright
+cron_line "a cron line in a program repository is named by that path" cd "$repo"
+cron_line "a cron line naming only the program home is named" "$neutral_home/tick.sh" "$neutral_home"
+cron_line "a cron line naming only a program repository is named" cd "$neutral_repo"
+expect_no_out "a program path matches only as spelled" "/MCDOC-NEUTRAL-HOME"
+cron_line "a leading assignment is the word, its value blanked" 'PLANWRIGHT_TOKEN=<redacted>' PLANWRIGHT
+cron_line "a credential the line carries in its arguments is never printed" curl planwright
+cron_line "a command word holding a URL password is cut before it" 'https<redacted>' claude
+cron_line "a command word running into cron's % is cut there" '/opt/planwright/x<redacted>' planwright
+cron_line "a --token word is cut at its =" '--token=<redacted>' planwright
+for want in \
+  'T=<redacted> planwright' \
+  'curl planwright' \
+  '/opt/planwright/g planwright' \
+  'planwright_token planwright' \
+  'TOKEN=<redacted> planwright' \
+  '/opt/planwright/i planwright'; do
+  cron_line "a quoted, escaped, open or environment value never reaches the report" "${want%% *}" "${want#* }"
 done
 while IFS= read -r shape; do
   want=${shape#* ==> }
-  if printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$want"; then
-    ok "an unmodelled shell form fails closed: $want"
-  else
-    fail "no report line reads exactly: cron<TAB>$want"
-  fi
+  cron_line "an unmodelled shell form prints no argument" "${want%% *}" "${want#* }"
 done <"$shapes"
-for secret in s3cr3t "x y" "a b" k3y lk-; do
-  expect_no_out "a cron line's value never reaches the report: $secret" "$secret"
+for secret in s3cr3t "x y" "a b" k3y lk- Bearer Authorization 'bot:' ./sweep.sh; do
+  expect_no_out "a cron line's arguments never reach the report: $secret" "$secret"
 done
-expect_out "a cron line naming Claude in another case is named" "cron${tab}10 * * * * /opt/hub/Claude-Sweep.sh"
-expect_out "a cron line naming PLANWRIGHT in capitals is named" "cron${tab}11 * * * * PLANWRIGHT_ROOT=<redacted> /opt/pw/tick.sh"
+cron_line "a cron line naming Claude in another case is named as spelled" /opt/hub/Claude-Sweep.sh Claude
+cron_line "a cron line naming PLANWRIGHT in capitals is named" 'PLANWRIGHT_ROOT=<redacted>' PLANWRIGHT
 expect_no_out "an unrelated cron line is not named" "backup"
 expect_no_out "a cron comment is not named" "a comment"
 expect_no_out "findings leave out the clean line" "clean"
@@ -640,7 +641,7 @@ printf '%s\n' "$tracked_good" | sed 's|^program_alpha_repositories: .*|program_a
 printf '*/5 * * * * /opt/hub/w.sh planwright sweep\n*/20 * * * * %s/tick.sh\n' "$neutral_home" >"$CRON_FIXTURE"
 cfg doctor --program alpha
 expect_out "an unreadable repository list is an unknown cron check" "unknown${tab}cron${tab}"
-expect_out "the cron scan still names a line naming planwright" "cron${tab}*/5 * * * * /opt/hub/w.sh planwright sweep"
+cron_line "the cron scan still names a line naming planwright" /opt/hub/w.sh planwright
 expect_no_out "a path the program could not report is not matched" "$neutral_home/tick.sh"
 printf '%s\n' "$tracked_good" >"$tracked"
 : >"$CRON_FIXTURE"
