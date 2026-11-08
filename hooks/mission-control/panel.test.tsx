@@ -161,6 +161,43 @@ test('the band draws the summary line above the prompt', async ($, on) => {
   }
 })
 
+test('pull requests ready to merge are held for the operator, in the pane and the band', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['merge-ready\t3\tall'] }) })
+  await boot($, w)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.find({ type: 'Text', text: /ready to merge/ }))?.text).toBe('3 ready to merge')
+  await pane.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toBe(
+    '✈ alpha · 2 in flight · 2 holding · 3 to merge · rung throttle · ctx 42% · five_hour 31%',
+  )
+  await band.unmount()
+})
+
+test('pull requests that could not all be judged read as a floor, or unknown', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['merge-ready\t2\tpartial'] }) })
+  await boot($, w)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.find({ type: 'Text', text: /ready to merge/ }))?.text).toBe('2+ ready to merge')
+  await pane.unmount()
+})
+
+test('with none judged ready and some unknown, the band says unknown', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['merge-ready\t0\tpartial'] }) })
+  await boot($, w)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toContain('· ? to merge ·')
+  await band.unmount()
+})
+
+test('a merge-ready store that cannot be read is unknown, never hidden', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['unreadable\tmerge-ready store'] }) })
+  await boot($, w)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toContain('· ? to merge ·')
+  await band.unmount()
+})
+
 // The health line: shown only when a check is out of bounds, an unknown one
 // said as such.
 test('the health section draws each check out of bounds, and nothing when all is well', async ($, on) => {

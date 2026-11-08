@@ -1,6 +1,6 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
-import type { PanelReviews, PanelView } from '../../types'
+import type { PanelDigest, PanelReviews, PanelView } from '../../types'
 import { age, counted, flightLines } from './digest'
 
 type Table = Elements[RenderSurface]
@@ -40,6 +40,15 @@ function kbLine(view: PanelView): string {
 
 function limits(view: PanelView): string {
   return view.rateLimits.map(r => `${r.kind} ${Math.round(r.percentUsed)}%`).join(' · ')
+}
+
+// The pull requests ready to merge, a floor (`3+`) or `?` when some could
+// not be judged; null when there is nothing to say.
+function mergeReadyCount(d: PanelDigest): string | null {
+  if (d.unreadable.includes('merge-ready store')) return '?'
+  const n = d.mergeReady ?? 0
+  if (d.isMergeReadyPartial) return n > 0 ? `${n}+` : '?'
+  return n > 0 ? String(n) : null
 }
 
 const BAR_CELLS = 10
@@ -194,6 +203,8 @@ export function bandText(view: PanelView): string {
   const parts = [`✈ ${view.program}`]
   if (d) {
     parts.push(`${flightCount(view)} in flight`, `${d.waiting ?? '?'} holding`)
+    const toMerge = mergeReadyCount(d)
+    if (toMerge !== null) parts.push(`${toMerge} to merge`)
     if (d.pending !== null && d.pending > 0) parts.push(`${d.pending} inbound`)
     parts.push(`rung ${d.rung.name}`)
     // A check can say both what is past its bound and what it cannot tell.
@@ -341,6 +352,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         'Holding for you',
         [
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
+          ...[mergeReadyCount(d)].flatMap(n => (n === null ? [] : [`${n} ready to merge`])),
           ...(d.approvals ? [`${d.approvals} ${d.approvals === 1 ? 'approval' : 'approvals'} mission control is handling`] : []),
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],

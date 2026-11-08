@@ -30,6 +30,8 @@ rules-reinjection-failed	failure
 session-landed	landed
 readiness-due	landed
 ready-offer	landed
+merge-ready	landed
+ready-to-merge	landed
 pr-merged	landed
 pending-prompt	act
 stall-open-selector	act

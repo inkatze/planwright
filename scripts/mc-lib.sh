@@ -543,6 +543,22 @@ mc_valid_slug() {
   [ "${#1}" -le 200 ]
 }
 
+# mc_slug_repos <program> <slug>: the program's repositories whose origin
+# remote is <slug>, one per line; returns 1 when the repositories do not
+# resolve.
+mc_slug_repos() {
+  msr_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || return 1
+  msr_sl=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r msr_r; do
+    [ -n "$msr_r" ] && [ -d "$msr_r" ] || continue
+    msr_url=$(mc_untrusted_git -C "$msr_r" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]') || continue
+    msr_url=${msr_url%.git}
+    case $msr_url in */"$msr_sl" | *:"$msr_sl") printf '%s\n' "$msr_r" ;; esac
+  done <<EOF
+$msr_repos
+EOF
+}
+
 # mc_program_home <program>: the program home, or the script fails.
 mc_program_home() {
   /bin/bash "$script_dir/mc-program.sh" get "$1" home || mc_fail "the home of program $1 does not resolve"
@@ -622,4 +638,35 @@ mc_untrusted_git() { (mc_untrusted_git_env && git "$@"); }
 # text.
 mc_subject() {
   printf '%s-%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{ print $1 }')"
+}
+
+# mc_pr_subject <owner/name> <n>: a pull request's event subject,
+# <owner>:<name>:<n>, or pr-<checksum> outside the subject grammar.
+mc_pr_subject() {
+  mps_s="${1%%/*}:${1#*/}:$2"
+  mc_valid_handle "$mps_s" || mps_s=$(mc_subject pr "$1#$2")
+  printf '%s\n' "$mps_s"
+}
+
+# mc_code_state <program> [<now>]: the program's code-state snapshot, aged at
+# <now> (the clock by default), its status line
+# and rows in MC_CS_ROWS and its source in MC_CS_SOURCE. Returns 0 when it is
+# at most twice its cadence old (the most any budget rung stretches a
+# refresh), 1 when the source map does not resolve, 2 when the snapshot
+# cannot be read, 3 with no code-state snapshot source or none taken yet
+# (MC_CS_SOURCE empty for the first), 4 when it is older, so it may show a
+# head long gone.
+mc_code_state() {
+  MC_CS_ROWS=""
+  MC_CS_SOURCE=""
+  mcs_map=$(/bin/bash "$script_dir/mc-program.sh" get "$1" sources) || return 1
+  MC_CS_SOURCE=$(printf '%s\n' "$mcs_map" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { print $2; exit }')
+  [ -n "$MC_CS_SOURCE" ] || return 3
+  MC_CS_ROWS=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$1" "$MC_CS_SOURCE" ${2:+--now "$2"})
+  case $? in
+    0) ;;
+    3) return 3 ;;
+    *) return 2 ;;
+  esac
+  printf '%s\n' "$MC_CS_ROWS" | head -n 1 | awk -F '\t' '$5 == "age" && $7 == "cadence" { ok = ($6 + 0 <= 2 * ($8 + 0)) } END { exit !ok }' || return 4
 }

@@ -121,6 +121,11 @@ Usage:
                                              wait on the operator, `-`
                                              where the backend surfaces the
                                              queue itself
+        merge-ready<TAB><n><TAB>all|partial  pull requests ready to merge
+                                             (scripts/mc-merge-ready.sh count);
+                                             the line names them unless none,
+                                             `<n>+` (or `?` for none) when
+                                             some could not be judged
         approvals<TAB><n>                    the queue's worker permission
                                              prompts, which mission control
                                              answers (with a number waiting)
@@ -231,6 +236,9 @@ Usage:
         mission control <p>
         in flight: <n>               then one indented line per flight
         waiting on you: <n>
+        ready to merge: <n>          unless none; `<n> or more` or
+                                     `unknown` when some could not be
+                                     judged (mc-merge-ready.sh)
         approvals mission control is handling: <n>   when any
         pending wakes: <n>           with --target
         rung: <rung> (<reason>)
@@ -906,6 +914,7 @@ mc_now_arg "$now"
 # A count from a store that could not be read is unknown, never a number.
 D_FLIGHT='?'
 D_WAITING='?'
+D_MERGE_READY='?'
 D_APPROVALS=0
 D_PENDING='?'
 D_RUNG=-
@@ -1122,6 +1131,23 @@ waiting() {
     printf 'waiting\t%s\napprovals\t%s\n' "$wt_n" "$wt_a"
   else
     printf 'unreadable\toperator queue\n'
+  fi
+}
+
+merge_ready() {
+  mg_all=""
+  if mg_row=$(/bin/bash "$script_dir/mc-merge-ready.sh" count --program "$program" 2>/dev/null) \
+    && mg_n=${mg_row%%"$TAB"*} && mg_all=${mg_row#*"$TAB"} && mc_valid_uint "$mg_n"; then
+    case $mg_all in
+      all) D_MERGE_READY=$mg_n ;;
+      partial) if [ "$mg_n" -gt 0 ]; then D_MERGE_READY="$mg_n+"; fi ;;
+      *) mg_all="" ;;
+    esac
+  fi
+  if [ -n "$mg_all" ]; then
+    printf 'merge-ready\t%s\t%s\n' "$mg_n" "$mg_all"
+  else
+    printf 'unreadable\tmerge-ready store\n'
   fi
 }
 
@@ -1819,6 +1845,7 @@ health() {
 
 the_line() {
   ln_text="mission control $program: $D_FLIGHT in flight, $D_WAITING waiting"
+  [ "$D_MERGE_READY" = 0 ] || ln_text="$ln_text, $D_MERGE_READY ready to merge"
   [ -z "$target" ] || ln_text="$ln_text, $D_PENDING pending"
   case $D_APPROVALS in
     0) ;;
@@ -1837,6 +1864,7 @@ text_panel() {
   {
     flights
     waiting
+    merge_ready
     pending
     budget
     program_home
@@ -1844,6 +1872,9 @@ text_panel() {
   } | P=$program awk -F '\t' '
     $1 == "flight" { f[++n] = "  " $2 "  " $3 "  (" $4 ")" }
     $1 == "waiting" { w = ($2 == "-" ? "shown by the host" : $2) }
+    $1 == "merge-ready" && $3 == "all" { m = $2 + 0 }
+    $1 == "merge-ready" && $3 == "partial" { m = ($2 > 0 ? $2 " or more" : "unknown") " (some could not be judged)" }
+    $1 == "unreadable" && $2 == "merge-ready store" { m = "unknown (the merge-ready store cannot be read)" }
     $1 == "approvals" { a = $2 }
     $1 == "pending" { p = $2 }
     $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }
@@ -1864,6 +1895,7 @@ text_panel() {
       print "in flight: " c
       for (i = 1; i <= n; i++) print f[i]
       print "waiting on you: " (w == "" ? "unknown" : w)
+      if (m != "" && m != 0) print "ready to merge: " m
       if (a + 0 > 0) print "approvals mission control is handling: " a
       if (p != "") print "pending wakes: " p
       print "rung: " (r == "" ? "unknown" : r)
@@ -1966,6 +1998,7 @@ digest() {
   [ "$with_knobs" -eq 0 ] || knobs
   flights
   waiting
+  merge_ready
   pending
   program_home
   decisions

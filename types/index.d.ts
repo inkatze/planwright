@@ -35,6 +35,9 @@ export type PanelDigest = {
   // Registry sessions not retired and not seen live.
   finished: number | null
   waiting: number | null
+  mergeReady: number | null
+  // Some pull requests could not be judged, so mergeReady is a floor.
+  isMergeReadyPartial: boolean
   pending: number | null
   // Worker permission prompts mission control answers, never the operator's.
   approvals: number | null
