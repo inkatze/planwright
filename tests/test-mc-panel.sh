@@ -861,6 +861,7 @@ else
 fi
 printf 'format\t1\nsession\t%s\nwritten\t1\n' "$sid_c" >"$act/$sid_c.exit"
 run_with CLAUDE_CODE_SESSION_ID="$sid_c" -- mc-panel.sh activate --program alpha --now 5130
+expect_rc "the activation over an old exit marker succeeds" 0
 if [ ! -e "$act/$sid_c.exit" ]; then ok "a new activation clears an old exit marker"; else fail "an old exit marker outlived a new activation"; fi
 mc_run mc-panel.sh retire --session "$sid_c"
 for bad in "retire --exit --program alpha --session $sid_a" "retire --exit" "lookup --exit" "ack --exit" "prune --exit" "digest --program alpha --exit"; do
