@@ -1438,7 +1438,7 @@ health_after_merge() {
   # `retired` stage tells apart. A keeper landing has no time, so it
   # outranks a dated merge.
   ha_l=$runtime/keeper.tsv
-  if [ -n "$ha_landed" ] && { [ -e "$ha_l" ] || [ -L "$ha_l" ]; }; then
+  if [ -n "$ha_landed" ]; then
     if [ -L "$ha_l" ] || [ ! -f "$ha_l" ] || ! mc_store_ok "$ha_l" 2>/dev/null \
       || ! ha_retired=$(awk -F '\t' 'NR > 1 && $5 == "retired" { print $1 }' "$ha_l" 2>/dev/null); then
       hflag after-merge '?' - "workers after their merge unknown (the keeper's ledger cannot be read)"
@@ -1588,9 +1588,15 @@ EOF
       hc_unknown="${hc_unknown:+$hc_unknown, }$hc_p"
       continue
     fi
-    # No measured context, or no threshold (a session that compacts rather
-    # than hands over), is nothing to compare.
-    { mc_valid_uint "$hc_pct" && mc_valid_uint "$hc_th"; } || continue
+    # A value outside its grammar is a reading that cannot be read. No
+    # measured context, or no threshold (a session that compacts rather than
+    # hands over), is nothing to compare.
+    if { [ "$hc_pct" != - ] && { ! mc_valid_uint "$hc_pct" || [ "$hc_pct" -gt 100 ]; }; } \
+      || { [ "$hc_th" != - ] && { ! mc_valid_uint "$hc_th" || [ "$hc_th" -lt 1 ] || [ "$hc_th" -gt 100 ]; }; }; then
+      hc_unknown="${hc_unknown:+$hc_unknown, }$hc_p"
+      continue
+    fi
+    [ "$hc_pct" != - ] && [ "$hc_th" != - ] || continue
     [ "$hc_pct" -ge "$hc_th" ] || continue
     hc_hits="$hc_hits$hc_p$TAB$hc_pct$TAB$hc_th
 "

@@ -134,6 +134,9 @@ expect_out "after-merge flags a live worker at the grace after its merge" "1 wor
 reg $((T - 60)) w-landed flight:landed "process $$"
 printf 'w-landed\tacme/repo#7\tCLOSED\theld\n' >"$runtime/keeper-announced"
 health_at $((T - 1))
+expect_out "a held landing with no keeper ledger is unknown" "workers after their merge unknown (the keeper's ledger cannot be read)"
+printf '# format: 1\nw-landed\tacme/repo\t7\t/nowhere\n' >"$runtime/keeper.tsv"
+health_at $((T - 1))
 expect_out "a landing the keeper recorded flags its live worker at once" "1 worker still live after the pull request landed (w-landed, pull request closed)"
 health_at "$T"
 expect_out "the keeper's landing is the worst offender, with the count of both" "2 workers still live after the pull request landed (w-landed"
@@ -237,6 +240,10 @@ expect_no_out "a stale reading whose session is gone is no mission control" "del
 printf 'format\t1\nwritten\t%s\npercent\t69\nthreshold\t70\npid\t-\n' $((T - 10)) >"$fleet/mission-control/beta/context"
 health_at "$T"
 expect_empty "context clears just below the threshold"
+printf 'format\t1\nwritten\t%s\npercent\tlots\nthreshold\t70\npid\t-\n' $((T - 10)) >"$fleet/mission-control/beta/context"
+health_at "$T"
+expect_out "a fresh reading outside its grammar is unknown" "context unknown for beta"
+printf 'format\t1\nwritten\t%s\npercent\t69\nthreshold\t70\npid\t-\n' $((T - 10)) >"$fleet/mission-control/beta/context"
 printf 'format\t1\nwritten\t%s\npercent\t10\nthreshold\t70\npid\t%s\n' $((T - 1000)) "$$" >"$fleet/mission-control/delta/context"
 health_at "$T"
 expect_out "a stale reading from a live session is unknown" "context unknown for delta"
@@ -340,6 +347,7 @@ expect_out "a re-register on the same handle keeps its age" "1 worker live 4h or
 expect_no_out "a re-register after a retirement restarts the age" "w-re"
 expect_no_out "a relaunch on a new handle restarts the age" "w-rl"
 printf 'w-same\tacme/repo#8\tMERGED\theld\nw-rl\tacme/repo#9\tMERGED\tretired\n' >"$runtime/keeper-announced"
+printf '# format: 1\nw-same\tacme/repo\t8\t/nowhere\n' >"$runtime/keeper.tsv"
 health_at "$T"
 expect_out "a keeper landing of a merge names it" "1 worker still live after the pull request landed (w-same, pull request merged)"
 expect_no_out "a live session under a name the keeper retired is a relaunch" "w-rl,"
