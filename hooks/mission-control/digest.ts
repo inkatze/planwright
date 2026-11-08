@@ -28,6 +28,7 @@ export function parseDigest(text: string): PanelDigest | null {
     kbAge: null,
     measures: [],
     reviews: null,
+    host: { load: null, cores: null, memFreePercent: null },
     isHandoverInstalled: false,
     holder: null,
     unreadable: [],
@@ -140,6 +141,9 @@ export function parseDigest(text: string): PanelDigest | null {
         }
         break
       }
+      case 'host':
+        d.host = { load: int(f[1]), cores: int(f[2]), memFreePercent: int(f[3]) }
+        break
       case 'handover':
         d.isHandoverInstalled = f[1] === 'available'
         break

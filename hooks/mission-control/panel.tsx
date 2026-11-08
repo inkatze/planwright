@@ -42,6 +42,153 @@ function limits(view: PanelView): string {
   return view.rateLimits.map(r => `${r.kind} ${Math.round(r.percentUsed)}%`).join(' · ')
 }
 
+const BAR_CELLS = 10
+// Past this a deferred compaction would risk the window itself.
+const CONTEXT_CEILING_PCT = 95
+const DIAL = ['○', '◔', '◑', '◕', '●']
+
+// A bar of filled cells; each mark, a percent, is drawn over the cell it falls in.
+function bar(percent: number, marks: number[] = []): string {
+  const clamped = Math.max(0, Math.min(100, percent))
+  const filled = Math.round((clamped / 100) * BAR_CELLS)
+  const cells = Array.from({ length: BAR_CELLS }, (_, i) => (i < filled ? '█' : '░'))
+  for (const m of marks) cells[Math.min(BAR_CELLS - 1, Math.floor((m / 100) * BAR_CELLS))] = '▲'
+  return `[${cells.join('')}]`
+}
+
+// A round dial: the quarter-filled circle nearest the fraction.
+function dial(fraction: number): string {
+  return DIAL[Math.max(0, Math.min(DIAL.length - 1, Math.round(fraction * (DIAL.length - 1))))]!
+}
+
+// The master caution lamp: lit for anything that needs the operator or is
+// out of bounds, with its reasons in words; unknown where nothing was read.
+export function cautionReasons(view: PanelView): string[] | null {
+  const d = view.digest
+  if (!d) return null
+  const why: string[] = []
+  if (d.waiting !== null && d.waiting > 0) why.push(`${d.waiting} waiting on you`)
+  if (view.handover) why.push('handover due')
+  const checks = new Set((d.health ?? []).map(h => h.check)).size
+  if (checks > 0) why.push(`${checks} health ${checks === 1 ? 'check' : 'checks'}`)
+  if (d.unreadable.length > 0) why.push(`${d.unreadable.length} unreadable`)
+  if (view.fault) why.push('fault')
+  if (why.length === 0 && d.waiting === null) return null
+  return why
+}
+
+// The instrument row, round and bar shapes alternating: usage left (bar),
+// host load (dial with a redline), memory (bar), context (altimeter with its
+// handover and window marks), caution lamp. Every one says its number and
+// its state in words, so none rests on colour.
+export function instrumentLines(view: PanelView): string[] {
+  const d = view.digest
+  const lines: string[] = []
+
+  if (view.rateLimits.length === 0) {
+    lines.push('Usage left   no limits reported')
+  } else {
+    const worst = view.rateLimits.reduce((a, b) => (b.percentUsed > a.percentUsed ? b : a))
+    const left = Math.max(0, 100 - Math.round(worst.percentUsed))
+    lines.push(`Usage left   ${bar(left)} ${left}% left of ${worst.kind.replace(/_/g, ' ')}`)
+  }
+
+  const host = d?.host
+  if (host?.load != null && host.cores != null) {
+    const ratio = host.load / 100 / host.cores
+    const state = ratio >= 1 ? 'REDLINE, overloaded' : ratio >= 0.7 ? 'busy' : 'ok'
+    lines.push(`Host load    ${dial(ratio)} ${(host.load / 100).toFixed(1)} on ${host.cores} cores, redline at ${host.cores}: ${state}`)
+  } else {
+    lines.push('Host load    unknown')
+  }
+
+  if (host?.memFreePercent != null) {
+    lines.push(`Memory       ${bar(host.memFreePercent)} ${host.memFreePercent}% available${host.memFreePercent < 10 ? ': LOW' : ''}`)
+  } else {
+    lines.push('Memory       unknown')
+  }
+
+  if (view.contextPercent === null) {
+    lines.push('Context      not measured')
+  } else {
+    const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
+    const marks = [...(handoverAt === undefined ? [] : [handoverAt]), CONTEXT_CEILING_PCT]
+    const notes = [
+      ...(handoverAt === undefined ? [] : [`hands over at ${handoverAt}%`]),
+      `window limit ${CONTEXT_CEILING_PCT}%`,
+    ]
+    lines.push(`Context      ${dial(view.contextPercent / 100)} ${bar(view.contextPercent, marks)} ${view.contextPercent}% used, ▲ ${notes.join(', ▲ ')}`)
+  }
+
+  const why = cautionReasons(view)
+  lines.push(
+    why === null ? 'Caution      ? unknown' : why.length === 0 ? 'Caution      ○ clear' : `Caution      ● LIT: ${why.join(', ')}`,
+  )
+  return lines
+}
+
+export type MascotState = 'bumpy' | 'circling' | 'landing' | 'cruising' | 'taxiing'
+// The mascot knob: 0 off, 1 a still frame (reduced motion), 2 animated.
+export type MascotMode = 0 | 1 | 2
+
+export function mascotMode(view: PanelView): MascotMode {
+  const v = view.digest?.knobs.mascot
+  return v === 0 || v === 1 ? v : 2
+}
+
+// The first state that holds wins: an alert stands, then something waits on
+// the operator, then work has finished, then sessions work, else nothing runs.
+export function mascotState(view: PanelView): MascotState {
+  const d = view.digest
+  if (!d) return 'taxiing'
+  const isAlert = Boolean(view.fault) || (d.health ?? []).length > 0 || d.unreadable.length > 0 || view.handover !== null
+  if (isAlert) return 'bumpy'
+  if (d.waiting !== null && d.waiting > 0) return 'circling'
+  if (d.flights.length === 0 && (d.finished ?? 0) > 0) return 'landing'
+  if (d.flights.length > 0) return 'cruising'
+  return 'taxiing'
+}
+
+const MASCOT_WORD: Record<MascotState, string> = {
+  bumpy: 'a bumpy ride, an alert stands',
+  circling: 'circling, something waits on you',
+  landing: 'landing, work finished',
+  cruising: 'cruising, sessions working',
+  taxiing: 'taxiing, nothing running',
+}
+
+// Whether the mascot has motion to repaint: a moving state with animation on.
+export function isMascotMoving(view: PanelView): boolean {
+  return mascotMode(view) === 2 && view.digest !== null && mascotState(view) !== 'taxiing'
+}
+
+// Prop pal, a chubby propeller plane with two eyes in its cockpit window.
+// The still mode draws the first frame of the state; its state word always shows.
+export function mascotLines(view: PanelView): string[] {
+  const mode = mascotMode(view)
+  if (mode === 0) return []
+  const state = mascotState(view)
+  const f = mode === 2 ? view.frame : 0
+  const prop = f % 2 === 0 ? '|' : '+'
+  const word = `Prop pal: ${MASCOT_WORD[state]}`
+  const plane = (pad: number, eyes: string, tail = '') => [
+    `${' '.repeat(pad)}  (${eyes})`,
+    `${' '.repeat(pad)}${prop}-=[__]=-${tail}`,
+  ]
+  switch (state) {
+    case 'bumpy':
+      return [...plane(f % 2, 'O O', ' !'), word]
+    case 'circling':
+      return [...plane([0, 2, 4, 2][f % 4]!, 'o o', ' ↻'), word]
+    case 'landing':
+      return [...plane(0, '^ ^'), `  ${['‾', '_', '_', '_'][Math.min(f, 3)]!.repeat(14)}`, word]
+    case 'cruising':
+      return [...plane(0, 'o o', f % 2 === 0 ? ' ~' : ' ~~'), word]
+    case 'taxiing':
+      return [...plane(0, '- -'), '  o      o', word]
+  }
+}
+
 export function bandText(view: PanelView): string {
   const d = view.digest
   const parts = [`✈ ${view.program}`]
@@ -223,6 +370,14 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         d.sources.map(s => `${s.cls}: ${s.source === '-' ? 'none' : s.source} ${s.mode}${s.age === null ? '' : `, ${age(s.age)} old`}`),
         'No source map.',
       )}
+      {mascotLines(view).length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          {mascotLines(view).map(l => (
+            <Text color={mascotState(view) === 'bumpy' ? 'warning' : undefined}>{l}</Text>
+          ))}
+        </Box>
+      )}
+      {Section(t, 'Cockpit', instrumentLines(view))}
       {Section(t, 'Instruments', instruments)}
     </Box>
   )

@@ -49,6 +49,7 @@ export function digestText(
     tab('kb', 600),
     tab('measure', 'interruptions_per_hour', '2.5', 130),
     tab('measure', 'settled_share', '80', 130),
+    tab('host', 150, 4, 62),
     tab('handover', 'absent'),
     tab('holder', o.holder ?? 'attended'),
     ...(o.extra ?? []),
