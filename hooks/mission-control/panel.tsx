@@ -45,6 +45,7 @@ function limits(view: PanelView): string {
 // The pull requests ready to merge, a floor (`3+`) or `?` when some could
 // not be judged; null when there is nothing to say.
 function mergeReadyCount(d: PanelDigest): string | null {
+  if (d.unreadable.includes('merge-ready store')) return '?'
   const n = d.mergeReady ?? 0
   if (d.isMergeReadyPartial) return n > 0 ? `${n}+` : '?'
   return n > 0 ? String(n) : null

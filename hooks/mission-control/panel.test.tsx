@@ -190,6 +190,14 @@ test('with none judged ready and some unknown, the band says unknown', async ($,
   await band.unmount()
 })
 
+test('a merge-ready store that cannot be read is unknown, never hidden', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['unreadable\tmerge-ready store'] }) })
+  await boot($, w)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toContain('· ? to merge ·')
+  await band.unmount()
+})
+
 test('the band leaves a survey alone', async ($, on) => {
   const w = world(on)
   on('ui.render', ($, e) => {
