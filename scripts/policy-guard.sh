@@ -1746,7 +1746,7 @@ classify_segments() {
     [ "$CS_LOST" = 0 ] || eff_ok=0
     # Where the shell may have skipped a followed cd, or run it in a
     # background subshell, the directory is unknown until an absolute cd sure
-    # to run names it again: past the end of an and-or list whose cd ran only
+    # to run names it again (never, after a function definition): past the end of an and-or list whose cd ran only
     # after an earlier command succeeded, at a later || in that list, and past
     # a list with a followed cd sent to the background.
     pt=''
@@ -1936,11 +1936,11 @@ classify_segments() {
             prev_cd=1
             [ "$pt" != '&&' ] || [ "$list_plain" = 1 ] || cd_cond=1
             # An absolute cd sure to run names the directory whatever came
-            # before it.
+            # before it, short of a function definition.
             case ${SW[1]} in
               /*)
                 eff=${SW[1]}
-                eff_ok=1
+                [ "$CS_LOST" = 1 ] || eff_ok=1
                 ;;
               -*) eff_ok=0 ;;
               *) eff="$eff/${SW[1]}" ;;
