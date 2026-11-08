@@ -64,8 +64,10 @@ happens when a live holder already has the program's name:
 - **Operator-asked:** the operator's own resume of the program. It is the
   resume, and it runs as a handover: the live holder is asked to release
   and, if it cannot within the handover window, loses the name anyway,
-  retired through the launcher when the launcher started it; the
-  operator's own session is never closed, only stripped of the name.
+  retired through the launcher when the launcher started it; no other
+  session closes the operator's own session: its panel ends it once it has
+  released the name or finds it gone, and one without the panel stops and
+  says it can be closed.
 - **Handover successor:** a session the predecessor launched, carrying a
   handover file. It proceeds, proves its picture against the file and takes
   the name. A handover launch over an attended holder (the operator's own
