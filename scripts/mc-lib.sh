@@ -244,7 +244,10 @@ mc_clean() { awk '{ gsub(/[^[:print:]\t]/, ""); print }'; }
 # mc_clean_text: the same for UTF-8 text, dropping only the C0 controls but
 # tab, DEL and the C1 controls (UTF-8 encodes them \302\200 to \302\237),
 # so subjects written in other scripts read back whole.
-mc_clean_text() { awk '{ gsub(/[\001-\010\013-\037\177]/, ""); gsub(/\302[\200-\237]/, ""); print }'; }
+# A C1 pair is taken with the lead bytes before it and the continuation
+# bytes after it (all invalid UTF-8 there), so removing it never joins its
+# neighbours into another pair, in one linear pass.
+mc_clean_text() { awk '{ gsub(/[\001-\010\013-\037\177]/, ""); gsub(/\302+[\200-\237]+/, ""); print }'; }
 
 mc_fleet_home() {
   mfh=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) && [ -n "$mfh" ] || return 1
@@ -275,6 +278,33 @@ mc_event_store() {
 }
 
 mc_event() { /bin/bash "$script_dir/mc-event.sh" "$@"; }
+
+# mc_event_wakes [--routine]: the event rows on stdin (`mc-event.sh list`
+# lines, the kind in the third field) whose kind wakes a turn, or with
+# --routine only those config/mc-event-classes.tsv classes `routine`. An
+# unreadable table fails open: every row wakes, with a warning, since a
+# missing wake hides a real alert and an extra one only costs a turn.
+mc_event_wakes() {
+  mew_routine=0
+  [ "${1:-}" = --routine ] && mew_routine=1
+  mew_file="$script_dir/../config/mc-event-classes.tsv"
+  if [ ! -f "$mew_file" ] || [ ! -r "$mew_file" ]; then
+    printf '%s\n' "${prog:-mc}: config/mc-event-classes.tsv is missing or unreadable (broken install); every event wakes" >&2
+    mew_file=/dev/null
+  fi
+  MEW_TABLE=$mew_file MEW_ROUTINE=$mew_routine awk -F '\t' '
+    BEGIN {
+      f = ENVIRON["MEW_TABLE"]
+      while ((getline l < f) > 0) {
+        sub(/\r$/, "", l)
+        if (l ~ /^#/ || split(l, a, "\t") < 2) continue
+        if (a[2] == "routine") r[a[1]] = 1
+      }
+      close(f)
+    }
+    NF && (($3 in r) == ENVIRON["MEW_ROUTINE"] + 0)'
+}
+
 mc_kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
 
 # mc_sha256: the SHA-256 of stdin in hex; fails with no SHA-256 tool.

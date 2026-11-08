@@ -468,8 +468,8 @@ The posture script's test and `tests/test-tower-command-guard.sh`
 guard hooks unwired each fail with a one-line reason and the launcher
 refuses on it; every script verb the skill and duty catalog invoke runs
 without a prompt at the tier and an unlisted reference fails the test;
-`fleet-streamjson.sh answer` prompts; an edit and a git mutation are
-denied.
+`fleet-streamjson.sh answer` prompts. `tests/test-policy-guard-mission-control.sh`:
+an edit and a git mutation are denied.
 
 ### REQ-G1.6 — Prompts wake mission control and are answered through the channel [test]
 

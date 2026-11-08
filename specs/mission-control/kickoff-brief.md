@@ -1086,6 +1086,24 @@ Lens-pass: Amendment 2, delta-scoped lens review above (spec lens set, fanned ou
 Anchor: `f7a8780cef5cf4ce13a5299a78a7e4a81ac927c1` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
 
+### Re-anchor — REQ-G1.5 test-spec pointer (2026-11-05)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+The REQ-G1.5 entry in `test-spec.md` now names
+`tests/test-policy-guard-mission-control.sh` for the edit and git-mutation
+denials, the suite that pins them; the command-guard suite keeps the
+pre-approval arms. No requirement or decision changes meaning. The operator
+chose "Fix it (Recommended)" for this pointer, relayed by mission control.
+`Last reviewed:` moves on `test-spec.md` and `requirements.md`.
+
+**Cites the changelog line:** the 2026-11-05 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `260b43f423d8d49d039bc9f318b31702f8daba2d` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
 ### Amendment 3 — 2026-11-07 (amendment: every session hands over, compaction last)
 
 Header: spec `specs/mission-control`, Active (derived), walked at spec
@@ -1420,4 +1438,38 @@ meaning-class.
 Class: meaning
 Lens-pass: Amendment 4, delta-scoped lens review above (spec lens set, fanned out one reviewer per lens; every finding dispositioned)
 Anchor: `9a3b0b7da88c8cc8fcd05c77ea4f981e4c3b0a34` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — main's Amendment 3 merged with the REQ-G1.5 test-spec pointer (2026-11-07)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+Merging main into the branch that carries the 2026-11-05 test-spec pointer
+re-anchor combines that edit with Amendment 3. Against Amendment 3's
+anchored content, the merged bundle differs only by that pointer edit, so
+no requirement or decision changes meaning; this entry records the combined
+anchor.
+
+**Cites the changelog line:** the 2026-11-05 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `1b8a5bff791edb063bcd323ca27f40da593dccbd` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — main's pointer re-anchor merged with Amendment 4 (2026-11-08)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+Merging main into the branch that carries Amendment 4 combines Amendment 4
+with the REQ-G1.5 test-spec pointer edit recorded in the entry above.
+Against Amendment 4's anchored content, the merged bundle differs only by
+that pointer edit, so no requirement or decision changes meaning; this
+entry records the combined anchor.
+
+**Cites the changelog line:** the 2026-11-05 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `47b4f81e088a268569c6ecb2583d751c68e549df` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
