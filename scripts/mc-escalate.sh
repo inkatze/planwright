@@ -66,7 +66,7 @@ mission_control_escalation_window (W):
               shows in the pane but not over Remote Control. A dialog is open
               when its signature has no input prompt, idle anchor or busy
               marker below it (scripts/mc-session-pane.sh). The hub hears it
-              once one dialog (the same session, the same options) has been
+              once one dialog (the same session, the same dialog text) has been
               open W, the operator at 2W. Its first sight, session, digest and kind
               are kept under <runtime>/escalate/self; a different session or
               dialog starts a fresh hold, and a pane that shows none drops it.
@@ -414,7 +414,7 @@ if [ "$have_pane" = 1 ]; then
     what="its own dialog"
     [ "$S_STATE" != auto-mode ] || what="auto mode's confirmation prompt, which Remote Control does not show"
     raise "self	$first	$S_PID	$MSP_PRINT" "$RANK" "$PROGRAM" \
-      "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered. Ask the operator; record their choice with mc-decide.sh note --shape answer --subject '$PROGRAM dialog $MSP_PRINT' --target <digit> --text <their words>, then deliver it with mc-pane-answer.sh --program $PROGRAM --choice <digit> --decision <entry id> --decided-in $HUB" \
+      "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered. Ask the operator; record their choice with mc-decide.sh note --program $HUB --shape answer --subject '$PROGRAM dialog $MSP_PRINT' --target <digit> --text <their words>, then deliver it with mc-pane-answer.sh --program $PROGRAM --choice <digit> --decision <entry id> --decided-in $HUB" \
       "$PROGRAM mission control has been stuck ${held}s on $what${S_PANE:+ (tmux pane $S_PANE)}"
   else
     S_STATE=clear

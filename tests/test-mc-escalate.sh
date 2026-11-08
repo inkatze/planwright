@@ -239,6 +239,12 @@ if [ "$(count_of "$(hub_events)" "mission-control-escalated${tab}alpha${tab}")" 
 else
   fail "hub events for the dialog: '$(hub_events)'"
 fi
+d_print=$(awk -F '\t' '$1 == "dialog" { print $4 }' "$fleet/mission-control/alpha/escalate/self")
+if hub_events | grep -F "note --program hub --shape answer --subject 'alpha dialog $d_print'" | grep -q -F -- "--decided-in hub"; then
+  ok "the hub is told the exact note and relay to run"
+else
+  fail "the dialog escalation's instructions: '$(hub_events)'"
+fi
 : >"$fleet/attention/toasts"
 esc scan --program alpha --now $((T0 + 1900)) --pane "$tmp/dialog.txt"
 expect_out "held two windows, the dialog goes to the operator" "escalated${tab}operator${tab}alpha"
@@ -248,6 +254,11 @@ expect_out "a cleared dialog reads clear" "self${tab}clear"
 if [ ! -e "$fleet/mission-control/alpha/escalate/self" ]; then ok "the dialog's first-seen record is removed"; else fail "the self record survived a clear"; fi
 esc scan --program alpha --now $((T0 + 2100)) --pane "$tmp/dialog.txt"
 expect_out "a dialog reopened later starts a fresh hold" "self${tab}dialog${tab}0${tab}owner"
+chmod 000 "$fleet/mission-control/alpha/escalate/self"
+esc scan --program alpha --now $((T0 + 2200)) --pane "$tmp/dialog.txt"
+expect_rc "an unreadable dialog record fails the pass" 1
+expect_err "and says so" "cannot read the dialog record"
+rm -f "$fleet/mission-control/alpha/escalate/self"
 
 # ---------------------------------------------------------------------------
 # Discovery: the session is the claude process whose prompt is
