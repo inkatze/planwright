@@ -141,6 +141,12 @@ printf '1793500000:t1\thash\t%s\tbusy-unchanged\n' $((NOW - 7200)) >"$stall/mc-a
 printf '1793500000:t3\thash\t%s\tidle\n' $((NOW - 60)) >"$stall/mc-alpha-worker-0000000003"
 printf '1793500000:tm\thash\t%s\tidle\n' $((NOW - 90000)) >"$stall/mc-alpha-mission-control"
 printf '1700000000:old\thash\t%s\tidle\n' $((NOW - 90000)) >"$stall/mc-alpha-worker-0000000004"
+# A row with an empty field, and one whose token carries a control byte that
+# scripts/mc-stall.sh drops from the sample's launch key.
+row mc-alpha-worker-0000000006 "" 1793500000 t6
+printf '1793500000:t6\thash\t%s\tidle\n' $((NOW - 120)) >"$stall/mc-alpha-worker-0000000006"
+row mc-alpha-worker-0000000007 worker 1793500000 "$(printf 't\0337')"
+printf '1793500000:t7\thash\t%s\tidle\n' $((NOW - 130)) >"$stall/mc-alpha-worker-0000000007"
 
 steps="$tmp/wt/.claude/steps"
 mkdir -p "$steps/000001" "$steps/000002"
@@ -171,7 +177,11 @@ expect_out "permission waits: answered and pending, inside the window, this prog
 expect_out "a stalled session" "stall${tab}mc-alpha-worker-0000000001${tab}busy-unchanged${tab}7200"
 expect_out "an idle session, under the bound" "stall${tab}mc-alpha-worker-0000000003${tab}idle${tab}60"
 expect_no_out "mission control's own session is not a stall" "mc-alpha-mission-control"
-expect_no_out "a sample from an earlier launch is not this launch's" "mc-alpha-worker-0000000004"
+expect_no_out "a sample from an earlier launch is not this launch's" "stall${tab}mc-alpha-worker-0000000004"
+expect_out "a session with no current sample is named, never read as unstalled" \
+  "source${tab}stalls${tab}ok${tab}6 sessions; no current stall sample: mc-alpha-worker-0000000004, mc-worker-00000000000000aa"
+expect_out "an empty registry field shifts no other" "stall${tab}mc-alpha-worker-0000000006${tab}idle${tab}120"
+expect_out "the launch key is cleaned as the stall detector cleans it" "stall${tab}mc-alpha-worker-0000000007${tab}idle${tab}130"
 expect_out "a slow step, naming its branch" "step${tab}polish${tab}2${tab}2400${tab}4800${tab}3000${tab}feature"
 expect_no_out "a skipped step is not measured" "cubic-pr"
 expect_no_out "a step that ended before the window is not measured" "step${tab}lint"
@@ -229,6 +239,7 @@ count_raised() { printf '%s\n' "$OUT" | awk -F '\t' '$3 == "throughput-bottlenec
 mc_run mc-throughput.sh watch --program alpha --now "$NOW"
 expect_rc "watch" 0
 expect_out "the top bottleneck is raised" "raised${tab}step:polish${tab}4800"
+expect_out "with no stall sample at all, the stalls source is unknown" "source${tab}stalls${tab}unknown${tab}no current stall sample for any of the 6 sessions"
 events
 expect_out "as a throughput-bottleneck event with its numbers" "throughput-bottleneck${tab}step:polish${tab}Top bottleneck over the last 1d: Slow cadence step polish: median 40m"
 if [ "$(count_raised)" = 1 ]; then ok "one event"; else fail "expected one event, got $(count_raised)"; fi

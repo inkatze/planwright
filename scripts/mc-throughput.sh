@@ -401,45 +401,62 @@ measure_stalls() {
   }
   ms_out=""
   ms_n=0
+  ms_unsampled=""
+  ms_sampled=0
   set +f
   for ms_row in "$ms_reg"/mc-*; do
     [ -f "$ms_row" ] && [ ! -L "$ms_row" ] || continue
     case ${ms_row##*/} in *.tmp.* | *[!a-z0-9-]*) continue ;; esac
-    ms_f=$(awk -F '\t' '$1 ~ /^(format|program|state|kind|launched|token)$/ && !($1 in s) { s[$1] = 1; v[$1] = substr($0, length($1) + 2) }
-      END { print v["format"] "\t" v["program"] "\t" v["state"] "\t" v["kind"] "\t" v["launched"] "\t" v["token"] }' "$ms_row" 2>/dev/null) || {
+    # The row is judged and its launch key cleaned as scripts/mc-stall.sh
+    # cleans it when it writes the sample, in one read: empty when the row
+    # is not one of this program's launched sessions.
+    ms_key=$(P=$program awk -F '\t' '
+      $1 ~ /^(format|program|state|kind|launched|token)$/ && !($1 in s) { s[$1] = 1; x = substr($0, length($1) + 2); gsub(/[^[:print:]]/, "", x); v[$1] = x }
+      END {
+        if (v["format"] != "1" || v["program"] != ENVIRON["P"] || v["state"] != "launched" || v["kind"] == "mission-control") exit
+        k = (v["launched"] == "" ? "-" : v["launched"]) ":" (v["token"] == "" ? "-" : v["token"])
+        print (k ~ /[^A-Za-z0-9:.-]/) ? "-" : k
+      }' "$ms_row" 2>/dev/null) || {
       set -f
       unknown stalls "cannot read the registry row ${ms_row##*/}"
       return 0
     }
-    IFS='	' read -r ms_fmt ms_prog ms_state ms_kind ms_launched ms_token <<EOF
-$ms_f
-EOF
-    [ "$ms_fmt" = 1 ] && [ "$ms_prog" = "$program" ] && [ "$ms_state" = launched ] || continue
-    [ "$ms_kind" != mission-control ] || continue
+    [ -n "$ms_key" ] || continue
     ms_n=$((ms_n + 1))
     ms_sample="$RUNTIME/stall/${ms_row##*/}"
-    [ -e "$ms_sample" ] || continue
-    ms_line=$(head -n 1 "$ms_sample" 2>/dev/null) && [ -r "$ms_sample" ] || {
-      set -f
-      unknown stalls "cannot read the stall sample of ${ms_row##*/}"
-      return 0
-    }
-    IFS='	' read -r s_launch _ s_since s_state <<EOF
+    if [ -f "$ms_sample" ]; then
+      ms_line=$(head -n 1 "$ms_sample" 2>/dev/null) && [ -r "$ms_sample" ] || {
+        set -f
+        unknown stalls "cannot read the stall sample of ${ms_row##*/}"
+        return 0
+      }
+    else
+      ms_line=""
+    fi
+    s_launch='' s_since='' s_state=''
+    [ -z "$ms_line" ] || IFS='	' read -r s_launch _ s_since s_state <<EOF
 $ms_line
 EOF
-    # A sample from an earlier launch under the same name is not this one's.
-    [ "$s_launch" = "${ms_launched:--}:${ms_token:--}" ] || continue
-    mc_valid_uint "$s_since" || continue
+    # No sample, one from an earlier launch under the same name, or one from
+    # the future leaves the session unmeasured, which is said, not zero.
+    if [ "$s_launch" != "$ms_key" ] || ! mc_valid_uint "$s_since" || [ "$s_since" -gt "$NOW" ]; then
+      ms_unsampled="$ms_unsampled${ms_unsampled:+, }${ms_row##*/}"
+      continue
+    fi
+    ms_sampled=$((ms_sampled + 1))
     case $s_state in
       idle | idle-question | open-selector | unsubmitted-prompt | turn-ended-background | busy-unchanged | dead) ;;
       *) continue ;;
     esac
-    [ "$s_since" -le "$NOW" ] || continue
     ms_out="${ms_out}stall	${ms_row##*/}	$s_state	$((NOW - s_since))
 "
   done
   set -f
-  printf 'source\tstalls\tok\t%s sessions\n' "$ms_n"
+  if [ "$ms_n" -gt 0 ] && [ "$ms_sampled" = 0 ]; then
+    unknown stalls "no current stall sample for any of the $ms_n sessions (scripts/mc-stall.sh samples them)"
+    return 0
+  fi
+  printf 'source\tstalls\tok\t%s sessions%s\n' "$ms_n" "${ms_unsampled:+; no current stall sample: $ms_unsampled}"
   [ -z "$ms_out" ] || printf '%s' "$ms_out"
 }
 
