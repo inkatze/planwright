@@ -556,6 +556,19 @@ case $ERR in
     failures=$((failures + 1))
     ;;
 esac
+rm "$new_copy/scripts/mission-control-launch.sh"
+stale_run "$old_copy" mission-control-launch.sh name --program p
+case $ERR in
+  *"instead"*)
+    echo "FAIL: with no installed launcher on disk the stale one still handed off: '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+  *"mission-control-launch:"*) echo "ok: with no installed launcher on disk the stale one runs itself" ;;
+  *)
+    echo "FAIL: the stale launcher with nothing to hand off said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 mv "$SANDBOX/launch.keep" "$new_copy/scripts/mission-control-launch.sh"
 
 if [ "$failures" -gt 0 ]; then
