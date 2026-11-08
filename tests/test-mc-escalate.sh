@@ -221,6 +221,7 @@ write_programs
 # ---------------------------------------------------------------------------
 rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa"
 cat >"$tmp/dialog.txt" <<'EOF'
+────────────────────────────────
  Bash command
 
    fleet-streamjson.sh answer mc-alpha-worker-aaaaaaaaaa r1 --allow
@@ -258,6 +259,17 @@ chmod 000 "$fleet/mission-control/alpha/escalate/self"
 esc scan --program alpha --now $((T0 + 2200)) --pane "$tmp/dialog.txt"
 expect_rc "an unreadable dialog record fails the pass" 1
 expect_err "and says so" "cannot read the dialog record"
+rm -f "$fleet/mission-control/alpha/escalate/self"
+sed 1d "$tmp/dialog.txt" >"$tmp/norule.txt"
+esc scan --program alpha --now $((T0 + 2300)) --pane "$tmp/norule.txt"
+esc scan --program alpha --now $((T0 + 3200)) --pane "$tmp/norule.txt"
+expect_out "a dialog with no opening rule held one window goes to the hub" "escalated${tab}hub${tab}alpha"
+last=$(hub_events | tail -n 1)
+case $last in
+  *mc-pane-answer.sh*) fail "the unbindable dialog's escalation names the relay: '$last'" ;;
+  *"answers it at its pane"*) ok "the hub is told to have a dialog the relay cannot bind answered at its pane" ;;
+  *) fail "the unbindable dialog's escalation: '$last'" ;;
+esac
 rm -f "$fleet/mission-control/alpha/escalate/self"
 
 # ---------------------------------------------------------------------------
@@ -305,6 +317,17 @@ if [ -s "$fleet/mission-control/alpha/escalate/self" ] && grep -q "^self${tab}$(
   ok "keeps the dialog's record and its hub escalation"
 else
   fail "after an absent pass: self '$(cat "$fleet/mission-control/alpha/escalate/self" 2>/dev/null)', sent '$(cat "$fleet/mission-control/alpha/escalate/sent" 2>/dev/null)'"
+fi
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$fleet/mission-control/alpha/escalate/self"
+  esc scan --program alpha --now $((T0 + 4150))
+  chmod 644 "$fleet/mission-control/alpha/escalate/self"
+  expect_rc "an absent pass over an unreadable dialog record fails" 1
+  if grep -q "^self${tab}$((T0 + 3000))${tab}500${tab}.*${tab}hub$" "$fleet/mission-control/alpha/escalate/sent"; then
+    ok "and keeps the hub escalation it cannot match to a record"
+  else
+    fail "an unreadable record dropped what it raised: '$(cat "$fleet/mission-control/alpha/escalate/sent" 2>/dev/null)'"
+  fi
 fi
 cp "$tmp/ps.saved" "$tmp/ps.out"
 esc scan --program alpha --now $((T0 + 4200))

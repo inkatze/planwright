@@ -873,12 +873,16 @@ mission-control pane, never a pane the caller names, and only against the
 hub's decisions-log entry noting the operator's answer (`mc-decide.sh note
 --shape answer`) about that very dialog: its subject names the dialog's
 digest from the escalation, its answer is the digit, it was made after the
-watcher first saw the dialog, and it is used once. The pane is read again
-just before the keystroke, it must show the dialog whole (from the rule
-that opens it, with no line cut as side-panel text), and the digit's label must be one that answers
-this dialog and nothing more (a short allowlist: Yes, No and their
-one-time variants), so a rule for later calls, a mode switch or a trust
-grant is refused. Its `--help` lists every refusal. With
+watcher first saw the dialog, and it is used once (a `pending` log line,
+written before the keystroke, marks it used). The pane is read again just
+before the keystroke, under the watcher's lock. It must show the dialog
+whole: from the rule that opens it, with no line cut off as the
+mission-control side panel's text, so a dialog with a side panel drawn
+beside it is answered at its pane, and the watcher's escalation says so.
+The digit's label must be one that answers this dialog and nothing more
+(a short allowlist: Yes, No and their one-time variants), so a rule for
+later calls, a mode switch or a trust grant is refused. Its `--help`
+lists every refusal. With
 `mission_control_escalation_hub: none`, and for the hub's own dialog, there
 is no hub to record the answer, so such a dialog is answered at its pane.
 

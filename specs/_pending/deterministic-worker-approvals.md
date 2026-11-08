@@ -192,11 +192,21 @@ Left for a `mission-control` amendment, which owns the follow-ups:
   allowlist learns it. It fails closed, but it can stop answering after a
   CLI update.
 - **The digest's reach.** The dialog's digest runs from the rule that
-  opens it (a line of rule glyphs only) down to its last line, and the
-  relay refuses a dialog with no such rule on screen or with a line the
-  side-panel trim cut, since cut text may be the command's own. A command
-  whose own text holds a line of rule glyphs only still ends the digest
-  early, so two such commands that differ above that line share a digest.
+  opens it (a column-1 line of `─` only) down to its last line,
+  indentation kept, and the relay refuses a dialog with no such rule on
+  screen or with a line the side-panel trim cut, since cut text may be the
+  command's own. Two limits remain. A command whose text puts a column-1
+  row of `─` only on screen (its own line, or a wrap that leaves one)
+  ends the digest early, so two such commands that differ above that row
+  share a digest. And when the mission-control side panel is drawn beside
+  a dialog, every row is cut, so the relay refuses every such dialog;
+  accepting a border at one shared column would need a real capture of
+  the panel first.
+- **A dialog reopened between passes.** The relay re-checks the
+  watcher's record under its lock just before the keystroke, so a dialog
+  the watcher saw close and reopen is judged by its new first sight. One
+  that closes and reopens identically between two watcher passes keeps the
+  old first sight, so a decision made for the first can answer the second.
 - **Reach.** A mission control on another host (the Mac) has no pane here
   to read; its requests are still raised. A session started as plain
   `claude` with the skill typed in afterwards reads `absent`; resolving the

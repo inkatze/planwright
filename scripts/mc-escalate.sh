@@ -70,6 +70,8 @@ mission_control_escalation_window (W):
               open W, the operator at 2W. Its first sight, session, digest and kind
               are kept under <runtime>/escalate/self; a different session or
               dialog starts a fresh hold, and a pane that shows none drops it.
+              A dialog scripts/mc-pane-answer.sh cannot bind is raised with
+              word to answer it at its pane rather than through that relay.
 The session is this user's claude process whose last two arguments are
 `/planwright:mission-control <program>`, exactly one of them; its pane is
 the tmux pane whose process is that one or an ancestor of it. None found
@@ -353,13 +355,15 @@ $WORKERS
 EOF
 
 # --- the session's own dialog ----------------------------------------------
-# read_self: the dialog record's first sight, session and digest, each field
-# kept even when an earlier one is empty, or empty values.
+# read_self: the dialog record through msp_record; an unreadable one fails
+# the pass and sets self_unread.
+self_unread=0
 read_self() {
   msp_record "$SELF"
   if [ $? = 1 ]; then
     printf '%s\n' "$prog: cannot read the dialog record" >&2
     failed=1
+    self_unread=1
   fi
   rec_first=$MSP_REC_FIRST rec_sess=$MSP_REC_SESS rec_print=$MSP_REC_PRINT
 }
@@ -407,8 +411,10 @@ if [ "$have_pane" = 1 ]; then
     rank_of "$held"
     what="its own dialog"
     [ "$S_STATE" != auto-mode ] || what="auto mode's confirmation prompt, which Remote Control does not show"
+    how="Ask the operator; record their choice with mc-decide.sh note --program $HUB --shape answer --subject '$PROGRAM dialog $MSP_PRINT' --target <digit> --text <their words>, then deliver it with mc-pane-answer.sh --program $PROGRAM --choice <digit> --decision <entry id> --decided-in $HUB"
+    [ "$MSP_BINDABLE" = 1 ] || how="The answer relay cannot bind this dialog (no opening rule on screen, or a line cut off as side-panel text), so the operator answers it at its pane."
     raise "self	$first	$S_PID	$MSP_PRINT" "$RANK" "$PROGRAM" \
-      "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered. Ask the operator; record their choice with mc-decide.sh note --program $HUB --shape answer --subject '$PROGRAM dialog $MSP_PRINT' --target <digit> --text <their words>, then deliver it with mc-pane-answer.sh --program $PROGRAM --choice <digit> --decision <entry id> --decided-in $HUB" \
+      "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered. $how" \
       "$PROGRAM mission control has been stuck ${held}s on $what${S_PANE:+ (tmux pane $S_PANE)}"
   else
     S_STATE=clear
@@ -422,24 +428,26 @@ case $S_STATE in
 esac
 # A pane not read, or no single session to read, neither opens nor closes
 # the hold: the dialog last seen keeps its record until a read pane shows it
-# closed or another dialog.
+# closed or another dialog; an unreadable record keeps whatever it raised.
+CARRY_SELF=0
 case $S_STATE in
   absent | ambiguous | unreadable)
     read_self
+    CARRY_SELF=$self_unread
     ! mc_valid_uint "$rec_first" || LIVE="${LIVE}self	$rec_first	$rec_sess	$rec_print$NL"
     ;;
 esac
 printf 'self\t%s\t%s\t%s%s\n' "$S_STATE" "$held" "$LEVEL" "${S_PANE:+	$S_PANE}"
 
 # --- the record: what is still live, and what this pass could not read -----
-KEPT=$(printf '%s\n' "$SENT_NOW" | LIVE=$LIVE CW=$CARRY_WORKERS CA=$CARRY_ALL_REQUESTS awk -F '\t' '
+KEPT=$(printf '%s\n' "$SENT_NOW" | LIVE=$LIVE CW=$CARRY_WORKERS CA=$CARRY_ALL_REQUESTS CS=$CARRY_SELF awk -F '\t' '
   BEGIN {
     n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") live[l[i]] = 1
     n = split(ENVIRON["CW"], c, "\n"); for (i = 1; i <= n; i++) if (c[i] != "") carry[c[i]] = 1
   }
   NF >= 2 {
     k = $1; for (i = 2; i < NF; i++) k = k "\t" $i
-    keep = (k in live) || ($1 == "request" && (ENVIRON["CA"] == "1" || ($2 in carry)))
+    keep = (k in live) || ($1 == "request" && (ENVIRON["CA"] == "1" || ($2 in carry))) || ($1 == "self" && ENVIRON["CS"] == "1")
     if (keep && !($0 in seen)) { seen[$0] = 1; print }
   }')
 if [ "$KEPT" != "$(cat "$SENT" 2>/dev/null)" ]; then
