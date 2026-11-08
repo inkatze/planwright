@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-07
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -128,6 +128,11 @@ given the covering row is a settings-kind mechanism, the proposal carries
 the change ready to apply and no settings file changes; a decline is
 recorded and not re-raised on the same pattern; a repeat no inventory row
 covers raises no proposal.
+
+The denial repeat (Amendment 4): `tests/test-mc-proposals.sh` raises
+nothing on the first guard denial a knob in `config/denial-knobs.tsv`
+governs, and on the second identical one proposes that knob, its effect and
+its layer, handed to the operator and never written.
 
 ### REQ-B1.6 — Self-audit [test]
 
@@ -282,15 +287,17 @@ adopted tmux session's liveness comes from its process; a row with no live
 process is never live; retiring an operator-owned adopted session raises a
 confirmation item.
 
-## REQ-E — Durable watchers
-
 ### REQ-D1.13 — Spec drift refused at readiness [test]
 
 `tests/test-spec-drift-check.sh` and `tests/test-mc-readiness.sh` (Task
 35): a changed listed deliverable with no spec edit and no reason is
-flagged and refused; a stated reason, or a spec edit with a matching
-re-signed anchor, passes; a spec edit with a stale anchor refuses; an
+flagged and refused; a `Not covered:` line naming the path, or a spec
+edit with a matching re-signed anchor, passes; a status-only spec touch
+is not an edit; a task pull request delivering its own task's file
+passes; a missing statement is checked as covering nothing; a spec edit with a stale anchor refuses; an
 unlisted change passes; a check that cannot run refuses with its reason.
+
+## REQ-E — Durable watchers
 
 ### REQ-E1.1 — Scripts under a runner that re-arms [test]
 
@@ -391,6 +398,11 @@ fixture); the voice rules are in the doctrine.
 A fresh installation ends with a program block, a knowledge-base skeleton
 and enabled duties (fixture); the operator walks it once and records the
 experience.
+
+Asking only what the operator can answer (Amendment 4):
+`tests/test-behavioral-eval-mission-control.sh` grades the first-run
+persona so that every objective is either asked or settled, never both,
+and fails a seeded run that asks a settled objective.
 
 ### REQ-F1.13 — The guidance knob [test]
 
@@ -759,6 +771,8 @@ file that writer produced from fixture logs.
 repository the selection withholds is not suggested, and `next` equals the
 selection's output.
 
+## REQ-N — Program goals
+
 ### REQ-N1.1 — A goal carries a confirmed check [test]
 
 `tests/test-mc-goals.sh` (Task 34): a goal with an unconfirmed check lists
@@ -770,7 +784,8 @@ correction verbatim.
 `tests/test-mc-goals.sh` (Task 34): a passing command marks the goal done
 with its evidence; a failing, timed-out or unrun check on a goal whose pull
 requests merged reports merged but not done with one routed-fix item; a
-session-based check counts only on its evidence record.
+session-based check counts only on reported evidence that the outcome
+holds; a merge of untracked work runs no check.
 
 ### REQ-N1.3 — Daily re-check of command checks [test]
 
@@ -782,5 +797,7 @@ a session-based check is not re-run.
 ### REQ-N1.4 — Goals live in the program home [test]
 
 `tests/test-mc-goals.sh` (Task 34): the store is under the program home and
-no repository file changes; a check string is run as written, a fixture
-with shell metacharacters in forge text leaving it unchanged.
+no repository file changes; concurrent writes serialize under its lock; a
+missing or unknown `format` is refused; a tracked pull request titled
+with `$(touch <sentinel>)` leaves no sentinel and the executed command
+equals the stored one.

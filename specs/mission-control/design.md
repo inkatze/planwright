@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-07
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1278,14 +1278,18 @@ the tmux pane in whatever terminal is in use.
 ### D-44: A goal is done when its own check passes  (S)
 
 **Decision:** A program goal is a record in the program home holding the
-outcome in plain words, an optional check command, the check's state
-(drafted, confirmed, passing, failing, unrun) and the evidence of its last
-run. When the operator sets a goal, mission control drafts the check (a
+outcome in plain words, the work it tracks (pull requests, flights or spec
+tasks, attached when the goal is set or when a launch names it), an
+optional check command, the check's state (unconfirmed, confirmed,
+passing, failing, unrun) and the evidence of its last run; the store
+carries a `format` field and is written only by mission control, under one
+lock. When the operator sets a goal, mission control drafts the check (a
 statement, plus a command where one can prove it) and the operator confirms
 or corrects it in one line. When the goal's work merges, mission control
-runs the check: the command under a timeout from the program home, or,
-where no command fits, a read-only session that looks and records what it
-found. It reports the goal done only on a pass; on a fail or an unrun
+runs the check: the command from the program home, as a run of the
+`goal-check` duty and so under D-40's watcher timeout, or, where no
+command fits, a read-only session that looks and reports what it found,
+which mission control writes into the goal's evidence. It reports the goal done only on a pass; on a fail or an unrun
 check it reports the goal as merged but not done, naming what failed, and
 routes the fix. A done goal with a command check is re-checked daily and at bring-up,
 silently while it passes; a failure reopens it with one line and routes the
@@ -1312,12 +1316,22 @@ evidence.
 
 **Decision:** A change to behaviour a spec describes edits that spec in the
 same pull request, with a dated amendment note, and is not ready until the
-operator signs the edit off in a short relayed kickoff. Two signals find
-such a change: the worker's statement in its pull request naming the
-covering spec (or "none" with a reason), and a mechanical spec-drift check
-(`scripts/spec-drift-check.sh`) that lists every changed file some spec
-names as a task deliverable when that spec is unedited and the statement
-gives no reason. The readiness check (D-25, D-33) runs the drift check and
+operator signs the edit off in a short relayed kickoff. That kickoff runs
+on the pull request's own branch, in its worktree, and its sign-off commit
+is pushed like any other commit on that branch, so no spec-branch push is
+involved. Two signals find such a change. The worker's covering-spec
+statement in its pull request body: a `Covering spec:` line naming each
+bundle the change touches, or `none`, and one `Not covered: <path> —
+<reason>` line per changed deliverable file whose spec the change leaves
+alone. And a mechanical spec-drift check (`scripts/spec-drift-check.sh`),
+which reads each task's deliverables through `scripts/spec-model.sh`,
+takes the backticked repository paths in them as the listed files, and
+lists every changed listed file whose spec's anchored content is unchanged
+and which no `Not covered:` line names, except a deliverable of a task the
+pull request's own trailer names. A pull request with no statement reads
+as covering nothing with no reasons. This bundle owns the statement's form
+and the check; tower-front-door has its flights write the statement and
+run the check at `pre-pr` (Task 36). The readiness check (D-25, D-33) runs the drift check and
 compares each edited spec's latest sign-off anchor with its content at the
 head; either gap refuses the flip. The router and flight rules are routed
 to tower-front-door (Task 36), decided by the operator at this kickoff: a

@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-07
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -383,6 +383,8 @@ later planwright bundles implement, D-12).
   carries that skill's own cadence and is exempt. REQ-D1.9 is the backstop.
   *(Cites: D-33; audit item 2 (Sources); the in-flight cadence fix
   (Sources).)*
+  *(Amended at Amendment 4, 2026-11-07: the backstop is now REQ-D1.14,
+  which supersedes REQ-D1.9.)*
 - **REQ-D1.12** Mission control SHALL be able to adopt a live session it
   did not launch (a tower's dispatch, a hand-launched session, on any
   backend): a launcher verb registers it under the program with its owner,
@@ -398,14 +400,16 @@ later planwright bundles implement, D-12).
   *(Cites: D-35, D-11; audit item 3 (Sources).)*
 - **REQ-D1.13** The readiness check SHALL refuse a flip of a pull request
   that changes behaviour a spec describes unless the same pull request
-  edits that spec and the edited spec's latest sign-off anchor matches its
-  content at the pull request's head (the operator signed the edit off in a
-  relayed kickoff). It SHALL also refuse when the spec-drift check flags the
-  pull request: a changed file some spec lists as a task deliverable, with
-  that spec unedited and no stated reason. The statement every flight's
-  pull request carries (the covering spec, or "none" with a reason) is
-  routed to tower-front-door (D-45); the check reads it and never replaces
-  it. A check that cannot run refuses.
+  edits that spec (changes its anchored content) and the edited spec's
+  latest sign-off anchor matches its content at the pull request's head
+  (the operator signed the edit off in a relayed kickoff). It SHALL also
+  refuse when the spec-drift check flags the pull request: a changed file
+  some spec lists as a task deliverable, with that spec's anchored content
+  unchanged and no reason line naming that file in the pull request's
+  covering-spec statement (D-45). A changed file that is a deliverable of a
+  task the pull request's own task trailer names is that task's work and
+  is never flagged. A pull request with no statement is read as covering
+  no spec and giving no reasons. A check that cannot run refuses.
   *(Cites: D-45; the operator's request (2026-11-07, Sources); the
   spec-drift audit (Sources).)*
 
@@ -852,7 +856,10 @@ later planwright bundles implement, D-12).
   *(Cites: D-44; the operator's request (2026-11-07, Sources).)*
 - **REQ-N1.2** Mission control SHALL report a goal done only after its
   confirmed check passes: the command exits 0, or, where no command fits,
-  a read-only session it launches records the evidence it found. Merged
+  a read-only session it launches reports evidence that the outcome holds,
+  which mission control records. A goal names the work it tracks (pull
+  requests, flights or spec tasks), and that work's merge triggers its
+  check. Merged
   pull requests SHALL never count as a pass. A goal whose work merged while
   its check fails or has not run SHALL be reported as merged but not done,
   naming what failed, and its fix routed without the operator asking.
@@ -865,8 +872,9 @@ later planwright bundles implement, D-12).
   *(Cites: D-44; the operator's request (2026-11-07, Sources).)*
 - **REQ-N1.4** Goals and their checks SHALL live in the program home
   (D-8), never in a repository, written under one lock. A check command is
-  data the operator confirmed: mission control drafts only commands that
-  change nothing, a goal stores no secret (a command reaches a host
+  data the operator confirmed, shown to them verbatim before they confirm:
+  mission control drafts only commands that change nothing, a goal stores
+  no secret (a command reaches a host
   through the operator's existing access), and it runs with a timeout,
   from the program home, with no value from a forge, a session or a record
   interpolated into it.
@@ -1003,8 +1011,10 @@ later planwright bundles implement, D-12).
   REQ-D1.9 (the spec-only hold, PR #852); notes on REQ-B1.5 and D-14 (the
   denial repeat, PR #835), REQ-F1.12 and D-18 (the first run asks only what
   the operator can answer, PR #822), D-32 (launched mission-control
-  sessions in auto mode, PR #859), D-33 (the spec-only hold) and Task 19
-  (its push half landed in PR #866).
+  sessions in auto mode, PR #859), D-33 (the spec-only hold), D-22 (the
+  routed tower-front-door amendment, Task 36) and Task 19 (its push half
+  landed in PR #866). Revised at the delta lens pass (see the kickoff
+  brief's Amendment 4).
 
 ## Sources
 
