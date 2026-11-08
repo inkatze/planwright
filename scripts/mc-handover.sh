@@ -376,7 +376,7 @@ record() {
 }
 
 # succ_record <session> <predecessor> <kind> <launched> <mode> <verified>
-# [<owner> [<predecessor pane>]]: the owner is the launch that reserved it,
+# [<owner> [<predecessor pane> [<predecessor tmux socket>]]]: the owner is the launch that reserved it,
 # until it is verified.
 succ_record() {
   record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}" predecessor-tmux "${9:--}"
