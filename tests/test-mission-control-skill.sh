@@ -108,6 +108,7 @@ need "REQ-A1.1: any other launch over a live holder is refused" "neither the ope
 need "REQ-A1.2: bring-up from durable evidence only" "Never read a stored live-state file as truth"
 need "REQ-A1.7: the first turn says what changed" "what changed since the operator last looked"
 need "bring-up audits the setup it inherits" "scripts/mc-config.sh\`'s \`doctor"
+need "only doctor's findings become operator items, never its clean line" "each finding \`scripts/mc-config.sh\`'s \`doctor"
 need "planwright's defaults win over a predecessor's habits" "planwright's defaults win over the predecessor's habits"
 need "the audit never re-raises what the operator already settled" "prints that no operator choice already settles"
 need "REQ-F1.12: one objective at a time" "one objective at a time"
