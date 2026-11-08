@@ -255,7 +255,7 @@ grep -q -- "--resume 0b6f0c1e-1111-4222-8333-444455556666" "$tmp/shim/argv" \
   || fail "the stopped session was not resumed from its own session"
 # The runner's watcher loop leads its own process group and stops with it,
 # so a session the drain starts or recovers must not join that group.
-if command -v setsid >/dev/null 2>&1; then
+if command -v setsid >/dev/null 2>&1 && command -v ps >/dev/null 2>&1; then
   sup=$(head -n 1 "$sjdir/supervisor.pid" 2>/dev/null)
   sup_pg=$(ps -o pgid= -p "${sup:-0}" 2>/dev/null | tr -d ' ')
   our_pg=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
@@ -328,6 +328,20 @@ mkdir -p "$fleet/mission-control/alpha/usage/queue/$rid/handover"
 mc_run mc-usage.sh drain --program alpha --now "$((after + 400))"
 expect_rc "a drain with no hold" 0
 expect_out "a resume whose handover cannot be written is reported failed" "failed${tab}${rid}${tab}"
+
+# ---------------------------------------------------------------------------
+# A hold that exists but does not parse keeps launches held.
+# ---------------------------------------------------------------------------
+printf 'window\tweekly\n' >"$fleet/mission-control/alpha/usage/hold"
+mc_run mc-usage.sh held --program alpha
+if [ "$RC" -ne 0 ] && [ "$OUT" != clear ]; then
+  ok "a malformed hold never reads clear"
+else
+  fail "a malformed hold read as '$OUT' (exit $RC)"
+fi
+mc_run mc-budget.sh rung --program alpha --now "$after" --load 0
+expect_eq "a malformed hold is the hold-dispatch rung" "hold-dispatch"
+rm -f "$fleet/mission-control/alpha/usage/hold"
 
 # ---------------------------------------------------------------------------
 # The threshold knob.
