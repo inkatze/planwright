@@ -883,6 +883,40 @@ and stays up for the next, so `awaiting-input` outranks an earlier turn's
 `completed`, and the stuck detector likewise keeps such a worker
 `waiting-on-a-human` rather than finished.
 
+**When the mission control itself does not answer.** The alarm's wake reaches
+the one session that should answer, which helps nothing when that session is
+stuck. A second session-keeper watcher, `scripts/mc-escalate.sh`, raises what
+a program's mission control leaves unanswered one level up, with no model in
+the path. Two things qualify: a request of one of the program's own live
+workers still pending `mission_control_escalation_window` past the alarm,
+and the mission control's own tmux pane showing an open dialog for that
+long. Auto mode's confirmation after blocked actions is one such dialog, and
+Remote Control does not show it. Either becomes a `mission-control-escalated`
+event in the hub program's store (`mission_control_escalation_hub`, when its
+holder is live), and at twice the window a push to the operator through the
+notification seam. With no live hub, or for the hub's own items, the first
+level goes to the operator. Each level is raised once.
+
+The operator's answer to such a dialog reaches the pane through
+`scripts/mc-pane-answer.sh`. It delivers one digit to that program's own
+mission-control pane, never a pane the caller names, and only against the
+hub's decisions-log entry noting the operator's answer (`mc-decide.sh note
+--shape answer`) about that very dialog: its subject names the dialog's
+digest from the escalation, its answer is the digit, it was made after the
+watcher first saw the dialog, and it is used once (a `pending` log line,
+written before the keystroke, marks it used). The pane is read again just
+before the keystroke, under the watcher's lock. It must show the dialog
+whole: from the rule that opens it, with no line cut off as the
+mission-control side panel's text, so a dialog with a side panel drawn
+beside it is answered at its pane, as is one offering no label the relay
+takes, and the watcher's escalation says so.
+The digit's label must be one that answers this dialog and nothing more
+(a short allowlist: Yes, No and their one-time variants), so a rule for
+later calls, a mode switch or a trust grant is refused. Its `--help`
+lists every refusal. With
+`mission_control_escalation_hub: none`, and for the hub's own dialog, there
+is no hub to record the answer, so such a dialog is answered at its pane.
+
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
 request the journal still reads `pending` (a spooled receipt is listed once it
@@ -1130,7 +1164,14 @@ the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
 newline-terminated line, no raw control byte, a valid JSON object nested at
 most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
-written.
+written. A steer shaped like a new unit of work (a skill command, a launch
+brief) is refused with exit 5 and nothing written, unless the
+mission-control launcher registers the worker as a tower, orchestrator or
+mission-control session: workers are short-lived, so new scope and each new
+review round go to a fresh worker carrying a handover brief. `--retask
+<reason>` delivers it anyway and logs the override once delivered (an
+override that could not be logged is refused, exit 2);
+`scripts/retask-guard.sh --help` holds the rule.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
@@ -1530,7 +1571,13 @@ changes it too. After pasting it waits for the paste's fresh `(#<id>)` tag,
 which leads the line, and exits 4 if it never shows: observe the pane before
 any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
 (default 5, at most 20) and `PLANWRIGHT_RELAY_CONFIRM_SLEEP` (seconds, default
-1, at most 3) bound that wait.
+1, at most 3) bound that wait. Before reading the pane at all it refuses
+(exit 5, nothing pasted) a message shaped like a new unit of work for any
+session but one the mission-control launcher registers as a tower,
+orchestrator or mission control (a target is read as its window first), the
+same rule as the stream-json steer; `--retask <reason>` pastes it anyway,
+logged once pasted (an override that could not be logged is refused, exit
+2).
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single
@@ -1914,7 +1961,11 @@ given.
 and the busy footer markers live in one sourced file,
 `scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
 `fleet-stuck-detector.sh`, the relay's `deliver` step and mission control's
-stall detector (`scripts/mc-stall.sh`);
+stall detector (`scripts/mc-stall.sh`) and escalation watcher and pane relay
+(`scripts/mc-escalate.sh`, `scripts/mc-pane-answer.sh`, through
+`scripts/mc-session-pane.sh`, which keeps the auto-mode phrases, the footers
+and rule glyphs that bound a dialog, and the relay's answerable labels itself,
+so the overrides that follow do not reach them);
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and

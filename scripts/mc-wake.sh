@@ -60,6 +60,12 @@ registry records for the worker, and it never types into a session:
             no newline, so the wake is STAGED and its events marked staged
             until the session acknowledges them (below)
   any other backend, or a retired worker: unreachable, nothing sent
+A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
+`routine`) never wakes: relay, tick and compose leave it out of the wake
+and mark it submitted for the target (compose's one mark), since the
+script that emitted it already acted and nothing in it is for the
+operator; it stays listable. With the table unreadable every event wakes,
+said on stderr.
 One wake per target carries 20 of its pending events, oldest first and,
 in the tick, never-sent ones ahead of staged ones (the rest wait for a
 later wake), naming each one's kind and subject, re-checked against
@@ -93,7 +99,9 @@ Usage:
         idle<TAB><worker>                    nothing to send
         unreachable<TAB><worker><TAB><why>
         refused<TAB><worker><TAB><exit>      the relay declined (a dialog
-                                             open, an earlier wake staged)
+                                             open, an earlier wake staged,
+                                             a message shaped like a new
+                                             unit of work)
         failed<TAB><worker>                  its events could not be read
                                              or marked (named on stderr)
       or `paused` under the fleet daemon pause (`blocked<TAB><exit>` when
@@ -106,8 +114,9 @@ Usage:
       the wake a session with the mod submits itself: `idle`, or
       `wake<TAB><n><TAB><id> <id>...` then the wake's text, over the
       target's events not yet submitted (the tick's selection); or
-      `paused` (`blocked`) as the relay. Sends and marks nothing: the mod
-      marks the ids submitted once its prompt is in.
+      `paused` (`blocked`) as the relay. Sends nothing and marks only
+      routine events: the mod marks the ids submitted once its prompt is
+      in.
 
 Exit codes: 0 done (a refused or unreachable target is reported, not a
 failure); 1 a store that cannot be read or written (the fleet registry
@@ -163,10 +172,24 @@ runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory
 targets="$runtime/wake-targets"
 
 # select_events <target> unmarked|unsubmitted: the target's events for one
-# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (all of them), SEL_N and
-# SEL_IDS (space separated).
+# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (all but the routine
+# ones), SEL_N and SEL_IDS (space separated).
 select_events() {
   SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending --limit 100000) || return 1
+  # A routine event is marked submitted unsent, so it leaves the pending
+  # set (the panel's count, the next listing) instead of piling up there.
+  # Marked in batches, so a large routine backlog never outgrows the
+  # argument list and holds back the events that do wake.
+  sel_routine=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes --routine | awk -F '\t' '
+    { printf "%s%s", (n % 200 ? " " : (n ? "\n" : "")), $1; n++ } END { if (n) print "" }')
+  if [ -n "$sel_routine" ]; then
+    printf '%s\n' "$sel_routine" | while IFS= read -r sel_batch; do
+      # shellcheck disable=SC2086 # one event id per word
+      mc_event mark --program "$program" --target "$1" submitted $sel_batch
+      case $? in 0 | 3) ;; *) exit 1 ;; esac
+    done || return 1
+  fi
+  SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes)
   if [ "$2" = unsubmitted ]; then
     # Never-sent events first, so a backlog of staged ones nobody has
     # acknowledged cannot keep a newer event out of every wake.

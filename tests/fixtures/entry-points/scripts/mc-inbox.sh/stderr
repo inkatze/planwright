@@ -1,1 +1,1 @@
-match ^mc-inbox: usage: mc-inbox\.sh status \| item --link <url> \.\.\. \| draft --program <p> --to <recipient> --file <body>$
+match ^mc-inbox: usage: mc-inbox\.sh status \| report \| item --link <url> \.\.\. \| draft --program <p> --to <recipient> --file <body>$

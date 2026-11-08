@@ -56,6 +56,27 @@ fresh installation, explaining each idea the first time it comes up),
 standard (hints only when you seem stuck) or expert (asks and moves on).
 Say which you want at any time; it is remembered.
 
+**Its guardrails are checked first.** Before any work, and again each
+time its timer wakes it with something to handle, mission control checks
+that its safety settings are in force: the deny list and guard hooks its
+settings profile ships. If they are not, or the check cannot run, it tells
+you why in one plain line
+and holds back (no launch, no answer, no request; it still keeps its own
+records) until a later check passes; its launcher refuses to start a
+session for the same reason. A session you open yourself and type
+`/mission-control` into carries no such profile, so it holds back unless
+your own settings already hold those guardrails. To start a session that
+passes the check, for a program already set up, run this in your own
+terminal inside tmux, from the
+directory it should start in (`<planwright>` is planwright's install root):
+
+```sh
+<planwright>/scripts/mission-control-launch.sh launch --program <name> --kind mission-control --scope attended --backend tmux
+```
+
+It opens a tmux window in the background, running mission control for
+that program under its profile; switch to that window to work with it.
+
 **The program's private folder** sits under your planwright configuration
 folder, outside every repository, and is never committed. It holds the
 rules you set, what mission control has learned about the program, its
@@ -87,12 +108,20 @@ place for you.
 
 A duty is a job mission control does for you in the background, each with
 a one-line summary of what it saves you. The ones that ship cover keeping
-sessions moving and closing them when their work lands, turning what waits
+sessions moving and closing them when their work lands or they sit idle, turning what waits
 on you into decide-ready items and drafts, checking that a pull request is
-really ready before it is offered, predicting overlapping changes and merge
-order, letting known dates set priorities, preparing what you need before a
+really ready before it is offered and telling you, with the one command to
+run, each one that was ready to merge at its last look at the code host,
+and saying so when it cannot tell rather than leaving one out (it never
+merges itself), predicting
+overlapping changes and merge order, letting known dates set priorities,
+preparing what you need before a
 decision, recording how to undo each act, checking what was done against
-your rules, and noticing what you keep doing by hand. The last three
+your rules, and noticing what you keep doing by hand. If you run several
+programs with one hub program over all their repositories, and the hub's
+duties leave out the readiness check (it is on by default), the hub hears of
+every pull request ready to merge in them without checking readiness itself:
+the program that checked it tells the hub too. The last three
 do not run in the background yet, and turning them on changes nothing for
 now: mission control records how to undo its acts and proposes automations
 as it works with you, and the check against your rules does not run yet.
@@ -140,7 +169,8 @@ rules seem to collide, it asks you which you meant rather than deciding.
 Almost everything mission control does that you might want done
 differently is a setting with a sensible default: how often it checks the
 code host, how long a session may sit still before it is treated as
-stuck, when it hands over to a fresh session, how much it explains, how a
+stuck, how long a session may run or sit idle before a fresh one takes
+over, when it hands over to a fresh session, how much it explains, how a
 spec review you ask for runs, where drafts go, and more. The simplest way
 to change one is to say what you want ("explain less", "treat a session as
 stuck after twenty minutes"). A setting that changes how much it may do
@@ -159,6 +189,14 @@ the first run.
 Type `/mc-panel` in that session to close the mission-control panel beside
 the conversation when you can see it, or to show it when you cannot
 (`/mc-panel open` or `/mc-panel close` to choose).
+
+The panel adds a health line only when something its duties should have
+caught slipped past them (a session running too long or after its pull
+request landed, a permission prompt left waiting, a mission control stuck
+on its own dialog or past its handover point, CI jobs queueing for much of
+their run time or with no finished run yet, an idle session), saying
+"unknown" where it cannot tell; its bounds are in the
+[options reference](options-reference.md).
 
 When you update planwright and reload, mission control notices: the panel
 shows a short notice with the new version, and mission control rereads
@@ -207,6 +245,13 @@ open a new one for the program, once it notices the name is taken; one that
 never gets to notice (it is stuck, say) stays open and you close it. A
 session without the panel cannot end itself; it stops working and says it
 can be closed.
+
+Whenever a new session takes over (a handover, or your own resume), it
+waits briefly for the old session's process to end, where the old session
+recorded which process it was (sessions from an earlier planwright did
+not). If the old session is still running after that, mission control
+does not call it closed: it raises an item naming the process, so you know
+which session to close.
 
 A mission-control session that mission control starts, a successor
 included, runs in Claude Code's auto mode, so a routine command does not
