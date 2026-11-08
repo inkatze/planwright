@@ -982,7 +982,8 @@ case $verb in
     # run could not see, so a source's recovery raises nothing it already
     # raised.
     live=$(printf '%s\n' "$c" | cut -f1)
-    blind=$(printf '%s\n' "$m" | awk -F '\t' '$1 == "source" && $3 == "unknown" { print $2 }')
+    srcs=$(printf '%s\n%s\n' "$m" "$cv")
+    blind=$(printf '%s\n' "$srcs" | awk -F '\t' '$1 == "source" && $3 == "unknown" { print $2 }')
     kept=$(printf '%s\n' "$prev" | LIVE=$live BLIND=$blind awk -F '\t' '
       function src(k) { if (k ~ /^ci:/) return "ci"; if (k ~ /^step:/) return "steps"; return k }
       BEGIN {
@@ -1028,7 +1029,7 @@ case $verb in
         elif [ -n "$TOP" ]; then
           continue
         else
-          utext=$(printf '%s\n' "$m" | U=$usrc awk -F '\t' '$1 == "source" && $3 == "unknown" && $2 == ENVIRON["U"] { print "Not measured: " $2 " (" $4 ")" }' | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
+          utext=$(printf '%s\n' "$srcs" | U=$usrc awk -F '\t' '$1 == "source" && $3 == "unknown" && $2 == ENVIRON["U"] { print "Not measured: " $2 " (" $4 ")" }' | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
           mc_event emit --program "$program" --now "$NOW" -- throughput-unknown "throughput-unknown-$usrc" "$utext" >/dev/null || mc_fail "the throughput-unknown event was refused"
           printf 'raised\t%s\t0\n' "$ukey"
         fi

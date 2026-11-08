@@ -150,7 +150,7 @@ printf '1793500000:t20\thash\t%s\tbusy\n' $((NOW - 7200)) >"$stall/mc-alpha-work
 row mc-alpha-worker-0000000021 worker 1793500000 t21 beta
 printf '1793500000:t21\thash\t%s\tidle\n' $((NOW - 7200)) >"$stall/mc-alpha-worker-0000000021"
 row mc-alpha-worker-0000000022 worker 1793500000 t22
-sed 's/^state\tlaunched$/state\tretired/' "$reg/mc-alpha-worker-0000000022" >"$reg/x.tmp.1" && mv "$reg/x.tmp.1" "$reg/mc-alpha-worker-0000000022"
+awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "state" { $2 = "retired" } { print }' "$reg/mc-alpha-worker-0000000022" >"$reg/x.tmp.1" && mv "$reg/x.tmp.1" "$reg/mc-alpha-worker-0000000022"
 printf '1793500000:t22\thash\t%s\tidle\n' $((NOW - 7200)) >"$stall/mc-alpha-worker-0000000022"
 row mc-alpha-worker-00000000bb worker 1793500000 tb beta
 mkdir -p "$sj/mc-alpha-worker-00000000bb"
@@ -761,6 +761,17 @@ rm -f "$runtime/throughput-last"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 46800))
 expect_out "and is raised afresh when it goes blind again" "raised${tab}unknown:ci${tab}0"
 unset GH_FIXTURE_FAIL
+# The cost curve is a source too: unreadable captures are raised alone.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$sj"
+  chmod 000 "$sj"
+  rm -f "$runtime/throughput-last" "$runtime/throughput-raised"
+  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 50000))
+  events
+  expect_out "an unreadable cost source is raised alone like any other" "throughput-unknown${tab}throughput-unknown-cost${tab}Not measured: cost (cannot read"
+  chmod 755 "$sj"
+  rm -rf "$sj"
+fi
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 
 # ---------------------------------------------------------------------------
