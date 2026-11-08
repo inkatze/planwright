@@ -159,6 +159,14 @@ rec "$steps/000002/002-step-convergence.rec" polish 2026-11-01T11:20:00Z 2026-11
 rec "$steps/000002/003-step-convergence.rec" cubic-pr 2026-11-01T11:00:00Z 2026-11-01T11:59:00Z skipped 000002 003
 rec "$steps/000002/004-step-convergence.rec" lint 2026-10-29T11:00:00Z 2026-10-29T13:00:00Z passed 000002 004
 printf 'type\tcompletion\nrun\t000002\nseq\t005\npoint\tconvergence\n' >"$steps/000002/005-done-convergence.rec"
+# A reclaimed copy of the worktree still on disk holds the same record, and
+# a reclaimed cache of an earlier worktree of the same branch reuses a run
+# id and sequence for a different record.
+rsteps="$mchome/reclaimed/repo/feature/.claude/steps"
+mkdir -p "$rsteps/000001" "$mchome/reclaimed/repo/old/feature/.claude/steps/000001"
+cp "$steps/000001/002-step-convergence.rec" "$rsteps/000001/"
+rec "$mchome/reclaimed/repo/old/feature/.claude/steps/000001/002-step-convergence.rec" audit 2026-11-01T10:00:00Z 2026-11-01T10:30:00Z passed 000001 002
+chmod 700 "$rsteps" "$mchome/reclaimed/repo/old/feature/.claude/steps"
 
 # ---------------------------------------------------------------------------
 # Each measurement.
@@ -184,6 +192,8 @@ expect_out "an empty registry field shifts no other" "stall${tab}mc-alpha-worker
 expect_out "the launch key is cleaned as the stall detector cleans it" "stall${tab}mc-alpha-worker-0000000007${tab}idle${tab}130"
 expect_out "a slow step, naming its branch" "step${tab}polish${tab}2${tab}2400${tab}4800${tab}3000${tab}feature"
 expect_no_out "a skipped step is not measured" "cubic-pr"
+expect_out "a reclaimed cache's own record, the same run id aside, is measured" "step${tab}audit${tab}1${tab}1800${tab}1800${tab}1800${tab}old/feature"
+expect_out "every record folder is read" "source${tab}steps${tab}ok${tab}3 record folders"
 expect_no_out "a step that ended before the window is not measured" "step${tab}lint"
 
 # ---------------------------------------------------------------------------

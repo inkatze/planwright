@@ -460,21 +460,23 @@ EOF
   [ -z "$ms_out" ] || printf '%s' "$ms_out"
 }
 
-# step_rows <dir> <branch>: <step><TAB><seconds><TAB><branch><TAB><run>:<seq>
-# per step record under <dir> that ended inside the window.
+# step_rows <worktree> <branch>: <step><TAB><seconds><TAB><branch><TAB>
+# <record identity> per step record of <worktree>'s cache that ended inside
+# the window, read through scripts/step-record.sh, the cache's one reader.
 step_rows() {
-  B=$2 SINCE=$SINCE find "$1" -type f -name '*-step-*.rec' -exec awk -F '\t' "$ISO_AWK"'
+  sr_list=$(/bin/sh "$script_dir/step-record.sh" --worktree "$1" list 2>/dev/null </dev/null) || return 1
+  printf '%s\n' "$sr_list" | B=$2 SINCE=$SINCE awk -F '\t' "$ISO_AWK"'
     function flush() {
-      if (f == "") return
       if (v["type"] == "step" && v["outcome"] != "skipped" && v["step"] ~ /^[A-Za-z0-9._-]+$/) {
         s = iso(v["start"]); e = iso(v["end"])
-        if (s >= 0 && e >= s && e >= ENVIRON["SINCE"] + 0) print v["step"] "\t" (e - s) "\t" ENVIRON["B"] "\t" v["run"] ":" v["seq"]
+        if (s >= 0 && e >= s && e >= ENVIRON["SINCE"] + 0)
+          print v["step"] "\t" (e - s) "\t" ENVIRON["B"] "\t" v["run"] ":" v["seq"] ":" v["point"] ":" v["start"] ":" v["end"]
       }
       delete v
     }
-    FILENAME != f { flush(); f = FILENAME }
-    { v[$1] = substr($0, length($1) + 2) }
-    END { flush() }' {} + 2>/dev/null
+    $1 == "record" || $0 == "" { flush() }
+    $0 != "" && !($1 in v) { v[$1] = substr($0, length($1) + 2) }
+    END { flush() }'
 }
 
 measure_steps() {
@@ -487,18 +489,23 @@ measure_steps() {
   st_n=0
   while IFS= read -r st_repo; do
     [ -n "$st_repo" ] || continue
-    st_wts=$(mc_untrusted_git -C "$st_repo" worktree list --porcelain 2>/dev/null) || {
+    # NUL-separated fields become lines, and a newline inside a path a
+    # \001, so a worktree whose path holds a newline or a tab is passed
+    # over rather than misread.
+    st_pairs=$({ mc_untrusted_git -C "$st_repo" worktree list --porcelain -z 2>/dev/null || printf '\0failed\0'; } \
+      | tr '\n\000' '\001\n' | awk '
+        function emit() { if (w != "" && w !~ /[\001\t]/) print w "\t" b }
+        $0 == "failed" { bad = 1 }
+        /^worktree / { emit(); w = substr($0, 10); b = "-" }
+        /^branch refs\/heads\// { b = substr($0, 19) }
+        END { if (bad) exit 1; emit() }') || {
       unknown steps "cannot list the worktrees of $st_repo"
       return 0
     }
-    st_pairs=$(printf '%s\n' "$st_wts" | awk '
-      /^worktree / { if (w != "") print w "\t" b; w = substr($0, 10); b = "-" }
-      /^branch refs\/heads\// { b = substr($0, 19) }
-      END { if (w != "") print w "\t" b }')
     while IFS='	' read -r st_wt st_branch; do
       [ -n "$st_wt" ] && [ -d "$st_wt/.claude/steps" ] || continue
       st_n=$((st_n + 1))
-      st_out=$(step_rows "$st_wt/.claude/steps" "$st_branch") || {
+      st_out=$(step_rows "$st_wt" "$st_branch") || {
         unknown steps "cannot read the step records of $st_wt"
         return 0
       }
@@ -528,7 +535,7 @@ EOF
       st_rel=${st_rel%/.claude/steps}
       st_branch=${st_rel#*/}
       st_n=$((st_n + 1))
-      st_out=$(step_rows "$st_d" "$st_branch") || {
+      st_out=$(step_rows "${st_d%/.claude/steps}" "$st_branch") || {
         unknown steps "cannot read the step records of $st_d"
         return 0
       }
@@ -540,8 +547,9 @@ EOF
   fi
   printf 'source\tsteps\tok\t%s record folders\n' "$st_n"
   [ -n "$st_rows" ] || return 0
-  # A reclaimed copy of a worktree still on disk holds the same records.
-  printf '%s' "$st_rows" | awk -F '\t' '!(($3, $4) in seen) { seen[$3, $4] = 1; print $1 "\t" $2 "\t" $3 }' \
+  # A reclaimed copy of a worktree still on disk holds the same records;
+  # another cache of the same branch reuses run ids for other records.
+  printf '%s' "$st_rows" | awk -F '\t' '!(($1, $3, $4) in seen) { seen[$1, $3, $4] = 1; print $1 "\t" $2 "\t" $3 }' \
     | aggregate | awk '{ print "step\t" $0 }'
 }
 
