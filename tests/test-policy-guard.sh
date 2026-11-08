@@ -859,7 +859,8 @@ git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git pu
 cd $UNIT
 git push" "$MAIN|if false; then repeat 1 do :; done; cd $UNIT; fi; git push" \
   "$MAIN|cd $UNIT </nonexistent; git push" "$MAIN|cd $UNIT >/; git push" \
-  "$MAIN|cd $UNIT 2>/dev/null && false || git push"; do
+  "$MAIN|cd $UNIT 2>/dev/null && false || git push" \
+  "$MAIN|noglob cd $UNIT; git push" "$MAIN|nocorrect cd $UNIT; git push"; do
   cmd=${spec#*|}
   pg worker "$cmd" "${spec%%|*}"
   expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
@@ -902,6 +903,10 @@ done
 # A reserved word after a redirect only stops later cds being followed.
 pg worker '>/dev/null time true; git push'
 expect defer "[worker] a redirect before a reserved word leaves a command with no cd judged as before"
+for cmd in 'repeat 1 true; git push' 'coproc true; git push'; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd stops only later cds being followed"
+done
 # zsh runs a command of redirects alone as cat, passing piped text on.
 for cmd in "echo 'git push origin main' | >/dev/stdout | bash" "echo 'git push origin main' |& >/dev/stdout | bash" \
   "echo 'git push origin main' | x=1 >/dev/stdout | bash"; do
