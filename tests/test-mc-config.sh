@@ -665,6 +665,11 @@ expect_out "the override names the layer in force and its value" "override${tab}
 printf '%s\n' "$tracked_good" >"$tracked"
 rm -f "$layer"
 
+printf '%s\n' 'mission_control_kb_index_budget: 0150' >"$layer"
+cfg doctor --program alpha
+rm -f "$layer"
+expect_out "a value equal to the shipped one only as a number is an override" "override${tab}mission_control_kb_index_budget${tab}adopter${tab}0150${tab}150"
+
 printf '%s\n' 'mission_control_launch_backend: bogus' >>"$tracked"
 cfg doctor --program alpha
 printf '%s\n' "$tracked_good" >"$tracked"

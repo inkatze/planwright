@@ -767,7 +767,9 @@ doctor_overrides() {
         # The core layer read can come from another install than this script.
         if (!(k in core))
           print "unknown\toverrides\t" k " is set in " layer[k] " but the shipped defaults read give it no value to compare"
-        else if (layer[k] != "core" && last[k] != core[k])
+        # Concatenation forces a string compare: awk compares two numeric
+        # fields as numbers, so 0150 would equal the shipped 150.
+        else if (layer[k] != "core" && (last[k] "") != (core[k] ""))
           print "override\t" k "\t" layer[k] "\t" last[k] "\t" core[k]
       }
     }'
