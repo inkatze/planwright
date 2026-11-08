@@ -181,6 +181,28 @@ FLEET=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
 RUNTIME="$FLEET/mission-control/$program"
 mkdir -p "$RUNTIME" 2>/dev/null || mc_fail "cannot create the runtime directory of program $program"
 
+# own_session <name>: whether a stream-json session is this program's. Its
+# registry row decides when it has one; otherwise only the launcher's
+# readable name, mc-<program>-<kind>-<10 hex>, does (a longer program name
+# falls back to a name that carries no program, so it needs the row).
+own_session() {
+  os_row="$FLEET/mission-control/sessions/$1"
+  if [ -f "$os_row" ] && [ ! -L "$os_row" ]; then
+    [ "$(mc_kv "$os_row" program 2>/dev/null)" = "$program" ]
+    return
+  fi
+  os_rest=${1#"mc-$program-"}
+  [ "$os_rest" != "$1" ] || return 1
+  [ -n "${KINDS+x}" ] || KINDS=$(/bin/sh "$script_dir/mission-control-launch.sh" kinds 2>/dev/null </dev/null | cut -f1)
+  for os_k in $KINDS; do
+    case ${os_rest#"$os_k-"} in
+      "$os_rest") ;;
+      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 unknown() { # unknown <source> <reason>
   printf 'source\t%s\tunknown\t%s\n' "$1" "$(printf '%s' "$2" | tr '\t\n' '  ' | mc_clean_text)"
 }
@@ -340,8 +362,9 @@ measure_approvals() {
   ma_rows=""
   ma_n=0
   set +f
-  for ma_d in "$ma_root/mc-$program-"*/; do
+  for ma_d in "$ma_root"/mc-*/; do
     ma_d=${ma_d%/}
+    own_session "${ma_d##*/}" || continue
     [ -e "$ma_d/journal" ] || continue
     if ! ma_out=$(W=${ma_d##*/} SINCE=$SINCE NOW=$NOW awk -F '\t' '
         $2 == "permission" && $3 ~ /^[0-9]+$/ {
@@ -562,8 +585,9 @@ curve() {
   cv_rows=""
   cv_n=0
   set +f
-  for cv_d in "$cv_root/mc-$program-"*/; do
+  for cv_d in "$cv_root"/mc-*/; do
     cv_d=${cv_d%/}
+    own_session "${cv_d##*/}" || continue
     cv_e="$cv_d/events.jsonl"
     [ -f "$cv_e" ] || continue
     # Inside the window: written since its start.
