@@ -445,7 +445,9 @@ measure_approvals() {
       unknown approvals "cannot read the folder of ${ma_d##*/}"
       return 0
     }
-    [ -f "$ma_d/journal" ] || continue
+    # A link (to another session's journal, say) is not read, so no journal
+    # counts twice.
+    [ ! -L "$ma_d" ] && [ -f "$ma_d/journal" ] && [ ! -L "$ma_d/journal" ] || continue
     if ! ma_out=$(W=${ma_d##*/} SINCE=$SINCE NOW=$NOW awk -F '\t' '
         # An epoch second has at most 12 digits; a longer one would print
         # as an exponent no shell arithmetic reads.
@@ -508,7 +510,8 @@ measure_stalls() {
     [ -n "$ms_key" ] || continue
     ms_n=$((ms_n + 1))
     ms_sample="$RUNTIME/stall/${ms_row##*/}"
-    if [ -f "$ms_sample" ]; then
+    # scripts/mc-stall.sh refuses a linked sample; so does this reader.
+    if [ -f "$ms_sample" ] && [ ! -L "$ms_sample" ]; then
       ms_line=$(head -n 1 "$ms_sample" 2>/dev/null) && [ -r "$ms_sample" ] || {
         if [ -e "$ms_sample" ]; then
           set -f
@@ -740,7 +743,7 @@ curve() {
       return 0
     }
     cv_e="$cv_d/events.jsonl"
-    [ -f "$cv_e" ] || continue
+    [ ! -L "$cv_d" ] && [ -f "$cv_e" ] && [ ! -L "$cv_e" ] || continue
     # Inside the window: written since its start.
     # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
     cv_m=$(stat -c %Y "$cv_e" 2>/dev/null || stat -f %m "$cv_e" 2>/dev/null) || {

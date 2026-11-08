@@ -527,6 +527,11 @@ mkfifo "$sj/mc-alpha-worker-0000000011/journal"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "measure beside a FIFO journal" 0
 expect_out "a pending request's zero wait is a number" "approvals${tab}permission${tab}1${tab}0${tab}0${tab}0${tab}mc-alpha-worker-0000000012${tab}1${tab}0"
+# A journal that is a symbolic link is not read, so no journal counts twice.
+mkdir -p "$sj/mc-alpha-worker-0000000013"
+ln -s ../mc-alpha-worker-0000000012/journal "$sj/mc-alpha-worker-0000000013/journal"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "a linked journal is not read" "approvals${tab}permission${tab}1${tab}0${tab}0${tab}0${tab}mc-alpha-worker-0000000012${tab}1${tab}0"
 
 # A total counts only the time inside the window: a request, a stall or a
 # step that began before it keeps its own length as its typical value.
