@@ -315,8 +315,15 @@ outcome() {
 "
 }
 
+# handover_text <windows>: the turn a stopped session is resumed with; with
+# no windows (a drain outside a reset), it claims no reset.
 handover_text() {
-  printf '%s\n' "[mission control: usage reset] The ${1:-account} usage window reset at $(mc_iso "$NOW"). Your run stopped on a usage limit; pick your unit up where it stopped. Re-read its state first (git status and log, the open pull request, your step records), then continue."
+  if [ -n "$1" ]; then
+    ht_what="The $1 usage window reset at $(mc_iso "$NOW")."
+  else
+    ht_what="Mission control resumed held work at $(mc_iso "$NOW")."
+  fi
+  printf '%s\n' "[mission control: usage reset] $ht_what Your run stopped on a usage limit; pick your unit up where it stopped. Re-read its state first (git status and log, the open pull request, your step records), then continue."
 }
 
 last_line() { sanitize_printable "$(printf '%s\n' "$1" | tail -n 1)" - | cut -c1-200; }
