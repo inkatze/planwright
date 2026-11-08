@@ -152,6 +152,7 @@ old=$(rec_pid "$watch_slot")
 kill "$old"
 check "a stop inside an open streak" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
 mc_run mc-watch.sh pass --program alpha
+expect_rc "a pass inside an open streak" 0
 expect_no_out "raises no second failure while the streak stays open" "failing${tab}"
 # A death seen again after a failed pass carries the same pid: one stop.
 rm -f "$wdir/$watch_slot.failing"
@@ -160,7 +161,32 @@ printf '%s %s\n%s %s\n' $((t_now - 120)) 1 $((t_now - 60)) "$old" >"$wdir/$watch
 kill "$old"
 check "a death already counted" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
 mc_run mc-watch.sh pass --program alpha
+expect_rc "a pass over a death already counted" 0
 expect_no_out "is not counted twice toward a failure" "failing${tab}"
+# A failed alert is retried on the next pass, never lost: a copy of the
+# scripts whose event writer refuses one watcher-failing.
+flaky="$tmp/flaky"
+cp -R "$repo_root/scripts" "$flaky"
+mv "$flaky/mc-event.sh" "$flaky/mc-event-real.sh"
+cat >"$flaky/mc-event.sh" <<FLAKY
+#!/bin/bash
+case " \$* " in
+  *" watcher-failing "*) if [ -f "$flaky/refuse" ]; then rm -f "$flaky/refuse"; exit 1; fi ;;
+esac
+exec /bin/bash "$flaky/mc-event-real.sh" "\$@"
+FLAKY
+: >"$flaky/refuse"
+rm -f "$wdir/$watch_slot.failing"
+printf '%s\n%s\n' $((t_now - 120)) $((t_now - 60)) >"$wdir/$watch_slot.stops"
+old=$(rec_pid "$watch_slot")
+kill "$old"
+check "a third stop whose alert is refused" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+OUT=$(mc_env /bin/bash "$flaky/mc-watch.sh" pass --program alpha 2>"$tmp/stderr")
+RC=$?
+expect_rc "the pass whose alert is refused fails" 1
+check "and leaves the streak unraised" test ! -f "$wdir/$watch_slot.failing"
+mc_run mc-watch.sh pass --program alpha
+expect_out "the next pass raises the failure" "failing${tab}alpha-duty${tab}scripts/alpha-watch.sh${tab}e"
 
 # A process whose arguments merely end like the slot's loop is not trusted.
 loop_pid=$(rec_pid "$watch_slot")
