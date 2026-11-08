@@ -1,7 +1,7 @@
 # Fleet Hardening — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -86,9 +86,10 @@ mechanism under D-1, enforcing an existing rule rather than stating a new one (D
   primitive's own launch construction (a code path, not skill prose the model must remember), through
   a launch shape the worker's permission layer auto-approves so applying the pin never forces a
   bare-launch fallback that drops it.
-- Correct-glob allow-rule discipline: path-scoped Bash allow rules use the `Bash(<dir>/*)` form,
-  never the word-boundary `Bash(<dir>/:*)` form that never matches `<dir>/<file>`, plus a mechanical
-  check that flags the footgun.
+- Exact-path allow-rule discipline: path-scoped Bash allow rules name one exact script path, never
+  `Bash(<dir>/*)` (a traversal, since `*` matches `/` and `..`) and never the word-boundary
+  `Bash(<dir>/:*)` form that never matches `<dir>/<file>`, plus mechanical checks that flag both.
+  *(Amended at amendment 2026-11-08: the `/*` form is superseded, REQ-B1.5.)*
 - Deterministic D-36 branch naming at tmux-backend dispatch (`planwright/<spec>/task-<id>`), owned by
   the dispatch primitive (create-then-attach) so no manual post-launch `git branch -m` rename is
   required.
@@ -231,10 +232,22 @@ mechanism under D-1, enforcing an existing rule rather than stating a new one (D
   `Bash(<path>/:*)` directory-scoped rule as a likely never-match footgun.
   *(Cites: obs:1d6a2b76 ·)*
   drafting-session decision (2026-07-19).
+  **Superseded-by: REQ-B1.5** (2026-11-08) — `Bash(<dir>/*)` is itself unsafe: Claude Code's `*`
+  matches `/` and `..`, so it admits `<dir>/../<anything>`.
 - **REQ-B1.4** The tmux-backend dispatch primitive SHALL produce a worktree on the canonical bootstrap D-36
   branch `planwright/<spec>/task-<id>` deterministically at launch, with no manual post-launch
   `git branch -m` rename step.
   *(Cites: obs:4e24463c.)*
+- **REQ-B1.5** (supersedes REQ-B1.3) Any shipped or documented path-scoped Bash allow rule SHALL
+  name one exact script path, with no `*` and no `..` segment in its command path; a trailing
+  `:*` or a space and `*` after the path, scoping arguments, is permitted. Neither `Bash(<dir>/*)` (a
+  traversal: `*` matches `/` and `..`) nor `Bash(<dir>/:*)` (a never-match: `:*` needs a following
+  space or end-of-string) SHALL be shipped or recommended. Mechanical checks SHALL flag both: the
+  never-match `:*` directory form, and any wildcard or `..` in an allow rule's command path,
+  naming the exact-path replacement. A flagged rule in planwright's shipped profiles or a
+  checkout's settings SHALL fail the gate; a flagged rule in the user's home settings SHALL only
+  warn, since those files are the user's and the check never edits them.
+  *(Cites: D-20 · PR #862 · obs:1d6a2b76.)*
 
 ## REQ-C — Tower self-governance
 
@@ -479,6 +492,12 @@ mechanism under D-1, enforcing an existing rule rather than stating a new one (D
 
 ## Changelog
 
+- 2026-11-08 — Amendment (`/spec-kickoff`, meaning-class, post-merge supersede): REQ-B1.5
+  supersedes REQ-B1.3 and D-20 supersedes D-6. Path-scoped allow rules name exact script paths;
+  `Bash(<dir>/*)` is no longer the recommended form, since `*` matches `/` and `..` and the rule
+  admits a walk out of the directory. A second check flags wildcard and `..` command paths,
+  failing on shipped and checkout settings and warning on the user's home settings. Task 6 stays
+  completed; the correction ships in PR #862, outside the task graph.
 - 2026-10-10 — Extension kickoff (`/spec-kickoff`, delta walk and lens review; the bundle is Draft,
   edits in place). The floor now protects any git repository rather than the session's own, so a
   tower handling several projects or running from a separate clone is covered, and it no longer
