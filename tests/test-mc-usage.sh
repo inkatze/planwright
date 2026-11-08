@@ -54,6 +54,7 @@ export PLANWRIGHT_USAGE_MIRROR="$mirror"
 # for claude. A resumed session stays up reading its stdin, so a handover
 # steered into it is recorded.
 reset_mc_fixture
+write_mc_posture_pass
 cp "$repo_root/config/defaults.yml" "$core/config/defaults.yml"
 for p in worker tower mission-control; do
   cp "$repo_root/config/$p-settings.json" "$core/config/"
