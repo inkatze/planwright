@@ -310,12 +310,24 @@ mkdir -p "$sj/mc-alpha-worker-0000000001" "$sj/mc-alpha-worker-0000000002" "$sj/
   printf '%s\n' 'not json'
   printf '%s\n' '{"type":"assistant","message":{"id":"m2","usage":{"input_tokens":0,"cache_read_input_tokens":90000,"cache_creation_input_tokens":0,"output_tokens":200}}}'
   printf '%s\n' '{"type":"result","modelUsage":{"claude-opus-5-5":{"contextWindow":200000}}}'
+  printf '%s\n' '{"type":"assistant","message":"a frame jq cannot index, last"}'
 } >"$sj/mc-alpha-worker-0000000001/events.jsonl"
 printf '%s\n' '{"type":"assistant","message":{"id":"m3","usage":{"input_tokens":1000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000002/events.jsonl"
 printf 'format\t1\npercent\t1\ntokens\t1000\nwindow\t100000\nat\t%s\n' "$NOW" >"$fleet/mission-control/context/mc-alpha-worker-0000000002"
 printf '%s\n' '{"type":"assistant","message":{"id":"m4","usage":{"input_tokens":5000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000005/events.jsonl"
+# Cache writes reported without the 5-minute and 1-hour breakdown, beside a
+# context reading of an unknown format; a capture holding only a result
+# frame; and a request past its window.
+mkdir -p "$sj/mc-alpha-worker-0000000008" "$sj/mc-alpha-worker-0000000009" "$sj/mc-alpha-worker-0000000010"
+printf '%s\n' '{"type":"assistant","message":{"id":"m5","usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":1000,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000008/events.jsonl"
+printf 'format\t2\nwindow\t100000\n' >"$fleet/mission-control/context/mc-alpha-worker-0000000008"
+printf '%s\n' '{"type":"result","modelUsage":{"claude-opus-5-5":{"contextWindow":200000}}}' >"$sj/mc-alpha-worker-0000000009/events.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"id":"m6","usage":{"input_tokens":120000,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000010/events.jsonl"
+printf 'format\t1\nwindow\t100000\n' >"$fleet/mission-control/context/mc-alpha-worker-0000000010"
+printf 'mission_control_throughput_thresholds: {ci-queue: 5m}\n' >>"$tracked"
 mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
-expect_rc "curve" 0
+expect_rc "curve, which reads no threshold" 0
+grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 expect_out "a request's last frame, its percent of the capture's window, and its cost" "request${tab}mc-alpha-worker-0000000001${tab}1${tab}10${tab}20000${tab}200000${tab}21498"
 expect_out "a later request higher on the curve" "request${tab}mc-alpha-worker-0000000001${tab}2${tab}45${tab}90000${tab}200000${tab}10000"
 expect_out "a capture with no result frame takes the session's context reading" "request${tab}mc-alpha-worker-0000000002${tab}1${tab}1${tab}1000${tab}100000${tab}1000"
@@ -323,7 +335,20 @@ expect_out "a request with no known window is unknown, not 0%" "request${tab}mc-
 expect_out "the bands" "curve${tab}0-9%${tab}1${tab}1000${tab}1000"
 expect_out "the 10% band" "curve${tab}10-19%${tab}1${tab}20000${tab}21498"
 expect_out "the 40% band" "curve${tab}40-49%${tab}1${tab}90000${tab}10000"
-expect_out "unknown-window requests are counted apart" "curve${tab}unknown${tab}1"
+expect_out "unknown-window requests are counted apart" "curve${tab}unknown${tab}2"
+expect_out "a frame jq cannot index costs the capture nothing" "source${tab}cost${tab}ok${tab}6 captures"
+expect_out "undivided cache writes are priced as 5-minute writes; an unknown context format gives no window" \
+  "request${tab}mc-alpha-worker-0000000008${tab}1${tab}-${tab}1000${tab}-${tab}1250"
+expect_no_out "a capture of only a result frame adds no request" "request${tab}mc-alpha-worker-0000000009"
+expect_out "a request past its window lands in the top band" "curve${tab}100+%${tab}1${tab}120000${tab}120000"
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$sj"
+  mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
+  expect_out "an unreadable capture folder is unknown, not empty" "source${tab}cost${tab}unknown${tab}cannot read $sj"
+  chmod 755 "$sj"
+else
+  ok "an unreadable capture folder (skipped as root)"
+fi
 
 # ---------------------------------------------------------------------------
 # Under the runner: no arguments, the program from the environment.

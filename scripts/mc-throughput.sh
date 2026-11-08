@@ -163,10 +163,14 @@ knob_secs() { # knob_secs <key>
   ks=$(mc_knob "$1" mc_parse_cadence) || exit 1
   mc_seconds "$ks"
 }
-# load_knobs: the window and the thresholds, for a verb that measures.
-load_knobs() {
+# load_window: the window, for every verb that reads; load_knobs: it and the
+# thresholds, for a verb that measures.
+load_window() {
   WINDOW=$(knob_secs mission_control_throughput_window) || exit 1
   SINCE=$((NOW - WINDOW))
+}
+load_knobs() {
+  load_window
   THRESHOLDS=$(mc_knob mission_control_throughput_thresholds parse_thresholds) || exit 1
   CI_RUNS=$(mc_knob mission_control_throughput_ci_runs parse_ci_runs) || exit 1
 }
@@ -607,6 +611,10 @@ curve() {
     printf 'source\tcost\tok\t0 captures\n'
     return 0
   }
+  [ -r "$cv_root" ] && [ -x "$cv_root" ] || {
+    unknown cost "cannot read $cv_root"
+    return 0
+  }
   cv_rows=""
   cv_n=0
   set +f
@@ -623,15 +631,20 @@ curve() {
       return 0
     }
     [ "$cv_m" -ge "$SINCE" ] 2>/dev/null || continue
-    cv_out=$(jq -R -r 'fromjson? |
+    # Every frame is judged alone and a malformed one yields nothing, since
+    # jq's exit status reflects only its last input. A usage with no
+    # cache_creation breakdown reports its cache writes as 5-minute ones.
+    cv_out=$(jq -R -r 'fromjson? | try (
       if .type == "assistant" and (.message.usage | type) == "object" then
-        .message.usage as $u | ["m", (.message.id // "-"), ($u.input_tokens // 0), ($u.cache_read_input_tokens // 0),
-          ($u.cache_creation.ephemeral_5m_input_tokens // 0),
-          (if $u.cache_creation then ($u.cache_creation.ephemeral_1h_input_tokens // 0) else ($u.cache_creation_input_tokens // 0) end),
+        .message.usage as $u
+        | (if ($u.cache_creation | type) == "object"
+          then [($u.cache_creation.ephemeral_5m_input_tokens // 0), ($u.cache_creation.ephemeral_1h_input_tokens // 0)]
+          else [($u.cache_creation_input_tokens // 0), 0] end) as $w
+        | ["m", (.message.id // "-"), ($u.input_tokens // 0), ($u.cache_read_input_tokens // 0), $w[0], $w[1],
           ($u.output_tokens // 0)] | @tsv
       elif .type == "result" and (.modelUsage | type) == "object" then
         ["w", ([.modelUsage[] | .contextWindow // 0] | max // 0)] | @tsv
-      else empty end' "$cv_e" 2>/dev/null) || {
+      else empty end) catch empty' "$cv_e" 2>/dev/null) || {
       set -f
       unknown cost "cannot read the capture of ${cv_d##*/}"
       return 0
@@ -639,9 +652,11 @@ curve() {
     cv_n=$((cv_n + 1))
     cv_ctx="$FLEET/mission-control/context/${cv_d##*/}"
     cv_fw=-
-    [ ! -f "$cv_ctx" ] || cv_fw=$(mc_kv "$cv_ctx" window 2>/dev/null) || cv_fw=-
+    if [ -f "$cv_ctx" ] && [ "$(mc_kv "$cv_ctx" format 2>/dev/null)" = 1 ]; then
+      cv_fw=$(mc_kv "$cv_ctx" window 2>/dev/null) || cv_fw=-
+    fi
     [ -n "$cv_out" ] || continue
-    cv_rows="$cv_rows$(printf '%s\n' "$cv_out" | S=${cv_d##*/} FW=$cv_fw awk -F '\t' '
+    cv_req=$(printf '%s\n' "$cv_out" | S=${cv_d##*/} FW=$cv_fw awk -F '\t' '
       $1 == "w" && $2 + 0 > win { win = $2 + 0 }
       # A message streams as several frames under one id: the last one holds
       # its final usage.
@@ -655,6 +670,7 @@ curve() {
           print "request\t" ENVIRON["S"] "\t" i "\t" (win ? int(ctx * 100 / win) : "-") "\t" ctx "\t" (win ? win : "-") "\t" int(cost + 0.5)
         }
       }')
+    [ -z "$cv_req" ] || cv_rows="$cv_rows$cv_req
 "
   done
   set -f
@@ -664,7 +680,7 @@ curve() {
   printf '%s' "$cv_rows" | awk -F '\t' '$4 == "-" { u++ } END { if (u) print "curve\tunknown\t" u }'
   printf '%s' "$cv_rows" | awk -F '\t' '$4 != "-" { b = int($4 / 10) * 10; if (b > 100) b = 100; print sprintf("%03d", b) "\t" $5 "\t" $7 }' \
     | sort -t '	' -k1,1 -k2,2n | awk -F '\t' '
-      function flush() { if (!have) return; med = (c % 2) ? v[(c + 1) / 2] : int((v[c / 2] + v[c / 2 + 1]) / 2); print "curve\t" (k + 0) "-" (k + 9) "%\t" c "\t" med "\t" int(cost / c + 0.5) }
+      function flush() { if (!have) return; med = (c % 2) ? v[(c + 1) / 2] : int((v[c / 2] + v[c / 2 + 1]) / 2); print "curve\t" (k + 0 >= 100 ? "100+" : (k + 0) "-" (k + 9)) "%\t" c "\t" med "\t" int(cost / c + 0.5) }
       NR == 1 || $1 != k { flush(); have = 1; k = $1; c = 0; cost = 0 }
       { v[++c] = $2; cost += $3 }
       END { flush() }'
@@ -689,7 +705,7 @@ case $verb in
     fi
     ;;
   curve)
-    load_knobs
+    load_window
     curve
     ;;
   watch)
