@@ -997,6 +997,31 @@ E\F
 git push
 EF' "$MAIN"
 expect deny "[worker] a backslash-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<"E\"F"
+x
+E"F
+git push
+E\"F' "$MAIN"
+expect deny "[worker] an escape inside a double-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<E\
+F
+x
+EF
+git push
+E' "$MAIN"
+expect deny "[worker] a line-continued here-document delimiter cannot hide a push"
+pg worker 'cat <<E
+x
+E\
+
+git push
+E' "$MAIN"
+expect deny "[worker] a line continuation in a here-document body cannot hide a push"
+pg worker 'cat <<'"'"'E'"'"'
+x\
+E
+git status' "$MAIN"
+expect defer "[worker] a quoted here-document body may end a line with a backslash"
 mkdir -p "$SANDBOX/nojq"
 for t in head tr dirname cat; do ln -sf "$(command -v "$t")" "$SANDBOX/nojq/$t"; done
 NOJQ_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr ready 42"}}' \

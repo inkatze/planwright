@@ -662,6 +662,9 @@ tokenize() {
         line=${s:i}
         line=${line%%"$NL"*}
         i=$((i + ${#line} + 1))
+        # bash joins a line ending in a backslash to the next one in an
+        # unquoted body before matching the delimiter.
+        case "${pending_quoted[$k]}:$line" in 0:*"\\") return 1 ;; esac
         cand=$line
         [ "${pending_tabs[$k]}" = 0 ] || cand=${cand#"${cand%%[!"$TAB"]*}"}
         [ "$cand" != "${pending_delims[$k]}" ] || break
@@ -814,6 +817,9 @@ tokenize() {
                 quoted=1
                 i=$((i + 1))
                 while [ "$i" -lt "$n" ] && [ "${s:i:1}" != "$q" ]; do
+                  # Inside double quotes a backslash may escape the next
+                  # character, which the delimiter would then lose.
+                  [ "$q" = "'" ] || [ "${s:i:1}" != "\\" ] || return 1
                   delim="$delim${s:i:1}"
                   i=$((i + 1))
                 done
@@ -822,7 +828,8 @@ tokenize() {
               "\\")
                 quoted=1
                 i=$((i + 1))
-                [ "$i" -lt "$n" ] || return 1
+                # A backslash-newline joins the lines instead.
+                [ "$i" -lt "$n" ] && [ "${s:i:1}" != "$NL" ] || return 1
                 delim="$delim${s:i:1}"
                 ;;
               # bash reads $'..' and $".." as quotes here, and drops the $.
@@ -893,7 +900,7 @@ tokenize() {
       "$NL")
         flush_seg "$NL" || return 1
         i=$((i + 1))
-        [ "${#pending_delims[@]}" = 0 ] || read_heredocs
+        [ "${#pending_delims[@]}" = 0 ] || read_heredocs || return 1
         ;;
       ' ' | "$TAB")
         flush_word || return 1
@@ -948,7 +955,7 @@ tokenize() {
     esac
   done
   flush_seg '' || return 1
-  [ "${#pending_delims[@]}" = 0 ] || read_heredocs
+  [ "${#pending_delims[@]}" = 0 ] || read_heredocs || return 1
   return 0
 }
 
