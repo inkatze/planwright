@@ -1161,6 +1161,20 @@ for cmd in '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
   expect deny "[worker, kickoff-demo] an unreadable kickoff spelling denies: $cmd"
 done
+# A command the tokenizer refuses never reaches kickoff_segment, so naming the
+# kickoff push there is refused at every tier.
+for cmd in "{ $KICKOFF_PUSH; }" "($KICKOFF_PUSH)" "x=\$(true); $KICKOFF_PUSH" "cat <<E
+x
+E\\
+
+$KICKOFF_PUSH
+E"; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$SPEC" "$SPEC"
+    expect deny "[$tier, task-1] a kickoff push in a command the guard cannot parse denies: ${cmd//$'\n'/ \\n }"
+    reason_has 'will not analyze' "[$tier, task-1] the deny names the unparsed construct: ${cmd//$'\n'/ \\n }"
+  done
+done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo && git status' "$SPEC" "$SPEC"
 expect defer "[worker, kickoff-demo] a kickoff push chained with a read defers"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'PLANWRIGHT_WORKER_SCOPE=kickoff-demo "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"

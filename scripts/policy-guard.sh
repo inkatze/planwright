@@ -572,8 +572,18 @@ heredoc_substitution_at() {
   HS_BODY=$body
 }
 
+# unparsed_evidence <text> — raw_evidence, or the kickoff push named in any
+# spelling. Only the parse decides the kickoff push (kickoff_segment), so a
+# command the guard cannot parse is refused when it names it.
+unparsed_evidence() {
+  raw_evidence "$1" && return 0
+  lc "${1//[\"\'\\]/}"
+  case $LC in *"$KICK_NAME"*) return 0 ;; esac
+  return 1
+}
+
 deny_unanalyzable() {
-  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
+  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, the kickoff push, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
 }
 
 # --------------------------------------------------------------------------
@@ -4247,7 +4257,7 @@ main() {
     emit_deny 'the PreToolUse payload is larger than this guard reads - refusing (fail closed). Issue the command on its own.'
   fi
   if ! command -v jq >/dev/null 2>&1; then
-    { [ "$surface" = mcp ] || [ "$surface" = file ] || raw_evidence "$input" || mc_settings_named "$input"; } \
+    { [ "$surface" = mcp ] || [ "$surface" = file ] || unparsed_evidence "$input" || mc_settings_named "$input"; } \
       && emit_deny_constant
     return 0
   fi
@@ -4281,7 +4291,7 @@ main() {
   if [ -z "$tool" ]; then
     [ "$surface" != mcp ] \
       || emit_deny 'this update_pull_request payload could not be parsed, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed). Use gh pr ready <number> for a flip.'
-    raw_evidence "$input" \
+    unparsed_evidence "$input" \
       && emit_deny 'the PreToolUse payload could not be parsed and its raw content names a reserved act - refusing (fail closed).'
     mc_settings_named "$input" \
       && emit_deny 'the PreToolUse payload could not be parsed and its raw content names a settings file - refusing (fail closed).'
@@ -4527,7 +4537,7 @@ EOF
 handle_bash() {
   local cmd=$P_CMD
   if [ "$P_CMD_OK" != 1 ] || [ -z "$cmd" ]; then
-    raw_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
+    unparsed_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
     mc_settings_named "$1" && emit_deny "$MC_SETTINGS_DENY"
     return 0
   fi
@@ -4562,7 +4572,7 @@ handle_bash() {
       fi
       ;;
     *)
-      raw_evidence "$cmd" && emit_deny 'this Bash payload carries a malformed cwd and its command names a reserved act - refusing (fail closed).'
+      unparsed_evidence "$cmd" && emit_deny 'this Bash payload carries a malformed cwd and its command names a reserved act - refusing (fail closed).'
       return 0
       ;;
   esac
@@ -4570,11 +4580,11 @@ handle_bash() {
   # bodies included: only the parse can tell a body bash runs from one it
   # hands to a command as data.
   if [ "${#cmd}" -gt "$MAX_CMD_LEN" ]; then
-    raw_evidence "$cmd" && deny_unanalyzable 'this command is too long for the guard to analyze'
+    unparsed_evidence "$cmd" && deny_unanalyzable 'this command is too long for the guard to analyze'
     return 0
   fi
   if ! tokenize "$cmd"; then
-    raw_evidence "$cmd" \
+    unparsed_evidence "$cmd" \
       && deny_unanalyzable 'this command uses a construct the guard will not analyze (command or process substitution, backticks, ANSI-C quoting, or grouping)'
     return 0
   fi
