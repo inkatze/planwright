@@ -154,10 +154,13 @@ check "a stop inside an open streak" poll_until --what "the killed watcher's exi
 mc_run mc-watch.sh pass --program alpha
 expect_rc "a pass inside an open streak" 0
 expect_no_out "raises no second failure while the streak stays open" "failing${tab}"
-# A death seen again after a failed pass carries the same pid: one stop.
+# A death seen again after a failed pass carries the same incarnation (its
+# pid and armed epoch): one stop. The same pid armed at another time is a
+# new incarnation, so a reused pid still counts.
 rm -f "$wdir/$watch_slot.failing"
 old=$(rec_pid "$watch_slot")
-printf '%s %s\n%s %s\n' $((t_now - 120)) 1 $((t_now - 60)) "$old" >"$wdir/$watch_slot.stops"
+incarnation=$(cut -f1,2 "$wdir/$watch_slot.rec" | tr '\t' ':')
+printf '%s %s\n%s %s\n' $((t_now - 120)) "$old:1" $((t_now - 60)) "$incarnation" >"$wdir/$watch_slot.stops"
 kill "$old"
 check "a death already counted" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
 mc_run mc-watch.sh pass --program alpha
@@ -185,8 +188,21 @@ OUT=$(mc_env /bin/bash "$flaky/mc-watch.sh" pass --program alpha 2>"$tmp/stderr"
 RC=$?
 expect_rc "the pass whose alert is refused fails" 1
 check "and leaves the streak unraised" test ! -f "$wdir/$watch_slot.failing"
+mc_run mc-event.sh list --program alpha
+stopped_before=$(printf '%s\n' "$OUT" | grep -c "watcher-stopped${tab}alpha-duty")
 mc_run mc-watch.sh pass --program alpha
 expect_out "the next pass raises the failure" "failing${tab}alpha-duty${tab}scripts/alpha-watch.sh${tab}e"
+mc_run mc-event.sh list --program alpha
+stopped_after=$(printf '%s\n' "$OUT" | grep -c "watcher-stopped${tab}alpha-duty")
+check "the refused pass emitted no stop event, the retry one" test "$stopped_after" -eq $((stopped_before + 1))
+# A pid reused by a later loop is a new incarnation, so it still counts.
+rm -f "$wdir/$watch_slot.failing"
+old=$(rec_pid "$watch_slot")
+printf '%s %s\n%s %s\n' $((t_now - 120)) "$old:1" $((t_now - 60)) "$old:2" >"$wdir/$watch_slot.stops"
+kill "$old"
+check "a stop of a reused pid" poll_until --what "the killed watcher's exit" -- pid_gone "$old"
+mc_run mc-watch.sh pass --program alpha
+expect_out "counts toward a failure" "failing${tab}alpha-duty"
 
 # A process whose arguments merely end like the slot's loop is not trusted.
 loop_pid=$(rec_pid "$watch_slot")
