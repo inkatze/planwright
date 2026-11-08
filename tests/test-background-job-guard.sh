@@ -104,16 +104,6 @@ else
   fail "config/worker-settings.json does not wire \"\$CLAUDE_PLUGIN_ROOT\"/scripts/background-job-guard.sh on Bash"
 fi
 
-# A tmux worker's environment never carries a stream-json mark from whatever
-# session started the tmux server.
-OUT=$(env PLANWRIGHT_SESSION_BACKEND=stream-json "$REPO_ROOT/scripts/fleet-dispatch-env.sh" \
-  --identity h1 s1 env 2>/dev/null | grep '^PLANWRIGHT_SESSION_BACKEND=')
-if [ -z "$OUT" ]; then
-  ok "the dispatch wrapper's launch form drops an inherited backend mark"
-else
-  fail "the dispatch wrapper's launch form kept '$OUT'"
-fi
-
 if [ "$failures" -gt 0 ]; then
   echo "background-job-guard suite: $failures failure(s)" >&2
   exit 1

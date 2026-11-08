@@ -2267,10 +2267,6 @@ cmd_launch() {
   fi
   PLANWRIGHT_MESSAGING_INBOUND=accept
   export PLANWRIGHT_MESSAGING_INBOUND
-  # A stream-json session never resumes on a background job's completion
-  # notice; scripts/background-job-guard.sh refuses its backgrounded calls.
-  PLANWRIGHT_SESSION_BACKEND=stream-json
-  export PLANWRIGHT_SESSION_BACKEND
 
   init_msg=$(mktemp "$dir/.init.XXXXXX") || exit 2
   if [ -n "$resume_sid" ]; then
@@ -2290,7 +2286,10 @@ cmd_launch() {
   # --verbose (required with -p stream-json output), the stdio permission
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
-  set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
+  # A stream-json session never resumes on a background job's completion
+  # notice; scripts/background-job-guard.sh keys its refusal on this mark,
+  # which the wrapper drops from whatever it inherits.
+  set -- "$dispatch_env" env PLANWRIGHT_SESSION_BACKEND=stream-json "$cli" -p --input-format stream-json --output-format stream-json \
     --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"

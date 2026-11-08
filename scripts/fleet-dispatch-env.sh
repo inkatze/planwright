@@ -109,9 +109,8 @@
 #                                           PLANWRIGHT_REPO_ROOT,
 #                                           PLANWRIGHT_ORCH_STATE_DIR, and an
 #                                           inherited
-#                                           PLANWRIGHT_WORKER_SPEC_ROOT,
-#                                           PLANWRIGHT_WORKER_SESSION_RECORD or
-#                                           PLANWRIGHT_SESSION_BACKEND) the tmux
+#                                           PLANWRIGHT_WORKER_SPEC_ROOT or
+#                                           PLANWRIGHT_WORKER_SESSION_RECORD) the tmux
 #                                           server's environment may carry from
 #                                           whichever session started it: a
 #                                           worker is not a tower, and resolves
@@ -511,13 +510,14 @@ fi
 # descendant it spawns; the unconditional set overrides any inherited value.
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
 # The launcher's mark that it already checked its own copy against the record
-# would keep the session from hearing that the copy it runs is stale.
-unset PLANWRIGHT_COPY_CHECKED
+# would keep the session from hearing that the copy it runs is stale, and its
+# backend is not the session's: the stream-json rung sets the session's own
+# after this wrapper.
+unset PLANWRIGHT_COPY_CHECKED PLANWRIGHT_SESSION_BACKEND
 if [ "$opt_pins" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
     PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
-    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD \
-    PLANWRIGHT_SESSION_BACKEND
+    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD
 fi
 if [ -n "$opt_handle" ]; then
   PLANWRIGHT_WORKER_HANDLE=$opt_handle
