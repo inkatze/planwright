@@ -151,10 +151,10 @@ take and resume print, in order:
       retired only part and an item is raised; attended, the operator's
       own session, which has no row; gone, the row was already absent;
       alive, the predecessor's process still ran when the exit wait
-      closed, so it is not reported retired and an item (event
-      handover-predecessor-alive) names the process to close. Without a
-      recorded process, released, attended and gone do not confirm that
-      the session's process has exited
+      closed (after a partial retire too), so it is not reported retired
+      and an item (event handover-predecessor-alive) names the process
+      to close. Without a recorded process, released, attended and gone
+      do not confirm that the session's process has exited
   changed<TAB>decision<TAB><ts><TAB><subject><TAB><act>     (resume)
   changed<TAB>event<TAB><epoch><TAB><kind><TAB><subject>    (resume)
   changed<TAB>none | changed<TAB>unknown<TAB><store>        (resume)
@@ -552,7 +552,7 @@ succeed() {
     s_stranded_state=$RS_STATE
   fi
   if [ -n "$s_from_state" ]; then
-    if [ "$s_from_state" != partial ] && [ -n "$s_pid" ] && ! await_exit "$s_pid" "$s_start"; then
+    if [ -n "$s_pid" ] && ! await_exit "$s_pid" "$s_start"; then
       printf 'retire\t%s\talive\t%s\n' "$s_from" "$s_pid"
       raise handover-predecessor-alive "$s_from" "$s_from was retired from program $program but still runs (process $s_pid); close that session"
       RETIRE_OK=0

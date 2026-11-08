@@ -9,7 +9,7 @@
 # The fixture resolves paths through a cd in a command substitution.
 unset CDPATH
 
-for t in jq git; do
+for t in jq git ps; do
   command -v "$t" >/dev/null 2>&1 || {
     printf '%s\n' "FAIL: $t is required to run this suite" >&2
     exit 1
