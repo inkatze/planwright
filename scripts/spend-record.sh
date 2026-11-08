@@ -67,8 +67,9 @@ digits and . _ = @ : -, never starting with - or a dot alone).
 
 Exit: 0 done; 1 the launch record, its session id, the transcript or any
       usage in it was not found, or a transcript could not be read;
-      2 usage, an unreadable price table, an unresolved fleet home, or a
-      store that cannot be read or written or has an unknown format.
+      2 usage, an unreadable or malformed price table, an unresolved fleet
+      home, or a store that cannot be read or written or has an unknown
+      format.
 EOF
 }
 

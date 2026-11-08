@@ -143,6 +143,16 @@ printf '# only a comment\n' >"$T/noprices.tsv"
 "$SPEND" report --prices "$T/noprices.tsv" "$T/rows.tsv" >/dev/null 2>"$T/np.err"
 assert_exit "report: a price table with no model is refused" 2 $?
 assert_contains "report: the modelless table is named" "defines no model" "$(cat "$T/np.err")"
+printf 'm1\t1000\tx\t100\t1250\t2000\n' >"$T/badprice.tsv"
+"$SPEND" report --prices "$T/badprice.tsv" "$T/rows.tsv" >/dev/null 2>"$T/bp.err"
+assert_exit "report: a non-numeric price is refused" 2 $?
+assert_contains "report: the malformed price line is named" "line 1 is not a model and five prices" "$(cat "$T/bp.err")"
+printf 'm1\t1000\t10000\t-100\t1250\t2000\n' >"$T/negprice.tsv"
+"$SPEND" report --prices "$T/negprice.tsv" "$T/rows.tsv" >/dev/null 2>&1
+assert_exit "report: a negative price is refused" 2 $?
+printf 'm1\t1000\t10000\t100\t1250\t2000\nm2\t1\t2\n' >"$T/shortprice.tsv"
+"$SPEND" report --prices "$T/shortprice.tsv" "$T/rows.tsv" >/dev/null 2>&1
+assert_exit "report: a price row missing a column is refused" 2 $?
 "$SPEND" report --prices "$prices" "$T/rows.tsv" "$T/rows.tsv" 2>/dev/null
 assert_exit "report: two rows files is a usage error" 2 $?
 "$SPEND" nope 2>/dev/null
@@ -283,6 +293,8 @@ fi
 assert_eq "record: a failed record appends nothing" "$before" "$(wc -l <"$store")"
 "$RECORD" record --program "$pn" --session s-a --prices "$T/empty.tsv" >/dev/null 2>&1
 assert_exit "record: an empty price table is refused" 2 $?
+"$RECORD" record --program "$pn" --session s-a --prices "$T/badprice.tsv" >/dev/null 2>&1
+assert_exit "record: a malformed price table is refused" 2 $?
 "$RECORD" record --program "$pn" --session s-a --launch mc-demo-worker-1 >/dev/null 2>&1
 assert_exit "record: --session with --launch is a usage error" 2 $?
 "$RECORD" record --program 'a b' --session s-a >/dev/null 2>&1

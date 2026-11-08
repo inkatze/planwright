@@ -47,8 +47,15 @@ function usd(i, c5, c1, ct, cr, o,    rest) {
   return (i * Pin + (c5 + rest) * Pw5 + c1 * Pw1 + cr * Pcr + o * Pout) / 1e6
 }
 
+function price_ok(v) { return v ~ /^[0-9]+(\.[0-9]+)?$/ }
+
 FILENAME == ARGV[1] {
-  if ($0 ~ /^#/ || $1 == "model" || NF < 6) next
+  if ($0 ~ /^#/ || $1 == "model" || NF == 0) next
+  if (NF != 6 || !price_ok($2) || !price_ok($3) || !price_ok($4) || !price_ok($5) || !price_ok($6)) {
+    printf "%s: price table line %d is not a model and five prices\n", prog, FNR > "/dev/stderr"
+    bad_prices = 1
+    exit 2
+  }
   P[$1, "in"] = $2; P[$1, "out"] = $3; P[$1, "cr"] = $4; P[$1, "w5"] = $5; P[$1, "w1"] = $6
   priced++
   next

@@ -65,8 +65,8 @@ report  Reads rows output and prints totals by token class, model, day,
         Control bytes in transcript text are dropped before printing.
 
 Exit: 0 printed; 1 rows skipped a file it could not read or list;
-      2 usage, a missing tool or transcript directory, or an unreadable
-      rows file or price table.
+      2 usage, a missing tool or transcript directory, an unreadable rows
+      file, or an unreadable or malformed price table.
 EOF
 }
 
