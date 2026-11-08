@@ -134,6 +134,21 @@ printf '%s\n' "a fixture brief" >"$tmp/brief.md"
 mc_run mission-control-launch.sh launch --program alpha --kind tower --scope unreadable-one --brief "$tmp/brief.md" --backend stream-json
 expect_rc "the launcher refuses a launch when the usage hold cannot be read" 4
 expect_err "the refusal says the hold cannot be read" "usage hold cannot be read"
+
+# A launch past the hold the operator asked for is refused when its bypass
+# cannot be recorded.
+evdir="$fleet/attention/mission-control/alpha/events"
+mkdir -p "$evdir"
+chmod 555 "$evdir"
+if [ -w "$evdir" ]; then
+  ok "skipped: the event store stays writable to this user"
+else
+  mc_run mission-control-launch.sh launch --program alpha --kind tower --scope unrecorded-one --brief "$tmp/brief.md" --backend stream-json --operator-asked
+  expect_rc "an operator-asked launch is refused when its bypass cannot be recorded" 4
+  expect_err "the refusal says the bypass could not be recorded" "bypass could not be recorded"
+  [ ! -s "$tmp/shim/argv" ] || fail "an unrecorded bypass started a session"
+fi
+chmod 755 "$evdir"
 rmdir "$holdf"
 
 # ---------------------------------------------------------------------------

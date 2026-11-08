@@ -130,7 +130,7 @@ Usage:
       launch the queue and resume the sessions a limit stopped now, printing
       the watch's launched, resumed, kept and failed lines; it releases no
       quota and writes no reset record (refused while a hold lasts, a window
-      whose reset has passed aside)
+      whose reset has passed aside, the quota only once its store is clear)
   mc-usage.sh report --program <p>
       what the first wake after the latest reset tells the operator, and
       nothing else: since the hold began, each landing (session-landed),
