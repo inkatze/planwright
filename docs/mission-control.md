@@ -164,8 +164,9 @@ The panel adds a health line only when something its duties should have
 caught slipped past them (a worker running too long or after its pull
 request landed, a permission prompt left waiting, a mission control stuck
 on its own dialog or past its handover point, CI jobs queueing for much of
-their run time, an idle session), saying "unknown" where it cannot tell; its
-bounds are in the [options reference](options-reference.md).
+their run time or with no finished run yet, an idle session), saying
+"unknown" where it cannot tell; its bounds are in the
+[options reference](options-reference.md).
 
 When you update planwright and reload, mission control notices: the panel
 shows a short notice with the new version, and mission control rereads
