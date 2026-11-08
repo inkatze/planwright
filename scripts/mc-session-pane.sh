@@ -200,7 +200,7 @@ msp_dialog() {
       # The cursor may sit on any option line, wrapped labels included,
       # but a body line that only looks like one keeps its glyph.
       rs = olast ? olast : end + 1
-      while (rs > top && line[rs - 1] ~ /[^ \t]/ && (option(rs - 1) != "" || !worded(rs - 1))) rs--
+      while (rs > top && substr(option(rs), 1, 2) != "1." && line[rs - 1] ~ /[^ \t]/ && (option(rs - 1) != "" || !worded(rs - 1))) rs--
       for (i = top; i <= end; i++) {
         s = line[i]
         if (i >= rs && option(i) != "" && match(s, /^[ \t]*❯/)) s = substr(s, 1, RLENGTH - length("❯")) " " substr(s, RLENGTH + 1)

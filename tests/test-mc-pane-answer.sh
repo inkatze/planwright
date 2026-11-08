@@ -527,6 +527,15 @@ if (
   p10=$MSP_PRINT
   parse "$(indent '     1. ')"
   [ "$p10" != "$MSP_PRINT" ] || fail "a command line that looks like a cursor option shares a digest with its uncursored twin"
+  # fetch <body line>: a dialog whose question carries no signature, its
+  # body right above it.
+  fetch() {
+    printf '────────────────\n Fetch\n%s\n Do you want to allow Claude to fetch this content?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel\n' "$1"
+  }
+  parse "$(fetch '   ❯ 1. run it')"
+  p11=$MSP_PRINT
+  parse "$(fetch '     1. run it')"
+  [ "$p11" != "$MSP_PRINT" ] || fail "a body line above an unsigned question shares a digest with its uncursored twin"
   wrapped=$(awk '{ print } /^   2\. Yes, and/ { print "      and every later call" }' "$tmp/dialog.txt")
   parse "$wrapped"
   p9=$MSP_PRINT
