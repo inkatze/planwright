@@ -54,9 +54,11 @@ usage:
 <kind> is one of `kinds`; <scope> holds letters, digits and . _ = @ : - only,
 at most 128. --rules adds a rule-store scope (duty:<id> or repo:<name>);
 program rules ride every launch. The rung is --backend, else the
-mission_control_launch_backend knob. A mission-control launch with no
---brief opens on `/planwright:mission-control <p>`; `--backend tmux` makes it
-an attended one, in a tmux window.
+mission_control_launch_backend knob; a --backend other than the knob's
+value, or given while the knob cannot be resolved, launches, warned on
+stderr naming the knob. A mission-control launch with no --brief opens on
+`/planwright:mission-control <p>`; `--backend tmux` makes it an attended
+one, in a tmux window.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the
@@ -129,14 +131,14 @@ neither a row nor a stream-json worker of that name, a launch, recover,
 relaunch or another retire of it is in flight, or the caller runs inside
 its window (retire); 4 a launch refused before it started: a posture check
 (scripts/mc-posture.sh) that failed or did not run, no readable profile, an
-unresolvable rung knob, no resolvable tier (an unreachable allocation store
-or a malformed tier knob), the admission gate withholding it, the usage
-hold (or one that cannot be read), an operator-asked launch past it whose
-bypass cannot be recorded, a broken allocation install, a program
-that is not configured, rules that would not render, a worktree that could
-not be created, a named directory that is not a worktree other than a
-primary checkout, a worktree path holding a control character, or any
-other refusal by the rung.
+unresolvable rung knob with no --backend, no resolvable tier (an
+unreachable allocation store or a malformed tier knob), the admission gate
+withholding it, the usage hold (or one that cannot be read), an
+operator-asked launch past it whose bypass cannot be recorded, a broken
+allocation install, a program that is not configured, rules that would not
+render, a worktree that could not be created, a named directory that is not
+a worktree other than a primary checkout, a worktree path holding a control
+character, or any other refusal by the rung.
 EOF
 }
 
@@ -263,13 +265,25 @@ row_check() {
     || die "refusing the registry row $(sanitize_printable "$1"): its format field is $(sanitize_printable "$(row_get "$1" format)" missing), not $FORMAT" 2
 }
 
+# A mission-control launch resolves the rung for its posture check and
+# again for the launch; the knob is read, and an override warned, once.
 resolve_backend() {
-  if [ -n "$backend" ]; then
+  [ -z "${rb_done:-}" ] || return 0
+  rb_done=1
+  if ! rb_knob=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
+    --type enum --values 'stream-json tmux' --fallback stream-json </dev/null); then
+    [ -n "$backend" ] || die "cannot resolve mission_control_launch_backend" 4
+    printf '%s\n' "$me: warning: --backend $backend is used unchecked: mission_control_launch_backend could not be resolved" >&2
     return 0
   fi
-  backend=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
-    --type enum --values 'stream-json tmux' --fallback stream-json </dev/null) \
-    || die "cannot resolve mission_control_launch_backend" 4
+  if [ -z "$backend" ]; then
+    backend=$rb_knob
+    return 0
+  fi
+  # A per-call rung away from the knob is how a predecessor's habit
+  # outlives the setting, so say so; the caller's choice still stands.
+  [ "$rb_knob" = "$backend" ] \
+    || printf '%s\n' "$me: warning: --backend $backend overrides mission_control_launch_backend ($rb_knob) for this launch; drop the flag to follow the knob" >&2
 }
 
 # name_lock <name> — hold the per-name lock a launch's reservation and a whole

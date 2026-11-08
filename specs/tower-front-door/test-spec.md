@@ -1,7 +1,7 @@
 # Tower front door — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -60,7 +60,10 @@ Eval fixtures include consecutive asks of different stakes in one
 session routing differently with no mode state; the skill text contains
 no mode flag or persistent setting.
 
-### REQ-B1.2 — The escalation rule [test + Gherkin]
+### REQ-B1.2 — The escalation rule [test + Gherkin] (superseded by REQ-B1.7)
+
+(2026-11-08: superseded by REQ-B1.7; these fixtures carry over into its
+entry unchanged.)
 
 Scenario (escalation demo): given two asks back to back, when the small
 one is routed, then it flies visual; when the ask centered on an auth
@@ -68,6 +71,16 @@ boundary is routed, then the tower produces the one-page case and a spec
 draft. Eval fixtures cover a zone ask, an irreversible-beyond-zones ask,
 an ambiguous ask, and a large-but-safe ask (which must NOT auto-file on
 size alone).
+
+### REQ-B1.7 — The escalation rule with the path catalog [test]
+
+The tower behavioral eval (Task 20): asks touching a listed CI or guard
+path route to instrument flight naming the path; a security fix in an
+unlisted file routes by declared judgment; an ordinary ask flies visual
+with no extra line; the REQ-B1.2 fixtures above carry over unchanged;
+`scripts/resolve-catalog.sh escalation-paths` merges an overlay entry;
+an overlay superseding a seed path leaves it escalating; the
+hard-disqualifier zone list is unchanged.
 
 ### REQ-B1.3 — Grounds stated [test]
 
@@ -80,6 +93,14 @@ Fixtures: "just do it" on a zone-triggered ask flies visual with a
 stated reservation; "write this one up" on a trivial ask files; an
 override attempting to cross a hard invariant (a merge request) is
 refused.
+
+### REQ-B1.8 — The recorded override [test]
+
+`tests/test-flight-record.sh` and the tower eval (Task 21): the override
+sentence, its date and the reservation render in the record and the pull
+request body; an ask without an override sentence, and a supervising
+session's brief, are rerouted; a record with an override and no
+reservation fails its check.
 
 ### REQ-B1.5 — Hard pauses regardless of route [test]
 
@@ -186,6 +207,16 @@ Brief tests assert the brief references `/execute-task`'s after-`post-pr`
 sequence (less the unit-PR ready-flip), re-emits the record only through
 `flight-record.sh render` with the same inputs, and parks on a non-draft
 PR. Manual: the same first flight PR shows its re-emitted step tables.
+
+### REQ-C1.13 — The covering-spec statement and the drift check [test]
+
+`tests/test-flight-dispatch-points.sh` and `tests/test-flight-record.sh`
+(Task 22): the pull request body carries a `Covering spec:` line; an
+uncovered flagged file parks the flight at `pre-pr` naming it; a
+`Not covered:` line or a spec edit lets it reach the pull request; an
+unsigned spec edit shows as pending in the pull request's top lines; a
+visual flight reaching an unpredicted listed path with no override parks
+at `pre-pr`.
 
 ## REQ-D — Instrument flight
 
@@ -367,11 +398,21 @@ conversationally with the reserved-control statement and the PR link
 handed back. Guard tests assert the merge deny rules hold under the
 tower posture.
 
-### REQ-G1.2 — No shadow sign-off [design-level]
+### REQ-G1.2 — No shadow sign-off [design-level] (superseded by REQ-G1.6)
+
+(2026-11-08: superseded by REQ-G1.6, whose entry carries this review over.)
 
 Review of the shipped flow confirms the specless path contains no
 sign-off-like gate and the spec path's sign-off is unmodified; no bypass
 flag exists in any shipped surface.
+
+### REQ-G1.6 — No shadow sign-off; a carried spec edit takes its own [design-level]
+
+Review of the shipped flow confirms, as the REQ-G1.2 entry above does,
+that the specless path contains no sign-off-like gate of its own and no
+bypass flag exists; the one gate on a flight is the edited spec's own
+kickoff sign-off, recorded in that spec's brief and checked by
+mission-control REQ-D1.13 at readiness.
 
 ### REQ-G1.3 — New commits only [test]
 
