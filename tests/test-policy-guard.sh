@@ -857,7 +857,9 @@ git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git pu
   "$MAIN|cd /nonexistent && cd $UNIT && false || git push" \
   "$MAIN|repeat 0; do cd $UNIT; done; git push" "$MAIN|repeat 0
 cd $UNIT
-git push" "$MAIN|if false; then repeat 1 do :; done; cd $UNIT; fi; git push"; do
+git push" "$MAIN|if false; then repeat 1 do :; done; cd $UNIT; fi; git push" \
+  "$MAIN|cd $UNIT </nonexistent; git push" "$MAIN|cd $UNIT >/; git push" \
+  "$MAIN|cd $UNIT 2>/dev/null && false || git push"; do
   cmd=${spec#*|}
   pg worker "$cmd" "${spec%%|*}"
   expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
@@ -880,7 +882,8 @@ git push" "true && cd $UNIT && git push" "true || false && cd $UNIT && git push"
   ">/tmp/x echo hi; cd $UNIT; git push" "exec 2>&1; cd $UNIT; git push" "a+=1 cd $UNIT; git push" \
   "false && cd /tmp; cd $UNIT && git push" \
   "true || echo x; cd $UNIT; git push" "if true; then echo x; fi; cd $UNIT && git push" \
-  "for x in a; do echo x; done; cd $UNIT; git commit --amend --no-edit"; do
+  "for x in a; do echo x; done; cd $UNIT; git commit --amend --no-edit" \
+  "cd $UNIT 2>/dev/null && git push"; do
   pg worker "$cmd" "$MAIN"
   expect defer "[worker] a cd sure to run is followed: ${cmd//$'\n'/ \\n }"
 done

@@ -1949,6 +1949,12 @@ classify_segments() {
             # A cd the guard cannot place may fail, skipping a cd chained after
             # it with &&, so that cd is no longer sure to run.
             [ "$eff_ok" = 1 ] || prev_cd=0
+            # The shell skips a cd whose redirect fails, so the directory holds
+            # only for the acts its && list runs after it.
+            if [ "${SEG_RD[si]}" = 1 ]; then
+              prev_cd=0
+              cd_cond=1
+            fi
           else
             eff_ok=0
           fi
