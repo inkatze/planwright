@@ -1432,8 +1432,21 @@ health_after_merge() {
   fi
   # A landing names a session, not a launch. One the keeper retired is gone,
   # so a live session under its name is a relaunch; one whose retire it held
-  # is still that session. A keeper landing has no time, so it outranks a
-  # dated merge.
+  # is still that session. A `held` landing also covers a refused worktree
+  # reclaim after the retire went through, which only its ledger's
+  # `retired` stage tells apart. A keeper landing has no time, so it
+  # outranks a dated merge.
+  ha_l=$runtime/keeper.tsv
+  if [ -n "$ha_landed" ] && { [ -e "$ha_l" ] || [ -L "$ha_l" ]; }; then
+    if [ -L "$ha_l" ] || [ ! -f "$ha_l" ] || ! mc_store_ok "$ha_l" 2>/dev/null \
+      || ! ha_retired=$(awk -F '\t' 'NR > 1 && $5 == "retired" { print $1 }' "$ha_l" 2>/dev/null); then
+      hflag after-merge '?' - "workers after their merge unknown (the keeper's ledger cannot be read)"
+      return 0
+    fi
+    ha_landed=$(printf '%s\n' "$ha_landed" | R=$ha_retired awk -F '\t' '
+      BEGIN { m = split(ENVIRON["R"], rl, "\n"); for (i = 1; i <= m; i++) gone[rl[i]] = 1 }
+      NF == 2 && !($1 in gone)')
+  fi
   IFS="$TAB" read -r ha_n ha_who ha_kind ha_what <<EOF
 $(printf '%s' "$H_ALIVE" | N=$NOW B=$H_B_MERGED_GRACE L=$ha_landed awk -F '\t' "$AWK_MC"'
     BEGIN { m = split(ENVIRON["L"], ll, "\n"); for (i = 1; i <= m; i++) if (split(ll[i], x, "\t") == 2) landed[x[1]] = x[2] }

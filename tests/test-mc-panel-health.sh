@@ -343,6 +343,13 @@ printf 'w-same\tacme/repo#8\tMERGED\theld\nw-rl\tacme/repo#9\tMERGED\tretired\n'
 health_at "$T"
 expect_out "a keeper landing of a merge names it" "1 worker still live after the pull request landed (w-same, pull request merged)"
 expect_no_out "a live session under a name the keeper retired is a relaunch" "w-rl,"
+printf 'w-same\tacme/repo#8\tMERGED\theld\n' >"$runtime/keeper-announced"
+printf '# format: 1\nw-same\tacme/repo\t8\t/nowhere\tretired\n' >"$runtime/keeper.tsv"
+health_at "$T"
+expect_no_out "a held reclaim after the retire went through is a relaunch" "w-same, pull request"
+printf 'not a ledger\n' >"$runtime/keeper.tsv"
+health_at "$T"
+expect_out "an unreadable keeper ledger makes after-merge unknown" "workers after their merge unknown (the keeper's ledger cannot be read)"
 
 # ---------------------------------------------------------------------------
 # A tmux server that does not answer: a count beside it is a floor, and no
