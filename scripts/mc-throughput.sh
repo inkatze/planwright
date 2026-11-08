@@ -210,9 +210,10 @@ threshold() { mc_lookup "$1" "$THRESHOLDS"; }
 
 FLEET=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
 RUNTIME=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory of program $program"
+KINDS="" KINDS_READ=0
 
-# own_session <name>: whether a stream-json session is this program's. Its
-# registry row decides when it has one; otherwise only the launcher's
+# own_session <name>: 0 when a stream-json session is this program's, 1 when
+# it is not, 2 when that cannot be told. Its registry row decides when it has one; otherwise only the launcher's
 # readable name, mc-<program>-<kind>-<10 hex>, does (a longer program name
 # falls back to a name that carries no program, so it needs the row). A
 # name outside the registry's grammar (scripts/mc-stall.sh) never is.
@@ -223,12 +224,17 @@ own_session() {
   esac
   os_row="$FLEET/mission-control/sessions/$1"
   if [ -f "$os_row" ] && [ ! -L "$os_row" ]; then
-    [ "$(mc_kv "$os_row" program 2>/dev/null)" = "$program" ]
+    os_p=$(mc_kv "$os_row" program 2>/dev/null) || return 2
+    [ "$os_p" = "$program" ]
     return
   fi
   os_rest=${1#"mc-$program-"}
   [ "$os_rest" != "$1" ] || return 1
-  [ -n "${KINDS+x}" ] || KINDS=$(/bin/sh "$script_dir/mission-control-launch.sh" kinds 2>/dev/null </dev/null | cut -f1)
+  if [ "$KINDS_READ" != 1 ]; then
+    KINDS=$(/bin/sh "$script_dir/mission-control-launch.sh" kinds 2>/dev/null </dev/null) || return 2
+    KINDS=$(printf '%s\n' "$KINDS" | cut -f1)
+    KINDS_READ=1
+  fi
   for os_k in $KINDS; do
     case ${os_rest#"$os_k-"} in
       "$os_rest") ;;
@@ -424,7 +430,21 @@ measure_approvals() {
   set +f
   for ma_d in "$ma_root"/mc-*/; do
     ma_d=${ma_d%/}
-    own_session "${ma_d##*/}" || continue
+    own_session "${ma_d##*/}"
+    case $? in
+      0) ;;
+      1) continue ;;
+      *)
+        set -f
+        unknown approvals "cannot tell whether ${ma_d##*/} is the program's"
+        return 0
+        ;;
+    esac
+    [ -x "$ma_d" ] || {
+      set -f
+      unknown approvals "cannot read the folder of ${ma_d##*/}"
+      return 0
+    }
     [ -f "$ma_d/journal" ] || continue
     if ! ma_out=$(W=${ma_d##*/} SINCE=$SINCE NOW=$NOW awk -F '\t' '
         $2 == "permission" && $3 ~ /^[0-9]+$/ {
@@ -685,7 +705,21 @@ curve() {
   set +f
   for cv_d in "$cv_root"/mc-*/; do
     cv_d=${cv_d%/}
-    own_session "${cv_d##*/}" || continue
+    own_session "${cv_d##*/}"
+    case $? in
+      0) ;;
+      1) continue ;;
+      *)
+        set -f
+        unknown cost "cannot tell whether ${cv_d##*/} is the program's"
+        return 0
+        ;;
+    esac
+    [ -x "$cv_d" ] || {
+      set -f
+      unknown cost "cannot read the folder of ${cv_d##*/}"
+      return 0
+    }
     cv_e="$cv_d/events.jsonl"
     [ -f "$cv_e" ] || continue
     # Inside the window: written since its start.

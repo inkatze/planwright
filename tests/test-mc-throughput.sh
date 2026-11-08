@@ -252,6 +252,22 @@ if [ "$(id -u)" -ne 0 ]; then
 else
   ok "unreadable journals and step records (skipped as root)"
 fi
+# Whether a session is the program's, when that cannot be told, leaves its
+# sources unknown rather than passing the session over.
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$reg/mc-alpha-worker-0000000001"
+  mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+  expect_out "a registry row that cannot be read leaves approvals unknown" \
+    "source${tab}approvals${tab}unknown${tab}cannot tell whether mc-alpha-worker-0000000001 is the program's"
+  chmod 644 "$reg/mc-alpha-worker-0000000001"
+  chmod 000 "$sj/mc-alpha-worker-0000000002"
+  mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+  expect_out "a session folder that cannot be searched leaves approvals unknown" \
+    "source${tab}approvals${tab}unknown${tab}cannot read the folder of mc-alpha-worker-0000000002"
+  chmod 755 "$sj/mc-alpha-worker-0000000002"
+else
+  ok "sessions that cannot be told apart (skipped as root)"
+fi
 
 # ---------------------------------------------------------------------------
 # The watcher: raised once, held until it worsens, forgotten once it clears.
