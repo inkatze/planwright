@@ -43,14 +43,15 @@ as they stand now):
              this machine, is named in the source line, not measured.
   approvals  every permission request in the program's stream-json worker
              journals (<fleet home>/streamjson/<session>/journal, a regular
-             file): received to answered, a pending one counted to now
+             file, neither it nor its folder a link): received to answered
+             or undeliverable, a pending one counted to now
   stalls     every launched session of the program but its mission control
              whose stall sample (scripts/mc-stall.sh, the runtime
              directory's stall/) reads idle, idle-question, open-selector,
              unsubmitted-prompt, turn-ended-background, busy-unchanged or
              dead: the time since its pane last changed. A session with no
-             current sample is named in the source line; with none sampled
-             the source is unknown.
+             current sample (a linked one is none) is named in the source
+             line; with none sampled the source is unknown.
   steps      every cadence step record (start to end; a skipped step
              aside) in the program repositories' worktrees (a repository
              not on this machine named in the source line) and the program
@@ -58,9 +59,10 @@ as they stand now):
              step id, naming the branch of the slowest; a record with the
              same step, branch, run, sequence, point, start and end as one
              already read is a copy
-A stream-json session is the program's when its registry row names the
-program, or, with no row, when its name is the launcher's readable form
-mc-<program>-<kind>-<10 hex>. A source that cannot be read is named
+A stream-json session is the program's when its name is in the
+registry's grammar (mc-, then lowercase letters, digits and hyphens, at
+most 64 characters) and its registry row names the program, or, with no
+row, its name is the launcher's readable form mc-<program>-<kind>-<10 hex>. A source that cannot be read is named
 unknown, with the reason, and contributes nothing: an unread source is
 never shown as zero.
 
@@ -70,8 +72,9 @@ longest stall) reaches its threshold in
 mission_control_throughput_thresholds. Of those, the top one is the one
 that cost the most time in all over the window (ties: the larger typical
 value against its threshold, then the key). A total counts only the time
-inside the window: a wait, stall or step that began before it adds the
-part the window holds.
+inside the window: a permission wait, stall or step that began before it
+adds the part the window holds; a CI job counts only when created inside
+it.
 
 Usage:
   mc-throughput.sh measure --program <p> [--now <epoch>]
@@ -90,8 +93,8 @@ Usage:
         top<TAB><key><TAB><total s><TAB><text>   or   top<TAB>none
   mc-throughput.sh curve --program <p> [--now <epoch>]
       cost per model request against context size, from each of the
-      program's stream-json sessions' event captures last written inside
-      the window, each read whole (jq; a frame that does not parse is
+      program's stream-json sessions' event captures (not links) last
+      written inside the window, each read whole (jq; a frame that does not parse is
       skipped alone):
         source<TAB>cost<TAB>ok|unknown<TAB><detail>
         request<TAB><session><TAB><n><TAB><percent|-><TAB><context tokens>
@@ -110,14 +113,15 @@ Usage:
   mc-throughput.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also a run with no arguments under the runner):
       measures at most once per mission_control_throughput_interval
-      (`skipped<TAB>interval` otherwise), printing the measure lines;
+      (`skipped<TAB>interval` otherwise; a pass that fails once begun still
+      counts), printing the measure lines;
       writes the measurement and the curve to the program home's
       kb/throughput/ under the knowledge-base lock; and emits the top
       bottleneck as a throughput-bottleneck event, its subject the key, or
       throughput-<checksum> for a key outside the subject grammar, its text
       the numbers and each unknown source with its reason, within 500
-      bytes (the source named alone when its reason does not fit beside
-      the numbers), printing
+      bytes (every source named alone when the reasons together do not fit
+      beside the numbers), printing
         raised<TAB><key><TAB><total s>   or   held<TAB><key><TAB><total s>
       A key is raised again only once its total grows by
       mission_control_throughput_worsen percent over the total it was last
@@ -217,10 +221,11 @@ RUNTIME=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory
 KINDS="" KINDS_READ=0
 
 # own_session <name>: 0 when a stream-json session is this program's, 1 when
-# it is not, 2 when that cannot be told. Its registry row decides when it has one; otherwise only the launcher's
-# readable name, mc-<program>-<kind>-<10 hex>, does (a longer program name
-# falls back to a name that carries no program, so it needs the row). A
-# name outside the registry's grammar (scripts/mc-stall.sh) never is.
+# it is not, 2 when that cannot be told. Its registry row decides when it
+# has one; otherwise only the launcher's readable name,
+# mc-<program>-<kind>-<10 hex>, does (a longer program name falls back to a
+# name that carries no program, so it needs the row). A name outside the
+# registry's grammar (scripts/mc-stall.sh) never is.
 own_session() {
   [ "${#1}" -le 64 ] || return 1
   case $1 in
@@ -402,8 +407,8 @@ EOF
   [ -n "$ci_all" ] || return 0
   # A job not yet running (queued, waiting, pending or requested, whatever
   # start time the forge gives it) counts its wait to now; one in progress
-  # has no run time yet; one that finished unstarted waited until it finished. A clock
-  # behind the forge's never makes a wait negative.
+  # has no run time yet; one that finished unstarted waited until it
+  # finished. A clock behind the forge's never makes a wait negative.
   ci_rows=$(printf '%s' "$ci_all" | MULTI=$ci_n SINCE=$SINCE NOW=$NOW awk -F '\t' "$ISO_AWK"'
     function w(x) { return (x < 0) ? 0 : x }
     {
@@ -458,8 +463,8 @@ measure_approvals() {
     }
     [ -f "$ma_d/journal" ] && [ ! -L "$ma_d/journal" ] || continue
     if ! ma_out=$(W=${ma_d##*/} SINCE=$SINCE NOW=$NOW awk -F '\t' '
-        # An epoch second has at most 12 digits; a longer one would print
-        # as an exponent no shell arithmetic reads.
+        # An epoch second has at most 12 digits; a much longer one prints,
+        # once subtracted, as an exponent no shell arithmetic reads.
         $2 == "permission" && $3 ~ /^[0-9]+$/ && length($3) <= 12 {
           if ($4 == "pending") e = ENVIRON["NOW"] + 0
           else if ($4 ~ /^(answered|undeliverable)$/ && $5 ~ /^[0-9]+$/ && length($5) <= 12) e = $5 + 0
@@ -560,8 +565,9 @@ EOF
 }
 
 # step_rows <worktree> <branch>: <step><TAB><seconds><TAB><branch><TAB>
-# <seconds inside the window><TAB><record identity> per step record of <worktree>'s cache that ended inside
-# the window, read through scripts/step-record.sh, the cache's one reader.
+# <seconds inside the window><TAB><record identity> per step record of
+# <worktree>'s cache that ended inside the window, read through
+# scripts/step-record.sh, the cache's one reader.
 step_rows() {
   sr_list=$(/bin/sh "$script_dir/step-record.sh" --worktree "$1" list 2>/dev/null </dev/null) || return 1
   printf '%s\n' "$sr_list" | B=$2 SINCE=$SINCE awk -F '\t' "$ISO_AWK"'
