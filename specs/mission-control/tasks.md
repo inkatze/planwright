@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-07
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -559,6 +559,19 @@ the list lacked; the annotation moved below the task's fields.)*
 - **Citations:** D-36 · REQ-I1.8, REQ-I1.4
 - **Estimated effort:** 1 day
 
+*(Amended at Amendment 4, 2026-11-07: the push half landed in PR #866, a
+flight with no task trailer, so the status render cannot see it: the policy
+guard admits a session whose launch scope is `kickoff-<spec>` to run only
+`scripts/kickoff-spec-push.sh`, a plain push of that spec's own branch.
+`tests/test-policy-guard.sh` and `tests/test-kickoff-spec-push.sh` prove
+the push of its own branch, the refusals of another branch, of `main` and
+of a forced push, and the raw push denied. Admission is by the launch
+scope, not yet a launch record. What remains is the draft pull request
+and the configured ready flip without a prompt, the launch-record admission
+with its no-record and no-branch denials, the mission-control-tier deny of
+the kickoff's branch, the worker-tier parity case and the relay's
+fixed-string check.)*
+
 ### Task 20 — The posture check and one pre-approval list
 
 - **Deliverables:** A posture script reading each loaded settings layer by
@@ -852,6 +865,99 @@ the list lacked; the annotation moved below the task's fields.)*
 - **Citations:** D-43, D-29, D-30, D-21 · REQ-L1.9, REQ-L1.5, REQ-L1.6,
   REQ-A1.4, REQ-B1.3, REQ-B1.7
 - **Estimated effort:** 3 days
+
+### Task 34 — Program goals and their done-when checks
+
+- **Deliverables:** `scripts/mc-goals.sh` with verbs to set a goal with its
+  drafted check and the work it tracks, attach more work, confirm or
+  correct the check, run it, record a verification session's reported
+  evidence and list goals with their state; the goal store in the program
+  home, carrying a `format` field and written under one lock; a
+  `goal-check` duty in `config/duties.yaml` that runs confirmed command
+  checks when a goal's tracked work merges, daily and at bring-up, under
+  D-40's watcher timeout; the read-only verification launch for a check
+  with no command; tests in `tests/test-mc-goals.sh` and
+  `tests/test-mc-duties.sh`.
+- **Done when:** A fixture goal with an unconfirmed check lists as
+  unconfirmed and never as done; a confirmed command check that exits 0
+  marks the goal done with its evidence; one that exits non-zero, times out
+  or has not run leaves a goal whose tracked pull requests merged reported
+  as merged but not done, naming the failure, with one routed-fix item; a
+  merge of work no goal tracks runs no check; a done goal whose daily or
+  bring-up re-check fails reopens with one operator line while a passing
+  re-check writes no item; a goal with no command launches one read-only
+  session and is done only when the evidence that session reports says the
+  outcome holds, and is not re-run on its own once done; a tracked pull
+  request titled with `$(touch <sentinel>)` leaves no sentinel file after
+  the check runs and its item and evidence are written, and the executed
+  command equals the stored one byte for byte; two concurrent writes to
+  the store serialize under the lock; a store with a missing or unknown
+  `format` is refused and nothing is reported done; the store sits under
+  the program home and nothing is written in a repository.
+- **Dependencies:** none
+- **Citations:** D-44, D-8 · REQ-N1.1, REQ-N1.2, REQ-N1.3, REQ-N1.4
+- **Estimated effort:** 1.5 days
+
+### Task 35 — Spec drift refused at readiness
+
+- **Deliverables:** `scripts/spec-drift-check.sh`, which takes a base, a
+  head and the pull request body and lists every changed file some spec
+  names as a task deliverable (backticked paths in the deliverables
+  `scripts/spec-model.sh` emits) whose spec's anchored content is unchanged
+  and which no `Not covered:` line of the covering-spec statement names,
+  skipping deliverables of a task the pull request's trailer names (D-45); in `scripts/mc-readiness.sh`, a row running the
+  drift check, and the per-bundle sign-off row that spec-only pull requests
+  already get (each touched bundle's anchor recomputed at the head)
+  extended to every pull request that edits a bundle; tests in
+  `tests/test-spec-drift-check.sh` and `tests/test-mc-readiness.sh`.
+- **Done when:** A fixture pull request changing a listed deliverable with
+  no spec edit and no reason is flagged and the readiness walk refuses it;
+  the same change with a `Not covered:` line naming that path, or with the
+  spec's anchored content edited and its anchor re-signed, passes; a
+  `Not covered:` line naming another path does not excuse it; a change to
+  the spec's status annotations alone does not count as an edit; a task
+  pull request whose trailer names the task listing the file passes; a pull
+  request with no statement is checked as covering nothing; a spec edit
+  whose recorded anchor differs from the head's content refuses; a change
+  touching no listed deliverable passes untouched; a deliverable path given
+  in prose without backticks is not a listed file; a drift check that
+  cannot run (no base, unreadable bundle) refuses with its reason.
+- **Dependencies:** none
+- **Citations:** D-45, D-25, D-33 · REQ-D1.13, REQ-D1.14
+- **Estimated effort:** 1 day
+
+### Task 36 — Tower-front-door amendment: the router list and the flight's spec edit (routed)
+
+- **Deliverables:** A routed amendment of the `tower-front-door` bundle,
+  through its own kickoff, carrying D-45's routing decisions: the shipped
+  path list plus judgment for security, CI and guard work, the recorded
+  override (an ask or a launch brief is not one), every flight pull request
+  writing the covering-spec statement in D-45's form, a flight's
+  same-pull-request spec edit, and `scripts/spec-drift-check.sh` fired at
+  the flight's `pre-pr` point (the tower-front-door task that wires it
+  depends on Task 35, which ships the script); the matching text in
+  `doctrine/flight-rules.md`.
+- **Done when:** The `tower-front-door` amendment is signed off and merged,
+  and `doctrine/flight-rules.md` names the path list, the recorded override
+  and the flight's spec edit.
+- **Dependencies:** none
+- **Citations:** D-45, D-22 · REQ-D1.13
+- **Estimated effort:** half day
+
+### Task 37 — Skill, guide and doctrine for goals and spec drift
+
+- **Deliverables:** The skill's prose for setting a goal with its check and
+  for the drift refusal, inside the instruction budget (D-21), pointing at
+  the scripts for the mechanics; the operator guide's sections on goals and
+  on why a pull request waits for a spec sign-off; `doctrine/mission-control.md`
+  and its README row updated for D-44 and D-45.
+- **Done when:** The instruction-budget check passes; the guide has a
+  section for goals and for the spec-drift refusal and names no duty or
+  knob the catalog or options reference lacks; the jargon check passes over
+  the new skill and guide text; the doctrine index check passes.
+- **Dependencies:** 34, 35
+- **Citations:** D-21, D-44, D-45 · REQ-N1.1, REQ-N1.2, REQ-D1.13
+- **Estimated effort:** half day
 
 ## Awaiting input
 

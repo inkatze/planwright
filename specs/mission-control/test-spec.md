@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-07
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -129,6 +129,11 @@ the change ready to apply and no settings file changes; a decline is
 recorded and not re-raised on the same pattern; a repeat no inventory row
 covers raises no proposal.
 
+The denial repeat (Amendment 4): `tests/test-mc-proposals.sh` raises
+nothing on the first guard denial a knob in `config/denial-knobs.tsv`
+governs, and on the second identical one proposes that knob, its effect and
+its layer, handed to the operator and never written.
+
 ### REQ-B1.6 — Self-audit [test]
 
 The audit script flags an act a rule forbids and two active rules on one
@@ -246,6 +251,15 @@ the resolver rejects exits 4; the readiness walk refuses a gap whatever the
 gate-condition data names, an audit at another head, a worktree head that
 differs from the forge's, and an unaudited cadence with its reason.
 
+### REQ-D1.14 — The cadence audit with the spec-only hold [test]
+
+`tests/test-mc-readiness.sh`: every fixture the REQ-D1.9 entry above
+names carries over unchanged; a spec-only fixture pull request is held for
+each touched bundle's sign-off and not for the cadence or the gate data's
+steps, a fixture touching only the reserved accumulators has none to hold,
+and a fixture that also changes one non-spec file is audited for the
+cadence. This shipped with PR #852's tests.
+
 ### REQ-D1.10 — Launch worktrees [test]
 
 `tests/test-mission-control-launch.sh` (Task 18): a worker launch with no
@@ -272,6 +286,16 @@ dead when its process exits and prompt-pending on a pending prompt; an
 adopted tmux session's liveness comes from its process; a row with no live
 process is never live; retiring an operator-owned adopted session raises a
 confirmation item.
+
+### REQ-D1.13 — Spec drift refused at readiness [test]
+
+`tests/test-spec-drift-check.sh` and `tests/test-mc-readiness.sh` (Task
+35): a changed listed deliverable with no spec edit and no reason is
+flagged and refused; a `Not covered:` line naming the path, or a spec
+edit with a matching re-signed anchor, passes; a status-only spec touch
+is not an edit; a task pull request delivering its own task's file
+passes; a missing statement is checked as covering nothing; a spec edit with a stale anchor refuses; an
+unlisted change passes; a check that cannot run refuses with its reason.
 
 ## REQ-E — Durable watchers
 
@@ -374,6 +398,11 @@ fixture); the voice rules are in the doctrine.
 A fresh installation ends with a program block, a knowledge-base skeleton
 and enabled duties (fixture); the operator walks it once and records the
 experience.
+
+Asking only what the operator can answer (Amendment 4):
+`tests/test-behavioral-eval-mission-control.sh` grades the first-run
+persona so that every objective is either asked or settled, never both,
+and fails a seeded run that asks a settled objective.
 
 ### REQ-F1.13 — The guidance knob [test]
 
@@ -741,3 +770,34 @@ file that writer produced from fixture logs.
 `tests/test-mc-keeper.sh` (Task 27): a task whose own or dependency's
 repository the selection withholds is not suggested, and `next` equals the
 selection's output.
+
+## REQ-N — Program goals
+
+### REQ-N1.1 — A goal carries a confirmed check [test]
+
+`tests/test-mc-goals.sh` (Task 34): a goal with an unconfirmed check lists
+as unconfirmed and never as done; confirming records the operator's
+correction verbatim.
+
+### REQ-N1.2 — Done only on a pass [test]
+
+`tests/test-mc-goals.sh` (Task 34): a passing command marks the goal done
+with its evidence; a failing, timed-out or unrun check on a goal whose pull
+requests merged reports merged but not done with one routed-fix item; a
+session-based check counts only on reported evidence that the outcome
+holds; a merge of untracked work runs no check.
+
+### REQ-N1.3 — Daily re-check of command checks [test]
+
+`tests/test-mc-goals.sh` and `tests/test-mc-duties.sh` (Task 34): the
+`goal-check` duty re-runs command checks daily and at bring-up; a failing
+re-check reopens the goal with one item, a passing one writes nothing, and
+a session-based check is not re-run.
+
+### REQ-N1.4 — Goals live in the program home [test]
+
+`tests/test-mc-goals.sh` (Task 34): the store is under the program home and
+no repository file changes; concurrent writes serialize under its lock; a
+missing or unknown `format` is refused; a tracked pull request titled
+with `$(touch <sentinel>)` leaves no sentinel and the executed command
+equals the stored one.

@@ -1,7 +1,7 @@
 # Tower front door — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -35,6 +35,9 @@ the mechanism filling the entrance seam.
 
 - The `/tower` entry skill: a standing conversational session under the
   tower permission posture.
+- Keeping specs true to what flights ship: a flight that changes behaviour
+  a spec describes carries that spec's signed edit, and security, CI and
+  guard work routes to the spec pipeline unless the operator overrides it.
 - The per-request flight-rules router with declared criteria, stated
   grounds, and a trivial two-way override.
 - Visual-flight execution: isolated worktree per flight on its own branch
@@ -69,7 +72,9 @@ the mechanism filling the entrance seam.
   start-from-nothing case; `/tower` may point the user there.
 - Persistent memory of past flights beyond the audit trail (preference
   learning, style adaptation).
-- Any change to sign-off or merge semantics.
+- Any change to sign-off or merge semantics. (2026-11-08 extension: a
+  spec edit a flight carries is signed by that spec's own kickoff, its
+  existing sign-off, which gates the flight's ready flip, REQ-G1.6.)
 - (2026-10-10 amendment) The fleet-messaging transport, the tower
   permission floor, and the stale-attention sweep: each is owned by its
   own amendment or has shipped.
@@ -125,6 +130,25 @@ the mechanism filling the entrance seam.
   advisory only and never decisive.
   *(Cites: D-4, proportionality doctrine (Sources), finding-categorization
   doctrine (Sources).)*
+  **Superseded-by: REQ-B1.7** (2026-11-08).
+- **REQ-B1.7** (supersedes REQ-B1.2) Work centered in a hard-disqualifier
+  zone, work whose fix lands on a path the escalation-path catalog lists
+  (shipped: CI workflows, git hooks, guard and policy scripts, the
+  security doctrine; each project may add paths through the overlay
+  layers, and no overlay removes or narrows a shipped one), or work
+  otherwise not one-revert-from-undone (published
+  interfaces, data deletion, external side effects) SHALL escalate to
+  instrument flight automatically. An ask whose purpose is security SHALL
+  escalate by declared judgment even when it touches no listed path, as
+  SHALL ambiguity (the tower cannot state a Done-when the user would agree
+  with). Size proxies SHALL be advisory only and never decisive. The
+  catalog widens routing only: the polish pause zones (the
+  hard-disqualifier list) stay as they are. Routing judges the paths the
+  ask predicts; a flight whose changes reach a listed path no one
+  predicted SHALL park at `pre-pr` for a re-route unless its record holds
+  an override.
+  *(Cites: D-4, D-23; the operator's request (2026-11-07, Sources); the
+  spec-drift audit (Sources).)*
 - **REQ-B1.3** The routing decision and its grounds SHALL be stated to the
   user at routing time; routing SHALL never be silent.
   *(Cites: D-4, proportionality doctrine (Sources).)*
@@ -133,6 +157,15 @@ the mechanism filling the entrance seam.
   trigger the tower SHALL state its reservation and comply; no override
   SHALL cross a hard invariant (REQ-G).
   *(Cites: D-5.)*
+- **REQ-B1.8** An override that keeps escalating work a visual flight
+  SHALL be the operator's own sentence, given after the tower stated the
+  route and its reservation (wording inside the original ask never
+  counts), recorded word for word with its
+  date in the flight's pull request and its audit record, beside the
+  reservation the tower stated. An operator asking for the change, or a
+  launch brief written by a session acting for the operator, SHALL NOT
+  count as an override.
+  *(Cites: D-5, D-24; the spec-drift audit (Sources).)*
 - **REQ-B1.5** Routing is preventive, not enforcement: the gate-wiring
   hard pauses SHALL remain in force in every worker regardless of the
   route chosen.
@@ -228,6 +261,18 @@ the mechanism filling the entrance seam.
   record only by re-rendering it through the record renderer with the
   same inputs, and its PR verified still a draft, parking when it is not.
   *(Cites: D-16, D-18.)*
+- **REQ-C1.13** A visual flight's pull request body SHALL carry the
+  covering-spec statement in the form mission-control D-45 defines (a
+  `Covering spec:` line naming each bundle the change touches, or `none`,
+  and one `Not covered: <path> — <reason>` line per changed deliverable
+  file whose spec the change leaves alone). A flight that changes
+  behaviour a spec describes SHALL edit that spec in the same pull request
+  with a dated amendment note, and its pull request SHALL wait for the
+  operator's sign-off of that edit in a relayed kickoff run on the
+  flight's branch. The flight SHALL run `scripts/spec-drift-check.sh` at
+  its `pre-pr` point and park on a flagged file it has not covered.
+  *(Cites: D-25; mission-control D-45 (Sources); the operator's request
+  (2026-11-07, Sources).)*
 
 ## REQ-D — Instrument flight
 
@@ -396,6 +441,19 @@ the mechanism filling the entrance seam.
   pending-sign-off checklist are not a sign-off.)
   *(Cites: the tower-front-door seed (Sources), kickoff lens review
   (2026-09-01).)*
+  **Superseded-by: REQ-G1.6** (2026-11-08).
+- **REQ-G1.6** (supersedes REQ-G1.2) Sign-off SHALL stay reserved for
+  specs: the specless path SHALL NOT invent a shadow sign-off, the spec
+  path SHALL NOT lose its real one, and no bypass flag for the
+  non-signed-spec refusal SHALL exist or be added. (Forbidden is any named
+  sign-off ritual gating a flight's landing; the worker hard pauses and the
+  record's pending-sign-off checklist are not a sign-off.) One gate is not
+  a shadow: when a flight edits a spec (REQ-C1.13), that spec's own
+  kickoff sign-off of the edit, the real sign-off the spec path already
+  has, gates the flight's ready flip; the flight's own code takes no
+  sign-off.
+  *(Cites: D-25; the tower-front-door seed (Sources); the operator's
+  request (2026-11-07, Sources).)*
 - **REQ-G1.3** No force-push, amend, squash, or rebase, on either flight
   rule: new commits only.
   *(Cites: the tower-front-door seed (Sources).)*
@@ -521,6 +579,18 @@ the mechanism filling the entrance seam.
   decisions, and ledger. Recorded in the kickoff brief's 2026-10-10
   delta entry.
 
+- 2026-11-08 — Extended (`/spec-draft --extend`, reopen cycle: stored Ready
+  to Draft over a derived Done) for the operator's spec-drift request,
+  decided at the mission-control Amendment 4 kickoff and routed here as
+  that bundle's Task 36: REQ-B1.7 supersedes REQ-B1.2 (the
+  escalation-path catalog and security-purpose judgment), REQ-B1.8 (the
+  override is the operator's own sentence, recorded), REQ-C1.13 (the
+  covering-spec statement, the same-pull-request spec edit and the drift
+  check at `pre-pr`), REQ-G1.6 supersedes REQ-G1.2 (a flight's spec edit is
+  signed by that spec's own kickoff), one Scope bullet and a Non-goal
+  note; D-23 to D-25 and a note on D-22; Tasks 20 to 23. Revised at the
+  delta kickoff's lens pass.
+
 ## Sources
 
 - **The tower-front-door seed document** (2026-08-27, session-provided
@@ -618,3 +688,18 @@ the mechanism filling the entrance seam.
   in-run points, every step kind), the public-summary shape, the private
   parked record, the worker-as-runner mechanism, and keeping both gaps in
   this bundle rather than splitting gap 1 into custom-steps.
+- **The operator's request (2026-11-07)** — relayed by mission control and
+  decided at the mission-control Amendment 4 kickoff: a flight that
+  changes behaviour a spec covers edits that spec in the same pull request
+  and waits for the operator's sign-off; detection by the worker's
+  statement plus a mechanical check; security, CI and guard work routed to
+  the spec pipeline by a shipped path list plus judgment, the operator's
+  override recorded; the polish pause zones unchanged.
+- **The spec-drift audit (2026-11-07)** — a read-only audit of the flights
+  merged since 2026-11-04: eight specs describe behaviour a flight changed
+  with no amendment, and ten flights did hard-disqualifier-zone work with
+  no override on record, each resting on the operator asking for the
+  change or on mission control's launch brief.
+- **mission-control D-45** — defines the covering-spec statement, owns
+  `scripts/spec-drift-check.sh` (its Task 35) and refuses a flip over spec
+  drift at readiness (its REQ-D1.13).
