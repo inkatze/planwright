@@ -852,9 +852,10 @@ doctor_cron() {
       return at <= nf ? f[at] : ""
     }
     # Only plain characters print; at the first other one the word is cut,
-    # keeping a cut =, so TOKEN=value reads TOKEN=<redacted>.
+    # keeping a cut =, so TOKEN=value reads TOKEN=<redacted>. The set is a
+    # string, since busybox reads \/ in a bracketed /regex/ as two members.
     function plain(w,   cut) {
-      match(w, /^[A-Za-z0-9_.\/+~-]*/)
+      match(w, "^[A-Za-z0-9_./+~-]*")
       if (w != "" && RLENGTH == length(w)) return w
       cut = substr(w, RLENGTH + 1, 1) == "=" ? "=" : ""
       return substr(w, 1, RLENGTH) cut "<redacted>"
