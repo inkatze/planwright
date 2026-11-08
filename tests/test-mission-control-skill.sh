@@ -133,7 +133,7 @@ need "a routine act is never said" "A routine act is logged with its undo entry 
 comms="$REPO_ROOT/doctrine/tower-comms.md"
 comms_body=$(tr '\n' ' ' <"$comms" | tr -s ' ')
 for n in "An unasked turn carries only a decision waiting on the operator, a blocker, a failure, or a landing" \
-  "one lead line, five lines at most, no acknowledgement" "is logged, never narrated" \
+  "one lead line, no acknowledgement" "five lines at most, a decision item exempt" "is logged, never narrated" \
   "with nothing owed, it says nothing" "a denial's exact text, a refusal's reason"; do
   if has "$comms_body" "$n"; then ok "tower-comms: $n"; else fail "doctrine/tower-comms.md lacks '$n'"; fi
 done

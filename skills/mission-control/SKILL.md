@@ -208,10 +208,10 @@ answers, one bundled message per person, put on the clipboard with
 
 **Only what is owed** (`tower-comms`) is rendered, not just written: an
 unasked turn or push carries `scripts/mc-inbox.sh`'s `report` output,
-which keeps decision, blocker, failure and landed lines, five at most,
-cutting acknowledgements and repeats. A routine event raises no turn
-(`config/mc-event-classes.tsv`). A routine act is logged with its undo
-entry and decision, never said.
+which keeps decision, blocker, failure and landed lines, every decision
+and five others at most, cutting acknowledgements and repeats. A routine
+event raises no turn (`config/mc-event-classes.tsv`). A routine act is
+logged with its undo entry and decision, never said.
 
 **Name the source (REQ-H1.4).** Wherever a report draws on a source, say
 its mode and age as `scripts/mc-snapshot.sh`'s `list` gives them; where a fact

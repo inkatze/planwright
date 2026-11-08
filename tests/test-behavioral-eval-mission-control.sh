@@ -181,8 +181,15 @@ for act in approve relay rearm; do
 done
 seeded on-behalf "quiet: a turn opens on an acknowledgement" \
   ".decision_log[$first_present].text |= \"Got it. \" + ."
-seeded on-behalf "quiet: a turn runs past five lines" \
-  "$first_present as \$i | .decision_log |= (.[0:(\$i + 1)] + [range(5) | {v: 2, seq: (980 + .), phase: \"session\", kind: \"present\", text: \"One more thing.\"}] + .[(\$i + 1):])"
+seeded on-behalf "quiet: a turn runs past five lines besides its item" \
+  "$first_present as \$i | .decision_log |= (.[0:(\$i + 1)] + [range(6) | {v: 2, seq: (980 + .), phase: \"session\", kind: \"present\", text: \"One more thing.\"}] + .[(\$i + 1):])"
+# A decision item is exempt from the cap, which binds narration only.
+if jq "$first_item as \$i | .decision_log |= (.[0:(\$i + 1)] + [range(5) | {v: 2, seq: (980 + .), phase: \"session\", kind: \"present\", text: \"One more thing.\"}] + .[(\$i + 1):])" "$TMP/on-behalf.json" \
+  | jq -e -f "$GRADEJQ" >/dev/null 2>&1; then
+  ok "[on-behalf] an item and five lines of narration pass the cap"
+else
+  fail "[on-behalf] the cap counted a decision item's own lines"
+fi
 seeded no-concepts "a plan-worthy ask not drafted with the operator" \
   'del(.decision_log[] | select(.action == "draft-with-operator"))'
 seeded entry-args "two programs resumed without asking" \

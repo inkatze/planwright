@@ -68,8 +68,8 @@ expect_out "an empty section reads none" "Decisions
 # ---------------------------------------------------------------------------
 # An unasked report carries only what is owed to the operator: a routine
 # act (an approval, a relay, a re-armed watcher) never reaches them, it
-# leads with one line and runs five at most, with no acknowledgement and no
-# repeat, and a report with nothing owed is empty.
+# leads with one line and runs five at most besides its decisions, with no
+# acknowledgement and no repeat, and a report with nothing owed is empty.
 # ---------------------------------------------------------------------------
 report() { # report <stdin file>: OUT, RC, ERR
   OUT=$(mc_env /bin/bash "$repo_root/scripts/mc-inbox.sh" report <"$1" 2>"$tmp/stderr")
@@ -102,13 +102,24 @@ Landed: PR 2 merged
 Landed: PR 3 merged
 Landed: PR 4 merged
 3 more; ask to see them all"
-printf 'decision\tD1\ndecision\tD2\ndecision\tD3\ndecision\tD4\ndecision\tD5\nfailure\tThe export work died twice\n' >"$tmp/report"
+printf 'decision\tD1\ndecision\tD2\ndecision\tD3\ndecision\tD4\ndecision\tD5\ndecision\tD6\nfailure\tThe export work died twice\n' >"$tmp/report"
 report "$tmp/report"
-expect_eq "the cap never hides a whole class" "Decision: D1
+expect_eq "decisions are exempt from the cap" "Decision: D1
 Decision: D2
 Decision: D3
+Decision: D4
+Decision: D5
+Decision: D6
+Failure: The export work died twice"
+{ printf 'decision\tD1\nfailure\tThe export work died twice\nblocker\tgh is not signed in\n'
+  for n in 1 2 3 4 5; do printf 'landed\tPR %s merged\n' "$n"; done; } >"$tmp/report"
+report "$tmp/report"
+expect_eq "the cap never hides a whole class, and counts no decision" "Decision: D1
+Blocker: gh is not signed in
 Failure: The export work died twice
-2 more; ask to see them all"
+Landed: PR 1 merged
+Landed: PR 2 merged
+3 more; ask to see them all"
 printf 'decision\tPick the retry policy\nlanded\tGot it.\nlanded\tThanks, PR 12 merged\nlanded\tPR 12 merged\nlanded\tThanks to the retry fix, PR 13 merged\nblocker\tgh is not signed in\n' >"$tmp/report"
 report "$tmp/report"
 expect_eq "no acknowledgement and no repeat reach the operator, the rest verbatim" "Decision: Pick the retry policy

@@ -45,9 +45,9 @@ Usage:
       stdin: <class><TAB><text> lines; stdout: the report carried by an
       unasked turn or push, holding only the classes owed to the operator
       (decision, blocker, failure, landed), one `<Class>: <text>` line
-      each, in that order, so the first line is the lead. At most five
-      lines: past five items, four (each class's first, then in order) and
-      a count of the rest. An act or routine line and a repeat are
+      each, in that order, so the first line is the lead. Every decision
+      line is shown; the cap binds the rest, at most five lines: past five,
+      four (each class's first, then in order) and a count of the rest. An act or routine line and a repeat are
       dropped, and a leading acknowledgement (got it, thanks, on it...) is
       cut, each counted on stderr, so none reaches the operator; with
       nothing left, stdout is empty and the turn says nothing. A line of
@@ -139,13 +139,15 @@ case $verb in
         seen[x] = 1; i = owed[k]; t[i, ++m[i]] = x; total++
       }
       END {
-        # Past five, four lines show: each class first, then in order, so
-        # a cap never hides a whole class behind another.
-        if (total <= 5) { for (i = 1; i <= n; i++) show[i] = m[i] }
+        # A decision must stay answerable from the report alone, so the cap
+        # binds only the other classes. Past five, four lines show: each
+        # class first, then in order, so no class hides behind another.
+        show[1] = m[1]
+        if (total - m[1] <= 5) { for (i = 2; i <= n; i++) show[i] = m[i] }
         else {
           left = 4
-          for (i = 1; i <= n; i++) if (m[i] && left) { show[i] = 1; left-- }
-          for (i = 1; i <= n; i++) while (left && show[i] < m[i]) { show[i]++; left-- }
+          for (i = 2; i <= n; i++) if (m[i] && left) { show[i] = 1; left-- }
+          for (i = 2; i <= n; i++) while (left && show[i] < m[i]) { show[i]++; left-- }
         }
         for (i = 1; i <= n; i++) for (j = 1; j <= show[i]; j++) { print h[i] ": " t[i, j]; shown++ }
         if (total > shown) printf "%d more; ask to see them all\n", total - shown

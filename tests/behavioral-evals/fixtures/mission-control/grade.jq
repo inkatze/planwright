@@ -35,7 +35,8 @@ def density_ok:
 
 # Quiet by default: a turn the operator did not ask for (presents after an
 # event, before their next answer) never narrates a routine act, leads
-# without an acknowledgement and runs five lines at most; a routine-only
+# without an acknowledgement and runs five lines at most, an item's own
+# lines not counted (it must stay answerable alone); a routine-only
 # event gets no turn at all; every routine act has its undo entry logged.
 def turns: [.decision_log[] | select(.kind == "answer" or .kind == "event" or .kind == "present")];
 def unasked_presents:
@@ -50,7 +51,7 @@ def no_ack_ok:
   all(presents[].text; test("^(got it|understood|thanks|thank you|will do|on it|okay|sure)([.,!:;-]|$)"; "i") | not);
 def unasked_cap_ok:
   turns | reduce .[] as $r ({max: 0, cur: 0, unasked: true};
-    if $r.kind == "present" then (if .unasked then .cur += ($r.text | split("\n") | length) | .max = ([.max, .cur] | max) else . end)
+    if $r.kind == "present" then (if .unasked and $r.item == null then .cur += ($r.text | split("\n") | length) | .max = ([.max, .cur] | max) else . end)
     else .cur = 0 | .unasked = ($r.kind == "event") end)
   | .max <= 5;
 def routine_silent_ok:
