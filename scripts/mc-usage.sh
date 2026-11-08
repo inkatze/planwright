@@ -31,7 +31,7 @@ done
 MAX_ATTEMPTS=3
 
 usage() {
-  mc_usage_fail "usage: mc-usage.sh [watch] [--program <p>] [--now <epoch>] | held|list|report --program <p> | drain --program <p> [--now <epoch>] | enqueue --program <p> (--kind <k> --scope <s> --brief <file> [--backend <b>] [--cwd <dir>] [--repo <dir>] [--rules <scope>]... | --resume <session> [--brief <file>]) | drop --program <p> <id> (mc-usage.sh --help)"
+  mc_usage_fail "usage: mc-usage.sh [watch] [--program <p>] [--now <epoch>] | held --program <p> [--now <epoch>] | list|report --program <p> | drain --program <p> [--now <epoch>] | enqueue --program <p> (--kind <k> --scope <s> --brief <file> [--backend <b>] [--cwd <dir>] [--repo <dir>] [--rules <scope>]... | --resume <session> [--brief <file>]) | drop --program <p> <id> (mc-usage.sh --help)"
 }
 
 help_text() {
@@ -43,9 +43,9 @@ Every step is a script; none calls a model.
 
 THE WINDOWS are the session (five-hour) and weekly windows with the epoch
 each resets at: the status-line mirror (scripts/fleet-usage-gate.sh
-windows), and for a window the mirror lacks, the newest frame a stream-json
-worker received (scripts/claude-frames.sh read), so a host running only
-headless sessions still reads them; while a hold lasts, only a frame
+windows), and for a window the mirror lacks, the reading the stream-json
+workers' frames give (scripts/claude-frames.sh read), so a host running
+only headless sessions still reads them; while a hold lasts, only a frame
 received after it began counts. A held claude quota (scripts/quota-hold.sh,
 a session that died on a limit) is a window too, named `quota`, resetting at
 the time its refusal stated.
@@ -56,11 +56,11 @@ epoch has passed, or a fresh reading of it is under the threshold, so a
 mirror gone stale while the account is held does not hold it past the
 reset. A quota with no stated reset ends with fresh readings of both windows
 under the threshold. A quota that has ended is released, and its reset
-acted on, even when no watch saw it held. While it lasts the launcher refuses new sessions
-(scripts/mission-control-launch.sh, but for a mission-control successor
-and a launch with --operator-asked), the budget reads hold-dispatch
-(scripts/mc-budget.sh), and the next units go to the queue instead. It is
-kept in <runtime>/usage/hold.
+acted on, even when no watch saw it held. While the hold lasts the
+launcher refuses new sessions (scripts/mission-control-launch.sh, but for
+a mission-control launch and one with --operator-asked), the budget reads
+hold-dispatch (scripts/mc-budget.sh), and the next units go to the queue
+instead. It is kept in <runtime>/usage/hold.
 
 THE QUEUE is <runtime>/usage/queue/<id>/, one directory per entry holding
 its `entry` record and a copy of its brief, so it survives every session.
@@ -92,7 +92,8 @@ Usage:
         event<TAB>usage-drained<TAB><program><TAB><text>  a later drain
                                                           that acted
       or `busy` while another watch or drain holds the duty's lock, and
-      `paused` (`blocked<TAB><exit>`) under the fleet daemon pause
+      `paused` under the fleet daemon pause (`blocked<TAB><exit>` for a
+      broken gate)
   mc-usage.sh held --program <p> [--now <epoch>]
       exit 0 printing the hold's `held` lines, a window whose reset has
       passed left out; exit 1 printing `clear` when none is left
@@ -105,6 +106,7 @@ Usage:
   mc-usage.sh list --program <p>
       entry<TAB><id><TAB>launch|resume<TAB><trigger><TAB><scope|session>
   mc-usage.sh drop --program <p> <id>
+      prints dropped<TAB><id>
   mc-usage.sh drain --program <p> [--now <epoch>]
       launch the queue and resume the sessions a limit stopped now, printing
       the watch's launched, resumed, kept and failed lines; it releases no
@@ -119,8 +121,10 @@ Usage:
         landed|decision|failed<TAB><subject><TAB><text>
 
 Exit codes: 0 done (held: held); 1 clear (held), a store that cannot be
-read or written, an invalid threshold, or a drain refused under a hold; 2
-usage; 3 the program is not configured, or no such entry (drop).
+read or written, an invalid threshold, a drain refused under a hold, or a
+blocked daemon gate (watch, drain); 2 usage, or a broken install; 3 the
+program is not configured, or no such entry (drop). Exit 1 is both clear
+and a failure, so a caller reads clear only from the printed `clear`.
 
 Portable bash 3.2 / BSD tooling.
 HELP

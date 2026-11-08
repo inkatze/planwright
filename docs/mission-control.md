@@ -118,11 +118,13 @@ weekly one. When either reaches 90% (the `mission_control_usage_hold`
 setting), mission control stops starting new sessions and lines the next
 pieces of work up instead, each with its instructions already written, in
 a queue that survives restarts. Work you ask for yourself still starts, and
-so does a fresh mission-control session taking over from the old one.
+so does a mission-control session, such as a fresh one taking over from
+the old one.
 
 When the window resets, nobody has to be there: the watcher sees the reset
-time pass, starts the queued work, and resumes each session that stopped
-on the limit, telling it what happened and to pick up where it left off.
+time pass, starts the queued work, and resumes each background session it
+started that stopped on the limit, telling it what happened and to pick up
+where it left off.
 Mission control is then woken without you: a background session gets the
 wake as a turn, and an attended one through its panel (one running without
 the panel only has the wake waiting in its input box). The first thing it
@@ -133,7 +135,8 @@ The usage figures come from your status line's copy of Claude Code's own
 rate limits, and on a computer running only background sessions from the
 readings those sessions receive. With neither, nothing is held ahead of
 the limit: a session that hits it is held as before, and the queue drains
-when that hold's stated reset time passes. An account billed in dollars
+when that hold's stated reset time passes (a hold that stated none waits
+for you to resume it). An account billed in dollars
 rather than usage windows reports no windows, so the same rule applies.
 
 ## Proposals

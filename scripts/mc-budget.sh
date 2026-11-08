@@ -60,8 +60,9 @@ The rung, lowest to highest; the highest that applies wins:
   hold-dispatch   at or over hold_dispatch, a quota hold
                   (scripts/quota-hold.sh, the `limited` outcome, or a quota
                   store that cannot be read), or the usage hold
-                  (scripts/mc-usage.sh held, or one that cannot be read): medium-cost
-                  watchers stop too, and no session or heavy work is admitted
+                  (scripts/mc-usage.sh held, or one that cannot be read):
+                  medium-cost watchers stop too, and no session or heavy
+                  work is admitted
   handover        context steps at their limit: the session hands over
   paused          the fleet daemon pause (scripts/fleet-daemon-gate.sh), or
                   a gate that cannot be read: nothing autonomous runs

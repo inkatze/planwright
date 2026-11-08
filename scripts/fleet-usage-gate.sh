@@ -416,7 +416,8 @@ validate_value() {
 
 # --- Signal sources (evaluate / signal) ------------------------------------
 #
-# Each source prints `<session> <weekly>`, each a 0-100 int or `unavailable`,
+# Each source prints `<session> <weekly>`, each a 0-100 int or `unavailable`
+# (the mirror, read for `windows`, a `<pct>/<resets_at>` in place of the int),
 # and read_signal takes every window from the first source in SIGNAL_SOURCES
 # that has it. A source therefore only says what it can measure, and one that
 # measures in another unit converts to a window percentage inside its own

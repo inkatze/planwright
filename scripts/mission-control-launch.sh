@@ -116,8 +116,8 @@ relaunch or another retire of it is in flight, or the caller runs inside
 its window (retire); 4 a launch refused before it started: no readable
 profile, an unresolvable rung knob, no resolvable tier (an unreachable
 allocation store or a malformed tier knob), the admission gate withholding
-it, the usage hold (or one that cannot be read), a broken allocation install, a program that is not configured, rules
-that would not render, a worktree that could not be created, a named
+it, the usage hold (or one that cannot be read), a broken allocation
+install, a program that is not configured, rules that would not render, a worktree that could not be created, a named
 directory that is not a worktree other than a primary checkout, a worktree
 path holding a control character, or any other refusal by the rung.
 EOF

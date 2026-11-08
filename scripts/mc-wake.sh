@@ -64,7 +64,9 @@ One wake per target carries 20 of its pending events, oldest first and,
 in the tick, never-sent ones ahead of staged ones (the rest wait for a
 later wake), naming each one's kind and subject, re-checked against
 their grammar, never its free text, which the session reads through the
-`mc-event.sh list --program <p> <id>...` command the wake prints. It is
+`mc-event.sh list --program <p> <id>...` command the wake prints. A wake
+carrying a usage-reset event also names the `mc-usage.sh report` command
+whose lines are all the operator is told of that reset. It is
 written to a file of its own under <runtime>/wake/, which a staged pointer
 reads and which the tick deletes after a week. A staged wake asks the
 session to acknowledge with `mc-event.sh mark ... submitted <id>...` once
