@@ -132,7 +132,7 @@ Usage:
       the launcher (one that did not release is retired all the same),
       waits up to --exit-wait (default 30s) for the predecessor's process
       to exit, closes the predecessor's recorded tmux pane (that pane id
-      only, never found by name) once the name has moved, then announces
+      on that socket only, never found by name) once the name has moved, then announces
       itself
   mc-handover.sh resume --program <p> --session <handle>
       [--kind attended|registry] --picture <file> --digest <hex>
@@ -297,19 +297,24 @@ tmux_probe() {
   esac
   case ${TMUX_PANE#%} in *[!0-9]*) return 1 ;; esac
   command -v tmux >/dev/null 2>&1 || return 1
-  [ "$(tmux display-message -p -t "$TMUX_PANE" '#{pane_id}' 2>/dev/null </dev/null)" = "$TMUX_PANE" ]
+  tp_sock=${TMUX%%,*}
+  case $tp_sock in /*) ;; *) return 1 ;; esac
+  [ "$(tmux -S "$tp_sock" display-message -p -t "$TMUX_PANE" '#{pane_id}' 2>/dev/null </dev/null)" = "$TMUX_PANE" ]
 }
 
-# close_pred_pane <pane id or ->: the successor closes the predecessor's
-# recorded tmux pane after the name moved, that pane only.
+# close_pred_pane <pane id or -> <tmux socket or ->: the successor closes the
+# predecessor's recorded tmux pane, on the server whose socket was recorded
+# with it (a pane id is unique only within one server), after the name
+# moved, that pane only.
 close_pred_pane() {
-  [ "$1" != - ] || return 0
+  [ "$1" != - ] && [ "$2" != - ] || return 0
+  case $2 in /*) ;; *) return 0 ;; esac
   case $1 in %[0-9]*) ;; *) return 0 ;; esac
   case ${1#%} in *[!0-9]*) return 0 ;; esac
   [ "$1" != "${TMUX_PANE:-}" ] || return 0
   command -v tmux >/dev/null 2>&1 || return 0
-  [ "$(tmux display-message -p -t "$1" '#{pane_id}' 2>/dev/null </dev/null)" = "$1" ] || return 0
-  if tmux kill-pane -t "$1" >/dev/null 2>&1 </dev/null; then
+  [ "$(tmux -S "$2" display-message -p -t "$1" '#{pane_id}' 2>/dev/null </dev/null)" = "$1" ] || return 0
+  if tmux -S "$2" kill-pane -t "$1" >/dev/null 2>&1 </dev/null; then
     printf 'pane\t%s\tclosed\n' "$1"
   else
     printf 'pane\t%s\theld\n' "$1"
@@ -374,7 +379,7 @@ record() {
 # [<owner> [<predecessor pane>]]: the owner is the launch that reserved it,
 # until it is verified.
 succ_record() {
-  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}"
+  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}" predecessor-tmux "${9:--}"
 }
 
 # require_successor <fail-function>: SUCC names $session; sets S_PRED and
@@ -388,6 +393,8 @@ require_successor() {
   S_PRED_KIND=$(mc_kv "$SUCC" predecessor-kind)
   S_PANE=$(mc_kv "$SUCC" predecessor-pane)
   [ -n "$S_PANE" ] || S_PANE=-
+  S_TMUX=$(mc_kv "$SUCC" predecessor-tmux)
+  [ -n "$S_TMUX" ] || S_TMUX=-
 }
 refuse() { mc_fail "$2"; }
 
@@ -857,7 +864,7 @@ case $verb in
         exit 3
       fi
     fi
-    pred=- pred_kind=- pred_pane=''
+    pred=- pred_kind=- pred_pane='' pred_tmux=''
     [ -z "$H_SESSION" ] || pred=$H_SESSION pred_kind=$H_KIND
     if [ "$H_LIVE" -eq 1 ]; then
       case $mode in
@@ -865,8 +872,10 @@ case $verb in
         handover)
           if [ "$H_KIND" = attended ]; then
             if tmux_probe; then
-              pred_pane=$TMUX_PANE
               [ -n "$backend" ] || backend=tmux
+              if [ "$backend" = tmux ]; then
+                pred_pane=$TMUX_PANE pred_tmux=${TMUX%%,*}
+              fi
             else
               say "the holder $H_SESSION is the operator's own session, and no tmux pane is available to open its successor beside it; the handover is the operator act mc-handover.sh path names"
               exit 4
@@ -898,7 +907,7 @@ case $verb in
       || mc_fail "the launcher cannot name the successor"
     # The record is reserved before the launch, so a second launch meets it
     # and the launcher's own lock on the name; a failed launch removes it.
-    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}"
+    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}" "${pred_tmux:--}"
     unlock
     drop_reservation() {
       lock
@@ -966,7 +975,7 @@ case $verb in
     selfcheck "$digest" "$picture" "$scratch"
     lock
     require_successor refuse
-    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW" - "$S_PANE"
+    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW" - "$S_PANE" "$S_TMUX"
     unlock
     printf 'verified\t%s\t%s\n' "$session" "$(printf '%s\n' "$SC_OUT" | head -n 1 | mc_clean)"
     ;;
@@ -1007,7 +1016,7 @@ case $verb in
       raise handover-requested "$S_PRED" "$session passed its self-check for program $program; release the name"
     fi
     succeed "$session" registry "$S_PRED" "$S_PRED_KIND" "$expect" "$secs"
-    close_pred_pane "$S_PANE"
+    close_pred_pane "$S_PANE" "$S_TMUX"
     announce "$session" "$S_PRED"
     [ "$RETIRE_OK" -eq 1 ] || exit 1
     ;;

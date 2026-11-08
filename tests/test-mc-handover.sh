@@ -408,12 +408,50 @@ kill "$pr" 2>/dev/null
 cat >"$tmp/bin/tmux" <<'FAKE'
 #!/bin/sh
 d=${FAKE_TMUX_DIR:?}
+if [ "$1" = -S ]; then
+  sock=$2
+  shift 2
+  printf 'sock %s: ' "$sock" >>"$d/tmux.log"
+fi
 printf '%s\n' "$*" >>"$d/tmux.log"
+mkdir -p "$d/tmuxw"
 case $1 in
   display-message)
-    id=$4
-    grep -qx -- "$id" "$d/tmux.panes" && printf '%s\n' "$id" && exit 0
+    t=''
+    for a in "$@"; do [ "$prev" = -t ] && t=$a; prev=$a; done
+    case $t in
+      %*) grep -qx -- "$t" "$d/tmux.panes" && printf '%s\n' "$t" && exit 0 ;;
+      @*) if [ -e "$d/tmuxw/$t" ]; then
+        case $* in *session_name*) echo stub ;; *) echo "$t" ;; esac
+        exit 0
+      fi ;;
+    esac
     exit 1
+    ;;
+  new-window)
+    n=$(cat "$d/tmuxw/next" 2>/dev/null || echo 1)
+    echo $((n + 1)) >"$d/tmuxw/next"
+    shift
+    printf '%s\n' "$@" >"$d/tmuxw/argv-@$n"
+    wname=''
+    while [ "$#" -gt 0 ]; do
+      [ "$1" = -n ] && wname=$2
+      shift
+    done
+    printf '%s\n' "$wname" >"$d/tmuxw/@$n"
+    echo "@$n"
+    exit 0
+    ;;
+  list-windows)
+    for w in "$d"/tmuxw/@*; do
+      [ -f "$w" ] || continue
+      case $* in *window_name*) printf '%s %s\n' "${w##*/}" "$(cat "$w")" ;; *) printf '%s\n' "${w##*/}" ;; esac
+    done
+    exit 0
+    ;;
+  kill-window)
+    rm -f "$d/tmuxw/$3"
+    exit 0
     ;;
   kill-pane)
     id=$3
@@ -421,6 +459,7 @@ case $1 in
     mv "$d/tmux.panes.new" "$d/tmux.panes"
     exit 0
     ;;
+  has-session) exit 1 ;;
 esac
 exit 1
 FAKE
@@ -446,11 +485,20 @@ ho write --program alpha --session op-f --picture "$tmp/picture" --digest "$dige
 [ "$RC" = 0 ] || fail "fixture: the handover file was not written: $OUT $ERR"
 led_f=$(col handover 3)
 RUN_TMUX_PANE='%7' ho launch --program alpha --brief "$tmp/brief.md" --handover --backend stream-json
-[ "$RC" = 0 ] && ok "a handover launch over an attended holder inside tmux is admitted" || fail "the pane handover launch exited $RC: $OUT $ERR"
+[ "$RC" = 0 ] || fail "fixture: the headless handover launch exited $RC: $OUT $ERR"
+ns=$(col successor 2)
+wait_done "$ns"
+grep -q '^predecessor-pane' "$fleet/mission-control/alpha/successor" && ! grep -q "^predecessor-pane${tab}%" "$fleet/mission-control/alpha/successor" \
+  && ok "a headless successor records no pane, so it can never close the operator's" || fail "the headless record: $(cat "$fleet/mission-control/alpha/successor")"
+run mission-control-launch.sh retire "$ns"
+rm -f "$fleet/mission-control/alpha/successor"
+
+RUN_TMUX_PANE='%7' ho launch --program alpha --brief "$tmp/brief.md" --handover
+[ "$RC" = 0 ] && ok "a handover launch over an attended holder inside tmux is admitted, on the tmux rung" || fail "the pane handover launch exited $RC: $OUT $ERR"
 nf=$(col successor 2)
-wait_done "$nf"
 grep -qx "predecessor-pane${tab}%7" "$fleet/mission-control/alpha/successor" \
-  && ok "the predecessor's pane id is recorded" || fail "no recorded pane: $(cat "$fleet/mission-control/alpha/successor")"
+  && grep -qx "predecessor-tmux${tab}$tmp/tmux.sock" "$fleet/mission-control/alpha/successor" \
+  && ok "the predecessor's pane id and tmux socket are recorded" || fail "no recorded pane: $(cat "$fleet/mission-control/alpha/successor")"
 
 RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wait 1s
 [ "$RC" != 0 ] && ! grep -q kill-pane "$tmp/tmux.log" \
@@ -468,7 +516,7 @@ kill "$self_f" 2>/dev/null
 RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wait 5s
 [ "$RC" = 0 ] && [ "$(col pane 2)" = '%7' ] && [ "$(col pane 3)" = closed ] \
   && ok "the successful take reports the predecessor's pane closed" || fail "the pane take: $RC $OUT $ERR"
-[ "$(grep -c kill-pane "$tmp/tmux.log")" = 1 ] && grep -qx 'kill-pane -t %7' "$tmp/tmux.log" \
+[ "$(grep -c kill-pane "$tmp/tmux.log")" = 1 ] && grep -qx "sock $tmp/tmux.sock: kill-pane -t %7" "$tmp/tmux.log" \
   && grep -qx '%9' "$tmp/tmux.panes" && grep -qx '%3' "$tmp/tmux.panes" \
   && ok "exactly the recorded pane was killed, no other" || fail "tmux log: $(cat "$tmp/tmux.log")"
 holder_is "the name moved to the pane successor" "$nf"
