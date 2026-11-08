@@ -145,8 +145,12 @@ msp_dialog() {
     }
     function rule(i,   s) { s = line[i]; if (length(s) < 8 * length("─") || s !~ /^─/) return 0; gsub(/─/, "", s); return s == "" }
     function option(i,   s) { s = line[i]; sub(/^[ \t]+/, "", s); sub(/^❯[ \t]*/, "", s); return (s ~ /^[1-9]\.[ \t]/) ? s : "" }
-    function signed(i,   k, s) {
+    function worded(i,   k) {
       for (k = 1; k <= ns; k++) if (sig[k] != "" && index(lc[i], sig[k])) return 1
+      return 0
+    }
+    function signed(i,   s) {
+      if (worded(i)) return 1
       s = line[i]; sub(/^[ \t]+/, "", s); return s ~ /^❯[ \t]*[1-9]\./
     }
     function closes(i,   k, s) {
@@ -163,17 +167,14 @@ msp_dialog() {
     END {
       for (i = NR; i >= 1; i--) if (signed(i)) { end = i; break }
       if (!end) exit 1
-      wrap = 0
-      if (option(end) != "") {
-        while (end < NR && option(end + 1) != "") end++
-        if (end < NR && line[end + 1] ~ /[^ \t]/ && !footer(end + 1)) wrap = 1
-      }
+      if (option(end) != "") while (end < NR && option(end + 1) != "") end++
       for (i = end + 1; i <= NR; i++) if (closes(i)) exit 1
       for (i = end; i >= 1; i--) if (option(i) != "") { olast = i; break }
-      bad = wrap
+      bad = 0
       if (olast) {
         ofirst = olast
         while (ofirst > 1 && option(ofirst - 1) != "") ofirst--
+        if (olast < NR && line[olast + 1] ~ /[^ \t]/ && !footer(olast + 1)) bad = 1
         for (i = olast + 1; i < end; i++) if (line[i] ~ /[^ \t]/ && !footer(i)) bad = 1
         for (i = ofirst; i <= olast; i++) {
           s = option(i); d = substr(s, 1, 1); l = substr(s, 3); sub(/^[ \t]+/, "", l)
@@ -196,9 +197,13 @@ msp_dialog() {
       print "bindable\t" bindable
       print "run\t" (!olast ? "none" : bad ? "broken" : "ok")
       if (!bad) for (i = 1; i <= no; i++) print "option\t" opt[i]
+      # The cursor may sit on any option line, wrapped labels included,
+      # but a body line that only looks like one keeps its glyph.
+      rs = olast ? olast : end + 1
+      while (rs > top && line[rs - 1] ~ /[^ \t]/ && (option(rs - 1) != "" || !worded(rs - 1))) rs--
       for (i = top; i <= end; i++) {
         s = line[i]
-        if (option(i) != "" && match(s, /^[ \t]*❯/)) s = substr(s, 1, RLENGTH - length("❯")) " " substr(s, RLENGTH + 1)
+        if (i >= rs && option(i) != "" && match(s, /^[ \t]*❯/)) s = substr(s, 1, RLENGTH - length("❯")) " " substr(s, RLENGTH + 1)
         print "block\t" s
       }
     }') || return 1

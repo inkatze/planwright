@@ -518,6 +518,15 @@ if (
     printf '   2. Yes, and do not ask again for these\n      commands\n   3. No\n'
   )"
   [ "$MSP_RUN" = broken ] || fail "a wrapped label with no footer below read as run '$MSP_RUN': '$MSP_OPTIONS'"
+  parse "$(
+    bare 1 | sed '$d'
+    printf "   2. Yes, allow\n      and don't ask again for ls\n   3. No\n"
+  )"
+  [ "$MSP_RUN" = broken ] || fail "a label wrapping onto a signature line read as run '$MSP_RUN': '$MSP_OPTIONS'"
+  parse "$(indent '   ❯ 1. ')"
+  p10=$MSP_PRINT
+  parse "$(indent '     1. ')"
+  [ "$p10" != "$MSP_PRINT" ] || fail "a command line that looks like a cursor option shares a digest with its uncursored twin"
   wrapped=$(awk '{ print } /^   2\. Yes, and/ { print "      and every later call" }' "$tmp/dialog.txt")
   parse "$wrapped"
   p9=$MSP_PRINT
