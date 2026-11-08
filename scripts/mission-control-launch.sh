@@ -751,7 +751,10 @@ cmd_launch() {
   # program through the hold.
   if [ "$kind" != mission-control ] && [ "$operator_asked" -eq 0 ]; then
     uh_out=$(/bin/bash "$script_dir/mc-usage.sh" held --program "$program" </dev/null 2>/dev/null)
-    case $? in
+    uh_rc=$?
+    # A failure exits 1 as clear does, so clear is only the word itself.
+    [ "$uh_rc" -ne 1 ] || [ "$uh_out" = clear ] || uh_rc=2
+    case $uh_rc in
       0)
         uh_why=$(printf '%s\n' "$uh_out" | awk -F '\t' 'NR == 1 { print ($2 == "quota") ? "a session stopped on the claude usage limit" : "the " $2 " usage window is at " $3 "%" }')
         die "refusing to launch $name: launches are held until the usage window resets ($uh_why); queue it for the reset with mc-usage.sh enqueue and these same arguments, or pass --operator-asked for work the operator asked for" 4

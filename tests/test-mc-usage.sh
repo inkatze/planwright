@@ -124,6 +124,18 @@ mc_run mc-usage.sh held --program alpha
 expect_rc "held reads clear below the threshold" 1
 expect_eq "held prints clear" "clear"
 
+# A hold that cannot be read is held, never clear: `held` exits 1 on a
+# failure as on clear, so its callers read clear only from the word itself.
+holdf="$fleet/mission-control/alpha/usage/hold"
+mkdir -p "$holdf"
+mc_run mc-budget.sh rung --program alpha --now "$now" --load 0
+expect_eq "an unreadable usage hold is the hold-dispatch rung" "hold-dispatch"
+printf '%s\n' "a fixture brief" >"$tmp/brief.md"
+mc_run mission-control-launch.sh launch --program alpha --kind tower --scope unreadable-one --brief "$tmp/brief.md" --backend stream-json
+expect_rc "the launcher refuses a launch when the usage hold cannot be read" 4
+expect_err "the refusal says the hold cannot be read" "usage hold cannot be read"
+rmdir "$holdf"
+
 # ---------------------------------------------------------------------------
 # Above the threshold (the shipped 90): the hold, its one event, the budget
 # rung and the launcher's refusal.
