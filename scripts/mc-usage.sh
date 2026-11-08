@@ -99,8 +99,9 @@ Usage:
   mc-usage.sh enqueue --program <p> --kind <k> --scope <s> --brief <file>
                       [--backend <b>] [--cwd <dir>] [--repo <dir>] [--rules <scope>]...
   mc-usage.sh enqueue --program <p> --resume <session> [--brief <file>]
-      queue a launch (the launcher's own arguments) or a resume; prints
-      queued<TAB><id>
+      queue a launch (the launcher's own arguments) or a resume (of a
+      stream-json session the program launched, its brief at most 64 KiB);
+      prints queued<TAB><id>
   mc-usage.sh list --program <p>
       entry<TAB><id><TAB>launch|resume<TAB><trigger><TAB><scope|session>
   mc-usage.sh drop --program <p> <id>
@@ -562,6 +563,15 @@ case $verb in
     if [ -n "$resume" ]; then
       [ -z "$kind$scope$backend$cwd$repo$rules" ] || usage
       mc_valid_handle "$resume" || mc_usage_fail "invalid session '$(sanitize_printable "$resume")'"
+      # The drain steers the session, so it must be a stream-json one this
+      # program launched, and the brief one steer takes (scripts/fleet-streamjson.sh).
+      sessions=$(/bin/bash "$script_dir/mission-control-launch.sh" list 2>/dev/null) || mc_fail "cannot list the sessions"
+      printf '%s\n' "$sessions" | P=$program W=$resume awk -F '\t' '$1 == ENVIRON["W"] && $2 == ENVIRON["P"] && $5 == "stream-json" { f = 1 } END { exit !f }' \
+        || mc_usage_fail "$resume is no stream-json session program $program launched"
+      if [ -n "$brief" ] && [ -f "$brief" ] && [ -r "$brief" ]; then
+        [ "$(head -c 65537 <"$brief" | wc -c | tr -d ' ')" -le 65536 ] || mc_usage_fail "--brief exceeds the 64 KiB a steered turn takes"
+        [ "$(tr -d '[:space:]' <"$brief" | wc -c | tr -d ' ')" != 0 ] || mc_usage_fail "--brief holds only blanks"
+      fi
       action=resume
     else
       action=launch

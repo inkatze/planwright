@@ -193,6 +193,8 @@ mc_run mc-usage.sh enqueue --program alpha --kind tower --scope bad --brief "$tm
 expect_rc "enqueue refuses a brief that is not there" 2
 mc_run mc-usage.sh enqueue --program alpha --kind nope --scope x --brief "$tmp/brief.md"
 expect_rc "enqueue refuses an unknown kind" 2
+mc_run mc-usage.sh enqueue --program alpha --resume mc-alpha-nobody-1
+expect_rc "enqueue refuses to resume a session the program never launched" 2
 
 # Work the operator asked for still starts; it becomes the session that
 # stops on the limit below.
@@ -211,7 +213,10 @@ done
 # The run died on the limit, as the supervisor records a rate-limit death.
 printf 'result\tsuccess\t%s\ttrue\tlimited=claude\n' "$now" >"$sjdir/result"
 mc_run fleet-streamjson.sh status "$limited"
-expect_out "the fixture session reads limited" "limited"
+expect_out "the fixture session reads limited" "status $limited limited "
+head -c 70000 /dev/zero | tr '\0' a >"$tmp/big.md"
+mc_run mc-usage.sh enqueue --program alpha --resume "$limited" --brief "$tmp/big.md"
+expect_rc "enqueue refuses a resume brief over the steer cap" 2
 
 # A claude quota hold whose stated reset passes with the window.
 mc_run quota-hold.sh hold --vendor claude --unit "alpha:$limited" --step worker --reason "fixture limit" --reset "$reset_at" --now "$now"
