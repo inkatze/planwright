@@ -106,7 +106,10 @@ Usage:
       entry<TAB><id><TAB>launch|resume<TAB><trigger><TAB><scope|session>
   mc-usage.sh drop --program <p> <id>
   mc-usage.sh drain --program <p> [--now <epoch>]
-      drain the queue now, as a reset would (refused while a hold lasts)
+      launch the queue and resume the sessions a limit stopped now, printing
+      the watch's launched, resumed, kept and failed lines; it releases no
+      quota and writes no reset record (refused while a hold lasts, a window
+      whose reset has passed aside)
   mc-usage.sh report --program <p>
       what the first wake after the latest reset tells the operator, and
       nothing else: since the hold began, each landing (session-landed),
@@ -256,6 +259,14 @@ held_rows() {
   [ -e "$holdf" ] || return 0
   [ -f "$holdf" ] && [ -r "$holdf" ] || return 1
   awk -F '\t' '$1 == "window" && NF == 4 { print $2 " " $3 " " $4 }' "$holdf"
+}
+
+# live_rows: the hold's rows still held at NOW, not only at the last watch:
+# a watcher that stopped (a disarmed duty, a paused fleet) must not hold
+# launches past a reset.
+live_rows() {
+  lr_rows=$(held_rows) || return 1
+  printf '%s\n' "$lr_rows" | N=$NOW awk 'NF == 3 && ($3 == "-" || ENVIRON["N"] + 0 < $3 + 0)'
 }
 
 # hold_now <threshold>: CUR, the windows held at NOW, from the readings, the
@@ -579,10 +590,7 @@ case $verb in
     ;;
   held)
     [ "${#args[@]}" -eq 0 ] || usage
-    rows=$(held_rows) || mc_fail "cannot read the usage hold"
-    # Judged at NOW, not only at the last watch: a watcher that stopped (a
-    # disarmed duty, a paused fleet) must not hold launches past a reset.
-    rows=$(printf '%s\n' "$rows" | N=$NOW awk 'NF == 3 && ($3 == "-" || ENVIRON["N"] + 0 < $3 + 0)')
+    rows=$(live_rows) || mc_fail "cannot read the usage hold"
     if [ -z "$rows" ]; then
       printf 'clear\n'
       exit 1
@@ -670,7 +678,7 @@ case $verb in
     [ "${#args[@]}" -eq 0 ] || usage
     mc_gate_or_exit mc-usage
     take_lock
-    rows=$(held_rows) || mc_fail "cannot read the usage hold"
+    rows=$(live_rows) || mc_fail "cannot read the usage hold"
     [ -z "$rows" ] || mc_fail "launches are held until the usage window resets; the watch drains the queue then"
     drain ""
     ;;

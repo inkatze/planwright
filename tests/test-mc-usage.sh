@@ -149,6 +149,10 @@ expect_rc "held reads held" 0
 expect_out "held names the window, its reading and its reset" "held${tab}weekly${tab}92${tab}$week_at"
 mc_run mc-usage.sh held --program alpha --now "$((week_at + 1))"
 expect_rc "a hold whose every reset has passed reads clear, so no stopped watcher holds launches past it" 1
+mc_run mc-usage.sh drain --program alpha --now "$now"
+expect_rc "a drain is refused while the hold lasts" 1
+mc_run mc-usage.sh drain --program alpha --now "$((week_at + 1))"
+expect_rc "a drain is not refused by a hold whose every reset has passed" 0
 watch "$((now + 60))"
 expect_rc "a watch inside the hold" 0
 expect_no_out "a hold already announced is not announced again" "usage-held"
