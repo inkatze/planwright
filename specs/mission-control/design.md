@@ -1022,6 +1022,21 @@ only the operator's own answer reaches it, by the pane relay (D-23).
 path, and the coverage check already sits in front of the channel that
 answers.
 
+*(Amended 2026-11-08, operator ruling relayed through the hub: "can't it be
+fixed from the root so we don't really need to do it?". Today approvals run
+`fleet-streamjson.sh pending|answer` only through user-scope allow rules that
+name one plugin version's install path, so each release breaks them and the
+auto-mode classifier denies the call. The fix is at the root: a plugin
+PreToolUse hook approves exactly the literal resolved installed-root path
+`<root>/scripts/fleet-streamjson.sh` with `pending` or `answer`, as one simple
+command (no expansion, compound, pipe, redirection, background marker, or
+path through a symlink to elsewhere), in a mission-control session only.
+The "allow the raw answer verb" alternative above is rejected for the guard
+tier's list and stays rejected there; this hook is a separate, narrower
+approval whose coverage is its exact shape, not a verb-wide allow. The
+fleet-hardening D-20 exact-path rule for settings allow rules is kept as is.
+The kickoff settles how this hook relates to the standing-decision check.)*
+
 ### D-36: A kickoff permission profile for relayed kickoffs  (S)
 
 **Decision:** The launcher gets a kickoff kind with its own settings

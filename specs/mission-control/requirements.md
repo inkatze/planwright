@@ -584,6 +584,20 @@ later planwright bundles implement, D-12).
   into a pane.
   *(Cites: D-35; audit item 3 (Sources); tower-comms D-12 (Sources);
   obs:3845960c.)*
+  *(Amended 2026-11-08, operator ruling relayed through the hub: "can't it
+  be fixed from the root so we don't really need to do it?". The plugin's own
+  PreToolUse hook SHALL approve, for a mission-control session only, exactly
+  one simple command per verb: the literal resolved path of the installed
+  plugin root's `scripts/fleet-streamjson.sh` followed by `pending ...` or
+  `answer ...`, with no shell expansion, compound, pipe, redirection,
+  background marker or symlink out of the installed root; every other shape
+  stays unapproved. This removes the per-release settings bump the user-scope
+  allow rules needed. The guard tier's pre-approval list (REQ-G1.5) keeps
+  excluding the raw answer verb, and the exact-path allow-rule discipline of
+  `fleet-hardening` REQ-B1.5 and D-20 is unchanged. Kickoff to settle: whether
+  the hook's `answer` approval also carries REQ-G1.2's standing-decision
+  coverage, or rests on mission control's own decision plus the undo-ledger
+  entry (D-24).)*
 
 ## REQ-H — Programs across repositories
 
