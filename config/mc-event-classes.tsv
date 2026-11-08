@@ -1,0 +1,52 @@
+# What each mission control event kind is to the operator. A `routine`
+# kind never wakes a turn: the script that emitted it already acted. Every
+# other class wakes mission control; decision, blocker, failure and landed
+# name what the operator is owed, and `act` what mission control acts on
+# for them. A kind with no row wakes, so a new kind is never silenced by
+# omission. The report renderer (scripts/mc-inbox.sh report) keeps its own
+# list of the owed classes; change both together.
+#
+# kind<TAB>class
+decision-queued	decision
+deadline-near	decision
+operator-returned	decision
+decision	decision
+draft	decision
+retarget	decision
+deadline	decision
+packet	decision
+pending-prompt-overdue	blocker
+conflict-predicted	blocker
+throughput-bottleneck	blocker
+mission-control-escalated	blocker
+usage-probe	blocker
+blocker	blocker
+conflict	blocker
+handover-failed	failure
+handover-retire-failed	failure
+stall-dead	failure
+stream-json-worker-dead	failure
+watcher-failing	failure
+rules-reinjection-failed	failure
+session-landed	landed
+readiness-due	landed
+ready-offer	landed
+pr-merged	landed
+pending-prompt	act
+stall-open-selector	act
+stall-unsubmitted-prompt	act
+stall-turn-ended-background	act
+stall-idle-question	act
+stall-busy-unchanged	act
+stall-unknown	act
+handover-act	act
+handover-due	act
+handover-requested	act
+mission-control-announce	act
+planwright-recorded	act
+planwright-updated	act
+usage-held	act
+usage-reset	act
+watcher-stopped	routine
+usage-drained	routine
+usage-bypass	routine

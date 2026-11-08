@@ -44,7 +44,7 @@ help_text() {
   cat <<'EOF'
 usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
-      --brief <file> [--rules <rule-scope>]... [--backend stream-json|tmux]
+      [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
@@ -54,7 +54,18 @@ usage:
 <kind> is one of `kinds`; <scope> holds letters, digits and . _ = @ : - only,
 at most 128. --rules adds a rule-store scope (duty:<id> or repo:<name>);
 program rules ride every launch. The rung is --backend, else the
-mission_control_launch_backend knob. While the program's usage hold lasts
+mission_control_launch_backend knob. A mission-control launch with no
+--brief opens on `/planwright:mission-control <p>`; `--backend tmux` makes it
+an attended one, in a tmux window.
+
+Before anything is reserved, a launch runs the posture check
+(scripts/mc-posture.sh). A mission-control launch checks the posture the
+new session starts under: its profile, the user and managed layers, and
+the project layer of the directory it starts in. Every other kind, and a
+mission control's successor (a caller holding PLANWRIGHT_MC_TOKEN), is held
+to the caller's own posture.
+
+While the program's usage hold lasts
 (scripts/mc-usage.sh held) every kind but mission-control is refused unless
 --operator-asked marks work the operator asked for; the refusal names the
 queue (mc-usage.sh enqueue) that launches it at the window's reset. Each
@@ -116,13 +127,15 @@ is in flight, a live session uses its worktree, another launch is placing
 its branch, or a dispatch holds it or cannot say (launch), or there is
 neither a row nor a stream-json worker of that name, a launch, recover,
 relaunch or another retire of it is in flight, or the caller runs inside
-its window (retire); 4 a launch refused before it started: no readable
-profile, an unresolvable rung knob, no resolvable tier (an unreachable
-allocation store or a malformed tier knob), the admission gate withholding
-it, the usage hold (or one that cannot be read), a broken allocation
-install, a program that is not configured, rules that would not render, a worktree that could not be created, a named
-directory that is not a worktree other than a primary checkout, a worktree
-path holding a control character, or any other refusal by the rung.
+its window (retire); 4 a launch refused before it started: a posture check
+(scripts/mc-posture.sh) that failed or did not run, no readable profile, an
+unresolvable rung knob, no resolvable tier (an unreachable allocation store
+or a malformed tier knob), the admission gate withholding it, the usage
+hold (or one that cannot be read), a broken allocation install, a program
+that is not configured, rules that would not render, a worktree that could
+not be created, a named directory that is not a worktree other than a
+primary checkout, a worktree path holding a control character, or any
+other refusal by the rung.
 EOF
 }
 
@@ -667,6 +680,16 @@ abs_dir() {
   printf '%s\n' "$ad_dir"
 }
 
+# posture_gate <command...> — run a posture check; die on anything but a pass.
+posture_gate() {
+  pg_out=$("$@" </dev/null 2>&1)
+  case $? in
+    0) ;;
+    1) die "refusing to launch: the posture check failed: $(sanitize_printable "$(printf '%s\n' "$pg_out" | awk -F '\t' '$2 == "fail" { print $3; exit }')")" 4 ;;
+    *) die "refusing to launch: the posture check did not run: $(sanitize_printable "$pg_out")" 4 ;;
+  esac
+}
+
 # --------------------------------------------------------------------------
 
 cmd_launch() {
@@ -705,8 +728,10 @@ cmd_launch() {
   valid_program "$program" || die "refusing the program name '$(sanitize_printable "$program")'"
   kind_row "$kind" || die "unknown session kind '$(sanitize_printable "$kind")' (one of: $KINDS)"
   valid_scope "$scope" || die "refusing the scope '$(sanitize_printable "$scope")': letters, digits and . _ = @ : - only, at most 128"
-  [ -n "$brief" ] && [ -f "$brief" ] && [ -r "$brief" ] && [ -s "$brief" ] \
-    || die "--brief must name a readable, non-empty regular file"
+  if [ -n "$brief" ] || [ "$kind" != mission-control ]; then
+    [ -n "$brief" ] && [ -f "$brief" ] && [ -r "$brief" ] && [ -s "$brief" ] \
+      || die "--brief must name a readable, non-empty regular file"
+  fi
   case $backend in
     '' | stream-json | tmux) ;;
     *) die "--backend is stream-json or tmux" ;;
@@ -738,6 +763,27 @@ cmd_launch() {
 
   profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$K_PROFILE" </dev/null) \
     || die "refusing to launch $name without its $K_PROFILE settings profile" 4
+
+  # A failure refuses before anything is reserved or started. Every kind but
+  # mission control is launched by a mission control, held to its own posture
+  # the way the skill reads it; so is a mission control's successor.
+  if [ "$kind" != mission-control ] || [ -n "${PLANWRIGHT_MC_TOKEN:-}" ]; then
+    posture_gate /bin/bash "$script_dir/mc-posture.sh" check
+  fi
+  if [ "$kind" = mission-control ]; then
+    # The posture the new session starts under: its profile, the user and
+    # managed layers it inherits, its own directory's project layer, and the
+    # plugin root the rung hands it: tmux pins this install's, stream-json
+    # the one the dispatch-env wrapper exports.
+    resolve_backend
+    session_root=$(cd "$script_dir/.." && pwd -P) || die "cannot resolve this install's root" 2
+    if [ "$backend" != tmux ]; then
+      session_root=$(/bin/sh "$script_dir/fleet-dispatch-env.sh" --print </dev/null 2>/dev/null \
+        | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+    fi
+    posture_gate env -u PLANWRIGHT_MC_TOKEN CLAUDE_PLUGIN_ROOT="$session_root" \
+      /bin/bash "$script_dir/mc-posture.sh" check --settings "$profile" --project "$cwd"
+  fi
 
   set --
   for r in $rules; do set -- "$@" --scope "$r"; done
@@ -849,7 +895,11 @@ cmd_launch() {
 
   # not-a-lock: the reservation is the row above; this only creates the directory it owns
   (umask 077 && mkdir "$ldir") 2>/dev/null || refuse "cannot create the launch directory for $name" 2
-  if ! (umask 077 && cat "$brief" >"$composed"); then
+  if [ -z "$brief" ]; then
+    if ! (umask 077 && printf '/planwright:mission-control %s\n' "$program" >"$composed"); then
+      refuse "cannot write the brief into the launch for $name" 2
+    fi
+  elif ! (umask 077 && cat "$brief" >"$composed"); then
     refuse "cannot read the brief into the launch for $name" 2
   fi
   # A kind that changes a repository runs the configured cadence whatever its

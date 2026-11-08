@@ -86,6 +86,15 @@ Resuming is one operator act; the rest is this skill's (REQ-A1.7). Read
 the guidance level (`scripts/mc-config.sh`'s `mode guidance`, below) once
 here; it sets the depth of every turn, not only the first run's.
 
+**Posture first (REQ-G1.5).** Run `scripts/mc-posture.sh`'s `check` now and
+on every failsafe tick. On anything but `pass` (a check that did not run
+included), say why once in one plain line and stay read-only (no launch,
+no answer, no request; mission control's own stores stay writable) until a
+check passes; the launcher refuses on the same check. A typed start carries
+no profile; name the start that does, run in the operator's own shell
+inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
+`mission-control`, scope `attended`, tmux, no brief.
+
 1. **Rebuild from durable evidence only (REQ-A1.2).** The rules
    (`scripts/mc-rules.sh`'s `load <p>`, loaded whole: the rule digest the
    resume checks), the knowledge-base index (`scripts/mc-kb.sh`'s `index`),
@@ -217,6 +226,14 @@ A draft for a person is in the operator's voice, as long as what it
 answers, one bundled message per person, put on the clipboard with
 `scripts/mc-inbox.sh`'s `draft`, never sent.
 
+**Only what is owed** (`tower-comms`) is rendered, not just written: an
+unasked turn or push carries `scripts/mc-inbox.sh`'s `report` output,
+which keeps decision, blocker, failure and landed lines, every decision
+and five others at most, cutting acknowledgements and repeats. A routine
+event raises no turn (`config/mc-event-classes.tsv`). A routine act is
+logged with its undo entry and decision, never said; a completed handover
+still says the `line` `scripts/mc-handover.sh` prints, outside the report.
+
 **Name the source (REQ-H1.4).** Wherever a report draws on a source, say
 its mode and age as `scripts/mc-snapshot.sh`'s `list` gives them; where a fact
 class has only a `cited` source, say so: the picture there is the
@@ -233,18 +250,20 @@ Launch, message, answer, retire; never hand the operator a per-session step.
 - **Report** a PR as done, or its unit as finished, only once
   `scripts/mc-readiness.sh`'s `check` passes on its head; until then report
   what it names (a cadence gap or an unaudited cadence among them), never done.
-- **Message** a session by `SendMessage` when `ListAgents` lists it; only an
-  unreachable one takes the pane relay, as the tower's messaging says
-  (D-23).
+- **Message** a session by `SendMessage` when `ListAgents` lists it; a
+  stream-json one by `scripts/fleet-streamjson.sh`'s `steer` (its state by
+  `status`); only an unreachable one takes the pane relay, as the tower's
+  messaging says (D-23).
 - **Answer** a session's selector only with a decision the operator gave,
   logging their quote; never type a yes the operator did not give.
 - **Decide** within the autonomy `autonomous-safe-decision` maps at this
   tier, through `scripts/mc-decide.sh`'s `decide`: a decision reaches the
   operator only at a human gate, a fork the record cannot settle, or a
   hard-disqualifier zone; every other one is taken, logged with its grounds
-  (citing the rules it acts under) and shown for review. A likely answer is
-  searched for first and asked as a confirmation with its source. Every
-  automated act appends its undo entry (`scripts/mc-kb.sh`'s `append undo`).
+  (citing the rules it acts under) and shown for review on the panel. A
+  likely answer is searched for first and asked as a confirmation with its
+  source. Every automated act appends its undo entry (`scripts/mc-kb.sh`'s
+  `append undo`).
 
 **A question never holds up other work (REQ-F1.6).** Outside the one
 exception below, mission control never blocks its turn on a question to the
