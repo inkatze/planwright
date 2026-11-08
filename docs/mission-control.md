@@ -161,7 +161,7 @@ the conversation when you can see it, or to show it when you cannot
 (`/mc-panel open` or `/mc-panel close` to choose).
 
 The panel adds a health line only when something its duties should have
-caught slipped past them (a worker running too long or after its pull
+caught slipped past them (a session running too long or after its pull
 request landed, a permission prompt left waiting, a mission control stuck
 on its own dialog or past its handover point, CI jobs queueing for much of
 their run time or with no finished run yet, an idle session), saying
