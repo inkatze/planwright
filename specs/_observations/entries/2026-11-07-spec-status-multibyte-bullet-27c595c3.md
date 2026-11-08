@@ -1,0 +1,1 @@
+- 2026-11-07 [planwright] scripts/spec-status.sh renders a reference bullet's free text with its first character split mid-byte when the bold lead is followed by an em dash (seen on mission-control Task 30's Out of scope bullet: 'bullet: <replacement char> superseded by ...'); the cut assumes a one-byte separator.

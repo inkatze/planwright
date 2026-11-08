@@ -447,3 +447,28 @@ test('a knob unread at bring-up is read again until every knob arrives', async (
   await w.clock.advance(10_000)
   expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).not.toContain('--knobs')
 })
+
+test('approvals mission control is handling are said apart from what waits on the operator', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['approvals\t4'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /waiting on you$/ }))?.text).toBe('2 waiting on you')
+  expect((await ui.find({ type: 'Text', text: /approvals/ }))?.text).toBe('4 approvals mission control is handling')
+  await ui.unmount()
+})
+
+test('one approval is said in the singular', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['approvals\t1'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /approval/ }))?.text).toBe('1 approval mission control is handling')
+  await ui.unmount()
+})
+
+test('no approvals line when mission control is handling none', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['approvals\t0'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /approvals/ })).toBeUndefined()
+  await ui.unmount()
+})

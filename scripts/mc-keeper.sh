@@ -62,6 +62,13 @@ Usage:
         dropped<TAB><session>                the line, once nothing is left
         open<TAB><session>
         unknown<TAB><session><TAB><why>      the read failed; kept
+      first, it clears the decision-queue row of each visual flight parked
+      for the operator (scripts/flight-lifecycle.sh) from one of the
+      program's repositories, once its branch's pull request has merged or
+      closed and none is open (a tmux flight only once its completion was
+      pushed); a failed read never fails the run, and stops the pass:
+        settled<TAB><handle><TAB>MERGED|CLOSED
+        park-unknown<TAB><handle><TAB><why>  not read; kept
   mc-keeper.sh next --program <p> --spec <dir> [--now <epoch>]
       the units of the spec bundle at <dir> (scripts/orchestrate-state.sh,
       run from the directory's repository) that can start now:
@@ -87,10 +94,11 @@ Usage:
       queue item pushed once and a dead worker's is settled), each request
       still overdue one pending-prompt-overdue event, subject the worker,
       announced once per request (a worker the launcher records for
-      another program left to that program), and a dead worker this scan
-      settled one stream-json-worker-dead event, whatever its program,
-      printing
-        announced<TAB>pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
+      another program left to that program), and a request that has just
+      arrived one pending-prompt event, rate-limited so a burst is one
+      event, and a dead worker this scan settled one stream-json-worker-dead
+      event, whatever its program, printing
+        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
       then sweep, each landing one session-landed event in the
       program's event store, subject the session, text
       `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
@@ -337,6 +345,88 @@ EOF
   return "$sw_rc"
 }
 
+# flight_parks: a visual flight parked for the operator whose branch's pull
+# request has since merged or closed waits on nobody, but nothing else clears
+# its queue row: a flight placed outside mission control has no ledger line,
+# and its own retire waits for a worktree removal that may never come. Each
+# such row of a flight from one of the program's repositories (its checkout
+# the repository or a worktree under it) is cleared, only while it is still
+# the row judged. One still open, none, or a read that fails keeps it, and
+# the first failed read stops the pass, so a hung forge costs one bound.
+#
+# A tmux flight whose completion was never pushed (no landing reference
+# beside its brief) keeps its park: the park is what stops the crash sweep
+# (scripts/flight-lifecycle.sh supervise) relaunching its dead worker.
+flight_parks() {
+  fp_home=$(mc_fleet_home) || return 0
+  fp_store=$fp_home/attention/state
+  [ -f "$fp_store" ] && [ ! -L "$fp_store" ] || return 0
+  fp_rows=$(awk -F '\t' '$3 == "awaiting-input" && index($9, "flight-parked: ") == 1 && index($2, "flight:") == 1 {
+      id = substr($2, 8)
+      if (id ~ /^[a-z0-9][a-z0-9-]*$/ && ($1 == "tmux-flight-" id || $1 == "print-flight-" id)) print $1 "\t" id "\t" $4
+    }' "$fp_store" 2>/dev/null) || return 0
+  [ -n "$fp_rows" ] || return 0
+  fp_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories 2>/dev/null) || return 0
+  # Each repository as written and as resolved, each naming the resolved
+  # directory the forge is asked from.
+  fp_mine=""
+  while IFS= read -r fp_r; do
+    [ -n "$fp_r" ] || continue
+    fp_rr=$(cd -- "$fp_r" 2>/dev/null && pwd -P) || continue
+    fp_mine="$fp_mine$fp_r	$fp_rr
+$fp_rr	$fp_rr
+"
+  done <<EOF
+$fp_repos
+EOF
+  fp_failed=0
+  while IFS='	' read -r fp_h fp_id fp_stamp; do
+    [ -n "$fp_h" ] || continue
+    fp_fd=$fp_home/flights/$fp_id
+    fp_ck=$fp_fd/checkout
+    [ -f "$fp_ck" ] && [ ! -L "$fp_ck" ] || continue
+    case $fp_h in
+      tmux-flight-*) [ -e "$fp_fd/landing" ] || [ -L "$fp_fd/landing" ] || continue ;;
+    esac
+    fp_dir=$(head -n 1 "$fp_ck" 2>/dev/null)
+    case $fp_dir in /*) ;; *) continue ;; esac
+    # A worktree removed since keeps its recorded path.
+    fp_dir=$(cd -- "$fp_dir" 2>/dev/null && pwd -P) || fp_dir=$(head -n 1 "$fp_ck" 2>/dev/null)
+    fp_repo=$(printf '%s' "$fp_mine" | D=$fp_dir awk -F '\t' '
+      $1 != "" && (ENVIRON["D"] == $1 || index(ENVIRON["D"], $1 "/") == 1) { print $2; exit }')
+    [ -n "$fp_repo" ] || continue
+    if [ "$fp_failed" = 1 ]; then
+      [ "$events" = 1 ] || printf 'park-unknown\t%s\tan earlier pull request read failed\n' "$fp_h"
+      continue
+    fi
+    # A fork's pull request on a same-named branch is never the flight's. The
+    # open ones are asked for apart, so no result cap can hide one.
+    fp_states=''
+    for fp_q in open closed; do
+      if ! fp_got=$(cd -- "$fp_repo" && gh_bounded pr list --head "planwright/flight/$fp_id" --state "$fp_q" --limit 100 \
+        --json state,isCrossRepository --jq '.[] | select(.isCrossRepository | not) | .state' 2>/dev/null); then
+        fp_failed=1
+        break
+      fi
+      fp_states="$fp_states$fp_got
+"
+      [ -z "$fp_got" ] || [ "$fp_q" != open ] || break
+    done
+    if [ "$fp_failed" = 1 ]; then
+      [ "$events" = 1 ] || printf 'park-unknown\t%s\tthe pull request read failed\n' "$fp_h"
+      continue
+    fi
+    case $fp_states in *OPEN*) continue ;; esac
+    fp_state=$(printf '%s\n' "$fp_states" | awk '$0 == "MERGED" || $0 == "CLOSED" { s = (s == "MERGED" ? s : $0) } END { print s }')
+    [ -n "$fp_state" ] || continue
+    /bin/sh "$script_dir/fleet-attention.sh" clear "$fp_h" --if-row "flight:$fp_id" awaiting-input "$fp_stamp" >/dev/null 2>&1 </dev/null || continue
+    [ "$events" = 1 ] || printf 'settled\t%s\t%s\n' "$fp_h" "$fp_state"
+  done <<EOF
+$fp_rows
+EOF
+  return 0
+}
+
 # pending_prompts: the stream-json pending-age sweep over every worker on
 # this machine, whatever planwright version or verb launched it, since one
 # the launcher never registered has no other watcher once its own supervisor
@@ -383,6 +473,73 @@ EOF
   return "$pp_rc"
 }
 
+# pending_arrivals: a stream-json request inside the pending bound is announced
+# as pending-prompt, so the operator hears of it at the next watch pass rather
+# than at the overdue bound. Arrivals are rate-limited: the first after
+# PENDING_ARRIVAL_WINDOW of silence is announced, and any other arrival seen
+# with it is folded into that one event; one that arrives inside the window
+# waits for the window to close. Runs after pending_prompts, so a dead
+# worker's requests are already settled and not announced here.
+PENDING_ARRIVAL_WINDOW=300
+pending_arrivals() {
+  pa_now=${now:-$(date +%s)}
+  pa_thr=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
+  mc_valid_uint "$pa_now" && mc_valid_uint "$pa_thr" || return 1
+  pa_root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 1
+  pa_seen="$runtime/keeper-arrivals"
+  pa_last="$runtime/keeper-arrival-last"
+  NL='
+'
+  pa_list=$(launcher list 2>/dev/null) || pa_list=""
+  pa_theirs=$(printf '%s\n' "$pa_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
+  pa_fresh=""
+  pa_live=""
+  # The glob needs pathname expansion, which this script turns off (set -f).
+  set +f
+  for pa_j in "$pa_root"/streamjson/*/journal; do
+    [ -f "$pa_j" ] && [ -r "$pa_j" ] || continue
+    pa_w=${pa_j%/journal}
+    pa_w=${pa_w##*/}
+    mc_valid_handle "$pa_w" || continue
+    pa_rows=$(awk -F '\t' '$4 == "pending" { print $1 "\t" $3 }' "$pa_j") || continue
+    while IFS='	' read -r pa_id pa_recv; do
+      [ -n "$pa_id" ] || continue
+      mc_valid_uint "$pa_recv" || continue
+      case "$NL$pa_theirs$NL" in *"$NL$pa_w$NL"*) continue ;; esac
+      pa_key="$pa_w	$pa_id"
+      pa_live="$pa_live$pa_key$NL"
+      [ $((pa_now - pa_recv)) -le "$pa_thr" ] || continue
+      grep -Fxq -- "$pa_key" "$pa_seen" 2>/dev/null && continue
+      pa_fresh="$pa_fresh$pa_key$NL"
+    done <<EOF
+$pa_rows
+EOF
+  done
+  set -f
+  pa_rc=0
+  pa_first=$(printf '%s' "$pa_fresh" | awk 'NF { print; exit }')
+  if [ -n "$pa_first" ]; then
+    pa_since=$(cat "$pa_last" 2>/dev/null) || pa_since=""
+    mc_valid_uint "$pa_since" || pa_since=0
+    if [ $((pa_now - pa_since)) -ge "$PENDING_ARRIVAL_WINDOW" ]; then
+      pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')
+      pa_fw=${pa_first%%	*}
+      # The rest of the burst and the window advance only once the event is
+      # stored, so a refused announce is retried on the next pass.
+      if mc_announce "$program" "$pa_seen" "$pa_first" pending-prompt "$pa_fw" \
+        "stream-json worker $pa_fw has a request waiting on a decision; $pa_count arrived together, fleet-streamjson.sh pending shows them, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one"; then
+        pa_rest=$(printf '%s' "$pa_fresh" | awk -v first="$pa_first" 'NF && $0 != first')
+        [ -z "$pa_rest" ] || printf '%s\n' "$pa_rest" >>"$pa_seen" || pa_rc=1
+        printf '%s\n' "$pa_now" >"$pa_last" || pa_rc=1
+      else
+        pa_rc=1
+      fi
+    fi
+  fi
+  mc_announce_prune "$pa_seen" "$pa_live" || pa_rc=1
+  return "$pa_rc"
+}
+
 case $verb in
   track)
     mc_valid_handle "$session" || mc_usage_fail "--session takes a launched session's name"
@@ -412,9 +569,12 @@ case $verb in
       /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
       /bin/bash "$script_dir/mc-panel.sh" prune >/dev/null || rc=1
       pending_prompts || rc=1
+      pending_arrivals || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     trap pw_lock_release_all EXIT
+    # First: the ledger sweep can exit the run on a broken ledger.
+    flight_parks
     sweep || rc=1
     exit "$rc"
     ;;

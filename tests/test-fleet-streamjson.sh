@@ -310,6 +310,9 @@ printf '%s\n' "$q" | grep -q "permission request tool Write" \
   || fail "c1: queue item should name the permission request"
 [ "$(aenv "$home" queue --count)" = 1 ] \
   || fail "c1: exactly one queue item expected (dedup), got: $(aenv "$home" queue --count)"
+# The question this writes is what the queue's tally tells an approval by.
+[ "$(aenv "$home" queue --tally)" = "operator${tab}0
+approvals${tab}1" ] || fail "c1: the request row must tally as an approval, got: $(aenv "$home" queue --tally)"
 out=$(senv "$home" "$rec" -- status sjw1) || fail "c1: status exited non-zero"
 case $out in
   "status sjw1 completed result=success") : ;;

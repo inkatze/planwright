@@ -957,4 +957,63 @@ done
 rm -f "$mlocal_cfg"
 echo "ok: the gate refuses a threshold above 100 and out-of-order enabled thresholds"
 
+# --- 41. A dollar-budget account: spend_limit fills the weekly window when the
+#         account has no seven_day window, and is not read past its period. ---
+reset_state
+in_period=$((now_s + 2160000))
+past_period=$((now_s + 3600000))
+write_mirror "{\"spend_limit\":{\"used_percentage\":72,\"resets_at\":$in_period}}"
+sig=$(run signal) || fail "signal (spend-limit mirror) failed"
+[ "$(sig_of weekly "$sig")" = 72 ] || fail "a spend_limit must fill the weekly window (got: $sig)"
+[ "$(sig_of session "$sig")" = unavailable ] || fail "a spend_limit must not fill the session window (got: $sig)"
+write_mirror "{\"spend_limit\":{\"used_percentage\":72,\"resets_at\":$past_period}}"
+sig=$(run signal) || fail "signal (spend-limit beyond its period) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a spend_limit reset beyond the longest period must be unavailable (got: $sig)"
+write_mirror "{\"seven_day\":{\"used_percentage\":29,\"resets_at\":$in_day},\"spend_limit\":{\"used_percentage\":90,\"resets_at\":$in_period}}"
+sig=$(run signal) || fail "signal (seven_day and spend_limit) failed"
+[ "$(sig_of weekly "$sig")" = 29 ] || fail "seven_day must govern the weekly window ahead of spend_limit (got: $sig)"
+no_llm "spend_limit"
+echo "ok: spend_limit fills the weekly window only within its period, and seven_day wins"
+
+# --- 42. No usage source at all: evaluate says so and names the fix; the signal
+#         view says so too. A mirror or a capture on disk suppresses the note. ---
+reset_state
+err=$(run evaluate 2>&1 >/dev/null) || fail "evaluate (no usage source) must not fail"
+case $err in
+  *'no usage signal'*fleet-usage-mirror.sh*) ;;
+  *) fail "evaluate with no usage source must say 'no usage signal' and name the writer (got: $err)" ;;
+esac
+err=$(run signal 2>&1 >/dev/null) || fail "signal (no usage source) must not fail"
+case $err in
+  *'no usage signal'*) ;;
+  *) fail "signal with no usage source must say 'no usage signal' (got: $err)" ;;
+esac
+write_mirror "{\"seven_day\":{\"used_percentage\":29,\"resets_at\":$in_day}}"
+touch -t 202001010000 "$mirror_file"
+err=$(run evaluate 2>&1 >/dev/null) || fail "evaluate (stale mirror present) must not fail"
+case $err in
+  *'no usage signal'*) fail "a stale mirror on disk is a source, not a missing one (got: $err)" ;;
+  *fleet-usage-mirror.sh*) ;;
+  *) fail "a stale mirror must name the writer that refreshes it (got: $err)" ;;
+esac
+reset_state
+usage_render 10 10 | run capture >/dev/null || fail "capture (no mirror) failed"
+err=$(run evaluate 2>&1 >/dev/null) || fail "evaluate (capture present) must not fail"
+case $err in
+  *'no usage signal'*) fail "a /usage capture on disk is a source, not a missing one (got: $err)" ;;
+esac
+reset_state
+err=$(PLANWRIGHT_USAGE_MIRROR='' run evaluate 2>&1 >/dev/null) || fail "evaluate (mirror disabled, no capture) must not fail"
+case $err in
+  *'no usage signal'*) ;;
+  *) fail "a disabled mirror with no capture is no usage source (got: $err)" ;;
+esac
+echo "ok: no usage source is reported as 'no usage signal' with the fix; a source on disk suppresses it"
+
+# --- 43. mirror-path prints the resolved location, nothing when disabled. ---
+reset_state
+[ "$(run mirror-path)" = "$mirror_file" ] || fail "mirror-path must print the resolved mirror location"
+[ -z "$(PLANWRIGHT_USAGE_MIRROR='' run mirror-path)" ] || fail "mirror-path must print nothing when the mirror is disabled"
+echo "ok: mirror-path reports the resolved location"
+
 echo "ALL fleet-usage-gate tests passed"
