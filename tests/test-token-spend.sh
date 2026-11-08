@@ -202,6 +202,17 @@ assert_contains "report: another sub-agent" "$(printf 'other\t1\t')" "$erep"
 assert_contains "report: control bytes are dropped from a branch" "br]0;Tx" "$erep"
 case $erep in *"$esc"* | *"$bel"*) fail "report: no control byte reaches the terminal" ;; *) ok "report: no control byte reaches the terminal" ;; esac
 
+# --- report over crafted rows: input no transcript produces ---
+crafted="$T/crafted.tsv"
+{
+  printf 'm\tk1\tk\tmain\t2026-11-06T00:00:00.000Z\tm1\t10\t0\t0\t0\t0\t0\t/w\tc\302\302\233\233x\t\n'
+  printf 'm\tk2\tk\tsub\t2026-11-06T00:01:00.000Z\tm1\t5000000\t0\t0\t0\t0\t0\t/w\tcx\tag\n'
+} >"$crafted"
+crep=$("$SPEND" report --prices "$prices" "$crafted" 2>/dev/null)
+assert_exit "report over crafted rows exits 0" 0 $?
+c1=$(printf '\302\233')
+case $crep in *"$c1"*) fail "report: a C1 control split by another is still dropped" ;; *) ok "report: a C1 control split by another is still dropped" ;; esac
+
 # --- spend-record ---
 out=$("$RECORD" record --program "$pn" --session s-a --unit pr-1 --prices "$prices")
 assert_exit "record by session" 0 $?

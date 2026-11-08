@@ -55,10 +55,11 @@ FILENAME == ARGV[1] {
 }
 
 # Transcript text is untrusted: drop C0 controls but tab, DEL and the UTF-8
-# C1 controls before any field is stored or printed.
+# C1 controls before any field is stored or printed. One C1 pass can join a
+# stray lead byte to the next continuation byte, so it repeats until clean.
 {
   gsub(/[\001-\010\013-\037\177]/, "")
-  gsub(/\302[\200-\237]/, "")
+  while (gsub(/\302[\200-\237]/, "")) {}
   if (!priced) {
     printf "%s: the price table defines no model\n", prog > "/dev/stderr"
     bad_prices = 1
