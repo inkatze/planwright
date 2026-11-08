@@ -133,9 +133,9 @@ Usage:
             for an environment line), cut at its first character outside
             letters, digits and _ . / + ~ - with the cut marked <redacted>
             (TOKEN=<redacted>), or the bare <redacted> for a line whose
-            schedule cron would not read, and the text that matched, the
-            path first, else the name as the line spells it; a crontab
-            that cannot be listed reads as none
+            schedule cron would not read, and the text that matched, a
+            program path first, else planwright or claude as the line
+            spells it; a crontab that cannot be listed reads as none
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches or cron) whose read failed; for launches, also a
             session whose row names no known rung; for overrides, also a
