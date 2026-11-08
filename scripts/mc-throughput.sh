@@ -485,7 +485,7 @@ measure_stalls() {
     return 0
   }
   ms_out=""
-  ms_n=0
+  ms_count=0
   ms_unsampled=""
   ms_sampled=0
   set +f
@@ -509,7 +509,7 @@ measure_stalls() {
       return 0
     }
     [ -n "$ms_key" ] || continue
-    ms_n=$((ms_n + 1))
+    ms_count=$((ms_count + 1))
     ms_sample="$RUNTIME/stall/${ms_row##*/}"
     # scripts/mc-stall.sh refuses a linked sample; so does this reader.
     if [ -f "$ms_sample" ] && [ ! -L "$ms_sample" ]; then
@@ -543,11 +543,11 @@ EOF
 "
   done
   set -f
-  if [ "$ms_n" -gt 0 ] && [ "$ms_sampled" = 0 ]; then
-    unknown stalls "no current stall sample for any of the $ms_n sessions (scripts/mc-stall.sh samples them)"
+  if [ "$ms_count" -gt 0 ] && [ "$ms_sampled" = 0 ]; then
+    unknown stalls "no current stall sample for any of the $ms_count sessions (scripts/mc-stall.sh samples them)"
     return 0
   fi
-  printf 'source\tstalls\tok\t%s sessions%s\n' "$ms_n" "${ms_unsampled:+; no current stall sample: $ms_unsampled}"
+  printf 'source\tstalls\tok\t%s sessions%s\n' "$ms_count" "${ms_unsampled:+; no current stall sample: $ms_unsampled}"
   [ -z "$ms_out" ] || printf '%s' "$ms_out"
 }
 
