@@ -26,7 +26,7 @@
 #
 # The JSON read goes through jq and yields nothing without it; the cache walk
 # needs no jq. Neither half ever guesses. <claude-dir> is $CLAUDE_DIR, else
-# $HOME/.claude; with neither set nothing is printed.
+# $HOME/.claude; with neither set nothing is printed (--fresh prints <path>).
 #
 # Usage:
 #   resolve-installed-roots.sh
@@ -48,9 +48,9 @@
 #     a path outside the cache (a checkout), or a record it cannot read.
 #   resolve-installed-roots.sh --fresh <path>
 #     The root to hand a session launched from <path>: the first --current
-#     root where --check would warn about <path>, else <path> as given. A
-#     launch seam runs it over every root it passes on, so a session never
-#     inherits the older copy its launcher kept using.
+#     root present on disk where --check would warn about <path>, else <path>
+#     as given. A launch seam runs it over every root it passes on, so a
+#     session never inherits the older copy its launcher kept using.
 #
 # Exit codes: 0 always for the listing. An unset home, an absent or
 #   unreadable record, an absent jq, and an empty cache are each empty

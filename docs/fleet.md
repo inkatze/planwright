@@ -809,6 +809,33 @@ closes it (below). `stream-json-persistent` is driven by the
 remain a deliberate test/early-adopter escape hatch that bypasses these
 defaults.)
 
+### After an upgrade: workers get the installed copy
+
+Claude Code keeps older versions in its plugin cache beside the installed
+one, and a long-running session (mission control, a tower) keeps the root it
+started with in `PLANWRIGHT_ROOT` and `CLAUDE_PLUGIN_ROOT`. On every rung,
+these keep that older copy from reaching the sessions it launches:
+
+- The dispatch-env wrapper runs every root it hands on (inherited, its own,
+  or a dispatcher's `--root`) through
+  `scripts/resolve-installed-roots.sh --fresh`, which swaps a cached copy
+  the installed record no longer names for the installed root present on
+  disk, and says so on stderr. A root outside the cache, such as a checkout
+  an operator points at, is kept as given. The wrapper also drops an
+  inherited `PLANWRIGHT_COPY_CHECKED`, so the new session runs its own
+  stale-copy check.
+- `scripts/fleet-launch-profile.sh` makes the same swap, so the settings
+  profile and the hooks it names come from that one installed copy.
+- `scripts/mission-control-launch.sh`, run from an older cached copy, runs
+  the installed launcher with the same arguments, so the brief and the
+  cadence section name the installed root's scripts.
+
+A session that still calls an older copy's scripts hears about it: they warn
+on stderr, and `scripts/step-record.sh` refuses `new-run` and `status`
+(exit 1), naming the installed `step-record.sh` to run instead, because the
+installed copy's audit is the one that reads those records. Its other verbs
+only warn, so a run opened before an upgrade still finishes.
+
 ### The stream-json supervisor runtime and its capture
 
 `scripts/fleet-streamjson.sh` (the Task 4 supervisor primitive) owns each
@@ -913,37 +940,20 @@ diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
 
-**After an upgrade, a worker still gets the installed copy.** Claude Code
-keeps older versions in its plugin cache beside the installed one, and a
-long-running session (mission control, a tower) keeps the root it started
-with in `PLANWRIGHT_ROOT` and `CLAUDE_PLUGIN_ROOT`. Three places stop that
-older copy from reaching the sessions it launches:
-
-- The dispatch-env wrapper runs every root it hands on, inherited or its own,
-  through `scripts/resolve-installed-roots.sh --fresh`, which swaps a cached
-  copy the installed record no longer names for the installed root. It says so
-  on stderr. A root outside the cache (a checkout an operator points at) and an
-  explicit `--root` are kept as given. The wrapper also drops the inherited
-  `PLANWRIGHT_COPY_CHECKED` mark, so the new session runs its own stale-copy
-  check.
-- `scripts/mission-control-launch.sh`, run from an older cached copy, runs the
-  installed launcher with the same arguments, so the brief and the cadence
-  section name the installed root's scripts.
-- `scripts/step-record.sh`, run from an older cached copy, warns, and refuses
-  `new-run` and `write` (exit 1), naming the installed `step-record.sh` to run
-  instead, because the installed copy's audit is the one that reads those
-  records.
-
 **A stream-json worker never backgrounds a command.** A stream-json session
 takes its turns from stdin, and a background job's completion notice starts
 no new turn there. So a worker that runs a command with `run_in_background`
-and then ends its turn waits forever, and looks stalled. `launch` exports
-`PLANWRIGHT_SESSION_BACKEND=stream-json`, and the worker profile's
-`scripts/background-job-guard.sh` refuses a backgrounded Bash call when that
-is set. The refusal tells the worker to run the command in the foreground
-with an explicit timeout, and to split a longer run into bounded calls. A tmux
-worker resumes on the notice, so the tmux rung's wrapper drops the mark and
-the guard leaves that worker alone.
+and then ends its turn waits forever, and looks stalled. `launch` starts the
+session with `PLANWRIGHT_SESSION_BACKEND=stream-json`, set after the
+dispatch-env wrapper (which drops an inherited value in every form), and the
+worker profile's `scripts/background-job-guard.sh` refuses a backgrounded
+Bash call when it is set. The refusal tells the worker to run the command in
+the foreground with an explicit timeout, and to split a longer run into
+bounded calls. It refuses a backgrounded call the worker meant to wait on
+inside its turn too, since the hook cannot tell the two apart. A tmux
+worker resumes on the notice and never carries `PLANWRIGHT_SESSION_BACKEND`,
+so the guard leaves it alone. The launch preflight warns when the worker's
+hook root has no `scripts/background-job-guard.sh`.
 
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
 its children (SIGTERM, then SIGKILL after the grace, since children do not
