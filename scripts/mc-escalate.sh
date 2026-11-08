@@ -356,18 +356,12 @@ EOF
 # read_self: the dialog record's first sight, session and digest, each field
 # kept even when an earlier one is empty, or empty values.
 read_self() {
-  rec_first="" rec_sess="" rec_print=""
-  [ -f "$SELF" ] || return 0
-  rs_line=$(awk -F '\t' '$1 == "dialog" { print $2 "\t" $3 "\t" $4; exit }' "$SELF" 2>/dev/null) || {
+  msp_record "$SELF"
+  if [ $? = 1 ]; then
     printf '%s\n' "$prog: cannot read the dialog record" >&2
     failed=1
-    return 0
-  }
-  [ -n "$rs_line" ] || return 0
-  rec_first=${rs_line%%	*}
-  rs_line=${rs_line#*	}
-  rec_sess=${rs_line%%	*}
-  rec_print=${rs_line#*	}
+  fi
+  rec_first=$MSP_REC_FIRST rec_sess=$MSP_REC_SESS rec_print=$MSP_REC_PRINT
 }
 S_STATE=""
 S_PANE=""

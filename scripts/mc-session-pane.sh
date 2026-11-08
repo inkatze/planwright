@@ -89,7 +89,8 @@ msp_trim() {
 # setting MSP_KIND (`auto-mode` for auto mode's own confirmation, `dialog`
 # otherwise), MSP_OPTIONS (the dialog's own option run as
 # `<digit><TAB><label>`, empty unless it runs 1, 2, 3 in order, as a label
-# that wraps or a repeated digit breaks it) and
+# that wraps or a repeated digit breaks it), MSP_RUN (`ok`, `broken` for
+# such a run, or `none` with no numbered option),
 # MSP_PRINT (a digest of the dialog's text) and MSP_BINDABLE (1 when the
 # digest covers the whole dialog: up to the rule that opens it, a line of
 # rule glyphs only, with no line in between cut by msp_trim; else 0, the
@@ -100,7 +101,7 @@ msp_trim() {
 # that line means it is not open, being scrollback or a quotation. Options
 # are read only from the run just above that line, never from scrollback.
 msp_dialog() {
-  MSP_KIND="" MSP_OPTIONS="" MSP_PRINT="" MSP_BINDABLE=0
+  MSP_KIND="" MSP_OPTIONS="" MSP_RUN="" MSP_PRINT="" MSP_BINDABLE=0
   md_sig=$(
     permission_prompt_signatures
     default_selection_prompt_signatures
@@ -168,11 +169,14 @@ msp_dialog() {
       for (i = top; i <= end; i++) if (lc[i] ~ /consecutive actions were blocked|auto mode needs your confirmation/) kind = "auto-mode"
       print "kind\t" kind
       print "bindable\t" bindable
+      print "run\t" (!olast ? "none" : bad ? "broken" : "ok")
       if (!bad) for (i = 1; i <= no; i++) print "option\t" opt[i]
       for (i = top; i <= end; i++) { s = line[i]; sub(/^[ \t]+/, "", s); sub(/^❯[ \t]*/, "", s); print "block\t" s }
     }') || return 1
-  # shellcheck disable=SC2034 # these four are read by the scripts that source this file
+  # shellcheck disable=SC2034 # these five are read by the scripts that source this file
   MSP_KIND=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "kind" { print $2; exit }')
+  # shellcheck disable=SC2034
+  MSP_RUN=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "run" { print $2; exit }')
   # shellcheck disable=SC2034
   MSP_OPTIONS=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "option" { print $2 "\t" $3 }')
   # shellcheck disable=SC2034
@@ -181,6 +185,28 @@ msp_dialog() {
   # shellcheck disable=SC2034
   MSP_PRINT=${md_h%"${md_h#????????????????}"}
   [ -n "$MSP_PRINT" ] || MSP_PRINT=unhashed
+  return 0
+}
+
+# msp_record <file>: the watcher's dialog record, as MSP_REC_FIRST (its
+# first sight), MSP_REC_SESS and MSP_REC_PRINT, each empty when absent.
+# Returns 0 when read, 1 when it exists but cannot be read, 2 when there is
+# no record, a record that vanishes mid-read included.
+msp_record() {
+  MSP_REC_FIRST="" MSP_REC_SESS="" MSP_REC_PRINT=""
+  [ -f "$1" ] || return 2
+  mr_line=$(awk -F '\t' '$1 == "dialog" { print $2 "\t" $3 "\t" $4; exit }' "$1" 2>/dev/null) || {
+    [ -e "$1" ] || return 2
+    return 1
+  }
+  [ -n "$mr_line" ] || return 0
+  # shellcheck disable=SC2034 # these three are read by the scripts that source this file
+  MSP_REC_FIRST=${mr_line%%	*}
+  mr_line=${mr_line#*	}
+  # shellcheck disable=SC2034
+  MSP_REC_SESS=${mr_line%%	*}
+  # shellcheck disable=SC2034
+  MSP_REC_PRINT=${mr_line#*	}
   return 0
 }
 

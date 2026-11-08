@@ -155,11 +155,12 @@ esac
 
 # The dialog the watcher recorded.
 [ -f "$SELF" ] && [ ! -L "$SELF" ] || refuse "no dialog of $PROGRAM is on record"
-REC=$(awk -F '\t' '$1 == "dialog" { print $2 "\t" $3 "\t" $4; exit }' "$SELF") || mc_fail "cannot read the dialog record of $PROGRAM"
-rec_first=${REC%%	*}
-rec_rest=${REC#*	}
-rec_sess=${rec_rest%%	*}
-rec_print=${rec_rest#*	}
+msp_record "$SELF"
+case $? in
+  1) mc_fail "cannot read the dialog record of $PROGRAM" ;;
+  2) refuse "no dialog of $PROGRAM is on record" ;;
+esac
+rec_first=$MSP_REC_FIRST rec_sess=$MSP_REC_SESS rec_print=$MSP_REC_PRINT
 mc_valid_uint "$rec_first" && [ -n "$rec_sess" ] && [[ $rec_print =~ ^[0-9a-f]{16}$ ]] || refuse "the dialog record of $PROGRAM is unreadable"
 
 # The decision: the operator's answer about this dialog, in the hub's log.
@@ -207,7 +208,11 @@ read_dialog() {
   [ "$MSP_PRINT" = "$rec_print" ] || refuse "pane $PANE shows a different dialog from the one on record"
 }
 read_dialog
-[ -n "$MSP_OPTIONS" ] || refuse "the dialog's options wrap or repeat a digit"
+case $MSP_RUN in
+  ok) ;;
+  none) refuse "the dialog has no numbered options" ;;
+  *) refuse "the dialog's options wrap or repeat a digit" ;;
+esac
 LABEL=$(printf '%s\n' "$MSP_OPTIONS" | C=$CHOICE awk -F '\t' '$1 == ENVIRON["C"] { print $2; exit }')
 [ -n "$LABEL" ] || refuse "the dialog offers no option $CHOICE"
 msp_answerable "$LABEL" || refuse "option $CHOICE ($(sanitize_printable "$LABEL")) does more than answer this dialog"
@@ -220,7 +225,10 @@ else
 fi
 logged=1
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$NOW" "$DECISION" "$DECIDED_IN" "$CHOICE" "$PANE" "$S_PID" "$outcome" >>"$LOG" 2>/dev/null || logged=0
-[ "$outcome" = sent ] || mc_fail "the keystroke could not be sent to pane $PANE"
+if [ "$outcome" != sent ]; then
+  [ "$logged" = 1 ] || mc_fail "the keystroke could not be sent to pane $PANE, and the attempt could not be logged under $(sanitize_printable "$LOG"); do not reuse decision $DECISION"
+  mc_fail "the keystroke could not be sent to pane $PANE"
+fi
 # The watcher's next pass sees whatever dialog follows as a new one.
 if pw_lock_acquire "$ESC_DIR/pass.lock" 50; then
   rm -f "$SELF" 2>/dev/null || :

@@ -264,6 +264,10 @@ awk '{ print } /^   2\. Yes, and/ { print "      and every later call" }' "$tmp/
 shown "$tmp/wrap.txt"
 answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
 refused "a run whose labels wrap" "wrap or repeat"
+sed '/^ ❯ 1\./d; /^   [23]\./d' "$tmp/dialog.txt" >"$tmp/noopts.txt"
+shown "$tmp/noopts.txt"
+answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
+refused "a dialog with no numbered options" "has no numbered options"
 sed 1d "$tmp/dialog.txt" >"$tmp/norule.txt"
 shown "$tmp/norule.txt"
 answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
@@ -335,6 +339,13 @@ expect_rc "a sent answer that cannot be logged" 1
 expect_out "still reports the send" "answered${tab}alpha${tab}%7${tab}1"
 expect_err "and warns against reusing the decision" "do not reuse decision $D4"
 if [ "$(keys)" = "-t %7 1" ]; then ok "the one digit was sent"; else fail "keys sent: '$(keys)'"; fi
+cp "$tmp/self.saved" "$esc_dir/self"
+D5=$(note hub answer 1)
+touch "$tmp/send-fails"
+answer --program alpha --choice 1 --decision "$D5" --decided-in hub
+rm -f "$tmp/send-fails"
+expect_rc "a failed send that cannot be logged" 1
+expect_err "warns against reusing the decision" "do not reuse decision $D5"
 chmod 644 "$esc_dir/answers.log"
 : >"$tmp/keys"
 
@@ -402,9 +413,28 @@ if (
   p4=$MSP_PRINT
   parse "$(mimic 'cd / && rm -rf ~')"
   [ "$p4" != "$MSP_PRINT" ] || fail "a rule-like line inside the command ended the dialog"
+  rec="$tmp/rec"
+  printf 'dialog\t11\t22\t0123456789abcdef\tdialog\n' >"$rec"
+  msp_record "$rec" && [ "$MSP_REC_FIRST/$MSP_REC_SESS/$MSP_REC_PRINT" = 11/22/0123456789abcdef ] \
+    || fail "the dialog record read as '$MSP_REC_FIRST/$MSP_REC_SESS/$MSP_REC_PRINT'"
+  if [ "$(id -u)" != 0 ]; then
+    chmod 000 "$rec"
+    msp_record "$rec"
+    r=$?
+    chmod 644 "$rec"
+    [ "$r" = 1 ] || fail "an unreadable dialog record read as $r"
+  fi
+  awk() {
+    rm -f "$rec"
+    command awk "$@"
+  }
+  msp_record "$rec"
+  r=$?
+  unset -f awk
+  [ "$r" = 2 ] || fail "a dialog record that vanished mid-read read as $r"
   exit "$pfail"
 ); then
-  ok "the parser: a wrapped last label, a footer run, the opening rule, the side panel, a long command and a rule-like command line"
+  ok "the parser: a wrapped last label, a footer run, the opening rule, the side panel, a long command and a rule-like command line; the dialog record"
 else
   fail "the parser cases above"
 fi
