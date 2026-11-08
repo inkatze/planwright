@@ -52,6 +52,10 @@ HOOK_ENV=("${TASK_ENV[@]}")
 assert_defer "context: another spec on a task" "PLANWRIGHT_STEP_SPEC=other $S resolve" Bash "$PLUGIN_CWD"
 assert_defer "context: another task's id" "PLANWRIGHT_STEP_TASK_IDS=8 $S resolve" Bash "$PLUGIN_CWD"
 assert_defer "context: no task ids on a task" "PLANWRIGHT_STEP_TASK_IDS= $S resolve" Bash "$PLUGIN_CWD"
+HOOK_ENV=("${BUNDLE_ENV[@]}")
+assert_defer "context: a subset of the bundle's task ids" "PLANWRIGHT_STEP_TASK_IDS=3 $S resolve" Bash "$PLUGIN_CWD"
+assert_defer "context: the bundle's task ids reordered" "PLANWRIGHT_STEP_TASK_IDS='4.1 3' $S resolve" Bash "$PLUGIN_CWD"
+assert_defer "context: a bundle's task id repeated" "PLANWRIGHT_STEP_TASK_IDS='3 4.1 3' $S resolve" Bash "$PLUGIN_CWD"
 
 echo "### Anything else in the prefix defers"
 HOOK_ENV=("${FLIGHT_ENV[@]}")

@@ -4735,7 +4735,7 @@ readonly STEP_CALLER_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE
 # unit comes from the record's unit branch (a flight carries no spec or task
 # ids), the worktree and base from its worktree root and PR base.
 step_context_record_ok() {
-  local f=$1 v=$2 kind spec ids id
+  local f=$1 v=$2 kind spec ids
   [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] || return 1
   case $REC_UNIT in
     planwright/flight/*)
@@ -4753,15 +4753,9 @@ step_context_record_ok() {
   case $f in
     UNIT_KIND) [ "$v" = "$kind" ] ;;
     SPEC) [ "$v" = "$spec" ] ;;
-    TASK_IDS)
-      [ -n "$v" ] || [ -z "$ids" ] || return 1
-      for id in $v; do
-        case " $ids " in
-          *" $id "*) ;;
-          *) return 1 ;;
-        esac
-      done
-      ;;
+    # Exactly the branch's ids, in its order: a subset or reorder is another
+    # unit's context.
+    TASK_IDS) [ "$v" = "$ids" ] ;;
     BRANCH) [ "$v" = "$REC_UNIT" ] ;;
     BASE_BRANCH) [ -n "$REC_BASE" ] && { [ "$v" = "$REC_BASE" ] || [ "origin/$v" = "$REC_BASE" ]; } ;;
     WORKTREE) [ "$v" = "$REC_WT" ] || [ "$v" = "$REC_WT/" ] ;;
