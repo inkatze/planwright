@@ -112,10 +112,10 @@ msp_trim() {
 # that wraps or a repeated digit breaks it), MSP_RUN (`ok`, `broken` for
 # such a run, `none` with no numbered option), MSP_BINDABLE and MSP_PRINT
 # (a digest of the dialog's text, its indentation and bindability). The
-# last line carrying a signature of the shared vocabulary, or the cursor on
-# a numbered option, ends the dialog; an input prompt, idle anchor or busy
-# marker below that line means it is not open. Options are read only from
-# the run just above that line, never from scrollback.
+# last line carrying a signature of the shared vocabulary ends the dialog,
+# or the option run it sits in; an input prompt, idle anchor or busy marker
+# below that means it is not open. Options are read only from the run
+# ending there, never from scrollback.
 msp_dialog() {
   MSP_KIND="" MSP_OPTIONS="" MSP_RUN="" MSP_PRINT="" MSP_BINDABLE=0
   md_sig=$(
@@ -163,10 +163,14 @@ msp_dialog() {
     END {
       for (i = NR; i >= 1; i--) if (signed(i)) { end = i; break }
       if (!end) exit 1
-      if (option(end) != "") while (end < NR && option(end + 1) != "") end++
+      wrap = 0
+      if (option(end) != "") {
+        while (end < NR && option(end + 1) != "") end++
+        if (end < NR && line[end + 1] ~ /[^ \t]/ && !footer(end + 1)) wrap = 1
+      }
       for (i = end + 1; i <= NR; i++) if (closes(i)) exit 1
       for (i = end; i >= 1; i--) if (option(i) != "") { olast = i; break }
-      bad = 0
+      bad = wrap
       if (olast) {
         ofirst = olast
         while (ofirst > 1 && option(ofirst - 1) != "") ofirst--
@@ -194,7 +198,7 @@ msp_dialog() {
       if (!bad) for (i = 1; i <= no; i++) print "option\t" opt[i]
       for (i = top; i <= end; i++) {
         s = line[i]
-        if (olast && i >= ofirst && i <= olast && match(s, /^[ \t]*❯/)) s = substr(s, 1, RLENGTH - length("❯")) " " substr(s, RLENGTH + 1)
+        if (option(i) != "" && match(s, /^[ \t]*❯/)) s = substr(s, 1, RLENGTH - length("❯")) " " substr(s, RLENGTH + 1)
         print "block\t" s
       }
     }') || return 1

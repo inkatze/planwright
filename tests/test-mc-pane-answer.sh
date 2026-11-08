@@ -90,6 +90,7 @@ case "\$1" in
         sleep 1
         [ ! -s "$tmp/keys" ] || touch "$tmp/sent-early"
         rm -f "${esc_self%/self}/pass.lock"
+        touch "$tmp/released"
       ) >/dev/null 2>&1 &
     fi
     ;;
@@ -342,6 +343,12 @@ ln -s "$$-1-1" "$esc_dir/pass.lock"
 touch "$tmp/capture-releases"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 expect_rc "a decided choice is delivered once the watcher's pass ends" 0
+n=0
+while [ ! -e "$tmp/released" ] && [ "$n" -lt 100 ]; do
+  sleep 0.1 2>/dev/null || sleep 1
+  n=$((n + 1))
+done
+[ -e "$tmp/released" ] || fail "the stand-in watcher pass never released its lock"
 [ ! -e "$tmp/sent-early" ] || fail "a key was sent while the watcher's pass held its lock"
 expect_out "naming the pane, digit and option" "answered${tab}alpha${tab}%7${tab}1${tab}Yes"
 if [ "$(keys)" = "-t %7 1" ]; then ok "exactly one digit is sent to that pane"; else fail "keys sent: '$(keys)'"; fi
@@ -506,6 +513,16 @@ if (
   parse "$(bare 2)"
   [ "$p8" = "$MSP_PRINT" ] || fail "moving the cursor with no footer below changed the digest"
   [ "$o8" = "$MSP_OPTIONS" ] && [ "$(printf '%s\n' "$o8" | wc -l | tr -d ' ')" = 2 ] || fail "options with no footer below read '$o8' then '$MSP_OPTIONS'"
+  parse "$(
+    bare 1 | sed '$d'
+    printf '   2. Yes, and do not ask again for these\n      commands\n   3. No\n'
+  )"
+  [ "$MSP_RUN" = broken ] || fail "a wrapped label with no footer below read as run '$MSP_RUN': '$MSP_OPTIONS'"
+  wrapped=$(awk '{ print } /^   2\. Yes, and/ { print "      and every later call" }' "$tmp/dialog.txt")
+  parse "$wrapped"
+  p9=$MSP_PRINT
+  parse "$(printf '%s\n' "$wrapped" | sed 's/^ ❯ 1\. Yes$/   1. Yes/; s/^   2\. Yes, and/ ❯ 2. Yes, and/')"
+  [ "$p9" = "$MSP_PRINT" ] || fail "moving the cursor over a wrapped run changed the digest"
   rec="$tmp/rec"
   printf 'dialog\t11\t22\t0123456789abcdef\tdialog\n' >"$rec"
   msp_record "$rec" && [ "$MSP_REC_FIRST/$MSP_REC_SESS/$MSP_REC_PRINT" = 11/22/0123456789abcdef ] \

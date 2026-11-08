@@ -878,7 +878,8 @@ written before the keystroke, marks it used). The pane is read again just
 before the keystroke, under the watcher's lock. It must show the dialog
 whole: from the rule that opens it, with no line cut off as the
 mission-control side panel's text, so a dialog with a side panel drawn
-beside it is answered at its pane, and the watcher's escalation says so.
+beside it is answered at its pane, as is one offering no label the relay
+takes, and the watcher's escalation says so.
 The digit's label must be one that answers this dialog and nothing more
 (a short allowlist: Yes, No and their one-time variants), so a rule for
 later calls, a mode switch or a trust grant is refused. Its `--help`

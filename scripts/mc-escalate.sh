@@ -71,8 +71,9 @@ mission_control_escalation_window (W):
               open W, the operator at 2W. Its first sight, session, digest and kind
               are kept under <runtime>/escalate/self; a different session or
               dialog starts a fresh hold, and a pane that shows none drops it.
-              A dialog scripts/mc-pane-answer.sh cannot bind is raised with
-              word to answer it at its pane rather than through that relay.
+              A dialog scripts/mc-pane-answer.sh cannot bind, or one whose
+              options offer no label that relay takes, is raised with word
+              to answer it at its pane rather than through that relay.
 The session is this user's claude process whose last two arguments are
 `/planwright:mission-control <program>`, exactly one of them; its pane is
 the tmux pane whose process is that one or an ancestor of it. None found
