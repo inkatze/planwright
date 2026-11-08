@@ -176,11 +176,16 @@ select_events() {
   SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending --limit 100000) || return 1
   # A routine event is marked submitted unsent, so it leaves the pending
   # set (the panel's count, the next listing) instead of piling up there.
-  sel_routine=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes --routine | awk -F '\t' '{ printf "%s%s", sep, $1; sep = " " }')
+  # Marked in batches, so a large routine backlog never outgrows the
+  # argument list and holds back the events that do wake.
+  sel_routine=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes --routine | awk -F '\t' '
+    { printf "%s%s", (n % 200 ? " " : (n ? "\n" : "")), $1; n++ } END { if (n) print "" }')
   if [ -n "$sel_routine" ]; then
-    # shellcheck disable=SC2086 # one event id per word
-    mc_event mark --program "$program" --target "$1" submitted $sel_routine
-    case $? in 0 | 3) ;; *) return 1 ;; esac
+    printf '%s\n' "$sel_routine" | while IFS= read -r sel_batch; do
+      # shellcheck disable=SC2086 # one event id per word
+      mc_event mark --program "$program" --target "$1" submitted $sel_batch
+      case $? in 0 | 3) ;; *) exit 1 ;; esac
+    done || return 1
   fi
   SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes)
   if [ "$2" = unsubmitted ]; then
