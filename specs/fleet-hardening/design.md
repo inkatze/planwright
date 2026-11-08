@@ -1,7 +1,7 @@
 # Fleet Hardening — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -181,6 +181,9 @@ by a mechanical check that flags any `Bash(<path>/:*)` directory-scoped rule.
 the correct shape both the documented rule and a mechanical check closes it at authoring time rather
 than at incident time. Grounded in the Claude Code Bash-glob word-boundary behavior (`:*` == a
 following space-or-end-of-string).
+
+**Superseded-by: D-20** (2026-11-08) — the `/*` half is reversed: `*` matches `/` and `..`, so
+`Bash(<dir>/*)` is a traversal, not the safe form. The `:*` never-match half and its check stand.
 
 ### D-7: Deterministic D-36 branch naming in the tmux dispatch primitive (N, amended at kickoff 2026-07-20)
 
@@ -774,3 +777,29 @@ the mark store and the plugin floor exist on `main`.
 **Chosen because:** task dependencies cannot cross bundles and the gate grammar can wait only on a
 whole bundle's status; waiting for Done also waits on that bundle's docs task, which costs time
 but never dispatches work onto a missing foundation.
+
+### D-20: Path-scoped allow rules name exact paths; wildcard paths are checked (N, amendment 2026-11-08)
+
+**Decision:** Supersedes D-6. A path-scoped Bash allow rule names one exact script path, with no
+`*` and no `..` in its command path (for example
+`Bash(/abs/path/to/planwright/scripts/fleet-streamjson.sh answer *)`, the form the settings
+guidance gives); a `:*` or a space and `*` after the path scopes arguments only. The planwright PreToolUse
+command guards remain the version-independent way to approve repository scripts: they
+canonicalize the path and defer a `..` walk or an escaping symlink. Two read-only checks enforce
+it: the existing `:*` never-match check, and a check that flags a wildcard or `..` in any allow
+rule's command path and names the exact-path replacement. In the gate, a flagged rule in shipped
+profiles or a checkout's settings fails; a flagged rule in the user's home settings warns.
+
+**Alternatives considered:**
+- Keep `Bash(<dir>/*)` (D-6). Rejected because: Claude Code's `*` matches any text including `/`
+  and `..`, so the rule admits `<dir>/../../../bin/<anything>`, and a version glob such as
+  `Bash(<cache>/planwright/*/scripts/x.sh *)` walks out of its version directory the same way
+  (reproduced with the repository's permission-matcher model).
+- Fail the gate on home-settings rules too. Rejected because: the user's own settings are not the
+  repository's to gate, and the check never edits them; a warning names the fix without blocking
+  unrelated work (mission-control decision, 2026-11-07, operator not overruling).
+- A new hook that denies wildcard path rules. Rejected because: the existing guards already
+  canonicalize and defer traversals; a second hook would duplicate them.
+
+**Chosen because:** an exact path cannot be traversed and stops matching on upgrade, which fails
+closed to a prompt; the guard hooks cover the version-independent case safely.

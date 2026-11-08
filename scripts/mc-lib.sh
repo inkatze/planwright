@@ -244,7 +244,10 @@ mc_clean() { awk '{ gsub(/[^[:print:]\t]/, ""); print }'; }
 # mc_clean_text: the same for UTF-8 text, dropping only the C0 controls but
 # tab, DEL and the C1 controls (UTF-8 encodes them \302\200 to \302\237),
 # so subjects written in other scripts read back whole.
-mc_clean_text() { awk '{ gsub(/[\001-\010\013-\037\177]/, ""); gsub(/\302[\200-\237]/, ""); print }'; }
+# A C1 pair is taken with the lead bytes before it and the continuation
+# bytes after it (all invalid UTF-8 there), so removing it never joins its
+# neighbours into another pair, in one linear pass.
+mc_clean_text() { awk '{ gsub(/[\001-\010\013-\037\177]/, ""); gsub(/\302+[\200-\237]+/, ""); print }'; }
 
 mc_fleet_home() {
   mfh=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) && [ -n "$mfh" ] || return 1
@@ -275,6 +278,33 @@ mc_event_store() {
 }
 
 mc_event() { /bin/bash "$script_dir/mc-event.sh" "$@"; }
+
+# mc_event_wakes [--routine]: the event rows on stdin (`mc-event.sh list`
+# lines, the kind in the third field) whose kind wakes a turn, or with
+# --routine only those config/mc-event-classes.tsv classes `routine`. An
+# unreadable table fails open: every row wakes, with a warning, since a
+# missing wake hides a real alert and an extra one only costs a turn.
+mc_event_wakes() {
+  mew_routine=0
+  [ "${1:-}" = --routine ] && mew_routine=1
+  mew_file="$script_dir/../config/mc-event-classes.tsv"
+  if [ ! -f "$mew_file" ] || [ ! -r "$mew_file" ]; then
+    printf '%s\n' "${prog:-mc}: config/mc-event-classes.tsv is missing or unreadable (broken install); every event wakes" >&2
+    mew_file=/dev/null
+  fi
+  MEW_TABLE=$mew_file MEW_ROUTINE=$mew_routine awk -F '\t' '
+    BEGIN {
+      f = ENVIRON["MEW_TABLE"]
+      while ((getline l < f) > 0) {
+        sub(/\r$/, "", l)
+        if (l ~ /^#/ || split(l, a, "\t") < 2) continue
+        if (a[2] == "routine") r[a[1]] = 1
+      }
+      close(f)
+    }
+    NF && (($3 in r) == ENVIRON["MEW_ROUTINE"] + 0)'
+}
+
 mc_kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
 
 # mc_sha256: the SHA-256 of stdin in hex; fails with no SHA-256 tool.
@@ -513,6 +543,22 @@ mc_valid_slug() {
   [ "${#1}" -le 200 ]
 }
 
+# mc_slug_repos <program> <slug>: the program's repositories whose origin
+# remote is <slug>, one per line; returns 1 when the repositories do not
+# resolve.
+mc_slug_repos() {
+  msr_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || return 1
+  msr_sl=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r msr_r; do
+    [ -n "$msr_r" ] && [ -d "$msr_r" ] || continue
+    msr_url=$(mc_untrusted_git -C "$msr_r" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]') || continue
+    msr_url=${msr_url%.git}
+    case $msr_url in */"$msr_sl" | *:"$msr_sl") printf '%s\n' "$msr_r" ;; esac
+  done <<EOF
+$msr_repos
+EOF
+}
+
 # mc_program_home <program>: the program home, or the script fails.
 mc_program_home() {
   /bin/bash "$script_dir/mc-program.sh" get "$1" home || mc_fail "the home of program $1 does not resolve"
@@ -592,4 +638,35 @@ mc_untrusted_git() { (mc_untrusted_git_env && git "$@"); }
 # text.
 mc_subject() {
   printf '%s-%s\n' "$1" "$(printf '%s' "$2" | cksum | awk '{ print $1 }')"
+}
+
+# mc_pr_subject <owner/name> <n>: a pull request's event subject,
+# <owner>:<name>:<n>, or pr-<checksum> outside the subject grammar.
+mc_pr_subject() {
+  mps_s="${1%%/*}:${1#*/}:$2"
+  mc_valid_handle "$mps_s" || mps_s=$(mc_subject pr "$1#$2")
+  printf '%s\n' "$mps_s"
+}
+
+# mc_code_state <program> [<now>]: the program's code-state snapshot, aged at
+# <now> (the clock by default), its status line
+# and rows in MC_CS_ROWS and its source in MC_CS_SOURCE. Returns 0 when it is
+# at most twice its cadence old (the most any budget rung stretches a
+# refresh), 1 when the source map does not resolve, 2 when the snapshot
+# cannot be read, 3 with no code-state snapshot source or none taken yet
+# (MC_CS_SOURCE empty for the first), 4 when it is older, so it may show a
+# head long gone.
+mc_code_state() {
+  MC_CS_ROWS=""
+  MC_CS_SOURCE=""
+  mcs_map=$(/bin/bash "$script_dir/mc-program.sh" get "$1" sources) || return 1
+  MC_CS_SOURCE=$(printf '%s\n' "$mcs_map" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { print $2; exit }')
+  [ -n "$MC_CS_SOURCE" ] || return 3
+  MC_CS_ROWS=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$1" "$MC_CS_SOURCE" ${2:+--now "$2"})
+  case $? in
+    0) ;;
+    3) return 3 ;;
+    *) return 2 ;;
+  esac
+  printf '%s\n' "$MC_CS_ROWS" | head -n 1 | awk -F '\t' '$5 == "age" && $7 == "cadence" { ok = ($6 + 0 <= 2 * ($8 + 0)) } END { exit !ok }' || return 4
 }

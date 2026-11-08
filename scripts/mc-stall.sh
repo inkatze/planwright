@@ -77,7 +77,8 @@ Elapsed time counts only for busy-unchanged, and only beside a positive busy
 marker and a pane unchanged since an earlier sample.
 
 Each pass keeps one sample per session (the launch it belongs to, the pane's
-hash, when it last changed, the state) under the program's runtime
+hash, when it last changed or, with no pane, when it entered its state, the
+state, when the sample was taken) under the program's runtime
 directory, behind a per-session lock. Entering any state from dead to
 busy-unchanged emits one event, kind stall-<state>, subject the session name
 (scripts/mc-event.sh); a state held across passes emits no second one, and a
@@ -326,7 +327,7 @@ classify_one() {
 
   c_prev_launch='' c_prev_hash='' c_prev_since='' c_prev_state=''
   if [ -f "$c_sample" ] && [ ! -L "$c_sample" ]; then
-    IFS='	' read -r c_prev_launch c_prev_hash c_prev_since c_prev_state <"$c_sample" || :
+    IFS="	" read -r c_prev_launch c_prev_hash c_prev_since c_prev_state _ <"$c_sample" || :
     if [ "$c_prev_launch" != "$c_launch" ] || ! mc_valid_uint "$c_prev_since"; then
       c_prev_hash='' c_prev_state=''
     fi
@@ -391,6 +392,12 @@ classify_one() {
     fi
   fi
 
+  # With no pane there is no hash to carry the time by: the time the session
+  # entered this state is kept while the state holds.
+  if [ "$c_have_pane" = 0 ] && [ "$c_state" = "$c_prev_state" ] && mc_valid_uint "$c_prev_since"; then
+    c_since=$c_prev_since
+  fi
+
   c_event=-
   case $c_state in
     working | idle | live) ;;
@@ -405,7 +412,7 @@ classify_one() {
       ;;
   esac
 
-  if ! printf '%s\t%s\t%s\t%s\n' "$c_launch" "$c_hash" "$c_since" "$c_state" | mc_write "$c_sample"; then
+  if ! printf '%s\t%s\t%s\t%s\t%s\n' "$c_launch" "$c_hash" "$c_since" "$c_state" "$NOW" | mc_write "$c_sample"; then
     pw_lock_release "$c_lock" || :
     printf '%s\n' "$prog: cannot keep the sample for $c_name" >&2
     return 1

@@ -49,6 +49,7 @@ export function digestText(
     tab('kb', 600),
     tab('measure', 'interruptions_per_hour', '2.5', 130),
     tab('measure', 'settled_share', '80', 130),
+    tab('host', 150, 4, 62),
     tab('handover', 'absent'),
     tab('holder', o.holder ?? 'attended'),
     ...(o.extra ?? []),
@@ -120,6 +121,8 @@ export type World = {
   opened: number
   closed: number
   commands: { name: string; description: string }[]
+  // Each /exit the mod ran through `$.command.run`.
+  commandRuns: string[]
   envWrites: [string, string | undefined][]
   set: (o: Partial<Fixture>) => void
 }
@@ -146,11 +149,13 @@ export type Fixture = {
   isDropped: boolean
   isEnvDenied: boolean
   isCommandRefused: boolean
+  isExitRefused: boolean
   contextPercent: number | undefined
   env: Record<string, string>
   sessionId: string
   // The activation directory by file name: `<id>` holds the record as the
-  // lookup verb prints it, `<id>.ack` the acknowledgment.
+  // lookup verb prints it, `<id>.ack` the acknowledgment, `<id>.exit` the
+  // exit marker a release leaves.
   records: Record<string, string>
   lookupExit: number
   ackExit: number
@@ -180,6 +185,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     isDropped: false,
     isEnvDenied: false,
     isCommandRefused: false,
+    isExitRefused: false,
     contextPercent: 42,
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
     sessionId: SESSION,
@@ -199,6 +205,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     opened: 0,
     closed: 0,
     commands: [],
+    commandRuns: [],
     envWrites: [],
     set: o => Object.assign(fx, o),
   }
@@ -226,6 +233,11 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     if (fx.isCommandRefused) throw new Error('refused')
     w.commands.push({ name: e.name, description: e.description })
     return { value: { command: 'mc-panel' } }
+  })
+  on('command.run', { command: 'exit' }, (_, e) => {
+    if (fx.isExitRefused) throw new Error('refused')
+    w.commandRuns.push(e.command)
+    return { text: '' }
   })
   on('ui.open', () => {
     w.opened += 1
@@ -294,6 +306,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       if (fx.activateExit !== 0) return answer('', fx.activateExit)
       const rec = recordFor(flag('--program'), flag('--target'))
       if (fx.records[sid] !== rec) delete fx.records[`${sid}.ack`]
+      delete fx.records[`${sid}.exit`]
       fx.records[sid] = rec
       return answer(`activation\t${sid}\n`)
     }
@@ -306,6 +319,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     if (script === 'mc-panel.sh' && verb === 'retire') {
       delete fx.records[flag('--session')]
       delete fx.records[`${flag('--session')}.ack`]
+      delete fx.records[`${flag('--session')}.exit`]
       return answer('')
     }
     if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)

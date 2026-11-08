@@ -809,6 +809,36 @@ closes it (below). `stream-json-persistent` is driven by the
 remain a deliberate test/early-adopter escape hatch that bypasses these
 defaults.)
 
+### After an upgrade: workers get the installed copy
+
+Claude Code keeps older versions in its plugin cache beside the installed
+one, and a long-running session (mission control, a tower) keeps the root it
+started with in `PLANWRIGHT_ROOT` and `CLAUDE_PLUGIN_ROOT`. On every
+session-grade rung (tmux, headless, stream-json), these keep that older copy
+from reaching the sessions it launches:
+
+- `scripts/resolve-installed-roots.sh --fresh` swaps a cached copy the
+  installed record no longer names for the installed root present on disk;
+  a root outside the cache, such as a checkout an operator points at, is
+  kept as given. The dispatch-env wrapper runs the roots it inherits or
+  finds at its own location through it, saying so on stderr. A dispatcher
+  passing `--root` (the tmux rung, `offload-dispatch`) resolves that root
+  through it first, and the wrapper applies an explicit `--root` as given.
+  The wrapper also drops an inherited `PLANWRIGHT_COPY_CHECKED`, so the new
+  session runs its own stale-copy check.
+- `scripts/fleet-launch-profile.sh` makes the same swap on the root it
+  resolves itself, so the settings profile and the hooks it names come from
+  that one installed copy.
+- `scripts/mission-control-launch.sh`, run from an older cached copy, runs
+  the installed launcher with the same arguments, so the brief and the
+  cadence section name the installed root's scripts.
+
+A session that still calls an older copy's scripts hears about it: they warn
+on stderr, and `scripts/step-record.sh` refuses `new-run` and `status`
+(exit 1), naming the installed `step-record.sh` to run instead, because the
+installed copy's audit is the one that reads those records. Its other verbs
+only warn, so a run opened before an upgrade still finishes.
+
 ### The stream-json supervisor runtime and its capture
 
 `scripts/fleet-streamjson.sh` (the Task 4 supervisor primitive) owns each
@@ -852,6 +882,40 @@ healthy-looking `running`. A worker records a `result` at the end of every turn
 and stays up for the next, so `awaiting-input` outranks an earlier turn's
 `completed`, and the stuck detector likewise keeps such a worker
 `waiting-on-a-human` rather than finished.
+
+**When the mission control itself does not answer.** The alarm's wake reaches
+the one session that should answer, which helps nothing when that session is
+stuck. A second session-keeper watcher, `scripts/mc-escalate.sh`, raises what
+a program's mission control leaves unanswered one level up, with no model in
+the path. Two things qualify: a request of one of the program's own live
+workers still pending `mission_control_escalation_window` past the alarm,
+and the mission control's own tmux pane showing an open dialog for that
+long. Auto mode's confirmation after blocked actions is one such dialog, and
+Remote Control does not show it. Either becomes a `mission-control-escalated`
+event in the hub program's store (`mission_control_escalation_hub`, when its
+holder is live), and at twice the window a push to the operator through the
+notification seam. With no live hub, or for the hub's own items, the first
+level goes to the operator. Each level is raised once.
+
+The operator's answer to such a dialog reaches the pane through
+`scripts/mc-pane-answer.sh`. It delivers one digit to that program's own
+mission-control pane, never a pane the caller names, and only against the
+hub's decisions-log entry noting the operator's answer (`mc-decide.sh note
+--shape answer`) about that very dialog: its subject names the dialog's
+digest from the escalation, its answer is the digit, it was made after the
+watcher first saw the dialog, and it is used once (a `pending` log line,
+written before the keystroke, marks it used). The pane is read again just
+before the keystroke, under the watcher's lock. It must show the dialog
+whole: from the rule that opens it, with no line cut off as the
+mission-control side panel's text, so a dialog with a side panel drawn
+beside it is answered at its pane, as is one offering no label the relay
+takes, and the watcher's escalation says so.
+The digit's label must be one that answers this dialog and nothing more
+(a short allowlist: Yes, No and their one-time variants), so a rule for
+later calls, a mode switch or a trust grant is refused. Its `--help`
+lists every refusal. With
+`mission_control_escalation_hub: none`, and for the hub's own dialog, there
+is no hub to record the answer, so such a dialog is answered at its pane.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -912,6 +976,22 @@ read through the same resolver the hook trusts them from, so that set cannot
 diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
+
+**A stream-json worker never backgrounds a command.** A stream-json session
+takes its turns from stdin, and a background job's completion notice starts
+no new turn there. So a worker that runs a command with `run_in_background`
+and then ends its turn waits forever, and looks stalled. `launch` asks the
+dispatch-env wrapper for the mark through `PLANWRIGHT_LAUNCH_BACKEND`, and
+the wrapper, which drops an inherited mark in every form, sets the
+session's `PLANWRIGHT_SESSION_BACKEND=stream-json`. The worker profile's
+`scripts/background-job-guard.sh` refuses a backgrounded Bash call when it
+is set. The refusal tells the worker to run the command in
+the foreground with an explicit timeout, and to split a longer run into
+bounded calls. It refuses a backgrounded call the worker meant to wait on
+inside its turn too, since the hook cannot tell the two apart. A tmux
+worker resumes on the notice and never carries `PLANWRIGHT_SESSION_BACKEND`,
+so the guard leaves it alone. The launch preflight warns when the worker's
+hook root has no `scripts/background-job-guard.sh`.
 
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
 its children (SIGTERM, then SIGKILL after the grace, since children do not
@@ -1084,7 +1164,14 @@ the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
 newline-terminated line, no raw control byte, a valid JSON object nested at
 most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
-written.
+written. A steer shaped like a new unit of work (a skill command, a launch
+brief) is refused with exit 5 and nothing written, unless the
+mission-control launcher registers the worker as a tower, orchestrator or
+mission-control session: workers are short-lived, so new scope and each new
+review round go to a fresh worker carrying a handover brief. `--retask
+<reason>` delivers it anyway and logs the override once delivered (an
+override that could not be logged is refused, exit 2);
+`scripts/retask-guard.sh --help` holds the rule.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
@@ -1484,7 +1571,13 @@ changes it too. After pasting it waits for the paste's fresh `(#<id>)` tag,
 which leads the line, and exits 4 if it never shows: observe the pane before
 any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
 (default 5, at most 20) and `PLANWRIGHT_RELAY_CONFIRM_SLEEP` (seconds, default
-1, at most 3) bound that wait.
+1, at most 3) bound that wait. Before reading the pane at all it refuses
+(exit 5, nothing pasted) a message shaped like a new unit of work for any
+session but one the mission-control launcher registers as a tower,
+orchestrator or mission control (a target is read as its window first), the
+same rule as the stream-json steer; `--retask <reason>` pastes it anyway,
+logged once pasted (an override that could not be logged is refused, exit
+2).
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single
@@ -1868,7 +1961,11 @@ given.
 and the busy footer markers live in one sourced file,
 `scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
 `fleet-stuck-detector.sh`, the relay's `deliver` step and mission control's
-stall detector (`scripts/mc-stall.sh`);
+stall detector (`scripts/mc-stall.sh`) and escalation watcher and pane relay
+(`scripts/mc-escalate.sh`, `scripts/mc-pane-answer.sh`, through
+`scripts/mc-session-pane.sh`, which keeps the auto-mode phrases, the footers
+and rule glyphs that bound a dialog, and the relay's answerable labels itself,
+so the overrides that follow do not reach them);
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
@@ -2177,10 +2274,11 @@ session lacks, so the gate first reads the **status-line mirror**: a copy of
 Claude Code's own rate-limit windows that the operator's own `statusLine`
 command writes, from the rate-limit fields Claude Code hands it, to
 `${XDG_CACHE_HOME:-$HOME/.cache}/claude-usage/rate-limits.json` as
-`{"five_hour":{"used_percentage":N,"resets_at":EPOCH},"seven_day":{...}}`
+`{"five_hour":{"used_percentage":N,"resets_at":EPOCH},"seven_day":{...},"spend_limit":{...}}`
 (`$PLANWRIGHT_USAGE_MIRROR` names another absolute path; set empty, it is
-skipped). planwright never writes this file, and `scripts/fleet-statusline.sh`
-does not either; write it atomically (temp file, then rename). Each window
+skipped). `scripts/fleet-usage-mirror.sh` writes it, atomically, from the
+rate-limit fields Claude Code passes a statusLine command; `scripts/fleet-statusline.sh`
+does not. Setup is in [the usage mirror](#the-usage-mirror). Each window
 comes from the first source holding it fresh: the mirror, a regular file
 with no control byte, within `fleet_usage_signal_ttl_seconds` by file age,
 and per window a 0–100 percentage whose reset is still ahead and no further
@@ -2587,6 +2685,54 @@ A tower launched with an earlier copy of the profile lacks those appended deny
 entries until it is relaunched: until then, the front door's bring-up posture
 check finds them missing and holds back repo-mutating routes and relays, unless the
 operator acknowledges running without them.
+
+### The usage mirror
+
+The gate needs a usage signal, and Claude Code's status line is the documented
+surface that carries the rate-limit fields: `rate_limits.five_hour` and
+`rate_limits.seven_day` for subscription accounts, and
+`rate_limits.spend_limit` (a percentage and reset, behind a Claude apps
+gateway). A host whose status line does not write the mirror has no signal:
+the gate then logs `no usage signal` on every cadence and relies on the
+reactive throttle.
+
+Install by wrapping the status line you already have, in your own settings
+file (planwright never edits it). `fleet-usage-mirror.sh statusline` writes the
+mirror, then runs your command on the same input and passes its output and
+exit status through, so your line is unchanged:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "<plugin-root>/scripts/fleet-usage-mirror.sh statusline '<your current statusLine command>'",
+  "refreshInterval": 60
+}
+```
+
+The wrapped command is one argument: quote it for `sh`, and JSON-escape it if
+it holds quotes. With no status line yet, use
+`"command": "<plugin-root>/scripts/fleet-usage-mirror.sh statusline"`, which
+writes the mirror and prints nothing. `refreshInterval` (seconds) re-runs
+the command while the session is idle, so the mirror stays inside
+`fleet_usage_signal_ttl_seconds`.
+
+- Check: `scripts/fleet-usage-gate.sh mirror-path` names the file;
+  `scripts/fleet-usage-gate.sh signal` prints the readings the gate uses.
+- Opt out: set `PLANWRIGHT_USAGE_MIRROR` empty. The writer then writes nothing,
+  and the gate skips the mirror.
+- A payload with no `rate_limits` writes nothing, so the last good mirror ages
+  out by the TTL rather than being replaced with nothing.
+- Dollar budgets: `spend_limit` fills the weekly window when the account has
+  no `seven_day` window. Its percentage is the same unit as the thresholds, so
+  the ladder applies unchanged; over the limit it reads as 100. The dollar
+  amounts are not used. Its period may be daily, weekly or monthly, and a reset
+  up to 32 days ahead is accepted.
+- Gap: a plain API-key account with no gateway gets no `rate_limits` at all, so
+  the gate can only report `no usage signal`. `cost.total_cost_usd` is this
+  session's estimated spend, not a budget, so it is not a substitute.
+- Unverified: the docs list the events that run the status line but not
+  whether a print-mode or stream-json session runs it. Check on a headless host
+  that the mirror refreshes before relying on it there.
 
 ## What the fleet decides without you (and what it never does)
 

@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { PanelView } from '../../types'
 import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
 import type { Install } from './digest'
-import { Band, Pane } from './panel'
+import { Band, isMascotMoving, Pane } from './panel'
 
 const PANE = 'mission-control'
 const TITLE = 'Mission control'
@@ -340,8 +340,36 @@ async function claim($: EngineInterface) {
 
 // On its own timer, so the lease the relay reads never lapses between
 // redraws, whatever the redraw cadence.
+// The context reading goes with it, for the health line every mission
+// control's panel draws: the threshold only where this session hands over.
 async function restampPresence($: EngineInterface) {
-  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--refresh', '--target', ctx.target])
+  const c = ctx
+  if (!c) return
+  const v = await view($)
+  // Read now, not from the last redraw, which a long refresh cadence leaves
+  // older than the reading's freshness window.
+  let pct: number | undefined
+  try {
+    pct = (await $.session.usage()).context.percent
+  } catch {
+    pct = undefined
+  }
+  // A stand-down or another program's activation during the reads.
+  if (ctx !== c) return
+  const threshold = v?.digest?.holder === 'registry' ? v.digest.knobs['handover-context'] : undefined
+  await run($, 'mc-panel.sh', [
+    'presence',
+    '--program',
+    c.program,
+    '--refresh',
+    '--target',
+    c.target,
+    '--context',
+    // A reading the script refuses would fail the lease restamp with it.
+    typeof pct === 'number' && Number.isFinite(pct) ? String(Math.min(100, Math.max(0, Math.round(pct)))) : '-',
+    '--threshold',
+    threshold === undefined ? '-' : String(threshold),
+  ])
 }
 
 async function tick($: EngineInterface) {
@@ -354,13 +382,15 @@ async function sweep($: EngineInterface) {
   await patch($, x => ({ ...x, frame: x.frame + 1 }))
 }
 
-// The radar sweeps only while a wake is held for a busy session, so an idle
-// panel costs no redraws.
+// The radar sweeps while a wake is held for a busy session, or while the
+// mascot has motion in a shown pane, so an idle or hidden panel costs no redraws.
 async function syncRadar($: EngineInterface) {
   const v = await view($)
   const held = v !== null && (await isHeld($, v))
-  if (held && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
-  if (!held && radar) {
+  const isShown = v !== null && isMascotMoving(v) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+  const moving = held || isShown
+  if (moving && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
+  if (!moving && radar) {
     radar.cancel()
     radar = null
   }
@@ -461,12 +491,19 @@ async function checkRecord($: EngineInterface) {
   try {
     const dir = await resolveDir($)
     if (dir === null) return
+    // Read each time: a /clear goes on under another id with no start event.
+    const sessionId = await $.session.id()
+    // First, so neither a retried activation nor a /clear's move records a
+    // released session again.
+    const ids = ackedFor !== null && ackedFor !== sessionId ? [sessionId, ackedFor] : [sessionId]
+    if (ctx && (await isRetiredForExit($, dir, ids))) {
+      await endReleased($, ids)
+      return
+    }
     if (ctx && recordFailed) {
       await acknowledge($, recordFailed)
       return
     }
-    // Read each time: a /clear goes on under another id with no start event.
-    const sessionId = await $.session.id()
     const has = await $.fs.exists(`${dir}/${sessionId}`)
     if (!has) {
       if (ctx && ackedFor === sessionId) await standDown($)
@@ -515,8 +552,8 @@ function cancelTimers() {
   radar = null
 }
 
-// The record was retired (a handover released this session): the wake
-// target goes back to the relay and the panel stops drawing.
+// The record was retired: the wake target goes back to the relay and the
+// panel stops drawing.
 async function standDown($: EngineInterface) {
   const was = ctx
   if (!was) return
@@ -527,6 +564,36 @@ async function standDown($: EngineInterface) {
   await update($, panel, () => null)
   $.ui.status(undefined)
   await release($, was)
+}
+
+// Only a regular file counts, as for the acknowledgment.
+async function isRetiredForExit($: EngineInterface, dir: string, ids: string[]) {
+  for (const id of ids) {
+    const marker = await $.fs.stat(`${dir}/${id}.exit`).catch(() => undefined)
+    if (marker && !marker.isLink && marker.kind === 'file') return true
+  }
+  return false
+}
+
+// A released predecessor ends itself: the operator's own session has no
+// launcher row through which its successor could retire it. The retire
+// clears the exit markers; /exit is queued until the session is idle, so
+// the release's turn finishes first, and it is not awaited since a run that
+// ends the session never resolves.
+async function endReleased($: EngineInterface, ids: string[]) {
+  // The /clear path and a record check can both find the marker.
+  if (!ctx) return
+  const program = ctx.program
+  try {
+    await standDown($)
+  } finally {
+    for (const id of ids) await runScript($, 'mc-panel.sh', ['retire', '--session', id])
+    void $.command.run({ command: 'exit' }).catch(() =>
+      $.ui.toast(
+        `Mission control: this session released the ${program} program name but could not end itself; type /exit to close it`,
+      ),
+    )
+  }
 }
 
 async function activate(
@@ -656,6 +723,14 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    const dir = ctx && e.reason === 'clear' ? await resolveDir($) : null
+    const clearedIds = ackedFor !== null && ackedFor !== e.sessionId ? [e.sessionId, ackedFor] : [e.sessionId]
+    if (ctx && dir !== null && (await isRetiredForExit($, dir, clearedIds))) {
+      // Released just before the /clear: end it rather than move the record.
+      const ended = await next(e)
+      $.clock.after(0, () => void endReleased($, clearedIds).catch(() => undefined))
+      return ended
+    }
     if (ctx && e.reason === 'clear') {
       // A /clear keeps the session and the mod, and starts the counts over;
       // the record moves to the id the session goes on under.

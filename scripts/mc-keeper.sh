@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # mc-keeper.sh — the session-keeper duty: track each launched session's pull
 # request, retire the session and reclaim its worktree once the pull request
-# lands, and name the next ready unit to dispatch while others wait.
+# lands, keep workers short-lived (retire the idle, hand over the old), and
+# name the next ready unit to dispatch while others wait.
 #
 # `mc-keeper.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
@@ -29,7 +30,8 @@ help_text() {
   cat <<'HELP'
 mc-keeper.sh — the session-keeper duty: track each launched session's pull
 request, retire the session and reclaim its worktree once the pull request
-lands, and name the next ready unit to dispatch while others wait.
+lands, keep workers short-lived (retire the idle, hand over the old), and
+name the next ready unit to dispatch while others wait.
 
 Driving a session to done (answering what the record settles, relaying only
 forks and operator-only blockers) is the mission-control session's
@@ -84,6 +86,20 @@ Usage:
       program, or for another program whose repositories include the
       spec's own, matched by git common directory (or one that cannot be
       told: no longer configured, or a row naming none)
+  mc-keeper.sh bounds --program <p> [--now <epoch>]
+      the worker, reviewer and ad-hoc sessions of the program a bound ends,
+      one line each, read-only:
+        retire<TAB><session><TAB><launched><TAB>idle <n>s, bound <b>s
+        handover<TAB><session><TAB><launched><TAB>lived <n>s, bound <b>s
+      idle past mission_control_worker_idle retires: a tmux session whose
+      pane has sat at the prompt that long, by the stall scan's last
+      sample, or a stream-json session whose last turn completed that long
+      ago. Otherwise, lived past mission_control_worker_lifetime since its
+      launch hands over. A session whose last line is a question (a tmux
+      pane the stall scan reads idle-question, a stream-json turn whose
+      final text ends in `?`) is parked on the operator and never retired
+      here (without jq a stream-json one cannot be told apart, so none is
+      retired), and a kickoff relay (scope kickoff-<spec>) is never bound
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
@@ -99,13 +115,25 @@ Usage:
       event, and a dead worker this scan settled one stream-json-worker-dead
       event, whatever its program, printing
         announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
+      then the bounds, under their own lock: each retire done (re-checked
+      first, a tmux pane sampled again; no tmux one on a pass whose stall
+      scan failed) one worker-retired-idle event, raised again on a later
+      pass when the store refused it, and
+      each handover one worker-handover-due event, the handover requested
+      once per launch through scripts/session-handover.sh request where it
+      is installed (mission control retires the session and launches its
+      successor otherwise),
+      printing
+        announced<TAB>worker-retired-idle|worker-handover-due<TAB><session>
       then sweep, each landing one session-landed event in the
       program's event store, subject the session, text
       `<owner/name>#<pr> <state>, retired|held[: <what stayed>]`, printing
         announced<TAB>session-landed<TAB><session>
       once per pull request, state and outcome while it stays tracked,
-      so a landing held run after run wakes the session once; the program
-      from PLANWRIGHT_MC_PROGRAM when --program is absent
+      so a landing held run after run wakes the session once (that record,
+      <runtime>/keeper-announced, is also what the panel's health line reads
+      for a worker still live after its landing); the program from
+      PLANWRIGHT_MC_PROGRAM when --program is absent
 
 Exit codes: 0 done; 1 a store, a read, a retire or reclaim that failed or
 is still held (a launch or retire in flight, a worktree not yet
@@ -117,7 +145,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-keeper.sh track|sweep|next|watch --program <p> ...; mc-keeper.sh --help for each verb"
+  mc_usage_fail "usage: mc-keeper.sh track|sweep|next|bounds|watch --program <p> ...; mc-keeper.sh --help for each verb"
 }
 
 case ${1:-} in
@@ -440,7 +468,11 @@ pending_prompts() {
 '
   pp_seen="$runtime/keeper-prompts"
   pp_out=$(/bin/sh "$script_dir/fleet-streamjson.sh" alarm-scan --once ${now:+--now "$now"} 2>/dev/null) || return 1
-  pp_list=$(launcher list 2>/dev/null) || pp_list=""
+  if pp_list=$(launcher list 2>/dev/null); then
+    keeper_list=$pp_list
+  else
+    pp_list=""
+  fi
   pp_theirs=$(printf '%s\n' "$pp_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
   pp_live=""
   pp_rc=0
@@ -469,6 +501,263 @@ $pp_out
 EOF
   mc_announce_prune "$pp_seen" "$pp_live" || pp_rc=1
   return "$pp_rc"
+}
+
+# bound_secs <knob>: the knob's cadence in seconds.
+bound_secs() {
+  bs_raw=$(mc_knob "$1" mc_parse_cadence) || return 1
+  mc_seconds "$bs_raw"
+}
+
+# idle_since_tmux <session> <launched> <cutoff>: the epoch the session's
+# pane has sat idle at its prompt since, by the stall scan's sample
+# (scripts/mc-stall.sh writes <launch> <hash> <since> <state>), when that is
+# at or before <cutoff>; else nothing. A sample of an earlier launch under
+# the same name says nothing of this one.
+idle_since_tmux() {
+  it_f="$runtime/stall/$1"
+  [ -f "$it_f" ] && [ ! -L "$it_f" ] || return 0
+  it_launch="" it_at="" it_state=""
+  IFS='	' read -r it_launch _ it_at it_state _ <"$it_f" || :
+  [ "${it_launch%%:*}" = "$2" ] && [ "$it_state" = idle ] && mc_valid_uint "$it_at" && [ "$it_at" -le "$3" ] || return 0
+  printf '%s\n' "$it_at"
+}
+
+# idle_since_streamjson <session> <launched> <cutoff>: the epoch the
+# session's last turn completed at, from the rung's result record
+# (scripts/fleet-streamjson.sh writes result <subtype> <epoch> <is_error>),
+# when that is at or before <cutoff>; else nothing: when the session is not
+# idle, the record predates this launch, or the turn ended on a question
+# (its final text's last line ends in `?`, the tmux pane's rule), which
+# parks it on the operator. The event log's last line must be that result:
+# a steer queued during a turn leaves the earlier turn's record reading
+# completed while the next turn runs, and its events follow the result.
+# Without jq the question cannot be told, so it is never idle. The record is
+# read first, so a recent turn costs no status call or log read.
+idle_since_streamjson() {
+  if [ -z "${sj_root:-}" ]; then
+    sj_root=$(mc_fleet_home) || return 0
+    sj_root="$sj_root/streamjson"
+  fi
+  is_dir="$sj_root/$1"
+  [ -f "$is_dir/result" ] && [ ! -L "$is_dir/result" ] || return 0
+  is_kind="" is_at=""
+  IFS='	' read -r is_kind _ is_at _ <"$is_dir/result" || :
+  [ "$is_kind" = result ] && mc_valid_uint "$is_at" && [ "$is_at" -ge "$2" ] && [ "$is_at" -le "$3" ] || return 0
+  is_st=$(/bin/sh "$script_dir/fleet-streamjson.sh" status "$1" 2>/dev/null) || return 0
+  case $is_st in "status $1 completed"*) ;; *) return 0 ;; esac
+  command -v jq >/dev/null 2>&1 || return 0
+  is_ev=$(tail -n 1 "$is_dir/events.jsonl" 2>/dev/null)
+  case $is_ev in *'"type":"result"'*) ;; *) return 0 ;; esac
+  is_text=$(printf '%s\n' "$is_ev" | jq -r '.result // empty' 2>/dev/null) || return 0
+  is_last=$(printf '%s\n' "$is_text" | awk '{ sub(/[[:space:]]+$/, "") } $0 != "" { l = $0 } END { print l }')
+  case $is_last in *'?') return 0 ;; esac
+  printf '%s\n' "$is_at"
+}
+
+# bounds: one retire or handover line per session a bound ends.
+# Repository-changing kinds only: a tower, an orchestrator and mission
+# control itself hand over through scripts/mc-handover.sh. A kickoff relay
+# (scope kickoff-<spec>) waits on the operator by design and is never bound.
+# A watch pass reuses the list pending_prompts read moments before.
+bounds() {
+  if [ -n "${keeper_list+x}" ]; then
+    bd_list=$keeper_list
+  else
+    bd_list=$(launcher list) || {
+      printf '%s\n' "$prog: the launcher's sessions cannot be listed" >&2
+      return 1
+    }
+  fi
+  bd_rows=$(printf '%s\n' "$bd_list" | P=$program awk -F '\t' '
+    $2 == ENVIRON["P"] && ($3 == "worker" || $3 == "reviewer" || $3 == "ad-hoc") && index($4, "kickoff-") != 1 { print $1 "\t" $5 "\t" $6 }') || return 1
+  [ -n "$bd_rows" ] || return 0
+  bd_life=$(bound_secs mission_control_worker_lifetime) || return 1
+  bd_idle=$(bound_secs mission_control_worker_idle) || return 1
+  bd_now=${now:-$(mc_now)}
+  bd_cut=$((bd_now - bd_idle))
+  [ -n "${sj_root:-}" ] || sj_root="$(mc_fleet_home)/streamjson" || return 1
+  while IFS='	' read -r bd_s bd_b bd_l; do
+    mc_valid_handle "$bd_s" || continue
+    mc_valid_uint "$bd_l" || continue
+    case $bd_b in
+      tmux) bd_since=$(idle_since_tmux "$bd_s" "$bd_l" "$bd_cut") ;;
+      stream-json) bd_since=$(idle_since_streamjson "$bd_s" "$bd_l" "$bd_cut") ;;
+      *) bd_since="" ;;
+    esac
+    if [ -n "$bd_since" ]; then
+      printf 'retire\t%s\t%s\tidle %ss, bound %ss\n' "$bd_s" "$bd_l" $((bd_now - bd_since)) "$bd_idle"
+    elif [ $((bd_now - bd_l)) -ge "$bd_life" ]; then
+      printf 'handover\t%s\t%s\tlived %ss, bound %ss\n' "$bd_s" "$bd_l" $((bd_now - bd_l)) "$bd_life"
+    fi
+  done <<EOF
+$bd_rows
+EOF
+}
+
+handover_installed() { [ -r "$script_dir/session-handover.sh" ]; }
+
+# request_handover <session> <why>: the seam to the session's own handover,
+# scripts/session-handover.sh, which marks it due so the session hands over
+# at its next safe point; nothing to do where it is not installed.
+request_handover() {
+  handover_installed || return 0
+  /bin/bash "$script_dir/session-handover.sh" request --session "$1" --reason "$2" >/dev/null
+}
+
+# still_due <session> <launched> <backend> <cutoff>: the bounds' verdict
+# holds now: the registry row is still the launch decided on, and the
+# session is still idle since before the cutoff. A tmux pane is sampled
+# again first, so input since the pass's stall scan counts.
+still_due() {
+  sd_row="$(mc_fleet_home)/mission-control/sessions/$1"
+  [ -f "$sd_row" ] && [ ! -L "$sd_row" ] || return 1
+  [ "$(mc_kv "$sd_row" launched)" = "$2" ] || return 1
+  case $3 in
+    tmux)
+      /bin/bash "$script_dir/mc-stall.sh" classify --program "$program" ${now:+--now "$now"} "$1" >/dev/null 2>&1 || return 1
+      [ -n "$(idle_since_tmux "$1" "$2" "$4")" ]
+      ;;
+    stream-json) [ -n "$(idle_since_streamjson "$1" "$2" "$4")" ] ;;
+    *) return 1 ;;
+  esac
+}
+
+# retired_event <session> <why>: emit the worker-retired-idle event.
+retired_event() {
+  mc_event emit --program "$program" ${now:+--now "$now"} -- worker-retired-idle "$1" \
+    "$1 retired: $2; new work for it launches a fresh session with a handover brief" >/dev/null || return 1
+  printf 'announced\tworker-retired-idle\t%s\n' "$1"
+}
+
+# has_key <file> <key>: the file holds the key as a whole line.
+has_key() {
+  [ -f "$1" ] && K=$2 awk 'BEGIN { k = ENVIRON["K"] } $0 == k { f = 1; exit } END { exit !f }' "$1"
+}
+
+# act_bounds <scan-ok>: retire each idle session and request each handover
+# once per launch, under one lock so two passes never act on one verdict
+# twice. A pass whose stall scan failed retires no tmux session: its samples
+# may be stale. A retire event the store refuses is owed and raised again on
+# a later pass, since the session is gone from the list by then.
+act_bounds() {
+  ab_rc=0
+  pw_lock_acquire "$runtime/keeper-bounds.lock" || {
+    printf '%s\n' "$prog: cannot take the bounds lock" >&2
+    return 1
+  }
+  ab_owed="$runtime/keeper-retired-owed"
+  if [ -s "$ab_owed" ]; then
+    if ab_due=$(cat "$ab_owed"); then
+      ab_still=""
+      while IFS='	' read -r ab_s ab_why; do
+        [ -n "$ab_s" ] || continue
+        retired_event "$ab_s" "$ab_why" && continue
+        ab_still="$ab_still$ab_s	$ab_why
+"
+        ab_rc=1
+      done <<EOF
+$ab_due
+EOF
+      printf '%s' "$ab_still" | mc_write "$ab_owed" || {
+        printf '%s\n' "$prog: cannot rewrite $ab_owed" >&2
+        ab_rc=1
+      }
+    else
+      ab_rc=1
+    fi
+  fi
+  ab_seen="$runtime/keeper-bounds"
+  ab_req="$runtime/keeper-handover-requested"
+  ab_out=$(bounds) || {
+    pw_lock_release "$runtime/keeper-bounds.lock" >/dev/null 2>&1
+    return 1
+  }
+  ab_cut=0
+  if [ -n "$ab_out" ]; then
+    if ab_idle=$(bound_secs mission_control_worker_idle); then
+      ab_cut=$((${now:-$(mc_now)} - ab_idle))
+    else
+      ab_rc=1
+    fi
+    [ -n "${sj_root:-}" ] || sj_root="$(mc_fleet_home)/streamjson" || ab_rc=1
+  fi
+  ab_live=""
+  while IFS='	' read -r ab_tag ab_s ab_l ab_why; do
+    [ -n "$ab_tag" ] || continue
+    # Every row keeps its handover key, so a retire not carried out never
+    # lets the same launch's handover go out again.
+    ab_key="$ab_s	$ab_l"
+    ab_live="$ab_live$ab_key
+"
+    case $ab_tag in
+      retire)
+        ab_b=$(mc_kv "$(mc_fleet_home)/mission-control/sessions/$ab_s" backend 2>/dev/null) || ab_b=""
+        if [ "$ab_b" = tmux ] && [ "$1" != 1 ]; then
+          printf '%s\n' "$prog: $ab_s is idle past its bound, left for a pass whose stall scan succeeds" >&2
+          ab_rc=1
+          continue
+        fi
+        still_due "$ab_s" "$ab_l" "$ab_b" "$ab_cut" || continue
+        ab_r=$(launcher retire "$ab_s" 2>&1)
+        case $? in
+          0)
+            retired_event "$ab_s" "$ab_why" && continue
+            printf '%s\t%s\n' "$ab_s" "$ab_why" >>"$ab_owed" \
+              || printf '%s\n' "$prog: the worker-retired-idle event for $ab_s was refused and cannot be owed" >&2
+            ab_rc=1
+            ;;
+          3)
+            # Gone meanwhile (retired by the landing sweep or by hand) is
+            # not a failure; still listed is.
+            if ! printf '%s\n' "$ab_r" | grep -q 'in flight' \
+              && ab_now_list=$(launcher list 2>/dev/null) \
+              && ! printf '%s\n' "$ab_now_list" | S=$ab_s awk -F '\t' '$1 == ENVIRON["S"] { f = 1 } END { exit !f }'; then
+              continue
+            fi
+            printf '%s\n' "$prog: the idle session $ab_s was not retired: $(printf '%s\n' "$ab_r" | head -n 1 | mc_clean)" >&2
+            ab_rc=1
+            ;;
+          *)
+            ab_first=$(printf '%s\n' "$ab_r" | awk -F '\t' '$1 == "retire" { print; f = 1; exit } END { if (!f) exit 1 }') \
+              || ab_first=$(printf '%s\n' "$ab_r" | head -n 1)
+            printf '%s\n' "$prog: the idle session $ab_s was not fully retired: $(printf '%s' "$ab_first" | mc_clean)" >&2
+            ab_rc=1
+            ;;
+        esac
+        ;;
+      handover)
+        if has_key "$ab_seen" "$ab_key"; then
+          continue
+        fi
+        # A request is sent once per launch; a refused event is retried on
+        # a later pass without sending the request again.
+        if ! has_key "$ab_req" "$ab_key"; then
+          if ! request_handover "$ab_s" "$ab_why"; then
+            printf '%s\n' "$prog: the handover of $ab_s could not be requested" >&2
+            ab_rc=1
+            continue
+          fi
+          if handover_installed; then
+            printf '%s\n' "$ab_key" >>"$ab_req" || ab_rc=1
+          fi
+        fi
+        if handover_installed; then
+          ab_how="it hands over at its next safe point"
+        else
+          ab_how="retire it and launch its successor on the same worktree with a handover brief"
+        fi
+        mc_announce "$program" "$ab_seen" "$ab_key" worker-handover-due "$ab_s" "$ab_s is past its lifetime ($ab_why); $ab_how" \
+          || ab_rc=1
+        ;;
+    esac
+  done <<EOF
+$ab_out
+EOF
+  mc_announce_prune "$ab_seen" "$ab_live" || ab_rc=1
+  mc_announce_prune "$ab_req" "$ab_live" || ab_rc=1
+  pw_lock_release "$runtime/keeper-bounds.lock" >/dev/null 2>&1
+  return "$ab_rc"
 }
 
 # pending_arrivals: a stream-json request inside the pending bound is announced
@@ -539,6 +828,9 @@ EOF
 }
 
 case $verb in
+  bounds)
+    bounds || exit 1
+    ;;
   track)
     mc_valid_handle "$session" || mc_usage_fail "--session takes a launched session's name"
     mc_valid_slug "$slug" || mc_usage_fail "--repo takes owner/name"
@@ -561,16 +853,21 @@ case $verb in
   sweep | watch)
     rc=0
     events=0
+    trap pw_lock_release_all EXIT
     if [ "$verb" = watch ]; then
       events=1
+      scan_ok=1
       # The stall scan needs no forge, so a missing gh never stops it.
-      /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || rc=1
+      /bin/bash "$script_dir/mc-stall.sh" scan --program "$program" ${now:+--now "$now"} >/dev/null || {
+        rc=1
+        scan_ok=0
+      }
       /bin/bash "$script_dir/mc-panel.sh" prune >/dev/null || rc=1
       pending_prompts || rc=1
       pending_arrivals || rc=1
+      act_bounds "$scan_ok" || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
-    trap pw_lock_release_all EXIT
     # First: the ledger sweep can exit the run on a broken ledger.
     flight_parks
     sweep || rc=1

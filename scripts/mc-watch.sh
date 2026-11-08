@@ -13,6 +13,8 @@ export LC_ALL
 unset CDPATH
 
 prog=mc-watch
+FLAP_STOPS=3
+FLAP_WINDOW=3600
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 for lib in echo-safety.sh mc-lib.sh lock-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
@@ -58,7 +60,10 @@ THE RECORD of an armed watcher is <runtime>/watchers/<slot>.rec, the slot
 derived from the duty and the script:
   <pid><TAB><armed epoch><TAB><duty><TAB><script><TAB><cadence><TAB><cost>
 <slot>.last holds `<epoch><TAB><exit><TAB><refused events>` of its latest
-run and <slot>.log the loop's stderr. A pid is only trusted, or signalled,
+run, <slot>.stops `<epoch> <pid>:<armed epoch>` per stop within an hour
+of its latest,
+<slot>.failing the epoch a failure streak was raised, and <slot>.log the
+loop's stderr. A pid is only trusted, or signalled,
 while that process's whole argument list is this runner's loop for that
 slot.
 
@@ -72,7 +77,9 @@ scripts/lock-lib.sh), so two runners never interleave, and in order:
      handover stop medium-cost ones too, and a watcher above its duty's
      spend class is not armed;
   3. each watcher: running, armed, or stopped and re-armed, the stop
-     emitted as a `watcher-stopped` event before the re-arm; a live one
+     emitted as a `watcher-stopped` event before the re-arm (routine: it
+     wakes nobody), and a third stop of one watcher inside an hour as a
+     `watcher-failing` event too, once per streak; a live one
      whose catalog cadence or cost changed is restarted on the new values
      (`updated`, no event); a script that does not resolve, or a cadence
      that does not parse, is reported unresolvable and neither armed nor
@@ -84,7 +91,7 @@ scripts/lock-lib.sh), so two runners never interleave, and in order:
 One line per act: armed, rearmed, updated, running (with `unverified` when the
 process table could not be read for its pid, and nothing is re-armed),
 paused (with the rung or the spend class), unresolvable, disarmed, stopped
-(with the event id), then the event, snapshot and wake scripts' own lines
+and failing (each with the event id), then the event, snapshot and wake scripts' own lines
 prefixed `event`, `snapshot` and `wake`. A pass whose lock another runner
 holds prints `busy`.
 
@@ -230,10 +237,47 @@ record_pid() { [ -f "$wdir/$1.rec" ] && cut -f1 "$wdir/$1.rec" | head -n 1; }
 
 stop_slot() {
   ss_pid=$(record_pid "$1")
-  rm -f "$wdir/$1.rec" "$wdir/$1.last"
+  rm -f "$wdir/$1.rec" "$wdir/$1.last" "$wdir/$1.stops" "$wdir/$1.failing"
   if [ -n "$ss_pid" ] && ours "$ss_pid" "$1"; then
     kill "$ss_pid" 2>/dev/null || :
   fi
+}
+
+# flapping <slot> <duty> <script> <incarnation>: note this stop in
+# <slot>.stops and, once FLAP_STOPS stops fall inside FLAP_WINDOW seconds,
+# emit watcher-failing. A stop alone is routine and wakes nobody, so a
+# watcher that dies on every pass would otherwise stay dead unseen. The
+# alert fires once per streak (<slot>.failing marks it raised, cleared when
+# the count falls below FLAP_STOPS), and the stop is written only after the
+# alert lands, so a failed emit is retried rather than lost. A death seen
+# again after a failed pass carries the same incarnation (the dead loop's
+# pid and armed epoch) and is not counted twice.
+flapping() {
+  if [ -n "$now" ]; then fl_now=$NOW; else fl_now=$(mc_now); fi
+  fl_file="$wdir/$1.stops"
+  fl_mark="$wdir/$1.failing"
+  fl_prev=""
+  if [ -f "$fl_file" ]; then fl_prev=$(cat "$fl_file") || return 1; fi
+  fl_kept=$(
+    {
+      [ -z "$fl_prev" ] || printf '%s\n' "$fl_prev"
+      printf '%s %s\n' "$fl_now" "$4"
+    } | N=$fl_now W=$FLAP_WINDOW awk '
+      $1 ~ /^[0-9]+$/ && $1 <= ENVIRON["N"] + 0 && ENVIRON["N"] - $1 < ENVIRON["W"] + 0 {
+        if ($2 != "" && ($2 in seen)) next
+        seen[$2] = 1; print
+      }'
+  ) || return 1
+  fl_n=$(printf '%s\n' "$fl_kept" | awk 'NF { n++ } END { print n + 0 }')
+  if [ "$fl_n" -lt "$FLAP_STOPS" ]; then
+    rm -f "$fl_mark"
+  elif [ ! -f "$fl_mark" ]; then
+    fl_id=$(mc_event emit --program "$program" ${now_args[@]+"${now_args[@]}"} -- \
+      watcher-failing "$2" "$3 stopped $fl_n times within $((FLAP_WINDOW / 60)) minutes") || return 1
+    printf '%s\n' "$fl_now" | mc_write "$fl_mark" || return 1
+    printf 'failing\t%s\t%s\t%s\n' "$2" "$3" "$fl_id"
+  fi
+  printf '%s\n' "$fl_kept" | mc_write "$fl_file"
 }
 
 # arm <slot> <duty> <script> <cadence> <cost>: start the loop and record it.
@@ -336,7 +380,11 @@ pass() {
       esac
     fi
     if [ -f "$wdir/$s.rec" ]; then
-      id=$(mc_event emit --program "$program" -- \
+      # Counted before the stop event, so a failed alert retried on the
+      # next pass emits no second stop event for the same death.
+      incarnation=$(cut -f1,2 "$wdir/$s.rec" | head -n 1 | tr '\t' ':')
+      flapping "$s" "$duty" "$script" "$incarnation" || return 1
+      id=$(mc_event emit --program "$program" ${now_args[@]+"${now_args[@]}"} -- \
         watcher-stopped "$duty" "$script stopped; re-armed by the runner") || return 1
       printf 'stopped\t%s\t%s\t%s\n' "$duty" "$script" "$id"
       arm "$s" "$duty" "$script" "$cadence" "$cost" || return 1

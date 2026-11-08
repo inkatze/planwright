@@ -957,4 +957,91 @@ done
 rm -f "$mlocal_cfg"
 echo "ok: the gate refuses a threshold above 100 and out-of-order enabled thresholds"
 
+# --- 41. A dollar-budget account: spend_limit fills the weekly window when the
+#         account has no seven_day window, and is not read past its period. ---
+reset_state
+in_period=$((now_s + 2160000))
+past_period=$((now_s + 3600000))
+write_mirror "{\"spend_limit\":{\"used_percentage\":72,\"resets_at\":$in_period}}"
+sig=$(run signal) || fail "signal (spend-limit mirror) failed"
+[ "$(sig_of weekly "$sig")" = 72 ] || fail "a spend_limit must fill the weekly window (got: $sig)"
+[ "$(sig_of session "$sig")" = unavailable ] || fail "a spend_limit must not fill the session window (got: $sig)"
+write_mirror "{\"spend_limit\":{\"used_percentage\":72,\"resets_at\":$past_period}}"
+sig=$(run signal) || fail "signal (spend-limit beyond its period) failed"
+[ "$(sig_of weekly "$sig")" = unavailable ] || fail "a spend_limit reset beyond the longest period must be unavailable (got: $sig)"
+write_mirror "{\"seven_day\":{\"used_percentage\":29,\"resets_at\":$in_day},\"spend_limit\":{\"used_percentage\":90,\"resets_at\":$in_period}}"
+sig=$(run signal) || fail "signal (seven_day and spend_limit) failed"
+[ "$(sig_of weekly "$sig")" = 29 ] || fail "seven_day must govern the weekly window ahead of spend_limit (got: $sig)"
+no_llm "spend_limit"
+echo "ok: spend_limit fills the weekly window only within its period, and seven_day wins"
+
+# --- 42. No usage source at all: evaluate says so and names the fix; the signal
+#         view says so too. A mirror or a capture on disk suppresses the note. ---
+reset_state
+err=$(run evaluate 2>&1 >/dev/null) || fail "evaluate (no usage source) must not fail"
+case $err in
+  *'no usage signal'*fleet-usage-mirror.sh*) ;;
+  *) fail "evaluate with no usage source must say 'no usage signal' and name the writer (got: $err)" ;;
+esac
+err=$(run signal 2>&1 >/dev/null) || fail "signal (no usage source) must not fail"
+case $err in
+  *'no usage signal'*) ;;
+  *) fail "signal with no usage source must say 'no usage signal' (got: $err)" ;;
+esac
+write_mirror "{\"seven_day\":{\"used_percentage\":29,\"resets_at\":$in_day}}"
+touch -t 202001010000 "$mirror_file"
+err=$(run evaluate 2>&1 >/dev/null) || fail "evaluate (stale mirror present) must not fail"
+case $err in
+  *'no usage signal'*) fail "a stale mirror on disk is a source, not a missing one (got: $err)" ;;
+  *fleet-usage-mirror.sh*) ;;
+  *) fail "a stale mirror must name the writer that refreshes it (got: $err)" ;;
+esac
+reset_state
+usage_render 10 10 | run capture >/dev/null || fail "capture (no mirror) failed"
+err=$(run evaluate 2>&1 >/dev/null) || fail "evaluate (capture present) must not fail"
+case $err in
+  *'no usage signal'*) fail "a /usage capture on disk is a source, not a missing one (got: $err)" ;;
+esac
+reset_state
+err=$(PLANWRIGHT_USAGE_MIRROR='' run evaluate 2>&1 >/dev/null) || fail "evaluate (mirror disabled, no capture) must not fail"
+case $err in
+  *'no usage signal'*) ;;
+  *) fail "a disabled mirror with no capture is no usage source (got: $err)" ;;
+esac
+echo "ok: no usage source is reported as 'no usage signal' with the fix; a source on disk suppresses it"
+
+# --- 43. mirror-path prints the resolved location, nothing when disabled. ---
+reset_state
+[ "$(run mirror-path)" = "$mirror_file" ] || fail "mirror-path must print the resolved mirror location"
+[ -z "$(PLANWRIGHT_USAGE_MIRROR='' run mirror-path)" ] || fail "mirror-path must print nothing when the mirror is disabled"
+echo "ok: mirror-path reports the resolved location"
+
+# --- 44. `windows` reads each mirror window's percentage and reset epoch, so a
+#         watcher can act at the reset; an expired or stale window reads
+#         unavailable with no reset. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":91.5,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$in_hour}}"
+win=$(run windows) || fail "windows failed"
+[ "$win" = "$(printf 'session\t40\t%s\nweekly\t91\t%s' "$in_hour" "$in_day")" ] \
+  || fail "windows must print each window's percentage and reset epoch (got: $win)"
+win=$(run windows --now $((in_hour + 1))) || fail "windows --now failed"
+[ "$win" = "$(printf 'session\tunavailable\t-\nweekly\tunavailable\t-')" ] \
+  || fail "a mirror stale at --now, or a reset already past, must read unavailable (got: $win)"
+wn_t=$(date +%s)
+write_mirror "{\"seven_day\":{\"used_percentage\":91.5,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$((wn_t + 60))}}"
+win=$(run windows --now $((wn_t + 120))) || fail "windows --now (one reset past) failed"
+[ "$win" = "$(printf 'session\tunavailable\t-\nweekly\t91\t%s' "$in_day")" ] \
+  || fail "a window whose reset has passed must read unavailable while the other stays (got: $win)"
+rc=0
+run windows extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "windows with an extra argument must be a usage error (got $rc)"
+rc=0
+run windows --now '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "windows with an empty --now must be a usage error, never the clock (got $rc)"
+rc=0
+run windows --now 0123 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "windows --now with a leading zero must be a usage error, never read as octal (got $rc)"
+no_llm "windows"
+echo "ok: windows reads each mirror window's percentage and reset epoch"
+
 echo "ALL fleet-usage-gate tests passed"

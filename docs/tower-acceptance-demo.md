@@ -284,8 +284,6 @@ Superseded entries are left out.
 - [ ] REQ-A1.5 · walk-away: the status of a spec under orchestration came on
   demand from recorded evidence, with no machinery knowledge needed, and
   nothing polled or reported it unprompted.
-- [ ] REQ-B1.2 · escalation: the small ask flew visual; the auth ask got the
-  one-page case and, on the yes, a spec draft.
 - [ ] REQ-C1.3 · chat-only, split-screen: each flight's audit record declares
   any narrowing of review rigor, never silent.
 - [ ] REQ-C1.4 · split-screen: the worktree appeared, the worker converged,

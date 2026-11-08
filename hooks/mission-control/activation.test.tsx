@@ -151,6 +151,75 @@ test('a retired record stands the panel down', async ($, on) => {
   expect(ran(w, 'mc-panel.sh', 'digest')).toHaveLength(digests)
 })
 
+test('a retired record with no exit marker stands down without ending the session', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ records: {} })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-wake.sh', 'target').at(-1)).not.toContain('--mod')
+  expect(ran(w, 'mc-panel.sh', 'retire')).toEqual([])
+  expect(w.commandRuns).toEqual([])
+})
+
+// A released predecessor ends itself once its turn is over: its own mod runs
+// /exit, so the operator's own session needs no other session to close it.
+test('a record retired for exit stands the panel down and ends the session', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ records: { [`${SESSION}.exit`]: 'exit' } })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-wake.sh', 'target').at(-1)).not.toContain('--mod')
+  expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
+  expect(w.commandRuns).toEqual(['exit'])
+  await w.clock.advance(60_000)
+  expect(w.commandRuns).toEqual(['exit'])
+})
+
+test('an exit that cannot run is said, telling the operator to type /exit', async ($, on) => {
+  const w = world(on, { isExitRefused: true })
+  await boot($, w)
+  w.set({ records: { [`${SESSION}.exit`]: 'exit' } })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
+  expect(w.commandRuns).toEqual([])
+  expect(w.toasts.at(-1)).toMatch(/released the alpha program name.*type \/exit/)
+})
+
+test('a release while an activation is being retried ends the session instead', async ($, on) => {
+  const w = world(on, { activateExit: 1 })
+  await boot($, w)
+  const tries = ran(w, 'mc-panel.sh', 'activate').length
+  w.set({ records: { [`${SESSION}.exit`]: 'exit' } })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'activate')).toHaveLength(tries)
+  expect(w.commandRuns).toEqual(['exit'])
+})
+
+test('a release under the id a /clear left behind still ends the session', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ records: { [`${SESSION}.exit`]: 'exit' }, sessionId: OTHER })
+  await w.clock.advance(10_000)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'activate').filter(r => r.includes(OTHER))).toEqual([])
+  expect(w.commandRuns).toEqual(['exit'])
+})
+
+test('a /clear right after a release ends the session rather than moving the record', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  w.set({ records: { [`${SESSION}.exit`]: 'exit' }, sessionId: OTHER })
+  await $.session.end({ reason: 'clear', sessionId: SESSION } as never)
+  await w.clock.settle()
+  expect(ran(w, 'mc-panel.sh', 'activate').filter(r => r.includes(OTHER))).toEqual([])
+  expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
+  expect(w.commandRuns).toEqual(['exit'])
+})
+
 test('a wake target that cannot be handed back is tried once more, then said', async ($, on) => {
   const w = world(on)
   await boot($, w)

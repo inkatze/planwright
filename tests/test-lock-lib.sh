@@ -31,8 +31,8 @@ unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIB="$REPO_ROOT/scripts/lock-lib.sh"
-# shellcheck source=tests/lib/poll-until.sh
-. "$REPO_ROOT/tests/lib/poll-until.sh"
+# shellcheck source=tests/lib/fixture-procs.sh
+. "$REPO_ROOT/tests/lib/fixture-procs.sh"
 
 failures=0
 
@@ -67,7 +67,20 @@ tmp="$(mktemp -d)" || exit 1
 # Restore write permission first: a case below makes a directory unwritable to
 # prove a displacement fails there, and an interrupted run would otherwise
 # leave a sandbox nothing can remove.
-trap 'chmod -R u+rwX "$tmp" 2>/dev/null || :; rm -rf "$tmp"' EXIT
+# Owner-only: bash runs this trap in a `sleep 120 &` child signalled before it
+# execs, and that child would delete the sandbox under the running suite.
+cleanup() {
+  fixture_is_owner || return 0
+  chmod -R u+rwX "$tmp" 2>/dev/null || :
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
+(cleanup)
+if [ ! -d "$tmp" ]; then
+  echo "FAIL: a forked copy of the suite running its exit trap removed the sandbox" >&2
+  exit 1
+fi
+pass "a forked copy of the suite running its exit trap leaves the sandbox standing"
 
 # The portable-floor shell the library must run under. `sh` is dash on the
 # Linux runners and a bash build on macOS; both are in the support bar, and

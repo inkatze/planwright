@@ -169,6 +169,33 @@ seeded bring-up "the stale state file read" \
 seeded bring-up "the state file's figure reported" \
   ".decision_log[$first_present].text += \" (17 open)\""
 seeded on-behalf "no launch" 'del(.decision_log[] | select(.action == "launch"))'
+# Quiet by default: a routine act is logged, never narrated.
+routine_ev='(.decision_log | map(.kind == "event" and (.raw | startswith("routine "))) | index(true))'
+seeded on-behalf "quiet: a turn narrates a routine approval" \
+  ".decision_log[$first_present].text += \" I approved the export work's request to run its tests.\""
+seeded on-behalf "quiet: a turn answers a routine-only event" \
+  "$routine_ev as \$i | .decision_log |= (.[0:(\$i + 1)] + [{v: 2, seq: 993, phase: \"session\", kind: \"present\", text: \"All quiet; the readiness watch is back.\"}] + .[(\$i + 1):])"
+for act in approve relay rearm; do
+  seeded on-behalf "quiet: a routine $act with no undo entry" \
+    "(.decision_log[] | select(.action == \"$act\") | .seq) as \$q | del(.decision_log[] | select(.action == \"undo-logged\" and .of == \$q))"
+done
+seeded on-behalf "quiet: a turn opens on an acknowledgement" \
+  ".decision_log[$first_present].text |= \"Got it. \" + ."
+seeded on-behalf "quiet: a turn runs past five lines besides its item" \
+  "$first_present as \$i | .decision_log |= (.[0:(\$i + 1)] + [range(6) | {v: 2, seq: (980 + .), phase: \"session\", kind: \"present\", text: \"One more thing.\"}] + .[(\$i + 1):])"
+# A decision item is exempt from the cap, which binds narration only.
+if jq "$first_item as \$i | .decision_log |= (.[0:(\$i + 1)] + [range(5) | {v: 2, seq: (980 + .), phase: \"session\", kind: \"present\", text: \"One more thing.\"}] + .[(\$i + 1):])" "$TMP/on-behalf.json" \
+  | jq -e -f "$GRADEJQ" >/dev/null 2>&1; then
+  ok "[on-behalf] an item and five lines of narration pass the cap"
+else
+  fail "[on-behalf] the cap counted a decision item's own lines"
+fi
+if jq "$first_item as \$i | .decision_log |= (.[0:(\$i + 1)] + [range(6) | {v: 2, seq: (970 + .), phase: \"session\", kind: \"present\", text: \"Decision: pick option \\(.)\"}] + [range(5) | {v: 2, seq: (980 + .), phase: \"session\", kind: \"present\", text: \"One more thing.\"}] + .[(\$i + 1):])" "$TMP/on-behalf.json" \
+  | jq -e -f "$GRADEJQ" >/dev/null 2>&1; then
+  ok "[on-behalf] a report's decision lines are exempt from the cap too"
+else
+  fail "[on-behalf] the cap counted a report's decision lines"
+fi
 seeded no-concepts "a plan-worthy ask not drafted with the operator" \
   'del(.decision_log[] | select(.action == "draft-with-operator"))'
 seeded entry-args "two programs resumed without asking" \

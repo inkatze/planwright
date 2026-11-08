@@ -1011,7 +1011,7 @@ mission_control_home_root: ~/.config/planwright/mission-control
 # The duties a program enables when its block names none: the shipped set in
 # config/duties.yaml.
 # yamllint disable-line rule:line-length
-mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals]
+mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals, throughput, usage-window]
 # The state-source map a program declaring none resolves to: class:
 # source:mode entries over the fact classes (work-items, code-state,
 # decisions, deadlines, designs), mode record, snapshot or cited. A class the
@@ -1037,6 +1037,16 @@ mission_control_kb_lock_wait: 5
 # before scripts/mc-stall.sh reads it busy-unchanged. A cadence; time alone
 # never makes a stall, only beside a busy marker and an unchanged pane.
 mission_control_stall_window: 10m
+# How long past its owner's alarm a worker request may stay pending, or a
+# mission control's own dialog stay open, before scripts/mc-escalate.sh
+# raises it to the hub; at twice the window it reaches the operator. A
+# cadence.
+mission_control_escalation_window: 15m
+# The program whose mission control hears what another program's mission
+# control left unanswered, before the operator does: a program name, or
+# none to go straight to the operator. A program never escalates to itself,
+# and a hub whose holder does not read live counts as none.
+mission_control_escalation_hub: hub
 # The ignored audit files scripts/mc-reclaim.sh copies into the program
 # home's reclaim folder before a worktree goes: worktree-relative paths, a
 # `*` allowed in the last component, a directory taken whole.
@@ -1055,6 +1065,9 @@ mission_control_panel_refresh: 10s
 # How long the panel's reviews-at-a-glance snapshot (scripts/mc-reviews.sh)
 # is kept before the panel's reviews check reads the forge again. A cadence.
 mission_control_reviews_ttl: 5m
+# The panel's mascot, Prop pal: animated, still (one frame per state, for
+# reduced motion) or off (nothing drawn).
+mission_control_panel_mascot: animated
 # The handover trigger: the measured context percent at which the session
 # raises its handover, the completed-wake count that stands in where the
 # harness measures no context (a wake is one duty trigger or one operator
@@ -1063,10 +1076,35 @@ mission_control_reviews_ttl: 5m
 mission_control_handover_context: 70
 mission_control_handover_wakes: 150
 mission_control_handover_compactions: 2
+# The panel's health line (scripts/mc-panel.sh health): the bounds past which
+# it flags what the duties should have caught. A live worker registered
+# longer than the worker age; one still live this long after the attention
+# store saw its pull request merge; a permission prompt pending this long;
+# the program's mission control held on its own dialog this long; a CI job
+# whose median queue time is at least this percent of its median run and at
+# least the floor (at or past the floor with no finished run, whatever the share);
+# a session idle this long. Cadences, but the share, a
+# whole percent from 1 to 100.
+mission_control_health_worker_age: 4h
+mission_control_health_merged_grace: 10m
+mission_control_health_permission_wait: 5m
+mission_control_health_stuck_after: 5m
+mission_control_health_ci_queue_share: 50
+mission_control_health_ci_queue_floor: 2m
+mission_control_health_idle_after: 30m
 # How long a successor waits for its predecessor to release the program
 # name before it retires the predecessor itself and takes the name. A
 # cadence.
 mission_control_handover_window: 2m
+# The bounds that keep worker, reviewer and ad-hoc sessions short-lived
+# (scripts/mc-keeper.sh bounds): one past the lifetime since its launch is
+# asked to hand over to a fresh successor at its next safe point (where
+# scripts/session-handover.sh is not installed, mission control retires it
+# and launches the successor itself); one idle at its prompt past the idle
+# bound is retired, its next round of work going to a fresh session with a
+# handover brief. Cadences.
+mission_control_worker_lifetime: 4h
+mission_control_worker_idle: 30m
 # How often each snapshot-mode source is refreshed, source: cadence. A source
 # left out refreshes at the cadence its adapter declares in
 # config/snapshot-adapters.yaml.
@@ -1105,6 +1143,11 @@ mission_control_default_budget: {sessions: 4, polls_per_hour: 120, spend_ceiling
 # pause_watchers stops high-cost watchers, hold_dispatch also stops
 # medium-cost ones and refuses new sessions and heavy work.
 mission_control_budget_ladder: {throttle: 70, pause_watchers: 85, hold_dispatch: 100}
+# The account usage percent (either the session or the weekly window) at
+# which the usage-window duty holds new launches until the window resets,
+# queueing the next units for the reset (scripts/mc-usage.sh); `off` holds
+# only on a claude quota hold.
+mission_control_usage_hold: 90
 # How many operator confirmations of a decision class's decisions, since the
 # latest revoke of one of them, restore the class from ask-first
 # (scripts/mc-decide.sh).
@@ -1127,6 +1170,21 @@ mission_control_audit_idle_after: 30d
 # date at most this many whole days away ranks ahead of undated work and
 # opens the first turn after silence. A cadence, read in whole days.
 mission_control_deadline_horizon: 3d
+# The throughput duty (scripts/mc-throughput.sh): how often it measures
+# (an interval shorter than its watcher's cadence in config/duties.yaml
+# measures at that cadence), how far back it reads, and how many of each
+# repository's Actions runs one measurement reads, the window's whole set
+# (at most 1000; more reads the CI source unknown). Cadences, and a count.
+mission_control_throughput_interval: 1h
+mission_control_throughput_window: 24h
+mission_control_throughput_ci_runs: 500
+# When a measurement is a bottleneck: its typical value (the median CI
+# queue wait, permission wait or step run; the longest stall) at or over
+# the threshold. Every key is required; each value a cadence.
+mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 20m}
+# How much, in percent, a raised bottleneck's total time must grow before
+# it is raised again.
+mission_control_throughput_worsen: 50
 # Where a draft for a person goes (scripts/mc-inbox.sh draft): auto, the
 # first clipboard tool that script finds, or the absolute path of a command
 # that reads the text on stdin. Never a sender; never read from the

@@ -180,7 +180,7 @@ PR number):
    cannot spawn degrades to `in-session`, recorded, a following `continue`
    attaching to the unit's session); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
-   through `step-run.sh` (backgrounded, waited in-turn): `isolated` by
+   through `step-run.sh` (foreground, waited in-turn): `isolated` by
    `command`, session-hosted between `begin --owner $PPID`, whose printed
    `run` line the shell tool runs, and `end`. A refused context value
    (exit 6) is `failed`. Past its `timeout`, a session-owned step is stopped

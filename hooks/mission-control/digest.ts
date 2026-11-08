@@ -1,4 +1,4 @@
-import type { PanelDigest, PanelFlight, PanelView } from '../../types'
+import type { PanelDigest, PanelFlight, PanelHealth, PanelView } from '../../types'
 
 const PROGRAM = /^[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,63}$/
 const HANDLE = /^[A-Za-z0-9._=@:-]{1,128}$/
@@ -18,6 +18,8 @@ export function parseDigest(text: string): PanelDigest | null {
     flights: [],
     finished: null,
     waiting: null,
+    mergeReady: null,
+    isMergeReadyPartial: false,
     pending: null,
     approvals: null,
     decisions: [],
@@ -28,11 +30,14 @@ export function parseDigest(text: string): PanelDigest | null {
     kbAge: null,
     measures: [],
     reviews: null,
+    host: { load: null, cores: null, memFreePercent: null },
     isHandoverInstalled: false,
     holder: null,
     unreadable: [],
     line: '',
   }
+  const health: PanelHealth[] = []
+  d.health = health
   let format = ''
   for (const row of text.split('\n')) {
     const f = row.split('\t')
@@ -56,6 +61,10 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'waiting':
         d.waiting = int(f[1])
+        break
+      case 'merge-ready':
+        d.mergeReady = int(f[1])
+        d.isMergeReadyPartial = f[2] === 'partial'
         break
       case 'pending':
         d.pending = int(f[1])
@@ -138,6 +147,9 @@ export function parseDigest(text: string): PanelDigest | null {
         }
         break
       }
+      case 'host':
+        d.host = { load: int(f[1]), cores: int(f[2]), memFreePercent: int(f[3]) }
+        break
       case 'handover':
         d.isHandoverInstalled = f[1] === 'available'
         break
@@ -146,6 +158,9 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'unreadable':
         if (f[1]) d.unreadable.push(f[1])
+        break
+      case 'health':
+        if (f[1] && f[4]) health.push({ check: f[1], count: int(f[2]), worst: f[3] ?? '-', text: f.slice(4).join(' ') })
         break
       case 'line':
         d.line = f.slice(1).join(' ')

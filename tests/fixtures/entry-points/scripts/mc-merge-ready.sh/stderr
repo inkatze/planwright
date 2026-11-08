@@ -1,0 +1,1 @@
+match ^mc-merge-ready: usage: mc-merge-ready\.sh list --program <p> \[--as-status\] \[--now <epoch>\] \| count --program <p> \| watch \[--program <p>\] \[--now <epoch>\]$

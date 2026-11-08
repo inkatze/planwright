@@ -2,7 +2,7 @@
 # mc-config.sh — the mission-control command's entry decision, its mode
 # knobs, and the one writer of a program block, its enabled duties and
 # mission control's own knobs: the guided first run's writes and an accepted
-# mechanization proposal's.
+# mechanization proposal's; and the read-only bring-up audit, doctor.
 #
 # `mc-config.sh --help` prints the contract: verbs, outputs, exit codes.
 set -u
@@ -28,8 +28,8 @@ done
 
 help_text() {
   cat <<'HELP'
-mc-config.sh — the mission-control command's entry and its configuration
-writes.
+mc-config.sh — the mission-control command's entry, its configuration
+writes, and the read-only bring-up audit.
 
 WHERE IT WRITES. Every write goes to the adopter layer's planwright.yml
 (scripts/resolve-overlay-root.sh adopter): per operator, outside every
@@ -62,7 +62,7 @@ these knobs, each value checked by its kind:
       mission_control_stall_window, mission_control_handover_window,
       mission_control_event_retention, mission_control_measure_window,
       mission_control_repeat_window, mission_control_audit_idle_after,
-      mission_control_deadline_horizon
+      mission_control_deadline_horizon, mission_control_escalation_window
   a count of at least one           mission_control_repeat_threshold,
       mission_control_shadow_promote_after, mission_control_handover_wakes,
       mission_control_handover_compactions
@@ -115,6 +115,35 @@ Usage:
       other kind, and
       dispatch<TAB><where><TAB><change> for a catalog step, a repository
       change a session makes
+  mc-config.sh doctor --program <p>
+      the bring-up audit, read-only: what the program runs on that is not
+      planwright's default, one finding per line, or clean with none:
+        override<TAB><key><TAB><layer><TAB><value><TAB><shipped value>
+            a mission_control_* knob a layer sets away from the shipped
+            value (the program list aside)
+        duty-off<TAB><duty id>      a duty of mission_control_default_duties,
+            as the layers resolve it, that the program leaves off
+        launch-backend<TAB><session><TAB><backend><TAB><knob value>
+            a registered session of the program started on another rung
+            than mission_control_launch_backend now resolves to: a
+            per-call --backend, or a knob changed since the launch
+        cron<TAB><word><TAB><match>  a crontab line naming a repository or
+            the home of the program, or planwright or claude in any case:
+            never the line, only the first word of its command (the name,
+            for an environment line), cut at its first character outside
+            letters, digits and _ . / + ~ - with the cut marked <redacted>
+            (TOKEN=<redacted>), or the bare <redacted> for a command line
+            opening with neither a cron keyword nor five fields of
+            numbers, *, lists, ranges, steps and month or weekday names,
+            and the text that matched, a program path first, else
+            planwright or claude as the line spells it; a crontab that
+            cannot be listed reads as none
+        unknown<TAB><check><TAB><why>   a check (overrides, duties,
+            launches or cron) whose read failed; for launches, also a
+            session whose row names no known rung; for overrides, also a
+            layer that is malformed or sets a knob twice or as key : v,
+            the override lines a plain read finds still following, and a
+            knob a layer sets that the shipped defaults read give no value
 
 Exit codes: 0 done; 1 refused (a write that would not land as written, a
 malformed or redirected layer, a program already configured or with a
@@ -125,7 +154,7 @@ layer is managed elsewhere, the change handed to the operator.
 HELP
 }
 usage() {
-  mc_usage_fail "usage: mc-config.sh entry|mode|layer|add|set|duty|knob|restore|apply ... (mc-config.sh --help)"
+  mc_usage_fail "usage: mc-config.sh entry|mode|layer|add|set|duty|knob|restore|apply|doctor ... (mc-config.sh --help)"
 }
 
 FIELDS='repositories spec_root home duties budget sources'
@@ -197,7 +226,7 @@ knob_parser() {
     mission_control_tick_cadence | mission_control_panel_refresh | mission_control_runner_interval | \
       mission_control_stall_window | mission_control_handover_window | mission_control_event_retention | \
       mission_control_measure_window | mission_control_repeat_window | mission_control_audit_idle_after | \
-      mission_control_deadline_horizon)
+      mission_control_deadline_horizon | mission_control_escalation_window)
       printf 'mc_parse_cadence\n'
       ;;
     mission_control_repeat_threshold | mission_control_shadow_promote_after | mission_control_handover_wakes | \
@@ -705,6 +734,164 @@ v_apply() {
   printf 'applied\t%s\t%s\t%s\t%s\n' "$ap_kind" "$ap_key" "$ap_value" "$ap_logged" | mc_clean_text
 }
 
+doctor_overrides() {
+  do_defaults="$script_dir/../config/defaults.yml"
+  do_keys=$(awk -F: '/^mission_control_[a-z0-9_]*:/ && $1 != "mission_control_programs" { print $1 }' "$do_defaults" 2>/dev/null)
+  [ -n "$do_keys" ] || {
+    printf 'unknown\toverrides\tthe shipped defaults could not be read\n'
+    return 0
+  }
+  # A plain read skips a malformed adopter or machine-local layer with only a
+  # stderr warning, which would print clean; the strict read names it, and a
+  # knob set twice or as key : v, by exit 6 or, in the repo-tracked layer, 4.
+  # shellcheck disable=SC2086 # one key per word, by design
+  do_lines=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 cfg_get --layers $do_keys 2>/dev/null)
+  case $? in
+    0) ;;
+    4 | 6)
+      printf 'unknown\toverrides\ta layer is malformed, unreadable, or sets a knob twice or as key : v, so what it sets may be missing or misread\n'
+      # shellcheck disable=SC2086 # one key per word, by design
+      do_lines=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS='' cfg_get --layers $do_keys 2>/dev/null) || return 0
+      ;;
+    *)
+      printf 'unknown\toverrides\tthe layers could not be read\n'
+      return 0
+      ;;
+  esac
+  printf '%s\n' "$do_lines" | awk -F '\t' '
+    NF < 3 { next }
+    !($1 in last) { keys[++n] = $1 }
+    $2 == "core" { core[$1] = $3 }
+    { layer[$1] = $2; last[$1] = $3 }
+    END {
+      for (i = 1; i <= n; i++) {
+        k = keys[i]
+        # The core layer read can come from another install than this script.
+        if (!(k in core))
+          print "unknown\toverrides\t" k " is set in " layer[k] " but the shipped defaults read give it no value to compare"
+        # Concatenation forces a string compare: awk compares two numeric
+        # fields as numbers, so 0150 would equal the shipped 150.
+        else if (layer[k] != "core" && (last[k] "") != (core[k] ""))
+          print "override\t" k "\t" layer[k] "\t" last[k] "\t" core[k]
+      }
+    }'
+}
+
+doctor_duties() {
+  if ! dd_on=$(/bin/bash "$script_dir/mc-program.sh" get "$1" duties 2>/dev/null) \
+    || ! dd_default=$(/bin/bash "$script_dir/mc-program.sh" default duties 2>/dev/null); then
+    printf 'unknown\tduties\tthe enabled or default duties could not be read\n'
+    return 0
+  fi
+  printf '%s\n' "$dd_default" | while IFS= read -r dd_id; do
+    [ -n "$dd_id" ] || continue
+    printf '%s\n' "$dd_on" | grep -qxF -- "$dd_id" || printf 'duty-off\t%s\n' "$dd_id"
+  done
+}
+
+doctor_launches() {
+  dl_rungs='stream-json tmux'
+  dl_knob=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key mission_control_launch_backend \
+    --type enum --values "$dl_rungs" --fallback stream-json </dev/null 2>/dev/null) || {
+    printf 'unknown\tlaunches\tmission_control_launch_backend could not be resolved\n'
+    return 0
+  }
+  dl_rows=$(/bin/sh "$script_dir/mission-control-launch.sh" list 2>/dev/null </dev/null) || {
+    printf 'unknown\tlaunches\tthe launch registry could not be read\n'
+    return 0
+  }
+  # A row a retire unlinks mid-listing reads back with empty fields, so a
+  # rung outside the known ones is unknown rather than another rung.
+  printf '%s\n' "$dl_rows" | DL_RUNGS=$dl_rungs awk -F '\t' -v p="$1" -v k="$dl_knob" '
+    BEGIN { n = split(ENVIRON["DL_RUNGS"], r, " "); for (i = 1; i <= n; i++) rung[r[i]] = 1 }
+    NF < 5 || $2 != p { next }
+    !($5 in rung) { print "unknown\tlaunches\t" $1 " names no rung doctor knows"; next }
+    $5 != k { print "launch-backend\t" $1 "\t" $5 "\t" k }'
+}
+
+# A cron line naming planwright, claude, or a path of the program's is a
+# hand-built watcher until the operator says which duty, if any, it serves.
+doctor_cron() {
+  command -v crontab >/dev/null 2>&1 || return 0
+  dc_tab=$(crontab -l 2>/dev/null) || return 0
+  dc_home=''
+  if ! dc_paths=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories 2>/dev/null) \
+    || ! dc_home=$(/bin/bash "$script_dir/mc-program.sh" get "$1" home 2>/dev/null); then
+    printf 'unknown\tcron\tthe program repositories or home could not be read, so lines naming them are not listed\n'
+  fi
+  # A crontab line is where credentials sit, in any shape (an assignment, a
+  # header, a URL password, text after cron's %), and a reported line travels
+  # into items and the program home. So the report never carries the line:
+  # only the command's first word, cut where its plain characters end, and
+  # the text that matched. Control bytes go first, so none can hide a cut.
+  printf '%s\n' "$dc_tab" | mc_clean_text | DC_PATHS="$dc_paths${nl}$dc_home" DC_Q="'" awk '
+    BEGIN {
+      n = split(ENVIRON["DC_PATHS"], needle, "\n")
+      sq = ENVIRON["DC_Q"]
+      dq = "\""
+      # crontab(5): a line whose first word runs straight into an =, blanks
+      # allowed around it, is an environment line, with no command.
+      envre = "^ *(" dq "[^" dq "]*" dq "|" sq "[^" sq "]*" sq "|[^ =" dq sq "]+) *="
+      # Each time field in its own grammar, names only for the month and the
+      # weekday: a looser test lets a short schedule pass an argument off as
+      # the command. A ~ is the random range cronie and OpenBSD cron read.
+      num = "[0-9*,/~-]"
+      field[1] = field[2] = field[3] = "^" num "+$"
+      field[4] = "^(" num "|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)+$"
+      field[5] = "^(" num "|sun|mon|tue|wed|thu|fri|sat)+$"
+    }
+    # The first word of the command, past @keyword or the five time fields,
+    # or the name of an environment line; a schedule outside that grammar
+    # has none.
+    function word(s,   f, nf, at, i) {
+      nf = split(s, f, " ")
+      if (f[1] ~ "^@(reboot|yearly|annually|monthly|weekly|daily|midnight|hourly)$") at = 2
+      else if (match(s, envre)) at = 1
+      else {
+        at = 6
+        for (i = 1; i <= 5; i++) if (tolower(f[i]) !~ field[i]) return ""
+      }
+      return at <= nf ? f[at] : ""
+    }
+    # Only plain characters print; at the first other one the word is cut,
+    # keeping a cut =, so TOKEN=value reads TOKEN=<redacted>. The set is a
+    # string, since busybox reads \/ in a bracketed /regex/ as two members.
+    function plain(w,   cut) {
+      match(w, "^[A-Za-z0-9_./+~-]*")
+      if (w != "" && RLENGTH == length(w)) return w
+      cut = substr(w, RLENGTH + 1, 1) == "=" ? "=" : ""
+      return substr(w, 1, RLENGTH) cut "<redacted>"
+    }
+    # A program path is the most telling match, so it is tried first; the two
+    # names match in any case and print as the line spells them.
+    function matched(s,   i, low, at) {
+      for (i = 1; i <= n; i++) if (needle[i] != "" && index(s, needle[i])) return needle[i]
+      low = tolower(s)
+      if ((at = index(low, "planwright"))) return substr(s, at, 10)
+      if ((at = index(low, "claude"))) return substr(s, at, 6)
+      return ""
+    }
+    { gsub(/\t/, " ") }
+    /^ *(#|$)/ { next }
+    { m = matched($0); if (m != "") print "cron\t" plain(word($0)) "\t" m }'
+}
+
+v_doctor() {
+  [ $# -eq 2 ] && [ "$1" = --program ] || usage
+  mc_require_program "$2"
+  dr_out=$(
+    doctor_overrides
+    doctor_duties "$2"
+    doctor_launches "$2"
+    doctor_cron "$2"
+  )
+  if [ -n "$dr_out" ]; then
+    printf '%s\n' "$dr_out" | mc_clean_text
+  else
+    printf 'clean\n'
+  fi
+}
+
 [ $# -ge 1 ] || usage
 verb=$1
 shift
@@ -726,5 +913,6 @@ case $verb in
   knob) v_knob "$@" ;;
   restore) v_restore "$@" ;;
   apply) v_apply "$@" ;;
+  doctor) v_doctor "$@" ;;
   *) usage ;;
 esac
