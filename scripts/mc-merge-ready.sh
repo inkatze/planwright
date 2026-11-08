@@ -423,9 +423,10 @@ case $verb in
     seen="$runtime/merge-announced"
     forwarded="$runtime/merge-forwarded"
     rc=$SCAN_RC
+    listed=1
     others=$(/bin/bash "$script_dir/mc-program.sh" list | P=$program awk '$0 != ENVIRON["P"]') || {
       printf 'unknown: -: the other configured programs cannot be listed\n' >&2
-      others="" rc=1
+      others="" rc=1 listed=0
     }
     COVER=""
     while IFS='	' read -r w_kind w_pr w_head w_command; do
@@ -451,9 +452,12 @@ EOF
     # it, so a failed check or a mergeability blip never pushes it twice.
     live=$(printf '%s\n' "$MC_CS_ROWS" | awk -F '\t' '$1 == "pr" { print $2 "#" $3 "\t" $4 }')
     mc_announce_prune "$seen" "$live" || rc=1
-    live_fw=$(printf '%s\n' "$live" | O=$others awk 'BEGIN { n = split(ENVIRON["O"], o, "\n") }
-      $0 != "" { for (i = 1; i <= n; i++) if (o[i] != "") print o[i] "\t" $0 }')
-    mc_announce_prune "$forwarded" "$live_fw" || rc=1
+    # Unlisted programs would prune every forward, so each is sent again.
+    if [ "$listed" -eq 1 ]; then
+      live_fw=$(printf '%s\n' "$live" | O=$others awk 'BEGIN { n = split(ENVIRON["O"], o, "\n") }
+        $0 != "" { for (i = 1; i <= n; i++) if (o[i] != "") print o[i] "\t" $0 }')
+      mc_announce_prune "$forwarded" "$live_fw" || rc=1
+    fi
     exit "$rc"
     ;;
 esac
