@@ -872,7 +872,8 @@ hub's decisions-log entry noting the operator's answer (`mc-decide.sh note
 --shape answer`) about that very dialog: its subject names the dialog's
 digest from the escalation, its answer is the digit, it was made after the
 watcher first saw the dialog, and it is used once. The pane is read again
-just before the keystroke, and the digit's label must be one that answers
+just before the keystroke, it must show the dialog whole (from the rule
+that opens it, with no line cut as side-panel text), and the digit's label must be one that answers
 this dialog and nothing more (a short allowlist: Yes, No and their
 one-time variants), so a rule for later calls, a mode switch or a trust
 grant is refused. Its `--help` lists every refusal. With

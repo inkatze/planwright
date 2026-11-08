@@ -67,9 +67,11 @@ msp_ancestor() {
 # msp_trim: stdin with the mission-control side panel cut off each line (the
 # text after a last `│` past column 40 that follows a blank or a rule) and
 # trailing blanks dropped, keeping the last MSP_PANE_LINES lines up to the
-# last non-blank one, so a saved capture and a live one read the same.
+# last non-blank one, so a saved capture and a live one read the same. A cut
+# line starts with MSP_CUT, since the cut text may be a command's own.
+MSP_CUT=$(printf '\001')
 msp_trim() {
-  awk '{
+  CUT=$MSP_CUT awk '{
       s = $0; cut = 0; rest = s; off = 0
       while ((i = index(rest, "│")) > 0) {
         p = off + i
@@ -78,7 +80,7 @@ msp_trim() {
       }
       if (cut) s = substr(s, 1, cut - 1)
       sub(/[ \t]+$/, "", s)
-      l[NR] = s; if (s != "") last = NR
+      l[NR] = (cut ? ENVIRON["CUT"] : "") s; if (s != "") last = NR
     }
     END { for (i = 1; i <= last; i++) print l[i] }' | tail -n "$MSP_PANE_LINES"
 }
@@ -88,13 +90,17 @@ msp_trim() {
 # otherwise), MSP_OPTIONS (the dialog's own option run as
 # `<digit><TAB><label>`, empty unless it runs 1, 2, 3 in order, as a label
 # that wraps or a repeated digit breaks it) and
-# MSP_PRINT (a digest of the dialog's text). The last line carrying a
+# MSP_PRINT (a digest of the dialog's text) and MSP_BINDABLE (1 when the
+# digest covers the whole dialog: up to the rule that opens it, a line of
+# rule glyphs only, with no line in between cut by msp_trim; else 0, the
+# digest then covering at most a dozen lines above the options, enough
+# for a hold but never for an answer). The last line carrying a
 # signature of the shared vocabulary, or the selection cursor on a numbered
 # option, ends the dialog; an input prompt, idle anchor or busy marker below
 # that line means it is not open, being scrollback or a quotation. Options
 # are read only from the run just above that line, never from scrollback.
 msp_dialog() {
-  MSP_KIND="" MSP_OPTIONS="" MSP_PRINT=""
+  MSP_KIND="" MSP_OPTIONS="" MSP_PRINT="" MSP_BINDABLE=0
   md_sig=$(
     permission_prompt_signatures
     default_selection_prompt_signatures
@@ -105,13 +111,18 @@ msp_dialog() {
     prompt_anchors
   )
   md_in=$(input_prompt_prefixes)
-  md_out=$(printf '%s\n' "$1" | SIG=$md_sig TAIL=$md_tail IN=$md_in awk '
+  md_out=$(printf '%s\n' "$1" | SIG=$md_sig TAIL=$md_tail IN=$md_in CUT=$MSP_CUT awk '
     BEGIN {
       ns = split(tolower(ENVIRON["SIG"]), sig, "\n")
       nt = split(tolower(ENVIRON["TAIL"]), tl, "\n")
       ni = split(ENVIRON["IN"], inp, "\n")
     }
-    { line[NR] = $0; lc[NR] = tolower($0) }
+    {
+      s = $0; cut[NR] = 0
+      if (index(s, ENVIRON["CUT"]) == 1) { cut[NR] = 1; s = substr(s, length(ENVIRON["CUT"]) + 1) }
+      line[NR] = s; lc[NR] = tolower(s)
+    }
+    function rule(i,   s) { s = line[i]; gsub(/[ \t]/, "", s); if (s == "") return 0; gsub(/─|╌/, "", s); return s == "" }
     function option(i,   s) { s = line[i]; sub(/^[ \t]+/, "", s); sub(/^❯[ \t]*/, "", s); return (s ~ /^[1-9]\.[ \t]/) ? s : "" }
     function signed(i,   k, s) {
       for (k = 1; k <= ns; k++) if (sig[k] != "" && index(lc[i], sig[k])) return 1
@@ -145,20 +156,28 @@ msp_dialog() {
         }
       }
       start = olast ? ofirst : end
-      # The dialog reaches up to the rule that opens it, at most a dozen lines.
       top = start
-      while (top > 1 && top > start - 12 && !index(line[top - 1], "────────") && !index(line[top - 1], "╌╌╌╌╌╌╌╌")) top--
+      while (top > 1 && !rule(top - 1)) top--
+      bindable = top > 1
+      for (i = top; i <= end; i++) if (cut[i]) bindable = 0
+      if (top == 1) {
+        top = start
+        while (top > 1 && top > start - 12 && !index(line[top - 1], "────────") && !index(line[top - 1], "╌╌╌╌╌╌╌╌")) top--
+      }
       kind = "dialog"
       for (i = top; i <= end; i++) if (lc[i] ~ /consecutive actions were blocked|auto mode needs your confirmation/) kind = "auto-mode"
       print "kind\t" kind
+      print "bindable\t" bindable
       if (!bad) for (i = 1; i <= no; i++) print "option\t" opt[i]
       for (i = top; i <= end; i++) { s = line[i]; sub(/^[ \t]+/, "", s); sub(/^❯[ \t]*/, "", s); print "block\t" s }
     }') || return 1
-  # shellcheck disable=SC2034 # these three are read by the scripts that source this file
+  # shellcheck disable=SC2034 # these four are read by the scripts that source this file
   MSP_KIND=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "kind" { print $2; exit }')
   # shellcheck disable=SC2034
   MSP_OPTIONS=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "option" { print $2 "\t" $3 }')
-  md_h=$(printf '%s\n' "$md_out" | grep -v '^option' | mc_sha256) || md_h=""
+  # shellcheck disable=SC2034
+  MSP_BINDABLE=$(printf '%s\n' "$md_out" | awk -F '\t' '$1 == "bindable" { print $2; exit }')
+  md_h=$(printf '%s\n' "$md_out" | grep -e '^kind' -e '^block' | mc_sha256) || md_h=""
   # shellcheck disable=SC2034
   MSP_PRINT=${md_h%"${md_h#????????????????}"}
   [ -n "$MSP_PRINT" ] || MSP_PRINT=unhashed

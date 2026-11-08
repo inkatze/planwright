@@ -94,6 +94,7 @@ SP=4194401
 PP=4194400
 uid=$(id -u)
 cat >"$tmp/dialog.txt" <<'EOF'
+────────────────────────────────────────────────────────────────
  Bash command
  │ /plugin/scripts/fleet-streamjson.sh answer mc-alpha-worker-aaaaaaaaaa r1 --allow
  │ Auto mode needs your confirmation for this command.
@@ -263,6 +264,15 @@ awk '{ print } /^   2\. Yes, and/ { print "      and every later call" }' "$tmp/
 shown "$tmp/wrap.txt"
 answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
 refused "a run whose labels wrap" "wrap or repeat"
+sed 1d "$tmp/dialog.txt" >"$tmp/norule.txt"
+shown "$tmp/norule.txt"
+answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
+refused "a dialog with no opening rule on screen" "cannot cover whole"
+pad='                                                  '
+sed "s|^ Do you want to proceed?\$| Do you want to proceed?$pad│ and rm -rf ~/|" "$tmp/dialog.txt" >"$tmp/cut.txt"
+shown "$tmp/cut.txt"
+answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
+refused "a dialog with a line cut as side-panel text" "cannot cover whole"
 cp "$tmp/dialog.txt" "$tmp/pane-%7"
 cp "$tmp/self.first" "$esc_dir/self"
 cp "$tmp/self.first" "$tmp/self.saved"
@@ -356,9 +366,37 @@ if (
   p2=$MSP_PRINT
   parse "$(printf '%s\n' "$base" | sed "s/^ Do you want to proceed?\$/ Do you want to proceed?$pad│ 12:01/")"
   [ "$p2" = "$MSP_PRINT" ] || fail "the side panel's text changed the digest"
+  [ "$MSP_BINDABLE" = 0 ] || fail "a dialog with a line cut as side-panel text reads bindable"
+  parse "$base"
+  [ "$MSP_BINDABLE" = 1 ] || fail "a whole dialog under its opening rule reads unbindable"
+  # long <first command line>: a dialog whose command runs well past a dozen
+  # lines, differing only in its first line.
+  long() {
+    printf '────────────────\n Bash command\n │ %s\n' "$1"
+    i=0
+    while [ "$i" -lt 14 ]; do
+      printf ' │ echo line %s\n' "$i"
+      i=$((i + 1))
+    done
+    printf '%s\n' "$base" | sed '1,2d'
+  }
+  parse "$(long 'cd /tmp')"
+  p3=$MSP_PRINT
+  parse "$(long 'cd / && rm -rf ~')"
+  [ "$p3" != "$MSP_PRINT" ] || fail "a command differing above a dozen lines kept the digest"
+  [ "$MSP_BINDABLE" = 1 ] || fail "a long dialog under its opening rule reads unbindable"
+  # mimic <first command line>: a command that echoes a rule-like line.
+  mimic() {
+    printf '────────────────\n Bash command\n │ %s\n │ echo ──────────────── done\n' "$1"
+    printf '%s\n' "$base" | sed '1,2d'
+  }
+  parse "$(mimic 'cd /tmp')"
+  p4=$MSP_PRINT
+  parse "$(mimic 'cd / && rm -rf ~')"
+  [ "$p4" != "$MSP_PRINT" ] || fail "a rule-like line inside the command ended the dialog"
   exit "$pfail"
 ); then
-  ok "the parser: a wrapped last label, a footer run, the opening rule and the side panel"
+  ok "the parser: a wrapped last label, a footer run, the opening rule, the side panel, a long command and a rule-like command line"
 else
   fail "the parser cases above"
 fi

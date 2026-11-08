@@ -191,6 +191,12 @@ Left for a `mission-control` amendment, which owns the follow-ups:
   run, each of which refuses; a new label wording is refused until the
   allowlist learns it. It fails closed, but it can stop answering after a
   CLI update.
+- **The digest's reach.** The dialog's digest runs from the rule that
+  opens it (a line of rule glyphs only) down to its last line, and the
+  relay refuses a dialog with no such rule on screen or with a line the
+  side-panel trim cut, since cut text may be the command's own. A command
+  whose own text holds a line of rule glyphs only still ends the digest
+  early, so two such commands that differ above that line share a digest.
 - **Reach.** A mission control on another host (the Mac) has no pane here
   to read; its requests are still raised. A session started as plain
   `claude` with the skill typed in afterwards reads `absent`; resolving the

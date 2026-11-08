@@ -56,7 +56,9 @@ by the caller), only when every check holds, and refuses otherwise:
     under <p>'s runtime directory, keyed by <hub> and the entry id);
   - exactly one session of <p> is running, it is the session the watcher
     recorded, and its pane shows that same dialog open, read again just
-    before the keystroke;
+    before the keystroke, its digest covering it whole: from the rule that
+    opens it (a line of rule glyphs only) down, with no line cut as
+    side-panel text;
   - the pane is not the caller's own, nor one the caller runs under;
   - the dialog's own option run offers <digit>, and its label is one that
     answers this dialog and nothing more: Yes, No, "No, and tell Claude
@@ -199,6 +201,7 @@ read_dialog() {
   rd_text=$(bounded tmux capture-pane -p -t "$PANE" 2>/dev/null) || mc_fail "cannot capture pane $PANE"
   rd_text=$(printf '%s\n' "$rd_text" | msp_trim)
   msp_dialog "$rd_text" || refuse "pane $PANE shows no open dialog"
+  [ "$MSP_BINDABLE" = 1 ] || refuse "pane $PANE shows a dialog its digest cannot cover whole (no opening rule on screen, or a line cut as side-panel text); answer it at its pane"
   [ "$MSP_PRINT" = "$rec_print" ] || refuse "pane $PANE shows a different dialog from the one on record"
 }
 read_dialog
