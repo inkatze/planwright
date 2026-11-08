@@ -1,0 +1,1 @@
+- 2026-11-08 [planwright] The throughput flight's first polish loop ran about 7 hours before its loop-detection stop (2 iterations, 30 sign-off commits), mostly helper fan-out over one growing script; a cap on rounds or a wall-clock budget set at launch would have bounded the token spend.
