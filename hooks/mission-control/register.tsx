@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import type { PanelView } from '../../types'
 import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
 import type { Install } from './digest'
-import { Band, Pane } from './panel'
+import { Band, isMascotMoving, Pane } from './panel'
 
 const PANE = 'mission-control'
 const TITLE = 'Mission control'
@@ -387,8 +387,9 @@ async function sweep($: EngineInterface) {
 async function syncRadar($: EngineInterface) {
   const v = await view($)
   const held = v !== null && (await isHeld($, v))
-  if (held && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
-  if (!held && radar) {
+  const moving = held || (v !== null && isMascotMoving(v))
+  if (moving && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
+  if (!moving && radar) {
     radar.cancel()
     radar = null
   }

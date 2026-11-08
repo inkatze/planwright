@@ -193,6 +193,16 @@ record "REQ-H1.4: a record source carries no age" source decisions specs record 
 record "REQ-H1.4: a class with no source is cited" source designs - cited -
 record "REQ-F1.1: knowledge-base freshness, the index's age" kb 130
 record "REQ-M1.8: interruptions per hour, with their age" measure interruptions_per_hour 2.5 130
+mkdir -p "$tmp/proc"
+printf '1.53 0.90 0.50 1/200 99\n' >"$tmp/proc/loadavg"
+printf 'processor\t: 0\nprocessor\t: 1\n' >"$tmp/proc/cpuinfo"
+printf 'MemTotal:       1000 kB\nMemAvailable:    250 kB\n' >"$tmp/proc/meminfo"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "the host's load in hundredths, its cores and the memory still available" host 153 2 25
+rm -f "$tmp/proc/loadavg" "$tmp/proc/meminfo"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "a host reading that cannot be made is a dash, not zero" host - 2 -
+mc_run mc-panel.sh digest --program alpha --target mc-alpha --knobs --now 1030
 record "REQ-M1.8: the settled share" measure settled_share 80 130
 record "REQ-L1.5: the context threshold knob" knob handover-context 70
 record "REQ-L1.5: the wake ceiling knob" knob handover-wakes 150

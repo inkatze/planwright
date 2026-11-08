@@ -47,6 +47,9 @@ export type PanelDigest = {
   measures: PanelMeasure[]
   // Null where the digest carried no reviews record.
   reviews: PanelReviews | null
+  // Load (hundredths of one-minute load average), cores and memory still
+  // available as a percent; null for what the host could not read.
+  host: { load: number | null; cores: number | null; memFreePercent: number | null }
   isHandoverInstalled: boolean
   // The holder record's kind: only a registry holder (a session mission
   // control launched) hands over; null with no record or an unreadable one.
