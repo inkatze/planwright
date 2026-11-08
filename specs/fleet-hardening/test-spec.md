@@ -1,7 +1,7 @@
 # Fleet Hardening — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -75,7 +75,7 @@ asserts it is auto-approved (no permission prompt), so the pin-carrying launch n
 bare launch; a regression fixture reconstructs the 2026-07-19 bare-launch shape and asserts it is no
 longer the path taken.
 
-### REQ-B1.3 — Glob-footgun check [test]
+### REQ-B1.3 — Glob-footgun check [test] (superseded by REQ-B1.5)
 
 The check flags a `Bash(<path>/:*)` directory-scoped rule and passes a `Bash(<path>/*)` rule; a
 guard-against-false-positive fixture asserts the legitimate command globs (`Bash(git status:*)`,
@@ -103,6 +103,21 @@ from inside a tmux client that the dispatch returns its report, the operator's c
 session, and the worker runs in the placed worktree on the `bootstrap` D-36 branch (the detached launch, D-10;
 this replaced the former `--tmux=classic` confirmation at the 2026-10-04 extension, since no tmux-rung
 worker launches with that shape any more).
+
+### REQ-B1.5 — Exact-path allow rules and the wildcard-path check [test]
+
+The wildcard-path check flags `Bash(<dir>/*)`, a version glob such as
+`Bash(<cache>/planwright/*/scripts/x.sh *)`, a `..` segment in a command path, and a wildcard path
+behind a shell prefix, and passes an exact script path followed by `:*` or a space and `*` arguments; its
+message names the exact-path replacement. A premise fixture shows with the permission-matcher
+model that `Bash(<dir>/*)` admits a `../` walk and the exact path does not. The `:*` never-match
+check keeps its REQ-B1.3 cases and no longer passes `Bash(<dir>/*)` as correct. Exit-status cases:
+a flagged rule in a shipped profile or a checkout's settings fails; one in the user's home
+settings warns and does not fail; malformed or unreadable input is never reported clean. Hook
+cases: the worker and tower command guards defer a `../` walk and an escaping symlink. Shipped
+profiles and docs carry no wildcard command path, and the settings guidance names an exact path;
+the doc-presence check confirms that guidance stays cross-referenced from the ghost-text (D-5) and
+tower-guard (D-8) docs. Runs under `mise run check`.
 
 ## REQ-C — Tower self-governance
 
