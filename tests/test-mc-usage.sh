@@ -273,6 +273,17 @@ mc_run mc-wake.sh compose --program alpha mc-alpha-hub
 expect_out "the wake carries the reset" "usage-reset weekly"
 expect_out "the wake points the hub at the report" "mc-usage.sh' report --program alpha"
 
+# A claude quota hold whose stated reset passed before any watch saw it is
+# still released, and its reset announced, with no usage hold behind it.
+mc_run quota-hold.sh hold --vendor claude --unit "alpha:late-one" --step worker --reason "fixture limit" --reset "$((after + 200))" --now "$((after + 100))"
+case $RC in 0 | 3) ok "a second fixture claude quota hold" ;; *) fail "the second fixture quota hold failed ($RC): $ERR" ;; esac
+watch "$((after + 300))"
+expect_rc "the watch past an unseen quota reset" 0
+expect_out "a quota hold first seen after its reset is released" "released-quota${tab}claude"
+expect_out "its reset is announced" "event${tab}usage-reset${tab}quota${tab}"
+mc_run quota-hold.sh status --vendor claude
+expect_out "the quota store reads clear again" "vendor${tab}claude${tab}clear"
+
 # ---------------------------------------------------------------------------
 # The threshold knob.
 # ---------------------------------------------------------------------------

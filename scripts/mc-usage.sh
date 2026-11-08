@@ -55,7 +55,8 @@ THE HOLD starts when a window reaches mission_control_usage_hold percent
 epoch has passed, or a fresh reading of it is under the threshold, so a
 mirror gone stale while the account is held does not hold it past the
 reset. A quota with no stated reset ends with fresh readings of both windows
-under the threshold. While it lasts the launcher refuses new sessions
+under the threshold. A quota that has ended is released, and its reset
+acted on, even when no watch saw it held. While it lasts the launcher refuses new sessions
 (scripts/mission-control-launch.sh, but for a mission-control successor
 and a launch with --operator-asked), the budget reads hold-dispatch
 (scripts/mc-budget.sh), and the next units go to the queue instead. It is
@@ -229,17 +230,22 @@ windows() {
     END { if ("session" in w) print "session " w["session"]; if ("weekly" in w) print "weekly " w["weekly"] }')
 }
 
-# quota: QUOTA held|clear and QUOTA_RESET (an epoch or -) for claude.
+# quota: QUOTA held|clear, QUOTA_RESET (an epoch or -) and QUOTA_SINCE (an
+# epoch or empty) for claude.
 quota() {
   QUOTA=clear
   QUOTA_RESET=-
+  QUOTA_SINCE=""
   qu_out=$(/bin/sh "$script_dir/quota-hold.sh" status --vendor claude --now "$NOW" 2>/dev/null) || return 1
-  qu_line=$(printf '%s\n' "$qu_out" | awk -F '\t' '$1 == "vendor" && $2 == "claude" { print $3 "\t" $5 }')
+  qu_line=$(printf '%s\n' "$qu_out" | awk -F '\t' '$1 == "vendor" && $2 == "claude" { print $3 "\t" $5 "\t" $4 }')
   case $qu_line in
     held"$TAB"*)
       QUOTA=held
-      QUOTA_RESET=${qu_line#held"$TAB"}
+      qu_rest=${qu_line#held"$TAB"}
+      QUOTA_RESET=${qu_rest%%"$TAB"*}
+      QUOTA_SINCE=${qu_rest#*"$TAB"}
       mc_valid_uint "$QUOTA_RESET" || QUOTA_RESET=-
+      mc_valid_uint "$QUOTA_SINCE" || QUOTA_SINCE=""
       ;;
   esac
 }
@@ -459,8 +465,13 @@ watch() {
   quota || mc_fail "cannot read the claude quota hold"
   hold_now "$thr"
   printf '%s\n' "$CUR" | awk 'NF == 3 { print "held\t" $1 "\t" $2 "\t" $3 }'
-  if [ -n "$PREV" ] && [ -z "$CUR" ]; then
+  # A held quota that reads clear is a reset even with no hold recorded: its
+  # stated reset can pass before any watch sees it (a paused fleet, the
+  # doubled cadence), and nothing else releases it.
+  if [ -z "$CUR" ] && { [ -n "$PREV" ] || [ "$QUOTA" = held ]; }; then
     gone=$(printf '%s\n' "$PREV" | awk 'NF { printf "%s%s", s, $1; s = "." }')
+    [ -n "$gone" ] || gone=quota
+    [ -n "$since" ] || since=$QUOTA_SINCE
     rm -f "$holdf" || mc_fail "cannot clear the usage hold"
     if [ "$QUOTA" = held ]; then
       /bin/sh "$script_dir/quota-hold.sh" resume --vendor claude --reason "the usage window reset" --now "$NOW" >/dev/null \
