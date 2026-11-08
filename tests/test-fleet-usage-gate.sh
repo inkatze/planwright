@@ -977,6 +977,9 @@ rc=0
 run windows extra >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "windows with an extra argument must be a usage error (got $rc)"
 rc=0
+run windows --now '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "windows with an empty --now must be a usage error, never the clock (got $rc)"
+rc=0
 run windows --now 0123 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "windows --now with a leading zero must be a usage error, never read as octal (got $rc)"
 no_llm "windows"

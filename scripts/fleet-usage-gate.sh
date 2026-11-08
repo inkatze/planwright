@@ -902,7 +902,8 @@ case "$cmd" in
     case $# in
       0) ;;
       2)
-        if [ "$1" != --now ]; then
+        # An explicit --now must name an epoch; empty is not "now".
+        if [ "$1" != --now ] || [ -z "$2" ]; then
           usage
           exit 2
         fi
