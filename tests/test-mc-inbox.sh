@@ -149,10 +149,16 @@ expect_err "and is named" "unknown class(es): blockr"
 expect_eq "a class is read whatever its case and spacing" "Failure: The export work died twice"
 printf 'de\033]0;x\007cide\tfoo\n' >"$tmp/report"
 report "$tmp/report"
+expect_rc "a control-bearing unknown class fails the report" 1
+expect_err "and is named without them" "unknown class(es): de]0;xcide"
 case $ERR in
   *"$(printf '\033')"* | *"$(printf '\007')"*) fail "an unknown class reaches stderr with its control bytes" ;;
   *) ok "an unknown class is named without its control bytes" ;;
 esac
+printf 'blocker\tPR 9 needs a call\ndecision\tPR 9 needs a call\n' >"$tmp/report"
+report "$tmp/report"
+expect_eq "a repeat is the same class and text, so a decision is never folded into a blocker" "Decision: PR 9 needs a call
+Blocker: PR 9 needs a call"
 printf 'landed\tSure-footed rollout, PR 9 merged\n\tno class\n' >"$tmp/report"
 report "$tmp/report"
 expect_eq "a word that only starts like an acknowledgement is kept" "Landed: Sure-footed rollout, PR 9 merged"

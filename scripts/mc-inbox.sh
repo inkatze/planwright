@@ -48,12 +48,12 @@ Usage:
       each, in that order, so the first line is the lead. Every decision
       line is shown; the other lines are capped at five: past five, four
       (each class's first, then in order) and a count of those hidden.
-      An act or routine line and a repeat are dropped, and a leading
-      acknowledgement (got it, thanks, on it...) is cut, each counted on
-      stderr, so none reaches the operator; with nothing left, stdout is
-      empty and the turn says nothing. A line of any other class is named
-      on stderr (printable ASCII only, `(empty)` for none) and the exit is
-      1, the rest still rendered.
+      An act or routine line and a repeat (same class and text) are
+      dropped, and a leading acknowledgement (got it, thanks, on it...) is
+      cut, each counted on stderr, so none reaches the operator; with
+      nothing left, stdout is empty and the turn says nothing. A line of
+      any other class is named on stderr (printable ASCII only, `(empty)`
+      for none) and the exit is 1, the rest still rendered.
   mc-inbox.sh item --link <url> --does <text> --asked <text> --right <text>
                    --option <label>=<effect>... --recommend <text>
                    --checked <text>
@@ -137,8 +137,8 @@ case $verb in
         while (match(tolower(x), ack)) { x = substr(x, RLENGTH + 1); cut = 1; acks++ }
         if (x == "") { empty++; next }
         if (cut) x = toupper(substr(x, 1, 1)) substr(x, 2)
-        if (x in seen) { repeats++; next }
-        seen[x] = 1; i = owed[k]; t[i, ++m[i]] = x; total++
+        if ((k SUBSEP x) in seen) { repeats++; next }
+        seen[k SUBSEP x] = 1; i = owed[k]; t[i, ++m[i]] = x; total++
       }
       END {
         # A decision must stay answerable from the report alone, so the cap
