@@ -1011,7 +1011,7 @@ mission_control_home_root: ~/.config/planwright/mission-control
 # The duties a program enables when its block names none: the shipped set in
 # config/duties.yaml.
 # yamllint disable-line rule:line-length
-mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals, usage-window]
+mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals, throughput, usage-window]
 # The state-source map a program declaring none resolves to: class:
 # source:mode entries over the fact classes (work-items, code-state,
 # decisions, deadlines, designs), mode record, snapshot or cited. A class the
@@ -1170,6 +1170,21 @@ mission_control_audit_idle_after: 30d
 # date at most this many whole days away ranks ahead of undated work and
 # opens the first turn after silence. A cadence, read in whole days.
 mission_control_deadline_horizon: 3d
+# The throughput duty (scripts/mc-throughput.sh): how often it measures
+# (an interval shorter than its watcher's cadence in config/duties.yaml
+# measures at that cadence), how far back it reads, and how many of each
+# repository's Actions runs one measurement reads, the window's whole set
+# (at most 1000; more reads the CI source unknown). Cadences, and a count.
+mission_control_throughput_interval: 1h
+mission_control_throughput_window: 24h
+mission_control_throughput_ci_runs: 500
+# When a measurement is a bottleneck: its typical value (the median CI
+# queue wait, permission wait or step run; the longest stall) at or over
+# the threshold. Every key is required; each value a cadence.
+mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 20m}
+# How much, in percent, a raised bottleneck's total time must grow before
+# it is raised again.
+mission_control_throughput_worsen: 50
 # Where a draft for a person goes (scripts/mc-inbox.sh draft): auto, the
 # first clipboard tool that script finds, or the absolute path of a command
 # that reads the text on stdin. Never a sender; never read from the

@@ -115,7 +115,8 @@ run, each one that was ready to merge at its last look at the code host,
 and saying so when it cannot tell rather than leaving one out (it never
 merges itself), predicting
 overlapping changes and merge order, letting known dates set priorities,
-preparing what you need before a
+measuring where the work's time
+goes and raising the biggest bottleneck, preparing what you need before a
 decision, recording how to undo each act, checking what was done against
 your rules, noticing what you keep doing by hand, and holding new work
 near your account's usage limit until it resets

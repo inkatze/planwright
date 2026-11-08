@@ -137,6 +137,16 @@ duties:
     files: proposals
     lifecycle: "off"
     never-propose: false
+  - id: throughput
+    summary: "Measures where the work's time goes and raises the single biggest bottleneck"
+    triggers: [throughput-bottleneck]
+    watchers: [scripts/mc-throughput.sh@15m/medium]
+    wake: throughput-bottleneck
+    rules: [throughput]
+    kinds: [blocker]
+    files: throughput
+    lifecycle: live
+    never-propose: false
   - id: usage-window
     summary: "Holds launches near the usage limit, queues the next units, resumes at the reset"
     triggers: [usage-held, usage-probe, usage-bypass, usage-reset, usage-drained]
