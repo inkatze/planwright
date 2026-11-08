@@ -860,6 +860,14 @@ git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git pu
   expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
   reason_has 'cannot follow' "[worker] the deny says the guard cannot follow the cd: ${cmd//$'\n'/ \\n }"
 done
+# An alias lives in the repository the shell is in, which a cd the guard cannot
+# follow hides.
+gitq -C "$MAIN" config alias.p push
+for cmd in "true && cd $MAIN; git p" "if true; then cd $MAIN; fi; git p"; do
+  pg worker "$cmd"
+  expect deny "[worker] an unknown git subcommand after a cd the guard cannot follow denies: $cmd"
+done
+gitq -C "$MAIN" config --unset alias.p
 # A cd its list is sure to run before the later act is still followed.
 for cmd in "cd $UNIT; git push" "cd $UNIT
 git push" "true && cd $UNIT && git push" "true || false && cd $UNIT && git push" \

@@ -2926,7 +2926,7 @@ classify_git() {
       fi
       # The alias lookup falls back to the payload's directory, which is not
       # the repository git reads its aliases from here.
-      if [ "$TIER" = tower ] && { [ "$foreign" = 1 ] || [ "$dir_ok" = 0 ]; }; then
+      if [ "$dir_ok" = 0 ] || { [ "$TIER" = tower ] && [ "$foreign" = 1 ]; }; then
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, a cd it cannot follow, or a -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
         return 0
       fi
