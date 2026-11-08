@@ -813,19 +813,22 @@ defaults.)
 
 Claude Code keeps older versions in its plugin cache beside the installed
 one, and a long-running session (mission control, a tower) keeps the root it
-started with in `PLANWRIGHT_ROOT` and `CLAUDE_PLUGIN_ROOT`. On every rung,
-these keep that older copy from reaching the sessions it launches:
+started with in `PLANWRIGHT_ROOT` and `CLAUDE_PLUGIN_ROOT`. On every
+session-grade rung (tmux, headless, stream-json), these keep that older copy
+from reaching the sessions it launches:
 
-- The dispatch-env wrapper runs every root it hands on (inherited, its own,
-  or a dispatcher's `--root`) through
-  `scripts/resolve-installed-roots.sh --fresh`, which swaps a cached copy
-  the installed record no longer names for the installed root present on
-  disk, and says so on stderr. A root outside the cache, such as a checkout
-  an operator points at, is kept as given. The wrapper also drops an
-  inherited `PLANWRIGHT_COPY_CHECKED`, so the new session runs its own
-  stale-copy check.
-- `scripts/fleet-launch-profile.sh` makes the same swap, so the settings
-  profile and the hooks it names come from that one installed copy.
+- `scripts/resolve-installed-roots.sh --fresh` swaps a cached copy the
+  installed record no longer names for the installed root present on disk;
+  a root outside the cache, such as a checkout an operator points at, is
+  kept as given. The dispatch-env wrapper runs the roots it inherits or
+  finds at its own location through it, saying so on stderr. A dispatcher
+  passing `--root` (the tmux rung, `offload-dispatch`) resolves that root
+  through it first, and the wrapper applies an explicit `--root` as given.
+  The wrapper also drops an inherited `PLANWRIGHT_COPY_CHECKED`, so the new
+  session runs its own stale-copy check.
+- `scripts/fleet-launch-profile.sh` makes the same swap on the root it
+  resolves itself, so the settings profile and the hooks it names come from
+  that one installed copy.
 - `scripts/mission-control-launch.sh`, run from an older cached copy, runs
   the installed launcher with the same arguments, so the brief and the
   cadence section name the installed root's scripts.

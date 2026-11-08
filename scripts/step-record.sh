@@ -698,8 +698,9 @@ shift
 # post a flip status, naming the installed copy, since the installed copy's
 # audit reads those records. Other verbs only warn, so a run opened before an
 # upgrade still finishes. Which install is current depends on the project the
-# records belong to, so the check runs as of --worktree. A read warns once per
-# process tree and state of the record, and not where stderr is discarded.
+# records belong to, so the check runs as of --worktree. Another verb warns
+# unless stderr is discarded or a calling script already checked this copy
+# against this state of the record (PLANWRIGHT_COPY_CHECKED).
 sr_copy=$(cd -P -- "$script_dir/.." 2>/dev/null && pwd -P) || sr_copy=''
 sr_rir=$script_dir/resolve-installed-roots.sh
 case $sr_copy in

@@ -45,7 +45,8 @@
 #     Warns on stderr, and exits 1, when <path> is a copy under the plugin
 #     cache that no --current root names: an older version a session kept
 #     using after an upgrade or reload. Silent, and 0, for a current copy,
-#     a path outside the cache (a checkout), or a record it cannot read.
+#     a path outside the cache (a checkout), a record it cannot read, or a
+#     record none of whose current roots is on disk with its scripts/.
 #   resolve-installed-roots.sh --fresh <path>
 #     The root to hand a session launched from <path>: the first --current
 #     root present on disk where --check would warn about <path>, else <path>
