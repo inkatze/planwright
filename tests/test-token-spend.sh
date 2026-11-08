@@ -33,7 +33,7 @@ assert_eq() {
 }
 
 inherited=$(fleet_home_inherited)
-T=$(mktemp -d "${TMPDIR:-/tmp}/tspend.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/tspend.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"
 export CLAUDE_CONFIG_DIR="$T/claude"
@@ -253,10 +253,13 @@ assert_exit "record: a transcript with no usage exits 1" 1 $?
 cp "$proj/s-b.jsonl" "$proj/s-locked.jsonl"
 mkdir -p "$proj/s-locked/subagents"
 cp "$proj/s-a/subagents/agent-ag1.jsonl" "$proj/s-locked/subagents/"
-chmod 000 "$proj/s-locked.jsonl"
-"$RECORD" record --program "$pn" --session s-locked --prices "$prices" >/dev/null 2>&1
-assert_exit "record: a transcript that cannot be read exits 1" 1 $?
-chmod 600 "$proj/s-locked.jsonl"
+# Root reads a mode-000 file, so the unreadable case only holds for others.
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$proj/s-locked.jsonl"
+  "$RECORD" record --program "$pn" --session s-locked --prices "$prices" >/dev/null 2>&1
+  assert_exit "record: a transcript that cannot be read exits 1" 1 $?
+  chmod 600 "$proj/s-locked.jsonl"
+fi
 assert_eq "record: a failed record appends nothing" "$before" "$(wc -l <"$store")"
 "$RECORD" record --program "$pn" --session s-a --prices "$T/empty.tsv" >/dev/null 2>&1
 assert_exit "record: an empty price table is refused" 2 $?
