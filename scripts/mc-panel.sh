@@ -1654,7 +1654,8 @@ EOF
     # A value outside its grammar is a reading that cannot be read. No
     # measured context, or no threshold (a session that compacts rather than
     # hands over), is nothing to compare.
-    if { [ "$hc_pct" != - ] && { ! mc_valid_uint "$hc_pct" || [ "$hc_pct" -gt 100 ]; }; } \
+    if { [ "$hc_pid" != - ] && ! mc_valid_uint "$hc_pid"; } \
+      || { [ "$hc_pct" != - ] && { ! mc_valid_uint "$hc_pct" || [ "$hc_pct" -gt 100 ]; }; } \
       || { [ "$hc_th" != - ] && { ! mc_valid_uint "$hc_th" || [ "$hc_th" -lt 1 ] || [ "$hc_th" -gt 100 ]; }; }; then
       hc_unknown="${hc_unknown:+$hc_unknown, }$hc_p"
       continue
