@@ -399,33 +399,37 @@ held=0
 LEVEL=owner
 if [ "$have_pane" = 1 ]; then
   S_TEXT=$(printf '%s\n' "$S_TEXT" | msp_trim)
-  if msp_dialog "$S_TEXT"; then
+  if ! msp_dialog "$S_TEXT"; then
+    S_STATE=clear
+    [ ! -e "$SELF" ] || rm -f "$SELF" 2>/dev/null || failed=1
+  else
     S_STATE=$MSP_KIND
     read_self
     first=$rec_first
-    if ! mc_valid_uint "$first" || [ "$first" -gt "$NOW" ] || [ "$rec_sess" != "$S_PID" ] || [ "$rec_print" != "$MSP_PRINT" ]; then
-      first=$NOW
-      printf 'dialog\t%s\t%s\t%s\t%s\n' "$first" "$S_PID" "$MSP_PRINT" "$MSP_KIND" | mc_write "$SELF" || {
-        printf '%s\n' "$prog: cannot record the open dialog" >&2
-        failed=1
-      }
-    fi
-    held=$((NOW - first))
-    rank_of "$held"
-    what="its own dialog"
-    [ "$S_STATE" != auto-mode ] || what="auto mode's confirmation prompt, which Remote Control does not show"
-    how="Ask the operator; record their choice with mc-decide.sh note --program $HUB --shape answer --subject '$PROGRAM dialog $MSP_PRINT' --target <digit> --text <their words>, then deliver it with mc-pane-answer.sh --program $PROGRAM --choice <digit> --decision <entry id> --decided-in $HUB"
-    [ "$MSP_BINDABLE" = 1 ] || how="The answer relay cannot bind this dialog (no opening rule on screen, or a line cut off as side-panel text), so the operator answers it at its pane."
-    if [ "$MSP_BINDABLE" = 1 ] && ! msp_relayable; then
-      how="The answer relay offers this dialog no option (none numbered in order, or none that only answers it), so the operator answers it at its pane."
-    fi
-    raise "self	$first	$S_PID	$MSP_PRINT" "$RANK" "$PROGRAM" \
-      "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered. $how" \
-      "$PROGRAM mission control has been stuck ${held}s on $what${S_PANE:+ (tmux pane $S_PANE)}"
-  else
-    S_STATE=clear
-    [ ! -e "$SELF" ] || rm -f "$SELF" 2>/dev/null || failed=1
   fi
+fi
+# An unreadable record is neither replaced nor raised over: what it raised
+# is kept until it reads again.
+if [ "$have_pane" = 1 ] && [ "$S_STATE" != clear ] && [ "$self_unread" = 0 ]; then
+  if ! mc_valid_uint "$first" || [ "$first" -gt "$NOW" ] || [ "$rec_sess" != "$S_PID" ] || [ "$rec_print" != "$MSP_PRINT" ]; then
+    first=$NOW
+    printf 'dialog\t%s\t%s\t%s\t%s\n' "$first" "$S_PID" "$MSP_PRINT" "$MSP_KIND" | mc_write "$SELF" || {
+      printf '%s\n' "$prog: cannot record the open dialog" >&2
+      failed=1
+    }
+  fi
+  held=$((NOW - first))
+  rank_of "$held"
+  what="its own dialog"
+  [ "$S_STATE" != auto-mode ] || what="auto mode's confirmation prompt, which Remote Control does not show"
+  how="Ask the operator; record their choice with mc-decide.sh note --program $HUB --shape answer --subject '$PROGRAM dialog $MSP_PRINT' --target <digit> --text <their words>, then deliver it with mc-pane-answer.sh --program $PROGRAM --choice <digit> --decision <entry id> --decided-in $HUB"
+  [ "$MSP_BINDABLE" = 1 ] || how="The answer relay cannot bind this dialog (no opening rule on screen, or a line cut off as side-panel text), so the operator answers it at its pane."
+  if [ "$MSP_BINDABLE" = 1 ] && ! msp_relayable; then
+    how="The answer relay offers this dialog no option (none numbered in order, or none that only answers it), so the operator answers it at its pane."
+  fi
+  raise "self	$first	$S_PID	$MSP_PRINT" "$RANK" "$PROGRAM" \
+    "mission control $PROGRAM has been held ${held}s on $what${S_PANE:+ in tmux pane $S_PANE}; it answers no worker until that is answered. $how" \
+    "$PROGRAM mission control has been stuck ${held}s on $what${S_PANE:+ (tmux pane $S_PANE)}"
 fi
 case $S_STATE in
   unreadable)
@@ -435,18 +439,16 @@ esac
 # A pane not read, or no single session to read, neither opens nor closes
 # the hold: the dialog last seen keeps its record until a read pane shows it
 # closed or another dialog; an unreadable record keeps whatever it raised.
-CARRY_SELF=0
 case $S_STATE in
   absent | ambiguous | unreadable)
     read_self
-    CARRY_SELF=$self_unread
     ! mc_valid_uint "$rec_first" || LIVE="${LIVE}self	$rec_first	$rec_sess	$rec_print$NL"
     ;;
 esac
 printf 'self\t%s\t%s\t%s%s\n' "$S_STATE" "$held" "$LEVEL" "${S_PANE:+	$S_PANE}"
 
 # --- the record: what is still live, and what this pass could not read -----
-KEPT=$(printf '%s\n' "$SENT_NOW" | LIVE=$LIVE CW=$CARRY_WORKERS CA=$CARRY_ALL_REQUESTS CS=$CARRY_SELF awk -F '\t' '
+KEPT=$(printf '%s\n' "$SENT_NOW" | LIVE=$LIVE CW=$CARRY_WORKERS CA=$CARRY_ALL_REQUESTS CS=$self_unread awk -F '\t' '
   BEGIN {
     n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) if (l[i] != "") live[l[i]] = 1
     n = split(ENVIRON["CW"], c, "\n"); for (i = 1; i <= n; i++) if (c[i] != "") carry[c[i]] = 1

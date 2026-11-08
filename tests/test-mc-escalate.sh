@@ -255,10 +255,23 @@ expect_out "a cleared dialog reads clear" "self${tab}clear"
 if [ ! -e "$fleet/mission-control/alpha/escalate/self" ]; then ok "the dialog's first-seen record is removed"; else fail "the self record survived a clear"; fi
 esc scan --program alpha --now $((T0 + 2100)) --pane "$tmp/dialog.txt"
 expect_out "a dialog reopened later starts a fresh hold" "self${tab}dialog${tab}0${tab}owner"
-chmod 000 "$fleet/mission-control/alpha/escalate/self"
-esc scan --program alpha --now $((T0 + 2200)) --pane "$tmp/dialog.txt"
-expect_rc "an unreadable dialog record fails the pass" 1
-expect_err "and says so" "cannot read the dialog record"
+if [ "$(id -u)" != 0 ]; then
+  esc scan --program alpha --now $((T0 + 3100)) --pane "$tmp/dialog.txt"
+  expect_out "the reopened dialog held a window goes to the hub" "escalated${tab}hub${tab}alpha"
+  raised=$(count_of "$(hub_events)" "mission-control-escalated${tab}alpha${tab}")
+  chmod 000 "$fleet/mission-control/alpha/escalate/self"
+  esc scan --program alpha --now $((T0 + 3200)) --pane "$tmp/dialog.txt"
+  expect_rc "an unreadable dialog record fails the pass" 1
+  expect_err "and says so" "cannot read the dialog record"
+  [ ! -r "$fleet/mission-control/alpha/escalate/self" ] || fail "an unreadable dialog record was replaced"
+  chmod 644 "$fleet/mission-control/alpha/escalate/self"
+  esc scan --program alpha --now $((T0 + 3300)) --pane "$tmp/dialog.txt"
+  if [ "$(count_of "$(hub_events)" "mission-control-escalated${tab}alpha${tab}")" = "$raised" ]; then
+    ok "a dialog record unreadable for a pass is not raised again once it reads"
+  else
+    fail "after an unreadable record: hub events '$(hub_events)'"
+  fi
+fi
 rm -f "$fleet/mission-control/alpha/escalate/self"
 sed 1d "$tmp/dialog.txt" >"$tmp/norule.txt"
 esc scan --program alpha --now $((T0 + 2300)) --pane "$tmp/norule.txt"
