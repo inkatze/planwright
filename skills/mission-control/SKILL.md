@@ -108,7 +108,7 @@ here; it sets the depth of every turn, not only the first run's.
    nor a live handover is refused by `scripts/mc-handover.sh`'s `launch`;
    the session that asked for it reports the refusal and starts nothing.
    Then audit what you inherit, since planwright's defaults win over the
-   predecessor's habits: each line `scripts/mc-config.sh`'s `doctor
+   predecessor's habits: each finding `scripts/mc-config.sh`'s `doctor
    --program <p>` prints that no operator choice already settles (a knob,
    duty or rule they chose), and each hand-built mechanism it cannot see (a
    launch outside the launcher, a loop beside the runner, a tracker beside
