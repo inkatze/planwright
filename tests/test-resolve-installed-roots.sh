@@ -176,9 +176,11 @@ for copy in "$old_copy" "$new_copy"; do
   mkdir -p "$copy/scripts" "$copy/doctrine"
   for f in resolve-root.sh resolve-installed-roots.sh resolve-rule-doc.sh resolve-overlay-root.sh \
     mc-event.sh mc-lib.sh echo-safety.sh fleet-dispatch-env.sh step-record.sh lock-lib.sh \
-    mission-control-launch.sh; do
+    mission-control-launch.sh fleet-launch-profile.sh; do
     cp "$REPO_ROOT/scripts/$f" "$copy/scripts/"
   done
+  mkdir -p "$copy/config"
+  cp "$REPO_ROOT/config/worker-settings.json" "$copy/config/"
   cp "$REPO_ROOT/doctrine/plugin-script-invocation.md" "$copy/doctrine/"
 done
 jq -n --arg a "$new_copy" '{plugins: {"planwright@planwright": [{scope: "user", installPath: $a, version: "0.66.0"}]}}' \
@@ -468,6 +470,14 @@ assert_eq "a --root a stale dispatcher computed is replaced too" "PLANWRIGHT_ROO
 OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
   "$new_copy/scripts/fleet-dispatch-env.sh" --root "$REPO_ROOT" env 2>/dev/null | grep '^PLANWRIGHT_ROOT=')
 assert_eq "a --root naming a checkout is the dispatcher's choice and stays" "PLANWRIGHT_ROOT=$REPO_ROOT" "$OUT"
+
+OUT=$(cd "$SANDBOX" && env -u HOME -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" PLANWRIGHT_ROOT="$old_copy" \
+  "$new_copy/scripts/fleet-launch-profile.sh" worker 2>/dev/null)
+assert_eq "the settings profile comes from the installed root the wrapper hands on" \
+  "$new_copy/config/worker-settings.json" "$OUT"
+OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
+  "$new_copy/scripts/fleet-launch-profile.sh" worker --root "$old_copy" 2>/dev/null)
+assert_eq "and so does a --root naming a stale copy" "$new_copy/config/worker-settings.json" "$OUT"
 
 # --- step-record.sh refuses to write a record from a stale copy ---------------
 srwt="$SANDBOX/sr-wt"
