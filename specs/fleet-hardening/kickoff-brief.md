@@ -990,6 +990,67 @@ rationale)
 Anchor: `e854030aaaf798476697e8c64e66c6905ed251d0` — computed as
 `scripts/spec-anchor.sh specs/fleet-hardening`
 
+### 2026-11-08 — Amendment (`/spec-kickoff`, meaning-class, post-merge supersede): exact-path allow rules
+
+**Trigger.** PR #862 found that `Bash(<dir>/*)`, the form REQ-B1.3 and D-6 required, is a
+traversal: Claude Code's `*` matches `/` and `..`, so the rule admits `<dir>/../<anything>`. The
+operator asked for the spec to be amended to match #862 before it merges (relayed through mission
+control). Mode: amendment on an Active bundle; the walk covered the touched sections only.
+
+**Delta.** REQ-B1.5 supersedes REQ-B1.3 and D-20 supersedes D-6 (post-merge supersede ritual:
+`Superseded-by:` notes on the old IDs, new IDs minted). Path-scoped allow rules name one exact
+script path with no `*` or `..` in the command path; the `:*` never-match check stands; a
+wildcard-path check fails on shipped profiles and checkout settings and warns on the user's home
+settings (mission-control decision, operator not overruling). The test-spec gains a REQ-B1.5
+entry and marks the REQ-B1.3 entry superseded. The goal/scope line is amended in place with an
+annotation, a changelog entry is added, and `Last reviewed:` moves on all four files.
+
+**Decision (operator, 2026-11-08): no new task.** Task 6 stays completed, annotated; the
+correction ships in PR #862 outside the task graph, so nothing can be dispatched against it while
+#862 is in review. Rejected: a new task completed by #862's merge (risk of a duplicate dispatch).
+
+**Lens review** (delta-scoped, walked inline: the delta is small and narrow).
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | none | Arguments after the exact path (`:*`, or a space and `*`) stay permitted; the check reads only the command path. |
+| Security | 1 | Warn-only on home settings leaves an unsafe user rule active. Declined. |
+| Error handling and failure modes | none | Malformed or unreadable settings are never reported clean (test-spec). |
+| Performance | none | A read-only scan of a few settings files. |
+| Concurrency / state | none | No shared state. |
+| Naming, readability, structure | none | — |
+| Documentation | 1 | #862's docs and messages cite the superseded D-6 / REQ-B1.3. Deferred to PR #862. |
+| Tests / verification | 2 | The doc-presence cross-reference case was missing from the draft REQ-B1.5 entry: applied. #862's check fails on home-settings rules instead of warning: deferred to PR #862. |
+| Cross-file consistency | 2 | The goal/scope line and Task 6's Done-when still named `/*`: applied (annotations). |
+
+Dispositions:
+
+- Applied: the doc-presence case restored in the REQ-B1.5 test-spec entry; the goal/scope line
+  amended with an annotation; Task 6 annotated.
+- Declined: making home-settings rules fail. Those files are the user's, the check never edits
+  them, and the warning names the exact-path fix.
+- Deferred to PR #862 (its ship-gate record; relayed to mission control for its worker): the
+  check warns, not fails, on home-settings rules; citations re-pointed to D-20 and REQ-B1.5.
+
+Altitude check: not applicable (the delta fires no altitude trigger). Ship-gate check: the one
+out-of-band fix named, PR #862, carries its PR record.
+
+*Post-lens stale-reference sweep.* Grepped the four spec files for `REQ-B1.3`, `D-6`,
+`Bash(<dir>/*)`, and `Bash(<path>/*)`; the remaining hits are the superseded records, their
+`Superseded-by:` notes, Task 6's completed block (annotated), and history. Earlier brief sections
+are append-only and stand as the record of D-6 at the time. `spec-validate` afterwards: 0 errors,
+0 warnings. `mise run lint:md`: 0 errors.
+
+**Sign-off.** Approved by the operator 2026-11-08 (relayed through mission control) after the
+shared-understanding summary. No status flip (the bundle is Active); `Last reviewed:` 2026-11-08
+on all four spec files. Validator: 0 errors, 0 warnings.
+
+Class: meaning
+Lens-pass: this entry's lens review (delta-scoped, inline, canonical lens set; findings applied,
+one declined with rationale, two deferred to PR #862)
+Anchor: `23aaa0dc031a320ba7820d588e93f40e3b52f128` — computed as
+`scripts/spec-anchor.sh specs/fleet-hardening`
+
 ## 10. Execution research log
 
 <!-- Research-rigor recordings appended during execution (findings, tradeoffs,
