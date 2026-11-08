@@ -420,6 +420,7 @@ if (
     pfail=1
   }
   script_dir="$repo_root/scripts"
+  [ -r "$repo_root/scripts/echo-safety.sh" ] || exit 1
   . "$repo_root/scripts/echo-safety.sh"
   . "$repo_root/scripts/mc-lib.sh"
   . "$repo_root/scripts/fleet-pane-vocabulary.sh"
