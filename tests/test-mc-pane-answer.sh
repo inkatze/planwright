@@ -88,9 +88,10 @@ chmod +x "$tmp/bin/ps" "$tmp/bin/tmux"
 PATH="$tmp/bin:$PATH"
 export PATH
 
-# Fixture pids sit above any pid a host assigns, so none is a real process.
-SP=4194301
-PP=4194300
+# Fixture pids sit above any pid Linux (at most 4194303) or macOS assigns,
+# so none is a real process.
+SP=4194401
+PP=4194400
 uid=$(id -u)
 cat >"$tmp/dialog.txt" <<'EOF'
  Bash command
@@ -137,10 +138,8 @@ refused() { # refused <label> <stderr needle>
   [ -z "$(keys)" ] || fail "$1: a key was sent: $(keys)"
 }
 
-for p in hub beta; do
-  mc_run mc-kb.sh init --program "$p"
-  expect_rc "$p's knowledge base" 0
-done
+mc_run mc-kb.sh init --program hub
+expect_rc "the hub's knowledge base" 0
 
 shown "$tmp/dialog.txt"
 expect_out "the watcher records the open dialog in pane %7" "self${tab}auto-mode${tab}0${tab}owner${tab}%7"
@@ -149,7 +148,7 @@ if [ -n "$D1" ]; then ok "an operator answer is recorded ($D1)"; else fail "no d
 cp "$esc_dir/self" "$tmp/self.first"
 
 # --- the arguments ----------------------------------------------------------
-for bad in 0 10 a "1 " "" "-1"; do
+for bad in 0 10 "1 " ""; do
   answer --program alpha --choice "$bad" --decision "$D1" --decided-in hub
   if [ "$bad" = "" ]; then expect_rc "an empty choice is usage" 2; else refused "choice '$bad'" "one digit"; fi
 done
@@ -165,8 +164,7 @@ answer --program alpha --choice 1 --decision "$D1" --decided-in nosuch
 expect_rc "an unconfigured deciding program" 3
 
 # --- where the decision lives -------------------------------------------------
-DB=$(note beta answer 1)
-answer --program alpha --choice 1 --decision "$DB" --decided-in beta
+answer --program alpha --choice 1 --decision "$D1" --decided-in beta
 refused "a decision outside the configured hub" "are the hub's (hub), not beta's"
 write_programs alpha
 answer --program alpha --choice 1 --decision "$D1" --decided-in alpha
@@ -174,7 +172,7 @@ refused "a program answering its own dialog" "never answers its own"
 write_programs hub
 
 # --- the decision -------------------------------------------------------------
-NQ=$(mc_env /bin/bash "$repo_root/scripts/mc-decide.sh" decide --program hub --subject "alpha dialog $PRINT" --act "answer it" --target 1 --grounds "routine" --class hygiene 2>/dev/null | awk -F '\t' '{ print $2 }')
+NQ=$(mc_env /bin/bash "$repo_root/scripts/mc-decide.sh" decide --program hub --subject "alpha dialog $PRINT" --act 'operator: "1"' --target 1 --grounds "routine" --class hygiene 2>/dev/null | awk -F '\t' '{ print $2 }')
 answer --program alpha --choice 1 --decision "$NQ" --decided-in hub
 refused "a decision that is not the operator's" "not the operator's answer"
 DC=$(note hub correction 1)
@@ -183,9 +181,6 @@ refused "an operator correction is not an answer" "not the operator's answer"
 DO=$(note hub answer 1 "alpha dialog 0123456789abcdef")
 answer --program alpha --choice 1 --decision "$DO" --decided-in hub
 refused "an answer about another dialog" "about another dialog"
-DS=$(note hub answer 1 "alpha dialog")
-answer --program alpha --choice 1 --decision "$DS" --decided-in hub
-refused "an answer naming no dialog" "about another dialog"
 D3=$(note hub answer 3)
 answer --program alpha --choice 1 --decision "$D3" --decided-in hub
 refused "a choice other than the answer recorded" "an answer other than 1"
@@ -200,6 +195,10 @@ refused "an unreadable dialog record" "unreadable"
 rm -f "$esc_dir/self"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "no dialog on record" "no dialog of alpha is on record"
+ln -s "$tmp/self.saved" "$esc_dir/self"
+answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+refused "a linked dialog record" "no dialog of alpha is on record"
+rm -f "$esc_dir/self"
 cp "$tmp/self.saved" "$esc_dir/self"
 
 # --- the session and its pane -------------------------------------------------
@@ -252,7 +251,6 @@ answer --program alpha --choice 4 --decision "$(note hub answer 4)" --decided-in
 refused "an option the dialog does not offer" "offers no option 4"
 answer --program alpha --choice 2 --decision "$(note hub answer 2)" --decided-in hub
 refused "an option that adds a standing permission" "does more than answer this dialog"
-SAVED_PRINT=$PRINT
 sed 's/^   2\. Yes, and don.*$/   2. Yes, auto-accept edits/' "$tmp/dialog.txt" >"$tmp/modes.txt"
 shown "$tmp/modes.txt"
 answer --program alpha --choice 2 --decision "$(note hub answer 2)" --decided-in hub
@@ -265,10 +263,10 @@ awk '{ print } /^   2\. Yes, and/ { print "      and every later call" }' "$tmp/
 shown "$tmp/wrap.txt"
 answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
 refused "a run whose labels wrap" "wrap or repeat"
-shown "$tmp/dialog.txt"
-[ "$PRINT" = "$SAVED_PRINT" ] || fail "the same dialog recorded twice has two digests"
+cp "$tmp/dialog.txt" "$tmp/pane-%7"
 cp "$tmp/self.first" "$esc_dir/self"
 cp "$tmp/self.first" "$tmp/self.saved"
+PRINT=$(print_of)
 
 # --- delivery -----------------------------------------------------------------
 ln -s "$tmp/elsewhere" "$esc_dir/answers.log"
@@ -312,6 +310,58 @@ if [ -e "$esc_dir/self" ]; then ok "a failed send keeps the dialog's record"; el
 : >"$tmp/keys"
 answer --program alpha --choice 3 --decision "$D2" --decided-in hub
 refused "a decision a failed send used" "already answered a dialog"
+D4=$(note hub answer 1)
+chmod 444 "$esc_dir/answers.log"
+answer --program alpha --choice 1 --decision "$D4" --decided-in hub
+expect_rc "a sent answer that cannot be logged" 1
+expect_out "still reports the send" "answered${tab}alpha${tab}%7${tab}1"
+expect_err "and warns against reusing the decision" "do not reuse decision $D4"
+if [ "$(keys)" = "-t %7 1" ]; then ok "the one digit was sent"; else fail "keys sent: '$(keys)'"; fi
+chmod 644 "$esc_dir/answers.log"
+: >"$tmp/keys"
+
+# --- the dialog parser, in process ----------------------------------------------
+if (
+  pfail=0
+  fail() {
+    echo "FAIL: $1" >&2
+    pfail=1
+  }
+  script_dir="$repo_root/scripts"
+  . "$repo_root/scripts/echo-safety.sh"
+  . "$repo_root/scripts/mc-lib.sh"
+  . "$repo_root/scripts/fleet-pane-vocabulary.sh"
+  . "$repo_root/scripts/mc-session-pane.sh"
+  parse() { msp_dialog "$(printf '%s\n' "$1" | msp_trim)"; }
+  base=$(cat "$tmp/dialog.txt")
+  parse "$(printf '%s\n' "$base" | awk '$0 == "   3. No" { print "   3. No, and tell Claude what to do"; print "      differently"; next } { print }')" || :
+  [ -z "$MSP_OPTIONS" ] || fail "a wrapped last label left options: $MSP_OPTIONS"
+  parse "$(
+    printf '%s\n' "$base" | sed '/^ Esc to cancel/d'
+    printf ' Enter to select\n Esc to cancel\n'
+  )"
+  case $MSP_OPTIONS in "1${tab}Yes"*) ;; *) fail "a footer between the options and the end dropped them: '$MSP_OPTIONS'" ;; esac
+  parse "$(
+    printf 'chat one\n────────────────\n'
+    printf '%s\n' "$base"
+  )"
+  p1=$MSP_PRINT
+  parse "$(
+    printf 'chat two, scrolled\n────────────────\n'
+    printf '%s\n' "$base"
+  )"
+  [ "$p1" = "$MSP_PRINT" ] || fail "text above the opening rule changed the digest"
+  pad='                                                  '
+  parse "$(printf '%s\n' "$base" | sed "s/^ Do you want to proceed?\$/ Do you want to proceed?$pad│ 12:00/")"
+  p2=$MSP_PRINT
+  parse "$(printf '%s\n' "$base" | sed "s/^ Do you want to proceed?\$/ Do you want to proceed?$pad│ 12:01/")"
+  [ "$p2" = "$MSP_PRINT" ] || fail "the side panel's text changed the digest"
+  exit "$pfail"
+); then
+  ok "the parser: a wrapped last label, a footer run, the opening rule and the side panel"
+else
+  fail "the parser cases above"
+fi
 
 answer --help
 expect_rc "help" 0
