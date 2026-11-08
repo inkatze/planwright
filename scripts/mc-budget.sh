@@ -296,7 +296,7 @@ compute() {
     esac
   fi
   if [ "$RUNG" != hold-dispatch ]; then
-    uh_out=$(/bin/bash "$script_dir/mc-usage.sh" held --program "$program" 2>/dev/null)
+    uh_out=$(/bin/bash "$script_dir/mc-usage.sh" held --program "$program" --now "$NOW" 2>/dev/null)
     uh_rc=$?
     # A failure exits 1 as clear does, so clear is only the word itself.
     [ "$uh_rc" -ne 1 ] || [ "$uh_out" = clear ] || uh_rc=2

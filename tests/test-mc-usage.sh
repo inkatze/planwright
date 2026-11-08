@@ -147,6 +147,8 @@ expect_out "entering the hold emits one usage-held event" "event${tab}usage-held
 mc_run mc-usage.sh held --program alpha
 expect_rc "held reads held" 0
 expect_out "held names the window, its reading and its reset" "held${tab}weekly${tab}92${tab}$week_at"
+mc_run mc-usage.sh held --program alpha --now "$((week_at + 1))"
+expect_rc "a hold whose every reset has passed reads clear, so no stopped watcher holds launches past it" 1
 watch "$((now + 60))"
 expect_no_out "a hold already announced is not announced again" "usage-held"
 

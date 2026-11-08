@@ -91,8 +91,9 @@ Usage:
                                                           that acted
       or `busy` while another watch or drain holds the duty's lock, and
       `paused` (`blocked<TAB><exit>`) under the fleet daemon pause
-  mc-usage.sh held --program <p>
-      exit 0 printing the hold's `held` lines; exit 1 printing `clear`
+  mc-usage.sh held --program <p> [--now <epoch>]
+      exit 0 printing the hold's `held` lines, a window whose reset has
+      passed left out; exit 1 printing `clear` when none is left
   mc-usage.sh enqueue --program <p> --kind <k> --scope <s> --brief <file>
                       [--backend <b>] [--cwd <dir>] [--repo <dir>] [--rules <scope>]...
   mc-usage.sh enqueue --program <p> --resume <session> [--brief <file>]
@@ -532,6 +533,9 @@ case $verb in
   held)
     [ "${#args[@]}" -eq 0 ] || usage
     rows=$(held_rows) || mc_fail "cannot read the usage hold"
+    # Judged at NOW, not only at the last watch: a watcher that stopped (a
+    # disarmed duty, a paused fleet) must not hold launches past a reset.
+    rows=$(printf '%s\n' "$rows" | N=$NOW awk 'NF == 3 && ($3 == "-" || ENVIRON["N"] + 0 < $3 + 0)')
     if [ -z "$rows" ]; then
       printf 'clear\n'
       exit 1
