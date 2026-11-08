@@ -957,4 +957,21 @@ done
 rm -f "$mlocal_cfg"
 echo "ok: the gate refuses a threshold above 100 and out-of-order enabled thresholds"
 
+# --- 41. `windows` reads each mirror window's percentage and reset epoch, so a
+#         watcher can act at the reset; an expired or stale window reads
+#         unavailable with no reset. ---
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":91.5,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$in_hour}}"
+win=$(run windows) || fail "windows failed"
+[ "$win" = "$(printf 'session\t40\t%s\nweekly\t91\t%s' "$in_hour" "$in_day")" ] \
+  || fail "windows must print each window's percentage and reset epoch (got: $win)"
+win=$(run windows --now $((in_hour + 1))) || fail "windows --now failed"
+[ "$win" = "$(printf 'session\tunavailable\t-\nweekly\tunavailable\t-')" ] \
+  || fail "a mirror stale at --now, or a reset already past, must read unavailable (got: $win)"
+rc=0
+run windows extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "windows with an extra argument must be a usage error (got $rc)"
+no_llm "windows"
+echo "ok: windows reads each mirror window's percentage and reset epoch"
+
 echo "ALL fleet-usage-gate tests passed"

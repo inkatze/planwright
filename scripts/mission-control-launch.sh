@@ -45,7 +45,7 @@ help_text() {
 usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
       --brief <file> [--rules <rule-scope>]... [--backend stream-json|tmux]
-      [--cwd <abs-dir>] [--repo <abs-dir>]
+      [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh list
@@ -54,7 +54,10 @@ usage:
 <kind> is one of `kinds`; <scope> holds letters, digits and . _ = @ : - only,
 at most 128. --rules adds a rule-store scope (duty:<id> or repo:<name>);
 program rules ride every launch. The rung is --backend, else the
-mission_control_launch_backend knob.
+mission_control_launch_backend knob. While the program's usage hold lasts
+(scripts/mc-usage.sh held) every kind but mission-control is refused unless
+--operator-asked marks work the operator asked for; the refusal names the
+queue (mc-usage.sh enqueue) that launches it at the window's reset.
 
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
@@ -113,7 +116,7 @@ relaunch or another retire of it is in flight, or the caller runs inside
 its window (retire); 4 a launch refused before it started: no readable
 profile, an unresolvable rung knob, no resolvable tier (an unreachable
 allocation store or a malformed tier knob), the admission gate withholding
-it, a broken allocation install, a program that is not configured, rules
+it, the usage hold (or one that cannot be read), a broken allocation install, a program that is not configured, rules
 that would not render, a worktree that could not be created, a named
 directory that is not a worktree other than a primary checkout, a worktree
 path holding a control character, or any other refusal by the rung.
@@ -664,7 +667,7 @@ abs_dir() {
 # --------------------------------------------------------------------------
 
 cmd_launch() {
-  program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task=''
+  program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -688,6 +691,10 @@ cmd_launch() {
             ;;
         esac
         shift 2
+        ;;
+      --operator-asked)
+        operator_asked=1
+        shift
         ;;
       *) usage ;;
     esac
@@ -739,6 +746,20 @@ cmd_launch() {
     3) die "refusing to launch $name: the program $(sanitize_printable "$program") is not configured" 4 ;;
     *) die "refusing to launch $name: the rules in scope did not render (mc-rules.sh exit $rr)" 4 ;;
   esac
+
+  # A mission-control successor is never held: it is what carries the
+  # program through the hold.
+  if [ "$kind" != mission-control ] && [ "$operator_asked" -eq 0 ]; then
+    uh_out=$(/bin/bash "$script_dir/mc-usage.sh" held --program "$program" </dev/null 2>/dev/null)
+    case $? in
+      0)
+        uh_why=$(printf '%s\n' "$uh_out" | awk -F '\t' 'NR == 1 { print ($2 == "quota") ? "a session stopped on the claude usage limit" : "the " $2 " usage window is at " $3 "%" }')
+        die "refusing to launch $name: launches are held until the usage window resets ($uh_why); queue it for the reset with mc-usage.sh enqueue and these same arguments, or pass --operator-asked for work the operator asked for" 4
+        ;;
+      1) ;;
+      *) die "refusing to launch $name: the usage hold cannot be read (mc-usage.sh held)" 4 ;;
+    esac
+  fi
 
   resolve_backend
   fleet_home

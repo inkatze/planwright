@@ -92,7 +92,10 @@ on you into decide-ready items and drafts, checking that a pull request is
 really ready before it is offered, predicting overlapping changes and merge
 order, letting known dates set priorities, preparing what you need before a
 decision, recording how to undo each act, checking what was done against
-your rules, and noticing what you keep doing by hand. The last three
+your rules, noticing what you keep doing by hand, and holding new work
+near your account's usage limit until it resets
+([below](#usage-windows-and-the-reset-queue)). Recording how to undo,
+the check against your rules and noticing repeats
 do not run in the background yet, and turning them on changes nothing for
 now: mission control records how to undo its acts and proposes automations
 as it works with you, and the check against your rules does not run yet.
@@ -107,6 +110,31 @@ enough.
 
 The watching itself is done by small scripts, not by an agent sitting in a
 loop, so a quiet program costs very little.
+
+## Usage windows and the reset queue
+
+Claude accounts have usage windows: a five-hour session window and a
+weekly one. When either reaches 90% (the `mission_control_usage_hold`
+setting), mission control stops starting new sessions and lines the next
+pieces of work up instead, each with its instructions already written, in
+a queue that survives restarts. Work you ask for yourself still starts, and
+so does a fresh mission-control session taking over from the old one.
+
+When the window resets, nobody has to be there: the watcher sees the reset
+time pass, starts the queued work, and resumes each session that stopped
+on the limit, telling it what happened and to pick up where it left off.
+Mission control is then woken without you: a background session gets the
+wake as a turn, and an attended one through its panel (one running without
+the panel only has the wake waiting in its input box). The first thing it
+tells you is only what landed, what needs your decision and what failed
+while the window was full; routine starts and resumes stay quiet.
+
+The usage figures come from your status line's copy of Claude Code's own
+rate limits, and on a computer running only background sessions from the
+readings those sessions receive. With neither, nothing is held ahead of
+the limit: a session that hits it is held as before, and the queue drains
+when that hold's stated reset time passes. An account billed in dollars
+rather than usage windows reports no windows, so the same rule applies.
 
 ## Proposals
 

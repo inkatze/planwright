@@ -132,6 +132,12 @@
 #       `session<TAB><pct|unavailable>` / `weekly<TAB><pct|unavailable>` after
 #       the same TTL/staleness handling `evaluate` applies, with no side effect.
 #       For fleet-allocate.sh's per-tier caps (which need the raw percentage).
+#   fleet-usage-gate.sh windows [--now <epoch>]
+#       Read-only view of the status-line mirror alone, each window with the
+#       epoch it resets at: `session<TAB><pct|unavailable><TAB><reset|->` /
+#       `weekly<TAB>...`, under the mirror's own TTL, span and plausibility
+#       rules (--now pins the clock they are judged by). For the usage-window
+#       duty (scripts/mc-usage.sh), which acts at the reset.
 #   fleet-usage-gate.sh admit <model>
 #       Given the derived current rung, answer whether a unit running <model>
 #       (a Claude Code alias: fable opus sonnet haiku) may dispatch. Heavy tiers
@@ -190,7 +196,7 @@ TAB=$(printf '\t')
 SESSION_CAP=3 # the session window never selects above defer-heavy (REQ-E1.6).
 
 usage() {
-  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | signal | admit <model>" >&2
+  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | signal | windows [--now <epoch>] | admit <model>" >&2
 }
 
 # rung_name <index>: the ladder rung name for an index, for composing the
@@ -453,7 +459,7 @@ file_mtime() {
   stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1" 2>/dev/null
 }
 
-# source_mirror <ttl> <now>: the status line's copy of Claude Code's own
+# source_mirror <ttl> <now> [reset]: the status line's copy of Claude Code's own
 # rate-limit windows, `{"five_hour":{"used_percentage":N,"resets_at":EPOCH},
 # "seven_day":{...}}`, written on each status-line refresh, so it reaches
 # sessions with no TUI to scrape. The file must be a regular file, fresh
@@ -465,7 +471,8 @@ file_mtime() {
 # Machine-written JSON carrying a control byte, or one the parse fails on, is
 # corrupt: the whole file then reads unavailable with a warning, so a broken
 # status-line writer is told apart from a merely stale mirror. Never fails: anything it cannot read is unavailable,
-# so the capture still gets its turn.
+# so the capture still gets its turn. With `reset`, each available window
+# reads `<pct>/<resets_at>`.
 source_mirror() {
   sm_none='unavailable unavailable'
   sm_path=$(mirror_path)
@@ -485,7 +492,7 @@ source_mirror() {
     printf '%s' "$sm_none"
     return 0
   fi
-  sm_v=$(head -c 4096 "$sm_path" 2>/dev/null | awk -v now="$2" \
+  sm_v=$(head -c 4096 "$sm_path" 2>/dev/null | awk -v now="$2" -v withreset="${3:-}" \
     -v span5="$MIRROR_SPAN_FIVE_HOUR" -v span7="$MIRROR_SPAN_SEVEN_DAY" '
     { line = $0; gsub(/[\t\r]/, " ", line); doc = doc line " " }
     function window(key, span,   obj, pct, rst) {
@@ -498,7 +505,7 @@ source_mirror() {
       if (length(rst) > 12 || rst + 0 <= now + 0 || rst + 0 > now + span) return "unavailable"
       sub(/[.].*/, "", pct)
       if (length(pct) > 3 || pct + 0 > 100) return "unavailable"
-      return pct + 0
+      return (withreset == "reset") ? (pct + 0) "/" (rst + 0) : pct + 0
     }
     END {
       if (doc ~ /[\001-\037\177]/) { printf "corrupt"; exit }
@@ -886,6 +893,44 @@ case "$cmd" in
     }
     sig=$(read_signal) || exit $?
     printf 'session\t%s\nweekly\t%s\n' "${sig% *}" "${sig#* }"
+    exit 0
+    ;;
+
+  windows)
+    wn_now=""
+    case $# in
+      0) ;;
+      2)
+        if [ "$1" != --now ]; then
+          usage
+          exit 2
+        fi
+        wn_now=$2
+        ;;
+      *)
+        usage
+        exit 2
+        ;;
+    esac
+    case $wn_now in
+      "") wn_now=$(now_epoch) || {
+        echo "fleet-usage-gate: cannot read the clock" >&2
+        exit 2
+      } ;;
+      *[!0-9]*)
+        usage
+        exit 2
+        ;;
+    esac
+    wn_ttl=$(resolve_posint fleet_usage_signal_ttl_seconds 900) || exit $?
+    wn_v=$(source_mirror "$wn_ttl" "$wn_now" reset) || exit $?
+    for wn_w in ${wn_v% *}:session ${wn_v#* }:weekly; do
+      wn_r=${wn_w%:*}
+      case $wn_r in
+        */*) printf '%s\t%s\t%s\n' "${wn_w##*:}" "${wn_r%/*}" "${wn_r#*/}" ;;
+        *) printf '%s\tunavailable\t-\n' "${wn_w##*:}" ;;
+      esac
+    done
     exit 0
     ;;
 

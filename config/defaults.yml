@@ -1011,7 +1011,7 @@ mission_control_home_root: ~/.config/planwright/mission-control
 # The duties a program enables when its block names none: the shipped set in
 # config/duties.yaml.
 # yamllint disable-line rule:line-length
-mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals]
+mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals, usage-window]
 # The state-source map a program declaring none resolves to: class:
 # source:mode entries over the fact classes (work-items, code-state,
 # decisions, deadlines, designs), mode record, snapshot or cited. A class the
@@ -1105,6 +1105,11 @@ mission_control_default_budget: {sessions: 4, polls_per_hour: 120, spend_ceiling
 # pause_watchers stops high-cost watchers, hold_dispatch also stops
 # medium-cost ones and refuses new sessions and heavy work.
 mission_control_budget_ladder: {throttle: 70, pause_watchers: 85, hold_dispatch: 100}
+# The account usage percent (either the session or the weekly window) at
+# which the usage-window duty holds new launches until the window resets,
+# queueing the next units for the reset (scripts/mc-usage.sh); `off` holds
+# only on a claude quota hold.
+mission_control_usage_hold: 90
 # How many operator confirmations of a decision class's decisions, since the
 # latest revoke of one of them, restore the class from ask-first
 # (scripts/mc-decide.sh).
