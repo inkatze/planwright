@@ -196,7 +196,10 @@ recorded_roots() {
 physical() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
 # stale <path>: true when <path> is a cached copy no --current root names,
-# with ck_path its canonical form and ck_first the root to use instead.
+# with ck_path its canonical form and ck_first the root to use instead. Only a
+# current root present on disk with its scripts/ stands in: a record naming a
+# copy that is not there yet (or was pruned) would hand on a root whose hooks
+# never run, so the path stands instead.
 stale() {
   ck_cache=$(physical "$claude_dir/plugins/cache") || return 1
   ck_path=$(physical "$1") || return 1
@@ -211,7 +214,7 @@ stale() {
   while IFS= read -r ck_root; do
     [ -n "$ck_root" ] || continue
     [ "$(physical "$ck_root")" != "$ck_path" ] || return 1
-    [ -n "$ck_first" ] || ck_first=$ck_root
+    [ -n "$ck_first" ] || [ ! -d "$ck_root/scripts" ] || ck_first=$ck_root
   done <<EOF
 $ck_current
 EOF

@@ -402,8 +402,28 @@ fresh "$cur/plugins/cache/planwright/planwright/0.10.0"
 assert_eq "--fresh keeps a path that does not exist" "$cur/plugins/cache/planwright/planwright/0.10.0" "$OUT"
 fresh "$old_copy" "PATH=$SANDBOX/no-bin"
 assert_eq "--fresh without jq keeps the path, never guessing" "$old_copy" "$OUT"
-OUT=$(env -u HOME CLAUDE_DIR="$cur" /bin/sh "$RESOLVER" --fresh 2>/dev/null)
-assert_eq "--fresh without a path is a usage error" 2 "$?"
+for args in '--fresh' "--fresh ''" '--fresh a b'; do
+  eval "set -- $args"
+  env -u HOME CLAUDE_DIR="$cur" /bin/sh "$RESOLVER" "$@" >/dev/null 2>&1
+  assert_eq "$args is a usage error" 2 "$?"
+done
+set --
+OUT=$(env -u HOME -u CLAUDE_DIR /bin/sh "$RESOLVER" --fresh "$old_copy" 2>/dev/null)
+assert_eq "--fresh with no claude dir keeps the path" "$old_copy" "$OUT"
+# A record naming a copy that is not on disk (mid-install, or pruned) must not
+# replace a working one with a root whose hooks never run.
+gone="$SANDBOX/gone"
+mkdir -p "$gone/plugins"
+ln -s "$cur/plugins/cache" "$gone/plugins/cache"
+jq -n --arg a "$cur/plugins/cache/planwright/planwright/0.67.0" --arg b "$new_copy" \
+  '{plugins: {"planwright@planwright": [{installPath: $a}], "planwright@other": [{installPath: $b}]}}' \
+  >"$gone/plugins/installed_plugins.json"
+OUT=$(env -u HOME CLAUDE_DIR="$gone" /bin/sh "$RESOLVER" --fresh "$old_copy" 2>/dev/null)
+assert_eq "--fresh passes over a recorded root missing from disk to one present" "$new_copy" "$OUT"
+jq -n --arg a "$cur/plugins/cache/planwright/planwright/0.67.0" \
+  '{plugins: {"planwright@planwright": [{installPath: $a}]}}' >"$gone/plugins/installed_plugins.json"
+OUT=$(env -u HOME CLAUDE_DIR="$gone" /bin/sh "$RESOLVER" --fresh "$old_copy" 2>/dev/null)
+assert_eq "--fresh keeps the path when no recorded root is on disk" "$old_copy" "$OUT"
 
 # --- the launch seam hands a worker the installed root ------------------------
 # envrun <wrapper-copy> [ENV=val...]: the wrapper's exported roots and copy
