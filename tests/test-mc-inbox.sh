@@ -66,6 +66,105 @@ expect_out "an empty section reads none" "Decisions
 - none"
 
 # ---------------------------------------------------------------------------
+# An unasked report carries only what is owed to the operator: a routine
+# act (an approval, a relay, a re-armed watcher) never reaches them, it
+# leads with one line and runs five at most besides its decisions, with no
+# acknowledgement and no repeat, and a report with nothing owed is empty.
+# ---------------------------------------------------------------------------
+report() { # report <stdin file>: OUT, RC, ERR
+  OUT=$(mc_env /bin/bash "$repo_root/scripts/mc-inbox.sh" report <"$1" 2>"$tmp/stderr")
+  RC=$?
+  ERR=$(cat "$tmp/stderr")
+}
+printf 'routine\tApproved a worker request to run the tests\nlanded\tPR 12 merged\nact\tRelayed your answer to the export work\nblocker\tStopped by a guard, exact text: push refused\nfailure\tThe export work died twice\ndecision\tPick the retry policy\n' >"$tmp/report"
+report "$tmp/report"
+expect_rc "report" 0
+expect_eq "only the owed classes, one line each, the lead first" "Decision: Pick the retry policy
+Blocker: Stopped by a guard, exact text: push refused
+Failure: The export work died twice
+Landed: PR 12 merged"
+expect_err "act and routine lines are dropped and counted" "2 act or routine line(s) dropped"
+printf 'routine\tApproved a worker request\nact\tRe-armed the watcher\n' >"$tmp/report"
+report "$tmp/report"
+expect_rc "a routine-only report" 0
+expect_eq "a report with nothing owed says nothing" ""
+for n in 1 2 3 4 5; do printf 'landed\tPR %s merged\n' "$n"; done >"$tmp/report"
+report "$tmp/report"
+expect_eq "five items fit whole" "Landed: PR 1 merged
+Landed: PR 2 merged
+Landed: PR 3 merged
+Landed: PR 4 merged
+Landed: PR 5 merged"
+for n in 1 2 3 4 5 6 7; do printf 'landed\tPR %s merged\n' "$n"; done >"$tmp/report"
+report "$tmp/report"
+expect_eq "past five: four lines and a count of the rest" "Landed: PR 1 merged
+Landed: PR 2 merged
+Landed: PR 3 merged
+Landed: PR 4 merged
+3 more; ask to see them all"
+printf 'decision\tD1\ndecision\tD2\ndecision\tD3\ndecision\tD4\ndecision\tD5\ndecision\tD6\nfailure\tThe export work died twice\n' >"$tmp/report"
+report "$tmp/report"
+expect_eq "decisions are exempt from the cap" "Decision: D1
+Decision: D2
+Decision: D3
+Decision: D4
+Decision: D5
+Decision: D6
+Failure: The export work died twice"
+{
+  printf 'decision\tD1\nfailure\tThe export work died twice\nblocker\tgh is not signed in\n'
+  for n in 1 2 3 4 5; do printf 'landed\tPR %s merged\n' "$n"; done
+} >"$tmp/report"
+report "$tmp/report"
+expect_eq "the cap never hides a whole class, and counts no decision" "Decision: D1
+Blocker: gh is not signed in
+Failure: The export work died twice
+Landed: PR 1 merged
+Landed: PR 2 merged
+3 more; ask to see them all"
+{
+  printf 'decision\tD1\n'
+  for n in 1 2 3 4 5; do printf 'landed\tPR %s merged\n' "$n"; done
+} >"$tmp/report"
+report "$tmp/report"
+expect_eq "five lines besides a decision fit whole" "Decision: D1
+Landed: PR 1 merged
+Landed: PR 2 merged
+Landed: PR 3 merged
+Landed: PR 4 merged
+Landed: PR 5 merged"
+printf 'decision\tPick the retry policy\nlanded\tGot it.\nlanded\tThanks, PR 12 merged\nlanded\tPR 12 merged\nlanded\tThanks to the retry fix, PR 13 merged\nblocker\tgh is not signed in\n' >"$tmp/report"
+report "$tmp/report"
+expect_eq "no acknowledgement and no repeat reach the operator, the rest verbatim" "Decision: Pick the retry policy
+Blocker: gh is not signed in
+Landed: PR 12 merged
+Landed: Thanks to the retry fix, PR 13 merged"
+expect_err "acknowledgements are cut and counted" "2 acknowledgement(s) cut"
+expect_err "a repeat is counted" "1 repeated line(s) dropped"
+expect_err "a line left empty is counted" "1 line(s) with no text dropped"
+printf 'Failure \tThe export work died twice\nblockr\tStuck on review\n' >"$tmp/report"
+report "$tmp/report"
+expect_rc "an unknown class fails the report" 1
+expect_err "and is named" "unknown class(es): blockr"
+expect_eq "a class is read whatever its case and spacing" "Failure: The export work died twice"
+printf 'de\033]0;x\007cide\tfoo\n' >"$tmp/report"
+report "$tmp/report"
+expect_rc "a control-bearing unknown class fails the report" 1
+expect_err "and is named without them" "unknown class(es): de]0;xcide"
+case $ERR in
+  *"$(printf '\033')"* | *"$(printf '\007')"*) fail "an unknown class reaches stderr with its control bytes" ;;
+  *) ok "an unknown class is named without its control bytes" ;;
+esac
+printf 'blocker\tPR 9 needs a call\ndecision\tPR 9 needs a call\n' >"$tmp/report"
+report "$tmp/report"
+expect_eq "a repeat is the same class and text, so a decision is never folded into a blocker" "Decision: PR 9 needs a call
+Blocker: PR 9 needs a call"
+printf 'landed\tSure-footed rollout, PR 9 merged\n\tno class\n' >"$tmp/report"
+report "$tmp/report"
+expect_eq "a word that only starts like an acknowledgement is kept" "Landed: Sure-footed rollout, PR 9 merged"
+expect_err "an empty class is named as such" "unknown class(es): (empty)"
+
+# ---------------------------------------------------------------------------
 # REQ-F1.7: an item is answerable alone, every field present.
 # ---------------------------------------------------------------------------
 item_args=(--link https://example.invalid/acme/web/pull/7 --does "Adds invoice export"
