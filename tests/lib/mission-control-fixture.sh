@@ -19,6 +19,9 @@
 
 # The runner resolves paths through a cd in a command substitution.
 unset CDPATH
+# A suite run from a git hook inherits the hook's repository selectors,
+# which would point the fixture repository's setup at the caller's.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 : "${tmp:?set tmp before sourcing}" "${repo_root:?set repo_root before sourcing}"
 

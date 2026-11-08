@@ -4,6 +4,8 @@ export type PanelHeadroom = { dimension: string; used: number; limit: number; pe
 export type PanelWatcher = { duty: string; script: string; state: string; next: number | null }
 export type PanelSource = { cls: string; source: string; mode: string; age: number | null }
 export type PanelMeasure = { name: string; value: string; age: number | null }
+// A health check out of its bound; a null count is a store that cannot be read.
+export type PanelHealth = { check: string; count: number | null; worst: string; text: string }
 export type PanelMyPr = {
   repo: string
   number: number
@@ -50,6 +52,9 @@ export type PanelDigest = {
   // control launched) hands over; null with no record or an unreadable one.
   holder: 'registry' | 'attended' | null
   unreadable: string[]
+  // Empty when every health check is within its bound; absent from a
+  // digest a reload carried over from before the checks were read.
+  health?: PanelHealth[]
   line: string
 }
 

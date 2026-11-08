@@ -188,6 +188,53 @@ test('the presence marker is restamped every minute', SLOW, async ($, on) => {
   expect(ran(w, 'mc-panel.sh', 'presence').at(-1)).toEqual(expect.arrayContaining(['--target', 'alpha']))
 })
 
+// The health line compares every mission control's reading with the
+// threshold it hands over at; a session that compacts carries none.
+test('the restamp carries the context reading and the handover threshold', SLOW, async ($, on) => {
+  const w = world(on, { digest: digestText({ holder: 'registry' }) })
+  await boot($, w)
+  await w.clock.advance(60_000)
+  const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(last.slice(last.indexOf('--context'))).toEqual(['--context', '42', '--threshold', '70'])
+  w.set({ digest: digestText({ holder: 'attended' }) })
+  await w.clock.advance(60_000)
+  const attended = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(attended.slice(attended.indexOf('--threshold'))).toEqual(['--threshold', '-'])
+})
+
+test('the restamp sends the context read at the restamp, not at the last redraw', SLOW, async ($, on) => {
+  const w = world(on, { digest: digestText({ holder: 'registry', refresh: 600 }) })
+  await boot($, w)
+  w.set({ contextPercent: 77 })
+  await w.clock.advance(60_000)
+  const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+  expect(last.slice(last.indexOf('--context'), last.indexOf('--context') + 2)).toEqual(['--context', '77'])
+})
+
+for (const [contextPercent, sent] of [
+  [42.6, '43'],
+  [104, '100'],
+  [-3, '0'],
+] as const) {
+  test(`the restamp sends a reading of ${contextPercent} as ${sent}`, SLOW, async ($, on) => {
+    const w = world(on, { contextPercent, digest: digestText({ holder: 'registry' }) })
+    await boot($, w)
+    await w.clock.advance(60_000)
+    const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+    expect(last.slice(last.indexOf('--context'), last.indexOf('--context') + 2)).toEqual(['--context', sent])
+  })
+}
+
+for (const contextPercent of [undefined, Number.NaN]) {
+  test(`the restamp sends no context for a reading of ${contextPercent}`, SLOW, async ($, on) => {
+    const w = world(on, { contextPercent, digest: digestText({ holder: 'registry' }) })
+    await boot($, w)
+    await w.clock.advance(60_000)
+    const last = ran(w, 'mc-panel.sh', 'presence').at(-1) ?? []
+    expect(last.slice(last.indexOf('--context'), last.indexOf('--context') + 2)).toEqual(['--context', '-'])
+  })
+}
+
 test('the session end hands the target back to the relay', async ($, on) => {
   const w = world(on)
   await boot($, w)

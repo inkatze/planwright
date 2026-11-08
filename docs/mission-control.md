@@ -160,6 +160,14 @@ Type `/mc-panel` in that session to close the mission-control panel beside
 the conversation when you can see it, or to show it when you cannot
 (`/mc-panel open` or `/mc-panel close` to choose).
 
+The panel adds a health line only when something its duties should have
+caught slipped past them (a session running too long or after its pull
+request landed, a permission prompt left waiting, a mission control stuck
+on its own dialog or past its handover point, CI jobs queueing for much of
+their run time or with no finished run yet, an idle session), saying
+"unknown" where it cannot tell; its bounds are in the
+[options reference](options-reference.md).
+
 When you update planwright and reload, mission control notices: the panel
 shows a short notice with the new version, and mission control rereads
 what changed before it next tells you how something works.
