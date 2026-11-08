@@ -49,7 +49,9 @@ as they stand now):
              whose stall sample (scripts/mc-stall.sh, the runtime
              directory's stall/) reads idle, idle-question, open-selector,
              unsubmitted-prompt, turn-ended-background, busy-unchanged or
-             dead: the time since its pane last changed. A session with no
+             dead: the time since its pane last changed (a session with no pane,
+             since it entered its state). A sample taken longer ago than
+             mission_control_stall_window is not current. A session with no
              current sample (a linked one is none) is named in the source
              line; with none sampled the source is unknown.
   steps      every cadence step record (start to end; a skipped step
@@ -208,6 +210,7 @@ load_knobs() {
   load_window
   THRESHOLDS=$(mc_knob mission_control_throughput_thresholds parse_thresholds) || exit 1
   CI_RUNS=$(mc_knob mission_control_throughput_ci_runs parse_ci_runs) || exit 1
+  STALL_WINDOW=$(knob_secs mission_control_stall_window) || exit 1
 }
 # The Actions runs list is one forge page, which holds at most 100 runs.
 parse_ci_runs() {
@@ -537,13 +540,16 @@ measure_stalls() {
     else
       ms_line=""
     fi
-    s_launch='' s_since='' s_state=''
-    [ -z "$ms_line" ] || IFS='	' read -r s_launch _ s_since s_state <<EOF
+    s_launch='' s_since='' s_state='' s_at=''
+    [ -z "$ms_line" ] || IFS='	' read -r s_launch _ s_since s_state s_at <<EOF
 $ms_line
 EOF
-    # No sample, one from an earlier launch under the same name, or one from
-    # the future leaves the session unmeasured, which is said, not zero.
-    if [ "$s_launch" != "$ms_key" ] || ! mc_valid_uint "$s_since" || [ "$s_since" -gt "$NOW" ]; then
+    # No sample, one from an earlier launch under the same name, one from the
+    # future, or one taken longer ago than the stall window leaves the session
+    # unmeasured, which is said, not zero. A sample that records no time of
+    # its own predates that field and is read as current.
+    if [ "$s_launch" != "$ms_key" ] || ! mc_valid_uint "$s_since" || [ "$s_since" -gt "$NOW" ] ||
+      { [ -n "$s_at" ] && { ! mc_valid_uint "$s_at" || [ "$s_at" -gt "$NOW" ] || [ $((NOW - s_at)) -gt "$STALL_WINDOW" ]; }; }; then
       ms_unsampled="$ms_unsampled${ms_unsampled:+, }${ms_row##*/}"
       continue
     fi

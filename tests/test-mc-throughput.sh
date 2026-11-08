@@ -169,6 +169,12 @@ row mc-alpha-worker-0000000006 "" 1793500000 t6
 printf '1793500000:t6\thash\t%s\tidle\n' $((NOW - 120)) >"$stall/mc-alpha-worker-0000000006"
 row mc-alpha-worker-0000000007 worker 1793500000 "$(printf 't\0337')"
 printf '1793500000:t7\thash\t%s\tidle\n' $((NOW - 130)) >"$stall/mc-alpha-worker-0000000007"
+# A reading older than the stall window (10m) is no longer true of the
+# session; one inside it is.
+row mc-alpha-worker-0000000008 worker 1793500000 t8
+printf '1793500000:t8\thash\t%s\tidle\t%s\n' $((NOW - 3600)) $((NOW - 660)) >"$stall/mc-alpha-worker-0000000008"
+row mc-alpha-worker-0000000009 worker 1793500000 t9
+printf '1793500000:t9\thash\t%s\tidle\t%s\n' $((NOW - 600)) $((NOW - 540)) >"$stall/mc-alpha-worker-0000000009"
 
 steps="$tmp/wt/.claude/steps"
 mkdir -p "$steps/000001" "$steps/000002"
@@ -215,7 +221,9 @@ expect_out "an idle session, under the bound" "stall${tab}mc-alpha-worker-000000
 expect_no_out "mission control's own session is not a stall" "mc-alpha-mission-control"
 expect_no_out "a sample from an earlier launch is not this launch's" "stall${tab}mc-alpha-worker-0000000004"
 expect_out "a session with no current sample is named, never read as unstalled" \
-  "source${tab}stalls${tab}ok${tab}7 sessions; no current stall sample: mc-alpha-worker-0000000004, mc-worker-00000000000000aa"
+  "source${tab}stalls${tab}ok${tab}9 sessions; no current stall sample: mc-alpha-worker-0000000004, mc-alpha-worker-0000000008, mc-worker-00000000000000aa"
+expect_no_out "a reading older than the stall window is no stall" "stall${tab}mc-alpha-worker-0000000008"
+expect_out "a reading inside the stall window is" "stall${tab}mc-alpha-worker-0000000009${tab}idle${tab}600"
 expect_no_out "a busy session is no stall" "stall${tab}mc-alpha-worker-0000000020"
 expect_no_out "another program's session is not measured" "stall${tab}mc-alpha-worker-0000000021"
 expect_no_out "a session no longer launched is not measured" "stall${tab}mc-alpha-worker-0000000022"
@@ -340,10 +348,10 @@ count_raised() { printf '%s\n' "$OUT" | awk -F '\t' '$3 == "throughput-bottlenec
 mc_run mc-throughput.sh watch --program alpha --now "$NOW"
 expect_rc "watch" 0
 expect_out "the top bottleneck is raised" "raised${tab}step:polish${tab}4800"
-expect_out "with no stall sample at all, the stalls source is unknown" "source${tab}stalls${tab}unknown${tab}no current stall sample for any of the 7 sessions"
+expect_out "with no stall sample at all, the stalls source is unknown" "source${tab}stalls${tab}unknown${tab}no current stall sample for any of the 9 sessions"
 events
 expect_out "as a throughput-bottleneck event with its numbers" "throughput-bottleneck${tab}step:polish${tab}Top bottleneck over the last 1d: Slow cadence step polish: median 40m"
-expect_out "a reason that fits beside the bottleneck is kept" "Not measured: stalls (no current stall sample for any of the 7 sessions"
+expect_out "a reason that fits beside the bottleneck is kept" "Not measured: stalls (no current stall sample for any of the 9 sessions"
 if [ "$(count_raised)" = 1 ]; then ok "one event"; else fail "expected one event, got $(count_raised)"; fi
 if [ -f "$mchome/kb/throughput/measure.tsv" ] && [ "$(head -n 1 "$mchome/kb/throughput/measure.tsv")" = "# format: 1" ]; then
   ok "the measurement is kept in the program home"
