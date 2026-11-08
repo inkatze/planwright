@@ -150,8 +150,8 @@ pred_sid=11111111-2222-3333-4444-555555555555
 other_sid=22222222-2222-3333-4444-555555555555
 act="$fleet/mission-control/_panel/active"
 for s in "$pred_sid" "$other_sid"; do
-  run mc-panel.sh activate --program alpha --session "$s" --now 1000
-  run mc-panel.sh ack --session "$s"
+  RUN_SESSION=$s run mc-panel.sh activate --program alpha --session "$s" --now 1000
+  RUN_SESSION=$s run mc-panel.sh ack --session "$s"
 done
 [ -f "$act/$pred_sid.ack" ] && [ -f "$act/$other_sid.ack" ] || fail "fixture: the activation records were not acknowledged: $ERR"
 RUN_SESSION=$pred_sid ho release --program alpha --session "$n1"

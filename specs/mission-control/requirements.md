@@ -912,6 +912,11 @@ later planwright bundles implement, D-12).
   D-8, D-10, D-11, D-17, D-18, D-22, D-25, D-28, D-29 and D-30; Tasks 17
   to 32. Mission-control observations mined and consumed as listed under
   Sources.
+- 2026-11-05 — Expression-only (brief Re-anchor, test-spec pointer): the
+  REQ-G1.5 test entry names `tests/test-policy-guard-mission-control.sh`
+  for the edit and git-mutation denials, which that suite pins, rather than
+  the command-guard suite. Operator ruling relayed by mission control; no
+  requirement or decision changes meaning.
 
 - 2026-11-07 — Amended (meaning-class, operator-declared, signed off at
   the amendment kickoff): REQ-L1.9 superseding REQ-L1.8 and D-43

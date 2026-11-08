@@ -78,6 +78,15 @@ write_core_adapters() {
   cp "$repo_root/config/snapshot-adapters.yaml" "$core/config/snapshot-adapters.yaml"
 }
 
+# write_mc_posture_pass: a fixture user settings layer that passes the
+# posture check scripts/mission-control-launch.sh runs before a launch: the
+# shipped mission-control profile, its guard hooks by absolute path.
+write_mc_posture_pass() {
+  mkdir -p "$fixhome/.claude"
+  jq --arg r "$repo_root" '(.. | objects | select(has("command")) | .command) |= gsub("\"\\$CLAUDE_PLUGIN_ROOT\""; $r)' \
+    "$repo_root/config/mission-control-settings.json" >"$fixhome/.claude/settings.json"
+}
+
 reset_mc_fixture() {
   write_core_defaults </dev/null
   write_core_duties
@@ -95,7 +104,7 @@ mc_env() {
   cd "$repo" && exec env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
     -u XDG_CONFIG_HOME -u PLANWRIGHT_MC_CHECKED -u PLANWRIGHT_MC_PROGRAM -u PLANWRIGHT_MC_DUTY \
-    -u PLANWRIGHT_MC_TARGET -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID \
+    -u PLANWRIGHT_MC_TARGET -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN \
     PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
     PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet" \

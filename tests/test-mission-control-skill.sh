@@ -171,6 +171,9 @@ need "REQ-I1.4: rewrite only on the same-turn request" "explicit request in the 
 need "REQ-I1.4: no protected push, no remote delete" "never delete a remote branch"
 need "REQ-A1.3: never a git mutation" "edit a repository or run a git mutation: every change goes through a session it launches"
 need "REQ-G1.4: never a settings edit" "edit a settings file or widen its own posture"
+need "REQ-G1.5: the posture is checked at bring-up and on every tick" "scripts/mc-posture.sh\`'s \`check\` now and on every failsafe tick"
+need "REQ-G1.5: anything but a pass holds read-only" "On anything but \`pass\` (a check that did not run included), say why once in one plain line and stay read-only"
+need "REQ-G1.5: read-only until a check passes, and the launcher refuses on the same check" "until a check passes; the launcher refuses on the same check"
 need "REQ-I1.6: the program home is never committed" "the program home is never committed"
 
 # Probes: each need-check fails on a string without its property.
