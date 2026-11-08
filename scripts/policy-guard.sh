@@ -668,7 +668,9 @@ tokenize() {
         case "${pending_quoted[$k]}:$line" in 0:*"\\") return 1 ;; esac
         cand=$line
         [ "${pending_tabs[$k]}" = 0 ] || cand=${cand#"${cand%%[!"$TAB"]*}"}
-        [ "$cand" != "${pending_delims[$k]}" ] || break
+        # bash tries the line as written before its tabs are stripped, which
+        # matters for a delimiter that itself starts with a tab.
+        [ "$line" != "${pending_delims[$k]}" ] && [ "$cand" != "${pending_delims[$k]}" ] || break
         body="$body$line$NL"
       done
       if [ "${pending_quoted[$k]}" = 0 ]; then

@@ -1028,6 +1028,15 @@ x\
 E
 git status' "$MAIN"
 expect defer "[worker] a quoted here-document body may end a line with a backslash"
+HT=$'\t'
+for open in "<<-\"${HT}E\"" "<<-'${HT}E'" "<<-\\${HT}E"; do
+  pg worker "cat $open
+x
+${HT}E
+git push
+E" "$MAIN"
+  expect deny "[worker] bash ends a <<- body at a tab-led delimiter as written, so it cannot hide a push: ${open//$HT/<tab>}"
+done
 mkdir -p "$SANDBOX/nojq"
 for t in head tr dirname cat; do ln -sf "$(command -v "$t")" "$SANDBOX/nojq/$t"; done
 NOJQ_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr ready 42"}}' \
