@@ -49,10 +49,10 @@ def no_narration_ok:
   all(unasked_presents[].text;
     test("\\b(i|i've|we) (have )?(approved|allowed|relayed|passed|forwarded|sent|re-?armed|restarted|steered|nudged)\\b|\\b(approved|relayed|forwarded|re-?armed|restarted|steered|nudged) (the|a|an|your|its|their) [a-z-]+ (request|prompt|message|answer|watch|watcher|session|work)\\b|\\bpassed (it|that|your [a-z]+) (on|along)\\b|\\brelaying\\b"; "i") | not);
 def no_ack_ok:
-  all(presents[].text; test("^(got it|understood|thanks|thank you|will do|on it|okay|sure)([.,!:;-]|$)"; "i") | not);
+  all(presents[].text; test("^(got it|understood|thanks|thank you|will do|on it|okay|sure)([.,!:;-]+( |$)|$)"; "i") | not);
 def unasked_cap_ok:
   turns | reduce .[] as $r ({max: 0, cur: 0, unasked: true};
-    if $r.kind == "present" then (if .unasked and $r.item == null and ($r.text | startswith("Decision: ") | not) then .cur += ($r.text | split("\n") | length) | .max = ([.max, .cur] | max) else . end)
+    if $r.kind == "present" then (if .unasked and $r.item == null then .cur += ($r.text | split("\n") | map(select(startswith("Decision: ") | not)) | length) | .max = ([.max, .cur] | max) else . end)
     else .cur = 0 | .unasked = ($r.kind == "event") end)
   | .max <= 5;
 def routine_silent_ok:

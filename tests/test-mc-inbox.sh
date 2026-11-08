@@ -153,6 +153,10 @@ case $ERR in
   *"$(printf '\033')"* | *"$(printf '\007')"*) fail "an unknown class reaches stderr with its control bytes" ;;
   *) ok "an unknown class is named without its control bytes" ;;
 esac
+printf 'landed\tSure-footed rollout, PR 9 merged\n\tno class\n' >"$tmp/report"
+report "$tmp/report"
+expect_eq "a word that only starts like an acknowledgement is kept" "Landed: Sure-footed rollout, PR 9 merged"
+expect_err "an empty class is named as such" "unknown class(es): (empty)"
 
 # ---------------------------------------------------------------------------
 # REQ-F1.7: an item is answerable alone, every field present.

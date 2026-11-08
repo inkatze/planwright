@@ -52,8 +52,8 @@ Usage:
       acknowledgement (got it, thanks, on it...) is cut, each counted on
       stderr, so none reaches the operator; with nothing left, stdout is
       empty and the turn says nothing. A line of any other class is named
-      on stderr, stripped of control bytes, and the exit is 1, the rest
-      still rendered.
+      on stderr (printable ASCII only, `(empty)` for none) and the exit is
+      1, the rest still rendered.
   mc-inbox.sh item --link <url> --does <text> --asked <text> --right <text>
                    --option <label>=<effect>... --recommend <text>
                    --checked <text>
@@ -122,7 +122,7 @@ case $verb in
         for (i = 1; i <= n; i++) owed[c[i]] = i
         dc = owed["decision"]
         quiet["act"] = 1; quiet["routine"] = 1
-        ack = "^(got it|understood|thanks|thank you|will do|on it|okay|sure)([.,!:;-]+ *|$)"
+        ack = "^(got it|understood|thanks|thank you|will do|on it|okay|sure)([.,!:;-]+( +|$)|$)"
       }
       { sub(/\r$/, "") }
       !NF { next }
@@ -131,7 +131,7 @@ case $verb in
         x = substr($0, length($1) + 2); gsub(/^ +| +$/, "", x)
       }
       k in quiet { dropped++; next }
-      !(k in owed) { gsub(/[^[:print:]]/, "", k); unknown = unknown " " k; next }
+      !(k in owed) { gsub(/[^[:print:]]/, "", k); unknown = unknown " " (k == "" ? "(empty)" : k); next }
       {
         cut = 0
         while (match(tolower(x), ack)) { x = substr(x, RLENGTH + 1); cut = 1; acks++ }
