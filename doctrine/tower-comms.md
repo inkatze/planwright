@@ -33,7 +33,7 @@ list beside the queue script.
 
 An unasked turn carries only a decision waiting on the operator, a blocker,
 a failure, or a landing (a PR merged or ready to merge): one lead line, no
-acknowledgement, no echo of their words, five lines at most, a decision item
+acknowledgement, no echo of their words, five lines at most, decisions
 exempt; with nothing owed, it says nothing. A routine act (a covered
 approval, a relay, a re-armed watcher, a steer) is logged, never narrated.
 Still said: a denial's exact text, a refusal's reason, and, in full, any

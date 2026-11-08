@@ -214,7 +214,7 @@ which keeps decision, blocker, failure and landed lines, every decision
 and five others at most, cutting acknowledgements and repeats. A routine
 event raises no turn (`config/mc-event-classes.tsv`). A routine act is
 logged with its undo entry and decision, never said; a completed handover
-still owes its one line.
+still says the `line` `scripts/mc-handover.sh` prints, outside the report.
 
 **Name the source (REQ-H1.4).** Wherever a report draws on a source, say
 its mode and age as `scripts/mc-snapshot.sh`'s `list` gives them; where a fact
