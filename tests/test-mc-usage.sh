@@ -268,7 +268,8 @@ grep -q -- "--resume 0b6f0c1e-1111-4222-8333-444455556666" "$tmp/shim/argv" \
   || fail "the stopped session was not resumed from its own session"
 # The runner's watcher loop leads its own process group and stops with it,
 # so a session the drain starts or recovers must not join that group.
-if command -v setsid >/dev/null 2>&1 && command -v ps >/dev/null 2>&1; then
+# BusyBox ps takes no -p, so the check runs only where ps can name a group.
+if command -v setsid >/dev/null 2>&1 && [ -n "$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')" ]; then
   sup=$(head -n 1 "$sjdir/supervisor.pid" 2>/dev/null)
   sup_pg=$(ps -o pgid= -p "${sup:-0}" 2>/dev/null | tr -d ' ')
   our_pg=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
