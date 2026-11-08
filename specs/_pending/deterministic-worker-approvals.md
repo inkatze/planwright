@@ -174,10 +174,13 @@ Left for a `mission-control` amendment, which owns the follow-ups:
   after the dialog appeared, not that the operator said it; a session able
   to forge an entry could answer its own hub's peer. Binding the entry to an
   operator-only act (a Remote Control message id, a signed token) would
-  close it.
+  close it. The watcher's `--now` and `--pane` flags, there for tests, can
+  likewise rewrite a dialog's first sight; they add nothing a forged entry
+  does not already give.
 - **Same-user trust.** The relay narrows what a mission control does
   through it, not what this user account can do: any process of the user
-  can still run `tmux send-keys` itself. The relay is the sanctioned path,
+  can still run `tmux send-keys` itself, or start a process whose command
+  line reads as the program's session. The relay is the sanctioned path,
   and its allow rule must name its exact installed path, never a glob.
 - **The capture-to-keystroke race.** The pane is read again just before the
   keystroke, but a dialog that replaces it in between receives the digit.

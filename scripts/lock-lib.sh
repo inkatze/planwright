@@ -79,7 +79,8 @@
 #   scripts/mc-escalate.sh a program's escalation pass, so two passes never
 #                          raise one escalation twice
 #   scripts/mc-pane-answer.sh   a program's dialog answer, so one decision
-#                          never answers twice
+#                          never answers twice; it then takes the escalation
+#                          pass lock above to drop the answered dialog's record
 #   scripts/mc-reclaim.sh  a reclaim folder, so two reclaims of one branch
 #                          never copy into or roll back the same folder
 #   scripts/mc-config.sh   the adopter layer's planwright.yml, so two writes

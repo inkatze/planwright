@@ -875,7 +875,9 @@ watcher first saw the dialog, and it is used once. The pane is read again
 just before the keystroke, and the digit's label must be one that answers
 this dialog and nothing more (a short allowlist: Yes, No and their
 one-time variants), so a rule for later calls, a mode switch or a trust
-grant is refused. Its `--help` lists every refusal.
+grant is refused. Its `--help` lists every refusal. With
+`mission_control_escalation_hub: none`, and for the hub's own dialog, there
+is no hub to record the answer, so such a dialog is answered at its pane.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -1894,8 +1896,9 @@ and the busy footer markers live in one sourced file,
 `fleet-stuck-detector.sh`, the relay's `deliver` step and mission control's
 stall detector (`scripts/mc-stall.sh`) and escalation watcher and pane relay
 (`scripts/mc-escalate.sh`, `scripts/mc-pane-answer.sh`, through
-`scripts/mc-session-pane.sh`, which keeps only the auto-mode phrases and the
-relay's answerable labels itself);
+`scripts/mc-session-pane.sh`, which keeps the auto-mode phrases, the footers
+and rule glyphs that bound a dialog, and the relay's answerable labels itself,
+so the overrides that follow do not reach them);
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and

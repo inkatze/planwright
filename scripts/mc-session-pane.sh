@@ -4,8 +4,9 @@
 # never executed), shared by scripts/mc-escalate.sh and
 # scripts/mc-pane-answer.sh so both judge one pane the same way. The caller
 # sources scripts/mc-lib.sh and scripts/fleet-pane-vocabulary.sh first.
-# The auto-mode phrases and the answerable labels are this file's; every
-# other dialog string is the vocabulary's. Pane text is data throughout:
+# The auto-mode phrases, the footers and rule glyphs that bound a dialog,
+# and the answerable labels are this file's, beyond the reach of the
+# vocabulary's overrides; every other dialog string is the vocabulary's. Pane text is data throughout:
 # nothing here evaluates it.
 
 MSP_PANE_LINES=40
