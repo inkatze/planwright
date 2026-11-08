@@ -16,9 +16,10 @@ transcripts included; the CLI keeps about two weeks, so the history starts
 - **Full history**, 2026-10-26 to 2026-11-08 UTC: $14,420, of which cache
   reads $8,816 (44.4B tokens), cache writes $3,961 (604M), output $1,641
   (82M), input under $2. Opus 5.5 is over 98% of it.
-- **Mission-control era**, 2026-11-05 to 2026-11-08 UTC: $3,478, about
-  $1,100 a day. Mission-control hubs $1,153; sessions they launched $2,202,
-  of which sub-agents $1,057.
+- **Mission-control era**, 2026-11-05 UTC to the measurement early on
+  2026-11-08, about 3.3 days: $3,478, about $1,050 a day. Mission-control
+  hubs $1,153; sessions they launched $2,202, of which sub-agents $1,057;
+  the other $123 is sessions mission control neither ran nor launched.
 
 The script's dollars matched the CLI's own `costUSD` to the cent on the four
 fleet workers checked.
