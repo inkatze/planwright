@@ -144,11 +144,13 @@ hub, a hub that refuses the event, or for the hub's own items, the first
 level goes to the operator.
 
 `scripts/mc-pane-answer.sh` delivers the operator's answer to such a
-dialog: one digit into that program's own mission-control pane, only for an
-option the dialog offers that adds no standing permission, and only
-against a decisions-log entry recording the operator's words, made after
-the watcher first saw that dialog and used once. It runs only under an
-allow rule the operator adds.
+dialog: one digit into that program's own mission-control pane, only
+against the configured hub's note of the operator's answer about that very
+dialog (subject `<program> dialog <digest>`, answer the digit), made after
+the watcher first saw the dialog and used once, and only for an option
+whose label answers this dialog and nothing more (an exact allowlist). It
+is not on the worker profile's allow list: without the exact-path allow
+rule the operator adds, the auto-mode classifier still judges each call.
 
 Left for a `mission-control` amendment, which owns the follow-ups:
 
@@ -173,6 +175,19 @@ Left for a `mission-control` amendment, which owns the follow-ups:
   to forge an entry could answer its own hub's peer. Binding the entry to an
   operator-only act (a Remote Control message id, a signed token) would
   close it.
+- **Same-user trust.** The relay narrows what a mission control does
+  through it, not what this user account can do: any process of the user
+  can still run `tmux send-keys` itself. The relay is the sanctioned path,
+  and its allow rule must name its exact installed path, never a glob.
+- **The capture-to-keystroke race.** The pane is read again just before the
+  keystroke, but a dialog that replaces it in between receives the digit.
+  The window is one tmux call wide; closing it needs the CLI to accept an
+  answer bound to a dialog id.
+- **Screen scraping.** Dialogs are read from pane text, a platform surface.
+  A layout change reads as no dialog, a different dialog or a broken option
+  run, each of which refuses; a new label wording is refused until the
+  allowlist learns it. It fails closed, but it can stop answering after a
+  CLI update.
 - **Reach.** A mission control on another host (the Mac) has no pane here
   to read; its requests are still raised. A session started as plain
   `claude` with the skill typed in afterwards reads `absent`; resolving the

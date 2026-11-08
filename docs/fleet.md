@@ -861,17 +861,21 @@ and the mission control's own tmux pane showing an open dialog for that
 long. Auto mode's confirmation after blocked actions is one such dialog, and
 Remote Control does not show it. Either becomes a `mission-control-escalated`
 event in the hub program's store (`mission_control_escalation_hub`, when its
-holder is live), and at twice the window a second push to the operator
-through the notification seam. With no live hub, or for the hub's own items,
-the first level goes to the operator. Each level is raised once.
+holder is live), and at twice the window a push to the operator through the
+notification seam. With no live hub, or for the hub's own items, the first
+level goes to the operator. Each level is raised once.
 
 The operator's answer to such a dialog reaches the pane through
 `scripts/mc-pane-answer.sh`. It delivers one digit to that program's own
-mission-control pane, never a pane the caller names. The digit must be an
-option the open dialog offers and must not add a standing permission. The
-answer must rest on a decisions-log entry recording the operator's words,
-made after the watcher first saw that dialog and used once. Its `--help`
-lists every refusal.
+mission-control pane, never a pane the caller names, and only against the
+hub's decisions-log entry noting the operator's answer (`mc-decide.sh note
+--shape answer`) about that very dialog: its subject names the dialog's
+digest from the escalation, its answer is the digit, it was made after the
+watcher first saw the dialog, and it is used once. The pane is read again
+just before the keystroke, and the digit's label must be one that answers
+this dialog and nothing more (a short allowlist: Yes, No and their
+one-time variants), so a rule for later calls, a mode switch or a trust
+grant is refused. Its `--help` lists every refusal.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -1890,7 +1894,8 @@ and the busy footer markers live in one sourced file,
 `fleet-stuck-detector.sh`, the relay's `deliver` step and mission control's
 stall detector (`scripts/mc-stall.sh`) and escalation watcher and pane relay
 (`scripts/mc-escalate.sh`, `scripts/mc-pane-answer.sh`, through
-`scripts/mc-session-pane.sh`);
+`scripts/mc-session-pane.sh`, which keeps only the auto-mode phrases and the
+relay's answerable labels itself);
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
