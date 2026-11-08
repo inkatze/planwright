@@ -606,7 +606,7 @@ drain() {
         done
         origin=$(field "$e/entry" origin)
         dr_errf=$(mktemp "$udir/.launch.err.XXXXXX") || {
-          printf 'kept\t%s\tcannot stage the launch\n' "$id"
+          noted kept "$id" "cannot stage the launch"
           continue
         }
         dr_out=$( (cd "$origin" && detached /bin/bash "$script_dir/mission-control-launch.sh" launch "$@") 2>"$dr_errf" </dev/null)

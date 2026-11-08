@@ -131,7 +131,8 @@ its window (retire); 4 a launch refused before it started: a posture check
 (scripts/mc-posture.sh) that failed or did not run, no readable profile, an
 unresolvable rung knob, no resolvable tier (an unreachable allocation store
 or a malformed tier knob), the admission gate withholding it, the usage
-hold (or one that cannot be read), a broken allocation install, a program
+hold (or one that cannot be read), an operator-asked launch past it whose
+bypass cannot be recorded, a broken allocation install, a program
 that is not configured, rules that would not render, a worktree that could
 not be created, a named directory that is not a worktree other than a
 primary checkout, a worktree path holding a control character, or any
@@ -810,7 +811,7 @@ cmd_launch() {
     esac
     if [ -n "$uh_why" ] && [ "$operator_asked" -eq 1 ]; then
       /bin/bash "$script_dir/mc-event.sh" emit --program "$program" -- usage-bypass "$name" \
-        "launched past the usage hold because the operator asked ($uh_why)" </dev/null >/dev/null 2>&1 \
+        "allowed past the usage hold because the operator asked ($uh_why)" </dev/null >/dev/null 2>&1 \
         || die "refusing to launch $name past the usage hold: the bypass could not be recorded (mc-event.sh emit)" 4
     elif [ "$uh_rc" -eq 0 ]; then
       die "refusing to launch $name: launches are held until the usage window resets ($uh_why); queue it for the reset with mc-usage.sh enqueue and these same arguments, or pass --operator-asked for work the operator asked for" 4
