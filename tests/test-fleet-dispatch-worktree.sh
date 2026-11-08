@@ -67,6 +67,9 @@ export GIT_CONFIG_SYSTEM=/dev/null
 here=$(cd "$(dirname "$0")" && pwd)
 PRIM="$here/../scripts/fleet-dispatch-worktree.sh"
 SETTINGS="$here/../config/tower-settings.json"
+# The shell rules a tmux launch appends, on one line, as the plan prints them.
+RULES1=$(tr -s '\r\n' '  ' <"$here/../config/launch-shell-rules.txt")
+RULES1=${RULES1% }
 TOWER_HOOK="$here/../scripts/tower-command-guard.sh"
 SCRIPTS_DIR="$here/../scripts"
 TAB=$(printf '\t')
@@ -1208,7 +1211,7 @@ c29() {
   run_prim dispatch --flight demo-0123abcd --brief "$tmp/alias/brief.md" --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 0 ] || fail "c29: the flight's own brief must be accepted, got exit $RC"
   case $OUT in
-    *"claude${TAB}--name${TAB}tmux-flight-demo-0123abcd${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+    *"claude${TAB}--name${TAB}tmux-flight-demo-0123abcd${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--append-system-prompt${TAB}$RULES1${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
     *) fail "c29: the attach plan must hand the worker its own brief, got: $OUT" ;;
   esac
 
@@ -1231,7 +1234,7 @@ c29() {
   run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
   [ "$RC" -eq 0 ] || fail "c29: a standalone flight attach must take its brief, got exit $RC"
   case $OUT in
-    *"claude${TAB}--name${TAB}tmux-flight-demo-0123abcd${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+    *"claude${TAB}--name${TAB}tmux-flight-demo-0123abcd${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--append-system-prompt${TAB}$RULES1${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
     *) fail "c29: a standalone flight attach must hand the worker its brief, got: $OUT" ;;
   esac
   run_prim attach flight-demo-0123abcd --brief "$tmp/brief.md" --dry-run
@@ -1466,7 +1469,7 @@ c34() {
     return
   }
   case $OUT in
-    *"${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
+    *"${TAB}--settings${TAB}$(cd "$here/.." && pwd -P)/config/worker-settings.json${TAB}--append-system-prompt${TAB}$RULES1${TAB}--${TAB}Read $_own/brief.md and follow it exactly.${TAB};${TAB}set-window-option${TAB}"*) ;;
     *) fail "c34: the attach plan must hand the worker exactly the fixed prompt, got: $OUT" ;;
   esac
   case $OUT in

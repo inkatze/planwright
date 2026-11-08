@@ -2287,19 +2287,7 @@ cmd_launch() {
   # profile's own install, so they never ask for a shape that install's guard
   # does not approve. Joined onto one line: what reads a launch's argv back
   # reads it by line.
-  rules_file=${launch_settings%/*}/launch-shell-rules.txt
-  shell_rules=''
-  if [ -f "$rules_file" ] && [ -r "$rules_file" ]; then
-    shell_rules=$(tr -s '\r\n' '  ' <"$rules_file") || shell_rules=''
-    shell_rules=${shell_rules% }
-  fi
-  case $shell_rules in
-    *[![:space:]]*) ;;
-    *)
-      shell_rules=''
-      printf '%s\n' "$me: warning: $rules_file is missing, unreadable or empty; $worker launches without the shell rules" >&2
-      ;;
-  esac
+  shell_rules=$(/bin/sh "$script_dir/launch-shell-rules.sh" "$launch_settings" "$worker" </dev/null) || shell_rules=''
 
   # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
   # environment-hardening wrapper in front (it execs the rest, so the fifos

@@ -103,7 +103,7 @@ command per Bash call** instead:
 - **Exit status from the result.** The tool result already reports the exit
   code; never append `echo rc=$?` or a similar probe.
 
-A stream-json launch appends these rules to the session's system prompt
+A stream-json, tmux or headless launch appends these rules to the session's system prompt
 (`config/launch-shell-rules.txt`, which changes with this section), so a
 session keeps them after compaction drops its brief.
 

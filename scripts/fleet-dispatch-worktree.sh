@@ -1106,11 +1106,13 @@ launch_roots() {
 # profile named on stderr: a worker launched without it would run under the
 # operator's own settings (fleet-messaging D-19, obs:eea622de).
 LAUNCH_PROFILE=''
+LAUNCH_RULES=''
 resolve_launch_profile() {
   set -- worker
   [ -z "$LAUNCH_ROOT" ] || set -- worker --root "$LAUNCH_ROOT"
   LAUNCH_PROFILE=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$@" </dev/null) || LAUNCH_PROFILE=""
-  [ -n "$LAUNCH_PROFILE" ]
+  [ -n "$LAUNCH_PROFILE" ] || return 1
+  LAUNCH_RULES=$(/bin/sh "$script_dir/launch-shell-rules.sh" "$LAUNCH_PROFILE" "the tmux worker" </dev/null) || LAUNCH_RULES=''
 }
 
 # print_plan <suffix> <worktree> <handle> <scope> [<extra launch args>...] —
@@ -1177,7 +1179,8 @@ tmux_launch() {
   # (fleet-messaging D-8, D-17, D-19).
   tl_cli=$1
   shift
-  set -- "$tl_cli" --name "$tl_handle" --settings "$LAUNCH_PROFILE" "$@"
+  set -- "$tl_cli" --name "$tl_handle" --settings "$LAUNCH_PROFILE" \
+    ${LAUNCH_RULES:+--append-system-prompt "$LAUNCH_RULES"} "$@"
   [ -z "$ATTACH_PROMPT" ] || set -- "$@" -- "$ATTACH_PROMPT"
   set -- --inbound accept "$@"
   [ -z "$LAUNCH_SPEC_ROOT" ] || set -- --spec-root "$LAUNCH_SPEC_ROOT" "$@"
