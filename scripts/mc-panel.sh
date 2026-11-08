@@ -800,8 +800,9 @@ if [ "$verb" = presence ]; then
   fi
   if [ -n "$ctx_pct" ]; then
     # A directory in its place would take the rename into it.
-    [ ! -L "$runtime/context" ] && { [ ! -e "$runtime/context" ] || [ -f "$runtime/context" ]; } \
-      || mc_fail "the context reading is not a file"
+    if [ -L "$runtime/context" ] || { [ -e "$runtime/context" ] && [ ! -f "$runtime/context" ]; }; then
+      mc_fail "the context reading is not a file"
+    fi
     ctx_pid=${CLAUDE_PID:-}
     mc_valid_uint "$ctx_pid" || ctx_pid=-
     printf 'format\t%s\nwritten\t%s\npercent\t%s\nthreshold\t%s\npid\t%s\n' \
