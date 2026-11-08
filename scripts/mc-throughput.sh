@@ -573,7 +573,7 @@ step_rows() {
   printf '%s\n' "$sr_list" | B=$2 SINCE=$SINCE awk -F '\t' "$ISO_AWK"'
     # A branch name may carry C1 control bytes git allows; they never reach
     # a terminal or the store.
-    BEGIN { b = ENVIRON["B"]; gsub(/[\001-\037\177]/, "", b); gsub(/\302[\200-\237]/, "", b) }
+    BEGIN { b = ENVIRON["B"]; gsub(/[\001-\037\177]/, "", b); do { p = b; gsub(/\302[\200-\237]/, "", b) } while (b != p) }
     function flush() {
       if (v["type"] == "step" && v["outcome"] != "skipped" && v["step"] ~ /^[A-Za-z0-9._-]+$/) {
         s = iso(v["start"]); e = iso(v["end"])
