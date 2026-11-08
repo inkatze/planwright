@@ -5,8 +5,8 @@
 # Two guards, both pure shell — no model or API call is in the decision path
 # (REQ-E1.3, carrying fleet-autonomy D-18):
 #
-#   1. Footgun scan. A path-scoped Bash allow/deny rule must use the
-#      `Bash(<dir>/*)` glob, never the word-boundary `Bash(<dir>/:*)` form.
+#   1. Footgun scan. A path-scoped Bash allow/deny rule never uses the
+#      word-boundary `Bash(<dir>/:*)` form (an allow rule names an exact path).
 #      Claude Code's `:*` is a COMMAND-boundary glob: it matches only when a
 #      space or end-of-string follows the prefix, so `Bash(<dir>/:*)` never
 #      matches `<dir>/<file>` (a filename, not a space, follows the slash) and
@@ -14,7 +14,7 @@
 #      `Bash(<scripts-dir>/:*)` rule silently never matched the wrapper path on
 #      2026-07-19 and forced a bare launch. The scan flags any shipped config
 #      allow/deny entry whose inner text ends in `/:*`, while passing the
-#      correct `/*` path form and the legitimate command globs
+#      `/*` path form (check-allow-path-globs.sh flags that) and the command globs
 #      (`Bash(git status:*)`, `Bash(mise run:*)`), whose `:*` is correct.
 #      The scan matches one rule token per line (the pretty-printed
 #      one-entry-per-line JSON the profiles ship as, which excludes `_about`
@@ -106,7 +106,7 @@ run_footgun_scan() {
     while IFS= read -r hit; do
       lineno="${hit%%:*}"
       tok="${hit#*:}"
-      echo "check-glob-allow-rules: $f:$lineno path-scoped rule uses the never-match ':*' word-boundary form: $tok — use the '/*' path glob (Bash(<dir>/*)) instead (D-6, REQ-B1.3)" >&2
+      echo "check-glob-allow-rules: $f:$lineno path-scoped rule uses the never-match ':*' word-boundary form: $tok — an allow rule names the exact script path instead, never a '*' in the path (docs/overlays.md; D-6, REQ-B1.3)" >&2
       status=1
     done <<EOF
 $hits
