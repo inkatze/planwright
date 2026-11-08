@@ -968,9 +968,17 @@ win=$(run windows) || fail "windows failed"
 win=$(run windows --now $((in_hour + 1))) || fail "windows --now failed"
 [ "$win" = "$(printf 'session\tunavailable\t-\nweekly\tunavailable\t-')" ] \
   || fail "a mirror stale at --now, or a reset already past, must read unavailable (got: $win)"
+wn_t=$(date +%s)
+write_mirror "{\"seven_day\":{\"used_percentage\":91.5,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":40,\"resets_at\":$((wn_t + 60))}}"
+win=$(run windows --now $((wn_t + 120))) || fail "windows --now (one reset past) failed"
+[ "$win" = "$(printf 'session\tunavailable\t-\nweekly\t91\t%s' "$in_day")" ] \
+  || fail "a window whose reset has passed must read unavailable while the other stays (got: $win)"
 rc=0
 run windows extra >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "windows with an extra argument must be a usage error (got $rc)"
+rc=0
+run windows --now 0123 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "windows --now with a leading zero must be a usage error, never read as octal (got $rc)"
 no_llm "windows"
 echo "ok: windows reads each mirror window's percentage and reset epoch"
 

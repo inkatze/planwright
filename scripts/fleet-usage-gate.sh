@@ -917,7 +917,8 @@ case "$cmd" in
         echo "fleet-usage-gate: cannot read the clock" >&2
         exit 2
       } ;;
-      *[!0-9]*)
+      # A leading zero would read as octal in the age arithmetic.
+      *[!0-9]* | 0?*)
         usage
         exit 2
         ;;
