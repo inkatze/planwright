@@ -209,6 +209,13 @@ expect_out "its text carries the numbers" "Slow cadence step polish: median 40m 
 printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 1h}\n' >>"$tracked"
 mc_run mc-throughput.sh top --program alpha --now "$NOW"
 expect_out "a step under a raised threshold is no bottleneck; the CI queue leads" "top${tab}ci:ci / macos-suite${tab}3000${tab}Top bottleneck over the last 1d: CI runner queue, ci / macos-suite: median wait 25m over 2 jobs"
+cp "$tracked" "$tracked.keep"
+grep -v '^mission_control_throughput_thresholds' "$tracked.keep" >"$tracked"
+printf 'mission_control_throughput_thresholds: {ci-queue: 1d, approval-wait: 1d, stall: 1d, step: 1d}\n' >>"$tracked"
+mc_run mc-throughput.sh top --program alpha --now "$NOW"
+expect_rc "top with nothing over its threshold" 0
+expect_out "names no bottleneck" "top${tab}none"
+mv "$tracked.keep" "$tracked"
 
 # ---------------------------------------------------------------------------
 # A source that cannot be read is unknown, never zero.
@@ -356,6 +363,24 @@ if [ "$(id -u)" -ne 0 ]; then
 else
   ok "the unmeasured note under the text bound (skipped as root)"
 fi
+
+# A CI key falls outside the subject grammar, so its event takes a checksum
+# subject and carries the key in its text.
+unset GH_FIXTURE_EMPTY
+cat >"$tmp/gh/jobs-102.json" <<'EOF'
+{"jobs":[
+ {"name":"macos-suite","status":"completed","conclusion":"success","created_at":"2026-11-01T11:10:00Z","started_at":"2026-11-01T11:30:00Z","completed_at":"2026-11-01T11:50:00Z"}]}
+EOF
+rm -f "$runtime/throughput-last" "$runtime/throughput-raised"
+printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 1d}\n' >>"$tracked"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 32400))
+expect_rc "a watch where CI leads" 0
+expect_out "the CI queue is raised" "raised${tab}ci:ci / macos-suite${tab}3000"
+events
+expect_out "under a checksum subject, the key in its text" \
+  "throughput-bottleneck${tab}throughput-$(printf '%s' 'ci:ci / macos-suite' | cksum | awk '{ print $1 }')${tab}Top bottleneck over the last 1d: CI runner queue, ci / macos-suite"
+grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+export GH_FIXTURE_EMPTY=1
 
 # ---------------------------------------------------------------------------
 # Knobs.
