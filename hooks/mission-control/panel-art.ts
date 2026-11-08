@@ -48,7 +48,9 @@ const UPPER_HALF = 0x2580
 
 export const SPRITE_WIDTH = SPRITE_ROWS[0]!.length
 // Two pixel rows per cell row.
-export const SPRITE_CELL_ROWS = Math.ceil(SPRITE_ROWS.length / 2)
+// The deepest drop any state applies, so the grid always holds the whole sprite.
+const MAX_DROP = 3
+export const SPRITE_CELL_ROWS = Math.ceil((SPRITE_ROWS.length + MAX_DROP) / 2)
 
 // The pixel at a column and row, after the state's offset; transparent is null.
 function spritePixel(x: number, y: number): Rgb | null {
@@ -74,8 +76,9 @@ export function spriteOffset(state: SpriteState, frame: number): { dx: number; d
 
 // The propeller blades flip between two heights each frame, so a spin reads.
 function propPixel(x: number, y: number, frame: number): Rgb | null {
-  if (x !== SPRITE_WIDTH - 1) return spritePixel(x, y)
-  return (frame % 2 === 0 ? y < 5 : y >= 4) ? SPRITE_PALETTE.P! : null
+  const px = spritePixel(x, y)
+  if (x !== SPRITE_WIDTH - 1 || px === null) return px
+  return (frame % 2 === 0 ? y < 6 : y >= 4) ? px : null
 }
 
 export type Cells = { columns: number; rows: number; cells: string }
@@ -85,7 +88,7 @@ export type Cells = { columns: number; rows: number; cells: string }
 // terminal's own colour. `pad` leaves room for the sprite to move.
 export function spriteCells(state: SpriteState, frame: number, pad = 5): Cells {
   const columns = SPRITE_WIDTH + pad
-  const rows = SPRITE_CELL_ROWS + 1
+  const rows = SPRITE_CELL_ROWS
   const { dx, dy } = spriteOffset(state, frame)
   const words = new Uint32Array(columns * rows * 3)
   for (let r = 0; r < rows; r++) {

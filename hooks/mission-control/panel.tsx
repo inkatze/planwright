@@ -376,13 +376,22 @@ function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
   )
 }
 
+// The wake animation redraws twice a second; the instruments move far slower,
+// so the last picture stands while its readings do.
+let lastGauges: { key: string; picture: ReturnType<typeof gaugesPicture> } | null = null
+function gaugesFor(i: Instruments) {
+  const key = JSON.stringify(i)
+  if (lastGauges?.key !== key) lastGauges = { key, picture: gaugesPicture(i) }
+  return lastGauges.picture
+}
+
 const GAUGE_COLUMNS = 56
 const GAUGE_ROWS = 5
 
 // The five instruments as one picture; the words below say the same numbers.
 function Gauges(t: PictureTable, view: PanelView) {
   const { Box } = t
-  const g = gaugesPicture(instruments(view))
+  const g = gaugesFor(instruments(view))
   return (
     <Box flexDirection="column">
       <t.Image
