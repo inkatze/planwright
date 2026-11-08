@@ -127,11 +127,18 @@ rows=$(wc -l <"$log")
 /bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "would log" 2>/dev/null
 rc=$?
 [ "$rc" = 0 ] && [ "$(wc -l <"$log")" = "$rows" ] && ok "log --check writes no row" || fail "log --check: exit $rc, $(cat "$log")"
-chmod 444 "$log"
-/bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "would log" 2>/dev/null
+# A read-only file stops only a non-root writer.
+if [ "$(id -u)" != 0 ]; then
+  chmod 444 "$log"
+  /bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "would log" 2>/dev/null
+  rc=$?
+  chmod 644 "$log"
+  [ "$rc" = 2 ] && ok "and fails when the row could not be appended" || fail "log --check passed on an unwritable log"
+fi
+mkdir -p "$tmp/fresh/mission-control"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/fresh" /bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "would log" 2>/dev/null
 rc=$?
-chmod 644 "$log"
-[ "$rc" = 2 ] && ok "and fails when the row could not be appended" || fail "log --check passed on an unwritable log"
+[ "$rc" = 0 ] && [ ! -e "$tmp/fresh/mission-control/retasks.log" ] && ok "log --check creates no log" || fail "log --check on a fresh home: exit $rc"
 
 # --- hook --------------------------------------------------------------------
 
@@ -244,10 +251,12 @@ printf '   [planwright retask-override: indented reason]\n/planwright:polish\n' 
 hook SendMessage mc-p-worker-live "$tmp/override-indent" 2>/dev/null
 silent && grep -q "${tab}indented reason\$" "$log" && ok "an indented override tag is honoured, logged" \
   || fail "an indented override: out '$OUT', log $(cat "$log")"
-chmod 444 "$log"
-hook SendMessage mc-p-worker-live "$tmp/override" 2>/dev/null
-chmod 644 "$log"
-denied && ok "an override that cannot be logged is denied" || fail "an unlogged override passed: $OUT"
+if [ "$(id -u)" != 0 ]; then
+  chmod 444 "$log"
+  hook SendMessage mc-p-worker-live "$tmp/override" 2>/dev/null
+  chmod 644 "$log"
+  denied && ok "an override that cannot be logged is denied" || fail "an unlogged override passed: $OUT"
+fi
 
 if jq -e '[.hooks.PreToolUse[] | select(.matcher == "SendMessage")] | length == 1 and (.[0].hooks | length == 1)
     and (.[0].hooks[0].command | endswith("retask-guard.sh hook"))' "$here/../hooks/hooks.json" >/dev/null; then

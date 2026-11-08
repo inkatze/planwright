@@ -248,12 +248,15 @@ senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-plain" --retask "no
 poll_until --what 'the stdin line count' -- lines_cmp "$rec/stdin" -gt "$sr_in" || fail "s1r: the plain steer never reached the worker"
 [ "$(lines_of "$home/mission-control/retasks.log")" = "$sr_rows" ] || fail "s1r: --retask on a plain message logged an override"
 sr_in=$(lines_of "$rec/stdin")
-chmod 444 "$home/mission-control/retasks.log"
-senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask "operator asked" >/dev/null 2>&1
-sr_rc=$?
-chmod 644 "$home/mission-control/retasks.log"
-[ "$sr_rc" = 2 ] || fail "s1r: an override that could not be logged must be refused with exit 2, got $sr_rc"
-[ "$(lines_of "$rec/stdin")" = "$sr_in" ] || fail "s1r: an unloggable override reached the worker"
+# A read-only file stops only a non-root writer.
+if [ "$(id -u)" != 0 ]; then
+  chmod 444 "$home/mission-control/retasks.log"
+  senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask "operator asked" >/dev/null 2>&1
+  sr_rc=$?
+  chmod 644 "$home/mission-control/retasks.log"
+  [ "$sr_rc" = 2 ] || fail "s1r: an override that could not be logged must be refused with exit 2, got $sr_rc"
+  [ "$(lines_of "$rec/stdin")" = "$sr_in" ] || fail "s1r: an unloggable override reached the worker"
+fi
 echo "ok: s1r a registered tower is not bound, a plain --retask logs nothing, an unloggable override is refused unsent"
 
 # ---------------------------------------------------------------------------

@@ -272,6 +272,15 @@ do_log() {
     return 2
   }
   dl_log="$dl_dir/retasks.log"
+  if [ "${5:-}" = check ]; then
+    if [ -e "$dl_log" ]; then
+      [ -f "$dl_log" ] && [ -w "$dl_log" ] && return 0
+    else
+      [ -w "$dl_dir" ] && return 0
+    fi
+    printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"), so the override could not be logged" >&2
+    return 2
+  fi
   # Created whole by a link, which fails when the file exists, so two first
   # overrides never write the format line twice or over each other's row.
   if [ ! -e "$dl_log" ]; then
@@ -279,11 +288,6 @@ do_log() {
       printf '# format: 1\n' >"$dl_new" && ln "$dl_new" "$dl_log" 2>/dev/null
       rm -f "$dl_new"
     }
-  fi
-  if [ "${5:-}" = check ]; then
-    { : >>"$dl_log"; } 2>/dev/null && return 0
-    printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"), so the override could not be logged" >&2
-    return 2
   fi
   if ! { printf '%s\t%s\t%s\t%s\n' "$4" "$1" "$2" "$dl_reason" >>"$dl_log"; } 2>/dev/null; then
     printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"); the override was not logged" >&2

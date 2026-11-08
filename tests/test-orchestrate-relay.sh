@@ -482,11 +482,14 @@ PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-tower "$idle_p
 rc_is retask-tower 0 "deliver of a unit-shaped message to a registered tower"
 rm -f "$tmp/relay-fleet/mission-control/sessions/mc-p-tower-1"
 [ "$(wc -l <"$tmp/relay-fleet/mission-control/retasks.log")" = "$rt_rows" ] || fail "a tower's relay logged an override"
-chmod 444 "$tmp/relay-fleet/mission-control/retasks.log"
-PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-unlogged "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
-chmod 644 "$tmp/relay-fleet/mission-control/retasks.log"
-rc_is retask-unlogged 2 "an override deliver whose override could not be logged"
-pasted_nothing retask-unlogged "an override that could not be logged"
+# A read-only file stops only a non-root writer.
+if [ "$(id -u)" != 0 ]; then
+  chmod 444 "$tmp/relay-fleet/mission-control/retasks.log"
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-unlogged "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
+  chmod 644 "$tmp/relay-fleet/mission-control/retasks.log"
+  rc_is retask-unlogged 2 "an override deliver whose override could not be logged"
+  pasted_nothing retask-unlogged "an override that could not be logged"
+fi
 echo "ok: deliver passes a registered tower and refuses an override it could not log, pasting nothing"
 
 # 13c. Refuse, pasting nothing, while a selection prompt is open: a permission
