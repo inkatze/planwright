@@ -60,8 +60,9 @@ THE RECORD of an armed watcher is <runtime>/watchers/<slot>.rec, the slot
 derived from the duty and the script:
   <pid><TAB><armed epoch><TAB><duty><TAB><script><TAB><cadence><TAB><cost>
 <slot>.last holds `<epoch><TAB><exit><TAB><refused events>` of its latest
-run, <slot>.stops the epochs of its stops in the last hour, and <slot>.log
-the loop's stderr. A pid is only trusted, or signalled,
+run, <slot>.stops `<epoch> <pid>` per stop within an hour of its latest,
+<slot>.failing the epoch a failure streak was raised, and <slot>.log the
+loop's stderr. A pid is only trusted, or signalled,
 while that process's whole argument list is this runner's loop for that
 slot.
 
@@ -235,31 +236,44 @@ record_pid() { [ -f "$wdir/$1.rec" ] && cut -f1 "$wdir/$1.rec" | head -n 1; }
 
 stop_slot() {
   ss_pid=$(record_pid "$1")
-  rm -f "$wdir/$1.rec" "$wdir/$1.last" "$wdir/$1.stops"
+  rm -f "$wdir/$1.rec" "$wdir/$1.last" "$wdir/$1.stops" "$wdir/$1.failing"
   if [ -n "$ss_pid" ] && ours "$ss_pid" "$1"; then
     kill "$ss_pid" 2>/dev/null || :
   fi
 }
 
-# flapping <slot> <duty> <script>: note this stop in <slot>.stops and, on
-# the FLAP_STOPS-th stop inside FLAP_WINDOW seconds, emit watcher-failing.
-# A stop alone is routine and wakes nobody, so a watcher that dies on every
-# pass would otherwise stay dead unseen; the alert fires once per streak.
+# flapping <slot> <duty> <script> <dead pid>: note this stop in
+# <slot>.stops and, once FLAP_STOPS stops fall inside FLAP_WINDOW seconds,
+# emit watcher-failing. A stop alone is routine and wakes nobody, so a
+# watcher that dies on every pass would otherwise stay dead unseen. The
+# alert fires once per streak (<slot>.failing marks it raised, cleared when
+# the count falls below FLAP_STOPS), and the stop is written only after the
+# alert lands, so a failed emit is retried rather than lost. A death seen
+# again after a failed pass carries the same pid and is not counted twice.
 flapping() {
   if [ -n "$now" ]; then fl_now=$NOW; else fl_now=$(mc_now); fi
   fl_file="$wdir/$1.stops"
+  fl_mark="$wdir/$1.failing"
   fl_kept=$(
     {
       [ ! -f "$fl_file" ] || cat "$fl_file"
-      printf '%s\n' "$fl_now"
-    } | N=$fl_now W=$FLAP_WINDOW awk '$1 ~ /^[0-9]+$/ && $1 <= ENVIRON["N"] + 0 && ENVIRON["N"] - $1 < ENVIRON["W"] + 0'
+      printf '%s %s\n' "$fl_now" "$4"
+    } | N=$fl_now W=$FLAP_WINDOW awk '
+      $1 ~ /^[0-9]+$/ && $1 <= ENVIRON["N"] + 0 && ENVIRON["N"] - $1 < ENVIRON["W"] + 0 {
+        if ($2 != "" && ($2 in seen)) next
+        seen[$2] = 1; print
+      }'
   ) || return 1
-  printf '%s\n' "$fl_kept" | mc_write "$fl_file" || return 1
   fl_n=$(printf '%s\n' "$fl_kept" | awk 'NF { n++ } END { print n + 0 }')
-  [ "$fl_n" -eq "$FLAP_STOPS" ] || return 0
-  fl_id=$(mc_event emit --program "$program" -- \
-    watcher-failing "$2" "$3 stopped $fl_n times within $((FLAP_WINDOW / 60)) minutes") || return 1
-  printf 'failing\t%s\t%s\t%s\n' "$2" "$3" "$fl_id"
+  if [ "$fl_n" -lt "$FLAP_STOPS" ]; then
+    rm -f "$fl_mark"
+  elif [ ! -f "$fl_mark" ]; then
+    fl_id=$(mc_event emit --program "$program" -- \
+      watcher-failing "$2" "$3 stopped $fl_n times within $((FLAP_WINDOW / 60)) minutes") || return 1
+    printf '%s\n' "$fl_now" | mc_write "$fl_mark" || return 1
+    printf 'failing\t%s\t%s\t%s\n' "$2" "$3" "$fl_id"
+  fi
+  printf '%s\n' "$fl_kept" | mc_write "$fl_file"
 }
 
 # arm <slot> <duty> <script> <cadence> <cost>: start the loop and record it.
@@ -365,7 +379,7 @@ pass() {
       id=$(mc_event emit --program "$program" -- \
         watcher-stopped "$duty" "$script stopped; re-armed by the runner") || return 1
       printf 'stopped\t%s\t%s\t%s\n' "$duty" "$script" "$id"
-      flapping "$s" "$duty" "$script" || return 1
+      flapping "$s" "$duty" "$script" "$pid" || return 1
       arm "$s" "$duty" "$script" "$cadence" "$cost" || return 1
       printf 'rearmed\t%s\t%s\n' "$duty" "$script"
     else
