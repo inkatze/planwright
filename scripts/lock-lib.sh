@@ -91,6 +91,8 @@
 #                          the program name over each other
 #   scripts/mc-keeper.sh   a mission-control program's keeper ledger, so a
 #                          track never re-points a session mid-retire
+#   scripts/mc-usage.sh    a mission-control program's usage hold and queue,
+#                          so a watch and a drain never launch one entry twice
 #   scripts/work-repo-registry.sh   the work-repository registry, so
 #                          concurrent registrations each land their entry
 #   scripts/spend-record.sh   a mission-control program's spend store, so

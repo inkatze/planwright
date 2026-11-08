@@ -19,6 +19,7 @@ pending-prompt-overdue	blocker
 conflict-predicted	blocker
 throughput-bottleneck	blocker
 mission-control-escalated	blocker
+usage-probe	blocker
 blocker	blocker
 conflict	blocker
 handover-failed	failure
@@ -46,6 +47,10 @@ handover-requested	act
 mission-control-announce	act
 planwright-recorded	act
 planwright-updated	act
+usage-held	act
+usage-reset	act
 watcher-stopped	routine
+usage-drained	routine
+usage-bypass	routine
 worker-handover-due	routine
 worker-retired-idle	routine
