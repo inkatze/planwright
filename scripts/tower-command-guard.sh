@@ -1303,6 +1303,9 @@ guard_tmux() {
 # hold. A hand-launch carrying a resolved tier passes it (model-allocation
 # D-10), so leaving it off would make every such launch prompt.
 guard_claude() {
+  # Mission control launches through its launcher, which reads the posture
+  # check first; a hand launch would skip it.
+  [ "$GUARD_MODE" != mission-control ] || return 1
   local i a saw_worktree=0 expect_value=0
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}

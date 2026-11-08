@@ -1512,6 +1512,7 @@ expect_mc allow "a * entry covers its script run with no argument" "$REPO_ROOT/s
 expect_mc defer "an unlisted script prompts" "$REPO_ROOT/scripts/offload-dispatch.sh dispatch tmux brief.md"
 expect_mc defer "a git mutation is never pre-approved" "git commit -m wip"
 expect_mc defer "a ready flip is never pre-approved" "gh pr ready 42"
+expect_mc defer "a hand launch skips the launcher's posture check, so it prompts" "claude --worktree mc-x"
 # The skill starts its runner detached under setsid: a listed verb runs so
 # without a prompt, and setsid adds nothing to what is listed.
 expect_mc allow "a listed verb under setsid runs without a prompt" \
