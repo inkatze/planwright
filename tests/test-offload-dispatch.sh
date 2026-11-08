@@ -213,6 +213,7 @@ if ! grep -qx -- '--inbound' "$tmp/tmux-argv" || ! grep -qx 'accept' "$tmp/tmux-
   fail "dispatch tmux --profile: the session does not accept inbound messages"
 fi
 grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile carried the worker identity"
+grep -qx -- '--append-system-prompt' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile was handed the worker shell rules"
 for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN; do
   grep -qx -- "$v" "$tmp/tmux-argv" || fail "dispatch tmux --profile mission-control: an inherited $v is not dropped"
 done
@@ -242,6 +243,10 @@ grep -A1 -x -- '-u' "$tmp/tmux-argv" | grep -qx PLANWRIGHT_MC_TOKEN \
 if ! grep -A2 -x -- '--identity' "$tmp/tmux-argv" | tr '\n' ' ' | grep -q 'mc-alpha-worker-1 spec:alpha-3'; then
   fail "dispatch tmux --profile worker: the worker identity is not name and scope"
 fi
+# The shell rules ride a worker window's system prompt, as one argument.
+want_rules=$(tr -s '\r\n' '  ' <"$here/../config/launch-shell-rules.txt")
+grep -A1 -x -- '--append-system-prompt' "$tmp/tmux-argv" | tail -n 1 | grep -qxF -- "${want_rules% }" \
+  || fail "dispatch tmux --profile worker: the shell rules are not appended as one argument"
 for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key' '--scope a/b' '--scope ..' '--scope .'; do
   rc=0
   # shellcheck disable=SC2086 # the option and its value, split on purpose

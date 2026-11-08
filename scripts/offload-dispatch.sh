@@ -541,6 +541,11 @@ cmd_dispatch() {
       set -- "$@" env -u PLANWRIGHT_MC_TOKEN
     fi
     set -- "$@" claude --settings "$launch_settings"
+    # Only a worker session carries the shell rules, in its system prompt.
+    if [ "$D_PROFILE" = worker ]; then
+      worker_rules=$(/bin/sh "$script_dir/launch-shell-rules.sh" "$launch_settings" "the tmux worker" </dev/null) || worker_rules=''
+      [ -z "$worker_rules" ] || set -- "$@" --append-system-prompt "$worker_rules"
+    fi
   else
     set -- "$@" claude
   fi
