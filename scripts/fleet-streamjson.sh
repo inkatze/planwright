@@ -11,7 +11,8 @@
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
 # --settings <config/<profile>-settings.json> --name <worker>`, the profile
-# worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept and, for a
+# worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept,
+# PLANWRIGHT_SESSION_BACKEND=stream-json (the background-job guard's key) and, for a
 # worker, the worker identity exported, so its hooks write attention rows and
 # register its session name (fleet-messaging D-8, D-19), and the dispatcher's
 # tower identity cleared once the dispatch is registered; a handle outside
@@ -2266,6 +2267,10 @@ cmd_launch() {
   fi
   PLANWRIGHT_MESSAGING_INBOUND=accept
   export PLANWRIGHT_MESSAGING_INBOUND
+  # A stream-json session never resumes on a background job's completion
+  # notice; scripts/background-job-guard.sh refuses its backgrounded calls.
+  PLANWRIGHT_SESSION_BACKEND=stream-json
+  export PLANWRIGHT_SESSION_BACKEND
 
   init_msg=$(mktemp "$dir/.init.XXXXXX") || exit 2
   if [ -n "$resume_sid" ]; then

@@ -175,7 +175,8 @@ mkdir -p "$cur/plugins"
 for copy in "$old_copy" "$new_copy"; do
   mkdir -p "$copy/scripts" "$copy/doctrine"
   for f in resolve-root.sh resolve-installed-roots.sh resolve-rule-doc.sh resolve-overlay-root.sh \
-    mc-event.sh mc-lib.sh echo-safety.sh; do
+    mc-event.sh mc-lib.sh echo-safety.sh fleet-dispatch-env.sh step-record.sh lock-lib.sh \
+    mission-control-launch.sh; do
     cp "$REPO_ROOT/scripts/$f" "$copy/scripts/"
   done
   cp "$REPO_ROOT/doctrine/plugin-script-invocation.md" "$copy/doctrine/"
@@ -380,6 +381,121 @@ assert_eq "a copy missing the checker stays quiet" "" "$ERR"
 cp "$REPO_ROOT/scripts/resolve-installed-roots.sh" "$old_copy/scripts/"
 stale_run "$new_copy" mc-event.sh --help
 assert_eq "a mission-control script from the installed copy says nothing on stderr" "" "$ERR"
+
+# --- --fresh: the root a launch hands on --------------------------------------
+fresh() { # fresh <path> [ENV=val...]: stdout in OUT, exit status in CODE
+  fr_path=$1
+  shift
+  OUT=$(env -u HOME CLAUDE_DIR="$cur" "$@" /bin/sh "$RESOLVER" --fresh "$fr_path" 2>/dev/null)
+  CODE=$?
+}
+fresh "$old_copy"
+assert_eq "--fresh replaces a stale cached copy with the installed root" "$new_copy" "$OUT"
+assert_eq "--fresh exits 0 for a replaced copy" 0 "$CODE"
+fresh "$old_copy/scripts/.."
+assert_eq "--fresh replaces a stale copy named through its scripts directory" "$new_copy" "$OUT"
+fresh "$new_copy"
+assert_eq "--fresh keeps the installed copy" "$new_copy" "$OUT"
+fresh "$REPO_ROOT"
+assert_eq "--fresh keeps a checkout, an operator's choice" "$REPO_ROOT" "$OUT"
+fresh "$cur/plugins/cache/planwright/planwright/0.10.0"
+assert_eq "--fresh keeps a path that does not exist" "$cur/plugins/cache/planwright/planwright/0.10.0" "$OUT"
+fresh "$old_copy" "PATH=$SANDBOX/no-bin"
+assert_eq "--fresh without jq keeps the path, never guessing" "$old_copy" "$OUT"
+OUT=$(env -u HOME CLAUDE_DIR="$cur" /bin/sh "$RESOLVER" --fresh 2>/dev/null)
+assert_eq "--fresh without a path is a usage error" 2 "$?"
+
+# --- the launch seam hands a worker the installed root ------------------------
+# envrun <wrapper-copy> [ENV=val...]: the wrapper's exported roots and copy
+# mark, read back through env; stdout in OUT, stderr in ERR.
+envrun() {
+  er_copy=$1
+  shift
+  er_err=$(mktemp "$SANDBOX/err.XXXXXX") || exit 1
+  OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u PLANWRIGHT_COPY_CHECKED \
+    CLAUDE_DIR="$cur" "$@" "$er_copy/scripts/fleet-dispatch-env.sh" env 2>"$er_err" \
+    | grep -E '^(PLANWRIGHT_ROOT|CLAUDE_PLUGIN_ROOT|PLANWRIGHT_COPY_CHECKED)=' | LC_ALL=C sort)
+  ERR=$(cat "$er_err")
+  rm -f "$er_err"
+}
+envrun "$new_copy" "PLANWRIGHT_ROOT=$old_copy" "CLAUDE_PLUGIN_ROOT=$old_copy" "PLANWRIGHT_COPY_CHECKED=$old_copy|1"
+assert_eq "an inherited root naming a stale copy is replaced by the installed root, and the copy mark dropped" \
+  "CLAUDE_PLUGIN_ROOT=$new_copy
+PLANWRIGHT_ROOT=$new_copy" "$OUT"
+case $ERR in
+  *"PLANWRIGHT_ROOT"*"$old_copy"*"$new_copy"*) echo "ok: the replacement is said on stderr, naming both copies" ;;
+  *)
+    echo "FAIL: the replacement said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+envrun "$new_copy" "PLANWRIGHT_ROOT=$REPO_ROOT"
+assert_eq "an inherited checkout root is the operator's and stays" \
+  "CLAUDE_PLUGIN_ROOT=$new_copy
+PLANWRIGHT_ROOT=$REPO_ROOT" "$OUT"
+assert_eq "and nothing is said about it" "" "$ERR"
+envrun "$old_copy"
+assert_eq "a wrapper run from a stale copy hands on the installed root, not its own" \
+  "CLAUDE_PLUGIN_ROOT=$new_copy
+PLANWRIGHT_ROOT=$new_copy" "$OUT"
+OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
+  CLAUDE_PLUGIN_ROOT="$old_copy" "$new_copy/scripts/fleet-dispatch-env.sh" --print 2>/dev/null \
+  | grep '^CLAUDE_PLUGIN_ROOT=')
+assert_eq "--print hands on the installed root too" "CLAUDE_PLUGIN_ROOT=$new_copy" "$OUT"
+OUT=$(cd "$SANDBOX" && env -u HOME -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$cur" \
+  "$new_copy/scripts/fleet-dispatch-env.sh" --root "$old_copy" env 2>/dev/null | grep '^PLANWRIGHT_ROOT=')
+assert_eq "an explicit --root is the dispatcher's own choice and stays" "PLANWRIGHT_ROOT=$old_copy" "$OUT"
+
+# --- step-record.sh refuses to write a record from a stale copy ---------------
+srwt="$SANDBOX/sr-wt"
+mkdir -p "$srwt"
+git -C "$srwt" init -q
+stale_run "$old_copy" step-record.sh --worktree "$srwt" new-run
+assert_eq "a stale step-record.sh refuses to open a run" 1 "$CODE"
+assert_eq "and opens none" "" "$OUT"
+case $ERR in
+  *"$new_copy/scripts/step-record.sh"*) echo "ok: the refusal names the installed step-record.sh to run instead" ;;
+  *)
+    echo "FAIL: the stale step-record.sh said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+if [ -d "$srwt/.claude/steps" ]; then
+  echo "FAIL: the refused run created $srwt/.claude/steps" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: the refused run left no cache"
+fi
+stale_run "$old_copy" step-record.sh --worktree "$srwt" write --completion --run 000001 --point pre-ci
+assert_eq "a stale step-record.sh refuses to write a record" 1 "$CODE"
+stale_run "$new_copy" step-record.sh --worktree "$srwt" new-run
+assert_eq "the installed step-record.sh opens the run" "000001" "$OUT"
+assert_eq "and says nothing on stderr" "" "$ERR"
+stale_run "$old_copy" step-record.sh --worktree "$srwt" list
+assert_eq "a stale step-record.sh still reads" 0 "$CODE"
+case $ERR in
+  *WARNING*"$new_copy"*) echo "ok: and warns while it reads" ;;
+  *)
+    echo "FAIL: the stale read said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# --- mission-control-launch.sh runs the installed launcher --------------------
+mv "$new_copy/scripts/mission-control-launch.sh" "$SANDBOX/launch.keep"
+printf '#!/bin/sh\nprintf "installed launcher:%%s\\n" "$*"\n' >"$new_copy/scripts/mission-control-launch.sh"
+chmod +x "$new_copy/scripts/mission-control-launch.sh"
+stale_run "$old_copy" mission-control-launch.sh name --program p
+assert_eq "a launcher run from a stale copy hands its arguments to the installed one" \
+  "installed launcher:name --program p" "$OUT"
+case $ERR in
+  *"$new_copy/scripts/mission-control-launch.sh"*) echo "ok: and says which launcher it ran" ;;
+  *)
+    echo "FAIL: the stale launcher said '$ERR'" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+mv "$SANDBOX/launch.keep" "$new_copy/scripts/mission-control-launch.sh"
 
 if [ "$failures" -gt 0 ]; then
   echo "resolve-installed-roots suite: $failures failure(s)" >&2

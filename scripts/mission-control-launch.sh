@@ -20,6 +20,21 @@ me=mission-control-launch
 FORMAT=1
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
+# Run from an older cached copy (a path the calling session kept across an
+# upgrade), the launcher would write that copy's paths into every brief and
+# start the session through that copy's scripts, so the installed one runs.
+case $script_dir in
+  */plugins/cache/*)
+    if [ -f "$script_dir/resolve-installed-roots.sh" ]; then
+      own_copy=${script_dir%/scripts}
+      fresh_copy=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$own_copy" 2>/dev/null </dev/null) || fresh_copy=''
+      if [ -n "$fresh_copy" ] && [ "$fresh_copy" != "$own_copy" ] && [ -f "$fresh_copy/scripts/$me.sh" ]; then
+        printf '%s\n' "$me: $(printf '%s' "$own_copy" | tr -d '\000-\037\177') is not the installed planwright; running $(printf '%s' "$fresh_copy/scripts/$me.sh" | tr -d '\000-\037\177') instead" >&2
+        exec /bin/sh "$fresh_copy/scripts/$me.sh" "$@"
+      fi
+    fi
+    ;;
+esac
 if [ ! -r "$script_dir/echo-safety.sh" ]; then
   printf '%s\n' "$me: echo-safety.sh is missing or unreadable (broken install)" >&2
   exit 2

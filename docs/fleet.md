@@ -913,6 +913,38 @@ diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
 
+**After an upgrade, a worker still gets the installed copy.** Claude Code
+keeps older versions in its plugin cache beside the installed one, and a
+long-running session (mission control, a tower) keeps the root it started
+with in `PLANWRIGHT_ROOT` and `CLAUDE_PLUGIN_ROOT`. Three places stop that
+older copy from reaching the sessions it launches:
+
+- The dispatch-env wrapper runs every root it hands on, inherited or its own,
+  through `scripts/resolve-installed-roots.sh --fresh`, which swaps a cached
+  copy the installed record no longer names for the installed root. It says so
+  on stderr. A root outside the cache (a checkout an operator points at) and an
+  explicit `--root` are kept as given. The wrapper also drops the inherited
+  `PLANWRIGHT_COPY_CHECKED` mark, so the new session runs its own stale-copy
+  check.
+- `scripts/mission-control-launch.sh`, run from an older cached copy, runs the
+  installed launcher with the same arguments, so the brief and the cadence
+  section name the installed root's scripts.
+- `scripts/step-record.sh`, run from an older cached copy, warns, and refuses
+  `new-run` and `write` (exit 1), naming the installed `step-record.sh` to run
+  instead, because the installed copy's audit is the one that reads those
+  records.
+
+**A stream-json worker never backgrounds a command.** A stream-json session
+takes its turns from stdin, and a background job's completion notice starts
+no new turn there. So a worker that runs a command with `run_in_background`
+and then ends its turn waits forever, and looks stalled. `launch` exports
+`PLANWRIGHT_SESSION_BACKEND=stream-json`, and the worker profile's
+`scripts/background-job-guard.sh` refuses a backgrounded Bash call when that
+is set. The refusal tells the worker to run the command in the foreground
+with an explicit timeout, and to split a longer run into bounded calls. A tmux
+worker resumes on the notice, so the tmux rung's wrapper drops the mark and
+the guard leaves that worker alone.
+
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
 its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and

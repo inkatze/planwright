@@ -360,7 +360,8 @@
 # Exit: 0 success · 1 a runtime failure (an unresolvable or unreadable range,
 # a cache that cannot be read or written, an exhausted counter, a cache lock
 # another writer held past the wait, a status with no attempt to post or a
-# post that failed, no SHA-256 tool for args-digest) · 2 a usage or
+# post that failed, no SHA-256 tool for args-digest, a new-run or write from
+# a plugin-cache copy the installed record no longer names) · 2 a usage or
 # field-validation error · 3 lookup found no record to stand on (or no
 # unretired limited record), or heads found no move.
 #
@@ -691,6 +692,25 @@ done
 [ $# -ge 1 ] || usage
 verb=$1
 shift
+
+# Run from a plugin-cache copy the installed record no longer names (an older
+# version a session kept using after an upgrade), it warns, and it refuses to
+# open a run or write a record: the installed copy's audit reads the records.
+sr_copy=$(cd -P -- "$script_dir/.." 2>/dev/null && pwd -P) || sr_copy=''
+case $sr_copy in
+  */plugins/cache/*)
+    if [ -f "$script_dir/resolve-installed-roots.sh" ] \
+      && ! /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$sr_copy" </dev/null; then
+      case $verb in
+        new-run | write)
+          sr_new=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$sr_copy" 2>/dev/null </dev/null \
+            | tr -d '\000-\037\177')
+          die 1 "refusing to $verb from an older planwright copy; run $sr_new/scripts/step-record.sh instead"
+          ;;
+      esac
+    fi
+    ;;
+esac
 
 # excerpt reads no record cache, so it runs before the worktree is resolved.
 if [ "$verb" = excerpt ]; then

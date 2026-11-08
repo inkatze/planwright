@@ -109,8 +109,9 @@
 #                                           PLANWRIGHT_REPO_ROOT,
 #                                           PLANWRIGHT_ORCH_STATE_DIR, and an
 #                                           inherited
-#                                           PLANWRIGHT_WORKER_SPEC_ROOT or
-#                                           PLANWRIGHT_WORKER_SESSION_RECORD) the tmux
+#                                           PLANWRIGHT_WORKER_SPEC_ROOT,
+#                                           PLANWRIGHT_WORKER_SESSION_RECORD or
+#                                           PLANWRIGHT_SESSION_BACKEND) the tmux
 #                                           server's environment may carry from
 #                                           whichever session started it: a
 #                                           worker is not a tower, and resolves
@@ -356,7 +357,11 @@ planwright_root() {
 # Unlike the ghost-text pin, these do NOT override an inherited value: both are
 # documented operator overrides (tests, adopters pointing at a checkout), and the
 # wrapper must not silently outrank a root the operator chose. --root is that
-# choice made explicit by the dispatcher, so it is set before this runs.
+# choice made explicit by the dispatcher, so it is set before this runs. The
+# one exception is a value naming an older plugin-cache copy the installed
+# record no longer names (see fresh_root): that is a pin the launching session
+# carried across an upgrade, not a choice, and the worker gets the installed
+# root instead.
 # warn_unresolved_root — say so, once, when neither an operator value nor
 # self-location produced a root. Not fatal: the launch's own mode source is the
 # settings fragment, not this. But never silent, because the only symptom is a
@@ -373,10 +378,30 @@ warn_unresolved_root() {
 # alone is complete. That branch is guarded by construction rather than by a
 # test — reaching it needs a $0 that resolves to nothing, which cannot be staged
 # from a test that has to invoke this script by a path in the first place.
+# fresh_root <name> <value>: print <value>, or the installed root where
+# <value> is a stale cached copy, saying so on stderr. With no checker beside
+# this wrapper the value stands.
+fresh_root() {
+  fr_val=$2
+  fr_rir=$(dirname "$(resolve_self)")/resolve-installed-roots.sh
+  if [ -n "$fr_val" ] && [ -f "$fr_rir" ]; then
+    fr_new=$(/bin/sh "$fr_rir" --fresh "$fr_val" 2>/dev/null </dev/null) || fr_new=''
+    if [ -n "$fr_new" ] && [ "$fr_new" != "$fr_val" ]; then
+      printf '%s\n' "fleet-dispatch-env.sh: $1 named $(printf '%s' "$fr_val" | tr -d '\000-\037\177'), a planwright copy the installed record no longer names; the session gets the installed root $(printf '%s' "$fr_new" | tr -d '\000-\037\177') instead" >&2
+      fr_val=$fr_new
+    fi
+  fi
+  printf '%s\n' "$fr_val"
+}
+
 export_root_vars() {
   er_root=$(planwright_root)
   er_pw=${PLANWRIGHT_ROOT:-$er_root}
   er_cp=${CLAUDE_PLUGIN_ROOT:-$er_root}
+  if [ -z "$opt_root" ]; then
+    er_pw=$(fresh_root PLANWRIGHT_ROOT "$er_pw")
+    er_cp=$(fresh_root CLAUDE_PLUGIN_ROOT "$er_cp")
+  fi
   [ -n "$er_pw" ] && {
     PLANWRIGHT_ROOT=$er_pw
     export PLANWRIGHT_ROOT
@@ -400,8 +425,8 @@ if [ "$1" = "--print" ]; then
   # cannot wrap the exec builds its environment from these lines alone, so an
   # operator override omitted here is an override lost.
   _root=$(planwright_root)
-  _pw=${PLANWRIGHT_ROOT:-$_root}
-  _cp=${CLAUDE_PLUGIN_ROOT:-$_root}
+  _pw=$(fresh_root PLANWRIGHT_ROOT "${PLANWRIGHT_ROOT:-$_root}")
+  _cp=$(fresh_root CLAUDE_PLUGIN_ROOT "${CLAUDE_PLUGIN_ROOT:-$_root}")
   [ -n "$_pw" ] && printf 'PLANWRIGHT_ROOT=%s\n' "$_pw"
   [ -n "$_cp" ] && printf 'CLAUDE_PLUGIN_ROOT=%s\n' "$_cp"
   { [ -n "$_pw" ] && [ -n "$_cp" ]; } || warn_unresolved_root
@@ -469,10 +494,14 @@ fi
 # command. `export` makes the value visible to the launched session and every
 # descendant it spawns; the unconditional set overrides any inherited value.
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
+# The launcher's mark that it already checked its own copy against the record
+# would keep the session from hearing that the copy it runs is stale.
+unset PLANWRIGHT_COPY_CHECKED
 if [ "$opt_pins" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
     PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
-    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD
+    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD \
+    PLANWRIGHT_SESSION_BACKEND
 fi
 if [ -n "$opt_handle" ]; then
   PLANWRIGHT_WORKER_HANDLE=$opt_handle

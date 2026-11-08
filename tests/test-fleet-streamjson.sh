@@ -138,6 +138,7 @@ printf 'tmpdir=%s\n' "${TMPDIR-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'handle=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'backend=%s\n' "${PLANWRIGHT_SESSION_BACKEND-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'launch_token=%s\n' "${PLANWRIGHT_WORKER_LAUNCH_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'mc_token=%s\n' "${PLANWRIGHT_MC_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'tower=%s/%s/%s/%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" "${PLANWRIGHT_TOWER_SESSION_ID-<unset>}" \
@@ -670,11 +671,16 @@ run this: $(touch PWNED-marker) `touch PWNED-marker` "quoted" 'single'
 second line	with a tab
 EOF
 senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MESSAGING_INBOUND=refuse PLANWRIGHT_WORKER_HANDLE=stale \
-  PLANWRIGHT_TOWER_ID=stale-tower PLANWRIGHT_TOWER_PID=1 PLANWRIGHT_TOWER_CHECKOUT=/nonexistent -- \
+  PLANWRIGHT_TOWER_ID=stale-tower PLANWRIGHT_TOWER_PID=1 PLANWRIGHT_TOWER_CHECKOUT=/nonexistent \
+  PLANWRIGHT_SESSION_BACKEND=tmux -- \
   launch sjw9 execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
   || fail "c9: launch exited non-zero"
 grep -qx 'tower=<unset>/<unset>/<unset>/<unset>' "$rec/env" \
   || fail "c9: the dispatcher's tower identity reached the worker: $(grep '^tower=' "$rec/env")"
+# The background-job guard keys on this: a stream-json session never resumes
+# on a background job's completion notice.
+grep -qx 'backend=stream-json' "$rec/env" \
+  || fail "c9: the worker must be told it runs on the stream-json backend: $(grep '^backend=' "$rec/env")"
 argv_line=$(cat "$rec/argv")
 case $argv_line in
   *"-p "*"--input-format stream-json"*"--output-format stream-json"*"--verbose"*"--permission-prompt-tool stdio"*) : ;;
