@@ -519,7 +519,11 @@ fi
 rm -rf "$sj"
 mkdir -p "$sj/mc-alpha-worker-0000000011" "$sj/mc-alpha-worker-0000000012"
 mkfifo "$sj/mc-alpha-worker-0000000011/journal"
-printf 'r10\tpermission\t%s\tpending\n' "$NOW" >"$sj/mc-alpha-worker-0000000012/journal"
+# A time too long to be an epoch second is passed over, never summed.
+{
+  printf 'r10\tpermission\t%s\tpending\n' "$NOW"
+  printf 'r12\tpermission\t%s\tanswered\t%s\n' 1234567890123456789012345 1234567890123456789012399
+} >"$sj/mc-alpha-worker-0000000012/journal"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "measure beside a FIFO journal" 0
 expect_out "a pending request's zero wait is a number" "approvals${tab}permission${tab}1${tab}0${tab}0${tab}0${tab}mc-alpha-worker-0000000012${tab}1${tab}0"

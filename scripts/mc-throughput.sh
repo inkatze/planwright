@@ -447,9 +447,11 @@ measure_approvals() {
     }
     [ -f "$ma_d/journal" ] || continue
     if ! ma_out=$(W=${ma_d##*/} SINCE=$SINCE NOW=$NOW awk -F '\t' '
-        $2 == "permission" && $3 ~ /^[0-9]+$/ {
+        # An epoch second has at most 12 digits; a longer one would print
+        # as an exponent no shell arithmetic reads.
+        $2 == "permission" && $3 ~ /^[0-9]+$/ && length($3) <= 12 {
           if ($4 == "pending") e = ENVIRON["NOW"] + 0
-          else if ($4 ~ /^(answered|undeliverable)$/ && $5 ~ /^[0-9]+$/) e = $5 + 0
+          else if ($4 ~ /^(answered|undeliverable)$/ && $5 ~ /^[0-9]+$/ && length($5) <= 12) e = $5 + 0
           else next
           if (e < ENVIRON["SINCE"] + 0 || e < $3 + 0) next
           print "permission\t" (e - $3) "\t" ENVIRON["W"] "\t" (e - ($3 + 0 > ENVIRON["SINCE"] + 0 ? $3 : ENVIRON["SINCE"])) "\t" ($4 == "pending")
