@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-04
+**Last reviewed:** 2026-11-07
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -786,19 +786,20 @@ already prove.)*
 
 - **Deliverables:** The skill's prose for the posture check, adoption and
   tower handover, the kickoff kind, the activation record, the cadence
-  result at consequential moments and attended compaction, inside the
-  instruction budget (D-21); the operator guide's sections for each;
+  result at consequential moments and attended handover (beside the
+  session, else one act, compaction last), inside the instruction budget
+  (D-21); the operator guide's sections for each;
   `doctrine/mission-control.md` and its README row updated for D-33 to D-38
-  and D-42.
+  and D-43.
 - **Done when:** The instruction-budget check passes; the guide has a
   section for each of the posture check, adoption, tower handover, the
   kickoff kind, the panel activation, the cadence result and attended
-  compaction, and names no duty or knob the catalog or options reference
+  handover, and names no duty or knob the catalog or options reference
   lacks; the jargon check passes over the new skill and guide text; the
   doctrine index check passes.
-- **Dependencies:** 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30
-- **Citations:** D-21, D-31, D-32, D-35, D-36, D-37, D-38, D-42 · REQ-A1.6,
-  REQ-A1.8, REQ-F1.15, REQ-F1.16, REQ-G1.5, REQ-I1.8, REQ-L1.8
+- **Dependencies:** 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 33
+- **Citations:** D-21, D-31, D-32, D-35, D-36, D-37, D-38, D-43 · REQ-A1.6,
+  REQ-A1.8, REQ-F1.15, REQ-F1.16, REQ-G1.5, REQ-I1.8, REQ-L1.9
 - **Estimated effort:** 2 days
 
 ### Task 30 — Attended sessions compact, launched holders hand over
@@ -845,6 +846,20 @@ already prove.)*
 - **Dependencies:** none
 - **Citations:** D-38, D-22 · REQ-A1.8
 - **Estimated effort:** half day
+
+### Task 33 — Every session hands over; an attended one beside itself, compaction last
+
+- **Deliverables:**
+  - **The pane rung.** A `pane` backend in `scripts/mission-control-launch.sh` (launch, liveness and retire of a split pane, that pane only) with pane adapters for tmux (required) and kitty, WezTerm and Zellij (best-effort, stub-verified). Each adapter has a read-only, local, user-owned probe and an argument-vector command built from launcher-grammar values.
+  - **The handover verbs.** In `scripts/mc-handover.sh`, `launch --handover` over a live attended holder is admitted through the first passing adapter, and exit 4 is kept only when none passes. The successor carries Remote Control only from its predecessor and runs the mission-control profile. `take` records an attended holder with a registry row, ends or closes the predecessor's pane, and closes an unverified successor's pane on the predecessor's side. The rung and adapter are recorded and a rung-1 fall is a panel event. `offer` is raised once per session. The `--help` text on holder kinds, `due`, `path`, `launch` and exit codes is updated to match.
+  - **The mod.** The handover-due trigger and compaction deferral in `hooks/mission-control/` apply to attended sessions as D-43 describes.
+  - **Defaults, docs and skill.** `mission_control_handover_context` ships at 40 in `config/defaults.yml`. The three `mission_control_handover_*` rows in `docs/options-reference.md` are restated for every session, citing D-43 and REQ-L1.9. The skill's handover prose is updated inside the instruction budget (D-21).
+  - **Self-exit and tests.** Where the released-predecessor self-exit change (PR #874) has landed it is reused; otherwise it is built here. The stub tmux gains `split-window` and `kill-pane`, the handover runner can set `TMUX` and `TMUX_PANE`, and tests go in `tests/test-mc-handover.sh`, `tests/test-mc-panel.sh` and `hooks/mission-control/compaction.test.tsx`.
+- **Done when:** Every `[test]` fixture of the REQ-L1.9 test-spec entry passes; `check:panel-mod`, the options-reference check and the instruction-budget check pass; the `[manual]` real-terminal runs are recorded or each untried adapter is named stub-verified only in the PR.
+- **Dependencies:** none
+- **Citations:** D-43, D-29, D-30, D-21 · REQ-L1.9, REQ-L1.5, REQ-L1.6,
+  REQ-A1.4, REQ-B1.3, REQ-B1.7
+- **Estimated effort:** 3 days
 
 ### Task 34 — Program goals and their done-when checks
 
@@ -931,6 +946,9 @@ already prove.)*
 (none yet)
 
 ## Out of scope
+
+- **Task 30** — superseded by Task 33 (2026-11-07): an attended session
+  hands over beside itself rather than compacting (D-43, REQ-L1.9).
 
 - The review desk, spec currency, the environment broker, the night shift
   and the state-source adapters as duties in this bundle: follow-on bundles

@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-04
+**Last reviewed:** 2026-11-07
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -784,6 +784,14 @@ kickoff kind and the activation record (D-33 to D-37); authentication and
 authorization D-32, D-35 and D-36; deploy and migration D-33 (pull
 requests no launch registered) and D-38 (partial handover); human
 comprehension D-31; context handling D-42.)*
+*(Amended at the 2026-11-07 amendment: context handling D-43; its API
+surface is the launcher's `pane` rung and its pane adapters; auth (the
+terminal's control channel, Remote Control carried only from the
+predecessor, the successor's profile), concurrency (the predecessor takes
+no act after writing the handover file; the deferral holds only while a
+rung-1 successor is in flight), failure modes (an unverified successor's
+pane closed by the predecessor) and observability (the rung and adapter
+recorded) are decided in D-43.)*
 
 ### D-29: Handover over compaction  (S)
 
@@ -808,6 +816,8 @@ disposable session; measured context makes its trigger honest.
 
 *(Amended at the 2026-11-04 extension: superseded for attended sessions
 by D-42; it governs launched holders.)*
+*(Amended at the 2026-11-07 amendment: governs attended sessions again
+through D-43's ladder.)*
 
 ### D-30: Automatic, lossless succession  (S)
 
@@ -830,6 +840,8 @@ automatically without degradation.
 
 *(Amended at the 2026-11-04 extension: succession applies to launched
 holders; an attended session compacts instead, D-42.)*
+*(Amended at the 2026-11-07 amendment: an attended session's successor
+opens in a pane beside it, D-43.)*
 
 ### D-31: Guidance shapes the teaching at consequential moments, never the gate  (S)
 
@@ -1183,6 +1195,85 @@ behaviour.
 **Chosen because:** the operator's decision (2026-11-04): zero context
 handling for the person at the terminal, with the durable stores and the
 self-check carrying what must survive.
+
+**Superseded-by: D-43** (2026-11-07).
+
+### D-43: Every session hands over; an attended one opens its successor beside itself, compaction last  (S)
+
+**Decision:** D-29 and D-30's preference for a handover over a compaction
+holds for every mission-control session, attended or launched. At its
+trigger an attended session works down the **handover ladder**, falling to
+the next rung whenever one does not end with its successor holding the
+program name:
+
+1. **A pane beside itself.** It writes the handover file, takes no new act
+   after that, and opens its successor in a new split of its own window
+   in the innermost terminal or multiplexer on this host, through a
+   **pane adapter**: a launcher rung (`--backend pane`, beside the
+   launcher's `stream-json` and `tmux` rungs, D-30's launch path) so the
+   successor gets its registry row as any launched session does. tmux's
+   adapter is the reference; kitty, WezTerm and Zellij get best-effort
+   adapters, each verified against a stub, and others may be added later.
+   An adapter is used only when its probe passes: the probe is read-only
+   (it opens nothing and changes no terminal state), finds the pane
+   identity of the session's own process (for example `TMUX_PANE` or
+   `KITTY_WINDOW_ID`), and accepts only a control channel already enabled
+   on this host and owned by the session's user, never enabling one or
+   editing terminal configuration. The adapter passes the successor's
+   command as an argument vector built only from launcher-grammar names
+   and checked paths, never as a shell string. The successor starts with
+   its launcher-derived display name (the program name moves by `take`),
+   keeps Remote Control only when its predecessor had it on, and runs
+   under the shipped mission-control profile, as launched mission-control
+   sessions do. Its pane takes focus; it verifies and takes the program
+   name as D-30 describes, recorded as an attended holder, which
+   retirement still retires through its registry row. The released
+   predecessor says one line naming the new pane and ends itself at an
+   idle prompt, so its pane closes and the operator does nothing; one that
+   has not ended when `take` finishes is closed by the successor through
+   the same adapter, that pane only. A successor that does not verify
+   within `mission_control_handover_window` is closed by the predecessor
+   through the adapter that opened it, the predecessor keeps the name, and
+   the ladder falls to rung 2.
+2. **One operator act.** The handover is the one command
+   `scripts/mc-handover.sh`'s `path` names, raised through `offer` once per
+   session and said in one plain line. Its exit 4 now applies only here.
+3. **Compaction, last.** While a rung-1 successor is in flight the mod's
+   compaction deferral (D-29) holds, with its cap; while only the rung-2
+   act is pending it does not, so the host's compaction is the last
+   resort. After it the post-compaction step D-29 defines (rules
+   re-injected, the self-check against the durable stores, only a failed
+   check an operator item) keeps the session sound: a self-checked
+   compaction is not the degraded session D-30 forbids. Each later trigger
+   retries rung 1 only.
+
+Each handover records the rung and adapter that ran, and a fall from rung 1
+is a panel event. The shipped measured-context trigger
+(`mission_control_handover_context`) is 40 percent for every session,
+launched holders included; the wake and compaction ceilings keep their
+shipped values and now apply to attended sessions too. A launched holder's
+handover mechanism is otherwise unchanged. A resume still never closes the
+operator's own session; only a release to a pane successor does.
+
+**Alternatives considered:**
+- Keep D-42 (attended sessions compact). Rejected because: the operator
+  wants the handover's lossless successor wherever it can run, compaction
+  losing conversational nuance the handover file keeps.
+- tmux only. Rejected because: the operator asked for a best effort in
+  whatever terminal the session runs in.
+- Never compact, reminding until the operator acts. Rejected because:
+  compaction is the host's own safety net, and a degraded session is worse
+  than a compacted one.
+- A pane seam inside `scripts/mc-handover.sh`. Rejected because: the
+  launcher's backend seam already owns registry rows and retirement, which
+  a pane successor needs.
+- Remote Control on for every successor. Rejected because: the operator
+  ruled (2026-11-07) that only the hub keeps Remote Control and a
+  successor keeps it only when its predecessor had it.
+
+**Chosen because:** the operator's decision (2026-11-06 and 2026-11-07):
+hand over as best as possible and compact only as a last resort, emulating
+the tmux pane in whatever terminal is in use.
 
 ### D-44: A goal is done when its own check passes  (S)
 
