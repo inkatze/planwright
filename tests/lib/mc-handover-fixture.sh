@@ -9,7 +9,7 @@
 # The fixture resolves paths through a cd in a command substitution.
 unset CDPATH
 
-for t in jq git; do
+for t in jq git ps; do
   command -v "$t" >/dev/null 2>&1 || {
     printf '%s\n' "FAIL: $t is required to run this suite" >&2
     exit 1
@@ -27,7 +27,13 @@ if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
 fi
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 fleet="$tmp/fleet"
+fakes=''
 cleanup() {
+  # Only a stand-in still this shell's child: a pid killed mid-run may since
+  # belong to another process.
+  for p in $fakes; do
+    [ "$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')" != "$$" ] || kill "$p" 2>/dev/null || :
+  done
   for d in "$fleet"/streamjson/*/; do
     [ -d "$d" ] || continue
     env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
@@ -103,4 +109,11 @@ events_of() { # events_of <kind> [<program>]: the program's events of that kind
   printf '%s\n' "$OUT" | awk -F '\t' -v k="$1" '$3 == k'
 }
 count_of() { events_of "$@" | grep -c .; }
+# fake_session: start a stand-in for a session's process, which runs until
+# killed; sets FAKE to its pid.
+fake_session() {
+  sleep 900 >/dev/null 2>&1 &
+  FAKE=$!
+  fakes="$fakes $FAKE"
+}
 printf '%s\n' "# Mission control" "" "Run program alpha." >"$tmp/brief.md"

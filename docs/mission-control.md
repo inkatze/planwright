@@ -216,6 +216,13 @@ never gets to notice (it is stuck, say) stays open and you close it. A
 session without the panel cannot end itself; it stops working and says it
 can be closed.
 
+Whenever a new session takes over (a handover, or your own resume), it
+waits briefly for the old session's process to end, where the old session
+recorded which process it was (sessions from an earlier planwright did
+not). If the old session is still running after that, mission control
+does not call it closed: it raises an item naming the process, so you know
+which session to close.
+
 A mission-control session that mission control starts, a successor
 included, runs in Claude Code's auto mode, so a routine command does not
 leave it waiting on an approval no other session is allowed to give.
