@@ -1664,10 +1664,10 @@ kickoff_script_at() {
   [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
 }
 
-# kickoff_segment <dir> — 0 when the segment names the kickoff push, which is
-# then decided here; 1 when it does not name it.
+# kickoff_segment <dir> <dir-ok> — 0 when the segment names the kickoff push,
+# which is then decided here; 1 when it does not name it.
 kickoff_segment() {
-  local dir=$1 n=${#SW[@]} named=0 w spec='' b form=direct
+  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
   done
@@ -1698,6 +1698,9 @@ kickoff_segment() {
     || deny_now 'this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Name the spec in lowercase letters, digits and hyphens.'
   [ -n "$spec" ] || return 0
   if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
+    [ "$dir_ok" = 1 ] \
+      || deny_now 'this kickoff push runs after a directory change the guard cannot follow, so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec branch checkout.'
+    [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
     [ "$b" = "planwright/$spec/spec" ] \
       || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec), and this checkout has ${b:-no branch} checked out - refusing. Check out that branch in your worktree."
@@ -1784,7 +1787,7 @@ classify_segments() {
     base_verb=$LC
     [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
       || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
-    if kickoff_segment "$eff"; then
+    if kickoff_segment "$eff" "$eff_ok"; then
       prev_text=$cur_text
       si=$((si + 1))
       continue
