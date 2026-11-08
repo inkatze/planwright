@@ -959,6 +959,23 @@ fixed-string check.)*
 - **Citations:** D-21, D-44, D-45 · REQ-N1.1, REQ-N1.2, REQ-D1.13
 - **Estimated effort:** half day
 
+### Task 38 — The plugin hook approves mission control's prompt-answer calls
+
+- **Deliverables:** A PreToolUse Bash hook wired in `hooks/hooks.json` that,
+  in a session the plugin's prompt hook marked as mission control, approves
+  exactly one simple command: the literal resolved path of its own installed
+  root's `scripts/fleet-streamjson.sh` with `pending` or `answer`, and defers
+  on every other shape and in every other session; the mission-control mark
+  in the tower-session mark store; the skill's answer prose pointing at it,
+  inside the instruction budget (D-21).
+- **Done when:** `tests/test-mc-approve-hook.sh` passes the cases its
+  test-spec entry names; `config/mission-control-verbs.txt` still excludes
+  the raw answer verb and its check passes; the instruction-budget check
+  passes.
+- **Dependencies:** 21
+- **Citations:** D-35 · REQ-G1.6, REQ-G1.2
+- **Estimated effort:** half day
+
 ## Awaiting input
 
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.

@@ -584,6 +584,28 @@ later planwright bundles implement, D-12).
   into a pane.
   *(Cites: D-35; audit item 3 (Sources); tower-comms D-12 (Sources);
   obs:3845960c.)*
+  *(Amended 2026-11-08, operator ruling relayed through the hub: "can't it
+  be fixed from the root so we don't really need to do it?". The plugin's own
+  PreToolUse hook SHALL approve, for a mission-control session only, exactly
+  one simple command per verb: the literal resolved path of the installed
+  plugin root's `scripts/fleet-streamjson.sh` followed by `pending ...` or
+  `answer ...`, with no shell expansion, compound, pipe, redirection,
+  background marker or symlink out of the installed root; every other shape
+  stays unapproved. This removes the per-release settings bump the user-scope
+  allow rules needed. The guard tier's pre-approval list (REQ-G1.5) keeps
+  excluding the raw answer verb, and the exact-path allow-rule discipline of
+  `fleet-hardening` REQ-B1.5 and D-20 is unchanged. Settled at the kickoff
+  (operator: "Your rule or reply (Recommended)"): the hook approves only the
+  call's shape, never its content. An `answer` it lets through SHALL still
+  carry either a standing decision covering that prompt (REQ-G1.2, claimed
+  through `fleet-attention.sh claim`, which re-checks coverage, before the
+  call delivers it) or the operator's own answer to that prompt, and stays
+  an undo-ledger entry naming what authorized it (D-24); mission control's
+  own judgment never authorizes an answer. "Never through the raw answer
+  verb" above therefore means never on mission control's own judgment. A
+  mission-control session is one the plugin's own prompt hook marked, with
+  the tower-session mark store's bar; in any other session the hook
+  defers.)*
 
 ## REQ-H — Programs across repositories
 
@@ -1020,6 +1042,12 @@ later planwright bundles implement, D-12).
   routed tower-front-door amendment, Task 36) and Task 19 (its push half
   landed in PR #866). Revised at the delta lens pass (see the kickoff
   brief's Amendment 4).
+- 2026-11-08 — Amendment 5 (meaning-class, on the Active bundle): the
+  plugin's own hook approves mission control's exact `fleet-streamjson.sh
+  pending` and `answer` calls, so approvals survive every release without a
+  settings rule; an answer still needs a standing decision or the
+  operator's own answer. Notes on REQ-G1.6 and D-35; Task 38 and its test
+  entry under REQ-G1.6 (see the kickoff brief's Amendment 5).
 
 ## Sources
 
