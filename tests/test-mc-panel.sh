@@ -199,6 +199,9 @@ printf 'processor\t: 0\nprocessor\t: 1\n' >"$tmp/proc/cpuinfo"
 printf 'MemTotal:       1000 kB\nMemAvailable:    250 kB\n' >"$tmp/proc/meminfo"
 MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
 record "the host's load in hundredths, its cores and the memory still available" host 153 2 25
+printf '0.29 0.90 0.50 1/200 99\n' >"$tmp/proc/loadavg"
+MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
+record "a load of 0.29 rounds to 29, not 28" host 29 2 25
 rm -f "$tmp/proc/loadavg" "$tmp/proc/meminfo"
 MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
 record "a host reading that cannot be made is a dash, not zero" host - 2 -

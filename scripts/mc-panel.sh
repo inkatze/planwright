@@ -1250,7 +1250,7 @@ host() {
   hs_cores=-
   hs_mem=-
   if hs_la=$(cut -d ' ' -f 1 "$hs_proc/loadavg" 2>/dev/null) && [ -n "$hs_la" ]; then
-    hs_load=$(printf '%s\n' "$hs_la" | awk '/^[0-9]+(\.[0-9]+)?$/ { printf "%d", $1 * 100; found = 1 } END { if (!found) printf "-" }')
+    hs_load=$(printf '%s\n' "$hs_la" | awk '/^[0-9]+(\.[0-9]+)?$/ { printf "%d", $1 * 100 + 0.5; found = 1 } END { if (!found) printf "-" }')
   fi
   hs_cores=$(grep -c '^processor' "$hs_proc/cpuinfo" 2>/dev/null) || hs_cores=-
   [ "$hs_cores" != 0 ] || hs_cores=-

@@ -47,7 +47,7 @@ const BAR_CELLS = 10
 const CONTEXT_CEILING_PCT = 95
 const DIAL = ['○', '◔', '◑', '◕', '●']
 
-// A bar of filled cells; a mark index (from 0) is drawn over its cell.
+// A bar of filled cells; each mark, a percent, is drawn over the cell it falls in.
 function bar(percent: number, marks: number[] = []): string {
   const clamped = Math.max(0, Math.min(100, percent))
   const filled = Math.round((clamped / 100) * BAR_CELLS)
@@ -103,7 +103,7 @@ export function instrumentLines(view: PanelView): string[] {
   }
 
   if (host?.memFreePercent != null) {
-    lines.push(`Memory       ${bar(host.memFreePercent)} ${host.memFreePercent}% free${host.memFreePercent < 10 ? ': LOW' : ''}`)
+    lines.push(`Memory       ${bar(host.memFreePercent)} ${host.memFreePercent}% available${host.memFreePercent < 10 ? ': LOW' : ''}`)
   } else {
     lines.push('Memory       unknown')
   }
