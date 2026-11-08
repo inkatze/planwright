@@ -162,11 +162,12 @@
 # At the tower tier a git alias expanding to one of the tower-only
 # subcommands denies too, and so does any subcommand that is not a builtin
 # where the guard cannot read the alias: in a command it cannot parse, or in
-# a repository or directory it cannot follow. An expansion among a tower
-# act's options denies, since it could spell the refused option. In a command
-# it cannot parse, the guard also refuses git whose subcommand is quoted,
-# escaped, or expanded, or whose global options carry a quote or an escape,
-# and a fetch or `git remote` beside -c, a GIT_* assignment, or a config or
+# a repository or directory it cannot follow; at every tier, so does any such
+# subcommand after a directory change it cannot follow. An expansion among a
+# tower act's options denies, since it could spell the refused option. In a
+# command it cannot parse, the guard also refuses git whose subcommand is
+# quoted, escaped, or expanded, or whose global options carry a quote or an
+# escape, and a fetch or `git remote` beside -c, a GIT_* assignment, or a config or
 # remote change. These acts
 # cover every
 # entry of config/tower-settings.json's deny list, which
@@ -1760,9 +1761,10 @@ classify_segments() {
     [ "$CS_LOST" = 0 ] || eff_ok=0
     # Where the shell may have skipped a followed cd, or run it in a
     # background subshell, the directory is unknown until an absolute cd sure
-    # to run names it again (never, after a function definition): past the end of an and-or list whose cd ran only
-    # after an earlier command succeeded, at a later || in that list, and past
-    # a list with a followed cd sent to the background.
+    # to run names it again (never, after a function definition): past the
+    # end of an and-or list whose cd ran only after an earlier command
+    # succeeded or carried a redirect, at a later || in that list, and past a
+    # list with a followed cd sent to the background.
     pt=''
     [ "$si" = 0 ] || pt=${SEG_TERM[$((si - 1))]}
     case $pt in
@@ -1941,7 +1943,8 @@ classify_segments() {
           # Followed only where its list is sure to run it in this shell
           # before the acts after it: not after a || or in a pipeline, a
           # compound body or condition, or under compound_shape's other marks.
-          # A cd that runs and fails is not modeled.
+          # A cd into a directory that exists and can be entered is taken to
+          # succeed.
           if [ "$verb" = cd ] && [ "${#SW[@]}" = 2 ] && [ "${SWL[1]}" = 1 ] \
             && { [ "$term" = '&&' ] || [ "$term" = ';' ] || [ "$term" = "$NL" ]; } \
             && [ "$CS_DEPTH" = 0 ] && [ "$CS_NOFOLLOW" = 0 ] && [ "$CS_NOCD" = 0 ] \
@@ -2950,13 +2953,12 @@ classify_git() {
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') runs where git configuration is set in the same command or its environment (a GIT_* variable, git config, or git remote), so the guard cannot tell what it runs - refusing (fail closed). Run the configuration change and the command separately."
         return 0
       fi
-      # The alias lookup falls back to the payload's directory, which is not
-      # the repository git reads its aliases from here.
+      # git reads aliases from a repository the guard cannot place here.
       if [ "$dir_ok" = 0 ] || { [ "$TIER" = tower ] && [ "$foreign" = 1 ]; }; then
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, a cd it cannot follow, or a -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
         return 0
       fi
-      git_alias_check "$sub" "$dir" "$dir_ok"
+      git_alias_check "$sub" "$dir"
       return 0
       ;;
   esac
@@ -3069,13 +3071,10 @@ git_config_key_check() {
 # git_alias_check — an unknown subcommand may be a configured alias, or
 # autocorrected into a reserved one.
 git_alias_check() {
-  local sub=$1 dir=$2 dir_ok=$3 v ac first
+  local sub=$1 dir=$2 v ac first
   case $sub in
     *[!A-Za-z0-9_.-]* | -*) return 0 ;;
   esac
-  # Where the directory cannot be followed, the payload's own still shows the
-  # global aliases.
-  [ "$dir_ok" = 1 ] || dir=$PAYLOAD_CWD
   [ -d "$dir" ] || dir=/
   v=$(gitq "$dir" config --get "alias.$sub") || v=''
   if [ -n "$v" ]; then

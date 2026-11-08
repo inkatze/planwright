@@ -882,6 +882,7 @@ gitq -C "$MAIN" config alias.p push
 for cmd in "true && cd $MAIN; git p" "if true; then cd $MAIN; fi; git p"; do
   pg worker "$cmd"
   expect deny "[worker] an unknown git subcommand after a cd the guard cannot follow denies: $cmd"
+  reason_has 'may be an alias' "[worker] the deny says the subcommand may be an alias: $cmd"
 done
 gitq -C "$MAIN" config --unset alias.p
 # A cd its list is sure to run before the later act is still followed.
