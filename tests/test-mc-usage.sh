@@ -270,6 +270,7 @@ expect_out "the quota store reads clear" "vendor${tab}claude${tab}clear"
 mc_run mc-budget.sh rung --program alpha --now "$after" --load 0
 expect_eq "the rung is normal again" "normal"
 watch "$((after + 60))"
+expect_rc "a watch after the reset" 0
 expect_no_out "the reset is announced once" "usage-reset"
 
 # ---------------------------------------------------------------------------
@@ -334,10 +335,12 @@ expect_out "a resume whose handover cannot be written is reported failed" "faile
 write_tracked "mission_control_usage_hold: 95"
 write_mirror 40 92
 watch "$now"
+expect_rc "a watch under a 95 threshold" 0
 expect_no_out "92% is under a 95 threshold" "usage-held"
 write_tracked "mission_control_usage_hold: nope"
 watch "$now"
 expect_rc "an invalid repo-tracked threshold fails the watch" 1
+expect_err "the failure names the threshold knob" "mission_control_usage_hold"
 
 # ---------------------------------------------------------------------------
 # The duty ships live in the default set.
