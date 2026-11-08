@@ -62,6 +62,7 @@ stub="$tmp/bin"
 mkdir -p "$stub" "$tmp/gh"
 cat >"$stub/gh" <<'EOF'
 #!/bin/sh
+printf '%s\n' "$*" >>"$GH_FIXTURE_DIR/calls"
 [ -z "${GH_FIXTURE_FAIL:-}" ] || exit 1
 [ "$1" = api ] || exit 1
 shift
@@ -88,6 +89,7 @@ cat >"$tmp/gh/jobs-101.json" <<'EOF'
  {"name":"never-started","status":"completed","conclusion":"cancelled","created_at":"2026-11-01T11:00:00Z","started_at":null,"completed_at":"2026-11-01T11:02:00Z"},
  {"name":"clock\u001b[2Jskew","status":"completed","conclusion":"success","created_at":"2026-11-01T11:00:10Z","started_at":"2026-11-01T11:00:00Z","completed_at":"2026-11-01T11:01:00Z"},
  {"name":"back\\slash","status":"completed","conclusion":"success","created_at":"2026-11-01T11:00:00Z","started_at":"2026-11-01T11:00:01Z","completed_at":"2026-11-01T11:00:02Z"},
+ {"name":"old-job","status":"completed","conclusion":"success","created_at":"2026-10-30T00:00:00Z","started_at":"2026-10-30T01:00:00Z","completed_at":"2026-10-30T01:10:00Z"},
  {"name":"skipped-job","status":"completed","conclusion":"skipped","created_at":"2026-11-01T08:00:00Z","started_at":"2026-11-01T08:00:00Z","completed_at":"2026-11-01T08:00:00Z"}]}
 EOF
 cat >"$tmp/gh/jobs-102.json" <<'EOF'
@@ -119,6 +121,7 @@ mkdir -p "$sj/mc-alpha-worker-0000000001" "$sj/mc-alpha-worker-0000000002" "$sj/
 {
   printf 'r5\tpermission\t%s\tanswered\t%s\n' $((NOW - 500)) $((NOW - 350))
   printf 'r6\tpermission\t%s\tpending\n' $((NOW - 400))
+  printf 'r14\tpermission\t%s\tundeliverable\t%s\n' $((NOW - 600)) $((NOW - 500))
 } >"$sj/mc-alpha-worker-0000000002/journal"
 printf 'r7\tpermission\t%s\tanswered\t%s\n' $((NOW - 9000)) $((NOW - 10)) >"$sj/other-worker/journal"
 # Another program whose name shares this one's prefix, and a session under
@@ -139,6 +142,19 @@ row mc-alpha-worker-0000000003 worker 1793500000 t3
 row mc-alpha-mission-control mission-control 1793500000 tm
 row mc-alpha-worker-0000000004 worker 1793500000 t4
 row mc-worker-00000000000000aa worker 1793500000 ta
+# A busy session is no stall however old its sample; a row of another
+# program or a session no longer launched is not measured; a launcher-form
+# name whose row names another program is that program's.
+row mc-alpha-worker-0000000020 worker 1793500000 t20
+printf '1793500000:t20\thash\t%s\tbusy\n' $((NOW - 7200)) >"$stall/mc-alpha-worker-0000000020"
+row mc-alpha-worker-0000000021 worker 1793500000 t21 beta
+printf '1793500000:t21\thash\t%s\tidle\n' $((NOW - 7200)) >"$stall/mc-alpha-worker-0000000021"
+row mc-alpha-worker-0000000022 worker 1793500000 t22
+sed 's/^state\tlaunched$/state\tretired/' "$reg/mc-alpha-worker-0000000022" >"$reg/x.tmp.1" && mv "$reg/x.tmp.1" "$reg/mc-alpha-worker-0000000022"
+printf '1793500000:t22\thash\t%s\tidle\n' $((NOW - 7200)) >"$stall/mc-alpha-worker-0000000022"
+row mc-alpha-worker-00000000bb worker 1793500000 tb beta
+mkdir -p "$sj/mc-alpha-worker-00000000bb"
+printf 'r15\tpermission\t%s\tanswered\t%s\n' $((NOW - 9000)) $((NOW - 10)) >"$sj/mc-alpha-worker-00000000bb/journal"
 # A name outside the registry grammar is never the program's, its row aside.
 row mc-alpha.odd worker 1793500000 to
 mkdir -p "$sj/mc-alpha.odd"
@@ -188,16 +204,21 @@ expect_out "so does one requested, whatever start time the forge gives it" "ci${
 expect_out "a job that finished unstarted waited until it finished, with no run time" "ci${tab}ci / never-started${tab}1${tab}120${tab}120${tab}120${tab}-"
 expect_out "a forge clock skew never makes a wait negative, and a job name loses its control bytes" "ci${tab}ci / clock[2Jskew${tab}1${tab}0${tab}0${tab}0${tab}60"
 expect_no_out "a skipped job is not measured" "skipped-job"
+expect_no_out "a job created before the window is not measured" "old-job"
+if grep -q 'actions/runs?per_page=40$' "$tmp/gh/calls"; then ok "the CI run count reaches the forge"; else fail "the runs list was not read 40 at a time: $(cat "$tmp/gh/calls")"; fi
 expect_out "a backslash in a job name is kept as written" "ci${tab}ci / back\\slash${tab}1${tab}1${tab}1${tab}1${tab}1"
-expect_out "permission waits: answered and pending, inside the window, this program's workers only" \
-  "approvals${tab}permission${tab}5${tab}90${tab}730${tab}400${tab}mc-alpha-worker-0000000002${tab}1${tab}400"
+expect_out "permission waits: answered, undeliverable and pending, inside the window, this program's workers only" \
+  "approvals${tab}permission${tab}6${tab}95${tab}830${tab}400${tab}mc-alpha-worker-0000000002${tab}1${tab}400"
 expect_no_out "a session named outside the registry grammar is not measured" "mc-alpha.odd"
 expect_out "a stalled session" "stall${tab}mc-alpha-worker-0000000001${tab}busy-unchanged${tab}7200"
 expect_out "an idle session, under the bound" "stall${tab}mc-alpha-worker-0000000003${tab}idle${tab}60"
 expect_no_out "mission control's own session is not a stall" "mc-alpha-mission-control"
 expect_no_out "a sample from an earlier launch is not this launch's" "stall${tab}mc-alpha-worker-0000000004"
 expect_out "a session with no current sample is named, never read as unstalled" \
-  "source${tab}stalls${tab}ok${tab}6 sessions; no current stall sample: mc-alpha-worker-0000000004, mc-worker-00000000000000aa"
+  "source${tab}stalls${tab}ok${tab}7 sessions; no current stall sample: mc-alpha-worker-0000000004, mc-worker-00000000000000aa"
+expect_no_out "a busy session is no stall" "stall${tab}mc-alpha-worker-0000000020"
+expect_no_out "another program's session is not measured" "stall${tab}mc-alpha-worker-0000000021"
+expect_no_out "a session no longer launched is not measured" "stall${tab}mc-alpha-worker-0000000022"
 expect_out "an empty registry field shifts no other" "stall${tab}mc-alpha-worker-0000000006${tab}idle${tab}120"
 expect_out "the launch key is cleaned as the stall detector cleans it" "stall${tab}mc-alpha-worker-0000000007${tab}idle${tab}130"
 expect_out "a slow step, naming its branch" "step${tab}polish${tab}2${tab}2400${tab}4800${tab}3000${tab}feature"
@@ -234,6 +255,15 @@ printf 'mission_control_throughput_thresholds: {ci-queue: 1d, approval-wait: 1d,
 mc_run mc-throughput.sh top --program alpha --now "$NOW"
 expect_rc "top with nothing over its threshold" 0
 expect_out "names no bottleneck" "top${tab}none"
+grep -v '^mission_control_throughput_thresholds' "$tracked.keep" >"$tracked"
+printf 'mission_control_throughput_thresholds: {ci-queue: 1d, approval-wait: 1d, stall: 1d, step: 40m}\n' >>"$tracked"
+mc_run mc-throughput.sh top --program alpha --now "$NOW"
+expect_out "a typical value equal to its threshold reaches it" "top${tab}step:polish${tab}4800"
+grep -v '^mission_control_throughput_thresholds' "$tracked.keep" >"$tracked"
+printf 'mission_control_throughput_thresholds: {ci-queue: 1d, approval-wait: 1m, stall: 1d, step: 1d}\n' >>"$tracked"
+mc_run mc-throughput.sh top --program alpha --now "$NOW"
+expect_out "the approvals text carries its numbers" \
+  "top${tab}approvals${tab}830${tab}Top bottleneck over the last 1d: Permission approvals: median wait 1m over 6 requests, 13m waiting in all, longest 6m on mc-alpha-worker-0000000002, 1 pending now (threshold 1m)"
 mv "$tracked.keep" "$tracked"
 
 # ---------------------------------------------------------------------------
@@ -291,12 +321,13 @@ grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && m
 rm -rf "$sj" "$stall"
 export GH_FIXTURE_EMPTY=1
 events() { mc_run mc-event.sh list --program alpha; }
+runtime="$fleet/mission-control/alpha"
 count_raised() { printf '%s\n' "$OUT" | awk -F '\t' '$3 == "throughput-bottleneck"' | wc -l | tr -d ' '; }
 
 mc_run mc-throughput.sh watch --program alpha --now "$NOW"
 expect_rc "watch" 0
 expect_out "the top bottleneck is raised" "raised${tab}step:polish${tab}4800"
-expect_out "with no stall sample at all, the stalls source is unknown" "source${tab}stalls${tab}unknown${tab}no current stall sample for any of the 6 sessions"
+expect_out "with no stall sample at all, the stalls source is unknown" "source${tab}stalls${tab}unknown${tab}no current stall sample for any of the 7 sessions"
 events
 expect_out "as a throughput-bottleneck event with its numbers" "throughput-bottleneck${tab}step:polish${tab}Top bottleneck over the last 1d: Slow cadence step polish: median 40m"
 if [ "$(count_raised)" = 1 ]; then ok "one event"; else fail "expected one event, got $(count_raised)"; fi
@@ -304,6 +335,18 @@ if [ -f "$mchome/kb/throughput/measure.tsv" ] && [ "$(head -n 1 "$mchome/kb/thro
   ok "the measurement is kept in the program home"
 else
   fail "no measurement store"
+fi
+if grep -q "^measured${tab}$NOW\$" "$mchome/kb/throughput/measure.tsv" && grep -q "^step${tab}polish${tab}" "$mchome/kb/throughput/measure.tsv"; then
+  ok "it holds the pass's time and its measurements"
+else
+  fail "the measurement store lacks the pass: $(cat "$mchome/kb/throughput/measure.tsv")"
+fi
+if [ "$(head -n 1 "$mchome/kb/throughput/cost-curve.tsv" 2>/dev/null)" = "# format: 1" ] \
+  && grep -q "^source${tab}cost${tab}" "$mchome/kb/throughput/cost-curve.tsv" \
+  && ! grep -q "^request${tab}" "$mchome/kb/throughput/cost-curve.tsv"; then
+  ok "the curve is kept beside it, without its per-request lines"
+else
+  fail "the curve store is missing or holds request lines"
 fi
 
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 1800))
@@ -326,9 +369,14 @@ else
   ok "a source unread for a pass (skipped as root)"
 fi
 
+rec "$steps/000002/008-step-pre-pr.rec" polish 2026-11-01T13:00:00Z 2026-11-01T13:30:00Z passed 000002 008
+rm -f "$runtime/throughput-last"
+mc_run mc-throughput.sh watch --program alpha --now $((NOW + 12600))
+expect_out "a bottleneck grown by less than the worsen percent is held" "held${tab}step:polish${tab}6600"
 rec "$steps/000002/006-step-pre-pr.rec" polish 2026-11-01T12:00:00Z 2026-11-01T12:50:00Z passed 000002 006
+rm -f "$runtime/throughput-last"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 14400))
-expect_out "a bottleneck grown past the worsen percent is raised again" "raised${tab}step:polish${tab}7800"
+expect_out "grown past the worsen percent over the total last raised at, not last held at, it is raised again" "raised${tab}step:polish${tab}9600"
 events
 if [ "$(count_raised)" = 2 ]; then ok "the worsened bottleneck emits once more"; else fail "expected two events, got $(count_raised)"; fi
 
@@ -339,9 +387,8 @@ expect_no_out "no bottleneck, nothing raised" "raised"
 expect_no_out "and nothing held" "held"
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 21600))
-expect_out "a bottleneck that cleared and returned is raised afresh" "raised${tab}step:polish${tab}7800"
+expect_out "a bottleneck that cleared and returned is raised afresh" "raised${tab}step:polish${tab}9600"
 
-runtime="$fleet/mission-control/alpha"
 if [ "$(id -u)" -ne 0 ]; then
   rm -f "$runtime/throughput-raised"
   mkdir "$runtime/throughput-raised"
@@ -385,6 +432,8 @@ sed "s#^program_alpha_home: .*#program_alpha_home: $repo/home#" "$tracked.keep" 
 mc_run mc-throughput.sh watch --program alpha --now $((NOW + 28800))
 expect_rc "a watch whose program home does not resolve fails" 1
 expect_no_out "before it measures anything" "source${tab}"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "measure names the steps unknown instead" "source${tab}steps${tab}unknown${tab}the program home does not resolve"
 mv "$tracked.keep" "$tracked"
 
 # A note on what went unmeasured too long to sit beside the bottleneck
@@ -435,6 +484,22 @@ expect_out "under a checksum subject, the key in its text" \
   "throughput-bottleneck${tab}throughput-$(printf '%s' 'ci:ci / macos-suite' | cksum | awk '{ print $1 }')${tab}Top bottleneck over the last 1d: CI runner queue, ci / macos-suite"
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 export GH_FIXTURE_EMPTY=1
+
+git -C "$repo" remote set-url origin git@github.com:acme/widgets.git
+cp "$tmp/gh/runs.json" "$tmp/gh/runs.keep"
+printf '%s\n' '{"workflow_runs":[{"id":"12a","name":"ci","updated_at":"2026-11-01T11:50:00Z"}]}' >"$tmp/gh/runs.json"
+unset GH_FIXTURE_EMPTY
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "an SSH remote names the slug, and a malformed run id is unknown" \
+  "source${tab}ci${tab}unknown${tab}an Actions run id of acme/widgets is malformed"
+export GH_FIXTURE_EMPTY=1
+mv "$tmp/gh/runs.keep" "$tmp/gh/runs.json"
+cp "$tracked" "$tracked.keep"
+sed "s#^program_alpha_repositories: .*#program_alpha_repositories: [$tmp/plain, $tmp/gone]#" "$tracked.keep" >"$tracked"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "with no repository measurable, CI is unknown, naming each" \
+  "source${tab}ci${tab}unknown${tab}no repository measured; no GitHub remote: $tmp/plain; not on this machine: $tmp/gone"
+mv "$tracked.keep" "$tracked"
 
 # ---------------------------------------------------------------------------
 # Knobs.
@@ -495,6 +560,10 @@ printf 'format\t2\nwindow\t100000\n' >"$fleet/mission-control/context/mc-alpha-w
 printf '%s\n' '{"type":"result","modelUsage":{"claude-opus-5-5":{"contextWindow":200000}}}' >"$sj/mc-alpha-worker-0000000009/events.jsonl"
 printf '%s\n' '{"type":"assistant","message":{"id":"m6","usage":{"input_tokens":120000,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000010/events.jsonl"
 printf 'format\t1\nwindow\t100000\n' >"$fleet/mission-control/context/mc-alpha-worker-0000000010"
+printf 'format\t1\nwindow\t100000\n' >"$fleet/mission-control/context/mc-alpha-worker-0000000001"
+mkdir -p "$sj/mc-alpha-worker-0000000014"
+printf '%s\n' '{"type":"assistant","message":{"id":"m7","usage":{"input_tokens":7777,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000014/events.jsonl"
+touch -t 202610300000 "$sj/mc-alpha-worker-0000000014/events.jsonl"
 printf 'mission_control_throughput_thresholds: {ci-queue: 5m}\n' >>"$tracked"
 mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
 expect_rc "curve, which reads no threshold" 0
@@ -508,6 +577,7 @@ expect_out "the 10% band" "curve${tab}10-19%${tab}1${tab}20000${tab}21498"
 expect_out "the 40% band" "curve${tab}40-49%${tab}1${tab}90000${tab}10000"
 expect_out "unknown-window requests are counted apart" "curve${tab}unknown${tab}2"
 expect_out "a frame jq cannot index costs the capture nothing" "source${tab}cost${tab}ok${tab}6 captures"
+expect_no_out "a capture last written before the window is not read" "mc-alpha-worker-0000000014"
 expect_out "undivided cache writes are priced as 5-minute writes; an unknown context format gives no window" \
   "request${tab}mc-alpha-worker-0000000008${tab}1${tab}-${tab}1000${tab}-${tab}1250"
 expect_no_out "a capture of only a result frame adds no request" "request${tab}mc-alpha-worker-0000000009"
