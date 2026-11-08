@@ -289,6 +289,15 @@ expect_out "its reset is announced" "event${tab}usage-reset${tab}quota${tab}"
 mc_run quota-hold.sh status --vendor claude
 expect_out "the quota store reads clear again" "vendor${tab}claude${tab}clear"
 
+# A drain records a resume it could not prepare as failed, never as nothing.
+mc_run mc-usage.sh enqueue --program alpha --resume "$limited"
+expect_rc "enqueue a resume" 0
+rid=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "queued" { print $2 }')
+mkdir -p "$fleet/mission-control/alpha/usage/queue/$rid/handover"
+mc_run mc-usage.sh drain --program alpha --now "$((after + 400))"
+expect_rc "a drain with no hold" 0
+expect_out "a resume whose handover cannot be written is reported failed" "failed${tab}${rid}${tab}"
+
 # ---------------------------------------------------------------------------
 # The threshold knob.
 # ---------------------------------------------------------------------------

@@ -370,8 +370,10 @@ drain() {
         }
         if [ -s "$e/brief" ]; then
           resume_session "$w" "$e/brief"
+        elif handover_text "$dr_windows" >"$e/handover"; then
+          resume_session "$w" "$e/handover"
         else
-          handover_text "$dr_windows" >"$e/handover" && resume_session "$w" "$e/handover"
+          outcome failed "$id" "cannot write the handover for $w"
         fi
         dr_resumed="$dr_resumed$w "
         rm -rf "$e"
@@ -407,9 +409,11 @@ drain() {
             if [ "$n" -ge "$MAX_ATTEMPTS" ]; then
               outcome failed "$id" "launch refused $n times (exit $dr_rc): $(sanitize_printable "$dr_err" -)"
               rm -rf "$e"
-            else
+            elif [ -d "$e" ]; then
+              # Kept even when the attempt cannot be counted: the next drain
+              # tries it again, and the rest of this drain goes on.
               awk -F '\t' -v n="$n" 'BEGIN { OFS = "\t" } $1 == "attempts" { $2 = n } { print }' "$e/entry" | mc_write "$e/entry" \
-                || mc_fail "cannot record the attempt on $id"
+                || printf '%s\n' "$prog: cannot record the attempt on $id" >&2
               printf 'kept\t%s\tlaunch exit %s: %s\n' "$id" "$dr_rc" "$(sanitize_printable "$dr_err" -)"
             fi
             ;;
@@ -422,7 +426,10 @@ drain() {
       *) printf '%s\n' "$prog: skipping queue entry $id: no action it knows" >&2 ;;
     esac
   done
-  dr_list=$(/bin/bash "$script_dir/mission-control-launch.sh" list 2>/dev/null) || dr_list=""
+  dr_list=$(/bin/bash "$script_dir/mission-control-launch.sh" list 2>/dev/null) || {
+    outcome failed sessions "cannot list the sessions a limit stopped"
+    dr_list=""
+  }
   for w in $(printf '%s\n' "$dr_list" | P=$program awk -F '\t' '$2 == ENVIRON["P"] && $5 == "stream-json" { print $1 }'); do
     mc_valid_handle "$w" || continue
     case $dr_resumed in *" $w "*) continue ;; esac
@@ -431,7 +438,11 @@ drain() {
       *) continue ;;
     esac
     dr_msg="$udir/.handover.$w"
-    handover_text "$dr_windows" >"$dr_msg" || mc_fail "cannot write the handover for $w"
+    if ! handover_text "$dr_windows" >"$dr_msg"; then
+      outcome failed "$w" "cannot write the handover"
+      rm -f "$dr_msg"
+      continue
+    fi
     resume_session "$w" "$dr_msg"
     rm -f "$dr_msg"
   done
