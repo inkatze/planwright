@@ -558,6 +558,7 @@ SHAPES
   printf '38 * * * * T=abc\\\033"lk-03 lk-04" /opt/planwright/a\n'
   printf '%s\n' "50 * * * * curl -H 'Authorization: Bearer lk-b1' https://bot:lk-b2@api.example/planwright --token lk-b3 -o /dev/null%lk-b4"
   printf '%s\n' '51 * * * * https://bot:lk-b5@api.example/claude' '52 * * * * /opt/planwright/x%lk-b6' '53 * * * * --token=lk-b7 planwright'
+  printf '*/30 * * * * /opt/planwright/both %s/y\n' "$neutral_repo"
   sed 's/ ==> .*//' "$shapes"
 } >"$CRON_FIXTURE"
 printf 'mission_control_launch_backend: stream-json\nmission_control_stall_window: 30m\nmission_control_tick_cadence: 5m\n' >"$layer"
@@ -594,19 +595,28 @@ cron_line "a credential the line carries in its arguments is never printed" curl
 cron_line "a command word holding a URL password is cut before it" 'https<redacted>' claude
 cron_line "a command word running into cron's % is cut there" '/opt/planwright/x<redacted>' planwright
 cron_line "a --token word is cut at its =" '--token=<redacted>' planwright
-for want in \
-  'T=<redacted> planwright' \
-  'curl planwright' \
-  '/opt/planwright/g planwright' \
-  'planwright_token planwright' \
-  'TOKEN=<redacted> planwright' \
-  '/opt/planwright/i planwright'; do
-  cron_line "a quoted, escaped, open or environment value never reaches the report" "${want%% *}" "${want#* }"
-done
-while IFS= read -r shape; do
-  want=${shape#* ==> }
-  cron_line "an unmodelled shell form prints no argument" "${want%% *}" "${want#* }"
-done <"$shapes"
+cron_line "a program path wins over a product name on the same line" /opt/planwright/both "$neutral_repo"
+# Every report line in the crontab's order, so a line misread, dropped or
+# doubled fails even where another line prints the same text.
+cron_want=$(
+  printf 'cron\t%s\t%s\n' /opt/hub/w.sh planwright cd "$repo" 'PLANWRIGHT_TOKEN=<redacted>' PLANWRIGHT \
+    'T=<redacted>' planwright 'T=<redacted>' planwright 'T=<redacted>' planwright \
+    'T=<redacted>' planwright 'T=<redacted>' planwright curl planwright \
+    /opt/planwright/g planwright planwright_token planwright 'TOKEN=<redacted>' planwright \
+    /opt/planwright/i planwright /opt/hub/Claude-Sweep.sh Claude 'PLANWRIGHT_ROOT=<redacted>' PLANWRIGHT \
+    "$neutral_home/tick.sh" "$neutral_home" cd "$neutral_repo" 'T=<redacted>' planwright \
+    curl planwright 'https<redacted>' claude '/opt/planwright/x<redacted>' planwright \
+    '--token=<redacted>' planwright /opt/planwright/both "$neutral_repo"
+  sed "s/^.* ==> //; s/ /$tab/; s/^/cron$tab/" "$shapes"
+)
+cron_got=$(printf '%s\n' "$OUT" | grep "^cron$tab")
+if [ "$cron_got" = "$cron_want" ]; then
+  ok "each reported cron line reads as its own expected word and match, in order"
+else
+  fail "the cron report lines differ from the expected ones, in order:"
+  printf '%s\n' "$cron_want" >"$tmp/cron-want.txt"
+  printf '%s\n' "$cron_got" | diff "$tmp/cron-want.txt" - >&2
+fi
 for secret in s3cr3t "x y" "a b" k3y lk- Bearer Authorization 'bot:' ./sweep.sh; do
   expect_no_out "a cron line's arguments never reach the report: $secret" "$secret"
 done
