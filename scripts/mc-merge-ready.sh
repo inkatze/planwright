@@ -157,6 +157,12 @@ COUNT_FRESH=3600
 MOVED_WHY="its head moved since the snapshot; judged again once the snapshot catches up"
 
 if [ "$verb" = count ]; then
+  cn_map=$(/bin/bash "$script_dir/mc-program.sh" get "$program" sources) || mc_fail "the source map of program $program does not resolve"
+  # A store left from before the source was removed counts nothing.
+  if ! printf '%s\n' "$cn_map" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { f = 1 } END { exit !f }'; then
+    printf '0\tall\n'
+    exit 0
+  fi
   [ -e "$store" ] || {
     printf '0\tall\n'
     exit 0

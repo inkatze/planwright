@@ -499,7 +499,11 @@ expect_eq "with none taken yet, it says so" "unknown${tab}-${tab}no code-state s
 run watch --program alpha --now "$T"
 expect_rc "and the watcher waits" 0
 
+real=$(date +%s)
+printf 'state\tok\t%s\nacme/web#7\tk\tready\t%s\tsquash\t-\n' "$real" "$real" >"$store"
 sed -i.bak 's/^program_alpha_sources: .*/program_alpha_sources: {work-items: specs:record}/' "$tracked"
+run count --program alpha
+expect_eq "a source removed since the last judgment counts nothing" "0${tab}all"
 run list --program alpha --now "$T"
 expect_rc "a program with no code-state snapshot" 0
 expect_eq "has nothing to list" ""
