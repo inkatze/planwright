@@ -216,6 +216,11 @@ abs_dir() { # abs_dir <flag> <dir>
   (cd -- "$2" && pwd -P)
 }
 
+# queue_ids: the ids of the queued entries, sorted.
+queue_ids() {
+  (cd "$queue" && set +f && for d in q*; do [ -f "$d/entry" ] && printf '%s\n' "$d"; done) | sort
+}
+
 # field <file> <key>: one entry or record field.
 field() { mc_kv "$1" "$2"; }
 
@@ -386,7 +391,7 @@ drain() {
   OUTCOMES=""
   FH=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
   dr_resumed=" "
-  dr_ids=$(cd "$queue" && set +f && for d in q*; do [ -f "$d/entry" ] && printf '%s\n' "$d"; done | sort)
+  dr_ids=$(queue_ids)
   for id in $dr_ids; do
     valid_id "$id" || continue
     e="$queue/$id"
@@ -557,7 +562,7 @@ watch() {
   fi
   # No hold: an entry still queued (a launch the budget did not admit at the
   # reset, one queued since) drains now.
-  if [ -n "$(cd "$queue" && set +f && for d in q*; do [ -f "$d/entry" ] && printf '%s\n' "$d"; done)" ]; then
+  if [ -n "$(queue_ids)" ]; then
     drain ""
     if [ -n "$OUTCOMES" ]; then
       if [ -f "$lastf" ]; then
@@ -662,7 +667,7 @@ case $verb in
     ;;
   list)
     [ "${#args[@]}" -eq 0 ] || usage
-    (cd "$queue" && set +f && for d in q*; do [ -f "$d/entry" ] && printf '%s\n' "$d"; done) | sort | while IFS= read -r id; do
+    queue_ids | while IFS= read -r id; do
       valid_id "$id" || continue
       e="$queue/$id/entry"
       a=$(field "$e" action)
