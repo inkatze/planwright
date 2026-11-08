@@ -261,6 +261,13 @@ case "$RC:$ERR" in
 esac
 holder_is "and the name stays put" operator-term
 
+# A picture built from the handover file keeps its tab separator; the reader
+# takes it as readily as the space form, so the check reaches the successor
+# test (none is pending) rather than refusing the grammar.
+printf 'item\tq-1\nsession\tmc-worker-1\n' >"$tmp/picture-tab"
+ho verify --program alpha --session mc-nobody --picture "$tmp/picture-tab" --digest "$digest" --ledger -
+case "$OUT $ERR" in *"none is pending"* | *"is not the pending successor"*) ok "a tab-separated picture is read by verify" ;; *) fail "verify refused the tab picture: exit $RC: $OUT $ERR" ;; esac
+
 echo
 if [ "$failures" -gt 0 ]; then
   echo "test-mc-handover: $failures failure(s)" >&2

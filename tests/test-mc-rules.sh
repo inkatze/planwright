@@ -354,6 +354,11 @@ printf '%s\n' "session w-two" "item i0000aaaa" "session w-one" >"$held"
 rules selfcheck alpha --digest "$digest" --held "$held" --durable "$durable"
 expect_rc "the self-check passes with rules, items and sessions held" 0
 expect_out "a passing self-check says so" "self-check passed"
+# A successor builds its held picture from the handover file's tab-separated
+# lines, so the tab form is read the same as the space form.
+printf 'item\ti0000aaaa\nsession\tw-one\nsession\tw-two\n' >"$tmp/held-tab"
+rules selfcheck alpha --digest "$digest" --held "$tmp/held-tab" --durable "$durable"
+expect_rc "a tab-separated held picture passes the self-check" 0
 
 rules selfcheck alpha --digest 0000 --held "$held" --durable "$durable"
 expect_rc "a self-check with a stale rule digest fails" 1
