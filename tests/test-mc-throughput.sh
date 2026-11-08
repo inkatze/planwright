@@ -69,7 +69,7 @@ shift
 pages=1
 [ "$1" != --paginate ] || { pages=all; shift; }
 case $1 in
-  repos/acme/widgets/actions/runs\?per_page=*)
+  repos/acme/widgets/actions/runs\?created=*)
     if [ -n "${GH_FIXTURE_EMPTY:-}" ]; then echo '{"workflow_runs":[]}'; else cat "$GH_FIXTURE_DIR/runs.json"; fi ;;
   repos/acme/widgets/actions/runs/*/jobs\?per_page=100)
     id=${1#repos/acme/widgets/actions/runs/}; id=${id%%/*}
@@ -80,7 +80,7 @@ esac
 EOF
 chmod +x "$stub/gh"
 cat >"$tmp/gh/runs.json" <<'EOF'
-{"workflow_runs":[{"id":101,"name":"ci","updated_at":"2026-11-01T11:50:00Z"},{"id":102,"name":"ci","updated_at":"2026-11-01T11:55:00Z"},{"id":100,"name":"ci","updated_at":"2026-10-20T00:00:00Z"}]}
+{"workflow_runs":[{"id":101,"name":"ci","status":"completed","updated_at":"2026-11-01T11:50:00Z"},{"id":102,"name":"ci","status":"in_progress","updated_at":"2026-11-01T11:55:00Z"}]}
 EOF
 cat >"$tmp/gh/jobs-101.json" <<'EOF'
 {"jobs":[
@@ -211,7 +211,7 @@ expect_out "a job that finished unstarted waited until it finished, with no run 
 expect_out "a forge clock skew never makes a wait negative, and a job name loses its control bytes" "ci${tab}ci / clock[2Jskew${tab}1${tab}0${tab}0${tab}0${tab}60"
 expect_no_out "a skipped job is not measured" "skipped-job"
 expect_no_out "a job created before the window is not measured" "old-job"
-if grep -q 'actions/runs?per_page=40$' "$tmp/gh/calls"; then ok "the CI run count reaches the forge"; else fail "the runs list was not read 40 at a time: $(cat "$tmp/gh/calls")"; fi
+if grep -q -- '--paginate repos/acme/widgets/actions/runs?created=%3E%3D2026-10-31T12:00:00Z&per_page=100$' "$tmp/gh/calls"; then ok "every run created inside the window is listed, every page"; else fail "the runs list did not carry the window: $(cat "$tmp/gh/calls")"; fi
 expect_out "a backslash in a job name is kept as written" "ci${tab}ci / back\\slash${tab}1${tab}1${tab}1${tab}1${tab}1"
 expect_out "permission waits: answered, undeliverable and pending, inside the window, this program's workers only" \
   "approvals${tab}permission${tab}6${tab}95${tab}830${tab}400${tab}mc-alpha-worker-0000000002${tab}1${tab}400"
@@ -509,7 +509,7 @@ export GH_FIXTURE_EMPTY=1
 
 git -C "$repo" remote set-url origin git@github.com:acme/widgets.git
 cp "$tmp/gh/runs.json" "$tmp/gh/runs.keep"
-printf '%s\n' '{"workflow_runs":[{"id":"12a","name":"ci","updated_at":"2026-11-01T11:50:00Z"}]}' >"$tmp/gh/runs.json"
+printf '%s\n' '{"workflow_runs":[{"id":"12a","name":"ci","status":"completed","updated_at":"2026-11-01T11:50:00Z"}]}' >"$tmp/gh/runs.json"
 unset GH_FIXTURE_EMPTY
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_out "an SSH remote names the slug, and a malformed run id is unknown" \
@@ -548,11 +548,33 @@ expect_rc "a threshold key given twice fails" 1
 expect_err "naming the knob" "mission_control_throughput_thresholds"
 grep -v '^mission_control_throughput_thresholds' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
 
-printf 'mission_control_throughput_ci_runs: 101\n' >>"$tracked"
+printf 'mission_control_throughput_ci_runs: 1001\n' >>"$tracked"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
-expect_rc "more CI runs than one forge page holds fails" 1
+expect_rc "a run cap above the largest allowed fails" 1
 expect_err "naming the knob" "mission_control_throughput_ci_runs"
 grep -v '^mission_control_throughput_ci_runs' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+
+# A finished run's jobs are read once and kept; one still running is read
+# every pass. A window holding more runs than the cap reads unknown, not a
+# silent newest-N, and so does a pass whose reads outlast the deadline.
+jobs_calls() { grep -c "actions/runs/$1/jobs" "$tmp/gh/calls"; }
+unset GH_FIXTURE_EMPTY
+rm -rf "$runtime"/throughput-ci
+: >"$tmp/gh/calls"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+[ "$(jobs_calls 101)" = 1 ] && ok "a finished run's jobs are read once" || fail "run 101's jobs were read $(jobs_calls 101) times"
+[ "$(jobs_calls 102)" = 2 ] && ok "a run still going is read every pass" || fail "run 102's jobs were read $(jobs_calls 102) times"
+printf 'mission_control_throughput_ci_runs: 1\n' >>"$tracked"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "more runs in the window than the cap reads unknown" "source${tab}ci${tab}unknown${tab}more than 1 Actions runs of acme/widgets in the window"
+grep -v '^mission_control_throughput_ci_runs' "$tracked" >"$tracked.tmp" && mv "$tracked.tmp" "$tracked"
+rm -rf "$runtime"/throughput-ci
+OUT=$(PLANWRIGHT_THROUGHPUT_CI_DEADLINE=0 mc_env /bin/bash "$repo_root/scripts/mc-throughput.sh" measure --program alpha --now "$NOW" 2>"$tmp/stderr")
+expect_out "reads that outlast the deadline read unknown, naming how far they got" "source${tab}ci${tab}unknown${tab}deadline reached after 0 of 2 Actions runs of acme/widgets"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_out "and the next pass reads them" "source${tab}ci${tab}ok${tab}"
+export GH_FIXTURE_EMPTY=1
 
 # A repository whose remote git cannot read is unknown, not one with no
 # GitHub remote.

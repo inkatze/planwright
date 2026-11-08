@@ -30,11 +30,14 @@ measurement is a read; the duty changes nothing it measures.
 
 THE MEASUREMENTS, over the last mission_control_throughput_window (stalls
 as they stand now):
-  ci         per workflow and job, of the newest
-             mission_control_throughput_ci_runs Actions runs (at most 100,
-             one forge page) of each program repository's GitHub remote
-             (gh api, jq), runs last updated before the window skipped and
-             every page of a run's jobs read: the queue time (created to
+  ci         per workflow and job, of every Actions run created inside the
+             window (every page) of each program repository's GitHub remote
+             (gh api, jq), every page of a run's jobs read; a finished
+             run's jobs are read once and kept in the runtime directory
+             while the run is in the window. A window holding more than
+             mission_control_throughput_ci_runs runs per repository, or a
+             pass whose reads outlast two minutes (the rest is kept for
+             the next pass), reads unknown, never a newest-N sample: the queue time (created to
              started; a job neither completed nor in progress counts to
              now, one that finished unstarted to its finish, never below
              zero) against the run time (started to completed). With more
@@ -215,11 +218,11 @@ load_knobs() {
   load_window
   THRESHOLDS=$(mc_knob mission_control_throughput_thresholds parse_thresholds) || exit 1
   CI_RUNS=$(mc_knob mission_control_throughput_ci_runs parse_ci_runs) || exit 1
+  CI_DEADLINE=${PLANWRIGHT_THROUGHPUT_CI_DEADLINE:-120}
   STALL_WINDOW=$(knob_secs mission_control_stall_window) || exit 1
 }
-# The Actions runs list is one forge page, which holds at most 100 runs.
 parse_ci_runs() {
-  mc_parse_count "$1" >/dev/null && [ "$1" -le 100 ] || return 1
+  mc_parse_count "$1" >/dev/null && [ "$1" -le 1000 ] || return 1
   printf '%s\n' "$1"
 }
 threshold() { mc_lookup "$1" "$THRESHOLDS"; }
@@ -327,13 +330,14 @@ slug_of() {
 # shellcheck disable=SC2016 # a jq program
 JQ_CLEAN='def clean: tostring | explode | map(select(. >= 32 and . != 127 and (. < 128 or . > 159))) | implode;'
 
-# ci_runs <slug> <count>: <run id><TAB><workflow> per newest run updated
-# inside the window (an older run holds no job the window keeps).
+# ci_runs <slug> <cap>: <run id><TAB><workflow><TAB><status> per run created
+# inside the window, every page of them; 2 when there are more than <cap>.
 ci_runs() {
-  cr_json=$(bounded gh api "repos/$1/actions/runs?per_page=$2" 2>/dev/null) || return 1
-  printf '%s\n' "$cr_json" | SINCE=$SINCE jq -r "$JQ_CLEAN"' .workflow_runs[]
-    | select(((.updated_at // "") | try fromdateiso8601 catch (env.SINCE | tonumber)) >= (env.SINCE | tonumber))
-    | [(.id | clean), (.name | clean)] | join("\t")' 2>/dev/null
+  cr_json=$(bounded gh api --paginate "repos/$1/actions/runs?created=%3E%3D$(mc_iso "$SINCE")&per_page=100" 2>/dev/null) || return 1
+  cr_rows=$(printf '%s\n' "$cr_json" | jq -r "$JQ_CLEAN"' .workflow_runs[]
+    | [(.id | clean), (.name | clean), (.status | clean)] | join("\t")' 2>/dev/null) || return 1
+  [ -z "$cr_rows" ] || [ "$(printf '%s\n' "$cr_rows" | wc -l)" -le "$2" ] || return 2
+  printf '%s\n' "$cr_rows"
 }
 
 # ci_jobs <slug> <run id> <workflow>: <slug><TAB><workflow / job><TAB>
@@ -360,6 +364,7 @@ measure_ci() {
     return 0
   }
   ci_all=""
+  ci_t0=$SECONDS
   ci_n=0
   ci_off=""
   ci_absent=""
@@ -384,25 +389,66 @@ measure_ci() {
         ;;
     esac
     ci_n=$((ci_n + 1))
-    ci_list=$(ci_runs "$ci_slug" "$CI_RUNS") || {
-      unknown ci "the Actions runs of $ci_slug cannot be read"
+    ci_list=$(ci_runs "$ci_slug" "$CI_RUNS")
+    case $? in
+      0) ;;
+      2)
+        unknown ci "more than $CI_RUNS Actions runs of $ci_slug in the window (mission_control_throughput_ci_runs)"
+        return 0
+        ;;
+      *)
+        unknown ci "the Actions runs of $ci_slug cannot be read"
+        return 0
+        ;;
+    esac
+    # A finished run's jobs never change, so they are read once and kept
+    # while the run is in the window; the cache also lets a pass that ran out
+    # of time pick up where it stopped.
+    ci_cache="$RUNTIME/throughput-ci/$(printf '%s' "$ci_slug" | tr -c 'A-Za-z0-9._-' '_')"
+    mkdir -p "$ci_cache" || {
+      unknown ci "cannot create $ci_cache"
       return 0
     }
-    while IFS='	' read -r ci_id ci_wf; do
+    ci_total=$(printf '%s\n' "$ci_list" | grep -c . || :)
+    ci_done=0
+    while IFS='	' read -r ci_id ci_wf ci_status; do
       [ -n "$ci_id" ] || continue
       mc_valid_uint "$ci_id" || {
         unknown ci "an Actions run id of $ci_slug is malformed"
         return 0
       }
-      ci_j=$(ci_jobs "$ci_slug" "$ci_id" "$ci_wf") || {
-        unknown ci "the jobs of $ci_slug run $ci_id cannot be read"
-        return 0
-      }
+      if [ "$ci_status" = completed ] && [ -f "$ci_cache/$ci_id" ] && [ ! -L "$ci_cache/$ci_id" ]; then
+        ci_j=$(cat "$ci_cache/$ci_id") || {
+          unknown ci "cannot read $ci_cache/$ci_id"
+          return 0
+        }
+      else
+        [ $((SECONDS - ci_t0)) -lt "$CI_DEADLINE" ] || {
+          unknown ci "deadline reached after $ci_done of $ci_total Actions runs of $ci_slug"
+          return 0
+        }
+        ci_j=$(ci_jobs "$ci_slug" "$ci_id" "$ci_wf") || {
+          unknown ci "the jobs of $ci_slug run $ci_id cannot be read"
+          return 0
+        }
+        if [ "$ci_status" = completed ]; then
+          printf '%s\n' "$ci_j" | mc_write "$ci_cache/$ci_id" || {
+            unknown ci "cannot write $ci_cache/$ci_id"
+            return 0
+          }
+        fi
+      fi
+      ci_done=$((ci_done + 1))
       [ -z "$ci_j" ] || ci_all="$ci_all$ci_j
 "
     done <<EOF
 $ci_list
 EOF
+    # What left the window leaves the cache.
+    for ci_f in "$ci_cache"/*; do
+      [ -f "$ci_f" ] || continue
+      printf '%s\n' "$ci_list" | cut -f1 | grep -qx "${ci_f##*/}" || rm -f "$ci_f"
+    done
   done <<EOF
 $REPOS
 EOF
@@ -553,8 +599,8 @@ EOF
     # future, or one taken longer ago than the stall window leaves the session
     # unmeasured, which is said, not zero. A sample that records no time of
     # its own predates that field and is read as current.
-    if [ "$s_launch" != "$ms_key" ] || ! mc_valid_uint "$s_since" || [ "$s_since" -gt "$NOW" ] ||
-      { [ -n "$s_at" ] && { ! mc_valid_uint "$s_at" || [ "$s_at" -gt "$NOW" ] || [ $((NOW - s_at)) -gt "$STALL_WINDOW" ]; }; }; then
+    if [ "$s_launch" != "$ms_key" ] || ! mc_valid_uint "$s_since" || [ "$s_since" -gt "$NOW" ] \
+      || { [ -n "$s_at" ] && { ! mc_valid_uint "$s_at" || [ "$s_at" -gt "$NOW" ] || [ $((NOW - s_at)) -gt "$STALL_WINDOW" ]; }; }; then
       ms_unsampled="$ms_unsampled${ms_unsampled:+, }${ms_row##*/}"
       continue
     fi

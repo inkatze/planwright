@@ -1156,11 +1156,11 @@ mission_control_deadline_horizon: 3d
 # The throughput duty (scripts/mc-throughput.sh): how often it measures
 # (an interval shorter than its watcher's cadence in config/duties.yaml
 # measures at that cadence), how far back it reads, and how many of each
-# repository's newest Actions runs it reads (at most 100). Cadences, and a
-# count.
+# repository's Actions runs one measurement reads, the window's whole set
+# (at most 1000; more reads the CI source unknown). Cadences, and a count.
 mission_control_throughput_interval: 1h
 mission_control_throughput_window: 24h
-mission_control_throughput_ci_runs: 40
+mission_control_throughput_ci_runs: 500
 # When a measurement is a bottleneck: its typical value (the median CI
 # queue wait, permission wait or step run; the longest stall) at or over
 # the threshold. Every key is required; each value a cadence.
