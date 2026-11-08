@@ -112,8 +112,9 @@ Usage:
       kb/throughput/ under the knowledge-base lock; and emits the top
       bottleneck as a throughput-bottleneck event, its subject the key, or
       throughput-<checksum> for a key outside the subject grammar, its text
-      the numbers and any unknown source (that note kept whole within the
-      event's 500 bytes), printing
+      the numbers and each unknown source with its reason, within 500
+      bytes (the source named alone when its reason does not fit beside
+      the numbers), printing
         raised<TAB><key><TAB><total s>   or   held<TAB><key><TAB><total s>
       A key is raised again only once its total grows by
       mission_control_throughput_worsen percent over the total it was last
@@ -700,14 +701,17 @@ pick() {
 
 # top_line <measure lines> <candidates>: sets TOP (the top candidate's line
 # or empty), its text in two parts, TOP_HEAD (the bottleneck) and TOP_NOTE
-# (any unknown source, else empty), and TOP_TEXT, the two together.
+# (each unknown source with its reason, else empty), TOP_NAMES (those
+# sources by name alone), and TOP_TEXT, the head and the note together.
 top_line() {
   TOP=$(pick "$2")
-  TOP_HEAD="" TOP_NOTE="" TOP_TEXT=""
+  TOP_HEAD="" TOP_NOTE="" TOP_NAMES="" TOP_TEXT=""
   [ -n "$TOP" ] || return 0
   tl_unknown=$(printf '%s\n' "$1" | awk -F '\t' '$1 == "source" && $3 == "unknown" { printf "%s%s (%s)", (n++ ? "; " : ""), $2, $4 }')
+  tl_names=$(printf '%s\n' "$1" | awk -F '\t' '$1 == "source" && $3 == "unknown" { printf "%s%s", (n++ ? ", " : ""), $2 }')
   TOP_HEAD="Top bottleneck over the last $(printf '%s' "$WINDOW" | awk '{ s = $1; if (s % 86400 == 0) print s / 86400 "d"; else if (s % 3600 == 0) print s / 3600 "h"; else print int(s / 60) "m" }'): $(printf '%s\n' "$TOP" | cut -f5)"
   [ -z "$tl_unknown" ] || TOP_NOTE=". Not measured: $tl_unknown"
+  [ -z "$tl_names" ] || TOP_NAMES=". Not measured: $tl_names"
   TOP_TEXT="$TOP_HEAD$TOP_NOTE"
 }
 
@@ -896,11 +900,16 @@ case $verb in
       else
         subject=$key
         mc_valid_handle "$subject" || subject=$(mc_subject throughput "$key")
-        # The note on what went unmeasured is kept whole; the bottleneck's
-        # own text gives way to fit the event's text bound.
-        note=$(printf '%s' "$TOP_NOTE" | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
+        # Every unmeasured source is named. When their reasons do not fit
+        # beside the whole bottleneck (whose key a checksum subject does not
+        # carry), the sources are named alone, the reasons left to
+        # kb/throughput/measure.tsv; the bottleneck gives way only after that.
+        ev_head=$(printf '%s' "$TOP_HEAD" | tr '\t\n\r' '   ' | mc_clean_text)
+        note=$(printf '%s' "$TOP_NOTE" | tr '\t\n\r' '   ' | mc_clean_text)
+        [ $((${#ev_head} + ${#note})) -le 500 ] || note=$(printf '%s' "$TOP_NAMES" | tr '\t\n\r' '   ' | mc_clean_text)
+        note=$(printf '%s' "$note" | cut -c1-500)
         text=""
-        [ "${#note}" -ge 500 ] || text=$(printf '%s' "$TOP_HEAD" | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-$((500 - ${#note})))
+        [ "${#note}" -ge 500 ] || text=$(printf '%s' "$ev_head" | cut -c1-$((500 - ${#note})))
         mc_event emit --program "$program" --now "$NOW" -- throughput-bottleneck "$subject" "$text$note" >/dev/null || mc_fail "the throughput-bottleneck event was refused"
         kept=$(printf '%s\n' "$kept" | K=$key awk -F '\t' 'NF && $1 != ENVIRON["K"]')
         kept="${kept:+$kept

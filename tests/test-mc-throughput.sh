@@ -379,7 +379,8 @@ expect_rc "a watch whose program home does not resolve fails" 1
 expect_no_out "before it measures anything" "source${tab}"
 mv "$tracked.keep" "$tracked"
 
-# The note on what went unmeasured survives the event's text bound whole.
+# A note on what went unmeasured too long to sit beside the bottleneck
+# within the event's text bound names the sources alone.
 if [ "$(id -u)" -ne 0 ]; then
   # A path that brings the note to about 450 bytes, whatever TMPDIR is.
   pad=$(((450 - 60 - ${#tmp}) / 2))
@@ -396,12 +397,10 @@ if [ "$(id -u)" -ne 0 ]; then
   events
   ev=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "throughput-bottleneck" && $4 == "stalls" { t = $5 } END { print t }')
   case $ev in
-    *"Not measured: "*"steps (cannot read the step records of $long)") ok "the unmeasured note is whole" ;;
-    *) fail "the unmeasured note was cut: $ev" ;;
-  esac
-  case $ev in
-    "Top bottleneck over the last 1d: Stalled"*) ok "the bottleneck's own text gave way" ;;
-    *) fail "the bottleneck's text is missing: $ev" ;;
+    "Top bottleneck over the last 1d: Stalled or idle sessions: "*"(mc-alpha-worker-0000000001 busy-unchanged). Not measured: steps")
+      ok "the bottleneck is whole, and the unmeasured source is named"
+      ;;
+    *) fail "the bottleneck or the unmeasured source was cut: $ev" ;;
   esac
   if [ "${#ev}" -le 500 ]; then ok "within the event's text bound"; else fail "the event text is ${#ev} bytes"; fi
   chmod 755 "$long/.claude/steps/000001"
