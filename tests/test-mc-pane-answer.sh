@@ -53,7 +53,8 @@ write_programs hub
 # real ps. busybox ps takes neither -ww nor -A, hence the fallback. tmux:
 # panes and captures from files, a capture moving $tmp/pane-<p>.next into
 # place for the next one; send-keys recorded to $tmp/keys (failing when
-# $tmp/send-fails exists).
+# $tmp/send-fails exists, and standing in for a watcher pass that records
+# $tmp/send-swaps as the next dialog when that exists).
 real_ps=$(command -v ps)
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/ps" <<EOF
@@ -79,6 +80,7 @@ case "\$1" in
   send-keys)
     shift
     printf '%s\n' "\$*" >>"$tmp/keys"
+    [ ! -e "$tmp/send-swaps" ] || cp "$tmp/send-swaps" "$fleet/mission-control/alpha/escalate/self"
     [ ! -e "$tmp/send-fails" ]
     ;;
   *) exit 1 ;;
@@ -318,6 +320,28 @@ if [ "$(id -u)" != 0 ]; then
   expect_err "fails the replay check" "cannot read"
   [ -z "$(keys)" ] || fail "a key was sent past an unreadable answers log: $(keys)"
 fi
+IFS="$tab" read -r _ first sess print kind <"$tmp/self.saved"
+printf 'dialog\t%s\t%s\t%s\t%s\n' $((first + 1)) "$sess" "$print" "$kind" >"$tmp/send-swaps"
+cp "$tmp/self.saved" "$esc_dir/self"
+answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
+rm -f "$tmp/send-swaps"
+expect_rc "a send the watcher saw a next dialog behind" 0
+if [ "$(awk -F '\t' '{ print $2 }' "$esc_dir/self" 2>/dev/null)" = $((first + 1)) ]; then
+  ok "the next dialog's record is kept"
+else
+  fail "the record after a send that a new record followed: '$(cat "$esc_dir/self" 2>/dev/null)'"
+fi
+: >"$tmp/keys"
+cp "$tmp/self.saved" "$esc_dir/self"
+ln -s "$$-1-1" "$esc_dir/pass.lock"
+answer --program alpha --choice 1 --decision "$(note hub answer 1)" --decided-in hub
+rm -f "$esc_dir/pass.lock"
+expect_rc "a send whose record drop waits out a watcher pass" 1
+expect_out "still reports the send" "answered${tab}alpha${tab}%7${tab}1"
+expect_err "and warns that the hold carries over" "could not be dropped"
+if cmp -s "$tmp/self.saved" "$esc_dir/self"; then ok "the record a drop could not reach is left as it was"; else fail "the record changed under a held pass lock"; fi
+: >"$tmp/keys"
+cp "$tmp/self.saved" "$esc_dir/self"
 D2=$(note hub answer 3)
 touch "$tmp/send-fails"
 answer --program alpha --choice 3 --decision "$D2" --decided-in hub

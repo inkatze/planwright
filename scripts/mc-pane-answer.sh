@@ -65,8 +65,10 @@ by the caller), only when every check holds, and refuses otherwise:
     what to do differently" or "Yes, but ask again next time". Any other
     label (a rule for later calls, a mode switch, a directory or trust
     grant) is refused, as is a run whose labels wrap or repeat a digit.
-After a sent answer the watcher's record of the dialog is dropped, so a
-dialog that follows starts its own hold. Each answer sent, or attempted
+After a sent answer the watcher's record of the dialog is dropped while
+it still names that dialog, waiting up to about 10 s for the watcher's
+pass, so a dialog that follows starts its own hold; a drop it cannot make
+is named on stderr and exits 1. Each answer sent, or attempted
 and failed, appends one line to <runtime>/escalate/answers.log:
   <epoch> <entry id> <hub> <digit> <pane> <session pid> sent|failed
 One answer runs at a time per program.
@@ -74,7 +76,8 @@ One answer runs at a time per program.
 Output: answered<TAB><program><TAB><pane><TAB><digit><TAB><option label>
 
 Exit codes: 0 sent; 1 a store, the pane, the log or the send that failed,
-or another answer to <p> in flight; 2 usage; 3 a program is not
+a sent answer left unlogged or its record not dropped (the output line
+still printed), or another answer to <p> in flight; 2 usage; 3 a program is not
 configured; 4 refused by a check above (named on stderr).
 
 Portable bash 3.2 / BSD tooling.
@@ -229,10 +232,23 @@ if [ "$outcome" != sent ]; then
   [ "$logged" = 1 ] || mc_fail "the keystroke could not be sent to pane $PANE, and the attempt could not be logged under $(sanitize_printable "$LOG"); do not reuse decision $DECISION"
   mc_fail "the keystroke could not be sent to pane $PANE"
 fi
-# The watcher's next pass sees whatever dialog follows as a new one.
-if pw_lock_acquire "$ESC_DIR/pass.lock" 50; then
-  rm -f "$SELF" 2>/dev/null || :
+# The watcher's next pass sees whatever dialog follows as a new one, an
+# identical one included. A record the watcher wrote since names that next
+# dialog and stays.
+dropped=0
+if pw_lock_acquire "$ESC_DIR/pass.lock" 500; then
+  msp_record "$SELF"
+  case $? in
+    0)
+      if [ "$MSP_REC_FIRST/$MSP_REC_SESS/$MSP_REC_PRINT" != "$rec_first/$rec_sess/$rec_print" ] || rm -f "$SELF" 2>/dev/null; then
+        dropped=1
+      fi
+      ;;
+    2) dropped=1 ;;
+  esac
   pw_lock_release "$ESC_DIR/pass.lock" || :
 fi
 printf 'answered\t%s\t%s\t%s\t%s\n' "$PROGRAM" "$PANE" "$CHOICE" "$(sanitize_printable "$LABEL")"
-[ "$logged" = 1 ] || mc_fail "the answer was sent but could not be logged under $(sanitize_printable "$LOG"); do not reuse decision $DECISION"
+[ "$logged" = 1 ] || printf '%s\n' "$prog: the answer was sent but could not be logged under $(sanitize_printable "$LOG"); do not reuse decision $DECISION" >&2
+[ "$dropped" = 1 ] || printf '%s\n' "$prog: the answer was sent but the watcher's record of the answered dialog could not be dropped; the same dialog asked again inherits its hold and is not escalated again" >&2
+[ "$logged" = 1 ] && [ "$dropped" = 1 ] || exit 1
