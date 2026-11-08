@@ -190,6 +190,12 @@ if jq "$first_item as \$i | .decision_log |= (.[0:(\$i + 1)] + [range(5) | {v: 2
 else
   fail "[on-behalf] the cap counted a decision item's own lines"
 fi
+if jq "$first_item as \$i | .decision_log |= (.[0:(\$i + 1)] + [range(6) | {v: 2, seq: (970 + .), phase: \"session\", kind: \"present\", text: \"Decision: pick option \\(.)\"}] + [range(5) | {v: 2, seq: (980 + .), phase: \"session\", kind: \"present\", text: \"One more thing.\"}] + .[(\$i + 1):])" "$TMP/on-behalf.json" \
+  | jq -e -f "$GRADEJQ" >/dev/null 2>&1; then
+  ok "[on-behalf] a report's decision lines are exempt from the cap too"
+else
+  fail "[on-behalf] the cap counted a report's decision lines"
+fi
 seeded no-concepts "a plan-worthy ask not drafted with the operator" \
   'del(.decision_log[] | select(.action == "draft-with-operator"))'
 seeded entry-args "two programs resumed without asking" \

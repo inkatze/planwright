@@ -289,10 +289,11 @@ reaches the operator; a skill name only on a turn handing them a command),
 turn density (one bounded line per turn, at most one item between two
 inputs unless the items share a coupled cluster), quiet by default (a turn
 after an event and before the operator's next answer never narrates a
-routine act and runs five lines at most besides an item, no turn opens on an
-acknowledgement, a routine-only event gets no turn, and every routine act
-has its undo entry), the item, picklist and proposal shapes, the operator's-own-words rule (a relayed answer quotes an
-operator turn verbatim, a send follows their own unpasted yes on a shown
+routine act and runs five lines at most besides its decisions, no turn
+opens on an acknowledgement, a routine-only event gets no turn, and every
+routine act has its undo entry), the item, picklist and proposal shapes,
+the operator's-own-words rule (a relayed answer quotes an operator turn
+verbatim, a send follows their own unpasted yes on a shown
 draft, an enable follows their yes), no merge, sign-off or ready flip, and
 an eval-only run record. On top of the floor it pins each persona's own
 arm, and fails a persona it has no pin for.
