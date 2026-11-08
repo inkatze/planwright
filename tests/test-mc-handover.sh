@@ -148,12 +148,15 @@ ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$di
 [ "$RC" = 0 ] && ok "the successor's self-check matches the handover file" || fail "the matching verify exited $RC: $OUT $ERR"
 ho release --program alpha --session "$n1"
 [ "$RC" = 0 ] && [ "$(col released 3)" = "$n2" ] && ok "the predecessor releases the name to the verified successor" || fail "release: $RC $OUT $ERR"
-ho take --program alpha --session "$n2" --window 5s
+fake_session
+p2=$FAKE
+ho take --program alpha --session "$n2" --window 5s --pid "$p2"
 [ "$RC" = 0 ] || fail "the take exited $RC: $OUT $ERR"
 [ "$(col took 4)" = released ] && ok "the successor takes the name on the release" || fail "the take did not see the release: $OUT"
 [ "$(col retire 3)" = released ] && [ ! -f "$(rowfile "$n1")" ] && ok "the predecessor's registry row is gone" || fail "the predecessor was not retired: $OUT"
 [ -n "$(col line 2)" ] && [ "$(printf '%s\n' "$OUT" | grep -c "^line$tab")" = 1 ] && ok "the operator sees one line" || fail "not one line: $OUT"
 holder_is "the name resolves to the successor only" "$n2"
+grep -qx "pid${tab}$p2" "$fleet/mission-control/alpha/holder" && ok "the holder record names the taker's process" || fail "the holder record lacks pid $p2: $(cat "$fleet/mission-control/alpha/holder")"
 [ -n "$(events_of mission-control-announce)" ] && ok "the successor announces itself" || fail "no announce event"
 [ ! -f "$hf" ] && ok "the consumed handover file is gone" || fail "the handover file outlived the take"
 
@@ -176,9 +179,12 @@ ho verify --program alpha --session "$n3" --picture "$tmp/picture" --digest "$di
 [ "$RC" = 0 ] || fail "the third verify exited $RC: $OUT $ERR"
 [ -f "$(rowfile "$n2")" ] || fail "fixture: the predecessor's row is missing before the hung take"
 before=$(count_of handover-requested)
-ho take --program alpha --session "$n3" --window 1s
+# Its process outlives the release window, then exits: the take waits for it.
+end_after 2 "$p2"
+ho take --program alpha --session "$n3" --window 1s --exit-wait 20s
 [ "$RC" = 0 ] && [ "$(col took 4)" = retired ] && ok "a predecessor silent past the window is retired" || fail "the hung take: $RC $OUT $ERR"
 [ "$(col retire 3)" = released ] && ok "the launcher retired it" || fail "the hung predecessor's retire line: $OUT"
+! kill -0 "$p2" 2>/dev/null && ok "released is reported only once the predecessor's process has exited" || fail "the take reported $n2 released while process $p2 still runs"
 [ "$(count_of handover-requested)" = $((before + 1)) ] && ok "the take asked the live predecessor to release" || fail "no handover-requested event for the take"
 [ ! -f "$(rowfile "$n2")" ] && ok "the hung predecessor's row is gone" || fail "the hung predecessor's row stayed"
 holder_is "the name resolves to the successor" "$n3"
@@ -203,6 +209,7 @@ run mc-panel.sh presence --program alpha --prompt --now "$(date +%s)"
 [ "$RC" = 0 ] || fail "fixture: the presence marker was not written: $ERR"
 sleep 1
 run mc-kb.sh append decisions --program alpha --subject "after the last turn" --act "retargeted a branch" --no-reversal
+led3=$(printf '%s\n' "$OUT" | head -n 1)
 ho resume --program alpha --session operator-term --picture "$tmp/picture-short" --digest "$digest" --durable "$tmp/picture"
 [ "$RC" = 1 ] && ok "a resume whose self-check fails is refused" || fail "the failing resume exited $RC"
 holder_is "and the name stays where it was" "$n3"
@@ -267,6 +274,74 @@ holder_is "and the name stays put" operator-term
 printf 'item\tq-1\nsession\tmc-worker-1\n' >"$tmp/picture-tab"
 ho verify --program alpha --session mc-nobody --picture "$tmp/picture-tab" --digest "$digest" --ledger -
 case "$OUT $ERR" in *"none is pending"* | *"is not the pending successor"*) ok "a tab-separated picture is read by verify" ;; *) fail "verify refused the tab picture: exit $RC: $OUT $ERR" ;; esac
+
+# ---------------------------------------------------------------------------
+# A retired predecessor is reported released only once its process has
+# exited: one still running is reported alive and raised as an operator item.
+# ---------------------------------------------------------------------------
+rm -f "$fleet/mission-control/alpha/successor"
+# An attended holder with no recorded process: the panel's activation record
+# for the program names it.
+fake_session
+pa=$FAKE
+fake_session
+self_a=$FAKE
+act="$fleet/mission-control/_panel/active"
+mkdir -p "$act"
+chmod 700 "$fleet/mission-control/_panel" "$act"
+printf 'format\t1\nprogram\talpha\ntarget\talpha\nsession\tsess-a\npid\t%s\nwritten\t1\n' "$pa" >"$act/sess-a"
+printf 'format\t1\nprogram\tbeta\ntarget\tbeta\nsession\tsess-b\npid\t%s\nwritten\t1\n' "$$" >"$act/sess-b"
+before=$(count_of handover-predecessor-alive)
+ho resume --program alpha --session op-a --pid "$self_a" --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 1s --exit-wait 1s
+[ "$RC" = 1 ] && ok "a resume whose predecessor keeps running exits 1" || fail "the resume over a running predecessor exited $RC: $OUT $ERR"
+[ "$(col retire 2)" = operator-term ] && [ "$(col retire 3)" = alive ] && [ "$(col retire 4)" = "$pa" ] \
+  && ok "the attended predecessor is reported alive, naming its process" || fail "the running attended predecessor's retire line: $OUT"
+[ "$(count_of handover-predecessor-alive)" = $((before + 1)) ] && ok "and an operator item is raised for it" || fail "no handover-predecessor-alive item: $(events_of handover-predecessor-alive)"
+holder_is "the name still moves to the resuming session" op-a
+grep -qx "pid${tab}$self_a" "$fleet/mission-control/alpha/holder" && ok "the resume records its own process" || fail "the resume's holder record: $(cat "$fleet/mission-control/alpha/holder")"
+kill "$pa" 2>/dev/null
+rm -f "$act/sess-a" "$act/sess-b"
+
+# An attended holder whose recorded process exits once it has released.
+fake_session
+self_b=$FAKE
+end_after 2 "$self_a"
+t0=$(date +%s)
+ho resume --program alpha --session op-b --pid "$self_b" --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 1s --exit-wait 20s
+[ "$RC" = 0 ] && [ "$(col retire 2)" = op-a ] && [ "$(col retire 3)" = attended ] \
+  && ok "an attended predecessor whose process exits is retired as before" || fail "the exiting attended predecessor: $RC $OUT $ERR"
+! kill -0 "$self_a" 2>/dev/null && [ $(($(date +%s) - t0)) -lt 15 ] \
+  && ok "the resume waited for that exit, and no longer" || fail "the resume did not wait for $self_a's exit, or waited out the bound"
+
+# The resuming session's own process never counts as its predecessor's.
+t0=$(date +%s)
+ho resume --program alpha --session op-c --pid "$self_b" --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 1s --exit-wait 20s
+[ "$RC" = 0 ] && [ "$(col retire 3)" = attended ] && [ $(($(date +%s) - t0)) -lt 15 ] \
+  && ok "a predecessor recorded with the resumer's own process is not waited for" || fail "the same-process resume: $RC $OUT $ERR"
+kill "$self_b" 2>/dev/null
+
+# A registry predecessor the launcher retired while its process runs on.
+ho launch --program alpha --brief "$tmp/brief.md" --asked
+r1=$(col successor 2)
+wait_done "$r1"
+ho verify --program alpha --session "$r1" --picture "$tmp/picture" --digest "$digest" --ledger "$led3" --durable "$tmp/picture"
+[ "$RC" = 0 ] || fail "fixture: the registry successor's verify exited $RC: $OUT $ERR"
+fake_session
+pr=$FAKE
+ho take --program alpha --session "$r1" --window 1s --pid "$pr"
+[ "$RC" = 0 ] && [ "$(col retire 2)" = op-c ] && ok "fixture: the registry session takes the name" || fail "fixture: the registry take: $RC $OUT $ERR"
+ho launch --program alpha --brief "$tmp/brief.md" --asked
+r2=$(col successor 2)
+wait_done "$r2"
+ho verify --program alpha --session "$r2" --picture "$tmp/picture" --digest "$digest" --ledger "$led3" --durable "$tmp/picture"
+before=$(count_of handover-predecessor-alive)
+ho take --program alpha --session "$r2" --window 1s --exit-wait 1s
+[ "$RC" = 1 ] && [ "$(col retire 2)" = "$r1" ] && [ "$(col retire 3)" = alive ] && [ "$(col retire 4)" = "$pr" ] \
+  && ok "a registry predecessor still running after its retire is reported alive" || fail "the running registry predecessor: $RC $OUT $ERR"
+[ "$(count_of handover-predecessor-alive)" = $((before + 1)) ] && ok "and raised as an operator item" || fail "no item for the running registry predecessor"
+[ ! -f "$(rowfile "$r1")" ] && ok "its registry row is still retired" || fail "the running registry predecessor's row stayed"
+holder_is "the name rests with the successor" "$r2"
+kill "$pr" 2>/dev/null
 
 echo
 if [ "$failures" -gt 0 ]; then

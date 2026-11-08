@@ -27,7 +27,9 @@ if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
 fi
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 fleet="$tmp/fleet"
+fakes=''
 cleanup() {
+  for p in $fakes; do kill "$p" 2>/dev/null || :; done
   for d in "$fleet"/streamjson/*/; do
     [ -d "$d" ] || continue
     env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
@@ -74,6 +76,7 @@ run() {
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
     -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_MC_CHECKED -u PLANWRIGHT_MC_PROGRAM \
     -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_TOWER_ID \
+    -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID \
     PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
@@ -102,4 +105,14 @@ events_of() { # events_of <kind> [<program>]: the program's events of that kind
   printf '%s\n' "$OUT" | awk -F '\t' -v k="$1" '$3 == k'
 }
 count_of() { events_of "$@" | grep -c .; }
+# fake_session: start a stand-in for a session's process, which runs until
+# killed; sets FAKE to its pid.
+fake_session() {
+  sleep 600 &
+  FAKE=$!
+  fakes="$fakes $FAKE"
+}
+# end_after <seconds> <pid>: the stand-in exits on its own after a delay,
+# as a released session does once its last turn ends.
+end_after() { (sleep "$1" && kill "$2" 2>/dev/null) & }
 printf '%s\n' "# Mission control" "" "Run program alpha." >"$tmp/brief.md"
