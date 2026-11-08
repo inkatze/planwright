@@ -251,7 +251,8 @@ help_end=$(grep -n '^HELP$' "$PRINTER" | head -1 | cut -d: -f1)
 print_hits=$(grep -nE 'gh pr merge|pulls/[^ ]*/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge' "$PRINTER" \
   | awk -F: -v s="${help_start:-0}" -v e="${help_end:-0}" -v q="'" '($1 + 0 <= s + 0 || $1 + 0 > e + 0) && $0 !~ ("printf " q "[^" q "]*gh pr merge")' || true)
 if [ -n "$help_start" ] && [ -n "$help_end" ] && [ -z "$print_hits" ] \
-  && ! grep -qE '(^|[;&|(]|then|do|else)[[:space:]]*(eval|sh -c|bash -c)[[:space:]]' "$PRINTER"; then
+  && ! grep -qE '(^|[;&|(]|then|do|else)[[:space:]]*(eval|sh -c|bash -c)[[:space:]]' "$PRINTER" \
+  && ! grep -qE '\|[[:space:]]*([^[:space:]|]*/)?(sh|bash|zsh|dash|ksh|xargs|eval|source)([[:space:]]|$)' "$PRINTER"; then
   pass "C1.4 $PRINT_FILES only prints the merge command for the operator, never runs it"
 else
   fail "C1.4 $PRINT_FILES names a merge outside its help or a printf, or evaluates a built string; re-verify the exclusion"
