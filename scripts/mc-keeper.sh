@@ -457,6 +457,7 @@ idle_since_streamjson() {
   # only when its tail holds none.
   is_ev=$(tail -c 1048576 "$is_dir/events.jsonl" 2>/dev/null | grep -F '"type":"result"' | tail -n 1)
   [ -n "$is_ev" ] || is_ev=$(grep -F '"type":"result"' "$is_dir/events.jsonl" 2>/dev/null | tail -n 1)
+  [ -n "$is_ev" ] || return 0
   is_text=$(printf '%s\n' "$is_ev" | jq -r '.result // empty' 2>/dev/null) || return 0
   is_last=$(printf '%s\n' "$is_text" | awk '{ sub(/[[:space:]]+$/, "") } $0 != "" { l = $0 } END { print l }')
   case $is_last in *'?') return 0 ;; esac

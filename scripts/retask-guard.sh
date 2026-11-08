@@ -239,6 +239,23 @@ utf8_only() {
 # do_log <via> <to> <reason> <now> [check] — append the override row and
 # warn; with check, only make sure the append would succeed.
 do_log() {
+  valid_to "$2" || {
+    printf '%s\n' "$me: the session handle is not one a row can carry; the override was not logged" >&2
+    return 2
+  }
+  # No C0, DEL or C1 control reaches a reader's terminal (a raw 0x9B is a
+  # CSI), and the rest of the UTF-8 survives: what iconv rejects, raw C1
+  # among it, is dropped before the encoded C1 range is.
+  dl_reason=$(printf '%s' "$3" | tr '\t\r\n' '   ' | tr -d '\000-\037\177' \
+    | awk '{ sub(/^ +/, ""); sub(/ +$/, ""); print substr($0, 1, 500) }' | utf8_only \
+    | awk '{ gsub(/\302[\200-\237]/, ""); print }')
+  case $dl_reason in
+    *[![:space:]]*) ;;
+    *)
+      printf '%s\n' "$me: the reason holds nothing printable; the override was not logged" >&2
+      return 2
+      ;;
+  esac
   dl_home=$(fleet_home) || {
     printf '%s\n' "$me: cannot resolve the fleet home; the override was not logged" >&2
     return 2
@@ -257,21 +274,11 @@ do_log() {
       rm -f "$dl_new"
     }
   fi
-  valid_to "$2" || {
-    printf '%s\n' "$me: the session handle is not one a row can carry; the override was not logged" >&2
-    return 2
-  }
   if [ "${5:-}" = check ]; then
     { : >>"$dl_log"; } 2>/dev/null && return 0
     printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"), so the override could not be logged" >&2
     return 2
   fi
-  # No C0, DEL or C1 control reaches a reader's terminal (a raw 0x9B is a
-  # CSI), and the rest of the UTF-8 survives: invalid bytes, raw C1 among
-  # them, are dropped before the encoded C1 range is.
-  dl_reason=$(printf '%s' "$3" | tr '\t\r\n' '   ' | tr -d '\000-\037\177' \
-    | awk '{ sub(/^ +/, ""); sub(/ +$/, ""); print substr($0, 1, 500) }' | utf8_only \
-    | awk '{ gsub(/\302[\200-\237]/, ""); print }')
   if ! { printf '%s\t%s\t%s\t%s\n' "$4" "$1" "$2" "$dl_reason" >>"$dl_log"; } 2>/dev/null; then
     printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"); the override was not logged" >&2
     return 2
@@ -349,7 +356,7 @@ cmd_hook() {
     case $reason in
       *[![:space:]]*)
         do_log send-message "$to" "$reason" "$(date +%s)" 2>/dev/null \
-          || deny "the re-task override could not be logged, so it is refused: check that the fleet home's mission-control directory is writable."
+          || deny "the re-task override could not be logged, so it is refused: it needs a printable reason and a writable mission-control directory in the fleet home."
         exit 0
         ;;
     esac

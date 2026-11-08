@@ -526,6 +526,7 @@ fi
 case $ERR in *"mc-alpha-worker-idle2 is idle past its bound, left for a pass whose stall scan succeeds"*) ok "and says so" ;; *) fail "the skipped retire was not reported: $ERR" ;; esac
 case $ERR in *"the idle session mc-alpha-worker-sjidle2 was not fully retired: retire"*) ok "a stream-json retire is still tried, and its failure reported" ;; *) fail "the stream-json retire on a failed scan: $ERR" ;; esac
 case $ERR in *mc-alpha-worker-sjgone*) fail "a session retired meanwhile was reported: $ERR" ;; *) ok "a session retired meanwhile is not a failed retire" ;; esac
+if [ ! -e "$sessions/mc-alpha-worker-sjgone" ]; then ok "(its retire was reached)"; else fail "the gone-meanwhile retire was never reached"; fi
 
 kill "$bound_pid" 2>/dev/null
 rm -rf "$tmp/scripts-alt"

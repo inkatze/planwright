@@ -112,6 +112,8 @@ fi
 [ "$?" = 2 ] || fail "log accepted a handle with a space"
 /bin/sh "$GUARD" log --via steer --to mc-p-worker-a --now soon --reason why 2>/dev/null
 [ "$?" = 2 ] || fail "log accepted a non-numeric epoch"
+/bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "$(printf '\001\377\233')" 2>/dev/null
+[ "$?" = 2 ] || fail "log --check accepted a reason with nothing printable"
 /bin/sh "$GUARD" log --via steer --to mc-p-worker-a --reason "  " 2>/dev/null
 rc=$?
 [ "$rc" = 2 ] && ok "an override without a reason is refused, as are a bad handle and epoch" || fail "a blank reason was accepted"
