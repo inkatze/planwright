@@ -814,7 +814,7 @@ curve() {
     cv_n=$((cv_n + 1))
     cv_ctx="$FLEET/mission-control/context/${cv_d##*/}"
     cv_fw=-
-    if [ -f "$cv_ctx" ] && [ "$(mc_kv "$cv_ctx" format 2>/dev/null)" = 1 ]; then
+    if [ -f "$cv_ctx" ] && [ ! -L "$cv_ctx" ] && [ "$(mc_kv "$cv_ctx" format 2>/dev/null)" = 1 ]; then
       cv_fw=$(mc_kv "$cv_ctx" window 2>/dev/null) || cv_fw=-
     fi
     [ -n "$cv_out" ] || continue

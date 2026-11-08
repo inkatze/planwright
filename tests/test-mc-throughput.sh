@@ -569,6 +569,8 @@ mkdir -p "$sj/mc-alpha-worker-0000000001" "$sj/mc-alpha-worker-0000000002" "$sj/
 printf '%s\n' '{"type":"assistant","message":{"id":"m3","usage":{"input_tokens":1000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000002/events.jsonl"
 printf 'format\t1\npercent\t1\ntokens\t1000\nwindow\t100000\nat\t%s\n' "$NOW" >"$fleet/mission-control/context/mc-alpha-worker-0000000002"
 printf '%s\n' '{"type":"assistant","message":{"id":"m4","usage":{"input_tokens":5000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}}}' >"$sj/mc-alpha-worker-0000000005/events.jsonl"
+# A context reading that is a link (to another session's) gives no window.
+ln -s mc-alpha-worker-0000000002 "$fleet/mission-control/context/mc-alpha-worker-0000000005"
 # Cache writes reported without the 5-minute and 1-hour breakdown, beside a
 # context reading of an unknown format; a capture holding only a result
 # frame; and a request past its window.
