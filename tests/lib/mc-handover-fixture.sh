@@ -112,7 +112,7 @@ count_of() { events_of "$@" | grep -c .; }
 # fake_session: start a stand-in for a session's process, which runs until
 # killed; sets FAKE to its pid.
 fake_session() {
-  sleep 120 >/dev/null 2>&1 &
+  sleep 900 >/dev/null 2>&1 &
   FAKE=$!
   fakes="$fakes $FAKE"
 }

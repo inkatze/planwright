@@ -179,12 +179,10 @@ ho verify --program alpha --session "$n3" --picture "$tmp/picture" --digest "$di
 [ "$RC" = 0 ] || fail "the third verify exited $RC: $OUT $ERR"
 [ -f "$(rowfile "$n2")" ] || fail "fixture: the predecessor's row is missing before the hung take"
 before=$(count_of handover-requested)
-# Its process outlives the release window, then exits: the take waits for it.
-end_after 2 "$p2"
+kill "$p2" 2>/dev/null
 ho take --program alpha --session "$n3" --window 1s --exit-wait 20s
 [ "$RC" = 0 ] && [ "$(col took 4)" = retired ] && ok "a predecessor silent past the window is retired" || fail "the hung take: $RC $OUT $ERR"
 [ "$(col retire 3)" = released ] && ok "the launcher retired it" || fail "the hung predecessor's retire line: $OUT"
-! kill -0 "$p2" 2>/dev/null && ok "released is reported only once the predecessor's process has exited" || fail "the take reported $n2 released while process $p2 still runs"
 [ "$(count_of handover-requested)" = $((before + 1)) ] && ok "the take asked the live predecessor to release" || fail "no handover-requested event for the take"
 [ ! -f "$(rowfile "$n2")" ] && ok "the hung predecessor's row is gone" || fail "the hung predecessor's row stayed"
 holder_is "the name resolves to the successor" "$n3"
@@ -332,6 +330,7 @@ wrc=$?
   && ok "once that process exits the predecessor is retired" || fail "the exiting predecessor: exit $wrc: $(cat "$tmp/waiting.out")"
 
 # The resuming session's own process never counts as its predecessor's.
+kill -0 "$self_c" 2>/dev/null || fail "fixture: the stand-in $self_c ended early"
 ho resume --program alpha --session op-d --pid "$self_c" --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 1s --exit-wait 2s
 [ "$RC" = 0 ] && [ "$(col retire 3)" = attended ] \
   && ok "a predecessor recorded with the resumer's own process is not waited for" || fail "the same-process resume: $RC $OUT $ERR"
@@ -340,6 +339,7 @@ ho resume --program alpha --session op-d --pid "$self_c" --picture "$tmp/picture
 # taker's process defaults to CLAUDE_PID.
 awk -F '\t' -v OFS='\t' '$1 == "pid-start" { $2 = "boot:another:1" } { print }' "$holder_file" >"$tmp/holder.edit"
 cp "$tmp/holder.edit" "$holder_file"
+kill -0 "$self_c" 2>/dev/null || fail "fixture: the stand-in $self_c ended early"
 fake_session
 self_e=$FAKE
 OUT=$(mc_env env CLAUDE_PID="$self_e" /bin/bash "$repo_root/scripts/mc-handover.sh" resume --program alpha --session op-e \

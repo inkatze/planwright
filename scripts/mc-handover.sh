@@ -35,8 +35,8 @@ LEASE_FRESH=300
 # scripts/mc-event.sh's bound on an event's text.
 EVENT_TEXT_MAX=512
 # How long a take or resume waits for a retired predecessor's process to
-# exit: a released session with the panel ends itself after its last turn,
-# one the launcher retired at once.
+# exit: a session that released can take a moment to end; one the launcher
+# retired ends at once.
 EXIT_WAIT=30s
 
 help_text() {
@@ -466,12 +466,15 @@ is_own() {
   return 1
 }
 
-# await_exit <pid> <start>: wait up to the exit wait, counted in polls so a
-# clock step cannot stretch it, for the process to exit; 1 when it still runs.
+# await_exit <pid> <start>: wait up to the exit wait for the process to exit,
+# ending at whichever comes first of that many polls (a clock step cannot
+# stretch it) and that many seconds (nor can a slow poll); 1 when it still
+# runs.
 await_exit() {
   ae_n=0
+  ae_end=$(($(mc_now) + exit_secs))
   while proc_alive "$1" "$2"; do
-    [ "$ae_n" -lt "$exit_secs" ] || return 1
+    [ "$ae_n" -lt "$exit_secs" ] && [ "$(mc_now)" -lt "$ae_end" ] || return 1
     sleep 1
     ae_n=$((ae_n + 1))
   done
@@ -509,7 +512,10 @@ succeed() {
     if wait_release "$s_from" "$s_from_kind" "$s_to" "$6"; then s_how=released; else s_how=retired; fi
   fi
   s_own_start=''
-  [ -z "$own_pid" ] || s_own_start=$(proc_start "$own_pid")
+  if [ -n "$own_pid" ]; then
+    s_own_start=$(proc_start "$own_pid")
+    [ -n "$s_own_start" ] || say "warning: process $own_pid is not running, so the holder record names no process for the next take to confirm"
+  fi
   lock
   read_holder
   if [ "$H_SESSION" != "$s_expect" ]; then

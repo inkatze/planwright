@@ -284,9 +284,10 @@ the open items against the file, takes the program name, re-announces itself
 to every live session, and the predecessor retires itself; the operator sees
 one line. A predecessor whose process its holder record names counts as
 retired only once that process has exited: one still running after a
-bounded wait is reported alive and raised as an operator item. The program name is planwright's holder record, not the harness's
-display name. Where the holder is the operator's own session, whose terminal
-cannot pass to a launched successor, no handover is launched or offered:
+bounded wait is reported alive and raised as an operator item. The
+program name is planwright's holder record, not the harness's display name.
+Where the holder is the operator's own session, whose terminal cannot pass
+to a launched successor, no handover is launched or offered:
 that session compacts, then reloads its rules and checks its picture against
 the durable records before acting.
 
