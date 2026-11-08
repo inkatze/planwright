@@ -1069,7 +1069,8 @@ mission_control_handover_compactions: 2
 # store saw its pull request merge; a permission prompt pending this long;
 # the program's mission control held on its own dialog this long; a CI job
 # whose median queue time is at least this percent of its median run and at
-# least the floor; a session idle this long. Cadences, but the share, a
+# least the floor (past the floor with no finished run, whatever the share);
+# a session idle this long. Cadences, but the share, a
 # whole percent from 1 to 100.
 mission_control_health_worker_age: 4h
 mission_control_health_merged_grace: 10m

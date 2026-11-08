@@ -154,10 +154,11 @@ Usage:
         health<TAB><check><TAB><n|?><TAB><worst|-><TAB><text>
                                              a health check out of its
                                              bound (n the count past it, the
-                                             worst offender named), or one
-                                             whose store cannot be read (`?`,
-                                             the text saying why); none when
-                                             all is well. See HEALTH below
+                                             worst offender named), or `?`
+                                             where it cannot tell, the text
+                                             saying why; a check may print
+                                             one of each, and none prints
+                                             when all is well. See HEALTH
         line<TAB><text>                      the line form, last
       Stored text has every control byte dropped.
   mc-panel.sh line --program <p> [--target <t>] [--now <epoch>]
@@ -218,6 +219,7 @@ Usage:
         pending wakes: <n>           with --target
         rung: <rung> (<reason>)
         health: <text>; <text>       only when a check is out of bounds
+                                     or unknown
       a store that cannot be read is said as unknown, with why
   mc-panel.sh activate --program <p> [--target <t>] [--session <id>]
                        [--pid <pid>] [--now <epoch>]
@@ -265,14 +267,15 @@ Usage:
 HEALTH. A failsafe for the duties: each check reads the store a duty
 keeps and flags only what is at or past its bound, a knob named below.
 No model is in the path and nothing is written but the bounds cache,
-<runtime>/health-bounds, which holds the bounds for five minutes so a
+<runtime>/health-bounds, which holds the bounds for a few minutes so a
 redraw reads no config. Mission control sessions themselves are left out
 of the worker checks.
   worker-age     a live worker registered for
                  mission_control_health_worker_age or longer
-  after-merge    a live worker whose pull request landed: the keeper's
-                 landing record (scripts/mc-keeper.sh's keeper-announced),
-                 or the attention store's `merged` held for
+  after-merge    a live worker whose pull request landed: at once where
+                 the keeper's landing record (scripts/mc-keeper.sh's
+                 keeper-announced) says it held the retire, or the
+                 attention store's `merged` held for
                  mission_control_health_merged_grace or longer
   permissions    a permission prompt pending in the attention store for
                  mission_control_health_permission_wait or longer, its
@@ -284,13 +287,15 @@ of the worker checks.
                  minute, or its last run failed
   context        a mission control on this host whose last context reading
                  is at or past its own handover threshold; unknown for one
-                 whose reading is stale while its session lives
+                 whose reading is stale while its session lives or cannot
+                 be told, for at most a day where it names no session
   ci-queue       a CI job whose median queue time reaches
                  mission_control_health_ci_queue_share percent of its median
                  run time and at least mission_control_health_ci_queue_floor
-                 (scripts/mc-throughput.sh's measure); unknown when the
-                 measure is older than twice the longer of its watcher's
-                 cadence and an hour
+                 (scripts/mc-throughput.sh's measure), and one past the
+                 floor with no finished run whatever the share; unknown
+                 when the measure is older than twice the longer of its
+                 watcher's cadence and an hour
   idle           a live session idle for mission_control_health_idle_after
                  or longer
 A check whose duty is not armed here and whose store is absent is not
@@ -299,7 +304,8 @@ count), never within bounds.
 
 Exit codes: 0 done; 1 the program list, the presence marker or an
 activation file cannot be read or written, a target's lease, the context
-reading or the install record cannot be written (its directory a symlink included), the install
+reading or the install record cannot be written (its directory a symlink
+included), the install
 event is refused, the copy's root, version or changelog cannot be read, or
 `lookup` finds no record for the session; 2 usage; 3 the program is not
 configured; 4 this session's id cannot be told.
