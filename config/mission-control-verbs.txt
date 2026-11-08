@@ -26,6 +26,8 @@ mc-escalate.sh -
 mc-event.sh list
 mc-handover.sh due
 mc-handover.sh launch
+mc-handover.sh offer
+mc-handover.sh path
 mc-handover.sh release
 mc-handover.sh resume
 mc-handover.sh take
