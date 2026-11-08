@@ -381,8 +381,9 @@ EOF
   fi
   printf 'source\tci\tok\t%s repositories%s\n' "$ci_n" "$ci_skip"
   [ -n "$ci_all" ] || return 0
-  # A job queued now counts its wait to now; one in progress has no run
-  # time yet; one that finished unstarted waited until it finished. A clock
+  # A job not yet running (queued, waiting, pending or requested, whatever
+  # start time the forge gives it) counts its wait to now; one in progress
+  # has no run time yet; one that finished unstarted waited until it finished. A clock
   # behind the forge's never makes a wait negative.
   ci_rows=$(printf '%s' "$ci_all" | MULTI=$ci_n SINCE=$SINCE NOW=$NOW awk -F '\t' "$ISO_AWK"'
     function w(x) { return (x < 0) ? 0 : x }
@@ -391,7 +392,7 @@ EOF
       k = (ENVIRON["MULTI"] + 0 > 1) ? $1 " " $2 : $2
       s = iso($5); e = iso($6)
       if ($3 == "completed" && s < 0) { if (e >= 0) print k "\tq\t" w(e - c); next }
-      if ($3 == "queued" || $3 == "waiting" || $3 == "pending" || s < 0) { print k "\tq\t" w(ENVIRON["NOW"] - c); next }
+      if (($3 != "completed" && $3 != "in_progress") || s < 0) { print k "\tq\t" w(ENVIRON["NOW"] - c); next }
       print k "\tq\t" w(s - c)
       if ($3 == "completed" && e >= s) print k "\tr\t" (e - s)
     }')

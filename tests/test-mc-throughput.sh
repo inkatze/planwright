@@ -93,7 +93,8 @@ EOF
 cat >"$tmp/gh/jobs-102.json" <<'EOF'
 {"jobs":[
  {"name":"macos-suite","status":"completed","conclusion":"success","created_at":"2026-11-01T11:10:00Z","started_at":"2026-11-01T11:30:00Z","completed_at":"2026-11-01T11:50:00Z"},
- {"name":"queued-job","status":"queued","conclusion":null,"created_at":"2026-11-01T11:55:00Z","started_at":null,"completed_at":null}]}
+ {"name":"queued-job","status":"queued","conclusion":null,"created_at":"2026-11-01T11:55:00Z","started_at":null,"completed_at":null},
+ {"name":"requested-job","status":"requested","conclusion":null,"created_at":"2026-11-01T11:50:00Z","started_at":"2026-11-01T11:50:00Z","completed_at":null}]}
 EOF
 # The second page of run 102's jobs, served only to a paginated read.
 cat >"$tmp/gh/jobs-102-2.json" <<'EOF'
@@ -179,6 +180,7 @@ expect_out "the CI source reads, naming the repositories it could not measure" \
 expect_out "CI queue against run time per workflow and job" "ci${tab}ci / macos-suite${tab}2${tab}1500${tab}3000${tab}1800${tab}900"
 expect_out "a fast job is measured too, every page of a run's jobs read" "ci${tab}ci / linux${tab}2${tab}10${tab}20${tab}15${tab}290"
 expect_out "a job still queued counts its wait to now" "ci${tab}ci / queued-job${tab}1${tab}300${tab}300${tab}300${tab}-"
+expect_out "so does one requested, whatever start time the forge gives it" "ci${tab}ci / requested-job${tab}1${tab}600${tab}600${tab}600${tab}-"
 expect_out "a job that finished unstarted waited until it finished, with no run time" "ci${tab}ci / never-started${tab}1${tab}120${tab}120${tab}120${tab}-"
 expect_out "a forge clock skew never makes a wait negative, and a job name loses its control bytes" "ci${tab}ci / clock[2Jskew${tab}1${tab}0${tab}0${tab}0${tab}60"
 expect_no_out "a skipped job is not measured" "skipped-job"
