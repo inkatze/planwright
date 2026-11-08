@@ -182,8 +182,7 @@ parse_ci_runs() {
 threshold() { mc_lookup "$1" "$THRESHOLDS"; }
 
 FLEET=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
-RUNTIME="$FLEET/mission-control/$program"
-mkdir -p "$RUNTIME" 2>/dev/null || mc_fail "cannot create the runtime directory of program $program"
+RUNTIME=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory of program $program"
 
 # own_session <name>: whether a stream-json session is this program's. Its
 # registry row decides when it has one; otherwise only the launcher's
