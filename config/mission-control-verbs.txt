@@ -40,6 +40,9 @@ mc-kb.sh index-add
 mc-kb.sh init
 mc-kb.sh inventory-refresh
 mc-keeper.sh -
+mc-merge-ready.sh -
+mc-merge-ready.sh list
+mc-packet.sh assemble
 mc-panel.sh activate
 mc-panel.sh await
 mc-panel.sh changes
