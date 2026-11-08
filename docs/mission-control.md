@@ -97,7 +97,8 @@ overlapping changes and merge order, letting known dates set priorities,
 preparing what you need before a
 decision, recording how to undo each act, checking what was done against
 your rules, and noticing what you keep doing by hand. If you run several
-programs with one hub program over all their repositories, the hub hears of
+programs with one hub program over all their repositories, and the hub's
+duties leave out the readiness check (it is on by default), the hub hears of
 every pull request ready to merge in them without checking readiness itself:
 the program that checked it tells the hub too. The last three
 do not run in the background yet, and turning them on changes nothing for
