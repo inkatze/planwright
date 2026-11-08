@@ -11,7 +11,8 @@
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
 # --settings <config/<profile>-settings.json> --name <worker>`, the profile
-# worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept and, for a
+# worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept,
+# PLANWRIGHT_SESSION_BACKEND=stream-json (the background-job guard's key) and, for a
 # worker, the worker identity exported, so its hooks write attention rows and
 # register its session name (fleet-messaging D-8, D-19), and the dispatcher's
 # tower identity cleared once the dispatch is registered; a handle outside
@@ -1560,7 +1561,12 @@ refuse_mode_overrides() {
 # read: an unverifiable mode source is no mode source, and a worker launched
 # without one inherits the operator's (see the header).
 profile_settings_path() {
-  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null); then
+  # Resolved where the worker runs, as the wrapper resolves its hook root:
+  # which install is current there can depend on a project-scoped record entry.
+  if ! ws_path=$(
+    [ -z "${run_cwd:-}" ] || cd -- "$run_cwd" 2>/dev/null || :
+    /bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null
+  ); then
     printf '%s\n' "$me: refusing to launch: without its $1-settings fragment the session inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
@@ -1612,9 +1618,18 @@ guard_preflight() {
   # set, in which case another install's copy gates the worker. Prove that
   # file, and read the installed roots through the resolver beside it, so the
   # proof is of what the worker is actually gated by.
-  gp_hook_root=$("$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+  # Read in the worker's directory: which install is current there can depend
+  # on a project-scoped record entry.
+  gp_hook_root=$(
+    cd -- "$gp_cwd" 2>/dev/null || :
+    "$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1
+  )
   [ -n "$gp_hook_root" ] || gp_hook_root=$gp_launcher
   gp_hook_root=$(cd -- "$gp_hook_root" 2>/dev/null && pwd -P) || gp_hook_root=$gp_launcher
+  # Warned before the refusals below, so warn mode reports it too: without it
+  # a backgrounded command stalls the worker, and nothing else breaks.
+  [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
+    || printf '%s\n' "$me: launch preflight: warning: the background-job guard $(printf '%s' "$gp_hook_root" | tr -d '\000-\037\177')/scripts/background-job-guard.sh is missing or not executable; a worker that backgrounds a command will stall" >&2
   gp_guard="$gp_hook_root/scripts/worker-command-guard.sh"
   # Executable, not merely readable: the wrapper execs it, and a guard that
   # cannot run would otherwise read as "does not approve" every root below.
@@ -2295,6 +2310,12 @@ cmd_launch() {
   # --verbose (required with -p stream-json output), the stdio permission
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
+  # A stream-json session never resumes on a background job's completion
+  # notice. The wrapper turns this request into the session's
+  # PLANWRIGHT_SESSION_BACKEND mark, which scripts/background-job-guard.sh
+  # keys its refusal on, and drops any mark it inherits.
+  PLANWRIGHT_LAUNCH_BACKEND=stream-json
+  export PLANWRIGHT_LAUNCH_BACKEND
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
     --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
@@ -3006,6 +3027,7 @@ cmd_relaunch() {
   # The checks the resumed launch makes, run now so a profile or wrapper the
   # new config broke refuses here with the worker still up.
   rx_profile=$(recorded_profile "$dir" "$worker" relaunch) || exit 7
+  run_cwd=$rx_cwd
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
   rx_gp=0

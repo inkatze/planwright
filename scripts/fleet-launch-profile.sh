@@ -10,6 +10,7 @@
 # core root chain names (scripts/resolve-root.sh install), whose first arms are
 # the PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT values fleet-dispatch-env.sh pins
 # a session to, so the profile and the hooks it names come from one install.
+# A chain root naming an older cached copy gives way to the installed one.
 # A launch without its profile would run under whatever the operator's own
 # settings say, which is the silent-delivery failure obs:eea622de recorded, so
 # a profile that is missing, unreadable, not a regular file, or reached through
@@ -53,12 +54,19 @@ case $# in
   *) usage ;;
 esac
 
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 if [ -z "$root" ]; then
-  script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
   root=$(/bin/sh "$script_dir/resolve-root.sh" install 2>/dev/null </dev/null) || root=''
   if [ -z "$root" ]; then
     printf '%s\n' "$me: no planwright root resolves, so the $kind settings profile cannot be found; refusing to launch without it" >&2
     exit 2
+  fi
+  # The dispatch-env wrapper hands the session the installed root in place of
+  # an older cached copy the chain names, so the profile comes from that
+  # same install.
+  if [ -f "$script_dir/resolve-installed-roots.sh" ]; then
+    fresh=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$root" 2>/dev/null </dev/null) || fresh=''
+    [ -z "$fresh" ] || root=$fresh
   fi
 fi
 
