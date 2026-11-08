@@ -301,6 +301,20 @@ expect_out "its reset is announced" "event${tab}usage-reset${tab}quota${tab}"
 mc_run quota-hold.sh status --vendor claude
 expect_out "the quota store reads clear again" "vendor${tab}claude${tab}clear"
 
+# A quota hold with no stated reset ends only on readings taken after it
+# began: frames from before it are no evidence, a later one is.
+mc_run quota-hold.sh hold --vendor claude --unit "alpha:unstated-one" --step worker --reason "fixture limit" --now "$((after + 500))"
+case $RC in 0 | 3) ok "a fixture quota hold with no stated reset" ;; *) fail "the reset-less fixture quota hold failed ($RC): $ERR" ;; esac
+mkdir -p "$fleet/streamjson/mc-alpha-frames"
+printf 'frame\t%s\t0.1\t%s\t0.1\t%s\tend\n' "$((after + 400))" "$((after + 3600))" "$((after + 86400))" >"$fleet/streamjson/mc-alpha-frames/ratelimit"
+watch "$((after + 600))"
+expect_rc "a watch with only frames from before the quota hold" 0
+expect_no_out "frames from before a quota hold do not release it" "released-quota"
+printf 'frame\t%s\t0.1\t%s\t0.1\t%s\tend\n' "$((after + 700))" "$((after + 3600))" "$((after + 86400))" >"$fleet/streamjson/mc-alpha-frames/ratelimit"
+watch "$((after + 800))"
+expect_out "a frame from after the quota hold, under the threshold, releases it" "released-quota${tab}claude"
+rm -rf "$fleet/streamjson/mc-alpha-frames"
+
 # A drain records a resume it could not prepare as failed, never as nothing.
 mc_run mc-usage.sh enqueue --program alpha --resume "$limited"
 expect_rc "enqueue a resume" 0

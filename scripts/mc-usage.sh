@@ -492,8 +492,9 @@ watch() {
   PREV=$(held_rows) || mc_fail "cannot read the usage hold"
   since=""
   [ -z "$PREV" ] || since=$(field "$holdf" since)
-  windows "$since"
   quota || mc_fail "cannot read the claude quota hold"
+  # A held quota with no usage hold recorded began at its own since.
+  windows "${since:-$QUOTA_SINCE}"
   hold_now "$thr"
   printf '%s\n' "$CUR" | awk 'NF == 3 { print "held\t" $1 "\t" $2 "\t" $3 }'
   # A held quota that reads clear is a reset even with no hold recorded: its
