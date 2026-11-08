@@ -215,7 +215,7 @@ stale() {
   while IFS= read -r ck_root; do
     [ -n "$ck_root" ] || continue
     [ "$(physical "$ck_root")" != "$ck_path" ] || return 1
-    [ -n "$ck_first" ] || [ ! -d "$ck_root/scripts" ] || ck_first=$ck_root
+    [ -n "$ck_first" ] || [ ! -d "$ck_root/scripts" ] || ck_first=${ck_root%/}
   done <<EOF
 $ck_current
 EOF

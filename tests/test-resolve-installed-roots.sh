@@ -428,6 +428,14 @@ OUT=$(env -u HOME CLAUDE_DIR="$gone" /bin/sh "$RESOLVER" --fresh "$old_copy" 2>/
 assert_eq "--fresh keeps the path when no recorded root is on disk" "$old_copy" "$OUT"
 ERR=$(env -u HOME CLAUDE_DIR="$gone" /bin/sh "$RESOLVER" --check "$old_copy" 2>&1 >/dev/null)
 assert_eq "--check names no replacement that is not on disk, so it stays quiet" "" "$ERR"
+# A recorded path with a trailing slash prints without it, so a caller comparing
+# strings sees one spelling of the install.
+slash="$SANDBOX/slash"
+mkdir -p "$slash/plugins"
+ln -s "$cur/plugins/cache" "$slash/plugins/cache"
+jq -n --arg a "$new_copy/" '{plugins: {"planwright@planwright": [{installPath: $a}]}}' >"$slash/plugins/installed_plugins.json"
+OUT=$(env -u HOME CLAUDE_DIR="$slash" /bin/sh "$RESOLVER" --fresh "$old_copy" 2>/dev/null)
+assert_eq "--fresh prints a recorded root without its trailing slash" "$new_copy" "$OUT"
 
 # --- the launch seam hands a worker the installed root ------------------------
 # envrun <wrapper-copy> [ENV=val...]: the wrapper's exported roots and copy
