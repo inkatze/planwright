@@ -249,6 +249,18 @@ poll_for "$tmp/shim/first-stdin" "the next unit's brief" || fail "the queued ses
 poll_for "$tmp/shim/resumed-stdin" "usage window" || fail "the resumed session got no handover"
 grep -q -- "--resume 0b6f0c1e-1111-4222-8333-444455556666" "$tmp/shim/argv" \
   || fail "the stopped session was not resumed from its own session"
+# The runner's watcher loop leads its own process group and stops with it,
+# so a session the drain starts or recovers must not join that group.
+if command -v setsid >/dev/null 2>&1; then
+  sup=$(head -n 1 "$sjdir/supervisor.pid" 2>/dev/null)
+  sup_pg=$(ps -o pgid= -p "${sup:-0}" 2>/dev/null | tr -d ' ')
+  our_pg=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+  if [ -z "$sup_pg" ] || [ "$sup_pg" = "$our_pg" ]; then
+    fail "the recovered session runs in the watcher's process group (supervisor ${sup:-none}, group ${sup_pg:-none})"
+  else
+    ok "a recovered session is detached from the watcher's process group"
+  fi
+fi
 mc_run quota-hold.sh status --vendor claude
 expect_out "the quota store reads clear" "vendor${tab}claude${tab}clear"
 mc_run mc-budget.sh rung --program alpha --now "$after" --load 0

@@ -310,6 +310,18 @@ handover_text() {
 
 last_line() { sanitize_printable "$(printf '%s\n' "$1" | tail -n 1)" - | cut -c1-200; }
 
+# detached <command...>: run it in a session of its own where setsid exists.
+# The runner's watcher loop leads a process group it stops whole
+# (scripts/mc-watch.sh), and a session the drain starts or recovers must
+# outlive the loop.
+detached() {
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@"
+  else
+    "$@"
+  fi
+}
+
 # resume_session <name> <handover file>: steer the handover in, recovering
 # a dead channel first.
 resume_session() {
@@ -326,7 +338,7 @@ resume_session() {
         return 0
         ;;
     esac
-    rs_out=$( (cd "$rs_cwd" && /bin/sh "$script_dir/fleet-streamjson.sh" recover "$1" --cwd "$rs_cwd") 2>&1 </dev/null)
+    rs_out=$( (cd "$rs_cwd" && detached /bin/sh "$script_dir/fleet-streamjson.sh" recover "$1" --cwd "$rs_cwd") 2>&1 </dev/null)
     rs_rc=$?
     if [ "$rs_rc" -ne 0 ]; then
       outcome failed "$1" "recover exit $rs_rc: $(last_line "$rs_out")"
@@ -396,7 +408,7 @@ drain() {
           printf 'kept\t%s\tcannot stage the launch\n' "$id"
           continue
         }
-        dr_out=$( (cd "$origin" && /bin/bash "$script_dir/mission-control-launch.sh" launch "$@") 2>"$dr_errf" </dev/null)
+        dr_out=$( (cd "$origin" && detached /bin/bash "$script_dir/mission-control-launch.sh" launch "$@") 2>"$dr_errf" </dev/null)
         dr_rc=$?
         dr_err=$(tail -n 1 "$dr_errf" 2>/dev/null | cut -c1-200)
         rm -f "$dr_errf"
