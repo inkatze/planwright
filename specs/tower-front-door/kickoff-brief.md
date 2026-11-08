@@ -706,7 +706,7 @@ Anchor: `92a76528cecfd972a3dac0d2f7beaf0bbec3d821` — computed as
 
 ### Delta re-walkthrough — routing security, CI and guard work; flights keep specs true (2026-11-08)
 
-#### 1. Header (delta)
+#### 1. Header (2026-11-08 delta)
 
 - **Mode:** reopened-bundle delta kickoff (stored Ready reopened to Draft
   over a derived Done by `/spec-draft --extend`); sign-off flips
@@ -721,7 +721,7 @@ Anchor: `92a76528cecfd972a3dac0d2f7beaf0bbec3d821` — computed as
 - **Questions:** every question was the operator's, relayed by mission
   control and answered in their own words.
 
-#### 2. Goal & glossary (delta)
+#### 2. Goal & glossary (2026-11-08 delta)
 
 Restatement: ordinary asks route as before; work landing on a listed CI,
 hook, guard or security path, or whose purpose is security, files
@@ -736,7 +736,7 @@ judgment, wider than the hard-disqualifier zones).
 
 Signed off: 2026-11-08
 
-#### 3. Requirements walkthrough (delta)
+#### 3. Requirements walkthrough (2026-11-08 delta)
 
 The operator's decisions came from mission-control Amendment 4's
 questions 1 to 4 and were confirmed here: "Sign off but the spec questions
@@ -748,7 +748,7 @@ The 2026-11-08 Changelog entry in `requirements.md` lists them.
 
 Signed off: 2026-11-08
 
-#### 4. Design walkthrough (delta)
+#### 4. Design walkthrough (2026-11-08 delta)
 
 D-23 (the catalog plus security judgment, overlays add only, an
 unpredicted listed path parks at `pre-pr`), D-24 (the recorded override,
@@ -759,7 +759,7 @@ routing data, not a knob.
 
 Signed off: 2026-11-08
 
-#### 5. Verification approach (delta)
+#### 5. Verification approach (2026-11-08 delta)
 
 Every new requirement has a `[test]` entry, run by planwright's CI
 (`tests/test-flight-record.sh`, `tests/test-flight-dispatch-points.sh`,
@@ -769,7 +769,7 @@ entries carry over into their successors.
 
 Signed off: 2026-11-08
 
-#### 6. Task graph (delta)
+#### 6. Task graph (2026-11-08 delta)
 
 Tasks 20 and 22 can start at once; 21 follows 20; 23 follows 20, 21 and
 22. Cross-spec hard edge: Task 22 waits on mission-control Task 35 (the
@@ -794,7 +794,7 @@ domain gap.
 
 Signed off: 2026-11-08
 
-#### 8. Lens review (delta-scoped)
+#### 8. Lens review (2026-11-08 delta)
 
 Spec lens set, fanned out in four groups of paired lenses over the
 extension commit, then validated and merged here; counts as each
@@ -815,7 +815,7 @@ with the operator at the approval question.
 
 Signed off: 2026-11-08
 
-#### 9. Pre-flip verification (delta)
+#### 9. Pre-flip verification (2026-11-08 delta)
 
 `markdownlint-cli2` over the four spec files and this brief: clean.
 `scripts/spec-validate.sh specs/tower-front-door`: 0 errors, 0 warnings,
@@ -825,7 +825,7 @@ entries, completed tasks' citations and dated changelog lines. The lens
 counts are as each reviewer reported them; the delta's enumerations are
 explicit lists.
 
-#### 10. Sign-off (delta)
+#### 10. Sign-off (2026-11-08 delta)
 
 **Sign-off decision:** the operator approved on 2026-11-08, relayed
 through the hub mission control ("Sign off (Recommended)"), after the
