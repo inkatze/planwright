@@ -1705,7 +1705,7 @@ kickoff_segment() {
   [ -n "$spec" ] || return 0
   if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
     [ "$dir_ok" = 1 ] \
-      || deny_now 'this kickoff push runs after a directory change the guard cannot follow, so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec branch checkout.'
+      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec branch checkout.'
     [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
     [ "$b" = "planwright/$spec/spec" ] \
