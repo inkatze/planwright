@@ -114,8 +114,8 @@ loop, so a quiet program costs very little.
 ## Usage windows and the reset queue
 
 Claude accounts have usage windows: a five-hour session window and a
-weekly one. When either reaches 90% (the `mission_control_usage_hold`
-setting), mission control stops starting new sessions and lines the next
+weekly one. When either reaches the configured threshold (90% unless the
+`mission_control_usage_hold` setting says otherwise), mission control stops starting new sessions and lines the next
 pieces of work up instead, each with its instructions already written, in
 a queue that survives restarts. Work you ask for yourself still starts, and
 so does a mission-control session, such as a fresh one taking over from
