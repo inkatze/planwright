@@ -64,7 +64,7 @@ export type PanelDigest = {
   line: string
 }
 
-export type PanelRateLimit = { kind: string; percentUsed: number }
+export type PanelRateLimit = { kind: string; percentUsed: number; resetsAt?: string }
 
 export type PanelView = {
   program: string

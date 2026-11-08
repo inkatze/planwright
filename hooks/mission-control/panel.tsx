@@ -2,8 +2,15 @@ import type { Elements, RenderSurface } from 'claude-code'
 
 import type { PanelDigest, PanelReviews, PanelView } from '../../types'
 import { age, counted, flightLines } from './digest'
+import { barPicture, COLOR, gaugesPicture, spriteCells } from './panel-art'
+import type { Instruments } from './panel-art'
 
 type Table = Elements[RenderSurface]
+type PictureTable = Elements['terminal']
+
+// Only the terminal surface carries Raster and Image; elsewhere the text stands.
+// The resolved table answers `in` for any name, so the surface is what decides.
+const hasPictures = (t: Table, surface: RenderSurface): t is PictureTable => surface === 'terminal' && 'Raster' in t
 
 // A radar sweep, advanced only while a wake is held for a busy session.
 const SWEEP = ['◜', '◝', '◞', '◟']
@@ -136,6 +143,67 @@ export function instrumentLines(view: PanelView): string[] {
   return lines
 }
 
+// The numbers the gauge picture draws, from the same readings the words say.
+export function instruments(view: PanelView): Instruments {
+  const d = view.digest
+  const worst = view.rateLimits.length === 0 ? null : view.rateLimits.reduce((a, b) => (b.percentUsed > a.percentUsed ? b : a))
+  const host = d?.host
+  const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
+  const why = cautionReasons(view)
+  return {
+    usageLeft: worst === null ? null : Math.max(0, 100 - Math.round(worst.percentUsed)),
+    load: host?.load != null && host.cores != null ? { ratio: host.load / 100 / host.cores } : null,
+    memory: host?.memFreePercent ?? null,
+    context: view.contextPercent === null ? null : { percent: view.contextPercent, handoverAt, windowAt: CONTEXT_CEILING_PCT },
+    caution: why === null ? 'unknown' : why.length === 0 ? 'clear' : 'lit',
+  }
+}
+
+// The usage stop is the percent admission holds launches at (the digest's
+// usage-hold knob, 0 when the stop is off); unread, it is unknown, never a default.
+export type UsageStop = number | 'off' | null
+export function usageStop(view: PanelView): UsageStop {
+  const v = view.digest?.knobs['usage-hold']
+  return v === undefined ? null : v === 0 ? 'off' : v
+}
+const stopWord = (stop: UsageStop) => (stop === null ? 'stop unknown' : stop === 'off' ? 'no stop set' : `stop at ${stop}%`)
+const WINDOW_NAME: Record<string, string> = { five_hour: '5-hour', seven_day: 'weekly' }
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// "1:10am" within a day of now, "Mon 6am" beyond; the clock is passed in.
+export function resetWord(iso: string | undefined, nowMs: number): string {
+  if (iso === undefined) return ''
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return ''
+  const h = at.getHours()
+  const m = at.getMinutes()
+  const clock = `${h % 12 === 0 ? 12 : h % 12}${m === 0 ? '' : `:${String(m).padStart(2, '0')}`}${h < 12 ? 'am' : 'pm'}`
+  const isNear = at.getTime() - nowMs < 24 * 3_600_000
+  return `resets ${isNear ? '' : `${DAYS[at.getDay()]} `}${clock}`
+}
+
+export function usageLines(view: PanelView, nowMs: number): { name: string; percent: number; text: string }[] {
+  const stop = usageStop(view)
+  return view.rateLimits.map(r => {
+    const name = WINDOW_NAME[r.kind] ?? r.kind.replace(/_/g, ' ')
+    const pct = Math.round(r.percentUsed)
+    const reset = resetWord(r.resetsAt, nowMs)
+    return { name, percent: r.percentUsed, text: `${name} ${pct}% used · ${stopWord(stop)}${reset ? ` · ${reset}` : ''}` }
+  })
+}
+
+// The context line says what the bar's marks are, in words.
+export function contextLine(view: PanelView): string {
+  if (view.contextPercent === null) return 'Context not measured'
+  const d = view.digest
+  const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
+  return [
+    `Context ${view.contextPercent}% used`,
+    ...(handoverAt === undefined ? [] : [`hands over at ${handoverAt}%`]),
+    `compacts at ${CONTEXT_CEILING_PCT}%`,
+  ].join(' · ')
+}
+
 export type MascotState = 'bumpy' | 'circling' | 'landing' | 'cruising' | 'taxiing'
 // The mascot knob: 0 off, 1 a still frame (reduced motion), 2 animated.
 export type MascotMode = 0 | 1 | 2
@@ -164,6 +232,10 @@ const MASCOT_WORD: Record<MascotState, string> = {
   landing: 'landing, work finished',
   cruising: 'cruising, sessions working',
   taxiing: 'taxiing, nothing running',
+}
+
+export function mascotWord(view: PanelView): string {
+  return `Prop pal: ${MASCOT_WORD[mascotState(view)]}`
 }
 
 // Whether the mascot has motion to repaint: a moving state with animation on.
@@ -288,7 +360,108 @@ function reviewSections(t: Table, r: PanelReviews) {
   ]
 }
 
-export function Pane(t: Table, view: PanelView, isHeld: boolean) {
+// Prop pal: a cell-grid picture where the surface has one, else the text art.
+// Its state word always shows, so no state rests on the picture.
+function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
+  const { Box, Text } = t
+  const word = <Text color={mascotState(view) === 'bumpy' ? 'warning' : undefined}>{mascotWord(view)}</Text>
+  if (hasPictures(t, surface)) {
+    const g = spriteCells(mascotState(view), mascotMode(view) === 2 ? view.frame : 0)
+    return (
+      <Box flexDirection="column" marginBottom={1}>
+        <t.Raster key="prop-pal" columns={g.columns} rows={g.rows} cells={g.cells} />
+        {word}
+      </Box>
+    )
+  }
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {mascotLines(view).map(l => (
+        <Text color={mascotState(view) === 'bumpy' ? 'warning' : undefined}>{l}</Text>
+      ))}
+    </Box>
+  )
+}
+
+// The wake animation redraws twice a second; the instruments move far slower,
+// so the last picture stands while its readings do.
+let lastGauges: { key: string; picture: ReturnType<typeof gaugesPicture> } | null = null
+function gaugesFor(i: Instruments) {
+  const key = JSON.stringify(i)
+  if (lastGauges?.key !== key) lastGauges = { key, picture: gaugesPicture(i) }
+  return lastGauges.picture
+}
+
+const GAUGE_COLUMNS = 56
+const GAUGE_ROWS = 5
+
+// The five instruments as one picture; the words below say the same numbers.
+function Gauges(t: PictureTable, view: PanelView) {
+  const { Box } = t
+  const g = gaugesFor(instruments(view))
+  return (
+    <Box flexDirection="column">
+      <t.Image
+        key="gauges"
+        source={{ rgba: g.rgba, width: g.width, height: g.height }}
+        columns={GAUGE_COLUMNS}
+        rows={GAUGE_ROWS}
+        alt="Instruments: usage left, host load, memory, context, caution; read below"
+      />
+    </Box>
+  )
+}
+
+const BAR_COLUMNS = 56
+
+// The context bar with its handover and compaction marks, and each usage
+// window with its stop line and reset time. Each says its numbers in words;
+// the bar is the picture of them, and marks differ by position and label.
+function Meters(t: Table, view: PanelView, surface: RenderSurface) {
+  const { Box, Text } = t
+  const d = view.digest
+  const isPic = hasPictures(t, surface)
+  const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
+  const windows = usageLines(view, Date.now())
+  const stop = usageStop(view)
+  const stopMark = typeof stop === 'number' ? [{ at: stop, color: COLOR.red }] : []
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text bold>Context</Text>
+      <Text>{contextLine(view)}</Text>
+      {isPic && view.contextPercent !== null && (
+        <t.Image
+          key="context-bar"
+          source={barPicture(view.contextPercent, COLOR.blue, [
+            ...(handoverAt === undefined ? [] : [{ at: handoverAt, color: COLOR.yellow }]),
+            { at: CONTEXT_CEILING_PCT, color: COLOR.red },
+          ])}
+          columns={BAR_COLUMNS}
+          rows={1}
+          alt={bar(view.contextPercent, [CONTEXT_CEILING_PCT])}
+        />
+      )}
+      <Text bold>Usage</Text>
+      {windows.length === 0 && <Text dimColor>No limits reported.</Text>}
+      {windows.map(w => (
+        <Box flexDirection="column">
+          <Text>{w.text}</Text>
+          {isPic && (
+            <t.Image
+              key={`usage-${w.name}`}
+              source={barPicture(w.percent, typeof stop === 'number' && w.percent >= stop ? COLOR.red : w.percent >= 70 ? COLOR.yellow : COLOR.blue, stopMark)}
+              columns={BAR_COLUMNS}
+              rows={1}
+              alt={bar(w.percent, typeof stop === 'number' ? [stop] : [])}
+            />
+          )}
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: RenderSurface = 'terminal') {
   const { Box, Text } = t
   const d = view.digest
   if (!d) {
@@ -340,22 +513,22 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
       )}
       {Section(
         t,
-        `In flight (${flightCount(view)})`,
-        [
-          ...flightLines(d.flights),
-          ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
-        ],
-        d.unreadable.includes('tmux windows') ? '' : 'Nothing in flight.',
-      )}
-      {Section(
-        t,
-        'Holding for you',
+        'Waiting on you',
         [
           `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
           ...[mergeReadyCount(d)].flatMap(n => (n === null ? [] : [`${n} ready to merge`])),
           ...(d.approvals ? [`${d.approvals} ${d.approvals === 1 ? 'approval' : 'approvals'} mission control is handling`] : []),
           ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
         ],
+      )}
+      {Section(
+        t,
+        `In flight (${flightCount(view)})`,
+        [
+          ...flightLines(d.flights),
+          ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
+        ],
+        d.unreadable.includes('tmux windows') ? '' : 'Nothing in flight.',
       )}
       {d.reviews && reviewSections(t, d.reviews)}
       {Section(
@@ -382,14 +555,10 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean) {
         d.sources.map(s => `${s.cls}: ${s.source === '-' ? 'none' : s.source} ${s.mode}${s.age === null ? '' : `, ${age(s.age)} old`}`),
         'No source map.',
       )}
-      {mascotLines(view).length > 0 && (
-        <Box flexDirection="column" marginBottom={1}>
-          {mascotLines(view).map(l => (
-            <Text color={mascotState(view) === 'bumpy' ? 'warning' : undefined}>{l}</Text>
-          ))}
-        </Box>
-      )}
+      {mascotMode(view) !== 0 && Mascot(t, view, surface)}
+      {hasPictures(t, surface) && Gauges(t, view)}
       {Section(t, 'Cockpit', instrumentLines(view))}
+      {Meters(t, view, surface)}
       {Section(t, 'Instruments', instruments)}
     </Box>
   )

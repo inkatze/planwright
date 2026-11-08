@@ -303,7 +303,7 @@ async function refresh($: EngineInterface) {
     await patch($, x => ({
       ...x,
       contextPercent: pct === undefined ? null : Math.round(pct),
-      rateLimits: usage.rateLimits.map(r => ({ kind: r.kind, percentUsed: r.percentUsed })),
+      rateLimits: usage.rateLimits.map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
     }))
     const v = await view($)
     if (v?.isFallback) $.ui.status(fallbackLine(v))
@@ -840,7 +840,7 @@ export const register: Register = on => {
     if (!ctx) return next(e)
     const v = await view($)
     if (!v) return next(e)
-    return Pane($.ui.resolve(e), v, await isHeld($, v))
+    return Pane($.ui.resolve(e), v, await isHeld($, v), e.surface)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
