@@ -265,6 +265,11 @@ if [ "$(id -u)" -ne 0 ]; then
   expect_out "a session folder that cannot be searched leaves approvals unknown" \
     "source${tab}approvals${tab}unknown${tab}cannot read the folder of mc-alpha-worker-0000000002"
   chmod 755 "$sj/mc-alpha-worker-0000000002"
+  chmod 000 "$tmp/wt"
+  mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+  expect_out "a worktree that cannot be searched leaves the steps unknown" \
+    "source${tab}steps${tab}unknown${tab}cannot read the worktree $tmp/wt"
+  chmod 755 "$tmp/wt"
 else
   ok "sessions that cannot be told apart (skipped as root)"
 fi

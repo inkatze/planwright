@@ -497,6 +497,8 @@ measure_stalls() {
         k = (v["launched"] == "" ? "-" : v["launched"]) ":" (v["token"] == "" ? "-" : v["token"])
         print (k ~ /[^A-Za-z0-9:.-]/) ? "-" : k
       }' "$ms_row" 2>/dev/null) || {
+      # A row removed since it was listed is a session retired mid-pass.
+      [ -e "$ms_row" ] || continue
       set -f
       unknown stalls "cannot read the registry row ${ms_row##*/}"
       return 0
@@ -506,9 +508,12 @@ measure_stalls() {
     ms_sample="$RUNTIME/stall/${ms_row##*/}"
     if [ -f "$ms_sample" ]; then
       ms_line=$(head -n 1 "$ms_sample" 2>/dev/null) && [ -r "$ms_sample" ] || {
-        set -f
-        unknown stalls "cannot read the stall sample of ${ms_row##*/}"
-        return 0
+        if [ -e "$ms_sample" ]; then
+          set -f
+          unknown stalls "cannot read the stall sample of ${ms_row##*/}"
+          return 0
+        fi
+        ms_line=""
       }
     else
       ms_line=""
@@ -588,12 +593,23 @@ measure_steps() {
       return 0
     }
     while IFS='	' read -r st_wt st_branch; do
-      [ -n "$st_wt" ] && [ -d "$st_wt/.claude/steps" ] || continue
-      st_n=$((st_n + 1))
+      [ -n "$st_wt" ] || continue
+      # A worktree that cannot be searched is unread, not empty; one gone
+      # since it was listed (a prunable entry, or removed mid-pass) holds
+      # nothing to read.
+      for st_p in "$st_wt" "$st_wt/.claude"; do
+        if [ -d "$st_p" ] && [ ! -x "$st_p" ]; then
+          unknown steps "cannot read the worktree $st_wt"
+          return 0
+        fi
+      done
+      [ -d "$st_wt/.claude/steps" ] || continue
       st_out=$(step_rows "$st_wt" "$st_branch") || {
+        [ -d "$st_wt/.claude/steps" ] || continue
         unknown steps "cannot read the step records of $st_wt"
         return 0
       }
+      st_n=$((st_n + 1))
       [ -z "$st_out" ] || st_rows="$st_rows$st_out
 "
     done <<EOF
@@ -619,11 +635,12 @@ EOF
       st_rel=${st_d#"$st_home/reclaimed/"}
       st_rel=${st_rel%/.claude/steps}
       st_branch=${st_rel#*/}
-      st_n=$((st_n + 1))
       st_out=$(step_rows "${st_d%/.claude/steps}" "$st_branch") || {
+        [ -d "$st_d" ] || continue
         unknown steps "cannot read the step records of $st_d"
         return 0
       }
+      st_n=$((st_n + 1))
       [ -z "$st_out" ] || st_rows="$st_rows$st_out
 "
     done <<EOF
