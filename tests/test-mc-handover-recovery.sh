@@ -160,6 +160,9 @@ brc=$?
 holder_is "the name stays with the session that took it" intruder beta
 
 for c in "take --program beta --session operator-b --window bogus" \
+  "take --program beta --session operator-b --pid x" \
+  "take --program beta --session operator-b --pid 1" \
+  "resume --program beta --session operator-b --exit-wait bogus" \
   "launch --program beta --brief $tmp/brief.md --backend nowhere" \
   "due --program beta --context x --wakes 0 --compactions 0" \
   "verify --program beta --session operator-b --picture $tmp/bpic --digest abc --ledger -" \

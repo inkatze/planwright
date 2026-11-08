@@ -29,7 +29,11 @@ tmp=$(cd "$tmp" && pwd -P) || exit 1
 fleet="$tmp/fleet"
 fakes=''
 cleanup() {
-  for p in $fakes; do kill "$p" 2>/dev/null || :; done
+  # Only a stand-in still this shell's child: a pid killed mid-run may since
+  # belong to another process.
+  for p in $fakes; do
+    [ "$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')" != "$$" ] || kill "$p" 2>/dev/null || :
+  done
   for d in "$fleet"/streamjson/*/; do
     [ -d "$d" ] || continue
     env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
@@ -108,7 +112,7 @@ count_of() { events_of "$@" | grep -c .; }
 # fake_session: start a stand-in for a session's process, which runs until
 # killed; sets FAKE to its pid.
 fake_session() {
-  sleep 600 &
+  sleep 120 >/dev/null 2>&1 &
   FAKE=$!
   fakes="$fakes $FAKE"
 }

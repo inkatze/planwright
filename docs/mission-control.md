@@ -200,9 +200,11 @@ against that note, and the old session closes. You see one line saying it
 happened.
 
 Whenever a new session takes over (a handover, or your own resume), it
-waits briefly for the old session's process to end. If the old session is
-still running after that, mission control does not call it closed: it
-raises an item naming the process, so you know which session to close.
+waits briefly for the old session's process to end, where the old session
+recorded which process it was (sessions from an earlier planwright did
+not). If the old session is still running after that, mission control
+does not call it closed: it raises an item naming the process, so you know
+which session to close.
 
 A mission-control session that mission control starts, a successor
 included, runs in Claude Code's auto mode, so a routine command does not
