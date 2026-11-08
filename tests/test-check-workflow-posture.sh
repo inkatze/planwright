@@ -1455,7 +1455,7 @@ matrix_yml() {
     [ -z "${M_LINT_STEP:-}" ] || printf '%s\n' "$M_LINT_STEP"
   fi
   if [ -z "${DROP_MACOS:-}" ]; then
-    printf '%s\n' '  macos-suite:' '    runs-on: macos-latest'
+    printf '%s\n' '  macos-suite:' "    runs-on: ${M_MAC_RUNS_ON:-macos-latest}"
     [ -z "${M_MAC_JOB:-}" ] || printf '%s\n' "$M_MAC_JOB"
     printf '%s\n' '    steps:' '      - name: shell suite' '        run: |' \
       "${M_MAC_RUN:-          mise run test}"
@@ -1534,6 +1534,30 @@ matrix_case "matrix: a step-level if naming a platform fails" 1 "naming a platfo
         run: true"
 matrix_case "matrix: no Ubuntu job fails" 1 "no Ubuntu job" DROP_UBUNTU=1
 matrix_case "matrix: no macOS job fails" 1 "no macOS job" DROP_MACOS=1
+# shellcheck disable=SC2016 # literal GitHub expressions
+{
+  matrix_case "matrix: a self-hosted Mac with a hosted macOS fallback is a macOS job" 0 \
+    "holds the platform matrix" \
+    "M_MAC_RUNS_ON=\${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('[\"self-hosted\", \"macOS\", \"ARM64\", \"offload-mac-ci\"]') || 'macos-latest' }}"
+  matrix_case "matrix: a self-hosted Mac falling back to Ubuntu is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('[\"self-hosted\", \"macOS\"]') || 'ubuntu-latest' }}"
+  matrix_case "matrix: a self-hosted label list without macOS is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('[\"self-hosted\", \"offload-mac-ci\"]') || 'macos-latest' }}"
+  matrix_case "matrix: a hosted label list without self-hosted is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('[\"linux\", \"macOS\"]') || 'macos-latest' }}"
+  matrix_case "matrix: a bare self-hosted label list has no hosted fallback" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=[self-hosted, macOS, offload-mac-ci]"
+  matrix_case "matrix: a fallback that is not the expression's last term is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ x && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' || 'ubuntu-latest' }}"
+  matrix_case "matrix: an alternative ahead of the label list is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ 'ubuntu-latest' || x && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' }}"
+  matrix_case "matrix: a selector other than the plan's routing choice is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ true && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' }}"
+  matrix_case "matrix: a hosted fallback other than macos-latest is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-13' }}"
+  matrix_case "matrix: a second label list is no macOS job" 1 "no macOS job" \
+    "M_MAC_RUNS_ON=\${{ fromJSON('[\"self-hosted\", \"linux\"]') && fromJSON('[\"self-hosted\", \"macOS\"]') || 'macos-latest' }}"
+}
 matrix_case "matrix: no Alpine job fails" 1 "no Alpine job" DROP_ALPINE=1
 matrix_case "matrix: no Ubuntu install smoke fails" 1 "no ungated Ubuntu job carries" DROP_UBUNTU_SMOKE=1
 matrix_case "matrix: no macOS install smoke fails" 1 "no ungated macOS job carries" DROP_MACOS_SMOKE=1

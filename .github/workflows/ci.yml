@@ -196,6 +196,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
+      mac_runner: ${{ steps.mac.outputs.runner }}
+      mac_shards: ${{ steps.mac.outputs.shards }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
@@ -203,6 +205,39 @@ jobs:
         run: |
           shards=$(/bin/bash scripts/run-tests.sh --plan-shards)
           echo "shards=$shards" >>"$GITHUB_OUTPUT"
+
+      # Where the macOS jobs run (docs/ci-self-hosted-mac.md). The offload
+      # Mac's self-hosted runner takes them only when the repository variable
+      # switches it on AND the code is this repository's own: a push here, or
+      # a pull request whose head branch lives here. Anything else, a fork's
+      # pull request above all, gets GitHub's hosted macOS, the reason in the
+      # run summary. The workflow cannot stop a fork's edited copy of itself
+      # from naming the runner's labels; the runner's job-started hook is what
+      # refuses that. The runner takes one job at a time, so its path runs the
+      # suite as a single shard; the hosted path keeps four.
+      - id: mac
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          SWITCH: ${{ vars.PLANWRIGHT_MAC_RUNNER }}
+        run: |
+          runner=hosted
+          if [ "$SWITCH" != self-hosted ]; then
+            reason="the PLANWRIGHT_MAC_RUNNER variable is not set to self-hosted"
+          elif [ "$EVENT" = push ]; then
+            runner=self-hosted
+            reason="a push to $GITHUB_REPOSITORY"
+          elif [ "$EVENT" = pull_request ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+            runner=self-hosted
+            reason="a pull request from a branch of $GITHUB_REPOSITORY"
+          else
+            reason="a $EVENT from '$HEAD_REPO', not $GITHUB_REPOSITORY, stays on hosted macOS"
+          fi
+          if [ "$runner" = self-hosted ]; then shards='[1]'; else shards='[1, 2, 3, 4]'; fi
+          msg="macOS jobs: $runner runner, $shards shards ($reason)"
+          echo "$msg"
+          echo "$msg" >>"$GITHUB_STEP_SUMMARY"
+          { echo "runner=$runner"; echo "shards=$shards"; } >>"$GITHUB_OUTPUT"
 
   # The suite in the planned shards (scripts/run-tests.sh --shard), split by
   # the same table so each runs about an equal share of the suite's time.
@@ -316,16 +351,24 @@ jobs:
   # runner image layers on top; gh, mise, node (for markdownlint-cli2), and the
   # Claude CLI are linked into a directory of their own instead of exposing
   # Homebrew's. REQUIRE_BSD_AWK makes a runner image without that awk fail
-  # instead of skipping green. The macOS shard count is fixed and small, not
-  # the planned list: macOS runners are scarce and queue across pull requests.
+  # instead of skipping green.
   macos-suite:
     name: macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: macos-latest
+    # The runner and shard count are the plan job's `mac` step's choice: the
+    # offload Mac's runner (label offload-mac-ci) takes one shard, since it
+    # runs one job at a time; GitHub's scarce hosted Macs take a small fixed
+    # count. check:workflow-posture accepts exactly this runs-on shape as a
+    # macOS job; keep it identical in macos-smoke.
+    needs: plan
+    # yamllint disable-line rule:line-length
+    runs-on: ${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('["self-hosted", "macOS", "ARM64", "offload-mac-ci"]') || 'macos-latest' }}
     timeout-minutes: 45
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: ${{ fromJSON(needs.plan.outputs.mac_shards) }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
@@ -355,8 +398,12 @@ jobs:
           "$mise_bin" run test -- --shard "$SHARD/$SHARDS"
 
   macos-smoke:
-    runs-on: macos-latest
+    needs: plan
+    # yamllint disable-line rule:line-length
+    runs-on: ${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('["self-hosted", "macOS", "ARM64", "offload-mac-ci"]') || 'macos-latest' }}
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:

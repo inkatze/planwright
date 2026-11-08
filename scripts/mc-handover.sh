@@ -205,7 +205,7 @@ parse_pct() {
 # check_picture <file>: a readable file of `item <id>` and `session <h>`.
 check_picture() {
   [ -f "$1" ] && [ -r "$1" ] || mc_usage_fail "$(sanitize_printable "$1") is not a readable file"
-  cp_bad=$(awk '!/^[ ]*$/ && !/^(item|session) [A-Za-z0-9._:-]+$/ { print NR; exit }' <"$1")
+  cp_bad=$(awk '!/^[ \t]*$/ && !/^(item|session)[ \t]+[A-Za-z0-9._:-]+$/ { print NR; exit }' <"$1")
   [ -z "$cp_bad" ] || mc_usage_fail "$(sanitize_printable "$1"):$cp_bad: not an 'item <id>' or 'session <handle>' line"
 }
 
@@ -485,9 +485,16 @@ what_changed() {
     printf 'changed\tunknown\tdecisions\n'
     wc_said=1
   fi
-  if events=$(mc_event list --program "$program" 2>/dev/null); then
-    events=$(printf '%s\n' "$events" | T=$1 awk -F '\t' '
-      NF >= 4 && $2 > ENVIRON["T"] { printf "changed\tevent\t%s\t%s\t%s\n", $2, $3, $4 }' | mc_clean)
+  if events=$(mc_event list --program "$program" --limit 100000 2>/dev/null); then
+    # A read that filled its limit may have dropped the newest events: unknown.
+    if [ "$(printf '%s\n' "$events" | awk 'NF { n++ } END { print n + 0 }')" -ge 100000 ]; then
+      events=''
+      printf 'changed\tunknown\tevents\n'
+      wc_said=1
+    else
+      events=$(printf '%s\n' "$events" | T=$1 awk -F '\t' '
+        NF >= 4 && $2 > ENVIRON["T"] { printf "changed\tevent\t%s\t%s\t%s\n", $2, $3, $4 }' | mc_clean)
+    fi
   else
     events=''
     printf 'changed\tunknown\tevents\n'

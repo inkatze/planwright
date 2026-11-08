@@ -1,0 +1,1 @@
+- 2026-11-06 [planwright] Remote Control does not survive a mission-control handover: the successor session was not remote-control-enabled, so mission control vanished from the operator's remote session list until they ran /remote-control by hand. Successor and launched mission-control sessions should start with claude --remote-control <name> whenever the predecessor had it.
