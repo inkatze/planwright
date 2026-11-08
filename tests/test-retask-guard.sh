@@ -228,8 +228,11 @@ awk 'BEGIN { for (i = 0; i < 4000; i++) print "Background line " i " of a long r
 printf '/planwright:execute-task other-spec 4\n' >>"$tmp/big"
 hook SendMessage mc-p-worker-live "$tmp/big"
 denied && ok "an oversize payload is still checked to its end" || fail "an oversize re-task slipped through: $OUT"
-hook Bash mc-p-worker-live "$tmp/skill"
-silent && ok "another tool is left alone" || fail "a Bash payload was decided: $OUT"
+OUT=$(jq -nc --rawfile c "$tmp/skill" '{tool_name:"Bash",tool_input:{command:$c}}' | /bin/sh "$GUARD" hook)
+RC=$?
+silent && ok "a payload that is not a message is left alone" || fail "a Bash payload was decided: $OUT"
+hook AnyName mc-p-worker-live "$tmp/skill"
+denied && ok "a message is told by its shape, not its tool's name" || fail "a message payload under another tool name passed: $OUT"
 
 : >"$log"
 printf '[planwright retask-override: the operator asked for this follow-up]\n/planwright:polish\n' >"$tmp/override"

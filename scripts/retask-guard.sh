@@ -34,7 +34,6 @@ fi
 . "$script_dir/echo-safety.sh"
 
 OVERRIDE_TAG='[planwright retask-override:'
-TAB=$(printf '\t')
 
 help_text() {
   cat <<'EOF'
@@ -74,8 +73,9 @@ refusing an override that could not be logged, and log once delivered; the
 message hook logs before letting the message through, and denies it
 when the row cannot be written.
 
-hook is the PreToolUse hook on the harness's peer-message tool, the one
-hooks/hooks.json matches it to. It denies a unit-shaped message
+hook is the PreToolUse hook on the harness's peer-message tool (hooks/hooks.json
+wires it; a payload is read as a message by its `to` and `message` strings).
+It denies a unit-shaped message
 to a session the launcher registers as a worker, reviewer or ad-hoc kind,
 unless the message's first line is `[planwright retask-override: <reason>]`
 with a reason, which it logs and lets through (the rest of the message is
@@ -335,13 +335,10 @@ cmd_hook() {
   [ "$#" -eq 0 ] || exit 0
   command -v jq >/dev/null 2>&1 || exit 0
   input=$(cat) || exit 0
-  head=$(printf '%s' "$input" | jq -r '[.tool_name // "", (.tool_input.to // "" | tostring)] | @tsv' 2>/dev/null) || exit 0
-  tool=${head%%"$TAB"*}
-  to=${head#*"$TAB"}
-  # The tool's name lives in the hook's registration alone.
-  want=$(jq -r '.hooks.PreToolUse[] | select(any(.hooks[]; .command | endswith("retask-guard.sh hook"))) | .matcher' \
-    "$script_dir/../hooks/hooks.json" 2>/dev/null) || exit 0
-  [ -n "$tool" ] && [ "$tool" = "$want" ] || exit 0
+  # A peer message is told by its payload's shape (a recipient and a text),
+  # so the hook needs no tool name and works however it is wired.
+  to=$(printf '%s' "$input" | jq -r 'if (.tool_input.to | type) == "string" and (.tool_input.message | type) == "string" then .tool_input.to else empty end' 2>/dev/null) || exit 0
+  [ -n "$to" ] || exit 0
   # A listing's disambiguating ` [ref]` suffix is not part of the name.
   to=${to%% \[*}
   hk_kind=$(session_kind "$to") || exit 0
