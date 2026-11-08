@@ -444,16 +444,16 @@ rm -rf "$tmp/noconf"
 # Every event a duty starts on, wakes with or raises as an item has a class
 # row, and the table names each kind once with a known class.
 classes="$repo_root/config/mc-event-classes.tsv"
-shipped_duties() { # the shipped catalog alone, no fixture or machine overlay
-  mc_env env PLANWRIGHT_ROOT="$repo_root" /bin/bash "$repo_root/scripts/mc-duties.sh" "$@" 2>/dev/null
-}
-kinds=""
-for d in $(shipped_duties list | cut -f1); do
-  for f in triggers wake kinds; do
-    kinds="$kinds $(shipped_duties get "$d" "$f" | tr -d '[],' | tr ' ' '\n' | grep -v '^none$')"
-  done
-done
-kinds=$(printf '%s\n' $kinds | sort -u)
+# One pass over the shipped catalog alone (no fixture or machine overlay);
+# a flow list may run onto continuation lines until its closing bracket.
+kinds=$(awk '
+  /^[ \t]*(triggers|wake|kinds):/ { sub(/^[^:]*:/, ""); take = 1; list = /\[/ }
+  take {
+    line = $0; gsub(/[][,]/, " ", line); n = split(line, w, /[ \t]+/)
+    for (i = 1; i <= n; i++) if (w[i] != "" && w[i] != "none") print w[i]
+    if (!list || /\]/) take = 0
+  }
+' "$repo_root/config/duties.yaml" | sort -u)
 if [ -z "$kinds" ]; then
   fail "the duty catalog yielded no event kinds to check"
 else
