@@ -206,6 +206,14 @@ expect_out "a reclaimed cache's own record, the same run id aside, is measured" 
 expect_out "every record folder is read, naming a repository not on this machine" \
   "source${tab}steps${tab}ok${tab}3 record folders; not on this machine: $tmp/gone"
 expect_no_out "a step that ended before the window is not measured" "step${tab}lint"
+# A record folder with nothing written since the window began is not read:
+# a record that ended inside the window was written inside it.
+oldrec="$mchome/reclaimed/repo/old/feature/.claude/steps/000001/002-step-convergence.rec"
+touch -t 202610300000 "$oldrec"
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_no_out "a folder with no record written inside the window is not read" "step${tab}audit"
+expect_out "though it is still counted" "source${tab}steps${tab}ok${tab}3 record folders"
+touch "$oldrec"
 
 # ---------------------------------------------------------------------------
 # The top bottleneck: of those over their threshold, the most time in all.

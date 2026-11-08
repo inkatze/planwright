@@ -573,7 +573,19 @@ step_rows() {
     END { flush() }'
 }
 
+# fresh <steps folder>: whether it holds a record written since the window
+# began. A record that ended inside the window was written inside it, so a
+# folder with none is passed over unread; a find that fails reads it. The
+# age is reckoned from the real clock, so a --now pass sees the same cut.
+fresh() {
+  fr_min=$(((REAL_NOW - SINCE) / 60 + 1))
+  [ "$fr_min" -ge 1 ] || fr_min=1
+  fr_new=$(find "$1" -name '*.rec' -mmin "-$fr_min" 2>/dev/null </dev/null) || return 0
+  [ -n "$fr_new" ]
+}
+
 measure_steps() {
+  REAL_NOW=$(date +%s)
   st_repos=$REPOS
   [ "$REPOS_OK" = 1 ] || {
     unknown steps "the program's repositories do not resolve"
@@ -613,6 +625,10 @@ measure_steps() {
         fi
       done
       [ -d "$st_wt/.claude/steps" ] || continue
+      if ! fresh "$st_wt/.claude/steps"; then
+        st_n=$((st_n + 1))
+        continue
+      fi
       st_out=$(step_rows "$st_wt" "$st_branch") || {
         [ -d "$st_wt/.claude/steps" ] || continue
         unknown steps "cannot read the step records of $st_wt"
@@ -644,6 +660,10 @@ EOF
       st_rel=${st_d#"$st_home/reclaimed/"}
       st_rel=${st_rel%/.claude/steps}
       st_branch=${st_rel#*/}
+      if ! fresh "$st_d"; then
+        st_n=$((st_n + 1))
+        continue
+      fi
       st_out=$(step_rows "${st_d%/.claude/steps}" "$st_branch") || {
         [ -d "$st_d" ] || continue
         unknown steps "cannot read the step records of $st_d"
