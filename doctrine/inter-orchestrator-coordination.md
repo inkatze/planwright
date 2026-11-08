@@ -63,9 +63,10 @@ rather than *asking that branch's owner to*? If so, it crossed the boundary.
 A tower steers a **live, busy worker mid-task** by messaging, read between
 its tool calls, and observes it by a read. The relay discipline keeps the
 worker's authorization boundary intact. A steer carries a relay, never a new
-unit of work: new scope and each new review round go to a fresh worker, and
-every relay path refuses a unit-shaped message (`scripts/retask-guard.sh
---help`).
+unit of work: new scope and each new review round go to a fresh worker. The
+stream-json steer, the tmux paste and `SendMessage` to a launched worker
+refuse a unit-shaped message (`scripts/retask-guard.sh --help`); the
+messaging arm's post does not check it yet.
 **Tower-to-worker** relay is attributed in every form below, which is what keeps
 it non-impersonating. **Tower-to-tower** coordination between peer towers (for
 example, reconcile-then-quick-PR hand-offs) is an advisory under the

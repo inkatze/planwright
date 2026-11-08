@@ -1083,11 +1083,13 @@ the next one and kills it. Every frame the supervisor writes, `steer`'s,
 newline-terminated line, no raw control byte, a valid JSON object nested at
 most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
 written. A steer shaped like a new unit of work (a skill command, a launch
-brief) is refused with exit 5 and nothing written, unless the worker is a
-tower, orchestrator or mission-control session: workers are short-lived, so
-new scope and each new review round go to a fresh worker carrying a handover
-brief. `--retask <reason>` delivers it anyway and logs the override once
-delivered; `scripts/retask-guard.sh --help` holds the rule.
+brief) is refused with exit 5 and nothing written, unless the
+mission-control launcher registers the worker as a tower, orchestrator or
+mission-control session: workers are short-lived, so new scope and each new
+review round go to a fresh worker carrying a handover brief. `--retask
+<reason>` delivers it anyway and logs the override once delivered (an
+override that could not be logged is refused, exit 2);
+`scripts/retask-guard.sh --help` holds the rule.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
@@ -1489,8 +1491,10 @@ any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
 (default 5, at most 20) and `PLANWRIGHT_RELAY_CONFIRM_SLEEP` (seconds, default
 1, at most 3) bound that wait. Before reading the pane at all it refuses
 (exit 5, nothing pasted) a message shaped like a new unit of work for any
-session but a tower, orchestrator or mission control, the same rule as the
-stream-json steer; `--retask <reason>` pastes it anyway, logged once pasted.
+session but one the mission-control launcher registers as a tower,
+orchestrator or mission control (a pane id or `<session>:<window>` target is
+resolved to its window first), the same rule as the stream-json steer;
+`--retask <reason>` pastes it anyway, logged once pasted.
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single

@@ -87,7 +87,7 @@ place for you.
 
 A duty is a job mission control does for you in the background, each with
 a one-line summary of what it saves you. The ones that ship cover keeping
-sessions moving and closing them when their work lands, turning what waits
+sessions moving and closing them when their work lands or they sit idle, turning what waits
 on you into decide-ready items and drafts, checking that a pull request is
 really ready before it is offered, predicting overlapping changes and merge
 order, letting known dates set priorities, preparing what you need before a
@@ -140,7 +140,8 @@ rules seem to collide, it asks you which you meant rather than deciding.
 Almost everything mission control does that you might want done
 differently is a setting with a sensible default: how often it checks the
 code host, how long a session may sit still before it is treated as
-stuck, when it hands over to a fresh session, how much it explains, how a
+stuck, how long a worker may run or sit idle before a fresh one takes
+over, when it hands over to a fresh session, how much it explains, how a
 spec review you ask for runs, where drafts go, and more. The simplest way
 to change one is to say what you want ("explain less", "treat a session as
 stuck after twenty minutes"). A setting that changes how much it may do

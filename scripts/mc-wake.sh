@@ -93,7 +93,9 @@ Usage:
         idle<TAB><worker>                    nothing to send
         unreachable<TAB><worker><TAB><why>
         refused<TAB><worker><TAB><exit>      the relay declined (a dialog
-                                             open, an earlier wake staged)
+                                             open, an earlier wake staged,
+                                             a message shaped like a new
+                                             unit of work)
         failed<TAB><worker>                  its events could not be read
                                              or marked (named on stderr)
       or `paused` under the fleet daemon pause (`blocked<TAB><exit>` when
