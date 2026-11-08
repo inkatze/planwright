@@ -54,7 +54,8 @@ write_programs hub
 # panes and captures from files, a capture moving $tmp/pane-<p>.next into
 # place for the next one, and the first capture after $tmp/capture-sets
 # appears standing in for a watcher pass that rewrites the dialog record to
-# it (`remove`: drops it); send-keys recorded to $tmp/keys (failing when
+# it (`remove`: drops it), or after $tmp/capture-releases for one that ends
+# a second later, releasing the pass lock; send-keys recorded to $tmp/keys (failing when
 # $tmp/send-fails exists, and making the answers log read-only when
 # $tmp/send-locks-log does).
 esc_self="$fleet/mission-control/alpha/escalate/self"
@@ -82,6 +83,14 @@ case "\$1" in
     if [ -e "$tmp/capture-sets" ]; then
       if [ "\$(cat "$tmp/capture-sets")" = remove ]; then rm -f "$esc_self"; else cp "$tmp/capture-sets" "$esc_self"; fi
       rm -f "$tmp/capture-sets"
+    fi
+    if [ -e "$tmp/capture-releases" ]; then
+      rm -f "$tmp/capture-releases"
+      (
+        sleep 1
+        [ ! -s "$tmp/keys" ] || touch "$tmp/sent-early"
+        rm -f "${esc_self%/self}/pass.lock"
+      ) >/dev/null 2>&1 &
     fi
     ;;
   send-keys)
@@ -320,6 +329,8 @@ moved "$tmp/later" "a dialog reopened after the decision, before the keystroke" 
 printf 'dialog\t%s\t%s\t0123456789abcdef\t%s\n' "$first" "$sess" "$kind" >"$tmp/other"
 moved "$tmp/other" "a record that changed before the keystroke" "changed while the answer was checked"
 moved - "a record gone before the keystroke" "left the record"
+printf 'dialog\tx\t%s\t%s\t%s\n' "$sess" "$print" "$kind" >"$tmp/badfirst"
+moved "$tmp/badfirst" "a record whose first sight became unreadable before the keystroke" "is unreadable"
 cp "$tmp/self.saved" "$esc_dir/self"
 : >"$esc_dir/pass.lock"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
@@ -328,13 +339,10 @@ expect_rc "a watcher lock that cannot be taken" 1
 expect_err "sends nothing" "nothing was sent"
 [ -z "$(keys)" ] || fail "a key was sent without the watcher's lock: $(keys)"
 ln -s "$$-1-1" "$esc_dir/pass.lock"
-(
-  sleep 1
-  rm -f "$esc_dir/pass.lock"
-) >/dev/null 2>&1 &
+touch "$tmp/capture-releases"
 answer --program alpha --choice 1 --decision "$D1" --decided-in hub
-wait
 expect_rc "a decided choice is delivered once the watcher's pass ends" 0
+[ ! -e "$tmp/sent-early" ] || fail "a key was sent while the watcher's pass held its lock"
 expect_out "naming the pane, digit and option" "answered${tab}alpha${tab}%7${tab}1${tab}Yes"
 if [ "$(keys)" = "-t %7 1" ]; then ok "exactly one digit is sent to that pane"; else fail "keys sent: '$(keys)'"; fi
 if grep "${tab}${D1}${tab}hub${tab}1${tab}%7${tab}${SP}${tab}" "$esc_dir/answers.log" | awk -F '\t' '{ printf "%s ", $7 }' | grep -q '^pending sent $'; then
@@ -392,7 +400,7 @@ if [ "$(id -u)" != 0 ]; then
   answer --program alpha --choice 1 --decision "$D4" --decided-in hub
   refused "a decision only a pending line used" "already used by an answer attempt"
 else
-  ok "skipped as root: the unwritable answers log cases"
+  echo "skip: the unwritable answers log cases, as root"
 fi
 cp "$tmp/self.saved" "$esc_dir/self"
 : >"$tmp/keys"
@@ -484,6 +492,20 @@ if (
   p6=$MSP_PRINT
   parse "$(indent '   ')"
   [ "$p6" != "$MSP_PRINT" ] || fail "commands differing only in indentation share a digest"
+  parse "$(indent '   ❯')"
+  p7=$MSP_PRINT
+  parse "$(indent '    ')"
+  [ "$p7" != "$MSP_PRINT" ] || fail "a command line led by the cursor glyph shares a digest with one led by a space"
+  # bare <cursor digit>: two options, no footer below them.
+  bare() {
+    printf '────────────────\n Bash command\n   ls\n\n Do you want to proceed?\n'
+    if [ "$1" = 1 ]; then printf ' ❯ 1. Yes\n   2. No\n'; else printf '   1. Yes\n ❯ 2. No\n'; fi
+  }
+  parse "$(bare 1)"
+  p8=$MSP_PRINT o8=$MSP_OPTIONS
+  parse "$(bare 2)"
+  [ "$p8" = "$MSP_PRINT" ] || fail "moving the cursor with no footer below changed the digest"
+  [ "$o8" = "$MSP_OPTIONS" ] && [ "$(printf '%s\n' "$o8" | wc -l | tr -d ' ')" = 2 ] || fail "options with no footer below read '$o8' then '$MSP_OPTIONS'"
   rec="$tmp/rec"
   printf 'dialog\t11\t22\t0123456789abcdef\tdialog\n' >"$rec"
   msp_record "$rec" && [ "$MSP_REC_FIRST/$MSP_REC_SESS/$MSP_REC_PRINT" = 11/22/0123456789abcdef ] \
@@ -536,7 +558,7 @@ EOF
   unset -f id
   exit "$pfail"
 ); then
-  ok "the parser: a wrapped last label, a footer run, the opening rule, the side panel, a long command and a rule-like command line; the dialog record; busybox ps"
+  ok "the parser cases, the dialog record and busybox ps"
 else
   fail "the parser cases above"
 fi

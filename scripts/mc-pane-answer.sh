@@ -65,8 +65,8 @@ by the caller), only when every check holds, and refuses otherwise:
     what to do differently" or "Yes, but ask again next time". Any other
     label (a rule for later calls, a mode switch, a directory or trust
     grant) is refused, as is a run whose labels wrap or repeat a digit.
-From the last pane read to the keystroke it holds the watcher's pass
-lock (up to 500 lock attempts to take it, about 10 s on an idle host),
+From the last pane read to the record drop it holds the watcher's pass
+lock, waiting a bounded time to take it and sending nothing without it,
 and refuses unless the watcher's record still names that dialog, its
 first sight checked against the decision again. Before the keystroke it
 appends a `pending` line to <runtime>/escalate/answers.log, sending
@@ -258,12 +258,13 @@ fi
 logged=1
 log_line "$outcome" || logged=0
 [ "$outcome" = sent ] || mc_fail "the keystroke could not be sent to pane $PANE (if the send timed out, it may have landed); decision $DECISION is used, so record a new answer to try again"
-printf 'answered\t%s\t%s\t%s\t%s\n' "$PROGRAM" "$PANE" "$CHOICE" "$(sanitize_printable "$LABEL")"
 # The watcher's next pass sees whatever dialog follows as a new one, an
-# identical one included.
+# identical one included. Dropped before the output line, which a closed
+# pipe could end the script on.
 dropped=1
 rm -f "$SELF" 2>/dev/null || dropped=0
 pw_lock_release "$ESC_DIR/pass.lock" || :
+printf 'answered\t%s\t%s\t%s\t%s\n' "$PROGRAM" "$PANE" "$CHOICE" "$(sanitize_printable "$LABEL")"
 [ "$logged" = 1 ] || printf '%s\n' "$prog: the answer was sent but its outcome could not be logged under $(sanitize_printable "$LOG"); its pending line still marks decision $DECISION used" >&2
 [ "$dropped" = 1 ] || printf '%s\n' "$prog: the answer was sent but the watcher's record of it could not be dropped; until the watcher next sees the pane without a dialog, an identical dialog continues this one's hold and is not raised to the hub afresh" >&2
 [ "$logged" = 1 ] && [ "$dropped" = 1 ] || exit 1

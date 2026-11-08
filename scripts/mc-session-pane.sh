@@ -163,6 +163,7 @@ msp_dialog() {
     END {
       for (i = NR; i >= 1; i--) if (signed(i)) { end = i; break }
       if (!end) exit 1
+      if (option(end) != "") while (end < NR && option(end + 1) != "") end++
       for (i = end + 1; i <= NR; i++) if (closes(i)) exit 1
       for (i = end; i >= 1; i--) if (option(i) != "") { olast = i; break }
       bad = 0
@@ -193,7 +194,7 @@ msp_dialog() {
       if (!bad) for (i = 1; i <= no; i++) print "option\t" opt[i]
       for (i = top; i <= end; i++) {
         s = line[i]
-        if (match(s, /^[ \t]*❯/)) s = substr(s, 1, RLENGTH - length("❯")) " " substr(s, RLENGTH + 1)
+        if (olast && i >= ofirst && i <= olast && match(s, /^[ \t]*❯/)) s = substr(s, 1, RLENGTH - length("❯")) " " substr(s, RLENGTH + 1)
         print "block\t" s
       }
     }') || return 1
