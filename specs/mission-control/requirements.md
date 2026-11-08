@@ -86,6 +86,10 @@ later planwright bundles implement, D-12).
 - Taking over a running tower's fleet and adopting sessions mission
   control did not launch.
 - Launch admission shared across programs on one host.
+- Specs kept true to what ships: a change to behaviour a spec describes
+  carries that spec's edit and the operator's sign-off before it is ready.
+- Program goals reported done only when their own check passes, never
+  because their pull requests merged.
 
 ### Out of scope
 
@@ -227,6 +231,9 @@ later planwright bundles implement, D-12).
   (Sources); kickoff §3 (2026-10-23).)*
   *(Amended at kickoff 2026-10-23: widened from rule proposals to
   mechanization proposals over the inventory's open list of kinds.)*
+  *(Amended at Amendment 4, 2026-11-07: the repeats include the same guard
+  denial a knob governs, proposed as that knob's setting from
+  `config/denial-knobs.tsv`, D-14.)*
 - **REQ-B1.6** A scheduled self-audit SHALL compare the logged actions with
   the active rules and surface drift as operator items or rule proposals; it
   SHALL NOT edit rules.
@@ -335,6 +342,24 @@ later planwright bundles implement, D-12).
   cadence step (a steps-catalog entry whose run gates later units).
   *(Cites: D-33; audit item 2 (Sources); the in-flight cadence fix
   (Sources).)*
+  **Superseded-by: REQ-D1.14** (2026-11-07).
+- **REQ-D1.14** (supersedes REQ-D1.9) The readiness check SHALL audit the
+  configured cadence (every step the configuration requires at the in-run
+  points through `post-pr`) at the pull request's head as the forge reports
+  it, and SHALL refuse a flip when a required step has no record or only
+  failed ones, when a point's completion is absent or does not count at
+  that head (D-33), when the worktree's head differs from the forge's, or
+  when the audit cannot run. The gate-condition data (REQ-I1.7) adds
+  conditions and never narrows the configured cadence, with one exception:
+  a spec-only pull request (every changed path a Markdown file added,
+  modified or deleted under the spec root, the head holding that root) is
+  held for each touched bundle's kickoff sign-off instead of the cadence
+  and the gate data's steps, and one touching only the reserved
+  accumulators has none to hold. The configured cadence is not a cadence
+  step (a steps-catalog entry whose run gates later units).
+  *(Cites: D-33; the operator's ruling that spec-only pull requests skip
+  the code review steps (2026-11-05, Sources); the spec-drift audit
+  (Sources).)*
 - **REQ-D1.10** A session of a kind that changes a repository (worker,
   reviewer, ad-hoc, kickoff) SHALL run in its own worktree: one the dispatch
   machinery creates at launch, off the default branch or on the unit's
@@ -365,6 +390,18 @@ later planwright bundles implement, D-12).
   never from a row's presence; a stream-json session's event stream informs
   its stall state.
   *(Cites: D-35, D-11; audit item 3 (Sources).)*
+- **REQ-D1.13** The readiness check SHALL refuse a flip of a pull request
+  that changes behaviour a spec describes unless the same pull request
+  edits that spec and the edited spec's latest sign-off anchor matches its
+  content at the pull request's head (the operator signed the edit off in a
+  relayed kickoff). It SHALL also refuse when the spec-drift check flags the
+  pull request: a changed file some spec lists as a task deliverable, with
+  that spec unedited and no stated reason. The statement every flight's
+  pull request carries (the covering spec, or "none" with a reason) is
+  routed to tower-front-door (D-45); the check reads it and never replaces
+  it. A check that cannot run refuses.
+  *(Cites: D-45; the operator's request (2026-11-07, Sources); the
+  spec-drift audit (Sources).)*
 
 ## REQ-E — Durable watchers
 
@@ -454,6 +491,9 @@ later planwright bundles implement, D-12).
   it SHALL end with a working configuration.
   *(Cites: D-18; drafting-session decision (2026-10-22);
   interaction-style (Sources).)*
+  *(Amended at Amendment 4, 2026-11-07: an objective is asked only when
+  the operator can decide it from their own work; the rest is settled from
+  the repository, a check or a default and said in one line, D-18.)*
 - **REQ-F1.13** The guidance level SHALL be a knob, guided by default on a
   fresh installation.
   *(Cites: D-18, D-20; drafting-session decision (2026-10-22).)*
@@ -771,6 +811,36 @@ later planwright bundles implement, D-12).
   dependency's repository the selection withholds is never suggested.
   *(Cites: D-40; obs:5d662727.)*
 
+## REQ-N — Program goals
+
+- **REQ-N1.1** A program goal SHALL carry its own done-when check: a plain
+  statement of the outcome and, where one fits, a command whose exit status
+  proves it. Mission control SHALL draft the check when the goal is set and
+  the operator SHALL confirm or correct it; a goal whose check is
+  unconfirmed is reported as such, never as done.
+  *(Cites: D-44; the operator's request (2026-11-07, Sources).)*
+- **REQ-N1.2** Mission control SHALL report a goal done only after its
+  confirmed check passes: the command exits 0, or, where no command fits,
+  a read-only session it launches records the evidence it found. Merged
+  pull requests SHALL never count as a pass. A goal whose work merged while
+  its check fails or has not run SHALL be reported as merged but not done,
+  naming what failed, and its fix routed without the operator asking.
+  *(Cites: D-44; the offload-host case (Sources).)*
+- **REQ-N1.3** A done goal whose check is a command SHALL be re-checked
+  once a day and at every bring-up; a failure SHALL reopen the goal with
+  one line to the operator naming what now fails, and route the fix. A
+  session-based check SHALL not re-run on its own. A passing re-check SHALL
+  say nothing.
+  *(Cites: D-44; the operator's request (2026-11-07, Sources).)*
+- **REQ-N1.4** Goals and their checks SHALL live in the program home
+  (D-8), never in a repository, written under one lock. A check command is
+  data the operator confirmed: mission control drafts only commands that
+  change nothing, a goal stores no secret (a command reaches a host
+  through the operator's existing access), and it runs with a timeout,
+  from the program home, with no value from a forge, a session or a record
+  interpolated into it.
+  *(Cites: D-44, D-8; security-posture (Sources).)*
+
 ## Changelog
 
 - 2026-10-22 — Drafted (`/spec-draft`): the requirement groups and
@@ -881,6 +951,20 @@ later planwright bundles implement, D-12).
   D-8, D-10, D-11, D-17, D-18, D-22, D-25, D-28, D-29 and D-30; Tasks 17
   to 32. Mission-control observations mined and consumed as listed under
   Sources.
+
+- 2026-11-07 — Amendment 4 (post-merge, meaning-class, on the Active
+  bundle): specs kept true to what ships and goals checked by outcome.
+  REQ-D1.13 (the readiness check refuses a flip over spec drift or an
+  unsigned spec edit), REQ-N1.1 to REQ-N1.4 (program goals with
+  operator-confirmed done-when checks, reported done only on a pass), two
+  Scope bullets; D-44 and D-45; Tasks 34 to 37 (Task 36 routes the router
+  and flight rules to tower-front-door). Drift the spec-drift audit found
+  in this bundle, brought up to what shipped: REQ-D1.14 supersedes
+  REQ-D1.9 (the spec-only hold, PR #852); notes on REQ-B1.5 and D-14 (the
+  denial repeat, PR #835), REQ-F1.12 and D-18 (the first run asks only what
+  the operator can answer, PR #822), D-32 (launched mission-control
+  sessions in auto mode, PR #859), D-33 (the spec-only hold) and Task 19
+  (its push half landed in PR #866).
 
 ## Sources
 
@@ -1001,3 +1085,22 @@ later planwright bundles implement, D-12).
   a prose dependency already landed plus a format-lint idea (obs:f3bc9c7a),
   proposal refinements (obs:190f117b, obs:8e998e2c) and the narrower flip
   scope the operator left to a follow-on (obs:279d8ddd).
+- **The operator's request (2026-11-07)** — relayed by mission control:
+  flights that change behaviour a spec covers must update that spec in the
+  same change; security, CI and guard work routes to the spec pipeline
+  unless the operator overrides it, the override recorded; a program goal
+  carries its own done-when check and is reported done only after it
+  passes.
+- **The offload-host case (2026-11-07)** — the Mac offload goal was
+  reported done when its pull requests merged, while that host still ran
+  an old planwright and had no CI runner registered.
+- **The spec-drift audit (2026-11-07)** — a read-only audit mapping which
+  merged flights changed behaviour a spec describes without amending it:
+  of the flights merged since 2026-11-04, eight specs (mission-control
+  among them) describe behaviour a flight changed with no amendment, and
+  ten flights did hard-disqualifier-zone work with no routing override on
+  record, each resting on the operator asking for the change or on mission
+  control's launch brief.
+- **The operator's ruling on spec-only pull requests (2026-11-05)** — spec
+  bundle pull requests skip the code review cadence steps and are marked
+  ready on green CI, mergeable and the kickoff sign-off.

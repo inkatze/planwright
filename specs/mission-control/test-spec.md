@@ -244,6 +244,15 @@ the resolver rejects exits 4; the readiness walk refuses a gap whatever the
 gate-condition data names, an audit at another head, a worktree head that
 differs from the forge's, and an unaudited cadence with its reason.
 
+### REQ-D1.14 — The cadence audit with the spec-only hold [test]
+
+`tests/test-mc-readiness.sh`: every fixture the REQ-D1.9 entry above
+names carries over unchanged; a spec-only fixture pull request is held for
+each touched bundle's sign-off and not for the cadence or the gate data's
+steps, a fixture touching only the reserved accumulators has none to hold,
+and a fixture that also changes one non-spec file is audited for the
+cadence. This shipped with PR #852's tests.
+
 ### REQ-D1.10 — Launch worktrees [test]
 
 `tests/test-mission-control-launch.sh` (Task 18): a worker launch with no
@@ -272,6 +281,14 @@ process is never live; retiring an operator-owned adopted session raises a
 confirmation item.
 
 ## REQ-E — Durable watchers
+
+### REQ-D1.13 — Spec drift refused at readiness [test]
+
+`tests/test-spec-drift-check.sh` and `tests/test-mc-readiness.sh` (Task
+35): a changed listed deliverable with no spec edit and no reason is
+flagged and refused; a stated reason, or a spec edit with a matching
+re-signed anchor, passes; a spec edit with a stale anchor refuses; an
+unlisted change passes; a check that cannot run refuses with its reason.
 
 ### REQ-E1.1 — Scripts under a runner that re-arms [test]
 
@@ -698,3 +715,29 @@ file that writer produced from fixture logs.
 `tests/test-mc-keeper.sh` (Task 27): a task whose own or dependency's
 repository the selection withholds is not suggested, and `next` equals the
 selection's output.
+
+### REQ-N1.1 — A goal carries a confirmed check [test]
+
+`tests/test-mc-goals.sh` (Task 34): a goal with an unconfirmed check lists
+as unconfirmed and never as done; confirming records the operator's
+correction verbatim.
+
+### REQ-N1.2 — Done only on a pass [test]
+
+`tests/test-mc-goals.sh` (Task 34): a passing command marks the goal done
+with its evidence; a failing, timed-out or unrun check on a goal whose pull
+requests merged reports merged but not done with one routed-fix item; a
+session-based check counts only on its evidence record.
+
+### REQ-N1.3 — Daily re-check of command checks [test]
+
+`tests/test-mc-goals.sh` and `tests/test-mc-duties.sh` (Task 34): the
+`goal-check` duty re-runs command checks daily and at bring-up; a failing
+re-check reopens the goal with one item, a passing one writes nothing, and
+a session-based check is not re-run.
+
+### REQ-N1.4 — Goals live in the program home [test]
+
+`tests/test-mc-goals.sh` (Task 34): the store is under the program home and
+no repository file changes; a check string is run as written, a fixture
+with shell metacharacters in forge text leaving it unchanged.
