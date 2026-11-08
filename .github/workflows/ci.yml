@@ -464,24 +464,67 @@ jobs:
       MISE_VERSION: v2026.6.1
       MISE_SHA256: f37f4be1f22e5f81d2bbdcdbf239a48f002acd345e001b07dddd3431fd808b60
     steps:
+      # GNU tar is here only for actions/cache, which busybox tar cannot
+      # serve; it is removed again before the suite runs.
       - name: "setup: packages"
-        run: apk add --no-cache bash git jq dash-binsh perl nodejs npm pipx
+        run: apk add --no-cache bash git jq dash-binsh perl nodejs npm pipx tar
       - name: "setup: checkout"
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - name: "setup: platform, mise, and the suite user"
+      # The npm and pipx tools mise installs run on the image's node and
+      # python, so their versions are part of the cache key.
+      - name: "setup: platform and the suite user"
+        id: platform
         run: |
           test "$(readlink -f /bin/sh)" = /usr/bin/dash
           test "$(readlink -f "$(command -v awk)")" = /bin/busybox
           test "$(readlink -f "$(command -v sed)")" = /bin/busybox
-          wget -q -O /usr/local/bin/mise \
-            "https://github.com/jdx/mise/releases/download/$MISE_VERSION/mise-$MISE_VERSION-linux-x64-musl"
+          adduser -D suite
+          digest=$(cat /etc/alpine-release mise.toml && node --version && python3 --version)
+          digest=$(printf '%s\n' "$digest" | sha256sum | cut -c1-16)
+          echo "cache-key=alpine-mise-$MISE_VERSION-$digest" >> "$GITHUB_OUTPUT"
+      - name: "setup: restore mise and its tools"
+        id: toolchain
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            /usr/local/bin/mise
+            /home/suite/.local/share/mise
+          key: ${{ steps.platform.outputs.cache-key }}
+      # A restored mise is checksummed like a downloaded one. The retries ride
+      # out github.com release downloads failing for minutes at a time.
+      - name: "setup: mise and its tools"
+        run: |
+          retry() {
+            for pause in 15 45 90; do
+              "$@" && return 0
+              echo "retrying in ${pause}s: $*" >&2
+              sleep "$pause"
+            done
+            "$@"
+          }
+          if [ ! -f /usr/local/bin/mise ]; then
+            retry wget -q -T 60 -O /usr/local/bin/mise \
+              "https://github.com/jdx/mise/releases/download/$MISE_VERSION/mise-$MISE_VERSION-linux-x64-musl"
+          fi
           printf '%s  %s\n' "$MISE_SHA256" /usr/local/bin/mise | sha256sum -c -
           chmod 755 /usr/local/bin/mise
-          adduser -D suite
-          chown -R suite "$GITHUB_WORKSPACE"
-          su suite -c 'mise trust -q . && mise install'
+          chown -R suite "$GITHUB_WORKSPACE" /home/suite
+          su suite -c 'mise trust -q .'
+          retry su suite -c 'mise install'
+      - name: "setup: save mise and its tools"
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            /usr/local/bin/mise
+            /home/suite/.local/share/mise
+          key: ${{ steps.toolchain.outputs.cache-primary-key }}
+      - name: "setup: busybox tar"
+        run: |
+          apk del tar
+          test "$(readlink -f "$(command -v tar)")" = /bin/busybox
       - name: shell suite
         env:
           SHARD: ${{ matrix.shard }}
