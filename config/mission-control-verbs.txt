@@ -12,6 +12,7 @@ fleet-streamjson.sh status
 fleet-streamjson.sh steer
 mc-config.sh add
 mc-config.sh apply
+mc-config.sh doctor
 mc-config.sh duty
 mc-config.sh entry
 mc-config.sh knob
