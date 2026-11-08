@@ -49,9 +49,9 @@ nudge, a question, a skill named mid-sentence) passes, and so does new scope
 written as free prose, which a script cannot tell from a relay;
 session-keeper's bounds (scripts/mc-keeper.sh) retire such a session once
 idle and ask it to hand over once old. --to names the recipient, a session
-name or a tmux window id (`@<n>`, or `<session>:@<n>`); with --tmux it is a
-tmux target, and a pane id or `<session>:<window>` is resolved to its window
-through tmux first. One the mission-control launcher registers as a tower,
+name or a tmux window id (`@<n>`); with --tmux it is a tmux target, read as
+its window: `<session>:@<n>` directly, any other target (a pane id, a
+`<session>:<window>`) resolved through tmux first. One the mission-control launcher registers as a tower,
 orchestrator or mission-control session is not bound, so its message
 passes; any other recipient is, an unresolvable one included.
   exit 0, nothing printed: not unit-shaped, or the recipient is not bound
@@ -117,9 +117,6 @@ fleet_home() {
 # registered, so it costs no fleet-home lookup.
 session_kind() {
   case $1 in
-    *:@[0-9]*) set -- "@${1##*:@}" ;;
-  esac
-  case $1 in
     mc-* | @[0-9]*) ;;
     *) return 0 ;;
   esac
@@ -152,14 +149,23 @@ refusal_text() {
   printf '%s' "re-tasking a live session is refused ($1). Launch a fresh session for new scope (scripts/mission-control-launch.sh launch). For a new review round on an open pull request, its successor takes the same worktree and branch with a handover brief and /planwright:resume as its entry: hand over through scripts/session-handover.sh where installed, else retire the old session and launch the fresh one there. Override only when no fresh launch can serve, and say why"
 }
 
-# tmux_window <target> — the window id tmux resolves a pane id or a
-# `<session>:<window>` target to, or the target unchanged.
+# tmux_window <target> — the window id a tmux target names: `@<n>` and
+# `<session>:@<n>` read directly, any other target resolved through tmux,
+# else the target unchanged.
 tmux_window() {
   case $1 in
-    @[0-9]* | *:@[0-9]* | mc-*) printf '%s\n' "$1" ;;
-    %[0-9]* | *:*) tmux display-message -p -t "$1" '#{window_id}' 2>/dev/null || printf '%s\n' "$1" ;;
-    *) printf '%s\n' "$1" ;;
+    @[0-9]* | *:@[0-9]*)
+      tw_w="@${1##*@}"
+      case ${tw_w#@} in
+        *[!0-9]*) ;;
+        *)
+          printf '%s\n' "$tw_w"
+          return 0
+          ;;
+      esac
+      ;;
   esac
+  tmux display-message -p -t "$1" '#{window_id}' 2>/dev/null || printf '%s\n' "$1"
 }
 
 cmd_check() {
@@ -220,6 +226,16 @@ valid_to() {
   [ "${#1}" -le 128 ]
 }
 
+# utf8_only — stdin with invalid UTF-8 dropped; without iconv, every byte a
+# C1 control could be.
+utf8_only() {
+  if command -v iconv >/dev/null 2>&1; then
+    iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || :
+  else
+    tr -d '\200-\237'
+  fi
+}
+
 # do_log <via> <to> <reason> <now> [check] — append the override row and
 # warn; with check, only make sure the append would succeed.
 do_log() {
@@ -241,15 +257,21 @@ do_log() {
       rm -f "$dl_new"
     }
   fi
+  valid_to "$2" || {
+    printf '%s\n' "$me: the session handle is not one a row can carry; the override was not logged" >&2
+    return 2
+  }
   if [ "${5:-}" = check ]; then
     { : >>"$dl_log"; } 2>/dev/null && return 0
     printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"), so the override could not be logged" >&2
     return 2
   fi
-  # Byte ranges, as sanitize_printable strips them, so no C0 or C1 control
-  # (a raw 0x9B is a terminal's CSI) reaches a reader's terminal.
-  dl_reason=$(printf '%s' "$3" | tr '\t\r\n' '   ' | tr -d '\000-\037\177\200-\237' \
-    | awk '{ sub(/^ +/, ""); sub(/ +$/, ""); print substr($0, 1, 500) }')
+  # No C0, DEL or C1 control reaches a reader's terminal (a raw 0x9B is a
+  # CSI), and the rest of the UTF-8 survives: invalid bytes, raw C1 among
+  # them, are dropped before the encoded C1 range is.
+  dl_reason=$(printf '%s' "$3" | tr '\t\r\n' '   ' | tr -d '\000-\037\177' \
+    | awk '{ sub(/^ +/, ""); sub(/ +$/, ""); print substr($0, 1, 500) }' | utf8_only \
+    | awk '{ gsub(/\302[\200-\237]/, ""); print }')
   if ! { printf '%s\t%s\t%s\t%s\n' "$4" "$1" "$2" "$dl_reason" >>"$dl_log"; } 2>/dev/null; then
     printf '%s\n' "$me: cannot append to $(sanitize_printable "$dl_log"); the override was not logged" >&2
     return 2

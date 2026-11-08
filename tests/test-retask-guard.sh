@@ -103,7 +103,7 @@ u1=$(printf '\302\302\233\233')
 row102=$(grep "^102${tab}" "$log")
 if [ "$(printf '%s' "$row102" | awk -F '\t' '{ print NF }')" = 4 ] \
   && ! printf '%s' "$row102" | LC_ALL=C grep -q "$(printf '[\001-\010\013-\037\177\200-\237]')" \
-  && [ "$(printf '%s' "$row102" | cut -f 4 | awk '{ print length($0) }')" = 500 ]; then
+  && [ "$(printf '%s' "$row102" | cut -f 4 | awk '{ print (length($0) <= 500 && length($0) > 480) }')" = 1 ]; then
   ok "a reason is logged on one row, control bytes (C1 included) removed, cut to its cap"
 else
   fail "the cleaned reason: $(printf '%s' "$row102" | od -c | head -5)"
@@ -115,6 +115,12 @@ fi
 /bin/sh "$GUARD" log --via steer --to mc-p-worker-a --reason "  " 2>/dev/null
 rc=$?
 [ "$rc" = 2 ] && ok "an override without a reason is refused, as are a bad handle and epoch" || fail "a blank reason was accepted"
+/bin/sh "$GUARD" log --via steer --to mc-p-worker-a --now 103 --reason "$(printf 'retry \342\200\224 \342\202\2545 caf\303\251')" 2>/dev/null
+if grep -q "^103${tab}steer${tab}mc-p-worker-a${tab}$(printf 'retry \342\200\224 \342\202\2545 caf\303\251')\$" "$log"; then
+  ok "a reason's UTF-8 survives the cleaning"
+else
+  fail "the UTF-8 reason: $(grep "^103" "$log" | od -c | head -3)"
+fi
 rows=$(wc -l <"$log")
 /bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "would log" 2>/dev/null
 rc=$?
@@ -145,17 +151,23 @@ rc=$?
 [ "$rc" = 0 ] && [ -z "$out" ] && ok "a tower's window handle is not bound" || fail "a tower window handle was refused: exit $rc, $out"
 out=$(/bin/sh "$GUARD" check "$tmp/skill" --to @3 2>/dev/null)
 [ "$?" = 5 ] && ok "a worker's window handle is bound" || fail "a worker window handle passed: $out"
-for to in mc-p-orchestrator-live @9 planwright:@7; do
-  /bin/sh "$GUARD" check "$tmp/skill" --to "$to" >/dev/null 2>&1 && ok "an orchestrator, mission control or a <session>:@<n> tower handle is not bound ($to)" || fail "$to was refused"
+for to in mc-p-orchestrator-live @9; do
+  /bin/sh "$GUARD" check "$tmp/skill" --to "$to" >/dev/null 2>&1 && ok "an orchestrator or mission control is not bound ($to)" || fail "$to was refused"
 done
+/bin/sh "$GUARD" check "$tmp/skill" --to planwright:@7 --tmux >/dev/null 2>&1 && ok "with --tmux a <session>:@<n> tower handle is not bound" || fail "a <session>:@<n> tower handle was refused"
+/bin/sh "$GUARD" check "$tmp/skill" --to w:@7 >/dev/null 2>&1
+[ "$?" = 5 ] && ok "without --tmux a name is read literally, so w:@7 stays bound" || fail "a steer name ending in :@7 passed as the tower"
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/tmux" <<'STUB'
 #!/bin/sh
-[ "$1" = display-message ] && [ "$4" = %42 ] && { echo @7; exit 0; }
-exit 1
+[ "$1" = display-message ] || exit 1
+case $4 in %42 | planwright:2 | mc-main:2 | @7.1 | planwright:@7.1) echo @7 ;; *) exit 1 ;; esac
 STUB
 chmod +x "$tmp/bin/tmux"
-PATH="$tmp/bin:$PATH" /bin/sh "$GUARD" check "$tmp/skill" --to %42 --tmux >/dev/null 2>&1 && ok "with --tmux a tower's pane id resolves to its window" || fail "a tower pane id was refused"
+for to in %42 planwright:2 mc-main:2 @7.1 planwright:@7.1; do
+  PATH="$tmp/bin:$PATH" /bin/sh "$GUARD" check "$tmp/skill" --to "$to" --tmux >/dev/null 2>&1 \
+    && ok "with --tmux a tower's target resolves to its window ($to)" || fail "the tower target $to was refused"
+done
 PATH="$tmp/bin:$PATH" /bin/sh "$GUARD" check "$tmp/skill" --to %43 --tmux >/dev/null 2>&1
 [ "$?" = 5 ] && ok "and a pane tmux cannot resolve stays bound" || fail "an unresolvable pane passed"
 nohome() { env -u CLAUDE_PLUGIN_DATA PLANWRIGHT_FLEET_STATE_DIR= CLAUDE_DIR="$tmp/noclaude" HOME="$tmp/nohome" "$@"; }

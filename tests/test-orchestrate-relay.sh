@@ -478,7 +478,7 @@ echo "ok: deliver's --retask needs a reason, an unpasted override is not logged,
 mkdir -p "$tmp/relay-fleet/mission-control/sessions"
 printf 'format\t1\nname\tmc-p-tower-1\nprogram\tp\nkind\ttower\nbackend\ttmux\nhandle\t@3\nlaunched\t1\n' \
   >"$tmp/relay-fleet/mission-control/sessions/mc-p-tower-1"
-PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-tower "$idle_pane" "@3" "$unit_msg"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-tower "$idle_pane" "@3" "$unit_msg" --retask "not needed"
 rc_is retask-tower 0 "deliver of a unit-shaped message to a registered tower"
 rm -f "$tmp/relay-fleet/mission-control/sessions/mc-p-tower-1"
 [ "$(wc -l <"$tmp/relay-fleet/mission-control/retasks.log")" = "$rt_rows" ] || fail "a tower's relay logged an override"
