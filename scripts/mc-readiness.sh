@@ -321,20 +321,6 @@ EOF
   /bin/bash "$script_dir/mc-gates.sh" resolve --program "$1" ${cf_args[@]+"${cf_args[@]}"} >"$3"
 }
 
-# slug_repos <program> <slug>: the program's repositories whose origin remote
-# is <slug>, one per line; returns 1 when the repositories do not resolve.
-slug_repos() {
-  local repos r url sl
-  repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || return 1
-  sl=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
-  while IFS= read -r r; do
-    [ -n "$r" ] && [ -d "$r" ] || continue
-    url=$(mc_untrusted_git -C "$r" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]') || continue
-    url=${url%.git}
-    case $url in */"$sl" | *:"$sl") printf '%s\n' "$r" ;; esac
-  done <<<"$repos"
-}
-
 # branch_worktree <program> <slug> <branch> <head>: find the worktree of the
 # program's repository for <slug> (its origin remote) that has <branch>
 # checked out and holds <head>, printing `one<TAB><path>`, `none`, `several`
@@ -346,7 +332,7 @@ branch_worktree() {
     printf 'none\n'
     return 0
   }
-  repos=$(slug_repos "$1" "$2") || {
+  repos=$(mc_slug_repos "$1" "$2") || {
     printf 'unreadable\n'
     return 0
   }
@@ -404,7 +390,7 @@ spec_scope() {
         break
         ;;
     esac
-  done < <(slug_repos "$1" "$2" 2>/dev/null)
+  done < <(mc_slug_repos "$1" "$2" 2>/dev/null)
   [ -n "$rel" ] || return 0
   # Each path must sit strictly under the root, with no `.`, `..` or empty
   # component, be prose (`.md`), and be added, modified or deleted: a rename

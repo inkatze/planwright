@@ -80,7 +80,13 @@ Usage:
       per ready head, subject <owner>:<name>:<n> (pr-<checksum> outside the
       subject grammar), its text the merge command, printing
         announced<TAB>merge-ready<TAB><subject>
-      and each unknown on stderr. A head is announced once while the
+      and each unknown on stderr. The same event, its text naming this
+      program as the judge, goes to every other configured program whose
+      repositories include the pull request's (by origin remote) and whose
+      duties leave out readiness-check, such as a hub over several
+      programs, printing
+        forwarded<TAB><program><TAB>merge-ready<TAB><subject>
+      A head is announced, and forwarded, once while the
       snapshot still shows the pull request at it. A stale snapshot, or
       none yet, raises nothing and is no failure; any other unknown fails
       the run.
@@ -189,6 +195,47 @@ method_of() {
   esac
   METHODS="$METHODS$1	$MO_M
 "
+}
+
+# covering <owner/name>: CV_PROGRAMS, the other configured programs ($others)
+# whose repositories include <owner/name> and whose duties leave out the
+# readiness check, one per line: a hub over several programs judges none
+# itself, so it hears of each from the program that does. Read once per
+# repository per run; one whose duties cannot be read is told too, since a
+# second notice costs less than a missed one.
+covering() {
+  CV_PROGRAMS=$(printf '%s' "$COVER" | S=$1 awk -F '\t' '$1 == ENVIRON["S"] && $2 != "-" { print $2 }')
+  if printf '%s' "$COVER" | S=$1 awk -F '\t' '$1 == ENVIRON["S"] { f = 1; exit } END { exit !f }'; then
+    return 0
+  fi
+  cv_rc=0
+  COVER="$COVER$1	-
+"
+  while IFS= read -r cv_q; do
+    [ -n "$cv_q" ] || continue
+    if cv_duties=$(/bin/bash "$script_dir/mc-program.sh" get "$cv_q" duties </dev/null 2>/dev/null); then
+      case "
+$cv_duties
+" in
+        *"
+readiness-check
+"*) continue ;;
+      esac
+    fi
+    cv_repos=$(mc_slug_repos "$cv_q" "$1" </dev/null) || {
+      printf 'unknown: -: the repositories of program %s do not resolve\n' "$cv_q" >&2
+      cv_rc=1
+      continue
+    }
+    [ -n "$cv_repos" ] || continue
+    COVER="$COVER$1	$cv_q
+"
+    CV_PROGRAMS="$CV_PROGRAMS$cv_q
+"
+  done <<EOF
+$others
+EOF
+  return "$cv_rc"
 }
 
 # judge <owner/name> <n> <head> <review decision>: J_VERDICT (ready,
@@ -374,16 +421,39 @@ case $verb in
     awk -F '\t' '$1 == "unknown" { print "unknown: " $2 ": " $3 }' "$out" >&2
     [ "$SCAN_STATE" = ok ] || exit 1
     seen="$runtime/merge-announced"
+    forwarded="$runtime/merge-forwarded"
     rc=$SCAN_RC
+    others=$(/bin/bash "$script_dir/mc-program.sh" list | P=$program awk '$0 != ENVIRON["P"]') || {
+      printf 'unknown: -: the other configured programs cannot be listed\n' >&2
+      others="" rc=1
+    }
+    COVER=""
     while IFS='	' read -r w_kind w_pr w_head w_command; do
       [ "$w_kind" = ready ] || continue
-      mc_announce "$program" "$seen" "$w_pr	$w_head" merge-ready "$(mc_pr_subject "${w_pr%#*}" "${w_pr##*#}")" \
+      w_subject=$(mc_pr_subject "${w_pr%#*}" "${w_pr##*#}")
+      mc_announce "$program" "$seen" "$w_pr	$w_head" merge-ready "$w_subject" \
         "$w_pr is ready to merge: $w_command" || rc=1
+      covering "${w_pr%#*}" || rc=1
+      while IFS= read -r w_q; do
+        [ -n "$w_q" ] || continue
+        if w_fw=$(mc_announce "$w_q" "$forwarded" "$w_q	$w_pr	$w_head" merge-ready "$w_subject" \
+          "$w_pr is ready to merge: $w_command (judged by program $program)"); then
+          [ -z "$w_fw" ] || printf 'forwarded\t%s\t%s\n' "$w_q" "${w_fw#announced	}"
+        else
+          printf 'unknown: %s: the merge-ready event for program %s could not be raised\n' "$w_pr" "$w_q" >&2
+          rc=1
+        fi
+      done <<EOF
+$CV_PROGRAMS
+EOF
     done <"$out"
     # A head stays announced while the snapshot shows the pull request at
     # it, so a failed check or a mergeability blip never pushes it twice.
     live=$(printf '%s\n' "$MC_CS_ROWS" | awk -F '\t' '$1 == "pr" { print $2 "#" $3 "\t" $4 }')
     mc_announce_prune "$seen" "$live" || rc=1
+    live_fw=$(printf '%s\n' "$live" | O=$others awk 'BEGIN { n = split(ENVIRON["O"], o, "\n") }
+      $0 != "" { for (i = 1; i <= n; i++) if (o[i] != "") print o[i] "\t" $0 }')
+    mc_announce_prune "$forwarded" "$live_fw" || rc=1
     exit "$rc"
     ;;
 esac

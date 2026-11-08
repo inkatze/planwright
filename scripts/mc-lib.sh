@@ -513,6 +513,22 @@ mc_valid_slug() {
   [ "${#1}" -le 200 ]
 }
 
+# mc_slug_repos <program> <slug>: the program's repositories whose origin
+# remote is <slug>, one per line; returns 1 when the repositories do not
+# resolve.
+mc_slug_repos() {
+  msr_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || return 1
+  msr_sl=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r msr_r; do
+    [ -n "$msr_r" ] && [ -d "$msr_r" ] || continue
+    msr_url=$(mc_untrusted_git -C "$msr_r" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]') || continue
+    msr_url=${msr_url%.git}
+    case $msr_url in */"$msr_sl" | *:"$msr_sl") printf '%s\n' "$msr_r" ;; esac
+  done <<EOF
+$msr_repos
+EOF
+}
+
 # mc_program_home <program>: the program home, or the script fails.
 mc_program_home() {
   /bin/bash "$script_dir/mc-program.sh" get "$1" home || mc_fail "the home of program $1 does not resolve"

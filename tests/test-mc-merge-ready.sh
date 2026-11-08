@@ -380,6 +380,59 @@ run count --program alpha
 expect_eq "a fresh one is whole" "1${tab}all"
 
 # ---------------------------------------------------------------------------
+# Every program on the host hears of it: another program whose repositories
+# include this one and that runs no readiness check of its own (a hub over
+# several programs) gets the same event; one that judges for itself, or
+# covers other repositories only, does not.
+# ---------------------------------------------------------------------------
+git -C "$repo" remote add origin https://github.com/acme/web.git
+other="$tmp/other"
+git init -q "$other"
+git -C "$other" remote add origin git@github.com:acme/api.git
+sed -i.bak 's/^mission_control_programs: .*/mission_control_programs: [alpha, hub, beta, gamma]/' "$tracked"
+mkdir -p "$tmp/hubhome" "$tmp/betahome" "$tmp/gammahome"
+cat >>"$tracked" <<EOF
+program_hub_repositories: [$other, $repo]
+program_hub_home: $tmp/hubhome
+program_hub_duties: [inbox, prepared-moments]
+program_beta_repositories: [$repo]
+program_beta_home: $tmp/betahome
+program_beta_duties: [readiness-check]
+program_gamma_repositories: [$other]
+program_gamma_home: $tmp/gammahome
+program_gamma_duties: [inbox]
+EOF
+printf '%s\n' "$H" >"$tmp/head.20"
+printf 'ready\n' >"$tmp/verdict.20"
+{
+  taken
+  row 20 "$H" false MERGEABLE 0 SUCCESS
+} >"$snapdir/forge"
+run watch --program alpha --now "$T"
+expect_rc "a ready head another program covers" 0
+expect_eq "is announced here and forwarded to the covering hub" "announced${tab}merge-ready${tab}acme:web:20
+forwarded${tab}hub${tab}merge-ready${tab}acme:web:20"
+mc_run mc-event.sh list --program hub
+expect_out "the hub's event carries the command and the judging program" \
+  "merge-ready${tab}acme:web:20${tab}acme/web#20 is ready to merge: $(cmd 20 "$H") (judged by program alpha)"
+mc_run mc-event.sh list --program beta
+expect_eq "a program running its own readiness check gets none" ""
+mc_run mc-event.sh list --program gamma
+expect_eq "nor does one over other repositories" ""
+run watch --program alpha --now "$T"
+expect_eq "a forwarded head is not forwarded twice" ""
+taken >"$snapdir/forge"
+run watch --program alpha --now "$T"
+{
+  taken
+  row 20 "$J" false MERGEABLE 0 SUCCESS
+} >"$snapdir/forge"
+printf '%s\n' "$J" >"$tmp/head.20"
+run watch --program alpha --now "$T"
+expect_eq "a new head is forwarded afresh" "announced${tab}merge-ready${tab}acme:web:20
+forwarded${tab}hub${tab}merge-ready${tab}acme:web:20"
+
+# ---------------------------------------------------------------------------
 # A snapshot that cannot be judged is said so, never read as nothing waiting,
 # and the verdicts it cannot confirm stay for the next fresh one.
 # ---------------------------------------------------------------------------

@@ -94,7 +94,10 @@ run, each one that is ready to merge (it never merges itself), predicting
 overlapping changes and merge order, letting known dates set priorities,
 preparing what you need before a
 decision, recording how to undo each act, checking what was done against
-your rules, and noticing what you keep doing by hand. The last three
+your rules, and noticing what you keep doing by hand. If you run several
+programs with one hub program over all their repositories, the hub hears of
+every pull request ready to merge in them without checking readiness itself:
+the program that checked it tells the hub too. The last three
 do not run in the background yet, and turning them on changes nothing for
 now: mission control records how to undo its acts and proposes automations
 as it works with you, and the check against your rules does not run yet.
