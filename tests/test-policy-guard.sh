@@ -865,6 +865,17 @@ git push" "$MAIN|if false; then repeat 1 do :; done; cd $UNIT; fi; git push" \
   expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
   reason_has 'cannot follow' "[worker] the deny says the guard cannot follow the cd: ${cmd//$'\n'/ \\n }"
 done
+NOENTER="$SANDBOX/noenter"
+mkdir -p "$NOENTER"
+chmod 000 "$NOENTER"
+if [ ! -x "$NOENTER" ]; then # root enters it anyway
+  pg worker "cd $NOENTER && cd $UNIT; git push" "$MAIN"
+  expect deny "[worker] a cd into a directory the shell cannot enter does not vouch for the cd after it"
+fi
+chmod 755 "$NOENTER"
+pg worker "function f if true; then :; fi
+cd $UNIT; git push" "$MAIN"
+expect deny "[worker] an absolute cd after a function definition does not name the directory again"
 # An alias lives in the repository the shell is in, which a cd the guard cannot
 # follow hides.
 gitq -C "$MAIN" config alias.p push

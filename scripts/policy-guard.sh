@@ -1952,7 +1952,7 @@ classify_segments() {
               -*) eff_ok=0 ;;
               *) eff="$eff/${SW[1]}" ;;
             esac
-            [ -d "$eff" ] || eff_ok=0
+            { [ -d "$eff" ] && [ -x "$eff" ]; } || eff_ok=0
             # A cd the guard cannot place may fail, skipping a cd chained after
             # it with &&, so that cd is no longer sure to run.
             [ "$eff_ok" = 1 ] || prev_cd=0
