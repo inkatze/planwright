@@ -976,11 +976,15 @@ echo "ok: a unit-scoped step-tier row is refused at append and flagged by health
 # --- 15i. the shipped config carries the step-type knobs -------------------
 
 for k in allocation_model_step_implementation allocation_effort_step_implementation \
-  allocation_model_step_polish allocation_effort_step_polish \
-  allocation_model_step_self_review allocation_effort_step_self_review; do
+  allocation_effort_step_polish allocation_effort_step_self_review; do
   grep -q "^$k:" "$real_cfg" || fail "15i: config/defaults.yml is missing '$k'"
   grep -qE "^$k: inherit\$" "$real_cfg" \
     || fail "15i: '$k' must ship 'inherit' so defaults reproduce today's behavior (D-13)"
 done
-echo "ok: every step-type knob ships the inherit sentinel"
+for k in allocation_model_step_polish allocation_model_step_self_review; do
+  grep -q "^$k:" "$real_cfg" || fail "15i: config/defaults.yml is missing '$k'"
+  grep -qE "^$k: sonnet\$" "$real_cfg" \
+    || fail "15i: '$k' must ship 'sonnet' (2026-11-09 amendment to model-allocation)"
+done
+echo "ok: step-type knobs ship inherit, review step models ship sonnet"
 echo "PASS: allocation-adapt ($(basename "$0"))"
