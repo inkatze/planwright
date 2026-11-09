@@ -74,6 +74,12 @@ Usage:
       pull request or the snapshot unknown, or is over an hour old or
       stamped later than now; `0 all`
       before any judgment or with no code-state source
+  mc-merge-ready.sh commands --program <p> [--now <epoch>]
+      ready<TAB><owner/name>#<n><TAB><merge command> for each ready verdict the
+      last judgment kept, with no forge read (the panel's rows): only while
+      that judgment wrote the store as ok less than an hour ago and the
+      program has a code-state snapshot source, else nothing. The command is
+      the one list prints, built from the head the verdict was judged at.
   mc-merge-ready.sh watch [--program <p>] [--now <epoch>]
       the readiness-check duty's merge watcher (also what a run with no
       arguments does under the runner): list, then one merge-ready event
@@ -100,7 +106,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-merge-ready.sh list --program <p> [--as-status] [--now <epoch>] | count --program <p> | watch [--program <p>] [--now <epoch>]"
+  mc_usage_fail "usage: mc-merge-ready.sh list --program <p> [--as-status] [--now <epoch>] | count --program <p> | commands --program <p> [--now <epoch>] | watch [--program <p>] [--now <epoch>]"
 }
 
 case ${1:-} in
@@ -139,6 +145,7 @@ done
 case $verb in
   list) ;;
   count) [ "$as_status" -eq 0 ] && [ -z "$now_raw" ] || usage ;;
+  commands) [ "$as_status" -eq 0 ] || usage ;;
   watch)
     [ "$as_status" -eq 0 ] || usage
     [ -n "$program" ] || program=${PLANWRIGHT_MC_PROGRAM:-}
@@ -174,6 +181,30 @@ if [ "$verb" = count ]; then
     $3 == "ready" { n++ }
     END { if (!s) part = 1; print (n + 0) "\t" (part ? "partial" : "all") }' "$store" \
     || mc_fail "the merge-ready store cannot be read"
+  exit 0
+fi
+
+if [ "$verb" = commands ]; then
+  cm_map=$(/bin/bash "$script_dir/mc-program.sh" get "$program" sources) || mc_fail "the source map of program $program does not resolve"
+  printf '%s\n' "$cm_map" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { f = 1 } END { exit !f }' || exit 0
+  [ -e "$store" ] || exit 0
+  [ -f "$store" ] && [ -r "$store" ] && [ ! -L "$store" ] || mc_fail "the merge-ready store cannot be read"
+  # <slug> <number> <method> <head> per ready row of a store that is ok and fresh.
+  cm_rows=$(N=$NOW F=$COUNT_FRESH awk -F '\t' '
+    $1 == "state" { ok = ($2 == "ok" && $3 ~ /^[0-9]+$/ && ENVIRON["N"] - $3 >= 0 && ENVIRON["N"] - $3 <= ENVIRON["F"] + 0) }
+    $3 == "ready" && $1 ~ /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+$/ && $5 ~ /^(squash|merge|rebase)$/ {
+      split($2, k, "|")
+      if (k[1] !~ /^[0-9a-f]{40}$/) next
+      at = index($1, "#")
+      rows[++r] = substr($1, 1, at - 1) "\t" substr($1, at + 1) "\t" $5 "\t" k[1]
+    }
+    END { if (ok) for (i = 1; i <= r; i++) print rows[i] }' "$store") || mc_fail "the merge-ready store cannot be read"
+  while IFS='	' read -r c_slug c_n c_method c_head; do
+    [ -n "$c_slug" ] || continue
+    printf 'ready\t%s#%s\tgh pr merge %s --repo %s --%s --match-head-commit %s\n' "$c_slug" "$c_n" "$c_n" "$c_slug" "$c_method" "$c_head"
+  done <<EOF
+$cm_rows
+EOF
   exit 0
 fi
 

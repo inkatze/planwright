@@ -5,7 +5,7 @@ import { spriteCells } from './panel-art'
 
 const tab = (...f: (string | number)[]) => f.join('\t')
 const SHA = '0123456789abcdef0123456789abcdef01234567'
-const CMD = `gh pr merge 1 --repo acme/widgets --squash --match-head-commit ${SHA}`
+const CMD = ['gh', 'pr', 'merge', '1', '--repo', 'acme/widgets', '--squash', '--match-head-commit', SHA].join(' ')
 
 // One pull request in every group the operator's ready conditions give.
 const PRS = [
