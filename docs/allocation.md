@@ -33,7 +33,10 @@ on a default install:
   `fleet_*` table in charge and reproduces today's dispatch exactly;
 - every non-fleet surface ships the `inherit` sentinel, so the resolver is
   consulted, applies nothing, and the launch keeps its ambient model;
-- every per-step knob ships `inherit`, so each step runs at its unit's tier;
+- every per-step knob ships `inherit` except the review steps' model
+  (`allocation_model_step_polish` and `allocation_model_step_self_review`),
+  which ships `sonnet`; it takes effect once the `execute_step` surface carries
+  a tier;
 - `allocation_adaptation` ships `off`, so no tier ever moves.
 
 No unit runs on a different model, at a different effort, or at a different
@@ -224,9 +227,9 @@ needs adaptation.
 ```yaml
 allocation_model_step_implementation: inherit
 allocation_effort_step_implementation: inherit
-allocation_model_step_polish: inherit
+allocation_model_step_polish: sonnet
 allocation_effort_step_polish: inherit
-allocation_model_step_self_review: inherit
+allocation_model_step_self_review: sonnet
 allocation_effort_step_self_review: inherit
 ```
 

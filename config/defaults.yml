@@ -442,9 +442,10 @@ allocation_effort_offload: inherit
 # id, `-` written as `_`). Today every review pass inherits the unit's tier,
 # so nothing ever starts cheap; these are the knobs that let it.
 #
-# ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
-# golden baseline is reproduced exactly. Landing the mechanism changes runtime
-# behavior by nothing; turning it on is a separate operator decision (D-13).
+# The step knobs ship `inherit`, except the review steps' MODEL (polish and
+# self-review), which ship `sonnet`. Their effect waits on the execute_step
+# surface carrying a tier, so the shipped value changes nothing until that
+# surface is tiered (see below).
 # Nothing passes a step type yet either — Task 6 wires the launch points — so
 # setting one of these changes nothing at all until that lands.
 #
@@ -475,9 +476,9 @@ allocation_effort_offload: inherit
 # than the unit's, so the top could never apply here in any case.
 allocation_model_step_implementation: inherit
 allocation_effort_step_implementation: inherit
-allocation_model_step_polish: inherit
+allocation_model_step_polish: sonnet
 allocation_effort_step_polish: inherit
-allocation_model_step_self_review: inherit
+allocation_model_step_self_review: sonnet
 allocation_effort_step_self_review: inherit
 
 # Execution-time ADAPTATION: whether a unit's tier may move at a launch boundary
