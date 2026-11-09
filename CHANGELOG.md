@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.73.0](https://github.com/inkatze/planwright/compare/v0.72.0...v0.73.0) (2026-11-09)
+
+
+### Features
+
+* **mission-control:** plain readouts, a status strip and a flicker-free Prop pal ([#908](https://github.com/inkatze/planwright/issues/908)) ([b1a904e](https://github.com/inkatze/planwright/commit/b1a904ee9cff346b5aaf36e0e97f45d8c9848a0c))
+
+
+### Bug Fixes
+
+* **guard:** mission-control settings screen matches posture by path, not stem ([#905](https://github.com/inkatze/planwright/issues/905)) ([12d4300](https://github.com/inkatze/planwright/commit/12d43004d568abd979d35d11375eb6fd2478dd0b))
+* **mission-control:** runner watchers survive a removed scratch TMPDIR ([#909](https://github.com/inkatze/planwright/issues/909)) ([9e3637a](https://github.com/inkatze/planwright/commit/9e3637ad0a231119032c99bb7baef32c76f86095))
+* **worker:** stop spelling-only permission prompts for workers ([#907](https://github.com/inkatze/planwright/issues/907)) ([e0c356d](https://github.com/inkatze/planwright/commit/e0c356d8e3b8913cb546a151faa012678ed95e2b))
+
 ## [0.72.0](https://github.com/inkatze/planwright/compare/v0.71.0...v0.72.0) (2026-11-09)
 
 
