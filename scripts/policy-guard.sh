@@ -4161,7 +4161,7 @@ mc_posture_word() {
   shopt -s nocasematch
   if [[ $t =~ $RE_MC_POSTURE_NAME ]] || [[ $t =~ $RE_MC_POSTURE_REL_DIR ]]; then
     rc=0
-  elif [[ $t == *.c[l]aude* && ( $t == *'/../'* || $t == *'/..' ) ]]; then
+  elif [[ $t == *.c[l]aude* && ($t == *'/../'* || $t == *'/..') ]]; then
     rc=0
   fi
   shopt -u nocasematch
