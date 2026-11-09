@@ -217,3 +217,17 @@ deny	settings-write	bash	-	settings or configuration file	echo x ->"$F"
 deny	settings-write	bash	-	settings or configuration file	bash -c 'echo x > "$F"'
 deny	settings-write	bash	-	settings or configuration file	echo "\"" > "$F"
 defer	read	bash	-	-	echo "has a \\ and a false > /etc/passwd"
+defer	read	bash	-	-	mc-handover.sh resume --picture "$S/picture.txt" --durable "$S/durable.txt"
+defer	read	bash	-	-	jq .messages "$F" | head
+defer	read	bash	-	-	grep -n ready_flip @HOME@/.claude/plugins/cache/planwright/planwright/0.71.0/config/*.yml
+deny	settings-write	bash	-	settings or configuration file	: > "$VAR/x"
+deny	settings-write	bash	-	settings or configuration file	: > "$S"
+deny	settings-write	bash	-	settings or configuration file	: > "$S/.claude/settings.local.json"
+defer	read	bash	-	-	S=$(mktemp -d); : > "$S/x"
+defer	read	bash	-	-	S=$(mktemp -d) && mc-handover.sh resume --picture "$S/picture.txt" && echo ok > "$S/out.txt"
+deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); S=@HOME@/.claude/hooks; : > "$S/x"
+deny	settings-write	bash	-	settings or configuration file	S=@HOME@/.claude/hooks; : > "$S/x"
+deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); for S in a; do :; done; : > "$S/x"
+deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); : > "$S/.claude/settings.local.json"
+deny	settings-write	bash	-	settings or configuration file	: > "$S/x"
+deny	settings-write	bash	-	settings or configuration file	x=$(date); cp /tmp/a $x
