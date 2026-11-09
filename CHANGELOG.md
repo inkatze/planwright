@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.72.0](https://github.com/inkatze/planwright/compare/v0.71.0...v0.72.0) (2026-11-09)
+
+
+### Features
+
+* **mission-control:** a throughput duty that measures where the fleet's time goes ([#899](https://github.com/inkatze/planwright/issues/899)) ([9d0aab0](https://github.com/inkatze/planwright/commit/9d0aab083f4004a1feddc9218b29788824015eea))
+* **mission-control:** an attended hub in tmux hands over itself ([#902](https://github.com/inkatze/planwright/issues/902)) ([ee86687](https://github.com/inkatze/planwright/commit/ee866875410fbccec04a78fe2a62e774113cafc1))
+* **mission-control:** audit the setup a hub inherits, and warn on per-call backend overrides ([#875](https://github.com/inkatze/planwright/issues/875)) ([a92aca9](https://github.com/inkatze/planwright/commit/a92aca9c66d28227177325504ef0abea7a138a3c))
+* **mission-control:** high-fidelity panel with animated Prop pal and instrument pictures ([#903](https://github.com/inkatze/planwright/issues/903)) ([7dcbbe0](https://github.com/inkatze/planwright/commit/7dcbbe0896475bfba7cba110e71ea1b9a4e46671))
+* **mission-control:** hold launches near the usage limit and resume the work at the reset ([#890](https://github.com/inkatze/planwright/issues/890)) ([8607ef7](https://github.com/inkatze/planwright/commit/8607ef709ef43917db2666b51bf16e17be1a24cb))
+
+
+### Bug Fixes
+
+* **fleet:** workers get the installed plugin root and never background jobs on stream-json ([#894](https://github.com/inkatze/planwright/issues/894)) ([5a364a1](https://github.com/inkatze/planwright/commit/5a364a1fca59d6feb0c3dbded3bb7f2d2626b855))
+
 ## [0.71.0](https://github.com/inkatze/planwright/compare/v0.70.0...v0.71.0) (2026-11-08)
 
 
