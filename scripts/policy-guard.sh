@@ -4229,7 +4229,7 @@ mc_literal_var() {
   re_asg="(^|[^[:alnum:]_])$n="
   re_other="(read|for|local|declare|typeset|mapfile|readarray|unset|printf[[:space:]]+-v)[^;&|]*[^[:alnum:]_]$n([^[:alnum:]_]|\$)"
   re_plus="(^|[^[:alnum:]_])${n}[+]="
-  re_param="[$][{]$n[:]?[=]"
+  re_param="[\$][{]${n}[:]?[=]"
   [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ $re_plus || $t =~ $re_param ]] && return 1
   [[ $t =~ $re_asg ]] || return 1
   before=${t%%"${BASH_REMATCH[0]}"*}
@@ -4394,6 +4394,23 @@ mc_settings_screen() {
     si=$((si + 1))
     [ "${#SW[@]}" -gt 0 ] || continue
     if [ "$named" = 1 ]; then
+      # A loop or condition keyword opens a segment; the command after it is
+      # the segment's own, and a loop's word list must hold no substitution,
+      # which would run.
+      case ${SW[0]} in
+        for | done | fi | 'esac')
+          for w in "${SW[@]}"; do
+            # shellcheck disable=SC2016 # literal patterns
+            case $w in *'$('* | *'`'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
+          done
+          continue
+          ;;
+        do | then | else | elif | if | while | until | '!')
+          SW=("${SW[@]:1}")
+          SWL=("${SWL[@]:1}")
+          [ "${#SW[@]}" -gt 0 ] || continue
+          ;;
+      esac
       if [ "${SWL[0]}" != 1 ]; then
         mc_resolve_word "${SW[0]}" || emit_deny "$MC_SETTINGS_DENY"
         SW[0]=$MC_RW
@@ -4544,6 +4561,22 @@ EOF
   return 0
 }
 
+# mc_unparsed_command_names <command> — refuses, in text the guard cannot
+# parse, a statement whose command name is a bare variable that is not a plain
+# literal the command assigned: it could be git or gh.
+mc_unparsed_command_names() {
+  # shellcheck disable=SC2016 # a regex; `$` is literal
+  local rest=$1 word re='(^|[;&|]|'$'\n'')[[:space:]]*(\$([{][A-Za-z_][A-Za-z0-9_]*[}]|[A-Za-z_][A-Za-z0-9_]*))([[:space:];&|]|$)'
+  MC_CMD=$1
+  while [[ $rest =~ $re ]]; do
+    word=${BASH_REMATCH[2]}
+    rest=${rest#*"${BASH_REMATCH[0]}"}
+    mc_resolve_word "$word" \
+      || emit_deny "this command's name is an expansion the guard cannot read ($(sanitize_printable "$word" 'unprintable')), in text it cannot parse, so it could be git or gh - refusing (fail closed). Write the command name literally."
+  done
+  return 0
+}
+
 handle_bash() {
   local cmd=$P_CMD
   if [ "$P_CMD_OK" != 1 ] || [ -z "$cmd" ]; then
@@ -4594,6 +4627,7 @@ handle_bash() {
     return 0
   fi
   if ! tokenize "$cmd"; then
+    [ "$TIER" != mission-control ] || mc_unparsed_command_names "$cmd"
     raw_evidence "$cmd" \
       && deny_unanalyzable 'this command uses a construct the guard will not analyze (command or process substitution, backticks, ANSI-C quoting, or grouping)'
     return 0
