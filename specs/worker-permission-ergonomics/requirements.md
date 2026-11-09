@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-02
+**Last reviewed:** 2026-11-09
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -725,6 +725,14 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
 
 ## Changelog
 
+- 2026-11-09 — Delta kickoff via `/spec-kickoff` (brief Amendment 5),
+  meaning-class. REQ-A1.9 gains its one exception to the inline
+  environment-assignment deferral: a literal `PLANWRIGHT_STEP_*` prefix in
+  front of a script the guard approves bare is approved when every value
+  equals what the launcher's session record implies, the recorded PR number
+  included. D-3 records why (a worker's fresh shell drops an export) and the
+  REQ-A1.9 test-spec entry names the suite asserting it. Recorded in place
+  on a bundle whose tasks are all done, by the operator's ruling.
 - 2026-11-03 — Expression-only fix from Task 12's convergence review: the
   REQ-A1.11 and REQ-C1.1 test-spec entries name the `Read` rule REQ-E1.6
   adds beside the `Write`/`Edit` path rules, as Task 12's deliverables and

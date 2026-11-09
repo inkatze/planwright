@@ -1049,3 +1049,62 @@ decision changes.
 Class: expression-only
 Anchor: `fecd04fcd6f75d263c89aadbaac35781da021c0a` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 5 — REQ-A1.9 step-context prefix (2026-11-09)
+
+**Scope.** Delta re-walkthrough of the amendment committed as `f205ccdc`
+(spec commit at walkthrough start `594ad29d`): REQ-A1.9's one exception to
+the inline environment-assignment deferral, the D-3 annotation giving its
+reason, and the REQ-A1.9 test-spec entry. Run as a relayed kickoff: the
+operator answered through mission control and the hub.
+
+**Bundle state.** Every task is complete, so the bundle derives Done. The
+operator ruled (2026-11-09) to record the change in place, as this bundle's
+earlier amendments were, riding the implementing PR, rather than reopening
+the bundle to Draft: the guard change is already on that PR and no new task
+is planned.
+
+**Delta walked.** A leading run of literal `PLANWRIGHT_STEP_<field>=<value>`
+words in front of a script the guard approves bare is approved when the
+guard reads the run as written, before any expansion, and every value passes
+the resolver's grammar and equals what the session record implies (unit kind,
+spec and task ids exactly and in order, branch, PR base, worktree root, and
+the recorded PR number). Any other name, value or shape defers. D-3 records
+the reason: a worker's Bash call is a fresh shell, so an export dies with the
+call. Custom-steps REQ-G1.3 already strips these assignments before matching
+a declared step, so the two specs agree.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(one requirement annotation, one decision annotation, one test entry); no
+fan-out, scoped by size. Claims checked against
+`tests/test-worker-command-guard-step-context.sh`, which runs in the shell
+suite and passed locally.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | Matches D-3's allow-only rule and D-23's trust inputs |
+| Ambiguity and interpretation forks | 0 | An empty PR number before recording follows from "equals what the record implies" |
+| Citation and coverage integrity | 1 | No `## Changelog` entry for the amendment |
+| Dead verification paths | 0 | The suite is discovered by the shell test runner |
+| Decision-domain gaps | 0 | Security posture decided by D-3 and D-23 |
+| Testability | 0 | Every defer case the test entry names has a fixture |
+| Cross-file consistency | 0 | Consistent with custom-steps REQ-G1.3 |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | None |
+
+**Dispositions.** Changelog finding: applied, a 2026-11-09 entry added
+(operator, 2026-11-09).
+
+#### Sign-off record (Amendment 5)
+
+Signed off 2026-11-09 by the operator after the approval summary, relayed
+through mission control and the hub ("lets go with your recommendations"),
+as a delta re-walkthrough recorded in place on a bundle that derives Done:
+no status flip; `Last reviewed:` bumped on `requirements.md`, `design.md`
+and `test-spec.md`; `scripts/spec-validate.sh` re-run after the edits with
+0 errors and 0 warnings.
+
+Class: meaning
+Lens-pass: Amendment 5, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
+Anchor: `f84e5e6e22648f8955d40c1e58805f1e92752cef` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
