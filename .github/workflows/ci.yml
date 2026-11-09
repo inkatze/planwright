@@ -434,16 +434,14 @@ jobs:
   # The suite runs as an unprivileged user, since root passes the permission
   # checks several tests rely on failing.
   #
-  # The job's scope is the shell suite, the install smoke, and (once it
-  # exists) the bake-off harness, each a step of that name; every other step
-  # is named `setup: <what>`. These need a tool without a musl build, Docker,
-  # or the Claude CLI's plugin schema check, and run on Ubuntu only, in the
-  # lint job: `mise run check:non-test` (shellcheck, shfmt, markdownlint,
-  # yamllint, the plugin-schema check, gitleaks, and the repo's own guards),
-  # the bash 3.2 parse step, the PR-range commit lint, and the purged-identifier
-  # screen; the suite timing gate runs in the check job. The install smoke's
-  # marketplace mode needs the Claude CLI to install through, so the CLI is
-  # added for it after the suite has run.
+  # The job's scope is the shell suite, the install smoke, and (once it exists)
+  # the bake-off harness, each a step of that name; other steps are `setup:
+  # <what>`. Those need a tool without a musl build, Docker, or the Claude
+  # CLI's plugin schema check, so they run on Ubuntu only, in the lint job:
+  # `mise run check:non-test`, the bash 3.2 parse step, the PR-range commit
+  # lint, and the purged-identifier screen; the timing gate runs in the check
+  # job. The install smoke's marketplace mode needs the Claude CLI, added after
+  # the suite runs.
   #
   # The suite runs in the planned shards, since this runner type is the one
   # the plan job measures. Every shard also runs the install smoke: the
