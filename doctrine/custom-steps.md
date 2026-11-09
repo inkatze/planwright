@@ -420,9 +420,10 @@ outcome, a bounded excerpt (a session step's classification excerpt or a
 command step's output tail, stored screened through the repository's secret
 screen and stripped of non-printable bytes), the full captured output's
 cache path where one exists (unscreened), and a skipped step's reason and
-detail, a degraded in-session step's reason, a `reuse` or `resume` skip also naming the run id, point, and record
-sequence it stands on. A pooled step adds its pool, wait seconds, holders,
-and unpooled flag, its start time the take (else the wait's start); a `paths`
+detail, a degraded in-session step's reason, a `reuse` or `resume` skip also
+naming the run id, point, and record sequence it stands on. A pooled step adds
+its pool, wait seconds, holders, and unpooled flag, its start time the take
+(else the wait's start); a `paths`
 step its fingerprint or none and its `args` digest (SHA-256 of `args` as
 written); a re-fire its `refire-of`. A legacy record (no end head, or a skip
 without a reason code) matches no reuse or resume lookup, never counts
