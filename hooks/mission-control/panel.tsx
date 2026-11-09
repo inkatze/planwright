@@ -218,6 +218,7 @@ const isWide = (c: number): boolean =>
   (c >= 0xff00 && c <= 0xff60) ||
   (c >= 0xffe0 && c <= 0xffe6) ||
   (c >= 0x1f300 && c <= 0x1f64f) ||
+  (c >= 0x1f680 && c <= 0x1f6ff) ||
   (c >= 0x1f900 && c <= 0x1f9ff) ||
   (c >= 0x20000 && c <= 0x3fffd)
 export const cellsOf = (s: string): number => [...s].reduce((n, ch) => n + (isWide(ch.codePointAt(0) ?? 0) ? 2 : 1), 0)
@@ -259,7 +260,7 @@ export function wrapRows(text: string, inner: number): string[] {
       cur = rest
     }
   }
-  rows.push(cur)
+  if (cur !== '' || rows.length === 0) rows.push(cur)
   return rows
 }
 

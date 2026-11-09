@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { cellsOf } from './panel'
+import { cellsOf, wrapRows } from './panel'
 import { BAND, bandOf, boot, digestText, PANE, ran, world } from './fixture'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -735,6 +735,13 @@ test('a wide glyph in a pull request title keeps every card row at the card widt
   const rowBoxes = (await ui.findAll({ type: 'Box' })).filter(
     b => b.props?.backgroundColor === CARD_BG && b.props?.flexDirection === 'row',
   )
+  expect(rowBoxes.some(b => (b.text ?? '').includes('修正'))).toBe(true)
   for (const b of rowBoxes) expect(cellsOf(b.text ?? '')).toBe(PANE.props.bodyColumns)
   await ui.unmount()
+})
+
+test('a wide glyph that fills a narrow row leaves no blank row after it', () => {
+  expect(wrapRows('😀', 1)).toEqual(['😀'])
+  expect(wrapRows('', 4)).toEqual([''])
+  expect(wrapRows('🚀 go', 4)).toEqual(['🚀', 'go'])
 })
