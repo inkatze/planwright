@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.73.1](https://github.com/inkatze/planwright/compare/v0.73.0...v0.73.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **security:** stop recommending wildcard path allow rules ([#862](https://github.com/inkatze/planwright/issues/862)) ([2f487e6](https://github.com/inkatze/planwright/commit/2f487e6987f8b9d4562d4c10b1edb775f9382eaa))
+
 ## [0.73.0](https://github.com/inkatze/planwright/compare/v0.72.0...v0.73.0) (2026-11-09)
 
 
