@@ -1193,7 +1193,7 @@ for cmd in 'kic$()koff-spec-push.sh demo' 'kic``koff-spec-push.sh demo' 'kic${}k
   'kic$""koff-spec-push.sh demo' 'KIC$()KOFF-SPEC-PUSH.SH demo'; do
   PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$SPEC" "$SPEC"
   expect deny "[worker, task-1] a kickoff push spliced with an empty expansion denies: $cmd"
-  reason_has 'will not analyze' "[worker, task-1] the spliced kickoff push names the unparsed construct: $cmd"
+  reason_has 'will not analyze|cannot read' "[worker, task-1] the spliced kickoff push names the unparsed construct: $cmd"
 done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo && git status' "$SPEC" "$SPEC"
 expect defer "[worker, kickoff-demo] a kickoff push chained with a read defers"

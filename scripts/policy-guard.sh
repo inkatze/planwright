@@ -574,10 +574,13 @@ heredoc_substitution_at() {
 
 # unparsed_evidence <text> — raw_evidence, or the kickoff push named in any
 # spelling. Only the parse decides the kickoff push (kickoff_segment), so a
-# command the guard cannot parse is refused when it names it.
+# command the guard cannot parse is refused when it names it. Every character
+# outside the name is dropped before the match, so an empty expansion spliced
+# into the name (`kic$()koff`) cannot hide it from the shell.
 unparsed_evidence() {
   raw_evidence "$1" && return 0
-  lc "${1//[\"\'\\]/}"
+  lc "$1"
+  LC=${LC//[!a-z0-9.-]/}
   case $LC in *"$KICK_NAME"*) return 0 ;; esac
   return 1
 }
