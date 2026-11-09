@@ -216,3 +216,4 @@ defer	read	bash	-	-	mc-kb.sh append --text "a -> $x done"
 deny	settings-write	bash	-	settings or configuration file	echo x ->"$F"
 deny	settings-write	bash	-	settings or configuration file	bash -c 'echo x > "$F"'
 deny	settings-write	bash	-	settings or configuration file	echo "\"" > "$F"
+defer	read	bash	-	-	echo "has a \\ and a false > /etc/passwd"
