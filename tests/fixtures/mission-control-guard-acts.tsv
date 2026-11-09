@@ -188,3 +188,30 @@ defer	read	bash	-	-	timeout 30 git rev-list --filter=blob:none HEAD
 defer	help-prompt	bash	-	-	git help status
 defer	help-prompt	bash	-	-	git help --web status
 deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git help --web status'
+defer	read	bash	-	-	sed -i s/a/b/ @HOME@/.claude/projects/p/memory/note.md
+defer	read	bash	-	-	sed -i s/a/b/ ~/.claude/projects/-home-u-dev-x/memory/MEMORY.md
+defer	read	bash	-	-	fleet-streamjson.sh steer --message-file "$VAR/x" --name w
+defer	read	bash	-	-	mc-kb.sh append --text "mentions ~/.claude/settings.json in prose"
+defer	read	bash	-	-	mc-kb.sh append --text="the settings.local.json file"
+defer	read	bash	-	-	for p in $(tmux list-panes -F "#{pane_id}"); do tmux capture-pane -p -t "$p" | tail -3; done
+defer	read	bash	-	-	fleet-state.sh home "$VAR"
+defer	read	bash	-	-	ls @UNIT@/.claude/worktrees/flight-x | head
+defer	read	bash	-	-	ls /home/u/dev/p/.claude/worktrees/*/scripts | head
+defer	read	bash	-	-	echo "a -> $x"
+deny	settings-write	bash	-	settings or configuration file	echo x > "$VAR"
+deny	settings-write	bash	-	settings or configuration file	echo x >> $OUT/log
+deny	settings-write	bash	-	settings or configuration file	sed -i s/a/b/ @HOME@/.claude/settings.local.json
+deny	settings-write	bash	-	settings or configuration file	sed -i s/a/b/ "$F"
+deny	settings-write	bash	-	settings or configuration file	tee -a @HOME@/.claude/"$f"
+deny	settings-write	bash	-	settings or configuration file	cp /tmp/x @HOME@/.claude/hooks/y.sh
+deny	settings-write	bash	-	settings or configuration file	mv /tmp/x .claude/agents/y.md
+deny	settings-write	bash	-	settings or configuration file	sed -i s/a/b/ @HOME@/.claude/projects/p/memory/../../hooks/x
+deny	settings-write	bash	-	settings or configuration file	cp /tmp/x @HOME@/.claude/projects/p/memory/../../settings.json
+deny	settings-write	bash	-	settings or configuration file	cat @UNIT@/.claude/worktrees/w/.claude/settings.json > x
+deny	settings-write	bash	-	settings or configuration file	echo x > /tmp/other/$f
+defer	read	bash	-	-	echo x > "$TMPDIR/out"
+deny	settings-write	bash	-	settings or configuration file	echo x > "$TMPDIR/.claude/$f"
+defer	read	bash	-	-	echo "a -> $x"
+defer	read	bash	-	-	mc-kb.sh append --text "a -> $x done"
+deny	settings-write	bash	-	settings or configuration file	echo x ->"$F"
+deny	settings-write	bash	-	settings or configuration file	bash -c 'echo x > "$F"'
