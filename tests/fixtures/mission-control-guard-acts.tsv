@@ -215,3 +215,4 @@ defer	read	bash	-	-	echo "a -> $x"
 defer	read	bash	-	-	mc-kb.sh append --text "a -> $x done"
 deny	settings-write	bash	-	settings or configuration file	echo x ->"$F"
 deny	settings-write	bash	-	settings or configuration file	bash -c 'echo x > "$F"'
+deny	settings-write	bash	-	settings or configuration file	echo "\"" > "$F"

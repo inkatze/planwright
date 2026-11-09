@@ -4234,7 +4234,8 @@ mc_settings_screen() {
   [ "$named" = 0 ] || case $r in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
   # Quoted text is no redirect unless a shell is handed it to run or the quote
   # is itself the redirect's target.
-  if ! [[ $r =~ $RE_MC_INTERPRETER ]]; then
+  # A backslash can desync the quote pairing, so such text is scanned whole.
+  if ! [[ $r =~ $RE_MC_INTERPRETER || $r == *\\* ]]; then
     local q=$r out=''
     while [[ $q =~ (\>[[:space:]]*)?(\"[^\"]*\"|\'[^\']*\') ]]; do
       m=${BASH_REMATCH[0]}
