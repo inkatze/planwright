@@ -918,9 +918,10 @@ cmd_launch() {
     die "$1" "$2"
   }
 
-  # The host-wide bound counts every program's live sessions in this shared
-  # registry, the reservation just written included in the registry but not
-  # in the count; mission-control sessions are never counted or held.
+  # The host-wide bound counts every program's registered sessions except
+  # this launch's own reservation (already written, so a concurrent launch
+  # sees it); mission-control sessions are never counted or held. A row of a
+  # session that died stays counted until it is retired.
   if [ "$kind" != mission-control ]; then
     hc_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
       || refuse "refusing to launch $name: fleet_host_max_live_workers cannot be resolved to a number or off" 4
