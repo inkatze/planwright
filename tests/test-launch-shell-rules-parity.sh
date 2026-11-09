@@ -37,5 +37,19 @@ no pipe to trim output|No display pipes
 step context|PLANWRIGHT_STEP_
 TABLE
 
+# A rules file reached through a symlink is not read: the launch goes without
+# the rules rather than taking a prompt from outside the install.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/launch-rules.XXXXXX") || exit 1
+trap 'rm -rf "$tmp"' EXIT
+mkdir "$tmp/install" || exit 1
+printf 'Never use a loop.\n' >"$tmp/elsewhere.txt"
+ln -s "$tmp/elsewhere.txt" "$tmp/install/launch-shell-rules.txt"
+out=$("$root/scripts/launch-shell-rules.sh" "$tmp/install/settings.json" 2>/dev/null) || fail "the helper exited non-zero on a symlinked rules file"
+[ -z "$out" ] || fail "the helper printed rules read through a symlink"
+rm -f "$tmp/install/launch-shell-rules.txt"
+cp "$rules" "$tmp/install/launch-shell-rules.txt" || fail "cannot stage a regular rules file"
+out=$("$root/scripts/launch-shell-rules.sh" "$tmp/install/settings.json" 2>/dev/null) || fail "the helper exited non-zero on a regular rules file"
+[ -n "$out" ] || fail "the helper printed nothing for a regular rules file"
+
 [ "$rc" -eq 0 ] && echo "launch-shell-rules-parity: ok"
 exit "$rc"

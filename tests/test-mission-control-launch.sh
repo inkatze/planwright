@@ -1218,7 +1218,7 @@ if [ "$RC" = 0 ]; then
     && ok "a unit's scope with no branch yet starts a new unit branch off the default branch" \
     || fail "the demo:task-2 launch in '$tn_wt' is not a fresh planwright/demo/task-2"
   # shellcheck disable=SC2016 # literal backticks around the ids
-  grep -qF 'PLANWRIGHT_STEP_UNIT_KIND=task' "$(field brief)" && grep -qF 'spec id `demo`, task id `2`' "$(field brief)" \
+  grep -qF 'PLANWRIGHT_STEP_UNIT_KIND=task PLANWRIGHT_STEP_SPEC=demo PLANWRIGHT_STEP_TASK_IDS=2' "$(field brief)" \
     && ok "a unit launch's cadence names its task unit" || fail "a unit launch's cadence is not the task unit's"
   wait_done "$(field name)"
 else

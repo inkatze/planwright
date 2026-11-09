@@ -915,7 +915,8 @@ open\". A landed relaunch skips the push-and-create line, fires \`post-pr\`
 only if the Relaunch bullet says it is still due, and runs the sequence after
 it (re-emit, draft check, completion) either way.
 
-Now the draft PR exists: fire \`post-pr\` (*Work and the points*) with the PR's
+Now the draft PR exists: record its number with \`$brief_root/scripts/worker-session-record.sh pr\`
+(the mapping below), then fire \`post-pr\` (*Work and the points*) with the PR's
 number as \`PLANWRIGHT_STEP_PR_NUMBER\`. After its list, run the sequence
 \`/execute-task\` runs after its own \`post-pr\` list (its *PR creation* section,
 read from that skill), less the unit-PR ready flip, which a flight never

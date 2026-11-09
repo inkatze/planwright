@@ -647,10 +647,10 @@ cadence_section() {
   cs_root=$(cd "$script_dir/.." && pwd -P) || return 1
   if [ -n "${2:-}" ]; then
     cs_unit="task ${2#*/} of spec ${2%/*}"
-    cs_ctx="\`PLANWRIGHT_STEP_UNIT_KIND=task\`, spec id \`${2%/*}\`, task id \`${2#*/}\`"
+    cs_ctx="\`PLANWRIGHT_STEP_UNIT_KIND=task PLANWRIGHT_STEP_SPEC=${2%/*} PLANWRIGHT_STEP_TASK_IDS=${2#*/}\`"
   else
     cs_unit="a specless session"
-    cs_ctx="\`PLANWRIGHT_STEP_UNIT_KIND=flight\`, empty spec and task ids"
+    cs_ctx="\`PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_SPEC= PLANWRIGHT_STEP_TASK_IDS=\`"
   fi
   cat <<EOF
 
@@ -665,8 +665,10 @@ mappings for $cs_unit:
 - Resolve every point \`--unattended\`, under \`$cs_root/scripts/\`.
 - Pass the step context as literal assignments in front of each
   \`step-run.sh\` and \`resolve-steps.sh\` call, in that same command, never
-  exported (each Bash call is a fresh shell): $cs_ctx,
-  this branch, its base branch and this worktree; an isolated step's launch
+  exported (each Bash call is a fresh shell): $cs_ctx, and
+  \`PLANWRIGHT_STEP_BRANCH\`, \`PLANWRIGHT_STEP_BASE_BRANCH\` and
+  \`PLANWRIGHT_STEP_WORKTREE\` set to this branch, its base branch and this
+  worktree; an isolated step's launch
   tier takes the unit \`mission-control:$1\`.
 - Once the PR is open, run \`$cs_root/scripts/worker-session-record.sh pr\` to
   record its number, then pass it as \`PLANWRIGHT_STEP_PR_NUMBER\`; the guard

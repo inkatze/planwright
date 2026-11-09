@@ -133,8 +133,9 @@ flat "$b" | grep -qF 'literal assignments in front of each `step-run.sh` and `re
 flat "$b" | grep -qi -e 'export the step context' -e 'export PLANWRIGHT_STEP_' \
   && fail "the brief must not ask for an exported step context"
 # The guard approves only the PR number the worker recorded once the PR exists.
-flat "$b" | grep -qF '/scripts/worker-session-record.sh pr`' \
-  || fail "the brief must record the PR number before post-pr passes it"
+flat "$b" | grep -qF 'Now the draft PR exists: record its number with `' \
+  && flat "$b" | grep -qF '/scripts/worker-session-record.sh pr` (the mapping below), then fire `post-pr`' \
+  || fail "the post-pr firing must record the PR number before it passes the number"
 # The guard defers a root assignment prefix, so the brief carries none: the
 # launch pins the root instead.
 printf '%s\n' "$b" | grep -q 'PLANWRIGHT_ROOT=\|PLANWRIGHT_SKILLS_ROOT=' \
@@ -164,7 +165,7 @@ printf '%s\n' "$b" | grep -q 'main sync not run' && fail "a flight with a remote
 post=$(printf '%s\n' "$b" | awk '/^Now the draft PR exists/ {on=1} on')
 [ -n "$post" ] || fail "the pr-home landing must fire post-pr once the draft PR exists"
 pr_line=$(printf '%s\n' "$b" | grep -n 'gh pr create --draft' | head -n 1 | cut -d: -f1)
-post_line=$(printf '%s\n' "$b" | grep -n '^Now the draft PR exists: fire `post-pr`' | cut -d: -f1)
+post_line=$(printf '%s\n' "$b" | grep -n '^Now the draft PR exists: record its number with `' | cut -d: -f1)
 [ -n "$pr_line" ] && [ -n "$post_line" ] && [ "$pr_line" -lt "$post_line" ] \
   || fail "post-pr must fire after the draft PR is opened"
 printf '%s\n' "$post" | grep -qF 'PLANWRIGHT_STEP_PR_NUMBER' || fail "post-pr must carry the PR number in its context"
