@@ -176,12 +176,10 @@ whenever one exists):
 2. **Host** each step in order by its printed hosting, per the doc's
    *Hosting* table, a skill or prompt step receiving the `--preamble` block:
    `isolated` sessions launch through the backend seam (`offload-dispatch`)
-   at their `execute_step` tier, recording the session id. Resolve each
-   isolated step's hosting first with `scripts/isolated-hosting.sh resolve
-   <backend>`: a backend that cannot spawn (`in-session` printed) runs the step
-   in-session and records it with `step-record.sh write --degraded <reason>`
-   (the reason it printed); a following `continue` attaches to the unit's
-   session. Otherwise `continue` resumes the predecessor's id
+   at their `execute_step` tier, recording the session id (a backend that
+   cannot spawn degrades to `in-session`, recorded, a following `continue`
+   attaching to the unit's session; `scripts/isolated-hosting.sh resolve`
+   decides); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
    through `step-run.sh` (foreground, waited in-turn): `isolated` by
    `command`, session-hosted between `begin --owner $PPID`, whose printed
