@@ -422,6 +422,7 @@ async function syncRadar($: EngineInterface) {
   if (ctx !== c) return
   // The state may have settled while the panes were read: judge it again.
   const now = isPlaced ? await view($) : null
+  if (ctx !== c) return
   const isShown = now !== null && isMascotMoving(now)
   if (isShown && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
   if (!isShown && radar) {
