@@ -664,10 +664,19 @@ test('Prop pal animates by blit, never by redrawing the pane', async ($, on) => 
   await ui.unmount()
 })
 
-test('a still mascot or a pane that is not the terminal blits nothing', async ($, on) => {
+test('a still mascot blits nothing', async ($, on) => {
   const w = world(on, { digest: withKnob(1) })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await w.clock.advance(2_000)
+  expect(w.blits).toEqual([])
+  await ui.unmount()
+})
+
+test('a pane that is not the terminal blits nothing, its text mascot moving by redraw', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['flight\tw-three\tflight-x\ttmux\tworking'] }).replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await w.clock.advance(2_000)
   expect(w.blits).toEqual([])
   await ui.unmount()

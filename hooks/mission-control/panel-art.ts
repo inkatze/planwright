@@ -1,6 +1,6 @@
 // Prop pal as pure data: pixels in, pixels out. A cell grid (a Raster,
 // half-block pixel art, which works inside tmux). Nothing here reads the
-// engine; panel.tsx decides what to draw and where.
+// engine; panel.tsx and register.tsx decide what to draw and where.
 
 export type Rgb = number // 0xRRGGBB
 
