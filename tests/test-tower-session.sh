@@ -392,7 +392,7 @@ expect defer "an unmarked session's GitHub MCP branch update defers"
 echo "# hook timeouts exceed the guard's deadline plus margin, below the harness default (REQ-C1.5)"
 deadline=$(sed -n 's/^readonly OVERALL_DEADLINE=\([0-9][0-9]*\)$/\1/p' "$REAL_SCRIPTS/policy-guard.sh")
 margin=20
-entries=$(jq -c '[.hooks[][] | .hooks[] | select(.command | test("tower-session\\.sh"))]' "$PLUGIN_HOOKS")
+entries=$(jq -c '[.hooks[][] | .hooks[] | select(.command | test("tower-session\\.sh( (guard|prompt-hook))"))]' "$PLUGIN_HOOKS")
 if [ -z "$deadline" ]; then
   fail "the policy guard's OVERALL_DEADLINE was not found"
 elif [ "$(printf '%s' "$entries" | jq 'length')" != 3 ]; then

@@ -269,7 +269,9 @@ Launch, message, answer, retire; never hand the operator a per-session step.
   `status`); only an unreachable one takes the pane relay, as the tower's
   messaging says (D-23).
 - **Answer** a session's selector only with a decision the operator gave,
-  logging their quote; never type a yes the operator did not give.
+  logging their quote; never type a yes the operator did not give. A stream-json
+  prompt's read and answer calls must name the installed root's literal
+  `scripts/fleet-streamjson.sh` path for the plugin hook to approve them.
 - **Decide** within the autonomy `autonomous-safe-decision` maps at this
   tier, through `scripts/mc-decide.sh`'s `decide`: a decision reaches the
   operator only at a human gate, a fork the record cannot settle, or a
