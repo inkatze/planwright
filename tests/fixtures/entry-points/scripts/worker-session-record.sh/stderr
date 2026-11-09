@@ -1,0 +1,1 @@
+match ^worker-session-record\.sh: usage: worker-session-record\.sh write <worktree> \[<launch-id> \| --session <handle>\] \[--scratch \| --fresh-scratch\] \| worker-session-record\.sh pr$
