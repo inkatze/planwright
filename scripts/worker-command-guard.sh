@@ -1912,7 +1912,7 @@ git_fetch_ok() {
     if [ -z "$remote" ]; then
       remote=$a
     else
-      ob_ref_name "$a" || return 1
+      ob_ref_name "$a" && [ "$a" != tag ] || return 1
     fi
   done
   case $remote in

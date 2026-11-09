@@ -313,6 +313,7 @@ row	prompt-shape	defer	defer	defer	defer	git fetch --force origin main
 row	prompt-shape	defer	defer	defer	defer	git fetch -u origin main
 row	prompt-shape	defer	defer	defer	defer	git fetch @@OUTSIDE@@
 row	prompt-shape	defer	defer	defer	defer	git fetch nosuchremote
+row	prompt-shape	defer	defer	defer	defer	git fetch origin tag v1
 row	prompt-shape	defer	defer	defer	defer	git fetch upstream
 row	prompt-shape	defer	defer	defer	defer	git fetch --upload-pack x origin
 row	prompt-shape	defer	defer	defer	defer	git fetch origin --upload-pack=x
