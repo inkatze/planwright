@@ -4181,17 +4181,20 @@ mc_expands() {
 # changes it no other way. What a variable held in an earlier call is out of a
 # text screen's sight, so it earns no trust.
 mc_scratch_var() {
-  local n=$1 t=${MC_CMD//[\"\'\\]/} re_asg re_other re_use before rest val
+  local n=$1 t=${MC_CMD//[\"\'\\]/} re_asg re_other re_plus re_use before rest val
   [[ $n =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
   re_asg="(^|[^[:alnum:]_])$n="
   re_other="(read|for|local|declare|typeset|mapfile|readarray|unset|printf[[:space:]]+-v)[^;&|]*[^[:alnum:]_]$n([^[:alnum:]_]|\$)"
-  [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ (^|[^[:alnum:]_])$n[+]= ]] && return 1
+  re_plus="(^|[^[:alnum:]_])${n}[+]="
+  [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ $re_plus ]] && return 1
   [[ $t =~ $re_asg ]] || return 1
   before=${t%%"${BASH_REMATCH[0]}"*}
   rest=${t#*"${BASH_REMATCH[0]}"}
   [[ $rest =~ $re_asg ]] && return 1
+  # shellcheck disable=SC2016 # a regex
   re_use='(^|[^[:alnum:]_])\$(\{'$n'\}|'$n'([^[:alnum:]_]|$))'
   [[ $before =~ $re_use ]] && return 1
+  # shellcheck disable=SC2016 # literal patterns
   case $rest in
     '$(mktemp -d)'* | '`mktemp -d`'*) return 0 ;;
   esac
@@ -4259,6 +4262,7 @@ mc_settings_screen() {
   local t=$1 r si=0 k named=0 w m verb sedscript inplace
   MC_CMD=$t
   mc_settings_named "$t" && named=1
+  # shellcheck disable=SC2016 # literal patterns
   case $t in
     *'>'* | *'$('* | *'`'* | *cp* | *mv* | *install* | *ln* | *tee* | *dd* | *rsync* | *sed*) ;;
     *) [ "$named" = 1 ] || return 0 ;;
@@ -4307,6 +4311,7 @@ mc_settings_screen() {
   # A write verb inside a substitution runs, though no segment names it.
   for k in "${!W[@]}"; do
     [ "${WL[$k]}" != 1 ] || continue
+    # shellcheck disable=SC2016 # literal patterns
     case ${W[$k]} in
       *'$('* | *'`'*) [[ ${W[$k]//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY" ;;
     esac
