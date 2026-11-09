@@ -103,8 +103,11 @@ Usage:
       handover launch over an attended holder is admitted inside tmux (the
       predecessor's pane id is recorded for take to close) and refused
       elsewhere (exit 4), where path names the operator act. A
-      stale holder is recorded as the predecessor. Prints
-      successor<TAB><name>
+      stale holder is recorded as the predecessor. A tmux successor
+      starts Remote Control when the live predecessor's process was
+      started with --remote-control (read from its argv; a bare flag names
+      the successor as itself); an unreadable or malformed one gives none,
+      said on stderr. Prints successor<TAB><name>
   mc-handover.sh verify --program <p> --session <name> --picture <file>
       --digest <hex> --ledger <id|-> [--durable <file>]
       the successor's self-check: its held picture, rules digest and
@@ -517,6 +520,29 @@ is_own() {
   return 1
 }
 
+# predecessor_remote_control <pid> <start>: the Remote Control a live process
+# was started with, read from its argv before the prompt's `--`: `named <name>`
+# for --remote-control <name> or --remote-control=<name>, `bare` for the flag
+# with no name, `none`, or `unreadable` when no live process of that identity
+# can be read.
+predecessor_remote_control() {
+  if [ -z "$1" ] || ! proc_alive "$1" "$2" || [ ! -r "/proc/$1/cmdline" ]; then
+    printf '%s\n' unreadable
+    return 0
+  fi
+  tr '\0' '\n' <"/proc/$1/cmdline" | awk '
+    $0 == "--" { exit }
+    seen { found = 1; if (substr($0, 1, 1) == "-") print "bare"; else print "named " $0; exit }
+    $0 == "--remote-control" { seen = 1; next }
+    index($0, "--remote-control=") == 1 {
+      found = 1
+      v = substr($0, 19)
+      if (v == "") print "bare"; else print "named " v
+      exit
+    }
+    END { if (!found) print (seen ? "bare" : "none") }'
+}
+
 # await_exit <pid> <start>: wait up to the exit wait for the process to exit,
 # ending at whichever comes first of that many polls (a clock step cannot
 # stretch it) and that many seconds (nor can a slow poll); 1 when it still
@@ -905,6 +931,30 @@ case $verb in
     scope="gen-$((H_GEN + 1))-$NOW-$nonce"
     name=$(/bin/sh "$script_dir/mission-control-launch.sh" name --program "$program" --kind mission-control --scope "$scope" </dev/null) \
       || mc_fail "the launcher cannot name the successor"
+    # The successor keeps the predecessor's Remote Control, so the operator's
+    # phone still reaches the program. A bare predecessor flag names the
+    # successor as itself; one that cannot be read, or whose name is outside
+    # the session-name grammar, carries none and says so.
+    rc_name=''
+    if [ "$H_LIVE" -eq 1 ]; then
+      rc_state=$(predecessor_remote_control "$H_PID" "$H_START")
+      case $rc_state in
+        none) ;;
+        bare) rc_name=$name ;;
+        'named '*)
+          rc_name=${rc_state#named }
+          /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$rc_name" 2>/dev/null || {
+            rc_name=''
+            say "remote control is not carried to $name: the predecessor's --remote-control name is outside the session-name grammar"
+          }
+          ;;
+        *)
+          if [ "$H_KIND" = attended ] || [ -n "$pred_pane" ] || [ "$backend" = tmux ]; then
+            say "remote control is not carried to $name: the predecessor's process cannot be read, so the successor starts without it"
+          fi
+          ;;
+      esac
+    fi
     # The record is reserved before the launch, so a second launch meets it
     # and the launcher's own lock on the name; a failed launch removes it.
     succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}" "${pred_tmux:--}"
@@ -925,6 +975,7 @@ case $verb in
     set -- launch --program "$program" --kind mission-control --scope "$scope" --brief "$scratch"
     [ -z "$backend" ] || set -- "$@" --backend "$backend"
     [ -z "$cwd" ] || set -- "$@" --cwd "$cwd"
+    [ -z "$rc_name" ] || set -- "$@" --remote-control "$rc_name"
     lout=$(/bin/sh "$script_dir/mission-control-launch.sh" "$@" </dev/null)
     lrc=$?
     if [ "$lrc" -ne 0 ]; then
