@@ -4331,6 +4331,46 @@ mc_named_outside_messages() {
   mc_settings_named "$acc"
 }
 
+# mc_reader_segment <sed|find|gh> — 0 when the segment (SW) only reads: sed
+# printing line ranges with -n, find with no action that runs or writes, and a
+# gh view, list, diff or checks subcommand.
+mc_reader_segment() {
+  local w n=0 script=0 sub
+  case $1 in
+    sed)
+      # The first plain word is the script; the words after it are files read.
+      for w in "${SW[@]:1}"; do
+        case $w in
+          -n) n=1 ;;
+          -*) return 1 ;;
+          *)
+            [ "$script" = 0 ] || continue
+            script=1
+            case $w in *[!0-9,\$pq]*) return 1 ;; esac
+            ;;
+        esac
+      done
+      [ "$n" = 1 ] && [ "$script" = 1 ]
+      ;;
+    find)
+      for w in "${SW[@]:1}"; do
+        case $w in
+          -exec* | -ok* | -delete | -fprint* | -fls) return 1 ;;
+        esac
+      done
+      ;;
+    gh)
+      sub=${SW[1]:-}
+      case $sub in pr | issue | repo) ;; *) return 1 ;; esac
+      for w in "${SW[@]:2}"; do
+        case $w in -*) continue ;; esac
+        case $w in view | list | diff | checks | status) return 0 ;; *) return 1 ;; esac
+      done
+      return 1
+      ;;
+  esac
+}
+
 # mc_settings_screen <command> — refuse a command that writes a posture file:
 # one that names such a file in a form that is not a plain read (apart from
 # the text of a message flag), redirects to a posture path or to a target the
@@ -4444,7 +4484,8 @@ mc_settings_screen() {
       esac
       lc "${SW[0]##*/}"
       case $LC in
-        cat | head | tail | jq | grep | egrep | fgrep | wc | ls | stat | diff | cmp) ;;
+        cat | head | tail | jq | grep | egrep | fgrep | wc | ls | stat | diff | cmp | cut | tr | nl | tac | rev | column) ;;
+        sed | find | gh) mc_reader_segment "$LC" || emit_deny "$MC_SETTINGS_DENY" ;;
         *) emit_deny "$MC_SETTINGS_DENY" ;;
       esac
       continue
