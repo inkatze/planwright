@@ -112,7 +112,9 @@ Usage:
       picture against --durable, read by the caller from the stores, and
       its ledger against the decisions log), through mc-rules.sh
       selfcheck. A pass marks the successor verified and prints
-      verified<TAB><name><TAB><the self-check line>; a failure raises an
+      verified<TAB><name><TAB><the self-check line>, after any
+      rule-knob or temporary line mc-config.sh doctor finds, each an
+      operator item to settle; a failure raises an
       item (event handover-failed), prints its item lines and leaves the
       predecessor holding the name
   mc-handover.sh release --program <p> --session <handle> [--now <epoch>]
@@ -429,7 +431,15 @@ selfcheck() {
   sc_rc=$?
   sc_said=$(head -n 1 "$sc_err" | mc_clean)
   rm -f "$sc_err"
-  [ "$sc_rc" -ne 0 ] || return 0
+  if [ "$sc_rc" -eq 0 ]; then
+    # A pass also surfaces the drift doctor sees: a rule naming a number its
+    # knob does not hold, and a dated or temporary local override. Read-only,
+    # and never a reason to fail the self-check.
+    sc_drift=$(/bin/bash "$script_dir/mc-config.sh" doctor --program "$program" 2>/dev/null </dev/null \
+      | awk -F '\t' '$1 == "rule-knob" || $1 == "temporary"' | mc_clean)
+    [ -z "$sc_drift" ] || printf '%s\n' "$sc_drift"
+    return 0
+  fi
   sc_items=$(printf '%s\n' "$SC_OUT" | awk -F '\t' '$1 == "item"' | mc_clean)
   if [ -n "$sc_items" ]; then
     printf '%s\n' "$sc_items"

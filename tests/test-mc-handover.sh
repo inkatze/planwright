@@ -151,6 +151,14 @@ holder_is "after the failed self-check the predecessor keeps the name" "$n1"
 # ---------------------------------------------------------------------------
 ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest" --ledger "$led1"
 [ "$RC" = 0 ] && ok "the successor's self-check matches the handover file" || fail "the matching verify exited $RC: $OUT $ERR"
+case $OUT in *"temporary${tab}"*) fail "a clean local layer raised a drift line: $OUT" ;; *) ok "a clean local layer surfaces no drift" ;; esac
+printf '# interim: until the runner is rebuilt\nmission_control_stall_window: 20m\n' >"$tmp/absent.yml"
+ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest" --ledger "$led1"
+case $OUT in
+  *"temporary${tab}$tmp/absent.yml${tab}mission_control_stall_window${tab}marker interim"*"verified${tab}$n2${tab}"*) [ "$RC" = 0 ] && ok "the self-check surfaces a temporary local override and still passes" || fail "drift verify exited $RC" ;;
+  *) fail "the self-check did not surface the temporary override before its verified line: $OUT $ERR" ;;
+esac
+rm -f "$tmp/absent.yml"
 pred_sid=11111111-2222-3333-4444-555555555555
 other_sid=22222222-2222-3333-4444-555555555555
 act="$fleet/mission-control/_panel/active"

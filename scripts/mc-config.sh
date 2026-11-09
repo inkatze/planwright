@@ -138,8 +138,23 @@ Usage:
             and the text that matched, a program path first, else
             planwright or claude as the line spells it; a crontab that
             cannot be listed reads as none
+        rule-knob<TAB><rule id><TAB><knob><TAB><rule says><TAB><effective value><TAB><layer><TAB><why>
+            a standing rule that names a number for a knob it governs
+            while the knob holds another: the knob's own name followed by
+            a value (`mission_control_stall_window at 10m`), or a rule
+            that says mission control hands over at a context percent,
+            which governs mission_control_handover_context. A rule with no
+            unit is compared with the number alone. The operator decides
+            whether the rule or the knob is right; doctor changes neither
+        temporary<TAB><file><TAB><knob><TAB><why><TAB><comment><TAB><effective value><TAB><why>
+            an adopter, repo-tracked or machine-local setting whose comment
+            (above it, or after its value) carries a date already past, or
+            the word interim, temporary, temporarily or until with no
+            date still ahead; a comment standing alone names the first
+            knob-shaped word in it. The operator reviews it; doctor never
+            edits the file. Ordinary values and comments are not listed
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
-            launches or cron) whose read failed; for launches, also a
+            launches, cron or rules) whose read failed; for launches, also a
             session whose row names no known rung; for overrides, also a
             layer that is malformed or sets a knob twice or as key : v,
             the override lines a plain read finds still following, and a
@@ -876,6 +891,155 @@ doctor_cron() {
     { m = matched($0); if (m != "") print "cron\t" plain(word($0)) "\t" m }'
 }
 
+# doctor_layer_file <layer>: the file config-get.sh reads for a layer, empty
+# when none can be located.
+doctor_layer_file() {
+  dlf_root=''
+  case $1 in
+    adopter) dlf_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" adopter 2>/dev/null) || dlf_root='' ;;
+    repo-tracked | machine-local) dlf_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" repo-tracked 2>/dev/null) || dlf_root='' ;;
+    core)
+      printf '%s\n' "$script_dir/../config/defaults.yml"
+      return 0
+      ;;
+  esac
+  if [ "$1" = machine-local ] && [ -n "${PLANWRIGHT_LOCAL_CONFIG:-}" ]; then
+    printf '%s\n' "$PLANWRIGHT_LOCAL_CONFIG"
+  elif [ -n "$dlf_root" ]; then
+    case $1 in
+      machine-local) printf '%s\n' "$dlf_root/planwright.local.yml" ;;
+      *) printf '%s\n' "$dlf_root/planwright.yml" ;;
+    esac
+  fi
+}
+
+# A standing rule that names a number for the knob it governs, read against
+# the knob's effective value. Two matches, kept narrow so an ordinary rule
+# never trips: the knob's own name followed by a value (at, to, is, = or :
+# between), and a rule that says mission control hands over at a context
+# percent, which governs mission_control_handover_context.
+doctor_rules() {
+  dr_rules=$(/bin/bash "$script_dir/mc-rules.sh" active "$1" 2>/dev/null) || {
+    printf 'unknown\trules\tthe rule store could not be read, so no rule is compared with its knob\n'
+    return 0
+  }
+  [ -n "$dr_rules" ] || return 0
+  dr_keys=$(awk -F: '/^[a-z][a-z0-9_]*:/ { print $1 }' "$script_dir/../config/defaults.yml" 2>/dev/null)
+  dr_hits=$(printf '%s\n' "$dr_rules" | DR_KEYS=$dr_keys awk -F '\t' '
+    BEGIN { nk = split(ENVIRON["DR_KEYS"], key, "\n") }
+    function after(t, k,   rest) {
+      rest = substr(t, index(t, k) + length(k))
+      if (!match(rest, /^[ :=]*(at|to|is|of)?[ :=]*[0-9]+[smhd]?/)) return ""
+      rest = substr(rest, RSTART, RLENGTH)
+      sub(/^[^0-9]*/, "", rest)
+      return rest
+    }
+    $2 == "active" {
+      text = $6
+      low = tolower(text)
+      for (i = 1; i <= nk; i++) {
+        if (key[i] == "" || index(text, key[i]) == 0) continue
+        v = after(text, key[i])
+        if (v != "") print $1 "\t" key[i] "\t" v
+      }
+      if (low ~ /hands? ?over/ && low ~ /context/ && match(text, /[0-9]+%/)) {
+        v = substr(text, RSTART, RLENGTH - 1)
+        if (!match(substr(text, RSTART + RLENGTH), /[0-9]+%/)) print $1 "\tmission_control_handover_context\t" v
+      }
+    }')
+  [ -n "$dr_hits" ] || return 0
+  printf '%s\n' "$dr_hits" | while IFS="$tab" read -r dr_id dr_knob dr_said; do
+    dr_exp=$(cfg_get --explain "$dr_knob" 2>/dev/null) || continue
+    dr_layer=${dr_exp%%"$tab"*}
+    dr_eff=${dr_exp#*"$tab"}
+    # A rule that names no unit is compared with the value's number alone.
+    case $dr_said in *[smhd]) dr_cmp=$dr_eff ;; *) dr_cmp=${dr_eff%[smhd%]} ;; esac
+    [ "$dr_said" != "$dr_cmp" ] || continue
+    printf 'rule-knob\t%s\t%s\t%s\t%s\t%s\trule %s says %s but %s is %s (set in %s); decide which is right, then change the rule or the knob\n' \
+      "$dr_id" "$dr_knob" "$dr_said" "$dr_eff" "$dr_layer" "$dr_id" "$dr_said" "$dr_knob" "$dr_eff" "$dr_layer"
+  done
+}
+
+# A local layer's override carrying a date already past, or the word interim,
+# temporary or until, is someone's reminder to revisit it. Reported for the
+# operator to review; the file is never edited. A comment line above a knob,
+# or after its value, belongs to that knob; one standing alone names the first
+# knob-shaped word in it, else none. A marker word with a date still ahead is
+# not yet due, so it is left out.
+doctor_temporary() {
+  dt_today=$(date -u +%Y-%m-%d) || return 0
+  for dt_layer in adopter repo-tracked machine-local; do
+    dt_file=$(doctor_layer_file "$dt_layer")
+    [ -n "$dt_file" ] && [ -f "$dt_file" ] && [ -r "$dt_file" ] || continue
+    awk -v today="$dt_today" -v file="$dt_file" '
+      function flush_standalone(   k) {
+        if (pend == "") return
+        k = "-"
+        if (match(pend, /[a-z][a-z0-9]*_[a-z0-9_]*[a-z0-9]/)) k = substr(pend, RSTART, RLENGTH)
+        judge(k, pend, "")
+        pend = ""
+      }
+      function judge(k, comment, val,   all, low, rest, d, past, word) {
+        all = comment " " val
+        past = ""
+        rest = all
+        nd = 0
+        while (match(rest, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) {
+          d = substr(rest, RSTART, RLENGTH)
+          nd++
+          if (past == "" && d < today) past = d
+          rest = substr(rest, RSTART + RLENGTH)
+        }
+        low = tolower(comment)
+        word = ""
+        if (match(" " low " ", /[^a-z](interim|temporary|temporarily|until)[^a-z]/)) {
+          word = substr(" " low " ", RSTART + 1, RLENGTH - 2)
+        }
+        why = ""
+        if (past != "") why = "past date " past
+        else if (word != "" && nd == 0) why = "marker " word
+        if (why == "") return
+        gsub(/\t/, " ", comment)
+        if (length(comment) > 120) comment = substr(comment, 1, 120)
+        print file "\t" k "\t" why "\t" comment
+      }
+      /^[ \t]*#/ {
+        c = $0
+        sub(/^[ \t]*#[ \t]*/, "", c)
+        pend = (pend == "" ? c : pend "; " c)
+        next
+      }
+      /^[ \t]*$/ { flush_standalone(); next }
+      /^[a-z][a-z0-9_]*[ \t]*:/ {
+        k = $0
+        sub(/[ \t]*:.*/, "", k)
+        v = $0
+        sub(/^[^:]*:[ \t]*/, "", v)
+        tc = ""
+        if (match(v, /(^|[ \t])#/)) {
+          tc = substr(v, RSTART + RLENGTH)
+          sub(/^[ \t]*/, "", tc)
+          v = substr(v, 1, RSTART - 1)
+        }
+        c = pend
+        if (tc != "") c = (c == "" ? tc : c "; " tc)
+        pend = ""
+        judge(k, c, v)
+        next
+      }
+      { flush_standalone() }
+      END { flush_standalone() }
+    ' "$dt_file" 2>/dev/null
+  done | while IFS="$tab" read -r dt_file dt_key dt_why dt_comment; do
+    dt_eff=-
+    if [ "$dt_key" != - ]; then
+      dt_eff=$(cfg_get "$dt_key" 2>/dev/null) || dt_eff='no value'
+    fi
+    printf 'temporary\t%s\t%s\t%s\t%s\t%s\t%s\n' "$dt_file" "$dt_key" "$dt_why" "$dt_comment" "$dt_eff" \
+      "$dt_file keeps $dt_key as a dated, interim or temporary override; review it; doctor never edits the file"
+  done
+}
+
 v_doctor() {
   [ $# -eq 2 ] && [ "$1" = --program ] || usage
   mc_require_program "$2"
@@ -884,6 +1048,8 @@ v_doctor() {
     doctor_duties "$2"
     doctor_launches "$2"
     doctor_cron "$2"
+    doctor_rules "$2"
+    doctor_temporary
   )
   if [ -n "$dr_out" ]; then
     printf '%s\n' "$dr_out" | mc_clean_text
