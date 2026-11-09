@@ -147,6 +147,7 @@ defers "a relative path" "scripts/fleet-streamjson.sh pending"
 defers "a dot-relative path" "./scripts/fleet-streamjson.sh pending"
 defers "a variable root" '${CLAUDE_PLUGIN_ROOT}/scripts/fleet-streamjson.sh pending'
 defers "a quoted variable root" '"${CLAUDE_PLUGIN_ROOT}"/scripts/fleet-streamjson.sh pending'
+# shellcheck disable=SC2088 # the literal tilde is the input under test
 defers "a tilde path" "~/scripts/fleet-streamjson.sh pending"
 defers "a dot-dot path to the same file" "$ROOT/scripts/../scripts/fleet-streamjson.sh pending"
 defers "a quoted literal path" "'$SJ' pending"
@@ -219,11 +220,11 @@ chmod 755 "$STORE"
 defers "a store that is not owner-only" "$SJ pending"
 reset_store
 no_store_out=$(bash_payload "$MC" "$SJ pending" | PLANWRIGHT_FLEET_STATE_DIR="$SANDBOX/absent" /bin/bash "$ROOT/scripts/mc-approve-hook.sh" 2>/dev/null)
-[ -z "$no_store_out" ] && ok "defers: no store" || fail "approved with no store"
+if [ -z "$no_store_out" ]; then ok "defers: no store"; else fail "approved with no store"; fi
 
 echo "# the mission-control mark does not make the tower guard fire"
 out=$(bash_payload "$MC" 'git reset --hard HEAD' | hook "$ROOT" guard bash)
-[ -z "$out" ] && ok "the tower guard defers for a mission-control-only mark" || fail "the tower guard acted on a mission-control mark: $out"
+if [ -z "$out" ]; then ok "the tower guard defers for a mission-control-only mark"; else fail "the tower guard acted on a mission-control mark: $out"; fi
 
 echo "# the prompt hook writes the mission-control mark"
 reset_store
@@ -255,7 +256,11 @@ for p in 'please run /mission-control' '/mission-controller' '/mission-control-x
   fi
 done
 prompt "ccccccccc-bad" '/mission-control' >/dev/null
-[ -z "$(ls "$STORE" | grep -v "^bbbbbbbb\|^$MC\|^$TOWER")" ] && ok "a non-UUID session id writes nothing" || fail "a non-UUID id wrote a mark"
+stray=0
+for f in "$STORE"/*; do
+  case ${f##*/} in bbbbbbbb-* | "$MC"* | "$TOWER"*) ;; *) stray=1 ;; esac
+done
+if [ "$stray" = 0 ]; then ok "a non-UUID session id writes nothing"; else fail "a non-UUID id wrote a mark"; fi
 sid=dddddddd-0000-4000-8000-000000000001
 prompt "$sid" '/tower' >/dev/null
 if [ -f "$STORE/$sid" ] && [ ! -e "$STORE/$sid.mission-control" ] && head -1 "$STORE/$sid" | grep -q '^tower'; then
