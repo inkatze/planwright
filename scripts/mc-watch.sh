@@ -158,6 +158,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$program" ] || usage
+mc_usable_tmpdir
 mc_now_arg "$now"
 case $slot in
   *[!a-z0-9.-]*) mc_usage_fail "invalid slot" ;;
@@ -483,6 +484,7 @@ loop() {
     [ "$(record_pid "$slot")" = "$$" ] || exit 0
     if mc_gate mc-watch; then
       out=$(mktemp "$wdir/.$slot.out.XXXXXX") || exit 1
+      mc_usable_tmpdir
       # Run in the background and waited for, so a TERM stops this run too.
       env -u PLANWRIGHT_MC_CHECKED PLANWRIGHT_MC_PROGRAM="$program" PLANWRIGHT_MC_DUTY="$duty" \
         /bin/bash "$path" </dev/null >"$out" &
@@ -530,6 +532,7 @@ case $verb in
       # A subshell, so a failure that exits inside the pass ends the pass,
       # not the daemon; in the background and waited for, so a TERM is
       # taken as soon as the pass ends (and at once during the sleep).
+      mc_usable_tmpdir
       (pass) &
       runner_child=$!
       wait "$runner_child"
