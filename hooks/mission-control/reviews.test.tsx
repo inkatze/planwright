@@ -10,14 +10,12 @@ test('the pane draws my open PRs and the PRs waiting on my review, on every surf
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
     const text = async (re: RegExp) => (await ui.find({ type: 'Text', text: re }))?.text
-    expect(await text(/^My open PRs/)).toBe('My open PRs (9) · read 2m ago')
-    expect(await text(/^#7 /)).toBe(
-      '#7 ready · CI red · 2 unresolved · head reviewed · asks carol, core-team · Add the widget',
-    )
-    expect(await text(/^#8 /)).toBe('#8 draft · no CI · 0 unresolved · head not reviewed · no reviewer requested · Fix the gadget')
+    expect(await text(/^Pull requests/)).toBe('Pull requests (9)')
+    expect(await text(/^#7 /)).toBe('#7 Add the widget · CI failed')
+    expect(await text(/^#8 /)).toBe('#8 Fix the gadget · no CI reported yet')
     expect(await text(/^\+7 more$/)).toBe('+7 more')
     expect(await text(/^Waiting on my review/)).toBe('Waiting on my review (1)')
-    expect(await text(/^#12 /)).toBe('#12 draft · from dave · 90m · Rework the docs')
+    expect(await text(/^#12 /)).toBe('#12 Rework the docs · from dave · 90m')
     await ui.unmount()
   }
 })
@@ -49,14 +47,16 @@ test('PRs across repositories name their repository', async ($, on) => {
       extra: [
         'reviews\tok\t5',
         'review-mine\tacme/widgets\t7\tready\tgreen\t0\tno\t-\tOne',
+        'review-mine\tacme/gears\t4\tready\tgreen\t0\tno\t-\tThree',
         'review-waiting\tacme/gears\t3\tready\terin\t60\tTwo',
       ],
     }),
   })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^acme\/widgets#7 ready · CI green/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^acme\/gears#3 ready · from erin/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^acme\/widgets#7 One · head not reviewed yet/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^acme\/gears#4 Three/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^acme\/gears#3 Two · from erin/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -64,9 +64,9 @@ test('unavailable reviews are said with their reason, never as empty lists', asy
   const w = world(on, { digest: digestText({ extra: ['reviews\tunavailable\tgh is not authenticated'] }) })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /^Reviews$/ }))?.text).toBe('Reviews')
+  expect((await ui.find({ type: 'Text', text: /^Pull requests$/ }))?.text).toBe('Pull requests')
   expect((await ui.find({ type: 'Text', text: /^Unavailable:/ }))?.text).toBe('Unavailable: gh is not authenticated')
-  expect(await ui.find({ type: 'Text', text: /^My open PRs/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Pull requests \(/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^No open pull requests/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /In flight \(2\)/ })).toBeDefined()
   await ui.unmount()
@@ -86,7 +86,7 @@ test('a digest with no reviews record draws no reviews section', async ($, on) =
   const w = world(on)
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^(Reviews|My open PRs|Waiting on my review)/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^(Pull requests|Waiting on my review)/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /In flight \(2\)/ })).toBeDefined()
   await ui.unmount()
 })

@@ -1,103 +1,122 @@
 import { expect, test } from 'claude-code/testing'
 
-import {
-  BAR_PX_HEIGHT,
-  BAR_PX_WIDTH,
-  barPicture,
-  COLOR,
-  GAUGES_HEIGHT,
-  GAUGES_WIDTH,
-  gaugesPicture,
-  spriteCells,
-  spriteOffset,
-  SPRITE_CELL_ROWS,
-  SPRITE_WIDTH,
-} from './panel-art'
+import { spriteCells, spriteGrid, SPRITE_CELL_ROWS, SPRITE_COLUMNS, SPRITE_ROWS } from './panel-art'
 import type { SpriteState } from './panel-art'
 
 const STATES: SpriteState[] = ['bumpy', 'circling', 'landing', 'cruising', 'taxiing']
 
 const words = (b64: string) => new Uint32Array(Uint8Array.fromBase64(b64).buffer)
-const pixel = (rgba: string, w: number, x: number, y: number) => {
-  const b = Uint8Array.fromBase64(rgba)
-  const i = (y * w + x) * 4
-  return (b[i]! << 16) | (b[i + 1]! << 8) | b[i + 2]!
+
+// The approved Prop pal (Mascot board): rows and palette, pixel for pixel.
+const APPROVED = [
+  '..........................',
+  'DD........................',
+  'DDD..........NNNNNN......P',
+  'DDDD.......NNWWWWWWNN....P',
+  'DDDDNNNNNNNWEWWWWEWNNN..PP',
+  '.NNNNNNNNNNWEWWWWEWNNNNHPP',
+  '.NNNNNNNNNNNWWWWWWNNNNNHNP',
+  '..NNNNYYYYYYYYYYYYNNNNNH.P',
+  '...NNNNNYYYYYYYYNNNNNN..PP',
+  '.....DDDDDDDDDDDDDDDD....P',
+]
+const PALETTE: Record<string, number> = {
+  D: 0x2d5aa0,
+  N: 0x4a86d8,
+  W: 0xf2efe6,
+  E: 0x141413,
+  Y: 0x3a6bbf,
+  P: 0xc7ced8,
+  H: 0x9aa3ae,
 }
 
-test('Prop pal is a cell grid of the declared size, one triplet per cell, in every state', () => {
+test('the sprite rows are the approved art, exactly', () => {
+  expect(SPRITE_ROWS).toEqual(APPROVED)
+})
+
+test('Prop pal is a cell grid of the declared size, one triplet per cell, in every state and frame', () => {
   for (const s of STATES) {
-    const g = spriteCells(s, 0)
-    expect(g.columns).toBe(SPRITE_WIDTH + 5)
-    expect(g.rows).toBe(SPRITE_CELL_ROWS)
-    expect(words(g.cells).length).toBe(g.columns * g.rows * 3)
+    for (let f = 0; f < 12; f++) {
+      const g = spriteCells(s, f)
+      expect(g.columns).toBe(SPRITE_COLUMNS)
+      expect(g.rows).toBe(SPRITE_CELL_ROWS)
+      expect(words(g.cells).length).toBe(g.columns * g.rows * 3)
+    }
   }
 })
 
-test('Prop pal moves: frames of a moving state differ, a landed state settles', () => {
-  for (const s of ['bumpy', 'circling', 'cruising'] as const) {
-    expect(spriteCells(s, 0).cells).not.toBe(spriteCells(s, 1).cells)
+test('the body is the approved art in every frame, whatever the motion', () => {
+  // The body is every colored art pixel except the two propeller columns, which spin. Motion only moves it.
+  for (const s of STATES) {
+    for (let f = 0; f < 12; f++) {
+      const { pixels, origin } = spriteGrid(s, f)
+      let seen = 0
+      for (let y = 0; y < APPROVED.length; y++) {
+        for (let x = 0; x < APPROVED[0]!.length; x++) {
+          const ch = APPROVED[y]![x]!
+          if (ch === '.' || x >= APPROVED[0]!.length - 2) continue
+          const found = pixels.some(p => p.color === PALETTE[ch] && p.x === origin(x, y).x && p.y === origin(x, y).y)
+          if (found) seen++
+        }
+      }
+      const body = APPROVED.join('')
+        .split('')
+        .filter((ch, i) => ch !== '.' && i % APPROVED[0]!.length < APPROVED[0]!.length - 2).length
+      expect(seen).toBe(body)
+    }
   }
-  expect(spriteOffset('landing', 3)).toEqual({ dx: 0, dy: 0 })
-  expect(spriteOffset('landing', 0).dy).toBeGreaterThan(0)
 })
 
-test('Prop pal states are told apart by shape, not only by colour', () => {
-  const frames = STATES.map(s => spriteCells(s, 1).cells)
-  expect(new Set(frames).size).toBe(STATES.length)
-})
-
-test('a bar fills to the percent and draws its marks over the fill', () => {
-  const b = barPicture(40, COLOR.blue, [{ at: 80, color: COLOR.red }])
-  expect([b.width, b.height]).toEqual([BAR_PX_WIDTH, BAR_PX_HEIGHT])
-  const mid = BAR_PX_HEIGHT / 2
-  expect(pixel(b.rgba, b.width, 10, mid)).toBe(COLOR.blue)
-  expect(pixel(b.rgba, b.width, Math.round(BAR_PX_WIDTH * 0.7), mid)).toBe(COLOR.track)
-  expect(pixel(b.rgba, b.width, Math.round(BAR_PX_WIDTH * 0.8) - 1, mid)).toBe(COLOR.red)
-  expect(pixel(b.rgba, b.width, Math.round(BAR_PX_WIDTH * 0.8) - 1, 0)).toBe(COLOR.red)
-})
-
-test('a bar clamps an out-of-range percent', () => {
-  expect(pixel(barPicture(250, COLOR.blue).rgba, BAR_PX_WIDTH, BAR_PX_WIDTH - 4, 10)).toBe(COLOR.blue)
-  expect(pixel(barPicture(-5, COLOR.blue).rgba, BAR_PX_WIDTH, 2, 10)).toBe(COLOR.track)
-})
-
-test('the gauge row is one picture of the declared size and differs by reading', () => {
-  const base = {
-    usageLeft: 22,
-    load: { ratio: 0.26 },
-    memory: 54,
-    context: { percent: 31, handoverAt: 40, windowAt: 80 },
-    caution: 'lit' as const,
+test('each state moves its own way, and the five are told apart by shape', () => {
+  const at = (s: SpriteState, f: number) => spriteCells(s, f).cells
+  for (const s of ['bumpy', 'circling', 'cruising', 'taxiing'] as const) {
+    expect(at(s, 0)).not.toBe(at(s, 1))
   }
-  const a = gaugesPicture(base)
-  expect([a.width, a.height]).toEqual([GAUGES_WIDTH, GAUGES_HEIGHT])
-  expect(Uint8Array.fromBase64(a.rgba).length).toBe(GAUGES_WIDTH * GAUGES_HEIGHT * 4)
-  expect(gaugesPicture({ ...base, load: { ratio: 1 } }).rgba).not.toBe(a.rgba)
-  expect(gaugesPicture({ ...base, caution: 'clear' }).rgba).not.toBe(a.rgba)
-  expect(gaugesPicture({ ...base, context: null, load: null, usageLeft: null, memory: null, caution: 'unknown' }).rgba).not.toBe(a.rgba)
+  expect(new Set(STATES.map(s => at(s, 1))).size).toBe(STATES.length)
 })
 
-// The lowest sprite row is the belly; it must survive the deepest drop.
-test('the landing frame that drops lowest still holds the whole sprite', () => {
-  const g = spriteCells('landing', 0)
-  const w = words(g.cells)
-  const belly = 0x2d5aa0
-  const dropped = spriteOffset('landing', 0)
-  const pixelRow = 9 + dropped.dy
-  const cellRow = Math.floor(pixelRow / 2)
-  const i = (cellRow * g.columns + 6 + dropped.dx) * 3
-  expect(w[i + (pixelRow % 2 === 0 ? 1 : 2)]).toBe(belly)
+test('taxiing rolls along the ground: the plane keeps its height and the ground moves', () => {
+  const heights = new Set<number>()
+  for (let f = 0; f < 12; f++) heights.add(spriteGrid('taxiing', f).origin(0, 0).y)
+  expect(heights.size).toBe(1)
+  expect(spriteCells('taxiing', 0).cells).not.toBe(spriteCells('taxiing', 3).cells)
 })
 
-test('the propeller stays inside the sprite and flips between frames', () => {
-  const colOf = (frame: number) => {
-    const g = spriteCells('taxiing', frame)
-    const w = words(g.cells)
-    const x = SPRITE_WIDTH - 1 + spriteOffset('taxiing', frame).dx
-    let lit = 0
-    for (let r = 0; r < g.rows; r++) for (const k of [1, 2]) if (w[(r * g.columns + x) * 3 + k] !== 0x01000000) lit++
-    return lit
+test('flying bobs, its propeller spins and exhaust puffs trail behind the tail', () => {
+  const ys = new Set<number>()
+  for (let f = 0; f < 8; f++) ys.add(spriteGrid('cruising', f).origin(0, 0).y)
+  expect(ys.size).toBeGreaterThan(1)
+  const { pixels, origin } = spriteGrid('cruising', 0)
+  const tail = origin(0, 1)
+  expect(pixels.some(p => p.x < tail.x && p.y >= tail.y && p.y <= tail.y + 6)).toBe(true)
+  const blade = (f: number) => spriteGrid('cruising', f).pixels.filter(p => p.color === 0xc7ced8).length
+  expect(new Set([blade(0), blade(1)]).size).toBe(2)
+})
+
+test('circling banks: the nose and tail sit at different heights, back and forth', () => {
+  const slope = (f: number) => {
+    const g = spriteGrid('circling', f)
+    return g.origin(25, 5).y - g.origin(0, 5).y
   }
-  expect(colOf(1)).toBeLessThanOrEqual(10)
-  expect(spriteCells('taxiing', 1).cells).not.toBe(spriteCells('taxiing', 2).cells)
+  const slopes = new Set<number>()
+  for (let f = 0; f < 8; f++) slopes.add(slope(f))
+  expect(slopes.size).toBeGreaterThan(2)
+  expect([...slopes].some(v => v > 0) && [...slopes].some(v => v < 0)).toBe(true)
+})
+
+test('landing plays once: it descends, touches down, then holds still', () => {
+  const y = (f: number) => spriteGrid('landing', f).origin(0, 9).y
+  expect(y(0)).toBeLessThan(y(4))
+  expect(spriteCells('landing', 6).cells).toBe(spriteCells('landing', 40).cells)
+})
+
+test('a bumpy ride shakes and the caution light turns red', () => {
+  const red = (f: number) => spriteGrid('bumpy', f).pixels.some(p => p.color === 0xe5483b)
+  expect(red(0) || red(1)).toBe(true)
+  const shakes = new Set<string>()
+  for (let f = 0; f < 6; f++) {
+    const o = spriteGrid('bumpy', f).origin(0, 0)
+    shakes.add(`${o.x},${o.y}`)
+  }
+  expect(shakes.size).toBeGreaterThan(2)
 })

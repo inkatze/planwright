@@ -20,6 +20,7 @@ export function parseDigest(text: string): PanelDigest | null {
     waiting: null,
     mergeReady: null,
     isMergeReadyPartial: false,
+    mergeCommands: [],
     pending: null,
     approvals: null,
     decisions: [],
@@ -66,6 +67,11 @@ export function parseDigest(text: string): PanelDigest | null {
         d.mergeReady = int(f[1])
         d.isMergeReadyPartial = f[2] === 'partial'
         break
+      case 'merge-command': {
+        const n = int(f[2])
+        if (f[1] && n !== null && f[3]) d.mergeCommands?.push({ repo: f[1], number: n, command: f.slice(3).join(' ') })
+        break
+      }
       case 'pending':
         d.pending = int(f[1])
         break
@@ -181,13 +187,13 @@ export function parseWake(text: string): { ids: string[]; text: string } | null 
 }
 
 const KINDS = {
-  task: ['spec task', 'spec tasks'],
-  kickoff: ['spec kickoff', 'spec kickoffs'],
-  draft: ['spec draft', 'spec drafts'],
-  change: ['one-off change', 'one-off changes'],
-  review: ['review', 'reviews'],
-  mc: ['mission-control session', 'mission-control sessions'],
-  other: ['other session', 'other sessions'],
+  task: 'spec task',
+  kickoff: 'spec kickoff',
+  draft: 'spec draft',
+  change: 'one-off change',
+  review: 'review',
+  mc: 'mission-control session',
+  other: 'other session',
 } as const
 
 // What a session is doing, read from the shapes its launcher gives the
@@ -206,31 +212,18 @@ export function flightKind(f: Pick<PanelFlight, 'worker' | 'scope'>): keyof type
 const STATES = { waiting: 'waiting for an answer', stuck: 'not responding', working: 'working' } as const
 const STATE_ORDER = ['waiting', 'stuck', 'working'] as const
 
-// The sessions in flight as counted plain lines: those waiting on an answer
-// first, then those not responding, each by group size.
 // A digest a reload carried over from before states were read has none.
 type ReloadedFlight = Pick<PanelFlight, 'worker' | 'scope'> & { state?: PanelFlight['state'] }
 
-export function flightLines(flights: ReloadedFlight[]): string[] {
-  const groups = new Map<string, { kind: keyof typeof KINDS; state: PanelFlight['state']; n: number }>()
-  for (const f of flights) {
-    const state = f.state && STATES[f.state] ? f.state : 'working'
-    const kind = flightKind(f)
-    const key = `${state}/${kind}`
-    const g = groups.get(key)
-    if (g) g.n += 1
-    else groups.set(key, { kind, state, n: 1 })
-  }
-  return [...groups.values()]
-    .sort((a, b) => STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state) || b.n - a.n)
-    .map(g => `${g.n} ${KINDS[g.kind][g.n === 1 ? 0 : 1]} ${STATES[g.state]}`)
-}
+const flightState = (f: ReloadedFlight): PanelFlight['state'] => (f.state && STATES[f.state] ? f.state : 'working')
 
-// Repeated lines as one, with their count.
-export function counted(lines: string[]): string[] {
-  const n = new Map<string, number>()
-  for (const l of lines) n.set(l, (n.get(l) ?? 0) + 1)
-  return [...n].map(([l, c]) => (c > 1 ? `${l} (×${c})` : l))
+// One plain row per session: what it is and where it stands, never its handle
+// or scope. Those waiting on an answer come first, then those not responding.
+export function flightRows(flights: ReloadedFlight[]): { state: PanelFlight['state']; text: string }[] {
+  return flights
+    .map((f, i) => ({ i, state: flightState(f), kind: flightKind(f) }))
+    .sort((a, b) => STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state) || a.i - b.i)
+    .map(r => ({ state: r.state, text: `${KINDS[r.kind]} · ${STATES[r.state]}` }))
 }
 
 export type Install =
@@ -261,17 +254,6 @@ export function age(seconds: number | null): string {
   if (seconds < 7200) return `${Math.round(seconds / 60)}m`
   if (seconds < 172800) return `${Math.round(seconds / 3600)}h`
   return `${Math.round(seconds / 86400)}d`
-}
-
-// The text form where nothing draws the pane: the script's line, with what
-// only the session can measure.
-export function fallbackLine(view: PanelView): string {
-  const base = view.digest?.line || `mission control ${view.program}: no reading yet`
-  const parts = [base]
-  if (view.contextPercent !== null) parts.push(`context ${view.contextPercent}%`)
-  if (view.handover) parts.push(`handover due (${view.handover})`)
-  if (view.fault) parts.push(`fault: ${view.fault}`)
-  return parts.join(', ')
 }
 
 // The handover trigger: measured context where the harness gives

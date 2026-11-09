@@ -129,6 +129,10 @@ Usage:
                                              the line names them unless none,
                                              `<n>+` (or `?` for none) when
                                              some could not be judged
+        merge-command<TAB><repo><TAB><number><TAB><command>
+                                             one per ready pull request in
+                                             the merge-ready store: the
+                                             checked merge command
         approvals<TAB><n>                    the queue's worker permission
                                              prompts, which mission control
                                              answers (with a number waiting)
@@ -1155,6 +1159,11 @@ merge_ready() {
   fi
   if [ -n "$mg_all" ]; then
     printf 'merge-ready\t%s\t%s\n' "$mg_n" "$mg_all"
+    # The ready ones' checked merge commands, from a store the last judgment
+    # wrote as ok and fresh (mc-merge-ready.sh commands prints them).
+    if mc_valid_uint "$mg_n" && [ "$mg_n" -gt 0 ] && mg_cmds=$(/bin/bash "$script_dir/mc-merge-ready.sh" commands --program "$program" --now "$NOW" 2>/dev/null); then
+      printf '%s\n' "$mg_cmds" | awk -F '\t' '$1 == "ready" && $3 != "" { at = index($2, "#"); print "merge-command\t" substr($2, 1, at - 1) "\t" substr($2, at + 1) "\t" $3 }'
+    fi
   else
     printf 'unreadable\tmerge-ready store\n'
   fi
