@@ -178,8 +178,7 @@ whenever one exists):
    `isolated` sessions launch through the backend seam (`offload-dispatch`)
    at their `execute_step` tier, recording the session id (a backend that
    cannot spawn degrades to `in-session`, recorded, a following `continue`
-   attaching to the unit's session; `scripts/isolated-hosting.sh resolve`
-   decides); `continue` resumes the predecessor's id
+   attaching to the unit's session); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
    through `step-run.sh` (foreground, waited in-turn): `isolated` by
    `command`, session-hosted between `begin --owner $PPID`, whose printed
