@@ -133,9 +133,10 @@ flat "$b" | grep -qF 'literal assignments in front of each `step-run.sh` and `re
 flat "$b" | grep -qi -e 'export the step context' -e 'export PLANWRIGHT_STEP_' \
   && fail "the brief must not ask for an exported step context"
 # The guard approves only the PR number the worker recorded once the PR exists.
-flat "$b" | grep -qF 'Now the draft PR exists: record its number with `' \
-  && flat "$b" | grep -qF '/scripts/worker-session-record.sh pr` (the mapping below), then fire `post-pr`' \
-  || fail "the post-pr firing must record the PR number before it passes the number"
+if ! { flat "$b" | grep -qF 'Now the draft PR exists: record its number with `' \
+  && flat "$b" | grep -qF '/scripts/worker-session-record.sh pr` (the mapping below), then fire `post-pr`'; }; then
+  fail "the post-pr firing must record the PR number before it passes the number"
+fi
 # The guard defers a root assignment prefix, so the brief carries none: the
 # launch pins the root instead.
 printf '%s\n' "$b" | grep -q 'PLANWRIGHT_ROOT=\|PLANWRIGHT_SKILLS_ROOT=' \
