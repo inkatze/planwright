@@ -108,6 +108,20 @@ out=$(ih claude-code)
   || fail "unexpected output keys: $out"
 ok "resolve prints hosting then reason"
 
+# 7. Usage errors exit 2; a copy without its sibling helper exits 5.
+rc=0
+sh "$IH" resolve >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "resolve with no backend exited $rc, expected 2"
+rc=0
+sh "$IH" bogus claude-code >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "unknown subcommand exited $rc, expected 2"
+mkdir -p "$tmp/alone"
+cp "$IH" "$tmp/alone/isolated-hosting.sh"
+rc=0
+sh "$tmp/alone/isolated-hosting.sh" resolve claude-code >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 5 ] || fail "missing orchestrate-backends.sh exited $rc, expected 5"
+ok "usage errors exit 2 and a missing sibling helper exits 5"
+
 if [ "$failures" -ne 0 ]; then
   printf '%s\n' "$failures failure(s)" >&2
   exit 1
