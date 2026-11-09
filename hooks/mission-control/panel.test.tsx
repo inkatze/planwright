@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import { cellsOf } from './panel'
 import { BAND, bandOf, boot, digestText, PANE, ran, world } from './fixture'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -651,7 +652,6 @@ test('the mascot knob keeps its meaning with pictures: off draws no grid, still 
 // the short rows too, so the card reads as one block.
 const CARD_BG = '#141821'
 const STRIP_BG = '#1d2230'
-const cellsOf = (s: string) => [...s].length
 
 test('every card row is painted across the full card width, short rows included', async ($, on) => {
   const w = world(on)
@@ -712,5 +712,29 @@ test('a ready pull request is named under Waiting on you, not counted alone', as
   const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
   expect(t).toContain('#908 · ready to merge')
   expect(t).not.toContain('1 ready to merge')
+  await ui.unmount()
+})
+
+// A bare task scope names no spec, so the row carries no subject.
+test('a session scoped to a bare task names no subject', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['flight\tbt-1\ttask-3\ttmux\tworking'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
+  expect(t).toContain('spec task · working')
+  await ui.unmount()
+})
+
+// A wide glyph in a title takes two cells, so the row still ends at the card's edge.
+test('a wide glyph in a pull request title keeps every card row at the card width', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: ['reviews\tok\t5', 'review-mine\tacme/widgets\t9\tdraft\tgreen\t0\tyes\t-\t修正 the 🚀 launch notes for the widget panel and more words'] }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rowBoxes = (await ui.findAll({ type: 'Box' })).filter(
+    b => b.props?.backgroundColor === CARD_BG && b.props?.flexDirection === 'row',
+  )
+  for (const b of rowBoxes) expect(cellsOf(b.text ?? '')).toBe(PANE.props.bodyColumns)
   await ui.unmount()
 })

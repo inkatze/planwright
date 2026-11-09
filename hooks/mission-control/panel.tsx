@@ -208,7 +208,35 @@ type LineStyle = { bold?: boolean; dimColor?: boolean; color?: TextColor }
 // A Text paints only the cells it holds, so a short row would leave a gap in
 // its card's colour. Every row therefore carries its colour across the whole
 // width, a one-cell margin each side, and wraps at the word boundary inside it.
-const cellsOf = (s: string): number => [...s].length
+// Terminal cells: a wide glyph (CJK, most emoji) takes two.
+const isWide = (c: number): boolean =>
+  (c >= 0x1100 && c <= 0x115f) ||
+  (c >= 0x2e80 && c <= 0xa4cf) ||
+  (c >= 0xac00 && c <= 0xd7a3) ||
+  (c >= 0xf900 && c <= 0xfaff) ||
+  (c >= 0xfe30 && c <= 0xfe4f) ||
+  (c >= 0xff00 && c <= 0xff60) ||
+  (c >= 0xffe0 && c <= 0xffe6) ||
+  (c >= 0x1f300 && c <= 0x1f64f) ||
+  (c >= 0x1f900 && c <= 0x1f9ff) ||
+  (c >= 0x20000 && c <= 0x3fffd)
+export const cellsOf = (s: string): number => [...s].reduce((n, ch) => n + (isWide(ch.codePointAt(0) ?? 0) ? 2 : 1), 0)
+
+// The longest run of leading characters that fits in n cells, at least one
+// character so a wide glyph in a one-cell row still moves the text on.
+function splitCells(s: string, n: number): [string, string] {
+  const chars = [...s]
+  let head = ''
+  let w = 0
+  let i = 0
+  for (; i < chars.length; i++) {
+    const cw = cellsOf(chars[i]!)
+    if (w + cw > n && i > 0) break
+    head += chars[i]
+    w += cw
+  }
+  return [head, chars.slice(i).join('')]
+}
 
 export function wrapRows(text: string, inner: number): string[] {
   const rows: string[] = []
@@ -220,8 +248,9 @@ export function wrapRows(text: string, inner: number): string[] {
         rows.push(cur)
         cur = ''
       }
-      rows.push([...rest].slice(0, inner).join(''))
-      rest = [...rest].slice(inner).join('')
+      const [head, tail] = splitCells(rest, inner)
+      rows.push(head)
+      rest = tail
     }
     const next = cur === '' ? rest : `${cur} ${rest}`
     if (cellsOf(next) <= inner) cur = next
@@ -236,13 +265,13 @@ export function wrapRows(text: string, inner: number): string[] {
 
 function Painted(t: Table, text: string, width: number, bg: string, style: LineStyle = {}) {
   const { Box, Text } = t
-  return wrapRows(text, width - 2).map(row => (
+  return wrapRows(text, Math.max(1, width - 2)).map(row => (
     <Box flexDirection="row" backgroundColor={bg}>
       <Text backgroundColor={bg}>{' '}</Text>
       <Text backgroundColor={bg} bold={style.bold} dimColor={style.dimColor} color={style.color}>
         {row}
       </Text>
-      <Text backgroundColor={bg}>{' '.repeat(width - 1 - cellsOf(row))}</Text>
+      <Text backgroundColor={bg}>{' '.repeat(Math.max(0, width - 1 - cellsOf(row)))}</Text>
     </Box>
   ))
 }

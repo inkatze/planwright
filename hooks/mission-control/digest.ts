@@ -231,7 +231,7 @@ export function flightSubject(f: Pick<PanelFlight, 'worker' | 'scope'>, program:
   if (/^flight[:-]/.test(s)) return s.replace(/^flight[:-]/, '')
   if (/^spec-draft-/.test(s)) return s.replace(/^spec-draft-/, '')
   // The spec name, without its task or kickoff part (`spec:task-3`, `spec:3.1`, `spec-task-3`).
-  const named = s.replace(/([:-]task-?[0-9]+(\.[0-9]+)*|:[0-9]+(\.[0-9]+)*)$/, '')
+  const named = s.replace(/((^|[:-])task-?[0-9]+(\.[0-9]+)*|:[0-9]+(\.[0-9]+)*)$/, '')
   const colon = named.indexOf(':')
   return (colon > 0 ? named.slice(0, colon) : named) || null
 }
