@@ -55,3 +55,4 @@ usage-drained	routine
 usage-bypass	routine
 worker-handover-due	routine
 worker-retired-idle	routine
+keeper-sweep-failed	blocker

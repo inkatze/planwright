@@ -863,7 +863,7 @@ becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
 mission-control session as a `pending-prompt-overdue` event. A request that has
 just arrived wakes it sooner as a `pending-prompt` event, at most one per
-rate-limit window (`mc-keeper.sh` names it) so a burst is one wake. A worker that is
+rate-limit window (`mc-keeper.sh` names it) so a burst is one wake. A pending-age setting the sweeps cannot read (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends non-zero is named on stderr and wakes it once as a `keeper-sweep-failed` event; the default age stands in for a bad setting. A worker that is
 positively dead, or whose run ended (no pid file left beside a complete result
 record), is never escalated: what it left pending can no longer be answered,
 so the scan closes those receipts undeliverable, as a stop does, clears the

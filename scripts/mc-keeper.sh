@@ -115,6 +115,10 @@ Usage:
       event, and a dead worker this scan settled one stream-json-worker-dead
       event, whatever its program, printing
         announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
+      a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
+      seconds, or a pending sweep that ends non-zero, is said on stderr and
+      raised once as a keeper-sweep-failed event (the default age, 900,
+      stands in for a bad one)
       then the bounds, under their own lock: each retire done (re-checked
       first, a tmux pane sampled again; no tmux one on a pass whose stall
       scan failed) one worker-retired-idle event, raised again on a later
@@ -451,6 +455,43 @@ EOF
 $fp_rows
 EOF
   return 0
+}
+
+# pending_age_setting: PLANWRIGHT_STREAMJSON_PENDING_AGE must be a positive
+# whole number of seconds. Both pending sweeps read it, and a value they cannot
+# (15m, 0) made them end non-zero with nothing said, so no prompt was ever
+# announced. A bad value is named on stderr and raised once as a
+# keeper-sweep-failed event, and the shipped default stands in for it.
+pending_age_setting() {
+  pg_seen="$runtime/keeper-settings"
+  pg_raw=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-}
+  pg_live=""
+  if [ -n "$pg_raw" ] && { ! mc_valid_uint "$pg_raw" || [ "$pg_raw" -eq 0 ]; }; then
+    pg_bad=$(printf '%s' "$pg_raw" | tr -c 'A-Za-z0-9._-' '?' | cut -c1-40)
+    PLANWRIGHT_STREAMJSON_PENDING_AGE=900
+    export PLANWRIGHT_STREAMJSON_PENDING_AGE
+    printf '%s\n' "$prog: PLANWRIGHT_STREAMJSON_PENDING_AGE is '$pg_bad', not a positive number of seconds; using 900" >&2
+    pg_live="pending-age	$pg_bad
+"
+    mc_announce "$program" "$pg_seen" "pending-age	$pg_bad" keeper-sweep-failed pending-age-setting \
+      "PLANWRIGHT_STREAMJSON_PENDING_AGE is '$pg_bad', not a positive number of seconds; the keeper's pending-prompt sweeps use 900 until it is fixed" \
+      || pg_rc=1
+  fi
+  mc_announce_prune "$pg_seen" "$pg_live" || return 1
+  return "${pg_rc:-0}"
+}
+
+# run_pending_sweep <name> <function>: run one of the pending sweeps; one that
+# ends non-zero, whatever the cause, is said on stderr and raised once as a
+# keeper-sweep-failed event, cleared when the sweep runs clean again, so a
+# silent stop of the prompt alerts cannot go unnoticed.
+run_pending_sweep() {
+  rs_seen="$runtime/keeper-sweep-$1"
+  "$2" && { mc_announce_prune "$rs_seen" ""; return $?; }
+  printf '%s\n' "$prog: the $1 sweep failed" >&2
+  mc_announce "$program" "$rs_seen" "$1" keeper-sweep-failed "$1" \
+    "the keeper's $1 sweep ended with an error, so prompts it covers may not be announced; run mc-keeper.sh watch by hand to see why" || true
+  return 1
 }
 
 # pending_prompts: the stream-json pending-age sweep over every worker on
@@ -863,8 +904,9 @@ case $verb in
         scan_ok=0
       }
       /bin/bash "$script_dir/mc-panel.sh" prune >/dev/null || rc=1
-      pending_prompts || rc=1
-      pending_arrivals || rc=1
+      pending_age_setting || rc=1
+      run_pending_sweep pending-prompts pending_prompts || rc=1
+      run_pending_sweep pending-arrivals pending_arrivals || rc=1
       act_bounds "$scan_ok" || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
