@@ -1031,7 +1031,7 @@ E
 git push' "$UNIT"
 expect defer "[worker] a quoted here-document body may end a line with a backslash"
 for open in '<<\EOF' '<<"EOF"' "<<'E\\F'"; do
-  d=${open#<<}
+  d=${open:2}
   d=${d//[\"\']/}
   [ "$d" = '\EOF' ] && d=EOF
   pg worker "cat $open
