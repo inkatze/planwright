@@ -14,7 +14,9 @@
 #   tower-session.sh guard mcp     PreToolUse on the GitHub MCP write tools.
 #   tower-session.sh prompt-hook   UserPromptSubmit: mark the session when the
 #                                  prompt opens with the /tower or /orchestrate
-#                                  command, bare or plugin-namespaced.
+#                                  command, bare or plugin-namespaced; a
+#                                  /mission-control prompt writes the sibling
+#                                  <session id>.mission-control mark instead.
 # And as a tower's bring-up runs it, the activation handshake:
 #   tower-session.sh activate      In a session where the guard hook is live,
 #                                  the hook marks the session and refuses this
@@ -24,7 +26,10 @@
 #
 # DENY-ONLY. A mark only restricts the session carrying it: this path denies
 # or defers and never allows, and tower-command-guard.sh's auto-allows stay
-# with the profile launch. So marking needs no trust.
+# with the profile launch. So marking needs no trust. The mission-control mark
+# is the one exception in kind: scripts/mc-approve-hook.sh reads it, from this
+# file's functions, to allow one exact command, so the allow lives there and
+# this file stays allow-free.
 #
 # THE STORE. A mark is <fleet home>/tower-sessions/<session id>, the fleet
 # home resolved as scripts/fleet-state.sh root resolves it (re-implemented in
@@ -77,7 +82,7 @@ readonly ACTIVE_PHRASE='ACTIVE: the tower deny floor is enforced for this sessio
 readonly RE_SID='"session_id"[[:space:]]*:[[:space:]]*"([0-9A-Fa-f-]{36})"'
 # A brace, or a "name" member, in the plugin manifest.
 readonly RE_MANIFEST_TOKEN='[{}]|"name"[ '$'\t'']*:[ '$'\t'']*"[^"]*"'
-readonly RE_PROMPT='"prompt"[[:space:]]*:[[:space:]]*"([[:space:]]|\\[nrt])*/(planwright:)?(tower|orchestrate)([[:space:]"]|\\[nrt]|$)'
+readonly RE_PROMPT='"prompt"[[:space:]]*:[[:space:]]*"([[:space:]]|\\[nrt])*/(planwright:)?(tower|orchestrate|mission-control)([[:space:]"]|\\[nrt]|$)'
 
 case ${BASH_SOURCE[0]} in
   */*) SD=${BASH_SOURCE[0]%/*} ;;
@@ -243,8 +248,8 @@ check_store() {
   [ "$LS_UID" = "$MY_UID" ]
 }
 
-check_mark() { # <path>
-  local content tab=$'\t'
+check_mark() { # <path> [kind: tower|mission-control]
+  local content tab=$'\t' kind=${2:-tower}
   [ ! -L "$1" ] && [ -f "$1" ] || return 1
   ls_fields -ln "$1"
   case $LS_MODE in
@@ -254,13 +259,16 @@ check_mark() { # <path>
   [ "$LS_UID" = "$MY_UID" ] || return 1
   content=$(head -c 129 -- "$1" 2>/dev/null) || return 1
   [ "${#content}" -le 128 ] || return 1
-  [[ $content =~ ^tower"$tab"[0-9]{1,12}"$tab"(prompt|activate)$ ]]
+  [[ $content =~ ^"$kind""$tab"[0-9]{1,12}"$tab"(prompt|activate)$ ]]
 }
 
-# write_mark <sid> <source> — create or refresh the mark by temp file and
-# rename, then prune; 0 only when the mark passes the bar afterwards.
+# write_mark <sid> <source> [kind] — create or refresh the mark by temp file
+# and rename, then prune; 0 only when the mark passes the bar afterwards. A
+# mission-control mark is a sibling file, <sid>.mission-control, so the tower
+# guard's lookup of <sid> never sees it.
 write_mark() {
-  local tmp now
+  local tmp now kind=${3:-tower} leaf=$1
+  [ "$kind" = tower ] || leaf=$1.$kind
   MY_UID=$(id -u 2>/dev/null) || return 1
   umask 077
   if [ ! -e "$FH" ] && [ ! -L "$FH" ]; then
@@ -274,12 +282,12 @@ write_mark() {
   check_store || return 1
   now=$(date +%s 2>/dev/null) || return 1
   tmp=$(mktemp "$STORE/.$1.XXXXXX" 2>/dev/null) || return 1
-  if ! printf 'tower\t%s\t%s\n' "$now" "$2" >"$tmp" 2>/dev/null || ! mv -f -- "$tmp" "$STORE/$1" 2>/dev/null; then
+  if ! printf '%s\t%s\t%s\n' "$kind" "$now" "$2" >"$tmp" 2>/dev/null || ! mv -f -- "$tmp" "$STORE/$leaf" 2>/dev/null; then
     rm -f -- "$tmp" 2>/dev/null
     return 1
   fi
   find "$STORE" -mindepth 1 -maxdepth 1 -type f -mtime +$((PRUNE_DAYS - 1)) -exec rm -f -- {} + 2>/dev/null || :
-  check_mark "$STORE/$1"
+  check_mark "$STORE/$leaf" "$kind"
 }
 
 # --------------------------------------------------------------------------
@@ -458,20 +466,30 @@ prompt_hook() {
   prompt=${fields#*$'\n'}
   is_uuid "$sid" || exit 0
   re='^[[:space:]]*/(planwright:)?(tower|orchestrate)([[:space:]]|$)'
-  [[ $prompt =~ $re ]] || exit 0
+  if [[ $prompt =~ $re ]]; then
+    :
+  else
+    re='^[[:space:]]*/(planwright:)?mission-control([[:space:]]|$)'
+    [[ $prompt =~ $re ]] || exit 0
+    write_mark "$sid" prompt mission-control || warn 'this mission-control session could not be marked; its prompt-answer calls stay unapproved by the plugin hook'
+    exit 0
+  fi
   write_mark "$sid" prompt || warn 'this tower session could not be marked; its bring-up handshake reports the floor as not active'
   exit 0
 }
 
-case ${1:-} in
-  guard) guard "${2:-}" ;;
-  prompt-hook) prompt_hook ;;
-  activate)
-    printf '%s\n' "${PREFIX}NOT ACTIVE: this command ran, so no planwright hook intercepted it and the tower deny floor is not enforced from the plugin for this session."
-    exit 3
-    ;;
-  *)
-    printf '%s\n' 'usage: tower-session.sh guard bash|mcp | prompt-hook | activate' >&2
-    exit 2
-    ;;
-esac
+# Sourced by scripts/mc-approve-hook.sh for the store functions above.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  case ${1:-} in
+    guard) guard "${2:-}" ;;
+    prompt-hook) prompt_hook ;;
+    activate)
+      printf '%s\n' "${PREFIX}NOT ACTIVE: this command ran, so no planwright hook intercepted it and the tower deny floor is not enforced from the plugin for this session."
+      exit 3
+      ;;
+    *)
+      printf '%s\n' 'usage: tower-session.sh guard bash|mcp | prompt-hook | activate' >&2
+      exit 2
+      ;;
+  esac
+fi
