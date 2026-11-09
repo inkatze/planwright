@@ -166,8 +166,7 @@ This skill is the runner at its five in-run points; `custom-steps` owns the
 contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
 `--resume <run>:<point>` runs start there, skipping what
 `scripts/step-run.sh resume --run <this-run> --from <run>:<point>` prints. **Run a point**
-in the worktree, the `PLANWRIGHT_STEP_*` context prefixing each call (with any
-PR number):
+in the worktree, the `PLANWRIGHT_STEP_*` context prefixing each call:
 
 1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>
    --unattended` exactly when the backend seam's launch record says headless,
@@ -401,7 +400,7 @@ classify the edit on the amendment axis:
    Then run the
    `post-pr` point, the PR number now in its context (a dispatched worker with
    `PLANWRIGHT_WORKER_SESSION_RECORD` set records it first with
-   `<root>/scripts/worker-session-record.sh pr`, the one number its guard approves); after its list and the
+   `<root>/scripts/worker-session-record.sh pr`); after its list and the
    re-fire pass (`step-run.sh refire`'s lines, hosted with `--refire-of`,
    before post-pr's completion), re-emit the tables, and if a post-pr record moved the
    head fetch and regenerate the
@@ -457,7 +456,6 @@ These hold at every step, each list rule labelled with its
   `unpushed_rewrite`.
 - **Contract:** this skill owns push and the draft PR; no step pushes before
   `post-pr`, merges, flips, or rewrites history (D-39; custom-steps REQ-D1.6).
-- **Never** create a worktree; this skill runs inside one (D-37, D-44).
 - **Never** let `per-step` isolation weaken state-safety: every `tasks.md`
   placement move goes through the sibling reconcile under the per-spec lock, and
   no step session writes dispatch or progress state or opens a PR (REQ-C1.4).
