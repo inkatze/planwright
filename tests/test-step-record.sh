@@ -2686,6 +2686,27 @@ verdict "heads accepts any point of the vocabulary" "refused a flip point"
 grep -Fq 'a `skip` line records `skipped`, code `missing`' "$repo_root/skills/execute-task/SKILL.md"
 verdict "/execute-task records a missing-matrix skip with code missing" "the skill's skip call names no code"
 
+# --- a degraded isolated step records its reason (custom-steps REQ-D1) ---------------
+rund=$(sr new-run)
+sr write --run "$rund" --point convergence --step polish --kind skill \
+  --target planwright:polish --hosting in-session --backend claude-code \
+  --degraded 'no session-grade backend "claude-code" can spawn a fresh session' \
+  --head "$HEAD_SHA" --start 2026-09-28T12:00:00Z --end 2026-09-28T12:01:00Z \
+  --outcome applied >/dev/null
+verdict "write --degraded records an in-session step with its reason" "write --degraded failed"
+listing=$(sr list --run "$rund")
+printf '%s\n' "$listing" | grep -Fxq "degraded${TAB}no session-grade backend \"claude-code\" can spawn a fresh session"
+verdict "list round-trips the degraded reason" "list lacks the degraded reason"
+sr render --run "$rund" --point convergence | grep -Fq 'degraded: no session-grade backend'
+verdict "render shows the degradation with its reason" "render omits the degradation"
+rc=0
+sr write --run "$rund" --point convergence --step polish --kind skill \
+  --target planwright:polish --hosting isolated --backend claude-code \
+  --degraded 'reason' --head "$HEAD_SHA" --start 2026-09-28T12:00:00Z \
+  --end 2026-09-28T12:01:00Z --outcome applied >/dev/null 2>&1 || rc=$?
+[ "$rc" -ne 0 ]
+verdict "--degraded on an isolated step is refused" "--degraded on isolated was accepted"
+
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"

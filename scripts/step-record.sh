@@ -17,7 +17,8 @@
 #       --backend <name> [--head <sha>] [--end-head <sha>] --start <ts>
 #       [--end <ts>] --outcome <outcome> [--session <id>]
 #       [--excerpt-file <file>] [--output <path>] [--skip-code <code>]
-#       [--skip-reason <text>] [--stands-on <run>:<point>:<seq>]
+#       [--skip-reason <text>] [--degraded <reason>]
+#       [--stands-on <run>:<point>:<seq>]
 #       [--pool <pool> --wait <seconds> [--holder <text>]... [--unpooled]]
 #       [--fingerprint <fp> --args-digest <digest>] [--refire-of <point>]
 #   step-record.sh [--worktree <dir>] write --completion --run <id>
@@ -936,7 +937,7 @@ check_stands_on() {
 cmd_write() {
   completion=0 full_suite=0 run='' point='' step='' kind='' target='' hosting=''
   backend='' session='' head='' end_head='' start='' end='' outcome='' excerpt_file=''
-  output='' skip_reason='' skip_code='' skip_codes=0 stands_on='' pool='' wait=''
+  output='' skip_reason='' degraded='' skip_code='' skip_codes=0 stands_on='' pool='' wait=''
   holders='' unpooled=0 fingerprint='' args_digest='' refire_of='' wait_outcome=''
   warnings='' head_given=0 end_head_given=0 end_given=0 pool_given=0 wait_given=0
   while [ $# -gt 0 ]; do
@@ -952,7 +953,7 @@ cmd_write() {
         ;;
       --run | --point | --step | --kind | --target | --hosting | --backend | \
         --session | --head | --end-head | --start | --end | --outcome | \
-        --excerpt-file | --output | --skip-reason | --skip-code | --stands-on | \
+        --excerpt-file | --output | --skip-reason | --degraded | --skip-code | --stands-on | \
         --pool | --wait | --holder | --fingerprint | --args-digest | --refire-of | \
         --wait-outcome | --warning)
         [ $# -ge 2 ] || usage
@@ -962,7 +963,7 @@ cmd_write() {
     # An empty value for a field the extension added is a failed substitution
     # more likely than an absent field, so it is refused, never read as absent.
     case $1 in
-      --skip-code | --stands-on | --pool | --wait | --fingerprint | --args-digest | \
+      --degraded | --skip-code | --stands-on | --pool | --wait | --fingerprint | --args-digest | \
         --refire-of | --wait-outcome) [ -n "$2" ] || bad "$1" "given empty" ;;
     esac
     case $1 in
@@ -991,6 +992,7 @@ cmd_write() {
       --excerpt-file) excerpt_file=$2 ;;
       --output) output=$2 ;;
       --skip-reason) skip_reason=$2 ;;
+      --degraded) degraded=$2 ;;
       --skip-code)
         skip_code=$2
         skip_codes=$((skip_codes + 1))
@@ -1037,7 +1039,7 @@ cmd_write() {
   if [ "$completion" -eq 1 ]; then
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
       "$start" "$end" "$outcome" "$excerpt_file" "$output" "$skip_reason" \
-      "$skip_code" "$stands_on" "$pool" "$wait" "$holders" "$fingerprint" \
+      "$degraded" "$skip_code" "$stands_on" "$pool" "$wait" "$holders" "$fingerprint" \
       "$args_digest" "$refire_of"; do
       [ -z "$f" ] || bad --completion "takes only --run, --point, --head, and --warning"
     done
@@ -1095,6 +1097,10 @@ cmd_write() {
     [ "$skip_codes" -eq 0 ] || bad --skip-code "only a skipped step carries one"
     [ -z "$skip_reason" ] || bad --skip-reason "only a skipped step carries one"
   fi
+  if [ -n "$degraded" ]; then
+    [ "$hosting" = in-session ] || bad --degraded "only an in-session step carries one"
+    is_text "$degraded" || bad --degraded "must be non-empty single-line text of at most $TEXT_MAX bytes"
+  fi
   case $skip_code in
     reuse | resume)
       [ -n "$stands_on" ] || bad --stands-on "required for a $skip_code skip"
@@ -1142,15 +1148,20 @@ cmd_write() {
     skip_reason=$CLEANED
     [ -n "$skip_reason" ] || bad --skip-reason "empty once cleaned"
   fi
+  if [ -n "$degraded" ]; then
+    clean_value "$degraded"
+    degraded=$CLEANED
+    [ -n "$degraded" ] || bad --degraded "empty once cleaned"
+  fi
   if [ -n "$rel_output" ]; then
     clean_value "$rel_output"
     [ "$CLEANED" = "$rel_output" ] || bad --output "carries control or invisible characters"
   fi
   clean_holders
   # The unpacking below reads these back by position, the holders after the
-  # six fixed values; the two lists change together.
+  # seven fixed values; the two lists change together.
   # shellcheck disable=SC2086 # the holders split on newlines by design (IFS)
-  screen_values value "$step" "$target" "$backend" "$session" "$rel_output" "$skip_reason" $HOLDERS_CLEAN
+  screen_values value "$step" "$target" "$backend" "$session" "$rel_output" "$skip_reason" "$degraded" $HOLDERS_CLEAN
   : >"$work/holders" || die 1 "cannot write a temporary file"
   i=0
   while IFS= read -r l; do
@@ -1162,6 +1173,7 @@ cmd_write() {
       4) s_session=$l ;;
       5) s_output=$l ;;
       6) s_skip=$l ;;
+      7) s_degraded=$l ;;
       *) printf '%s\n' "$l" >>"$work/holders" || die 1 "cannot write a temporary file" ;;
     esac
   done <"$work/screened"
@@ -1190,6 +1202,7 @@ cmd_write() {
     put output "$s_output"
     put skip-code "$skip_code"
     put skip-reason "$s_skip"
+    put degraded "$s_degraded"
     put stands-on "$stands_on"
     put pool "$pool"
     put wait "$wait"
@@ -1211,7 +1224,7 @@ cmd_write() {
 # ones it takes.
 write_full_suite() {
   for f in "$point" "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
-    "$outcome" "$excerpt_file" "$output" "$skip_reason" "$skip_code" "$stands_on" \
+    "$outcome" "$excerpt_file" "$output" "$skip_reason" "$degraded" "$skip_code" "$stands_on" \
     "$fingerprint" "$args_digest" "$refire_of" "$warnings"; do
     [ -z "$f" ] || bad --full-suite "takes only --run, --pool, --wait, --wait-outcome, --holder, --start, and --end"
   done
@@ -1457,6 +1470,7 @@ render_run() {
             if (F[i, "stands-on"] != "") outc = outc " on " F[i, "stands-on"]
             if (F[i, "skip-reason"] != "") outc = outc " (" F[i, "skip-reason"] ")"
           } else if (outc == "skipped") outc = outc ": " F[i, "skip-reason"]
+          if (F[i, "degraded"] != "") outc = outc " (degraded: " F[i, "degraded"] ")"
           hd = short(F[i, "head"])
           if (F[i, "end-head"] != "" && F[i, "end-head"] != F[i, "head"]) hd = hd " to " short(F[i, "end-head"])
           printf "| %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", rows,
