@@ -267,7 +267,10 @@ mc_usable_tmpdir() {
   mut_home=$(mc_fleet_home) || return 0
   # The runner and its watcher loops reach this together, so a lost mkdir race
   # is fine when the directory is there afterwards.
-  [ -d "$mut_home/tmp" ] || (umask 077 && mkdir -p "$mut_home/tmp") 2>/dev/null || [ -d "$mut_home/tmp" ] || return 0
+  if [ ! -d "$mut_home/tmp" ] && ! (umask 077 && mkdir -p "$mut_home/tmp") 2>/dev/null && [ ! -d "$mut_home/tmp" ]; then
+    unset TMPDIR
+    return 0
+  fi
   TMPDIR="$mut_home/tmp"
   export TMPDIR
   return 0
