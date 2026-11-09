@@ -154,7 +154,7 @@ Usage:
             knob-shaped word in it. The operator reviews it; doctor never
             edits the file. Ordinary values and comments are not listed
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
-            launches, cron or rules) whose read failed; for launches, also a
+            launches, cron, rules or temporary) whose read failed; for launches, also a
             session whose row names no known rung; for overrides, also a
             layer that is malformed or sets a knob twice or as key : v,
             the override lines a plain read finds still following, and a
