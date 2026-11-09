@@ -72,6 +72,8 @@ printf 'chatter that is not an event\n'
 EOF
 cat >"$core/scripts/alpha-sweep.sh" <<'EOF'
 #!/bin/sh
+scratch=$(mktemp "${TMPDIR:-/tmp}/sweep.XXXXXX") || exit 1
+rm -f "$scratch"
 printf 'run\n' >>"$WATCH_RUNS/alpha-sweep"
 EOF
 cat >"$core/scripts/fast-watch.sh" <<'EOF'

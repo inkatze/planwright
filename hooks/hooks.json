@@ -30,6 +30,16 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/mc-approve-hook.sh",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "SendMessage",
         "hooks": [
           {

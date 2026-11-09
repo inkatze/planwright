@@ -1321,9 +1321,13 @@ floor_act() {
   [ "$cwn" -ne 2 ] || [ "${cw[1]}" != --version ] || return 1
   case ${cw[0]##*/} in
     git)
-      for ((i = 1; i < cwn; i++)); do
+      # A leading `-C <dir>` is read past: guard_git admits it for a read,
+      # and every verb after it is weighed as it would be without it.
+      i=1
+      [ "${cw[1]-}" != -C ] || [ "$cwn" -lt 4 ] || i=3
+      for (( ; i < cwn; i++)); do
         case ${cw[i]} in
-          -*) return 0 ;; # a global option: never approved, so never weighed
+          -*) return 0 ;; # any other global option: never approved, so never weighed
         esac
         sub=${cw[i]}
         break
@@ -1903,6 +1907,40 @@ ob_ref_name() {
   return 0
 }
 
+# git_fetch_ok <first-arg-index> <any|origin>: 0 only for a fetch of a
+# configured remote whose URL a built-in transport serves, with at most plain
+# branch names after it: no refspec (so nothing lands outside the remote's own
+# remote-tracking refs), no option that names a program or a config value. The
+# `origin` form is the policy-free one: the remote must be named origin, and
+# only the quiet and no-tags flags pass; `any` (the own-branch arm) also takes
+# other configured remotes, --prune and --tags.
+git_fetch_ok() {
+  local i=$1 mode=$2 a remote=''
+  for (( ; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      -q | --quiet | -v | --verbose | --no-tags) continue ;;
+      -p | --prune | --tags)
+        [ "$mode" = any ] || return 1
+        continue
+        ;;
+      -*) return 1 ;;
+    esac
+    if [ -z "$remote" ]; then
+      remote=$a
+    else
+      ob_ref_name "$a" && [ "$a" != tag ] || return 1
+    fi
+  done
+  case $remote in
+    '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "$mode" = any ] || [ "$remote" = origin ] || return 1
+  [ -e "$HOOK_CWD/$remote" ] || [ -e "$HOOK_CWD/$remote.git" ] && return 1
+  git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1 || return 1
+  ls_remote_url_ok "$remote"
+}
+
 # ob_git <sub> <subidx>: the own-branch git acts. Git's own writes to its
 # object store and index are not write targets; the worktree
 # files a `rm`, `mv`, `restore`, or `checkout --` writes are.
@@ -2088,24 +2126,7 @@ ob_git() {
       return
       ;;
     fetch)
-      for (( ; i < cwn; i++)); do
-        a=${cw[i]}
-        case $a in
-          -q | --quiet | -v | --verbose | -p | --prune | --no-tags | --tags) continue ;;
-          -*) return 1 ;;
-        esac
-        if [ -z "$remote" ]; then
-          remote=$a
-        else
-          ob_ref_name "$a" || return 1
-        fi
-      done
-      case $remote in
-        '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
-      esac
-      [ -e "$HOOK_CWD/$remote" ] || [ -e "$HOOK_CWD/$remote.git" ] && return 1
-      git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1 || return 1
-      ls_remote_url_ok "$remote"
+      git_fetch_ok "$i" any
       return
       ;;
     merge)
@@ -3422,8 +3443,15 @@ guard_gh() {
 # inject config/alias-driven execution, REQ-A1.8), and per-subcommand form
 # guards on the subcommands with a mutating twin (REQ-A1.5).
 guard_git() {
-  local i a sub='' subidx=0
-  for ((i = 1; i < cwn; i++)); do
+  local i a sub='' subidx=0 start=1 viac=0
+  # `git -C <dir>` for a read: the one global option admitted, and only when
+  # <dir> is the session's own worktree or a directory of it (own_dir_ok).
+  if [ "${cw[1]-}" = -C ] && [ "$cwn" -ge 4 ]; then
+    own_dir_ok 2 || return 1
+    start=3
+    viac=1
+  fi
+  for ((i = start; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
       -*) return 1 ;; # a pre-subcommand global option: defer
@@ -3435,6 +3463,12 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  if [ "$viac" = 1 ]; then
+    case $sub in
+      status | diff | log | show) ;;
+      *) return 1 ;;
+    esac
+  fi
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       # Read-only, but reject a following flag that WRITES a file
@@ -3585,7 +3619,17 @@ guard_git() {
         *) return 1 ;;
       esac
       ;;
-    add | rm | mv | restore | checkout | commit | fetch | merge) ob_git "$sub" "$subidx" ;;
+    fetch)
+      # Without the own-branch arm: `git fetch origin [<branch>]` from the
+      # session's own repository, which writes only remote-tracking refs and
+      # objects. Not through -C.
+      if [ "$viac" = 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ]; then
+        HOOK_WT_ROOT=$REC_WT
+        cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && return 0
+      fi
+      ob_git "$sub" "$subidx"
+      ;;
+    add | rm | mv | restore | checkout | commit | merge) ob_git "$sub" "$subidx" ;;
     *) return 1 ;;
   esac
 }
@@ -5168,17 +5212,29 @@ strip_prefixes() {
 # written in its canonical form. A `fish -c` inner string defers, its `cd`
 # being fish's.
 cd_target_ok() {
-  local t=${cw[1]-} base acc comp canon
+  [ "$cwn" -eq 2 ] || return 1
+  own_dir_ok 1 || return 1
+  PENDING_CD=$OWN_DIR
+  return 0
+}
+
+# own_dir_ok <word-index>: the word is an operand naming an existing directory
+# inside the session's own worktree and repository, in a form bash, zsh and
+# git all read the same way; leaves its canonical path in OWN_DIR. Shared by
+# `cd <dir>` (above) and `git -C <dir>` (guard_git).
+own_dir_ok() {
+  local n=$1 t=${cw[$1]-} base acc comp canon
   local -a comps=()
-  [ "$cwn" -eq 2 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
+  OWN_DIR=''
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
   # The worktree comes from the session record, never the checkout.
   [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ] || return 1
   HOOK_WT_ROOT=$REC_WT
-  word_unresolved "$t" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" && return 1
+  word_unresolved "$t" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" && return 1
   # A plain operand only: bash tilde-expands after `=`, zsh reads `+N` / `-N`
   # as the directory stack and `=cmd` as a command path, and zsh glob options
   # a shell snapshot can carry turn `^`, `#`, `~` and braces into patterns.
-  [ "${cz[1]-0}" = 0 ] || return 1
+  [ "${cz[n]-0}" = 0 ] || return 1
   case $t in
     '' | [-+]* | *[!A-Za-z0-9._/@%,:+-]*) return 1 ;;
   esac
@@ -5211,7 +5267,7 @@ cd_target_ok() {
     *) return 1 ;;
   esac
   cd_same_repo "$canon" || return 1
-  PENDING_CD=$canon
+  OWN_DIR=$canon
   return 0
 }
 
@@ -5220,7 +5276,7 @@ cd_target_ok() {
 # worktree root. A nested repository, a submodule, another worktree, or the
 # git directory itself would hand every later `git` that repository's own
 # config (its fsmonitor, hooks, aliases, pager), which is why `git -C <dir>`
-# defers; a `cd` there defers the same way. rev-parse reads config but runs
+# and a `cd` there defer; rev-parse reads config but runs
 # none of it.
 cd_same_repo() {
   local here

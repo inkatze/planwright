@@ -18,6 +18,7 @@ packet	decision
 pending-prompt-overdue	blocker
 conflict-predicted	blocker
 throughput-bottleneck	blocker
+keeper-sweep-failed	blocker
 throughput-unknown	failure
 mission-control-escalated	blocker
 usage-probe	blocker

@@ -211,6 +211,7 @@ record "REQ-L1.5: the context threshold knob" knob handover-context 70
 record "REQ-L1.5: the wake ceiling knob" knob handover-wakes 150
 record "REQ-L1.5: the compaction ceiling knob" knob handover-compactions 2
 record "the mascot knob defaults to animated" knob mascot 2
+record "the usage stop knob is the value admission reads" knob usage-hold 90
 record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "the reviews TTL knob, in seconds" knob reviews-ttl 300
@@ -235,6 +236,38 @@ mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_eq "the line names the pull requests ready to merge" "mission control alpha: 7 in flight, 2 waiting, 2 ready to merge, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh text --program alpha
 expect_out "and so does the text panel" "ready to merge: 2"
+# Each ready one carries its checked merge command in the digest, built from
+# the head the verdict was judged at; a row without a well-formed head or
+# method carries none.
+head40=0123456789abcdef0123456789abcdef01234567
+{
+  printf 'state\tok\t%s\n' "$judged"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+  printf 'acme/web#8\t%s|false|MERGEABLE\tnot-ready\t1\t-\tno\n' "$head40"
+  printf 'acme/web#9\tk\tready\t1\tsquash\t-\n'
+  printf 'acme/web#10\t%s|x\tready\t1\tvaporize\t-\n' "$head40"
+} >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh digest --program alpha --now "$judged"
+record "a ready pull request carries its checked merge command" merge-command acme/web 7 "gh pr merge 7 --repo acme/web --squash --match-head-commit $head40"
+if [ "$(printf '%s\n' "$OUT" | grep -c '^merge-command')" = 1 ]; then
+  ok "and only the well-formed ready rows do"
+else
+  fail "a not-ready, headless or odd-method row carried a merge command"
+fi
+# A store the last judgment did not write as ok, or an old one, is unconfirmed:
+# its verdicts carry no command.
+{
+  printf 'state\tstale\t%s\n' "$judged"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+} >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh digest --program alpha --now "$judged"
+if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "a stale store carried a merge command"; else ok "a stale store carries no merge command"; fi
+{
+  printf 'state\tok\t%s\n' "$judged"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+} >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh digest --program alpha --now $((judged + 7200))
+if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "an old store carried a merge command"; else ok "an old store carries no merge command"; fi
 # A judgment that could not tell for every pull request gives a floor.
 {
   mr_rows ok
@@ -360,6 +393,19 @@ printf 'mission_control_handover_compactions: 0\n' >>"$tracked"
 mc_run mc-panel.sh digest --program alpha --knobs --now 1030
 record "a zero compaction ceiling is refused" unreadable "knob mission_control_handover_compactions"
 setup_tracked=$(grep -v '^mission_control_handover_compactions' "$tracked")
+printf '%s\n' "$setup_tracked" >"$tracked"
+
+# The usage stop: `off` reads as 0 (no stop), a bad value is unreadable and
+# never a default.
+printf 'mission_control_usage_hold: off\n' >>"$tracked"
+mc_run mc-panel.sh digest --program alpha --knobs --now 1030
+record "an off usage stop reads as 0" knob usage-hold 0
+setup_tracked=$(grep -v '^mission_control_usage_hold' "$tracked")
+printf '%s\n' "$setup_tracked" >"$tracked"
+printf 'mission_control_usage_hold: 250\n' >>"$tracked"
+mc_run mc-panel.sh digest --program alpha --knobs --now 1030
+record "an out-of-range usage stop is unreadable, not a default" unreadable "knob mission_control_usage_hold"
+setup_tracked=$(grep -v '^mission_control_usage_hold' "$tracked")
 printf '%s\n' "$setup_tracked" >"$tracked"
 
 # REQ-L1.8: the holder record's kind tells a launched holder, which hands

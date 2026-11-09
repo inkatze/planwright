@@ -43,6 +43,10 @@
 #                      <hash-of-worktree-root>-<hash-of-handle>, so a
 #                      session's final close removes its files alone, never
 #                      another session's
+#   hook_exclude       worker_hook_exclude as a comma-joined list, omitted
+#                      when unset or when any member falls outside
+#                      [A-Za-z0-9_-]; the launcher exports it as
+#                      LEFTHOOK_EXCLUDE (scripts/fleet-dispatch-env.sh)
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
@@ -239,6 +243,21 @@ if [ -n "$primary" ]; then
   done
 fi
 
+hook_exclude=''
+if [ -n "$primary" ]; then
+  raw=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary /bin/sh "$script_dir/resolve-config-knob.sh" \
+    --key worker_hook_exclude --type globlist --fallback '' --degrade '' 2>/dev/null </dev/null) || raw=''
+  for m in $raw; do
+    case $m in
+      '' | *[!A-Za-z0-9_-]*)
+        hook_exclude=''
+        break
+        ;;
+      *) hook_exclude="${hook_exclude:+$hook_exclude,}$m" ;;
+    esac
+  done
+fi
+
 unit=$(gitq "$wt" symbolic-ref --quiet --short HEAD) || unit=''
 case $unit in
   planwright/flight/task-*) unit='' ;;
@@ -385,6 +404,7 @@ if ! {
   [ -z "$base_merge" ] || printf 'worker_base_merge=%s\n' "$base_merge"
   [ -z "$scratch" ] || printf 'scratch_root=%s\n' "$scratch"
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
+  [ -z "$hook_exclude" ] || printf 'hook_exclude=%s\n' "$hook_exclude"
 } >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
   rm -f -- "$tmp"
   die "cannot write the record"

@@ -79,11 +79,31 @@ set_layer() {
 
 echo "### REQ-F1.1 — the knob, its layers, and its fallback"
 write "$WT"
-if [ "$RC" -eq 0 ] && [ -f "$REC" ] && [ "$(field policy)" = "" ] && grep -qx 'policy=' "$REC"; then
-  pass "F1.1: no overlay resolves to the empty list"
+if [ "$RC" -eq 0 ] && [ -f "$REC" ] && [ "$(field policy)" = "scratch" ]; then
+  pass "F1.1: no overlay resolves to the shipped default, the scratch arm alone"
 else
   fail "F1.1: default policy (rc=$RC, $(cat "$T/err"))"
 fi
+if ! grep -q '^hook_exclude=' "$REC"; then
+  pass "hook skip list: no worker_hook_exclude, no record field"
+else
+  fail "hook skip list: the record carried a field with no config"
+fi
+set_layer machine-local 'worker_hook_exclude: lint-md spell_check'
+write "$WT"
+if [ "$(field hook_exclude)" = "lint-md,spell_check" ]; then
+  pass "hook skip list: the configured names reach the record, comma joined"
+else
+  fail "hook skip list: read '$(field hook_exclude)'"
+fi
+set_layer machine-local 'worker_hook_exclude: lint-md bad;name'
+write "$WT"
+if ! grep -q '^hook_exclude=' "$REC"; then
+  pass "hook skip list: one name outside the grammar drops the whole list"
+else
+  fail "hook skip list: a malformed list reached the record: $(field hook_exclude)"
+fi
+set_layer machine-local ''
 set_layer repo-tracked 'worker_self_approval: own-branch'
 write "$WT"
 if [ "$(field policy)" = own-branch ]; then
@@ -133,7 +153,7 @@ mkdir -p "$WT/.claude"
 printf 'worker_self_approval: own-branch\n' >"$WT/.claude/planwright.local.yml"
 set_layer repo-tracked ''
 write "$WT"
-if [ "$(field policy)" = "" ]; then
+if [ "$(field policy)" = "scratch" ]; then
   pass "F1.1: an overlay inside the worker's own worktree governs nothing"
 else
   fail "F1.1: the worktree's overlay was read: '$(field policy)'"
@@ -413,6 +433,41 @@ if [ "$out" = unset ]; then
   pass "G1.8: an inherited record path never reaches a launched worker"
 else
   fail "G1.8: inherited record leaked: '$out'"
+fi
+echo "### hook skip list — the wrapper hands the record's list to the hooks runner"
+HX=$T/hx.record
+printf 'policy=\nhook_exclude=lint-md,spell_check\n' >"$HX"
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
+if [ "$out" = "lint-md,spell_check" ]; then
+  pass "hook skip list: the record's list is exported as LEFTHOOK_EXCLUDE"
+else
+  fail "hook skip list: wrapper exported '$out'"
+fi
+out=$(LEFTHOOK_EXCLUDE=mine /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
+if [ "$out" = "mine" ]; then
+  pass "hook skip list: an explicit LEFTHOOK_EXCLUDE is never replaced"
+else
+  fail "hook skip list: an explicit value was replaced by '$out'"
+fi
+printf 'policy=\nhook_exclude=lint-md\n' >"$HX"
+out=$(LEFTHOOK_EXCLUDE='' /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c 'printf "[%s]" "${LEFTHOOK_EXCLUDE-unset}"' 2>&1)
+if [ "$out" = "[]" ]; then
+  pass "hook skip list: an explicitly empty LEFTHOOK_EXCLUDE is kept, not replaced"
+else
+  fail "hook skip list: an empty value was replaced by '$out'"
+fi
+printf 'policy=\nhook_exclude=bad name;x\n' >"$HX"
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
+if [ "$out" = unset ]; then
+  pass "hook skip list: a list outside the name grammar is never exported"
+else
+  fail "hook skip list: a malformed list was exported: '$out'"
+fi
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --root "$REPO_ROOT" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
+if [ "$out" = unset ]; then
+  pass "hook skip list: a launch with no record exports nothing"
+else
+  fail "hook skip list: exported with no record: '$out'"
 fi
 /bin/sh "$ENVWRAP" --session-record relative.record true 2>/dev/null
 if [ $? -eq 2 ]; then

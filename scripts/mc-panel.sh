@@ -101,6 +101,9 @@ Usage:
                                              trigger's thresholds
         knob<TAB>mascot<TAB>0|1|2            with --knobs: the mascot, off,
                                              a still frame or animated
+        knob<TAB>usage-hold<TAB><n>          with --knobs: the usage percent
+                                             admission holds launches at,
+                                             0 when the stop is off
         flight<TAB><worker><TAB><scope><TAB><backend><TAB>working|waiting|stuck
                                              a fleet registry session seen
                                              live (its process or tmux
@@ -126,6 +129,10 @@ Usage:
                                              the line names them unless none,
                                              `<n>+` (or `?` for none) when
                                              some could not be judged
+        merge-command<TAB><repo><TAB><number><TAB><command>
+                                             one per ready pull request in
+                                             the merge-ready store: the
+                                             checked merge command
         approvals<TAB><n>                    the queue's worker permission
                                              prompts, which mission control
                                              answers (with a number waiting)
@@ -778,6 +785,11 @@ parse_pct() {
   mc_valid_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 100 ] || return 1
   printf '%s\n' "$1"
 }
+# The usage stop is what the usage-window duty holds launches at: a percent,
+# or `off` (no proactive stop) as 0.
+parse_usage_hold() {
+  case $1 in off) printf '0\n' ;; *) parse_pct "$1" ;; esac
+}
 # The mascot knob reads animated, still or off as 2, 1 or 0.
 parse_mascot() {
   case $1 in animated) printf '2\n' ;; still) printf '1\n' ;; off) printf '0\n' ;; *) return 1 ;; esac
@@ -938,7 +950,8 @@ knobs() {
     handover-context:mission_control_handover_context:parse_pct \
     handover-wakes:mission_control_handover_wakes:parse_positive \
     handover-compactions:mission_control_handover_compactions:parse_positive \
-    mascot:mission_control_panel_mascot:parse_mascot; do
+    mascot:mission_control_panel_mascot:parse_mascot \
+    usage-hold:mission_control_usage_hold:parse_usage_hold; do
     kn_name=${kn%%:*}
     kn_rest=${kn#*:}
     if kn_v=$(mc_knob "${kn_rest%%:*}" "${kn_rest#*:}"); then
@@ -1146,6 +1159,11 @@ merge_ready() {
   fi
   if [ -n "$mg_all" ]; then
     printf 'merge-ready\t%s\t%s\n' "$mg_n" "$mg_all"
+    # The ready ones' checked merge commands, from a store the last judgment
+    # wrote as ok and fresh (mc-merge-ready.sh commands prints them).
+    if mc_valid_uint "$mg_n" && [ "$mg_n" -gt 0 ] && mg_cmds=$(/bin/bash "$script_dir/mc-merge-ready.sh" commands --program "$program" --now "$NOW" 2>/dev/null); then
+      printf '%s\n' "$mg_cmds" | awk -F '\t' '$1 == "ready" && $3 != "" { at = index($2, "#"); print "merge-command\t" substr($2, 1, at - 1) "\t" substr($2, at + 1) "\t" $3 }'
+    fi
   else
     printf 'unreadable\tmerge-ready store\n'
   fi

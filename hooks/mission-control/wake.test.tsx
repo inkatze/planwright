@@ -6,8 +6,8 @@ import { BAND, boot, digestText, done, PANE, ran, SESSION, turn, WAKE, world } f
 // real time, which a loaded runner can spend.
 const SLOW = { timeoutMs: 30_000 }
 
-const sweepOf = async (ui: { find: (q: { type: string; text: RegExp }) => Promise<{ text?: string } | undefined> }) =>
-  (await ui.find({ type: 'Text', text: /^[◜◝◞◟]/ }))?.text
+const heldOf = async (ui: { find: (q: { type: string; text: RegExp }) => Promise<{ text?: string } | undefined> }) =>
+  (await ui.find({ type: 'Text', text: /^◷ wake held/ }))?.text
 
 // REQ-E1.3, REQ-M1.2: a pending event wakes an idle session within one redraw.
 test('a fixture event submits the wake within one redraw while idle', async ($, on) => {
@@ -60,22 +60,20 @@ test('a subagent turn does not hold the wake', async ($, on) => {
   expect(w.submitted).toHaveLength(1)
 })
 
-test('a held wake sweeps the radar, which stops once the wake is in', async ($, on) => {
+test('a held wake is said, without motion, and clears once the wake is in', async ($, on) => {
   const w = world(on)
   await boot($, w)
   await $.turn.start(turn('t1'))
   w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
   await w.clock.advance(10_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal', props: { ...BAND.props, isWorking: true } })
-  const first = await sweepOf(ui)
+  const first = await heldOf(ui)
   await w.clock.advance(500)
-  const second = await sweepOf(ui)
   expect(first).toBeDefined()
-  expect(second).not.toBe(first)
-  expect(await ui.find({ type: 'Text', text: /1 inbound/ })).toBeDefined()
+  expect(await heldOf(ui)).toBe(first)
   await $.turn.complete(done('t1'))
   await w.clock.settle()
-  expect(await sweepOf(ui)).toBeUndefined()
+  expect(await heldOf(ui)).toBeUndefined()
   await ui.unmount()
 })
 
@@ -90,9 +88,6 @@ test('the tick fires at its cadence without a turn when nothing is due', SLOW, a
   await w.clock.advance(300_000)
   expect(ran(w, 'mc-wake.sh', 'compose')).toHaveLength(2)
   expect(w.submitted).toEqual([])
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /failsafe tick/ }))?.text).toBe('failsafe tick fired 2×')
-  await ui.unmount()
 })
 
 // REQ-E1.4: the push missed an event (its read failed); the tick finds it.
@@ -245,16 +240,20 @@ test('the session end hands the target back to the relay', async ($, on) => {
 })
 
 test('a /clear keeps the target and starts the counts over', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { contextPercent: undefined, digest: digestText({ holder: 'registry' }) })
   await boot($, w)
-  await $.turn.start(turn('t1'))
-  await $.turn.complete(done('t1'))
+  for (const id of ['t1', 't2']) {
+    await $.turn.start(turn(id))
+    await $.turn.complete(done(id))
+  }
   const claims = ran(w, 'mc-wake.sh', 'target').length
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
   expect(ran(w, 'mc-wake.sh', 'target')).toHaveLength(claims)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /compactions since start 0 · wakes 0/ })).toBeDefined()
-  await ui.unmount()
+  for (const id of ['t3', 't4']) {
+    await $.turn.start(turn(id))
+    await $.turn.complete(done(id))
+  }
+  expect(ran(w, 'mc-event.sh', 'emit')).toEqual([])
 })
 
 test('a pruned event (mark exit 3) still counts as marked', async ($, on) => {

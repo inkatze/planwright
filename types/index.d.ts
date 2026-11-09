@@ -17,6 +17,7 @@ export type PanelMyPr = {
   title: string
 }
 export type PanelWaitingPr = { repo: string; number: number; isDraft: boolean; requester: string; age: number; title: string }
+export type PanelMergeCommand = { repo: string; number: number; command: string }
 export type PanelReviews = {
   isAvailable: boolean
   reason: string
@@ -38,6 +39,8 @@ export type PanelDigest = {
   mergeReady: number | null
   // Some pull requests could not be judged, so mergeReady is a floor.
   isMergeReadyPartial: boolean
+  // The checked merge command of each pull request judged ready; absent from a digest a reload carried over.
+  mergeCommands?: PanelMergeCommand[]
   pending: number | null
   // Worker permission prompts mission control answers, never the operator's.
   approvals: number | null
@@ -64,7 +67,7 @@ export type PanelDigest = {
   line: string
 }
 
-export type PanelRateLimit = { kind: string; percentUsed: number }
+export type PanelRateLimit = { kind: string; percentUsed: number; resetsAt?: string }
 
 export type PanelView = {
   program: string

@@ -254,6 +254,28 @@ mc_fleet_home() {
   printf '%s\n' "$mfh"
 }
 
+# mc_usable_tmpdir: a long-lived process started from a launched session
+# inherits that session's scratch TMPDIR, which is removed when the session
+# retires, and every mktemp under it then fails. A TMPDIR that is no longer a
+# writable directory is replaced, for this process and what it starts, by
+# <fleet-home>/tmp; an unset one is left alone. Never fails.
+mc_usable_tmpdir() {
+  [ -n "${TMPDIR:-}" ] || return 0
+  if [ -d "$TMPDIR" ] && [ -w "$TMPDIR" ]; then
+    return 0
+  fi
+  mut_home=$(mc_fleet_home) || return 0
+  # The runner and its watcher loops reach this together, so a lost mkdir race
+  # is fine when the directory is there afterwards.
+  if [ ! -d "$mut_home/tmp" ] && ! (umask 077 && mkdir -p "$mut_home/tmp") 2>/dev/null && [ ! -d "$mut_home/tmp" ]; then
+    unset TMPDIR
+    return 0
+  fi
+  TMPDIR="$mut_home/tmp"
+  export TMPDIR
+  return 0
+}
+
 # Runtime state (watcher records, source snapshots, the budget file, wake
 # targets) lives under the plugin data home, in the fleet home
 # scripts/fleet-state.sh resolves; events live in the attention store beside

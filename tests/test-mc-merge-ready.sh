@@ -165,6 +165,11 @@ ready${tab}acme/web#14${tab}$H${tab}$(cmd 14 "$H")"
 if checked_since "$before"; then fail "an unchanged state was walked again"; else ok "an unchanged state is not walked again"; fi
 run count --program alpha
 expect_eq "count reads the last verdicts, with no forge read" "2${tab}all"
+run commands --program alpha --now "$T"
+expect_eq "commands prints each kept ready verdict's checked command, with no forge read" "ready${tab}acme/web#7${tab}$(cmd 7 "$H")
+ready${tab}acme/web#14${tab}$(cmd 14 "$H")"
+run commands --program alpha --now "$((T + 7200))"
+expect_eq "and nothing from a judgment over an hour old" ""
 
 run list --program alpha --now "$T" --as-status
 expect_out "as status lines" "decision${tab}Ready to merge: acme/web#7 at $(printf '%s' "$H" | cut -c1-12), run: $cmd7"
