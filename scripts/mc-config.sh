@@ -147,7 +147,7 @@ Usage:
             unit is compared with the number alone. The operator decides
             whether the rule or the knob is right; doctor changes neither
         temporary<TAB><file><TAB><knob><TAB><why><TAB><comment><TAB><effective value><TAB><why>
-            an adopter, repo-tracked or machine-local setting whose comment
+            an adopter or machine-local setting whose comment
             (above it, or after its value) carries a date already past, or
             the word interim, temporary, temporarily or until with no
             date still ahead; a comment standing alone names the first
@@ -897,7 +897,7 @@ doctor_layer_file() {
   dlf_root=''
   case $1 in
     adopter) dlf_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" adopter 2>/dev/null) || dlf_root='' ;;
-    repo-tracked | machine-local) dlf_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" repo-tracked 2>/dev/null) || dlf_root='' ;;
+    machine-local) dlf_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" repo-tracked 2>/dev/null) || dlf_root='' ;;
     core)
       printf '%s\n' "$script_dir/../config/defaults.yml"
       return 0
@@ -960,15 +960,19 @@ doctor_rules() {
   done
 }
 
-# A local layer's override carrying a date already past, or the word interim,
+# A local layer's (the operator's adopter file, or the machine-local file)
+# override carrying a date already past, or the word interim,
 # temporary or until, is someone's reminder to revisit it. Reported for the
 # operator to review; the file is never edited. A comment line above a knob,
 # or after its value, belongs to that knob; one standing alone names the first
 # knob-shaped word in it, else none. A marker word with a date still ahead is
 # not yet due, so it is left out.
 doctor_temporary() {
-  dt_today=$(date -u +%Y-%m-%d) || return 0
-  for dt_layer in adopter repo-tracked machine-local; do
+  dt_today=$(date -u +%Y-%m-%d) || {
+    printf 'unknown\ttemporary\tthe current date could not be read, so no local override is checked for a passed date\n'
+    return 0
+  }
+  for dt_layer in adopter machine-local; do
     dt_file=$(doctor_layer_file "$dt_layer")
     [ -n "$dt_file" ] && [ -f "$dt_file" ] && [ -r "$dt_file" ] || continue
     awk -v today="$dt_today" -v file="$dt_file" '

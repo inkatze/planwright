@@ -799,6 +799,11 @@ rm -f "$mlocal"
 cfg doctor --program drift
 expect_out "drift: the adopter layer file is scanned too" "temporary${tab}$adopter/planwright.yml${tab}mission_control_stall_window"
 rm -f "$adopter/planwright.yml" "$mlocal"
+tracked_save=$(cat "$tracked")
+printf '# temporary until 2020-04-04\nmission_control_stall_window: 20m\n' >>"$tracked"
+cfg doctor --program drift
+expect_no_out "drift: the team-shared repo-tracked layer is not scanned" "temporary${tab}"
+printf '%s\n' "$tracked_save" >"$tracked"
 
 cfg doctor --program gamma
 expect_rc "doctor on a program that is not configured" 3
