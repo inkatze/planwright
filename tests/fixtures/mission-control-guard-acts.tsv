@@ -266,3 +266,4 @@ deny	git-mutation	bash	-	name is an expansion|runs no git mutation	K=$(echo git)
 deny	git-mutation	bash	-	name is an expansion|runs no git mutation	K=git; $K push origin main
 deny	git-mutation	bash	-	name is an expansion|runs no git mutation	K=git; K=@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/x.sh; $K push origin main
 deny	settings-write	bash	-	settings or configuration file	for f in $(sh -c x); do cat /home/u/dev/p/.claude/planwright.yml; done
+deny	settings-write	bash	-	settings or configuration file	@SCRATCH@/x/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/config-get.sh ready_flip_policy /home/u/dev/p/.claude/planwright.yml

@@ -4210,11 +4210,22 @@ mc_scratch_var() {
   [[ $val =~ ^(/tmp/claude-|/tmp/planwright-)[A-Za-z0-9._/-]*$ || $val =~ ^\$TMPDIR(/[A-Za-z0-9._/-]*)?$ ]]
 }
 
-# A planwright script run from the installed root (the plugin cache): the
-# session's own tooling, which a read of a configuration file may name.
-RE_MC_INSTALLED_SCRIPT='^/[^[:space:]$`*?[{]*/\.c[l]aude/plugins/cache/planwright/planwright/[0-9][A-Za-z0-9._+-]*/scripts/[A-Za-z0-9._-]+\.sh$'
-# The installed root's own path prefix, as it appears in a longer path.
-RE_MC_INSTALLED_ROOT='/[^[:space:]$`*?[{;&|()<>"'"'"']*/\.c[l]aude/plugins/cache/planwright/planwright/[0-9][A-Za-z0-9._+-]*/'
+# mc_installed_root_re — the installed root's path prefix, under the user's own
+# home only: a look-alike path elsewhere (a scratch directory the session can
+# write) is no installed script. Sets MC_ROOT_RE, 1 when HOME is unusable.
+mc_installed_root_re() {
+  local h=${HOME:-}
+  case $h in /?*) ;; *) return 1 ;; esac
+  MC_ROOT_RE=${h//[^A-Za-z0-9_\/-]/.}'/\.c[l]aude/plugins/cache/planwright/planwright/[0-9][A-Za-z0-9._+-]*/'
+}
+
+# mc_installed_script <path> — 0 when the path is a planwright script at the
+# installed root: the session's own tooling, which a read of a configuration
+# file may name.
+mc_installed_script() {
+  mc_installed_root_re || return 1
+  [[ $1 =~ ^$MC_ROOT_RE'scripts/'[A-Za-z0-9._-]+\.sh$ ]]
+}
 
 # mc_literal_var <name> — 0, with the value in MC_VAR_VAL, when the command
 # assigns the variable exactly once, as a plain literal that opens a statement
@@ -4368,7 +4379,9 @@ mc_settings_screen() {
     # The installed root sits under ~/.claude/plugins, and a run of planwright's
     # own scripts from it names no posture file by that prefix alone.
     local nr=$t
-    while [[ $nr =~ $RE_MC_INSTALLED_ROOT ]]; do nr=${nr/"${BASH_REMATCH[0]}"/}; done
+    if mc_installed_root_re; then
+      while [[ $nr =~ $MC_ROOT_RE ]]; do nr=${nr/"${BASH_REMATCH[0]}"/}; done
+    fi
     case $nr in
       *.c[l]aude* | *.mcp* | *settings* | *planwright.*) emit_deny "$MC_SETTINGS_DENY" ;;
     esac
@@ -4417,7 +4430,7 @@ mc_settings_screen() {
       fi
       # One of planwright's own scripts at the installed root reads what it is
       # handed, apart from the two that write configuration.
-      if [[ ${SW[0]} =~ $RE_MC_INSTALLED_SCRIPT ]]; then
+      if mc_installed_script "${SW[0]}"; then
         case ${SW[0]##*/} in install.sh | mc-config.sh) emit_deny "$MC_SETTINGS_DENY" ;; esac
         continue
       fi
