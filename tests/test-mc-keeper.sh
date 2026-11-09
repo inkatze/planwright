@@ -306,6 +306,24 @@ esac
 rmdir "$fleet/mission-control/alpha/keeper-prompts"
 rm -rf "$fleet/streamjson/cp-failsweep"
 
+# A prompt left pending for a day (far past the overdue bound) raises the
+# overdue event exactly once across passes, and that event's kind wakes the
+# supervisor (class blocker, never routine).
+pp_req cp-day
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 87400 2>/dev/null)
+expect_out "a prompt pending a day raises the overdue event" "announced${tab}pending-prompt-overdue${tab}cp-day"
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 87500 2>/dev/null)
+expect_no_out "and only once while it stays pending" "pending-prompt-overdue${tab}cp-day"
+mc_run mc-event.sh list --program alpha
+overdue_n=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "pending-prompt-overdue" && $4 == "cp-day" { n++ } END { print n + 0 }')
+[ "$overdue_n" = 1 ] && ok "the store holds exactly one overdue event for it" || fail "the store holds $overdue_n overdue events for it"
+if awk -F '\t' '$1 == "pending-prompt-overdue" && $2 == "blocker" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv"; then
+  ok "the overdue kind wakes the supervisor (class blocker)"
+else
+  fail "pending-prompt-overdue is not a waking class"
+fi
+rm -rf "$fleet/streamjson/cp-day"
+
 # A landed session the launcher never registered, whose stream-json worker
 # has a recover in flight, is held rather than retired: retire refuses it as
 # in flight, and the sweep keeps the line for the next pass.
