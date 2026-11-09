@@ -450,7 +450,7 @@ else
   fail "hook skip list: an explicit value was replaced by '$out'"
 fi
 printf 'policy=\nhook_exclude=lint-md\n' >"$HX"
-out=$(LEFTHOOK_EXCLUDE= /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c 'printf "[%s]" "${LEFTHOOK_EXCLUDE-unset}"' 2>&1)
+out=$(LEFTHOOK_EXCLUDE='' /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c 'printf "[%s]" "${LEFTHOOK_EXCLUDE-unset}"' 2>&1)
 if [ "$out" = "[]" ]; then
   pass "hook skip list: an explicitly empty LEFTHOOK_EXCLUDE is kept, not replaced"
 else
