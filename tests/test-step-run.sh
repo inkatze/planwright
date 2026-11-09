@@ -275,6 +275,43 @@ grep -qx 'PLANWRIGHT_STEP_PR_NUMBER=' "$tmp/show.show.env" && grep -qx 'PLANWRIG
 verdict $? "a first run before any PR sees an empty PR number, and with no earlier move empty head fields" \
   "env: $(cat "$tmp/show.show.env")"
 
+# --- a launched worker names no step context: the session record supplies it ---------------
+fresh
+catalog "show|kind: command|target: $bin/show.sh"
+config 'steps_pre_pr: [show]'
+wtp=$(cd -P "$wt" && pwd -P)
+printf 'policy=\nunit_branch=planwright/flight/demo-0123abcd\nworktree_root=%s\npr_base=origin/main\n' "$wtp" >"$tmp/launch.record"
+noctx() {
+  _rec=$1
+  shift
+  env_run env -u PLANWRIGHT_STEP_SPEC -u PLANWRIGHT_STEP_TASK_IDS -u PLANWRIGHT_STEP_UNIT_KIND \
+    -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_BASE_BRANCH -u PLANWRIGHT_STEP_WORKTREE \
+    -u PLANWRIGHT_STEP_PR_NUMBER "PLANWRIGHT_WORKER_SESSION_RECORD=$_rec" "$RUN" --worktree "$wt" "$@"
+}
+r=$(sr new-run)
+noctx "$tmp/launch.record" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"
+noctx "$tmp/launch.record" command --run "$r" --point pre-pr --step show >/dev/null 2>>"$tmp/err"
+grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=flight' "$tmp/show.show.env" \
+  && grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd' "$tmp/show.show.env" \
+  && grep -qx 'PLANWRIGHT_STEP_BASE_BRANCH=main' "$tmp/show.show.env" \
+  && grep -qx "PLANWRIGHT_STEP_WORKTREE=$wtp" "$tmp/show.show.env" \
+  && grep -qx 'PLANWRIGHT_STEP_SPEC=' "$tmp/show.show.env"
+verdict $? "a flight worker's step sees its kind, branch, base and worktree from the launch record" \
+  "env: $(cat "$tmp/show.show.env" 2>&1) err: $(cat "$tmp/err")"
+rm -f "$tmp/show.show.env"
+printf 'policy=\nunit_branch=planwright/flight/demo-0123abcd\nworktree_root=%s/elsewhere\npr_base=origin/main\n' "$wtp" >"$tmp/other.record"
+r=$(sr new-run)
+noctx "$tmp/other.record" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"
+noctx "$tmp/other.record" command --run "$r" --point pre-pr --step show >/dev/null 2>>"$tmp/err"
+grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_BRANCH=' "$tmp/show.show.env"
+verdict $? "a record naming another worktree supplies nothing" "env: $(cat "$tmp/show.show.env" 2>&1)"
+rm -f "$tmp/show.show.env"
+r=$(sr new-run)
+env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$tmp/launch.record" "$RUN" --worktree "$wt" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"
+env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$tmp/launch.record" "$RUN" --worktree "$wt" command --run "$r" --point pre-pr --step show >/dev/null 2>>"$tmp/err"
+grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=task' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/demo/task-1' "$tmp/show.show.env"
+verdict $? "a context the caller exports is never replaced by the record's" "env: $(cat "$tmp/show.show.env" 2>&1)"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

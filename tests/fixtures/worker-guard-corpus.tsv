@@ -44,6 +44,7 @@ class	own-branch	9	shipped	writes confined to the unit branch and worktree
 class	scratch	10	shipped	writes confined to the scratch root
 class	floor	5	shipped	reserved acts the guard approves under no policy value
 class	uncovered	5	shipped	shapes no arm covers: interpreters, self-written scripts, runners, escapes
+class	prompt-shape	11	shipped	command shapes that prompted workers only for their spelling: git -C into the own worktree, a plain fetch, and the near misses
 
 # --- baseline: first-tool-call shapes that stalled dispatched workers ---
 row	baseline	allow	allow	allow	allow	grep -n '^## \|^### ' specs/demo/test-spec.md | head -40; for r in A1.1 A1.2 A1.3; do echo "=== $r"; awk -v r="REQ-$r" 'index($0,"**"r"**")||index($0,"### "r)||index($0,"- "r" ")||index($0,"**"r)==1{p=1;print;next} p&&/^- \*\*REQ-|^### REQ-|^## /{p=0} p{print}' specs/demo/test-spec.md; done
@@ -251,8 +252,6 @@ row	own-branch	defer	allow	defer	allow	git mv f h
 row	own-branch	defer	allow	defer	allow	git restore f
 row	own-branch	defer	allow	defer	allow	git checkout -- f
 row	own-branch	defer	allow	defer	allow	git commit -F build/msg.txt
-row	own-branch	defer	allow	defer	allow	git fetch origin
-row	own-branch	defer	allow	defer	allow	git fetch origin main
 row	own-branch	defer	allow	defer	allow	git merge origin/main
 # flags, links, sources, and refs the arm refuses
 row	own-branch	defer	defer	defer	defer	cp -l f g
@@ -265,6 +264,8 @@ row	own-branch	defer	defer	defer	defer	touch hardlinked
 row	own-branch	defer	defer	defer	defer	sed -i '1e id' f
 row	own-branch	defer	defer	defer	defer	sed -i 's/a/b/w out' f
 row	own-branch	defer	defer	defer	defer	git fetch origin main:main
+row	own-branch	allow	allow	allow	allow	git fetch origin
+row	own-branch	allow	allow	allow	allow	git fetch origin main
 row	own-branch	defer	defer	defer	defer	git fetch https://example.invalid/r.git
 row	own-branch	defer	defer	defer	defer	git fetch --upload-pack=x origin
 row	own-branch	defer	defer	defer	defer	git merge origin/other
@@ -273,9 +274,61 @@ row	own-branch	defer	defer	defer	defer	git checkout other
 row	own-branch	defer	defer	defer	defer	cp -s f g
 row	own-branch	defer	defer	defer	defer	git fetch ../other
 
+# --- prompt-shape: reads and fetches the allow rules missed by spelling ---
+row	prompt-shape	allow	allow	allow	allow	git -C @@WORKTREE@@ status
+row	prompt-shape	allow	allow	allow	allow	git -C @@WORKTREE@@ status --short | head
+row	prompt-shape	allow	allow	allow	allow	git -C @@WORKTREE@@/sub diff HEAD
+row	prompt-shape	allow	allow	allow	allow	git -C sub log --oneline -5
+row	prompt-shape	allow	allow	allow	allow	git -C . show HEAD
+row	prompt-shape	allow	allow	allow	allow	cd @@WORKTREE@@ && git status
+row	prompt-shape	allow	allow	allow	allow	cd @@WORKTREE@@/sub && git diff --stat
+row	prompt-shape	allow	allow	allow	allow	git fetch -q origin main
+row	prompt-shape	defer	defer	defer	defer	git -C @@OUTSIDE@@ status
+row	prompt-shape	defer	defer	defer	defer	git -C @@OUTSIDE@@ log
+row	prompt-shape	defer	defer	defer	defer	git -C /tmp status
+row	prompt-shape	defer	defer	defer	defer	git -C .. status
+row	prompt-shape	defer	defer	defer	defer	git -C sub/.. status
+row	prompt-shape	defer	defer	defer	defer	git -C nested status
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ -C /tmp status
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ -c core.pager=x log
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ log --output=x
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ fetch origin
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ checkout other
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ branch -D other
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ config user.name x
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ push origin planwright/demo/task-1
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ commit -m x
+row	prompt-shape	defer	defer	defer	defer	git -C @@WORKTREE@@ reset --hard
+row	prompt-shape	defer	defer	defer	defer	git -C "$X" status
+row	prompt-shape	defer	defer	defer	defer	git -C@@WORKTREE@@ status
+row	prompt-shape	defer	defer	defer	defer	cd @@OUTSIDE@@ && git status
+row	prompt-shape	defer	defer	defer	defer	cd nested && git log
+row	prompt-shape	defer	defer	defer	defer	git fetch origin main:refs/heads/other
+row	prompt-shape	defer	defer	defer	defer	git fetch origin +main:main
+row	prompt-shape	defer	defer	defer	defer	git fetch origin refs/heads/*:refs/remotes/o/*
+row	prompt-shape	defer	allow	defer	allow	git fetch --prune origin
+row	prompt-shape	defer	allow	defer	allow	git fetch --tags origin
+row	prompt-shape	defer	defer	defer	defer	git fetch --all
+row	prompt-shape	defer	defer	defer	defer	git fetch --force origin main
+row	prompt-shape	defer	defer	defer	defer	git fetch -u origin main
+row	prompt-shape	defer	defer	defer	defer	git fetch @@OUTSIDE@@
+row	prompt-shape	defer	defer	defer	defer	git fetch nosuchremote
+row	prompt-shape	defer	defer	defer	defer	git fetch upstream
+row	prompt-shape	defer	defer	defer	defer	git fetch --upload-pack x origin
+row	prompt-shape	defer	defer	defer	defer	git fetch origin --upload-pack=x
+row	prompt-shape	defer	defer	defer	defer	git fetch --server-option=x origin
+row	prompt-shape	defer	defer	defer	defer	git -c protocol.ext.allow=always fetch origin
+row	prompt-shape	defer	defer	defer	defer	git fetch --config core.sshCommand=x origin
+
 # --- scratch: writes inside the scratch root, never executing from it ---
 row	scratch	defer	defer	allow	allow	mkdir -p $TMPDIR/work
 row	scratch	defer	defer	allow	allow	mktemp "$TMPDIR/gw.XXXXXX"
+row	scratch	defer	defer	allow	allow	mktemp -d
+row	scratch	defer	defer	allow	allow	mktemp -d "$TMPDIR/work.XXXXXX"
+row	scratch	defer	defer	defer	defer	mktemp -d /tmp/work.XXXXXX
+row	scratch	defer	defer	defer	defer	mktemp /tmp/fixed-name
+row	scratch	defer	defer	defer	defer	touch /tmp/fixed-name
+row	scratch	defer	defer	defer	defer	echo hi > /tmp/fixed-name
 row	scratch	defer	defer	allow	allow	printf 'x\n' > $TMPDIR/msg.txt
 row	scratch	defer	defer	allow	allow	cp f ${TMPDIR}/f.orig
 row	scratch	defer	defer	allow	allow	rm -rf $TMPDIR/work
