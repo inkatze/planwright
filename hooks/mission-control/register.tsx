@@ -417,9 +417,12 @@ async function sweep($: EngineInterface) {
 async function syncRadar($: EngineInterface) {
   const c = ctx
   const v = await view($)
-  const isShown = v !== null && isMascotMoving(v) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+  const isPlaced = v !== null && isMascotMoving(v) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
   // A stand-down or a switch during the reads cancelled the timers; arm none.
   if (ctx !== c) return
+  // The state may have settled while the panes were read: judge it again.
+  const now = isPlaced ? await view($) : null
+  const isShown = now !== null && isMascotMoving(now)
   if (isShown && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
   if (!isShown && radar) {
     radar.cancel()

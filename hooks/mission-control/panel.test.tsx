@@ -22,7 +22,7 @@ test('the pane draws every store from the fixture digest, on every surface', asy
 })
 
 // REQ-L1.8 register: the in-flight section carries no session handle,
-// spec, task, script or hash identifier, and repeats collapse into counts.
+// spec, task, script or hash identifier, and each session has its own row.
 test('sessions in flight are said in plain words, one row each', async ($, on) => {
   const w = world(on, {
     digest: digestText({
@@ -521,7 +521,7 @@ test('Prop pal circles while something waits on the operator', async ($, on) => 
   await ui.unmount()
 })
 
-test('Prop pal cruises while sessions work and nothing waits', async ($, on) => {
+test('Prop pal flies while sessions work and nothing waits', async ($, on) => {
   const w = world(on, { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t0') })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })

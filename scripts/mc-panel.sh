@@ -1160,7 +1160,7 @@ merge_ready() {
   if [ -n "$mg_all" ]; then
     printf 'merge-ready\t%s\t%s\n' "$mg_n" "$mg_all"
     mg_store=$runtime/merge-ready.tsv
-    if [ "$mg_n" -gt 0 ] && [ -f "$mg_store" ] && [ ! -L "$mg_store" ] && [ -r "$mg_store" ]; then
+    if mc_valid_uint "$mg_n" && [ "$mg_n" -gt 0 ] && [ -f "$mg_store" ] && [ ! -L "$mg_store" ] && [ -r "$mg_store" ]; then
       # The command is built as mc-merge-ready.sh builds it: from the head the
       # verdict was judged at (the key's first field) and the verdict's method.
       # Only a store the last judgment wrote as ok, and under an hour old, as

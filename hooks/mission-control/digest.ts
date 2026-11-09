@@ -20,6 +20,7 @@ export function parseDigest(text: string): PanelDigest | null {
     waiting: null,
     mergeReady: null,
     isMergeReadyPartial: false,
+    mergeCommands: [],
     pending: null,
     approvals: null,
     decisions: [],
@@ -68,7 +69,7 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'merge-command': {
         const n = int(f[2])
-        if (f[1] && n !== null && f[3]) (d.mergeCommands ??= []).push({ repo: f[1], number: n, command: f.slice(3).join(' ') })
+        if (f[1] && n !== null && f[3]) d.mergeCommands?.push({ repo: f[1], number: n, command: f.slice(3).join(' ') })
         break
       }
       case 'pending':
