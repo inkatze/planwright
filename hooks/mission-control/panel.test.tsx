@@ -701,10 +701,30 @@ test('a session waiting on an answer is not listed again in flight', async ($, o
   await ui.unmount()
 })
 
+test('a queued question no session asks is named under Waiting on you, its session row not repeated', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [
+        'flight\tsd-k\tspec-draft-panel\tstream-json-persistent\twaiting',
+        'queued\tsd-k\tPick a name for the panel?',
+        'queued\tq-9\tShip the migration?',
+      ],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
+  expect(t).toContain('Ship the migration? · waiting for an answer')
+  expect(t).not.toContain('Pick a name for the panel? · waiting for an answer')
+  expect(t).not.toContain('1 waiting on you, not in a session')
+  expect(t.filter(l => l.includes('waiting for an answer'))).toHaveLength(2)
+  await ui.unmount()
+})
+
 test('a ready pull request is named under Waiting on you, not counted alone', async ($, on) => {
   const w = world(on, {
     digest: digestText({
-      extra: ['merge-ready\t1\tall', 'merge-command\tacme/widgets\t908\tgh pr merge 908 --repo acme/widgets --squash'],
+      extra: ['merge-ready\t1\tall', 'merge-command\tacme/widgets\t908\tchecked-merge-908'],
     }),
   })
   await boot($, w)

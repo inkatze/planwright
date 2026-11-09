@@ -424,14 +424,20 @@ function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
 }
 
 // One row per item that waits on the operator: each session waiting on an
-// answer, then whatever the queue holds beyond them.
+// answer, then the queued questions no such session asks, each named by its
+// question; a count stands for any beyond those.
 function waitingRows(view: PanelView): string[] {
   const d = view.digest!
-  const sessions = flightRows(d.flights, view.program).filter(r => r.state === 'waiting').map(r => r.text)
-  if (d.waiting === null) return [...sessions, 'unknown whether more wait on you']
-  const rest = d.waiting - sessions.length
-  const rows = [...sessions, ...(rest > 0 ? [`${rest} waiting on you, not in a session`] : [])]
-  return rows.length === 0 ? ['Nothing waits on you.'] : rows
+  const sessions = flightRows(d.flights, view.program).filter(r => r.state === 'waiting')
+  const sessionWorkers = new Set(d.flights.filter(f => f.state === 'waiting').map(f => f.worker))
+  const rows = sessions.map(r => r.text)
+  if (d.waiting === null) return [...rows, 'unknown whether more wait on you']
+  const rest = d.waiting - rows.length
+  const queued = (d.queued ?? []).filter(q => !sessionWorkers.has(q.worker)).map(q => `${q.question} · waiting for an answer`)
+  const named = queued.slice(0, Math.max(rest, 0))
+  const unnamed = Math.max(rest - named.length, 0)
+  const all = [...rows, ...named, ...(unnamed > 0 ? [`${unnamed} waiting on you, not in a session`] : [])]
+  return all.length === 0 ? ['Nothing waits on you.'] : all
 }
 
 // The pull requests the readiness check passed, each named; the count stands

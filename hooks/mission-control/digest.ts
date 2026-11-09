@@ -18,6 +18,7 @@ export function parseDigest(text: string): PanelDigest | null {
     flights: [],
     finished: null,
     waiting: null,
+    queued: [],
     mergeReady: null,
     isMergeReadyPartial: false,
     mergeCommands: [],
@@ -62,6 +63,9 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'waiting':
         d.waiting = int(f[1])
+        break
+      case 'queued':
+        d.queued?.push({ worker: f[1] ?? '', question: f[2] ?? '' })
         break
       case 'merge-ready':
         d.mergeReady = int(f[1])

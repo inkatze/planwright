@@ -152,7 +152,7 @@
 #       most nine digits) have passed since <key> last printed. A transition
 #       that empties the view prints one line saying so, since silence here
 #       means unchanged.
-#   fleet-attention.sh queue [--count|--tally] [--surface-provided] [--except <worker>]... [--on-change <key>]
+#   fleet-attention.sh queue [--count|--tally|--items] [--surface-provided] [--except <worker>]... [--on-change <key>]
 #       Decision queue: ordered actionable items as structured choices.
 #       --on-change never withholds a pending decision; only an empty queue
 #       stays silent once <key> has seen it empty (the status render carries
@@ -166,6 +166,9 @@
 #       which mission control answers under the operator's standing rules,
 #       bringing to the operator only what those rules do not settle; every
 #       other item is the operator's. An unreadable store exits 2.
+#       --items prints one `item<TAB><worker><TAB><question>` line per operator
+#       item (the approvals left out), the question being the text the row
+#       asks; the same reading and exit as --tally.
 #       --except leaves a worker's row out of the RENDER. The tower loop's
 #       comms step passes the worker whose question it just handed the operator
 #       (tower-comms REQ-A1.1): the render that ends the same iteration would
@@ -1563,13 +1566,13 @@ case $cmd in
           ;;
         --on-change)
           [ "$#" -ge 2 ] || {
-            echo "usage: fleet-attention.sh queue [--count|--tally] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
+            echo "usage: fleet-attention.sh queue [--count|--tally|--items] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
             exit 2
           }
           on_change_opts queue "$1" "$2"
           shift 2
           ;;
-        --count | --tally)
+        --count | --tally | --items)
           [ "$queue_out" = list ] || {
             echo "fleet-attention: queue: --count and --tally are exclusive" >&2
             exit 2
@@ -1579,7 +1582,7 @@ case $cmd in
           ;;
         --except)
           [ "$#" -ge 2 ] || {
-            echo "usage: fleet-attention.sh queue [--count|--tally] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
+            echo "usage: fleet-attention.sh queue [--count|--tally|--items] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
             exit 2
           }
           valid_field "$2" || {
@@ -1628,7 +1631,7 @@ case $cmd in
       printf '%s\n' "$n"
       exit 0
     fi
-    if [ "$queue_out" = tally ]; then
+    if [ "$queue_out" = tally ] || [ "$queue_out" = items ]; then
       # A store that cannot be read is an unknown split, never zero of each.
       if { [ -e "$store" ] || [ -L "$store" ]; } && { [ ! -f "$store" ] || [ ! -r "$store" ]; }; then
         echo "fleet-attention: queue: cannot read the attention store" >&2
@@ -1637,15 +1640,18 @@ case $cmd in
       # A stream-json request row is a plain decide row (field 9 empty), told
       # by the question scripts/fleet-streamjson.sh writes for a permission
       # request, read whole; its worker-question rows stay the operator's.
-      printf '%s\n' "$sortable" | FA_HINT=" - $STREAMJSON_ANSWER_HINT" awk -F "$TAB" '
+      printf '%s\n' "$sortable" | FA_HINT=" - $STREAMJSON_ANSWER_HINT" FA_MODE=$queue_out awk -F "$TAB" '
         NF {
           r = $11 ""; q = $8 ""; h = ENVIRON["FA_HINT"]
           sj = r == "" && q ~ /^(OVERDUE )?permission request tool [^ ]+ req [^ ]+ - / \
             && length(q) > length(h) && substr(q, length(q) - length(h) + 1) == h
           if (r == "permission" || sj) a++
-          else o++
+          else {
+            o++
+            if (ENVIRON["FA_MODE"] == "items") printf "item\t%s\t%s\n", $3, (q != "" ? q : r)
+          }
         }
-        END { printf "operator\t%d\napprovals\t%d\n", o, a }'
+        END { if (ENVIRON["FA_MODE"] == "tally") printf "operator\t%d\napprovals\t%d\n", o, a }'
       exit 0
     fi
     # A pending decision is never withheld under --on-change: one re-raised in
