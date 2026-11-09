@@ -1403,21 +1403,40 @@ SHIM_RECORD_DIR="$tmp/rec-cap-mc" ml_cap launch --program alpha --kind mission-c
 [ "$RC" = 0 ] && ok "a mission-control launch is not held by the host-wide bound" || fail "a mission-control launch under the bound exited $RC: $ERR"
 wait_done "$(field name)"
 
+# A reservation made after this launch is not counted against it, so two
+# concurrent launches near the bound admit the first rather than refusing both.
+seed_row mc-delta-worker-0000000009 delta worker
+sed -i "s/^launched${TAB}.*/launched${TAB}99999999999/" "$capreg/mc-delta-worker-0000000009"
+set_cap 5
+cap_launch before-later
+[ "$RC" = 0 ] && ok "a later reservation is not counted against an earlier launch" || fail "a later reservation held an earlier launch: $ERR"
+wait_done "$(field name)"
+rm -f "$capreg/mc-delta-worker-0000000009"
+
+# An operator-asked launch with room records no bypass.
+set_cap off
+cap_launch asked-room --operator-asked
+room_name=$(field name)
+wait_done "$room_name"
+ml_out=$(cd "$repo" && env PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" HOME="$fixhome" \
+  /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha 2>/dev/null)
+case $ml_out in
+  *"${TAB}host-cap-bypass${TAB}$room_name${TAB}"*) fail "an operator-asked launch with room recorded a bypass" ;;
+  *) ok "an operator-asked launch with room records no bypass" ;;
+esac
+
 # off: no bound.
 set_cap off
 cap_launch unlimited
 [ "$RC" = 0 ] && ok "off lifts the host-wide bound" || fail "off still held a launch: $ERR"
 wait_done "$(field name)"
 
-# The shipped default bounds the host with no machine-local setting: the
-# registry holds five workers by now, so one more fits and the next is held.
+# The shipped default bound holds with no machine-local setting: the registry
+# holds the default six by now.
 rm -f "$tmp/absent.yml"
 sed -i "/^fleet_host_max_live_workers:/d" "$tracked"
-cap_launch default-room
-[ "$RC" = 0 ] && ok "the shipped default bound has room for a sixth session" || fail "the shipped default held a sixth session: $ERR"
-wait_done "$(field name)"
 cap_launch default-held
-[ "$RC" = 4 ] && ok "the shipped default bound holds a seventh session" || fail "the shipped default let a seventh session through (exit $RC)"
+[ "$RC" = 4 ] && ok "the shipped default bound holds a launch at six sessions" || fail "the shipped default let a launch through (exit $RC)"
 
 # A malformed value is a refusal, never an unbounded launch.
 set_cap lots

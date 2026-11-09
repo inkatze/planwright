@@ -918,15 +918,16 @@ cmd_launch() {
     die "$1" "$2"
   }
 
-  # The host-wide bound counts every program's registered sessions except
-  # this launch's own reservation (already written, so a concurrent launch
-  # sees it); mission-control sessions are never counted or held. A row of a
-  # session that died stays counted until it is retired.
+  # The host-wide bound counts every program's registered sessions that
+  # reserved before this launch (an earlier time, or the same second and an
+  # earlier name), so concurrent launches near the bound admit the first and
+  # never refuse each other; mission-control sessions are never counted or
+  # held. A row of a session that died stays counted until it is retired.
   if [ "$kind" != mission-control ]; then
     hc_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
       || refuse "refusing to launch $name: fleet_host_max_live_workers cannot be resolved to a number or off" 4
     if [ "$hc_limit" != off ]; then
-      hc_held=$(host_live_counts "$name")
+      hc_held=$(host_live_counts "$name" "$launched")
       hc_total=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $2 } END { print n + 0 }')
       if [ "$hc_total" -ge "$hc_limit" ]; then
         hc_who=$(printf '%s\n' "$hc_held" | awk -F '\t' 'NF { printf "%s%s %s", (c++ ? ", " : ""), $1, $2 }')
@@ -1314,12 +1315,13 @@ cmd_retire() {
   return 1
 }
 
-# host_live_counts <own-name> — one "<program><TAB><count>" line per program
-# holding registered non-mission-control sessions in the shared registry,
-# the named session's own row left out. A remote host's sessions sit in that
+# host_live_counts <own-name> <own-launched> — one "<program><TAB><count>"
+# line per program holding registered non-mission-control sessions in the
+# shared registry that reserved before the named session (its own row and
+# later reservations left out). A remote host's sessions sit in that
 # host's registry (scripts/fleet-remote.sh), so they are never counted here.
 host_live_counts() {
-  hl_own=$1
+  hl_own=$1 hl_when=$2
   hl_rows=''
   set +f
   set -- "$REG"/mc-*
@@ -1328,6 +1330,9 @@ host_live_counts() {
     [ -f "$f" ] && [ ! -L "$f" ] || continue
     case ${f##*/} in *.tmp.* | "$hl_own") continue ;; esac
     row_format_ok "$f" || continue
+    hl_at=$(row_get "$f" launched)
+    case $hl_at in '' | *[!0-9]*) hl_at=0 ;; esac
+    if [ "$hl_at" -gt "$hl_when" ] || { [ "$hl_at" -eq "$hl_when" ] && expr "x${f##*/}" \> "x$hl_own" >/dev/null; }; then continue; fi
     [ "$(row_get "$f" kind)" != mission-control ] || continue
     hl_rows="$hl_rows$(row_get "$f" program)
 "

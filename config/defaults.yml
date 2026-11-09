@@ -99,10 +99,11 @@ max_parallel_units: 3
 fleet_max_parallel_units: 3
 
 # The host-wide ceiling on live sessions across every program sharing one
-# machine. fleet_max_parallel_units bounds one program; this bounds the sum of
-# every program's workers, reviewers, walkers and relays registered in the
-# shared mission-control registry (mission-control sessions are not counted),
-# checked by scripts/mission-control-launch.sh before every such launch. A
+# machine, with fleet_max_parallel_units and each program's own bounds kept
+# beneath it. It bounds the sum of every program's workers, reviewers,
+# walkers and relays registered in the shared mission-control registry
+# (mission-control sessions are not counted), checked by
+# scripts/mission-control-launch.sh before every such launch. A
 # positive integer, or `off` for no host-wide bound. The shipped number is
 # sized for a 12-core host; set it lower on a smaller machine. Sessions
 # offloaded to another host (scripts/fleet-remote.sh) are counted on that host,
