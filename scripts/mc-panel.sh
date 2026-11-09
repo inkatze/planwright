@@ -1160,16 +1160,20 @@ merge_ready() {
   if [ -n "$mg_all" ]; then
     printf 'merge-ready\t%s\t%s\n' "$mg_n" "$mg_all"
     mg_store=$runtime/merge-ready.tsv
-    if [ -f "$mg_store" ] && [ ! -L "$mg_store" ] && [ -r "$mg_store" ]; then
+    if [ "$mg_n" -gt 0 ] && [ -f "$mg_store" ] && [ ! -L "$mg_store" ] && [ -r "$mg_store" ]; then
       # The command is built as mc-merge-ready.sh builds it: from the head the
       # verdict was judged at (the key's first field) and the verdict's method.
-      awk -F '\t' '
+      # Only a store the last judgment wrote as ok, and under an hour old, as
+      # mc-merge-ready.sh count trusts it: a stale one keeps verdicts unconfirmed.
+      N=$NOW awk -F '\t' '
+        $1 == "state" { ok = ($2 == "ok" && $3 ~ /^[0-9]+$/ && ENVIRON["N"] - $3 >= 0 && ENVIRON["N"] - $3 <= 3600) }
         $3 == "ready" && $1 ~ /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+$/ && $5 ~ /^(squash|merge|rebase)$/ {
           split($2, k, "|")
           if (k[1] !~ /^[0-9a-f]{40}$/) next
           at = index($1, "#"); slug = substr($1, 1, at - 1); n = substr($1, at + 1)
-          print "merge-command\t" slug "\t" n "\tgh pr merge " n " --repo " slug " --" $5 " --match-head-commit " k[1]
-        }' "$mg_store" 2>/dev/null
+          rows[++r] = "merge-command\t" slug "\t" n "\tgh pr merge " n " --repo " slug " --" $5 " --match-head-commit " k[1]
+        }
+        END { if (ok) for (i = 1; i <= r; i++) print rows[i] }' "$mg_store" 2>/dev/null
     fi
   else
     printf 'unreadable\tmerge-ready store\n'

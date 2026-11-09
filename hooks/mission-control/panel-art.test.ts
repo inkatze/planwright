@@ -46,8 +46,7 @@ test('Prop pal is a cell grid of the declared size, one triplet per cell, in eve
 })
 
 test('the body is the approved art in every frame, whatever the motion', () => {
-  // The body is every pixel the art colours except the propeller column and
-  // the cockpit crown, where a caution light may sit. Motion only moves it.
+  // The body is every colored art pixel except the two propeller columns, which spin. Motion only moves it.
   for (const s of STATES) {
     for (let f = 0; f < 12; f++) {
       const { pixels, origin } = spriteGrid(s, f)

@@ -45,6 +45,15 @@ test('a failed re-injection raises an item and keeps the compaction', async ($, 
   expect(w.toasts.at(-1)).toMatch(/could not be re-injected/)
 })
 
+test('context resets since start count on the pane', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  await $.session.compact(compact('manual'))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Context resets since start: 1$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a precompute or a subagent compaction is left alone', async ($, on) => {
   const w = world(on)
   await boot($, w)
@@ -53,6 +62,9 @@ test('a precompute or a subagent compaction is left alone', async ($, on) => {
   expect(pre.messages).toHaveLength(1)
   expect(sub.messages).toHaveLength(1)
   expect(ran(w, 'mc-rules.sh', 'load')).toEqual([])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Context resets since start: 0$/ })).toBeDefined()
+  await ui.unmount()
 })
 
 // REQ-L1.5: each trigger source fires from its fixture.

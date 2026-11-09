@@ -2,7 +2,7 @@ import type { Elements, RenderSurface } from 'claude-code'
 
 import type { PanelDigest, PanelMergeCommand, PanelReviews, PanelView } from '../../types'
 import { age, flightRows } from './digest'
-import { spriteCells } from './panel-art'
+import { restFrame, spriteCells } from './panel-art'
 
 type Table = Elements[RenderSurface]
 type PictureTable = Elements['terminal']
@@ -12,6 +12,8 @@ type PictureTable = Elements['terminal']
 const hasPictures = (t: Table, surface: RenderSurface): t is PictureTable => surface === 'terminal' && 'Raster' in t
 
 const REVIEWS_SHOWN = 5
+const STALE_READ_S = 600
+const DECISIONS_SHOWN = 3
 
 // A count from a store the digest could not read is unknown, never zero.
 function flightCount(view: PanelView): string {
@@ -131,10 +133,6 @@ const MASCOT_WORD: Record<MascotState, string> = {
   taxiing: 'taxiing, nothing running',
 }
 
-export function mascotWord(view: PanelView): string {
-  return `Prop pal: ${MASCOT_WORD[mascotState(view)]}`
-}
-
 // Whether the mascot has motion to repaint: every state moves (taxiing rolls),
 // so animation on and a reading in is all it takes.
 export function isMascotMoving(view: PanelView): boolean {
@@ -233,15 +231,15 @@ function Section(t: Table, title: string, rows: string[], empty = '') {
   )
 }
 
-export const PR_GROUPS = [
+const PR_GROUPS = [
   { id: 'ready', title: 'Ready to merge' },
   { id: 'needs-you', title: 'Needs you' },
   { id: 'review', title: 'In review' },
   { id: 'running', title: 'CI running' },
   { id: 'failed', title: 'CI failed' },
 ] as const
-export type PrGroup = (typeof PR_GROUPS)[number]['id']
-export type PrRow = { group: PrGroup; text: string; command: string | null }
+type PrGroup = (typeof PR_GROUPS)[number]['id']
+type PrRow = { group: PrGroup; text: string; command: string | null }
 
 const threads = (n: number) => `${n} review ${n === 1 ? 'thread' : 'threads'} still open`
 
@@ -250,18 +248,21 @@ const threads = (n: number) => `${n} review ${n === 1 ? 'thread' : 'threads'} st
 // passed carries its checked merge command; the rest are read from the
 // reviews snapshot, so a sign-off or screenshot the check would still ask for
 // shows as "needs you" once everything else holds.
-export function prRows(reviews: PanelReviews, commands: PanelMergeCommand[]): PrRow[] {
+export function prRows(reviews: PanelReviews, commands: PanelMergeCommand[], isJudged = true): PrRow[] {
   const isMulti = new Set([...reviews.mine, ...reviews.waiting].map(p => p.repo)).size > 1
   return reviews.mine.map(p => {
     const ref = `${isMulti ? p.repo : ''}#${p.number} ${p.title}`
     const command = commands.find(c => c.repo === p.repo && c.number === p.number)?.command ?? null
     const row = (group: PrGroup, unmet: string): PrRow => ({ group, text: unmet ? `${ref} · ${unmet}` : ref, command })
-    if (command !== null) return row('ready', '')
+    // The snapshot is the fresher read: a verdict kept from before a CI run or
+    // a new thread does not stand over what the snapshot now shows.
     if (p.ci === 'red') return row('failed', 'CI failed')
     if (p.ci === 'running') return row('running', 'CI still running')
     if (p.unresolved > 0) return row('review', threads(p.unresolved))
+    if (command !== null) return row('ready', '')
     if (p.ci === 'none') return row('review', 'no CI reported yet')
     if (!p.isHeadReviewed) return row('review', 'head not reviewed yet')
+    if (!isJudged) return row('review', 'readiness not judged yet')
     return row('needs-you', p.isDraft ? 'a draft waiting for your yes' : 'waiting for your sign-off')
   })
 }
@@ -277,12 +278,16 @@ function PullRequests(t: Table, view: PanelView) {
     </Box>
   )
   if (!r.isAvailable) return card('Pull requests', <Text dimColor>{`Unavailable: ${r.reason || 'no reason given'}`}</Text>)
-  const rows = prRows(r, view.digest?.mergeCommands ?? [])
+  const d = view.digest
+  const isJudged = !d?.unreadable.includes('merge-ready store') && !d?.isMergeReadyPartial
+  const rows = prRows(r, d?.mergeCommands ?? [], isJudged)
   const total = Math.max(r.mineTotal ?? 0, r.mine.length)
+  // A stale snapshot shows its age; a fresh one needs no caption.
+  const stale = r.age !== null && r.age >= STALE_READ_S ? ` · read ${age(r.age)} ago` : ''
   return card(
-    `Pull requests (${total})`,
+    `Pull requests (${total})${stale}`,
     rows.length === 0 ? (
-      <Text dimColor>No open pull requests.</Text>
+      <Text dimColor>{total === 0 ? 'No open pull requests.' : `${total} open, none listed`}</Text>
     ) : (
       <>
         {PR_GROUPS.flatMap(g => {
@@ -319,7 +324,7 @@ function reviewRequests(t: Table, r: PanelReviews) {
 function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
   const { Box, Text } = t
   if (hasPictures(t, surface)) {
-    const g = spriteCells(mascotState(view), 0)
+    const g = spriteCells(mascotState(view), restFrame(mascotState(view)))
     return (
       <Box flexDirection="column" marginBottom={1}>
         <t.Raster key="prop-pal" columns={g.columns} rows={g.rows} cells={g.cells} />
@@ -338,11 +343,30 @@ function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
 // One row per item that waits on the operator: each session waiting on an
 // answer, then whatever the queue holds beyond them.
 function waitingRows(d: PanelDigest): string[] {
-  if (d.waiting === null) return ['unknown']
   const sessions = flightRows(d.flights).filter(r => r.state === 'waiting').map(r => r.text)
+  if (d.waiting === null) return [...sessions, 'unknown whether more wait on you']
   const rest = d.waiting - sessions.length
   const rows = [...sessions, ...(rest > 0 ? [`${rest} waiting on you, not in a session`] : [])]
   return rows.length === 0 ? ['Nothing waits on you.'] : rows
+}
+
+const HEADROOM_NAME: Record<string, string> = { sessions: 'Sessions running', polls_per_hour: 'Checks per hour' }
+
+// The low-signal facts, plainly worded, in one compact card: how much of each
+// limit is used, how often the session's context has been reset, and how
+// fresh mission control's notes are.
+function upkeep(view: PanelView): string[] {
+  const d = view.digest!
+  const notes = d.unreadable.includes('knowledge base')
+    ? 'Notes unreadable'
+    : d.kbAge == null
+      ? 'Notes not written yet'
+      : `Notes last updated ${age(d.kbAge)} ago`
+  return [
+    ...d.headroom.map(h => `${HEADROOM_NAME[h.dimension] ?? h.dimension.replace(/_/g, ' ')}: ${h.used} of ${h.limit} (${h.percent}%)`),
+    `Context resets since start: ${view.compactions}`,
+    notes,
+  ]
 }
 
 export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: RenderSurface = 'terminal') {
@@ -403,6 +427,13 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
       )}
       {PullRequests(t, view)}
       {d.reviews && reviewRequests(t, d.reviews)}
+      {Section(
+        t,
+        'Recent decisions',
+        d.decisions.slice(0, DECISIONS_SHOWN).map(x => `${x.time.slice(0, 16).replace('T', ' ')}  ${x.act || x.subject}`),
+        'No decisions recorded yet.',
+      )}
+      {Section(t, 'Limits and upkeep', upkeep(view))}
     </Box>
   )
 }

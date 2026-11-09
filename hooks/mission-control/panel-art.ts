@@ -61,11 +61,16 @@ const rigid = (dx: number, dy: number) => (x: number, y: number) => ({ x: LEFT +
 
 const BUMPS: [number, number][] = [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1]]
 const BANK = [0, 1, 2, 1, 0, -1, -2, -1]
-const DRIFT = [0, 1, 2, 1, 0, -1, -2, -1]
 const ROLL = [0, 0, 1, 1, 2, 2, 1, 1]
 const BOB = [0, -1, -1, 0, 0, 1, 1, 0]
 const DESCENT = [-4, -3, -2, -1, 0]
 const LANDED_AT = 6
+
+// The frame a still mascot (reduced motion) and a redrawn pane start from: a
+// landing's is its settled pose, never the middle of the descent.
+export const restFrame = (state: SpriteState): number => (state === 'landing' ? LANDED_AT : 0)
+// A landing plays once; past its settled pose a further frame draws nothing new.
+export const isSettled = (state: SpriteState, frame: number): boolean => state === 'landing' && frame > LANDED_AT
 
 function motion(state: SpriteState, frame: number): Motion {
   const blade = frame % 2 === 0 ? 'full' : 'short'
@@ -89,7 +94,7 @@ function motion(state: SpriteState, frame: number): Motion {
     }
     case 'circling': {
       const bank = at(BANK, frame)
-      const dx = at(DRIFT, frame)
+      const dx = at(BANK, frame)
       // The wing line tilts: the far end rises as the near end falls.
       const place = (x: number, y: number) => ({
         x: LEFT + dx + x,

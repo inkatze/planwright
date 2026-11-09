@@ -247,13 +247,27 @@ head40=0123456789abcdef0123456789abcdef01234567
   printf 'acme/web#9\tk\tready\t1\tsquash\t-\n'
   printf 'acme/web#10\t%s|x\tready\t1\tvaporize\t-\n' "$head40"
 } >"$runtime/merge-ready.tsv"
-mc_run mc-panel.sh digest --program alpha --now 1030
+mc_run mc-panel.sh digest --program alpha --now "$judged"
 record "a ready pull request carries its checked merge command" merge-command acme/web 7 "gh pr merge 7 --repo acme/web --squash --match-head-commit $head40"
 if [ "$(printf '%s\n' "$OUT" | grep -c '^merge-command')" = 1 ]; then
   ok "and only the well-formed ready rows do"
 else
   fail "a not-ready, headless or odd-method row carried a merge command"
 fi
+# A store the last judgment did not write as ok, or an old one, is unconfirmed:
+# its verdicts carry no command.
+{
+  printf 'state\tstale\t%s\n' "$judged"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+} >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh digest --program alpha --now "$judged"
+if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "a stale store carried a merge command"; else ok "a stale store carries no merge command"; fi
+{
+  printf 'state\tok\t%s\n' "$judged"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+} >"$runtime/merge-ready.tsv"
+mc_run mc-panel.sh digest --program alpha --now $((judged + 7200))
+if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "an old store carried a merge command"; else ok "an old store carries no merge command"; fi
 # A judgment that could not tell for every pull request gives a floor.
 {
   mr_rows ok
