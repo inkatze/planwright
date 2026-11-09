@@ -41,7 +41,7 @@ TABLE
 # the rules rather than taking a prompt from outside the install.
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/launch-rules.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
-mkdir "$tmp/install" || exit 1
+mkdir -p "$tmp/install" || exit 1
 printf 'Never use a loop.\n' >"$tmp/elsewhere.txt"
 ln -s "$tmp/elsewhere.txt" "$tmp/install/launch-shell-rules.txt"
 out=$("$root/scripts/launch-shell-rules.sh" "$tmp/install/settings.json" 2>/dev/null) || fail "the helper exited non-zero on a symlinked rules file"
@@ -49,7 +49,9 @@ out=$("$root/scripts/launch-shell-rules.sh" "$tmp/install/settings.json" 2>/dev/
 rm -f "$tmp/install/launch-shell-rules.txt"
 cp "$rules" "$tmp/install/launch-shell-rules.txt" || fail "cannot stage a regular rules file"
 out=$("$root/scripts/launch-shell-rules.sh" "$tmp/install/settings.json" 2>/dev/null) || fail "the helper exited non-zero on a regular rules file"
-[ -n "$out" ] || fail "the helper printed nothing for a regular rules file"
+want=$(tr -s '\r\n' '  ' <"$rules")
+want=${want% }
+[ "$out" = "$want" ] || fail "the helper did not print the regular rules file's text"
 
 [ "$rc" -eq 0 ] && echo "launch-shell-rules-parity: ok"
 exit "$rc"
