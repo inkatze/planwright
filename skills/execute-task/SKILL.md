@@ -181,7 +181,7 @@ whenever one exists):
    <backend>`: a backend that cannot spawn (`in-session` printed) runs the step
    in-session and records it with `step-record.sh write --degraded <reason>`
    (the reason it printed); a following `continue` attaches to the unit's
-   session; `continue` resumes the predecessor's id
+   session. Otherwise `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
    through `step-run.sh` (foreground, waited in-turn): `isolated` by
    `command`, session-hosted between `begin --owner $PPID`, whose printed
