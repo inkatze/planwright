@@ -48,6 +48,7 @@ call $.prompt.submit
 call $.session.usage
 call $.state.get
 call $.state.set
+call $.ui.blit
 call $.ui.close
 call $.ui.open
 call $.ui.panes

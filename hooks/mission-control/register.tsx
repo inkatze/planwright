@@ -2,9 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { PanelView } from '../../types'
-import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
+import { emptyView, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
 import type { Install } from './digest'
-import { Band, isMascotMoving, Pane } from './panel'
+import { spriteCells } from './panel-art'
+import { Band, bandText, isMascotMoving, mascotMode, mascotState, Pane } from './panel'
 
 const PANE = 'mission-control'
 const TITLE = 'Mission control'
@@ -306,7 +307,7 @@ async function refresh($: EngineInterface) {
       rateLimits: usage.rateLimits.map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
     }))
     const v = await view($)
-    if (v?.isFallback) $.ui.status(fallbackLine(v))
+    if (v?.isFallback) $.ui.status(bandText(v))
     await checkHandover($)
     if (!isClaimed) await claim($)
     await armTimers($)
@@ -378,19 +379,30 @@ async function tick($: EngineInterface) {
   await wake($, true)
 }
 
+// Where the pane last drew: the terminal paints Prop pal as a Raster, and a
+// blit repaints it in place; any other redraw of the pane would flash it.
+let paneSurface: string | null = null
+let mascotFrame = 0
+
 async function sweep($: EngineInterface) {
+  const v = await view($)
+  if (!v) return
+  if (paneSurface === 'terminal') {
+    mascotFrame += 1
+    const g = spriteCells(mascotState(v), mascotMode(v) === 2 ? mascotFrame : 0)
+    await $.ui.blit({ requestId: PANE, key: 'prop-pal', cells: g.cells }).catch(() => ({}))
+    return
+  }
   await patch($, x => ({ ...x, frame: x.frame + 1 }))
 }
 
-// The radar sweeps while a wake is held for a busy session, or while the
-// mascot has motion in a shown pane, so an idle or hidden panel costs no redraws.
+// The mascot animates only while it has motion in a shown pane, so an idle or
+// hidden panel costs nothing.
 async function syncRadar($: EngineInterface) {
   const v = await view($)
-  const held = v !== null && (await isHeld($, v))
   const isShown = v !== null && isMascotMoving(v) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
-  const moving = held || isShown
-  if (moving && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
-  if (!moving && radar) {
+  if (isShown && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
+  if (!isShown && radar) {
     radar.cancel()
     radar = null
   }
@@ -400,7 +412,7 @@ async function open($: EngineInterface) {
   const placed = await $.ui.open({ id: PANE, title: TITLE })
   await patch($, x => ({ ...x, isFallback: !placed.isPlaced }))
   const v = await view($)
-  if (v) $.ui.status(v.isFallback ? fallbackLine(v) : undefined)
+  if (v) $.ui.status(v.isFallback ? bandText(v) : undefined)
 }
 
 async function close($: EngineInterface) {
@@ -840,6 +852,7 @@ export const register: Register = on => {
     if (!ctx) return next(e)
     const v = await view($)
     if (!v) return next(e)
+    paneSurface = e.surface
     return Pane($.ui.resolve(e), v, await isHeld($, v), e.surface)
   })
 

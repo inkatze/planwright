@@ -118,6 +118,7 @@ export type World = {
   submitted: string[]
   statuses: (string | undefined)[]
   toasts: string[]
+  blits: { key: string; cells: string }[]
   opened: number
   closed: number
   commands: { name: string; description: string }[]
@@ -202,6 +203,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     submitted: [],
     statuses: [],
     toasts: [],
+    blits: [],
     opened: 0,
     closed: 0,
     commands: [],
@@ -259,6 +261,10 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
   on('ui.status', (_, e) => {
     w.statuses.push(e.text)
     return { value: undefined }
+  })
+  on('ui.blit', (_, e) => {
+    if ('cells' in e) w.blits.push({ key: e.key, cells: e.cells })
+    return { value: {} }
   })
   on('ui.toast', (_, e) => {
     w.toasts.push(e.text)
@@ -343,3 +349,7 @@ export async function boot($: Engine, w: World) {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await w.clock.settle()
 }
+
+// The strip's words, in order: its segments and their separators.
+export const bandOf = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) =>
+  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').join('')

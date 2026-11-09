@@ -2,8 +2,7 @@ import type { Elements, RenderSurface } from 'claude-code'
 
 import type { PanelDigest, PanelReviews, PanelView } from '../../types'
 import { age, counted, flightLines } from './digest'
-import { barPicture, COLOR, gaugesPicture, spriteCells } from './panel-art'
-import type { Instruments } from './panel-art'
+import { spriteCells } from './panel-art'
 
 type Table = Elements[RenderSurface]
 type PictureTable = Elements['terminal']
@@ -11,9 +10,6 @@ type PictureTable = Elements['terminal']
 // Only the terminal surface carries Raster and Image; elsewhere the text stands.
 // The resolved table answers `in` for any name, so the surface is what decides.
 const hasPictures = (t: Table, surface: RenderSurface): t is PictureTable => surface === 'terminal' && 'Raster' in t
-
-// A radar sweep, advanced only while a wake is held for a busy session.
-const SWEEP = ['◜', '◝', '◞', '◟']
 
 const DECISIONS_SHOWN = 3
 const WATCHERS_SHOWN = 4
@@ -45,10 +41,6 @@ function kbLine(view: PanelView): string {
   return `knowledge base ${d?.kbAge == null ? 'not written yet' : `${age(d.kbAge)} old`}`
 }
 
-function limits(view: PanelView): string {
-  return view.rateLimits.map(r => `${r.kind} ${Math.round(r.percentUsed)}%`).join(' · ')
-}
-
 // The pull requests ready to merge, a floor (`3+`) or `?` when some could
 // not be judged; null when there is nothing to say.
 function mergeReadyCount(d: PanelDigest): string | null {
@@ -58,106 +50,6 @@ function mergeReadyCount(d: PanelDigest): string | null {
   return n > 0 ? String(n) : null
 }
 
-const BAR_CELLS = 10
-// Past this a deferred compaction would risk the window itself.
-const CONTEXT_CEILING_PCT = 95
-const DIAL = ['○', '◔', '◑', '◕', '●']
-
-// A bar of filled cells; each mark, a percent, is drawn over the cell it falls in.
-function bar(percent: number, marks: number[] = []): string {
-  const clamped = Math.max(0, Math.min(100, percent))
-  const filled = Math.round((clamped / 100) * BAR_CELLS)
-  const cells = Array.from({ length: BAR_CELLS }, (_, i) => (i < filled ? '█' : '░'))
-  for (const m of marks) cells[Math.min(BAR_CELLS - 1, Math.floor((m / 100) * BAR_CELLS))] = '▲'
-  return `[${cells.join('')}]`
-}
-
-// A round dial: the quarter-filled circle nearest the fraction.
-function dial(fraction: number): string {
-  return DIAL[Math.max(0, Math.min(DIAL.length - 1, Math.round(fraction * (DIAL.length - 1))))]!
-}
-
-// The master caution lamp: lit for anything that needs the operator or is
-// out of bounds, with its reasons in words; unknown where nothing was read.
-export function cautionReasons(view: PanelView): string[] | null {
-  const d = view.digest
-  if (!d) return null
-  const why: string[] = []
-  if (d.waiting !== null && d.waiting > 0) why.push(`${d.waiting} waiting on you`)
-  if (view.handover) why.push('handover due')
-  const checks = new Set((d.health ?? []).map(h => h.check)).size
-  if (checks > 0) why.push(`${checks} health ${checks === 1 ? 'check' : 'checks'}`)
-  if (d.unreadable.length > 0) why.push(`${d.unreadable.length} unreadable`)
-  if (view.fault) why.push('fault')
-  if (why.length === 0 && d.waiting === null) return null
-  return why
-}
-
-// The instrument row, round and bar shapes alternating: usage left (bar),
-// host load (dial with a redline), memory (bar), context (altimeter with its
-// handover and window marks), caution lamp. Every one says its number and
-// its state in words, so none rests on colour.
-export function instrumentLines(view: PanelView): string[] {
-  const d = view.digest
-  const lines: string[] = []
-
-  if (view.rateLimits.length === 0) {
-    lines.push('Usage left   no limits reported')
-  } else {
-    const worst = view.rateLimits.reduce((a, b) => (b.percentUsed > a.percentUsed ? b : a))
-    const left = Math.max(0, 100 - Math.round(worst.percentUsed))
-    lines.push(`Usage left   ${bar(left)} ${left}% left of ${worst.kind.replace(/_/g, ' ')}`)
-  }
-
-  const host = d?.host
-  if (host?.load != null && host.cores != null) {
-    const ratio = host.load / 100 / host.cores
-    const state = ratio >= 1 ? 'REDLINE, overloaded' : ratio >= 0.7 ? 'busy' : 'ok'
-    lines.push(`Host load    ${dial(ratio)} ${(host.load / 100).toFixed(1)} on ${host.cores} cores, redline at ${host.cores}: ${state}`)
-  } else {
-    lines.push('Host load    unknown')
-  }
-
-  if (host?.memFreePercent != null) {
-    lines.push(`Memory       ${bar(host.memFreePercent)} ${host.memFreePercent}% available${host.memFreePercent < 10 ? ': LOW' : ''}`)
-  } else {
-    lines.push('Memory       unknown')
-  }
-
-  if (view.contextPercent === null) {
-    lines.push('Context      not measured')
-  } else {
-    const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
-    const marks = [...(handoverAt === undefined ? [] : [handoverAt]), CONTEXT_CEILING_PCT]
-    const notes = [
-      ...(handoverAt === undefined ? [] : [`hands over at ${handoverAt}%`]),
-      `window limit ${CONTEXT_CEILING_PCT}%`,
-    ]
-    lines.push(`Context      ${dial(view.contextPercent / 100)} ${bar(view.contextPercent, marks)} ${view.contextPercent}% used, ▲ ${notes.join(', ▲ ')}`)
-  }
-
-  const why = cautionReasons(view)
-  lines.push(
-    why === null ? 'Caution      ? unknown' : why.length === 0 ? 'Caution      ○ clear' : `Caution      ● LIT: ${why.join(', ')}`,
-  )
-  return lines
-}
-
-// The numbers the gauge picture draws, from the same readings the words say.
-export function instruments(view: PanelView): Instruments {
-  const d = view.digest
-  const worst = view.rateLimits.length === 0 ? null : view.rateLimits.reduce((a, b) => (b.percentUsed > a.percentUsed ? b : a))
-  const host = d?.host
-  const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
-  const why = cautionReasons(view)
-  return {
-    usageLeft: worst === null ? null : Math.max(0, 100 - Math.round(worst.percentUsed)),
-    load: host?.load != null && host.cores != null ? { ratio: host.load / 100 / host.cores } : null,
-    memory: host?.memFreePercent ?? null,
-    context: view.contextPercent === null ? null : { percent: view.contextPercent, handoverAt, windowAt: CONTEXT_CEILING_PCT },
-    caution: why === null ? 'unknown' : why.length === 0 ? 'clear' : 'lit',
-  }
-}
 
 // The usage stop is the percent admission holds launches at (the digest's
 // usage-hold knob, 0 when the stop is off); unread, it is unknown, never a default.
@@ -182,27 +74,58 @@ export function resetWord(iso: string | undefined, nowMs: number): string {
   return `resets ${isNear ? '' : `${DAYS[at.getDay()]} `}${clock}`
 }
 
-export function usageLines(view: PanelView, nowMs: number): { name: string; percent: number; text: string }[] {
+// Past this a deferred compaction would risk the window itself.
+const CONTEXT_CEILING_PCT = 95
+const LOW_MEMORY_PCT = 10
+
+export type Verdict = 'OK' | 'ACT' | 'UNKNOWN'
+export type Readout = { text: string; verdict: Verdict }
+
+const line = (text: string, verdict: Verdict): Readout => ({ text: `${text} · ${verdict}`, verdict })
+
+// One plain line per measure: a name, a value and a verdict. ACT only where
+// the operator must do something; the word carries it, never the colour.
+export function readouts(view: PanelView): Readout[] {
+  const d = view.digest
+  const out: Readout[] = []
   const stop = usageStop(view)
-  return view.rateLimits.map(r => {
+  for (const r of view.rateLimits) {
     const name = WINDOW_NAME[r.kind] ?? r.kind.replace(/_/g, ' ')
     const pct = Math.round(r.percentUsed)
-    const reset = resetWord(r.resetsAt, nowMs)
-    return { name, percent: r.percentUsed, text: `${name} ${pct}% used · ${stopWord(stop)}${reset ? ` · ${reset}` : ''}` }
-  })
+    out.push(
+      line(`${name[0]!.toUpperCase()}${name.slice(1)} usage ${pct}% · ${stopWord(stop)}`, typeof stop === 'number' && pct >= stop ? 'ACT' : 'OK'),
+    )
+  }
+  if (view.rateLimits.length === 0) out.push(line('Usage no limits reported', 'UNKNOWN'))
+
+  if (view.contextPercent === null) {
+    out.push(line('Context not measured', 'UNKNOWN'))
+  } else {
+    const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
+    const note = handoverAt === undefined ? '' : ` · hand over ${handoverAt}%`
+    const isDue = view.handover !== null || (handoverAt !== undefined && view.contextPercent >= handoverAt)
+    out.push(line(`Context ${view.contextPercent}%${note} · compacts at ${CONTEXT_CEILING_PCT}%`, isDue ? 'ACT' : 'OK'))
+  }
+
+  const host = d?.host
+  const cores = host?.cores ?? null
+  const load = host?.load != null && cores !== null ? host.load / 100 : null
+  const mem = host?.memFreePercent ?? null
+  if (load === null && mem === null) {
+    out.push(line('Machine load unknown, mem unknown', 'UNKNOWN'))
+  } else {
+    const isHot = (load !== null && cores !== null && load / cores >= 1) || (mem !== null && mem < LOW_MEMORY_PCT)
+    const loadWord = load === null ? 'unknown' : `${load.toFixed(1)}/${cores}`
+    out.push(
+      line(`Machine load ${loadWord}, mem ${mem === null ? 'unknown' : `${mem}%`}`, isHot ? 'ACT' : load === null || mem === null ? 'UNKNOWN' : 'OK'),
+    )
+  }
+
+  if (!d || d.waiting === null) out.push(line('Waiting on you unknown', 'UNKNOWN'))
+  else out.push(line(`Waiting on you ${d.waiting === 0 ? 'none' : d.waiting}`, d.waiting > 0 ? 'ACT' : 'OK'))
+  return out
 }
 
-// The context line says what the bar's marks are, in words.
-export function contextLine(view: PanelView): string {
-  if (view.contextPercent === null) return 'Context not measured'
-  const d = view.digest
-  const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
-  return [
-    `Context ${view.contextPercent}% used`,
-    ...(handoverAt === undefined ? [] : [`hands over at ${handoverAt}%`]),
-    `compacts at ${CONTEXT_CEILING_PCT}%`,
-  ].join(' · ')
-}
 
 export type MascotState = 'bumpy' | 'circling' | 'landing' | 'cruising' | 'taxiing'
 // The mascot knob: 0 off, 1 a still frame (reduced motion), 2 animated.
@@ -270,36 +193,57 @@ export function mascotLines(view: PanelView): string[] {
   }
 }
 
-export function bandText(view: PanelView): string {
+export type Part = { text: string; tone?: 'ask' | 'merge' | 'alert' }
+
+// The status strip: what needs the operator first, then the two limits that
+// bound the work. Nothing waiting is said as such, never left blank.
+export function stripParts(view: PanelView): Part[] {
   const d = view.digest
-  const parts = [`✈ ${view.program}`]
-  if (d) {
-    parts.push(`${flightCount(view)} in flight`, `${d.waiting ?? '?'} holding`)
-    const toMerge = mergeReadyCount(d)
-    if (toMerge !== null) parts.push(`${toMerge} to merge`)
-    if (d.pending !== null && d.pending > 0) parts.push(`${d.pending} inbound`)
-    parts.push(`rung ${d.rung.name}`)
-    // A check can say both what is past its bound and what it cannot tell.
-    const checks = new Set((d.health ?? []).map(h => h.check)).size
-    if (checks > 0) parts.push(`⚠ health ${checks}`)
+  const parts: Part[] = []
+  if (!d) {
+    parts.push({ text: view.fault ? `no reading: ${view.fault}` : 'no reading yet', tone: view.fault ? 'alert' : undefined })
   } else {
-    parts.push(view.fault ? `no reading: ${view.fault}` : 'no reading yet')
+    if (d.waiting === null) parts.push({ text: '? waiting unknown', tone: 'alert' })
+    else if (d.waiting > 0) parts.push({ text: `? ${d.waiting} waiting on you`, tone: 'ask' })
+    const toMerge = mergeReadyCount(d)
+    if (toMerge !== null) parts.push({ text: `${toMerge} ready to merge`, tone: 'merge' })
+    const checks = new Set((d.health ?? []).map(h => h.check)).size
+    if (checks > 0) parts.push({ text: `⚠ ${checks} health ${checks === 1 ? 'check' : 'checks'}`, tone: 'alert' })
+    if (parts.length === 0) parts.push({ text: 'all clear' })
   }
-  if (view.contextPercent !== null) parts.push(`ctx ${view.contextPercent}%`)
-  const rl = limits(view)
-  if (rl) parts.push(rl)
-  if (view.handover) parts.push('handover due')
-  return parts.join(' · ')
+  const stop = usageStop(view)
+  const stopNote = typeof stop === 'number' ? ` (stop ${stop}%)` : ''
+  if (view.rateLimits.length > 0) {
+    const worst = view.rateLimits.reduce((a, b) => (b.percentUsed > a.percentUsed ? b : a))
+    parts.push({ text: `${WINDOW_NAME[worst.kind] ?? worst.kind.replace(/_/g, ' ')} ${Math.round(worst.percentUsed)}%${stopNote}` })
+  }
+  if (view.contextPercent !== null) parts.push({ text: `context ${view.contextPercent}%` })
+  if (view.handover) parts.push({ text: 'handover due', tone: 'alert' })
+  return parts
 }
+
+export const bandText = (view: PanelView): string => stripParts(view).map(p => p.text).join(' · ')
+
+// The approved render's strip and card tints.
+const STRIP_BG = '#1d2230'
+const CARD_BG = '#141821'
+
+const TONE_COLOR = { ask: 'warning', merge: 'success', alert: 'error' } as const
 
 export function Band(t: Table, view: PanelView, isHeld: boolean) {
   const { Box, Text } = t
+  const parts = stripParts(view)
   return (
-    <Box flexDirection="row">
-      {isHeld && <Text color="warning">{SWEEP[view.frame % SWEEP.length]} </Text>}
-      <Text dimColor={!isHeld && !view.handover}>
-        {bandText(view)}
-      </Text>
+    <Box flexDirection="row" paddingX={1} backgroundColor={STRIP_BG}>
+      {isHeld && <Text color="warning">◷ wake held · </Text>}
+      {parts.map((p, i) => (
+        <Box flexDirection="row">
+          {i > 0 && <Text dimColor> · </Text>}
+          <Text bold={p.tone !== undefined} color={p.tone ? TONE_COLOR[p.tone] : undefined}>
+            {p.text}
+          </Text>
+        </Box>
+      ))}
     </Box>
   )
 }
@@ -307,7 +251,7 @@ export function Band(t: Table, view: PanelView, isHeld: boolean) {
 function Section(t: Table, title: string, rows: string[], empty = '') {
   const { Box, Text } = t
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginBottom={1} paddingX={1} backgroundColor={CARD_BG}>
       <Text bold>{title}</Text>
       {rows.length === 0 ? <Text dimColor>{empty}</Text> : rows.map(r => <Text>{r}</Text>)}
     </Box>
@@ -366,7 +310,7 @@ function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
   const { Box, Text } = t
   const word = <Text color={mascotState(view) === 'bumpy' ? 'warning' : undefined}>{mascotWord(view)}</Text>
   if (hasPictures(t, surface)) {
-    const g = spriteCells(mascotState(view), mascotMode(view) === 2 ? view.frame : 0)
+    const g = spriteCells(mascotState(view), 0)
     return (
       <Box flexDirection="column" marginBottom={1}>
         <t.Raster key="prop-pal" columns={g.columns} rows={g.rows} cells={g.cells} />
@@ -383,83 +327,6 @@ function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
   )
 }
 
-// The wake animation redraws twice a second; the instruments move far slower,
-// so the last picture stands while its readings do.
-let lastGauges: { key: string; picture: ReturnType<typeof gaugesPicture> } | null = null
-function gaugesFor(i: Instruments) {
-  const key = JSON.stringify(i)
-  if (lastGauges?.key !== key) lastGauges = { key, picture: gaugesPicture(i) }
-  return lastGauges.picture
-}
-
-const GAUGE_COLUMNS = 56
-const GAUGE_ROWS = 5
-
-// The five instruments as one picture; the words below say the same numbers.
-function Gauges(t: PictureTable, view: PanelView) {
-  const { Box } = t
-  const g = gaugesFor(instruments(view))
-  return (
-    <Box flexDirection="column">
-      <t.Image
-        key="gauges"
-        source={{ rgba: g.rgba, width: g.width, height: g.height }}
-        columns={GAUGE_COLUMNS}
-        rows={GAUGE_ROWS}
-        alt="Instruments: usage left, host load, memory, context, caution; read below"
-      />
-    </Box>
-  )
-}
-
-const BAR_COLUMNS = 56
-
-// The context bar with its handover and compaction marks, and each usage
-// window with its stop line and reset time. Each says its numbers in words;
-// the bar is the picture of them, and marks differ by position and label.
-function Meters(t: Table, view: PanelView, surface: RenderSurface) {
-  const { Box, Text } = t
-  const d = view.digest
-  const isPic = hasPictures(t, surface)
-  const handoverAt = d?.holder === 'registry' ? d.knobs['handover-context'] : undefined
-  const windows = usageLines(view, Date.now())
-  const stop = usageStop(view)
-  const stopMark = typeof stop === 'number' ? [{ at: stop, color: COLOR.red }] : []
-  return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text bold>Context</Text>
-      <Text>{contextLine(view)}</Text>
-      {isPic && view.contextPercent !== null && (
-        <t.Image
-          key="context-bar"
-          source={barPicture(view.contextPercent, COLOR.blue, [
-            ...(handoverAt === undefined ? [] : [{ at: handoverAt, color: COLOR.yellow }]),
-            { at: CONTEXT_CEILING_PCT, color: COLOR.red },
-          ])}
-          columns={BAR_COLUMNS}
-          rows={1}
-          alt={bar(view.contextPercent, [CONTEXT_CEILING_PCT])}
-        />
-      )}
-      <Text bold>Usage</Text>
-      {windows.length === 0 && <Text dimColor>No limits reported.</Text>}
-      {windows.map(w => (
-        <Box flexDirection="column">
-          <Text>{w.text}</Text>
-          {isPic && (
-            <t.Image
-              key={`usage-${w.name}`}
-              source={barPicture(w.percent, typeof stop === 'number' && w.percent >= stop ? COLOR.red : w.percent >= 70 ? COLOR.yellow : COLOR.blue, stopMark)}
-              columns={BAR_COLUMNS}
-              rows={1}
-              alt={bar(w.percent, typeof stop === 'number' ? [stop] : [])}
-            />
-          )}
-        </Box>
-      ))}
-    </Box>
-  )
-}
 
 export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: RenderSurface = 'terminal') {
   const { Box, Text } = t
@@ -473,10 +340,8 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
     )
   }
   const tight = headroomTight(view)
-  const rl = limits(view)
   const health = d.health ?? []
   const instruments = [
-    `context ${view.contextPercent === null ? 'not measured' : `${view.contextPercent}%`}${rl ? ` · ${rl}` : ''}`,
     `compactions since start ${view.compactions} · wakes ${view.wakes}`,
     kbLine(view),
     ...d.measures.map(m =>
@@ -488,7 +353,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
     <Box flexDirection="column">
       <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
         <Text bold>✈ Mission control · {view.program}</Text>
-        {isHeld && <Text color="warning">{SWEEP[view.frame % SWEEP.length]} wake held</Text>}
+        {isHeld && <Text color="warning">◷ wake held</Text>}
       </Box>
       {view.handover && (
         <Text color="warning">
@@ -510,6 +375,12 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
             <Text color={check.count === null ? 'error' : 'warning'}>{check.text}</Text>
           ))}
         </Box>
+      )}
+      {mascotMode(view) !== 0 && Mascot(t, view, surface)}
+      {Section(
+        t,
+        'Right now',
+        readouts(view).map(r => r.text),
       )}
       {Section(
         t,
@@ -555,10 +426,6 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
         d.sources.map(s => `${s.cls}: ${s.source === '-' ? 'none' : s.source} ${s.mode}${s.age === null ? '' : `, ${age(s.age)} old`}`),
         'No source map.',
       )}
-      {mascotMode(view) !== 0 && Mascot(t, view, surface)}
-      {hasPictures(t, surface) && Gauges(t, view)}
-      {Section(t, 'Cockpit', instrumentLines(view))}
-      {Meters(t, view, surface)}
       {Section(t, 'Instruments', instruments)}
     </Box>
   )

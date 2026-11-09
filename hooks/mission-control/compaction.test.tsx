@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BAND, boot, digestText, done, PANE, ran, turn, world } from './fixture'
+import { BAND, bandOf, boot, digestText, done, PANE, ran, turn, world } from './fixture'
 
 // A session mission control launched itself: only it hands over.
 const LAUNCHED = digestText({ holder: 'registry' })
@@ -82,7 +82,7 @@ test('measured context at the threshold raises the handover, on every surface it
   expect(await pane.find({ type: 'Text', text: /^Handover due: context at 70%$/ })).toBeDefined()
   await pane.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /✈/ }))?.text).toMatch(/handover due$/)
+  expect((await bandOf(band))).toMatch(/handover due$/)
   await band.unmount()
   await w.clock.advance(10_000)
   expect(ran(w, 'mc-event.sh', 'emit')).toHaveLength(1)
@@ -150,7 +150,7 @@ test('an attended session past every trigger raises no handover', async ($, on) 
   expect(await pane.find({ type: 'Text', text: /Handover due/ })).toBeUndefined()
   await pane.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /✈/ }))?.text).not.toMatch(/handover/)
+  expect((await bandOf(band))).not.toMatch(/handover/)
   await band.unmount()
 })
 
