@@ -90,6 +90,12 @@ launch --operator-asked takes past the hold is recorded first, as a
 usage-bypass event the reset's report names; one that cannot be recorded
 is refused.
 
+Every kind but mission-control is also held by the host-wide bound,
+fleet_host_max_live_workers: the live sessions of every program in the
+shared registry, mission-control sessions left out. The refusal names each
+program and how many it holds; --operator-asked goes past it, recorded
+first as a host-cap-bypass event.
+
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
 machinery creates one in the repository holding --repo (default: the
@@ -912,6 +918,29 @@ cmd_launch() {
     die "$1" "$2"
   }
 
+  # The host-wide bound counts every program's live sessions in this shared
+  # registry, the reservation just written included in the registry but not
+  # in the count; mission-control sessions are never counted or held.
+  if [ "$kind" != mission-control ]; then
+    hc_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
+      || refuse "refusing to launch $name: fleet_host_max_live_workers cannot be resolved to a number or off" 4
+    if [ "$hc_limit" != off ]; then
+      hc_held=$(host_live_counts "$name")
+      hc_total=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $2 } END { print n + 0 }')
+      if [ "$hc_total" -ge "$hc_limit" ]; then
+        hc_who=$(printf '%s\n' "$hc_held" | awk -F '\t' 'NF { printf "%s%s %s", (c++ ? ", " : ""), $1, $2 }')
+        hc_why="this host already runs $hc_total live sessions across programs (${hc_who:-none}), at the host-wide bound of $hc_limit (fleet_host_max_live_workers)"
+        if [ "$operator_asked" -eq 1 ]; then
+          /bin/bash "$script_dir/mc-event.sh" emit --program "$program" -- host-cap-bypass "$name" \
+            "allowed past the host-wide bound because the operator asked ($hc_why)" </dev/null >/dev/null 2>&1 \
+            || refuse "refusing to launch $name past the host-wide bound: the bypass could not be recorded (mc-event.sh emit)" 4
+        else
+          refuse "refusing to launch $name: $hc_why; retire a finished session or wait for one to end, or pass --operator-asked for work the operator asked for" 4
+        fi
+      fi
+    fi
+  fi
+
   if changes_repo "$kind"; then
     place_worktree
     case $cwd in
@@ -1282,6 +1311,27 @@ cmd_retire() {
   fi
   printf 'retire\t%s\tpartial\treleased=%s\theld=%s\n' "$name" "${released:--}" "$held"
   return 1
+}
+
+# host_live_counts <own-name> — one "<program><TAB><count>" line per program
+# holding registered non-mission-control sessions in the shared registry,
+# the named session's own row left out. A remote host's sessions sit in that
+# host's registry (scripts/fleet-remote.sh), so they are never counted here.
+host_live_counts() {
+  hl_own=$1
+  hl_rows=''
+  set +f
+  set -- "$REG"/mc-*
+  set -f
+  for f in "$@"; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    case ${f##*/} in *.tmp.* | "$hl_own") continue ;; esac
+    row_format_ok "$f" || continue
+    [ "$(row_get "$f" kind)" != mission-control ] || continue
+    hl_rows="$hl_rows$(row_get "$f" program)
+"
+  done
+  printf '%s' "$hl_rows" | awk 'NF { c[$1]++ } END { for (p in c) printf "%s\t%d\n", p, c[p] }' | sort
 }
 
 cmd_list() {
