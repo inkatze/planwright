@@ -236,3 +236,6 @@ deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); S+=/..
 deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); v=S; printf -v $v /etc; : > "$S/passwd"
 deny	settings-write	bash	-	settings or configuration file	echo "$(sed -ibak s/x/y/ $F)"
 deny	settings-write	bash	-	settings or configuration file	echo "$(c\p /tmp/a $F)"
+deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); v=S; : > "${!v}/x"
+defer	read	bash	-	-	echo '$(cp /a /b)'
+deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); S+=/etc; : > "$S/x"

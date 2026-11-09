@@ -4185,7 +4185,7 @@ mc_scratch_var() {
   [[ $n =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
   re_asg="(^|[^[:alnum:]_])$n="
   re_other="(read|for|local|declare|typeset|mapfile|readarray|unset|printf[[:space:]]+-v)[^;&|]*[^[:alnum:]_]$n([^[:alnum:]_]|\$)"
-  [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ (^|[^[:alnum:]_])$n\+= ]] && return 1
+  [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ (^|[^[:alnum:]_])$n[+]= ]] && return 1
   [[ $t =~ $re_asg ]] || return 1
   before=${t%%"${BASH_REMATCH[0]}"*}
   rest=${t#*"${BASH_REMATCH[0]}"}
@@ -4256,7 +4256,7 @@ mc_named_outside_messages() {
 # under a data place, is no write. A relative name after a cd into a posture
 # directory is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r si=0 named=0 w m verb sedscript inplace
+  local t=$1 r si=0 k named=0 w m verb sedscript inplace
   MC_CMD=$t
   mc_settings_named "$t" && named=1
   case $t in
@@ -4305,9 +4305,10 @@ mc_settings_screen() {
     fi
   fi
   # A write verb inside a substitution runs, though no segment names it.
-  for w in "${W[@]}"; do
-    case $w in
-      *'$('* | *'`'*) [[ ${w//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY" ;;
+  for k in "${!W[@]}"; do
+    [ "${WL[$k]}" != 1 ] || continue
+    case ${W[$k]} in
+      *'$('* | *'`'*) [[ ${W[$k]//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY" ;;
     esac
   done
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
