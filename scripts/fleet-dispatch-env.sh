@@ -573,7 +573,7 @@ if [ -n "$opt_record" ]; then
   PLANWRIGHT_WORKER_SESSION_RECORD=$opt_record
   export PLANWRIGHT_WORKER_SESSION_RECORD
 fi
-if [ -n "$opt_record" ] && [ -z "${LEFTHOOK_EXCLUDE:-}" ]; then
+if [ -n "$opt_record" ] && [ -z "${LEFTHOOK_EXCLUDE+x}" ]; then
   he=$(sed -n 's/^hook_exclude=//p' "$opt_record" 2>/dev/null | head -n 1)
   case $he in
     '' | *[!A-Za-z0-9_,-]* | ,* | *, | *,,*) ;;

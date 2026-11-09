@@ -328,6 +328,9 @@ row	scratch	defer	defer	allow	allow	mktemp -d
 row	scratch	defer	defer	allow	allow	mktemp -d "$TMPDIR/work.XXXXXX"
 row	scratch	defer	defer	defer	defer	mktemp -d /tmp/work.XXXXXX
 row	scratch	defer	defer	defer	defer	mktemp /tmp/fixed-name
+row	scratch	defer	defer	defer	defer	mktemp -d -p /etc XXXXXX
+row	scratch	defer	defer	defer	defer	mktemp --tmpdir=/etc XXXXXX
+row	scratch	defer	defer	defer	defer	mktemp -t XXXXXX
 row	scratch	defer	defer	defer	defer	touch /tmp/fixed-name
 row	scratch	defer	defer	defer	defer	echo hi > /tmp/fixed-name
 row	scratch	defer	defer	allow	allow	printf 'x\n' > $TMPDIR/msg.txt
