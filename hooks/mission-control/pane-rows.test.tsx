@@ -20,8 +20,9 @@ const PRS = [
   tab('merge-command', 'acme/widgets', 1, CMD),
 ]
 
+// Whitespace-only Texts are the painted margins and fill of a card row, not content.
 const rows = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) =>
-  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
+  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').filter(l => l.trim() !== '')
 
 test('pull requests are listed by title, grouped by where they stand against the ready conditions', async ($, on) => {
   const w = world(on, { digest: digestText({ extra: PRS }) })
@@ -33,7 +34,8 @@ test('pull requests are listed by title, grouped by where they stand against the
   expect(order.every(i => i > -1)).toBe(true)
   expect([...order].sort((a, b) => a - b)).toEqual(order)
   expect(t).toContain('#1 Ship the widget')
-  expect(t).toContain(`run: ${CMD}`)
+  // A long command wraps across rows, so it is read back joined.
+  expect(t.join(' ')).toContain(`run: ${CMD}`)
   expect(t).toContain('#2 Draft the gadget · a draft waiting for your yes')
   expect(t).toContain('#3 Rework the docs · 2 review threads still open')
   expect(t).toContain('#4 Tune the cache · CI still running')
@@ -86,9 +88,9 @@ test('waiting on you is one row per item, not a count', async ($, on) => {
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
-  expect(t).toContain('spec draft · waiting for an answer')
-  expect(t).toContain('spec kickoff · waiting for an answer')
-  expect(t.filter(l => /waiting for an answer/.test(l))).toHaveLength(4)
+  expect(t).toContain('spec draft · panel · waiting for an answer')
+  expect(t).toContain('spec kickoff · alpha · waiting for an answer')
+  expect(t.filter(l => /waiting for an answer/.test(l))).toHaveLength(2)
   await ui.unmount()
 })
 
@@ -105,8 +107,8 @@ test('in flight is one row per session', async ($, on) => {
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
-  expect(t.filter(l => l === 'spec task · working')).toHaveLength(2)
-  expect(t).toContain('one-off change · working')
+  expect(t.filter(l => l === 'spec task · alpha · working')).toHaveLength(2)
+  expect(t).toContain('one-off change · docs · working')
   expect(t).toContain('In flight (3)')
   await ui.unmount()
 })

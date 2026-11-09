@@ -24,7 +24,7 @@ function flightCount(view: PanelView): string {
   // attention store an idle session reads live, so there may be fewer.
   const isFloor = d.unreadable.includes('tmux windows')
   const isCeiling = d.unreadable.includes('attention store')
-  const n = d.flights.length
+  const n = d.flights.filter(f => f.state !== 'waiting').length
   return isFloor && isCeiling ? '?' : isFloor ? `${n}+` : isCeiling ? `up to ${n}` : String(n)
 }
 
@@ -202,31 +202,90 @@ const STRIP_BG = '#1d2230'
 const CARD_BG = '#141821'
 
 const TONE_COLOR = { ask: 'warning', merge: 'success', alert: 'error' } as const
+type TextColor = (typeof TONE_COLOR)[keyof typeof TONE_COLOR]
+type LineStyle = { bold?: boolean; dimColor?: boolean; color?: TextColor }
 
-export function Band(t: Table, view: PanelView, isHeld: boolean) {
+// A Text paints only the cells it holds, so a short row would leave a gap in
+// its card's colour. Every row therefore carries its colour across the whole
+// width, a one-cell margin each side, and wraps at the word boundary inside it.
+const cellsOf = (s: string): number => [...s].length
+
+export function wrapRows(text: string, inner: number): string[] {
+  const rows: string[] = []
+  let cur = ''
+  for (const word of text.split(' ')) {
+    let rest = word
+    while (cellsOf(rest) > inner) {
+      if (cur !== '') {
+        rows.push(cur)
+        cur = ''
+      }
+      rows.push([...rest].slice(0, inner).join(''))
+      rest = [...rest].slice(inner).join('')
+    }
+    const next = cur === '' ? rest : `${cur} ${rest}`
+    if (cellsOf(next) <= inner) cur = next
+    else {
+      rows.push(cur)
+      cur = rest
+    }
+  }
+  rows.push(cur)
+  return rows
+}
+
+function Painted(t: Table, text: string, width: number, bg: string, style: LineStyle = {}) {
   const { Box, Text } = t
-  const parts = stripParts(view)
+  return wrapRows(text, width - 2).map(row => (
+    <Box flexDirection="row" backgroundColor={bg}>
+      <Text backgroundColor={bg}>{' '}</Text>
+      <Text backgroundColor={bg} bold={style.bold} dimColor={style.dimColor} color={style.color}>
+        {row}
+      </Text>
+      <Text backgroundColor={bg}>{' '.repeat(width - 1 - cellsOf(row))}</Text>
+    </Box>
+  ))
+}
+
+type CardLine = { text: string } & LineStyle
+
+function Card(t: Table, width: number, title: string, lines: CardLine[]) {
+  const { Box } = t
   return (
-    <Box flexDirection="row" paddingX={1} backgroundColor={STRIP_BG}>
-      {isHeld && <Text color="warning">◷ wake held · </Text>}
-      {parts.map((p, i) => (
-        <Box key={p.text} flexDirection="row">
-          {i > 0 && <Text dimColor> · </Text>}
-          <Text bold={p.tone !== undefined} color={p.tone ? TONE_COLOR[p.tone] : undefined}>
-            {p.text}
-          </Text>
-        </Box>
-      ))}
+    <Box flexDirection="column" marginBottom={1} backgroundColor={CARD_BG}>
+      {Painted(t, title, width, CARD_BG, { bold: true })}
+      {lines.flatMap(l => Painted(t, l.text, width, CARD_BG, l))}
     </Box>
   )
 }
 
-function Section(t: Table, title: string, rows: string[], empty = '') {
+function Section(t: Table, width: number, title: string, rows: string[], empty = '') {
+  return Card(
+    t,
+    width,
+    title,
+    rows.length === 0 ? [{ text: empty, dimColor: true }] : rows.map(text => ({ text })),
+  )
+}
+
+export function Band(t: Table, view: PanelView, isHeld: boolean, width: number) {
   const { Box, Text } = t
+  const segments: ({ text: string } & LineStyle)[] = []
+  if (isHeld) segments.push({ text: '◷ wake held · ', color: 'warning' })
+  stripParts(view).forEach((p, i) => {
+    if (i > 0) segments.push({ text: ' · ', dimColor: true })
+    segments.push({ text: p.text, bold: p.tone !== undefined, color: p.tone ? TONE_COLOR[p.tone] : undefined })
+  })
+  const used = 1 + segments.reduce((n, s) => n + cellsOf(s.text), 0)
   return (
-    <Box flexDirection="column" marginBottom={1} paddingX={1} backgroundColor={CARD_BG}>
-      <Text bold>{title}</Text>
-      {rows.length === 0 ? <Text dimColor>{empty}</Text> : rows.map(r => <Text>{r}</Text>)}
+    <Box flexDirection="row" backgroundColor={STRIP_BG}>
+      <Text backgroundColor={STRIP_BG}>{' '}</Text>
+      {segments.map((s, i) => (
+        <Text key={i} backgroundColor={STRIP_BG} bold={s.bold} dimColor={s.dimColor} color={s.color}>
+          {s.text}
+        </Text>
+      ))}
+      <Text backgroundColor={STRIP_BG}>{' '.repeat(Math.max(0, width - used))}</Text>
     </Box>
   )
 }
@@ -267,51 +326,45 @@ export function prRows(reviews: PanelReviews, commands: PanelMergeCommand[], isJ
   })
 }
 
-function PullRequests(t: Table, view: PanelView) {
-  const { Box, Text } = t
+function PullRequests(t: Table, view: PanelView, width: number) {
   const r = view.digest?.reviews
   if (!r) return null
-  const card = (title: string, children: unknown) => (
-    <Box flexDirection="column" marginBottom={1} paddingX={1} backgroundColor={CARD_BG}>
-      <Text bold>{title}</Text>
-      {children}
-    </Box>
-  )
-  if (!r.isAvailable) return card('Pull requests', <Text dimColor>{`Unavailable: ${r.reason || 'no reason given'}`}</Text>)
+  if (!r.isAvailable) {
+    return Card(t, width, 'Pull requests', [{ text: `Unavailable: ${r.reason || 'no reason given'}`, dimColor: true }])
+  }
   const d = view.digest
   const isJudged = !d?.unreadable.includes('merge-ready store') && !d?.isMergeReadyPartial
   const rows = prRows(r, d?.mergeCommands ?? [], isJudged)
   const total = Math.max(r.mineTotal ?? 0, r.mine.length)
   // A stale snapshot shows its age; a fresh one needs no caption.
   const stale = r.age !== null && r.age >= STALE_READ_S ? ` · read ${age(r.age)} ago` : ''
-  return card(
-    `Pull requests (${total})${stale}`,
-    rows.length === 0 ? (
-      <Text dimColor>{total === 0 ? 'No open pull requests.' : `${total} open, none listed`}</Text>
-    ) : (
-      <>
-        {PR_GROUPS.flatMap(g => {
-          const inGroup = rows.filter(x => x.group === g.id)
-          if (inGroup.length === 0) return []
-          return [
-            <Text bold>{g.title}</Text>,
-            ...inGroup.flatMap(x => [<Text>{x.text}</Text>, ...(x.command ? [<Text>{`run: ${x.command}`}</Text>] : [])]),
-          ]
-        })}
-        {total > rows.length && <Text dimColor>{`+${total - rows.length} more`}</Text>}
-      </>
-    ),
-  )
+  const title = `Pull requests (${total})${stale}`
+  if (rows.length === 0) {
+    return Card(t, width, title, [{ text: total === 0 ? 'No open pull requests.' : `${total} open, none listed`, dimColor: true }])
+  }
+  const lines: CardLine[] = []
+  for (const g of PR_GROUPS) {
+    const inGroup = rows.filter(x => x.group === g.id)
+    if (inGroup.length === 0) continue
+    lines.push({ text: g.title, bold: true })
+    for (const x of inGroup) {
+      lines.push({ text: x.text })
+      if (x.command) lines.push({ text: `run: ${x.command}` })
+    }
+  }
+  if (total > rows.length) lines.push({ text: `+${total - rows.length} more`, dimColor: true })
+  return Card(t, width, title, lines)
 }
 
 // The pull requests waiting on the operator's own review.
-function reviewRequests(t: Table, r: PanelReviews) {
+function reviewRequests(t: Table, r: PanelReviews, width: number) {
   if (!r.isAvailable) return null
   const isMulti = new Set([...r.mine, ...r.waiting].map(p => p.repo)).size > 1
   const total = Math.max(r.waitingTotal ?? 0, r.waiting.length)
   const shown = r.waiting.slice(0, REVIEWS_SHOWN).map(p => `${isMulti ? p.repo : ''}#${p.number} ${p.title} · from ${p.requester} · ${age(p.age)}`)
   return Section(
     t,
+    width,
     `Waiting on my review (${total})`,
     total > shown.length ? [...shown, `+${total - shown.length} more`] : shown,
     'Nothing waiting on your review.',
@@ -342,12 +395,29 @@ function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
 
 // One row per item that waits on the operator: each session waiting on an
 // answer, then whatever the queue holds beyond them.
-function waitingRows(d: PanelDigest): string[] {
-  const sessions = flightRows(d.flights).filter(r => r.state === 'waiting').map(r => r.text)
+function waitingRows(view: PanelView): string[] {
+  const d = view.digest!
+  const sessions = flightRows(d.flights, view.program).filter(r => r.state === 'waiting').map(r => r.text)
   if (d.waiting === null) return [...sessions, 'unknown whether more wait on you']
   const rest = d.waiting - sessions.length
   const rows = [...sessions, ...(rest > 0 ? [`${rest} waiting on you, not in a session`] : [])]
   return rows.length === 0 ? ['Nothing waits on you.'] : rows
+}
+
+// The pull requests the readiness check passed, each named; the count stands
+// where they cannot all be named.
+function readyRows(view: PanelView): string[] {
+  const d = view.digest!
+  const toMerge = mergeReadyCount(d)
+  if (toMerge === null) return []
+  const commands = d.mergeCommands ?? []
+  const isNamed = !d.isMergeReadyPartial && !d.unreadable.includes('merge-ready store') && commands.length === d.mergeReady
+  if (!isNamed) return [`${toMerge} ready to merge`]
+  const isMulti = new Set(commands.map(c => c.repo)).size > 1
+  return commands.map(c => {
+    const pr = d.reviews?.mine.find(p => p.repo === c.repo && p.number === c.number)
+    return `${isMulti ? `${c.repo} ` : ''}#${c.number}${pr ? ` ${pr.title}` : ''} · ready to merge`
+  })
 }
 
 const HEADROOM_NAME: Record<string, string> = { sessions: 'Sessions running', polls_per_hour: 'Checks per hour' }
@@ -369,7 +439,7 @@ function upkeep(view: PanelView): string[] {
   ]
 }
 
-export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: RenderSurface = 'terminal') {
+export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: RenderSurface, width: number) {
   const { Box, Text } = t
   const d = view.digest
   if (!d) {
@@ -381,7 +451,6 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
     )
   }
   const health = d.health ?? []
-  const toMerge = mergeReadyCount(d)
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
@@ -410,30 +479,28 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
         </Box>
       )}
       {mascotMode(view) !== 0 && Mascot(t, view, surface)}
+      {Section(t, width, 'Right now', readouts(view).map(r => r.text))}
+      {Section(t, width, 'Waiting on you', [...waitingRows(view), ...readyRows(view)])}
       {Section(
         t,
-        'Right now',
-        readouts(view).map(r => r.text),
-      )}
-      {Section(t, 'Waiting on you', [...waitingRows(d), ...(toMerge === null ? [] : [`${toMerge} ready to merge`])])}
-      {Section(
-        t,
+        width,
         `In flight (${flightCount(view)})`,
         [
-          ...flightRows(d.flights).map(r => r.text),
+          ...flightRows(d.flights, view.program).filter(r => r.state !== 'waiting').map(r => r.text),
           ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
         ],
         d.unreadable.includes('tmux windows') ? '' : 'Nothing in flight.',
       )}
-      {PullRequests(t, view)}
-      {d.reviews && reviewRequests(t, d.reviews)}
+      {PullRequests(t, view, width)}
+      {d.reviews && reviewRequests(t, d.reviews, width)}
       {Section(
         t,
+        width,
         'Recent decisions',
         d.decisions.slice(0, DECISIONS_SHOWN).map(x => `${x.time.slice(0, 16).replace('T', ' ')}  ${x.act || x.subject}`),
         'No decisions recorded yet.',
       )}
-      {Section(t, 'Limits and upkeep', upkeep(view))}
+      {Section(t, width, 'Limits and upkeep', upkeep(view))}
     </Box>
   )
 }
