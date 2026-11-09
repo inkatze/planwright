@@ -240,12 +240,13 @@ evidence_store() { # evidence_store <program>: the store's path, its directory c
 # diagnosis. The ready flip judges every check by walk, never by this.
 not_red_awk() {
   awk -F '\t' '
-FNR == 1 { if ($0 != "# format: 1") { print "red\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 } ; next }
+function pass_check(s) { return s == "SUCCESS" || s == "NEUTRAL" || s == "SKIPPED" }
+function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
+FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit 4 } ; next }
 $1 == "head" { head = $2 }
-$1 == "check" && ($3 == "FAILURE" || $3 == "ERROR" || $3 == "CANCELLED" || $3 == "TIMED_OUT" || $3 == "ACTION_REQUIRED" || $3 == "STARTUP_FAILURE" || $3 == "STALE") {
-  red[++nr] = $2 "\t" $3
-}
+$1 == "check" && !pass_check($3) && !pending_check($3) { red[++nr] = $2 "\t" $3 }
 END {
+  if (badfmt) { print "red\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "red\t-"; print "fail\thead\tno evidence at a head was collected"; exit 4 }
   if (!nr) { print "not-red\t" head; exit 0 }
   print "red\t" head

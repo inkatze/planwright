@@ -645,6 +645,14 @@ mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
 expect_rc "a notice is refused while a check is red" 4
 expect_out "a red check is named" "fail${tab}check${tab}lint is FAILURE"
 expect_out "and routed to log diagnosis" "diagnose${tab}lint"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tSOMETHING_NEW/' >"$tmp/ev"
+mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
+expect_rc "a notice is refused for a check state it does not know" 4
+printf 'not an evidence file\n' >"$tmp/ev"
+mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
+expect_rc "a notice is refused for a file without the format line" 4
+expect_eq "and says so once" "red${tab}-
+fail${tab}format${tab}the evidence file lacks \"# format: 1\""
 complete >"$tmp/ev"
 mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
 expect_rc "a notice passes with every check green" 0
