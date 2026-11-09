@@ -231,3 +231,8 @@ deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); for S 
 deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); : > "$S/.claude/settings.local.json"
 deny	settings-write	bash	-	settings or configuration file	: > "$S/x"
 deny	settings-write	bash	-	settings or configuration file	x=$(date); cp /tmp/a $x
+deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); : > "$S/../x"
+deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); S+=/../etc; : > "$S/passwd"
+deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); v=S; printf -v $v /etc; : > "$S/passwd"
+deny	settings-write	bash	-	settings or configuration file	echo "$(sed -ibak s/x/y/ $F)"
+deny	settings-write	bash	-	settings or configuration file	echo "$(c\p /tmp/a $F)"

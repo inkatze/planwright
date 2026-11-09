@@ -4138,7 +4138,9 @@ RE_MC_DATA_MEMORY='^(~|\$HOME|\$\{HOME\}|/[^$`*?[{]*)/\.c[l]aude/(projects/[^/$`
 # A word that runs the text it is handed, so quoted text stays in view.
 RE_MC_INTERPRETER='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|source|python3?|perl|ruby|node|xargs|ssh)([^[:alnum:]_-]|$)'
 # A write verb in unparsed text; sed counts only with an in-place flag.
-RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])((cp|mv|install|ln|tee|dd|rsync)|sed[^;&|]*[[:space:]]-(i|[A-Za-z]*i|-in-place))([^[:alnum:]_-]|$)'
+RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])(((cp|mv|install|ln|tee|dd|rsync)([^[:alnum:]_-]|$))|(sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
+# A construct that can rebind a variable the screen is trusting.
+RE_MC_REBIND='(^|[^[:alnum:]_])(eval|printf[[:space:]]+-v|declare|typeset|local|read|mapfile|readarray|unset|source|export[[:space:]]+-n)([^[:alnum:]_]|$)|\$\{!'
 MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one, or could through an expansion, in a form that is not a plain read - refusing. Read it with a plain reader such as cat, grep or jq, and hand a settings change to the operator ready to apply.'
 
 # mc_settings_named <text> — 0 at the mission-control tier when the text,
@@ -4183,7 +4185,7 @@ mc_scratch_var() {
   [[ $n =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
   re_asg="(^|[^[:alnum:]_])$n="
   re_other="(read|for|local|declare|typeset|mapfile|readarray|unset|printf[[:space:]]+-v)[^;&|]*[^[:alnum:]_]$n([^[:alnum:]_]|\$)"
-  [[ $t =~ $re_other ]] && return 1
+  [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ (^|[^[:alnum:]_])$n\+= ]] && return 1
   [[ $t =~ $re_asg ]] || return 1
   before=${t%%"${BASH_REMATCH[0]}"*}
   rest=${t#*"${BASH_REMATCH[0]}"}
@@ -4258,7 +4260,7 @@ mc_settings_screen() {
   MC_CMD=$t
   mc_settings_named "$t" && named=1
   case $t in
-    *'>'* | *cp* | *mv* | *install* | *ln* | *tee* | *dd* | *rsync* | *sed*) ;;
+    *'>'* | *'$('* | *'`'* | *cp* | *mv* | *install* | *ln* | *tee* | *dd* | *rsync* | *sed*) ;;
     *) [ "$named" = 1 ] || return 0 ;;
   esac
   [ "${#t}" -le "$MAX_CMD_LEN" ] || emit_deny "$MC_SETTINGS_DENY"
@@ -4293,7 +4295,7 @@ mc_settings_screen() {
     case $t in
       *.c[l]aude* | *.mcp* | *settings* | *planwright.*) emit_deny "$MC_SETTINGS_DENY" ;;
     esac
-    [[ $t =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
+    [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
     return 0
   fi
   if [ "$named" = 1 ]; then
@@ -4302,6 +4304,12 @@ mc_settings_screen() {
       mc_named_outside_messages || named=0
     fi
   fi
+  # A write verb inside a substitution runs, though no segment names it.
+  for w in "${W[@]}"; do
+    case $w in
+      *'$('* | *'`'*) [[ ${w//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY" ;;
+    esac
+  done
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
     si=$((si + 1))
