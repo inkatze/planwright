@@ -57,10 +57,12 @@ The rung, lowest to highest; the highest that applies wins:
   throttle        the most used dimension at or over throttle: every cadence
                   doubles, at this rung and every one above it
   pause-watchers  at or over pause_watchers: high-cost watchers stop
-  hold-dispatch   at or over hold_dispatch, or a quota hold
+  hold-dispatch   at or over hold_dispatch, a quota hold
                   (scripts/quota-hold.sh, the `limited` outcome, or a quota
-                  store that cannot be read): medium-cost
-                  watchers stop too, and no session or heavy work is admitted
+                  store that cannot be read), or the usage hold
+                  (scripts/mc-usage.sh held, or one that cannot be read):
+                  medium-cost watchers stop too, and no session or heavy
+                  work is admitted
   handover        context steps at their limit: the session hands over
   paused          the fleet daemon pause (scripts/fleet-daemon-gate.sh), or
                   a gate that cannot be read: nothing autonomous runs
@@ -291,6 +293,24 @@ compute() {
       2)
         RUNG=hold-dispatch
         REASON="the quota store cannot be read"
+        ;;
+    esac
+  fi
+  if [ "$RUNG" != hold-dispatch ]; then
+    uh_out=$(/bin/bash "$script_dir/mc-usage.sh" held --program "$program" --now "$NOW" 2>/dev/null)
+    uh_rc=$?
+    # A failure exits 1 as clear does, so clear is only the word itself.
+    [ "$uh_rc" -ne 1 ] || [ "$uh_out" = clear ] || uh_rc=2
+    case $uh_rc in
+      0)
+        RUNG=hold-dispatch
+        REASON=$(printf '%s\n' "$uh_out" | awk -F '\t' 'NR == 1 {
+          if ($2 == "quota") print "a quota hold (limited)"; else print "the " $2 " usage window at " $3 "%" }')
+        ;;
+      1) ;;
+      *)
+        RUNG=hold-dispatch
+        REASON="the usage hold cannot be read"
         ;;
     esac
   fi

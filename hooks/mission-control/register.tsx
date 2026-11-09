@@ -2,9 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type { PanelView } from '../../types'
-import { emptyView, fallbackLine, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
+import { emptyView, handoverReason, isHandle, isProgram, parseDigest, parseInstall, parseWake } from './digest'
 import type { Install } from './digest'
-import { Band, Pane } from './panel'
+import { isSettled, restFrame, spriteCells } from './panel-art'
+import { Band, bandText, isMascotMoving, mascotMode, mascotState, Pane } from './panel'
 
 const PANE = 'mission-control'
 const TITLE = 'Mission control'
@@ -303,10 +304,10 @@ async function refresh($: EngineInterface) {
     await patch($, x => ({
       ...x,
       contextPercent: pct === undefined ? null : Math.round(pct),
-      rateLimits: usage.rateLimits.map(r => ({ kind: r.kind, percentUsed: r.percentUsed })),
+      rateLimits: usage.rateLimits.map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt })),
     }))
     const v = await view($)
-    if (v?.isFallback) $.ui.status(fallbackLine(v))
+    if (v?.isFallback) $.ui.status(bandText(v))
     await checkHandover($)
     if (!isClaimed) await claim($)
     await armTimers($)
@@ -340,8 +341,36 @@ async function claim($: EngineInterface) {
 
 // On its own timer, so the lease the relay reads never lapses between
 // redraws, whatever the redraw cadence.
+// The context reading goes with it, for the health line every mission
+// control's panel draws: the threshold only where this session hands over.
 async function restampPresence($: EngineInterface) {
-  if (ctx) await run($, 'mc-panel.sh', ['presence', '--program', ctx.program, '--refresh', '--target', ctx.target])
+  const c = ctx
+  if (!c) return
+  const v = await view($)
+  // Read now, not from the last redraw, which a long refresh cadence leaves
+  // older than the reading's freshness window.
+  let pct: number | undefined
+  try {
+    pct = (await $.session.usage()).context.percent
+  } catch {
+    pct = undefined
+  }
+  // A stand-down or another program's activation during the reads.
+  if (ctx !== c) return
+  const threshold = v?.digest?.holder === 'registry' ? v.digest.knobs['handover-context'] : undefined
+  await run($, 'mc-panel.sh', [
+    'presence',
+    '--program',
+    c.program,
+    '--refresh',
+    '--target',
+    c.target,
+    '--context',
+    // A reading the script refuses would fail the lease restamp with it.
+    typeof pct === 'number' && Number.isFinite(pct) ? String(Math.min(100, Math.max(0, Math.round(pct)))) : '-',
+    '--threshold',
+    threshold === undefined ? '-' : String(threshold),
+  ])
 }
 
 async function tick($: EngineInterface) {
@@ -350,17 +379,53 @@ async function tick($: EngineInterface) {
   await wake($, true)
 }
 
+// Where the pane last drew: the terminal paints Prop pal as a Raster, and a
+// blit repaints it in place; any other redraw of the pane would flash it.
+let paneSurface: string | null = null
+let mascotFrame = 0
+let mascotShown: string | null = null
+let isSweeping = false
+
+// Each state's motion starts from its own first frame, so a landing plays
+// from the top however long the plane flew before; ticks never overlap.
 async function sweep($: EngineInterface) {
-  await patch($, x => ({ ...x, frame: x.frame + 1 }))
+  if (isSweeping) return
+  isSweeping = true
+  try {
+    const v = await view($)
+    if (!v) return
+    if (paneSurface === 'terminal') {
+      const state = mascotState(v)
+      if (state !== mascotShown) {
+        mascotShown = state
+        mascotFrame = 0
+      }
+      mascotFrame += 1
+      if (isSettled(state, mascotFrame)) return
+      const g = spriteCells(state, mascotMode(v) === 2 ? mascotFrame : restFrame(state))
+      await $.ui.blit({ requestId: PANE, key: 'prop-pal', cells: g.cells }).catch(() => ({}))
+      return
+    }
+    await patch($, x => ({ ...x, frame: x.frame + 1 }))
+  } finally {
+    isSweeping = false
+  }
 }
 
-// The radar sweeps only while a wake is held for a busy session, so an idle
-// panel costs no redraws.
+// The mascot animates only while it has motion in a shown pane, so an idle or
+// hidden panel costs nothing.
 async function syncRadar($: EngineInterface) {
+  const c = ctx
   const v = await view($)
-  const held = v !== null && (await isHeld($, v))
-  if (held && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
-  if (!held && radar) {
+  const isPlaced = v !== null && isMascotMoving(v) && (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced && p.isShown)
+  // A stand-down or a switch during the reads cancelled the timers; arm none.
+  if (ctx !== c) return
+  // The state may have settled while the panes were read: judge it again.
+  const now = isPlaced ? await view($) : null
+  if (ctx !== c) return
+  const isShown = now !== null && isMascotMoving(now)
+  if (isShown && !radar) radar = $.clock.every(ANIMATE_MS, () => void sweep($))
+  if (!isShown && radar) {
     radar.cancel()
     radar = null
   }
@@ -370,11 +435,12 @@ async function open($: EngineInterface) {
   const placed = await $.ui.open({ id: PANE, title: TITLE })
   await patch($, x => ({ ...x, isFallback: !placed.isPlaced }))
   const v = await view($)
-  if (v) $.ui.status(v.isFallback ? fallbackLine(v) : undefined)
+  if (v) $.ui.status(v.isFallback ? bandText(v) : undefined)
 }
 
 async function close($: EngineInterface) {
   await $.ui.close({ id: PANE })
+  paneSurface = null
   await patch($, x => ({ ...x, isFallback: false }))
   $.ui.status(undefined)
 }
@@ -461,12 +527,19 @@ async function checkRecord($: EngineInterface) {
   try {
     const dir = await resolveDir($)
     if (dir === null) return
+    // Read each time: a /clear goes on under another id with no start event.
+    const sessionId = await $.session.id()
+    // First, so neither a retried activation nor a /clear's move records a
+    // released session again.
+    const ids = ackedFor !== null && ackedFor !== sessionId ? [sessionId, ackedFor] : [sessionId]
+    if (ctx && (await isRetiredForExit($, dir, ids))) {
+      await endReleased($, ids)
+      return
+    }
     if (ctx && recordFailed) {
       await acknowledge($, recordFailed)
       return
     }
-    // Read each time: a /clear goes on under another id with no start event.
-    const sessionId = await $.session.id()
     const has = await $.fs.exists(`${dir}/${sessionId}`)
     if (!has) {
       if (ctx && ackedFor === sessionId) await standDown($)
@@ -515,8 +588,8 @@ function cancelTimers() {
   radar = null
 }
 
-// The record was retired (a handover released this session): the wake
-// target goes back to the relay and the panel stops drawing.
+// The record was retired: the wake target goes back to the relay and the
+// panel stops drawing.
 async function standDown($: EngineInterface) {
   const was = ctx
   if (!was) return
@@ -527,6 +600,36 @@ async function standDown($: EngineInterface) {
   await update($, panel, () => null)
   $.ui.status(undefined)
   await release($, was)
+}
+
+// Only a regular file counts, as for the acknowledgment.
+async function isRetiredForExit($: EngineInterface, dir: string, ids: string[]) {
+  for (const id of ids) {
+    const marker = await $.fs.stat(`${dir}/${id}.exit`).catch(() => undefined)
+    if (marker && !marker.isLink && marker.kind === 'file') return true
+  }
+  return false
+}
+
+// A released predecessor ends itself: the operator's own session has no
+// launcher row through which its successor could retire it. The retire
+// clears the exit markers; /exit is queued until the session is idle, so
+// the release's turn finishes first, and it is not awaited since a run that
+// ends the session never resolves.
+async function endReleased($: EngineInterface, ids: string[]) {
+  // The /clear path and a record check can both find the marker.
+  if (!ctx) return
+  const program = ctx.program
+  try {
+    await standDown($)
+  } finally {
+    for (const id of ids) await runScript($, 'mc-panel.sh', ['retire', '--session', id])
+    void $.command.run({ command: 'exit' }).catch(() =>
+      $.ui.toast(
+        `Mission control: this session released the ${program} program name but could not end itself; type /exit to close it`,
+      ),
+    )
+  }
 }
 
 async function activate(
@@ -656,6 +759,14 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
+    const dir = ctx && e.reason === 'clear' ? await resolveDir($) : null
+    const clearedIds = ackedFor !== null && ackedFor !== e.sessionId ? [e.sessionId, ackedFor] : [e.sessionId]
+    if (ctx && dir !== null && (await isRetiredForExit($, dir, clearedIds))) {
+      // Released just before the /clear: end it rather than move the record.
+      const ended = await next(e)
+      $.clock.after(0, () => void endReleased($, clearedIds).catch(() => undefined))
+      return ended
+    }
     if (ctx && e.reason === 'clear') {
       // A /clear keeps the session and the mod, and starts the counts over;
       // the record moves to the id the session goes on under.
@@ -765,7 +876,8 @@ export const register: Register = on => {
     if (!ctx) return next(e)
     const v = await view($)
     if (!v) return next(e)
-    return Pane($.ui.resolve(e), v, await isHeld($, v))
+    paneSurface = e.surface
+    return Pane($.ui.resolve(e), v, await isHeld($, v), e.surface)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

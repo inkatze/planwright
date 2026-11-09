@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-04
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -86,6 +86,10 @@ later planwright bundles implement, D-12).
 - Taking over a running tower's fleet and adopting sessions mission
   control did not launch.
 - Launch admission shared across programs on one host.
+- Specs kept true to what ships: a change to behaviour a spec describes
+  carries that spec's edit and the operator's sign-off before it is ready.
+- Program goals reported done only when their own check passes, never
+  because their pull requests merged.
 
 ### Out of scope
 
@@ -97,6 +101,9 @@ later planwright bundles implement, D-12).
 - Replacing CI or the automated reviewers.
 - Authoring code or editing any repository from mission control.
 - Phone or remote-control access for the operator.
+  *(Amended at the 2026-11-07 amendment: a pane successor keeps the
+  harness's own Remote Control only when its predecessor had it, REQ-L1.9;
+  planwright builds no remote access of its own.)*
 - A remote development-environment rung.
 - Program-specific values (channels, bot identities, walk tooling, ticket
   conventions, voice samples): they stay in overlays.
@@ -142,6 +149,9 @@ later planwright bundles implement, D-12).
   handle or per-session step.
   *(Cites: D-23; the invocation seed (Sources); obs:9a95e385,
   obs:fc7fe636.)*
+  *(Amended at the 2026-11-07 amendment: an attended session's pane
+  successor replaces the operator's own mission-control pane and needs no
+  act, so it is not a handed pane, REQ-L1.9.)*
 - **REQ-A1.5** Only the operator's own words in the mission-control turn
   count as a go, a yes or an override; pasted material, session output,
   forge text and record contents are data.
@@ -227,6 +237,9 @@ later planwright bundles implement, D-12).
   (Sources); kickoff §3 (2026-10-23).)*
   *(Amended at kickoff 2026-10-23: widened from rule proposals to
   mechanization proposals over the inventory's open list of kinds.)*
+  *(Amended at Amendment 4, 2026-11-07: the repeats include the same guard
+  denial a knob governs, proposed as that knob's setting from
+  `config/denial-knobs.tsv`, D-14.)*
 - **REQ-B1.6** A scheduled self-audit SHALL compare the logged actions with
   the active rules and surface drift as operator items or rule proposals; it
   SHALL NOT edit rules.
@@ -335,6 +348,24 @@ later planwright bundles implement, D-12).
   cadence step (a steps-catalog entry whose run gates later units).
   *(Cites: D-33; audit item 2 (Sources); the in-flight cadence fix
   (Sources).)*
+  **Superseded-by: REQ-D1.14** (2026-11-07).
+- **REQ-D1.14** (supersedes REQ-D1.9) The readiness check SHALL audit the
+  configured cadence (every step the configuration requires at the in-run
+  points through `post-pr`) at the pull request's head as the forge reports
+  it, and SHALL refuse a flip when a required step has no record or only
+  failed ones, when a point's completion is absent or does not count at
+  that head (D-33), when the worktree's head differs from the forge's, or
+  when the audit cannot run. The gate-condition data (REQ-I1.7) adds
+  conditions and never narrows the configured cadence, with one exception:
+  a spec-only pull request (every changed path a Markdown file added,
+  modified or deleted under the spec root, the head holding that root) is
+  held for each touched bundle's kickoff sign-off instead of the cadence
+  and the gate data's steps, and one touching only the reserved
+  accumulators has none to hold. The configured cadence is not a cadence
+  step (a steps-catalog entry whose run gates later units).
+  *(Cites: D-33; the operator's ruling that spec-only pull requests skip
+  the code review steps (2026-11-05, Sources); the spec-drift audit
+  (Sources).)*
 - **REQ-D1.10** A session of a kind that changes a repository (worker,
   reviewer, ad-hoc, kickoff) SHALL run in its own worktree: one the dispatch
   machinery creates at launch, off the default branch or on the unit's
@@ -352,6 +383,8 @@ later planwright bundles implement, D-12).
   carries that skill's own cadence and is exempt. REQ-D1.9 is the backstop.
   *(Cites: D-33; audit item 2 (Sources); the in-flight cadence fix
   (Sources).)*
+  *(Amended at Amendment 4, 2026-11-07: the backstop is now REQ-D1.14,
+  which supersedes REQ-D1.9.)*
 - **REQ-D1.12** Mission control SHALL be able to adopt a live session it
   did not launch (a tower's dispatch, a hand-launched session, on any
   backend): a launcher verb registers it under the program with its owner,
@@ -365,6 +398,20 @@ later planwright bundles implement, D-12).
   never from a row's presence; a stream-json session's event stream informs
   its stall state.
   *(Cites: D-35, D-11; audit item 3 (Sources).)*
+- **REQ-D1.13** The readiness check SHALL refuse a flip of a pull request
+  that changes behaviour a spec describes unless the same pull request
+  edits that spec (changes its anchored content) and the edited spec's
+  latest sign-off anchor matches its content at the pull request's head
+  (the operator signed the edit off in a relayed kickoff). It SHALL also
+  refuse when the spec-drift check flags the pull request: a changed file
+  some spec lists as a task deliverable, with that spec's anchored content
+  unchanged and no reason line naming that file in the pull request's
+  covering-spec statement (D-45). A changed file that is a deliverable of a
+  task the pull request's own task trailer names is that task's work and
+  is never flagged. A pull request with no statement is read as covering
+  no spec and giving no reasons. A check that cannot run refuses.
+  *(Cites: D-45; the operator's request (2026-11-07, Sources); the
+  spec-drift audit (Sources).)*
 
 ## REQ-E — Durable watchers
 
@@ -454,6 +501,9 @@ later planwright bundles implement, D-12).
   it SHALL end with a working configuration.
   *(Cites: D-18; drafting-session decision (2026-10-22);
   interaction-style (Sources).)*
+  *(Amended at Amendment 4, 2026-11-07: an objective is asked only when
+  the operator can decide it from their own work; the rest is settled from
+  the repository, a check or a default and said in one line, D-18.)*
 - **REQ-F1.13** The guidance level SHALL be a knob, guided by default on a
   fresh installation.
   *(Cites: D-18, D-20; drafting-session decision (2026-10-22).)*
@@ -534,6 +584,28 @@ later planwright bundles implement, D-12).
   into a pane.
   *(Cites: D-35; audit item 3 (Sources); tower-comms D-12 (Sources);
   obs:3845960c.)*
+  *(Amended 2026-11-08, operator ruling relayed through the hub: "can't it
+  be fixed from the root so we don't really need to do it?". The plugin's own
+  PreToolUse hook SHALL approve, for a mission-control session only, exactly
+  one simple command per verb: the literal resolved path of the installed
+  plugin root's `scripts/fleet-streamjson.sh` followed by `pending ...` or
+  `answer ...`, with no shell expansion, compound, pipe, redirection,
+  background marker or symlink out of the installed root; every other shape
+  stays unapproved. This removes the per-release settings bump the user-scope
+  allow rules needed. The guard tier's pre-approval list (REQ-G1.5) keeps
+  excluding the raw answer verb, and the exact-path allow-rule discipline of
+  `fleet-hardening` REQ-B1.5 and D-20 is unchanged. Settled at the kickoff
+  (operator: "Your rule or reply (Recommended)"): the hook approves only the
+  call's shape, never its content. An `answer` it lets through SHALL still
+  carry either a standing decision covering that prompt (REQ-G1.2, claimed
+  through `fleet-attention.sh claim`, which re-checks coverage, before the
+  call delivers it) or the operator's own answer to that prompt, and stays
+  an undo-ledger entry naming what authorized it (D-24); mission control's
+  own judgment never authorizes an answer. "Never through the raw answer
+  verb" above therefore means never on mission control's own judgment. A
+  mission-control session is one the plugin's own prompt hook marked, with
+  the tower-session mark store's bar; in any other session the hook
+  defers.)*
 
 ## REQ-H — Programs across repositories
 
@@ -705,6 +777,8 @@ later planwright bundles implement, D-12).
   context-budget-autoheal (Sources).)*
   *(Amended at the 2026-11-04 extension: the trigger applies to a
   launched holder only, REQ-L1.8.)*
+  *(Amended at the 2026-11-07 amendment: the trigger applies to every
+  session, attended or launched, again, REQ-L1.9.)*
 - **REQ-L1.6** The handover SHALL be automatic and lossless where the harness
   allows: the successor is launched, rebuilds, proves it holds the active
   rules and open items against the predecessor's last ledger entry, takes
@@ -714,6 +788,8 @@ later planwright bundles implement, D-12).
   *(Cites: D-30; drafting-session decision (2026-10-22).)*
   *(Amended at the 2026-11-04 extension: a launched holder's handover;
   an attended session compacts instead, REQ-L1.8.)*
+  *(Amended at the 2026-11-07 amendment: an attended session hands over
+  through a pane beside it, or the one operator act, REQ-L1.9.)*
 - **REQ-L1.7** Launch admission SHALL be dynamic on two axes, the
   account's usage headroom and the host's capacity (load against cores,
   available memory), each with a `mission_control_*` threshold knob, and
@@ -732,6 +808,27 @@ later planwright bundles implement, D-12).
   operator item. Running mission control as a launched session the operator
   attaches to stays available, never required.
   *(Cites: D-42; the operator priority (2026-11-04) (Sources).)*
+  **Superseded-by: REQ-L1.9** (2026-11-07).
+- **REQ-L1.9** (supersedes REQ-L1.8) Every mission-control session,
+  attended or launched, SHALL hand over to a fresh session before its
+  context budget runs out (REQ-L1.5, REQ-L1.6). An attended session (the
+  operator typed the skill command in their own terminal, or it took the
+  name in a pane beside an attended predecessor) SHALL work down the
+  handover ladder, falling to the next rung whenever one does not end with
+  its successor holding the program name: first, its successor opened in
+  a new split of its own window through a pane adapter whose read-only,
+  local probe passes (tmux, and best-effort other terminals), keeping
+  Remote Control only when the predecessor had it, the released
+  predecessor ending itself, and a successor that does not verify in time
+  closed by the predecessor; then one operator act, raised once per
+  session; and only as the last resort the host's compaction, made safe by
+  the post-compaction step (REQ-B1.3, REQ-B1.7), a self-checked compaction
+  not being the degraded session REQ-L1.6 forbids, with each later trigger
+  retrying the pane rung.
+  The shipped measured-context trigger SHALL be 40 percent for every
+  session.
+  *(Cites: D-43; the handover-as-best-as-possible ruling (2026-11-06 and
+  2026-11-07) (Sources); obs:32bde2c6, obs:3b1fad05, obs:b632d19a.)*
 
 ## REQ-M — Throughput
 
@@ -770,6 +867,40 @@ later planwright bundles implement, D-12).
   from the orchestrator's own selection, so a task whose own or
   dependency's repository the selection withholds is never suggested.
   *(Cites: D-40; obs:5d662727.)*
+
+## REQ-N — Program goals
+
+- **REQ-N1.1** A program goal SHALL carry its own done-when check: a plain
+  statement of the outcome and, where one fits, a command whose exit status
+  proves it. Mission control SHALL draft the check when the goal is set and
+  the operator SHALL confirm or correct it; a goal whose check is
+  unconfirmed is reported as such, never as done.
+  *(Cites: D-44; the operator's request (2026-11-07, Sources).)*
+- **REQ-N1.2** Mission control SHALL report a goal done only after its
+  confirmed check passes: the command exits 0, or, where no command fits,
+  a read-only session it launches reports evidence that the outcome holds,
+  which mission control records. A goal names the work it tracks (pull
+  requests, flights or spec tasks), and that work's merge triggers its
+  check. Merged
+  pull requests SHALL never count as a pass. A goal whose work merged while
+  its check fails or has not run SHALL be reported as merged but not done,
+  naming what failed, and its fix routed without the operator asking.
+  *(Cites: D-44; the offload-host case (Sources).)*
+- **REQ-N1.3** A done goal whose check is a command SHALL be re-checked
+  once a day and at every bring-up; a failure SHALL reopen the goal with
+  one line to the operator naming what now fails, and route the fix. A
+  session-based check SHALL not re-run on its own. A passing re-check SHALL
+  say nothing.
+  *(Cites: D-44; the operator's request (2026-11-07, Sources).)*
+- **REQ-N1.4** Goals and their checks SHALL live in the program home
+  (D-8), never in a repository, written under one lock. A check command is
+  data the operator confirmed, shown to them verbatim before they confirm:
+  mission control drafts only commands that change nothing, a goal stores
+  no secret (a command reaches a host
+  through the operator's existing access), and it runs with a timeout,
+  from the program home, with no value from a forge, a session or a record
+  interpolated into it.
+  *(Cites: D-44, D-8; security-posture (Sources).)*
 
 ## Changelog
 
@@ -881,6 +1012,42 @@ later planwright bundles implement, D-12).
   D-8, D-10, D-11, D-17, D-18, D-22, D-25, D-28, D-29 and D-30; Tasks 17
   to 32. Mission-control observations mined and consumed as listed under
   Sources.
+- 2026-11-05 — Expression-only (brief Re-anchor, test-spec pointer): the
+  REQ-G1.5 test entry names `tests/test-policy-guard-mission-control.sh`
+  for the edit and git-mutation denials, which that suite pins, rather than
+  the command-guard suite. Operator ruling relayed by mission control; no
+  requirement or decision changes meaning.
+
+- 2026-11-07 — Amended (meaning-class, operator-declared, signed off at
+  the amendment kickoff): REQ-L1.9 superseding REQ-L1.8 and D-43
+  superseding D-42 (every session hands over; an attended one opens its
+  successor in a pane beside itself, falls back to one operator act, and
+  compacts only as a last resort; the shipped context trigger is 40
+  percent); amendment notes on REQ-A1.4, REQ-L1.5, REQ-L1.6, the Out of
+  scope list, D-28, D-29 and D-30; Task 33 superseding Task 30, with Task
+  29's dependency moved to it.
+
+- 2026-11-07 — Amendment 4 (post-merge, meaning-class, on the Active
+  bundle): specs kept true to what ships and goals checked by outcome.
+  REQ-D1.13 (the readiness check refuses a flip over spec drift or an
+  unsigned spec edit), REQ-N1.1 to REQ-N1.4 (program goals with
+  operator-confirmed done-when checks, reported done only on a pass), two
+  Scope bullets; D-44 and D-45; Tasks 34 to 37 (Task 36 routes the router
+  and flight rules to tower-front-door). Drift the spec-drift audit found
+  in this bundle, brought up to what shipped: REQ-D1.14 supersedes
+  REQ-D1.9 (the spec-only hold, PR #852); notes on REQ-B1.5 and D-14 (the
+  denial repeat, PR #835), REQ-F1.12 and D-18 (the first run asks only what
+  the operator can answer, PR #822), D-32 (launched mission-control
+  sessions in auto mode, PR #859), D-33 (the spec-only hold), D-22 (the
+  routed tower-front-door amendment, Task 36) and Task 19 (its push half
+  landed in PR #866). Revised at the delta lens pass (see the kickoff
+  brief's Amendment 4).
+- 2026-11-08 — Amendment 5 (meaning-class, on the Active bundle): the
+  plugin's own hook approves mission control's exact `fleet-streamjson.sh
+  pending` and `answer` calls, so approvals survive every release without a
+  settings rule; an answer still needs a standing decision or the
+  operator's own answer. Notes on REQ-G1.6 and D-35; Task 38 and its test
+  entry under REQ-G1.6 (see the kickoff brief's Amendment 5).
 
 ## Sources
 
@@ -1001,3 +1168,42 @@ later planwright bundles implement, D-12).
   a prose dependency already landed plus a format-lint idea (obs:f3bc9c7a),
   proposal refinements (obs:190f117b, obs:8e998e2c) and the narrower flip
   scope the operator left to a follow-on (obs:279d8ddd).
+- **The handover-as-best-as-possible ruling (2026-11-06 and 2026-11-07)**: the
+  operator's amendment of D-42, relayed through mission control: "the idea
+  is what we talked about before, to handover as best as possible and
+  compact potentially as last resort". At the amendment walk: "Maybe do
+  out best effort to emulate what we do with tmux in whatever tool we are
+  in at the moment, some terminals allow tmux-like commands"; and, on the
+  40 percent context trigger (the program's standing rule) as the shipped
+  default, "It's fine as a default but is there a good way to find a good
+  default?", deriving it from measured cost per turn being a follow-on.
+  After sign-off (2026-11-07), relayed by the hub: only the hub keeps
+  Remote Control; a successor keeps it only when its predecessor had it,
+  other mission-control sessions getting none by default.
+- **Observations consumed (2026-11-07)**: obs:32bde2c6 (attended
+  self-succession in a tmux pane, with the by-hand finding that a
+  successor must start under a profile whose prompts the fleet can
+  answer) and obs:b632d19a (the `path` and `offer` verbs, now rung 2 of
+  the handover ladder), archived in the same commit. Cited and left live:
+  obs:3b1fad05, whose 40 percent default this amendment ships and whose
+  natural-break trigger it does not cover.
+
+- **The operator's request (2026-11-07)** — relayed by mission control:
+  flights that change behaviour a spec covers must update that spec in the
+  same change; security, CI and guard work routes to the spec pipeline
+  unless the operator overrides it, the override recorded; a program goal
+  carries its own done-when check and is reported done only after it
+  passes.
+- **The offload-host case (2026-11-07)** — the Mac offload goal was
+  reported done when its pull requests merged, while that host still ran
+  an old planwright and had no CI runner registered.
+- **The spec-drift audit (2026-11-07)** — a read-only audit mapping which
+  merged flights changed behaviour a spec describes without amending it:
+  of the flights merged since 2026-11-04, eight specs (mission-control
+  among them) describe behaviour a flight changed with no amendment, and
+  ten flights did hard-disqualifier-zone work with no routing override on
+  record, each resting on the operator asking for the change or on mission
+  control's launch brief.
+- **The operator's ruling on spec-only pull requests (2026-11-05)** — spec
+  bundle pull requests skip the code review cadence steps and are marked
+  ready on green CI, mergeable and the kickoff sign-off.

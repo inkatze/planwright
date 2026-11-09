@@ -49,6 +49,7 @@ export function digestText(
     tab('kb', 600),
     tab('measure', 'interruptions_per_hour', '2.5', 130),
     tab('measure', 'settled_share', '80', 130),
+    tab('host', 150, 4, 62),
     tab('handover', 'absent'),
     tab('holder', o.holder ?? 'attended'),
     ...(o.extra ?? []),
@@ -117,9 +118,12 @@ export type World = {
   submitted: string[]
   statuses: (string | undefined)[]
   toasts: string[]
+  blits: { key: string; cells: string }[]
   opened: number
   closed: number
   commands: { name: string; description: string }[]
+  // Each /exit the mod ran through `$.command.run`.
+  commandRuns: string[]
   envWrites: [string, string | undefined][]
   set: (o: Partial<Fixture>) => void
 }
@@ -146,11 +150,14 @@ export type Fixture = {
   isDropped: boolean
   isEnvDenied: boolean
   isCommandRefused: boolean
+  isExitRefused: boolean
   contextPercent: number | undefined
+  rateLimits: { kind: string; percentUsed: number }[]
   env: Record<string, string>
   sessionId: string
   // The activation directory by file name: `<id>` holds the record as the
-  // lookup verb prints it, `<id>.ack` the acknowledgment.
+  // lookup verb prints it, `<id>.ack` the acknowledgment, `<id>.exit` the
+  // exit marker a release leaves.
   records: Record<string, string>
   lookupExit: number
   ackExit: number
@@ -180,7 +187,9 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     isDropped: false,
     isEnvDenied: false,
     isCommandRefused: false,
+    isExitRefused: false,
     contextPercent: 42,
+    rateLimits: [{ kind: 'five_hour', percentUsed: 31 }],
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
     sessionId: SESSION,
     records: {},
@@ -196,9 +205,11 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     submitted: [],
     statuses: [],
     toasts: [],
+    blits: [],
     opened: 0,
     closed: 0,
     commands: [],
+    commandRuns: [],
     envWrites: [],
     set: o => Object.assign(fx, o),
   }
@@ -227,6 +238,11 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     w.commands.push({ name: e.name, description: e.description })
     return { value: { command: 'mc-panel' } }
   })
+  on('command.run', { command: 'exit' }, (_, e) => {
+    if (fx.isExitRefused) throw new Error('refused')
+    w.commandRuns.push(e.command)
+    return { text: '' }
+  })
   on('ui.open', () => {
     w.opened += 1
     fx.isPaneOpen = true
@@ -248,6 +264,10 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     w.statuses.push(e.text)
     return { value: undefined }
   })
+  on('ui.blit', (_, e) => {
+    if ('cells' in e) w.blits.push({ key: e.key, cells: e.cells })
+    return { value: {} }
+  })
   on('ui.toast', (_, e) => {
     w.toasts.push(e.text)
     return { value: undefined }
@@ -256,7 +276,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     value: {
       startedAt: START,
       context: { window: 200_000, percent: fx.contextPercent },
-      rateLimits: [{ kind: 'five_hour', percentUsed: 31 }],
+      rateLimits: fx.rateLimits,
     },
   }))
   on('prompt.submit', (_, e) => {
@@ -294,6 +314,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
       if (fx.activateExit !== 0) return answer('', fx.activateExit)
       const rec = recordFor(flag('--program'), flag('--target'))
       if (fx.records[sid] !== rec) delete fx.records[`${sid}.ack`]
+      delete fx.records[`${sid}.exit`]
       fx.records[sid] = rec
       return answer(`activation\t${sid}\n`)
     }
@@ -306,6 +327,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     if (script === 'mc-panel.sh' && verb === 'retire') {
       delete fx.records[flag('--session')]
       delete fx.records[`${flag('--session')}.ack`]
+      delete fx.records[`${flag('--session')}.exit`]
       return answer('')
     }
     if (script === 'mc-wake.sh' && verb === 'compose') return answer(fx.wake, fx.composeExit)
@@ -329,3 +351,7 @@ export async function boot($: Engine, w: World) {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await w.clock.settle()
 }
+
+// The strip's words, in order: its segments and their separators.
+export const bandOf = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) =>
+  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').join('')

@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-04
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -54,6 +54,8 @@ Given a session with an open selector and a decision the operator gave,
 mission control answers the selector and logs the quote; given a session
 needing a launch or a retire, it runs it; no delivered item names a pane,
 window or handle (eval fixture).
+*(Amended at the 2026-11-07 amendment: the pane successor's line names no
+pane for the operator to act on; its fixtures sit under REQ-L1.9.)*
 
 ### REQ-A1.5 — Only the operator's words count [design-level]
 
@@ -126,6 +128,11 @@ given the covering row is a settings-kind mechanism, the proposal carries
 the change ready to apply and no settings file changes; a decline is
 recorded and not re-raised on the same pattern; a repeat no inventory row
 covers raises no proposal.
+
+The denial repeat (Amendment 4): `tests/test-mc-proposals.sh` raises
+nothing on the first guard denial a knob in `config/denial-knobs.tsv`
+governs, and on the second identical one proposes that knob, its effect and
+its layer, handed to the operator and never written.
 
 ### REQ-B1.6 — Self-audit [test]
 
@@ -244,6 +251,15 @@ the resolver rejects exits 4; the readiness walk refuses a gap whatever the
 gate-condition data names, an audit at another head, a worktree head that
 differs from the forge's, and an unaudited cadence with its reason.
 
+### REQ-D1.14 — The cadence audit with the spec-only hold [test]
+
+`tests/test-mc-readiness.sh`: every fixture the REQ-D1.9 entry above
+names carries over unchanged; a spec-only fixture pull request is held for
+each touched bundle's sign-off and not for the cadence or the gate data's
+steps, a fixture touching only the reserved accumulators has none to hold,
+and a fixture that also changes one non-spec file is audited for the
+cadence. This shipped with PR #852's tests.
+
 ### REQ-D1.10 — Launch worktrees [test]
 
 `tests/test-mission-control-launch.sh` (Task 18): a worker launch with no
@@ -270,6 +286,16 @@ dead when its process exits and prompt-pending on a pending prompt; an
 adopted tmux session's liveness comes from its process; a row with no live
 process is never live; retiring an operator-owned adopted session raises a
 confirmation item.
+
+### REQ-D1.13 — Spec drift refused at readiness [test]
+
+`tests/test-spec-drift-check.sh` and `tests/test-mc-readiness.sh` (Task
+35): a changed listed deliverable with no spec edit and no reason is
+flagged and refused; a `Not covered:` line naming the path, or a spec
+edit with a matching re-signed anchor, passes; a status-only spec touch
+is not an edit; a task pull request delivering its own task's file
+passes; a missing statement is checked as covering nothing; a spec edit with a stale anchor refuses; an
+unlisted change passes; a check that cannot run refuses with its reason.
 
 ## REQ-E — Durable watchers
 
@@ -373,6 +399,11 @@ A fresh installation ends with a program block, a knowledge-base skeleton
 and enabled duties (fixture); the operator walks it once and records the
 experience.
 
+Asking only what the operator can answer (Amendment 4):
+`tests/test-behavioral-eval-mission-control.sh` grades the first-run
+persona so that every objective is either asked or settled, never both,
+and fails a seeded run that asks a settled objective.
+
 ### REQ-F1.13 — The guidance knob [test]
 
 The knob resolves through the layers, defaults to guided on a fresh
@@ -437,8 +468,8 @@ The posture script's test and `tests/test-tower-command-guard.sh`
 guard hooks unwired each fail with a one-line reason and the launcher
 refuses on it; every script verb the skill and duty catalog invoke runs
 without a prompt at the tier and an unlisted reference fails the test;
-`fleet-streamjson.sh answer` prompts; an edit and a git mutation are
-denied.
+`fleet-streamjson.sh answer` prompts. `tests/test-policy-guard-mission-control.sh`:
+an edit and a git mutation are denied.
 
 ### REQ-G1.6 — Prompts wake mission control and are answered through the channel [test]
 
@@ -448,6 +479,14 @@ answered elsewhere; a covered prompt is answered through
 `fleet-attention.sh claim`, an uncovered one waits for an operator answer
 and then receives it; each answer is an undo-ledger entry; a tmux prompt is
 surfaced once with its command.
+
+`tests/test-mc-approve-hook.sh` (Task 38): in a mission-control-marked
+session the hook approves the installed root's `fleet-streamjson.sh
+pending` and `answer` as one simple command; it defers on another verb, on
+each of an expansion, a compound, a pipe, a redirection and a background
+marker, on another version's or a symlinked path, and in an unmarked
+session; an answer with neither a covering standing decision nor the
+operator's own answer is still refused upstream of the call.
 
 ## REQ-H — Programs across repositories
 
@@ -620,6 +659,8 @@ the other two.
 
 These fixtures are a launched holder's; an attended session raises no
 trigger, tested under REQ-L1.8.
+*(Amended at the 2026-11-07 amendment: an attended session's trigger is
+tested under REQ-L1.9.)*
 
 ### REQ-L1.6 — Automatic, lossless succession [test + Gherkin]
 
@@ -630,6 +671,8 @@ one-act fallback is offered where the takeover path is unsupported.
 
 These fixtures are a launched holder's; an attended session compacts
 instead, tested under REQ-L1.8.
+*(Amended at the 2026-11-07 amendment: an attended session's succession
+is tested under REQ-L1.9.)*
 
 ### REQ-L1.7 — Dynamic, host-shared launch admission [test]
 
@@ -647,6 +690,43 @@ attended session past every handover trigger raises no handover act,
 handover-due event or item; after a compaction its self-check passes
 silently, and a self-check with a rule missing raises one operator item; a
 launched holder past its trigger still launches a successor.
+
+**Superseded-by: REQ-L1.9** (2026-11-07).
+
+### REQ-L1.9 — Every session hands over; attended ones beside themselves, compaction last [test + manual]
+
+`tests/test-mc-handover.sh`, `tests/test-mc-panel.sh` and the mod's
+`hooks/mission-control/compaction.test.tsx` under `check:panel-mod`
+(Task 33), against a stub tmux that models `split-window` and `kill-pane`
+(with a refusal knob) and a handover runner that can set `TMUX` and
+`TMUX_PANE`:
+
+- a fixture attended session in tmux past its trigger opens its successor
+  through the `pane` rung, the stub recording a split of the session's own
+  pane; the successor's recorded argv carries its launcher-derived name,
+  the mission-control profile, and the Remote Control flag only when the
+  fixture predecessor had it; the successor verifies, takes the name as an
+  attended holder with a registry row, and `take` reports the predecessor
+  ended, or closes its pane when it has not;
+- a successor that never verifies within the window has its pane closed by
+  the predecessor, which keeps the name and raises the rung-2 act;
+- each shipped pane adapter is chosen when its stub probe passes and
+  skipped when it fails, a probe whose channel is foreign or not owned by
+  the user fails, and no probe opens anything; with no probe passing the
+  rung-2 act is raised once per session and no pane opens;
+- a program or session name carrying shell metacharacters is refused
+  before any adapter runs;
+- the mod defers a compaction while a rung-1 successor is in flight and
+  not while only the rung-2 act is pending; after a fixture compaction the
+  self-check passes silently, a self-check with a rule missing raises one
+  operator item, and the next trigger retries rung 1;
+- the shipped `mission_control_handover_context` is 40, and a launched
+  holder past its trigger still launches a successor, Task 16's fixtures
+  retargeted to that threshold.
+
+`[manual]`: for each non-tmux adapter, one real-terminal run on a host
+with that terminal opens the successor's split beside the session; until
+it runs, that adapter ships stub-verified only.
 
 ## REQ-M — Throughput
 
@@ -698,3 +778,34 @@ file that writer produced from fixture logs.
 `tests/test-mc-keeper.sh` (Task 27): a task whose own or dependency's
 repository the selection withholds is not suggested, and `next` equals the
 selection's output.
+
+## REQ-N — Program goals
+
+### REQ-N1.1 — A goal carries a confirmed check [test]
+
+`tests/test-mc-goals.sh` (Task 34): a goal with an unconfirmed check lists
+as unconfirmed and never as done; confirming records the operator's
+correction verbatim.
+
+### REQ-N1.2 — Done only on a pass [test]
+
+`tests/test-mc-goals.sh` (Task 34): a passing command marks the goal done
+with its evidence; a failing, timed-out or unrun check on a goal whose pull
+requests merged reports merged but not done with one routed-fix item; a
+session-based check counts only on reported evidence that the outcome
+holds; a merge of untracked work runs no check.
+
+### REQ-N1.3 — Daily re-check of command checks [test]
+
+`tests/test-mc-goals.sh` and `tests/test-mc-duties.sh` (Task 34): the
+`goal-check` duty re-runs command checks daily and at bring-up; a failing
+re-check reopens the goal with one item, a passing one writes nothing, and
+a session-based check is not re-run.
+
+### REQ-N1.4 — Goals live in the program home [test]
+
+`tests/test-mc-goals.sh` (Task 34): the store is under the program home and
+no repository file changes; concurrent writes serialize under its lock; a
+missing or unknown `format` is refused; a tracked pull request titled
+with `$(touch <sentinel>)` leaves no sentinel and the executed command
+equals the stored one.

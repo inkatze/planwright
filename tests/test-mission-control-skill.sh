@@ -107,6 +107,10 @@ need "REQ-A1.1: the operator's ask is the resume" "scripts/mc-handover.sh\`'s \`
 need "REQ-A1.1: any other launch over a live holder is refused" "neither the operator's ask nor a live handover"
 need "REQ-A1.2: bring-up from durable evidence only" "Never read a stored live-state file as truth"
 need "REQ-A1.7: the first turn says what changed" "what changed since the operator last looked"
+need "bring-up audits the setup it inherits" "scripts/mc-config.sh\`'s \`doctor"
+need "only doctor's findings become operator items, never its clean line" "each finding \`scripts/mc-config.sh\`'s \`doctor"
+need "planwright's defaults win over a predecessor's habits" "planwright's defaults win over the predecessor's habits"
+need "the audit never re-raises what the operator already settled" "prints that no operator choice already settles"
 need "REQ-F1.12: one objective at a time" "one objective at a time"
 need "REQ-F1.13: the guidance knob sets the depth" "scripts/mc-config.sh\`'s \`mode guidance"
 need "REQ-F1.13: a chosen level is remembered" "knob mission_control_guidance"
@@ -117,6 +121,8 @@ need "D-14: no duty enables itself through an omitted list" "always with \`--dut
 need "the runner starts detached, never in a turn's foreground" "under \`setsid\`"
 need "REQ-I1.2: the readiness check runs before a flip" "scripts/mc-readiness.sh\`'s \`check"
 need "REQ-D1.8: a PR is reported done only once the readiness check passes" "\`check\` passes on its head; until then report"
+need "a PR ready to merge is in the first turn's decisions" "including \`scripts/mc-merge-ready.sh\`'s \`list --as-status\`"
+need "and goes to the operator at once, pushed, with its merge command" "goes to the operator at once with a push notification and its merge command, again at every bring-up until it merges"
 need "D-18: guidance never pre-selects" "pre-selects an option"
 
 # The register and the source-naming rule.
@@ -125,6 +131,18 @@ need "D-19: no identifiers in items" "a spec, task or decision identifier never 
 need "REQ-H1.4: mode and age named" "its mode and age"
 need "REQ-H1.4: a cited-only class is said so" "only a \`cited\` source"
 need "REQ-F1.11: drafts go to the clipboard" "scripts/mc-inbox.sh\`'s \`draft"
+# Quiet by default: an unasked turn is rendered, so a routine act cannot
+# reach the operator, and the shared wording lives in tower-comms.
+need "unasked turns are rendered by the report" "scripts/mc-inbox.sh\`'s \`report"
+need "a routine event raises no turn" "A routine event raises no turn"
+need "a routine act is never said" "A routine act is logged with its undo entry and decision, never said"
+comms="$REPO_ROOT/doctrine/tower-comms.md"
+comms_body=$(tr '\n' ' ' <"$comms" | tr -s ' ')
+for n in "An unasked turn carries only a decision waiting on the operator, a blocker, a failure, or a landing" \
+  "one lead line, no acknowledgement" "five lines at most, decisions exempt" "is logged, never narrated" \
+  "with nothing owed, it says nothing" "a denial's exact text, a refusal's reason"; do
+  if has "$comms_body" "$n"; then ok "tower-comms: $n"; else fail "doctrine/tower-comms.md lacks '$n'"; fi
+done
 
 # Acting on the operator's behalf, decisions and proposals.
 need "REQ-A1.4: never a per-session step" "never hand the operator a per-session step"
@@ -159,6 +177,9 @@ need "REQ-I1.4: rewrite only on the same-turn request" "explicit request in the 
 need "REQ-I1.4: no protected push, no remote delete" "never delete a remote branch"
 need "REQ-A1.3: never a git mutation" "edit a repository or run a git mutation: every change goes through a session it launches"
 need "REQ-G1.4: never a settings edit" "edit a settings file or widen its own posture"
+need "REQ-G1.5: the posture is checked at bring-up and on every tick" "scripts/mc-posture.sh\`'s \`check\` now and on every failsafe tick"
+need "REQ-G1.5: anything but a pass holds read-only" "On anything but \`pass\` (a check that did not run included), say why once in one plain line and stay read-only"
+need "REQ-G1.5: read-only until a check passes, and the launcher refuses on the same check" "until a check passes; the launcher refuses on the same check"
 need "REQ-I1.6: the program home is never committed" "the program home is never committed"
 
 # Probes: each need-check fails on a string without its property.

@@ -107,6 +107,13 @@ expect_out "stop names what it disarmed" "disarmed${tab}alpha-duty"
 # shellcheck disable=SC2086 # one pid per word
 check "stop ends every watcher" poll_until --what "every stopped watcher's exit" -- pid_gone $pids
 
+# A runner whose TMPDIR names a scratch directory that has since been removed
+# (the launched session it started under retired) still runs its watchers.
+setup '[alpha-duty]'
+TMPDIR="$tmp/retired-scratch" mc_run mc-watch.sh pass --program alpha
+check "a watcher runs although the runner's TMPDIR is gone" poll_until --what "the sweep watcher's run" -- \
+  sh -c "[ -f '$WATCH_RUNS/alpha-sweep' ]"
+
 # ---------------------------------------------------------------------------
 # REQ-E1.3, REQ-M1.1: a pass refreshes the snapshots and runs the relay and
 # the tick; a failed step fails the pass.

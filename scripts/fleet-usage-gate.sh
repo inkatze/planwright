@@ -75,7 +75,10 @@
 # copy of Claude Code's own rate-limit windows that the operator's own
 # statusLine command writes on each refresh (`${XDG_CACHE_HOME:-$HOME/.cache}/
 # claude-usage/rate-limits.json`, or $PLANWRIGHT_USAGE_MIRROR; set empty, the
-# source is off). planwright never writes it. Each window is taken from the
+# source is off). `scripts/fleet-usage-mirror.sh` is the planwright writer of
+# that copy, installed by wrapping the statusLine command; the gate only reads
+# it. A `rate_limits.spend_limit` (dollar budgets) fills the weekly window when
+# the account has no seven_day window. Each window is taken from the
 # first source that has it fresh (the mirror, then the capture cache), so a
 # window the mirror lacks falls back rather than reading 0%. The mirror is
 # read-only here and judged by the same TTL, a window's reset still ahead, and
@@ -132,6 +135,12 @@
 #       `session<TAB><pct|unavailable>` / `weekly<TAB><pct|unavailable>` after
 #       the same TTL/staleness handling `evaluate` applies, with no side effect.
 #       For fleet-allocate.sh's per-tier caps (which need the raw percentage).
+#   fleet-usage-gate.sh windows [--now <epoch>]
+#       Read-only view of the status-line mirror alone, each window with the
+#       epoch it resets at: `session<TAB><pct|unavailable><TAB><reset|->` /
+#       `weekly<TAB>...`, under the mirror's own TTL, span and plausibility
+#       rules (--now pins the clock they are judged by). For the usage-window
+#       duty (scripts/mc-usage.sh), which acts at the reset.
 #   fleet-usage-gate.sh admit <model>
 #       Given the derived current rung, answer whether a unit running <model>
 #       (a Claude Code alias: fable opus sonnet haiku) may dispatch. Heavy tiers
@@ -190,7 +199,7 @@ TAB=$(printf '\t')
 SESSION_CAP=3 # the session window never selects above defer-heavy (REQ-E1.6).
 
 usage() {
-  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | signal | admit <model>" >&2
+  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | signal | windows [--now <epoch>] | admit <model> | mirror-path" >&2
 }
 
 # rung_name <index>: the ladder rung name for an index, for composing the
@@ -410,7 +419,8 @@ validate_value() {
 
 # --- Signal sources (evaluate / signal) ------------------------------------
 #
-# Each source prints `<session> <weekly>`, each a 0-100 int or `unavailable`,
+# Each source prints `<session> <weekly>`, each a 0-100 int or `unavailable`
+# (the mirror, read for `windows`, a `<pct>/<resets_at>` in place of the int),
 # and read_signal takes every window from the first source in SIGNAL_SOURCES
 # that has it. A source therefore only says what it can measure, and one that
 # measures in another unit converts to a window percentage inside its own
@@ -421,6 +431,11 @@ SIGNAL_SOURCES="mirror capture"
 # length plus an hour (five_hour) or a day (seven_day) of slack.
 MIRROR_SPAN_FIVE_HOUR=21600
 MIRROR_SPAN_SEVEN_DAY=691200
+# A spend window's period is daily, weekly or monthly; the longest bounds it.
+MIRROR_SPAN_SPEND=2764800
+
+# The operator's one-line fix, named wherever the gate reports no usage source.
+USAGE_MIRROR_FIX='wire scripts/fleet-usage-mirror.sh into the statusLine (docs/fleet.md#the-usage-mirror)'
 
 # mirror_path: the status-line mirror. $PLANWRIGHT_USAGE_MIRROR names it, and
 # set empty disables the source; unset, the XDG cache location. A relative
@@ -453,7 +468,7 @@ file_mtime() {
   stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1" 2>/dev/null
 }
 
-# source_mirror <ttl> <now>: the status line's copy of Claude Code's own
+# source_mirror <ttl> <now> [reset]: the status line's copy of Claude Code's own
 # rate-limit windows, `{"five_hour":{"used_percentage":N,"resets_at":EPOCH},
 # "seven_day":{...}}`, written on each status-line refresh, so it reaches
 # sessions with no TUI to scrape. The file must be a regular file, fresh
@@ -465,7 +480,8 @@ file_mtime() {
 # Machine-written JSON carrying a control byte, or one the parse fails on, is
 # corrupt: the whole file then reads unavailable with a warning, so a broken
 # status-line writer is told apart from a merely stale mirror. Never fails: anything it cannot read is unavailable,
-# so the capture still gets its turn.
+# so the capture still gets its turn. With `reset`, each available window
+# reads `<pct>/<resets_at>`.
 source_mirror() {
   sm_none='unavailable unavailable'
   sm_path=$(mirror_path)
@@ -485,8 +501,9 @@ source_mirror() {
     printf '%s' "$sm_none"
     return 0
   fi
-  sm_v=$(head -c 4096 "$sm_path" 2>/dev/null | awk -v now="$2" \
-    -v span5="$MIRROR_SPAN_FIVE_HOUR" -v span7="$MIRROR_SPAN_SEVEN_DAY" '
+  sm_v=$(head -c 4096 "$sm_path" 2>/dev/null | awk -v now="$2" -v withreset="${3:-}" \
+    -v span5="$MIRROR_SPAN_FIVE_HOUR" -v span7="$MIRROR_SPAN_SEVEN_DAY" \
+    -v spanS="$MIRROR_SPAN_SPEND" '
     { line = $0; gsub(/[\t\r]/, " ", line); doc = doc line " " }
     function window(key, span,   obj, pct, rst) {
       if (!match(doc, "\"" key "\"[ ]*:[ ]*[{][^{}]*[}]")) return "unavailable"
@@ -498,11 +515,13 @@ source_mirror() {
       if (length(rst) > 12 || rst + 0 <= now + 0 || rst + 0 > now + span) return "unavailable"
       sub(/[.].*/, "", pct)
       if (length(pct) > 3 || pct + 0 > 100) return "unavailable"
-      return pct + 0
+      return (withreset == "reset") ? (pct + 0) "/" (rst + 0) : pct + 0
     }
     END {
       if (doc ~ /[\001-\037\177]/) { printf "corrupt"; exit }
-      printf "%s %s", window("five_hour", span5), window("seven_day", span7)
+      w7 = window("seven_day", span7)
+      if (w7 == "unavailable") w7 = window("spend_limit", spanS)
+      printf "%s %s", window("five_hour", span5), w7
     }') || sm_v=corrupt
   if [ "$sm_v" = corrupt ]; then
     printf '%s\n' "fleet-usage-gate: status-line mirror '$sm_path' is corrupt — treating as unavailable" >&2
@@ -543,6 +562,17 @@ source_capture() {
     sc_weekly=unavailable
   fi
   printf '%s %s' "$sc_session" "$sc_weekly"
+}
+
+# usage_source_missing: true when neither the status-line mirror nor a /usage
+# capture is on disk, so no usage signal can arrive until one is wired. A
+# disabled mirror (PLANWRIGHT_USAGE_MIRROR set empty) counts as absent.
+usage_source_missing() {
+  usm_m=$(mirror_path)
+  usm_c="$(signal_dir 2>/dev/null)/signal"
+  if [ -n "$usm_m" ] && [ -e "$usm_m" ]; then return 1; fi
+  [ -e "$usm_c" ] && return 1
+  return 0
 }
 
 # read_signal: print `<session> <weekly>`, each window from the first source
@@ -872,6 +902,17 @@ case "$cmd" in
     exit 0
     ;;
 
+  mirror-path)
+    # The status-line mirror's resolved location, for scripts/fleet-usage-mirror.sh
+    # to write to. Prints nothing when the source is disabled or unresolvable.
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    mirror_path
+    exit 0
+    ;;
+
   signal)
     # A read-only view of the cached usage signal (Task 10): the per-window
     # percentages after the same TTL/staleness/plausibility handling `evaluate`
@@ -886,6 +927,49 @@ case "$cmd" in
     }
     sig=$(read_signal) || exit $?
     printf 'session\t%s\nweekly\t%s\n' "${sig% *}" "${sig#* }"
+    if [ "${sig% *}" = unavailable ] && [ "${sig#* }" = unavailable ] && usage_source_missing; then
+      printf '%s\n' "fleet-usage-gate: no usage signal: no status-line mirror and no /usage capture; $USAGE_MIRROR_FIX" >&2
+    fi
+    exit 0
+    ;;
+
+  windows)
+    wn_now=""
+    case $# in
+      0) ;;
+      2)
+        # An explicit --now must name an epoch; empty is not "now".
+        if [ "$1" != --now ] || [ -z "$2" ]; then
+          usage
+          exit 2
+        fi
+        wn_now=$2
+        ;;
+      *)
+        usage
+        exit 2
+        ;;
+    esac
+    case $wn_now in
+      "") wn_now=$(now_epoch) || {
+        echo "fleet-usage-gate: cannot read the clock" >&2
+        exit 2
+      } ;;
+      # A leading zero would read as octal in the age arithmetic.
+      *[!0-9]* | 0?*)
+        usage
+        exit 2
+        ;;
+    esac
+    wn_ttl=$(resolve_posint fleet_usage_signal_ttl_seconds 900) || exit $?
+    wn_v=$(source_mirror "$wn_ttl" "$wn_now" reset) || exit $?
+    for wn_w in ${wn_v% *}:session ${wn_v#* }:weekly; do
+      wn_r=${wn_w%:*}
+      case $wn_r in
+        */*) printf '%s\t%s\t%s\n' "${wn_w##*:}" "${wn_r%/*}" "${wn_r#*/}" ;;
+        *) printf '%s\tunavailable\t-\n' "${wn_w##*:}" ;;
+      esac
+    done
     exit 0
     ;;
 
@@ -998,6 +1082,13 @@ case "$cmd" in
           release_lock
         fi
       fi
+      no_source=0
+      usage_source_missing && no_source=1
+      if [ "$no_source" -eq 1 ]; then
+        # Never silent: with no usage source at all, say so and name the fix on
+        # every cadence, not only past the sustained-loss threshold.
+        printf '%s\n' "fleet-usage-gate: warning: no usage signal: no status-line mirror and no /usage capture ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change; $USAGE_MIRROR_FIX" >&2
+      fi
       if [ "$count" -ge "$loss_limit" ]; then
         # The REQUIRED operator surface: a warning escalating to an
         # Awaiting-input hold, so a permanently broken /usage parse is never
@@ -1009,8 +1100,8 @@ case "$cmd" in
             "proactive /usage signal unavailable across $count consecutive reads; governance is on the reactive backstop only. Operator: choose a model, wait, or proceed." \
             >/dev/null 2>&1 || echo "fleet-usage-gate: warning: could not push the operator hold surface" >&2
         fi
-      else
-        printf '%s\n' "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change" >&2
+      elif [ "$no_source" -eq 0 ]; then
+        printf '%s\n' "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change; a stale or missing mirror means no statusLine is refreshing it: $USAGE_MIRROR_FIX" >&2
       fi
       since=$(last_transition_epoch 2>/dev/null) || since=""
       printf 'rung\t%s\tsince\t%s\tsession\tunavailable\tweekly\tunavailable\n' "$cur" "$since"

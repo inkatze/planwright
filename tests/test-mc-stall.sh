@@ -232,6 +232,16 @@ row mc-alpha-worker-ended worker stream-json mc-alpha-worker-ended
 sj mc-alpha-worker-ended -
 stall classify --program alpha --now 1000 mc-alpha-worker-ended
 expect_state "a supervisor that removed its pidfiles reads dead" mc-alpha-worker-ended dead
+# A session with no pane holds no hash to keep its time by; the time it
+# entered its state is kept instead, so it can reach a stall threshold. The
+# sample also records when it was taken.
+ended_sample=$(find "$tmp" -path '*/stall/mc-alpha-worker-ended' -type f | head -n 1)
+stall classify --program alpha --now 1500 mc-alpha-worker-ended
+expect_state "a paneless dead session stays dead" mc-alpha-worker-ended dead
+[ "$(cut -f3 "$ended_sample")" = 1000 ] && ok "a paneless session keeps the time it entered its state" \
+  || fail "a paneless session's entry time moved: $(cat "$ended_sample")"
+[ "$(cut -f5 "$ended_sample")" = 1500 ] && ok "the sample records when it was taken" \
+  || fail "the sample lacks its own time: $(cat "$ended_sample")"
 
 busy_pane "$tmp/busy-dead.pane" 4 "Writing the fix."
 row mc-alpha-ad-hoc-panedead ad-hoc tmux @8

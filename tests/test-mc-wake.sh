@@ -401,6 +401,103 @@ fi
 printf '99999999999\n' >"$fleet/mission-control/alpha/last-tick"
 mc_run mc-wake.sh tick --program alpha --now 20000
 expect_out "a tick stamp from the future never holds the failsafe off" "tick"
+# ---------------------------------------------------------------------------
+# A routine event raises no turn: relay, tick and compose leave it out and
+# mark it submitted unsent, so it leaves the pending set. Every other class
+# still wakes, and an unreadable class table wakes on everything.
+# ---------------------------------------------------------------------------
+tmux_target
+printf '%s\n' "$idle_pane" >"$tmp/tmux/pane"
+marked() { # marked <label> <event id>: the event is listed, marked submitted
+  mc_run mc-event.sh list --program alpha --target tw
+  if printf '%s\n' "$OUT" | awk -F '\t' -v id="$2" '$1 == id && $NF == "submitted" { f = 1 } END { exit !f }'; then
+    ok "$1"
+  else
+    fail "$1: $2 is not listed as submitted"
+  fi
+}
+mc_run mc-event.sh emit --program alpha watcher-stopped alpha-duty "scripts/alpha-watch.sh stopped; re-armed by the runner"
+routine_ev=$OUT
+mc_run mc-wake.sh relay --program alpha
+expect_out "a routine event alone wakes no turn through the relay" "idle${tab}tw"
+marked "the relay marks it submitted unsent, still listable" "$routine_ev"
+mc_run mc-event.sh emit --program alpha watcher-stopped alpha-duty "scripts/alpha-watch.sh stopped; re-armed by the runner"
+routine_ev=$OUT
+mc_run mc-wake.sh tick --program alpha --now 50000
+expect_out "nor through the tick" "idle${tab}tw"
+marked "the tick marks it too" "$routine_ev"
+if grep -q load-buffer "$tmp/tmux/log"; then
+  fail "a routine event reached the pane"
+else
+  ok "nothing was pasted for a routine event"
+fi
+mc_run mc-event.sh emit --program alpha watcher-stopped beta-duty "scripts/beta-watch.sh stopped; re-armed by the runner"
+beta_ev=$OUT
+mc_run mc-event.sh emit --program alpha stall-dead worker-3 "no process"
+woke_ev=$OUT
+mc_run mc-event.sh emit --program alpha some-new-kind worker-4
+mc_run mc-wake.sh compose --program alpha tw
+expect_out "a failure still wakes, the routine event uncounted" "wake${tab}2${tab}"
+expect_out "with the failure among its ids" "$woke_ev"
+expect_out "and its wake names it" "- stall-dead worker-3"
+expect_out "a kind with no class row wakes, never silenced by omission" "- some-new-kind worker-4"
+expect_no_out "the routine event is not in the wake" "watcher-stopped"
+marked "compose marks it too" "$beta_ev"
+# A routine backlog past one batch of marks is marked whole.
+mc_run mc-event.sh emit --program alpha watcher-stopped alpha-duty "scripts/alpha-watch.sh stopped; re-armed by the runner"
+backlog_src=$(find "$fleet" -type f -name "$OUT" | head -n 1)
+for n in $(seq 1 204); do cp "$backlog_src" "${backlog_src%.*}.$(printf '%08x' "$n")"; done
+mc_run mc-wake.sh relay --program alpha
+expect_rc "a relay over a routine backlog" 0
+mc_run mc-event.sh list --program alpha --target tw --pending --limit 100000
+if printf '%s\n' "$OUT" | grep -q "watcher-stopped"; then
+  fail "a routine backlog past one batch left events pending"
+else
+  ok "a routine backlog past one batch is marked whole"
+fi
+# A copy of the scripts with no class table beside them: every event wakes.
+mkdir -p "$tmp/noconf"
+cp -R "$repo_root/scripts" "$tmp/noconf/scripts"
+mc_run mc-event.sh emit --program alpha watcher-stopped gamma-duty "scripts/gamma-watch.sh stopped"
+OUT=$(mc_env /bin/bash "$tmp/noconf/scripts/mc-wake.sh" compose --program alpha tw 2>"$tmp/stderr")
+ERR=$(cat "$tmp/stderr")
+expect_out "an unreadable class table fails open: the routine event wakes" "- watcher-stopped gamma-duty"
+expect_err "and says why" "config/mc-event-classes.tsv is missing or unreadable"
+rm -rf "$tmp/noconf"
+# Every event a duty starts on, wakes with or raises as an item has a class
+# row, and the table names each kind once with a known class.
+classes="$repo_root/config/mc-event-classes.tsv"
+# One pass over the shipped catalog alone (no fixture or machine overlay);
+# a flow list may run onto continuation lines until its closing bracket.
+kinds=$(awk '
+  /^[ \t]*(triggers|wake|kinds):/ { sub(/^[^:]*:/, ""); take = 1; list = /\[/ }
+  take {
+    line = $0; gsub(/[][,]/, " ", line); n = split(line, w, /[ \t]+/)
+    for (i = 1; i <= n; i++) if (w[i] != "" && w[i] != "none") print w[i]
+    if (!list || /\]/) take = 0
+  }
+' "$repo_root/config/duties.yaml" | sort -u)
+if [ -z "$kinds" ]; then
+  fail "the duty catalog yielded no event kinds to check"
+else
+  unclassified=""
+  for k in $kinds; do
+    awk -F '\t' -v k="$k" '$1 == k { f = 1 } END { exit !f }' "$classes" || unclassified="$unclassified $k"
+  done
+  if [ -z "$unclassified" ]; then
+    ok "every catalog trigger, wake and item kind has a class"
+  else
+    fail "catalog kinds with no row in config/mc-event-classes.tsv:$unclassified"
+  fi
+fi
+bad_class=$(awk -F '\t' '!/^#/ && NF && $2 !~ /^(decision|blocker|failure|landed|act|routine)$/ { print $1 }' "$classes")
+dup_kind=$(awk -F '\t' '!/^#/ && NF { print $1 }' "$classes" | sort | uniq -d)
+if [ -z "$bad_class" ] && [ -z "$dup_kind" ]; then
+  ok "every class row names a known class, each kind once"
+else
+  fail "class rows with an unknown class ($bad_class) or a repeated kind ($dup_kind)"
+fi
+
 PATH=$saved_path
 
 # ---------------------------------------------------------------------------

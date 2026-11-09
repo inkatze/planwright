@@ -1,0 +1,1 @@
+- 2026-11-07 [mission-control] mission-control REQ-E1.3 and D-6 say every event wakes mission control by push; the quiet-reporting default (config/mc-event-classes.tsv) now lands routine kinds handled without a wake, so the spec needs an amendment naming the class table and the routine exemption.

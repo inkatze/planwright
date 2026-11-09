@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BAND, boot, digestText, done, PANE, ran, turn, world } from './fixture'
+import { BAND, bandOf, boot, digestText, done, PANE, ran, turn, world } from './fixture'
 
 // A session mission control launched itself: only it hands over.
 const LAUNCHED = digestText({ holder: 'registry' })
@@ -45,6 +45,15 @@ test('a failed re-injection raises an item and keeps the compaction', async ($, 
   expect(w.toasts.at(-1)).toMatch(/could not be re-injected/)
 })
 
+test('context resets since start count on the pane', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  await $.session.compact(compact('manual'))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Context resets since start: 1$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a precompute or a subagent compaction is left alone', async ($, on) => {
   const w = world(on)
   await boot($, w)
@@ -54,16 +63,7 @@ test('a precompute or a subagent compaction is left alone', async ($, on) => {
   expect(sub.messages).toHaveLength(1)
   expect(ran(w, 'mc-rules.sh', 'load')).toEqual([])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /compactions since start 0 / })).toBeDefined()
-  await ui.unmount()
-})
-
-test('compactions since start count on the pane', async ($, on) => {
-  const w = world(on)
-  await boot($, w)
-  await $.session.compact(compact('manual'))
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /compactions since start 1 / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Context resets since start: 0$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -82,7 +82,7 @@ test('measured context at the threshold raises the handover, on every surface it
   expect(await pane.find({ type: 'Text', text: /^Handover due: context at 70%$/ })).toBeDefined()
   await pane.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /✈/ }))?.text).toMatch(/handover due$/)
+  expect((await bandOf(band))).toMatch(/handover due$/)
   await band.unmount()
   await w.clock.advance(10_000)
   expect(ran(w, 'mc-event.sh', 'emit')).toHaveLength(1)
@@ -150,7 +150,7 @@ test('an attended session past every trigger raises no handover', async ($, on) 
   expect(await pane.find({ type: 'Text', text: /Handover due/ })).toBeUndefined()
   await pane.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /✈/ }))?.text).not.toMatch(/handover/)
+  expect((await bandOf(band))).not.toMatch(/handover/)
   await band.unmount()
 })
 
