@@ -437,13 +437,13 @@ fi
 echo "### hook skip list — the wrapper hands the record's list to the hooks runner"
 HX=$T/hx.record
 printf 'policy=\nhook_exclude=lint-md,spell_check\n' >"$HX"
-out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c 'printf %s "${LEFTHOOK_EXCLUDE-unset}"' 2>&1)
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
 if [ "$out" = "lint-md,spell_check" ]; then
   pass "hook skip list: the record's list is exported as LEFTHOOK_EXCLUDE"
 else
   fail "hook skip list: wrapper exported '$out'"
 fi
-out=$(LEFTHOOK_EXCLUDE=mine /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c 'printf %s "${LEFTHOOK_EXCLUDE-unset}"' 2>&1)
+out=$(LEFTHOOK_EXCLUDE=mine /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
 if [ "$out" = "mine" ]; then
   pass "hook skip list: an explicit LEFTHOOK_EXCLUDE is never replaced"
 else
@@ -457,13 +457,13 @@ else
   fail "hook skip list: an empty value was replaced by '$out'"
 fi
 printf 'policy=\nhook_exclude=bad name;x\n' >"$HX"
-out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c 'printf %s "${LEFTHOOK_EXCLUDE-unset}"' 2>&1)
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
 if [ "$out" = unset ]; then
   pass "hook skip list: a list outside the name grammar is never exported"
 else
   fail "hook skip list: a malformed list was exported: '$out'"
 fi
-out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --root "$REPO_ROOT" /bin/sh -c 'printf %s "${LEFTHOOK_EXCLUDE-unset}"' 2>&1)
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --root "$REPO_ROOT" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
 if [ "$out" = unset ]; then
   pass "hook skip list: a launch with no record exports nothing"
 else

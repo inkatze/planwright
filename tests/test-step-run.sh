@@ -279,14 +279,14 @@ verdict $? "a first run before any PR sees an empty PR number, and with no earli
 fresh
 catalog "show|kind: command|target: $bin/show.sh"
 config 'steps_pre_pr: [show]'
-wtp=$(cd -P "$wt" && pwd -P)
+wtp=$(cd -P "$tmp/wt$n" && pwd -P)
 printf 'policy=\nunit_branch=planwright/flight/demo-0123abcd\nworktree_root=%s\npr_base=origin/main\n' "$wtp" >"$tmp/launch.record"
 noctx() {
   _rec=$1
   shift
   env_run env -u PLANWRIGHT_STEP_SPEC -u PLANWRIGHT_STEP_TASK_IDS -u PLANWRIGHT_STEP_UNIT_KIND \
     -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_BASE_BRANCH -u PLANWRIGHT_STEP_WORKTREE \
-    -u PLANWRIGHT_STEP_PR_NUMBER "PLANWRIGHT_WORKER_SESSION_RECORD=$_rec" "$RUN" --worktree "$wt" "$@"
+    -u PLANWRIGHT_STEP_PR_NUMBER "PLANWRIGHT_WORKER_SESSION_RECORD=$_rec" "$RUN" --worktree "$tmp/wt$n" "$@"
 }
 r=$(sr new-run)
 noctx "$tmp/launch.record" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"
@@ -307,8 +307,8 @@ grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=' "$tmp/show.show.env" && grep -qx 'PLANWRIG
 verdict $? "a record naming another worktree supplies nothing" "env: $(cat "$tmp/show.show.env" 2>&1)"
 rm -f "$tmp/show.show.env"
 r=$(sr new-run)
-env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$tmp/launch.record" "$RUN" --worktree "$wt" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"
-env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$tmp/launch.record" "$RUN" --worktree "$wt" command --run "$r" --point pre-pr --step show >/dev/null 2>>"$tmp/err"
+env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$tmp/launch.record" "$RUN" --worktree "$tmp/wt$n" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"
+env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$tmp/launch.record" "$RUN" --worktree "$tmp/wt$n" command --run "$r" --point pre-pr --step show >/dev/null 2>>"$tmp/err"
 grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=task' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/demo/task-1' "$tmp/show.show.env"
 verdict $? "a context the caller exports is never replaced by the record's" "env: $(cat "$tmp/show.show.env" 2>&1)"
 
