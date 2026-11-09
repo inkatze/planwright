@@ -443,9 +443,9 @@ allocation_effort_offload: inherit
 # so nothing ever starts cheap; these are the knobs that let it.
 #
 # The step knobs ship `inherit`, except the review steps' MODEL (polish and
-# self-review) which ship `sonnet` (2026-11-09 amendment to model-allocation).
-# Their effect waits on the execute_step surface carrying a tier, so the
-# shipped value changes nothing until that surface is tiered (see below).
+# self-review), which ship `sonnet`. Their effect waits on the execute_step
+# surface carrying a tier, so the shipped value changes nothing until that
+# surface is tiered (see below).
 # Nothing passes a step type yet either — Task 6 wires the launch points — so
 # setting one of these changes nothing at all until that lands.
 #

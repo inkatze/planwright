@@ -1,7 +1,6 @@
 #!/bin/bash
 # The shipped model tier for the review steps (polish, self-review) is Sonnet.
 # Read the real config/defaults.yml: the default is the contract, not a fixture.
-# Amendment 2026-11-09 to model-allocation (D-13), pending operator sign-off.
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)

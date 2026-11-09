@@ -984,7 +984,7 @@ done
 for k in allocation_model_step_polish allocation_model_step_self_review; do
   grep -q "^$k:" "$real_cfg" || fail "15i: config/defaults.yml is missing '$k'"
   grep -qE "^$k: sonnet\$" "$real_cfg" \
-    || fail "15i: '$k' must ship 'sonnet' (2026-11-09 amendment to model-allocation)"
+    || fail "15i: '$k' must ship 'sonnet'"
 done
 echo "ok: step-type knobs ship inherit, review step models ship sonnet"
 echo "PASS: allocation-adapt ($(basename "$0"))"
