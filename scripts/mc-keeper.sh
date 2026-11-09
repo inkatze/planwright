@@ -487,7 +487,10 @@ pending_age_setting() {
 # silent stop of the prompt alerts cannot go unnoticed.
 run_pending_sweep() {
   rs_seen="$runtime/keeper-sweep-$1"
-  "$2" && { mc_announce_prune "$rs_seen" ""; return $?; }
+  "$2" && {
+    mc_announce_prune "$rs_seen" ""
+    return $?
+  }
   printf '%s\n' "$prog: the $1 sweep failed" >&2
   mc_announce "$program" "$rs_seen" "$1" keeper-sweep-failed "$1" \
     "the keeper's $1 sweep ended with an error, so prompts it covers may not be announced; run mc-keeper.sh watch by hand to see why" || true
