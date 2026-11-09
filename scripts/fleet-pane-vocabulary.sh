@@ -2,7 +2,8 @@
 # fleet-pane-vocabulary.sh — the codified Claude Code TUI marker vocabulary
 # and the footer classifier over it (sourced, never executed) by every pane consumer
 # (fleet-pane-detect.sh, fleet-stuck-detector.sh, orchestrate-relay.sh,
-# mc-stall.sh). This is
+# mc-stall.sh, and through mc-session-pane.sh mc-escalate.sh and
+# mc-pane-answer.sh). This is
 # the SINGLE point a tower updates if the TUI footer or dialog text changes —
 # the whole value of codifying the pane discipline once (fleet-hardening D-3)
 # instead of every consumer re-deriving a fragile heuristic; the

@@ -122,7 +122,10 @@
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
 # environment; POINT (post-pr for a re-fire), ID, PREV_RECORD (the run's last
 # step record at that point), and PREV_HEAD and NEW_HEAD (step-record.sh
-# heads at that point) are computed here.
+# heads at that point) are computed here. A field the caller leaves unset is
+# filled, for a flight worker only, from the launch record in
+# PLANWRIGHT_WORKER_SESSION_RECORD (UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE),
+# so the worker runs this script with no variable prefix.
 #
 # Output of command, begin (but `run`), and end: `<outcome><TAB><record>
 # <TAB><hosting><TAB><session>`, the record path absolute and, for a reuse
@@ -202,6 +205,36 @@ if [ -z "$worktree" ]; then
 fi
 worktree=$(cd -P -- "$worktree" 2>/dev/null && pwd -P) || die 2 "--worktree: not a directory"
 cd "$worktree" || die 2 "--worktree: cannot enter it"
+
+# launch_context: a flight worker's step context from the session record its
+# launcher wrote (scripts/worker-session-record.sh), for each field the caller
+# left unset, so the worker runs this script bare instead of exporting the
+# fields in front of it. Only a record for this very worktree, naming a flight
+# branch, counts; SPEC and TASK_IDS stay empty, as they are for a flight.
+launch_context() {
+  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_unit='' r_base=''
+  [ -n "$rec" ] && [ -f "$rec" ] && [ ! -L "$rec" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      worktree_root=*) r_wt=${line#worktree_root=} ;;
+      unit_branch=*) r_unit=${line#unit_branch=} ;;
+      pr_base=*) r_base=${line#pr_base=} ;;
+    esac
+  done <"$rec"
+  [ "$r_wt" = "$worktree" ] || return 0
+  case $r_unit in
+    planwright/flight/?*) ;;
+    *) return 0 ;;
+  esac
+  [ -n "${PLANWRIGHT_STEP_UNIT_KIND+x}" ] || export PLANWRIGHT_STEP_UNIT_KIND=flight
+  [ -n "${PLANWRIGHT_STEP_BRANCH+x}" ] || export PLANWRIGHT_STEP_BRANCH="$r_unit"
+  [ -n "${PLANWRIGHT_STEP_WORKTREE+x}" ] || export PLANWRIGHT_STEP_WORKTREE="$worktree"
+  case $r_base in
+    ?*/?*) [ -n "${PLANWRIGHT_STEP_BASE_BRANCH+x}" ] || export PLANWRIGHT_STEP_BASE_BRANCH="${r_base#*/}" ;;
+  esac
+  return 0
+}
+launch_context
 cache="$worktree/.claude/steps"
 
 sr() (

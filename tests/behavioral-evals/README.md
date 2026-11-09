@@ -280,16 +280,20 @@ fields the grade reads:
 | `answer` | `source: operator`, `text` |
 | `event` | `source: evidence`, `event` (the `@event:` name), `raw` |
 | `present` | `text`; an item adds `item` (`id`, `subject`, `link`, `does`, `asks`, `right`, `checked`, `cluster`, `options` of `label` and `effect`); a picklist `picklist` (`id`, `default`, `options`); a proposal `proposal` and `options`; a status `status_sections`; a source report `source_modes` (`source`, `mode`, `age`); the first turn after silence `first_turn: true`; a first-run objective `first_run.objective` with `asked` or `settled`, an asked one also `first_run.left` (the questions still to ask after it, an integer that falls to 0 on the last), or its answer's `first_run.feedback`; a command handed to the operator `command: true` |
-| `decision` | `action`, and per action the fields `grade.jq` names (`quote` and `on_seq` on a relayed answer, `on_seq` and `draft_seq` on a send, `by` and `reason` on an item leaving, `names`, `row`, `ready_change` and `settings_written` on a proposal) |
+| `decision` | `action`, and per action the fields `grade.jq` names (`quote` and `on_seq` on a relayed answer, `on_seq` and `draft_seq` on a send, `by` and `reason` on an item leaving, `names`, `row`, `ready_change` and `settings_written` on a proposal, `routine: true` on a routine act (an `@event:routine` input: `approve`, `relay` or `rearm`), `of` on the `undo-logged` decision that follows it) |
 | run record | `record: eval-run`, `eval_only`, `authoritative`, `publishing_disabled`, `completed`, `merged`, `signed_off`, and no `approved` |
 
 `grade.jq` holds every run to a floor: the register (no requirement, design
 or task identifier, script, knob, planwright concept, pane, window or handle
 reaches the operator; a skill name only on a turn handing them a command),
 turn density (one bounded line per turn, at most one item between two
-inputs unless the items share a coupled cluster), the item, picklist and
-proposal shapes, the operator's-own-words rule (a relayed answer quotes an
-operator turn verbatim, a send follows their own unpasted yes on a shown
+inputs unless the items share a coupled cluster), quiet by default (a turn
+after an event and before the operator's next answer never narrates a
+routine act and runs five lines at most besides its decisions, no turn
+opens on an acknowledgement, a routine-only event gets no turn, and every
+routine act has its undo entry), the item, picklist and proposal shapes,
+the operator's-own-words rule (a relayed answer quotes an operator turn
+verbatim, a send follows their own unpasted yes on a shown
 draft, an enable follows their yes), no merge, sign-off or ready flip, and
 an eval-only run record. On top of the floor it pins each persona's own
 arm, and fails a persona it has no pin for.

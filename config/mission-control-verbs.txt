@@ -1,0 +1,78 @@
+# The mission-control guard tier's pre-approval list: the planwright script
+# verbs scripts/tower-command-guard.sh approves without a prompt in its
+# mission-control mode. One `<script> <verb>` per line: `-` is the script
+# run with no argument, `*` any arguments or none.
+#
+# Derived, never hand-kept: scripts/check-mc-verbs.sh fails on any line the
+# mission-control skill and config/duties.yaml do not invoke, and on any
+# verb they invoke that is missing here (`--print` prints the derived set).
+# Core-only: the guard reads this file from its own root and no overlay adds
+# to it. `fleet-streamjson.sh answer` never appears here.
+fleet-streamjson.sh status
+fleet-streamjson.sh steer
+mc-config.sh add
+mc-config.sh apply
+mc-config.sh doctor
+mc-config.sh duty
+mc-config.sh entry
+mc-config.sh knob
+mc-config.sh mode
+mc-deadlines.sh -
+mc-decide.sh decide
+mc-decide.sh note
+mc-duties.sh get
+mc-duties.sh list
+mc-escalate.sh -
+mc-event.sh list
+mc-handover.sh due
+mc-handover.sh launch
+mc-handover.sh offer
+mc-handover.sh path
+mc-handover.sh release
+mc-handover.sh resume
+mc-handover.sh take
+mc-handover.sh verify
+mc-handover.sh write
+mc-inbox.sh draft
+mc-inbox.sh item
+mc-inbox.sh report
+mc-inbox.sh status
+mc-kb.sh append
+mc-kb.sh index
+mc-kb.sh index-add
+mc-kb.sh init
+mc-kb.sh inventory-refresh
+mc-keeper.sh -
+mc-merge-ready.sh -
+mc-merge-ready.sh list
+mc-packet.sh assemble
+mc-panel.sh activate
+mc-panel.sh await
+mc-panel.sh changes
+mc-panel.sh line
+mc-panel.sh retire
+mc-panel.sh text
+mc-posture.sh check
+mc-program.sh default
+mc-program.sh get
+mc-proposals.sh accept
+mc-proposals.sh park
+mc-proposals.sh propose
+mc-proposals.sh scan
+mc-proposals.sh show
+mc-radar.sh -
+mc-readiness.sh -
+mc-readiness.sh check
+mc-rules.sh add
+mc-rules.sh load
+mc-rules.sh selfcheck
+mc-snapshot.sh list
+mc-stall.sh scan
+mc-throughput.sh -
+mc-usage.sh -
+mc-watch.sh pass
+mc-watch.sh run
+mission-control-launch.sh launch
+mission-control-launch.sh list
+mission-control-launch.sh retire
+resolve-rule-doc.sh *

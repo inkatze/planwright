@@ -34,6 +34,10 @@ done
 LEASE_FRESH=300
 # scripts/mc-event.sh's bound on an event's text.
 EVENT_TEXT_MAX=512
+# How long a take or resume waits for a retired predecessor's process to
+# exit: a session that released can take a moment to end; one the launcher
+# retired ends at once.
+EXIT_WAIT=30s
 
 help_text() {
   cat <<'HELP'
@@ -41,8 +45,10 @@ mc-handover.sh — the succession of a program's mission-control session.
 
 THE PROGRAM NAME is held by exactly one session at a time, recorded in the
 holder record <runtime>/holder (the program's runtime directory under the
-fleet home): the session's handle, its kind and the generation it took
-the name at. A `registry` holder is a session the launcher started
+fleet home): the session's handle, its kind, the generation it took the
+name at and, where it can tell, its own process (`--pid`, else
+CLAUDE_PID) with an identity fixed for that process's life. A `registry`
+holder is a session the launcher started
 (scripts/mission-control-launch.sh), live while its registry row exists;
 an `attended` holder is the operator's own session, stale only on positive
 evidence: a wake lease (<runtime>/leases/<handle>, which the mod restamps)
@@ -71,10 +77,13 @@ Usage:
       holder<TAB><handle><TAB><kind><TAB><since><TAB><generation>
       <TAB>live|stale, or holder<TAB>- with no holder
   mc-handover.sh path --program <p>
-      path<TAB>unattended, or path<TAB>operator-act<TAB><command> where
-      the holder is a live attended session: the harness cannot move the
-      operator's terminal to a launched session, so the handover is one
-      operator act, the command opening a fresh session that resumes
+      path<TAB>unattended, or, where the holder is a live attended
+      session, path<TAB>pane<TAB>tmux when that session runs inside tmux
+      (the probe is read-only: TMUX and TMUX_PANE set, tmux answers for
+      that pane), so it hands over itself with launch --handover and the
+      successor closes only its pane; otherwise
+      path<TAB>operator-act<TAB><command>, one operator act, the command
+      opening a fresh session that resumes
   mc-handover.sh offer --program <p>
       raise that act as an operator item (event handover-act) for the
       panel; prints offered<TAB><event id>
@@ -91,7 +100,9 @@ Usage:
       path. A live holder admits only the operator's ask (--asked) or a
       live handover (--handover: a handover file naming the live
       holder); any other launch is refused naming the holder, and a
-      handover launch over an attended holder is refused (exit 4). A
+      handover launch over an attended holder is admitted inside tmux (the
+      predecessor's pane id is recorded for take to close) and refused
+      elsewhere (exit 4), where path names the operator act. A
       stale holder is recorded as the predecessor. Prints
       successor<TAB><name>
   mc-handover.sh verify --program <p> --session <name> --picture <file>
@@ -113,33 +124,49 @@ Usage:
       mod ending the session once the turn is over, and it prints
       exit<TAB>mod; otherwise exit<TAB>none<TAB><why>
   mc-handover.sh take --program <p> --session <name> [--window <cadence>]
-      [--now <epoch>]
+      [--pid <pid>] [--exit-wait <cadence>] [--now <epoch>]
       the verified successor takes the name: it asks a live predecessor
       to release (event handover-requested), waits up to the window
       (mission_control_handover_window) for that release, moves the
       holder record and retires the predecessor's registry row through
       the launcher (one that did not release is retired all the same),
-      then announces itself
+      waits up to --exit-wait (default 30s) for the predecessor's process
+      to exit, closes the predecessor's recorded tmux pane (that pane id
+      on that socket only, never found by name, printing pane<TAB><id><TAB>closed|held) once the name has moved, then announces
+      itself
   mc-handover.sh resume --program <p> --session <handle>
       [--kind attended|registry] --picture <file> --digest <hex>
-      --durable <file> [--window <cadence>] [--now <epoch>]
+      --durable <file> [--window <cadence>] [--pid <pid>]
+      [--exit-wait <cadence>] [--now <epoch>]
       the operator-asked resume (--kind defaults to attended, the
       operator's own session; registry needs the session's registry
       row): the self-check against --durable, a release request to a live
       holder (event handover-requested), the same wait, transfer,
-      retirement and announcement, and what changed since the operator's
-      last turn
+      retirement, exit wait and announcement, and what changed since the
+      operator's last turn
+  --pid names the taking session's own process for the holder record, so
+  the next take or resume can confirm it exited; it defaults to
+  CLAUDE_PID. A predecessor's process is the one its holder record names,
+  never the taking session's own process or one of its ancestors; a
+  holder record naming none (written by an earlier planwright, or by a
+  session that could not tell) leaves nothing to wait for.
 
 take and resume print, in order:
   took<TAB><handle><TAB><predecessor|-><TAB>released|retired|none
       released: the predecessor gave up the name; retired: it did not
       within the window, or was already gone; none: there was none
   retire<TAB><session><TAB>released|partial|attended|gone
+  retire<TAB><session><TAB>alive<TAB><pid>
       for the predecessor, then for a pending successor the handover
       left behind: released, the launcher retired its row; partial, it
       retired only part and an item is raised; attended, the operator's
       own session, which has no row and ends itself once it releases
-      (release, above); gone, the row was already absent
+      (release, above); gone, the row was already absent;
+      alive, the predecessor's process still ran when the exit wait
+      closed (after a partial retire too), so it is not reported retired
+      and an item (event handover-predecessor-alive) names the process
+      to close. Without a recorded process, released, attended and gone
+      do not confirm that the session's process has exited
   changed<TAB>decision<TAB><ts><TAB><subject><TAB><act>     (resume)
   changed<TAB>event<TAB><epoch><TAB><kind><TAB><subject>    (resume)
   changed<TAB>none | changed<TAB>unknown<TAB><store>        (resume)
@@ -151,12 +178,14 @@ Any verb but offer raising an item that mc-event.sh refuses prints
 unraised<TAB><kind><TAB><subject> as well; offer exits 1 instead.
 
 Exit codes: 0 done; 1 refused (a store's format, a failed self-check, a
-session that is not the holder or the verified successor, a failed write,
-a retirement only partly done) or a launcher failure; 2 usage or an
-invalid value; 3 the name is held (a launch with neither the ask nor a
-live handover, a successor already pending, a take or resume beaten to
-the name) or the program is not configured; 4 a handover launch over an
-attended holder, which hands over by the operator's act.
+session that is not the holder or the verified successor, a failed write)
+or a launcher failure, and also 1 from a take or resume that has moved the
+name when a retirement was only partly done or the predecessor still runs
+(partial or alive above); 2 usage or an invalid value; 3 the name is
+held (a launch with neither the ask nor a live handover, a successor
+already pending, a take or resume beaten to the name) or the program is
+not configured; 4 a handover launch over an attended holder outside tmux,
+which hands over by the operator's act.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -258,6 +287,40 @@ home_path() {
 row_exists() { [ -f "$SESSIONS/$1" ] && [ ! -L "$SESSIONS/$1" ]; }
 
 # session_live <handle> <kind>: the evidence the holder's kind keeps.
+# tmux_probe: 0 when this process runs in a tmux pane that tmux itself
+# confirms; read-only, and the pane id is the only identity it trusts.
+tmux_probe() {
+  [ -n "${TMUX:-}" ] || return 1
+  case ${TMUX_PANE:-} in
+    %[0-9]*) ;;
+    *) return 1 ;;
+  esac
+  case ${TMUX_PANE#%} in *[!0-9]*) return 1 ;; esac
+  command -v tmux >/dev/null 2>&1 || return 1
+  tp_sock=${TMUX%%,*}
+  case $tp_sock in /*) ;; *) return 1 ;; esac
+  [ "$(tmux -S "$tp_sock" display-message -p -t "$TMUX_PANE" '#{pane_id}' 2>/dev/null </dev/null)" = "$TMUX_PANE" ]
+}
+
+# close_pred_pane <pane id or -> <tmux socket or ->: the successor closes the
+# predecessor's recorded tmux pane, on the server whose socket was recorded
+# with it (a pane id is unique only within one server), after the name
+# moved, that pane only.
+close_pred_pane() {
+  [ "$1" != - ] && [ "$2" != - ] || return 0
+  case $2 in /*) ;; *) return 0 ;; esac
+  case $1 in %[0-9]*) ;; *) return 0 ;; esac
+  case ${1#%} in *[!0-9]*) return 0 ;; esac
+  [ "$1" != "${TMUX_PANE:-}" ] || return 0
+  command -v tmux >/dev/null 2>&1 || return 0
+  [ "$(tmux -S "$2" display-message -p -t "$1" '#{pane_id}' 2>/dev/null </dev/null)" = "$1" ] || return 0
+  if tmux -S "$2" kill-pane -t "$1" >/dev/null 2>&1 </dev/null; then
+    printf 'pane\t%s\tclosed\n' "$1"
+  else
+    printf 'pane\t%s\theld\n' "$1"
+  fi
+}
+
 session_live() {
   case $2 in
     registry) row_exists "$1" ;;
@@ -273,15 +336,18 @@ session_live() {
 }
 
 # read_holder: H_SESSION (empty with no holder), H_KIND, H_SINCE, H_GEN,
-# H_LIVE (1 or 0).
+# H_LIVE (1 or 0), H_PID and H_START (empty when the record names none).
 read_holder() {
-  H_SESSION='' H_KIND='' H_SINCE='' H_GEN=0 H_LIVE=0
+  H_SESSION='' H_KIND='' H_SINCE='' H_GEN=0 H_LIVE=0 H_PID='' H_START=''
   [ -e "$HOLDER" ] || return 0
   store_check "$HOLDER"
   H_SESSION=$(mc_kv "$HOLDER" session)
   H_KIND=$(mc_kv "$HOLDER" kind)
   H_SINCE=$(mc_kv "$HOLDER" since)
   H_GEN=$(mc_kv "$HOLDER" generation)
+  H_PID=$(mc_kv "$HOLDER" pid)
+  H_START=$(mc_kv "$HOLDER" pid-start)
+  if ! mc_valid_uint "$H_PID" || [ "$H_PID" -le 1 ] || [ -z "$H_START" ]; then H_PID='' H_START=''; fi
   if ! mc_valid_handle "$H_SESSION" || ! mc_valid_uint "$H_GEN" || ! mc_valid_uint "$H_SINCE"; then
     mc_fail "the holder record $(sanitize_printable "$HOLDER") is outside its grammar"
   fi
@@ -310,9 +376,10 @@ record() {
 }
 
 # succ_record <session> <predecessor> <kind> <launched> <mode> <verified>
-# [<owner>]: the owner is the launch that reserved it, until it is verified.
+# [<owner> [<predecessor pane> [<predecessor tmux socket>]]]: the owner is the launch that reserved it,
+# until it is verified.
 succ_record() {
-  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}"
+  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}" predecessor-tmux "${9:--}"
 }
 
 # require_successor <fail-function>: SUCC names $session; sets S_PRED and
@@ -324,6 +391,10 @@ require_successor() {
   [ "$(mc_kv "$SUCC" session)" = "$session" ] || "$1" successor "$session is not the pending successor of program $program"
   S_PRED=$(kv_handle "$SUCC" predecessor) || exit 1
   S_PRED_KIND=$(mc_kv "$SUCC" predecessor-kind)
+  S_PANE=$(mc_kv "$SUCC" predecessor-pane)
+  [ -n "$S_PANE" ] || S_PANE=-
+  S_TMUX=$(mc_kv "$SUCC" predecessor-tmux)
+  [ -n "$S_TMUX" ] || S_TMUX=-
 }
 refuse() { mc_fail "$2"; }
 
@@ -406,40 +477,95 @@ wait_release() {
   done
 }
 
-# retire_session <name> <kind>: retire a session the launcher registered,
-# printing its retire line; 1 when only part of it was retired.
-retire_session() {
-  if [ "$2" != registry ]; then
-    printf 'retire\t%s\tattended\n' "$1"
-    return 0
+# proc_start <pid>: an identity for the process fixed for its life, or
+# nothing: the boot and the start in clock ticks where procfs shows them,
+# else ps's start time in UTC, so the caller's time zone never changes it
+# and a recycled pid never matches it.
+proc_start() {
+  if [ -r "/proc/$1/stat" ]; then
+    ps_boot=$(head -n 1 /proc/sys/kernel/random/boot_id 2>/dev/null) || ps_boot=''
+    B=$ps_boot awk '{ sub(/.*\) /, ""); print "boot:" ENVIRON["B"] ":" $20 }' "/proc/$1/stat" 2>/dev/null
+  elif [ ! -d /proc/self ]; then
+    TZ=UTC0 ps -p "$1" -o lstart= 2>/dev/null | awk 'NF { $1 = $1; print }'
   fi
-  if ! row_exists "$1"; then
-    printf 'retire\t%s\tgone\n' "$1"
-    return 0
-  fi
-  if /bin/sh "$script_dir/mission-control-launch.sh" retire "$1" >/dev/null 2>&1 </dev/null; then
-    printf 'retire\t%s\treleased\n' "$1"
-    return 0
-  fi
-  if ! row_exists "$1"; then
-    printf 'retire\t%s\tgone\n' "$1"
-    return 0
-  fi
-  printf 'retire\t%s\tpartial\n' "$1"
-  raise handover-retire-failed "$1" "$1 could not be retired; retire it by name"
+}
+
+# proc_alive <pid> <start>: the process the identity was taken from still
+# runs and is not a zombie.
+proc_alive() {
+  [ -n "$2" ] && [ "$(proc_start "$1")" = "$2" ] || return 1
+  case $(ps -o stat= -p "$1" 2>/dev/null) in
+    *Z*) return 1 ;;
+  esac
+}
+
+# is_own <pid>: the pid is this process, one of its ancestors or the taker's
+# own process, none of which is ever a predecessor's.
+is_own() {
+  [ "$1" != "$own_pid" ] || return 0
+  io_pid=$$
+  io_n=0
+  while mc_valid_uint "$io_pid" && [ "$io_pid" -gt 1 ] && [ "$io_n" -lt 64 ]; do
+    [ "$io_pid" != "$1" ] || return 0
+    if [ -r "/proc/$io_pid/stat" ]; then
+      io_pid=$(sed 's/.*) //' "/proc/$io_pid/stat" 2>/dev/null | cut -d' ' -f2)
+    else
+      io_pid=$(ps -o ppid= -p "$io_pid" 2>/dev/null | tr -d ' ')
+    fi
+    io_n=$((io_n + 1))
+  done
   return 1
+}
+
+# await_exit <pid> <start>: wait up to the exit wait for the process to exit,
+# ending at whichever comes first of that many polls (a clock step cannot
+# stretch it) and that many seconds (nor can a slow poll); 1 when it still
+# runs.
+await_exit() {
+  ae_n=0
+  ae_end=$(($(mc_now) + exit_secs))
+  while proc_alive "$1" "$2"; do
+    [ "$ae_n" -lt "$exit_secs" ] && [ "$(mc_now)" -lt "$ae_end" ] || return 1
+    sleep 1
+    ae_n=$((ae_n + 1))
+  done
+  return 0
+}
+
+# retire_row <name> <kind>: retire a session the launcher registered, setting
+# RS_STATE to released, gone, attended (no row to retire) or partial, which
+# also raises an item.
+retire_row() {
+  if [ "$2" != registry ]; then
+    RS_STATE=attended
+  elif ! row_exists "$1"; then
+    RS_STATE=gone
+  elif /bin/sh "$script_dir/mission-control-launch.sh" retire "$1" >/dev/null 2>&1 </dev/null; then
+    RS_STATE=released
+  elif ! row_exists "$1"; then
+    RS_STATE=gone
+  else
+    RS_STATE=partial
+    raise handover-retire-failed "$1" "$1 could not be retired; retire it by name"
+  fi
 }
 
 # succeed <to> <kind> <from|-> <from kind> <expected holder> <wait>: the name
 # moves to <to> once <from> has released to it or the window has closed,
 # only while the holder is still <expected holder> (empty for none); then
-# <from>, and any pending successor the move strands, are retired.
-# RETIRE_OK is 0 when a retirement was only partial.
+# <from>, and any pending successor the move strands, are retired, and the
+# process <from>'s holder record names is waited for. RETIRE_OK is 0 when a
+# retirement was only partial or that process still runs.
 succeed() {
   s_to=$1 s_kind=$2 s_from=$3 s_from_kind=$4 s_expect=$5
   s_how=none
   if [ "$s_from" != - ]; then
     if wait_release "$s_from" "$s_from_kind" "$s_to" "$6"; then s_how=released; else s_how=retired; fi
+  fi
+  s_own_start=''
+  if [ -n "$own_pid" ]; then
+    s_own_start=$(proc_start "$own_pid")
+    [ -n "$s_own_start" ] || say "warning: process $own_pid is not running, so the holder record names no process for the next take to confirm"
   fi
   lock
   read_holder
@@ -448,21 +574,47 @@ succeed() {
     say "the program name $program was taken by $H_SESSION during the handover"
     exit 3
   fi
+  s_pid='' s_start=''
+  if [ "$s_from" != - ] && [ "$H_SESSION" = "$s_from" ] && [ -n "$H_PID" ] && ! is_own "$H_PID"; then
+    s_pid=$H_PID s_start=$H_START
+  fi
   s_stranded=''
   if [ -f "$SUCC" ] && mc_format_ok "$SUCC"; then
     s_stranded=$(kv_handle "$SUCC" session) || exit 1
     [ "$s_stranded" != "$s_to" ] || s_stranded=''
   fi
-  record "$HOLDER" session "$s_to" kind "$s_kind" since "$NOW" generation $((H_GEN + 1))
+  if [ -n "$s_own_start" ]; then
+    record "$HOLDER" session "$s_to" kind "$s_kind" since "$NOW" generation $((H_GEN + 1)) \
+      pid "$own_pid" pid-start "$s_own_start"
+  else
+    record "$HOLDER" session "$s_to" kind "$s_kind" since "$NOW" generation $((H_GEN + 1))
+  fi
   rm -f "$RELEASED" "$REQUEST" "$SUCC" "$HANDOVER"
   unlock
   printf 'took\t%s\t%s\t%s\n' "$s_to" "$s_from" "$s_how"
   RETIRE_OK=1
+  s_from_state='' s_stranded_state=''
   if [ "$s_from" != - ]; then
-    retire_session "$s_from" "$s_from_kind" || RETIRE_OK=0
+    retire_row "$s_from" "$s_from_kind"
+    s_from_state=$RS_STATE
   fi
   if [ -n "$s_stranded" ]; then
-    retire_session "$s_stranded" registry || RETIRE_OK=0
+    retire_row "$s_stranded" registry
+    s_stranded_state=$RS_STATE
+  fi
+  if [ -n "$s_from_state" ]; then
+    if [ -n "$s_pid" ] && ! await_exit "$s_pid" "$s_start"; then
+      printf 'retire\t%s\talive\t%s\n' "$s_from" "$s_pid"
+      raise handover-predecessor-alive "$s_from" "$s_from was retired from program $program but still runs (process $s_pid); close that session"
+      RETIRE_OK=0
+    else
+      printf 'retire\t%s\t%s\n' "$s_from" "$s_from_state"
+    fi
+    [ "$s_from_state" != partial ] || RETIRE_OK=0
+  fi
+  if [ -n "$s_stranded_state" ]; then
+    printf 'retire\t%s\t%s\n' "$s_stranded" "$s_stranded_state"
+    [ "$s_stranded_state" != partial ] || RETIRE_OK=0
   fi
 }
 
@@ -522,6 +674,9 @@ compose_brief() {
     # shellcheck disable=SC2016 # the backticks are markdown in the brief
     printf 'Rebuild from the durable stores, then run `mc-handover.sh verify --program %s --session %s` with your held picture, rules digest and ledger position, and on a pass `mc-handover.sh take --program %s --session %s`.\n' \
       "$program" "$2" "$program" "$2"
+    # shellcheck disable=SC2016 # the backticks are markdown in the brief
+    printf '\nplanwright'"'"'s defaults win over the predecessor'"'"'s habits. Inherit only what the stores record; run `mc-config.sh doctor --program %s`; each finding it prints that no operator choice already settles, and each hand-built mechanism it cannot see, becomes an operator item.\n' \
+      "$program"
   } >"$scratch"
 }
 
@@ -563,10 +718,10 @@ esac
 verb=$1
 shift
 program='' session='' picture='' digest='' ledger='' durable='' brief='' backend='' cwd=''
-window='' now='' kind='' mode='' context='' wakes='' compactions=''
+window='' now='' kind='' mode='' context='' wakes='' compactions='' pid='' exit_wait=''
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --session | --picture | --digest | --ledger | --durable | --brief | --backend | --cwd | --window | --now | --kind | --context | --wakes | --compactions)
+    --program | --session | --picture | --digest | --ledger | --durable | --brief | --backend | --cwd | --window | --now | --kind | --context | --wakes | --compactions | --pid | --exit-wait)
       [ $# -ge 2 ] || usage
       case $1 in
         --program) program=$2 ;;
@@ -584,6 +739,8 @@ while [ $# -gt 0 ]; do
         --context) context=$2 ;;
         --wakes) wakes=$2 ;;
         --compactions) compactions=$2 ;;
+        --pid) pid=$2 ;;
+        --exit-wait) exit_wait=$2 ;;
       esac
       shift 2
       ;;
@@ -601,6 +758,14 @@ mc_now_arg "$now"
 [ -z "$digest" ] || valid_sha256 "$digest" || mc_usage_fail "--digest takes a SHA-256 in lowercase hex"
 [ -z "$ledger" ] || [ "$ledger" = - ] || mc_valid_entry_id decisions "$ledger" || mc_usage_fail "--ledger takes a decisions-log entry id or -"
 [ -z "$window" ] || mc_seconds "$window" >/dev/null || mc_usage_fail "--window takes a cadence (a positive count of s, m, h or d)"
+exit_secs=$(mc_seconds "${exit_wait:-$EXIT_WAIT}") || mc_usage_fail "--exit-wait takes a cadence (a positive count of s, m, h or d)"
+own_pid=''
+if [ -n "$pid" ]; then
+  mc_valid_uint "$pid" && [ "$pid" -gt 1 ] || mc_usage_fail "--pid takes a process id"
+  own_pid=$pid
+elif mc_valid_uint "${CLAUDE_PID:-}" && [ "$CLAUDE_PID" -gt 1 ]; then
+  own_pid=$CLAUDE_PID
+fi
 case $backend in
   '' | stream-json | tmux) ;;
   *) mc_usage_fail "--backend is stream-json or tmux" ;;
@@ -650,7 +815,11 @@ case $verb in
     read_holder
     act="claude '/planwright:mission-control $program'"
     if [ "$verb" = path ]; then
-      if [ "$H_KIND" = attended ] && [ "$H_LIVE" -eq 1 ]; then printf 'path\toperator-act\t%s\n' "$act"; else printf 'path\tunattended\n'; fi
+      if [ "$H_KIND" = attended ] && [ "$H_LIVE" -eq 1 ]; then
+        if tmux_probe; then printf 'path\tpane\ttmux\n'; else printf 'path\toperator-act\t%s\n' "$act"; fi
+      else
+        printf 'path\tunattended\n'
+      fi
       exit 0
     fi
     id=$(mc_event emit --program "$program" --now "$NOW" -- handover-act "$program" "handover due: $act") \
@@ -695,15 +864,22 @@ case $verb in
         exit 3
       fi
     fi
-    pred=- pred_kind=-
+    pred=- pred_kind=- pred_pane='' pred_tmux=''
     [ -z "$H_SESSION" ] || pred=$H_SESSION pred_kind=$H_KIND
     if [ "$H_LIVE" -eq 1 ]; then
       case $mode in
         asked) ;;
         handover)
           if [ "$H_KIND" = attended ]; then
-            say "the holder $H_SESSION is the operator's own session, which the harness cannot move to a launched successor; that session compacts instead"
-            exit 4
+            if tmux_probe; then
+              [ -n "$backend" ] || backend=tmux
+              if [ "$backend" = tmux ]; then
+                pred_pane=$TMUX_PANE pred_tmux=${TMUX%%,*}
+              fi
+            else
+              say "the holder $H_SESSION is the operator's own session, and no tmux pane is available to open its successor beside it; the handover is the operator act mc-handover.sh path names"
+              exit 4
+            fi
           fi
           [ -f "$HANDOVER" ] || {
             say "the program name $program is held by $H_SESSION, and no handover file is written"
@@ -731,7 +907,7 @@ case $verb in
       || mc_fail "the launcher cannot name the successor"
     # The record is reserved before the launch, so a second launch meets it
     # and the launcher's own lock on the name; a failed launch removes it.
-    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$"
+    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}" "${pred_tmux:--}"
     unlock
     drop_reservation() {
       lock
@@ -760,7 +936,7 @@ case $verb in
     got=$(printf '%s\n' "$lout" | awk -F '\t' '$1 == "launch" && $2 == "name" { print $3; exit }')
     if [ "$got" != "$name" ]; then
       drop_reservation
-      ! mc_valid_handle "$got" || retire_session "$got" registry >/dev/null || :
+      ! mc_valid_handle "$got" || retire_row "$got" registry
       mc_fail "the launcher named the successor '$(sanitize_printable "$got")', not $name"
     fi
     printf 'successor\t%s\n' "$name"
@@ -799,7 +975,7 @@ case $verb in
     selfcheck "$digest" "$picture" "$scratch"
     lock
     require_successor refuse
-    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW"
+    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW" - "$S_PANE" "$S_TMUX"
     unlock
     printf 'verified\t%s\t%s\n' "$session" "$(printf '%s\n' "$SC_OUT" | head -n 1 | mc_clean)"
     ;;
@@ -840,6 +1016,7 @@ case $verb in
       raise handover-requested "$S_PRED" "$session passed its self-check for program $program; release the name"
     fi
     succeed "$session" registry "$S_PRED" "$S_PRED_KIND" "$expect" "$secs"
+    close_pred_pane "$S_PANE" "$S_TMUX"
     announce "$session" "$S_PRED"
     [ "$RETIRE_OK" -eq 1 ] || exit 1
     ;;

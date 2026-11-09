@@ -4355,8 +4355,23 @@ RE_MC_POSTURE_NAME='(^|[^[:alnum:]_.])(((managed-)?settings(\.local)?|\.c[l]aude
 # them (a recorded launch profile lives there). The file surface alone checks
 # them: an installed planwright script runs from under .claude/plugins.
 RE_MC_POSTURE_DIR='/\.c[l]aude/(hooks|plugins|agents|skills|commands|planwright)/'
-# A word that could spell a posture file once the shell expands it.
-RE_MC_POSTURE_STEM='\.c[l]aude|\.mcp|settings|planwright\.'
+# Posture directories as a relative or absolute path, and the data places an
+# expanding write target may still sit in: the harness scratch and task
+# directories, and the session's project memory folder.
+RE_MC_POSTURE_REL_DIR='(^|/)\.c[l]aude/(hooks|plugins|agents|skills|commands|planwright)(/|$)'
+# shellcheck disable=SC2016 # regexes; `$` is literal
+RE_MC_DATA_SCRATCH='^(/tmp/claude-[^/]+/|/tmp/planwright-[^/]+/|\$TMPDIR/|\$\{TMPDIR\}/)'
+# A variable followed by a plain literal file name; mc_scratch_var vets the variable.
+# shellcheck disable=SC2016 # a regex
+RE_MC_DATA_SCRATCHVAR='^\$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/[^$`*?[{/][^$`*?[{]*$'
+# shellcheck disable=SC2016 # a regex
+RE_MC_DATA_MEMORY='^(~|\$HOME|\$\{HOME\}|/[^$`*?[{]*)/\.c[l]aude/(projects/[^/$`*?[{]+/memory|tasks)/'
+# A word that runs the text it is handed, so quoted text stays in view.
+RE_MC_INTERPRETER='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|source|python3?|perl|ruby|node|xargs|ssh)([^[:alnum:]_-]|$)'
+# A write verb in unparsed text; sed counts only with an in-place flag.
+RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])(((cp|mv|install|ln|tee|dd|rsync)([^[:alnum:]_-]|$))|(sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
+# A construct that can rebind a variable the screen is trusting.
+RE_MC_REBIND='(^|[^[:alnum:]_])(eval|printf[[:space:]]+-v|declare|typeset|local|read|mapfile|readarray|unset|source|export[[:space:]]+-n)([^[:alnum:]_]|$)|\$\{!'
 MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one, or could through an expansion, in a form that is not a plain read - refusing. Read it with a plain reader such as cat, grep or jq, and hand a settings change to the operator ready to apply.'
 
 # mc_settings_named <text> — 0 at the mission-control tier when the text,
@@ -4370,67 +4385,173 @@ mc_settings_named() {
   return "$rc"
 }
 
-# mc_stem <text> — 0 when the text carries a posture stem, case-blind.
-mc_stem() {
-  local rc=1
+# mc_posture_word <word> — 0 when the word names a posture file or lies under
+# a posture directory, or reaches one through a dot-dot component.
+mc_posture_word() {
+  local t=${1//[\"\'\\]/} rc=1
   shopt -s nocasematch
-  [[ ${1//[\"\'\\]/} =~ $RE_MC_POSTURE_STEM ]] && rc=0
+  if [[ $t =~ $RE_MC_POSTURE_NAME ]] || [[ $t =~ $RE_MC_POSTURE_REL_DIR ]]; then
+    rc=0
+  elif [[ $t == *.c[l]aude* && ($t == *'/../'* || $t == *'/..') ]]; then
+    rc=0
+  fi
   shopt -u nocasematch
   return "$rc"
 }
 
-# mc_literal_word <word> — 0 when an unquoted word expands to itself apart
-# from a leading ~ or $HOME, which name the user's own home and no other file.
-mc_literal_word() {
-  local r=$1
-  r=${r#\~}
-  r=${r#\$HOME}
-  r=${r#\$\{HOME\}}
-  [ "$r" != "$1" ] || return 1
-  case $r in *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'* | *'~'*) return 1 ;; esac
+# mc_expands <word> — 0 when the word carries a shell expansion, glob or brace.
+mc_expands() {
+  case $1 in
+    *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'*) return 0 ;;
+  esac
+  return 1
+}
+
+# mc_scratch_var <name> — 0 when the command assigns the variable exactly once,
+# before any use, from a fresh mktemp -d or a literal scratch path, and
+# changes it no other way. What a variable held in an earlier call is out of a
+# text screen's sight, so it earns no trust.
+mc_scratch_var() {
+  local n=$1 t=${MC_CMD//[\"\'\\]/} re_asg re_other re_plus re_use before rest val
+  [[ $n =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+  re_asg="(^|[^[:alnum:]_])$n="
+  re_other="(read|for|local|declare|typeset|mapfile|readarray|unset|printf[[:space:]]+-v)[^;&|]*[^[:alnum:]_]$n([^[:alnum:]_]|\$)"
+  re_plus="(^|[^[:alnum:]_])${n}[+]="
+  [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ $re_plus ]] && return 1
+  [[ $t =~ $re_asg ]] || return 1
+  before=${t%%"${BASH_REMATCH[0]}"*}
+  rest=${t#*"${BASH_REMATCH[0]}"}
+  [[ $rest =~ $re_asg ]] && return 1
+  # shellcheck disable=SC2016 # a regex
+  re_use='(^|[^[:alnum:]_])\$(\{'$n'\}|'$n'([^[:alnum:]_]|$))'
+  [[ $before =~ $re_use ]] && return 1
+  # shellcheck disable=SC2016 # literal patterns
+  case $rest in
+    '$(mktemp -d)'* | '`mktemp -d`'*) return 0 ;;
+  esac
+  val=${rest%%[[:space:];&|)]*}
+  case $val in *..* | *.c[l]aude* | *.mcp*) return 1 ;; esac
+  [[ $val =~ ^(/tmp/claude-|/tmp/planwright-)[A-Za-z0-9._/-]*$ || $val =~ ^\$TMPDIR(/[A-Za-z0-9._/-]*)?$ ]]
+}
+
+# mc_data_target <word> — 0 when an expanding write target still sits in a
+# data place: the harness scratch (never reaching a .claude or .mcp name), or a
+# project memory or task folder, with no dot-dot component.
+mc_data_target() {
+  local t=${1//[\"\'\\]/}
+  case $t in *'..'*) return 1 ;; esac
+  if [[ $t =~ $RE_MC_DATA_SCRATCH ]]; then
+    case ${t#"${BASH_REMATCH[0]}"} in *.c[l]aude* | *.mcp*) return 1 ;; esac
+    return 0
+  fi
+  if [[ $t =~ $RE_MC_DATA_SCRATCHVAR ]]; then
+    case $t in *.c[l]aude* | *.mcp*) return 1 ;; esac
+    mc_scratch_var "${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+    return
+  fi
+  [[ $t =~ $RE_MC_DATA_MEMORY ]]
+}
+
+# mc_write_word_refused <word> — 0 when a word in a write position names a
+# posture file or directory, or could expand into one.
+mc_write_word_refused() {
+  local w=${1#of=}
+  mc_posture_word "$w" && return 0
+  mc_expands "$w" || return 1
+  mc_data_target "$w" && return 1
   return 0
 }
 
-# mc_settings_screen <command> — refuse a command that names a posture file
-# unless every segment is a plain reader and nothing is redirected but to
-# /dev/null or another stream, and refuse a word or redirect target that
-# could expand into one. A relative name after a cd into a posture directory
-# is out of a text screen's sight.
+# mc_named_outside_messages — 0 when the tokenized words, apart from the value
+# of a message flag, name a posture file.
+mc_named_outside_messages() {
+  local k=0 skip=0 acc='' w
+  while [ "$k" -lt "${#W[@]}" ]; do
+    w=${W[$k]}
+    k=$((k + 1))
+    if [ "$skip" = 1 ]; then
+      skip=0
+      continue
+    fi
+    case $w in
+      --text | --act | --message | --body | --note | --reason | --title) skip=1 ;;
+      --text=* | --act=* | --message=* | --body=* | --note=* | --reason=* | --title=*) ;;
+      *) acc="$acc $w" ;;
+    esac
+  done
+  mc_settings_named "$acc"
+}
+
+# mc_settings_screen <command> — refuse a command that writes a posture file:
+# one that names such a file in a form that is not a plain read (apart from
+# the text of a message flag), redirects to a posture path or to a target the
+# shell expands, or hands a posture path or an expanding word to cp, mv,
+# install, ln, tee, dd, rsync or sed -i. An expansion in a read position, or
+# under a data place, is no write. A relative name after a cd into a posture
+# directory is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r si=0 k named=0 w m
+  local t=$1 r si=0 k named=0 w m verb sedscript inplace
+  MC_CMD=$t
   mc_settings_named "$t" && named=1
-  [ "$named" = 1 ] || mc_stem "$t" || return 0
+  # shellcheck disable=SC2016 # literal patterns
+  case $t in
+    *'>'* | *'$('* | *'`'* | *cp* | *mv* | *install* | *ln* | *tee* | *dd* | *rsync* | *sed*) ;;
+    *) [ "$named" = 1 ] || return 0 ;;
+  esac
   [ "${#t}" -le "$MAX_CMD_LEN" ] || emit_deny "$MC_SETTINGS_DENY"
   r=${t//&>\/dev\/null/}
   r=${r//[0-9]>\/dev\/null/}
   r=${r//>\/dev\/null/}
   r=${r//[0-9]>&[0-9]/}
   [ "$named" = 0 ] || case $r in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
+  # Quoted text is no redirect unless a shell is handed it to run or the quote
+  # is itself the redirect's target.
+  # A backslash can desync the quote pairing, so such text is scanned whole.
+  if ! [[ $r =~ $RE_MC_INTERPRETER || $r == *\\* ]]; then
+    local q=$r out=''
+    while [[ $q =~ (\>[[:space:]]*)?(\"[^\"]*\"|\'[^\']*\') ]]; do
+      m=${BASH_REMATCH[0]}
+      out="$out${q%%"$m"*}"
+      if [ -n "${BASH_REMATCH[1]}" ]; then out="$out$m"; else out="${out}Q"; fi
+      q=${q#*"$m"}
+    done
+    r=$out$q
+  fi
   while [[ $r =~ \>+[[:space:]]*([^[:space:]\;\|\&\<\>]+) ]]; do
     m=${BASH_REMATCH[0]}
     w=${BASH_REMATCH[1]}
-    case $w in *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
-    ! mc_stem "$w" || emit_deny "$MC_SETTINGS_DENY"
+    ! mc_write_word_refused "$w" || emit_deny "$MC_SETTINGS_DENY"
     r=${r#*"$m"}
   done
-  # Only a word that can expand needs the parse.
-  case $t in
-    *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'* | *'~'*) ;;
-    *) [ "$named" = 1 ] || return 0 ;;
-  esac
-  tokenize "$t" || emit_deny "$MC_SETTINGS_DENY"
-  k=0
-  while [ "$k" -lt "${#W[@]}" ]; do
-    w=${W[$k]}
-    if [ "${WL[$k]}" != 1 ] && mc_stem "$w" && ! mc_literal_word "$w"; then
-      emit_deny "$MC_SETTINGS_DENY"
+  if ! tokenize "$t"; then
+    # Unparsed text (a command substitution, say) fails closed where it could
+    # name a posture path or hand a write verb a target the screen cannot read;
+    # its redirects were already vetted above.
+    case $t in
+      *.c[l]aude* | *.mcp* | *settings* | *planwright.*) emit_deny "$MC_SETTINGS_DENY" ;;
+    esac
+    [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
+    return 0
+  fi
+  if [ "$named" = 1 ]; then
+    # A heredoc body can be run, so its text keeps the whole-text verdict.
+    if [ "${#SEG_DOC[@]}" -gt 0 ] && [ -n "${SEG_DOC[*]}" ]; then :; else
+      mc_named_outside_messages || named=0
     fi
-    k=$((k + 1))
+  fi
+  # A write verb inside a substitution runs, though no segment names it.
+  for k in "${!W[@]}"; do
+    [ "${WL[$k]}" != 1 ] || continue
+    # shellcheck disable=SC2016 # literal patterns
+    case ${W[$k]} in
+      *'$('* | *'`'*) [[ ${W[$k]//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY" ;;
+    esac
   done
-  [ "$named" = 1 ] || return 0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
-    if [ "${#SW[@]}" -gt 0 ]; then
+    si=$((si + 1))
+    [ "${#SW[@]}" -gt 0 ] || continue
+    if [ "$named" = 1 ]; then
       [ "${SWL[0]}" = 1 ] || emit_deny "$MC_SETTINGS_DENY"
       case ${SW[0]} in
         */*)
@@ -4445,9 +4566,45 @@ mc_settings_screen() {
         cat | head | tail | jq | grep | egrep | fgrep | wc | ls | stat | diff | cmp) ;;
         *) emit_deny "$MC_SETTINGS_DENY" ;;
       esac
+      continue
     fi
-    si=$((si + 1))
+    lc "${SW[0]##*/}"
+    verb=$LC
+    inplace=0
+    case $verb in
+      cp | mv | install | ln | tee | dd | rsync) ;;
+      sed)
+        for w in "${SW[@]:1}"; do
+          case $w in -i* | -[!-]*i* | --in-place*) inplace=1 ;; esac
+        done
+        [ "$inplace" = 1 ] || continue
+        ;;
+      *) continue ;;
+    esac
+    # sed's first plain word is its script, which is no path.
+    sedscript=0
+    if [ "$verb" = sed ]; then
+      sedscript=1
+      for w in "${SW[@]:1}"; do
+        case $w in -e | -f | --expression | --file) sedscript=0 ;; esac
+      done
+    fi
+    for w in "${SW[@]:1}"; do
+      case $w in
+        -e | -f | --expression | --file)
+          sedscript=1
+          continue
+          ;;
+        -*) continue ;;
+      esac
+      if [ "$sedscript" = 1 ]; then
+        sedscript=0
+        continue
+      fi
+      ! mc_write_word_refused "$w" || emit_deny "$MC_SETTINGS_DENY"
+    done
   done
+  return 0
 }
 
 # mc_repo_walk <dir> <how> — refuse when <dir> or an ancestor is a git work

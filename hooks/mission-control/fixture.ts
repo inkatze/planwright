@@ -49,6 +49,7 @@ export function digestText(
     tab('kb', 600),
     tab('measure', 'interruptions_per_hour', '2.5', 130),
     tab('measure', 'settled_share', '80', 130),
+    tab('host', 150, 4, 62),
     tab('handover', 'absent'),
     tab('holder', o.holder ?? 'attended'),
     ...(o.extra ?? []),
@@ -117,6 +118,7 @@ export type World = {
   submitted: string[]
   statuses: (string | undefined)[]
   toasts: string[]
+  blits: { key: string; cells: string }[]
   opened: number
   closed: number
   commands: { name: string; description: string }[]
@@ -150,6 +152,7 @@ export type Fixture = {
   isCommandRefused: boolean
   isExitRefused: boolean
   contextPercent: number | undefined
+  rateLimits: { kind: string; percentUsed: number }[]
   env: Record<string, string>
   sessionId: string
   // The activation directory by file name: `<id>` holds the record as the
@@ -186,6 +189,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     isCommandRefused: false,
     isExitRefused: false,
     contextPercent: 42,
+    rateLimits: [{ kind: 'five_hour', percentUsed: 31 }],
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
     sessionId: SESSION,
     records: {},
@@ -201,6 +205,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     submitted: [],
     statuses: [],
     toasts: [],
+    blits: [],
     opened: 0,
     closed: 0,
     commands: [],
@@ -259,6 +264,10 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     w.statuses.push(e.text)
     return { value: undefined }
   })
+  on('ui.blit', (_, e) => {
+    if ('cells' in e) w.blits.push({ key: e.key, cells: e.cells })
+    return { value: {} }
+  })
   on('ui.toast', (_, e) => {
     w.toasts.push(e.text)
     return { value: undefined }
@@ -267,7 +276,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     value: {
       startedAt: START,
       context: { window: 200_000, percent: fx.contextPercent },
-      rateLimits: [{ kind: 'five_hour', percentUsed: 31 }],
+      rateLimits: fx.rateLimits,
     },
   }))
   on('prompt.submit', (_, e) => {
@@ -342,3 +351,7 @@ export async function boot($: Engine, w: World) {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await w.clock.settle()
 }
+
+// The strip's words, in order: its segments and their separators.
+export const bandOf = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) =>
+  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').join('')

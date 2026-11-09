@@ -613,6 +613,13 @@ printf 'format\t1\nsource\tforge\ntaken\t%s\npr\tacme/web\t11\t%s\ttrue\tMERGEAB
 mc_run mc-readiness.sh watch --program alpha
 expect_rc "a stale snapshot" 0
 expect_eq "announces nothing" ""
+printf 'format\t1\nsource\tforge\ntaken\tsoon\n' >"$snapdir/forge"
+mc_run mc-readiness.sh watch --program alpha
+expect_rc "a snapshot that cannot be read fails the watcher" 1
+rm -f "$snapdir/forge"
+mc_run mc-readiness.sh watch --program alpha
+expect_rc "with none taken yet it waits quietly" 0
+expect_eq "raising nothing" ""
 
 sed -i.bak 's/^program_alpha_sources: .*/program_alpha_sources: {work-items: specs:record}/' "$tracked"
 mc_run mc-readiness.sh watch --program alpha
