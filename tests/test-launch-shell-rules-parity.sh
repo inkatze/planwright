@@ -12,7 +12,10 @@ root=$(cd "$here/.." && pwd -P) || exit 1
 rules=$root/config/launch-shell-rules.txt
 doc=$root/doctrine/plugin-script-invocation.md
 rc=0
-fail() { printf 'FAIL: %s\n' "$1" >&2; rc=1; }
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  rc=1
+}
 
 section=$(sed -n '/^## One plain command per Bash call/,/^## /p' "$doc")
 [ -n "$section" ] || fail "the doctrine has no One plain command per Bash call section"
