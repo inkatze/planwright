@@ -436,7 +436,7 @@ selfcheck() {
     # knob does not hold, and a dated or temporary local override. Read-only,
     # and never a reason to fail the self-check.
     sc_drift=$(/bin/bash "$script_dir/mc-config.sh" doctor --program "$program" 2>/dev/null </dev/null \
-      | awk -F '\t' '$1 == "rule-knob" || $1 == "temporary"' | mc_clean)
+      | awk -F '\t' '$1 == "rule-knob" || $1 == "temporary" || ($1 == "unknown" && ($2 == "rules" || $2 == "temporary"))' | mc_clean)
     [ -z "$sc_drift" ] || printf '%s\n' "$sc_drift"
     return 0
   fi

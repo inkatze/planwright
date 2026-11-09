@@ -138,7 +138,7 @@ Usage:
             and the text that matched, a program path first, else
             planwright or claude as the line spells it; a crontab that
             cannot be listed reads as none
-        rule-knob<TAB><rule id><TAB><knob><TAB><rule says><TAB><effective value><TAB><layer><TAB><why>
+        rule-knob<TAB><rule id><TAB><knob><TAB><rule says><TAB><effective value><TAB><layer><TAB><note>
             a standing rule that names a number for a knob it governs
             while the knob holds another: the knob's own name followed by
             a value (`mission_control_stall_window at 10m`), or a rule
@@ -146,7 +146,7 @@ Usage:
             which governs mission_control_handover_context. A rule with no
             unit is compared with the number alone. The operator decides
             whether the rule or the knob is right; doctor changes neither
-        temporary<TAB><file><TAB><knob><TAB><why><TAB><comment><TAB><effective value><TAB><why>
+        temporary<TAB><file><TAB><knob><TAB><reason><TAB><comment><TAB><effective value><TAB><note>
             an adopter or machine-local setting whose comment
             (above it, or after its value) carries a date already past, or
             the word interim, temporary, temporarily or until with no
@@ -925,6 +925,10 @@ doctor_rules() {
   }
   [ -n "$dr_rules" ] || return 0
   dr_keys=$(awk -F: '/^[a-z][a-z0-9_]*:/ { print $1 }' "$script_dir/../config/defaults.yml" 2>/dev/null)
+  [ -n "$dr_keys" ] || {
+    printf 'unknown\trules\tthe shipped defaults could not be read, so no rule is compared with its knob\n'
+    return 0
+  }
   dr_hits=$(printf '%s\n' "$dr_rules" | DR_KEYS=$dr_keys awk -F '\t' '
     BEGIN { nk = split(ENVIRON["DR_KEYS"], key, "\n") }
     function after(t, k,   rest) {
@@ -974,7 +978,11 @@ doctor_temporary() {
   }
   for dt_layer in adopter machine-local; do
     dt_file=$(doctor_layer_file "$dt_layer")
-    [ -n "$dt_file" ] && [ -f "$dt_file" ] && [ -r "$dt_file" ] || continue
+    [ -n "$dt_file" ] && [ -f "$dt_file" ] || continue
+    [ -r "$dt_file" ] || {
+      printf 'unknown\ttemporary\t%s cannot be read, so its overrides are not checked for a passed date\n' "$dt_file"
+      continue
+    }
     awk -v today="$dt_today" -v file="$dt_file" '
       function flush_standalone(   k) {
         if (pend == "") return

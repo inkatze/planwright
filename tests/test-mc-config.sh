@@ -763,6 +763,12 @@ mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m." -
 cfg doctor --program drift
 expect_out "drift: a rule naming a knob and a value that differ is a finding" "rule-knob${tab}r-4${tab}mission_control_stall_window${tab}30m${tab}10m${tab}core"
 
+mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 10." --subject stall --source "operator, fixture" --date 2026-01-01
+mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 15." --subject stall --source "operator, fixture" --date 2026-01-01
+cfg doctor --program drift
+expect_no_out "drift: a rule naming no unit that matches the knob's number is no finding" "rule-knob${tab}r-5"
+expect_out "drift: a rule naming no unit is compared with the knob's number alone" "rule-knob${tab}r-6${tab}mission_control_stall_window${tab}15${tab}10m${tab}core"
+
 cat >"$mlocal" <<'EOT'
 # a dated bump, drop it later
 fleet_max_parallel_units: 10 # until 2020-11-01
@@ -799,6 +805,12 @@ rm -f "$mlocal"
 cfg doctor --program drift
 expect_out "drift: the adopter layer file is scanned too" "temporary${tab}$adopter/planwright.yml${tab}mission_control_stall_window"
 rm -f "$adopter/planwright.yml" "$mlocal"
+printf 'mission_control_stall_window: 20m # interim\n' >"$mlocal"
+chmod 000 "$mlocal"
+cfg doctor --program drift
+chmod 644 "$mlocal"
+rm -f "$mlocal"
+if [ "$(id -u)" -eq 0 ]; then ok "drift: root reads any file, so the unreadable-layer case is skipped"; else expect_out "drift: an unreadable local layer is an unknown temporary check" "unknown${tab}temporary${tab}$mlocal cannot be read"; fi
 tracked_save=$(cat "$tracked")
 printf '# temporary until 2020-04-04\nmission_control_stall_window: 20m\n' >>"$tracked"
 cfg doctor --program drift

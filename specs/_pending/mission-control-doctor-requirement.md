@@ -24,8 +24,9 @@ operator settles. The audit SHALL cover:
 - a local-layer override whose comment or value carries a date already past,
   or the word interim, temporary or until with no date still ahead.
 
-The audit SHALL never edit a layer or a rule; each finding names the file,
-the knob, the rule or comment and the effective value, in plain words.
+The audit SHALL never edit a layer or a rule; each finding names where the
+value is set (the file, or the layer for a rule), the knob, the rule or comment
+and the effective value, in plain words.
 
 ## Why
 
