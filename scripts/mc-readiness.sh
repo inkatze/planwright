@@ -235,8 +235,6 @@ evidence_store() { # evidence_store <program>: the store's path, its directory c
   printf '%s\n' "$es_dir/evidence.tsv"
 }
 
-# walk <evidence> <conditions>: the verdict; returns 4 when not ready, 1
-# when the walk itself fails.
 # not_red_awk <evidence>: the notice verdict. A check still pending passes; only
 # a check that finished red holds, and each one is named and routed to log
 # diagnosis. The ready flip judges every check by walk, never by this.
@@ -260,6 +258,8 @@ END {
 }' "$1"
 }
 
+# walk <evidence> <conditions>: the verdict; returns 4 when not ready, 1
+# when the walk itself fails.
 walk() {
   walk_awk "$@"
   wk_rc=$?
