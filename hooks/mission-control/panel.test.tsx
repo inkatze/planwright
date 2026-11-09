@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BAND, boot, digestText, PANE, ran, world } from './fixture'
+import { BAND, bandOf, boot, digestText, PANE, ran, world } from './fixture'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 
@@ -13,27 +13,17 @@ test('the pane draws every store from the fixture digest, on every surface', asy
     const has = async (text: RegExp) => expect((await ui.find({ type: 'Text', text }))?.text).toMatch(text)
     await has(/Mission control · alpha/)
     await has(/In flight \(2\)/)
-    await has(/^1 spec task working$/)
-    await has(/^1 one-off change working$/)
+    await has(/^spec task · working$/)
+    await has(/^one-off change · working$/)
     await has(/2 waiting on you/)
-    await has(/relaunch w-one: relaunch/)
-    await has(/Fuel · rung throttle/)
-    await has(/tightest: polls_per_hour 72%/)
-    await has(/^inbox stopped, next 40s overdue \(×2\)$/)
-    await has(/code-state: forge snapshot, 90s old/)
-    await has(/designs: none cited/)
-    await has(/context 42% · five_hour 31%/)
-    await has(/compactions since start 0/)
-    await has(/knowledge base 10m old/)
-    await has(/interruptions per hour 2\.5/)
-    await has(/settled share 80/)
+    await has(/^Context 42% · compacts at 95% · OK$/)
     await ui.unmount()
   }
 })
 
 // REQ-L1.8 register: the in-flight section carries no session handle,
-// spec, task, script or hash identifier, and repeats collapse into counts.
-test('sessions in flight are said in plain words, grouped into counts', async ($, on) => {
+// spec, task, script or hash identifier, and each session has its own row.
+test('sessions in flight are said in plain words, one row each', async ($, on) => {
   const w = world(on, {
     digest: digestText({
       extra: [
@@ -58,21 +48,26 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
   const at = texts.indexOf('In flight (15)')
   expect(at).toBeGreaterThan(-1)
-  // Waiting on an answer first, then not responding, each by group size.
-  expect(texts.slice(at + 1, at + 11)).toEqual([
-    '2 spec drafts waiting for an answer',
-    '1 spec task waiting for an answer',
-    '1 spec task not responding',
-    '4 spec tasks working',
-    '3 one-off changes working',
-    '1 spec kickoff working',
-    '1 other session working',
-    '1 review working',
-    '1 mission-control session working',
-    'Holding for you',
+  // Waiting on an answer first, then not responding, one row each.
+  expect(texts.slice(at + 1, at + 16)).toEqual([
+    'spec draft · waiting for an answer',
+    'spec task · waiting for an answer',
+    'spec draft · waiting for an answer',
+    'spec task · not responding',
+    'spec task · working',
+    'one-off change · working',
+    'one-off change · working',
+    'spec task · working',
+    'one-off change · working',
+    'spec task · working',
+    'spec kickoff · working',
+    'other session · working',
+    'spec task · working',
+    'review · working',
+    'mission-control session · working',
   ])
   const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|a1b2c3|cubic|gen-2|task-\d|:kickoff|stream-json|\.sh\b/
-  expect(texts.slice(at, at + 10).filter(t => ids.test(t))).toEqual([])
+  expect(texts.slice(at, at + 16).filter(t => ids.test(t))).toEqual([])
   await ui.unmount()
 })
 
@@ -86,7 +81,7 @@ test('with tmux unreadable the in-flight count is a floor, never exact', async (
   expect(await ui.find({ type: 'Text', text: /Nothing in flight/ })).toBeUndefined()
   await ui.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toMatch(/^✈ alpha · 0\+ in flight · /)
+  expect((await bandOf(band))).toMatch(/^\? 2 waiting on you/)
   await band.unmount()
 })
 
@@ -105,22 +100,8 @@ test('with tmux and the attention store both unreadable the in-flight count is u
   expect(await ui.find({ type: 'Text', text: /^In flight \(\?\)$/ })).toBeDefined()
   await ui.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toMatch(/^✈ alpha · \? in flight · /)
+  expect((await bandOf(band))).toMatch(/^\? 2 waiting on you/)
   await band.unmount()
-})
-
-test('repeated background checks collapse before the list is cut', async ($, on) => {
-  const watch = (script: string, duty: string) => `watcher\t${duty}\t${script}\trunning\t30`
-  const w = world(on, {
-    digest: digestText({
-      extra: ['a.sh', 'b.sh', 'c.sh', 'd.sh'].map(s => watch(s, 'reviews')).concat(watch('e.sh', 'deadline-watch')),
-    }).replace(/^watcher\tinbox.*\n/gm, ''),
-  })
-  await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^reviews running, next 30s \(×4\)$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^deadline watch running, next 30s$/ })).toBeDefined()
-  await ui.unmount()
 })
 
 // REQ-F1.1: the stores change and the timer redraws with no turn.
@@ -155,10 +136,81 @@ test('the band draws the summary line above the prompt', async ($, on) => {
   await boot($, w)
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    const band = await ui.find({ type: 'Text', text: /✈ alpha/ })
-    expect(band?.text).toBe('✈ alpha · 2 in flight · 2 holding · rung throttle · ctx 42% · five_hour 31%')
+    expect(await bandOf(ui)).toBe('? 2 waiting on you · 5-hour 31% · context 42%')
     await ui.unmount()
   }
+})
+
+test('pull requests ready to merge are held for the operator, in the pane and the band', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['merge-ready\t3\tall'] }) })
+  await boot($, w)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.find({ type: 'Text', text: /ready to merge/ }))?.text).toBe('3 ready to merge')
+  await pane.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await bandOf(band))).toBe(
+    '? 2 waiting on you · 3 ready to merge · 5-hour 31% · context 42%',
+  )
+  await band.unmount()
+})
+
+test('pull requests that could not all be judged read as a floor, or unknown', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['merge-ready\t2\tpartial'] }) })
+  await boot($, w)
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pane.find({ type: 'Text', text: /ready to merge/ }))?.text).toBe('2+ ready to merge')
+  await pane.unmount()
+})
+
+test('with none judged ready and some unknown, the band says unknown', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['merge-ready\t0\tpartial'] }) })
+  await boot($, w)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await bandOf(band))).toContain('? ready to merge')
+  await band.unmount()
+})
+
+test('a merge-ready store that cannot be read is unknown, never hidden', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['unreadable\tmerge-ready store'] }) })
+  await boot($, w)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await bandOf(band))).toContain('? ready to merge')
+  await band.unmount()
+})
+
+// The health line: shown only when a check is out of bounds, an unknown one
+// said as such.
+test('the health section draws each check out of bounds, and nothing when all is well', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [
+        'health\tworker-age\t3\tw-old\t3 workers live past 4h (oldest w-old, 6h)',
+        'health\tci-queue\t?\t-\tCI queue times unknown (the throughput measure is 3h old)',
+        'health\tcontext\t1\tbeta\t1 mission control at or past the handover context (beta 75% of 70%)',
+        'health\tcontext\t?\t-\tcontext unknown for gamma (no fresh reading from a live session)',
+      ],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Health$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^3 workers live past 4h \(oldest w-old, 6h\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^CI queue times unknown/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^1 mission control at or past the handover context \(beta 75% of 70%\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^context unknown for gamma/ })).toBeDefined()
+  await ui.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  // Checks, not records: the context check said two things.
+  expect((await bandOf(band))).toContain('⚠ 3 health checks')
+  await band.unmount()
+  w.set({ digest: digestText() })
+  await w.clock.advance(10_000)
+  const well = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await well.find({ type: 'Text', text: /^Health$/ })).toBeUndefined()
+  await well.unmount()
+  const quiet = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await bandOf(quiet))).not.toContain('health')
+  await quiet.unmount()
 })
 
 test('the band leaves a survey alone', async ($, on) => {
@@ -182,7 +234,7 @@ test('sessions that finished but were not cleaned up are a separate count', asyn
   expect((await ui.find({ type: 'Text', text: /finished/ }))?.text).toBe('352 finished, not cleaned up')
   await ui.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toMatch(/^✈ alpha · 2 in flight · /)
+  expect((await bandOf(band))).toMatch(/^\? 2 waiting on you/)
   await band.unmount()
 })
 
@@ -204,17 +256,6 @@ test('a store the digest could not read is said, its count unknown', async ($, o
     'Unreadable: operator queue, fleet registry, knowledge base',
   )
   expect(await ui.find({ type: 'Text', text: /In flight \(\?\)/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /knowledge base unreadable/ })).toBeDefined()
-  await ui.unmount()
-})
-
-test('measures not yet written are said as such', async ($, on) => {
-  const w = world(on, {
-    digest: digestText().replace(/^measure.*\n/gm, '').replace('handover\tabsent', 'measure\t-\tnone\t-\nhandover\tabsent'),
-  })
-  await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^measures none$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -239,8 +280,8 @@ test('a refused command registration still brings the readings up', async ($, on
   const first = ran(w, 'mc-panel.sh', 'digest').length
   expect(first).toBeGreaterThan(0)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ type: 'Text', text: /✈ alpha/ }))?.text).toBe(
-    '✈ alpha · 2 in flight · 2 holding · rung throttle · ctx 42% · five_hour 31%',
+  expect((await bandOf(band))).toBe(
+    '? 2 waiting on you · fault: the panel command could not be registered: HooksError: no implementation for command.register · 5-hour 31% · context 42%',
   )
   await band.unmount()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -256,8 +297,8 @@ test('with no reading the band says why', async ($, on) => {
   const w = world(on, { digestExit: 1 })
   await boot($, w)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /✈ alpha/ }))?.text).toBe(
-    '✈ alpha · no reading: store unreadable · ctx 42% · five_hour 31%',
+  expect((await bandOf(ui))).toBe(
+    'no reading: store unreadable · 5-hour 31% · context 42%',
   )
   await ui.unmount()
 })
@@ -267,7 +308,7 @@ test('the fallback line shows where nothing draws the pane', async ($, on) => {
   const w = world(on, { isPlaced: false })
   await boot($, w)
   const line = w.statuses.filter((s): s is string => typeof s === 'string').at(-1)
-  expect(line).toBe('mission control alpha: 2 in flight, 2 waiting, 0 pending, rung throttle, context 42%')
+  expect(line).toBe('? 2 waiting on you · 5-hour 31% · context 42%')
   await w.clock.advance(10_000)
   expect(w.statuses.at(-1)).toBe(line)
 })
@@ -413,27 +454,198 @@ test('a knob unread at bring-up is read again until every knob arrives', async (
   expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).not.toContain('--knobs')
 })
 
-test('approvals mission control is handling are said apart from what waits on the operator', async ($, on) => {
+test('approvals mission control is handling are not drawn: the operator acts on none', async ($, on) => {
   const w = world(on, { digest: digestText({ extra: ['approvals\t4'] }) })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /waiting on you$/ }))?.text).toBe('2 waiting on you')
-  expect((await ui.find({ type: 'Text', text: /approvals/ }))?.text).toBe('4 approvals mission control is handling')
+  expect(await ui.find({ type: 'Text', text: /approval/ })).toBeUndefined()
   await ui.unmount()
 })
 
-test('one approval is said in the singular', async ($, on) => {
-  const w = world(on, { digest: digestText({ extra: ['approvals\t1'] }) })
+const rows = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) =>
+  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
+
+const readoutsAt = async ($: Parameters<typeof boot>[0], on: Parameters<typeof world>[0], given: Parameters<typeof world>[1], surface: (typeof SURFACES)[number] = 'terminal') => {
+  const w = world(on, given)
   await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /approval/ }))?.text).toBe('1 approval mission control is handling')
+  const ui = await $.ui.mount({ ...PANE, surface })
+  const t = await rows(ui)
+  await ui.unmount()
+  return t
+}
+
+test('the readouts say each measure as a name, a value and a verdict', async ($, on) => {
+  const texts = await readoutsAt($, on, {})
+  expect(texts).toContain('5-hour usage 31% · stop unknown · UNKNOWN')
+  expect(texts).toContain('Context 42% · compacts at 95% · OK')
+  expect(texts).toContain('Machine load 1.5/4, mem 62% · OK')
+  expect(texts).toContain('Waiting on you 2 · ACT')
+})
+
+test('host load past the core count and memory under a tenth are ACT', async ($, on) => {
+  const texts = await readoutsAt($, on, { digest: digestText().replace(/^host\t.*$/m, 'host\t520\t4\t6') })
+  expect(texts).toContain('Machine load 5.2/4, mem 6% · ACT')
+})
+
+test('a host reading that is missing is unknown, never zero', async ($, on) => {
+  const texts = await readoutsAt($, on, { digest: digestText().replace(/^host\t.*$/m, 'host\t-\t-\t-') })
+  expect(texts).toContain('Machine load unknown, mem unknown · UNKNOWN')
+})
+
+const registry = digestText({ holder: 'registry' })
+const CASES: [string, Parameters<typeof world>[1], string][] = [
+  ['context under the hand-over point is OK and says where it hands over', { digest: registry }, 'Context 42% · hand over 70% · compacts at 95% · OK'],
+  ['context at the hand-over point is ACT', { digest: registry, contextPercent: 75 }, 'Context 75% · hand over 70% · compacts at 95% · ACT'],
+  ['nothing waiting is OK', { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t0') }, 'Waiting on you none · OK'],
+  ['an unread queue is unknown', { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t-') }, 'Waiting on you unknown · UNKNOWN'],
+  ['a usage stop is the value admission reads', { digest: digestText({ extra: ['knob\tusage-hold\t90'] }) }, '5-hour usage 31% · stop at 90% · OK'],
+  ['a usage stop that is off says so', { digest: digestText({ extra: ['knob\tusage-hold\t0'] }) }, '5-hour usage 31% · no stop set · OK'],
+  ['usage at the stop is ACT', { digest: digestText({ extra: ['knob\tusage-hold\t30'] }) }, '5-hour usage 31% · stop at 30% · ACT'],
+]
+for (const [name, given, line] of CASES) {
+  test(`readout: ${name}`, async ($, on) => {
+    expect(await readoutsAt($, on, given)).toContain(line)
+  })
+}
+
+const mascot = async (ui: Parameters<typeof rows>[0]) => (await rows(ui)).filter(t => t.includes('Prop pal') || /\[__\]/.test(t) || /\(.* .*\)/.test(t))
+const withKnob = (n: number) => digestText({ extra: [`knob\tmascot\t${n}`] })
+
+test('Prop pal circles while something waits on the operator', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const t = await mascot(ui)
+  expect(t).toContain('Prop pal: circling, something waits on you')
+  expect(t.some(l => l.includes('(o o)'))).toBe(true)
   await ui.unmount()
 })
 
-test('no approvals line when mission control is handling none', async ($, on) => {
-  const w = world(on, { digest: digestText({ extra: ['approvals\t0'] }) })
+test('Prop pal flies while sessions work and nothing waits', async ($, on) => {
+  const w = world(on, { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await mascot(ui)).toContain('Prop pal: flying, sessions working')
+  await ui.unmount()
+})
+
+test('Prop pal taxis when nothing runs and lands when work has finished', async ($, on) => {
+  const idle = digestText({ finished: 0 }).replace(/^flight\t.*\n/gm, '').replace(/^waiting\t.*$/m, 'waiting\t0')
+  const w = world(on, { digest: idle })
+  await boot($, w)
+  let ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await mascot(ui)).toContain('Prop pal: taxiing, nothing running')
+  await ui.unmount()
+  w.set({ digest: idle.replace(/^finished\t.*$/m, 'finished\t3') })
+  await w.clock.advance(10_000)
+  ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await mascot(ui)).toContain('Prop pal: landing, work finished')
+  await ui.unmount()
+})
+
+test('an alert makes the ride bumpy, ahead of everything else', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['unreadable\tfleet registry'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const t = await mascot(ui)
+  expect(t).toContain('Prop pal: a bumpy ride, an alert stands')
+  expect(t.some(l => l.includes('(O O)'))).toBe(true)
+  await ui.unmount()
+})
+
+test('the mascot knob: still draws one frame', async ($, on) => {
+  const w = world(on, { digest: withKnob(1) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const before = await mascot(ui)
+  expect(before.some(l => l.startsWith('Prop pal'))).toBe(true)
+  await w.clock.advance(3_000)
+  expect(await mascot(ui)).toEqual(before)
+  await ui.unmount()
+})
+
+test('the mascot knob: off draws nothing', async ($, on) => {
+  const w = world(on, { digest: withKnob(0) })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /approvals/ })).toBeUndefined()
+  const texts = await rows(ui)
+  expect(texts.some(t => t.startsWith('Machine load'))).toBe(true)
+  expect(texts.some(l => l.includes('Prop pal') || /\[__\]/.test(l))).toBe(false)
+  await ui.unmount()
+})
+
+// The approved high-fidelity render: pictures where the surface has them.
+const pictures = async (ui: { findAll: (q: { type: string }) => Promise<{ props?: Record<string, unknown> }[]> }, type: string) =>
+  (await ui.findAll({ type })).map(n => n.props ?? {})
+
+test('the terminal pane draws Prop pal as a cell grid with no caption and no picture repeating the readouts', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await pictures(ui, 'Raster')).map(r => r.key)).toEqual(['prop-pal'])
+  expect(await pictures(ui, 'Image')).toEqual([])
+  expect((await rows(ui)).some(l => l.includes('Prop pal'))).toBe(false)
+  await ui.unmount()
+})
+
+test('a surface without pictures draws none, and the readouts stay', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await pictures(ui, 'Raster')).toEqual([])
+    expect(await pictures(ui, 'Image')).toEqual([])
+    expect(await rows(ui)).toContain('Waiting on you 2 · ACT')
+    await ui.unmount()
+  }
+})
+
+// The panel flickered when the mascot's frame was state: every frame redrew the
+// whole pane. A frame is now a blit of the Raster alone.
+test('Prop pal animates by blit, never by redrawing the pane', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['flight\tw-three\tflight-x\ttmux\tworking'] }).replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const before = await rows(ui)
+  const cells = (await pictures(ui, 'Raster'))[0]?.cells
+  await w.clock.advance(1_000)
+  expect(w.blits.length).toBeGreaterThanOrEqual(2)
+  expect(w.blits.every(b => b.key === 'prop-pal')).toBe(true)
+  expect(new Set(w.blits.map(b => b.cells)).size).toBeGreaterThan(1)
+  expect((await pictures(ui, 'Raster'))[0]?.cells).toBe(cells)
+  expect(await rows(ui)).toEqual(before)
+  await ui.unmount()
+})
+
+test('a still mascot blits nothing', async ($, on) => {
+  const w = world(on, { digest: withKnob(1) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await w.clock.advance(2_000)
+  expect(w.blits).toEqual([])
+  await ui.unmount()
+})
+
+test('a pane that is not the terminal blits nothing, its text mascot moving by redraw', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['flight\tw-three\tflight-x\ttmux\tworking'] }).replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await w.clock.advance(2_000)
+  expect(w.blits).toEqual([])
+  await ui.unmount()
+})
+
+test('the mascot knob keeps its meaning with pictures: off draws no grid, still holds one frame', async ($, on) => {
+  const off = world(on, { digest: withKnob(0) })
+  await boot($, off)
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await pictures(ui, 'Raster')).toEqual([])
+  await ui.unmount()
+  off.set({ digest: withKnob(1) })
+  await off.clock.advance(10_000)
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const before = (await pictures(ui, 'Raster'))[0]?.cells
+  await off.clock.advance(3_000)
+  expect((await pictures(ui, 'Raster'))[0]?.cells).toBe(before)
   await ui.unmount()
 })

@@ -455,6 +455,11 @@ cmd_dispatch() {
       printf '%s\n' "$me: dispatch: cannot resolve this install's root for the profile launch" >&2
       exit 2
     }
+    # Run from an older cached copy, the launch still pins the installed one.
+    if [ -f "$script_dir/resolve-installed-roots.sh" ]; then
+      lr_fresh=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$launch_root" 2>/dev/null </dev/null) || lr_fresh=''
+      [ -z "$lr_fresh" ] || launch_root=$lr_fresh
+    fi
     launch_settings=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$D_PROFILE" --root "$launch_root" </dev/null) || exit 2
     launch_env="$script_dir/fleet-dispatch-env.sh"
     if [ ! -f "$launch_env" ] || [ ! -x "$launch_env" ]; then

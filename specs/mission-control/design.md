@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-07
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -448,6 +448,9 @@ memory rules were all born as repeated corrections.
 *(Amended at kickoff 2026-10-23: widened from duty-or-rule to any
 mechanism in the inventory; the operator's example was a review process
 run by hand that convergence steps already make deterministic.)*
+*(Amended at Amendment 4, 2026-11-07: a fourth repeat shape, the same
+guard denial a knob governs, maps to a settings proposal through
+`config/denial-knobs.tsv`; it shipped in PR #835 without an amendment.)*
 
 ### D-15: Shadow mode as a duty lifecycle state  (S)
 
@@ -533,6 +536,12 @@ sits inside a repository checkout, where mission control writes no file
 test entry describes.)*
 *(Amended at the 2026-11-04 extension: the level also shapes the teaching
 at consequential moments, D-31.)*
+*(Amended at Amendment 4, 2026-11-07: the first run asks only what the
+operator can decide from their own work; an objective the repository, a
+check or a shipped default settles is settled and said in one plain line
+the operator can overrule, never asked. The objective list above is what
+the run settles, not what it asks. It shipped in PR #822 without an
+amendment.)*
 
 ### D-19: The register, stricter than tower-comms  (N)
 
@@ -618,6 +627,9 @@ human-gates amendment for the kickoff push (Task 31), the tower-comms
 amendment for the reply hook (Task 32), the platform-currency bundle
 consuming D-39, and the widened meaning of `fleet_max_parallel_units`
 (D-41).)*
+
+*(Amended at Amendment 4, 2026-11-07: the router and flight rules of D-45
+are routed to tower-front-door as Task 36.)*
 
 ### D-23: Non-authoring and relay  (C, fleet-coordination-floor; fleet-autonomy D-17)
 
@@ -898,6 +910,12 @@ control's session.
 from what the skill invokes cannot fall behind it the way the hand-kept one
 did.
 
+*(Amended at Amendment 4, 2026-11-07: a mission-control session that
+mission control launches, a successor included, runs in Claude Code's auto
+mode; the deny floor and the guard hooks this check confirms stay the
+floor, and a session the operator opens keeps their own settings. It
+shipped in PR #859 without an amendment.)*
+
 ### D-33: The configured cadence is audited at readiness and carried in briefs  (N)
 
 **Decision:** A read-only `audit --through <point> [--head <sha>]` verb on
@@ -933,6 +951,13 @@ whose recorded run gates later units.
 **Chosen because:** it catches a skipped point or step whoever skipped it,
 reuses the resolver the cadence already uses, and is what the fix in flight
 already delivers, so there is one fix rather than two.
+
+*(Amended at Amendment 4, 2026-11-07: a spec-only pull request (every
+changed path a Markdown file under the spec root, the head holding that
+root) is held for each touched bundle's kickoff sign-off instead of the
+cadence and the gate data's steps, by the operator's ruling that spec-only
+pull requests skip the code review steps; it shipped in PR #852, and
+REQ-D1.14 supersedes REQ-D1.9 to say so.)*
 
 ### D-34: A repository-changing launch gets its own worktree  (N)
 
@@ -996,6 +1021,29 @@ only the operator's own answer reaches it, by the pane relay (D-23).
 **Chosen because:** supervision has to follow the sessions, not the launch
 path, and the coverage check already sits in front of the channel that
 answers.
+
+*(Amended 2026-11-08, operator ruling relayed through the hub: "can't it be
+fixed from the root so we don't really need to do it?". Today approvals run
+`fleet-streamjson.sh pending|answer` only through user-scope allow rules that
+name one plugin version's install path, so each release breaks them and the
+auto-mode classifier denies the call. The fix is at the root: a plugin
+PreToolUse hook approves exactly the literal resolved installed-root path
+`<root>/scripts/fleet-streamjson.sh` with `pending` or `answer`, as one simple
+command (no expansion, compound, pipe, redirection, background marker, or
+path through a symlink to elsewhere), in a mission-control session only.
+The "allow the raw answer verb" alternative above is rejected for the guard
+tier's list and stays rejected there; this hook is a separate, narrower
+approval whose coverage is its exact shape, not a verb-wide allow. The
+fleet-hardening D-20 exact-path rule for settings allow rules is kept as is.
+Settled at the kickoff (operator: "Your rule or reply (Recommended)"): the
+hook judges only the call's shape; what authorizes an answer is unchanged, a
+standing decision claimed through the answer channel or the operator's own
+answer, recorded in the undo ledger, never mission control's own judgment.
+The session test reuses the plugin's prompt-hook marking (as
+`tower-session.sh` marks towers), with a mission-control mark in the same
+store and bar; because this mark now lets a call through rather than only
+denying, the hook also requires the call to name the installed root it runs
+from. Task 38 builds it.)*
 
 ### D-36: A kickoff permission profile for relayed kickoffs  (S)
 
@@ -1249,6 +1297,91 @@ operator's own session; only a release to a pane successor does.
 **Chosen because:** the operator's decision (2026-11-06 and 2026-11-07):
 hand over as best as possible and compact only as a last resort, emulating
 the tmux pane in whatever terminal is in use.
+
+### D-44: A goal is done when its own check passes  (S)
+
+**Decision:** A program goal is a record in the program home holding the
+outcome in plain words, the work it tracks (pull requests, flights or spec
+tasks, attached when the goal is set or when a launch names it), an
+optional check command, the check's state (unconfirmed, confirmed,
+passing, failing, unrun) and the evidence of its last run; the store
+carries a `format` field and is written only by mission control, under one
+lock. When the operator sets a goal, mission control drafts the check (a
+statement, plus a command where one can prove it) and the operator confirms
+or corrects it in one line. When the goal's work merges, mission control
+runs the check: the command from the program home, as a run of the
+`goal-check` duty and so under D-40's watcher timeout, or, where no
+command fits, a read-only session that looks and reports what it found,
+which mission control writes into the goal's evidence. It reports the goal done only on a pass; on a fail or an unrun
+check it reports the goal as merged but not done, naming what failed, and
+routes the fix. A done goal with a command check is re-checked daily and at bring-up,
+silently while it passes; a failure reopens it with one line and routes the
+fix. Session-based checks are not re-run unasked. A command is operator-confirmed
+data, so it is run as written, never assembled from forge, session or
+record text.
+
+**Alternatives considered:**
+- The operator writes every check. Rejected because: a step on every goal,
+  for checks mission control can draft for a one-line confirmation.
+- Commands only, with no session-based check. Rejected because: some
+  outcomes (a host's installed version, a runner's registration) are
+  easiest to verify by looking, and a goal would otherwise never be called
+  done.
+- Merged pull requests as the done signal. Rejected because: that is the
+  failure being fixed; the Mac offload goal was called done while the host
+  still ran an old planwright with no runner registered.
+
+**Chosen because:** the operator's decision (2026-11-07): mission control
+drafts, the operator confirms, and nothing is called done without
+evidence.
+
+### D-45: A pull request that changes specified behaviour carries its signed spec edit  (S; C, tower-front-door)
+
+**Decision:** A change to behaviour a spec describes edits that spec in the
+same pull request, with a dated amendment note, and is not ready until the
+operator signs the edit off in a short relayed kickoff. That kickoff runs
+on the pull request's own branch, in its worktree, and its sign-off commit
+is pushed like any other commit on that branch, so no spec-branch push is
+involved. Two signals find such a change. The worker's covering-spec
+statement in its pull request body: a `Covering spec:` line naming each
+bundle the change touches, or `none`, and one `Not covered: <path> —
+<reason>` line per changed deliverable file whose spec the change leaves
+alone. And a mechanical spec-drift check (`scripts/spec-drift-check.sh`),
+which reads each task's deliverables through `scripts/spec-model.sh`,
+takes the backticked repository paths in them as the listed files, and
+lists every changed listed file whose spec's anchored content is unchanged
+and which no `Not covered:` line names, except a deliverable of a task the
+pull request's own trailer names. A pull request with no statement reads
+as covering nothing with no reasons. This bundle owns the statement's form
+and the check; tower-front-door has its flights write the statement and
+run the check at `pre-pr` (Task 36). The readiness check (D-25, D-33) runs the drift check and
+compares each edited spec's latest sign-off anchor with its content at the
+head; either gap refuses the flip. The router and flight rules are routed
+to tower-front-door (Task 36), decided by the operator at this kickoff: a
+shipped path list (CI workflows, git hooks, guard and policy scripts, the
+security doctrine; each project may add paths) plus judgment for an ask
+whose purpose is security routes that work to the spec pipeline; the
+operator's one-sentence override keeps it a visual flight and is recorded
+word for word with its date in the pull request and the flight record; the
+polish pause zones stay as they are. An operator asking for the change, or
+a launch brief mission control writes, is not an override: only the
+operator's own override sentence keeps zone work a visual flight (the
+audit found every zone flight resting on one of those instead).
+
+**Alternatives considered:**
+- A pending-amendment note in the pull request, the kickoff later.
+  Rejected because: the spec stays wrong until a later kickoff that kept
+  not happening, which is how the drift arose.
+- Worker judgment alone, or the path match alone. Rejected because: the
+  first drifts silently when the worker forgets; the second misses
+  behaviour in unlisted files and flags harmless edits.
+- Guard and hook scripts joining the polish pause zones. Rejected because:
+  the kickoff sign-off already covers the change, so the operator would be
+  asked twice.
+
+**Chosen because:** the operator's decisions (2026-11-07): edit the spec in
+the same pull request, worker statement plus mechanical check, path list
+plus judgment for routing, pause zones unchanged.
 
 ## Cross-cutting concerns
 

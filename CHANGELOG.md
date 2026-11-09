@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.72.0](https://github.com/inkatze/planwright/compare/v0.71.0...v0.72.0) (2026-11-09)
+
+
+### Features
+
+* **mission-control:** a throughput duty that measures where the fleet's time goes ([#899](https://github.com/inkatze/planwright/issues/899)) ([9d0aab0](https://github.com/inkatze/planwright/commit/9d0aab083f4004a1feddc9218b29788824015eea))
+* **mission-control:** an attended hub in tmux hands over itself ([#902](https://github.com/inkatze/planwright/issues/902)) ([ee86687](https://github.com/inkatze/planwright/commit/ee866875410fbccec04a78fe2a62e774113cafc1))
+* **mission-control:** audit the setup a hub inherits, and warn on per-call backend overrides ([#875](https://github.com/inkatze/planwright/issues/875)) ([a92aca9](https://github.com/inkatze/planwright/commit/a92aca9c66d28227177325504ef0abea7a138a3c))
+* **mission-control:** high-fidelity panel with animated Prop pal and instrument pictures ([#903](https://github.com/inkatze/planwright/issues/903)) ([7dcbbe0](https://github.com/inkatze/planwright/commit/7dcbbe0896475bfba7cba110e71ea1b9a4e46671))
+* **mission-control:** hold launches near the usage limit and resume the work at the reset ([#890](https://github.com/inkatze/planwright/issues/890)) ([8607ef7](https://github.com/inkatze/planwright/commit/8607ef709ef43917db2666b51bf16e17be1a24cb))
+
+
+### Bug Fixes
+
+* **fleet:** workers get the installed plugin root and never background jobs on stream-json ([#894](https://github.com/inkatze/planwright/issues/894)) ([5a364a1](https://github.com/inkatze/planwright/commit/5a364a1fca59d6feb0c3dbded3bb7f2d2626b855))
+
+## [0.71.0](https://github.com/inkatze/planwright/compare/v0.70.0...v0.71.0) (2026-11-08)
+
+
+### Features
+
+* **fleet:** write the usage mirror from Claude Code's rate-limit fields ([#863](https://github.com/inkatze/planwright/issues/863)) ([44221d6](https://github.com/inkatze/planwright/commit/44221d6aec7afab5eb91b07ca44c0fac3486c0eb))
+* **mission-control:** a health line in the panel for what the duties miss ([#889](https://github.com/inkatze/planwright/issues/889)) ([ab8f4c8](https://github.com/inkatze/planwright/commit/ab8f4c854a8d896449684dd7b49a3f9b8dc629bc))
+* **mission-control:** check the posture before work and launches, and derive the pre-approval list ([#844](https://github.com/inkatze/planwright/issues/844)) ([8cfd9b1](https://github.com/inkatze/planwright/commit/8cfd9b134090477221e1bc4ed524fc07360f93e3))
+* **mission-control:** escalate stuck mission controls and relay the operator's answer ([#893](https://github.com/inkatze/planwright/issues/893)) ([398c494](https://github.com/inkatze/planwright/commit/398c494aa96ac2469c6b86f190f3af9743015a6d))
+* **mission-control:** panel cockpit row and Prop pal mascot ([#897](https://github.com/inkatze/planwright/issues/897)) ([5f12ba9](https://github.com/inkatze/planwright/commit/5f12ba91a9ae3bc1dc6e13723d854145b7715208))
+* **mission-control:** report only what the operator is owed, by default ([#884](https://github.com/inkatze/planwright/issues/884)) ([2d5256d](https://github.com/inkatze/planwright/commit/2d5256da8ac4617dd3d0a4b6f0387facf6b071b3))
+* **spend:** measure where the fleet's tokens go and record spend per unit ([#892](https://github.com/inkatze/planwright/issues/892)) ([2a8af48](https://github.com/inkatze/planwright/commit/2a8af48a3fc47c39afb072cf63ef9d5c9a59bc84))
+
+
+### Bug Fixes
+
+* list mc-escalate.sh and mc-inbox.sh report in the mission-control verbs ([#898](https://github.com/inkatze/planwright/issues/898)) ([9483d91](https://github.com/inkatze/planwright/commit/9483d914397af534e757d3a9c5e96a77c91c6f34))
+* **mission-control:** a released mission-control session ends itself ([#874](https://github.com/inkatze/planwright/issues/874)) ([ea80eac](https://github.com/inkatze/planwright/commit/ea80eac01e45a1e7759a198ac2635d2a1d36c2aa))
+* **mission-control:** a takeover confirms the old session's process exited ([#888](https://github.com/inkatze/planwright/issues/888)) ([24ebd4d](https://github.com/inkatze/planwright/commit/24ebd4dc26f5eb7a249848bcaa465d43125e4fb2))
+
 ## [0.70.0](https://github.com/inkatze/planwright/compare/v0.69.0...v0.70.0) (2026-11-08)
 
 

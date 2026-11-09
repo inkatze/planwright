@@ -1,1 +1,1 @@
-match ^mc-config: usage: mc-config\.sh entry\|mode\|layer\|add\|set\|duty\|knob\|restore\|apply \.\.\. \(mc-config\.sh --help\)$
+match ^mc-config: usage: mc-config\.sh entry\|mode\|layer\|add\|set\|duty\|knob\|restore\|apply\|doctor \.\.\. \(mc-config\.sh --help\)$

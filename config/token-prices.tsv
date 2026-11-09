@@ -1,0 +1,9 @@
+# Claude API list prices, USD per million tokens, as of 2026-10-06 (Anthropic's
+# published model pricing). Cache writes are input times 1.25 (5-minute
+# lifetime) and times 2 (1-hour lifetime). Read through
+# scripts/token-spend-lib.awk.
+model	input	output	cache_read	cache_write_5m	cache_write_1h
+claude-fable-5-1	10	50	0.25	12.5	20
+claude-opus-5-5	4	20	0.20	5	8
+claude-sonnet-5-5	2	10	0.20	2.5	4
+claude-haiku-5-5	0.10	0.50	0.01	0.125	0.20

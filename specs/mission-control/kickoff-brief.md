@@ -1086,6 +1086,24 @@ Lens-pass: Amendment 2, delta-scoped lens review above (spec lens set, fanned ou
 Anchor: `f7a8780cef5cf4ce13a5299a78a7e4a81ac927c1` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
 
+### Re-anchor — REQ-G1.5 test-spec pointer (2026-11-05)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+The REQ-G1.5 entry in `test-spec.md` now names
+`tests/test-policy-guard-mission-control.sh` for the edit and git-mutation
+denials, the suite that pins them; the command-guard suite keeps the
+pre-approval arms. No requirement or decision changes meaning. The operator
+chose "Fix it (Recommended)" for this pointer, relayed by mission control.
+`Last reviewed:` moves on `test-spec.md` and `requirements.md`.
+
+**Cites the changelog line:** the 2026-11-05 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `260b43f423d8d49d039bc9f318b31702f8daba2d` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
 ### Amendment 3 — 2026-11-07 (amendment: every session hands over, compaction last)
 
 Header: spec `specs/mission-control`, Active (derived), walked at spec
@@ -1237,4 +1255,343 @@ supersedes a requirement and a decision, so it is meaning-class.
 Class: meaning
 Lens-pass: Amendment 3, delta-scoped lens review above (spec lens set, fanned out in four groups; every finding dispositioned)
 Anchor: `bfed68e37ea8beb929c153a50684d05a850ae5ce` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 4 — 2026-11-07 (amendment: specs kept true to what ships, goals checked by outcome)
+
+Spec path `specs/mission-control`; walk started at `04303aa3` and
+re-based by a merge of `f2118b6d` (Amendment 3, PR #879) before the lens
+pass; walkthrough date 2026-11-07; validator at walk start: 0 errors, 0
+warnings. Mode: amendment on an Active (derived) bundle, operator-declared
+through mission control. Every question was the operator's, relayed by
+mission control and answered in their own words; the read-only spec-drift
+audit was used as evidence only.
+
+#### Goal and glossary (Amendment 4)
+
+Restatement: a spec must keep saying what ships, and a goal must be
+called done only when its outcome is proven. A pull request that changes
+behaviour a spec describes carries that spec's edit and the operator's
+signed-off amendment before it is ready, and security, CI and guard work
+goes through the spec pipeline unless the operator overrides it in their
+own words. A program goal carries a check of its outcome, and merged pull
+requests never count as that check. Rules out: amending the seven other
+bundles the audit names (recorded as an observation for their own
+amendments). Assumes the tower-front-door bundle is reopened for its part,
+which the operator approved.
+
+Terms: *covering-spec statement* (the pull request body's `Covering
+spec:` line and its `Not covered: <path> — <reason>` lines, D-45);
+*spec-drift check* (`scripts/spec-drift-check.sh`, the mechanical
+backstop); *edited spec* (its anchored content changed, so status
+annotations alone do not count); *goal* (a program-home record of an
+outcome, the work it tracks and its check); *done-when check* (a goal's
+outcome check, distinct from a task's `Done when:` field); *merged but not
+done* (a goal whose tracked work merged while its check fails or has not
+run).
+
+Signed off: 2026-11-07
+
+#### Requirements walkthrough (Amendment 4)
+
+The operator's decisions, in order: a change to specified behaviour edits
+the spec in the same pull request and waits for a relayed sign-off (Q1,
+option A); detection by the worker's statement plus a mechanical check
+(Q2, A); routing by a shipped path list plus judgment, the override
+recorded (Q3, A, after the operator asked for the question reframed around
+staying unnoticed day to day); guard and hook scripts do not join the
+polish pause zones (Q4, A); mission control drafts each goal's check and
+the operator confirms it (Q5, A); command checks re-run daily and at
+bring-up, session checks not re-run (Q6, A); the drafted change confirmed
+(Q7, A); the audit's mission-control drift folded into this amendment (Q8,
+A). New and superseding requirements: REQ-D1.13, REQ-D1.14 (supersedes
+REQ-D1.9), REQ-N1.1 to REQ-N1.4, two Scope bullets; amendment notes on
+REQ-B1.5 and REQ-F1.12. The 2026-11-07 Amendment 4 Changelog entry in
+`requirements.md` lists them.
+
+Signed off: 2026-11-07
+
+#### Design walkthrough (Amendment 4)
+
+D-44 (goals done on their own check) and D-45 (a signed spec edit rides
+the pull request; the statement's form and the check are this bundle's,
+the router rules routed) are new. Dated notes: D-14 (the denial repeat),
+D-18 (the first run asks only what the operator can answer), D-22 (the
+routed tower-front-door amendment), D-32 (launched sessions in auto mode),
+D-33 (the spec-only hold). Every other decision is confirmed as signed.
+
+Signed off: 2026-11-07
+
+#### Verification approach (Amendment 4)
+
+Every new requirement has a `[test]` entry planwright's CI runs
+(`scripts/run-tests.sh` discovers `tests/*.sh`): `tests/test-mc-goals.sh`
+and `tests/test-spec-drift-check.sh` are created by Tasks 34 and 35;
+`tests/test-mc-readiness.sh` and `tests/test-mc-duties.sh` exist. The
+drift folded in is already covered by shipped tests, named in each entry:
+the spec-only hold in `tests/test-mc-readiness.sh`, the denial repeat in
+`tests/test-mc-proposals.sh`, the first-run asked-or-settled grade in
+`tests/test-behavioral-eval-mission-control.sh`. No `[Gherkin]` or
+`[manual]` entry was added.
+
+Signed off: 2026-11-07
+
+#### Task graph (Amendment 4)
+
+Tasks 34, 35 and 36 have no unmet edge and can start at once; Task 37
+follows 34 and 35. Cross-bundle edge: the tower-front-door task that has
+flights run the drift check at `pre-pr` depends on Task 35, which ships
+the script and owns the statement's form. Deliberate non-edges: Task 36
+does not wait on Task 35 (it is the routed kickoff, which needs no
+script); Task 35 does not wait on Task 36 (a pull request with no
+statement is checked as covering nothing). Task 17 already derives
+completed; Task 19 carries a note on its landed push half; Task 30 is
+superseded by Task 33 (Amendment 3), so its partial landing in PR #848 is
+not recorded here.
+
+Signed off: 2026-11-07
+
+#### Risk register (Amendment 4)
+
+1. Until the tower-front-door part lands, flight pull requests carry no
+   covering-spec statement, so the drift check flags every changed listed
+   deliverable and readiness refuses more often at first. Mitigation: a
+   one-line `Not covered:` reason clears a harmless change; mission
+   control's launch briefs can ask for the statement before Task 36 lands.
+2. A harmless edit to a listed file needs a written reason (the operator
+   accepted this at Q2).
+3. Session-based goal checks are not re-run, so such an outcome can break
+   quietly (accepted at Q6).
+4. The relayed kickoff that signs a flight's spec edit runs on the flight's
+   own branch and pushes it as that branch's commit; a guard that treats a
+   kickoff-kind session as allowed only its spec branch would refuse it.
+   Mitigation: mission control launches that kickoff as it launched this
+   one, as a session on the flight's branch.
+5. A check command runs as the operator confirmed it; a wrongly confirmed
+   command that changes something would still run. Mitigation: mission
+   control drafts only commands that change nothing and shows the command
+   verbatim before confirmation.
+6. The skill's instruction budget is saturated; Task 37's prose may not
+   fit. Mitigation: mechanics live in the scripts with pointers; the budget
+   check blocks the merge otherwise.
+
+Decision-domain gap check (catalog via `scripts/resolve-catalog.sh
+decision-domains`): data-storage, concurrency, secrets-config,
+observability, versioning-scheme and existing-seam-reuse touched; each
+decided in D-44, D-45 or REQ-N1.4 after the lens pass (the goal store's
+work link, single writer, lock and `format` field; the watcher timeout
+reused; deliverables read through `scripts/spec-model.sh`).
+
+Signed off: 2026-11-07
+
+#### Lens review (Amendment 4, delta-scoped)
+
+Spec lens set (`doctrine/artifact-lenses.md`), fanned out: one read-only
+reviewer per lens over the delta, then validated and merged here. Findings
+overlapped heavily across lenses; counts are as each reviewer reported
+them.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 4 | Applied: task pull requests delivering their own task's files are exempt; the sign-off kickoff runs on the pull request's branch (D-45); the statement's form owned here so Tasks 35 and 36 need no edge; the misfiled test entry moved |
+| Ambiguity and interpretation forks | 4 | Applied: "edited" means anchored content; the statement's form and per-path reasons; goals name their tracked work; a session check passes only on evidence the outcome holds |
+| Citation and coverage integrity | 2 | Applied: Task 35 cites REQ-D1.14; the misfiled test entry moved |
+| Dead verification paths | 2 | Applied: the statement's form defined; the goal's work link added |
+| Decision-domain gaps | 4 | Applied: the work link, the single writer under a lock, D-40's watcher timeout reused, deliverables read through `scripts/spec-model.sh` with backticked paths |
+| Testability | 6 | Applied: the work link, the `format` refusal, bring-up, session no-re-run and lock cases, a falsifiable metacharacter case, Task 19's remaining clauses named, the statement cases |
+| Cross-file consistency | 3 | Applied: the misfiled entry, the Task 35/36 ordering, the work link |
+| Documentation and glossary drift | 5 | Applied: the entry moved, a `## REQ-N` heading in the test spec, `unconfirmed` used throughout, *done-when check* in the glossary above, the D-22 note in the changelog |
+| Rendered-content safety and data hygiene | 0 | Not a rendered context; committed text checked for names, hosts and paths, none found |
+
+Altitude check: no altitude trigger in the delta (no new pinned seed
+claim): not applicable. Ship-gate check: the out-of-band fixes named are
+the tower-front-door amendment (gated as Task 36) and the seven other
+bundles' drift (recorded as observation fragment
+`2026-11-07-flight-spec-drift-other-bundles`); none is named in prose
+only. Every finding is dispositioned with the operator at the approval
+summary.
+
+Signed off: 2026-11-07
+
+#### Pre-flip verification (Amendment 4)
+
+`markdownlint-cli2` over the four spec files and this brief: clean.
+`scripts/check-memory-links.sh`: clean. `scripts/spec-validate.sh
+specs/mission-control`: 0 errors, 1 warning (REQ-D1.11 changed while its
+test entry did not; the change is a pointer note naming REQ-D1.14 as the
+backstop, so its verification path is unchanged). The post-lens
+stale-reference sweep found REQ-D1.9 live only in REQ-D1.11's pointer
+(noted to REQ-D1.14); the rest are its own superseded record and test
+entry, completed Task 17's citations, and dated changelog lines. The lens
+counts above are as each reviewer reported them, not derived figures; the
+delta's enumerations are explicit lists.
+
+#### Sign-off record (Amendment 4)
+
+Signed off 2026-11-08 by the operator, relayed through the hub mission
+control: the approval summary was answered "A: sign off (Recommended)".
+Amendment on an Active bundle: no status flip; `Last reviewed:` 2026-11-08
+on all four spec files; validator re-run with 0 errors. The delta adds
+requirements and decisions and supersedes REQ-D1.9, so it is
+meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 4, delta-scoped lens review above (spec lens set, fanned out one reviewer per lens; every finding dispositioned)
+Anchor: `9a3b0b7da88c8cc8fcd05c77ea4f981e4c3b0a34` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — main's Amendment 3 merged with the REQ-G1.5 test-spec pointer (2026-11-07)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+Merging main into the branch that carries the 2026-11-05 test-spec pointer
+re-anchor combines that edit with Amendment 3. Against Amendment 3's
+anchored content, the merged bundle differs only by that pointer edit, so
+no requirement or decision changes meaning; this entry records the combined
+anchor.
+
+**Cites the changelog line:** the 2026-11-05 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `1b8a5bff791edb063bcd323ca27f40da593dccbd` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — main's pointer re-anchor merged with Amendment 4 (2026-11-08)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+Merging main into the branch that carries Amendment 4 combines Amendment 4
+with the REQ-G1.5 test-spec pointer edit recorded in the entry above.
+Against Amendment 4's anchored content, the merged bundle differs only by
+that pointer edit, so no requirement or decision changes meaning; this
+entry records the combined anchor.
+
+**Cites the changelog line:** the 2026-11-05 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `47b4f81e088a268569c6ecb2583d751c68e549df` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 5 — 2026-11-08 (amendment: the plugin hook approves mission control's prompt-answer calls)
+
+Spec path `specs/mission-control`; walk started at `358cd50e`; walkthrough
+date 2026-11-08; validator at walk start: 0 errors, 0 warnings. Mode:
+amendment on an Active (derived) bundle, operator-declared through mission
+control, walked as a delta of the dated 2026-11-08 notes on REQ-G1.6 and
+D-35 only. Every question was the operator's, relayed by mission control
+and answered in their own words.
+
+#### Goal and glossary (Amendment 5)
+
+Restatement: approvals of mission control's `fleet-streamjson.sh pending`
+and `answer` calls must survive every planwright release, so the plugin's
+own hook approves those exact calls instead of a settings rule that names
+one version's install path. Rules out: widening what authorizes an answer,
+adding the raw answer verb to the guard tier's list, and changing the
+exact-path rule for settings allow rules. Terms: *exact shape* (the literal
+resolved installed-root path, one simple command, no expansion, compound,
+pipe, redirection, background marker or symlink out of the root);
+*mission-control session* (one the plugin's prompt hook marked, in the
+tower-session mark store).
+
+Signed off: 2026-11-08
+
+#### Requirements walkthrough (Amendment 5)
+
+Q1, the amendment's open point: what backs a hook-approved answer. The
+operator answered "Your rule or reply (Recommended)": a standing decision
+covering the prompt, claimed through the answer channel, or the operator's
+own answer to it, as before; never mission control's own judgment. The
+REQ-G1.6 note now says so and reads "never through the raw answer verb" as
+never on mission control's own judgment, which resolves the conflict with
+the hook approving that verb's call. A changelog entry (Amendment 5) was
+added.
+
+Signed off: 2026-11-08
+
+#### Design walkthrough (Amendment 5)
+
+D-35's note records the same settlement, the session test reusing the
+plugin's prompt-hook marking, and the observation that this mark now lets a
+call through rather than only denying, so the hook also requires the call
+to name the installed root it runs from. Every other decision is confirmed
+as signed.
+
+Signed off: 2026-11-08
+
+#### Verification approach (Amendment 5)
+
+A new `[test]` paragraph under REQ-G1.6 names `tests/test-mc-approve-hook.sh`
+(created by Task 38), run by planwright's CI through `scripts/run-tests.sh`.
+No `[Gherkin]` or `[manual]` entry was added.
+
+Signed off: 2026-11-08
+
+#### Task graph (Amendment 5)
+
+Task 38 (the hook, the mark and the skill pointer) depends on Task 21,
+which ships the answer channel and the stall test the new entry sits
+beside. Deliberate non-edge: Task 38 does not wait on Tasks 34 to 37.
+
+Signed off: 2026-11-08
+
+#### Risk register (Amendment 5)
+
+1. The mission-control mark becomes an approval input, not only a
+   restriction, so a wrongly marked session could run these two calls
+   without a prompt. Mitigation: the exact shape and the unchanged
+   authorization of every answer; the test covers an unmarked session.
+2. How a hook's approval interacts with a settings deny or ask rule is
+   the harness's behaviour, not this bundle's. Early signal: Task 38's
+   tests confirm a deny rule still wins before the hook ships.
+3. Until Task 38 lands, approvals keep breaking on each release.
+
+Decision-domain gap check (catalog via `scripts/resolve-catalog.sh
+decision-domains`): security-posture and existing-seam-reuse touched, both
+decided in the notes (exact shape, authorization unchanged; the mark store
+reused).
+
+Signed off: 2026-11-08
+
+#### Lens review (Amendment 5, delta-scoped)
+
+Small, narrow delta walked inline per `kickoff-verification`.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | Applied: "never through the raw answer verb" reread as never on mission control's own judgment |
+| Ambiguity and interpretation forks | 1 | Applied: how a mission-control session is identified |
+| Citation and coverage integrity | 1 | Applied: Task 38 carries the implementation |
+| Dead verification paths | 1 | Applied: the REQ-G1.6 test paragraph |
+| Decision-domain gaps | 1 | Applied: the mark's new trust weight (D-35 note, risk 1) |
+| Testability | 0 | Covered by the new test paragraph |
+| Cross-file consistency | 1 | Applied: the changelog entry |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | Not a rendered context; no names, hosts or secrets |
+
+Altitude check: no new pinned seed claim, not applicable. Ship-gate check:
+the implementation is gated as Task 38, not named in prose only.
+
+Signed off: 2026-11-08
+
+#### Pre-flip verification (Amendment 5)
+
+`markdownlint-cli2` over the four spec files and this brief: clean.
+`scripts/spec-validate.sh specs/mission-control`: 0 errors, 0 warnings. The
+lens counts above are this walk's own; the delta's enumerations are
+explicit lists.
+
+#### Sign-off record (Amendment 5)
+
+Signed off 2026-11-08 by the operator, relayed through mission control:
+the approval summary was answered "Sign off (Recommended)". Amendment on an
+Active bundle: no status flip; `Last reviewed:` already 2026-11-08 on all
+four spec files; validator re-run with 0 errors. The delta settles what
+authorizes an answer and adds a task, so it is meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 5, delta-scoped lens review above (spec lens set, walked inline; every finding dispositioned)
+Anchor: `39b49a22e3449a1308da884674343e2adce89a58` — computed as
 `scripts/spec-anchor.sh specs/mission-control`

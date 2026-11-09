@@ -11,7 +11,8 @@
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
 # --settings <config/<profile>-settings.json> --name <worker>`, the profile
-# worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept and, for a
+# worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept,
+# PLANWRIGHT_SESSION_BACKEND=stream-json (the background-job guard's key) and, for a
 # worker, the worker identity exported, so its hooks write attention rows and
 # register its session name (fleet-messaging D-8, D-19), and the dispatcher's
 # tower identity cleared once the dispatch is registered; a handle outside
@@ -208,7 +209,7 @@
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
 #       included, so escape them), 64 KiB at most.
-#   fleet-streamjson.sh steer <worker> --message-file <file>
+#   fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
 #       `[planwright tower relay -> <worker>]`, JSON-encoded into one user
@@ -228,6 +229,14 @@
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
+#       A message shaped like a new unit of work (scripts/retask-guard.sh
+#       check: a launch brief, a skill command) is refused, exit 5 with
+#       nothing written, unless the launcher registers the worker as a tower,
+#       orchestrator or mission-control session: new scope and each new
+#       review round go to a fresh worker. --retask <reason> delivers it
+#       anyway, logged as an override once delivered, with a warning on
+#       stderr; an override that could not be logged is refused first, exit
+#       2 with nothing written.
 #   fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
@@ -343,7 +352,9 @@
 #   exit 3 AFTER surfacing the attention item / a relaunch refused before its
 #   stop); 4 recovery halt: no usable session to resume (for a relaunch, a
 #   refusal before the stop with the worker left running); 5 recovery halt:
-#   the `--resume` relaunch failed (for a relaunch, after the stop); 6 a
+#   the `--resume` relaunch failed (for a relaunch, after the stop); for a
+#   steer, 5 is instead a message shaped like a new unit of work, refused
+#   with nothing written; 6 a
 #   partial close: some class of the release set is still held; 7 the
 #   settings fragment of the launch's profile is missing or unreadable, or a
 #   recover finds its recorded profile unreadable, unknown, or (for a
@@ -465,7 +476,7 @@ usage() {
   {
     echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
-    echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
+    echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>] [--once]"
@@ -1550,7 +1561,12 @@ refuse_mode_overrides() {
 # read: an unverifiable mode source is no mode source, and a worker launched
 # without one inherits the operator's (see the header).
 profile_settings_path() {
-  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null); then
+  # Resolved where the worker runs, as the wrapper resolves its hook root:
+  # which install is current there can depend on a project-scoped record entry.
+  if ! ws_path=$(
+    [ -z "${run_cwd:-}" ] || cd -- "$run_cwd" 2>/dev/null || :
+    /bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null
+  ); then
     printf '%s\n' "$me: refusing to launch: without its $1-settings fragment the session inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
@@ -1602,9 +1618,18 @@ guard_preflight() {
   # set, in which case another install's copy gates the worker. Prove that
   # file, and read the installed roots through the resolver beside it, so the
   # proof is of what the worker is actually gated by.
-  gp_hook_root=$("$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+  # Read in the worker's directory: which install is current there can depend
+  # on a project-scoped record entry.
+  gp_hook_root=$(
+    cd -- "$gp_cwd" 2>/dev/null || :
+    "$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1
+  )
   [ -n "$gp_hook_root" ] || gp_hook_root=$gp_launcher
   gp_hook_root=$(cd -- "$gp_hook_root" 2>/dev/null && pwd -P) || gp_hook_root=$gp_launcher
+  # Warned before the refusals below, so warn mode reports it too: without it
+  # a backgrounded command stalls the worker, and nothing else breaks.
+  [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
+    || printf '%s\n' "$me: launch preflight: warning: the background-job guard $(printf '%s' "$gp_hook_root" | tr -d '\000-\037\177')/scripts/background-job-guard.sh is missing or not executable; a worker that backgrounds a command will stall" >&2
   gp_guard="$gp_hook_root/scripts/worker-command-guard.sh"
   # Executable, not merely readable: the wrapper execs it, and a guard that
   # cannot run would otherwise read as "does not approve" every root below.
@@ -2285,6 +2310,12 @@ cmd_launch() {
   # --verbose (required with -p stream-json output), the stdio permission
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
+  # A stream-json session never resumes on a background job's completion
+  # notice. The wrapper turns this request into the session's
+  # PLANWRIGHT_SESSION_BACKEND mark, which scripts/background-job-guard.sh
+  # keys its refusal on, and drops any mark it inherits.
+  PLANWRIGHT_LAUNCH_BACKEND=stream-json
+  export PLANWRIGHT_LAUNCH_BACKEND
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
     --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
@@ -2607,11 +2638,18 @@ cmd_steer() {
     exit 2
   }
   st_file=''
+  st_retask=''
   while [ $# -gt 0 ]; do
     case $1 in
       --message-file)
         [ $# -ge 2 ] || usage
         st_file=$2
+        shift 2
+        ;;
+      --retask)
+        [ $# -ge 2 ] || usage
+        case $2 in *[![:space:]]*) ;; *) usage ;; esac
+        st_retask=$2
         shift 2
         ;;
       *) usage ;;
@@ -2646,10 +2684,46 @@ cmd_steer() {
       exit 2
       ;;
   esac
+  # The re-task check and the frame read one snapshot, so the file cannot
+  # change between the verdict and the delivery.
+  st_snap=$(mktemp "$dir/.steer.XXXXXX") || exit 2
+  if ! cat -- "$st_file" >"$st_snap"; then
+    rm -f "$st_snap"
+    exit 2
+  fi
+  st_override=0
+  /bin/sh "$script_dir/retask-guard.sh" check "$st_snap" --to "$worker" \
+    --hint "nothing was written to worker $worker; pass --retask <reason> to override, which is logged" >/dev/null
+  case $? in
+    0) ;;
+    5)
+      if [ -z "$st_retask" ]; then
+        rm -f "$st_snap"
+        exit 5
+      fi
+      if ! /bin/sh "$script_dir/retask-guard.sh" log --check --via steer --to "$worker" --reason "$st_retask"; then
+        rm -f "$st_snap"
+        printf '%s\n' "$me: steer refused, nothing written to worker $worker: its re-task override could not be logged" >&2
+        exit 2
+      fi
+      st_override=1
+      ;;
+    *)
+      rm -f "$st_snap"
+      printf '%s\n' "$me: steer refused, nothing written to worker $worker: the re-task check did not run" >&2
+      exit 2
+      ;;
+  esac
 
-  journal_lock "$dir" || exit 2
+  journal_lock "$dir" || {
+    rm -f "$st_snap"
+    exit 2
+  }
   now=$(now_epoch) || now=0
-  st_body=$(json_escape_file "$st_file") || {
+  st_body=$(json_escape_file "$st_snap")
+  st_esc=$?
+  rm -f "$st_snap"
+  [ "$st_esc" = 0 ] || {
     journal_unlock "$dir"
     exit 2
   }
@@ -2699,6 +2773,8 @@ cmd_steer() {
   if [ "$st_sent" = 0 ]; then
     printf '%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" >>"$dir/steers" || :
     journal_unlock "$dir"
+    [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
+      || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
     printf 'steered %s %s\n' "$worker" "$st_bytes"
   else
     journal_unlock "$dir"
@@ -2951,6 +3027,7 @@ cmd_relaunch() {
   # The checks the resumed launch makes, run now so a profile or wrapper the
   # new config broke refuses here with the worker still up.
   rx_profile=$(recorded_profile "$dir" "$worker" relaunch) || exit 7
+  run_cwd=$rx_cwd
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
   rx_gp=0
