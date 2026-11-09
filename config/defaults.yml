@@ -972,8 +972,19 @@ protected_branches:
 # layers, so a machine-local overlay can narrow a repo-tracked list. An
 # unknown member, a malformed value, or a read failure resolves to the empty
 # list. The launcher resolves it once into the worker's session record, so a
-# change reaches a worker only by relaunch.
-worker_self_approval:
+# change reaches a worker only by relaunch. The default is the scratch arm
+# alone: a worker's own scratch directory is the one write surface every task
+# needs, and it holds nothing the repository or its tools trust. Set the key
+# empty to drop it.
+worker_self_approval: scratch
+
+# Hook names (lefthook hook, command or skip-tag names, space separated) a
+# dispatched worker's commits skip, handed to it as LEFTHOOK_EXCLUDE so its
+# `git commit` never needs a variable prefix, which no allow rule matches.
+# Resolved once into the worker's session record at launch, like the policy;
+# an explicit LEFTHOOK_EXCLUDE in the launch environment wins. A name outside
+# [A-Za-z0-9_-] drops the whole list.
+worker_hook_exclude:
 
 # How many days a worker's audit log of allow decisions is kept under the
 # fleet home's allow-audit directory. The guard only appends; each worker
