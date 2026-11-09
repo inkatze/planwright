@@ -35,7 +35,7 @@ fi
 # shellcheck disable=SC1091
 . "$REPO_ROOT/tests/lib/permission-matcher.sh"
 
-tmp="$(mktemp -d)" || exit 1
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-check-allow-path-globs.XXXXXX")" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 # --- 1. Matcher premise -----------------------------------------------------
@@ -89,6 +89,10 @@ expect_flag "basename glob" '"Bash(/abs/planwright/scripts/check-*.sh *)"'
 expect_flag "literal parent segment" '"Bash(/abs/planwright/../bin/tool *)"'
 expect_flag "shell-prefixed scripts glob" '"Bash(bash scripts/*)"'
 expect_flag "absolute shell with an option" '"Bash(/bin/sh -e /abs/planwright/scripts/*)"'
+expect_flag "env wrapper before a ../ walk" '"Bash(env ../../bin/x *)"'
+expect_flag "nice with a value before a wildcard path" '"Bash(nice -n 10 scripts/*)"'
+expect_flag "interpreter before a wildcard path" '"Bash(python3 scripts/*)"'
+expect_flag "wildcard command word without a slash" '"Bash(*fleet.sh *)"'
 
 expect_clean() {
   # expect_clean <name> <allow-entry-json>
@@ -104,6 +108,7 @@ expect_clean "plain command glob" '"Bash(git status:*)","Bash(mise run:*)"'
 expect_clean "wildcard in arguments only" '"Bash(git push * planwright/*/spec *)"'
 expect_clean "non-Bash allow entries" '"Read","Edit"'
 expect_clean "shell running an exact script" '"Bash(bash /abs/planwright/scripts/x.sh *)"'
+expect_clean "wrapper with options and a value before an exact script" '"Bash(nice -n 10 /abs/planwright/scripts/x.sh *)"'
 
 f="$tmp/deny-only.json"
 printf '{"permissions":{"deny":["Bash(/x/*)"],"allow":["Bash(git status:*)"]}}\n' >"$f"
@@ -208,6 +213,15 @@ assert "shipped settings profiles carry no path-wildcard allow rule" 0 $?
 
 grep -q 'Bash(/abs/path/to/planwright/scripts/\*)' "$REPO_ROOT/docs/overlays.md"
 assert "overlays.md no longer recommends the scripts/* path glob" 1 $?
+
+# --- 3. CLAUDE_DIR: a custom Claude config directory is scanned -------------
+
+cdir="$tmp/custom-claude"
+mkdir -p "$cdir"
+write_settings "$cdir/settings.json" '"Bash(scripts/*)"'
+CLAUDE_DIR="$cdir" HOME="$tmp/no-home" bash "$CHECKER" >/dev/null 2>"$tmp/cd-err"
+grep -q "warning: $cdir/settings.json" "$tmp/cd-err"
+assert "no-argument mode scans and classifies CLAUDE_DIR settings" 0 $?
 
 if [ "$failures" -ne 0 ]; then
   echo "test-check-allow-path-globs: $failures failure(s)" >&2

@@ -7,7 +7,7 @@
 # No argument: planwright's shipped profiles (config/*-settings.json beside this
 # script), the checkout's settings and the user's home settings, missing files
 # skipped. Arguments: exactly those files; a missing one fails the check.
-# A finding in the user's home settings (~/.claude/settings*.json) only warns:
+# A finding in the user's home settings (~/.claude/settings*.json, or CLAUDE_DIR's) only warns:
 # those files are the user's, and the check never edits them.
 # Exit: 0 clean or home warnings only, 1 flagged, 2 input error (never clean).
 set -u
@@ -26,47 +26,66 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 2
 fi
 
-# flagged_word <word>: 0 when the rule's command path carries a wildcard or a
-# `..` segment. A trailing `:*` is the argument boundary, not part of the path.
+# flagged_word <word>: 0 when the command word can match outside its directory:
+# any `*` (Claude Code's `*` also matches `/`, so `*fleet.sh` admits `../x/fleet.sh`),
+# or a `..` segment. A trailing `:*` is the argument boundary, not part of the word.
 flagged_word() {
   local w=$1
   w=${w%:\*}
   case $w in
-    *'*'*) case $w in *'/'*) return 0 ;; esac ;;
-  esac
-  case $w in
+    *'*'*) return 0 ;;
     .. | ../* | */.. | */../*) return 0 ;;
   esac
   return 1
 }
 
-# rule_flagged <rule-inner>: 0 when the rule's first word is flagged, or, for a
-# shell prefix such as `bash scripts/*`, the script word after its options.
+# is_wrapper <word>: 0 for a word that runs another command or interpreter, so
+# the script word after it is the one that matters.
+is_wrapper() {
+  case $1 in
+    env | nice | nohup | timeout | time | command | exec | builtin | sudo | xargs) return 0 ;;
+    bash | sh | zsh | dash | ksh | python | python3 | node | perl | ruby) return 0 ;;
+  esac
+  return 1
+}
+
+# rule_flagged <rule-inner>: 0 when the command word, after any wrappers,
+# options, numeric values and VAR=value assignments in front of it, is flagged.
 rule_flagged() {
   set -f
   # shellcheck disable=SC2086 # split the rule into words, globbing off
   set -- $1
   set +f
-  [ "$#" -gt 0 ] || return 1
-  flagged_word "$1" && return 0
-  case ${1##*/} in
-    bash | sh | zsh | dash | ksh) shift ;;
-    *) return 1 ;;
-  esac
   while [ "$#" -gt 0 ]; do
     case $1 in
       -*) shift ;;
-      *) break ;;
+      [A-Za-z_]*=*) shift ;;
+      *) if is_number "$1" || is_wrapper "${1##*/}"; then shift; else break; fi ;;
     esac
   done
   [ "$#" -gt 0 ] && flagged_word "$1"
 }
 
+# is_number <word>: 0 for a word of decimal digits only (a wrapper's value, as in `nice -n 10`).
+is_number() {
+  case $1 in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  return 0
+}
+
+# The user's Claude config directory: CLAUDE_DIR when set, as the repo's other
+# scripts read it, else $HOME/.claude.
+user_claude_dir() {
+  printf '%s\n' "${CLAUDE_DIR:-${HOME:-/nonexistent}/.claude}"
+}
+
 # home_settings <file>: 0 when the file is one of the user's home settings.
 home_settings() {
-  [ -n "${HOME:-}" ] || return 1
+  local dir
+  dir=$(user_claude_dir)
   case $1 in
-    "$HOME/.claude/settings.json" | "$HOME/.claude/settings.local.json") return 0 ;;
+    "$dir/settings.json" | "$dir/settings.local.json") return 0 ;;
   esac
   return 1
 }
@@ -110,7 +129,9 @@ default_files() {
   for f in "$script_root"/config/*-settings.json; do
     [ -f "$f" ] && printf '%s\n' "$f"
   done
-  for f in "${HOME:-/nonexistent}/.claude/settings.json" "${HOME:-/nonexistent}/.claude/settings.local.json"; do
+  local claude_dir
+  claude_dir=$(user_claude_dir)
+  for f in "$claude_dir/settings.json" "$claude_dir/settings.local.json"; do
     [ -f "$f" ] && printf '%s\n' "$f"
   done
   top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0

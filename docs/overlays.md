@@ -515,10 +515,12 @@ often. In your worker `settings.json`:
 ```jsonc
 {
   "permissions": {
-    // One entry per script, at the exact resolved path. Find the directory with
-    // (errors if neither var is set rather than emitting a bare /scripts):
+    // One entry per script, at the exact resolved path, and only for a script
+    // that is not a control-plane verb: never fleet-streamjson.sh answer, which
+    // writes the operator's answer to a pending worker prompt. Find the directory
+    // with (errors if neither var is set rather than emitting a bare /scripts):
     //   echo "${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:?set PLANWRIGHT_ROOT or CLAUDE_PLUGIN_ROOT}}/scripts"
-    "allow": ["Bash(/abs/path/to/planwright/scripts/fleet-streamjson.sh answer *)"]
+    "allow": ["Bash(/abs/path/to/planwright/scripts/spec-status.sh *)"]
   }
 }
 ```

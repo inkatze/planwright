@@ -106,7 +106,7 @@ run_footgun_scan() {
     while IFS= read -r hit; do
       lineno="${hit%%:*}"
       tok="${hit#*:}"
-      echo "check-glob-allow-rules: $f:$lineno path-scoped rule uses the never-match ':*' word-boundary form: $tok — an allow rule names the exact script path instead, never a '*' in the path (docs/overlays.md; D-20, REQ-B1.5)" >&2
+      echo "check-glob-allow-rules: $f:$lineno path-scoped rule uses the never-match ':*' word-boundary form: $tok — a rule names the exact command path instead, with no '*' in it and no ':*' suffix (docs/overlays.md; D-20, REQ-B1.5)" >&2
       status=1
     done <<EOF
 $hits
