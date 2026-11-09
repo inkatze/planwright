@@ -1612,6 +1612,13 @@ classify_segments() {
       continue
     fi
     verb=${SW[0]}
+    # At the mission-control tier a command name that is a variable the command
+    # assigned a plain literal is read as that literal.
+    if [ "$TIER" = mission-control ] && [ "${SWL[0]}" != 1 ] && mc_resolve_word "$verb"; then
+      verb=$MC_RW
+      SW[0]=$verb
+      SWL[0]=1
+    fi
     lc "${verb##*/}"
     base_verb=$LC
     [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
@@ -4203,6 +4210,63 @@ mc_scratch_var() {
   [[ $val =~ ^(/tmp/claude-|/tmp/planwright-)[A-Za-z0-9._/-]*$ || $val =~ ^\$TMPDIR(/[A-Za-z0-9._/-]*)?$ ]]
 }
 
+# A planwright script run from the installed root (the plugin cache): the
+# session's own tooling, which a read of a configuration file may name.
+RE_MC_INSTALLED_SCRIPT='^/[^[:space:]$`*?[{]*/\.c[l]aude/plugins/cache/planwright/planwright/[0-9][A-Za-z0-9._+-]*/scripts/[A-Za-z0-9._-]+\.sh$'
+# The installed root's own path prefix, as it appears in a longer path.
+RE_MC_INSTALLED_ROOT='/[^[:space:]$`*?[{;&|()<>"'"'"']*/\.c[l]aude/plugins/cache/planwright/planwright/[0-9][A-Za-z0-9._+-]*/'
+
+# mc_literal_var <name> — 0, with the value in MC_VAR_VAL, when the command
+# assigns the variable exactly once, as a plain literal that opens a statement
+# of its own (after the start, a semicolon or a newline: never after && or in a
+# group, where it may not run) and ends it, before any use, and changes it no
+# other way. What a variable held in an earlier call is out of a text
+# screen's sight, so it earns no trust.
+mc_literal_var() {
+  local n=$1 t=${MC_CMD//[\"\'\\]/} re_asg re_other re_plus re_use re_param before rest val tail
+  MC_VAR_VAL=''
+  [[ $n =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+  re_asg="(^|[^[:alnum:]_])$n="
+  re_other="(read|for|local|declare|typeset|mapfile|readarray|unset|printf[[:space:]]+-v)[^;&|]*[^[:alnum:]_]$n([^[:alnum:]_]|\$)"
+  re_plus="(^|[^[:alnum:]_])${n}[+]="
+  re_param="[$][{]$n[:]?[=]"
+  [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ $re_plus || $t =~ $re_param ]] && return 1
+  [[ $t =~ $re_asg ]] || return 1
+  before=${t%%"${BASH_REMATCH[0]}"*}
+  rest=${t#*"${BASH_REMATCH[0]}"}
+  [[ $rest =~ $re_asg ]] && return 1
+  # shellcheck disable=SC2016 # a regex
+  re_use='(^|[^[:alnum:]_])\$(\{'$n'\}|'$n'([^[:alnum:]_]|$))'
+  [[ $before =~ $re_use ]] && return 1
+  case $before in
+    '' | *';' | *$'\n') ;;
+    *)
+      # Allow the `export ` form and spaces after a separator.
+      before=${before%"${before##*[![:blank:]]}"}
+      case $before in '' | *';' | *$'\n' | *'; export' | *$'\n'export) ;; *) return 1 ;; esac
+      ;;
+  esac
+  val=${rest%%[[:space:];&|)]*}
+  tail=${rest#"$val"}
+  tail=${tail#"${tail%%[![:blank:]]*}"}
+  case $tail in ';'* | $'\n'* | '&&'*) ;; *) return 1 ;; esac
+  [[ $val =~ ^[A-Za-z0-9_./+:@%,=-]+$ && $val != *..* ]] || return 1
+  MC_VAR_VAL=$val
+  return 0
+}
+
+# mc_resolve_word <word> — rewrites a word that starts with a variable the
+# command assigned a plain literal into MC_RW, 0 when it did so. Any other
+# word, or an unresolvable variable, leaves MC_RW the word itself, status 1.
+mc_resolve_word() {
+  MC_RW=$1
+  [[ $1 =~ ^\$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))(/.*)?$ ]] || return 1
+  local name=${BASH_REMATCH[2]}${BASH_REMATCH[3]} rest=${BASH_REMATCH[4]}
+  mc_literal_var "$name" || return 1
+  MC_RW=$MC_VAR_VAL$rest
+  return 0
+}
+
 # mc_data_target <word> — 0 when an expanding write target still sits in a
 # data place: the harness scratch (never reaching a .claude or .mcp name), or a
 # project memory or task folder, with no dot-dot component.
@@ -4226,6 +4290,11 @@ mc_data_target() {
 mc_write_word_refused() {
   local w=${1#of=}
   mc_posture_word "$w" && return 0
+  # A variable the command assigned a plain literal is that literal.
+  if mc_resolve_word "$w"; then
+    w=$MC_RW
+    mc_posture_word "$w" && return 0
+  fi
   mc_expands "$w" || return 1
   mc_data_target "$w" && return 1
   return 0
@@ -4296,7 +4365,11 @@ mc_settings_screen() {
     # Unparsed text (a command substitution, say) fails closed where it could
     # name a posture path or hand a write verb a target the screen cannot read;
     # its redirects were already vetted above.
-    case $t in
+    # The installed root sits under ~/.claude/plugins, and a run of planwright's
+    # own scripts from it names no posture file by that prefix alone.
+    local nr=$t
+    while [[ $nr =~ $RE_MC_INSTALLED_ROOT ]]; do nr=${nr/"${BASH_REMATCH[0]}"/}; done
+    case $nr in
       *.c[l]aude* | *.mcp* | *settings* | *planwright.*) emit_deny "$MC_SETTINGS_DENY" ;;
     esac
     [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
@@ -4321,7 +4394,16 @@ mc_settings_screen() {
     si=$((si + 1))
     [ "${#SW[@]}" -gt 0 ] || continue
     if [ "$named" = 1 ]; then
-      [ "${SWL[0]}" = 1 ] || emit_deny "$MC_SETTINGS_DENY"
+      if [ "${SWL[0]}" != 1 ]; then
+        mc_resolve_word "${SW[0]}" || emit_deny "$MC_SETTINGS_DENY"
+        SW[0]=$MC_RW
+      fi
+      # One of planwright's own scripts at the installed root reads what it is
+      # handed, apart from the two that write configuration.
+      if [[ ${SW[0]} =~ $RE_MC_INSTALLED_SCRIPT ]]; then
+        case ${SW[0]##*/} in install.sh | mc-config.sh) emit_deny "$MC_SETTINGS_DENY" ;; esac
+        continue
+      fi
       case ${SW[0]} in
         */*)
           case ${SW[0]} in
