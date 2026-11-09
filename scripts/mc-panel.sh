@@ -129,6 +129,10 @@ Usage:
                                              the line names them unless none,
                                              `<n>+` (or `?` for none) when
                                              some could not be judged
+        merge-command<TAB><repo><TAB><number><TAB><command>
+                                             one per ready pull request in
+                                             the merge-ready store: the
+                                             checked gh pr merge command
         approvals<TAB><n>                    the queue's worker permission
                                              prompts, which mission control
                                              answers (with a number waiting)
@@ -1155,6 +1159,18 @@ merge_ready() {
   fi
   if [ -n "$mg_all" ]; then
     printf 'merge-ready\t%s\t%s\n' "$mg_n" "$mg_all"
+    mg_store=$runtime/merge-ready.tsv
+    if [ -f "$mg_store" ] && [ ! -L "$mg_store" ] && [ -r "$mg_store" ]; then
+      # The command is built as mc-merge-ready.sh builds it: from the head the
+      # verdict was judged at (the key's first field) and the verdict's method.
+      awk -F '\t' '
+        $3 == "ready" && $1 ~ /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+$/ && $5 ~ /^(squash|merge|rebase)$/ {
+          split($2, k, "|")
+          if (k[1] !~ /^[0-9a-f]{40}$/) next
+          at = index($1, "#"); slug = substr($1, 1, at - 1); n = substr($1, at + 1)
+          print "merge-command\t" slug "\t" n "\tgh pr merge " n " --repo " slug " --" $5 " --match-head-commit " k[1]
+        }' "$mg_store" 2>/dev/null
+    fi
   else
     printf 'unreadable\tmerge-ready store\n'
   fi

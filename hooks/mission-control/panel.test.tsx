@@ -13,27 +13,17 @@ test('the pane draws every store from the fixture digest, on every surface', asy
     const has = async (text: RegExp) => expect((await ui.find({ type: 'Text', text }))?.text).toMatch(text)
     await has(/Mission control · alpha/)
     await has(/In flight \(2\)/)
-    await has(/^1 spec task working$/)
-    await has(/^1 one-off change working$/)
+    await has(/^spec task · working$/)
+    await has(/^one-off change · working$/)
     await has(/2 waiting on you/)
-    await has(/relaunch w-one: relaunch/)
-    await has(/Fuel · rung throttle/)
-    await has(/tightest: polls_per_hour 72%/)
-    await has(/^inbox stopped, next 40s overdue \(×2\)$/)
-    await has(/code-state: forge snapshot, 90s old/)
-    await has(/designs: none cited/)
     await has(/^Context 42% · compacts at 95% · OK$/)
-    await has(/compactions since start 0/)
-    await has(/knowledge base 10m old/)
-    await has(/interruptions per hour 2\.5/)
-    await has(/settled share 80/)
     await ui.unmount()
   }
 })
 
 // REQ-L1.8 register: the in-flight section carries no session handle,
 // spec, task, script or hash identifier, and repeats collapse into counts.
-test('sessions in flight are said in plain words, grouped into counts', async ($, on) => {
+test('sessions in flight are said in plain words, one row each', async ($, on) => {
   const w = world(on, {
     digest: digestText({
       extra: [
@@ -58,21 +48,26 @@ test('sessions in flight are said in plain words, grouped into counts', async ($
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
   const at = texts.indexOf('In flight (15)')
   expect(at).toBeGreaterThan(-1)
-  // Waiting on an answer first, then not responding, each by group size.
-  expect(texts.slice(at + 1, at + 11)).toEqual([
-    '2 spec drafts waiting for an answer',
-    '1 spec task waiting for an answer',
-    '1 spec task not responding',
-    '4 spec tasks working',
-    '3 one-off changes working',
-    '1 spec kickoff working',
-    '1 other session working',
-    '1 review working',
-    '1 mission-control session working',
-    'Tower log',
+  // Waiting on an answer first, then not responding, one row each.
+  expect(texts.slice(at + 1, at + 16)).toEqual([
+    'spec draft · waiting for an answer',
+    'spec task · waiting for an answer',
+    'spec draft · waiting for an answer',
+    'spec task · not responding',
+    'spec task · working',
+    'one-off change · working',
+    'one-off change · working',
+    'spec task · working',
+    'one-off change · working',
+    'spec task · working',
+    'spec kickoff · working',
+    'other session · working',
+    'spec task · working',
+    'review · working',
+    'mission-control session · working',
   ])
   const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|a1b2c3|cubic|gen-2|task-\d|:kickoff|stream-json|\.sh\b/
-  expect(texts.slice(at, at + 10).filter(t => ids.test(t))).toEqual([])
+  expect(texts.slice(at, at + 16).filter(t => ids.test(t))).toEqual([])
   await ui.unmount()
 })
 
@@ -107,20 +102,6 @@ test('with tmux and the attention store both unreadable the in-flight count is u
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await bandOf(band))).toMatch(/^\? 2 waiting on you/)
   await band.unmount()
-})
-
-test('repeated background checks collapse before the list is cut', async ($, on) => {
-  const watch = (script: string, duty: string) => `watcher\t${duty}\t${script}\trunning\t30`
-  const w = world(on, {
-    digest: digestText({
-      extra: ['a.sh', 'b.sh', 'c.sh', 'd.sh'].map(s => watch(s, 'reviews')).concat(watch('e.sh', 'deadline-watch')),
-    }).replace(/^watcher\tinbox.*\n/gm, ''),
-  })
-  await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^reviews running, next 30s \(×4\)$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^deadline watch running, next 30s$/ })).toBeDefined()
-  await ui.unmount()
 })
 
 // REQ-F1.1: the stores change and the timer redraws with no turn.
@@ -275,17 +256,6 @@ test('a store the digest could not read is said, its count unknown', async ($, o
     'Unreadable: operator queue, fleet registry, knowledge base',
   )
   expect(await ui.find({ type: 'Text', text: /In flight \(\?\)/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /knowledge base unreadable/ })).toBeDefined()
-  await ui.unmount()
-})
-
-test('measures not yet written are said as such', async ($, on) => {
-  const w = world(on, {
-    digest: digestText().replace(/^measure.*\n/gm, '').replace('handover\tabsent', 'measure\t-\tnone\t-\nhandover\tabsent'),
-  })
-  await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^measures none$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -484,28 +454,11 @@ test('a knob unread at bring-up is read again until every knob arrives', async (
   expect(ran(w, 'mc-panel.sh', 'digest').at(-1)).not.toContain('--knobs')
 })
 
-test('approvals mission control is handling are said apart from what waits on the operator', async ($, on) => {
+test('approvals mission control is handling are not drawn: the operator acts on none', async ($, on) => {
   const w = world(on, { digest: digestText({ extra: ['approvals\t4'] }) })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /waiting on you$/ }))?.text).toBe('2 waiting on you')
-  expect((await ui.find({ type: 'Text', text: /approvals/ }))?.text).toBe('4 approvals mission control is handling')
-  await ui.unmount()
-})
-
-test('one approval is said in the singular', async ($, on) => {
-  const w = world(on, { digest: digestText({ extra: ['approvals\t1'] }) })
-  await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /approval/ }))?.text).toBe('1 approval mission control is handling')
-  await ui.unmount()
-})
-
-test('no approvals line when mission control is handling none', async ($, on) => {
-  const w = world(on, { digest: digestText({ extra: ['approvals\t0'] }) })
-  await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /approvals/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /approval/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -571,8 +524,8 @@ test('Prop pal circles while something waits on the operator', async ($, on) => 
 test('Prop pal cruises while sessions work and nothing waits', async ($, on) => {
   const w = world(on, { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t0') })
   await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await mascot(ui)).toContain('Prop pal: cruising, sessions working')
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await mascot(ui)).toContain('Prop pal: flying, sessions working')
   await ui.unmount()
 })
 
@@ -580,12 +533,12 @@ test('Prop pal taxis when nothing runs and lands when work has finished', async 
   const idle = digestText({ finished: 0 }).replace(/^flight\t.*\n/gm, '').replace(/^waiting\t.*$/m, 'waiting\t0')
   const w = world(on, { digest: idle })
   await boot($, w)
-  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  let ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await mascot(ui)).toContain('Prop pal: taxiing, nothing running')
   await ui.unmount()
   w.set({ digest: idle.replace(/^finished\t.*$/m, 'finished\t3') })
   await w.clock.advance(10_000)
-  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await mascot(ui)).toContain('Prop pal: landing, work finished')
   await ui.unmount()
 })
@@ -603,7 +556,7 @@ test('an alert makes the ride bumpy, ahead of everything else', async ($, on) =>
 test('the mascot knob: still draws one frame', async ($, on) => {
   const w = world(on, { digest: withKnob(1) })
   await boot($, w)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const before = await mascot(ui)
   expect(before.some(l => l.startsWith('Prop pal'))).toBe(true)
   await w.clock.advance(3_000)
@@ -625,13 +578,13 @@ test('the mascot knob: off draws nothing', async ($, on) => {
 const pictures = async (ui: { findAll: (q: { type: string }) => Promise<{ props?: Record<string, unknown> }[]> }, type: string) =>
   (await ui.findAll({ type })).map(n => n.props ?? {})
 
-test('the terminal pane draws Prop pal as a cell grid and no picture repeats the readouts', async ($, on) => {
+test('the terminal pane draws Prop pal as a cell grid with no caption and no picture repeating the readouts', async ($, on) => {
   const w = world(on)
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await pictures(ui, 'Raster')).map(r => r.key)).toEqual(['prop-pal'])
   expect(await pictures(ui, 'Image')).toEqual([])
-  expect(await rows(ui)).toContain('Prop pal: circling, something waits on you')
+  expect((await rows(ui)).some(l => l.includes('Prop pal'))).toBe(false)
   await ui.unmount()
 })
 

@@ -1,7 +1,7 @@
 import type { Elements, RenderSurface } from 'claude-code'
 
-import type { PanelDigest, PanelReviews, PanelView } from '../../types'
-import { age, counted, flightLines } from './digest'
+import type { PanelDigest, PanelMergeCommand, PanelReviews, PanelView } from '../../types'
+import { age, flightRows } from './digest'
 import { spriteCells } from './panel-art'
 
 type Table = Elements[RenderSurface]
@@ -11,16 +11,7 @@ type PictureTable = Elements['terminal']
 // The resolved table answers `in` for any name, so the surface is what decides.
 const hasPictures = (t: Table, surface: RenderSurface): t is PictureTable => surface === 'terminal' && 'Raster' in t
 
-const DECISIONS_SHOWN = 3
-const WATCHERS_SHOWN = 4
 const REVIEWS_SHOWN = 5
-
-function headroomTight(view: PanelView): string | null {
-  const rows = view.digest?.headroom ?? []
-  if (rows.length === 0) return null
-  const top = rows.reduce((a, b) => (b.percent > a.percent ? b : a))
-  return `${top.dimension} ${top.percent}%`
-}
 
 // A count from a store the digest could not read is unknown, never zero.
 function flightCount(view: PanelView): string {
@@ -33,12 +24,6 @@ function flightCount(view: PanelView): string {
   const isCeiling = d.unreadable.includes('attention store')
   const n = d.flights.length
   return isFloor && isCeiling ? '?' : isFloor ? `${n}+` : isCeiling ? `up to ${n}` : String(n)
-}
-
-function kbLine(view: PanelView): string {
-  const d = view.digest
-  if (d?.unreadable.includes('knowledge base')) return 'knowledge base unreadable'
-  return `knowledge base ${d?.kbAge == null ? 'not written yet' : `${age(d.kbAge)} old`}`
 }
 
 // The pull requests ready to merge, a floor (`3+`) or `?` when some could
@@ -60,6 +45,9 @@ export function usageStop(view: PanelView): UsageStop {
 }
 const stopWord = (stop: UsageStop) => (stop === null ? 'stop unknown' : stop === 'off' ? 'no stop set' : `stop at ${stop}%`)
 const WINDOW_NAME: Record<string, string> = { five_hour: '5-hour', seven_day: 'weekly' }
+// The weekly window first: it is the limit the operator plans around.
+const byWindow = <T extends { kind: string }>(limits: T[]): T[] =>
+  [...limits].sort((a, b) => Number(b.kind === 'seven_day') - Number(a.kind === 'seven_day'))
 // Past this a deferred compaction would risk the window itself.
 const CONTEXT_CEILING_PCT = 95
 const LOW_MEMORY_PCT = 10
@@ -75,7 +63,7 @@ export function readouts(view: PanelView): Readout[] {
   const d = view.digest
   const out: Readout[] = []
   const stop = usageStop(view)
-  for (const r of view.rateLimits) {
+  for (const r of byWindow(view.rateLimits)) {
     const name = WINDOW_NAME[r.kind] ?? r.kind.replace(/_/g, ' ')
     const pct = Math.round(r.percentUsed)
     out.push(
@@ -139,7 +127,7 @@ const MASCOT_WORD: Record<MascotState, string> = {
   bumpy: 'a bumpy ride, an alert stands',
   circling: 'circling, something waits on you',
   landing: 'landing, work finished',
-  cruising: 'cruising, sessions working',
+  cruising: 'flying, sessions working',
   taxiing: 'taxiing, nothing running',
 }
 
@@ -147,9 +135,10 @@ export function mascotWord(view: PanelView): string {
   return `Prop pal: ${MASCOT_WORD[mascotState(view)]}`
 }
 
-// Whether the mascot has motion to repaint: a moving state with animation on.
+// Whether the mascot has motion to repaint: every state moves (taxiing rolls),
+// so animation on and a reading in is all it takes.
 export function isMascotMoving(view: PanelView): boolean {
-  return mascotMode(view) === 2 && view.digest !== null && mascotState(view) !== 'taxiing'
+  return mascotMode(view) === 2 && view.digest !== null
 }
 
 // Prop pal, a chubby propeller plane with two eyes in its cockpit window.
@@ -200,10 +189,9 @@ export function stripParts(view: PanelView): Part[] {
   if (d && parts.length === 0) parts.push({ text: 'all clear' })
   const stop = usageStop(view)
   const stopNote = typeof stop === 'number' ? ` (stop ${stop}%)` : ''
-  if (view.rateLimits.length > 0) {
-    const worst = view.rateLimits.reduce((a, b) => (b.percentUsed > a.percentUsed ? b : a))
-    parts.push({ text: `${WINDOW_NAME[worst.kind] ?? worst.kind.replace(/_/g, ' ')} ${Math.round(worst.percentUsed)}%${stopNote}` })
-  }
+  byWindow(view.rateLimits).forEach((r, i) => {
+    parts.push({ text: `${WINDOW_NAME[r.kind] ?? r.kind.replace(/_/g, ' ')} ${Math.round(r.percentUsed)}%${i === 0 ? stopNote : ''}` })
+  })
   if (view.contextPercent !== null) parts.push({ text: `context ${view.contextPercent}%` })
   if (view.handover) parts.push({ text: 'handover due', tone: 'alert' })
   return parts
@@ -245,63 +233,96 @@ function Section(t: Table, title: string, rows: string[], empty = '') {
   )
 }
 
-// The total is the search's own count, which can exceed the rows read.
-function capped(rows: string[], total: number): string[] {
-  const shown = rows.slice(0, REVIEWS_SHOWN)
-  return total > shown.length ? [...shown, `+${total - shown.length} more`] : shown
+export const PR_GROUPS = [
+  { id: 'ready', title: 'Ready to merge' },
+  { id: 'needs-you', title: 'Needs you' },
+  { id: 'review', title: 'In review' },
+  { id: 'running', title: 'CI running' },
+  { id: 'failed', title: 'CI failed' },
+] as const
+export type PrGroup = (typeof PR_GROUPS)[number]['id']
+export type PrRow = { group: PrGroup; text: string; command: string | null }
+
+const threads = (n: number) => `${n} review ${n === 1 ? 'thread' : 'threads'} still open`
+
+// My open pull requests by where each stands against the operator's ready
+// conditions, the first unmet one named. A pull request the readiness check
+// passed carries its checked merge command; the rest are read from the
+// reviews snapshot, so a sign-off or screenshot the check would still ask for
+// shows as "needs you" once everything else holds.
+export function prRows(reviews: PanelReviews, commands: PanelMergeCommand[]): PrRow[] {
+  const isMulti = new Set([...reviews.mine, ...reviews.waiting].map(p => p.repo)).size > 1
+  return reviews.mine.map(p => {
+    const ref = `${isMulti ? p.repo : ''}#${p.number} ${p.title}`
+    const command = commands.find(c => c.repo === p.repo && c.number === p.number)?.command ?? null
+    const row = (group: PrGroup, unmet: string): PrRow => ({ group, text: unmet ? `${ref} · ${unmet}` : ref, command })
+    if (command !== null) return row('ready', '')
+    if (p.ci === 'red') return row('failed', 'CI failed')
+    if (p.ci === 'running') return row('running', 'CI still running')
+    if (p.unresolved > 0) return row('review', threads(p.unresolved))
+    if (p.ci === 'none') return row('review', 'no CI reported yet')
+    if (!p.isHeadReviewed) return row('review', 'head not reviewed yet')
+    return row('needs-you', p.isDraft ? 'a draft waiting for your yes' : 'waiting for your sign-off')
+  })
 }
 
-// The repository is named only when the lists span more than one.
-function reviewSections(t: Table, r: PanelReviews) {
-  if (!r.isAvailable) return [Section(t, 'Reviews', [`Unavailable: ${r.reason || 'no reason given'}`])]
+function PullRequests(t: Table, view: PanelView) {
+  const { Box, Text } = t
+  const r = view.digest?.reviews
+  if (!r) return null
+  const card = (title: string, children: unknown) => (
+    <Box flexDirection="column" marginBottom={1} paddingX={1} backgroundColor={CARD_BG}>
+      <Text bold>{title}</Text>
+      {children}
+    </Box>
+  )
+  if (!r.isAvailable) return card('Pull requests', <Text dimColor>{`Unavailable: ${r.reason || 'no reason given'}`}</Text>)
+  const rows = prRows(r, view.digest?.mergeCommands ?? [])
+  const total = Math.max(r.mineTotal ?? 0, r.mine.length)
+  return card(
+    `Pull requests (${total})`,
+    rows.length === 0 ? (
+      <Text dimColor>No open pull requests.</Text>
+    ) : (
+      <>
+        {PR_GROUPS.flatMap(g => {
+          const inGroup = rows.filter(x => x.group === g.id)
+          if (inGroup.length === 0) return []
+          return [
+            <Text bold>{g.title}</Text>,
+            ...inGroup.flatMap(x => [<Text>{x.text}</Text>, ...(x.command ? [<Text>{`run: ${x.command}`}</Text>] : [])]),
+          ]
+        })}
+        {total > rows.length && <Text dimColor>{`+${total - rows.length} more`}</Text>}
+      </>
+    ),
+  )
+}
+
+// The pull requests waiting on the operator's own review.
+function reviewRequests(t: Table, r: PanelReviews) {
+  if (!r.isAvailable) return null
   const isMulti = new Set([...r.mine, ...r.waiting].map(p => p.repo)).size > 1
-  const ref = (p: { repo: string; number: number; isDraft: boolean }) =>
-    `${isMulti ? p.repo : ''}#${p.number} ${p.isDraft ? 'draft' : 'ready'}`
-  const read = r.age === null ? '' : ` · read ${age(r.age)} ago`
-  const mineTotal = Math.max(r.mineTotal ?? 0, r.mine.length)
-  const waitingTotal = Math.max(r.waitingTotal ?? 0, r.waiting.length)
-  return [
-    Section(
-      t,
-      `My open PRs (${mineTotal})${read}`,
-      capped(
-        r.mine.map(p =>
-          [
-            ref(p),
-            p.ci === 'none' ? 'no CI' : `CI ${p.ci}`,
-            `${p.unresolved} unresolved`,
-            p.isHeadReviewed ? 'head reviewed' : 'head not reviewed',
-            p.reviewers.length > 0 ? `asks ${p.reviewers.join(', ')}` : 'no reviewer requested',
-            p.title,
-          ].join(' · '),
-        ),
-        mineTotal,
-      ),
-      'No open pull requests.',
-    ),
-    Section(
-      t,
-      `Waiting on my review (${waitingTotal})`,
-      capped(
-        r.waiting.map(p => [ref(p), `from ${p.requester}`, age(p.age), p.title].join(' · ')),
-        waitingTotal,
-      ),
-      'Nothing waiting on your review.',
-    ),
-  ]
+  const total = Math.max(r.waitingTotal ?? 0, r.waiting.length)
+  const shown = r.waiting.slice(0, REVIEWS_SHOWN).map(p => `${isMulti ? p.repo : ''}#${p.number} ${p.title} · from ${p.requester} · ${age(p.age)}`)
+  return Section(
+    t,
+    `Waiting on my review (${total})`,
+    total > shown.length ? [...shown, `+${total - shown.length} more`] : shown,
+    'Nothing waiting on your review.',
+  )
 }
 
-// Prop pal: a cell-grid picture where the surface has one, else the text art.
-// Its state word always shows, so no state rests on the picture.
+// Prop pal: a cell-grid picture where the surface has one, drawn alone (the
+// Waiting on you section says the rest); else the text art with its state
+// word, so no state rests on a picture the surface cannot draw.
 function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
   const { Box, Text } = t
-  const word = <Text color={mascotState(view) === 'bumpy' ? 'warning' : undefined}>{mascotWord(view)}</Text>
   if (hasPictures(t, surface)) {
     const g = spriteCells(mascotState(view), 0)
     return (
       <Box flexDirection="column" marginBottom={1}>
         <t.Raster key="prop-pal" columns={g.columns} rows={g.rows} cells={g.cells} />
-        {word}
       </Box>
     )
   }
@@ -314,6 +335,15 @@ function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
   )
 }
 
+// One row per item that waits on the operator: each session waiting on an
+// answer, then whatever the queue holds beyond them.
+function waitingRows(d: PanelDigest): string[] {
+  if (d.waiting === null) return ['unknown']
+  const sessions = flightRows(d.flights).filter(r => r.state === 'waiting').map(r => r.text)
+  const rest = d.waiting - sessions.length
+  const rows = [...sessions, ...(rest > 0 ? [`${rest} waiting on you, not in a session`] : [])]
+  return rows.length === 0 ? ['Nothing waits on you.'] : rows
+}
 
 export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: RenderSurface = 'terminal') {
   const { Box, Text } = t
@@ -326,16 +356,8 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
       </Box>
     )
   }
-  const tight = headroomTight(view)
   const health = d.health ?? []
-  const instruments = [
-    `compactions since start ${view.compactions} · wakes ${view.wakes}`,
-    kbLine(view),
-    ...d.measures.map(m =>
-      m.name === '-' ? `measures ${m.value}` : `${m.name.replace(/_/g, ' ')} ${m.value} (${age(m.age)} old)`,
-    ),
-    `failsafe tick ${view.lastTickAt === null ? 'not yet fired' : `fired ${view.ticks}×`}`,
-  ]
+  const toMerge = mergeReadyCount(d)
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
@@ -369,51 +391,18 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
         'Right now',
         readouts(view).map(r => r.text),
       )}
-      {Section(
-        t,
-        'Waiting on you',
-        [
-          `${d.waiting === null ? 'unknown' : d.waiting} waiting on you`,
-          ...[mergeReadyCount(d)].flatMap(n => (n === null ? [] : [`${n} ready to merge`])),
-          ...(d.approvals ? [`${d.approvals} ${d.approvals === 1 ? 'approval' : 'approvals'} mission control is handling`] : []),
-          ...(d.pending !== null ? [`${d.pending} event(s) inbound`] : []),
-        ],
-      )}
+      {Section(t, 'Waiting on you', [...waitingRows(d), ...(toMerge === null ? [] : [`${toMerge} ready to merge`])])}
       {Section(
         t,
         `In flight (${flightCount(view)})`,
         [
-          ...flightLines(d.flights),
+          ...flightRows(d.flights).map(r => r.text),
           ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
         ],
         d.unreadable.includes('tmux windows') ? '' : 'Nothing in flight.',
       )}
-      {d.reviews && reviewSections(t, d.reviews)}
-      {Section(
-        t,
-        'Tower log',
-        d.decisions.slice(0, DECISIONS_SHOWN).map(x => `${x.time.slice(0, 16).replace('T', ' ')}  ${x.subject}: ${x.act}`),
-        'No decisions recorded yet.',
-      )}
-      {Section(
-        t,
-        `Fuel · rung ${d.rung.name}`,
-        [
-          ...(d.rung.reason ? [d.rung.reason] : []),
-          ...(tight ? [`tightest: ${tight}`] : []),
-          ...counted(
-            d.watchers.map(w => `${w.duty.replace(/-/g, ' ')} ${w.state}, next ${w.next === null ? 'unknown' : age(w.next)}`),
-          ).slice(0, WATCHERS_SHOWN),
-        ],
-        'No budget computed yet.',
-      )}
-      {Section(
-        t,
-        'Weather · sources',
-        d.sources.map(s => `${s.cls}: ${s.source === '-' ? 'none' : s.source} ${s.mode}${s.age === null ? '' : `, ${age(s.age)} old`}`),
-        'No source map.',
-      )}
-      {Section(t, 'Instruments', instruments)}
+      {PullRequests(t, view)}
+      {d.reviews && reviewRequests(t, d.reviews)}
     </Box>
   )
 }

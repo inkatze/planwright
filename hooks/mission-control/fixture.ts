@@ -152,6 +152,7 @@ export type Fixture = {
   isCommandRefused: boolean
   isExitRefused: boolean
   contextPercent: number | undefined
+  rateLimits: { kind: string; percentUsed: number }[]
   env: Record<string, string>
   sessionId: string
   // The activation directory by file name: `<id>` holds the record as the
@@ -188,6 +189,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     isCommandRefused: false,
     isExitRefused: false,
     contextPercent: 42,
+    rateLimits: [{ kind: 'five_hour', percentUsed: 31 }],
     env: { PLANWRIGHT_MC_PROGRAM: 'alpha' },
     sessionId: SESSION,
     records: {},
@@ -274,7 +276,7 @@ export function world(on: On, given: Partial<Fixture> = {}): World {
     value: {
       startedAt: START,
       context: { window: 200_000, percent: fx.contextPercent },
-      rateLimits: [{ kind: 'five_hour', percentUsed: 31 }],
+      rateLimits: fx.rateLimits,
     },
   }))
   on('prompt.submit', (_, e) => {

@@ -88,9 +88,6 @@ test('the tick fires at its cadence without a turn when nothing is due', SLOW, a
   await w.clock.advance(300_000)
   expect(ran(w, 'mc-wake.sh', 'compose')).toHaveLength(2)
   expect(w.submitted).toEqual([])
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /failsafe tick/ }))?.text).toBe('failsafe tick fired 2×')
-  await ui.unmount()
 })
 
 // REQ-E1.4: the push missed an event (its read failed); the tick finds it.
@@ -243,16 +240,20 @@ test('the session end hands the target back to the relay', async ($, on) => {
 })
 
 test('a /clear keeps the target and starts the counts over', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { contextPercent: undefined, digest: digestText({ holder: 'registry' }) })
   await boot($, w)
-  await $.turn.start(turn('t1'))
-  await $.turn.complete(done('t1'))
+  for (const id of ['t1', 't2']) {
+    await $.turn.start(turn(id))
+    await $.turn.complete(done(id))
+  }
   const claims = ran(w, 'mc-wake.sh', 'target').length
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
   expect(ran(w, 'mc-wake.sh', 'target')).toHaveLength(claims)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /compactions since start 0 · wakes 0/ })).toBeDefined()
-  await ui.unmount()
+  for (const id of ['t3', 't4']) {
+    await $.turn.start(turn(id))
+    await $.turn.complete(done(id))
+  }
+  expect(ran(w, 'mc-event.sh', 'emit')).toEqual([])
 })
 
 test('a pruned event (mark exit 3) still counts as marked', async ($, on) => {
