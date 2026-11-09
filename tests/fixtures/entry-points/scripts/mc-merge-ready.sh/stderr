@@ -1,1 +1,1 @@
-match ^mc-merge-ready: usage: mc-merge-ready\.sh list --program <p> \[--as-status\] \[--now <epoch>\] \| count --program <p> \| watch \[--program <p>\] \[--now <epoch>\]$
+match ^mc-merge-ready: usage: mc-merge-ready\.sh list --program <p> \[--as-status\] \[--now <epoch>\] \| count --program <p> \| commands --program <p> \[--now <epoch>\] \| watch \[--program <p>\] \[--now <epoch>\]$
