@@ -311,7 +311,7 @@ test('a refused command registration still brings the readings up', async ($, on
   expect(first).toBeGreaterThan(0)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await bandOf(band))).toBe(
-    '? 2 waiting on you · 5-hour 31% · context 42%',
+    '? 2 waiting on you · fault: the panel command could not be registered: HooksError: no implementation for command.register · 5-hour 31% · context 42%',
   )
   await band.unmount()
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -523,7 +523,7 @@ const readoutsAt = async ($: Parameters<typeof boot>[0], on: Parameters<typeof w
 
 test('the readouts say each measure as a name, a value and a verdict', async ($, on) => {
   const texts = await readoutsAt($, on, {})
-  expect(texts).toContain('5-hour usage 31% · stop unknown · OK')
+  expect(texts).toContain('5-hour usage 31% · stop unknown · UNKNOWN')
   expect(texts).toContain('Context 42% · compacts at 95% · OK')
   expect(texts).toContain('Machine load 1.5/4, mem 62% · OK')
   expect(texts).toContain('Waiting on you 2 · ACT')

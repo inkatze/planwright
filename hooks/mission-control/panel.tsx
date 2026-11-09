@@ -60,20 +60,6 @@ export function usageStop(view: PanelView): UsageStop {
 }
 const stopWord = (stop: UsageStop) => (stop === null ? 'stop unknown' : stop === 'off' ? 'no stop set' : `stop at ${stop}%`)
 const WINDOW_NAME: Record<string, string> = { five_hour: '5-hour', seven_day: 'weekly' }
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-// "1:10am" within a day of now, "Mon 6am" beyond; the clock is passed in.
-export function resetWord(iso: string | undefined, nowMs: number): string {
-  if (iso === undefined) return ''
-  const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return ''
-  const h = at.getHours()
-  const m = at.getMinutes()
-  const clock = `${h % 12 === 0 ? 12 : h % 12}${m === 0 ? '' : `:${String(m).padStart(2, '0')}`}${h < 12 ? 'am' : 'pm'}`
-  const isNear = at.getTime() - nowMs < 24 * 3_600_000
-  return `resets ${isNear ? '' : `${DAYS[at.getDay()]} `}${clock}`
-}
-
 // Past this a deferred compaction would risk the window itself.
 const CONTEXT_CEILING_PCT = 95
 const LOW_MEMORY_PCT = 10
@@ -93,7 +79,7 @@ export function readouts(view: PanelView): Readout[] {
     const name = WINDOW_NAME[r.kind] ?? r.kind.replace(/_/g, ' ')
     const pct = Math.round(r.percentUsed)
     out.push(
-      line(`${name[0]!.toUpperCase()}${name.slice(1)} usage ${pct}% · ${stopWord(stop)}`, typeof stop === 'number' && pct >= stop ? 'ACT' : 'OK'),
+      line(`${name[0]!.toUpperCase()}${name.slice(1)} usage ${pct}% · ${stopWord(stop)}`, stop === null ? 'UNKNOWN' : typeof stop === 'number' && pct >= stop ? 'ACT' : 'OK'),
     )
   }
   if (view.rateLimits.length === 0) out.push(line('Usage no limits reported', 'UNKNOWN'))
@@ -209,8 +195,9 @@ export function stripParts(view: PanelView): Part[] {
     if (toMerge !== null) parts.push({ text: `${toMerge} ready to merge`, tone: 'merge' })
     const checks = new Set((d.health ?? []).map(h => h.check)).size
     if (checks > 0) parts.push({ text: `⚠ ${checks} health ${checks === 1 ? 'check' : 'checks'}`, tone: 'alert' })
-    if (parts.length === 0) parts.push({ text: 'all clear' })
   }
+  if (view.fault && d) parts.push({ text: `fault: ${view.fault}`, tone: 'alert' })
+  if (d && parts.length === 0) parts.push({ text: 'all clear' })
   const stop = usageStop(view)
   const stopNote = typeof stop === 'number' ? ` (stop ${stop}%)` : ''
   if (view.rateLimits.length > 0) {
@@ -237,7 +224,7 @@ export function Band(t: Table, view: PanelView, isHeld: boolean) {
     <Box flexDirection="row" paddingX={1} backgroundColor={STRIP_BG}>
       {isHeld && <Text color="warning">◷ wake held · </Text>}
       {parts.map((p, i) => (
-        <Box flexDirection="row">
+        <Box key={p.text} flexDirection="row">
           {i > 0 && <Text dimColor> · </Text>}
           <Text bold={p.tone !== undefined} color={p.tone ? TONE_COLOR[p.tone] : undefined}>
             {p.text}

@@ -263,17 +263,6 @@ export function age(seconds: number | null): string {
   return `${Math.round(seconds / 86400)}d`
 }
 
-// The text form where nothing draws the pane: the script's line, with what
-// only the session can measure.
-export function fallbackLine(view: PanelView): string {
-  const base = view.digest?.line || `mission control ${view.program}: no reading yet`
-  const parts = [base]
-  if (view.contextPercent !== null) parts.push(`context ${view.contextPercent}%`)
-  if (view.handover) parts.push(`handover due (${view.handover})`)
-  if (view.fault) parts.push(`fault: ${view.fault}`)
-  return parts.join(', ')
-}
-
 // The handover trigger: measured context where the harness gives
 // it, the completed-wake count otherwise, and the compaction ceiling either
 // way. Null while no threshold is reached or the knobs are unread, and

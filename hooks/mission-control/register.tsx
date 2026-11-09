@@ -417,6 +417,7 @@ async function open($: EngineInterface) {
 
 async function close($: EngineInterface) {
   await $.ui.close({ id: PANE })
+  paneSurface = null
   await patch($, x => ({ ...x, isFallback: false }))
   $.ui.status(undefined)
 }
