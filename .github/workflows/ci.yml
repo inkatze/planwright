@@ -429,7 +429,8 @@ jobs:
   # reaped as they are on a real host. Only the suite's own needs are added:
   # bash for the runner, git, jq, perl for the purged-identifier screen, and
   # the pinned mise (checksummed) with node and pipx for the npm and pipx
-  # tools it installs; no GNU userland, so awk, sed and the rest stay busybox.
+  # tools it installs; no GNU userland, so awk, sed and the rest stay busybox
+  # (GNU tar, which the toolchain cache needs, is removed before the suite runs).
   # The suite runs as an unprivileged user, since root passes the permission
   # checks several tests rely on failing.
   #
