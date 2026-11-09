@@ -399,7 +399,9 @@ classify the edit on the amendment axis:
    printed recipe.
 
    Then run the
-   `post-pr` point, the PR number now in its context, without waiting on the PR's remote checks (custom-steps, *Remote checks and `post-pr`*: only the ready flip needs them green); after its list and the
+   `post-pr` point, the PR number now in its context, without waiting on the
+   PR's remote checks (custom-steps, *Remote checks and `post-pr`*: only the
+   ready flip needs them green); after its list and the
    re-fire pass (`step-run.sh refire`'s lines, hosted with `--refire-of`,
    before post-pr's completion), re-emit the tables, and if a post-pr record moved the
    head fetch and regenerate the
