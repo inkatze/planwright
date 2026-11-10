@@ -1214,4 +1214,4 @@ mission_control_kickoff_mode: relay
 # own launch recorded, none when it cannot be read) or on (always, under the
 # successor's own name). Applies to attended (tmux) successors; the
 # stream-json rung has no terminal to attach it to and ignores it.
-mission_control_successor_remote_control: off
+mission_control_successor_remote_control: "off"
