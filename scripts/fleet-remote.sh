@@ -47,7 +47,8 @@ Verbs (each runs on the remote host, through its own planwright and tools):
                                 group at the timeout, default 1800 for --check
                                 and 540 otherwise, at most 86400), stream its
                                 output back, exit with its status, and remove
-                                the worktree and the ref. --worktree defaults
+                                the worktree and the ref. The command's own
+                                standard input is /dev/null. --worktree defaults
                                 to the worktree holding the current directory.
                                 The run stops when this command is killed or
                                 the connection drops
@@ -64,7 +65,8 @@ since compute runs the caller's code in that environment. The remote root is
 the first root the remote's installed-plugin record names (its
 resolve-installed-roots.sh --current, which needs jq there); no caller can
 point a verb at another copy. compute needs no root, only the clone, git,
-perl, and mise (--check, --task) or /bin/bash (--test); it unsets
+perl, and mise (--check, --task) or /bin/bash (--test); load needs only
+getconf, sysctl or nproc and a readable load average; it unsets
 PLANWRIGHT_ROOT so the shipped commit tests itself. It runs that code as the
 remote account, so whatever that account can read (a CLI login included),
 the code can too.
@@ -77,7 +79,8 @@ Exit codes: 2 usage error or a refused argument; 3 the remote is not set up
 perl, or no mise or /bin/bash for the chosen command); 4 compute could not
 ship HEAD (no clone there, or SSH failed); 255 SSH could not connect;
 otherwise the remote verb's own exit. compute exits with the command's own
-status, 143 when the timeout stopped it, and says on stderr which happened; a
+status, 143 when the timeout stopped it, 129 when the caller went away (this
+side was killed or the connection dropped) and the command was stopped, and says on stderr which happened; a
 channel failure there prints a fleet-remote: line, and a "fleet-remote:
 running" line marks that the command started. A run whose connection drops
 before its own cleanup leaves its ref behind; the next compute run on that
@@ -287,7 +290,8 @@ if [ "$2" = compute ]; then
     if [ -n "$fr_run" ]; then
       # A process that left its process group (setsid, a daemonised helper)
       # still names the run directory in its command line.
-      pkill -KILL -f "$fr_run/" >/dev/null 2>&1 || :
+      fr_pat=$(printf '%s/' "$fr_run" | sed 's/[][\.*^$+?(){}|]/\\&/g')
+      pkill -KILL -f "$fr_pat" >/dev/null 2>&1 || :
       chmod -R u+rwX "$fr_run" >/dev/null 2>&1 || :
       git -C "$fr_repo" worktree remove --force "$fr_run/wt" >/dev/null 2>&1 || git -C "$fr_repo" worktree prune >/dev/null 2>&1
       rm -rf "$fr_run"
@@ -333,16 +337,25 @@ if [ "$verb" = compute ]; then
     git -C "$fr_stale/wt" worktree remove --force "$fr_stale/wt" >/dev/null 2>&1
     rm -rf "$fr_stale"
   done
-  # Test parallelism: the remote's cores shared among the runs live now (this
-  # one included), so concurrent runs do not multiply the load.
-  fr_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null)
-  case $fr_cores in '' | *[!0-9]* | 0) fr_cores=4 ;; esac
-  fr_others=$(find "$base" -mindepth 1 -maxdepth 1 -type d -name "run.*" -mmin -1500 | wc -l | tr -d ' ')
-  fr_jobs=$((fr_cores / (fr_others + 1)))
-  [ "$fr_jobs" -ge 1 ] || fr_jobs=1
   git -C "$fr_repo" worktree prune >/dev/null 2>&1
   fr_run=$(mktemp -d "$base/run.XXXXXX") || exit 3
   run=$fr_run
+  echo $$ >"$run/pid"
+  # Test parallelism: the remote's cores shared among the runs live now (this
+  # one included, counted after its own directory exists so runs starting
+  # together divide the cores between them); a run killed without cleanup
+  # names a dead pid and stops counting.
+  fr_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null)
+  case $fr_cores in '' | *[!0-9]* | 0) fr_cores=4 ;; esac
+  fr_live=0
+  for fr_d in "$base"/run.*; do
+    fr_p=$(cat "$fr_d/pid" 2>/dev/null) || continue
+    case $fr_p in '' | *[!0-9]*) continue ;; esac
+    if kill -0 "$fr_p" 2>/dev/null; then fr_live=$((fr_live + 1)); fi
+  done
+  [ "$fr_live" -ge 1 ] || fr_live=1
+  fr_jobs=$((fr_cores / fr_live))
+  [ "$fr_jobs" -ge 1 ] || fr_jobs=1
   git -C "$fr_repo" -c core.hooksPath=/dev/null worktree add -q --detach "$run/wt" "$sha" || exit 3
   cd "$run/wt" || exit 3
   mkdir "$run/tmp" || exit 3
@@ -390,11 +403,10 @@ while (1) {
   my $got = waitpid($pid, WNOHANG);
   if ($got == $pid) { $st = $?; last }
   next if $got == -1 && $!{EINTR};
-  if ($got == -1) { $st = 0; last }
-  next unless $watch;
+  if ($got == -1) { print STDERR "fleet-remote: lost track of the command\n"; $st = 125 << 8; last }
   my $r = $rin;
-  my $n = select($r, undef, undef, 1);
-  if ($n > 0 && vec($r, fileno(STDIN), 1)) {
+  my $n = select($watch ? $r : undef, undef, undef, 0.2);
+  if ($watch && $n > 0 && vec($r, fileno(STDIN), 1)) {
     my $buf;
     my $len = sysread(STDIN, $buf, 4096);
     if (defined $len && $len == 0) {
@@ -475,7 +487,10 @@ if [ "$verb" = compute ]; then
   # a kill of this script, its process group, or the connection ends the run.
   # An unreadable pipe directory is a plain failure, never a run without it.
   kd=$(mktemp -d "${TMPDIR:-/tmp}/fleet-remote-keep.XXXXXX") || die "cannot create a temporary directory" 4
-  mkfifo "$kd/k" || die "cannot create a FIFO" 4
+  mkfifo "$kd/k" || {
+    rm -rf "$kd"
+    die "cannot create a FIFO" 4
+  }
   sleep 90000 >"$kd/k" &
   keep=$!
   sshp=''

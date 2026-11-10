@@ -15,11 +15,12 @@
 # such `mise run` line (/execute-task's saved gate command) maps like that line.
 # A kind flag overrides the mapping.
 #
-# A registered host runs the kind through `fleet-remote.sh --host <h> compute`
+# A configured host runs the kind through `fleet-remote.sh --host <h> compute`
 # in the caller's worktree. The host is passed over when it cannot be reached,
-# or when its one-minute load per core exceeds fleet_compute_load_cap; so is a
-# run that failed before its command started (no clone there, a setup failure,
-# SSH down). Each of these prints one `compute-route: warning:` line and runs
+# or when its one-minute load per core exceeds fleet_compute_load_cap, and a
+# worktree with uncommitted changes runs here, since the remote tests only the
+# committed HEAD. So is a run that failed before its command started (no clone
+# there, a refused target, a setup failure, SSH down). Each of these prints one `compute-route: warning:` line and runs
 # the command locally. A run whose command started is never repeated, whatever
 # its exit status: the remote result is the result.
 #
@@ -50,6 +51,7 @@ run_here() {
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 prog=compute-route
+# PLANWRIGHT_FLEET_REMOTE is the tests' seam for a fake channel.
 channel=${PLANWRIGHT_FLEET_REMOTE:-$script_dir/fleet-remote.sh}
 
 usage() {
@@ -86,7 +88,7 @@ done
 gate_file() {
   [ -f "$1" ] && [ ! -L "$1" ] || return 0
   [ "$(wc -c <"$1" | tr -d ' ')" -le 200 ] || return 0
-  [ "$(wc -l <"$1" | tr -d ' ')" -le 1 ] || return 0
+  [ "$(grep -c '' "$1" | tr -d ' ')" -le 1 ] || return 0
   _gf=$(sed -n '1p' "$1")
   case $_gf in
     'mise run check') kind=check ;;
@@ -96,6 +98,20 @@ gate_file() {
       ;;
   esac
 }
+
+conf() {
+  "$script_dir/config-get.sh" "$1" 2>/dev/null
+}
+
+# The shipped posture is local: decide that before any mapping work.
+host=$(conf fleet_compute_host) || host=''
+case $host in
+  '' | local) run_here "$@" ;;
+  -* | *[!A-Za-z0-9._-]*)
+    warn "fleet_compute_host '$host' is not a host alias; running locally"
+    run_here "$@"
+    ;;
+esac
 
 if [ -z "$kind" ]; then
   case $1 in
@@ -117,43 +133,34 @@ if [ -z "$kind" ]; then
       ;;
   esac
 fi
-
-conf() {
-  "$script_dir/config-get.sh" "$1" 2>/dev/null
-}
-
-host=$(conf fleet_compute_host) || host=''
-case $host in
-  '' | local) run_here "$@" ;;
+# The channel refuses a target outside its grammar; a command it would refuse
+# runs here instead.
+case $kind:$value in
+  check:) ;;
+  task:[a-z]*) case $value in *[!a-z0-9:_-]*) kind='' ;; esac ;;
+  test:tests/test-*.sh) case ${value#tests/} in *[!A-Za-z0-9._-]*) kind='' ;; esac ;;
+  *) kind='' ;;
 esac
 [ -n "$kind" ] || run_here "$@"
-case $host in
-  -* | *[!A-Za-z0-9._-]*)
-    warn "fleet_compute_host '$host' is not a host alias; running locally"
-    run_here "$@"
-    ;;
-esac
 
 cap=$(conf fleet_compute_load_cap) || cap=0.4
 timeout_secs=$(conf fleet_compute_timeout) || timeout_secs=''
-case $cap in '' | *[!0-9.]* | *.*.*) cap=0.4 ;; esac
-case $timeout_secs in *[!0-9]*) timeout_secs='' ;; esac
+case $cap in *[0-9]*) ;; *) cap=0.4 ;; esac
+case $cap in *[!0-9.]* | *.*.*) cap=0.4 ;; esac
+case $timeout_secs in '' | *[!0-9]* | 0* | ??????*) timeout_secs='' ;; esac
+[ -z "$timeout_secs" ] || [ "$timeout_secs" -le 86400 ] || timeout_secs=''
 
-probe=$(/bin/sh "$channel" --host "$host" load 2>/dev/null </dev/null) || probe=''
-load=${probe%% *}
-cores=${probe#* }
-case $load in '' | *[!0-9.]* | *.*.*) probe='' ;; esac
-case $cores in '' | *[!0-9]*) probe='' ;; esac
-if [ -z "$probe" ]; then
-  warn "compute host unreachable; running locally"
-  run_here "$@"
-fi
-if awk -v l="$load" -v c="$cores" -v cap="$cap" 'BEGIN { exit !(c > 0 && l / c > cap) }'; then
-  warn "compute host is busy (load $load on $cores cores, cap $cap per core); running locally"
+# The remote runs the committed HEAD only; a dirty tree would be tested as
+# something it is not, so it runs here.
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  warn "the worktree has uncommitted changes, which a compute run would not test; running locally"
   run_here "$@"
 fi
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/compute-route.XXXXXX") || run_here "$@"
+work=$(mktemp -d "${TMPDIR:-/tmp}/compute-route.XXXXXX") || {
+  warn "cannot create a temporary directory; running locally"
+  run_here "$@"
+}
 child=''
 # shellcheck disable=SC2329 # invoked by the traps below
 stop() {
@@ -164,6 +171,39 @@ stop() {
 trap 'stop 129' HUP
 trap 'stop 130' INT
 trap 'stop 143' TERM
+
+# The load probe, bounded by a watchdog: ConnectTimeout covers only the connect
+# phase, and a host that accepts the connection and then stalls would hang the
+# gate here instead of passing the host over.
+/bin/sh "$channel" --host "$host" load >"$work/probe" 2>/dev/null </dev/null &
+child=$!
+(
+  sleep 30
+  kill "$child" 2>/dev/null
+) >/dev/null 2>&1 </dev/null &
+watchdog=$!
+wait "$child"
+prc=$?
+child=''
+pkill -P "$watchdog" 2>/dev/null
+kill "$watchdog" 2>/dev/null
+{ wait "$watchdog"; } 2>/dev/null
+probe=''
+[ "$prc" -ne 0 ] || probe=$(sed -n '1p' "$work/probe")
+load=${probe%% *}
+cores=${probe#* }
+case $load in '' | *[!0-9.]* | *.*.* | .) probe='' ;; esac
+case $cores in '' | *[!0-9]*) probe='' ;; esac
+if [ -z "$probe" ]; then
+  rm -rf "$work"
+  warn "compute host unreachable; running locally"
+  run_here "$@"
+fi
+if awk -v l="$load" -v c="$cores" -v cap="$cap" 'BEGIN { exit !(c > 0 && l / c > cap) }'; then
+  rm -rf "$work"
+  warn "compute host is busy (load $load on $cores cores, cap $cap per core); running locally"
+  run_here "$@"
+fi
 
 # remote_run: the channel call, in a function so the caller's own command
 # stays in the positional parameters for the fallback.
@@ -176,8 +216,9 @@ remote_run() {
   [ -z "$timeout_secs" ] || set -- "$@" --timeout "$timeout_secs"
   exec "$@" 2>"$work/err"
 }
-# Held for the whole run, so the lines that say whether the command started are
-# read before a fallback is considered; the command's own output streams.
+# The channel's diagnostics are held until the run ends, because the lines that
+# say whether the command started decide whether a fallback is allowed; the
+# command's own output streams.
 remote_run &
 child=$!
 wait "$child"
@@ -188,8 +229,10 @@ grep -q '^fleet-remote: running ' "$work/err" && started=1
 cat "$work/err" >&2
 rm -rf "$work"
 if [ "$started" -eq 0 ]; then
+  # The channel's own pre-start codes: a refused argument, a host not set up,
+  # a failed ship, SSH down.
   case $rc in
-    3 | 4 | 255)
+    2 | 3 | 4 | 255)
       warn "the run on the compute host failed before its command started (exit $rc); running locally"
       run_here "$@"
       ;;

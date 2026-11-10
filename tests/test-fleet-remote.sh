@@ -423,6 +423,7 @@ chmod +x "$bin/getconf"
 run_in "$lrepo" compute --test tests/test-jobs.sh
 case $OUT in *"jobs=8 slots=8"*) ok "an idle remote runs one job per core" ;; *) fail "an idle remote runs one job per core ($OUT)" ;; esac
 mkdir -p "$rhome/dev/.planwright-compute/run.other"
+echo $$ >"$rhome/dev/.planwright-compute/run.other/pid"
 run_in "$lrepo" compute --test tests/test-jobs.sh
 case $OUT in *"jobs=4 slots=4"*) ok "a second live run halves the share" ;; *) fail "a second live run halves the share ($OUT)" ;; esac
 rm -rf "$rhome/dev/.planwright-compute/run.other"
@@ -445,7 +446,11 @@ rm -f "$bin/getconf"
 # (c) a run that leaves a read-only directory is still removed.
 run_in "$lrepo" compute --test tests/test-ro.sh
 assert_eq "a run leaving a read-only directory exits 0" 0 "$CODE"
-assert_eq "its run directory is removed anyway" "" "$(ls -A "$rhome/dev/.planwright-compute")"
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: root ignores directory modes, so the read-only cleanup is not exercised"
+else
+  assert_eq "its run directory is removed anyway" "" "$(ls -A "$rhome/dev/.planwright-compute")"
+fi
 
 # (a) a local kill stops the remote run: the whole process group goes.
 rm -f "$hangpid"
@@ -460,11 +465,13 @@ remote_sleep=$(cat "$hangpid" 2>/dev/null || echo 0)
 if [ "$remote_sleep" -gt 0 ] && kill -0 "$remote_sleep" 2>/dev/null; then ok "the hanging remote command started"; else fail "the hanging remote command started ($(cat "$tmp/hang.err" "$tmp/hang.out" 2>/dev/null))"; fi
 kill -KILL -- "-$local_pid" 2>/dev/null || kill -KILL "$local_pid" 2>/dev/null
 n=0
-while kill -0 "$remote_sleep" 2>/dev/null && [ "$n" -lt 100 ]; do
+while [ "$remote_sleep" -gt 0 ] && kill -0 "$remote_sleep" 2>/dev/null && [ "$n" -lt 100 ]; do
   sleep 0.1
   n=$((n + 1))
 done
-if kill -0 "$remote_sleep" 2>/dev/null; then
+if [ "$remote_sleep" -le 0 ]; then
+  fail "could not find the remote command's pid"
+elif kill -0 "$remote_sleep" 2>/dev/null; then
   fail "a local kill left the remote command running"
   kill -KILL "$remote_sleep" 2>/dev/null
 else

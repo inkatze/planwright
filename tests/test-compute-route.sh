@@ -133,6 +133,48 @@ FAKE_NOSTART=255 run --check -- "$tmp/lcmd" a
 assert_eq "an SSH failure before the command started reruns locally" "local ran a" "$OUT"
 FAKE_NOSTART=1 run --check -- "$tmp/lcmd" a
 assert_eq "another early exit is the result, not a rerun" 1 "$CODE"
+FAKE_NOSTART=2 run --check -- "$tmp/lcmd" a
+assert_eq "a refusal before the command started reruns locally" "local ran a" "$OUT"
+
+# Targets the channel would refuse, and out-of-range knobs, never reach it as is.
+run --task 'a.b' -- "$tmp/lcmd" a
+assert_eq "a task name outside the grammar runs here" "local ran a" "$OUT"
+run --test tests/sub/test-x.sh -- "$tmp/lcmd" a
+assert_eq "a test path outside the grammar runs here" "local ran a" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_timeout: 0\n' >"$local_cfg"
+run --check -- "$tmp/lcmd"
+case $LOG in *--timeout*) fail "a zero timeout reached the channel" ;; *) ok "a zero timeout reads as the channel default" ;; esac
+printf 'fleet_compute_host: mac\nfleet_compute_timeout: 100000\n' >"$local_cfg"
+run --check -- "$tmp/lcmd"
+case $LOG in *--timeout*) fail "an over-range timeout reached the channel" ;; *) ok "an over-range timeout reads as the channel default" ;; esac
+printf 'fleet_compute_host: mac\nfleet_compute_load_cap: 2\n' >"$local_cfg"
+FAKE_LOAD=20 FAKE_CORES=16 run --check -- "$tmp/lcmd" a
+assert_eq "a raised load cap admits a busier host" "remote ran" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_load_cap: 0.01\n' >"$local_cfg"
+FAKE_LOAD=1 FAKE_CORES=16 run --check -- "$tmp/lcmd" a
+assert_eq "a lowered load cap turns a lightly loaded host away" "local ran a" "$OUT"
+printf 'fleet_compute_host: mac\n' >"$local_cfg"
+
+# A worktree with uncommitted changes would be tested as something it is not.
+mkdir -p "$tmp/gitwt"
+git -C "$tmp/gitwt" init -q
+printf 'x\n' >"$tmp/gitwt/dirty"
+: >"$FAKE_CHANNEL_LOG"
+(cd "$tmp/gitwt" && /bin/sh "$script" --check -- "$tmp/lcmd" a 2>"$tmp/err" >"$tmp/out")
+assert_eq "a dirty worktree runs here" "local ran a" "$(cat "$tmp/out")"
+has "and says why" "uncommitted changes" "$(cat "$tmp/err")"
+assert_eq "a dirty worktree never touches the channel" "" "$(cat "$FAKE_CHANNEL_LOG")"
+
+# A two-line gate file without a final newline is not one command.
+printf 'mise run check\nextra' >"$tmp/gate4"
+run -- bash "$tmp/gate4"
+assert_eq "a gate file with a second line stays local" "" "$LOG"
+
+# The full-suite owner runs a gate file through the router.
+: >"$FAKE_CHANNEL_LOG"
+FSR=$(cd "$here/../scripts" && pwd)/full-suite-run.sh
+OUT=$(/bin/sh "$FSR" -- bash "$tmp/gate1" 2>/dev/null)
+assert_eq "full-suite-run routes the saved gate command" "remote ran" "$OUT"
 
 printf 'fleet_compute_host: "a b"\n' >"$local_cfg"
 run --check -- "$tmp/lcmd" a
