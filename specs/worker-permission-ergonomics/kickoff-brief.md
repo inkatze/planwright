@@ -1049,3 +1049,60 @@ decision changes.
 Class: expression-only
 Anchor: `fecd04fcd6f75d263c89aadbaac35781da021c0a` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 5 (2026-11-10, delta re-walkthrough: hooks-directory deny and command shapes)
+
+Spec path `specs/worker-permission-ergonomics`; walkthrough date 2026-11-10;
+mode: delta re-walkthrough of a Ready (stored) bundle, drafted into the bundle
+before the walk and walked through mission control, which relayed the
+operator's own words. The delta narrows the hooks-directory file-tool deny to
+the real hooks path (REQ-F1.7 supersedes REQ-F1.6; REQ-A1.15 supersedes
+REQ-A1.11; D-29) and admits six command shapes that still prompted: `nice -n
+<n>` (REQ-A1.16; D-30), `gitleaks detect` and `gh release view` (REQ-A1.17;
+D-31), allowlisted `export` (REQ-E1.7; D-32), scratch `mktemp` inside an
+assignment (REQ-E1.8; D-33), and fish `and`/`or`/`not` (REQ-E1.9; D-34),
+built as Tasks 16 to 18. The guard and profile are a hard-disqualifier zone:
+nothing here weakens the floor, the deny block's Bash rules, or the
+execution-bearing path closures.
+
+**Operator answers (2026-11-10, relayed through mission control).**
+
+- Narrow the githooks block to the real hooks path, using a profile rule if
+  one can express it and otherwise a guard script, keeping the old rule until
+  the script is proven to refuse on error: recommended option taken.
+- `export` approvable for an allowlist of harmless names only: recommended
+  option taken.
+- `X=$(mktemp -d)` approvable inside the worker's own scratch folder only:
+  recommended option taken.
+- The `nice`, `gitleaks`, `gh release view` and fish `and`/`or`/`not` shapes
+  followed the observation as drafted (settled, not asked).
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(six requirements and two supersessions, six decisions, three tasks, the test
+entries); no fan-out, scoped by size, with extra weight on the security
+posture of the guard.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 2 | A static profile rule cannot name a resolved `core.hooksPath`, so the hook covers it in every case (REQ-F1.7, D-29, Task 16); REQ-A1.12's `export`-with-a-value clause read through REQ-E1.7 |
+| Ambiguity and interpretation forks | 2 | Leading fish `and`/`or` with no predecessor now defers (REQ-E1.9); `mktemp` with a leading assignment or an unresolved-variable template defers (REQ-E1.8) |
+| Citation and coverage integrity | 0 | Every new REQ cites a D-ID and a Source |
+| Dead verification paths | 1 | The `mktemp` test row used an unresolved variable, which the opaque-variable rule defers: replaced by a literal path, with the variable form as a defer row |
+| Decision-domain gaps | 1 | Security posture: a locale name holding `/` can name a path the worker wrote, so `LC_ALL` and `LANG` values carry no `/` (REQ-E1.7); every other allowlisted name was checked as steering no tool, loader or shell |
+| Testability | 1 | Task 16 asserts the hook fails closed by crashing it, in every case rather than only on the hook route |
+| Cross-file consistency | 1 | The REQ-A1.13 test entry's `nice` wrapper fixtures read through REQ-A1.16 |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | No rendered content; the new shapes add no committed secret or hostname |
+
+**Dispositions.** All eight findings applied in place (append-only: no
+superseded body edited). Declined: none. Deferred: none. Post-lens
+stale-reference sweep: the remaining `nice`, `export` and REQ-F1.6 mentions
+in unsuperseded text are either superseded bodies, rejected-alternative
+prose, or carry a read-through note.
+
+Altitude check: no pinned seed claim. Ship-gate check: every out-of-band
+change is a task (Tasks 16 to 18); the profile and guard changes ship with
+their tests.
+
+Awaiting the operator's sign-off: no `Signed off:` line, class record or
+anchor is written yet.

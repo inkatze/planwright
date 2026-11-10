@@ -811,6 +811,9 @@ obs:5aa3d7ee, quota-handling D-3 (Sources).)*
   is 1; a malformed value SHALL fall back to the next value in that order
   with one warning naming the layer.
   *(Cites: D-24, model-allocation REQ-E1.1 (Sources).)*
+  *(Amended at Amendment A, 2026-11-10: the `heavy-run` pool takes
+  `step_pool_capacity_heavy_run` or a host-derived default and never
+  `step_pool_capacity`, REQ-K1.2; every other pool is unchanged.)*
 - **REQ-I1.4** While no slot is free, the runner SHALL wait, reporting
   at the start of the wait each live holder (its process id, its step id
   or the full-suite run, and its worktree). Admission is unordered: a
@@ -972,14 +975,17 @@ obs:5aa3d7ee, quota-handling D-3 (Sources).)*
 This group extends the 2026-10-06 expensive-check extension (2026-11-10,
 Amendment A, accepted apart from REQ-L). It changes what REQ-I1.5's
 shipped default means, so a full local suite is no longer unbounded across
-the host unless a project sets a pool.
+the host unless a project sets a pool. The bound has the pool's existing
+scope, one user's runs on one host (Cross-cutting concerns, host load), which
+is the whole machine in the single-operator case.
 
 - **REQ-K1.1** (supersedes REQ-I1.5's empty-default clause) The config
   value `full_suite_pool` SHALL have the core default `heavy-run`, a
   shipped pool name, so every full local suite run `/execute-task` makes
   holds a slot of it under REQ-I1.1, REQ-I1.2, and REQ-I1.4 unless a layer
-  sets the reserved value `none`, which runs the suite unpooled with no
-  warning. A gate that `/execute-task` runs is a full local suite run and
+  sets the reserved value `none` or sets the key to an empty value (the
+  prior opt-out, so a layer that already set it empty keeps its behavior),
+  either of which runs the suite unpooled with no warning. A gate that `/execute-task` runs is a full local suite run and
   is covered; a gate or suite an operator runs by hand takes the same slot
   through REQ-I1.5's documented recipe, and a declared step naming
   `heavy-run` shares the pool. Everything else REQ-I1.5 states (the park

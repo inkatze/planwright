@@ -207,6 +207,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   *(Amended at the 2026-10-10 extension kickoff: the newline, the
   "runs unconditionally" definition, the substitution-valued case, and the
   `cd` chain rule pinned to the shipped guard.)*
+  *(Read through REQ-E1.7 (2026-11-10): `export` of an allowlisted name with
+  a plain literal value is the one `export` that keeps the variable resolved.)*
   *(Cites: D-3, D-11, D-19, D-24; obs:885bc3c9, obs:01629047; the live-run
   prompt replay; the Task 6 review forks (Sources); brief Amendment 3
   (2026-10-10).)*
@@ -583,7 +585,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   into execution (the seed is `LC_ALL`, `LANG`, `TZ`, `NO_COLOR`,
   `FORCE_COLOR`, `CI`, `TERM`, `COLUMNS`, and `LINES`), when `NAME` also
   passes REQ-E1.2's name screen, and when the value passes REQ-E1.2's
-  plain-literal rule; it carries its value to later segments exactly as a
+  plain-literal rule (and, for `LC_ALL` and `LANG`, holds no `/`, so a locale
+  name is never a path the worker wrote); it carries its value to later segments exactly as a
   plain assignment does. Any other name, `export` with no value or with
   several operands, `export -n`/`-p`/`-f`, a `declare -x` or `typeset -x`
   spelling, and a fish `set -x` spelling SHALL defer. Growing the allowlist
@@ -593,8 +596,10 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   inner command: `mktemp`, `mktemp -d`, or either with one literal template
   operand, as the inner command of an assignment's value (`X=$(mktemp -d)`),
   only when the scratch arm is in force, the template (if any) carries no
-  `..` and canonicalizes inside the worker's scratch root, no `-p`,
-  `--tmpdir`, `-u`, or `--suffix` option is present, and the session record
+  `..` and canonicalizes inside the worker's scratch root (a plain literal,
+  never an unresolved variable), no `-p`, `--tmpdir`, `-u`, or `--suffix`
+  option is present, the inner command carries no leading variable
+  assignment (`TMPDIR=/x mktemp` defers), and the session record
   names a scratch root (a bare `mktemp` creates under the process's `TMPDIR`,
   which the launcher sets to that root). Everything else in REQ-E1.3 stands:
   the variable stays opaque under REQ-E1.1, so a later use of it in a
@@ -606,7 +611,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   transparent negation of the command that follows it; every other fish
   keyword or construct (`begin`/`end`, `switch`, `function`, `(…)`) stays
   deferred as REQ-A1.9 states, and the bounded recursion depth of REQ-B1.3
-  still applies.
+  still applies. A leading `and` or `or` with no preceding segment in the
+  inner text defers.
   *(Cites: D-3, D-34; the W63 observation (Sources).)*
 
 ## REQ-F — The self-approval policy
@@ -702,7 +708,12 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   otherwise by a worker-tier file-tool hook that resolves the same
   directories; either way a protected directory is refused at least as
   strongly as before, and the old any-depth rows leave the profile only once
-  that cover is in place and tested. Running an edited repo `scripts/`/`tests/`
+  that cover is in place and tested. A static profile rule cannot name a
+  repository's resolved `core.hooksPath` when it is not one of the two root
+  names, so that directory SHALL be covered for the file tools by the
+  worker-tier hook in every case (an anchored rule for the two root names
+  does not replace it), and the hook SHALL fail closed on an error or an
+  unparsable payload. Running an edited repo `scripts/`/`tests/`
   file stays approvable (the trusted-checkout residual).
   *(Cites: D-22, D-29; kickoff Amendment 2 decision (2026-10-05);
   drafting-session decision (2026-11-10).)*

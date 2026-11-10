@@ -491,8 +491,12 @@ later planwright bundles implement, D-12).
   under the registry lock. It touches no process, worktree or branch, and
   records the move as one event in both programs' event logs and an undo
   entry naming the source (REQ-D1.7). It runs only at a fold-in the
-  operator ordered, or with the operator's own yes for that session;
-  mission control never moves a session on its own judgment.
+  operator ordered (one order covers every live session of the folded
+  program, with no ask per session), or with the operator's own yes for
+  that one session; the verb takes a reference to that record in the
+  decisions log and refuses without it, and mission control never moves a
+  session on its own judgment. Reversing a move by the undo entry needs no
+  new authority.
   *(Cites: D-54; the fold-in report (2026-11-10, Sources).)*
 - **REQ-D1.17** The readiness check SHALL treat a hosted reviewer that
   reviews only once a pull request is marked ready (the names on
@@ -1264,8 +1268,9 @@ later planwright bundles implement, D-12).
   REQ-A1.10 (the doctor lists prose, unknown and closed-fix rules), D-53,
   Task 47.
 - 2026-11-10 — Amendment 7 (meaning-class, on the Active bundle): REQ-D1.16
-  (a live session moved between programs), REQ-D1.17 (readiness waits for
-  reviewers that review only once a pull request is ready); D-54, D-55;
+  (a live session moved between programs), REQ-D1.17 (reviewers that
+  review only once a pull request is ready are asked to review the draft
+  first, with a per-reviewer fallback to waiting after the flip); D-54, D-55;
   Tasks 48 and 49; notes on REQ-D1.8, REQ-D1.12 and REQ-G1.6.
 
 ## Sources

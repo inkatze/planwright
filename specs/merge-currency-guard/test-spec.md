@@ -138,7 +138,8 @@ aborted with the existing conflict halt; a recorded need on the command line →
 the merge runs and the record carries the need; `ready_guard_behind_base`
 `refuse` → the merge runs; a probe forced to fail (a stub git answering
 `merge-tree` with an error) → the merge runs; a branch already containing
-`origin/main` → up to date, nothing merged. A negative assertion shows the
+`origin/main` → up to date, nothing merged; a `--need` text with a newline
+or control characters → echoed as one sanitized line. A negative assertion shows the
 skip path runs no merge, no `git pull` and no rebase. The `/execute-task`
 call site stays one line and `scripts/check-instructions.sh` passes.
 
@@ -146,7 +147,7 @@ call site stays one line and `scripts/check-instructions.sh` passes.
 
 A test asserts the core default is `on-need` and the value set is exactly
 `on-need` and `always`; that `scripts/check-options-reference.sh` passes with
-the knob's row; that a value set in a worker's own overlay in a worktree is not
+the knob's row; that the resolver table resolves the key; that a value set in a worker's own overlay in a worktree is not
 honoured (read from the primary checkout); that a malformed value takes the
 policy-unreadable park; and that `always` leaves `worker_base_merge: deny`
 skipping the merge as today.

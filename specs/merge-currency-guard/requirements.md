@@ -129,10 +129,11 @@ ready PR means what the fleet and the human both assume it means.
   (the guard family, the fetch-before-gate primitive) are consumed and cited as
   Sources, never edited.
 - Making the convergence-loop sync (REQ-B1.1) follow the
-  `ready_guard_behind_base` knob or any other skip rule. The sync still runs
-  every iteration under either value; whether it should become skippable is a
-  separate amendment (the currency-posture pending note, item 2 (Sources)). Taken up by the 2026-11-10
-  extension: REQ-B1.7, REQ-B1.8.
+  `ready_guard_behind_base` knob or any other skip rule, as of the
+  2026-10-12 amendment: the sync then ran every iteration under either value
+  and a skip rule was left to a separate amendment (the currency-posture
+  pending note, item 2 (Sources)). The 2026-11-10 extension takes it up:
+  REQ-B1.7, REQ-B1.8.
 - Rewording sibling bundles and doctrine that restate the always-refuse
   currency check, wherever they do (among them human-gates D-9 naming the
   ready-guard as a session's floor, human-gates REQ-C1.2 and its design's
@@ -255,8 +256,10 @@ ready PR means what the fleet and the human both assume it means.
   `on-need`, the shipped default, the script fetches (REQ-B1.2) and then
   merges only when a need holds: (a) the branch conflicts with the fetched
   `origin/main`, found without touching the working tree or index; (b) the
-  caller passes a recorded need on the command line (a stale test result, or a
-  change the unit needs from `main`), which the script echoes in its record;
+  caller passes a recorded need on the command line as `--need <reason>` (a
+  stale test result, or a change the unit needs from `main`), which the script
+  echoes in its record as one line with control characters removed, through
+  the script's existing echo-safety path, since the text is caller-supplied;
   or (c) `ready_guard_behind_base` resolves to `refuse`, under which the
   ready-guard would refuse a behind flip. With no need it merges nothing,
   leaves the head where it is, exits 0, and prints a record naming that it
@@ -273,7 +276,9 @@ ready PR means what the fleet and the human both assume it means.
   `config/defaults.yml` with the values `on-need` (the shipped default) and
   `always`, documented in `docs/options-reference.md`, resolved by the script
   from the repository's primary checkout through the shared policy-knob
-  resolver in the same layers as `worker_base_merge`, so a worker's edit to its
+  resolver (a `converge_sync_main` entry in `scripts/resolve-policy-knob.sh`,
+  declared with no degrade target, so a malformed value in any layer is a read
+  failure) in the same layers as `worker_base_merge`, so a worker's edit to its
   own overlay governs nothing until it merges. A malformed or unreadable value
   SHALL take the script's existing policy-unreadable park, never a silent
   sync or skip. The knob governs only the convergence sync: it SHALL NOT

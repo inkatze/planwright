@@ -612,6 +612,10 @@ parallel-units record (obs:7fe26f10) proposes a fleet-level suite lock as
 one candidate. That is the evidence customization-boundary requires for
 a core knob, and the knob-plus-overlay split keeps core general.
 
+*(Amended at Amendment A, 2026-11-10: the statement that `full_suite_pool`
+is empty is superseded by D-33; the single-checkout behavior this decision
+protects is unchanged, REQ-K1.5.)*
+
 ### D-22: Pools are pid-owned slot locks on the shared lock primitive  (E)
 
 **Decision:** A pool of capacity N is N slot locks taken through
@@ -954,8 +958,9 @@ order through the flip.
 **Decision:** Supersedes D-25 in part (its empty core default; everything
 else in D-25 stands). `full_suite_pool` defaults to `heavy-run`, a shipped
 pool name, so every full local suite run `/execute-task` makes holds a
-slot by default; the reserved value `none` is the explicit unpooled
-setting, and `none` is never a pool name a step may declare. Gates
+slot by default; the reserved value `none`, or an empty value (the prior
+opt-out, kept so a layer that set it empty keeps its behavior), is the
+explicit unpooled setting, and `none` is never a pool name a step may declare. Gates
 `/execute-task` runs are full suite runs and are covered; a gate or suite
 run by hand takes the slot through the documented recipe. A lone run on an
 idle host takes a free slot with no wait, so a single-checkout adopter

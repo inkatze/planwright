@@ -536,7 +536,7 @@ deferred until every flipper posts.
 - **Done when:** fixture tests show: two units sharing the default run
   their suites in disjoint intervals on a host deriving capacity 1; a
   lone run takes a slot with no wait; `none` runs unpooled with no
-  warning; an explicit `step_pool_capacity_heavy_run` beats the derived
+  warning and so does a layer setting the key empty; an explicit `step_pool_capacity_heavy_run` beats the derived
   value and `step_pool_capacity` does not; a nested take inside a hold
   waits on nothing; an unreadable host derives 1 with one warning; the
   options check, `check:steps`, `check:doctrine-index`, `lint:md`, and

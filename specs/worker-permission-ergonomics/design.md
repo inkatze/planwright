@@ -810,7 +810,11 @@ the real hooks directory is never less protected than before: a test shows
 without a further prompt, and nothing else. The residual if only the hook
 route exists is that a crashed file-tool hook fails open where a static rule
 could not, which is why the old rows stay until the hook's fail-closed
-behaviour on error is tested (REQ-B1.3). Cites the githooks deny block
+behaviour on error is tested (REQ-B1.3). A repository's resolved
+`core.hooksPath` is a per-repository value no static profile rule can name,
+so the file-tool hook covers it in every case; an anchored profile rule, if
+the probe finds one, covers only the two root names beside it. Cites the
+githooks deny block
 report (Sources) and drafting-session decision (2026-11-10).
 
 ### D-30: `nice -n <n>` is a transparent prefix (N, narrows REQ-A1.13's `nice` deferral)

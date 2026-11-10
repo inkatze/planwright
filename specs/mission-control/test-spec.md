@@ -122,7 +122,7 @@ proposal is raised for it (Task 15 fixture).
 ### REQ-B1.8 — A rule's enforcement field [test]
 
 `tests/test-mc-rules.sh` (Task 47), in a fixture store: `add` and
-`supersede` take each of the six kinds and store it; a value outside the
+`supersede` take each kind the requirement names and store it; a value outside the
 grammar, or one carrying a shell substitution, is refused and stored
 nowhere; an entry written without the field lists as `unknown`; a store
 holding only such entries still loads, renders and re-injects, with
@@ -141,7 +141,9 @@ report; two on different subjects are not.
 - a prose rule, an unknown rule and a rule naming a merged pull request
   each yield one plain line saying what to do; a rule naming a script, a
   knob, a hook, a duty or a default yields none; a rule naming an open pull
-  request yields none; a superseded rule yields none;
+  request yields none; a rule naming a consumed observation yields a line
+  and one naming an unconsumed observation yields none; a superseded rule
+  yields none;
 - a closed-fix lookup that fails lists the rule as unknown, never clear;
 - no rule or layer file changes (checksums equal before and after).
 
@@ -365,7 +367,12 @@ fleet state under a mktemp folder, never live state:
 - the session's pid, worktree and branch fields are untouched;
 - the move writes one event readable in both programs' logs and an undo
   entry whose reversal restores the source;
-- a move with no operator's fold-in order or yes on record refuses.
+- a row that cannot be rewritten under the registry lock refuses and
+  changes nothing;
+- a move with no `--authority` reference, or one naming no fold-in order or
+  yes in the fixture decisions log, refuses; one fold-in order authorises
+  every live session of the folded program, a yes only its own session;
+  reversing by the undo entry needs no authority.
 
 ### REQ-D1.13 — Spec drift refused at readiness [test]
 

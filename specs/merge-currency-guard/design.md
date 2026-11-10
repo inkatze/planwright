@@ -24,7 +24,10 @@ mechanisms carry it —
 one that keeps the verified head current (D-4), and one that refuses a flip
 that violates the invariant (D-2, D-3). The guard is the enforcement floor; the
 in-loop sync is what keeps that floor from being hit in routine operation,
-short of a fresh `origin/main` advance inside the post-fetch window.
+short of a fresh `origin/main` advance inside the post-fetch window. (As of
+the 2026-11-10 extension the sync runs every iteration only under
+`converge_sync_main: always`; by default it runs on a need, and a `refuse`
+policy is one, D-12.)
 
 ## Decision log
 
@@ -562,8 +565,9 @@ nothing needed `main`: the default also closes that gap in the common case.
 The ready-guard stays the authority on the flip. Under `refuse` a behind
 branch would be denied at the flip, so the refuse policy counts as a need and
 the sync still runs; under `checks` or `conflict-only` a behind but mergeable
-branch is allowed through the guard as that knob decides, so skipping the sync
-costs nothing at the flip. The knob is read as the other worker knobs are (the
+branch is allowed through the guard as that knob decides (under `checks`,
+when the head's checks are green, which a sync would not change), so skipping
+the sync costs nothing at the flip. The knob is read as the other worker knobs are (the
 primary checkout, every layer) because relaxing the sync loosens no guard:
 REQ-A1.5 and `worker_base_merge` stand independent of it.
 

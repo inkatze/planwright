@@ -1671,8 +1671,12 @@ a row that cannot be rewritten; it never touches the session's process,
 worktree or branch. The move writes one event to both programs' logs (so
 each can read it) and an undo entry naming the source (D-24, with
 `reparent` back as its reversal). Authority is the operator's: the verb
-runs at a fold-in the operator ordered, or with their yes for the session,
-the same posture as adoption of an operator's session (D-35).
+runs at a fold-in the operator ordered (one order covers all of the folded
+program's live sessions, the operator's choice) or with their yes for that
+one session, the same posture as adoption of an operator's session (D-35);
+it takes `--authority <decisions-log record>` naming that order or yes and
+refuses without it, so the refusal is checkable. Reversing a move through
+its undo entry needs no new authority.
 
 **Alternatives considered:**
 - Re-adopt the session under the new program (the existing adopt verb).
@@ -1728,8 +1732,10 @@ operator's yes) is unchanged.
   request's state.
 
 **Chosen because:** the review-on-ready report (Sources): readiness passed
-before findings landed on four threads; separating the flip from the
-merge-ready report keeps the flip's gate whole while closing the gap.
+before findings landed on four threads; the operator's choice (review in
+draft, flip when done) handles the findings before the flip, and the
+per-reviewer fallback with a separate merge-ready report keeps the flip's
+gate whole for a reviewer that cannot be reached in draft.
 
 ## Cross-cutting concerns
 

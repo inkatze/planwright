@@ -526,6 +526,8 @@ again, then the nested take does not wait and the step records
 The pool helper test shows the shared default of one serializing two
 callers, a per-pool override admitting two, and a malformed value at each
 key falling back in order with a warning naming the layer. Task 11.
+The `heavy-run` exception (the shared key never changes it) is pinned by
+the REQ-K1.2 entry. Task 17.
 
 ### REQ-I1.4 — The bounded wait [test + Gherkin]
 
@@ -682,8 +684,8 @@ presence. Task 12, Task 10.
 Scenario: given two fixture units on a fixture host deriving capacity 1,
 each suite appending start and end timestamps to a shared file, then the
 intervals are disjoint with no `full_suite_pool` set. Scenario: given a
-layer setting `none`, then the suite runs unpooled with no warning and
-takes no slot. Scenario: given a declared step naming `heavy-run`, then it
+layer setting `none`, or setting the key empty, then the suite runs
+unpooled with no warning and takes no slot. Scenario: given a declared step naming `heavy-run`, then it
 shares the pool with the full suite; given a declared step naming `none`,
 then resolution refuses it. The options check asserts the key's row.
 Task 17.

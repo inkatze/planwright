@@ -1144,7 +1144,8 @@ fixed-string check.)*
 ### Task 48 — Move a live session between programs
 
 - **Deliverables:** `mission-control-launch.sh reparent <session>
-  --program <destination>` and its refusals; the event written to both
+  --program <destination> --authority <decisions-log record>` and its
+  refusals (including no authority); the event written to both
   programs' logs and the undo entry; the verb documented where the
   launcher's verbs are and in the fold-in and handover guidance mission
   control follows; tests in `tests/test-mission-control-launch.sh`, in

@@ -368,17 +368,20 @@ below; `scripts/spec-graph.sh` renders it on demand.
   model doc and its test with a behaviour-version stamp, of whether any
   path-rule spelling matches the worktree root's `githooks/` and
   `.githooks/` and not a deeper directory of that name; then, by that
-  outcome, either the anchored profile rows or a worker-tier file-tool hook
-  (the policy guard's `handle_file` shape, resolving the directories the guard's
-  `ob_excl_load` does) wired into `config/worker-settings.json`; the old
+  outcome, either the anchored profile rows for the two root names or none,
+  plus, in every case, a worker-tier file-tool hook (the policy guard's
+  `handle_file` shape, resolving the directories the guard's
+  `ob_excl_load` does, the resolved `core.hooksPath` included) wired into
+  `config/worker-settings.json`; the old
   any-depth `Edit` rows removed only once that cover and its tests exist;
   fixture rows for each protected directory and for `test/githooks/x` and
   `src/githooks/x`; the matcher model doc's path-rule section updated.
 - **Done when:** a test shows `Write` and `Edit` on the worktree root's
   `.githooks/x`, `githooks/x`, and the resolved `core.hooksPath` directory
   denied, and on `test/githooks/x` and `src/githooks/x` allowed; each is first
-  shown (denied or allowed) against the pre-change profile; if the hook route
-  is taken, a hook error or unparsable payload fails closed (REQ-B1.3); the
+  shown (denied or allowed) against the pre-change profile; the hook's error
+  or unparsable payload fails closed (REQ-B1.3), shown by a test that makes
+  the hook crash and still sees the protected directory refused; the
   permission-matcher, settings-fragment, and hook-contract checks pass; the
   `deny` block differs from its pre-change content only by the hooks rows.
 - **Dependencies:** 12

@@ -999,3 +999,79 @@ Lens-pass: the delta-scoped fanned-out lens review and its two re-lens
 rounds recorded in this entry, every finding applied
 Anchor: `15f0e30c6ac455bad170f54fd6693f969ff09d95` — computed as
 `scripts/spec-anchor.sh specs/custom-steps`
+
+### Amendment 3 — a default bound on heavy runs, and an audit that refuses a round that never ran (2026-11-10)
+
+**Trigger.** Delta re-walkthrough of an extension drafted with
+`/spec-draft --extend` (the drafts name it Amendment A, origin tag `A` on
+its decisions) while the bundle derives Active. The operator asked for the
+walk through mission control. Classification: meaning-class, because it adds
+requirements and decisions and supersedes REQ-I1.5's and D-25's empty
+default; the operator was told this is settled by the spec's rules rather
+than asked. Sign-off is pending: nothing below is signed, no status or
+review date is bumped, and no anchor is recorded.
+
+**Scope (delta).** REQ-K1.1 to REQ-K1.6 (the full local suite and every
+gate `/execute-task` runs hold a slot of a shipped `heavy-run` pool by
+default), REQ-L1.1 to REQ-L1.3 (the cadence audit refuses a skill or prompt
+round recorded passed or applied with zero duration and no head move);
+D-33, D-34, D-35; Tasks 17 and 18 with their test-spec entries; amendment
+notes on REQ-I1.3 and D-21; superseded-by pointers on REQ-I1.5 and D-25.
+The two deltas are independent and can be accepted apart.
+
+#### Walk record
+
+Operator answers, relayed through mission control on 2026-11-10 (only their
+own relayed words are recorded):
+
+- **Walk it here:** the heavy-run bound is walked in this session, with its
+  own sign-off.
+- **Default capacity:** sized from the machine, one slot per 8 cores and per
+  16 GiB of memory, whichever is fewer, at least one (recommended option).
+- **Override location:** the per-user adopter settings file that workers
+  read, not the machine-local file, which does not reach worktrees.
+- **A round that never ran:** recorded as `skipped` with the existing reason
+  `missing` plus a free-text note, no new reason code.
+
+#### Sign-off lens review (delta-scoped, walked inline)
+
+Path declared: the delta is two small, narrow groups, so it was walked
+inline by one reviewer against the bundle and the shipped scripts, not
+fanned out. Spec artifact class per `artifact-lenses`.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 2 | D-21 still said the key is empty; REQ-I1.3 claimed the shared capacity key governs every pool |
+| Ambiguity and interpretation forks | 2 | What an explicitly empty `full_suite_pool` means once the default is not empty; "machine-wide" against a pool scoped to one user on one host |
+| Citation and coverage integrity | none | Every new REQ cites its decision; every new decision cites a seed in Sources |
+| Dead verification paths | 1 | REQ-I1.3 changed with no changed test-spec entry (the validator's own warning) |
+| Decision-domain gaps | 2 | Memory derivation reads the host total, not a container limit; the bound does not see another user's runs |
+| Testability | none | Each new REQ has a fixture-checkable entry; capacity derivation takes fixture core and memory figures |
+| Cross-file consistency | 1 | The empty-value rule had to reach D-33, the test-spec row, and Task 17 |
+| Documentation and glossary drift | none | The options-reference, rule-doc, and overlay rows are Task 17 deliverables |
+| Rendered-content safety and data hygiene | none | Nothing here renders into an executing context; no secrets or hostnames |
+
+Altitude check: not applicable (the bundle's D-21 altitude record stands;
+no new pinned seed claim). Ship-gate check: no out-of-band fix is named;
+the changes ship as Tasks 17 and 18, each gated by `check:instructions`,
+`check:steps`, and the options check.
+
+**Dispositions.**
+
+- **Applied:** the D-21 and REQ-I1.3 amendment notes; the empty value read
+  as unpooled, kept as the prior opt-out (REQ-K1.1, D-33, the test-spec
+  row, Task 17's Done-when); the one-user-per-host scope stated in the
+  REQ-K introduction; a pointer from the REQ-I1.3 test-spec entry to the
+  REQ-K1.2 entry.
+- **Accepted risks:** the derived capacity reads total host memory, so a
+  memory-limited container derives too many slots (the override key is the
+  remedy); another user's runs on the same host are not counted, as with
+  every pool.
+- **Noted, no change:** this repository's tracked configuration sets the
+  `gate` pool (REQ-I1.13, Task 16), so it keeps its own pool and the default
+  changes nothing for it.
+
+Post-lens stale-reference sweep: grepped `full_suite_pool`, `heavy-run`,
+`step_pool_capacity` and the REQ-K, REQ-L, D-33 to D-35 and Task 17 and 18
+identifiers across the bundle; the only stale statements were the two fixed
+above. Validator: 0 errors, 0 warnings.

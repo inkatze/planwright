@@ -172,7 +172,10 @@ knob) changes the guard and extends its suite, so it follows Tasks 2 and 4.
   `converge_sync_main` knob (REQ-B1.8) and, under `on-need`, merging only on a
   conflict found with `git merge-tree --write-tree` (a failing probe merges),
   a recorded need passed by the caller, or `ready_guard_behind_base` of
-  `refuse`, printing a skip record otherwise (REQ-B1.7); the knob declared in
+  `refuse` (read through `scripts/resolve-policy-knob.sh`, which gains a
+  `converge_sync_main` entry and its test row), printing a skip record
+  otherwise, the caller's recorded need passed as `--need <reason>` and echoed
+  sanitized (REQ-B1.7); the knob declared in
   `config/defaults.yml` with `on-need` as its default and documented in
   `docs/options-reference.md`; `/execute-task`'s one-line call site gaining
   only the optional recorded-need argument and its exit-0 skip handling

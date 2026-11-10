@@ -72,6 +72,11 @@ idiom — regression guard).
 
 ### REQ-A1.12 — Run-order every-segment analysis with the narrow substitution rule [test]
 
+*(Read through REQ-E1.7 (2026-11-10): an `export` of an allowlisted name with
+a plain literal value keeps its variable resolved; every other `export` with a
+value still makes the variable opaque, and the REQ-E1.7 entry's rows assert
+both.)*
+
 Supersedes REQ-A1.4's entry, which it keeps in full under the empty policy
 (every compound, ambiguity, redirect, and fd-dup fixture still applies there;
 under an enabled arm, a segment that arm admits follows REQ-F, and a `$(…)`
@@ -125,6 +130,9 @@ arbitrary sub-command (`env rm …`, `xargs rm`, `timeout 5 rm …`, `nohup`,
 file'`, `awk 'print > "file"'`, and the severest, `awk 'system("rm -rf x")'`).
 
 ### REQ-A1.13 — Defer set, with transparent `time`/`timeout` [test]
+
+*(Read through REQ-A1.16 (2026-11-10): the `nice` wrapper fixtures below stay
+for every spelling but `nice -n <0..19>`, which now allows.)*
 
 Supersedes REQ-A1.6's entry, which it keeps (every listed defer fixture still
 defers, now under every policy value where the verb falls outside the arms)
@@ -564,15 +572,17 @@ and `gh release create v1` defer.
 ### REQ-E1.7 — `export` of an allowlisted name [test]
 
 `export LC_ALL=C` and `export NO_COLOR=1; git log` allow, and a later
-`$LC_ALL` resolves to the literal; `export PATH=/x`, `export GIT_SSH_COMMAND=x`,
+`$LC_ALL` resolves to the literal; `export LC_ALL=/tmp/x` and
+`export LANG=./x` defer (a locale name never holds `/`); `export PATH=/x`, `export GIT_SSH_COMMAND=x`,
 `export LD_PRELOAD=/x`, `export NODE_OPTIONS=x`, `export LC_ALL`,
 `export LC_ALL=C TZ=UTC`, `export -n LC_ALL`, `export -p`,
 `export LC_ALL=$(cat f)`, `declare -x LC_ALL=C`, and fish `set -x LC_ALL C` defer.
 
 ### REQ-E1.8 — `mktemp` inside an assignment's substitution [test]
 
-Under the scratch arm, `X=$(mktemp -d)` and `X=$(mktemp "$SCRATCH/t.XXXX")`
-allow; a later `rm -rf "$X"` and a redirect to `"$X/f"` still defer (the variable
+Under the scratch arm, `X=$(mktemp -d)` and `X=$(mktemp <literal scratch-root path>/t.XXXX)`
+allow, while `X=$(mktemp "$SCRATCH/t.XXXX")` (an unresolved variable) and
+`X=$(TMPDIR=/etc mktemp)` defer; a later `rm -rf "$X"` and a redirect to `"$X/f"` still defer (the variable
 is opaque); `X=$(mktemp -p /etc)`, `X=$(mktemp --tmpdir=/x)`, `X=$(mktemp -u)`,
 `X=$(mktemp ../t.XXXX)`, and `X=$(mktemp -d)` with no scratch root in the
 record or outside the scratch arm defer.
@@ -582,6 +592,7 @@ record or outside the scratch arm defer.
 `fish -c "git status; and git log"`, `fish -c "git status; or git log"`, and
 `fish -c "not git diff --quiet; and git log"` allow;
 `fish -c "git status; and rm -rf x"` defers (the second segment is analysed);
+`fish -c "and git log"` (a leading `and` with no predecessor) defers;
 `fish -c "begin; git status; end"`, `fish -c "git status; and (cat f)"`, and
 nesting past the recursion bound defer.
 
