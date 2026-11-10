@@ -223,3 +223,20 @@ test('a still landing is drawn in its settled pose', async ($, on) => {
   expect(cells).toEqual([spriteCells('landing', 6).cells])
   await ui.unmount()
 })
+
+test('every limit mission control reports has a plain name and reads in plain words', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [tab('headroom', 'context_steps', 3, 200, 2), tab('headroom', 'host_load', 10, 100, 10)],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain('Mission control steps: 3 of 200 (2%)')
+  expect(t).toContain('Machine load: 10% of the 100% limit')
+  expect(t).not.toContain('context steps')
+  expect(t).not.toContain('host load')
+  expect(t).not.toContain('of 100 (10%)')
+  await ui.unmount()
+})

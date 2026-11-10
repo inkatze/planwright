@@ -251,6 +251,18 @@ expect_err "D-8: the refusal names the field" "format"
 mc_run mc-budget.sh report --program nosuch
 expect_rc "an unconfigured program" 3
 
+# The panel draws a plain name for every limit this script emits, so no
+# dimension reaches the operator under its raw key.
+panel_src=$repo_root/hooks/mission-control/panel.tsx
+budget_dims=$(sed -n 's/^DIMENSIONS="\(.*\)"$/\1/p' "$repo_root/scripts/mc-budget.sh")
+for dim in $budget_dims; do
+  if grep -Eq "^  $dim: '" "$panel_src"; then
+    ok "the panel names the $dim limit in plain words"
+  else
+    fail "the panel has no plain name for the $dim limit"
+  fi
+done
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-budget: $failures failure(s)" >&2
   exit 1

@@ -456,7 +456,21 @@ function readyRows(view: PanelView): string[] {
   })
 }
 
-const HEADROOM_NAME: Record<string, string> = { sessions: 'Sessions running', polls_per_hour: 'Checks per hour' }
+// One plain name per limit the budget script emits (scripts/mc-budget.sh
+// DIMENSIONS); tests/test-mc-budget.sh holds the two lists together.
+const HEADROOM_NAME: Record<string, string> = {
+  sessions: 'Sessions running',
+  polls_per_hour: 'Checks per hour',
+  context_steps: 'Mission control steps',
+  host_load: 'Machine load',
+}
+
+// Machine load is a percent of the processors, so it reads as a percent of its
+// limit; the other limits are counts.
+function headroomRow(h: { dimension: string; used: number; limit: number; percent: number }): string {
+  const name = HEADROOM_NAME[h.dimension] ?? h.dimension.replace(/_/g, ' ')
+  return h.dimension === 'host_load' ? `${name}: ${h.used}% of the ${h.limit}% limit` : `${name}: ${h.used} of ${h.limit} (${h.percent}%)`
+}
 
 // The low-signal facts, plainly worded, in one compact card: how much of each
 // limit is used, how often the session's context has been reset, and how
@@ -469,7 +483,7 @@ function upkeep(view: PanelView): string[] {
       ? 'Notes not written yet'
       : `Notes last updated ${age(d.kbAge)} ago`
   return [
-    ...d.headroom.map(h => `${HEADROOM_NAME[h.dimension] ?? h.dimension.replace(/_/g, ' ')}: ${h.used} of ${h.limit} (${h.percent}%)`),
+    ...d.headroom.map(headroomRow),
     `Context resets since start: ${view.compactions}`,
     notes,
   ]
