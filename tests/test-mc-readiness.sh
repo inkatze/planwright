@@ -514,6 +514,28 @@ bundle demo Ready signed
 sh_interim=$(commit_specs)
 spec_pr "$sh_interim" specs/demo/requirements.md
 has "a brief anchored by the interim whole-file form is signed off" "signoff${tab}demo${tab}signed${tab}-"
+anchor_form() { # anchor_form <recorded command>: a signed bundle whose brief records that command
+  bundle demo Ready signed
+  # shellcheck disable=SC2016 # the brief's backticks are literal
+  printf '# Brief\n\nAnchor: `%s` — computed as\n`%s`\n' \
+    "$(/bin/sh "$repo_root/scripts/spec-anchor.sh" "$repo/specs/demo")" "$1" >"$repo/specs/demo/kickoff-brief.md"
+}
+anchor_form 'spec-anchor.sh specs/demo'
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a brief anchored by the logical form is signed off" "signoff${tab}demo${tab}signed${tab}-"
+anchor_form 'scripts/spec-anchor.sh specs/demo'
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a brief anchored by the canonical form is signed off" "signoff${tab}demo${tab}signed${tab}-"
+anchor_form 'spec-anchor.sh specs/demo'
+printf 'An edit after the sign-off.\n' >>"$repo/specs/demo/design.md"
+spec_pr "$(commit_specs)" specs/demo/design.md
+has "a logical-form brief over edited content is not signed off" "signoff${tab}demo${tab}unsigned${tab}its content at the head is not what the kickoff signed off"
+anchor_form 'spec-anchor.sh specs/elsewhere'
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a logical form naming another directory is not recomputed" "signoff${tab}demo${tab}unsigned${tab}its kickoff brief's anchor uses a form this check does not recompute"
+anchor_form 'sh ./spec-anchor.sh specs/demo'
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a script form with a prefix is not recomputed" "signoff${tab}demo${tab}unsigned${tab}its kickoff brief's anchor uses a form this check does not recompute"
 # shellcheck disable=SC2016 # the brief's backticks are literal
 printf 'Anchor: `%s` — computed as\n`sha1sum specs/demo/*`\n' 0123456789abcdef0123456789abcdef01234567 >>"$repo/specs/demo/kickoff-brief.md"
 sh_otherform=$(commit_specs)
