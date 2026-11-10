@@ -1406,7 +1406,8 @@ wait_done "$(field name)"
 # A reservation made after this launch is not counted against it, so two
 # concurrent launches near the bound admit the first rather than refusing both.
 seed_row mc-delta-worker-0000000009 delta worker
-sed -i "s/^launched${TAB}.*/launched${TAB}99999999999/" "$capreg/mc-delta-worker-0000000009"
+sed "s/^launched${TAB}.*/launched${TAB}99999999999/" "$capreg/mc-delta-worker-0000000009" >"$capreg/mc-delta-worker-0000000009.tmp.sed" \
+  && mv "$capreg/mc-delta-worker-0000000009.tmp.sed" "$capreg/mc-delta-worker-0000000009"
 set_cap 5
 cap_launch before-later
 [ "$RC" = 0 ] && ok "a later reservation is not counted against an earlier launch" || fail "a later reservation held an earlier launch: $ERR"
@@ -1434,7 +1435,7 @@ wait_done "$(field name)"
 # The shipped default bound holds with no machine-local setting: the registry
 # holds the default six by now.
 rm -f "$tmp/absent.yml"
-sed -i "/^fleet_host_max_live_workers:/d" "$tracked"
+sed "/^fleet_host_max_live_workers:/d" "$tracked" >"$tracked.sed" && mv "$tracked.sed" "$tracked"
 cap_launch default-held
 [ "$RC" = 4 ] && ok "the shipped default bound holds a launch at six sessions" || fail "the shipped default let a launch through (exit $RC)"
 
