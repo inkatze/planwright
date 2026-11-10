@@ -159,6 +159,18 @@ test('a surface that cannot draw pictures keeps a plain-text Prop pal and its st
   await ui.unmount()
 })
 
+test('a ready pull request is not set beside a line saying nothing waits', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: PRS }).replace(/^waiting\t.*$/m, 'waiting\t0'),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain('#1 Ship the widget · ready to merge')
+  expect(t).not.toContain('Nothing waits on you.')
+  await ui.unmount()
+})
+
 test('the summary sits above the mascot, which closes the pane', async ($, on) => {
   const w = world(on)
   await boot($, w)

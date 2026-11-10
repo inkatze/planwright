@@ -499,7 +499,7 @@ function waitingRows(view: PanelView): string[] {
   const named = queued.slice(0, Math.max(rest, 0))
   const unnamed = Math.max(rest - named.length, 0)
   const all = [...rows, ...named, ...(unnamed > 0 ? [`${unnamed} waiting on you, not in a session`] : [])]
-  return all.length === 0 ? ['Nothing waits on you.'] : all
+  return all
 }
 
 // The pull requests the readiness check passed, each named; the count stands
@@ -512,6 +512,11 @@ function namedReady(d: PanelDigest): PanelMergeCommand[] | null {
   const commands = liveCommands(d)
   const isNamed = !d.isMergeReadyPartial && !d.unreadable.includes('merge-ready store') && commands.length === liveMergeReady(d)
   return isNamed ? commands : null
+}
+
+const waitingCard = (view: PanelView): CardLine[] => {
+  const lines = [...waitingRows(view).map(text => ({ text })), ...readyRows(view)]
+  return lines.length === 0 ? [{ text: 'Nothing waits on you.' }] : lines
 }
 
 function readyRows(view: PanelView): CardLine[] {
@@ -601,7 +606,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
       )}
       {Section(t, width, "What's going on", [summary(view)])}
       {Section(t, width, 'Right now', readouts(view).map(r => r.text))}
-      {Card(t, width, 'Waiting on you', [...waitingRows(view).map(text => ({ text })), ...readyRows(view)])}
+      {Card(t, width, 'Waiting on you', waitingCard(view))}
       {Section(
         t,
         width,
