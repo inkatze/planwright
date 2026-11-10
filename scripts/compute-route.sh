@@ -94,6 +94,7 @@ gate_file() {
 }
 
 conf() {
+  # shell-config-pin: runs in the worktree whose gate it routes
   "$script_dir/config-get.sh" "$1" 2>/dev/null
 }
 
