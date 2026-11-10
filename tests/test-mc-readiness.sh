@@ -26,7 +26,9 @@ ok() { echo "ok: $1"; }
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-readiness.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
-trap 'rm -rf "$tmp"' EXIT
+# A run stopped while a directory is mode-restricted must still clean up.
+trap 'chmod -R u+rwX "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'exit 143' HUP INT TERM
 
 # shellcheck source=tests/lib/mission-control-fixture.sh
 . "$here/lib/mission-control-fixture.sh"

@@ -228,6 +228,19 @@ step_pool_capacity: 1
 step_pool_wait: 60m
 full_suite_pool:
 
+# Compute host (scripts/compute-route.sh). A test or lint run the gate runners
+# start (/execute-task's full suite, step-run.sh command steps) goes to this
+# SSH host alias through `fleet-remote.sh compute` instead of running here.
+# `local` (or empty) keeps every run on this machine, which is the shipped
+# posture: an adopter has no second machine. A host that is unreachable, over
+# fleet_compute_load_cap (one-minute load per core), or failing before its
+# command starts is passed over with one warning and the run happens here.
+# fleet_compute_timeout is the run's budget in seconds; empty takes the
+# channel's own default (long for the full check, short for one file).
+fleet_compute_host: local
+fleet_compute_load_cap: 0.4
+fleet_compute_timeout:
+
 # The operator kill-switch for the autonomous daemon layer (fleet-autonomy
 # D-15, REQ-F1.3). `true` pauses every autonomous daemon action the fleet
 # introduces (cleanup, restart, throttle) without disabling fleet operation

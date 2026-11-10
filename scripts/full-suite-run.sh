@@ -129,6 +129,9 @@ run_suite() {
       PLANWRIGHT_STEP_POOL_HOLD=$_rs_mark
       export PLANWRIGHT_STEP_POOL_HOLD
     fi
+    # The compute router runs a gate command that maps to a compute kind on
+    # fleet_compute_host when one is set, and otherwise execs it unchanged.
+    if [ -x "$script_dir/compute-route.sh" ]; then exec "$script_dir/compute-route.sh" -- "$@" </dev/null; fi
     exec "$@" </dev/null
   )
   suite_rc=$?

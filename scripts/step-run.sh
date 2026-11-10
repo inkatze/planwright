@@ -160,6 +160,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 SR="$script_dir/step-record.sh"
 SP="$script_dir/step-pool.sh"
 RS="$script_dir/resolve-steps.sh"
+CR="$script_dir/compute-route.sh"
 TAB=$'\t'
 NL=$'\n'
 
@@ -765,6 +766,9 @@ cmd_command() {
   set -m
   (
     [ "$STATE" != taken ] || export PLANWRIGHT_STEP_POOL_HOLD="$ROW_POOL:$OWNER"
+    # The compute router runs the check on fleet_compute_host when one is set
+    # and the command maps to a compute kind; otherwise it execs the command.
+    if [ -x "$CR" ]; then exec "$CR" -- "${ARGV[@]}" </dev/null >>"$o" 2>&1; fi
     exec "${ARGV[@]}" </dev/null >>"$o" 2>&1
   ) &
   child=$!
