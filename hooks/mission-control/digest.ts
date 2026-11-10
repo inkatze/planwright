@@ -266,12 +266,12 @@ function flightWhat(kind: keyof typeof KINDS, subject: string | null, prTitle: s
 // One plain sentence per session: the state, then what it is doing, never
 // its handle or scope. Those waiting on an answer come first, then those not
 // responding. The mission-control session itself is never waiting on the
-// operator, whatever its prompt shows. `isOwn` marks it.
+// operator, whatever its prompt shows.
 export function flightRows(
   flights: ReloadedFlight[],
   program = '',
   prTitle: (n: number) => string | undefined = () => undefined,
-): { state: PanelFlight['state']; text: string; isOwn: boolean }[] {
+): { state: PanelFlight['state']; text: string }[] {
   return flights
     .map((f, i) => {
       const kind = flightKind(f)
@@ -287,7 +287,7 @@ export function flightRows(
           : r.state === 'stuck'
             ? `Not responding: ${what}`
             : `Working on ${what}`
-      return { state: r.state, text, isOwn: r.kind === 'mc' }
+      return { state: r.state, text }
     })
 }
 
