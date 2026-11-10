@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import { cellsOf, wrapRows } from './panel'
 import { BAND, bandOf, boot, digestText, PANE, ran, world } from './fixture'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -13,8 +14,8 @@ test('the pane draws every store from the fixture digest, on every surface', asy
     const has = async (text: RegExp) => expect((await ui.find({ type: 'Text', text }))?.text).toMatch(text)
     await has(/Mission control · alpha/)
     await has(/In flight \(2\)/)
-    await has(/^spec task · working$/)
-    await has(/^one-off change · working$/)
+    await has(/^spec task · alpha · working$/)
+    await has(/^one-off change · docs · working$/)
     await has(/2 waiting on you/)
     await has(/^Context 42% · compacts at 95% · OK$/)
     await ui.unmount()
@@ -45,29 +46,26 @@ test('sessions in flight are said in plain words, one row each', async ($, on) =
   })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '')
-  const at = texts.indexOf('In flight (15)')
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').filter(t => t.trim() !== '')
+  const at = texts.indexOf('In flight (12)')
   expect(at).toBeGreaterThan(-1)
-  // Waiting on an answer first, then not responding, one row each.
-  expect(texts.slice(at + 1, at + 16)).toEqual([
-    'spec draft · waiting for an answer',
-    'spec task · waiting for an answer',
-    'spec draft · waiting for an answer',
-    'spec task · not responding',
-    'spec task · working',
-    'one-off change · working',
-    'one-off change · working',
-    'spec task · working',
-    'one-off change · working',
-    'spec task · working',
-    'spec kickoff · working',
-    'other session · working',
-    'spec task · working',
-    'review · working',
-    'mission-control session · working',
+  // Waiting on an answer is said under Waiting on you, never here; not responding comes first.
+  expect(texts.slice(at + 1, at + 13)).toEqual([
+    'spec task · review-effectiveness · not responding',
+    'spec task · alpha · working',
+    'one-off change · docs · working',
+    'one-off change · panel-fix · working',
+    'spec task · kickoff-lifecycle · working',
+    'one-off change · spec-kickoff-lens-fix · working',
+    'spec task · universal-binary · working',
+    'spec kickoff · universal-binary · working',
+    'other session · offload · working',
+    'spec task · tower-comms · working',
+    'review · PR 848 · working',
+    'mission-control session · alpha · working',
   ])
   const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|a1b2c3|cubic|gen-2|task-\d|:kickoff|stream-json|\.sh\b/
-  expect(texts.slice(at, at + 16).filter(t => ids.test(t))).toEqual([])
+  expect(texts.slice(at, at + 13).filter(t => ids.test(t))).toEqual([])
   await ui.unmount()
 })
 
@@ -648,4 +646,122 @@ test('the mascot knob keeps its meaning with pictures: off draws no grid, still 
   await off.clock.advance(3_000)
   expect((await pictures(ui, 'Raster'))[0]?.cells).toBe(before)
   await ui.unmount()
+})
+
+// A row is painted across its card's full width: the card colour runs under
+// the short rows too, so the card reads as one block.
+const CARD_BG = '#141821'
+const STRIP_BG = '#1d2230'
+
+test('every card row is painted across the full card width, short rows included', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rowBoxes = (await ui.findAll({ type: 'Box' })).filter(
+    b => b.props?.backgroundColor === CARD_BG && b.props?.flexDirection === 'row',
+  )
+  expect(rowBoxes.length).toBeGreaterThan(5)
+  for (const b of rowBoxes) expect(cellsOf(b.text ?? '')).toBe(PANE.props.bodyColumns)
+  await ui.unmount()
+})
+
+test('the status strip is painted across the band width', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const strip = (await band.findAll({ type: 'Box' })).filter(b => b.props?.backgroundColor === STRIP_BG)
+  expect(strip).toHaveLength(1)
+  expect(cellsOf(strip[0]!.text ?? '')).toBe(BAND.props.bodyColumns)
+  await band.unmount()
+})
+
+// REQ-L1.8 register: each row names the spec or change it is about.
+test('each session row names the spec or change it is about', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
+  expect(t).toContain('spec task · alpha · working')
+  expect(t).toContain('one-off change · docs · working')
+  await ui.unmount()
+})
+
+// A waiting session is said once, under Waiting on you, never again in flight.
+test('a session waiting on an answer is not listed again in flight', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: ['flight\tsd-k\tspec-draft-panel\tstream-json-persistent\twaiting'] }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
+  const row = 'spec draft · panel · waiting for an answer'
+  expect(t.filter(l => l === row)).toHaveLength(1)
+  expect(t.indexOf(row)).toBeLessThan(t.indexOf('In flight (2)'))
+  expect(t.filter(l => l.includes('waiting for an answer'))).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('a queued question no session asks is named under Waiting on you, its session row not repeated', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [
+        'flight\tsd-k\tspec-draft-panel\tstream-json-persistent\twaiting',
+        'queued\tsd-k\tPick a name for the panel?',
+        'queued\tq-9\tShip the migration?',
+      ],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
+  expect(t).toContain('Ship the migration? · waiting for an answer')
+  expect(t).not.toContain('Pick a name for the panel? · waiting for an answer')
+  expect(t).not.toContain('1 waiting on you, not in a session')
+  expect(t.filter(l => l.includes('waiting for an answer'))).toHaveLength(2)
+  await ui.unmount()
+})
+
+test('a ready pull request is named under Waiting on you, not counted alone', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: ['merge-ready\t1\tall', 'merge-command\tacme/widgets\t908\tchecked-merge-908'],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
+  expect(t).toContain('#908 · ready to merge')
+  expect(t).not.toContain('1 ready to merge')
+  await ui.unmount()
+})
+
+// A bare task scope names no spec, so the row carries no subject.
+test('a session scoped to a bare task names no subject', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['flight\tbt-1\ttask-3\ttmux\tworking'] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
+  expect(t).toContain('spec task · working')
+  await ui.unmount()
+})
+
+// A wide glyph in a title takes two cells, so the row still ends at the card's edge.
+test('a wide glyph in a pull request title keeps every card row at the card width', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: ['reviews\tok\t5', 'review-mine\tacme/widgets\t9\tdraft\tgreen\t0\tyes\t-\t修正 the 🚀 launch notes for the widget panel and more words'] }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rowBoxes = (await ui.findAll({ type: 'Box' })).filter(
+    b => b.props?.backgroundColor === CARD_BG && b.props?.flexDirection === 'row',
+  )
+  expect(rowBoxes.some(b => (b.text ?? '').includes('修正'))).toBe(true)
+  for (const b of rowBoxes) expect(cellsOf(b.text ?? '')).toBe(PANE.props.bodyColumns)
+  await ui.unmount()
+})
+
+test('a wide glyph that fills a narrow row leaves no blank row after it', () => {
+  expect(wrapRows('😀', 1)).toEqual(['😀'])
+  expect(wrapRows('', 4)).toEqual([''])
+  expect(wrapRows('🚀 go', 4)).toEqual(['🚀', 'go'])
 })

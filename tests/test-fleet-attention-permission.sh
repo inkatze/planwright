@@ -296,6 +296,15 @@ approvals${TAB}3" ] || fail "queue --tally split wrong (got: $out)"
 [ "$(fa queue --count)" = 8 ] || fail "queue --count must stay the full awaiting count"
 echo "ok: queue --tally counts worker permission prompts apart from the operator's items"
 
+items=$(fa queue --items) || fail "queue --items failed"
+[ "$items" = "item${TAB}o1${TAB}Ship it?
+item${TAB}o2${TAB}flight-parked: point
+item${TAB}o3${TAB}worker question (AskUserQuestion) req cccc3333 - $hint
+item${TAB}o4${TAB}permission request tool Bash, should it run?
+item${TAB}o5${TAB}permission request tool Bash req dddd4444 - $hint, then ship it?" ] \
+  || fail "queue --items must name each operator item's question, approvals left out (got: $items)"
+echo "ok: queue --items names each operator item by its question"
+
 reset
 out=$(fa queue --tally) || fail "queue --tally on no store failed"
 [ "$out" = "operator${TAB}0

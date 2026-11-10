@@ -170,7 +170,11 @@ record "a tmux window named in its session is in flight" flight w-win flight:nam
 record "a window whose name looks like an id is found by name" flight w-idname flight:id-like-name tmux working
 record "an empty field keeps the columns" flight w-empty - stream-json working
 expect_no_out "pid 1 is never a live worker" "w-init"
-expect_no_out "a session whose process is gone is not in flight" "w-dead"
+if printf '%s\n' "$OUT" | grep -q "^flight${tab}w-dead${tab}"; then
+  fail "a session whose process is gone is not in flight: a flight record carries w-dead"
+else
+  ok "a session whose process is gone is not in flight"
+fi
 expect_no_out "a tmux window the server does not list is not in flight" "w-tmux-gone"
 expect_no_out "a record with no process to watch is not in flight" "w-print"
 expect_no_out "a legacy three-field record is not in flight" "w-legacy"

@@ -133,6 +133,8 @@ Usage:
                                              one per ready pull request in
                                              the merge-ready store: the
                                              checked merge command
+        queued<TAB><worker><TAB><question>   one per operator item in the queue,
+                                             the question the row asks
         approvals<TAB><n>                    the queue's worker permission
                                              prompts, which mission control
                                              answers (with a number waiting)
@@ -1142,6 +1144,8 @@ waiting() {
     D_WAITING=$wt_n
     D_APPROVALS=$wt_a
     printf 'waiting\t%s\napprovals\t%s\n' "$wt_n" "$wt_a"
+    /bin/sh "$script_dir/fleet-attention.sh" queue --items 2>/dev/null | mc_clean_text \
+      | awk -F "$TAB" '$1 == "item" { print "queued\t" $2 "\t" $3 }'
   else
     printf 'unreadable\toperator queue\n'
   fi
