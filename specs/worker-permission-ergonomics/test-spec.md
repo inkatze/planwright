@@ -112,7 +112,7 @@ unsafe (`fish -c "fish -c '<unsafe>'"` defers by recursive analysis, not only by
 hitting the depth cap). Guard-completeness fixtures: `find -execdir`/`-ok`/
 `-fprint*` and `sed W` defer; `git branch -D`/`git remote add`/`git remote
 set-url`/`git tag -d`/`git stash drop`/`git stash pop` defer while the positive
-list-forms (`git branch`, `git stash list`) allow.
+list-forms (`git branch`, `git stash list`) allow. `gitleaks detect` and `gh release view` rows are REQ-A1.17's.
 
 ### REQ-A1.6 — The explicit defer set [test]
 
@@ -264,7 +264,8 @@ include exactly the `Write`/`Edit` path rules REQ-F1.6 and REQ-G1.8 add and
 the `Read` rule REQ-E1.6 adds; the
 `Bash(…)` deny rules stay unchanged.)*
 `[manual]`: a dispatched worker under the wired profile runs a full task without
-a prompt-flood. This confirmation MUST be re-run against the shipped pure-shell
+`Bash(…)` deny rules stay unchanged.)*
+*(Amended 2026-11-10: Task 16 moves the baseline to the narrowed hooks-directory rows REQ-F1.7 names.)*
 hook (Task 1); the PR #232 evidence covered the python prototype, not the port,
 so it does not transfer.
 
@@ -534,3 +535,63 @@ session, arm, and command hash and no command text; an unwritable log leaves
 the `allow` well-formed; a record with no log home yields no `own-branch` or
 `scratch` approval while read-only approvals proceed; the launcher or stop
 pruning step enforces the retention bound.
+
+## 2026-11-10 delta
+
+### REQ-A1.15 — The `deny` block stays enforced, narrowed only at the hooks rows [test]
+
+Supersedes REQ-A1.11's entry, which it keeps unchanged; the `deny` block
+differs from its pre-change content only by the `Write`/`Edit` path rules
+REQ-F1.6 and REQ-G1.8 add, the `Read` rule REQ-E1.6 adds, and the
+hooks-directory rows REQ-F1.7 narrows (the baseline fixture moves with Task 16).
+
+### REQ-A1.16 — `nice -n <n>` is a transparent prefix [test]
+
+Supersedes REQ-A1.13's entry, which it keeps. `nice -n 10 git status`,
+`nice -n 0 git status`, and `nice -n 19 bash tests/x.sh` allow;
+`nice -n 20 git status`, `nice -n -5 git status`, `nice -5 git status`,
+`nice --adjustment=5 git status`, `nice -n "$X" git status`, bare `nice`, and
+`nice -n 10 rm -rf x` defer (the wrapped command's verdict governs).
+
+### REQ-A1.17 — `gitleaks detect` and `gh release view` are read-only approvals [test]
+
+`gitleaks detect --no-git --source <worktree file> --no-banner` and
+`gh release view v1 --json tagName` allow; `gitleaks detect --report-path f`,
+`gitleaks detect --config f`, `gitleaks detect --source /etc`,
+`gitleaks detect --source ../x`, `gh release view --web`, `gh release view -R o/r`,
+and `gh release create v1` defer.
+
+### REQ-E1.7 — `export` of an allowlisted name [test]
+
+`export LC_ALL=C` and `export NO_COLOR=1; git log` allow, and a later
+`$LC_ALL` resolves to the literal; `export PATH=/x`, `export GIT_SSH_COMMAND=x`,
+`export LD_PRELOAD=/x`, `export NODE_OPTIONS=x`, `export LC_ALL`,
+`export LC_ALL=C TZ=UTC`, `export -n LC_ALL`, `export -p`,
+`export LC_ALL=$(cat f)`, `declare -x LC_ALL=C`, and fish `set -x LC_ALL C` defer.
+
+### REQ-E1.8 — `mktemp` inside an assignment's substitution [test]
+
+Under the scratch arm, `X=$(mktemp -d)` and `X=$(mktemp "$SCRATCH/t.XXXX")`
+allow; a later `rm -rf "$X"` and a redirect to `"$X/f"` still defer (the variable
+is opaque); `X=$(mktemp -p /etc)`, `X=$(mktemp --tmpdir=/x)`, `X=$(mktemp -u)`,
+`X=$(mktemp ../t.XXXX)`, and `X=$(mktemp -d)` with no scratch root in the
+record or outside the scratch arm defer.
+
+### REQ-E1.9 — fish `and`, `or`, `not` [test]
+
+`fish -c "git status; and git log"`, `fish -c "git status; or git log"`, and
+`fish -c "not git diff --quiet; and git log"` allow;
+`fish -c "git status; and rm -rf x"` defers (the second segment is analysed);
+`fish -c "begin; git status; end"`, `fish -c "git status; and (cat f)"`, and
+nesting past the recursion bound defer.
+
+### REQ-F1.7 — Hooks-directory file-tool protection follows the real hooks path [test]
+
+Supersedes REQ-F1.6's entry, which it keeps. Permission-matcher (or hook)
+fixture rows: `Write`/`Edit` on the worktree root's `githooks/x`,
+`.githooks/x`, `.git/hooks/x`, and the resolved `core.hooksPath` directory
+denied; on `test/githooks/x`, `src/githooks/x`, and `lib/.githooks/x` allowed;
+the old any-depth rows absent only when the cover is shown to deny the same
+protected directories; a hook route fails closed on an error. A `[manual]`
+re-verify against the installed Claude Code version records the anchoring
+probe's outcome in the matcher model doc.

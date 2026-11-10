@@ -154,6 +154,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   Code's evaluation order, and the `deny` block SHALL remain enforced
   verbatim, changing only by the additions REQ-F1.6 and REQ-G1.8 name.
   *(Cites: D-10, D-13; obs:4dda9fe1; the 2026-08-18 amendment note (Sources).)*
+  **Superseded-by: REQ-A1.15** (2026-11-10) — the `deny` block's
+  hooks-directory file-tool rows are narrowed to the real hooks path.
 - **REQ-A1.4** A command SHALL be auto-approved only if EVERY segment of a
   compound command (quote-aware split on `;`, `&&`, `||`, `|`, `&`, and
   newlines) is independently known-safe. Any ambiguity SHALL defer: unbalanced
@@ -235,6 +237,7 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   exhaustive positive verb membership is carried by the implementation (Task 1)
   and pinned by the adversarial suite (REQ-B1.6).
   *(Cites: D-3; the validated prototype (Sources).)*
+  *(Extended by REQ-A1.17 (2026-11-10): `gitleaks detect` and `gh release view`.)*
 - **REQ-A1.6** Everything not in the known-safe set SHALL defer, explicitly
   including `rm`, `curl … | sh`, `sudo`, `bash -c`/`sh -c`, in-place edits,
   write-redirects to a non-`/dev/null` target, command substitution, mutating
@@ -271,6 +274,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   approval follows its verdict; any other `timeout` or `time` form defers.
   *(Cites: D-3, D-19; brief Amendment 1 (2026-07-18); the live-run prompt
   replay (Sources).)*
+  **Superseded-by: REQ-A1.16** (2026-11-10) — `nice -n <int>` joins the
+  transparent prefixes.
 - **REQ-A1.7** The hook SHALL consider only the Bash tool; for every other tool
   it SHALL defer.
   *(Cites: D-2.)*
@@ -321,6 +326,50 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   path resolving outside every such root SHALL defer, so
   `bash ../../../tmp/evil/scripts/x.sh` and `bats /tmp/evil.bats` MUST defer.
   *(Cites: D-3, D-10; security-posture path-access (Sources).)*
+- **REQ-A1.15** (supersedes REQ-A1.11) The hook SHALL NEVER emit `allow` for a
+  command that any `Bash(…)` rule of the worker profile's `deny` block
+  matches, at any self-approval policy value and for every approval category,
+  declared command-step lines included: the guard SHALL read those rules and
+  refuse a match before any approval is considered. The suite SHALL assert
+  this outcome against the actual `deny` block rather than relying on Claude
+  Code's evaluation order, and the `deny` block SHALL remain enforced
+  verbatim, changing only by the additions REQ-F1.6 and REQ-G1.8 name and the
+  narrowing of the hooks-directory file-tool rows REQ-F1.7 names.
+  *(Cites: D-10, D-13, D-29; obs:4dda9fe1; the 2026-08-18 amendment note
+  (Sources); drafting-session decision (2026-11-10).)*
+- **REQ-A1.16** (supersedes REQ-A1.13) Everything no enabled policy arm
+  approves SHALL defer, explicitly including `rm`, `curl … | sh`, `sudo`,
+  `bash -c`/`sh -c`, interpreters given a program (`python3`, `perl`, `node`,
+  `awk -f`), command substitution outside REQ-E1.3 and REQ-E1.8, process kills
+  (`kill`/`pkill`), command-runner verbs that execute an arbitrary
+  sub-command (`env`, `xargs`, `nohup`, `setsid`, `stdbuf`, `chroot`, and
+  `nice` outside the form below),
+  writer coreutils and in-place edits whose target falls outside every enabled
+  arm, mutating `git`/`gh` subcommands outside the own-branch arm, every `gh`
+  write (they are outward-facing), text-tool write- and execute-escapes (`sed`
+  `w`/`W`/`s///w`/`e`/`s///e`, in every form including `sed -i`, `awk`
+  `print >`/`system()`), and the variable-naming forms `test -v`, `[ -v`, and
+  `printf -v`, whose operand bash evaluates as an arithmetic subscript that
+  can run a command substitution. The `time` keyword (bare or with `-p`),
+  `timeout <duration>` (no flags; a duration matching
+  `^[0-9]+(\.[0-9]+)?[smhd]?$`), and `nice -n <n>` (the one flag `-n`, then
+  a plain decimal literal `n` from 0 to 19, so no privileged negative
+  adjustment, and no `-<n>` or `--adjustment` spelling) SHALL be analysed as
+  transparent prefixes: the command they wrap is verified exactly as if it
+  stood alone, and approval follows its verdict; any other `timeout`, `time`,
+  or `nice` form defers, and a bare `nice` with no wrapped command defers.
+  *(Cites: D-3, D-19, D-30; brief Amendment 1 (2026-07-18); the live-run
+  prompt replay (Sources); the W63 observation (Sources).)*
+- **REQ-A1.17** The known-safe set of REQ-A1.5 SHALL also comprise, each under
+  the REQ-A1.8 safe-invocation rule: `gitleaks detect` whose every option is
+  one of `--no-git`, `--no-banner`, `--verbose`, `--redact`, and `--source`
+  with a plain literal path operand that canonicalizes inside the worktree or
+  the worker's scratch root (a scanner that reads and reports, never one
+  writing a report: `--report-path`, `-r`, `--baseline-path`, `--config`, and
+  every other option defer); and the read-only `gh` form `gh release view`
+  (and `gh release list`) with no `--web`/`-w` and no `--repo` or `-R`
+  override. Neither alters the REQ-F1.5 floor for `gh` writes.
+  *(Cites: D-31; the W63 observation (Sources).)*
 
 ## REQ-B — Implementation, robustness, and security
 
@@ -406,6 +455,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   resolves under a marketplace install; `defaultMode: default` and the `deny`
   block SHALL be kept verbatim.
   *(Cites: D-5, D-6.)*
+  *(Read through REQ-A1.15 (2026-11-10): "verbatim" admits the hooks-directory
+  narrowing REQ-F1.7 names.)*
 - **REQ-C1.2** The auto-approve hook SHALL apply only to dispatched worker
   sessions (via `config/worker-settings.json`), never to the tower session or a
   human's interactive session; it SHALL NOT be added to the plugin-global
@@ -526,6 +577,37 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   The worker's own environment stays readable, as `env` and `printenv`
   already are.
   *(Cites: D-27; brief Amendment 3 (2026-10-10).)*
+- **REQ-E1.7** `export NAME=<plain literal>` SHALL be approvable as one
+  state-setting segment when `NAME` is on an enumerated allowlist of names
+  that steer no tool, loader, shell, or git behaviour the worker could turn
+  into execution (the seed is `LC_ALL`, `LANG`, `TZ`, `NO_COLOR`,
+  `FORCE_COLOR`, `CI`, `TERM`, `COLUMNS`, and `LINES`), when `NAME` also
+  passes REQ-E1.2's name screen, and when the value passes REQ-E1.2's
+  plain-literal rule; it carries its value to later segments exactly as a
+  plain assignment does. Any other name, `export` with no value or with
+  several operands, `export -n`/`-p`/`-f`, a `declare -x` or `typeset -x`
+  spelling, and a fish `set -x` spelling SHALL defer. Growing the allowlist
+  is a spec amendment, never a runtime setting.
+  *(Cites: D-24, D-32; the W63 observation (Sources).)*
+- **REQ-E1.8** The REQ-E1.3 substitution rule SHALL also admit one writing
+  inner command: `mktemp`, `mktemp -d`, or either with one literal template
+  operand, as the inner command of an assignment's value (`X=$(mktemp -d)`),
+  only when the scratch arm is in force, the template (if any) carries no
+  `..` and canonicalizes inside the worker's scratch root, no `-p`,
+  `--tmpdir`, `-u`, or `--suffix` option is present, and the session record
+  names a scratch root (a bare `mktemp` creates under the process's `TMPDIR`,
+  which the launcher sets to that root). Everything else in REQ-E1.3 stands:
+  the variable stays opaque under REQ-E1.1, so a later use of it in a
+  position whose approval depends on its value still defers.
+  *(Cites: D-11, D-33; the W63 observation (Sources).)*
+- **REQ-E1.9** Inside `fish -c "<inner>"` analysis, `and` and `or` as the
+  first word of a segment SHALL be analysed as `&&` and `||` respectively
+  (the previous segment's status gating this one), and a leading `not` as a
+  transparent negation of the command that follows it; every other fish
+  keyword or construct (`begin`/`end`, `switch`, `function`, `(…)`) stays
+  deferred as REQ-A1.9 states, and the bounded recursion depth of REQ-B1.3
+  still applies.
+  *(Cites: D-3, D-34; the W63 observation (Sources).)*
 
 ## REQ-F — The self-approval policy
 
@@ -601,6 +683,29 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   tools cannot reach what the guard refuses. Running an edited repo
   `scripts/`/`tests/` file stays approvable (the trusted-checkout residual).
   *(Cites: D-22; kickoff Amendment 2 decision (2026-10-05).)*
+  **Superseded-by: REQ-F1.7** (2026-11-10) — the hooks-directory file-tool
+  rows no longer reach every directory of that name.
+- **REQ-F1.7** (supersedes REQ-F1.6) The `own-branch` arm SHALL exclude, and
+  the floor SHALL refuse, writes to paths a tool runs or reads as trust input
+  without a further prompt: the worktree's `.git` entry, the configured git
+  hooks directory, `.claude/`, and tool configuration that executes commands
+  (`mise.toml`, `mise.local.toml`, `.mise/`, `lefthook.yml`). The worker
+  profile SHALL add `Write`/`Edit` deny rules for the same paths, so the
+  `Write` and `Edit` tools cannot reach what the guard refuses. For the hooks
+  directory the file-tool protection SHALL cover exactly the directories git
+  runs hooks from in the worker's worktree (the resolved `core.hooksPath`, or
+  the default, and the worktree root's tracked `githooks/` and `.githooks/`),
+  never a directory that merely shares the name deeper in the tree (a test
+  fixture directory such as `test/githooks/` or `src/githooks/` stays
+  editable). The narrowing SHALL be made by a profile path rule anchored to
+  the working directory when the permission matcher can express one, and
+  otherwise by a worker-tier file-tool hook that resolves the same
+  directories; either way a protected directory is refused at least as
+  strongly as before, and the old any-depth rows leave the profile only once
+  that cover is in place and tested. Running an edited repo `scripts/`/`tests/`
+  file stays approvable (the trusted-checkout residual).
+  *(Cites: D-22, D-29; kickoff Amendment 2 decision (2026-10-05);
+  drafting-session decision (2026-11-10).)*
 
 ## REQ-G — Profiles, delivery, and the unattended contract
 
@@ -714,6 +819,16 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   *(Cites: D-21; obs:9255e1d1; drafting-session decision (2026-10-05).)*
 
 ## Changelog
+
+- 2026-11-10 — Delta drafted (Draft content inside the Ready bundle; the
+  `/spec-kickoff` delta re-walkthrough is the sign-off path), meaning-class.
+  Narrows the hooks-directory file-tool deny to the real hooks path (REQ-F1.7
+  supersedes REQ-F1.6; REQ-A1.15 supersedes REQ-A1.11; D-29), and admits six
+  worker command shapes that still prompted: `nice -n <n>` (REQ-A1.16
+  supersedes REQ-A1.13; D-30), `gitleaks detect` and `gh release view`
+  (REQ-A1.17; D-31), an allowlisted `export` (REQ-E1.7; D-32), `mktemp`
+  inside an assignment's substitution (REQ-E1.8; D-33), and fish
+  `and`/`or`/`not` (REQ-E1.9; D-34). Tasks 16 to 18.
 
 - 2026-11-03 — Expression-only fix from Task 12's convergence review: the
   REQ-A1.11 and REQ-C1.1 test-spec entries name the `Read` rule REQ-E1.6
@@ -979,3 +1094,19 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
 - **The `proc(5)` manual page** (consulted 2026-10-10) — `/proc/<pid>/environ`
   holds a process's initial environment, readable by a process of the same
   user. Grounds D-27.
+- **The W63 observation** (mission control, 2026-11-10) — a worker measured
+  the shipped guard on fixtures and listed the shapes that still prompt: a
+  `nice -n <int>` prefix, `export NAME=…`, `X=$(mktemp -d)`, fish
+  `and`/`or`/`not`, `gitleaks detect --no-git --source <file>`, and
+  `gh release view`. Framed REQ-A1.16, REQ-A1.17, REQ-E1.7 to REQ-E1.9 and
+  D-30 to D-34.
+- **The githooks deny block report** (mission control, 2026-11-10) — the
+  profile's file-tool deny on any `githooks` or `.githooks` directory blocks a
+  consuming repository's `test/githooks/` test file. Framed REQ-F1.7, REQ-A1.15
+  and D-29.
+- **Research: `docs/permission-matcher-model.md` M10** (consulted 2026-11-10)
+  — the documented path-rule anchors (`//` absolute, `/` the settings source,
+  bare or `./` the working directory) and the any-depth reading of a single
+  directory segment followed by `/**` in deny rules; whether any spelling
+  anchors one segment to the working directory is unsettled in the model and
+  is probed by Task 16. Grounds D-29.
