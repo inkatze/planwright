@@ -58,8 +58,11 @@ ho due --program alpha --context 5 --wakes 0 --compactions 2
 # ---------------------------------------------------------------------------
 # A first start: no holder, so a plain launch runs and takes the name.
 # ---------------------------------------------------------------------------
+printf 'mission_control_successor_remote_control: inherit\n' >"$adopter/planwright.yml"
 ho launch --program alpha --brief "$tmp/brief.md"
 [ "$RC" = 0 ] || fail "the first launch exited $RC: $ERR"
+case $ERR in *'not carried'*) fail "a first start with no predecessor spoke about Remote Control: $ERR" ;; *) ok "a first start has nothing to inherit and says nothing about Remote Control" ;; esac
+rm -f "$adopter/planwright.yml"
 n1=$(col successor 2)
 wait_done "$n1"
 grep -qF 'Run program alpha.' "$fleet/mission-control/launch/$n1/brief.md" \

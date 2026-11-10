@@ -961,7 +961,11 @@ case $verb in
               say "remote control is not carried to $name: the predecessor's --remote-control name is outside the session-name grammar"
             }
             ;;
-          *) say "remote control is not carried to $name: the predecessor's process cannot be read, so the successor starts without it" ;;
+          *)
+            if [ -n "$H_SESSION" ]; then
+              say "remote control is not carried to $name: the predecessor's process cannot be read, so the successor starts without it"
+            fi
+            ;;
         esac
         ;;
     esac
