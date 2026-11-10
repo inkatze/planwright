@@ -15,6 +15,8 @@ ROWS="$REPO_ROOT/tests/fixtures/mission-control-guard-acts.tsv"
 SCRATCH="$SANDBOX/scratch"
 FIXHOME="$SANDBOX/fixhome"
 mkdir -p "$SCRATCH/proj/.claude" "$FIXHOME/.claude"
+# The installed-root screen reads the plugin cache under the user's home.
+export HOME="$FIXHOME"
 gitq init --bare "$SCRATCH/bare.git"
 # A link to a .claude directory whose hooks directory does not exist yet.
 ln -s "$FIXHOME/.claude" "$SCRATCH/cl"
