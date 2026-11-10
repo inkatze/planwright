@@ -300,6 +300,42 @@ expect_state "an open dialog reads open-selector" mc-alpha-orchestrator-sel open
 expect_event "open-selector emits an attention event" stall-open-selector mc-alpha-orchestrator-sel
 expect_out "an open permission prompt is named as one" "waiting on a permission prompt"
 
+# A mission control's own question to the operator is a select menu with no
+# permission signature. The mission control is waiting on the operator, so
+# no event wakes it; a worker's identical dialog still raises one.
+row mc-alpha-mc-question mission-control tmux @19
+window 19 "$live_pid" "$tmp/menu.pane"
+stall classify --program alpha --now 1000 mc-alpha-mc-question
+expect_state "a mission control's open question reads operator-question" mc-alpha-mc-question operator-question
+[ "$(events | awk -F '\t' -v s=mc-alpha-mc-question '$4 == s && $3 ~ /^stall-/ { n++ } END { print n + 0 }')" = 0 ] \
+  && ok "a mission control's open question emits no stall event" \
+  || fail "a mission control's own open question emitted a stall event"
+stall classify --program alpha --now 1100 mc-alpha-mc-question
+[ "$(events | awk -F '\t' -v s=mc-alpha-mc-question '$4 == s && $3 ~ /^stall-/ { n++ } END { print n + 0 }')" = 0 ] \
+  && ok "a held operator question keeps emitting nothing" \
+  || fail "a held operator question emitted a stall event"
+
+row mc-alpha-worker-question worker tmux @20
+window 20 "$live_pid" "$tmp/menu.pane"
+stall classify --program alpha --now 1000 mc-alpha-worker-question
+expect_state "a worker's open question still reads open-selector" mc-alpha-worker-question open-selector
+expect_event "a worker's open question still emits stall-open-selector" stall-open-selector mc-alpha-worker-question
+
+row mc-alpha-mc-perm mission-control tmux @21
+window 21 "$live_pid" "$tmp/selector.pane"
+stall classify --program alpha --now 1000 mc-alpha-mc-perm
+expect_state "a mission control's permission prompt still reads open-selector" mc-alpha-mc-perm open-selector
+expect_event "a mission control's permission prompt still emits stall-open-selector" stall-open-selector mc-alpha-mc-perm
+
+row mc-alpha-mc-norow mission-control tmux @22
+window 22 "$live_pid" "$tmp/menu.pane"
+printf 'format\t9\nname\tmc-alpha-mc-norow\n' >"$reg/mc-alpha-mc-norow"
+stall classify --program alpha --now 1000 mc-alpha-mc-norow
+expect_rc "a mission control whose registry row is unreadable is refused, not classified" 2
+[ "$(events | awk -F '\t' -v s=mc-alpha-mc-norow '$4 == s && $3 ~ /^stall-/ { n++ } END { print n + 0 }')" = 0 ] \
+  && ok "a mission control with no readable row emits no stall event" \
+  || fail "a mission control with no readable row emitted a stall event"
+
 row mc-alpha-worker-menu worker tmux @18
 window 18 "$live_pid" "$tmp/menu.pane"
 stall classify --program alpha --now 1000 mc-alpha-worker-menu

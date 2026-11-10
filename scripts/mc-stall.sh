@@ -62,6 +62,12 @@ The states, first match wins:
                          is absent, on its first sample, changing or stable
   open-selector          a dialog or select menu is open in the pane; the
                          reason names a permission prompt as one
+  operator-question      a mission control's own dialog that is not a
+                         permission prompt, so a question it has put to the
+                         operator; it emits no event, since the operator is
+                         the one it waits on. Any other session's dialog, and
+                         a mission control's permission prompt, stay
+                         open-selector. The kind comes from the registry row
   unsubmitted-prompt     the input box holds a staged paste
   turn-ended-background  the main turn ended with background agents running
   idle-question          the session is idle and its last line above the
@@ -363,6 +369,8 @@ classify_one() {
     fi
   elif [ "$c_have_pane" = 0 ]; then
     c_state=live c_reason="$L_REASON, no pane"
+  elif [ "$c_kind" = mission-control ] && selection_prompt_present "$c_pane" && ! permission_prompt_present "$c_pane"; then
+    c_state=operator-question c_reason='mission control awaiting the operator'
   elif permission_prompt_present "$c_pane"; then
     c_state=open-selector c_reason='waiting on a permission prompt'
   elif selection_prompt_present "$c_pane"; then
@@ -400,7 +408,7 @@ classify_one() {
 
   c_event=-
   case $c_state in
-    working | idle | live) ;;
+    working | idle | live | operator-question) ;;
     *)
       if [ "$c_state" != "$c_prev_state" ]; then
         c_event=$(mc_event emit --program "$PROGRAM" --now "$NOW" -- "stall-$c_state" "$c_name" "$c_kind: $c_reason") || {
