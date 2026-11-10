@@ -1,34 +1,28 @@
 #!/bin/sh
 # compute-route.sh — run a test or lint command on the configured compute host
-# when one is set, else here. The gate runners (the full-suite step of
-# /execute-task and scripts/step-run.sh's command steps) put this in front of
-# their command, so one knob moves test and lint runs off a crowded machine.
+# (fleet_compute_host) when one is set, else here. The gate runners
+# (full-suite-run.sh, step-run.sh command steps) put it in front of their
+# command, so one knob moves test and lint runs off a crowded machine.
 #
 # Usage:
 #   compute-route.sh [--check | --task <name> | --test <tests/test-x.sh>] -- <command> [<arg>...]
 #
-# The command always has a local form: it runs there when fleet_compute_host
-# is `local` or empty, when the command maps to no compute kind, and as the
-# fallback below. With no kind flag the command is mapped by shape: `mise run
-# check` is --check, `mise run <task>` is --task <task>, and `bash` or
-# `/bin/bash` on a tests/test-<name>.sh path is --test, or on a file holding one
-# such `mise run` line (/execute-task's saved gate command) maps like that line.
-# A kind flag overrides the mapping.
+# Without a kind flag the command is mapped by shape: `mise run check` is
+# --check, `mise run <task>` is --task, `bash tests/test-<name>.sh` is --test,
+# and `bash <file>` on a file holding one such `mise run` line (the saved gate
+# command) maps like that line. Anything else runs here.
 #
-# A configured host runs the kind through `fleet-remote.sh --host <h> compute`
-# in the caller's worktree. The host is passed over when it cannot be reached,
-# or when its one-minute load per core exceeds fleet_compute_load_cap, and a
-# worktree with uncommitted changes runs here, since the remote tests only the
-# committed HEAD. So is a run that failed before its command started (no clone
-# there, a refused target, a setup failure, SSH down). Each of these prints one `compute-route: warning:` line and runs
-# the command locally. A run whose command started is never repeated, whatever
-# its exit status: the remote result is the result.
+# The host runs the kind through `fleet-remote.sh compute` in the caller's
+# worktree. The command runs here instead, with one `compute-route: warning:`
+# line, when the host cannot be reached, is over fleet_compute_load_cap (load
+# per core), or the run fails before its command starts (a refused target, no
+# clone, SSH down); and silently when the knob is `local`. A worktree with
+# uncommitted changes also runs here, since the host tests only the committed
+# HEAD. A run whose command started is never repeated: its result stands.
 #
-# Knobs (config-get.sh): fleet_compute_host, fleet_compute_load_cap (load per
-# core, a decimal), fleet_compute_timeout (whole seconds, empty for the
-# channel's own default).
-#
-# Exit: the command's own status (local or remote); 2 usage error.
+# Knobs (config-get.sh): fleet_compute_host, fleet_compute_load_cap,
+# fleet_compute_timeout (whole seconds; empty takes the channel's default).
+# Exit: the command's own status; 2 usage error.
 set -u
 # The command runs in the caller's locale; only this script's own parsing is
 # pinned to C.
