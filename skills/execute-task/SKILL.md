@@ -392,14 +392,14 @@ classify the edit on the amendment axis:
    `gate-wiring` doctrine (D-2). This skill supplies the summary inputs: the
    kickoff brief path relative to its repository or plain root, the task IDs,
    the REQs satisfied (from the task `Citations:`), the test additions and what
-   they verify, and implementation notes (key decisions). The audit record is the convergence
+   they verify, and key decisions. The audit record is the convergence
    steps' folded output plus every in-run point's table (`step-record.sh
    render --run <id>`, `none` rows included). The approval act, never the
    ready flip, signs off pending-sign-off items; reject one before it by its
    printed recipe.
 
-   Then run the
-   `post-pr` point, the PR number now in its context; after its list and the
+   Then run the `post-pr` point (PR number in context) without waiting on
+   checks (custom-steps); after its list and the
    re-fire pass (`step-run.sh refire`'s lines, hosted with `--refire-of`,
    before post-pr's completion), re-emit the tables, and if a post-pr record moved the
    head fetch and regenerate the

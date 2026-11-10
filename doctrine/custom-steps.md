@@ -43,6 +43,15 @@ unit with an open PR is a new run, REQ-A1.1), in this order (D-3):
 | `pre-pr` | after the last convergence step, before the push |
 | `post-pr` | after the draft PR exists and its body is assembled |
 
+**Remote checks and `post-pr`.** A `post-pr` step that consumes no CI result
+runs while the PR's remote checks are still pending; it never waits for them.
+That covers a bot-review request, a review skill, a walk and the PR body. Only
+the ready flip (`pre-ready-flip`, `scripts/ready-flip.sh`) needs every check
+green. A channel post or notice needs only that no check is red, and a red
+check goes straight to log diagnosis rather than to a wait. A step's record
+never reads as covering CI: a cadence that is done names its points and steps,
+not the checks.
+
 **Wired in `/spec-kickoff`:** `pre-spec-ready-flip`, after its push and PR
 step and before the terminal CI gate, on the head that flip lands on, once per
 sign-off that reaches that step, whether or not the flip is configured to

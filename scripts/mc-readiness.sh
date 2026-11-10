@@ -125,6 +125,12 @@ Usage:
       program's first repository, then the head read once more, a head that
       moved meanwhile failing the guard; nothing is written to any
       repository
+  mc-readiness.sh not-red --evidence <file>
+      the notice verdict over a collected evidence file: not-red<TAB><head>
+      (exit 0) when no check finished red, pending ones included; otherwise
+      red<TAB><head>, then fail<TAB>check<TAB><name> is <state> and
+      diagnose<TAB><name> per red check (exit 4). The ready flip never uses it:
+      walk refuses a pending or red check
   mc-readiness.sh check --program <p> --repo <owner/name> --pr <n>
                         [--worktree <dir>]
       collect, then walk, printing the walk
@@ -158,7 +164,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-readiness.sh walk|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
+  mc_usage_fail "usage: mc-readiness.sh walk|not-red|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
 }
 
 case ${1:-} in
@@ -227,6 +233,30 @@ evidence_store() { # evidence_store <program>: the store's path, its directory c
   es_dir="$es_home/kb/readiness-check"
   mkdir -p "$es_dir" || mc_fail "cannot create $es_dir"
   printf '%s\n' "$es_dir/evidence.tsv"
+}
+
+# not_red_awk <evidence>: the notice verdict. A check still pending passes; only
+# a check that finished red holds, and each one is named and routed to log
+# diagnosis. The ready flip judges every check by walk, never by this.
+not_red_awk() {
+  awk -F '\t' '
+function pass_check(s) { return s == "SUCCESS" || s == "NEUTRAL" || s == "SKIPPED" }
+function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
+FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit 4 } ; next }
+$1 == "head" { head = $2 }
+$1 == "check" && !pass_check($3) && !pending_check($3) { red[++nr] = $2 "\t" $3 }
+END {
+  if (badfmt) { print "red\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
+  if (head == "") { print "red\t-"; print "fail\thead\tno evidence at a head was collected"; exit 4 }
+  if (!nr) { print "not-red\t" head; exit 0 }
+  print "red\t" head
+  for (i = 1; i <= nr; i++) {
+    split(red[i], r, "\t")
+    print "fail\tcheck\t" r[1] " is " r[2]
+    print "diagnose\t" r[1]
+  }
+  exit 4
+}' "$1"
 }
 
 # walk <evidence> <conditions>: the verdict; returns 4 when not ready, 1
@@ -666,6 +696,11 @@ case $verb in
     fi
     [ -n "$conditions" ] && [ -r "$conditions" ] || usage
     walk "$evidence" "$conditions"
+    ;;
+  not-red)
+    [ -n "$evidence" ] || usage
+    [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
+    not_red_awk "$evidence"
     ;;
   collect | check)
     [ -n "$program" ] || usage

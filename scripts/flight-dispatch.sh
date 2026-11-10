@@ -874,7 +874,8 @@ write_brief() {
   if [ "$home" = pr ]; then
     _prepr_item="4. \`pre-pr\`: after the last convergence step, before the push."
     _postpr_item="5. \`post-pr\`: after the draft PR exists, with its number in the step
-   context (*Landing*)."
+   context (*Landing*). Do not wait on the PR's remote checks before its steps: they
+   run while those are pending, and only the flip needs them green."
   else
     _prepr_item="4. \`pre-pr\`: after the last convergence step, before landing the record."
     _postpr_item="5. \`post-pr\`: never fires on this flight. The file home opens no PR, and the
