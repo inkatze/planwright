@@ -44,10 +44,12 @@ fleet="$tmp/fleet"
 cleanup() {
   # Close any supervisor a failed case left running, through the rung's own
   # stop, before the scratch tree goes.
-  for d in "$fleet"/streamjson/*/; do
-    [ -d "$d" ] || continue
-    env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
-      stop "$(basename "$d")" --grace 1 >/dev/null 2>&1 || :
+  for fl in "$tmp/fleet" "$tmp/fleet-cap"; do
+    for d in "$fl"/streamjson/*/; do
+      [ -d "$d" ] || continue
+      env PLANWRIGHT_FLEET_STATE_DIR="$fl" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
+        stop "$(basename "$d")" --grace 1 >/dev/null 2>&1 || :
+    done
   done
   rm -rf "$tmp"
 }
@@ -77,6 +79,7 @@ mission_control_programs: [alpha]
 program_alpha_repositories: [$repo]
 program_alpha_spec_root: $repo/specs
 program_alpha_home: $home
+fleet_host_max_live_workers: off
 EOF
 mc_run mc-rules.sh add alpha --text "Never hand the operator a pane" --subject panes --source "operator, fixture" --date 2026-10-26
 [ "$RC" = 0 ] || fail "fixture: the program rule was not added: $ERR"
@@ -1318,6 +1321,136 @@ if [ -n "$relay" ] && printf '%s\n' "$relay" | grep -qF -- '--repo' && ! printf 
   ok "the skill's kickoff relay passes the repository, not a start directory"
 else
   fail "the kickoff relay names a directory: $relay"
+fi
+
+# ---------------------------------------------------------------------------
+# REQ-L1.7: a host-wide bound on live sessions across every program's rows in
+# the shared registry (fleet_host_max_live_workers), mission-control sessions
+# excluded, the operator-asked override kept, a remote host's rows never ours.
+# ---------------------------------------------------------------------------
+fleet="$tmp/fleet-cap"
+mkdir -p "$fleet/mission-control/sessions"
+capreg="$fleet/mission-control/sessions"
+# seed_row <name> <program> <kind> — a registered session of another program.
+seed_row() {
+  printf '%s\n' "format${TAB}1" "name${TAB}$1" "state${TAB}launched" "token${TAB}seed-$1" "pid${TAB}1" \
+    "program${TAB}$2" "owner${TAB}mission-control:$2" "kind${TAB}$3" "scope${TAB}seed" "backend${TAB}stream-json" \
+    "handle${TAB}$1" "profile${TAB}worker" "tier${TAB}-" "brief${TAB}-" "cwd${TAB}-" "task${TAB}-" "primary${TAB}-" \
+    "marker${TAB}-" "launched${TAB}1" >"$capreg/$1"
+}
+seed_row mc-beta-worker-0000000001 beta worker
+seed_row mc-gamma-reviewer-0000000002 gamma reviewer
+seed_row mc-beta-mission-control-0000000003 beta mission-control
+set_cap() { printf 'fleet_host_max_live_workers: %s\n' "$1" >"$tmp/absent.yml"; }
+ml_cap() { ml "$@"; }
+cap_launch() { # <scope> [extra launch args...]
+  cl_scope=$1
+  shift
+  rec="$tmp/rec-cap-$cl_scope"
+  mkdir -p "$rec"
+  SHIM_RECORD_DIR=$rec ml_cap launch --program alpha --kind worker --scope "spec:cap-$cl_scope" --brief "$tmp/brief.md" "$@"
+}
+
+set_cap 2
+cap_launch full
+cap_name=$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind worker --scope spec:cap-full)
+if [ "$RC" = 4 ] && [ ! -e "$capreg/$cap_name" ]; then
+  ok "a launch past the host-wide bound is refused (exit 4) and leaves no row"
+else
+  fail "a launch past the host bound exited $RC with row present=$([ -e "$capreg/$cap_name" ] && echo yes || echo no): $ERR"
+fi
+case $ERR in
+  *"beta 1"*"gamma 1"* | *"gamma 1"*"beta 1"*) ok "the refusal names each program and how many it holds" ;;
+  *) fail "the refusal does not name the programs and counts: $ERR" ;;
+esac
+case $ERR in
+  *fleet_host_max_live_workers*"--operator-asked"*) ok "the refusal names the knob and the operator-asked path" ;;
+  *) fail "the refusal does not name the knob and the override: $ERR" ;;
+esac
+[ ! -e "$fleet/mission-control/launch/$cap_name" ] && ok "a refused launch leaves no launch directory" \
+  || fail "a refused launch left its launch directory"
+
+set_cap 3
+cap_launch room
+if [ "$RC" = 0 ]; then
+  ok "a mission-control row is not counted against the bound"
+  wait_done "$(field name)"
+else
+  fail "two live workers and a mission-control row refused a launch under a bound of 3: $ERR"
+fi
+
+# Three live workers now; the bound of 3 holds the next one, and an
+# operator-asked launch goes past it with the bypass recorded first.
+cap_launch held
+[ "$RC" = 4 ] && ok "the bound counts the launched session too" || fail "a fourth worker under a bound of 3 exited $RC: $ERR"
+cap_launch asked --operator-asked
+if [ "$RC" = 0 ]; then
+  ok "an operator-asked launch goes past the host-wide bound"
+  wait_done "$(field name)"
+  asked_name=$(field name)
+  ml_out=$(cd "$repo" && env PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" HOME="$fixhome" \
+    /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha 2>/dev/null)
+  case $ml_out in
+    *"${TAB}host-cap-bypass${TAB}$asked_name${TAB}"*) ok "the bypass is recorded as a host-cap-bypass event" ;;
+    *) fail "no host-cap-bypass event for $asked_name: $ml_out" ;;
+  esac
+else
+  fail "the operator-asked launch past the host bound exited $RC: $ERR"
+fi
+
+# A mission-control launch is never held by the bound.
+SHIM_RECORD_DIR="$tmp/rec-cap-mc" ml_cap launch --program alpha --kind mission-control --scope cap-mc --brief "$tmp/brief.md"
+[ "$RC" = 0 ] && ok "a mission-control launch is not held by the host-wide bound" || fail "a mission-control launch under the bound exited $RC: $ERR"
+wait_done "$(field name)"
+
+# A reservation made after this launch is not counted against it, so two
+# concurrent launches near the bound admit the first rather than refusing both.
+seed_row mc-delta-worker-0000000009 delta worker
+sed "s/^launched${TAB}.*/launched${TAB}99999999999/" "$capreg/mc-delta-worker-0000000009" >"$capreg/mc-delta-worker-0000000009.tmp.sed" \
+  && mv "$capreg/mc-delta-worker-0000000009.tmp.sed" "$capreg/mc-delta-worker-0000000009"
+set_cap 5
+cap_launch before-later
+[ "$RC" = 0 ] && ok "a later reservation is not counted against an earlier launch" || fail "a later reservation held an earlier launch: $ERR"
+wait_done "$(field name)"
+rm -f "$capreg/mc-delta-worker-0000000009"
+
+# An operator-asked launch with room records no bypass.
+set_cap off
+cap_launch asked-room --operator-asked
+room_name=$(field name)
+wait_done "$room_name"
+ml_out=$(cd "$repo" && env PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" HOME="$fixhome" \
+  /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha 2>/dev/null)
+case $ml_out in
+  *"${TAB}host-cap-bypass${TAB}$room_name${TAB}"*) fail "an operator-asked launch with room recorded a bypass" ;;
+  *) ok "an operator-asked launch with room records no bypass" ;;
+esac
+
+# off: no bound.
+set_cap off
+cap_launch unlimited
+[ "$RC" = 0 ] && ok "off lifts the host-wide bound" || fail "off still held a launch: $ERR"
+wait_done "$(field name)"
+
+# The shipped default bound holds with no machine-local setting: the registry
+# holds the default six by now.
+rm -f "$tmp/absent.yml"
+sed "/^fleet_host_max_live_workers:/d" "$tracked" >"$tracked.sed" && mv "$tracked.sed" "$tracked"
+cap_launch default-held
+[ "$RC" = 4 ] && ok "the shipped default bound holds a launch at six sessions" || fail "the shipped default let a launch through (exit $RC)"
+
+# A malformed value is a refusal, never an unbounded launch.
+set_cap lots
+cap_launch malformed
+[ "$RC" -ne 0 ] && ok "a malformed bound refuses the launch" || fail "a malformed bound let a launch through"
+fleet="$tmp/fleet"
+
+# A session on another host (fleet-remote.sh) lives in that host's registry,
+# so the near side never reads this host's rows for it.
+if grep -q 'mission-control/sessions\|fleet_host_max_live_workers' "$repo_root/scripts/fleet-remote.sh"; then
+  fail "fleet-remote.sh consults this host's registry or bound"
+else
+  ok "a remote launch is counted on its own host, never against this host's bound"
 fi
 
 if [ "$failures" -gt 0 ]; then

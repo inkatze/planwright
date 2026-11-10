@@ -98,6 +98,19 @@ max_parallel_units: 3
 # an absent key keeps this default, a malformed value warns and falls back.
 fleet_max_parallel_units: 3
 
+# The host-wide ceiling on live sessions across every program sharing one
+# machine, with fleet_max_parallel_units and each program's own bounds kept
+# beneath it. It bounds the sum of every program's workers, reviewers,
+# walkers and relays registered in the shared mission-control registry
+# (mission-control sessions are not counted), checked by
+# scripts/mission-control-launch.sh before every such launch. A
+# positive integer, or `off` for no host-wide bound. The shipped number is
+# sized for a 12-core host; set it lower on a smaller machine. Sessions
+# offloaded to another host (scripts/fleet-remote.sh) are counted on that host,
+# never here. An operator-asked launch (--operator-asked) goes past it, with a
+# host-cap-bypass event recorded first.
+fleet_host_max_live_workers: 6
+
 # How /execute-task sequences a unit's steps (D-5, REQ-C1.3). `per-step` runs
 # implementation and each step the convergence point runs in its own fresh
 # /resume-seeded session, so context stays bounded and each review's perspective
