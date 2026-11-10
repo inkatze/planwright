@@ -11,6 +11,10 @@
 #   DEFER  <=> exit 0 AND stdout is empty/whitespace (no decision).
 #   The hook NEVER exits non-zero and NEVER emits deny/ask (REQ-A1.2, B1.7).
 #
+# Hermetic: sourcing pins TMPDIR to /tmp, builds the sandbox there and drops
+#   an inherited PLANWRIGHT_WORKER_SESSION_RECORD, so a suite run inside a
+#   worker session does not have its fixtures approved by the scratch arm.
+#
 # Sourcing runs setup: it exits the sourcing suite (status 1) when jq or the
 # hook is absent, and removes the sandbox on exit. finish_suite prints the
 # counts and sets the suite's exit status.
