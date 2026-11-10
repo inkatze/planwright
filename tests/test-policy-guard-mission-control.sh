@@ -149,7 +149,7 @@ cat >"$S/mc-program.sh" <<EOF
 #!/bin/sh
 case "\$1" in
   list) cut -f1 "$PROGS" | sort -u ;;
-  get) [ "\$3" = repositories ] && awk -F'\t' -v p="\$2" '\$1 == p { print \$2 }' "$PROGS" ;;
+  get) [ "\$2" != broken ] && [ "\$3" = repositories ] && awk -F'\t' -v p="\$2" '\$1 == p { print \$2 }' "$PROGS" ;;
   *) exit 2 ;;
 esac
 EOF
@@ -216,6 +216,9 @@ expect deny "[mission-control] a repository two different checkouts answer to is
 printf 'alpha\t%s\nbeta\t%s\n' "$WIDGETS" "$WIDGETS" >"$PROGS"
 pg mission-control 'gh pr ready 42 --repo acme/widgets'
 expect ask "[mission-control] one checkout listed by two programs is not ambiguous"
+printf 'alpha\t%s\nbroken\t%s\n' "$WIDGETS" "$DUP" >"$PROGS"
+pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect deny "[mission-control] a program whose repositories cannot be read refuses the flip rather than hiding a second match"
 printf 'alpha\t%s\n' "$SANDBOX/not-a-checkout" >"$PROGS"
 pg mission-control 'gh pr ready 42 --repo acme/widgets'
 expect deny "[mission-control] a listed path that is no checkout is refused"

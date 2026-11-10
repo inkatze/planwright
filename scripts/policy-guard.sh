@@ -2263,7 +2263,7 @@ resolve_program_repo() {
   [ "$rc" = 0 ] && [ -n "$progs" ] || emit_deny "$MC_FLIP_OTHER_REASON"
   for p in $progs; do
     need_timeout
-    paths=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" get "$p" repositories 2>/dev/null </dev/null) || continue
+    paths=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" get "$p" repositories 2>/dev/null </dev/null) || emit_deny "$MC_FLIP_OTHER_REASON"
     while IFS= read -r path; do
       case $path in /*) ;; *) continue ;; esac
       [ -d "$path" ] || continue
