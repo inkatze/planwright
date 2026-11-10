@@ -693,7 +693,7 @@ the configured cadence, D-33, and the packet is prepared at the ready-flip
 and merge-recommendation moments D-31 names as well as before a human
 gate.)*
 *(Amended at Amendment 6, 2026-11-09: the readiness check also refuses an operator-visible change with no recorded real-render approval, D-50.)*
-*(Amended at Amendment 7, 2026-11-10: a reviewer that reviews only once the pull request is ready is waited for after the flip, never before it, D-55.)*
+*(Amended at Amendment 7, 2026-11-10: a reviewer that reviews only once the pull request is ready is asked to review the draft first and waited for after the flip only as the fallback, D-55.)*
 
 ### D-26: Gate conditions as configurable data, inside the floors  (S)
 
@@ -1687,16 +1687,24 @@ the same posture as adoption of an operator's session (D-35).
 was the only thing wrong, so moving exactly that field, with both programs
 told, fixes it without touching a session.
 
-### D-55: A reviewer that reviews only when ready is waited for after the flip  (N; C, D-25, D-33)
+### D-55: A reviewer that reviews only when ready is asked in draft first, waited for after the flip as the fallback  (N; C, D-25, D-33)
 
 **Decision:** A knob, `mission_control_review_on_ready_bots` (shipped
 empty; each project or overlay names its hosted reviewers that review only
-once a pull request is ready), tells the readiness check (D-25) which
-reviewers cannot have reviewed before the flip. The readiness check is split
-at that line, not weakened: the flip conditions (D-33's cadence, CI,
-mergeability, threads, the spec and visual gates) are unchanged and never
-wait on those reviewers, because they cannot review first; the *merge-ready*
-report is a second evaluation at the same head, which additionally requires
+once a pull request is ready), tells mission control which reviewers are
+normally silent until the flip. Mission control first asks each of them to
+review the draft by its trigger comment (a trigger comment known to work on
+drafts, or the reviewer's documented review command), answers and resolves
+their threads through the bot-review step, and then flips: the operator's
+choice, so the flip means done. A reviewer that has not reviewed the
+current head within `mission_control_review_on_ready_wait` (shipped: 30
+minutes) of its trigger, or that cannot be triggered on a draft, falls back
+to the path below for that reviewer, so nothing deadlocks. The readiness
+check is split at that line, not weakened: the flip conditions (D-33's
+cadence, CI, mergeability, threads, the spec and visual gates) are
+unchanged and never wait on a fallback reviewer, because it cannot review
+first; the *merge-ready* report is a second evaluation at the same head,
+which additionally requires
 that every named reviewer has a review on the pull request's current head
 (read from the forge snapshot, D-12), that every thread is answered and
 resolved by the bot-review step, and that the flip conditions still hold.
@@ -1709,10 +1717,12 @@ The bot-review step's own contract (answers, rejections needing the
 operator's yes) is unchanged.
 
 **Alternatives considered:**
-- Trigger those reviewers before the flip. Rejected because: they review
-  only on the ready event, which is the thing being waited for.
-- Refuse the flip until they have reviewed. Rejected because: that
-  deadlocks, since the flip is what makes them review.
+- Flip first and always wait after it (the draft's first form). Rejected
+  because: the operator chose to review in draft and flip when done; it
+  survives only as the fallback for a reviewer that cannot or does not
+  review the draft.
+- Refuse the flip until they have reviewed, with no fallback. Rejected
+  because: a reviewer that only starts on the ready event would deadlock it.
 - Mark the pull request ready, then back to draft while waiting. Rejected
   because: it re-triggers or hides reviewers and misstates the pull
   request's state.

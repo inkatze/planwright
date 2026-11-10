@@ -1158,7 +1158,8 @@ fixed-string check.)*
 
 - **Deliverables:** `mission_control_review_on_ready_bots` and
   `mission_control_review_on_ready_wait` with their knob and
-  options-reference rows; the readiness check's merge-ready evaluation
+  options-reference rows; the draft-stage trigger comment and wait for each
+  named reviewer, falling back per reviewer; the readiness check's merge-ready evaluation
   (a review of the current head from each named reviewer, every thread
   resolved, the flip conditions still holding) and the *ready, awaiting
   reviewers* state; the ready-to-merge notice held until it passes; the

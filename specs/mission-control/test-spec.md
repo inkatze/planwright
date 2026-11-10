@@ -285,6 +285,11 @@ is not a missing pass at the flip, and the merge-ready report waits for it
 named reviewer:
 
 - positive control first: with the knob empty, behaviour is unchanged;
+- with a reviewer named and the pull request a draft, the trigger comment
+  is posted once per head and the flip waits for that reviewer's review of
+  the head and its resolved threads; a reviewer that has not reviewed
+  within the wait, or whose trigger is refused, falls back (below), and a
+  quota reply is recorded as skipped and never triggered again;
 - with a reviewer named and no review of the head, the flip evaluation
   passes (the gate never waits for it) and the merge-ready evaluation
   refuses with state *ready, awaiting reviewers*, and no ready-to-merge

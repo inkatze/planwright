@@ -380,7 +380,7 @@ later planwright bundles implement, D-12).
   report alone.
   *(Cites: D-25; the invocation seed (Sources), failure mode 8;
   obs:921b93c9, obs:3739da3e, obs:3d66ac61, obs:f63d8644, obs:f2c2c3ae.)*
-  *(Amended at Amendment 7, 2026-11-10: a reviewer that only reviews once the pull request is ready cannot have reviewed before the flip; the flip's own conditions are unchanged and the merge-ready report waits for that reviewer's pass, REQ-D1.17.)*
+  *(Amended at Amendment 7, 2026-11-10: a reviewer that only reviews once the pull request is ready is first asked to review while the pull request is a draft; the flip's own conditions are unchanged, and a reviewer that cannot or does not review the draft falls back to a merge-ready report that waits for its pass, REQ-D1.17.)*
 - **REQ-D1.9** The readiness check SHALL audit the configured cadence
   (every step the configuration requires at the in-run points through
   `post-pr`) at the pull request's head as the forge reports it, and SHALL
@@ -497,18 +497,27 @@ later planwright bundles implement, D-12).
 - **REQ-D1.17** The readiness check SHALL treat a hosted reviewer that
   reviews only once a pull request is marked ready (the names on
   `mission_control_review_on_ready_bots`, shipped empty, which each project
-  or overlay sets) as a gap it can close only after the flip: the flip is
-  never refused for want of that reviewer's pass, but the unit SHALL NOT be
-  reported merge-ready, and the ready-to-merge notice (the program's
-  standing rule) SHALL NOT be sent, until every named reviewer has reviewed
-  the pull request's current head, every thread of it has been answered
-  and resolved through the bot-review step, and the readiness check passes
-  again at that head. A reviewer that has not reviewed within
-  `mission_control_review_on_ready_wait` (shipped: 30 minutes) is an
-  operator item naming it, never a silent pass; a push after the flip
-  restarts the wait for the new head. A named reviewer's quota or outage
-  reply is recorded as that reviewer's skipped pass with the reply quoted.
-  *(Cites: D-55; the review-on-ready report (2026-11-10, Sources).)*
+  or overlay sets) in two steps. First, while the pull request is still a
+  draft, mission control SHALL ask each named reviewer to review the
+  current head by that reviewer's trigger comment, and every thread of the
+  review SHALL be answered and resolved through the bot-review step before
+  the flip. Second, a reviewer that has not reviewed the current head
+  within `mission_control_review_on_ready_wait` (shipped: 30 minutes) of
+  its trigger comment, or that cannot be triggered on a draft, falls back
+  to the after-flip path for that reviewer: the flip is never refused for
+  want of its pass, but the unit SHALL NOT be reported merge-ready, and the
+  ready-to-merge notice (the program's standing rule) SHALL NOT be sent,
+  until that reviewer has reviewed the pull request's current head, every
+  thread of it has been answered and resolved, and the readiness check
+  passes again at that head. A fallback reviewer silent for another
+  `mission_control_review_on_ready_wait` after the flip is an operator
+  item naming it, never a silent pass; a push restarts the wait for the new
+  head. A named reviewer's quota or outage reply is recorded as that
+  reviewer's skipped pass with the reply quoted, and a quota reply is not
+  triggered again.
+  *(Cites: D-55; the review-on-ready report (2026-11-10, Sources);
+  drafting-session decision (2026-11-10, operator: review in draft, flip
+  when done).)*
 
 ## REQ-E — Durable watchers
 
