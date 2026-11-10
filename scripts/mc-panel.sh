@@ -121,9 +121,12 @@ Usage:
                                              that does not answer are in
                                              neither count)
         waiting<TAB><n|->                    the operator queue's items that
-                                             wait on the operator, `-`
-                                             where the backend surfaces the
-                                             queue itself
+                                             wait on the operator: a live
+                                             session's question, never one a
+                                             gone or unknown session left
+                                             behind or mission control's
+                                             own; `-` where the backend
+                                             surfaces the queue itself
         merge-ready<TAB><n><TAB>all|partial  pull requests ready to merge
                                              (scripts/mc-merge-ready.sh count);
                                              the line names them unless none,
