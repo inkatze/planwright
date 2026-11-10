@@ -502,11 +502,9 @@ function waitingRows(view: PanelView): string[] {
   return all
 }
 
-// The pull requests the readiness check passed, each named; the count stands
-// where they cannot all be named.
-// A ready pull request shows once: named here with its merge command when the
-// store was read in full and every one has a command, else only counted here
-// and left to the Pull requests card to name.
+// A ready pull request shows once: the merge commands the Waiting on you card
+// names when the store was read in full and every one has a command, else null
+// (only counted there, and left to the Pull requests card to name).
 function namedReady(d: PanelDigest): PanelMergeCommand[] | null {
   if (mergeReadyCount(d) === null) return null
   const commands = liveCommands(d)
@@ -519,6 +517,8 @@ const waitingCard = (view: PanelView): CardLine[] => {
   return lines.length === 0 ? [{ text: 'Nothing waits on you.' }] : lines
 }
 
+// The pull requests the readiness check passed, each named; the count stands
+// where they cannot all be named.
 function readyRows(view: PanelView): CardLine[] {
   const d = view.digest!
   const toMerge = mergeReadyCount(d)
