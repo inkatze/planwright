@@ -1574,7 +1574,7 @@ case $cmd in
           ;;
         --count | --tally | --items)
           [ "$queue_out" = list ] || {
-            echo "fleet-attention: queue: --count and --tally are exclusive" >&2
+            echo "fleet-attention: queue: --count, --tally and --items are exclusive" >&2
             exit 2
           }
           queue_out=${1#--}
