@@ -31,7 +31,8 @@
 # command naming a posture file passes only as a plain read, and a word or
 # redirect target that could expand into one denies (the directories are the
 # file surface's alone: an installed planwright script runs from under
-# .claude/plugins). Its flip, for a PR of the repository it runs in only,
+# .claude/plugins). Its flip, for a PR of the repository it runs in or of a
+# program-listed one it names with --repo,
 # follows ready_flip_policy: unit-owner defers to the ready-guard's currency
 # check, human asks the operator; the MCP flip stays denied whole, as the
 # tower's is.
@@ -67,8 +68,11 @@
 #               the ready-guard's currency check runs next). mission-control:
 #               unit-owner defers as a worker's does, and human asks the
 #               operator, whose yes is the request to flip, the reason naming
-#               the setting that settles it; a flip naming another repository
-#               (--repo, a PR URL, GH_REPO, GH_HOST) denies.
+#               the setting that settles it. A flip naming another repository
+#               with one plain --repo owner/repo reads that repository's
+#               policy, where exactly one checkout the programs list has that
+#               github.com origin; a PR URL, GH_REPO, GH_HOST, a repository no
+#               program lists and an ambiguous one deny.
 #   undo        `gh pr ready --undo` and the MCP ready->draft transition: deny,
 #               the corrective helper being the only sanctioned re-draft.
 #               Running scripts/request-reviewer.sh performs no act here, so
@@ -2160,21 +2164,122 @@ classify_gh_ready() {
     deny_now 'gh pr ready --undo is denied: re-drafting a pull request is reserved to the corrective helper that follows a reviewer request (scripts/request-reviewer.sh). Ask the operator if a PR needs to go back to draft.'
     return 0
   fi
-  # The policy is read from the repository the command runs in, so mission
-  # control, which spans repositories, may flip only a PR of that one.
+  # The policy is read from the repository the flip targets: the one the
+  # command runs in, or one named with a single plain --repo owner/repo that
+  # eval_flip maps to a checkout a program lists. A PR URL, GH_REPO, GH_HOST
+  # and every other spelling deny.
   if [ "$TIER" = mission-control ]; then
-    local other=0
-    for a in "${SW[@]}"; do
-      case $a in -R | --repo | --repo=* | -R?* | *://*) other=1 ;; esac
+    local other=0 repo='' nrepo=0 i=0 n=${#SW[@]}
+    while [ "$i" -lt "$n" ]; do
+      a=${SW[$i]}
+      case $a in
+        -R | --repo)
+          nrepo=$((nrepo + 1))
+          i=$((i + 1))
+          repo=${SW[$i]:-}
+          [ "${SWL[$i]:-0}" = 1 ] || other=1
+          ;;
+        --repo=* | -R?*)
+          nrepo=$((nrepo + 1))
+          repo=${a#--repo=}
+          [ "$repo" != "$a" ] || repo=${a#-R}
+          [ "${SWL[$i]:-0}" = 1 ] || other=1
+          ;;
+        *://*) other=1 ;;
+      esac
+      i=$((i + 1))
     done
     case $P_CMD in *GH_REPO* | *GH_HOST*) other=1 ;; esac
     [ -z "${GH_REPO:-}" ] && [ -z "${GH_HOST:-}" ] || other=1
+    [ "$nrepo" -le 1 ] || other=1
+    if [ "$nrepo" = 1 ] && [ "$other" = 0 ]; then
+      plain_owner_repo "$repo" || other=1
+    fi
     if [ "$other" = 1 ]; then
-      deny_now 'this flip names a repository (--repo, a PR URL, GH_REPO or GH_HOST) other than the one whose ready_flip_policy the guard reads - refusing. Run gh pr ready <number> from that repository'"'"'s own checkout.'
+      deny_now "$MC_FLIP_OTHER_REASON"
+      return 0
+    fi
+    if [ "$nrepo" = 1 ]; then
+      [ "$eff_ok" = 1 ] \
+        || {
+          deny_now 'this flip runs after a directory change the guard cannot follow, so it cannot tell which flip it gates - refusing (fail closed). Issue gh pr ready on its own.'
+          return 0
+        }
+      queue_flip "$REPO_SENTINEL$repo" 1
       return 0
     fi
   fi
   queue_flip "$eff" "$eff_ok"
+}
+
+REPO_SENTINEL='@repo:'
+MC_FLIP_OTHER_REASON='this flip names a repository the guard cannot read the ready_flip_policy of (a PR URL, GH_REPO, GH_HOST, a repository no mission-control program lists, or an ambiguous one) - refusing. Name it as gh pr ready <number> --repo <owner>/<repo> for a repository a program lists, or run it from that repository'"'"'s own checkout.'
+
+# plain_owner_repo <value> — 0 for exactly owner/repo on github.com's charset,
+# with no host, path, expansion or leading dash.
+plain_owner_repo() {
+  local o r
+  case ${1:-} in
+    */*/* | */ | /* | -* | "") return 1 ;;
+    */*) ;;
+    *) return 1 ;;
+  esac
+  o=${1%%/*}
+  r=${1#*/}
+  case $o in "" | *[!A-Za-z0-9-]* | -* | *-) return 1 ;; esac
+  case $r in "" | *[!A-Za-z0-9._-]* | . | ..) return 1 ;; esac
+  [ "${#o}" -le 39 ] && [ "${#r}" -le 100 ]
+}
+
+# origin_owner_repo <dir> — set ORIGIN_OR to the lowercased owner/repo the
+# checkout's origin names on github.com, or '' when it names no such thing.
+ORIGIN_OR=''
+origin_owner_repo() {
+  local u
+  ORIGIN_OR=''
+  u=$(gitq "$1" remote get-url origin) || return 0
+  case $u in
+    https://github.com/* | ssh://git@github.com/*) u=${u#*github.com/} ;;
+    git@github.com:*) u=${u#git@github.com:} ;;
+    *) return 0 ;;
+  esac
+  u=${u%/}
+  u=${u%.git}
+  plain_owner_repo "$u" || return 0
+  lc "$u"
+  ORIGIN_OR=$LC
+}
+
+# resolve_program_repo <owner/repo> — set REPO_DIR to the one checkout the
+# mission-control programs list whose origin is that repository, or deny.
+REPO_DIR=''
+resolve_program_repo() {
+  local want progs p paths path found='' rc=0
+  lc "$1"
+  want=$LC
+  need_timeout
+  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/mc-program.sh" ] || emit_deny "$MC_FLIP_OTHER_REASON"
+  progs=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" list 2>/dev/null </dev/null) || rc=$?
+  [ "$rc" = 0 ] && [ -n "$progs" ] || emit_deny "$MC_FLIP_OTHER_REASON"
+  for p in $progs; do
+    need_timeout
+    paths=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" get "$p" repositories 2>/dev/null </dev/null) || emit_deny "$MC_FLIP_OTHER_REASON"
+    while IFS= read -r path; do
+      case $path in /*) ;; *) continue ;; esac
+      [ -d "$path" ] || continue
+      origin_owner_repo "$path"
+      [ "$ORIGIN_OR" = "$want" ] || continue
+      if [ -z "$found" ]; then
+        found=$path
+      elif [ "$found" != "$path" ]; then
+        emit_deny "$MC_FLIP_OTHER_REASON"
+      fi
+    done <<EOF
+$paths
+EOF
+  done
+  [ -n "$found" ] || emit_deny "$MC_FLIP_OTHER_REASON"
+  REPO_DIR=$found
 }
 
 queue_flip() {
@@ -3966,6 +4071,12 @@ MC_FLIP_ASK_REASON='ready_flip_policy is human in this repository, so mission co
 eval_flip() {
   local dir=$1
   [ "$dir" != "$MCP_DIR_SENTINEL" ] || dir=$PAYLOAD_CWD
+  case $dir in
+    "$REPO_SENTINEL"*)
+      resolve_program_repo "${dir#"$REPO_SENTINEL"}"
+      dir=$REPO_DIR
+      ;;
+  esac
   read_knob ready_flip_policy "$dir" human unit-owner
   case $KNOB_VAL in
     unit-owner) return 0 ;;
