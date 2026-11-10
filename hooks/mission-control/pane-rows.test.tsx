@@ -305,3 +305,20 @@ test('every limit mission control reports has a plain name and reads in plain wo
   expect(t).not.toContain('of 100 (10%)')
   await ui.unmount()
 })
+
+test('the summary counts a session that stopped responding apart from those working', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: [tab('flight', 'st-1', 'billing:task-7', 'tmux', 'stuck')] }).replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await rows(ui)).join(' ')
+  expect(t).toContain('2 sessions are working, 1 is not responding. Nothing needs you right now.')
+  await ui.unmount()
+})
+
+test('the Right now readout names the pull requests to merge as well as the questions', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['merge-ready\t1\tall', tab('merge-command', 'acme/widgets', 908, 'checked-merge-908')] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await rows(ui)).toContain('Waiting on you 2 questions, 1 to merge · ACT')
+  await ui.unmount()
+})

@@ -111,7 +111,14 @@ export function readouts(view: PanelView): Readout[] {
   }
 
   if (!d || d.waiting === null) out.push(line('Waiting on you unknown', 'UNKNOWN'))
-  else out.push(line(`Waiting on you ${d.waiting === 0 ? 'none' : d.waiting}`, d.waiting > 0 ? 'ACT' : 'OK'))
+  else {
+    // The Waiting on you card lists the pull requests to merge too, so the
+    // readout names them rather than counting questions alone.
+    const ready = mergeReadyCount(d)
+    const toMerge = ready === null ? '' : `, ${ready} to merge`
+    const asks = d.waiting === 0 ? 'none' : toMerge ? `${d.waiting} ${d.waiting === 1 ? 'question' : 'questions'}` : d.waiting
+    out.push(line(`Waiting on you ${asks}${toMerge}`, d.waiting > 0 || ready !== null ? 'ACT' : 'OK'))
+  }
   return out
 }
 
@@ -418,10 +425,12 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 function summary(view: PanelView): string {
   const d = view.digest!
   const n = flightCount(view)
+  // Counted from the rows In flight shows: a session not responding is not working.
+  const stuck = flightRows(d.flights, view.program).filter(r => r.state === 'stuck').length
+  const busy = /^[0-9]+$/.test(n) ? Number(n) - stuck : 0
+  const stuckNote = stuck > 0 ? `, ${stuck} ${stuck === 1 ? 'is' : 'are'} not responding` : ''
   const working = /^[0-9]+$/.test(n)
-    ? n === '0'
-      ? 'No sessions are working.'
-      : `${plural(Number(n), 'session is', 'sessions are')} working.`
+    ? `${busy === 0 ? 'No sessions are' : plural(busy, 'session is', 'sessions are')} working${stuckNote}.`
     : `Sessions working: ${n === '?' ? 'unknown' : n}.`
   const ready = mergeReadyCount(d)
   const readyN = ready === null ? 0 : /^[0-9]+$/.test(ready) ? Number(ready) : null
