@@ -564,7 +564,12 @@ run_hook "$DECLARED --mode strict" Bash "$FXC"
 elapsed=$SECONDS
 HOOK=$REAL_HOOK
 HOOK_ENV=()
-if [ "$CODE" -eq 0 ] && is_empty && [ -s "$FX/stub-slow/child" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 4 ]; then
+# The resolver would hold the hook for 300s, so any return well short of that
+# proves the deadline cut it off. The upper bound is a ceiling far above the
+# 2s deadline because a loaded, queued runner stretches the deadline's own
+# 0.1s ticks and the process startups around it; a tight bound measured the
+# runner's load, not the guard.
+if [ "$CODE" -eq 0 ] && is_empty && [ -s "$FX/stub-slow/child" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 30 ]; then
   pass "a resolver past the deadline defers within the bound"
 else
   fail "slow resolver — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"

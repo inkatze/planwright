@@ -220,6 +220,20 @@ wait_done() {
   done
 }
 
+# wait_cwd_free <dir> — until no process runs with <dir> as its working
+# directory (bounded at 60s, the load-tolerant wait for an exit). Where procfs
+# is absent there is no portable scan, so it returns at once.
+wait_cwd_free() {
+  [ -d /proc/self ] || return 0
+  wc_end=$(($(date +%s) + 60))
+  while [ "$(date +%s)" -lt "$wc_end" ]; do
+    held=$(find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$1" -o -lname "$1/*" \) 2>/dev/null | head -n 1)
+    [ -n "$held" ] || return 0
+    sleep 0.1
+  done
+  fail "a process still held $1 after 60s: $held"
+}
+
 printf '%s\n' "# Fixture brief" "" "Review the open pull requests." >"$tmp/brief.md"
 
 # The posture the launcher checks before every launch (REQ-G1.5).
@@ -1091,6 +1105,10 @@ fi
 # The same inputs relaunched after a retire find the worktree on the branch
 # they started, with no live session there, and reuse it.
 first_wt=$(cat "$rec/cwd" 2>/dev/null)
+# The result file lands while the supervisor is still winding down in the
+# worktree; the launcher refuses a worktree a process still holds, so the
+# relaunch waits for the first run's processes to leave it.
+wait_cwd_free "$first_wt"
 ml retire "$(field name)"
 rec="$tmp/rec-wt-again"
 mkdir -p "$rec"
