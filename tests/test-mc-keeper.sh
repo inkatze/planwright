@@ -249,8 +249,8 @@ expect_no_out "and its prompt is not" "pending-prompt-overdue${tab}cp-gone"
 rm -rf "$fleet/streamjson/cp-old" "$fleet/streamjson/cp-gone" "$fleet/streamjson/mc-beta-worker-0123456789" "$fleet/mission-control/sessions/mc-beta-worker-0123456789"
 
 # A request that has just arrived is announced at once, as pending-prompt, so
-# the operator need not wait for the overdue bound; a burst is one event, and
-# a second arrival inside the window waits for the window to close.
+# the operator need not wait for the overdue bound; the requests new to one
+# pass are one event.
 pp_fresh() { # pp_fresh <worker> <request-suffix> <received>
   mkdir -p "$fleet/streamjson/$1"
   printf 'bbbb2222-bbbb-cccc-dddd-eeee0000000%s\tpermission\t%s\tpending\n' "$2" "$3" >"$fleet/streamjson/$1/journal"
@@ -264,15 +264,49 @@ OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha
 expect_out "a request that just arrived is announced as pending-prompt" "announced${tab}pending-prompt${tab}cp-fresh-a"
 expect_no_out "a burst's second arrival is folded into that one event" "announced${tab}pending-prompt${tab}cp-fresh-b"
 mc_run mc-event.sh list --program alpha
-expect_out "the arrival lands in the event store" "pending-prompt${tab}cp-fresh-a${tab}stream-json worker cp-fresh-a has a request"
-pp_fresh cp-fresh-c 3 7010
+expect_out "the batch lands in the event store, naming both workers" "pending-prompt${tab}cp-fresh-a${tab}2 requests on stream-json workers cp-fresh-a, cp-fresh-b arrived together"
 OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7020 2>/dev/null)
-expect_no_out "an arrival inside the window is not announced yet" "announced${tab}pending-prompt${tab}cp-fresh-c"
-OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7400 2>/dev/null)
-expect_out "it is announced once the window has closed" "announced${tab}pending-prompt${tab}cp-fresh-c"
-expect_no_out "and the earlier request is not announced again" "announced${tab}pending-prompt${tab}cp-fresh-a"
-expect_no_out "and the folded request is not announced later" "announced${tab}pending-prompt${tab}cp-fresh-b"
-rm -rf "$fleet/streamjson/cp-fresh-a" "$fleet/streamjson/cp-fresh-b" "$fleet/streamjson/cp-fresh-c"
+expect_no_out "and the burst is not announced again at the next pass" "announced${tab}pending-prompt${tab}cp-fresh-a"
+rm -rf "$fleet/streamjson/cp-fresh-a" "$fleet/streamjson/cp-fresh-b"
+pp_fresh cp-fresh-c 3 7010
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7030 2>/dev/null)
+expect_out "a request that arrives in a later pass is announced in that pass, not held for a window" "announced${tab}pending-prompt${tab}cp-fresh-c"
+rm -rf "$fleet/streamjson/cp-fresh-c"
+
+# Several prompts from one worker in a row: each arrives in its own pass after
+# the last was answered, and each raises its own pending-prompt wake.
+pp_series() { # pp_series <worker> <n> <received> [<previous answered at>]
+  mkdir -p "$fleet/streamjson/$1"
+  : >"$fleet/streamjson/$1/journal"
+  if [ -n "${4:-}" ]; then
+    printf 'bbbb2222-bbbb-cccc-dddd-eeee0000000%s\tpermission\t%s\tanswered\t%s\n' "$(($2 - 1))" "$(($3 - 200))" "$4" >>"$fleet/streamjson/$1/journal"
+  fi
+  printf 'bbbb2222-bbbb-cccc-dddd-eeee0000000%s\tpermission\t%s\tpending\n' "$2" "$3" >>"$fleet/streamjson/$1/journal"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
+  printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
+}
+pp_series cp-series 1 7600
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7610 2>/dev/null)
+expect_out "a series' first prompt raises its wake" "announced${tab}pending-prompt${tab}cp-series"
+pp_series cp-series 2 7800 7650
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7810 2>/dev/null)
+expect_out "the second prompt from the same worker raises its own wake" "announced${tab}pending-prompt${tab}cp-series"
+pp_series cp-series 3 8000 7850
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 8010 2>/dev/null)
+expect_out "and the third raises its own wake" "announced${tab}pending-prompt${tab}cp-series"
+rm -rf "$fleet/streamjson/cp-series"
+
+# A reviewer the program launched, in a repository of its own, is woken the
+# same as a worker: the sweep does not key on kind or repository.
+mkdir -p "$fleet/mission-control/sessions" "$fleet/streamjson/cp-review"
+printf 'format\t1\nname\tmc-alpha-reviewer-0123456789\nprogram\talpha\nkind\treviewer\nscope\treview-9-r1\nbackend\tstream-json\nlaunched\t1\n' \
+  >"$fleet/mission-control/sessions/mc-alpha-reviewer-0123456789"
+printf '%s\n' "$tmp/elsewhere/.claude/worktrees/review" >"$fleet/streamjson/cp-review/cwd"
+pp_fresh cp-review 1 9000
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 9010 2>/dev/null)
+expect_out "a registered reviewer's prompt in another repository is announced" "announced${tab}pending-prompt${tab}cp-review"
+rm -rf "$fleet/streamjson/cp-review" "$fleet/mission-control/sessions/mc-alpha-reviewer-0123456789"
 
 # A pending-age setting the sweeps cannot read (15m, 0) used to end both
 # sweeps non-zero with nothing said, so no prompt was ever announced. It is now
