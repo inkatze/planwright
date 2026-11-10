@@ -572,7 +572,11 @@ rc_settle() {
 
 # rc_knob <off|inherit|on|default>: the successor Remote Control knob, in the adopter layer.
 rc_knob() {
-  { touch "$adopter/planwright.yml"; grep -v "^mission_control_successor_remote_control:" "$adopter/planwright.yml"; [ "$1" = default ] || printf 'mission_control_successor_remote_control: %s\n' "$1"; } >"$tmp/adopter.rc" \
+  {
+    touch "$adopter/planwright.yml"
+    grep -v "^mission_control_successor_remote_control:" "$adopter/planwright.yml"
+    [ "$1" = default ] || printf 'mission_control_successor_remote_control: %s\n' "$1"
+  } >"$tmp/adopter.rc" \
     && cat "$tmp/adopter.rc" >"$adopter/planwright.yml"
 }
 

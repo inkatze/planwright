@@ -532,11 +532,21 @@ is_own() {
 # with no name, `none`, or `unreadable` when no live process of that identity
 # can be read.
 predecessor_remote_control() {
-  if [ -z "$1" ] || ! proc_alive "$1" "$2" || [ ! -r "/proc/$1/cmdline" ]; then
+  if [ -z "$1" ] || ! proc_alive "$1" "$2"; then
     printf '%s\n' unreadable
     return 0
   fi
-  tr '\0' '\n' <"/proc/$1/cmdline" | awk '
+  # /proc keeps the argv NUL-separated; without it (macOS) ps joins it with
+  # spaces, which splits only a name the session-name grammar already refuses.
+  if [ -r "/proc/$1/cmdline" ]; then
+    prc_argv=$(tr '\0' '\n' <"/proc/$1/cmdline")
+  elif prc_argv=$(ps -ww -o command= -p "$1" 2>/dev/null) && [ -n "$prc_argv" ]; then
+    prc_argv=$(printf '%s\n' "$prc_argv" | tr ' ' '\n')
+  else
+    printf '%s\n' unreadable
+    return 0
+  fi
+  printf '%s\n' "$prc_argv" | awk '
     $0 == "--" { exit }
     seen { found = 1; if (substr($0, 1, 1) == "-") print "bare"; else print "named " $0; exit }
     $0 == "--remote-control" { seen = 1; next }
