@@ -171,16 +171,14 @@ test('a ready pull request is not set beside a line saying nothing waits', async
   await ui.unmount()
 })
 
-test('the summary sits above the mascot, which closes the pane', async ($, on) => {
+test('the mascot stays at the top of the pane, above the summary', async ($, on) => {
   const w = world(on)
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const t = await rows(ui)
   const prop = t.findIndex(l => l.startsWith('Prop pal'))
   expect(prop).toBeGreaterThan(-1)
-  expect(t.indexOf("What's going on")).toBeLessThan(prop)
-  expect(t.indexOf('Waiting on you')).toBeLessThan(prop)
-  expect(t.indexOf('Limits and upkeep')).toBeLessThan(prop)
+  expect(prop).toBeLessThan(t.indexOf("What's going on"))
   await ui.unmount()
 })
 

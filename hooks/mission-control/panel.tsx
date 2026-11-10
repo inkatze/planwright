@@ -604,6 +604,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
           ))}
         </Box>
       )}
+      {mascotMode(view) !== 0 && Mascot(t, view, surface)}
       {Section(t, width, "What's going on", [summary(view)])}
       {Section(t, width, 'Right now', readouts(view).map(r => r.text))}
       {Card(t, width, 'Waiting on you', waitingCard(view))}
@@ -627,7 +628,6 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
         'No decisions recorded yet.',
       )}
       {Section(t, width, 'Limits and upkeep', upkeep(view))}
-      {mascotMode(view) !== 0 && Mascot(t, view, surface)}
     </Box>
   )
 }
