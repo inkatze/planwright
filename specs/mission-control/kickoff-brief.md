@@ -1595,3 +1595,45 @@ Class: meaning
 Lens-pass: Amendment 5, delta-scoped lens review above (spec lens set, walked inline; every finding dispositioned)
 Anchor: `39b49a22e3449a1308da884674343e2adce89a58` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 6 (2026-11-09, amendment: cheaper supervision)
+
+Spec path `specs/mission-control`; walk started at `b1a904ee`; walkthrough
+date 2026-11-09; validator at walk start: 0 errors, 0 warnings. Mode:
+amendment on an Active (derived) bundle, operator-declared through mission
+control ("lets go with your recommendations"), scoped to the queued asks
+on a context reading for every mission-control session, the natural-break
+handover keeping the session name, direct dispatch, a cheap relay, spend
+per session with real-render previews before anything the operator sees
+ships, and an idle-wait self-audit, plus the bring-up drift audit the operator
+folded in (2026-11-09). A machine-wide bound on heavy local runs, which
+conflicts with custom-steps' empty `full_suite_pool` default, is queued as
+its own custom-steps amendment note, not part of this delta. The
+post-PR-steps-alongside-CI ask is a separate flight and out of scope. The
+delta was drafted into the bundle before the walk, from the
+recommendations; each question goes to the operator through mission
+control, and only their own relayed words are recorded as answers.
+
+#### Goal and glossary (Amendment 6)
+
+Restatement: supervision costs more than the work it supervises, because
+supervising sessions grow their context without bound and every relay
+costs a full-context turn. The delta makes every mission-control session
+read its own context and hand over at 40 percent at a natural break under
+the same session name, sends units that need no supervisor judgment
+straight to a worker, moves prompt and finished-unit relays to a script,
+shows spend per session, and has the throughput duty find idle waits
+nobody needed. Rules out: running post-PR steps alongside CI, changing
+the rungs of D-43's ladder (only when it starts moves, to a natural
+break), cost-tiered model defaults, and any change to who may answer a
+prompt (only where the line goes). What PR #902 already covers: the attended successor
+path inside tmux; not the reading, not headless holders, not the name.
+Terms: *program's holder* (the mission-control session holding a
+program's name, often one another mission control launched, with no
+operator at its terminal); *launching mission control* (the mission
+control that launches a direct-dispatch unit and owns its registry row);
+*natural break* (the act in hand ended, none started, no launch, relay or
+answer of the session's own half done); *direct-dispatch kind* (a registered
+unit kind on `mission_control_direct_dispatch_kinds`); *real-render preview* (the change's own render,
+captured over fixture data, never a mock-up); *relay* (forwarding a
+session's prompt, result or message through another session).
