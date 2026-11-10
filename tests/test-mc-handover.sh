@@ -529,7 +529,7 @@ holder_is "the name moved to the pane successor" "$nf"
 # Each predecessor is a process whose argv carries the flags it was given.
 # ---------------------------------------------------------------------------
 printf '%s\n' 'sleep 900 &' "trap 'kill \$! 2>/dev/null; exit 0' TERM INT" 'wait' >"$tmp/rcclaude"
-printf '%s\n' '%11' '%12' '%13' '%14' '%15' >>"$tmp/tmux.panes"
+printf '%s\n' '%11' '%12' '%13' '%14' '%15' '%16' '%17' >>"$tmp/tmux.panes"
 rc_predecessor() {
   sh "$tmp/rcclaude" "$@" >/dev/null 2>&1 &
   RC_PID=$!
@@ -566,6 +566,15 @@ rc_settle() {
   RUN_TMUX_PANE="$1" ho take --program alpha --session "$RC_SUCC" --window 1s --exit-wait 5s
   [ "$RC" = 0 ] || fail "fixture: take of $RC_SUCC exited $RC: $OUT $ERR"
 }
+
+# rc_knob <off|inherit|on|default>: the successor Remote Control knob, in the adopter layer.
+rc_knob() {
+  { touch "$adopter/planwright.yml"; grep -v "^mission_control_successor_remote_control:" "$adopter/planwright.yml"; [ "$1" = default ] || printf 'mission_control_successor_remote_control: %s\n' "$1"; } >"$tmp/adopter.rc" \
+    && cat "$tmp/adopter.rc" >"$adopter/planwright.yml"
+}
+
+# inherit: what follows reads the predecessor's own launch.
+rc_knob inherit
 
 # A predecessor with no readable process carries no Remote Control, and says so.
 rc_predecessor
@@ -611,6 +620,25 @@ rc_cycle op-hostile '%15'
 if rc_absent "$RC_SUCC"; then ok "a hostile predecessor name is not passed to the successor"; else fail "a successor took a hostile predecessor name"; fi
 case $RC_ERR in *'not carried'*) ok "and the handover says why" ;; *) fail "no refusal note for the hostile name: $RC_ERR" ;; esac
 rc_settle '%15'
+rc_knob default
+# The shipped default is off: even a predecessor with Remote Control gives
+# its successor none, and nothing is said.
+rc_predecessor --remote-control mc-op-default -- hello
+rc_cycle op-default '%16'
+[ "$RC_LAUNCH" = 0 ] || fail "the default-knob handover exited $RC_LAUNCH: $RC_ERR"
+if rc_absent "$RC_SUCC"; then ok "with the knob at its default a successor starts without Remote Control"; else fail "the default knob started Remote Control: $RC_SUCC"; fi
+case $RC_ERR in *'not carried'*) fail "the off knob spoke about Remote Control: $RC_ERR" ;; *) ok "and the off knob says nothing" ;; esac
+rc_settle '%16'
+
+# on: the successor always gets Remote Control, under its own name, whatever
+# its predecessor had.
+rc_knob on
+rc_predecessor -- hello
+rc_cycle op-on '%17'
+[ "$RC_LAUNCH" = 0 ] || fail "the on-knob handover exited $RC_LAUNCH: $RC_ERR"
+rc_window_argv "$RC_SUCC" | rc_has_pair /dev/stdin "$RC_SUCC" \
+  && ok "with the knob on a successor starts Remote Control under its own name" || fail "on-knob successor argv: $(rc_window_argv "$RC_SUCC" | tr '\n' ' ')"
+rc_settle '%17'
 
 echo
 if [ "$failures" -gt 0 ]; then

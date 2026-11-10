@@ -300,6 +300,7 @@ row() { # row <id> <kind> <mechanism> <where> <state> <subject key>
   row p-5 rule "a rule-store entry" "$tmp/rules.yaml" accepted "rules"
   row p-6 catalog-step polish "the core steps catalog" accepted "polish"
   row p-7 knob program_alpha_budget "the config layers" accepted "budget"
+  row p-20 knob mission_control_successor_remote_control "the config layers" accepted "successor remote control"
 } >"$kb/proposals.tsv"
 
 cfg apply --program alpha p-1
@@ -322,6 +323,13 @@ expect_rc "the self-audit runs" 0
 expect_out "the self-audit reports its count" "audit${tab}"
 expect_no_out "the self-audit finds no act against the rule" "against-rule"
 
+cfg apply --program alpha p-20 --value sometimes
+expect_rc "a successor Remote Control value outside off, inherit and on is refused" 2
+cfg apply --program alpha p-20 --value inherit
+expect_rc "an accepted successor Remote Control proposal is applied" 0
+expect_out "the successor Remote Control knob is written" "applied${tab}knob${tab}mission_control_successor_remote_control${tab}inherit${tab}undo-"
+mc_run config-get.sh mission_control_successor_remote_control
+expect_eq "the applied successor Remote Control value resolves" "inherit"
 cfg apply --program alpha p-2
 expect_rc "D-14: an accepted duty proposal is applied" 0
 mc_run mc-program.sh get alpha duties

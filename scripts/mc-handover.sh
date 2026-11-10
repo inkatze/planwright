@@ -103,11 +103,13 @@ Usage:
       handover launch over an attended holder is admitted inside tmux (the
       predecessor's pane id is recorded for take to close) and refused
       elsewhere (exit 4), where path names the operator act. A
-      stale holder is recorded as the predecessor. A tmux successor
-      starts Remote Control when the live predecessor's process was
-      started with --remote-control (read from its argv; a bare flag names
-      the successor as itself); an unreadable or malformed one gives none,
-      said on stderr. Prints successor<TAB><name>
+      stale holder is recorded as the predecessor. A tmux successor's
+      Remote Control follows mission_control_successor_remote_control:
+      off (the default) starts none; on names the successor as itself;
+      inherit carries the live predecessor's --remote-control (read from
+      its argv; a bare flag names the successor as itself), and an
+      unreadable or malformed one gives none, said on stderr. The
+      stream-json rung ignores the knob. Prints successor<TAB><name>
   mc-handover.sh verify --program <p> --session <name> --picture <file>
       --digest <hex> --ledger <id|-> [--durable <file>]
       the successor's self-check: its held picture, rules digest and
@@ -232,6 +234,10 @@ valid_sha256() {
     *[!0-9a-f]*) return 1 ;;
   esac
   [ "${#1}" -eq 64 ]
+}
+
+parse_rc_mode() {
+  case $1 in off | inherit | on) printf '%s\n' "$1" ;; *) return 1 ;; esac
 }
 
 parse_pct() {
@@ -931,30 +937,34 @@ case $verb in
     scope="gen-$((H_GEN + 1))-$NOW-$nonce"
     name=$(/bin/sh "$script_dir/mission-control-launch.sh" name --program "$program" --kind mission-control --scope "$scope" </dev/null) \
       || mc_fail "the launcher cannot name the successor"
-    # The successor keeps the predecessor's Remote Control, so the operator's
-    # phone still reaches the program. A bare predecessor flag names the
-    # successor as itself; one that cannot be read, or whose name is outside
-    # the session-name grammar, carries none and says so.
+    # Remote Control for the successor follows
+    # mission_control_successor_remote_control: off starts none, on always
+    # names the successor as itself, inherit carries what the predecessor's
+    # own launch recorded in its argv (a bare flag names the successor as
+    # itself). An unreadable predecessor, or a name outside the session-name
+    # grammar, carries none and says so. The launcher drops it off the tmux
+    # rung.
     rc_name=''
-    if [ "$H_LIVE" -eq 1 ]; then
-      rc_state=$(predecessor_remote_control "$H_PID" "$H_START")
-      case $rc_state in
-        none) ;;
-        bare) rc_name=$name ;;
-        'named '*)
-          rc_name=${rc_state#named }
-          /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$rc_name" 2>/dev/null || {
-            rc_name=''
-            say "remote control is not carried to $name: the predecessor's --remote-control name is outside the session-name grammar"
-          }
-          ;;
-        *)
-          if [ "$H_KIND" = attended ] || [ -n "$pred_pane" ] || [ "$backend" = tmux ]; then
-            say "remote control is not carried to $name: the predecessor's process cannot be read, so the successor starts without it"
-          fi
-          ;;
-      esac
-    fi
+    rc_mode=$(mc_knob mission_control_successor_remote_control parse_rc_mode) || rc_mode=off
+    case $rc_mode in
+      on) rc_name=$name ;;
+      inherit)
+        rc_state=unreadable
+        if [ "$H_LIVE" -eq 1 ]; then rc_state=$(predecessor_remote_control "$H_PID" "$H_START"); fi
+        case $rc_state in
+          none) ;;
+          bare) rc_name=$name ;;
+          'named '*)
+            rc_name=${rc_state#named }
+            /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$rc_name" 2>/dev/null || {
+              rc_name=''
+              say "remote control is not carried to $name: the predecessor's --remote-control name is outside the session-name grammar"
+            }
+            ;;
+          *) say "remote control is not carried to $name: the predecessor's process cannot be read, so the successor starts without it" ;;
+        esac
+        ;;
+    esac
     # The record is reserved before the launch, so a second launch meets it
     # and the launcher's own lock on the name; a failed launch removes it.
     succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}" "${pred_tmux:--}"

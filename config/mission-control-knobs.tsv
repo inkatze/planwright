@@ -65,3 +65,4 @@ throughput-worsen	mission_control_throughput_worsen	scripts/mc-throughput.sh
 draft-clipboard	mission_control_clipboard	scripts/mc-inbox.sh
 guidance-level	mission_control_guidance	scripts/mc-config.sh
 kickoff-mode	mission_control_kickoff_mode	scripts/mc-config.sh
+successor-remote-control	mission_control_successor_remote_control	scripts/mc-handover.sh

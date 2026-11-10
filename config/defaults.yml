@@ -1209,3 +1209,9 @@ mission_control_guidance: guided
 # control launches the session and relays every question to the operator)
 # or manual (the operator runs the kickoff command themselves).
 mission_control_kickoff_mode: relay
+# Whether a mission-control handover successor starts with Remote Control
+# (the operator's phone link): off (none), inherit (what the predecessor's
+# own launch recorded, none when it cannot be read) or on (always, under the
+# successor's own name). Applies to attended (tmux) successors; the
+# stream-json rung has no terminal to attach it to and ignores it.
+mission_control_successor_remote_control: off

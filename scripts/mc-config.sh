@@ -57,6 +57,7 @@ program block (repositories, spec_root, home, duties, budget, sources), and
 these knobs, each value checked by its kind:
   mission_control_guidance          guided, standard or expert
   mission_control_kickoff_mode      relay or manual
+  mission_control_successor_remote_control   off, inherit or on
   a cadence (<n>s|m|h|d)            mission_control_tick_cadence,
       mission_control_panel_refresh, mission_control_runner_interval,
       mission_control_stall_window, mission_control_handover_window,
@@ -223,6 +224,7 @@ knob_parser() {
   case $1 in
     mission_control_guidance) printf 'parse_guidance\n' ;;
     mission_control_kickoff_mode) printf 'parse_kickoff\n' ;;
+    mission_control_successor_remote_control) printf 'parse_successor_rc\n' ;;
     mission_control_tick_cadence | mission_control_panel_refresh | mission_control_runner_interval | \
       mission_control_stall_window | mission_control_handover_window | mission_control_event_retention | \
       mission_control_measure_window | mission_control_repeat_window | mission_control_audit_idle_after | \
@@ -433,6 +435,9 @@ write_keys() {
 
 parse_guidance() {
   case $1 in guided | standard | expert) printf '%s\n' "$1" ;; *) return 1 ;; esac
+}
+parse_successor_rc() {
+  case $1 in off | inherit | on) printf '%s\n' "$1" ;; *) return 1 ;; esac
 }
 parse_kickoff() {
   case $1 in relay | manual) printf '%s\n' "$1" ;; *) return 1 ;; esac
