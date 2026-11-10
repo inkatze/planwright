@@ -427,6 +427,13 @@ echo $$ >"$rhome/dev/.planwright-compute/run.other/pid"
 run_in "$lrepo" compute --test tests/test-jobs.sh
 case $OUT in *"jobs=4 slots=4"*) ok "a second live run halves the share" ;; *) fail "a second live run halves the share ($OUT)" ;; esac
 rm -rf "$rhome/dev/.planwright-compute/run.other"
+mkdir -p "$rhome/dev/.planwright-compute/run.dead"
+echo 999999 >"$rhome/dev/.planwright-compute/run.dead/pid"
+mkdir -p "$rhome/dev/.planwright-compute/run.junk"
+echo junk >"$rhome/dev/.planwright-compute/run.junk/pid"
+run_in "$lrepo" compute --test tests/test-jobs.sh
+case $OUT in *"jobs=8 slots=8"*) ok "a dead or garbage pid file does not count as a live run" ;; *) fail "a dead or garbage pid file does not count as a live run ($OUT)" ;; esac
+rm -rf "$rhome/dev/.planwright-compute/run.dead" "$rhome/dev/.planwright-compute/run.junk"
 rm -f "$bin/getconf"
 run_in "$lrepo" compute --check
 case $ERR in *"timeout 1800s"*) ok "the full check gets the long default budget" ;; *) fail "the full check gets the long default budget ($ERR)" ;; esac

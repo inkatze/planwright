@@ -165,6 +165,7 @@ child=''
 # shellcheck disable=SC2329 # invoked by the traps below
 stop() {
   [ -z "$child" ] || kill "$child" 2>/dev/null
+  [ -z "${watchdog:-}" ] || kill "$watchdog" 2>/dev/null
   rm -rf "$work"
   exit "$1"
 }

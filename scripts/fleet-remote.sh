@@ -343,7 +343,7 @@ if [ "$verb" = compute ]; then
   echo $$ >"$run/pid"
   # Test parallelism: the remote's cores shared among the runs live now (this
   # one included, counted after its own directory exists so runs starting
-  # together divide the cores between them); a run killed without cleanup
+  # together mostly divide the cores between them; best effort); a run killed without cleanup
   # names a dead pid and stops counting.
   fr_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null)
   case $fr_cores in '' | *[!0-9]* | 0) fr_cores=4 ;; esac
@@ -432,7 +432,11 @@ if [ "$verb" = load ]; then
   fr_load=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null) || fr_load=''
   [ -n "$fr_load" ] || fr_load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }')
   fr_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null)
-  printf '%s %s\n' "${fr_load:-0}" "${fr_cores:-1}"
+  if [ -z "$fr_load" ] || [ -z "$fr_cores" ]; then
+    echo "fleet-remote: cannot read this host's load or core count" >&2
+    exit 3
+  fi
+  printf '%s %s\n' "$fr_load" "$fr_cores"
   exit 0
 fi
 if [ -z "$root" ]; then
