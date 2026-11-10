@@ -1,7 +1,7 @@
 # Merge Currency Guard — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-10-12
+**Status:** Draft
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -131,7 +131,8 @@ ready PR means what the fleet and the human both assume it means.
 - Making the convergence-loop sync (REQ-B1.1) follow the
   `ready_guard_behind_base` knob or any other skip rule. The sync still runs
   every iteration under either value; whether it should become skippable is a
-  separate amendment (the currency-posture pending note, item 2 (Sources)).
+  separate amendment (the currency-posture pending note, item 2 (Sources)). Taken up by the 2026-11-10
+  extension: REQ-B1.7, REQ-B1.8.
 - Rewording sibling bundles and doctrine that restate the always-refuse
   currency check, wherever they do (among them human-gates D-9 naming the
   ready-guard as a session's floor, human-gates REQ-C1.2 and its design's
@@ -209,6 +210,10 @@ ready PR means what the fleet and the human both assume it means.
   general — a PR on a non-`main` base is covered by the guard alone, which
   reads each PR's real base (D-3).
   *(Cites: REQ-A1.1 · obs:921b93c9 · kickoff §4 lens (2026-07-22).)*
+  **Superseded-by: REQ-B1.7** (2026-11-10), in part — the sync runs at the top
+  of each iteration only as the `converge_sync_main` knob resolves; under the
+  shipped default it merges only on a need, and REQ-B1.1's every-iteration
+  merge is the `always` value.
 - **REQ-B1.2** The sync in REQ-B1.1 SHALL use an explicit fetch followed by a
   merge (`git fetch origin main` then `git merge --no-edit FETCH_HEAD`); it
   SHALL NOT use `git pull` (which a global `branch.autosetuprebase=always`
@@ -242,6 +247,40 @@ ready PR means what the fleet and the human both assume it means.
   skill invokes in a single line, so the `/execute-task` instruction body does
   not grow a paragraph and stays within its instruction-headroom budget.
   *(Cites: `instruction-headroom` requirements · `prompt-hygiene`.)*
+- **REQ-B1.7** (supersedes REQ-B1.1 in part) At the top of each
+  `review_sequence` convergence iteration `/execute-task` SHALL run
+  `scripts/converge-sync-main.sh` in the mode the `converge_sync_main` knob
+  (REQ-B1.8) resolves. Under `always`, the script merges `origin/main` into the
+  worker branch whenever it moved, exactly as REQ-B1.1 describes. Under
+  `on-need`, the shipped default, the script fetches (REQ-B1.2) and then
+  merges only when a need holds: (a) the branch conflicts with the fetched
+  `origin/main`, found without touching the working tree or index; (b) the
+  caller passes a recorded need on the command line (a stale test result, or a
+  change the unit needs from `main`), which the script echoes in its record;
+  or (c) `ready_guard_behind_base` resolves to `refuse`, under which the
+  ready-guard would refuse a behind flip. With no need it merges nothing,
+  leaves the head where it is, exits 0, and prints a record naming that it
+  skipped, how far behind the branch is, and why no need held. A branch that
+  already contains `origin/main` is up to date under both modes. A merge that
+  runs follows REQ-B1.2, REQ-B1.3 and REQ-B1.6 unchanged, the conflict being
+  halted or resolved under `worker_merge_conflict_policy` as today. A conflict
+  probe that cannot run or answer applies the merge, so a failure never skips a
+  sync the branch needed. Being behind `origin/main` is, by itself, not a need.
+  *(Cites: D-12 · REQ-B1.1 · REQ-B1.2 · REQ-B1.3 · obs:ac31e13a · operator
+  standing rule (2026-11-05, behind main is not a blocker) · drafting-session
+  decision (2026-11-10).)*
+- **REQ-B1.8** The `converge_sync_main` knob SHALL be a core config key in
+  `config/defaults.yml` with the values `on-need` (the shipped default) and
+  `always`, documented in `docs/options-reference.md`, resolved by the script
+  from the repository's primary checkout through the shared policy-knob
+  resolver in the same layers as `worker_base_merge`, so a worker's edit to its
+  own overlay governs nothing until it merges. A malformed or unreadable value
+  SHALL take the script's existing policy-unreadable park, never a silent
+  sync or skip. The knob governs only the convergence sync: it SHALL NOT
+  relax REQ-A1.5, `worker_base_merge: deny`, the ready-guard, or the
+  protected-branch and own-branch checks the script already makes.
+  *(Cites: D-12 · REQ-B1.7 · REQ-A1.5 · `customization-boundary` · drafting-session
+  decision (2026-11-10).)*
 
 ## REQ-C — The ready-guard
 
@@ -404,6 +443,8 @@ ready PR means what the fleet and the human both assume it means.
   failed fetch (unreachable remote) exits non-zero with a clear reason; and
   negative assertions confirm the script issues no `git pull` and no rebase.
   *(Cites: REQ-B1.2 · REQ-B1.3 · kickoff §3 (2026-07-21).)*
+  **Superseded-by: REQ-D1.6** (2026-11-10), in part — the clean-merge case
+  holds under `always`; REQ-D1.6 adds the skip, need and knob cases.
 - **REQ-D1.4** Negative assertions SHALL confirm no model/API call appears in
   the guard's or the sync script's decision path.
   *(Cites: `fleet-autonomy` D-18 · REQ-C1.2.)*
@@ -431,6 +472,21 @@ ready PR means what the fleet and the human both assume it means.
   refusal cases above plus an invalid selector, an already-ready PR, and a
   missing `gh`, each run with an adopter value of `conflict-only`.
   *(Cites: REQ-C1.11 · REQ-C1.12 · REQ-C1.13 · D-11 · PR #650 (Sources).)*
+- **REQ-D1.6** (supersedes REQ-D1.3 in part) Tests SHALL drive the sync
+  script against a fake `origin` under a scratch directory and assert, with
+  the sibling cases of REQ-D1.3 kept: under `on-need`, `origin/main` moved
+  with no conflict → no merge, the head unchanged, exit 0, and a record that
+  names the skip, the commits behind and why no need held; `origin/main` moved
+  and the branch conflicts → the merge runs and is aborted and halted as
+  REQ-B1.3 requires; a recorded need passed by the caller → the merge runs and
+  the need appears in the record; `ready_guard_behind_base` of `refuse` → the
+  merge runs; a conflict probe that fails → the merge runs; a branch already
+  containing `origin/main` → up to date, nothing merged. Under `always`, a
+  moved `origin/main` with no conflict → merged, as REQ-D1.3's clean case.
+  A malformed knob value → the policy-unreadable park. The no-`pull`, no-rebase
+  and no-model assertions cover every new path, and a test asserts the default
+  in `config/defaults.yml` is `on-need`.
+  *(Cites: REQ-B1.7 · REQ-B1.8 · REQ-D1.3 · REQ-D1.4.)*
 
 ## REQ-K — Graceful degradation and data hygiene
 
@@ -605,6 +661,21 @@ ready PR means what the fleet and the human both assume it means.
   as a residual; the silent `conflict-only` defer accepted as risk row 11;
   the out-of-band follow-ups stay tracked by their observations.
 
+- 2026-11-10 — Extension (`/spec-draft --extend`, meaning-class; reopen
+  cycle, stored Status Ready→Draft on all four files): the convergence sync
+  becomes conditional under the operator's standing rule that being behind
+  `main` is not a blocker. **REQ-B1.1 superseded in part by REQ-B1.7** (merge
+  only on a conflict, a recorded need, or a `refuse` guard policy; the
+  every-iteration merge is the `always` value), **REQ-D1.3 superseded in part
+  by REQ-D1.6**, new **REQ-B1.8** (the `converge_sync_main` knob, default
+  `on-need`), new **D-12** (D-4 marked superseded in part, body untouched);
+  Task 6 added; the out-of-scope bullet that deferred this skip rule now
+  points here. The default is conditional, not default-preserving, on the
+  operator's ruling; D-12 states the trade-off against `customization-boundary`
+  and keeps today's behaviour one value away. Drift noted, not decided here:
+  the shipped `ready_guard_behind_base` default and value set (`checks`,
+  `refuse`, `conflict-only`) are wider than REQ-C1.12 states.
+
 ## Sources
 
 - `obs:921b93c9` — the seed observation (recorded 2026-07-20,
@@ -675,3 +746,15 @@ ready PR means what the fleet and the human both assume it means.
 - `human-gates` REQ-A1.1 and the human-gates doctrine's list — the gate test
   under which refusing a flip is a policy rather than a human gate, and the
   policy-knob resolver this knob joins.
+- `specs/_pending/currency-posture-and-drifts.md` item 2 — the request for a
+  skip rule on the convergence sync, proposing a default-preserving knob; the
+  2026-11-10 extension adopts the knob and departs from its default (D-12).
+  The note stays in place for its other items.
+- Operator standing rule (2026-11-05, recorded in mission control's rule
+  store as "behind main is not a blocker"): a branch is synced with main only
+  when it conflicts, a stale test result calls for it, or it needs a change
+  from main. Cited as `drafting-session decision (2026-11-10)` where the
+  extension applies it.
+- Mission control's unit brief for the worker stopped on this gap (2026-11-10):
+  the shipped sync ran on every convergence pass and mission control denied it
+  by hand on each worker.

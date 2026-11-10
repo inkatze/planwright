@@ -1,7 +1,7 @@
 # Merge Currency Guard — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-10-12
+**Status:** Draft
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -127,6 +127,29 @@ introduce a `gh pr ready` (or MCP ready) call into the skill body.
 `scripts/check-instructions.sh` (the instruction-headroom guard) run over
 `skills/execute-task/SKILL.md` passes: the body stays under its ceiling because
 the sync is a single-line script call rather than inline prose.
+
+### REQ-B1.7 — The sync merges only on a need, by default [test]
+
+Against a fake `origin` under a scratch directory, with the knob at its
+default: `origin/main` moved with no conflict → the head is unchanged, the
+exit is 0 and the record names the skip, the commits behind and why no need
+held; `origin/main` moved and the branch conflicts → the merge runs and is
+aborted with the existing conflict halt; a recorded need on the command line →
+the merge runs and the record carries the need; `ready_guard_behind_base`
+`refuse` → the merge runs; a probe forced to fail (a stub git answering
+`merge-tree` with an error) → the merge runs; a branch already containing
+`origin/main` → up to date, nothing merged. A negative assertion shows the
+skip path runs no merge, no `git pull` and no rebase. The `/execute-task`
+call site stays one line and `scripts/check-instructions.sh` passes.
+
+### REQ-B1.8 — The `converge_sync_main` knob [test]
+
+A test asserts the core default is `on-need` and the value set is exactly
+`on-need` and `always`; that `scripts/check-options-reference.sh` passes with
+the knob's row; that a value set in a worker's own overlay in a worktree is not
+honoured (read from the primary checkout); that a malformed value takes the
+policy-unreadable park; and that `always` leaves `worker_base_merge: deny`
+skipping the merge as today.
 
 ## REQ-C — The ready-guard
 
@@ -327,6 +350,12 @@ logged no call; every other knob case asserts the sentinel git absent. Each
 added fixture's failing-first evidence (the defer case against the guard as
 it stood before Task 5, the guard-copy stub with the guard's drop removed)
 is recorded in the task PR.
+
+### REQ-D1.6 — Sync-script tests for the conditional sync [test]
+
+The cases of REQ-B1.7 and REQ-B1.8 above plus, under `always`, a moved
+`origin/main` with no conflict → merged (REQ-D1.3's clean case), all green in
+CI by `tests/` fixtures run one file at a time.
 
 ## REQ-K — Graceful degradation and data hygiene
 

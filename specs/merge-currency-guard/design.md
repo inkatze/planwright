@@ -1,7 +1,7 @@
 # Merge Currency Guard — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-10-12
+**Status:** Draft
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -246,6 +246,11 @@ guarantees the final verification runs on a `main`-current head, the exact
 property the ready-guard later checks; scripting it respects the invariant set
 (no `pull`, no rebase) deterministically and stays within the instruction
 budget.
+
+**Superseded-by: D-12** (2026-11-10), in part — the merge at the top of each
+iteration runs as the `converge_sync_main` knob resolves; the every-iteration
+merge is its `always` value, and the script, the no-`pull`/no-rebase rule and
+the conflict halt stand.
 
 ### D-5: Guard degradation — no in-hook fetch; fail closed on any doubt (N)
 
@@ -533,3 +538,65 @@ merging a conflicting PR.
 *(Cites: REQ-A1.5 · REQ-C1.12 · REQ-C1.13 · D-5 · drafting-session decision (2026-10-11)
 · PR #650 (its flight record's declined finding D1 and panel finding P1) ·
 delta re-walkthrough (2026-10-12).)*
+
+### D-12: The convergence sync merges on a need by default; `converge_sync_main` restores every-iteration (N, `customization-boundary`)
+
+**Decision:** `scripts/converge-sync-main.sh` reads a core knob,
+`converge_sync_main`, with `on-need` (the shipped default) and `always`
+(D-4's behaviour). Under `on-need` it still fetches, then merges only when
+a need holds: a conflict with the fetched `origin/main`, a need the caller
+records on the command line, or a `ready_guard_behind_base` of `refuse`. A
+conflict is found with `git merge-tree --write-tree`, which computes the
+merge result without touching the working tree, the index or any ref, so the
+probe adds no abort path; when that probe cannot run (an older git) or errs,
+the script merges, so a failure never skips a sync the branch needed. With no
+need it prints a skip record (how far behind, why no need held) and exits 0,
+which `/execute-task` treats as a successful sync step. The skill's call
+stays one line; it gains only the optional recorded-need argument the unit
+passes when its own test result went stale or it needs a change from `main`.
+`/execute-task` has no loop that re-runs its full CI after the sync (the
+script header records this drift against D-4's premise), so under `on-need`
+the head a convergence step verifies is the head CI already ran on whenever
+nothing needed `main`: the default also closes that gap in the common case.
+
+The ready-guard stays the authority on the flip. Under `refuse` a behind
+branch would be denied at the flip, so the refuse policy counts as a need and
+the sync still runs; under `checks` or `conflict-only` a behind but mergeable
+branch is allowed through the guard as that knob decides, so skipping the sync
+costs nothing at the flip. The knob is read as the other worker knobs are (the
+primary checkout, every layer) because relaxing the sync loosens no guard:
+REQ-A1.5 and `worker_base_merge` stand independent of it.
+
+**Alternatives considered:**
+
+- Default-preserving `always`, with the operator setting `on-need` in an
+  overlay (what `customization-boundary` and D-10 would pick, and what the
+  currency-posture note proposed). Rejected because: the operator's standing
+  rule is that being behind main is not a blocker, so the shipped default
+  already differs from what the operator and every adopter following the
+  shipped rule want; every worker otherwise needs the sync denied by hand
+  (mission control did so on each one), and D-10 kept `refuse` only because
+  the refusal had caught real staleness, while an unneeded sync catches
+  nothing the guard and CI do not. The cost stated: an adopter who relied on
+  the every-iteration sync to keep branches current must set `always`. This
+  is the one departure from the boundary's default tilt; it is flagged for the
+  operator's confirmation at the walk.
+- Skip the sync outright (a `never` value). Rejected because: a conflicting
+  branch must still reach a halt or a resolution before the flip, and the
+  guard's mergeability clause would then deny late instead.
+- Decide the need from GitHub's `mergeable` field. Rejected because: the sync
+  runs before a PR exists on the first iteration and GitHub's answer lags;
+  the local `merge-tree` probe needs no network beyond the fetch already made.
+- Merge and abort to detect a conflict. Rejected because: it moves the head
+  and risks a lingering merge state the probe avoids.
+- Make the worker decide whether to call the script (a skill-prose rule).
+  Rejected because: the skill body is at its instruction budget and prose is
+  what mission control had to deny by hand; the decision belongs in the
+  tested script (REQ-B1.5).
+
+**Chosen because:** the operator's rule becomes the shipped behaviour in the
+one place that owns the merge, deterministically and testably, with the
+conflict path unchanged and today's behaviour one knob value away.
+*(Cites: REQ-B1.7 · REQ-B1.8 · REQ-A1.5 · D-4 · D-10 ·
+`customization-boundary` · `specs/_pending/currency-posture-and-drifts.md`
+item 2 · obs:ac31e13a · drafting-session decision (2026-11-10).)*
