@@ -648,3 +648,20 @@ gated as Task 6.
 **Pre-flight verification (run before the sign-off record).** Post-lens
 stale-reference sweep run over the minted IDs and the changed wording in the
 four spec files. Validator and lint results are recorded at sign-off.
+
+#### Sign-off record (Amendment 4)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub: the approval summary was answered "Sign off all four
+(Recommended)". Reopened-bundle delta kickoff: `**Status:**` flipped
+Draft to Ready and `Last reviewed:` set to 2026-11-10 on all four spec
+files; validator re-run with 0 errors. The delta supersedes part of a
+signed requirement, so it is meaning-class. Accepted risk: the older
+ready-guard requirement and decision still state a two-value default
+`refuse` against the shipped three-value default `checks`; correcting
+them is a separate amendment the operator schedules.
+
+Class: meaning
+Lens-pass: Amendment 4, delta-scoped lens review above (spec lens set; every finding dispositioned, one deferred as recorded)
+Anchor: `0b17637c9f367f238c2ebdd10f357dfb676e98d9` — computed as
+`scripts/spec-anchor.sh specs/merge-currency-guard`

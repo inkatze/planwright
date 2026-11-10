@@ -1,7 +1,7 @@
 # Custom steps — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-06
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 

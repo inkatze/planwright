@@ -1075,3 +1075,19 @@ Post-lens stale-reference sweep: grepped `full_suite_pool`, `heavy-run`,
 `step_pool_capacity` and the REQ-K, REQ-L, D-33 to D-35 and Task 17 and 18
 identifiers across the bundle; the only stale statements were the two fixed
 above. Validator: 0 errors, 0 warnings.
+
+#### Sign-off record (Amendment 3)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub: the approval summary was answered "Sign off all four
+(Recommended)". Amendment on an Active bundle: no status flip;
+`Last reviewed:` 2026-11-10 on all four spec files; validator re-run with
+0 errors. The delta supersedes the empty-default clause of a signed
+decision and adds requirements, so it is meaning-class. Accepted risks:
+the derived capacity reads total host memory (override key available);
+other users' runs on the same host are not counted.
+
+Class: meaning
+Lens-pass: Amendment 3, delta-scoped lens review above (spec lens set, walked inline; every finding dispositioned)
+Anchor: `268298e0cc5b619ee1acd945d1cb7e94cfb33125` — computed as
+`scripts/spec-anchor.sh specs/custom-steps`

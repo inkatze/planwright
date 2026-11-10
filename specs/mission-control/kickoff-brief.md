@@ -1751,6 +1751,23 @@ lens pass below. The operator accepted the 110 findings as applied.
 Altitude check: no new pinned seed claim, not applicable. Ship-gate check:
 every out-of-band fix named is gated as a task (Tasks 39 to 47).
 
+#### Sign-off record (Amendment 6)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub, signed together with Amendment 7 and the three other amended
+specs: the approval summary was answered "Sign off all four
+(Recommended)". Amendment on an Active bundle: no status flip;
+`Last reviewed:` 2026-11-10 on all four spec files; validator re-run with
+0 errors. The delta adds requirements and decisions, so it is
+meaning-class. Accepted risks: the shipped handover threshold reads 70
+until the in-progress handover task ships 40; the one fix declined and the
+110 pre-walk findings accepted as applied, per the lens table above.
+
+Class: meaning
+Lens-pass: Amendment 6, delta-scoped lens review above (spec lens set, fanned out; every finding dispositioned), re-covered for the later additions by the Amendment 7 pass
+Anchor: `895f1b643ba80174e71bd820f73547054c1efb29` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
 ### Amendment 7 (2026-11-10, amendment: move a session between programs, and reviewers that review only when ready)
 
 Spec path `specs/mission-control`; walk started at `8a226219`; walkthrough
@@ -1844,3 +1861,19 @@ REQ-A1.10, D-53, Task 47).
 
 Altitude check: no pinned seed claim, not applicable. Ship-gate check:
 every fix named is gated as a task (47, 48, 49).
+
+#### Sign-off record (Amendment 7)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub: the approval summary was answered "Sign off all four
+(Recommended)". Amendment on an Active bundle: no status flip;
+`Last reviewed:` 2026-11-10 on all four spec files; validator re-run with
+0 errors. The delta adds requirements and decisions, so it is
+meaning-class. Accepted risks: PR-Agent's behaviour on a draft is
+unconfirmed (the per-reviewer fallback covers it) and cubic's quota is out
+on planwright until 2026-12-02.
+
+Class: meaning
+Lens-pass: Amendment 7, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `895f1b643ba80174e71bd820f73547054c1efb29` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

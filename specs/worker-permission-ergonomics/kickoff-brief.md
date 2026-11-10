@@ -1104,5 +1104,18 @@ Altitude check: no pinned seed claim. Ship-gate check: every out-of-band
 change is a task (Tasks 16 to 18); the profile and guard changes ship with
 their tests.
 
-Awaiting the operator's sign-off: no `Signed off:` line, class record or
-anchor is written yet.
+#### Sign-off record (Amendment 5)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub: the approval summary was answered "Sign off all four
+(Recommended)". Amendment on a Ready bundle: no status flip;
+`Last reviewed:` 2026-11-10 on all four spec files; validator re-run with
+0 errors. The delta supersedes signed requirements in a permission-guard
+zone, so it is meaning-class. Accepted risk: the file-tool hook route for
+the real hooks path is untested until Task 16 runs (the old rows stay until
+it is proven to refuse on error).
+
+Class: meaning
+Lens-pass: Amendment 5, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `415a00fa61e7d4e9148be0b6b1f5e0e4faa3fa45` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
