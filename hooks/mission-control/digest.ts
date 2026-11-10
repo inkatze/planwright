@@ -243,14 +243,52 @@ export function flightSubject(f: Pick<PanelFlight, 'worker' | 'scope'>, program:
 // One plain row per session: what it is, what it is about and where it
 // stands, never its handle or scope. Those waiting on an answer come first,
 // then those not responding.
-export function flightRows(flights: ReloadedFlight[], program = ''): { state: PanelFlight['state']; text: string }[] {
+// What a session is doing, as the end of a plain sentence.
+function flightWhat(kind: keyof typeof KINDS, subject: string | null, prTitle: string | undefined): string {
+  switch (kind) {
+    case 'task':
+      return subject ? `a task of the ${subject} spec` : 'a spec task'
+    case 'draft':
+      return subject ? `the draft of the ${subject} spec` : 'a spec draft'
+    case 'kickoff':
+      return subject ? `the kickoff of the ${subject} spec` : 'a spec kickoff'
+    case 'change':
+      return subject ? `a one-off change (${subject})` : 'a one-off change'
+    case 'review':
+      return subject ? `a review of ${subject}${prTitle ? ` "${prTitle}"` : ''}` : 'a review'
+    case 'mc':
+      return subject ? `the mission-control session for ${subject}` : 'the mission-control session'
+    case 'other':
+      return subject ? `another session (${subject})` : 'another session'
+  }
+}
+
+// One plain sentence per session: the state, then what it is doing, never
+// its handle or scope. Those waiting on an answer come first, then those not
+// responding. The mission-control session itself is never waiting on the
+// operator, whatever its prompt shows. `isOwn` marks it.
+export function flightRows(
+  flights: ReloadedFlight[],
+  program = '',
+  prTitle: (n: number) => string | undefined = () => undefined,
+): { state: PanelFlight['state']; text: string; isOwn: boolean }[] {
   return flights
-    .map((f, i) => ({ i, state: flightState(f), kind: flightKind(f), subject: flightSubject(f, program) }))
+    .map((f, i) => {
+      const kind = flightKind(f)
+      return { i, kind, subject: flightSubject(f, program), state: kind === 'mc' && flightState(f) === 'waiting' ? 'working' : flightState(f) }
+    })
     .sort((a, b) => STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state) || a.i - b.i)
-    .map(r => ({
-      state: r.state,
-      text: [KINDS[r.kind], r.subject, STATES[r.state]].filter(Boolean).join(' · '),
-    }))
+    .map(r => {
+      const pr = r.kind === 'review' && r.subject ? /([0-9]+)$/.exec(r.subject) : null
+      const what = flightWhat(r.kind, r.subject, pr ? prTitle(Number(pr[1])) : undefined)
+      const text =
+        r.state === 'waiting'
+          ? `Needs your answer: ${what}`
+          : r.state === 'stuck'
+            ? `Not responding: ${what}`
+            : `Working on ${what}`
+      return { state: r.state, text, isOwn: r.kind === 'mc' }
+    })
 }
 
 export type Install =
