@@ -45,7 +45,15 @@ fi
 
 # Default cwd for containment: a scratch repo with a .git marker and a
 # scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
-SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/worker-command-guard-harness.XXXXXX")" || exit 1
+# The base is a fixed system directory and TMPDIR is pinned to it, never the
+# caller's: run from inside a worker session, that TMPDIR is the scratch root
+# the guard's scratch arm trusts, and fixtures under it would be approved by
+# design. The session record the shell inherited is dropped for the same reason
+# (a fixture that needs one sets it through HOOK_ENV, which wins).
+TMPDIR=/tmp
+export TMPDIR
+unset PLANWRIGHT_WORKER_SESSION_RECORD
+SANDBOX="$(mktemp -d /tmp/worker-command-guard-harness.XXXXXX)" || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
