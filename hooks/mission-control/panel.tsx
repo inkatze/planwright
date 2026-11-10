@@ -24,15 +24,28 @@ function flightCount(view: PanelView): string {
   // attention store an idle session reads live, so there may be fewer.
   const isFloor = d.unreadable.includes('tmux windows')
   const isCeiling = d.unreadable.includes('attention store')
-  const n = d.flights.filter(f => f.state !== 'waiting').length
+  const n = flightRows(d.flights, view.program).filter(r => r.state !== 'waiting').length
   return isFloor && isCeiling ? '?' : isFloor ? `${n}+` : isCeiling ? `up to ${n}` : String(n)
 }
 
 // The pull requests ready to merge, a floor (`3+`) or `?` when some could
 // not be judged; null when there is nothing to say.
+// A ready verdict outlives the merge by up to the store's age, so a pull
+// request the complete open list no longer holds is merged or closed: it is
+// dropped. A list cut short proves nothing about what it leaves out.
+function liveCommands(d: PanelDigest): PanelMergeCommand[] {
+  const all = d.mergeCommands ?? []
+  const r = d.reviews
+  if (!r || !r.isAvailable || r.mine.length < (r.mineTotal ?? 0)) return all
+  return all.filter(c => r.mine.some(p => p.repo === c.repo && p.number === c.number))
+}
+
+const liveMergeReady = (d: PanelDigest): number =>
+  Math.max((d.mergeReady ?? 0) - ((d.mergeCommands ?? []).length - liveCommands(d).length), 0)
+
 function mergeReadyCount(d: PanelDigest): string | null {
   if (d.unreadable.includes('merge-ready store')) return '?'
-  const n = d.mergeReady ?? 0
+  const n = liveMergeReady(d)
   if (d.isMergeReadyPartial) return n > 0 ? `${n}+` : '?'
   return n > 0 ? String(n) : null
 }
@@ -98,7 +111,14 @@ export function readouts(view: PanelView): Readout[] {
   }
 
   if (!d || d.waiting === null) out.push(line('Waiting on you unknown', 'UNKNOWN'))
-  else out.push(line(`Waiting on you ${d.waiting === 0 ? 'none' : d.waiting}`, d.waiting > 0 ? 'ACT' : 'OK'))
+  else {
+    // The Waiting on you card lists the pull requests to merge too, so the
+    // readout names them rather than counting questions alone.
+    const ready = mergeReadyCount(d)
+    const toMerge = ready === null ? '' : `, ${ready} to merge`
+    const asks = d.waiting === 0 ? 'none' : toMerge ? `${d.waiting} ${d.waiting === 1 ? 'question' : 'questions'}` : d.waiting
+    out.push(line(`Waiting on you ${asks}${toMerge}`, d.waiting > 0 || ready !== null ? 'ACT' : 'OK'))
+  }
   return out
 }
 
@@ -373,8 +393,11 @@ function PullRequests(t: Table, view: PanelView, width: number) {
     return Card(t, width, title, [{ text: total === 0 ? 'No open pull requests.' : `${total} open, none listed`, dimColor: true }])
   }
   const lines: CardLine[] = []
-  for (const g of PR_GROUPS) {
-    const inGroup = rows.filter(x => x.group === g.id)
+  // Only what the operator must act on is listed: a ready pull request or one
+  // awaiting their decision. The rest are counted, never named.
+  const mine = rows.filter(x => x.group === 'ready' || x.group === 'needs-you')
+  for (const g of PR_GROUPS.filter(x => x.id === 'ready' || x.id === 'needs-you')) {
+    const inGroup = mine.filter(x => x.group === g.id)
     if (inGroup.length === 0) continue
     lines.push({ text: g.title, bold: true })
     for (const x of inGroup) {
@@ -382,8 +405,41 @@ function PullRequests(t: Table, view: PanelView, width: number) {
       if (x.command) lines.push({ text: `run: ${x.command}` })
     }
   }
-  if (total > rows.length) lines.push({ text: `+${total - rows.length} more`, dimColor: true })
+  const rest = total - mine.length
+  if (rest > 0) {
+    const noun = rest === 1 ? 'request needs' : 'requests need'
+    lines.push({ text: `${mine.length === 0 ? '' : '+ '}${rest} other pull ${noun} nothing from you`, dimColor: true })
+  }
   return Card(t, width, title, lines)
+}
+
+// A pull request's title by number, from either reviews list, for the rows
+// that name a review by its pull request.
+const prTitle = (d: PanelDigest) => (n: number): string | undefined =>
+  [...(d.reviews?.mine ?? []), ...(d.reviews?.waiting ?? [])].find(p => p.number === n)?.title
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+// One plain overview: how many sessions work, and what, if anything, is the
+// operator's to do. An unknown count is said as such, never as none.
+function summary(view: PanelView): string {
+  const d = view.digest!
+  const n = flightCount(view)
+  // Counted from the rows In flight shows: a session not responding is not working.
+  const stuck = flightRows(d.flights, view.program).filter(r => r.state === 'stuck').length
+  const busy = /^[0-9]+$/.test(n) ? Number(n) - stuck : 0
+  const stuckNote = stuck > 0 ? `, ${stuck} ${stuck === 1 ? 'is' : 'are'} not responding` : ''
+  const working = /^[0-9]+$/.test(n)
+    ? `${busy === 0 ? 'No sessions are' : plural(busy, 'session is', 'sessions are')} working${stuckNote}.`
+    : `Sessions working: ${n === '?' ? 'unknown' : n}.`
+  const ready = mergeReadyCount(d)
+  const readyN = ready === null ? 0 : /^[0-9]+$/.test(ready) ? Number(ready) : null
+  if (d.waiting === null || readyN === null) return `${working} What needs you could not be fully read.`
+  const asks = [
+    ...(d.waiting > 0 ? [`${plural(d.waiting, 'question waits', 'questions wait')} for your answer`] : []),
+    ...(readyN > 0 ? [`${plural(readyN, 'pull request is', 'pull requests are')} ready for you to merge`] : []),
+  ]
+  return `${working} ${asks.length === 0 ? 'Nothing needs you right now.' : `${asks.join(', and ')}.`}`
 }
 
 // The pull requests waiting on the operator's own review.
@@ -428,7 +484,7 @@ function Mascot(t: Table, view: PanelView, surface: RenderSurface) {
 // question; a count stands for any beyond those.
 function waitingRows(view: PanelView): string[] {
   const d = view.digest!
-  const sessions = flightRows(d.flights, view.program).filter(r => r.state === 'waiting')
+  const sessions = flightRows(d.flights, view.program, prTitle(d)).filter(r => r.state === 'waiting')
   const sessionWorkers = new Set(d.flights.filter(f => f.state === 'waiting').map(f => f.worker))
   const rows = sessions.map(r => r.text)
   if (d.waiting === null) return [...rows, 'unknown whether more wait on you']
@@ -446,8 +502,8 @@ function readyRows(view: PanelView): string[] {
   const d = view.digest!
   const toMerge = mergeReadyCount(d)
   if (toMerge === null) return []
-  const commands = d.mergeCommands ?? []
-  const isNamed = !d.isMergeReadyPartial && !d.unreadable.includes('merge-ready store') && commands.length === d.mergeReady
+  const commands = liveCommands(d)
+  const isNamed = !d.isMergeReadyPartial && !d.unreadable.includes('merge-ready store') && commands.length === liveMergeReady(d)
   if (!isNamed) return [`${toMerge} ready to merge`]
   const isMulti = new Set(commands.map(c => c.repo)).size > 1
   return commands.map(c => {
@@ -529,6 +585,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
         </Box>
       )}
       {mascotMode(view) !== 0 && Mascot(t, view, surface)}
+      {Section(t, width, "What's going on", [summary(view)])}
       {Section(t, width, 'Right now', readouts(view).map(r => r.text))}
       {Section(t, width, 'Waiting on you', [...waitingRows(view), ...readyRows(view)])}
       {Section(
@@ -536,7 +593,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
         width,
         `In flight (${flightCount(view)})`,
         [
-          ...flightRows(d.flights, view.program).filter(r => r.state !== 'waiting').map(r => r.text),
+          ...flightRows(d.flights, view.program, prTitle(d)).filter(r => r.state !== 'waiting').map(r => r.text),
           ...(d.finished ? [`${d.finished} finished, not cleaned up`] : []),
         ],
         d.unreadable.includes('tmux windows') ? '' : 'Nothing in flight.',

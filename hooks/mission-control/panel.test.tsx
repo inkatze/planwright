@@ -14,8 +14,9 @@ test('the pane draws every store from the fixture digest, on every surface', asy
     const has = async (text: RegExp) => expect((await ui.find({ type: 'Text', text }))?.text).toMatch(text)
     await has(/Mission control · alpha/)
     await has(/In flight \(2\)/)
-    await has(/^spec task · alpha · working$/)
-    await has(/^one-off change · docs · working$/)
+    await has(/^Working on a task of the alpha spec$/)
+    await has(/^Working on a one-off change \(docs\)$/)
+    await has(/^2 sessions are working\. 2 questions wait for your answer\.$/)
     await has(/2 waiting on you/)
     await has(/^Context 42% · compacts at 95% · OK$/)
     await ui.unmount()
@@ -51,18 +52,18 @@ test('sessions in flight are said in plain words, one row each', async ($, on) =
   expect(at).toBeGreaterThan(-1)
   // Waiting on an answer is said under Waiting on you, never here; not responding comes first.
   expect(texts.slice(at + 1, at + 13)).toEqual([
-    'spec task · review-effectiveness · not responding',
-    'spec task · alpha · working',
-    'one-off change · docs · working',
-    'one-off change · panel-fix · working',
-    'spec task · kickoff-lifecycle · working',
-    'one-off change · spec-kickoff-lens-fix · working',
-    'spec task · universal-binary · working',
-    'spec kickoff · universal-binary · working',
-    'other session · offload · working',
-    'spec task · tower-comms · working',
-    'review · PR 848 · working',
-    'mission-control session · alpha · working',
+    'Not responding: a task of the review-effectiveness spec',
+    'Working on a task of the alpha spec',
+    'Working on a one-off change (docs)',
+    'Working on a one-off change (panel-fix)',
+    'Working on a task of the kickoff-lifecycle spec',
+    'Working on a one-off change (spec-kickoff-lens-fix)',
+    'Working on a task of the universal-binary spec',
+    'Working on the kickoff of the universal-binary spec',
+    'Working on another session (offload)',
+    'Working on a task of the tower-comms spec',
+    'Working on a review of PR 848',
+    'Working on the mission-control session for alpha',
   ])
   const ids = /92e2ac1dd8|3d062aa6a5|@7|cop486|a1b2c3|cubic|gen-2|task-\d|:kickoff|stream-json|\.sh\b/
   expect(texts.slice(at, at + 13).filter(t => ids.test(t))).toEqual([])
@@ -681,8 +682,8 @@ test('each session row names the spec or change it is about', async ($, on) => {
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
-  expect(t).toContain('spec task · alpha · working')
-  expect(t).toContain('one-off change · docs · working')
+  expect(t).toContain('Working on a task of the alpha spec')
+  expect(t).toContain('Working on a one-off change (docs)')
   await ui.unmount()
 })
 
@@ -694,10 +695,10 @@ test('a session waiting on an answer is not listed again in flight', async ($, o
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
-  const row = 'spec draft · panel · waiting for an answer'
+  const row = 'Needs your answer: the draft of the panel spec'
   expect(t.filter(l => l === row)).toHaveLength(1)
   expect(t.indexOf(row)).toBeLessThan(t.indexOf('In flight (2)'))
-  expect(t.filter(l => l.includes('waiting for an answer'))).toHaveLength(1)
+  expect(t.filter(l => /^Needs your answer|waiting for an answer$/.test(l))).toHaveLength(1)
   await ui.unmount()
 })
 
@@ -717,7 +718,7 @@ test('a queued question no session asks is named under Waiting on you, its sessi
   expect(t).toContain('Ship the migration? · waiting for an answer')
   expect(t).not.toContain('Pick a name for the panel? · waiting for an answer')
   expect(t).not.toContain('1 waiting on you, not in a session')
-  expect(t.filter(l => l.includes('waiting for an answer'))).toHaveLength(2)
+  expect(t.filter(l => /^Needs your answer|waiting for an answer$/.test(l))).toHaveLength(2)
   await ui.unmount()
 })
 
@@ -741,7 +742,7 @@ test('a session scoped to a bare task names no subject', async ($, on) => {
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = (await ui.findAll({ type: 'Text' })).map(n => n.text ?? '')
-  expect(t).toContain('spec task · working')
+  expect(t).toContain('Working on a spec task')
   await ui.unmount()
 })
 

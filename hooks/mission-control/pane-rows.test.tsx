@@ -24,39 +24,103 @@ const PRS = [
 const rows = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) =>
   (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').filter(l => l.trim() !== '')
 
-test('pull requests are listed by title, grouped by where they stand against the ready conditions', async ($, on) => {
+test('only the pull requests that need the operator are listed, the rest counted in one line', async ($, on) => {
   const w = world(on, { digest: digestText({ extra: PRS }) })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
   const at = (re: RegExp) => t.findIndex(l => re.test(l))
-  const order = [/^Ready to merge$/, /^Needs you$/, /^In review$/, /^CI running$/, /^CI failed$/].map(at)
-  expect(order.every(i => i > -1)).toBe(true)
-  expect([...order].sort((a, b) => a - b)).toEqual(order)
+  expect(at(/^Ready to merge$/)).toBeGreaterThan(-1)
+  expect(at(/^Ready to merge$/)).toBeLessThan(at(/^Needs you$/))
   expect(t).toContain('#1 Ship the widget')
   // A long command wraps across rows, so it is read back joined.
   expect(t.join(' ')).toContain(`run: ${CMD}`)
   expect(t).toContain('#2 Draft the gadget · a draft waiting for your yes')
-  expect(t).toContain('#3 Rework the docs · 2 review threads still open')
-  expect(t).toContain('#4 Tune the cache · CI still running')
-  expect(t).toContain('#5 Break the build · CI failed')
-  expect(t).toContain('#6 Fresh branch · head not reviewed yet')
-  expect(at(/^#1 /)).toBeLessThan(at(/^#2 /))
-  expect(at(/^#2 /)).toBeLessThan(at(/^#3 /))
-  expect(at(/^#3 /)).toBeLessThan(at(/^#4 /))
-  expect(at(/^#4 /)).toBeLessThan(at(/^#5 /))
+  for (const title of ['Rework the docs', 'Tune the cache', 'Break the build', 'Fresh branch']) {
+    expect(t.some(l => l.includes(title))).toBe(false)
+  }
+  expect(t).toContain('+ 4 other pull requests need nothing from you')
   await ui.unmount()
 })
 
-test('a group with no pull request is not drawn', async ($, on) => {
+test('with nothing for the operator to act on, the pull requests are only counted', async ($, on) => {
   const w = world(on, {
     digest: digestText({ extra: [tab('reviews', 'ok', 5), tab('review-mine', 'acme/widgets', 9, 'draft', 'red', 0, 'no', '-', 'Only one')] }),
   })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
-  expect(t).toContain('CI failed')
-  expect(t.some(l => /^(Ready to merge|Needs you|In review|CI running)$/.test(l))).toBe(false)
+  expect(t).toContain('1 other pull request needs nothing from you')
+  expect(t.some(l => /^(Ready to merge|Needs you|In review|CI running|CI failed)$/.test(l))).toBe(false)
+  expect(t.some(l => l.includes('Only one'))).toBe(false)
+  await ui.unmount()
+})
+
+// A ready verdict outlives the merge: the open list no longer holding the
+// pull request is the evidence it is gone.
+test('a merge-ready pull request that already merged is not counted or listed', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [
+        tab('reviews', 'ok', 60),
+        tab('review-count', 'mine', 1),
+        tab('review-mine', 'acme/widgets', 1, 'ready', 'green', 0, 'yes', '-', 'Still open'),
+        tab('merge-ready', 2, 'all'),
+        tab('merge-command', 'acme/widgets', 1, CMD),
+        tab('merge-command', 'acme/widgets', 9, CMD.replace(' 1 ', ' 9 ')),
+      ],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain('#1 Still open · ready to merge')
+  expect(t.some(l => l.startsWith('#9'))).toBe(false)
+  expect(t.join(' ')).toContain('2 questions wait for your answer, and 1 pull request is ready for you to merge.')
+  await ui.unmount()
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await bandOf(band)).toContain('1 ready to merge')
+  await band.unmount()
+})
+
+test('a list cut short does not prove a ready pull request merged', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [
+        tab('reviews', 'ok', 60),
+        tab('review-count', 'mine', 5),
+        tab('review-mine', 'acme/widgets', 1, 'ready', 'green', 0, 'yes', '-', 'Listed'),
+        tab('merge-ready', 1, 'all'),
+        tab('merge-command', 'acme/widgets', 9, CMD.replace(' 1 ', ' 9 ')),
+      ],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await rows(ui)).some(l => l.startsWith('#9'))).toBe(true)
+  await ui.unmount()
+})
+
+test('the pane opens with one plain sentence on what is going on', async ($, on) => {
+  const w = world(on, { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain("What's going on")
+  expect(t).toContain('2 sessions are working. Nothing needs you right now.')
+  expect(t.indexOf("What's going on")).toBeLessThan(t.indexOf('Right now'))
+  await ui.unmount()
+})
+
+test('a review session is named by its pull request title', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: [tab('reviews', 'ok', 60), tab('review-mine', 'acme/widgets', 848, 'draft', 'green', 0, 'no', '-', 'Fix the gadget'), tab('flight', 'cb-848', 'cubic-pr-848', 'tmux', 'working')],
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await rows(ui)).toContain('Working on a review of PR 848 "Fix the gadget"')
   await ui.unmount()
 })
 
@@ -88,9 +152,9 @@ test('waiting on you is one row per item, not a count', async ($, on) => {
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
-  expect(t).toContain('spec draft · panel · waiting for an answer')
-  expect(t).toContain('spec kickoff · alpha · waiting for an answer')
-  expect(t.filter(l => /waiting for an answer/.test(l))).toHaveLength(2)
+  expect(t).toContain('Needs your answer: the draft of the panel spec')
+  expect(t).toContain('Needs your answer: the kickoff of the alpha spec')
+  expect(t.filter(l => /^Needs your answer/.test(l))).toHaveLength(2)
   await ui.unmount()
 })
 
@@ -107,8 +171,8 @@ test('in flight is one row per session', async ($, on) => {
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
-  expect(t.filter(l => l === 'spec task · alpha · working')).toHaveLength(2)
-  expect(t).toContain('one-off change · docs · working')
+  expect(t.filter(l => l === 'Working on a task of the alpha spec')).toHaveLength(2)
+  expect(t).toContain('Working on a one-off change (docs)')
   expect(t).toContain('In flight (3)')
   await ui.unmount()
 })
@@ -174,8 +238,9 @@ test('a kept ready verdict does not stand over a red check or an open thread the
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
-  expect(t).toContain('#1 Went red · CI failed')
-  expect(t).toContain('#2 New thread · 1 review thread still open')
+  expect(t.some(l => l.includes('Went red'))).toBe(false)
+  expect(t.some(l => l.includes('New thread'))).toBe(false)
+  expect(t).toContain('2 other pull requests need nothing from you')
   expect(t).not.toContain('Ready to merge')
   await ui.unmount()
 })
@@ -186,7 +251,7 @@ test('with readiness not judged, a pull request is not told to wait for the oper
   })
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await rows(ui)).toContain('#3 Unjudged · readiness not judged yet')
+  expect((await rows(ui)).some(l => l.includes('Unjudged'))).toBe(false)
   await ui.unmount()
 })
 
@@ -238,5 +303,22 @@ test('every limit mission control reports has a plain name and reads in plain wo
   expect(t).not.toContain('context steps')
   expect(t).not.toContain('host load')
   expect(t).not.toContain('of 100 (10%)')
+  await ui.unmount()
+})
+
+test('the summary counts a session that stopped responding apart from those working', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: [tab('flight', 'st-1', 'billing:task-7', 'tmux', 'stuck')] }).replace(/^waiting\t.*$/m, 'waiting\t0') })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = (await rows(ui)).join(' ')
+  expect(t).toContain('2 sessions are working, 1 is not responding. Nothing needs you right now.')
+  await ui.unmount()
+})
+
+test('the Right now readout names the pull requests to merge as well as the questions', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: ['merge-ready\t1\tall', tab('merge-command', 'acme/widgets', 908, 'checked-merge-908')] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await rows(ui)).toContain('Waiting on you 2 questions, 1 to merge · ACT')
   await ui.unmount()
 })
