@@ -499,7 +499,9 @@ bundle_signoff() {
   fi
   got=''
   case ${entry#*	} in
-    "scripts/spec-anchor.sh $rel/$b")
+    "scripts/spec-anchor.sh $rel/$b" | "spec-anchor.sh $rel/$b")
+      # Both script forms run only the shipped spec-anchor.sh, never the path
+      # the brief names.
       got=$(cd "$repo" && mc_untrusted_git_env && /bin/sh "$script_dir/spec-anchor.sh" "$d" 2>/dev/null) || got=''
       ;;
     'git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin')

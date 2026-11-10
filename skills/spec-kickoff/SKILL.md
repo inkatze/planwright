@@ -349,7 +349,10 @@ most recent anchor entry never describes spec content that was not walked.
    amendment log are append-only after first sign-off. Carry `Class:`,
    `Lens-pass:` (meaning-class only), and **the anchor line last** (the
    fail-closed ordering). Compute the anchor with `scripts/spec-anchor.sh
-   <root>/<spec>`, recorded as `specs/<spec>`, after every spec-file edit of this
+   <root>/<spec>` and record the command as `scripts/spec-anchor.sh
+   specs/<spec>` where the checked tree holds that script, else as the
+   logical form `spec-anchor.sh specs/<spec>` (never a bare unprefixed
+   path or an env-literal one), after every spec-file edit of this
    run (flip, `Last reviewed:`, applied findings) is on disk; it fails closed on
    a defective bundle — surface its stderr and stop with no anchor line, never
    hand-roll it. Absent that script, descend `spec-format`'s sanctioned-form
