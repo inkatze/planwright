@@ -52,6 +52,10 @@
 #                    dropped)
 #         --name <name>  (tmux only) the session and window name, in the
 #                    stream-json-persistent handle grammar
+#         --remote-control <name>  (tmux only, mission-control profile only)
+#                    start the session with Remote Control under <name>, in the
+#                    stream-json-persistent handle grammar; any other profile
+#                    refuses it (exit 2)
 #         --scope <scope>  (tmux only) the worker scope a worker-profile
 #                    session's identity carries beside --name (default
 #                    offload); the wrapper is pinned to this install's root
@@ -181,6 +185,7 @@ D_STRICT=0
 D_PROFILE=''
 D_MC_TOKEN=''
 D_NAME=''
+D_REMOTE_CONTROL=''
 D_SCOPE=offload
 D_SCOPE_SET=0
 
@@ -441,8 +446,12 @@ cmd_dispatch() {
     exit 2
   fi
 
-  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ]; }; then
-    printf '%s\n' "$me: dispatch: --profile, --name and --scope apply to the tmux rung only" >&2
+  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ] || [ -n "$D_REMOTE_CONTROL" ]; }; then
+    printf '%s\n' "$me: dispatch: --profile, --name, --scope and --remote-control apply to the tmux rung only" >&2
+    exit 2
+  fi
+  if [ -n "$D_REMOTE_CONTROL" ] && [ "$D_PROFILE" != mission-control ]; then
+    printf '%s\n' "$me: dispatch: --remote-control is for a mission-control profile session alone" >&2
     exit 2
   fi
   launch_env=''
@@ -545,6 +554,7 @@ cmd_dispatch() {
     set -- "$@" claude
   fi
   [ -z "$D_NAME" ] || set -- "$@" --name "$D_NAME"
+  [ -z "$D_REMOTE_CONTROL" ] || set -- "$@" --remote-control "$D_REMOTE_CONTROL"
   [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
   [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"
   # shellcheck disable=SC2016 # single quotes are deliberate: $1/$@ expand in
@@ -705,6 +715,18 @@ case "$sub" in
             exit 2
           }
           D_NAME=$2
+          shift 2
+          ;;
+        --remote-control)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$2" 2>/dev/null || {
+            printf '%s\n' "$me: dispatch: refusing a --remote-control name outside the session-name grammar" >&2
+            exit 2
+          }
+          D_REMOTE_CONTROL=$2
           shift 2
           ;;
         *)

@@ -61,6 +61,7 @@ usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
+      [--remote-control <name>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh list
@@ -73,7 +74,9 @@ mission_control_launch_backend knob; a --backend other than the knob's
 value, or given while the knob cannot be resolved, launches, warned on
 stderr naming the knob. A mission-control launch with no --brief opens on
 `/planwright:mission-control <p>`; `--backend tmux` makes it an attended
-one, in a tmux window.
+one, in a tmux window. `--remote-control <name>` (mission-control only)
+starts that window with Remote Control under the name; the stream-json
+rung has no terminal to attach it to, so it drops the flag with a warning.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the
@@ -730,10 +733,11 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
+  remote_control='' rc_given=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
-      --program | --kind | --scope | --brief | --backend | --cwd | --rules | --repo)
+      --program | --kind | --scope | --brief | --backend | --cwd | --rules | --repo | --remote-control)
         [ "$#" -ge 2 ] || usage
         case $1 in
           --program) program=$2 ;;
@@ -743,6 +747,10 @@ cmd_launch() {
           --backend) backend=$2 ;;
           --cwd) cwd=$2 ;;
           --repo) repo=$2 ;;
+          --remote-control)
+            remote_control=$2
+            rc_given=1
+            ;;
           --rules)
             case $2 in
               duty:* | repo:*) ;;
@@ -764,6 +772,11 @@ cmd_launch() {
   valid_program "$program" || die "refusing the program name '$(sanitize_printable "$program")'"
   kind_row "$kind" || die "unknown session kind '$(sanitize_printable "$kind")' (one of: $KINDS)"
   valid_scope "$scope" || die "refusing the scope '$(sanitize_printable "$scope")': letters, digits and . _ = @ : - only, at most 128"
+  if [ "$rc_given" = 1 ]; then
+    [ "$kind" = mission-control ] || die "--remote-control names a mission-control session only"
+    /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$remote_control" 2>/dev/null \
+      || die "refusing the --remote-control name '$(sanitize_printable "$remote_control")': outside the session-name grammar"
+  fi
   if [ -n "$brief" ] || [ "$kind" != mission-control ]; then
     [ -n "$brief" ] && [ -f "$brief" ] && [ -r "$brief" ] && [ -s "$brief" ] \
       || die "--brief must name a readable, non-empty regular file"
@@ -856,6 +869,10 @@ cmd_launch() {
   fi
 
   resolve_backend
+  if [ -n "$remote_control" ] && [ "$backend" != tmux ]; then
+    printf '%s\n' "$me: warning: --remote-control is for the tmux rung; the $backend session starts without Remote Control" >&2
+    remote_control=''
+  fi
   fleet_home
   private_dir "$FH/mission-control"
   private_dir "$REG"
@@ -1038,7 +1055,7 @@ cmd_launch() {
       ;;
     tmux)
       out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
-        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" --scope "$scope" </dev/null)
+        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" </dev/null)
       dr=$?
       case $dr in
         0) ;;

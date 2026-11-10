@@ -58,8 +58,11 @@ ho due --program alpha --context 5 --wakes 0 --compactions 2
 # ---------------------------------------------------------------------------
 # A first start: no holder, so a plain launch runs and takes the name.
 # ---------------------------------------------------------------------------
+printf 'mission_control_successor_remote_control: inherit\n' >"$adopter/planwright.yml"
 ho launch --program alpha --brief "$tmp/brief.md"
 [ "$RC" = 0 ] || fail "the first launch exited $RC: $ERR"
+case $ERR in *'not carried'*) fail "a first start with no predecessor spoke about Remote Control: $ERR" ;; *) ok "a first start has nothing to inherit and says nothing about Remote Control" ;; esac
+rm -f "$adopter/planwright.yml"
 n1=$(col successor 2)
 wait_done "$n1"
 grep -qF 'Run program alpha.' "$fleet/mission-control/launch/$n1/brief.md" \
@@ -520,6 +523,129 @@ RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wa
   && grep -qx '%9' "$tmp/tmux.panes" && grep -qx '%3' "$tmp/tmux.panes" \
   && ok "exactly the recorded pane was killed, no other" || fail "tmux log: $(cat "$tmp/tmux.log")"
 holder_is "the name moved to the pane successor" "$nf"
+
+# ---------------------------------------------------------------------------
+# Remote Control: a tmux successor starts Remote Control when its predecessor
+# was started with --remote-control (named, or bare, which takes the
+# successor's own name); a predecessor with none, an unreadable one, or a
+# name outside the grammar gives the successor none, and says why on stderr.
+# Each predecessor is a process whose argv carries the flags it was given.
+# ---------------------------------------------------------------------------
+printf '%s\n' 'sleep 900 &' "trap 'kill \$! 2>/dev/null; exit 0' TERM INT" 'wait' >"$tmp/rcclaude"
+printf '%s\n' '%11' '%12' '%13' '%14' '%15' '%16' '%17' >>"$tmp/tmux.panes"
+rc_predecessor() {
+  sh "$tmp/rcclaude" "$@" >/dev/null 2>&1 &
+  RC_PID=$!
+  fakes="$fakes $RC_PID"
+}
+rc_window_argv() {
+  for w in "$tmp/tmuxw"/@*; do
+    [ -f "$w" ] && [ "$(cat "$w")" = "$1" ] || continue
+    cat "$tmp/tmuxw/argv-${w##*/}"
+    return 0
+  done
+  return 1
+}
+rc_absent() { [ -n "$(rc_window_argv "$1")" ] && ! rc_window_argv "$1" | grep -qx -- '--remote-control'; }
+rc_has_pair() { awk -v v="$2" 'prev == "--remote-control" && $0 == v { ok = 1 } { prev = $0 } END { exit !ok }' "$1"; }
+# rc_cycle <predecessor session> <pane> — the predecessor is made holder by
+# resume (RC_PID) or, when it is already the holder, written as is; a tmux
+# handover launches its successor (RC_SUCC) and stderr is kept in RC_ERR.
+rc_cycle() {
+  rc_session=$1 rc_pane=$2
+  ho resume --program alpha --session "$rc_session" --pid "$RC_PID" --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 1s --exit-wait 1s
+  [ "$RC" = 0 ] || fail "fixture: resume as $rc_session exited $RC: $OUT $ERR"
+  printf '%s\n' "$(date +%s)" >"$fleet/mission-control/alpha/leases/$rc_session"
+  ho write --program alpha --session "$rc_session" --picture "$tmp/picture" --digest "$digest"
+  [ "$RC" = 0 ] || fail "fixture: write as $rc_session exited $RC: $OUT $ERR"
+  rc_led=$(col handover 3)
+  RUN_TMUX_PANE="$rc_pane" ho launch --program alpha --brief "$tmp/brief.md" --handover --backend tmux
+  RC_LAUNCH=$RC RC_ERR=$ERR RC_SUCC=$(col successor 2)
+}
+rc_settle() {
+  ho verify --program alpha --session "$RC_SUCC" --picture "$tmp/picture" --digest "$digest" --ledger "$rc_led"
+  [ "$RC" = 0 ] || fail "fixture: verify of $RC_SUCC exited $RC: $OUT $ERR"
+  kill "$RC_PID" 2>/dev/null
+  RUN_TMUX_PANE="$1" ho take --program alpha --session "$RC_SUCC" --window 1s --exit-wait 5s
+  [ "$RC" = 0 ] || fail "fixture: take of $RC_SUCC exited $RC: $OUT $ERR"
+}
+
+# rc_knob <off|inherit|on|default>: the successor Remote Control knob, in the adopter layer.
+rc_knob() {
+  {
+    touch "$adopter/planwright.yml"
+    grep -v "^mission_control_successor_remote_control:" "$adopter/planwright.yml"
+    [ "$1" = default ] || printf 'mission_control_successor_remote_control: %s\n' "$1"
+  } >"$tmp/adopter.rc" \
+    && cat "$tmp/adopter.rc" >"$adopter/planwright.yml"
+}
+
+# inherit: what follows reads the predecessor's own launch.
+rc_knob inherit
+
+# A predecessor with no readable process carries no Remote Control, and says so.
+rc_predecessor
+ho write --program alpha --session "$nf" --picture "$tmp/picture" --digest "$digest"
+[ "$RC" = 0 ] || fail "fixture: write as the registry holder exited $RC: $OUT $ERR"
+rc_led=$(col handover 3)
+RUN_TMUX_PANE='%11' ho launch --program alpha --brief "$tmp/brief.md" --handover --backend tmux
+[ "$RC" = 0 ] || fail "the unreadable-predecessor handover exited $RC: $OUT $ERR"
+rc_u=$(col successor 2)
+if [ -n "$(rc_window_argv "$rc_u")" ] && ! rc_window_argv "$rc_u" | grep -qx -- '--remote-control'; then
+  ok "a successor of a predecessor with no readable process starts without Remote Control"
+else
+  fail "a successor of an unreadable predecessor: no window argv, or it starts Remote Control"
+fi
+case $ERR in *'not carried'*) ok "and says so on stderr" ;; *) fail "no not-carried note: $ERR" ;; esac
+RC_SUCC=$rc_u rc_settle '%11'
+RC_PID=''
+
+# A named predecessor: the successor keeps its name.
+rc_predecessor --remote-control mc-op-named -- hello
+rc_cycle op-named '%12'
+[ "$RC_LAUNCH" = 0 ] || fail "the named-predecessor handover exited $RC_LAUNCH: $RC_ERR"
+rc_window_argv "$RC_SUCC" | rc_has_pair /dev/stdin mc-op-named \
+  && ok "a successor of a named predecessor starts Remote Control under that name" || fail "named successor argv: $(rc_window_argv "$RC_SUCC" | tr '\n' ' ')"
+rc_settle '%12'
+
+# A bare predecessor: the successor is named as itself.
+rc_predecessor --remote-control -- hello
+rc_cycle op-bare '%13'
+rc_window_argv "$RC_SUCC" | rc_has_pair /dev/stdin "$RC_SUCC" \
+  && ok "a successor of a bare --remote-control predecessor is named as itself" || fail "bare successor argv: $(rc_window_argv "$RC_SUCC" | tr '\n' ' ')"
+rc_settle '%13'
+
+# A predecessor started without Remote Control: the successor has none.
+rc_predecessor -- hello
+rc_cycle op-plain '%14'
+if rc_absent "$RC_SUCC"; then ok "a successor of a predecessor with no Remote Control starts none"; else fail "a successor of a predecessor with no Remote Control: $RC_SUCC"; fi
+rc_settle '%14'
+
+# A hostile name in the predecessor's argv is never passed on.
+rc_predecessor --remote-control 'bad;name' -- hello
+rc_cycle op-hostile '%15'
+if rc_absent "$RC_SUCC"; then ok "a hostile predecessor name is not passed to the successor"; else fail "a successor took a hostile predecessor name"; fi
+case $RC_ERR in *'not carried'*) ok "and the handover says why" ;; *) fail "no refusal note for the hostile name: $RC_ERR" ;; esac
+rc_settle '%15'
+rc_knob default
+# The shipped default is off: even a predecessor with Remote Control gives
+# its successor none, and nothing is said.
+rc_predecessor --remote-control mc-op-default -- hello
+rc_cycle op-default '%16'
+[ "$RC_LAUNCH" = 0 ] || fail "the default-knob handover exited $RC_LAUNCH: $RC_ERR"
+if rc_absent "$RC_SUCC"; then ok "with the knob at its default a successor starts without Remote Control"; else fail "the default knob started Remote Control: $RC_SUCC"; fi
+case $RC_ERR in *'not carried'*) fail "the off knob spoke about Remote Control: $RC_ERR" ;; *) ok "and the off knob says nothing" ;; esac
+rc_settle '%16'
+
+# on: the successor always gets Remote Control, under its own name, whatever
+# its predecessor had.
+rc_knob on
+rc_predecessor -- hello
+rc_cycle op-on '%17'
+[ "$RC_LAUNCH" = 0 ] || fail "the on-knob handover exited $RC_LAUNCH: $RC_ERR"
+rc_window_argv "$RC_SUCC" | rc_has_pair /dev/stdin "$RC_SUCC" \
+  && ok "with the knob on a successor starts Remote Control under its own name" || fail "on-knob successor argv: $(rc_window_argv "$RC_SUCC" | tr '\n' ' ')"
+rc_settle '%17'
 
 echo
 if [ "$failures" -gt 0 ]; then

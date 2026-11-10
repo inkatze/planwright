@@ -461,6 +461,36 @@ else
   fail "the tmux mission-control window does not start in auto mode (settings '$mt_settings')"
 fi
 grep -q '^--permission-mode' "$tmp/tmux/argv-$mt_handle" && fail "the tmux mission-control argv names a permission mode, overriding its profile"
+# Remote Control: a tmux mission-control window takes --remote-control <name>
+# only when asked, the name validated; every other kind and rung refuses it.
+rc_argv_has() { awk -v v="$2" 'prev == "--remote-control" && $0 == v { ok = 1 } { prev = $0 } END { exit !ok }' "$1"; }
+ml launch --program alpha --kind mission-control --scope rc-named --brief "$tmp/brief.md" --backend tmux --remote-control mc-rc-named
+[ "$RC" = 0 ] || fail "the tmux mission-control launch with --remote-control exited $RC: $ERR"
+rc_named=$(field name)
+rc_named_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$rc_named")
+rc_argv_has "$tmp/tmux/argv-$rc_named_handle" mc-rc-named && ok "a tmux mission-control window with --remote-control starts Remote Control under the name" \
+  || fail "the window's argv lacks --remote-control mc-rc-named: $(tr '\n' ' ' <"$tmp/tmux/argv-$rc_named_handle" 2>/dev/null)"
+ml launch --program alpha --kind mission-control --scope rc-plain --brief "$tmp/brief.md" --backend tmux
+[ "$RC" = 0 ] || fail "the tmux mission-control launch without --remote-control exited $RC: $ERR"
+rc_plain=$(field name)
+rc_plain_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$rc_plain")
+grep -qx -- '--remote-control' "$tmp/tmux/argv-$rc_plain_handle" && fail "a launch that asked for no Remote Control starts one" \
+  || ok "a tmux mission-control launch without --remote-control starts none"
+ml launch --program alpha --kind mission-control --scope rc-hostile --brief "$tmp/brief.md" --backend tmux --remote-control 'mc;rm'
+[ "$RC" = 2 ] && ! grep -q 'rc-hostile' "$tmp/tmux/calls" && ok "a --remote-control name outside the session-name grammar is refused before a window opens" \
+  || fail "a hostile --remote-control name: exit $RC, calls: $(cat "$tmp/tmux/calls")"
+ml launch --program alpha --kind ad-hoc --scope rc-kind --brief "$tmp/brief.md" --backend tmux --remote-control mc-rc-kind
+[ "$RC" = 2 ] && ok "--remote-control is refused for a kind other than mission-control" \
+  || fail "--remote-control on an ad-hoc launch: exit $RC: $ERR"
+rm -f "$tmp/argv"
+ml launch --program alpha --kind mission-control --scope rc-stream --brief "$tmp/brief.md" --backend stream-json --remote-control mc-rc-stream
+[ "$RC" = 0 ] && case $ERR in *'--remote-control'*'stream-json'*) ok "the stream-json rung warns that it starts a successor without Remote Control" ;; *) fail "no stream-json warning: $ERR" ;; esac \
+  || fail "a stream-json launch with --remote-control: exit $RC: $ERR"
+wait_for "$tmp/argv" && ! grep -q -- '--remote-control' "$tmp/argv" && ok "the stream-json session is started without --remote-control" \
+  || fail "the stream-json session's argv: $(cat "$tmp/argv" 2>/dev/null)"
+rc_stream=$(field name)
+wait_done "$rc_stream"
+ml retire "$rc_stream"
 ml launch --program alpha --kind ad-hoc --scope same-rung --brief "$tmp/brief.md" --backend stream-json
 [ "$RC" = 0 ] || fail "the stream-json launch under the stream-json knob exited $RC: $ERR"
 case $ERR in
