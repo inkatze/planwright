@@ -142,5 +142,89 @@ long=$(printf 'x%.0s' $(seq 1 17000))
 pg mission-control "cat $FIXHOME/.claude/settings.json $long"
 expect deny "[mission-control] an over-long command naming a settings file is refused without parsing"
 
+echo "# a flip in another repository the program lists reads that repository's policy"
+# A stand-in for the program reader: programs.tsv rows are <program><TAB><path>.
+PROGS="$SANDBOX/programs.tsv"
+cat >"$S/mc-program.sh" <<EOF
+#!/bin/sh
+case "\$1" in
+  list) cut -f1 "$PROGS" | sort -u ;;
+  get) [ "\$3" = repositories ] && awk -F'\t' -v p="\$2" '\$1 == p { print \$2 }' "$PROGS" ;;
+  *) exit 2 ;;
+esac
+EOF
+chmod +x "$S/mc-program.sh"
+WIDGETS="$SANDBOX/widgets"
+DUP="$SANDBOX/widgets-dup"
+GADGETS="$SANDBOX/gadgets"
+for r in "$WIDGETS:acme/widgets" "$DUP:acme/widgets" "$GADGETS:acme/gadgets"; do
+  clone_on "${r%%:*}" main 0
+  gitq -C "${r%%:*}" remote set-url origin "https://github.com/${r#*:}.git"
+done
+mkdir -p "$WIDGETS/.claude" "$GADGETS/.claude"
+printf 'ready_flip_policy: human\n' >"$WIDGETS/.claude/planwright.yml"
+printf 'ready_flip_policy: unit-owner\n' >"$GADGETS/.claude/planwright.yml"
+set_knobs ''
+printf 'alpha\t%s\nalpha\t%s\n' "$WIDGETS" "$GADGETS" >"$PROGS"
+
+pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect ask "[mission-control] a flip in a listed repository under human asks, as that repository's policy says"
+reads ready_flip_policy "the named repository's flip reads only ready_flip_policy"
+pg mission-control 'gh pr ready 42 -R acme/widgets'
+expect ask "[mission-control] -R names the listed repository too"
+pg mission-control 'gh -R acme/widgets pr ready 42'
+expect ask "[mission-control] a global -R names the listed repository too"
+pg mission-control 'gh pr ready 42 --repo=acme/widgets'
+expect ask "[mission-control] --repo= names the listed repository too"
+pg mission-control 'gh pr ready 42 --repo ACME/Widgets'
+expect ask "[mission-control] the repository name matches regardless of case"
+pg mission-control 'gh pr ready 42 --repo acme/gadgets'
+expect defer "[mission-control] a listed repository under unit-owner defers to the ready-guard"
+pg mission-control 'gh pr ready 42 --repo acme/widgets && git commit -m wip'
+expect deny "[mission-control] a refusal elsewhere in the command outranks the other repository's ask"
+
+pg mission-control 'gh pr ready 42 --repo acme/unlisted'
+expect deny "[mission-control] a repository no program lists is refused"
+reason_has 'names a repository' "the unlisted refusal names the rule"
+pg mission-control 'gh pr ready 42 --repo acme/widgets --repo acme/gadgets'
+expect deny "[mission-control] two repository selectors are refused"
+pg mission-control 'gh pr ready https://github.com/acme/widgets/pull/42'
+expect deny "[mission-control] a PR URL is refused"
+pg mission-control 'gh pr ready 42 --repo github.example.com/acme/widgets'
+expect deny "[mission-control] a host-qualified repository is refused"
+# shellcheck disable=SC2016 # the guard must see the expansion literally
+pg mission-control 'gh pr ready 42 --repo acme/wid$(id)gets'
+expect deny "[mission-control] an expanded repository name is refused"
+pg mission-control 'gh pr ready 42 --repo ../widgets'
+expect deny "[mission-control] a path as the repository is refused"
+GH_HOST=github.example.com pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect deny "[mission-control] a GH_HOST the session inherited is refused"
+GH_REPO=acme/widgets pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect deny "[mission-control] a GH_REPO the session inherited is refused"
+pg mission-control 'GH_HOST=github.example.com gh pr ready 42 --repo acme/widgets'
+expect deny "[mission-control] an inline GH_HOST is refused"
+pg mission-control "cd $SCRATCH && gh pr ready 42 --repo acme/widgets"
+expect ask "[mission-control] a followable directory change does not move the named repository's policy"
+pg mission-control "cd ../x && gh pr ready 42 --repo acme/widgets"
+expect deny "[mission-control] a flip after a directory change the guard cannot follow is refused"
+pg worker 'gh pr ready 42 --repo acme/widgets'
+expect defer "[worker] the worker tier does not read the program list"
+
+printf 'alpha\t%s\nbeta\t%s\n' "$WIDGETS" "$DUP" >"$PROGS"
+pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect deny "[mission-control] a repository two different checkouts answer to is refused as ambiguous"
+printf 'alpha\t%s\nbeta\t%s\n' "$WIDGETS" "$WIDGETS" >"$PROGS"
+pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect ask "[mission-control] one checkout listed by two programs is not ambiguous"
+printf 'alpha\t%s\n' "$SANDBOX/not-a-checkout" >"$PROGS"
+pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect deny "[mission-control] a listed path that is no checkout is refused"
+rm -f "$PROGS"
+pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect deny "[mission-control] an unreadable program list is refused"
+rm -f "$S/mc-program.sh"
+pg mission-control 'gh pr ready 42 --repo acme/widgets'
+expect deny "[mission-control] a missing program reader is refused"
+
 no_gh_calls
 finish
