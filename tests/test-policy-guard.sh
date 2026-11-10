@@ -816,6 +816,111 @@ case $OUT in
   *) pass "the deny reason is stripped of control bytes" ;;
 esac
 
+# --- a cd that may not run --------------------------------------------------
+
+echo "# a cd is followed only when it runs"
+set_knobs 'protected_branches:' 'unpushed_rewrite: allow' 'worker_base_merge: allow' 'ready_flip_policy: unit-owner'
+# Each pair is <cwd>|<command>: the guard cannot tell that the shell runs the
+# cd, in this shell, before the last act; where it skips the cd or runs it in
+# a subshell, the act runs in the directory before it, a main checkout.
+for spec in "$UNIT|cd $MAIN; false && cd $UNIT; git push" \
+  "$UNIT|cd $MAIN; false && cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|true || cd $UNIT; git push" "$MAIN|true || cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|false && cd $UNIT
+git push" "$MAIN|false && cd $UNIT
+git merge origin/main" "$MAIN|false && cd $UNIT; gh pr ready 42" \
+  "$MAIN|if false; then cd $UNIT; fi; git push" "$MAIN|if false; then cd $UNIT; fi; git commit --amend --no-edit" \
+  "$MAIN|if true; then :; else cd $UNIT; fi; git push" "$MAIN|if false; then :; elif true; then cd $UNIT; fi; git push" \
+  "$MAIN|if cd $UNIT; then git push; fi" "$MAIN|while false; do cd $UNIT; done; git push" \
+  "$MAIN|until true; do cd $UNIT; done; git push" "$MAIN|for x in a; do cd $UNIT; done; git push" \
+  "$MAIN|time if false; then cd $UNIT; fi; git push" "$MAIN|time -p while false; do cd $UNIT; done; git push" \
+  "$MAIN|if false; then 'fi'; cd $UNIT; fi; git push" "$MAIN|\"then\" cd $UNIT; git push" \
+  "$MAIN|function f if true; then cd $UNIT; fi
+f; git push" "$MAIN|false && cd $UNIT || git push" \
+  "$MAIN|false && cd $UNIT || >/dev/null && git push" "$MAIN|false && cd $UNIT && >/dev/null; git push" \
+  "$MAIN|>/dev/null || cd $UNIT; git push" "$MAIN|<<EOF || cd $UNIT
+x
+EOF
+git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git push" \
+  "$MAIN|command time cd $UNIT; git push" "$MAIN|>/dev/null then cd $UNIT; git push" \
+  "$MAIN|shopt -s execfail; exec cd $UNIT; git push" \
+  "$MAIN|if false; then >/dev/null fi; cd $UNIT; fi; git push" \
+  "$MAIN|if false; then noglob fi; cd $UNIT; fi; git push" \
+  "$MAIN|a+b=1 cd $UNIT; git push" "$MAIN|\"x=1\" cd $UNIT; git push" "$MAIN|'x'=1 cd $UNIT; git push" \
+  "$MAIN|cd $UNIT && true & git push" "$MAIN|coproc cd $UNIT; git push" \
+  "$MAIN|! cd $UNIT && git push" "$MAIN|time ! cd $UNIT && git push" \
+  "$MAIN|true | cd $UNIT && git push" "$MAIN|true |& cd $UNIT && git push" \
+  "$MAIN|coproc foo if true; then cd $UNIT; fi; git push" \
+  "$MAIN|x=1 noglob if false; then cd $UNIT; fi; git push" \
+  "$MAIN|cd /nonexistent && cd $UNIT; git push" "$MAIN|cd - && cd $UNIT; git push" \
+  "$MAIN|cd nosuch && cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|cd /nonexistent && cd $UNIT && false || git push" \
+  "$MAIN|repeat 0; do cd $UNIT; done; git push" "$MAIN|repeat 0
+cd $UNIT
+git push" "$MAIN|if false; then repeat 1 do :; done; cd $UNIT; fi; git push" \
+  "$MAIN|cd $UNIT </nonexistent; git push" "$MAIN|cd $UNIT >/; git push" \
+  "$MAIN|cd $UNIT 2>/dev/null && false || git push" \
+  "$MAIN|noglob cd $UNIT; git push" "$MAIN|nocorrect cd $UNIT; git push"; do
+  cmd=${spec#*|}
+  pg worker "$cmd" "${spec%%|*}"
+  expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
+  reason_has 'cannot follow' "[worker] the deny says the guard cannot follow the cd: ${cmd//$'\n'/ \\n }"
+done
+NOENTER="$SANDBOX/noenter"
+mkdir -p "$NOENTER"
+chmod 000 "$NOENTER"
+if [ ! -x "$NOENTER" ]; then # root enters it anyway
+  pg worker "cd $NOENTER && cd $UNIT; git push" "$MAIN"
+  expect deny "[worker] a cd into a directory the shell cannot enter does not vouch for the cd after it"
+else
+  printf '%s\n' 'skip: a cd into a directory the shell cannot enter (this user enters any directory)'
+fi
+chmod 755 "$NOENTER"
+pg worker "function f if true; then :; fi
+cd $UNIT; git push" "$MAIN"
+expect deny "[worker] an absolute cd after a function definition does not name the directory again"
+# An alias lives in the repository the shell is in, which a cd the guard cannot
+# follow hides.
+gitq -C "$MAIN" config alias.p push
+for cmd in "true && cd $MAIN; git p" "if true; then cd $MAIN; fi; git p"; do
+  pg worker "$cmd"
+  expect deny "[worker] an unknown git subcommand after a cd the guard cannot follow denies: $cmd"
+  reason_has 'may be an alias' "[worker] the deny says the subcommand may be an alias: $cmd"
+done
+gitq -C "$MAIN" config --unset alias.p
+# A cd its list is sure to run before the later act is still followed.
+for cmd in "cd $UNIT; git push" "cd $UNIT
+git push" "true && cd $UNIT && git push" "true || false && cd $UNIT && git push" \
+  "git status; cd $UNIT && git commit --amend --no-edit" "cd $UNIT; false || git push" \
+  "cd $UNIT && git status || true; git push" "cd ${UNIT%/*} && cd ${UNIT##*/}; git push" \
+  "x=\"1\" cd $UNIT; git push" "cd $UNIT; >/dev/null; git push" "2>/dev/null; cd $UNIT && git push" \
+  ">/tmp/x echo hi; cd $UNIT; git push" "exec 2>&1; cd $UNIT; git push" "a+=1 cd $UNIT; git push" \
+  "false && cd /tmp; cd $UNIT && git push" \
+  "true || echo x; cd $UNIT; git push" "if true; then echo x; fi; cd $UNIT && git push" \
+  "for x in a; do echo x; done; cd $UNIT; git commit --amend --no-edit" \
+  "cd $UNIT 2>/dev/null && git push"; do
+  pg worker "$cmd" "$MAIN"
+  expect defer "[worker] a cd sure to run is followed: ${cmd//$'\n'/ \\n }"
+done
+# A reserved word after a redirect only stops later cds being followed.
+pg worker '>/dev/null time true; git push'
+expect defer "[worker] a redirect before a reserved word leaves a command with no cd judged as before"
+for cmd in 'repeat 1 true; git push' 'coproc true; git push'; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd stops only later cds being followed"
+done
+# zsh runs a command of redirects alone as cat, passing piped text on.
+for cmd in "echo 'git push origin main' | >/dev/stdout | bash" "echo 'git push origin main' |& >/dev/stdout | bash" \
+  "echo 'git push origin main' | x=1 >/dev/stdout | bash"; do
+  pg worker "$cmd" "$MAIN"
+  expect deny "[worker] text piped through a redirect-only command into a shell is screened: $cmd"
+  reason_has 'pipes text' "[worker] the pipe screen refuses it: $cmd"
+done
+for cmd in "echo hi | >/dev/stdout | bash" "echo 'git push origin main' | x=1 | bash"; do
+  pg worker "$cmd" "$MAIN"
+  expect defer "[worker] a pipe that carries no reserved act into a shell is not refused: $cmd"
+done
+
 # --- fail-closed reads (REQ-G1.4) --------------------------------------------
 
 echo "# fail-closed reads"
@@ -887,6 +992,76 @@ pg worker 'sh <<EOF
 git push origin main
 EOF'
 expect deny "[worker] a here-document fed to a shell naming a push denies"
+# bash ends these bodies at E and E\F, so the lines between are commands.
+pg worker 'cat <<$'"'"'E'"'"'
+x
+E
+git push
+$E' "$MAIN"
+expect deny "[worker] a dollar-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<E\\F
+x
+E\F
+git push
+EF' "$MAIN"
+expect deny "[worker] a backslash-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<"E\"F"
+x
+E"F
+git push
+E\"F' "$MAIN"
+expect deny "[worker] an escape inside a double-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<E\
+F
+x
+EF
+git push
+E' "$MAIN"
+expect deny "[worker] a line-continued here-document delimiter cannot hide a push"
+pg worker 'cat <<E
+x
+E\
+
+git push
+E' "$MAIN"
+expect deny "[worker] a line continuation in a here-document body cannot hide a push"
+pg worker 'cat <<'"'"'E'"'"'
+x\
+E
+git push' "$UNIT"
+expect defer "[worker] a quoted here-document body may end a line with a backslash"
+for open in '<<\EOF' '<<"EOF"' "<<'E\\F'"; do
+  d=${open:2}
+  d=${d//[\"\']/}
+  [ "$d" = '\EOF' ] && d=EOF
+  pg worker "cat $open
+x
+$d
+git push" "$UNIT"
+  expect defer "[worker] a quoted here-document delimiter is read as bash reads it, so the push after it is judged: $open"
+done
+HT=$'\t'
+for open in "<<-\"${HT}E\"" "<<-'${HT}E'" "<<-\\${HT}E"; do
+  pg worker "cat $open
+x
+${HT}E
+git push
+E" "$MAIN"
+  expect deny "[worker] bash ends a <<- body at a tab-led delimiter as written, so it cannot hide a push: ${open//$HT/<tab>}"
+done
+pg worker 'cat <<E
+x\\
+E
+cd '"$UNIT"'; git push' "$MAIN"
+expect defer "[worker] an escaped backslash ending a here-document body line does not join it to the next"
+pg worker 'cat <<E
+x\\\
+E
+cat <<F
+E
+git push
+F' "$MAIN"
+expect deny "[worker] an odd run of backslashes ending a here-document body line still joins it to the next"
 mkdir -p "$SANDBOX/nojq"
 for t in head tr dirname cat; do ln -sf "$(command -v "$t")" "$SANDBOX/nojq/$t"; done
 NOJQ_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr ready 42"}}' \
@@ -958,6 +1133,11 @@ PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "bash \"\$CLAUDE_PLUGIN_ROOT/scri
 expect defer "[worker, kickoff-demo] the shell-run kickoff push defers"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$UNIT" "$UNIT"
 expect deny "[worker, kickoff-demo] the kickoff push on another branch denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "false && cd \"$SPEC\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, kickoff-demo] the kickoff push after a cd the shell may skip denies"
+reason_has 'cannot place it' "[worker, kickoff-demo] the unplaced kickoff push names why"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "cd \"$SPEC\" && $KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect defer "[worker, kickoff-demo] the kickoff push after a cd sure to run follows it"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh other' "$SPEC" "$SPEC"
 expect deny "[worker, kickoff-demo] a kickoff push naming another spec denies"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo --force' "$SPEC" "$SPEC"
@@ -992,6 +1172,28 @@ for cmd in '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
   'echo "kickoff-spec-push" demo'; do
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
   expect deny "[worker, kickoff-demo] an unreadable kickoff spelling denies: $cmd"
+done
+# A command the tokenizer refuses never reaches kickoff_segment, so naming the
+# kickoff push there is refused at every tier.
+for cmd in "{ $KICKOFF_PUSH; }" "($KICKOFF_PUSH)" "x=\$(true); $KICKOFF_PUSH" "cat <<E
+x
+E\\
+
+$KICKOFF_PUSH
+E"; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$SPEC" "$SPEC"
+    expect deny "[$tier, task-1] a kickoff push in a command the guard cannot parse denies: ${cmd//$'\n'/ \\n }"
+    reason_has 'will not analyze' "[$tier, task-1] the deny names the unparsed construct: ${cmd//$'\n'/ \\n }"
+  done
+done
+# An empty expansion splices the name back together for the shell, so the name
+# check reads the command with those splices removed.
+for cmd in 'kic$()koff-spec-push.sh demo' 'kic``koff-spec-push.sh demo' 'kic${}koff-spec-push.sh demo' \
+  'kic$""koff-spec-push.sh demo' 'KIC$()KOFF-SPEC-PUSH.SH demo'; do
+  PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$SPEC" "$SPEC"
+  expect deny "[worker, task-1] a kickoff push spliced with an empty expansion denies: $cmd"
+  reason_has 'will not analyze|cannot read' "[worker, task-1] the spliced kickoff push names the unparsed construct: $cmd"
 done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo && git status' "$SPEC" "$SPEC"
 expect defer "[worker, kickoff-demo] a kickoff push chained with a read defers"
