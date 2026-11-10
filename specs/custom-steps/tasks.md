@@ -521,6 +521,48 @@ deferred until every flipper posts.
 - **Citations:** D-25 · REQ-I1.5, REQ-I1.13
 - **Estimated effort:** half day
 
+### Task 17 — The heavy-run pool becomes the default
+
+- **Deliverables:** `config/defaults.yml` setting `full_suite_pool` to
+  `heavy-run` (the `none` value reserved, rejected as a declared step's
+  pool name by the resolver); the host-derived capacity for `heavy-run`
+  in `scripts/step-pool.sh` (one slot per 8 logical cores and per 16 GiB
+  of total memory, whichever is fewer, at least 1, an unreadable host
+  deriving 1 with a warning, `step_pool_capacity_heavy_run` winning, the
+  shared capacity key ignored for this pool); `scripts/full-suite-run.sh`
+  treating `none` as unpooled; the options reference rows, the rule doc's
+  *Expensive checks* section, and the overlay documentation (default,
+  derivation, `none`, the adopter-layer override).
+- **Done when:** fixture tests show: two units sharing the default run
+  their suites in disjoint intervals on a host deriving capacity 1; a
+  lone run takes a slot with no wait; `none` runs unpooled with no
+  warning; an explicit `step_pool_capacity_heavy_run` beats the derived
+  value and `step_pool_capacity` does not; a nested take inside a hold
+  waits on nothing; an unreadable host derives 1 with one warning; the
+  options check, `check:steps`, `check:doctrine-index`, `lint:md`, and
+  `check:instructions` pass with no new declared exception.
+- **Dependencies:** 8, 11, 14
+- **Citations:** D-25, D-33, D-34 · REQ-I1.3, REQ-I1.5, REQ-K1.1, REQ-K1.2, REQ-K1.3, REQ-K1.4, REQ-K1.5, REQ-K1.6
+- **Estimated effort:** 1 day
+
+### Task 18 — The audit refuses a review round that never ran
+
+- **Deliverables:** `scripts/step-run.sh audit` reading a `skill` or
+  `prompt` record (outcome `passed` or `applied`, start equal to end, end
+  head equal to start head) as no evidence, printing
+  `gap<TAB><point><TAB>unrun<TAB><step>` with the record-it-skipped
+  message; the rule doc's statement of the gap, the command exemption, and
+  the `skipped` with reason `missing` remedy.
+- **Done when:** audit fixture tests cover: such a record yields the
+  `unrun` gap and a gaps exit; the same record of kind `command` does not;
+  a record whose end is later than its start, or whose head moved, does
+  not; a fresh run recording the step `skipped` with reason `missing`
+  clears the gap; a record without an end head is judged by its times; the
+  existing gap kinds' output is unchanged.
+- **Dependencies:** 4, 13
+- **Citations:** D-35 · REQ-D1.5, REQ-D1.12, REQ-L1.1, REQ-L1.2, REQ-L1.3
+- **Estimated effort:** half day
+
 ## Awaiting input
 
 - **Task 16** waits until a planwright release carrying the pool helper

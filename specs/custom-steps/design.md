@@ -8,7 +8,8 @@
 Origin tags: `N` = new decision, minted in this bundle's drafting session
 (2026-09-21 and 2026-09-22); `K` = new decision, minted at the kickoff
 walkthrough (2026-09-22); `E` = new decision, minted in the 2026-10-06
-extension's drafting session. Foreign IDs are namespace-qualified.
+extension's drafting session; `A` = new decision, minted in the
+2026-11-10 Amendment A drafting session. Foreign IDs are namespace-qualified.
 
 ## Decision log
 
@@ -750,6 +751,9 @@ step-record audit fold.
 **Chosen because:** one pool name joining the built-in run and declared
 checks is the native form of "one full gate at a time on this host".
 
+**Superseded-by: D-33** (2026-11-10), in part — the core default is the
+shipped `heavy-run` pool, not empty.
+
 ### D-26: The fingerprint is the committed content of the declared paths  (E)
 
 **Decision:** A command step's fingerprint is derived from each declared
@@ -944,6 +948,86 @@ posture.
 retirement rule keeps that refusal from outliving a resume that
 completed the held step, since quota-handling's resume completes the
 order through the flip.
+
+### D-33: The built-in full suite joins a shipped machine-wide pool by default  (A)
+
+**Decision:** Supersedes D-25 in part (its empty core default; everything
+else in D-25 stands). `full_suite_pool` defaults to `heavy-run`, a shipped
+pool name, so every full local suite run `/execute-task` makes holds a
+slot by default; the reserved value `none` is the explicit unpooled
+setting, and `none` is never a pool name a step may declare. Gates
+`/execute-task` runs are full suite runs and are covered; a gate or suite
+run by hand takes the slot through the documented recipe. A lone run on an
+idle host takes a free slot with no wait, so a single-checkout adopter
+sees nothing change. This is a meaning-class change to a signed decision.
+
+**Alternatives considered:**
+- Leave the default empty and let each adopter or machine set the key.
+  Rejected because: the measured contention is on hosts running several
+  workers, where nobody has found the key; the operator holds heavy runs
+  by hand today (the 2026-11-09 seed note).
+- A new key beside `full_suite_pool`. Rejected because: two keys would
+  name the same behavior, and one pool name already joins the built-in
+  run and declared checks (D-25).
+- Pool every command step by default. Rejected because: cheap steps would
+  queue behind suites; only whole heavy runs are the measured problem.
+
+**Chosen because:** customization-boundary asks a capability to land
+behind a default that preserves behavior; here the preserved behavior is
+the single-checkout case, which is unchanged, while the multi-worker host
+gets the bound it was holding by hand. `none` keeps an opt-out reachable
+for a project whose suite is cheap or already bounded elsewhere.
+
+### D-34: The heavy pool's capacity is derived from the host, overridable per pool  (A)
+
+**Decision:** The `heavy-run` capacity is `step_pool_capacity_heavy_run`
+when set, else one slot per 8 logical cores and per 16 GiB of total
+memory, whichever is fewer, at least 1; an unreadable host derives 1 with
+a warning. The shared `step_pool_capacity` does not apply to this pool.
+The pool is independent of test-throughput's per-file ticket pool: files
+inside a suite keep their own bound, and a take of `heavy-run` inside a
+hold runs inside it (D-22's mark), so a gate that calls a suite never
+waits on itself. The override lives in the adopter layer, which reaches
+workers in worktrees, the machine-local layer not doing so.
+
+**Alternatives considered:**
+- Capacity 1 always. Rejected because: it idles a large host that can
+  run two suites without the load the operator saw.
+- A fixed capacity of 2. Rejected because: it is wrong for a small
+  laptop and for a large host alike.
+- Reuse `step_pool_capacity`. Rejected because: it governs cheap pools,
+  and a value set for them would silently widen the heavy bound.
+- Fold the heavy pool into the per-file ticket pool. Rejected because:
+  one run would hold a ticket while its own files waited for tickets, a
+  self-wait the mark rule exists to prevent.
+
+**Chosen because:** the bound exists to protect the host, so it scales
+with the host; the ratios are the recommended starting point, adjusted
+by the per-pool key once real runs measure the load.
+
+### D-35: The cadence audit reads a zero-duration, no-move round as not run  (A)
+
+**Decision:** The audit treats a `skill` or `prompt` step record
+(outcome `passed` or `applied`, start time equal to end time, end head
+equal to start head) as no evidence: the required step reads as an
+`unrun` gap and the message tells the worker to record it `skipped` with
+reason `missing` in a fresh run. Command steps are exempt. Written records
+are never edited.
+
+**Alternatives considered:**
+- Refuse in the record helper at write time. Rejected because: records
+  are append-only evidence, and the audit is the boundary every consumer
+  (readiness included) already reads.
+- Flag any zero-duration record, command steps included. Rejected
+  because: a command finishing inside one second is real.
+- A new skip reason code such as `unrun`. Rejected for now: the
+  observation asks for `missing`, which keeps the reason set unchanged.
+  The cost is that `missing` is also the missing-step matrix's code
+  (REQ-D1.12); a reader tells them apart by the free-text detail.
+
+**Chosen because:** a model-session step cannot run in zero seconds, and
+the failure was caught by hand on most recent PRs; any gap already
+refuses the readiness walk (mission-control D-33), so no consumer changes.
 
 ## Cross-cutting concerns
 

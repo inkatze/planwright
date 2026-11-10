@@ -674,3 +674,73 @@ verified by quota-handling's tests. Task 13, Task 6, Task 14.
 The resolver test accepts each quota-handling field as a known field; the
 rule doc's list naming quota-handling as owner is verified by its
 presence. Task 12, Task 10.
+
+## REQ-K — A machine-wide bound on heavy runs
+
+### REQ-K1.1 — The full suite joins `heavy-run` by default [test + Gherkin]
+
+Scenario: given two fixture units on a fixture host deriving capacity 1,
+each suite appending start and end timestamps to a shared file, then the
+intervals are disjoint with no `full_suite_pool` set. Scenario: given a
+layer setting `none`, then the suite runs unpooled with no warning and
+takes no slot. Scenario: given a declared step naming `heavy-run`, then it
+shares the pool with the full suite; given a declared step naming `none`,
+then resolution refuses it. The options check asserts the key's row.
+Task 17.
+
+### REQ-K1.2 — Derived capacity and its override [test]
+
+The pool helper test feeds fixture core counts and memory sizes and asserts
+the derived capacity (fewer of one per 8 cores and one per 16 GiB, at
+least 1), one slot on an unreadable host with one warning, that
+`step_pool_capacity_heavy_run` wins in any layer, and that the shared
+`step_pool_capacity` does not change this pool while it still governs
+another. Task 17.
+
+### REQ-K1.3 — The override layer is documented [design-level]
+
+The overlay documentation and the options reference name the adopter layer
+as the override that reaches worktree workers and carry the key, the
+derived default, and `none`; verified by their presence. Task 17.
+
+### REQ-K1.4 — Independent of the per-file ticket pool [test]
+
+A fixture suite holding a `heavy-run` slot runs files through the ticket
+pool, and a take of `heavy-run` inside the hold with the mark set runs
+inside it with no wait and no second slot; each pool's capacity is varied
+without changing the other's. Task 17.
+
+### REQ-K1.5 — A lone run is unchanged [test]
+
+On a fixture host with no other holder, a default full-suite run takes a
+slot with zero wait seconds in its full-suite record and the suite's own
+output is unchanged; a lock-library error still runs unpooled with one
+warning. Task 17.
+
+### REQ-K1.6 — The default is documented [design-level]
+
+The options reference rows, the rule doc, and the overlay documentation
+state the default, the derivation, `none`, and the override; verified by
+their presence and the options check. Task 17.
+
+## REQ-L — Audit refuses a review round that never ran
+
+### REQ-L1.1 — A zero-duration, no-move round is a gap [test]
+
+The step-run audit fixtures: a `skill` record `passed` (and one `applied`)
+with start equal to end and equal start and end heads gives the `unrun`
+gap; the same shape of kind `command` does not; a later end or a moved
+head does not; a record with no end head is judged by its times. Task 18.
+
+### REQ-L1.2 — The gap line, exit, and remedy [test]
+
+The audit prints `gap<TAB><point><TAB>unrun<TAB><step>`, exits with the
+gaps status, names the record-it-skipped remedy, leaves the other gap
+kinds' output byte-identical, and a fresh run recording the step
+`skipped` with reason `missing` clears it; the readiness check's own test
+shows the gap refusing the walk. Task 18.
+
+### REQ-L1.3 — The gap is in the rule doc [design-level]
+
+The rule doc states the `unrun` gap, the command exemption, and the
+`missing` remedy; verified by its presence. Task 18.
