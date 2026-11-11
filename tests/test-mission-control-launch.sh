@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for scripts/mission-control-launch.sh — the one launcher for every
-# session kind and its retire verb (mission-control REQ-D1.1, REQ-D1.5,
-# REQ-B1.4, REQ-G1.1, REQ-M1.7, REQ-A1.4, REQ-D1.16).
+# session kind and its retire verb (mission-control REQ-D1.1, REQ-B1.4,
+# REQ-G1.1, REQ-M1.7, REQ-A1.4; the split files below carry the rest).
 #
 # Every kind launches from a fixture on the stream-json rung (a CLI shim
 # records its argv and its first stdin line), one on the tmux rung (a tmux
