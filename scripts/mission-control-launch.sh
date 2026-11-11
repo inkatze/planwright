@@ -161,7 +161,7 @@ Output, tab separated:
   wait     wait <name> waiting <reason> (unwait: wait <name> working)
   bound    bound <limit or off> <working count> <waiting count>
   list     <name> <program> <kind> <scope> <backend> <launched epoch>
-  kinds   <kind> <profile> <allocation key>
+  kinds    <kind> <profile> <allocation key>
 
 A launch reserves the name with a complete row (backend, launcher pid and a
 token) before it starts anything, and a session that started but could not
@@ -727,8 +727,9 @@ records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
 While the only thing left is a wait (an operator question, or CI or a ready
 flip outstanding), run \`$cs_root/scripts/mission-control-launch.sh wait $1 --on <why>\`,
 <why> being operator, ci or ready-flip, so the host session bound does not
-count you, and \`unwait $1\` before working again. Exit 3 means the name is
-locked for a moment: run it again until it exits 0.
+count you, and \`unwait $1\` before working again. Exit 3 can mean the name is
+locked for a moment: run it again a few times; a 3 that persists means the
+name is wrong.
 EOF
 }
 
@@ -1505,8 +1506,9 @@ $rp_dest
   printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id"
 }
 
-# host_live_counts <own-name> <own-launched> — one "<program><TAB><count>"
-# line per program holding registered non-mission-control sessions in the
+# host_live_counts <own-name> <own-launched> — one
+# "<program><TAB><working><TAB><waiting>" line per program holding
+# registered non-mission-control sessions in the
 # shared registry that reserved before the named session (its own row and
 # later reservations left out). A remote host's sessions sit in that
 # host's registry (scripts/fleet-remote.sh), so they are never counted here.
