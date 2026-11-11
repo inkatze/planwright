@@ -1172,6 +1172,7 @@ for bad in amendment- amendment-3-1; do
   gitq -C "$AMEND_BAD2" switch -c "planwright/demo/$bad"
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$AMEND_BAD2" "$AMEND_BAD2"
   expect deny "[worker, kickoff-demo] the amendment suffix in $bad denies"
+  reason_has 'amendment branches' "[worker, kickoff-demo] the $bad refusal is the wrong-branch text"
 done
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$AMEND" "$AMEND"
 expect deny "[worker, task-1] a different scope on the amendment branch denies"
