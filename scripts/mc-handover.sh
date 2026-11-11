@@ -120,7 +120,10 @@ Usage:
       picture against --durable, read by the caller from the stores, and
       its ledger against the decisions log), through mc-rules.sh
       selfcheck. A pass marks the successor verified and prints
-      verified<TAB><name><TAB><the self-check line>; a failure raises an
+      verified<TAB><name><TAB><the self-check line>, preceded by every
+      line mc-config.sh doctor prints (override, duty-off, launch-backend,
+      cron, rule-knob, temporary or unknown; an unknown doctor line when
+      it did not run or said nothing), each an operator item to settle; a failure raises an
       item (event handover-failed), prints its item lines and leaves the
       predecessor holding the name
   mc-handover.sh release --program <p> --session <handle> [--now <epoch>]
@@ -159,7 +162,8 @@ Usage:
   holder record naming none (written by an earlier planwright, or by a
   session that could not tell) leaves nothing to wait for.
 
-take and resume print, in order:
+resume first prints every line mc-config.sh doctor makes (as verify does),
+then take and resume print, in order:
   took<TAB><handle><TAB><predecessor|-><TAB>released|retired|none
       released: the predecessor gave up the name; retired: it did not
       within the window, or was already gone; none: there was none
@@ -441,7 +445,22 @@ selfcheck() {
   sc_rc=$?
   sc_said=$(head -n 1 "$sc_err" | mc_clean)
   rm -f "$sc_err"
-  [ "$sc_rc" -ne 0 ] || return 0
+  if [ "$sc_rc" -eq 0 ]; then
+    # A pass also surfaces every finding doctor makes: a knob a layer moves,
+    # a default duty left off, a launch on another rung, a hand-built cron
+    # line, a rule disagreeing with its knob, a dated or temporary override.
+    # Read-only, and never a reason to fail the self-check; a doctor that
+    # fails or says nothing is itself a finding, never a clean audit.
+    sc_drift=$(/bin/bash "$script_dir/mc-config.sh" doctor --program "$program" 2>/dev/null </dev/null)
+    sc_drc=$?
+    if [ "$sc_drc" -ne 0 ] || [ -z "$sc_drift" ]; then
+      sc_drift=$(printf 'unknown\tdoctor\tthe drift audit (mc-config.sh doctor) did not run (exit %s), so nothing is known about layers, duties, launches, cron lines, rules or temporary overrides; run it by hand' "$sc_drc")
+    else
+      sc_drift=$(printf '%s\n' "$sc_drift" | awk '$0 != "clean"' | mc_clean)
+    fi
+    [ -z "$sc_drift" ] || printf '%s\n' "$sc_drift"
+    return 0
+  fi
   sc_items=$(printf '%s\n' "$SC_OUT" | awk -F '\t' '$1 == "item"' | mc_clean)
   if [ -n "$sc_items" ]; then
     printf '%s\n' "$sc_items"

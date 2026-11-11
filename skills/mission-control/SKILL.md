@@ -123,7 +123,11 @@ inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
    --program <p>` prints that no operator choice already settles (a knob,
    duty or rule they chose), and each hand-built mechanism it cannot see (a
    launch outside the launcher, a loop beside the runner, a tracker beside
-   the knowledge base), becomes an operator item.
+   the knowledge base), becomes an operator item. That includes a
+   `rule-knob` line (a standing rule names a number its knob does not hold)
+   and a `temporary` line (a local override whose date has passed or that
+   says interim, temporary or until): the operator decides, and nothing edits
+   the layer or the rule for them. `mc-handover.sh verify` and `resume` print both too.
 3. **The panel (REQ-F1.16).** Run `scripts/mc-panel.sh`'s `activate
    --program <p>`, then `await --program <p>`. On `panel text`, say once,
    in plain words, that the panel cannot load here, and show the text it
