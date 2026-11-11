@@ -78,18 +78,27 @@ It opens a tmux window in the background, running mission control for
 that program under its profile; switch to that window to work with it.
 
 **Folding one program into another.** When you order it, mission control
-moves each live session of the folded program to the surviving one with
-`mission-control-launch.sh reparent <session> --program <destination>
---authority <decision id>`, so the session's prompts, stalls and events
-reach the new program and its list and retire work from there. The id names
-your order (or your yes for one session) in the destination's decisions
-log; without one the move is refused and nothing changes. Only the registry
-row changes: the session's process, worktree and branch stay as they are.
-Each move is an event in both programs' logs and an undo entry in the
-destination's; `mc-kb.sh revert --program <destination> <undo id>` puts the session back, needing no
-authority. A move that lands but could not record its undo entry or an
-event exits 1 and names what is missing in its `unrecorded` field; the
-session has moved, so record that by hand rather than retrying.
+moves each live session of the folded program to the surviving one, so the
+session's prompts, stalls and events reach the new program, and its list and
+retire work from there:
+
+```sh
+<planwright>/scripts/mission-control-launch.sh reparent <session> --program <destination> --authority <decision id>
+```
+
+The id names your order (or your yes for one session) in the destination's
+decisions log; without one the move is refused and nothing changes. Only the
+session's entry in the registry changes: the session itself keeps running
+where it is. Each move is an event in both programs' logs and an undo entry
+in the destination's, which puts the session back and needs no authority:
+
+```sh
+<planwright>/scripts/mc-kb.sh revert --program <destination> <undo id>
+```
+
+A move that lands but could not record its undo entry or an event exits 1
+and names what is missing; the session has moved, so record that by hand
+rather than retrying.
 
 **The program's private folder** sits under your planwright configuration
 folder, outside every repository, and is never committed. It holds the
