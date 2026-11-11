@@ -136,13 +136,11 @@ act is `fold-in-order` with the source program as its target (one order
 covers every live session of that program) or `reparent-yes` with this
 session as its target; without one it refuses. A move writes a
 session-reparented event to both programs' logs and an undo entry in
-<dest>'s log. Reverse it with `mc-kb.sh revert <undo id>`, which runs
-`reparent <name> --program <source> --undo`, needs no authority, works only
-while the session's current program holds a move of it out of <source>, and
-logs no undo entry of its own; revert refuses a second reversal of one entry.
-Exit codes of reparent: 0 moved; 1 moved but a record failed (the output
-says which); 2 usage, an invalid value, no --authority or a row it cannot
-rewrite; 3 no row of that name, or its lock is held; 4 any other refusal.
+<dest>'s log. Reverse it with `mc-kb.sh revert --program <dest> <undo id>`,
+which runs `reparent <name> --program <source> --undo`, needs no authority,
+works only while the session's current program holds a move of it out of
+<source>, and logs no undo entry of its own; revert refuses a second
+reversal of one entry. Its exit codes are listed after the others, below.
 
 Output, tab separated:
   launch   launch <field> <value> for name, kind, program, owner, scope,

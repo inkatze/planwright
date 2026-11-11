@@ -86,7 +86,7 @@ your order (or your yes for one session) in the destination's decisions
 log; without one the move is refused and nothing changes. Only the registry
 row changes: the session's process, worktree and branch stay as they are.
 Each move is an event in both programs' logs and an undo entry in the
-destination's; `mc-kb.sh revert <undo id>` puts the session back, needing no
+destination's; `mc-kb.sh revert --program <destination> <undo id>` puts the session back, needing no
 authority. A move that lands but could not record its undo entry or an
 event exits 1 and names what is missing in its `unrecorded` field; the
 session has moved, so record that by hand rather than retrying.
