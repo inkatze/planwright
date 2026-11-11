@@ -983,7 +983,7 @@ case $verb in
           *)
             if [ -n "$H_SESSION" ]; then
               rc_name=$name
-              rc_note="the predecessor's process cannot be read and it may have had Remote Control, so $name starts it"
+              rc_note="the predecessor's process cannot be read and it may have had Remote Control, so $name is asked to start it"
             fi
             ;;
         esac
