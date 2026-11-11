@@ -600,7 +600,14 @@ if [ "$RC" -eq 0 ] && [ "$(field launch_backend)" = stream-json ]; then
 else
   fail "launch_backend: a stream-json launch left no record (rc=$RC)"
 fi
-REC=$(PLANWRIGHT_LAUNCH_BACKEND='stream-json;x' /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+REC=$(PLANWRIGHT_LAUNCH_BACKEND=headless-oneshot /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field launch_backend)" = headless-oneshot ]; then
+  pass "launch_backend: a one-shot launch records launch_backend=headless-oneshot"
+else
+  fail "launch_backend: a one-shot launch left no record (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND='stream-json;x'/bin/sh "$WRITER" write "$WT" 2>"$T/err")
 RC=$?
 if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
   pass "launch_backend: any value but stream-json is not recorded"
@@ -609,5 +616,5 @@ else
 fi
 
 echo
-echo "worker-session-record:$passes passed, $failures failed"
+echo "worker-session-record: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]
