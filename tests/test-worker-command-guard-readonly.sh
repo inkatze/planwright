@@ -161,10 +161,11 @@ assert_defer "gh api -X PUT" "gh api -X PUT repos/o/r/pulls/1/merge" Bash "$WT"
 assert_defer "gh api bundled -iX POST" "gh api -iX POST repos/o/r/issues" Bash "$WT"
 
 echo "### cd outside the worktree: only pure reads may follow"
-OUTD=$(cd -P "$SANDBOX" && pwd -P)/install/outside
+SBXP=$(cd -P "$SANDBOX" && pwd -P)
+OUTD=$SBXP/install/outside
 mkdir -p "$OUTD/sub"
 : >"$OUTD/f"
-ln -sf /tmp "$SANDBOX/outlink"
+ln -sf /tmp "$SBXP/outlink"
 assert_defer "cd outside in an && chain stays deferred" "cd $OUTD && cat f && ls" Bash "$WT"
 assert_allow "cd outside with ;, then reads" "cd $OUTD; cat f; ls" Bash "$WT"
 assert_allow "cd outside, then a gh read" "cd $OUTD; gh pr view 5 --json state" Bash "$WT"
@@ -183,7 +184,7 @@ assert_defer "cd outside, then a substitution that writes" "cd $OUTD; echo \$(to
 assert_defer "cd outside inside a loop" "for d in a; do cd $OUTD; rm x; done" Bash "$WT"
 assert_defer "cd into /proc" "cd /proc/self; cat environ" Bash "$WT"
 assert_defer "cd into /dev" "cd /dev; ls" Bash "$WT"
-assert_defer "cd through a symlink" "cd $SANDBOX/outlink; ls" Bash "$WT"
+assert_defer "cd through a symlink" "cd $SBXP/outlink; ls" Bash "$WT"
 assert_defer "cd with a .. component" "cd $OUTD/../outside; ls" Bash "$WT"
 assert_defer "cd to a missing directory" "cd $OUTD/nope; ls" Bash "$WT"
 assert_defer "cd to a variable" "cd \$D; ls" Bash "$WT"
