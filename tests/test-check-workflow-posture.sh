@@ -1422,6 +1422,194 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# The same-repo exception: a job gated, at its own `if:`, on the PR's head
+# repository being this repository may hold write permissions and a stored
+# secret under `pull_request`. Every other reachable shape stays refused.
+# ---------------------------------------------------------------------------
+
+# sr_case <name> <job-if-lines> [<extra-top-lines> [<triggers>]]: writes a
+# one-job pull_request workflow holding write permissions and a stored secret.
+sr_case() {
+  d="$(mkdir_case "$1")"
+  {
+    printf '%s\n' '---' 'name: review' '"on":'
+    printf '%s\n' "${4:-  pull_request:}"
+    printf '%s\n' "${3:-}" 'permissions: {}' 'jobs:' '  review:'
+    printf '%s\n' "$2"
+    # shellcheck disable=SC2016 # the workflow expression is literal text
+    printf '%s\n' '    permissions:' '      contents: read' '      pull-requests: write' \
+      '    runs-on: ubuntu-latest' '    steps:' '      - run: ./review.sh' '        env:' \
+      '          KEY: ${{ secrets.REVIEW_KEY }}'
+  } >"$d/review.yml"
+}
+SR_CLAUSE='github.event.pull_request.head.repo.full_name == github.repository'
+
+sr_case sr-pass-block "    if: >-
+      $SR_CLAUSE
+      && github.event.pull_request.user.login != 'bot'"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a block-scalar job if with the clause passes" 0 $?
+
+sr_case sr-pass-inline "    if: $SR_CLAUSE"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an inline job if with the clause passes" 0 $?
+
+sr_case sr-fail-none "    runs-on-placeholder: x"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: no clause still fails" 1 $?
+assert_contains "same-repo exception: no clause names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-neq "    if: github.event.pull_request.head.repo.full_name != github.repository"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an inverted clause fails" 1 $?
+
+sr_case sr-fail-negated "    if: !(github.event.pull_request.head.repo.full_name == github.repository)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a negated clause fails" 1 $?
+
+sr_case sr-fail-comment "    # $SR_CLAUSE
+    if: github.event.pull_request.draft == false"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a clause only in a comment fails" 1 $?
+
+sr_case sr-fail-or "    if: $SR_CLAUSE || github.event_name == 'push'"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a clause joined by || fails" 1 $?
+
+sr_case sr-fail-owner "    if: github.event.pull_request.head.repo.full_name == github.repository_owner"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a repository_owner comparison fails" 1 $?
+
+sr_case sr-fail-wr-clause "    if: github.event.workflow_run.head_repository.full_name == github.repository"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the workflow_run clause does not count" 1 $?
+
+sr_case sr-fail-target "    if: $SR_CLAUSE" "" "  pull_request:
+  pull_request_target:"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: pull_request_target still fails" 1 $?
+assert_contains "same-repo exception: pull_request_target is named" "pull_request_target" "$out"
+
+d="$(mkdir_case sr-fail-step-if)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+permissions: {}
+jobs:
+  review:
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - if: $SR_CLAUSE
+        run: echo gated
+      - run: ./review.sh
+        env:
+          KEY: \${{ secrets.REVIEW_KEY }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a step-level clause does not gate the job" 1 $?
+
+d="$(mkdir_case sr-fail-other-job)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+permissions: {}
+jobs:
+  gated:
+    if: $SR_CLAUSE
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo gated
+  open:
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./review.sh
+        env:
+          KEY: \${{ secrets.REVIEW_KEY }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the clause on one job does not cover another" 1 $?
+
+d="$(mkdir_case sr-fail-top-env)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+permissions: {}
+env:
+  KEY: \${{ secrets.REVIEW_KEY }}
+jobs:
+  review:
+    if: $SR_CLAUSE
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./review.sh
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a secret outside any gated job still fails" 1 $?
+
+d="$(mkdir_case sr-fail-inherit)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+permissions: {}
+jobs:
+  review:
+    if: $SR_CLAUSE
+    permissions:
+      contents: read
+    uses: ./.github/workflows/callee.yml
+    secrets: inherit
+EOF
+cat >"$d/callee.yml" <<'EOF'
+---
+name: callee
+"on":
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  c:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo c
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: secrets: inherit still fails" 1 $?
+
+d="$(mkdir_case sr-fail-no-perms)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+jobs:
+  review:
+    if: $SR_CLAUSE
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: undeclared permissions still fail" 1 $?
+
+# ---------------------------------------------------------------------------
 # Usage and the real tree.
 # ---------------------------------------------------------------------------
 

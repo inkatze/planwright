@@ -26,6 +26,14 @@
 #      `GITHUB_` prefix so none can impersonate it, and its privilege is
 #      governed by assertion 2. Reachability follows local reusable-workflow
 #      `uses:` edges.
+#      The one exception to 2 and 3: a job whose own job-level `if:` carries
+#      `github.event.pull_request.head.repo.full_name == github.repository`
+#      (live content, no `||` anywhere in that `if:`, no `!(` over it) runs
+#      only for same-repository PRs, so it may hold write permissions and a
+#      stored secret. Undeclared permissions, `secrets: inherit`, and a secret
+#      outside the gated job stay refused. As with assertion 4's clause, the
+#      scan proves the clause is present in that `if:`, not that its
+#      expression gates the job.
 #   4. Any `workflow_run` workflow holding write permissions or secrets keeps a
 #      base-branch filter, pins the ORIGINATING repository, and consumes no
 #      PR-produced artifact. A `workflow_run` fired by a fork PR's workflow runs
@@ -327,7 +335,7 @@ function inline_triggers(v,   inner, n, parts, i) {
 # case-insensitive for the same reason, which is safe: GitHub reserves the
 # `GITHUB_` prefix, so no stored secret can be named `github_token` in any
 # casing. Names are reported upper-cased, the form GitHub stores them in.
-function scan_refs(t, nr,   low, s, tok) {
+function scan_refs(t, nr, jb, injif,   low, s, tok) {
   low = tolower(t)
   s = low
   while (match(s, /secrets[ \t]*(\.[a-z_][a-z0-9_]*|\[[ \t]*["'][a-z_][a-z0-9_]*["'][ \t]*\])/)) {
@@ -335,7 +343,7 @@ function scan_refs(t, nr,   low, s, tok) {
     s = substr(s, RSTART + RLENGTH)
     sub(/^secrets[ \t]*/, "", tok)
     gsub(/[^a-z0-9_]/, "", tok)
-    if (tok != "github_token") printf "R\t%d\t%s\n", nr, toupper(tok)
+    if (tok != "github_token") printf "R\t%d\t%s\t%s\n", nr, toupper(tok), jb
   }
   if (low ~ /download-artifact/ || low ~ /gh[ \t]+run[ \t]+download/) printf "A\t%d\n", nr
   # Everything from the first `#` on is dropped before the match below, so the
@@ -369,6 +377,17 @@ function scan_refs(t, nr,   low, s, tok) {
        low ~ /github\.repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository\.full_name/) &&
       low !~ /![ \t]*\([ \t]*github\.(event\.workflow_run\.head_repository|repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository)/)
     printf "H\t%d\n", nr
+  # The same-repo clause, read only at a job's own `if:` (injif), with the
+  # same live-content rules as above. G marks a clause line for the job; O
+  # marks any `||` in that `if:`, which could make the clause optional, so the
+  # driver treats a job carrying one as ungated.
+  if (injif && jb != "") {
+    if (low ~ /\|\|/) printf "O\t%d\t%s\n", nr, jb
+    if ((low ~ /github\.event\.pull_request\.head\.repo\.full_name[ \t]*==[ \t]*github\.repository[^a-z0-9_]/ ||
+         low ~ /github\.repository[ \t]*==[ \t]*github\.event\.pull_request\.head\.repo\.full_name/) &&
+        low !~ /![ \t]*\([ \t]*github\.(event\.pull_request\.head\.repo|repository[ \t]*==[ \t]*github\.event\.pull_request\.head\.repo)/)
+      printf "G\t%d\t%s\n", nr, jb
+  }
 }
 BEGIN {
   section = ""; on_child = -1; perm_child = -1; jobs_child = -1
@@ -376,7 +395,8 @@ BEGIN {
   top_perm = "absent"; top_perm_n = 0
   cur_job = ""; njobs = 0; ntrig = 0; errs = 0; fatal = 0
   bs = 0; bs_indent = -1; ndocs = 0; seen_content = 0
-  cont = 0; logical = ""; logical_nr = 0
+  cont = 0; logical = ""; logical_nr = 0; logical_job = ""; logical_jif = 0
+  jkey_if = 0
 }
 {
   if (fatal) next
@@ -409,18 +429,35 @@ BEGIN {
   # and a space inserted here would hide it. A shell continuation keeps the
   # space that precedes its backslash, so `gh run \` + `download …` still joins
   # to a matchable `gh run download …`.
+  # Which job, and whether its own `if:`, a line belongs to: read before the
+  # structural dispatch below moves cur_job, and only at the job's body indent
+  # (a step's `- if:` sits deeper, so it never counts as the job's own).
+  scan_job = ""; scan_jif = 0
+  if (section == "jobs" && jobs_child >= 0 && cur_job != "") {
+    if (indent == jobs_child) {
+      jkey_if = 0
+    } else if (indent > jobs_child) {
+      # The job's first line fixes its body indent, set here too because a
+      # block-scalar first key (`if: >-`) skips the dispatch that sets it.
+      if (job_body < 0) job_body = indent
+      jbi = job_body
+      if (indent == jbi) jkey_if = (rest ~ /^if[ \t]*:/)
+      scan_job = cur_job; scan_jif = jkey_if
+    }
+  }
   if (cont) {
     logical = logical rest
   } else {
     logical = rest
     logical_nr = NR
+    logical_job = scan_job; logical_jif = scan_jif
   }
   if (logical ~ /\\[ \t]*$/) {
     sub(/\\[ \t]*$/, "", logical)
     cont = 1
   } else {
     cont = 0
-    scan_refs(logical, logical_nr)
+    scan_refs(logical, logical_nr, logical_job, logical_jif)
   }
 
   # Block-scalar bodies carry no structure for this parser.
@@ -557,7 +594,7 @@ BEGIN {
 }
 END {
   # A backslash left dangling at EOF never reached the join's else branch.
-  if (cont) scan_refs(logical, logical_nr)
+  if (cont) scan_refs(logical, logical_nr, logical_job, logical_jif)
   if (errs > 0) exit 0
   if (ntrig == 0) { printf "E\t0\t%s\n", "workflow declares no triggers"; exit 0 }
   if (njobs == 0) { printf "E\t0\t%s\n", "workflow declares no jobs"; exit 0 }
@@ -642,10 +679,27 @@ if [ "$parse_failed" -eq 0 ]; then
 
     # 2 & 3. Everything reachable from pull_request.
     if [ "${reach[i]}" -eq 1 ]; then
+      # The same-repo exception: a job whose own `if:` carries the live
+      # `pull_request.head.repo.full_name == github.repository` clause, with
+      # no `||` in that `if:`, runs only for PRs from this repository, so it
+      # may hold write permissions and a stored secret. Only those two relax;
+      # undeclared permissions, `secrets: inherit` and a secret outside the
+      # gated job stay refused.
+      gated=" "
+      while IFS=$'\t' read -r _ _ job; do
+        [ -n "${job:-}" ] || continue
+        case "$gated" in *" $job "*) ;; *) gated="$gated$job " ;; esac
+      done < <(fact "$i" G)
+      while IFS=$'\t' read -r _ _ job; do
+        [ -n "${job:-}" ] || continue
+        gated="${gated/ $job / }"
+      done < <(fact "$i" O)
+
       while IFS=$'\t' read -r _ job verdict; do
         [ -n "${job:-}" ] || continue
         eff="$verdict"
         [ "$eff" = "absent" ] && eff="$top_perm"
+        case "$gated" in *" $job "*) [ "$eff" = "write" ] && eff="read" ;; esac
         case "$eff" in
           read) ;;
           absent)
@@ -660,8 +714,9 @@ if [ "$parse_failed" -eq 0 ]; then
         esac
       done < <(fact "$i" J)
 
-      while IFS=$'\t' read -r _ ln name; do
+      while IFS=$'\t' read -r _ ln name rjob; do
         [ -n "${name:-}" ] || continue
+        case "$gated" in *" ${rjob:-} "*) [ -n "${rjob:-}" ] && continue ;; esac
         fail "$file:$ln: stored secret '$name' is reachable from \`pull_request\`; only \`secrets.GITHUB_TOKEN\` may appear on that path"
       done < <(fact "$i" R)
 
