@@ -1541,6 +1541,24 @@ sr_case sr-fail-later-or "    if: >-
       || github.event_name == 'push'"
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "same-repo exception: an || on a later line of the if fails" 1 $?
+assert_contains "same-repo exception: a refused gate still names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-mixed-template "    if: \${{ $SR_CLAUSE }} && \${{ github.actor }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an if mixing text with a \${{ }} template fails" 1 $?
+assert_contains "same-repo exception: a mixed-template if names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-mixed-template-first "    if: \${{ github.actor }} && \${{ $SR_CLAUSE }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a mixed template with the clause second fails" 1 $?
+
+sr_case sr-fail-dquote-and "    if: github.actor == \"a && $SR_CLAUSE && y\""
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a clause between && inside double quotes fails" 1 $?
+
+sr_case sr-fail-negated-name "    if: !($SR_CLAUSE)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_contains "same-repo exception: a negated clause still names the secret" "REVIEW_KEY" "$out"
 
 d="$(mkdir_case sr-fail-step-if)"
 cat >"$d/review.yml" <<EOF

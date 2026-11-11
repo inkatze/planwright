@@ -33,7 +33,8 @@
 #      only for same-repository PRs, so it may hold write permissions and a
 #      stored secret. The `if:` is judged whole across its lines; a clause
 #      compared to a value, parenthesised, negated, quoted or inside any other
-#      construct is not a conjunct and is refused. Undeclared permissions,
+#      construct is not a conjunct and is refused, as is an `if:` that mixes
+#      text with a `${{ }}` template (a string, always truthy). Undeclared permissions,
 #      `secrets: inherit`, and a secret outside the gated job stay refused.
 #      A `\`-joined line before the `if:` hides it (a loud failure).
 #   4. Any `workflow_run` workflow holding write permissions or secrets keeps a
@@ -387,9 +388,19 @@ function scan_refs(t, nr, jb, injif,   low, s, tok) {
 # that `if:` must hold no `||`: any other spelling (compared to a value,
 # parenthesised, negated, inside a string, split across lines) is not a gate
 # and is refused loud rather than judged.
-function same_repo_gated(text,   parts, n, i, p, a, b, out) {
+function same_repo_gated(text,   parts, n, i, p, a, b, out, tmp) {
   sub(/^[ \t]*if[ \t]*:[ \t]*/, "", text)
   sub(/^[>|][0-9]*[+-]?[ \t]+/, "", text)
+  # An `if:` mixing text with `${{ }}` is a string, always truthy: only one
+  # wrapper spanning the whole value is an expression. Double quotes are not
+  # expression strings at all.
+  if (text ~ /"/) return 0
+  if (text ~ /\$\{\{/) {
+    tmp = text
+    sub(/^[ \t]*\$\{\{/, "", tmp)
+    sub(/\}\}[ \t]*$/, "", tmp)
+    if (tmp ~ /\$\{\{|\}\}/) return 0
+  }
   gsub(/\$\{\{|\}\}/, " ", text)
   # A string literal is opaque: blank its contents so an `&&` or `||` inside
   # one is neither a conjunct boundary nor an operator.
