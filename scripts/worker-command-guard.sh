@@ -4364,6 +4364,102 @@ secret_words_ok() {
   return 0
 }
 
+# recursive_reader: the current simple command reads, or lists, everything
+# under its directory operands: `find`, `fd`, `tree` and `rg` always, `grep`
+# and `diff` with a recursive flag, `ls -R`.
+recursive_reader() {
+  local i w
+  case ${cw[0]} in
+    find | fd | tree | rg) return 0 ;;
+    grep | egrep | fgrep | diff | ls)
+      for ((i = 1; i < cwn; i++)); do
+        w=${cw[i]}
+        case $w in
+          --recursive | --dereference-recursive | --directories=recurse) return 0 ;;
+          --*) ;;
+          -*[rR]*) return 0 ;;
+        esac
+      done
+      ;;
+  esac
+  return 1
+}
+
+# broad_dir <absolute-dir>: a directory that holds secret-bearing locations
+# below it, so a recursive read of it reaches them: the filesystem and system
+# roots, every home directory, the account's own home, the parents of the
+# credential directories, and a secret location itself.
+broad_dir() {
+  local x=$1
+  case $x in
+    / | /etc | /etc/ssh | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) return 0 ;;
+    /root/.claude | /root/.config | /home/*/.claude | /home/*/.config | /Users/*/.claude | /Users/*/.config) return 0 ;;
+    /home/*/* | /Users/*/*) ;;
+    /home/* | /Users/*) return 0 ;;
+  esac
+  if [ -n "$HOME" ]; then
+    case $x in
+      "$HOME" | "$HOME/.claude" | "$HOME/.config") return 0 ;;
+    esac
+  fi
+  secret_lexical "$x"
+}
+
+# broad_path_risky <word>: the operand names a directory broad_dir flags,
+# written as is, through `~` or `$HOME`, with dot components, or through a
+# symlink.
+broad_path_risky() {
+  local p=$1 abs out='' comp
+  local -a parts
+  while [ "${p#*//}" != "$p" ]; do
+    p=${p//\/\//\/}
+  done
+  case $p in
+    \~ | \~/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\~}
+      ;;
+    \$HOME | \$HOME/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\$HOME}
+      ;;
+    \$\{HOME\} | \$\{HOME\}/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\$\{HOME\}}
+      ;;
+    \~* | \$[A-Za-z_\{]*) return 0 ;;
+  esac
+  case $p in
+    /*) abs=$p ;;
+    *) abs=$HOOK_CWD/$p ;;
+  esac
+  IFS=/ read -r -a parts <<<"$abs"
+  for comp in ${parts[@]+"${parts[@]}"}; do
+    case $comp in
+      '' | .) ;;
+      ..) out=${out%/*} ;;
+      *) out=$out/$comp ;;
+    esac
+  done
+  [ -n "$out" ] || out=/
+  broad_dir "$out" && return 0
+  canon_dir_cached "$out"
+  [ -n "$CANON" ] && [ "$CANON" != "$out" ] && broad_dir "$CANON"
+}
+
+# broad_words_ok: no operand of the current recursive reader names a broad
+# directory.
+broad_words_ok() {
+  local i
+  for ((i = 1; i < cwn; i++)); do
+    case ${cw[i]} in
+      -*) continue ;;
+    esac
+    broad_path_risky "${cw[i]}" && return 1
+  done
+  return 0
+}
+
 # ci_has <word> <glob>...: whether the word matches any glob, ignoring case.
 # nocasematch rather than ${w,,}, which bash 3.2 (the macOS /bin/bash) lacks.
 ci_has() {
@@ -5608,6 +5704,9 @@ verify_known_simple() {
     environ_words_ok || return 1
   elif lists_operands "$verb"; then
     secret_words_ok || return 1
+  fi
+  if recursive_reader; then
+    broad_words_ok || return 1
   fi
   subst_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
