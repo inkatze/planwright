@@ -47,6 +47,8 @@ export PLANWRIGHT_USAGE_MIRROR=""
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# A headless host session must not leak its launch identity into the cases.
+unset PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_WORKER_SESSION_RECORD
 
 here="$(cd "$(dirname "$0")" && pwd)"
 script="$here/../scripts/offload-dispatch.sh"
@@ -419,6 +421,36 @@ if grep -q "$(printf '\033')" "$tmp/err10"; then
   fail "control-byte backend name: raw ESC byte reached the diagnostic (echo discipline)"
 fi
 ok "hostile backend-name diagnostics are sanitized (no raw control bytes)"
+
+# 11. a headless session never opens a tmux window: its launch record (or the
+#     live session mark) says headless, `dispatch tmux` is refused with a
+#     message naming the headless backend, and no tmux is spawned.
+: >"$tmp/tmux-argv"
+printf 'policy=\nlaunch_backend=stream-json\n' >"$tmp/headless.record"
+printf 'policy=\n' >"$tmp/interactive.record"
+rc=0
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/headless.record" run_stub dispatch tmux "$promptfile" 2>"$tmp/err11") || rc=$?
+[ "$rc" -eq 2 ] || fail "headless record: dispatch tmux expected exit 2, got $rc"
+[ -z "$out" ] || fail "headless record: dispatch tmux emitted a report"
+grep -q 'stream-json-persistent' "$tmp/err11" || fail "headless record: refusal does not name the headless backend"
+[ ! -s "$tmp/tmux-argv" ] || fail "headless record: tmux was spawned anyway"
+rc=0
+out=$(PLANWRIGHT_SESSION_BACKEND=stream-json run_stub dispatch tmux "$promptfile" 2>"$tmp/err11") || rc=$?
+[ "$rc" -eq 2 ] || fail "headless session mark: dispatch tmux expected exit 2, got $rc"
+[ ! -s "$tmp/tmux-argv" ] || fail "headless session mark: tmux was spawned anyway"
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/interactive.record" run_stub dispatch tmux "$promptfile") \
+  || fail "an interactive record must still dispatch to tmux"
+printf '%s\n' "$out" | grep -q "status	dispatched" || fail "interactive record: dispatch tmux did not dispatch"
+ok "dispatch tmux is refused from a headless launch and still works from an interactive one"
+
+# 12. `launch-backend` names the backend an isolated step inherits.
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/headless.record" run launch-backend) || fail "launch-backend exited nonzero (headless)"
+[ "$out" = stream-json-persistent ] || fail "launch-backend: a headless record must print stream-json-persistent, got '$out'"
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/interactive.record" run launch-backend) || fail "launch-backend exited nonzero (interactive)"
+[ "$out" = interactive ] || fail "launch-backend: an interactive record must print interactive, got '$out'"
+out=$(run launch-backend) || fail "launch-backend exited nonzero (no record)"
+[ "$out" = interactive ] || fail "launch-backend: no record must print interactive, got '$out'"
+ok "launch-backend prints the unit's own backend"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

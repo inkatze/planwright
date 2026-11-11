@@ -586,6 +586,28 @@ else
 fi
 rm -f "$AH"
 
+echo "### launch backend: a headless launch is recorded for the dispatcher to read"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
+  pass "launch_backend: an interactive launch records none"
+else
+  fail "launch_backend: an interactive launch recorded one (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND=stream-json /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field launch_backend)" = stream-json ]; then
+  pass "launch_backend: a stream-json launch records launch_backend=stream-json"
+else
+  fail "launch_backend: a stream-json launch left no record (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND='stream-json;x' /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
+  pass "launch_backend: any value but stream-json is not recorded"
+else
+  fail "launch_backend: an unknown value was recorded (rc=$RC)"
+fi
+
 echo
-echo "worker-session-record: $passes passed, $failures failed"
+echo "worker-session-record:$passes passed, $failures failed"
 [ "$failures" -eq 0 ]
