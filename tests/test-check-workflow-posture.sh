@@ -1490,6 +1490,49 @@ out="$("$GUARD" "$d" 2>&1)"
 assert_exit "same-repo exception: pull_request_target still fails" 1 $?
 assert_contains "same-repo exception: pull_request_target is named" "pull_request_target" "$out"
 
+sr_case sr-pass-reversed "    if: github.repository == github.event.pull_request.head.repo.full_name"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the reversed operand order passes" 0 $?
+
+sr_case sr-pass-wrapped "    if: \${{ $SR_CLAUSE }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a \${{ }}-wrapped clause passes" 0 $?
+
+sr_case sr-pass-later-conjunct "    if: github.event.pull_request.draft == false
+      && $SR_CLAUSE"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the clause as a later && conjunct passes" 0 $?
+
+sr_case sr-fail-eq-false "    if: \${{ $SR_CLAUSE == false }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the clause compared to false fails" 1 $?
+
+sr_case sr-fail-paren-eq-false "    if: \${{ ($SR_CLAUSE) == false }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a parenthesised clause compared to false fails" 1 $?
+
+sr_case sr-fail-wide-negation "    if: !(github.actor == 'x' && $SR_CLAUSE)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a negation wider than the clause fails" 1 $?
+
+sr_case sr-fail-split-negation "    if: >-
+      !(
+      $SR_CLAUSE
+      )"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a negation split across lines fails" 1 $?
+
+sr_case sr-fail-string-literal "    if: \"'$SR_CLAUSE'\""
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the clause as a string literal fails" 1 $?
+
+sr_case sr-fail-later-or "    if: >-
+      $SR_CLAUSE
+      && github.event.pull_request.draft == false
+      || github.event_name == 'push'"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an || on a later line of the if fails" 1 $?
+
 d="$(mkdir_case sr-fail-step-if)"
 cat >"$d/review.yml" <<EOF
 ---

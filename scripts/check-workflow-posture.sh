@@ -4,7 +4,8 @@
 # matrix under --matrix (below).
 #
 # D-6's working posture: PR-authored code MAY execute under `pull_request`, but
-# only ever with a read-only token and zero stored secrets. That posture was
+# only ever with a read-only token and zero stored secrets (bar the same-repo
+# exception under assertion 3). That posture was
 # audited once (the REQ-C1.1 record in specs/guard-coverage/kickoff-brief.md);
 # this guard is what keeps it true, so a workflow edit that breaks it fails CI
 # instead of relying on reviewer vigilance.
@@ -28,12 +29,13 @@
 #      `uses:` edges.
 #      The one exception to 2 and 3: a job whose own job-level `if:` carries
 #      `github.event.pull_request.head.repo.full_name == github.repository`
-#      (live content, no `||` anywhere in that `if:`, no `!(` over it) runs
+#      as one whole `&&` conjunct, with no `||` anywhere in that `if:`, runs
 #      only for same-repository PRs, so it may hold write permissions and a
-#      stored secret. Undeclared permissions, `secrets: inherit`, and a secret
-#      outside the gated job stay refused. As with assertion 4's clause, the
-#      scan proves the clause is present in that `if:`, not that its
-#      expression gates the job.
+#      stored secret. The `if:` is judged whole across its lines; a clause
+#      compared to a value, parenthesised, negated, quoted or inside any other
+#      construct is not a conjunct and is refused. Undeclared permissions,
+#      `secrets: inherit`, and a secret outside the gated job stay refused.
+#      A `\`-joined line before the `if:` hides it (a loud failure).
 #   4. Any `workflow_run` workflow holding write permissions or secrets keeps a
 #      base-branch filter, pins the ORIGINATING repository, and consumes no
 #      PR-produced artifact. A `workflow_run` fired by a fork PR's workflow runs
@@ -377,17 +379,29 @@ function scan_refs(t, nr, jb, injif,   low, s, tok) {
        low ~ /github\.repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository\.full_name/) &&
       low !~ /![ \t]*\([ \t]*github\.(event\.workflow_run\.head_repository|repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository)/)
     printf "H\t%d\n", nr
-  # The same-repo clause, read only at a job's own `if:` (injif), with the
-  # same live-content rules as above. G marks a clause line for the job; O
-  # marks any `||` in that `if:`, which could make the clause optional, so the
-  # driver treats a job carrying one as ungated.
-  if (injif && jb != "") {
-    if (low ~ /\|\|/) printf "O\t%d\t%s\n", nr, jb
-    if ((low ~ /github\.event\.pull_request\.head\.repo\.full_name[ \t]*==[ \t]*github\.repository[^a-z0-9_]/ ||
-         low ~ /github\.repository[ \t]*==[ \t]*github\.event\.pull_request\.head\.repo\.full_name/) &&
-        low !~ /![ \t]*\([ \t]*github\.(event\.pull_request\.head\.repo|repository[ \t]*==[ \t]*github\.event\.pull_request\.head\.repo)/)
-      printf "G\t%d\t%s\n", nr, jb
+  # A job's own `if:` text, comments already stripped, gathered across its
+  # physical lines; the same-repo clause is judged on the whole of it at END.
+  if (injif && jb != "") jif_text[jb] = jif_text[jb] " " low
+}
+# The same-repo clause must be one whole `&&` conjunct of the job's `if:`, and
+# that `if:` must hold no `||`: any other spelling (compared to a value,
+# parenthesised, negated, inside a string, split across lines) is not a gate
+# and is refused loud rather than judged.
+function same_repo_gated(text,   parts, n, i, p, a, b) {
+  sub(/^[ \t]*if[ \t]*:[ \t]*/, "", text)
+  sub(/^[>|][0-9]*[+-]?[ \t]+/, "", text)
+  gsub(/\$\{\{|\}\}/, " ", text)
+  if (text ~ /\|\|/) return 0
+  a = "github.event.pull_request.head.repo.full_name == github.repository"
+  b = "github.repository == github.event.pull_request.head.repo.full_name"
+  n = split(text, parts, "&&")
+  for (i = 1; i <= n; i++) {
+    p = parts[i]
+    gsub(/[ \t]+/, " ", p)
+    sub(/^ /, "", p); sub(/ $/, "", p)
+    if (p == a || p == b) return 1
   }
+  return 0
 }
 BEGIN {
   section = ""; on_child = -1; perm_child = -1; jobs_child = -1
@@ -595,6 +609,7 @@ BEGIN {
 END {
   # A backslash left dangling at EOF never reached the join's else branch.
   if (cont) scan_refs(logical, logical_nr, logical_job, logical_jif)
+  for (j in jif_text) if (same_repo_gated(jif_text[j])) printf "G\t0\t%s\n", j
   if (errs > 0) exit 0
   if (ntrig == 0) { printf "E\t0\t%s\n", "workflow declares no triggers"; exit 0 }
   if (njobs == 0) { printf "E\t0\t%s\n", "workflow declares no jobs"; exit 0 }
@@ -690,10 +705,6 @@ if [ "$parse_failed" -eq 0 ]; then
         [ -n "${job:-}" ] || continue
         case "$gated" in *" $job "*) ;; *) gated="$gated$job " ;; esac
       done < <(fact "$i" G)
-      while IFS=$'\t' read -r _ _ job; do
-        [ -n "${job:-}" ] || continue
-        gated="${gated/ $job / }"
-      done < <(fact "$i" O)
 
       while IFS=$'\t' read -r _ job verdict; do
         [ -n "${job:-}" ] || continue
