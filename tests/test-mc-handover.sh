@@ -179,7 +179,7 @@ rm -f "$tmp/absent.yml"
 cat >"$tmp/bin/awk" <<'SHIM'
 #!/bin/sh
 if [ -e "${AWK_FAIL_FLAG:-/nonexistent}" ]; then
-  case $* in *'\302'*) case $(ps -o args= -p "$PPID" 2>/dev/null) in *mc-config.sh*) exit 1 ;; esac ;; esac
+  case $* in *'\302'*) case $(tr '\0' ' ' <"/proc/$PPID/cmdline" 2>/dev/null || ps -o args= -p "$PPID" 2>/dev/null) in *mc-config.sh*) exit 1 ;; esac ;; esac
 fi
 for a in /usr/bin/awk /bin/awk; do [ -x "$a" ] && exec "$a" "$@"; done
 exit 127
