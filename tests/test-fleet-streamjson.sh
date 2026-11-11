@@ -914,7 +914,8 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resu
 #    records the opt-in for the guard and for a recover; a launch without it
 #    passes the shipped profile untouched; every other shape is refused.
 shipped_profile="$here/../config/worker-settings.json"
-mkdir -p "$tmp/mwt" && git init -q "$tmp/mwt" || fail "c9m: cannot build the fixture worktree"
+mkdir -p "$tmp/mwt"
+git init -q "$tmp/mwt" || fail "c9m: cannot build the fixture worktree"
 : >"$rec/argv"
 : >"$rec/env"
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \

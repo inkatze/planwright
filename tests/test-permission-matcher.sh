@@ -1331,11 +1331,14 @@ mkdir -p "$tmp/gen"
 GBOX=$(cd "$tmp/gen" && pwd -P)
 GMAIN="$GBOX/main"
 GWT="$GMAIN/.claude/worktrees/w1"
-git init -q "$GMAIN" \
+if git init -q "$GMAIN" \
   && git -C "$GMAIN" symbolic-ref HEAD refs/heads/main \
   && git -C "$GMAIN" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m init \
-  && git -C "$GMAIN" worktree add -q -b planwright/flight/x-0123abcd "$GWT" main \
-  || fail "pass I: could not build the fixture repository"
+  && git -C "$GMAIN" worktree add -q -b planwright/flight/x-0123abcd "$GWT" main; then
+  ok "pass I: built the fixture repository"
+else
+  fail "pass I: could not build the fixture repository"
+fi
 GEN_OUT="$GBOX/generated.json"
 if [ -f "$GEN_SCRIPT" ] && /bin/sh "$GEN_SCRIPT" "$SETTINGS" "$GWT" "$GEN_OUT" >/dev/null 2>"$tmp/gen.err"; then
   ok "pass I: the generator wrote a per-launch profile"
@@ -1403,8 +1406,11 @@ if [ -n "$GEN_DENY" ] && pm_load_rules "$GEN_DENY" "" "$GEN_ALLOW"; then
   done <<EOF
 $GEN_FIXTURES
 EOF
-  [ "$gen_rows" -ge 40 ] && ok "pass I: the generated-profile table is non-vacuous: $gen_rows rows" \
-    || fail "pass I: the generated-profile table shrank: $gen_rows rows"
+  if [ "$gen_rows" -ge 40 ]; then
+    ok "pass I: the generated-profile table is non-vacuous: $gen_rows rows"
+  else
+    fail "pass I: the generated-profile table shrank: $gen_rows rows"
+  fi
   # Each literal ancestor deny is the only rule blocking at least one row, so
   # none can be dropped with a green suite.
   PATH_FIXTURES=$GEN_FIXTURES

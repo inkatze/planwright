@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2015 # ok only prints, so a fail arm never follows a passing check
 # Tests for scripts/worker-settings-generate.sh: the per-launch worker profile
 # an opted-in launch passes with --settings. It is the shipped profile with the
 # four task-file deny rules replaced by literal denies for each of those names
