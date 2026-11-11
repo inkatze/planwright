@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1278,6 +1278,164 @@ fixed-string check.)*
   edits no file; the instruction-budget check passes.
 - **Dependencies:** 50
 - **Citations:** D-56 · REQ-F1.24
+- **Estimated effort:** 1 day
+
+### Task 57 — The denial audit script
+
+- **Deliverables:** `scripts/guard-denial-stats.sh`: reads the fleet workers'
+  event records under the program data home, extracts each guard denial's
+  refusal text and the command it refused (counts and texts only, never
+  conversation content, results kept in a caller-given scratch folder), groups
+  them by guard and rule, and prints per rule the count and the share of
+  refused commands that did not contain the act in command position, with a
+  line naming what the records cannot see; the shipped denial table lives in
+  `docs/` and is regenerated from its output; tests in
+  `tests/test-guard-denial-stats.sh`.
+- **Done when:** The REQ-G1.9 test-spec entry's fixtures pass: a fixture
+  record set gives the expected counts and shares, a record with no denial
+  gives an empty table, and no refused command is ever executed.
+- **Dependencies:** none
+- **Citations:** D-59 · REQ-G1.9
+- **Estimated effort:** 1 day
+
+### Task 58 — The refusing corpus for the hard lines
+
+- **Deliverables:** a shipped corpus of refusing cases in the guard suites
+  (`tests/test-policy-guard-mission-control.sh`,
+  `tests/test-worker-command-guard-policy.sh`): the merge helper and `gh pr
+  merge` in command position under `merge_policy` human, a push to a
+  protected branch, a history rewrite outside the rules, a message to a
+  person, a secret read, a settings-file write, an interpreter running an
+  act, each in the plain form and in the forms a loosening could expose
+  (quoted, through a substitution, through `git -C`, through a variable);
+  the suites fail when any stops refusing.
+- **Done when:** The REQ-G1.18 test-spec entry's fixtures pass against the
+  current guard (every case refuses today) and a deliberately loosened copy
+  of a rule makes the matching case fail.
+- **Dependencies:** none
+- **Citations:** D-59 · REQ-G1.18, REQ-I1.1, REQ-I1.3, REQ-I1.4
+- **Estimated effort:** 1 day
+
+### Task 59 — Act in command position, and substitution bodies read
+
+- **Deliverables:** the policy guard's reserved-act rules fire on an act in
+  command position and not on act words in quoted data, a here-document body
+  feeding a file write or a non-interpreter, or names; a command or process
+  substitution whose body is one simple command is checked with the same
+  rules one level deep, and the refusals that remain name the reason; tests
+  in the guard suites.
+- **Done when:** The REQ-G1.11 and REQ-G1.12 test-spec entries' fixtures
+  pass, the Task 58 corpus still refuses every case, and the fleet-record
+  denial fixtures that were false positives are admitted.
+- **Dependencies:** 58
+- **Citations:** D-59 · REQ-G1.11, REQ-G1.12
+- **Estimated effort:** 2 days
+
+### Task 60 — Settings rule on writes, and literal command names
+
+- **Deliverables:** the mission-control tier's settings rule refuses a write
+  and not a name (reads, listings and quoted follow-up text pass); a command
+  name given as a leading `~/` path, the exported plugin-root variable or a
+  variable the same command assigned a literal path resolves to that path
+  and is judged as that command, an unresolvable name refusing; tests in the
+  guard suites.
+- **Done when:** The REQ-G1.10 and REQ-G1.13 test-spec entries' fixtures
+  pass and the Task 58 corpus still refuses every case.
+- **Dependencies:** 58
+- **Citations:** D-59 · REQ-G1.10, REQ-G1.13, REQ-G1.4
+- **Estimated effort:** 1 day
+
+### Task 61 — Own-branch syncs and `gh api` bodies from files
+
+- **Deliverables:** a worker's merge, pull or rebase of the pull request
+  base or of its own unit's origin branch into its own branch is admitted
+  through `git -C` naming its worktree as well as in place; a `gh api`
+  request with a literal method and non-reserved endpoint is admitted with
+  its body from a file or standard input and with `--output` on a read; tests
+  in the guard suites.
+- **Done when:** The REQ-G1.14 and REQ-G1.15 test-spec entries' fixtures
+  pass, another source, another worktree, a protected branch and a reserved
+  endpoint still refuse, and the Task 58 corpus still refuses every case.
+- **Dependencies:** 58
+- **Citations:** D-59 · REQ-G1.14, REQ-G1.15, REQ-I1.3
+- **Estimated effort:** 1.5 days
+
+### Task 62 — Plain-shell panes and the exported plugin root
+
+- **Deliverables:** mission control may type into a pane its launcher
+  registry lists whose foreground process is a plain shell, the text checked
+  as a command, and never into a Claude pane or an unlisted one; the launcher
+  exports the plugin root to every session it starts, the posture check
+  fails plainly when a launched session lacks it, and the guard's refusal on
+  an unset root names the one-line fix; tests in the guard suites and
+  `tests/test-mc-posture.sh`.
+- **Done when:** The REQ-G1.16 and REQ-G1.17 test-spec entries' fixtures
+  pass and the Task 58 corpus still refuses every case.
+- **Dependencies:** 58
+- **Citations:** D-59 · REQ-G1.16, REQ-G1.17, REQ-G1.5
+- **Estimated effort:** 1.5 days
+
+### Task 63 — The host-act register
+
+- **Deliverables:** `config/host-acts.tsv` with the dotfiles update row
+  (checkout alias, fast-forward flag, the one command and its arguments as a
+  closed list, description), its reader that refuses a row naming a merge, a
+  push, a history rewrite, a message or a secret, overlay extension through
+  the existing overlay layers, and the machine-local registry lookup that
+  turns an alias into a path; tests in `tests/test-mc-host-acts.sh`.
+- **Done when:** The REQ-A1.15 test-spec entry's fixtures pass: the shipped
+  row loads, an overlay row loads, a forbidden row is refused at read, and an
+  ask's text never becomes a command.
+- **Dependencies:** none
+- **Citations:** D-60 · REQ-A1.15, REQ-I1.9
+- **Estimated effort:** 1 day
+
+### Task 64 — The host-chore session kind
+
+- **Deliverables:** a session kind with a launch record (written before the
+  start, where the session cannot write) naming a checkout alias, a register
+  row, the quoted ask and an expiry; its permission profile admitting only
+  the clean-tree check, the fetch and the fast-forward of the named primary
+  checkout and the row's one command; the launcher change that starts it; the
+  worker-guard rows that refuse everything else; tests in
+  `tests/test-mc-host-chore.sh` and the guard suites.
+- **Done when:** The REQ-A1.14 test-spec entry's fixtures pass: a dirty tree,
+  a non-default branch and a diverged branch stop the session with the
+  reason, a merge, rebase, reset, push, stash, checkout of another ref and a
+  second command all refuse, and the Task 58 corpus still refuses every case.
+- **Dependencies:** 63, 58
+- **Citations:** D-60 · REQ-A1.14, REQ-I1.4, REQ-I1.9
+- **Estimated effort:** 2 days
+
+### Task 65 — The operator-asked host-act lane
+
+- **Deliverables:** the ask path in mission control: recognise a host-act
+  ask, resolve it to a register row, record the operator's quoted words in
+  the undo ledger, show the exact command, launch the host-chore session
+  (or, for a read, run it), record the output tail and exit status, report
+  one plain line and route a failure to a launched session without a retry;
+  the offer after a merged dotfiles change (standing rule r-1) uses the same
+  path; the skill and duty prose, kept inside the instruction budget; tests
+  in `tests/test-mc-host-acts.sh`.
+- **Done when:** The REQ-A1.13 and REQ-A1.16 test-spec entries' fixtures
+  pass: an ask with no row is answered with what is missing, nothing runs
+  without the recorded ask, a failure routes and does not retry, and the
+  instruction-budget check passes.
+- **Dependencies:** 63, 64
+- **Citations:** D-60, D-24 · REQ-A1.13, REQ-A1.16
+- **Estimated effort:** 1.5 days
+
+### Task 66 — The host-act invariants and the denial table in the docs
+
+- **Deliverables:** an end-to-end fixture of the lane with the guards live
+  (the dotfiles-update row against a fixture checkout) showing the hard lines
+  still refuse inside it, the amendment notes on REQ-A1.3 and REQ-G1.4 in the
+  docs, and the regenerated denial table (Task 57) published in the
+  guard-catalog docs.
+- **Done when:** The REQ-I1.9 test-spec entry's fixtures pass and the table
+  in the docs equals the audit script's output.
+- **Dependencies:** 57, 59, 60, 61, 62, 65
+- **Citations:** D-59, D-60 · REQ-I1.9, REQ-G1.9
 - **Estimated effort:** 1 day
 
 ## Awaiting input

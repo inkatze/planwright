@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -47,6 +47,9 @@ to the picture beyond its links.
 The posture denies git mutations and the skill carries the rule; the guard
 fixture table refuses each mutation spelling from a session under the
 `mission-control` tier (Task 3).
+Amendment 9 (Task 65, Task 66): a host act the operator asks for runs in a
+launched host-chore session, and mission control's own tier still refuses
+each mutation spelling outside it.
 
 ### REQ-A1.4 — Acts on the operator's behalf [Gherkin]
 
@@ -125,6 +128,38 @@ byte-identical afterward.
 prose or unknown enforcement is listed as a candidate; one with a clause or
 a named enforcer is not; an overlay-added word joins the list; the listing
 edits nothing.
+
+### REQ-A1.13 — A host act is recorded as the operator's ask and run once [test]
+
+`tests/test-mc-host-acts.sh` (Task 65): a fixture ask resolves to its
+register row, the operator's quoted words and the shown command reach the
+undo ledger before anything runs, and the act runs once; an ask that resolves
+to no row is answered with what is missing and runs nothing; a host act is
+never started without an ask or a standing rule's named next step; a read-only
+act runs in mission control and a changing act in a launched session.
+
+### REQ-A1.14 — A host-chore session may fast-forward one checkout and run one command [test]
+
+`tests/test-mc-host-chore.sh` and the guard suites (Task 64): a clean primary
+checkout on its default branch fast-forwards and the row's command runs; a
+dirty tree, another branch and a diverged branch stop the session with the
+reason; a merge, rebase, reset, push, stash, a checkout of another ref, a
+history rewrite and a second command are each denied; an expired or absent
+launch record means every call is denied; the session cannot write its record.
+
+### REQ-A1.15 — The register is data and refuses forbidden rows [test]
+
+`tests/test-mc-host-acts.sh` (Task 63): the shipped dotfiles row loads; an
+overlay row loads; a row naming a merge, a push, a rewrite, a message or a
+secret is refused at read; an alias with no machine-local registry entry is
+reported as missing; the ask's text never becomes a command or an argument.
+
+### REQ-A1.16 — A host act is watchable, recorded and reported plainly [test + manual]
+
+`tests/test-mc-host-acts.sh` (Task 65): the output tail and exit status are
+in the undo-ledger entry; a failure reports its cause and routes a launched
+session and never retries; the report is one plain line. Manual: the first
+real run shows the window and the one-line result.
 
 ## REQ-B — The rule source
 
@@ -730,6 +765,8 @@ denial and expects the exact text relayed and no alternate command.
 Carried from tower-front-door D-14; the guard fixture refuses settings
 writes from a session under the `mission-control` tier (Task 3); a settings-kind proposal (REQ-B1.5) leaves
 every settings file untouched.
+Amendment 9 (Task 66): the register command run in the lane may write machine
+configuration, and mission control's own tier still writes none.
 
 ### REQ-G1.5 — The posture check and one pre-approval list [test]
 
@@ -773,6 +810,76 @@ never lifts a Bash `deny` row.
 lease appears in the status; a pull request from a leased unit names the
 lease and the leased paths it changed in its top and is not announced as an
 ordinary ready.
+
+### REQ-G1.9 — Denials are counted per rule from the fleet records [test]
+
+`tests/test-guard-denial-stats.sh` (Task 57): a fixture record set gives the
+expected counts and false-positive shares per guard and rule; a record
+without a denial gives an empty table; the output holds counts and refusal
+texts only; no refused command is run; the unseen-sessions line is printed.
+
+### REQ-G1.10 — The settings rule refuses writes, not names [test]
+
+The guard suites (Task 60): a grep, cat, jq or listing naming a settings file
+and a follow-up whose text quotes one pass; a redirect, `tee`, `sed -i`, `cp`,
+`mv` and an interpreter writing it refuse, as does a name through an
+expansion.
+
+### REQ-G1.11 — Act words as data do not fire the act rules [test]
+
+The guard suites (Task 59): a quoted argument, a test name, a commit text and
+a here-document feeding a file write that mention a merge, a push or a flip
+pass; the same words in command position refuse; text handed to a shell or
+python3 that names an act refuses. The fleet-record false positives (test
+runs and diffs naming the merge helper) pass.
+
+### REQ-G1.12 — A simple substitution body is read one level deep [test]
+
+The guard suites (Task 59): `$(mktemp)`, `$(seq 1 5)` and a substitution
+holding one plain read pass; one holding an act, a nested substitution,
+backticks and ANSI-C quoting naming an act refuse.
+
+### REQ-G1.13 — Literal command names are resolved [test]
+
+The guard suites (Task 60): `~/.claude/scripts/<script>`, the exported
+plugin-root variable and a variable assigned a literal path in the same
+command are judged as the command they name; an unset or computed name
+refuses.
+
+### REQ-G1.14 — A worker's own-branch syncs are admitted [test]
+
+`tests/test-worker-command-guard-policy.sh` (Task 61): merge, pull and rebase
+of `origin/main` or the unit's origin branch pass in place and through `git
+-C` naming its worktree; another source, another worktree, a protected branch
+and an `--update-refs` form refuse.
+
+### REQ-G1.15 — A literal `gh api` request passes whatever its body source [test]
+
+The guard suites (Task 61): a literal reply endpoint with a body from a file
+or standard input, and a log download with `--output`, pass; a merge, flip
+or branch-deletion endpoint, a non-literal method or endpoint, and a body
+built through an expansion refuse; the body's content never changes the
+verdict.
+
+### REQ-G1.16 — A registered plain-shell pane takes typed text [test]
+
+The guard suites (Task 62): a send to a registry-listed pane whose foreground
+process is a plain shell passes with the text checked as a command; a pane
+running a Claude session, an unlisted pane and a text naming an act in
+command position refuse.
+
+### REQ-G1.17 — The plugin root reaches every launched session [test]
+
+`tests/test-mc-posture.sh` and the launcher suite (Task 62): a launched
+session of every kind carries the plugin root; the posture check fails
+plainly on one without it; the guard's refusal on an unset root names the
+one-line fix.
+
+### REQ-G1.18 — The hard lines still refuse after every loosening [test]
+
+The guard suites (Task 58): the corpus refuses each case in its plain form
+and in every form a loosening could expose; loosening a copy of any rule
+makes the matching case fail.
 
 ## REQ-H — Programs across repositories
 
@@ -863,6 +970,15 @@ configured ready flip without a prompt; force forms, deletions, another
 spec branch, a task branch and `main` are denied with the guard's reason; no
 launch record means every push is denied; mission control's own tier
 denies the push.
+
+### REQ-I1.9 — The host-act lane leaves the invariants in force [test]
+
+`tests/test-mc-host-chore.sh` end to end (Task 66): against a fixture
+checkout the dotfiles-update row runs with the guards live; mission control's
+own tier still denies a git mutation and a typed fast-forward outside the
+lane; inside the lane a merge, a push, a rewrite, a message and a secret read
+are denied with the guard's text and reported unrouted; the posture check
+runs after the restart.
 
 ## REQ-J — Knobs
 

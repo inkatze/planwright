@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -155,6 +155,9 @@ later planwright bundles implement, D-12).
 - **REQ-A1.3** Mission control SHALL NOT edit any repository and SHALL NOT
   run a git mutation; every change goes through a session it dispatches.
   *(Cites: D-23; the invocation seed (Sources); the hub record (Sources).)*
+  *(Amended at Amendment 9, 2026-11-11: a host act the operator asks for
+  (REQ-A1.13) is such a dispatched session; mission control's own tier
+  gains no git mutation.)*
 - **REQ-A1.4** Mission control SHALL act on the operator's behalf toward
   every other session (launch, message, answer a selector with a decision
   the operator gave, retire) and SHALL NOT hand the operator a window, pane,
@@ -246,6 +249,51 @@ later planwright bundles implement, D-12).
   rule that already carries a clause or names an enforcer is not listed.
   The listing edits nothing and is advisory in every operator level.
   *(Cites: D-57; REQ-A1.10, REQ-B1.8; the rule-enforcement ask (2026-11-10,
+  Sources).)*
+- **REQ-A1.13** When the operator asks in words, in the session, for a host
+  act (fast-forwarding a named primary checkout and running one named setup
+  command, or reading a configuration file), mission control SHALL take the
+  ask as a host-act ask: it records the operator's words quoted in the undo
+  ledger (D-24), shows the exact command the ask resolves to, and runs it
+  once and in the open. A read-only host act runs in mission control itself;
+  every host act that changes a checkout or the machine runs in a host-chore
+  session it launches (REQ-A1.14). An ask that resolves to no
+  register row (REQ-A1.15) is answered with what is missing, never run from
+  free text, and a host act is never started on mission control's own
+  initiative: the operator's ask, or a standing rule that names the act as
+  the next step after a merge the operator made, is what starts it.
+  *(Cites: D-60; D-24; REQ-A1.3; the host-act ask (2026-11-11, Sources).)*
+- **REQ-A1.14** A host-chore session SHALL be a session kind launched with a
+  launch record, written before it starts where it cannot write, naming one
+  checkout (an alias from the machine-local registry, never a path the ask
+  supplies), one register row, the operator's quoted ask and its expiry. Its
+  permission profile SHALL admit only this: when the named checkout is a
+  primary checkout on its default branch with a clean tree, fetch it and
+  fast-forward it to the remote default branch (a checkout that is not
+  clean, or a branch that cannot fast-forward, stops the session; no merge,
+  rebase, reset, push, stash, checkout of another ref or history rewrite is
+  ever admitted); then run the row's one declared command with the row's
+  declared arguments. It follows the supervision rules of every worker: one
+  purpose, retired when it reports, silent unless it fails.
+  *(Cites: D-60; REQ-I1.4; REQ-D1.1; the
+  host-act ask (2026-11-11, Sources).)*
+- **REQ-A1.15** The host-act register SHALL be shipped data (one row per
+  act: an id, the checkout alias, whether it fast-forwards, the one command
+  and its arguments as a closed list, and a plain description), extended by
+  an overlay and never by the ask's own text. The shipped register holds the
+  dotfiles update (fast-forward the dotfiles checkout, run the user-config
+  playbook); a row naming a command that merges, pushes, rewrites history,
+  sends a message or writes a secret is refused when the register is
+  read.
+  *(Cites: D-60; REQ-I1.9; r-29 (Sources); the host-act ask (2026-11-11,
+  Sources).)*
+- **REQ-A1.16** A host act SHALL run where the operator can watch it (the
+  session's window, the same as any launched session), its output tail and
+  exit status SHALL be recorded with the act in the undo ledger, and mission
+  control SHALL report the outcome in one plain line, and for a failure the
+  cause and the routed fix (a launched session), never an automatic retry
+  and never the operator's own commands.
+  *(Cites: D-60; REQ-G1.3; r-40 (Sources); the host-act ask (2026-11-11,
   Sources).)*
 
 ## REQ-B — The rule source
@@ -848,6 +896,9 @@ later planwright bundles implement, D-12).
   operator ready to apply.
   *(Cites: D-2; tower-front-door D-14 (Sources); kickoff §3 (2026-10-23).)*
   *(Amended at kickoff 2026-10-23: the settings-handover clause added.)*
+  *(Amended at Amendment 9, 2026-11-11: a declared register command the
+  operator asked for may write machine configuration that an operator-merged
+  change already describes (REQ-I1.9); mission control authors no change.)*
 - **REQ-G1.5** At bring-up mission control SHALL run a posture check, a
   script the launcher and the skill read alike, confirming the shipped
   mission-control deny floor is in force and the guard hooks are wired. On
@@ -920,6 +971,72 @@ later planwright bundles implement, D-12).
   operator decides on, and the ready-to-merge notice is not sent as an
   ordinary ready.
   *(Cites: D-57; r-30's pull request shape (Sources).)*
+- **REQ-G1.9** The guards' denials SHALL be measured, not assumed: a script
+  counts the denials in the fleet records per guard and rule, joins each to
+  the command it refused, and reports for each rule the share of refused
+  commands that did not contain the act the rule protects (counts and
+  refusal texts only, never conversation content), naming what the records
+  cannot see. The shipped denial table (D-59) is its first run, and a rule
+  is loosened or removed only where this data shows it mostly blocks work
+  that was not the act.
+  *(Cites: D-59; the denial-friction ask (2026-11-11, Sources); the fleet
+  denial records (2026-11-11, Sources).)*
+- **REQ-G1.10** The mission-control guard tier SHALL refuse a command that
+  writes a settings or configuration file, and SHALL NOT refuse a command
+  for naming one: a plain read (grep, cat, jq, a pager, a listing), a
+  follow-up or message whose text quotes a name, and a path used as a
+  read argument pass. A name through an expansion or an interpreter that can
+  write still refuses.
+  *(Cites: D-59; REQ-G1.4; the denial-friction ask (2026-11-11, Sources).)*
+- **REQ-G1.11** A guard's reserved-act rule SHALL fire on an act in command
+  position, and SHALL NOT fire on an act's words appearing only as data: a
+  quoted argument, a here-document body that feeds a file write or a
+  non-interpreter, a test or file name, a commit or comment text. Text
+  handed to an interpreter that can run it (a shell, python3 and the other
+  wrappers the guard lists) still refuses when it names an act.
+  *(Cites: D-59; REQ-G1.3; the denial-friction ask (2026-11-11, Sources).)*
+- **REQ-G1.12** A command or process substitution SHALL be read, not
+  refused unread, where its body is one simple command the guard can check
+  with the same rules at one level of depth; a body it cannot parse, a
+  nested substitution, backticks and ANSI-C quoting stay refused when the
+  command's text names an act.
+  *(Cites: D-59; the denial-friction ask (2026-11-11, Sources).)*
+- **REQ-G1.13** A command name given as a leading `~/` path, as the plugin-root variable the launcher exports, or as a
+  variable the same command assigned a literal path earlier, SHALL be
+  resolved by the guard to the path it names and judged as that command;
+  only a name that cannot be resolved to a literal refuses.
+  *(Cites: D-59; the denial-friction ask (2026-11-11, Sources).)*
+- **REQ-G1.14** A worker's `git merge`, `git pull` or `git rebase` of the
+  pull request base (`origin/main`) or of the origin branch of its own unit
+  into its own unit branch SHALL be admitted whether it is run from its
+  worktree or through `git -C` naming that worktree; any other source, any
+  protected branch and any other worktree stay refused.
+  *(Cites: D-59; REQ-I1.4; the denial-friction ask (2026-11-11, Sources).)*
+- **REQ-G1.15** A `gh api` request whose method and endpoint are literal and
+  are not a reserved act (a merge, a ready flip, a branch deletion, a
+  protected push) SHALL be admitted whether its body is a literal field or
+  is read from a file or standard input, and a download flag such as
+  `--output` SHALL be admitted on a read; the body's content never decides
+  admission, and a message to a person stays under REQ-I1.3.
+  *(Cites: D-59; REQ-I1.3; the denial-friction ask (2026-11-11, Sources).)*
+- **REQ-G1.16** Mission control SHALL be able to type into a tmux pane that
+  its launcher registry lists and whose foreground process is a plain shell,
+  and never into a pane running a Claude session or into any pane the
+  registry does not list; the text typed is checked as a command by the same
+  rules (REQ-G1.11).
+  *(Cites: D-59; REQ-A1.4; the host-act ask (2026-11-11, Sources).)*
+- **REQ-G1.17** The launcher SHALL export the plugin root every guard needs
+  to every session it starts, bring-up's posture check (REQ-G1.5) SHALL fail
+  plainly when a launched session lacks it, and a guard that finds it unset
+  SHALL name the one-line fix rather than refuse every call.
+  *(Cites: D-59; REQ-G1.5; the fleet denial records (2026-11-11, Sources).)*
+- **REQ-G1.18** Every loosening in REQ-G1.10 to REQ-G1.16 SHALL ship with a
+  corpus of refusing cases for the lines it keeps (a merge helper run in
+  command position under `merge_policy` human, a push to a protected branch,
+  a history rewrite outside the rules, a message to a person, a secret
+  read), and the guard suites SHALL fail if any of these stops refusing.
+  *(Cites: D-59; REQ-I1.1, REQ-I1.3, REQ-I1.4; the denial-friction ask
+  (2026-11-11, Sources).)*
 
 ## REQ-H — Programs across repositories
 
@@ -1024,6 +1141,20 @@ later planwright bundles implement, D-12).
   this one push only once the routed human-gates amendment lands (Task 31).
   *(Cites: D-36; audit item 4 (Sources); the operator priority (2026-11-04)
   (Sources).)*
+- **REQ-I1.9** The host-act lane (REQ-A1.13 to REQ-A1.16) SHALL leave every
+  invariant above in force: mission control itself still runs no git
+  mutation and edits no repository (REQ-A1.3), a host-chore session never
+  merges, never pushes, never rewrites history, never sends to a person and
+  never reads or writes a secret, and a guard denial inside the lane is
+  reported with its text and never routed around (REQ-G1.3). The one
+  precise exception is that a host-chore session may fast-forward the one
+  named primary checkout to its remote default branch, which is content the
+  operator already merged, and run the register's declared command, which
+  may write the machine's configuration; mission control authors no
+  configuration change (REQ-G1.4), and a changed posture takes effect only
+  at its next restart followed by the posture check (REQ-G1.5).
+  *(Cites: D-60; REQ-A1.3, REQ-G1.4; human-gates (Sources); the host-act ask
+  (2026-11-11, Sources).)*
 
 ## REQ-J — Knobs
 
@@ -1460,6 +1591,17 @@ later planwright bundles implement, D-12).
   REQ-F1.10's and ships as its own flight; REQ-A1.9, REQ-A1.10 and REQ-M1.10
   already cover number-valued rules, prose or unknown enforcement and idle
   waits and are not redrafted. Tasks 50 to 56.
+- 2026-11-11 — Amendment 9 (meaning-class, on the Active bundle, relayed by
+  the hub): denial friction measured and removed, and a host-act lane. The
+  guards' denials were counted from the fleet records (D-59): REQ-G1.9 to
+  REQ-G1.18 loosen the rules that mostly blocked work that was not the act
+  (a settings-file name in a read, act words in data, an unread
+  substitution, a `~/` command name, a worker syncing its own branch, a
+  `gh api` body from a file, a plain-shell pane, an unset plugin root) and
+  keep the hard lines with refusing tests; REQ-A1.13 to REQ-A1.16 and
+  REQ-I1.9 add the operator-asked host-act lane, run by a host-chore session
+  from a shipped register (D-60), with the fast-forward-only exception
+  stated narrowly. Tasks 57 to 66.
 
 ## Sources
 
@@ -1694,3 +1836,23 @@ later planwright bundles implement, D-12).
   (observation W80): the offload host knob shipped but stayed local though
   the rules say to offload, and nothing noticed. Framed REQ-M1.11,
   REQ-B1.13, REQ-A1.11, D-58.
+- **The denial-friction ask (2026-11-11)** — relayed through the hub (the
+  operator's picklist answer "Cut friction, keep the hard lines"): count
+  every policy-guard and worker-guard denial, measure how many blocked
+  legitimate work, remove or loosen the rules that mostly do, and keep never
+  merge, no protected push, no rewrite outside the rules, no message to a
+  person without a yes, and no secrets. Framed REQ-G1.9 to REQ-G1.18, D-59.
+- **The fleet denial records (2026-11-11)** — the guards' refusal texts and
+  refused commands extracted from the fleet workers' event records (the
+  stream-json backend), grouped by rule; and the hub's own count of denial
+  strings across this machine's session records (relative weight only: the
+  records repeat results and tests quote the strings). Neither sees the
+  operator's interactive hub session. Framed D-59, REQ-G1.9, REQ-G1.17.
+- **The host-act ask (2026-11-11)** — relayed through the hub (a usability
+  gap, fixed now): the operator asked in words for a fast-forward of the
+  dotfiles checkout and its playbook run, and the policy guard refused every
+  form (the playbook run, a tmux send-keys to a plain shell pane, a
+  fast-forward pull in the primary checkout), though standing rule r-29
+  says mission control applies merged dotfiles changes itself and r-40 says
+  to leave the operator only the irreducible act. Framed REQ-A1.13 to
+  REQ-A1.16, REQ-I1.9, REQ-G1.16, D-60.
