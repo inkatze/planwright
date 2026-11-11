@@ -420,6 +420,8 @@ malformed_tracked() {
 }
 want_reason='pool name'
 malformed_case "a pool name outside the id charset" "kind: command" "target: fixture-tool" "pool: Gate"
+want_reason='reserved'
+malformed_case "the reserved pool name none (REQ-K1.1)" "kind: command" "target: fixture-tool" "pool: none"
 want_reason='paths word'
 malformed_case "an absolute paths word" "kind: command" "target: fixture-tool" "paths: src /etc"
 want_reason='refire value'

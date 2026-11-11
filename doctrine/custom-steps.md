@@ -323,6 +323,19 @@ warning, its release a successful no-op; a mark naming another pool or a dead
 owner, or failing the pool charset or a decimal pid, is ignored, and a
 same-owner take without a mark waits like any caller.
 
+**The shipped heavy pool.** `full_suite_pool` defaults to `heavy-run`, so every
+full local suite run holds a slot unless a layer sets the reserved value `none`
+or an empty value, either running the suite unpooled with no warning; `none` is
+never a pool name a declared step may use, and a step naming `heavy-run` shares
+the pool. A lone run on an idle host takes a slot with no wait. The pool's
+capacity is `step_pool_capacity_heavy_run` when set in any layer (the adopter
+layer reaches workers in worktrees; the machine-local layer does not), else one
+slot per 8 logical cores and per 16 GiB of total memory, whichever is fewer, at
+least 1, a host that cannot be read deriving 1 with one warning;
+`step_pool_capacity` never applies to it. The pool is independent of the
+per-file ticket pool a suite's test files run through, and a gate reaching
+`heavy-run` inside its own hold runs inside it under the mark (D-33, D-34).
+
 **The full suite.** When `full_suite_pool` names a pool, each full local suite
 attempt `/execute-task` makes, retries included, holds a slot of it, its owner
 passing the suite the hold mark as a pooled step's check gets it; an expired
