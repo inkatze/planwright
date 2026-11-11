@@ -3468,12 +3468,9 @@ guard_gh() {
       # A method-override header makes the server treat the GET as a write,
       # and `--hostname` sends the request, token included, to another host:
       # both defer, and so does a header value the guard cannot read.
-      local hdr=0 lc
+      local hdr=0
       for ((i = 2; i < cwn; i++)); do
-        lc=${cw[i],,}
-        case $lc in
-          *method-override* | *x-http-method* | *x-method*) return 1 ;;
-        esac
+        ci_has "${cw[i]}" '*method-override*' '*x-http-method*' '*x-method*' && return 1
         if [ "$hdr" = 1 ]; then
           case ${cw[i]} in
             *'$'*) return 1 ;;
@@ -4244,6 +4241,8 @@ secret_lexical() {
       */.config/gh/* | */.config/op/* | */.config/gcloud/* | \
       */.claude/.credentials* | */.claude.json/*) return 0 ;;
     /etc/shadow/* | /etc/gshadow/* | /etc/shadow-/* | /etc/gshadow-/* | /etc/ssh/ssh_host_*_key/*) return 0 ;;
+    # macOS keeps /etc under /private, which a resolved path reports.
+    /private/etc/shadow/* | /private/etc/gshadow/* | /private/etc/ssh/ssh_host_*_key/*) return 0 ;;
     /proc/*/mem/* | /proc/*/fd/* | /dev/fd/* | /dev/stdin/*) return 0 ;;
   esac
   return 1
@@ -4363,13 +4362,24 @@ secret_words_ok() {
   return 0
 }
 
+# ci_has <word> <glob>...: whether the word matches any glob, ignoring case.
+# nocasematch rather than ${w,,}, which bash 3.2 (the macOS /bin/bash) lacks.
+ci_has() {
+  local w=$1 p hit=1 had=1
+  shift
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  for p in "$@"; do
+    # shellcheck disable=SC2254  # the glob is the argument, deliberately unquoted
+    case $w in $p) hit=0 ;; esac
+  done
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  return "$hit"
+}
+
 # secret_var_name <name>: whether a variable name looks like a credential.
 secret_var_name() {
-  local n=${1^^}
-  case $n in
-    *TOKEN* | *SECRET* | *PASSWORD* | *PASSWD* | *CREDENTIAL* | *APIKEY* | *API_KEY* | *_KEY | *_PAT) return 0 ;;
-  esac
-  return 1
+  ci_has "$1" '*TOKEN*' '*SECRET*' '*PASSWORD*' '*PASSWD*' '*CREDENTIAL*' '*APIKEY*' '*API_KEY*' '*_KEY' '*_PAT'
 }
 
 # secret_var_ref <word>: whether a word expands a credential-named variable
