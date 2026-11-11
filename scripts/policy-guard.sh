@@ -1716,7 +1716,7 @@ kickoff_script_at() {
 # kickoff_segment <dir> <dir-ok> — 0 when the segment names the kickoff push,
 # which is then decided here; 1 when it does not name it.
 kickoff_segment() {
-  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct
+  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct kick_ok
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
   done
@@ -1748,22 +1748,21 @@ kickoff_segment() {
   [ -n "$spec" ] || return 0
   if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
     [ "$dir_ok" = 1 ] \
-      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec branch checkout.'
+      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec or amendment branch checkout.'
     [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
+    kick_ok=0
     case $b in
-      "planwright/$spec/spec") ;;
+      "planwright/$spec/spec") kick_ok=1 ;;
       "planwright/$spec/amendment-"*)
         case ${b#"planwright/$spec/amendment-"} in
-          '' | *[!0-9]*)
-            deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec) or one of its amendment branches (planwright/$spec/amendment-<n>), and this checkout has ${b:-no branch} checked out - refusing. Check out one of those in your worktree and run \${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>."
-            ;;
+          '' | *[!0-9]*) ;;
+          *) kick_ok=1 ;;
         esac
         ;;
-      *)
-        deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec) or one of its amendment branches (planwright/$spec/amendment-<n>), and this checkout has ${b:-no branch} checked out - refusing. Check out one of those in your worktree and run \${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>."
-        ;;
     esac
+    [ "$kick_ok" = 1 ] \
+      || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec) or one of its amendment branches (planwright/$spec/amendment-<n>), and this checkout has ${b:-no branch} checked out - refusing. Check out one of those in your worktree and run $KICK_FORM."
     return 0
   fi
   check_unprotected "$dir" 'this git push' "planwright/$spec/spec"
