@@ -2,7 +2,7 @@
 # worker-session-record.sh — write a dispatched worker's session record: the
 # launch-time inputs its command guard trusts.
 #
-# Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>]
+# Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>] [--base <branch>]
 #          [--scratch | --fresh-scratch]
 #
 # Resolves, once, from the worktree the worker will run in:
@@ -18,6 +18,14 @@
 #   pr_base            <remote>/<branch>: the unit branch's remote (origin
 #                      when unset) and that remote's default branch as
 #                      recorded locally, else main
+#   stack_base         <remote>/<branch>: the base of a stacked pull request
+#                      (one whose base is another feature branch), from
+#                      --base <branch> or, without it, the PR's baseRefName
+#                      read once from gh; omitted when it is the default base,
+#                      outside the branch grammar, or unknown. It is the one
+#                      branch besides the default base a worker's base merge
+#                      may take (scripts/policy-guard.sh,
+#                      scripts/converge-sync-main.sh --base)
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)
 #   scratch_root       with --scratch, the worktree's scratch root, a short
 #                      directory outside the fleet home that
@@ -83,13 +91,22 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch]"
+branch_grammar_ok() {
+  case $1 in
+    '' | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *.) return 1 ;;
+  esac
+  return 0
+}
+
+usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--base <branch>] [--scratch | --fresh-scratch]"
 [ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
 wt_arg=$2
 shift 2
 launch_id=''
 have_id=0
 session=''
+stack_arg=''
+have_base=0
 want_scratch=0
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -98,6 +115,13 @@ while [ "$#" -gt 0 ]; do
       want_scratch=1
       [ "$1" = --scratch ] || want_scratch=2
       shift
+      ;;
+    --base)
+      [ "$#" -ge 2 ] && [ "$have_base" = 0 ] || die "$usage" 2
+      branch_grammar_ok "$2" || die "--base is outside the branch grammar" 2
+      stack_arg=$2
+      have_base=1
+      shift 2
       ;;
     --session)
       [ "$#" -ge 2 ] && [ -z "$session" ] && [ "$have_id" = 0 ] || die "$usage" 2
@@ -190,7 +214,7 @@ unit=$(gitq "$wt" symbolic-ref --quiet --short HEAD) || unit=''
 case $unit in
   planwright/flight/task-*) unit='' ;;
   planwright/flight/*) printf '%s\n' "$unit" | grep -Eq '^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$' || unit='' ;;
-  planwright/*/task-*) printf '%s\n' "$unit" | grep -Eq '^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$' || unit='' ;;
+  planwright/*/task-*) printf '%s\n' "$unit" | grep -Eq '^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?(-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?)?$' || unit='' ;;
   *) unit='' ;;
 esac
 
@@ -212,6 +236,20 @@ if [ -n "$unit" ]; then
     base=${head#"$remote"/}
     [ -n "$head" ] && [ "$base" != "$head" ] || base=main
     pr_base=$remote/$base
+  fi
+fi
+
+# A stacked PR's base is another feature branch: the one the launcher names
+# with --base, else the PR's own baseRefName read once from gh. It is kept
+# only when it differs from the default base the record already names, and
+# only inside the branch grammar the guards re-check.
+stack_base=''
+if [ -n "$pr_base" ]; then
+  if [ "$have_base" = 0 ] && command -v gh >/dev/null 2>&1; then
+    stack_arg=$(cd -- "$wt" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" 15 gh pr view "$unit" --json baseRefName --jq .baseRefName 2>/dev/null </dev/null | head -n 1) || stack_arg=''
+  fi
+  if [ -n "$stack_arg" ] && [ "$stack_arg" != "${pr_base#*/}" ] && branch_grammar_ok "$stack_arg"; then
+    stack_base=${pr_base%%/*}/$stack_arg
   fi
 fi
 
@@ -329,6 +367,7 @@ if ! {
   [ -z "$unit" ] || printf 'unit_branch=%s\n' "$unit"
   printf 'worktree_root=%s\n' "$wt"
   [ -z "$pr_base" ] || printf 'pr_base=%s\n' "$pr_base"
+  [ -z "$stack_base" ] || printf 'stack_base=%s\n' "$stack_base"
   [ -z "$base_merge" ] || printf 'worker_base_merge=%s\n' "$base_merge"
   [ -z "$scratch" ] || printf 'scratch_root=%s\n' "$scratch"
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
