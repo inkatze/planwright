@@ -58,6 +58,7 @@ for dir in '~' '~/' '$HOME' '${HOME}' "$H" /home/someone /home/someone/ /home//s
 done
 assert_defer "secrets: grep -r with a pattern flag then ~" "grep -r -e BEGIN ~"
 assert_defer "secrets: grep -r over two operands, one broad" "grep -r BEGIN sub ~"
+assert_defer "secrets: grep -r over a tracked value naming a home" "d=/home/someone; grep -r BEGIN \$d"
 assert_defer "secrets: diff -r over home" "diff -r ~ sub"
 assert_defer "secrets: tree over home" "tree ~"
 assert_defer "secrets: a recursive read over a symlink into .ssh's parent" "grep -r BEGIN sub/homelink"

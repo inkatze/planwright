@@ -4427,7 +4427,7 @@ broad_path_risky() {
       [ -n "$HOME" ] || return 0
       p=$HOME${p#\$\{HOME\}}
       ;;
-    \~* | \$[A-Za-z_\{]*) return 0 ;;
+    \~*) return 0 ;;
   esac
   case $p in
     /*) abs=$p ;;
