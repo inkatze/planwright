@@ -102,7 +102,9 @@
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
-#               base or the unit branch's own branch on the base remote. When
+#               base or the unit branch's own branch on the base remote; on
+#               a stacked PR also its base branch, named by the launch-time
+#               session record's stack_base, by ref or by its tip commit id. When
 #               an --ff-only spelling is refused at the tower tier or for
 #               running off the unit branch, the reason also names
 #               scripts/main-currency.sh ff-primary, the sanctioned way to

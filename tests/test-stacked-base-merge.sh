@@ -106,6 +106,18 @@ sg worker "git merge origin/$STACK_BR" "$SANDBOX/rec/fork.record"
 expect deny "[worker] a record base on a remote other than the unit's is refused"
 sg worker "git merge origin/$STACK_BR" "$SANDBOX/rec/missing.record"
 expect deny "[worker] an unreadable record is no record"
+ln -sf "$REC_OK" "$SANDBOX/rec/link.record"
+sg worker "git merge origin/$STACK_BR" "$SANDBOX/rec/link.record"
+expect deny "[worker] a record that is a symlink is no record"
+write_rec "$STACK/inside.record" "origin/$STACK_BR"
+sg worker "git merge origin/$STACK_BR" "$STACK/inside.record"
+expect deny "[worker] a record inside the worktree (which the worker can write) is no record"
+{
+  printf 'stack_base=origin/%s\n' "$OTHER_BR"
+  cat "$REC_OK"
+} >"$SANDBOX/rec/dup.record"
+sg worker "git merge origin/$STACK_BR" "$SANDBOX/rec/dup.record"
+expect deny "[worker] a record repeating stack_base is dropped whole"
 sg tower "git merge origin/$STACK_BR"
 expect deny "[tower] the stacked base merge is refused at the tower"
 set_knobs 'worker_base_merge: deny'
@@ -114,6 +126,7 @@ expect deny "[worker] worker_base_merge deny refuses the stacked base merge"
 reason_has 'worker_base_merge is deny' "[worker] and names the knob"
 sg worker 'git merge origin/main'
 expect deny "[worker] worker_base_merge deny refuses main on a stacked branch too"
+reason_has 'worker_base_merge is deny' "[worker] and the main refusal names the knob"
 set_knobs 'worker_base_merge: allow'
 
 echo "# guard: the base moves, and a local ref shadows it"
@@ -248,30 +261,61 @@ sed "s|^worktree_root=.*|worktree_root=$SY2|" "$SANDBOX/rec/sy.record" >"$SANDBO
 adv_base "$STACK_BR"
 before=$(git -C "$SY2" rev-parse HEAD)
 run_sync "$SY2" "$SANDBOX/rec/sy2.record" --base "$OTHER_BR"
-if [ "$RC" != 0 ] && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err" && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
   pass "[sync] --base naming a branch the record does not name is refused, head unchanged"
 else
   fail "[sync] another base: rc=$RC head moved or accepted"
 fi
 run_sync "$SY2" "" --base "$STACK_BR"
-if [ "$RC" != 0 ] && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err" && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
   pass "[sync] --base with no session record is refused"
 else
   fail "[sync] --base with no record: rc=$RC"
 fi
 write_rec "$SANDBOX/rec/sy2none.record" ""
 run_sync "$SY2" "$SANDBOX/rec/sy2none.record" --base "$STACK_BR"
-if [ "$RC" != 0 ] && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err" && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
   pass "[sync] --base with a record that names no stacked base is refused"
 else
   fail "[sync] --base with a baseless record: rc=$RC"
 fi
 write_rec "$SANDBOX/rec/sy2unit.record" "origin/$STACK_BR" planwright/demo/task-3
 run_sync "$SY2" "$SANDBOX/rec/sy2unit.record" --base "$STACK_BR"
-if [ "$RC" != 0 ] && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err" && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
   pass "[sync] --base with a record for another unit branch is refused"
 else
   fail "[sync] --base with another unit's record: rc=$RC"
+fi
+ln -sf "$SANDBOX/rec/sy2.record" "$SANDBOX/rec/sy2link.record"
+run_sync "$SY2" "$SANDBOX/rec/sy2link.record" --base "$STACK_BR"
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
+  pass "[sync] --base with a symlinked record is refused"
+else
+  fail "[sync] --base with a symlinked record: rc=$RC"
+fi
+sed "s|^worktree_root=.*|worktree_root=$SY2|" "$SANDBOX/rec/sy.record" >"$SY2/inside.record"
+run_sync "$SY2" "$SY2/inside.record" --base "$STACK_BR"
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
+  pass "[sync] --base with a record inside the worktree is refused"
+else
+  fail "[sync] --base with an in-worktree record: rc=$RC"
+fi
+{
+  printf 'stack_base=origin/%s\n' "$OTHER_BR"
+  cat "$SANDBOX/rec/sy2.record"
+} >"$SANDBOX/rec/sy2dup.record"
+run_sync "$SY2" "$SANDBOX/rec/sy2dup.record" --base "$STACK_BR"
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
+  pass "[sync] --base with a record repeating stack_base is refused"
+else
+  fail "[sync] --base with a duplicated stack_base: rc=$RC"
+fi
+write_rec "$SANDBOX/rec/sy2evil.record" "origin/a..b"
+run_sync "$SY2" "$SANDBOX/rec/sy2evil.record" --base "a..b"
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
+  pass "[sync] --base outside the branch grammar is refused even when the record names it"
+else
+  fail "[sync] --base a..b: rc=$RC"
 fi
 printf '%s\n' 'converge_sync_main: always' 'worker_base_merge: deny' >"$SYNC_CFG"
 run_sync "$SY2" "$SANDBOX/rec/sy2.record" --base "$STACK_BR"
@@ -281,7 +325,7 @@ case $OUT in
 esac
 printf '%s\n' 'converge_sync_main: always' 'worker_base_merge: allow' >"$SYNC_CFG"
 run_sync "$SY2" "" --base main
-if [ "$RC" != 0 ]; then
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
   pass "[sync] --base main with no record is refused (the default form takes no flag)"
 else
   fail "[sync] --base main with no record exited 0"

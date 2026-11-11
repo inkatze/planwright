@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # converge-sync-main.sh — merge `origin/main` into the current worker branch,
 # once at the top of each `/execute-task` convergence pass, so the head the
-# convergence steps verify is `main`-current
+# convergence steps verify is `main`-current (a stacked PR's worker passes
+# --base to sync the base branch its launch record names instead)
 # (merge-currency-guard Task 3; D-4; REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.6,
 # REQ-D1.3, REQ-K1.1).
 #
@@ -101,12 +102,14 @@
 # Exit codes:
 #   0  synced (already current, fast-forwarded, merged, skipped for want of a
 #      need, or denied by policy), or the resolution committed
-#   2  usage — bad arguments, a target that is not a git work tree, or a
+#   2  usage — bad arguments, a target that is not a git work tree, a --base
+#      the session's launch record does not name for this branch, or a
 #      missing `git`/`tr` or sibling script (reason `environment`)
 #   3  dirty-tree — tracked-file changes, or a merge/rebase/cherry-pick already
 #      in progress; no fetch is attempted
-#   4  fetch-failed — `git fetch origin main` failed (unreachable remote, no
-#      `origin`, no `main` on the remote, auth failure), or an ssh command
+#   4  fetch-failed — `git fetch origin main` (with --base, the named base)
+#      failed (unreachable remote, no `origin`, no such branch on the
+#      remote, auth failure), or an ssh command
 #      refused before the fetch for quoting or escaping up to its binary
 #   5  merge-conflict — an unresolvable merge under `halt`, aborted; the tree
 #      is clean
@@ -329,7 +332,16 @@ base_br=main
 if [ -n "$base_arg" ]; then
   rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
   rec_unit='' rec_base='' rec_dup=''
-  if [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ]; then
+  rec_top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || true)
+  case $base_arg in
+    -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *.) rec= ;;
+  esac
+  if [ -n "$rec_top" ] && [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ]; then
+    case $rec in "$rec_top"/*) rec= ;; esac
+  else
+    rec=
+  fi
+  if [ -n "$rec" ]; then
     while IFS= read -r rline || [ -n "$rline" ]; do
       case $rline in
         unit_branch=*)
