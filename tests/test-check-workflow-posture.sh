@@ -1567,6 +1567,20 @@ sr_case sr-fail-hash-or-block "    if: |
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "same-repo exception: an || hidden after a # in a block scalar fails" 1 $?
 
+sr_case sr-fail-negated-middle "    if: !(true && $SR_CLAUSE && true)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a negation spanning the clause as a middle conjunct fails" 1 $?
+assert_contains "same-repo exception: a middle-conjunct negation names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-paren-middle "    if: github.actor == (github.actor && $SR_CLAUSE && true)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a parenthesis spanning the clause as a middle conjunct fails" 1 $?
+
+sr_case sr-pass-balanced-call "    if: !contains(github.event.pull_request.labels.*.name, 'skip')
+      && $SR_CLAUSE"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a balanced call beside the clause passes" 0 $?
+
 sr_case sr-fail-negated-name "    if: !($SR_CLAUSE)"
 out="$("$GUARD" "$d" 2>&1)"
 assert_contains "same-repo exception: a negated clause still names the secret" "REVIEW_KEY" "$out"

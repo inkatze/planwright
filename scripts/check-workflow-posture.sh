@@ -418,6 +418,13 @@ function same_repo_gated(text,   parts, n, i, p, a, b, out, tmp) {
   a = "github.event.pull_request.head.repo.full_name == github.repository"
   b = "github.repository == github.event.pull_request.head.repo.full_name"
   n = split(text, parts, "&&")
+  # A parenthesis opened in one conjunct and closed in another can wrap the
+  # clause in a negation or a call that no per-conjunct test would see, so
+  # every conjunct must balance on its own.
+  for (i = 1; i <= n; i++) {
+    tmp = parts[i]
+    if (gsub(/\(/, "(", tmp) != gsub(/\)/, ")", tmp)) return 0
+  }
   for (i = 1; i <= n; i++) {
     p = parts[i]
     gsub(/[ \t]+/, " ", p)
