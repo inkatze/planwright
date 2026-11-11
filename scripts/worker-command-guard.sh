@@ -2811,6 +2811,7 @@ guard_printenv() {
     case ${cw[i]} in
       -* | '') return 1 ;;
     esac
+    ! secret_var_name "${cw[i]}" || return 1
   done
   return 0
 }
@@ -4362,6 +4363,47 @@ secret_words_ok() {
   return 0
 }
 
+# secret_var_name <name>: whether a variable name looks like a credential.
+secret_var_name() {
+  local n=${1^^}
+  case $n in
+    *TOKEN* | *SECRET* | *PASSWORD* | *PASSWD* | *CREDENTIAL* | *APIKEY* | *API_KEY* | *_KEY | *_PAT) return 0 ;;
+  esac
+  return 1
+}
+
+# secret_var_ref <word>: whether a word expands a credential-named variable
+# (any `$NAME`, `${NAME…}`, `${#NAME}`, or an indirect `${!…}`). A quoted
+# single-quote form cannot be told apart here, so it defers too.
+secret_var_ref() {
+  local w=$1 rest name
+  case $w in
+    *\$\{!*) return 0 ;;
+  esac
+  while [ "${w#*\$}" != "$w" ]; do
+    rest=${w#*\$}
+    w=$rest
+    rest=${rest#\{}
+    rest=${rest#\#}
+    name=${rest%%[!A-Za-z0-9_]*}
+    [ -n "$name" ] && secret_var_name "$name" && return 0
+  done
+  return 1
+}
+
+# secret_vars_ok: no word of the current simple command expands a credential
+# variable, and no printenv operand names one.
+secret_vars_ok() {
+  local i
+  for ((i = 0; i < cwn; i++)); do
+    secret_var_ref "${cw[i]}" && return 1
+    if [ "${cw[0]}" = printenv ] && [ "$i" -ge 1 ]; then
+      secret_var_name "${cw[i]}" && return 1
+    fi
+  done
+  return 0
+}
+
 # canon_dir_cached <absolute-dir>: the directory's canonical path in CANON,
 # empty when it cannot be entered. Each lookup forks, and a loop re-walks
 # its body once per head word, so results are kept for the hook's run.
@@ -5525,6 +5567,7 @@ verify_known_simple() {
   # words that follow; whether it is committed is verify_tokens' call. It is
   # read before substitution: a word that only becomes `NAME=value` through
   # an expansion is a command name, not an assignment.
+  secret_vars_ok || return 1
   if [ "$cwn" -eq 1 ] && track_assignment; then
     return 0
   fi
