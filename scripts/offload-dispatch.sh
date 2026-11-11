@@ -415,9 +415,9 @@ cmd_report() {
   emit_hints "$backend" "$handle"
 }
 
-# record_value <key>: the value of the first `<key>=` line of the calling
+# record_value <key>: the value of the one `<key>=` line of the calling
 # session's launch record (PLANWRIGHT_WORKER_SESSION_RECORD), empty when there
-# is no readable regular record. Read as data, never executed.
+# is no readable regular record or the key repeats. Read as data, never executed.
 record_value() {
   rv_rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
   [ -n "$rv_rec" ] && [ -f "$rv_rec" ] && [ ! -L "$rv_rec" ] && [ -r "$rv_rec" ] || return 0

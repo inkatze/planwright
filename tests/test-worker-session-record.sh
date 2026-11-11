@@ -607,10 +607,10 @@ if [ "$RC" -eq 0 ] && [ "$(field launch_backend)" = headless-oneshot ]; then
 else
   fail "launch_backend: a one-shot launch left no record (rc=$RC)"
 fi
-REC=$(PLANWRIGHT_LAUNCH_BACKEND='stream-json;x'/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+REC=$(PLANWRIGHT_LAUNCH_BACKEND='stream-json;x' /bin/sh "$WRITER" write "$WT" 2>"$T/err")
 RC=$?
 if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
-  pass "launch_backend: any value but stream-json is not recorded"
+  pass "launch_backend: a value that is not a headless backend is not recorded"
 else
   fail "launch_backend: an unknown value was recorded (rc=$RC)"
 fi
