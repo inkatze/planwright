@@ -394,8 +394,11 @@ function PullRequests(t: Table, view: PanelView, width: number) {
   }
   const lines: CardLine[] = []
   // Only what the operator must act on is listed: a ready pull request or one
-  // awaiting their decision. The rest are counted, never named.
-  const mine = rows.filter(x => x.group === 'ready' || x.group === 'needs-you')
+  // awaiting their decision. The rest are counted, never named. A ready one
+  // the Waiting on you card already names is counted there, not listed twice.
+  const isNamedAbove = d ? namedReady(d) !== null : false
+  const hidden = isNamedAbove ? rows.filter(x => x.group === 'ready').length : 0
+  const mine = rows.filter(x => x.group === 'needs-you' || (x.group === 'ready' && !isNamedAbove))
   for (const g of PR_GROUPS.filter(x => x.id === 'ready' || x.id === 'needs-you')) {
     const inGroup = mine.filter(x => x.group === g.id)
     if (inGroup.length === 0) continue
@@ -405,7 +408,10 @@ function PullRequests(t: Table, view: PanelView, width: number) {
       if (x.command) lines.push({ text: `run: ${x.command}` })
     }
   }
-  const rest = total - mine.length
+  const rest = total - mine.length - hidden
+  if (hidden > 0 && mine.length === 0) {
+    lines.push({ text: `${hidden} ready to merge, named under Waiting on you`, dimColor: true })
+  }
   if (rest > 0) {
     const noun = rest === 1 ? 'request needs' : 'requests need'
     lines.push({ text: `${mine.length === 0 ? '' : '+ '}${rest} other pull ${noun} nothing from you`, dimColor: true })
@@ -493,22 +499,36 @@ function waitingRows(view: PanelView): string[] {
   const named = queued.slice(0, Math.max(rest, 0))
   const unnamed = Math.max(rest - named.length, 0)
   const all = [...rows, ...named, ...(unnamed > 0 ? [`${unnamed} waiting on you, not in a session`] : [])]
-  return all.length === 0 ? ['Nothing waits on you.'] : all
+  return all
+}
+
+// A ready pull request shows once: the merge commands the Waiting on you card
+// names when the store was read in full and every one has a command, else null
+// (only counted there, and left to the Pull requests card to name).
+function namedReady(d: PanelDigest): PanelMergeCommand[] | null {
+  if (mergeReadyCount(d) === null) return null
+  const commands = liveCommands(d)
+  const isNamed = !d.isMergeReadyPartial && !d.unreadable.includes('merge-ready store') && commands.length === liveMergeReady(d)
+  return isNamed ? commands : null
+}
+
+const waitingCard = (view: PanelView): CardLine[] => {
+  const lines = [...waitingRows(view).map(text => ({ text })), ...readyRows(view)]
+  return lines.length === 0 ? [{ text: 'Nothing waits on you.' }] : lines
 }
 
 // The pull requests the readiness check passed, each named; the count stands
 // where they cannot all be named.
-function readyRows(view: PanelView): string[] {
+function readyRows(view: PanelView): CardLine[] {
   const d = view.digest!
   const toMerge = mergeReadyCount(d)
   if (toMerge === null) return []
-  const commands = liveCommands(d)
-  const isNamed = !d.isMergeReadyPartial && !d.unreadable.includes('merge-ready store') && commands.length === liveMergeReady(d)
-  if (!isNamed) return [`${toMerge} ready to merge`]
+  const commands = namedReady(d)
+  if (commands === null) return [{ text: `${toMerge} ready to merge` }]
   const isMulti = new Set(commands.map(c => c.repo)).size > 1
-  return commands.map(c => {
+  return commands.flatMap(c => {
     const pr = d.reviews?.mine.find(p => p.repo === c.repo && p.number === c.number)
-    return `${isMulti ? `${c.repo} ` : ''}#${c.number}${pr ? ` ${pr.title}` : ''} · ready to merge`
+    return [{ text: `${isMulti ? `${c.repo} ` : ''}#${c.number}${pr ? ` ${pr.title}` : ''} · ready to merge` }, { text: `run: ${c.command}` }]
   })
 }
 
@@ -587,7 +607,7 @@ export function Pane(t: Table, view: PanelView, isHeld: boolean, surface: Render
       {mascotMode(view) !== 0 && Mascot(t, view, surface)}
       {Section(t, width, "What's going on", [summary(view)])}
       {Section(t, width, 'Right now', readouts(view).map(r => r.text))}
-      {Section(t, width, 'Waiting on you', [...waitingRows(view), ...readyRows(view)])}
+      {Card(t, width, 'Waiting on you', waitingCard(view))}
       {Section(
         t,
         width,

@@ -17,6 +17,7 @@ const PRS = [
   tab('review-mine', 'acme/widgets', 4, 'draft', 'running', 0, 'no', '-', 'Tune the cache'),
   tab('review-mine', 'acme/widgets', 5, 'draft', 'red', 0, 'no', '-', 'Break the build'),
   tab('review-mine', 'acme/widgets', 6, 'draft', 'green', 0, 'no', '-', 'Fresh branch'),
+  tab('merge-ready', 1, 'all'),
   tab('merge-command', 'acme/widgets', 1, CMD),
 ]
 
@@ -29,17 +30,35 @@ test('only the pull requests that need the operator are listed, the rest counted
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
-  const at = (re: RegExp) => t.findIndex(l => re.test(l))
-  expect(at(/^Ready to merge$/)).toBeGreaterThan(-1)
-  expect(at(/^Ready to merge$/)).toBeLessThan(at(/^Needs you$/))
-  expect(t).toContain('#1 Ship the widget')
+  // A pull request ready to merge shows once, under Waiting on you with its command.
+  expect(t.some(l => /^Ready to merge$/.test(l))).toBe(false)
+  expect(t).toContain('#1 Ship the widget · ready to merge')
+  expect(t.filter(l => l.includes('Ship the widget'))).toHaveLength(1)
   // A long command wraps across rows, so it is read back joined.
   expect(t.join(' ')).toContain(`run: ${CMD}`)
+  expect(t.join(' ').split(`run: ${CMD}`)).toHaveLength(2)
   expect(t).toContain('#2 Draft the gadget · a draft waiting for your yes')
   for (const title of ['Rework the docs', 'Tune the cache', 'Break the build', 'Fresh branch']) {
     expect(t.some(l => l.includes(title))).toBe(false)
   }
   expect(t).toContain('+ 4 other pull requests need nothing from you')
+  await ui.unmount()
+})
+
+// Waiting on you holds a ready pull request only as a count when the store
+// could not be read in full, so the pull request stays named where it is listed.
+test('a ready pull request the Waiting card cannot name stays listed under Pull requests', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({
+      extra: PRS.map(l => (l.startsWith('merge-ready\t') ? tab('merge-ready', 1, 'partial') : l)),
+    }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain('#1 Ship the widget')
+  expect(t.join(' ')).toContain(`run: ${CMD}`)
+  expect(t.some(l => l === '#1 Ship the widget · ready to merge')).toBe(false)
   await ui.unmount()
 })
 
@@ -137,6 +156,29 @@ test('a surface that cannot draw pictures keeps a plain-text Prop pal and its st
   await boot($, w)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await rows(ui)).some(l => /^Prop pal: circling/.test(l))).toBe(true)
+  await ui.unmount()
+})
+
+test('a ready pull request is not set beside a line saying nothing waits', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: PRS }).replace(/^waiting\t.*$/m, 'waiting\t0'),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain('#1 Ship the widget · ready to merge')
+  expect(t).not.toContain('Nothing waits on you.')
+  await ui.unmount()
+})
+
+test('the mascot stays at the top of the pane, above the summary', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const t = await rows(ui)
+  const prop = t.findIndex(l => l.startsWith('Prop pal'))
+  expect(prop).toBeGreaterThan(-1)
+  expect(prop).toBeLessThan(t.indexOf("What's going on"))
   await ui.unmount()
 })
 
