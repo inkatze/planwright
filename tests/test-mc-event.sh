@@ -155,6 +155,32 @@ case $ERR in
   *) fail "the default bound did not say what it left out: $ERR" ;;
 esac
 
+# Events raised in the same second list in the order they were raised, and an
+# id written before the sequence existed still lists.
+for i in $(seq 1 12); do
+  mc_run mc-event.sh emit --program alpha --now 70000 -- same-second "same-$i" "raised $i"
+done
+mc_run mc-event.sh list --program alpha --limit 5000
+want=""
+got=""
+for i in $(seq 1 12); do
+  want="$want same-$i"
+done
+for s in $(printf '%s\n' "$OUT" | awk -F'\t' '$3 == "same-second" { print $4 }'); do
+  got="$got $s"
+done
+if [ "$got" = "$want" ]; then
+  ok "events raised in one second list in raise order"
+else
+  fail "events raised in one second listed as:$got"
+fi
+printf '70000\told-format\told-one\told text\n' >"$fleet/attention/mission-control/alpha/events/e70000.00ff" || fail "could not write an old-format event"
+mc_run mc-event.sh list --program alpha --limit 5000
+case $OUT in
+  *"e70000.00ff${tab}70000${tab}old-format${tab}old-one${tab}old text"*) ok "an id from before the sequence still lists" ;;
+  *) fail "an old-format id did not list: $OUT" ;;
+esac
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-event: $failures failure(s)" >&2
   exit 1

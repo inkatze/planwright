@@ -190,7 +190,17 @@ case $verb in
     fi
     hex=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     [ -n "$hex" ] || hex=$$
-    id="e$NOW.$hex"
+    # Events raised in one second sort by a zero-padded count of those already
+    # raised in it, ahead of the random part, so list order is raise order.
+    seq=0
+    set +f
+    for prior in "$store/events/e$NOW".*; do
+      [ -e "$prior" ] || [ -L "$prior" ] || continue
+      seq=$((seq + 1))
+    done
+    set -f
+    [ "$seq" -le 9999 ] || mc_fail "more than 9999 events raised in second $NOW"
+    id="e$NOW.$(printf '%04d' "$seq")$hex"
     printf '%s\t%s\t%s\t%s\n' "$NOW" "$kind" "$subject" "$text" \
       | mc_write "$store/events/$id" || mc_fail "cannot write event $id"
     printf '%s\n' "$id"
