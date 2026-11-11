@@ -107,8 +107,11 @@ Usage:
       Remote Control follows mission_control_successor_remote_control:
       off (the default) starts none; on names the successor as itself;
       inherit carries the live predecessor's --remote-control (read from
-      its argv; a bare flag names the successor as itself), and an
-      unreadable or malformed one gives none, said on stderr. The
+      its argv; a bare flag names the successor as itself). Argv cannot
+      show Remote Control turned on in-session, so a predecessor with no
+      flag gives none and a malformed name gives none, an unreadable
+      predecessor gives on (it may have had it); each is said on stderr,
+      in the successor's brief and on the take line. The
       stream-json rung ignores the knob. Prints successor<TAB><name>
   mc-handover.sh verify --program <p> --session <name> --picture <file>
       --digest <hex> --ledger <id|-> [--durable <file>]
@@ -388,7 +391,7 @@ record() {
 # [<owner> [<predecessor pane> [<predecessor tmux socket>]]]: the owner is the launch that reserved it,
 # until it is verified.
 succ_record() {
-  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}" predecessor-tmux "${9:--}"
+  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}" predecessor-tmux "${9:--}" remote-control-note "${10:--}"
 }
 
 # require_successor <fail-function>: SUCC names $session; sets S_PRED and
@@ -716,6 +719,7 @@ compose_brief() {
     # shellcheck disable=SC2016 # the backticks are markdown in the brief
     printf 'Rebuild from the durable stores, then run `mc-handover.sh verify --program %s --session %s` with your held picture, rules digest and ledger position, and on a pass `mc-handover.sh take --program %s --session %s`.\n' \
       "$program" "$2" "$program" "$2"
+    [ -z "${rc_note:-}" ] || printf '\nRemote Control: %s.\n' "$rc_note"
     # shellcheck disable=SC2016 # the backticks are markdown in the brief
     printf '\nplanwright'"'"'s defaults win over the predecessor'"'"'s habits. Inherit only what the stores record; run `mc-config.sh doctor --program %s`; each finding it prints that no operator choice already settles, and each hand-built mechanism it cannot see, becomes an operator item.\n' \
       "$program"
@@ -955,6 +959,7 @@ case $verb in
     # grammar, carries none and says so. The launcher drops it off the tmux
     # rung.
     rc_name=''
+    rc_note=''
     rc_mode=$(mc_knob mission_control_successor_remote_control parse_rc_mode) || rc_mode=off
     case $rc_mode in
       on) rc_name=$name ;;
@@ -962,26 +967,32 @@ case $verb in
         rc_state=unreadable
         if [ "$H_LIVE" -eq 1 ]; then rc_state=$(predecessor_remote_control "$H_PID" "$H_START"); fi
         case $rc_state in
-          none) ;;
+          none)
+            # The argv cannot show Remote Control turned on in-session, so a
+            # none is "no flag", not "no Remote Control": say what that costs.
+            rc_note="the predecessor was started without --remote-control; if it turned Remote Control on in-session, $name starts without it, so run /remote-control there"
+            ;;
           bare) rc_name=$name ;;
           'named '*)
             rc_name=${rc_state#named }
             /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$rc_name" 2>/dev/null || {
               rc_name=''
-              say "remote control is not carried to $name: the predecessor's --remote-control name is outside the session-name grammar"
+              rc_note="the predecessor's --remote-control name is outside the session-name grammar, so Remote Control is not carried to $name and it starts without Remote Control; run /remote-control there"
             }
             ;;
           *)
             if [ -n "$H_SESSION" ]; then
-              say "remote control is not carried to $name: the predecessor's process cannot be read, so the successor starts without it"
+              rc_name=$name
+              rc_note="the predecessor's process cannot be read and it may have had Remote Control, so $name is asked to start it"
             fi
             ;;
         esac
         ;;
     esac
+    [ -z "$rc_note" ] || say "remote control: $rc_note"
     # The record is reserved before the launch, so a second launch meets it
     # and the launcher's own lock on the name; a failed launch removes it.
-    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}" "${pred_tmux:--}"
+    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}" "${pred_tmux:--}" "${rc_note:--}"
     unlock
     drop_reservation() {
       lock
@@ -1050,7 +1061,7 @@ case $verb in
     selfcheck "$digest" "$picture" "$scratch"
     lock
     require_successor refuse
-    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW" - "$S_PANE" "$S_TMUX"
+    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW" - "$S_PANE" "$S_TMUX" "$(mc_kv "$SUCC" remote-control-note)"
     unlock
     printf 'verified\t%s\t%s\n' "$session" "$(printf '%s\n' "$SC_OUT" | head -n 1 | mc_clean)"
     ;;
@@ -1087,12 +1098,14 @@ case $verb in
     [ "$(mc_kv "$SUCC" verified)" != - ] || mc_fail "$session has not passed its self-check against the handover file"
     expect=''
     [ "$S_PRED" = - ] || expect=$S_PRED
+    take_note=$(mc_kv "$SUCC" remote-control-note)
     if [ "$S_PRED" != - ] && session_live "$S_PRED" "$S_PRED_KIND" && ! released_to "$S_PRED" "$session"; then
       raise handover-requested "$S_PRED" "$session passed its self-check for program $program; release the name"
     fi
     succeed "$session" registry "$S_PRED" "$S_PRED_KIND" "$expect" "$secs"
     close_pred_pane "$S_PANE" "$S_TMUX"
     announce "$session" "$S_PRED"
+    [ -z "$take_note" ] || [ "$take_note" = - ] || printf 'line\tRemote Control: %s\n' "$(printf '%s\n' "$take_note" | mc_clean)"
     [ "$RETIRE_OK" -eq 1 ] || exit 1
     ;;
   resume)

@@ -591,13 +591,13 @@ rc_led=$(col handover 3)
 RUN_TMUX_PANE='%11' ho launch --program alpha --brief "$tmp/brief.md" --handover --backend tmux
 [ "$RC" = 0 ] || fail "the unreadable-predecessor handover exited $RC: $OUT $ERR"
 rc_u=$(col successor 2)
-if [ -n "$(rc_window_argv "$rc_u")" ] && ! rc_window_argv "$rc_u" | grep -qx -- '--remote-control'; then
-  ok "a successor of a predecessor with no readable process starts without Remote Control"
-else
-  fail "a successor of an unreadable predecessor: no window argv, or it starts Remote Control"
-fi
-case $ERR in *'not carried'*) ok "and says so on stderr" ;; *) fail "no not-carried note: $ERR" ;; esac
+rc_window_argv "$rc_u" | rc_has_pair /dev/stdin "$rc_u" \
+  && ok "a predecessor whose state cannot be read gives a successor Remote Control (it may have had it)" || fail "an unreadable predecessor's successor argv: $(rc_window_argv "$rc_u" | tr '\n' ' ')"
+case $ERR in *'may have had'*) ok "and says so on stderr" ;; *) fail "no may-have-had note: $ERR" ;; esac
+grep -qF 'may have had Remote Control' "$fleet/mission-control/launch/$rc_u/brief.md" \
+  && ok "and the successor's brief says so" || fail "the unreadable-predecessor brief is silent about Remote Control"
 RC_SUCC=$rc_u rc_settle '%11'
+case $OUT in *'may have had Remote Control'*) ok "and the take line says so" ;; *) fail "the take line is silent about Remote Control: $OUT" ;; esac
 RC_PID=''
 
 # A named predecessor: the successor keeps its name.
@@ -619,7 +619,13 @@ rc_settle '%13'
 rc_predecessor -- hello
 rc_cycle op-plain '%14'
 if rc_absent "$RC_SUCC"; then ok "a successor of a predecessor with no Remote Control starts none"; else fail "a successor of a predecessor with no Remote Control: $RC_SUCC"; fi
+# Remote Control turned on in-session (no argv flag) is invisible to the argv
+# read: the successor starts none, and the handover says so, never silently.
+case $RC_ERR in *'/remote-control'*) ok "a no-flag predecessor's handover says Remote Control may have been turned on in-session" ;; *) fail "silent about in-session Remote Control: $RC_ERR" ;; esac
+grep -qF '/remote-control' "$fleet/mission-control/launch/$RC_SUCC/brief.md" \
+  && ok "and the successor's brief says how to turn it on" || fail "the no-flag brief is silent about Remote Control"
 rc_settle '%14'
+case $OUT in *'/remote-control'*) ok "and the take line says so" ;; *) fail "the no-flag take line is silent: $OUT" ;; esac
 
 # A hostile name in the predecessor's argv is never passed on.
 rc_predecessor --remote-control 'bad;name' -- hello
