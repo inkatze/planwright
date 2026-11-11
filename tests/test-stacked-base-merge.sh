@@ -213,10 +213,19 @@ if ! grep -q '^stack_base=' "$REC"; then
 else
   fail "[writer] a malformed PR base reached the record: '$(field stack_base)'"
 fi
+for both in "--base $STACK_BR --base-from-pr" "--base-from-pr --base $STACK_BR"; do
+  # shellcheck disable=SC2086 # the two flags, split on purpose
+  wr "$WT" $both
+  if [ "$RC" = 2 ]; then
+    pass "[writer] --base and --base-from-pr together are a usage error: $both"
+  else
+    fail "[writer] '$both' exited $RC"
+  fi
+done
 : >"$SANDBOX/ghpr.log"
 REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE=$STACK_BR \
   PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" 2>/dev/null)
-if [ ! -s "$SANDBOX/ghpr.log" ] && ! grep -q '^stack_base=' "$REC"; then
+if [ -f "$REC" ] && [ ! -s "$SANDBOX/ghpr.log" ] && ! grep -q '^stack_base=' "$REC"; then
   pass "[writer] without --base-from-pr the writer makes no gh call (decision paths stay offline)"
 else
   fail "[writer] a plain write called gh or recorded a base: $(cat "$SANDBOX/ghpr.log")"
