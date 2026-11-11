@@ -422,11 +422,18 @@ if grep -q "$(printf '\033')" "$tmp/err10"; then
 fi
 ok "hostile backend-name diagnostics are sanitized (no raw control bytes)"
 
-# 11. a headless session never opens a tmux window: its launch record (or the
-#     live session mark) says headless, `dispatch tmux` is refused with a
-#     message naming the headless backend, and no tmux is spawned.
+# 11. a headless unit session never opens a tmux window: its launch record
+#     says headless, `dispatch tmux` is refused with a message naming the
+#     headless backend, and no tmux is spawned.
+cat >"$stubbin/tmux" <<EOF || exit 1
+#!/bin/sh
+printf '%s\n' "\$@" >>"$tmp/tmux-argv"
+echo '@7'
+EOF
+chmod +x "$stubbin/tmux" || exit 1
 : >"$tmp/tmux-argv"
-printf 'policy=\nlaunch_backend=stream-json\n' >"$tmp/headless.record"
+printf 'policy=\nunit_branch=planwright/flight/x-0123abcd\nlaunch_backend=stream-json\n' >"$tmp/headless.record"
+printf 'policy=\nlaunch_backend=stream-json\n' >"$tmp/hub.record"
 printf 'policy=\n' >"$tmp/interactive.record"
 rc=0
 out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/headless.record" run_stub dispatch tmux "$promptfile" 2>"$tmp/err11") || rc=$?
@@ -434,10 +441,12 @@ out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/headless.record" run_stub dispatch 
 [ -z "$out" ] || fail "headless record: dispatch tmux emitted a report"
 grep -q 'stream-json-persistent' "$tmp/err11" || fail "headless record: refusal does not name the headless backend"
 [ ! -s "$tmp/tmux-argv" ] || fail "headless record: tmux was spawned anyway"
-rc=0
-out=$(PLANWRIGHT_SESSION_BACKEND=stream-json run_stub dispatch tmux "$promptfile" 2>"$tmp/err11") || rc=$?
-[ "$rc" -eq 2 ] || fail "headless session mark: dispatch tmux expected exit 2, got $rc"
-[ ! -s "$tmp/tmux-argv" ] || fail "headless session mark: tmux was spawned anyway"
+# A headless hub (no unit branch in its record) still launches its workers'
+# tmux windows: only a unit session is bound to its own backend.
+: >"$tmp/tmux-argv"
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/hub.record" run_stub dispatch tmux "$promptfile") \
+  || fail "a headless hub must still dispatch to tmux"
+grep -q 'new-window' "$tmp/tmux-argv" || fail "headless hub: tmux was not spawned"
 out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/interactive.record" run_stub dispatch tmux "$promptfile") \
   || fail "an interactive record must still dispatch to tmux"
 printf '%s\n' "$out" | grep -q "status	dispatched" || fail "interactive record: dispatch tmux did not dispatch"
