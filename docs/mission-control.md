@@ -77,22 +77,6 @@ directory it should start in (`<planwright>` is planwright's install root):
 It opens a tmux window in the background, running mission control for
 that program under its profile; switch to that window to work with it.
 
-**Waiting sessions and the host bound.** The host-wide bound
-(`fleet_host_max_live_workers`) counts sessions that work. A worker whose
-only remaining step is a wait (an operator question, or CI or a ready flip
-outstanding) marks itself, and holds no slot until it works again:
-
-```sh
-<planwright>/scripts/mission-control-launch.sh wait <session> --on operator|ci|ready-flip
-<planwright>/scripts/mission-control-launch.sh unwait <session>
-<planwright>/scripts/mission-control-launch.sh bound
-```
-
-`bound` prints the limit, the working count and the waiting count; a refused
-launch names the same split. A launch worker's brief carries the instruction.
-Resuming never waits on a free slot, so a bound can briefly read over its
-limit until a session retires.
-
 **Folding one program into another.** When you order it, mission control
 moves each live session of the folded program to the surviving one, so the
 session's prompts, stalls and events reach the new program, and its list and
