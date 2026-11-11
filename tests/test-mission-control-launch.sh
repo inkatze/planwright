@@ -1532,6 +1532,169 @@ else
   ok "a remote launch is counted on its own host, never against this host's bound"
 fi
 
+# ---------------------------------------------------------------------------
+# REQ-D1.16: a live session moves between programs; routing follows the row.
+# ---------------------------------------------------------------------------
+set_cap off
+grep -v '^mission_control_programs:' "$tracked" >"$tracked.new" && mv "$tracked.new" "$tracked"
+cat >>"$tracked" <<EOF
+mission_control_programs: [alpha, beta]
+program_beta_repositories: [$repo]
+program_beta_spec_root: $repo/specs
+program_beta_home: $tmp/mc-home/beta
+EOF
+REG="$fleet/mission-control/sessions"
+rp_field() { awk -F '\t' -v k="$2" '$1 == k { print $2; exit }' "$1"; }
+rp_row() { # rp_row <name> <program> <kind> <state> — a registry row with pid, cwd and task fields
+  mkdir -p "$REG"
+  printf 'format\t1\nname\t%s\nstate\t%s\ntoken\ttok-%s\npid\t4242\nprogram\t%s\nowner\tmission-control:%s\nkind\t%s\nscope\tfold-1\nbackend\tstream-json\nhandle\t%s\nprofile\tp.json\ntier\topus\nbrief\t/b.md\ncwd\t/wt/one\ntask\t-\nprimary\t-\nmarker\t-\nlaunched\t100\n' \
+    "$1" "$4" "$1" "$2" "$2" "$3" "$1" >"$REG/$1"
+}
+rp_decide() { # rp_decide <program> <act> <target> — log a decision, print its id
+  mc_run mc-kb.sh append decisions --program "$1" --subject "operator order" --act "$2" --target "$3" --grounds "operator: fold it" --no-reversal
+  printf '%s\n' "$OUT" | tail -n 1
+}
+rp_events() { mc_run mc-event.sh list --program "$1"; }
+rp_pend() { # rp_pend <worker> <epoch> — a pending request under live pids
+  mkdir -p "$fleet/streamjson/$1"
+  printf 'cccc3333-bbbb-cccc-dddd-eeee00000001\tpermission\t%s\tpending\n' "$2" >"$fleet/streamjson/$1/journal"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
+  printf 'spec:fold-1\n' >"$fleet/streamjson/$1/scope"
+}
+rp_watch() { # rp_watch <program> <now>
+  OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM="$1" PLANWRIGHT_STREAMJSON_PENDING_AGE=900 \
+    /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now "$2" 2>/dev/null)
+}
+
+fold_name=mc-alpha-worker-1000000001
+rp_row "$fold_name" alpha worker launched
+rp_row mc-alpha-tower-1000000002 alpha tower launched
+rp_row mc-alpha-mission-control-1000000003 alpha mission-control launched
+rp_row mc-alpha-worker-1000000004 alpha worker launching
+for p in alpha beta; do
+  mc_run mc-kb.sh init --program "$p"
+  [ "$RC" = 0 ] || fail "fixture: kb init for $p: $ERR"
+done
+fold_id=$(rp_decide beta fold-in-order alpha)
+yes_id=$(rp_decide beta reparent-yes "$fold_name")
+[ -n "$fold_id" ] && [ -n "$yes_id" ] || fail "fixture: the decisions were not logged ($fold_id / $yes_id)"
+before=$(cat "$REG/$fold_name")
+
+ml reparent
+[ "$RC" = 2 ] && ok "reparent with no arguments is a usage error" || fail "bare reparent exited $RC"
+ml reparent "$fold_name" --program beta
+[ "$RC" = 2 ] && ok "a move with no --authority is refused (exit 2)" || fail "a move without authority exited $RC"
+[ "$(cat "$REG/$fold_name")" = "$before" ] && ok "and the row is unchanged" || fail "the no-authority refusal changed the row"
+ml reparent "$fold_name" --program beta --authority decisions-209901-1
+[ "$RC" = 4 ] && ok "an authority naming no decision is refused (exit 4)" || fail "an unknown authority exited $RC"
+ml reparent mc-alpha-worker-9999999999 --program beta --authority "$fold_id"
+[ "$RC" = 3 ] && ok "an unknown session is refused (exit 3)" || fail "an unknown session exited $RC"
+ml reparent "$fold_name" --program nosuch --authority "$fold_id"
+[ "$RC" = 4 ] && ok "an unknown program is refused (exit 4)" || fail "an unknown program exited $RC"
+ml reparent "$fold_name" --program alpha --authority "$fold_id"
+[ "$RC" = 4 ] && ok "the same program is refused (exit 4)" || fail "the same program exited $RC"
+ml reparent mc-alpha-mission-control-1000000003 --program beta --authority "$fold_id"
+[ "$RC" = 4 ] && ok "a mission-control session is refused (exit 4)" || fail "a mission-control session exited $RC"
+ml reparent mc-alpha-worker-1000000004 --program beta --authority "$fold_id"
+[ "$RC" = 4 ] && ok "a launch still in flight is refused (exit 4)" || fail "a launching row exited $RC"
+ml reparent mc-alpha-tower-1000000002 --program beta --authority "$yes_id"
+[ "$RC" = 4 ] && ok "a yes for one session does not move another (exit 4)" || fail "a yes covered another session: exit $RC"
+[ "$(cat "$REG/$fold_name")" = "$before" ] && ok "none of the refusals changed the row" || fail "a refusal changed the row"
+
+# A registry the launcher cannot rewrite changes nothing.
+if [ "$(id -u)" != 0 ]; then
+  chmod 500 "$REG"
+  ml reparent "$fold_name" --program beta --authority "$fold_id"
+  chmod 700 "$REG"
+  if [ "$RC" = 2 ] && [ "$(cat "$REG/$fold_name")" = "$before" ]; then
+    ok "a row that cannot be rewritten refuses and changes nothing (exit 2)"
+  else
+    fail "an unwritable registry: exit $RC"
+  fi
+fi
+
+# The move itself, authorised by the fold-in order.
+ml reparent "$fold_name" --program beta --authority "$fold_id"
+[ "$RC" = 0 ] && ok "a fold-in order moves a live session" || fail "the move exited $RC: $ERR"
+case $OUT in
+  "reparent${TAB}$fold_name${TAB}moved${TAB}alpha${TAB}beta"*) ok "the verb says what moved, from and to" ;;
+  *) fail "the move's output: $OUT" ;;
+esac
+if [ "$(rp_field "$REG/$fold_name" program)" = beta ] && [ "$(rp_field "$REG/$fold_name" owner)" = mission-control:beta ]; then
+  ok "the row's program and owner are the destination's"
+else
+  fail "the row after the move: $(cat "$REG/$fold_name")"
+fi
+grep -v "^program${TAB}\|^owner${TAB}" "$REG/$fold_name" >"$tmp/after.rows"
+printf '%s\n' "$before" | grep -v "^program${TAB}\|^owner${TAB}" >"$tmp/before.rows"
+cmp -s "$tmp/before.rows" "$tmp/after.rows" && ok "pid, cwd, branch and every other field are untouched" || fail "a field beyond program and owner changed"
+ml list
+case $OUT in *"$fold_name${TAB}beta${TAB}worker"*) ok "the destination's list shows the session" ;; *) fail "list after the move: $OUT" ;; esac
+case $OUT in *"$fold_name${TAB}alpha"*) fail "the source's list still shows it" ;; *) ok "and the source's list does not" ;; esac
+for p in alpha beta; do
+  rp_events "$p"
+  case $OUT in
+    *"session-reparented${TAB}$fold_name${TAB}"*) ok "the move is an event in $p's log" ;;
+    *) fail "no session-reparented event for $p: $OUT" ;;
+  esac
+done
+mc_run mc-kb.sh query undo --program beta --subject "$fold_name"
+case $OUT in
+  *reparent*"$fold_name"*alpha*) ok "an undo entry names the source in the destination's log" ;;
+  *) fail "the undo entry: $OUT" ;;
+esac
+undo_id=$(printf '%s\n' "$OUT" | awk -F '\t' '$4 == "reparent" { print $1; exit }')
+
+# A prompt raised after the move reaches beta's events and not alpha's.
+rp_pend "$fold_name" 9000
+rp_watch alpha 9010
+case $OUT in *"pending-prompt${TAB}$fold_name"*) fail "the source announced the moved session's prompt" ;; *) ok "the source program does not announce a prompt raised after the move" ;; esac
+rp_watch beta 9010
+case $OUT in *"announced${TAB}pending-prompt${TAB}$fold_name"*) ok "the destination announces it" ;; *) fail "the destination missed the prompt: $OUT" ;; esac
+rp_events beta
+case $OUT in *"pending-prompt${TAB}$fold_name"*) ok "the prompt is in the destination's events" ;; *) fail "not in beta's events: $OUT" ;; esac
+rp_events alpha
+case $OUT in *"pending-prompt${TAB}$fold_name"*) fail "the prompt is in the source's events" ;; *) ok "and not in the source's" ;; esac
+rm -rf "$fleet/streamjson/$fold_name"
+
+# One order covers every live session of the folded program.
+ml reparent mc-alpha-tower-1000000002 --program beta --authority "$fold_id"
+[ "$RC" = 0 ] && ok "one fold-in order covers a second session of the folded program" || fail "the second session exited $RC: $ERR"
+
+# A yes covers its own session only.
+rp_row mc-alpha-worker-1000000005 alpha worker launched
+ml reparent mc-alpha-worker-1000000005 --program beta --authority "$yes_id"
+[ "$RC" = 4 ] && ok "a yes naming another session does not cover this one" || fail "a yes for another session exited $RC"
+yes5=$(rp_decide beta reparent-yes mc-alpha-worker-1000000005)
+ml reparent mc-alpha-worker-1000000005 --program beta --authority "$yes5"
+[ "$RC" = 0 ] && ok "a yes naming the session moves it" || fail "a yes for its own session exited $RC: $ERR"
+
+# Reversal through the undo entry needs no authority and restores the source.
+mc_run mc-kb.sh revert "$undo_id"
+if [ "$RC" = 0 ] && [ "$(rp_field "$REG/$fold_name" program)" = alpha ] && [ "$(rp_field "$REG/$fold_name" owner)" = mission-control:alpha ]; then
+  ok "the undo entry's reversal restores the source with no authority"
+else
+  fail "the reversal: exit $RC, $ERR; row: $(cat "$REG/$fold_name")"
+fi
+ml reparent "$fold_name" --program alpha --undo-of "$undo_id"
+[ "$RC" = 4 ] && ok "an undo entry is refused for a session no longer in its destination" || fail "a replayed undo exited $RC"
+
+# Retirement works from the destination: a real launched session.
+SHIM_RECORD_DIR="$tmp/rec-rp" ml launch --program alpha --kind tower --scope fold-live --cwd "$repo"
+[ "$RC" = 0 ] || fail "fixture: the live launch exited $RC: $ERR"
+live=$(field name)
+wait_done "$live"
+live_id=$(rp_decide beta reparent-yes "$live")
+ml reparent "$live" --program beta --authority "$live_id"
+[ "$RC" = 0 ] && ok "a launched session moves" || fail "moving a launched session exited $RC: $ERR"
+ml retire "$live"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^retire${TAB}$live${TAB}released"; then
+  ok "retire works from the destination"
+else
+  fail "retire after the move: exit $RC, $OUT $ERR"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
