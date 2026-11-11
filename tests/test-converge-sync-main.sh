@@ -43,7 +43,18 @@ unset CDPATH
 # reach the fixtures, whose own checkouts carry no overlay.
 PLANWRIGHT_ADOPTER_OVERLAY=/nonexistent/planwright-adopter
 export PLANWRIGHT_ADOPTER_OVERLAY
-unset PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
+unset PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
+# The shipped default merges only on a need (REQ-B1.8); the cases below that
+# assert a merge's mechanics run under `always`, through the machine-local layer
+# this file holds, and the on-need cases rewrite it.
+CFG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.cfg.XXXXXX")
+trap 'rm -rf "$CFG_DIR"' EXIT
+PLANWRIGHT_LOCAL_CONFIG="$CFG_DIR/local.yml"
+export PLANWRIGHT_LOCAL_CONFIG
+set_knobs() {
+  printf '%s\n' "$@" >"$PLANWRIGHT_LOCAL_CONFIG"
+}
+set_knobs 'converge_sync_main: always'
 
 here=$(cd "$(dirname "$0")" && pwd)
 SYNC="$here/../scripts/converge-sync-main.sh"
@@ -1184,6 +1195,252 @@ c21() {
   echo "ok c21: an id-carrying flight branch syncs; id-less and task-shaped flight names stay refused"
 }
 
+# ---------------------------------------------------------------------------
+# On-need cases (REQ-B1.7, REQ-B1.8, REQ-D1.6). Under the shipped default the
+# sync fetches and merges only on a need; the knob is rewritten per case.
+# ---------------------------------------------------------------------------
+
+# on_need_fixture <tmp> — an origin, a worker with one commit of its own, and
+# an origin/main that moved without conflicting. Sets ADV and OWN.
+on_need_fixture() {
+  new_origin "$1"
+  new_clone "$1" worker
+  printf 'worker work\n' >"$1/worker/worker.txt"
+  gitc "$1/worker" add -A
+  gitc "$1/worker" commit -q -m "worker commit"
+  OWN=$(gitc "$1/worker" rev-parse HEAD)
+  advance_main "$1" newfile.txt "from main"
+  ADV=$(gitc "$1/seed" rev-parse HEAD)
+}
+
+# A conflicting origin/main: the worker and main both rewrite shared.txt.
+conflict_fixture() {
+  new_origin "$1"
+  new_clone "$1" worker
+  printf 'worker side\n' >"$1/worker/shared.txt"
+  gitc "$1/worker" add -A
+  gitc "$1/worker" commit -q -m "worker edit"
+  OWN=$(gitc "$1/worker" rev-parse HEAD)
+  advance_main "$1" shared.txt "main side"
+}
+
+# Case 22 — no need: a moved origin/main with no conflict merges nothing, leaves
+# the head, exits 0 and prints a skip record naming how far behind and why.
+c22() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c22.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  set_knobs 'converge_sync_main: on-need'
+  on_need_fixture "$tmp"
+  rc=0
+  out=$("$SYNC" "$tmp/worker" 2>"$tmp/err") || rc=$?
+  [ "$rc" -eq 0 ] || fail "c22: the skip exited $rc: $(cat "$tmp/err")"
+  [ "$(tag_val "$out" sync)" = skipped ] \
+    || fail "c22: expected sync=skipped, got '$out'"
+  [ "$(gitc "$tmp/worker" rev-parse HEAD)" = "$OWN" ] || fail "c22: the head moved on a skip"
+  gitc "$tmp/worker" merge-base --is-ancestor "$ADV" HEAD \
+    && fail "c22: origin/main was merged although no need held"
+  gitc "$tmp/worker" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 \
+    && fail "c22: a merge was left in progress"
+  line=$(printf '%s\n' "$out" | grep "^sync${TAB}skipped")
+  case $line in *"1 commit"*) ;; *) fail "c22: the record does not name the commits behind: $line" ;; esac
+  case $line in *"no conflict"*"no recorded need"*) ;; *) fail "c22: the record does not say why no need held: $line" ;; esac
+  case $line in *"ready_guard_behind_base"*) ;; *) fail "c22: the record does not name the ready-guard clause: $line" ;; esac
+  echo "ok c22: on-need with no need skips, head unchanged, record names the lag and the reason"
+}
+
+# Case 23 — a branch with no commits of its own, behind main, also skips.
+c23() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c23.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  set_knobs 'converge_sync_main: on-need'
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+  before=$(gitc "$tmp/worker" rev-parse HEAD)
+  advance_main "$tmp" newfile.txt "from main"
+  out=$("$SYNC" "$tmp/worker") || fail "c23: the skip exited non-zero"
+  [ "$(tag_val "$out" sync)" = skipped ] || fail "c23: expected sync=skipped, got '$out'"
+  [ "$(gitc "$tmp/worker" rev-parse HEAD)" = "$before" ] || fail "c23: the head moved on a skip"
+  echo "ok c23: a fast-forwardable branch with no need also skips"
+}
+
+# Case 24 — a conflict is a need: the merge runs and is aborted and halted as
+# before, the tree clean and the head unmoved.
+c24() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c24.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  set_knobs 'converge_sync_main: on-need'
+  conflict_fixture "$tmp"
+  rc=0
+  err=$("$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 5 ] || fail "c24: expected exit 5 (merge-conflict) on a conflicting branch, got $rc: $err"
+  case $err in *merge-conflict*shared.txt*) ;; *) fail "c24: the halt does not name the conflict: $err" ;; esac
+  [ "$(gitc "$tmp/worker" rev-parse HEAD)" = "$OWN" ] || fail "c24: the head moved"
+  gitc "$tmp/worker" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 \
+    && fail "c24: the aborted merge left MERGE_HEAD"
+  [ -z "$(gitc "$tmp/worker" status --porcelain --untracked-files=no)" ] || fail "c24: the tree is not clean"
+  echo "ok c24: on-need merges on a conflict and halts as the conflict policy says"
+}
+
+# Case 25 — a recorded need merges, and the record carries it as one sanitized
+# line however the caller's text was spelled.
+c25() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c25.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  set_knobs 'converge_sync_main: on-need'
+  on_need_fixture "$tmp"
+  out=$("$SYNC" --need "the test result went stale" "$tmp/worker") || fail "c25: the sync with a recorded need failed"
+  [ "$(tag_val "$out" sync)" = merged ] || fail "c25: expected sync=merged, got '$out'"
+  gitc "$tmp/worker" merge-base --is-ancestor "$ADV" HEAD || fail "c25: origin/main is not in the history"
+  [ "$(tag_val "$out" need)" = recorded ] || fail "c25: no recorded need in the output: $out"
+  case $out in *"the test result went stale"*) ;; *) fail "c25: the need text is missing from the record: $out" ;; esac
+
+  rm -rf "$tmp"
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c25.XXXXXX")
+  on_need_fixture "$tmp"
+  esc=$(printf '\033')
+  text=$(printf 'stale\ntest%s[31m result\r\007' "$esc")
+  out=$("$SYNC" --need "$text" "$tmp/worker") || fail "c25: the sync with a hostile need failed"
+  [ "$(printf '%s\n' "$out" | grep -c '')" -eq 2 ] || fail "c25: the need was not echoed as one line: $out"
+  case $out in *"$esc"* | *"$(printf '\r')"* | *"$(printf '\007')"*) fail "c25: a control byte reached the record" ;; esac
+  case $out in *"stale test[31m result"*) ;; *) fail "c25: the need was not collapsed to one printable line: $out" ;; esac
+  echo "ok c25: a recorded need merges and is echoed as one sanitized line"
+}
+
+# Case 26 — ready_guard_behind_base refuse counts as a need.
+c26() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c26.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  set_knobs 'converge_sync_main: on-need'
+  mkdir -p "$tmp/adopter"
+  printf 'ready_guard_behind_base: refuse\n' >"$tmp/adopter/planwright.yml"
+  on_need_fixture "$tmp"
+  out=$(PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" "$SYNC" "$tmp/worker") || fail "c26: the sync failed"
+  [ "$(tag_val "$out" sync)" = merged ] || fail "c26: expected sync=merged under refuse, got '$out'"
+  gitc "$tmp/worker" merge-base --is-ancestor "$ADV" HEAD || fail "c26: origin/main is not in the history"
+  echo "ok c26: ready_guard_behind_base refuse is a need"
+}
+
+# Case 27 — a probe that errs applies the merge rather than skipping.
+c27() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c27.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  set_knobs 'converge_sync_main: on-need'
+  on_need_fixture "$tmp"
+  mkdir -p "$tmp/bin"
+  real_git=$(command -v git)
+  cat >"$tmp/bin/git" <<STUB
+#!/bin/sh
+for a in "\$@"; do
+  [ "\$a" != merge-tree ] || { echo "fatal: merge-tree unavailable" >&2; exit 129; }
+done
+exec "$real_git" "\$@"
+STUB
+  chmod +x "$tmp/bin/git"
+  out=$(PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker") || fail "c27: the sync failed with a failing probe"
+  [ "$(tag_val "$out" sync)" = merged ] || fail "c27: expected sync=merged when the probe fails, got '$out'"
+  gitc "$tmp/worker" merge-base --is-ancestor "$ADV" HEAD || fail "c27: origin/main is not in the history"
+  echo "ok c27: a conflict probe that cannot answer applies the merge"
+}
+
+# Case 28 — a branch already containing origin/main is up to date in both modes.
+c28() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c28.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+  printf 'own\n' >"$tmp/worker/own.txt"
+  gitc "$tmp/worker" add -A
+  gitc "$tmp/worker" commit -q -m own
+  head=$(gitc "$tmp/worker" rev-parse HEAD)
+  for mode in on-need always; do
+    set_knobs "converge_sync_main: $mode"
+    out=$("$SYNC" "$tmp/worker") || fail "c28: the sync failed under $mode"
+    [ "$(tag_val "$out" sync)" = up-to-date ] || fail "c28: expected up-to-date under $mode, got '$out'"
+    [ "$(gitc "$tmp/worker" rev-parse HEAD)" = "$head" ] || fail "c28: the head moved under $mode"
+  done
+  echo "ok c28: a branch already containing origin/main is up to date under both modes"
+}
+
+# Case 29 — always merges a clean advance, and worker_base_merge: deny still
+# wins over it.
+c29() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c29.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  on_need_fixture "$tmp"
+  set_knobs 'converge_sync_main: always'
+  out=$("$SYNC" "$tmp/worker") || fail "c29: the sync failed under always"
+  [ "$(tag_val "$out" sync)" = merged ] || fail "c29: expected sync=merged under always, got '$out'"
+  gitc "$tmp/worker" merge-base --is-ancestor "$ADV" HEAD || fail "c29: origin/main is not in the history"
+  rm -rf "$tmp"
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c29.XXXXXX")
+  on_need_fixture "$tmp"
+  set_knobs 'converge_sync_main: always' 'worker_base_merge: deny'
+  out=$("$SYNC" "$tmp/worker") || fail "c29: the sync failed under always with deny"
+  [ "$(tag_val "$out" sync)" = denied ] || fail "c29: always overrode worker_base_merge: deny: '$out'"
+  [ "$(gitc "$tmp/worker" rev-parse HEAD)" = "$OWN" ] || fail "c29: the head moved under deny"
+  echo "ok c29: always merges a clean advance and leaves worker_base_merge: deny in force"
+}
+
+# Case 30 — a malformed knob value takes the policy-unreadable park, before any
+# fetch, never a silent merge or skip.
+c30() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c30.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  on_need_fixture "$tmp"
+  set_knobs 'converge_sync_main: sometimes'
+  rc=0
+  out=$("$SYNC" "$tmp/worker" 2>"$tmp/err") || rc=$?
+  [ "$rc" -eq 9 ] || fail "c30: expected exit 9 (policy-unreadable), got $rc: $(cat "$tmp/err")"
+  [ "$(tag_val "$out" park)" = policy-unreadable ] || fail "c30: no policy-unreadable park record: $out"
+  [ "$(gitc "$tmp/worker" rev-parse HEAD)" = "$OWN" ] || fail "c30: the head moved"
+  echo "ok c30: a malformed converge_sync_main parks as policy-unreadable"
+}
+
+# Case 31 — the knob is read from the primary checkout: a worktree's own overlay
+# (and a repo-tracked file there) governs nothing.
+c31() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c31.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" primary
+  gitc "$tmp/primary" worktree add -q -b planwright/demo/task-2 "$tmp/wt"
+  mkdir -p "$tmp/wt/.claude"
+  printf 'converge_sync_main: always\n' >"$tmp/wt/.claude/planwright.local.yml"
+  printf 'converge_sync_main: always\n' >"$tmp/wt/.claude/planwright.yml"
+  advance_main "$tmp" newfile.txt "from main"
+  before=$(gitc "$tmp/wt" rev-parse HEAD)
+  out=$(env -u PLANWRIGHT_LOCAL_CONFIG "$SYNC" "$tmp/wt") || fail "c31: the sync failed"
+  [ "$(tag_val "$out" sync)" = skipped ] || fail "c31: a worktree overlay was honoured: '$out'"
+  [ "$(gitc "$tmp/wt" rev-parse HEAD)" = "$before" ] || fail "c31: the head moved"
+  echo "ok c31: the knob is read from the primary checkout, not the worker's own overlay"
+}
+
+# Case 32 — the skip path runs no merge, no pull and no rebase, and the shipped
+# default is on-need.
+c32() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c32.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  set_knobs 'converge_sync_main: on-need'
+  on_need_fixture "$tmp"
+  mkdir -p "$tmp/bin"
+  real_git=$(command -v git)
+  cat >"$tmp/bin/git" <<STUB
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/git.log"
+exec "$real_git" "\$@"
+STUB
+  chmod +x "$tmp/bin/git"
+  : >"$tmp/git.log"
+  PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" >/dev/null || fail "c32: the skip failed"
+  [ -s "$tmp/git.log" ] || fail "c32: the git stub recorded nothing, so its absence proves nothing"
+  grep -Eq '(^| )(merge|pull|rebase)( |$)' "$tmp/git.log" \
+    && fail "c32: the skip path ran merge, pull or rebase: $(grep -E '(^| )(merge|pull|rebase)( |$)' "$tmp/git.log" | head -1)"
+  defaults="$here/../config/defaults.yml"
+  [ "$(grep '^converge_sync_main:' "$defaults")" = "converge_sync_main: on-need" ] \
+    || fail "c32: config/defaults.yml does not default converge_sync_main to on-need"
+  echo "ok c32: the skip path runs no merge, pull or rebase; the default is on-need"
+}
+
 c1
 c2
 c3
@@ -1205,6 +1462,17 @@ c18
 c19
 c20
 c21
+c22
+c23
+c24
+c25
+c26
+c27
+c28
+c29
+c30
+c31
+c32
 w1
 w2
 

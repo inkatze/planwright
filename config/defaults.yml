@@ -964,6 +964,12 @@ messaging_heal_cadence_seconds: 300
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
 #                               commits no remote holds, on its own unit
 #                               branch: allow or deny.
+# converge_sync_main            whether the convergence sync merges origin/main
+#                               every time (always) or only on a need
+#                               (on-need): a conflict with it, a need the
+#                               caller records, or ready_guard_behind_base of
+#                               refuse. Read from the primary checkout; a
+#                               malformed value parks the sync.
 # ready_guard_behind_base       whether the ready-guard refuses a draft->ready
 #                               flip of a PR behind its base: checks (let
 #                               through when GitHub reports it MERGEABLE and
@@ -989,6 +995,7 @@ merge_class_strategy: sole-allowed
 worker_base_merge: allow
 worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
+converge_sync_main: on-need
 ready_guard_behind_base: checks
 protected_branches:
 
