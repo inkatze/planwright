@@ -338,7 +338,7 @@ function inline_triggers(v,   inner, n, parts, i) {
 # case-insensitive for the same reason, which is safe: GitHub reserves the
 # `GITHUB_` prefix, so no stored secret can be named `github_token` in any
 # casing. Names are reported upper-cased, the form GitHub stores them in.
-function scan_refs(t, nr, jb, injif,   low, s, tok) {
+function scan_refs(t, nr, jb, injif,   low, s, tok, hashed) {
   low = tolower(t)
   s = low
   while (match(s, /secrets[ \t]*(\.[a-z_][a-z0-9_]*|\[[ \t]*["'][a-z_][a-z0-9_]*["'][ \t]*\])/)) {
@@ -360,6 +360,7 @@ function scan_refs(t, nr, jb, injif,   low, s, tok) {
   #
   # The trailing space lets one `[^a-z0-9_]` guard cover the end of the line as
   # well as the middle of it.
+  hashed = (low ~ /#/)
   sub(/#.*$/, "", low)
   low = low " "
   # The EQUALITY, in either operand order — not any use of the field. The
@@ -382,7 +383,10 @@ function scan_refs(t, nr, jb, injif,   low, s, tok) {
     printf "H\t%d\n", nr
   # A job's own `if:` text, comments already stripped, gathered across its
   # physical lines; the same-repo clause is judged on the whole of it at END.
-  if (injif && jb != "") jif_text[jb] = jif_text[jb] " " low
+  # A `#` on an `if:` line may be literal (inside a string, or a block scalar)
+  # and so may hide a trailing `||` from the strip above; GitHub would still
+  # evaluate it. The gate cannot tell, so such a line is never a gate.
+  if (injif && jb != "") jif_text[jb] = jif_text[jb] " " low (hashed ? " || " : "")
 }
 # The same-repo clause must be one whole `&&` conjunct of the job's `if:`, and
 # that `if:` must hold no `||`: any other spelling (compared to a value,

@@ -1556,6 +1556,17 @@ sr_case sr-fail-dquote-and "    if: github.actor == \"a && $SR_CLAUSE && y\""
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "same-repo exception: a clause between && inside double quotes fails" 1 $?
 
+sr_case sr-fail-hash-or "    if: $SR_CLAUSE && 'x#' || true"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an || hidden after a # in a string fails" 1 $?
+assert_contains "same-repo exception: a # in the if still names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-hash-or-block "    if: |
+      $SR_CLAUSE && 'a #' ||
+      true"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an || hidden after a # in a block scalar fails" 1 $?
+
 sr_case sr-fail-negated-name "    if: !($SR_CLAUSE)"
 out="$("$GUARD" "$d" 2>&1)"
 assert_contains "same-repo exception: a negated clause still names the secret" "REVIEW_KEY" "$out"
@@ -1601,7 +1612,6 @@ jobs:
   open:
     permissions:
       contents: read
-      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - run: ./review.sh
@@ -1610,6 +1620,7 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "same-repo exception: the clause on one job does not cover another" 1 $?
+assert_contains "same-repo exception: the other job's secret is what fails" "REVIEW_KEY" "$out"
 
 d="$(mkdir_case sr-fail-top-env)"
 cat >"$d/review.yml" <<EOF
