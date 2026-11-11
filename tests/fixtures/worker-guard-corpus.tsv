@@ -490,6 +490,13 @@ row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.
 row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh --
 row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- cd .. && ls
 row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- @@PLUGIN_ROOT@@/scripts/compute-route.sh -- rm -rf @@OUTSIDE@@/x
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh --check -- bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh '--' bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- timeout 5 bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/Compute-Route.sh -- bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-*.sh -- bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@WORKTREE@@/scripts/compute-route.sh -- bash tests/ok.sh
+row	read-wrappers	defer	defer	allow	allow	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- bash tests/ok.sh > @@SCRATCH@@/out.txt
 row	read-wrappers	allow	allow	allow	allow	gitleaks detect --no-git --source @@WORKTREE@@/notes.md --no-banner
 row	read-wrappers	defer	defer	allow	allow	gitleaks detect --no-git --source @@SCRATCH@@/f.orig --no-banner
 row	read-wrappers	defer	defer	defer	defer	gitleaks detect --report-path f --source @@WORKTREE@@/notes.md

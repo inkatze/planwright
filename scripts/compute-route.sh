@@ -1,8 +1,9 @@
 #!/bin/sh
 # compute-route.sh — run a test or lint command on the configured compute host
 # (fleet_compute_host) when one is set, else here. The gate runners
-# (full-suite-run.sh, step-run.sh command steps) put it in front of their
-# command, so one knob moves test and lint runs off a crowded machine.
+# (full-suite-run.sh, step-run.sh command steps) and a worker's own test and
+# lint runs put it in front of their command, so one knob moves them off a
+# crowded machine.
 #
 # Usage:
 #   compute-route.sh [--check | --task <name> | --test <tests/test-x.sh>] -- <command> [<arg>...]

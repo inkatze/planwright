@@ -5129,7 +5129,8 @@ is_duration() {
 # stood alone. Non-zero defers: a prefix with nothing to run, a `cd` under a
 # prefix (its directory would not carry), or a `time`, `timeout` or `nice`
 # left after the prefixes, which would be the program or a nested wrapper
-# rather than a keyword. A `timeout`
+# rather than a keyword. A leading compute-route.sh `--` is dropped last (see
+# strip_compute_route), so a wrapper may precede it but never follow. A `timeout`
 # whose next word is not a duration is left as the verb, and classify_verb
 # defers it.
 strip_prefixes() {
@@ -5170,9 +5171,11 @@ strip_prefixes() {
   return 0
 }
 
-# strip_compute_route: drop a leading `<trusted>/compute-route.sh --`, setting
-# PREFIXED, so the command it routes is verified as if it stood alone: the
-# router only chooses where an approved command runs. Only the bare form is
+# strip_compute_route: drop a leading `<installed root>/scripts/compute-route.sh
+# --`, setting PREFIXED, so the command it routes is verified as if it stood
+# alone: the router only chooses where an approved command runs. A copy in the
+# checkout is a worker-authored script, so only the installed one counts. Only
+# the bare form is
 # transparent (no kind flag, which would name a different command to the host
 # than the one run here), and a router with nothing to run, or another router
 # as that command, defers. is_trusted_script refuses the script as a verb, so
@@ -5184,7 +5187,7 @@ strip_compute_route() {
   esac
   [ "$cwn" -ge 3 ] && [ "${cw[1]}" = -- ] && [ "${cqp[0]}" -lt 0 ] && [ "${cqp[1]}" -lt 0 ] \
     && ! word_unresolved "${cw[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" || return 1
-  is_repo_script "${cw[0]}" "$HOOK_CWD" || is_planwright_script "${cw[0]}" "$HOOK_CWD" || return 1
+  is_planwright_script "${cw[0]}" "$HOOK_CWD" || return 1
   shift_words 2
   PREFIXED=1
   case ${cw[0]} in
