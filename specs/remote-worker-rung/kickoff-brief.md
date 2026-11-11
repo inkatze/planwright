@@ -88,7 +88,8 @@ Signed off: 2026-11-11
 ## 6. Task graph
 
 Dependencies lines are authoritative. Tasks 1 and 2 start in parallel; Task 7
-now needs only Task 2. Critical path runs Task 1, 3, 5, 10 and Task 2, 6, 8, 10.
+now needs only Task 2. The effort-weighted critical path runs Task 1, 3, 5, 10; the
+Task 2, 6, 8, 10 chain is shorter.
 Deliberate non-edges: Task 9 does not wait on vetting (Task 5); Task 11 does not
 wait on dispatch (Task 3), because gate runs need no worker.
 
@@ -117,10 +118,9 @@ was not launched, given host load and the narrow delta). Findings, all
 dispositioned: (1) stale per-account wording in Task 1, Task 7 and the
 test-spec: applied; (2) Task 7 title and Task 1 citations stale: applied;
 (3) test-spec defaults for grace and idle: applied; (4) the plain-language
-summary given to the operator mid-walk misstated size as eight build steps
-about eight days; the bundle has eleven tasks and about twelve days of
-estimate, and nothing in the bundle carries the wrong figure: reported, no
-spec edit. Validator re-run: 0 errors, 0 warnings.
+summary given to the operator mid-walk understated the plan's size; the task
+list and its estimates are the source, and nothing in the bundle carries the
+wrong figure: reported, no spec edit. Validator re-run: 0 errors, 0 warnings.
 
 ## Sign-off record
 
