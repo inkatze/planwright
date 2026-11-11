@@ -112,9 +112,10 @@ Usage:
       picture against --durable, read by the caller from the stores, and
       its ledger against the decisions log), through mc-rules.sh
       selfcheck. A pass marks the successor verified and prints
-      verified<TAB><name><TAB><the self-check line>, after any
-      rule-knob or temporary line mc-config.sh doctor finds, each an
-      operator item to settle; a failure raises an
+      verified<TAB><name><TAB><the self-check line>, preceded by every
+      line mc-config.sh doctor prints (override, duty, launch, cron,
+      rule-knob, temporary or unknown; an unknown doctor line when it did
+      not run or said nothing), each an operator item to settle; a failure raises an
       item (event handover-failed), prints its item lines and leaves the
       predecessor holding the name
   mc-handover.sh release --program <p> --session <handle> [--now <epoch>]
