@@ -368,8 +368,8 @@ most recent anchor entry never describes spec content that was not walked.
    **Terminal re-anchor (REQ-C1.4, D-5):** anchored content edited after the
    sign-off record was written takes `spec-format`'s recompute-and-re-record
    ritual as the final pre-push step. Then push:
-   `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>` (the only push a kickoff may make; raw
-   spec-branch pushes are refused). Then the PR: if one exists for the branch,
+   `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>` (a kickoff's only push, from the spec or
+   amendment branch; raw spec-branch pushes are refused). Then the PR: if one exists for the branch,
    update its body; otherwise `gh pr create --draft` with `--title`
    and `--body`. The title must pass the conventional PR-title lint
    (`scripts/check-commit-msgs.sh`, enforced in CI at 100 chars):
