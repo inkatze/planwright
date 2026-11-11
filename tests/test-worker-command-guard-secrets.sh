@@ -23,7 +23,9 @@ ln -s "$SANDBOX/notes" "$SANDBOX/sub/notesdir"
 
 echo "### Secret-bearing locations in the home directory, every spelling"
 for loc in .ssh/id_rsa .ssh/id_ed25519 .gnupg/private-keys-v1.d/k.key .aws/credentials \
-  .config/gh/hosts.yml .netrc .git-credentials .npmrc .kube/config .claude/.credentials.json .claude.json; do
+  .config/gh/hosts.yml .netrc .git-credentials .npmrc .kube/config .claude/.credentials.json .claude.json \
+  .config/git/credentials .cargo/credentials.toml .vault-token .gem/credentials .terraform.d/credentials.tfrc.json \
+  .config/glab-cli/config.yml .config/github-copilot/hosts.json; do
   assert_defer "secrets: cat \$HOME/$loc by absolute path" "cat $H/$loc"
   assert_defer "secrets: cat another account's $loc" "cat /home/someone/$loc"
   assert_defer "secrets: cat root's $loc" "cat /root/$loc"
@@ -35,6 +37,10 @@ for loc in .ssh/id_rsa .ssh/id_ed25519 .gnupg/private-keys-v1.d/k.key .aws/crede
   assert_defer "secrets: relative to / after a cd, $loc" "cd / && cat home/someone/$loc"
   assert_defer "secrets: a redirect source naming $loc" "wc -c < /home/someone/$loc"
 done
+assert_defer "secrets: a brace choosing .ssh under ~" "cat ~/{.ssh,x}/id_rsa"
+assert_defer "secrets: a brace choosing .gnupg under a home" "cat /home/someone/{.gnupg,x}/private-keys-v1.d/a"
+assert_defer "secrets: a brace choosing .ssh under a home" "cat /home/someone/{.ssh,x}/id_rsa"
+assert_defer "secrets: a brace listing .ssh second" "cat /home/someone/{x,.ssh}/id_rsa"
 assert_defer "secrets: the .ssh directory listed" "ls /home/someone/.ssh"
 assert_defer "secrets: the .ssh directory with a trailing slash" "ls /home/someone/.ssh/"
 assert_defer "secrets: a glob over the .ssh directory" "cat /home/someone/.ssh/*"
@@ -79,7 +85,8 @@ assert_defer "secrets: bare printenv piped into grep" "printenv | grep -i token"
 assert_defer "secrets: bare env piped into grep" "env | grep -i token"
 
 echo "### Variables that carry credentials, by name"
-for v in GH_TOKEN GITHUB_TOKEN ANTHROPIC_API_KEY OPENROUTER_API_KEY MY_SERVICE_SECRET DB_PASSWORD AWS_SECRET_ACCESS_KEY NPM_TOKEN gh_token; do
+for v in GH_TOKEN GITHUB_TOKEN ANTHROPIC_API_KEY OPENROUTER_API_KEY MY_SERVICE_SECRET DB_PASSWORD AWS_SECRET_ACCESS_KEY NPM_TOKEN gh_token \
+  AUTH NPM_AUTH DB_PASS BEARER_VALUE; do
   assert_defer "secrets: echo \$$v" "echo \$$v"
   assert_defer "secrets: echo \"\$$v\"" "echo \"\$$v\""
   assert_defer "secrets: echo \${$v}" "echo \${$v}"
@@ -100,6 +107,7 @@ assert_defer "secrets: a credential piped to a reader" "echo \$GH_TOKEN | wc -c"
 assert_defer "secrets: a credential inside fish -c" "fish -c 'echo \$GH_TOKEN'"
 assert_allow "secrets: an ordinary variable" "echo \$HOME \$PATH \$PWD"
 assert_allow "secrets: a variable that only resembles a key" "echo \"\$KEYMAP\""
+assert_allow "secrets: a variable that only resembles auth" "echo \"\$AUTHOR\""
 assert_allow "secrets: printf of an ordinary variable" "printf '%s\\n' \"\$USER\""
 assert_allow "secrets: a dollar amount" "echo 'costs \$5'"
 

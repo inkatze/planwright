@@ -4238,7 +4238,9 @@ secret_lexical() {
   case $s in
     */.ssh/* | */.gnupg/* | */.aws/* | */.netrc/* | */.npmrc/* | */.pypirc/* | */.git-credentials/* | \
       */.kube/* | */.azure/* | */.password-store/* | */.docker/config.json/* | \
-      */.config/gh/* | */.config/op/* | */.config/gcloud/* | \
+      */.config/gh/* | */.config/op/* | */.config/gcloud/* | */.config/git/credentials/* | \
+      */.config/glab-cli/* | */.config/github-copilot/* | */.cargo/credentials* | */.gem/credentials/* | \
+      */.terraform.d/credentials* | */.vault-token/* | \
       */.claude/.credentials* | */.claude.json/*) return 0 ;;
     /etc/shadow/* | /etc/gshadow/* | /etc/shadow-/* | /etc/gshadow-/* | /etc/ssh/ssh_host_*_key/*) return 0 ;;
     # macOS keeps /etc under /private, which a resolved path reports.
@@ -4259,7 +4261,7 @@ secret_glob() {
   case $w in
     *[\{^#~]*)
       case $w in
-        /etc* | /proc* | /dev* | */.*) return 0 ;;
+        /etc* | /proc* | /dev* | */.* | *[\{,]\.*) return 0 ;;
       esac
       ;;
   esac
@@ -4379,7 +4381,7 @@ ci_has() {
 
 # secret_var_name <name>: whether a variable name looks like a credential.
 secret_var_name() {
-  ci_has "$1" '*TOKEN*' '*SECRET*' '*PASSWORD*' '*PASSWD*' '*CREDENTIAL*' '*APIKEY*' '*API_KEY*' '*_KEY' '*_PAT'
+  ci_has "$1" '*TOKEN*' '*SECRET*' '*PASSWORD*' '*PASSWD*' '*CREDENTIAL*' '*APIKEY*' '*API_KEY*' '*_KEY' '*_PAT' '*BEARER*' 'AUTH' '*_AUTH' '*_PASS'
 }
 
 # secret_var_ref <word>: whether a word expands a credential-named variable

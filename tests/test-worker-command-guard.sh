@@ -402,7 +402,7 @@ assert_defer "REQ-E1.5: git ls-remote with no remote" "git ls-remote"
 assert_defer "REQ-E1.5: --version of a verb outside the allowlist" "rm --version"
 assert_defer "REQ-E1.5: --version with another operand" "git --version x"
 
-echo "### REQ-E1.6 — other processes' environments stay unread"
+echo "### REQ-E1.6 — no process's environment, the worker's own included, is read unprompted"
 assert_defer "REQ-E1.6: another process's environ" "cat /proc/1234/environ"
 assert_defer "REQ-E1.6: a redirect source naming one" "grep -a x < /proc/1234/environ"
 assert_defer "REQ-E1.6: a thread's environ" "cat /proc/1234/task/1234/environ"

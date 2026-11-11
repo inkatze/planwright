@@ -14,8 +14,9 @@ echo "### Widened allowlist (2026-09-14) — the verbs measured worker stalls ne
 # pure read-only exploration, because these verbs were absent from the
 # allowlist. Each pair is the positive the worker needed plus the write/exec
 # vector that kept the verb off the list until now.
-# `env`: bare only. `env <assignment|flag> <command>` EXECUTES the command, and
-# `-u`/`-C`/`-S` take values, so an operand cannot be told apart from a command.
+# `env` never auto-approves: bare it prints the environment, and
+# `env <assignment|flag> <command>` EXECUTES the command, with `-u`/`-C`/`-S`
+# taking values, so an operand cannot be told apart from a command.
 assert_defer "env bare prints the environment, secrets included" "env"
 assert_defer "env piped into grep still prints the environment to the reader" "env | grep -i planwright"
 assert_defer "env with an assignment prefix execs" "env FOO=bar rm -rf x"
