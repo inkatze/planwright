@@ -606,3 +606,35 @@ the old any-depth rows absent only when the cover is shown to deny the same
 protected directories; a hook route fails closed on an error. A `[manual]`
 re-verify against the installed Claude Code version records the anchoring
 probe's outcome in the matcher model doc.
+
+## 2026-11-10 second delta
+
+### REQ-A1.18 — A repository's declared check commands are approved by shape [test]
+
+`tests/test-worker-command-guard.sh` and its sibling suites (Task 20): a
+declaration with `<word>`, `<int>`, `<path>`, a spelled flag and a repeat
+suffix approves the matching command and nothing else; a runner-prefixed
+declaration approves only its own sequence and `mise exec` with another
+command still defers; a metacharacter, a substitution, a traversal, a path
+naming a protected path and an undeclared flag each defer; a declaration read
+from a file the worker can write is ignored; a malformed declaration and a
+read failure drop it; every compound segment is judged on its own.
+
+### REQ-A1.19 — The `deny` block stays enforced; the hooks rows move to the hook [test]
+
+Supersedes REQ-A1.15's entry, which it keeps unchanged; the `deny` block
+differs from its pre-change content only by the rows REQ-F1.6 and REQ-G1.8
+add, the `Read` rule REQ-E1.6 adds and the removal of the hooks-directory and
+`lefthook.yml` file-tool rows (the baseline fixture moves with Task 19); a
+`Bash(…)` deny match wins over a declared check command and over an open
+lease, at every self-approval policy value.
+
+### REQ-F1.8 — A lease lifts the hooks protection for one worker only [test]
+
+The worker-tier file-tool hook's suite (Task 19): with a hooks-edit lease
+open, `Write` and `Edit` on that worker's worktree hooks directories and
+`lefthook.yml` are allowed and every other REQ-F1.7 path stays refused; with
+no lease, an expired, closed or unreadable one, another worker's, or a path in
+another worktree, the protected path is refused; the hook crashing and an
+unparsable payload still refuse; each row is shown refused by the hook alone
+before it leaves the static profile.

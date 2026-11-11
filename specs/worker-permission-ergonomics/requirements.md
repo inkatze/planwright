@@ -339,6 +339,25 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   narrowing of the hooks-directory file-tool rows REQ-F1.7 names.
   *(Cites: D-10, D-13, D-29; obs:4dda9fe1; the 2026-08-18 amendment note
   (Sources); drafting-session decision (2026-11-10).)*
+  **Superseded-by: REQ-A1.19** (2026-11-10) — the hooks-directory and
+  `lefthook.yml` file-tool rows leave the static profile, their cover moving
+  to the worker-tier file-tool hook that a lease can lift.
+- **REQ-A1.19** (supersedes REQ-A1.15) The hook SHALL NEVER emit `allow` for a
+  command that any `Bash(…)` rule of the worker profile's `deny` block
+  matches, at any self-approval policy value and for every approval category,
+  declared command-step lines and declared check commands (REQ-A1.18)
+  included: the guard SHALL read those rules and refuse a match before any
+  approval is considered. The suite SHALL assert this outcome against the
+  actual `deny` block rather than relying on Claude Code's evaluation order,
+  and the `deny` block SHALL remain enforced verbatim, changing only by the
+  additions REQ-F1.6 and REQ-G1.8 name and by the hooks-directory and
+  `lefthook.yml` file-tool rows REQ-F1.8 names, which leave the static
+  profile because a profile deny cannot be lifted for a leased worker, their
+  cover moving whole to the worker-tier file-tool hook. Every `Bash(…)` row
+  stays, and no lease lifts one.
+  *(Cites: D-10, D-13, D-29, D-35; obs:4dda9fe1; the 2026-08-18 amendment
+  note (Sources); drafting-session decision (2026-11-10).)*
+
 - **REQ-A1.16** (supersedes REQ-A1.13) Everything no enabled policy arm
   approves SHALL defer, explicitly including `rm`, `curl … | sh`, `sudo`,
   `bash -c`/`sh -c`, interpreters given a program (`python3`, `perl`, `node`,
@@ -372,6 +391,30 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   (and `gh release list`) with no `--web`/`-w` and no `--repo` or `-R`
   override. Neither alters the REQ-F1.5 floor for `gh` writes.
   *(Cites: D-31; the W63 observation (Sources).)*
+
+- **REQ-A1.18** The worker command guard SHALL auto-approve a command segment
+  that matches a check command the repository declares, so a repository's own
+  test and check runners need no mise task. A declaration is a word sequence
+  with argument-shape placeholders, held in the knob `worker_check_commands`
+  (a list resolved through the overlay layers, read only from layers the
+  operator or adopter controls and never from a file the worker can write,
+  as custom-steps REQ-G1.2 places trust). A segment is approved only if its
+  words equal the declaration's literal words in order and each remaining
+  word matches its placeholder: `<word>` (a charset-limited token), `<int>`,
+  or `<path>` (worktree-relative, charset checked, canonicalized,
+  traversal-rejected and naming no path REQ-F1.7 protects), a flag spelled
+  out in the declaration, and a repeat suffix on a placeholder. No
+  placeholder matches a shell metacharacter, a substitution or a leading
+  dash the declaration did not write. A declaration may begin with a runner
+  prefix such as `mise exec --`, matched whole as literal words: it admits
+  that declared sequence and never the runner in general (REQ-A1.16). Each
+  segment of a compound command is judged on its own (REQ-A1.4), the `deny`
+  block is read first (REQ-A1.19), and a malformed declaration, an unknown
+  placeholder or a read failure drops that declaration, so the command
+  defers. Running a declared command runs repository code, the
+  trusted-checkout residual of REQ-F1.7.
+  *(Cites: D-36; custom-steps REQ-G1.3 (Sources); REQ-A1.5; the W79
+  observation (Sources).)*
 
 ## REQ-B — Implementation, robustness, and security
 
@@ -718,6 +761,25 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   *(Cites: D-22, D-29; kickoff Amendment 2 decision (2026-10-05);
   drafting-session decision (2026-11-10).)*
 
+- **REQ-F1.8** The protection REQ-F1.7 gives the git hooks directories and
+  `lefthook.yml` SHALL lift, for the `Write` and `Edit` tools and the
+  `own-branch` writers, only for the one worker a hooks-edit lease names
+  (mission-control D-57), only inside that worker's own worktree, and only
+  for the directories git runs hooks from there and that worktree's
+  `lefthook.yml`, while the lease is open. The `.git` entry, `.claude/`, the
+  mise configuration and every other path REQ-F1.7 protects stay refused;
+  the lease never covers another worktree and never lifts a `Bash(…)` row of
+  the `deny` block (REQ-A1.19). The worker-tier file-tool hook reads the
+  lease through the shared reader and treats an expired, closed, missing or
+  unreadable lease as none, so with no lease every protected path is
+  refused exactly as REQ-F1.7 states, and the hook fails closed on an error
+  or an unparsable payload. The hooks-directory and `lefthook.yml` rows are
+  removed from the static profile in the same change that makes the hook
+  cover them (REQ-A1.19), each shown refused by the hook alone before the
+  rows leave.
+  *(Cites: D-35, D-29; REQ-F1.7; mission-control D-57 (Sources); the W69
+  observation (Sources).)*
+
 ## REQ-G — Profiles, delivery, and the unattended contract
 
 - **REQ-G1.1** `config/worker-settings.json` SHALL ship a static read-only
@@ -950,6 +1012,16 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   reconcile with fleet-autonomy REQ-E1.4/D-19 in place by citation rather than
   cross-bundle supersession (D-6).
 
+- 2026-11-10 — Second delta drafted (Draft content inside the Ready bundle; the
+  `/spec-kickoff` delta re-walkthrough is the sign-off path), meaning-class.
+  A leased edit of the hooks directories and `lefthook.yml` for one named
+  worker (REQ-F1.8; REQ-A1.19 supersedes REQ-A1.15, the static profile's
+  hooks file-tool rows moving to the hook; D-35), so a unit that must build a
+  hook can be authorized without weakening the floor otherwise; and
+  repository-declared check commands approved with their per-run arguments
+  within a declared shape (REQ-A1.18; D-36). Tasks 19 and 20. The githooks
+  narrowing itself is REQ-F1.7's and is not redone.
+
 ## Sources
 
 - **The worker-permission-ergonomics seed brief** — the invocation's framing
@@ -1121,3 +1193,20 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   directory segment followed by `/**` in deny rules; whether any spelling
   anchors one segment to the working directory is unsettled in the model and
   is probed by Task 16. Grounds D-29.
+
+- **The W69 observation** (hub via another project, 2026-11-10) — workers
+  cannot edit the hooks directory or `lefthook.yml` at all, so a pre-push
+  hook follow-up cannot be built by any worker; the operator's call was to
+  wait for planwright, asking for a narrowly scoped, operator-authorised
+  edit for one named unit that keeps the floor otherwise (it folds the W61
+  false positive that REQ-F1.7 already fixed). Framed REQ-F1.8, REQ-A1.19,
+  D-35.
+- **The W79 observation** (hub via another project, 2026-11-10) — workers
+  waited on approval for every `mise exec -- mix test ...` and `mix ci`
+  run: the guard approves a mise task and a declared step's exact args but
+  not a repository's own test runner with per-run arguments, and workers
+  may not edit the mise configuration. Framed REQ-A1.18, D-36.
+- **custom-steps REQ-G1.2 and REQ-G1.3** (consulted 2026-11-10) — a declared
+  command step is approved by exact word sequence, and the layer that
+  declares it places the trust; neither covers a runner taking per-file
+  arguments, which is the gap REQ-A1.18 fills with a declared shape.
