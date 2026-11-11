@@ -1,13 +1,15 @@
 # Remote worker rung — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-11-06
+**Status:** Ready
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Tasks in dependency order, which is presentation; the `Dependencies:` lines
 carry the graph. The channel's first form (`scripts/fleet-remote.sh`,
-including its compute verb) landed with this bundle; Task 1 completes it.
+including its compute verb) landed with this bundle, and test and lint
+offload landed as `scripts/compute-route.sh`; Task 1 completes the channel
+and Task 11 extends the router.
 
 ## Tasks
 
@@ -16,18 +18,16 @@ including its compute verb) landed with this bundle; Task 1 completes it.
 - **Deliverables:** `scripts/fleet-remote.sh` gains a `version` verb (the
   remote planwright version and the verbs it offers), a `capacity` verb (load
   average, core count, free memory, input idle seconds where the platform
-  reports them), a `usage` verb (the remote status-line mirror, else the
-  newest worker rate-limit readings, each labelled with its source) and a
-  `stop` verb; a `docs/fleet.md` section on the remote host's environment
-  file and setup; tests on the fake-SSH harness under every remote shell
-  present.
+  reports them) and a `stop` verb; a `docs/fleet.md` section on the remote
+  host's environment file and setup; tests on the fake-SSH harness under
+  every remote shell present.
 - **Done when:** each new verb's output parses on fixtures from a macOS and a
-  Linux remote; a remote with no rate-limit source prints `unavailable`, not
-  zero; an argument with a backslash, a control character or a leading-dash
-  alias still reaches no SSH call; the suite runs in CI.
+  Linux remote; a capacity field the platform cannot report prints
+  `unavailable`, not zero; an argument with a backslash, a control character
+  or a leading-dash alias still reaches no SSH call; the suite runs in CI.
 - **Dependencies:** none
-- **Citations:** D-3, D-4, D-12, D-13 · REQ-A1.2, REQ-A1.3, REQ-A1.4,
-  REQ-A1.5, REQ-A1.6, REQ-D1.4
+- **Citations:** D-3, D-4, D-12 · REQ-A1.2, REQ-A1.3, REQ-A1.4,
+  REQ-A1.5, REQ-A1.6
 - **Estimated effort:** 1 day
 
 ### Task 2 — Host registry
@@ -45,7 +45,7 @@ including its compute verb) landed with this bundle; Task 1 completes it.
   `check:purged-identifiers` and the data-hygiene sweep find no alias in any
   committed file the tests create.
 - **Dependencies:** none
-- **Citations:** D-2, D-16 · REQ-A1.1, REQ-F1.1, REQ-G1.6
+- **Citations:** D-2, D-13, D-16 · REQ-A1.1, REQ-D1.5, REQ-F1.1, REQ-G1.6
 - **Estimated effort:** 1 day
 
 ### Task 3 — Remote dispatch and routing
@@ -106,19 +106,18 @@ including its compute verb) landed with this bundle; Task 1 completes it.
 - **Citations:** D-8, D-12 · REQ-D1.1, REQ-D1.2, REQ-B1.6
 - **Estimated effort:** 1 day
 
-### Task 7 — Per-account usage
+### Task 7 — Shared usage gate for remote hosts
 
-- **Deliverables:** The usage gate takes an account subject carrying its
-  reset time and billing kind; a remote host's dispatch gates on its
-  account's usage from the usage verb, under the same hard stop and the same
-  unavailable-signal degradation; metered accounts are read in dollars.
-- **Done when:** fixtures show a remote dispatch held when its account is past
-  the stop while this host's account is not, and the reverse; an unavailable
-  remote reading degrades as the local gate does; a metered account's dollar
-  reading is never compared against a percent threshold.
-- **Dependencies:** Task 1, Task 2
-- **Citations:** D-13, D-15 · REQ-D1.3, REQ-D1.4, REQ-D1.5
-- **Estimated effort:** 1 day
+- **Deliverables:** A remote dispatch passes through the existing usage gate
+  and hard stop, and is refused for a host whose registry account label
+  differs from this host's, naming the reason.
+- **Done when:** fixtures show a remote dispatch held when the shared gate is
+  past the stop and admitted when it is not; an unavailable reading degrades
+  as the local gate does; a host with a differing account label is refused
+  with the reason named.
+- **Dependencies:** Task 2
+- **Citations:** D-13 · REQ-D1.3, REQ-D1.4, REQ-D1.5
+- **Estimated effort:** half day
 
 ### Task 8 — The remote rung in placement
 
@@ -128,12 +127,12 @@ including its compute verb) landed with this bundle; Task 1 completes it.
   placement rule; the dispatch report names the host.
 - **Done when:** the capability-drift check passes with the new row;
   detection lists a remote rung only for a registered, reachable host;
-  placement fixtures pick hosts by the recorded rule (the subscription that
-  resets soonest with headroom first, metered last) and honor a pin; a
+  placement fixtures pick hosts by the recorded rule (a free remote host
+  first, this host otherwise) and honor a pin; a
   remote dispatch report names the host, handle and observe hint.
 - **Dependencies:** Task 3, Task 6, Task 7
 - **Citations:** D-1, D-14, D-15 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4
-- **Estimated effort:** 2 days
+- **Estimated effort:** 1.5 days
 
 ### Task 9 — Remote retire and cleanup
 
@@ -149,9 +148,11 @@ including its compute verb) landed with this bundle; Task 1 completes it.
 
 ### Task 11 — Gate runs on a remote host
 
-- **Deliverables:** A placement step that sends a worker's gate run (the full
-  check, or a named suite) through the compute verb to a registered host with
-  room, by the per-host capacity rule, falling back to a local run when no
+- **Deliverables:** `scripts/compute-route.sh` (shipped with the single
+  `fleet_compute_host` setting and a load cap) extended to read the host
+  registry: it places a worker's gate run (the full check, or a named suite)
+  through the compute verb on a registered host with room by the per-host
+  capacity rule and the credential stance, keeping the local fallback when no
   host has room or the channel fails before the command starts; the worker
   briefs and `/execute-task`'s CI step name it; the step record notes where
   the gate ran.
