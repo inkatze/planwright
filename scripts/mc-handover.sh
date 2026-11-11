@@ -113,9 +113,9 @@ Usage:
       its ledger against the decisions log), through mc-rules.sh
       selfcheck. A pass marks the successor verified and prints
       verified<TAB><name><TAB><the self-check line>, preceded by every
-      line mc-config.sh doctor prints (override, duty, launch, cron,
-      rule-knob, temporary or unknown; an unknown doctor line when it did
-      not run or said nothing), each an operator item to settle; a failure raises an
+      line mc-config.sh doctor prints (override, duty-off, launch-backend,
+      cron, rule-knob, temporary or unknown; an unknown doctor line when
+      it did not run or said nothing), each an operator item to settle; a failure raises an
       item (event handover-failed), prints its item lines and leaves the
       predecessor holding the name
   mc-handover.sh release --program <p> --session <handle> [--now <epoch>]
