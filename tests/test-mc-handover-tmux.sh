@@ -5,7 +5,6 @@
 # tests/test-mc-handover.sh so each file fits the per-file test-time budget.
 # The fixture is tests/lib/mc-handover-fixture.sh.
 #
-#
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2015 # ok only prints, so a fail arm never follows a passing check
 set -u
