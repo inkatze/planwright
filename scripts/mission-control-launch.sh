@@ -1033,9 +1033,7 @@ cmd_launch() {
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
       sr=0
-      # No pane to inherit: the launcher's tmux context would read, in the
-      # session's per-step launches, as an opt-in to tmux windows.
-      env -u TMUX -u TMUX_PANE PLANWRIGHT_TOWER_ID="$owner" /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
+      PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
       case $sr in
         0) ;;
         3)
