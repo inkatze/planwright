@@ -325,7 +325,7 @@ After CI passes, resolve the `convergence` point (*Points* step 1), then **sync
 `main`** once (REQ-B1.1, REQ-B1.4, D-4), an empty list
 included: run `scripts/converge-sync-main.sh`; a non-zero exit halts the
 unit, parking a `park` record's text; a `resolve` or `repair` record's text
-overrides. `--need <reason>` records a stale test result or a needed `main` change. The sync changes the head a later ready-flip lands on, never who flips.
+overrides. `--need <reason>` records a stale test or needed `main` change. The sync changes the head a later ready-flip lands on, never who flips.
 
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
 unit's convergence phase, core's default being `polish` with `--nested`. A
