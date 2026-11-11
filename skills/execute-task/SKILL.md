@@ -113,8 +113,7 @@ protocol's dispatched arm); attended, present and wait.
      wrong-writer entry** → halt (repair the record per REQ-F1.10). A
      **pre-change entry** (predating the header-`**Status:**` exclusion, or
      whole-file form) mismatches over unedited content; remedy: the one-time
-     classify-then-self-re-anchor. Halts go to
-     Awaiting input.
+     classify-then-self-re-anchor.
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
    goal restatement, the task graph, and the unit's risk entries; from
    `tasks.md`, each block's definition fields. Confirm every dependency is
@@ -323,10 +322,11 @@ attempt's `log`:
 ## Convergence (REQ-E1.4, D-39; custom-steps REQ-E1.1)
 
 After CI passes, resolve the `convergence` point (*Points* step 1), then **sync
-`main`** once (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4), an empty list
+`main`** once (REQ-B1.1, REQ-B1.4, D-4), an empty list
 included: run `scripts/converge-sync-main.sh`; a non-zero exit halts the
 unit, parking a `park` record's text; a `resolve` or `repair` record's text
-overrides. The sync changes the head a later ready-flip lands on, never who flips.
+overrides. `--need <reason>` records a stale test or needed `main` change. The sync
+changes the head a later ready-flip lands on, never who flips.
 
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
 unit's convergence phase, core's default being `polish` with `--nested`. A
@@ -432,7 +432,7 @@ Apply artifact data-hygiene to everything surfaced.
 ## Stop conditions (mandatory human handoff)
 
 Halt and hand back when any of these fires, recording the unit to `tasks.md`
-Awaiting input with the reason (the pre-flight halt protocol above); each is
+Awaiting input with the reason; each is
 described at its point of use: every pre-flight halt;
 a test that cannot fail for the right reason; a CI logic failure, or transient
 retries exhausted; research revealing a risk the brief did not anticipate;
