@@ -897,6 +897,11 @@ doctor_layer_file() {
   dlf_root=''
   case $1 in
     adopter) dlf_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" adopter 2>/dev/null) || dlf_root='' ;;
+    repo-tracked)
+      dlf_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" repo-tracked 2>/dev/null) || dlf_root=''
+      [ -z "$dlf_root" ] || printf '%s\n' "$dlf_root/planwright.yml"
+      return 0
+      ;;
     machine-local) dlf_root=$(/bin/bash "$script_dir/resolve-overlay-root.sh" repo-tracked 2>/dev/null) || dlf_root='' ;;
     core)
       printf '%s\n' "$script_dir/../config/defaults.yml"
@@ -931,12 +936,23 @@ doctor_rules() {
   }
   dr_hits=$(printf '%s\n' "$dr_rules" | DR_KEYS=$dr_keys awk -F '\t' '
     BEGIN { nk = split(ENVIRON["DR_KEYS"], key, "\n") }
-    function after(t, k,   rest) {
-      rest = substr(t, index(t, k) + length(k))
-      if (!match(rest, /^[ :=]*(at|to|is|of)?[ :=]*[0-9]+[smhd]?/)) return ""
-      rest = substr(rest, RSTART, RLENGTH)
-      sub(/^[^0-9]*/, "", rest)
-      return rest
+    # Every whole-name occurrence of the knob in the text: one inside a longer
+    # name (max_parallel_units in fleet_max_parallel_units) is not the knob.
+    function after(t, k,   rest, off, at, pre, nxt, tail) {
+      off = 0
+      while ((at = index(substr(t, off + 1), k)) > 0) {
+        at += off
+        pre = at > 1 ? substr(t, at - 1, 1) : ""
+        nxt = substr(t, at + length(k), 1)
+        off = at + length(k) - 1
+        if (pre ~ /[a-z0-9_]/ || nxt ~ /[a-z0-9_]/) continue
+        rest = substr(t, at + length(k))
+        if (!match(rest, /^[ :=]*(at|to|is|of)?[ :=]*[0-9]+[smhd]?/)) continue
+        tail = substr(rest, RSTART, RLENGTH)
+        sub(/^[^0-9]*/, "", tail)
+        return tail
+      }
+      return ""
     }
     $2 == "active" {
       text = $6
@@ -953,14 +969,21 @@ doctor_rules() {
     }')
   [ -n "$dr_hits" ] || return 0
   printf '%s\n' "$dr_hits" | while IFS="$tab" read -r dr_id dr_knob dr_said; do
-    dr_exp=$(cfg_get --explain "$dr_knob" 2>/dev/null) || continue
+    dr_exp=$(cfg_get --explain "$dr_knob" 2>/dev/null) || dr_exp=''
+    if [ -z "$dr_exp" ]; then
+      printf 'unknown\trules\trule %s names %s but its value could not be read, so the rule is not compared with the knob; read the knob by hand\n' "$dr_id" "$dr_knob"
+      continue
+    fi
     dr_layer=${dr_exp%%"$tab"*}
     dr_eff=${dr_exp#*"$tab"}
+    dr_file=$(doctor_layer_file "$dr_layer")
+    dr_where=$dr_layer
+    [ -z "$dr_file" ] || dr_where="$dr_layer, file $dr_file"
     # A rule that names no unit is compared with the value's number alone.
     case $dr_said in *[smhd]) dr_cmp=$dr_eff ;; *) dr_cmp=${dr_eff%[smhd%]} ;; esac
     [ "$dr_said" != "$dr_cmp" ] || continue
     printf 'rule-knob\t%s\t%s\t%s\t%s\t%s\trule %s says %s but %s is %s (set in %s); decide which is right, then change the rule or the knob\n' \
-      "$dr_id" "$dr_knob" "$dr_said" "$dr_eff" "$dr_layer" "$dr_id" "$dr_said" "$dr_knob" "$dr_eff" "$dr_layer"
+      "$dr_id" "$dr_knob" "$dr_said" "$dr_eff" "$dr_layer" "$dr_id" "$dr_said" "$dr_knob" "$dr_eff" "$dr_where"
   done
 }
 
@@ -983,7 +1006,7 @@ doctor_temporary() {
       printf 'unknown\ttemporary\t%s cannot be read, so its overrides are not checked for a passed date\n' "$dt_file"
       continue
     }
-    awk -v today="$dt_today" -v file="$dt_file" '
+    DT_FILE=$dt_file awk -v today="$dt_today" '
       function flush_standalone(   k) {
         if (pend == "") return
         k = "-"
@@ -1013,7 +1036,7 @@ doctor_temporary() {
         if (why == "") return
         gsub(/\t/, " ", comment)
         if (length(comment) > 120) comment = substr(comment, 1, 120)
-        print file "\t" k "\t" why "\t" comment
+        print ENVIRON["DT_FILE"] "\t" k "\t" why "\t" comment
       }
       /^[ \t]*#/ {
         c = $0

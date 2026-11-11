@@ -758,6 +758,7 @@ expect_no_out "REQ-A1.9: drift: once the knob matches the rule the finding is go
 printf 'mission_control_handover_context: 55\n' >"$adopter/planwright.yml"
 cfg doctor --program drift
 expect_out "REQ-A1.9: drift: a knob moved to another value is named with its layer" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}55${tab}adopter"
+expect_out "REQ-A1.9: drift: a rule-knob finding names the file that sets the knob, not only the layer" "(set in adopter, file $adopter/planwright.yml)"
 rm -f "$adopter/planwright.yml"
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m." --subject stall --source "operator, fixture" --date 2026-01-01
 cfg doctor --program drift
@@ -768,6 +769,26 @@ mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 15." --
 cfg doctor --program drift
 expect_no_out "REQ-A1.9: drift: a rule naming no unit that matches the knob's number is no finding" "rule-knob${tab}r-5"
 expect_out "REQ-A1.9: drift: a rule naming no unit is compared with the knob's number alone" "rule-knob${tab}r-6${tab}mission_control_stall_window${tab}15${tab}10m${tab}core"
+
+mc_run mc-rules.sh add drift --text "Set max_parallel_units to 8." --subject fleet --source "operator, fixture" --date 2026-01-01
+mc_run mc-rules.sh add drift --text "Set fleet_max_parallel_units to 8." --subject fleet --source "operator, fixture" --date 2026-01-01
+mc_run mc-rules.sh add drift --text "Set dispatch_backend_per_spec to 8." --subject fleet --source "operator, fixture" --date 2026-01-01
+printf 'fleet_max_parallel_units: 3\nmax_parallel_units: 3\n' >"$adopter/planwright.yml"
+cfg doctor --program drift
+expect_out "REQ-A1.9: drift: a rule naming a knob whose value cannot be read is reported as unknown, never dropped as agreeing" "unknown${tab}rules${tab}rule r-9 names dispatch_backend_per_spec but its value could not be read"
+expect_out "REQ-A1.9: drift: a rule naming the full knob name is a finding on that knob" "rule-knob${tab}r-8${tab}fleet_max_parallel_units${tab}8${tab}3${tab}adopter"
+expect_no_out "REQ-A1.9: drift: a knob name inside a longer name is not matched as the shorter knob" "rule-knob${tab}r-8${tab}max_parallel_units"
+rm -f "$adopter/planwright.yml"
+
+bs_dir="$tmp/back\\ntab\\tslash"
+mkdir -p "$bs_dir"
+bs_file="$bs_dir/planwright.yml"
+printf '# interim: until the runner is rebuilt\nmission_control_stall_window: 20m\n' >"$bs_file"
+OUT=$(mc_env env PLANWRIGHT_ADOPTER_OVERLAY="$bs_dir" /bin/bash "$repo_root/scripts/mc-config.sh" doctor --program drift 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_out "REQ-A1.9: drift: a layer path with backslashes is named as it is spelled" "temporary${tab}$bs_file${tab}mission_control_stall_window"
+rm -rf "$bs_dir"
 
 cat >"$mlocal" <<'EOT'
 # a dated bump, drop it later

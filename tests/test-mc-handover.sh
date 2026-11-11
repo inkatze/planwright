@@ -159,6 +159,47 @@ case $OUT in
   *) fail "the self-check did not surface the temporary override before its verified line: $OUT $ERR" ;;
 esac
 rm -f "$tmp/absent.yml"
+printf 'mission_control_launch_backend: tmux\nmission_control_stall_window: 20m\n' >"$tmp/absent.yml"
+run mc-rules.sh add alpha --text "Set mission_control_repeat_window to 99m." --subject repeat --source "operator, fixture" --date 2026-10-26
+[ "$RC" = 0 ] || fail "fixture: the drift rule was not added: $ERR"
+run mc-rules.sh load alpha
+digest_drift=$(printf '%s\n' "$OUT" | sed -n 's/.*, digest \([0-9a-f]*\) -->.*/\1/p' | head -n 1)
+cp "$hf" "$tmp/hf.drift"
+awk -F '\t' -v OFS='\t' -v d="$digest_drift" '$1 == "rules" { $2 = d } { print }' "$tmp/hf.drift" >"$hf"
+ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest_drift" --ledger "$led1"
+[ "$RC" = 0 ] || fail "the drift verify exited $RC: $OUT $ERR"
+for kind in "override${tab}mission_control_stall_window" "duty-off${tab}" "launch-backend${tab}" "rule-knob${tab}r-2${tab}mission_control_repeat_window"; do
+  case $OUT in
+    *"$kind"*"verified${tab}$n2${tab}"*) ok "REQ-A1.9: the self-check surfaces a ${kind%%"$tab"*} finding before its verified line" ;;
+    *) fail "the self-check did not surface $kind before its verified line: $OUT" ;;
+  esac
+done
+rm -f "$tmp/absent.yml"
+# A doctor that dies (its final awk fails here) must still read as a finding.
+cat >"$tmp/bin/awk" <<'SHIM'
+#!/bin/sh
+if [ -e "${AWK_FAIL_FLAG:-/nonexistent}" ]; then
+  case $* in *'\302'*) case $(ps -o args= -p "$PPID" 2>/dev/null) in *mc-config.sh*) exit 1 ;; esac ;; esac
+fi
+for a in /usr/bin/awk /bin/awk; do [ -x "$a" ] && exec "$a" "$@"; done
+exit 127
+SHIM
+chmod +x "$tmp/bin/awk"
+: >"$tmp/awk-fail"
+AWK_FAIL_FLAG="$tmp/awk-fail"
+export AWK_FAIL_FLAG
+ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest_drift" --ledger "$led1"
+unset AWK_FAIL_FLAG
+rm -f "$tmp/awk-fail" "$tmp/bin/awk"
+case $OUT in
+  *"unknown${tab}doctor${tab}"*"verified${tab}$n2${tab}"*) ok "REQ-A1.9: a doctor that cannot run reads as a finding, never as clean" ;;
+  *) fail "a failing doctor surfaced no finding: rc $RC $OUT $ERR" ;;
+esac
+cp "$tmp/hf.drift" "$hf"
+run mc-rules.sh supersede alpha r-2 --withdraw --source "operator, fixture" --date 2026-10-27
+[ "$RC" = 0 ] || fail "fixture: the drift rule was not withdrawn: $ERR"
+run mc-rules.sh load alpha
+[ "$(printf '%s\n' "$OUT" | sed -n 's/.*, digest \([0-9a-f]*\) -->.*/\1/p' | head -n 1)" = "$digest" ] || fail "fixture: the rules digest did not return after the drift rule was withdrawn"
 pred_sid=11111111-2222-3333-4444-555555555555
 other_sid=22222222-2222-3333-4444-555555555555
 act="$fleet/mission-control/_panel/active"

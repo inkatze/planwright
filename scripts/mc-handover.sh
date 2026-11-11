@@ -432,11 +432,18 @@ selfcheck() {
   sc_said=$(head -n 1 "$sc_err" | mc_clean)
   rm -f "$sc_err"
   if [ "$sc_rc" -eq 0 ]; then
-    # A pass also surfaces the drift doctor sees: a rule naming a number its
-    # knob does not hold, and a dated or temporary local override. Read-only,
-    # and never a reason to fail the self-check.
-    sc_drift=$(/bin/bash "$script_dir/mc-config.sh" doctor --program "$program" 2>/dev/null </dev/null \
-      | awk -F '\t' '$1 == "rule-knob" || $1 == "temporary" || ($1 == "unknown" && ($2 == "rules" || $2 == "temporary"))' | mc_clean)
+    # A pass also surfaces every finding doctor makes: a knob a layer moves,
+    # a default duty left off, a launch on another rung, a hand-built cron
+    # line, a rule disagreeing with its knob, a dated or temporary override.
+    # Read-only, and never a reason to fail the self-check; a doctor that
+    # fails or says nothing is itself a finding, never a clean audit.
+    sc_drift=$(/bin/bash "$script_dir/mc-config.sh" doctor --program "$program" 2>/dev/null </dev/null)
+    sc_drc=$?
+    if [ "$sc_drc" -ne 0 ] || [ -z "$sc_drift" ]; then
+      sc_drift=$(printf 'unknown\tdoctor\tthe drift audit (mc-config.sh doctor) did not run (exit %s), so nothing is known about layers, duties, launches, cron lines, rules or temporary overrides; run it by hand' "$sc_drc")
+    else
+      sc_drift=$(printf '%s\n' "$sc_drift" | awk '$0 != "clean"' | mc_clean)
+    fi
     [ -z "$sc_drift" ] || printf '%s\n' "$sc_drift"
     return 0
   fi
