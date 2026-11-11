@@ -54,7 +54,8 @@ assert_allow "gh repo view" "gh repo view o/r" Bash "$WT"
 assert_allow "gh release view" "gh release view v1" Bash "$WT"
 assert_allow "compound of reads" "gh pr view 5 --json state && gh pr checks 5" Bash "$WT"
 assert_allow "reads piped into jq" "gh pr view 5 --json state | jq -r .state" Bash "$WT"
-assert_allow "cd /tmp then reads" "cd /tmp; gh pr view 5 --json state; gh pr checks 5" Bash "$WT"
+TMPC=$(cd -P /tmp && pwd -P)
+assert_allow "cd /tmp then reads" "cd $TMPC; gh pr view 5 --json state; gh pr checks 5" Bash "$WT"
 assert_defer "gh search with --web" "gh search code foo --web" Bash "$WT"
 assert_defer "gh search commits unlisted" "gh search commits foo" Bash "$WT"
 assert_defer "gh pr merge" "gh pr merge 5 --squash" Bash "$WT"
@@ -93,7 +94,12 @@ HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_WORK
 mkdir -p "$WT/.github/workflows"
 : >"$WT/.github/workflows/ci.yml"
 assert_allow "sed -i a tracked file" "sed -i s/a/b/ f" Bash "$WT"
-assert_allow "sed -i a workflow file" "sed -i s/a/b/ .github/workflows/ci.yml" Bash "$WT"
+# BSD sed reads the file after a bare -i as the script, so a path that is not a
+# read-only sed script defers there by design; GNU sed does not.
+case $OSTYPE in
+  linux*) assert_allow "sed -i a workflow file" "sed -i s/a/b/ .github/workflows/ci.yml" Bash "$WT" ;;
+  *) assert_defer "sed -i a workflow file (BSD sed reads the path as a script)" "sed -i s/a/b/ .github/workflows/ci.yml" Bash "$WT" ;;
+esac
 assert_allow "perl -pi a tracked file" "perl -pi -e 's/a/b/' f" Bash "$WT"
 assert_defer "sed -i a file in .git" "sed -i s/a/b/ .git/config" Bash "$WT"
 assert_defer "sed -i a hook" "sed -i s/a/b/ githooks/pre-commit" Bash "$WT"
@@ -155,7 +161,7 @@ assert_defer "gh api -X PUT" "gh api -X PUT repos/o/r/pulls/1/merge" Bash "$WT"
 assert_defer "gh api bundled -iX POST" "gh api -iX POST repos/o/r/issues" Bash "$WT"
 
 echo "### cd outside the worktree: only pure reads may follow"
-OUTD=$SANDBOX/install/outside
+OUTD=$(cd -P "$SANDBOX" && pwd -P)/install/outside
 mkdir -p "$OUTD/sub"
 : >"$OUTD/f"
 ln -sf /tmp "$SANDBOX/outlink"
