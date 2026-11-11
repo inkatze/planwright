@@ -3359,11 +3359,63 @@ gh_no_web() {
   for ((i = 2; i < cwn; i++)); do
     case ${cw[i]} in
       --) break ;;
-      --web) return 1 ;;
+      --web | --web=*) return 1 ;;
       --*) ;;
       -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
     esac
   done
+  return 0
+}
+
+# gh_release_ok: `gh release view|list` with no `--web`/`-w` (it launches
+# $BROWSER) and no `--repo`/`-R` override (REQ-A1.17). `-R` and `-w` can ride
+# in a short cluster, and the value-taking short flags end one.
+gh_release_ok() {
+  local i a
+  for ((i = 3; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --) break ;;
+      --web | --web=* | --repo | --repo=*) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "$a" 'wR' 'JqtLO' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_gitleaks: `gitleaks detect` with only the read-and-report options
+# (REQ-A1.17): any report, baseline, or config option defers, and `--source`
+# names one plain literal path inside the worktree or the scratch root. The
+# path is read through ob_path, whose audit marks a write arm: a read is no
+# arm's act, so the marks are put back.
+guard_gitleaks() {
+  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC
+  [ "${cw[1]-}" = detect ] || return 1
+  for ((i = 2; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --no-git | --no-banner | --verbose | --redact) ;;
+      --source)
+        [ "$have" = 0 ] && [ "$((i + 1))" -lt "$cwn" ] || return 1
+        have=1
+        i=$((i + 1))
+        src=${cw[i]}
+        [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "$src" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+        ;;
+      --source=?*)
+        [ "$have" = 0 ] || return 1
+        have=1
+        src=${a#--source=}
+        [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "$a" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+        ;;
+      *) return 1 ;;
+    esac
+  done
+  [ "$have" = 1 ] || return 1
+  ob_path "$src" exists read || return 1
+  AUDIT_OB=$ao
+  AUDIT_SC=$as
   return 0
 }
 
@@ -3375,6 +3427,13 @@ guard_gh() {
   esac
   local i g=${cw[1]-} s=${cw[2]-}
   case $g in
+    release)
+      case $s in
+        view | list) gh_release_ok || return 1 ;;
+        *) return 1 ;;
+      esac
+      return 0
+      ;;
     pr | issue)
       case $s in
         view | list | status | diff | checks) gh_no_web || return 1 ;;
@@ -4658,6 +4717,7 @@ classify_verb() {
     # Enumerated read-only subcommand tools.
     git) guard_git ;;
     gh) guard_gh ;;
+    gitleaks) guard_gitleaks ;;
     mise) guard_mise ;;
     lefthook) guard_lefthook ;;
     # Writers, approved inside the spec-root write zone or under a policy
@@ -5060,12 +5120,13 @@ is_duration() {
   [ "$DURATION_SECONDS" -le "$MAX_WAIT_SECONDS" ]
 }
 
-# strip_prefixes: drop the transparent `time [-p]` and `timeout <duration>`
-# prefixes (REQ-A1.13) from the current simple command, setting PREFIXED, so
-# the command they wrap is verified as if it stood alone. Non-zero defers: a
-# prefix with nothing to run, a `cd` under a prefix (its directory would not
-# carry), or a `time` or `timeout` left after the prefixes, which would be
-# the `time` program or a nested timeout rather than a keyword. A `timeout`
+# strip_prefixes: drop the transparent `time [-p]`, `timeout <duration>` and
+# `nice -n <0..19>` prefixes (REQ-A1.13, REQ-A1.16) from the current simple
+# command, setting PREFIXED, so the command they wrap is verified as if it
+# stood alone. Non-zero defers: a prefix with nothing to run, a `cd` under a
+# prefix (its directory would not carry), or a `time`, `timeout` or `nice`
+# left after the prefixes, which would be the program or a nested wrapper
+# rather than a keyword. A `timeout`
 # whose next word is not a duration is left as the verb, and classify_verb
 # defers it.
 strip_prefixes() {
@@ -5084,19 +5145,39 @@ strip_prefixes() {
     PREFIXED=1
     [ "$cwn" -ge 1 ] || return 1
   fi
+  # `nice -n <0..19>` and `timeout <duration>` wrap each other in either
+  # order, each at most once (a second one is left as the verb and defers).
+  local niced=0 before=$cwn
+  strip_nice
+  [ "$cwn" -lt "$before" ] && niced=1
   if [ "${cw[0]}" = timeout ] && [ "$cwn" -ge 2 ] && [ "${cqp[1]}" -lt 0 ] \
     && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" \
     && is_duration "${cw[1]}"; then
     shift_words 2
     PREFIXED=1
     [ "$cwn" -ge 1 ] || return 1
+    [ "$niced" = 0 ] && strip_nice
   fi
   if [ "$PREFIXED" = 1 ]; then
     case ${cw[0]} in
-      time | timeout | cd) return 1 ;;
+      time | timeout | nice | cd) return 1 ;;
     esac
   fi
   return 0
+}
+
+# strip_nice: drop a leading `nice -n <0..19>` (REQ-A1.16) when the adjustment
+# is a bare plain decimal literal, setting PREFIXED. Any other spelling is left
+# as the verb, which classify_verb defers: a negative adjustment is privileged
+# and a non-literal value is unreadable here.
+strip_nice() {
+  local re='^([0-9]|1[0-9])$'
+  [ "${cw[0]}" = nice ] && [ "$cwn" -ge 4 ] && [ "${cw[1]}" = -n ] \
+    && [ "${cqp[1]}" -lt 0 ] && [ "${cqp[2]}" -lt 0 ] \
+    && ! word_unresolved "${cw[2]}" "${cdyn[2]}" "${cglob[2]}" "${cx[2]}" \
+    && [[ ${cw[2]} =~ $re ]] || return 0
+  shift_words 3
+  PREFIXED=1
 }
 
 # cd_target_ok: the current simple command is `cd <dir>` naming an existing

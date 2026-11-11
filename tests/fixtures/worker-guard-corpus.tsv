@@ -45,6 +45,7 @@ class	scratch	10	shipped	writes confined to the scratch root
 class	floor	5	shipped	reserved acts the guard approves under no policy value
 class	uncovered	5	shipped	shapes no arm covers: interpreters, self-written scripts, runners, escapes
 class	prompt-shape	11	shipped	command shapes that prompted workers only for their spelling: git -C into the own worktree, a plain fetch, and the near misses
+class	read-wrappers	20	shipped	nice -n <0..19> as a prefix, gitleaks detect and gh release view/list as reads, and the near misses
 
 # --- baseline: first-tool-call shapes that stalled dispatched workers ---
 row	baseline	allow	allow	allow	allow	grep -n '^## \|^### ' specs/demo/test-spec.md | head -40; for r in A1.1 A1.2 A1.3; do echo "=== $r"; awk -v r="REQ-$r" 'index($0,"**"r"**")||index($0,"### "r)||index($0,"- "r" ")||index($0,"**"r)==1{p=1;print;next} p&&/^- \*\*REQ-|^### REQ-|^## /{p=0} p{print}' specs/demo/test-spec.md; done
@@ -466,3 +467,25 @@ row	uncovered	defer	defer	defer	defer	git stash
 row	uncovered	defer	defer	defer	defer	git clean -fdx
 row	uncovered	defer	defer	defer	defer	git cherry-pick abc123
 row	uncovered	defer	defer	defer	defer	git config user.email x
+
+# --- read-wrappers: nice, gitleaks detect and gh release as reads ---
+row	read-wrappers	allow	allow	allow	allow	nice -n 10 git status
+row	read-wrappers	allow	allow	allow	allow	nice -n 19 bash tests/ok.sh
+row	read-wrappers	allow	allow	allow	allow	nice -n 10 timeout 30 git status
+row	read-wrappers	defer	defer	defer	defer	nice -n 20 git status
+row	read-wrappers	defer	defer	defer	defer	nice -n -5 git status
+row	read-wrappers	defer	defer	defer	defer	nice -5 git status
+row	read-wrappers	defer	defer	defer	defer	nice --adjustment=5 git status
+row	read-wrappers	defer	defer	defer	defer	nice
+row	read-wrappers	defer	defer	defer	defer	nice -n 10 rm -rf @@OUTSIDE@@/x
+row	read-wrappers	allow	allow	allow	allow	gitleaks detect --no-git --source @@WORKTREE@@/notes.md --no-banner
+row	read-wrappers	defer	defer	allow	allow	gitleaks detect --no-git --source @@SCRATCH@@/f.orig --no-banner
+row	read-wrappers	defer	defer	defer	defer	gitleaks detect --report-path f --source @@WORKTREE@@/notes.md
+row	read-wrappers	defer	defer	defer	defer	gitleaks detect --config f --source @@WORKTREE@@/notes.md
+row	read-wrappers	defer	defer	defer	defer	gitleaks detect --source /etc
+row	read-wrappers	defer	defer	defer	defer	gitleaks detect --source @@OUTSIDE@@/x
+row	read-wrappers	allow	allow	allow	allow	gh release view v1 --json tagName
+row	read-wrappers	allow	allow	allow	allow	gh release list
+row	read-wrappers	defer	defer	defer	defer	gh release view --web
+row	read-wrappers	defer	defer	defer	defer	gh release view -R x
+row	read-wrappers	defer	defer	defer	defer	gh release create v1
