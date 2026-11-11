@@ -818,6 +818,25 @@ if [ "$(sum "$mlocal")" = "$local_before" ]; then ok "REQ-A1.9: drift: doctor le
 printf 'mission_control_stall_window: 20m # TEMPORARY, see ticket\n' >"$mlocal"
 cfg doctor --program drift
 expect_out "REQ-A1.9: drift: a marker word matches in any case" "marker temporary"
+printf '# until the runner is rebuilt\nmission_control_stall_window: 20m\nmission_control_tick_cadence: 5m # until 2999-01-01\n' >"$mlocal"
+cfg doctor --program drift
+expect_out "REQ-A1.9: drift: the bare word until with no date is a finding" "temporary${tab}$mlocal${tab}mission_control_stall_window${tab}marker until"
+expect_no_out "REQ-A1.9: drift: until with a date still ahead is no finding" "temporary${tab}$mlocal${tab}mission_control_tick_cadence"
+# A scan whose awk fails must read as unknown, never as a clean layer or rule set.
+mkdir -p "$tmp/awkshim"
+cat >"$tmp/awkshim/awk" <<'SHIM'
+#!/bin/sh
+case $* in *'function after'* | *flush_standalone*) exit 2 ;; esac
+for a in /usr/bin/awk /bin/awk; do [ -x "$a" ] && exec "$a" "$@"; done
+exit 127
+SHIM
+chmod +x "$tmp/awkshim/awk"
+OUT=$(mc_env env PATH="$tmp/awkshim:$PATH" /bin/bash "$repo_root/scripts/mc-config.sh" doctor --program drift 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_out "REQ-A1.9: drift: a failing temporary scan is an unknown temporary check, never clean" "unknown${tab}temporary${tab}"
+expect_out "REQ-A1.9: drift: a failing rule scan is an unknown rules check, never clean" "unknown${tab}rules${tab}"
+rm -rf "$tmp/awkshim"
 printf 'mission_control_stall_window: 20m # untilted and intermittent\nmission_control_tick_cadence: 5m # retemporary\n' >"$mlocal"
 cfg doctor --program drift
 expect_no_out "REQ-A1.9: drift: a marker word inside another word is no finding" "temporary${tab}$mlocal"
@@ -831,7 +850,10 @@ chmod 000 "$mlocal"
 cfg doctor --program drift
 chmod 644 "$mlocal"
 rm -f "$mlocal"
-if [ "$(id -u)" -eq 0 ]; then ok "REQ-A1.9: drift: root reads any file, so the unreadable-layer case is skipped"; else expect_out "drift: an unreadable local layer is an unknown temporary check" "unknown${tab}temporary${tab}$mlocal cannot be read"; fi
+if [ "$(id -u)" -eq 0 ]; then ok "REQ-A1.9: drift: root reads any file, so the unreadable-layer case is skipped"; else
+  expect_out "drift: an unreadable local layer is an unknown temporary check" "unknown${tab}temporary${tab}$mlocal cannot be read"
+  expect_no_out "drift: an unknown temporary check is printed as itself, never reshaped as a temporary finding" "temporary${tab}unknown"
+fi
 tracked_save=$(cat "$tracked")
 printf '# temporary until 2020-04-04\nmission_control_stall_window: 20m\n' >>"$tracked"
 cfg doctor --program drift

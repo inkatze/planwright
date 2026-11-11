@@ -154,7 +154,8 @@ Usage:
   holder record naming none (written by an earlier planwright, or by a
   session that could not tell) leaves nothing to wait for.
 
-take and resume print, in order:
+resume first prints every line mc-config.sh doctor makes (as verify does),
+then take and resume print, in order:
   took<TAB><handle><TAB><predecessor|-><TAB>released|retired|none
       released: the predecessor gave up the name; retired: it did not
       within the window, or was already gone; none: there was none

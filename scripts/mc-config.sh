@@ -966,7 +966,10 @@ doctor_rules() {
         v = substr(text, RSTART, RLENGTH - 1)
         if (!match(substr(text, RSTART + RLENGTH), /[0-9]+%/)) print $1 "\tmission_control_handover_context\t" v
       }
-    }')
+    }') || {
+    printf 'unknown\trules\tthe rules could not be scanned for a knob and a number, so no rule is compared with its knob\n'
+    return 0
+  }
   [ -n "$dr_hits" ] || return 0
   printf '%s\n' "$dr_hits" | while IFS="$tab" read -r dr_id dr_knob dr_said; do
     dr_exp=$(cfg_get --explain "$dr_knob" 2>/dev/null) || dr_exp=''
@@ -1006,7 +1009,7 @@ doctor_temporary() {
       printf 'unknown\ttemporary\t%s cannot be read, so its overrides are not checked for a passed date\n' "$dt_file"
       continue
     }
-    DT_FILE=$dt_file awk -v today="$dt_today" '
+    dt_hits=$(DT_FILE=$dt_file awk -v today="$dt_today" '
       function flush_standalone(   k) {
         if (pend == "") return
         k = "-"
@@ -1064,14 +1067,19 @@ doctor_temporary() {
       }
       { flush_standalone() }
       END { flush_standalone() }
-    ' "$dt_file" 2>/dev/null
-  done | while IFS="$tab" read -r dt_file dt_key dt_why dt_comment; do
-    dt_eff=-
-    if [ "$dt_key" != - ]; then
-      dt_eff=$(cfg_get "$dt_key" 2>/dev/null) || dt_eff='no value'
-    fi
-    printf 'temporary\t%s\t%s\t%s\t%s\t%s\t%s\n' "$dt_file" "$dt_key" "$dt_why" "$dt_comment" "$dt_eff" \
-      "$dt_file keeps $dt_key as a dated, interim or temporary override; review it; doctor never edits the file"
+    ' "$dt_file" 2>/dev/null) || {
+      printf 'unknown\ttemporary\t%s could not be scanned, so its overrides are not checked for a passed date\n' "$dt_file"
+      continue
+    }
+    [ -n "$dt_hits" ] || continue
+    printf '%s\n' "$dt_hits" | while IFS="$tab" read -r dt_file dt_key dt_why dt_comment; do
+      dt_eff=-
+      if [ "$dt_key" != - ]; then
+        dt_eff=$(cfg_get "$dt_key" 2>/dev/null) || dt_eff='no value'
+      fi
+      printf 'temporary\t%s\t%s\t%s\t%s\t%s\t%s\n' "$dt_file" "$dt_key" "$dt_why" "$dt_comment" "$dt_eff" \
+        "$dt_file keeps $dt_key as a dated, interim or temporary override; review it; doctor never edits the file"
+    done
   done
 }
 
