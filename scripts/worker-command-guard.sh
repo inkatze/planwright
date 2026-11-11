@@ -3359,7 +3359,7 @@ gh_no_web() {
   for ((i = 2; i < cwn; i++)); do
     case ${cw[i]} in
       --) break ;;
-      --web) return 1 ;;
+      --web | --web=*) return 1 ;;
       --*) ;;
       -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
     esac
@@ -3376,7 +3376,7 @@ gh_release_ok() {
     a=${cw[i]}
     case $a in
       --) break ;;
-      --web | --repo | --repo=*) return 1 ;;
+      --web | --web=* | --repo | --repo=*) return 1 ;;
       --*) ;;
       -?*) short_flag_hit "$a" 'wR' 'JqtLO' && return 1 ;;
     esac
@@ -5146,14 +5146,16 @@ strip_prefixes() {
   fi
   # `nice -n <0..19>` and `timeout <duration>` wrap each other in either
   # order, each at most once (a second one is left as the verb and defers).
+  local niced=0 before=$cwn
   strip_nice
+  [ "$cwn" -lt "$before" ] && niced=1
   if [ "${cw[0]}" = timeout ] && [ "$cwn" -ge 2 ] && [ "${cqp[1]}" -lt 0 ] \
     && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" \
     && is_duration "${cw[1]}"; then
     shift_words 2
     PREFIXED=1
     [ "$cwn" -ge 1 ] || return 1
-    strip_nice
+    [ "$niced" = 0 ] && strip_nice
   fi
   if [ "$PREFIXED" = 1 ]; then
     case ${cw[0]} in
