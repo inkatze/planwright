@@ -741,33 +741,33 @@ mlocal="$tmp/absent.yml"
 printf 'mission_control_programs: [drift]\nprogram_drift_repositories: [%s]\nprogram_drift_spec_root: %s/specs\nprogram_drift_home: %s\n' "$repo" "$repo" "$drift_home" >"$tracked"
 rm -f "$mlocal"
 cfg doctor --program drift
-expect_eq "drift: no rules and no local layer is clean" "clean"
+expect_eq "REQ-A1.9: drift: no rules and no local layer is clean" "clean"
 
 mc_run mc-rules.sh add drift --text "Mission control hands over to a fresh successor every time its context passes 40%." --subject handover --source "operator, fixture" --date 2026-01-01
 mc_run mc-rules.sh add drift --text "Keep mission_control_stall_window at 10m." --subject stall --source "operator, fixture" --date 2026-01-01
 mc_run mc-rules.sh add drift --text "Hand over the program notes at the end of each week, with 3 sections." --subject notes --source "operator, fixture" --date 2026-01-01
 cfg doctor --program drift
-expect_rc "drift: doctor with rules reports findings as data" 0
-expect_out "drift: a rule naming 40% for the handover knob, left at the shipped 70, is a finding with rule, knob and effective value" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}70${tab}core"
-expect_out "drift: the finding says it in plain words" "says 40 but mission_control_handover_context is 70"
-expect_no_out "drift: a rule naming the knob's own shipped value is no finding" "rule-knob${tab}r-2"
-expect_no_out "drift: a rule that merely says hand over, with no context or percent, is no finding" "rule-knob${tab}r-3"
+expect_rc "REQ-A1.9: drift: doctor with rules reports findings as data" 0
+expect_out "REQ-A1.9: drift: a rule naming 40% for the handover knob, left at the shipped 70, is a finding with rule, knob and effective value" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}70${tab}core"
+expect_out "REQ-A1.9: drift: the finding says it in plain words" "says 40 but mission_control_handover_context is 70"
+expect_no_out "REQ-A1.9: drift: a rule naming the knob's own shipped value is no finding" "rule-knob${tab}r-2"
+expect_no_out "REQ-A1.9: drift: a rule that merely says hand over, with no context or percent, is no finding" "rule-knob${tab}r-3"
 printf 'mission_control_handover_context: 40\n' >"$adopter/planwright.yml"
 cfg doctor --program drift
-expect_no_out "drift: once the knob matches the rule the finding is gone" "rule-knob${tab}r-1"
+expect_no_out "REQ-A1.9: drift: once the knob matches the rule the finding is gone" "rule-knob${tab}r-1"
 printf 'mission_control_handover_context: 55\n' >"$adopter/planwright.yml"
 cfg doctor --program drift
-expect_out "drift: a knob moved to another value is named with its layer" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}55${tab}adopter"
+expect_out "REQ-A1.9: drift: a knob moved to another value is named with its layer" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}55${tab}adopter"
 rm -f "$adopter/planwright.yml"
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m." --subject stall --source "operator, fixture" --date 2026-01-01
 cfg doctor --program drift
-expect_out "drift: a rule naming a knob and a value that differ is a finding" "rule-knob${tab}r-4${tab}mission_control_stall_window${tab}30m${tab}10m${tab}core"
+expect_out "REQ-A1.9: drift: a rule naming a knob and a value that differ is a finding" "rule-knob${tab}r-4${tab}mission_control_stall_window${tab}30m${tab}10m${tab}core"
 
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 10." --subject stall --source "operator, fixture" --date 2026-01-01
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 15." --subject stall --source "operator, fixture" --date 2026-01-01
 cfg doctor --program drift
-expect_no_out "drift: a rule naming no unit that matches the knob's number is no finding" "rule-knob${tab}r-5"
-expect_out "drift: a rule naming no unit is compared with the knob's number alone" "rule-knob${tab}r-6${tab}mission_control_stall_window${tab}15${tab}10m${tab}core"
+expect_no_out "REQ-A1.9: drift: a rule naming no unit that matches the knob's number is no finding" "rule-knob${tab}r-5"
+expect_out "REQ-A1.9: drift: a rule naming no unit is compared with the knob's number alone" "rule-knob${tab}r-6${tab}mission_control_stall_window${tab}15${tab}10m${tab}core"
 
 cat >"$mlocal" <<'EOT'
 # a dated bump, drop it later
@@ -784,37 +784,37 @@ mission_control_event_retention: 14d # keep 14 days
 EOT
 local_before=$(sum "$mlocal")
 cfg doctor --program drift
-expect_rc "drift: doctor over a local layer with dated overrides reports" 0
-expect_out "drift: a trailing comment with a past date is a finding naming file, knob, comment and effective value" "temporary${tab}$mlocal${tab}fleet_max_parallel_units${tab}past date 2020-11-01${tab}a dated bump, drop it later; until 2020-11-01${tab}10"
-expect_out "drift: a comment above the knob saying interim is a finding" "temporary${tab}$mlocal${tab}mission_control_stall_window${tab}marker interim${tab}interim value while the runner is rebuilt${tab}20m"
-expect_out "drift: a comment naming a knob that was dropped until a past date is a finding" "temporary${tab}$mlocal${tab}mission_control_audit_idle_after${tab}past date 2020-02-02"
-expect_no_out "drift: a temporary note whose date is still ahead is no finding" "temporary${tab}$mlocal${tab}mission_control_repeat_window"
-expect_no_out "drift: an ordinary value with an ordinary comment is no finding" "temporary${tab}$mlocal${tab}mission_control_panel_refresh"
-expect_no_out "drift: an ordinary trailing comment is no finding" "temporary${tab}$mlocal${tab}mission_control_event_retention"
-expect_no_out "drift: an uncommented value is no finding" "temporary${tab}$mlocal${tab}mission_control_tick_cadence"
-expect_out "drift: the finding explains itself" "review it; doctor never edits the file"
-if [ "$(sum "$mlocal")" = "$local_before" ]; then ok "drift: doctor leaves the local layer as it was"; else fail "drift: doctor changed the local layer"; fi
+expect_rc "REQ-A1.9: drift: doctor over a local layer with dated overrides reports" 0
+expect_out "REQ-A1.9: drift: a trailing comment with a past date is a finding naming file, knob, comment and effective value" "temporary${tab}$mlocal${tab}fleet_max_parallel_units${tab}past date 2020-11-01${tab}a dated bump, drop it later; until 2020-11-01${tab}10"
+expect_out "REQ-A1.9: drift: a comment above the knob saying interim is a finding" "temporary${tab}$mlocal${tab}mission_control_stall_window${tab}marker interim${tab}interim value while the runner is rebuilt${tab}20m"
+expect_out "REQ-A1.9: drift: a comment naming a knob that was dropped until a past date is a finding" "temporary${tab}$mlocal${tab}mission_control_audit_idle_after${tab}past date 2020-02-02"
+expect_no_out "REQ-A1.9: drift: a temporary note whose date is still ahead is no finding" "temporary${tab}$mlocal${tab}mission_control_repeat_window"
+expect_no_out "REQ-A1.9: drift: an ordinary value with an ordinary comment is no finding" "temporary${tab}$mlocal${tab}mission_control_panel_refresh"
+expect_no_out "REQ-A1.9: drift: an ordinary trailing comment is no finding" "temporary${tab}$mlocal${tab}mission_control_event_retention"
+expect_no_out "REQ-A1.9: drift: an uncommented value is no finding" "temporary${tab}$mlocal${tab}mission_control_tick_cadence"
+expect_out "REQ-A1.9: drift: the finding explains itself" "review it; doctor never edits the file"
+if [ "$(sum "$mlocal")" = "$local_before" ]; then ok "REQ-A1.9: drift: doctor leaves the local layer as it was"; else fail "drift: doctor changed the local layer"; fi
 printf 'mission_control_stall_window: 20m # TEMPORARY, see ticket\n' >"$mlocal"
 cfg doctor --program drift
-expect_out "drift: a marker word matches in any case" "marker temporary"
+expect_out "REQ-A1.9: drift: a marker word matches in any case" "marker temporary"
 printf 'mission_control_stall_window: 20m # untilted and intermittent\nmission_control_tick_cadence: 5m # retemporary\n' >"$mlocal"
 cfg doctor --program drift
-expect_no_out "drift: a marker word inside another word is no finding" "temporary${tab}$mlocal"
+expect_no_out "REQ-A1.9: drift: a marker word inside another word is no finding" "temporary${tab}$mlocal"
 printf '# adopter note: until 2020-03-03\nmission_control_stall_window: 20m\n' >"$adopter/planwright.yml"
 rm -f "$mlocal"
 cfg doctor --program drift
-expect_out "drift: the adopter layer file is scanned too" "temporary${tab}$adopter/planwright.yml${tab}mission_control_stall_window"
+expect_out "REQ-A1.9: drift: the adopter layer file is scanned too" "temporary${tab}$adopter/planwright.yml${tab}mission_control_stall_window"
 rm -f "$adopter/planwright.yml" "$mlocal"
 printf 'mission_control_stall_window: 20m # interim\n' >"$mlocal"
 chmod 000 "$mlocal"
 cfg doctor --program drift
 chmod 644 "$mlocal"
 rm -f "$mlocal"
-if [ "$(id -u)" -eq 0 ]; then ok "drift: root reads any file, so the unreadable-layer case is skipped"; else expect_out "drift: an unreadable local layer is an unknown temporary check" "unknown${tab}temporary${tab}$mlocal cannot be read"; fi
+if [ "$(id -u)" -eq 0 ]; then ok "REQ-A1.9: drift: root reads any file, so the unreadable-layer case is skipped"; else expect_out "drift: an unreadable local layer is an unknown temporary check" "unknown${tab}temporary${tab}$mlocal cannot be read"; fi
 tracked_save=$(cat "$tracked")
 printf '# temporary until 2020-04-04\nmission_control_stall_window: 20m\n' >>"$tracked"
 cfg doctor --program drift
-expect_no_out "drift: the team-shared repo-tracked layer is not scanned" "temporary${tab}"
+expect_no_out "REQ-A1.9: drift: the team-shared repo-tracked layer is not scanned" "temporary${tab}"
 printf '%s\n' "$tracked_save" >"$tracked"
 
 cfg doctor --program gamma
