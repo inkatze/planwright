@@ -914,10 +914,11 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resu
 #    records the opt-in for the guard and for a recover; a launch without it
 #    passes the shipped profile untouched; every other shape is refused.
 shipped_profile="$here/../config/worker-settings.json"
+mkdir -p "$tmp/mwt" && git init -q "$tmp/mwt" || fail "c9m: cannot build the fixture worktree"
 : >"$rec/argv"
 : >"$rec/env"
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
-  launch sjw9m1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --foreground \
+  launch sjw9m1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --cwd "$tmp/mwt" --foreground \
   || fail "c9m: an opted-in launch exited non-zero"
 m_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
 case $m_settings in
@@ -939,7 +940,7 @@ grep -qx 'mise_task_edit=1' "$m_rec" || fail "c9m: the session record must carry
 rm -f "$m_settings"
 : >"$rec/argv"
 : >"$rec/env"
-senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9m1 --resume-session "$sid" --foreground >/dev/null 2>&1
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9m1 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
 m_settings2=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
 [ "$m_settings2" = "$m_settings" ] && [ -s "$m_settings2" ] \
   || fail "c9m: a recover must regenerate the per-launch profile: $m_settings2"
@@ -979,6 +980,7 @@ senv "$home" "$rec" -- \
   launch sjw9m4 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
 [ $? -eq 7 ] || fail "c9m: an opted-in launch in a glob-character path must be refused (exit 7)"
 [ ! -s "$rec/argv" ] || fail "c9m: the refused opted-in launch must never spawn the worker"
+[ ! -e "$home/streamjson/sjw9m4/mise-task-edit" ] || fail "c9m: a refused opted-in launch must record no opt-in"
 echo "ok: c9m mise task-file opt-in: per-launch profile, recorded for recover, shipped profile byte for byte without it"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.

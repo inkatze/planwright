@@ -78,6 +78,11 @@
 #                    where `relaunch` resumes it
 #   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
 #                    and --tier-unit named, which `relaunch` resolves at
+#   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
+#                    recover and a relaunch read back; absent otherwise
+#   worker-settings.json  the per-launch settings profile of an opted-in
+#                    worker (scripts/worker-settings-generate.sh), rewritten
+#                    by every launch, recover and relaunch of it
 #   relaunch.lock    a relaunch's election, outside the release set
 #   scratch-root     the scratch root the launch handed the worker as its
 #                    TMPDIR: its own (scripts/fleet-scratch.sh), or for a
@@ -2264,11 +2269,6 @@ cmd_launch() {
     # clears what a previous launch of this handle left.
     record_tier_field "$dir" tier_key "$tier_key" || exit 2
     record_tier_field "$dir" tier_unit "$tier_unit" || exit 2
-    if [ "$mise_edit" = 1 ]; then
-      printf '1\n' >"$dir/mise-task-edit.tmp" && mv -f "$dir/mise-task-edit.tmp" "$dir/mise-task-edit" || exit 2
-    else
-      rm -f "$dir/mise-task-edit"
-    fi
   fi
   # The worker identity its hooks key on (attention rows, liveness, and its
   # self-registration), and the inbound layer the messaging probe reads beside
@@ -2344,6 +2344,15 @@ cmd_launch() {
       exit 7
     fi
     launch_settings=$gen_out
+  fi
+  # Recorded only once the launch can no longer be refused, so a refused fresh
+  # launch leaves a recover of the earlier session its own opt-in.
+  if [ -z "$resume_sid" ]; then
+    if [ "$mise_edit" = 1 ]; then
+      printf '1\n' >"$dir/mise-task-edit.tmp" && mv -f "$dir/mise-task-edit.tmp" "$dir/mise-task-edit" || exit 2
+    else
+      rm -f "$dir/mise-task-edit"
+    fi
   fi
 
   # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
@@ -3078,6 +3087,13 @@ cmd_relaunch() {
   run_cwd=$rx_cwd
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
+  if [ "$rx_profile" = worker ] && [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" = 1 ]; then
+    rx_shipped=$(profile_settings_path worker) || exit 7
+    /bin/sh "$script_dir/worker-settings-generate.sh" "$rx_shipped" "$rx_cwd" "$dir/worker-settings.json" >/dev/null </dev/null || {
+      printf '%s\n' "$me: relaunch refused for $worker: its per-launch settings profile cannot be generated now" >&2
+      exit 7
+    }
+  fi
   rx_gp=0
   [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" || rx_gp=$?
   [ "$rx_gp" -eq 0 ] || exit "$rx_gp"

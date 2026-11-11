@@ -525,11 +525,22 @@ grep -qx -- '--remote-control' "$tmp/tmux/argv-$rc_plain_handle" && fail "a laun
 # alone. Any other kind or rung is refused before a session or window opens.
 : >"$tmp/tmux/calls"
 ml launch --program alpha --kind ad-hoc --scope mise-tmux --brief "$tmp/brief.md" --backend tmux --mise-task-edit
-[ "$RC" = 2 ] && ! grep -q '^new-window' "$tmp/tmux/calls" && ok "--mise-task-edit on the tmux rung is refused before a window opens" \
-  || fail "--mise-task-edit on the tmux rung: exit $RC, calls: $(cat "$tmp/tmux/calls")"
+case $ERR in
+  *'needs the stream-json rung'*) [ "$RC" = 2 ] && ! grep -q '^new-window' "$tmp/tmux/calls" && ok "--mise-task-edit on the tmux rung is refused before a window opens" \
+    || fail "--mise-task-edit on the tmux rung: exit $RC, calls: $(cat "$tmp/tmux/calls")" ;;
+  *) fail "--mise-task-edit on the tmux rung was not refused for the rung: exit $RC, $ERR" ;;
+esac
 ml launch --program alpha --kind mission-control --scope mise-mc --brief "$tmp/brief.md" --backend stream-json --mise-task-edit
-[ "$RC" = 2 ] && ok "--mise-task-edit on a mission-control session is refused" \
-  || fail "--mise-task-edit on a mission-control session: exit $RC"
+case $ERR in
+  *'worker-profile session only'*) [ "$RC" = 2 ] && ok "--mise-task-edit on a mission-control session is refused" ;;
+  *) fail "--mise-task-edit on a mission-control session was not refused for its profile: exit $RC, $ERR" ;;
+esac
+ml launch --program alpha --kind ad-hoc --scope mise-yes --brief "$tmp/brief.md" --backend stream-json --mise-task-edit
+[ "$RC" = 0 ] || fail "the stream-json launch with --mise-task-edit exited $RC: $ERR"
+mise_yes=$(field name)
+wait_done "$mise_yes"
+[ "$(cat "$fleet/streamjson/$mise_yes/mise-task-edit" 2>/dev/null)" = 1 ] && ok "an accepted --mise-task-edit launch reaches the stream-json launcher, which records the opt-in" \
+  || fail "the opt-in did not reach the stream-json launcher for $mise_yes"
 ml launch --program alpha --kind mission-control --scope rc-hostile --brief "$tmp/brief.md" --backend tmux --remote-control 'mc;rm'
 [ "$RC" = 2 ] && ! grep -q 'rc-hostile' "$tmp/tmux/calls" && ok "a --remote-control name outside the session-name grammar is refused before a window opens" \
   || fail "a hostile --remote-control name: exit $RC, calls: $(cat "$tmp/tmux/calls")"

@@ -16,9 +16,11 @@
 # files, conf.d and miserc files, trust, data, state and cache folders, and
 # lockfiles.
 #
-# Residual risk, by construction: a task file in any repository that is not an
-# ancestor of the worktree (an unrelated checkout on the machine) is editable
-# by that worker.
+# Residual risk, by construction: a task file anywhere that is not directly in
+# one of those folders is editable by that worker: an unrelated checkout, the
+# primary checkout's subfolders, a sibling worktree, and the worker's scratch
+# root. Ancestor folder names are matched case-sensitively (MA-2 in
+# docs/permission-matcher-model.md).
 #
 # A worktree path holding a character a path rule would read as a pattern or
 # a rule delimiter (`* ? [ ] \ ( )`, a control character, or a component ending
@@ -72,14 +74,9 @@ common=$(GIT_OPTIONAL_LOCKS=0 git -C "$wt" rev-parse --path-format=absolute --gi
 case $common in
   /*/.git) primary=${common%/.git} ;;
 esac
-if [ -n "$primary" ] && [ -d "$primary" ]; then
-  primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || primary=''
-else
-  primary=''
-fi
-if [ -n "$primary" ]; then
-  unsafe_path "$primary" && die "the primary checkout path holds a character a path rule would read as a pattern"
-fi
+[ -n "$primary" ] && [ -d "$primary" ] || die "cannot name the primary checkout (its git directory is not <checkout>/.git); its task files would stay open"
+primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || die "the primary checkout does not resolve"
+unsafe_path "$primary" && die "the primary checkout path holds a character a path rule would read as a pattern"
 
 # The folders whose task files stay closed: every ancestor of the worktree,
 # the root as `/`, then the primary checkout when it is not one of them.
@@ -93,7 +90,7 @@ while :; do
   fi
   dirs="$dirs$a$nl"
 done
-if [ -n "$primary" ] && [ "$primary" != "$wt" ]; then
+if [ "$primary" != "$wt" ]; then
   case "$nl$dirs" in
     *"$nl$primary$nl"*) ;;
     *) dirs="$dirs$primary$nl" ;;

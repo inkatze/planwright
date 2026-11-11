@@ -30,6 +30,7 @@ test-worker-command-guard-shapes.sh	35.819
 test-step-record.sh	35.743
 test-mc-snapshot-adapters.sh	35.194
 test-inception-venture.sh	34.446
+test-worker-command-guard-mise-tasks.sh	34.0
 test-worker-command-guard-steps.sh	33.825
 test-orchestrate-meta-step.sh	33.260
 test-tower-queue-settle.sh	32.960
@@ -265,6 +266,7 @@ test-fleet-liveness-idle-edge.sh	3.079
 test-check-launch-shape.sh	3.078
 test-substrate-baseline.sh	3.035
 test-check-script-modes.sh	3.008
+test-worker-settings-generate.sh	3.0
 test-worker-session-record.sh	2.981
 test-sign-off-checklist.sh	2.975
 test-offload-dispatch.sh	2.973

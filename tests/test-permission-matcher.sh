@@ -1126,6 +1126,8 @@ deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.lefthook-local/pre-comm
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.lefthook-local.yml|lefthook's dotted local override (REQ-F1.6)
 deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/fleet/session-records/0123abcd.record|the guard's session record (REQ-G1.8)
 deny|load-bearing|Write|/srv/fleet/session-records/0123abcd-89ef0123456789ab.record|a session record under an overridden fleet home (REQ-G1.8)
+deny|load-bearing|Write|/home/u/.claude/plugins/data/planwright-planwright/fleet/streamjson/mc-w-1/mise-task-edit|the persisted mise task-file opt-in a recover reads back
+deny|load-bearing|Edit|/srv/fleet/streamjson/mc-w-1/worker-settings.json|an opted-in worker's per-launch settings profile
 deny|load-bearing|Edit|/work/repo/.claude/planwright.yml|the repo-tracked overlay (REQ-G1.8)
 deny|load-bearing|Write|/work/repo/.claude/planwright.local.yml|the machine-local overlay (REQ-G1.8)
 deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/overlay/planwright.yml|the adopter overlay (REQ-G1.8)
@@ -1325,10 +1327,10 @@ EOF
 # must be the only rule blocking at least one row.
 # ---------------------------------------------------------------------------
 GEN_SCRIPT="$REPO_ROOT/scripts/worker-settings-generate.sh"
-GBOX="$tmp/gen"
+mkdir -p "$tmp/gen"
+GBOX=$(cd "$tmp/gen" && pwd -P)
 GMAIN="$GBOX/main"
 GWT="$GMAIN/.claude/worktrees/w1"
-mkdir -p "$GBOX"
 git init -q "$GMAIN" \
   && git -C "$GMAIN" symbolic-ref HEAD refs/heads/main \
   && git -C "$GMAIN" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m init \

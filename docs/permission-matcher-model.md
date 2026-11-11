@@ -420,7 +420,9 @@ deny:
   default hooks included), the repo-tracked hooks directories `githooks/` and
   `.githooks/`, the worktree's `.claude/`, and the mise, lefthook, direnv, and
   tool-version config names the guard refuses (`scripts/worker-command-guard.sh`,
-  `ob_excluded_name` and `ob_excluded_mise_child`, owns the list). An adopter
+  `ob_excluded_name` and `ob_excluded_mise_child`, owns the list; a launch given
+  `--mise-task-edit` opens four of those names inside its worktree, see "The
+  mise task-file opt-in" below). An adopter
   whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
   of its own.
 - **The guard's trust inputs** (REQ-G1.8): the launcher's session records
@@ -504,7 +506,8 @@ rung; worker profile only, off by default). The opt-in is a launch argument and
 nothing else: it is recorded as `mise_task_edit=1` in the session record the
 launcher writes outside the worktree (`scripts/worker-session-record.sh`) and
 beside the worker's state for a recover, and is never read from live config,
-the checkout or the environment. A relaunch without the flag drops it.
+the checkout or the environment. A fresh launch without the flag drops it; a
+recover or relaunch keeps what its launch recorded.
 
 An opted-in launch gets two things, and a launch without the flag gets
 neither (it passes the shipped profile itself, byte for byte):
@@ -512,7 +515,9 @@ neither (it passes the shipped profile itself, byte for byte):
 - **A generated profile** (`scripts/worker-settings-generate.sh`): the four
   broad task-file denies are replaced by literal denies of the same four names
   in every ancestor folder of the worktree, the root included, and in the
-  primary checkout when the worktree lies outside it. Every other rule is the
+  primary checkout's top folder when the worktree lies outside it (a primary
+  whose git directory is not `<checkout>/.git` cannot be named, which refuses
+  the launch). Every other rule is the
   shipped one, in order: mise's local files (`mise.local.toml`,
   `mise.*.toml`, `.mise.*.toml`), `mise/config*.toml`, `conf.d` and miserc
   files, the trust, data, state and cache folders, the temporary `mise/`
@@ -525,9 +530,18 @@ neither (it passes the shipped profile itself, byte for byte):
   one `mise_task_edit=1`. The scratch zone, anything outside the worktree, and
   every other excluded name stay closed.
 
-Residual risk, by construction: a task file in any repository that is not an
-ancestor of the worktree (an unrelated checkout on the machine) is editable by
-that worker, since a path deny cannot name "every repository except this one".
+The generated profile and its opt-in marker sit in the worker's fleet state
+folder (`streamjson/<worker>/`), which the profile's path denies refuse to the
+file tools (`mise-task-edit`, `worker-settings.json`), as they do the session
+records, so a worker cannot opt itself in for its next recover.
+
+Residual risk, by construction: a task file anywhere that is not directly in
+one of those folders is editable by that worker: an unrelated checkout on the
+machine, the primary checkout's subfolders, a sibling worktree, and the
+worker's scratch root, since a path deny cannot name "every folder except this
+one" and the worktree itself sits inside the primary checkout. The ancestor
+folder names are matched case-sensitively (MA-2), where the broad rule they
+replace matched any casing of the folders above the file.
 `tests/test-permission-matcher.sh` (pass I) runs the generated rules through
 the model: the worktree's task files open, each local file, trust, cache and
 lockfile row and each ancestor's task files, the primary checkout's included,

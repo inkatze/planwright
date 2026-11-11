@@ -77,6 +77,10 @@ stderr naming the knob. A mission-control launch with no --brief opens on
 one, in a tmux window. `--remote-control <name>` (mission-control only)
 starts that window with Remote Control under the name; the stream-json
 rung has no terminal to attach it to, so it drops the flag with a warning.
+`--mise-task-edit` (a worker-profile session on the stream-json rung only,
+refused otherwise) opts the session in to editing the mise task files inside
+its own worktree, under a per-launch settings profile; docs/permission-matcher-model.md
+states what that opens.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the

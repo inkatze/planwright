@@ -137,15 +137,35 @@ for n in mise.toml .mise.toml 'mise-tasks/**' '.mise-tasks/**'; do
 done
 
 # Refusals: a path glob characters could widen, a missing worktree, a bad profile, usage.
-for bad in 'we*ird' 'we?ird' 'we[ird' 'we\ird'; do
+for bad in 'we*ird' 'we?ird' 'we[ird' 'we]ird' 'we\ird' 'we(ird' 'we)ird' "$(printf 'we\tird')" 'weird '; do
   mkdir -p "$T/g/$bad"
   git init -q "$T/g/$bad"
-  if /bin/sh "$GEN" "$PROFILE" "$T/g/$bad" "$T/out/g.json" >/dev/null 2>&1; then
-    fail "a worktree path with a glob character was accepted: $bad"
+  if /bin/sh "$GEN" "$PROFILE" "$T/g/$bad" "$T/out/g.json" >"$T/stdout" 2>"$T/err"; then
+    fail "a worktree path with a pattern character was accepted: $bad"
+  elif grep -q 'pattern' "$T/err"; then
+    ok "a worktree path with a pattern character is refused for that reason: $bad"
   else
-    ok "a worktree path with a glob character is refused: $bad"
+    fail "the refusal for '$bad' did not name the pattern character: $(cat "$T/err")"
   fi
 done
+# A primary checkout whose git directory is not <checkout>/.git cannot be named,
+# so the launch is refused instead of leaving its task files open.
+git init -q --separate-git-dir "$T/sepgit" "$T/sepmain"
+git -C "$T/sepmain" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m init
+git -C "$T/sepmain" worktree add -q -b planwright/flight/z-0123abcd "$T/sepwt"
+if /bin/sh "$GEN" "$PROFILE" "$T/sepwt" "$T/out/sep.json" >"$T/stdout" 2>"$T/err"; then
+  fail "a worktree of a separate-git-dir checkout was accepted"
+elif grep -q 'primary checkout' "$T/err"; then
+  ok "a primary checkout that cannot be named refuses the launch"
+else
+  fail "the separate-git-dir refusal did not name the primary checkout: $(cat "$T/err")"
+fi
+[ ! -e "$T/out/sep.json" ] && ok "and writes nothing" || fail "a refused separate-git-dir run wrote a file"
+if /bin/sh "$GEN" "$PROFILE" "$WT" "$T/no-such-folder/x.json" >/dev/null 2>&1; then
+  fail "a missing output folder was accepted"
+else
+  ok "a missing output folder is refused"
+fi
 [ ! -e "$T/out/g.json" ] && ok "a refused run writes nothing" || fail "a refused run wrote a file"
 /bin/sh "$GEN" "$PROFILE" "$T/nope" "$T/out/n.json" >/dev/null 2>&1 && fail "a missing worktree was accepted" || ok "a missing worktree is refused"
 printf '{"permissions":{"deny":[]}}\n' >"$T/thin.json"

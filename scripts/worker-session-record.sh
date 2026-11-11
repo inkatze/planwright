@@ -47,7 +47,8 @@
 #                      task-file names (mise.toml, .mise.toml, mise-tasks/,
 #                      .mise-tasks/) inside the worktree. Never read from config,
 #                      the checkout or the environment; omitted otherwise, and a
-#                      relaunch without the flag drops it
+#                      fresh launch without the flag drops it, a recover or
+#                      relaunch keeps what its launch recorded
 #   hook_exclude       worker_hook_exclude as a comma-joined list, omitted
 #                      when unset or when any member falls outside
 #                      [A-Za-z0-9_-]; the launcher exports it as
