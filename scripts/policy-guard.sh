@@ -1309,6 +1309,7 @@ stack_base_load() { # <dir>
   top=$(gitq "$1" rev-parse --show-toplevel) || top=''
   # Both sides resolved the same way: a record path may go through a symlinked
   # directory (macOS /var) that git's physical top level does not.
+  [ -n "$top" ] || return 0
   top=$(cd -P -- "$top" 2>/dev/null && pwd -P) || return 0
   pdir=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd -P) || return 0
   case $pdir in "$top" | "$top"/*) return 0 ;; esac
