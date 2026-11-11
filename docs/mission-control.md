@@ -77,6 +77,16 @@ directory it should start in (`<planwright>` is planwright's install root):
 It opens a tmux window in the background, running mission control for
 that program under its profile; switch to that window to work with it.
 
+**Folding one program into another.** When you order it, mission control
+moves each live session of the folded program to the surviving one with
+`mission-control-launch.sh reparent <session> --program <destination>
+--authority <decision id>`, so the session's prompts, stalls and events
+reach the new program and its list and retire work from there. The id names
+your order (or your yes for one session) in the program's decisions log;
+without one the move is refused. Only the registry row changes: the
+session's process, worktree and branch stay as they are. Each move is an
+event in both programs' logs and an undo entry in the destination's.
+
 **The program's private folder** sits under your planwright configuration
 folder, outside every repository, and is never committed. It holds the
 rules you set, what mission control has learned about the program, its

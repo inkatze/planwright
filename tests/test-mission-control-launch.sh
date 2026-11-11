@@ -1572,6 +1572,7 @@ rp_row "$fold_name" alpha worker launched
 rp_row mc-alpha-tower-1000000002 alpha tower launched
 rp_row mc-alpha-mission-control-1000000003 alpha mission-control launched
 rp_row mc-alpha-worker-1000000004 alpha worker launching
+cp "$repo_root/config/duties.yaml" "$core/config/duties.yaml"
 for p in alpha beta; do
   mc_run mc-kb.sh init --program "$p"
   [ "$RC" = 0 ] || fail "fixture: kb init for $p: $ERR"
@@ -1671,17 +1672,17 @@ ml reparent mc-alpha-worker-1000000005 --program beta --authority "$yes5"
 [ "$RC" = 0 ] && ok "a yes naming the session moves it" || fail "a yes for its own session exited $RC: $ERR"
 
 # Reversal through the undo entry needs no authority and restores the source.
-mc_run mc-kb.sh revert "$undo_id"
+mc_run mc-kb.sh revert --program beta "$undo_id"
 if [ "$RC" = 0 ] && [ "$(rp_field "$REG/$fold_name" program)" = alpha ] && [ "$(rp_field "$REG/$fold_name" owner)" = mission-control:alpha ]; then
   ok "the undo entry's reversal restores the source with no authority"
 else
   fail "the reversal: exit $RC, $ERR; row: $(cat "$REG/$fold_name")"
 fi
-ml reparent "$fold_name" --program alpha --undo-of "$undo_id"
-[ "$RC" = 4 ] && ok "an undo entry is refused for a session no longer in its destination" || fail "a replayed undo exited $RC"
+ml reparent "$fold_name" --program alpha --undo
+[ "$RC" = 4 ] && ok "the undo of a move is refused once the session is back in the source" || fail "a replayed undo exited $RC"
 
 # Retirement works from the destination: a real launched session.
-SHIM_RECORD_DIR="$tmp/rec-rp" ml launch --program alpha --kind tower --scope fold-live --cwd "$repo"
+SHIM_RECORD_DIR="$tmp/rec-rp" ml launch --program alpha --kind tower --scope fold-live --brief "$tmp/brief.md" --cwd "$repo"
 [ "$RC" = 0 ] || fail "fixture: the live launch exited $RC: $ERR"
 live=$(field name)
 wait_done "$live"
