@@ -3458,9 +3458,28 @@ guard_gh() {
       # switches the request to POST as soon as one `-f`/`-F`/`--field`/
       # `--raw-field` is present, so a field flag is a write in disguise even
       # with no `-X`.
+      # A method-override header makes the server treat the GET as a write,
+      # and `--hostname` sends the request, token included, to another host:
+      # both defer, and so does a header value the guard cannot read.
+      local hdr=0 lc
       for ((i = 2; i < cwn; i++)); do
+        lc=${cw[i],,}
+        case $lc in
+          *method-override* | *x-http-method* | *x-method*) return 1 ;;
+        esac
+        if [ "$hdr" = 1 ]; then
+          case ${cw[i]} in
+            *'$'*) return 1 ;;
+          esac
+          hdr=0
+        fi
+        case ${cw[i]} in
+          --header=*'$'* | -H*'$'*) return 1 ;;
+          --header | -*H) hdr=1 ;;
+        esac
         case ${cw[i]} in
           --) break ;; # end of flags: what follows is the endpoint
+          --hostname | --hostname=*) return 1 ;;
           --method | --method=* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
           --input | --input=*) return 1 ;;
           --*) ;;
@@ -4146,6 +4165,7 @@ environ_word_risky() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
+  secret_word_risky "$w" "$2" && return 0
   if [ "$2" = 0 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 1 ;;
@@ -4198,6 +4218,147 @@ environ_word_risky() {
     /proc | /proc/*) return 0 ;;
   esac
   return 1
+}
+
+# Secret-bearing locations. Credentials live in a handful of home-directory
+# dotfiles and system files, and a file descriptor or process memory can hand
+# the reader whatever the worker's own process holds, so a reader meeting any
+# of them defers in every spelling: absolute, relative to the tracked cwd,
+# `~`, `$HOME`, repeated slashes, `..`, a symlinked directory or final
+# component, and a glob that could match one. Home-directory names are matched
+# as path components, so they hold for any account's home.
+
+# secret_lexical <path>: 0 when the path, read as written, names a secret.
+secret_lexical() {
+  local s=$1
+  case $s in
+    /*) ;;
+    *) s=/$s ;;
+  esac
+  s=$s/
+  case $s in
+    */.ssh/* | */.gnupg/* | */.aws/* | */.netrc/* | */.npmrc/* | */.pypirc/* | */.git-credentials/* | \
+      */.kube/* | */.azure/* | */.password-store/* | */.docker/config.json/* | \
+      */.config/gh/* | */.config/op/* | */.config/gcloud/* | \
+      */.claude/.credentials* | */.claude.json/*) return 0 ;;
+    /etc/shadow/* | /etc/gshadow/* | /etc/shadow-/* | /etc/gshadow-/* | /etc/ssh/ssh_host_*_key/*) return 0 ;;
+    /proc/*/mem/* | /proc/*/fd/* | /dev/fd/* | /dev/stdin/*) return 0 ;;
+  esac
+  return 1
+}
+
+# secret_glob <absolute-word>: 0 when a word with pattern characters could
+# match a secret: a literal sample of each system file, or a component that
+# starts with a dot and could match a secret directory name. Braces and zsh's
+# pattern operators defer when the word names a system directory or a dotted
+# component, since they are not matched here.
+secret_glob() {
+  local w=$1 s c n IFS=/
+  local -a parts
+  case $w in
+    *[\{^#~]*)
+      case $w in
+        /etc* | /proc* | /dev* | */.*) return 0 ;;
+      esac
+      ;;
+  esac
+  for s in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- /proc/1/mem /dev/fd/0 /dev/stdin; do
+    # shellcheck disable=SC2053 # the operand is the pattern under test
+    [[ $s == $w ]] && return 0
+  done
+  read -r -a parts <<<"$w"
+  for c in ${parts[@]+"${parts[@]}"}; do
+    case $c in
+      .*[*?[]*)
+        for n in .ssh .gnupg .aws .netrc .npmrc .pypirc .git-credentials .kube .azure .password-store .claude.json; do
+          # shellcheck disable=SC2053
+          [[ $n == $c ]] && return 0
+        done
+        ;;
+    esac
+  done
+  return 1
+}
+
+# secret_word_risky <word> <globs>: 0 when the word, or the value an
+# `--option=value` word carries, could name a secret. The word has its
+# repeated slashes collapsed already.
+secret_word_risky() {
+  local w=$1
+  secret_path_risky "$w" "$2" && return 0
+  case $w in
+    -*=*) secret_path_risky "${w#*=}" "$2" && return 0 ;;
+  esac
+  return 1
+}
+
+# secret_path_risky <path> <globs>: the path as written, then resolved from
+# the tracked cwd through its directory's canonical form and, for a symlink,
+# its target.
+secret_path_risky() {
+  local p=$1 abs dir last tgt
+  case $p in
+    '~'*)
+      case $p in
+        */*) p=/${p#*/} ;;
+        *) return 1 ;;
+      esac
+      ;;
+    "\$HOME"/* | "\${HOME}"/*) p=/${p#*/} ;;
+  esac
+  secret_lexical "$p" && return 0
+  case $p in
+    /*) abs=$p ;;
+    *) abs=$HOOK_CWD/$p ;;
+  esac
+  while [ "${abs%/}" != "$abs" ] && [ "$abs" != / ]; do
+    abs=${abs%/}
+  done
+  if [ "$2" = 1 ]; then
+    secret_glob "$abs"
+    return
+  fi
+  secret_lexical "$abs" && return 0
+  last=${abs##*/}
+  dir=${abs%/*}
+  [ -n "$dir" ] || dir=/
+  canon_dir_cached "$dir"
+  [ -n "$CANON" ] || return 1
+  case $CANON in
+    /) tgt=/$last ;;
+    *) tgt=$CANON/$last ;;
+  esac
+  secret_lexical "$tgt" && return 0
+  if [ -L "$tgt" ]; then
+    tgt=$(readlink -f -- "$tgt" 2>/dev/null) || return 1
+    [ -n "$tgt" ] && secret_lexical "$tgt" && return 0
+  fi
+  return 1
+}
+
+# lists_operands <verb>: the verbs that print the names inside a directory
+# operand. A listing of a secret-bearing directory names the key files, so
+# they meet the secret screen too, though not the environ one.
+lists_operands() {
+  case $1 in
+    ls | find | fd) return 0 ;;
+  esac
+  return 1
+}
+
+# secret_words_ok: no word of the current simple command could name a secret.
+secret_words_ok() {
+  local i g w
+  for ((i = 0; i < cwn; i++)); do
+    g=${cglob[i]}
+    [ "${cz[i]-0}" = 0 ] || g=1
+    w=${cw[i]}
+    while [ "${w#*//}" != "$w" ]; do
+      w=${w//\/\//\/}
+    done
+    secret_word_risky "$w" "$g" && return 1
+  done
+  return 0
 }
 
 # canon_dir_cached <absolute-dir>: the directory's canonical path in CANON,
@@ -5393,6 +5554,8 @@ verify_known_simple() {
   fi
   if opens_operands "$verb"; then
     environ_words_ok || return 1
+  elif lists_operands "$verb"; then
+    secret_words_ok || return 1
   fi
   subst_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
