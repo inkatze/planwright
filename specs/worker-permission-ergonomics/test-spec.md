@@ -598,7 +598,9 @@ nesting past the recursion bound defer.
 
 ### REQ-F1.7 — Hooks-directory file-tool protection follows the real hooks path [test]
 
-Supersedes REQ-F1.6's entry, which it keeps. Permission-matcher (or hook)
+Supersedes REQ-F1.6's entry, which it keeps. With no lease open every row
+below holds unchanged; REQ-F1.8's entry covers the leased exception.
+Permission-matcher (or hook)
 fixture rows: `Write`/`Edit` on the worktree root's `githooks/x`,
 `.githooks/x`, `.git/hooks/x`, and the resolved `core.hooksPath` directory
 denied; on `test/githooks/x`, `src/githooks/x`, and `lib/.githooks/x` allowed;

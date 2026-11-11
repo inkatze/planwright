@@ -1212,5 +1212,5 @@ meaning-class.
 
 Class: meaning
 Lens-pass: Amendment 6, delta-scoped lens review above (spec lens set; every finding dispositioned)
-Anchor: `faeea68774563ed045a70feaab0ed3363cdc93bf` — computed as
+Anchor: `52fc8ef65c0e0b08ef9285b0e93f1a66a2f9c472` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
