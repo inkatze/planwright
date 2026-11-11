@@ -4444,7 +4444,16 @@ broad_path_risky() {
   [ -n "$out" ] || out=/
   broad_dir "$out" && return 0
   canon_dir_cached "$out"
-  [ -n "$CANON" ] && [ "$CANON" != "$out" ] && broad_dir "$CANON"
+  out=$CANON
+  [ -n "$out" ] || return 1
+  broad_dir "$out" && return 0
+  # The account's own home as its canonical path (macOS's /tmp is /private/tmp).
+  canon_dir_cached "$HOME"
+  [ -n "$CANON" ] || return 1
+  case $out in
+    "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
+  esac
+  return 1
 }
 
 # broad_words_ok: no operand of the current recursive reader names a broad
