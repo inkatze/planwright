@@ -5120,12 +5120,13 @@ is_duration() {
   [ "$DURATION_SECONDS" -le "$MAX_WAIT_SECONDS" ]
 }
 
-# strip_prefixes: drop the transparent `time [-p]` and `timeout <duration>`
-# prefixes (REQ-A1.13) from the current simple command, setting PREFIXED, so
-# the command they wrap is verified as if it stood alone. Non-zero defers: a
-# prefix with nothing to run, a `cd` under a prefix (its directory would not
-# carry), or a `time` or `timeout` left after the prefixes, which would be
-# the `time` program or a nested timeout rather than a keyword. A `timeout`
+# strip_prefixes: drop the transparent `time [-p]`, `timeout <duration>` and
+# `nice -n <0..19>` prefixes (REQ-A1.13, REQ-A1.16) from the current simple
+# command, setting PREFIXED, so the command they wrap is verified as if it
+# stood alone. Non-zero defers: a prefix with nothing to run, a `cd` under a
+# prefix (its directory would not carry), or a `time`, `timeout` or `nice`
+# left after the prefixes, which would be the program or a nested wrapper
+# rather than a keyword. A `timeout`
 # whose next word is not a duration is left as the verb, and classify_verb
 # defers it.
 strip_prefixes() {
