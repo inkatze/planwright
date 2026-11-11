@@ -16,14 +16,14 @@ echo "### Widened allowlist (2026-09-14) — the verbs measured worker stalls ne
 # vector that kept the verb off the list until now.
 # `env`: bare only. `env <assignment|flag> <command>` EXECUTES the command, and
 # `-u`/`-C`/`-S` take values, so an operand cannot be told apart from a command.
-assert_allow "env bare prints the environment" "env"
-assert_allow "env piped into grep" "env | grep -i planwright"
+assert_defer "env bare prints the environment, secrets included" "env"
+assert_defer "env piped into grep still prints the environment to the reader" "env | grep -i planwright"
 assert_defer "env with an assignment prefix execs" "env FOO=bar rm -rf x"
 assert_defer "env -i execs" "env -i /bin/sh"
 assert_defer "env -u execs" "env -u PATH cat file"
 assert_defer "env with a bare command operand execs" "env rm -rf x"
 assert_allow "printenv one name" "printenv PATH"
-assert_allow "printenv bare" "printenv"
+assert_defer "printenv bare" "printenv"
 # `read` assigns SHELL variables, so each name goes through assign_name_ok —
 # `read PATH` would re-point every later command in the same shell.
 assert_allow "while read loop over a file" "while read l; do echo \"\$l\"; done < file"
@@ -304,7 +304,10 @@ assert_allow "stall 1 — grep|head then a for-loop over an awk filter" \
 # pipe, a tracked `R=<trusted root>` assignment, `diff` through `$R`, and the
 # plugin script invoked through `$R` — is unchanged.
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
-assert_allow "stall 2 — env pipe, tracked root assignment, plugin script call" \
+assert_allow "stall 2 — a named printenv pipe, tracked root assignment, plugin script call" \
+  "printenv PATH | grep -i 'planwright\\|PLUGIN' ; echo ---; R=$PLUGIN_ROOT; diff -rq \$R/scripts scripts | head; echo \"--- dispatch-fetch\"; \$R/scripts/plug.sh --spec specs/x $PLUGIN_CWD; echo \"exit \$?\"" \
+  Bash "$PLUGIN_CWD"
+assert_defer "stall 2 — the same with a bare env pipe, which prints every variable" \
   "env | grep -i 'planwright\\|PLUGIN' ; echo ---; R=$PLUGIN_ROOT; diff -rq \$R/scripts scripts | head; echo \"--- dispatch-fetch\"; \$R/scripts/plug.sh --spec specs/x $PLUGIN_CWD; echo \"exit \$?\"" \
   Bash "$PLUGIN_CWD"
 HOOK_ENV=()

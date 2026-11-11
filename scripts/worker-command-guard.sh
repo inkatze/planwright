@@ -2794,19 +2794,25 @@ guard_jq() {
   return 0
 }
 
-# guard_env: bare `env` only. With NO operand, env prints the environment and
-# runs nothing; with one, it is an EXEC vector (`env VAR=x cmd`, `env -i cmd`,
-# `env -S '…'`), and since `-u`/`-C`/`-S` take values, "is this operand a
-# command" cannot be decided from the token shape alone. Requiring the bare form
-# sidesteps that entirely.
-#
-# Printing the environment exposes whatever secrets the worker's environment
-# carries, but it opens no new class: `echo` is already unguarded on this list,
-# so `echo $GH_TOKEN` is already approved. The awk screen's separate `ENVIRON`
-# reject is NOT the same call — there the environment read sits inside program
-# text whose use of the value the guard cannot see at all.
+# guard_env: `env` never auto-approves. Bare, it prints the whole environment,
+# whatever credentials the worker's session carries; with an operand it is an
+# EXEC vector (`env VAR=x cmd`, `env -i cmd`, `env -S '…'`). `env --version`
+# is approved earlier, as a version probe.
 guard_env() {
-  [ "$cwn" -eq 1 ]
+  return 1
+}
+
+# guard_printenv: `printenv NAME…` with names only, the same read as the
+# approved `echo $VAR`. Bare, or with a flag, it prints every variable.
+guard_printenv() {
+  local i
+  [ "$cwn" -ge 2 ] || return 1
+  for ((i = 1; i < cwn; i++)); do
+    case ${cw[i]} in
+      -* | '') return 1 ;;
+    esac
+  done
+  return 0
 }
 
 # guard_sleep: `sleep <duration>…`, numeric durations only, within the cap.
@@ -4149,8 +4155,8 @@ opener_word_risky() {
 
 # Other processes' environments. /proc/<pid>/environ holds another
 # process's environment (credentials included), and /proc/<pid>/mem its
-# memory; only the reading process's own environ, through /proc/self or
-# /proc/thread-self, stays readable. A redirect source, or a word of a verb
+# memory; the reading process's own environ is the worker's environment
+# and defers with them. A redirect source, or a word of a verb
 # that opens its operands, whose last component is `environ` or `mem`
 # defers, since a `..`, /dev/fd, or a symlink can reach /proc from any
 # directory. So does a glob whose last component could match either, unless
@@ -4166,11 +4172,6 @@ environ_word_risky() {
     w=${w//\/\//\/}
   done
   secret_word_risky "$w" "$2" && return 0
-  if [ "$2" = 0 ]; then
-    case $w in
-      /proc/self/environ | /proc/thread-self/environ) return 1 ;;
-    esac
-  fi
   last=${w##*/}
   # `mem` holds the whole process's memory, its environment included.
   case $last in
@@ -4444,11 +4445,6 @@ environ_redirect_ok() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
-  if [ "$g" = 0 ]; then
-    case $w in
-      /proc/self/environ | /proc/thread-self/environ) return 0 ;;
-    esac
-  fi
   case $w in
     proc | proc/* | */proc | */proc/*) return 1 ;;
   esac
@@ -4843,15 +4839,15 @@ classify_verb() {
     # Same class, added 2026-09-14 from the shapes real dispatched workers
     # stalled on. Each was checked for a write/exec vector across its whole
     # flag surface and has none: `readlink`/`nl`/`paste`/`column` and the
-    # checksum family report to stdout with no output-file or filter flag, and
-    # `printenv` exposes no more than the already-approved `echo $VAR`. `jq` is
+    # checksum family report to stdout with no output-file or filter flag.
+    # `printenv` is guarded below: bare, it prints every variable. `jq` is
     # NOT here: it passes the same write/exec test — its language has no exec
     # and no file-write primitive, and `-f`, `--rawfile`, `--slurpfile` and
     # `-L` only ever READ — but it carries PROGRAM TEXT, and a jq program can
     # read the environment (`env`, `$ENV`). Leaving it unscreened allowed
     # `jq -n env` while `awk 'BEGIN{print ENVIRON["X"]}'` deferred, which is
     # the same read through a different tool. It is guarded below.
-    printenv | readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum)
+    readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum)
       return 0
       ;;
     # Read-only analyzers (results to stdout only).
@@ -4873,6 +4869,7 @@ classify_verb() {
     jq) guard_jq ;;
     markdownlint | markdownlint-cli2) guard_mdlint ;;
     env) guard_env ;;
+    printenv) guard_printenv ;;
     read) guard_read ;;
     yq) guard_yq ;;
     shfmt) guard_shfmt ;;
