@@ -4371,13 +4371,15 @@ recursive_reader() {
   local i w
   case ${cw[0]} in
     find | fd | tree | rg) return 0 ;;
-    grep | egrep | fgrep | diff | ls)
+    grep | egrep | fgrep | diff | ls | file)
       for ((i = 1; i < cwn; i++)); do
         w=${cw[i]}
         case $w in
-          --recursive | --dereference-recursive | --directories=recurse) return 0 ;;
+          # grep abbreviates a long option to any unambiguous prefix.
+          --rec* | --der* | --dir*=rec* | --dir | --dire | --direc | --direct | --directo | --director | --directories) return 0 ;;
           --*) ;;
-          -*[rR]*) return 0 ;;
+          -d) return 0 ;;
+          -*[rRd]*) return 0 ;;
         esac
       done
       ;;
@@ -4409,7 +4411,7 @@ broad_dir() {
 # written as is, through `~` or `$HOME`, with dot components, or through a
 # symlink.
 broad_path_risky() {
-  local p=$1 abs out='' comp
+  local p=$1 abs out='' comp root
   local -a parts
   while [ "${p#*//}" != "$p" ]; do
     p=${p//\/\//\/}
@@ -4453,7 +4455,33 @@ broad_path_risky() {
   case $out in
     "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
   esac
+  # A parent of the worktree holds its siblings and, further up, the home.
+  root=$(repo_root_of "$HOOK_CWD") || return 0
+  [ "$out" != "$root" ] || return 1
+  case $root/ in
+    "$out"/*) return 0 ;;
+  esac
   return 1
+}
+
+# broad_glob_risky <word>: a recursive operand with a pattern or brace: the
+# directory before the first pattern character is what is checked, and any
+# alternative that could leave it (`~`, `$`, `..`, an absolute path) defers.
+broad_glob_risky() {
+  local w=$1 lit dir
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
+  case $w in
+    *..* | *\$* | *\~* | *,/* | *\{/*) return 0 ;;
+  esac
+  lit=${w%%[\*\?\[\{]*}
+  case $lit in
+    */*) dir=${lit%/*} ;;
+    *) dir=. ;;
+  esac
+  [ -n "$dir" ] || dir=/
+  broad_path_risky "$dir"
 }
 
 # broad_words_ok: no operand of the current recursive reader names a broad
@@ -4464,6 +4492,9 @@ broad_words_ok() {
     case ${cw[i]} in
       -*) continue ;;
     esac
+    if [ "${cglob[i]}" != 0 ] || [ "${cz[i]-0}" != 0 ]; then
+      broad_glob_risky "${cw[i]}" && return 1
+    fi
     broad_path_risky "${cw[i]}" && return 1
   done
   return 0
