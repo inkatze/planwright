@@ -455,7 +455,8 @@ full_suite_pool: heavy-suite
 `full_suite_pool` puts `/execute-task`'s own full local suite in the same
 pool, so on this host the integration suite and every unit's full suite run
 one at a time (`step_pool_capacity` and `step_pool_capacity_<pool>` raise
-that). `refire` needs `paths`, and only a `steps_pre_ci` or `steps_pre_pr`
+that; the shipped `heavy-run` pool takes only
+`step_pool_capacity_heavy_run`). `refire` needs `paths`, and only a `steps_pre_ci` or `steps_pre_pr`
 list may name the step. An uncommitted or untracked file under a declared
 path means the step runs; files git ignores never count, so a check that
 reads an ignored local input can be reused over a change to it.
@@ -465,8 +466,8 @@ already joins the shipped `heavy-run` pool, so units on one host take turns on
 the heavy run instead of piling onto the machine; a lone run takes a slot at
 once and sees no change. Its capacity is derived from the host (one slot per 8
 logical cores and per 16 GiB of memory, whichever is fewer, at least 1).
-Override it in your adopter layer (the per-user layer that reaches workers in
-worktrees; the machine-local layer does not), e.g.
+Override it in your adopter layer (the per-user layer, which reaches workers in
+worktrees), e.g.
 `step_pool_capacity_heavy_run: 2`; the shared `step_pool_capacity` never
 applies to it. Set `full_suite_pool: none` to run the suite unpooled; `none`
 is not a pool a step may declare.
@@ -479,7 +480,7 @@ shell whatever the suite's exit. The helper's usage header
 (`scripts/step-pool.sh`) is authoritative for its arguments; the shape is:
 
 ```bash
-pool=heavy-suite
+pool=heavy-run
 mark=${PLANWRIGHT_STEP_POOL_HOLD:-}
 state=$(scripts/step-pool.sh take "$pool" "$$") || exit   # waits up to step_pool_wait, naming the holders; an expired wait runs no suite
 case $state in taken*) mark="$pool:$$" ;; esac

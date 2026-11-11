@@ -46,7 +46,7 @@
 # reads as an unknown holder rather than a wrong one.
 #
 # CAPACITY is step_pool_capacity_<pool> (hyphens as underscores) when set,
-# else step_pool_capacity, else 1. A malformed value falls back to the next in
+# else step_pool_capacity, else 1 (heavy-run: below). A malformed value falls back to the next in
 # that order with one warning naming its layer. Callers configured with
 # different capacities each try only their own slot count, so the larger
 # setting governs.
@@ -221,6 +221,16 @@ valid_pid() {
 }
 valid_count() {
   [ "${#1}" -le 9 ] || return 1
+  case $1 in
+    0) return 0 ;;
+    '' | 0* | *[!0-9]*) return 1 ;;
+  esac
+  return 0
+}
+# valid_big — a decimal with no leading zero of at most 18 digits (still inside
+# a 64-bit shell integer): a host's memory in bytes or KiB outgrows valid_count.
+valid_big() {
+  [ "${#1}" -le 18 ] || return 1
   case $1 in
     0) return 0 ;;
     '' | 0* | *[!0-9]*) return 1 ;;
@@ -596,14 +606,14 @@ host_capacity() {
     _hc_kib=$PLANWRIGHT_HOST_MEMORY_KIB
   else
     _hc_kib=$(awk '$1 == "MemTotal:" { print $2; exit }' /proc/meminfo 2>/dev/null) || _hc_kib=''
-    if ! valid_count "$_hc_kib"; then
+    if ! valid_big "$_hc_kib"; then
       _hc_b=$(sysctl -n hw.memsize 2>/dev/null) || _hc_b=''
-      if valid_count "$_hc_b"; then _hc_kib=$((_hc_b / 1024)); else _hc_kib=''; fi
+      if valid_big "$_hc_b"; then _hc_kib=$((_hc_b / 1024)); else _hc_kib=''; fi
     fi
   fi
   _hc_bad=''
   valid_count "$_hc_cores" && [ "$_hc_cores" != 0 ] || _hc_bad='core count'
-  valid_count "$_hc_kib" && [ "$_hc_kib" != 0 ] || _hc_bad="${_hc_bad:+$_hc_bad and }total memory"
+  valid_big "$_hc_kib" && [ "$_hc_kib" != 0 ] || _hc_bad="${_hc_bad:+$_hc_bad and }total memory"
   if [ -n "$_hc_bad" ]; then
     warn "the host's $_hc_bad could not be read; the $pool pool derives capacity 1"
     printf 1

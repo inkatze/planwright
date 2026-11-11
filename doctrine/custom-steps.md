@@ -309,7 +309,8 @@ calls whose seconds are summed); the owner releases after the check ends,
 whatever its exit. An unreleased slot is reclaimed once its owner exits, and a
 timeout never releases one while the check process lives. Capacity is
 `step_pool_capacity_<pool>` (hyphens as underscores), else
-`step_pool_capacity`; the wait, bounded by `step_pool_wait`, reports at its
+`step_pool_capacity` (the shipped `heavy-run` pool derives its own, below); the
+wait, bounded by `step_pool_wait`, reports at its
 start each live holder (pid, step id or full-suite marker, worktree) and
 admits unordered, and past the bound the step is `failed` naming the holders.
 A pool directory that is a symbolic link or not the user's, or a lock-library
@@ -329,7 +330,7 @@ or an empty value, either running the suite unpooled with no warning; `none` is
 never a pool name a declared step may use, and a step naming `heavy-run` shares
 the pool. A lone run on an idle host takes a slot with no wait. The pool's
 capacity is `step_pool_capacity_heavy_run` when set in any layer (the adopter
-layer reaches workers in worktrees; the machine-local layer does not), else one
+layer reaches workers in worktrees), else one
 slot per 8 logical cores and per 16 GiB of total memory, whichever is fewer, at
 least 1, a host that cannot be read deriving 1 with one warning;
 `step_pool_capacity` never applies to it. The pool is independent of the

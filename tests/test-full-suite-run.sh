@@ -164,6 +164,7 @@ verdict "REQ-K1.1: a layer setting full_suite_pool empty runs the suite unpooled
 
 # --- REQ-K1.1, REQ-K1.2: two units sharing the default run in disjoint intervals --
 reset
+printf 'step_pool_wait: 120s\n' >"$tracked"
 host_env="PLANWRIGHT_HOST_CORES=4"
 (fsr "$host_env" "PLANWRIGHT_HOST_MEMORY_KIB=8388608" -- -- "$suite" "$tmp/logA" 1 0 >/dev/null 2>&1) &
 a=$!
@@ -197,7 +198,7 @@ defaults="$tmp/old-defaults.yml"
 fsr -- -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" && [ ! -s "$tmp/err" ]
-verdict "a key no layer sets runs the suite unpooled, silently" "absent key: rc=$rc" "$tmp/err"
+verdict "a core install that predates the key runs the suite unpooled, silently" "absent key: rc=$rc" "$tmp/err"
 
 # --- set: the run holds a slot for its own pid, passes the mark, then releases ----
 reset

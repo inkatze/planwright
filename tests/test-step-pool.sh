@@ -1267,6 +1267,36 @@ derive_case 64 16 1
 derive_case 8 128 1
 derive_case 32 128 4
 derive_case 2 4 1
+# A memory total past nine digits of KiB (2 TiB here) still reads as readable.
+derive_case 16 2048 2
+
+# The adopter layer sets the per-pool capacity too.
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+printf 'step_pool_capacity_heavy_run: 2\n' >"$adopter/planwright.yml"
+o1=$(owner)
+o2=$(owner)
+o3=$(owner)
+r1=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o1" 2>/dev/null)
+r2=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o2" 2>/dev/null)
+host 4 $((8 * GIB)) -- take "$HEAVY" "$o3" --waited 1 >/dev/null 2>&1
+rc=$?
+[ "$r1" = "taken${TAB}1${TAB}0" ] && [ "$r2" = "taken${TAB}2${TAB}0" ] && [ "$rc" -eq 3 ]
+verdict "REQ-K1.3: step_pool_capacity_heavy_run set in the adopter layer sizes the pool" \
+  "adopter layer: '$r1' '$r2' rc=$rc"
+
+# A malformed per-pool value falls back to the derived capacity with one warning.
+reset
+printf 'step_pool_wait: 1s\nstep_pool_capacity_heavy_run: abc\n' >"$mlocal"
+o1=$(owner)
+o2=$(owner)
+out=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o1" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ "$(grep -c . "$tmp/err")" -eq 1 ] && grep -q 'step_pool_capacity_heavy_run' "$tmp/err"
+verdict "REQ-K1.3: a malformed step_pool_capacity_heavy_run warns once and falls back to the derived value" \
+  "malformed key: out='$out'" "$tmp/err"
+host 4 $((8 * GIB)) -- take "$HEAVY" "$o2" --waited 1 >/dev/null 2>&1
+check $(($? == 3 ? 0 : 1)) "REQ-K1.3: the fallback is the derived capacity, not the shared key" \
+  "a second holder was admitted after the malformed key"
 
 # The per-pool key wins over the derived value; the shared key does not.
 reset
