@@ -158,8 +158,10 @@ Output, tab separated:
   name     the name alone
   retire   retire <name> released|partial released=<classes> held=<classes>,
            over the classes process, pane, registry, attention and row
+  wait     wait <name> waiting <reason> (unwait: wait <name> working)
+  bound    bound <limit or off> <working count> <waiting count>
   list     <name> <program> <kind> <scope> <backend> <launched epoch>
-  kinds    <kind> <profile> <allocation key>
+  kinds   <kind> <profile> <allocation key>
 
 A launch reserves the name with a complete row (backend, launcher pid and a
 token) before it starts anything, and a session that started but could not
@@ -723,8 +725,10 @@ same audit and refuses a PR with a gap. The PR body carries the rendered
 records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
 
 While the only thing left is a wait (an operator question, or CI or a ready
-flip outstanding), run \`$cs_root/scripts/mission-control-launch.sh wait $1 --on operator|ci|ready-flip\`
-so the host session bound does not count you, and \`unwait $1\` before working again.
+flip outstanding), run \`$cs_root/scripts/mission-control-launch.sh wait $1 --on <why>\`,
+<why> being operator, ci or ready-flip, so the host session bound does not
+count you, and \`unwait $1\` before working again. Exit 3 means the name is
+locked for a moment: run it again until it exits 0.
 EOF
 }
 
@@ -1520,9 +1524,11 @@ host_live_counts() {
     case $hl_at in '' | *[!0-9]*) hl_at=0 ;; esac
     if [ "$hl_at" -gt "$hl_when" ] || { [ "$hl_at" -eq "$hl_when" ] && expr "x${f##*/}" \> "x$hl_own" >/dev/null; }; then continue; fi
     [ "$(row_get "$f" kind)" != mission-control ] || continue
+    hl_p=$(row_get "$f" program)
+    [ -n "$hl_p" ] || continue
     hl_w=w
     [ -z "$(row_get "$f" waiting)" ] || hl_w=z
-    hl_rows="$hl_rows$(row_get "$f" program) $hl_w
+    hl_rows="$hl_rows$hl_p $hl_w
 "
   done
   printf '%s' "$hl_rows" | awk 'NF { if ($2 == "w") w[$1]++; else z[$1]++; p[$1] = 1 }

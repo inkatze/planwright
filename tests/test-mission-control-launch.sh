@@ -1558,7 +1558,8 @@ esac
 cap_launch one-waiting
 if [ "$RC" = 0 ]; then
   ok "a waiting worker does not hold a slot: a bound of 2 with one working, one waiting admits a launch"
-  wait_done "$(field name)"
+  leak1=$(field name)
+  wait_done "$leak1"
 else
   fail "a waiting worker still held the bound: $ERR"
 fi
@@ -1568,7 +1569,8 @@ ml wait "$w2" --on ci
 cap_launch all-waiting
 if [ "$RC" = 0 ]; then
   ok "a full bound of waiting workers no longer refuses a launch"
-  wait_done "$(field name)"
+  leak2=$(field name)
+  wait_done "$leak2"
 else
   fail "a bound full of waiting workers refused a launch: $ERR"
 fi
@@ -1580,7 +1582,7 @@ case $OUT in
 esac
 bound_row=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "bound" { print $3 "/" $4 }')
 case $bound_row in
-  [0-9]*/2) ok "bound reports working and waiting slots (waiting: 2)" ;;
+  2/2) ok "bound reports working and waiting slots (the two launched sessions work, the two seeds wait)" ;;
   *) fail "bound reports working/waiting as '$bound_row': $OUT" ;;
 esac
 
@@ -1595,9 +1597,40 @@ esac
 ml unwait "$w1"
 [ "$RC" = 0 ] && ok "unwait returns a worker to the count" || fail "unwait exited $RC: $ERR"
 grep -q "^waiting${TAB}" "$capreg/$w1" && fail "unwait left the waiting field" || ok "unwait clears the waiting field"
+ml retire "$leak1"
+ml retire "$leak2"
+ml bound
+case $OUT in
+  *"bound${TAB}2${TAB}1${TAB}1"*) ok "with the launched sessions retired one seed works and one waits" ;;
+  *) fail "bound after the retires: $OUT" ;;
+esac
+ml wait "$w1" --on ready-flip
+ml bound
+case $OUT in
+  *"bound${TAB}2${TAB}0${TAB}2"*) ok "both seeds waiting leaves no working slot" ;;
+  *) fail "bound with both seeds waiting: $OUT" ;;
+esac
 ml unwait "$w2"
+cap_launch half-resumed
+if [ "$RC" = 0 ]; then
+  ok "one resumed worker leaves room under a bound of 2"
+  leak3=$(field name)
+  wait_done "$leak3"
+  ml retire "$leak3"
+else
+  fail "one resumed worker held a bound of 2: $ERR"
+fi
+ml unwait "$w1"
+ml wait "$w1" --on ci --extra
+[ "$RC" = 2 ] && ok "wait refuses extra arguments" || fail "wait with an extra argument exited $RC"
+ml unwait "$w1"
 cap_launch work-again
-[ "$RC" = 4 ] && ok "a bound held again by resumed workers refuses a launch" || fail "resumed workers did not hold the bound (exit $RC): $ERR"
+[ "$RC" = 4 ] && ok "a bound held again by two resumed workers refuses a launch" || fail "resumed workers did not hold the bound (exit $RC): $ERR"
+seed_row mc-beta-worker-0000000014 beta worker
+sed "s/^state${TAB}.*/state${TAB}launching/" "$capreg/mc-beta-worker-0000000014" >"$capreg/mc-beta-worker-0000000014.tmp.sed" \
+  && mv "$capreg/mc-beta-worker-0000000014.tmp.sed" "$capreg/mc-beta-worker-0000000014"
+ml wait mc-beta-worker-0000000014 --on ci
+[ "$RC" = 4 ] && ok "a session whose launch is not complete is never marked waiting" || fail "a launching row was marked waiting (exit $RC)"
 
 ml wait mc-nobody-worker-0000000099 --on ci
 [ "$RC" = 3 ] && ok "wait on an unregistered session exits 3" || fail "wait on an unknown session exited $RC: $ERR"
@@ -1608,6 +1641,10 @@ ml wait "$w1"
 seed_row mc-beta-mission-control-0000000013 beta mission-control
 ml wait mc-beta-mission-control-0000000013 --on operator
 [ "$RC" = 4 ] && ok "a mission-control session is never marked waiting" || fail "a mission-control row was marked waiting (exit $RC)"
+ml unwait mc-beta-mission-control-0000000013
+[ "$RC" = 4 ] && ok "a mission-control session is never unwaited either" || fail "unwait on a mission-control row exited $RC"
+ml bound extra
+[ "$RC" = 2 ] && ok "bound takes no arguments" || fail "bound with an argument exited $RC"
 ml unwait mc-nobody-worker-0000000099
 [ "$RC" = 3 ] && ok "unwait on an unregistered session exits 3" || fail "unwait on an unknown session exited $RC"
 fleet="$tmp/fleet"
