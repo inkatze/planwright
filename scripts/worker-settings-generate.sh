@@ -4,32 +4,16 @@
 #
 # Usage: worker-settings-generate.sh <worker-settings.json> <worktree> <out-file>
 #
-# The shipped profile denies the file tools every mise task-file name
-# (mise.toml, .mise.toml, mise-tasks/, .mise-tasks/) at any depth, because
-# mise reads the config of every directory above the one it runs in. A path
-# rule cannot say "inside this worktree only", so the opted-in profile swaps
-# those four broad denies for literal denies of the same four names in every
-# ancestor folder of the worktree, and in the primary checkout when the
-# worktree lies outside it. The worktree's own task files are then open; every
-# ancestor's, which mise would load from a worktree beneath it, stay closed.
-# Every other rule is the shipped one, unchanged and in order: mise's local
-# files, conf.d and miserc files, trust, data, state and cache folders, and
-# lockfiles.
+# The four broad mise task-file denies (mise.toml, .mise.toml, mise-tasks/,
+# .mise-tasks/ at any depth) are replaced by literal denies of the same names
+# in every ancestor folder of the worktree and in the primary checkout, so only
+# the worktree's own task files open. Every other rule stays as shipped.
+# A worktree or primary path holding a pattern character, or a primary checkout
+# that cannot be named, is refused. Output: whole by rename, owner-only,
+# outside the worktree. What it opens and the residual risk:
+# docs/permission-matcher-model.md, "The mise task-file opt-in".
 #
-# Residual risk, by construction: a task file anywhere that is not directly in
-# one of those folders is editable by that worker: an unrelated checkout, the
-# primary checkout's subfolders, a sibling worktree, and the worker's scratch
-# root. Ancestor folder names are matched case-sensitively (MA-2 in
-# docs/permission-matcher-model.md).
-#
-# A worktree path holding a character a path rule would read as a pattern or
-# a rule delimiter (`* ? [ ] \ ( )`, a control character, or a component ending
-# in a space) is refused, since the literal deny could then match more or less
-# than the folder it names. The output is written whole by rename, owner-only,
-# outside the worktree.
-#
-# Exit: 0 written (the path is printed); 1 the profile, the worktree or the
-# output cannot be used; 2 usage.
+# Exit: 0 written (the path is printed); 1 unusable input; 2 usage.
 set -uf
 LC_ALL=C
 export LC_ALL
