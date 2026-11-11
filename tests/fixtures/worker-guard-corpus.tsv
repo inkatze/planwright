@@ -478,6 +478,25 @@ row	read-wrappers	defer	defer	defer	defer	nice -5 git status
 row	read-wrappers	defer	defer	defer	defer	nice --adjustment=5 git status
 row	read-wrappers	defer	defer	defer	defer	nice
 row	read-wrappers	defer	defer	defer	defer	nice -n 10 rm -rf @@OUTSIDE@@/x
+row	read-wrappers	allow	allow	allow	allow	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- bash tests/ok.sh
+row	read-wrappers	allow	allow	allow	allow	timeout 500 @@PLUGIN_ROOT@@/scripts/compute-route.sh -- bash tests/ok.sh
+row	read-wrappers	allow	allow	allow	allow	nice -n 10 timeout 500 @@PLUGIN_ROOT@@/scripts/compute-route.sh -- bash tests/ok.sh
+row	read-wrappers	allow	allow	allow	allow	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- mise run check
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- rm -rf @@OUTSIDE@@/x
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- bash -c 'ls'
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- git push origin main
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh --test tests/ok.sh -- bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh --
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- cd .. && ls
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- @@PLUGIN_ROOT@@/scripts/compute-route.sh -- rm -rf @@OUTSIDE@@/x
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh --check -- bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh '--' bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- timeout 5 bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/Compute-Route.sh -- bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@PLUGIN_ROOT@@/scripts/compute-*.sh -- bash tests/ok.sh
+row	read-wrappers	defer	defer	defer	defer	@@WORKTREE@@/scripts/compute-route.sh -- bash tests/ok.sh
+row	read-wrappers	defer	defer	allow	allow	@@PLUGIN_ROOT@@/scripts/compute-route.sh -- bash tests/ok.sh > @@SCRATCH@@/out.txt
 row	read-wrappers	allow	allow	allow	allow	gitleaks detect --no-git --source @@WORKTREE@@/notes.md --no-banner
 row	read-wrappers	defer	defer	allow	allow	gitleaks detect --no-git --source @@SCRATCH@@/f.orig --no-banner
 row	read-wrappers	defer	defer	defer	defer	gitleaks detect --report-path f --source @@WORKTREE@@/notes.md

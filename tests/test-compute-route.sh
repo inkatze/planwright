@@ -184,6 +184,21 @@ has "and says so" "is not a host alias" "$ERR"
 run --check
 assert_eq "no command is a usage error" 2 "$CODE"
 
+# The shape a worker starts a test run in: the bare form, no kind flag.
+printf 'fleet_compute_host: mac\n' >"$local_cfg"
+run -- bash tests/test-x.sh
+assert_eq "a worker's plain test run goes to the host" "remote ran" "$OUT"
+has "as the named test file" "--host mac compute --worktree $tmp/wt --test tests/test-x.sh" "$LOG"
+: >"$local_cfg"
+run -- bash tests/test-x.sh
+assert_eq "knob local keeps the plain test run off the channel" "" "$LOG"
+
+# Workers learn the form from the instructions they load.
+root="$here/.."
+for doc in doctrine/plugin-script-invocation.md skills/polish/SKILL.md skills/self-review/SKILL.md; do
+  if grep -q 'compute-route.sh' "$root/$doc"; then ok "$doc names the router"; else fail "$doc does not name the router"; fi
+done
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

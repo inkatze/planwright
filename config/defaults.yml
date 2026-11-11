@@ -242,7 +242,8 @@ step_pool_wait: 60m
 full_suite_pool:
 
 # Compute host (scripts/compute-route.sh). A test or lint run the gate runners
-# start (/execute-task's full suite, step-run.sh command steps) goes to this
+# start (/execute-task's full suite, step-run.sh command steps) or a worker
+# starts itself through the router goes to this
 # SSH host alias through `fleet-remote.sh compute` instead of running here.
 # `local` (or empty) keeps every run on this machine, which is the shipped
 # posture: an adopter has no second machine. A host that is unreachable, over
