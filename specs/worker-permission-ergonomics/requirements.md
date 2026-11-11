@@ -760,6 +760,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   file stays approvable (the trusted-checkout residual).
   *(Cites: D-22, D-29; kickoff Amendment 2 decision (2026-10-05);
   drafting-session decision (2026-11-10).)*
+  *(Extended by REQ-F1.8 (2026-11-10): a hooks-edit lease lifts the
+  hooks-directory and `lefthook.yml` protection for one named worker.)*
 
 - **REQ-F1.8** The protection REQ-F1.7 gives the git hooks directories and
   `lefthook.yml` SHALL lift, for the `Write` and `Edit` tools and the

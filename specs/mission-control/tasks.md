@@ -1221,7 +1221,9 @@ fixed-string check.)*
 - **Deliverables:** the clause grammar and its refusal in
   `scripts/mc-rules.sh`, the compiled digest-checked clause file, the shadow
   and live mode verb citing the operator's words; the worker tier's clause
-  evaluation in `scripts/policy-guard.sh` with the rule id in each denial;
+  evaluation in `scripts/policy-guard.sh` (the worker tier gains the file
+  and MCP surfaces its clauses need, which it defers today) with the rule id
+  in each denial;
   the lease store, its one reader and the open and close verbs, the
   undo-ledger entry, the status line and the readiness record's posture
   note; `mission_control_lease_ttl` with its cap; the headed browser rule as

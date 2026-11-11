@@ -1877,3 +1877,133 @@ Class: meaning
 Lens-pass: Amendment 7, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `895f1b643ba80174e71bd820f73547054c1efb29` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 8 (2026-11-10, amendment: forgotten asks and duties, enforced rules and leases, idle capacity)
+
+Spec path `specs/mission-control`; walk started at `59175a11`; walkthrough
+date 2026-11-10. Mode: amendment on an Active bundle, operator-declared
+through mission control and walked with the operator by relay in rounds of
+plain questions, drafted in the same session as the worker-permission
+delta that shares its lease. Scope: the follow-up ledger forgetting asks and
+duties (priority), operator rules the worker tier's guard keeps with one
+lease shape, and two doctor and throughput gaps. The runner calling due
+items each pass is the signed ledger requirement's and ships as a separate
+flight; the number-in-prose doctor check, the prose-or-unknown listing and
+the idle-wait audit are signed and not redrafted.
+
+#### Goal and glossary (Amendment 8)
+
+Restatement: mission control must not depend on remembering. Every ask and
+duty becomes a tracked item by a path that does not need the session to
+remember; overdue ones lead the status and stop a handover; a rule the
+operator states can be kept by the guard instead of by prose; one lease shape
+is the only way a worker is allowed, briefly, something a rule denies; and
+the doctor and throughput duty notice rules that disagree with settings and
+capacity left idle. Rules out: the guard evaluating raw regular expressions
+or running clause text, a standing lease, a lease lifting a Bash deny row,
+and the audits changing anything. Terms: *intake row* (a stored operator
+message awaiting disposition), *clause* (a rule's data-form enforcement),
+*lease* (a short, single-worker, operator-authorized exception).
+
+#### Requirements walkthrough (Amendment 8)
+
+Operator's answers, relayed through mission control and the hub:
+
+- **Hook edits (REQ-G1.7, and the worker-permission delta).** "Mid-run, one
+  worker (Recommended)": a lease the hub opens after the operator's yes, one
+  hour by default and four at most, closing on report.
+- **Asks (REQ-F1.19).** The operator asked whether a queue fits; the draft
+  already was one. Answer "1" plus "we maybe missing some more queues": the
+  durable ask queue with the turn-end and handover block, and REQ-F1.24, the
+  audit of state that should be a queue but is not.
+- **Event triggers (REQ-F1.22).** "Refuse it (Recommended)", with a fallback
+  date flag.
+- **New rules (REQ-B1.11).** "Watch-only first (Recommended)".
+- **Unreadable rules file (REQ-B1.10).** "Refuse and say why (Recommended)".
+- **Test commands** are the worker-permission delta's: "Command shapes
+  (Recommended)", a new setting.
+- **Idle capacity (REQ-M1.11).** "Bring a proposal (Recommended)".
+
+#### Design walkthrough (Amendment 8)
+
+D-56 (ledger duties by a deterministic path), D-57 (one lease shape, rules
+carry clauses) and D-58 (idle capacity, a knob rule's required value) are new
+and confirmed. D-53 gains annotations only. No signed decision is superseded.
+
+#### Verification approach (Amendment 8)
+
+Every new requirement has a `[test]` entry; the changed enforcement
+requirement's entry names its extensions. Coverage runs in the existing suites
+plus a new lease suite, in CI. No dead path found: the one behaviour that
+depends on the host (a turn-end check refusing a stop) is proven by Task 51's
+fixture, and the handover check fails regardless.
+
+#### Task graph (Amendment 8)
+
+The new tasks are in the bundle's task list; their `Dependencies:` lines are
+the graph. Deliberate non-edges: the lease work and the ledger work do not
+depend on each other, and the throughput task depends only on the existing
+idle-wait task, so they run in parallel. The worker-permission delta's lease
+consumer reads the lease store this bundle's lease task ships and treats an
+absent lease as no lease, so it needs no cross-bundle edge.
+
+#### Risk register (Amendment 8)
+
+1. A turn-end check depends on how the host's stop hook behaves.
+   Mitigation: Task 51 proves it with a fixture; the handover check fails on
+   an open intake row regardless.
+2. Clause evaluation on every worker call could slow workers. Mitigation:
+   a call no clause's tool and scope can match reads nothing.
+3. A leased worker's own commit runs the hook it edited. Mitigation: one
+   named worker, an hour, the diff, and the posture-change flag on the pull
+   request; accepted as a residual.
+4. A mistaken live clause blocks workers. Mitigation: watch-only first, and
+   returning a clause to watch-only is one verb.
+5. An obligation-word list will miss and over-list rules. Mitigation: the
+   listing is advisory and overlay-extendable.
+
+Decision-domain gap check: security-posture and authorization touched and
+decided (lease opened only by mission control on the operator's cited yes,
+closed on report, expiry or retirement); concurrency decided (one shared
+reader, a lease never read from a worktree); data handling decided (clauses
+stored and compiled as data, never evaluated).
+
+#### Lens review (Amendment 8, delta-scoped)
+
+Walked inline over the Amendment 8 delta (the ledger, clause, lease,
+required-value, doctor and idle-capacity requirements and decisions D-56 to
+D-58 with their tasks), with the worker-permission delta read for the shared
+lease.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | Applied: the worker tier's policy guard defers the file and MCP surfaces today, so the clause task now names adding them |
+| Ambiguity and interpretation forks | 1 | Applied: the unreadable-rules posture settled by the operator (refuse, say why) |
+| Citation and coverage integrity | 0 | None |
+| Dead verification paths | 1 | Applied: the enforcement requirement's test entry names the clause and required-value extensions the annotation adds |
+| Decision-domain gaps | 0 | Security, authorization and concurrency decided above |
+| Testability | 1 | Accepted: the stop-hook behaviour is proven in Task 51 (risk 1) |
+| Cross-file consistency | 1 | Applied: the worker-permission bundle annotates its hooks requirement and supersedes its deny-block requirement; the lease is cited by qualified name in both directions |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | Clause text is stored as data; the clause test covers a substitution |
+
+Altitude check: no pinned seed claim, not applicable. Ship-gate check: every
+change is a task. Enumeration cross-check: no requirement states a count;
+the changelog's task range records the event.
+
+#### Sign-off record (Amendment 8)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub: the sign-off answer was "Signoff but this is impossible to
+understand and I thought we fixed it already", taken as sign-off with the
+instruction that the pull request lead with plain sentences, say that only
+the runner's due-item check (a separate pull request) is built, and fold the
+rest. Amendment on an Active bundle: no status flip; `Last reviewed:`
+2026-11-10 on all four spec files; validator re-run with 0 errors. The delta
+adds requirements and decisions, so it is meaning-class. Accepted risks:
+see the register above.
+
+Class: meaning
+Lens-pass: Amendment 8, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `680823240e853952e6d4083f57285b25f1bf0ca7` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
