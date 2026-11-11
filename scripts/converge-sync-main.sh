@@ -337,7 +337,19 @@ if [ -n "$base_arg" ]; then
     -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *.) rec= ;;
   esac
   if [ -n "$rec_top" ] && [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ]; then
-    case $rec in "$rec_top"/*) rec= ;; /*) ;; *) rec= ;; esac
+    # Both sides resolved the same way: git's top level is already physical,
+    # while a record path may go through a symlinked directory (macOS /var).
+    rec_dir=$(cd -P -- "${rec%/*}/" 2>/dev/null && pwd -P) || rec_dir=''
+    rec_top=$(cd -P -- "$rec_top" 2>/dev/null && pwd -P) || rec_top=''
+    case $rec in
+      /*) ;;
+      *) rec_dir='' ;;
+    esac
+    case $rec_dir in
+      "$rec_top" | "$rec_top"/*) rec= ;;
+      /*) ;;
+      *) rec= ;;
+    esac
   else
     rec=
   fi

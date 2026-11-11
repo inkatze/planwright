@@ -1302,12 +1302,16 @@ base_of() {
 # one stack_base on the base remote in the branch grammar.
 STACK_BRANCH=''
 stack_base_load() { # <dir>
-  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' unit='' sb='' top
+  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' unit='' sb='' top pdir
   STACK_BRANCH=''
   case $p in /?*) ;; *) return 0 ;; esac
   [ -f "$p" ] && [ ! -L "$p" ] && [ -O "$p" ] && [ -r "$p" ] || return 0
   top=$(gitq "$1" rev-parse --show-toplevel) || top=''
-  case $p in "$top"/*) return 0 ;; esac
+  # Both sides resolved the same way: a record path may go through a symlinked
+  # directory (macOS /var) that git's physical top level does not.
+  top=$(cd -P -- "$top" 2>/dev/null && pwd -P) || return 0
+  pdir=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd -P) || return 0
+  case $pdir in "$top" | "$top"/*) return 0 ;; esac
   while IFS= read -r line || [ -n "$line" ]; do
     case $line in *=*) ;; *) continue ;; esac
     k=${line%%=*}

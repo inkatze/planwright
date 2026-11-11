@@ -112,6 +112,10 @@ expect deny "[worker] a record that is a symlink is no record"
 write_rec "$STACK/inside.record" "origin/$STACK_BR"
 sg worker "git merge origin/$STACK_BR" "$STACK/inside.record"
 expect deny "[worker] a record inside the worktree (which the worker can write) is no record"
+ln -s "$STACK" "$SANDBOX/stack-alias"
+write_rec "$STACK/aliased.record" "origin/$STACK_BR"
+sg worker "git merge origin/$STACK_BR" "$SANDBOX/stack-alias/aliased.record"
+expect deny "[worker] a record reached through a symlinked path into the worktree is no record"
 {
   printf 'stack_base=origin/%s\n' "$OTHER_BR"
   cat "$REC_OK"
@@ -317,6 +321,13 @@ if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
   pass "[sync] --base with a record inside the worktree is refused"
 else
   fail "[sync] --base with an in-worktree record: rc=$RC"
+fi
+ln -s "$SY2" "$SANDBOX/sy2-alias"
+run_sync "$SY2" "$SANDBOX/sy2-alias/inside.record" --base "$STACK_BR"
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
+  pass "[sync] --base with a record reached through a symlinked path into the worktree is refused"
+else
+  fail "[sync] --base with an aliased in-worktree record: rc=$RC"
 fi
 run_sync "$SY2" inside.record --base "$STACK_BR"
 if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
