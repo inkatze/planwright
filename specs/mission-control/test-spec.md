@@ -379,7 +379,7 @@ cadence. This shipped with PR #852's tests.
 
 ### REQ-D1.10 — Launch worktrees [test]
 
-`tests/test-mission-control-launch.sh` (Task 18): a worker launch with no
+`tests/test-mission-control-launch-worktrees.sh` (Task 18): a worker launch with no
 directory starts in a new worktree and leaves the primary checkout's HEAD,
 branch and status unchanged; a unit's existing branch is used; a worktree
 holding the branch with a live session refuses and one without is reused;
@@ -389,7 +389,7 @@ directory.
 
 ### REQ-D1.11 — The cadence in launch briefs [test]
 
-`tests/test-mission-control-launch.sh` (Task 18): a repository-changing
+`tests/test-mission-control-launch-worktrees.sh` (Task 18): a repository-changing
 brief carries the cadence section with the audit command; a brief that is a
 skill command carries none.
 
@@ -407,7 +407,7 @@ covered by the REQ-D1.16 entry.
 
 ### REQ-D1.16 — A live session moved between programs [test]
 
-`tests/test-mission-control-launch.sh` (Task 48), a fake registry and fake
+`tests/test-mission-control-launch-host.sh` (Task 48), a fake registry and fake
 fleet state under a mktemp folder, never live state:
 
 - a live worker row moves: its program and owner become the destination's,

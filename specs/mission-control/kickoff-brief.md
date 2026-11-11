@@ -2007,3 +2007,17 @@ Class: meaning
 Lens-pass: Amendment 8, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `680823240e853952e6d4083f57285b25f1bf0ca7` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — test-spec file pointers after the launch-test split (2026-11-11)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+The REQ-D1.10, REQ-D1.11 and REQ-D1.16 test entries now name the test files
+their cases moved into; no requirement or decision changes meaning.
+
+**Cites the changelog line:** the 2026-11-11 `## Changelog` entry in
+`requirements.md` (the launch-test split).
+
+Class: expression-only
+Anchor: `056a7e47d83ce25de7c432619f3967e732233f22` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
