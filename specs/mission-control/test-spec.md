@@ -668,7 +668,9 @@ operator's words; the readiness gate covers later changes.
 (Task 51): a message records an intake row; a turn that tries to end with an
 open row is refused naming it; making it an item with a done-condition, or
 dismissing it with a reason, lets the turn end; an item with no
-done-condition is refused at add.
+done-condition is refused at add; the handover self-check fails naming an
+open intake row and passes once none is open; a message arriving while the
+turn is ending is stored first, never lost.
 
 ### REQ-F1.20 — Overdue items lead the status [test]
 
@@ -694,6 +696,15 @@ stores a date trigger; an existing unknown-class item is listed and kept.
 `tests/test-mc-kb.sh` (Task 50): an item whose command check passes, whose
 event was seen or whose pull request merged is flagged with the evidence;
 the audit changes no row; `close` without evidence is refused.
+
+### REQ-F1.24 — State that should be a queue and is not is found [test]
+
+`tests/test-mc-audit.sh` (Task 56), in fixtures: a state kind with no
+register row, one stored only in a transient file or a session's memory, and
+one whose entries have no recorded disposition are each flagged with one
+plain line and the remedy; a kind recorded as deliberately not a queue with
+a reason is not flagged; a register row naming a store that does not exist is
+flagged; the audit edits no file.
 
 ## REQ-G — Permissions at scale
 

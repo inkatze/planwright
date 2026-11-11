@@ -1193,7 +1193,8 @@ fixed-string check.)*
 - **Deliverables:** the mission-control tier's capture of each operator
   message as an intake row, and the turn-end check that refuses to end a
   turn while an intake row has no item and no dismissal reason, wired in the
-  mission-control settings; the dismissal verb; the skill's prose inside the
+  mission-control settings; the handover self-check failing while one is
+  open; the dismissal verb; the skill's prose inside the
   instruction budget; tests in `tests/test-mc-kb.sh` and
   `tests/test-policy-guard-mission-control.sh`.
 - **Done when:** The REQ-F1.19 test-spec entry's fixtures pass, including a
@@ -1259,6 +1260,22 @@ fixed-string check.)*
   options-reference and instruction-budget checks pass.
 - **Dependencies:** 44
 - **Citations:** D-58, D-51, D-14 · REQ-M1.11
+- **Estimated effort:** 1 day
+
+### Task 56 — Audit mission control's own state for queues it lacks
+
+- **Deliverables:** the shipped register of the state kinds mission control
+  holds that something waits on (each with its store and the disposition
+  that removes an entry, or a one-line reason it is deliberately not a
+  queue); a check in `scripts/mc-audit.sh` run at bring-up, at each handover
+  and daily, flagging a kind with no row, a transient or in-memory store, a
+  missing store or no recorded way out, one plain line with the remedy; the
+  register's own check in the verbs and knob guards; tests in
+  `tests/test-mc-audit.sh`.
+- **Done when:** The REQ-F1.24 test-spec entry's fixtures pass and the audit
+  edits no file; the instruction-budget check passes.
+- **Dependencies:** 50
+- **Citations:** D-56 · REQ-F1.24
 - **Estimated effort:** 1 day
 
 ## Awaiting input

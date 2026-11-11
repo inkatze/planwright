@@ -767,8 +767,9 @@ later planwright bundles implement, D-12).
   action, and every duty or promise mission control takes on, SHALL get a
   ledger item when it is made, written by the mission-control tier's own
   deterministic path and not from the session's memory: each operator
-  message is recorded as an intake row on arrival, and a turn cannot end
-  while an intake row is neither made into an item nor dismissed with a
+  message is recorded as an intake row on arrival, the intake rows form a
+  durable queue of asks, and neither a turn nor a handover (REQ-L1.6) can
+  end while an intake row is neither made into an item nor dismissed with a
   one-line reason (a question, an acknowledgement). An item carries an
   owner, a trigger and a done-condition: a command whose exit status says
   done, an event of an emitted class (REQ-F1.22), a date, or the operator's
@@ -806,6 +807,20 @@ later planwright bundles implement, D-12).
   request it names merged) as a proposal to close it with that evidence.
   The audit never closes an item itself and edits nothing else.
   *(Cites: D-56; the follow-up ledger report (2026-11-10, Sources).)*
+- **REQ-F1.24** An audit of mission control's own state SHALL find what
+  should be a durable queue and is not, at bring-up, at each handover and
+  daily: for every kind of state mission control holds that something is
+  waiting on (operator decisions, merge-ready announcements, relayed
+  questions, pending prompts, follow-ups, intake rows), a shipped register
+  names its store and the disposition that removes an entry from it, and the
+  audit flags a kind with no register row, a kind whose store is a
+  transient file, a session's memory or a message not yet persisted, and a
+  kind whose entries have no recorded way out. A kind the register records
+  as deliberately not a queue carries a one-line reason. Each flag is one
+  plain line with the remedy (join the queue model, or record the reason),
+  and the audit edits nothing.
+  *(Cites: D-56; REQ-F1.10, REQ-F1.19; the follow-up ledger report
+  (2026-11-10, Sources); drafting-session decision (2026-11-10).)*
 
 ## REQ-G — Permissions at scale
 
@@ -1431,9 +1446,11 @@ later planwright bundles implement, D-12).
 
 - 2026-11-10 — Amendment 8 (meaning-class, on the Active bundle, relayed by
   the hub): the follow-up ledger forgot asks and duties (REQ-F1.19 to
-  REQ-F1.23: automatic items with a done-condition, overdue items lead the
-  status, handover verify fails on unacknowledged overdue items, event
-  triggers validated at add, a stale-open audit; D-56); operator rules that
+  REQ-F1.24: automatic items with a done-condition, asks kept in a durable
+  queue, overdue items lead the status, handover verify fails on
+  unacknowledged overdue items and open asks, event triggers validated at
+  add, a stale-open audit, an audit of state that should be a queue; D-56);
+  operator rules that
   planwright enforces (REQ-B1.9 to REQ-B1.12, REQ-G1.7, REQ-G1.8: clauses
   the worker tier's guard keeps, shadow mode, one lease shape, the headed
   browser rule as the worked example; D-57); and the doctor and throughput
@@ -1442,7 +1459,7 @@ later planwright bundles implement, D-12).
   capacity reported; D-58). The runner calling `followup due` each pass is
   REQ-F1.10's and ships as its own flight; REQ-A1.9, REQ-A1.10 and REQ-M1.10
   already cover number-valued rules, prose or unknown enforcement and idle
-  waits and are not redrafted. Tasks 50 to 55.
+  waits and are not redrafted. Tasks 50 to 56.
 
 ## Sources
 

@@ -1741,9 +1741,13 @@ gate whole for a reviewer that cannot be reached in draft.
 
 **Decision:** The ledger (D-9) stops depending on the session remembering to
 write to it. The mission-control tier records each operator message as an
-intake row when it arrives, and a turn-end check refuses to end the turn
-while an intake row is neither made into a ledger item (owner, trigger,
-done-condition) nor dismissed with a one-line reason. The ledger row gains a
+intake row when it arrives (the intake rows are a durable queue of asks),
+and a turn-end check and the handover self-check refuse to finish while an
+intake row is neither made into a ledger item (owner, trigger,
+done-condition) nor dismissed with a one-line reason. An audit of the
+state mission control holds that something waits on checks each kind
+against a shipped register (its store, and what removes an entry), flagging
+a kind that is not a durable queue and has no recorded reason. The ledger row gains a
 done-condition field; the row format version moves with a reader that treats
 an old row as having none. Overdue items (trigger fired, open, not
 acknowledged) lead the status and make the handover self-check fail until
