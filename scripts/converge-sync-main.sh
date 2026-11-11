@@ -331,13 +331,13 @@ fi
 base_br=main
 if [ -n "$base_arg" ]; then
   rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
-  rec_unit='' rec_base='' rec_dup=''
+  rec_unit='' rec_base='' rec_dup='' rec_seen=" "
   rec_top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || true)
   case $base_arg in
     -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *.) rec= ;;
   esac
   if [ -n "$rec_top" ] && [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ]; then
-    case $rec in "$rec_top"/*) rec= ;; esac
+    case $rec in "$rec_top"/*) rec= ;; /*) ;; *) rec= ;; esac
   else
     rec=
   fi
@@ -345,11 +345,13 @@ if [ -n "$base_arg" ]; then
     while IFS= read -r rline || [ -n "$rline" ]; do
       case $rline in
         unit_branch=*)
-          [ -z "$rec_unit" ] || rec_dup=1
+          case $rec_seen in *" u "*) rec_dup=1 ;; esac
+          rec_seen="$rec_seen""u "
           rec_unit=${rline#*=}
           ;;
         stack_base=*)
-          [ -z "$rec_base" ] || rec_dup=1
+          case $rec_seen in *" b "*) rec_dup=1 ;; esac
+          rec_seen="$rec_seen""b "
           rec_base=${rline#*=}
           ;;
       esac

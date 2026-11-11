@@ -300,8 +300,14 @@ if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
 else
   fail "[sync] --base with an in-worktree record: rc=$RC"
 fi
+run_sync "$SY2" inside.record --base "$STACK_BR"
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
+  pass "[sync] --base with a relative record path is refused"
+else
+  fail "[sync] --base with a relative record path: rc=$RC"
+fi
 {
-  printf 'stack_base=origin/%s\n' "$OTHER_BR"
+  printf 'stack_base=\n'
   cat "$SANDBOX/rec/sy2.record"
 } >"$SANDBOX/rec/sy2dup.record"
 run_sync "$SY2" "$SANDBOX/rec/sy2dup.record" --base "$STACK_BR"
