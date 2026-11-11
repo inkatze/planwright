@@ -1904,9 +1904,16 @@ operator's words are quoted in the undo ledger, the exact command from the
 register row is shown, and a host-chore session, launched with a launch
 record written before it starts (D-36's pattern), fast-forwards the one
 named primary checkout (clean tree, default branch, fast-forward only) and
-runs the row's one declared command in its own window, once. A read-only host
+runs the row's one declared command once, its command shown first and its output tail and exit status logged. A read-only host
 act (a configuration read) runs in mission control itself. The register is
-shipped data extended by an overlay; the shipped row is the dotfiles update.
+data whose shipped copy holds no act, each machine's overlay supplying its
+rows (this machine's dotfiles update comes from the dotfiles repo's overlay),
+so no operator-specific path enters shared defaults. A host-chore session may
+also run the kickoff spec-push helper for a signed-off spec (REQ-A1.17): raw
+spec-branch pushes stay refused for every session, and the helper's sign-off
+check is what the push rests on. Walk answers kept: interpreter text naming
+an act stays refused; typing only into registry-listed plain-shell panes. A
+guard refusal log is deferred, undecided by the operator.
 The narrow exception to "mission control never edits a repository" is that
 the fast-forward takes in content the operator already merged, done by the
 host-chore session and never by mission control, and the narrow exception to

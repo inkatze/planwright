@@ -1377,14 +1377,15 @@ fixed-string check.)*
 
 ### Task 63 — The host-act register
 
-- **Deliverables:** `config/host-acts.tsv` with the dotfiles update row
-  (checkout alias, fast-forward flag, the one command and its arguments as a
+- **Deliverables:** `config/host-acts.tsv`, shipped with no act (a header
+  and a comment on the row format), the row format (checkout alias, fast-forward flag, the one command and its arguments as a
   closed list, description), its reader that refuses a row naming a merge, a
   push, a history rewrite, a message or a secret, overlay extension through
   the existing overlay layers, and the machine-local registry lookup that
   turns an alias into a path; tests in `tests/test-mc-host-acts.sh`.
 - **Done when:** The REQ-A1.15 test-spec entry's fixtures pass: the shipped
-  row loads, an overlay row loads, a forbidden row is refused at read, and an
+  register holds no act, an overlay row (the dotfiles update, in the
+  fixture) loads, a forbidden row is refused at read, and an
   ask's text never becomes a command.
 - **Dependencies:** none
 - **Citations:** D-60 · REQ-A1.15, REQ-I1.9
@@ -1434,8 +1435,24 @@ fixed-string check.)*
   guard-catalog docs.
 - **Done when:** The REQ-I1.9 test-spec entry's fixtures pass and the table
   in the docs equals the audit script's output.
-- **Dependencies:** 57, 59, 60, 61, 62, 65
+- **Dependencies:** 57, 59, 60, 61, 62, 65, 67
 - **Citations:** D-59, D-60 · REQ-I1.9, REQ-G1.9
+- **Estimated effort:** 1 day
+
+### Task 67 — The spec push by a host-chore session
+
+- **Deliverables:** the host-chore profile's one added admission: the kickoff
+  spec-push helper with the spec id as its only argument, for a spec whose
+  sign-off record is complete with its anchor, on a launch record that names
+  that spec; the worker-guard rows that keep every raw spec-branch push, any
+  other push and any other helper argument refused; tests in
+  `tests/test-mc-host-chore.sh` and the guard suites.
+- **Done when:** The REQ-A1.17 test-spec entry's fixtures pass: the helper
+  runs for a signed-off spec, a spec without its anchor stops in the helper,
+  and a raw spec-branch push, a push of another branch and an extra helper
+  argument all refuse, with the Task 58 corpus still refusing every case.
+- **Dependencies:** 64
+- **Citations:** D-60 · REQ-A1.17, REQ-I1.4, REQ-I1.9
 - **Estimated effort:** 1 day
 
 ## Awaiting input
@@ -1444,7 +1461,11 @@ fixed-string check.)*
 
 ## Deferred
 
-(none yet)
+- **A guard refusal log** (Amendment 9 walk): each guard appending one line
+  per refusal (rule and refused command, no conversation) so later denial
+  counts cover interactive sessions. The operator declined to choose at the
+  walk; neither option is recorded. Raise it again at the next denial count
+  (REQ-G1.9), which names what the fleet records cannot see.
 
 ## Out of scope
 

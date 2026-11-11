@@ -2007,3 +2007,115 @@ Class: meaning
 Lens-pass: Amendment 8, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `680823240e853952e6d4083f57285b25f1bf0ca7` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 9 (2026-11-11, amendment: denial friction measured and a host-act lane)
+
+Spec path `specs/mission-control`; walk started at `fba61e8a`; walkthrough
+date 2026-11-11. Mode: amendment on an Active bundle, relayed by the hub and
+walked with the operator through mission control, one plain question at a
+time. Scope: the guard denial audit and the loosenings it supports with the
+hard lines kept under refusing tests, and an operator-asked host-act lane run
+by a host-chore session.
+
+#### Goal and glossary (Amendment 9)
+
+Restatement: count what the guards refuse, loosen the rules that mostly block
+work that was not the act, keep never-merge, no protected push, no rewrite
+outside the rules, no message to a person without a yes and no secrets, and
+give the operator a supervised path for host acts they ask for. Rules out:
+mission control gaining a git mutation, a general host-command lane, a
+loosening of interpreter text that names an act, and any host act on mission
+control's own initiative. Terms: *host act* (a fast-forward of one named
+primary checkout plus one declared command, asked for in words), *host-chore
+session* (the short-lived session that runs it), *register* (the closed list
+of acts), *overlay* (the machine's own extension of shipped data).
+
+#### Requirements walkthrough (Amendment 9)
+
+Operator's answers, relayed through mission control and the hub:
+
+- **Shape of a host act (REQ-A1.13, REQ-A1.14).** "Host-chore session
+  (Recommended)".
+- **Which acts ship (REQ-A1.15).** "None built in; yours in your overlay
+  (Recommended)": planwright ships the mechanism and no act; this machine's
+  dotfiles update lives in its overlay, rendered by the dotfiles repo.
+- **Interpreter text (REQ-G1.11).** "Keep refusing (Recommended)".
+- **Typing into panes (REQ-G1.16).** "Yes, listed shell panes only
+  (Recommended)".
+- **Spec-branch push.** "Keep it; script runs for you (Recommended)": raw
+  pushes stay refused; a host-chore session may run the kickoff spec-push
+  helper for a signed-off spec (REQ-A1.17, Task 67, added at the walk).
+- **A guard refusal log.** No answer: the operator declined to choose.
+  Recorded under Deferred in `tasks.md`; neither option is assumed.
+
+#### Design walkthrough (Amendment 9)
+
+D-59 (denials measured, rules loosened by what the data shows) and D-60 (a
+host act is the operator's ask, run in a host-chore session) are new and
+confirmed; D-60 is amended at the walk for the empty shipped register, the
+spec push and the wording of what the operator sees. No signed decision is
+superseded.
+
+#### Verification approach (Amendment 9)
+
+Every new requirement has a `[test]` entry (REQ-A1.16 also a `[manual]`
+first real run); the guard suites carry the refusing corpus. Coverage runs in
+CI. No dead path found.
+
+#### Task graph (Amendment 9)
+
+The new tasks are in the bundle's task list; their `Dependencies:` lines are
+the graph. Deliberate non-edges: the audit and the loosening tasks run in
+parallel with the register task; the spec-push task depends only on the
+host-chore session kind.
+
+#### Risk register (Amendment 9)
+
+1. This machine's dotfiles act now needs a row in its overlay, which the
+   dotfiles repo renders. Mitigation: mission control routes the dotfiles
+   follow-up; until it lands, an ask for the update is answered with what is
+   missing (REQ-A1.13).
+2. Denial counts see only the fleet workers' records, not interactive
+   sessions. Mitigation: the audit names what it cannot see; the refusal log
+   is deferred and may come back at the next count. Accepted.
+3. A loosening exposes a form of a reserved act. Mitigation: the refusing
+   corpus fails the suites if any hard line stops refusing (REQ-G1.18).
+4. A host-chore session's profile is a new permission surface. Mitigation:
+   fast-forward only on a clean primary checkout, a closed register, a
+   launch record written before it starts, and the guard suites.
+
+#### Lens review (Amendment 9, delta-scoped)
+
+Walked inline over the Amendment 9 delta (REQ-A1.13 to REQ-A1.17, REQ-G1.9 to
+REQ-G1.18, REQ-I1.9, D-59, D-60, Tasks 57 to 67).
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | Applied: the spec-push admission now requires a launch record naming the spec, matching the host-chore session's launch-record rule |
+| Ambiguity and interpretation forks | 0 | Walk answers settled each fork |
+| Citation and coverage integrity | 1 | Applied: the new requirement's source citation names the walk-answers entry |
+| Dead verification paths | 0 | None |
+| Decision-domain gaps | 0 | Security, authorization and concurrency decided above |
+| Testability | 0 | None |
+| Cross-file consistency | 1 | Applied: the invariant task depends on the spec-push task; the invariant test entry names the spec push |
+| Documentation and glossary drift | 1 | Applied: "own window" wording removed, since launched sessions may be headless |
+| Rendered-content safety and data hygiene | 0 | No secrets or hostnames; the dotfiles checkout is named by alias only |
+
+Altitude check: no pinned seed claim, not applicable. Ship-gate check: every
+change is a task. Enumeration cross-check: no requirement states a count; the
+changelog's task range records the event.
+
+#### Sign-off record (Amendment 9)
+
+Signed off 2026-11-11 by the operator, relayed through mission control and the
+hub: "Sign off, Q4 deferred (Recommended)". Amendment on an Active bundle: no
+status flip; `Last reviewed:` 2026-11-11 on all four spec files; validator
+re-run with 0 errors. The delta adds requirements and decisions, so it is
+meaning-class. Spec-only change: polish and the post-PR review steps are
+skipped by the operator's rule for spec-only PRs. Accepted risks: see the
+register above.
+
+Class: meaning
+Lens-pass: Amendment 9, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `9b9b970d14ff89c258c3b9cc45932af6203bacbb` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

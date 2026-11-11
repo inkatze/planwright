@@ -271,8 +271,8 @@ later planwright bundles implement, D-12).
   primary checkout on its default branch with a clean tree, fetch it and
   fast-forward it to the remote default branch (a checkout that is not
   clean, or a branch that cannot fast-forward, stops the session; no merge,
-  rebase, reset, push, stash, checkout of another ref or history rewrite is
-  ever admitted); then run the row's one declared command with the row's
+  rebase, reset, push (other than the spec push of REQ-A1.17), stash,
+  checkout of another ref or history rewrite is ever admitted); then run the row's one declared command with the row's
   declared arguments. It follows the supervision rules of every worker: one
   purpose, retired when it reports, silent unless it fails.
   *(Cites: D-60; REQ-I1.4; REQ-D1.1; the
@@ -280,21 +280,31 @@ later planwright bundles implement, D-12).
 - **REQ-A1.15** The host-act register SHALL be shipped data (one row per
   act: an id, the checkout alias, whether it fast-forwards, the one command
   and its arguments as a closed list, and a plain description), extended by
-  an overlay and never by the ask's own text. The shipped register holds the
-  dotfiles update (fast-forward the dotfiles checkout, run the user-config
-  playbook); a row naming a command that merges, pushes, rewrites history,
-  sends a message or writes a secret is refused when the register is
-  read.
+  an overlay and never by the ask's own text. The shipped register holds no
+  act: planwright ships the mechanism, and each machine's overlay supplies
+  its rows (this machine's dotfiles update, a fast-forward of the dotfiles
+  checkout and the user-config playbook run, is rendered into its overlay by
+  the dotfiles repo), so no operator-specific path enters shared defaults. A
+  row naming a command that merges, pushes, rewrites history, sends a
+  message or writes a secret is refused when the register is read.
   *(Cites: D-60; REQ-I1.9; r-29 (Sources); the host-act ask (2026-11-11,
   Sources).)*
-- **REQ-A1.16** A host act SHALL run where the operator can watch it (the
-  session's window, the same as any launched session), its output tail and
-  exit status SHALL be recorded with the act in the undo ledger, and mission
+- **REQ-A1.16** A host act SHALL run in the open (its exact command shown
+  before it starts), its output tail and exit status SHALL be recorded with the act in the undo ledger, and mission
   control SHALL report the outcome in one plain line, and for a failure the
   cause and the routed fix (a launched session), never an automatic retry
   and never the operator's own commands.
   *(Cites: D-60; REQ-G1.3; r-40 (Sources); the host-act ask (2026-11-11,
   Sources).)*
+- **REQ-A1.17** A raw push of a spec branch stays refused for every session.
+  A host-chore session MAY run the kickoff spec-push helper
+  (`kickoff-spec-push.sh`, with the spec id as its only argument) for one
+  named spec whose kickoff sign-off record is complete with its anchor, on
+  the operator's quoted ask and a launch record (REQ-A1.14) naming that spec; the helper's own sign-off check stays in force,
+  and the session admits no other push, no other helper argument and no
+  other branch.
+  *(Cites: D-60; REQ-I1.4; the host-act ask (2026-11-11, Sources); the
+  Amendment 9 walk answers (2026-11-11, Sources).)*
 
 ## REQ-B — The rule source
 
@@ -1141,10 +1151,11 @@ later planwright bundles implement, D-12).
   this one push only once the routed human-gates amendment lands (Task 31).
   *(Cites: D-36; audit item 4 (Sources); the operator priority (2026-11-04)
   (Sources).)*
-- **REQ-I1.9** The host-act lane (REQ-A1.13 to REQ-A1.16) SHALL leave every
+- **REQ-I1.9** The host-act lane (REQ-A1.13 to REQ-A1.17) SHALL leave every
   invariant above in force: mission control itself still runs no git
   mutation and edits no repository (REQ-A1.3), a host-chore session never
-  merges, never pushes, never rewrites history, never sends to a person and
+  merges, never pushes (bar the sign-off-checked spec push of REQ-A1.17),
+  never rewrites history, never sends to a person and
   never reads or writes a secret, and a guard denial inside the lane is
   reported with its text and never routed around (REQ-G1.3). The one
   precise exception is that a host-chore session may fast-forward the one
@@ -1598,10 +1609,15 @@ later planwright bundles implement, D-12).
   (a settings-file name in a read, act words in data, an unread
   substitution, a `~/` command name, a worker syncing its own branch, a
   `gh api` body from a file, a plain-shell pane, an unset plugin root) and
-  keep the hard lines with refusing tests; REQ-A1.13 to REQ-A1.16 and
+  keep the hard lines with refusing tests; REQ-A1.13 to REQ-A1.17 and
   REQ-I1.9 add the operator-asked host-act lane, run by a host-chore session
-  from a shipped register (D-60), with the fast-forward-only exception
-  stated narrowly. Tasks 57 to 66.
+  from a register that ships no act and takes its rows from an overlay
+  (D-60), with the fast-forward-only exception and the sign-off-checked spec
+  push stated narrowly. Walk answers: interpreter text that names an act
+  stays refused, typing into registry-listed plain-shell panes only, raw
+  spec-branch pushes stay refused. A guard refusal log (so counts cover
+  interactive sessions) was left unanswered by the operator and is recorded
+  as deferred. Tasks 57 to 67.
 
 ## Sources
 
@@ -1848,6 +1864,13 @@ later planwright bundles implement, D-12).
   strings across this machine's session records (relative weight only: the
   records repeat results and tests quote the strings). Neither sees the
   operator's interactive hub session. Framed D-59, REQ-G1.9, REQ-G1.17.
+- **The Amendment 9 walk answers (2026-11-11)** — the operator's own words,
+  relayed through the hub: host-chore session shape; no built-in host acts,
+  the operator's own in the machine overlay; keep refusing interpreter text
+  that names an act; yes to typing into listed plain-shell panes only; keep
+  the raw spec-branch push refusal, with a host-chore session running the
+  spec-push helper for a signed-off spec. No answer was given on a guard
+  refusal log. Framed REQ-A1.15, REQ-A1.17, REQ-G1.11, REQ-G1.16.
 - **The host-act ask (2026-11-11)** — relayed through the hub (a usability
   gap, fixed now): the operator asked in words for a fast-forward of the
   dotfiles checkout and its playbook run, and the policy guard refused every

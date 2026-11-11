@@ -149,17 +149,25 @@ launch record means every call is denied; the session cannot write its record.
 
 ### REQ-A1.15 — The register is data and refuses forbidden rows [test]
 
-`tests/test-mc-host-acts.sh` (Task 63): the shipped dotfiles row loads; an
-overlay row loads; a row naming a merge, a push, a rewrite, a message or a
+`tests/test-mc-host-acts.sh` (Task 63): the shipped register holds no act; an
+overlay row (the dotfiles update) loads; a row naming a merge, a push, a rewrite, a message or a
 secret is refused at read; an alias with no machine-local registry entry is
 reported as missing; the ask's text never becomes a command or an argument.
 
-### REQ-A1.16 — A host act is watchable, recorded and reported plainly [test + manual]
+### REQ-A1.16 — A host act is shown, recorded and reported plainly [test + manual]
 
 `tests/test-mc-host-acts.sh` (Task 65): the output tail and exit status are
 in the undo-ledger entry; a failure reports its cause and routes a launched
 session and never retries; the report is one plain line. Manual: the first
-real run shows the window and the one-line result.
+real run shows the command before it starts and the one-line result.
+
+### REQ-A1.17 — A host-chore session may run the spec push for a signed-off spec [test]
+
+`tests/test-mc-host-chore.sh` and the guard suites (Task 67): the helper runs
+for a spec whose sign-off record has its anchor; a spec without one stops in
+the helper's own check; a raw spec-branch push, a push of another branch and
+an extra helper argument are each denied; every other session still has the
+raw spec-branch push denied.
 
 ## REQ-B — The rule source
 
@@ -976,7 +984,7 @@ denies the push.
 `tests/test-mc-host-chore.sh` end to end (Task 66): against a fixture
 checkout the dotfiles-update row runs with the guards live; mission control's
 own tier still denies a git mutation and a typed fast-forward outside the
-lane; inside the lane a merge, a push, a rewrite, a message and a secret read
+lane; inside the lane a merge, a push other than the spec push, a rewrite, a message and a secret read
 are denied with the guard's text and reported unrouted; the posture check
 runs after the restart.
 
