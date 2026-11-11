@@ -94,6 +94,8 @@ pwd -P >"$SHIM_RECORD_DIR/cwd"
 printf '%s\n' "$*" >"$SHIM_RECORD_DIR/argv.tmp" && mv "$SHIM_RECORD_DIR/argv.tmp" "$SHIM_RECORD_DIR/argv"
 printf '%s\n' "${PLANWRIGHT_MC_TOKEN:-}" >"$SHIM_RECORD_DIR/mctoken"
 printf '%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" >"$SHIM_RECORD_DIR/towerid"
+printf '%s\n' "${TMUX-<unset>}" >"$SHIM_RECORD_DIR/tmuxvar"
+printf '%s\n' "${TMUX_PANE-<unset>}" >"$SHIM_RECORD_DIR/tmuxpane"
 IFS= read -r line || line=''
 printf '%s\n' "$line" >"$SHIM_RECORD_DIR/stdin"
 exit 0
@@ -181,7 +183,7 @@ ml() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
-    TMUX_PANE="${ML_TMUX_PANE:-}" ${ML_MC_TOKEN:+PLANWRIGHT_MC_TOKEN="$ML_MC_TOKEN"} \
+    TMUX_PANE="${ML_TMUX_PANE:-}" ${ML_TMUX:+TMUX="$ML_TMUX"} ${ML_MC_TOKEN:+PLANWRIGHT_MC_TOKEN="$ML_MC_TOKEN"} \
     SHIM_RECORD_DIR="${SHIM_RECORD_DIR:-$tmp}" TMUX_STUB="$tmp/tmux" TMUX_KILL_FAIL="${TMUX_KILL_FAIL:-0}" \
     TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" TMUX_NO_SERVER="${TMUX_NO_SERVER:-0}" TMUX_BAD_ID="${TMUX_BAD_ID:-0}" \
     /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")
@@ -437,6 +439,35 @@ if lint_emitted markdown mission-control-launch.sh "$rules_brief"; then
   ok "the composed brief with program and scope rules lints clean as markdown"
 else
   fail "the composed brief fails the markdown lint: $rules_brief"
+fi
+wait_done "$(field name)"
+
+# A stream-json worker has no pane: it must not inherit the launcher's tmux
+# context, or its per-step sessions read it as an opt-in to tmux windows.
+for kind in worker ad-hoc reviewer; do
+  rec="$tmp/rec-tmuxenv-$kind"
+  mkdir -p "$rec"
+  SHIM_RECORD_DIR=$rec ML_TMUX=/tmp/tmux-fixture/default,1,0 ML_TMUX_PANE=%9 \
+    ml launch --program alpha --kind "$kind" --scope "tmuxenv-$kind" --brief "$tmp/brief.md"
+  if [ "$RC" != 0 ] || ! wait_for "$rec/tmuxpane"; then
+    fail "[$kind] the launch under a tmux context did not start: $ERR"
+    continue
+  fi
+  [ "$(cat "$rec/tmuxvar")" = '<unset>' ] && [ "$(cat "$rec/tmuxpane")" = '<unset>' ] \
+    && ok "[$kind] a stream-json session does not inherit TMUX or TMUX_PANE" \
+    || fail "[$kind] a stream-json session inherited TMUX='$(cat "$rec/tmuxvar")' TMUX_PANE='$(cat "$rec/tmuxpane")'"
+  wait_done "$(field name)"
+done
+
+# An attended --backend tmux launch is unchanged by that: the window is still
+# created.
+: >"$tmp/tmux/calls"
+ML_TMUX=/tmp/tmux-fixture/default,1,0 ML_TMUX_PANE=%9 \
+  ml launch --program alpha --kind ad-hoc --scope tmuxenv-tmux --brief "$tmp/brief.md" --backend tmux
+if [ "$RC" = 0 ] && grep -q '^new-window' "$tmp/tmux/calls"; then
+  ok "a --backend tmux launch still opens its tmux window"
+else
+  fail "a --backend tmux launch under a tmux context exited $RC without a window: $ERR"
 fi
 wait_done "$(field name)"
 
