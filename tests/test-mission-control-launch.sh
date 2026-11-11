@@ -1522,6 +1522,94 @@ cap_launch default-held
 set_cap lots
 cap_launch malformed
 [ "$RC" -ne 0 ] && ok "a malformed bound refuses the launch" || fail "a malformed bound let a launch through"
+
+# ---------------------------------------------------------------------------
+# A session that is only waiting (on the operator, on CI, on a ready flip)
+# stops counting toward the host-wide bound, its state recorded on its row,
+# and the count says how many slots work holds versus waits. A bound held by
+# working sessions still refuses.
+# ---------------------------------------------------------------------------
+fleet="$tmp/fleet-wait"
+mkdir -p "$fleet/mission-control/sessions"
+capreg="$fleet/mission-control/sessions"
+set_cap 2
+seed_row mc-beta-worker-0000000011 beta worker
+seed_row mc-gamma-worker-0000000012 gamma worker
+w1=mc-beta-worker-0000000011
+w2=mc-gamma-worker-0000000012
+
+cap_launch work-full
+if [ "$RC" = 4 ]; then
+  ok "a bound held by two working sessions refuses a launch"
+else
+  fail "two working sessions under a bound of 2 exited $RC: $ERR"
+fi
+case $ERR in
+  *"2 working"*"0 waiting"*) ok "the refusal says how many slots work holds and how many waits hold" ;;
+  *) fail "the refusal does not split working from waiting: $ERR" ;;
+esac
+
+ml wait "$w1" --on operator
+[ "$RC" = 0 ] && ok "a worker is marked waiting on the operator" || fail "wait exited $RC: $ERR"
+case $(cat "$capreg/$w1") in
+  *"waiting${TAB}operator"*) ok "the wait is recorded on the registry row" ;;
+  *) fail "the row records no wait: $(cat "$capreg/$w1")" ;;
+esac
+cap_launch one-waiting
+if [ "$RC" = 0 ]; then
+  ok "a waiting worker does not hold a slot: a bound of 2 with one working, one waiting admits a launch"
+  wait_done "$(field name)"
+else
+  fail "a waiting worker still held the bound: $ERR"
+fi
+
+ml wait "$w2" --on ci
+[ "$RC" = 0 ] && ok "a worker is marked waiting on CI" || fail "wait --on ci exited $RC: $ERR"
+cap_launch all-waiting
+if [ "$RC" = 0 ]; then
+  ok "a full bound of waiting workers no longer refuses a launch"
+  wait_done "$(field name)"
+else
+  fail "a bound full of waiting workers refused a launch: $ERR"
+fi
+
+ml bound
+case $OUT in
+  *"bound${TAB}2${TAB}"*) ok "bound reports the limit" ;;
+  *) fail "bound does not report the limit: $OUT" ;;
+esac
+bound_row=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "bound" { print $3 "/" $4 }')
+case $bound_row in
+  [0-9]*/2) ok "bound reports working and waiting slots (waiting: 2)" ;;
+  *) fail "bound reports working/waiting as '$bound_row': $OUT" ;;
+esac
+
+ml wait "$w1" --on ready-flip
+[ "$RC" = 0 ] && ok "marking a waiting worker again updates its reason" || fail "a second wait exited $RC: $ERR"
+case $(cat "$capreg/$w1") in
+  *"waiting${TAB}ready-flip"*) ok "the second reason replaces the first" ;;
+  *) fail "the reason was not replaced: $(cat "$capreg/$w1")" ;;
+esac
+[ "$(grep -c "^waiting${TAB}" "$capreg/$w1")" = 1 ] && ok "a row holds one waiting field" || fail "a row holds several waiting fields"
+
+ml unwait "$w1"
+[ "$RC" = 0 ] && ok "unwait returns a worker to the count" || fail "unwait exited $RC: $ERR"
+grep -q "^waiting${TAB}" "$capreg/$w1" && fail "unwait left the waiting field" || ok "unwait clears the waiting field"
+ml unwait "$w2"
+cap_launch work-again
+[ "$RC" = 4 ] && ok "a bound held again by resumed workers refuses a launch" || fail "resumed workers did not hold the bound (exit $RC): $ERR"
+
+ml wait mc-nobody-worker-0000000099 --on ci
+[ "$RC" = 3 ] && ok "wait on an unregistered session exits 3" || fail "wait on an unknown session exited $RC: $ERR"
+ml wait "$w1" --on lunch
+[ "$RC" = 2 ] && ok "wait refuses an unknown reason" || fail "wait accepted an unknown reason (exit $RC)"
+ml wait "$w1"
+[ "$RC" = 2 ] && ok "wait requires a reason" || fail "wait with no reason exited $RC"
+seed_row mc-beta-mission-control-0000000013 beta mission-control
+ml wait mc-beta-mission-control-0000000013 --on operator
+[ "$RC" = 4 ] && ok "a mission-control session is never marked waiting" || fail "a mission-control row was marked waiting (exit $RC)"
+ml unwait mc-nobody-worker-0000000099
+[ "$RC" = 3 ] && ok "unwait on an unregistered session exits 3" || fail "unwait on an unknown session exited $RC"
 fleet="$tmp/fleet"
 
 # A session on another host (fleet-remote.sh) lives in that host's registry,
