@@ -246,9 +246,9 @@ if [ -n "$unit" ]; then
 fi
 
 # A stacked PR's base is another feature branch: the one the launcher names
-# with --base, else the PR's own baseRefName read once from gh. It is kept
-# only when it differs from the default base the record already names, and
-# only inside the branch grammar the guards re-check.
+# with --base, or with --base-from-pr the PR's own baseRefName read once from
+# gh; with neither, none. Kept only when it differs from the default base the
+# record names, and only inside the branch grammar the guards re-check.
 stack_base=''
 if [ -n "$pr_base" ]; then
   if [ "$have_base" = 2 ] && command -v gh >/dev/null 2>&1; then
