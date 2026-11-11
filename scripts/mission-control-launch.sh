@@ -137,7 +137,12 @@ its target (one order covers every live session of that program) or
 `reparent-yes` with this session as its target; without one it refuses.
 Each move writes a session-reparented event to both programs' logs and an
 undo entry in <dest>'s log, whose reversal (mc-kb.sh revert <undo id>, or
-`reparent <name> --program <source> --undo` by hand) needs no authority.
+`reparent <name> --program <source> --undo` by hand) needs no authority and
+works only while <dest>'s undo log holds a move of that session out of
+<source>.
+Exit codes of reparent: 0 moved; 1 moved but a record failed (the output
+says which); 2 usage, an invalid value, no --authority or a row it cannot
+rewrite; 3 no row of that name, or its lock is held; 4 any other refusal.
 
 Output, tab separated:
   launch   launch <field> <value> for name, kind, program, owner, scope,
@@ -174,9 +179,7 @@ is in flight, a live session uses its worktree, another launch is placing
 its branch, or a dispatch holds it or cannot say (launch), or there is
 neither a row nor a stream-json worker of that name, a launch, recover,
 relaunch or another retire of it is in flight, or the caller runs inside
-its window (retire), or no row of that name (reparent, which also exits 3
-while another launch or retire of it holds its lock; and 4 for any other
-refusal listed above, 2 for a row it cannot rewrite); 4 a launch refused before it started: a posture check
+its window (retire); 4 a launch refused before it started: a posture check
 (scripts/mc-posture.sh) that failed or did not run, no readable profile, an
 unresolvable rung knob with no --backend, no resolvable tier (an
 unreachable allocation store or a malformed tier knob), the admission gate
