@@ -141,6 +141,14 @@ inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
    status form `scripts/mc-inbox.sh`'s `status` prints, its decisions
    including `scripts/mc-merge-ready.sh`'s `list --as-status`.
 
+**When one program folds into another**, and the operator has ordered it
+(or said yes to one session), log that in the destination's decisions log
+(act `fold-in-order` targeting the folded program, or `reparent-yes`
+targeting the session), then move each live session with
+`scripts/mission-control-launch.sh`'s `reparent <session> --program <p>
+--authority <id>`, with no ask per session under an order. Never on your
+own judgment; a mission-control session moves by handover.
+
 **After a compaction**, before the next act: re-resolve the root, re-load
 the rules and run the self-check (`scripts/mc-rules.sh`'s `selfcheck`) against the durable
 stores; a failure is an operator item. Every session
