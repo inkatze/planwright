@@ -131,15 +131,15 @@ the row is rewritten, under the session's lock; its process, worktree and
 branch are never touched. It refuses an unknown session, an unknown or the
 same program, a mission-control session (a holder moves by handover), a
 launch not yet complete and a row it cannot rewrite. It runs only on the
-operator's word: --authority names a decisions-log record (in <dest>'s or
-the source's log) whose act is `fold-in-order` with the source program as
-its target (one order covers every live session of that program) or
-`reparent-yes` with this session as its target; without one it refuses.
-Each move writes a session-reparented event to both programs' logs and an
-undo entry in <dest>'s log, whose reversal (mc-kb.sh revert <undo id>, or
-`reparent <name> --program <source> --undo` by hand) needs no authority and
-works only while <dest>'s undo log holds a move of that session out of
-<source>.
+operator's word: --authority names a record in <dest>'s decisions log whose
+act is `fold-in-order` with the source program as its target (one order
+covers every live session of that program) or `reparent-yes` with this
+session as its target; without one it refuses. A move writes a
+session-reparented event to both programs' logs and an undo entry in
+<dest>'s log. Reverse it with `mc-kb.sh revert <undo id>`, which runs
+`reparent <name> --program <source> --undo`, needs no authority, works only
+while the session's current program holds a move of it out of <source>, and
+logs no undo entry of its own; revert refuses a second reversal of one entry.
 Exit codes of reparent: 0 moved; 1 moved but a record failed (the output
 says which); 2 usage, an invalid value, no --authority or a row it cannot
 rewrite; 3 no row of that name, or its lock is held; 4 any other refusal.
@@ -189,6 +189,12 @@ allocation install, a program that is not configured, rules that would not
 render, a worktree that could not be created, a named directory that is not
 a worktree other than a primary checkout, a worktree path holding a control
 character, or any other refusal by the rung.
+
+reparent exits its own way: 0 moved; 1 moved but an undo entry or event
+could not be recorded (the output's unrecorded field names which); 2 usage,
+an invalid value, --undo with --authority, no --authority, or a row it
+cannot read or rewrite; 3 no row of that name, or another launch or retire
+of it holds its lock; 4 any other refusal.
 EOF
 }
 
@@ -1358,18 +1364,15 @@ cmd_retire() {
   return 1
 }
 
-# reparent_authorised <session> <source> <dest> <id> — 0 when <id> names, in
-# either program's decisions log, a fold-in order for <source> or a yes for
-# <session>.
-reparent_authorised() {
-  ra_found=''
-  for ra_p in "$3" "$2"; do
-    ra_all=$(/bin/bash "$script_dir/mc-kb.sh" entries decisions --program "$ra_p" 2>/dev/null </dev/null) || continue
-    ra_hit=$(printf '%s\n' "$ra_all" | I=$4 S=$1 F=$2 awk -F '\t' '
-      $1 == ENVIRON["I"] && (($4 == "fold-in-order" && $5 == ENVIRON["F"]) || ($4 == "reparent-yes" && $5 == ENVIRON["S"])) { print "y"; exit }')
-    [ -z "$ra_hit" ] || ra_found=1
-  done
-  [ -n "$ra_found" ]
+# reparent_authorized <session> <source> <dest> <id> — 0 when <id> names, in
+# <dest>'s decisions log, a fold-in order for <source> or a yes for <session>.
+# Only the destination's log counts: a record there is the order to move into
+# that program, which a record in the source's log is not.
+reparent_authorized() {
+  ra_all=$(/bin/bash "$script_dir/mc-kb.sh" entries decisions --program "$3" 2>/dev/null </dev/null) || return 1
+  ra_hit=$(printf '%s\n' "$ra_all" | I=$4 S=$1 F=$2 awk -F '\t' '
+    $1 == ENVIRON["I"] && (($4 == "fold-in-order" && $5 == ENVIRON["F"]) || ($4 == "reparent-yes" && $5 == ENVIRON["S"])) { print "y"; exit }')
+  [ -n "$ra_hit" ]
 }
 
 # reparent_undoable <session> <current> <source> — 0 when <current>'s undo
@@ -1445,8 +1448,8 @@ $rp_dest
     reparent_undoable "$rp_name" "$rp_src" "$rp_dest" \
       || die "refusing to undo the move of $rp_name: the undo log of $rp_src holds no move of it out of $rp_dest" 4
   else
-    reparent_authorised "$rp_name" "$rp_src" "$rp_dest" "$rp_auth" \
-      || die "refusing to move $rp_name: $(sanitize_printable "$rp_auth") is no fold-in order for $rp_src and no yes for this session in the decisions log of $rp_dest or $rp_src" 4
+    reparent_authorized "$rp_name" "$rp_src" "$rp_dest" "$rp_auth" \
+      || die "refusing to move $rp_name: $(sanitize_printable "$rp_auth") is no fold-in order for $rp_src and no yes for this session in the decisions log of $rp_dest" 4
   fi
 
   rp_tmp="$rp_row.tmp.$$"
@@ -1462,25 +1465,27 @@ $rp_dest
     die "cannot rewrite the registry row for $rp_name; nothing changed" 2
   fi
 
-  rp_held=''
+  rp_unrecorded=''
   rp_note="moved from $rp_src to $rp_dest"
   rp_undo_id=-
-  if rp_undo_id=$(/bin/bash "$script_dir/mc-kb.sh" append undo --program "$rp_dest" --subject "$rp_name" --act reparent \
-    --target "$rp_name" --grounds "moved from $rp_src; to $rp_dest" -- \
-    /bin/sh "$script_dir/$me.sh" reparent "$rp_name" --program "$rp_src" --undo 2>/dev/null </dev/null); then
-    :
-  else
-    rp_undo_id=-
-    rp_held="$rp_held,undo"
+  # A reversal logs no undo entry of its own: reversing the reversal would
+  # let one authorisation shuttle a session between two programs for good.
+  if [ "$rp_undo" = 0 ]; then
+    rp_undo_id=$(/bin/bash "$script_dir/mc-kb.sh" append undo --program "$rp_dest" --subject "$rp_name" --act reparent \
+      --target "$rp_name" --grounds "moved from $rp_src; to $rp_dest" -- \
+      /bin/sh "$script_dir/$me.sh" reparent "$rp_name" --program "$rp_src" --undo 2>/dev/null </dev/null) || {
+      rp_undo_id=-
+      rp_unrecorded="$rp_unrecorded,undo"
+    }
   fi
   for rp_p in "$rp_src" "$rp_dest"; do
     /bin/bash "$script_dir/mc-event.sh" emit --program "$rp_p" -- session-reparented "$rp_name" "$rp_note" >/dev/null 2>&1 </dev/null \
-      || rp_held="$rp_held,event-$rp_p"
+      || rp_unrecorded="$rp_unrecorded,event-$rp_p"
   done
   name_unlock
-  rp_held=${rp_held#,}
-  if [ -n "$rp_held" ]; then
-    printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\tunrecorded=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id" "$rp_held"
+  rp_unrecorded=${rp_unrecorded#,}
+  if [ -n "$rp_unrecorded" ]; then
+    printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\tunrecorded=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id" "$rp_unrecorded"
     return 1
   fi
   printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id"

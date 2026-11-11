@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for scripts/mission-control-launch.sh — the one launcher for every
 # session kind and its retire verb (mission-control REQ-D1.1, REQ-D1.5,
-# REQ-B1.4, REQ-G1.1, REQ-M1.7, REQ-A1.4).
+# REQ-B1.4, REQ-G1.1, REQ-M1.7, REQ-A1.4, REQ-D1.16).
 #
 # Every kind launches from a fixture on the stream-json rung (a CLI shim
 # records its argv and its first stdin line), one on the tmux rung (a tmux
@@ -1627,8 +1627,8 @@ if [ "$(rp_field "$REG/$fold_name" program)" = beta ] && [ "$(rp_field "$REG/$fo
 else
   fail "the row after the move: $(cat "$REG/$fold_name")"
 fi
-grep -v "^program${TAB}\|^owner${TAB}" "$REG/$fold_name" >"$tmp/after.rows"
-printf '%s\n' "$before" | grep -v "^program${TAB}\|^owner${TAB}" >"$tmp/before.rows"
+grep -v -e "^program${TAB}" -e "^owner${TAB}" "$REG/$fold_name" >"$tmp/after.rows"
+printf '%s\n' "$before" | grep -v -e "^program${TAB}" -e "^owner${TAB}" >"$tmp/before.rows"
 cmp -s "$tmp/before.rows" "$tmp/after.rows" && ok "pid, cwd, branch and every other field are untouched" || fail "a field beyond program and owner changed"
 ml list
 case $OUT in *"$fold_name${TAB}beta${TAB}worker"*) ok "the destination's list shows the session" ;; *) fail "list after the move: $OUT" ;; esac
@@ -1664,12 +1664,45 @@ ml reparent mc-alpha-tower-1000000002 --program beta --authority "$fold_id"
 [ "$RC" = 0 ] && ok "one fold-in order covers a second session of the folded program" || fail "the second session exited $RC: $ERR"
 
 # A yes covers its own session only.
-rp_row mc-alpha-worker-1000000005 alpha worker launched
-ml reparent mc-alpha-worker-1000000005 --program beta --authority "$yes_id"
+w5=mc-alpha-worker-1000000005
+rp_row "$w5" alpha worker launched
+w5_before=$(cat "$REG/$w5")
+ml reparent "$w5" --program beta --authority "$yes_id"
 [ "$RC" = 4 ] && ok "a yes naming another session does not cover this one" || fail "a yes for another session exited $RC"
-yes5=$(rp_decide beta reparent-yes mc-alpha-worker-1000000005)
-ml reparent mc-alpha-worker-1000000005 --program beta --authority "$yes5"
+
+# An order for another program, a record only in the source's log, a malformed
+# id and --undo with --authority each refuse and leave the row alone.
+other_id=$(rp_decide beta fold-in-order other)
+ml reparent "$w5" --program beta --authority "$other_id"
+[ "$RC" = 4 ] && ok "a fold-in order for another program does not cover this one" || fail "an order for another program exited $RC"
+# Ids count per program's log, so log past the destination's last id to get one beta's log lacks.
+for pad_n in 1 2 3; do rp_decide alpha reparent-yes "pad-$pad_n" >"$tmp/pad.$pad_n"; done
+src_id=$(rp_decide alpha fold-in-order alpha)
+mc_run mc-kb.sh entries decisions --program beta
+case $OUT in *"$src_id"*) fail "fixture: $src_id is also an id in beta's log" ;; esac
+ml reparent "$w5" --program beta --authority "$src_id"
+[ "$RC" = 4 ] && ok "an order recorded only in the source's log does not authorise a move into beta" || fail "a source-log order exited $RC"
+ml reparent "$w5" --program beta --authority 'Bad_Id'
+[ "$RC" = 2 ] && ok "a malformed authority id is refused (exit 2)" || fail "a malformed authority exited $RC"
+ml reparent "$w5" --program beta --undo --authority "$fold_id"
+[ "$RC" = 2 ] && ok "--undo together with --authority is refused (exit 2)" || fail "--undo with --authority exited $RC"
+ml reparent "$w5" --program beta --undo
+[ "$RC" = 4 ] && ok "--undo with no recorded move is refused (exit 4)" || fail "an undo with no move exited $RC"
+[ "$(cat "$REG/$w5")" = "$w5_before" ] && ok "none of those changed the row" || fail "a refusal changed $w5"
+
+yes5=$(rp_decide beta reparent-yes "$w5")
+ml reparent "$w5" --program beta --authority "$yes5"
 [ "$RC" = 0 ] && ok "a yes naming the session moves it" || fail "a yes for its own session exited $RC: $ERR"
+ml reparent "$w5" --program alpha --undo
+if [ "$RC" = 0 ] && [ "$(rp_field "$REG/$w5" program)" = alpha ]; then
+  ok "a hand-run undo restores the source with no authority"
+else
+  fail "the hand-run undo: exit $RC, $ERR"
+fi
+mc_run mc-kb.sh query undo --program alpha --subject "$w5"
+case $OUT in *reparent*) fail "the reversal logged an undo entry of its own: $OUT" ;; *) ok "a reversal logs no undo entry, so it cannot be reversed back" ;; esac
+ml reparent "$w5" --program beta --undo
+[ "$RC" = 4 ] && ok "no move out of beta is recorded in alpha, so the session cannot be undone back to beta" || fail "an undo back to beta exited $RC"
 
 # Reversal through the undo entry needs no authority and restores the source.
 mc_run mc-kb.sh revert --program beta "$undo_id"
