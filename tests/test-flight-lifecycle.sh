@@ -3,7 +3,6 @@
 # attention store and the crash policy for flight workers (tower-front-door
 # Task 9; D-8, D-10 · REQ-F1.1, REQ-F1.2, REQ-F1.5, REQ-F1.6).
 #
-#
 # This file holds properties 1 to 4 (pushes, screening, the crash policy);
 # the liveness and sweep properties (5, 6) live in the
 # tests/test-flight-lifecycle-*.sh files, split so each file fits the
