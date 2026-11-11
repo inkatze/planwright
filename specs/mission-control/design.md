@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-08
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -647,6 +647,7 @@ exact text and never worked around.
 
 **Chosen because:** the hub's own last rule, after a bypass incident, was
 this one.
+*(Amended at Amendment 6, 2026-11-09: a notifier delivery or a forward while `take` runs is a relay by script, never a yes mission control types, D-47 and D-49.)*
 
 ### D-24: The undo ledger  (S)
 
@@ -691,6 +692,8 @@ by a primary-evidence check.
 the configured cadence, D-33, and the packet is prepared at the ready-flip
 and merge-recommendation moments D-31 names as well as before a human
 gate.)*
+*(Amended at Amendment 6, 2026-11-09: the readiness check also refuses an operator-visible change with no recorded real-render approval, D-50.)*
+*(Amended at Amendment 7, 2026-11-10: a reviewer that reviews only once the pull request is ready is asked to review the draft first and waited for after the flip only as the fallback, D-55.)*
 
 ### D-26: Gate conditions as configurable data, inside the floors  (S)
 
@@ -818,6 +821,9 @@ disposable session; measured context makes its trigger honest.
 by D-42; it governs launched holders.)*
 *(Amended at the 2026-11-07 amendment: governs attended sessions again
 through D-43's ladder.)*
+*(Amended at Amendment 6, 2026-11-09: where the host exposes no percent,
+the measured context comes from the session's own transcript, D-46; the
+handover runs at a natural break, D-47.)*
 
 ### D-30: Automatic, lossless succession  (S)
 
@@ -842,6 +848,7 @@ automatically without degradation.
 holders; an attended session compacts instead, D-42.)*
 *(Amended at the 2026-11-07 amendment: an attended session's successor
 opens in a pane beside it, D-43.)*
+*(Amended at Amendment 6, 2026-11-09: a launched holder with no operator at its terminal runs this itself at a natural break, keeping its session name where the backend can carry it, D-47.)*
 
 ### D-31: Guidance shapes the teaching at consequential moments, never the gate  (S)
 
@@ -1044,6 +1051,8 @@ The session test reuses the plugin's prompt-hook marking (as
 store and bar; because this mark now lets a call through rather than only
 denying, the hook also requires the call to name the installed root it runs
 from. Task 38 builds it.)*
+*(Amended at Amendment 6, 2026-11-09: the prompt's wake is the notifier's delivery, D-49; a direct unit's prompts go to its launching mission control, D-48; who may answer is unchanged.)*
+*(Amended at Amendment 7, 2026-11-10: adoption's registry row can be moved to another program, D-54; the move changes only where the events go.)*
 
 ### D-36: A kickoff permission profile for relayed kickoffs  (S)
 
@@ -1297,6 +1306,7 @@ operator's own session; only a release to a pane successor does.
 **Chosen because:** the operator's decision (2026-11-06 and 2026-11-07):
 hand over as best as possible and compact only as a last resort, emulating
 the tmux pane in whatever terminal is in use.
+*(Amended at Amendment 6, 2026-11-09: the ladder starts at the next natural break, and a forward by script while `take` runs is not a new act, D-47.)*
 
 ### D-44: A goal is done when its own check passes  (S)
 
@@ -1382,6 +1392,350 @@ audit found every zone flight resting on one of those instead).
 **Chosen because:** the operator's decisions (2026-11-07): edit the spec in
 the same pull request, worker statement plus mechanical check, path list
 plus judgment for routing, pause zones unchanged.
+
+### D-46: Every mission-control session reads its own context from its transcript  (N)
+
+**Decision:** A new read-only script, `scripts/mc-context.sh`, reads a
+session's context use from the tail of its own transcript, found through
+the session's registry row and never from a path given as an argument: the
+last assistant message's final usage (input, cache-read and cache-creation
+tokens summed, the last frame of a message streamed in several) against
+its model's context window. The window comes from the transcript where it
+records one (a stream-json result's `modelUsage` context window), else
+from the session's `context/<name>` window file the throughput duty
+already reads, else from `mission_control_context_window`; the usage
+parser is the one `scripts/mc-throughput.sh` already uses, lifted into a
+shared helper, so there is one parser. It works the same for an attended
+terminal session, tmux and stream-json, because every backend writes the
+transcript. Where the host already gives the session a percent (the mod's
+reading), that value is used and the panel says which source it shows.
+The runner takes one reading per mission-control session per wake and
+records it in the program's records; `scripts/mc-handover.sh due`, the
+panel and the text panel read that record, and nothing else parses the
+transcript for it. A missing transcript, an unknown window or a malformed
+record reads the literal `unknown`, which leaves the wake-count fallback
+(REQ-L1.5) in force. The transcript is read as data: fixed-field parsing,
+nothing from it executed or interpolated.
+
+**Alternatives considered:**
+- A hook-injected context line each turn. Rejected because: stream-json
+  sessions load no mod, the line costs every turn, and the runner, which
+  decides when a launched holder is due, needs the reading outside the
+  session anyway.
+- Leave stream-json sessions on the wake-count proxy. Rejected because: it
+  is the gap the report measured, a context that grew without bound.
+
+**Chosen because:** the reported workaround measured the right number on
+every backend, and a script keeps it mechanical (D-4).
+
+### D-47: The handover waits for a natural break and keeps the session name  (N)
+
+**Decision:** A due trigger arms the handover; it runs at the next natural
+break: the act in hand has ended and no new one has started, and no launch,
+relay or prompt answer of the session's own is half done. The session
+writes an in-flight record in the program's records when it starts one of
+those and clears it at the end; `due` reports `wait` while one is open.
+While the handover is armed and waiting, D-43's compaction deferral and its
+cap hold, and the wake and compaction ceilings still force it. A launched
+holder with no operator at its terminal runs D-30's handover itself at the
+break (write, launch, verify, take), prompted by exactly one handover-due
+wake from the runner, which never batches it (D-49). The handover file
+lists the holder's open direct-dispatch units (D-48), whose registry owner
+moves to the successor at `take`.
+
+Where the backend can carry it, the successor answers to the predecessor's
+session name, the name other sessions address: the launcher gives the
+successor that name, and `take` moves the name under the registry lock in
+one step. Until `take` finishes, a script forwards what the predecessor
+receives to the successor verbatim, and the predecessor acts on none of it;
+a forward is a relay by script, not a new act, and never reinterprets an
+operator's answer. A failed `take` leaves the name and the program with the
+predecessor, which keeps acting, and retires the successor. A successor
+arms no handover before its own first reading is below the trigger, so
+handovers cannot loop. How the name moves on each backend is researched in
+the task and recorded per backend; a backend that cannot carry it falls to
+D-43's rung 2. The attended tmux path PR #902 shipped, Task 33's pane rung,
+and the rest of D-43's ladder are unchanged; Task 40 builds on Task 33's
+`launch --handover` and `take`.
+
+**Alternatives considered:**
+- Hand over at once when due. Rejected because: a half-done relay or
+  answer is lost or doubled across the handover.
+- A fresh name, with every sender resolving the current holder. Rejected
+  because: every sender would need the lookup, and the report shows
+  messages already going to a released session.
+
+**Chosen because:** the operator's scope for this amendment (Sources): hand
+over at a natural break, keeping the session name.
+
+### D-48: Direct dispatch for units that need no holder's judgment  (N)
+
+**Decision:** `mission_control_direct_dispatch_kinds` lists the unit kinds,
+by the launcher's registered kind and never by prose, that need no
+judgment from the program's holder; it ships with a review skill run on a
+pull request and read-only checks (a spec-walkthrough render, a
+goal-evidence session, a read-only audit). A kickoff, an implementation
+unit and any kind that changes a repository are never listed. The mission
+control that has such a unit (the launching mission control) launches it
+through the launcher under the unit's program, with the program's rules and
+the profile its kind already has, as the unit's registry owner, and names a
+result path the launcher composes under the program home's results folder.
+The unit writes its result there, one JSON object with a `format` field
+written by rename into place, its one write in the program home, and ends.
+The launching mission control reads it; the program's holder sees it in the
+program's records at its own next wake, and is not woken for it. A unit
+that ends without a result is a unit-lost event to the launching mission
+control. A result file is removed once the unit is retired and its result
+recorded in the program's records, or at program retire. A cadence step the
+unit runs is recorded through the step runner as for any unit; the result
+file is never readiness evidence (D-25). The unit's questions and prompts go
+to the launching mission control, which answers only what REQ-G1.2 and
+REQ-G1.6 already allow (a standing decision of the unit's program, or the
+operator's own answer); anything else goes to the operator, never to the
+holder. A kind the list does not name keeps the holder's relay.
+
+**Alternatives considered:**
+- Every unit dispatched directly. Rejected because: implementation units
+  need the holder's knowledge of the spec and of the program's state.
+- A cheaper model for the holder instead. Rejected because: it keeps the
+  relay hop and its full-context turn; cost tiering is separate work.
+
+**Chosen because:** each relay hop costs a full-context turn of the holder
+for a unit whose result it only passes along.
+
+### D-49: A notifier relays prompts and finished units; the rest is batched  (N)
+
+**Decision:** A notifier script, run by the runner each pass under its
+re-arming and timeout (REQ-E1.1, REQ-E1.6), reads
+`scripts/fleet-streamjson.sh pending` and the registry and, for each new
+pending prompt in a session with an answer channel and each finished unit,
+delivers one line to the mission control that answers it (the program's
+holder, or the launching mission control for a direct unit, D-48) by the
+existing cross-session delivery, with no model turn of any other session in
+between. It claims each delivery in the attention store under its lock
+before sending, so a delivery happens at most once; the line carries the
+kind, the session and a truncated, control-stripped summary, the same text
+the attention store already holds. A failed delivery stays pending and is
+retried next pass; after `mission_control_relay_retries` passes (shipped:
+3) it becomes an event. A prompt in a session with no answer channel stays surfaced to
+the operator once (REQ-G1.6). The other events that would wake a program's
+holder are held in the attention store, not in memory, and delivered as one
+wake per `mission_control_relay_batch_interval` (shipped: 10 minutes); the
+shipped urgent classes
+wake at once: a handover-due wake, a stopped watcher or notifier, a failed
+self-check, a denial (D-23) and an operator's answer arriving. A notifier
+delivery counts as a wake for REQ-L1.5's fallback.
+
+**Alternatives considered:**
+- Batching alone. Rejected because: a waiting prompt holds a worker idle
+  for the whole interval.
+- The notifier alone. Rejected because: the holder would still take a
+  full-context turn per routine event.
+
+**Chosen because:** mechanics are scripts (D-4): forwarding a prompt or a
+finished-unit notice needs no judgment.
+
+### D-50: Spend per session on the panel, and real-render previews before an operator-visible change ships  (N)
+
+**Decision:** The panel and the text panel show each live session's spend
+since its start in dollars, priced from its transcript's usage records with
+`config/token-prices.tsv` through the shared token-spend pricing helper,
+the program's total for the current UTC day across every session that ran
+in it (the day the token-spend report counts), and the share of it spent by
+mission-control sessions (registry kind mission-control). A session whose
+spend cannot be read, or whose model has no price, shows unknown, and a
+total missing any session is marked partial. The figures are display only
+and feed no budget. The runner records them with the context reading
+(D-46), so the panel parses no transcript.
+
+A pull request that changes a path on `mission_control_visible_paths` (the
+shipped list: the panel mod, the text panel, the digest lines, the guide;
+each project may add paths) stays a draft until the operator has approved a
+preview built from the real render of the change (the mod's own render or
+the text panel's output, captured), rendered over fixture data and never
+the live program's figures, never a mock-up. Mission control records the
+approval in the program's decisions log with the operator's own words and
+the preview's digest, and quotes it in the pull request; a worker never
+records it. The readiness check refuses a flip of such a pull request with
+no matching recorded approval, a condition added, never a narrowing of the
+cadence (D-33); until that gate ships, the approval is recorded by hand the
+same way.
+
+**Alternatives considered:**
+- A daily spend line only. Rejected because: the supervision overhead the
+  report found is per session.
+- Mock-ups for approval. Rejected because: the operator asked for the real
+  render, which is what they will see.
+- A preview over live figures. Rejected because: the preview is quoted in a
+  pull request, and the program's figures are program data (D-8).
+
+**Chosen because:** the operator's scope for this amendment (Sources):
+spend per session visible before the daily line is crossed, and drafts held
+until the real render is approved.
+
+### D-51: The throughput duty audits idle waits  (N)
+
+**Decision:** The throughput duty (`scripts/mc-throughput.sh`, already
+shipped) gains an idle-wait audit, run at each handover and at least once
+every `mission_control_idle_audit_interval` (shipped: one day), with an
+injectable clock for tests. From the program's step, flight and dispatch
+records, the forge snapshot's CI timing (D-12, so no duty polls the forge
+itself) and the attention store, it finds intervals where a unit waited on
+something it did not consume: a CI result a step does not read, a quiet or
+cadence timer, steps run one after another that do not depend on each
+other, and a relay through another session. Each finding becomes a
+mechanization proposal in D-14's form (the mechanism looked up in the
+inventory, phrased as a confirmation), naming the change and the time it
+saves per day: the measured waits of that kind in the audit window, scaled
+to a day. D-14's repeat threshold is waived for a measured wait; a declined
+proposal stays declined as D-14 says; a proposal is identified by its kind
+and the step or timer it names, so a second run proposes nothing new. The
+audit is a read; it changes nothing.
+
+**Alternatives considered:**
+- Leave it to the existing bottleneck report. Rejected because: that
+  report names the slowest stage, not waits that were never needed, and
+  the operator found the CI wait themselves.
+
+**Chosen because:** the operator's scope for this amendment (Sources):
+mission control should find these, with an estimate, rather than the
+operator.
+
+### D-52: Bring-up audits drift from the shipped defaults, read only  (N)
+
+**Decision:** The bring-up audit (`scripts/mc-config.sh doctor`) runs at
+bring-up and in every successor's self-check, read only, and reports what
+the program runs on that is not the shipped default: the four checks it
+already ships (a knob set away from its shipped value, a default duty off,
+a launch on another rung than the knob, a cron line touching the program),
+plus a standing rule whose text names a number for a knob it governs (the
+knob's name followed by a value, or a handover at a context percent) while
+the knob's effective value differs, and a local-layer override whose
+comment or value carries a past date, or interim, temporary or until with
+no date ahead. Rule text and comments are matched as data with fixed
+patterns, never evaluated. Each finding names the file, the knob, the rule
+or comment and the effective value in plain words and becomes a finding the
+operator settles; the audit edits no layer and no rule.
+
+**Alternatives considered:**
+- Correct the drift automatically. Rejected because: which side is right
+  (the rule or the knob, the override or its comment) is the operator's
+  call.
+
+**Chosen because:** both drifts the note records were found only by hand;
+the operator folded the requirement into this amendment (Sources).
+
+### D-53: A rule says how it is enforced, and the doctor lists the ones that only live as prose  (N)
+
+**Decision:** The rule store's entry (D-5) gains one `enforcement` field:
+`script:<name>`, `knob:<name>`, `hook:<name>`, `duty:<name>` or
+`default:<name>` (the kind and the thing it names), `fix:<pr-or-observation
+id>` (an open fix that will enforce it), or `prose:<one-line reason>`.
+`mc-rules.sh add` and `supersede` accept it (`--enforcement`); the value is
+matched against that closed grammar and stored as data, never evaluated; an
+entry without the field reads as `unknown`, and the loader, `render` and
+re-injection (D-29) treat unknown exactly as any other value, so no old
+store stops loading. `mc-config.sh doctor` (D-52) lists each active rule
+whose enforcement is `prose`, `unknown`, or a `fix` whose pull request is
+merged or closed (read through the forge snapshot's pull-request state, D-12,
+or one read-only lookup where the snapshot lacks it; a lookup that fails
+reads as unknown), each on one plain line naming the rule and the action
+(name what enforces it now, keep it as prose with a reason, or retire it).
+The listing edits nothing. It lands beside the open doctor flag for a rule
+that disagrees with its knob (D-52), sharing its rule-text reader and
+adding a separate report section, so the two do not conflict.
+
+**Alternatives considered:**
+- A free-text note on each rule. Rejected because: prose cannot be
+  checked, and the whole point is to find the rules nothing enforces.
+- Refuse a rule with no enforcement. Rejected because: old rules and
+  genuinely prose-only ones (a tone, a priority) are legitimate, and a
+  blocked load would stall bring-up.
+
+**Chosen because:** the operator asked that each rule say how it is
+enforced and that prose-only rules show (Sources); a closed grammar makes
+the check mechanical and keeps the doctor read only.
+
+### D-54: A live session's program and owner can be moved  (N; C, D-35)
+
+**Decision:** A launcher verb, `mission-control-launch.sh reparent
+<session> --program <destination>`, rewrites one registry row, under the
+registry lock, from the source program to the destination and sets its
+owner to the destination program's mission control (`mission-control:
+<destination>`). Event routing keys on the row's program (D-35, D-49), so
+a prompt raised after the move reaches the destination's events and not the
+source's; the destination's `list` shows it and retirement works from it
+(D-35's adoption covers it from then on). It refuses an unknown session, an
+unknown or the same program, a session whose kind is mission-control, and
+a row that cannot be rewritten; it never touches the session's process,
+worktree or branch. The move writes one event to both programs' logs (so
+each can read it) and an undo entry naming the source (D-24, with
+`reparent` back as its reversal). Authority is the operator's: the verb
+runs at a fold-in the operator ordered (one order covers all of the folded
+program's live sessions, the operator's choice) or with their yes for that
+one session, the same posture as adoption of an operator's session (D-35);
+it takes `--authority <decisions-log record>` naming that order or yes and
+refuses without it, so the refusal is checkable. Reversing a move through
+its undo entry needs no new authority.
+
+**Alternatives considered:**
+- Re-adopt the session under the new program (the existing adopt verb).
+  Rejected because: adoption refuses a session another live supervisor
+  holds, which the source program's row still does, and releasing first
+  loses the row's history and ownership between the two steps.
+- Poll the moved sessions by a script on the new owner (the stopgap in
+  use). Rejected because: it is the manual step this removes, one per
+  fold-in.
+
+**Chosen because:** the gap the fold-in showed (Sources): the owner field
+was the only thing wrong, so moving exactly that field, with both programs
+told, fixes it without touching a session.
+
+### D-55: A reviewer that reviews only when ready is asked in draft first, waited for after the flip as the fallback  (N; C, D-25, D-33)
+
+**Decision:** A knob, `mission_control_review_on_ready_bots` (shipped
+empty; each project or overlay names its hosted reviewers that review only
+once a pull request is ready), tells mission control which reviewers are
+normally silent until the flip. Mission control first asks each of them to
+review the draft by its trigger comment (a trigger comment known to work on
+drafts, or the reviewer's documented review command), answers and resolves
+their threads through the bot-review step, and then flips: the operator's
+choice, so the flip means done. A reviewer that has not reviewed the
+current head within `mission_control_review_on_ready_wait` (shipped: 30
+minutes) of its trigger, or that cannot be triggered on a draft, falls back
+to the path below for that reviewer, so nothing deadlocks. The readiness
+check is split at that line, not weakened: the flip conditions (D-33's
+cadence, CI, mergeability, threads, the spec and visual gates) are
+unchanged and never wait on a fallback reviewer, because it cannot review
+first; the *merge-ready* report is a second evaluation at the same head,
+which additionally requires
+that every named reviewer has a review on the pull request's current head
+(read from the forge snapshot, D-12), that every thread is answered and
+resolved by the bot-review step, and that the flip conditions still hold.
+Until then the unit's state is *ready, awaiting reviewers*; the
+ready-to-merge notice (the program's standing rule) is not sent. A reviewer
+silent after `mission_control_review_on_ready_wait` (shipped: 30 minutes)
+is an operator item naming it; a quota or outage reply is recorded as that
+reviewer's skipped pass with the reply quoted; a push restarts the wait.
+The bot-review step's own contract (answers, rejections needing the
+operator's yes) is unchanged.
+
+**Alternatives considered:**
+- Flip first and always wait after it (the draft's first form). Rejected
+  because: the operator chose to review in draft and flip when done; it
+  survives only as the fallback for a reviewer that cannot or does not
+  review the draft.
+- Refuse the flip until they have reviewed, with no fallback. Rejected
+  because: a reviewer that only starts on the ready event would deadlock it.
+- Mark the pull request ready, then back to draft while waiting. Rejected
+  because: it re-triggers or hides reviewers and misstates the pull
+  request's state.
+
+**Chosen because:** the review-on-ready report (Sources): readiness passed
+before findings landed on four threads; the operator's choice (review in
+draft, flip when done) handles the findings before the flip, and the
+per-reviewer fallback with a separate merge-ready report keeps the flip's
+gate whole for a reviewer that cannot be reached in draft.
 
 ## Cross-cutting concerns
 

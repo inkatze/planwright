@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-02
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -612,6 +612,8 @@ repo `scripts/` and `tests/` stays approvable.
 **Chosen because:** both layers refuse the same paths, so neither tool route
 reaches them, and the residual left open is the one already accepted.
 Operator decision at the 2026-10-05 kickoff.
+*(Narrowed in part by D-29 (2026-11-10): the hooks-directory file-tool rule
+follows the real hooks path, not every directory of that name.)*
 
 ### D-23: The guard's trust inputs come from a launcher-written session record (N)
 
@@ -772,6 +774,145 @@ so a static `wc` rule prints any file's content, including another
 process's environment, without passing the guard (D-27). The cost is that
 `wc` prompts when the hook cannot run. Found by Task 12's convergence
 review; operator ruling at the 2026-11-02 delta kickoff.
+
+### D-29: The hooks-directory file-tool deny follows the real hooks path (N, narrows D-22 in part)
+
+**Decision:** The profile's `Edit` deny rows `//**/githooks/**` and
+`//**/.githooks/**` match a directory of that name at any depth, so a
+consuming repository's own test fixtures (`test/githooks/…`) cannot be
+edited. The file-tool protection narrows to the directories git runs hooks
+from in the worker's worktree: the resolved `core.hooksPath` (or the
+default) and the worktree root's tracked `githooks/` and `.githooks/`. How
+it is anchored is settled in order: (1) a profile path rule anchored to the
+working directory, if a build-time probe against the permission matcher shows
+a spelling that matches the root's directory and not a deeper one of the same
+name (the model's M10 reads a single-segment `<name>/**` deny as any-depth,
+so this may not exist); (2) otherwise a worker-tier file-tool hook (the
+`handle_file` shape the policy guard already has for mission control)
+resolving the same directories as the guard's `ob_excl_load`. The any-depth
+rows leave the profile only once that cover is in place with its tests, and
+the real hooks directory is never less protected than before: a test shows
+`Write` and `Edit` on each protected directory still denied, and on
+`test/githooks/x` and `src/githooks/x` allowed.
+
+**Alternatives considered:**
+- Keep the any-depth rows and let each consumer rename its fixture
+  directory. Rejected because: a rule meant to protect one directory blocks
+  ordinary work in every repository with a `githooks` fixture, and the cost
+  falls on adopters who cannot see why.
+- Drop the rows and rely on the guard's Bash floor alone. Rejected because:
+  the `Write` and `Edit` tools never reach the Bash guard (the reason D-22
+  closed both layers), so a worker could write a hook directly.
+- Allow `test/githooks/**` explicitly. Rejected because: an allow never
+  overrides a deny, and an enumerated exception per consumer does not scale.
+
+**Chosen because:** both layers keep refusing exactly what a tool runs
+without a further prompt, and nothing else. The residual if only the hook
+route exists is that a crashed file-tool hook fails open where a static rule
+could not, which is why the old rows stay until the hook's fail-closed
+behaviour on error is tested (REQ-B1.3). A repository's resolved
+`core.hooksPath` is a per-repository value no static profile rule can name,
+so the file-tool hook covers it in every case; an anchored profile rule, if
+the probe finds one, covers only the two root names beside it. Cites the
+githooks deny block
+report (Sources) and drafting-session decision (2026-11-10).
+
+### D-30: `nice -n <n>` is a transparent prefix (N, narrows REQ-A1.13's `nice` deferral)
+
+**Decision:** `nice -n <n>`, with `n` a plain decimal literal from 0 to 19, is
+analysed as a transparent prefix like `time` and `timeout`: the wrapped
+command is verified as if it stood alone. Every other `nice` spelling
+(`nice -<n>`, `--adjustment`, a negative or non-literal value, bare `nice`)
+defers.
+
+**Alternatives considered:**
+- Leave `nice` deferred. Rejected because: heavy test runs are
+  politely niced by convention and the prompt buys no safety, since the wrapped
+  command is the thing the guard checks.
+- Admit any `nice` spelling. Rejected because: a negative adjustment is a
+  privileged operation and the guard cannot see what a non-literal value
+  holds.
+
+**Chosen because:** `nice` executes nothing of its own: it forwards to the
+same command the guard already analyses, which is why `timeout` joined. The
+exact form is narrower than `timeout`'s because `nice` has more spellings.
+Cites the W63 observation (Sources).
+
+### D-31: `gitleaks detect` and `gh release view` join the read-only set (N)
+
+**Decision:** `gitleaks detect` with only `--no-git`, `--no-banner`,
+`--verbose`, `--redact`, and `--source <path in the worktree or scratch
+root>`, and `gh release view` / `gh release list` without `--web` or a
+repository override, are approvable reads.
+
+**Alternatives considered:**
+- Allow any `gitleaks detect` option. Rejected because: `--report-path`
+  writes a file at an arbitrary path and `--config` points it at a file the
+  worker chose; the scanner earns approval by being read-only.
+- Add a static profile rule. Rejected because: a static prefix rule cannot
+  refuse an option placed anywhere in the words (the D-28 reason).
+
+**Chosen because:** every gated PR-body edit prompts on the scanner today, and
+`gh release view` is a read of the same kind as the `gh pr view` already
+admitted. `--web` opens a browser, which is an outward act, so it defers.
+Cites the W63 observation (Sources).
+
+### D-32: `export` admits an enumerated allowlist of names (N)
+
+**Decision:** `export NAME=<plain literal>` is approvable only for a short
+enumerated allowlist of names that steer no tool or loader (seed: `LC_ALL`,
+`LANG`, `TZ`, `NO_COLOR`, `FORCE_COLOR`, `CI`, `TERM`, `COLUMNS`, `LINES`)
+that also passes REQ-E1.2's name screen. Everything else defers.
+
+**Alternatives considered:**
+- Admit any name that passes the screen. Rejected because: the screen
+  protects the guard's own modelling, not the children: an exported
+  `GIT_SSH_COMMAND`, `GIT_EXTERNAL_DIFF`, `LD_PRELOAD`, `NODE_OPTIONS`, or
+  `PYTHONSTARTUP` makes a later approved command run attacker-chosen code.
+- Keep every `export` prompting. Rejected because: harmless locale and
+  colour settings are the common case and each prompts a worker for nothing.
+- A denylist of dangerous names. Rejected because: a denylist misses the next
+  tool's variable (the A1.5 rule: an allowlist, never a category match).
+
+**Chosen because:** an exported value reaches every later command's
+environment, so the safe set is the one the spec can name. Growth is a spec
+amendment on evidence. Cites the W63 observation (Sources).
+
+### D-33: `mktemp` inside an assignment's substitution, in the scratch arm (N)
+
+**Decision:** `X=$(mktemp -d)` (and `mktemp` with a literal template under the
+scratch root) is admitted as the one writing inner command of REQ-E1.3's
+substitution rule, only under the scratch arm; `X` stays opaque.
+
+**Alternatives considered:**
+- Leave it prompting. Rejected because: it is the first line of most
+  scratch-using scripts.
+- Admit it under every policy. Rejected because: `mktemp` is a writer, and
+  only the scratch arm approves writes at a path the guard has bounded.
+- Admit `-p`/`--tmpdir`. Rejected because: the directory operand would be a
+  write target outside the bounded root.
+
+**Chosen because:** the created path is fresh and inside a root the worker
+already may write, and because `X` stays opaque, a later use that needs its
+value (an `rm`, a redirect) still defers; the gain is the assignment line
+only, so the benefit is deliberately modest. Cites the W63 observation
+(Sources).
+
+### D-34: fish `and`, `or`, and `not` are modelled as `&&`, `||`, and negation (N)
+
+**Decision:** Inside `fish -c`, a segment starting with `and` or `or` is
+analysed as `&&` or `||`, and a leading `not` as a transparent negation.
+
+**Alternatives considered:**
+- Keep deferring. Rejected because: the operator's own shell is fish, so
+  workers write `and` and `or` constantly inside `fish -c`.
+- Model every fish keyword. Rejected because: `begin`/`end`, `switch`, and
+  fish command substitution carry semantics the analyser does not model
+  (REQ-A1.9).
+
+**Chosen because:** the three words are exact fish spellings of constructs
+the analyser already models, so no new semantics enter the guard. Cites the
+W63 observation (Sources).
 
 ## Cross-cutting concerns
 

@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-02
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -361,6 +361,68 @@ below; `scripts/spec-graph.sh` renders it on demand.
 - **Dependencies:** none
 - **Citations:** D-17 · REQ-G1.5
 - **Estimated effort:** 2–3 days
+
+### Task 16 — Narrow the hooks-directory file-tool deny to the real hooks path
+
+- **Deliverables:** a build-time probe, pinned in the permission-matcher
+  model doc and its test with a behaviour-version stamp, of whether any
+  path-rule spelling matches the worktree root's `githooks/` and
+  `.githooks/` and not a deeper directory of that name; then, by that
+  outcome, either the anchored profile rows for the two root names or none,
+  plus, in every case, a worker-tier file-tool hook (the policy guard's
+  `handle_file` shape, resolving the directories the guard's
+  `ob_excl_load` does, the resolved `core.hooksPath` included) wired into
+  `config/worker-settings.json`; the old
+  any-depth `Edit` rows removed only once that cover and its tests exist;
+  fixture rows for each protected directory and for `test/githooks/x` and
+  `src/githooks/x`; the matcher model doc's path-rule section updated.
+- **Done when:** a test shows `Write` and `Edit` on the worktree root's
+  `.githooks/x`, `githooks/x`, and the resolved `core.hooksPath` directory
+  denied, and on `test/githooks/x` and `src/githooks/x` allowed; each is first
+  shown (denied or allowed) against the pre-change profile; the hook's error
+  or unparsable payload fails closed (REQ-B1.3), shown by a test that makes
+  the hook crash and still sees the protected directory refused; the
+  permission-matcher, settings-fragment, and hook-contract checks pass; the
+  `deny` block differs from its pre-change content only by the hooks rows.
+- **Dependencies:** 12
+- **Citations:** D-22, D-29 · REQ-F1.7, REQ-A1.15, REQ-B1.3
+- **Estimated effort:** 1–2 days
+
+### Task 17 — Admit `nice`, `gitleaks detect`, and `gh release view`
+
+- **Deliverables:** the worker guard analyses `nice -n <n>` as a transparent
+  prefix and approves the `gitleaks detect` and `gh release view`/`list` forms
+  REQ-A1.17 names; defer fixtures for each refused spelling; the
+  real-prompt corpus rows for the three shapes turned from pending to
+  enforced; the instruction-budget check.
+- **Done when:** each approved shape is first shown deferring against the
+  pre-change guard and allowing against the changed one; `nice -n 20 x`,
+  `nice -n -5 x`, `nice -5 x`, `nice --adjustment=5 x`, bare `nice`,
+  `gitleaks detect --report-path f`, `gitleaks detect --config f`,
+  `gitleaks detect --source /etc`, `gh release view --web`, and
+  `gh release view -R other/repo` defer; a `nice -n 10` wrapping a deferring
+  command defers; the suite and lints pass.
+- **Dependencies:** 7, 6.1
+- **Citations:** D-30, D-31 · REQ-A1.16, REQ-A1.17
+- **Estimated effort:** 1 day
+
+### Task 18 — Admit allowlisted `export`, scratch `mktemp`, and fish `and`/`or`/`not`
+
+- **Deliverables:** the worker guard approves `export NAME=<literal>` for the
+  allowlist, `X=$(mktemp …)` in the scratch arm under REQ-E1.8's conditions,
+  and models fish `and`/`or`/`not` inside `fish -c`; defer fixtures for
+  every refused spelling; the real-prompt corpus rows.
+- **Done when:** each approved shape is first shown deferring against the
+  pre-change guard and allowing against the changed one; `export PATH=/x`,
+  `export GIT_SSH_COMMAND=x`, `export LC_ALL`, `export -p`, `declare -x
+  LC_ALL=C`, `X=$(mktemp -p /etc)`, `X=$(mktemp -d); rm -rf "$X"` (the use
+  stays opaque), `X=$(mktemp)` outside the scratch arm, and `fish -c "a; and
+  begin; b; end"` defer; `fish -c "git status; and git log"` allows;
+  `export LC_ALL=C` carries its value to a later `$LC_ALL`; the suite and
+  lints pass.
+- **Dependencies:** 17
+- **Citations:** D-32, D-33, D-34 · REQ-E1.7, REQ-E1.8, REQ-E1.9
+- **Estimated effort:** 1–2 days
 
 ## Awaiting input
 

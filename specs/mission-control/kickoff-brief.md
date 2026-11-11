@@ -1595,3 +1595,285 @@ Class: meaning
 Lens-pass: Amendment 5, delta-scoped lens review above (spec lens set, walked inline; every finding dispositioned)
 Anchor: `39b49a22e3449a1308da884674343e2adce89a58` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 6 (2026-11-09, amendment: cheaper supervision)
+
+Spec path `specs/mission-control`; walk started at `b1a904ee`; walkthrough
+date 2026-11-09; validator at walk start: 0 errors, 0 warnings. Mode:
+amendment on an Active (derived) bundle, operator-declared through mission
+control ("lets go with your recommendations"), scoped to the queued asks
+on a context reading for every mission-control session, the natural-break
+handover keeping the session name, direct dispatch, a cheap relay, spend
+per session with real-render previews before anything the operator sees
+ships, and an idle-wait self-audit, plus the bring-up drift audit the operator
+folded in (2026-11-09). A machine-wide bound on heavy local runs, which
+conflicts with custom-steps' empty `full_suite_pool` default, is queued as
+its own custom-steps amendment note, not part of this delta. The
+post-PR-steps-alongside-CI ask is a separate flight and out of scope. The
+delta was drafted into the bundle before the walk, from the
+recommendations; each question goes to the operator through mission
+control, and only their own relayed words are recorded as answers.
+
+#### Goal and glossary (Amendment 6)
+
+Restatement: supervision costs more than the work it supervises, because
+supervising sessions grow their context without bound and every relay
+costs a full-context turn. The delta makes every mission-control session
+read its own context and hand over at 40 percent at a natural break under
+the same session name, sends units that need no supervisor judgment
+straight to a worker, moves prompt and finished-unit relays to a script,
+shows spend per session, and has the throughput duty find idle waits
+nobody needed. Rules out: running post-PR steps alongside CI, changing
+the rungs of D-43's ladder (only when it starts moves, to a natural
+break), cost-tiered model defaults, and any change to who may answer a
+prompt (only where the line goes). What PR #902 already covers: the attended successor
+path inside tmux; not the reading, not headless holders, not the name.
+Terms: *program's holder* (the mission-control session holding a
+program's name, often one another mission control launched, with no
+operator at its terminal); *launching mission control* (the mission
+control that launches a direct-dispatch unit and owns its registry row);
+*natural break* (the act in hand ended, none started, no launch, relay or
+answer of the session's own half done); *direct-dispatch kind* (a registered
+unit kind on `mission_control_direct_dispatch_kinds`); *real-render preview* (the change's own render,
+captured over fixture data, never a mock-up); *relay* (forwarding a
+session's prompt, result or message through another session).
+
+#### Requirements walkthrough (Amendment 6)
+
+Every question went to the operator through mission control; the answers
+below are the operator's own picks, relayed 2026-11-10. The draft followed
+each recommendation, so no answer changed it.
+
+- **Direct dispatch (REQ-D1.15).** Reviews of a pull request, spec
+  walkthrough renders, goal-evidence sessions and read-only audits go
+  straight to a worker, as an editable list; kickoffs, implementation and
+  anything that changes a repository stay with the supervisor. Who may
+  answer a prompt is unchanged.
+- **Relays (REQ-E1.7).** A notifier delivers each new prompt and each
+  finished unit at once, one line each, without waking the supervisor;
+  other routine events batch into one wake every 10 minutes; urgent ones
+  (a handover due, a stopped watcher, a failed self-check, a denial, the
+  operator's own answer) still wake at once.
+- **Session name (REQ-L1.6, REQ-L1.9).** A handing-over session keeps its
+  name where the session type allows it, else falls back to the
+  one-command handover; a script forwards what the old session receives,
+  word for word, until the switch completes.
+- **Previews and spend (REQ-F1.17, REQ-F1.18).** Every operator-visible
+  change (panel, text panel, digest lines, guide) stays draft until the
+  operator approves a preview built from the real render over sample data,
+  enforced by the readiness check; spend totals count by UTC day.
+- **Idle-wait audit (REQ-M1.10).** At every handover and at least once a
+  day; each finding is a proposed change with the time it would save per
+  day; nothing changes without the operator's yes.
+- **Drift audit (REQ-A1.9).** Startup and every handover successor flag,
+  read only, a rule quoting a number its setting no longer holds and a
+  local override whose comment carries a past date or an undated
+  temporary; nothing is edited.
+- **Rule enforcement field (REQ-B1.8, REQ-A1.10).** Folded in from a
+  separate queued ask (settled before the walk, no question needed): each
+  rule says how it is enforced and the doctor lists prose, unknown and
+  closed-fix rules; an old rule reads as unknown and still loads.
+- **Classification.** Meaning-class: it adds requirements and decisions,
+  which the spec's rules settle, so no question was asked.
+- **Related, separate bundle.** The machine-wide bound on heavy local test
+  runs is walked in this same session as its own change to the custom-steps
+  spec, with its own sign-off.
+
+#### Design walkthrough (Amendment 6)
+
+Ledger: D-46 to D-53 are new and confirmed as drafted (context reading;
+natural-break handover keeping the name; direct dispatch; the notifier and
+batching; spend and previews; the idle-wait audit; the drift audit; the
+rule enforcement field). D-23, D-25, D-29, D-30, D-35 and D-43 carry
+amendment notes and are otherwise confirmed as signed. No decision was
+superseded.
+
+#### Verification approach (Amendment 6)
+
+New test-spec entries for REQ-A1.9, REQ-A1.10, REQ-B1.8, REQ-D1.15,
+REQ-E1.7, REQ-F1.17, REQ-F1.18, REQ-L1.5, REQ-L1.6, REQ-L1.9 and REQ-M1.10,
+mostly `[test]` in the named test files, run by planwright's CI through
+`scripts/run-tests.sh`; name delivery under a real session type and preview
+approvals are `[manual]` until the gate ships (decided by the dead-paths
+lens). Positive controls come first where an empty log could read as a pass.
+
+#### Task graph (Amendment 6)
+
+Tasks 39 to 47. Task 39 (the context reading) goes first and gates 40 to 45;
+Task 40 also waits for Task 33, the in-progress every-session handover
+task, because both change the same handover commands (the operator's build
+order). Task 42 follows 41; Task 44 follows 40; Task 45 (the preview gate)
+follows 39 to 44. Tasks 46 (drift audit) and 47 (enforcement field) have no
+dependencies. Deliberate non-edge: 43 (spend) does not wait for 40.
+
+#### Risk register (Amendment 6)
+
+1. The shipped handover threshold still reads 70 in `config/defaults.yml`
+   until Task 33 ships 40; fixtures set it explicitly (accepted risk).
+2. A notifier delivering prompts without waking the supervisor could hide
+   one if it fails. Mitigation: delivery claimed under lock, a failed
+   delivery retried and raised, a stopped notifier is an urgent wake.
+3. A kept session name depends on the backend carrying it. Mitigation: the
+   fallback handover, and a `[manual]` real-run check with a named owner.
+4. The enforcement field's doctor listing lands beside the open doctor flag
+   for a rule that disagrees with its knob. Mitigation: shared reader,
+   separate report section, Task 47 must not conflict with that pull
+   request.
+5. A machine-wide heavy-run bound (separate custom-steps bundle) changes a
+   signed default; walked on its own.
+
+Decision-domain gap check (catalog via `scripts/resolve-catalog.sh
+decision-domains`): security-posture, concurrency, data-modeling and
+observability touched, all decided in D-46 to D-53 (sanitized delivery
+line, delivery claimed under lock, registry lock, display-only spend).
+
+#### Lens review (Amendment 6, delta-scoped)
+
+Fan-out, one read-only sub-agent per spec lens over the delta as first
+drafted; findings validated against the bundle and the shipped scripts,
+then applied unless noted. The drift audit (REQ-A1.9, D-52, Task 46) was
+drafted after that pass and the enforcement field (REQ-B1.8, REQ-A1.10,
+D-53, Task 47) was folded in later; both are re-covered by the Amendment 7
+lens pass below. The operator accepted the 110 findings as applied.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 17 | Applied: answering authority stated unchanged; wake now the notifier's; tmux prompts stay operator-surfaced; urgent classes listed; handover-due never batched; name kept only where the backend carries it, else the fallback; script forward is not a new act; natural-break wait under the ceilings; amendment notes on REQ-L1.6, L1.9, G1.6, D1.14, D-23, D-25, D-30, D-35, D-43; registry owner and result file as the one write; result file never readiness evidence; preview obligation on Tasks 39, 43, 45; one recorded reading per session per wake |
+| Ambiguity and interpretation forks | 14 | Applied: holder and launching mission control named; kinds by registered kind, kickoffs and repository-changing kinds never listed; UTC day, ended sessions counted; in-flight record as the natural-break marker; name mechanics; window source order; time-saved formula; proposal identity; path-list knob and approval form |
+| Citation and coverage integrity | 4 | Applied: waiter citation removed; the operator's scope Sources entry added; Task citations widened |
+| Dead verification paths | 7 | Applied: name delivery tested as registry resolution plus a `[manual]` real run; positive control for the empty wake log; approval form defined; mod and text-panel tests named; preview approvals `[manual]` until the gate ships |
+| Decision-domain gaps | 15 | Applied: transcript path from the registry only; sanitized truncated delivery line; delivery claimed under lock; failed take rollback; no handover loop; one shared parser; previews over fixture data; spend display-only; unit-lost event; held events persisted; knob names and defaults. Accepted as risk: handover default 70 until Task 33 |
+| Testability | 26 | Applied in the test-spec: clocks, literal `unknown`, host-percent precedence, exactly-one wake, sanitization, symlink escape, checksums, options-reference check on every knob task |
+| Cross-file consistency | 16 | Applied: amendment-note form; In scope and Out of scope bullets; Task 41/42 edges. Declined: restoring the em-dash heading form (mission control's instruction and the project's writing style). Deferred to sign-off: `Last reviewed:` bump |
+| Documentation and glossary drift | 11 | Applied: one term each for holder, launching mission control, direct-dispatch kind, real-render preview, relay |
+| Rendered-content safety and data hygiene | 0 | Spec prose is not rendered into an executing context; runtime surfaces carry sanitization and fixture-only previews |
+
+Altitude check: no new pinned seed claim, not applicable. Ship-gate check:
+every out-of-band fix named is gated as a task (Tasks 39 to 47).
+
+#### Sign-off record (Amendment 6)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub, signed together with Amendment 7 and the three other amended
+specs: the approval summary was answered "Sign off all four
+(Recommended)". Amendment on an Active bundle: no status flip;
+`Last reviewed:` 2026-11-10 on all four spec files; validator re-run with
+0 errors. The delta adds requirements and decisions, so it is
+meaning-class. Accepted risks: the shipped handover threshold reads 70
+until the in-progress handover task ships 40; the one fix declined and the
+110 pre-walk findings accepted as applied, per the lens table above.
+
+Class: meaning
+Lens-pass: Amendment 6, delta-scoped lens review above (spec lens set, fanned out; every finding dispositioned), re-covered for the later additions by the Amendment 7 pass
+Anchor: `895f1b643ba80174e71bd820f73547054c1efb29` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 7 (2026-11-10, amendment: move a session between programs, and reviewers that review only when ready)
+
+Spec path `specs/mission-control`; walk started at `8a226219`; walkthrough
+date 2026-11-10. Mode: amendment on an Active bundle, operator-declared
+through mission control, walked in the same session as Amendment 6 and
+signed separately. Scope: two stop-reports from workers whose units the
+signed requirements did not cover (a launcher verb to move a live session
+between programs, which adoption and in-program prompt routing did not
+allow; and readiness for pull requests whose hosted reviewers review only
+once ready). The rule enforcement field is not part of this delta: it
+joined Amendment 6.
+
+#### Goal and glossary (Amendment 7)
+
+Restatement: when a program folds into another, its live sessions keep the
+old program as owner and their prompts and stalls go unseen; the delta lets
+the operator's fold-in move them. Separately, bots that only review after
+the flip made readiness pass before their findings landed; the delta has
+mission control ask them to review the draft first. Rules out: moving a
+mission-control session (it moves by handover), mission control moving a
+session on its own judgment, and weakening the flip's conditions. Terms:
+*fold-in* (one program merged into another by the operator's order);
+*review-on-ready bot* (a hosted reviewer named on
+`mission_control_review_on_ready_bots`, shipped empty).
+
+#### Requirements walkthrough (Amendment 7)
+
+- **Who may move a session (REQ-D1.16).** The operator's answer: automatic
+  at a fold-in the operator ordered, covering all of that program's live
+  sessions with no ask per session; any other move needs the operator's yes
+  for that session. The verb takes a reference to that record and refuses
+  without it.
+- **Reviewers that review only when ready (REQ-D1.17).** The operator's
+  answer, in their words: "Can we respond to bots in draft mode and flip
+  when done?" Evidence put to them: cubic's trigger comment is known to
+  work on drafts; PR-Agent's draft behavior is unconfirmed. They chose:
+  review in draft first, with a 30-minute fallback per bot to the
+  after-flip wait. The draft was changed to match before this walk
+  finished.
+- **Silent-bot wait.** 30 minutes, then an operator item naming the bot.
+
+#### Design walkthrough (Amendment 7)
+
+D-54 (the reparent verb and its authority) and D-55 (draft-first review with
+the per-reviewer fallback) are new and confirmed as amended. D-35 and D-25
+carry amendment notes. No decision was superseded.
+
+#### Verification approach (Amendment 7)
+
+New `[test]` entries for REQ-D1.16 (`tests/test-mission-control-launch.sh`,
+fixtures only) and REQ-D1.17 (`tests/test-mc-readiness.sh`, fixture forge
+snapshot, draft trigger and fallback paths included). No `[manual]` entry.
+
+#### Task graph (Amendment 7)
+
+Tasks 48 and 49. Task 48 has no dependencies. Task 49 follows Task 45
+because both edit the readiness files. Deliberate non-edge: Task 49 does not
+wait for Task 48.
+
+#### Risk register (Amendment 7)
+
+1. PR-Agent may not review a draft on a comment. Mitigation: the
+   per-reviewer fallback to waiting after the flip; the shipped list is
+   empty, so no project changes until it names a bot.
+2. cubic's quota is out for planwright until 2026-12-02. Mitigation: a quota
+   reply is recorded as skipped and never triggered again.
+3. A move rewrites who answers a session's prompts. Mitigation: the
+   authority reference is required and the move is undoable.
+
+Decision-domain gap check: security-posture and authorization touched,
+decided (authority required; the flip's gate unchanged); concurrency
+decided (registry lock).
+
+#### Lens review (Amendment 7, delta-scoped)
+
+Walked inline over the Amendment 7 delta (REQ-D1.16, REQ-D1.17, D-54, D-55,
+Tasks 48 and 49) plus the enforcement field's additions (REQ-B1.8,
+REQ-A1.10, D-53, Task 47).
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | None |
+| Ambiguity and interpretation forks | 1 | Applied: whether a fold-in order covers every session or one (all of the folded program's live sessions) |
+| Citation and coverage integrity | 0 | None |
+| Dead verification paths | 1 | Applied: how the verb knows it has the operator's authority, now an `--authority` decisions-log reference with a refusal test |
+| Decision-domain gaps | 1 | Applied: undoing a move needs no new authority |
+| Testability | 3 | Applied: an enumerated "six kinds" count removed (seven kinds exist); consumed-observation case and an unwritable-row case added to the tests |
+| Cross-file consistency | 2 | Applied: D-55's rationale and the changelog entry updated to the operator's draft-first choice |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | The enforcement value is stored as data and never evaluated; the test covers a shell substitution |
+
+Altitude check: no pinned seed claim, not applicable. Ship-gate check:
+every fix named is gated as a task (47, 48, 49).
+
+#### Sign-off record (Amendment 7)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub: the approval summary was answered "Sign off all four
+(Recommended)". Amendment on an Active bundle: no status flip;
+`Last reviewed:` 2026-11-10 on all four spec files; validator re-run with
+0 errors. The delta adds requirements and decisions, so it is
+meaning-class. Accepted risks: PR-Agent's behaviour on a draft is
+unconfirmed (the per-reviewer fallback covers it) and cubic's quota is out
+on planwright until 2026-12-02.
+
+Class: meaning
+Lens-pass: Amendment 7, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `895f1b643ba80174e71bd820f73547054c1efb29` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
