@@ -387,10 +387,18 @@ function scan_refs(t, nr, jb, injif,   low, s, tok) {
 # that `if:` must hold no `||`: any other spelling (compared to a value,
 # parenthesised, negated, inside a string, split across lines) is not a gate
 # and is refused loud rather than judged.
-function same_repo_gated(text,   parts, n, i, p, a, b) {
+function same_repo_gated(text,   parts, n, i, p, a, b, out) {
   sub(/^[ \t]*if[ \t]*:[ \t]*/, "", text)
   sub(/^[>|][0-9]*[+-]?[ \t]+/, "", text)
   gsub(/\$\{\{|\}\}/, " ", text)
+  # A string literal is opaque: blank its contents so an `&&` or `||` inside
+  # one is neither a conjunct boundary nor an operator.
+  out = ""
+  while (match(text, /'[^']*'/)) {
+    out = out substr(text, 1, RSTART - 1) "'_'"
+    text = substr(text, RSTART + RLENGTH)
+  }
+  text = out text
   if (text ~ /\|\|/) return 0
   a = "github.event.pull_request.head.repo.full_name == github.repository"
   b = "github.repository == github.event.pull_request.head.repo.full_name"

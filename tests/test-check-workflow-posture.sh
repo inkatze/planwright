@@ -1526,6 +1526,15 @@ sr_case sr-fail-string-literal "    if: \"'$SR_CLAUSE'\""
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "same-repo exception: the clause as a string literal fails" 1 $?
 
+sr_case sr-fail-and-in-string "    if: \${{ github.event_name != 'x && $SR_CLAUSE && y' }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a clause between && inside a string fails" 1 $?
+
+sr_case sr-pass-string-operand "    if: github.event.pull_request.user.login != 'a && b'
+      && $SR_CLAUSE"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a string operand with && beside the clause passes" 0 $?
+
 sr_case sr-fail-later-or "    if: >-
       $SR_CLAUSE
       && github.event.pull_request.draft == false
