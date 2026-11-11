@@ -4242,10 +4242,10 @@ secret_lexical() {
       */.config/glab-cli/* | */.config/github-copilot/* | */.cargo/credentials* | */.gem/credentials/* | \
       */.terraform.d/credentials* | */.vault-token/* | \
       */.claude/.credentials* | */.claude.json/*) return 0 ;;
-    /etc/shadow/* | /etc/gshadow/* | /etc/shadow-/* | /etc/gshadow-/* | /etc/ssh/ssh_host_*_key/*) return 0 ;;
+    /etc/shadow/* | /etc/gshadow/* | /etc/shadow-/* | /etc/gshadow-/* | /etc/ssh/ssh_host_*_key/* | /etc/sudoers/* | /etc/sudoers.d/* | /etc/ssl/private/*) return 0 ;;
     # macOS keeps /etc under /private, which a resolved path reports.
-    /private/etc/shadow/* | /private/etc/gshadow/* | /private/etc/ssh/ssh_host_*_key/*) return 0 ;;
-    /proc/*/mem/* | /proc/*/fd/* | /dev/fd/* | /dev/stdin/*) return 0 ;;
+    /private/etc/shadow/* | /private/etc/gshadow/* | /private/etc/ssh/ssh_host_*_key/* | /private/etc/sudoers/* | /private/etc/sudoers.d/* | /private/etc/ssl/private/*) return 0 ;;
+    /proc/*/?* | /dev/fd/* | /dev/stdin/*) return 0 ;;
   esac
   return 1
 }
@@ -4265,7 +4265,10 @@ secret_glob() {
       esac
       ;;
   esac
-  for s in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- /proc/1/mem /dev/fd/0 /dev/stdin; do
+  case $w in
+    /proc/*/?*) return 0 ;;
+  esac
+  for s in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- /etc/sudoers /etc/ssl/private/k.pem /proc/1/mem /dev/fd/0 /dev/stdin; do
     # shellcheck disable=SC2053 # the operand is the pattern under test
     [[ $s == $w ]] && return 0
   done
@@ -4394,7 +4397,7 @@ recursive_reader() {
 broad_dir() {
   local x=$1
   case $x in
-    / | /etc | /etc/ssh | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) return 0 ;;
+    / | /etc | /etc/ssh | /etc/ssl | /etc/sudoers.d | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) return 0 ;;
     /root/.claude | /root/.config | /home/*/.claude | /home/*/.config | /Users/*/.claude | /Users/*/.config) return 0 ;;
     /home/*/* | /Users/*/*) ;;
     /home/* | /Users/*) return 0 ;;
