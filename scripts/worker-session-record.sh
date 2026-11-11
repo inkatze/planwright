@@ -2,7 +2,7 @@
 # worker-session-record.sh — write a dispatched worker's session record: the
 # launch-time inputs its command guard trusts.
 #
-# Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>] [--base <branch>]
+# Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>] [--base <branch> | --base-from-pr]
 #          [--scratch | --fresh-scratch]
 #
 # Resolves, once, from the worktree the worker will run in:
@@ -20,8 +20,9 @@
 #                      recorded locally, else main
 #   stack_base         <remote>/<branch>: the base of a stacked pull request
 #                      (one whose base is another feature branch), from
-#                      --base <branch> or, without it, the PR's baseRefName
-#                      read once from gh; omitted when it is the default base,
+#                      --base <branch> or, with --base-from-pr, the PR's
+#                      baseRefName read once from gh (the one network call,
+#                      made only on request); omitted when it is the default base,
 #                      outside the branch grammar, or unknown. It is the one
 #                      branch besides the default base a worker's base merge
 #                      may take (scripts/policy-guard.sh,
@@ -98,7 +99,7 @@ branch_grammar_ok() {
   return 0
 }
 
-usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--base <branch>] [--scratch | --fresh-scratch]"
+usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--base <branch> | --base-from-pr] [--scratch | --fresh-scratch]"
 [ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
 wt_arg=$2
 shift 2
@@ -114,6 +115,11 @@ while [ "$#" -gt 0 ]; do
       [ "$want_scratch" = 0 ] || die "$usage" 2
       want_scratch=1
       [ "$1" = --scratch ] || want_scratch=2
+      shift
+      ;;
+    --base-from-pr)
+      [ "$have_base" = 0 ] || die "$usage" 2
+      have_base=2
       shift
       ;;
     --base)
@@ -245,7 +251,7 @@ fi
 # only inside the branch grammar the guards re-check.
 stack_base=''
 if [ -n "$pr_base" ]; then
-  if [ "$have_base" = 0 ] && command -v gh >/dev/null 2>&1; then
+  if [ "$have_base" = 2 ] && command -v gh >/dev/null 2>&1; then
     stack_arg=$(cd -- "$wt" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" 15 gh pr view "$unit" --json baseRefName --jq .baseRefName 2>/dev/null </dev/null | head -n 1) || stack_arg=''
   fi
   if [ -n "$stack_arg" ] && [ "$stack_arg" != "${pr_base#*/}" ] && branch_grammar_ok "$stack_arg"; then

@@ -193,24 +193,33 @@ done
 cat >"$SANDBOX/bin-gh-pr" <<EOF
 #!/bin/sh
 [ "\$1 \$2" = "pr view" ] || exit 1
+printf "gh %s\n" "\$*" >>"$SANDBOX/ghpr.log"
 printf '%s\n' "\${STUB_PR_BASE:-}"
 EOF
 mkdir -p "$SANDBOX/ghpr"
 cp "$SANDBOX/bin-gh-pr" "$SANDBOX/ghpr/gh"
 chmod +x "$SANDBOX/ghpr/gh"
 REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE=$STACK_BR \
-  PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" 2>/dev/null)
+  PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>/dev/null)
 if [ "$(field stack_base)" = "origin/$STACK_BR" ]; then
   pass "[writer] a PR whose baseRefName is a feature branch is read once into stack_base"
 else
   fail "[writer] the PR's base was not read: '$(field stack_base)'"
 fi
 REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE='bad base!' \
-  PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" 2>/dev/null)
+  PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>/dev/null)
 if ! grep -q '^stack_base=' "$REC"; then
   pass "[writer] a PR base outside the branch grammar is dropped"
 else
   fail "[writer] a malformed PR base reached the record: '$(field stack_base)'"
+fi
+: >"$SANDBOX/ghpr.log"
+REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE=$STACK_BR \
+  PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" 2>/dev/null)
+if [ ! -s "$SANDBOX/ghpr.log" ] && ! grep -q '^stack_base=' "$REC"; then
+  pass "[writer] without --base-from-pr the writer makes no gh call (decision paths stay offline)"
+else
+  fail "[writer] a plain write called gh or recorded a base: $(cat "$SANDBOX/ghpr.log")"
 fi
 
 echo "# sync: converge-sync-main.sh --base"
