@@ -1737,6 +1737,93 @@ draft, flip when done) handles the findings before the flip, and the
 per-reviewer fallback with a separate merge-ready report keeps the flip's
 gate whole for a reviewer that cannot be reached in draft.
 
+### D-56: Asks and duties become ledger items by a deterministic path  (N; C, D-9)
+
+**Decision:** The ledger (D-9) stops depending on the session remembering to
+write to it. The mission-control tier records each operator message as an
+intake row when it arrives, and a turn-end check refuses to end the turn
+while an intake row is neither made into a ledger item (owner, trigger,
+done-condition) nor dismissed with a one-line reason. The ledger row gains a
+done-condition field; the row format version moves with a reader that treats
+an old row as having none. Overdue items (trigger fired, open, not
+acknowledged) lead the status and make the handover self-check fail until
+each is acknowledged by a record that states the next step and a new date or
+event. `followup add` checks an event trigger against the emitted event
+classes (the watchers' declared kinds and the event store's, from the
+shipped class table) and refuses an unknown one unless a fallback date is
+given. A stale-open audit proposes closing items whose done-condition is
+already met, with the evidence, and never closes one. The runner calling
+`followup due` each pass is D-9's and is a separate flight.
+
+**Alternatives considered:**
+- A stronger reminder in the skill text. Rejected because: that is the
+  memory the failure came from, and the instruction budget is full.
+- Classify asks by reading the message for verbs in a script. Rejected
+  because: deterministic detection of an ask in free text is unreliable;
+  recording every message and requiring a disposition keeps the check
+  mechanical and puts the judgment in the one place that has context.
+- Auto-close an item when its condition is met. Rejected because: closing
+  is a claim, and an item closes only with evidence a person can read.
+
+**Chosen because:** the operator named forgetting asks and duties as the
+core gap; an intake row plus a turn-end check makes recording the default
+and forgetting a refusal.
+
+### D-57: One lease shape, and rules carry clauses the guard keeps  (N; C, D-5, D-24, D-53)
+
+**Decision:** A rule entry may carry an enforcement clause (match, effect,
+unless, scope) in a closed grammar, compiled by `mc-rules.sh` into a
+digest-checked clause file in the program home, which the worker tier's
+policy guard reads on each tool call whose tool and scope a clause could
+match, and otherwise leaves untouched. Matching uses planwright's own
+tokenizer and matcher, never raw regular expressions or evaluated text. A
+new clause runs in shadow mode (record, never block) until the operator
+says yes after seeing what it recorded. A denial names the rule id. The
+`unless` part, and the worker-permission-ergonomics hooks-directory edit
+(that bundle's D-35), share one lease: a record naming kind, one worker,
+scope, expiry and the operator authorization, opened only by mission control
+after the operator's yes, held outside every worktree, closed on report,
+retirement or expiry, read through one reader where anything not clearly
+open is no lease. A lease never lifts a Bash `deny` row. The headed browser
+rule is the worked example and fixture, held by a program as its own rule.
+The doctor lists hard-sounding rules without a clause as candidates only.
+
+**Alternatives considered:**
+- One purpose-built setting per rule (a browser knob and so on). Rejected
+  because: the operator asked for no feature-specific settings; every new
+  rule would need new code.
+- Let the hub's session enforce rules by reviewing calls. Rejected because:
+  prose enforcement is what failed; a guard decides the same way every time.
+- A separate lease design for the hooks edit. Rejected because: two stores
+  with the same job drift apart; one reader is one place to be wrong.
+- Start every clause live. Rejected because: a false deny blocks work, and a
+  rule written in prose has never been tested against real calls.
+
+**Chosen because:** the operator asked for rules planwright enforces
+deterministically and for the hooks lease to be the same shape; the clause
+grammar stays data so enforcement adds no new way to run text.
+
+### D-58: Idle capacity is reported and a knob rule says its required value  (N; C, D-51, D-52, D-53)
+
+**Decision:** The throughput duty's audit (D-51) also reports idle capacity
+as proposals naming the knob: an offload host left unused, free slots while
+units queue, a host far under its load cap. The `knob` enforcement kind
+(D-53) may carry the required value or a predicate from a closed set, and
+the doctor (D-52) reads the effective value and flags a disagreement, a
+value it cannot read counting as disagreeing. The number-in-prose reading
+stays as it is.
+
+**Alternatives considered:**
+- Parse the required value out of the rule's text. Rejected because: that is
+  the prose reading D-52 already does for numbers, and it cannot say
+  "not local".
+- Report idle capacity from the operator's own prompt. Rejected because: the
+  operator should not have to notice it; the waste is invisible until measured.
+
+**Chosen because:** the offload knob stayed at its local default while two
+rules said otherwise and nothing noticed; a structured required value turns
+that into a check, and the duty reports the waste it left.
+
 ## Cross-cutting concerns
 
 - **Data hygiene.** The program home holds company data by design and is

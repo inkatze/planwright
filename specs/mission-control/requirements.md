@@ -226,6 +226,28 @@ later planwright bundles implement, D-12).
   and the listing, like the rest of the audit, edits no rule.
   *(Cites: D-53; the rule-enforcement report (2026-11-10, Sources).)*
 
+- **REQ-A1.11** The bring-up audit SHALL also check each active standing
+  rule whose enforcement names a knob with a required value or predicate
+  (REQ-B1.13) against the knob's effective value, read through the same
+  resolver REQ-A1.9 uses, and report a disagreement as a finding the operator
+  settles, in plain words naming the rule, the knob, the value the rule
+  requires, the effective value and the layer that sets it. A knob that
+  cannot be read, or a predicate that cannot be evaluated, reads as
+  disagreeing, never as agreeing. The check covers what REQ-A1.9's
+  number-in-prose reading does not: it reads the structured field, not the
+  rule's text, and the audit edits no layer and no rule.
+  *(Cites: D-58; REQ-A1.9, REQ-B1.13; the idle-capacity report (2026-11-10,
+  Sources).)*
+- **REQ-A1.12** The audit SHALL also list, as candidates and never as
+  defects, each active rule whose text carries an obligation word from a
+  shipped list (overlay-extendable) and whose enforcement is prose or
+  unknown, one plain line each suggesting a clause (REQ-B1.9) or a named
+  enforcer, so the rules that sound hard and keep nothing are found. A
+  rule that already carries a clause or names an enforcer is not listed.
+  The listing edits nothing and is advisory in every operator level.
+  *(Cites: D-57; REQ-A1.10, REQ-B1.8; the rule-enforcement ask (2026-11-10,
+  Sources).)*
+
 ## REQ-B — The rule source
 
 - **REQ-B1.1** Ground rules and standing decisions SHALL live in a durable,
@@ -294,6 +316,60 @@ later planwright bundles implement, D-12).
   field is data the doctor reads (REQ-A1.10); it never changes what a rule
   says or who it binds.
   *(Cites: D-53; the rule-enforcement report (2026-11-10, Sources).)*
+  *(Extended by REQ-B1.9 (2026-11-10): a clause is a further enforcement
+  the worker tier's guard keeps; by REQ-B1.13: the `knob` kind may carry
+  the required value.)*
+
+- **REQ-B1.9** A rule entry SHALL be able to carry an enforcement clause
+  that the worker tier's policy guard keeps, so a rule an operator states
+  in prose can be kept deterministically with no feature-specific setting.
+  A clause is data in a closed grammar with four parts: a match (the tool
+  and the command words or argument shape, read by planwright's own
+  tokenizer and matcher over literal words, word wildcards and path
+  prefixes, never a raw regular expression, with optional path and working
+  directory scopes), an effect (deny with the rule's own text, require a
+  named flag or argument, or ask the operator-facing session), an optional
+  unless naming a lease kind (REQ-G1.7), and a scope (program, worker kind,
+  repository; the narrowest that fits is the default). `mc-rules.sh add`
+  and `supersede` take it, and a hub-drafted proposal the operator approves
+  (D-14's form) may carry it. The clause is stored and compiled as data and
+  never evaluated as code, and a clause outside the grammar is refused at
+  add with the part at fault named.
+  *(Cites: D-57; REQ-B1.8; the rule-enforcement ask (2026-11-10, Sources).)*
+- **REQ-B1.10** The policy guard at the worker tier SHALL evaluate every
+  live clause whose scope matches on every worker tool call (Bash, the file
+  tools and MCP calls alike), reading the compiled clause set from the
+  program home and never from the worker's worktree, and a call a clause
+  denies SHALL be refused with the rule's id, its text and the remedy (the
+  lease to ask for, or the flag to add). A clause set that cannot be read
+  or fails its digest check denies and says so, as every other guard read
+  failure does; a call that no clause's tool and scope can match defers
+  with no clause read.
+  *(Cites: D-57; the guard's existing failure posture (Sources).)*
+- **REQ-B1.11** A new clause SHALL start in shadow mode: it is evaluated on
+  every call, records each call it would have refused with the rule id in
+  the guard's audit record, and blocks nothing. It goes live only on the
+  operator's yes, after mission control shows what the shadow run recorded
+  (the count and examples, and a replay over recent recorded calls where
+  the records hold them). `mc-rules.sh` takes the mode change as a verb
+  that cites the operator's words, and a clause can be returned to shadow
+  or retired the same way.
+  *(Cites: D-57, D-14; the rule-enforcement ask (2026-11-10, Sources).)*
+- **REQ-B1.12** The capability SHALL ship with a worked example and
+  acceptance fixture, the headed browser rule: a launch of a visible
+  browser window is denied unless a sign-in lease is open for that worker,
+  and a headless launch is not touched. Whether a program holds that rule
+  is the operator's and lives in the program's rules, not in shipped
+  configuration. A cookie hand-off from a signed-in browser to a headless
+  one is a helper a later change may add, not part of this requirement.
+  *(Cites: D-57; the rule-enforcement ask (2026-11-10, Sources).)*
+- **REQ-B1.13** (extends REQ-B1.8) The `knob` enforcement kind SHALL be
+  able to carry the value the rule requires: `knob:<name>=<value>`,
+  `knob:<name>!=<value>`, `knob:<name> in <a|b>` and, for a number,
+  `knob:<name>>=<n>` or `<=<n>`, matched against that closed grammar and
+  stored as data. A knob kind without a value stays valid and means the
+  rule only names the knob; the doctor checks the rest (REQ-A1.11).
+  *(Cites: D-58; REQ-B1.8.)*
 
 ## REQ-C — The duty seam
 
@@ -687,6 +763,50 @@ later planwright bundles implement, D-12).
   by hand the same way.
   *(Cites: D-50; the relay-cost report (2026-11-09, Sources).)*
 
+- **REQ-F1.19** (extends REQ-F1.10) Every operator ask that carries an
+  action, and every duty or promise mission control takes on, SHALL get a
+  ledger item when it is made, written by the mission-control tier's own
+  deterministic path and not from the session's memory: each operator
+  message is recorded as an intake row on arrival, and a turn cannot end
+  while an intake row is neither made into an item nor dismissed with a
+  one-line reason (a question, an acknowledgement). An item carries an
+  owner, a trigger and a done-condition: a command whose exit status says
+  done, an event of an emitted class (REQ-F1.22), a date, or the operator's
+  own confirmation. An item with no done-condition is refused at add.
+  *(Cites: D-56; REQ-F1.10; the follow-up ledger report (2026-11-10,
+  Sources).)*
+- **REQ-F1.20** Overdue items SHALL lead the status. An item is overdue when
+  its trigger has fired and it is still open and unacknowledged
+  (REQ-F1.21). The panel and every plain-language status answer list the
+  overdue items before anything waiting on the operator and before
+  in-flight work, one line each naming the item, how overdue it is, its
+  done-condition and its owner.
+  *(Cites: D-56; the follow-up ledger report (2026-11-10, Sources).)*
+- **REQ-F1.21** The handover self-check (REQ-L1.6) SHALL fail while an
+  overdue item is unacknowledged, naming each. An acknowledgement is a
+  ledger record by the session that states what it will do next and a new
+  date or event; it never closes the item, and only the next sweep or
+  `close` with evidence ends it. The successor reads the ledger and applies
+  the same rule.
+  *(Cites: D-56; REQ-L1.6; the follow-up ledger report (2026-11-10,
+  Sources).)*
+- **REQ-F1.22** An event trigger SHALL name an event class something emits:
+  `followup add` validates the class against the emitted set (the event
+  kinds the shipped watchers declare, REQ-E1.2, and those the event store
+  emits) and refuses an unknown class, naming the known ones, unless the
+  call carries a fallback date, which is then stored as a date trigger in
+  the same call. An existing item whose class nothing emits is listed by
+  the audit (REQ-F1.23) and never deleted.
+  *(Cites: D-56; REQ-E1.2; the follow-up ledger report (2026-11-10,
+  Sources).)*
+- **REQ-F1.23** An item SHALL close only through `close` with evidence, and
+  a stale-open audit at bring-up, at each handover and daily SHALL flag
+  every open item whose done-condition is already met (its command check
+  exits success, an event of its class was seen after it opened, the pull
+  request it names merged) as a proposal to close it with that evidence.
+  The audit never closes an item itself and edits nothing else.
+  *(Cites: D-56; the follow-up ledger report (2026-11-10, Sources).)*
+
 ## REQ-G — Permissions at scale
 
 - **REQ-G1.1** The launcher SHALL deliver the right permission profile to
@@ -762,6 +882,29 @@ later planwright bundles implement, D-12).
   defers.)*
   *(Amended at Amendment 6, 2026-11-09: the prompt's wake is the notifier's delivery to the mission control that answers it, REQ-E1.7; a direct unit's prompts go to its launching mission control, REQ-D1.15; who may answer is unchanged.)*
   *(Amended at Amendment 7, 2026-11-10: a session moved to another program, REQ-D1.16, is supervised by the destination's mission control from the move; its pending prompts raise their events there and not in the source.)*
+
+- **REQ-G1.7** A lease SHALL be the one way a worker is allowed, for a named
+  purpose and a short time, something a standing rule denies. A lease is a
+  record naming its kind, one worker session, its scope (paths or the rule
+  it lifts), its expiry, whether it is single use, and the operator
+  authorization it rests on. Only mission control opens one, and only
+  after the operator's yes naming the worker, the kind and why (the
+  undo-ledger entry of D-24 cites it); the store lives in the program home,
+  outside every worktree and unwritable by the worker tier. A lease closes
+  when the worker reports its unit done or is retired, or at expiry
+  (`mission_control_lease_ttl`, shipped: one hour, never longer than a
+  hard cap), whichever comes first. A lease never lifts a row of the worker
+  profile's Bash `deny` block, never covers another worker, and a lease
+  that is expired, closed, missing or unreadable reads as no lease, in
+  every consumer, through one shared reader.
+  *(Cites: D-57; D-24; the rule-enforcement ask (2026-11-10, Sources).)*
+- **REQ-G1.8** While a lease is open mission control SHALL show it in the
+  status (worker, kind, expiry), and a unit whose worker held a lease
+  SHALL carry it into the readiness record: the pull request's top names
+  the lease and the leased paths it changed as a posture change the
+  operator decides on, and the ready-to-merge notice is not sent as an
+  ordinary ready.
+  *(Cites: D-57; r-30's pull request shape (Sources).)*
 
 ## REQ-H — Programs across repositories
 
@@ -1072,6 +1215,19 @@ later planwright bundles implement, D-12).
   D-14 says. The audit changes nothing it reads.
   *(Cites: D-51; the relay-cost report (2026-11-09, Sources).)*
 
+- **REQ-M1.11** The throughput duty SHALL also report idle capacity, at each
+  handover and at least once every `mission_control_idle_audit_interval`
+  (REQ-M1.10's cadence): a reachable configured or known offload host left
+  unused while work ran elsewhere, free worker slots while ready units
+  queued, and a host far under its load cap over the window. Each finding
+  is a mechanization proposal in D-14's form naming the knob that would
+  change it, its present value and the proposed one, and the idle measured
+  (for example slot-minutes) in the window, without D-14's repeat
+  threshold. A declined proposal stays declined as D-14 says, and the
+  audit changes nothing it reads.
+  *(Cites: D-58; REQ-M1.10; the idle-capacity report (2026-11-10,
+  Sources).)*
+
 ## REQ-N — Program goals
 
 - **REQ-N1.1** A program goal SHALL carry its own done-when check: a plain
@@ -1272,6 +1428,21 @@ later planwright bundles implement, D-12).
   review only once a pull request is ready are asked to review the draft
   first, with a per-reviewer fallback to waiting after the flip); D-54, D-55;
   Tasks 48 and 49; notes on REQ-D1.8, REQ-D1.12 and REQ-G1.6.
+
+- 2026-11-10 — Amendment 8 (meaning-class, on the Active bundle, relayed by
+  the hub): the follow-up ledger forgot asks and duties (REQ-F1.19 to
+  REQ-F1.23: automatic items with a done-condition, overdue items lead the
+  status, handover verify fails on unacknowledged overdue items, event
+  triggers validated at add, a stale-open audit; D-56); operator rules that
+  planwright enforces (REQ-B1.9 to REQ-B1.12, REQ-G1.7, REQ-G1.8: clauses
+  the worker tier's guard keeps, shadow mode, one lease shape, the headed
+  browser rule as the worked example; D-57); and the doctor and throughput
+  duty gaps (REQ-B1.13, REQ-A1.11, REQ-A1.12, REQ-M1.11: a knob rule's
+  required value checked, hard-sounding rules without a clause listed, idle
+  capacity reported; D-58). The runner calling `followup due` each pass is
+  REQ-F1.10's and ships as its own flight; REQ-A1.9, REQ-A1.10 and REQ-M1.10
+  already cover number-valued rules, prose or unknown enforcement and idle
+  waits and are not redrafted. Tasks 50 to 55.
 
 ## Sources
 
@@ -1489,3 +1660,20 @@ later planwright bundles implement, D-12).
   their findings landed. Fix asked: readiness knows which bots review on
   ready and the post-flip step waits for and clears them before
   merge-ready is reported (observation W64 of the hub's queue).
+
+- **The follow-up ledger report (2026-11-10)** — relayed through the hub
+  (observation W81 of the hub's queue, priority): two due items stayed open
+  and unsurfaced and one stayed open after it was resolved; event triggers
+  named events nothing emits; the operator's standing ask to make the
+  offload host work first never got an item and stayed undone for days. The
+  runner-calls-due part is REQ-F1.10's, shipped separately.
+- **The rule-enforcement ask (2026-11-10)** — relayed through the hub
+  (observation W72): operator rules that planwright enforces
+  deterministically, after workers kept opening visible browser windows
+  under a prose rule; builds on the signed enforcement field (REQ-B1.8,
+  REQ-A1.10). Framed REQ-B1.9 to REQ-B1.12, REQ-G1.7, REQ-G1.8, REQ-A1.12,
+  D-57.
+- **The idle-capacity report (2026-11-10)** — relayed through the hub
+  (observation W80): the offload host knob shipped but stayed local though
+  the rules say to offload, and nothing noticed. Framed REQ-M1.11,
+  REQ-B1.13, REQ-A1.11, D-58.

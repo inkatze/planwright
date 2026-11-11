@@ -1172,6 +1172,95 @@ fixed-string check.)*
 - **Citations:** D-55, D-25, D-33 · REQ-D1.17, REQ-D1.8, REQ-D1.9
 - **Estimated effort:** 1 day
 
+### Task 50 — The ledger records a done-condition and checks its triggers
+
+- **Deliverables:** in `scripts/mc-kb.sh`, the done-condition field on a
+  ledger row (a format bump with a reader that reads an old row as having
+  none), `followup add` refusing an item with no done-condition and an event
+  trigger whose class is not in `config/mc-event-classes.tsv` or the
+  watchers' declared kinds unless a fallback date is given, an `ack` verb
+  recording what will be done next and a new date or event, and the
+  stale-open audit proposing closes with evidence; the verbs in the verbs
+  list and the guide; tests in `tests/test-mc-kb.sh`.
+- **Done when:** The REQ-F1.22 and REQ-F1.23 test-spec entries' fixtures
+  pass; the verbs, knob and instruction-budget checks pass.
+- **Dependencies:** none
+- **Citations:** D-56, D-9 · REQ-F1.22, REQ-F1.23, REQ-F1.10
+- **Estimated effort:** 1 day
+
+### Task 51 — Asks and duties are recorded by a deterministic path
+
+- **Deliverables:** the mission-control tier's capture of each operator
+  message as an intake row, and the turn-end check that refuses to end a
+  turn while an intake row has no item and no dismissal reason, wired in the
+  mission-control settings; the dismissal verb; the skill's prose inside the
+  instruction budget; tests in `tests/test-mc-kb.sh` and
+  `tests/test-policy-guard-mission-control.sh`.
+- **Done when:** The REQ-F1.19 test-spec entry's fixtures pass, including a
+  turn that tries to end with an open intake row and is refused; the guard
+  wiring, settings and instruction-budget checks pass.
+- **Dependencies:** 50
+- **Citations:** D-56 · REQ-F1.19
+- **Estimated effort:** 1 day
+
+### Task 52 — Overdue items lead the status and gate the handover
+
+- **Deliverables:** the overdue ordering in the panel and the plain status
+  answer; the handover self-check in `scripts/mc-handover.sh` failing while
+  an overdue item is unacknowledged, naming each; tests in
+  `tests/test-mc-panel.sh` and `tests/test-mc-handover.sh`.
+- **Done when:** The REQ-F1.20 and REQ-F1.21 test-spec entries' fixtures
+  pass; the panel surface check passes.
+- **Dependencies:** 50
+- **Citations:** D-56 · REQ-F1.20, REQ-F1.21, REQ-L1.6
+- **Estimated effort:** 1 day
+
+### Task 53 — Rule clauses, shadow mode and the lease
+
+- **Deliverables:** the clause grammar and its refusal in
+  `scripts/mc-rules.sh`, the compiled digest-checked clause file, the shadow
+  and live mode verb citing the operator's words; the worker tier's clause
+  evaluation in `scripts/policy-guard.sh` with the rule id in each denial;
+  the lease store, its one reader and the open and close verbs, the
+  undo-ledger entry, the status line and the readiness record's posture
+  note; `mission_control_lease_ttl` with its cap; the headed browser rule as
+  the fixture; tests in `tests/test-mc-rules.sh`,
+  `tests/test-policy-guard.sh` and a new lease suite.
+- **Done when:** The REQ-B1.9 to REQ-B1.12, REQ-G1.7 and REQ-G1.8 test-spec
+  entries' fixtures pass, including an unreadable clause file denying and a
+  call no clause can match reading none; the knob, options-reference, guard
+  wiring and instruction-budget checks pass.
+- **Dependencies:** 47
+- **Citations:** D-57, D-53, D-24 · REQ-B1.9, REQ-B1.10, REQ-B1.11, REQ-B1.12, REQ-G1.7, REQ-G1.8
+- **Estimated effort:** 3 days
+
+### Task 54 — A rule's required knob value and the new doctor listings
+
+- **Deliverables:** the required-value grammar on the `knob` enforcement
+  kind in `scripts/mc-rules.sh`; in `scripts/mc-config.sh doctor`, the
+  disagreement check against the effective value and the hard-sounding-rule
+  listing with its shipped word list; tests in `tests/test-mc-rules.sh` and
+  `tests/test-mc-config.sh`.
+- **Done when:** The REQ-B1.13, REQ-A1.11 and REQ-A1.12 test-spec entries'
+  fixtures pass, including a rule requiring the offload host against a local
+  effective value; the doctor changes no layer and no rule.
+- **Dependencies:** 47
+- **Citations:** D-58, D-53, D-52 · REQ-B1.13, REQ-A1.11, REQ-A1.12
+- **Estimated effort:** 1 day
+
+### Task 55 — The throughput duty reports idle capacity
+
+- **Deliverables:** an idle-capacity verb beside the idle-wait verb in
+  `scripts/mc-throughput.sh`, run at the same moments, reading the host
+  registry, the slot and queue records and the load measurements, writing
+  each finding as a proposal in D-14's form naming the knob; the knob rows if
+  any; tests in `tests/test-mc-throughput.sh`.
+- **Done when:** The REQ-M1.11 test-spec entry's fixtures pass; the knob,
+  options-reference and instruction-budget checks pass.
+- **Dependencies:** 44
+- **Citations:** D-58, D-51, D-14 · REQ-M1.11
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.
