@@ -424,6 +424,44 @@ below; `scripts/spec-graph.sh` renders it on demand.
 - **Citations:** D-32, D-33, D-34 · REQ-E1.7, REQ-E1.8, REQ-E1.9
 - **Estimated effort:** 1–2 days
 
+### Task 19 — A leased worker may edit the hooks files
+
+- **Deliverables:** in the worker-tier file-tool hook of Task 16, the read of
+  a hooks-edit lease through the shared reader of mission-control Task 53
+  (until that reader exists no lease exists and the floor is unchanged), the
+  lift for exactly that worker's worktree hooks directories and
+  `lefthook.yml`, and the removal of the hooks-directory and `lefthook.yml`
+  file-tool rows from `config/worker-settings.json` once the hook alone is
+  shown refusing each; the `deny` baseline fixture updated; fixture rows for
+  leased, no lease, expired, another worker, a path outside the worktree and
+  an unreadable lease; the matcher model doc updated.
+- **Done when:** a test shows each protected path refused with no lease and
+  with an expired, closed or unreadable one, and only the leased worker's
+  hooks paths editable while the lease is open; the hook crashing still
+  refuses; the `deny` block differs from its pre-change content only by the
+  removed rows; the permission-matcher, settings-fragment and hook-contract
+  checks pass.
+- **Dependencies:** 16
+- **Citations:** D-35, D-29 · REQ-F1.8, REQ-A1.19, REQ-F1.7
+- **Estimated effort:** 1–2 days
+
+### Task 20 — Approve a repository's declared check commands
+
+- **Deliverables:** the `worker_check_commands` knob (its options-reference
+  row and the knob check), the declaration grammar and its matcher in
+  `scripts/worker-command-guard.sh` after the `deny` block and the
+  known-safe screens, the layer-trust read, and the fleet guide's
+  paragraph with a declaration example for a mix-based repository; fixtures
+  for each placeholder, a runner-prefixed declaration, each refusal (a
+  metacharacter, a substitution, a traversal, an undeclared flag, a deny
+  match) and a malformed declaration.
+- **Done when:** the REQ-A1.18 test-spec entry's fixtures pass and the
+  `deny` match wins over every declaration; the knob, options-reference and
+  parity checks pass.
+- **Dependencies:** 17
+- **Citations:** D-36 · REQ-A1.18, REQ-A1.19, REQ-A1.16
+- **Estimated effort:** 1–2 days
+
 ## Awaiting input
 
 (none yet)

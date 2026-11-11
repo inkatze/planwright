@@ -110,6 +110,22 @@ fixed `--now`:
   and leaves no sentinel, and the checksums of every layer and rule file
   are unchanged after the audit.
 
+### REQ-A1.11 — A knob rule's required value is checked [test]
+
+`tests/test-mc-config.sh` (Task 54), in fixtures: a rule requiring the
+offload host against a local effective value is flagged naming rule, knob,
+required value, effective value and layer; an agreeing value, a satisfied
+predicate and a rule without a required value are not; an unreadable knob
+and an unevaluable predicate read as disagreeing; the layers and rules are
+byte-identical afterward.
+
+### REQ-A1.12 — Hard-sounding rules without a clause are listed [test]
+
+`tests/test-mc-config.sh` (Task 54): a rule with an obligation word and
+prose or unknown enforcement is listed as a candidate; one with a clause or
+a named enforcer is not; an overlay-added word joins the list; the listing
+edits nothing.
+
 ## REQ-B — The rule source
 
 ### REQ-B1.1 — The rule store and direct entry [test + Gherkin]
@@ -126,7 +142,9 @@ proposal is raised for it (Task 15 fixture).
 grammar, or one carrying a shell substitution, is refused and stored
 nowhere; an entry written without the field lists as `unknown`; a store
 holding only such entries still loads, renders and re-injects, with
-byte-identical active text; the field changes no rule text.
+byte-identical active text; the field changes no rule text. The clause and
+required-value extensions annotated on the requirement are REQ-B1.9 and
+REQ-B1.13's entries; a store holding none of them behaves as before.
 
 ### REQ-B1.2 — Explicit supersession [test]
 
@@ -182,6 +200,41 @@ subject from fixtures, and writes no rule.
 
 After a fixture compaction the self-check passes with rules, open items
 and live sessions present and fails, raising an item, when any is missing.
+
+### REQ-B1.9 — A rule can carry a clause in a closed grammar [test]
+
+`tests/test-mc-rules.sh` (Task 53): a clause with all four parts is stored
+and compiled; one with a raw expression, an unknown effect or an unknown
+lease kind is refused naming the part; the stored form is never evaluated
+(a sentinel in a clause leaves no file).
+
+### REQ-B1.10 — The worker tier keeps live clauses, denying by rule id [test]
+
+`tests/test-policy-guard.sh` (Task 53): a call a live clause matches is
+denied with the rule id, text and remedy, on the Bash, file and MCP
+surfaces; a call no clause's tool and scope can match defers with the
+clause file unread; an unreadable file and a digest mismatch deny and say
+so; a clause file inside a worktree is ignored.
+
+### REQ-B1.11 — A clause starts in shadow and goes live on a yes [test]
+
+`tests/test-mc-rules.sh` and `tests/test-policy-guard.sh` (Task 53): a
+shadow clause records the would-deny with the rule id and blocks nothing;
+the mode verb refuses to go live without the operator's cited words;
+returning to shadow and retiring work the same way.
+
+### REQ-B1.12 — The headed browser rule is the worked example [test]
+
+`tests/test-policy-guard.sh` (Task 53): with the rule held, a headed
+browser launch is denied with the rule id, the same launch passes while a
+sign-in lease is open for that worker, and a headless launch is never
+touched; shipped configuration holds no such rule.
+
+### REQ-B1.13 — The knob kind can carry a required value [test]
+
+`tests/test-mc-rules.sh` (Task 54): each form of the value grammar is
+accepted and stored as data; a malformed value is refused; a knob kind with
+no value stays valid.
 
 ## REQ-C — The duty seam
 
@@ -609,6 +662,50 @@ transcripts, a fixed `--now` and the shipped token prices:
 their own real-render preview by hand, mission control relaying the
 operator's words; the readiness gate covers later changes.
 
+### REQ-F1.19 — Asks and duties are recorded without the session's memory [test]
+
+`tests/test-mc-kb.sh` and `tests/test-policy-guard-mission-control.sh`
+(Task 51): a message records an intake row; a turn that tries to end with an
+open row is refused naming it; making it an item with a done-condition, or
+dismissing it with a reason, lets the turn end; an item with no
+done-condition is refused at add; the handover self-check fails naming an
+open intake row and passes once none is open; a message arriving while the
+turn is ending is stored first, never lost.
+
+### REQ-F1.20 — Overdue items lead the status [test]
+
+`tests/test-mc-panel.sh` (Task 52): fixture items overdue by date and by
+event render before waiting-on-operator and in-flight lines, each with its
+age, done-condition and owner; an acknowledged item is not overdue.
+
+### REQ-F1.21 — The handover check fails on an unacknowledged overdue item [test]
+
+`tests/test-mc-handover.sh` (Task 52): the self-check fails naming each
+unacknowledged overdue item and passes once each is acknowledged; an
+acknowledgement does not close the item; the successor reaches the same
+result from the ledger alone.
+
+### REQ-F1.22 — An event trigger names an emitted class [test]
+
+`tests/test-mc-kb.sh` (Task 50): an emitted class is accepted; an unknown
+one is refused naming the known classes; the same call with a fallback date
+stores a date trigger; an existing unknown-class item is listed and kept.
+
+### REQ-F1.23 — Items close only with evidence, and stale ones are flagged [test]
+
+`tests/test-mc-kb.sh` (Task 50): an item whose command check passes, whose
+event was seen or whose pull request merged is flagged with the evidence;
+the audit changes no row; `close` without evidence is refused.
+
+### REQ-F1.24 — State that should be a queue and is not is found [test]
+
+`tests/test-mc-audit.sh` (Task 56), in fixtures: a state kind with no
+register row, one stored only in a transient file or a session's memory, and
+one whose entries have no recorded disposition are each flagged with one
+plain line and the remedy; a kind recorded as deliberately not a queue with
+a reason is not flagged; a register row naming a store that does not exist is
+flagged; the audit edits no file.
+
 ## REQ-G — Permissions at scale
 
 ### REQ-G1.1 — Profile delivered at launch [test]
@@ -661,6 +758,21 @@ marker, on another version's or a symlinked path, and in an unmarked
 session; an answer with neither a covering standing decision nor the
 operator's own answer is still refused upstream of the call.
 *(Amended at Amendment 6, 2026-11-09: the notifier's delivery and a direct unit's prompt routing are tested under REQ-E1.7 and REQ-D1.15.)*
+
+### REQ-G1.7 — A lease is the one shape, opened only by mission control [test]
+
+A new lease suite (Task 53): opening needs a cited operator yes and writes an
+undo-ledger entry; the worker tier cannot write the store; the lease closes
+on report, retirement and expiry; the cap bounds the time; an expired,
+closed, missing or unreadable lease reads as none in every consumer; a lease
+never lifts a Bash `deny` row.
+
+### REQ-G1.8 — An open lease is shown and carried into readiness [test]
+
+`tests/test-mc-panel.sh` and `tests/test-mc-readiness.sh` (Task 53): an open
+lease appears in the status; a pull request from a leased unit names the
+lease and the leased paths it changed in its top and is not announced as an
+ordinary ready.
 
 ## REQ-H — Programs across repositories
 
@@ -1025,6 +1137,14 @@ dispatch records, a fixture forge snapshot, the attention store and
   proposal is not proposed again;
 - the audit reads no forge source except the snapshot, and the checksums of
   every record it reads are unchanged after it.
+
+### REQ-M1.11 — Idle capacity is reported as proposals [test]
+
+`tests/test-mc-throughput.sh` (Task 55), in fixtures: an offload host left
+unused, free slots while units queued and a host far under its cap each
+yield one proposal naming the knob, its present and proposed value and the
+idle measured; a busy window yields none; a declined proposal is not
+re-raised; the audit changes nothing it reads.
 
 ## REQ-N — Program goals
 

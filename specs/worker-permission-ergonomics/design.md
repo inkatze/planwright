@@ -914,6 +914,57 @@ analysed as `&&` or `||`, and a leading `not` as a transparent negation.
 the analyser already models, so no new semantics enter the guard. Cites the
 W63 observation (Sources).
 
+### D-35: A leased worker may edit the hooks files; the hook alone guards them  (N, narrows D-22 and D-29 in part)
+
+**Decision:** The hooks-directory and `lefthook.yml` protection moves
+entirely to the worker-tier file-tool hook of D-29, which reads a hooks-edit
+lease (mission-control D-57: one named worker, short, operator authorized,
+closed on report or expiry) and lifts only those paths, only inside that
+worker's worktree. The static profile's file-tool rows for those paths are
+removed once the hook covers them and its tests pass, because a profile deny
+cannot be lifted for one worker. Every other protected path, and every Bash
+`deny` row, stays as it is. With no lease the outcome is today's: refused.
+The residual, accepted: a worker that edits a hook and then commits runs the
+edited hook in its own worktree; the lease's value is one named unit, a
+short time and a diff the operator sees, and the pull request carries the
+lease as a posture change (mission-control REQ-G1.8).
+
+**Alternatives considered:**
+- A per-unit profile variant without the rows, fixed at launch. Rejected
+  because: a worker reads its profile at start, so authorization could not
+  arrive mid-run, and the variant is a second profile to keep in step.
+- Keep the static rows and add an allow. Rejected because: a deny wins over
+  any allow, so no allow can lift it.
+- Let any worker edit hooks and rely on review. Rejected because: hooks and
+  `lefthook.yml` run commands without a further prompt.
+
+**Chosen because:** the operator wanted one named unit authorized without
+weakening the floor otherwise; one lease shape shared with rule enforcement
+keeps one reader and one place to be wrong.
+
+### D-36: Declared check commands match by shape, in a knob  (N; C, custom-steps D-11)
+
+**Decision:** A knob `worker_check_commands` holds declared word sequences
+with a small closed set of placeholders; the guard approves a segment whose
+literal words match in order and whose other words fit their placeholder,
+after the `deny` block is read. It is read only from layers the operator or
+adopter controls. A runner prefix is part of the declared sequence and never
+a general admission.
+
+**Alternatives considered:**
+- Extend declared command steps (custom-steps REQ-G1.3) to take per-run
+  arguments. Rejected because: a step is approved for the exact args it
+  declares so the orchestrator's own runs stay predictable; loosening it
+  widens an approval with a different trust story.
+- New mise tasks per repository. Rejected because: workers may not edit the
+  mise configuration, so each needs a manual operator edit.
+- Approve `mise exec` in general. Rejected because: it runs an arbitrary
+  command (REQ-A1.16).
+
+**Chosen because:** a shape pins what may vary (a path, a word, an integer)
+and everything else stays literal, so a repository's runner needs no manual
+step and the approval stays as narrow as the declaration.
+
 ## Cross-cutting concerns
 
 - **Security boundary.** This is a permissions mechanism (security-posture:
