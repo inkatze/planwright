@@ -1210,7 +1210,6 @@ else
   printf 'skip: the echo-safety.sh fallback check needs dash\n'
 fi
 
-
 # --- REQ-K1.2, REQ-K1.3, REQ-K1.4, REQ-K1.5: the heavy-run pool's capacity ------
 # The host's core count and memory are fixtures through the two test seams.
 HEAVY=heavy-run
