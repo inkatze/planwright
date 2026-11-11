@@ -97,6 +97,17 @@ runs exactly as the resolver prints it, its quoted `PLANWRIGHT_STEP_*`
 assignment prefix included, since that prefix carries the step's context and
 is the form the guard approves ([custom-steps](custom-steps.md)).
 
+## Test and lint runs go through the router
+
+Start every test or lint run, and a lefthook run, with the router:
+`<root>/scripts/compute-route.sh -- <command>` (for example
+`<root>/scripts/compute-route.sh -- bash tests/test-x.sh`), after any
+`timeout <secs>` or `nice -n <n>` prefix. With `fleet_compute_host` set it
+runs there; otherwise, or when the host is unreachable, busy or the tree has
+uncommitted changes, it runs here as written. The guard approves the form
+only when the command after `--` is one it approves on its own; a kind flag
+or a router run any other way prompts.
+
 ## Invoke by the shebang
 
 A script's shebang names its interpreter, so run it by its path, or through
