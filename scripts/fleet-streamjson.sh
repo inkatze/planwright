@@ -186,9 +186,14 @@
 #   fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
 #       [--tier-key <key>] [--tier-unit <unit>]
-#       [--cwd <dir>] [--foreground] [-- <extra claude args>...]
+#       [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
-#       --profile (default worker). --tier-key and --tier-unit record the
+#       --profile (default worker). --mise-task-edit (worker profile only,
+#       off by default, recorded for a recover) opts the worker in to editing
+#       the mise task files inside its own worktree: the launch passes a
+#       profile generated for it (scripts/worker-settings-generate.sh) and the
+#       session record carries mise_task_edit=1 for the command guard
+#       (docs/permission-matcher-model.md, "The mise task-file opt-in"). --tier-key and --tier-unit record the
 #       allocation key and unit the caller resolved the tier in the extra
 #       args at, for `relaunch` to re-resolve it. --mc-token is the mission-control
 #       launcher's row token, exported into a mission-control session only;
@@ -474,7 +479,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
@@ -2055,8 +2060,17 @@ cmd_launch() {
   mc_token_arg=''
   tier_key=''
   tier_unit=''
+  mise_edit=0
   while [ $# -gt 0 ]; do
     case $1 in
+      --mise-task-edit)
+        # The opt-in is a launch argument and nothing else (never config, the
+        # checkout or the environment); a recover reads back what its launch
+        # recorded.
+        [ "$mise_edit" = 0 ] || usage
+        mise_edit=1
+        shift
+        ;;
       --tier-key)
         [ $# -ge 2 ] || usage
         # allocation-apply.sh's valid_key, so relaunch never meets a key it refuses.
@@ -2164,6 +2178,15 @@ cmd_launch() {
     profile=$(recorded_profile "$pf_dir" "$worker" recover) || exit 7
   fi
   [ -n "$profile" ] || profile=worker
+  if [ "$mise_edit" = 1 ] && [ "$profile" != worker ]; then
+    printf '%s\n' "$me: --mise-task-edit applies to the worker profile only" >&2
+    exit 2
+  fi
+  # A recover relaunches under the opt-in its launch recorded.
+  if [ -n "$resume_sid" ] && [ "$profile" = worker ]; then
+    pf_dir=$(worker_dir "$worker") || exit 2
+    [ "$(cat "$pf_dir/mise-task-edit" 2>/dev/null)" != 1 ] || mise_edit=1
+  fi
   launch_settings=$(profile_settings_path "$profile") || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
   # The preflight proves the worker command guard, the hook only the worker
@@ -2241,6 +2264,11 @@ cmd_launch() {
     # clears what a previous launch of this handle left.
     record_tier_field "$dir" tier_key "$tier_key" || exit 2
     record_tier_field "$dir" tier_unit "$tier_unit" || exit 2
+    if [ "$mise_edit" = 1 ]; then
+      printf '1\n' >"$dir/mise-task-edit.tmp" && mv -f "$dir/mise-task-edit.tmp" "$dir/mise-task-edit" || exit 2
+    else
+      rm -f "$dir/mise-task-edit"
+    fi
   fi
   # The worker identity its hooks key on (attention rows, liveness, and its
   # self-registration), and the inbound layer the messaging probe reads beside
@@ -2302,6 +2330,20 @@ cmd_launch() {
       rm -f "$init_msg"
       exit 2
     }
+  fi
+
+  # An opted-in worker passes a profile generated for this launch from the
+  # shipped one (scripts/worker-settings-generate.sh), written into its own
+  # state folder, so every launch and recover of it reads the same shape; any
+  # other launch passes the shipped profile itself. A profile the generator
+  # cannot produce refuses the launch rather than falling back.
+  if [ "$mise_edit" = 1 ]; then
+    if ! gen_out=$(/bin/sh "$script_dir/worker-settings-generate.sh" "$launch_settings" "${run_cwd:-$PWD}" "$dir/worker-settings.json" </dev/null); then
+      rm -f "$init_msg"
+      printf '%s\n' "$me: refusing to launch $worker: cannot generate its per-launch settings profile for --mise-task-edit" >&2
+      exit 7
+    fi
+    launch_settings=$gen_out
   fi
 
   # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
@@ -2370,7 +2412,9 @@ cmd_launch() {
   # control launches from one checkout shares that worktree, and a final close
   # removes the root it recorded.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch 2>/dev/null </dev/null) || session_record=''
+  mt_flag=''
+  [ "$mise_edit" = 0 ] || mt_flag=--mise-task-edit
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD

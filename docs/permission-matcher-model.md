@@ -492,6 +492,50 @@ lockfiles, the hooks directories, the
 local and non-YAML lefthook config, the session records, and repo-side
 overlays are not protected at all.
 
+## The mise task-file opt-in
+
+The shipped profile denies the file tools every mise task-file name
+(`mise.toml`, `.mise.toml`, `mise-tasks/`, `.mise-tasks/`) at any depth, and a
+path rule cannot be narrowed to "inside this worktree". A worker whose unit
+must edit the repository's own task files is therefore launched with
+`--mise-task-edit` (`scripts/fleet-streamjson.sh launch`, or
+`scripts/mission-control-launch.sh launch --mise-task-edit` on the stream-json
+rung; worker profile only, off by default). The opt-in is a launch argument and
+nothing else: it is recorded as `mise_task_edit=1` in the session record the
+launcher writes outside the worktree (`scripts/worker-session-record.sh`) and
+beside the worker's state for a recover, and is never read from live config,
+the checkout or the environment. A relaunch without the flag drops it.
+
+An opted-in launch gets two things, and a launch without the flag gets
+neither (it passes the shipped profile itself, byte for byte):
+
+- **A generated profile** (`scripts/worker-settings-generate.sh`): the four
+  broad task-file denies are replaced by literal denies of the same four names
+  in every ancestor folder of the worktree, the root included, and in the
+  primary checkout when the worktree lies outside it. Every other rule is the
+  shipped one, in order: mise's local files (`mise.local.toml`,
+  `mise.*.toml`, `.mise.*.toml`), `mise/config*.toml`, `conf.d` and miserc
+  files, the trust, data, state and cache folders, the temporary `mise/`
+  folders, and the lockfiles. A worktree path holding a character a path rule
+  would read as a pattern (`* ? [ ] \ ( )`), a control character, or a
+  component ending in a space refuses the launch.
+- **The guard's own-branch arm** admits writes to those four names inside the
+  worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
+  recursive-act screen `ob_tree_clean`), only when the record carries exactly
+  one `mise_task_edit=1`. The scratch zone, anything outside the worktree, and
+  every other excluded name stay closed.
+
+Residual risk, by construction: a task file in any repository that is not an
+ancestor of the worktree (an unrelated checkout on the machine) is editable by
+that worker, since a path deny cannot name "every repository except this one".
+`tests/test-permission-matcher.sh` (pass I) runs the generated rules through
+the model: the worktree's task files open, each local file, trust, cache and
+lockfile row and each ancestor's task files, the primary checkout's included,
+stay denied, and each literal ancestor deny is the only rule blocking at least
+one row. `tests/test-worker-command-guard-mise-tasks.sh` pins the guard half,
+`tests/test-worker-settings-generate.sh` the generator, and
+`tests/test-fleet-streamjson.sh` (c9m) the launcher.
+
 ## Changing any of this
 
 1. Change the deny list and the fixture table in the same commit. The test's

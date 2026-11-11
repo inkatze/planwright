@@ -908,6 +908,78 @@ printf 'mission-control:3\n' >"$home/streamjson/mc-alpha-tower-0123456789/scope"
 senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resume-session "$sid" --foreground >/dev/null 2>&1
 [ $? -eq 7 ] || fail "c9p: a mission-control recover with no recorded profile must be refused (exit 7)"
 [ ! -s "$rec/argv" ] || fail "c9p: the refused mission-control recover must never spawn"
+
+# c9m (mise task-file opt-in): `launch --mise-task-edit` on the worker profile
+#    passes a per-launch settings file generated from the shipped one and
+#    records the opt-in for the guard and for a recover; a launch without it
+#    passes the shipped profile untouched; every other shape is refused.
+shipped_profile="$here/../config/worker-settings.json"
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9m1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --foreground \
+  || fail "c9m: an opted-in launch exited non-zero"
+m_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+case $m_settings in
+  "$home/streamjson/sjw9m1/"*) : ;;
+  *) fail "c9m: the opted-in launch must pass a settings file in the worker's own state folder: $m_settings" ;;
+esac
+if cmp -s "$m_settings" "$shipped_profile"; then
+  fail "c9m: the opted-in launch passed the shipped profile unchanged"
+fi
+jq -e '.permissions.deny | index("Edit(//**/mise.toml)") | not' "$m_settings" >/dev/null \
+  || fail "c9m: the per-launch profile still carries the broad mise.toml deny"
+jq -e '.permissions.deny | index("Edit(//**/mise.local.toml)") // index("Edit(//**/mise.*.toml)")' "$m_settings" >/dev/null \
+  || fail "c9m: the per-launch profile dropped the local-file deny"
+[ "$(cat "$home/streamjson/sjw9m1/mise-task-edit" 2>/dev/null)" = 1 ] \
+  || fail "c9m: the launch must record the opt-in for its recover"
+m_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+grep -qx 'mise_task_edit=1' "$m_rec" || fail "c9m: the session record must carry mise_task_edit=1: $m_rec"
+# A recover relaunches under the recorded opt-in, regenerating the file.
+rm -f "$m_settings"
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9m1 --resume-session "$sid" --foreground >/dev/null 2>&1
+m_settings2=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+[ "$m_settings2" = "$m_settings" ] && [ -s "$m_settings2" ] \
+  || fail "c9m: a recover must regenerate the per-launch profile: $m_settings2"
+grep -qx 'mise_task_edit=1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || fail "c9m: a recover must rewrite the session record with the opt-in"
+# Without the opt-in: the shipped profile, byte for byte, and no marker.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9m2 execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
+  || fail "c9m: a plain launch exited non-zero"
+m_plain=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+cmp -s "$m_plain" "$shipped_profile" || fail "c9m: a launch without the opt-in must pass the shipped profile byte for byte: $m_plain"
+[ ! -e "$home/streamjson/sjw9m2/mise-task-edit" ] || fail "c9m: a plain launch must record no opt-in"
+! grep -q '^mise_task_edit=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || fail "c9m: a plain launch's session record must carry no opt-in"
+# A recover of a worker that never opted in stays on the shipped profile.
+mkdir -p "$home/streamjson/sjw9m3"
+printf 'execution-backends:4\n' >"$home/streamjson/sjw9m3/scope"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9m3 --resume-session "$sid" --foreground >/dev/null 2>&1
+m_plain2=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+cmp -s "$m_plain2" "$shipped_profile" || fail "c9m: a recover with no recorded opt-in must keep the shipped profile: $m_plain2"
+# Only the worker profile opts in.
+for kind in tower mission-control; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch "sjw9m-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --mise-task-edit --foreground >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c9m: --mise-task-edit with the $kind profile must be refused (exit 2)"
+  [ ! -s "$rec/argv" ] || fail "c9m: the refused $kind opt-in must never spawn the worker"
+done
+# A worktree path the literal denies cannot name safely refuses the launch.
+mkdir -p "$tmp/we*ird"
+git init -q "$tmp/we*ird"
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9m4 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] || fail "c9m: an opted-in launch in a glob-character path must be refused (exit 7)"
+[ ! -s "$rec/argv" ] || fail "c9m: the refused opted-in launch must never spawn the worker"
+echo "ok: c9m mise task-file opt-in: per-launch profile, recorded for recover, shipped profile byte for byte without it"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.
 mc='mc-beta-tower-0123456789'

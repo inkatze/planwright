@@ -61,7 +61,7 @@ usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
-      [--remote-control <name>]
+      [--remote-control <name>] [--mise-task-edit]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh list
@@ -733,7 +733,7 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
-  remote_control='' rc_given=0
+  remote_control='' rc_given=0 mise_edit=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -764,6 +764,10 @@ cmd_launch() {
         ;;
       --operator-asked)
         operator_asked=1
+        shift
+        ;;
+      --mise-task-edit)
+        mise_edit=1
         shift
         ;;
       *) usage ;;
@@ -869,6 +873,10 @@ cmd_launch() {
   fi
 
   resolve_backend
+  if [ "$mise_edit" = 1 ]; then
+    [ "$K_PROFILE" = worker ] || die "--mise-task-edit applies to a worker-profile session only"
+    [ "$backend" = stream-json ] || die "--mise-task-edit needs the stream-json rung: the per-launch settings profile is not passed by the tmux rung"
+  fi
   if [ -n "$remote_control" ] && [ "$backend" != tmux ]; then
     printf '%s\n' "$me: warning: --remote-control is for the tmux rung; the $backend session starts without Remote Control" >&2
     remote_control=''
@@ -1028,6 +1036,7 @@ cmd_launch() {
       set -- launch "$name" "$scope" --prompt-file "$composed" --profile "$K_PROFILE" --cwd "$cwd" \
         --tier-key "$K_KEY" --tier-unit "$unit"
       [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
+      [ "$mise_edit" = 0 ] || set -- "$@" --mise-task-edit
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"

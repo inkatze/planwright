@@ -521,6 +521,15 @@ rc_plain=$(field name)
 rc_plain_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$rc_plain")
 grep -qx -- '--remote-control' "$tmp/tmux/argv-$rc_plain_handle" && fail "a launch that asked for no Remote Control starts one" \
   || ok "a tmux mission-control launch without --remote-control starts none"
+# The mise task-file opt-in: a worker-profile session on the stream-json rung
+# alone. Any other kind or rung is refused before a session or window opens.
+: >"$tmp/tmux/calls"
+ml launch --program alpha --kind ad-hoc --scope mise-tmux --brief "$tmp/brief.md" --backend tmux --mise-task-edit
+[ "$RC" = 2 ] && ! grep -q '^new-window' "$tmp/tmux/calls" && ok "--mise-task-edit on the tmux rung is refused before a window opens" \
+  || fail "--mise-task-edit on the tmux rung: exit $RC, calls: $(cat "$tmp/tmux/calls")"
+ml launch --program alpha --kind mission-control --scope mise-mc --brief "$tmp/brief.md" --backend stream-json --mise-task-edit
+[ "$RC" = 2 ] && ok "--mise-task-edit on a mission-control session is refused" \
+  || fail "--mise-task-edit on a mission-control session: exit $RC"
 ml launch --program alpha --kind mission-control --scope rc-hostile --brief "$tmp/brief.md" --backend tmux --remote-control 'mc;rm'
 [ "$RC" = 2 ] && ! grep -q 'rc-hostile' "$tmp/tmux/calls" && ok "a --remote-control name outside the session-name grammar is refused before a window opens" \
   || fail "a hostile --remote-control name: exit $RC, calls: $(cat "$tmp/tmux/calls")"

@@ -1314,6 +1314,125 @@ done <<EOF
 $ALLOW_RULES
 EOF
 
+# ---------------------------------------------------------------------------
+# Pass I — the per-launch profile an opted-in launch passes (the mise
+# task-file opt-in). scripts/worker-settings-generate.sh replaces the four
+# task-file denies with literal denies for each of those names in every
+# ancestor folder of the worktree, so the worktree's own task files open and
+# every other mise path, each ancestor's task files, and the primary
+# checkout's stay closed. The rows run the generated rules through the same
+# model and path table machinery as pass H, and each literal ancestor deny
+# must be the only rule blocking at least one row.
+# ---------------------------------------------------------------------------
+GEN_SCRIPT="$REPO_ROOT/scripts/worker-settings-generate.sh"
+GBOX="$tmp/gen"
+GMAIN="$GBOX/main"
+GWT="$GMAIN/.claude/worktrees/w1"
+mkdir -p "$GBOX"
+git init -q "$GMAIN" \
+  && git -C "$GMAIN" symbolic-ref HEAD refs/heads/main \
+  && git -C "$GMAIN" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m init \
+  && git -C "$GMAIN" worktree add -q -b planwright/flight/x-0123abcd "$GWT" main \
+  || fail "pass I: could not build the fixture repository"
+GEN_OUT="$GBOX/generated.json"
+if [ -f "$GEN_SCRIPT" ] && /bin/sh "$GEN_SCRIPT" "$SETTINGS" "$GWT" "$GEN_OUT" >/dev/null 2>"$tmp/gen.err"; then
+  ok "pass I: the generator wrote a per-launch profile"
+else
+  fail "pass I: the generator failed ($(cat "$tmp/gen.err" 2>/dev/null))"
+fi
+
+gen_path_rows() {
+  cat <<ROWS
+allow|legit|Edit|$GWT/mise.toml|the opted-in worker edits its own worktree mise.toml
+allow|legit|Write|$GWT/.mise.toml|its own dotted mise.toml
+allow|legit|Write|$GWT/mise-tasks/deploy|its own default file-task directory
+allow|legit|Edit|$GWT/.mise-tasks/deploy|its own dotted file-task directory
+allow|legit|Write|$GWT/sub/mise.toml|a nested mise.toml inside its own worktree
+allow|legit|Write|$GWT/sub/mise-tasks/x|a nested task directory inside its own worktree
+allow|legit|Edit|/work/unrelated/mise.toml|residual risk, stated in the PR: an unrelated repository is not an ancestor, so its task files are editable
+allow|legit|Edit|$GWT/scripts/x.sh|ordinary edits stay allowed
+deny|load-bearing|Edit|$GWT/mise.local.toml|machine-local mise config stays closed
+deny|load-bearing|Write|$GWT/.mise.local.toml|dotted machine-local mise config stays closed
+deny|load-bearing|Edit|$GWT/mise.test.toml|an environment-specific mise config stays closed
+deny|load-bearing|Write|$GWT/.miserc.toml|a project miserc stays closed
+deny|load-bearing|Write|$GWT/mise/conf.d/10.toml|conf.d fragments stay closed
+deny|load-bearing|Write|$GWT/mise/config.toml|mise/config.toml stays closed
+deny|load-bearing|Write|$GWT/mise/tasks/build|mise/tasks stays closed
+deny|load-bearing|Write|$GWT/.mise/tasks/build|.mise/ stays closed
+deny|load-bearing|Edit|$GWT/mise.lock|the lockfile stays closed
+deny|load-bearing|Edit|$GWT/mise.local.lock|the local lockfile stays closed
+deny|load-bearing|Write|/home/u/.local/state/mise/trusted-configs/x|trust state stays closed
+deny|load-bearing|Write|/home/u/.local/share/mise/shims/node|the data folder stays closed
+deny|load-bearing|Write|/home/u/.cache/mise/remote-git-tasks-cache/r/x|the cache folder stays closed
+deny|load-bearing|Write|/tmp/planwright-1000/0123abcd/mise/x|mise temporary folders stay closed
+deny|load-bearing|Edit|$GWT/.git|git entries stay closed
+deny|load-bearing|Edit|$GWT/lefthook.yml|lefthook config stays closed
+ROWS
+  # Every ancestor of the worktree, the primary checkout included, keeps all
+  # four names closed: the mise files a worktree picks up from above.
+  local a
+  a=$GWT
+  while [ "$a" != / ] && [ -n "$a" ]; do
+    a=${a%/*}
+    [ -n "$a" ] || a=/
+    printf 'deny|load-bearing|Edit|%s/mise.toml|the ancestor %s keeps mise.toml closed\n' "${a%/}" "$a"
+    printf 'deny|load-bearing|Write|%s/.mise.toml|the ancestor %s keeps .mise.toml closed\n' "${a%/}" "$a"
+    printf 'deny|load-bearing|Edit|%s/mise-tasks/x|the ancestor %s keeps mise-tasks/ closed\n' "${a%/}" "$a"
+    printf 'deny|load-bearing|Write|%s/.mise-tasks/x|the ancestor %s keeps .mise-tasks/ closed\n' "${a%/}" "$a"
+    printf 'deny|load-bearing|Write|%s/mise-tasks/sub/x|the ancestor %s keeps a nested task file closed\n' "${a%/}" "$a"
+  done
+}
+GEN_FIXTURES=$(gen_path_rows)
+GEN_DENY=$(read_rules "$GEN_OUT" deny 2>/dev/null) || GEN_DENY=''
+GEN_ALLOW=$(read_rules "$GEN_OUT" allow 2>/dev/null) || GEN_ALLOW=''
+if [ -n "$GEN_DENY" ] && pm_load_rules "$GEN_DENY" "" "$GEN_ALLOW"; then
+  pm_path_compile
+  PM_CWD=$GWT
+  gen_rows=0
+  while IFS='|' read -r expected class tool path note; do
+    [ -n "${expected:-}" ] || continue
+    gen_rows=$((gen_rows + 1))
+    got="$(pm_decide_path "$tool" "$path")"
+    if [ "$got" = "$expected" ]; then
+      ok "pass I [$class] $expected: $tool $path"
+    else
+      fail "pass I [$class] expected $expected, got $got: $tool $path  ($note)"
+    fi
+  done <<EOF
+$GEN_FIXTURES
+EOF
+  [ "$gen_rows" -ge 40 ] && ok "pass I: the generated-profile table is non-vacuous: $gen_rows rows" \
+    || fail "pass I: the generated-profile table shrank: $gen_rows rows"
+  # Each literal ancestor deny is the only rule blocking at least one row, so
+  # none can be dropped with a green suite.
+  PATH_FIXTURES=$GEN_FIXTURES
+  gen_uncovered=$(path_rules_uncovered | grep -E '^(dead|shadowed) Edit\(/[^*]*/?(mise\.toml|\.mise\.toml|mise-tasks/\*\*|\.mise-tasks/\*\*)\)$')
+  if [ -z "$gen_uncovered" ]; then
+    ok "pass I: every literal ancestor deny is the sole cover for a row"
+  else
+    fail "pass I: literal ancestor denies without sole cover: $gen_uncovered"
+  fi
+  # The shipped broad rules are gone from the generated deny list.
+  case "$GEN_DENY" in
+    *'Edit(//**/mise.toml)'* | *'Edit(//**/mise-tasks/**)'*) fail "pass I: a broad task-file deny survived in the generated profile" ;;
+    *) ok "pass I: no broad task-file deny survives in the generated profile" ;;
+  esac
+else
+  fail "pass I: the generated rules did not load into the model"
+fi
+# The shipped profile is untouched by any of this: the worktree's own task
+# files stay closed under it.
+pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES" >/dev/null 2>&1
+pm_path_compile
+PM_CWD=$GWT
+for t in "$GWT/mise.toml" "$GWT/.mise.toml" "$GWT/mise-tasks/deploy" "$GWT/.mise-tasks/deploy"; do
+  if [ "$(pm_decide_path Edit "$t")" = deny ]; then
+    ok "pass I: the shipped profile still denies $t"
+  else
+    fail "pass I: the shipped profile admits $t"
+  fi
+done
+
 if [ "$failures" -eq 0 ]; then
   echo "all permission-matcher fixture assertions passed"
   exit 0
