@@ -3235,8 +3235,10 @@ guard_date() {
     a=${cw[i]}
     case $a in
       -s | -s* | --set | --set=*) return 1 ;;
-      # `-f FILE` echoes every line it cannot parse.
-      -f | -f* | --fi*) return 1 ;;
+      # `-f FILE` echoes every line it cannot parse; short options bundle and
+      # long ones abbreviate.
+      -I*) ;;
+      -[fs]* | -[!-]*[fs]* | --f*) return 1 ;;
     esac
   done
   return 0
@@ -3481,8 +3483,12 @@ guard_gh() {
           jqv=0
         fi
         case ${cw[i]} in
-          --jq | -q | --template | -t) jqv=1 ;;
-          --jq=* | --template=* | -q?* | -t?*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+          --jq | --template) jqv=1 ;;
+          --jq=* | --template=*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+          # A bundle ending in q or t takes the next word; a later letter is
+          # the value itself.
+          -[qt] | -[!-]*[qt]) jqv=1 ;;
+          -[qt]* | -[!-]*[qt]*) ci_has "${cw[i]}" '*env*' && return 1 ;;
         esac
         if [ "$hdr" = 1 ]; then
           case ${cw[i]} in
@@ -3568,10 +3574,23 @@ guard_git() {
         case ${cw[i]} in
           # git takes any unambiguous prefix of a long option (`--out=`).
           -o | --ou* | -O | -O* | --op*) return 1 ;;
-          --ext-diff | --textconv | --filters) return 1 ;;
+          --ext* | --textc* | --filters) return 1 ;;
           # Content from outside the repository: any file (`diff --no-index`,
           # `blame --contents`).
-          --no-index | --conte*) return 1 ;;
+          --no-ind*) return 1 ;;
+        esac
+        case $sub in
+          blame)
+            case ${cw[i]} in
+              --con*) return 1 ;;
+            esac
+            ;;
+          # Two paths, one outside the work tree, are an implicit --no-index.
+          diff)
+            case ${cw[i]} in
+              /* | \~* | .. | ../* | */../* | */..) return 1 ;;
+            esac
+            ;;
         esac
       done
       return 0
@@ -3601,7 +3620,7 @@ guard_git() {
           --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
           --add | --unset | --unset-all | --replace-all | --rename-section | --remove-section | -e | --edit | --set) writes=1 ;;
           # Another file parsed as config prints its `key = value` lines.
-          -f | --file | --file=* | --blob | --blob=*) return 1 ;;
+          -f* | --fil* | --bl*) return 1 ;;
           -*) ;; # scope/format flags (--global/--type/…) are read-safe
           *) positional=$((positional + 1)) ;;
         esac
@@ -4396,6 +4415,15 @@ secret_path_risky() {
         ;;
     esac
     secret_glob "$abs" && return 0
+    # The lexical tests read a home-relative word from `/`; its matches come
+    # from the home itself.
+    case $1 in
+      '~'/* | "\$HOME"/* | "\${HOME}"/*)
+        [ -n "$HOME" ] || return 0
+        glob_any_risky secret "$HOME$p"
+        return
+        ;;
+    esac
     glob_any_risky secret "$abs"
     return
   fi
@@ -4496,23 +4524,28 @@ recursive_reader() {
 # roots, every home directory, the account's own home, the parents of the
 # credential directories, and a secret location itself.
 broad_dir() {
-  local x=$1
+  local x=$1 had=1 hit=1
+  # Matched ignoring case, as secret_lexical is (`~/.CONFIG` on macOS).
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
   case $x in
-    / | /etc | /etc/ssh | /etc/ssl | /etc/sudoers.d | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) return 0 ;;
+    / | /etc | /etc/ssh | /etc/ssl | /etc/sudoers.d | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) hit=0 ;;
     # Runtime secrets, backups, and mounted volumes (another system's homes).
     # Only a volume's root: a worktree may live further down one.
-    /run | /run/user | /run/user/* | /var | /var/run | /var/lib | /var/lib/* | /var/backups | /private/var | /private/var/run | /mnt | /media | /srv | /Volumes) return 0 ;;
+    /run | /run/user | /run/user/* | /var | /var/run | /var/lib | /var/lib/* | /var/backups | /private/var | /private/var/run | /mnt | /media | /srv | /Volumes) hit=0 ;;
     /mnt/*/* | /media/*/* | /Volumes/*/*) ;;
-    /mnt/* | /media/* | /Volumes/*) return 0 ;;
-    /root/.claude | /root/.config | /home/*/.claude | /home/*/.config | /Users/*/.claude | /Users/*/.config) return 0 ;;
+    /mnt/* | /media/* | /Volumes/*) hit=0 ;;
+    /root/.claude | /root/.config | /home/*/.claude | /home/*/.config | /Users/*/.claude | /Users/*/.config) hit=0 ;;
     /home/*/* | /Users/*/*) ;;
-    /home/* | /Users/*) return 0 ;;
+    /home/* | /Users/*) hit=0 ;;
   esac
-  if [ -n "$HOME" ]; then
+  if [ "$hit" -ne 0 ] && [ -n "$HOME" ]; then
     case $x in
-      "$HOME" | "$HOME/.claude" | "$HOME/.config") return 0 ;;
+      "$HOME" | "$HOME/.claude" | "$HOME/.config") hit=0 ;;
     esac
   fi
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  [ "$hit" -ne 0 ] || return 0
   secret_lexical "$x"
 }
 
@@ -4623,11 +4656,13 @@ broad_words_ok() {
     esac
     # A variable the tracker could not resolve may name any directory; a
     # word carrying substitution output is subst_reach_ok's to judge.
-    if ! { word_tainted "$i" && [ "${TAINT_WEAK:-0}" = 0 ]; }; then
-      case ${cw[i]} in
-        *[\$\`]*) return 1 ;;
-      esac
-    fi
+    case ${cw[i]} in
+      *[\$\`]*)
+        if word_unresolved "${cw[i]}" "${cdyn[i]}" 0 "${cx[i]}"; then
+          word_tainted "$i" && [ "${TAINT_WEAK:-0}" = 0 ] || return 1
+        fi
+        ;;
+    esac
     if [ "${cglob[i]}" != 0 ] || [ "${cz[i]-0}" != 0 ]; then
       broad_glob_risky "${cw[i]}" && return 1
     fi
@@ -4658,13 +4693,13 @@ secret_var_name() {
     '*_DSN' 'DSN' '*DATABASE_URL*' 'JWT' '*_JWT' 'JWT_*'
 }
 
-# secret_var_ref <word> <quoted>: whether a word expands a credential-named
-# variable (any `$NAME`, `${NAME…}`, `${#NAME}`, zsh's `$=NAME`/`$^NAME`, or
-# an indirect `${!…}`). A quoted single-quote form cannot be told apart here,
-# so it defers too. In a quoted word the name may end where a quote or escape
-# was (`"$DEPLOY_KEY"1`), so every prefix of it is a candidate.
+# secret_var_ref <word>: whether a word expands a credential-named variable
+# (any `$NAME`, `${NAME…}`, `${#NAME}`, zsh's `$=NAME`/`$^NAME`, or an
+# indirect `${!…}`). A quoted single-quote form cannot be told apart here, so
+# it defers too. The word is unquoted already, so a name that ended at a
+# quote or escape (`"$DEPLOY_KEY"1`) is looked for in the raw command.
 secret_var_ref() {
-  local w=$1 rest name k
+  local w=$1 rest name k p
   case $w in
     *\$\{!*) return 0 ;;
   esac
@@ -4676,13 +4711,12 @@ secret_var_ref() {
     name=${rest%%[!A-Za-z0-9_]*}
     [ -n "$name" ] || continue
     secret_var_name "$name" && return 0
-    if [ "${2:-0}" = 1 ]; then
-      # Suffix-anchored names only: an exact one (`AUTH`) is a prefix of
-      # ordinary names (`AUTHOR`).
-      for ((k = ${#name} - 1; k >= 2; k--)); do
-        ci_has "${name:0:k}" '*_KEY' '*_PAT' '*_AUTH' '*_PASS' '*_PWD' '*_DSN' '*_JWT' && return 0
-      done
-    fi
+    for ((k = ${#name} - 1; k >= 2; k--)); do
+      p=${name:0:k}
+      case ${HOOK_RAW_CMD-} in
+        *"\$$p\""* | *"\$$p'"* | *"\$$p\\"*) secret_var_name "$p" && return 0 ;;
+      esac
+    done
   done
   return 1
 }
@@ -4690,11 +4724,9 @@ secret_var_ref() {
 # secret_vars_ok: no word of the current simple command expands a credential
 # variable, and no printenv operand names one.
 secret_vars_ok() {
-  local i q
+  local i
   for ((i = 0; i < cwn; i++)); do
-    q=0
-    [ "${cqp[i]:--1}" -lt 0 ] || q=1
-    secret_var_ref "${cw[i]}" "$q" && return 1
+    secret_var_ref "${cw[i]}" && return 1
     if [ "${cw[0]}" = printenv ] && [ "$i" -ge 1 ]; then
       secret_var_name "${cw[i]}" && return 1
     fi
@@ -6051,7 +6083,7 @@ verify_tokens() {
     # Nor may they match on a credential, which leaks it a guess at a time.
     if [ "$mode" = casehead ] || [ "$mode" = casepat ]; then
       [ -z "${TOK_SUBS[idx]}" ] || return 1
-      ! secret_var_ref "$val" 1 || return 1
+      ! secret_var_ref "$val" || return 1
     fi
     # case head: skip the matched word up to `in`.
     if [ "$mode" = casehead ]; then
@@ -6344,7 +6376,7 @@ main() {
       ;;
     *) return 0 ;; # present but not a string: defer
   esac
-  local HOOK_CWD=$cwd HOOK_PAYLOAD_CWD=$cwd
+  local HOOK_CWD=$cwd HOOK_PAYLOAD_CWD=$cwd HOOK_RAW_CMD=$cmd
   # The session's own worktree, which a `cd` may not leave: the record's
   # (cd_target_ok).
   local HOOK_WT_ROOT='' HOOK_WT_GIT=''

