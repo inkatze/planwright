@@ -1205,11 +1205,25 @@ rc=$?
 verdict "an unresolvable range fails by name" "rc=$rc, or --base not named"
 
 # The latest run is the highest id, whether or not it holds a record.
-sr new-run >/dev/null
-[ -z "$(sr render)" ]
-verdict "render defaults to the latest run, even an empty one" "render showed an older run"
+emptyrun=$(sr new-run)
+[ -z "$(sr render --run "$emptyrun")" ]
+verdict "render --run on the latest run, even an empty one, shows no older run" "render showed an older run"
+! sr render --run "$emptyrun" | grep -q '^## Steps at'
+verdict "render --run on an empty run renders no table" "an empty run rendered a table"
 ! sr regenerate --base "$BASE" --head "$HEAD2" | grep -q '^## Steps at'
 verdict "regenerate defaults to the latest run, even an empty one" "regenerate showed an older run"
+
+# A bare render shows every run, oldest first, each under its run id.
+bare_all=$(sr render)
+runs_seen=$(printf '%s\n' "$bare_all" | grep '^## ' | grep -o "run \`[0-9]*\`" | tr -d '`' | awk '!s[$0]++' | tr '\n' ' ')
+[ "$runs_seen" = "run $run1 run $run2 run $run3 run $run4 " ]
+verdict "a bare render shows every run, oldest first, each under its run id" "runs: $runs_seen"
+one_run=$(sr render --run "$run1")
+! printf '%s\n' "$one_run" | grep -Fq "(run \`$run4\`)" && printf '%s\n' "$one_run" | grep -Fq "(run \`$run1\`)"
+verdict "render --run selects the one run and no other" "--run did not narrow to $run1"
+bare_pt=$(sr render --point pre-pr | grep -c "^## Steps at \`pre-pr\`")
+[ "$bare_pt" -ge 2 ]
+verdict "a bare render with --point names the point in every run that has it" "pre-pr tables: $bare_pt"
 
 # --- a mkdir that tells every racer it won ---------------------------------------------
 # Some coreutils reimplementations report success to several concurrent

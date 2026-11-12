@@ -76,10 +76,13 @@
 #                 `record<TAB><worktree-relative path>` line, the record's
 #                 stored lines with C0 control bytes and DEL dropped, then a
 #                 blank line.
-#   render        print one markdown table per point of the run (default the
-#                 latest run), in the order the points first recorded, or
-#                 the named points in the order given, each once; a named
-#                 point with no record renders nothing. Given no point, the
+#   render        print one markdown table per point of the run, in the order
+#                 the points first recorded, or the named points in the order
+#                 given, each once. Without --run, every run renders, oldest
+#                 first, each table headed by its run id, so a PR body
+#                 rebuilt after a later run keeps the earlier runs' records;
+#                 --run selects one run. A named point with no record
+#                 renders nothing. Given no point, the
 #                 run's full-suite records follow as one full-suite table.
 #   regenerate    print the pending-sign-off checklist rebuilt from the
 #                 marked commits of <base>..<head>, then, unless
@@ -1527,13 +1530,28 @@ cmd_render() {
   done
   if [ -n "$run" ]; then
     valid_run "$run"
-  else
-    latest_run
-    run=$LATEST
-    [ -n "$run" ] || return 0
+    # shellcheck disable=SC2086 # points are validated vocabulary words
+    render_run "$run" $points
+    return
   fi
   # shellcheck disable=SC2086 # points are validated vocabulary words
-  render_run "$run" $points
+  render_all $points
+}
+
+# render_all [<point>...]: every run's tables, oldest first, a blank line
+# between runs that render anything. A run is rendered whole or not at all,
+# so a rebuilt PR body never loses an earlier run's records.
+render_all() {
+  scratch
+  sep=0
+  for rr in $(run_ids); do
+    check_run "$rr"
+    render_run "$rr" "$@" >"$work/render-run" || exit 1
+    [ -s "$work/render-run" ] || continue
+    [ "$sep" -eq 0 ] || printf '\n'
+    sep=1
+    cat "$work/render-run"
+  done
 }
 
 # --- regenerate ---------------------------------------------------------------------
