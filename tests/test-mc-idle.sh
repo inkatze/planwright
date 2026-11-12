@@ -221,13 +221,20 @@ events
 if [ "$(count_kind idle-capacity)" -eq 2 ]; then ok "a changed list is raised at once, inside the interval"; else fail "changed list not raised at once: $EV"; fi
 
 # A program that stops being idle is forgotten and raises afresh on return.
+new_state
+clear_rows
+watch "$now"
+events
+if [ "$(count_kind idle-capacity)" -eq 1 ]; then ok "the baseline watch raises once"; else fail "baseline not raised once: $EV"; fi
 add_row mc-alpha-worker-aaaaaaaaaa alpha worker
 for i in 1 2 3 4 5 6; do add_row "mc-alpha-worker-fill$i" alpha worker; done
 watch $((now + 120))
+events
+if [ "$(count_kind idle-capacity)" -eq 1 ]; then ok "a full fleet raises nothing new"; else fail "raised while full: $EV"; fi
 clear_rows
 watch $((now + 180))
 events
-if [ "$(count_kind idle-capacity)" -eq 3 ]; then ok "a program no longer idle is forgotten and raises afresh on return"; else fail "not raised afresh after a full spell: $EV"; fi
+if [ "$(count_kind idle-capacity)" -eq 2 ]; then ok "a program no longer idle is forgotten and raises afresh on return"; else fail "not raised afresh after a full spell: $EV"; fi
 
 # Blank, comment and malformed-id lines are skipped; a note after an id is ignored.
 printf '# top\n\nbad!id\n-leading-dash\ngood-one\tnote words here\n\ngood-two second note\n' >"$backlog"
@@ -245,12 +252,13 @@ esac
 
 # The check verb changes nothing it reads: no event, no dedupe record.
 new_state
-before=$(find "$fleet" -type f | sort | tr '\n' ' ')
+tab=$(printf '\t')
+before=$(find "$fleet" -type f -exec cksum {} + | sort)
 mc_run mc-idle.sh check --program alpha --now "$now" --load 10
-after=$(find "$fleet" -type f | sort | tr '\n' ' ')
+after=$(find "$fleet" -type f -exec cksum {} + | sort)
 if [ "$RC" -eq 0 ] && [ "$before" = "$after" ]; then ok "check prints a verdict and writes nothing"; else fail "check wrote state: rc=$RC before=$before after=$after"; fi
 case $OUT in
-  raise*good-one*|*raise*good-one*) ok "check names the units it would raise" ;;
+  *raise"$tab"*good-one*) ok "check names the units it would raise" ;;
   *) fail "check did not name the units: $OUT" ;;
 esac
 

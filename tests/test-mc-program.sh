@@ -203,6 +203,7 @@ alpha_block
 printf 'program_alpha_idle_backlog: lists/alpha.txt\n' >>"$tracked"
 mc_run mc-program.sh validate alpha
 expect_rc "REQ-M1.13: a relative idle_backlog path fails" 1
+expect_err "REQ-M1.13: the relative idle_backlog path is named" "idle_backlog"
 
 alpha_block
 printf 'program_alpha_sources: {designs: figma}\n' >>"$tracked"
