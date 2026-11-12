@@ -331,7 +331,8 @@
 #       its command decoded, preceded by one `+ {...}` line carrying every
 #       other input field but the description when there are any; any other
 #       tool shows its input JSON. Input cut at `pending_show_max` bytes gets
-#       a `-- truncated ...` line; an envelope that ends early (cut at
+#       a `-- truncated ...` line naming the request file that holds it all
+#       and that file's size, so the approver can read the rest; an envelope that ends early (cut at
 #       `pending_read_max` or still being written) gets a
 #       `-- request envelope ends early ...` line; every such notice comes
 #       before the content, so a piped `head` cannot drop it; a
@@ -3886,7 +3887,9 @@ pending_show() {
       ;;
   esac
   if [ "$ps_flag" = 1 ]; then
-    printf -- '-- truncated at %s bytes: the content below is cut short\n' "$pending_show_max"
+    ps_size=$(wc -c <"$ps_env" | tr -d ' ')
+    printf -- '-- truncated at %s bytes: the content below is cut short; the whole request (%s bytes) is in %s\n' \
+      "$pending_show_max" "$ps_size" "$ps_env"
   fi
   printf '%s' "${ps_out%"$NL"}" | tr -d '\000-\010\013-\037\177\200-\237' | awk '{ print "| " $0 } END { if (NR == 0) print "| " }'
 }
