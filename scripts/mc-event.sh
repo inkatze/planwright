@@ -211,15 +211,20 @@ case $verb in
       if mkdir "$store/events/.claim$NOW.$seq" 2>/dev/null; then
         claim="$store/events/.claim$NOW.$seq"
         n=0
+        taken=0
         set +f
         for prior in "$store/events/e$NOW".*; do
           [ -e "$prior" ] || [ -L "$prior" ] || continue
           n=$((n + 1))
+          case ${prior##*/} in "e$NOW.$(printf '%04d' "$seq")"*) taken=1 ;; esac
         done
         set -f
-        [ "$n" -le "$seq" ] && break
+        [ "$n" -le "$seq" ] && [ "$taken" -eq 0 ] && break
         rmdir "$claim"
         claim=
+        # A number already held by a landed event is never reused, even when
+        # earlier numbers are still unwritten (so the count undercounts).
+        [ "$taken" -eq 0 ] || seq=$((seq + 1))
       else
         # Held by a concurrent emitter, or left by one that died: move on.
         seq=$((seq + 1))
