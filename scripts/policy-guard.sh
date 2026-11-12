@@ -1687,7 +1687,9 @@ tower_wrapped_git_check() {
 # hook's environment, which a command's inline assignment cannot change) is
 # kickoff-<spec> may run it, and only from that spec branch. Every other
 # session is refused the push it would make, with the text a push to that
-# branch gets. A run the guard cannot read is refused.
+# branch gets. A run the guard cannot read is refused. A mention that is no run
+# (a read, a stage or a printed note) passes to the ordinary rules, and what a
+# mention pipes into must itself only read or print it.
 
 KICK_SEEN=0
 KICK_PASSED=0
@@ -1707,21 +1709,22 @@ kickoff_named() {
   return 1
 }
 
-# kick_count <text> — set KC to how many times the script's file name stands
-# alone in <text> (quotes and backslashes dropped, case folded), not as the
-# tail of a longer name such as test-kickoff-spec-push.sh.
+# kick_count <text> — set KC to how many times the script's name stands in
+# <text> (quotes and backslashes dropped, case folded), not as the tail of a
+# longer name such as test-kickoff-spec-push.sh. Whatever follows the name
+# counts, so a glob or a trailing wildcard on it is still a mention. A digit
+# before it counts too: an empty positional parameter ($1) can sit there.
 kick_count() {
-  local s=${1//[\"\'\\]/} before after
+  local s=${1//[\"\'\\]/} before
   lc "$s"
   s=$LC
   KC=0
-  while [[ $s == *"$KICK_FILE"* ]]; do
-    before=${s%%"$KICK_FILE"*}
-    s=${s#*"$KICK_FILE"}
+  while [[ $s == *"$KICK_NAME"* ]]; do
+    before=${s%%"$KICK_NAME"*}
+    s=${s#*"$KICK_NAME"}
     before=${before: -1}
-    after=${s:0:1}
-    case "$before$after" in
-      *[A-Za-z0-9_.-]*) ;;
+    case $before in
+      [A-Za-z_.-]) ;;
       *) KC=$((KC + 1)) ;;
     esac
   done
@@ -1747,13 +1750,17 @@ kickoff_verb_class() {
 # arguments: no option but -C before the subcommand (a -c could set a pager or
 # helper to the script), and a subcommand that does not run its arguments.
 kickoff_git_reads() {
-  local k=1
+  local k=1 w
   while [ "$k" -lt "${#SW[@]}" ]; do
     case ${SW[$k]} in
       -C) k=$((k + 2)) ;;
       -*) return 1 ;;
-      add | diff | show | log | status | blame | annotate | ls-files | ls-tree | grep | rm | mv | restore | commit | \
+      add | diff | show | log | status | blame | annotate | ls-files | ls-tree | grep | rm | restore | commit | \
         shortlog | diff-tree | cat-file | check-ignore | whatchanged)
+        # git grep -O<command> runs <command> on the files it matched.
+        for w in "${SW[@]:$((k + 1))}"; do
+          case $w in -O* | --open-files-in-pager*) return 1 ;; esac
+        done
         return 0
         ;;
       *) return 1 ;;
@@ -1762,14 +1769,21 @@ kickoff_git_reads() {
   return 1
 }
 
-# kickoff_mention_passes <mentions> — 0 when every one of the segment's
-# <mentions> of the script is an argument its command only reads, stages or
-# prints. A mention outside the command's words (an assignment before it, such
-# as GIT_EXTERNAL_DIFF=..., or a here-document body), an option word that
-# carries the name (--pre=..., -O...), and a printed word that is the script
-# itself (which could be piped into a shell) all fail.
+# kickoff_mention_passes <mentions> <segment> — 0 when every one of the
+# segment's <mentions> of the script is an argument its command only reads,
+# stages or prints. A mention outside the command's words (an assignment before
+# it, such as GIT_EXTERNAL_DIFF=..., or a here-document body), an option word
+# that carries the name (--pre=..., -O...), and a printed word that is the
+# script itself (which could be piped into a shell) all fail, as does any
+# GIT_ variable in effect (it can name a helper git runs on the file) and a
+# redirect (the output could be a copy or a wrapper of the script that a later
+# command runs without its name). rg's --pre and --hostname-bin take the next
+# word as a command to run on each file, so rg refuses them even when that word
+# does not carry the name.
 kickoff_mention_passes() {
   local w seen=0
+  [ "${SEG_RD[$2]:-0}" = 0 ] || return 1
+  [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
   kickoff_verb_class "${SW[0]}"
   case $KV in
     reader) ;;
@@ -1827,7 +1841,7 @@ kickoff_segment() {
   done
   kick_count "$4"
   local kc=$KC
-  if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc"; then
+  if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc" "$3"; then
     KICK_PASSED=$((KICK_PASSED + kc))
     kickoff_pipe_on "$3"
     return 1
@@ -1873,8 +1887,9 @@ kickoff_segment() {
 }
 
 # kickoff_text_check — every spelling of the kickoff push's name in the command
-# must be a run the segments read above; a name in a redirect, a -c string or
-# a quoted or spelled-out form is refused.
+# must be a run, or a mention that only reads, stages or prints it, in the
+# segments read above; a name in a redirect, a -c string or a quoted or
+# spelled-out form is refused.
 kickoff_text_check() {
   kick_count "$P_CMD"
   [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \

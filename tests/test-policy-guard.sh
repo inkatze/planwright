@@ -1245,6 +1245,15 @@ for cmd in 'bash tests/test-kickoff-spec-push.sh' \
   'timeout 500 bash tests/test-kickoff-spec-push.sh' \
   'bash tests/test-kickoff-spec-push.sh && git add scripts/kickoff-spec-push.sh' \
   'fleet-remote.sh --host mac compute --worktree /some/worktree --test tests/test-kickoff-spec-push.sh --timeout 540' \
+  'git status scripts/kickoff-spec-push.sh' \
+  'git grep foo -- scripts/kickoff-spec-push.sh' \
+  'git rm --cached scripts/kickoff-spec-push.sh' \
+  'rg foo scripts/kickoff-spec-push.sh' \
+  'ls -l scripts/kickoff-spec-push.sh' \
+  '[ -f scripts/kickoff-spec-push.sh ]' \
+  'test -x scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh scripts/kickoff-spec-push.sh' \
+  'cat scripts/kickoff-spec-push.sh | cat | wc -l' \
   "printf '%s\\n' 'note: scripts/kickoff-spec-push.sh needs a fix'" \
   'echo "see scripts/kickoff-spec-push.sh for the push"'; do
   for tier in worker tower; do
@@ -1279,6 +1288,33 @@ for cmd in 'scripts/kickoff-spec-push.sh demo' \
   'git -c alias.x="!scripts/kickoff-spec-push.sh demo" x' \
   'git grep -Oscripts/kickoff-spec-push.sh foo' \
   'rg --pre scripts/kickoff-spec-push.sh foo .' \
+  'bash scripts/kickoff-spec-push.s? demo' \
+  'bash scripts/kickoff-spec-push.* demo' \
+  'bash scripts/kickoff-spec-push[.]sh demo' \
+  "find scripts -name 'kickoff-spec-push*' -exec bash {} demo \\;" \
+  'bash scripts/$1kickoff-spec-push.sh demo' \
+  'env X=1 scripts/$1kickoff-spec-push.sh demo' \
+  'bash kickoff-spec-push demo' \
+  'echo scripts/kickoff-spec-push.sh' \
+  "printf '%s\\n' scripts/kickoff-spec-push.sh" \
+  'cat scripts/kickoff-spec-push.sh | cat | sh' \
+  'cat scripts/kickoff-spec-push.sh | tr -d x | bash' \
+  'cat scripts/kickoff-spec-push.sh |& sh' \
+  'git add scripts/kickoff-spec-push.sh && scripts/kickoff-spec-push.sh demo' \
+  "echo 'scripts/kickoff-spec-push.sh demo' > wrapper.sh" \
+  'cat scripts/kickoff-spec-push.sh > copy.sh' \
+  'cat < scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh > copy.sh' \
+  'git mv scripts/kickoff-spec-push.sh scripts/other.sh' \
+  'git grep -Obash foo scripts/kickoff-spec-push.sh' \
+  'git grep --open-files-in-pager=bash foo -- scripts/kickoff-spec-push.sh' \
+  'git bisect run scripts/kickoff-spec-push.sh' \
+  'git rebase -x scripts/kickoff-spec-push.sh' \
+  'GIT_EXTERNAL_DIFF=bash git diff scripts/kickoff-spec-push.sh' \
+  'source scripts/kickoff-spec-push.sh' \
+  '. scripts/kickoff-spec-push.sh' \
+  'eval "$(cat scripts/kickoff-spec-push.sh)"' \
+  'Scripts/KICKOFF-SPEC-PUSH.SH demo' \
   'GIT_EXTERNAL_DIFF=scripts/kickoff-spec-push.sh git diff HEAD~1' \
   'PAGER=scripts/kickoff-spec-push.sh git log' \
   'cat <<E
