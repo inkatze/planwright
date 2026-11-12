@@ -318,7 +318,8 @@ END {
   if (badfmt) { print "not-ready\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "not-ready\t-"; print "fail\thead\tno evidence at a head was collected; a session report alone never passes"; exit 4 }
   if (!nc) fail("check", "no individual check context at the head")
-  if (needmac) {
+  speconly = (speconly_head == head)
+  if (needmac && !speconly) {
     hint = "; add the ci-macos label (or mark the pull request ready) so CI runs it"
     nm = split("macos-suite macos-smoke", mj, " ")
     for (i = 1; i <= nm; i++) {
@@ -328,7 +329,6 @@ END {
       else if (macneutral[j] != "") fail("macos", macneutral[j] " is NEUTRAL; the macOS jobs must be green")
     }
   }
-  speconly = (speconly_head == head)
   if (!speconly) {
     for (i = 1; i <= ncad; i++) fail("cadence", cad[i])
     if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))

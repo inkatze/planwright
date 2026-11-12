@@ -181,6 +181,10 @@ spec_only -
 expect_rc "a signed-off spec-only pull request needs no code cadence step" 0
 spec_only - "cadence${tab}gap${tab}convergence${tab}missing${tab}polish"
 expect_rc "an audit gap does not hold a spec-only pull request" 0
+spec_only - "require${tab}macos
+check${tab}macos-suite${tab}SKIPPED
+check${tab}macos-smoke${tab}SKIPPED"
+expect_rc "skipped macOS jobs do not hold a spec-only pull request (no code to run them on)" 0
 spec_only - "cadence${tab}unaudited${tab}no worktree holds the branch"
 expect_rc "nor does a cadence that could not be audited" 0
 spec_only 's/^signoff.*/signoff\tdemo\tunsigned\tits status is Draft/'
