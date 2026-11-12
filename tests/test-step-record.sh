@@ -1204,7 +1204,8 @@ rc=$?
 [ "$rc" -eq 1 ] && grep -Fq -- "--base" "$tmp/err"
 verdict "an unresolvable range fails by name" "rc=$rc, or --base not named"
 
-# The latest run is the highest id, whether or not it holds a record.
+# An empty run, the highest id, renders nothing under --run; regenerate
+# defaults to the latest run, whether or not it holds a record.
 emptyrun=$(sr new-run)
 [ -z "$(sr render --run "$emptyrun")" ]
 verdict "render --run on the latest run, even an empty one, shows no older run" "render showed an older run"
@@ -1224,6 +1225,15 @@ verdict "render --run selects the one run and no other" "--run did not narrow to
 bare_pt=$(sr render --point pre-pr | grep -c "^## Steps at \`pre-pr\`")
 [ "$bare_pt" -ge 2 ]
 verdict "a bare render with --point names the point in every run that has it" "pre-pr tables: $bare_pt"
+before_run2=$(printf '%s\n' "$bare_all" | awk -v r="(run \`$run2\`)" 'index($0, r) && !d { print prev; d = 1 } { prev = $0 }')
+[ -z "$before_run2" ]
+verdict "a blank line separates one run's tables from the next" "line before run $run2: $before_run2"
+ln -s "$tmp/no-such-record" "$wt/.claude/steps/$emptyrun/001-step-pre-ci.rec"
+partial=$(sr render 2>"$tmp/err.partial")
+rc=$?
+rm "$wt/.claude/steps/$emptyrun/001-step-pre-ci.rec"
+[ "$rc" -eq 1 ] && [ -z "$partial" ]
+verdict "a refusal in a later run prints nothing of the earlier runs" "rc=$rc, output: $partial"
 
 # --- a mkdir that tells every racer it won ---------------------------------------------
 # Some coreutils reimplementations report success to several concurrent
