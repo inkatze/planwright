@@ -2809,7 +2809,8 @@ guard_printenv() {
   [ "$cwn" -ge 2 ] || return 1
   for ((i = 1; i < cwn; i++)); do
     case ${cw[i]} in
-      -* | '') return 1 ;;
+      # An operand the tracker could not resolve may name any variable.
+      -* | '' | *[\$\`]*) return 1 ;;
     esac
     ! secret_var_name "${cw[i]}" || return 1
   done
@@ -3234,6 +3235,8 @@ guard_date() {
     a=${cw[i]}
     case $a in
       -s | -s* | --set | --set=*) return 1 ;;
+      # `-f FILE` echoes every line it cannot parse.
+      -f | -f* | --fi*) return 1 ;;
     esac
   done
   return 0
@@ -3468,9 +3471,19 @@ guard_gh() {
       # A method-override header makes the server treat the GET as a write,
       # and `--hostname` sends the request, token included, to another host:
       # both defer, and so does a header value the guard cannot read.
-      local hdr=0
+      # A full URL may name another host, and gojq's `env` and `$ENV` print the
+      # worker's environment.
+      local hdr=0 jqv=0
       for ((i = 2; i < cwn; i++)); do
-        ci_has "${cw[i]}" '*method-override*' '*x-http-method*' '*x-method*' && return 1
+        ci_has "${cw[i]}" '*method-override*' '*x-http-method*' '*x-method*' '*://*' && return 1
+        if [ "$jqv" = 1 ]; then
+          ci_has "${cw[i]}" '*env*' && return 1
+          jqv=0
+        fi
+        case ${cw[i]} in
+          --jq | -q | --template | -t) jqv=1 ;;
+          --jq=* | --template=* | -q?* | -t?*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+        esac
         if [ "$hdr" = 1 ]; then
           case ${cw[i]} in
             *'$'*) return 1 ;;
@@ -3498,7 +3511,14 @@ guard_gh() {
       return 0
       ;;
     auth)
-      [ "$s" = status ] && return 0 || return 1
+      [ "$s" = status ] || return 1
+      # `--show-token` / `-t` prints the token.
+      for ((i = 3; i < cwn; i++)); do
+        case ${cw[i]} in
+          --show* | -t* | -[!-]*t*) return 1 ;;
+        esac
+      done
+      return 0
       ;;
     repo)
       [ "$s" = view ] && return 0 || return 1
@@ -3546,9 +3566,12 @@ guard_git() {
       # configured driver (external-diff, textconv, or smudge/clean filter).
       for ((i = subidx + 1; i < cwn; i++)); do
         case ${cw[i]} in
-          -o | --output | --output=* | --output-directory | --output-directory=*) return 1 ;;
-          -O | -O* | --open-files-in-pager | --open-files-in-pager=*) return 1 ;;
+          # git takes any unambiguous prefix of a long option (`--out=`).
+          -o | --ou* | -O | -O* | --op*) return 1 ;;
           --ext-diff | --textconv | --filters) return 1 ;;
+          # Content from outside the repository: any file (`diff --no-index`,
+          # `blame --contents`).
+          --no-index | --conte*) return 1 ;;
         esac
       done
       return 0
@@ -3577,6 +3600,8 @@ guard_git() {
         case $a in
           --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
           --add | --unset | --unset-all | --replace-all | --rename-section | --remove-section | -e | --edit | --set) writes=1 ;;
+          # Another file parsed as config prints its `key = value` lines.
+          -f | --file | --file=* | --blob | --blob=*) return 1 ;;
           -*) ;; # scope/format flags (--global/--type/…) are read-safe
           *) positional=$((positional + 1)) ;;
         esac
@@ -4229,19 +4254,32 @@ environ_word_risky() {
 
 # secret_lexical <path>: 0 when the path, read as written, names a secret.
 secret_lexical() {
-  local s=$1
+  local s=$1 had=1 hit=1
   case $s in
     /*) ;;
     *) s=/$s ;;
   esac
   s=$s/
+  # A case-insensitive volume (macOS's default) opens `~/.SSH` as `~/.ssh`.
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
   case $s in
     */.ssh/* | */.gnupg/* | */.aws/* | */.netrc/* | */.npmrc/* | */.pypirc/* | */.git-credentials/* | \
-      */.kube/* | */.azure/* | */.password-store/* | */.docker/config.json/* | \
-      */.config/gh/* | */.config/op/* | */.config/gcloud/* | */.config/git/credentials/* | \
-      */.config/glab-cli/* | */.config/github-copilot/* | */.cargo/credentials* | */.gem/credentials/* | \
+      */.kube/* | */.azure/* | */.password-store/* | */.docker/* | */.dockercfg/* | \
+      */.pgpass/* | */.my.cnf/* | */.s3cfg/* | */.boto/* | */.oci/* | */.m2/settings*.xml/* | \
+      */.composer/auth.json/* | */.config/composer/auth.json/* | */.config/containers/auth.json/* | \
+      */.local/share/keyrings/* | */Library/Keychains/* | \
+      */.config/gh/* | */.config/hub/* | */.config/op/* | */.config/gcloud/* | */.config/git/credentials/* | \
+      */.config/rclone/* | */.config/doctl/* | */.config/glab-cli/* | */.config/github-copilot/* | \
+      */.cargo/credentials* | */.gem/credentials/* | \
       */.terraform.d/credentials* | */.vault-token/* | \
-      */.claude/.credentials* | */.claude.json/*) return 0 ;;
+      */.claude/.credentials* | */.claude.json/*) hit=0 ;;
+  esac
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  [ "$hit" -ne 0 ] || return 0
+  case $s in
+    /etc/letsencrypt/* | /etc/NetworkManager/system-connections/* | /etc/wireguard/* | /etc/pki/tls/private/* | \
+      /etc/master.passwd/* | /private/etc/master.passwd/* | *.keytab/*) return 0 ;;
     /etc/shadow/* | /etc/gshadow/* | /etc/shadow-/* | /etc/gshadow-/* | /etc/ssh/ssh_host_*_key/* | /etc/sudoers/* | /etc/sudoers.d/* | /etc/ssl/private/*) return 0 ;;
     # macOS keeps /etc under /private, which a resolved path reports.
     /private/etc/shadow/* | /private/etc/gshadow/* | /private/etc/ssh/ssh_host_*_key/* | /private/etc/sudoers/* | /private/etc/sudoers.d/* | /private/etc/ssl/private/*) return 0 ;;
@@ -4270,7 +4308,20 @@ secret_glob() {
   case $w in
     /proc/*/?*) return 0 ;;
   esac
+  # A pattern in the top directory's name (`/pro[c]`, `/e?c`) could be any
+  # system root.
+  c=${w#/}
+  c=${c%%/*}
+  case $c in
+    *[*?[]*)
+      for n in proc etc dev run var root home Users private; do
+        # shellcheck disable=SC2053
+        [[ $n == $c ]] && return 0
+      done
+      ;;
+  esac
   for s in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- /etc/sudoers /etc/ssl/private/k.pem /proc/1/mem /dev/fd/0 /dev/stdin \
+    /etc/ssh/ssh_host_rsa_key /etc/ssh/ssh_host_ed25519_key \
     /run/secrets/x /var/run/secrets/x /run/credentials/x /var/backups/shadow.bak /var/backups/gshadow.bak /run/user/0/containers/auth.json; do
     # shellcheck disable=SC2053 # the operand is the pattern under test
     [[ $s == $w ]] && return 0
@@ -4279,7 +4330,8 @@ secret_glob() {
   for c in ${parts[@]+"${parts[@]}"}; do
     case $c in
       .*[*?[]*)
-        for n in .ssh .gnupg .aws .netrc .npmrc .pypirc .git-credentials .kube .azure .password-store .claude.json; do
+        for n in .ssh .gnupg .aws .netrc .npmrc .pypirc .git-credentials .kube .azure .password-store .claude.json \
+          .docker .dockercfg .pgpass .my.cnf .s3cfg .boto .oci .vault-token; do
           # shellcheck disable=SC2053
           [[ $n == $c ]] && return 0
         done
@@ -4297,6 +4349,16 @@ secret_word_risky() {
   secret_path_risky "$w" "$2" && return 0
   case $w in
     -*=*) secret_path_risky "${w#*=}" "$2" && return 0 ;;
+    # A short option's attached operand (`-f/etc/shadow`, `-nf~/.ssh/k`).
+    -[!-]*[/~]*)
+      secret_path_risky "${w:2}" "$2" && return 0
+      case $w in
+        */*) secret_path_risky "/${w#*/}" "$2" && return 0 ;;
+      esac
+      case $w in
+        *\~*) secret_path_risky "~${w#*\~}" "$2" && return 0 ;;
+      esac
+      ;;
   esac
   return 1
 }
@@ -4324,7 +4386,17 @@ secret_path_risky() {
     abs=${abs%/}
   done
   if [ "$2" = 1 ]; then
-    secret_glob "$abs"
+    # Braces and zsh operators are not expanded here: one that can leave the
+    # tracked cwd (an absolute word, a `..`) is not followed.
+    case $p in
+      *[\{^#~]*)
+        case $p in
+          /* | *..*) return 0 ;;
+        esac
+        ;;
+    esac
+    secret_glob "$abs" && return 0
+    glob_any_risky secret "$abs"
     return
   fi
   secret_lexical "$abs" && return 0
@@ -4342,6 +4414,32 @@ secret_path_risky() {
     tgt=$(readlink -f -- "$tgt" 2>/dev/null) || return 1
     [ -n "$tgt" ] && secret_lexical "$tgt" && return 0
   fi
+  return 1
+}
+
+# glob_any_risky <secret|broad> <absolute-pattern>: expands the pattern as the
+# shell would and screens every match as a plain path, so a pattern that
+# reaches a secret through `..`, a symlink or a glob in a system directory's
+# name (`/pro[c]`) is caught. More matches than are screened defer.
+glob_any_risky() {
+  local kind=$1 pat=$2 m n=0 IFS='' had_null=0 noglob=0
+  local -a ms
+  shopt -q nullglob && had_null=1
+  case $- in *f*) noglob=1 ;; esac
+  set +f
+  shopt -s nullglob
+  # shellcheck disable=SC2206 # the expansion is the point; IFS is empty
+  ms=($pat)
+  [ "$had_null" = 1 ] || shopt -u nullglob
+  [ "$noglob" = 0 ] || set -f
+  for m in ${ms[@]+"${ms[@]}"}; do
+    n=$((n + 1))
+    [ "$n" -le 256 ] || return 0
+    case $kind in
+      secret) secret_path_risky "$m" 0 && return 0 ;;
+      *) broad_path_risky "$m" && return 0 ;;
+    esac
+  done
   return 1
 }
 
@@ -4403,7 +4501,7 @@ broad_dir() {
     / | /etc | /etc/ssh | /etc/ssl | /etc/sudoers.d | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) return 0 ;;
     # Runtime secrets, backups, and mounted volumes (another system's homes).
     # Only a volume's root: a worktree may live further down one.
-    /run | /run/user | /run/user/* | /var | /var/run | /var/lib | /var/backups | /private/var | /private/var/run | /mnt | /media | /srv | /Volumes) return 0 ;;
+    /run | /run/user | /run/user/* | /var | /var/run | /var/lib | /var/lib/* | /var/backups | /private/var | /private/var/run | /mnt | /media | /srv | /Volumes) return 0 ;;
     /mnt/*/* | /media/*/* | /Volumes/*/*) ;;
     /mnt/* | /media/* | /Volumes/*) return 0 ;;
     /root/.claude | /root/.config | /home/*/.claude | /home/*/.config | /Users/*/.claude | /Users/*/.config) return 0 ;;
@@ -4446,6 +4544,15 @@ broad_path_risky() {
     /*) abs=$p ;;
     *) abs=$HOOK_CWD/$p ;;
   esac
+  # A `..` after a symlink climbs from the link's target, not from the link.
+  case $abs in
+    */.. | */../*)
+      canon_dir_cached "$abs"
+      if [ -n "$CANON" ]; then
+        broad_path_risky "$CANON" && return 0
+      fi
+      ;;
+  esac
   IFS=/ read -r -a parts <<<"$abs"
   for comp in ${parts[@]+"${parts[@]}"}; do
     case $comp in
@@ -4462,10 +4569,11 @@ broad_path_risky() {
   broad_dir "$out" && return 0
   # The account's own home as its canonical path (macOS's /tmp is /private/tmp).
   canon_dir_cached "$HOME"
-  [ -n "$CANON" ] || return 1
-  case $out in
-    "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
-  esac
+  if [ -n "$CANON" ]; then
+    case $out in
+      "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
+    esac
+  fi
   # A parent of the worktree holds its siblings and, further up, the home.
   root=$(repo_root_of "$HOOK_CWD") || return 0
   [ "$out" != "$root" ] || return 1
@@ -4492,7 +4600,12 @@ broad_glob_risky() {
     *) dir=. ;;
   esac
   [ -n "$dir" ] || dir=/
-  broad_path_risky "$dir"
+  broad_path_risky "$dir" && return 0
+  case $w in
+    *[\{^#]*) return 1 ;;
+    /*) glob_any_risky broad "$w" ;;
+    *) glob_any_risky broad "$HOOK_CWD/$w" ;;
+  esac
 }
 
 # broad_words_ok: no operand of the current recursive reader names a broad
@@ -4501,8 +4614,20 @@ broad_words_ok() {
   local i
   for ((i = 1; i < cwn; i++)); do
     case ${cw[i]} in
+      # An option's attached directory (`--search-path=`, `--from-file=`).
+      -*=?*)
+        broad_path_risky "${cw[i]#*=}" && return 1
+        continue
+        ;;
       -*) continue ;;
     esac
+    # A variable the tracker could not resolve may name any directory; a
+    # word carrying substitution output is subst_reach_ok's to judge.
+    if ! { word_tainted "$i" && [ "${TAINT_WEAK:-0}" = 0 ]; }; then
+      case ${cw[i]} in
+        *[\$\`]*) return 1 ;;
+      esac
+    fi
     if [ "${cglob[i]}" != 0 ] || [ "${cz[i]-0}" != 0 ]; then
       broad_glob_risky "${cw[i]}" && return 1
     fi
@@ -4528,14 +4653,18 @@ ci_has() {
 
 # secret_var_name <name>: whether a variable name looks like a credential.
 secret_var_name() {
-  ci_has "$1" '*TOKEN*' '*SECRET*' '*PASSWORD*' '*PASSWD*' '*CREDENTIAL*' '*APIKEY*' '*API_KEY*' '*_KEY' '*_PAT' '*BEARER*' 'AUTH' '*_AUTH' '*_PASS'
+  ci_has "$1" '*TOKEN*' '*SECRET*' '*PASSWORD*' '*PASSWD*' '*PASSPHRASE*' '*CREDENTIAL*' '*APIKEY*' '*API_KEY*' \
+    '*ACCESS_KEY*' '*_KEY' '*_PAT' '*BEARER*' 'AUTH' '*_AUTH' '*AUTHORIZATION*' '*_PASS' '*_PWD' '*COOKIE*' \
+    '*_DSN' 'DSN' '*DATABASE_URL*' 'JWT' '*_JWT' 'JWT_*'
 }
 
-# secret_var_ref <word>: whether a word expands a credential-named variable
-# (any `$NAME`, `${NAME…}`, `${#NAME}`, or an indirect `${!…}`). A quoted
-# single-quote form cannot be told apart here, so it defers too.
+# secret_var_ref <word> <quoted>: whether a word expands a credential-named
+# variable (any `$NAME`, `${NAME…}`, `${#NAME}`, zsh's `$=NAME`/`$^NAME`, or
+# an indirect `${!…}`). A quoted single-quote form cannot be told apart here,
+# so it defers too. In a quoted word the name may end where a quote or escape
+# was (`"$DEPLOY_KEY"1`), so every prefix of it is a candidate.
 secret_var_ref() {
-  local w=$1 rest name
+  local w=$1 rest name k
   case $w in
     *\$\{!*) return 0 ;;
   esac
@@ -4543,9 +4672,17 @@ secret_var_ref() {
     rest=${w#*\$}
     w=$rest
     rest=${rest#\{}
-    rest=${rest#\#}
+    rest=${rest#[\#=^~+]}
     name=${rest%%[!A-Za-z0-9_]*}
-    [ -n "$name" ] && secret_var_name "$name" && return 0
+    [ -n "$name" ] || continue
+    secret_var_name "$name" && return 0
+    if [ "${2:-0}" = 1 ]; then
+      # Suffix-anchored names only: an exact one (`AUTH`) is a prefix of
+      # ordinary names (`AUTHOR`).
+      for ((k = ${#name} - 1; k >= 2; k--)); do
+        ci_has "${name:0:k}" '*_KEY' '*_PAT' '*_AUTH' '*_PASS' '*_PWD' '*_DSN' '*_JWT' && return 0
+      done
+    fi
   done
   return 1
 }
@@ -4553,9 +4690,11 @@ secret_var_ref() {
 # secret_vars_ok: no word of the current simple command expands a credential
 # variable, and no printenv operand names one.
 secret_vars_ok() {
-  local i
+  local i q
   for ((i = 0; i < cwn; i++)); do
-    secret_var_ref "${cw[i]}" && return 1
+    q=0
+    [ "${cqp[i]:--1}" -lt 0 ] || q=1
+    secret_var_ref "${cw[i]}" "$q" && return 1
     if [ "${cw[0]}" = printenv ] && [ "$i" -ge 1 ]; then
       secret_var_name "${cw[i]}" && return 1
     fi
@@ -4599,7 +4738,8 @@ environ_words_ok() {
               opts=0
               continue
               ;;
-            --regexp* | --file*)
+            # GNU grep takes any unambiguous prefix (`--reg=`, `--fi`).
+            --reg* | --f*)
               given=1
               continue
               ;;
@@ -5907,8 +6047,10 @@ verify_tokens() {
 
     # The case head and pattern words below are skipped unverified, so a
     # substitution there would run unanalysed.
+    # Nor may they match on a credential, which leaks it a guess at a time.
     if [ "$mode" = casehead ] || [ "$mode" = casepat ]; then
       [ -z "${TOK_SUBS[idx]}" ] || return 1
+      ! secret_var_ref "$val" 1 || return 1
     fi
     # case head: skip the matched word up to `in`.
     if [ "$mode" = casehead ]; then

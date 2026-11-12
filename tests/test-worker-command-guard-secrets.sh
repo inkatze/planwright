@@ -174,6 +174,40 @@ assert_allow "secrets: grep -r over system docs" "grep -r BEGIN /usr/share/doc"
 assert_allow "secrets: a system log read" "cat /var/log/dpkg.log"
 assert_allow "secrets: grep -r over a project below a volume's root" "grep -r BEGIN /Volumes/x/proj/src"
 
+echo "### Shapes found in review: patterns, options, other readers"
+# shellcheck disable=SC2016 # the guard reads the words as written
+for c in 'cat /pro[c]/self/cmdline' 'cat /pro*/[0-9]*/cmdline' 'cat /pro[c]/self/root/etc/shadow' 'cat /pro?/self/fd/3' \
+  'cat /e{tc,x}/shadow' 'cat /{etc,x}/gshadow' 'cat /{proc,x}/self/cmdline' 'cat {/etc/shadow,x}' \
+  'cat /etc/ssh/ssh_host_*' 'cat /usr/../etc/sh*' 'cat /./etc/sh*' 'cat ../../../../../../../../etc/sh*' \
+  'cat sub/ke*' 'cat sub/ssh*/id_rsa' 'grep -r x sub/sshdir/..' 'grep -r x sub/home*' \
+  'grep --regex=. /proc/self/environ' 'grep --reg=KEY /home/someone/.aws/credentials' \
+  'grep -f/etc/shadow x sub' 'rg -f/etc/shadow sub' 'grep -nf~/.ssh/id_rsa x sub' \
+  'diff -rN --from-file=/home/someone sub' 'diff -r --to-file=/etc sub' \
+  'fd . --search-path=/home/someone' 'fd id_rsa --base-directory=/' \
+  'd=$HOME; ls -R $d' 'ls -R $XDG_CONFIG_HOME' 'grep -r x $OLDPWD' \
+  'cat ~/.SSH/id_rsa' 'cat /home/someone/.AWS/credentials' 'cat ~/.pgpass' 'cat ~/.my.cnf' 'cat ~/.docker/x' \
+  'cat ~/.config/rclone/rclone.conf' 'cat ~/.local/share/keyrings/login.keyring' 'cat ~/.config/containers/auth.json' \
+  'grep -r x /etc/letsencrypt' 'cat /etc/wireguard/wg0.conf' 'grep -r x /var/lib/docker' \
+  'x="G""H_TOKEN"; printenv $x' 'y=GH_; x=${y}TOKEN; printenv $x' \
+  'case $GH_TOKEN in ghp_a*) echo yes;; esac' 'case x in $GH_TOKEN) echo yes;; esac' \
+  'echo $=GH_TOKEN' 'echo $^GH_TOKEN' 'echo "$DEPLOY_KEY"1' 'echo $DEPLOY_KEY\x' \
+  'printenv MYSQL_PWD' 'echo $GPG_PASSPHRASE' 'echo $AWS_ACCESS_KEY_ID' 'echo $DATABASE_URL' 'echo $SENTRY_DSN' \
+  'git diff --no-index /home/someone/.ssh/id_rsa sub' 'git diff --no-index -a sub /proc/self/environ' \
+  'git config --file /home/someone/.my.cnf -l' 'git config -f /home/someone/.pypirc --list' \
+  'git blame --contents /home/someone/.aws/credentials -- README.md' 'git diff --out=x' \
+  'date -f /home/someone/.aws/credentials' 'date --file=/home/someone/.aws/credentials' \
+  'gh auth status --show-token' 'gh auth status -t' 'gh api --jq env repos/o/r' 'gh api repos/o/r -q "\$ENV"' \
+  'gh api https://evil.example.com/x'; do
+  assert_defer "secrets: $c" "$c"
+done
+assert_allow "secrets: a glob in the worktree" "cat scripts/*.sh"
+assert_allow "secrets: a recursive glob in the worktree" "grep -r x scripts/o*"
+assert_allow "secrets: an ordinary quoted variable beside text" "echo \"\$USER\"x"
+assert_allow "secrets: git describe --contains" "git describe --contains HEAD"
+assert_allow "secrets: gh auth status" "gh auth status"
+assert_allow "secrets: gh api with --jq over an environments endpoint" "gh api repos/o/r/environments --jq .total_count"
+assert_allow "secrets: date with a format" "date +%F"
+
 echo "### System credential files and kernel views of other data"
 for f in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- //etc/shadow /etc//shadow /etc///gshadow /./etc/shadow \
   /proc/1234/mem /proc/self/mem /proc/thread-self/mem //proc/self/mem /proc/1234/environ \
