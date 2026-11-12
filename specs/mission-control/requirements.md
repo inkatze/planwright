@@ -1259,7 +1259,7 @@ later planwright bundles implement, D-12).
   raises afresh on return. The duty launches nothing and changes nothing it
   reads. It is the per-wake, actionable counterpart of REQ-M1.11's windowed
   report of the same waste as proposals; neither replaces the other.
-  *(Cites: D-59; REQ-M1.11, REQ-M1.4, REQ-M1.6; the idle-capacity event ask
+  *(Cites: D-61; REQ-M1.11, REQ-M1.4, REQ-M1.6; the idle-capacity event ask
   (2026-11-11, Sources).)*
 - **REQ-M1.13** A program's backlog SHALL be a declared source the
   idle-capacity duty can read without guessing: a file of ranked unit ids,
@@ -1271,7 +1271,7 @@ later planwright bundles implement, D-12).
   `idle-capacity-undeclared` event, only when a slot is free and the gates
   are open, asking the operator to declare one, and stay quiet until a
   backlog reads; it never infers a backlog from other state.
-  *(Cites: D-59; REQ-M1.12; the idle-capacity event ask (2026-11-11,
+  *(Cites: D-61; REQ-M1.12; the idle-capacity event ask (2026-11-11,
   Sources).)*
 
 ## REQ-N — Program goals
@@ -1496,9 +1496,9 @@ later planwright bundles implement, D-12).
   REQ-L1.9 entry also names `tests/test-mc-handover-tmux.sh`, the files the
   per-file test-time budget split moved those cases into. No requirement
   or decision changes meaning.
-- 2026-11-11 — Amendment 9 (meaning-class, on the Active bundle): the
-  idle-capacity duty and its backlog source (REQ-M1.12, REQ-M1.13; D-59;
-  Task 57), covering the implementation draft in pull request 955.
+- 2026-11-11 — Amendment 10 (meaning-class, on the Active bundle): the
+  idle-capacity duty and its backlog source (REQ-M1.12, REQ-M1.13; D-61;
+  Task 68), covering the implementation draft in pull request 955.
   REQ-M1.11 is unchanged: it stays the windowed report as proposals, and
   REQ-M1.12 is the per-wake event.
 
@@ -1740,4 +1740,4 @@ later planwright bundles implement, D-12).
   live and sat idle with four slots free and the host lightly loaded until
   the operator said to work, because every duty reacts to an event and no
   event says a slot is free beside waiting work. Framed REQ-M1.12,
-  REQ-M1.13, D-59.
+  REQ-M1.13, D-61.

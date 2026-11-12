@@ -1280,7 +1280,7 @@ fixed-string check.)*
 - **Citations:** D-56 · REQ-F1.24
 - **Estimated effort:** 1 day
 
-### Task 57 — The idle-capacity duty and its backlog source
+### Task 68 — The idle-capacity duty and its backlog source
 
 - **Deliverables:** `scripts/mc-idle.sh` (`check` and `watch`); the
   `idle-capacity` entry in `config/duties.yaml` and the default duty list;
@@ -1295,12 +1295,12 @@ fixed-string check.)*
   knobs, verbs, options-reference and docs checks pass; the duty launches
   nothing and edits nothing it reads.
 - **Dependencies:** 55
-- **Citations:** D-59, D-58, D-17 · REQ-M1.12, REQ-M1.13
+- **Citations:** D-61, D-58, D-17 · REQ-M1.12, REQ-M1.13
 - **Estimated effort:** 1 day
 
 ## Awaiting input
 
-- **Task 57** — anchor re-review pending: Amendment 9 (REQ-M1.12, REQ-M1.13, D-59) changed anchored content; `/spec-kickoff` re-walks the delta and re-anchors.
+- **Task 68** — anchor re-review pending: Amendment 10 (REQ-M1.12, REQ-M1.13, D-61) changed anchored content; `/spec-kickoff` re-walks the delta and re-anchors.
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.
 
 ## Deferred

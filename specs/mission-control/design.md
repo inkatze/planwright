@@ -1828,7 +1828,7 @@ stays as it is.
 rules said otherwise and nothing noticed; a structured required value turns
 that into a check, and the duty reports the waste it left.
 
-### D-59: An idle-capacity duty raises an event, from a declared backlog  (N; C, D-51, D-58, D-17)
+### D-61: An idle-capacity duty raises an event, from a declared backlog  (N; C, D-51, D-58, D-17)
 
 **Decision:** A core `idle-capacity` duty (`scripts/mc-idle.sh`, a five
 minute low-priority watcher, in the default duty set) runs the check each
