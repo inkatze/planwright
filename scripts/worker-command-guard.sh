@@ -2802,8 +2802,8 @@ guard_env() {
   return 1
 }
 
-# guard_printenv: `printenv NAME…` with names only, the same read as the
-# approved `echo $VAR`. Bare, or with a flag, it prints every variable.
+# guard_printenv: `printenv NAME…` with names only, none credential-named:
+# the same read as `echo $VAR`. Bare, or with a flag, it prints every variable.
 guard_printenv() {
   local i
   [ "$cwn" -ge 2 ] || return 1
@@ -4185,8 +4185,8 @@ opener_word_risky() {
 # directory. So does a glob whose last component could match either, unless
 # its directory exists and canonicalizes outside /proc.
 
-# environ_word_risky <word> <globs>: 0 when the word could name another
-# process's environ or mem file.
+# environ_word_risky <word> <globs>: 0 when the word could name a secret
+# (secret_word_risky), or any process's environ or mem file.
 environ_word_risky() {
   local w=$1 last dir canon
   # `//proc` names /proc to the kernel, and bash's `cd -P` keeps the two
@@ -4773,7 +4773,8 @@ environ_words_ok() {
   return 0
 }
 
-# environ_redirect_ok <operand>: the same test for a redirect operand, which
+# environ_redirect_ok <operand>: the same tests (secrets and environ files)
+# for a redirect operand, which
 # the guard never expands, so any `$` in it could name anything. Any other
 # path under /proc defers too: a process directory on stdin lets a later
 # `/dev/fd/0/…` reach into it, out of the guard's sight.
