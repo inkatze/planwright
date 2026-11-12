@@ -7,7 +7,9 @@
 # The four broad mise task-file denies (mise.toml, .mise.toml, mise-tasks/,
 # .mise-tasks/ at any depth) are replaced by literal denies of the same names
 # in every ancestor folder of the worktree and in the primary checkout, so only
-# the worktree's own task files open. Every other rule stays as shipped.
+# the worktree's own task files open, and a PreToolUse hook on the file tools
+# (worker-mise-edit-guard.sh) refuses every task path outside the worktree,
+# which no path rule can express. Every other rule stays as shipped.
 # A worktree or primary path holding a pattern character, or a primary checkout
 # that cannot be named, is refused. Output: whole by rename, owner-only,
 # outside the worktree. What it opens and the residual risk:
@@ -48,6 +50,7 @@ unsafe_path() {
   case $1 in
     *'*'* | *'?'* | *'['* | *']'* | *\\* | *'('* | *')'* | *[[:cntrl:]]*) return 0 ;;
     *' '/* | *' ') return 0 ;;
+    *"'"*) return 0 ;;
   esac
   return 1
 }
@@ -95,13 +98,16 @@ chmod 600 "$tmp" 2>/dev/null || {
   rm -f -- "$tmp"
   die "cannot make the output owner-only"
 }
-if ! jq --argjson b "$broad" --arg dirs "$dirs" '
+if ! jq --argjson b "$broad" --arg dirs "$dirs" --arg wt "$wt" '
   ($dirs | split("\n") | map(select(. != "") | if . == "/" then "" else . end)) as $anc
   | .permissions.deny |= (
       map(select(. as $d | ($b | index($d)) == null))
       + [ $anc[] as $a | ("mise.toml", ".mise.toml", "mise-tasks/**", ".mise-tasks/**") as $n
           | "Edit(/" + $a + "/" + $n + ")" ]
-    )' "$profile" >"$tmp" 2>/dev/null; then
+    )
+  | .hooks.PreToolUse += [{matcher: "Edit|Write|MultiEdit|NotebookEdit",
+      hooks: [{type: "command",
+        command: ("\"$CLAUDE_PLUGIN_ROOT\"/scripts/worker-mise-edit-guard.sh '"'"'" + $wt + "'"'"'")}]}]' "$profile" >"$tmp" 2>/dev/null; then
   rm -f -- "$tmp"
   die "cannot generate the profile"
 fi

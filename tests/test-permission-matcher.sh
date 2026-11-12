@@ -1327,6 +1327,7 @@ EOF
 # must be the only rule blocking at least one row.
 # ---------------------------------------------------------------------------
 GEN_SCRIPT="$REPO_ROOT/scripts/worker-settings-generate.sh"
+MISE_GUARD="$REPO_ROOT/scripts/worker-mise-edit-guard.sh"
 mkdir -p "$tmp/gen"
 GBOX=$(cd "$tmp/gen" && pwd -P)
 GMAIN="$GBOX/main"
@@ -1338,6 +1339,13 @@ if git init -q "$GMAIN" \
   ok "pass I: built the fixture repository"
 else
   fail "pass I: could not build the fixture repository"
+fi
+if mkdir -p "$GMAIN/.claude/worktrees/w2" "$GBOX/other/mise-tasks" "$GWT/sub2" \
+  && ln -s "$GBOX/other/mise-tasks" "$GWT/sub2/mise-tasks" \
+  && : >"$GBOX/other/mise.toml" && ln -s "$GBOX/other/mise.toml" "$GWT/sub2/link.toml"; then
+  ok "pass I: built the sibling, other-repository and symlink fixtures"
+else
+  fail "pass I: could not build the sibling, other-repository and symlink fixtures"
 fi
 GEN_OUT="$GBOX/generated.json"
 if [ -f "$GEN_SCRIPT" ] && /bin/sh "$GEN_SCRIPT" "$SETTINGS" "$GWT" "$GEN_OUT" >/dev/null 2>"$tmp/gen.err"; then
@@ -1354,7 +1362,15 @@ allow|legit|Write|$GWT/mise-tasks/deploy|its own default file-task directory
 allow|legit|Edit|$GWT/.mise-tasks/deploy|its own dotted file-task directory
 allow|legit|Write|$GWT/sub/mise.toml|a nested mise.toml inside its own worktree
 allow|legit|Write|$GWT/sub/mise-tasks/x|a nested task directory inside its own worktree
-allow|legit|Edit|/work/unrelated/mise.toml|residual risk, stated in the PR: an unrelated repository is not an ancestor, so its task files are editable
+deny|load-bearing|Edit|/work/unrelated/mise.toml|an unrelated repository's mise.toml stays closed: only the worker's own worktree opens
+deny|load-bearing|Write|$GMAIN/.claude/worktrees/w2/mise.toml|a sibling worktree's mise.toml stays closed
+deny|load-bearing|Edit|$GMAIN/.claude/worktrees/w2/mise-tasks/x|a sibling worktree's mise-tasks stays closed
+deny|load-bearing|Write|$GBOX/other/mise-tasks/x|another repository's mise-tasks stays closed
+deny|load-bearing|Write|$GBOX/other/.mise.toml|another repository's dotted mise.toml stays closed
+deny|load-bearing|Edit|$GWT/../w2/mise.toml|a .. escape into a sibling worktree stays closed
+deny|load-bearing|Write|$GWT/sub/../../../../../other/mise-tasks/x|a .. escape into another repository stays closed
+deny|load-bearing|Write|$GWT/sub2/mise-tasks/x|a task directory that is a symlink pointing out of the worktree stays closed
+deny|load-bearing|Edit|$GWT/sub2/link.toml|a file symlink pointing at another repository's mise.toml stays closed
 allow|legit|Edit|$GWT/scripts/x.sh|ordinary edits stay allowed
 deny|load-bearing|Edit|$GWT/mise.local.toml|machine-local mise config stays closed
 deny|load-bearing|Write|$GWT/.mise.local.toml|dotted machine-local mise config stays closed
@@ -1398,6 +1414,13 @@ if [ -n "$GEN_DENY" ] && pm_load_rules "$GEN_DENY" "" "$GEN_ALLOW"; then
     [ -n "${expected:-}" ] || continue
     gen_rows=$((gen_rows + 1))
     got="$(pm_decide_path "$tool" "$path")"
+    # The generated profile's hook refuses what no path rule can: a task path
+    # outside the worktree. An absent hook leaves the rule verdict.
+    if [ "$got" = allow ] && [ -x "$MISE_GUARD" ]; then
+      case $(printf '{"tool_name":"%s","tool_input":{"file_path":"%s"},"cwd":"%s"}' "$tool" "$path" "$GWT" | "$MISE_GUARD" "$GWT") in
+        *'"permissionDecision":"deny"'*) got=deny ;;
+      esac
+    fi
     if [ "$got" = "$expected" ]; then
       ok "pass I [$class] $expected: $tool $path"
     else
@@ -1419,6 +1442,12 @@ EOF
     ok "pass I: every literal ancestor deny is the sole cover for a row"
   else
     fail "pass I: literal ancestor denies without sole cover: $gen_uncovered"
+  fi
+  # The hook that closes every task path outside the worktree is wired in.
+  if [ -x "$MISE_GUARD" ] && jq -e --arg wt "$GWT" '[.hooks.PreToolUse[] | select(.matcher | test("Edit")) | .hooks[].command] | any(contains("worker-mise-edit-guard.sh '"'"'" + $wt + "'"'"'"))' "$GEN_OUT" >/dev/null 2>&1; then
+    ok "pass I: the generated profile wires the outside-the-worktree hook for the file tools"
+  else
+    fail "pass I: the generated profile does not wire the outside-the-worktree hook"
   fi
   # The shipped broad rules are gone from the generated deny list.
   case "$GEN_DENY" in

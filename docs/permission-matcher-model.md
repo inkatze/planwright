@@ -522,8 +522,15 @@ neither (it passes the shipped profile itself, byte for byte):
   `mise.*.toml`, `.mise.*.toml`), `mise/config*.toml`, `conf.d` and miserc
   files, the trust, data, state and cache folders, the temporary `mise/`
   folders, and the lockfiles. A worktree path holding a character a path rule
-  would read as a pattern (`* ? [ ] \ ( )`), a control character, or a
+  would read as a pattern (`* ? [ ] \ ( )`), a quote, a control character, or a
   component ending in a space refuses the launch.
+- **A file-tool hook** (`scripts/worker-mise-edit-guard.sh`, added to the
+  generated profile's `PreToolUse` list for `Edit|Write|MultiEdit|NotebookEdit`,
+  with the worktree as its argument): a deny rule cannot be narrowed to "inside
+  this worktree" and beats every allow, so the hook refuses any task-file path
+  that lies outside the worktree, whatever the spelling: another worktree or
+  repository, a `..` escape, or a symlinked directory or file that resolves
+  out. A hook that cannot read its input refuses a task path.
 - **The guard's own-branch arm** admits writes to those four names inside the
   worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
   recursive-act screen `ob_tree_clean`), only when the record carries exactly
@@ -535,13 +542,11 @@ folder (`streamjson/<worker>/`), which the profile's path denies refuse to the
 file tools (`mise-task-edit`, `worker-settings.json`), as they do the session
 records, so a worker cannot opt itself in for its next recover.
 
-Residual risk, by construction: a task file anywhere that is not directly in
-one of those folders is editable by that worker: an unrelated checkout on the
-machine, the primary checkout's subfolders, a sibling worktree, and the
-worker's scratch root, since a path deny cannot name "every folder except this
-one" and the worktree itself sits inside the primary checkout. The ancestor
-folder names are matched case-sensitively (MA-2), where the broad rule they
-replace matched any casing of the folders above the file.
+Residual risk: the hook compares paths case-sensitively and works from the
+payload's own spelling and the filesystem, so it is a fail-closed second layer
+rather than a proof; the worker's scratch root holds no task files the hook
+admits. The ancestor folder names are matched case-sensitively (MA-2), where
+the broad rule they replace matched any casing of the folders above the file.
 `tests/test-permission-matcher.sh` (pass I) runs the generated rules through
 the model: the worktree's task files open, each local file, trust, cache and
 lockfile row and each ancestor's task files, the primary checkout's included,
