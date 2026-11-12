@@ -92,7 +92,7 @@
 set -u
 unset CDPATH
 # The shared engine's own-environment switch: the tower still reads its own
-# environment (REQ-E1.6), which a worker no longer does.
+# environment, which a worker no longer does.
 GUARD_OWN_ENVIRON=1
 # Pin the C locale so bracket expressions and character classes below mean
 # exactly their ASCII range on every host (mirrors the sibling hooks).
@@ -2298,6 +2298,23 @@ glob_any_risky() {
   return 1
 }
 
+secret_home_glob() {
+  local s had=1 hit=1
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  for s in /.ssh/id_rsa /.gnupg/pubring.kbx /.aws/credentials /.netrc /.npmrc /.git-credentials /.kube/config /.docker/config.json \
+    /.config/gh/hosts.yml /.config/gcloud/credentials.db /.config/op/config /.config/rclone/rclone.conf /.config/containers/auth.json \
+    /.config/git/credentials /.local/share/keyrings/login.keyring /.cargo/credentials.toml /.claude/.credentials.json; do
+    # shellcheck disable=SC2053 # the operand is the pattern under test
+    if [[ $s == $1 ]]; then
+      hit=0
+      break
+    fi
+  done
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  return "$hit"
+}
+
 secret_word_risky() {
   local w=$1
   secret_path_risky "$w" "$2" && return 0
@@ -2347,6 +2364,16 @@ secret_path_risky() {
         ;;
     esac
     secret_glob "$abs" && return 0
+    case $1 in
+      '~'/*) ;;
+      # Another account's home, or `~+`/`~-`: no home to expand it against.
+      '~'?*/*)
+        case $p in
+          *..*) return 0 ;;
+        esac
+        secret_home_glob "$p" && return 0
+        ;;
+    esac
     # The lexical tests read a home-relative word from `/`; its matches come
     # from the home itself.
     case $1 in
@@ -2480,7 +2507,7 @@ environ_word_risky() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
-  # The tower still reads its own environment (REQ-E1.6); a worker defers.
+  # The tower still reads its own environment; a worker defers.
   if [ "$2" = 0 ] && [ "$GUARD_OWN_ENVIRON" = 1 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 1 ;;

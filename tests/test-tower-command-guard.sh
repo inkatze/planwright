@@ -952,6 +952,12 @@ fi
 assert_defer "REQ-E1.6: \$_ reaching a reader" "echo a; cat \$_"
 assert_defer "REQ-E1.6: a loop head naming one" "for f in /proc/1234/environ; do cat \$f; done"
 assert_allow "REQ-E1.6: the reading process's own environ" "cat /proc/self/environ"
+assert_allow "REQ-E1.6: the thread's own environ" "cat /proc/thread-self/environ"
+assert_allow "REQ-E1.6: the own environ as a redirect source" "wc -c < /proc/self/environ"
+assert_defer "REQ-E1.6: another process's environ behind a doubled slash" "cat //proc/1234/environ"
+assert_defer "REQ-E1.6: the own environ through a glob" "cat /proc/self/envir*"
+assert_defer "tower: a credential file still defers beside the own environ" "cat /proc/self/environ ~/.ssh/id_rsa"
+assert_defer "tower: a glob under another account's home" "cat ~root/.config/*/hosts.yml"
 assert_allow "REQ-E1.6: an opaque operand of a non-reader" "echo \$X"
 assert_allow "REQ-E1.6: a loop variable reaching a reader" "for f in README.md; do cat \$f; done"
 assert_allow "REQ-E1.6: environ as a grep pattern" "grep environ README.md"
@@ -1134,7 +1140,7 @@ word_unresolved arg_independent_verb guard_test guard_printf printf_format_inert
 assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
 loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok \
 opens_operands opener_word_risky environ_word_risky environ_words_ok environ_redirect_ok \
-canon_dir_cached secret_lexical secret_glob secret_glob_word lexical_path glob_any_risky secret_word_risky secret_path_risky \
+canon_dir_cached secret_lexical secret_glob secret_glob_word secret_home_glob lexical_path glob_any_risky secret_word_risky secret_path_risky \
 broad_dir broad_path_risky"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the

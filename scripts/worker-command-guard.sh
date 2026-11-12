@@ -3368,6 +3368,28 @@ guard_mise() {
   return 0
 }
 
+# gh_jq_ok: 0 unless a jq filter or Go template (`--jq`, `-q`, `--template`,
+# `-t`) mentions `env`: gojq's `env` and `$ENV` print the worker's
+# environment, tokens included, through any read verb that takes the flag. A
+# short bundle ending in q or t takes the next word; a later letter is the
+# value itself.
+gh_jq_ok() {
+  local i jqv=0
+  for ((i = 2; i < cwn; i++)); do
+    if [ "$jqv" = 1 ]; then
+      ci_has "${cw[i]}" '*env*' && return 1
+      jqv=0
+    fi
+    case ${cw[i]} in
+      --jq | --template) jqv=1 ;;
+      --jq=* | --template=*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+      -[qt] | -[!-]*[qt]) jqv=1 ;;
+      -[qt]* | -[!-]*[qt]*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # gh_no_web: 0 unless a `--web`/`-w` flag is present. These read verbs print
 # to stdout, but `--web` instead launches $BROWSER — an inherited BROWSER is an
 # arbitrary program, and a headless opener stalls the worker. Raised by the
@@ -3445,6 +3467,9 @@ guard_gh() {
   esac
   local i g=${cw[1]-} s=${cw[2]-}
   case $g in
+    api | pr | issue | run | release | repo) gh_jq_ok || return 1 ;;
+  esac
+  case $g in
     release)
       case $s in
         view | list) gh_release_ok || return 1 ;;
@@ -3478,21 +3503,9 @@ guard_gh() {
       # both defer, and so does a header value the guard cannot read.
       # A full URL may name another host, and gojq's `env` and `$ENV` print the
       # worker's environment.
-      local hdr=0 jqv=0
+      local hdr=0
       for ((i = 2; i < cwn; i++)); do
         ci_has "${cw[i]}" '*method-override*' '*x-http-method*' '*x-method*' '*://*' && return 1
-        if [ "$jqv" = 1 ]; then
-          ci_has "${cw[i]}" '*env*' && return 1
-          jqv=0
-        fi
-        case ${cw[i]} in
-          --jq | --template) jqv=1 ;;
-          --jq=* | --template=*) ci_has "${cw[i]}" '*env*' && return 1 ;;
-          # A bundle ending in q or t takes the next word; a later letter is
-          # the value itself.
-          -[qt] | -[!-]*[qt]) jqv=1 ;;
-          -[qt]* | -[!-]*[qt]*) ci_has "${cw[i]}" '*env*' && return 1 ;;
-        esac
         if [ "$hdr" = 1 ]; then
           case ${cw[i]} in
             *'$'*) return 1 ;;
@@ -3579,13 +3592,20 @@ guard_git() {
           -o | --ou* | -O | -O* | --op*) return 1 ;;
           --ext* | --textc* | --filters) return 1 ;;
           # Content from outside the repository: any file (`diff --no-index`,
-          # `blame --contents`).
-          --no-ind*) return 1 ;;
+          # `blame --contents`), and a list read from a named file
+          # (`--orderfile`, `ls-files -X`).
+          --no-i* | --or* | --exclude-f* | --exclude-p* | -X*) return 1 ;;
         esac
         case $sub in
           blame)
             case ${cw[i]} in
-              --con*) return 1 ;;
+              --con* | --ignore-revs*) return 1 ;;
+            esac
+            ;;
+          # Patterns read from a file: `-f`, alone or in a cluster.
+          grep)
+            case ${cw[i]} in
+              -f* | -[!-]*f*) return 1 ;;
             esac
             ;;
           # Two paths, one outside the work tree, are an implicit --no-index.
@@ -4216,7 +4236,7 @@ environ_word_risky() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
-  # The tower still reads its own environment (REQ-E1.6); a worker defers.
+  # The tower still reads its own environment; a worker defers.
   if [ "$2" = 0 ] && [ "$GUARD_OWN_ENVIRON" = 1 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 1 ;;
@@ -4397,6 +4417,27 @@ secret_glob_word() {
   return 1
 }
 
+# secret_home_glob <home-relative-pattern>: 0 when a pattern read from some
+# account's home (`~name/…`, `~+/…`, `~-/…`, whose home this guard cannot
+# expand) could match a well-known credential file, ignoring case as
+# secret_lexical does.
+secret_home_glob() {
+  local s had=1 hit=1
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  for s in /.ssh/id_rsa /.gnupg/pubring.kbx /.aws/credentials /.netrc /.npmrc /.git-credentials /.kube/config /.docker/config.json \
+    /.config/gh/hosts.yml /.config/gcloud/credentials.db /.config/op/config /.config/rclone/rclone.conf /.config/containers/auth.json \
+    /.config/git/credentials /.local/share/keyrings/login.keyring /.cargo/credentials.toml /.claude/.credentials.json; do
+    # shellcheck disable=SC2053 # the operand is the pattern under test
+    if [[ $s == $1 ]]; then
+      hit=0
+      break
+    fi
+  done
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  return "$hit"
+}
+
 # secret_word_risky <word> <globs>: 0 when the word, or the value an
 # `--option=value` word carries, could name a secret. The word has its
 # repeated slashes collapsed already.
@@ -4452,6 +4493,16 @@ secret_path_risky() {
         ;;
     esac
     secret_glob "$abs" && return 0
+    case $1 in
+      '~'/*) ;;
+      # Another account's home, or `~+`/`~-`: no home to expand it against.
+      '~'?*/*)
+        case $p in
+          *..*) return 0 ;;
+        esac
+        secret_home_glob "$p" && return 0
+        ;;
+    esac
     # The lexical tests read a home-relative word from `/`; its matches come
     # from the home itself.
     case $1 in
@@ -4526,10 +4577,11 @@ glob_any_risky() {
 
 # lists_operands <verb>: the verbs that print the names inside a directory
 # operand. A listing of a secret-bearing directory names the key files, so
-# they meet the secret screen too, though not the environ one.
+# they meet the secret screen too, though not the environ one. `date` joins
+# them: `-r FILE` and `--reference=FILE` report a file's modification time.
 lists_operands() {
   case $1 in
-    ls | find | fd) return 0 ;;
+    ls | find | fd | date) return 0 ;;
   esac
   return 1
 }
@@ -4712,6 +4764,95 @@ broad_words_ok() {
       broad_glob_risky "${cw[i]}" && return 1
     fi
     broad_path_risky "${cw[i]}" && return 1
+  done
+  return 0
+}
+
+# link_follower: the current simple command follows a symbolic link it meets
+# inside a tree it reads recursively: `grep -R`, `rg -L`/`--follow`, and
+# `diff -r` (grep and ripgrep follow only a command-line link otherwise).
+link_follower() {
+  local i w
+  for ((i = 1; i < cwn; i++)); do
+    w=${cw[i]}
+    case ${cw[0]} in
+      grep | egrep | fgrep)
+        case $w in
+          --der*) return 0 ;;
+          --*) ;;
+          -*R*) return 0 ;;
+        esac
+        ;;
+      rg)
+        case $w in
+          --fo*) return 0 ;;
+          --*) ;;
+          -*L*) return 0 ;;
+        esac
+        ;;
+      diff)
+        case $w in
+          --rec*) return 0 ;;
+          --*) ;;
+          -*r*) return 0 ;;
+        esac
+        ;;
+    esac
+  done
+  return 1
+}
+
+# follow_links_ok: no symbolic link inside a directory operand of a
+# link_follower leads to a secret or a broad directory. Links met under a
+# linked directory are followed too, up to a few directories. diff reads a
+# linked file only against the same name in its other tree, so only a link
+# with a counterpart there counts. A glob operand, or more links than are
+# screened, defers; with no directory operand the reader scans the cwd.
+follow_links_ok() {
+  local i w d other rel l n=0 qi=0 k canon diff=0
+  local -a dirs=() queue=()
+  [ "${cw[0]}" != diff ] || diff=1
+  for ((i = 1; i < cwn; i++)); do
+    w=${cw[i]}
+    case $w in -*) continue ;; esac
+    [ "${cglob[i]}" = 0 ] && [ "${cz[i]-0}" = 0 ] || return 1
+    case $w in
+      /*) d=$w ;;
+      *) d=$HOOK_CWD/$w ;;
+    esac
+    if [ -d "$d" ]; then
+      dirs[${#dirs[@]}]=$d
+    fi
+  done
+  [ "${#dirs[@]}" -gt 0 ] || dirs[0]=$HOOK_CWD
+  queue=("${dirs[@]}")
+  while [ "$qi" -lt "${#queue[@]}" ]; do
+    d=${queue[qi]}
+    other=''
+    if [ "$diff" = 1 ] && [ "${#dirs[@]}" -ge 2 ]; then
+      [ "$qi" -ne 0 ] && other=${dirs[0]} || other=${dirs[1]}
+    fi
+    qi=$((qi + 1))
+    while IFS= read -r l; do
+      n=$((n + 1))
+      [ "$n" -le 512 ] || return 1
+      if [ "$diff" = 1 ]; then
+        rel=${l#"${d%/}"/}
+        [ -e "$other/$rel" ] || [ -L "$other/$rel" ] || continue
+      fi
+      secret_path_risky "$l" 0 && return 1
+      broad_path_risky "$l" && return 1
+      if [ "$diff" = 0 ] && [ -d "$l" ]; then
+        canon_dir_cached "$l"
+        [ -n "$CANON" ] || continue
+        canon=$CANON
+        for ((k = 0; k < ${#queue[@]}; k++)); do
+          [ "${queue[k]}" != "$canon" ] || continue 2
+        done
+        [ "${#queue[@]}" -lt 16 ] || return 1
+        queue[${#queue[@]}]=$canon
+      fi
+    done < <(find -H "$d" -name .git -prune -o -type l -print 2>/dev/null)
   done
   return 0
 }
@@ -5981,6 +6122,9 @@ verify_known_simple() {
   fi
   if recursive_reader; then
     broad_words_ok || return 1
+    if link_follower; then
+      follow_links_ok || return 1
+    fi
   fi
   subst_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
