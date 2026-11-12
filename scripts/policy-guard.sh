@@ -1762,12 +1762,14 @@ kickoff_git_reads() {
   return 1
 }
 
-# kickoff_mention_passes — 0 when every mention of the script in this segment
-# is an argument its command only reads, stages or prints. An option word that
-# carries the name (--pre=..., -O...) could hand the script to the command to
-# run, and a printed word that is the script itself could be piped into a shell.
+# kickoff_mention_passes <mentions> — 0 when every one of the segment's
+# <mentions> of the script is an argument its command only reads, stages or
+# prints. A mention outside the command's words (an assignment before it, such
+# as GIT_EXTERNAL_DIFF=..., or a here-document body), an option word that
+# carries the name (--pre=..., -O...), and a printed word that is the script
+# itself (which could be piped into a shell) all fail.
 kickoff_mention_passes() {
-  local w
+  local w seen=0
   kickoff_verb_class "${SW[0]}"
   case $KV in
     reader) ;;
@@ -1780,12 +1782,13 @@ kickoff_mention_passes() {
       --pre* | --hostname-bin*) [ "${SW[0]}" != rg ] || return 1 ;;
     esac
     kick_count "$w"
+    seen=$((seen + KC))
     if [ "$KC" -gt 0 ]; then
       case $w in -*) return 1 ;; esac
     fi
     [ "$KV" != text ] || ! kickoff_named "$w" || return 1
   done
-  return 0
+  [ "$seen" = "$1" ]
 }
 
 # RE_KICKOFF_SCRIPT: the planwright script itself, named through the plugin
@@ -1824,7 +1827,7 @@ kickoff_segment() {
   done
   kick_count "$4"
   local kc=$KC
-  if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes; then
+  if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc"; then
     KICK_PASSED=$((KICK_PASSED + kc))
     kickoff_pipe_on "$3"
     return 1

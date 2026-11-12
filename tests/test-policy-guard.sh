@@ -1279,6 +1279,11 @@ for cmd in 'scripts/kickoff-spec-push.sh demo' \
   'git -c alias.x="!scripts/kickoff-spec-push.sh demo" x' \
   'git grep -Oscripts/kickoff-spec-push.sh foo' \
   'rg --pre scripts/kickoff-spec-push.sh foo .' \
+  'GIT_EXTERNAL_DIFF=scripts/kickoff-spec-push.sh git diff HEAD~1' \
+  'PAGER=scripts/kickoff-spec-push.sh git log' \
+  'cat <<E
+scripts/kickoff-spec-push.sh demo
+E' \
   'X=scripts/kickoff-spec-push.sh; $X demo' \
   'S=kickoff-spec-push.sh; scripts/$S demo' \
   '(scripts/kickoff-spec-push.sh demo)' \
