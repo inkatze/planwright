@@ -127,7 +127,9 @@ Usage:
         launch-backend<TAB><session><TAB><backend><TAB><knob value>
             a registered session of the program started on another rung
             than mission_control_launch_backend now resolves to: a
-            per-call --backend, or a knob changed since the launch
+            per-call --backend, or a knob changed since the launch; an
+            attended mission-control session on tmux is never named, being
+            how a handover launch starts a hub's successor
         cron<TAB><word><TAB><match>  a crontab line naming a repository or
             the home of the program, or planwright or claude in any case:
             never the line, only the first word of its command (the name,
