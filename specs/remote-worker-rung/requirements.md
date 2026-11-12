@@ -1,7 +1,7 @@
 # Remote worker rung — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-11-06
+**Status:** Ready
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -13,7 +13,7 @@ Coder workspace) and supervise it as closely as a local one: dispatch it, vet
 its permission prompts, steer it, read its result and retire it, with the
 branch travelling through GitHub. The other host is one more execution rung,
 chosen by work placement like any rung, and the choice weighs each host's
-capacity and the usage left on the account that host runs (D-1). The host is
+capacity and whether its owner is using it (D-1). The host is
 always a parameter, an SSH alias, never a particular machine (D-2). The same
 channel also offloads plain compute: a worktree's committed test or check run
 executed on the other host, with no worker and no model account involved
@@ -40,17 +40,21 @@ and placement all see only the local host.
 - Command-guard approval of the channel's fixed verbs.
 - Per-host capacity, a shared host's "owner is using it" signal, and keeping
   the remote host awake while it runs a worker.
-- Per-account usage for a host whose account differs from this host's.
+- Usage for remote hosts that run this host's own account (the one shared
+  usage gate), and a refusal of a host whose account differs.
 - A remote rung in the backend capability contract and a host dimension in
   work placement, the orchestrator and mission control's launch.
 - Compute offload: running one allowlisted command (the full check, a named
   task, a named test file) against a worktree's exact committed HEAD on a
   remote host, and pointing workers' gate runs at it.
-- Accounts whose usage windows reset on different days, and accounts that
-  are metered (dollars) rather than subscription (percent of a window).
 
 ### Out of scope
 
+- Per-account usage tracking: accounts whose windows reset on different
+  days, a second subscription account on a remote host, and metered
+  (dollar) accounts. The program runs one account across every host, so
+  the shared usage gate already covers remote work; a host on a different
+  account is refused (REQ-D1.5) until a later bundle builds this.
 - A second mission control on the remote host, and messaging between two
   mission controls on different machines (obs:57770415 stays open for that).
 - Moving git objects between hosts directly, beyond the two paths this bundle
@@ -114,8 +118,8 @@ and placement all see only the local host.
 - **REQ-B1.3** A remote worker's liveness SHALL be judged only from the
   remote host's own status verb; no check on this host SHALL read a remote
   worker's pid. An unreachable host SHALL read as unreachable, not dead, until
-  the host's configured grace period ends, after which the worker reads as
-  lost and its unit is reported.
+  the host's configured grace period ends (30 minutes by default), after
+  which the worker reads as lost and its unit is reported.
   *(Cites: D-6.)*
 - **REQ-B1.4** A remote worker's branch SHALL be pushed to the hosting remote
   from the remote clone when that host holds its own hosting-remote login,
@@ -171,22 +175,23 @@ and placement all see only the local host.
   dynamic limit applies.
   *(Cites: D-12.)*
 - **REQ-D1.2** A host the registry marks as shared SHALL take new work only
-  while its owner is not using it, by the signal D-8 defines, and the
+  while its owner is not using it (input idle for the host's configured
+  time, 15 minutes by default), by the signal D-8 defines, and the
   operator SHALL be able to hold all work off a host with one switch.
   *(Cites: D-8.)*
-- **REQ-D1.3** Usage SHALL be tracked per account: a remote host's dispatch
-  SHALL be gated on the usage of the account that host runs, read on that
-  host, under the same hard stop as local dispatch.
+- **REQ-D1.3** A remote dispatch SHALL pass through the same usage gate and
+  hard stop as a local dispatch, read on this host, because a registered
+  host runs this host's account.
   *(Cites: D-13.)*
-- **REQ-D1.4** Usage that cannot be read for an account SHALL be reported as
-  unavailable and SHALL degrade the way the local usage gate already
-  degrades, never read as zero.
+- **REQ-D1.4** Usage that cannot be read SHALL be reported as unavailable
+  and SHALL degrade the way the local usage gate already degrades, never
+  read as zero.
   *(Cites: D-13.)*
-- **REQ-D1.5** Each account SHALL carry its own window reset time and its
-  billing kind (subscription, read as a percent of a window; or metered,
-  read in dollars), and usage SHALL be compared in the account's own unit,
-  never converted between the two.
-  *(Cites: D-13, D-15.)*
+- **REQ-D1.5** Each registry entry SHALL name the account label the host
+  runs, and a dispatch SHALL be refused for a host whose label differs from
+  this host's, with the reason named, so a second account is never spent
+  unmetered by accident.
+  *(Cites: D-13.)*
 
 ## REQ-E — Placement
 
@@ -199,7 +204,8 @@ and placement all see only the local host.
 - **REQ-E1.2** Work placement SHALL treat the host as a dimension of the
   rung choice: a unit whose sufficient rung is session-grade MAY run on any
   registered host with room, and the choice SHALL follow the placement rule
-  D-15 records.
+  D-15 records: a free remote host first, this host otherwise, and an
+  operator pin over both.
   *(Cites: D-15.)*
 - **REQ-E1.3** A dispatch report for a remote worker SHALL name the host
   alias, the remote worker handle and how to observe it through the channel.
@@ -255,6 +261,17 @@ and placement all see only the local host.
 
 ## Changelog
 
+- 2026-11-10 — Kickoff decisions: one account covers every host, so the
+  per-account usage tracking is dropped to a shared gate plus a refusal of a
+  differing account (REQ-D1.3 to D1.5, D-13, D-15); a shared host takes work
+  after 15 minutes of idle input; this host's mission control vets remote
+  prompts and the guard approves the channel's fixed verbs; compute's
+  credential exposure is accepted per host and recorded; the unreachable
+  grace is 30 minutes; placement prefers the free remote host; fetch-back
+  for a host with no hosting-remote login stays. Test and lint offload
+  shipped meanwhile as `scripts/compute-route.sh` over the channel's compute
+  verb; Task 11 extends it instead of building it.
+
 - 2026-11-06 — Drafted from the remote-worker research note and the operator's
   request to offload workers to another host and steer them remotely.
 
@@ -296,9 +313,17 @@ and placement all see only the local host.
   suite on the remote host and on this host, at the same time on the same
   commit: both passed every check; the remote took a little over two
   minutes and this host (load around 41 on 12 cores) over eight.
-- **The program's standing rules (2026-11-04 to 2026-11-06)** — the dynamic
-  worker limit, the shared usage ladder with its hard stop, and the second
-  computer as a work host used only while its owner is not using it.
+- **The program's standing rules (2026-11-04 to 2026-11-10)** — the dynamic
+  worker limit, the shared usage ladder with its hard stop, the second
+  computer as a work host used only while its owner is not using it, remote
+  workers as full workers under the same cadence, and one account covering
+  both hosts (the Mac adds no usage budget).
+- **The kickoff answers (2026-11-10)** — the operator chose, in order: the
+  simple usage version; input idle for 15 minutes before a shared host takes
+  work; this host's mission control vetting remote prompts and the guard
+  approving the channel's fixed verbs; accepting and recording the
+  credential exposure for compute; the Mac first whenever it is free; keeping
+  the fetch-back path; a 30-minute unreachable grace.
 - **mission-control's scope** — its out-of-scope list names a remote
   development-environment rung and cross-machine mission control; this bundle
   takes the first and leaves the second.
