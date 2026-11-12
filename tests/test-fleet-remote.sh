@@ -48,6 +48,13 @@ done
 [ "$1" = down ] && exit 255
 case ${FAKE_FAIL_RUN:-}:$2 in 1:exec*) exit 255 ;; esac
 cd "$FAKE_REMOTE_HOME" || exit 255
+if [ -n "${FAKE_DETACH:-}" ]; then
+  # A remote host: its own session, sharing only the stdin and stdout pipes.
+  exec 3<&0
+  perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' env -i HOME="$FAKE_REMOTE_HOME" PATH="${FAKE_REMOTE_PATH:-$PATH}" "$FAKE_REMOTE_SHELL" -c "$2" <&3 3<&- &
+  wait
+  exit $?
+fi
 exec env -i HOME="$FAKE_REMOTE_HOME" PATH="${FAKE_REMOTE_PATH:-$PATH}" "$FAKE_REMOTE_SHELL" -c "$2"
 EOF
 chmod +x "$bin/ssh"
@@ -365,6 +372,125 @@ assert_eq "a run never deletes a ref young enough to be another run's" 1 "$(git 
 for r in $(git -C "$rhome/dev/proj" for-each-ref --format='%(refname)' refs/planwright-compute); do
   git -C "$rhome/dev/proj" update-ref -d "$r"
 done
+
+# --- compute defaults: worktree, HEAD, budget, parallelism --------------------
+# run_in <dir> <args...>: run the channel with <dir> as the caller's cwd.
+run_in() {
+  d=$1
+  shift
+  OUT=$(cd "$d" && /bin/sh "$script" --host mac "$@" 2>"$tmp/err")
+  CODE=$?
+  ERR=$(cat "$tmp/err")
+}
+hangpid="$tmp/hang.pid"
+{
+  # shellcheck disable=SC2016 # expanded by the fixture at run time
+  printf 'echo "jobs=${PLANWRIGHT_TEST_JOBS:-unset} slots=${PLANWRIGHT_TEST_SLOTS:-unset}"\n'
+} >"$lrepo/tests/test-jobs.sh"
+printf 'sleep 300 &\necho $! >%s\nwait\n' "$hangpid" >"$lrepo/tests/test-hang.sh"
+# shellcheck disable=SC2016 # expanded by the fixture at run time
+printf 'echo made >"$TMPDIR/ro-file"\nmkdir "$TMPDIR/ro"\ntouch "$TMPDIR/ro/f"\nchmod 500 "$TMPDIR/ro"\nexit 0\n' >"$lrepo/tests/test-ro.sh"
+git -C "$lrepo" add tests
+git -C "$lrepo" commit -q -m three
+
+# (b) no --worktree: the caller's own worktree is the default.
+run_in "$lrepo" compute --test tests/test-ok.sh
+assert_eq "compute without --worktree uses the cwd's worktree" 0 "$CODE"
+run_in "$tmp" compute --test tests/test-ok.sh
+assert_eq "compute outside any worktree is a usage error" 2 "$CODE"
+case $ERR in *--worktree*) ok "the error names the --worktree flag" ;; *) fail "the error names the --worktree flag ($ERR)" ;; esac
+
+# (e) the worktree's own HEAD ships, and a branch behind its upstream warns.
+git -C "$lrepo" worktree add -q -b wtbranch "$tmp/lwt" HEAD
+printf 'echo wt\n' >"$tmp/lwt/tests/test-wt.sh"
+git -C "$tmp/lwt" add tests
+git -C "$tmp/lwt" commit -q -m wt
+wt_sha=$(git -C "$tmp/lwt" rev-parse HEAD)
+prim_sha=$(git -C "$lrepo" rev-parse HEAD)
+run_in "$tmp/lwt" compute --test tests/test-wt.sh
+assert_eq "a linked worktree runs its own file" 0 "$CODE"
+case $ERR in *"$wt_sha"*) ok "compute ships the worktree's own HEAD" ;; *) fail "compute ships the worktree's own HEAD ($ERR)" ;; esac
+case $ERR in *"$prim_sha"*) fail "compute shipped the primary checkout's HEAD" ;; *) ok "compute does not ship the primary checkout's HEAD" ;; esac
+case $ERR in *"behind its upstream"*) fail "a worktree with no upstream drew a behind warning" ;; *) ok "no upstream, no behind warning" ;; esac
+git -C "$tmp/lwt" branch -q upstream-ahead "$(git -C "$tmp/lwt" commit-tree -p "$wt_sha" -m x "$wt_sha^{tree}")"
+git -C "$tmp/lwt" branch -q --set-upstream-to=upstream-ahead
+run_in "$tmp/lwt" compute --test tests/test-wt.sh
+case $ERR in *"behind its upstream"*) ok "compute warns when the worktree is behind its upstream" ;; *) fail "compute warns when the worktree is behind its upstream ($ERR)" ;; esac
+
+# (d) remote parallelism follows the remote's cores, shared among live runs.
+printf '#!/bin/sh\necho 8\n' >"$bin/getconf"
+chmod +x "$bin/getconf"
+run_in "$lrepo" compute --test tests/test-jobs.sh
+case $OUT in *"jobs=8 slots=8"*) ok "an idle remote runs one job per core" ;; *) fail "an idle remote runs one job per core ($OUT)" ;; esac
+mkdir -p "$rhome/dev/.planwright-compute/run.other"
+echo $$ >"$rhome/dev/.planwright-compute/run.other/pid"
+run_in "$lrepo" compute --test tests/test-jobs.sh
+case $OUT in *"jobs=4 slots=4"*) ok "a second live run halves the share" ;; *) fail "a second live run halves the share ($OUT)" ;; esac
+rm -rf "$rhome/dev/.planwright-compute/run.other"
+mkdir -p "$rhome/dev/.planwright-compute/run.dead"
+echo 999999 >"$rhome/dev/.planwright-compute/run.dead/pid"
+mkdir -p "$rhome/dev/.planwright-compute/run.junk"
+echo junk >"$rhome/dev/.planwright-compute/run.junk/pid"
+run_in "$lrepo" compute --test tests/test-jobs.sh
+case $OUT in *"jobs=8 slots=8"*) ok "a dead or garbage pid file does not count as a live run" ;; *) fail "a dead or garbage pid file does not count as a live run ($OUT)" ;; esac
+rm -rf "$rhome/dev/.planwright-compute/run.dead" "$rhome/dev/.planwright-compute/run.junk"
+rm -f "$bin/getconf"
+run_in "$lrepo" compute --check
+case $ERR in *"timeout 1800s"*) ok "the full check gets the long default budget" ;; *) fail "the full check gets the long default budget ($ERR)" ;; esac
+run_in "$lrepo" compute --test tests/test-ok.sh
+case $ERR in *"timeout 540s"*) ok "a single file keeps the short default budget" ;; *) fail "a single file keeps the short default budget ($ERR)" ;; esac
+run_in "$lrepo" compute --check --timeout 77
+case $ERR in *"timeout 77s"*) ok "--timeout still wins" ;; *) fail "--timeout still wins ($ERR)" ;; esac
+
+# the load verb reports the remote's load and core count.
+printf '#!/bin/sh\necho 8\n' >"$bin/getconf"
+chmod +x "$bin/getconf"
+run --host mac load
+assert_eq "load exits 0" 0 "$CODE"
+case $OUT in [0-9]*" 8") ok "load prints the load and the core count" ;; *) fail "load prints the load and the core count ($OUT)" ;; esac
+rm -f "$bin/getconf"
+
+# (c) a run that leaves a read-only directory is still removed.
+run_in "$lrepo" compute --test tests/test-ro.sh
+assert_eq "a run leaving a read-only directory exits 0" 0 "$CODE"
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: root ignores directory modes, so the read-only cleanup is not exercised"
+else
+  assert_eq "its run directory is removed anyway" "" "$(ls -A "$rhome/dev/.planwright-compute")"
+fi
+
+# (a) a local kill stops the remote run: the whole process group goes.
+rm -f "$hangpid"
+FAKE_DETACH=1 perl -MPOSIX -e 'setsid(); exec @ARGV' -- /bin/sh "$script" --host mac compute --worktree "$lrepo" --test tests/test-hang.sh --timeout 200 >"$tmp/hang.out" 2>"$tmp/hang.err" </dev/null &
+local_pid=$!
+n=0
+while [ ! -s "$hangpid" ] && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+remote_sleep=$(cat "$hangpid" 2>/dev/null || echo 0)
+if [ "$remote_sleep" -gt 0 ] && kill -0 "$remote_sleep" 2>/dev/null; then ok "the hanging remote command started"; else fail "the hanging remote command started ($(cat "$tmp/hang.err" "$tmp/hang.out" 2>/dev/null))"; fi
+kill -KILL -- "-$local_pid" 2>/dev/null || kill -KILL "$local_pid" 2>/dev/null
+n=0
+while [ "$remote_sleep" -gt 0 ] && kill -0 "$remote_sleep" 2>/dev/null && [ "$n" -lt 100 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+if [ "$remote_sleep" -le 0 ]; then
+  fail "could not find the remote command's pid"
+elif kill -0 "$remote_sleep" 2>/dev/null; then
+  fail "a local kill left the remote command running"
+  kill -KILL "$remote_sleep" 2>/dev/null
+else
+  ok "a local kill stops the remote command"
+fi
+n=0
+while [ -n "$(ls -A "$rhome/dev/.planwright-compute" 2>/dev/null)" ] && [ "$n" -lt 50 ]; do
+  sleep 0.1
+  n=$((n + 1))
+done
+assert_eq "a local kill leaves no scratch run behind" "" "$(ls -A "$rhome/dev/.planwright-compute")"
+{ wait "$local_pid"; } 2>/dev/null
 
 git -C "$lrepo" remote set-url origin https://example.invalid/acct/..
 run --host mac compute --worktree "$lrepo" --test tests/test-ok.sh

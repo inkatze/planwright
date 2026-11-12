@@ -446,6 +446,26 @@ STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42 --repo acme/not-widgets')"
 assert_deny "a PR that resolves to a different repo than the call named denies"
 
+# The form mission control's policy guard admits for a flip in another listed
+# repository is the one this guard also admits; the spellings that guard
+# refuses are refused here too.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42 --repo acme/widgets')"
+assert_defer "a conforming PR flipped with a plain --repo owner/repo defers"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready https://github.com/acme/widgets/pull/42')"
+assert_deny "a PR URL as the selector denies"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'cd ../x && gh pr ready 42')"
+assert_deny "a flip after a directory change the guard cannot resolve, with no --repo, denies"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'cd ../x && gh pr ready 42 --repo acme/widgets')"
+assert_defer "the same flip naming both the repo and the PR is self-describing and defers"
+
 reset_stub_env
 run_hook "$(jq -n '{tool_name:"mcp__github__update_pull_request", tool_input:{owner:"acme", repo:"wid gets", pullNumber:42, draft:false}}')"
 assert_deny_because "an MCP repo outside GitHub charset denies" 'no valid repository'

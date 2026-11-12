@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-08
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -60,6 +60,16 @@ later planwright bundles implement, D-12).
 - Session lifecycle across every session kind: one launcher, liveness from
   positive evidence, stall detection, retirement, worktree reclaim with a
   verified backup, and an undo ledger.
+- Cheaper supervision: a context reading for every mission-control
+  session and a handover at a natural break under the same name, direct
+  dispatch of units that need no holder's judgment, a notifier for prompts
+  and finished units with batched wakes, spend per session on the panel,
+  real-render previews before an operator-visible change ships, and an
+  idle-wait audit in the throughput duty; a read-only bring-up audit of
+  drift from the shipped defaults.
+- Rules that say how they are enforced (an enforcement field the doctor
+  lists), a live session moved between programs, and a readiness check
+  that waits for reviewers who only review once a pull request is ready.
 - Durable watchers under the fleet daemon layer, a single snapshot per
   state source per program (the forge shipped, a per-program source map
   naming the rest), and a per-program budget with declared degradation.
@@ -109,6 +119,8 @@ later planwright bundles implement, D-12).
   conventions, voice samples): they stay in overlays.
 - A web or GUI dashboard beyond the in-app panel.
 - Cross-machine mission control.
+- Running post-pull-request steps alongside CI, and cost-tiered model
+  defaults: separate work, outside Amendment 6.
 - The review desk, spec currency, the environment broker and the night
   shift as duties: follow-on bundles (D-27); their observations stay live
   for them.
@@ -192,6 +204,49 @@ later planwright bundles implement, D-12).
   the operator's reply there.
   *(Cites: D-38; audit item 7 (Sources); tower-comms D-6 (Sources);
   obs:a89108b6.)*
+- **REQ-A1.9** Bring-up and every successor's self-check SHALL audit, read
+  only, what the program runs on that is not planwright's shipped default,
+  and report each as a finding the operator settles: a knob a layer sets
+  away from its shipped value, a default duty left off, a launch on another
+  rung than the knob names, and a cron line touching the program; a
+  standing rule whose text names a number for a knob it governs (the
+  knob's name followed by a value, or a handover at a context percent)
+  while the knob's effective value differs; and a local-layer override
+  whose comment or value carries a date already past, or the word interim,
+  temporary or until with no date still ahead. Each finding SHALL name the
+  file, the knob, the rule or comment and the effective value, in plain
+  words. The audit SHALL never edit a layer or a rule.
+  *(Cites: D-52; the doctor drift note (2026-11-09, Sources).)*
+- **REQ-A1.10** The same audit SHALL list every active standing rule whose
+  enforcement (REQ-B1.8) is prose, is unknown, or names an open fix that
+  has since closed (a pull request merged or closed, an observation
+  consumed), each as one plain line saying what to do (name the thing that
+  now enforces it, or keep it as prose with a reason, or retire it). A
+  closed-fix check that cannot be made reads as unknown, never as clear,
+  and the listing, like the rest of the audit, edits no rule.
+  *(Cites: D-53; the rule-enforcement report (2026-11-10, Sources).)*
+
+- **REQ-A1.11** The bring-up audit SHALL also check each active standing
+  rule whose enforcement names a knob with a required value or predicate
+  (REQ-B1.13) against the knob's effective value, read through the same
+  resolver REQ-A1.9 uses, and report a disagreement as a finding the operator
+  settles, in plain words naming the rule, the knob, the value the rule
+  requires, the effective value and the layer that sets it. A knob that
+  cannot be read, or a predicate that cannot be evaluated, reads as
+  disagreeing, never as agreeing. The check covers what REQ-A1.9's
+  number-in-prose reading does not: it reads the structured field, not the
+  rule's text, and the audit edits no layer and no rule.
+  *(Cites: D-58; REQ-A1.9, REQ-B1.13; the idle-capacity report (2026-11-10,
+  Sources).)*
+- **REQ-A1.12** The audit SHALL also list, as candidates and never as
+  defects, each active rule whose text carries an obligation word from a
+  shipped list (overlay-extendable) and whose enforcement is prose or
+  unknown, one plain line each suggesting a clause (REQ-B1.9) or a named
+  enforcer, so the rules that sound hard and keep nothing are found. A
+  rule that already carries a clause or names an enforcer is not listed.
+  The listing edits nothing and is advisory in every operator level.
+  *(Cites: D-57; REQ-A1.10, REQ-B1.8; the rule-enforcement ask (2026-11-10,
+  Sources).)*
 
 ## REQ-B — The rule source
 
@@ -251,6 +306,70 @@ later planwright bundles implement, D-12).
   next act.
   *(Cites: D-29; drafting-session decision (2026-10-22); the hub record
   (Sources).)*
+- **REQ-B1.8** Each rule entry SHALL carry an enforcement field saying how
+  the rule is kept, one of: a named script, knob, hook, duty or default
+  (the kind and the thing it names); an open fix that will enforce it (a
+  pull request or observation id); or prose with a one-line reason.
+  `mc-rules.sh add` and `supersede` take it. An entry written before the
+  field existed reads as unknown, never as an error, and never stops the
+  active set from loading, rendering or re-injecting (REQ-B1.3). The
+  field is data the doctor reads (REQ-A1.10); it never changes what a rule
+  says or who it binds.
+  *(Cites: D-53; the rule-enforcement report (2026-11-10, Sources).)*
+  *(Extended by REQ-B1.9 (2026-11-10): a clause is a further enforcement
+  the worker tier's guard keeps; by REQ-B1.13: the `knob` kind may carry
+  the required value.)*
+
+- **REQ-B1.9** A rule entry SHALL be able to carry an enforcement clause
+  that the worker tier's policy guard keeps, so a rule an operator states
+  in prose can be kept deterministically with no feature-specific setting.
+  A clause is data in a closed grammar with four parts: a match (the tool
+  and the command words or argument shape, read by planwright's own
+  tokenizer and matcher over literal words, word wildcards and path
+  prefixes, never a raw regular expression, with optional path and working
+  directory scopes), an effect (deny with the rule's own text, require a
+  named flag or argument, or ask the operator-facing session), an optional
+  unless naming a lease kind (REQ-G1.7), and a scope (program, worker kind,
+  repository; the narrowest that fits is the default). `mc-rules.sh add`
+  and `supersede` take it, and a hub-drafted proposal the operator approves
+  (D-14's form) may carry it. The clause is stored and compiled as data and
+  never evaluated as code, and a clause outside the grammar is refused at
+  add with the part at fault named.
+  *(Cites: D-57; REQ-B1.8; the rule-enforcement ask (2026-11-10, Sources).)*
+- **REQ-B1.10** The policy guard at the worker tier SHALL evaluate every
+  live clause whose scope matches on every worker tool call (Bash, the file
+  tools and MCP calls alike), reading the compiled clause set from the
+  program home and never from the worker's worktree, and a call a clause
+  denies SHALL be refused with the rule's id, its text and the remedy (the
+  lease to ask for, or the flag to add). A clause set that cannot be read
+  or fails its digest check denies and says so, as every other guard read
+  failure does; a call that no clause's tool and scope can match defers
+  with no clause read.
+  *(Cites: D-57; the guard's existing failure posture (Sources).)*
+- **REQ-B1.11** A new clause SHALL start in shadow mode: it is evaluated on
+  every call, records each call it would have refused with the rule id in
+  the guard's audit record, and blocks nothing. It goes live only on the
+  operator's yes, after mission control shows what the shadow run recorded
+  (the count and examples, and a replay over recent recorded calls where
+  the records hold them). `mc-rules.sh` takes the mode change as a verb
+  that cites the operator's words, and a clause can be returned to shadow
+  or retired the same way.
+  *(Cites: D-57, D-14; the rule-enforcement ask (2026-11-10, Sources).)*
+- **REQ-B1.12** The capability SHALL ship with a worked example and
+  acceptance fixture, the headed browser rule: a launch of a visible
+  browser window is denied unless a sign-in lease is open for that worker,
+  and a headless launch is not touched. Whether a program holds that rule
+  is the operator's and lives in the program's rules, not in shipped
+  configuration. A cookie hand-off from a signed-in browser to a headless
+  one is a helper a later change may add, not part of this requirement.
+  *(Cites: D-57; the rule-enforcement ask (2026-11-10, Sources).)*
+- **REQ-B1.13** (extends REQ-B1.8) The `knob` enforcement kind SHALL be
+  able to carry the value the rule requires: `knob:<name>=<value>`,
+  `knob:<name>!=<value>`, `knob:<name> in <a|b>` and, for a number,
+  `knob:<name>>=<n>` or `<=<n>`, matched against that closed grammar and
+  stored as data. A knob kind without a value stays valid and means the
+  rule only names the knob; the doctor checks the rest (REQ-A1.11).
+  *(Cites: D-58; REQ-B1.8.)*
 
 ## REQ-C — The duty seam
 
@@ -337,6 +456,7 @@ later planwright bundles implement, D-12).
   report alone.
   *(Cites: D-25; the invocation seed (Sources), failure mode 8;
   obs:921b93c9, obs:3739da3e, obs:3d66ac61, obs:f63d8644, obs:f2c2c3ae.)*
+  *(Amended at Amendment 7, 2026-11-10: a reviewer that only reviews once the pull request is ready is first asked to review while the pull request is a draft; the flip's own conditions are unchanged, and a reviewer that cannot or does not review the draft falls back to a merge-ready report that waits for its pass, REQ-D1.17.)*
 - **REQ-D1.9** The readiness check SHALL audit the configured cadence
   (every step the configuration requires at the in-run points through
   `post-pr`) at the pull request's head as the forge reports it, and SHALL
@@ -366,6 +486,7 @@ later planwright bundles implement, D-12).
   *(Cites: D-33; the operator's ruling that spec-only pull requests skip
   the code review steps (2026-11-05, Sources); the spec-drift audit
   (Sources).)*
+  *(Amended at Amendment 6, 2026-11-09: the readiness check also refuses an unapproved operator-visible change, REQ-F1.18, adding a condition and never narrowing the cadence; a spec-only pull request is on no listed path.)*
 - **REQ-D1.10** A session of a kind that changes a repository (worker,
   reviewer, ad-hoc, kickoff) SHALL run in its own worktree: one the dispatch
   machinery creates at launch, off the default branch or on the unit's
@@ -398,6 +519,7 @@ later planwright bundles implement, D-12).
   never from a row's presence; a stream-json session's event stream informs
   its stall state.
   *(Cites: D-35, D-11; audit item 3 (Sources).)*
+  *(Amended at Amendment 7, 2026-11-10: a live session's program and owner can also be moved to another program, REQ-D1.16.)*
 - **REQ-D1.13** The readiness check SHALL refuse a flip of a pull request
   that changes behaviour a spec describes unless the same pull request
   edits that spec (changes its anchored content) and the edited spec's
@@ -412,6 +534,70 @@ later planwright bundles implement, D-12).
   no spec and giving no reasons. A check that cannot run refuses.
   *(Cites: D-45; the operator's request (2026-11-07, Sources); the
   spec-drift audit (Sources).)*
+- **REQ-D1.15** A unit whose kind is on `mission_control_direct_dispatch_kinds`
+  (shipped: a review skill run on a pull request, and read-only checks: a
+  spec-walkthrough render, a goal-evidence session, a read-only audit;
+  never a kickoff, an implementation unit or anything that changes a
+  repository) SHALL be launched by the mission control that has the work
+  (the **launching mission control**) through the launcher (REQ-D1.1),
+  registered under the unit's program with the launching mission control
+  as its registry owner, without a turn of the program's holder. The unit
+  SHALL write its result, with a `format` field, to a launcher-composed
+  path in the program home (D-8), its one write there; the launching
+  mission control reads it, and the program's holder reads it from the
+  program's records at its own next wake and is not woken for it. A unit
+  that ends without a result is a unit-lost event to the launching mission
+  control. A cadence step the unit runs is recorded through the step runner
+  as for any unit, and the result file is never evidence for the readiness
+  check. The unit's questions and prompts go to the launching mission
+  control, answered only as REQ-G1.2 and REQ-G1.6 already allow (a standing
+  decision of the unit's program, or the operator's own answer); who may
+  answer is unchanged. A kind not on the list keeps the holder's relay.
+  *(Cites: D-48; the relay-cost report (2026-11-09, Sources).)*
+- **REQ-D1.16** Mission control SHALL be able to move a live session to
+  another program, as when one program folds into another: a launcher verb
+  sets the session's registry program and owner to the destination
+  program's mission control, so that from then on its prompts, stalls and
+  other events route to the destination and not the source, the
+  destination's list shows it, and retirement works from the destination
+  (REQ-G1.6 and REQ-D1.12 cover it there as they cover a launched
+  session). It refuses an unknown session, an unknown or the same program,
+  a mission-control session (a holder moves by handover, REQ-L1.6, never
+  by this verb) and any session whose registry row cannot be rewritten
+  under the registry lock. It touches no process, worktree or branch, and
+  records the move as one event in both programs' event logs and an undo
+  entry naming the source (REQ-D1.7). It runs only at a fold-in the
+  operator ordered (one order covers every live session of the folded
+  program, with no ask per session), or with the operator's own yes for
+  that one session; the verb takes a reference to that record in the
+  decisions log and refuses without it, and mission control never moves a
+  session on its own judgment. Reversing a move by the undo entry needs no
+  new authority.
+  *(Cites: D-54; the fold-in report (2026-11-10, Sources).)*
+- **REQ-D1.17** The readiness check SHALL treat a hosted reviewer that
+  reviews only once a pull request is marked ready (the names on
+  `mission_control_review_on_ready_bots`, shipped empty, which each project
+  or overlay sets) in two steps. First, while the pull request is still a
+  draft, mission control SHALL ask each named reviewer to review the
+  current head by that reviewer's trigger comment, and every thread of the
+  review SHALL be answered and resolved through the bot-review step before
+  the flip. Second, a reviewer that has not reviewed the current head
+  within `mission_control_review_on_ready_wait` (shipped: 30 minutes) of
+  its trigger comment, or that cannot be triggered on a draft, falls back
+  to the after-flip path for that reviewer: the flip is never refused for
+  want of its pass, but the unit SHALL NOT be reported merge-ready, and the
+  ready-to-merge notice (the program's standing rule) SHALL NOT be sent,
+  until that reviewer has reviewed the pull request's current head, every
+  thread of it has been answered and resolved, and the readiness check
+  passes again at that head. A fallback reviewer silent for another
+  `mission_control_review_on_ready_wait` after the flip is an operator
+  item naming it, never a silent pass; a push restarts the wait for the new
+  head. A named reviewer's quota or outage reply is recorded as that
+  reviewer's skipped pass with the reply quoted, and a quota reply is not
+  triggered again.
+  *(Cites: D-55; the review-on-ready report (2026-11-10, Sources);
+  drafting-session decision (2026-11-10, operator: review in draft, flip
+  when done).)*
 
 ## REQ-E — Durable watchers
 
@@ -438,6 +624,26 @@ later planwright bundles implement, D-12).
   be stopped when it expires and re-arm on the next pass; the expiry is an
   event (REQ-E1.5), so one hung step never stalls the runner pass.
   *(Cites: D-40; obs:b8d064cc.)*
+- **REQ-E1.7** A pending permission prompt in a session with an answer
+  channel, and a finished-unit notice, SHALL reach the mission control that
+  answers it (the program's holder, or the launching mission control for a
+  direct unit, REQ-D1.15) through a notifier script the runner arms per
+  pass, with no model turn of any other mission control in between. The
+  notifier reads `scripts/fleet-streamjson.sh pending` and the registry,
+  claims each delivery in the attention store under its lock before
+  sending (at most once), delivers one sanitized line (the kind, the
+  session and a truncated, control-stripped summary, the text the
+  attention store already holds) by push, retries a failed delivery on the
+  next pass and raises an event after the configured retries. A prompt in
+  a session with no answer channel stays surfaced to the operator once
+  (REQ-G1.6). The other events that would wake a program's holder SHALL be
+  held in the attention store and delivered as one wake per
+  `mission_control_relay_batch_interval` (shipped: 10 minutes), except the shipped urgent
+  classes, which wake at once: a handover-due wake, a stopped watcher or
+  notifier (REQ-E1.5), a failed self-check, a denial (D-23) and an
+  operator's answer arriving. A notifier delivery counts as a wake for
+  REQ-L1.5's fallback.
+  *(Cites: D-49; the relay-cost report (2026-11-09, Sources).)*
 
 ## REQ-F — The operator surface
 
@@ -532,6 +738,89 @@ later planwright bundles implement, D-12).
   words and use the text panel (REQ-F1.2).
   *(Cites: D-37; audit item 6 (Sources); the operator priority (2026-11-04)
   (Sources); obs:cf5bce54.)*
+- **REQ-F1.17** The panel and the text panel SHALL show each live
+  session's spend since it started, in dollars, priced from its own
+  transcript usage with `config/token-prices.tsv`, and the program's total
+  for the current UTC day across every session that ran in it, with the
+  share spent by mission-control sessions (registry kind
+  mission-control), so supervision overhead shows before a daily limit is
+  crossed. A session whose spend cannot be read, or whose model has no
+  price, SHALL show unknown, never zero, and a total missing any session
+  SHALL be marked partial. The figures are display only and feed no
+  budget.
+  *(Cites: D-50; the relay-cost report (2026-11-09, Sources).)*
+- **REQ-F1.18** A pull request that changes anything the operator sees
+  (a path on the shipped operator-visible list, `mission_control_visible_paths`,
+  which each project may extend: the panel mod, the text panel, the
+  digest lines, the guide) SHALL stay a draft until the operator has
+  approved a preview built from the real render of that change, rendered
+  over fixture data and never the live program's figures, and never a
+  mock-up. Mission control records the approval in the program's decisions
+  log with the operator's own words and the preview's digest, and quotes it
+  in the pull request; a worker never records it. Once the readiness gate
+  ships, the readiness check SHALL refuse a flip of such a pull request
+  with no matching recorded approval; until then the approval is recorded
+  by hand the same way.
+  *(Cites: D-50; the relay-cost report (2026-11-09, Sources).)*
+
+- **REQ-F1.19** (extends REQ-F1.10) Every operator ask that carries an
+  action, and every duty or promise mission control takes on, SHALL get a
+  ledger item when it is made, written by the mission-control tier's own
+  deterministic path and not from the session's memory: each operator
+  message is recorded as an intake row on arrival, the intake rows form a
+  durable queue of asks, and neither a turn nor a handover (REQ-L1.6) can
+  end while an intake row is neither made into an item nor dismissed with a
+  one-line reason (a question, an acknowledgement). An item carries an
+  owner, a trigger and a done-condition: a command whose exit status says
+  done, an event of an emitted class (REQ-F1.22), a date, or the operator's
+  own confirmation. An item with no done-condition is refused at add.
+  *(Cites: D-56; REQ-F1.10; the follow-up ledger report (2026-11-10,
+  Sources).)*
+- **REQ-F1.20** Overdue items SHALL lead the status. An item is overdue when
+  its trigger has fired and it is still open and unacknowledged
+  (REQ-F1.21). The panel and every plain-language status answer list the
+  overdue items before anything waiting on the operator and before
+  in-flight work, one line each naming the item, how overdue it is, its
+  done-condition and its owner.
+  *(Cites: D-56; the follow-up ledger report (2026-11-10, Sources).)*
+- **REQ-F1.21** The handover self-check (REQ-L1.6) SHALL fail while an
+  overdue item is unacknowledged, naming each. An acknowledgement is a
+  ledger record by the session that states what it will do next and a new
+  date or event; it never closes the item, and only the next sweep or
+  `close` with evidence ends it. The successor reads the ledger and applies
+  the same rule.
+  *(Cites: D-56; REQ-L1.6; the follow-up ledger report (2026-11-10,
+  Sources).)*
+- **REQ-F1.22** An event trigger SHALL name an event class something emits:
+  `followup add` validates the class against the emitted set (the event
+  kinds the shipped watchers declare, REQ-E1.2, and those the event store
+  emits) and refuses an unknown class, naming the known ones, unless the
+  call carries a fallback date, which is then stored as a date trigger in
+  the same call. An existing item whose class nothing emits is listed by
+  the audit (REQ-F1.23) and never deleted.
+  *(Cites: D-56; REQ-E1.2; the follow-up ledger report (2026-11-10,
+  Sources).)*
+- **REQ-F1.23** An item SHALL close only through `close` with evidence, and
+  a stale-open audit at bring-up, at each handover and daily SHALL flag
+  every open item whose done-condition is already met (its command check
+  exits success, an event of its class was seen after it opened, the pull
+  request it names merged) as a proposal to close it with that evidence.
+  The audit never closes an item itself and edits nothing else.
+  *(Cites: D-56; the follow-up ledger report (2026-11-10, Sources).)*
+- **REQ-F1.24** An audit of mission control's own state SHALL find what
+  should be a durable queue and is not, at bring-up, at each handover and
+  daily: for every kind of state mission control holds that something is
+  waiting on (operator decisions, merge-ready announcements, relayed
+  questions, pending prompts, follow-ups, intake rows), a shipped register
+  names its store and the disposition that removes an entry from it, and the
+  audit flags a kind with no register row, a kind whose store is a
+  transient file, a session's memory or a message not yet persisted, and a
+  kind whose entries have no recorded way out. A kind the register records
+  as deliberately not a queue carries a one-line reason. Each flag is one
+  plain line with the remedy (join the queue model, or record the reason),
+  and the audit edits nothing.
+  *(Cites: D-56; REQ-F1.10, REQ-F1.19; the follow-up ledger report
+  (2026-11-10, Sources); drafting-session decision (2026-11-10).)*
 
 ## REQ-G — Permissions at scale
 
@@ -606,6 +895,31 @@ later planwright bundles implement, D-12).
   mission-control session is one the plugin's own prompt hook marked, with
   the tower-session mark store's bar; in any other session the hook
   defers.)*
+  *(Amended at Amendment 6, 2026-11-09: the prompt's wake is the notifier's delivery to the mission control that answers it, REQ-E1.7; a direct unit's prompts go to its launching mission control, REQ-D1.15; who may answer is unchanged.)*
+  *(Amended at Amendment 7, 2026-11-10: a session moved to another program, REQ-D1.16, is supervised by the destination's mission control from the move; its pending prompts raise their events there and not in the source.)*
+
+- **REQ-G1.7** A lease SHALL be the one way a worker is allowed, for a named
+  purpose and a short time, something a standing rule denies. A lease is a
+  record naming its kind, one worker session, its scope (paths or the rule
+  it lifts), its expiry, whether it is single use, and the operator
+  authorization it rests on. Only mission control opens one, and only
+  after the operator's yes naming the worker, the kind and why (the
+  undo-ledger entry of D-24 cites it); the store lives in the program home,
+  outside every worktree and unwritable by the worker tier. A lease closes
+  when the worker reports its unit done or is retired, or at expiry
+  (`mission_control_lease_ttl`, shipped: one hour, never longer than a
+  hard cap), whichever comes first. A lease never lifts a row of the worker
+  profile's Bash `deny` block, never covers another worker, and a lease
+  that is expired, closed, missing or unreadable reads as no lease, in
+  every consumer, through one shared reader.
+  *(Cites: D-57; D-24; the rule-enforcement ask (2026-11-10, Sources).)*
+- **REQ-G1.8** While a lease is open mission control SHALL show it in the
+  status (worker, kind, expiry), and a unit whose worker held a lease
+  SHALL carry it into the readiness record: the pull request's top names
+  the lease and the leased paths it changed as a posture change the
+  operator decides on, and the ready-to-merge notice is not sent as an
+  ordinary ready.
+  *(Cites: D-57; r-30's pull request shape (Sources).)*
 
 ## REQ-H — Programs across repositories
 
@@ -779,6 +1093,8 @@ later planwright bundles implement, D-12).
   launched holder only, REQ-L1.8.)*
   *(Amended at the 2026-11-07 amendment: the trigger applies to every
   session, attended or launched, again, REQ-L1.9.)*
+  *(Amended at Amendment 6, 2026-11-09: where the host exposes no percent,
+  the measured context is the transcript reading of REQ-L1.10.)*
 - **REQ-L1.6** The handover SHALL be automatic and lossless where the harness
   allows: the successor is launched, rebuilds, proves it holds the active
   rules and open items against the predecessor's last ledger entry, takes
@@ -790,6 +1106,7 @@ later planwright bundles implement, D-12).
   an attended session compacts instead, REQ-L1.8.)*
   *(Amended at the 2026-11-07 amendment: an attended session hands over
   through a pane beside it, or the one operator act, REQ-L1.9.)*
+  *(Amended at Amendment 6, 2026-11-09: a launched holder with no operator at its terminal hands over itself at a natural break, REQ-L1.11.)*
 - **REQ-L1.7** Launch admission SHALL be dynamic on two axes, the
   account's usage headroom and the host's capacity (load against cores,
   available memory), each with a `mission_control_*` threshold knob, and
@@ -829,6 +1146,38 @@ later planwright bundles implement, D-12).
   session.
   *(Cites: D-43; the handover-as-best-as-possible ruling (2026-11-06 and
   2026-11-07) (Sources); obs:32bde2c6, obs:3b1fad05, obs:b632d19a.)*
+  *(Amended at Amendment 6, 2026-11-09: the ladder starts at the next natural break, REQ-L1.11.)*
+- **REQ-L1.10** Every mission-control session, attended or launched, on
+  every backend (a terminal session, tmux, stream-json), SHALL have a
+  context reading: the percent of its model's context window its last
+  assistant turn used (input, cache-read and cache-creation tokens), read
+  by `scripts/mc-context.sh` from the tail of the transcript its registry
+  row names, never from a path given as an argument. The runner SHALL take
+  one reading per session per wake and record it in the program's records;
+  `scripts/mc-handover.sh due` and the panel read that record. Where the
+  host gives the session a percent, that value is used and the panel says
+  which source it shows. A reading that cannot be taken SHALL read the
+  literal `unknown`, so the wake-count fallback applies, never zero.
+  *(Cites: D-46; the context-reading reports (2026-11-08 and 2026-11-09,
+  Sources).)*
+- **REQ-L1.11** A mission-control session whose trigger is due SHALL hand
+  over at its next natural break: the act in hand has ended and no new one
+  started, and no launch, relay or answer of its own is half done, as an
+  in-flight record in the program's records shows. While it waits, D-43's
+  compaction deferral and its cap hold, and the wake and compaction
+  ceilings still force the handover. A launched holder with no operator at
+  its terminal SHALL write the handover file and launch its successor
+  itself (REQ-L1.6) after exactly one handover-due wake. Where the backend
+  can carry it, the successor SHALL keep the predecessor's session name,
+  so a message addressed to that name after `take` reaches the successor;
+  until `take` finishes a script forwards what the predecessor receives,
+  verbatim, and the predecessor acts on none of it. A failed `take` leaves
+  the name and the program with the predecessor. A successor arms no
+  handover before its own first reading is below the trigger. Where the
+  backend cannot carry the name, the handover falls to D-43's rung 2.
+  *(Cites: D-47; the context-reading reports (2026-11-08 and 2026-11-09,
+  Sources); the operator's scope for Amendment 6 (2026-11-09, Sources);
+  obs:3b1fad05.)*
 
 ## REQ-M — Throughput
 
@@ -867,6 +1216,32 @@ later planwright bundles implement, D-12).
   from the orchestrator's own selection, so a task whose own or
   dependency's repository the selection withholds is never suggested.
   *(Cites: D-40; obs:5d662727.)*
+- **REQ-M1.10** The throughput duty SHALL run an idle-wait audit at each
+  handover and at least once every `mission_control_idle_audit_interval`
+  (shipped: one day): from the program's step, flight and dispatch records,
+  the forge snapshot's CI timing (REQ-M1.1) and the attention store, it
+  finds where units sat idle waiting on something they did not need (a CI
+  result a step does not consume, a quiet or cadence timer, steps run one
+  after another that do not depend on each other, a relay through another
+  session), and brings the operator each as a mechanization proposal in
+  D-14's form, naming the change and the time it would save per day (the
+  measured waits of that kind in the audit window, scaled to a day),
+  without D-14's repeat threshold. A declined proposal stays declined as
+  D-14 says. The audit changes nothing it reads.
+  *(Cites: D-51; the relay-cost report (2026-11-09, Sources).)*
+
+- **REQ-M1.11** The throughput duty SHALL also report idle capacity, at each
+  handover and at least once every `mission_control_idle_audit_interval`
+  (REQ-M1.10's cadence): a reachable configured or known offload host left
+  unused while work ran elsewhere, free worker slots while ready units
+  queued, and a host far under its load cap over the window. Each finding
+  is a mechanization proposal in D-14's form naming the knob that would
+  change it, its present value and the proposed one, and the idle measured
+  (for example slot-minutes) in the window, without D-14's repeat
+  threshold. A declined proposal stays declined as D-14 says, and the
+  audit changes nothing it reads.
+  *(Cites: D-58; REQ-M1.10; the idle-capacity report (2026-11-10,
+  Sources).)*
 
 ## REQ-N — Program goals
 
@@ -1048,6 +1423,54 @@ later planwright bundles implement, D-12).
   settings rule; an answer still needs a standing decision or the
   operator's own answer. Notes on REQ-G1.6 and D-35; Task 38 and its test
   entry under REQ-G1.6 (see the kickoff brief's Amendment 5).
+- 2026-11-09 — Amendment 6 (meaning-class, on the Active bundle): cheaper
+  supervision. REQ-L1.10 (a context reading for every mission-control
+  session, from its own transcript), REQ-L1.11 (the handover at a natural
+  break, a headless holder handing over itself, the session name kept),
+  REQ-D1.15 (direct dispatch of reviews and read-only checks), REQ-E1.7
+  (a notifier for prompts and finished units, batching for the rest),
+  REQ-F1.17 (spend per session on the panel), REQ-F1.18 (operator-visible
+  changes stay draft until a preview from the real render is approved),
+  REQ-M1.10 (the throughput duty's idle-wait audit), REQ-A1.9 (the
+  bring-up drift audit); D-46 to D-52; Tasks 39 to 46; one In scope and one Out of scope bullet; notes on REQ-L1.5,
+  REQ-L1.6, REQ-L1.9, REQ-G1.6, REQ-D1.14, D-23, D-25, D-29, D-30, D-35 and
+  D-43 (see the kickoff brief's Amendment 6). Folded in later the same
+  day (relayed, settled): REQ-B1.8 (a rule's enforcement field) and
+  REQ-A1.10 (the doctor lists prose, unknown and closed-fix rules), D-53,
+  Task 47.
+- 2026-11-10 — Amendment 7 (meaning-class, on the Active bundle): REQ-D1.16
+  (a live session moved between programs), REQ-D1.17 (reviewers that
+  review only once a pull request is ready are asked to review the draft
+  first, with a per-reviewer fallback to waiting after the flip); D-54, D-55;
+  Tasks 48 and 49; notes on REQ-D1.8, REQ-D1.12 and REQ-G1.6.
+
+- 2026-11-10 — Amendment 8 (meaning-class, on the Active bundle, relayed by
+  the hub): the follow-up ledger forgot asks and duties (REQ-F1.19 to
+  REQ-F1.24: automatic items with a done-condition, asks kept in a durable
+  queue, overdue items lead the status, handover verify fails on
+  unacknowledged overdue items and open asks, event triggers validated at
+  add, a stale-open audit, an audit of state that should be a queue; D-56);
+  operator rules that
+  planwright enforces (REQ-B1.9 to REQ-B1.12, REQ-G1.7, REQ-G1.8: clauses
+  the worker tier's guard keeps, shadow mode, one lease shape, the headed
+  browser rule as the worked example; D-57); and the doctor and throughput
+  duty gaps (REQ-B1.13, REQ-A1.11, REQ-A1.12, REQ-M1.11: a knob rule's
+  required value checked, hard-sounding rules without a clause listed, idle
+  capacity reported; D-58). The runner calling `followup due` each pass is
+  REQ-F1.10's and ships as its own flight; REQ-A1.9, REQ-A1.10 and REQ-M1.10
+  already cover number-valued rules, prose or unknown enforcement and idle
+  waits and are not redrafted. Tasks 50 to 56.
+- 2026-11-11 — Expression-only (brief Re-anchor, test-spec file pointers):
+  the REQ-A1.9 test entry names `tests/test-mc-config-doctor.sh`, and the
+  REQ-L1.9 entry also names `tests/test-mc-handover-tmux.sh`, the files the
+  per-file test-time budget split moved those cases into. No requirement
+  or decision changes meaning.
+- 2026-11-11 — Expression-only (brief Re-anchor, launch-test split file pointers):
+  the REQ-D1.10 and REQ-D1.11 test entries name
+  `tests/test-mission-control-launch-worktrees.sh`, and the REQ-D1.16 entry
+  names `tests/test-mission-control-launch-host.sh`, the files the per-file
+  test-time budget split moved those cases into. No requirement or decision
+  changes meaning.
 
 ## Sources
 
@@ -1207,3 +1630,78 @@ later planwright bundles implement, D-12).
 - **The operator's ruling on spec-only pull requests (2026-11-05)** — spec
   bundle pull requests skip the code review cadence steps and are marked
   ready on green CI, mergeable and the kickoff sign-off.
+- **The context-reading reports (2026-11-08 and 2026-11-09)** — relayed
+  from another host's mission-control hub: an attended session cannot
+  measure its own context, so the 40 percent handover never fired for it
+  (it handed over near 46 percent only when told); headless stream-json
+  supervisors have neither a reading nor an automatic handover, one
+  transcript reaching about 44 MB. The workaround that worked: sum the
+  input, cache-read and cache-creation tokens of the last assistant usage
+  record in the session's own transcript. The attended tmux self-handover
+  (PR #902) covers the successor path inside tmux, not the reading.
+- **The relay-cost report (2026-11-09)** — the same hub, one day measured:
+  two supervising mission controls cost far more than the workers they
+  supervised (about 60 percent of the day's spend was supervision), each
+  prompt, draft and report costing a full-context supervisor turn. The
+  asks: direct dispatch of units that need no supervisor judgment, a cheap
+  relay for prompts and finished units, spend per session on the panel,
+  and a self-audit that finds idle waits the operator should not have had
+  to spot. Relayed by this program's mission control with the operator's
+  go-ahead ("lets go with your recommendations"); anything the operator
+  sees stays a draft until they approve a preview built from the real
+  render.
+- **The operator's scope for Amendment 6 (2026-11-09)** — relayed by this
+  program's mission control at launch: a context reading for every
+  mission-control session, attended and headless, and the 40 percent
+  self-handover at a natural break keeping the session name, built first;
+  direct dispatch for units needing no supervisor judgment, results in a
+  file mission control reads; a cheap relay for permission prompts and
+  finished-unit notices; cost per session on the panel, anything the
+  operator sees staying a draft until a preview from the real render is
+  approved; a periodic self-audit for idle waits, joining the throughput
+  duty. Post-pull-request steps alongside CI are a separate flight.
+- **The doctor drift note (2026-11-09)** — a pending note captured while
+  two drift checks shipped in the bring-up audit (`scripts/mc-config.sh
+  doctor`, first shipped as a flight fix with no signed requirement): a
+  rule saying mission control hands over at 40 percent sat beside the
+  shipped 70 with nothing flagging it, and a dated fleet-size bump in a
+  machine-local layer outlived its comment, both found only by hand. The
+  operator folded it into this amendment (relayed through the hub,
+  2026-11-09: "Fold into held amendment").
+- **The rule-enforcement report (2026-11-10)** — relayed through the hub
+  from an audit of the rule store: most rules are prose nothing enforces,
+  so they drift, are copied between programs and forgotten across
+  handovers (dozens of copies, several whose fixes had already landed).
+  The operator asked that each rule say how it is enforced and that the
+  doctor show which ones only live as prose (the unit brief, 2026-11-10);
+  settled to join Amendment 6.
+- **The fold-in report (2026-11-10)** — relayed through the hub: when one
+  program folded into another (2026-11-09), its live sessions kept their
+  old program and owner, so their pending-prompt events went to the old
+  program's runner and the new owner had to poll each by hand. A merged
+  fix made every pending prompt announced within its own program; this
+  asks that a session's owner be movable.
+- **The review-on-ready report (2026-11-10)** — relayed through the hub
+  from another project's pull request: hosted reviewers configured to
+  review on ready reviewed only after the flip (the flip, then the two
+  reviewers a minute apart, four threads), so readiness passed before
+  their findings landed. Fix asked: readiness knows which bots review on
+  ready and the post-flip step waits for and clears them before
+  merge-ready is reported (observation W64 of the hub's queue).
+
+- **The follow-up ledger report (2026-11-10)** — relayed through the hub
+  (observation W81 of the hub's queue, priority): two due items stayed open
+  and unsurfaced and one stayed open after it was resolved; event triggers
+  named events nothing emits; the operator's standing ask to make the
+  offload host work first never got an item and stayed undone for days. The
+  runner-calls-due part is REQ-F1.10's, shipped separately.
+- **The rule-enforcement ask (2026-11-10)** — relayed through the hub
+  (observation W72): operator rules that planwright enforces
+  deterministically, after workers kept opening visible browser windows
+  under a prose rule; builds on the signed enforcement field (REQ-B1.8,
+  REQ-A1.10). Framed REQ-B1.9 to REQ-B1.12, REQ-G1.7, REQ-G1.8, REQ-A1.12,
+  D-57.
+- **The idle-capacity report (2026-11-10)** — relayed through the hub
+  (observation W80): the offload host knob shipped but stayed local though
+  the rules say to offload, and nothing noticed. Framed REQ-M1.11,
+  REQ-B1.13, REQ-A1.11, D-58.

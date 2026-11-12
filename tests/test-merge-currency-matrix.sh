@@ -857,6 +857,11 @@ no_llm_ok=ok
 
 SYNCROOT="$SANDBOX/sync"
 mkdir -p "$SYNCROOT"
+# The cells below assert a merge's outcome, which the shipped default
+# (on-need) would skip; the fixture's machine-local layer restores `always`.
+printf 'converge_sync_main: always\n' >"$SYNCROOT/local.yml"
+PLANWRIGHT_LOCAL_CONFIG="$SYNCROOT/local.yml"
+export PLANWRIGHT_LOCAL_CONFIG
 
 # sync/clean-merge — a branch with its own commit takes origin/main's advance
 # by merge; the advanced commit is in its history and its own commit survives

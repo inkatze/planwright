@@ -239,3 +239,42 @@ deny	settings-write	bash	-	settings or configuration file	echo "$(c\p /tmp/a $F)
 deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); v=S; : > "${!v}/x"
 defer	read	bash	-	-	echo '$(cp /a /b)'
 deny	settings-write	bash	-	settings or configuration file	S=$(mktemp -d); S+=/etc; : > "$S/x"
+defer	read	bash	-	-	for s in a b; do @HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/fleet-streamjson.sh status $s; done
+defer	read	bash	-	-	R=@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts; $R/resolve-rule-doc.sh composability; $R/mc-kb.sh read x
+defer	read	bash	-	-	H=$(@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/mc-program.sh --help | grep home); ls $H; cat $H/x
+defer	read	bash	-	-	S=/home/u/.config/planwright/mission-control/mc-fixes/s; @HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/mc-handover.sh resume --picture $S/picture.txt
+defer	read	bash	-	-	printf x > /home/u/.config/planwright/mission-control/mc-fixes/picture.txt
+defer	read	bash	-	-	H=/home/u/.config/planwright/mission-control/mc-fixes; printf x > $H/picture.txt
+defer	read	bash	-	-	K=@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/fleet-streamjson.sh; $K followup a
+defer	read	bash	-	-	for k in a b; do @HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/config-get.sh $k @HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/defaults.yml; done
+defer	read	bash	-	-	for k in a b; do @HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/config-get.sh $k /home/u/dev/p/.claude/planwright.yml; done
+defer	read	bash	-	-	@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/config-get.sh ready_flip_policy /home/u/dev/p/.claude/planwright.local.yml
+defer	read	bash	-	-	grep -n ready /home/u/dev/p/.claude/planwright.yml
+deny	settings-write	bash	-	settings or configuration file	@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/config-get.sh ready_flip_policy /home/u/dev/p/.claude/planwright.yml > /home/u/dev/p/.claude/planwright.yml
+deny	settings-write	bash	-	settings or configuration file	@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/install.sh /home/u/dev/p/.claude/settings.json
+deny	settings-write	bash	-	settings or configuration file	@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/mc-config.sh set /home/u/dev/p/.claude/planwright.yml
+deny	settings-write	bash	-	settings or configuration file	cp @HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/x.sh @HOME@/.claude/settings.json
+deny	settings-write	bash	-	settings or configuration file	H=$(@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/mc-program.sh --help | grep home); printf x > $H/picture.txt
+deny	settings-write	bash	-	settings or configuration file	H=@HOME@/.claude; echo x > $H/settings.json
+deny	settings-write	bash	-	settings or configuration file	H=@HOME@/.claude; cp /tmp/x $H/hooks/y.sh
+deny	settings-write	bash	-	settings or configuration file	H=$(echo @HOME@/.claude); echo x > $H/settings.json
+deny	settings-write	bash	-	settings or configuration file	true && H=/home/u/.config/planwright/mission-control/mc-fixes; echo x > $H/picture.txt
+deny	git-mutation	bash	-	name is an expansion|runs no git mutation	$K followup a
+deny	git-mutation	bash	-	name is an expansion|runs no git mutation	K=@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/x.sh $K followup a
+deny	git-mutation	bash	-	name is an expansion|runs no git mutation	true && K=@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/x.sh; $K followup a
+deny	git-mutation	bash	-	name is an expansion|runs no git mutation	K=$(echo git); $K push origin main
+deny	git-mutation	bash	-	name is an expansion|runs no git mutation	K=git; $K push origin main
+deny	git-mutation	bash	-	name is an expansion|runs no git mutation	K=git; K=@HOME@/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/x.sh; $K push origin main
+deny	settings-write	bash	-	settings or configuration file	for f in $(sh -c x); do cat /home/u/dev/p/.claude/planwright.yml; done
+deny	settings-write	bash	-	settings or configuration file	@SCRATCH@/x/.claude/plugins/cache/planwright/planwright/0.73.0/scripts/config-get.sh ready_flip_policy /home/u/dev/p/.claude/planwright.yml
+defer	read	bash	-	-	sed -n 1,20p /home/u/.claude/plugins/data/planwright-planwright/overlay/planwright.yml
+defer	read	bash	-	-	grep -n -B3 -A12 'planwright.yml' /home/u/dev/dotfiles/roles/claude/tasks/main.yml | cut -c1-200 | head -60
+defer	read	bash	-	-	gh pr diff 226 --repo inkatze/dotfiles | grep -A12 '^+++ b/roles/claude/files/planwright/planwright.yml.tpl' | head -20
+defer	read	bash	-	-	grep -n -E 'planwright.yml.tpl|op-render' /home/u/dev/dotfiles/op-render.yml; find /home/u/dev/dotfiles -name 'planwright.yml.tpl'
+defer	read	bash	-	-	sed -n 60,80p /home/u/dev/p/.claude/planwright.local.yml; grep -nE '^[a-z_]+:' /home/u/dev/p/.claude/planwright.local.yml
+deny	settings-write	bash	-	settings or configuration file	sed -n w/home/u/dev/p/.claude/planwright.yml /home/u/dev/p/.claude/planwright.local.yml
+deny	settings-write	bash	-	settings or configuration file	sed -i 1d /home/u/dev/p/.claude/planwright.yml
+deny	settings-write	bash	-	settings or configuration file	find /home/u/dev/p -name planwright.yml -exec rm {} ;
+deny	settings-write	bash	-	settings or configuration file	find /home/u/dev/p -name planwright.yml -delete
+deny	settings-write	bash	-	settings or configuration file	sort -o /home/u/dev/p/.claude/planwright.yml /home/u/x
+deny	settings-write	bash	-	settings or configuration file	gh pr comment 226 --body-file /home/u/dev/p/.claude/planwright.yml

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.74.0](https://github.com/inkatze/planwright/compare/v0.73.1...v0.74.0) (2026-11-10)
+
+
+### Features
+
+* **mission-control:** bound live sessions host-wide across programs ([#918](https://github.com/inkatze/planwright/issues/918)) ([0fd179f](https://github.com/inkatze/planwright/commit/0fd179f2a263475849f35e57ccc2d69aa51daffe))
+* **mission-control:** make a handover successor's Remote Control a setting ([#925](https://github.com/inkatze/planwright/issues/925)) ([9eaa8e5](https://github.com/inkatze/planwright/commit/9eaa8e542b12ff641eeb84ca59dee87c7935e4a0))
+* route test and lint runs to a configured compute host ([#922](https://github.com/inkatze/planwright/issues/922)) ([fb99c3c](https://github.com/inkatze/planwright/commit/fb99c3c2aad18b5ab435011a3de6e1db1ce86671))
+
+
+### Bug Fixes
+
+* accept the logical spec-anchor form in the readiness sign-off check ([#924](https://github.com/inkatze/planwright/issues/924)) ([bbb7566](https://github.com/inkatze/planwright/commit/bbb756680823879e39409671d3b72e69feb5c2e9))
+* make the worker guard test suites hermetic inside a worker session ([#927](https://github.com/inkatze/planwright/issues/927)) ([36e9e66](https://github.com/inkatze/planwright/commit/36e9e66b03e595da3494eeb8626a4417fb2664ba))
+* **mission-control:** paint panel cards edge to edge, name sessions in the panel ([#911](https://github.com/inkatze/planwright/issues/911)) ([e7e8501](https://github.com/inkatze/planwright/commit/e7e850144965de1fd718f33c5bc309260f79a800))
+
+## [0.73.1](https://github.com/inkatze/planwright/compare/v0.73.0...v0.73.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **security:** stop recommending wildcard path allow rules ([#862](https://github.com/inkatze/planwright/issues/862)) ([2f487e6](https://github.com/inkatze/planwright/commit/2f487e6987f8b9d4562d4c10b1edb775f9382eaa))
+
 ## [0.73.0](https://github.com/inkatze/planwright/compare/v0.72.0...v0.73.0) (2026-11-09)
 
 

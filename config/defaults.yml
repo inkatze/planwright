@@ -98,6 +98,19 @@ max_parallel_units: 3
 # an absent key keeps this default, a malformed value warns and falls back.
 fleet_max_parallel_units: 3
 
+# The host-wide ceiling on live sessions across every program sharing one
+# machine, with fleet_max_parallel_units and each program's own bounds kept
+# beneath it. It bounds the sum of every program's workers, reviewers,
+# walkers and relays registered in the shared mission-control registry
+# (mission-control sessions are not counted), checked by
+# scripts/mission-control-launch.sh before every such launch. A
+# positive integer, or `off` for no host-wide bound. The shipped number is
+# sized for a 12-core host; set it lower on a smaller machine. Sessions
+# offloaded to another host (scripts/fleet-remote.sh) are counted on that host,
+# never here. An operator-asked launch (--operator-asked) goes past it, with a
+# host-cap-bypass event recorded first.
+fleet_host_max_live_workers: 6
+
 # How /execute-task sequences a unit's steps (D-5, REQ-C1.3). `per-step` runs
 # implementation and each step the convergence point runs in its own fresh
 # /resume-seeded session, so context stays bounded and each review's perspective
@@ -220,13 +233,30 @@ steps_orchestrator_idle: []
 # Step pools (scripts/step-pool.sh; doctrine/custom-steps.md, *Expensive
 # checks*). A pool bounds how many checks naming it run at once across every
 # checkout and worktree of the user on the host. step_pool_capacity is the
-# slot count of every pool without its own step_pool_capacity_<pool> (hyphens
+# slot count of every pool but heavy-run without its own step_pool_capacity_<pool> (hyphens
 # as underscores), an open family with no core default. step_pool_wait bounds
 # a caller's wait for a free slot (a duration). full_suite_pool names the pool
-# /execute-task's full local suite joins; empty leaves the suite unpooled.
+# /execute-task's full local suite joins; it defaults to the shipped heavy-run
+# pool, whose capacity is derived from the host (one slot per 8 logical cores
+# and per 16 GiB of memory, at least 1; step_pool_capacity_heavy_run wins and
+# step_pool_capacity never applies). none, or empty, leaves the suite unpooled.
 step_pool_capacity: 1
 step_pool_wait: 60m
-full_suite_pool:
+full_suite_pool: heavy-run
+
+# Compute host (scripts/compute-route.sh). A test or lint run the gate runners
+# start (/execute-task's full suite, step-run.sh command steps) or a worker
+# starts itself through the router goes to this
+# SSH host alias through `fleet-remote.sh compute` instead of running here.
+# `local` (or empty) keeps every run on this machine, which is the shipped
+# posture: an adopter has no second machine. A host that is unreachable, over
+# fleet_compute_load_cap (one-minute load per core), or failing before its
+# command starts is passed over with one warning and the run happens here.
+# fleet_compute_timeout is the run's budget in seconds; empty takes the
+# channel's own default (long for the full check, short for one file).
+fleet_compute_host: local
+fleet_compute_load_cap: 0.4
+fleet_compute_timeout:
 
 # The operator kill-switch for the autonomous daemon layer (fleet-autonomy
 # D-15, REQ-F1.3). `true` pauses every autonomous daemon action the fleet
@@ -442,9 +472,10 @@ allocation_effort_offload: inherit
 # id, `-` written as `_`). Today every review pass inherits the unit's tier,
 # so nothing ever starts cheap; these are the knobs that let it.
 #
-# ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
-# golden baseline is reproduced exactly. Landing the mechanism changes runtime
-# behavior by nothing; turning it on is a separate operator decision (D-13).
+# The step knobs ship `inherit`, except the review steps' MODEL (polish and
+# self-review), which ship `sonnet`. Their effect waits on the execute_step
+# surface carrying a tier, so the shipped value changes nothing until that
+# surface is tiered (see below).
 # Nothing passes a step type yet either — Task 6 wires the launch points — so
 # setting one of these changes nothing at all until that lands.
 #
@@ -475,9 +506,9 @@ allocation_effort_offload: inherit
 # than the unit's, so the top could never apply here in any case.
 allocation_model_step_implementation: inherit
 allocation_effort_step_implementation: inherit
-allocation_model_step_polish: inherit
+allocation_model_step_polish: sonnet
 allocation_effort_step_polish: inherit
-allocation_model_step_self_review: inherit
+allocation_model_step_self_review: sonnet
 allocation_effort_step_self_review: inherit
 
 # Execution-time ADAPTATION: whether a unit's tier may move at a launch boundary
@@ -937,6 +968,12 @@ messaging_heal_cadence_seconds: 300
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
 #                               commits no remote holds, on its own unit
 #                               branch: allow or deny.
+# converge_sync_main            whether the convergence sync merges origin/main
+#                               every time (always) or only on a need
+#                               (on-need): a conflict with it, a need the
+#                               caller records, or ready_guard_behind_base of
+#                               refuse. Read from the primary checkout; a
+#                               malformed value parks the sync.
 # ready_guard_behind_base       whether the ready-guard refuses a draft->ready
 #                               flip of a PR behind its base: checks (let
 #                               through when GitHub reports it MERGEABLE and
@@ -962,6 +999,7 @@ merge_class_strategy: sole-allowed
 worker_base_merge: allow
 worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
+converge_sync_main: on-need
 ready_guard_behind_base: checks
 protected_branches:
 
@@ -1209,3 +1247,9 @@ mission_control_guidance: guided
 # control launches the session and relays every question to the operator)
 # or manual (the operator runs the kickoff command themselves).
 mission_control_kickoff_mode: relay
+# Whether a mission-control handover successor starts with Remote Control
+# (the operator's phone link): off (none), inherit (what the predecessor's
+# own launch recorded, none when it cannot be read) or on (always, under the
+# successor's own name). Applies to attended (tmux) successors; the
+# stream-json rung has no terminal to attach it to and ignores it.
+mission_control_successor_remote_control: "off"

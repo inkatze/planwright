@@ -26,7 +26,9 @@ ok() { echo "ok: $1"; }
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-readiness.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
-trap 'rm -rf "$tmp"' EXIT
+# A run stopped while a directory is mode-restricted must still clean up.
+trap 'chmod -R u+rwX "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'exit 143' HUP INT TERM
 
 # shellcheck source=tests/lib/mission-control-fixture.sh
 . "$here/lib/mission-control-fixture.sh"
@@ -512,6 +514,28 @@ bundle demo Ready signed
 sh_interim=$(commit_specs)
 spec_pr "$sh_interim" specs/demo/requirements.md
 has "a brief anchored by the interim whole-file form is signed off" "signoff${tab}demo${tab}signed${tab}-"
+anchor_form() { # anchor_form <recorded command>: a signed bundle whose brief records that command
+  bundle demo Ready signed
+  # shellcheck disable=SC2016 # the brief's backticks are literal
+  printf '# Brief\n\nAnchor: `%s` — computed as\n`%s`\n' \
+    "$(/bin/sh "$repo_root/scripts/spec-anchor.sh" "$repo/specs/demo")" "$1" >"$repo/specs/demo/kickoff-brief.md"
+}
+anchor_form 'spec-anchor.sh specs/demo'
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a brief anchored by the logical form is signed off" "signoff${tab}demo${tab}signed${tab}-"
+anchor_form 'scripts/spec-anchor.sh specs/demo'
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a brief anchored by the canonical form is signed off" "signoff${tab}demo${tab}signed${tab}-"
+anchor_form 'spec-anchor.sh specs/demo'
+printf 'An edit after the sign-off.\n' >>"$repo/specs/demo/design.md"
+spec_pr "$(commit_specs)" specs/demo/design.md
+has "a logical-form brief over edited content is not signed off" "signoff${tab}demo${tab}unsigned${tab}its content at the head is not what the kickoff signed off"
+anchor_form 'spec-anchor.sh specs/elsewhere'
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a logical form naming another directory is not recomputed" "signoff${tab}demo${tab}unsigned${tab}its kickoff brief's anchor uses a form this check does not recompute"
+anchor_form 'sh ./spec-anchor.sh specs/demo'
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+has "a script form with a prefix is not recomputed" "signoff${tab}demo${tab}unsigned${tab}its kickoff brief's anchor uses a form this check does not recompute"
 # shellcheck disable=SC2016 # the brief's backticks are literal
 printf 'Anchor: `%s` — computed as\n`sha1sum specs/demo/*`\n' 0123456789abcdef0123456789abcdef01234567 >>"$repo/specs/demo/kickoff-brief.md"
 sh_otherform=$(commit_specs)
@@ -625,6 +649,37 @@ sed -i.bak 's/^program_alpha_sources: .*/program_alpha_sources: {work-items: spe
 mc_run mc-readiness.sh watch --program alpha
 expect_rc "a program with no code-state snapshot raises nothing, quietly" 0
 expect_eq "nothing" ""
+
+# ---------------------------------------------------------------------------
+# CI holds only the flip. A ready flip is refused while a check is pending or
+# red; a channel post or notice needs only that no check is red, and a red
+# check names itself for log diagnosis.
+# ---------------------------------------------------------------------------
+walk_with "flip with a pending check" 's/^check\tlint\tNEUTRAL/check\tlint\tPENDING/'
+expect_rc "a ready flip is refused while a check is pending" 4
+expect_out "named as pending" "fail${tab}check${tab}lint is PENDING"
+walk_with "flip with a red check" 's/^check\tlint\tNEUTRAL/check\tlint\tFAILURE/'
+expect_rc "a ready flip is refused while a check is red" 4
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tPENDING/' >"$tmp/ev"
+mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
+expect_rc "a notice passes while a check is still pending" 0
+expect_eq "a notice passes with the head" "not-red${tab}$H"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tFAILURE/' >"$tmp/ev"
+mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
+expect_rc "a notice is refused while a check is red" 4
+expect_out "a red check is named" "fail${tab}check${tab}lint is FAILURE"
+expect_out "and routed to log diagnosis" "diagnose${tab}lint"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tSOMETHING_NEW/' >"$tmp/ev"
+mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
+expect_rc "a notice is refused for a check state it does not know" 4
+printf 'not an evidence file\n' >"$tmp/ev"
+mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
+expect_rc "a notice is refused for a file without the format line" 4
+expect_eq "and says so once" "red${tab}-
+fail${tab}format${tab}the evidence file lacks \"# format: 1\""
+complete >"$tmp/ev"
+mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
+expect_rc "a notice passes with every check green" 0
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-readiness: $failures failure(s)" >&2

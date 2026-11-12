@@ -38,6 +38,7 @@ ready-to-merge	landed
 pr-merged	landed
 pending-prompt	act
 stall-open-selector	act
+followup-due	act
 stall-unsubmitted-prompt	act
 stall-turn-ended-background	act
 stall-idle-question	act
@@ -54,5 +55,6 @@ usage-reset	act
 watcher-stopped	routine
 usage-drained	routine
 usage-bypass	routine
+session-reparented	routine
 worker-handover-due	routine
 worker-retired-idle	routine

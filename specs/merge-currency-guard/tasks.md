@@ -1,7 +1,7 @@
 # Merge Currency Guard — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-12
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -165,6 +165,35 @@ knob) changes the guard and extends its suite, so it follows Tasks 2 and 4.
 - **Citations:** REQ-A1.5 · REQ-C1.11 · REQ-C1.12 · REQ-C1.13 · REQ-D1.5 ·
   REQ-K1.1 · D-10 · D-11 · PR #650
 - **Estimated effort:** 0.5 day
+
+### Task 6 — Conditional convergence sync: `converge_sync_main` knob and skip path
+
+- **Deliverables:** `scripts/converge-sync-main.sh` reading the
+  `converge_sync_main` knob (REQ-B1.8) and, under `on-need`, merging only on a
+  conflict found with `git merge-tree --write-tree` (a failing probe merges),
+  a recorded need passed by the caller, or `ready_guard_behind_base` of
+  `refuse` (read through `scripts/resolve-policy-knob.sh`, which gains a
+  `converge_sync_main` entry and its test row), printing a skip record
+  otherwise, the caller's recorded need passed as `--need <reason>` and echoed
+  sanitized (REQ-B1.7); the knob declared in
+  `config/defaults.yml` with `on-need` as its default and documented in
+  `docs/options-reference.md`; `/execute-task`'s one-line call site gaining
+  only the optional recorded-need argument and its exit-0 skip handling
+  (REQ-B1.5, REQ-B1.7); the script's header updated to cite REQ-B1.7 and
+  D-12; the cases of REQ-D1.6 in the sync script's test file.
+- **Done when:** every REQ-D1.6 case is asserted and green, the skip and need
+  cases failing against the script as it stood before this task (recorded in
+  the task PR); the default in `config/defaults.yml` is `on-need` and
+  `scripts/check-options-reference.sh` passes; `bash scripts/check-instructions.sh`
+  passes with the skill text growing by at most the one clause the call
+  needs (a budget trim may remove duplicates, never shorten guidance);
+  no `git pull`, rebase or model call appears on any path (REQ-D1.4);
+  `scripts/spec-validate.sh` passes over this bundle and `mise run check`
+  passes.
+- **Dependencies:** 3, 4
+- **Citations:** REQ-B1.7 · REQ-B1.8 · REQ-B1.5 · REQ-D1.6 · REQ-D1.4 ·
+  REQ-A1.5 · D-12 · D-4
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 

@@ -174,6 +174,8 @@ flat "$post" | grep -q 'run the sequence `/execute-task` runs after its own `pos
   || fail "the brief must reference /execute-task's after-post-pr sequence"
 flat "$post" | grep -q 'less the unit-PR ready flip' \
   || fail "the after-post-pr sequence must drop the unit-PR ready flip"
+flat "$b" | grep -q "Do not wait on the PR's remote checks before its steps" \
+  || fail "the brief must let post-pr run while the PR's remote checks are pending"
 record_dir="$(dirname "$(field "$OUT" brief)")/record"
 printf '%s\n' "$post" | grep -qF "flight-record.sh' render --home pr --flight-id $fid " \
   || fail "the re-emit must go only through flight-record.sh render"

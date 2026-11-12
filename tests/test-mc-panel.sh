@@ -170,13 +170,17 @@ record "a tmux window named in its session is in flight" flight w-win flight:nam
 record "a window whose name looks like an id is found by name" flight w-idname flight:id-like-name tmux working
 record "an empty field keeps the columns" flight w-empty - stream-json working
 expect_no_out "pid 1 is never a live worker" "w-init"
-expect_no_out "a session whose process is gone is not in flight" "w-dead"
+if printf '%s\n' "$OUT" | grep -q "^flight${tab}w-dead${tab}"; then
+  fail "a session whose process is gone is not in flight: a flight record carries w-dead"
+else
+  ok "a session whose process is gone is not in flight"
+fi
 expect_no_out "a tmux window the server does not list is not in flight" "w-tmux-gone"
 expect_no_out "a record with no process to watch is not in flight" "w-print"
 expect_no_out "a legacy three-field record is not in flight" "w-legacy"
 record "the rest are finished, not cleaned up" finished 7
 expect_no_out "a tmux server that answers is readable" "tmux windows"
-record "REQ-F1.1: what waits on the operator" waiting 2
+record "REQ-F1.5: only a live session's question waits on the operator; a dead session's stale row does not" waiting 1
 record "REQ-E1.3: the target's pending events" pending 1
 got=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "decision" { printf "%s|", $2 }')
 if [ "$got" = "1970-02-01T00:15:00Z|1970-02-01T00:10:00Z|1970-01-01T00:11:00Z|" ]; then
@@ -216,7 +220,7 @@ record "the redraw cadence knob, in seconds" knob refresh 10
 record "the tick cadence knob, in seconds" knob tick 300
 record "the reviews TTL knob, in seconds" knob reviews-ttl 300
 record "D-29: the handover verb is installed" handover available
-record "REQ-F1.2: the text line" line "mission control alpha: 7 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+record "REQ-F1.2: the text line" line "mission control alpha: 7 in flight, 1 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "knobs only with --knobs" "knob${tab}"
 record "no pull request ready to merge reads as none" merge-ready 0 all
@@ -224,7 +228,7 @@ record "no pull request ready to merge reads as none" merge-ready 0 all
 # The text form alone, as a session without the mod reads it.
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_rc "the line" 0
-expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 7 in flight, 2 waiting, 1 pending, rung normal, tracker snapshot 30s old"
+expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 7 in flight, 1 waiting, 1 pending, rung normal, tracker snapshot 30s old"
 # Pull requests the readiness check passed are held for the operator.
 judged=$(date +%s)
 mr_rows() { # mr_rows <state>: a merge-ready store judged now
@@ -233,7 +237,7 @@ mr_rows() { # mr_rows <state>: a merge-ready store judged now
 }
 mr_rows ok >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
-expect_eq "the line names the pull requests ready to merge" "mission control alpha: 7 in flight, 2 waiting, 2 ready to merge, 1 pending, rung normal, tracker snapshot 30s old"
+expect_eq "the line names the pull requests ready to merge" "mission control alpha: 7 in flight, 1 waiting, 2 ready to merge, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh text --program alpha
 expect_out "and so does the text panel" "ready to merge: 2"
 # Each ready one carries its checked merge command in the digest, built from
@@ -274,12 +278,12 @@ if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "an old store carr
   printf 'acme/web#10\tk\tunknown\t1\t-\tthe readiness walk could not run: x\n'
 } >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
-expect_out "a partial count reads as a floor in the line" "2 waiting, 2+ ready to merge,"
+expect_out "a partial count reads as a floor in the line" "1 waiting, 2+ ready to merge,"
 mc_run mc-panel.sh text --program alpha
 expect_out "and in the text panel" "ready to merge: 2 or more (some could not be judged)"
 printf 'state\tstale\t%s\n' "$judged" >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
-expect_out "none judged and some unknown reads as unknown" "2 waiting, ? ready to merge,"
+expect_out "none judged and some unknown reads as unknown" "1 waiting, ? ready to merge,"
 mc_run mc-panel.sh text --program alpha
 expect_out "and so in the text panel" "ready to merge: unknown (some could not be judged)"
 mkdir -p "$runtime/merge-ready.tsv.d" && rm -f "$runtime/merge-ready.tsv" && mv "$runtime/merge-ready.tsv.d" "$runtime/merge-ready.tsv"
@@ -327,17 +331,18 @@ cp "$tmp/attention.saved" "$fleet/attention/state"
 
 # Worker permission prompts are mission control's to answer: they leave the
 # operator's waiting count and are said apart, in plain words. The fixture
-# already holds two rows awaiting the operator; one more question joins them.
+# already holds one live session's question; one more, from a session the
+# registry does not know, does not count.
 mc_run fleet-attention.sh permission w-perm mission-control:alpha 'git status'
 mc_run fleet-attention.sh decide w-req mission-control:alpha "permission request tool Bash req aaaa1111 - answer via fleet-streamjson.sh answer" deny 'allow|deny'
 mc_run fleet-attention.sh decide w-ask mission-control:alpha 'Ship it?' yes 'yes|no'
 mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
-record "the operator's waiting count leaves out worker permission prompts" waiting 3
+record "the operator's waiting count leaves out worker permission prompts" waiting 1
 record "the approvals mission control is handling are counted apart" approvals 2
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
-expect_eq "the line form says the approvals apart from what waits on the operator" "mission control alpha: 7 in flight, 3 waiting, 1 pending, 2 approvals mission control is handling, rung normal, tracker snapshot 30s old"
+expect_eq "the line form says the approvals apart from what waits on the operator" "mission control alpha: 7 in flight, 1 waiting, 1 pending, 2 approvals mission control is handling, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh text --program alpha --target mc-alpha
-expect_out "the text panel says what waits on the operator" "waiting on you: 3"
+expect_out "the text panel says what waits on the operator" "waiting on you: 1"
 expect_out "the text panel says the approvals apart" "approvals mission control is handling: 2"
 mc_run fleet-attention.sh clear w-req
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
@@ -353,6 +358,16 @@ if [ "$(id -u)" != 0 ]; then
   expect_no_out "nor said in the line" "mission control is handling"
 fi
 for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
+
+# A row a session that is gone left behind, or a question from a session the
+# registry does not know (w-ask above), is not something mission control can
+# put to the operator, and neither is mission control's own session parked on
+# its own selector.
+mc_run fleet-state.sh register planwright-mission-control-ab12 mission-control:alpha --backend stream-json --death-handle "process $$"
+mc_run fleet-attention.sh decide planwright-mission-control-ab12 mission-control:alpha 'open selector' yes 'yes|no'
+mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+record "REQ-F1.5: mission control's own parked session is not waiting on the operator" waiting 1
+mc_run fleet-attention.sh clear planwright-mission-control-ab12
 
 # A store that cannot be read is said, never drawn as empty.
 printf 'format\t9\n' >"$runtime/measures"

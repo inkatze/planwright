@@ -877,13 +877,13 @@ export const register: Register = on => {
     const v = await view($)
     if (!v) return next(e)
     paneSurface = e.surface
-    return Pane($.ui.resolve(e), v, await isHeld($, v), e.surface)
+    return Pane($.ui.resolve(e), v, await isHeld($, v), e.surface, e.props.bodyColumns)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!ctx || e.props.hasSurvey) return next(e)
     const v = await view($)
     if (!v) return next(e)
-    return Band($.ui.resolve(e), v, await isHeld($, v))
+    return Band($.ui.resolve(e), v, await isHeld($, v), e.props.bodyColumns)
   })
 }

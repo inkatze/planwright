@@ -354,4 +354,4 @@ export async function boot($: Engine, w: World) {
 
 // The strip's words, in order: its segments and their separators.
 export const bandOf = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }) =>
-  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').join('')
+  (await ui.findAll({ type: 'Text' })).map(t => t.text ?? '').join('').trim()

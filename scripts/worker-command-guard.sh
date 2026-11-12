@@ -864,6 +864,9 @@ is_trusted_script() {
   # approved for a worker, under any casing a case-insensitive filesystem runs.
   case ${1##*/} in
     [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh]) return 1 ;;
+    # The router runs whatever follows its `--`: only strip_compute_route
+    # approves it, and only for a command the guard approves on its own.
+    [Cc][Oo][Mm][Pp][Uu][Tt][Ee]-[Rr][Oo][Uu][Tt][Ee].[Ss][Hh]) return 1 ;;
   esac
   # A hardlink of the helper is refused by each arm, against the root the path
   # resolves under.
@@ -3376,11 +3379,63 @@ gh_no_web() {
   for ((i = 2; i < cwn; i++)); do
     case ${cw[i]} in
       --) break ;;
-      --web) return 1 ;;
+      --web | --web=*) return 1 ;;
       --*) ;;
       -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
     esac
   done
+  return 0
+}
+
+# gh_release_ok: `gh release view|list` with no `--web`/`-w` (it launches
+# $BROWSER) and no `--repo`/`-R` override (REQ-A1.17). `-R` and `-w` can ride
+# in a short cluster, and the value-taking short flags end one.
+gh_release_ok() {
+  local i a
+  for ((i = 3; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --) break ;;
+      --web | --web=* | --repo | --repo=*) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "$a" 'wR' 'JqtLO' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_gitleaks: `gitleaks detect` with only the read-and-report options
+# (REQ-A1.17): any report, baseline, or config option defers, and `--source`
+# names one plain literal path inside the worktree or the scratch root. The
+# path is read through ob_path, whose audit marks a write arm: a read is no
+# arm's act, so the marks are put back.
+guard_gitleaks() {
+  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC
+  [ "${cw[1]-}" = detect ] || return 1
+  for ((i = 2; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --no-git | --no-banner | --verbose | --redact) ;;
+      --source)
+        [ "$have" = 0 ] && [ "$((i + 1))" -lt "$cwn" ] || return 1
+        have=1
+        i=$((i + 1))
+        src=${cw[i]}
+        [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "$src" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+        ;;
+      --source=?*)
+        [ "$have" = 0 ] || return 1
+        have=1
+        src=${a#--source=}
+        [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "$a" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+        ;;
+      *) return 1 ;;
+    esac
+  done
+  [ "$have" = 1 ] || return 1
+  ob_path "$src" exists read || return 1
+  AUDIT_OB=$ao
+  AUDIT_SC=$as
   return 0
 }
 
@@ -3392,6 +3447,13 @@ guard_gh() {
   esac
   local i g=${cw[1]-} s=${cw[2]-}
   case $g in
+    release)
+      case $s in
+        view | list) gh_release_ok || return 1 ;;
+        *) return 1 ;;
+      esac
+      return 0
+      ;;
     pr | issue)
       case $s in
         view | list | status | diff | checks) gh_no_web || return 1 ;;
@@ -4676,6 +4738,7 @@ classify_verb() {
     # Enumerated read-only subcommand tools.
     git) guard_git ;;
     gh) guard_gh ;;
+    gitleaks) guard_gitleaks ;;
     mise) guard_mise ;;
     lefthook) guard_lefthook ;;
     # Writers, approved inside the spec-root write zone or under a policy
@@ -4823,53 +4886,6 @@ step_context_record_ok() {
     PR_NUMBER) [ "$v" = "$REC_PR" ] ;;
     *) return 1 ;;
   esac
-}
-
-# strip_step_context: drop a leading run of literal `PLANWRIGHT_STEP_<field>=`
-# assignments, as written and before any expansion, from the current simple
-# command, setting STEP_CTX_PREFIXED, so the command they prefix is verified
-# as if it stood alone; verify_known_simple then holds that command to a
-# trusted script. Each Bash call is a fresh shell, so the cadence's step-run.sh
-# and resolve-steps.sh calls can carry the unit's context only this way.
-# Non-zero defers: a field outside STEP_CALLER_FIELDS, a field repeated, a
-# quoted name, a value that is not literal, holds a `~`, or is not the one
-# step_context_value_ok and the session record admit, or nothing left to run.
-STEP_CTX_PREFIXED=0
-strip_step_context() {
-  local n=0 w name f seen=' '
-  while [ "$n" -lt "$cwn" ]; do
-    w=${cw[n]}
-    case $w in
-      PLANWRIGHT_STEP_*=*) ;;
-      *) break ;;
-    esac
-    name=${w%%=*}
-    f=${name#PLANWRIGHT_STEP_}
-    case " $STEP_CALLER_FIELDS " in
-      *" $f "*) ;;
-      *) return 1 ;;
-    esac
-    case $seen in
-      *" $f "*) return 1 ;;
-    esac
-    seen="$seen$f "
-    # A quote before the `=` makes the word a command name, not an assignment.
-    if [ "${cqp[n]}" -ge 0 ] && [ "${cqp[n]}" -le "${#name}" ]; then
-      return 1
-    fi
-    [ -z "${csub[n]-}" ] || return 1
-    word_unresolved "$w" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" && return 1
-    # The shell tilde-expands an assignment value after the check.
-    case ${w#*=} in
-      *'~'*) return 1 ;;
-    esac
-    step_context_value_ok "$f" "${w#*=}" || return 1
-    step_context_record_ok "$f" "${w#*=}" || return 1
-    n=$((n + 1))
-  done
-  [ "$n" -gt 0 ] && [ "$n" -lt "$cwn" ] || return 1
-  shift_words "$n"
-  STEP_CTX_PREFIXED=1
 }
 
 # step_pool_hold_ok <value>: the resolver's hold mark, `<pool>:<pid>`, the pool
@@ -5163,12 +5179,105 @@ is_duration() {
   [ "$DURATION_SECONDS" -le "$MAX_WAIT_SECONDS" ]
 }
 
-# strip_prefixes: drop the transparent `time [-p]` and `timeout <duration>`
-# prefixes (REQ-A1.13) from the current simple command, setting PREFIXED, so
-# the command they wrap is verified as if it stood alone. Non-zero defers: a
-# prefix with nothing to run, a `cd` under a prefix (its directory would not
-# carry), or a `time` or `timeout` left after the prefixes, which would be
-# the `time` program or a nested timeout rather than a keyword. A `timeout`
+# strip_step_context: drop a leading step-context prefix from the current
+# simple command, so the installed step script it feeds is verified as the bare
+# call is. The prefix is an optional bare `env` followed only by, or plain
+# leading, `PLANWRIGHT_STEP_<field>=<literal>` words, every field one of
+# STEP_CONTEXT_FIELDS, every value bare (no quote, expansion, glob or
+# substitution; a quoted literal in the same charset passes), inside the charset
+# of a branch, path or number, and valid for its field. A field is carried once,
+# and, before a script other than the step runner or recorder, a caller field
+# must be the value the session record implies. The word
+# after them must be a script under an installed planwright root; anything else
+# leaves the words untouched, and the
+# `env` operands or the assignment prefix then defer as before. The pool hold
+# mark stays with declared_line_ok: it claims a pool a declaration must back.
+strip_step_context() {
+  local i=0 first f w name seen=' ' runner_field=0 n
+  local -a rec_f=() rec_v=()
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] || return 0
+  # An expansion that changed the word count is not the words as written.
+  [ "$cwn" -eq "$swn" ] || return 0
+  if [ "${sw[0]}" = env ] && [ "${swq[0]}" -lt 0 ] && [ "${cw[0]}" = env ]; then
+    i=1
+  fi
+  first=$i
+  while [ "$i" -lt "$swn" ]; do
+    w=${sw[i]}
+    case $w in
+      PLANWRIGHT_STEP_*=*) ;;
+      *) break ;;
+    esac
+    name=${w%%=*}
+    f=${name#PLANWRIGHT_STEP_}
+    case " $STEP_CONTEXT_FIELDS " in
+      *" $f "*) ;;
+      *) return 0 ;;
+    esac
+    # A quote before the `=` makes the word a command name, not an assignment;
+    # one inside the value only quotes a literal, which the charset below holds
+    # to the same bare characters.
+    if [ "${swq[i]}" -ge 0 ] && [ "${swq[i]}" -le "${#name}" ]; then
+      return 0
+    fi
+    [ "${cw[i]}" = "$w" ] && [ -z "${csub[i]-}" ] || return 0
+    word_unresolved "$w" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
+    # The charset leaves out `=`: zsh expands `=cmd` and `:=` forms in an
+    # assignment (assign_value_literal refuses the same). A quoted task-id
+    # list is the one value that carries a space.
+    case ${w#*=} in
+      *[!A-Za-z0-9._/:@%,+-]*)
+        { [ "$f" = TASK_IDS ] && [ "${swq[i]}" -ge 0 ] && case ${w#*=} in *[!0-9.\ ]*) false ;; esac; } || return 0
+        ;;
+    esac
+    step_context_value_ok "$f" "${w#*=}" || return 0
+    # A field carried twice is ambiguous.
+    case $seen in
+      *" $f "*) return 0 ;;
+    esac
+    seen="$seen$f "
+    case " $STEP_CALLER_FIELDS " in
+      *" $f "*)
+        rec_f[${#rec_f[@]}]=$f
+        rec_v[${#rec_v[@]}]=${w#*=}
+        ;;
+      *) runner_field=1 ;;
+    esac
+    i=$((i + 1))
+  done
+  [ "$i" -gt "$first" ] && [ "$i" -lt "$swn" ] || return 0
+  [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "${sw[i]}" ] || return 0
+  word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
+  # Any installed planwright script, as the cadence's resolver calls need; never
+  # the compute router, which runs whatever follows its `--`.
+  case ${cw[i]##*/} in
+    [Cc][Oo][Mm][Pp][Uu][Tt][Ee]-[Rr][Oo][Uu][Tt][Ee].[Ss][Hh]) return 0 ;;
+  esac
+  is_planwright_script "${cw[i]}" "$HOOK_CWD" || return 0
+  # The runner's own fields and the `env` form are for the step runner and
+  # recorder. Any other trusted script takes the caller's fields as plain
+  # leading assignments, each the value the session record implies, so a
+  # worker carries its own unit's context only.
+  case ${cw[i]##*/} in
+    step-run.sh | step-record.sh) ;;
+    *)
+      [ "$runner_field" = 0 ] && [ "$first" -eq 0 ] || return 0
+      for ((n = 0; n < ${#rec_f[@]}; n++)); do
+        step_context_record_ok "${rec_f[n]}" "${rec_v[n]}" || return 0
+      done
+      ;;
+  esac
+  shift_words "$i"
+}
+
+# strip_prefixes: drop the transparent `time [-p]`, `timeout <duration>` and
+# `nice -n <0..19>` prefixes (REQ-A1.13, REQ-A1.16) from the current simple
+# command, setting PREFIXED, so the command they wrap is verified as if it
+# stood alone. Non-zero defers: a prefix with nothing to run, a `cd` under a
+# prefix (its directory would not carry), or a `time`, `timeout` or `nice`
+# left after the prefixes, which would be the program or a nested wrapper
+# rather than a keyword. A leading compute-route.sh `--` is dropped last (see
+# strip_compute_route), so a wrapper may precede it but never follow. A `timeout`
 # whose next word is not a duration is left as the verb, and classify_verb
 # defers it.
 strip_prefixes() {
@@ -5187,19 +5296,65 @@ strip_prefixes() {
     PREFIXED=1
     [ "$cwn" -ge 1 ] || return 1
   fi
+  # `nice -n <0..19>` and `timeout <duration>` wrap each other in either
+  # order, each at most once (a second one is left as the verb and defers).
+  local niced=0 before=$cwn
+  strip_nice
+  [ "$cwn" -lt "$before" ] && niced=1
   if [ "${cw[0]}" = timeout ] && [ "$cwn" -ge 2 ] && [ "${cqp[1]}" -lt 0 ] \
     && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" \
     && is_duration "${cw[1]}"; then
     shift_words 2
     PREFIXED=1
     [ "$cwn" -ge 1 ] || return 1
+    [ "$niced" = 0 ] && strip_nice
   fi
+  strip_compute_route || return 1
   if [ "$PREFIXED" = 1 ]; then
     case ${cw[0]} in
-      time | timeout | cd) return 1 ;;
+      time | timeout | nice | cd) return 1 ;;
     esac
   fi
   return 0
+}
+
+# strip_compute_route: drop a leading `<installed root>/scripts/compute-route.sh
+# --`, setting PREFIXED, so the command it routes is verified as if it stood
+# alone: the router only chooses where an approved command runs. A copy in the
+# checkout is a worker-authored script, so only the installed one counts. Only
+# the bare form is
+# transparent (no kind flag, which would name a different command to the host
+# than the one run here), and a router with nothing to run, or another router
+# as that command, defers. is_trusted_script refuses the script as a verb, so
+# no other spelling reaches the router.
+strip_compute_route() {
+  case ${cw[0]} in
+    compute-route.sh | */compute-route.sh) ;;
+    *) return 0 ;;
+  esac
+  [ "$cwn" -ge 3 ] && [ "${cw[1]}" = -- ] && [ "${cqp[0]}" -lt 0 ] && [ "${cqp[1]}" -lt 0 ] \
+    && ! word_unresolved "${cw[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" || return 1
+  is_planwright_script "${cw[0]}" "$HOOK_CWD" || return 1
+  shift_words 2
+  PREFIXED=1
+  case ${cw[0]} in
+    compute-route.sh | */compute-route.sh) return 1 ;;
+  esac
+  return 0
+}
+
+# strip_nice: drop a leading `nice -n <0..19>` (REQ-A1.16) when the adjustment
+# is a bare plain decimal literal, setting PREFIXED. Any other spelling is left
+# as the verb, which classify_verb defers: a negative adjustment is privileged
+# and a non-literal value is unreadable here.
+strip_nice() {
+  local re='^([0-9]|1[0-9])$'
+  [ "${cw[0]}" = nice ] && [ "$cwn" -ge 4 ] && [ "${cw[1]}" = -n ] \
+    && [ "${cqp[1]}" -lt 0 ] && [ "${cqp[2]}" -lt 0 ] \
+    && ! word_unresolved "${cw[2]}" "${cdyn[2]}" "${cglob[2]}" "${cx[2]}" \
+    && [[ ${cw[2]} =~ $re ]] || return 0
+  shift_words 3
+  PREFIXED=1
 }
 
 # cd_target_ok: the current simple command is `cd <dir>` naming an existing
@@ -5362,29 +5517,17 @@ verify_known_simple() {
   if [ "$cwn" -eq 1 ] && track_assignment; then
     return 0
   fi
-  # The step context is read as written, before expansion: a word that only
-  # becomes `PLANWRIGHT_STEP_*=` through `$NAME` is a command name to bash.
-  STEP_CTX_PREFIXED=0
-  case ${cw[0]} in
-    PLANWRIGHT_STEP_*=*) strip_step_context || return 1 ;;
-  esac
   # Resolve the tracked assignments into this command's words, so a verb,
   # script path, or screened operand written through `$NAME` is verified as
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
+  strip_step_context
   strip_prefixes || return 1
   # The floor again, on the words the shell will run.
   deny_hit "${cw[@]}" && return 1
   floor_act && return 1
   verb=${cw[0]}
-  # The step context prefixes only a script (the trusted-script case below).
-  if [ "$STEP_CTX_PREFIXED" = 1 ]; then
-    case $verb in
-      */*) ;;
-      *) return 1 ;;
-    esac
-  fi
   # A substitution's command must be read-only, and trusted repo code (a
   # script, `bash`/`sh` running one, `mise`, `lefthook`, `bats`) may write.
   if [ "$IN_SUBST" = 1 ]; then

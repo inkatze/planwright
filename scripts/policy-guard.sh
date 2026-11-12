@@ -31,7 +31,8 @@
 # command naming a posture file passes only as a plain read, and a word or
 # redirect target that could expand into one denies (the directories are the
 # file surface's alone: an installed planwright script runs from under
-# .claude/plugins). Its flip, for a PR of the repository it runs in only,
+# .claude/plugins). Its flip, for a PR of the repository it runs in or of a
+# program-listed one it names with --repo,
 # follows ready_flip_policy: unit-owner defers to the ready-guard's currency
 # check, human asks the operator; the MCP flip stays denied whole, as the
 # tower's is.
@@ -67,8 +68,11 @@
 #               the ready-guard's currency check runs next). mission-control:
 #               unit-owner defers as a worker's does, and human asks the
 #               operator, whose yes is the request to flip, the reason naming
-#               the setting that settles it; a flip naming another repository
-#               (--repo, a PR URL, GH_REPO, GH_HOST) denies.
+#               the setting that settles it. A flip naming another repository
+#               with one plain --repo owner/repo reads that repository's
+#               policy, where exactly one checkout the programs list has that
+#               github.com origin; a PR URL, GH_REPO, GH_HOST, a repository no
+#               program lists and an ambiguous one deny.
 #   undo        `gh pr ready --undo` and the MCP ready->draft transition: deny,
 #               the corrective helper being the only sanctioned re-draft.
 #               Running scripts/request-reviewer.sh performs no act here, so
@@ -162,11 +166,12 @@
 # At the tower tier a git alias expanding to one of the tower-only
 # subcommands denies too, and so does any subcommand that is not a builtin
 # where the guard cannot read the alias: in a command it cannot parse, or in
-# a repository or directory it cannot follow. An expansion among a tower
-# act's options denies, since it could spell the refused option. In a command
-# it cannot parse, the guard also refuses git whose subcommand is quoted,
-# escaped, or expanded, or whose global options carry a quote or an escape,
-# and a fetch or `git remote` beside -c, a GIT_* assignment, or a config or
+# a repository or directory it cannot follow; at every tier, so does any such
+# subcommand after a directory change it cannot follow. An expansion among a
+# tower act's options denies, since it could spell the refused option. In a
+# command it cannot parse, the guard also refuses git whose subcommand is
+# quoted, escaped, or expanded, or whose global options carry a quote or an
+# escape, and a fetch or `git remote` beside -c, a GIT_* assignment, or a config or
 # remote change. These acts
 # cover every
 # entry of config/tower-settings.json's deny list, which
@@ -571,8 +576,21 @@ heredoc_substitution_at() {
   HS_BODY=$body
 }
 
+# unparsed_evidence <text> — raw_evidence, or the kickoff push named in any
+# spelling. Only the parse decides the kickoff push (kickoff_segment), so a
+# command the guard cannot parse is refused when it names it. Every character
+# outside the name is dropped before the match, so an empty expansion spliced
+# into the name (`kic$()koff`) cannot hide it from the shell.
+unparsed_evidence() {
+  raw_evidence "$1" && return 0
+  lc "$1"
+  LC=${LC//[!a-z0-9.-]/}
+  case $LC in *"$KICK_NAME"*) return 0 ;; esac
+  return 1
+}
+
 deny_unanalyzable() {
-  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
+  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, the kickoff push, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
 }
 
 # --------------------------------------------------------------------------
@@ -582,23 +600,33 @@ deny_unanalyzable() {
 # escape or `$` outside single quotes, and an unquoted glob or brace (gh's
 # `{owner}`, `{repo}`, and `{branch}` placeholders excepted). It refuses
 # command and process substitution (bar the data-only heredoc idiom above),
-# backticks, ANSI-C quoting, and grouping. An unquoted here-document whose
-# body carries a substitution sets HEREDOC_SUBST, since bash runs it.
+# backticks, ANSI-C quoting, grouping, and a here-document whose end the
+# guard cannot place ($-quoted or escaped delimiters, joined lines). An
+# unquoted here-document whose body carries a substitution sets
+# HEREDOC_SUBST, since bash runs it.
 #
-# Results: W[] words, WL[] literal flags, SEG_S[]/SEG_E[] word ranges,
-# SEG_TERM[] terminators, SEG_DOC[] here-document bodies per segment.
+# Results: W[] words, WL[] literal flags, WU[] unquoted flags (no quote or
+# escape anywhere in the word), WA[] flags for a word whose first `=` comes
+# before any quote or escape, WR[] flags for a word after a redirect in its
+# segment, SEG_S[]/SEG_E[] word ranges, SEG_TERM[] terminators, SEG_DOC[]
+# here-document bodies, and SEG_RD[] flags for a segment with a redirect.
 
 HEREDOC_SUBST=0
 tokenize() {
   local s=$1
-  local n=${#s} i=0 c nc ch cur='' have=0 lit=1 uqonly=1 digits_only=1 fold_doc=''
+  local n=${#s} i=0 c nc ch cur='' have=0 lit=1 uqonly=1 digits_only=1 fold_doc='' redir=0
+  local eq_seen=0 eq_uq=0
   local pending_delims=() pending_tabs=() pending_seg=() pending_quoted=()
   W=()
   WL=()
+  WU=()
+  WA=()
+  WR=()
   SEG_S=()
   SEG_E=()
   SEG_TERM=()
   SEG_DOC=()
+  SEG_RD=()
   local seg_start=0
 
   flush_word() {
@@ -612,9 +640,14 @@ tokenize() {
       esac
       W[${#W[@]}]=$cur
       WL[${#WL[@]}]=$lit
+      WU[${#WU[@]}]=$uqonly
+      WA[${#WA[@]}]=$eq_uq
+      WR[${#WR[@]}]=$redir
     fi
     cur=''
     have=0
+    eq_seen=0
+    eq_uq=0
     lit=1
     uqonly=1
     digits_only=1
@@ -622,12 +655,16 @@ tokenize() {
   }
   flush_seg() {
     flush_word || return 1
-    if [ "${#W[@]}" -gt "$seg_start" ]; then
+    # A command of redirects alone has no words but still runs, and its
+    # terminator decides what runs after it, so it keeps a segment.
+    if [ "${#W[@]}" -gt "$seg_start" ] || [ "$redir" = 1 ]; then
       SEG_S[${#SEG_S[@]}]=$seg_start
       SEG_E[${#SEG_E[@]}]=${#W[@]}
       SEG_TERM[${#SEG_TERM[@]}]=$1
       SEG_DOC[${#SEG_DOC[@]}]=$fold_doc
+      SEG_RD[${#SEG_RD[@]}]=$redir
     fi
+    redir=0
     fold_doc=''
     seg_start=${#W[@]}
     return 0
@@ -645,9 +682,18 @@ tokenize() {
         line=${s:i}
         line=${line%%"$NL"*}
         i=$((i + ${#line} + 1))
+        # bash joins a line ending in an unescaped backslash (an odd run of
+        # them) to the next one in an unquoted body before matching the
+        # delimiter.
+        if [ "${pending_quoted[$k]}" = 0 ]; then
+          cand=${line##*[!\\]}
+          [ $((${#cand} % 2)) = 0 ] || return 1
+        fi
         cand=$line
         [ "${pending_tabs[$k]}" = 0 ] || cand=${cand#"${cand%%[!"$TAB"]*}"}
-        [ "$cand" != "${pending_delims[$k]}" ] || break
+        # bash tries the line as written before its tabs are stripped, which
+        # matters for a delimiter that itself starts with a tab.
+        [ "$line" != "${pending_delims[$k]}" ] && [ "$cand" != "${pending_delims[$k]}" ] || break
         body="$body$line$NL"
       done
       if [ "${pending_quoted[$k]}" = 0 ]; then
@@ -777,6 +823,7 @@ tokenize() {
           have=0
         fi
         flush_word || return 1
+        redir=1
         if [ "$c" = '<' ] && [ "$nc" = '<' ] && [ "${s:i+2:1}" != '<' ]; then
           # A here-document: record its delimiter; the body is read at the
           # next newline.
@@ -796,12 +843,23 @@ tokenize() {
                 quoted=1
                 i=$((i + 1))
                 while [ "$i" -lt "$n" ] && [ "${s:i:1}" != "$q" ]; do
+                  # Inside double quotes a backslash may escape the next
+                  # character, which the delimiter would then lose.
+                  [ "$q" = "'" ] || [ "${s:i:1}" != "\\" ] || return 1
                   delim="$delim${s:i:1}"
                   i=$((i + 1))
                 done
                 [ "$i" -lt "$n" ] || return 1
                 ;;
-              "\\") quoted=1 ;;
+              "\\")
+                quoted=1
+                i=$((i + 1))
+                # A backslash-newline joins the lines instead.
+                [ "$i" -lt "$n" ] && [ "${s:i:1}" != "$NL" ] || return 1
+                delim="$delim${s:i:1}"
+                ;;
+              # bash reads $'..' and $".." as quotes here, and drops the $.
+              '$') return 1 ;;
               *) delim="$delim$ch" ;;
             esac
             i=$((i + 1))
@@ -853,6 +911,7 @@ tokenize() {
           # `&>` and `&>>` redirect both streams; the target is skipped like
           # any other redirect's.
           flush_word || return 1
+          redir=1
           i=$((i + 1))
           continue
         fi
@@ -867,7 +926,7 @@ tokenize() {
       "$NL")
         flush_seg "$NL" || return 1
         i=$((i + 1))
-        [ "${#pending_delims[@]}" = 0 ] || read_heredocs
+        [ "${#pending_delims[@]}" = 0 ] || read_heredocs || return 1
         ;;
       ' ' | "$TAB")
         flush_word || return 1
@@ -910,6 +969,10 @@ tokenize() {
         i=$((i + 1))
         ;;
       *)
+        if [ "$c" = '=' ] && [ "$eq_seen" = 0 ]; then
+          eq_seen=1
+          eq_uq=$uqonly
+        fi
         cur="$cur$c"
         have=1
         case $c in [0-9]) ;; *) digits_only=0 ;; esac
@@ -918,7 +981,7 @@ tokenize() {
     esac
   done
   flush_seg '' || return 1
-  [ "${#pending_delims[@]}" = 0 ] || read_heredocs
+  [ "${#pending_delims[@]}" = 0 ] || read_heredocs || return 1
   return 0
 }
 
@@ -1398,6 +1461,121 @@ segment_words() {
   done
 }
 
+# compound_shape <seg> — read the segment's leading reserved words: advance
+# CS_DEPTH, the compound commands (if, while, until, for, select, case) open
+# at it; set CS_NOFOLLOW when a cd in it may not run in this shell or may fail
+# unseen (a `!`, a coproc, an exec, a zsh precommand modifier, a word
+# segment_words skips as an assignment that bash runs as a command, or a
+# reserved word made a plain command name by quoting or by an assignment,
+# command or builtin before it); set CS_NOCD, kept for the rest of the
+# command, where CS_DEPTH may be wrong from there so no later cd is followed:
+# at a reserved word after a redirect or a zsh modifier, which bash and zsh
+# read differently, at a coproc, whose NAME can hide a compound's opener, and
+# at a zsh repeat, whose short form has no closing word to count; and set
+# CS_LOST, also kept, at a function definition, whose body may change
+# directory when called.
+CS_DEPTH=0
+CS_NOCD=0
+CS_LOST=0
+compound_shape() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} prefixed=0 name
+  CS_NOFOLLOW=0
+  while [ "$k" -lt "$e" ]; do
+    case ${W[$k]} in
+      '!' | if | then | else | elif | do | while | until | for | select | case | fi | done | 'esac' | \
+        time | coproc | function | noglob | nocorrect | repeat)
+        if [ "$prefixed" = 2 ] || [ "${WR[$k]}" = 1 ]; then
+          CS_NOCD=1
+          return 0
+        fi
+        if [ "${WU[$k]}" != 1 ]; then
+          CS_NOFOLLOW=1
+          return 0
+        fi
+        # After an assignment or command, a reserved word is a plain command
+        # name, but zsh still reads a modifier as one.
+        if [ "$prefixed" = 1 ]; then
+          case ${W[$k]} in
+            noglob | nocorrect) ;;
+            *)
+              CS_NOFOLLOW=1
+              return 0
+              ;;
+          esac
+        fi
+        ;;
+      command | builtin)
+        prefixed=1
+        k=$((k + 1))
+        continue
+        ;;
+      exec)
+        # exec never runs the cd builtin: it replaces the shell with a cd
+        # program where one exists, and otherwise, under execfail, the shell
+        # carries on in the old directory.
+        CS_NOFOLLOW=1
+        return 0
+        ;;
+      [A-Za-z_]*=*)
+        name=${W[$k]%%=*}
+        case $name in
+          *[!A-Za-z0-9_+]*) return 0 ;;
+        esac
+        name=${name%+}
+        case "${WA[$k]}:$name" in
+          *+* | 0:*)
+            CS_NOFOLLOW=1
+            return 0
+            ;;
+        esac
+        prefixed=1
+        k=$((k + 1))
+        continue
+        ;;
+    esac
+    case ${W[$k]} in
+      noglob | nocorrect)
+        CS_NOFOLLOW=1
+        prefixed=2
+        ;;
+      '!') CS_NOFOLLOW=1 ;;
+      coproc)
+        CS_NOFOLLOW=1
+        CS_NOCD=1
+        ;;
+      repeat)
+        CS_NOFOLLOW=1
+        CS_NOCD=1
+        return 0
+        ;;
+      if | while | until) CS_DEPTH=$((CS_DEPTH + 1)) ;;
+      then | else | elif | do) ;;
+      time)
+        while [ "$((k + 1))" -lt "$e" ]; do
+          case ${W[$((k + 1))]} in
+            -p | --) k=$((k + 1)) ;;
+            *) break ;;
+          esac
+        done
+        ;;
+      for | select | case)
+        CS_DEPTH=$((CS_DEPTH + 1))
+        return 0
+        ;;
+      fi | done | 'esac')
+        [ "$CS_DEPTH" = 0 ] || CS_DEPTH=$((CS_DEPTH - 1))
+        return 0
+        ;;
+      function)
+        CS_LOST=1
+        return 0
+        ;;
+      *) return 0 ;;
+    esac
+    k=$((k + 1))
+  done
+}
+
 # segment_text <seg> — set SEG_TEXT to the segment's words and its
 # here-document body (a variable, not output: this runs per segment).
 segment_text() {
@@ -1532,10 +1710,10 @@ kickoff_script_at() {
   [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
 }
 
-# kickoff_segment <dir> — 0 when the segment names the kickoff push, which is
-# then decided here; 1 when it does not name it.
+# kickoff_segment <dir> <dir-ok> — 0 when the segment names the kickoff push,
+# which is then decided here; 1 when it does not name it.
 kickoff_segment() {
-  local dir=$1 n=${#SW[@]} named=0 w spec='' b form=direct
+  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
   done
@@ -1566,6 +1744,9 @@ kickoff_segment() {
     || deny_now 'this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Name the spec in lowercase letters, digits and hyphens.'
   [ -n "$spec" ] || return 0
   if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
+    [ "$dir_ok" = 1 ] \
+      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec branch checkout.'
+    [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
     [ "$b" = "planwright/$spec/spec" ] \
       || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec), and this checkout has ${b:-no branch} checked out - refusing. Check out that branch in your worktree."
@@ -1591,12 +1772,43 @@ kickoff_text_check() {
 
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
+  local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0
   KICK_SEEN=0
   [ -d "$eff" ] || eff_ok=0
+  CS_DEPTH=0
+  CS_NOCD=0
+  CS_LOST=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
     segment_text "$si"
     cur_text=$SEG_TEXT
+    compound_shape "$si"
+    [ "$CS_LOST" = 0 ] || eff_ok=0
+    # Where the shell may have skipped a followed cd, or run it in a
+    # background subshell, the directory is unknown until an absolute cd sure
+    # to run names it again (never, after a function definition): past the
+    # end of an and-or list whose cd ran only after an earlier command
+    # succeeded or carried a redirect, at a later || in that list, and past a
+    # list with a followed cd sent to the background.
+    pt=''
+    [ "$si" = 0 ] || pt=${SEG_TERM[$((si - 1))]}
+    case $pt in
+      '' | ';' | "$NL" | '&')
+        [ "$cd_cond" = 0 ] || eff_ok=0
+        [ "$pt" != '&' ] || [ "$cd_seen" = 0 ] || eff_ok=0
+        cd_seen=0
+        cd_cond=0
+        list_plain=1
+        ;;
+      '||') [ "$cd_cond" = 0 ] || eff_ok=0 ;;
+    esac
+    # list_plain: every earlier command in this list is a followed cd, so a
+    # cd after them is no more conditional than they are.
+    [ "$prev_cd" = 1 ] || [ "$si" = 0 ] || case $pt in
+      '' | ';' | "$NL" | '&') ;;
+      *) list_plain=0 ;;
+    esac
+    prev_cd=0
     if [ "${#SW[@]}" = 0 ]; then
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
@@ -1607,16 +1819,29 @@ classify_segments() {
             && deny_now "this command sets a shell hook variable whose value names a reserved act - refusing (fail closed). Run the command directly."
           ;;
       esac
-      prev_text=$cur_text
+      # zsh runs a command of redirects (and assignments) with no command
+      # word as cat, so text piped into it still reaches a shell further down
+      # the pipe.
+      case "$pt:${SEG_RD[si]}" in
+        '|:1' | '|&:1') prev_text="$prev_text$NL$cur_text" ;;
+        *) prev_text=$cur_text ;;
+      esac
       si=$((si + 1))
       continue
     fi
     verb=${SW[0]}
+    # At the mission-control tier a command name that is a variable the command
+    # assigned a plain literal is read as that literal.
+    if [ "$TIER" = mission-control ] && [ "${SWL[0]}" != 1 ] && mc_resolve_word "$verb"; then
+      verb=$MC_RW
+      SW[0]=$verb
+      SWL[0]=1
+    fi
     lc "${verb##*/}"
     base_verb=$LC
     [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
       || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
-    if kickoff_segment "$eff"; then
+    if kickoff_segment "$eff" "$eff_ok"; then
       prev_text=$cur_text
       si=$((si + 1))
       continue
@@ -1736,7 +1961,7 @@ classify_segments() {
       case $base_verb in
         bash | sh | zsh | dash | ksh | mksh | fish | busybox | eval | source | . | xargs | parallel)
           # Fed by a pipe, the shell runs whatever the previous segment wrote.
-          case ${SEG_TERM[$((si - 1))]:-} in
+          case $pt in
             '|' | '|&')
               [ "$si" = 0 ] || ! raw_evidence "$prev_text$NL$cur_text" \
                 || deny_now "this command pipes text naming a reserved act into $(sanitize_printable "$verb" 'a shell') - refusing (fail closed). Run the command directly."
@@ -1747,14 +1972,38 @@ classify_segments() {
       case $base_verb in
         cd | pushd | popd)
           local term=${SEG_TERM[$si]}
+          # Followed only where its list is sure to run it in this shell
+          # before the acts after it: not after a || or in a pipeline, a
+          # compound body or condition, or under compound_shape's other marks.
+          # A cd into a directory that exists and can be entered is taken to
+          # succeed.
           if [ "$verb" = cd ] && [ "${#SW[@]}" = 2 ] && [ "${SWL[1]}" = 1 ] \
-            && { [ "$term" = '&&' ] || [ "$term" = ';' ] || [ "$term" = "$NL" ]; }; then
+            && { [ "$term" = '&&' ] || [ "$term" = ';' ] || [ "$term" = "$NL" ]; } \
+            && [ "$CS_DEPTH" = 0 ] && [ "$CS_NOFOLLOW" = 0 ] && [ "$CS_NOCD" = 0 ] \
+            && [ "$pt" != '||' ] && [ "$pt" != '|' ] && [ "$pt" != '|&' ]; then
+            cd_seen=1
+            prev_cd=1
+            [ "$pt" != '&&' ] || [ "$list_plain" = 1 ] || cd_cond=1
+            # An absolute cd sure to run names the directory whatever came
+            # before it, short of a function definition.
             case ${SW[1]} in
-              /*) eff=${SW[1]} ;;
+              /*)
+                eff=${SW[1]}
+                [ "$CS_LOST" = 1 ] || eff_ok=1
+                ;;
               -*) eff_ok=0 ;;
               *) eff="$eff/${SW[1]}" ;;
             esac
-            [ -d "$eff" ] || eff_ok=0
+            { [ -d "$eff" ] && [ -x "$eff" ]; } || eff_ok=0
+            # A cd the guard cannot place may fail, skipping a cd chained after
+            # it with &&, so that cd is no longer sure to run.
+            [ "$eff_ok" = 1 ] || prev_cd=0
+            # The shell skips a cd whose redirect fails, so the directory holds
+            # only for the acts its && list runs after it.
+            if [ "${SEG_RD[si]}" = 1 ]; then
+              prev_cd=0
+              cd_cond=1
+            fi
           else
             eff_ok=0
           fi
@@ -1915,21 +2164,122 @@ classify_gh_ready() {
     deny_now 'gh pr ready --undo is denied: re-drafting a pull request is reserved to the corrective helper that follows a reviewer request (scripts/request-reviewer.sh). Ask the operator if a PR needs to go back to draft.'
     return 0
   fi
-  # The policy is read from the repository the command runs in, so mission
-  # control, which spans repositories, may flip only a PR of that one.
+  # The policy is read from the repository the flip targets: the one the
+  # command runs in, or one named with a single plain --repo owner/repo that
+  # eval_flip maps to a checkout a program lists. A PR URL, GH_REPO, GH_HOST
+  # and every other spelling deny.
   if [ "$TIER" = mission-control ]; then
-    local other=0
-    for a in "${SW[@]}"; do
-      case $a in -R | --repo | --repo=* | -R?* | *://*) other=1 ;; esac
+    local other=0 repo='' nrepo=0 i=0 n=${#SW[@]}
+    while [ "$i" -lt "$n" ]; do
+      a=${SW[$i]}
+      case $a in
+        -R | --repo)
+          nrepo=$((nrepo + 1))
+          i=$((i + 1))
+          repo=${SW[$i]:-}
+          [ "${SWL[$i]:-0}" = 1 ] || other=1
+          ;;
+        --repo=* | -R?*)
+          nrepo=$((nrepo + 1))
+          repo=${a#--repo=}
+          [ "$repo" != "$a" ] || repo=${a#-R}
+          [ "${SWL[$i]:-0}" = 1 ] || other=1
+          ;;
+        *://*) other=1 ;;
+      esac
+      i=$((i + 1))
     done
     case $P_CMD in *GH_REPO* | *GH_HOST*) other=1 ;; esac
     [ -z "${GH_REPO:-}" ] && [ -z "${GH_HOST:-}" ] || other=1
+    [ "$nrepo" -le 1 ] || other=1
+    if [ "$nrepo" = 1 ] && [ "$other" = 0 ]; then
+      plain_owner_repo "$repo" || other=1
+    fi
     if [ "$other" = 1 ]; then
-      deny_now 'this flip names a repository (--repo, a PR URL, GH_REPO or GH_HOST) other than the one whose ready_flip_policy the guard reads - refusing. Run gh pr ready <number> from that repository'"'"'s own checkout.'
+      deny_now "$MC_FLIP_OTHER_REASON"
+      return 0
+    fi
+    if [ "$nrepo" = 1 ]; then
+      [ "$eff_ok" = 1 ] \
+        || {
+          deny_now 'this flip runs after a directory change the guard cannot follow, so it cannot tell which flip it gates - refusing (fail closed). Issue gh pr ready on its own.'
+          return 0
+        }
+      queue_flip "$REPO_SENTINEL$repo" 1
       return 0
     fi
   fi
   queue_flip "$eff" "$eff_ok"
+}
+
+REPO_SENTINEL='@repo:'
+MC_FLIP_OTHER_REASON='this flip names a repository the guard cannot read the ready_flip_policy of (a PR URL, GH_REPO, GH_HOST, a repository no mission-control program lists, or an ambiguous one) - refusing. Name it as gh pr ready <number> --repo <owner>/<repo> for a repository a program lists, or run it from that repository'"'"'s own checkout.'
+
+# plain_owner_repo <value> — 0 for exactly owner/repo on github.com's charset,
+# with no host, path, expansion or leading dash.
+plain_owner_repo() {
+  local o r
+  case ${1:-} in
+    */*/* | */ | /* | -* | "") return 1 ;;
+    */*) ;;
+    *) return 1 ;;
+  esac
+  o=${1%%/*}
+  r=${1#*/}
+  case $o in "" | *[!A-Za-z0-9-]* | -* | *-) return 1 ;; esac
+  case $r in "" | *[!A-Za-z0-9._-]* | . | ..) return 1 ;; esac
+  [ "${#o}" -le 39 ] && [ "${#r}" -le 100 ]
+}
+
+# origin_owner_repo <dir> — set ORIGIN_OR to the lowercased owner/repo the
+# checkout's origin names on github.com, or '' when it names no such thing.
+ORIGIN_OR=''
+origin_owner_repo() {
+  local u
+  ORIGIN_OR=''
+  u=$(gitq "$1" remote get-url origin) || return 0
+  case $u in
+    https://github.com/* | ssh://git@github.com/*) u=${u#*github.com/} ;;
+    git@github.com:*) u=${u#git@github.com:} ;;
+    *) return 0 ;;
+  esac
+  u=${u%/}
+  u=${u%.git}
+  plain_owner_repo "$u" || return 0
+  lc "$u"
+  ORIGIN_OR=$LC
+}
+
+# resolve_program_repo <owner/repo> — set REPO_DIR to the one checkout the
+# mission-control programs list whose origin is that repository, or deny.
+REPO_DIR=''
+resolve_program_repo() {
+  local want progs p paths path found='' rc=0
+  lc "$1"
+  want=$LC
+  need_timeout
+  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/mc-program.sh" ] || emit_deny "$MC_FLIP_OTHER_REASON"
+  progs=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" list 2>/dev/null </dev/null) || rc=$?
+  [ "$rc" = 0 ] && [ -n "$progs" ] || emit_deny "$MC_FLIP_OTHER_REASON"
+  for p in $progs; do
+    need_timeout
+    paths=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" get "$p" repositories 2>/dev/null </dev/null) || emit_deny "$MC_FLIP_OTHER_REASON"
+    while IFS= read -r path; do
+      case $path in /*) ;; *) continue ;; esac
+      [ -d "$path" ] || continue
+      origin_owner_repo "$path"
+      [ "$ORIGIN_OR" = "$want" ] || continue
+      if [ -z "$found" ]; then
+        found=$path
+      elif [ "$found" != "$path" ]; then
+        emit_deny "$MC_FLIP_OTHER_REASON"
+      fi
+    done <<EOF
+$paths
+EOF
+  done
+  [ -n "$found" ] || emit_deny "$MC_FLIP_OTHER_REASON"
+  REPO_DIR=$found
 }
 
 queue_flip() {
@@ -2736,13 +3086,12 @@ classify_git() {
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') runs where git configuration is set in the same command or its environment (a GIT_* variable, git config, or git remote), so the guard cannot tell what it runs - refusing (fail closed). Run the configuration change and the command separately."
         return 0
       fi
-      # The alias lookup falls back to the payload's directory, which is not
-      # the repository git reads its aliases from here.
-      if [ "$TIER" = tower ] && { [ "$foreign" = 1 ] || [ "$dir_ok" = 0 ]; }; then
-        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, or a cd or -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
+      # git reads aliases from a repository the guard cannot place here.
+      if [ "$dir_ok" = 0 ] || { [ "$TIER" = tower ] && [ "$foreign" = 1 ]; }; then
+        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, a cd it cannot follow, or a -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
         return 0
       fi
-      git_alias_check "$sub" "$dir" "$dir_ok"
+      git_alias_check "$sub" "$dir"
       return 0
       ;;
   esac
@@ -2855,13 +3204,10 @@ git_config_key_check() {
 # git_alias_check — an unknown subcommand may be a configured alias, or
 # autocorrected into a reserved one.
 git_alias_check() {
-  local sub=$1 dir=$2 dir_ok=$3 v ac first
+  local sub=$1 dir=$2 v ac first
   case $sub in
     *[!A-Za-z0-9_.-]* | -*) return 0 ;;
   esac
-  # Where the directory cannot be followed, the payload's own still shows the
-  # global aliases.
-  [ "$dir_ok" = 1 ] || dir=$PAYLOAD_CWD
   [ -d "$dir" ] || dir=/
   v=$(gitq "$dir" config --get "alias.$sub") || v=''
   if [ -n "$v" ]; then
@@ -3725,6 +4071,12 @@ MC_FLIP_ASK_REASON='ready_flip_policy is human in this repository, so mission co
 eval_flip() {
   local dir=$1
   [ "$dir" != "$MCP_DIR_SENTINEL" ] || dir=$PAYLOAD_CWD
+  case $dir in
+    "$REPO_SENTINEL"*)
+      resolve_program_repo "${dir#"$REPO_SENTINEL"}"
+      dir=$REPO_DIR
+      ;;
+  esac
   read_knob ready_flip_policy "$dir" human unit-owner
   case $KNOB_VAL in
     unit-owner) return 0 ;;
@@ -4028,7 +4380,7 @@ main() {
     emit_deny 'the PreToolUse payload is larger than this guard reads - refusing (fail closed). Issue the command on its own.'
   fi
   if ! command -v jq >/dev/null 2>&1; then
-    { [ "$surface" = mcp ] || [ "$surface" = file ] || raw_evidence "$input" || mc_settings_named "$input"; } \
+    { [ "$surface" = mcp ] || [ "$surface" = file ] || unparsed_evidence "$input" || mc_settings_named "$input"; } \
       && emit_deny_constant
     return 0
   fi
@@ -4062,7 +4414,7 @@ main() {
   if [ -z "$tool" ]; then
     [ "$surface" != mcp ] \
       || emit_deny 'this update_pull_request payload could not be parsed, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed). Use gh pr ready <number> for a flip.'
-    raw_evidence "$input" \
+    unparsed_evidence "$input" \
       && emit_deny 'the PreToolUse payload could not be parsed and its raw content names a reserved act - refusing (fail closed).'
     mc_settings_named "$input" \
       && emit_deny 'the PreToolUse payload could not be parsed and its raw content names a settings file - refusing (fail closed).'
@@ -4203,6 +4555,74 @@ mc_scratch_var() {
   [[ $val =~ ^(/tmp/claude-|/tmp/planwright-)[A-Za-z0-9._/-]*$ || $val =~ ^\$TMPDIR(/[A-Za-z0-9._/-]*)?$ ]]
 }
 
+# mc_installed_root_re — the installed root's path prefix, under the user's own
+# home only: a look-alike path elsewhere (a scratch directory the session can
+# write) is no installed script. Sets MC_ROOT_RE, 1 when HOME is unusable.
+mc_installed_root_re() {
+  local h=${HOME:-}
+  case $h in /?*) ;; *) return 1 ;; esac
+  MC_ROOT_RE=${h//[^A-Za-z0-9_\/-]/.}'/\.c[l]aude/plugins/cache/planwright/planwright/[0-9][A-Za-z0-9._+-]*/'
+}
+
+# mc_installed_script <path> — 0 when the path is a planwright script at the
+# installed root: the session's own tooling, which a read of a configuration
+# file may name.
+mc_installed_script() {
+  mc_installed_root_re || return 1
+  [[ $1 =~ ^$MC_ROOT_RE'scripts/'[A-Za-z0-9._-]+\.sh$ ]]
+}
+
+# mc_literal_var <name> — 0, with the value in MC_VAR_VAL, when the command
+# assigns the variable exactly once, as a plain literal that opens a statement
+# of its own (after the start, a semicolon or a newline: never after && or in a
+# group, where it may not run) and ends it, before any use, and changes it no
+# other way. What a variable held in an earlier call is out of a text
+# screen's sight, so it earns no trust.
+mc_literal_var() {
+  local n=$1 t=${MC_CMD//[\"\'\\]/} re_asg re_other re_plus re_use re_param before rest val tail
+  MC_VAR_VAL=''
+  [[ $n =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+  re_asg="(^|[^[:alnum:]_])$n="
+  re_other="(read|for|local|declare|typeset|mapfile|readarray|unset|printf[[:space:]]+-v)[^;&|]*[^[:alnum:]_]$n([^[:alnum:]_]|\$)"
+  re_plus="(^|[^[:alnum:]_])${n}[+]="
+  re_param="[\$][{]${n}[:]?[=]"
+  [[ $t =~ $re_other || $t =~ $RE_MC_REBIND || $t =~ $re_plus || $t =~ $re_param ]] && return 1
+  [[ $t =~ $re_asg ]] || return 1
+  before=${t%%"${BASH_REMATCH[0]}"*}
+  rest=${t#*"${BASH_REMATCH[0]}"}
+  [[ $rest =~ $re_asg ]] && return 1
+  # shellcheck disable=SC2016 # a regex
+  re_use='(^|[^[:alnum:]_])\$(\{'$n'\}|'$n'([^[:alnum:]_]|$))'
+  [[ $before =~ $re_use ]] && return 1
+  case $before in
+    '' | *';' | *$'\n') ;;
+    *)
+      # Allow the `export ` form and spaces after a separator.
+      before=${before%"${before##*[![:blank:]]}"}
+      case $before in '' | *';' | *$'\n' | *'; export' | *$'\n'export) ;; *) return 1 ;; esac
+      ;;
+  esac
+  val=${rest%%[[:space:];&|)]*}
+  tail=${rest#"$val"}
+  tail=${tail#"${tail%%[![:blank:]]*}"}
+  case $tail in ';'* | $'\n'* | '&&'*) ;; *) return 1 ;; esac
+  [[ $val =~ ^[A-Za-z0-9_./+:@%,=-]+$ && $val != *..* ]] || return 1
+  MC_VAR_VAL=$val
+  return 0
+}
+
+# mc_resolve_word <word> — rewrites a word that starts with a variable the
+# command assigned a plain literal into MC_RW, 0 when it did so. Any other
+# word, or an unresolvable variable, leaves MC_RW the word itself, status 1.
+mc_resolve_word() {
+  MC_RW=$1
+  [[ $1 =~ ^\$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))(/.*)?$ ]] || return 1
+  local name=${BASH_REMATCH[2]}${BASH_REMATCH[3]} rest=${BASH_REMATCH[4]}
+  mc_literal_var "$name" || return 1
+  MC_RW=$MC_VAR_VAL$rest
+  return 0
+}
+
 # mc_data_target <word> — 0 when an expanding write target still sits in a
 # data place: the harness scratch (never reaching a .claude or .mcp name), or a
 # project memory or task folder, with no dot-dot component.
@@ -4226,6 +4646,11 @@ mc_data_target() {
 mc_write_word_refused() {
   local w=${1#of=}
   mc_posture_word "$w" && return 0
+  # A variable the command assigned a plain literal is that literal.
+  if mc_resolve_word "$w"; then
+    w=$MC_RW
+    mc_posture_word "$w" && return 0
+  fi
   mc_expands "$w" || return 1
   mc_data_target "$w" && return 1
   return 0
@@ -4249,6 +4674,46 @@ mc_named_outside_messages() {
     esac
   done
   mc_settings_named "$acc"
+}
+
+# mc_reader_segment <sed|find|gh> — 0 when the segment (SW) only reads: sed
+# printing line ranges with -n, find with no action that runs or writes, and a
+# gh view, list, diff or checks subcommand.
+mc_reader_segment() {
+  local w n=0 script=0 sub
+  case $1 in
+    sed)
+      # The first plain word is the script; the words after it are files read.
+      for w in "${SW[@]:1}"; do
+        case $w in
+          -n) n=1 ;;
+          -*) return 1 ;;
+          *)
+            [ "$script" = 0 ] || continue
+            script=1
+            case $w in *[!0-9,\$pq]*) return 1 ;; esac
+            ;;
+        esac
+      done
+      [ "$n" = 1 ] && [ "$script" = 1 ]
+      ;;
+    find)
+      for w in "${SW[@]:1}"; do
+        case $w in
+          -exec* | -ok* | -delete | -fprint* | -fls) return 1 ;;
+        esac
+      done
+      ;;
+    gh)
+      sub=${SW[1]:-}
+      case $sub in pr | issue | repo) ;; *) return 1 ;; esac
+      for w in "${SW[@]:2}"; do
+        case $w in -*) continue ;; esac
+        case $w in view | list | diff | checks | status) return 0 ;; *) return 1 ;; esac
+      done
+      return 1
+      ;;
+  esac
 }
 
 # mc_settings_screen <command> — refuse a command that writes a posture file:
@@ -4296,7 +4761,13 @@ mc_settings_screen() {
     # Unparsed text (a command substitution, say) fails closed where it could
     # name a posture path or hand a write verb a target the screen cannot read;
     # its redirects were already vetted above.
-    case $t in
+    # The installed root sits under ~/.claude/plugins, and a run of planwright's
+    # own scripts from it names no posture file by that prefix alone.
+    local nr=$t
+    if mc_installed_root_re; then
+      while [[ $nr =~ $MC_ROOT_RE ]]; do nr=${nr/"${BASH_REMATCH[0]}"/}; done
+    fi
+    case $nr in
       *.c[l]aude* | *.mcp* | *settings* | *planwright.*) emit_deny "$MC_SETTINGS_DENY" ;;
     esac
     [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
@@ -4321,7 +4792,33 @@ mc_settings_screen() {
     si=$((si + 1))
     [ "${#SW[@]}" -gt 0 ] || continue
     if [ "$named" = 1 ]; then
-      [ "${SWL[0]}" = 1 ] || emit_deny "$MC_SETTINGS_DENY"
+      # A loop or condition keyword opens a segment; the command after it is
+      # the segment's own, and a loop's word list must hold no substitution,
+      # which would run.
+      case ${SW[0]} in
+        for | done | fi | 'esac')
+          for w in "${SW[@]}"; do
+            # shellcheck disable=SC2016 # literal patterns
+            case $w in *'$('* | *'`'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
+          done
+          continue
+          ;;
+        do | then | else | elif | if | while | until | '!')
+          SW=("${SW[@]:1}")
+          SWL=("${SWL[@]:1}")
+          [ "${#SW[@]}" -gt 0 ] || continue
+          ;;
+      esac
+      if [ "${SWL[0]}" != 1 ]; then
+        mc_resolve_word "${SW[0]}" || emit_deny "$MC_SETTINGS_DENY"
+        SW[0]=$MC_RW
+      fi
+      # One of planwright's own scripts at the installed root reads what it is
+      # handed, apart from the two that write configuration.
+      if mc_installed_script "${SW[0]}"; then
+        case ${SW[0]##*/} in install.sh | mc-config.sh) emit_deny "$MC_SETTINGS_DENY" ;; esac
+        continue
+      fi
       case ${SW[0]} in
         */*)
           case ${SW[0]} in
@@ -4332,7 +4829,8 @@ mc_settings_screen() {
       esac
       lc "${SW[0]##*/}"
       case $LC in
-        cat | head | tail | jq | grep | egrep | fgrep | wc | ls | stat | diff | cmp) ;;
+        cat | head | tail | jq | grep | egrep | fgrep | wc | ls | stat | diff | cmp | cut | tr | nl | tac | rev | column) ;;
+        sed | find | gh) mc_reader_segment "$LC" || emit_deny "$MC_SETTINGS_DENY" ;;
         *) emit_deny "$MC_SETTINGS_DENY" ;;
       esac
       continue
@@ -4462,10 +4960,26 @@ EOF
   return 0
 }
 
+# mc_unparsed_command_names <command> — refuses, in text the guard cannot
+# parse, a statement whose command name is a bare variable that is not a plain
+# literal the command assigned: it could be git or gh.
+mc_unparsed_command_names() {
+  # shellcheck disable=SC2016 # a regex; `$` is literal
+  local rest=$1 word re='(^|[;&|]|'$'\n'')[[:space:]]*(\$([{][A-Za-z_][A-Za-z0-9_]*[}]|[A-Za-z_][A-Za-z0-9_]*))([[:space:];&|]|$)'
+  MC_CMD=$1
+  while [[ $rest =~ $re ]]; do
+    word=${BASH_REMATCH[2]}
+    rest=${rest#*"${BASH_REMATCH[0]}"}
+    mc_resolve_word "$word" \
+      || emit_deny "this command's name is an expansion the guard cannot read ($(sanitize_printable "$word" 'unprintable')), in text it cannot parse, so it could be git or gh - refusing (fail closed). Write the command name literally."
+  done
+  return 0
+}
+
 handle_bash() {
   local cmd=$P_CMD
   if [ "$P_CMD_OK" != 1 ] || [ -z "$cmd" ]; then
-    raw_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
+    unparsed_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
     mc_settings_named "$1" && emit_deny "$MC_SETTINGS_DENY"
     return 0
   fi
@@ -4500,7 +5014,7 @@ handle_bash() {
       fi
       ;;
     *)
-      raw_evidence "$cmd" && emit_deny 'this Bash payload carries a malformed cwd and its command names a reserved act - refusing (fail closed).'
+      unparsed_evidence "$cmd" && emit_deny 'this Bash payload carries a malformed cwd and its command names a reserved act - refusing (fail closed).'
       return 0
       ;;
   esac
@@ -4508,12 +5022,13 @@ handle_bash() {
   # bodies included: only the parse can tell a body bash runs from one it
   # hands to a command as data.
   if [ "${#cmd}" -gt "$MAX_CMD_LEN" ]; then
-    raw_evidence "$cmd" && deny_unanalyzable 'this command is too long for the guard to analyze'
+    unparsed_evidence "$cmd" && deny_unanalyzable 'this command is too long for the guard to analyze'
     return 0
   fi
   if ! tokenize "$cmd"; then
-    raw_evidence "$cmd" \
-      && deny_unanalyzable 'this command uses a construct the guard will not analyze (command or process substitution, backticks, ANSI-C quoting, or grouping)'
+    [ "$TIER" != mission-control ] || mc_unparsed_command_names "$cmd"
+    unparsed_evidence "$cmd" \
+      && deny_unanalyzable 'this command uses a construct the guard will not analyze (command or process substitution, backticks, ANSI-C quoting, grouping, or a here-document whose end the guard cannot place)'
     return 0
   fi
   if [ "$HEREDOC_SUBST" = 1 ]; then

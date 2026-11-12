@@ -121,9 +121,12 @@ Usage:
                                              that does not answer are in
                                              neither count)
         waiting<TAB><n|->                    the operator queue's items that
-                                             wait on the operator, `-`
-                                             where the backend surfaces the
-                                             queue itself
+                                             wait on the operator: a live
+                                             session's question, never one a
+                                             gone or unknown session left
+                                             behind or mission control's
+                                             own; `-` where the backend
+                                             surfaces the queue itself
         merge-ready<TAB><n><TAB>all|partial  pull requests ready to merge
                                              (scripts/mc-merge-ready.sh count);
                                              the line names them unless none,
@@ -133,6 +136,8 @@ Usage:
                                              one per ready pull request in
                                              the merge-ready store: the
                                              checked merge command
+        queued<TAB><worker><TAB><question>   one per operator item in the queue,
+                                             the question the row asks
         approvals<TAB><n>                    the queue's worker permission
                                              prompts, which mission control
                                              answers (with a number waiting)
@@ -1139,9 +1144,27 @@ waiting() {
   wt_n=$(printf '%s\n' "$wt_t" | awk -F '\t' '$1 == "operator" { print $2 }')
   wt_a=$(printf '%s\n' "$wt_t" | awk -F '\t' '$1 == "approvals" { print $2 }')
   if mc_valid_uint "$wt_n" && mc_valid_uint "$wt_a"; then
-    D_WAITING=$wt_n
     D_APPROVALS=$wt_a
+    # What mission control can put to the operator is a question from a live
+    # session other than its own: a row a gone session left behind, or one
+    # from a session the registry does not know, asks nobody. Where the
+    # registry or tmux could not be read a row cannot be proved stale, so it
+    # stays; the tally above is then the count.
+    if wt_items=$(/bin/sh "$script_dir/fleet-attention.sh" queue --items 2>/dev/null | mc_clean_text); then
+      wt_rows=$(printf '%s\n' "$wt_items" | LIVE="$fl_live" OWN="$target" PROVE="$([ "$H_REGISTRY_OK" -eq 1 ] && [ "$H_TMUX_UNKNOWN" -eq 0 ] && echo 1 || echo 0)" awk -F "$TAB" '
+        BEGIN { n = split(ENVIRON["LIVE"], l, "\n"); for (i = 1; i <= n; i++) { split(l[i], x, "\t"); if (x[1] != "") live[x[1]] = 1 } }
+        $1 == "item" {
+          if ($2 == ENVIRON["OWN"] || $2 ~ /-mission-control-/) next
+          if (ENVIRON["PROVE"] == "1" && !($2 in live)) next
+          print "queued\t" $2 "\t" $3
+        }')
+      wt_n=$(printf '%s' "$wt_rows" | awk 'NF { n++ } END { print n + 0 }')
+    else
+      wt_rows=""
+    fi
+    D_WAITING=$wt_n
     printf 'waiting\t%s\napprovals\t%s\n' "$wt_n" "$wt_a"
+    [ -z "$wt_rows" ] || printf '%s\n' "$wt_rows"
   else
     printf 'unreadable\toperator queue\n'
   fi

@@ -18,6 +18,7 @@ export type PanelMyPr = {
 }
 export type PanelWaitingPr = { repo: string; number: number; isDraft: boolean; requester: string; age: number; title: string }
 export type PanelMergeCommand = { repo: string; number: number; command: string }
+export type PanelQueued = { worker: string; question: string }
 export type PanelReviews = {
   isAvailable: boolean
   reason: string
@@ -36,6 +37,8 @@ export type PanelDigest = {
   // Registry sessions not retired and not seen live.
   finished: number | null
   waiting: number | null
+  // The question of each operator item in the queue; absent from a digest a reload carried over.
+  queued?: PanelQueued[]
   mergeReady: number | null
   // Some pull requests could not be judged, so mergeReady is a floor.
   isMergeReadyPartial: boolean

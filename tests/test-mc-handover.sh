@@ -3,7 +3,8 @@
 # trigger to the resume (mission-control REQ-A1.1, REQ-A1.7, REQ-B1.7,
 # REQ-L1.3, REQ-L1.5, REQ-L1.6). Successors launch on the stream-json rung
 # against a CLI shim that reads its first message and exits, so each
-# registry row is real and each retire goes through the launcher.
+# registry row is real and each retire goes through the launcher. The tmux
+# paths live in tests/test-mc-handover-tmux.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2015 # ok only prints, so a fail arm never follows a passing check
@@ -58,8 +59,11 @@ ho due --program alpha --context 5 --wakes 0 --compactions 2
 # ---------------------------------------------------------------------------
 # A first start: no holder, so a plain launch runs and takes the name.
 # ---------------------------------------------------------------------------
+printf 'mission_control_successor_remote_control: inherit\n' >"$adopter/planwright.yml"
 ho launch --program alpha --brief "$tmp/brief.md"
 [ "$RC" = 0 ] || fail "the first launch exited $RC: $ERR"
+case $ERR in *'not carried'*) fail "a first start with no predecessor spoke about Remote Control: $ERR" ;; *) ok "a first start has nothing to inherit and says nothing about Remote Control" ;; esac
+rm -f "$adopter/planwright.yml"
 n1=$(col successor 2)
 wait_done "$n1"
 grep -qF 'Run program alpha.' "$fleet/mission-control/launch/$n1/brief.md" \
@@ -151,6 +155,55 @@ holder_is "after the failed self-check the predecessor keeps the name" "$n1"
 # ---------------------------------------------------------------------------
 ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest" --ledger "$led1"
 [ "$RC" = 0 ] && ok "the successor's self-check matches the handover file" || fail "the matching verify exited $RC: $OUT $ERR"
+case $OUT in *"temporary${tab}"*) fail "a clean local layer raised a drift line: $OUT" ;; *) ok "REQ-A1.9: a clean local layer surfaces no drift" ;; esac
+printf '# interim: until the runner is rebuilt\nmission_control_stall_window: 20m\n' >"$tmp/absent.yml"
+ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest" --ledger "$led1"
+case $OUT in
+  *"temporary${tab}$tmp/absent.yml${tab}mission_control_stall_window${tab}marker interim"*"verified${tab}$n2${tab}"*) [ "$RC" = 0 ] && ok "REQ-A1.9: the self-check surfaces a temporary local override and still passes" || fail "drift verify exited $RC" ;;
+  *) fail "the self-check did not surface the temporary override before its verified line: $OUT $ERR" ;;
+esac
+rm -f "$tmp/absent.yml"
+printf 'mission_control_launch_backend: tmux\nmission_control_stall_window: 20m\n' >"$tmp/absent.yml"
+run mc-rules.sh add alpha --text "Set mission_control_repeat_window to 99m." --subject repeat --source "operator, fixture" --date 2026-10-26
+[ "$RC" = 0 ] || fail "fixture: the drift rule was not added: $ERR"
+run mc-rules.sh load alpha
+digest_drift=$(printf '%s\n' "$OUT" | sed -n 's/.*, digest \([0-9a-f]*\) -->.*/\1/p' | head -n 1)
+cp "$hf" "$tmp/hf.drift"
+awk -F '\t' -v OFS='\t' -v d="$digest_drift" '$1 == "rules" { $2 = d } { print }' "$tmp/hf.drift" >"$hf"
+ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest_drift" --ledger "$led1"
+[ "$RC" = 0 ] || fail "the drift verify exited $RC: $OUT $ERR"
+for kind in "override${tab}mission_control_stall_window" "duty-off${tab}" "launch-backend${tab}" "rule-knob${tab}r-2${tab}mission_control_repeat_window"; do
+  case $OUT in
+    *"$kind"*"verified${tab}$n2${tab}"*) ok "REQ-A1.9: the self-check surfaces a ${kind%%"$tab"*} finding before its verified line" ;;
+    *) fail "the self-check did not surface $kind before its verified line: $OUT" ;;
+  esac
+done
+rm -f "$tmp/absent.yml"
+# A doctor that dies (its final awk fails here) must still read as a finding.
+cat >"$tmp/bin/awk" <<'SHIM'
+#!/bin/sh
+if [ -e "${AWK_FAIL_FLAG:-/nonexistent}" ]; then
+  case $* in *'\302'*) case $(tr '\0' ' ' <"/proc/$PPID/cmdline" 2>/dev/null || ps -o args= -p "$PPID" 2>/dev/null) in *mc-config.sh*) exit 1 ;; esac ;; esac
+fi
+for a in /usr/bin/awk /bin/awk; do [ -x "$a" ] && exec "$a" "$@"; done
+exit 127
+SHIM
+chmod +x "$tmp/bin/awk"
+: >"$tmp/awk-fail"
+AWK_FAIL_FLAG="$tmp/awk-fail"
+export AWK_FAIL_FLAG
+ho verify --program alpha --session "$n2" --picture "$tmp/picture" --digest "$digest_drift" --ledger "$led1"
+unset AWK_FAIL_FLAG
+rm -f "$tmp/awk-fail" "$tmp/bin/awk"
+case $OUT in
+  *"unknown${tab}doctor${tab}"*"verified${tab}$n2${tab}"*) ok "REQ-A1.9: a doctor that cannot run reads as a finding, never as clean" ;;
+  *) fail "a failing doctor surfaced no finding: rc $RC $OUT $ERR" ;;
+esac
+cp "$tmp/hf.drift" "$hf"
+run mc-rules.sh supersede alpha r-2 --withdraw --source "operator, fixture" --date 2026-10-27
+[ "$RC" = 0 ] || fail "fixture: the drift rule was not withdrawn: $ERR"
+run mc-rules.sh load alpha
+[ "$(printf '%s\n' "$OUT" | sed -n 's/.*, digest \([0-9a-f]*\) -->.*/\1/p' | head -n 1)" = "$digest" ] || fail "fixture: the rules digest did not return after the drift rule was withdrawn"
 pred_sid=11111111-2222-3333-4444-555555555555
 other_sid=22222222-2222-3333-4444-555555555555
 act="$fleet/mission-control/_panel/active"
@@ -398,128 +451,6 @@ ho take --program alpha --session "$r2" --window 1s --exit-wait 1s
 [ ! -f "$(rowfile "$r1")" ] && ok "its registry row is still retired" || fail "the running registry predecessor's row stayed"
 holder_is "the name rests with the successor" "$r2"
 kill "$pr" 2>/dev/null
-
-# ---------------------------------------------------------------------------
-# REQ-L1.9, D-43: an attended holder inside tmux hands over itself, in a
-# pane beside it; the successor closes exactly the recorded predecessor pane
-# once the name has moved, never on a refused or failed take. A fake tmux
-# answers for the panes listed in its panes file and logs what it is asked.
-# ---------------------------------------------------------------------------
-cat >"$tmp/bin/tmux" <<'FAKE'
-#!/bin/sh
-d=${FAKE_TMUX_DIR:?}
-if [ "$1" = -S ]; then
-  sock=$2
-  shift 2
-  printf 'sock %s: ' "$sock" >>"$d/tmux.log"
-fi
-printf '%s\n' "$*" >>"$d/tmux.log"
-mkdir -p "$d/tmuxw"
-case $1 in
-  display-message)
-    t=''
-    for a in "$@"; do [ "$prev" = -t ] && t=$a; prev=$a; done
-    case $t in
-      %*) grep -qx -- "$t" "$d/tmux.panes" && printf '%s\n' "$t" && exit 0 ;;
-      @*) if [ -e "$d/tmuxw/$t" ]; then
-        case $* in *session_name*) echo stub ;; *) echo "$t" ;; esac
-        exit 0
-      fi ;;
-    esac
-    exit 1
-    ;;
-  new-window)
-    n=$(cat "$d/tmuxw/next" 2>/dev/null || echo 1)
-    echo $((n + 1)) >"$d/tmuxw/next"
-    shift
-    printf '%s\n' "$@" >"$d/tmuxw/argv-@$n"
-    wname=''
-    while [ "$#" -gt 0 ]; do
-      [ "$1" = -n ] && wname=$2
-      shift
-    done
-    printf '%s\n' "$wname" >"$d/tmuxw/@$n"
-    echo "@$n"
-    exit 0
-    ;;
-  list-windows)
-    for w in "$d"/tmuxw/@*; do
-      [ -f "$w" ] || continue
-      case $* in *window_name*) printf '%s %s\n' "${w##*/}" "$(cat "$w")" ;; *) printf '%s\n' "${w##*/}" ;; esac
-    done
-    exit 0
-    ;;
-  kill-window)
-    rm -f "$d/tmuxw/$3"
-    exit 0
-    ;;
-  kill-pane)
-    id=$3
-    grep -vx -- "$id" "$d/tmux.panes" >"$d/tmux.panes.new"
-    mv "$d/tmux.panes.new" "$d/tmux.panes"
-    exit 0
-    ;;
-  has-session) exit 1 ;;
-esac
-exit 1
-FAKE
-chmod +x "$tmp/bin/tmux"
-export FAKE_TMUX_DIR="$tmp"
-printf '%s\n' '%7' '%9' '%3' >"$tmp/tmux.panes"
-: >"$tmp/tmux.log"
-
-fake_session
-self_f=$FAKE
-ho resume --program alpha --session op-f --pid "$self_f" --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 1s --exit-wait 2s
-[ "$RC" = 0 ] || fail "fixture: the attended resume exited $RC: $OUT $ERR"
-printf "%s\n" "$(date +%s)" >"$fleet/mission-control/alpha/leases/op-f"
-
-RUN_TMUX_PANE='%7' ho path --program alpha
-[ "$OUT" = "path${tab}pane${tab}tmux" ] && ok "an attended holder inside tmux gets the pane path" || fail "path in tmux: $OUT $ERR"
-RUN_TMUX_PANE='%99' ho path --program alpha
-[ "$(col path 2)" = operator-act ] && ok "a pane tmux does not know still gets the operator's act" || fail "path in an unknown pane: $OUT"
-RUN_TMUX_PANE='7;rm' ho path --program alpha
-[ "$(col path 2)" = operator-act ] && ok "a pane id outside the grammar gets the operator's act" || fail "path with a malformed pane: $OUT"
-
-ho write --program alpha --session op-f --picture "$tmp/picture" --digest "$digest"
-[ "$RC" = 0 ] || fail "fixture: the handover file was not written: $OUT $ERR"
-led_f=$(col handover 3)
-RUN_TMUX_PANE='%7' ho launch --program alpha --brief "$tmp/brief.md" --handover --backend stream-json
-[ "$RC" = 0 ] || fail "fixture: the headless handover launch exited $RC: $OUT $ERR"
-ns=$(col successor 2)
-wait_done "$ns"
-grep -q '^predecessor-pane' "$fleet/mission-control/alpha/successor" && ! grep -q "^predecessor-pane${tab}%" "$fleet/mission-control/alpha/successor" \
-  && ok "a headless successor records no pane, so it can never close the operator's" || fail "the headless record: $(cat "$fleet/mission-control/alpha/successor")"
-run mission-control-launch.sh retire "$ns"
-rm -f "$fleet/mission-control/alpha/successor"
-
-RUN_TMUX_PANE='%7' ho launch --program alpha --brief "$tmp/brief.md" --handover
-[ "$RC" = 0 ] && ok "a handover launch over an attended holder inside tmux is admitted, on the tmux rung" || fail "the pane handover launch exited $RC: $OUT $ERR"
-nf=$(col successor 2)
-grep -qx "predecessor-pane${tab}%7" "$fleet/mission-control/alpha/successor" \
-  && grep -qx "predecessor-tmux${tab}$tmp/tmux.sock" "$fleet/mission-control/alpha/successor" \
-  && ok "the predecessor's pane id and tmux socket are recorded" || fail "no recorded pane: $(cat "$fleet/mission-control/alpha/successor")"
-
-RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wait 1s
-[ "$RC" != 0 ] && ! grep -q kill-pane "$tmp/tmux.log" \
-  && ok "a take before the self-check closes no pane" || fail "the unverified take: $RC $OUT $ERR $(cat "$tmp/tmux.log")"
-RUN_TMUX_PANE='%9' ho take --program alpha --session mc-someone-else --window 1s --exit-wait 1s
-[ "$RC" != 0 ] && ! grep -q kill-pane "$tmp/tmux.log" \
-  && ok "a refused take (not the pending successor) closes no pane" || fail "the refused take: $RC $OUT $ERR"
-holder_is "and the name stays put" op-f
-
-ho verify --program alpha --session "$nf" --picture "$tmp/picture" --digest "$digest" --ledger "$led_f"
-[ "$RC" = 0 ] || fail "fixture: the pane successor's verify exited $RC: $OUT $ERR"
-grep -qx "predecessor-pane${tab}%7" "$fleet/mission-control/alpha/successor" \
-  && ok "the verify keeps the recorded pane" || fail "verify dropped the pane: $(cat "$fleet/mission-control/alpha/successor")"
-kill "$self_f" 2>/dev/null
-RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wait 5s
-[ "$RC" = 0 ] && [ "$(col pane 2)" = '%7' ] && [ "$(col pane 3)" = closed ] \
-  && ok "the successful take reports the predecessor's pane closed" || fail "the pane take: $RC $OUT $ERR"
-[ "$(grep -c kill-pane "$tmp/tmux.log")" = 1 ] && grep -qx "sock $tmp/tmux.sock: kill-pane -t %7" "$tmp/tmux.log" \
-  && grep -qx '%9' "$tmp/tmux.panes" && grep -qx '%3' "$tmp/tmux.panes" \
-  && ok "exactly the recorded pane was killed, no other" || fail "tmux log: $(cat "$tmp/tmux.log")"
-holder_is "the name moved to the pane successor" "$nf"
 
 echo
 if [ "$failures" -gt 0 ]; then

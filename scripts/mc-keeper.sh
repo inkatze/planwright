@@ -111,8 +111,9 @@ Usage:
       still overdue one pending-prompt-overdue event, subject the worker,
       announced once per request (a worker the launcher records for
       another program left to that program), and a request that has just
-      arrived one pending-prompt event, rate-limited so a burst is one
-      event, and a dead worker this scan settled one stream-json-worker-dead
+      arrived one pending-prompt event per pass that sees it (the requests
+      new to that pass batched into the one event), and a dead worker this
+      scan settled one stream-json-worker-dead
       event, whatever its program, printing
         announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
       a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
@@ -805,20 +806,19 @@ EOF
 }
 
 # pending_arrivals: a stream-json request inside the pending bound is announced
-# as pending-prompt, so the operator hears of it at the next watch pass rather
-# than at the overdue bound. Arrivals are rate-limited: the first after
-# PENDING_ARRIVAL_WINDOW of silence is announced, and any other arrival seen
-# with it is folded into that one event; one that arrives inside the window
-# waits for the window to close. Runs after pending_prompts, so a dead
-# worker's requests are already settled and not announced here.
-PENDING_ARRIVAL_WINDOW=300
+# as pending-prompt at the first pass that sees it, so the operator hears of it
+# within one watch pass rather than at the overdue bound. The requests new to a
+# pass are one event, a burst arriving together included: its subject is the
+# first worker and its text names the rest. A request is marked announced only
+# once its event is stored, so a refused announce is retried on the next pass.
+# Runs after pending_prompts, so a dead worker's requests are already settled
+# and not announced here.
 pending_arrivals() {
   pa_now=${now:-$(date +%s)}
   pa_thr=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
   mc_valid_uint "$pa_now" && mc_valid_uint "$pa_thr" || return 1
   pa_root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 1
   pa_seen="$runtime/keeper-arrivals"
-  pa_last="$runtime/keeper-arrival-last"
   NL='
 '
   pa_list=$(launcher list 2>/dev/null) || pa_list=""
@@ -850,21 +850,20 @@ EOF
   pa_rc=0
   pa_first=$(printf '%s' "$pa_fresh" | awk 'NF { print; exit }')
   if [ -n "$pa_first" ]; then
-    pa_since=$(cat "$pa_last" 2>/dev/null) || pa_since=""
-    mc_valid_uint "$pa_since" || pa_since=0
-    if [ $((pa_now - pa_since)) -ge "$PENDING_ARRIVAL_WINDOW" ]; then
-      pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')
-      pa_fw=${pa_first%%	*}
-      # The rest of the burst and the window advance only once the event is
-      # stored, so a refused announce is retried on the next pass.
-      if mc_announce "$program" "$pa_seen" "$pa_first" pending-prompt "$pa_fw" \
-        "stream-json worker $pa_fw has a request waiting on a decision; $pa_count arrived together, fleet-streamjson.sh pending shows them, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one"; then
-        pa_rest=$(printf '%s' "$pa_fresh" | awk -v first="$pa_first" 'NF && $0 != first')
-        [ -z "$pa_rest" ] || printf '%s\n' "$pa_rest" >>"$pa_seen" || pa_rc=1
-        printf '%s\n' "$pa_now" >"$pa_last" || pa_rc=1
-      else
-        pa_rc=1
-      fi
+    pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')
+    pa_fw=${pa_first%%	*}
+    pa_text="stream-json worker $pa_fw has a request waiting on a decision; fleet-streamjson.sh pending shows it, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles it"
+    if [ "$pa_count" -gt 1 ]; then
+      pa_names=$(printf '%s' "$pa_fresh" | awk -F '\t' 'NF && !s[$1]++ { n = n ? n ", " $1 : $1 } END { print n }')
+      pa_text="$pa_count requests on stream-json workers $pa_names arrived together, waiting on a decision; fleet-streamjson.sh pending <worker> shows them, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one"
+    fi
+    # The rest of the batch is marked announced only once the event is stored,
+    # so a refused announce is retried on the next pass.
+    if mc_announce "$program" "$pa_seen" "$pa_first" pending-prompt "$pa_fw" "$pa_text"; then
+      pa_rest=$(printf '%s' "$pa_fresh" | awk -v first="$pa_first" 'NF && $0 != first')
+      [ -z "$pa_rest" ] || printf '%s\n' "$pa_rest" >>"$pa_seen" || pa_rc=1
+    else
+      pa_rc=1
     fi
   fi
   mc_announce_prune "$pa_seen" "$pa_live" || pa_rc=1

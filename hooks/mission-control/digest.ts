@@ -18,6 +18,7 @@ export function parseDigest(text: string): PanelDigest | null {
     flights: [],
     finished: null,
     waiting: null,
+    queued: [],
     mergeReady: null,
     isMergeReadyPartial: false,
     mergeCommands: [],
@@ -62,6 +63,9 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'waiting':
         d.waiting = int(f[1])
+        break
+      case 'queued':
+        d.queued?.push({ worker: f[1] ?? '', question: f[2] ?? '' })
         break
       case 'merge-ready':
         d.mergeReady = int(f[1])
@@ -217,13 +221,74 @@ type ReloadedFlight = Pick<PanelFlight, 'worker' | 'scope'> & { state?: PanelFli
 
 const flightState = (f: ReloadedFlight): PanelFlight['state'] => (f.state && STATES[f.state] ? f.state : 'working')
 
-// One plain row per session: what it is and where it stands, never its handle
-// or scope. Those waiting on an answer come first, then those not responding.
-export function flightRows(flights: ReloadedFlight[]): { state: PanelFlight['state']; text: string }[] {
+// The spec or change a session is about, read from the scope its launcher
+// gives (`spec:task-3`, `flight:name`, `spec-draft-name`); null where it names none.
+export function flightSubject(f: Pick<PanelFlight, 'worker' | 'scope'>, program: string): string | null {
+  const kind = flightKind(f)
+  const s = f.scope
+  if (kind === 'mc') return program || null
+  if (s === '' || s === '-') return null
+  if (kind === 'review') {
+    const pr = /pr-?([0-9]+)/.exec(s)
+    return pr ? `PR ${pr[1]}` : null
+  }
+  if (/^flight[:-]/.test(s)) return s.replace(/^flight[:-]/, '')
+  if (/^spec-draft-/.test(s)) return s.replace(/^spec-draft-/, '')
+  // The spec name, without its task part (`spec:task-3`, `spec:3.1`, `spec-task-3`).
+  const named = s.replace(/((^|[:-])task-?[0-9]+(\.[0-9]+)*|:[0-9]+(\.[0-9]+)*)$/, '')
+  const colon = named.indexOf(':')
+  return (colon > 0 ? named.slice(0, colon) : named) || null
+}
+
+// One plain row per session: what it is, what it is about and where it
+// stands, never its handle or scope. Those waiting on an answer come first,
+// then those not responding.
+// What a session is doing, as the end of a plain sentence.
+function flightWhat(kind: keyof typeof KINDS, subject: string | null, prTitle: string | undefined): string {
+  switch (kind) {
+    case 'task':
+      return subject ? `a task of the ${subject} spec` : 'a spec task'
+    case 'draft':
+      return subject ? `the draft of the ${subject} spec` : 'a spec draft'
+    case 'kickoff':
+      return subject ? `the kickoff of the ${subject} spec` : 'a spec kickoff'
+    case 'change':
+      return subject ? `a one-off change (${subject})` : 'a one-off change'
+    case 'review':
+      return subject ? `a review of ${subject}${prTitle ? ` "${prTitle}"` : ''}` : 'a review'
+    case 'mc':
+      return subject ? `the mission-control session for ${subject}` : 'the mission-control session'
+    case 'other':
+      return subject ? `another session (${subject})` : 'another session'
+  }
+}
+
+// One plain sentence per session: the state, then what it is doing, never
+// its handle or scope. Those waiting on an answer come first, then those not
+// responding. The mission-control session itself is never waiting on the
+// operator, whatever its prompt shows.
+export function flightRows(
+  flights: ReloadedFlight[],
+  program = '',
+  prTitle: (n: number) => string | undefined = () => undefined,
+): { state: PanelFlight['state']; text: string }[] {
   return flights
-    .map((f, i) => ({ i, state: flightState(f), kind: flightKind(f) }))
+    .map((f, i) => {
+      const kind = flightKind(f)
+      return { i, kind, subject: flightSubject(f, program), state: kind === 'mc' && flightState(f) === 'waiting' ? 'working' : flightState(f) }
+    })
     .sort((a, b) => STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state) || a.i - b.i)
-    .map(r => ({ state: r.state, text: `${KINDS[r.kind]} · ${STATES[r.state]}` }))
+    .map(r => {
+      const pr = r.kind === 'review' && r.subject ? /([0-9]+)$/.exec(r.subject) : null
+      const what = flightWhat(r.kind, r.subject, pr ? prTitle(Number(pr[1])) : undefined)
+      const text =
+        r.state === 'waiting'
+          ? `Needs your answer: ${what}`
+          : r.state === 'stuck'
+            ? `Not responding: ${what}`
+            : `Working on ${what}`
+      return { state: r.state, text }
+    })
 }
 
 export type Install =

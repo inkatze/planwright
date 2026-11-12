@@ -1353,6 +1353,10 @@ validate_expensive() {
       ERR="pool name outside the charset ^[a-z][a-z0-9-]*\$ (at most 64 bytes)"
       return
     }
+    [ "$xpool" != none ] || {
+      ERR="pool name none is reserved (it is full_suite_pool's unpooled value, never a pool)"
+      return
+    }
   fi
   if is_set "$xn" paths; then
     [ -n "$xpaths" ] || {

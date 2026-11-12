@@ -4,7 +4,7 @@
 # Task 4; D-8, REQ-B1.1). The readers were re-derived by grep over scripts/ for
 # `fleet-state.sh registry` and the registry file; the flight readers and the
 # attention reconcile, whose fixtures need a git checkout, are covered in their
-# own suites (tests/test-flight-sweep.sh, tests/test-flight-lifecycle.sh,
+# own suites (tests/test-flight-sweep.sh, tests/test-flight-lifecycle*.sh,
 # tests/test-fleet-attention-reconcile.sh). A reader that surfaces the two
 # added columns is asserted on their values by position; one that surfaces
 # neither is asserted on tolerance: the row parses and its other fields read

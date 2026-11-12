@@ -4,9 +4,10 @@
 dispatching skills — `/execute-task`, `/orchestrate`, `/spec-kickoff` — invoke
 plugin scripts (`scripts/<name>.sh`) many times per run. This doc fixes the one
 invocation shape they use, so a dispatched worker does not flood on a permission
-prompt for every such call. Its sections *Invoke by the shebang* and *One plain
-command per Bash call* cover every command any skill issues inside a dispatched
-worker or a tower session, `/polish` and `/self-review` included.
+prompt for every such call. Its sections *Invoke by the shebang*, *One plain
+command per Bash call* and *Test and lint runs go through the router* cover
+every command any skill issues inside a dispatched worker or a tower session,
+`/polish` and `/self-review` included.
 
 Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9 · custom-spec-location
 REQ-G1.4.
@@ -111,6 +112,17 @@ A declared command step's `--line` rendering is not an exception to strip: it
 runs exactly as the resolver prints it, its quoted `PLANWRIGHT_STEP_*`
 assignment prefix included, since that prefix carries the step's context and
 is the form the guard approves ([custom-steps](custom-steps.md)).
+
+## Test and lint runs go through the router
+
+Start every test or lint run, and a lefthook run, with the router:
+`<root>/scripts/compute-route.sh -- <command>` (for example
+`<root>/scripts/compute-route.sh -- bash tests/test-x.sh`), after any
+`timeout <secs>` or `nice -n <n>` prefix. With `fleet_compute_host` set it
+runs there; otherwise, or when the host is unreachable, busy or the tree has
+uncommitted changes, it runs here as written. The guard approves the form
+only when the command after `--` is one it approves on its own; a kind flag
+or a router run any other way prompts.
 
 ## Invoke by the shebang
 

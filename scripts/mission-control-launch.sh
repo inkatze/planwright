@@ -61,8 +61,11 @@ usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
+      [--remote-control <name>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
+  mission-control-launch.sh reparent <name> --program <dest>
+      (--authority <decisions-log id> | --undo)
   mission-control-launch.sh list
   mission-control-launch.sh kinds
 
@@ -73,7 +76,9 @@ mission_control_launch_backend knob; a --backend other than the knob's
 value, or given while the knob cannot be resolved, launches, warned on
 stderr naming the knob. A mission-control launch with no --brief opens on
 `/planwright:mission-control <p>`; `--backend tmux` makes it an attended
-one, in a tmux window.
+one, in a tmux window. `--remote-control <name>` (mission-control only)
+starts that window with Remote Control under the name; the stream-json
+rung has no terminal to attach it to, so it drops the flag with a warning.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the
@@ -89,6 +94,12 @@ queue (mc-usage.sh enqueue) that launches it at the window's reset. Each
 launch --operator-asked takes past the hold is recorded first, as a
 usage-bypass event the reset's report names; one that cannot be recorded
 is refused.
+
+Every kind but mission-control is also held by the host-wide bound,
+fleet_host_max_live_workers: the live sessions of every program in the
+shared registry, mission-control sessions left out. The refusal names each
+program and how many it holds; --operator-asked goes past it, recorded
+first as a host-cap-bypass event.
 
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
@@ -112,9 +123,31 @@ The name is derived from program, kind and scope alone, so the same inputs
 always name the same session, and a name with a registry row is held until
 it is retired. No output names a pane, window or attach hint.
 
+reparent moves a live session to another program, as when one program folds
+into another: its registry program becomes <dest> and its owner
+mission-control:<dest>, so from then on its prompts, stalls and other events
+route to <dest>, <dest>'s list shows it and retire works from there. Only
+the row is rewritten, under the session's lock; its process, worktree and
+branch are never touched. It refuses an unknown session, an unknown or the
+same program, a mission-control session (a holder moves by handover), a
+launch not yet complete and a row it cannot rewrite. It runs only on the
+operator's word: --authority names a record in <dest>'s decisions log whose
+act is `fold-in-order` with the source program as its target (one order
+covers every live session of that program) or `reparent-yes` with this
+session as its target; without one it refuses. A move writes a
+session-reparented event to both programs' logs and an undo entry in
+<dest>'s log. Reverse it with `mc-kb.sh revert --program <dest> <undo id>`,
+which runs `reparent <name> --program <source> --undo`, needs no authority,
+works only while the session's current program holds a move of it out of
+<source>, and logs no undo entry of its own; revert refuses a second
+reversal of one entry. Its exit codes are listed after the others, below.
+
 Output, tab separated:
   launch   launch <field> <value> for name, kind, program, owner, scope,
            backend, profile, tier, brief, cwd
+  reparent reparent <name> moved <source> <dest> undo=<undo id>, with
+           unrecorded=<undo,event-<program>> when the move landed but a
+           record did not (exit 1)
   name     the name alone
   retire   retire <name> released|partial released=<classes> held=<classes>,
            over the classes process, pane, registry, attention and row
@@ -154,6 +187,12 @@ allocation install, a program that is not configured, rules that would not
 render, a worktree that could not be created, a named directory that is not
 a worktree other than a primary checkout, a worktree path holding a control
 character, or any other refusal by the rung.
+
+reparent exits its own way: 0 moved; 1 moved but an undo entry or event
+could not be recorded (the output's unrecorded field names which); 2 usage,
+an invalid value, --undo with --authority, no --authority, or a row it
+cannot read or rewrite; 3 no row of that name, or another launch or retire
+of it holds its lock; 4 any other refusal.
 EOF
 }
 
@@ -731,10 +770,11 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
+  remote_control='' rc_given=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
-      --program | --kind | --scope | --brief | --backend | --cwd | --rules | --repo)
+      --program | --kind | --scope | --brief | --backend | --cwd | --rules | --repo | --remote-control)
         [ "$#" -ge 2 ] || usage
         case $1 in
           --program) program=$2 ;;
@@ -744,6 +784,10 @@ cmd_launch() {
           --backend) backend=$2 ;;
           --cwd) cwd=$2 ;;
           --repo) repo=$2 ;;
+          --remote-control)
+            remote_control=$2
+            rc_given=1
+            ;;
           --rules)
             case $2 in
               duty:* | repo:*) ;;
@@ -765,6 +809,11 @@ cmd_launch() {
   valid_program "$program" || die "refusing the program name '$(sanitize_printable "$program")'"
   kind_row "$kind" || die "unknown session kind '$(sanitize_printable "$kind")' (one of: $KINDS)"
   valid_scope "$scope" || die "refusing the scope '$(sanitize_printable "$scope")': letters, digits and . _ = @ : - only, at most 128"
+  if [ "$rc_given" = 1 ]; then
+    [ "$kind" = mission-control ] || die "--remote-control names a mission-control session only"
+    /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$remote_control" 2>/dev/null \
+      || die "refusing the --remote-control name '$(sanitize_printable "$remote_control")': outside the session-name grammar"
+  fi
   if [ -n "$brief" ] || [ "$kind" != mission-control ]; then
     [ -n "$brief" ] && [ -f "$brief" ] && [ -r "$brief" ] && [ -s "$brief" ] \
       || die "--brief must name a readable, non-empty regular file"
@@ -857,6 +906,10 @@ cmd_launch() {
   fi
 
   resolve_backend
+  if [ -n "$remote_control" ] && [ "$backend" != tmux ]; then
+    printf '%s\n' "$me: warning: --remote-control is for the tmux rung; the $backend session starts without Remote Control" >&2
+    remote_control=''
+  fi
   fleet_home
   private_dir "$FH/mission-control"
   private_dir "$REG"
@@ -918,6 +971,31 @@ cmd_launch() {
     release_reservation || :
     die "$1" "$2"
   }
+
+  # The host-wide bound counts every program's registered sessions that
+  # reserved before this launch (an earlier time, or the same second and an
+  # earlier name), so concurrent launches near the bound admit the first and
+  # never refuse each other; mission-control sessions are never counted or
+  # held. A row of a session that died stays counted until it is retired.
+  if [ "$kind" != mission-control ]; then
+    hc_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
+      || refuse "refusing to launch $name: fleet_host_max_live_workers cannot be resolved to a number or off" 4
+    if [ "$hc_limit" != off ]; then
+      hc_held=$(host_live_counts "$name" "$launched")
+      hc_total=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $2 } END { print n + 0 }')
+      if [ "$hc_total" -ge "$hc_limit" ]; then
+        hc_who=$(printf '%s\n' "$hc_held" | awk -F '\t' 'NF { printf "%s%s %s", (c++ ? ", " : ""), $1, $2 }')
+        hc_why="this host already runs $hc_total live sessions across programs (${hc_who:-none}), at the host-wide bound of $hc_limit (fleet_host_max_live_workers)"
+        if [ "$operator_asked" -eq 1 ]; then
+          /bin/bash "$script_dir/mc-event.sh" emit --program "$program" -- host-cap-bypass "$name" \
+            "allowed past the host-wide bound because the operator asked ($hc_why)" </dev/null >/dev/null 2>&1 \
+            || refuse "refusing to launch $name past the host-wide bound: the bypass could not be recorded (mc-event.sh emit)" 4
+        else
+          refuse "refusing to launch $name: $hc_why; retire a finished session or wait for one to end, or pass --operator-asked for work the operator asked for" 4
+        fi
+      fi
+    fi
+  fi
 
   if changes_repo "$kind"; then
     place_worktree
@@ -1014,7 +1092,7 @@ cmd_launch() {
       ;;
     tmux)
       out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
-        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" --scope "$scope" </dev/null)
+        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" </dev/null)
       dr=$?
       case $dr in
         0) ;;
@@ -1291,6 +1369,158 @@ cmd_retire() {
   return 1
 }
 
+# reparent_authorized <session> <source> <dest> <id> — 0 when <id> names, in
+# <dest>'s decisions log, a fold-in order for <source> or a yes for <session>.
+# Only the destination's log counts: a record there is the order to move into
+# that program, which a record in the source's log is not.
+reparent_authorized() {
+  ra_all=$(/bin/bash "$script_dir/mc-kb.sh" entries decisions --program "$3" 2>/dev/null </dev/null) || return 1
+  ra_hit=$(printf '%s\n' "$ra_all" | I=$4 S=$1 F=$2 awk -F '\t' '
+    $1 == ENVIRON["I"] && (($4 == "fold-in-order" && $5 == ENVIRON["F"]) || ($4 == "reparent-yes" && $5 == ENVIRON["S"])) { print "y"; exit }')
+  [ -n "$ra_hit" ]
+}
+
+# reparent_undoable <session> <current> <source> — 0 when <current>'s undo
+# log holds a move of <session> out of <source>.
+reparent_undoable() {
+  ru_all=$(/bin/bash "$script_dir/mc-kb.sh" entries undo --program "$2" 2>/dev/null </dev/null) || return 1
+  ru_hit=$(printf '%s\n' "$ru_all" | S=$1 F=$3 awk -F '\t' '
+    $4 == "reparent" && $5 == ENVIRON["S"] && index($6, "moved from " ENVIRON["F"] ";") == 1 { print "y"; exit }')
+  [ -n "$ru_hit" ]
+}
+
+# cmd_reparent <session> --program <dest> (--authority <decision id> | --undo)
+# — move a live session's registry program and owner to another program's
+# mission control. Only the row changes; the session's process, worktree and
+# branch are never touched.
+cmd_reparent() {
+  [ "$#" -ge 1 ] || usage
+  rp_name=$1
+  shift
+  rp_dest='' rp_auth='' rp_undo=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --program | --authority)
+        [ "$#" -ge 2 ] || usage
+        case $1 in
+          --program) rp_dest=$2 ;;
+          --authority) rp_auth=$2 ;;
+        esac
+        shift 2
+        ;;
+      --undo)
+        rp_undo=1
+        shift
+        ;;
+      *) usage ;;
+    esac
+  done
+  valid_name "$rp_name" || die "refusing the session name '$(sanitize_printable "$rp_name")'"
+  [ -n "$rp_dest" ] || usage
+  valid_program "$rp_dest" || die "refusing the program name '$(sanitize_printable "$rp_dest")'"
+  if [ "$rp_undo" = 1 ]; then
+    [ -z "$rp_auth" ] || die "--undo takes no --authority: reversing a move needs none"
+  else
+    [ -n "$rp_auth" ] || die "refusing to move $rp_name: --authority names the decisions-log record of the fold-in order or the operator's yes, and none was given"
+    case $rp_auth in
+      *[!a-z0-9-]*) die "refusing the authority '$(sanitize_printable "$rp_auth")': not a decisions-log record id" ;;
+    esac
+  fi
+  fleet_home
+  rp_row="$REG/$rp_name"
+  [ ! -L "$rp_row" ] || die "refusing the registry row for $rp_name: a symbolic link"
+  [ -f "$rp_row" ] || die "no registered session is named $rp_name" 3
+  name_lock "$rp_name"
+  [ -f "$rp_row" ] || die "no registered session is named $rp_name" 3
+  row_check "$rp_row"
+  rp_src=$(row_get "$rp_row" program)
+  rp_kind=$(row_get "$rp_row" kind)
+  rp_state=$(row_get "$rp_row" state)
+  valid_program "$rp_src" || die "the registry row for $rp_name names no usable program" 2
+  [ "$rp_kind" != mission-control ] || die "refusing to move $rp_name: a mission-control session moves by handover, never by reparent" 4
+  [ "$rp_state" = launched ] || die "refusing to move $rp_name: its launch is not complete (state $(sanitize_printable "$rp_state"))" 4
+  [ "$rp_src" != "$rp_dest" ] || die "refusing to move $rp_name: it is already in program $rp_dest" 4
+  rp_list=$(/bin/bash "$script_dir/mc-program.sh" list 2>/dev/null </dev/null) || die "cannot list the configured programs" 4
+  case "
+$rp_list
+" in
+    *"
+$rp_dest
+"*) ;;
+    *) die "refusing to move $rp_name: the program $(sanitize_printable "$rp_dest") is not configured" 4 ;;
+  esac
+  if [ "$rp_undo" = 1 ]; then
+    reparent_undoable "$rp_name" "$rp_src" "$rp_dest" \
+      || die "refusing to undo the move of $rp_name: the undo log of $rp_src holds no move of it out of $rp_dest" 4
+  else
+    reparent_authorized "$rp_name" "$rp_src" "$rp_dest" "$rp_auth" \
+      || die "refusing to move $rp_name: $(sanitize_printable "$rp_auth") is no fold-in order for $rp_src and no yes for this session in the decisions log of $rp_dest" 4
+  fi
+
+  rp_tmp="$rp_row.tmp.$$"
+  if ! (umask 077 && awk -F '\t' -v p="$rp_dest" '
+    $1 == "program" { print "program\t" p; next }
+    $1 == "owner" { print "owner\tmission-control:" p; next }
+    { print }' "$rp_row" >"$rp_tmp") 2>/dev/null; then
+    rm -f "$rp_tmp"
+    die "cannot rewrite the registry row for $rp_name; nothing changed" 2
+  fi
+  if ! mv -f -- "$rp_tmp" "$rp_row" 2>/dev/null; then
+    rm -f "$rp_tmp"
+    die "cannot rewrite the registry row for $rp_name; nothing changed" 2
+  fi
+
+  rp_unrecorded=''
+  rp_note="moved from $rp_src to $rp_dest"
+  rp_undo_id=-
+  # A reversal logs no undo entry of its own: reversing the reversal would
+  # let one authorisation shuttle a session between two programs for good.
+  if [ "$rp_undo" = 0 ]; then
+    rp_undo_id=$(/bin/bash "$script_dir/mc-kb.sh" append undo --program "$rp_dest" --subject "$rp_name" --act reparent \
+      --target "$rp_name" --grounds "moved from $rp_src; to $rp_dest" -- \
+      /bin/sh "$script_dir/$me.sh" reparent "$rp_name" --program "$rp_src" --undo 2>/dev/null </dev/null) || {
+      rp_undo_id=-
+      rp_unrecorded="$rp_unrecorded,undo"
+    }
+  fi
+  for rp_p in "$rp_src" "$rp_dest"; do
+    /bin/bash "$script_dir/mc-event.sh" emit --program "$rp_p" -- session-reparented "$rp_name" "$rp_note" >/dev/null 2>&1 </dev/null \
+      || rp_unrecorded="$rp_unrecorded,event-$rp_p"
+  done
+  name_unlock
+  rp_unrecorded=${rp_unrecorded#,}
+  if [ -n "$rp_unrecorded" ]; then
+    printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\tunrecorded=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id" "$rp_unrecorded"
+    return 1
+  fi
+  printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id"
+}
+
+# host_live_counts <own-name> <own-launched> — one "<program><TAB><count>"
+# line per program holding registered non-mission-control sessions in the
+# shared registry that reserved before the named session (its own row and
+# later reservations left out). A remote host's sessions sit in that
+# host's registry (scripts/fleet-remote.sh), so they are never counted here.
+host_live_counts() {
+  hl_own=$1 hl_when=$2
+  hl_rows=''
+  set +f
+  set -- "$REG"/mc-*
+  set -f
+  for f in "$@"; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    case ${f##*/} in *.tmp.* | "$hl_own") continue ;; esac
+    row_format_ok "$f" || continue
+    hl_at=$(row_get "$f" launched)
+    case $hl_at in '' | *[!0-9]*) hl_at=0 ;; esac
+    if [ "$hl_at" -gt "$hl_when" ] || { [ "$hl_at" -eq "$hl_when" ] && expr "x${f##*/}" \> "x$hl_own" >/dev/null; }; then continue; fi
+    [ "$(row_get "$f" kind)" != mission-control ] || continue
+    hl_rows="$hl_rows$(row_get "$f" program)
+"
+  done
+  printf '%s' "$hl_rows" | awk 'NF { c[$1]++ } END { for (p in c) printf "%s\t%d\n", p, c[p] }' | sort
+}
+
 cmd_list() {
   [ "$#" -eq 0 ] || usage
   fleet_home
@@ -1328,6 +1558,7 @@ case $verb in
   launch) cmd_launch "$@" ;;
   name) cmd_name "$@" ;;
   retire) cmd_retire "$@" ;;
+  reparent) cmd_reparent "$@" ;;
   list) cmd_list "$@" ;;
   kinds) cmd_kinds "$@" ;;
   *) usage ;;

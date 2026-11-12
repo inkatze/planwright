@@ -87,6 +87,9 @@ case "$knob" in
       exec /bin/sh "$rck" --key "$knob" --type enum --values 'refuse conflict-only checks' \
       --fallback refuse --degrade refuse
     ;;
+  converge_sync_main)
+    exec /bin/sh "$rck" --key "$knob" --type enum --values 'on-need always' --no-degrade
+    ;;
   worker_merge_conflict_policy)
     exec /bin/sh "$rck" --key "$knob" --type enum --values 'halt resolve' \
       --fallback halt --degrade halt

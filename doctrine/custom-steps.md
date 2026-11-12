@@ -43,6 +43,15 @@ unit with an open PR is a new run, REQ-A1.1), in this order (D-3):
 | `pre-pr` | after the last convergence step, before the push |
 | `post-pr` | after the draft PR exists and its body is assembled |
 
+**Remote checks and `post-pr`.** A `post-pr` step that consumes no CI result
+runs while the PR's remote checks are still pending; it never waits for them.
+That covers a bot-review request, a review skill, a walk and the PR body. Only
+the ready flip (`pre-ready-flip`, `scripts/ready-flip.sh`) needs every check
+green. A channel post or notice needs only that no check is red, and a red
+check goes straight to log diagnosis rather than to a wait. A step's record
+never reads as covering CI: a cadence that is done names its points and steps,
+not the checks.
+
 **Wired in `/spec-kickoff`:** `pre-spec-ready-flip`, after its push and PR
 step and before the terminal CI gate, on the head that flip lands on, once per
 sign-off that reaches that step, whether or not the flip is configured to
@@ -300,7 +309,8 @@ calls whose seconds are summed); the owner releases after the check ends,
 whatever its exit. An unreleased slot is reclaimed once its owner exits, and a
 timeout never releases one while the check process lives. Capacity is
 `step_pool_capacity_<pool>` (hyphens as underscores), else
-`step_pool_capacity`; the wait, bounded by `step_pool_wait`, reports at its
+`step_pool_capacity` (the shipped `heavy-run` pool derives its own, below); the
+wait, bounded by `step_pool_wait`, reports at its
 start each live holder (pid, step id or full-suite marker, worktree) and
 admits unordered, and past the bound the step is `failed` naming the holders.
 A pool directory that is a symbolic link or not the user's, or a lock-library
@@ -313,6 +323,19 @@ holding a slot of it runs inside that hold, taking no slot and printing no
 warning, its release a successful no-op; a mark naming another pool or a dead
 owner, or failing the pool charset or a decimal pid, is ignored, and a
 same-owner take without a mark waits like any caller.
+
+**The shipped heavy pool.** `full_suite_pool` defaults to `heavy-run`, so every
+full local suite run holds a slot unless a layer sets the reserved value `none`
+or an empty value, either running the suite unpooled with no warning; `none` is
+never a pool name a declared step may use, and a step naming `heavy-run` shares
+the pool. A lone run on an idle host takes a slot with no wait. The pool's
+capacity is `step_pool_capacity_heavy_run` when set in any layer (the adopter
+layer reaches workers in worktrees), else one
+slot per 8 logical cores and per 16 GiB of total memory, whichever is fewer, at
+least 1, a host that cannot be read deriving 1 with one warning;
+`step_pool_capacity` never applies to it. The pool is independent of the
+per-file ticket pool a suite's test files run through, and a gate reaching
+`heavy-run` inside its own hold runs inside it under the mark (D-33, D-34).
 
 **The full suite.** When `full_suite_pool` names a pool, each full local suite
 attempt `/execute-task` makes, retries included, holds a slot of it, its owner
@@ -420,9 +443,10 @@ outcome, a bounded excerpt (a session step's classification excerpt or a
 command step's output tail, stored screened through the repository's secret
 screen and stripped of non-printable bytes), the full captured output's
 cache path where one exists (unscreened), and a skipped step's reason and
-detail, a `reuse` or `resume` skip also naming the run id, point, and record
-sequence it stands on. A pooled step adds its pool, wait seconds, holders,
-and unpooled flag, its start time the take (else the wait's start); a `paths`
+detail, a degraded in-session step's reason, a `reuse` or `resume` skip also
+naming the run id, point, and record sequence it stands on. A pooled step adds
+its pool, wait seconds, holders, and unpooled flag, its start time the take
+(else the wait's start); a `paths`
 step its fingerprint or none and its `args` digest (SHA-256 of `args` as
 written); a re-fire its `refire-of`. A legacy record (no end head, or a skip
 without a reason code) matches no reuse or resume lookup, never counts

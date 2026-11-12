@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-08
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -975,6 +975,310 @@ fixed-string check.)*
 - **Dependencies:** 21
 - **Citations:** D-35 · REQ-G1.6, REQ-G1.2
 - **Estimated effort:** half day
+
+### Task 39 — A context reading for every mission-control session
+
+- **Deliverables:** `scripts/mc-context.sh`, a read-only verb that prints a
+  session's context percent and its source, or the literal `unknown`, from
+  the tail of the transcript its registry row names; the usage parser
+  lifted out of `scripts/mc-throughput.sh` into a shared helper both
+  scripts use, with the window taken from the transcript, the
+  `context/<name>` window file or `mission_control_context_window`; the
+  runner taking one reading per mission-control session per wake and
+  recording it in the program's records, read by `scripts/mc-handover.sh
+  due`; the reading and its source on the panel and the text panel, with a
+  real-render preview approved and recorded by hand (REQ-F1.18); the knob
+  rows in `docs/options-reference.md` and
+  `config/mission-control-knobs.tsv`; tests in `tests/test-mc-context.sh`,
+  `tests/test-mc-panel.sh` and the mod's tests.
+- **Done when:** The REQ-L1.10 test-spec entry's fixtures pass; the knob,
+  options-reference and `check:panel-mod` checks pass; the pull request
+  quotes the recorded preview approval.
+- **Dependencies:** none
+- **Citations:** D-46, D-29, D-6 · REQ-L1.10, REQ-L1.5, REQ-F1.18
+- **Estimated effort:** 1 day
+
+### Task 40 — The handover at a natural break, keeping the session name
+
+- **Deliverables:** The in-flight record a session opens at the start of a
+  launch, relay or answer and clears at its end, and `scripts/mc-handover.sh
+  due` reporting `wait` while one is open; the runner's single,
+  never-batched handover-due wake to a launched holder with no operator at
+  its terminal, and that holder's own write, launch, verify and take; the
+  handover file listing open direct-dispatch units and `take` moving their
+  registry owner; the successor launched under the predecessor's session
+  name, `take` moving the name under the registry lock, a forwarding verb
+  passing what the predecessor receives to the successor verbatim until
+  `take` finishes, a failed `take` leaving name and program with the
+  predecessor, and no handover armed before the successor's first reading
+  is below the trigger; the research record, under a `## Session name by
+  backend` heading, naming for each backend whether the name moves or the
+  handover falls to D-43's rung 2; the skill's handover prose inside the
+  instruction budget (D-21); tests in `tests/test-mc-handover.sh`.
+- **Done when:** The REQ-L1.11 test-spec entry's fixtures pass; the research
+  record's heading names every launcher backend; the instruction-budget
+  check passes.
+- **Dependencies:** 33, 39
+- **Citations:** D-47, D-30, D-43, D-21 · REQ-L1.11, REQ-L1.6, REQ-L1.9
+- **Estimated effort:** 2 days
+
+### Task 41 — Direct dispatch for reviews and read-only checks
+
+- **Deliverables:** `mission_control_direct_dispatch_kinds` (shipped: the
+  review and read-only check kinds D-48 names); a launcher path that
+  launches such a unit under its program as its launching mission
+  control's registry row, with the program's rules and its kind's profile
+  and a launcher-composed result path under the program home's results
+  folder in its brief, refusing a path outside it or a symlink out of it;
+  the result file's format (with a `format` field, written by rename) and
+  its reader; the unit-lost event for a unit that ends with no result; the
+  result's removal at retire; the unit's questions and prompts routed to
+  the launching mission control; the skill's prose inside the instruction
+  budget; the knob rows; tests in `tests/test-mc-direct-dispatch.sh`.
+- **Done when:** The REQ-D1.15 test-spec entry's fixtures pass; the knob,
+  options-reference and instruction-budget checks pass.
+- **Dependencies:** 39
+- **Citations:** D-48, D-10, D-8, D-21 · REQ-D1.15, REQ-D1.1
+- **Estimated effort:** 1 day
+
+### Task 42 — The prompt and finished-unit notifier, and batched wakes
+
+- **Deliverables:** A notifier script the runner runs each pass, reading
+  `scripts/fleet-streamjson.sh pending` and the registry, claiming each
+  delivery in the attention store under its lock, delivering one sanitized
+  line to the mission control that answers it, retrying a failed delivery
+  up to `mission_control_relay_retries` passes before an event; holding a
+  program holder's non-urgent wakes in the attention store and delivering
+  them as one wake per `mission_control_relay_batch_interval`, the shipped
+  urgent classes waking at once; the duty-catalog entry; the skill's prose
+  inside the instruction budget; the knob rows; tests in
+  `tests/test-mc-notifier.sh`.
+- **Done when:** The REQ-E1.7 test-spec entry's fixtures pass; the knob,
+  options-reference, duty-catalog and instruction-budget checks pass.
+- **Dependencies:** 39, 41
+- **Citations:** D-49, D-7, D-21 · REQ-E1.7, REQ-E1.3, REQ-G1.6
+- **Estimated effort:** 1 day
+
+### Task 43 — Spend per session on the panel
+
+- **Deliverables:** Per-session spend since start, the program's UTC-day
+  total across every session that ran in it and the mission-control share,
+  priced from transcript usage with `config/token-prices.tsv` through the
+  shared token-spend pricing helper and recorded by the runner with the
+  context reading, shown in the panel mod and the text panel; unknown for
+  an unreadable or unpriced session and a partial marker on the total; a
+  preview captured from the real render over fixture data, shown to the
+  operator, and their approval recorded by hand (REQ-F1.18); tests in
+  `tests/test-mc-panel.sh` and the mod's tests.
+- **Done when:** The REQ-F1.17 test-spec entry's fixtures pass;
+  `check:panel-mod` passes; the pull request quotes the recorded preview
+  approval.
+- **Dependencies:** 39
+- **Citations:** D-50, D-46, D-6 · REQ-F1.17, REQ-F1.18
+- **Estimated effort:** 1 day
+
+### Task 44 — The idle-wait audit in the throughput duty
+
+- **Deliverables:** An idle-wait verb in `scripts/mc-throughput.sh` taking
+  `--now`, run by `scripts/mc-handover.sh` at each handover and by the
+  runner every `mission_control_idle_audit_interval`, reading the program's
+  step, flight and dispatch records, the forge snapshot's CI timing and the
+  attention store, writing each wait found as a mechanization proposal in
+  D-14's form with its time saved per day, identified by kind and the step
+  or timer it names; the skill's prose inside the instruction budget; the
+  knob rows; tests in `tests/test-mc-throughput.sh`.
+- **Done when:** The REQ-M1.10 test-spec entry's fixtures pass; the knob,
+  options-reference and instruction-budget checks pass.
+- **Dependencies:** 40
+- **Citations:** D-51, D-14, D-12, D-21 · REQ-M1.10
+- **Estimated effort:** 1 day
+
+### Task 45 — The preview gate, and the guide for the extension
+
+- **Deliverables:** `mission_control_visible_paths` with its shipped list;
+  the readiness check's refusal of a flip for a pull request changing a
+  listed path with no matching approval in the program's decisions log;
+  the guide's rows for the extension and the options-reference rows; a
+  real-render preview of the guide change approved and recorded by hand;
+  tests in `tests/test-mc-readiness.sh` and
+  `tests/test-mission-control-docs.sh`.
+- **Done when:** The REQ-F1.18 test-spec entry's fixtures pass; the knob,
+  options-reference and instruction-budget checks pass; the pull request
+  quotes the recorded preview approval.
+- **Dependencies:** 39, 40, 41, 42, 43, 44
+- **Citations:** D-50, D-25, D-33, D-21 · REQ-F1.18, REQ-D1.14
+- **Estimated effort:** 1 day
+
+### Task 46 — The bring-up drift audit
+
+- **Deliverables:** In `scripts/mc-config.sh doctor`, the rule-number check
+  (a standing rule naming a value for a knob it governs, against the
+  knob's effective value) and the stale-override check (a local-layer
+  comment or value with a past date, or interim, temporary or until with no
+  date ahead), both matched as data with fixed patterns; the audit run in
+  every successor's self-check as at bring-up; plain-words findings naming
+  file, knob, rule or comment and effective value; tests in
+  `tests/test-mc-config.sh`. Where these checks already landed (the
+  pending note's pull request), this task is their tests and wiring only.
+- **Done when:** The REQ-A1.9 test-spec entry's fixtures pass.
+- **Dependencies:** none
+- **Citations:** D-52, D-32 · REQ-A1.9, REQ-A1.2
+- **Estimated effort:** half day
+
+### Task 47 — Rules say how they are enforced
+
+- **Deliverables:** the `enforcement` field in `scripts/mc-rules.sh`
+  (`add` and `supersede` accept it against the closed grammar; `list`,
+  `render` and the active-set load read it, an entry without it reading
+  `unknown`); in `scripts/mc-config.sh doctor`, the listing of every
+  active rule that is prose, unknown or names a closed fix, one plain line
+  each; the field documented where the store's format is; tests in
+  `tests/test-mc-rules.sh` and `tests/test-mc-config.sh`, in fixtures.
+- **Done when:** The REQ-B1.8 and REQ-A1.10 test-spec entries' fixtures
+  pass; the pull request does not conflict with the open doctor flag for a
+  rule that disagrees with its knob.
+- **Dependencies:** none
+- **Citations:** D-53, D-52, D-5 · REQ-B1.8, REQ-A1.10, REQ-B1.1
+- **Estimated effort:** half day
+
+### Task 48 — Move a live session between programs
+
+- **Deliverables:** `mission-control-launch.sh reparent <session>
+  --program <destination> --authority <decisions-log record>` and its
+  refusals (including no authority); the event written to both
+  programs' logs and the undo entry; the verb documented where the
+  launcher's verbs are and in the fold-in and handover guidance mission
+  control follows; tests in `tests/test-mission-control-launch.sh`, in
+  fixtures.
+- **Done when:** The REQ-D1.16 test-spec entry's fixtures pass.
+- **Dependencies:** none
+- **Citations:** D-54, D-35, D-24 · REQ-D1.16, REQ-D1.12, REQ-G1.6
+- **Estimated effort:** half day
+
+### Task 49 — Readiness waits for reviewers that review only when ready
+
+- **Deliverables:** `mission_control_review_on_ready_bots` and
+  `mission_control_review_on_ready_wait` with their knob and
+  options-reference rows; the draft-stage trigger comment and wait for each
+  named reviewer, falling back per reviewer; the readiness check's merge-ready evaluation
+  (a review of the current head from each named reviewer, every thread
+  resolved, the flip conditions still holding) and the *ready, awaiting
+  reviewers* state; the ready-to-merge notice held until it passes; the
+  operator item for a silent reviewer; the bot-review step's guidance;
+  tests in `tests/test-mc-readiness.sh`.
+- **Done when:** The REQ-D1.17 test-spec entry's fixtures pass; the knob,
+  options-reference and instruction-budget checks pass.
+- **Dependencies:** 45
+- **Citations:** D-55, D-25, D-33 · REQ-D1.17, REQ-D1.8, REQ-D1.9
+- **Estimated effort:** 1 day
+
+### Task 50 — The ledger records a done-condition and checks its triggers
+
+- **Deliverables:** in `scripts/mc-kb.sh`, the done-condition field on a
+  ledger row (a format bump with a reader that reads an old row as having
+  none), `followup add` refusing an item with no done-condition and an event
+  trigger whose class is not in `config/mc-event-classes.tsv` or the
+  watchers' declared kinds unless a fallback date is given, an `ack` verb
+  recording what will be done next and a new date or event, and the
+  stale-open audit proposing closes with evidence; the verbs in the verbs
+  list and the guide; tests in `tests/test-mc-kb.sh`.
+- **Done when:** The REQ-F1.22 and REQ-F1.23 test-spec entries' fixtures
+  pass; the verbs, knob and instruction-budget checks pass.
+- **Dependencies:** none
+- **Citations:** D-56, D-9 · REQ-F1.22, REQ-F1.23, REQ-F1.10
+- **Estimated effort:** 1 day
+
+### Task 51 — Asks and duties are recorded by a deterministic path
+
+- **Deliverables:** the mission-control tier's capture of each operator
+  message as an intake row, and the turn-end check that refuses to end a
+  turn while an intake row has no item and no dismissal reason, wired in the
+  mission-control settings; the handover self-check failing while one is
+  open; the dismissal verb; the skill's prose inside the
+  instruction budget; tests in `tests/test-mc-kb.sh` and
+  `tests/test-policy-guard-mission-control.sh`.
+- **Done when:** The REQ-F1.19 test-spec entry's fixtures pass, including a
+  turn that tries to end with an open intake row and is refused; the guard
+  wiring, settings and instruction-budget checks pass.
+- **Dependencies:** 50
+- **Citations:** D-56 · REQ-F1.19
+- **Estimated effort:** 1 day
+
+### Task 52 — Overdue items lead the status and gate the handover
+
+- **Deliverables:** the overdue ordering in the panel and the plain status
+  answer; the handover self-check in `scripts/mc-handover.sh` failing while
+  an overdue item is unacknowledged, naming each; tests in
+  `tests/test-mc-panel.sh` and `tests/test-mc-handover.sh`.
+- **Done when:** The REQ-F1.20 and REQ-F1.21 test-spec entries' fixtures
+  pass; the panel surface check passes.
+- **Dependencies:** 50
+- **Citations:** D-56 · REQ-F1.20, REQ-F1.21, REQ-L1.6
+- **Estimated effort:** 1 day
+
+### Task 53 — Rule clauses, shadow mode and the lease
+
+- **Deliverables:** the clause grammar and its refusal in
+  `scripts/mc-rules.sh`, the compiled digest-checked clause file, the shadow
+  and live mode verb citing the operator's words; the worker tier's clause
+  evaluation in `scripts/policy-guard.sh` (the worker tier gains the file
+  and MCP surfaces its clauses need, which it defers today) with the rule id
+  in each denial;
+  the lease store, its one reader and the open and close verbs, the
+  undo-ledger entry, the status line and the readiness record's posture
+  note; `mission_control_lease_ttl` with its cap; the headed browser rule as
+  the fixture; tests in `tests/test-mc-rules.sh`,
+  `tests/test-policy-guard.sh` and a new lease suite.
+- **Done when:** The REQ-B1.9 to REQ-B1.12, REQ-G1.7 and REQ-G1.8 test-spec
+  entries' fixtures pass, including an unreadable clause file denying and a
+  call no clause can match reading none; the knob, options-reference, guard
+  wiring and instruction-budget checks pass.
+- **Dependencies:** 47
+- **Citations:** D-57, D-53, D-24 · REQ-B1.9, REQ-B1.10, REQ-B1.11, REQ-B1.12, REQ-G1.7, REQ-G1.8
+- **Estimated effort:** 3 days
+
+### Task 54 — A rule's required knob value and the new doctor listings
+
+- **Deliverables:** the required-value grammar on the `knob` enforcement
+  kind in `scripts/mc-rules.sh`; in `scripts/mc-config.sh doctor`, the
+  disagreement check against the effective value and the hard-sounding-rule
+  listing with its shipped word list; tests in `tests/test-mc-rules.sh` and
+  `tests/test-mc-config.sh`.
+- **Done when:** The REQ-B1.13, REQ-A1.11 and REQ-A1.12 test-spec entries'
+  fixtures pass, including a rule requiring the offload host against a local
+  effective value; the doctor changes no layer and no rule.
+- **Dependencies:** 47
+- **Citations:** D-58, D-53, D-52 · REQ-B1.13, REQ-A1.11, REQ-A1.12
+- **Estimated effort:** 1 day
+
+### Task 55 — The throughput duty reports idle capacity
+
+- **Deliverables:** an idle-capacity verb beside the idle-wait verb in
+  `scripts/mc-throughput.sh`, run at the same moments, reading the host
+  registry, the slot and queue records and the load measurements, writing
+  each finding as a proposal in D-14's form naming the knob; the knob rows if
+  any; tests in `tests/test-mc-throughput.sh`.
+- **Done when:** The REQ-M1.11 test-spec entry's fixtures pass; the knob,
+  options-reference and instruction-budget checks pass.
+- **Dependencies:** 44
+- **Citations:** D-58, D-51, D-14 · REQ-M1.11
+- **Estimated effort:** 1 day
+
+### Task 56 — Audit mission control's own state for queues it lacks
+
+- **Deliverables:** the shipped register of the state kinds mission control
+  holds that something waits on (each with its store and the disposition
+  that removes an entry, or a one-line reason it is deliberately not a
+  queue); a check in `scripts/mc-audit.sh` run at bring-up, at each handover
+  and daily, flagging a kind with no row, a transient or in-memory store, a
+  missing store or no recorded way out, one plain line with the remedy; the
+  register's own check in the verbs and knob guards; tests in
+  `tests/test-mc-audit.sh`.
+- **Done when:** The REQ-F1.24 test-spec entry's fixtures pass and the audit
+  edits no file; the instruction-budget check passes.
+- **Dependencies:** 50
+- **Citations:** D-56 · REQ-F1.24
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 

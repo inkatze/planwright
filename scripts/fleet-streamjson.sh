@@ -2326,6 +2326,10 @@ cmd_launch() {
   # keys its refusal on, and drops any mark it inherits.
   PLANWRIGHT_LAUNCH_BACKEND=stream-json
   export PLANWRIGHT_LAUNCH_BACKEND
+  # The worker has no pane: the starter's tmux context (a tower or mission
+  # control running in tmux) would read, in its own per-step launches, as an
+  # opt-in to tmux windows. Every start, recover and relaunch passes here.
+  unset TMUX TMUX_PANE
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
     --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" \
     ${shell_rules:+--append-system-prompt "$shell_rules"} "$@"
