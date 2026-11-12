@@ -731,7 +731,7 @@ records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
 
 While the only thing left is a wait (an operator question, or CI or a ready
 flip outstanding), run \`$cs_root/scripts/mission-control-launch.sh wait $1 --on <why>\`,
-<why> being operator, ci or ready-flip, so the host session bound does not
+with \`<why>\` being operator, ci or ready-flip, so the host session bound does not
 count you, and run \`$cs_root/scripts/mission-control-launch.sh unwait $1\`
 before working again. Exit 3 can mean the name is
 locked for a moment: run it again a few times; a 3 that persists means the
