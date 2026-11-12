@@ -143,9 +143,9 @@ goes and raising the biggest bottleneck, preparing what you need before a
 decision, recording how to undo each act, checking what was done against
 your rules, noticing what you keep doing by hand, and holding new work
 near your account's usage limit until it resets
-([below](#usage-windows-and-the-reset-queue)), and noticing free worker
-slots beside a waiting backlog ([below](#free-worker-slots)) and saying
-which units to launch. If you run several
+([below](#usage-windows-and-the-reset-queue)), and noticing room for more
+background sessions beside waiting work ([below](#idle-capacity)) and
+saying what to start. If you run several
 programs with one hub program over all their repositories, and the hub's
 duties leave out the readiness check (it is on by default), the hub hears of
 every pull request ready to merge in them without checking readiness itself:
@@ -166,25 +166,26 @@ enough.
 The watching itself is done by small scripts, not by an agent sitting in a
 loop, so a quiet program costs very little.
 
-### Free worker slots
+### Idle capacity
 
-When a session's units finish and nothing else wakes mission control, free
-worker slots can sit beside work that waits. The idle-capacity duty closes
-that gap: every few minutes it compares the program's live workers with the
-host-wide and per-program bounds (`fleet_host_max_live_workers`,
-`fleet_max_parallel_units`) and, with the usage hold, a fleet pause and host
-load all open and a free slot, reads the program's backlog. When the backlog
-holds a unit, mission control hears an idle-capacity event naming up to one
-unit per free slot (at most five), and launches them or drives the owning supervisor with
-those units. The duty never launches anything itself, and raises the same
-idle state again only when the units change or
-`mission_control_idle_interval` has passed.
+When the work a session was doing finishes and nothing else wakes mission
+control, room for more background sessions can sit empty beside work that
+waits. The idle-capacity duty closes that gap: every few minutes it
+compares the sessions running for the program with how many the program and
+this computer allow and, with the usage hold, a pause and the computer's
+load all open and room for another, reads the program's backlog. When the
+backlog holds work, mission control hears about it, naming up to one piece
+of work per free place (at most five), and starts them or tells the session
+that owns the work to. The duty never starts anything itself, and says the
+same thing again only when the list changes or its repeat interval has
+passed.
 
-The backlog is a file you declare: `mission_control_idle_backlog` names
-the absolute path of a list of ranked units, one per line, the first the
-next to run (blank lines and `#` lines are skipped; a unit's id comes
-first, then an optional note). With none declared, or one that cannot be
-read, the duty says so once and raises nothing, never guessing a backlog.
+The backlog is a file you name in the settings
+([options reference](options-reference.md)): a list of ranked pieces of
+work, one per line, the first the next to run (blank lines and `#` lines
+are skipped; a name comes first, then an optional note). With none named,
+or one that cannot be read, the duty says so once and raises nothing,
+never guessing a backlog.
 
 ## Usage windows and the reset queue
 

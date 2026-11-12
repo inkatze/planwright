@@ -1240,7 +1240,7 @@ mission_control_throughput_worsen: 50
 # the line is skipped; at most five are named per raise); `off`
 # declares none, which the duty reports once instead of guessing. An absolute
 # path, and a cadence.
-mission_control_idle_backlog: off
+mission_control_idle_backlog: "off"
 mission_control_idle_interval: 30m
 # Where a draft for a person goes (scripts/mc-inbox.sh draft): auto, the
 # first clipboard tool that script finds, or the absolute path of a command
