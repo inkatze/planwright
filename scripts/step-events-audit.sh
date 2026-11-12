@@ -66,7 +66,8 @@ find_events() {
   root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
   for d in "$root"/streamjson/*/; do
     [ -f "${d}cwd" ] && [ -f "${d}events.jsonl" ] && [ ! -L "${d}events.jsonl" ] || continue
-    c=''; read -r c <"${d}cwd" || [ -n "$c" ] || continue
+    c=''
+    read -r c <"${d}cwd" || [ -n "$c" ] || continue
     [ "$c" = "$worktree" ] && printf '%s\n' "${d}events.jsonl"
   done
 }
