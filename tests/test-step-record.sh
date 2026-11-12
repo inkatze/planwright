@@ -1232,7 +1232,7 @@ ln -s "$tmp/no-such-record" "$wt/.claude/steps/$emptyrun/001-step-pre-ci.rec"
 partial=$(sr render 2>"$tmp/err.partial")
 rc=$?
 rm "$wt/.claude/steps/$emptyrun/001-step-pre-ci.rec"
-[ "$rc" -eq 1 ] && [ -z "$partial" ]
+[ "$rc" -eq 1 ] && [ -z "$partial" ] && grep -Fq "cannot be read" "$tmp/err.partial"
 verdict "a refusal in a later run prints nothing of the earlier runs" "rc=$rc, output: $partial"
 
 # --- a mkdir that tells every racer it won ---------------------------------------------
