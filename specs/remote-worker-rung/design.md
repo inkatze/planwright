@@ -1,12 +1,12 @@
 # Remote worker rung — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-11-06
+**Status:** Ready
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Origin tags: `S` from a seed source, `N` new in this drafting session, `Q` a
-recommended default that waits on the operator's answer before kickoff.
+Origin tags: `S` from a seed source, `N` new in this drafting session, `K`
+settled by the operator at kickoff (2026-11-10).
 
 ## Decision log
 
@@ -33,7 +33,7 @@ reuses the remote host's whole supervisor rather than rebuilding it.
 **Decision:** A remote host is an alias from the operator's SSH
 configuration, held in a machine-local registry (never tracked) with the
 remote clone path per repository alias, a worker ceiling, the account label,
-a shared-host flag and an unreachable grace period.
+a shared-host flag and an unreachable grace period (30 minutes by default).
 
 **Alternatives considered:**
 - Hostnames or addresses in tracked config. Rejected because: data hygiene
@@ -107,7 +107,7 @@ after the host's grace period does the worker read as lost.
 **Chosen because:** every local liveness check tests pids on its own host, so
 pointing one at a remote worker would read it as dead.
 
-### D-7: This host's mission control vets remote prompts  (Q)
+### D-7: This host's mission control vets remote prompts  (K)
 
 **Decision:** Remote requests join this host's vetting loop: each pass reads
 every registered host's pending view through the channel and answers through
@@ -118,13 +118,14 @@ it; the alarm and the wake relay cover them too.
   because: it is the second mission control the operator put behind this
   option, and it splits one program's approvals across two sessions.
 
-**Chosen because:** one place approves everything for the program. Waits on
-the operator's answer.
+**Chosen because:** one place approves everything for the program. The
+operator confirmed it at kickoff.
 
-### D-8: A shared host is free when idle, with a hold switch  (Q)
+### D-8: A shared host is free when idle, with a hold switch  (K)
 
 **Decision:** A host marked shared takes new work only after its input has
-been idle for a configured time (input idle time, read on the host), and a
+been idle for a configured time (input idle time, read on the host; 15
+minutes by default, the operator's choice), and a
 machine-local hold switch keeps all new work off it. While it runs a worker
 it is kept awake by the platform's own mechanism (`caffeinate` on macOS).
 Running workers are not stopped when the owner returns.
@@ -136,9 +137,9 @@ Running workers are not stopped when the owner returns.
   only when its owner is not using it.
 
 **Chosen because:** idle time is the direct signal, and the switch covers what
-it misses. Waits on the operator's answer.
+it misses.
 
-### D-9: The guard approves the channel's verbs like the local ones  (Q)
+### D-9: The guard approves the channel's verbs like the local ones  (K)
 
 **Decision:** The command guard approves `scripts/fleet-remote.sh` under the
 resolved literal root, in the sessions that already approve the local
@@ -156,8 +157,8 @@ running that code locally would be.
   the operator on every pass, which is the stall the channel exists to end.
 
 **Chosen because:** the channel's verbs do on the remote exactly what the
-approved local verbs do here. Waits on the operator's answer, because it
-changes a guard.
+approved local verbs do here. The operator confirmed the guard change at
+kickoff.
 
 ### D-10: Remote workers push their own branch; fetch-back is the fallback  (S)
 
@@ -206,18 +207,24 @@ limit's rule, capped by the host's worker ceiling.
 
 **Chosen because:** the local rule already exists; only its input moves.
 
-### D-13: Usage is per account, read where the account runs  (N)
+### D-13: One account, one shared usage gate  (K)
 
-**Decision:** Each host's account is a usage subject. A remote host's usage
-comes from its own status-line mirror when present, else from the newest
-rate-limit readings its workers recorded; the hard stop applies per account.
+**Decision:** Registered hosts run this host's account (one account covers
+every host, so the Mac adds no usage budget), so a remote dispatch passes the
+existing usage gate and hard stop read on this host. Each registry entry
+names its account label; a host whose label differs from this host's is
+refused with the reason named. An unreadable reading is `unavailable` and
+degrades as the local gate does.
 
 **Alternatives considered:**
-- Gate every dispatch on this host's account. Rejected because: the second
-  account would never be used once the first neared its stop.
+- Per-account usage read on each host (its status-line mirror or its
+  workers' rate-limit readings), reset days and dollar accounts. Rejected
+  because: the operator runs one account across both hosts; it is deferred
+  until a second account exists, and the refusal keeps that case safe.
 
-**Chosen because:** the operator has two accounts to use in full, and each
-host's signals already exist on that host.
+**Chosen because:** the shared gate already measures the one budget in play,
+and the refusal turns a future second account into a stop instead of a
+silent overspend.
 
 ### D-14: The remote rung in the capability contract  (N)
 
@@ -235,24 +242,23 @@ guards and cadence as local work.
 **Chosen because:** selection by capability keeps the axioms unchanged and
 makes the host a visible part of every report.
 
-### D-15: Placement spends the subscription that resets next  (S)
+### D-15: Placement prefers a free remote host  (K)
 
-**Decision:** Among hosts with room, a session-grade unit goes first to a
-subscription account with headroom under its hard stop, preferring the one
-whose window resets soonest (its unused capacity expires first); on a tie,
-this host. Metered accounts are the costlier fallback, used only when no
-subscription account has headroom, and their spend is read in dollars. The
-operator can pin a unit or a program to a host.
+**Decision:** Among hosts with room (D-12), the usage gate open (D-13) and,
+for a shared host, its owner away (D-8), a session-grade unit goes to the
+remote host first, and to this host when no remote host qualifies. The
+operator can pin a unit or a program to a host, and a pin wins.
 
 **Alternatives considered:**
-- Most weekly room first. Rejected because: with resets on different days it
-  lets the sooner-resetting account's capacity expire unused.
-- Local first, remote only when local is full. Rejected because: the second
-  account would sit idle on light weeks.
-- Round robin. Rejected because: it ignores usage, the scarce resource.
+- This host first, remote only when this host is full. Rejected because: this
+  host is the CPU-bound one (load often above its core count) while the
+  remote host's cores sit idle.
+- Per-account ordering (the subscription that resets next, metered last).
+  Rejected because: one account covers every host; deferred with D-13.
+- Round robin. Rejected because: it ignores load.
 
-**Chosen because:** the operator asked to use every subscription in full
-before its reset and to treat metered spend as the expensive option.
+**Chosen because:** the operator chose the remote host whenever it is free,
+which moves work to the idle cores without spending more usage.
 
 ### D-16: Compute offload ships a commit, runs one allowlisted command  (S)
 
@@ -279,14 +285,15 @@ worktree, its temp directory and the ref are removed on every exit path.
 the remote needs no login of any kind, and the first live run cut a suite's
 wall time from over eight minutes to just over two.
 
-**Credential boundary (Q).** The fixed verb set and the timeout bound what is
+**Credential boundary (K).** The fixed verb set and the timeout bound what is
 started, not what the started code can read: compute runs worker-authored
 tests as the remote account, and the first host's account also holds a
 plain-text hosting-remote token. REQ-G1.6 makes the host's registry entry say
-how that is handled. The recommended shape is a second, login-free account
-(or home) on the host for compute only, keeping the signed-in account for
-full workers; the alternative is the operator accepting the exposure per
-host. Waits on the operator's answer at kickoff.
+how that is handled. The operator accepted the exposure for the first host
+(its account is confined: no elevated rights, nothing in the owner's
+account, and the code is the operator's own branches); the registry entry
+records that acceptance, and a host with no recorded stance takes no compute.
+A login-free account or home stays available as the other recorded stance.
 
 ## Cross-cutting concerns
 

@@ -1422,6 +1422,289 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# The same-repo exception: a job gated, at its own `if:`, on the PR's head
+# repository being this repository may hold write permissions and a stored
+# secret under `pull_request`. Every other reachable shape stays refused.
+# ---------------------------------------------------------------------------
+
+# sr_case <name> <job-if-lines> [<extra-top-lines> [<triggers>]]: writes a
+# one-job pull_request workflow holding write permissions and a stored secret.
+sr_case() {
+  d="$(mkdir_case "$1")"
+  {
+    printf '%s\n' '---' 'name: review' '"on":'
+    printf '%s\n' "${4:-  pull_request:}"
+    printf '%s\n' "${3:-}" 'permissions: {}' 'jobs:' '  review:'
+    printf '%s\n' "$2"
+    # shellcheck disable=SC2016 # the workflow expression is literal text
+    printf '%s\n' '    permissions:' '      contents: read' '      pull-requests: write' \
+      '    runs-on: ubuntu-latest' '    steps:' '      - run: ./review.sh' '        env:' \
+      '          KEY: ${{ secrets.REVIEW_KEY }}'
+  } >"$d/review.yml"
+}
+SR_CLAUSE='github.event.pull_request.head.repo.full_name == github.repository'
+
+sr_case sr-pass-block "    if: >-
+      $SR_CLAUSE
+      && github.event.pull_request.user.login != 'bot'"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a block-scalar job if with the clause passes" 0 $?
+
+sr_case sr-pass-inline "    if: $SR_CLAUSE"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an inline job if with the clause passes" 0 $?
+
+sr_case sr-fail-none "    runs-on-placeholder: x"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: no clause still fails" 1 $?
+assert_contains "same-repo exception: no clause names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-neq "    if: github.event.pull_request.head.repo.full_name != github.repository"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an inverted clause fails" 1 $?
+
+sr_case sr-fail-negated "    if: !(github.event.pull_request.head.repo.full_name == github.repository)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a negated clause fails" 1 $?
+
+sr_case sr-fail-comment "    # $SR_CLAUSE
+    if: github.event.pull_request.draft == false"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a clause only in a comment fails" 1 $?
+
+sr_case sr-fail-or "    if: $SR_CLAUSE || github.event_name == 'push'"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a clause joined by || fails" 1 $?
+
+sr_case sr-fail-owner "    if: github.event.pull_request.head.repo.full_name == github.repository_owner"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a repository_owner comparison fails" 1 $?
+
+sr_case sr-fail-wr-clause "    if: github.event.workflow_run.head_repository.full_name == github.repository"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the workflow_run clause does not count" 1 $?
+
+sr_case sr-fail-target "    if: $SR_CLAUSE" "" "  pull_request:
+  pull_request_target:"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: pull_request_target still fails" 1 $?
+assert_contains "same-repo exception: pull_request_target is named" "pull_request_target" "$out"
+
+sr_case sr-pass-reversed "    if: github.repository == github.event.pull_request.head.repo.full_name"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the reversed operand order passes" 0 $?
+
+sr_case sr-pass-wrapped "    if: \${{ $SR_CLAUSE }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a \${{ }}-wrapped clause passes" 0 $?
+
+sr_case sr-pass-later-conjunct "    if: github.event.pull_request.draft == false
+      && $SR_CLAUSE"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the clause as a later && conjunct passes" 0 $?
+
+sr_case sr-fail-eq-false "    if: \${{ $SR_CLAUSE == false }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the clause compared to false fails" 1 $?
+
+sr_case sr-fail-paren-eq-false "    if: \${{ ($SR_CLAUSE) == false }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a parenthesised clause compared to false fails" 1 $?
+
+sr_case sr-fail-wide-negation "    if: !(github.actor == 'x' && $SR_CLAUSE)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a negation wider than the clause fails" 1 $?
+
+sr_case sr-fail-split-negation "    if: >-
+      !(
+      $SR_CLAUSE
+      )"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a negation split across lines fails" 1 $?
+
+sr_case sr-fail-string-literal "    if: \"'$SR_CLAUSE'\""
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the clause as a string literal fails" 1 $?
+
+sr_case sr-fail-and-in-string "    if: \${{ github.event_name != 'x && $SR_CLAUSE && y' }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a clause between && inside a string fails" 1 $?
+
+sr_case sr-pass-string-operand "    if: github.event.pull_request.user.login != 'a && b'
+      && $SR_CLAUSE"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a string operand with && beside the clause passes" 0 $?
+
+sr_case sr-fail-later-or "    if: >-
+      $SR_CLAUSE
+      && github.event.pull_request.draft == false
+      || github.event_name == 'push'"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an || on a later line of the if fails" 1 $?
+assert_contains "same-repo exception: a refused gate still names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-mixed-template "    if: \${{ $SR_CLAUSE }} && \${{ github.actor }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an if mixing text with a \${{ }} template fails" 1 $?
+assert_contains "same-repo exception: a mixed-template if names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-mixed-template-first "    if: \${{ github.actor }} && \${{ $SR_CLAUSE }}"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a mixed template with the clause second fails" 1 $?
+
+sr_case sr-fail-dquote-and "    if: github.actor == \"a && $SR_CLAUSE && y\""
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a clause between && inside double quotes fails" 1 $?
+
+sr_case sr-fail-hash-or "    if: $SR_CLAUSE && 'x#' || true"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an || hidden after a # in a string fails" 1 $?
+assert_contains "same-repo exception: a # in the if still names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-hash-or-block "    if: |
+      $SR_CLAUSE && 'a #' ||
+      true"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: an || hidden after a # in a block scalar fails" 1 $?
+
+sr_case sr-fail-negated-middle "    if: !(true && $SR_CLAUSE && true)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a negation spanning the clause as a middle conjunct fails" 1 $?
+assert_contains "same-repo exception: a middle-conjunct negation names the secret" "REVIEW_KEY" "$out"
+
+sr_case sr-fail-paren-middle "    if: github.actor == (github.actor && $SR_CLAUSE && true)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a parenthesis spanning the clause as a middle conjunct fails" 1 $?
+
+sr_case sr-pass-balanced-call "    if: !contains(github.event.pull_request.labels.*.name, 'skip')
+      && $SR_CLAUSE"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a balanced call beside the clause passes" 0 $?
+
+sr_case sr-fail-negated-name "    if: !($SR_CLAUSE)"
+out="$("$GUARD" "$d" 2>&1)"
+assert_contains "same-repo exception: a negated clause still names the secret" "REVIEW_KEY" "$out"
+
+d="$(mkdir_case sr-fail-step-if)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+permissions: {}
+jobs:
+  review:
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - if: $SR_CLAUSE
+        run: echo gated
+      - run: ./review.sh
+        env:
+          KEY: \${{ secrets.REVIEW_KEY }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a step-level clause does not gate the job" 1 $?
+
+d="$(mkdir_case sr-fail-other-job)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+permissions: {}
+jobs:
+  gated:
+    if: $SR_CLAUSE
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo gated
+  open:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./review.sh
+        env:
+          KEY: \${{ secrets.REVIEW_KEY }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: the clause on one job does not cover another" 1 $?
+assert_contains "same-repo exception: the other job's secret is what fails" "REVIEW_KEY" "$out"
+
+d="$(mkdir_case sr-fail-top-env)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+permissions: {}
+env:
+  KEY: \${{ secrets.REVIEW_KEY }}
+jobs:
+  review:
+    if: $SR_CLAUSE
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./review.sh
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: a secret outside any gated job still fails" 1 $?
+
+d="$(mkdir_case sr-fail-inherit)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+permissions: {}
+jobs:
+  review:
+    if: $SR_CLAUSE
+    permissions:
+      contents: read
+    uses: ./.github/workflows/callee.yml
+    secrets: inherit
+EOF
+cat >"$d/callee.yml" <<'EOF'
+---
+name: callee
+"on":
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  c:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo c
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: secrets: inherit still fails" 1 $?
+
+d="$(mkdir_case sr-fail-no-perms)"
+cat >"$d/review.yml" <<EOF
+---
+name: review
+"on":
+  pull_request:
+jobs:
+  review:
+    if: $SR_CLAUSE
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "same-repo exception: undeclared permissions still fail" 1 $?
+
+# ---------------------------------------------------------------------------
 # Usage and the real tree.
 # ---------------------------------------------------------------------------
 
@@ -1715,6 +1998,58 @@ assert_exit "matrix: a --matrix file the posture pass would not parse is a usage
 
 out="$("$GUARD" --matrix ci.yml "$REPO_ROOT/.github/workflows" 2>&1)"
 assert_exit "matrix: the repo's own ci.yml holds the platform matrix" 0 $?
+
+# ---------------------------------------------------------------------------
+# PR-Agent: the action skips any event type its pr_actions leave out, so the
+# workflow's trigger types and the action's pr_actions must name the same set.
+# ---------------------------------------------------------------------------
+
+# pa_case <name> <types-flow-list> <pr_actions-line-or-empty>
+pa_case() {
+  d="$(mkdir_case "$1")"
+  {
+    printf '%s\n' '---' 'name: PR-Agent' '"on":' '  pull_request:'
+    printf '%s\n' "    types: $2" 'permissions: {}' 'jobs:' '  review:' \
+      '    runs-on: ubuntu-latest' '    steps:' '      - name: Review' \
+      '        uses: docker://pragent/pr-agent@sha256:0000' '        env:' \
+      '          CONFIG.LOG_LEVEL: INFO'
+    [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG.PR_ACTIONS: '$3'"
+  } >"$d/pr-agent.yml"
+}
+PA_ALL='opened, synchronize, reopened, ready_for_review, review_requested'
+PA_ALL_JSON='["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
+
+pa_case pa-agree "[$PA_ALL]" "$PA_ALL_JSON"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: types and pr_actions naming the same set pass" 0 $?
+
+pa_case pa-missing-sync "[$PA_ALL]" '["opened", "reopened", "ready_for_review", "review_requested"]'
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a pr_actions without synchronize fails" 1 $?
+assert_contains "pr-agent: the missing action is named" "synchronize" "$out"
+
+pa_case pa-no-actions "[$PA_ALL]" ""
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a workflow with no pr_actions fails" 1 $?
+
+pa_case pa-extra-action "[opened, synchronize, reopened]" "$PA_ALL_JSON"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
+assert_contains "pr-agent: the undelivered action is named" "ready_for_review" "$out"
+
+pa_case pa-trailing-comment "[$PA_ALL] # see [docs]" "$PA_ALL_JSON"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a trailing comment after the types list is ignored" 0 $?
+
+d="$(mkdir_case pa-comment-only)"
+printf '%s\n' '---' 'name: ci' '"on":' '  pull_request:' 'permissions: {}' 'jobs:' '  build:' \
+  '    runs-on: ubuntu-latest' '    steps:' '      # unlike pragent/pr-agent we pin by tag' \
+  '      - run: echo ok' >"$d/ci.yml"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a workflow naming the image only in a comment is not checked" 0 $?
+
+out="$("$GUARD" "$REPO_ROOT/.github/workflows" 2>&1)"
+assert_exit "pr-agent: the repo's own workflows agree" 0 $?
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
