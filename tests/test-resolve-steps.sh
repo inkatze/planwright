@@ -2146,6 +2146,13 @@ case "$ce_rc:$ce_err" in
   "6:"*"PLANWRIGHT_STEP_UNIT"*"PLANWRIGHT_STEP_UNIT_KIND"*"PLANWRIGHT_STEP_WORKTREE"*) ok "--check-env refuses an unmapped name and lists the documented set" ;;
   *) fail "--check-env PLANWRIGHT_STEP_UNIT: rc=$ce_rc err='$ce_err'" ;;
 esac
+for combo in "--owner 5" "--pool p" "convergence" "--explain" "--preamble" "--unattended"; do
+  ce_rc=0
+  # shellcheck disable=SC2086 # the combo is a deliberate word list
+  ce_err=$(env /bin/bash "$RS" --check-env $combo 2>&1) || ce_rc=$?
+  [ "$ce_rc" -eq 2 ]
+  verdict "--check-env with '$combo' is a usage error" "--check-env $combo: rc=$ce_rc err='$ce_err'"
+done
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2

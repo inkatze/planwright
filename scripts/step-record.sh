@@ -2042,7 +2042,9 @@ fi
 # --check-env owns the list) is dropped without a word by anything that reads
 # the context: the verbs that write a record or post a status refuse it, the
 # read-only ones warn.
-if [ -x "$script_dir/resolve-steps.sh" ] && ! env_msg=$("$script_dir/resolve-steps.sh" --check-env 2>&1); then
+env_rc=0
+env_msg=$("$script_dir/resolve-steps.sh" --check-env 2>&1) || env_rc=$?
+if [ "$env_rc" -eq 6 ]; then
   printf '%s\n' "$env_msg" >&2
   case $verb in
     new-run | write | regenerate | status) exit 2 ;;

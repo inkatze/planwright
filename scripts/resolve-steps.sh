@@ -350,7 +350,7 @@ done
 # step scripts consult, so a misspelled name fails loudly instead of being
 # dropped. The caller picks refuse (exit 6) or warn.
 if [ "$check_env" -eq 1 ]; then
-  [ "$n_points" -eq 0 ] && [ $((explain + check + preamble + prefix + line_mode + pool_given)) -eq 0 ] \
+  [ "$n_points" -eq 0 ] && [ $((explain + check + preamble + prefix + line_mode + pool_given + owner_given)) -eq 0 ] \
     && [ -z "$attendance" ] || usage
   bad_names=0
   for name in $(compgen -v PLANWRIGHT_STEP_); do

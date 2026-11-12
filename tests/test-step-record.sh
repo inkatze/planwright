@@ -2730,6 +2730,26 @@ env PLANWRIGHT_STEP_PR_NUMBER=7 "$SR" --worktree "$wt" render --run "$run1" >"$t
 rc=$?
 [ "$rc" -eq 0 ] && [ ! -s "$tmp/bad.err" ]
 verdict "render with a documented PLANWRIGHT_STEP_PR_NUMBER stays silent" "rc=$rc: $(cat "$tmp/bad.err")"
+runs_before=$(ls "$wt/.claude/steps")
+env PLANWRIGHT_STEP_SPEC_ID=1 "$SR" --worktree "$wt" new-run >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+runs_after=$(ls "$wt/.claude/steps")
+[ "$rc" -eq 2 ] && grep -q 'PLANWRIGHT_STEP_SPEC' "$tmp/bad.err" && [ "$runs_before" = "$runs_after" ]
+verdict "new-run refuses PLANWRIGHT_STEP_SPEC_ID and issues no run" "rc=$rc: $(cat "$tmp/bad.err") runs: $runs_before / $runs_after"
+
+# A sibling resolve-steps.sh that cannot judge the context (any exit but its
+# own 6) is its own breakage, never reported as a misspelled name.
+broken="$tmp/broken-scripts"
+mkdir "$broken"
+for f in "$repo_root/scripts"/*.sh; do
+  [ "$f" = "$repo_root/scripts/resolve-steps.sh" ] || ln -s "$f" "$broken/${f##*/}"
+done
+printf '#!/bin/sh\ncase $1 in --check-env) echo "resolve-steps: broken install" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$repo_root/scripts/resolve-steps.sh" >"$broken/resolve-steps.sh"
+chmod +x "$broken/resolve-steps.sh"
+"$broken/step-record.sh" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && ! grep -q 'broken install' "$tmp/bad.err"
+verdict "a sibling that exits 5 on --check-env is not reported as a bad name" "rc=$rc: $(cat "$tmp/bad.err")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s\n' "$failures failure(s)" >&2
