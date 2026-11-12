@@ -588,10 +588,15 @@ collect() {
     esac
   fi
   if [ -n "$cl_wt" ]; then
-    # Records speak for the worktree's own head, so it must be the forge's.
+    # The audit judges the forge's head, never the worktree's: records carry
+    # their own heads, and the audit counts one only when its completion is
+    # at or behind that head. A worktree ahead of the head (a session still
+    # at work past what was pushed) holds the head, so it is audited at the
+    # head; one behind or off to the side cannot speak for it.
     cl_wthead=$(mc_untrusted_git -C "$cl_wt" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) || cl_wthead=''
-    if [ "$cl_wthead" != "$cl_head" ]; then
-      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head"
+    if [ "$cl_wthead" != "$cl_head" ] \
+      && { [ -z "$cl_wthead" ] || ! mc_untrusted_git -C "$cl_wt" merge-base --is-ancestor "$cl_head" "$cl_wthead" 2>/dev/null; }; then
+      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head and not ahead of it; the session using it may be mid-change, so retry once it has pushed or finished"
       cl_wt=''
     fi
   fi
