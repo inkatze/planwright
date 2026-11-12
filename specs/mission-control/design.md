@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1827,6 +1827,40 @@ stays as it is.
 **Chosen because:** the offload knob stayed at its local default while two
 rules said otherwise and nothing noticed; a structured required value turns
 that into a check, and the duty reports the waste it left.
+
+### D-59: An idle-capacity duty raises an event, from a declared backlog  (N; C, D-51, D-58, D-17)
+
+**Decision:** A core `idle-capacity` duty (`scripts/mc-idle.sh`, a five
+minute low-priority watcher, in the default duty set) runs the check each
+wake: free slots are the smaller of the host-wide bound less every program's
+live sessions and the program bound less its own, mission-control sessions
+counted in neither; the gates are the launcher's own admission for heavy
+work (`scripts/mc-budget.sh admit heavy`), so the duty cannot raise a launch
+the launcher would refuse. With a slot free, the gates open and a unit in
+the backlog, it raises an `idle-capacity` event (class blocker) naming up to
+one unit per free slot, at most five. The backlog is a configured file of
+ranked unit ids (knob `mission_control_idle_backlog`, absolute path or
+`off`); none, or unreadable, raises one `idle-capacity-undeclared` event
+(class decision) and nothing else. Dedupe: the same unit list is not raised
+again inside `mission_control_idle_interval`, a changed list raises at once,
+and a state that stops being idle is forgotten. The duty never launches; the
+holder acts on the event. D-58's windowed report (REQ-M1.11) is unchanged.
+
+**Alternatives considered:**
+- Extend D-58's report to raise per wake. Rejected because: that report is a
+  proposal in D-14's form on a daily and handover cadence, read by the
+  operator; a free slot is an act for the holder now, so it must be an event.
+- The duty launches the unit itself. Rejected because: launching is the
+  holder's act and its gates (the operator's holds, REQ-I1 invariants) live
+  there; the duty only makes the gap visible.
+- Infer the backlog from open pull requests, specs or the ledger. Rejected
+  because: every inferred source guesses, and a wrong guess launches wrong
+  work; a declared file makes the work order the operator's or the
+  supervisor's own.
+
+**Chosen because:** every other duty reacts to an event, so a supervisor
+whose units finished waited for the operator with slots free; a per-wake
+comparison closes the gap without a second place that launches.
 
 ## Cross-cutting concerns
 

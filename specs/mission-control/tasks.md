@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1280,8 +1280,27 @@ fixed-string check.)*
 - **Citations:** D-56 · REQ-F1.24
 - **Estimated effort:** 1 day
 
+### Task 57 — The idle-capacity duty and its backlog source
+
+- **Deliverables:** `scripts/mc-idle.sh` (`check` and `watch`); the
+  `idle-capacity` entry in `config/duties.yaml` and the default duty list;
+  the two event classes in `config/mc-event-classes.tsv`; the
+  `mission_control_idle_backlog` and `mission_control_idle_interval` knobs in
+  `config/defaults.yml`, `config/mission-control-knobs.tsv` and
+  `docs/options-reference.md`; the verb row in
+  `config/mission-control-verbs.txt`; the operator-doc section in
+  `docs/mission-control.md`; `tests/test-mc-idle.sh`.
+- **Done when:** The REQ-M1.12 and REQ-M1.13 test-spec entries' fixtures
+  pass, each row failing once under a mutation of the script; the duties,
+  knobs, verbs, options-reference and docs checks pass; the duty launches
+  nothing and edits nothing it reads.
+- **Dependencies:** 55
+- **Citations:** D-59, D-58, D-17 · REQ-M1.12, REQ-M1.13
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
+- **Task 57** — anchor re-review pending: Amendment 9 (REQ-M1.12, REQ-M1.13, D-59) changed anchored content; `/spec-kickoff` re-walks the delta and re-anchors.
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.
 
 ## Deferred
