@@ -3241,7 +3241,7 @@ guard_date() {
       # `-f FILE` echoes every line it cannot parse; short options bundle and
       # long ones abbreviate.
       -I*) ;;
-      -[fs]* | -[!-]*[fs]* | --f*) return 1 ;;
+      -[fs]* | -[a-zA-Z]*[fs]* | --f*) return 1 ;;
     esac
   done
   return 0
@@ -4457,6 +4457,7 @@ secret_path_risky() {
       /*) ;;
       *) link=${tgt%/*}/$link ;;
     esac
+    secret_lexical "$link" && return 0
     dir=${link%/*}
     [ -n "$dir" ] || dir=/
     canon_dir_cached "$dir"
@@ -4484,7 +4485,7 @@ glob_any_risky() {
   [ "$noglob" = 0 ] || set -f
   for m in ${ms[@]+"${ms[@]}"}; do
     n=$((n + 1))
-    [ "$n" -le 256 ] || return 0
+    [ "$n" -le 2048 ] || return 0
     case $kind in
       secret) secret_path_risky "$m" 0 && return 0 ;;
       *) broad_path_risky "$m" && return 0 ;;
@@ -4792,8 +4793,8 @@ environ_words_ok() {
               opts=0
               continue
               ;;
-            # GNU grep takes any unambiguous prefix (`--reg=`, `--fi`).
-            --reg* | --f*)
+            # GNU grep takes any unambiguous prefix (`--reg=`, `--fil`).
+            --reg* | --fil | --file | --file=*)
               given=1
               continue
               ;;

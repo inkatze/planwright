@@ -928,7 +928,7 @@ assert_defer "symlinked plugin script escapes" "bash $PLUGIN_ROOT/scripts/evilli
 assert_defer "arbitrary absolute script outside repo/plugin" "/tmp/evil/scripts/x.sh"
 assert_defer "plugin tests dir is not a script dir" "bash $PLUGIN_ROOT/tests/x.sh"
 
-echo "### The shared secret screen: credential files defer on the tower too"
+echo "### The shared secret screen: credential files named by an operand or redirect defer on the tower too"
 for c in 'cat /home/someone/.ssh/id_rsa' 'cat ~/.aws/credentials' 'cat /etc/shadow' 'cat /pro[c]/self/cmdline' \
   'grep -f/etc/shadow x .' 'cat /run/secrets/db_password' 'wc -c < /home/someone/.netrc'; do
   assert_defer "secret screen on the tower: $c" "$c"

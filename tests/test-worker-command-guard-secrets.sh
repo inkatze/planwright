@@ -215,6 +215,14 @@ for c in "grep -rn 'TODO\$' scripts" "rg 'foo\$' scripts" 'echo "by $GIT_AUTHOR_
   'git diff HEAD~1' 'git diff origin/main...HEAD' 'git log --oneline' 'date -Iseconds' 'gh api repos/o/r -q .x'; do
   assert_allow "secrets: $c" "$c"
 done
+ln -s loop2 "$SANDBOX/sub/loop1"
+ln -s loop1 "$SANDBOX/sub/loop2"
+ln -s "$H/.ssh/gone/k" "$SANDBOX/sub/deadkey"
+assert_defer "secrets: a symlink loop" "cat sub/loop1"
+assert_defer "secrets: a link into a secret directory whose target is missing" "cat sub/deadkey"
+assert_defer "secrets: grep --fil= naming /etc/shadow" "grep --fil=/etc/shadow x sub"
+assert_allow "secrets: date with a relative date" "date -d '-1 days' +%F"
+assert_allow "secrets: grep --fixed-strings with a dotted pattern" "grep --fixed-strings .ssh README.md"
 assert_allow "secrets: a glob in the worktree" "cat scripts/*.sh"
 assert_allow "secrets: a recursive glob in the worktree" "grep -r x scripts/o*"
 assert_allow "secrets: an ordinary quoted variable beside text" "echo \"\$USER\"x"
