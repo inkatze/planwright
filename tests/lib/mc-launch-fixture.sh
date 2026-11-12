@@ -26,7 +26,7 @@ fleet="$tmp/fleet"
 cleanup() {
   # Close any supervisor a failed case left running, through the rung's own
   # stop, before the scratch tree goes.
-  for fl in "$tmp/fleet" "$tmp/fleet-cap"; do
+  for fl in "$tmp/fleet" "$tmp/fleet-cap" "$tmp/fleet-wait"; do
     for d in "$fl"/streamjson/*/; do
       [ -d "$d" ] || continue
       env PLANWRIGHT_FLEET_STATE_DIR="$fl" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
