@@ -95,7 +95,7 @@ marker unwritten and an unmarked turn writes it.
 
 ### REQ-A1.9 — Bring-up audits drift, read only [test]
 
-`tests/test-mc-config.sh` (Task 46), against fixture layers, rules and a
+`tests/test-mc-config-doctor.sh` (Task 46), against fixture layers, rules and a
 fixed `--now`:
 
 - a knob set away from its shipped value, a default duty off, a launch on
@@ -379,7 +379,7 @@ cadence. This shipped with PR #852's tests.
 
 ### REQ-D1.10 — Launch worktrees [test]
 
-`tests/test-mission-control-launch.sh` (Task 18): a worker launch with no
+`tests/test-mission-control-launch-worktrees.sh` (Task 18): a worker launch with no
 directory starts in a new worktree and leaves the primary checkout's HEAD,
 branch and status unchanged; a unit's existing branch is used; a worktree
 holding the branch with a live session refuses and one without is reused;
@@ -389,7 +389,7 @@ directory.
 
 ### REQ-D1.11 — The cadence in launch briefs [test]
 
-`tests/test-mission-control-launch.sh` (Task 18): a repository-changing
+`tests/test-mission-control-launch-worktrees.sh` (Task 18): a repository-changing
 brief carries the cadence section with the audit command; a brief that is a
 skill command carries none.
 
@@ -407,7 +407,7 @@ covered by the REQ-D1.16 entry.
 
 ### REQ-D1.16 — A live session moved between programs [test]
 
-`tests/test-mission-control-launch.sh` (Task 48), a fake registry and fake
+`tests/test-mission-control-launch-host.sh` (Task 48), a fake registry and fake
 fleet state under a mktemp folder, never live state:
 
 - a live worker row moves: its program and owner become the destination's,
@@ -984,7 +984,8 @@ launched holder past its trigger still launches a successor.
 
 ### REQ-L1.9 — Every session hands over; attended ones beside themselves, compaction last [test + manual]
 
-`tests/test-mc-handover.sh`, `tests/test-mc-panel.sh` and the mod's
+`tests/test-mc-handover.sh`, `tests/test-mc-handover-tmux.sh`,
+`tests/test-mc-panel.sh` and the mod's
 `hooks/mission-control/compaction.test.tsx` under `check:panel-mod`
 (Task 33), against a stub tmux that models `split-window` and `kill-pane`
 (with a refusal knob) and a handover runner that can set `TMUX` and
