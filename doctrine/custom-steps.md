@@ -174,8 +174,8 @@ An `isolated` session takes the unit's own launch backend: a headless unit
 `headless-oneshot`) never hosts it in a `tmux` window in the operator's session
 (`offload-dispatch` refuses it). It launches the step through
 `scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`,
-which `offload-dispatch` does not drive, or runs it `in-session`, recorded; the step record's backend is the value
-`launch-backend` printed.
+which `offload-dispatch` does not drive, or runs it `in-session`, recorded; the step record's
+backend is the value `launch-backend` printed.
 
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step attaches to the unit's
