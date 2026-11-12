@@ -121,7 +121,8 @@
 #           (step-events-audit.sh): `gap<TAB><point><TAB>fault<TAB><detail>`
 #           per record whose start is off its Skill call, a polish passed or
 #           applied with no Agent call in its span or passed on a moved head,
-#           or a fix-round starting before the first event; `note<TAB><point>
+#           or a fix-round starting before the first event (unless it repeats
+#           an earlier run's record of that round); `note<TAB><point>
 #           <TAB>unverified<TAB><detail>` where the events are not reachable.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and

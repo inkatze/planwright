@@ -1,6 +1,6 @@
 #!/bin/sh
 # step-events-audit.sh — judge step records against the session that wrote them.
-# Emits: tab-separated lines
+# Emits tab-separated lines, one per fault or unverifiable record.
 #
 # Usage:
 #   step-events-audit.sh --worktree <dir> --records <file> [--run <id>]...
@@ -24,7 +24,7 @@
 #
 # Output:
 #   fault<TAB><run>:<point>:<seq><TAB><step><TAB><message>
-#   unverified<TAB><run>:<point>:<seq><TAB><step><TAB><why>   events unreachable
+#   unverified<TAB><run>:<point>:<seq><TAB><step><TAB><why>   events unreachable, unreadable or without timestamps
 # Exit 0 no fault, 1 a fault, 2 usage, 4 the records cannot be read.
 #
 # Portable /bin/sh, awk and jq.
@@ -87,7 +87,11 @@ if [ -s "$work/files" ]; then
           | select(.name == "Skill" or .name == "Agent" or .name == "Task")
           | "call\t" + $t + "\t" + .name + "\t" + ((.input.skill // "") | tostring))' \
       "$@" >"$work/events.tsv"; then
-      have_events=1
+      if grep -q '^first' "$work/events.tsv"; then
+        have_events=1
+      else
+        why='the session events carry no timestamps'
+      fi
     else
       why='the session events cannot be parsed'
     fi

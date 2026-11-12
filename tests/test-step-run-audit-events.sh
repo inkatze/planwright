@@ -206,8 +206,37 @@ r=$(sr new-run)
 srec "$r" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
 done_at "$r" convergence
 audit --through convergence
-grep -q "^note${TAB}convergence${TAB}unverified${TAB}.*polish: the session events are not reachable" "$tmp/audit"
-verdict $? "with no session events the audit says it cannot verify the skill record" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+[ "$RC" -eq 0 ] && grep -q "^note${TAB}convergence${TAB}unverified${TAB}.*polish: the session events are not reachable" "$tmp/audit" \
+  && grep -q "^audit${TAB}complete${TAB}" "$tmp/audit"
+verdict $? "with no session events the audit says it cannot verify the skill record, and a note is not a gap" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+fresh
+catalog "$POLISH"
+config 'steps_convergence: [polish]'
+session 2026-11-04T10:00:00
+printf '{"type":"user","message":{"content":"go"}}\n' >"$sdir/events.jsonl"
+r=$(sr new-run)
+srec "$r" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && grep -q "^note${TAB}convergence${TAB}unverified${TAB}.*polish: the session events carry no timestamps" "$tmp/audit"
+verdict $? "events carrying no timestamps are unverified, never a false fault or a silent pass" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# --- the Task tool name counts as an Agent call --------------------------------
+fresh
+catalog "$POLISH"
+config 'steps_convergence: [polish]'
+session 2026-11-04T10:00:00
+call 2026-11-04T10:00:11 Skill polish
+call 2026-11-04T10:00:20 Task
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ]
+verdict $? "a Task tool call inside the span counts as an Agent call" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
