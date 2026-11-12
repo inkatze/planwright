@@ -180,8 +180,9 @@ that owns the work to. The duty never starts anything itself, and says the
 same thing again only when the list changes or its repeat interval has
 passed.
 
-The backlog is a file you name in the settings
-([options reference](options-reference.md)): a list of ranked pieces of
+Each program has its own backlog, a file you name in that program's settings
+([options reference](options-reference.md)), so two programs on one computer
+never read each other's list: a list of ranked pieces of
 work, one per line, the first the next to run (blank lines and `#` lines
 are skipped; a name comes first, then an optional note). With none named,
 or one that cannot be read, the duty says so once and raises nothing,

@@ -1231,16 +1231,10 @@ mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 
 # How much, in percent, a raised bottleneck's total time must grow before
 # it is raised again.
 mission_control_throughput_worsen: 50
-# The idle-capacity duty (scripts/mc-idle.sh): the backlog it reads when a
-# worker slot is free, and how long before it raises the same idle state
-# again. The backlog is the path of a file of ranked units, one per line, the
-# first the next to run (blank lines and # lines skipped; a unit's id first,
-# then an optional note after a tab or space; an id starts with a letter or
-# digit, then letters, digits and . _ : @ = -, at most 64 characters, else
-# the line is skipped; at most five are named per raise); `off`
-# declares none, which the duty reports once instead of guessing. An absolute
-# path, and a cadence.
-mission_control_idle_backlog: "off"
+# The idle-capacity duty (scripts/mc-idle.sh): how long before it raises the
+# same idle state again, a cadence. The backlog it reads when a worker slot
+# is free is per program: program_<name>_idle_backlog, the path of a file of
+# ranked units (see docs/options-reference.md), `off` when unset.
 mission_control_idle_interval: 30m
 # Where a draft for a person goes (scripts/mc-inbox.sh draft): auto, the
 # first clipboard tool that script finds, or the absolute path of a command

@@ -43,8 +43,9 @@ THE GATES are the launcher's: the usage hold, a fleet pause and host load
 at the throttle threshold, read as scripts/mc-budget.sh admit heavy reads
 them. Any closed gate raises nothing.
 
-THE BACKLOG is the file mission_control_idle_backlog names (`off`: none), an
-absolute path of ranked units, one per line, the first the next to run;
+THE BACKLOG is the file the program's own idle_backlog field names
+(program_<name>_idle_backlog, read by mc-program.sh; `off`: none, the
+default), an absolute or ~/ path, so each program reads only its own list, of ranked units, one per line, the first the next to run;
 blank lines and lines starting with # are skipped; a unit is its id
 (starting with a letter or digit, then letters, digits and . _ : @ = -, at most 64 characters, else the line is
 skipped), then an optional note after a tab or space; at most five ids are
@@ -130,14 +131,6 @@ bound() {
   printf '%s\n' "$b"
 }
 
-parse_backlog() { # an absolute path, or off
-  case $1 in
-    off) printf 'off\n' ;;
-    /*) printf '%s\n' "$1" ;;
-    *) return 1 ;;
-  esac
-}
-
 # live_counts: "<host live><TAB><program live>" from the registry rows the
 # launcher counts: every non-mission-control session of every program, and
 # this program's own.
@@ -200,7 +193,7 @@ check() {
     REASON="queued: $(printf '%s' "$gate" | tr '\t\n' '  ')"
     return 0
   fi
-  backlog=$(mc_knob mission_control_idle_backlog parse_backlog) || exit 1
+  backlog=$(/bin/bash "$script_dir/mc-program.sh" get "$program" idle_backlog) || exit 1
   if [ "$backlog" = off ] || [ ! -f "$backlog" ] || [ ! -r "$backlog" ]; then
     REASON=undeclared
     UNDECLARED_WHY=$backlog
@@ -239,8 +232,8 @@ undeclared="$RUNTIME/idle-undeclared"
 if [ "$REASON" = undeclared ]; then
   if [ ! -e "$undeclared" ]; then
     case $UNDECLARED_WHY in
-      off) why="no backlog is declared (mission_control_idle_backlog is off)" ;;
-      *) why="the declared backlog cannot be read (mission_control_idle_backlog)" ;;
+      off) why="no backlog is declared (program_${program}_idle_backlog is off)" ;;
+      *) why="the declared backlog cannot be read (program_${program}_idle_backlog)" ;;
     esac
     emit idle-capacity-undeclared idle-capacity-backlog "Free worker slots cannot be matched to work: $why. Declare a file of ranked units."
     printf '%s\n' "$NOW" | mc_write "$undeclared" || mc_fail "cannot write $undeclared"

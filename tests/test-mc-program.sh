@@ -194,6 +194,17 @@ expect_rc "REQ-H1.4: a class named twice fails" 1
 expect_err "REQ-H1.4: the repeated class is named" "designs"
 
 alpha_block
+mc_run mc-program.sh get alpha idle_backlog
+if [ "$RC" -eq 0 ] && [ "$OUT" = off ]; then ok "REQ-M1.13: idle_backlog defaults to off"; else fail "idle_backlog default: rc=$RC out=$OUT $ERR"; fi
+printf 'program_alpha_idle_backlog: ~/lists/alpha.txt\n' >>"$tracked"
+mc_run mc-program.sh get alpha idle_backlog
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$fixhome/lists/alpha.txt" ]; then ok "REQ-M1.13: idle_backlog names the program's own file, ~/ expanded"; else fail "idle_backlog path: rc=$RC out=$OUT $ERR"; fi
+alpha_block
+printf 'program_alpha_idle_backlog: lists/alpha.txt\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "REQ-M1.13: a relative idle_backlog path fails" 1
+
+alpha_block
 printf 'program_alpha_sources: {designs: figma}\n' >>"$tracked"
 mc_run mc-program.sh validate alpha
 expect_rc "REQ-H1.4: an entry without a mode fails" 1

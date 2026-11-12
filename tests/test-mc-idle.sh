@@ -78,7 +78,7 @@ printf '# ranked, first is next\nalpha-unit-one\tthe first unit\nalpha-unit-two\
 # ---------------------------------------------------------------------------
 # A free slot with a declared backlog raises the event naming the units.
 # ---------------------------------------------------------------------------
-write_tracked "mission_control_idle_backlog: $backlog"
+write_tracked "program_alpha_idle_backlog: $backlog"
 write_mirror 10 10
 clear_rows
 add_row mc-alpha-worker-aaaaaaaaaa alpha worker
@@ -156,7 +156,7 @@ events
 if [ "$(count_kind idle-capacity-undeclared)" -eq 1 ]; then ok "an undeclared backlog is reported once, not on every wake"; else fail "undeclared reported again: $EV"; fi
 
 # A declared file that cannot be read says so instead of guessing.
-write_tracked "mission_control_idle_backlog: $tmp/missing.txt"
+write_tracked "program_alpha_idle_backlog: $tmp/missing.txt"
 new_state
 watch "$now"
 events
@@ -185,7 +185,7 @@ write_mirror 10 10
 mc_run mc-usage.sh watch --program alpha --now "$((now + 4000))"
 
 # A long backlog names at most five units.
-write_tracked "mission_control_idle_backlog: $backlog
+write_tracked "program_alpha_idle_backlog: $backlog
 fleet_max_parallel_units: 6"
 printf 'u1\nu2\nu3\nu4\nu5\nu6\nu7\n' >"$backlog"
 new_state
@@ -201,12 +201,97 @@ case $EV in
 esac
 
 # A malformed launch bound fails the pass instead of reading as a full fleet.
-write_tracked "mission_control_idle_backlog: $backlog
+write_tracked "program_alpha_idle_backlog: $backlog
 fleet_host_max_live_workers: banana"
 new_state
 clear_rows
 watch "$now"
 if [ "$RC" -ne 0 ]; then ok "a malformed host bound fails the pass"; else fail "a malformed host bound exited 0: $OUT"; fi
+
+# A changed list raises at once, inside the interval.
+write_tracked "program_alpha_idle_backlog: $backlog
+fleet_max_parallel_units: 6"
+printf 'chg-one\nchg-two\n' >"$backlog"
+new_state
+clear_rows
+watch "$now"
+printf 'chg-three\nchg-one\n' >"$backlog"
+watch $((now + 60))
+events
+if [ "$(count_kind idle-capacity)" -eq 2 ]; then ok "a changed list is raised at once, inside the interval"; else fail "changed list not raised at once: $EV"; fi
+
+# A program that stops being idle is forgotten and raises afresh on return.
+add_row mc-alpha-worker-aaaaaaaaaa alpha worker
+for i in 1 2 3 4 5 6; do add_row "mc-alpha-worker-fill$i" alpha worker; done
+watch $((now + 120))
+clear_rows
+watch $((now + 180))
+events
+if [ "$(count_kind idle-capacity)" -eq 3 ]; then ok "a program no longer idle is forgotten and raises afresh on return"; else fail "not raised afresh after a full spell: $EV"; fi
+
+# Blank, comment and malformed-id lines are skipped; a note after an id is ignored.
+printf '# top\n\nbad!id\n-leading-dash\ngood-one\tnote words here\n\ngood-two second note\n' >"$backlog"
+new_state
+watch "$now"
+events
+case $EV in
+  *good-one*good-two*) ok "blank, comment and malformed-id lines are skipped" ;;
+  *) fail "good ids not named: $EV" ;;
+esac
+case $EV in
+  *note*|*bad*|*leading*) fail "a skipped line or a note leaked into the event: $EV" ;;
+  *) ok "a note after an id is ignored and malformed ids never named" ;;
+esac
+
+# The check verb changes nothing it reads: no event, no dedupe record.
+new_state
+before=$(find "$fleet" -type f | sort | tr '\n' ' ')
+mc_run mc-idle.sh check --program alpha --now "$now" --load 10
+after=$(find "$fleet" -type f | sort | tr '\n' ' ')
+if [ "$RC" -eq 0 ] && [ "$before" = "$after" ]; then ok "check prints a verdict and writes nothing"; else fail "check wrote state: rc=$RC before=$before after=$after"; fi
+case $OUT in
+  raise*good-one*|*raise*good-one*) ok "check names the units it would raise" ;;
+  *) fail "check did not name the units: $OUT" ;;
+esac
+
+# Two programs on one host each read only their own list.
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha, beta]
+program_alpha_repositories: [$repo]
+program_alpha_home: $tmp/mchome
+program_alpha_budget: {host_load: 100}
+program_alpha_idle_backlog: $tmp/alpha-list.txt
+program_beta_repositories: [$repo]
+program_beta_home: $tmp/mchome-beta
+program_beta_budget: {host_load: 100}
+program_beta_idle_backlog: $tmp/beta-list.txt
+EOF
+printf 'alpha-only-unit\n' >"$tmp/alpha-list.txt"
+printf 'beta-only-unit\n' >"$tmp/beta-list.txt"
+rm -rf "$fleet/attention" "$fleet/mission-control/alpha" "$fleet/mission-control/beta"
+clear_rows
+mc_run mc-idle.sh watch --program alpha --now "$now" --load 10
+mc_run mc-event.sh list --program alpha
+alpha_ev=$OUT
+mc_run mc-idle.sh watch --program beta --now "$now" --load 10
+mc_run mc-event.sh list --program beta
+beta_ev=$OUT
+case $alpha_ev in
+  *alpha-only-unit*) ok "program alpha reads its own list" ;;
+  *) fail "alpha did not read its own list: $alpha_ev" ;;
+esac
+case $alpha_ev in
+  *beta-only-unit*) fail "alpha read beta's list: $alpha_ev" ;;
+  *) ok "program alpha never reads beta's list" ;;
+esac
+case $beta_ev in
+  *beta-only-unit*) ok "program beta reads its own list" ;;
+  *) fail "beta did not read its own list: $beta_ev" ;;
+esac
+case $beta_ev in
+  *alpha-only-unit*) fail "beta read alpha's list: $beta_ev" ;;
+  *) ok "program beta never reads alpha's list" ;;
+esac
 
 if [ "$failures" -gt 0 ]; then
   echo "test-mc-idle: $failures failure(s)" >&2
