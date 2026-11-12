@@ -256,6 +256,10 @@ cfg set --program alpha budget "{sessions: 2}"
 expect_rc "a program field is set" 0
 mc_run mc-program.sh get alpha budget
 expect_eq "the set field reads back" "sessions${tab}2"
+cfg set --program alpha idle_backlog "$tmp/idle-list.txt"
+expect_rc "the idle_backlog field is set" 0
+mc_run mc-program.sh get alpha idle_backlog
+expect_eq "the idle_backlog reads back" "$tmp/idle-list.txt"
 cfg set --program alpha spec_root "$tmp/no-such-root"
 expect_rc "a field that does not validate is refused" 1
 cfg set --program alpha nickname x

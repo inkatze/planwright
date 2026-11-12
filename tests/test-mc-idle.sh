@@ -200,6 +200,33 @@ case $EV in
   *) ok "a long backlog names no sixth unit" ;;
 esac
 
+# A repeated id is named once and does not use up the cap.
+printf 'dup-a\ndup-a\ndup-b\n' >"$backlog"
+new_state
+watch "$now"
+events
+case $EV in
+  *dup-a,dup-b*|*"dup-a dup-b"*) ok "a repeated id is named once" ;;
+  *) fail "repeated id not collapsed: $EV" ;;
+esac
+case $EV in
+  *dup-a*dup-a*) fail "a repeated id was named twice: $EV" ;;
+  *) ok "a repeated id never appears twice" ;;
+esac
+
+# A launch gate that cannot be read fails the pass instead of reading as closed.
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_home: $tmp/mchome
+program_alpha_budget: {Bad-Key: 1}
+program_alpha_idle_backlog: $backlog
+EOF
+new_state
+clear_rows
+watch "$now"
+if [ "$RC" -ne 0 ]; then ok "an unreadable launch gate fails the pass"; else fail "an unreadable launch gate exited 0: $OUT"; fi
+
 # A malformed launch bound fails the pass instead of reading as a full fleet.
 write_tracked "program_alpha_idle_backlog: $backlog
 fleet_host_max_live_workers: banana"

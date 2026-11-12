@@ -190,6 +190,10 @@ check() {
     return 0
   fi
   if ! gate=$(/bin/bash "$script_dir/mc-budget.sh" admit --program "$program" heavy --now "$NOW" ${load:+--load "$load"} 2>&1); then
+    case $gate in
+      queued*) ;;
+      *) mc_fail "the launch gate could not be read: $gate" ;;
+    esac
     REASON="queued: $(printf '%s' "$gate" | tr '\t\n' '  ')"
     return 0
   fi
@@ -203,7 +207,7 @@ check() {
   # At most MAX_UNITS ids, each short, keep the event text inside its bound.
   UNITS=$(awk -v n="$FREE" -v max="$MAX_UNITS" '
     /^[[:space:]]*(#|$)/ { next }
-    { u = $1; if (u ~ /^[A-Za-z0-9][A-Za-z0-9._:@=-]*$/ && length(u) <= 64) { print u; if (++c >= n || c >= max) exit } }' "$backlog")
+    { u = $1; if (u ~ /^[A-Za-z0-9][A-Za-z0-9._:@=-]*$/ && length(u) <= 64 && !(u in seen)) { seen[u] = 1; print u; if (++c >= n || c >= max) exit } }' "$backlog")
   [ -n "$UNITS" ] || REASON=no-backlog
 }
 
