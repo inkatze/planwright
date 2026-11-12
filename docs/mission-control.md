@@ -164,6 +164,26 @@ enough.
 The watching itself is done by small scripts, not by an agent sitting in a
 loop, so a quiet program costs very little.
 
+### Free worker slots
+
+When a session's units finish and nothing else wakes mission control, free
+worker slots can sit beside work that waits. The idle-capacity duty closes
+that gap: every few minutes it compares the program's live workers with the
+host-wide and per-program bounds (`fleet_host_max_live_workers`,
+`fleet_max_parallel_units`) and, with the usage hold, a fleet pause and host
+load all open and a free slot, reads the program's backlog. When the backlog
+holds a unit, mission control hears an idle-capacity event naming up to one
+unit per free slot, and launches them or drives the owning supervisor with
+those units. The duty never launches anything itself, and raises the same
+idle state again only when the units change or
+`mission_control_idle_interval` has passed.
+
+The backlog is a file you declare: `mission_control_idle_backlog` names
+the absolute path of a list of ranked units, one per line, the first the
+next to run (blank lines and `#` lines are skipped; a unit's id comes
+first, then an optional note). With none declared, or one that cannot be
+read, the duty says so once and raises nothing, never guessing a backlog.
+
 ## Usage windows and the reset queue
 
 Claude accounts have usage windows: a five-hour session window and a

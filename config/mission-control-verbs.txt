@@ -33,6 +33,7 @@ mc-handover.sh resume
 mc-handover.sh take
 mc-handover.sh verify
 mc-handover.sh write
+mc-idle.sh -
 mc-inbox.sh draft
 mc-inbox.sh item
 mc-inbox.sh report
