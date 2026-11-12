@@ -627,7 +627,8 @@ tokenize() {
   SEG_TERM=()
   SEG_DOC=()
   SEG_RD=()
-  local seg_start=0
+  SEG_RT=()
+  local seg_start=0 redir_text='' rstart
 
   flush_word() {
     if [ "$have" = 1 ]; then
@@ -663,7 +664,9 @@ tokenize() {
       SEG_TERM[${#SEG_TERM[@]}]=$1
       SEG_DOC[${#SEG_DOC[@]}]=$fold_doc
       SEG_RD[${#SEG_RD[@]}]=$redir
+      SEG_RT[${#SEG_RT[@]}]=$redir_text
     fi
+    redir_text=''
     redir=0
     fold_doc=''
     seg_start=${#W[@]}
@@ -876,6 +879,7 @@ tokenize() {
           '>' | '|' | '&' | '<') i=$((i + 1)) ;;
         esac
         while [ "$i" -lt "$n" ] && { [ "${s:i:1}" = ' ' ] || [ "${s:i:1}" = "$TAB" ]; }; do i=$((i + 1)); done
+        rstart=$i
         while [ "$i" -lt "$n" ]; do
           case ${s:i:1} in
             ' ' | "$TAB" | "$NL" | ';' | '&' | '|' | '<' | '>') break ;;
@@ -904,6 +908,7 @@ tokenize() {
           esac
           i=$((i + 1))
         done
+        redir_text="$redir_text ${s:rstart:i-rstart}"
         ;;
       ';' | '&' | '|')
         nc=${s:i+1:1}
@@ -1898,23 +1903,25 @@ kickoff_pipe_on() {
   case ${SEG_TERM[$1]:-} in '|' | '|&') KICK_PIPED=1 ;; esac
 }
 
-# kickoff_fuzzy_name <segment> — 0 when a word of the segment (a redirect
-# target included) could expand to the script's name through a glob or an
-# expansion that sits inside it (scripts/kick*ff-spec-push.sh,
-# scripts/kic${E}koff-spec-push.sh), with at least two literal characters
-# besides the .sh so that scripts/*.sh stays an ordinary glob. Expansions read
-# as a wildcard.
+# kickoff_fuzzy_name <segment> — 0 when a word of the segment, or the target of
+# one of its redirects (which the tokenizer keeps apart, in SEG_RT), could
+# expand to the script's name through a glob or an expansion that sits inside
+# it (scripts/kick*ff-spec-push.sh, scripts/kic${E}koff-spec-push.sh), with at
+# least two literal characters besides the .sh so that scripts/*.sh stays an
+# ordinary glob. Expansions read as a wildcard.
 kickoff_fuzzy_name() {
-  local k=${SEG_S[$1]} e=${SEG_E[$1]} p lit
-  while [ "$k" -lt "$e" ]; do
-    p=${W[$k]}
-    k=$((k + 1))
+  local words=("${W[@]:${SEG_S[$1]}:$((SEG_E[$1] - SEG_S[$1]))}") p lit
+  local rt=${SEG_RT[$1]//[\"\'\\]/} extra=()
+  read -d '' -ra extra <<<"$rt" || :
+  [ "${#extra[@]}" = 0 ] || words+=("${extra[@]}")
+  for p in "${words[@]}"; do
     case $p in *[\*\?\[\$]*) ;; *) continue ;; esac
     while [[ $p =~ (\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?!-]) ]]; do
       p=${p/"${BASH_REMATCH[0]}"/\*}
     done
     lc "${p##*/}"
     p=$LC
+    case $p in *[\*\?\[]*) ;; *) continue ;; esac
     lit=${p//[\*\?]/}
     lit=${lit%.sh}
     [ "${#lit}" -ge 2 ] || continue
