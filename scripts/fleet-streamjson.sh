@@ -203,12 +203,18 @@
 #       dead supervisor, which wants `recover` rather than a second `launch`.
 #   fleet-streamjson.sh answer <worker> <request-id>
 #       (--response-file <file> | --allow | --deny [--message <text>])
+#       [--takeover]
 #       Deliver the recorded answer for a pending request. --allow composes
 #       behavior=allow with updatedInput sliced from the stored envelope;
 #       --deny composes behavior=deny (optional message); --response-file
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
-#       included, so escape them), 64 KiB at most.
+#       included, so escape them), 64 KiB at most. The worker's owner is the
+#       session its launch registered (`pending` shows it); an answer from a
+#       session whose $PLANWRIGHT_TOWER_ID differs is refused (exit 3, nothing
+#       written, the request stays pending) unless --takeover is passed. A
+#       caller with no identity, or a worker with no recorded owner, is not
+#       refused.
 #   fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
@@ -475,7 +481,7 @@ valid_posnum() {
 usage() {
   {
     echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
-    echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
+    echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>]) [--takeover]"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
@@ -2435,6 +2441,31 @@ cmd_launch() {
   return 2
 }
 
+# worker_owner <worker> — print the session that launched the worker, read from
+# the registry record the launch wrote, or nothing when no record names one.
+worker_owner() {
+  wo_tok=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' -v w="$1" '($2 "") == (w "") { o = $4 } END { print o }') || return 0
+  case $wo_tok in
+    '' | - | unknown-owner | . | .. | *[!A-Za-z0-9._:-]*) return 0 ;;
+  esac
+  printf '%s\n' "$wo_tok"
+}
+
+# answer_owner_check <worker> — refuse (exit 3) an answer from a session that
+# is not the worker's recorded owner. A caller with no identity of its own, or
+# a worker with no recorded owner, is not refused: there is nobody to name.
+answer_owner_check() {
+  ao_owner=$(worker_owner "$1")
+  [ -n "$ao_owner" ] || return 0
+  ao_me=${PLANWRIGHT_TOWER_ID:-}
+  case $ao_me in
+    '' | *[!A-Za-z0-9._:-]*) return 0 ;;
+  esac
+  [ "$ao_me" != "$ao_owner" ] || return 0
+  printf '%s\n' "$me: answer refused, nothing written: worker $1 is owned by $ao_owner and this session is $ao_me (pass --takeover to answer it anyway)" >&2
+  exit 3
+}
+
 cmd_answer() {
   [ $# -ge 2 ] || usage
   worker=$1
@@ -2451,6 +2482,7 @@ cmd_answer() {
   mode=''
   resp_file=''
   deny_msg=''
+  takeover=0
   while [ $# -gt 0 ]; do
     case $1 in
       --response-file)
@@ -2471,6 +2503,10 @@ cmd_answer() {
         [ $# -ge 2 ] || usage
         deny_msg=$2
         shift 2
+        ;;
+      --takeover)
+        takeover=1
+        shift
         ;;
       *)
         usage
@@ -2513,6 +2549,7 @@ cmd_answer() {
     printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
+  [ "$takeover" = 1 ] || answer_owner_check "$worker"
   if [ "$mode" = 'file' ]; then
     # The body must be one object on its own, not merely yield a valid frame
     # once spliced in: `{...},"k":{...}` would close the response early and
@@ -3855,6 +3892,9 @@ pending_show() {
   ps_extra=${ps_out%%"$NL"*}
   ps_out=${ps_out#*"$NL"}
   printf '== %s %s %s\n' "$1" "$3" "${ps_tool:-unknown}"
+  if [ -n "${5:-}" ]; then
+    printf -- '-- owner %s: answer from that session, or pass --takeover to answer from another\n' "$5"
+  fi
   if [ "${4:-0}" = 1 ]; then
     printf -- '-- worker dead: its processes are gone, so nobody can answer this request; alarm-scan settles it\n'
   fi
@@ -3908,9 +3948,10 @@ pending_worker() {
   [ -n "$pw_ids" ] || return 0
   pw_dead=0
   ! worker_dead "$2" || pw_dead=1
+  pw_owner=$(worker_owner "$1")
   printf '%s\n' "$pw_ids" | while IFS= read -r pw_id; do
     valid_reqid "$pw_id" || continue
-    pending_show "$1" "$2" "$pw_id" "$pw_dead"
+    pending_show "$1" "$2" "$pw_id" "$pw_dead" "$pw_owner"
   done
 }
 
