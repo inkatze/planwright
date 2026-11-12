@@ -195,7 +195,9 @@ in shards of their own on macOS (the system bash 3.2 and BSD userland; a
 small fixed count on GitHub's scarce hosted runners, or, once the
 `PLANWRIGHT_MAC_RUNNER` repository variable enables it, one shard on the
 offload Mac's self-hosted runner for this repository's own branches, as
-[`ci-self-hosted-mac.md`](ci-self-hosted-mac.md) describes) and in an Alpine container
+[`ci-self-hosted-mac.md`](ci-self-hosted-mac.md) describes; the two macOS
+jobs run on a push, a ready pull request, or a draft labelled `ci-macos`, and
+skip on a plain draft push) and in an Alpine container
 (musl, dash, busybox; the planned count), and the `check` job, the status
 branch protection reads, passes only when every one of those jobs and shards
 does and the test-time budget gate passes over every Linux shard's timing

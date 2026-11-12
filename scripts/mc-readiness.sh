@@ -43,6 +43,10 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       its latest run only (a re-run
                                       supersedes the runs before it);
                                       SUCCESS, NEUTRAL and SKIPPED pass
+  require<TAB>macos                   the repository's CI has macOS jobs, which
+                                      run only on a ready or ci-macos
+                                      labelled pull request; both must be
+                                      SUCCESS, a skip or absence is unmet
   thread<TAB><id><TAB>open|resolved   one per review thread
   finding<TAB><reviewer><TAB><id><TAB>answered|unanswered
                                       an automated reviewer's thread
@@ -78,6 +82,9 @@ THE WALK refuses, each failure one line:
     passes;
   - no individual check, or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
+  - where macOS is required, a macos-suite or macos-smoke check that never
+    ran, was skipped (a draft head) or is not SUCCESS, named with the
+    ci-macos label that starts it, so the flip never rests on a draft run;
   - an open thread, an unanswered finding, a failed guard, a truncated
     read;
   - any screenshot whose judgment is not ok, or recorded at another head;
@@ -281,6 +288,14 @@ FILENAME == ARGV[1] {
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit } ; next }
 $1 == "head" { head = $2 }
 $1 == "check" { nc++; if (!pass_check($3)) fail("check", $2 " is " $3) }
+$1 == "check" && ($2 == "macos-suite" || $2 == "macos-smoke" || $2 ~ /^macos-(suite|smoke) /) {
+  j = ($2 ~ /^macos-suite/) ? "macos-suite" : "macos-smoke"
+  macn[j]++
+  if ($3 == "SUCCESS") macok[j]++
+  else if ($3 == "SKIPPED") macskip[j] = 1
+  else if ($3 == "NEUTRAL") macneutral[j] = $2
+}
+$1 == "require" && $2 == "macos" { needmac = 1 }
 $1 == "thread" && $3 != "resolved" { fail("thread", $2 " is open") }
 $1 == "finding" && $4 != "answered" { fail("finding", $2 " " $3 " is unanswered") }
 $1 == "guard" && $3 != "pass" { fail("guard", $2 ": " $4) }
@@ -303,6 +318,16 @@ END {
   if (badfmt) { print "not-ready\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "not-ready\t-"; print "fail\thead\tno evidence at a head was collected; a session report alone never passes"; exit 4 }
   if (!nc) fail("check", "no individual check context at the head")
+  if (needmac) {
+    hint = "; add the ci-macos label (or mark the pull request ready) so CI runs it"
+    nm = split("macos-suite macos-smoke", mj, " ")
+    for (i = 1; i <= nm; i++) {
+      j = mj[i]
+      if (!macn[j]) fail("macos", j " never ran at " substr(head, 1, 12) hint)
+      else if (macskip[j]) fail("macos", j " was skipped at " substr(head, 1, 12) hint)
+      else if (macneutral[j] != "") fail("macos", macneutral[j] " is NEUTRAL; the macOS jobs must be green")
+    }
+  }
   speconly = (speconly_head == head)
   if (!speconly) {
     for (i = 1; i <= ncad; i++) fail("cadence", cad[i])
@@ -656,6 +681,13 @@ collect() {
   cl_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$1" repositories) || mc_fail "the repositories of program $1 do not resolve"
   cl_first=$(printf '%s\n' "$cl_repos" | head -n 1)
   [ -n "$cl_first" ] && [ -d "$cl_first" ] || mc_fail "the program's first repository is not a directory here"
+  # Where CI has macOS jobs they only run once a pull request is ready (or
+  # labelled), so the walk must be told to want them green, not skipped.
+  : >"$cl_tmp/require"
+  cl_ci=${cl_wt:-$cl_first}
+  if grep -rqE --include='*.yml' '^  macos-(suite|smoke):' "$cl_ci/.github/workflows" 2>/dev/null; then
+    printf 'require\tmacos\n' >"$cl_tmp/require"
+  fi
   printf '{"tool_name":"Bash","tool_input":{"command":"gh pr ready %s --repo %s"}}' "$3" "$2" >"$cl_tmp/payload"
   if cl_verdict=$(cd "$cl_first" && /bin/bash "$script_dir/ready-guard.sh" <"$cl_tmp/payload" 2>/dev/null); then
     case $cl_verdict in
@@ -679,7 +711,7 @@ collect() {
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
     awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" { next } { print }' "$cl_tmp/pr"
-    cat "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/evidence"
+    cat "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }

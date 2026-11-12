@@ -14,8 +14,13 @@ def check_context: if .context != null then ["status", .context] else ["run", .w
 def check_started: if (.status // "COMPLETED") != "COMPLETED" then "~"
   else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
 
+# A macOS job (macos-suite, macos-smoke) is skipped on a draft pull request, so
+# its skip is no pass: only SUCCESS or NEUTRAL counts for a `macos-` check.
 def check_passed: if .context != null then .state == "SUCCESS"
-  else (.status // "COMPLETED") == "COMPLETED" and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED") end;
+  else (.status // "COMPLETED") == "COMPLETED"
+    and ((.conclusion // "") as $c
+      | $c == "SUCCESS" or $c == "NEUTRAL"
+        or ($c == "SKIPPED" and ((.name // "") | startswith("macos-") | not))) end;
 
 # An array of rollup entries in, the latest run of each context out, in the
 # order the rollup listed them. A check run naming no workflow (one an app

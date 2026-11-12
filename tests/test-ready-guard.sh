@@ -1015,6 +1015,10 @@ run_checks() { # run_checks <label> <defer|deny> <entries> [reason]
 }
 run_checks "checks (default): only skipped and neutral checks are not a pass" deny \
   '{"name":"a","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"b","workflowName":"ci","status":"COMPLETED","conclusion":"NEUTRAL","startedAt":"2026-11-05T19:00:00Z"}' 'no passed check'
+run_checks "checks (default): a skipped macOS job (a draft run) is not a pass" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard 1/4)","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"}' 'macos-suite .shard 1/4. is SKIPPED'
+run_checks "checks (default): a skipped non-macOS job still passes" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"docs","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"}'
 run_checks "checks (default): a queued re-run, its start the zero time gh reports, is the latest" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"test","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z","completedAt":"0001-01-01T00:00:00Z"}' 'test is PENDING'
 run_checks "checks (default): the same check name in another workflow is its own context" deny \
