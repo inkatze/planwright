@@ -4246,6 +4246,8 @@ secret_lexical() {
     # macOS keeps /etc under /private, which a resolved path reports.
     /private/etc/shadow/* | /private/etc/gshadow/* | /private/etc/ssh/ssh_host_*_key/* | /private/etc/sudoers/* | /private/etc/sudoers.d/* | /private/etc/ssl/private/*) return 0 ;;
     /proc/*/?* | /dev/fd/* | /dev/stdin/*) return 0 ;;
+    # Container and service secrets, and Debian's shadow backups.
+    /run/secrets/* | /var/run/secrets/* | /private/var/run/secrets/* | /run/credentials/* | /var/backups/*shadow* | /run/user/*/containers/auth.json/*) return 0 ;;
   esac
   return 1
 }
@@ -4268,7 +4270,8 @@ secret_glob() {
   case $w in
     /proc/*/?*) return 0 ;;
   esac
-  for s in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- /etc/sudoers /etc/ssl/private/k.pem /proc/1/mem /dev/fd/0 /dev/stdin; do
+  for s in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- /etc/sudoers /etc/ssl/private/k.pem /proc/1/mem /dev/fd/0 /dev/stdin \
+    /run/secrets/x /var/run/secrets/x /run/credentials/x /var/backups/shadow.bak /var/backups/gshadow.bak /run/user/0/containers/auth.json; do
     # shellcheck disable=SC2053 # the operand is the pattern under test
     [[ $s == $w ]] && return 0
   done
@@ -4398,6 +4401,11 @@ broad_dir() {
   local x=$1
   case $x in
     / | /etc | /etc/ssh | /etc/ssl | /etc/sudoers.d | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) return 0 ;;
+    # Runtime secrets, backups, and mounted volumes (another system's homes).
+    # Only a volume's root: a worktree may live further down one.
+    /run | /run/user | /run/user/* | /var | /var/run | /var/lib | /var/backups | /private/var | /private/var/run | /mnt | /media | /srv | /Volumes) return 0 ;;
+    /mnt/*/* | /media/*/* | /Volumes/*/*) ;;
+    /mnt/* | /media/* | /Volumes/*) return 0 ;;
     /root/.claude | /root/.config | /home/*/.claude | /home/*/.config | /Users/*/.claude | /Users/*/.config) return 0 ;;
     /home/*/* | /Users/*/*) ;;
     /home/* | /Users/*) return 0 ;;

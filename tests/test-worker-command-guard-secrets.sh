@@ -44,7 +44,7 @@ assert_defer "secrets: a brace choosing .ssh under a home" "cat /home/someone/{.
 assert_defer "secrets: a brace listing .ssh second" "cat /home/someone/{x,.ssh}/id_rsa"
 echo "### Recursive readers over a directory that holds secrets"
 # shellcheck disable=SC2088,SC2016 # the guard reads the words as written
-for dir in '~' '~/' '$HOME' '${HOME}' "$H" /home/someone /home/someone/ /home//someone/./ /root /etc /etc/ssh / //  /Users/someone /private/etc /proc /dev \
+for dir in '~' '~/' '$HOME' '${HOME}' "$H" /home/someone /home/someone/ /home//someone/./ /root /etc /etc/ssh / // /Users/someone /private/etc /proc /dev \
   '~/.claude' '~/.config' /home/someone/.config; do
   assert_defer "secrets: grep -r over $dir" "grep -r BEGIN $dir"
   assert_defer "secrets: grep -R over $dir" "grep -R BEGIN $dir"
@@ -153,6 +153,26 @@ assert_defer "secrets: a tracked value naming one" "f=/home/someone/.ssh/id_rsa;
 assert_defer "secrets: a symlinked directory resolving into .ssh" "cat sub/sshdir/id_rsa"
 assert_defer "secrets: a symlinked key file" "cat sub/key"
 assert_defer "secrets: a symlinked credentials file" "cat sub/creds"
+echo "### Runtime secrets, backups and mounted volumes"
+for dir in /run /run/ /run/user /run/user/1000 /var /var/run /var/lib /var/backups /private/var /mnt /mnt/c /media /media/usb /srv /Volumes /Volumes/x; do
+  assert_defer "secrets: grep -r over $dir" "grep -r BEGIN $dir"
+  assert_defer "secrets: grep -R over $dir" "grep -R BEGIN $dir"
+  assert_defer "secrets: rg over $dir" "rg BEGIN $dir"
+  assert_defer "secrets: find over $dir" "find $dir -name x"
+done
+for f in /run/secrets/db_password /var/run/secrets/kubernetes.io/serviceaccount/token /run/credentials/x.service/token \
+  /private/var/run/secrets/token /var/backups/shadow.bak /var/backups/gshadow.bak /run/user/1000/containers/auth.json; do
+  assert_defer "secrets: cat $f" "cat $f"
+  assert_defer "secrets: a redirect source $f" "wc -c < $f"
+done
+assert_defer "secrets: a glob over runtime secrets" "cat /run/secrets/*"
+assert_defer "secrets: a glob over shadow backups" "cat /var/backups/*shadow*"
+assert_defer "secrets: a glob over every account's container auth" "cat /run/user/*/containers/auth.json"
+assert_defer "secrets: grep -r over runtime secrets" "grep -r x /run/secrets"
+assert_defer "secrets: a relative runtime secret after a cd" "cd /run && cat secrets/db_password"
+assert_allow "secrets: grep -r over system docs" "grep -r BEGIN /usr/share/doc"
+assert_allow "secrets: a system log read" "cat /var/log/dpkg.log"
+assert_allow "secrets: grep -r over a project below a volume's root" "grep -r BEGIN /Volumes/x/proj/src"
 
 echo "### System credential files and kernel views of other data"
 for f in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- //etc/shadow /etc//shadow /etc///gshadow /./etc/shadow \
