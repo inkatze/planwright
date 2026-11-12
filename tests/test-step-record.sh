@@ -2744,6 +2744,7 @@ mkdir "$broken"
 for f in "$repo_root/scripts"/*.sh; do
   [ "$f" = "$repo_root/scripts/resolve-steps.sh" ] || ln -s "$f" "$broken/${f##*/}"
 done
+# shellcheck disable=SC2016 # the stub's own $1 must stay literal
 printf '#!/bin/sh\ncase $1 in --check-env) echo "resolve-steps: broken install" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$repo_root/scripts/resolve-steps.sh" >"$broken/resolve-steps.sh"
 chmod +x "$broken/resolve-steps.sh"
 "$broken/step-record.sh" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
