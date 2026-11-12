@@ -1245,6 +1245,8 @@ for cmd in 'bash tests/test-kickoff-spec-push.sh' \
   'timeout 500 bash tests/test-kickoff-spec-push.sh' \
   'bash tests/test-kickoff-spec-push.sh && git add scripts/kickoff-spec-push.sh' \
   'fleet-remote.sh --host mac compute --worktree /some/worktree --test tests/test-kickoff-spec-push.sh --timeout 540' \
+  'git log --oneline fix/kickoff-spec-push-quoting' \
+  'bash tests/kickoff-spec-push-helpers.sh' \
   'git status scripts/kickoff-spec-push.sh' \
   'git grep foo -- scripts/kickoff-spec-push.sh' \
   'git rm --cached scripts/kickoff-spec-push.sh' \
@@ -1308,6 +1310,12 @@ for cmd in 'scripts/kickoff-spec-push.sh demo' \
   'git mv scripts/kickoff-spec-push.sh scripts/other.sh' \
   'git grep -Obash foo scripts/kickoff-spec-push.sh' \
   'git grep --open-files-in-pager=bash foo -- scripts/kickoff-spec-push.sh' \
+  'git grep -nObash foo scripts/kickoff-spec-push.sh' \
+  'git grep --open=bash foo scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh --output=copy.sh' \
+  'uniq scripts/kickoff-spec-push.sh copy.sh' \
+  'bash scripts/kickoff-spec-push.sh.bak' \
+  "S=/; bash scripts\$S'kickoff-spec-push.sh' demo" \
   'git bisect run scripts/kickoff-spec-push.sh' \
   'git rebase -x scripts/kickoff-spec-push.sh' \
   'GIT_EXTERNAL_DIFF=bash git diff scripts/kickoff-spec-push.sh' \

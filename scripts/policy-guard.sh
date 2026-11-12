@@ -1709,25 +1709,42 @@ kickoff_named() {
   return 1
 }
 
-# kick_count <text> — set KC to how many times the script's name stands in
-# <text> (quotes and backslashes dropped, case folded), not as the tail of a
-# longer name such as test-kickoff-spec-push.sh. Whatever follows the name
-# counts, so a glob or a trailing wildcard on it is still a mention. A digit
-# before it counts too: an empty positional parameter ($1) can sit there.
-kick_count() {
-  local s=${1//[\"\'\\]/} before
+# kick_tally <text> — set KT to how many times the script's name stands in
+# <text> (case folded), not as the tail of a longer name such as
+# test-kickoff-spec-push.sh nor the head of one such as kickoff-spec-push-x.sh.
+# What follows the name otherwise counts, so a glob or a wildcard on it is
+# still a mention; so does a digit before it, where an empty positional
+# parameter ($1) can sit.
+kick_tally() {
+  local s=$1 before after
   lc "$s"
   s=$LC
-  KC=0
+  KT=0
   while [[ $s == *"$KICK_NAME"* ]]; do
     before=${s%%"$KICK_NAME"*}
     s=${s#*"$KICK_NAME"}
     before=${before: -1}
+    after=${s:0:1}
     case $before in
-      [A-Za-z_.-]) ;;
-      *) KC=$((KC + 1)) ;;
+      [A-Za-z_.-]) continue ;;
+    esac
+    case $after in
+      [A-Za-z0-9_-]) ;;
+      *) KT=$((KT + 1)) ;;
     esac
   done
+}
+
+# kick_count <text> — set KC to the larger of the tally with quotes and
+# backslashes dropped (a name spliced by them still runs) and the tally with
+# each replaced by a mark (a quote after a variable, $S'kickoff-spec-push.sh',
+# is no longer part of a longer name).
+kick_count() {
+  local dropped=${1//[\"\'\\]/} marked=${1//[\"\'\\]/@}
+  kick_tally "$dropped"
+  KC=$KT
+  kick_tally "$marked"
+  [ "$KT" -le "$KC" ] || KC=$KT
 }
 
 # kickoff_verb_class <word> — set KV to how a bare command word treats its
@@ -1737,7 +1754,7 @@ kickoff_verb_class() {
   KV=''
   case $1 in
     */*) return 0 ;;
-    grep | egrep | fgrep | rg | cat | head | tail | wc | ls | stat | file | diff | cmp | uniq | cut | tr | nl | od | \
+    grep | egrep | fgrep | rg | cat | head | tail | wc | ls | stat | file | diff | cmp | cut | tr | nl | od | \
       sha256sum | sha1sum | md5sum | shasum | b2sum | shellcheck | shfmt | realpath | readlink | basename | dirname | test | '[')
       KV=reader
       ;;
@@ -1750,16 +1767,24 @@ kickoff_verb_class() {
 # arguments: no option but -C before the subcommand (a -c could set a pager or
 # helper to the script), and a subcommand that does not run its arguments.
 kickoff_git_reads() {
-  local k=1 w
+  local k=1 j
   while [ "$k" -lt "${#SW[@]}" ]; do
     case ${SW[$k]} in
       -C) k=$((k + 2)) ;;
       -*) return 1 ;;
       add | diff | show | log | status | blame | annotate | ls-files | ls-tree | grep | rm | restore | commit | \
         shortlog | diff-tree | cat-file | check-ignore | whatchanged)
-        # git grep -O<command> runs <command> on the files it matched.
-        for w in "${SW[@]:$((k + 1))}"; do
-          case $w in -O* | --open-files-in-pager*) return 1 ;; esac
+        # git grep -O<command> (bundled, or the long form in any unambiguous
+        # abbreviation) runs <command> on the files it matched, and --output
+        # writes a copy of what it prints.
+        j=$((k + 1))
+        while [ "$j" -lt "${#SW[@]}" ]; do
+          case ${SW[$j]} in
+            --op* | --ou*) return 1 ;;
+            --*) ;;
+            -*O*) return 1 ;;
+          esac
+          j=$((j + 1))
         done
         return 0
         ;;
