@@ -162,18 +162,23 @@ for light_kind in tower orchestrator; do
   kind_launch "$light_kind" "light-$light_kind"
   if [ "$RC" = 0 ]; then
     ok "a $light_kind launch is not held by a full host"
-    light_name=$(field name)
-    wait_done "$light_name"
-    ml_out=$(cd "$repo" && env PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" HOME="$fixhome" \
-      /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha 2>/dev/null)
-    case $ml_out in
-      *"${TAB}host-cap-bypass${TAB}$light_name${TAB}"*) fail "the $light_kind exemption recorded a host-cap-bypass event" ;;
-      *) ok "the $light_kind exemption records no bypass event" ;;
-    esac
+    wait_done "$(field name)"
   else
     fail "a $light_kind launch on a full host exited $RC: $ERR"
   fi
 done
+# With --operator-asked a held kind records a bypass; an exempt one is never
+# held, so it records none.
+kind_launch tower light-asked --operator-asked
+light_name=$(field name)
+wait_done "$light_name"
+ml_out=$(cd "$repo" && env PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" HOME="$fixhome" \
+  /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha)
+case $ml_out in
+  *"${TAB}host-cap-bypass${TAB}$light_name${TAB}"*) fail "an operator-asked launch of an exempt kind recorded a host-cap-bypass event: $ml_out" ;;
+  *"${TAB}host-cap-bypass${TAB}"*) [ "$RC" = 0 ] && ok "an exempt kind records no bypass event even when operator-asked" || fail "the operator-asked tower launch exited $RC: $ERR" ;;
+  *) fail "the event list holds no earlier bypass, so the lookup measures nothing: $ml_out" ;;
+esac
 for heavy_kind in worker reviewer ad-hoc; do
   kind_launch "$heavy_kind" "heavy-$heavy_kind"
   case $ERR in
