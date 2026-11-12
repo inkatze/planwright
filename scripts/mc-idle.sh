@@ -45,11 +45,12 @@ them. Any closed gate raises nothing.
 
 THE BACKLOG is the file the program's own idle_backlog field names
 (program_<name>_idle_backlog, read by mc-program.sh; `off`: none, the
-default), an absolute or ~/ path, so each program reads only its own list, of ranked units, one per line, the first the next to run;
-blank lines and lines starting with # are skipped; a unit is its id
-(starting with a letter or digit, then letters, digits and . _ : @ = -, at most 64 characters, else the line is
-skipped), then an optional note after a tab or space; at most five ids are
-named. It is read only when a slot is free and the gates are open. With none
+default), an absolute or ~/ path, so each program reads only its own list,
+of ranked units, one per line, the first the next to run; blank lines and
+lines starting with # are skipped; a unit is its id (starting with a letter
+or digit, then letters, digits and . _ : @ = -, at most 64 characters, else
+the line is skipped), then an optional note after a tab or space; a repeated
+id is named once; at most five ids are named. It is read only when a slot is free and the gates are open. With none
 declared, or one that cannot be read, the duty says so once, as an
 idle-capacity-undeclared event, and raises nothing until a backlog reads
 again; it never guesses a backlog.
@@ -72,8 +73,8 @@ Usage:
       the measured host load percent.
 
 Exit codes: 0 done; 1 an invalid knob, an unresolvable fleet home or
-runtime directory, a registry that cannot be read, or an event the store
-refused; 2 usage; 3 the program is not configured.
+runtime directory, a registry that cannot be read, a launch gate that
+cannot be read, or an event the store refused; 2 usage; 3 the program is not configured.
 
 Portable bash 3.2 / BSD tooling.
 HELP
