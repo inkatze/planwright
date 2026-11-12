@@ -119,7 +119,9 @@ Usage:
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
-      out (neither read for a spec-only pull request), the recorded
+      out (neither read for a spec-only pull request; a worktree ahead of
+      the pull request's head is audited at that head, one behind or beside
+      it is unaudited), the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
       program's first repository, then the head read once more, a head that
