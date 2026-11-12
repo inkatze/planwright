@@ -175,6 +175,55 @@ git -C "$repo" rm -q --cached hosts.txt
 run "$repo" "$tmp/local.yml" validate
 assert_eq "untracked registry file in a repo accepted" 0 "$rc"
 
+# The adopter layer is not machine-local: the key there is refused.
+printf 'remote_hosts_file: %s\n' "$tmp/reg.txt" >"$tmp/adopter/planwright.yml"
+run none "$tmp/none.yml" validate
+assert_eq "registry key in the adopter layer refused" 1 "$rc"
+assert_contains "adopter layer refusal names the field" remote_hosts_file "$err"
+rm -f "$tmp/adopter/planwright.yml"
+conf "$tmp/reg.txt"
+
+# A field given twice, an unknown --host and a malformed --host.
+reg 'host box-a account=acct-one account=acct-two ceiling=1'
+run none "$tmp/local.yml" validate
+assert_eq "duplicate field refused" 1 "$rc"
+assert_contains "duplicate field named" account "$err"
+reg "$GOOD"
+run none "$tmp/local.yml" validate --host box-missing
+assert_eq "unknown --host is exit 3" 3 "$rc"
+run none "$tmp/local.yml" validate --host box-a
+assert_eq "known --host validates" 0 "$rc"
+run none "$tmp/local.yml" validate --host -x
+assert_eq "malformed --host refused" 1 "$rc"
+assert_contains "malformed --host names the field" alias "$err"
+
+# More defaults and refusals, each naming its field.
+run none "$tmp/local.yml" get box-a idle
+assert_eq "idle defaults to ten minutes" 10 "$out"
+run none "$tmp/local.yml" get box-a compute
+assert_eq "compute stance read" accepted "$out"
+reg 'host box-a account=acct-one ceiling=0'
+run none "$tmp/local.yml" validate
+assert_eq "zero ceiling refused" 1 "$rc"
+assert_contains "zero ceiling names the field" ceiling "$err"
+reg 'host box-a account=acct-one ceiling=1 clone.Bad=/srv/x'
+run none "$tmp/local.yml" validate
+assert_eq "bad repository alias refused" 1 "$rc"
+assert_contains "bad repository alias names the field" clone.Bad "$err"
+reg 'host box-a account=acct-one ceiling=1 clone.demo=/a/../b'
+run none "$tmp/local.yml" validate
+assert_contains "dotdot clone path names the field" clone.demo "$err"
+reg 'host box-a account=acct-one ceiling=1 hold=maybe'
+run none "$tmp/local.yml" validate
+assert_contains "bad hold flag names the field" hold "$err"
+reg '  # indented comment' "$GOOD"
+run none "$tmp/local.yml" validate
+assert_eq "indented comment ignored" 0 "$rc"
+reg "$GOOD	tab"
+run none "$tmp/local.yml" validate
+assert_eq "control byte refused" 1 "$rc"
+reg "$GOOD"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

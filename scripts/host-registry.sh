@@ -75,7 +75,7 @@ valid_path() {
     *) return 1 ;;
   esac
   case $1 in
-    *[!A-Za-z0-9._/+@:=-]*) return 1 ;;
+    *[!A-Za-z0-9._/-]*) return 1 ;;
   esac
   case $1/ in
     *//* | */./* | */../*) return 1 ;;
@@ -91,9 +91,8 @@ registry_file() {
   rf_value=
   while IFS= read -r rf_line; do
     rf_layer=${rf_line%%	*}
-    case $rf_layer in
-      core | repo-tracked) die 1 "remote_hosts_file: set in a tracked config layer ($rf_layer); the registry is machine-local only" ;;
-    esac
+    [ "$rf_layer" = machine-local ] \
+      || die 1 "remote_hosts_file: set in the $rf_layer config layer; the registry is machine-local only"
     rf_value=${rf_line#*	}
   done <<EOF
 $rf_lines
@@ -106,9 +105,16 @@ EOF
   [ -f "$rf_value" ] && [ -r "$rf_value" ] || die 3 "registry file is not readable"
   rf_dir=${rf_value%/*}
   [ -n "$rf_dir" ] || rf_dir=/
-  if git -C "$rf_dir" ls-files --error-unmatch -- "${rf_value##*/}" >/dev/null 2>&1; then
-    die 1 "remote_hosts_file: the registry file is tracked by git; keep it machine-local"
-  fi
+  git -C "$rf_dir" ls-files --error-unmatch -- "${rf_value##*/}" >/dev/null 2>&1
+  case $? in
+    0) die 1 "remote_hosts_file: the registry file is tracked by git; keep it machine-local" ;;
+    1) ;;
+    *)
+      if git -C "$rf_dir" rev-parse --git-dir >/dev/null 2>&1; then
+        die 1 "remote_hosts_file: could not tell whether git tracks the registry file"
+      fi
+      ;;
+  esac
   printf '%s\n' "$rf_value"
 }
 
@@ -158,6 +164,9 @@ load() {
     set -- $ld_line
     set +f
     [ $# -ge 1 ] || continue
+    case $1 in
+      "#"*) continue ;;
+    esac
     [ "$1" = host ] || die 1 "line $ld_n: entry must start with 'host'"
     [ $# -ge 2 ] || die 1 "line $ld_n: alias: missing"
     ld_alias=$2
@@ -177,6 +186,9 @@ load() {
         *) die 1 "host $ld_alias: field: '$ld_kv' is not name=value" ;;
       esac
       check_field "$ld_alias" "${ld_kv%%=*}" "${ld_kv#*=}"
+      case $ld_fields in
+        *" ${ld_kv%%=*}="*) die 1 "host $ld_alias: ${ld_kv%%=*}: given twice" ;;
+      esac
       ld_fields="$ld_fields $ld_kv"
     done
     case $ld_fields in
@@ -231,6 +243,7 @@ case $verb in
           ;;
         --host)
           [ $# -ge 2 ] || usage
+          valid_label "$2" || die 1 "alias: $2 is not a valid SSH alias"
           only_host=$2
           shift 2
           ;;
@@ -239,13 +252,18 @@ case $verb in
     done
     reg=$(registry_file) || exit $?
     load "$reg"
+    if [ -n "$only_host" ]; then
+      case $hosts in
+        "$only_host	"* | *"
+$only_host	"*) ;;
+        *) die 3 "host $only_host: not in the registry" ;;
+      esac
+    fi
     if [ "$for_what" = compute ]; then
-      checked=0
       while IFS= read -r v_l; do
         [ -n "$v_l" ] || continue
         v_alias=${v_l%%	*}
         [ -z "$only_host" ] || [ "$only_host" = "$v_alias" ] || continue
-        checked=1
         case $v_l in
           *" compute="*) ;;
           *) die 1 "host $v_alias: compute: no credential stance recorded (login-free or accepted); the host takes workers only" ;;
@@ -253,7 +271,6 @@ case $verb in
       done <<EOF
 $hosts
 EOF
-      [ -z "$only_host" ] || [ "$checked" -eq 1 ] || die 3 "host $only_host: not in the registry"
     fi
     ;;
   get)
