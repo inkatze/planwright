@@ -1009,7 +1009,10 @@ names the shape and the alternative: send output you do not need to a file in
 your own `mktemp -d` scratch directory, and use full paths. It reads the command
 quote- and heredoc-aware, so the same words inside a string, a heredoc body or
 a file's content pass, and a command it cannot follow (a subshell, a backtick,
-a substitution inside double quotes) is deferred whole. It cannot judge an
+a substitution inside double quotes) is deferred whole, as is a command that
+hides the padded verb behind a wrapper such as `env` or `sudo`. A `/tmp` path
+is refused only as an unquoted word or a redirect target. The launch
+preflight does not check for this guard's script. It cannot judge an
 unused variable, a `mkdir -p` of a directory that exists, or a `sed` that
 replaces a line with itself from the text alone; those stay with the
 supervisor.

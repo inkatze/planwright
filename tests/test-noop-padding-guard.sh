@@ -45,10 +45,10 @@ deny() {
   hook "$1"
   if [ "$CODE" = 0 ] \
     && [ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision' 2>"$TMP/jqerr")" = deny ] \
-    && [ -n "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>"$TMP/jqerr")" ]; then
+    && printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>"$TMP/jqerr" | grep -qF -- "$3"; then
     ok "deny: $2"
   else
-    fail "deny: $2 (exit $CODE, out '$OUT')"
+    fail "deny: $2 (exit $CODE, expected reason containing '$3', out '$OUT')"
   fi
 }
 defer() {
@@ -64,44 +64,60 @@ NL=$'\n'
 NULL=/dev/null
 
 # --- Shapes to refuse -------------------------------------------------------
-deny "ls >$NULL" "redirect stdout to the null device"
-deny "ls 2>$NULL" "redirect stderr to the null device"
-deny "ls > $NULL 2>&1" "redirect both to the null device"
-deny "cat file <$NULL" "read the null device as stdin"
-deny "cat > $NULL <<X${NL}hello${NL}X" "cat to the null device with a heredoc"
-deny "awk '{print}' f $NULL" "awk with the null device as a file"
-deny "grep -c \"\" $NULL" "grep over the null device"
-deny "cmp <(ls) $NULL" "cmp against the null device"
-deny "diff a.txt $NULL" "diff against the null device"
-deny "make || true" "|| true"
-deny "ls; true" "; true"
-deny "ls | cat" "pass-through | cat"
-deny "cat file | head" "cat file piped on"
-deny "cat > out.txt <<X${NL}X" "empty heredoc"
-deny "cat > out.txt <<'X'${NL}${NL}X" "heredoc of only blank lines"
-deny "cat > out.txt" "cat with no input"
-deny "echo placeholder > out.txt" "placeholder write"
-deny "f() { :; }" "empty function"
-deny "f() { true; }" "empty function with true"
-deny "echo" "bare echo"
-deny "echo ok" "echo ok"
-deny "echo done" "echo done"
-deny "echo skip" "echo skip"
-deny ":" "colon as a step"
-deny "true" "true as a step"
-deny "python3 -c 1" "python3 -c 1"
-deny "cd ." "cd ."
-deny "cd /a/b || cd /a/b" "cd X || cd X"
-deny "cd /a/b; cd -" "cd X; cd -"
-deny "head -0 f" "head -0"
-deny "head -n 0 f" "head -n 0"
-deny "sed -n 1,0p f" "sed -n 1,0p"
-deny "touch /tmp/x.\$\$" "fixed /tmp name with \$\$"
-deny "ls > /tmp/out.txt" "fixed /tmp redirect target"
-deny "cat /tmp/notes.txt" "fixed /tmp file argument"
-deny "FOO=/tmp/x ls" "fixed /tmp name in an assignment"
-deny "\$(dirname \$(mktemp -u))/x" "dirname of mktemp -u"
-deny "mktemp -u" "mktemp -u"
+# deny <command> <label> <reason fragment>: the reason must name the shape that
+# fired, so a row cannot pass because another shape caught the command.
+deny "ls >$NULL" "redirect stdout to the null device" "/dev/null"
+deny "ls 2>$NULL" "redirect stderr to the null device" "/dev/null"
+deny "ls > $NULL 2>&1" "redirect both to the null device" "/dev/null"
+deny "ls &>$NULL" "redirect with &>" "/dev/null"
+deny "ls 2>>$NULL" "append to the null device" "/dev/null"
+deny "ls >\"$NULL\"" "quoted null-device redirect target" "/dev/null"
+deny "cat file <$NULL" "read the null device as stdin" "/dev/null"
+deny "cat > $NULL <<X${NL}hello${NL}X" "cat to the null device with a heredoc" "/dev/null"
+deny "awk '{print}' f $NULL" "awk with the null device as a file" "/dev/null"
+deny "grep -c \"\" $NULL" "grep over the null device" "/dev/null"
+deny "cmp <(ls) $NULL" "cmp against the null device" "/dev/null"
+deny "diff a.txt $NULL" "diff against the null device" "/dev/null"
+deny "make || true" "|| true" "true or :"
+deny "ls; true" "; true" "true or :"
+deny "ls | cat" "pass-through | cat" "pass-through"
+deny "cat file | head" "cat file piped on" "pass-through"
+deny "cat > out.txt <<X${NL}X" "empty heredoc" "empty heredoc"
+deny "cat > out.txt <<-X${NL}X" "empty tab-stripped heredoc" "empty heredoc"
+deny "cat > out.txt <<'X'${NL}${NL}X" "heredoc of only blank lines" "empty heredoc"
+deny "cat > out.txt" "cat with no input" "cat with no input"
+deny "cat >> out.txt" "cat append with no input" "cat with no input"
+deny "echo placeholder > out.txt" "placeholder write" "placeholder"
+deny "printf dummy > out.txt" "dummy write" "placeholder"
+deny "f() { :; }" "empty function" "empty function"
+deny "f() { true; }" "empty function with true" "empty function"
+deny "echo" "bare echo" "bare echo"
+deny "echo ok" "echo ok" "filler"
+deny "echo done" "echo done" "filler"
+deny "echo skip" "echo skip" "filler"
+deny "ls && echo done" "echo done after a command" "filler"
+deny ":" "colon as a step" "true or :"
+deny "true" "true as a step" "true or :"
+deny "python3 -c 1" "python3 -c 1" "python -c"
+deny "python3 -c pass" "python3 -c pass" "python -c"
+deny "cd ." "cd ." "cd ."
+deny "cd ./" "cd ./" "cd ."
+deny "cd /a/b || cd /a/b" "cd X || cd X" "repeats itself"
+deny "cd /a/b; cd -" "cd X; cd -" "cd -"
+deny "cd /a/b && cd -" "cd X && cd -" "cd -"
+deny "head -0 f" "head -0" "count of zero"
+deny "head -n 0 f" "head -n 0" "count of zero"
+deny "head -c0 f" "head -c0" "count of zero"
+deny "sed -n 1,0p f" "sed -n 1,0p" "sed range"
+deny "touch /tmp/x.\$\$" "fixed /tmp name with \$\$" "/tmp"
+deny "ls > /tmp/out.txt" "fixed /tmp redirect target" "/tmp"
+deny "cat /tmp/notes.txt" "fixed /tmp file argument" "/tmp"
+deny "FOO=/tmp/x ls" "fixed /tmp name in an assignment" "/tmp"
+deny "\$(dirname \$(mktemp -u))/x" "dirname of mktemp -u" "mktemp -u"
+deny "mktemp -u" "mktemp -u" "mktemp -u"
+deny "mktemp -ud" "mktemp -ud" "mktemp -u"
+deny "mktemp --dry-run" "mktemp --dry-run" "mktemp -u"
+deny "echo \$(mktemp -d -u)/x" "mktemp -d -u inside a word" "mktemp -u"
 
 # The reason names the shape and the allowed alternative, in plain text.
 hook "ls >$NULL"
@@ -157,6 +173,28 @@ defer "echo 'unterminated" "an unterminated quote"
 defer "x=\$(mktemp -d) && ls \"\$x\"" "assignment from mktemp -d"
 defer "FOO=bar ls" "an assignment prefix"
 defer "ls $NULL" "ls of the path itself"
+defer "mktemp --suffix=.sh" "mktemp with a long option holding a u"
+defer "mktemp -d --tmpdir=/home/u/x" "mktemp -d with a long option value"
+defer "curl -s -o $NULL -w '%{http_code}' http://x" "curl discarding the body to read a status"
+defer "ssh -F $NULL host ls" "ssh with an empty config"
+defer "cp a $NULL" "cp to the path"
+defer "test -e $NULL" "test of the path"
+defer "git diff --no-index a $NULL" "git diff against the path"
+defer "cd /a || cd -" "cd - after || runs only on failure"
+defer "cd /a & cd -" "cd - after a backgrounded cd"
+defer "cd /a | cd -" "cd - in a pipeline"
+defer "cd /a; cd /a" "two cds to one place on purpose"
+defer "grep -r \"/tmp/foo\" src" "a quoted /tmp string as a pattern"
+defer "echo \"/tmp/x\"" "a quoted /tmp path printed"
+defer "head -c10 f" "head -c10"
+defer "cat -n f | head" "cat with an option piped on"
+defer "cat < f | sort" "cat reading a redirect piped on"
+defer "cat > f < in" "cat with a redirected input"
+defer "echo ok > out.txt" "echo ok written to a file"
+defer "echo ok >&2" "echo ok to stderr"
+defer "timeout 5 true" "true as an argument"
+defer "python3 -c 1 f" "python with an extra argument"
+defer "sed -n 2,5p f" "sed with a real range"
 defer "ls" "a plain command" Read
 defer "" "an empty command"
 
@@ -173,6 +211,13 @@ hook "$(printf 'ls %0.s' $(seq 1 3000))>$NULL"
 if [ -z "$OUT" ]; then ok "defer: a command over the length bound is not analyzed"; else fail "an over-long command was analyzed: $OUT"; fi
 OUT=$(printf '%s' "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls >$NULL\"}}" | env PATH="$TMP/no-bin" "$BASH" "$HOOK" 2>"$TMP/stderr")
 if [ -z "$OUT" ]; then ok "defer: no jq on PATH, so nothing is refused"; else fail "the hook refused without jq: $OUT"; fi
+
+# A TMPDIR of /tmp itself must not switch the fixed-name check off.
+OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls /tmp/foo"}}' | env TMPDIR=/tmp "$HOOK" 2>"$TMP/stderr")
+case $OUT in
+  *'"deny"'*) ok "deny: a fixed /tmp name still refused when TMPDIR is /tmp" ;;
+  *) fail "TMPDIR=/tmp disabled the fixed-name check: '$OUT'" ;;
+esac
 
 # --- Wiring -----------------------------------------------------------------
 if jq -e '(.hooks.PreToolUse // []) | map(select(.matcher == "Bash")) | map(.hooks[]? | .command)

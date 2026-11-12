@@ -395,8 +395,8 @@ tmp_fixed_name() {
   [[ $name =~ ^tmp\.[A-Za-z0-9]{6,}$ ]] && return 1
   [[ $name =~ X{3,}$ ]] && return 1
   base=${TMPDIR:-}
-  if [ -n "$base" ]; then
-    base=${base%/}
+  base=${base%/}
+  if [ -n "$base" ] && [ "$base" != /tmp ]; then
     case $p in
       "$base" | "$base"/*) return 1 ;;
     esac
@@ -469,8 +469,7 @@ check_segment() {
 
   # An unquoted /dev/null argument: a read of, or write to, nothing.
   case $verb in
-    git | cp | mv | install | ln | ls | stat | file | test | '[' | '[[' | readlink | realpath | echo | printf | '') ;;
-    *)
+    cat | awk | gawk | grep | egrep | fgrep | cmp | diff | sed | head | tail | wc | sort | tee)
       i=0
       while [ "$i" -lt "$an" ]; do
         if [ "${AW[i]}" = /dev/null ] && [ "${AQ[i]}" = 0 ]; then
@@ -486,11 +485,11 @@ check_segment() {
   i=0
   while [ "$i" -lt "$SN" ]; do
     w=${SW[i]}
-    if tmp_fixed_name "$w" || { [[ $w == *=* ]] && tmp_fixed_name "${w#*=}"; }; then
+    if [ "${SQ[i]}" = 0 ] && { tmp_fixed_name "$w" || { [[ $w == *=* ]] && tmp_fixed_name "${w#*=}"; }; }; then
       REASON=$TMP_REASON
       return 0
     fi
-    if [ "${SQ[i]}" = 0 ] && [[ $w =~ mktemp[[:space:]]+(-[A-Za-z]*u|--dry-run) ]]; then
+    if [ "${SQ[i]}" = 0 ] && [[ $w =~ mktemp([[:space:]]+-[A-Za-z]+)*[[:space:]]+(-[A-Za-z]*u[A-Za-z]*|--dry-run) ]]; then
       REASON=$MKTEMP_REASON
       return 0
     fi
@@ -507,7 +506,7 @@ check_segment() {
   if [ "$verb" = mktemp ]; then
     for ((i = 0; i < an; i++)); do
       case ${AW[i]} in
-        --dry-run | -*u*)
+        --dry-run | -u* | -[!-]*u*)
           REASON=$MKTEMP_REASON
           return 0
           ;;
@@ -579,7 +578,7 @@ check_segment() {
             return 0
             ;;
           -)
-            if [ "$PREV_VERB" = cd ] && [ "$prev" != '|' ]; then
+            if [ "$PREV_VERB" = cd ] && { [ "$prev" = ';' ] || [ "$prev" = '&&' ] || [ "$prev" = NL ]; }; then
               REASON='cd X followed straight by cd - does nothing. Remove both, and use full paths instead of cd'
               return 0
             fi
@@ -608,7 +607,7 @@ check_segment() {
     sed)
       for ((i = 0; i < an; i++)); do
         if [[ ${AW[i]} =~ ^[0-9]*,0p$ ]]; then
-          REASON='this sed range selects nothing. Remove it, or give a real range'
+          REASON='a sed range ending at 0 only prints its first line, which is padding. Write sed -n Np for one line, or drop it'
           return 0
         fi
       done
