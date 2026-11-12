@@ -1711,7 +1711,10 @@ kickoff_named() {
 
 # kick_tally <text> — set KT to how many times the script's name stands in
 # <text> (case folded), not as the tail of a longer name such as
-# test-kickoff-spec-push.sh nor the head of one such as kickoff-spec-push-x.sh.
+# test-kickoff-spec-push.sh nor the head of one such as kickoff-spec-push-x.sh,
+# except a name glued to a single-dash option word (-Okickoff-spec-push.sh),
+# which git takes as a command to run. The @ in the token's delimiters is the
+# quote mark kick_count substitutes.
 # What follows the name otherwise counts, so a glob or a wildcard on it is
 # still a mention; so does a digit before it, where an empty positional
 # parameter ($1) can sit.
@@ -1729,7 +1732,8 @@ kick_tally() {
       [A-Za-z]) # a name glued to a short option (-Okickoff-spec-push.sh) still counts
         tok=${head##*[[:space:]\;\|\&\(\)\<\>@]}
         case $tok in
-          -[A-Za-z]*) case ${tok#-} in *[!A-Za-z]*) continue ;; esac ;;
+          --* | -) continue ;;
+          -?*) ;;
           *) continue ;;
         esac
         ;;
@@ -1755,7 +1759,8 @@ kick_count() {
 }
 
 # kickoff_verb_class <word> — set KV to how a bare command word treats its
-# arguments: reader (reads, counts or stages the files it is given), text
+# arguments: reader (reads, counts or stages the files it is given; find, sed
+# and chmod only with arguments kickoff_args_safe accepts), text
 # (prints them), git (decided by its subcommand), or empty for anything else.
 kickoff_verb_class() {
   KV=''
@@ -1806,12 +1811,9 @@ kickoff_git_reads() {
 # stages or prints. A mention outside the command's words (an assignment before
 # it, such as GIT_EXTERNAL_DIFF=..., or a here-document body), an option word
 # that carries the name (--pre=..., -O...), and a printed word that is the
-# script itself (which could be piped into a shell) all fail, as does any
-# GIT_ variable in effect (it can name a helper git runs on the file) and a
-# redirect (the output could be a copy or a wrapper of the script that a later
-# command runs without its name). rg's --pre and --hostname-bin take the next
-# word as a command to run on each file, so rg refuses them even when that word
-# does not carry the name.
+# script itself (which could be piped into a shell) all fail; git's --grep=
+# carries a search pattern, so it alone may carry the name. The command itself
+# must pass kickoff_cmd_reads.
 kickoff_mention_passes() {
   local w seen=0
   kickoff_cmd_reads "$2" || return 1
@@ -1857,7 +1859,11 @@ kickoff_args_safe() {
 # kickoff_cmd_reads <segment> — 0 when the segment's command only reads,
 # stages or prints its arguments, whatever they name: no redirect, no GIT_
 # variable in effect, a command known to read, and arguments that cannot make
-# it run one. Set KV to the command's class.
+# it run one (a GIT_ variable can name a helper git runs on the file; a
+# redirect could save a copy or wrapper of the script that a later command runs
+# without its name; rg's --pre and --hostname-bin take the next word as a
+# command to run on each file, so rg refuses them even when that word does not
+# carry the name). Set KV to the command's class.
 kickoff_cmd_reads() {
   local w
   [ "${SEG_RD[$1]:-0}" = 0 ] || return 1
@@ -2011,6 +2017,8 @@ classify_segments() {
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
+        || deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
       case $cur_text in
         *PROMPT_COMMAND=* | *BASH_ENV=* | *' ENV='*)
           raw_evidence "$cur_text" \
