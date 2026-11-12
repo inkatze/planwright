@@ -1716,17 +1716,24 @@ kickoff_named() {
 # still a mention; so does a digit before it, where an empty positional
 # parameter ($1) can sit.
 kick_tally() {
-  local s=$1 before after
+  local s=$1 before after head tok
   lc "$s"
   s=$LC
   KT=0
   while [[ $s == *"$KICK_NAME"* ]]; do
-    before=${s%%"$KICK_NAME"*}
+    head=${s%%"$KICK_NAME"*}
     s=${s#*"$KICK_NAME"}
-    before=${before: -1}
+    before=${head: -1}
     after=${s:0:1}
     case $before in
-      [A-Za-z_.-]) continue ;;
+      [A-Za-z]) # a name glued to a short option (-Okickoff-spec-push.sh) still counts
+        tok=${head##*[[:space:]\;\|\&\(\)\<\>@]}
+        case $tok in
+          -[A-Za-z]*) case ${tok#-} in *[!A-Za-z]*) continue ;; esac ;;
+          *) continue ;;
+        esac
+        ;;
+      [_.-]) continue ;;
     esac
     case $after in
       [A-Za-z0-9_-]) ;;
@@ -1755,7 +1762,7 @@ kickoff_verb_class() {
   case $1 in
     */*) return 0 ;;
     grep | egrep | fgrep | rg | cat | head | tail | wc | ls | stat | file | diff | cmp | cut | tr | nl | od | \
-      sha256sum | sha1sum | md5sum | shasum | b2sum | shellcheck | shfmt | realpath | readlink | basename | dirname | test | '[')
+      find | sed | chmod | sha256sum | sha1sum | md5sum | shasum | b2sum | shellcheck | shfmt | realpath | readlink | basename | dirname | test | '[')
       KV=reader
       ;;
     echo | printf) KV=text ;;
@@ -1807,11 +1814,57 @@ kickoff_git_reads() {
 # does not carry the name.
 kickoff_mention_passes() {
   local w seen=0
-  [ "${SEG_RD[$2]:-0}" = 0 ] || return 1
+  kickoff_cmd_reads "$2" || return 1
+  for w in "${SW[@]}"; do
+    kick_count "$w"
+    seen=$((seen + KC))
+    if [ "$KC" -gt 0 ]; then
+      # git log --grep=<name> searches messages for the text; it runs nothing.
+      case $w in --grep=*) [ "$KV" = git ] || return 1 ;; -*) return 1 ;; esac
+    fi
+    [ "$KV" != text ] || ! kickoff_named "$w" || return 1
+  done
+  [ "$seen" = "$1" ]
+}
+
+# kickoff_args_safe — 0 when the segment's arguments cannot make find, sed or
+# chmod run or write anything: find with no -exec, -ok, -fprint, -fls or
+# -delete; sed only as -n with a line-print address; chmod only with a mode
+# word and no option.
+kickoff_args_safe() {
+  local w k
+  case ${SW[0]} in
+    find)
+      for w in "${SW[@]}"; do
+        case $w in -exec* | -ok* | -fprint* | -fls | -delete) return 1 ;; esac
+      done
+      ;;
+    sed)
+      [ "${SW[1]:-}" = -n ] && [[ ${SW[2]:-} =~ ^[0-9]+(,[0-9$]+)?p$ ]] || return 1
+      for ((k = 3; k < ${#SW[@]}; k++)); do
+        case ${SW[$k]} in -*) return 1 ;; esac
+      done
+      ;;
+    chmod)
+      [[ ${SW[1]:-} =~ ^([0-7]{3,4}|[ugoa]*[-+=][rwxXst]+(,[ugoa]*[-+=][rwxXst]+)*)$ ]] || return 1
+      for ((k = 2; k < ${#SW[@]}; k++)); do
+        case ${SW[$k]} in -*) return 1 ;; esac
+      done
+      ;;
+  esac
+}
+
+# kickoff_cmd_reads <segment> — 0 when the segment's command only reads,
+# stages or prints its arguments, whatever they name: no redirect, no GIT_
+# variable in effect, a command known to read, and arguments that cannot make
+# it run one. Set KV to the command's class.
+kickoff_cmd_reads() {
+  local w
+  [ "${SEG_RD[$1]:-0}" = 0 ] || return 1
   [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
   kickoff_verb_class "${SW[0]}"
   case $KV in
-    reader) ;;
+    reader) kickoff_args_safe || return 1 ;;
     text) ;;
     git) kickoff_git_reads || return 1 ;;
     *) return 1 ;;
@@ -1820,14 +1873,7 @@ kickoff_mention_passes() {
     case $w in
       --pre* | --hostname-bin*) [ "${SW[0]}" != rg ] || return 1 ;;
     esac
-    kick_count "$w"
-    seen=$((seen + KC))
-    if [ "$KC" -gt 0 ]; then
-      case $w in -*) return 1 ;; esac
-    fi
-    [ "$KV" != text ] || ! kickoff_named "$w" || return 1
   done
-  [ "$seen" = "$1" ]
 }
 
 # RE_KICKOFF_SCRIPT: the planwright script itself, named through the plugin
@@ -1854,8 +1900,7 @@ kickoff_segment() {
   local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct piped=$KICK_PIPED
   KICK_PIPED=0
   if [ "$piped" = 1 ]; then
-    kickoff_verb_class "${SW[0]}"
-    if [ -n "$KV" ]; then
+    if kickoff_cmd_reads "$3"; then
       kickoff_pipe_on "$3"
     else
       deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
