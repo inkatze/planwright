@@ -79,6 +79,9 @@ stderr naming the knob. A mission-control launch with no --brief opens on
 one, in a tmux window. `--remote-control <name>` (mission-control only)
 starts that window with Remote Control under the name; the stream-json
 rung has no terminal to attach it to, so it drops the flag with a warning.
+A stream-json mission-control launch also records the session as a wake
+target (scripts/mc-wake.sh target add) and retire removes it, so the
+runner's wakes reach a session that loads no mod.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the
