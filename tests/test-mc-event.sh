@@ -197,6 +197,18 @@ else
   fail "racing emitters shared a sequence number or lost an event ($dupes duplicated)"
 fi
 
+# A landed event holding number 1 while number 0 is still unwritten (its
+# emitter in flight) leaves the count at one: the next emitter must not take
+# number 1 again.
+gap_events=$fleet/attention/mission-control/alpha/events
+printf '75100\tgap\tgap-0\tg\n' >"$gap_events/e75100.0001abcd1234"
+OUT=$(mc_env /bin/bash "$repo_root/scripts/mc-event.sh" emit --program alpha --now 75100 -- gap gap-1 g)
+case $OUT in
+  e75100.0001*) fail "an emitter took a sequence number a landed event already held: $OUT" ;;
+  e75100.*) ok "an emitter skips a sequence number a landed event holds" ;;
+  *) fail "gap emit printed no id: $OUT" ;;
+esac
+
 # A second already holding 10000 events cannot take another: the count is four
 # digits wide and the refusal comes before anything is written.
 events_dir=$fleet/attention/mission-control/alpha/events
