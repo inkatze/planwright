@@ -614,6 +614,17 @@ if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
 else
   fail "launch_backend: an unknown value was recorded (rc=$RC)"
 fi
+if grep -q 'PLANWRIGHT_LAUNCH_BACKEND=headless-oneshot /bin/sh "\$script_dir/worker-session-record.sh" write' "$REPO_ROOT/scripts/fleet-dispatch-headless.sh"; then
+  pass "launch_backend: the one-shot launcher passes headless-oneshot to the writer"
+else
+  fail "launch_backend: the one-shot launcher does not pass its backend to the writer"
+fi
+if grep -q '^  PLANWRIGHT_LAUNCH_BACKEND=stream-json$' "$REPO_ROOT/scripts/fleet-streamjson.sh" \
+  && grep -q '^  export PLANWRIGHT_LAUNCH_BACKEND$' "$REPO_ROOT/scripts/fleet-streamjson.sh"; then
+  pass "launch_backend: the stream-json launcher exports stream-json for the writer"
+else
+  fail "launch_backend: the stream-json launcher does not export its backend"
+fi
 
 echo
 echo "worker-session-record: $passes passed, $failures failed"
