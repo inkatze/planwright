@@ -328,7 +328,9 @@ assert_eq "a Linux remote reports no input idle time" unavailable "$(fld idle_se
 for f in load cores mem_free_mb; do
   v=$(fld $f)
   case $f:$v in
-    *:unavailable) [ ! -r /proc/meminfo ] && ok "Linux $f unavailable only where /proc is" || fail "Linux $f is unavailable on a host with /proc" ;;
+    *:unavailable)
+      if [ -r /proc/meminfo ]; then fail "Linux $f is unavailable on a host with /proc"; else ok "Linux $f unavailable only where /proc is"; fi
+      ;;
     *:'' | *:*[!0-9.]*) fail "Linux $f is a number ($v)" ;;
     *) ok "Linux $f is a number" ;;
   esac
