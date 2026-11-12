@@ -1257,7 +1257,18 @@ for cmd in 'bash tests/test-kickoff-spec-push.sh' \
   'git add scripts/kickoff-spec-push.sh scripts/kickoff-spec-push.sh' \
   'cat scripts/kickoff-spec-push.sh | cat | wc -l' \
   "printf '%s\\n' 'note: scripts/kickoff-spec-push.sh needs a fix'" \
-  'echo "see scripts/kickoff-spec-push.sh for the push"'; do
+  'echo "see scripts/kickoff-spec-push.sh for the push"' \
+  'find scripts -name kickoff-spec-push.sh' \
+  'find scripts -type f -name kickoff-spec-push.sh -print' \
+  'sed -n 1,5p scripts/kickoff-spec-push.sh' \
+  'sed -n 3p scripts/kickoff-spec-push.sh' \
+  'chmod +x scripts/kickoff-spec-push.sh' \
+  'chmod 755 scripts/kickoff-spec-push.sh' \
+  'chmod u+x,g-w scripts/kickoff-spec-push.sh' \
+  'git log --oneline --grep=kickoff-spec-push.sh' \
+  'git log --oneline --grep kickoff-spec-push.sh' \
+  'cat scripts/kickoff-spec-push.sh | git diff --no-index --stat -- - scripts/other.sh' \
+  'cat scripts/kickoff-spec-push.sh | grep -c foo'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
     expect defer "[$tier, task-1] a mention of the kickoff push that is no run of it defers: $cmd"
@@ -1332,7 +1343,48 @@ E' \
   'S=kickoff-spec-push.sh; scripts/$S demo' \
   '(scripts/kickoff-spec-push.sh demo)' \
   '$(scripts/kickoff-spec-push.sh demo)' \
-  '`scripts/kickoff-spec-push.sh demo`'; do
+  '`scripts/kickoff-spec-push.sh demo`' \
+  "cat scripts/kickoff-spec-push.sh | git -c alias.x='!sh' x" \
+  'cat scripts/kickoff-spec-push.sh | git -c core.pager=sh log' \
+  'cat scripts/kickoff-spec-push.sh | git grep -Obash foo' \
+  'cat scripts/kickoff-spec-push.sh | cat > copy.sh' \
+  'cat scripts/kickoff-spec-push.sh | tee copy.sh' \
+  'cat scripts/kickoff-spec-push.sh | wc -c > copy.sh' \
+  'cat scripts/kickoff-spec-push.sh | GIT_EXTERNAL_DIFF=bash git diff' \
+  'cat scripts/kickoff-spec-push.sh | rg --pre bash foo' \
+  'cat scripts/kickoff-spec-push.sh | /bin/sh' \
+  'git grep -Okickoff-spec-push.sh -e pat' \
+  'git grep -nOkickoff-spec-push.sh -e pat' \
+  "git grep -O'kickoff-spec-push.sh' -e pat" \
+  'git grep -Oscripts/kickoff-spec-push.sh -e pat' \
+  'git grep -Okickoff-spec-push.sh -e pat -- scripts' \
+  "bash scripts/kickoff-spec-'push.sh' demo" \
+  "bash scripts/kick'off-spec-push.sh' demo" \
+  'bash scripts/"kickoff-spec-push".sh demo' \
+  'bash scripts/kickoff-spec-\push.sh demo' \
+  '/bin/bash scripts/kickoff-spec-push.sh demo' \
+  '/usr/bin/env scripts/kickoff-spec-push.sh demo' \
+  '/usr/bin/timeout 5 scripts/kickoff-spec-push.sh demo' \
+  '/usr/bin/git add scripts/kickoff-spec-push.sh && /bin/sh scripts/kickoff-spec-push.sh demo' \
+  '/bin/cat scripts/kickoff-spec-push.sh | /bin/sh' \
+  'rg --pre bash foo scripts/kickoff-spec-push.sh' \
+  'rg --pre=bash foo scripts/kickoff-spec-push.sh' \
+  'rg --hostname-bin bash foo scripts/kickoff-spec-push.sh' \
+  'find scripts -name kickoff-spec-push.sh -exec bash {} demo \;' \
+  'find scripts -name kickoff-spec-push.sh -execdir bash {} demo \;' \
+  'find scripts -name kickoff-spec-push.sh -ok bash {} \;' \
+  'find scripts -name kickoff-spec-push.sh -delete' \
+  'find scripts -name kickoff-spec-push.sh -fprint copy.sh' \
+  'find scripts -name kickoff-spec-push.sh -fls copy.sh' \
+  'sed -n 1,5w copy.sh scripts/kickoff-spec-push.sh' \
+  'sed -i s/a/b/ scripts/kickoff-spec-push.sh' \
+  'sed -n 1,5p scripts/kickoff-spec-push.sh > copy.sh' \
+  'sed -n e scripts/kickoff-spec-push.sh' \
+  'chmod +x scripts/kickoff-spec-push.sh && scripts/kickoff-spec-push.sh demo' \
+  'chmod --reference=scripts/kickoff-spec-push.sh copy.sh' \
+  'chmod -R +x scripts/kickoff-spec-push.sh' \
+  'git log --grep=kickoff-spec-push.sh --output=copy.sh' \
+  'git -c core.pager=sh log --grep=kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
     expect deny "[$tier, task-1] a run of the kickoff push stays refused: $cmd"
