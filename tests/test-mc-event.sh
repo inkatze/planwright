@@ -181,6 +181,22 @@ case $OUT in
   *) fail "an old-format id did not list: $OUT" ;;
 esac
 
+# Emitters racing in one second each take their own sequence number.
+race_dir=$tmp/race
+mkdir -p "$race_dir"
+i=0
+while [ "$i" -lt 16 ]; do
+  mc_env /bin/bash "$repo_root/scripts/mc-event.sh" emit --program alpha --now 75000 -- racer "racer-$i" "r" >"$race_dir/out.$i" 2>&1 &
+  i=$((i + 1))
+done
+wait
+dupes=$(cat "$race_dir"/out.* | sed -n 's/^e75000\.\([0-9]\{4\}\).*/\1/p' | sort | uniq -d | wc -l)
+if [ "$dupes" -eq 0 ] && [ "$(cat "$race_dir"/out.* | grep -c '^e75000\.')" -eq 16 ]; then
+  ok "racing emitters in one second never share a sequence number"
+else
+  fail "racing emitters shared a sequence number or lost an event ($dupes duplicated)"
+fi
+
 # A second already holding 10000 events cannot take another: the count is four
 # digits wide and the refusal comes before anything is written.
 events_dir=$fleet/attention/mission-control/alpha/events

@@ -194,17 +194,44 @@ case $verb in
     [ -n "$hex" ] || hex=$$
     # Events raised in one second sort by a zero-padded count of those already
     # raised in it, ahead of the random part, so list order is raise order.
+    # Racing emitters claim a number with an atomic mkdir, then recount: a
+    # claim made after another emitter's event landed is given back.
     seq=0
-    set +f
-    for prior in "$store/events/e$NOW".*; do
-      [ -e "$prior" ] || [ -L "$prior" ] || continue
-      seq=$((seq + 1))
+    claim=
+    while :; do
+      n=0
+      set +f
+      for prior in "$store/events/e$NOW".*; do
+        [ -e "$prior" ] || [ -L "$prior" ] || continue
+        n=$((n + 1))
+      done
+      set -f
+      [ "$seq" -ge "$n" ] || seq=$n
+      [ "$seq" -le 9999 ] || mc_fail "more than 9999 events raised in second $NOW"
+      if mkdir "$store/events/.claim$NOW.$seq" 2>/dev/null; then
+        claim="$store/events/.claim$NOW.$seq"
+        n=0
+        set +f
+        for prior in "$store/events/e$NOW".*; do
+          [ -e "$prior" ] || [ -L "$prior" ] || continue
+          n=$((n + 1))
+        done
+        set -f
+        [ "$n" -le "$seq" ] && break
+        rmdir "$claim"
+        claim=
+      else
+        # Held by a concurrent emitter, or left by one that died: move on.
+        seq=$((seq + 1))
+      fi
     done
-    set -f
-    [ "$seq" -le 9999 ] || mc_fail "more than 9999 events raised in second $NOW"
     id="e$NOW.$(printf '%04d' "$seq")$hex"
     printf '%s\t%s\t%s\t%s\n' "$NOW" "$kind" "$subject" "$text" \
-      | mc_write "$store/events/$id" || mc_fail "cannot write event $id"
+      | mc_write "$store/events/$id" || {
+      rmdir "$claim"
+      mc_fail "cannot write event $id"
+    }
+    rmdir "$claim"
     printf '%s\n' "$id"
     ;;
   list)
