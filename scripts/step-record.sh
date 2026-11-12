@@ -364,8 +364,8 @@
 # post that failed, no SHA-256 tool for args-digest, a new-run or status from
 # a plugin-cache copy the installed record no longer names) · 2 a usage or
 # field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
-# documented set on new-run, write, regenerate, or status (the other verbs
-# only warn; resolve-steps.sh --check-env judges it) · 3 lookup found no
+# documented set on new-run, write, regenerate, or status (the other verbs,
+# bar excerpt and args-digest, only warn; resolve-steps.sh --check-env judges it) · 3 lookup found no
 # record to stand on (or no unretired limited record), or heads found no move.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
@@ -2040,8 +2040,8 @@ fi
 
 # A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
 # --check-env owns the list) is dropped without a word by anything that reads
-# the context: the verbs that write a record or post a status refuse it, the
-# read-only ones warn.
+# the context: new-run, write, regenerate, and status refuse it, the other
+# verbs (bar excerpt and args-digest, which exit earlier) warn.
 env_rc=0
 env_msg=$("$script_dir/resolve-steps.sh" --check-env 2>&1) || env_rc=$?
 if [ "$env_rc" -eq 6 ]; then

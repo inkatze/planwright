@@ -32,8 +32,8 @@
 #                 environment outside the documented context names (and the
 #                 right spelling for a known misspelling); 0 when none. The
 #                 sibling step scripts call it: step-run.sh and
-#                 step-record.sh refuse on it for the verbs that write, run
-#                 or audit and only warn for the read-only ones.
+#                 step-record.sh refuse on it for the verbs their headers
+#                 name and only warn for the others.
 #
 #   <point>       one of the named points of doctrine/custom-steps.md's
 #                 vocabulary (the wired points, the two flip points, and the

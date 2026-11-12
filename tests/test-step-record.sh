@@ -2712,9 +2712,10 @@ git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"
 
 # --- a misspelled PLANWRIGHT_STEP_* name: write refuses, render warns -------------
+runbad=$(sr new-run)
 for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_BRANCH; do
   bad=${pair%%:*} want=${pair#*:}
-  env "PLANWRIGHT_STEP_$bad=1" "$SR" --worktree "$wt" write --run "$run1" --point convergence --step polish \
+  env "PLANWRIGHT_STEP_$bad=1" "$SR" --worktree "$wt" write --run "$runbad" --point convergence --step polish \
     --kind skill --target planwright:polish --hosting isolated --backend terminal \
     --head "$HEAD_SHA" --start 2026-09-28T10:00:00Z --end 2026-09-28T10:05:00Z --outcome applied \
     >"$tmp/bad.out" 2>"$tmp/bad.err"
@@ -2722,6 +2723,8 @@ for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_B
   [ "$rc" -eq 2 ] && grep -q "PLANWRIGHT_STEP_$bad" "$tmp/bad.err" && grep -q "PLANWRIGHT_STEP_$want" "$tmp/bad.err"
   verdict "write refuses PLANWRIGHT_STEP_$bad and names PLANWRIGHT_STEP_$want" "rc=$rc: $(cat "$tmp/bad.err")"
 done
+[ -z "$(sr list --run "$runbad")" ]
+verdict "the refused writes left no record" "a record was written under a misspelled name"
 env PLANWRIGHT_STEP_PR=7 "$SR" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
 rc=$?
 [ "$rc" -eq 0 ] && grep -q 'PLANWRIGHT_STEP_PR_NUMBER' "$tmp/bad.err"
