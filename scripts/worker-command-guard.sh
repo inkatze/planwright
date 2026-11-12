@@ -5156,8 +5156,10 @@ strip_step_context() {
     esac
     [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "$w" ] && [ -z "${csub[i]-}" ] || return 0
     word_unresolved "$w" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
+    # The charset leaves out `=`: zsh expands `=cmd` and `:=` forms in an
+    # assignment (assign_value_literal refuses the same).
     case ${w#*=} in
-      *[!A-Za-z0-9._/:=@%,+-]*) return 0 ;;
+      *[!A-Za-z0-9._/:@%,+-]*) return 0 ;;
     esac
     step_context_value_ok "$f" "${w#*=}" || return 0
     i=$((i + 1))
