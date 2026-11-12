@@ -477,7 +477,9 @@ takes the same slot through the pool helper, which holds slots and never
 runs anything: take a slot on behalf of the shell that runs the suite, run
 the suite in that same shell with the hold mark set, and release from that
 shell whatever the suite's exit. The helper's usage header
-(`scripts/step-pool.sh`) is authoritative for its arguments; the shape is:
+(`scripts/step-pool.sh`) is authoritative for its arguments. Name the pool
+`full_suite_pool` resolves to: `heavy-run` by default (`heavy-suite` in the
+example above). The shape is:
 
 ```bash
 pool=heavy-run
