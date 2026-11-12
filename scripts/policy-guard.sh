@@ -1913,15 +1913,16 @@ kickoff_pipe_on() {
 # expand to the script's name through a glob or an expansion that sits inside
 # it (scripts/kick*ff-spec-push.sh, scripts/kic${E}koff-spec-push.sh), with at
 # least two literal characters besides the .sh so that scripts/*.sh stays an
-# ordinary glob. Expansions read as a wildcard.
+# ordinary glob. Expansions and brace groups (scripts/kick{off,x}-spec-push.sh)
+# read as a wildcard.
 kickoff_fuzzy_name() {
   local words=("${W[@]:${SEG_S[$1]}:$((SEG_E[$1] - SEG_S[$1]))}") p lit
   local rt=${SEG_RT[$1]//[\"\'\\]/} extra=()
   read -d '' -ra extra <<<"$rt" || :
   [ "${#extra[@]}" = 0 ] || words+=("${extra[@]}")
   for p in "${words[@]}"; do
-    case $p in *[\*\?\[\$]*) ;; *) continue ;; esac
-    while [[ $p =~ (\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?!-]) ]]; do
+    case $p in *[\*\?\[\$\{]*) ;; *) continue ;; esac
+    while [[ $p =~ (\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?!-]|\{[^}]*\}) ]]; do
       p=${p/"${BASH_REMATCH[0]}"/\*}
     done
     lc "${p##*/}"

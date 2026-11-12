@@ -1276,7 +1276,8 @@ for cmd in 'bash tests/test-kickoff-spec-push.sh' \
   'git add scripts/kick*.sh' \
   'bash scripts/mykickoff-spec-push.sh.bak demo' \
   'grep -rn --xkickoff-spec-push.sh .' \
-  'cat scripts/kickoff-spec-push.sh | A=1; make test'; do
+  'cat scripts/kickoff-spec-push.sh | A=1; make test' \
+  'cat scripts/kick{off,x}-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
     expect defer "[$tier, task-1] a mention of the kickoff push that is no run of it defers: $cmd"
@@ -1420,6 +1421,9 @@ E' \
   'git show HEAD:scripts/kickoff-spec-push.sh ${Z}--output=w.sh' \
   "echo 'run scripts/kickoff-spec-push.sh demo' | if ls; then sh; fi" \
   "echo 'run scripts/kickoff-spec-push.sh demo' | while ls; do sh; done" \
+  'env scripts/kick{off,x}-spec-push.sh myspec' \
+  'env scripts/kick{,}off-spec-push.sh myspec' \
+  'env scripts/kickoff-spec-pus{h,}.sh myspec' \
   'export GIT_EXTERNAL_DIFF=bash; git diff scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
