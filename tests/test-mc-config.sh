@@ -43,7 +43,7 @@ tab=$(printf '\t')
 cfg() { mc_run mc-config.sh "$@"; }
 layer="$adopter/planwright.yml"
 sum() { if [ -e "$1" ]; then cksum <"$1"; else echo absent; fi; }
-expect_no_err() { case "$ERR" in *"$2"*) fail "$1: stderr carries $2" ;; *) ok "$1" ;; esac; }
+expect_no_err() { case "$ERR" in *"$2"*) fail "$1: stderr carries $2" ;; *) ok "$1" ;; esac }
 reset_mc_fixture
 mkdir -p "$repo/specs"
 
