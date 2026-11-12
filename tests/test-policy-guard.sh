@@ -1275,7 +1275,8 @@ for cmd in 'bash tests/test-kickoff-spec-push.sh' \
   'ls scripts/kickoff-spec-p*' \
   'git add scripts/kick*.sh' \
   'bash scripts/mykickoff-spec-push.sh.bak demo' \
-  'grep -rn --xkickoff-spec-push.sh .'; do
+  'grep -rn --xkickoff-spec-push.sh .' \
+  'cat scripts/kickoff-spec-push.sh | A=1; make test'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
     expect defer "[$tier, task-1] a mention of the kickoff push that is no run of it defers: $cmd"
@@ -1412,6 +1413,13 @@ E' \
   'nohup bash scripts/kic${E}koff-spec-push.sh spec' \
   'rg --grep=kickoff-spec-push.sh foo' \
   'echo --grep=kickoff-spec-push.sh' \
+  'find scripts/kickoff-spec-push.sh -ex${Z}ec bash {} \;' \
+  'sed -n 1p scripts/kickoff-spec-push.sh ${Z}-e x' \
+  'rg ${Z}--pre bash x scripts/kickoff-spec-push.sh' \
+  'git grep ${Z}-Obash . scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh ${Z}--output=w.sh' \
+  "echo 'run scripts/kickoff-spec-push.sh demo' | if ls; then sh; fi" \
+  "echo 'run scripts/kickoff-spec-push.sh demo' | while ls; do sh; done" \
   'export GIT_EXTERNAL_DIFF=bash; git diff scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"

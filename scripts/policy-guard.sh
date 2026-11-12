@@ -609,7 +609,8 @@ deny_unanalyzable() {
 # escape anywhere in the word), WA[] flags for a word whose first `=` comes
 # before any quote or escape, WR[] flags for a word after a redirect in its
 # segment, SEG_S[]/SEG_E[] word ranges, SEG_TERM[] terminators, SEG_DOC[]
-# here-document bodies, and SEG_RD[] flags for a segment with a redirect.
+# here-document bodies, SEG_RD[] flags for a segment with a redirect, and
+# SEG_RT[] the raw text of the targets those redirects skip.
 
 HEREDOC_SUBST=0
 tokenize() {
@@ -1883,6 +1884,10 @@ kickoff_cmd_reads() {
   for w in "${SW[@]}"; do
     case $w in
       --pre* | --hostname-bin*) [ "${SW[0]}" != rg ] || return 1 ;;
+      # An expansion can spell an option the checks above match literally
+      # (-ex${Z}ec, ${Z}--pre), so a word that starts with one, or an option
+      # word that holds one, is never read as an argument.
+      '$'* | -*'$'* | *'`'*) return 1 ;;
     esac
   done
 }
@@ -1939,6 +1944,13 @@ kickoff_segment() {
   local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct piped=$KICK_PIPED
   KICK_PIPED=0
   if [ "$piped" = 1 ]; then
+    # A condition head (if ls; then sh; fi) hands the pipe to a later segment
+    # that no check here reads, so it is refused as a consumer outright.
+    case ${W[${SEG_S[$3]}]:-} in
+      if | while | until | elif)
+        deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a compound command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+        ;;
+    esac
     if kickoff_cmd_reads "$3"; then
       kickoff_pipe_on "$3"
     else
@@ -2055,6 +2067,7 @@ classify_segments() {
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
         || deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+      KICK_PIPED=0
       case $cur_text in
         *PROMPT_COMMAND=* | *BASH_ENV=* | *' ENV='*)
           raw_evidence "$cur_text" \
