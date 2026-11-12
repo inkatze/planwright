@@ -176,8 +176,14 @@ r2=$(sr new-run)
 prec "$r2" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T09:50:00Z 2026-11-04T10:30:00Z
 done_at "$r2" post-pr
 audit --through post-pr
-[ "$RC" -eq 1 ] && faulted post-pr "is before the session first event"
-verdict $? "a fresh run repeating that round keeps its start and so keeps the fault" "rc $RC: $(cat "$tmp/audit")"
+[ "$RC" -eq 0 ]
+verdict $? "a fresh run repeating that round with the earlier record's start is allowed" "rc $RC: $(cat "$tmp/audit")"
+r3=$(sr new-run)
+prec "$r3" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T09:40:00Z 2026-11-04T10:30:00Z
+done_at "$r3" post-pr
+audit --through post-pr
+[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:40:00Z is before the session first event"
+verdict $? "a repeat whose start matches no earlier record of the round is still a fault" "rc $RC: $(cat "$tmp/audit")"
 fresh
 catalog "$FIX"
 config 'steps_convergence: []' 'steps_post_pr: [fix-round-1]'

@@ -17,8 +17,8 @@
 #   - a polish or self-review recorded passed or applied has an Agent tool call
 #     inside its span;
 #   - a fix-round step does not start before the session's first event (a fresh
-#     run that repeats an earlier round keeps that round's start, so it stands
-#     or falls with the original);
+#     run that repeats an earlier round, as a fresh records worker does, may
+#     carry the start of an earlier run's record of the same step);
 #   - a polish recorded passed ended on the head it began on (a moved head is
 #     applied). This one reads the record alone.
 #
@@ -140,7 +140,12 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
       for (i = 1; i <= nag; i++) if (agt[i] >= s && agt[i] <= e) { span = 1; break }
       if (!span) fault("recorded " o ", but the session events show no Agent tool call between " s " and " e)
     }
-    if (need5 && first != "" && s < first) fault("start " s " is before the session first event at " first)
+    if (need5 && first != "" && s < first && !(((F["step"] SUBSEP s) in rstart) && rstart[F["step"] SUBSEP s] != curun)) fault("start " s " is before the session first event at " first)
+  }
+  # A round repeated in a later run by a fresh records worker keeps the start of
+  # the earlier record of that round; only the start of an earlier run counts.
+  function note_start(run) {
+    if (!((F["step"] SUBSEP F["start"]) in rstart)) rstart[F["step"] SUBSEP F["start"]] = run
   }
   function flush(   n, parts, b) {
     if (!inrec) return
@@ -148,9 +153,11 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
     n = split(path, parts, "/"); b = parts[n]
     if (b !~ /^[0-9][0-9][0-9]-step-[a-z][a-z-]*\.rec$/) return
     if (F["type"] != "step") return
-    if (RUNS != "" && index(" " RUNS " ", " " parts[n - 1] " ") == 0) return
+    if (RUNS != "" && index(" " RUNS " ", " " parts[n - 1] " ") == 0) { note_start(parts[n - 1]); return }
     id = parts[n - 1] ":" substr(b, 10, length(b) - 13) ":" substr(b, 1, 3)
+    curun = parts[n - 1]
     judge()
+    note_start(parts[n - 1])
   }
   FILENAME == ARGV[1] {
     if ($1 == "first" && (first == "" || $2 < first)) first = $2
