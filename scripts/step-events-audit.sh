@@ -2,32 +2,24 @@
 # step-events-audit.sh — judge step records against the session that wrote them.
 # Emits tab-separated lines, one per fault or unverifiable record.
 #
-# Usage:
-#   step-events-audit.sh --worktree <dir> --records <file> [--run <id>]...
+# Usage: step-events-audit.sh --worktree <dir> --records <file> [--run <id>]...
+#   --records  the output of `step-record.sh list`; --run restricts the runs.
 #
-#   --records   the output of `step-record.sh list` (all runs or one).
-#   --run       restrict the judgement to these runs; default every run listed.
-#
-# A step record is hand-written by the session it describes, so its claims are
-# held against that session's own event stream (the stream-json worker's
-# events.jsonl under the fleet's streamjson/<handle>/, the one whose `cwd` is
-# the worktree). Faults, one line each, naming the record, the expected value
-# and the observed one:
-#   - a skill step run in-session starts on the second of its Skill tool call;
-#   - a polish or self-review recorded passed or applied has an Agent tool call
-#     inside its span;
-#   - a fix-round step does not start before the session's first event (a fresh
-#     run that repeats an earlier round, as a fresh records worker does, may
-#     carry the start of an earlier run's record of the same step);
-#   - a polish recorded passed ended on the head it began on (a moved head is
-#     applied). This one reads the record alone.
+# A record is hand-written by the session it describes, so its claims are held
+# against that session's stream-json events.jsonl (the one whose `cwd` is the
+# worktree). Faults name the record, the expected value and the observed one:
+#   - an in-session skill step starts on the second of its Skill tool call;
+#   - a polish or self-review recorded passed or applied has an Agent tool
+#     call inside its span;
+#   - a fix-round step does not start before the session's first event, unless
+#     it repeats the start of an earlier run's record of the same step;
+#   - a polish recorded passed ended on its start head (record alone).
 #
 # Output:
 #   fault<TAB><run>:<point>:<seq><TAB><step><TAB><message>
-#   unverified<TAB><run>:<point>:<seq><TAB><step><TAB><why>   events unreachable, unreadable or without timestamps
+#   unverified<TAB><run>:<point>:<seq><TAB><step><TAB><why>
+# unverified: events unreachable, unreadable or without timestamps.
 # Exit 0 no fault, 1 a fault, 2 usage, 4 the records cannot be read.
-#
-# Portable /bin/sh, awk and jq.
 set -u
 LC_ALL=C
 export LC_ALL
