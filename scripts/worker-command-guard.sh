@@ -3598,12 +3598,12 @@ guard_git() {
         case $sub in
           ls-files)
             case ${cw[i]} in
-              -X*) return 1 ;;
+              -X* | -[!-]*X*) return 1 ;;
             esac
             ;;
           blame)
             case ${cw[i]} in
-              --con* | --ignore-revs* | -S*) return 1 ;;
+              --con* | --ignore-revs* | -S* | -[!-]*S*) return 1 ;;
             esac
             ;;
           # Patterns read from a file: `-f`, alone or in a cluster.
@@ -4819,8 +4819,14 @@ follow_links_ok() {
     w=${cw[i]}
     case $w in
       --rec*) rec=1 ;;
-      # An absent file read as empty prints the other side's link target.
+      # An absent file read as empty prints the other side's link target, and
+      # a --from-file or --to-file tree is paired with every other operand.
       --new* | --unid*) miss=1 ;;
+      --from-file=* | --to-file=*)
+        miss=1
+        w=${w#*=}
+        ;;
+      --from-file | --to-file) miss=1 ;;
       --*) ;;
       -*)
         case $w in *r*) rec=1 ;; esac
@@ -4840,27 +4846,28 @@ follow_links_ok() {
   # A plain diff reads no link unless a directory operand holds one.
   [ "$diff" = 0 ] || [ "$rec" = 1 ] || [ "${#dirs[@]}" -gt 0 ] || return 0
   [ "${#dirs[@]}" -gt 0 ] || dirs[0]=$HOOK_CWD
-  # With no second tree to pair names against, or a flag that reads a missing
-  # counterpart as empty, every link counts.
-  { [ "${#dirs[@]}" -ge 2 ] && [ "$miss" = 0 ]; } || diff=0
+  # Names are paired only for exactly two trees and no flag that reads a
+  # missing counterpart as empty; otherwise every link counts.
+  { [ "${#dirs[@]}" -eq 2 ] && [ "$miss" = 0 ]; } || diff=0
   queue=("${dirs[@]}")
   while [ "$qi" -lt "${#queue[@]}" ]; do
     d=${queue[qi]}
     other=''
-    if [ "$diff" = 1 ] && [ "${#dirs[@]}" -ge 2 ]; then
+    # A tree reached through a link has no counterpart to pair against.
+    if [ "$diff" = 1 ] && [ "$qi" -lt 2 ]; then
       [ "$qi" -ne 0 ] && other=${dirs[0]} || other=${dirs[1]}
     fi
     qi=$((qi + 1))
     while IFS= read -r -d '' l; do
       n=$((n + 1))
       [ "$n" -le 512 ] || return 1
-      if [ "$diff" = 1 ]; then
+      if [ -n "$other" ]; then
         rel=${l#"${d%/}"/}
         [ -e "$other/$rel" ] || [ -L "$other/$rel" ] || continue
       fi
       secret_path_risky "$l" 0 && return 1
       broad_path_risky "$l" && return 1
-      if [ "$diff" = 0 ] && [ -d "$l" ]; then
+      if [ -d "$l" ]; then
         canon_dir_cached "$l"
         [ -n "$CANON" ] || continue
         canon=$CANON
@@ -4870,7 +4877,7 @@ follow_links_ok() {
         [ "${#queue[@]}" -lt 16 ] || return 1
         queue[${#queue[@]}]=$canon
       fi
-    done < <(find -H "$d" -name .git -type d -prune -o -type l -print0 2>/dev/null)
+    done < <(find -H "$d" -type l -print0 2>/dev/null)
   done
   return 0
 }

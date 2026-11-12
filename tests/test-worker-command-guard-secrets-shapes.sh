@@ -30,6 +30,11 @@ mkdir -p "$SANDBOX/shadowtree"
 mkdir -p "$SANDBOX/gitl" "$SANDBOX/nl"
 ln -s "$H/.ssh/id_rsa" "$SANDBOX/gitl/.git"
 ln -s "$H/.ssh/id_rsa" "$SANDBOX/nl/$(printf 'a\nb')"
+mkdir -p "$SANDBOX/gitd/.git" "$SANDBOX/a2" "$SANDBOX/b2/d" "$SANDBOX/nestsrc"
+ln -s "$H/.ssh/id_rsa" "$SANDBOX/gitd/.git/x"
+ln -s "$H/.ssh/id_rsa" "$SANDBOX/nestsrc/y"
+ln -s "$SANDBOX/nestsrc" "$SANDBOX/a2/d"
+: >"$SANDBOX/b2/d/y"
 # shellcheck disable=SC2016,SC2088 # the guard reads the words as written
 for c in 'cat ~+/.ssh/id_rsa' 'cat ~-/.ssh/id_rsa' 'cat ~root/.ssh/id_rsa' 'cat ~someone/.aws/credentials' \
   'cat ~root/.ssh/*' 'cat ~someone/.s*/id_rsa' 'cat ~root/{.ssh,x}/id_rsa' 'ls ~root/.ssh' 'ls ~someone/.ssh/' \
@@ -55,7 +60,9 @@ for c in 'grep -R BEGIN sub' 'grep -R BEGIN .' 'grep -Rn BEGIN sub' 'grep -nR BE
   'diff -r sub shadowtree' 'diff -rq shadowtree sub' 'diff -ru sub shadowtree' \
   'diff -rN sub notes' 'diff -r --new-file sub notes' 'diff -rP sub notes' 'diff -rNq notes sub' 'diff -r --unidirectional-new-file sub notes' \
   'diff -r sub shadowtree/key' 'diff -r sub ./shadowtree/key' 'diff -r shadowtree/key sub' 'diff sub shadowtree' 'diff shadowtree sub' \
-  'grep -R x gitl' 'grep -R x nl' 'rg -L x gitl' 'rg -L x nl'; do
+  'grep -R x gitl' 'grep -R x nl' 'rg -L x gitl' 'rg -L x nl' 'grep -R x gitd' 'rg -L x gitd' \
+  'diff -r --from-file=sub notes shadowtree' 'diff -r --to-file=sub notes shadowtree' 'diff -r --from-file sub notes shadowtree' \
+  'diff -r --to-file sub notes shadowtree' 'diff -r a2 b2' 'grep -R x a2'; do
   assert_defer "secrets: a followed link: $c" "$c"
 done
 assert_allow "secrets: grep -R over a tree whose only link is harmless" "grep -R BEGIN scripts"
@@ -72,7 +79,8 @@ for c in 'git blame --ignore-revs-file x -- README.md' 'git blame --ignore-revs-
   'git log --orderfile=/etc/shadow' 'git diff --orderfile /home/someone/.aws/credentials' 'git diff --order=/etc/shadow' \
   'git show --or=/etc/shadow HEAD' 'git ls-files --exclude-from=/etc/shadow' 'git ls-files -X /etc/shadow' \
   'git ls-files --exclude-f=/etc/shadow' 'git ls-files --exclude-from /home/someone/.aws/credentials' \
-  'git blame -S x -- README.md' 'git blame -Sx -- README.md'; do
+  'git blame -S x -- README.md' 'git blame -Sx -- README.md' 'git blame -wS x -- README.md' 'git blame -eS x -- README.md' \
+  'git ls-files -oXlnk' 'git ls-files -oX lnk'; do
   assert_defer "secrets: git file option: $c" "$c"
 done
 echo "### git --no-index spelled by any prefix"
