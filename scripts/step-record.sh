@@ -2036,6 +2036,16 @@ if command -v git >/dev/null 2>&1 && [ -d "$cache" ]; then
   [ -z "$tracked" ] || die 1 "git tracks the record cache; refusing it"
 fi
 
+# A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
+# --check-env owns the list) is dropped without a word by anything that reads
+# the context: the verbs that write records refuse it, the read-only ones warn.
+if [ -x "$script_dir/resolve-steps.sh" ] && ! env_msg=$("$script_dir/resolve-steps.sh" --check-env 2>&1); then
+  printf '%s\n' "$env_msg" >&2
+  case $verb in
+    new-run | write | regenerate | status) exit 2 ;;
+  esac
+fi
+
 case $verb in
   status) cmd_status "$@" ;;
   new-run) cmd_new_run "$@" ;;

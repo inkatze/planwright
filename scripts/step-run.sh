@@ -1079,6 +1079,19 @@ cmd_audit() {
   [ "$any" -eq 0 ]
 }
 
+# A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
+# --check-env owns the list) would be dropped without a word: every verb that
+# writes, runs or audits refuses it, and the read-only resolve warns.
+if ! env_msg=$("$RS" --check-env 2>&1); then
+  case $verb in
+    resolve) printf '%s\n' "$env_msg" >&2 ;;
+    *)
+      printf '%s\n' "$env_msg" >&2
+      exit 2
+      ;;
+  esac
+fi
+
 case $verb in
   audit) cmd_audit "$@" ;;
   resolve) cmd_resolve "$@" ;;

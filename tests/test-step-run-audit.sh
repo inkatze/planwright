@@ -265,6 +265,26 @@ audit --through post-pr --head abc
 [ "$RC" -eq 2 ]
 verdict $? "a short --head is a usage error" "rc $RC"
 
+# --- a misspelled PLANWRIGHT_STEP_* name: audit refuses, resolve warns -------------
+for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_BRANCH; do
+  bad=${pair%%:*} want=${pair#*:}
+  fresh
+  catalog "$SHOW"
+  config 'steps_convergence: [show]'
+  env "PLANWRIGHT_STEP_$bad=1" "$RUN" --worktree "$wt" audit --through convergence >"$tmp/audit" 2>"$tmp/audit.err"
+  RC=$?
+  [ "$RC" -eq 2 ] && grep -q "PLANWRIGHT_STEP_$bad" "$tmp/audit.err" && grep -q "PLANWRIGHT_STEP_$want" "$tmp/audit.err"
+  verdict $? "audit refuses PLANWRIGHT_STEP_$bad and names PLANWRIGHT_STEP_$want" "rc $RC: $(cat "$tmp/audit.err")"
+done
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [show]'
+r=$(sr new-run)
+PLANWRIGHT_STEP_PR=7 srun resolve --run "$r" --attended convergence >"$tmp/res" 2>"$tmp/res.err"
+RC=$?
+[ "$RC" -eq 0 ] && [ -s "$tmp/res" ] && grep -q 'PLANWRIGHT_STEP_PR_NUMBER' "$tmp/res.err"
+verdict $? "resolve only warns about PLANWRIGHT_STEP_PR and still resolves" "rc $RC: $(cat "$tmp/res.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

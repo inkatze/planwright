@@ -26,6 +26,14 @@
 #   resolve-steps.sh <point> --preamble
 #   resolve-steps.sh <point> [--pool <pool> --owner <pid>] --prefix
 #   resolve-steps.sh <point> [--pool <pool> --owner <pid>] --line <location> [<arg>...]
+#   resolve-steps.sh --check-env
+#
+#   --check-env   exit 6, naming each PLANWRIGHT_STEP_* variable in the
+#                 environment outside the documented context names (and the
+#                 right spelling for a known misspelling); 0 when none. The
+#                 sibling step scripts call it: step-run.sh and
+#                 step-record.sh refuse on it for the verbs that write, run
+#                 or audit and only warn for the read-only ones.
 #
 #   <point>       one of the named points of doctrine/custom-steps.md's
 #                 vocabulary (the wired points, the two flip points, and the
@@ -249,6 +257,7 @@ usage() {
   echo "       resolve-steps.sh <point> --preamble" >&2
   echo "       resolve-steps.sh <point> [--pool <pool> --owner <pid>] --prefix" >&2
   echo "       resolve-steps.sh <point> [--pool <pool> --owner <pid>] --line <location> [<arg>...]" >&2
+  echo "       resolve-steps.sh --check-env" >&2
   exit 2
 }
 
@@ -260,6 +269,7 @@ preamble=0
 prefix=0
 line_mode=0
 line_words=()
+check_env=0
 attendance=""
 hold_pool=""
 hold_owner=""
@@ -292,6 +302,7 @@ while [ $# -gt 0 ]; do
       fi
       shift
       ;;
+    --check-env) check_env=1 ;;
     --explain) explain=1 ;;
     --check) check=1 ;;
     --preamble) preamble=1 ;;
@@ -332,6 +343,37 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# --check-env stands alone: it judges the environment's PLANWRIGHT_STEP_*
+# names against CONTEXT_FIELDS and the hold mark, the one list the sibling
+# step scripts consult, so a misspelled name fails loudly instead of being
+# dropped. The caller picks refuse (exit 6) or warn.
+if [ "$check_env" -eq 1 ]; then
+  [ "$n_points" -eq 0 ] && [ $((explain + check + preamble + prefix + line_mode + pool_given)) -eq 0 ] \
+    && [ -z "$attendance" ] || usage
+  bad_names=0
+  for name in $(compgen -v PLANWRIGHT_STEP_); do
+    suffix=${name#PLANWRIGHT_STEP_}
+    case " $CONTEXT_FIELDS POOL_HOLD " in
+      *" $suffix "*) continue ;;
+    esac
+    case "$suffix" in
+      SPEC_ID) hint="PLANWRIGHT_STEP_SPEC" ;;
+      TASK_ID | TASK) hint="PLANWRIGHT_STEP_TASK_IDS" ;;
+      PR) hint="PLANWRIGHT_STEP_PR_NUMBER" ;;
+      BASE) hint="PLANWRIGHT_STEP_BASE_BRANCH" ;;
+      *) hint="" ;;
+    esac
+    if [ -n "$hint" ]; then
+      printf 'resolve-steps: %s is not a step context name; use %s\n' "$name" "$hint" >&2
+    else
+      printf 'resolve-steps: %s is not a step context name; the documented names are %s\n' \
+        "$name" "$(printf 'PLANWRIGHT_STEP_%s ' $CONTEXT_FIELDS)" >&2
+    fi
+    bad_names=1
+  done
+  [ "$bad_names" -eq 0 ] || exit 6
+  exit 0
+fi
 [ "$n_points" -ge 1 ] || usage
 if [ "$pool_given" -ne "$owner_given" ] \
   || { [ "$pool_given" -eq 1 ] && { [ "$preamble" -eq 1 ] || [ $((prefix + line_mode)) -eq 0 ]; }; }; then
