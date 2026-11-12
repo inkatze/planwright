@@ -2147,3 +2147,17 @@ their cases moved into; no requirement or decision changes meaning.
 Class: expression-only
 Anchor: `d6cab8debc8599d3cb842fd5d3bdf7c0234013b7` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — after the main merge (2026-11-12)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+Merging main brought in its expression-only test-file pointer edits; no
+requirement or decision changes meaning.
+
+**Cites the changelog line:** the 2026-11-12 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `c5a94f578f2528753da6d4c617ca14eb3b06d641` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

@@ -1629,6 +1629,10 @@ later planwright bundles implement, D-12).
   names `tests/test-mission-control-launch-host.sh`, the files the per-file
   test-time budget split moved those cases into. No requirement or decision
   changes meaning.
+- 2026-11-12 — Expression-only (brief Re-anchor, after the main merge):
+  the recorded anchor is refreshed after merging main's expression-only
+  test-file pointer edits into the amendment branch. No requirement or
+  decision changes meaning.
 
 ## Sources
 
