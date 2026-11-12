@@ -390,8 +390,8 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/w
 expect_out "check refuses the skipped cadence" "fail${tab}cadence${tab}convergence: polish is missing"
 # A worktree off to the side of the forge's head (here, on a sibling of it)
 # cannot speak for it.
-git -C "$tmp/feature-wt" checkout -q --detach "$head~1" && git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m sibling \
-  && git -C "$tmp/feature-wt" checkout -q -B feature
+git -C "$tmp/feature-wt" checkout -q --orphan side && git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m sibling \
+  && git -C "$tmp/feature-wt" checkout -q -B feature side
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "a worktree head that differs from the forge's and is not ahead of it is unaudited, naming both" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt is at"
@@ -406,6 +406,9 @@ git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt
   && /bin/bash "$repo_root/scripts/step-record.sh" write --completion --run 000001 --point convergence --head "$head" >/dev/null) \
   || fail "the fixture step record in the feature worktree"
 git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed
+# A configured pre-ci step with no record at the head is a gap beside the covered convergence.
+cp "$tracked" "$tmp/tracked.keep"
+printf 'steps_pre_ci: [polish]\n' >>"$tracked"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 expect_rc "a worktree ahead of the forge's head still collects" 0
 c=$(cat "$tmp/collected" 2>/dev/null)
@@ -413,6 +416,7 @@ has "a worktree ahead of the forge's head is audited at the forge's head" "caden
 hasnt "and is not refused for being ahead" "cadence${tab}unaudited"
 hasnt "its records at the forge's head count" "cadence${tab}gap${tab}convergence"
 has "while a point its records do not complete is still a gap" "cadence${tab}gap${tab}pre-ci"
+has "and the step records the worktree holds at the forge's head are collected" "step${tab}polish${tab}applied${tab}$head"
 # A worktree ahead with the head's records incomplete still fails readiness.
 git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
 rm -rf "$tmp/feature-wt/.claude/steps"
@@ -423,6 +427,7 @@ has "an ahead worktree whose records do not cover the head still has the gap" "c
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7 --worktree "$tmp/feature-wt"
 expect_rc "and readiness refuses it" 4
 expect_out "naming the missing completion" "fail${tab}cadence${tab}convergence: no completion record"
+mv "$tmp/tracked.keep" "$tracked"
 git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
 # The audit itself failing is unaudited, with the resolver's reason.
 chmod 000 "$core/config/steps.yaml"
