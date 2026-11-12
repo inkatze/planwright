@@ -206,7 +206,7 @@ new_state
 watch "$now"
 events
 case $EV in
-  *dup-a,dup-b*|*"dup-a dup-b"*) ok "a repeated id is named once" ;;
+  *dup-a,dup-b* | *"dup-a dup-b"*) ok "a repeated id is named once" ;;
   *) fail "repeated id not collapsed: $EV" ;;
 esac
 case $EV in
@@ -273,7 +273,7 @@ case $EV in
   *) fail "good ids not named: $EV" ;;
 esac
 case $EV in
-  *note*|*bad*|*leading*) fail "a skipped line or a note leaked into the event: $EV" ;;
+  *note* | *bad* | *leading*) fail "a skipped line or a note leaked into the event: $EV" ;;
   *) ok "a note after an id is ignored and malformed ids never named" ;;
 esac
 
