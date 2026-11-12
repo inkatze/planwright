@@ -176,7 +176,10 @@ for light_kind in tower orchestrator; do
 done
 for heavy_kind in worker reviewer ad-hoc; do
   kind_launch "$heavy_kind" "heavy-$heavy_kind"
-  [ "$RC" = 4 ] && ok "a $heavy_kind launch is still held by a full host" || fail "a $heavy_kind launch on a full host exited $RC: $ERR"
+  case $ERR in
+    *fleet_host_max_live_workers*) [ "$RC" = 4 ] && ok "a $heavy_kind launch is still held by a full host" || fail "a $heavy_kind launch on a full host exited $RC: $ERR" ;;
+    *) fail "a $heavy_kind launch on a full host was not refused by the bound (exit $RC): $ERR" ;;
+  esac
 done
 fleet="$tmp/fleet"
 

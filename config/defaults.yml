@@ -103,8 +103,9 @@ fleet_max_parallel_units: 3
 # beneath it. It bounds the sum of every program's workers, reviewers,
 # walkers and relays registered in the shared mission-control registry
 # (mission-control sessions are not counted), checked by
-# scripts/mission-control-launch.sh before every such launch. A
-# positive integer, or `off` for no host-wide bound. The shipped number is
+# scripts/mission-control-launch.sh before every launch of a kind under the
+# worker profile (a tower, orchestrator or mission-control launch runs no tests
+# and is never held). A positive integer, or `off` for no host-wide bound. The shipped number is
 # sized for a 12-core host; set it lower on a smaller machine. Sessions
 # offloaded to another host (scripts/fleet-remote.sh) are counted on that host,
 # never here. An operator-asked launch (--operator-asked) goes past it, with a
