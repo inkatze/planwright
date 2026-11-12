@@ -176,9 +176,9 @@ whenever one exists):
    *Hosting* table, a skill or prompt step receiving the `--preamble` block:
    `isolated` sessions launch at `execute_step` tier through the backend
    seam (`offload-dispatch`; headless refuses `tmux`:
-   `scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`), recording session id (a backend that
-   cannot spawn degrades to `in-session`, recorded, a following `continue`
-   attaching to unit's session); `continue` resumes the predecessor's id
+   `scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`), recording
+   session id (a backend that cannot spawn degrades to `in-session`, recorded, a following
+   `continue` attaching to unit's session); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
    through `step-run.sh` (foreground, waited in-turn): `isolated` by
    `command`, session-hosted between `begin --owner $PPID`, whose printed
