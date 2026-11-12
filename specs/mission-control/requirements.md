@@ -1461,6 +1461,11 @@ later planwright bundles implement, D-12).
   already cover number-valued rules, prose or unknown enforcement and idle
   waits and are not redrafted. Tasks 50 to 56.
 - 2026-11-11 — Expression-only (brief Re-anchor, test-spec file pointers):
+  the REQ-A1.9 test entry names `tests/test-mc-config-doctor.sh`, and the
+  REQ-L1.9 entry also names `tests/test-mc-handover-tmux.sh`, the files the
+  per-file test-time budget split moved those cases into. No requirement
+  or decision changes meaning.
+- 2026-11-11 — Expression-only (brief Re-anchor, test-spec file pointers):
   the REQ-D1.10 and REQ-D1.11 test entries name
   `tests/test-mission-control-launch-worktrees.sh`, and the REQ-D1.16 entry
   names `tests/test-mission-control-launch-host.sh`, the files the per-file
