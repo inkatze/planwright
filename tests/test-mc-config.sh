@@ -43,6 +43,7 @@ tab=$(printf '\t')
 cfg() { mc_run mc-config.sh "$@"; }
 layer="$adopter/planwright.yml"
 sum() { if [ -e "$1" ]; then cksum <"$1"; else echo absent; fi; }
+expect_no_err() { case "$ERR" in *"$2"*) fail "$1: stderr carries $2" ;; *) ok "$1" ;; esac; }
 reset_mc_fixture
 mkdir -p "$repo/specs"
 
@@ -140,6 +141,29 @@ for key in ready_flip_policy merge_policy mission_control_clipboard mission_cont
     fail "REQ-G1.4: $key was written as a knob (exit $RC)"
   fi
 done
+
+# A refused knob names where the operator sets it instead.
+: >"$tracked"
+cfg knob mission_control_handover_context 60
+expect_rc "a refused context knob is a usage error" 2
+expect_err "a refused knob left at the shipped default names the adopter file to set it in" "set it in $layer"
+expect_err "a refused knob names the machine-local file as the other place" "$tmp/absent.yml"
+expect_err "a refused knob says what it holds today" "today it is 70 (core, in "
+cfg knob mission_control_launch_backend tmux
+expect_err "a refused what-is-run knob names the adopter file to set it in" "set it in $layer"
+printf 'mission_control_handover_context: 55\n' >"$tracked"
+cfg knob mission_control_handover_context 60
+expect_err "a refused knob a layer already sets names that layer and its file" "today it is 55 (repo-tracked, in $tracked)"
+: >"$tracked"
+cfg knob mission_control_no_such_knob 1
+expect_rc "an unknown key stays a usage error" 2
+expect_no_err "an unknown key claims no place to set it" "set it in"
+cfg knob mission_control_tick_cadence 8m
+expect_rc "a writable knob is still written" 0
+expect_out "a writable knob's write line is unchanged" "wrote${tab}mission_control_tick_cadence${tab}8m${tab}"
+expect_no_err "a writable knob prints no refusal" "set it in"
+cfg restore mission_control_tick_cadence
+before=$(sum "$layer")
 cfg restore ready_flip_policy unit-owner
 expect_rc "a restore of a posture key is refused" 2
 cfg knob mission_control_tick_cadence soon
