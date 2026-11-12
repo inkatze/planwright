@@ -187,14 +187,16 @@
 #      --explain, or with a render mode; --pool or --owner alone, repeated,
 #      without a value, or outside --prefix and --line; --line
 #      without an absolute location, with a control byte in it, or with an
-#      arg outside the charset
+#      arg outside the charset; --check-env with a point, a mode flag, or an
+#      attendance flag
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
 #      repo-tracked config or catalog (config-get's own 4, resolve-catalog's
 #      hard-fail naming the repo-tracked layer)
 #   5  broken install: a malformed core list, entry, or catalog, a point key
 #      absent from every layer, a missing or duplicated pipeline-entry line,
 #      an unusable sibling script
-#   6  a refused context value (--preamble / --prefix / --line only)
+#   6  a refused context value (--preamble / --prefix / --line only); or, with
+#      --check-env, a PLANWRIGHT_STEP_* name outside the documented set
 #   130 / 143  interrupted or terminated by a signal (the shell's own
 #      convention), the scratch directory removed and any sibling read
 #      still running stopped

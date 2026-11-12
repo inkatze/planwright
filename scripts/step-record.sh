@@ -363,8 +363,10 @@
 # another writer held past the wait, a status with no attempt to post or a
 # post that failed, no SHA-256 tool for args-digest, a new-run or status from
 # a plugin-cache copy the installed record no longer names) · 2 a usage or
-# field-validation error · 3 lookup found no record to stand on (or no
-# unretired limited record), or heads found no move.
+# field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
+# documented set on new-run, write, regenerate, or status (the other verbs
+# only warn; resolve-steps.sh --check-env judges it) · 3 lookup found no
+# record to stand on (or no unretired limited record), or heads found no move.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
@@ -2038,7 +2040,8 @@ fi
 
 # A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
 # --check-env owns the list) is dropped without a word by anything that reads
-# the context: the verbs that write records refuse it, the read-only ones warn.
+# the context: the verbs that write a record or post a status refuse it, the
+# read-only ones warn.
 if [ -x "$script_dir/resolve-steps.sh" ] && ! env_msg=$("$script_dir/resolve-steps.sh" --check-env 2>&1); then
   printf '%s\n' "$env_msg" >&2
   case $verb in
