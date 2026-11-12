@@ -125,7 +125,10 @@
 # heads at that point) are computed here. A field the caller leaves unset is
 # filled, for a flight worker only, from the launch record in
 # PLANWRIGHT_WORKER_SESSION_RECORD (UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE),
-# so the worker runs this script with no variable prefix.
+# so the worker runs this script with no variable prefix. Any other
+# PLANWRIGHT_STEP_* name in the environment (resolve-steps.sh --check-env
+# judges it) is a misspelling: every verb but resolve exits 2 naming it and
+# its right spelling, and resolve only warns.
 #
 # Output of command, begin (but `run`), and end: `<outcome><TAB><record>
 # <TAB><hosting><TAB><session>`, the record path absolute and, for a reuse

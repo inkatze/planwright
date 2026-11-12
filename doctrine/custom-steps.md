@@ -141,7 +141,11 @@ Every step receives exactly these twelve fields:
 Among steps, a pooled step alone also carries the **hold mark**
 `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`, the slot owner's literal process id
 as `<pid>`, rendered as one optional trailing assignment after the twelve; a
-pooled full suite gets it too (*Expensive checks*).
+pooled full suite gets it too (*Expensive checks*). Any other
+`PLANWRIGHT_STEP_*` name in the runner's environment is a misspelling that
+would be dropped unread: `resolve-steps.sh --check-env` names it and its
+right spelling, and `step-run.sh` and `step-record.sh` refuse it for the verbs
+that write, run, or audit and warn for the read-only ones.
 
 Two channels deliver the context. A **command step** gets the twelve
 variables, and a pooled step its hold mark, in its environment,
