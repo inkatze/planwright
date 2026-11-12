@@ -162,6 +162,44 @@ watch "$now"
 events
 if [ "$(count_kind idle-capacity-undeclared)" -eq 1 ]; then ok "an unreadable declared backlog is reported, not guessed"; else fail "unreadable backlog not reported: $EV"; fi
 
+# An undeclared backlog is reported only when a slot is free and the gates
+# are open: a full fleet or a closed usage gate raises nothing.
+write_tracked
+new_state
+clear_rows
+add_row mc-alpha-worker-aaaaaaaaaa alpha worker
+add_row mc-alpha-worker-bbbbbbbbbb alpha worker
+add_row mc-alpha-worker-cccccccccc alpha worker
+watch "$now"
+events
+if [ "$(count_kind idle-capacity-undeclared)" -eq 0 ]; then ok "an undeclared backlog with no free slot raises nothing"; else fail "undeclared raised with a full fleet: $EV"; fi
+
+clear_rows
+new_state
+write_mirror 95 10
+mc_run mc-usage.sh watch --program alpha --now "$now"
+watch "$now"
+events
+if [ "$(count_kind idle-capacity-undeclared)" -eq 0 ]; then ok "an undeclared backlog with a closed gate raises nothing"; else fail "undeclared raised with a closed gate: $EV"; fi
+write_mirror 10 10
+mc_run mc-usage.sh watch --program alpha --now "$((now + 4000))"
+
+# A long backlog names at most five units.
+write_tracked "mission_control_idle_backlog: $backlog
+fleet_max_parallel_units: 6"
+printf 'u1\nu2\nu3\nu4\nu5\nu6\nu7\n' >"$backlog"
+new_state
+watch "$now"
+events
+case $EV in
+  *u5*) ok "a long backlog names the first five units" ;;
+  *) fail "five units not named: $EV" ;;
+esac
+case $EV in
+  *u6*) fail "the event names more than five units: $EV" ;;
+  *) ok "a long backlog names no sixth unit" ;;
+esac
+
 if [ "$failures" -gt 0 ]; then
   echo "test-mc-idle: $failures failure(s)" >&2
   exit 1

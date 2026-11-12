@@ -143,7 +143,9 @@ goes and raising the biggest bottleneck, preparing what you need before a
 decision, recording how to undo each act, checking what was done against
 your rules, noticing what you keep doing by hand, and holding new work
 near your account's usage limit until it resets
-([below](#usage-windows-and-the-reset-queue)). If you run several
+([below](#usage-windows-and-the-reset-queue)), and noticing free worker
+slots beside a waiting backlog ([below](#free-worker-slots)) and saying
+which units to launch. If you run several
 programs with one hub program over all their repositories, and the hub's
 duties leave out the readiness check (it is on by default), the hub hears of
 every pull request ready to merge in them without checking readiness itself:

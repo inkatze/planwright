@@ -45,10 +45,13 @@ them. Any closed gate raises nothing.
 
 THE BACKLOG is the file mission_control_idle_backlog names (`off`: none), an
 absolute path of ranked units, one per line, the first the next to run;
-blank lines and lines starting with # are skipped; a unit is its id, then an
-optional note after a tab or space. With none declared, or one that cannot
-be read, the duty says so once, as an idle-capacity-undeclared event, and
-raises nothing until a backlog reads again; it never guesses a backlog.
+blank lines and lines starting with # are skipped; a unit is its id
+(letters, digits and . _ : @ = -, at most 64 characters, else the line is
+skipped), then an optional note after a tab or space; at most five ids are
+named. It is read only when a slot is free and the gates are open. With none
+declared, or one that cannot be read, the duty says so once, as an
+idle-capacity-undeclared event, and raises nothing until a backlog reads
+again; it never guesses a backlog.
 
 Usage:
   mc-idle.sh check --program <p> [--now <epoch>] [--load <pct>]
@@ -188,12 +191,7 @@ check() {
   VERDICT=$(printf 'slots\t%s\t%s/%s\t%s/%s\n' "$FREE" "$host_live" "$host_bound" "$prog_live" "$prog_bound")
   UNITS=""
   REASON=""
-  backlog=$(mc_knob mission_control_idle_backlog parse_backlog) || exit 1
-  if [ "$backlog" = off ] || [ ! -f "$backlog" ] || [ ! -r "$backlog" ]; then
-    REASON=undeclared
-    UNDECLARED_WHY=$backlog
-    return 0
-  fi
+  BACKLOG_READ=0
   if [ "$FREE" -le 0 ]; then
     REASON=no-free-slot
     return 0
@@ -202,9 +200,17 @@ check() {
     REASON="queued: $(printf '%s' "$gate" | tr '\t\n' '  ')"
     return 0
   fi
-  UNITS=$(awk -v n="$FREE" '
+  backlog=$(mc_knob mission_control_idle_backlog parse_backlog) || exit 1
+  if [ "$backlog" = off ] || [ ! -f "$backlog" ] || [ ! -r "$backlog" ]; then
+    REASON=undeclared
+    UNDECLARED_WHY=$backlog
+    return 0
+  fi
+  BACKLOG_READ=1
+  # At most MAX_UNITS ids, each short, keep the event text inside its bound.
+  UNITS=$(awk -v n="$FREE" -v max="$MAX_UNITS" '
     /^[[:space:]]*(#|$)/ { next }
-    { u = $1; if (u ~ /^[A-Za-z0-9][A-Za-z0-9._:@=-]*$/ && length(u) <= 100) { print u; if (++c >= n) exit } }' "$backlog")
+    { u = $1; if (u ~ /^[A-Za-z0-9][A-Za-z0-9._:@=-]*$/ && length(u) <= 64) { print u; if (++c >= n || c >= max) exit } }' "$backlog")
   [ -n "$UNITS" ] || REASON=no-backlog
 }
 
@@ -213,6 +219,8 @@ emit() { # emit <kind> <subject> <text>
 }
 
 UNDECLARED_WHY=""
+BACKLOG_READ=0
+MAX_UNITS=5
 check
 printf '%s\n' "$VERDICT"
 if [ -n "$UNITS" ]; then
@@ -244,7 +252,7 @@ if [ "$REASON" = undeclared ]; then
   exit 0
 fi
 # A backlog that reads again is reported afresh if it is lost once more.
-rm -f "$undeclared"
+[ "$BACKLOG_READ" != 1 ] || rm -f "$undeclared"
 
 if [ -z "$UNITS" ]; then
   rm -f "$raised"
