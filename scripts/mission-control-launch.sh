@@ -202,6 +202,11 @@ could not be recorded (the output's unrecorded field names which); 2 usage,
 an invalid value, --undo with --authority, no --authority, or a row it
 cannot read or rewrite; 3 no row of that name, or another launch or retire
 of it holds its lock; 4 any other refusal.
+
+wait and unwait exit 0 done; 2 usage or a row they cannot rewrite; 3 no row of
+that name, or a launch or retire of it holds its lock; 4 a mission-control
+session or one whose launch is not complete. bound exits 0 printed; 2 usage;
+4 fleet_host_max_live_workers cannot be resolved to a number or off.
 EOF
 }
 

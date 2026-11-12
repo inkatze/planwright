@@ -173,6 +173,7 @@ esac
 
 ml wait "$w1" --on operator
 [ "$RC" = 0 ] && ok "a worker is marked waiting on the operator" || fail "wait exited $RC: $ERR"
+[ "$OUT" = "wait${TAB}${w1}${TAB}waiting${TAB}operator" ] && ok "wait prints its name, state and reason" || fail "wait printed: $OUT"
 case $(cat "$capreg/$w1") in
   *"waiting${TAB}operator"*) ok "the wait is recorded on the registry row" ;;
   *) fail "the row records no wait: $(cat "$capreg/$w1")" ;;
@@ -218,6 +219,7 @@ esac
 
 ml unwait "$w1"
 [ "$RC" = 0 ] && ok "unwait returns a worker to the count" || fail "unwait exited $RC: $ERR"
+[ "$OUT" = "wait${TAB}${w1}${TAB}working" ] && ok "unwait prints its name and the working state" || fail "unwait printed: $OUT"
 grep -q "^waiting${TAB}" "$capreg/$w1" && fail "unwait left the waiting field" || ok "unwait clears the waiting field"
 ml retire "$leak1"
 ml retire "$leak2"
