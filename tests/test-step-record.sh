@@ -2735,6 +2735,50 @@ verdict "--degraded on an isolated step is refused" "--degraded on isolated was 
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"
 
+# --- a misspelled PLANWRIGHT_STEP_* name: write refuses, render warns -------------
+runbad=$(sr new-run)
+for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_BRANCH; do
+  bad=${pair%%:*} want=${pair#*:}
+  env "PLANWRIGHT_STEP_$bad=1" "$SR" --worktree "$wt" write --run "$runbad" --point convergence --step polish \
+    --kind skill --target planwright:polish --hosting isolated --backend terminal \
+    --head "$HEAD_SHA" --start 2026-09-28T10:00:00Z --end 2026-09-28T10:05:00Z --outcome applied \
+    >"$tmp/bad.out" 2>"$tmp/bad.err"
+  rc=$?
+  [ "$rc" -eq 2 ] && grep -q "PLANWRIGHT_STEP_$bad" "$tmp/bad.err" && grep -q "PLANWRIGHT_STEP_$want" "$tmp/bad.err"
+  verdict "write refuses PLANWRIGHT_STEP_$bad and names PLANWRIGHT_STEP_$want" "rc=$rc: $(cat "$tmp/bad.err")"
+done
+[ -z "$(sr list --run "$runbad")" ]
+verdict "the refused writes left no record" "a record was written under a misspelled name"
+env PLANWRIGHT_STEP_PR=7 "$SR" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && grep -q 'PLANWRIGHT_STEP_PR_NUMBER' "$tmp/bad.err"
+verdict "render only warns about PLANWRIGHT_STEP_PR" "rc=$rc: $(cat "$tmp/bad.err")"
+env PLANWRIGHT_STEP_PR_NUMBER=7 "$SR" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$tmp/bad.err" ]
+verdict "render with a documented PLANWRIGHT_STEP_PR_NUMBER stays silent" "rc=$rc: $(cat "$tmp/bad.err")"
+runs_before=$(ls "$wt/.claude/steps")
+env PLANWRIGHT_STEP_SPEC_ID=1 "$SR" --worktree "$wt" new-run >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+runs_after=$(ls "$wt/.claude/steps")
+[ "$rc" -eq 2 ] && grep -q 'PLANWRIGHT_STEP_SPEC' "$tmp/bad.err" && [ "$runs_before" = "$runs_after" ]
+verdict "new-run refuses PLANWRIGHT_STEP_SPEC_ID and issues no run" "rc=$rc: $(cat "$tmp/bad.err") runs: $runs_before / $runs_after"
+
+# A sibling resolve-steps.sh that cannot judge the context (any exit but its
+# own 6) is its own breakage, never reported as a misspelled name.
+broken="$tmp/broken-scripts"
+mkdir "$broken"
+for f in "$repo_root/scripts"/*.sh; do
+  [ "$f" = "$repo_root/scripts/resolve-steps.sh" ] || ln -s "$f" "$broken/${f##*/}"
+done
+# shellcheck disable=SC2016 # the stub's own $1 must stay literal
+printf '#!/bin/sh\ncase $1 in --check-env) echo "resolve-steps: broken install" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$repo_root/scripts/resolve-steps.sh" >"$broken/resolve-steps.sh"
+chmod +x "$broken/resolve-steps.sh"
+"$broken/step-record.sh" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && ! grep -q 'broken install' "$tmp/bad.err"
+verdict "a sibling that exits 5 on --check-env is not reported as a bad name" "rc=$rc: $(cat "$tmp/bad.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s\n' "$failures failure(s)" >&2
   exit 1
