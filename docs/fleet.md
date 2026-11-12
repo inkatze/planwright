@@ -2810,8 +2810,9 @@ another computer you reach by SSH (a LAN machine, a cloud workspace). The alias
 is whatever your `~/.ssh/config` resolves; the script runs a fixed set of verbs
 through the remote's own installed planwright and never runs a command you
 supply. `--help` prints the verb list and exit codes. Beyond the worker verbs
-(`launch`, `pending`, `answer`, `steer`, `status`, `stop`, `retire`) and
-`compute`, three read what a placement or a dispatch needs to know first:
+(`launch`, `pending`, `answer`, `steer`, `status`, `retire`) and `compute`,
+`version` and `capacity` are read-only probes that tell a placement or a
+dispatch what the remote offers and can take, and `stop` closes a worker:
 
 | Verb | Prints |
 | --- | --- |
@@ -2836,7 +2837,8 @@ The channel installs nothing there; you set the host up once:
 2. **Planwright and `jq`.** Install planwright on the remote through its own
    plugin install. The channel finds the root from that host's installed-plugin
    record (which needs `jq` there); no option and no environment variable picks
-   another copy. With no record the verb exits 3 and names the fix.
+   another copy. With no record, a verb that needs the root exits 3 and names
+   the fix (`capacity`, `load` and `compute` never need it).
 3. **The remote's own logins.** The Claude login (and, if the host should push
    its own branches, the hosting-remote login) is made on that host. The channel
    never carries a credential. On macOS an SSH session may find the keychain
@@ -2846,7 +2848,8 @@ The channel installs nothing there; you set the host up once:
    the remote is sourced before every verb. It is the place for `PATH` (mise
    shims, Homebrew, the `claude` binary) and `CLAUDE_PLUGIN_DATA` (the remote's
    fleet home), because SSH runs a non-login shell that loads neither. A file
-   that exits nonzero fails the verb with exit 3. Keep secrets out of it unless
+   whose sourcing returns nonzero fails the verb with exit 3; one that calls
+   `exit` itself ends the verb with that status instead. Keep secrets out of it unless
    you accept that compute runs (below) can read them: it is sourced into the
    same shell that runs the shipped commit's code.
 5. **A clone per repository (for `compute`).** The repository must be cloned at
