@@ -177,7 +177,7 @@ whenever one exists):
    `isolated` sessions launch at their `execute_step` tier: through the
    backend seam (`offload-dispatch`) when `launch-backend` says interactive,
    else (`offload-dispatch` refuses a headless unit `tmux`) through
-   `scripts/fleet-streamjson.sh launch` or `in-session`, recorded; recording the session id (a backend that
+   `scripts/fleet-streamjson.sh launch` or `in-session`, recorded, and recording the session id (a backend that
    cannot spawn degrades to `in-session`, recorded, a following `continue`
    attaching to the unit's session); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
