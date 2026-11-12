@@ -47,7 +47,7 @@ OPT_WORD=$(record_with optword "own-branch scratch" mise_task_edit=yes)
 OPT_DUP=$(record_with optdup "own-branch scratch" mise_task_edit=1 mise_task_edit=1)
 OPT_BLANK=$(record_with optblank "own-branch scratch" mise_task_edit=)
 
-mkdir -p "$WT/mise-tasks" "$WT/.mise-tasks/x" "$WT/tree-ok/mise-tasks" "$WT/tree-bad/mise-tasks" "$WT/sub"
+mkdir -p "$WT/mise-tasks" "$WT/.mise-tasks/x" "$WT/tree-ok/mise-tasks" "$WT/tree-bad/mise-tasks" "$WT/sub" "$WT/mise"
 : >"$WT/.mise.toml"
 : >"$WT/tree-ok/mise-tasks/t"
 : >"$WT/tree-ok/mise.toml"

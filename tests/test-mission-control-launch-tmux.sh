@@ -86,7 +86,8 @@ case $ERR in
 esac
 ml launch --program alpha --kind mission-control --scope mise-mc --brief "$tmp/brief.md" --backend stream-json --mise-task-edit
 case $ERR in
-  *'worker-profile session only'*) [ "$RC" = 2 ] && ok "--mise-task-edit on a mission-control session is refused" ;;
+  *'worker-profile session only'*) [ "$RC" = 2 ] && ok "--mise-task-edit on a mission-control session is refused" \
+    || fail "--mise-task-edit on a mission-control session: exit $RC, not 2" ;;
   *) fail "--mise-task-edit on a mission-control session was not refused for its profile: exit $RC, $ERR" ;;
 esac
 ml launch --program alpha --kind ad-hoc --scope mise-yes --brief "$tmp/brief.md" --backend stream-json --mise-task-edit
