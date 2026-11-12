@@ -169,15 +169,14 @@ in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
 whenever one exists):
 
 1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>
-   --attended` when `launch-backend` says interactive,
+   --attended` when `launch-backend` is interactive,
    else `--unattended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
    and waits for a repair and re-resolve; otherwise park. Exit 2, 4, or 5: a stop condition.
 2. **Host** each step in order by its printed hosting, per the doc's
    *Hosting* table, a skill or prompt step receiving the `--preamble` block:
-   `isolated` sessions launch at their `execute_step` tier: through the
-   backend seam (`offload-dispatch`) when `launch-backend` says interactive,
-   else (`offload-dispatch` refuses a headless unit `tmux`) through
-   `scripts/fleet-streamjson.sh launch` or `in-session`, recorded, and recording the session id (a backend that
+   `isolated` sessions launch at their `execute_step` tier through the backend
+   seam (`offload-dispatch`; headless refuses `tmux`; use
+   `scripts/fleet-streamjson.sh launch`), recording the session id (a backend that
    cannot spawn degrades to `in-session`, recorded, a following `continue`
    attaching to the unit's session); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
