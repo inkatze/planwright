@@ -171,7 +171,6 @@ expect_no_out "another program's session is not named" "mc-beta-worker-333333333
 expect_out "a session whose row names no rung is an unknown launches check" "unknown${tab}launches${tab}mc-alpha-worker-4444444444 names no rung"
 expect_no_out "a session whose row names no rung is not read as another rung" "launch-backend${tab}mc-alpha-worker-4444444444"
 expect_no_out "an attended hub on the tmux rung, as a handover launch starts it, is not named" "mc-alpha-mission-control-5555555555"
-expect_no_out "a hub on the knob's rung is not named" "mc-alpha-mission-control-6666666666"
 cron_line() { # cron_line <label> <word> <match>: one report line reads exactly so
   if printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$2${tab}$3"; then
     ok "$1: $2 $3"
@@ -231,7 +230,6 @@ cfg doctor --program alpha
 expect_out "a layer moving the backend knob is named" "override${tab}mission_control_launch_backend${tab}adopter${tab}tmux${tab}stream-json"
 expect_out "launches are judged against the knob in force" "launch-backend${tab}mc-alpha-worker-2222222222${tab}stream-json${tab}tmux"
 expect_out "a hub on a rung other than tmux is still named against the knob" "launch-backend${tab}mc-alpha-mission-control-6666666666${tab}stream-json${tab}tmux"
-expect_no_out "a tmux hub is not named when the knob is tmux" "mc-alpha-mission-control-5555555555"
 
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$sessions"

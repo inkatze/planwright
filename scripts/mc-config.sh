@@ -127,9 +127,9 @@ Usage:
         launch-backend<TAB><session><TAB><backend><TAB><knob value>
             a registered session of the program started on another rung
             than mission_control_launch_backend now resolves to: a
-            per-call --backend, or a knob changed since the launch; an
-            attended mission-control session on tmux is never named, being
-            how a handover launch starts a hub's successor
+            per-call --backend, or a knob changed since the launch; a
+            mission-control session on tmux is never named, since that is
+            where a handover launch starts an attended hub's successor
         cron<TAB><word><TAB><match>  a crontab line naming a repository or
             the home of the program, or planwright or claude in any case:
             never the line, only the first word of its command (the name,
@@ -824,9 +824,9 @@ doctor_launches() {
   }
   # A row a retire unlinks mid-listing reads back with empty fields, so a
   # rung outside the known ones is unknown rather than another rung.
-  # An attended hub is a tmux session by definition, and mc-handover.sh launch
-  # starts the successor of one there whatever the knob says, so a hub on tmux
-  # is the documented path and not a launch away from the knob.
+  # mc-handover.sh launch starts an attended hub's successor on tmux whatever
+  # the knob says, and the registry row does not mark a hub attended, so any
+  # hub on tmux is read as that documented path, not a launch away from the knob.
   printf '%s\n' "$dl_rows" | DL_RUNGS=$dl_rungs awk -F '\t' -v p="$1" -v k="$dl_knob" '
     BEGIN { n = split(ENVIRON["DL_RUNGS"], r, " "); for (i = 1; i <= n; i++) rung[r[i]] = 1 }
     NF < 5 || $2 != p { next }
