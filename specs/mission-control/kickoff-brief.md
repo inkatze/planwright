@@ -2033,5 +2033,5 @@ their cases moved into; no requirement or decision changes meaning.
 `requirements.md` (the launch-test split).
 
 Class: expression-only
-Anchor: `445fa43c178694c5bd2f3badaa7a82305d8ab6a9` — computed as
+Anchor: `d6cab8debc8599d3cb842fd5d3bdf7c0234013b7` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
