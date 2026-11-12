@@ -22,6 +22,11 @@ def check_passed: if .context != null then .state == "SUCCESS"
       | $c == "SUCCESS" or $c == "NEUTRAL"
         or ($c == "SKIPPED" and ((.name // "") | startswith("macos-") | not))) end;
 
+# A skipped matrix job is reported under its unexpanded name, which a later
+# run's expanded shard names never supersede; so a skipped macOS entry is
+# dropped when a shard of the same job (the name up to the first space) passed.
+def mac_family: (.name // "") | split(" ")[0];
+
 # An array of rollup entries in, the latest run of each context out, in the
 # order the rollup listed them. A check run naming no workflow (one an app
 # posts) is its own context: two such checks sharing a name may come from
@@ -29,4 +34,6 @@ def check_passed: if .context != null then .state == "SUCCESS"
 def latest_check_runs: to_entries
   | group_by(if .value.context == null and (.value.workflowName // "") == "" then ["solo", .key] else (.value | check_context) end)
   | map(max_by([(.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
-  | sort_by(.key) | map(.value);
+  | sort_by(.key) | map(.value)
+  | (map(select((.conclusion // "") == "SUCCESS" and ((.name // "") | startswith("macos-"))) | mac_family)) as $ok
+  | map(select((((.conclusion // "") == "SKIPPED" and ((.name // "") | startswith("macos-")) and (mac_family as $f | $ok | index($f) != null))) | not));

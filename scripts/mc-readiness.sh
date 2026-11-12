@@ -325,7 +325,7 @@ END {
     for (i = 1; i <= nm; i++) {
       j = mj[i]
       if (!macn[j]) fail("macos", j " never ran at " substr(head, 1, 12) hint)
-      else if (macskip[j]) fail("macos", j " was skipped at " substr(head, 1, 12) hint)
+      else if (macskip[j] && !macok[j]) fail("macos", j " was skipped at " substr(head, 1, 12) hint)
       else if (macneutral[j] != "") fail("macos", macneutral[j] " is NEUTRAL; the macOS jobs must be green")
     }
   }

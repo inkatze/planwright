@@ -144,6 +144,10 @@ check${tab}macos-smoke${tab}SUCCESS"
 walk_with "macos green" '-' "require${tab}macos
 $mac_green"
 expect_rc "macOS required and both macOS jobs green: ready" 0
+walk_with "macos stale skip" '-' "require${tab}macos
+check${tab}macos-suite (shard \${{ matrix.shard }}/\${{ strategy.job-total }})${tab}SKIPPED
+$mac_green"
+expect_rc "a stale skipped shard of a job whose shards later ran green is not a block" 0
 walk_with "macos skipped" '-' "require${tab}macos
 check${tab}macos-suite${tab}SKIPPED
 check${tab}macos-smoke${tab}SKIPPED"
