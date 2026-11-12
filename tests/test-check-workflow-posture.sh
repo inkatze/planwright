@@ -2037,6 +2037,17 @@ out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
 assert_contains "pr-agent: the undelivered action is named" "ready_for_review" "$out"
 
+pa_case pa-trailing-comment "[$PA_ALL] # see [docs]" "$PA_ALL_JSON"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a trailing comment after the types list is ignored" 0 $?
+
+d="$(mkdir_case pa-comment-only)"
+printf '%s\n' '---' 'name: ci' '"on":' '  pull_request:' 'permissions: {}' 'jobs:' '  build:' \
+  '    runs-on: ubuntu-latest' '    steps:' '      # unlike pragent/pr-agent we pin by tag' \
+  '      - run: echo ok' >"$d/ci.yml"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a workflow naming the image only in a comment is not checked" 0 $?
+
 out="$("$GUARD" "$REPO_ROOT/.github/workflows" 2>&1)"
 assert_exit "pr-agent: the repo's own workflows agree" 0 $?
 

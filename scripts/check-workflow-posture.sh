@@ -1065,8 +1065,8 @@ fi
 # other shape fails closed.
 for ((i = 0; i < nfiles; i++)); do
   file="${files[i]}"
-  grep -qi 'pragent/pr-agent\|GITHUB_ACTION_CONFIG\.PR_ACTIONS' "$file" || continue
-  trig="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\(.*\)\].*/\1/p' "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
+  grep -Eqi '^[[:space:]]*[^#[:space:]].*(pragent/pr-agent|GITHUB_ACTION_CONFIG\.PR_ACTIONS)' "$file" || continue
+  trig="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
   acts="$(sed -n "s/^[[:space:]]*GITHUB_ACTION_CONFIG\\.PR_ACTIONS:[[:space:]]*['\"]*\\[\\(.*\\)\\]['\"]*[[:space:]]*\$/\\1/p" "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
   if [ -z "$trig" ]; then
     fail "$file: a PR-Agent workflow needs a flow-style pull_request 'types: [..]' list the guard can read"
