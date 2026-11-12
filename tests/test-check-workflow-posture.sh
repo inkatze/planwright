@@ -1999,6 +1999,47 @@ assert_exit "matrix: a --matrix file the posture pass would not parse is a usage
 out="$("$GUARD" --matrix ci.yml "$REPO_ROOT/.github/workflows" 2>&1)"
 assert_exit "matrix: the repo's own ci.yml holds the platform matrix" 0 $?
 
+# ---------------------------------------------------------------------------
+# PR-Agent: the action skips any event type its pr_actions leave out, so the
+# workflow's trigger types and the action's pr_actions must name the same set.
+# ---------------------------------------------------------------------------
+
+# pa_case <name> <types-flow-list> <pr_actions-line-or-empty>
+pa_case() {
+  d="$(mkdir_case "$1")"
+  {
+    printf '%s\n' '---' 'name: PR-Agent' '"on":' '  pull_request:'
+    printf '%s\n' "    types: $2" 'permissions: {}' 'jobs:' '  review:' \
+      '    runs-on: ubuntu-latest' '    steps:' '      - name: Review' \
+      '        uses: docker://pragent/pr-agent@sha256:0000' '        env:' \
+      '          CONFIG.LOG_LEVEL: INFO'
+    [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG.PR_ACTIONS: '$3'"
+  } >"$d/pr-agent.yml"
+}
+PA_ALL='opened, synchronize, reopened, ready_for_review, review_requested'
+PA_ALL_JSON='["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
+
+pa_case pa-agree "[$PA_ALL]" "$PA_ALL_JSON"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: types and pr_actions naming the same set pass" 0 $?
+
+pa_case pa-missing-sync "[$PA_ALL]" '["opened", "reopened", "ready_for_review", "review_requested"]'
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a pr_actions without synchronize fails" 1 $?
+assert_contains "pr-agent: the missing action is named" "synchronize" "$out"
+
+pa_case pa-no-actions "[$PA_ALL]" ""
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a workflow with no pr_actions fails" 1 $?
+
+pa_case pa-extra-action "[opened, synchronize, reopened]" "$PA_ALL_JSON"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
+assert_contains "pr-agent: the undelivered action is named" "ready_for_review" "$out"
+
+out="$("$GUARD" "$REPO_ROOT/.github/workflows" 2>&1)"
+assert_exit "pr-agent: the repo's own workflows agree" 0 $?
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1
