@@ -50,6 +50,11 @@
 #      the run, which is what decides whether an outsider can choose when the
 #      privileged job fires and whose CI verdict it acts on.
 #
+# A separate consistency check, not a posture assertion: a workflow running the
+# PR-Agent image must set GITHUB_ACTION_CONFIG.PR_ACTIONS to the same set as its
+# first flow-style `types: [..]` list, because the action's default list omits
+# `synchronize` and it silently skips any action its list leaves out.
+#
 # Cache and artifact posture beyond assertion 4 carries no standing check: an
 # accepted residual recorded in D-6, covered by the REQ-C1.1 audit only.
 #
