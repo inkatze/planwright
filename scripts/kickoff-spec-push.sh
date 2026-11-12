@@ -34,8 +34,7 @@ esac
 [ "${#spec}" -le 64 ] || die "'$spec' is longer than 64 characters"
 [ "$spec" != flight ] || die "'flight' is the flight namespace, not a spec"
 
-# shellcheck disable=SC2016 # the unexpanded variable is the text shown
-form='${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>'
+form="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
 current=$(git symbolic-ref --quiet --short HEAD) \
   || die "HEAD is detached; check out planwright/$spec/spec or one of its amendment branches first (run as $form)"
 case $current in

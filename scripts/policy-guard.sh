@@ -1693,8 +1693,7 @@ tower_wrapped_git_check() {
 KICK_SEEN=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
-# shellcheck disable=SC2016 # the unexpanded variable is the text shown
-KICK_FORM='${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>'
+KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
 
 # kickoff_named <word> — 0 when the word's basename names the kickoff push.
 kickoff_named() {
