@@ -46,7 +46,7 @@ them. Any closed gate raises nothing.
 THE BACKLOG is the file mission_control_idle_backlog names (`off`: none), an
 absolute path of ranked units, one per line, the first the next to run;
 blank lines and lines starting with # are skipped; a unit is its id
-(letters, digits and . _ : @ = -, at most 64 characters, else the line is
+(starting with a letter or digit, then letters, digits and . _ : @ = -, at most 64 characters, else the line is
 skipped), then an optional note after a tab or space; at most five ids are
 named. It is read only when a slot is free and the gates are open. With none
 declared, or one that cannot be read, the duty says so once, as an
@@ -63,7 +63,7 @@ Usage:
   mc-idle.sh watch [--program <p>] [--now <epoch>] [--load <pct>]
       the duty's watcher (also a run with no arguments under the runner,
       the program from PLANWRIGHT_MC_PROGRAM): the check, then an
-      idle-capacity event whose text names up to one unit per free slot,
+      idle-capacity event whose text names up to one unit per free slot (at most five),
       raised again only when the units change or
       mission_control_idle_interval has passed, and forgotten once the
       program is no longer idle, so it is raised afresh if it returns;
@@ -179,9 +179,9 @@ free_of() {
 # check: the verdict lines into VERDICT, the units to raise into UNITS (empty
 # unless raising), REASON the quiet reason, FREE the free slot count.
 check() {
-  host_bound=$(bound fleet_host_max_live_workers)
-  prog_bound=$(bound fleet_max_parallel_units)
-  counts=$(live_counts)
+  host_bound=$(bound fleet_host_max_live_workers) || exit 1
+  prog_bound=$(bound fleet_max_parallel_units) || exit 1
+  counts=$(live_counts) || exit 1
   host_live=${counts%%	*}
   prog_live=${counts#*	}
   hf=$(free_of "$host_bound" "$host_live")

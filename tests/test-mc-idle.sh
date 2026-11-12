@@ -200,6 +200,14 @@ case $EV in
   *) ok "a long backlog names no sixth unit" ;;
 esac
 
+# A malformed launch bound fails the pass instead of reading as a full fleet.
+write_tracked "mission_control_idle_backlog: $backlog
+fleet_host_max_live_workers: banana"
+new_state
+clear_rows
+watch "$now"
+if [ "$RC" -ne 0 ]; then ok "a malformed host bound fails the pass"; else fail "a malformed host bound exited 0: $OUT"; fi
+
 if [ "$failures" -gt 0 ]; then
   echo "test-mc-idle: $failures failure(s)" >&2
   exit 1

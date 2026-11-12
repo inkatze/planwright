@@ -175,7 +175,7 @@ host-wide and per-program bounds (`fleet_host_max_live_workers`,
 `fleet_max_parallel_units`) and, with the usage hold, a fleet pause and host
 load all open and a free slot, reads the program's backlog. When the backlog
 holds a unit, mission control hears an idle-capacity event naming up to one
-unit per free slot, and launches them or drives the owning supervisor with
+unit per free slot (at most five), and launches them or drives the owning supervisor with
 those units. The duty never launches anything itself, and raises the same
 idle state again only when the units change or
 `mission_control_idle_interval` has passed.
