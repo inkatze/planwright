@@ -74,6 +74,12 @@ jobs:
         id: review
         if: env.HAS_KEY == 'true'
         uses: docker://pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c
+        # AI_TIMEOUT below is a per-read inactivity limit, not a total
+        # deadline, so a hung call plus replays can outlast the job. This step
+        # limit is the hard bound: it fails the step (the run marker still
+        # posts, with the failure status) instead of the job limit reporting
+        # "cancelled" with nothing posted.
+        timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -91,7 +97,11 @@ jobs:
           CONFIG.MAX_MODEL_TOKENS: "64000"
           CONFIG.LARGE_PATCH_POLICY: clip
           OPENROUTER.MAX_TOKENS: "16000"
-          CONFIG.AI_TIMEOUT: "300"
+          # No replay on the model that just missed the limit: a replay lets
+          # the primary and fallback models spend several times the per-call
+          # limit.
+          CONFIG.AI_TIMEOUT: "90"
+          CONFIG.RETRY_SAME_MODEL_ON_TIMEOUT: "false"
           CONFIG.LOG_LEVEL: INFO
           CONFIG.REPO_CONTEXT_FILES: '[["AGENTS.md", "CLAUDE.md"]]'
 
