@@ -92,6 +92,9 @@
 # the hook degrades to deferring everything (REQ-B1.2), never a hand-rolled JSON
 # parse and never a false-allow.
 set -u
+# The shared engine's own-environment switch: never on for a worker, and set
+# here rather than inherited.
+GUARD_OWN_ENVIRON=0
 # Whether the environment the hook inherited sets a CDPATH, read before the
 # unset below: a `cd` the shell could resolve through it is never approved.
 HOOK_CDPATH_SET=0
@@ -4213,6 +4216,12 @@ environ_word_risky() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
+  # The tower still reads its own environment (REQ-E1.6); a worker defers.
+  if [ "$2" = 0 ] && [ "$GUARD_OWN_ENVIRON" = 1 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 1 ;;
+    esac
+  fi
   secret_word_risky "$w" "$2" && return 0
   last=${w##*/}
   # `mem` holds the whole process's memory, its environment included.
@@ -4386,7 +4395,7 @@ secret_word_risky() {
 # the tracked cwd through its directory's canonical form and, for a symlink,
 # its target.
 secret_path_risky() {
-  local p=$1 abs dir last tgt
+  local p=$1 abs dir last tgt link hop=0
   case $p in
     '~'*)
       case $p in
@@ -4438,10 +4447,23 @@ secret_path_risky() {
     *) tgt=$CANON/$last ;;
   esac
   secret_lexical "$tgt" && return 0
-  if [ -L "$tgt" ]; then
-    tgt=$(readlink -f -- "$tgt" 2>/dev/null) || return 1
-    [ -n "$tgt" ] && secret_lexical "$tgt" && return 0
-  fi
+  # A symlink chain followed link by link (`readlink -f` is GNU-only); one
+  # that loops or cannot be read defers.
+  while [ -L "$tgt" ]; do
+    hop=$((hop + 1))
+    [ "$hop" -le 16 ] || return 0
+    link=$(readlink -- "$tgt") || return 0
+    case $link in
+      /*) ;;
+      *) link=${tgt%/*}/$link ;;
+    esac
+    dir=${link%/*}
+    [ -n "$dir" ] || dir=/
+    canon_dir_cached "$dir"
+    [ -n "$CANON" ] || return 1
+    tgt=${CANON%/}/${link##*/}
+    secret_lexical "$tgt" && return 0
+  done
   return 1
 }
 
@@ -4819,6 +4841,11 @@ environ_redirect_ok() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
+  if [ "$g" = 0 ] && [ "$GUARD_OWN_ENVIRON" = 1 ]; then
+    case $w in
+      /proc/self/environ | /proc/thread-self/environ) return 0 ;;
+    esac
+  fi
   case $w in
     proc | proc/* | */proc | */proc/*) return 1 ;;
   esac

@@ -928,6 +928,11 @@ assert_defer "symlinked plugin script escapes" "bash $PLUGIN_ROOT/scripts/evilli
 assert_defer "arbitrary absolute script outside repo/plugin" "/tmp/evil/scripts/x.sh"
 assert_defer "plugin tests dir is not a script dir" "bash $PLUGIN_ROOT/tests/x.sh"
 
+echo "### The shared secret screen: credential files defer on the tower too"
+for c in 'cat /home/someone/.ssh/id_rsa' 'cat ~/.aws/credentials' 'cat /etc/shadow' 'cat /pro[c]/self/cmdline' \
+  'grep -f/etc/shadow x .' 'cat /run/secrets/db_password' 'wc -c < /home/someone/.netrc'; do
+  assert_defer "secret screen on the tower: $c" "$c"
+done
 echo "### worker-permission-ergonomics REQ-E1.6 — other processes' environments stay unread"
 assert_defer "REQ-E1.6: another process's environ" "cat /proc/1234/environ"
 assert_defer "REQ-E1.6: a redirect source naming one" "grep -a x < /proc/1234/environ"
@@ -1129,7 +1134,8 @@ word_unresolved arg_independent_verb guard_test guard_printf printf_format_inert
 assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
 loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok \
 opens_operands opener_word_risky environ_word_risky environ_words_ok environ_redirect_ok \
-canon_dir_cached"
+canon_dir_cached secret_lexical secret_glob glob_any_risky secret_word_risky secret_path_risky \
+broad_dir broad_path_risky"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.
