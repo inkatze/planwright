@@ -169,6 +169,14 @@ values to a command step.
 **Every hosting runs a command step's printed location, never the bare
 target**: a session shell would run a same-named builtin (`cd`, `printf`).
 
+An `isolated` session takes the unit's own launch backend. A headless unit
+(`offload-dispatch.sh launch-backend` prints `stream-json-persistent` or
+`headless-oneshot`) never hosts it in a `tmux` window in the operator's session
+(`offload-dispatch` refuses it). It launches the step through
+`scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`
+(which `offload-dispatch` does not drive) or runs it `in-session`, recorded as
+such. The step record names the backend the step actually ran on.
+
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step attaches to the unit's
 session when its predecessor is effectively `in-session`, a degraded one
