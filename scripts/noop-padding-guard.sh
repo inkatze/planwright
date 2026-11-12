@@ -505,12 +505,10 @@ check_segment() {
   done
   if [ "$verb" = mktemp ]; then
     for ((i = 0; i < an; i++)); do
-      case ${AW[i]} in
-        --dry-run | -u* | -[!-]*u*)
-          REASON=$MKTEMP_REASON
-          return 0
-          ;;
-      esac
+      if [ "${AW[i]}" = --dry-run ] || [[ ${AW[i]} =~ ^-[A-Za-z]*u[A-Za-z]*$ ]]; then
+        REASON=$MKTEMP_REASON
+        return 0
+      fi
     done
   fi
 
