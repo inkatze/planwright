@@ -1251,7 +1251,7 @@ derive_case() {
   _got=0
   while [ "$_n" -lt "$3" ]; do
     _o=$(owner)
-    _r=$(host "$1" $(($2 * GIB)) -- take "$HEAVY" "$_o" 2>/dev/null) && _got=$((_got + 1))
+    host "$1" $(($2 * GIB)) -- take "$HEAVY" "$_o" >/dev/null 2>&1 && _got=$((_got + 1))
     _n=$((_n + 1))
   done
   _x=$(owner)
@@ -1286,7 +1286,7 @@ verdict "REQ-K1.3: step_pool_capacity_heavy_run set in the adopter layer sizes t
 
 # A malformed per-pool value falls back to the derived capacity with one warning.
 reset
-printf 'step_pool_wait: 1s\nstep_pool_capacity_heavy_run: abc\n' >"$mlocal"
+printf 'step_pool_wait: 1s\nstep_pool_capacity: 5\nstep_pool_capacity_heavy_run: abc\n' >"$mlocal"
 o1=$(owner)
 o2=$(owner)
 out=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o1" 2>"$tmp/err")
@@ -1296,6 +1296,16 @@ verdict "REQ-K1.3: a malformed step_pool_capacity_heavy_run warns once and falls
 host 4 $((8 * GIB)) -- take "$HEAVY" "$o2" --waited 1 >/dev/null 2>&1
 check $(($? == 3 ? 0 : 1)) "REQ-K1.3: the fallback is the derived capacity, not the shared key" \
   "a second holder was admitted after the malformed key"
+
+# With no seams the helper reads this host's own cores and memory: a usable
+# host takes a slot and warns of nothing.
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+o1=$(owner)
+out=$(sp -- take "$HEAVY" "$o1" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ ! -s "$tmp/err" ]
+verdict "REQ-K1.2: the host's own cores and memory derive a capacity with no warning" \
+  "real host read: out='$out'" "$tmp/err"
 
 # The per-pool key wins over the derived value; the shared key does not.
 reset
