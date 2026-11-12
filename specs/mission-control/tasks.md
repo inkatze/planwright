@@ -1285,7 +1285,7 @@ fixed-string check.)*
 - **Deliverables:** `scripts/mc-idle.sh` (`check` and `watch`); the
   `idle-capacity` entry in `config/duties.yaml` and the default duty list;
   the two event classes in `config/mc-event-classes.tsv`; the
-  `mission_control_idle_backlog` and `mission_control_idle_interval` knobs in
+  the program-scoped backlog knob and `mission_control_idle_interval` knobs in
   `config/defaults.yml`, `config/mission-control-knobs.tsv` and
   `docs/options-reference.md`; the verb row in
   `config/mission-control-verbs.txt`; the operator-doc section in
@@ -1294,13 +1294,12 @@ fixed-string check.)*
   pass, each row failing once under a mutation of the script; the duties,
   knobs, verbs, options-reference and docs checks pass; the duty launches
   nothing and edits nothing it reads.
-- **Dependencies:** 55
+- **Dependencies:** 10, 28
 - **Citations:** D-61, D-58, D-17 · REQ-M1.12, REQ-M1.13
 - **Estimated effort:** 1 day
 
 ## Awaiting input
 
-- **Task 68** — anchor re-review pending: Amendment 10 (REQ-M1.12, REQ-M1.13, D-61) changed anchored content; `/spec-kickoff` re-walks the delta and re-anchors.
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.
 
 ## Deferred

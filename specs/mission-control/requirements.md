@@ -1263,7 +1263,7 @@ later planwright bundles implement, D-12).
   (2026-11-11, Sources).)*
 - **REQ-M1.13** A program's backlog SHALL be a declared source the
   idle-capacity duty can read without guessing: a file of ranked unit ids,
-  one per line, the first the next to run, named by configuration
+  one per line, the first the next to run, named by that program's own configuration
   (blank and comment lines skipped, an id's note after it ignored, a line
   whose id is not a short plain identifier skipped), or none. The duty reads
   it only when a slot is free and the gates are open. With none declared, or

@@ -2021,3 +2021,48 @@ moved into; no requirement or decision changes meaning.
 Class: expression-only
 Anchor: `0b3470f9d383b8b0b419b86405748f4ee8249298` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 10 (2026-11-11, amendment: idle capacity raises an event from a declared backlog)
+
+Spec path `specs/mission-control`; walk started at `be19b2cd`; walkthrough
+date 2026-11-11. Mode: amendment on an Active bundle, operator-declared
+through mission control and walked by relay in single plain questions. Scope:
+the per-wake idle-capacity event and the declared backlog it reads (REQ-M1.12,
+REQ-M1.13, D-61, Task 68), covering the implementation draft in pull request
+955. REQ-M1.11's windowed report is unchanged. Renumbered from the draft's
+"Amendment 9", D-59 and Task 57, which open pull request 944 already uses.
+
+#### Walk answers (Amendment 10)
+
+The operator's own words, relayed through mission control:
+
+- Backlog scope: "One list per program (Recommended)". Applied: D-61,
+  REQ-M1.13 and Task 68 name a per-program backlog; the test entry gains a
+  row proving two programs read only their own list. Pull request 955's single
+  host-wide setting needs a follow-up change.
+- Units named per alert: "One per slot, max 5 (Recommended)". Unchanged.
+- Repeat interval: "30 minutes (Recommended)". Unchanged.
+- Task 68's dependency was settled from the repository, not asked: it now
+  depends on the default-duties and launch-admission tasks, not the
+  idle-report task.
+
+#### Lens review (Amendment 10)
+
+Delta small and narrow; walked inline, no fan-out. Two findings, both
+applied: the task's dependency, and the missing per-program test row.
+Altitude check: no pinned seed claim, not applicable. Ship-gate check: every
+change is a task. Enumeration cross-check: the five-unit cap is a decided
+rule in REQ-M1.12. Stale-reference sweep: no reference to the host-wide
+backlog knob remains.
+
+#### Sign-off record (Amendment 10)
+
+Signed off 2026-11-11 by the operator, relayed through mission control: "Sign
+off (Recommended)". Amendment on an Active bundle: no status flip;
+`Last reviewed:` 2026-11-11 on all four spec files. The delta adds
+requirements and a decision, so it is meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 10, delta-scoped inline lens review above (every finding dispositioned)
+Anchor: `a150bab5f0bb8013fc39c8456bc8a266d2c43fa3` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

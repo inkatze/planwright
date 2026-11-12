@@ -1165,7 +1165,8 @@ made to fail once by mutating a copy of the script.
 file, a free slot with open gates raises one `idle-capacity-undeclared` event
 and then stays quiet until a backlog reads; the same with a full fleet or a
 closed gate raises nothing; an empty backlog raises nothing; blank, comment
-and malformed-id lines are skipped and a note after an id is ignored.
+and malformed-id lines are skipped and a note after an id is ignored; two
+programs on one host each read only their own list.
 
 ## REQ-N — Program goals
 

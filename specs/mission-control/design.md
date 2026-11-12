@@ -1839,7 +1839,7 @@ work (`scripts/mc-budget.sh admit heavy`), so the duty cannot raise a launch
 the launcher would refuse. With a slot free, the gates open and a unit in
 the backlog, it raises an `idle-capacity` event (class blocker) naming up to
 one unit per free slot, at most five. The backlog is a configured file of
-ranked unit ids (knob `mission_control_idle_backlog`, absolute path or
+ranked unit ids, one per program (a program-scoped knob, absolute path or
 `off`); none, or unreadable, raises one `idle-capacity-undeclared` event
 (class decision) and nothing else. Dedupe: the same unit list is not raised
 again inside `mission_control_idle_interval`, a changed list raises at once,
