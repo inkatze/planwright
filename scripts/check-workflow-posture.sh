@@ -1054,6 +1054,29 @@ if [ -n "$matrix" ] && [ "$parse_failed" -eq 0 ]; then
   fi
 fi
 
+# PR-Agent skips any event whose action its pr_actions leave out (the default
+# omits synchronize), so a workflow running it must name exactly the pull_request
+# types it triggers on. Only the first flow-style `types:` list is read; any
+# other shape fails closed.
+for ((i = 0; i < nfiles; i++)); do
+  file="${files[i]}"
+  grep -qi 'pragent/pr-agent\|GITHUB_ACTION_CONFIG\.PR_ACTIONS' "$file" || continue
+  trig="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\(.*\)\].*/\1/p' "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
+  acts="$(sed -n "s/^[[:space:]]*GITHUB_ACTION_CONFIG\\.PR_ACTIONS:[[:space:]]*['\"]*\\[\\(.*\\)\\]['\"]*[[:space:]]*\$/\\1/p" "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
+  if [ -z "$trig" ]; then
+    fail "$file: a PR-Agent workflow needs a flow-style pull_request 'types: [..]' list the guard can read"
+  elif [ -z "$acts" ]; then
+    fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG.PR_ACTIONS as a JSON list; the default omits synchronize, so pushes after the PR opens are skipped"
+  else
+    while IFS= read -r a; do
+      printf '%s\n' "$acts" | grep -qx -- "$a" || fail "$file: PR_ACTIONS omits '$a', which the workflow triggers on, so PR-Agent skips it"
+    done <<<"$trig"
+    while IFS= read -r a; do
+      printf '%s\n' "$trig" | grep -qx -- "$a" || fail "$file: PR_ACTIONS names '$a', which the pull_request types never deliver"
+    done <<<"$acts"
+  fi
+done
+
 if [ -s "$viol" ]; then
   echo "check-workflow-posture: the workflow posture does not hold (the D-6 fork-PR posture, and the platform matrix under --matrix)." >&2
   cat "$viol" >&2
