@@ -32,8 +32,22 @@ Verbs (each runs on the remote host, through its own planwright and tools):
   steer <worker>                fleet-streamjson.sh steer, the message read
                                 from stdin
   status <worker>               fleet-streamjson.sh status
+  stop <worker> [--grace <secs>]
+                                fleet-streamjson.sh stop (the remote supervisor's
+                                own close; --grace is a whole number of seconds)
   retire <name-or-worker>       mission-control-launch.sh retire
-  load                          print the remote's one-minute load average
+  version                       print "version <remote planwright version>" then
+                                "verbs <the verbs of this list the remote's own
+                                supervisor and launcher offer>", each
+                                "unavailable" or "none" where the remote cannot
+                                say, so a dispatch can refuse a remote that
+                                lacks a verb it needs
+  capacity                      print one line "load=<1-minute load> cores=<n>
+                                mem_free_mb=<n> idle_secs=<n>" read on the
+                                remote; a field the platform does not report
+                                (input idle time off macOS, say) is
+                                "unavailable", never zero
+  load                        print the remote's one-minute load average
                                 and core count, one line, for a placement check
   compute [--worktree <abs-dir>] (--check | --task <name> | --test <tests/test-x.sh>)
           [--timeout <secs>]    push the worktree's HEAD commit (never its
@@ -159,8 +173,16 @@ worker_ok() {
 }
 stdin_verb=0
 case $verb in
-  root | load)
+  root | load | version | capacity)
     [ $# -eq 0 ] || usage
+    ;;
+  stop)
+    [ $# -eq 1 ] || [ $# -eq 3 ] || usage
+    worker_ok "$1"
+    if [ $# -eq 3 ]; then
+      [ "$2" = --grace ] || usage
+      case $3 in '' | *[!0-9]* | ?????*) die "--grace takes a whole number of seconds, at most four digits" ;; esac
+    fi
     ;;
   launch)
     [ $# -ge 1 ] || usage
@@ -439,6 +461,34 @@ if [ "$verb" = load ]; then
   printf '%s %s\n' "$fr_load" "$fr_cores"
   exit 0
 fi
+if [ "$verb" = capacity ]; then
+  # One line of name=value fields; a field the platform cannot report, or
+  # reports in a form this cannot parse, reads "unavailable", never zero.
+  fr_num() { case $1 in '' | *[!0-9.]* | *.*.* | .*) echo unavailable ;; *) echo "$1" ;; esac; }
+  case $(uname -s 2>/dev/null) in
+    Darwin)
+      fr_load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }')
+      fr_cores=$(sysctl -n hw.ncpu 2>/dev/null)
+      fr_mem=$(vm_stat 2>/dev/null | awk '
+        /page size of/ { for (i = 1; i <= NF; i++) if ($i == "size") ps = $(i + 2) }
+        /^Pages (free|inactive|speculative):/ { n = $NF; sub(/\.$/, "", n); pages += n; seen = 1 }
+        END { if (ps > 0 && seen) printf "%d\n", pages * ps / 1048576 }')
+      fr_idle=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/"HIDIdleTime"/ { printf "%d\n", $NF / 1000000000; exit }')
+      ;;
+    *)
+      fr_load=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null)
+      fr_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null)
+      fr_mem=$(awk '/^MemAvailable:/ { printf "%d\n", $2 / 1024; exit }' /proc/meminfo 2>/dev/null)
+      fr_idle=''
+      ;;
+  esac
+  [ -n "$fr_cores" ] || fr_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null)
+  case $fr_cores in *[!0-9]*) fr_cores='' ;; esac
+  case $fr_mem in *[!0-9]*) fr_mem='' ;; esac
+  case $fr_idle in *[!0-9]*) fr_idle='' ;; esac
+  printf 'load=%s cores=%s mem_free_mb=%s idle_secs=%s\n' "$(fr_num "$fr_load")" "$(fr_num "$fr_cores")" "$(fr_num "$fr_mem")" "$(fr_num "$fr_idle")"
+  exit 0
+fi
 if [ -z "$root" ]; then
   for r in "$HOME"/.claude/plugins/cache/*/planwright/*/scripts/resolve-installed-roots.sh; do
     [ -f "$r" ] || continue
@@ -454,7 +504,27 @@ sj="$root/scripts/fleet-streamjson.sh"
 mcl="$root/scripts/mission-control-launch.sh"
 case $verb in
   root) printf "%s\n" "$root" ;;
-  pending | answer | status) exec /bin/sh "$sj" "$verb" "$@" ;;
+  pending | answer | status | stop) exec /bin/sh "$sj" "$verb" "$@" ;;
+  version)
+    fr_ver=''
+    if [ -r "$root/.claude-plugin/plugin.json" ]; then
+      fr_ver=$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([0-9A-Za-z.+-]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" | sed -n 1p)
+    fi
+    [ -n "$fr_ver" ] || fr_ver=unavailable
+    # The verbs the channel itself calls, kept when the remote's own usage text
+    # names them: the supervisor's on a bare call, the launcher's on --help.
+    fr_su=$(/bin/sh "$sj" 2>&1 </dev/null)
+    fr_lu=$(/bin/sh "$mcl" --help 2>&1 </dev/null)
+    fr_verbs=''
+    for fr_v in answer launch pending retire status steer stop; do
+      case $fr_v in
+        retire | launch) fr_u=$fr_lu fr_n=mission-control-launch.sh ;;
+        *) fr_u=$fr_su fr_n=fleet-streamjson.sh ;;
+      esac
+      if printf '%s\n' "$fr_u" | grep -E -q "$fr_n $fr_v( |\$)"; then fr_verbs="$fr_verbs $fr_v"; fi
+    done
+    printf 'version %s\nverbs%s\n' "$fr_ver" "${fr_verbs:- none}"
+    ;;
   retire) exec /bin/sh "$mcl" retire "$@" ;;
   launch | steer)
     f=$(mktemp "${TMPDIR:-/tmp}/fleet-remote.XXXXXX") || exit 3
