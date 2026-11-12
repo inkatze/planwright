@@ -366,8 +366,10 @@ if [ "$check_env" -eq 1 ]; then
     if [ -n "$hint" ]; then
       printf 'resolve-steps: %s is not a step context name; use %s\n' "$name" "$hint" >&2
     else
-      printf 'resolve-steps: %s is not a step context name; the documented names are %s\n' \
-        "$name" "$(printf 'PLANWRIGHT_STEP_%s ' $CONTEXT_FIELDS)" >&2
+      documented=""
+      for f in $CONTEXT_FIELDS; do documented="$documented PLANWRIGHT_STEP_$f"; done
+      printf 'resolve-steps: %s is not a step context name; the documented names are:%s\n' \
+        "$name" "$documented" >&2
     fi
     bad_names=1
   done
