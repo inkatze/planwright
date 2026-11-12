@@ -27,6 +27,9 @@ ln -s "$H" "$SANDBOX/sub/homelink"
 echo "### Tilde forms naming another account, the cwd or the old cwd"
 mkdir -p "$SANDBOX/shadowtree"
 : >"$SANDBOX/shadowtree/key"
+mkdir -p "$SANDBOX/gitl" "$SANDBOX/nl"
+ln -s "$H/.ssh/id_rsa" "$SANDBOX/gitl/.git"
+ln -s "$H/.ssh/id_rsa" "$SANDBOX/nl/$(printf 'a\nb')"
 # shellcheck disable=SC2016,SC2088 # the guard reads the words as written
 for c in 'cat ~+/.ssh/id_rsa' 'cat ~-/.ssh/id_rsa' 'cat ~root/.ssh/id_rsa' 'cat ~someone/.aws/credentials' \
   'cat ~root/.ssh/*' 'cat ~someone/.s*/id_rsa' 'cat ~root/{.ssh,x}/id_rsa' 'ls ~root/.ssh' 'ls ~someone/.ssh/' \
@@ -38,7 +41,9 @@ done
 # shellcheck disable=SC2016,SC2088 # the guard reads the words as written
 for c in 'cat ~root/.config/*/hosts.yml' 'cat ~root/.config/g[h]/hosts.yml' 'cat ~root/.config/g?/hosts.yml' \
   'cat ~someone/.local/share/keyr*/login.keyring' 'cat ~root/.co*/gh/hosts.yml' 'cat ~root/.CONFIG/*/hosts.yml' \
-  'cat ~nobody/.config/*/hosts.yml' 'cat ~+/../.config/*/hosts.yml' 'cat ~-/.config/*/hosts.yml' 'cat ~-/.a*/credentials'; do
+  'cat ~nobody/.config/*/hosts.yml' 'cat ~+/../.config/*/hosts.yml' 'cat ~-/.config/*/hosts.yml' 'cat ~-/.a*/credentials' \
+  'cat ~root/.config/h[u]b/config' 'cat ~root/.config/h*/config' 'cat ~root/.m2/settings.x[m]l' \
+  'cat ~root/.terraform.d/credential[s].tfrc.json' 'cat ~root/Libr[a]ry/Keychains/login.keychain-db'; do
   assert_defer "secrets: a glob under a home the guard cannot expand: $c" "$c"
 done
 # shellcheck disable=SC2088 # the guard reads the words as written
@@ -47,11 +52,16 @@ assert_allow "secrets: a glob under ~+ that names no secret" 'cat ~+/scripts/*.s
 echo "### Recursive readers that follow an in-tree symlink into a secret"
 for c in 'grep -R BEGIN sub' 'grep -R BEGIN .' 'grep -Rn BEGIN sub' 'grep -nR BEGIN sub' 'grep --dereference-recursive BEGIN sub' \
   'grep --deref BEGIN sub' 'rg -L BEGIN sub' 'rg --follow BEGIN sub' 'rg -uL BEGIN sub' 'rg -L -l BEGIN' \
-  'diff -r sub shadowtree' 'diff -rq shadowtree sub' 'diff -ru sub shadowtree'; do
+  'diff -r sub shadowtree' 'diff -rq shadowtree sub' 'diff -ru sub shadowtree' \
+  'diff -rN sub notes' 'diff -r --new-file sub notes' 'diff -rP sub notes' 'diff -rNq notes sub' 'diff -r --unidirectional-new-file sub notes' \
+  'diff -r sub shadowtree/key' 'diff -r sub ./shadowtree/key' 'diff -r shadowtree/key sub' 'diff sub shadowtree' 'diff shadowtree sub' \
+  'grep -R x gitl' 'grep -R x nl' 'rg -L x gitl' 'rg -L x nl'; do
   assert_defer "secrets: a followed link: $c" "$c"
 done
 assert_allow "secrets: grep -R over a tree whose only link is harmless" "grep -R BEGIN scripts"
-assert_allow "secrets: rg -L over a tree with no link" "rg -L BEGIN scripts"
+assert_allow "secrets: rg -L over a tree whose only link is harmless" "rg -L BEGIN scripts"
+assert_allow "secrets: a plain diff of two files" "diff scripts/ok.sh notes/plain.txt"
+assert_allow "secrets: a plain diff of directories with no counterpart link" "diff sub notes"
 assert_allow "secrets: grep -R over a linked directory that holds no link" "grep -R BEGIN sub/notesdir"
 assert_allow "secrets: diff -r where no link has a counterpart" "diff -r sub notes"
 
@@ -61,7 +71,8 @@ for c in 'git blame --ignore-revs-file x -- README.md' 'git blame --ignore-revs-
   'git grep -f /etc/shadow x' 'git grep -f/etc/shadow x' 'git grep -nf /home/someone/.aws/credentials' \
   'git log --orderfile=/etc/shadow' 'git diff --orderfile /home/someone/.aws/credentials' 'git diff --order=/etc/shadow' \
   'git show --or=/etc/shadow HEAD' 'git ls-files --exclude-from=/etc/shadow' 'git ls-files -X /etc/shadow' \
-  'git ls-files --exclude-f=/etc/shadow' 'git ls-files --exclude-from /home/someone/.aws/credentials'; do
+  'git ls-files --exclude-f=/etc/shadow' 'git ls-files --exclude-from /home/someone/.aws/credentials' \
+  'git blame -S x -- README.md' 'git blame -Sx -- README.md'; do
   assert_defer "secrets: git file option: $c" "$c"
 done
 echo "### git --no-index spelled by any prefix"
@@ -75,6 +86,7 @@ assert_allow "secrets: git log with --oneline" "git log --oneline -n 3"
 assert_allow "secrets: git blame a tracked file" "git blame -L1,3 -- README.md"
 assert_allow "secrets: git grep a pattern in the tree" "git grep -n TODO -- scripts"
 assert_allow "secrets: git ls-files in the tree" "git ls-files scripts"
+assert_allow "secrets: git diff --dirstat shorthand -X is not an exclude file" "git diff -X HEAD~1"
 
 echo "### gh read verbs whose jq filter or template could print the environment"
 # shellcheck disable=SC2016 # the guard reads the words as written
@@ -89,7 +101,7 @@ done
 assert_allow "secrets: gh pr view with a jq field" "gh pr view 1 --json title --jq .title"
 assert_allow "secrets: gh run list with a jq filter" "gh run list --json name -q .name"
 assert_allow "secrets: gh repo view with a jq filter" "gh repo view --json name --jq .name"
-assert_allow "secrets: gh pr view of a branch named like an environment" "gh pr view 1 --json title"
+assert_allow "secrets: gh pr view of a branch named like an environment" "gh pr view environment --json title"
 
 echo "### Other readers: file timestamps and abbreviated options"
 for c in 'date -r /home/someone/.aws/credentials' 'date -r ~/.ssh/id_rsa' 'date --reference=/etc/shadow' 'date --ref=/etc/shadow' \
@@ -101,6 +113,5 @@ done
 assert_defer "secrets: tree over the worktree still defers as a verb" "tree scripts"
 assert_defer "secrets: du -a over the worktree still defers as a verb" "du -a scripts"
 assert_allow "secrets: date -r of a worktree file" "date -r scripts/ok.sh"
-
 
 finish_suite worker-command-guard-secrets-shapes

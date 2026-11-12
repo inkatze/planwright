@@ -3501,8 +3501,7 @@ guard_gh() {
       # A method-override header makes the server treat the GET as a write,
       # and `--hostname` sends the request, token included, to another host:
       # both defer, and so does a header value the guard cannot read.
-      # A full URL may name another host, and gojq's `env` and `$ENV` print the
-      # worker's environment.
+      # A full URL may name another host.
       local hdr=0
       for ((i = 2; i < cwn; i++)); do
         ci_has "${cw[i]}" '*method-override*' '*x-http-method*' '*x-method*' '*://*' && return 1
@@ -3594,12 +3593,17 @@ guard_git() {
           # Content from outside the repository: any file (`diff --no-index`,
           # `blame --contents`), and a list read from a named file
           # (`--orderfile`, `ls-files -X`).
-          --no-i* | --or* | --exclude-f* | --exclude-p* | -X*) return 1 ;;
+          --no-i* | --or* | --exclude-f* | --exclude-p*) return 1 ;;
         esac
         case $sub in
+          ls-files)
+            case ${cw[i]} in
+              -X*) return 1 ;;
+            esac
+            ;;
           blame)
             case ${cw[i]} in
-              --con* | --ignore-revs*) return 1 ;;
+              --con* | --ignore-revs* | -S*) return 1 ;;
             esac
             ;;
           # Patterns read from a file: `-f`, alone or in a cluster.
@@ -4427,7 +4431,11 @@ secret_home_glob() {
   shopt -s nocasematch
   for s in /.ssh/id_rsa /.gnupg/pubring.kbx /.aws/credentials /.netrc /.npmrc /.git-credentials /.kube/config /.docker/config.json \
     /.config/gh/hosts.yml /.config/gcloud/credentials.db /.config/op/config /.config/rclone/rclone.conf /.config/containers/auth.json \
-    /.config/git/credentials /.local/share/keyrings/login.keyring /.cargo/credentials.toml /.claude/.credentials.json; do
+    /.config/git/credentials /.local/share/keyrings/login.keyring /.cargo/credentials.toml /.claude/.credentials.json \
+    /.pypirc /.azure/accessTokens.json /.password-store/x.gpg /.dockercfg /.pgpass /.my.cnf /.s3cfg /.boto /.oci/config \
+    /.m2/settings.xml /.composer/auth.json /.config/composer/auth.json /Library/Keychains/login.keychain-db /.config/hub/config \
+    /.config/doctl/config.yaml /.config/glab-cli/config.yml /.config/github-copilot/hosts.json /.gem/credentials \
+    /.terraform.d/credentials.tfrc.json /.vault-token /.claude.json; do
     # shellcheck disable=SC2053 # the operand is the pattern under test
     if [[ $s == $1 ]]; then
       hit=0
@@ -4790,13 +4798,8 @@ link_follower() {
           -*L*) return 0 ;;
         esac
         ;;
-      diff)
-        case $w in
-          --rec*) return 0 ;;
-          --*) ;;
-          -*r*) return 0 ;;
-        esac
-        ;;
+      # A directory pair compares same-named files through links, recursive or not.
+      diff) return 0 ;;
     esac
   done
   return 1
@@ -4809,11 +4812,21 @@ link_follower() {
 # with a counterpart there counts. A glob operand, or more links than are
 # screened, defers; with no directory operand the reader scans the cwd.
 follow_links_ok() {
-  local i w d other rel l n=0 qi=0 k canon diff=0
+  local i w d other rel l n=0 qi=0 k canon diff=0 rec=0 miss=0
   local -a dirs=() queue=()
   [ "${cw[0]}" != diff ] || diff=1
   for ((i = 1; i < cwn; i++)); do
     w=${cw[i]}
+    case $w in
+      --rec*) rec=1 ;;
+      # An absent file read as empty prints the other side's link target.
+      --new* | --unid*) miss=1 ;;
+      --*) ;;
+      -*)
+        case $w in *r*) rec=1 ;; esac
+        case $w in *[NP]*) miss=1 ;; esac
+        ;;
+    esac
     case $w in -*) continue ;; esac
     [ "${cglob[i]}" = 0 ] && [ "${cz[i]-0}" = 0 ] || return 1
     case $w in
@@ -4824,7 +4837,12 @@ follow_links_ok() {
       dirs[${#dirs[@]}]=$d
     fi
   done
+  # A plain diff reads no link unless a directory operand holds one.
+  [ "$diff" = 0 ] || [ "$rec" = 1 ] || [ "${#dirs[@]}" -gt 0 ] || return 0
   [ "${#dirs[@]}" -gt 0 ] || dirs[0]=$HOOK_CWD
+  # With no second tree to pair names against, or a flag that reads a missing
+  # counterpart as empty, every link counts.
+  { [ "${#dirs[@]}" -ge 2 ] && [ "$miss" = 0 ]; } || diff=0
   queue=("${dirs[@]}")
   while [ "$qi" -lt "${#queue[@]}" ]; do
     d=${queue[qi]}
@@ -4833,7 +4851,7 @@ follow_links_ok() {
       [ "$qi" -ne 0 ] && other=${dirs[0]} || other=${dirs[1]}
     fi
     qi=$((qi + 1))
-    while IFS= read -r l; do
+    while IFS= read -r -d '' l; do
       n=$((n + 1))
       [ "$n" -le 512 ] || return 1
       if [ "$diff" = 1 ]; then
@@ -4852,7 +4870,7 @@ follow_links_ok() {
         [ "${#queue[@]}" -lt 16 ] || return 1
         queue[${#queue[@]}]=$canon
       fi
-    done < <(find -H "$d" -name .git -prune -o -type l -print 2>/dev/null)
+    done < <(find -H "$d" -name .git -type d -prune -o -type l -print0 2>/dev/null)
   done
   return 0
 }
@@ -6122,9 +6140,9 @@ verify_known_simple() {
   fi
   if recursive_reader; then
     broad_words_ok || return 1
-    if link_follower; then
-      follow_links_ok || return 1
-    fi
+  fi
+  if link_follower; then
+    follow_links_ok || return 1
   fi
   subst_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
