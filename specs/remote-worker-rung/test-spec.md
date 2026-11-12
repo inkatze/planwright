@@ -1,7 +1,7 @@
 # Remote worker rung — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-11-06
+**Status:** Ready
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -63,7 +63,8 @@ reach the recorded host and no other.
 ### REQ-B1.3 — Remote liveness only [test]
 
 A colliding local pid does not change a remote worker's state; an
-unreachable host reads `unreachable` within its grace and `lost` after.
+unreachable host reads `unreachable` within its grace and `lost` after; with
+no grace configured the 30-minute default applies.
 
 ### REQ-B1.4 — Branch through the hosting remote [manual]
 
@@ -128,23 +129,22 @@ memory, and admit it otherwise.
 ### REQ-D1.2 — Shared-host idle rule and hold [test]
 
 A shared host with recent input, or on hold, takes no new work; an idle one
-does.
+does, and with no idle time configured the 15-minute default applies.
 
-### REQ-D1.3 — Per-account gate [test]
+### REQ-D1.3 — Shared usage gate [test]
 
-A remote dispatch is held when its account is past the stop while this
-host's is not, and the reverse.
+A remote dispatch is held when the shared gate is past the stop and admitted
+when it is not.
 
 ### REQ-D1.4 — Unavailable usage [test]
 
-A remote with no usage source reports `unavailable` and degrades as the local
-gate does.
+An unreadable usage reading is reported `unavailable` and degrades as the
+local gate does, never as zero.
 
-### REQ-D1.5 — Reset times and billing kinds [test]
+### REQ-D1.5 — Differing account refused [test]
 
-Fixtures with two subscription accounts resetting on different days and one
-metered account: each reading stays in its own unit, and no dollar reading
-meets a percent threshold.
+A registry entry whose account label differs from this host's is refused for
+dispatch with the reason named; a matching label is admitted.
 
 ## REQ-E — Placement
 
@@ -155,7 +155,8 @@ rung only for registered, reachable hosts.
 
 ### REQ-E1.2 — Host choice [test]
 
-Placement fixtures pick the host by the recorded rule and honor a pin.
+Placement fixtures pick a free remote host first and this host when none
+qualifies, and honor a pin over both.
 
 ### REQ-E1.3 — Dispatch report [test]
 

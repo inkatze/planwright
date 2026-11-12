@@ -74,5 +74,6 @@ mc-watch.sh pass
 mc-watch.sh run
 mission-control-launch.sh launch
 mission-control-launch.sh list
+mission-control-launch.sh reparent
 mission-control-launch.sh retire
 resolve-rule-doc.sh *

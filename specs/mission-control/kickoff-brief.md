@@ -2119,3 +2119,31 @@ Class: meaning
 Lens-pass: Amendment 9, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `9b9b970d14ff89c258c3b9cc45932af6203bacbb` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — test-spec file pointers after the per-file budget split (2026-11-11)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+The REQ-A1.9 and REQ-L1.9 test entries now name the test files their cases
+moved into; no requirement or decision changes meaning.
+
+**Cites the changelog line:** the 2026-11-11 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `0b3470f9d383b8b0b419b86405748f4ee8249298` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — test-spec file pointers after the launch-test split (2026-11-11)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+The REQ-D1.10, REQ-D1.11 and REQ-D1.16 test entries now name the test files
+their cases moved into; no requirement or decision changes meaning.
+
+**Cites the changelog line:** the 2026-11-11 `## Changelog` entry in
+`requirements.md` (the launch-test split).
+
+Class: expression-only
+Anchor: `d6cab8debc8599d3cb842fd5d3bdf7c0234013b7` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

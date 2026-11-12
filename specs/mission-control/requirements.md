@@ -1618,6 +1618,17 @@ later planwright bundles implement, D-12).
   spec-branch pushes stay refused. A guard refusal log (so counts cover
   interactive sessions) was left unanswered by the operator and is recorded
   as deferred. Tasks 57 to 67.
+- 2026-11-11 — Expression-only (brief Re-anchor, test-spec file pointers):
+  the REQ-A1.9 test entry names `tests/test-mc-config-doctor.sh`, and the
+  REQ-L1.9 entry also names `tests/test-mc-handover-tmux.sh`, the files the
+  per-file test-time budget split moved those cases into. No requirement
+  or decision changes meaning.
+- 2026-11-11 — Expression-only (brief Re-anchor, launch-test split file pointers):
+  the REQ-D1.10 and REQ-D1.11 test entries name
+  `tests/test-mission-control-launch-worktrees.sh`, and the REQ-D1.16 entry
+  names `tests/test-mission-control-launch-host.sh`, the files the per-file
+  test-time budget split moved those cases into. No requirement or decision
+  changes meaning.
 
 ## Sources
 
