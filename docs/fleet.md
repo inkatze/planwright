@@ -997,6 +997,23 @@ worker resumes on the notice and never carries `PLANWRIGHT_SESSION_BACKEND`,
 so the guard leaves it alone. The launch preflight warns when the worker's
 hook root has no `scripts/background-job-guard.sh`.
 
+The worker profile also wires `scripts/noop-padding-guard.sh` beside it, a
+deny-emitting hook (the command guard is allow-only) that refuses a Bash
+command whose only effect is to look different to the permission check:
+a redirect to or read of the null device, `|| true` or `; true`, a
+pass-through `| cat`, an empty heredoc, `cat >` with no input, a placeholder
+write, an empty function, a bare `echo` or `echo ok`, `true` or `:` as a step,
+`python3 -c 1`, `cd .`, `cd X || cd X`, `cd X; cd -`, a zero-count `head` or
+`sed -n 1,0p`, and a fixed or `mktemp -u` name under `/tmp`. Each refusal
+names the shape and the alternative: send output you do not need to a file in
+your own `mktemp -d` scratch directory, and use full paths. It reads the command
+quote- and heredoc-aware, so the same words inside a string, a heredoc body or
+a file's content pass, and a command it cannot follow (a subshell, a backtick,
+a substitution inside double quotes) is deferred whole. It cannot judge an
+unused variable, a `mkdir -p` of a directory that exists, or a `sed` that
+replaces a line with itself from the text alone; those stay with the
+supervisor.
+
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
 its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
