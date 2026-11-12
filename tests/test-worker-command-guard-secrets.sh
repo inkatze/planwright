@@ -371,6 +371,7 @@ assert_allow "secrets: git grep a pattern in the tree" "git grep -n TODO -- scri
 assert_allow "secrets: git ls-files in the tree" "git ls-files scripts"
 
 echo "### gh read verbs whose jq filter or template could print the environment"
+# shellcheck disable=SC2016 # the guard reads the words as written
 for c in 'gh pr view 1 --json title --jq env' 'gh pr view 1 --jq=env' 'gh pr view 1 --jq $ENV' 'gh pr view 1 --jq=$ENV.GH_TOKEN' \
   'gh pr view 1 -q env' 'gh pr view 1 -qenv' 'gh pr list --json number -q env' 'gh pr view 1 --template {{env}}' \
   'gh pr view 1 --template={{env}}' 'gh issue view 1 --jq env' 'gh issue list --jq=env' 'gh run view 1 --jq env' \
