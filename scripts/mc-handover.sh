@@ -103,8 +103,10 @@ Usage:
       holder); any other launch is refused naming the holder, and a
       handover launch over an attended holder is admitted inside tmux (the
       predecessor's pane id is recorded for take to close) and refused
-      elsewhere (exit 4), where path names the operator act. A
-      stale holder is recorded as the predecessor. A tmux successor's
+      elsewhere (exit 4), where path names the operator act. A handover
+      over a live registry holder whose row records the tmux rung
+      defaults to the tmux rung too (no pane is recorded; retire closes
+      it). A stale holder is recorded as the predecessor. A tmux successor's
       Remote Control follows mission_control_successor_remote_control:
       off (the default) starts none; on names the successor as itself;
       inherit carries the live predecessor's --remote-control (read from
