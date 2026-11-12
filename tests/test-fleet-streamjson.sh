@@ -657,6 +657,55 @@ aenv "$home8" queue | grep -q "resume halt" \
 echo "ok: c8 failed resume and missing session halt visibly (REQ-E1.5)"
 
 # ---------------------------------------------------------------------------
+# A recovered mission-control launcher's worker never runs without its launcher
+# registry row: the row stays, is restored from the copy the launch kept, or
+# the recover is refused; a worker the launcher never launched recovers as before.
+# ---------------------------------------------------------------------------
+home8r="$tmp/h8r"
+rec8r="$tmp/r8r"
+ev8r="$tmp/ev8r"
+printf '%s\n%s\n' "$line_perm" "$line_result" >"$ev8r"
+mkdir -p "$rec8r" "$home8r/dispatch-markers" "$home8r/mission-control/sessions"
+row_text="$(printf 'format\t1\nname\tmc-p-worker-0123456789\nstate\tlaunched\ntoken\trowtoken-own\nprogram\tp\nowner\tmission-control:p\nkind\tworker\nscope\tx\nbackend\tstream-json\nlaunched\t1\n')"
+mk8r() { # mk8r <worker> [<owner>]: a crashed worker dir, with a dispatch record when an owner is given
+  mkdir -p "$home8r/streamjson/$1"
+  printf 'execution-backends:4\n' >"$home8r/streamjson/$1/scope"
+  printf '%s\n' "$sid" >"$home8r/streamjson/$1/session"
+  printf 'worker\n' >"$home8r/streamjson/$1/profile"
+  [ -z "${2:-}" ] || printf '%s\tx\t%s\tstream-json-persistent\t%s\t-\n' "$1" "$2" "$home8r/streamjson/$1" >"$home8r/dispatch-markers/$1"
+}
+w='mc-p-worker-0123456789'
+mk8r "$w" mission-control:p
+printf '%s\n' "$row_text" >"$home8r/mission-control/sessions/$w"
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w" --foreground >"$tmp/o8r1" 2>&1 \
+  || fail "c8r: recovering a launcher-registered worker exited non-zero: $(cat "$tmp/o8r1")"
+[ "$(cat "$home8r/mission-control/sessions/$w")" = "$row_text" ] \
+  || fail "c8r: a recover must leave the worker's launcher row intact"
+rm -f "$home8r/mission-control/sessions/$w"
+printf '%s\n' "$row_text" >"$home8r/streamjson/$w/launcher-row"
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w" --foreground >/dev/null 2>&1 \
+  || fail "c8r: recovering a worker whose row is gone, its launch's copy kept, exited non-zero"
+[ "$(cat "$home8r/mission-control/sessions/$w" 2>/dev/null)" = "$row_text" ] \
+  || fail "c8r: a recover must restore the launcher row from the copy its launch kept"
+w2='mc-p-worker-9876543210'
+mk8r "$w2" mission-control:p
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w2" --foreground >"$tmp/o8r" 2>&1
+[ $? -eq 3 ] || fail "c8r: a launcher worker with no row and no copy must be refused (exit 3)"
+[ ! -s "$rec8r/argv" ] || fail "c8r: the refused recover must never spawn the worker"
+grep -q 'no launcher registry row' "$tmp/o8r" || fail "c8r: the refusal must name its reason: $(cat "$tmp/o8r")"
+[ ! -e "$home8r/mission-control/sessions/$w2" ] || fail "c8r: a refused recover must write no row"
+w3=sjw8r-plain
+mk8r "$w3" tower-abc
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w3" --foreground >/dev/null 2>&1 \
+  || fail "c8r: a worker the launcher never launched must still recover"
+[ ! -e "$home8r/mission-control/sessions/$w3" ] || fail "c8r: a recover must not invent a row for a worker the launcher never launched"
+echo "ok: c8r a recover keeps, restores or refuses on the launcher's registry row"
+
+# ---------------------------------------------------------------------------
 # c9 (REQ-A1.9, D-12): the launch argv carries the pinned non-bare
 #    stream-json shape; prompt text reaches the worker as data (a
 #    metacharacter fixture never reaches a shell); --bare is refused.

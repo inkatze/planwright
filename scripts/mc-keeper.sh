@@ -110,12 +110,15 @@ Usage:
       queue item pushed once and a dead worker's is settled), each request
       still overdue one pending-prompt-overdue event, subject the worker,
       announced once per request (a worker the launcher records for
-      another program left to that program), and a request that has just
+      another program left to that program, a row-less one's program being
+      the owner its dispatch record keeps; one no record owns is raised
+      once as a stream-json-worker-unowned event, never to every
+      program), and a request that has just
       arrived one pending-prompt event per pass that sees it (the requests
       new to that pass batched into the one event), and a dead worker this
       scan settled one stream-json-worker-dead
       event, whatever its program, printing
-        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
+        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned<TAB><worker>
       a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
       seconds, or a pending sweep that ends non-zero, is said on stderr and
       raised once as a keeper-sweep-failed event (the default age, 900,
@@ -498,6 +501,42 @@ run_pending_sweep() {
   return 1
 }
 
+# worker_program <worker> <launcher list>: the program a stream-json worker
+# belongs to: its launcher row's, else the owner its dispatch record keeps
+# (mission-control:<program>), which outlives a row that was removed. Prints
+# nothing when neither names one.
+worker_program() {
+  wp_p=$(printf '%s\n' "$2" | W=$1 awk -F '\t' 'NF && $1 == ENVIRON["W"] { print $2; exit }')
+  if [ -z "$wp_p" ]; then
+    wp_m="$(mc_fleet_home)/dispatch-markers/$1"
+    if [ -f "$wp_m" ] && [ ! -L "$wp_m" ]; then
+      wp_p=$(awk -F '\t' 'NR == 1 && index($3, "mission-control:") == 1 { print substr($3, 17) }' "$wp_m")
+    fi
+  fi
+  mc_valid_program "$wp_p" && printf '%s\n' "$wp_p"
+  return 0
+}
+
+# announce_unowned <worker>: a worker with no program to give its prompts to
+# is raised as one stream-json-worker-unowned event, however many programs'
+# keepers see it: the first to take the claim in the worker's directory raises
+# it, and a refused announce releases the claim so a later pass retries.
+announce_unowned() {
+  au_dir="$(mc_fleet_home)/streamjson/$1"
+  [ -d "$au_dir" ] && [ ! -L "$au_dir" ] || return 0
+  [ ! -e "$au_dir/unowned-announced" ] || return 0
+  (
+    set -C
+    : >"$au_dir/unowned-announced"
+  ) 2>/dev/null || return 0
+  mc_announce "$program" "$runtime/keeper-unowned" "$1" stream-json-worker-unowned "$1" \
+    "stream-json worker $1 has a request waiting but no launcher row or dispatch record names the program it belongs to, so none announces its prompts; fleet-streamjson.sh pending $1 shows them, mission-control-launch.sh retire $1 closes it" \
+    || {
+    rm -f "$au_dir/unowned-announced"
+    return 1
+  }
+}
+
 # pending_prompts: the stream-json pending-age sweep over every worker on
 # this machine, whatever planwright version or verb launched it, since one
 # the launcher never registered has no other watcher once its own supervisor
@@ -506,8 +545,9 @@ run_pending_sweep() {
 # then one event, announced once, and a dead worker the scan settled is one
 # stream-json-worker-dead event, since its request row has just left the
 # queue. An overdue prompt of a worker the launcher records for another
-# program is that program's to announce; with the launcher's list unreadable
-# every one is announced here, as heard twice beats never.
+# program is that program's to announce, a row-less worker's program being the
+# owner its dispatch record keeps; one no record owns is raised once as
+# unowned, never to every program.
 pending_prompts() {
   NL='
 '
@@ -518,7 +558,6 @@ pending_prompts() {
   else
     pp_list=""
   fi
-  pp_theirs=$(printf '%s\n' "$pp_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
   pp_live=""
   pp_rc=0
   while read -r pp_tag pp_w pp_id pp_age; do
@@ -535,7 +574,12 @@ pending_prompts() {
         || pp_rc=1
       continue
     fi
-    case "$NL$pp_theirs$NL" in *"$NL$pp_w$NL"*) continue ;; esac
+    pp_owner=$(worker_program "$pp_w" "$pp_list")
+    if [ -z "$pp_owner" ]; then
+      announce_unowned "$pp_w" || pp_rc=1
+      continue
+    fi
+    [ "$pp_owner" = "$program" ] || continue
     pp_key="$pp_w	$pp_id"
     pp_live="$pp_live$pp_key$NL"
     mc_announce "$program" "$pp_seen" "$pp_key" pending-prompt-overdue "$pp_w" \
@@ -822,8 +866,8 @@ pending_arrivals() {
   NL='
 '
   pa_list=$(launcher list 2>/dev/null) || pa_list=""
-  pa_theirs=$(printf '%s\n' "$pa_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
   pa_fresh=""
+  pa_rc=0
   pa_live=""
   # The glob needs pathname expansion, which this script turns off (set -f).
   set +f
@@ -836,7 +880,12 @@ pending_arrivals() {
     while IFS='	' read -r pa_id pa_recv; do
       [ -n "$pa_id" ] || continue
       mc_valid_uint "$pa_recv" || continue
-      case "$NL$pa_theirs$NL" in *"$NL$pa_w$NL"*) continue ;; esac
+      pa_owner=$(worker_program "$pa_w" "$pa_list")
+      if [ -z "$pa_owner" ]; then
+        announce_unowned "$pa_w" || pa_rc=1
+        continue
+      fi
+      [ "$pa_owner" = "$program" ] || continue
       pa_key="$pa_w	$pa_id"
       pa_live="$pa_live$pa_key$NL"
       [ $((pa_now - pa_recv)) -le "$pa_thr" ] || continue
@@ -847,7 +896,6 @@ $pa_rows
 EOF
   done
   set -f
-  pa_rc=0
   pa_first=$(printf '%s' "$pa_fresh" | awk 'NF { print; exit }')
   if [ -n "$pa_first" ]; then
     pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')

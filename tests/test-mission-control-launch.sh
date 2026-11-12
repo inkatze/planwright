@@ -130,6 +130,14 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   else
     fail "[$kind] the launch did not record tier key $want_key and unit mission-control:$name"
   fi
+  # The launch keeps a copy of its row beside the worker, owner-only like the
+  # row (it holds the token), for a recover to restore a lost row from.
+  copy="$fleet/streamjson/$name/launcher-row"
+  if cmp -s "$row" "$copy" && [ "$(stat -c %a "$copy" 2>/dev/null || stat -f %Lp "$copy")" = 600 ]; then
+    ok "[$kind] the launch keeps an owner-only copy of its row for a recover"
+  else
+    fail "[$kind] the launch's copy of its row is missing, differs from the row, or is not mode 600"
+  fi
   # Only a mission-control session holds its row's token, which is what
   # binds a decided-by-mission-control item to the row (tower-comms REQ-A1.14).
   row_token=$(awk -F "$TAB" '$1 == "token" { print $2; exit }' "$row")

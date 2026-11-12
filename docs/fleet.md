@@ -877,7 +877,9 @@ request row it raised (a failure item stays), and prints
 worker is in flight, the scan neither settles nor escalates it, leaving its
 requests to a later scan. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
-crashed worker's session via `--resume`; `status` surfaces completion and
+crashed worker's session via `--resume`, first restoring a mission-control
+launcher worker's registry row from the copy its launch kept (refusing, exit 3,
+where the row is gone and no copy covers it); `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending

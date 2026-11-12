@@ -237,6 +237,8 @@ if [ "$(id -u)" != 0 ]; then
   fi
 fi
 
+mkdir -p "$fleet/streamjson/$fold_name"
+cp "$REG/$fold_name" "$fleet/streamjson/$fold_name/launcher-row"
 # The move itself, authorised by the fold-in order.
 ml reparent "$fold_name" --program beta --authority "$fold_id"
 [ "$RC" = 0 ] && ok "a fold-in order moves a live session" || fail "the move exited $RC: $ERR"
@@ -251,6 +253,11 @@ else
 fi
 grep -v -e "^program${TAB}" -e "^owner${TAB}" "$REG/$fold_name" >"$tmp/after.rows"
 printf '%s\n' "$before" | grep -v -e "^program${TAB}" -e "^owner${TAB}" >"$tmp/before.rows"
+cmp -s "$REG/$fold_name" "$fleet/streamjson/$fold_name/launcher-row" \
+  && ok "the worker's kept copy of its row follows the move, so a recover restores the new program" \
+  || fail "the kept copy of the row went stale after the move"
+[ "$(stat -c %a "$fleet/streamjson/$fold_name/launcher-row" 2>/dev/null || stat -f %Lp "$fleet/streamjson/$fold_name/launcher-row")" = 600 ] \
+  && ok "and the copy is owner-only, like the row" || fail "the kept copy of the row is not mode 600"
 cmp -s "$tmp/before.rows" "$tmp/after.rows" && ok "pid, cwd, branch and every other field are untouched" || fail "a field beyond program and owner changed"
 ml list
 case $OUT in *"$fold_name${TAB}beta${TAB}worker"*) ok "the destination's list shows the session" ;; *) fail "list after the move: $OUT" ;; esac
