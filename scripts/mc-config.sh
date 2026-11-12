@@ -822,10 +822,14 @@ doctor_launches() {
   }
   # A row a retire unlinks mid-listing reads back with empty fields, so a
   # rung outside the known ones is unknown rather than another rung.
+  # An attended hub is a tmux session by definition, and mc-handover.sh launch
+  # starts the successor of one there whatever the knob says, so a hub on tmux
+  # is the documented path and not a launch away from the knob.
   printf '%s\n' "$dl_rows" | DL_RUNGS=$dl_rungs awk -F '\t' -v p="$1" -v k="$dl_knob" '
     BEGIN { n = split(ENVIRON["DL_RUNGS"], r, " "); for (i = 1; i <= n; i++) rung[r[i]] = 1 }
     NF < 5 || $2 != p { next }
     !($5 in rung) { print "unknown\tlaunches\t" $1 " names no rung doctor knows"; next }
+    $3 == "mission-control" && $5 == "tmux" { next }
     $5 != k { print "launch-backend\t" $1 "\t" $5 "\t" k }'
 }
 
