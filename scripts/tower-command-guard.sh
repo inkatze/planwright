@@ -2205,22 +2205,27 @@ secret_lexical() {
 }
 
 secret_glob() {
-  local w=$1 comp norm=''
-  local -a comps
-  secret_glob_word "$w" && return 0
+  secret_glob_word "$1" && return 0
   # The word as written misses the samples when it has `.`, `..` or repeated
-  # slashes; test its lexical form too, with `..` clamped at the root.
-  IFS=/ read -r -a comps <<<"$w"
-  for comp in ${comps[@]+"${comps[@]}"}; do
+  # slashes, so its lexical form is tested too.
+  lexical_path "$1"
+  [ "$LEX" != "$1" ] || return 1
+  secret_glob_word "$LEX"
+}
+
+lexical_path() {
+  local rest=$1/ comp
+  LEX=''
+  while [ -n "$rest" ]; do
+    comp=${rest%%/*}
+    rest=${rest#*/}
     case $comp in
       '' | .) ;;
-      ..) norm=${norm%/*} ;;
-      *) norm=$norm/$comp ;;
+      ..) LEX=${LEX%/*} ;;
+      *) LEX=$LEX/$comp ;;
     esac
   done
-  [ -n "$norm" ] || norm=/
-  [ "$norm" != "$w" ] || return 1
-  secret_glob_word "$norm"
+  [ -n "$LEX" ] || LEX=/
 }
 
 secret_glob_word() {
@@ -2280,8 +2285,7 @@ glob_any_risky() {
   ms=($pat)
   [ "$had_null" = 1 ] || shopt -u nullglob
   [ "$noglob" = 0 ] || set -f
-  # The callees split paths with a one-shot `IFS=/ read`, which macOS's bash 3.2
-  # does not honour while the caller's IFS is empty.
+  # The screens below assume the default IFS.
   IFS=$' \t\n'
   for m in ${ms[@]+"${ms[@]}"}; do
     n=$((n + 1))
@@ -2414,8 +2418,7 @@ broad_dir() {
 }
 
 broad_path_risky() {
-  local p=$1 abs out='' comp root
-  local -a parts
+  local p=$1 abs out root
   while [ "${p#*//}" != "$p" ]; do
     p=${p//\/\//\/}
   done
@@ -2447,15 +2450,8 @@ broad_path_risky() {
       fi
       ;;
   esac
-  IFS=/ read -r -a parts <<<"$abs"
-  for comp in ${parts[@]+"${parts[@]}"}; do
-    case $comp in
-      '' | .) ;;
-      ..) out=${out%/*} ;;
-      *) out=$out/$comp ;;
-    esac
-  done
-  [ -n "$out" ] || out=/
+  lexical_path "$abs"
+  out=$LEX
   broad_dir "$out" && return 0
   canon_dir_cached "$out"
   out=$CANON
