@@ -5123,6 +5123,56 @@ is_duration() {
   [ "$DURATION_SECONDS" -le "$MAX_WAIT_SECONDS" ]
 }
 
+# strip_step_context: drop a leading step-context prefix from the current
+# simple command, so the installed step script it feeds is verified as the bare
+# call is. The prefix is an optional bare `env` followed only by, or plain
+# leading, `PLANWRIGHT_STEP_<field>=<literal>` words, every field one of
+# STEP_CONTEXT_FIELDS, every value bare (no quote, expansion, glob or
+# substitution), inside the charset of a branch, path or number, and valid for
+# its field. The word after them must be step-run.sh or step-record.sh under an
+# installed planwright root; anything else leaves the words untouched, and the
+# `env` operands or the assignment prefix then defer as before. The pool hold
+# mark stays with declared_line_ok: it claims a pool a declaration must back.
+strip_step_context() {
+  local i=0 first f w name
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] || return 0
+  # An expansion that changed the word count is not the words as written.
+  [ "$cwn" -eq "$swn" ] || return 0
+  if [ "${sw[0]}" = env ] && [ "${swq[0]}" -lt 0 ] && [ "${cw[0]}" = env ]; then
+    i=1
+  fi
+  first=$i
+  while [ "$i" -lt "$swn" ]; do
+    w=${sw[i]}
+    case $w in
+      PLANWRIGHT_STEP_*=*) ;;
+      *) break ;;
+    esac
+    name=${w%%=*}
+    f=${name#PLANWRIGHT_STEP_}
+    case " $STEP_CONTEXT_FIELDS " in
+      *" $f "*) ;;
+      *) return 0 ;;
+    esac
+    [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "$w" ] && [ -z "${csub[i]-}" ] || return 0
+    word_unresolved "$w" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
+    case ${w#*=} in
+      *[!A-Za-z0-9._/:=@%,+-]*) return 0 ;;
+    esac
+    step_context_value_ok "$f" "${w#*=}" || return 0
+    i=$((i + 1))
+  done
+  [ "$i" -gt "$first" ] && [ "$i" -lt "$swn" ] || return 0
+  [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "${sw[i]}" ] || return 0
+  word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
+  case ${cw[i]} in
+    */step-run.sh | */step-record.sh) ;;
+    *) return 0 ;;
+  esac
+  is_planwright_script "${cw[i]}" "$HOOK_CWD" || return 0
+  shift_words "$i"
+}
+
 # strip_prefixes: drop the transparent `time [-p]`, `timeout <duration>` and
 # `nice -n <0..19>` prefixes (REQ-A1.13, REQ-A1.16) from the current simple
 # command, setting PREFIXED, so the command they wrap is verified as if it
@@ -5375,6 +5425,7 @@ verify_known_simple() {
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
+  strip_step_context
   strip_prefixes || return 1
   # The floor again, on the words the shell will run.
   deny_hit "${cw[@]}" && return 1
