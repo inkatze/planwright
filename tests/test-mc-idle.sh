@@ -328,6 +328,17 @@ case $beta_ev in
   *) ok "program beta never reads alpha's list" ;;
 esac
 
+# Both bounds off leaves no slot count to report: the verdict says open.
+write_tracked "program_alpha_idle_backlog: $backlog
+fleet_host_max_live_workers: off
+fleet_max_parallel_units: off"
+clear_rows
+mc_run mc-idle.sh check --program alpha --now "$now" --load 10
+case $OUT in
+  *"slots${tab}open${tab}0/off${tab}0/off"*) ok "both bounds off: the slot count reads open, not a stand-in number" ;;
+  *) fail "both bounds off did not read open: $OUT $ERR" ;;
+esac
+
 if [ "$failures" -gt 0 ]; then
   echo "test-mc-idle: $failures failure(s)" >&2
   exit 1

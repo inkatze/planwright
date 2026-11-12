@@ -58,7 +58,7 @@ again; it never guesses a backlog.
 Usage:
   mc-idle.sh check --program <p> [--now <epoch>] [--load <pct>]
       print the verdict and change nothing:
-        slots<TAB><free><TAB><host live>/<host bound><TAB><program live>/<program bound>
+        slots<TAB><free, or open when both bounds are off><TAB><host live>/<host bound><TAB><program live>/<program bound>
         raise<TAB><n><TAB><unit> [<unit>...]   or   quiet<TAB><reason>
       the reasons: no-free-slot, no-backlog, undeclared, or the gate's
       (queued, then what mc-budget.sh admit printed)
@@ -182,7 +182,10 @@ check() {
   pf=$(free_of "$prog_bound" "$prog_live")
   FREE=$hf
   [ "$pf" -ge "$FREE" ] || FREE=$pf
-  VERDICT=$(printf 'slots\t%s\t%s/%s\t%s/%s\n' "$FREE" "$host_live" "$host_bound" "$prog_live" "$prog_bound")
+  # Both bounds open leaves no count to report, and the stand-in number is not one.
+  shown=$FREE
+  { [ "$host_bound" = off ] && [ "$prog_bound" = off ]; } && shown=open
+  VERDICT=$(printf 'slots\t%s\t%s/%s\t%s/%s\n' "$shown" "$host_live" "$host_bound" "$prog_live" "$prog_bound")
   UNITS=""
   REASON=""
   BACKLOG_READ=0
