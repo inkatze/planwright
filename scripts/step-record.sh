@@ -76,11 +76,15 @@
 #                 `record<TAB><worktree-relative path>` line, the record's
 #                 stored lines with C0 control bytes and DEL dropped, then a
 #                 blank line.
-#   render        print one markdown table per point of the run (default the
-#                 latest run), in the order the points first recorded, or
-#                 the named points in the order given, each once; a named
-#                 point with no record renders nothing. Given no point, the
-#                 run's full-suite records follow as one full-suite table.
+#   render        print one markdown table per point of the run, in the order
+#                 the points first recorded, or the named points in the order
+#                 given, each once. Without --run, every run renders, oldest
+#                 first, each table headed by its run id, so a PR body
+#                 rebuilt after a later run keeps the earlier runs' records;
+#                 --run selects one run; a blank line separates runs, and a
+#                 run with nothing to show is left out. A named point with
+#                 no record renders nothing. Given no point, each run's
+#                 full-suite records follow as one full-suite table.
 #   regenerate    print the pending-sign-off checklist rebuilt from the
 #                 marked commits of <base>..<head>, then, unless
 #                 --checklist-only, when the run (default the latest run)
@@ -1527,13 +1531,32 @@ cmd_render() {
   done
   if [ -n "$run" ]; then
     valid_run "$run"
+    runs=$run
   else
-    latest_run
-    run=$LATEST
-    [ -n "$run" ] || return 0
+    runs=$(run_ids)
   fi
   # shellcheck disable=SC2086 # points are validated vocabulary words
-  render_run "$run" $points
+  render_runs "$runs" $points
+}
+
+# render_runs <runs> [<point>...]: each listed run's tables, in order, a blank
+# line between runs that render anything. Nothing prints until every run has
+# rendered, so a refusal in a later run never leaves a body missing it.
+render_runs() {
+  runs=$1
+  shift
+  scratch
+  : >"$work/render-all" || die 1 "cannot write a temporary file"
+  sep=0
+  for rr in $runs; do
+    check_run "$rr"
+    render_run "$rr" "$@" >"$work/render-run" || exit 1
+    [ -s "$work/render-run" ] || continue
+    [ "$sep" -eq 0 ] || printf '\n' >>"$work/render-all"
+    sep=1
+    cat "$work/render-run" >>"$work/render-all" || die 1 "cannot write a temporary file"
+  done
+  cat "$work/render-all"
 }
 
 # --- regenerate ---------------------------------------------------------------------
