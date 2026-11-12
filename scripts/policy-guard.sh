@@ -1898,6 +1898,32 @@ kickoff_pipe_on() {
   case ${SEG_TERM[$1]:-} in '|' | '|&') KICK_PIPED=1 ;; esac
 }
 
+# kickoff_fuzzy_name <segment> — 0 when a word of the segment (a redirect
+# target included) could expand to the script's name through a glob or an
+# expansion that sits inside it (scripts/kick*ff-spec-push.sh,
+# scripts/kic${E}koff-spec-push.sh), with at least two literal characters
+# besides the .sh so that scripts/*.sh stays an ordinary glob. Expansions read
+# as a wildcard.
+kickoff_fuzzy_name() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} p lit
+  while [ "$k" -lt "$e" ]; do
+    p=${W[$k]}
+    k=$((k + 1))
+    case $p in *[\*\?\[\$]*) ;; *) continue ;; esac
+    while [[ $p =~ (\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?!-]) ]]; do
+      p=${p/"${BASH_REMATCH[0]}"/\*}
+    done
+    lc "${p##*/}"
+    p=$LC
+    lit=${p//[\*\?]/}
+    lit=${lit%.sh}
+    [ "${#lit}" -ge 2 ] || continue
+    # shellcheck disable=SC2053 # the glob is the point
+    [[ $KICK_FILE == $p || $KICK_NAME == $p ]] && return 0
+  done
+  return 1
+}
+
 # kickoff_segment <dir> <dir-ok> <segment> <text> — 0 when a word of the
 # segment is the kickoff push, which is then decided here; 1 when none is. A
 # mention that is no run of it is tallied for kickoff_text_check, and what a
@@ -1911,6 +1937,9 @@ kickoff_segment() {
     else
       deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
     fi
+  fi
+  if kickoff_fuzzy_name "$3" && ! kickoff_cmd_reads "$3"; then
+    deny_now 'this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
   fi
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1

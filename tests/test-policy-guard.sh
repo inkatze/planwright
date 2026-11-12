@@ -1270,6 +1270,10 @@ for cmd in 'bash tests/test-kickoff-spec-push.sh' \
   'cat scripts/kickoff-spec-push.sh | git diff --no-index --stat -- - scripts/other.sh' \
   'cat scripts/kickoff-spec-push.sh | grep -c foo' \
   'sed -n 2,$p scripts/kickoff-spec-push.sh' \
+  'shellcheck scripts/*.sh tests/*.sh' \
+  'bash tests/test-*.sh' \
+  'ls scripts/kickoff-spec-p*' \
+  'git add scripts/kick*.sh' \
   'bash scripts/mykickoff-spec-push.sh.bak demo' \
   'grep -rn --xkickoff-spec-push.sh .'; do
   for tier in worker tower; do
@@ -1396,6 +1400,16 @@ E' \
   'cat scripts/kickoff-spec-push.sh | git apply' \
   'sed -n 1,5p scripts/kickoff-spec-push.sh -i' \
   'chmod +x copy.sh --reference=scripts/kickoff-spec-push.sh' \
+  'bash scripts/kick[o]ff-spec-push.sh spec' \
+  'bash scripts/k*-spec-push.sh spec' \
+  'sh scripts/kickoff-spec-p*.sh spec' \
+  'bash scripts/kickoff-spec-p?sh.sh spec' \
+  'timeout 5 bash scripts/ki*off-spec-push.sh spec' \
+  'cp scripts/k*ff-spec-push.sh c.sh' \
+  'cat x > scripts/kickoff-spec-p*.sh' \
+  '. scripts/kic${E}koff-spec-push.sh' \
+  'source scripts/kic${E}koff-spec-push.sh spec' \
+  'nohup bash scripts/kic${E}koff-spec-push.sh spec' \
   'rg --grep=kickoff-spec-push.sh foo' \
   'echo --grep=kickoff-spec-push.sh' \
   'export GIT_EXTERNAL_DIFF=bash; git diff scripts/kickoff-spec-push.sh'; do
