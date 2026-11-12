@@ -1690,14 +1690,102 @@ tower_wrapped_git_check() {
 # branch gets. A run the guard cannot read is refused.
 
 KICK_SEEN=0
+KICK_PASSED=0
+KICK_PIPED=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 
-# kickoff_named <word> — 0 when the word's basename names the kickoff push.
+# The script is matched as a run of it, never as any word that merely contains
+# its name: a test file, a note, or a path that reads or stages it is not a run.
+# A word is the script when its basename is exactly its name, and a mention of
+# it passes only to a command known to read, stage or print its arguments.
+
+# kickoff_named <word> — 0 when the word's basename is the kickoff push.
 kickoff_named() {
   lc "${1##*/}"
-  case $LC in *"$KICK_NAME"*) return 0 ;; esac
+  case $LC in "$KICK_NAME" | "$KICK_FILE") return 0 ;; esac
   return 1
+}
+
+# kick_count <text> — set KC to how many times the script's file name stands
+# alone in <text> (quotes and backslashes dropped, case folded), not as the
+# tail of a longer name such as test-kickoff-spec-push.sh.
+kick_count() {
+  local s=${1//[\"\'\\]/} before after
+  lc "$s"
+  s=$LC
+  KC=0
+  while [[ $s == *"$KICK_FILE"* ]]; do
+    before=${s%%"$KICK_FILE"*}
+    s=${s#*"$KICK_FILE"}
+    before=${before: -1}
+    after=${s:0:1}
+    case "$before$after" in
+      *[A-Za-z0-9_.-]*) ;;
+      *) KC=$((KC + 1)) ;;
+    esac
+  done
+}
+
+# kickoff_verb_class <word> — set KV to how a bare command word treats its
+# arguments: reader (reads, counts or stages the files it is given), text
+# (prints them), git (decided by its subcommand), or empty for anything else.
+kickoff_verb_class() {
+  KV=''
+  case $1 in
+    */*) return 0 ;;
+    grep | egrep | fgrep | rg | cat | head | tail | wc | ls | stat | file | diff | cmp | uniq | cut | tr | nl | od | \
+      sha256sum | sha1sum | md5sum | shasum | b2sum | shellcheck | shfmt | realpath | readlink | basename | dirname | test | '[')
+      KV=reader
+      ;;
+    echo | printf) KV=text ;;
+    git) KV=git ;;
+  esac
+}
+
+# kickoff_git_reads — 0 when the segment is a git read or stage of its
+# arguments: no option but -C before the subcommand (a -c could set a pager or
+# helper to the script), and a subcommand that does not run its arguments.
+kickoff_git_reads() {
+  local k=1
+  while [ "$k" -lt "${#SW[@]}" ]; do
+    case ${SW[$k]} in
+      -C) k=$((k + 2)) ;;
+      -*) return 1 ;;
+      add | diff | show | log | status | blame | annotate | ls-files | ls-tree | grep | rm | mv | restore | commit | \
+        shortlog | diff-tree | cat-file | check-ignore | whatchanged)
+        return 0
+        ;;
+      *) return 1 ;;
+    esac
+  done
+  return 1
+}
+
+# kickoff_mention_passes — 0 when every mention of the script in this segment
+# is an argument its command only reads, stages or prints. An option word that
+# carries the name (--pre=..., -O...) could hand the script to the command to
+# run, and a printed word that is the script itself could be piped into a shell.
+kickoff_mention_passes() {
+  local w
+  kickoff_verb_class "${SW[0]}"
+  case $KV in
+    reader) ;;
+    text) ;;
+    git) kickoff_git_reads || return 1 ;;
+    *) return 1 ;;
+  esac
+  for w in "${SW[@]}"; do
+    case $w in
+      --pre* | --hostname-bin*) [ "${SW[0]}" != rg ] || return 1 ;;
+    esac
+    kick_count "$w"
+    if [ "$KC" -gt 0 ]; then
+      case $w in -*) return 1 ;; esac
+    fi
+    [ "$KV" != text ] || ! kickoff_named "$w" || return 1
+  done
+  return 0
 }
 
 # RE_KICKOFF_SCRIPT: the planwright script itself, named through the plugin
@@ -1710,13 +1798,37 @@ kickoff_script_at() {
   [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
 }
 
-# kickoff_segment <dir> <dir-ok> — 0 when the segment names the kickoff push,
-# which is then decided here; 1 when it does not name it.
+# kickoff_pipe_on <segment> — mark the next command as reading what this one
+# prints, when this segment ends in a pipe.
+kickoff_pipe_on() {
+  case ${SEG_TERM[$1]:-} in '|' | '|&') KICK_PIPED=1 ;; esac
+}
+
+# kickoff_segment <dir> <dir-ok> <segment> <text> — 0 when a word of the
+# segment is the kickoff push, which is then decided here; 1 when none is. A
+# mention that is no run of it is tallied for kickoff_text_check, and what a
+# mention pipes into must itself only read or print it.
 kickoff_segment() {
-  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct
+  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct piped=$KICK_PIPED
+  KICK_PIPED=0
+  if [ "$piped" = 1 ]; then
+    kickoff_verb_class "${SW[0]}"
+    if [ -n "$KV" ]; then
+      kickoff_pipe_on "$3"
+    else
+      deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+    fi
+  fi
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
   done
+  kick_count "$4"
+  local kc=$KC
+  if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes; then
+    KICK_PASSED=$((KICK_PASSED + kc))
+    kickoff_pipe_on "$3"
+    return 1
+  fi
   [ "$named" = 1 ] || return 1
   KICK_SEEN=$((KICK_SEEN + 1))
   [ "$GIT_ENV_SET" = 1 ] || [ "$SW_GITENV" = 1 ] \
@@ -1761,12 +1873,8 @@ kickoff_segment() {
 # must be a run the segments read above; a name in a redirect, a -c string or
 # a quoted or spelled-out form is refused.
 kickoff_text_check() {
-  local s=${P_CMD//[\"\'\\]/} n=0
-  while [[ $s == *"$KICK_FILE"* ]]; do
-    n=$((n + 1))
-    s=${s#*"$KICK_FILE"}
-  done
-  [ "$n" = "$KICK_SEEN" ] \
+  kick_count "$P_CMD"
+  [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
     || deny_now 'this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
 }
 
@@ -1774,6 +1882,8 @@ classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
   local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0
   KICK_SEEN=0
+  KICK_PASSED=0
+  KICK_PIPED=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0
@@ -1841,7 +1951,7 @@ classify_segments() {
     base_verb=$LC
     [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
       || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
-    if kickoff_segment "$eff" "$eff_ok"; then
+    if kickoff_segment "$eff" "$eff_ok" "$si" "$cur_text"; then
       prev_text=$cur_text
       si=$((si + 1))
       continue

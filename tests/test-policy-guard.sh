@@ -1222,5 +1222,73 @@ for cmd in './kickoff-spec-push.sh demo' '/tmp/evil/kickoff-spec-push.sh demo' '
   expect deny "[worker, kickoff-demo] a same-named file outside scripts/ is not the kickoff script: $cmd"
 done
 
+# The script is matched as a command word (a run of it), not as any word that
+# contains its name: its test file, a read or a stage of it, and a note that
+# mentions it pass to the ordinary rules.
+echo "# the kickoff push is matched as a run, not as any mention"
+for cmd in 'bash tests/test-kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh tests/test-kickoff-spec-push.sh' \
+  'git -C /some/worktree add scripts/kickoff-spec-push.sh' \
+  'git diff scripts/kickoff-spec-push.sh' \
+  'git diff --stat -- scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh' \
+  'git log --oneline -- scripts/kickoff-spec-push.sh' \
+  'git commit -m "fix: kickoff-spec-push.sh quoting"' \
+  'grep -rln kickoff-spec-push hooks scripts' \
+  'grep -n foo scripts/kickoff-spec-push.sh' \
+  'grep -rn "kickoff-spec-push.sh" scripts tests' \
+  'cat scripts/kickoff-spec-push.sh' \
+  'cat scripts/kickoff-spec-push.sh | head -5' \
+  'shellcheck scripts/kickoff-spec-push.sh' \
+  'wc -l scripts/kickoff-spec-push.sh tests/test-kickoff-spec-push.sh' \
+  'timeout 500 bash tests/test-kickoff-spec-push.sh' \
+  'bash tests/test-kickoff-spec-push.sh && git add scripts/kickoff-spec-push.sh' \
+  'fleet-remote.sh --host mac compute --worktree /some/worktree --test tests/test-kickoff-spec-push.sh --timeout 540' \
+  "printf '%s\\n' 'note: scripts/kickoff-spec-push.sh needs a fix'" \
+  'echo "see scripts/kickoff-spec-push.sh for the push"'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect defer "[$tier, task-1] a mention of the kickoff push that is no run of it defers: $cmd"
+  done
+done
+# Every form that runs the script stays refused, wherever the guard can read
+# it and where it cannot.
+for cmd in 'scripts/kickoff-spec-push.sh demo' \
+  './scripts/kickoff-spec-push.sh demo' \
+  '/opt/planwright/scripts/kickoff-spec-push.sh demo' \
+  '"$ROOT"/scripts/kickoff-spec-push.sh demo' \
+  'bash scripts/kickoff-spec-push.sh demo' \
+  'sh -x scripts/kickoff-spec-push.sh demo' \
+  'bash -c "scripts/kickoff-spec-push.sh demo"' \
+  'env X=1 scripts/kickoff-spec-push.sh demo' \
+  'exec scripts/kickoff-spec-push.sh demo' \
+  'timeout 5 scripts/kickoff-spec-push.sh demo' \
+  'nohup scripts/kickoff-spec-push.sh demo' \
+  'find . -exec scripts/kickoff-spec-push.sh demo {} +' \
+  'true; scripts/kickoff-spec-push.sh demo' \
+  'true && scripts/kickoff-spec-push.sh demo' \
+  'false || scripts/kickoff-spec-push.sh demo' \
+  'echo x | scripts/kickoff-spec-push.sh demo' \
+  'cat scripts/kickoff-spec-push.sh | sh' \
+  'grep -n foo scripts/kickoff-spec-push.sh | bash' \
+  "printf 'scripts/kickoff-spec-push.sh demo\\n' | sh" \
+  'echo scripts/kickoff-spec-push.sh | xargs bash' \
+  'sh -s demo < scripts/kickoff-spec-push.sh' \
+  'git -c core.pager=scripts/kickoff-spec-push.sh diff' \
+  'git -c alias.x="!scripts/kickoff-spec-push.sh demo" x' \
+  'git grep -Oscripts/kickoff-spec-push.sh foo' \
+  'rg --pre scripts/kickoff-spec-push.sh foo .' \
+  'X=scripts/kickoff-spec-push.sh; $X demo' \
+  'S=kickoff-spec-push.sh; scripts/$S demo' \
+  '(scripts/kickoff-spec-push.sh demo)' \
+  '$(scripts/kickoff-spec-push.sh demo)' \
+  '`scripts/kickoff-spec-push.sh demo`'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect deny "[$tier, task-1] a run of the kickoff push stays refused: $cmd"
+  done
+done
+
 no_gh_calls
 finish
