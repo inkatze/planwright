@@ -142,7 +142,7 @@ expect_rc "past the window" 0
 expect_out "an event is announced" "raised${tab}pipeline-stalled"
 ev=$(mc_run_events)
 case $ev in *"pipeline-stalled${tab}pipeline-stalled${tab}"*) ok "the event is the stalled kind, in the subject grammar" ;; *) fail "no pipeline-stalled event: $ev" ;; esac
-for want in "5 drafts" "acme/web#7 red check build" "acme/web#8 no CI on its head" "acme/web#9 flip-gate refusal ready-guard" "acme/web#10 merge conflict" "acme/web#11 awaiting a flip"; do
+for want in "5 drafts" "red check build (1): acme/web#7" "no CI on its head (1): acme/web#8" "flip-gate refusal ready-guard (1): acme/web#9" "merge conflict (1): acme/web#10" "awaiting a flip (1): acme/web#11"; do
   case $ev in *"$want"*) ok "names: $want" ;; *) fail "the event lacks '$want': $ev" ;; esac
 done
 
@@ -159,14 +159,30 @@ if [ "$(stalled_events)" = 2 ]; then ok "two events in all"; else fail "expected
 drafts | put $((T + 6 * HOUR))
 run $((T + 6 * HOUR))
 ev=$(mc_run_events)
-case $ev in *"acme/web#11 launch hold (usage)"*) ok "a usage hold is the reason of a draft that is otherwise clear" ;; *) fail "no usage hold reason: $ev" ;; esac
+case $ev in *"launch hold (usage) (1): acme/web#11"*) ok "a usage hold is the reason of a draft that is otherwise clear" ;; *) fail "no usage hold reason: $ev" ;; esac
 rm -f "$tmp/usage-held"
 printf 'bound\t2\t2\t0\n' >"$tmp/bound"
 drafts | put $((T + 8 * HOUR))
 run $((T + 8 * HOUR))
 ev=$(mc_run_events)
-case $ev in *"acme/web#11 launch hold (host bound)"*) ok "the host bound at its limit is a launch hold" ;; *) fail "no host bound reason: $ev" ;; esac
+case $ev in *"launch hold (host bound) (1): acme/web#11"*) ok "the host bound at its limit is a launch hold" ;; *) fail "no host bound reason: $ev" ;; esac
 printf 'bound\t8\t2\t0\n' >"$tmp/bound"
+
+# --- thirty drafts still name every reason inside the event's byte cap ------
+for n in $(seq 100 129); do
+  printf 'check\tbuild\tFAILURE\n' >"$tmp/evidence.$n"
+  printf 'fail\tcheck\tbuild is FAILURE\n' >"$tmp/walk.$n"
+done
+{
+  for n in $(seq 100 129); do row "$n" true MERGEABLE FAILURE; done
+  row 7 true MERGEABLE FAILURE
+  row 8 true MERGEABLE NONE
+  row 10 true CONFLICTING SUCCESS
+} | put $((T + 8 * HOUR + 2 * HOUR))
+run $((T + 10 * HOUR))
+ev=$(mc_run_events | tail -n 1)
+case $ev in *"33 drafts"*"red check build (31):"*"no CI on its head (1)"*"merge conflict (1)"*) ok "a long list keeps the count and every reason" ;; *) fail "long list lost a reason: $ev" ;; esac
+if [ "$(printf '%s' "$ev" | awk -F '\t' '{ print length($5) }')" -le 500 ]; then ok "and the text stays within the byte cap"; else fail "text over the cap: $ev"; fi
 
 # --- a recent flip resets the window ----------------------------------------
 {
@@ -221,7 +237,7 @@ run $((T + 40 * HOUR))
 drafts | put $((T + 42 * HOUR))
 run $((T + 42 * HOUR))
 ev=$(mc_run_events)
-case $ev in *"acme/web#7 evidence unread"*) ok "a draft whose evidence cannot be collected is named as unread" ;; *) fail "unread draft not named: $ev" ;; esac
+case $ev in *"evidence unread (1): acme/web#7"*) ok "a draft whose evidence cannot be collected is named as unread" ;; *) fail "unread draft not named: $ev" ;; esac
 
 # --- a stale or absent snapshot raises nothing ------------------------------
 rm -f "$runtime"/pipeline-stall* "$snapdir/forge"

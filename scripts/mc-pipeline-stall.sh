@@ -46,8 +46,10 @@ back after a quiet stretch start a fresh window. Inside the window it
 raises nothing.
 
 THE EVENT. Past the window it raises one event, subject pipeline-stalled,
-whose text opens with the draft count and the window and then names each
-draft's top reason, in this order:
+whose text opens with the draft count and the window and then groups the
+drafts by top reason, the biggest group first, each with its count and as
+many of its drafts as the 500-byte event leaves room for (so no reason is
+cut off however many drafts there are). The reasons, in this order:
   merge conflict           the snapshot reads it CONFLICTING
   red check <name>         a check on its head finished red
   no CI on its head        no check context at all
@@ -236,7 +238,7 @@ reason() {
 count=0
 read_n=0
 skipped=0
-lines=""
+rows=""
 while IFS='	' read -r p_slug p_n p_mergeable p_checks; do
   [ -n "$p_slug" ] || continue
   count=$((count + 1))
@@ -245,15 +247,39 @@ while IFS='	' read -r p_slug p_n p_mergeable p_checks; do
     continue
   fi
   read_n=$((read_n + 1))
-  lines="${lines}$p_slug#$p_n $(reason "$p_slug" "$p_n" "$p_mergeable" "$p_checks"); "
+  rows="${rows}$(reason "$p_slug" "$p_n" "$p_mergeable" "$p_checks")	$p_slug#$p_n
+"
 done <<EOF
 $(printf '%s\n' "$MC_CS_ROWS" | awk -F '\t' '$1 == "pr" && $5 == "true" { print $2 "\t" $3 "\t" $6 "\t" $9 }')
 EOF
-[ "$skipped" -eq 0 ] || lines="${lines}+$skipped more unread; "
 
+# The event text holds at most 500 bytes, so the drafts are grouped by reason:
+# each reason with its count and as many of its drafts as the room allows, the
+# biggest group first, so no reason is cut off however many drafts there are.
 noun=drafts
 [ "$count" -ne 1 ] || noun=draft
 head_text="$count $noun, no ready flip in $ks: "
+groups=$(printf '%s' "$rows" | tr -d '\001-\010\013-\037\177' | awk -F '\t' '
+  NF == 2 { n[$1]++; m[$1] = m[$1] " " $2; if (!($1 in seen)) { seen[$1] = 1; order[++k] = $1 } }
+  END {
+    for (i = 1; i <= k; i++) for (j = i + 1; j <= k; j++) if (n[order[j]] > n[order[i]]) { t = order[i]; order[i] = order[j]; order[j] = t }
+    for (i = 1; i <= k; i++) print order[i] "\t" n[order[i]] "\t" m[order[i]]
+  }')
+ngroups=$(printf '%s\n' "$groups" | awk 'NF { c++ } END { print c + 0 }')
+per=$(((500 - ${#head_text} - 24) / (ngroups > 0 ? ngroups : 1)))
+[ "$per" -ge 40 ] || per=40
+lines=""
+while IFS='	' read -r g_reason g_n g_members; do
+  [ -n "$g_reason" ] || continue
+  g_text="$g_reason ($g_n):$g_members"
+  if [ "${#g_text}" -gt "$per" ]; then
+    g_text="$(printf '%s' "$g_text" | cut -c1-$((per - 4)) | sed 's/ [^ ]*$//') ..."
+  fi
+  lines="${lines}${g_text}; "
+done <<EOF
+$groups
+EOF
+[ "$skipped" -eq 0 ] || lines="${lines}+$skipped more unread; "
 text=$(printf '%s%s' "$head_text" "$lines" | sed 's/; $//' | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
 mc_event emit --program "$program" --now "$NOW" -- pipeline-stalled pipeline-stalled "$text" >/dev/null || mc_fail "the pipeline-stalled event was refused"
 raised=$NOW
