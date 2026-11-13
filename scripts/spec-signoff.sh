@@ -5,6 +5,8 @@
 # `script_dir` and has sourced echo-safety.sh, mc-lib.sh and spec-parse.sh
 # first. Portable bash 3.2 / BSD tooling.
 
+unset CDPATH
+
 # spec_scope_bundles <root rel> <changes>: <changes> lists one change per
 # line, `path<TAB><path><TAB>ADDED|MODIFIED|DELETED|<other>` (a path column
 # first; any other first column is ignored). Succeeds, printing the bundles
