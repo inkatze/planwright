@@ -1263,6 +1263,28 @@ lexical_parent() {
   esac
 }
 
+# anchor_findings <dir> — a stale recorded anchor (the anchor-freshness
+# guard's recompute arm) as a `gap` finding: an error on a signed-off bundle. The recompute is the guard's own, reached
+# through its --mismatches mode, so the recorded and recomputed values are the
+# ones `mise run check` prints. A Draft, a terminal bundle, a parked one and a
+# bundle with no recorded anchor print nothing there, so they stay as they were.
+anchor_findings() {
+  afdir=$1
+  [ -f "$script_dir/check-anchor-freshness.sh" ] || return 0
+  afrc=0
+  afout=$(/bin/sh "$script_dir/check-anchor-freshness.sh" --mismatches "$afdir" 2>"$gtmp/anchor.err") || afrc=$?
+  if [ "$afrc" -ne 0 ]; then
+    printf 'hard\tthe anchor-freshness recompute could not run (exit %s), so whether the recorded anchor is stale is unknown (fail closed): %s\n' \
+      "$afrc" "$(sanitize_printable "$(cat "$gtmp/anchor.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
+    return 0
+  fi
+  [ -n "$afout" ] || return 0
+  afrec=${afout%%	*}
+  afgot=${afout#*	}
+  printf 'gap\tanchor mismatch: recorded %s, recomputed %s (the kickoff brief'"'"'s anchor no longer matches the bundle: re-anchor per /spec-kickoff, or restore the anchored content)\n' \
+    "$afrec" "$afgot" >>"$fnd"
+}
+
 # validate_bundle <dir> <name> — run every bundle check, print the
 # severity-mapped findings, and update the global err/warn counters. Sets
 # the globals declared_status / live_req_ids / all_req_ids / all_d_ids /
@@ -1577,6 +1599,7 @@ validate_bundle() {
 
   [ "$range_ok" -eq 0 ] || citation_range_findings "$bdir" "$bname"
   baseline_checks "$bdir"
+  anchor_findings "$bdir"
 
   # Severity mapping (D-25): warnings on Draft and on the frozen terminal
   # records; errors on the signed-off live statuses (Ready, Active, Done —
