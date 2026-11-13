@@ -61,7 +61,8 @@ usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
-      [--remote-control <name>]
+      [--remote-control <name>] [--model <alias>] [--effort <level>]
+      [--reserved] [--keep-config-env]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh reparent <name> --program <dest>
@@ -82,6 +83,23 @@ stderr naming the knob. A mission-control launch with no --brief opens on
 one, in a tmux window. `--remote-control <name>` (mission-control only)
 starts that window with Remote Control under the name; the stream-json
 rung has no terminal to attach it to, so it drops the flag with a warning.
+
+--model and --effort set this one launch's model and effort in place of its
+kind's tier; --reserved exempts it from the usage clamps. They write no
+knob or overlay and change no other launch. A value outside the allocation
+seam's rosters (haiku sonnet opus fable; low medium high) is refused before
+anything starts, and so are the flags on the tmux rung, whose tier
+offload-dispatch resolves. The choice is recorded in the row's tier field,
+in a `reserved` row field, in the allocation ledger (override-model=,
+override-effort=, reserved=) and in the worker's state for a relaunch, and
+`list` shows it. A tier the usage clamps lower is never silent: an ordinary
+launch prints a `tier-note` line saying what it was lowered from and why,
+and a --model or --effort the clamps would lower is refused, naming
+--reserved. The launcher's environment overlays (PLANWRIGHT_LOCAL_CONFIG,
+PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY and
+PLANWRIGHT_CONFIG_STRICT_OVERLAYS) steer its own tier resolution but are not
+handed to the session, which would otherwise keep a one-launch overlay for its
+whole life; --keep-config-env hands them on, on purpose.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the
@@ -151,7 +169,8 @@ reversal of one entry. Its exit codes are listed after the others, below.
 
 Output, tab separated:
   launch   launch <field> <value> for name, kind, program, owner, scope,
-           backend, profile, tier, brief, cwd
+           backend, profile, tier, brief, cwd, and a tier-note where the
+           clamps lowered the tier
   reparent reparent <name> moved <source> <dest> undo=<undo id>, with
            unrecorded=<undo,event-<program>> when the move landed but a
            record did not (exit 1)
@@ -161,6 +180,7 @@ Output, tab separated:
   wait     wait <name> waiting <reason> (unwait: wait <name> working)
   bound    bound <limit or off> <working count> <waiting count>
   list     <name> <program> <kind> <scope> <backend> <launched epoch>
+           <tier> <reserved|->
   kinds    <kind> <profile> <allocation key>
 
 A launch reserves the name with a complete row (backend, launcher pid and a
@@ -398,6 +418,7 @@ row_write() {
     printf 'handle\t%s\n' "$handle"
     printf 'profile\t%s\n' "$profile"
     printf 'tier\t%s\n' "$tier"
+    printf 'reserved\t%s\n' "$([ "${ovr_reserved:-0}" = 1 ] && echo yes || echo -)"
     printf 'brief\t%s\n' "$composed"
     printf 'cwd\t%s\n' "${cwd:--}"
     printf 'task\t%s\n' "${task:--}"
@@ -771,6 +792,20 @@ abs_dir() {
   printf '%s\n' "$ad_dir"
 }
 
+# valid_alloc_value <model|effort> <value>: 0 when the allocation seam's
+# roster holds the value (allocation-ladder.sh owns the rosters).
+valid_alloc_value() {
+  [ -n "$2" ] || return 1
+  (
+    # shellcheck source=scripts/allocation-ladder.sh
+    . "$script_dir/allocation-ladder.sh" || exit 1
+    case $1 in
+      model) alloc_model_rank "$2" ;;
+      *) alloc_effort_rank "$2" ;;
+    esac
+  ) >/dev/null 2>&1
+}
+
 # posture_gate <command...> — run a posture check; die on anything but a pass.
 posture_gate() {
   pg_out=$("$@" </dev/null 2>&1)
@@ -785,7 +820,7 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
-  remote_control='' rc_given=0
+  remote_control='' rc_given=0 ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -817,6 +852,26 @@ cmd_launch() {
       --operator-asked)
         operator_asked=1
         shift
+        ;;
+      --reserved)
+        ovr_reserved=1
+        shift
+        ;;
+      --keep-config-env)
+        keep_env=1
+        shift
+        ;;
+      --model | --effort)
+        [ "$#" -ge 2 ] || usage
+        # The allocation seam's own rosters decide, so this never drifts.
+        if [ "$1" = --model ]; then
+          valid_alloc_value model "$2" || die "refusing --model '$(sanitize_printable "$2")': not one of haiku sonnet opus fable"
+          ovr_model=$2
+        else
+          valid_alloc_value effort "$2" || die "refusing --effort '$(sanitize_printable "$2")': not one of low medium high"
+          ovr_effort=$2
+        fi
+        shift 2
         ;;
       *) usage ;;
     esac
@@ -921,6 +976,9 @@ cmd_launch() {
   fi
 
   resolve_backend
+  if [ "$backend" = tmux ] && { [ -n "$ovr_model" ] || [ -n "$ovr_effort" ] || [ "$ovr_reserved" = 1 ]; }; then
+    die "refusing to launch $name: --model, --effort and --reserved apply to the stream-json rung only; the tmux rung resolves its tier in offload-dispatch" 2
+  fi
   if [ -n "$remote_control" ] && [ "$backend" != tmux ]; then
     printf '%s\n' "$me: warning: --remote-control is for the tmux rung; the $backend session starts without Remote Control" >&2
     remote_control=''
@@ -935,6 +993,7 @@ cmd_launch() {
   composed="$ldir/brief.md"
   launched=$(date +%s)
   tier=-
+  tier_note=''
   # A stream-json session is found by its name; a tmux one by the window id
   # the rung reports.
   handle=-
@@ -1055,6 +1114,11 @@ cmd_launch() {
   # its own at the kind's key, and --strict-tier stops it from launching at
   # the ambient tier when the allocation store is unreachable.
   unit="mission-control:$name"
+  # The per-call overlay variables the knob resolver honors steer this
+  # launcher's own tier resolution above; the session must not keep one for
+  # its whole life, so they are not handed on unless the caller asked.
+  scrub='-u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS'
+  [ "$keep_env" != 1 ] || scrub=''
   # The row's token goes into the session, so a decided-by-mission-control
   # item it adds is bound to this row rather than to a name any caller can
   # type (tower-comms REQ-A1.14). It is handed to the rung as an explicit
@@ -1065,7 +1129,11 @@ cmd_launch() {
   # from PLANWRIGHT_TOWER_ID, and keeps it out of the session's environment.
   case $backend in
     stream-json)
-      plan=$(cd "$cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)
+      set --
+      [ -z "$ovr_model" ] || set -- "$@" --model "$ovr_model"
+      [ -z "$ovr_effort" ] || set -- "$@" --effort "$ovr_effort"
+      [ "$ovr_reserved" != 1 ] || set -- "$@" --reserved
+      plan=$(cd "$cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" "$@" </dev/null)
       pr=$?
       case $pr in
         0) ;;
@@ -1078,15 +1146,32 @@ cmd_launch() {
       if [ -z "$model" ] || [ -z "$effort" ]; then
         refuse "refusing to launch $name: the tier plan carries no model or effort row (broken install)" 4
       fi
+      plan_field() { printf '%s\n' "$plan" | awk -F '\t' -v k="$1" '$1 == k { print $2; exit }'; }
+      # A tier the caller asked for is applied or refused, never lowered quietly.
+      if [ -n "$ovr_model" ] && [ "$model" != "$ovr_model" ]; then
+        refuse "refusing to launch $name: --model $ovr_model would run at $model (the $(plan_field rung) rung's usage clamps apply); pass --reserved to exempt a unit the operator chose" 4
+      fi
+      if [ -n "$ovr_effort" ] && [ "$effort" != "$ovr_effort" ]; then
+        refuse "refusing to launch $name: --effort $ovr_effort would run at $effort (the $(plan_field rung) rung's usage clamps apply); pass --reserved to exempt a unit the operator chose" 4
+      fi
+      pm=$(plan_field proposed_model)
+      pe=$(plan_field proposed_effort)
+      if [ -n "$pm" ] && [ -n "$pe" ] && [ "$pm/$pe" != "$model/$effort" ]; then
+        tier_note="lowered from $pm/$pe to $model/$effort by the $(plan_field rung) rung's usage clamps"
+      fi
       set -- launch "$name" "$scope" --prompt-file "$composed" --profile "$K_PROFILE" --cwd "$cwd" \
         --tier-key "$K_KEY" --tier-unit "$unit"
+      [ -z "$ovr_model" ] || set -- "$@" --tier-model "$ovr_model"
+      [ -z "$ovr_effort" ] || set -- "$@" --tier-effort "$ovr_effort"
+      [ "$ovr_reserved" != 1 ] || set -- "$@" --tier-reserved
       [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
       sr=0
-      PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
+      # shellcheck disable=SC2086 # $scrub is a word list of -u NAME pairs
+      PLANWRIGHT_TOWER_ID=$owner env $scrub /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
       case $sr in
         0) ;;
         3)
@@ -1107,7 +1192,8 @@ cmd_launch() {
       esac
       ;;
     tmux)
-      out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
+      # shellcheck disable=SC2086 # $scrub is a word list of -u NAME pairs
+      out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner env $scrub /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
         --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" </dev/null)
       dr=$?
       case $dr in
@@ -1149,6 +1235,7 @@ cmd_launch() {
   report backend "$backend"
   report profile "$profile"
   report tier "$tier"
+  [ -z "$tier_note" ] || report tier-note "$tier_note"
   report brief "$composed"
   report cwd "$cwd"
 }
@@ -1621,8 +1708,9 @@ cmd_list() {
       printf '%s\n' "$me: skipping the registry row $(sanitize_printable "${f##*/}"): its format field is not $FORMAT" >&2
       continue
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${f##*/}" "$(row_get "$f" program)" "$(row_get "$f" kind)" \
-      "$(row_get "$f" scope)" "$(row_get "$f" backend)" "$(row_get "$f" launched)"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${f##*/}" "$(row_get "$f" program)" "$(row_get "$f" kind)" \
+      "$(row_get "$f" scope)" "$(row_get "$f" backend)" "$(row_get "$f" launched)" \
+      "$(row_get "$f" tier)" "$(row_get "$f" reserved)"
   done
 }
 
