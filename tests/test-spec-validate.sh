@@ -2864,6 +2864,58 @@ has "marker check could not run"
 lacks "no valid planwright-spec-root.yml marker"
 rm -rf "$broken_scripts"
 
+# --- 38. Stale recorded anchor: the anchor-freshness recompute, locally ---
+# A signed bundle whose kickoff brief records an anchor that no longer
+# recomputes fails the validator naming both values, as the guard prints them.
+# A matching anchor passes, a Draft with no anchor entry is untouched, and a
+# parked stale anchor stays the guard's known-parked notice, not an error.
+anchor_tool="$here/../scripts/spec-anchor.sh"
+anchor_root="$tmp/anchor/specs"
+mkdir -p "$anchor_root"
+write_brief() {
+  cat >"$anchor_root/fixture/kickoff-brief.md" <<EOF
+# fixture — Kickoff Brief
+
+Class: expression-only
+Anchor: \`$1\` — computed as
+\`scripts/spec-anchor.sh specs/fixture\`
+EOF
+}
+write_bundle "$anchor_root/fixture" Ready
+good_anchor=$("$anchor_tool" "$anchor_root/fixture")
+write_brief "$good_anchor"
+run_v 0 "$anchor_root/fixture"
+has "0 error(s), 0 warning(s)"
+lacks "anchor mismatch"
+
+stale_anchor=0000000000000000000000000000000000000000
+write_brief "$stale_anchor"
+run_v 1 "$anchor_root/fixture"
+has "ERROR fixture: anchor mismatch: recorded $stale_anchor, recomputed $good_anchor"
+# The same finding through a specs-root walk.
+run_v 1 "$anchor_root"
+has "recorded $stale_anchor, recomputed $good_anchor"
+
+# Draft: skipped by the guard, so a stale or absent anchor changes nothing.
+write_bundle "$anchor_root/fixture" Draft
+run_v 0 "$anchor_root/fixture"
+lacks "anchor mismatch"
+rm "$anchor_root/fixture/kickoff-brief.md"
+run_v 0 "$anchor_root/fixture"
+has "0 error(s), 0 warning(s)"
+
+# Parked: the live re-review marker keeps a stale anchor off the error list.
+write_bundle "$anchor_root/fixture" Ready
+write_brief "$stale_anchor"
+awk '
+  /^## Awaiting input/ { print; print ""; print "- **anchor re-review pending** — routed to its re-review ritual."; skip = 1; next }
+  skip && /^\(none yet\)$/ { skip = 0; next }
+  { print }
+' "$anchor_root/fixture/tasks.md" >"$anchor_root/tasks.new"
+mv "$anchor_root/tasks.new" "$anchor_root/fixture/tasks.md"
+run_v 0 "$anchor_root/fixture"
+lacks "anchor mismatch"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"
