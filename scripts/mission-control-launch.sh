@@ -391,7 +391,7 @@ refresh_row_copy() {
   [ "$3" = stream-json ] || return 0
   rc_dir="$FH/streamjson/$1"
   [ -d "$rc_dir" ] && [ ! -L "$rc_dir" ] || return 0
-  (umask 077 && cp "$2" "$rc_dir/launcher-row.tmp.$$" && mv -f "$rc_dir/launcher-row.tmp.$$" "$rc_dir/launcher-row") 2>/dev/null \
+  (umask 077 && cp -- "$2" "$rc_dir/launcher-row.tmp.$$" && mv -f "$rc_dir/launcher-row.tmp.$$" "$rc_dir/launcher-row") 2>/dev/null \
     || rm -f "$rc_dir/launcher-row.tmp.$$"
   return 0
 }
