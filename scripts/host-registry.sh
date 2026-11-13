@@ -8,11 +8,9 @@
 #   get <alias> <field> print one field's effective value (defaults applied)
 #   list                print every host alias
 #
-# The registry is a file whose path is the machine-local config key
-# remote_hosts_file, read through config-get.sh. It is refused when any
-# tracked layer sets that key or when the file itself is tracked by git, so no
-# alias, path or account label reaches a committed file.
-#
+# The registry path is the machine-local config key remote_hosts_file, read
+# through config-get.sh. It is refused when any tracked layer sets that key or
+# git tracks the file, so no alias, path or account label is ever committed.
 # One host per line (blank lines and # comments ignored):
 #   host <alias> account=<label> ceiling=<n> [shared=yes|no] [idle=<min>]
 #        [hold=yes|no] [grace=<min>] [compute=login-free|accepted]
@@ -218,8 +216,8 @@ field_of() {
   done
   case $2 in
     shared | hold) echo no ;;
-    grace) echo "$DEFAULT_GRACE" ;;
-    idle) echo "$DEFAULT_IDLE" ;;
+    grace) printf '%s\n' "$DEFAULT_GRACE" ;;
+    idle) printf '%s\n' "$DEFAULT_IDLE" ;;
     *) return 1 ;;
   esac
 }
