@@ -23,7 +23,7 @@ if [ "$(git -C "$UNIT" rev-list --count HEAD --not --remotes)" = 3 ] \
   && [ "$(git -C "$PUSHED" rev-list --count HEAD --not --remotes)" = 0 ]; then
   pass "fixture: the unit clone carries three unpushed commits and the pushed clone none"
 else
-  fail "fixture: the clones do not carry the expected pushed/unpushed split; every rewrite case below would be vacuous"
+  fail "fixture: the clones do not carry the expected pushed/unpushed split; every unpushed-commit case here and in tests/test-policy-guard-rewrites.sh would be vacuous"
 fi
 
 # --- jurisdiction ------------------------------------------------------------

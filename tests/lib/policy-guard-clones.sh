@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034 # the suites that source this read the clone paths
 # policy-guard-clones.sh — the clones the policy-guard git-act suites share
 # (sourced after policy-guard-harness.sh, never executed): the other-task, spec,
 # main, pushed, no-upstream and broken-remote siblings of the harness unit clone.
