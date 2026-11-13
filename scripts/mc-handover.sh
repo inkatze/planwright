@@ -79,6 +79,7 @@ Usage:
   mc-handover.sh path --program <p>
       path<TAB>unattended, or, where the holder is a live attended
       session, path<TAB>pane<TAB>tmux when that session runs inside tmux
+      (a live registry holder whose row records the tmux rung gets it too)
       (the probe is read-only: TMUX and TMUX_PANE set, tmux answers for
       that pane), so it hands over itself with launch --handover and the
       successor closes only its pane; otherwise
@@ -102,8 +103,10 @@ Usage:
       holder); any other launch is refused naming the holder, and a
       handover launch over an attended holder is admitted inside tmux (the
       predecessor's pane id is recorded for take to close) and refused
-      elsewhere (exit 4), where path names the operator act. A
-      stale holder is recorded as the predecessor. A tmux successor's
+      elsewhere (exit 4), where path names the operator act. A handover
+      over a live registry holder whose row records the tmux rung
+      defaults to the tmux rung too (no pane is recorded; retire closes
+      it). A stale holder is recorded as the predecessor. A tmux successor's
       Remote Control follows mission_control_successor_remote_control:
       off (the default) starts none; on names the successor as itself;
       inherit carries the live predecessor's --remote-control (read from
@@ -316,6 +319,14 @@ tmux_probe() {
   tp_sock=${TMUX%%,*}
   case $tp_sock in /*) ;; *) return 1 ;; esac
   [ "$(tmux -S "$tp_sock" display-message -p -t "$TMUX_PANE" '#{pane_id}' 2>/dev/null </dev/null)" = "$TMUX_PANE" ]
+}
+
+# holder_on_tmux: 0 when the live holder is a registry session the launcher
+# started on the tmux rung. Such a holder took the name through take, so its
+# kind is registry, yet it runs in a tmux window: its row is the evidence.
+holder_on_tmux() {
+  [ "$H_KIND" = registry ] && [ "$H_LIVE" -eq 1 ] && row_exists "$H_SESSION" || return 1
+  [ "$(mc_kv "$SESSIONS/$H_SESSION" backend)" = tmux ]
 }
 
 # close_pred_pane <pane id or -> <tmux socket or ->: the successor closes the
@@ -882,6 +893,8 @@ case $verb in
     if [ "$verb" = path ]; then
       if [ "$H_KIND" = attended ] && [ "$H_LIVE" -eq 1 ]; then
         if tmux_probe; then printf 'path\tpane\ttmux\n'; else printf 'path\toperator-act\t%s\n' "$act"; fi
+      elif holder_on_tmux; then
+        printf 'path\tpane\ttmux\n'
       else
         printf 'path\tunattended\n'
       fi
@@ -946,6 +959,7 @@ case $verb in
               exit 4
             fi
           fi
+          if holder_on_tmux; then [ -n "$backend" ] || backend=tmux; fi
           [ -f "$HANDOVER" ] || {
             say "the program name $program is held by $H_SESSION, and no handover file is written"
             exit 3
