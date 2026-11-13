@@ -45,10 +45,10 @@
 #   allocation-apply.sh plan --key <selection-key> --backend <backend>
 #       --unit <unit> [--step <step>] [--attempt <n>] [--model <alias>]
 #       [--effort <level>] [--reserved]
-#     --model and --effort replace the key's starting tier for this one plan
-#     (a per-launch override; no knob is written) and --reserved exempts the
-#     unit from the usage clamps; allocation-adapt.sh owns both.
 #     Print the launch plan as TAB-separated `key<TAB>value` lines:
+#     (--model and --effort replace the key's starting tier for this one plan,
+#     a per-launch override with no knob written, and --reserved exempts the
+#     unit from the usage clamps; allocation-adapt.sh owns both.)
 #       key             the selection key that was resolved
 #       backend         the backend the plan was built for
 #       admit           yes | withheld — the admission gate's answer, carried
