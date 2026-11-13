@@ -802,6 +802,8 @@ h19() {
   esac
   grep -qx "worktree_root=$(cd "$wt" && pwd -P)" "$(cat "$rec/record")" 2>/dev/null \
     || fail "h19: the worker's session record does not name its worktree"
+  grep -qx "launch_backend=headless-oneshot" "$(cat "$rec/record")" 2>/dev/null \
+    || fail "h19: the worker's session record does not name the one-shot backend"
   # Its scratch root (REQ-G1.2): the worktree's, under the scratch base and
   # recorded in the fleet home, exported as TMPDIR and named in the record; a
   # plain close keeps it and the final close removes it.

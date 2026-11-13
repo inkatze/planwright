@@ -66,6 +66,9 @@ usage:
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh reparent <name> --program <dest>
       (--authority <decisions-log id> | --undo)
+  mission-control-launch.sh wait <name> --on operator|ci|ready-flip
+  mission-control-launch.sh unwait <name>
+  mission-control-launch.sh bound
   mission-control-launch.sh list
   mission-control-launch.sh kinds
 
@@ -97,9 +100,13 @@ is refused.
 
 Every kind but mission-control is also held by the host-wide bound,
 fleet_host_max_live_workers: the live sessions of every program in the
-shared registry, mission-control sessions left out. The refusal names each
-program and how many it holds; --operator-asked goes past it, recorded
-first as a host-cap-bypass event.
+shared registry, mission-control sessions left out. A session whose only
+remaining step is a wait (parked on the operator, or with only CI or a ready
+flip outstanding) marks itself with `wait <name> --on operator|ci|ready-flip`
+and holds no slot until `unwait <name>`; `bound` prints the limit, the
+working count and the waiting count. The refusal names each program and how
+many working sessions it holds, and how many waiting ones went uncounted;
+--operator-asked goes past it, recorded first as a host-cap-bypass event.
 
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
@@ -151,6 +158,8 @@ Output, tab separated:
   name     the name alone
   retire   retire <name> released|partial released=<classes> held=<classes>,
            over the classes process, pane, registry, attention and row
+  wait     wait <name> waiting <reason> (unwait: wait <name> working)
+  bound    bound <limit or off> <working count> <waiting count>
   list     <name> <program> <kind> <scope> <backend> <launched epoch>
   kinds    <kind> <profile> <allocation key>
 
@@ -193,6 +202,11 @@ could not be recorded (the output's unrecorded field names which); 2 usage,
 an invalid value, --undo with --authority, no --authority, or a row it
 cannot read or rewrite; 3 no row of that name, or another launch or retire
 of it holds its lock; 4 any other refusal.
+
+wait and unwait exit 0 done; 2 usage or a row they cannot rewrite; 3 no row of
+that name, or a launch or retire of it holds its lock; 4 a mission-control
+session or one whose launch is not complete. bound exits 0 printed; 2 usage;
+4 fleet_host_max_live_workers cannot be resolved to a number or off.
 EOF
 }
 
@@ -729,6 +743,14 @@ before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through pos
 Close every gap it names first. Mission control's readiness check runs the
 same audit and refuses a PR with a gap. The PR body carries the rendered
 records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
+
+While the only thing left is a wait (an operator question, or CI or a ready
+flip outstanding), run \`$cs_root/scripts/mission-control-launch.sh wait $1 --on <why>\`,
+with \`<why>\` being operator, ci or ready-flip, so the host session bound does not
+count you, and run \`$cs_root/scripts/mission-control-launch.sh unwait $1\`
+before working again. Exit 3 can mean the name is
+locked for a moment: run it again a few times; a 3 that persists means the
+name is wrong.
 EOF
 }
 
@@ -991,9 +1013,10 @@ cmd_launch() {
     if [ "$hc_limit" != off ]; then
       hc_held=$(host_live_counts "$name" "$launched")
       hc_total=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $2 } END { print n + 0 }')
+      hc_idle=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $3 } END { print n + 0 }')
       if [ "$hc_total" -ge "$hc_limit" ]; then
-        hc_who=$(printf '%s\n' "$hc_held" | awk -F '\t' 'NF { printf "%s%s %s", (c++ ? ", " : ""), $1, $2 }')
-        hc_why="this host already runs $hc_total live sessions across programs (${hc_who:-none}), at the host-wide bound of $hc_limit (fleet_host_max_live_workers)"
+        hc_who=$(printf '%s\n' "$hc_held" | awk -F '\t' '$2 > 0 { printf "%s%s %s", (c++ ? ", " : ""), $1, $2 }')
+        hc_why="this host already runs $hc_total working sessions across programs (${hc_who:-none}), at the host-wide bound of $hc_limit (fleet_host_max_live_workers); $hc_idle waiting sessions are not counted"
         if [ "$operator_asked" -eq 1 ]; then
           /bin/bash "$script_dir/mc-event.sh" emit --program "$program" -- host-cap-bypass "$name" \
             "allowed past the host-wide bound because the operator asked ($hc_why)" </dev/null >/dev/null 2>&1 \
@@ -1505,8 +1528,9 @@ $rp_dest
   printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id"
 }
 
-# host_live_counts <own-name> <own-launched> — one "<program><TAB><count>"
-# line per program holding registered non-mission-control sessions in the
+# host_live_counts <own-name> <own-launched> — one
+# "<program><TAB><working><TAB><waiting>" line per program holding
+# registered non-mission-control sessions in the
 # shared registry that reserved before the named session (its own row and
 # later reservations left out). A remote host's sessions sit in that
 # host's registry (scripts/fleet-remote.sh), so they are never counted here.
@@ -1524,10 +1548,77 @@ host_live_counts() {
     case $hl_at in '' | *[!0-9]*) hl_at=0 ;; esac
     if [ "$hl_at" -gt "$hl_when" ] || { [ "$hl_at" -eq "$hl_when" ] && expr "x${f##*/}" \> "x$hl_own" >/dev/null; }; then continue; fi
     [ "$(row_get "$f" kind)" != mission-control ] || continue
-    hl_rows="$hl_rows$(row_get "$f" program)
+    hl_p=$(row_get "$f" program)
+    [ -n "$hl_p" ] || continue
+    hl_w=w
+    [ -z "$(row_get "$f" waiting)" ] || hl_w=z
+    hl_rows="$hl_rows$hl_p $hl_w
 "
   done
-  printf '%s' "$hl_rows" | awk 'NF { c[$1]++ } END { for (p in c) printf "%s\t%d\n", p, c[p] }' | sort
+  printf '%s' "$hl_rows" | awk 'NF { if ($2 == "w") w[$1]++; else z[$1]++; p[$1] = 1 }
+    END { for (k in p) printf "%s\t%d\t%d\n", k, w[k] + 0, z[k] + 0 }' | sort
+}
+
+# row_set_waiting <row> <reason> — rewrite a registry row with its waiting
+# field set to <reason>, or with none when <reason> is empty.
+row_set_waiting() {
+  rs_tmp="$1.tmp.$$"
+  if ! (umask 077 && awk -F '\t' -v r="$2" '
+    $1 == "waiting" { next }
+    { print }
+    END { if (r != "") print "waiting\t" r }' "$1" >"$rs_tmp") 2>/dev/null \
+    || ! mv -f -- "$rs_tmp" "$1" 2>/dev/null; then
+    rm -f "$rs_tmp"
+    return 1
+  fi
+}
+
+# wait_target <name> — lock and check the row of a session that may be marked
+# waiting or working: a registered, launched session that is not a mission
+# control; sets wt_row.
+wait_target() {
+  valid_name "$1" || die "refusing the session name '$(sanitize_printable "$1")'"
+  fleet_home
+  wt_row="$REG/$1"
+  [ ! -L "$wt_row" ] || die "refusing the registry row for $1: a symbolic link"
+  [ -f "$wt_row" ] || die "no registered session is named $1" 3
+  name_lock "$1"
+  [ -f "$wt_row" ] || die "no registered session is named $1" 3
+  row_check "$wt_row"
+  [ "$(row_get "$wt_row" kind)" != mission-control ] \
+    || die "refusing $1: a mission-control session is never counted by the host-wide bound, so it is never marked waiting" 4
+  [ "$(row_get "$wt_row" state)" = launched ] \
+    || die "refusing $1: its launch is not complete (state $(sanitize_printable "$(row_get "$wt_row" state)"))" 4
+}
+
+cmd_wait() {
+  [ "$#" -eq 3 ] && [ "$2" = --on ] || usage
+  case $3 in operator | ci | ready-flip) ;; *) usage ;; esac
+  wait_target "$1"
+  row_set_waiting "$wt_row" "$3" || die "cannot rewrite the registry row for $1; nothing changed" 2
+  name_unlock
+  printf 'wait\t%s\twaiting\t%s\n' "$1" "$3"
+}
+
+cmd_unwait() {
+  [ "$#" -eq 1 ] || usage
+  wait_target "$1"
+  row_set_waiting "$wt_row" '' || die "cannot rewrite the registry row for $1; nothing changed" 2
+  name_unlock
+  printf 'wait\t%s\tworking\n' "$1"
+}
+
+# bound — the host-wide bound against every counted session: how many slots
+# work holds, how many sessions only wait (and so hold none).
+cmd_bound() {
+  [ "$#" -eq 0 ] || usage
+  fleet_home
+  bd_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
+    || die "fleet_host_max_live_workers cannot be resolved to a number or off" 4
+  bd_held=$(host_live_counts mc-zzz-zzz-9999999999 99999999999)
+  bd_w=$(printf '%s\n' "$bd_held" | awk -F '\t' '{ n += $2 } END { print n + 0 }')
+  bd_z=$(printf '%s\n' "$bd_held" | awk -F '\t' '{ n += $3 } END { print n + 0 }')
+  printf 'bound\t%s\t%s\t%s\n' "$bd_limit" "$bd_w" "$bd_z"
 }
 
 cmd_list() {
@@ -1568,6 +1659,9 @@ case $verb in
   name) cmd_name "$@" ;;
   retire) cmd_retire "$@" ;;
   reparent) cmd_reparent "$@" ;;
+  wait) cmd_wait "$@" ;;
+  unwait) cmd_unwait "$@" ;;
+  bound) cmd_bound "$@" ;;
   list) cmd_list "$@" ;;
   kinds) cmd_kinds "$@" ;;
   *) usage ;;
