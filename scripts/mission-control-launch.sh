@@ -86,6 +86,9 @@ rung has no terminal to attach it to, so it drops the flag with a warning.
 refused otherwise) opts the session in to editing the mise task files inside
 its own worktree, under a per-launch settings profile; docs/permission-matcher-model.md
 states what that opens.
+A stream-json mission-control launch also records the session as a wake
+target (scripts/mc-wake.sh target add) and retire removes it, so the
+runner's wakes reach a session that loads no mod.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the
@@ -1153,6 +1156,12 @@ cmd_launch() {
     fi
     die "$name started but its registry row could not be completed and it could not be stopped; retire it by name" 1
   fi
+  # A headless mission control loads no mod to claim a wake target, so the
+  # launch records one: without it the runner's wake never reaches it.
+  if [ "$kind" = mission-control ] && [ "$backend" = stream-json ]; then
+    /bin/bash "$script_dir/mc-wake.sh" target add --program "$program" "$name" >/dev/null </dev/null \
+      || printf '%s\n' "$me: warning: the wake target for $name was not recorded; the runner's wakes will not reach it (scripts/mc-wake.sh target add --program $program $name)" >&2
+  fi
   report() { printf 'launch\t%s\t%s\n' "$1" "$(sanitize_printable "$2")"; }
   report name "$name"
   report kind "$kind"
@@ -1376,6 +1385,10 @@ cmd_retire() {
     if [ "$(row_get "$row" marker)" = 1 ] && valid_task "$r_task" && [ -d "$r_primary" ]; then
       marker_cmd clear "$r_primary" "$r_task" \
         || printf '%s\n' "$me: the dispatch marker for $r_task was not cleared; the unit may read as in flight" >&2
+    fi
+    if [ "$(row_get "$row" kind)" = mission-control ] && [ "$backend" = stream-json ]; then
+      /bin/bash "$script_dir/mc-wake.sh" target remove --program "$(row_get "$row" program)" "$name" >/dev/null </dev/null \
+        || printf '%s\n' "$me: the wake target for $name was not removed" >&2
     fi
     rm -rf "${LAUNCHES:?}/$name"
     if [ -e "$LAUNCHES/$name" ]; then

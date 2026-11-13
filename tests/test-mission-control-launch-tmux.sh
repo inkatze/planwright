@@ -110,7 +110,33 @@ wait_for "$tmp/argv" && ! grep -q -- '--remote-control' "$tmp/argv" && ok "the s
   || fail "the stream-json session's argv: $(cat "$tmp/argv" 2>/dev/null)"
 rc_stream=$(field name)
 wait_done "$rc_stream"
+# A headless mission control has no mod to claim a wake target, so the launch
+# records one under its session name: the runner's wake finds it in the
+# registry and prints no unreachable line; retiring it takes the target away.
+wk_targets="$fleet/mission-control/alpha/wake-targets"
+wk_pass() { # wk_pass <now>
+  env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" HOME="$fixhome" \
+    PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/bash "$repo_root/scripts/mc-wake.sh" tick --program alpha --now "$1" 2>&1
+}
+[ -f "$wk_targets" ] && grep -qxF "$rc_stream${TAB}no-mod" "$wk_targets" && ok "a stream-json mission-control launch records its session as a wake target" \
+  || fail "no wake target for $rc_stream (targets file '$wk_targets')"
+mc_run mc-event.sh emit --program alpha pr-ready pr-7 "seven is ready"
+wk_out=$(wk_pass 4000000000)
+case $wk_out in
+  *unreachable*"$rc_stream"*) fail "the runner's wake reports the headless mission control unreachable: $wk_out" ;;
+  *"$rc_stream"*) ok "the runner's wake reports no unreachable line for a launched headless mission control" ;;
+  *) fail "the runner's wake never named the headless mission control: $wk_out" ;;
+esac
+printf '%s\tno-mod\n' ghost-unregistered >>"$wk_targets"
+wk_out=$(wk_pass 4000000400)
+case $wk_out in
+  *"unreachable${TAB}ghost-unregistered${TAB}not in the fleet registry"*) ok "an unregistered target still reports unreachable" ;;
+  *) fail "an unregistered target did not report unreachable: $wk_out" ;;
+esac
 ml retire "$rc_stream"
+grep -qxF "$rc_stream${TAB}no-mod" "$wk_targets" && fail "retiring the headless mission control left its wake target" \
+  || ok "retiring a headless mission control removes its wake target"
 ml launch --program alpha --kind ad-hoc --scope same-rung --brief "$tmp/brief.md" --backend stream-json
 [ "$RC" = 0 ] || fail "the stream-json launch under the stream-json knob exited $RC: $ERR"
 case $ERR in

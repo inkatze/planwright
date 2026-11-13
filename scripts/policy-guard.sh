@@ -1700,6 +1700,9 @@ tower_wrapped_git_check() {
 KICK_SEEN=0
 KICK_PASSED=0
 KICK_PIPED=0
+KICK_VAR=0
+KICK_DIR=''
+KICK_DIR_OK=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 
@@ -1757,7 +1760,11 @@ kick_tally() {
 # each replaced by a mark (a quote after a variable, $S'kickoff-spec-push.sh',
 # is no longer part of a longer name).
 kick_count() {
-  local dropped=${1//[\"\'\\]/} marked=${1//[\"\'\\]/@}
+  # A backslash-newline inside double quotes or unquoted is a line continuation
+  # the shell removes, so it splices a name.
+  local joined=${1//\\"$NL"/} dropped marked
+  dropped=${joined//[\"\'\\]/}
+  marked=${joined//[\"\'\\]/@}
   kick_tally "$dropped"
   KC=$KT
   kick_tally "$marked"
@@ -1781,29 +1788,70 @@ kickoff_verb_class() {
   esac
 }
 
+# kick_cfg_has <moved> <key-regexp> — 0 when a configured key matches, or when
+# the repository the command reads cannot be placed (<moved> is 1, or the
+# directory is unknown), where one could be set.
+kick_cfg_has() {
+  [ "$1" = 0 ] && [ "$KICK_DIR_OK" = 1 ] || return 0
+  [ -n "$(gitq "$KICK_DIR" config --get-regexp "$2")" ]
+}
+
 # kickoff_git_reads — 0 when the segment is a git read or stage of its
 # arguments: no option but -C before the subcommand (a -c could set a pager or
 # helper to the script), and a subcommand that does not run its arguments.
 kickoff_git_reads() {
-  local k=1 j
+  local k=1 j moved=0 noext=0 notext=0 patchy=0 colon=0
   while [ "$k" -lt "${#SW[@]}" ]; do
     case ${SW[$k]} in
-      -C) k=$((k + 2)) ;;
+      -C)
+        moved=1
+        k=$((k + 2))
+        ;;
       -*) return 1 ;;
       add | diff | show | log | status | blame | annotate | ls-files | ls-tree | grep | rm | restore | commit | \
         shortlog | diff-tree | cat-file | check-ignore | whatchanged)
         # git grep -O<command> (bundled, or the long form in any unambiguous
         # abbreviation) runs <command> on the files it matched, and --output
-        # writes a copy of what it prints.
+        # writes a copy of what it prints. --ext-diff (in any abbreviation)
+        # runs the configured external diff program on the file.
         j=$((k + 1))
         while [ "$j" -lt "${#SW[@]}" ]; do
           case ${SW[$j]} in
-            --op* | --ou*) return 1 ;;
+            --) break ;;
+            --op* | --ou* | --ext | --ext-* | --textc*) return 1 ;;
+            --no-ext-diff) noext=1 ;;
+            --no-textconv) notext=1 ;;
+            --patch* | --cc | --stat* | --numstat | --shortstat | --word-diff*) patchy=1 ;;
             --*) ;;
             -*O*) return 1 ;;
+            -*[pucGS]*) patchy=1 ;;
+            *:*) colon=1 ;;
           esac
           j=$((j + 1))
         done
+        # A commit shown by git show, and the history of git log -p, are
+        # patches; git log alone and a blob (git show <rev>:<path>) are not.
+        [ "${SW[$k]}" != show ] || [ "$colon" = 1 ] || patchy=1
+        # The commands that format a file through a configured program: git diff
+        # runs diff.external (or a diff.<driver>.command) on every file by
+        # default, and --no-ext-diff is the only way to read it with one set; a
+        # diff.<driver>.textconv filter runs for these too, which --no-textconv
+        # stops (blame has no such option). A git config change earlier in the
+        # same command may have set any of them, and where the repository
+        # cannot be read (git -C, an unplaced directory) they count as set.
+        case ${SW[$k]} in
+          diff | log | show | blame | annotate | whatchanged)
+            [ "$ST_CFG" = 0 ] || return 1
+            if [ "${SW[$k]}" = diff ] && [ "$noext" = 0 ]; then
+              kick_cfg_has "$moved" '^diff\.(external|.*\.command)$' && return 1
+            fi
+            case ${SW[$k]} in diff | blame | annotate) patchy=1 ;; esac
+            [ "${SW[$k]}" != blame ] && [ "${SW[$k]}" != annotate ] || notext=0
+            if [ "$patchy" = 1 ] && [ "$notext" = 0 ]; then
+              kick_cfg_has "$moved" '^diff\..*\.textconv$' && return 1
+            fi
+            ;;
+        esac
         return 0
         ;;
       *) return 1 ;;
@@ -1908,13 +1956,47 @@ kickoff_pipe_on() {
   case ${SEG_TERM[$1]:-} in '|' | '|&') KICK_PIPED=1 ;; esac
 }
 
+# kickoff_var_set — a printf -v that kept a mention passes as a mention, but it
+# holds the text in a variable, so a later command that expands a variable and
+# runs the result (eval "$x") could run it.
+kickoff_var_set() {
+  local w
+  [ "${SW[0]}" = printf ] || return 0
+  for w in "${SW[@]:1}"; do
+    case $w in -v*) KICK_VAR=1 ;; esac
+  done
+}
+
+# kickoff_var_run <segment> — once a mention has been held in a variable,
+# refuse a later command that is not a known reader or printer and either
+# expands anything (a word or a redirect target) or reads a pipe.
+kickoff_var_run() {
+  local w hit=0 p=''
+  [ "$KICK_VAR" = 1 ] || return 0
+  kickoff_verb_class "${SW[0]}"
+  # find, sed, chmod, rg and git take a command (an -exec, a pager, a --pre) as
+  # an argument, so an expansion in them is not a plain read.
+  case ${SW[0]} in
+    find | sed | chmod | rg | git) ;;
+    *) [ -z "$KV" ] || return 0 ;;
+  esac
+  [ "$1" = 0 ] || p=${SEG_TERM[$(($1 - 1))]:-}
+  case $p in '|' | '|&') hit=1 ;; esac
+  for w in "${SW[@]}" "${SEG_RT[$1]:-}"; do
+    case $w in *'$'* | *'`'*) hit=1 ;; esac
+  done
+  [ "$hit" = 0 ] \
+    || deny_now 'this command could run text that an earlier printf -v filled with the name of scripts/kickoff-spec-push.sh - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+}
+
 # kickoff_fuzzy_name <segment> — 0 when a word of the segment, or the target of
 # one of its redirects (which the tokenizer keeps apart, in SEG_RT), could
 # expand to the script's name through a glob or an expansion that sits inside
-# it (scripts/kick*ff-spec-push.sh, scripts/kic${E}koff-spec-push.sh), with at
-# least two literal characters besides the .sh so that scripts/*.sh stays an
-# ordinary glob. Expansions and brace groups (scripts/kick{off,x}-spec-push.sh)
-# read as a wildcard.
+# it (scripts/kick*ff-spec-push.sh, scripts/kic${E}koff-spec-push.sh, and
+# scripts/k*.sh), with at least one literal character besides the .sh, or a
+# name of ? marks alone, so that a name made of stars alone (scripts/*.sh,
+# which also matches every other script) stays an ordinary glob. Expansions and brace groups
+# (scripts/kick{off,x}-spec-push.sh) read as a wildcard.
 kickoff_fuzzy_name() {
   local words=("${W[@]:${SEG_S[$1]}:$((SEG_E[$1] - SEG_S[$1]))}") p lit
   local rt=${SEG_RT[$1]//[\"\'\\]/} extra=()
@@ -1930,7 +2012,8 @@ kickoff_fuzzy_name() {
     case $p in *[\*\?\[]*) ;; *) continue ;; esac
     lit=${p//[\*\?]/}
     lit=${lit%.sh}
-    [ "${#lit}" -ge 2 ] || continue
+    # No literal at all passes only with a star: a run of ? is one name's length.
+    [ "${#lit}" -ge 1 ] || case $p in *'*'*) continue ;; esac
     # shellcheck disable=SC2053 # the glob is the point
     [[ $KICK_FILE == $p || $KICK_NAME == $p ]] && return 0
   done
@@ -1944,6 +2027,9 @@ kickoff_fuzzy_name() {
 kickoff_segment() {
   local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct piped=$KICK_PIPED
   KICK_PIPED=0
+  KICK_DIR=$dir
+  KICK_DIR_OK=$dir_ok
+  kickoff_var_run "$3"
   if [ "$piped" = 1 ]; then
     # A condition head (if ls; then sh; fi) hands the pipe to a later segment
     # that no check here reads, so it is refused as a consumer outright.
@@ -1968,6 +2054,7 @@ kickoff_segment() {
   local kc=$KC
   if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc" "$3"; then
     KICK_PASSED=$((KICK_PASSED + kc))
+    kickoff_var_set
     kickoff_pipe_on "$3"
     return 1
   fi
@@ -2027,6 +2114,7 @@ classify_segments() {
   KICK_SEEN=0
   KICK_PASSED=0
   KICK_PIPED=0
+  KICK_VAR=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0
