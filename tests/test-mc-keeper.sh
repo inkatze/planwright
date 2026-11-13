@@ -536,7 +536,7 @@ RC=$?
 expect_rc "bounds reads every session" 0
 expect_out "idle past the idle bound retires" "retire${tab}mc-alpha-worker-idle${tab}${t1}${tab}idle 1900s, bound 1800s"
 expect_out "lived past the lifetime hands over" "handover${tab}mc-alpha-reviewer-old${tab}0${tab}lived ${t2}s, bound 14400s"
-expect_out "a stream-json session whose last turn completed past the bound retires" "retire${tab}mc-alpha-worker-sjidle${tab}${t1}${tab}idle 1900s, bound 1800s"
+expect_out "a stream-json session whose last turn completed past the grace retires, naming its last result" "retire${tab}mc-alpha-worker-sjidle${tab}${t1}${tab}completed result=success 1900s ago, grace 300s"
 expect_no_out "a busy young session is left alone" "mc-alpha-worker-young"
 expect_no_out "a session parked on its own question is never retired" "mc-alpha-worker-asks"
 expect_no_out "nor a stream-json one whose last turn asked" "mc-alpha-worker-sjasks"
@@ -552,6 +552,26 @@ OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alp
 RC=$?
 expect_rc "bounds inside the bound" 0
 expect_no_out "an idle session inside the bound stays" "mc-alpha-worker-idle"
+expect_no_out "a completed stream-json session inside the grace stays" "mc-alpha-worker-sjidle"
+
+# A completed stream-json worker stops holding a slot after the grace, well
+# inside the idle bound; a running one, an unreadable one and a tmux one
+# are left alone.
+sj_row mc-alpha-worker-sjgrace "$t1" "$t1" "Done: the pull request is open."
+sj_row mc-alpha-worker-sjunread "$t1" "$t1" "Done."
+chmod 000 "$fleet/streamjson/mc-alpha-worker-sjunread/result"
+sj_row mc-alpha-worker-sjrunning "$t1" "$t1" "Done."
+printf '{"type":"assistant","message":"next turn"}\n' >>"$fleet/streamjson/mc-alpha-worker-sjrunning/events.jsonl"
+bound_row mc-alpha-worker-tmuxgrace worker 33 "$t1" "$tmp/busy.pane"
+mkdir -p "$fleet/streamjson/mc-alpha-worker-tmuxgrace"
+printf 'result\tsuccess\t%s\tfalse\n' "$t1" >"$fleet/streamjson/mc-alpha-worker-tmuxgrace/result"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 400)) 2>"$tmp/stderr")
+expect_out "a completed stream-json worker retires after the grace, far inside the idle bound" "retire${tab}mc-alpha-worker-sjgrace${tab}${t1}${tab}completed result=success 400s ago, grace 300s"
+expect_no_out "a stream-json worker whose status cannot be read counts as live" "mc-alpha-worker-sjunread"
+expect_no_out "a running stream-json worker is untouched" "mc-alpha-worker-sjrunning"
+expect_no_out "a tmux worker is untouched by the completed rule" "mc-alpha-worker-tmuxgrace"
+chmod 600 "$fleet/streamjson/mc-alpha-worker-sjunread/result"
+for s in mc-alpha-worker-sjunread mc-alpha-worker-sjrunning mc-alpha-worker-tmuxgrace; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
 
 # The bounds are knobs.
 cp "$tracked" "$tmp/tracked.keep"
@@ -592,6 +612,8 @@ case $ERR in
 esac
 mc_run mc-event.sh list --program alpha
 expect_out "the retire lands in the event store" "worker-retired-idle${tab}mc-alpha-worker-idle${tab}mc-alpha-worker-idle retired: idle 1900s, bound 1800s"
+expect_out "the completed worker's retire event names it and its last result" "worker-retired-idle${tab}mc-alpha-worker-sjgrace${tab}mc-alpha-worker-sjgrace retired: completed result=success 1900s ago, grace 300s"
+if [ "$(printf '%s\n' "$OUT" | grep -c "worker-retired-idle${tab}mc-alpha-worker-sjgrace${tab}")" = 1 ]; then ok "and it is raised once, under the owning program"; else fail "the completed worker's event count: $OUT"; fi
 expect_out "the handover names the successor launch where no handover path is installed" "worker-handover-due${tab}mc-alpha-reviewer-old${tab}mc-alpha-reviewer-old is past its lifetime (lived ${t2}s, bound 14400s); retire it and launch its successor"
 
 # Where scripts/session-handover.sh is installed, the handover is requested

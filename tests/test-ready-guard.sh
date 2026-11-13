@@ -1036,6 +1036,26 @@ run_checks "checks (default): the flip's own failing status does not judge it" d
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}'
 run_checks "checks (default): a check run named like the flip's status still judges it" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"planwright/pre-ready-flip","workflowName":"x","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'pre-ready-flip is FAILURE'
+WL_OK='{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}'
+WL_RED='{"name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}'
+run_checks "checks (default): a red window-lock beside passing checks defers" defer "$WL_OK,$WL_RED"
+run_checks "checks (default): a red window-lock beside another red check denies" deny \
+  "$WL_RED"',{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
+run_checks "checks (default): a red window-lock alone is no passed check" deny "$WL_RED" 'no passed check'
+run_checks "checks (default): a window-lock from another workflow still counts" deny \
+  "$WL_OK"',{"name":"window-lock","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'window-lock is FAILURE'
+run_checks "checks (default): a status context named like the lock still counts" deny \
+  "$WL_OK"',{"__typename":"StatusContext","context":"release-window/window-lock","state":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'release-window/window-lock is FAILURE'
+run_checks "checks (default): a window-lock naming no workflow still counts" deny \
+  "$WL_OK"',{"name":"window-lock","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'window-lock is FAILURE'
+WL_ADOPTER="$SANDBOX/adopter-wl"
+mkdir -p "$WL_ADOPTER"
+printf 'ready_base_state_checks: other-lock\n' >"$WL_ADOPTER/planwright.yml"
+reset_stub_env
+RG_ADOPTER_OVERLAY=$WL_ADOPTER
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$(checks_read "$WL_OK,$WL_RED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (configured list): a list without window-lock judges it again" 'window-lock is FAILURE'
 run_checks "checks (default): a newer failure listed before the older success it follows denies" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a newer success listed before the failure it supersedes passes" defer \
