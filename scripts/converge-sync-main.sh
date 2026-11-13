@@ -567,7 +567,9 @@ unset _ssh_cmd _ssh_bin _ssh_src _ssh_pre _ssh_rest _ssh_ws
 # resolve_left <target> <names> — print the resolve record and exit 8.
 resolve_left() {
   local msg
-  msg="${base_ref} conflicts with this branch on: $(path_list "$2")— worker_merge_conflict_policy is resolve, so the merge is left in progress: resolve and stage those paths, then run converge-sync-main.sh --commit-resolution <spec>/<id>"
+  local base_flag=''
+  [ "$base_br" = main ] || base_flag="--base $base_br "
+  msg="${base_ref} conflicts with this branch on: $(path_list "$2")— worker_merge_conflict_policy is resolve, so the merge is left in progress: resolve and stage those paths, then run converge-sync-main.sh ${base_flag}--commit-resolution <spec>/<id>"
   printf 'resolve\t%s\t%s\n' "$1" "$msg"
   die 8 merge-conflict-left "$msg"
 }

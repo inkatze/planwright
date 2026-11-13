@@ -381,4 +381,25 @@ else
   fail "[sync] task-12a rejected: rc=$RC err='$(cat "$SANDBOX/sync.err")'"
 fi
 
+printf '%s\n' 'converge_sync_main: always' 'worker_base_merge: allow' 'worker_merge_conflict_policy: resolve' >"$SYNC_CFG"
+SY4="$SANDBOX/sy4"
+sync_clone "$SY4"
+printf 'unit\n' >"$SY4/clash.txt"
+gitq -C "$SY4" add clash.txt
+gitq -C "$SY4" commit -m "unit clash"
+gitq -C "$SEED" switch "$STACK_BR"
+printf 'base\n' >"$SEED/clash.txt"
+gitq -C "$SEED" add clash.txt
+gitq -C "$SEED" commit -m "base clash"
+gitq -C "$SEED" push origin "$STACK_BR"
+gitq -C "$SEED" switch main
+write_rec "$SANDBOX/rec/sy4.record" "origin/$STACK_BR"
+sed -i.bak "s|^worktree_root=.*|worktree_root=$SY4|" "$SANDBOX/rec/sy4.record" && rm -f "$SANDBOX/rec/sy4.record.bak"
+run_sync "$SY4" "$SANDBOX/rec/sy4.record" --base "$STACK_BR"
+case $OUT in
+  *"converge-sync-main.sh --base $STACK_BR --commit-resolution"*)
+    pass "[sync] a stacked resolve conflict tells the worker to commit with the same --base" ;;
+  *) fail "[sync] the resolve instruction omits --base: rc=$RC out='$OUT'" ;;
+esac
+
 finish
