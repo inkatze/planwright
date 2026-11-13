@@ -164,6 +164,18 @@ check${tab}macos-suite (shard 1/4)${tab}FAILURE
 check${tab}macos-smoke${tab}SUCCESS"
 expect_rc "macOS required and a macOS shard failed: not ready" 4
 expect_out "the failure is named" "fail${tab}check${tab}macos-suite (shard 1/4) is FAILURE"
+walk_with "macos shard pending" '-' "require${tab}macos
+check${tab}macos-suite (shard 1/4)${tab}SUCCESS
+check${tab}macos-suite (shard 2/4)${tab}PENDING
+check${tab}macos-smoke${tab}SUCCESS"
+expect_rc "a macOS shard still pending: not ready" 4
+expect_out "the pending shard is named" "fail${tab}check${tab}macos-suite (shard 2/4) is PENDING"
+walk_with "bypass" '-' "bypass${tab}window-lock${tab}FAILURE"
+expect_rc "everything finished but a base-state check: ready" 0
+expect_out "the check the operator bypasses is named" "bypass${tab}window-lock${tab}FAILURE"
+walk_with "no bypass" -
+expect_out "an all-green head names no bypass" "ready${tab}$H"
+expect_no_out "an all-green head names no bypass check" "bypass"
 walk_with "macos neutral" '-' "require${tab}macos
 check${tab}macos-suite${tab}NEUTRAL
 check${tab}macos-smoke${tab}SUCCESS"
@@ -349,6 +361,9 @@ has "REQ-D1.8: each check context is read on its own" "check${tab}build${tab}SUC
 has "an empty conclusion reads its state" "check${tab}deploy${tab}PENDING"
 n_wl=$(printf '%s\n' "$c" | grep -c "^check${tab}window-lock${tab}FAILURE$")
 if [ "$n_wl" -eq 1 ]; then ok "only the release-window lock is left out: a window-lock from another workflow still counts"; else fail "expected one window-lock context, got $n_wl"; fi
+has "the red release-window lock is named for the operator to bypass" "bypass${tab}window-lock${tab}FAILURE"
+n_by=$(printf '%s\n' "$c" | grep -c "^bypass${tab}")
+if [ "$n_by" -eq 1 ]; then ok "only the left-out base-state check is named for bypass"; else fail "expected one bypass line, got $n_by"; fi
 has "only the latest run of a check counts" "check${tab}title${tab}SUCCESS"
 n_title=$(printf '%s\n' "$c" | grep -c "^check${tab}title${tab}")
 if [ "$n_title" -eq 2 ]; then ok "one line per check context: the same name in another workflow is its own context"; else fail "expected two title contexts, got $n_title"; fi

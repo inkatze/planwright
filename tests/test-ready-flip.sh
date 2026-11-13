@@ -92,6 +92,7 @@ case "$1 $2" in
           superseded-red-first) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
           capped) roll=$(i=0; printf '['; while [ $i -lt 100 ]; do [ $i = 0 ] || printf ','; printf '{"__typename":"CheckRun","name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' "$i"; i=$((i + 1)); done; printf ']') ;;
           window-lock-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          window-lock-pending) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"IN_PROGRESS","conclusion":""}]' ;;
           window-lock-and-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           window-lock-foreign) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           window-lock-only) roll='[{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
@@ -625,6 +626,17 @@ set_policy unit-owner
 echo window-lock-red >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a red window-lock beside green checks never holds the flip" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo window-lock-red >"$GHS/ci"
+run_helper evaluate --spec specs/demo --task 1
+check "the evaluation names window-lock as the check the operator bypasses" grep -q 'ci-rollup	pass	1 check(s) green.*bypasses at merge: window-lock' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo window-lock-pending >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a window-lock still running holds the flip (exit 4)" [ "$CODE" = 4 ]
+check "no flip is made over a window-lock still running" [ "$(calls 'pr ready')" = 0 ]
 fixture
 set_policy unit-owner
 echo window-lock-and-red >"$GHS/ci"

@@ -1091,13 +1091,7 @@ behind_checks() {
     || emit_deny "this pull request's mergeability or base changed while the guard read it, and $why - refusing (fail closed). Wait a few seconds and retry."
   runs_jq=''
   [ -z "$GUARD_DIR" ] || runs_jq=$(cat -- "$GUARD_DIR/check-runs.jq" 2>/dev/null) || runs_jq=''
-  # Checks that describe the base, not the PR; unreadable means none, so a
-  # failure here never relaxes the verdict.
-  base_state='[]'
-  if [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/base-state-checks.sh" ]; then
-    base_state=$("$RG_TIMEOUT_BIN" -k 2 "$RG_GH_T" /bin/sh "$GUARD_DIR/base-state-checks.sh" 2>/dev/null </dev/null) || base_state='[]'
-  fi
-  case $base_state in '[]' | '['*']') ;; *) base_state='[]' ;; esac
+  base_state=$(load_base_state)
   verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" --argjson base_state "$base_state" "$runs_jq
 $CHECKS_JQ" 2>/dev/null) || verdict=''
   case $verdict in
@@ -1107,6 +1101,17 @@ $CHECKS_JQ" 2>/dev/null) || verdict=''
     '') emit_deny "this pull request's checks could not be read, and $why - refusing (fail closed). Wait and retry." ;;
     *) emit_deny "this pull request's check $(sanitize_printable "$verdict" 'unprintable'), and $why - refusing the draft->ready flip. Let CI finish green on the head (or merge the base branch into it and let CI re-run), then retry." ;;
   esac
+}
+
+# load_base_state — the checks that describe the base, not the PR, as a JSON
+# array; unreadable means none, so a failure here never relaxes a verdict.
+load_base_state() {
+  local base_state='[]'
+  if [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/base-state-checks.sh" ]; then
+    base_state=$("$RG_TIMEOUT_BIN" -k 2 "$RG_GH_T" /bin/sh "$GUARD_DIR/base-state-checks.sh" 2>/dev/null </dev/null) || base_state='[]'
+  fi
+  case $base_state in '[]' | '['*']') ;; *) base_state='[]' ;; esac
+  printf '%s' "$base_state"
 }
 
 # Names the latest run of each check context that is still queued, running,
@@ -1143,7 +1148,7 @@ pending_checks() {
     || emit_deny "this pull request's head moved while the guard read its checks - refusing (fail closed). Retry."
   runs_jq=''
   [ -z "$GUARD_DIR" ] || runs_jq=$(cat -- "$GUARD_DIR/check-runs.jq" 2>/dev/null) || runs_jq=''
-  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$runs_jq
+  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" --argjson base_state "$(load_base_state)" "$runs_jq
 $PENDING_JQ" 2>/dev/null) || verdict=''
   case $verdict in
     clear) return 0 ;;

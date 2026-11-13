@@ -1126,7 +1126,7 @@ current_checks() { # current_checks <rollup entries JSON>: a check read for the 
 GREEN_RUN='{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-13T10:00:00Z"}'
 MAC_QUEUED='{"__typename":"CheckRun","name":"macos-suite (shard 2/4)","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z"}'
 CTX_PENDING='{"__typename":"StatusContext","context":"ci/external","state":"PENDING"}'
-WINDOW_RED='{"__typename":"CheckRun","name":"window-lock","workflowName":"window","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-13T10:00:00Z"}'
+WINDOW_RED='{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-13T10:00:00Z"}'
 
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
@@ -1146,6 +1146,12 @@ STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,$WINDOW_RED")
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "pending: a finished red check is not this guard's to hold"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,${WINDOW_RED/COMPLETED/QUEUED}")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "pending: a window-lock still running is no base-state exception" 'window-lock'
 
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
