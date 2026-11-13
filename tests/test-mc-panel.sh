@@ -211,7 +211,7 @@ MC_PANEL_PROC="$tmp/proc" mc_run mc-panel.sh digest --program alpha --now 2000
 record "a host reading that cannot be made is a dash, not zero" host - 2 -
 mc_run mc-panel.sh digest --program alpha --target mc-alpha --knobs --now 1030
 record "REQ-M1.8: the settled share" measure settled_share 80 130
-record "REQ-L1.5: the context threshold knob" knob handover-context 70
+record "REQ-L1.5: the context threshold knob" knob handover-context 40
 record "REQ-L1.5: the wake ceiling knob" knob handover-wakes 150
 record "REQ-L1.5: the compaction ceiling knob" knob handover-compactions 2
 record "the mascot knob defaults to animated" knob mascot 2
