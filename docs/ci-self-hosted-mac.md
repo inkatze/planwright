@@ -18,6 +18,18 @@ The account and labels must match what the dotfiles repository provisions on
 the Mac. The labels appear in the two `runs-on:` lines of `ci.yml`, which
 must stay identical.
 
+## When the macOS jobs run
+
+The `plan` job's `mac_run` output decides whether the two macOS jobs run at
+all, and both carry `if: needs.plan.outputs.mac_run == 'true'`. It is true on
+a push, on a pull request that is not a draft, and on a draft that carries the
+`ci-macos` label; the `ready_for_review` and `labeled` pull-request events
+re-run CI when a draft is marked ready or labelled. A draft push alone skips
+both jobs. The `check` job accepts that skip only when `mac_run` is false, and
+the mission-control readiness check treats a skipped or absent macOS job as
+unmet. To get macOS green on a draft before the ready flip, add the
+`ci-macos` label first, wait for green, then mark the pull request ready.
+
 ## How a run picks its runner
 
 The `plan` job's `mac` step decides, and prints its reason in the run

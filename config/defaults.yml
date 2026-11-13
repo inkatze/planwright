@@ -985,6 +985,16 @@ messaging_heal_cadence_seconds: 300
 #                               from the core and adopter layers only
 #                               (merge-currency-guard REQ-C1.12); a malformed
 #                               or unread value applies refuse.
+# ready_base_state_checks       <workflow>/<check> names a ready flip does not count
+#                               because they describe the base branch, not
+#                               the pull request (the release-window lock is
+#                               red on every PR while main sits in an
+#                               untagged window), space separated on one
+#                               line, matched exactly (a glob never matches).
+#                               Read by scripts/base-state-checks.sh
+#                               from the core and adopter layers only; a
+#                               malformed or unread value excludes nothing,
+#                               so every check counts.
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; every layer's list
@@ -1001,6 +1011,7 @@ worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
 converge_sync_main: on-need
 ready_guard_behind_base: checks
+ready_base_state_checks: release-window/window-lock
 protected_branches:
 
 # The worker's self-approval policy: the arms the worker command guard may
@@ -1151,9 +1162,12 @@ mission_control_handover_window: 2m
 # scripts/session-handover.sh is not installed, mission control retires it
 # and launches the successor itself); one idle at its prompt past the idle
 # bound is retired, its next round of work going to a fresh session with a
-# handover brief. Cadences.
+# handover brief. A stream-json worker whose last turn completed is retired
+# after the shorter completed grace, so a finished worker stops holding a
+# host slot. Cadences.
 mission_control_worker_lifetime: 4h
 mission_control_worker_idle: 30m
+mission_control_worker_completed_grace: 5m
 # How often each snapshot-mode source is refreshed, source: cadence. A source
 # left out refreshes at the cadence its adapter declares in
 # config/snapshot-adapters.yaml.
