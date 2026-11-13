@@ -102,7 +102,7 @@ fleet_max_parallel_units: 3
 # machine, with fleet_max_parallel_units and each program's own bounds kept
 # beneath it. It bounds the sum of every program's workers, reviewers,
 # walkers and relays registered in the shared mission-control registry
-# (mission-control sessions are not counted), checked by
+# (mission-control sessions, and sessions marked waiting, are not counted), checked by
 # scripts/mission-control-launch.sh before every such launch. A
 # positive integer, or `off` for no host-wide bound. The shipped number is
 # sized for a 12-core host; set it lower on a smaller machine. Sessions
@@ -233,13 +233,16 @@ steps_orchestrator_idle: []
 # Step pools (scripts/step-pool.sh; doctrine/custom-steps.md, *Expensive
 # checks*). A pool bounds how many checks naming it run at once across every
 # checkout and worktree of the user on the host. step_pool_capacity is the
-# slot count of every pool without its own step_pool_capacity_<pool> (hyphens
+# slot count of every pool but heavy-run without its own step_pool_capacity_<pool> (hyphens
 # as underscores), an open family with no core default. step_pool_wait bounds
 # a caller's wait for a free slot (a duration). full_suite_pool names the pool
-# /execute-task's full local suite joins; empty leaves the suite unpooled.
+# /execute-task's full local suite joins; it defaults to the shipped heavy-run
+# pool, whose capacity is derived from the host (one slot per 8 logical cores
+# and per 16 GiB of memory, at least 1; step_pool_capacity_heavy_run wins and
+# step_pool_capacity never applies). none, or empty, leaves the suite unpooled.
 step_pool_capacity: 1
 step_pool_wait: 60m
-full_suite_pool:
+full_suite_pool: heavy-run
 
 # Compute host (scripts/compute-route.sh). A test or lint run the gate runners
 # start (/execute-task's full suite, step-run.sh command steps) or a worker
@@ -982,6 +985,16 @@ messaging_heal_cadence_seconds: 300
 #                               from the core and adopter layers only
 #                               (merge-currency-guard REQ-C1.12); a malformed
 #                               or unread value applies refuse.
+# ready_base_state_checks       <workflow>/<check> names a ready flip does not count
+#                               because they describe the base branch, not
+#                               the pull request (the release-window lock is
+#                               red on every PR while main sits in an
+#                               untagged window), space separated on one
+#                               line, matched exactly (a glob never matches).
+#                               Read by scripts/base-state-checks.sh
+#                               from the core and adopter layers only; a
+#                               malformed or unread value excludes nothing,
+#                               so every check counts.
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; every layer's list
@@ -998,6 +1011,7 @@ worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
 converge_sync_main: on-need
 ready_guard_behind_base: checks
+ready_base_state_checks: release-window/window-lock
 protected_branches:
 
 # The worker's self-approval policy: the arms the worker command guard may
@@ -1148,9 +1162,12 @@ mission_control_handover_window: 2m
 # scripts/session-handover.sh is not installed, mission control retires it
 # and launches the successor itself); one idle at its prompt past the idle
 # bound is retired, its next round of work going to a fresh session with a
-# handover brief. Cadences.
+# handover brief. A stream-json worker whose last turn completed is retired
+# after the shorter completed grace, so a finished worker stops holding a
+# host slot. Cadences.
 mission_control_worker_lifetime: 4h
 mission_control_worker_idle: 30m
+mission_control_worker_completed_grace: 5m
 # How often each snapshot-mode source is refreshed, source: cadence. A source
 # left out refreshes at the cadence its adapter declares in
 # config/snapshot-adapters.yaml.

@@ -55,5 +55,6 @@ usage-reset	act
 watcher-stopped	routine
 usage-drained	routine
 usage-bypass	routine
+session-reparented	routine
 worker-handover-due	routine
 worker-retired-idle	routine

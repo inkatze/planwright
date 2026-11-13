@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.75.2](https://github.com/inkatze/planwright/compare/v0.75.0...v0.75.2) (2026-11-13)
+
+
+### Features
+
+* **mission-control:** launch one session on a chosen model without touching any default ([#983](https://github.com/inkatze/planwright/issues/983)) ([8f19e1b](https://github.com/inkatze/planwright/commit/8f19e1bbd315b1ab8617f8917580014194cbfdce))
+
+
+### Bug Fixes
+
+* a handover from a tmux-rung registry holder defaults to the tmux rung ([#973](https://github.com/inkatze/planwright/issues/973)) ([eb32efd](https://github.com/inkatze/planwright/commit/eb32efd05a6f9b7f5d4c4c72457378054c247240))
+* claim a hub event's sequence number atomically ([#974](https://github.com/inkatze/planwright/issues/974)) ([67a4291](https://github.com/inkatze/planwright/commit/67a4291a32146816bc7e5c8197b027f940e7927d))
+* **fleet:** host a headless worker's isolated step headless, never in tmux ([#945](https://github.com/inkatze/planwright/issues/945)) ([7a15fe1](https://github.com/inkatze/planwright/commit/7a15fe1947c8b00e03171eca3e4df8ef673f7cc0))
+* **fleet:** waiting workers stop holding the host session bound ([#951](https://github.com/inkatze/planwright/issues/951)) ([2a98bc8](https://github.com/inkatze/planwright/commit/2a98bc8edb88671d98f6ed53ab04493897d1352c))
+* let an amendment kickoff push its own branch without an operator step ([#946](https://github.com/inkatze/planwright/issues/946)) ([6d27556](https://github.com/inkatze/planwright/commit/6d27556832d10ef012445a05898b34c25155ed6d))
+* **mission-control:** order hub events raised in the same second ([#952](https://github.com/inkatze/planwright/issues/952)) ([dd7ee84](https://github.com/inkatze/planwright/commit/dd7ee84c94ef8834cc113bdea6f2023b02fe0d0d))
+* **policy-guard:** match the kickoff push as a run, not a mention ([#961](https://github.com/inkatze/planwright/issues/961)) ([966fb6e](https://github.com/inkatze/planwright/commit/966fb6e1207f3bc95a2beeccf8b03d72fa1df9bd))
+* **policy-guard:** refuse four hidden runs of the kickoff push ([#977](https://github.com/inkatze/planwright/issues/977)) ([892f63b](https://github.com/inkatze/planwright/commit/892f63bbd788ccdb0eae9828204030c34d204e2f))
+* record a wake target for a headless mission control at launch ([#972](https://github.com/inkatze/planwright/issues/972)) ([a26967b](https://github.com/inkatze/planwright/commit/a26967bb5f0859c5cb341723d098878b40ea259b))
+* retire a completed stream-json worker after a short grace ([#984](https://github.com/inkatze/planwright/issues/984)) ([6353f57](https://github.com/inkatze/planwright/commit/6353f57a124c869d8a593fc84400e6e8a410809d))
+* run the adopter's git hooks under the caller's locale, not LC_ALL=C ([#980](https://github.com/inkatze/planwright/issues/980)) ([eb5b4b6](https://github.com/inkatze/planwright/commit/eb5b4b632fb5db374f01f931a42601578acb58da))
+* **spec-validate:** report a stale recorded anchor ([#985](https://github.com/inkatze/planwright/issues/985)) ([be8f252](https://github.com/inkatze/planwright/commit/be8f252b0adeffaa9a15ba472dfce78c24617f7e))
+* **steps:** refuse misspelled step context names ([#959](https://github.com/inkatze/planwright/issues/959)) ([109f4ab](https://github.com/inkatze/planwright/commit/109f4abd8a67d7c77beae130b2fece891a467e27))
+* **steps:** render every run by default ([#958](https://github.com/inkatze/planwright/issues/958)) ([cf59cd9](https://github.com/inkatze/planwright/commit/cf59cd9f03613a17c148b276b02c2b00034c2c92))
+* **tests:** clear leaked worker session variables in the launch fixture ([#982](https://github.com/inkatze/planwright/issues/982)) ([62505ab](https://github.com/inkatze/planwright/commit/62505ab0106560c3ad0a44965adf361477cde922))
+
+
+### Miscellaneous Chores
+
+* skip the untagged 0.75.1 so release-please proposes 0.75.2 ([#987](https://github.com/inkatze/planwright/issues/987)) ([5e822d8](https://github.com/inkatze/planwright/commit/5e822d8ea0869bf7865a3f76d715377f356b62b0))
+
+## [0.75.0](https://github.com/inkatze/planwright/compare/v0.74.0...v0.75.0) (2026-11-12)
+
+
+### Features
+
+* add PR-Agent as the backup hosted reviewer ([#950](https://github.com/inkatze/planwright/issues/950)) ([9e4d8a8](https://github.com/inkatze/planwright/commit/9e4d8a82c412852cad0be993997cbb6d23e34aa6))
+* let the worker guard approve step-context prefixes on installed step scripts ([#971](https://github.com/inkatze/planwright/issues/971)) ([94e6ba0](https://github.com/inkatze/planwright/commit/94e6ba03acec3036acb63a11a32a145c5fa063bc))
+* let workers run nice, gitleaks detect and gh release view without a prompt ([#937](https://github.com/inkatze/planwright/issues/937)) ([51c7127](https://github.com/inkatze/planwright/commit/51c71273a3bffe159972736484723cf5e141c432))
+* **mission-control:** doctor flags rules that disagree with their knob and expired local overrides ([#917](https://github.com/inkatze/planwright/issues/917)) ([b1001f3](https://github.com/inkatze/planwright/commit/b1001f3e1a431561def269d99317fae08b887163))
+* **mission-control:** raise due follow-ups as events on every runner pass ([#933](https://github.com/inkatze/planwright/issues/933)) ([78d48a4](https://github.com/inkatze/planwright/commit/78d48a483a8e2e345196df81d77c058b8346a81e))
+* move a live session between programs (mission-control reparent) ([#943](https://github.com/inkatze/planwright/issues/943)) ([1260210](https://github.com/inkatze/planwright/commit/126021074545d49bf60901d3f876c5ec75613667))
+* route every worker test and lint run through compute-route ([#939](https://github.com/inkatze/planwright/issues/939)) ([c62571c](https://github.com/inkatze/planwright/commit/c62571c823698fd68c0f9d28041550a29bc05c54))
+* **spec:** amend four specs (supervision, heavy runs, main sync, worker guard) ([#932](https://github.com/inkatze/planwright/issues/932)) ([59175a1](https://github.com/inkatze/planwright/commit/59175a1135dc0a082469a34df89cb97174b330b4))
+* **spec:** remote-worker-rung kickoff sign-off ([#942](https://github.com/inkatze/planwright/issues/942)) ([69b6500](https://github.com/inkatze/planwright/commit/69b65004b2f614eaae08a12c8ba213f2f8151e16))
+* **sync:** merge origin/main only on a need, behind a converge_sync_main knob ([#935](https://github.com/inkatze/planwright/issues/935)) ([280049e](https://github.com/inkatze/planwright/commit/280049e9d882ad2a097add42b35969abcb98b4bb))
+* the heavy-run pool becomes the default full-suite pool ([#941](https://github.com/inkatze/planwright/issues/941)) ([a38ce12](https://github.com/inkatze/planwright/commit/a38ce12888a1973da6eacc484c67b308778087f6))
+
+
+### Bug Fixes
+
+* **guard:** refuse no-op padding in worker commands before it reaches the supervisor ([#957](https://github.com/inkatze/planwright/issues/957)) ([4312198](https://github.com/inkatze/planwright/commit/4312198a660bbc3f5ea3dfdd5e2ef3377187e9b5))
+* let mission control flip a PR in a program-listed repository by its own policy ([#928](https://github.com/inkatze/planwright/issues/928)) ([98f4713](https://github.com/inkatze/planwright/commit/98f47135a67de8f98eac6c65c785fda8d6948714))
+* **mission-control:** panel shows only what needs the operator and counts waiting correctly ([#929](https://github.com/inkatze/planwright/issues/929)) ([4110f65](https://github.com/inkatze/planwright/commit/4110f652f886896bd742a0c8d228db4b1b6d0b78))
+* **mission-control:** show a ready pull request once in the panel ([#930](https://github.com/inkatze/planwright/issues/930)) ([5a9bb70](https://github.com/inkatze/planwright/commit/5a9bb708f3d3e92405ddbe590a1f6cce5259401a))
+* say when a handover successor starts without Remote Control ([#938](https://github.com/inkatze/planwright/issues/938)) ([4e6ff28](https://github.com/inkatze/planwright/commit/4e6ff2890011c9b5c4cf4ce33e05a037cc8996a6))
+* stream-json workers no longer inherit the launcher's tmux context ([#934](https://github.com/inkatze/planwright/issues/934)) ([9d135bb](https://github.com/inkatze/planwright/commit/9d135bbb15f4a4c7125f38e7702cdffd59245890))
+
 ## [0.74.0](https://github.com/inkatze/planwright/compare/v0.73.1...v0.74.0) (2026-11-10)
 
 

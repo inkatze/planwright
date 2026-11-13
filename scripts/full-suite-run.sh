@@ -18,7 +18,8 @@
 # an invalid value, or a config read failure) writes none.
 #
 # full_suite_pool resolves through scripts/config-get.sh. Empty or set in no
-# layer, the command runs unpooled with no output of this script's own. A
+# layer, or the reserved value `none`, the command runs unpooled with no output
+# of this script's own (the core default is the shipped heavy-run pool). A
 # value outside the pool charset, a config read failure, or a pool helper
 # failure warns once on stderr and runs the command unpooled: an unusable pool
 # never blocks a suite, as step-pool.sh's own unpooled fallback does.
@@ -147,6 +148,7 @@ case $? in
     pool=''
     ;;
 esac
+[ "$pool" != none ] || pool=''
 if [ -n "$pool" ] && ! valid_pool "$pool"; then
   warn "full_suite_pool '$(sanitize_printable "$pool" '(unprintable)')' is not a pool name (^[a-z][a-z0-9-]*\$, at most 64 bytes)"
   pool=''

@@ -77,6 +77,37 @@ directory it should start in (`<planwright>` is planwright's install root):
 It opens a tmux window in the background, running mission control for
 that program under its profile; switch to that window to work with it.
 
+**One session on a different model.** `launch --model <alias>` (and
+`--effort <level>`) sets the model for that one session only: no setting
+changes and no other launch is affected. Once usage passes a model's cap the
+launcher lowers ordinary launches (its output then carries a `tier-note`
+line saying so) and refuses a `--model` it would lower; add `--reserved` for
+a session you chose to run at that model anyway. `list` shows the choice and
+a relaunch keeps it. The flags do not apply to a tmux window launch.
+
+**Folding one program into another.** When you order it, mission control
+moves each live session of the folded program to the surviving one, so the
+session's prompts, stalls and events reach the new program, and its list and
+retire work from there:
+
+```sh
+<planwright>/scripts/mission-control-launch.sh reparent <session> --program <destination> --authority <decision id>
+```
+
+The id names your order (or your yes for one session) in the destination's
+decisions log; without one the move is refused and nothing changes. Only the
+session's entry in the registry changes: the session itself keeps running
+where it is. Each move is an event in both programs' logs and an undo entry
+in the destination's, which puts the session back and needs no authority:
+
+```sh
+<planwright>/scripts/mc-kb.sh revert --program <destination> <undo id>
+```
+
+A move that lands but could not record its undo entry or an event exits 1
+and names what is missing; the session has moved, so record that by hand
+rather than retrying.
+
 **The program's private folder** sits under your planwright configuration
 folder, outside every repository, and is never committed. It holds the
 rules you set, what mission control has learned about the program, its
