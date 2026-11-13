@@ -15,19 +15,13 @@
 # The host runs the kind through `fleet-remote.sh compute` in the caller's
 # worktree. The command runs here instead, with one `compute-route: warning:`
 # line, when the host cannot be reached, is over fleet_compute_load_cap (load
-# per core), is in use by a person (see below), or the run fails before its command starts (a refused target, no
-# clone, SSH down); and silently when the knob is `local`. A worktree with
-# uncommitted changes also runs here, since the host tests only the committed
-# HEAD. A run whose command started is never repeated: its result stands.
-#
-# A host is in use when its HID idle time is under fleet_compute_idle_threshold
-# seconds (0 turns the check off) or a console user other than
-# fleet_compute_account (empty: the account ssh logs in as) is logged in; a
-# probe that fails counts as unreachable.
-#
-# Knobs (config-get.sh): fleet_compute_host, fleet_compute_load_cap,
-# fleet_compute_idle_threshold, fleet_compute_account, fleet_compute_timeout (whole seconds; empty takes the channel's default).
-# Exit: the command's own status; 2 usage error.
+# per core), is in use by a person (HID idle under fleet_compute_idle_threshold,
+# or a console user other than fleet_compute_account), or the run fails before
+# its command starts (a refused target, no clone, SSH down); and silently when
+# the knob is `local`. A worktree with uncommitted changes also runs here, since
+# the host tests only the committed HEAD. A run whose command started is never
+# repeated: its result stands. Knobs: config-get.sh; exit: the command's own
+# status, 2 usage error.
 set -u
 # The command runs in the caller's locale; only this script's own parsing is
 # pinned to C.
