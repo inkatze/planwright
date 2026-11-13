@@ -68,6 +68,10 @@ expect() {
 # --- the three shapes, each with its twin ------------------------------------
 expect "mode-bit: a chmod 000 fixture with no access probe fails" 1 \
   "test-mode-bit-unprobed.sh:6: mode-bit" "$(root_with mb-tp mode-bit-unprobed.sh)"
+expect "mode-bit: a quoted chmod \"000\" with no access probe fails" 1 \
+  "test-mode-bit-quoted.sh:5: mode-bit" "$(root_with mb-tpq mode-bit-quoted.sh)"
+expect "mode-bit: a chmod -- 000 with no access probe fails" 1 \
+  "test-mode-bit-dashdash.sh:5: mode-bit" "$(root_with mb-tpd mode-bit-dashdash.sh)"
 expect "mode-bit: a fixture probing through hermetic_access_denied passes" 0 "clean" \
   "$(root_with mb-tn mode-bit-probed.sh)"
 expect "mode-bit: a symbolic a-w fixture probing with [ -w ] passes" 0 "clean" \

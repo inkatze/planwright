@@ -101,6 +101,7 @@ test-check-mc-knobs.sh	15.731
 test-inception-validate.sh	15.676
 test-spec-store-worktree.sh	15.522
 test-orchestrate-select-deps.sh	15.516
+test-check-test-hermeticity.sh	15.500
 test-inception-scaffold.sh	15.189
 test-fleet-tower-watchdog.sh	15.042
 test-check-guard-wiring.sh	14.851
@@ -389,6 +390,7 @@ test-fleet-daemon-gate.sh	0.362
 test-inception-doctrine.sh	0.350
 test-fleet-death-evidence.sh	0.339
 test-skill-v2-reconciliation.sh	0.334
+test-hermetic-env.sh	0.330
 test-planwright-commit-trailers.sh	0.326
 test-release-lib.sh	0.322
 test-fleet-dispatch-env.sh	0.311
@@ -428,5 +430,3 @@ test-allocation-ladder.sh	0.026
 test-echo-safety.sh	0.019
 test-execute-task-status-gate.sh	0.019
 test-bsd-awk-multiline.sh	0.011
-test-check-test-hermeticity.sh	5.000
-test-hermetic-env.sh	1.200

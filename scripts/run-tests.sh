@@ -110,14 +110,14 @@
 #   PLANWRIGHT_TEST_DURATIONS      the duration table the queue is ordered
 #                                  by (default: <repo-root>/config/
 #                                  test-durations.tsv; empty disables it)
+#   PLANWRIGHT_TEST_BUDGET         the budget file --plan-shards reads
+#                                  (default: <repo-root>/config/
+#                                  test-time-budget.yml)
 #   the variables tests/lib/hermetic-env.sh lists
 #                                  pinned per file: the cleared ones unset, the
 #                                  fleet home's chain (PLANWRIGHT_FLEET_STATE_DIR,
 #                                  and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when
 #                                  set) replaced by a sentinel home; a file that
-#   PLANWRIGHT_TEST_BUDGET         the budget file --plan-shards reads
-#                                  (default: <repo-root>/config/
-#                                  test-time-budget.yml)
 #                                  creates anything in that home fails
 #   PLANWRIGHT_TEST_PIN_ENV        0 turns that pinning off, so the caller's
 #                                  values reach every file (the perturbed run);
