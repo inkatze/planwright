@@ -2828,6 +2828,42 @@ cmd__frame_check() {
   fi
 }
 
+# recover_launcher_row <worker> <dir>: a mission-control launcher's worker
+# never runs without its registry row, since the row is what the keeper and
+# the escalate watcher key a program's workers on. A row that is there is left
+# alone; one that is gone is restored, never replaced, from the copy the launch
+# kept in the worker's directory (same file mode as the row, which carries the
+# launch token); a worker the launcher's dispatch record names but no copy
+# covers is refused, exit 3, since no row can be rebuilt without inventing a
+# token. A worker the launcher never launched has nothing to restore.
+recover_launcher_row() {
+  rl_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null) || return 0
+  rl_row="$rl_root/mission-control/sessions/$1"
+  if [ -e "$rl_row" ] || [ -L "$rl_row" ]; then
+    return 0
+  fi
+  rl_copy="$2/launcher-row"
+  if [ ! -f "$rl_copy" ] || [ -L "$rl_copy" ]; then
+    rl_owner=$(awk -F '\t' 'NR == 1 { print $3 }' "$rl_root/dispatch-markers/$1" 2>/dev/null) || rl_owner=''
+    case $rl_owner in
+      mission-control:*)
+        printf '%s\n' "$me: recovery refused for $1: it was launched by mission-control but has no launcher registry row and no copy of one to restore" >&2
+        exit 3
+        ;;
+    esac
+    return 0
+  fi
+  rl_tmp="$rl_row.tmp.$$"
+  if (umask 077 && mkdir -p "$rl_root/mission-control/sessions" && cp "$rl_copy" "$rl_tmp") 2>/dev/null \
+    && { ln "$rl_tmp" "$rl_row" 2>/dev/null || [ -f "$rl_row" ]; }; then
+    rm -f "$rl_tmp"
+    return 0
+  fi
+  rm -f "$rl_tmp"
+  printf '%s\n' "$me: recovery refused for $1: its launcher registry row is gone and could not be restored from its launch's copy" >&2
+  exit 3
+}
+
 cmd_recover() {
   [ $# -ge 1 ] || usage
   worker=$1
@@ -2923,6 +2959,8 @@ cmd_recover() {
     printf '%s\n' "$me: no usable session_id for $worker; halt (REQ-E1.5)" >&2
     exit 4
   fi
+
+  recover_launcher_row "$worker" "$dir"
 
   rm -f "$dir/result"
   if [ $# -gt 0 ]; then

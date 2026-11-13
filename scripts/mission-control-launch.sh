@@ -406,6 +406,20 @@ new_token() {
   printf '%s-%s\n' "$$" "$nt"
 }
 
+# refresh_row_copy <name> <row> <backend>: keep a stream-json worker's copy
+# of its row (what a recover restores a lost row from) current: every writer of
+# the row calls it after the row lands. Owner-only mode, like the row, which
+# carries the token. Best effort: a missing copy makes a recover refuse, never
+# restore stale values.
+refresh_row_copy() {
+  [ "$3" = stream-json ] || return 0
+  rc_dir="$FH/streamjson/$1"
+  [ -d "$rc_dir" ] && [ ! -L "$rc_dir" ] || return 0
+  (umask 077 && cp -- "$2" "$rc_dir/launcher-row.tmp.$$" && mv -f "$rc_dir/launcher-row.tmp.$$" "$rc_dir/launcher-row") 2>/dev/null \
+    || rm -f "$rc_dir/launcher-row.tmp.$$" "$rc_dir/launcher-row"
+  return 0
+}
+
 # row_write <row> <token> <state> — write the row from the launch variables,
 # into a temporary file renamed over the row only while the row on disk is
 # still this launch's (it carries <token>).
@@ -450,6 +464,7 @@ row_write() {
     rm -f "$rw_tmp"
     return 1
   }
+  [ "$3" != launched ] || refresh_row_copy "$name" "$1" "$backend"
 }
 
 # stop_session <backend> <handle> — close a session this launch started; 0
@@ -1476,7 +1491,14 @@ cmd_retire() {
         || printf '%s\n' "$me: the wake target for $name was not removed" >&2
     fi
     rm -rf "${LAUNCHES:?}/$name"
-    if [ -e "$LAUNCHES/$name" ]; then
+    # A recover restores a missing row from the kept copy, so a copy left
+    # behind would bring a retired session back into the registry.
+    copy_left=''
+    if [ "$backend" = stream-json ] && [ ! -L "$FH/streamjson/$name" ]; then
+      rm -f "$FH/streamjson/$name/launcher-row"
+      [ ! -e "$FH/streamjson/$name/launcher-row" ] || copy_left=1
+    fi
+    if [ -e "$LAUNCHES/$name" ] || [ -n "$copy_left" ]; then
       add_held row
     else
       rm -f "$row"
@@ -1597,6 +1619,7 @@ $rp_dest
     die "cannot rewrite the registry row for $rp_name; nothing changed" 2
   fi
 
+  refresh_row_copy "$rp_name" "$rp_row" "$(row_get "$rp_row" backend)"
   rp_unrecorded=''
   rp_note="moved from $rp_src to $rp_dest"
   rp_undo_id=-
@@ -1666,6 +1689,7 @@ row_set_waiting() {
     rm -f "$rs_tmp"
     return 1
   fi
+  refresh_row_copy "${1##*/}" "$1" "$(row_get "$1" backend)"
 }
 
 # wait_target <name> — lock and check the row of a session that may be marked

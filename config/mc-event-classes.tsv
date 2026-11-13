@@ -28,6 +28,7 @@ handover-failed	failure
 handover-retire-failed	failure
 stall-dead	failure
 stream-json-worker-dead	failure
+stream-json-worker-unowned	failure
 watcher-failing	failure
 rules-reinjection-failed	failure
 session-landed	landed

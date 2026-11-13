@@ -209,6 +209,8 @@ case $bound_row in
   *) fail "bound reports working/waiting as '$bound_row': $OUT" ;;
 esac
 
+mkdir -p "$fleet/streamjson/$w1"
+cp "$capreg/$w1" "$fleet/streamjson/$w1/launcher-row"
 ml wait "$w1" --on ready-flip
 [ "$RC" = 0 ] && ok "marking a waiting worker again updates its reason" || fail "a second wait exited $RC: $ERR"
 case $(cat "$capreg/$w1") in
@@ -221,6 +223,9 @@ ml unwait "$w1"
 [ "$RC" = 0 ] && ok "unwait returns a worker to the count" || fail "unwait exited $RC: $ERR"
 [ "$OUT" = "wait${TAB}${w1}${TAB}working" ] && ok "unwait prints its name and the working state" || fail "unwait printed: $OUT"
 grep -q "^waiting${TAB}" "$capreg/$w1" && fail "unwait left the waiting field" || ok "unwait clears the waiting field"
+cmp -s "$capreg/$w1" "$fleet/streamjson/$w1/launcher-row" \
+  && ok "the kept copy of the row follows wait and unwait" \
+  || fail "the kept copy of the row went stale after wait or unwait"
 ml retire "$leak1"
 ml retire "$leak2"
 ml bound
@@ -364,6 +369,8 @@ if [ "$(id -u)" != 0 ]; then
   fi
 fi
 
+mkdir -p "$fleet/streamjson/$fold_name"
+cp "$REG/$fold_name" "$fleet/streamjson/$fold_name/launcher-row"
 # The move itself, authorised by the fold-in order.
 ml reparent "$fold_name" --program beta --authority "$fold_id"
 [ "$RC" = 0 ] && ok "a fold-in order moves a live session" || fail "the move exited $RC: $ERR"
@@ -378,6 +385,11 @@ else
 fi
 grep -v -e "^program${TAB}" -e "^owner${TAB}" "$REG/$fold_name" >"$tmp/after.rows"
 printf '%s\n' "$before" | grep -v -e "^program${TAB}" -e "^owner${TAB}" >"$tmp/before.rows"
+cmp -s "$REG/$fold_name" "$fleet/streamjson/$fold_name/launcher-row" \
+  && ok "the worker's kept copy of its row follows the move, so a recover restores the new program" \
+  || fail "the kept copy of the row went stale after the move"
+[ "$(stat -c %a "$fleet/streamjson/$fold_name/launcher-row" 2>/dev/null || stat -f %Lp "$fleet/streamjson/$fold_name/launcher-row")" = 600 ] \
+  && ok "and the copy is owner-only, like the row" || fail "the kept copy of the row is not mode 600"
 cmp -s "$tmp/before.rows" "$tmp/after.rows" && ok "pid, cwd, branch and every other field are untouched" || fail "a field beyond program and owner changed"
 ml list
 case $OUT in *"$fold_name${TAB}beta${TAB}worker"*) ok "the destination's list shows the session" ;; *) fail "list after the move: $OUT" ;; esac
