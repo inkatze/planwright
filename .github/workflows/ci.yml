@@ -22,7 +22,10 @@
 name: ci
 
 "on":
+  # `ready_for_review` and `labeled` start the macOS jobs on a head a draft
+  # push skipped them for (see the plan job's mac step).
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
   push:
     branches: [main]
 
@@ -196,6 +199,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
+      mac_run: ${{ steps.mac.outputs.run }}
       mac_runner: ${{ steps.mac.outputs.runner }}
       mac_shards: ${{ steps.mac.outputs.shards }}
     steps:
@@ -215,12 +219,28 @@ jobs:
       # from naming the runner's labels; the runner's job-started hook is what
       # refuses that. The runner takes one job at a time, so its path runs the
       # suite as a single shard; the hosted path keeps four.
+      #
+      # Whether they run at all is decided first (macOS runners are scarce, and
+      # draft pushes queued behind each other and main): a push to main, and a
+      # pull request that is not a draft, run them; a draft runs them only
+      # while it carries the `ci-macos` label, the label the ready-flip
+      # readiness check names when a head's macOS jobs were skipped. The Linux
+      # jobs run on every push regardless. Both macOS jobs carry
+      # `if: needs.plan.outputs.mac_run == 'true'`, the one job-level condition
+      # check:workflow-posture accepts on them, and the check job below
+      # accepts their skip only when that output is not true.
       - id: mac
         env:
           EVENT: ${{ github.event_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'ci-macos') }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           SWITCH: ${{ vars.PLANWRIGHT_MAC_RUNNER }}
         run: |
+          run=true
+          if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ] && [ "$LABELLED" != true ]; then
+            run=false
+          fi
           runner=hosted
           if [ "$SWITCH" != self-hosted ]; then
             reason="the PLANWRIGHT_MAC_RUNNER variable is not set to self-hosted"
@@ -234,10 +254,14 @@ jobs:
             reason="a $EVENT from '$HEAD_REPO', not $GITHUB_REPOSITORY, stays on hosted macOS"
           fi
           if [ "$runner" = self-hosted ]; then shards='[1]'; else shards='[1, 2, 3, 4]'; fi
-          msg="macOS jobs: $runner runner, $shards shards ($reason)"
+          if [ "$run" = true ]; then
+            msg="macOS jobs: $runner runner, $shards shards ($reason)"
+          else
+            msg="macOS jobs: skipped on a draft; label it ci-macos or mark it ready"
+          fi
           echo "$msg"
           echo "$msg" >>"$GITHUB_STEP_SUMMARY"
-          { echo "runner=$runner"; echo "shards=$shards"; } >>"$GITHUB_OUTPUT"
+          { echo "run=$run"; echo "runner=$runner"; echo "shards=$shards"; } >>"$GITHUB_OUTPUT"
 
   # The suite in the planned shards (scripts/run-tests.sh --shard), split by
   # the same table so each runs about an equal share of the suite's time.
@@ -306,13 +330,21 @@ jobs:
           LINT_RESULT: ${{ needs.lint.result }}
           PLAN_RESULT: ${{ needs.plan.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          MAC_RUN: ${{ needs.plan.outputs.mac_run }}
           MACOS_RESULT: ${{ needs.macos-suite.result }}
           MACOS_SMOKE_RESULT: ${{ needs.macos-smoke.result }}
           ALPINE_RESULT: ${{ needs.alpine-suite.result }}
         run: |
           echo "lint: $LINT_RESULT; plan: $PLAN_RESULT; test: $TEST_RESULT"
-          echo "macos-suite: $MACOS_RESULT; macos-smoke: $MACOS_SMOKE_RESULT"
+          echo "mac_run: $MAC_RUN; macos-suite: $MACOS_RESULT; macos-smoke: $MACOS_SMOKE_RESULT"
           echo "alpine-suite: $ALPINE_RESULT"
+          # A macOS job is skipped only on a draft run that planned no macOS;
+          # the ready-flip readiness check still wants them green on the head.
+          if [ "$MAC_RUN" = false ] && [ "$MACOS_RESULT" = skipped ] \
+            && [ "$MACOS_SMOKE_RESULT" = skipped ]; then
+            MACOS_RESULT=success
+            MACOS_SMOKE_RESULT=success
+          fi
           [ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ] \
             && [ "$TEST_RESULT" = success ] && [ "$MACOS_RESULT" = success ] \
             && [ "$MACOS_SMOKE_RESULT" = success ] && [ "$ALPINE_RESULT" = success ]
@@ -360,6 +392,7 @@ jobs:
     # count. check:workflow-posture accepts exactly this runs-on shape as a
     # macOS job; keep it identical in macos-smoke.
     needs: plan
+    if: ${{ needs.plan.outputs.mac_run == 'true' }}
     # yamllint disable-line rule:line-length
     runs-on: ${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('["self-hosted", "macOS", "ARM64", "offload-mac-ci"]') || 'macos-latest' }}
     timeout-minutes: 45
@@ -399,6 +432,7 @@ jobs:
 
   macos-smoke:
     needs: plan
+    if: ${{ needs.plan.outputs.mac_run == 'true' }}
     # yamllint disable-line rule:line-length
     runs-on: ${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('["self-hosted", "macOS", "ARM64", "offload-mac-ci"]') || 'macos-latest' }}
     timeout-minutes: 15

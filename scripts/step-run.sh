@@ -125,7 +125,10 @@
 # heads at that point) are computed here. A field the caller leaves unset is
 # filled, for a flight worker only, from the launch record in
 # PLANWRIGHT_WORKER_SESSION_RECORD (UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE),
-# so the worker runs this script with no variable prefix.
+# so the worker runs this script with no variable prefix. Any other
+# PLANWRIGHT_STEP_* name in the environment (resolve-steps.sh --check-env
+# judges it) is a misspelling: every verb but resolve exits 2 naming it and
+# its right spelling, and resolve only warns.
 #
 # Output of command, begin (but `run`), and end: `<outcome><TAB><record>
 # <TAB><hosting><TAB><session>`, the record path absolute and, for a reuse
@@ -146,9 +149,10 @@
 # Exit: 0 the step passed or was skipped, or the verb succeeded · 1 the step
 # failed (its record written) · 2 usage, a refused argument, or a row that is
 # not a resolved command step of the verb's hosting (nothing recorded or
-# taken) · 4 a record, state, or slot operation failed (a release that fails
+# taken), or a misspelled PLANWRIGHT_STEP_* name on any verb but resolve · 4 a record, state, or slot operation failed (a release that fails
 # after the record is written included) · 128+n a signal stopped `command`.
-# resolve exits as resolve-steps.sh did, save its own 2 and 4.
+# resolve exits as resolve-steps.sh did, save its own 2 and 4, and warns on a
+# misspelled PLANWRIGHT_STEP_* name without changing its exit.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -1078,6 +1082,16 @@ cmd_audit() {
   printf '%s\n' "$line"
   [ "$any" -eq 0 ]
 }
+
+# A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
+# --check-env owns the list) would be dropped without a word: every verb that
+# writes, runs or audits refuses it, and the read-only resolve warns.
+env_rc=0
+env_msg=$("$RS" --check-env 2>&1) || env_rc=$?
+if [ "$env_rc" -eq 6 ]; then
+  printf '%s\n' "$env_msg" >&2
+  [ "$verb" = resolve ] || exit 2
+fi
 
 case $verb in
   audit) cmd_audit "$@" ;;
