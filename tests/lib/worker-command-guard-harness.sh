@@ -59,6 +59,10 @@ export TMPDIR
 unset PLANWRIGHT_WORKER_SESSION_RECORD
 SANDBOX="$(mktemp -d /tmp/worker-command-guard-harness.XXXXXX)" || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
+# Canonical, as the launcher writes a record's paths: /tmp is a symlink to
+# /private/tmp on macOS, and the guard refuses a record naming a path whose
+# canonical form differs.
+SANDBOX="$(cd "$SANDBOX" && pwd -P)" || exit 1
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"

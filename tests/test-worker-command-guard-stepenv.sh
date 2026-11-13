@@ -78,4 +78,18 @@ HOOK_ENV=("${NONE_ENV[@]}")
 assert_defer "a missing record defers the caller fields before step-run.sh" "env $CTX $SR audit --through pre-pr" Bash "$WT"
 assert_defer "a missing record defers the caller fields before step-record.sh" "env $CTX $SREC new-run" Bash "$WT"
 
+# The macOS shape: the record names its worktree through a symlinked path
+# (/tmp is /private/tmp there). A record whose paths are not canonical is no
+# record, so the caller fields defer; the canonical spelling of the same
+# worktree is allowed.
+ln -s "$SANDBOX/install" "$SANDBOX/alias"
+WTA="$SANDBOX/alias/worktree"
+write_record "$SANDBOX/records/alias.record" "$WTA" "" planwright/flight/demo-0123abcd
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/alias.record")
+CTXA="PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=$WTA"
+assert_defer "a record naming a symlinked worktree path defers step-record.sh" "env $CTXA $SREC new-run" Bash "$WT"
+assert_defer "a record naming a symlinked worktree path defers step-run.sh" "env $CTXA $SR audit --through pre-pr" Bash "$WT"
+HOOK_ENV=("${FLIGHT_ENV[@]}")
+assert_allow "the canonical spelling of that worktree is allowed" "env $CTX $SREC new-run" Bash "$WT"
+
 finish_suite worker-command-guard-stepenv
