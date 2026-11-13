@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -806,7 +806,17 @@ later planwright bundles implement, D-12).
   exits success, an event of its class was seen after it opened, the pull
   request it names merged) as a proposal to close it with that evidence.
   The audit never closes an item itself and edits nothing else.
+  **Superseded-by: REQ-F1.25** (2026-11-13)
   *(Cites: D-56; the follow-up ledger report (2026-11-10, Sources).)*
+- **REQ-F1.25** (supersedes REQ-F1.23) An item SHALL close only through
+  `close` with recorded evidence, never by being deleted, aged out or
+  dropped from a list. The close is made either by a session with evidence
+  it states, or by the validity sweep (REQ-P1.3) when the item's
+  done-condition is machine-checkable and the check passes, the sweep then
+  recording the check's evidence in the same `close` call. A stale-open
+  audit at bring-up, at each handover and daily SHALL run that sweep, and an
+  item whose done-condition only a person can confirm is never closed by it.
+  *(Cites: D-65; REQ-P1.3; the duty-ledger report (2026-11-13, Sources).)*
 - **REQ-F1.24** An audit of mission control's own state SHALL find what
   should be a durable queue and is not, at bring-up, at each handover and
   daily: for every kind of state mission control holds that something is
@@ -1277,6 +1287,76 @@ later planwright bundles implement, D-12).
   interpolated into it.
   *(Cites: D-44, D-8; security-posture (Sources).)*
 
+## REQ-P — The duty ledger drives itself
+
+A duty is something that has to be monitored and fulfilled until completed,
+whose moment may not be known in advance; the ledger holding it is a queue
+the runner works, never a list that grows and is forgotten.
+
+- **REQ-P1.1** The runner, not a session's memory, SHALL check every open
+  ledger item on each pass, and an item whose date has come or whose event
+  was seen SHALL raise a wake carrying the item (REQ-F1.10). The wake SHALL
+  repeat each repeat interval (a knob) for as long as the item stays open
+  and unacknowledged (REQ-F1.21); only a close with evidence or an
+  acknowledgement stating a new date or event ends the repeat. A raise that
+  fails SHALL repeat on the next pass, and no pass SHALL leave a due item
+  without a recorded raise.
+  *(Cites: D-65; REQ-F1.10, REQ-F1.21; the duty-ledger report (2026-11-13,
+  Sources).)*
+- **REQ-P1.2** An item that stays overdue past the overdue grace (a knob)
+  SHALL raise `followup-overdue`, an event of the failure class, pushed to
+  the operator through the notification channel and repeated each repeat
+  interval while it stays overdue. It SHALL never appear as a routine line,
+  and its text SHALL name the item, how overdue it is, its done-condition
+  and its owner.
+  *(Cites: D-65; REQ-F1.20; the duty-ledger report (2026-11-13, Sources).)*
+- **REQ-P1.3** A validity sweep run by the runner SHALL re-check every open
+  item against live state at each sweep interval (a knob), at bring-up and at
+  each handover: a command check exits success, a pull request the item
+  names is merged, an event of its class was seen after the item opened, a
+  date has passed. Where the evidence shows the done-condition met, the
+  sweep SHALL close the item with that evidence recorded. Where the check
+  cannot be evaluated (unreadable, its pull request gone, its class emitted
+  by nothing, no check at all) or the item is open past the stale window (a
+  knob) with its trigger unmoved, the sweep SHALL raise it as stale
+  (`followup-stale`). Every sweep SHALL end each open item in exactly one
+  recorded outcome (closed with evidence, still valid with the time it was
+  checked, due and raised, or stale and raised), so no item is ever left
+  silent. A command check runs under the same limits as a goal's check
+  (REQ-N1.4): changing nothing, from the program home, with a timeout, with
+  no value interpolated, and it records and prints presence, never a
+  secret's value.
+  *(Cites: D-65; REQ-N1.4, REQ-F1.25; the duty-ledger report (2026-11-13,
+  Sources).)*
+- **REQ-P1.4** Every event class an emitter writes SHALL appear in the event
+  class registry (`config/mc-event-classes.tsv`), and a shipped check SHALL
+  fail when an emitter names a kind the registry lacks, so the emitted set
+  `followup add` validates against (REQ-F1.22) is complete by construction.
+  A refusal of an unknown event trigger SHALL also name the done-condition
+  forms that need no emitted class (a command whose exit status says done, a
+  date). An open item already naming a class nothing emits SHALL be listed
+  by the sweep as stale and never deleted.
+  *(Cites: D-65; REQ-F1.22; the duty-ledger report (2026-11-13, Sources).)*
+- **REQ-P1.5** A standing rule that is time-bound or conditional SHALL live
+  in the ledger as an item with a trigger, and not as a rule that outlives
+  its condition. A rule added with an end condition (`--until`, a date, an
+  event or a command check) SHALL write its ledger item in the same call,
+  the item naming the rule; when the item closes with evidence, the rule
+  SHALL be superseded in the same step. A rule added without one SHALL be
+  recorded as standing. The sweep SHALL list each active rule whose text
+  reads as time-bound ("until", "later", "for now", "temporarily") and that
+  has no item as a proposal to move it, never moving one itself.
+  *(Cites: D-66; REQ-B1.2; the duty-ledger report (2026-11-13, Sources).)*
+- **REQ-P1.6** The ledger duty SHALL ship in the default duty set, on for
+  every installation and program that does not name its own list, with its
+  runner steps (the raise pass and the sweep) armed only while it is
+  enabled (REQ-C1.4). A program whose own duty list omits it, or an
+  installation that disables it while open items exist, SHALL be flagged by
+  the doctor naming the open count; ledger writes themselves stay available
+  whether or not the duty is on.
+  *(Cites: D-67; REQ-C1.2, REQ-C1.4; the duty-ledger report (2026-11-13,
+  Sources).)*
+
 ## Changelog
 
 - 2026-10-22 — Drafted (`/spec-draft`): the requirement groups and
@@ -1471,6 +1551,22 @@ later planwright bundles implement, D-12).
   names `tests/test-mission-control-launch-host.sh`, the files the per-file
   test-time budget split moved those cases into. No requirement or decision
   changes meaning.
+- 2026-11-13 — Amendment 15 (meaning-class, Draft on the Active bundle,
+  drafted in the spec-pipeline program): the duty ledger drives itself
+  (REQ-P1.1 to REQ-P1.6: the runner repeats a due wake until the item is
+  acted on, an overdue item is a failure-class event pushed to the operator,
+  a validity sweep closes an item on recorded evidence or raises it as
+  stale, the event class registry is complete by check, a time-bound rule
+  becomes a ledger item, and the ledger duty ships in the default set; D-65
+  to D-67). REQ-F1.25 supersedes REQ-F1.23 (a sweep may close an item on
+  machine-checked evidence; D-56's rejection of auto-close is amended by
+  D-65 to allow exactly that and nothing wider). Tasks 75 to 79. Reconcile
+  notes: group P, D-65 onward and Task 75 onward follow the highest numbers
+  on the open amendment branches (Amendment 14 takes REQ-O, D-62 to D-64,
+  and Tasks up to 74; Amendments 9 to 13 take no REQ-P, and Amendment 13
+  being undrafted may claim numbers from D-65 and Task 75, to be renumbered
+  by whichever is kicked off second). Tasks 50 and 52 (not yet landed) are
+  its dependencies, and the first two flights extend what they add.
 
 ## Sources
 
@@ -1705,3 +1801,4 @@ later planwright bundles implement, D-12).
   (observation W80): the offload host knob shipped but stayed local though
   the rules say to offload, and nothing noticed. Framed REQ-M1.11,
   REQ-B1.13, REQ-A1.11, D-58.
+- **The duty-ledger report (2026-11-13)** — relayed through the hub, the operator's top priority: "I myself trusted too much you would do that and ended up wasting an entire week at work." Their definition: a duty is something that has to be monitored and fulfilled until completed, whose moment may not be known in advance, so a program must be ready; items may be re-validated recurrently, and the ledger must not be a list that grows and is forgotten. One program's ledger held about twenty open items, mostly past their dates and never re-checked; another had event triggers no script emits. Framed REQ-F1.25, REQ-P1.1 to REQ-P1.6, D-65 to D-67. A pinned altitude claim: the duty ledger is a core, default-on planwright duty, not a per-machine habit.

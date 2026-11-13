@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -697,6 +697,15 @@ stores a date trigger; an existing unknown-class item is listed and kept.
 event was seen or whose pull request merged is flagged with the evidence;
 the audit changes no row; `close` without evidence is refused.
 
+### REQ-F1.25 — Close only with evidence; the sweep may close on a passing check [test]
+
+`tests/test-mc-followups.sh` and `tests/test-mc-kb.sh` (Task 76), in
+fixtures: `close` with no evidence is refused; an item whose command check
+exits success is closed by the sweep with the check's evidence recorded in
+the row; an item whose done-condition is the operator's confirmation, or
+whose check fails, stays open; no verb or sweep removes a row. This entry
+carries the normative text for the supersession of REQ-F1.23.
+
 ### REQ-F1.24 — State that should be a queue and is not is found [test]
 
 `tests/test-mc-audit.sh` (Task 56), in fixtures: a state kind with no
@@ -1177,3 +1186,59 @@ no repository file changes; concurrent writes serialize under its lock; a
 missing or unknown `format` is refused; a tracked pull request titled
 with `$(touch <sentinel>)` leaves no sentinel and the executed command
 equals the stored one.
+
+## REQ-P — The duty ledger drives itself
+
+### REQ-P1.1 — The runner repeats a due wake until acted on [test]
+
+`tests/test-mc-followups.sh` (Task 75), with `--now` and a fixture ledger: a
+date item and an event item each raise `followup-due` on the first pass; no
+second raise inside the repeat interval and one more at each interval
+boundary while the item stays open; an acknowledgement with a new date, and a
+close with evidence, each stop the repeat; a raise whose emit fails is made
+again on the next pass; no due item ends a pass without a recorded raise.
+
+### REQ-P1.2 — Overdue is a failure-class event pushed to the operator [test]
+
+`tests/test-mc-followups.sh` and `tests/test-mc-event.sh` (Task 75): an item
+past the overdue grace raises `followup-overdue`, which the class registry
+maps to failure and which reaches the notification channel in a fixture; the
+text names the item, how overdue it is, its done-condition and its owner;
+it repeats each interval and no routine line carries it.
+
+### REQ-P1.3 — The sweep re-checks every open item and leaves none silent [test]
+
+`tests/test-mc-followups.sh` (Task 76), in fixtures: a passing command check
+and a merged pull request in the snapshot each close their item with the
+evidence recorded; an unreadable check, a vanished pull request, an
+unemitted class and an item past the stale window each raise one
+`followup-stale`; every open item has exactly one recorded outcome after a
+sweep; a check that prints a secret fixture leaves no value in the record;
+a check runs from the program home under a timeout with a hostile
+`$(touch <sentinel>)` item text leaving no sentinel.
+
+### REQ-P1.4 — The registry is complete and unknown triggers are refused [test]
+
+`tests/test-mc-followups.sh` and the registry check (Task 77): a fixture
+emitter naming an unregistered kind fails the check (and the check passes
+again once the row exists); `followup add` with an event nothing emits is
+refused naming the known kinds and the command and date forms; an existing
+item naming such a class is listed stale by the sweep and its row is kept.
+
+### REQ-P1.5 — A time-bound rule is written with its ledger item [test]
+
+`tests/test-mc-rules.sh` and `tests/test-mc-followups.sh` (Task 78): `add`
+with an end condition writes the rule and one item naming it; closing the
+item with evidence supersedes the rule in the same step and leaves the rule
+list with one entry in force on the subject; `add` with no end condition is
+recorded as standing; a fixture rule worded "until reset" with no item is
+listed as a proposal and is not changed.
+
+### REQ-P1.6 — The ledger duty ships on by default [test]
+
+`tests/test-mc-duties.sh` and `tests/test-mc-config-doctor.sh` (Task 79): a
+fixture program with no duty list arms the raise pass and the sweep; with the
+duty disabled nothing is armed and `followup add` and `close` still work; a
+program list omitting the duty, and a disabled duty with open items, are
+each flagged by the doctor with the open count; the default set names the
+duty.

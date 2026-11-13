@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1773,6 +1773,11 @@ already met, with the evidence, and never closes one. The runner calling
 core gap; an intake row plus a turn-end check makes recording the default
 and forgetting a refusal.
 
+*(Amended at amendment 15 2026-11-13: the stale-open audit's "never closes
+one" and the auto-close alternative are narrowed by D-65; a sweep closes on a
+passing machine check with the evidence recorded, never on a person's
+confirmation or a bare assertion.)*
+
 ### D-57: One lease shape, and rules carry clauses the guard keeps  (N; C, D-5, D-24, D-53)
 
 **Decision:** A rule entry may carry an enforcement clause (match, effect,
@@ -1827,6 +1832,99 @@ stays as it is.
 **Chosen because:** the offload knob stayed at its local default while two
 rules said otherwise and nothing noticed; a structured required value turns
 that into a check, and the duty reports the waste it left.
+
+### D-65: The runner repeats the wake and sweeps validity; the sweep may close on machine evidence  (N; C, D-9, D-56)
+
+**Decision:** The runner's follow-up pass (D-9) changes from raise-once to
+repeat-until-acted-on: a due item raises `followup-due` (class act), and
+the same wake repeats each repeat interval while the item stays open and
+unacknowledged; past an overdue grace it raises `followup-overdue`, a
+failure-class event the operator is pushed, repeating the same way. A second
+runner step, the validity sweep, re-checks every open item against live
+state (a command check, the pull request the item names, an event of its
+class seen after it opened, the date) and ends each in one recorded outcome:
+closed with the evidence, still valid (checked-at recorded), due and raised,
+or stale and raised (`followup-stale`, class act). The sweep may call
+`close` itself, and only where the done-condition is machine-checkable and
+the check passes; evidence is recorded in the same call, so an item still
+closes only with evidence a person can read. An item whose condition only a
+person can confirm is never closed by the sweep. The per-item raise record
+and the sweep outcomes live in the runner's runtime directory, not in the
+ledger, so the ledger's row format and its one writer per file (REQ-K1.5)
+are untouched. D-56's rejection of auto-close is amended to this: the
+rejected shape was closing on a bare assertion, and the sweep closes on a
+check.
+
+**Alternatives considered:**
+- Keep raise-once and rely on the acknowledgement rule (D-56). Rejected
+  because: a promise raised once at a moment nobody reads is exactly the
+  forgotten item; the operator lost a week to it.
+- A scheduled standing LLM session reviewing the ledger. Rejected because:
+  REQ-C1.5 keeps mechanics deterministic and no standing session watches
+  anything.
+- Propose closes and never close (D-56 as written). Rejected because: a
+  proposal nobody acts on leaves the ledger growing; a passing check the
+  runner already ran is the evidence.
+- Close on any condition, including a person's confirmation. Rejected
+  because: that is the bare assertion D-56 rightly refused.
+
+**Chosen because:** the failure was a ledger that depended on a session
+remembering to look; a runner that re-checks every item on every pass makes
+silence impossible, and failure-class overdue events put a missed duty where
+the operator cannot miss it.
+
+### D-66: A time-bound standing rule is a ledger item  (N; C, D-5, D-56)
+
+**Decision:** The rule store keeps what holds without end; whatever ends
+when a condition is met is a ledger item. `mc-rules.sh add` takes an end
+condition (`--until`, a date, an event or a command check) and, given one,
+writes the rule and its ledger item in one call, the item naming the rule
+and its done-condition being the end condition; closing the item with
+evidence supersedes the rule in the same step, through the rule store's own
+supersede path (REQ-B1.2). A rule without an end condition is standing.
+Existing rules that read as time-bound are listed by the sweep as proposals
+to move; detection is a word list and only ever proposes.
+
+**Alternatives considered:**
+- Detect time-bound rules from their text and move them automatically.
+  Rejected because: D-56 already records that deterministic detection of an
+  intent in free text is unreliable; a wrong move changes what the operator
+  asked for.
+- Leave the end condition in the rule's prose for the session to honour.
+  Rejected because: "until the operator resets usage" stayed in force past
+  its condition because nothing watched it.
+
+**Chosen because:** the same ledger machinery (trigger, wake, sweep,
+evidence) then governs the end of a rule, and a rule's lifetime is recorded
+data instead of a sentence.
+
+### D-67: The ledger is a default-on duty; the event registry is checked complete  (N; C, D-3, D-27, D-56)
+
+**Decision:** The altitude is core: the ledger's runner steps ship as a
+duty in `config/duties.yaml`, lifecycle live, named in the default duty set
+(`mission_control_default_duties`), so every installation and every
+adopter's hub gets it without opting in. The raise pass and the sweep arm
+only while the duty is enabled (REQ-C1.4); the doctor flags a program whose
+own list omits it, or a disabled duty with open items, naming the count.
+Ledger writes (`followup add` and `close`) work whatever the duty state, so
+nothing is lost by disabling. Separately, a shipped check fails when an
+emitter writes an event kind the registry lacks, so the emitted set
+`followup add` validates against cannot drift behind the emitters; the
+words in existing triggers that nothing emits are reported by the sweep.
+
+**Alternatives considered:**
+- Leave the raise pass hard-wired in the tick with no duty. Rejected
+  because: it cannot be switched off for a shadow period (REQ-C1.6), is
+  invisible in the duty list the operator reads, and gives the doctor
+  nothing to flag.
+- Ship the duty off by default. Rejected because: a duty only some
+  adopters turn on is the per-machine habit the operator's loss came from.
+- Add the missing event words (`launches-unheld` and the like) as emitted
+  events. Rejected because: those words describe a condition, and a command
+  check says the same without a new emitter per phrase.
+
+**Chosen because:** the operator wants this for every hub and coworker, with
+no step to remember.
 
 ## Cross-cutting concerns
 
