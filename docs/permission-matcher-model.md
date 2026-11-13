@@ -429,7 +429,14 @@ deny:
   `planwright.local.yml`, wherever they sit).
 - **Other processes' environments** (REQ-E1.6): `/proc/<pid>/environ` and
   `/proc/<pid>/task/<tid>/environ`. The Read tool cannot read the worker's own
-  `/proc/self/environ` either; `env` and `printenv` still print it.
+  `/proc/self/environ` either, and the command guard defers `/proc/self/environ`,
+  bare `env` and bare `printenv`.
+- **What these rules do not cover:** the other secret locations the command
+  guard defers (the home's credential files, `/etc/shadow`, `/dev/fd`). The
+  file tools and the static `ls`, `stat`, `git diff`, `git log` and `git show`
+  allow rules never reach the guard, so those reads run unprompted; Read denies
+  for them, and dropping those static rules so the guard decides, are a
+  recorded follow-up.
 
 Every rule but one is anchored at the filesystem root (`//`), never at the
 settings file, whose directory is the plugin's `config/` (M10). Root-anchoring

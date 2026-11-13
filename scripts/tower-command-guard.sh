@@ -91,6 +91,9 @@
 # never a false-allow.
 set -u
 unset CDPATH
+# The shared engine's own-environment switch: the tower still reads its own
+# environment, which a worker no longer does.
+GUARD_OWN_ENVIRON=1
 # Pin the C locale so bracket expressions and character classes below mean
 # exactly their ASCII range on every host (mirrors the sibling hooks).
 LC_ALL=C
@@ -1216,6 +1219,10 @@ guard_date() {
     a=${cw[i]}
     case $a in
       -s | -s* | --set | --set=*) return 1 ;;
+      # `-f FILE` echoes every line it cannot parse; short options bundle and
+      # long ones abbreviate.
+      -I*) ;;
+      -[fs]* | -[a-zA-Z]*[fs]* | --f*) return 1 ;;
     esac
   done
   return 0
@@ -2158,6 +2165,345 @@ opener_word_risky() {
   return 1
 }
 
+# Secret-bearing locations: the worker guard's screen (see its comments),
+# kept byte-identical by the structural parity test.
+secret_lexical() {
+  local s=$1 had=1 hit=1
+  case $s in
+    /*) ;;
+    *) s=/$s ;;
+  esac
+  s=$s/
+  # A case-insensitive volume (macOS's default) opens `~/.SSH` as `~/.ssh`.
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  case $s in
+    */.ssh/* | */.gnupg/* | */.aws/* | */.netrc/* | */.npmrc/* | */.pypirc/* | */.git-credentials/* | \
+      */.kube/* | */.azure/* | */.password-store/* | */.docker/* | */.dockercfg/* | \
+      */.pgpass/* | */.my.cnf/* | */.s3cfg/* | */.boto/* | */.oci/* | */.m2/settings*.xml/* | \
+      */.composer/auth.json/* | */.config/composer/auth.json/* | */.config/containers/auth.json/* | \
+      */.local/share/keyrings/* | */Library/Keychains/* | \
+      */.config/gh/* | */.config/hub/* | */.config/op/* | */.config/gcloud/* | */.config/git/credentials/* | \
+      */.config/rclone/* | */.config/doctl/* | */.config/glab-cli/* | */.config/github-copilot/* | \
+      */.cargo/credentials* | */.gem/credentials/* | \
+      */.terraform.d/credentials* | */.vault-token/* | \
+      */.claude/.credentials* | */.claude.json/*) hit=0 ;;
+  esac
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  [ "$hit" -ne 0 ] || return 0
+  case $s in
+    /etc/letsencrypt/* | /etc/NetworkManager/system-connections/* | /etc/wireguard/* | /etc/pki/tls/private/* | \
+      /etc/master.passwd/* | /private/etc/master.passwd/* | *.keytab/*) return 0 ;;
+    /etc/shadow/* | /etc/gshadow/* | /etc/shadow-/* | /etc/gshadow-/* | /etc/ssh/ssh_host_*_key/* | /etc/sudoers/* | /etc/sudoers.d/* | /etc/ssl/private/*) return 0 ;;
+    # macOS keeps /etc under /private, which a resolved path reports.
+    /private/etc/shadow/* | /private/etc/gshadow/* | /private/etc/ssh/ssh_host_*_key/* | /private/etc/sudoers/* | /private/etc/sudoers.d/* | /private/etc/ssl/private/*) return 0 ;;
+    /proc/*/?* | /dev/fd/* | /dev/stdin/*) return 0 ;;
+    # Container and service secrets, and Debian's shadow backups.
+    /run/secrets/* | /var/run/secrets/* | /private/var/run/secrets/* | /run/credentials/* | /var/backups/*shadow* | /run/user/*/containers/auth.json/*) return 0 ;;
+  esac
+  return 1
+}
+
+secret_glob() {
+  secret_glob_word "$1" && return 0
+  # The word as written misses the samples when it has `.`, `..` or repeated
+  # slashes, so its lexical form is tested too.
+  lexical_path "$1"
+  [ "$LEX" != "$1" ] || return 1
+  secret_glob_word "$LEX"
+}
+
+lexical_path() {
+  local rest=$1/ comp
+  LEX=''
+  while [ -n "$rest" ]; do
+    comp=${rest%%/*}
+    rest=${rest#*/}
+    case $comp in
+      '' | .) ;;
+      ..) LEX=${LEX%/*} ;;
+      *) LEX=$LEX/$comp ;;
+    esac
+  done
+  [ -n "$LEX" ] || LEX=/
+}
+
+secret_glob_word() {
+  local w=$1 s c n IFS=/
+  local -a parts
+  case $w in
+    *[\{^#~]*)
+      case $w in
+        /etc* | /proc* | /dev* | */.* | *[\{,]\.*) return 0 ;;
+      esac
+      ;;
+  esac
+  case $w in
+    /proc/*/?*) return 0 ;;
+  esac
+  # A pattern in the top directory's name (`/pro[c]`, `/e?c`) could be any
+  # system root.
+  c=${w#/}
+  c=${c%%/*}
+  case $c in
+    *[*?[]*)
+      for n in proc etc dev run var root home Users private; do
+        # shellcheck disable=SC2053
+        [[ $n == $c ]] && return 0
+      done
+      ;;
+  esac
+  for s in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- /etc/sudoers /etc/ssl/private/k.pem /proc/1/mem /dev/fd/0 /dev/stdin \
+    /etc/ssh/ssh_host_rsa_key /etc/ssh/ssh_host_ed25519_key \
+    /run/secrets/x /var/run/secrets/x /run/credentials/x /var/backups/shadow.bak /var/backups/gshadow.bak /run/user/0/containers/auth.json; do
+    # shellcheck disable=SC2053 # the operand is the pattern under test
+    [[ $s == $w ]] && return 0
+  done
+  read -r -a parts <<<"$w"
+  for c in ${parts[@]+"${parts[@]}"}; do
+    case $c in
+      .*[*?[]*)
+        for n in .ssh .gnupg .aws .netrc .npmrc .pypirc .git-credentials .kube .azure .password-store .claude.json \
+          .docker .dockercfg .pgpass .my.cnf .s3cfg .boto .oci .vault-token; do
+          # shellcheck disable=SC2053
+          [[ $n == $c ]] && return 0
+        done
+        ;;
+    esac
+  done
+  return 1
+}
+
+glob_any_risky() {
+  local kind=$1 pat=$2 m n=0 IFS='' had_null=0 noglob=0
+  local -a ms
+  shopt -q nullglob && had_null=1
+  case $- in *f*) noglob=1 ;; esac
+  set +f
+  shopt -s nullglob
+  # shellcheck disable=SC2206 # the expansion is the point; IFS is empty
+  ms=($pat)
+  [ "$had_null" = 1 ] || shopt -u nullglob
+  [ "$noglob" = 0 ] || set -f
+  # The screens below assume the default IFS.
+  IFS=$' \t\n'
+  for m in ${ms[@]+"${ms[@]}"}; do
+    n=$((n + 1))
+    [ "$n" -le 2048 ] || return 0
+    case $kind in
+      secret) secret_path_risky "$m" 0 && return 0 ;;
+      *) broad_path_risky "$m" && return 0 ;;
+    esac
+  done
+  return 1
+}
+
+secret_home_glob() {
+  local s had=1 hit=1
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  for s in /.ssh/id_rsa /.gnupg/pubring.kbx /.aws/credentials /.netrc /.npmrc /.git-credentials /.kube/config /.docker/config.json \
+    /.config/gh/hosts.yml /.config/gcloud/credentials.db /.config/op/config /.config/rclone/rclone.conf /.config/containers/auth.json \
+    /.config/git/credentials /.local/share/keyrings/login.keyring /.cargo/credentials.toml /.claude/.credentials.json \
+    /.pypirc /.azure/accessTokens.json /.password-store/x.gpg /.dockercfg /.pgpass /.my.cnf /.s3cfg /.boto /.oci/config \
+    /.m2/settings.xml /.composer/auth.json /.config/composer/auth.json /Library/Keychains/login.keychain-db /.config/hub/config \
+    /.config/doctl/config.yaml /.config/glab-cli/config.yml /.config/github-copilot/hosts.json /.gem/credentials \
+    /.terraform.d/credentials.tfrc.json /.vault-token /.claude.json; do
+    # shellcheck disable=SC2053 # the operand is the pattern under test
+    if [[ $s == $1 ]]; then
+      hit=0
+      break
+    fi
+  done
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  return "$hit"
+}
+
+secret_word_risky() {
+  local w=$1
+  secret_path_risky "$w" "$2" && return 0
+  case $w in
+    -*=*) secret_path_risky "${w#*=}" "$2" && return 0 ;;
+    # A short option's attached operand (`-f/etc/shadow`, `-nf~/.ssh/k`).
+    -[!-]*[/~]*)
+      secret_path_risky "${w:2}" "$2" && return 0
+      case $w in
+        */*) secret_path_risky "/${w#*/}" "$2" && return 0 ;;
+      esac
+      case $w in
+        *\~*) secret_path_risky "~${w#*\~}" "$2" && return 0 ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+secret_path_risky() {
+  local p=$1 abs dir last tgt link hop=0
+  case $p in
+    '~'*)
+      case $p in
+        */*) p=/${p#*/} ;;
+        *) return 1 ;;
+      esac
+      ;;
+    "\$HOME"/* | "\${HOME}"/*) p=/${p#*/} ;;
+  esac
+  secret_lexical "$p" && return 0
+  case $p in
+    /*) abs=$p ;;
+    *) abs=$HOOK_CWD/$p ;;
+  esac
+  while [ "${abs%/}" != "$abs" ] && [ "$abs" != / ]; do
+    abs=${abs%/}
+  done
+  if [ "$2" = 1 ]; then
+    # Braces and zsh operators are not expanded here: one that can leave the
+    # tracked cwd (an absolute word, a `..`) is not followed.
+    case $p in
+      *[\{^#~]*)
+        case $p in
+          /* | *..*) return 0 ;;
+        esac
+        ;;
+    esac
+    secret_glob "$abs" && return 0
+    case $1 in
+      '~'/*) ;;
+      # Another account's home, or `~+`/`~-`: no home to expand it against.
+      '~'?*/*)
+        case $p in
+          *..*) return 0 ;;
+        esac
+        secret_home_glob "$p" && return 0
+        ;;
+    esac
+    # The lexical tests read a home-relative word from `/`; its matches come
+    # from the home itself.
+    case $1 in
+      '~'/* | "\$HOME"/* | "\${HOME}"/*)
+        [ -n "$HOME" ] || return 0
+        glob_any_risky secret "$HOME$p"
+        return
+        ;;
+    esac
+    glob_any_risky secret "$abs"
+    return
+  fi
+  secret_lexical "$abs" && return 0
+  last=${abs##*/}
+  dir=${abs%/*}
+  [ -n "$dir" ] || dir=/
+  canon_dir_cached "$dir"
+  [ -n "$CANON" ] || return 1
+  case $CANON in
+    /) tgt=/$last ;;
+    *) tgt=$CANON/$last ;;
+  esac
+  secret_lexical "$tgt" && return 0
+  # A symlink chain followed link by link (`readlink -f` is GNU-only); one
+  # that loops or cannot be read defers.
+  while [ -L "$tgt" ]; do
+    hop=$((hop + 1))
+    [ "$hop" -le 16 ] || return 0
+    link=$(readlink -- "$tgt") || return 0
+    case $link in
+      /*) ;;
+      *) link=${tgt%/*}/$link ;;
+    esac
+    secret_lexical "$link" && return 0
+    dir=${link%/*}
+    [ -n "$dir" ] || dir=/
+    canon_dir_cached "$dir"
+    [ -n "$CANON" ] || return 1
+    tgt=${CANON%/}/${link##*/}
+    secret_lexical "$tgt" && return 0
+  done
+  return 1
+}
+
+broad_dir() {
+  local x=$1 had=1 hit=1
+  # Matched ignoring case, as secret_lexical is (`~/.CONFIG` on macOS).
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  case $x in
+    / | /etc | /etc/ssh | /etc/ssl | /etc/sudoers.d | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) hit=0 ;;
+    # Runtime secrets, backups, and mounted volumes (another system's homes).
+    # Only a volume's root: a worktree may live further down one.
+    /run | /run/user | /run/user/* | /var | /var/run | /var/lib | /var/lib/* | /var/backups | /private/var | /private/var/run | /mnt | /media | /srv | /Volumes) hit=0 ;;
+    /mnt/*/* | /media/*/* | /Volumes/*/*) ;;
+    /mnt/* | /media/* | /Volumes/*) hit=0 ;;
+    /root/.claude | /root/.config | /home/*/.claude | /home/*/.config | /Users/*/.claude | /Users/*/.config) hit=0 ;;
+    /home/*/* | /Users/*/*) ;;
+    /home/* | /Users/*) hit=0 ;;
+  esac
+  if [ "$hit" -ne 0 ] && [ -n "$HOME" ]; then
+    case $x in
+      "$HOME" | "$HOME/.claude" | "$HOME/.config") hit=0 ;;
+    esac
+  fi
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  [ "$hit" -ne 0 ] || return 0
+  secret_lexical "$x"
+}
+
+broad_path_risky() {
+  local p=$1 abs out root
+  while [ "${p#*//}" != "$p" ]; do
+    p=${p//\/\//\/}
+  done
+  case $p in
+    \~ | \~/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\~}
+      ;;
+    \$HOME | \$HOME/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\$HOME}
+      ;;
+    \$\{HOME\} | \$\{HOME\}/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\$\{HOME\}}
+      ;;
+    \~*) return 0 ;;
+  esac
+  case $p in
+    /*) abs=$p ;;
+    *) abs=$HOOK_CWD/$p ;;
+  esac
+  # A `..` after a symlink climbs from the link's target, not from the link.
+  case $abs in
+    */.. | */../*)
+      canon_dir_cached "$abs"
+      if [ -n "$CANON" ]; then
+        broad_path_risky "$CANON" && return 0
+      fi
+      ;;
+  esac
+  lexical_path "$abs"
+  out=$LEX
+  broad_dir "$out" && return 0
+  canon_dir_cached "$out"
+  out=$CANON
+  [ -n "$out" ] || return 1
+  broad_dir "$out" && return 0
+  # The account's own home as its canonical path (macOS's /tmp is /private/tmp).
+  canon_dir_cached "$HOME"
+  if [ -n "$CANON" ]; then
+    case $out in
+      "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
+    esac
+  fi
+  # A parent of the worktree holds its siblings and, further up, the home.
+  root=$(repo_root_of "$HOOK_CWD") || return 0
+  [ "$out" != "$root" ] || return 1
+  case $root/ in
+    "$out"/*) return 0 ;;
+  esac
+  return 1
+}
+
 environ_word_risky() {
   local w=$1 last dir canon
   # `//proc` names /proc to the kernel, and bash's `cd -P` keeps the two
@@ -2165,11 +2511,13 @@ environ_word_risky() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
-  if [ "$2" = 0 ]; then
+  # The tower still reads its own environment; a worker defers.
+  if [ "$2" = 0 ] && [ "$GUARD_OWN_ENVIRON" = 1 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 1 ;;
     esac
   fi
+  secret_word_risky "$w" "$2" && return 0
   last=${w##*/}
   # `mem` holds the whole process's memory, its environment included.
   case $last in
@@ -2230,7 +2578,8 @@ environ_words_ok() {
               opts=0
               continue
               ;;
-            --regexp* | --file*)
+            # GNU grep takes any unambiguous prefix (`--reg=`, `--fil`).
+            --reg* | --fil | --file | --file=*)
               given=1
               continue
               ;;
@@ -2273,7 +2622,7 @@ environ_redirect_ok() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
-  if [ "$g" = 0 ]; then
+  if [ "$g" = 0 ] && [ "$GUARD_OWN_ENVIRON" = 1 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 0 ;;
     esac
