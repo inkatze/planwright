@@ -509,7 +509,7 @@ beside the worker's state for a recover, and is never read from live config,
 the checkout or the environment. A fresh launch without the flag drops it; a
 recover or relaunch keeps what its launch recorded.
 
-An opted-in launch gets two things, and a launch without the flag gets
+An opted-in launch gets three things, and a launch without the flag gets
 neither (it passes the shipped profile itself, byte for byte):
 
 - **A generated profile** (`scripts/worker-settings-generate.sh`): the four

@@ -595,7 +595,7 @@ else
 fi
 set_layer machine-local 'mise_task_edit: true'
 REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
-if ! grep -q '^mise_task_edit=' "$REC"; then
+if [ -s "$REC" ] && ! grep -q '^mise_task_edit=' "$REC"; then
   pass "mise opt-in: config never sets it"
 else
   fail "mise opt-in: a config line reached the record"
@@ -622,7 +622,7 @@ else
   fail "mise opt-in: a repeated flag was accepted"
 fi
 REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
-if ! grep -q '^mise_task_edit=' "$REC"; then
+if [ -s "$REC" ] && ! grep -q '^mise_task_edit=' "$REC"; then
   pass "mise opt-in: a relaunch without the flag drops the field"
 else
   fail "mise opt-in: the field outlived its launch"

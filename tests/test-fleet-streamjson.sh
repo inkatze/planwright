@@ -956,8 +956,9 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
 m_plain=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
 cmp -s "$m_plain" "$shipped_profile" || fail "c9m: a launch without the opt-in must pass the shipped profile byte for byte: $m_plain"
 [ ! -e "$home/streamjson/sjw9m2/mise-task-edit" ] || fail "c9m: a plain launch must record no opt-in"
-! grep -q '^mise_task_edit=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
-  || fail "c9m: a plain launch's session record must carry no opt-in"
+m_plain_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ [ -s "$m_plain_rec" ] && ! grep -q '^mise_task_edit=' "$m_plain_rec"; } \
+  || fail "c9m: a plain launch's session record must exist and carry no opt-in"
 # A recover of a worker that never opted in stays on the shipped profile.
 mkdir -p "$home/streamjson/sjw9m3"
 printf 'execution-backends:4\n' >"$home/streamjson/sjw9m3/scope"

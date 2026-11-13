@@ -103,6 +103,9 @@ got=$(jq -c '
   del(.permissions.deny)
   | del(._about)
   | .hooks.PreToolUse |= map(select(.matcher != "Edit|Write|MultiEdit|NotebookEdit"))' "$OUT")
+[ "$(jq '[.hooks.PreToolUse[] | select(.matcher == "Edit|Write|MultiEdit|NotebookEdit")] | length' "$OUT")" = 1 ] \
+  && ok "the generated profile carries exactly one file-tool guard hook" \
+  || fail "the generated profile must carry exactly one file-tool guard hook"
 [ "$want" = "$got" ] && ok "allow list, hooks and every other key are the shipped ones" || fail "a non-deny key differs from the shipped profile"
 rest=$(jq -c '[.permissions.deny[] | select(
   . != "Edit(//**/mise.toml)" and . != "Edit(//**/.mise.toml)"
