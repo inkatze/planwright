@@ -1204,12 +1204,36 @@ rc=$?
 [ "$rc" -eq 1 ] && grep -Fq -- "--base" "$tmp/err"
 verdict "an unresolvable range fails by name" "rc=$rc, or --base not named"
 
-# The latest run is the highest id, whether or not it holds a record.
-sr new-run >/dev/null
-[ -z "$(sr render)" ]
-verdict "render defaults to the latest run, even an empty one" "render showed an older run"
+# An empty run, the highest id, renders nothing under --run; regenerate
+# defaults to the latest run, whether or not it holds a record.
+emptyrun=$(sr new-run)
+[ -z "$(sr render --run "$emptyrun")" ]
+verdict "render --run on the latest run, even an empty one, shows no older run" "render showed an older run"
+! sr render --run "$emptyrun" | grep -q '^## Steps at'
+verdict "render --run on an empty run renders no table" "an empty run rendered a table"
 ! sr regenerate --base "$BASE" --head "$HEAD2" | grep -q '^## Steps at'
 verdict "regenerate defaults to the latest run, even an empty one" "regenerate showed an older run"
+
+# A bare render shows every run, oldest first, each under its run id.
+bare_all=$(sr render)
+runs_seen=$(printf '%s\n' "$bare_all" | grep '^## ' | grep -o "run \`[0-9]*\`" | tr -d '`' | awk '!s[$0]++' | tr '\n' ' ')
+[ "$runs_seen" = "run $run1 run $run2 run $run3 run $run4 " ]
+verdict "a bare render shows every run, oldest first, each under its run id" "runs: $runs_seen"
+one_run=$(sr render --run "$run1")
+! printf '%s\n' "$one_run" | grep -Fq "(run \`$run4\`)" && printf '%s\n' "$one_run" | grep -Fq "(run \`$run1\`)"
+verdict "render --run selects the one run and no other" "--run did not narrow to $run1"
+bare_pt=$(sr render --point pre-pr | grep -c "^## Steps at \`pre-pr\`")
+[ "$bare_pt" -ge 2 ]
+verdict "a bare render with --point names the point in every run that has it" "pre-pr tables: $bare_pt"
+before_run2=$(printf '%s\n' "$bare_all" | awk -v r="(run \`$run2\`)" 'index($0, r) && !d { print prev; d = 1 } { prev = $0 }')
+[ -z "$before_run2" ]
+verdict "a blank line separates one run's tables from the next" "line before run $run2: $before_run2"
+ln -s "$tmp/no-such-record" "$wt/.claude/steps/$emptyrun/001-step-pre-ci.rec"
+partial=$(sr render 2>"$tmp/err.partial")
+rc=$?
+rm "$wt/.claude/steps/$emptyrun/001-step-pre-ci.rec"
+[ "$rc" -eq 1 ] && [ -z "$partial" ] && grep -Fq "cannot be read" "$tmp/err.partial"
+verdict "a refusal in a later run prints nothing of the earlier runs" "rc=$rc, output: $partial"
 
 # --- a mkdir that tells every racer it won ---------------------------------------------
 # Some coreutils reimplementations report success to several concurrent
@@ -2710,6 +2734,50 @@ verdict "--degraded on an isolated step is refused" "--degraded on isolated was 
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"
+
+# --- a misspelled PLANWRIGHT_STEP_* name: write refuses, render warns -------------
+runbad=$(sr new-run)
+for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_BRANCH; do
+  bad=${pair%%:*} want=${pair#*:}
+  env "PLANWRIGHT_STEP_$bad=1" "$SR" --worktree "$wt" write --run "$runbad" --point convergence --step polish \
+    --kind skill --target planwright:polish --hosting isolated --backend terminal \
+    --head "$HEAD_SHA" --start 2026-09-28T10:00:00Z --end 2026-09-28T10:05:00Z --outcome applied \
+    >"$tmp/bad.out" 2>"$tmp/bad.err"
+  rc=$?
+  [ "$rc" -eq 2 ] && grep -q "PLANWRIGHT_STEP_$bad" "$tmp/bad.err" && grep -q "PLANWRIGHT_STEP_$want" "$tmp/bad.err"
+  verdict "write refuses PLANWRIGHT_STEP_$bad and names PLANWRIGHT_STEP_$want" "rc=$rc: $(cat "$tmp/bad.err")"
+done
+[ -z "$(sr list --run "$runbad")" ]
+verdict "the refused writes left no record" "a record was written under a misspelled name"
+env PLANWRIGHT_STEP_PR=7 "$SR" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && grep -q 'PLANWRIGHT_STEP_PR_NUMBER' "$tmp/bad.err"
+verdict "render only warns about PLANWRIGHT_STEP_PR" "rc=$rc: $(cat "$tmp/bad.err")"
+env PLANWRIGHT_STEP_PR_NUMBER=7 "$SR" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$tmp/bad.err" ]
+verdict "render with a documented PLANWRIGHT_STEP_PR_NUMBER stays silent" "rc=$rc: $(cat "$tmp/bad.err")"
+runs_before=$(ls "$wt/.claude/steps")
+env PLANWRIGHT_STEP_SPEC_ID=1 "$SR" --worktree "$wt" new-run >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+runs_after=$(ls "$wt/.claude/steps")
+[ "$rc" -eq 2 ] && grep -q 'PLANWRIGHT_STEP_SPEC' "$tmp/bad.err" && [ "$runs_before" = "$runs_after" ]
+verdict "new-run refuses PLANWRIGHT_STEP_SPEC_ID and issues no run" "rc=$rc: $(cat "$tmp/bad.err") runs: $runs_before / $runs_after"
+
+# A sibling resolve-steps.sh that cannot judge the context (any exit but its
+# own 6) is its own breakage, never reported as a misspelled name.
+broken="$tmp/broken-scripts"
+mkdir "$broken"
+for f in "$repo_root/scripts"/*.sh; do
+  [ "$f" = "$repo_root/scripts/resolve-steps.sh" ] || ln -s "$f" "$broken/${f##*/}"
+done
+# shellcheck disable=SC2016 # the stub's own $1 must stay literal
+printf '#!/bin/sh\ncase $1 in --check-env) echo "resolve-steps: broken install" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$repo_root/scripts/resolve-steps.sh" >"$broken/resolve-steps.sh"
+chmod +x "$broken/resolve-steps.sh"
+"$broken/step-record.sh" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && ! grep -q 'broken install' "$tmp/bad.err"
+verdict "a sibling that exits 5 on --check-env is not reported as a bad name" "rc=$rc: $(cat "$tmp/bad.err")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s\n' "$failures failure(s)" >&2
