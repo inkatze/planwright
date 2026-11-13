@@ -990,7 +990,8 @@ messaging_heal_cadence_seconds: 300
 #                               the pull request (the release-window lock is
 #                               red on every PR while main sits in an
 #                               untagged window), space separated on one
-#                               line. Read by scripts/base-state-checks.sh
+#                               line, matched exactly (a glob never matches).
+#                               Read by scripts/base-state-checks.sh
 #                               from the core and adopter layers only; a
 #                               malformed or unread value excludes nothing,
 #                               so every check counts.

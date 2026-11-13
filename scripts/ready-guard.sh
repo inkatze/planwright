@@ -1062,7 +1062,7 @@ readonly CHECKS_JQ='
 # behind is no condition by itself, so a MERGEABLE PR behind its base passes
 # when the latest run of every check on its head passed. For a pull_request
 # workflow that run built GitHub's merge ref, the head merged into the base.
-# Any doubt denies: a failed or timed-out read, an answer about another head,
+# Checks listed in ready_base_state_checks are left out first. Any doubt denies: a failed or timed-out read, an answer about another head,
 # no check at all, or a check failing or still pending.
 behind_checks() {
   local cwd=$1 head=$2 behind=$3 base why oid verdict runs_jq base_state

@@ -78,7 +78,9 @@ Unknown kinds are ignored.
 THE WALK refuses, each failure one line:
   - no head: nothing at a head was collected, so a report alone never
     passes;
-  - no individual check, or any check outside SUCCESS, NEUTRAL and
+  - no individual check (a check ready_base_state_checks names is left
+    out of the evidence, so a pull request whose only check is that one
+    has none), or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
   - an open thread, an unanswered finding, a failed guard, a truncated
     read;

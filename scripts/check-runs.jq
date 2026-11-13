@@ -3,7 +3,7 @@
 # judge readiness by. Each prepends this file to its own program, so a fix here
 # reaches all three.
 #
-# A check named in $base_state is left out first.
+# A check run listed in $base_state as <workflow>/<name> is left out first.
 # Only the latest run of each check context counts: a re-run supersedes the
 # runs before it, and a run not yet completed is the newest (gh reports an
 # unset time as 0001-01-01). Two runs of one context started in the same
