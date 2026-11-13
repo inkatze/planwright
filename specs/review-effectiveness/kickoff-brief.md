@@ -1004,3 +1004,38 @@ Lens-pass: the delta-scoped lens review recorded in this entry (spec lens
 set, five-reviewer fan-out, every finding dispositioned)
 Anchor: `fb6568f6f13ce151faf6d76077c92c2e94b5462b` — computed as
 `scripts/spec-anchor.sh specs/review-effectiveness`
+
+### 2026-11-13 — Amendment: word bound on the discovery, validation and loop doctrine docs
+
+#### Header
+
+- **Mode:** amendment of an Active bundle (status render: Active, derived),
+  human-declared via the operator's hub picklist; no status flip.
+- **Scope:** Done-when of Tasks 3, 3.1 and 4 only, and one Changelog entry
+  in `requirements.md`.
+
+#### Change
+
+Word-count clause relaxed from "no larger than before" to at most 150 words
+above each doc's pre-amendment count: `discovery-rigor.md` 1015 and
+`artifact-lenses.md` 1037 (Tasks 3 and 3.1 share the budget),
+`validation-rigor.md` 1131, `finding-categorization.md` 1492,
+`gate-wiring.md` 2639 (Task 4). Skill start-loads stay unchanged (REQ-G1.3,
+D-12).
+
+#### Lens pass
+
+A stale-reference sweep of the bundle found no other word-count clause to
+reconcile. Validator 0 errors, 0 warnings; lint 0 errors.
+
+#### Sign-off record (amendment)
+
+Signed off 2026-11-13 by the operator ("sign off", relayed by the hub) after
+the approval summary. `Last reviewed:` 2026-11-13 on `requirements.md` and
+`tasks.md`.
+
+Class: meaning
+Lens-pass: the stale-reference sweep recorded above (operator-classified
+meaning-class, one Done-when clause relaxed)
+Anchor: `d97887b3dbda30ff844b48ab939cb733f4383d1d` — computed as
+`scripts/spec-anchor.sh specs/review-effectiveness`
