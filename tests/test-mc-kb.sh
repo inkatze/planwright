@@ -122,8 +122,10 @@ alpha_block </dev/null
 # Format fields (D-8): every store carries one; a reader refuses others.
 # ---------------------------------------------------------------------------
 for f in index.md followups.tsv sources.tsv mechanisms.tsv; do
+  want="format: 1"
+  [ "$f" != followups.tsv ] || want="format: 2"
   case $(head -n 1 "$kb/$f") in
-    *"format: 1"*) ok "kb/$f carries its format field" ;;
+    *"$want"*) ok "kb/$f carries its format field" ;;
     *) fail "kb/$f lacks a format field" ;;
   esac
 done
@@ -468,12 +470,12 @@ mc_run mc-kb.sh followup add --program alpha --trigger date:2000-01-01 --text "n
 expect_rc "a follow-up without an owner is refused" 2
 mc_run mc-kb.sh followup add --program alpha --owner operator --trigger soon --text "bad trigger"
 expect_rc "a trigger outside the grammar is refused" 2
-mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger date:2000-01-01 --text "chase the deferral"
+mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger date:2000-01-01 --done operator --text "chase the deferral"
 expect_rc "a promise becomes a row" 0
 f_date=$OUT
-mc_run mc-kb.sh followup add --program alpha --owner operator --trigger event:pr-merged --text "announce the release"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger event:pr-merged --done operator --text "announce the release"
 f_event=$OUT
-mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --text "far away"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done operator --text "far away"
 
 mc_run mc-kb.sh followup due --program alpha
 expect_out "a passed date trigger is due" "chase the deferral"
@@ -499,6 +501,121 @@ mc_run mc-kb.sh followup due --program alpha --date 2999-06-01
 expect_out "a due date is read against the given day" "far away"
 mc_run mc-kb.sh followup close --program alpha f-999 --evidence x
 expect_rc "an unknown row is not found" 1
+
+# ---------------------------------------------------------------------------
+# REQ-F1.22: an event trigger names an emitted class; REQ-F1.10: a row
+# carries a done-condition, and an old row reads as having none.
+# ---------------------------------------------------------------------------
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --text "no done-condition"
+expect_rc "an item with no done-condition is refused" 2
+expect_err "the refusal names the missing done-condition" "--done"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done soon --text "bad done"
+expect_rc "a done-condition outside the grammar is refused" 2
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger event:no-such-class --done operator --text "unknown class"
+expect_rc "an event trigger of an unemitted class is refused" 2
+expect_err "the refusal names the known classes" "pr-merged"
+expect_err "the known classes include a watcher's declared event" "stall-dead"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger event:no-such-class --done operator --fallback-date 2999-02-02 --text "fallback"
+expect_rc "a fallback date accepts an unknown class" 0
+f_fallback=$OUT
+mc_run mc-kb.sh followup list --program alpha
+row=$(printf '%s\n' "$OUT" | I=$f_fallback awk -F '\t' '$1 == ENVIRON["I"] { print $4 }')
+if [ "$row" = "date:2999-02-02" ]; then ok "the fallback is stored as a date trigger"; else fail "the fallback row's trigger reads '$row'"; fi
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done event:no-such-class --text "unknown done class"
+expect_rc "a done-condition event of an unemitted class is refused" 2
+mc_run mc-event.sh emit --program alpha -- brand-new-kind subject
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger event:brand-new-kind --done operator --text "a kind the store emits"
+expect_rc "a class the event store emits is accepted" 0
+
+# An old row (format 1, no done-condition) is read as having none.
+cp "$kb/followups.tsv" "$tmp/followups.v2"
+printf '%s\n' "# format: 1" "# id${tab}opened${tab}owner${tab}trigger${tab}state${tab}text${tab}evidence${tab}closed" \
+  "f-1${tab}2026-01-01T00:00:00Z${tab}operator${tab}date:2026-01-02${tab}open${tab}an old promise${tab}-${tab}-" >"$kb/followups.tsv"
+mc_run mc-kb.sh followup list --program alpha
+expect_rc "a format-1 ledger still reads" 0
+expect_out "the old row is listed" "an old promise"
+mc_run mc-kb.sh followup audit --program alpha
+expect_out "the audit lists an old row as having no done-condition" "no-done${tab}f-1"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done operator --text "upgrade on write"
+expect_rc "an add upgrades the old ledger" 0
+if [ "$(head -n 1 "$kb/followups.tsv")" = "# format: 2" ]; then ok "the ledger is now format 2"; else fail "the ledger's first line is $(head -n 1 "$kb/followups.tsv")"; fi
+mc_run mc-kb.sh followup list --program alpha
+expect_out "the upgrade keeps the old row" "an old promise"
+cp "$tmp/followups.v2" "$kb/followups.tsv"
+
+# ---------------------------------------------------------------------------
+# REQ-F1.23: the stale-open audit proposes closes with evidence, never closes.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/bin"
+printf '%s\n' '#!/bin/sh' "cat '$tmp/ghstate'" >"$tmp/bin/gh"
+chmod +x "$tmp/bin/gh"
+PATH="$tmp/bin:$PATH"
+printf '%s\n' MERGED >"$tmp/ghstate"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/bin/cat" --text "command reads stdin"
+a_cat=$OUT
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/bin/sh -c true" --text "command passes"
+a_pass=$OUT
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/bin/sh -c false" --text "command fails"
+a_fail=$OUT
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done event:ready-offer --text "event waits"
+a_event=$OUT
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "pr:inkatze/planwright#123" --text "pr merges"
+a_pr=$OUT
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done operator --text "operator confirms"
+a_op=$OUT
+printf '%s\t%s\t%s\t%s\topen\t%s\t-\t-\t%s\t-\t-\n' f-900 2026-01-01T00:00:00Z operator event:vanished-class "dead class" operator >>"$kb/followups.tsv"
+cksum_before=$(cksum <"$kb/followups.tsv")
+
+mc_run mc-kb.sh followup audit --program alpha
+expect_rc "the audit runs" 0
+expect_out "a passing command check proposes a close" "close${tab}$a_pass${tab}"
+expect_out "a command that reads stdin neither hangs nor hides the rows after it" "close${tab}$a_cat${tab}"
+expect_no_out "a failing command check proposes nothing" "close${tab}$a_fail${tab}"
+expect_no_out "an event not yet seen proposes nothing" "close${tab}$a_event${tab}"
+expect_out "a merged pull request proposes a close" "close${tab}$a_pr${tab}"
+expect_out "the evidence names the pull request" "merged"
+expect_no_out "an operator-confirmed item is never proposed" "close${tab}$a_op${tab}"
+expect_out "an item whose class nothing emits is listed" "unemitted${tab}f-900${tab}vanished-class"
+if [ "$cksum_before" = "$(cksum <"$kb/followups.tsv")" ]; then ok "the audit changes no row"; else fail "the audit rewrote the ledger"; fi
+printf '%s\n' OPEN >"$tmp/ghstate"
+mc_run mc-kb.sh followup audit --program alpha
+expect_no_out "an open pull request proposes nothing" "close${tab}$a_pr"
+mc_run mc-event.sh emit --program alpha --now "$(($(date -u +%s) + 30))" -- ready-offer pr-9
+mc_run mc-kb.sh followup audit --program alpha
+expect_out "an event seen after the item opened proposes a close" "close${tab}$a_event${tab}"
+mc_run mc-kb.sh followup list --program alpha
+row=$(printf '%s\n' "$OUT" | I=$a_pass awk -F '\t' '$1 == ENVIRON["I"] { print $5 }')
+if [ "$row" = open ]; then ok "a proposed item stays open until closed with evidence"; else fail "the proposed item reads '$row'"; fi
+mc_run mc-kb.sh followup close --program alpha "$a_pass"
+expect_rc "close without evidence is refused" 2
+mc_run mc-kb.sh followup close --program alpha "$a_pass" --evidence "command passed"
+expect_rc "close with evidence works" 0
+mc_run mc-kb.sh followup audit --program alpha
+expect_no_out "a closed item is no longer proposed" "close${tab}$a_pass"
+
+# ---------------------------------------------------------------------------
+# REQ-F1.21 groundwork: ack records what happens next and a new trigger.
+# ---------------------------------------------------------------------------
+mc_run mc-kb.sh followup ack --program alpha "$a_fail" --trigger date:2999-03-03
+expect_rc "an ack without what happens next is refused" 2
+mc_run mc-kb.sh followup ack --program alpha "$a_fail" --next "rerun the check" --trigger event:no-such-class
+expect_rc "an ack's new event of an unemitted class is refused" 2
+mc_run mc-kb.sh followup ack --program alpha "$a_fail" --next "rerun the check"
+expect_rc "an ack without a new date or event is refused" 2
+mc_run mc-kb.sh followup ack --program alpha "$a_fail" --next "rerun the check" --trigger date:2999-03-03
+expect_rc "an ack records the next step and a new date" 0
+mc_run mc-kb.sh followup list --program alpha
+row=$(printf '%s\n' "$OUT" | I=$a_fail awk -F '\t' '$1 == ENVIRON["I"] { print $4 "|" $5 "|" $11 }')
+if [ "$row" = "date:2999-03-03|open|rerun the check" ]; then ok "an ack moves the trigger and never closes the item"; else fail "the acked row reads '$row'"; fi
+ack_at=$(printf '%s\n' "$OUT" | I=$a_fail awk -F '\t' '$1 == ENVIRON["I"] { print $10 }')
+case $ack_at in
+  20[0-9][0-9]-*) ok "an ack stamps when it was made" ;;
+  *) fail "the ack time reads '$ack_at'" ;;
+esac
+mc_run mc-kb.sh followup ack --program alpha "$a_pass" --next "x" --trigger date:2999-03-03
+expect_rc "a closed item is not acknowledged" 1
+mc_run mc-kb.sh followup ack --program alpha f-998 --next "x" --trigger date:2999-03-03
+expect_rc "an unknown item is not found" 1
 
 # ---------------------------------------------------------------------------
 # REQ-K1.7: the mechanism inventory and the source table's watermark.
