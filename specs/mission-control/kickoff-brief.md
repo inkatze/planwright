@@ -2022,6 +2022,20 @@ Class: expression-only
 Anchor: `0b3470f9d383b8b0b419b86405748f4ee8249298` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
 
+### Re-anchor — test-spec file pointers after the launch-test split (2026-11-11)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+The REQ-D1.10, REQ-D1.11 and REQ-D1.16 test entries now name the test files
+their cases moved into; no requirement or decision changes meaning.
+
+**Cites the changelog line:** the 2026-11-11 `## Changelog` entry in
+`requirements.md` (the launch-test split).
+
+Class: expression-only
+Anchor: `d6cab8debc8599d3cb842fd5d3bdf7c0234013b7` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
 ### Amendment 10 (2026-11-11, amendment: idle capacity raises an event from a declared backlog)
 
 Spec path `specs/mission-control`; walk started at `be19b2cd`; walkthrough
@@ -2065,4 +2079,21 @@ requirements and a decision, so it is meaning-class.
 Class: meaning
 Lens-pass: Amendment 10, delta-scoped inline lens review above (every finding dispositioned)
 Anchor: `a150bab5f0bb8013fc39c8456bc8a266d2c43fa3` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — main's launch-test split pointers merged with Amendment 10 (2026-11-13)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+Merging main into the branch that carries Amendment 10 combines Amendment 10
+with the launch-test split pointer edit recorded in the re-anchor above.
+Against Amendment 10's anchored content, the merged bundle differs only by
+that pointer edit, so no requirement or decision changes meaning; this entry
+records the combined anchor.
+
+**Cites the changelog line:** the 2026-11-11 `## Changelog` entry in
+`requirements.md` (the launch-test split).
+
+Class: expression-only
+Anchor: `5f664d3eed1c0d06bc65f9804b2519229e4ad714` — computed as
 `scripts/spec-anchor.sh specs/mission-control`

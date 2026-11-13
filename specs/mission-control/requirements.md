@@ -1496,6 +1496,12 @@ later planwright bundles implement, D-12).
   REQ-L1.9 entry also names `tests/test-mc-handover-tmux.sh`, the files the
   per-file test-time budget split moved those cases into. No requirement
   or decision changes meaning.
+- 2026-11-11 — Expression-only (brief Re-anchor, launch-test split file pointers):
+  the REQ-D1.10 and REQ-D1.11 test entries name
+  `tests/test-mission-control-launch-worktrees.sh`, and the REQ-D1.16 entry
+  names `tests/test-mission-control-launch-host.sh`, the files the per-file
+  test-time budget split moved those cases into. No requirement or decision
+  changes meaning.
 - 2026-11-11 — Amendment 10 (meaning-class, on the Active bundle): the
   idle-capacity duty and its backlog source (REQ-M1.12, REQ-M1.13; D-61;
   Task 68), covering the implementation draft in pull request 955.

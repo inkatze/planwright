@@ -3,7 +3,7 @@
 # (mission-control REQ-G1.5, D-32): the shipped deny floor in force and the
 # guard hooks wired, read from fixture settings layers, each failure one
 # line naming its reason. The launcher's refusal on the same result is in
-# tests/test-mission-control-launch.sh.
+# tests/test-mission-control-launch-tmux.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2015 # ok only prints, so a fail arm never follows a passing check

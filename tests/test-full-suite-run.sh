@@ -137,13 +137,59 @@ reset() {
   defaults=$DEFAULTS
 }
 
-# --- unset: unpooled, silent ----------------------------------------------------
+# --- REQ-K1.1: the shipped default pools the run in heavy-run --------------------
 reset
+fsr "PLANWRIGHT_HOST_CORES=4" "PLANWRIGHT_HOST_MEMORY_KIB=8388608" -- -- "$suite" "$tmp/log" 0 7 >"$tmp/out" 2>"$tmp/err"
+rc=$?
+pid=$(sed -n 's/^mark=heavy-run://p' "$tmp/log.mark")
+[ "$rc" -eq 7 ] && [ -n "$pid" ] && [ ! -s "$tmp/err" ] && [ -d "$pools/heavy-run" ]
+verdict "REQ-K1.1: with the shipped default a lone run takes a heavy-run slot, no wait, no warning, its exit kept" \
+  "default: rc=$rc pid='$pid'" "$tmp/err"
+
+# --- REQ-K1.1: none, and an empty layer, run unpooled with no warning -------------
+reset
+printf 'full_suite_pool: none\n' >"$tracked"
 fsr -- -- "$suite" "$tmp/log" 0 7 >"$tmp/out" 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 7 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" && [ ! -e "$pools" ] && [ ! -s "$tmp/err" ]
-verdict "with full_suite_pool unset the suite runs unpooled, silently, its exit kept" \
-  "unset: rc=$rc" "$tmp/err"
+verdict "REQ-K1.1: full_suite_pool none runs the suite unpooled, silently, its exit kept" \
+  "none: rc=$rc" "$tmp/err"
+reset
+printf 'full_suite_pool:\n' >"$tracked"
+fsr -- -- "$suite" "$tmp/log" 0 7 >"$tmp/out" 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 7 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" && [ ! -e "$pools" ] && [ ! -s "$tmp/err" ]
+verdict "REQ-K1.1: a layer setting full_suite_pool empty runs the suite unpooled, silently" \
+  "empty layer: rc=$rc" "$tmp/err"
+
+# --- REQ-K1.1, REQ-K1.2: two units sharing the default run in disjoint intervals --
+reset
+printf 'step_pool_wait: 120s\n' >"$tracked"
+host_env="PLANWRIGHT_HOST_CORES=4"
+(fsr "$host_env" "PLANWRIGHT_HOST_MEMORY_KIB=8388608" -- -- "$suite" "$tmp/logA" 1 0 >/dev/null 2>&1) &
+a=$!
+(fsr "$host_env" "PLANWRIGHT_HOST_MEMORY_KIB=8388608" -- -- "$suite" "$tmp/logB" 1 0 >/dev/null 2>&1) &
+b=$!
+wait "$a"
+ra=$?
+wait "$b"
+rb=$?
+[ "$ra" -eq 0 ] && [ "$rb" -eq 0 ] && [ -s "$tmp/logA.pid" ] && [ -s "$tmp/logB.pid" ] \
+  && [ ! -e "$tmp/running.overlap" ]
+verdict "REQ-K1.2: two units on the default pool at derived capacity 1 run in disjoint intervals" \
+  "overlap or failed run: ra=$ra rb=$rb" "$tmp/running.overlap"
+
+# --- REQ-K1.4: a run inside a heavy-run hold waits on nothing ---------------------
+reset
+printf 'step_pool_wait: 1s\n' >"$tracked"
+h=$(owner)
+sp take heavy-run "$h" >/dev/null
+fsr "PLANWRIGHT_HOST_CORES=4" "PLANWRIGHT_HOST_MEMORY_KIB=8388608" "PLANWRIGHT_STEP_POOL_HOLD=heavy-run:$h" -- -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 0 ] && grep -qx "mark=heavy-run:$h" "$tmp/log.mark"
+verdict "REQ-K1.4: a default run inside the heavy-run hold takes nothing and passes the mark on" \
+  "nested default: rc=$rc" "$tmp/err"
+sp release heavy-run "$h" >/dev/null
 
 # --- a core layer without the key (an older install) counts as unset ------------
 reset
@@ -152,7 +198,7 @@ defaults="$tmp/old-defaults.yml"
 fsr -- -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" && [ ! -s "$tmp/err" ]
-verdict "a key no layer sets runs the suite unpooled, silently" "absent key: rc=$rc" "$tmp/err"
+verdict "a core install that predates the key runs the suite unpooled, silently" "absent key: rc=$rc" "$tmp/err"
 
 # --- set: the run holds a slot for its own pid, passes the mark, then releases ----
 reset
@@ -383,11 +429,12 @@ srr list --run "$run" >"$tmp/recs"
 verdict "a nested attempt under --run records its nested wait with no holder" "nested record: rc=$rc" "$tmp/recs"
 sp release gate "$h" >/dev/null
 reset
+printf 'full_suite_pool: none\n' >"$tracked"
 run=$(srr new-run)
 fsr -- --run "$run" -- "$suite" "$tmp/log" 0 0 >/dev/null 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 0 ] && [ -z "$(srr list --run "$run")" ]
-verdict "an unpooled attempt under --run writes no record" "unpooled record: rc=$rc"
+verdict "REQ-K1.1: an unpooled (none) attempt under --run writes no record" "unpooled record: rc=$rc"
 fsr -- --run 12 -- touch "$tmp/ran" >/dev/null 2>&1
 rc=$?
 [ "$rc" -eq 2 ] && [ ! -e "$tmp/ran" ]

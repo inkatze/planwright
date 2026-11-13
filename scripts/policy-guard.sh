@@ -609,7 +609,8 @@ deny_unanalyzable() {
 # escape anywhere in the word), WA[] flags for a word whose first `=` comes
 # before any quote or escape, WR[] flags for a word after a redirect in its
 # segment, SEG_S[]/SEG_E[] word ranges, SEG_TERM[] terminators, SEG_DOC[]
-# here-document bodies, and SEG_RD[] flags for a segment with a redirect.
+# here-document bodies, SEG_RD[] flags for a segment with a redirect, and
+# SEG_RT[] the raw text of the targets those redirects skip.
 
 HEREDOC_SUBST=0
 tokenize() {
@@ -627,7 +628,8 @@ tokenize() {
   SEG_TERM=()
   SEG_DOC=()
   SEG_RD=()
-  local seg_start=0
+  SEG_RT=()
+  local seg_start=0 redir_text='' rstart
 
   flush_word() {
     if [ "$have" = 1 ]; then
@@ -663,7 +665,9 @@ tokenize() {
       SEG_TERM[${#SEG_TERM[@]}]=$1
       SEG_DOC[${#SEG_DOC[@]}]=$fold_doc
       SEG_RD[${#SEG_RD[@]}]=$redir
+      SEG_RT[${#SEG_RT[@]}]=$redir_text
     fi
+    redir_text=''
     redir=0
     fold_doc=''
     seg_start=${#W[@]}
@@ -876,6 +880,7 @@ tokenize() {
           '>' | '|' | '&' | '<') i=$((i + 1)) ;;
         esac
         while [ "$i" -lt "$n" ] && { [ "${s:i:1}" = ' ' ] || [ "${s:i:1}" = "$TAB" ]; }; do i=$((i + 1)); done
+        rstart=$i
         while [ "$i" -lt "$n" ]; do
           case ${s:i:1} in
             ' ' | "$TAB" | "$NL" | ';' | '&' | '|' | '<' | '>') break ;;
@@ -904,6 +909,7 @@ tokenize() {
           esac
           i=$((i + 1))
         done
+        redir_text="$redir_text ${s:rstart:i-rstart}"
         ;;
       ';' | '&' | '|')
         nc=${s:i+1:1}
@@ -1687,17 +1693,251 @@ tower_wrapped_git_check() {
 # hook's environment, which a command's inline assignment cannot change) is
 # kickoff-<spec> may run it, and only from that spec branch. Every other
 # session is refused the push it would make, with the text a push to that
-# branch gets. A run the guard cannot read is refused.
+# branch gets. A run the guard cannot read is refused. A mention that is no run
+# (a read, a stage or a printed note) passes to the ordinary rules, and what a
+# mention pipes into must itself only read or print it.
 
 KICK_SEEN=0
+KICK_PASSED=0
+KICK_PIPED=0
+KICK_VAR=0
+KICK_DIR=''
+KICK_DIR_OK=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 
-# kickoff_named <word> — 0 when the word's basename names the kickoff push.
+# The script is matched as a run of it, never as any word that merely contains
+# its name: a test file, a note, or a path that reads or stages it is not a run.
+# A word is the script when its basename is exactly its name, and a mention of
+# it passes only to a command known to read, stage or print its arguments.
+
+# kickoff_named <word> — 0 when the word's basename is the kickoff push.
 kickoff_named() {
   lc "${1##*/}"
-  case $LC in *"$KICK_NAME"*) return 0 ;; esac
+  case $LC in "$KICK_NAME" | "$KICK_FILE") return 0 ;; esac
   return 1
+}
+
+# kick_tally <text> — set KT to how many times the script's name stands in
+# <text> (case folded), not as the tail of a longer name such as
+# test-kickoff-spec-push.sh nor the head of one such as kickoff-spec-push-x.sh,
+# except a name glued to a single-dash option word (-Okickoff-spec-push.sh),
+# which git takes as a command to run. The @ in the token's delimiters is the
+# quote mark kick_count substitutes.
+# What follows the name otherwise counts, so a glob or a wildcard on it is
+# still a mention; so does a digit before it, where an empty positional
+# parameter ($1) can sit.
+kick_tally() {
+  local s=$1 before after head tok
+  lc "$s"
+  s=$LC
+  KT=0
+  while [[ $s == *"$KICK_NAME"* ]]; do
+    head=${s%%"$KICK_NAME"*}
+    s=${s#*"$KICK_NAME"}
+    before=${head: -1}
+    after=${s:0:1}
+    case $before in
+      [A-Za-z]) # a name glued to a short option (-Okickoff-spec-push.sh) still counts
+        tok=${head##*[[:space:]\;\|\&\(\)\<\>@]}
+        case $tok in
+          --* | -) continue ;;
+          -?*) ;;
+          *) continue ;;
+        esac
+        ;;
+      [_.-]) continue ;;
+    esac
+    case $after in
+      [A-Za-z0-9_-]) ;;
+      *) KT=$((KT + 1)) ;;
+    esac
+  done
+}
+
+# kick_count <text> — set KC to the larger of the tally with quotes and
+# backslashes dropped (a name spliced by them still runs) and the tally with
+# each replaced by a mark (a quote after a variable, $S'kickoff-spec-push.sh',
+# is no longer part of a longer name).
+kick_count() {
+  # A backslash-newline inside double quotes or unquoted is a line continuation
+  # the shell removes, so it splices a name.
+  local joined=${1//\\"$NL"/} dropped marked
+  dropped=${joined//[\"\'\\]/}
+  marked=${joined//[\"\'\\]/@}
+  kick_tally "$dropped"
+  KC=$KT
+  kick_tally "$marked"
+  [ "$KT" -le "$KC" ] || KC=$KT
+}
+
+# kickoff_verb_class <word> — set KV to how a bare command word treats its
+# arguments: reader (reads, counts or stages the files it is given; find, sed
+# and chmod only with arguments kickoff_args_safe accepts), text
+# (prints them), git (decided by its subcommand), or empty for anything else.
+kickoff_verb_class() {
+  KV=''
+  case $1 in
+    */*) return 0 ;;
+    grep | egrep | fgrep | rg | cat | head | tail | wc | ls | stat | file | diff | cmp | cut | tr | nl | od | \
+      find | sed | chmod | sha256sum | sha1sum | md5sum | shasum | b2sum | shellcheck | shfmt | realpath | readlink | basename | dirname | test | '[')
+      KV=reader
+      ;;
+    echo | printf) KV=text ;;
+    git) KV=git ;;
+  esac
+}
+
+# kick_cfg_has <moved> <key-regexp> — 0 when a configured key matches, or when
+# the repository the command reads cannot be placed (<moved> is 1, or the
+# directory is unknown), where one could be set.
+kick_cfg_has() {
+  [ "$1" = 0 ] && [ "$KICK_DIR_OK" = 1 ] || return 0
+  [ -n "$(gitq "$KICK_DIR" config --get-regexp "$2")" ]
+}
+
+# kickoff_git_reads — 0 when the segment is a git read or stage of its
+# arguments: no option but -C before the subcommand (a -c could set a pager or
+# helper to the script), and a subcommand that does not run its arguments.
+kickoff_git_reads() {
+  local k=1 j moved=0 noext=0 notext=0 patchy=0 colon=0
+  while [ "$k" -lt "${#SW[@]}" ]; do
+    case ${SW[$k]} in
+      -C)
+        moved=1
+        k=$((k + 2))
+        ;;
+      -*) return 1 ;;
+      add | diff | show | log | status | blame | annotate | ls-files | ls-tree | grep | rm | restore | commit | \
+        shortlog | diff-tree | cat-file | check-ignore | whatchanged)
+        # git grep -O<command> (bundled, or the long form in any unambiguous
+        # abbreviation) runs <command> on the files it matched, and --output
+        # writes a copy of what it prints. --ext-diff (in any abbreviation)
+        # runs the configured external diff program on the file.
+        j=$((k + 1))
+        while [ "$j" -lt "${#SW[@]}" ]; do
+          case ${SW[$j]} in
+            --) break ;;
+            --op* | --ou* | --ext | --ext-* | --textc*) return 1 ;;
+            --no-ext-diff) noext=1 ;;
+            --no-textconv) notext=1 ;;
+            --patch* | --cc | --stat* | --numstat | --shortstat | --word-diff*) patchy=1 ;;
+            --*) ;;
+            -*O*) return 1 ;;
+            -*[pucGS]*) patchy=1 ;;
+            *:*) colon=1 ;;
+          esac
+          j=$((j + 1))
+        done
+        # A commit shown by git show, and the history of git log -p, are
+        # patches; git log alone and a blob (git show <rev>:<path>) are not.
+        [ "${SW[$k]}" != show ] || [ "$colon" = 1 ] || patchy=1
+        # The commands that format a file through a configured program: git diff
+        # runs diff.external (or a diff.<driver>.command) on every file by
+        # default, and --no-ext-diff is the only way to read it with one set; a
+        # diff.<driver>.textconv filter runs for these too, which --no-textconv
+        # stops (blame has no such option). A git config change earlier in the
+        # same command may have set any of them, and where the repository
+        # cannot be read (git -C, an unplaced directory) they count as set.
+        case ${SW[$k]} in
+          diff | log | show | blame | annotate | whatchanged)
+            [ "$ST_CFG" = 0 ] || return 1
+            if [ "${SW[$k]}" = diff ] && [ "$noext" = 0 ]; then
+              kick_cfg_has "$moved" '^diff\.(external|.*\.command)$' && return 1
+            fi
+            case ${SW[$k]} in diff | blame | annotate) patchy=1 ;; esac
+            [ "${SW[$k]}" != blame ] && [ "${SW[$k]}" != annotate ] || notext=0
+            if [ "$patchy" = 1 ] && [ "$notext" = 0 ]; then
+              kick_cfg_has "$moved" '^diff\..*\.textconv$' && return 1
+            fi
+            ;;
+        esac
+        return 0
+        ;;
+      *) return 1 ;;
+    esac
+  done
+  return 1
+}
+
+# kickoff_mention_passes <mentions> <segment> — 0 when every one of the
+# segment's <mentions> of the script is an argument its command only reads,
+# stages or prints. A mention outside the command's words (an assignment before
+# it, such as GIT_EXTERNAL_DIFF=..., or a here-document body), an option word
+# that carries the name (--pre=..., -O...), and a printed word that is the
+# script itself (which could be piped into a shell) all fail; git's --grep=
+# carries a search pattern, so it alone may carry the name. The command itself
+# must pass kickoff_cmd_reads.
+kickoff_mention_passes() {
+  local w seen=0
+  kickoff_cmd_reads "$2" || return 1
+  for w in "${SW[@]}"; do
+    kick_count "$w"
+    seen=$((seen + KC))
+    if [ "$KC" -gt 0 ]; then
+      # git log --grep=<name> searches messages for the text; it runs nothing.
+      case $w in --grep=*) [ "$KV" = git ] || return 1 ;; -*) return 1 ;; esac
+    fi
+    [ "$KV" != text ] || ! kickoff_named "$w" || return 1
+  done
+  [ "$seen" = "$1" ]
+}
+
+# kickoff_args_safe — 0 when the segment's arguments cannot make find, sed or
+# chmod run or write anything: find with no -exec, -ok, -fprint, -fls or
+# -delete; sed only as -n with a line-print address; chmod only with a mode
+# word and no option.
+kickoff_args_safe() {
+  local w k
+  case ${SW[0]} in
+    find)
+      for w in "${SW[@]}"; do
+        case $w in -exec* | -ok* | -fprint* | -fls | -delete) return 1 ;; esac
+      done
+      ;;
+    sed)
+      [ "${SW[1]:-}" = -n ] && [[ ${SW[2]:-} =~ ^[0-9]+(,[0-9$]+)?p$ ]] || return 1
+      for ((k = 3; k < ${#SW[@]}; k++)); do
+        case ${SW[$k]} in -*) return 1 ;; esac
+      done
+      ;;
+    chmod)
+      [[ ${SW[1]:-} =~ ^([0-7]{3,4}|[ugoa]*[-+=][rwxXst]+(,[ugoa]*[-+=][rwxXst]+)*)$ ]] || return 1
+      for ((k = 2; k < ${#SW[@]}; k++)); do
+        case ${SW[$k]} in -*) return 1 ;; esac
+      done
+      ;;
+  esac
+}
+
+# kickoff_cmd_reads <segment> — 0 when the segment's command only reads,
+# stages or prints its arguments, whatever they name: no redirect, no GIT_
+# variable in effect, a command known to read, and arguments that cannot make
+# it run one (a GIT_ variable can name a helper git runs on the file; a
+# redirect could save a copy or wrapper of the script that a later command runs
+# without its name; rg's --pre and --hostname-bin take the next word as a
+# command to run on each file, so rg refuses them even when that word does not
+# carry the name). Set KV to the command's class.
+kickoff_cmd_reads() {
+  local w
+  [ "${SEG_RD[$1]:-0}" = 0 ] || return 1
+  [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
+  kickoff_verb_class "${SW[0]}"
+  case $KV in
+    reader) kickoff_args_safe || return 1 ;;
+    text) ;;
+    git) kickoff_git_reads || return 1 ;;
+    *) return 1 ;;
+  esac
+  for w in "${SW[@]}"; do
+    case $w in
+      --pre* | --hostname-bin*) [ "${SW[0]}" != rg ] || return 1 ;;
+      # An expansion can spell an option the checks above match literally
+      # (-ex${Z}ec, ${Z}--pre), so a word that starts with one, or an option
+      # word that holds one, is never read as an argument.
+      '$'* | -*'$'* | *'`'*) return 1 ;;
+    esac
+  done
 }
 
 # RE_KICKOFF_SCRIPT: the planwright script itself, named through the plugin
@@ -1710,13 +1950,114 @@ kickoff_script_at() {
   [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
 }
 
-# kickoff_segment <dir> <dir-ok> — 0 when the segment names the kickoff push,
-# which is then decided here; 1 when it does not name it.
+# kickoff_pipe_on <segment> — mark the next command as reading what this one
+# prints, when this segment ends in a pipe.
+kickoff_pipe_on() {
+  case ${SEG_TERM[$1]:-} in '|' | '|&') KICK_PIPED=1 ;; esac
+}
+
+# kickoff_var_set — a printf -v that kept a mention passes as a mention, but it
+# holds the text in a variable, so a later command that expands a variable and
+# runs the result (eval "$x") could run it.
+kickoff_var_set() {
+  local w
+  [ "${SW[0]}" = printf ] || return 0
+  for w in "${SW[@]:1}"; do
+    case $w in -v*) KICK_VAR=1 ;; esac
+  done
+}
+
+# kickoff_var_run <segment> — once a mention has been held in a variable,
+# refuse a later command that is not a known reader or printer and either
+# expands anything (a word or a redirect target) or reads a pipe.
+kickoff_var_run() {
+  local w hit=0 p=''
+  [ "$KICK_VAR" = 1 ] || return 0
+  kickoff_verb_class "${SW[0]}"
+  # find, sed, chmod, rg and git take a command (an -exec, a pager, a --pre) as
+  # an argument, so an expansion in them is not a plain read.
+  case ${SW[0]} in
+    find | sed | chmod | rg | git) ;;
+    *) [ -z "$KV" ] || return 0 ;;
+  esac
+  [ "$1" = 0 ] || p=${SEG_TERM[$(($1 - 1))]:-}
+  case $p in '|' | '|&') hit=1 ;; esac
+  for w in "${SW[@]}" "${SEG_RT[$1]:-}"; do
+    case $w in *'$'* | *'`'*) hit=1 ;; esac
+  done
+  [ "$hit" = 0 ] \
+    || deny_now 'this command could run text that an earlier printf -v filled with the name of scripts/kickoff-spec-push.sh - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+}
+
+# kickoff_fuzzy_name <segment> — 0 when a word of the segment, or the target of
+# one of its redirects (which the tokenizer keeps apart, in SEG_RT), could
+# expand to the script's name through a glob or an expansion that sits inside
+# it (scripts/kick*ff-spec-push.sh, scripts/kic${E}koff-spec-push.sh, and
+# scripts/k*.sh), with at least one literal character besides the .sh, or a
+# name of ? marks alone, so that a name made of stars alone (scripts/*.sh,
+# which also matches every other script) stays an ordinary glob. Expansions and brace groups
+# (scripts/kick{off,x}-spec-push.sh) read as a wildcard.
+kickoff_fuzzy_name() {
+  local words=("${W[@]:${SEG_S[$1]}:$((SEG_E[$1] - SEG_S[$1]))}") p lit
+  local rt=${SEG_RT[$1]//[\"\'\\]/} extra=()
+  read -d '' -ra extra <<<"$rt" || :
+  [ "${#extra[@]}" = 0 ] || words+=("${extra[@]}")
+  for p in "${words[@]}"; do
+    case $p in *[\*\?\[\$\{]*) ;; *) continue ;; esac
+    while [[ $p =~ (\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?!-]|\{[^}]*\}) ]]; do
+      p=${p/"${BASH_REMATCH[0]}"/\*}
+    done
+    lc "${p##*/}"
+    p=$LC
+    case $p in *[\*\?\[]*) ;; *) continue ;; esac
+    lit=${p//[\*\?]/}
+    lit=${lit%.sh}
+    # No literal at all passes only with a star: a run of ? is one name's length.
+    [ "${#lit}" -ge 1 ] || case $p in *'*'*) continue ;; esac
+    # shellcheck disable=SC2053 # the glob is the point
+    [[ $KICK_FILE == $p || $KICK_NAME == $p ]] && return 0
+  done
+  return 1
+}
+
+# kickoff_segment <dir> <dir-ok> <segment> <text> — 0 when a word of the
+# segment is the kickoff push, which is then decided here; 1 when none is. A
+# mention that is no run of it is tallied for kickoff_text_check, and what a
+# mention pipes into must itself only read or print it.
 kickoff_segment() {
-  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct
+  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct piped=$KICK_PIPED
+  KICK_PIPED=0
+  KICK_DIR=$dir
+  KICK_DIR_OK=$dir_ok
+  kickoff_var_run "$3"
+  if [ "$piped" = 1 ]; then
+    # A condition head (if ls; then sh; fi) hands the pipe to a later segment
+    # that no check here reads, so it is refused as a consumer outright.
+    case ${W[${SEG_S[$3]}]:-} in
+      if | while | until | elif)
+        deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a compound command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+        ;;
+    esac
+    if kickoff_cmd_reads "$3"; then
+      kickoff_pipe_on "$3"
+    else
+      deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+    fi
+  fi
+  if kickoff_fuzzy_name "$3" && ! kickoff_cmd_reads "$3"; then
+    deny_now 'this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+  fi
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
   done
+  kick_count "$4"
+  local kc=$KC
+  if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc" "$3"; then
+    KICK_PASSED=$((KICK_PASSED + kc))
+    kickoff_var_set
+    kickoff_pipe_on "$3"
+    return 1
+  fi
   [ "$named" = 1 ] || return 1
   KICK_SEEN=$((KICK_SEEN + 1))
   [ "$GIT_ENV_SET" = 1 ] || [ "$SW_GITENV" = 1 ] \
@@ -1758,15 +2099,12 @@ kickoff_segment() {
 }
 
 # kickoff_text_check — every spelling of the kickoff push's name in the command
-# must be a run the segments read above; a name in a redirect, a -c string or
-# a quoted or spelled-out form is refused.
+# must be a run, or a mention that only reads, stages or prints it, in the
+# segments read above; a name in a redirect, a -c string or a quoted or
+# spelled-out form is refused.
 kickoff_text_check() {
-  local s=${P_CMD//[\"\'\\]/} n=0
-  while [[ $s == *"$KICK_FILE"* ]]; do
-    n=$((n + 1))
-    s=${s#*"$KICK_FILE"}
-  done
-  [ "$n" = "$KICK_SEEN" ] \
+  kick_count "$P_CMD"
+  [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
     || deny_now 'this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
 }
 
@@ -1774,6 +2112,9 @@ classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
   local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0
   KICK_SEEN=0
+  KICK_PASSED=0
+  KICK_PIPED=0
+  KICK_VAR=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0
@@ -1813,6 +2154,9 @@ classify_segments() {
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
+        || deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+      KICK_PIPED=0
       case $cur_text in
         *PROMPT_COMMAND=* | *BASH_ENV=* | *' ENV='*)
           raw_evidence "$cur_text" \
@@ -1841,7 +2185,7 @@ classify_segments() {
     base_verb=$LC
     [ "$TIER" != worker ] || ! runs_force_push_helper "$base_verb" \
       || deny_now 'this command runs scripts/tower-force-push.sh; the force-push path is the tower'"'"'s, run on the operator'"'"'s request, never a worker'"'"'s. Name the reword or force-push in your handoff for the operator instead.'
-    if kickoff_segment "$eff" "$eff_ok"; then
+    if kickoff_segment "$eff" "$eff_ok" "$si" "$cur_text"; then
       prev_text=$cur_text
       si=$((si + 1))
       continue
