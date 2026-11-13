@@ -66,6 +66,11 @@ and mark it submitted for the target (compose's one mark), since the
 script that emitted it already acted and nothing in it is for the
 operator; it stays listable. With the table unreadable every event wakes,
 said on stderr.
+A merge-ready event is checked against the forge before it wakes
+(scripts/mc-merge-ready.sh fresh): one whose pull request merged, closed
+or moved to another head is marked submitted unsent; one whose bot round is
+unfinished, or whose state cannot be read, is left out of that wake and
+stays pending for a later one.
 One wake per target carries 20 of its pending events, oldest first and,
 in the tick, never-sent ones ahead of staged ones (the rest wait for a
 later wake), naming each one's kind and subject, re-checked against
