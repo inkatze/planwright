@@ -1253,6 +1253,37 @@ later planwright bundles implement, D-12).
   *(Cites: D-58; REQ-M1.10; the idle-capacity report (2026-11-10,
   Sources).)*
 
+- **REQ-M1.12** An `idle-capacity` duty, in the shipped default duty set,
+  SHALL run on a short watcher cadence, not only at REQ-M1.11's handover and
+  daily moments, and compare the program's live workers with the smaller of
+  the host-wide live-worker bound and the program's own parallel-unit bound
+  (mission-control sessions counted in neither). When a slot is free, the
+  launcher's own gates (the usage hold, a fleet pause, host load at the
+  throttle threshold) are all open and the program's backlog (REQ-M1.13)
+  holds a unit, it SHALL raise one `idle-capacity` event naming up to one
+  unit per free slot, at most five, for the holder to act on: launch the
+  unit, or drive the supervisor that owns it with the named units. The same
+  idle state (the same units) SHALL NOT be raised again inside
+  `mission_control_idle_interval` (shipped: 30 minutes); a changed list
+  raises at once, and a program that stops being idle is forgotten, so it
+  raises afresh on return. The duty launches nothing and changes nothing it
+  reads. It is the per-wake, actionable counterpart of REQ-M1.11's windowed
+  report of the same waste as proposals; neither replaces the other.
+  *(Cites: D-61; REQ-M1.11, REQ-M1.4, REQ-M1.6; the idle-capacity event ask
+  (2026-11-11, Sources).)*
+- **REQ-M1.13** A program's backlog SHALL be a declared source the
+  idle-capacity duty can read without guessing: a file of ranked unit ids,
+  one per line, the first the next to run, named by that program's own configuration
+  (blank and comment lines skipped, an id's note after it ignored, a line
+  whose id is not a short plain identifier skipped), or none. The duty reads
+  it only when a slot is free and the gates are open. With none declared, or
+  a file that cannot be read, the duty SHALL raise one
+  `idle-capacity-undeclared` event, only when a slot is free and the gates
+  are open, asking the operator to declare one, and stay quiet until a
+  backlog reads; it never infers a backlog from other state.
+  *(Cites: D-61; REQ-M1.12; the idle-capacity event ask (2026-11-11,
+  Sources).)*
+
 ## REQ-N — Program goals
 
 - **REQ-N1.1** A program goal SHALL carry its own done-when check: a plain
@@ -1618,6 +1649,12 @@ the runner works, never a list that grows and is forgotten.
   names `tests/test-mission-control-launch-host.sh`, the files the per-file
   test-time budget split moved those cases into. No requirement or decision
   changes meaning.
+- 2026-11-11 — Amendment 10 (meaning-class, on the Active bundle): the
+  idle-capacity duty and its backlog source (REQ-M1.12, REQ-M1.13; D-61;
+  Task 68), covering the implementation draft in pull request 955.
+  REQ-M1.11 is unchanged: it stays the windowed report as proposals, and
+  REQ-M1.12 is the per-wake event.
+
 - 2026-11-13 — Amendment 15 (meaning-class, Draft on the Active bundle,
   drafted in the spec-pipeline program): the duty ledger drives itself
   (REQ-P1.1 to REQ-P1.6: the runner repeats a due wake until the item is
@@ -1874,6 +1911,13 @@ the runner works, never a list that grows and is forgotten.
   (observation W80): the offload host knob shipped but stayed local though
   the rules say to offload, and nothing noticed. Framed REQ-M1.11,
   REQ-B1.13, REQ-A1.11, D-58.
+- **The idle-capacity event ask (2026-11-11)** — relayed through the hub
+  (observation W115): a supervisor whose units finished reported no workers
+  live and sat idle with four slots free and the host lightly loaded until
+  the operator said to work, because every duty reacts to an event and no
+  event says a slot is free beside waiting work. Framed REQ-M1.12,
+  REQ-M1.13, D-61.
+
 - **The duty-ledger report (2026-11-13)** — relayed through the hub, the operator's top priority: "I myself trusted too much you would do that and ended up wasting an entire week at work." Their definition: a duty is something that has to be monitored and fulfilled until completed, whose moment may not be known in advance, so a program must be ready; items may be re-validated recurrently, and the ledger must not be a list that grows and is forgotten. One program's ledger held about twenty open items, mostly past their dates and never re-checked; another had event triggers no script emits. Framed REQ-F1.25, REQ-P1.1 to REQ-P1.6, D-65 to D-67. A pinned altitude claim: the duty ledger is a core, default-on planwright duty, not a per-machine habit.
 - **The crossed-decisions report (2026-11-13)** — relayed through the hub, the operator: "How do you keep crossing decisions? That's been another huge core miss." A handover brief handed the operator a publish step long ruled the hub's, and a settled PR-Agent ruling was re-asked. Framed REQ-P1.7 to REQ-P1.10, D-68.
 - **The outcome-audit report (2026-11-13)** — relayed through the hub, the operator: "Also I have always identified core issues for you; which is a core issue itself." Nothing audits outcomes or learns from a miss the operator caught; a kickoff session's question sat unrelayed about 25 minutes. Framed REQ-P1.11 to REQ-P1.14, D-69.

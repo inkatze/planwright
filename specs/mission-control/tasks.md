@@ -1280,6 +1280,23 @@ fixed-string check.)*
 - **Citations:** D-56 · REQ-F1.24
 - **Estimated effort:** 1 day
 
+### Task 68 — The idle-capacity duty and its backlog source
+
+- **Deliverables:** `scripts/mc-idle.sh` (`check` and `watch`); the
+  `idle-capacity` entry in `config/duties.yaml` and the default duty list;
+  the two event classes in `config/mc-event-classes.tsv`; the
+  the program-scoped backlog knob and `mission_control_idle_interval` knobs in
+  `config/defaults.yml`, `config/mission-control-knobs.tsv` and
+  `docs/options-reference.md`; the verb row in
+  `config/mission-control-verbs.txt`; the operator-doc section in
+  `docs/mission-control.md`; `tests/test-mc-idle.sh`.
+- **Done when:** The REQ-M1.12 and REQ-M1.13 test-spec entries' fixtures
+  pass, each row failing once under a mutation of the script; the duties,
+  knobs, verbs, options-reference and docs checks pass; the duty launches
+  nothing and edits nothing it reads.
+- **Dependencies:** 10, 28
+- **Citations:** D-61, D-58, D-17 · REQ-M1.12, REQ-M1.13
+
 ### Task 75 — The runner repeats a due wake and raises overdue as a failure
 
 - **Deliverables:** in `scripts/mc-followups.sh`, the raise pass repeating a

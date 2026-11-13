@@ -1156,6 +1156,27 @@ yield one proposal naming the knob, its present and proposed value and the
 idle measured; a busy window yields none; a declined proposal is not
 re-raised; the audit changes nothing it reads.
 
+### REQ-M1.12 — A free slot beside a backlog raises an event [test]
+
+`tests/test-mc-idle.sh` (Task 68), in fixtures (a fake registry, fleet state
+and config): a free slot with a backlog unit raises one `idle-capacity`
+event naming the units; the same state inside the interval is held and past
+it raised again; a changed list raises at once; a program no longer idle is
+forgotten and raises afresh on return; no free slot under the program bound
+or under the host bound, a closed usage gate and a closed load gate each
+raise nothing; more than five ids name five; a malformed bound fails the
+pass; the check launches nothing and changes nothing it reads. Each row is
+made to fail once by mutating a copy of the script.
+
+### REQ-M1.13 — The backlog is declared, never guessed [test]
+
+`tests/test-mc-idle.sh` (Task 68): with no backlog declared or an unreadable
+file, a free slot with open gates raises one `idle-capacity-undeclared` event
+and then stays quiet until a backlog reads; the same with a full fleet or a
+closed gate raises nothing; an empty backlog raises nothing; blank, comment
+and malformed-id lines are skipped and a note after an id is ignored; two
+programs on one host each read only their own list.
+
 ## REQ-N — Program goals
 
 ### REQ-N1.1 — A goal carries a confirmed check [test]
