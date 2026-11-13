@@ -179,6 +179,30 @@ in_sub CLAUDE_PROJECT_DIR="$tmp/named"
 expect_pass "the project directory Claude Code names is the session's project"
 rm -rf "$tmp/named"
 
+# A floor held only in a parent directory's project layer is not loaded by a
+# session rooted in a child: the same start directory gets the same verdict
+# whichever way it is named, and the refusal names where the floor must live.
+reset
+mkdir -p "$tmp/parent/.claude" "$tmp/parent/child/.claude"
+absolute_profile >"$tmp/parent/.claude/settings.local.json"
+posture -- --project "$tmp/parent/child"
+expect_fail "a floor only in a parent directory's layer is not in force for the child" "the shipped deny floor is not in force"
+child_explicit=$OUT
+OUT=$(cd "$tmp/parent/child" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN -u PLANWRIGHT_ROOT -u CLAUDE_PROJECT_DIR \
+  HOME="$home" /bin/bash "$POSTURE" check --managed "$absent" 2>"$tmp/err")
+RC=$?
+[ "$OUT" = "$child_explicit" ] && ok "the child's default start directory gives the same verdict as --project" \
+  || fail "the child's default start directory differs from --project: $OUT"
+expect_fail "the refusal names the user settings layer as a fix" "the user settings layer"
+expect_fail "the refusal names each repository's project layer as a fix" "each repository's .claude/settings.json"
+expect_fail "the refusal names the parent layer that is not loaded" "$tmp/parent/.claude/settings.local.json"
+posture -- --project "$tmp/parent"
+expect_pass "the parent directory itself, as the start directory, passes"
+reset
+posture -- --project "$proj"
+expect_fail "a floor held nowhere still refuses" "the shipped deny floor is not in force"
+rm -rf "$tmp/parent"
+
 # A launched session's project is the directory its registry row records.
 reset
 absolute_profile >"$home/.claude/settings.json"
