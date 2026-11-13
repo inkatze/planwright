@@ -216,7 +216,10 @@ are exempt from retroactive backfill: a superseded REQ's body is never edited
 **Changelog.** The bundle's changelog lives in `requirements.md` under
 `## Changelog`, as dated bullets appended in chronological order. Every
 amendment (meaning-class or expression-only, pre-merge or post-merge) gets an
-entry naming the date, the class or triggering event, and what changed.
+entry naming the date, the class or triggering event, and what changed. An
+entry written during a walk lies inside the signed content, so it names the
+walk and points at the sign-off record (`kickoff-brief.md`), never a state
+that sign-off changes ("pending sign-off"): rewording it later moves the anchor.
 
 **Sources.** `## Sources` lists the framing inputs the bundle was elicited
 from (seed notes, prior bundles, research, reference material). Source
