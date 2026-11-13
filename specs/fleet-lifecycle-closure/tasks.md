@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-02
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -360,6 +360,52 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
 - **Estimated effort:** 2.5 days
   *(Amended at kickoff re-walkthrough 2026-10-02: headless readings named,
   citations re-pointed to REQ-A1.7 and D-16.)*
+
+### Task 13 — The floor names every session kind and class
+
+- **Deliverables:** `doctrine/fleet-coordination-floor.md` extended: the
+  class contract table gains rows for the launched session, the launcher's
+  registry row and launch directory, and the stall sample, each with open,
+  close and detector; the reclaim folder is declared with its owner and no
+  close; the rungs-crossed-with-classes table gains the session kinds, with
+  no blank cell; both detectors are named as separate detectors of their own
+  classes, with the rule that a stable pane corroborates and never
+  establishes a state. No executable behaviour in this task.
+- **Done when:** the doctrine carries every row and declaration above and
+  cites REQ-L1.1, REQ-L1.2, REQ-L1.3, REQ-L1.5 and REQ-L1.6;
+  `scripts/spec-validate.sh` over the bundle,
+  `scripts/check-doctrine-manifest.sh` and the doc-link check pass; no
+  script under `scripts/` is modified.
+- **Dependencies:** 1
+- **Citations:** REQ-L1.1 · REQ-L1.2 · REQ-L1.3 · REQ-L1.5 · REQ-L1.6 ·
+  D-17 · D-18 · D-19
+- **Estimated effort:** 1 day
+
+### Task 14 — `retire` closes the stall sample
+
+- **Deliverables:** the launcher's `retire` removes the session's stall
+  sample after the process class and before the row, reports it as its own
+  released or held class, and keeps the row when the sample could not be
+  removed so a second retire retries it; tests over both rungs, a partial
+  result, and a relaunch under the same name.
+- **Done when:** the REQ-L1.2 to REQ-L1.4 fixtures pass in `mise run check`;
+  a retire of a session with a sample leaves no sample; a forced failure to
+  remove the sample reports `partial` naming it; the emitted stall events
+  are untouched.
+- **Dependencies:** 13
+- **Citations:** REQ-L1.2 · REQ-L1.3 · REQ-L1.4 · D-20
+- **Estimated effort:** 1 day
+
+### Task 15 — The residue detector for session classes
+
+- **Deliverables:** a read-only residue check, in `mc-stall.sh` or beside
+  it, listing a registry row or launch directory whose session is gone and a
+  stall sample with no registry row, in a stable parseable form; tests.
+- **Done when:** fixtures for each residue kind pass in `mise run check`; the
+  check writes nothing and invokes no model; a live session is never listed.
+- **Dependencies:** 14
+- **Citations:** REQ-L1.3 · REQ-L1.4 · REQ-C1.8 · D-20
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 

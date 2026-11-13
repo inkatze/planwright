@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Test spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-02
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -501,3 +501,44 @@ it.
 Absence fixtures for each dependency — no tmux, no remote, no `gh`, no
 messaging, no presence surface — assert a surfaced degradation and a
 non-failing run.
+
+## REQ-L — Session kinds under the floor
+
+### REQ-L1.1 — The floor covers every session kind [design-level + test]
+
+The floor's class tables carry a row per session class and a column or row
+per session kind and rung, with no blank cell; the doctrine-manifest and
+doc-link checks in `mise run check` pass. A fixture asserts that a session
+kind named by the launcher and absent from the table fails the check.
+
+### REQ-L1.2 — Launched-session process class [test]
+
+Launcher fixtures on both rungs: `launch` records the process and window or
+supervisor, `retire` releases them, and `mc-stall.sh` classifies the live
+session and, after retire, reports no session.
+
+### REQ-L1.3 — Row and launch directory released last, by class [test]
+
+A retire fixture with one class forced to fail asserts a partial result that
+names the released and held classes, keeps the row, and that a second retire
+retries only the held classes. A residue check lists a row or launch
+directory whose session is gone.
+
+### REQ-L1.4 — Stall sample closed by retire [test]
+
+A fixture takes a sample, retires the session, and asserts the sample is
+gone and named among the released classes; a relaunch under the same name
+starts a fresh sample; a sample with no registry row is listed as residue;
+emitted events are unchanged by the retire.
+
+### REQ-L1.5 — Reclaim folder declared with no close [design-level + test]
+
+The floor names the folder, its owner and the reason it has no close. A
+negative assertion over the scripts of the lifecycle verbs (`retire`, the
+sweep, `fleet-cleanup.sh`) finds no removal of the reclaim path.
+
+### REQ-L1.6 — Two named detectors, positive states [test + design-level]
+
+The floor names both detectors separately. A fixture asserts a stable pane
+without a busy signature yields no stall state, and that the session state
+set is not added to the worker classifier's.
