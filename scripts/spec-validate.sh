@@ -1264,10 +1264,11 @@ lexical_parent() {
 }
 
 # anchor_findings <dir> — a stale recorded anchor (the anchor-freshness
-# guard's recompute arm) as a `gap` finding: an error on a signed-off bundle. The recompute is the guard's own, reached
-# through its --mismatches mode, so the recorded and recomputed values are the
-# ones `mise run check` prints. A Draft, a terminal bundle, a parked one and a
-# bundle with no recorded anchor print nothing there, so they stay as they were.
+# guard's recompute arm) as a `gap` finding: an error on a signed-off bundle.
+# The recompute is the guard's own, reached through its --mismatches mode, so
+# the recorded and recomputed values are the ones `mise run check` prints. A
+# Draft, a terminal bundle, a parked one and a bundle with no recorded anchor
+# print nothing there, so they stay as they were.
 anchor_findings() {
   afdir=$1
   [ -f "$script_dir/check-anchor-freshness.sh" ] || return 0
