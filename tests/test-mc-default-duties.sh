@@ -79,7 +79,7 @@ expect_out "usage-window's watcher" "usage-window${tab}scripts/mc-usage.sh${tab}
 
 mc_run mc-watch.sh pass --program alpha
 expect_rc "a runner pass" 0
-for w in session-keeper:mc-keeper.sh session-keeper:mc-escalate.sh readiness-check:mc-readiness.sh readiness-check:mc-merge-ready.sh conflict-radar:mc-radar.sh deadline-watch:mc-deadlines.sh usage-window:mc-usage.sh; do
+for w in session-keeper:mc-keeper.sh session-keeper:mc-escalate.sh readiness-check:mc-readiness.sh readiness-check:mc-merge-ready.sh readiness-check:mc-pipeline-stall.sh conflict-radar:mc-radar.sh deadline-watch:mc-deadlines.sh usage-window:mc-usage.sh; do
   expect_out "D-27: the watcher arms under the runner: ${w%%:*}" "armed${tab}${w%%:*}${tab}scripts/${w#*:}"
 done
 expect_out "the watcher arms under the runner: throughput" "armed${tab}throughput${tab}scripts/mc-throughput.sh"
