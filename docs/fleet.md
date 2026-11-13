@@ -1159,8 +1159,12 @@ in that directory at the allocation key and unit the launch recorded
 (mission control's launcher records its kind's key), or at
 `orchestrate_dispatch` under the worker's handle for a launch that recorded
 none, and the resumed session gets `--model` and `--effort` for each dimension
-that does not resolve to `inherit`. Any other extra argument the original
-launch passed after `--` is not carried over. (`recover --cwd <dir>` is
+that does not resolve to `inherit`; a tier model, effort or reservation the
+launch recorded is handed back to that plan as an override. A launch's
+`--mise-task-edit` opt-in is kept too: the relaunch regenerates the worker's
+per-launch settings profile, and a profile it cannot generate is exit `7`.
+Any other extra argument the original launch passed after `--` is not carried
+over. (`recover --cwd <dir>` is
 available on its own; without it a recover
 resumes in the caller's directory, and a session resumes only from the one it
 started in.) One relaunch runs per worker at a time. Everything the resume
