@@ -1342,7 +1342,17 @@ else
 fi
 if mkdir -p "$GMAIN/.claude/worktrees/w2" "$GBOX/other/mise-tasks" "$GWT/sub2" \
   && ln -s "$GBOX/other/mise-tasks" "$GWT/sub2/mise-tasks" \
-  && : >"$GBOX/other/mise.toml" && ln -s "$GBOX/other/mise.toml" "$GWT/sub2/link.toml"; then
+  && : >"$GBOX/other/mise.toml" && ln -s "$GBOX/other/mise.toml" "$GWT/sub2/link.toml" \
+  && mkdir -p "$GWT/chain" && ln -s "$GBOX/other/mise.toml" "$GWT/chain/l1" \
+  && : >"$GWT/chain/target.txt" && ln -s "$GWT/chain/target.txt" "$GWT/chain/s1" \
+  && gi=2 && while [ "$gi" -le 41 ]; do
+    ln -s "$GWT/chain/l$((gi - 1))" "$GWT/chain/l$gi" || break
+    gi=$((gi + 1))
+  done && [ "$gi" -eq 42 ] \
+  && gi=2 && while [ "$gi" -le 3 ]; do
+    ln -s "$GWT/chain/s$((gi - 1))" "$GWT/chain/s$gi" || break
+    gi=$((gi + 1))
+  done && [ "$gi" -eq 4 ]; then
   ok "pass I: built the sibling, other-repository and symlink fixtures"
 else
   fail "pass I: could not build the sibling, other-repository and symlink fixtures"
@@ -1372,6 +1382,8 @@ deny|load-bearing|Write|$GWT/sub/../../../../../other/mise-tasks/x|a .. escape i
 deny|load-bearing|Write|$GWT/sub2/mise-tasks/x|a task directory that is a symlink pointing out of the worktree stays closed
 deny|load-bearing|Edit|$GWT/sub2/link.toml|a file symlink pointing at another repository's mise.toml stays closed
 allow|legit|Edit|$GWT/scripts/x.sh|ordinary edits stay allowed
+deny|load-bearing|Edit|$GWT/chain/l41|a chain of 41 symlinks (longer than the resolver follows) ending at another repository's mise.toml is refused, not deferred
+allow|legit|Edit|$GWT/chain/s3|a short symlink chain ending at an ordinary file inside the worktree still defers
 deny|load-bearing|Edit|$GWT/mise.local.toml|machine-local mise config stays closed
 deny|load-bearing|Write|$GWT/.mise.local.toml|dotted machine-local mise config stays closed
 deny|load-bearing|Edit|$GWT/mise.test.toml|an environment-specific mise config stays closed

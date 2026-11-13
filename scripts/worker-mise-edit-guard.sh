@@ -12,7 +12,9 @@
 #   components, symlinked directories and a symlinked leaf included); it is
 #   allowed only when both lie inside the worktree. What cannot be read (no
 #   jq, a payload that is not JSON, an unusable worktree argument) refuses
-#   a task path rather than letting it through.
+#   a task path rather than letting it through, and a path that cannot be
+#   resolved (a symlink chain past the bound, an unreadable folder) is
+#   refused whatever its spelling, since it may resolve to a task file.
 # Exit: 0 always. POSIX sh; jq reads the payload.
 set -uf
 LC_ALL=C
@@ -114,13 +116,9 @@ case $abs in
   *) is_task "/$abs" && deny || exit 0 ;;
 esac
 lex=$(norm "$abs")
-real=$(phys "$lex") || real=''
-if [ -n "$real" ]; then
-  is_task "$lex" || is_task "$real" || exit 0
-else
-  is_task "$lex" || exit 0
-  deny
-fi
+real=$(phys "$lex") || deny
+[ -n "$real" ] || deny
+is_task "$lex" || is_task "$real" || exit 0
 
 wt_arg=${1:-}
 [ -n "$wt_arg" ] || deny
