@@ -140,7 +140,15 @@
 # Usage:
 #   allocation-adapt.sh resolve <unit> --key <selection-key>
 #       [--step <step>] [--attempt <n>] [--event <class>]... [--reserved]
-#       [--step-type <class>] [--worktree <dir>]
+#       [--step-type <class>] [--worktree <dir>] [--model <alias>]
+#       [--effort <level>]
+#
+#     --model and --effort replace the key's STARTING tier for this one
+#     resolution (a per-launch override: no knob is written). They are checked
+#     against the closed rosters; the ladder, the admission gate and the clamps
+#     still run on the result, and --reserved is the only exemption from the
+#     clamps. The override and the reservation are written to the launch row's
+#     inputs (override-model=, override-effort=, reserved=).
 #
 #     PASS A STEP AND ATTEMPT WITH ANY --event. The idempotency key is
 #     (unit, step, attempt, incident), and `--step` defaults to `-` with
@@ -215,7 +223,7 @@ MECHANISM=allocation
 TAB=$(printf '\t')
 
 usage() {
-  echo "usage: allocation-adapt.sh resolve <unit> --key <selection-key> [--step <step>] [--attempt <n>] [--event <class>]... [--reserved] [--step-type <class>] [--worktree <dir>] | derive <unit> --key <selection-key> [--step-type <class>] (accepted, ignored: derive answers where the UNIT sits)" >&2
+  echo "usage: allocation-adapt.sh resolve <unit> --key <selection-key> [--step <step>] [--attempt <n>] [--event <class>]... [--reserved] [--step-type <class>] [--worktree <dir>] [--model <alias>] [--effort <level>] | derive <unit> --key <selection-key> [--step-type <class>] (accepted, ignored: derive answers where the UNIT sits)" >&2
 }
 
 require_exec() {
@@ -551,6 +559,8 @@ KEY=""
 STEP=-
 ATTEMPT=1
 RESERVED=no
+OVR_MODEL=""
+OVR_EFFORT=""
 EVENTS=""
 DEGRADED=no
 STEP_TYPE=""
@@ -639,6 +649,28 @@ parse_args() {
       --reserved)
         RESERVED=yes
         shift
+        ;;
+      --model | --effort)
+        [ "$#" -ge 2 ] || {
+          usage
+          exit 2
+        }
+        # A per-launch tier is checked against the closed rosters here, before
+        # config is read or a lock taken; `inherit` is not an override.
+        if [ "$1" = --model ]; then
+          alloc_model_rank "$2" >/dev/null 2>&1 || {
+            printf '%s\n' "allocation-adapt: --model '$(sanitize_printable "$2" "(unprintable model)")' is not a model alias ($ALLOC_MODELS)" >&2
+            exit 2
+          }
+          OVR_MODEL=$2
+        else
+          alloc_effort_rank "$2" >/dev/null 2>&1 || {
+            printf '%s\n' "allocation-adapt: --effort '$(sanitize_printable "$2" "(unprintable effort)")' is not an effort level ($ALLOC_EFFORTS)" >&2
+            exit 2
+          }
+          OVR_EFFORT=$2
+        fi
+        shift 2
         ;;
       --worktree)
         [ "$#" -ge 2 ] || {
@@ -858,6 +890,26 @@ cmd_resolve() {
   START_MODEL=$(printf '%s' "$base" | cut -f1)
   START_EFFORT=$(printf '%s' "$base" | cut -f2)
   COMMAND=$(printf '%s' "$base" | cut -f3)
+  # A per-launch override replaces the starting tier for this resolution only;
+  # every later stage (ladder, clamps, admission) runs on it as on a knob's.
+  OVR_NOTE=""
+  [ -z "$OVR_MODEL" ] || {
+    START_MODEL=$OVR_MODEL
+    OVR_NOTE="${OVR_NOTE};override-model=$OVR_MODEL"
+  }
+  [ -z "$OVR_EFFORT" ] || {
+    START_EFFORT=$OVR_EFFORT
+    OVR_NOTE="${OVR_NOTE};override-effort=$OVR_EFFORT"
+  }
+  [ "$RESERVED" = no ] || OVR_NOTE="${OVR_NOTE};reserved=yes"
+  # At a surface whose shipped tier is `inherit`, one overridden dimension
+  # beside an inherited one would skip the ladder and the clamps entirely
+  # (an inherited tier is never clamped), so the override must name both.
+  if { [ -n "$OVR_MODEL" ] || [ -n "$OVR_EFFORT" ]; } \
+    && { [ "$START_MODEL" = inherit ] || [ "$START_EFFORT" = inherit ]; }; then
+    printf '%s\n' "allocation-adapt: the $KEY key inherits its tier, so a per-launch override must name both --model and --effort" >&2
+    exit 2
+  fi
 
   # The kill-switch: the operator has taken manual control, so allocation
   # reverts to the un-degraded normal policy rather than degrading further.
@@ -937,7 +989,7 @@ cmd_resolve() {
   # inheritance is RECORDED rather than left as a silent ambient launch.
   if [ "$START_MODEL" = inherit ] || [ "$START_EFFORT" = inherit ]; then
     record inherit "$START_MODEL" "$START_EFFORT" - - "$START_MODEL" "$START_EFFORT" \
-      unit inherit "key=$KEY;rung=$RUNG;inherit=full" || true
+      unit inherit "key=$KEY;rung=$RUNG;inherit=full$OVR_NOTE" || true
     # A step type named at an INHERIT surface has nothing to be cheaper THAN:
     # the surface has no tier of its own. An unconfigured step type inherits
     # like everything else here; a CONFIGURED one is refused, because applying
@@ -1044,7 +1096,7 @@ cmd_resolve() {
   launch_scope=unit
   [ "$STEP_SCOPE" = applied ] && launch_scope=step
   record launch "$LAUNCH_MODEL" "$LAUNCH_EFFORT" "$CL_MODEL" "$CL_EFFORT" "$res_m" "$res_e" \
-    "$launch_scope" "$outcome" "key=$KEY;rung=$RUNG;clamps=$CL_CLAMPS;signal=$USAGE;adaptation=$ADAPT_STATE;step=$STEP_SCOPE" \
+    "$launch_scope" "$outcome" "key=$KEY;rung=$RUNG;clamps=$CL_CLAMPS;signal=$USAGE;adaptation=$ADAPT_STATE;step=$STEP_SCOPE$OVR_NOTE" \
     || true
 
   release_unit_lock

@@ -1,6 +1,10 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034,SC2154 # variables the sourcing tests read; $here and $repo_root come from them
 unset CDPATH
+# Hermetic inside a worker session: the session variables a stream-json worker
+# exports are not this suite's, and one leaking in changes which backend the
+# launcher resolves. Fixtures that want one set it through ml.
+unset PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
 # Shared fixture for the mission-control launch tests (sourced at top level by
 # tests/test-mission-control-launch*.sh): the failure counters, the scratch tree
 # and its cleanup, the CLI and tmux shims, the ml runner and its wait helpers.
@@ -26,7 +30,7 @@ fleet="$tmp/fleet"
 cleanup() {
   # Close any supervisor a failed case left running, through the rung's own
   # stop, before the scratch tree goes.
-  for fl in "$tmp/fleet" "$tmp/fleet-cap"; do
+  for fl in "$tmp/fleet" "$tmp/fleet-cap" "$tmp/fleet-wait"; do
     for d in "$fl"/streamjson/*/; do
       [ -d "$d" ] || continue
       env PLANWRIGHT_FLEET_STATE_DIR="$fl" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
@@ -78,6 +82,7 @@ printf '%s\n' "${PLANWRIGHT_MC_TOKEN:-}" >"$SHIM_RECORD_DIR/mctoken"
 printf '%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" >"$SHIM_RECORD_DIR/towerid"
 printf '%s\n' "${TMUX-<unset>}" >"$SHIM_RECORD_DIR/tmuxvar"
 printf '%s\n' "${TMUX_PANE-<unset>}" >"$SHIM_RECORD_DIR/tmuxpane"
+printf '%s\n' "${PLANWRIGHT_LOCAL_CONFIG-<unset>}" >"$SHIM_RECORD_DIR/localcfg"
 IFS= read -r line || line=''
 printf '%s\n' "$line" >"$SHIM_RECORD_DIR/stdin"
 exit 0
@@ -160,6 +165,7 @@ ml() {
   OUT=$(cd "${ML_CD:-$repo}" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
     -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    -u PLANWRIGHT_WORKER_SESSION_RECORD -u PLANWRIGHT_SESSION_BACKEND \
     -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID -u PLANWRIGHT_MC_TOKEN -u CLAUDE_CONFIG_DIR \
     PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="${ML_REPO_ROOT-$repo}" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \

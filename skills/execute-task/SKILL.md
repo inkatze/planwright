@@ -169,15 +169,16 @@ in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
 whenever one exists):
 
 1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>
-   --unattended` exactly when the backend seam's launch record says headless,
-   else `--attended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
+   --attended` when `launch-backend` is interactive,
+   else `--unattended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
    and waits for a repair and re-resolve; otherwise park. Exit 2, 4, or 5: a stop condition.
 2. **Host** each step in order by its printed hosting, per the doc's
    *Hosting* table, a skill or prompt step receiving the `--preamble` block:
-   `isolated` sessions launch through the backend seam (`offload-dispatch`)
-   at their `execute_step` tier, recording the session id (a backend that
-   cannot spawn degrades to `in-session`, recorded, a following `continue`
-   attaching to the unit's session); `continue` resumes the predecessor's id
+   `isolated` sessions launch at `execute_step` tier through the backend
+   seam (`offload-dispatch`; headless refuses `tmux`:
+   `scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`), recording
+   session id (a backend that cannot spawn degrades to `in-session`, recorded, a following
+   `continue` attaching to unit's session); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
    through `step-run.sh` (foreground, waited in-turn): `isolated` by
    `command`, session-hosted between `begin --owner $PPID`, whose printed

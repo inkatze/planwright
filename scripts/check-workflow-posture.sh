@@ -4,7 +4,8 @@
 # matrix under --matrix (below).
 #
 # D-6's working posture: PR-authored code MAY execute under `pull_request`, but
-# only ever with a read-only token and zero stored secrets. That posture was
+# only ever with a read-only token and zero stored secrets (bar the same-repo
+# exception under assertion 3). That posture was
 # audited once (the REQ-C1.1 record in specs/guard-coverage/kickoff-brief.md);
 # this guard is what keeps it true, so a workflow edit that breaks it fails CI
 # instead of relying on reviewer vigilance.
@@ -26,6 +27,16 @@
 #      `GITHUB_` prefix so none can impersonate it, and its privilege is
 #      governed by assertion 2. Reachability follows local reusable-workflow
 #      `uses:` edges.
+#      The one exception to 2 and 3: a job whose own job-level `if:` carries
+#      `github.event.pull_request.head.repo.full_name == github.repository`
+#      as one whole `&&` conjunct, with no `||` anywhere in that `if:`, runs
+#      only for same-repository PRs, so it may hold write permissions and a
+#      stored secret. The `if:` is judged whole across its lines; a clause
+#      compared to a value, parenthesised, negated, quoted or inside any other
+#      construct is not a conjunct and is refused, as is an `if:` that mixes
+#      text with a `${{ }}` template (a string, always truthy). Undeclared permissions,
+#      `secrets: inherit`, and a secret outside the gated job stay refused.
+#      A `\`-joined line before the `if:` hides it (a loud failure).
 #   4. Any `workflow_run` workflow holding write permissions or secrets keeps a
 #      base-branch filter, pins the ORIGINATING repository, and consumes no
 #      PR-produced artifact. A `workflow_run` fired by a fork PR's workflow runs
@@ -38,6 +49,11 @@
 #      `head_repository.full_name == github.repository` clause says who produced
 #      the run, which is what decides whether an outsider can choose when the
 #      privileged job fires and whose CI verdict it acts on.
+#
+# A separate consistency check, not a posture assertion: a workflow running the
+# PR-Agent image must set GITHUB_ACTION_CONFIG.PR_ACTIONS to the same set as its
+# first flow-style `types: [..]` list, because the action's default list omits
+# `synchronize` and it silently skips any action its list leaves out.
 #
 # Cache and artifact posture beyond assertion 4 carries no standing check: an
 # accepted residual recorded in D-6, covered by the REQ-C1.1 audit only.
@@ -156,8 +172,11 @@
 #     last fail silently;
 #   - no `if:`, job- or step-level and on every line of a multi-line value,
 #     names a platform (runner.os, runner.arch, matrix.os, or a platform
-#     word); the macOS and Alpine jobs carry no job-level `if:` at all, since
-#     a matrix job runs on every pull request; and a step the scope names
+#     word); the Alpine job carries no job-level `if:` at all, since a matrix
+#     job runs on every pull request, and a macOS job only the plan job's
+#     `needs.plan.outputs.mac_run == 'true'` (macOS runs on a push, a ready
+#     pull request or the ci-macos label, never on a draft push), alone and
+#     not counted as gating its `install smoke`; and a step the scope names
 #     (`install smoke`, `shell suite`, `bake-off harness`) carries no `if:`
 #     beyond always(), !cancelled(), or success();
 #   - the Ubuntu and macOS sides each carry an `install smoke` step in a job
@@ -327,7 +346,7 @@ function inline_triggers(v,   inner, n, parts, i) {
 # case-insensitive for the same reason, which is safe: GitHub reserves the
 # `GITHUB_` prefix, so no stored secret can be named `github_token` in any
 # casing. Names are reported upper-cased, the form GitHub stores them in.
-function scan_refs(t, nr,   low, s, tok) {
+function scan_refs(t, nr, jb, injif,   low, s, tok, hashed) {
   low = tolower(t)
   s = low
   while (match(s, /secrets[ \t]*(\.[a-z_][a-z0-9_]*|\[[ \t]*["'][a-z_][a-z0-9_]*["'][ \t]*\])/)) {
@@ -335,7 +354,7 @@ function scan_refs(t, nr,   low, s, tok) {
     s = substr(s, RSTART + RLENGTH)
     sub(/^secrets[ \t]*/, "", tok)
     gsub(/[^a-z0-9_]/, "", tok)
-    if (tok != "github_token") printf "R\t%d\t%s\n", nr, toupper(tok)
+    if (tok != "github_token") printf "R\t%d\t%s\t%s\n", nr, toupper(tok), jb
   }
   if (low ~ /download-artifact/ || low ~ /gh[ \t]+run[ \t]+download/) printf "A\t%d\n", nr
   # Everything from the first `#` on is dropped before the match below, so the
@@ -349,6 +368,7 @@ function scan_refs(t, nr,   low, s, tok) {
   #
   # The trailing space lets one `[^a-z0-9_]` guard cover the end of the line as
   # well as the middle of it.
+  hashed = (low ~ /#/)
   sub(/#.*$/, "", low)
   low = low " "
   # The EQUALITY, in either operand order — not any use of the field. The
@@ -369,6 +389,57 @@ function scan_refs(t, nr,   low, s, tok) {
        low ~ /github\.repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository\.full_name/) &&
       low !~ /![ \t]*\([ \t]*github\.(event\.workflow_run\.head_repository|repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository)/)
     printf "H\t%d\n", nr
+  # A job's own `if:` text, comments already stripped, gathered across its
+  # physical lines; the same-repo clause is judged on the whole of it at END.
+  # A `#` on an `if:` line may be literal (inside a string, or a block scalar)
+  # and so may hide a trailing `||` from the strip above; GitHub would still
+  # evaluate it. The gate cannot tell, so such a line is never a gate.
+  if (injif && jb != "") jif_text[jb] = jif_text[jb] " " low (hashed ? " || " : "")
+}
+# The same-repo clause must be one whole `&&` conjunct of the job's `if:`, and
+# that `if:` must hold no `||`: any other spelling (compared to a value,
+# parenthesised, negated, inside a string, split across lines) is not a gate
+# and is refused loud rather than judged.
+function same_repo_gated(text,   parts, n, i, p, a, b, out, tmp) {
+  sub(/^[ \t]*if[ \t]*:[ \t]*/, "", text)
+  sub(/^[>|][0-9]*[+-]?[ \t]+/, "", text)
+  # An `if:` mixing text with `${{ }}` is a string, always truthy: only one
+  # wrapper spanning the whole value is an expression. Double quotes are not
+  # expression strings at all.
+  if (text ~ /"/) return 0
+  if (text ~ /\$\{\{/) {
+    tmp = text
+    sub(/^[ \t]*\$\{\{/, "", tmp)
+    sub(/\}\}[ \t]*$/, "", tmp)
+    if (tmp ~ /\$\{\{|\}\}/) return 0
+  }
+  gsub(/\$\{\{|\}\}/, " ", text)
+  # A string literal is opaque: blank its contents so an `&&` or `||` inside
+  # one is neither a conjunct boundary nor an operator.
+  out = ""
+  while (match(text, /'[^']*'/)) {
+    out = out substr(text, 1, RSTART - 1) "'_'"
+    text = substr(text, RSTART + RLENGTH)
+  }
+  text = out text
+  if (text ~ /\|\|/) return 0
+  a = "github.event.pull_request.head.repo.full_name == github.repository"
+  b = "github.repository == github.event.pull_request.head.repo.full_name"
+  n = split(text, parts, "&&")
+  # A parenthesis opened in one conjunct and closed in another can wrap the
+  # clause in a negation or a call that no per-conjunct test would see, so
+  # every conjunct must balance on its own.
+  for (i = 1; i <= n; i++) {
+    tmp = parts[i]
+    if (gsub(/\(/, "(", tmp) != gsub(/\)/, ")", tmp)) return 0
+  }
+  for (i = 1; i <= n; i++) {
+    p = parts[i]
+    gsub(/[ \t]+/, " ", p)
+    sub(/^ /, "", p); sub(/ $/, "", p)
+    if (p == a || p == b) return 1
+  }
+  return 0
 }
 BEGIN {
   section = ""; on_child = -1; perm_child = -1; jobs_child = -1
@@ -376,7 +447,8 @@ BEGIN {
   top_perm = "absent"; top_perm_n = 0
   cur_job = ""; njobs = 0; ntrig = 0; errs = 0; fatal = 0
   bs = 0; bs_indent = -1; ndocs = 0; seen_content = 0
-  cont = 0; logical = ""; logical_nr = 0
+  cont = 0; logical = ""; logical_nr = 0; logical_job = ""; logical_jif = 0
+  jkey_if = 0
 }
 {
   if (fatal) next
@@ -409,18 +481,35 @@ BEGIN {
   # and a space inserted here would hide it. A shell continuation keeps the
   # space that precedes its backslash, so `gh run \` + `download …` still joins
   # to a matchable `gh run download …`.
+  # Which job, and whether its own `if:`, a line belongs to: read before the
+  # structural dispatch below moves cur_job, and only at the job's body indent
+  # (a step's `- if:` sits deeper, so it never counts as the job's own).
+  scan_job = ""; scan_jif = 0
+  if (section == "jobs" && jobs_child >= 0 && cur_job != "") {
+    if (indent == jobs_child) {
+      jkey_if = 0
+    } else if (indent > jobs_child) {
+      # The job's first line fixes its body indent, set here too because a
+      # block-scalar first key (`if: >-`) skips the dispatch that sets it.
+      if (job_body < 0) job_body = indent
+      jbi = job_body
+      if (indent == jbi) jkey_if = (rest ~ /^if[ \t]*:/)
+      scan_job = cur_job; scan_jif = jkey_if
+    }
+  }
   if (cont) {
     logical = logical rest
   } else {
     logical = rest
     logical_nr = NR
+    logical_job = scan_job; logical_jif = scan_jif
   }
   if (logical ~ /\\[ \t]*$/) {
     sub(/\\[ \t]*$/, "", logical)
     cont = 1
   } else {
     cont = 0
-    scan_refs(logical, logical_nr)
+    scan_refs(logical, logical_nr, logical_job, logical_jif)
   }
 
   # Block-scalar bodies carry no structure for this parser.
@@ -557,7 +646,8 @@ BEGIN {
 }
 END {
   # A backslash left dangling at EOF never reached the join's else branch.
-  if (cont) scan_refs(logical, logical_nr)
+  if (cont) scan_refs(logical, logical_nr, logical_job, logical_jif)
+  for (j in jif_text) if (same_repo_gated(jif_text[j])) printf "G\t0\t%s\n", j
   if (errs > 0) exit 0
   if (ntrig == 0) { printf "E\t0\t%s\n", "workflow declares no triggers"; exit 0 }
   if (njobs == 0) { printf "E\t0\t%s\n", "workflow declares no jobs"; exit 0 }
@@ -642,10 +732,23 @@ if [ "$parse_failed" -eq 0 ]; then
 
     # 2 & 3. Everything reachable from pull_request.
     if [ "${reach[i]}" -eq 1 ]; then
+      # The same-repo exception: a job whose own `if:` carries the live
+      # `pull_request.head.repo.full_name == github.repository` clause, with
+      # no `||` in that `if:`, runs only for PRs from this repository, so it
+      # may hold write permissions and a stored secret. Only those two relax;
+      # undeclared permissions, `secrets: inherit` and a secret outside the
+      # gated job stay refused.
+      gated=" "
+      while IFS=$'\t' read -r _ _ job; do
+        [ -n "${job:-}" ] || continue
+        case "$gated" in *" $job "*) ;; *) gated="$gated$job " ;; esac
+      done < <(fact "$i" G)
+
       while IFS=$'\t' read -r _ job verdict; do
         [ -n "${job:-}" ] || continue
         eff="$verdict"
         [ "$eff" = "absent" ] && eff="$top_perm"
+        case "$gated" in *" $job "*) [ "$eff" = "write" ] && eff="read" ;; esac
         case "$eff" in
           read) ;;
           absent)
@@ -660,8 +763,9 @@ if [ "$parse_failed" -eq 0 ]; then
         esac
       done < <(fact "$i" J)
 
-      while IFS=$'\t' read -r _ ln name; do
+      while IFS=$'\t' read -r _ ln name rjob; do
         [ -n "${name:-}" ] || continue
+        case "$gated" in *" ${rjob:-} "*) [ -n "${rjob:-}" ] && continue ;; esac
         fail "$file:$ln: stored secret '$name' is reachable from \`pull_request\`; only \`secrets.GITHUB_TOKEN\` may appear on that path"
       done < <(fact "$i" R)
 
@@ -866,6 +970,17 @@ function bare(t) {
   return t
 }
 function run_anyway(t) { t = bare(t); return (t == "always()" || t == "!cancelled()" || t == "success()") }
+# The one job-level `if:` a macOS job may carry: the plan job's verdict that
+# macOS runs for this event (a push, a ready pull request, or the ci-macos
+# label), compared to 'true' and nothing else.
+# bare() would strip the closing quote of a bare expression, so this trims
+# only whitespace and the ${{ }} wrapper.
+function mac_gate(t) {
+  t = tolower(t)
+  gsub(/^[ \t]+/, "", t); gsub(/[ \t]+$/, "", t)
+  sub(/^\$\{\{[ \t]*/, "", t); sub(/[ \t]*\}\}$/, "", t)
+  return (t == "needs.plan.outputs.mac_run == 'true'")
+}
 function platform(t) { return tolower(t) ~ /runner\.os|runner\.arch|matrix\.os|macos|ubuntu|alpine|linux|windows|darwin/ }
 function scope(n) { return (n == "shell suite" || n == "install smoke" || n == "bake-off harness") }
 # Reading nm[] by subscript would create the entry; every read goes through here.
@@ -890,7 +1005,8 @@ $1 == "O" { ro[$2] = $3 }
 $1 == "C" { if (!($2 in img)) img[$2] = $3 }
 $1 == "I" {
   jif[$2] = $3
-  if (!run_anyway($4)) gated[$2] = 1
+  if (mac_gate($4)) macgate[$2] = 1
+  else { other_if[$2] = 1; if (!run_anyway($4)) gated[$2] = 1 }
   if (platform($4)) v(file ":" $3 ": job '" $2 "' is gated by an `if:` naming a platform, so that platform can stop running it")
 }
 $1 == "S" { ns[$2] = $3 }
@@ -909,7 +1025,8 @@ END {
     if (base ~ /^alpine([:@]|$)/) { kind[j] = "alpine"; nalpine++; alpine_job = (alpine_job == "" ? j : alpine_job " " j) }
     else if (img[j] == "" && mac_runs_on(ro[j])) kind[j] = "macos"
     else if (img[j] == "" && ro[j] ~ /^ubuntu-/) kind[j] = "ubuntu"
-    if ((kind[j] == "macos" || kind[j] == "alpine") && (j in jif))
+    if (kind[j] != "macos" && (j in macgate)) gated[j] = 1
+    if (((kind[j] == "macos" && (j in other_if)) || kind[j] == "alpine") && (j in jif))
       v(file ":" jif[j] ": platform job '" j "' carries a job-level `if:`; a matrix job runs on every pull request")
     for (s = 1; s <= ns[j]; s++) if (stepname(j, s) == "install smoke" && !gated[j]) smoke[kind[j]] = 1
     if (kind[j] != "") have[kind[j]] = 1
@@ -957,6 +1074,29 @@ if [ -n "$matrix" ] && [ "$parse_failed" -eq 0 ]; then
     done <"$work/matrix.viol"
   fi
 fi
+
+# PR-Agent skips any event whose action its pr_actions leave out (the default
+# omits synchronize), so a workflow running it must name exactly the pull_request
+# types it triggers on. Only the first flow-style `types:` list is read; any
+# other shape fails closed.
+for ((i = 0; i < nfiles; i++)); do
+  file="${files[i]}"
+  grep -Eqi '^[[:space:]]*[^#[:space:]].*(pragent/pr-agent|GITHUB_ACTION_CONFIG\.PR_ACTIONS)' "$file" || continue
+  trig="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
+  acts="$(sed -n "s/^[[:space:]]*GITHUB_ACTION_CONFIG\\.PR_ACTIONS:[[:space:]]*['\"]*\\[\\(.*\\)\\]['\"]*[[:space:]]*\$/\\1/p" "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
+  if [ -z "$trig" ]; then
+    fail "$file: a PR-Agent workflow needs a flow-style pull_request 'types: [..]' list the guard can read"
+  elif [ -z "$acts" ]; then
+    fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG.PR_ACTIONS as a JSON list; the default omits synchronize, so pushes after the PR opens are skipped"
+  else
+    while IFS= read -r a; do
+      printf '%s\n' "$acts" | grep -qx -- "$a" || fail "$file: PR_ACTIONS omits '$a', which the workflow triggers on, so PR-Agent skips it"
+    done <<<"$trig"
+    while IFS= read -r a; do
+      printf '%s\n' "$trig" | grep -qx -- "$a" || fail "$file: PR_ACTIONS names '$a', which the pull_request types never deliver"
+    done <<<"$acts"
+  fi
+done
 
 if [ -s "$viol" ]; then
   echo "check-workflow-posture: the workflow posture does not hold (the D-6 fork-PR posture, and the platform matrix under --matrix)." >&2
