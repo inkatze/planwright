@@ -324,4 +324,28 @@ rc=0
 [ "$rc" = 2 ] || fail "over-length window token: exit $rc, expected 2"
 echo "ok: hostile session/window tokens are refused (exit 2)"
 
+# 12. Process identity: a pid recorded with its start token that now names a
+#     different process (a reused pid) is dead; a matching token stays alive;
+#     no token keeps the pid-only answer.
+sleep 600 &
+id_pid=$!
+trap 'kill "$id_pid" 2>/dev/null; rm -rf "$tmp"' EXIT
+id_tok=$(/bin/bash "$FDE" start "$id_pid") || fail "start: no token for a live pid"
+[ -n "$id_tok" ] || fail "start: empty token for a live pid"
+id_tok2=$(/bin/bash "$FDE" start "$id_pid") || fail "start: second read failed"
+[ "$id_tok" = "$id_tok2" ] || fail "start: token is not stable across reads"
+verdict alive 1 process "$id_pid" "$id_tok"
+verdict dead 0 process "$id_pid" "${id_tok}9"
+verdict alive 1 process "$id_pid"
+rc=0
+/bin/bash "$FDE" start 2999999999 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "start of a missing pid: exit $rc, expected 3"
+rc=0
+/bin/bash "$FDE" start abc >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "start of a malformed pid: exit $rc, expected 2"
+rc=0
+/bin/bash "$FDE" process "$id_pid" 'a b;c' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "hostile start token: exit $rc, expected 2"
+echo "ok: a reused pid reads dead, a matching or absent identity reads alive"
+
 echo "ALL PASS: fleet-death-evidence"

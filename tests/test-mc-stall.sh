@@ -291,6 +291,21 @@ stall classify --program alpha --now 1000 mc-alpha-tower-live
 stall classify --program alpha --now 999999 mc-alpha-tower-live
 expect_state "a live pid with no pane and long silence reads live, never stalled" mc-alpha-tower-live live
 
+# A recorded pid the host reissued to another process reads dead; one whose
+# recorded start still matches reads live; one with no start record keeps the
+# pid-only answer (above).
+live_tok=$(/bin/sh "$repo_root/scripts/fleet-death-evidence.sh" start "$live_pid")
+row mc-alpha-worker-reused worker stream-json mc-alpha-worker-reused
+sj mc-alpha-worker-reused "$live_pid"
+printf '%s\n' "${live_tok}9" >"$fleet/streamjson/mc-alpha-worker-reused/worker.start"
+stall classify --program alpha --now 1000 mc-alpha-worker-reused
+expect_state "a recorded pid now owned by another process reads dead" mc-alpha-worker-reused dead
+row mc-alpha-worker-same worker stream-json mc-alpha-worker-same
+sj mc-alpha-worker-same "$live_pid"
+printf '%s\n' "$live_tok" >"$fleet/streamjson/mc-alpha-worker-same/worker.start"
+stall classify --program alpha --now 1000 mc-alpha-worker-same
+expect_state "a recorded pid whose start still matches reads live" mc-alpha-worker-same live
+
 # --- stall states, every kind (REQ-D1.3) -----------------------------------
 
 row mc-alpha-orchestrator-sel orchestrator tmux @1
