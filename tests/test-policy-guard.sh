@@ -18,7 +18,6 @@ unset CDPATH
 # shellcheck source=tests/lib/policy-guard-clones.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/policy-guard-clones.sh"
 
-
 if [ "$(git -C "$UNIT" rev-list --count HEAD --not --remotes)" = 3 ] \
   && [ "$(git -C "$PUSHED" rev-list --count HEAD --not --remotes)" = 0 ]; then
   pass "fixture: the unit clone carries three unpushed commits and the pushed clone none"
