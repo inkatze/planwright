@@ -11,6 +11,16 @@
 #
 # Exit: 0 pushed; 1 refused here; otherwise git's own push status.
 set -u
+# LC_ALL=C is for this script's own parsing only. The adopter's pre-push hooks
+# run under the caller's locale (C.UTF-8 when the caller sets none): a C locale
+# there breaks UTF-8 file names in the hooked tools.
+if [ -n "${LC_ALL:-}" ]; then
+  hook_lc_all=$LC_ALL
+elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
+  hook_lc_all=
+else
+  hook_lc_all=C.UTF-8
+fi
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -47,4 +57,7 @@ case $current in
   *) die "this checkout is on '$current', not planwright/$spec/spec or planwright/$spec/amendment-<n>; run as $form from one of them" ;;
 esac
 
-exec git push -u origin "$current"
+if [ -n "$hook_lc_all" ]; then
+  exec env LC_ALL="$hook_lc_all" git push -u origin "$current"
+fi
+exec env -u LC_ALL git push -u origin "$current"
