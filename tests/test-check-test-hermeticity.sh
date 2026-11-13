@@ -75,7 +75,7 @@ expect "mode-bit: a chmod -- 000 with no access probe fails" 1 \
 expect "mode-bit: a quoted mkdir -m \"000\" with no access probe fails" 1 \
   "test-mode-bit-mkdir-quoted.sh:4: mode-bit" "$(root_with mb-tpm mode-bit-mkdir-quoted.sh)"
 expect "mode-bit: a chmod --recursive 000 with no access probe fails" 1 \
-  "test-mode-bit-longopt.sh:5: mode-bit" "$(root_with mb-tpl mode-bit-longopt.sh)"
+  "test-mode-bit-longopt.sh:5: mode-bit: removes owner access to \"\$tmp/locked\"" "$(root_with mb-tpl mode-bit-longopt.sh)"
 expect "mode-bit: a restrictive chmod named in a trailing comment passes" 0 "clean" \
   "$(root_with mb-tnc mode-bit-comment.sh)"
 expect "mode-bit: a fixture probing through hermetic_access_denied passes" 0 "clean" \

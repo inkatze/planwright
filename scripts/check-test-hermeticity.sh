@@ -289,7 +289,7 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
         if (t ~ /^-/) continue
         if (cm_mode == "") return 0
       } else {
-        if (cm_mode == "" && (t == "--" || t ~ /^-[RfvchHLP]+$/)) continue
+        if (cm_mode == "" && (t == "--" || t ~ /^-[RfvchHLP]+$/ || t ~ /^--[a-z-]+(=.*)?$/)) continue
         if (cm_mode == "") { gsub(/["\047]/, "", t); cm_mode = t; continue }
       }
       cm_target = t
