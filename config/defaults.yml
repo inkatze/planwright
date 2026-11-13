@@ -252,10 +252,15 @@ full_suite_pool: heavy-run
 # posture: an adopter has no second machine. A host that is unreachable, over
 # fleet_compute_load_cap (one-minute load per core), or failing before its
 # command starts is passed over with one warning and the run happens here.
+# So is a host a person is using: HID idle time under
+# fleet_compute_idle_threshold seconds (0 turns the check off), or a console
+# user other than fleet_compute_account (empty: the account ssh logs in as).
 # fleet_compute_timeout is the run's budget in seconds; empty takes the
 # channel's own default (long for the full check, short for one file).
 fleet_compute_host: local
 fleet_compute_load_cap: 0.4
+fleet_compute_idle_threshold: 600
+fleet_compute_account:
 fleet_compute_timeout:
 
 # The operator kill-switch for the autonomous daemon layer (fleet-autonomy

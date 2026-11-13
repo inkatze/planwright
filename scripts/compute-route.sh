@@ -15,13 +15,18 @@
 # The host runs the kind through `fleet-remote.sh compute` in the caller's
 # worktree. The command runs here instead, with one `compute-route: warning:`
 # line, when the host cannot be reached, is over fleet_compute_load_cap (load
-# per core), or the run fails before its command starts (a refused target, no
+# per core), is in use by a person (see below), or the run fails before its command starts (a refused target, no
 # clone, SSH down); and silently when the knob is `local`. A worktree with
 # uncommitted changes also runs here, since the host tests only the committed
 # HEAD. A run whose command started is never repeated: its result stands.
 #
+# A host is in use when its HID idle time is under fleet_compute_idle_threshold
+# seconds (0 turns the check off) or a console user other than
+# fleet_compute_account (empty: the account ssh logs in as) is logged in; a
+# probe that fails counts as unreachable.
+#
 # Knobs (config-get.sh): fleet_compute_host, fleet_compute_load_cap,
-# fleet_compute_timeout (whole seconds; empty takes the channel's default).
+# fleet_compute_idle_threshold, fleet_compute_account, fleet_compute_timeout (whole seconds; empty takes the channel's default).
 # Exit: the command's own status; 2 usage error.
 set -u
 # The command runs in the caller's locale; only this script's own parsing is
@@ -140,6 +145,10 @@ esac
 
 cap=$(conf fleet_compute_load_cap) || cap=0.4
 timeout_secs=$(conf fleet_compute_timeout) || timeout_secs=''
+idle_secs=$(conf fleet_compute_idle_threshold) || idle_secs=600
+account=$(conf fleet_compute_account) || account=''
+case $idle_secs in '' | *[!0-9]* | ?????????*) idle_secs=600 ;; esac
+case $account in *[!A-Za-z0-9._-]*) account='' ;; esac
 case $cap in *[0-9]*) ;; *) cap=0.4 ;; esac
 case $cap in *[!0-9.]* | *.*.*) cap=0.4 ;; esac
 case $timeout_secs in '' | *[!0-9]* | 0* | ??????*) timeout_secs='' ;; esac
@@ -171,34 +180,65 @@ trap 'stop 143' TERM
 # The load probe, bounded by a watchdog: ConnectTimeout covers only the connect
 # phase, and a host that accepts the connection and then stalls would hang the
 # gate here instead of passing the host over.
-/bin/sh "$channel" --host "$host" load >"$work/probe" 2>/dev/null </dev/null &
-child=$!
-(
-  sleep 30
-  kill "$child" 2>/dev/null
-) >/dev/null 2>&1 </dev/null &
-watchdog=$!
-wait "$child"
-prc=$?
-child=''
-pkill -P "$watchdog" 2>/dev/null
-kill "$watchdog" 2>/dev/null
-{ wait "$watchdog"; } 2>/dev/null
+# probe <verb> <out-file>: one bounded channel call; 0 when it answered.
+probe_run() {
+  /bin/sh "$channel" --host "$host" "$1" >"$2" 2>/dev/null </dev/null &
+  child=$!
+  (
+    sleep 30
+    kill "$child" 2>/dev/null
+  ) >/dev/null 2>&1 </dev/null &
+  watchdog=$!
+  wait "$child"
+  _prc=$?
+  child=''
+  pkill -P "$watchdog" 2>/dev/null
+  kill "$watchdog" 2>/dev/null
+  { wait "$watchdog"; } 2>/dev/null
+  watchdog=''
+  return "$_prc"
+}
+unreachable() {
+  rm -rf "$work"
+  warn "compute host unreachable; running locally"
+  run_here "$@"
+}
+
 probe=''
-[ "$prc" -ne 0 ] || probe=$(sed -n '1p' "$work/probe")
+probe_run load "$work/probe" && probe=$(sed -n '1p' "$work/probe")
 load=${probe%% *}
 cores=${probe#* }
 case $load in '' | *[!0-9.]* | *.*.* | .) probe='' ;; esac
 case $cores in '' | *[!0-9]*) probe='' ;; esac
-if [ -z "$probe" ]; then
-  rm -rf "$work"
-  warn "compute host unreachable; running locally"
-  run_here "$@"
-fi
+[ -n "$probe" ] || unreachable "$@"
 if awk -v l="$load" -v c="$cores" -v cap="$cap" 'BEGIN { exit !(c > 0 && l / c > cap) }'; then
   rm -rf "$work"
   warn "compute host is busy (load $load on $cores cores, cap $cap per core); running locally"
   run_here "$@"
+fi
+
+# A person at the host's keyboard, or logged in at its console, has the machine.
+if [ "$idle_secs" -gt 0 ]; then
+  probe_run inuse "$work/inuse" || unreachable "$@"
+  hid=''
+  console=''
+  login=''
+  read -r hid console login <"$work/inuse" || :
+  case $hid in '-') ;; '' | *[!0-9]*) unreachable "$@" ;; esac
+  [ -n "$account" ] || account=$login
+  if [ "$hid" != - ] && [ "${hid:-0}" -lt $((idle_secs * 1000000000)) ] 2>/dev/null; then
+    rm -rf "$work"
+    warn "compute host is in use (input within the last ${idle_secs}s, threshold fleet_compute_idle_threshold); running locally"
+    run_here "$@"
+  fi
+  case $console in
+    '' | - | root | loginwindow | "$account") ;;
+    *)
+      rm -rf "$work"
+      warn "compute host is in use (console user $console is not the fleet account); running locally"
+      run_here "$@"
+      ;;
+  esac
 fi
 
 # remote_run: the channel call, in a function so the caller's own command
