@@ -612,6 +612,7 @@ collect() {
       *) cl_unaud="no worktree of $2 has branch ${cl_branch:--} checked out in a repository holding the head; pass --worktree" ;;
     esac
   fi
+  cl_ciwt=$cl_wt
   if [ -n "$cl_wt" ]; then
     # Records speak for the worktree's own head, so it must be the forge's.
     cl_wthead=$(mc_untrusted_git -C "$cl_wt" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) || cl_wthead=''
@@ -684,7 +685,7 @@ collect() {
   # Where CI has macOS jobs they only run once a pull request is ready (or
   # labelled), so the walk must be told to want them green, not skipped.
   : >"$cl_tmp/require"
-  cl_ci=${cl_wt:-$cl_first}
+  cl_ci=${cl_ciwt:-$cl_first}
   if grep -rqE --include='*.yml' '^  macos-(suite|smoke):' "$cl_ci/.github/workflows" 2>/dev/null; then
     printf 'require\tmacos\n' >"$cl_tmp/require"
   fi

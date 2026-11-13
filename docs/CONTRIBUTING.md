@@ -200,11 +200,11 @@ jobs run on a push, a ready pull request, or a draft labelled `ci-macos`, and
 skip on a plain draft push) and in an Alpine container
 (musl, dash, busybox; the planned count), and the `check` job, the status
 branch protection reads, passes only when every one of those jobs and shards
-does (the macOS jobs may be skipped on a plain draft) and the test-time budget gate passes over every Linux shard's timing
-report together. The install smoke (`scripts/install-smoke.sh`, installing
-through both delivery modes and running an adopter entry point with PATH
-narrowed to the allowlist the script defines: sh and bash with the POSIX
-utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
+does (the macOS jobs may be skipped on a plain draft) and the test-time budget
+gate passes over every Linux shard's timing report together. The install smoke
+(`scripts/install-smoke.sh`, installing through both delivery modes and running
+an adopter entry point with PATH narrowed to the allowlist the script defines:
+sh and bash with the POSIX utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
 the `macos-smoke` job, and in every Alpine shard. CI also runs a parse
 of every tracked shell file (outside `tests/fixtures/bash32/`) under the real
 bash 3.2, a step of the `lint` job in Docker's official `bash:3.2` image pinned by
