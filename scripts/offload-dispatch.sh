@@ -62,6 +62,17 @@
 #                    and accepts inbound messages, and only a worker-profile
 #                    session carries the worker identity
 #
+#       A unit session launched headless (its launch record, read through
+#       PLANWRIGHT_WORKER_SESSION_RECORD, says launch_backend=stream-json or
+#       headless-oneshot and names a unit branch) is refused `tmux` (exit 2): an isolated step takes
+#       its unit's own backend, and a tmux window would open in the operator's
+#       session.
+#
+#   offload-dispatch.sh launch-backend
+#       Print the backend the calling session was launched on, for an isolated
+#       step to inherit: `stream-json-persistent` or `headless-oneshot` for a
+#       headless launch, else `interactive`.
+#
 #   offload-dispatch.sh report <backend> <handle>
 #       Emit the standardized report for an already-dispatched worker (the
 #       harness-native rungs, or a re-report of a known handle). Backends:
@@ -164,7 +175,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--mc-token <token>] [--name <name>] [--scope <scope>] | report <backend> <handle>>" >&2
+  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--mc-token <token>] [--name <name>] [--scope <scope>] | report <backend> <handle> | launch-backend>" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -404,10 +415,42 @@ cmd_report() {
   emit_hints "$backend" "$handle"
 }
 
+# record_value <key>: the value of the one `<key>=` line of the calling
+# session's launch record (PLANWRIGHT_WORKER_SESSION_RECORD), empty when there
+# is no readable regular record or the key repeats. Read as data, never executed.
+record_value() {
+  rv_rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
+  [ -n "$rv_rec" ] && [ -f "$rv_rec" ] && [ ! -L "$rv_rec" ] && [ -r "$rv_rec" ] || return 0
+  rv_val=$(sed -n "s/^$1=//p" "$rv_rec" 2>/dev/null)
+  # A key the record repeats reads as unset, as the worker command guard reads it.
+  case $rv_val in
+    *"$nl"*) return 0 ;;
+  esac
+  printf '%s\n' "$rv_val"
+}
+
+# The backend the calling session was launched on, for an isolated step to
+# inherit: a headless launch names its backend, anything else is interactive.
+cmd_launch_backend() {
+  case $(record_value launch_backend) in
+    stream-json) printf '%s\n' stream-json-persistent ;;
+    headless-oneshot) printf '%s\n' headless-oneshot ;;
+    *) printf '%s\n' interactive ;;
+  esac
+}
+
 cmd_dispatch() {
   backend=$1
   promptfile=$2
   unit=${3:-}
+  # A unit session launched headless hosts its isolated step headless: a tmux
+  # window would open in the operator's session. A launcher session (a hub, no
+  # unit branch in its record) is not bound by this.
+  if [ "$backend" = tmux ] && [ -n "$(record_value unit_branch)" ] \
+    && [ "$(cmd_launch_backend)" != interactive ]; then
+    printf '%s\n' "$me: dispatch: this session was launched headless ($(cmd_launch_backend)), so its isolated step is hosted headless, never in a tmux window; use the headless backend stream-json-persistent (scripts/fleet-streamjson.sh launch), or run the step in-session" >&2
+    exit 2
+  fi
   case "$backend" in
     tmux | print) ;;
     subagent)
@@ -748,6 +791,13 @@ case "$sub" in
       fi
     fi
     cmd_dispatch "$d_backend" "$d_promptfile" "$d_unit"
+    ;;
+  launch-backend)
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    cmd_launch_backend
     ;;
   report)
     [ "$#" -eq 2 ] || {
