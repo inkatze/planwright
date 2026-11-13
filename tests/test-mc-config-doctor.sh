@@ -79,6 +79,11 @@ session_row mc-alpha-worker-1111111111 alpha tmux
 session_row mc-alpha-worker-2222222222 alpha stream-json
 session_row mc-beta-worker-3333333333 beta tmux
 session_row mc-alpha-worker-4444444444 alpha ''
+hub_row() { # hub_row <name> <program> <backend>: a mission-control row as a handover launch writes it
+  printf 'format\t1\nname\t%s\nprogram\t%s\nkind\tmission-control\nscope\tgen-2-1-abcd\nbackend\t%s\nlaunched\t1\n' "$1" "$2" "$3" >"$sessions/$1"
+}
+hub_row mc-alpha-mission-control-5555555555 alpha tmux
+hub_row mc-alpha-mission-control-6666666666 alpha stream-json
 # Shell forms no redaction could model, and schedules short, named or with
 # an unknown keyword, each a crontab line, then " ==> "
 # and the command word and match the report must read as (a blank standing
@@ -165,6 +170,7 @@ expect_no_out "a session on the knob's rung is not named" "mc-alpha-worker-22222
 expect_no_out "another program's session is not named" "mc-beta-worker-3333333333"
 expect_out "a session whose row names no rung is an unknown launches check" "unknown${tab}launches${tab}mc-alpha-worker-4444444444 names no rung"
 expect_no_out "a session whose row names no rung is not read as another rung" "launch-backend${tab}mc-alpha-worker-4444444444"
+expect_no_out "an attended hub on the tmux rung, as a handover launch starts it, is not named" "mc-alpha-mission-control-5555555555"
 cron_line() { # cron_line <label> <word> <match>: one report line reads exactly so
   if printf '%s\n' "$OUT" | grep -qxF -- "cron${tab}$2${tab}$3"; then
     ok "$1: $2 $3"
@@ -223,6 +229,7 @@ printf 'mission_control_launch_backend: tmux\n' >"$layer"
 cfg doctor --program alpha
 expect_out "a layer moving the backend knob is named" "override${tab}mission_control_launch_backend${tab}adopter${tab}tmux${tab}stream-json"
 expect_out "launches are judged against the knob in force" "launch-backend${tab}mc-alpha-worker-2222222222${tab}stream-json${tab}tmux"
+expect_out "a hub on a rung other than tmux is still named against the knob" "launch-backend${tab}mc-alpha-mission-control-6666666666${tab}stream-json${tab}tmux"
 
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$sessions"
