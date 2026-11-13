@@ -360,6 +360,9 @@ done
 # the nearest forms that run nothing still defer.
 echo "# the kickoff push: a line splice, a variable, a short glob, a persisted config"
 SPL=$'\\\n'
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "printf -v x 'scripts/kickoff-spec-push.sh'; eval \"\$x\"" "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a variable-held kickoff name denies"
+reason_has 'CLAUDE_PLUGIN_ROOT.?/scripts/kickoff-spec-push[.]sh <spec>' "[worker, kickoff-demo] the variable-held refusal names the accepted form"
 for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-spec-push.sh" \
   "cat scripts/kickoff-spec-push.sh; bash scripts/kickoff-spec-${SPL}push.sh demo" \
   "git add scripts/kickoff-spec-push.sh && sh scripts/kick${SPL}off-spec-push.sh demo" \

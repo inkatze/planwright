@@ -1988,7 +1988,7 @@ kickoff_var_run() {
     case $w in *'$'* | *'`'*) hit=1 ;; esac
   done
   [ "$hit" = 0 ] \
-    || deny_now 'this command could run text that an earlier printf -v filled with the name of scripts/kickoff-spec-push.sh - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+    || deny_now 'this command could run text that an earlier printf -v filled with the name of scripts/kickoff-spec-push.sh - refusing (fail closed). Run it as '"$KICK_FORM"'.'
 }
 
 # kickoff_fuzzy_name <segment> — 0 when a word of the segment, or the target of
