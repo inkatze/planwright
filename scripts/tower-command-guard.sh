@@ -1475,6 +1475,13 @@ jq_home_safe() {
   return 0
 }
 
+# jq_data_path_ok <n>: the worker guard admits a --slurpfile/--rawfile file only
+# inside its recorded worktree or scratch root. This guard records no such
+# zones, so every data-file read defers.
+jq_data_path_ok() {
+  return 1
+}
+
 # guard_jq: strict flag allowlist plus the environment-read and module checks
 # on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
 # (a filter in a file) and `-L`/`--library-path` (which is where `include` and
@@ -1509,7 +1516,14 @@ guard_jq() {
           expect=1
           continue
           ;;
-        --arg | --argjson | --slurpfile | --rawfile)
+        --arg | --argjson)
+          expect=2
+          continue
+          ;;
+        --slurpfile | --rawfile)
+          # The second word is a file loaded into a variable: a path outside
+          # the worktree and the scratch root is a read of anything on disk.
+          jq_data_path_ok "$((i + 2))" || return 1
           expect=2
           continue
           ;;

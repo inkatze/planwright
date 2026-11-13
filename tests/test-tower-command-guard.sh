@@ -366,6 +366,8 @@ assert_defer "jq \$ENV behind --arg's two values" "jq --arg x 1 '\$ENV'"
 assert_defer "jq \$ENV behind --rawfile's two values" "jq --rawfile a f.txt '\$ENV'"
 assert_defer "jq \$ENV behind --argjson's two values" "jq --argjson a 1 '\$ENV'"
 assert_defer "jq \$ENV behind --slurpfile's two values" "jq --slurpfile a f.json '\$ENV'"
+assert_defer "jq --slurpfile of a file outside the tree defers" "jq -n --slurpfile s /etc/hosts '\$s'"
+assert_defer "jq --rawfile of a file outside the tree defers" "jq -n --rawfile s /etc/hosts '\$s'"
 assert_defer "jq env.PATH reads the environment" "jq -n 'env.PATH'"
 assert_defer "jq \$ENV inside string interpolation" "jq -n '\"\\(\$ENV)\"'"
 assert_defer "jq --from-file program file is unscreenable" "jq --from-file prog.jq file.json"
@@ -1167,9 +1169,11 @@ done
 # admits a narrow command substitution; the tower guard defers every one.
 # guard_rm and guard_mktemp differ because the worker's approve only removals
 # inside its recorded worktree or scratch root and creation inside that scratch
-# root, a policy the tower guard does not have.
+# root, a policy the tower guard does not have. jq_data_path_ok differs for the
+# same reason: the worker admits a --slurpfile/--rawfile file inside those roots,
+# and the tower, with no recorded roots, defers every such file.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
-guard_gh guard_git guard_mise guard_mktemp guard_rm is_planwright_script main \
+guard_gh guard_git guard_mise guard_mktemp guard_rm is_planwright_script jq_data_path_ok main \
 tokenize tok_push verify_simple verify_tokens"
 
 fn_names() { grep -oE '^[a-z_][a-z0-9_]*\(\)' "$1" | tr -d '()' | sort -u; }
