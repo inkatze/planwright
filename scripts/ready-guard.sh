@@ -1070,10 +1070,10 @@ readonly CHECKS_JQ='
 # behind is no condition by itself, so a MERGEABLE PR behind its base passes
 # when the latest run of every check on its head passed. For a pull_request
 # workflow that run built GitHub's merge ref, the head merged into the base.
-# Any doubt denies: a failed or timed-out read, an answer about another head,
+# Checks listed in ready_base_state_checks are left out first. Any doubt denies: a failed or timed-out read, an answer about another head,
 # no check at all, or a check failing or still pending.
 behind_checks() {
-  local cwd=$1 head=$2 behind=$3 base why oid verdict runs_jq
+  local cwd=$1 head=$2 behind=$3 base why oid verdict runs_jq base_state
   base=$(sanitize_printable "$4" 'its base')
   why="it is $behind commit(s) behind base branch $base, so it may stand only on checks that passed on its current head"
   gh_pr_view "$cwd" baseRefName,headRefOid,mergeable,statusCheckRollup
@@ -1091,7 +1091,14 @@ behind_checks() {
     || emit_deny "this pull request's mergeability or base changed while the guard read it, and $why - refusing (fail closed). Wait a few seconds and retry."
   runs_jq=''
   [ -z "$GUARD_DIR" ] || runs_jq=$(cat -- "$GUARD_DIR/check-runs.jq" 2>/dev/null) || runs_jq=''
-  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$runs_jq
+  # Checks that describe the base, not the PR; unreadable means none, so a
+  # failure here never relaxes the verdict.
+  base_state='[]'
+  if [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/base-state-checks.sh" ]; then
+    base_state=$("$RG_TIMEOUT_BIN" -k 2 "$RG_GH_T" /bin/sh "$GUARD_DIR/base-state-checks.sh" 2>/dev/null </dev/null) || base_state='[]'
+  fi
+  case $base_state in '[]' | '['*']') ;; *) base_state='[]' ;; esac
+  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" --argjson base_state "$base_state" "$runs_jq
 $CHECKS_JQ" 2>/dev/null) || verdict=''
   case $verdict in
     green) return 0 ;;

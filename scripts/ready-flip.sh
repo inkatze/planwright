@@ -165,6 +165,8 @@ CHECK_RUNS_JQ=$(cat -- "$SCRIPTS/check-runs.jq" 2>/dev/null) || {
   exit 2
 }
 readonly CHECK_RUNS_JQ
+BASE_STATE_CHECKS=$(/bin/sh "$SCRIPTS/base-state-checks.sh" 2>/dev/null) || BASE_STATE_CHECKS='[]'
+readonly BASE_STATE_CHECKS=${BASE_STATE_CHECKS:-[]}
 
 readonly LEAD='pending ready-flip:'
 readonly DASH='—'
@@ -870,7 +872,7 @@ pred_ci() {
         verdict=moved
         last="the PR head did not settle on the pinned head ${HEAD_SHA:0:12}"
       else
-        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$CHECK_RUNS_JQ
+        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" --argjson base_state "$BASE_STATE_CHECKS" "$CHECK_RUNS_JQ
 $ROLLUP_JQ" 2>/dev/null) || verdict=''
       fi
       case $verdict in
