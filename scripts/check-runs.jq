@@ -3,6 +3,7 @@
 # judge readiness by. Each prepends this file to its own program, so a fix here
 # reaches all three.
 #
+# A check run listed in $base_state as <workflow>/<name> is left out first.
 # Only the latest run of each check context counts: a re-run supersedes the
 # runs before it, and a run not yet completed is the newest (gh reports an
 # unset time as 0001-01-01). Two runs of one context started in the same
@@ -27,11 +28,16 @@ def check_passed: if .context != null then .state == "SUCCESS"
 # dropped when a shard of the same job (the name up to the first space) passed.
 def mac_family: (.name // "") | split(" ")[0];
 
+# A check run whose "<workflow>/<name>" is in $base_state (scripts/base-state-checks.sh) describes the
+# base branch, not the pull request, so it is no flip condition. The caller
+# passes the array with --argjson base_state; a status context is never one.
+def base_state_check: .context == null and (((.workflowName // "") + "/" + (.name // "")) as $id | any($base_state[]; . == $id));
+
 # An array of rollup entries in, the latest run of each context out, in the
 # order the rollup listed them. A check run naming no workflow (one an app
 # posts) is its own context: two such checks sharing a name may come from
 # different apps, so neither may supersede the other.
-def latest_check_runs: to_entries
+def latest_check_runs: map(select(base_state_check | not)) | to_entries
   | group_by(if .value.context == null and (.value.workflowName // "") == "" then ["solo", .key] else (.value | check_context) end)
   | map(max_by([(.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
   | sort_by(.key) | map(.value)
