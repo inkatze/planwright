@@ -872,7 +872,8 @@ EOF
   # events whose names fit the event text. Each chunk holding a fresh request
   # is one event naming all of its requests, so a repeat ask is never left to
   # an event mission control has already read.
-  pa_chunks=$(FRESH=$pa_fresh awk -F '\t' '
+  pa_chunks=$(
+    FRESH=$pa_fresh awk -F '\t' '
     BEGIN { n = split(ENVIRON["FRESH"], f, "\n"); for (i = 1; i <= n; i++) if (f[i] != "") fresh[f[i]] = 1 }
     NF { all[++m] = $0 }
     END {
