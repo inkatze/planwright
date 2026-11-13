@@ -522,7 +522,7 @@ neither (it passes the shipped profile itself, byte for byte):
   `mise.*.toml`, `.mise.*.toml`), `mise/config*.toml`, `conf.d` and miserc
   files, the trust, data, state and cache folders, the temporary `mise/`
   folders, and the lockfiles. A worktree path holding a character a path rule
-  would read as a pattern (`* ? [ ] \ ( )`), a quote, a control character, or a
+  would read as a pattern (`* ? [ ] \ ( )`), a single quote, a control character, or a
   component ending in a space refuses the launch.
 - **A file-tool hook** (`scripts/worker-mise-edit-guard.sh`, added to the
   generated profile's `PreToolUse` list for `Edit|Write|MultiEdit|NotebookEdit`,
@@ -530,7 +530,7 @@ neither (it passes the shipped profile itself, byte for byte):
   this worktree" and beats every allow, so the hook refuses any task-file path
   that lies outside the worktree, whatever the spelling: another worktree or
   repository, a `..` escape, or a symlinked directory or file that resolves
-  out. A hook that cannot read its input refuses a task path.
+  out. A hook that cannot read its input refuses every file-tool call, task path or not.
 - **The guard's own-branch arm** admits writes to those four names inside the
   worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
   recursive-act screen `ob_tree_clean`), only when the record carries exactly
