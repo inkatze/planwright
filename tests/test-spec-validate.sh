@@ -2931,7 +2931,7 @@ mbg checkout -q -b feat
 mbg checkout -q main
 printf '%s\n' '- **REQ-X1.3** Main added this after the branch point.' \
   '  *(Cites: D-1.)*' >"$tmp/mb-extra"
-awk -v extra="$(cat "$tmp/mb-extra")" '{ print } /^- \*\*REQ-X1\.2\*\*/ { getline; print; print extra }' \
+extra="$(cat "$tmp/mb-extra")" awk '{ print } /^- \*\*REQ-X1\.2\*\*/ { getline; print; print ENVIRON["extra"] }' \
   "$mb/specs/myspec/requirements.md" >"$tmp/mb-req"
 cp "$tmp/mb-req" "$mb/specs/myspec/requirements.md"
 mbg commit -qam "main adds an ID"
