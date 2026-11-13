@@ -1825,6 +1825,7 @@ kickoff_git_reads() {
             --*) ;;
             -*O*) return 1 ;;
             -*[pucGSL]*) patchy=1 ;;
+            # An option word never names a blob, so a colon in it is no <rev>:<path>.
             -*) ;;
             *:*) colon=1 ;;
           esac
