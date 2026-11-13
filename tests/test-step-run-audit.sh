@@ -304,6 +304,75 @@ RC=$?
 [ "$RC" -eq 1 ] && ! grep -q 'broken install' "$tmp/audit.err"
 verdict $? "a sibling that exits 5 on --check-env is not reported as a bad name" "rc $RC: $(cat "$tmp/audit.err")"
 
+# --- a signed-off spec branch's convergence is its sign-off's lens pass ----------
+# A kickoff spec branch carries only the spec bundle, signed off with its
+# anchor current at the head: polish would edit the signed-off spec, so the
+# audit names the sign-off as the reason instead of a gap. Anything else, a
+# stale anchor or a unit branch, keeps the gap.
+spec_bundle() { # spec_bundle <stale: 0|1>: commit a signed-off bundle under specs/
+  git -C "$wt" branch -f spec-base HEAD
+  mkdir -p "$wt/specs/demo"
+  printf '# demo\n\n**Status:** Ready\n**Format-version:** 2\n\nBody.\n' >"$wt/specs/demo/requirements.md"
+  printf '# Design\n\nx\n' >"$wt/specs/demo/design.md"
+  printf '# Tasks\n\n**Format-version:** 2\n' >"$wt/specs/demo/tasks.md"
+  printf '# Test spec\n\ny\n' >"$wt/specs/demo/test-spec.md"
+  # shellcheck disable=SC2016 # the brief's backticks are literal
+  printf '# Brief\n\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/demo`\n' \
+    "$(/bin/sh "$repo_root/scripts/spec-anchor.sh" "$wt/specs/demo")" >"$wt/specs/demo/kickoff-brief.md"
+  [ "$1" = 0 ] || printf 'An edit after the sign-off.\n' >>"$wt/specs/demo/design.md"
+  git -C "$wt" add -A && git -C "$wt" commit -q -m "docs: spec"
+}
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [polish]'
+spec_bundle 0
+audit --through convergence --base spec-base
+[ "$RC" -eq 0 ] && ! grep -q "^gap" "$tmp/audit" \
+  && grep -q "^exempt${TAB}convergence${TAB}polish${TAB}.*sign" "$tmp/audit" \
+  && grep -qx "audit${TAB}complete${TAB}$(head_of)" "$tmp/audit"
+verdict $? "a signed-off spec branch with no polish record audits clean, naming the sign-off" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [polish]'
+spec_bundle 1
+audit --through convergence --base spec-base
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}missing${TAB}polish" "$tmp/audit" \
+  && ! grep -q "^exempt" "$tmp/audit"
+verdict $? "a spec branch whose anchor is stale keeps the polish gap" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [polish]'
+git -C "$wt" branch -f spec-base HEAD
+commit "unit work"
+audit --through convergence --base spec-base
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}missing${TAB}polish" "$tmp/audit" \
+  && ! grep -q "^exempt" "$tmp/audit"
+verdict $? "a unit branch with no polish record keeps the polish gap" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [polish]'
+spec_bundle 0
+commit "unit work beside the spec"
+audit --through convergence --base spec-base
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}missing${TAB}polish" "$tmp/audit" \
+  && ! grep -q "^exempt" "$tmp/audit"
+verdict $? "a spec bundle with other changes beside it keeps the polish gap" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [polish, show]'
+spec_bundle 0
+audit --through convergence --base spec-base
+[ "$RC" -eq 1 ] && ! grep -q "missing${TAB}polish" "$tmp/audit" \
+  && grep -qx "gap${TAB}convergence${TAB}missing${TAB}show" "$tmp/audit" \
+  && grep -q "^exempt${TAB}convergence${TAB}polish" "$tmp/audit"
+verdict $? "on a signed-off spec branch only polish is exempt; another convergence step still counts" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

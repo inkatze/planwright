@@ -482,7 +482,13 @@ back against the configured lists, read-only, by `scripts/step-run.sh audit
 --through <point>`: a point is covered by its newest run whose completion
 counts at the head, that run recording every required step passed, applied,
 or skipped (a recorded skip counts), so a point or step left with no record
-is caught whoever omitted it. The
+is caught whoever omitted it. The one
+exemption is a kickoff spec branch: every change is spec prose under the spec
+root and each bundle touched is signed off with its anchor current at the
+head, so the convergence `polish` step is satisfied by the sign-off's lens
+pass (polish would edit the signed-off spec) and the audit names that as the
+reason; any other step still counts, and a stale anchor or a unit branch gets
+no exemption. The
 script's usage header states the freshness rule and the output.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)

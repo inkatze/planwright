@@ -113,7 +113,14 @@
 #           `...failed<TAB><step>:<outcome>` over all runs;
 #           `...stale<TAB><head>` naming the newest completion when none
 #           counts, then that run's step gaps; the judged run's step gaps;
-#           else `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB>
+#           else `covered<TAB><point>`. On a kickoff spec branch (every path
+#           changed against --base, or origin/<PLANWRIGHT_STEP_BASE_BRANCH>,
+#           is spec prose under the spec root, each bundle touched signed off
+#           with its anchor current at the head, the check mc-readiness.sh
+#           applies to a spec-only pull request) the convergence polish step
+#           is not required, since polish would edit the signed-off spec and
+#           the sign-off's lens pass is that review; `exempt<TAB>convergence<TAB>
+#           polish<TAB><reason>` names it. Any other step still counts. Then `audit<TAB>complete|gaps<TAB>
 #           <head>`, the head --head or the worktree's. Exit 0 complete, 1
 #           gaps, 2 usage (an unknown --base included), 4 the records or the
 #           cadence could not be read.
@@ -911,6 +918,48 @@ git_keep_config() (
   exec git "$@"
 )
 
+# spec_signoff_exempt <head> <base or empty>: succeed when the branch is a
+# kickoff spec branch: every path it changes against its base is spec prose
+# under the spec root, and each bundle touched is signed off with its anchor
+# recomputing at the head (the check mc-readiness.sh applies to a spec-only
+# pull request). Its convergence is then the sign-off's own lens pass, and
+# polish would edit the signed-off spec. Anything it cannot establish, a base
+# included, fails, so the gap stays.
+spec_signoff_exempt() {
+  local head=$1 base=$2 root top rel b lib why n=0
+  [ -n "$base" ] || [ -z "${PLANWRIGHT_STEP_BASE_BRANCH:-}" ] \
+    || base=$(git_keep_config rev-parse --verify -q "origin/$PLANWRIGHT_STEP_BASE_BRANCH^{commit}") || base=''
+  [ -n "$base" ] || return 1
+  for lib in echo-safety.sh mc-lib.sh spec-parse.sh spec-signoff.sh; do
+    [ -r "$script_dir/$lib" ] || return 1
+  done
+  prog=step-run
+  # shellcheck source=scripts/echo-safety.sh
+  . "$script_dir/echo-safety.sh" || return 1
+  # shellcheck source=scripts/mc-lib.sh
+  . "$script_dir/mc-lib.sh" || return 1
+  # shellcheck source=scripts/spec-parse.sh
+  . "$script_dir/spec-parse.sh" || return 1
+  # shellcheck source=scripts/spec-signoff.sh
+  . "$script_dir/spec-signoff.sh" || return 1
+  root=$(cd "$worktree" && /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) || return 1
+  top=$(cd -P -- "$worktree" && pwd -P) || return 1
+  case $root in "$top"/?*) rel=${root#"$top"/} ;; *) return 1 ;; esac
+  git_keep_config -C "$worktree" diff --name-status --find-renames "$base...$head" 2>/dev/null \
+    | awk -F '\t' '{
+        s = substr($1, 1, 1)
+        st = s == "A" ? "ADDED" : s == "M" ? "MODIFIED" : s == "D" ? "DELETED" : "OTHER"
+        print "path\t" $2 "\t" st
+      }' >"$work/changes" || return 1
+  spec_scope_bundles "$rel" "$work/changes" >"$work/bundles" || return 1
+  while IFS= read -r b; do
+    n=$((n + 1))
+    why=$(bundle_signoff "$worktree" "$head" "$rel" "$b" "$work/bundle-$b") || return 1
+    [ -z "$why" ] || return 1
+  done <"$work/bundles"
+  [ "$n" -gt 0 ]
+}
+
 # audit_fresh <completion head> <head> <last: 1|0> <base or empty>: whether a
 # completion counts at the head. The last point stands past its completion
 # only behind clean two-parent merges, each tree exactly what the merge
@@ -962,6 +1011,14 @@ cmd_audit() {
   if [ "$rc" -gt 1 ]; then
     cat "$work/resolve.err" >&2
     die 4 "the configured cadence did not resolve (resolve-steps exit $rc)"
+  fi
+  # On a kickoff spec branch the required polish is satisfied by the
+  # sign-off's lens pass: drop its row and name the reason instead.
+  if awk -F '\t' '$1 != "skip" && $2 == "polish" && $3 == "convergence" { f = 1 } END { exit !f }' "$work/rows" \
+    && spec_signoff_exempt "$head" "$base"; then
+    awk -F '\t' '!($1 != "skip" && $2 == "polish" && $3 == "convergence")' "$work/rows" >"$work/rows.kept" \
+      && mv "$work/rows.kept" "$work/rows" || die 4 "cannot read the cadence rows"
+    printf 'exempt\tconvergence\tpolish\tthe branch is a kickoff spec branch signed off at its head: the sign-off'"'"'s lens pass is its review\n'
   fi
   /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
   # Records are untrusted: run, kind and point come from the path and must
