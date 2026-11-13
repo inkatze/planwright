@@ -1103,7 +1103,7 @@ cmd_write() {
   if [ "$outcome" = passed ] && [ "$head" != "$end_head" ]; then
     is_polish=0
     [ "$step" != polish ] || is_polish=1
-    case $kind:$target in skill:polish | skill:*:polish | skill:/polish | skill:/*:polish) is_polish=1 ;; esac
+    case $kind:$target in skill:polish | skill:*:polish | skill:/polish | skill:*/polish/SKILL.md) is_polish=1 ;; esac
     [ "$is_polish" -eq 0 ] \
       || bad --outcome "a polish that moved the head (head $head, end-head $end_head) is applied, not passed"
   fi
