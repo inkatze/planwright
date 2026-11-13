@@ -33,6 +33,14 @@
 #       EPERM case, or procfs where ps has no -p) — a per-pid query, never a
 #       scraped process LISTING, which is exactly the truncation-prone source the incident
 #       implicates. <pid> is a positive integer, no leading zero, <=10 digits.
+#   process <pid> <start-token>
+#       As above, and a live pid whose own start token differs from the
+#       recorded one is a DIFFERENT process that reused the number: the
+#       recorded process is gone (dead). A token that cannot be read now
+#       leaves the pid-only answer.
+#   start <pid>
+#       Prints the pid's start token (exit 3 when it cannot be read), for a
+#       launcher to record beside the pid.
 #   tmux-window <session> <window>
 #       Three probes, all against the caller's tmux server: `ls` (server
 #       health — an unreachable server is unknown, never dead), `has-session`
@@ -60,7 +68,7 @@ export LC_ALL
 unset CDPATH
 
 usage() {
-  echo "usage: fleet-death-evidence.sh process <pid> | tmux-window <session> <window>" >&2
+  echo "usage: fleet-death-evidence.sh process <pid> [<start-token>] | start <pid> | tmux-window <session> <window>" >&2
 }
 
 verdict() {
@@ -72,9 +80,55 @@ verdict() {
   esac
 }
 
+# start_token <pid> — a token naming WHEN the process began, so a pid the host
+# reissued to a later process reads as a different one. procfs first (field 22
+# of stat, in clock ticks since boot); `ps -o lstart=` where there is none.
+# Prefixed by its source so tokens from two sources are never compared. Prints
+# nothing and returns 1 when the process cannot be read.
+start_token() {
+  st_raw=''
+  if [ -r "/proc/$1/stat" ]; then
+    st_raw=$(cat "/proc/$1/stat" 2>/dev/null) || st_raw=''
+    case $st_raw in
+      *') '*)
+        # shellcheck disable=SC2086 # split on purpose, globbing is off
+        set -- $1 ${st_raw##*) }
+        if [ "$#" -ge 21 ]; then
+          shift 20
+          case $1 in '' | *[!0-9]*) ;; *)
+            printf 'p%s\n' "$1"
+            return 0
+            ;;
+          esac
+        fi
+        ;;
+    esac
+  fi
+  st_raw=$(ps -o lstart= -p "$1" 2>/dev/null) || st_raw=''
+  # shellcheck disable=SC2086 # whitespace squeeze, globbing is off
+  set -- $st_raw
+  [ "$#" -gt 0 ] || return 1
+  printf 'l%s\n' "$(printf '%s' "$*" | tr ' ' _)"
+}
+
+# alive_or_reused — the pid is live. With a recorded start token that differs
+# from the live process's own (same source), the pid names a different process
+# than the one recorded: the recorded one is gone. A token that cannot be read
+# now, or came from the other source, leaves the pid-only answer.
+alive_or_reused() {
+  if [ -n "$want_start" ]; then
+    ar_cur=$(start_token "$pid") || ar_cur=''
+    if [ -n "$ar_cur" ] && [ "${ar_cur%"${ar_cur#?}"}" = "${want_start%"${want_start#?}"}" ] \
+      && [ "$ar_cur" != "$want_start" ]; then
+      verdict dead
+    fi
+  fi
+  verdict alive
+}
+
 class="${1:-}"
 case "$class" in
-  process | tmux-window) ;;
+  process | tmux-window | start) ;;
   timeout | silence | stale | staleness | heartbeat | heartbeat-age | idle-time)
     printf '%s\n' "fleet-death-evidence: '$class' is not positive evidence of death (REQ-A1.7): a timeout or silent heartbeat proves lost observability, not death — refusing" >&2
     exit 2
@@ -89,10 +143,19 @@ shift
 case "$class" in
   process)
     pid="${1:-}"
-    if [ "$#" -ne 1 ]; then
+    want_start="${2:-}"
+    if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
       usage
       exit 2
     fi
+    # The recorded start token is data from a file: only the characters
+    # start_token itself prints are accepted.
+    case "$want_start" in
+      *[!A-Za-z0-9:_.+-]*)
+        echo "fleet-death-evidence: refusing malformed start token" >&2
+        exit 2
+        ;;
+    esac
     # A positive integer, no leading zero (kill -0 0 would signal the whole
     # process group), bounded to 10 digits so the token can never overflow the
     # tools it reaches. The refused token is never echoed — it is raw argv and
@@ -109,7 +172,7 @@ case "$class" in
     fi
     # kill -0 succeeds when the process exists and is signalable: alive.
     if kill -0 "$pid" 2>/dev/null; then
-      verdict alive
+      alive_or_reused
     fi
     # kill -0 can also fail with EPERM on a live process owned by another
     # user; disambiguate with a TARGETED ps query (0 = found, 1 = not found —
@@ -129,13 +192,27 @@ case "$class" in
       fi
     fi
     case "$ps_rc" in
-      0) verdict alive ;;
+      0) alive_or_reused ;;
       1) verdict dead ;;
       *)
         printf '%s\n' "fleet-death-evidence: ps -p exited $ps_rc — lost observability, refusing to report death" >&2
         verdict unknown
         ;;
     esac
+    ;;
+  start)
+    pid="${1:-}"
+    case "$pid" in
+      "" | *[!0-9]* | 0*)
+        echo "fleet-death-evidence: refusing malformed pid token (a positive integer, no leading zero)" >&2
+        exit 2
+        ;;
+    esac
+    if [ "$#" -ne 1 ] || [ "${#pid}" -gt 10 ]; then
+      usage
+      exit 2
+    fi
+    start_token "$pid" || exit 3
     ;;
   tmux-window)
     session="${1:-}"

@@ -171,6 +171,7 @@ death() {
 # and L_REASON.
 liveness() {
   L_STATE=unknown L_REASON='no liveness evidence'
+  lv_start=''
   case $2 in
     tmux)
       valid_window "$3" || {
@@ -208,9 +209,16 @@ liveness() {
         return 0
       fi
       lv_pid=''
+      lv_start=''
       for lv_f in worker.pid supervisor.pid; do
         if [ -f "$lv_dir/$lv_f" ] && [ ! -L "$lv_dir/$lv_f" ]; then
           lv_pid=$(head -n 1 "$lv_dir/$lv_f" 2>/dev/null) || lv_pid=''
+          # The start the launch recorded beside the pid; a launch from before
+          # it recorded none, and the pid alone is read as it always was.
+          lv_sf="$lv_dir/${lv_f%.pid}.start"
+          if [ -f "$lv_sf" ] && [ ! -L "$lv_sf" ]; then
+            lv_start=$(head -n 1 "$lv_sf" 2>/dev/null) || lv_start=''
+          fi
           break
         fi
       done
@@ -231,7 +239,7 @@ liveness() {
     L_REASON='unreadable pid'
     return 0
   }
-  case $(death process "$lv_pid") in
+  case $(death process "$lv_pid" ${lv_start:+"$lv_start"}) in
     dead) L_STATE=dead L_REASON="pid $lv_pid gone" ;;
     alive) L_STATE=alive L_REASON="pid $lv_pid alive" ;;
     *) L_REASON="pid $lv_pid unreadable" ;;
