@@ -530,4 +530,30 @@ printf '%s\n' "$out" | grep -q '^-- truncated' || fail "p23: the truncation noti
 [ "$(penv "$home" sjp23 | grep -c '^-- truncated')" = 1 ] || fail "p23: the truncation notice must print exactly once"
 echo "ok: p23 the display-bound cut is announced before the content"
 
+# ---------------------------------------------------------------------------
+# p24: a command over the display bound names the request file that holds all
+#      of it and the envelope's full size, so an approver can read the rest; a
+#      short command prints whole with no notice.
+# ---------------------------------------------------------------------------
+home="$tmp/h24"
+long=$(awk 'BEGIN { for (i = 0; i < 6000; i++) printf "B" }')
+mkreq "$home/streamjson/sjp24" "$id1" pending Bash '{"command":"echo '"$long"'"}'
+mkreq "$home/streamjson/sjp24" "$id2" pending Bash '{"command":"echo short"}'
+out=$(penv "$home" sjp24) || fail "p24: pending must exit 0"
+envsize=$(wc -c <"$home/streamjson/sjp24/req-$id1.json" | tr -d ' ')
+notice=$(printf '%s\n' "$out" | grep '^-- truncated') || fail "p24: a command over the bound must say it was cut, got: $out"
+[ "$(printf '%s\n' "$notice" | wc -l | tr -d ' ')" = 1 ] || fail "p24: exactly one cut notice expected, got: $notice"
+case $notice in
+  *"$home/streamjson/sjp24/req-$id1.json"*) ;;
+  *) fail "p24: the notice must name the request file, got: $notice" ;;
+esac
+case $notice in
+  *"$envsize bytes"*) ;;
+  *) fail "p24: the notice must give the full request size ($envsize bytes), got: $notice" ;;
+esac
+short=$(printf '%s\n' "$out" | grep -A3 "^== sjp24 $id2 ")
+printf '%s\n' "$short" | grep -qx '| echo short' || fail "p24: a short command must print unchanged, got: $short"
+printf '%s\n' "$short" | grep -q '^-- ' && fail "p24: a short command must carry no notice, got: $short"
+echo "ok: p24 a cut command names its request file and full size; a short one is unchanged"
+
 echo "all fleet-streamjson pending tests passed"

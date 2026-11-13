@@ -932,7 +932,8 @@ command decoded, with any escape it does not decode left visible as escape
 text, and a `+ {...}` line before it carrying every other input field but the
 description, so a sandbox bypass or a background run is never hidden behind
 the command. Any other tool shows its input JSON. Input past the script's
-display bound gets a `-- truncated` line. An envelope that ends early (past the
+display bound gets a `-- truncated` line that names the request file holding
+the whole input and its size, so the approver can read the rest. An envelope that ends early (past the
 script's read bound, or still being written) gets a
 `-- request envelope ends early` line: fields past the cut, a later command or
 a sandbox bypass included, are not shown, yet an `answer --allow` would apply
