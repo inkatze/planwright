@@ -1571,6 +1571,7 @@ row_set_waiting() {
     rm -f "$rs_tmp"
     return 1
   fi
+  refresh_row_copy "${1##*/}" "$1" "$(row_get "$1" backend)"
 }
 
 # wait_target <name> — lock and check the row of a session that may be marked

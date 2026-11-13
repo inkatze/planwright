@@ -209,6 +209,8 @@ case $bound_row in
   *) fail "bound reports working/waiting as '$bound_row': $OUT" ;;
 esac
 
+mkdir -p "$fleet/streamjson/$w1"
+cp "$capreg/$w1" "$fleet/streamjson/$w1/launcher-row"
 ml wait "$w1" --on ready-flip
 [ "$RC" = 0 ] && ok "marking a waiting worker again updates its reason" || fail "a second wait exited $RC: $ERR"
 case $(cat "$capreg/$w1") in
@@ -221,6 +223,9 @@ ml unwait "$w1"
 [ "$RC" = 0 ] && ok "unwait returns a worker to the count" || fail "unwait exited $RC: $ERR"
 [ "$OUT" = "wait${TAB}${w1}${TAB}working" ] && ok "unwait prints its name and the working state" || fail "unwait printed: $OUT"
 grep -q "^waiting${TAB}" "$capreg/$w1" && fail "unwait left the waiting field" || ok "unwait clears the waiting field"
+cmp -s "$capreg/$w1" "$fleet/streamjson/$w1/launcher-row" \
+  && ok "the kept copy of the row follows wait and unwait" \
+  || fail "the kept copy of the row went stale after wait or unwait"
 ml retire "$leak1"
 ml retire "$leak2"
 ml bound
