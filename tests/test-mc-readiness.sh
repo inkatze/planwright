@@ -388,11 +388,46 @@ has "a repository listed twice still finds its one worktree" "cadence${tab}audit
 has "and its missing completion" "cadence${tab}gap${tab}convergence${tab}incomplete"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7
 expect_out "check refuses the skipped cadence" "fail${tab}cadence${tab}convergence: polish is missing"
-# A worktree that moved past the forge's head speaks for another head.
+# A worktree off to the side of the forge's head (here, on a sibling of it)
+# cannot speak for it.
+git -C "$tmp/feature-wt" checkout -q --orphan side && git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m sibling \
+  && git -C "$tmp/feature-wt" checkout -q -B feature side
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a worktree head that differs from the forge's and is not ahead of it is unaudited, naming both" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt is at"
+has "and says to retry once the session using it is done" "retry once it has pushed or finished"
+git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
+# A worktree one commit ahead of the forge's head (a session mid-change) still
+# holds the head: the audit judges the records against the pull request's head.
+(cd "$tmp/feature-wt" && PLANWRIGHT_ROOT="$core" /bin/bash "$repo_root/scripts/step-record.sh" new-run >/dev/null \
+  && /bin/bash "$repo_root/scripts/step-record.sh" write --run 000001 --point convergence --step polish --kind skill \
+    --target polish --hosting isolated --backend none --head "$head" --end-head "$head" \
+    --start 2026-10-28T00:00:00Z --end 2026-10-28T00:01:00Z --outcome applied >/dev/null \
+  && /bin/bash "$repo_root/scripts/step-record.sh" write --completion --run 000001 --point convergence --head "$head" >/dev/null) \
+  || fail "the fixture step record in the feature worktree"
+git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed
+# A configured pre-ci step with no record at the head is a gap beside the covered convergence.
+cp "$tracked" "$tmp/tracked.keep"
+printf 'steps_pre_ci: [polish]\n' >>"$tracked"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+expect_rc "a worktree ahead of the forge's head still collects" 0
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a worktree ahead of the forge's head is audited at the forge's head" "cadence${tab}audited${tab}$head"
+hasnt "and is not refused for being ahead" "cadence${tab}unaudited"
+hasnt "its records at the forge's head count" "cadence${tab}gap${tab}convergence"
+has "while a point its records do not complete is still a gap" "cadence${tab}gap${tab}pre-ci"
+has "and the step records the worktree holds at the forge's head are collected" "step${tab}polish${tab}applied${tab}$head"
+# A worktree ahead with the head's records incomplete still fails readiness.
+git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
+rm -rf "$tmp/feature-wt/.claude/steps"
 git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 c=$(cat "$tmp/collected" 2>/dev/null)
-has "a worktree head that differs from the forge's is unaudited, naming both" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt is at"
+has "an ahead worktree whose records do not cover the head still has the gap" "cadence${tab}gap${tab}convergence${tab}incomplete"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7 --worktree "$tmp/feature-wt"
+expect_rc "and readiness refuses it" 4
+expect_out "naming the missing completion" "fail${tab}cadence${tab}convergence: no completion record"
+mv "$tmp/tracked.keep" "$tracked"
 git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
 # The audit itself failing is unaudited, with the resolver's reason.
 chmod 000 "$core/config/steps.yaml"
