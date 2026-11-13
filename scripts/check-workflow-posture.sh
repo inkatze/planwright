@@ -172,8 +172,11 @@
 #     last fail silently;
 #   - no `if:`, job- or step-level and on every line of a multi-line value,
 #     names a platform (runner.os, runner.arch, matrix.os, or a platform
-#     word); the macOS and Alpine jobs carry no job-level `if:` at all, since
-#     a matrix job runs on every pull request; and a step the scope names
+#     word); the Alpine job carries no job-level `if:` at all, since a matrix
+#     job runs on every pull request, and a macOS job only the plan job's
+#     `needs.plan.outputs.mac_run == 'true'` (macOS runs on a push, a ready
+#     pull request or the ci-macos label, never on a draft push), alone and
+#     not counted as gating its `install smoke`; and a step the scope names
 #     (`install smoke`, `shell suite`, `bake-off harness`) carries no `if:`
 #     beyond always(), !cancelled(), or success();
 #   - the Ubuntu and macOS sides each carry an `install smoke` step in a job
@@ -967,6 +970,17 @@ function bare(t) {
   return t
 }
 function run_anyway(t) { t = bare(t); return (t == "always()" || t == "!cancelled()" || t == "success()") }
+# The one job-level `if:` a macOS job may carry: the plan job's verdict that
+# macOS runs for this event (a push, a ready pull request, or the ci-macos
+# label), compared to 'true' and nothing else.
+# bare() would strip the closing quote of a bare expression, so this trims
+# only whitespace and the ${{ }} wrapper.
+function mac_gate(t) {
+  t = tolower(t)
+  gsub(/^[ \t]+/, "", t); gsub(/[ \t]+$/, "", t)
+  sub(/^\$\{\{[ \t]*/, "", t); sub(/[ \t]*\}\}$/, "", t)
+  return (t == "needs.plan.outputs.mac_run == 'true'")
+}
 function platform(t) { return tolower(t) ~ /runner\.os|runner\.arch|matrix\.os|macos|ubuntu|alpine|linux|windows|darwin/ }
 function scope(n) { return (n == "shell suite" || n == "install smoke" || n == "bake-off harness") }
 # Reading nm[] by subscript would create the entry; every read goes through here.
@@ -991,7 +1005,8 @@ $1 == "O" { ro[$2] = $3 }
 $1 == "C" { if (!($2 in img)) img[$2] = $3 }
 $1 == "I" {
   jif[$2] = $3
-  if (!run_anyway($4)) gated[$2] = 1
+  if (mac_gate($4)) macgate[$2] = 1
+  else { other_if[$2] = 1; if (!run_anyway($4)) gated[$2] = 1 }
   if (platform($4)) v(file ":" $3 ": job '" $2 "' is gated by an `if:` naming a platform, so that platform can stop running it")
 }
 $1 == "S" { ns[$2] = $3 }
@@ -1010,7 +1025,8 @@ END {
     if (base ~ /^alpine([:@]|$)/) { kind[j] = "alpine"; nalpine++; alpine_job = (alpine_job == "" ? j : alpine_job " " j) }
     else if (img[j] == "" && mac_runs_on(ro[j])) kind[j] = "macos"
     else if (img[j] == "" && ro[j] ~ /^ubuntu-/) kind[j] = "ubuntu"
-    if ((kind[j] == "macos" || kind[j] == "alpine") && (j in jif))
+    if (kind[j] != "macos" && (j in macgate)) gated[j] = 1
+    if (((kind[j] == "macos" && (j in other_if)) || kind[j] == "alpine") && (j in jif))
       v(file ":" jif[j] ": platform job '" j "' carries a job-level `if:`; a matrix job runs on every pull request")
     for (s = 1; s <= ns[j]; s++) if (stepname(j, s) == "install smoke" && !gated[j]) smoke[kind[j]] = 1
     if (kind[j] != "") have[kind[j]] = 1
