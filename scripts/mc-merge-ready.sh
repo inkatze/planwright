@@ -86,7 +86,10 @@ Usage:
       per ready head, subject <owner>:<name>:<n> (pr-<checksum> outside the
       subject grammar), its text the merge command, printing
         announced<TAB>merge-ready<TAB><subject>
-      and each unknown on stderr. The same event, its text naming this
+      and each unknown on stderr. A ready row is read from the forge once
+      more first, and raises nothing when the pull request is no longer
+      open or its head moved (see `fresh`), or while the bot round on its
+      head is unfinished; a read that fails is an unknown. The same event, its text naming this
       program as the judge, goes to every other configured program whose
       repositories include the pull request's (by origin remote) and whose
       duties leave out readiness-check, such as a hub over several
@@ -97,6 +100,15 @@ Usage:
       none yet, raises nothing and is no failure; any other unknown fails
       the run.
 
+  mc-merge-ready.sh fresh --program <p> --repo <owner/name> --pr <n> --head <sha>
+      whether an event for that head may still be pushed, from one forge
+      read: exit 0 live (open, at that head, a bot review of that head and
+      no open bot review thread); 4 stale, printing `stale<TAB><why>` (merged,
+      closed, or the head moved); 5 not yet, printing `pending<TAB><why>`
+      (no bot review of the head, or an open bot thread); 1 the read failed,
+      printing `unknown<TAB><why>`. A bot is an account the forge types Bot
+      or whose login ends in [bot].
+
 Exit codes: 0 done; 1 a failed read, check, store or event, or anything
 left unknown (watch: but a stale snapshot or none yet); 2 usage; 3 the
 program is not configured.
@@ -106,7 +118,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-merge-ready.sh list --program <p> [--as-status] [--now <epoch>] | count --program <p> | commands --program <p> [--now <epoch>] | watch [--program <p>] [--now <epoch>]"
+  mc_usage_fail "usage: mc-merge-ready.sh list --program <p> [--as-status] [--now <epoch>] | count --program <p> | commands --program <p> [--now <epoch>] | watch [--program <p>] [--now <epoch>] | fresh --program <p> --repo <owner/name> --pr <n> --head <sha>"
 }
 
 case ${1:-} in
@@ -124,14 +136,18 @@ shift
 program=""
 as_status=0
 now_raw=""
+f_repo="" f_pr="" f_head=""
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --now)
+    --program | --now | --repo | --pr | --head)
       [ $# -ge 2 ] || usage
       mc_valid_text "$2" || mc_usage_fail "$1 takes text with no control byte"
       case $1 in
         --program) program=$2 ;;
         --now) now_raw=$2 ;;
+        --repo) f_repo=$2 ;;
+        --pr) f_pr=$2 ;;
+        --head) f_head=$2 ;;
       esac
       shift 2
       ;;
@@ -145,6 +161,10 @@ done
 case $verb in
   list) ;;
   count) [ "$as_status" -eq 0 ] && [ -z "$now_raw" ] || usage ;;
+  fresh)
+    [ "$as_status" -eq 0 ] && [ -z "$now_raw" ] || usage
+    mc_valid_slug "$f_repo" && mc_valid_uint "$f_pr" && mc_valid_sha "$f_head" || usage
+    ;;
   commands) [ "$as_status" -eq 0 ] || usage ;;
   watch)
     [ "$as_status" -eq 0 ] || usage
@@ -162,6 +182,70 @@ store="$runtime/merge-ready.tsv"
 RECHECK_AFTER=1800
 COUNT_FRESH=3600
 MOVED_WHY="its head moved since the snapshot; judged again once the snapshot catches up"
+
+# fresh_check <owner/name> <n> <head>: one forge read of whether an event for
+# the head may still be pushed. Prints stale, pending or unknown with its
+# reason, nothing when live; returns 0 live, 4 stale, 5 pending, 1 unknown.
+fresh_check() {
+  fc_err=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || {
+    printf 'unknown\tcannot create a temporary file\n'
+    return 1
+  }
+  # shellcheck disable=SC2016 # a GraphQL query and a jq program
+  fc_out=$(gh api graphql -f owner="${1%%/*}" -f name="${1#*/}" -F number="$2" -f query='
+    query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+        state headRefOid
+        reviews(last: 100) { nodes { author { __typename login } commit { oid } } }
+        reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved
+          comments(first: 1) { nodes { author { __typename login } } } } } } } }' --jq '
+    def bot: ((.author.__typename // "") == "Bot") or ((.author.login // "") | endswith("[bot]"));
+    .data.repository.pullRequest as $p
+    | if $p == null then empty else
+      "state\t" + ($p.state // "-"), "head\t" + ($p.headRefOid // "-"),
+      (if $p.reviewThreads.pageInfo.hasNextPage then "truncated\tthreads" else empty end),
+      ($p.reviews.nodes[]? | select(bot) | "botreview\t" + (.commit.oid // "-")),
+      ($p.reviewThreads.nodes[]? | select((.isResolved | not) and (.comments.nodes[0] // {} | bot)) | "botthread\topen")
+      end' 2>"$fc_err" </dev/null) || {
+    fc_why=$(tail -n 1 "$fc_err" | mc_clean | tr '\t' ' ' | cut -c1-200)
+    rm -f "$fc_err"
+    printf 'unknown\tits state could not be read from the forge: %s\n' "${fc_why:-no error text}"
+    return 1
+  }
+  rm -f "$fc_err"
+  fc_state=$(printf '%s\n' "$fc_out" | awk -F '\t' '$1 == "state" { print $2; exit }')
+  fc_head=$(printf '%s\n' "$fc_out" | awk -F '\t' '$1 == "head" { print $2; exit }')
+  if [ -z "$fc_state" ] || ! mc_valid_sha "$fc_head"; then
+    printf 'unknown\tits state could not be read from the forge: the answer named no state or head\n'
+    return 1
+  fi
+  if [ "$fc_state" != OPEN ]; then
+    printf 'stale\tit is %s\n' "$(printf '%s' "$fc_state" | mc_clean | cut -c1-20)"
+    return 4
+  fi
+  if [ "$fc_head" != "$3" ]; then
+    printf 'stale\tits head moved to %s\n' "$fc_head"
+    return 4
+  fi
+  if printf '%s\n' "$fc_out" | grep -q '^truncated'; then
+    printf 'unknown\tits review threads exceed the first page, so the bot round cannot be confirmed\n'
+    return 1
+  fi
+  if ! printf '%s\n' "$fc_out" | H=$3 awk -F '\t' '$1 == "botreview" && $2 == ENVIRON["H"] { f = 1 } END { exit !f }'; then
+    printf 'pending\tno bot review of this head yet\n'
+    return 5
+  fi
+  if printf '%s\n' "$fc_out" | grep -q '^botthread'; then
+    printf 'pending\ta bot review thread is still open\n'
+    return 5
+  fi
+  return 0
+}
+
+if [ "$verb" = fresh ]; then
+  fresh_check "$f_repo" "$f_pr" "$f_head"
+  exit $?
+fi
 
 if [ "$verb" = count ]; then
   cn_map=$(/bin/bash "$script_dir/mc-program.sh" get "$program" sources) || mc_fail "the source map of program $program does not resolve"
@@ -472,6 +556,16 @@ case $verb in
     COVER=""
     while IFS='	' read -r w_kind w_pr w_head w_command; do
       [ "$w_kind" = ready ] || continue
+      w_why=$(fresh_check "${w_pr%#*}" "${w_pr##*#}" "$w_head")
+      case $? in
+        0) ;;
+        4 | 5) continue ;;
+        *)
+          printf 'unknown: %s: %s\n' "$w_pr" "${w_why#*	}" >&2
+          rc=1
+          continue
+          ;;
+      esac
       w_subject=$(mc_pr_subject "${w_pr%#*}" "${w_pr##*#}")
       mc_announce "$program" "$seen" "$w_pr	$w_head" merge-ready "$w_subject" \
         "$w_pr is ready to merge: $w_command" || rc=1
