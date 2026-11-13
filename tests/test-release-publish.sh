@@ -383,7 +383,7 @@ r="$tmp/hook-lang"
 new_repo "$r"
 seed_version "$r" 0.1.0
 install_locale_hook "$r"
-run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 LC_ALL= LANG=C.UTF-8
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 LC_ALL= LC_CTYPE= LANG=C.UTF-8
 assert_eq "hook locale: a caller with only LANG set publishes past a UTF-8-asserting pre-push hook" "$RC" "0"
 assert_eq "hook locale: the hook saw the caller's LANG" "$(cat "$hook_locale_log")" "C.UTF-8"
 r="$tmp/hook-lcall"

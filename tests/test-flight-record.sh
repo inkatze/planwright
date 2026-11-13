@@ -1525,13 +1525,15 @@ gitc "$repo" checkout -q -b "planwright/flight/$LOCFID" main
 printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
   >"$repo/.git/hooks/pre-commit"
 chmod +x "$repo/.git/hooks/pre-commit"
-_lc_all=${LC_ALL-} _lc_ctype=${LC_CTYPE-} _lang=${LANG-}
-unset LC_ALL LC_CTYPE
-export LANG=C.UTF-8
-run_land --flight-id "$LOCFID"
-LC_ALL=$_lc_all LC_CTYPE=$_lc_ctype LANG=$_lang
-[ -n "$_lc_all" ] || unset LC_ALL
-[ -n "$_lc_ctype" ] || unset LC_CTYPE
+(
+  unset LC_ALL LC_CTYPE
+  export LANG=C.UTF-8
+  run_land --flight-id "$LOCFID"
+  printf '%s\n' "$RC" >"$tmp/loc.rc"
+  printf '%s\n' "$ERR" >"$tmp/loc.err"
+)
+RC=$(cat "$tmp/loc.rc")
+ERR=$(cat "$tmp/loc.err")
 [ "$RC" -eq 0 ] || fail "land under a UTF-8 caller was refused by a UTF-8-asserting pre-commit hook ($RC): $ERR"
 git -C "$repo" cat-file -e "HEAD:specs/_flights/$LOCFID.md" 2>/dev/null || fail "land under a UTF-8 caller did not commit the record"
 rm -f "$repo/.git/hooks/pre-commit"

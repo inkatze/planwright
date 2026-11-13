@@ -149,11 +149,12 @@ elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
 else
   hook_lc_all=C.UTF-8
 fi
+# LANGUAGE=C keeps git's messages untranslated: the gc push below matches one.
 hook_git() {
   if [ -n "$hook_lc_all" ]; then
-    env LC_ALL="$hook_lc_all" git "$@"
+    env LC_ALL="$hook_lc_all" LANGUAGE=C git "$@"
   else
-    env -u LC_ALL git "$@"
+    env -u LC_ALL LANGUAGE=C git "$@"
   fi
 }
 LC_ALL=C

@@ -719,13 +719,13 @@ for hook in pre-commit pre-push; do
 done
 gitf config core.hooksPath "$F/hooks"
 before=$(origin_head)
-_lc_all=${LC_ALL-} _lc_ctype=${LC_CTYPE-} _lang=${LANG-}
-unset LC_ALL LC_CTYPE
-export LANG=C.UTF-8
-run_helper flip --spec specs/demo --task 1
-LC_ALL=$_lc_all LC_CTYPE=$_lc_ctype LANG=$_lang
-[ -n "$_lc_all" ] || unset LC_ALL
-[ -n "$_lc_ctype" ] || unset LC_CTYPE
+(
+  unset LC_ALL LC_CTYPE
+  export LANG=C.UTF-8
+  run_helper flip --spec specs/demo --task 1
+  printf '%s\n' "$CODE" >"$F/loc.code"
+)
+CODE=$(cat "$F/loc.code")
 check "a park whose hooks demand UTF-8 still lands under a UTF-8 caller (exit 4)" [ "$CODE" = 4 ]
 check "the park was pushed past the pre-push hook" [ "$(commits_since "$before")" = 1 ]
 check "the pre-commit hook saw the caller's locale" [ "$(cat "$F/locale.pre-commit")" = C.UTF-8 ]
