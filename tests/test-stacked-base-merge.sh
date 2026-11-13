@@ -398,7 +398,8 @@ sed -i.bak "s|^worktree_root=.*|worktree_root=$SY4|" "$SANDBOX/rec/sy4.record" &
 run_sync "$SY4" "$SANDBOX/rec/sy4.record" --base "$STACK_BR"
 case $OUT in
   *"converge-sync-main.sh --base $STACK_BR --commit-resolution"*)
-    pass "[sync] a stacked resolve conflict tells the worker to commit with the same --base" ;;
+    pass "[sync] a stacked resolve conflict tells the worker to commit with the same --base"
+    ;;
   *) fail "[sync] the resolve instruction omits --base: rc=$RC out='$OUT'" ;;
 esac
 
