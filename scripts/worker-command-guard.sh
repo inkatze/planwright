@@ -2738,6 +2738,19 @@ jq_home_safe() {
   return 0
 }
 
+# jq_data_path_ok <index>: 0 when word <index> is a plain literal path inside
+# the worktree or the scratch root. ob_path's audit marks a write arm, and a
+# read is no arm's act, so the marks are put back (as guard_gitleaks does).
+jq_data_path_ok() {
+  local n=$1 ao=$AUDIT_OB as=$AUDIT_SC
+  [ "$n" -lt "$cwn" ] || return 1
+  [ "${cqp[n]}" -lt 0 ] && ! word_unresolved "${cw[n]}" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" || return 1
+  ob_path "${cw[n]}" exists read || return 1
+  AUDIT_OB=$ao
+  AUDIT_SC=$as
+  return 0
+}
+
 # guard_jq: strict flag allowlist plus the environment-read and module checks
 # on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
 # (a filter in a file) and `-L`/`--library-path` (which is where `include` and
@@ -2772,7 +2785,14 @@ guard_jq() {
           expect=1
           continue
           ;;
-        --arg | --argjson | --slurpfile | --rawfile)
+        --arg | --argjson)
+          expect=2
+          continue
+          ;;
+        --slurpfile | --rawfile)
+          # The second word is a file loaded into a variable: a path outside
+          # the worktree and the scratch root is a read of anything on disk.
+          jq_data_path_ok "$((i + 2))" || return 1
           expect=2
           continue
           ;;
@@ -3387,6 +3407,22 @@ gh_no_web() {
   return 0
 }
 
+# gh_no_method: 0 unless a request-method flag (`-X`, `--method`) is present.
+# The read verbs take none, so one is a sign the command is not the read it
+# looks like.
+gh_no_method() {
+  local i
+  for ((i = 2; i < cwn; i++)); do
+    case ${cw[i]} in
+      --) break ;;
+      --method | --method=*) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "${cw[i]}" 'X' 'Hqpt' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # gh_release_ok: `gh release view|list` with no `--web`/`-w` (it launches
 # $BROWSER) and no `--repo`/`-R` override (REQ-A1.17). `-R` and `-w` can ride
 # in a short cluster, and the value-taking short flags end one.
@@ -3456,14 +3492,14 @@ guard_gh() {
       ;;
     pr | issue)
       case $s in
-        view | list | status | diff | checks) gh_no_web || return 1 ;;
+        view | list | status | diff | checks) gh_no_web && gh_no_method || return 1 ;;
         *) return 1 ;;
       esac
       return 0
       ;;
     run)
       case $s in
-        view | list) gh_no_web || return 1 ;;
+        view | list) gh_no_web && gh_no_method || return 1 ;;
         *) return 1 ;; # download / rerun / cancel / delete / watch
       esac
       return 0
