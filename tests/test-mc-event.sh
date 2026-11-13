@@ -155,6 +155,81 @@ case $ERR in
   *) fail "the default bound did not say what it left out: $ERR" ;;
 esac
 
+# Events raised in the same second list in the order they were raised, and an
+# id written before the sequence existed still lists.
+for i in $(seq 1 12); do
+  mc_run mc-event.sh emit --program alpha --now 70000 -- same-second "same-$i" "raised $i"
+done
+mc_run mc-event.sh list --program alpha --limit 5000
+want=""
+got=""
+for i in $(seq 1 12); do
+  want="$want same-$i"
+done
+for s in $(printf '%s\n' "$OUT" | awk -F'\t' '$3 == "same-second" { print $4 }'); do
+  got="$got $s"
+done
+if [ "$got" = "$want" ]; then
+  ok "events raised in one second list in raise order"
+else
+  fail "events raised in one second listed as:$got"
+fi
+printf '70000\told-format\told-one\told text\n' >"$fleet/attention/mission-control/alpha/events/e70000.00ff" || fail "could not write an old-format event"
+mc_run mc-event.sh list --program alpha --limit 5000
+case $OUT in
+  *"e70000.00ff${tab}70000${tab}old-format${tab}old-one${tab}old text"*) ok "an id from before the sequence still lists" ;;
+  *) fail "an old-format id did not list: $OUT" ;;
+esac
+
+# Emitters racing in one second each take their own sequence number.
+race_dir=$tmp/race
+mkdir -p "$race_dir"
+i=0
+while [ "$i" -lt 16 ]; do
+  mc_env /bin/bash "$repo_root/scripts/mc-event.sh" emit --program alpha --now 75000 -- racer "racer-$i" "r" >"$race_dir/out.$i" 2>&1 &
+  i=$((i + 1))
+done
+wait
+dupes=$(cat "$race_dir"/out.* | sed -n 's/^e75000\.\([0-9]\{4\}\).*/\1/p' | sort | uniq -d | wc -l)
+if [ "$dupes" -eq 0 ] && [ "$(cat "$race_dir"/out.* | grep -c '^e75000\.')" -eq 16 ]; then
+  ok "racing emitters in one second never share a sequence number"
+else
+  fail "racing emitters shared a sequence number or lost an event ($dupes duplicated)"
+fi
+
+# A landed event holding number 1 while number 0 is still unwritten (its
+# emitter in flight) leaves the count at one: the next emitter must not take
+# number 1 again.
+gap_events=$fleet/attention/mission-control/alpha/events
+printf '75100\tgap\tgap-0\tg\n' >"$gap_events/e75100.0001abcd1234"
+OUT=$(mc_env /bin/bash "$repo_root/scripts/mc-event.sh" emit --program alpha --now 75100 -- gap gap-1 g)
+case $OUT in
+  e75100.0001*) fail "an emitter took a sequence number a landed event already held: $OUT" ;;
+  e75100.*) ok "an emitter skips a sequence number a landed event holds" ;;
+  *) fail "gap emit printed no id: $OUT" ;;
+esac
+
+# A second already holding 10000 events cannot take another: the count is four
+# digits wide and the refusal comes before anything is written.
+events_dir=$fleet/attention/mission-control/alpha/events
+i=0
+while [ "$i" -lt 10000 ]; do
+  : >"$events_dir/e80000.full$i" || fail "could not fill second 80000"
+  i=$((i + 1))
+done
+before=$(find "$events_dir" -type f | wc -l)
+mc_run mc-event.sh emit --program alpha --now 80000 -- over-cap over "one too many"
+expect_rc "a full second refuses another event" 1
+case $ERR in
+  *"more than 9999 events raised in second 80000"*) ok "and says why" ;;
+  *) fail "the full second's refusal did not say why: $ERR" ;;
+esac
+if [ "$(find "$events_dir" -type f | wc -l)" -eq "$before" ]; then
+  ok "and writes nothing"
+else
+  fail "a refused event left a file behind"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-event: $failures failure(s)" >&2
   exit 1

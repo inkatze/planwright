@@ -46,10 +46,17 @@
 # reads as an unknown holder rather than a wrong one.
 #
 # CAPACITY is step_pool_capacity_<pool> (hyphens as underscores) when set,
-# else step_pool_capacity, else 1. A malformed value falls back to the next in
+# else step_pool_capacity, else 1 (heavy-run: below). A malformed value falls back to the next in
 # that order with one warning naming its layer. Callers configured with
 # different capacities each try only their own slot count, so the larger
 # setting governs.
+# The shipped heavy-run pool differs: step_pool_capacity_heavy_run when set,
+# else one slot per 8 logical cores and per 16 GiB of total memory, whichever
+# is fewer, at least 1; step_pool_capacity never applies to it. A core count
+# or memory total that cannot be read derives 1 with one warning naming it.
+# PLANWRIGHT_HOST_CORES and PLANWRIGHT_HOST_MEMORY_KIB, when set (even empty),
+# stand in for the host reads: test seams, an empty or non-numeric value
+# reading as unreadable.
 #
 # take          hold one slot, waiting while none is free. The first round
 #               that finds the pool full reports every live holder on stderr
@@ -214,6 +221,16 @@ valid_pid() {
 }
 valid_count() {
   [ "${#1}" -le 9 ] || return 1
+  case $1 in
+    0) return 0 ;;
+    '' | 0* | *[!0-9]*) return 1 ;;
+  esac
+  return 0
+}
+# valid_big — a decimal with no leading zero of at most 18 digits (still inside
+# a 64-bit shell integer): a host's memory in bytes or KiB outgrows valid_count.
+valid_big() {
+  [ "${#1}" -le 18 ] || return 1
   case $1 in
     0) return 0 ;;
     '' | 0* | *[!0-9]*) return 1 ;;
@@ -576,6 +593,39 @@ refused() {
   warn "$1 could not be read${_rf:+ ($_rf)}; falling back to $3"
 }
 
+# host_capacity — the heavy-run pool's derived slot count: one per 8 logical
+# cores and one per 16 GiB of total memory, whichever is fewer, at least 1.
+# Either reading unavailable derives 1 with one warning naming what failed.
+host_capacity() {
+  if [ "${PLANWRIGHT_HOST_CORES+set}" = set ]; then
+    _hc_cores=$PLANWRIGHT_HOST_CORES
+  else
+    _hc_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null) || _hc_cores=''
+  fi
+  if [ "${PLANWRIGHT_HOST_MEMORY_KIB+set}" = set ]; then
+    _hc_kib=$PLANWRIGHT_HOST_MEMORY_KIB
+  else
+    _hc_kib=$(awk '$1 == "MemTotal:" { print $2; exit }' /proc/meminfo 2>/dev/null) || _hc_kib=''
+    if ! valid_big "$_hc_kib"; then
+      _hc_b=$(sysctl -n hw.memsize 2>/dev/null) || _hc_b=''
+      if valid_big "$_hc_b"; then _hc_kib=$((_hc_b / 1024)); else _hc_kib=''; fi
+    fi
+  fi
+  _hc_bad=''
+  valid_count "$_hc_cores" && [ "$_hc_cores" != 0 ] || _hc_bad='core count'
+  valid_big "$_hc_kib" && [ "$_hc_kib" != 0 ] || _hc_bad="${_hc_bad:+$_hc_bad and }total memory"
+  if [ -n "$_hc_bad" ]; then
+    warn "the host's $_hc_bad could not be read; the $pool pool derives capacity 1"
+    printf 1
+    return 0
+  fi
+  _hc_n=$((_hc_cores / 8))
+  _hc_m=$((_hc_kib / 16777216))
+  [ "$_hc_m" -ge "$_hc_n" ] || _hc_n=$_hc_m
+  [ "$_hc_n" -ge 1 ] || _hc_n=1
+  printf '%s' "$_hc_n"
+}
+
 # capacity — the pool's slot count, falling back key by key.
 capacity() {
   _ca_key=step_pool_capacity_$(printf '%s' "$pool" | tr '-' '_')
@@ -600,8 +650,18 @@ capacity() {
       return 0
       ;;
     5) ;; # no layer sets the per-pool key
-    *) refused "$_ca_key" 'a positive integer' step_pool_capacity ;;
+    *)
+      if [ "$pool" = heavy-run ]; then
+        refused "$_ca_key" 'a positive integer' 'the host-derived capacity'
+      else
+        refused "$_ca_key" 'a positive integer' step_pool_capacity
+      fi
+      ;;
   esac
+  if [ "$pool" = heavy-run ]; then
+    host_capacity
+    return 0
+  fi
   # The resolver's own warning already names a degraded overlay layer.
   if _ca_v=$("$script_dir/resolve-config-knob.sh" --key step_pool_capacity --type posint --fallback 1 2>"$errf"); then
     cat "$errf" >&2
