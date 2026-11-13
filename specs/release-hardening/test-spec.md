@@ -1,7 +1,7 @@
 # Release Hardening — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -216,15 +216,19 @@ resolves the repository's own default branch rather than any ref carried by
 the triggering `workflow_run`. Verified end to end by a release cycle
 producing no proposal between version-PR merge and signed-tag publication.
 
-### REQ-H1.2 — a backdated release proposal fails CI [test]
+### REQ-H1.2 — a bootstrapped or backdated release proposal fails CI [test]
 
-Two fixtures, both required. Negative: a proposal whose `CHANGELOG.md` diff adds
-entries at or below the latest release tag by SemVer precedence — the #339
-shape — fails the check, and is confirmed to fail for that reason rather than
-incidentally. Positive: a proposal covering only commits since the latest tag
-passes. A third fixture pins the comparison basis: a proposal whose entries
-carry fresh dates but already-released versions still fails, so a date-based
-implementation cannot pass the suite. The check reads the proposal artifact
+Four fixtures, all required. Negative, ancestry: a proposal whose `CHANGELOG.md`
+diff adds one fresh, higher version heading over entries citing commits already
+contained in the latest release tag — the #339 shape — fails the check, and is
+confirmed to fail on the ancestry condition rather than incidentally (the
+heading condition alone passes this fixture, so the test proves ancestry is what
+caught it). Negative, heading: a proposal adding a version heading at or below
+the latest tag by SemVer precedence, citing no already-released commits, fails
+on the heading condition. Positive: a proposal covering only commits since the
+latest tag passes. A fourth fixture pins the comparison basis: a proposal whose
+headings carry fresh dates but already-released versions still fails, so a
+date-based implementation cannot pass the suite. The check reads the proposal artifact
 only, so no fixture may depend on how release-please was induced to misread
 history.
 

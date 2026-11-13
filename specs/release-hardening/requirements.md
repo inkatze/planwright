@@ -1,7 +1,7 @@
 # Release Hardening — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -312,11 +312,18 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   an unreadable state.
   *(Cites: D-13; REQ-A1.3; obs:fd6c2f4f.)*
 
-- **REQ-H1.2** A release proposal whose changelog adds entries at or below the
-  latest release tag SHALL fail CI. The comparison SHALL be by SemVer
+- **REQ-H1.2** A release proposal SHALL fail CI when its `CHANGELOG.md` diff
+  satisfies either of two conditions, each checked independently: (a) it adds a
+  version heading at or below the latest release tag, compared by SemVer
   precedence through the shared comparator (`rl_latest_release_tag` /
   `rl_version_gt`, the one definition `autopilot-reflex` REQ-D1.8 owns), not
-  by entry date, which a regenerated changelog restamps. This check SHALL be
+  by entry date, which a regenerated changelog restamps; or (b) it adds an
+  entry that cites a commit already contained in the latest release tag
+  (commit ancestry, not version order). Condition (b) is the one that catches a
+  bootstrapped proposal: such a proposal adds a single fresh, higher version
+  heading (so (a) passes it) over many entries re-listing already-released
+  commits. A state the check cannot read (no latest tag, an unreadable diff)
+  SHALL fail it, never pass it. This check SHALL be
   cause-agnostic: it judges the proposal itself, not the conditions that
   produced it, so it holds for any reason release-please fails to see the
   latest release.
@@ -333,6 +340,15 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 ## Changelog
 
+- 2026-11-13 — Meaning-class: REQ-H1.2 now fails a release proposal on either
+  of two conditions, an added version heading at or below the latest release tag
+  (SemVer precedence, as before) or an added entry citing a commit already in
+  the latest tag (commit ancestry). Task 10's execution halted because the
+  SemVer-heading check alone passes the #339 shape it must catch: the PR's diff
+  adds one heading, `0.34.0`, above the then-latest `v0.33.0`, over 124 entries
+  whose commits are all ancestors of `v0.33.0`. The operator chose both
+  conditions over ancestry alone or the heading check alone. D-14, Task 10, and
+  the REQ-H1.2 test-spec entry follow.
 - 2026-09-03 — Expression-only: the `### In scope` item and the `## Sources` note
   that cite the gate-semantics requirement now read `autopilot-reflex REQ-D1.3`
   instead of a bare `REQ-D1.3` (an id this bundle does not define; its D-8 already
