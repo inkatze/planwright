@@ -215,8 +215,10 @@ if [ -n "$missing" ]; then
   missing_first=${missing#*"$TAB"}
   parent_hint=
   anc=$project
-  while [ "$anc" != / ] && [ -n "$anc" ]; do
-    anc=$(dirname "$anc")
+  while :; do
+    up=$(dirname "$anc")
+    [ "$up" != "$anc" ] || break
+    anc=$up
     for pl in "$anc/.claude/settings.json" "$anc/.claude/settings.local.json"; do
       [ -f "$pl" ] && [ -r "$pl" ] || continue
       if facts "$pl" | grep -qxF "D $missing_first"; then
