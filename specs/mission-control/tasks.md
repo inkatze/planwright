@@ -1399,7 +1399,9 @@ fixed-string check.)*
   REQ-P1.11 checks over recorded state with threshold knobs in
   `config/defaults.yml` and `config/mission-control-knobs.tsv`, raising a
   failure-class event per red check; the event a relayed session's finished
-  question turn raises; the event class rows; tests in
+  question turn raises (from the host's turn-end signal, with the audit's
+  unasked check reading the relay record as the backstop when the signal does
+  not fire); the event class rows; tests in
   `tests/test-mc-duties.sh` and `tests/test-mc-event.sh`.
 - **Done when:** The REQ-P1.11 and REQ-P1.12 test-spec entries' fixtures
   pass, the unrelayed-question fixture among them; the knob and verbs
