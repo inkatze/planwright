@@ -368,6 +368,23 @@ esac
 [ "$ev_n" = 1 ] && ok "and it is one event" || fail "expected one event, saw $ev_n"
 rm -rf "$fleet/streamjson/cp-ua" "$fleet/streamjson/cp-ub"
 
+# A batch too large for one event's text is split over events, and every
+# waiting request is still named in one of them.
+for ck in 1 2 3 4 5 6 7 8; do pp_ask "cp-chunk-long-worker-name-pad-0$ck" "$ck" 9300 pending; done
+pp_watch 9310
+mc_run mc-event.sh list --program alpha
+ck_events=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "pending-prompt" && index($4, "cp-chunk-") == 1')
+ck_n=$(printf '%s\n' "$ck_events" | awk 'NF { n++ } END { print n + 0 }')
+[ "$ck_n" -ge 2 ] && ok "a batch too large for one event is split" || fail "expected the batch split, saw $ck_n event(s)"
+ck_miss=0
+for ck in 1 2 3 4 5 6 7 8; do
+  case $ck_events in *"cp-chunk-long-worker-name-pad-0$ck cccc3333-bbbb-cccc-dddd-eeee0000000$ck"*) ;; *) ck_miss=1 ;; esac
+done
+[ "$ck_miss" = 0 ] && ok "and every waiting request is named in one of the events" || fail "a request is left out: $ck_events"
+ck_long=$(printf '%s\n' "$ck_events" | awk -F '\t' 'length($5) > 500 { n++ } END { print n + 0 }')
+[ "$ck_long" = 0 ] && ok "and no event text is cut short" || fail "an event text outgrew its cap"
+rm -rf "$fleet"/streamjson/cp-chunk-*
+
 # A reviewer the program launched, in a repository of its own, is woken the
 # same as a worker: the sweep does not key on kind or repository.
 mkdir -p "$fleet/mission-control/sessions" "$fleet/streamjson/cp-review"
