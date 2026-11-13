@@ -22,6 +22,7 @@ test-reserved-control-spellings.sh	43.023
 test-spec-validate.sh	42.698
 test-policy-guard.sh	41.777
 test-flight-dispatch-paths.sh	41.535
+test-policy-guard-kickoff.sh	39.600
 test-allocation-adapt.sh	37.855
 test-tower-queue-presence.sh	37.186
 test-check-lock-primitive.sh	36.975
@@ -50,6 +51,7 @@ test-mc-handover-recovery.sh	28.630
 test-step-run.sh	28.364
 test-mc-watch.sh	27.560
 test-tasks-pr-sync.sh	27.485
+test-policy-guard-rewrites.sh	26.700
 test-fleet-sweep-reap.sh	26.363
 test-merge-class.sh	25.669
 test-fleet-attention.sh	25.567

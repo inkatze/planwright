@@ -83,6 +83,8 @@
 #   worker-settings.json  the per-launch settings profile of an opted-in
 #                    worker (scripts/worker-settings-generate.sh), rewritten
 #                    by every launch, recover and relaunch of it
+#   tier_model / tier_effort / tier_reserved  a launch's per-launch tier
+#                    choice, which `relaunch` hands back as an override
 #   relaunch.lock    a relaunch's election, outside the release set
 #   scratch-root     the scratch root the launch handed the worker as its
 #                    TMPDIR: its own (scripts/fleet-scratch.sh), or for a
@@ -191,6 +193,7 @@
 #   fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
 #       [--tier-key <key>] [--tier-unit <unit>]
+#       [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved]
 #       [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
 #       --profile (default worker). --mise-task-edit (worker profile only,
@@ -200,7 +203,10 @@
 #       session record carries mise_task_edit=1 for the command guard
 #       (docs/permission-matcher-model.md, "The mise task-file opt-in"). --tier-key and --tier-unit record the
 #       allocation key and unit the caller resolved the tier in the extra
-#       args at, for `relaunch` to re-resolve it. --mc-token is the mission-control
+#       args at, for `relaunch` to re-resolve it; --tier-model, --tier-effort and
+#       --tier-reserved record a per-launch tier choice and reservation the
+#       same way, which a relaunch hands back to the allocator as an override.
+#       --mc-token is the mission-control
 #       launcher's row token, exported into a mission-control session only;
 #       none is taken from the environment. Detached by default (prints
 #       `launched <worker> dir <dir>`); --foreground runs the supervisor
@@ -484,7 +490,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
@@ -2066,6 +2072,9 @@ cmd_launch() {
   tier_key=''
   tier_unit=''
   mise_edit=0
+  tier_model=''
+  tier_effort=''
+  tier_reserved=''
   while [ $# -gt 0 ]; do
     case $1 in
       --mise-task-edit)
@@ -2074,6 +2083,21 @@ cmd_launch() {
         # recorded.
         [ "$mise_edit" = 0 ] || usage
         mise_edit=1
+        shift
+        ;;
+      --tier-model | --tier-effort)
+        [ $# -ge 2 ] || usage
+        # The closed enums allocation-select.sh keeps; allocation-adapt.sh
+        # re-checks them when a relaunch hands them back.
+        case $1:$2 in
+          --tier-model:haiku | --tier-model:sonnet | --tier-model:opus | --tier-model:fable) tier_model=$2 ;;
+          --tier-effort:low | --tier-effort:medium | --tier-effort:high) tier_effort=$2 ;;
+          *) usage ;;
+        esac
+        shift 2
+        ;;
+      --tier-reserved)
+        tier_reserved=yes
         shift
         ;;
       --tier-key)
@@ -2269,6 +2293,10 @@ cmd_launch() {
     # clears what a previous launch of this handle left.
     record_tier_field "$dir" tier_key "$tier_key" || exit 2
     record_tier_field "$dir" tier_unit "$tier_unit" || exit 2
+    # A per-launch tier choice and reservation, so a relaunch keeps them.
+    record_tier_field "$dir" tier_model "$tier_model" || exit 2
+    record_tier_field "$dir" tier_effort "$tier_effort" || exit 2
+    record_tier_field "$dir" tier_reserved "$tier_reserved" || exit 2
   fi
   # The worker identity its hooks key on (attention rows, liveness, and its
   # self-registration), and the inbound layer the messaging probe reads beside
@@ -3105,9 +3133,18 @@ cmd_relaunch() {
   rx_unit=$(cat "$dir/tier_unit" 2>/dev/null) || rx_unit=''
   [ -n "$rx_key" ] || rx_key=orchestrate_dispatch
   [ -n "$rx_unit" ] || rx_unit=$worker
+  # A per-launch tier the launch recorded outlives the relaunch: it is handed
+  # back as the same override, never re-derived from a knob.
+  rx_model_ovr=$(cat "$dir/tier_model" 2>/dev/null) || rx_model_ovr=''
+  rx_effort_ovr=$(cat "$dir/tier_effort" 2>/dev/null) || rx_effort_ovr=''
+  rx_reserved_ovr=$(cat "$dir/tier_reserved" 2>/dev/null) || rx_reserved_ovr=''
+  set --
+  [ -z "$rx_model_ovr" ] || set -- "$@" --model "$rx_model_ovr"
+  [ -z "$rx_effort_ovr" ] || set -- "$@" --effort "$rx_effort_ovr"
+  [ "$rx_reserved_ovr" != yes ] || set -- "$@" --reserved
   rx_pr=0
   rx_plan=$(cd "$rx_cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$rx_key" \
-    --backend stream-json-persistent --unit "$rx_unit" </dev/null) || rx_pr=$?
+    --backend stream-json-persistent --unit "$rx_unit" "$@" </dev/null) || rx_pr=$?
   [ "$rx_pr" -eq 0 ] || {
     printf '%s\n' "$me: no launch tier resolves for $worker at the $rx_key key (allocation-apply exit $rx_pr); relaunch refused" >&2
     exit 3
