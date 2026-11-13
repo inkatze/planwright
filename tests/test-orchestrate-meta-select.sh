@@ -733,7 +733,7 @@ got=$("$SHIMSEL" "$palpha" 2>"$tmp/p19c.err") || rc=$?
 #      raw escape bytes must never reach the operator's terminal.
 stub_selector 'printf "\033]0;pwned\007\n"; exit 0'
 rc=0
-"$SHIMSEL" "$palpha" >/dev/null 2>"$tmp/p19d.err" || rc=$?
+PLANWRIGHT_ROOT="$(cd "$here/.." && pwd)" "$SHIMSEL" "$palpha" >/dev/null 2>"$tmp/p19d.err" || rc=$?
 [ "$rc" = 2 ] || fail "case 19d: escape-laden selector output must fail closed (rc $rc)"
 p19dstripped=$(tr -d '\000-\037\177' <"$tmp/p19d.err")
 [ "$p19dstripped" = "$(cat "$tmp/p19d.err")" ] \

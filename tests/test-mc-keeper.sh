@@ -560,6 +560,8 @@ expect_no_out "a completed stream-json session inside the grace stays" "mc-alpha
 sj_row mc-alpha-worker-sjgrace "$t1" "$t1" "Done: the pull request is open."
 sj_row mc-alpha-worker-sjunread "$t1" "$t1" "Done."
 chmod 000 "$fleet/streamjson/mc-alpha-worker-sjunread/result"
+sj_unread_denied=0
+if hermetic_access_denied r "$fleet/streamjson/mc-alpha-worker-sjunread/result"; then sj_unread_denied=1; fi
 sj_row mc-alpha-worker-sjrunning "$t1" "$t1" "Done."
 printf '{"type":"assistant","message":"next turn"}\n' >>"$fleet/streamjson/mc-alpha-worker-sjrunning/events.jsonl"
 bound_row mc-alpha-worker-tmuxgrace worker 33 "$t1" "$tmp/busy.pane"
@@ -567,7 +569,11 @@ mkdir -p "$fleet/streamjson/mc-alpha-worker-tmuxgrace"
 printf 'result\tsuccess\t%s\tfalse\n' "$t1" >"$fleet/streamjson/mc-alpha-worker-tmuxgrace/result"
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 400)) 2>"$tmp/stderr")
 expect_out "a completed stream-json worker retires after the grace, far inside the idle bound" "retire${tab}mc-alpha-worker-sjgrace${tab}${t1}${tab}completed result=success 400s ago, grace 300s"
-expect_no_out "a stream-json worker whose status cannot be read counts as live" "mc-alpha-worker-sjunread"
+if [ "$sj_unread_denied" -eq 1 ]; then
+  expect_no_out "a stream-json worker whose status cannot be read counts as live" "mc-alpha-worker-sjunread"
+else
+  echo "skip: a stream-json worker whose status cannot be read: the file is still readable here"
+fi
 expect_no_out "a running stream-json worker is untouched" "mc-alpha-worker-sjrunning"
 expect_no_out "a tmux worker is untouched by the completed rule" "mc-alpha-worker-tmuxgrace"
 chmod 600 "$fleet/streamjson/mc-alpha-worker-sjunread/result"
