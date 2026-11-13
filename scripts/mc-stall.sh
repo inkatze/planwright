@@ -366,8 +366,13 @@ prompt_events() {
   [ ! -f "$pe_ledger" ] || [ -L "$pe_ledger" ] || pe_old=$(cat "$pe_ledger" 2>/dev/null) || pe_old=''
   pe_cur=$(printf '%s\n' "$3" | awk -F '\t' 'NF { print $1 }')
   pe_keep=$pe_old
-  while IFS='	' read -r pe_id pe_tool pe_cmd _; do
+  # Fields are cut, not read: a tab is IFS whitespace and would collapse an
+  # empty command field into the shape after it.
+  while IFS= read -r pe_line; do
+    pe_id=$(printf '%s\n' "$pe_line" | cut -f 1)
     [ -n "$pe_id" ] || continue
+    pe_tool=$(printf '%s\n' "$pe_line" | cut -f 2)
+    pe_cmd=$(printf '%s\n' "$pe_line" | cut -f 3)
     case "
 $pe_old
 " in

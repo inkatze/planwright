@@ -614,6 +614,14 @@ stall classify --program alpha --now 1700 mc-alpha-worker-ap1
 expect_state "a prompt that arrives after the others cleared reads prompt-pending again" mc-alpha-worker-ap1 prompt-pending
 [ "$(event_count stall-prompt-pending mc-alpha-worker-ap1)" = 3 ] && ok "the new prompt is its own event" \
   || fail "the new prompt raised $(event_count stall-prompt-pending mc-alpha-worker-ap1) events in all"
+p6='aaaa1111-bbbb-cccc-dddd-eeee00000006'
+printf '%s\tpermission\t1700000000\tpending\n' "$p6" >>"$fleet/streamjson/wp1/journal"
+printf '{"type":"control_request","request_id":"%s","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"file_path":"/etc/hosts"},"tool_use_id":"t"}}\n' "$p6" >"$fleet/streamjson/wp1/req-$p6.json"
+stall classify --program alpha --now 1750 mc-alpha-worker-ap1
+case $(event_text stall-prompt-pending mc-alpha-worker-ap1 | grep "$p6") in
+  *"prompt $p6: Read {"*) ok "a non-Bash prompt reads as its tool and input, never as a shape word" ;;
+  *) fail "the event for a non-Bash prompt is: $(event_text stall-prompt-pending mc-alpha-worker-ap1 | grep "$p6")" ;;
+esac
 awk -F '\t' '$1 == "stall-prompt-pending" && $2 == "routine" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv" \
   && fail "stall-prompt-pending is classed as quiet" || ok "a pending prompt's kind is left to wake"
 awk -F '\t' '$1 == "stall-prompt-cleared" && $2 == "routine" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv" \
