@@ -1,7 +1,7 @@
 # Guard Coverage — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-09-24
+**Status:** Draft
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -47,6 +47,8 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
 - A test/CI wall-clock budget gate (`check:test-time`), splitting or
   slimming the three straggler test files, and a doctrine amendment naming
   test/CI ergonomics an explicit Performance-lens target.
+- An early-warning band on the gate's per-file budget (REQ-E1.4): a
+  non-failing warning when a file nears its ceiling, ahead of the trip.
 - Drift tethers: `doctrine/README.md` index completeness, the
   backend-capability-contract prose table vs the shipped `caps_for()`
   registry, and `docs/fleet.md`'s knobs-table defaults vs
@@ -70,6 +72,9 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
 - Running evals in CI under any guard or flag.
 - Suite-wide performance work beyond the named stragglers and the budget
   gate.
+- A warn band on the mean-file and per-shard budgets, a warning that fails
+  anything, and splitting or slimming any particular file the warning
+  later names (REQ-E1.4 warns on the per-file budget only, D-14).
 - Applying the new guards to adopter repos (the catalog describes; the
   builder applies).
 - Reopening the bootstrap, prompt-hygiene, or output-hygiene bundles
@@ -216,6 +221,20 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   reviewers apply the whole-system framing rather than a diff-scoped
   one; the mechanical catch itself is delivered by REQ-E1.1's gate.
   *(Cites: D-1, obs:cf6a2bd2, kickoff lens pass (2026-07-17).)*
+- **REQ-E1.4** `check:test-time` SHALL warn, in both CI and local modes
+  and without changing its exit status, for every test file whose measured
+  execution time is at or over a committed warn fraction of the per-file
+  budget and still under that budget, naming the file, its time and the
+  budget, so a file creeping toward the ceiling is seen before it trips
+  it. The warn threshold is the per-file budget times the fraction; the
+  boundary is at-or-over, the convention REQ-E1.1 uses. A file at or over
+  the budget itself is reported by REQ-E1.1's verdict alone, not twice.
+  The fraction SHALL live in the committed budget file beside the budgets
+  it derives from, be required there (a missing, non-numeric or
+  out-of-range value, outside the open interval from 0 to 100 percent, is
+  the gate's fail-closed exit 2, as every other budget key is), and be
+  documented in the file's header with its default value.
+  *(Cites: D-14, the release-process seed (Sources), REQ-E1.1 (extends).)*
 
 ## REQ-F — Drift tethers
 
@@ -333,8 +352,24 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   guard by two same-doc restatement trims rather than a raise entry.
   No requirement or decision changes meaning.
 
+- 2026-11-13 — Reopened and extended by `/spec-draft` (meaning-class:
+  new REQ-E1.4, new D-14 superseding D-8 in part, new Task 12). The
+  bundle was Done, so its stored status moves Ready to Draft on all four
+  files until the scoped kickoff signs the delta. REQ-E1.4 adds a
+  non-failing warning when a test file reaches 80% of the per-file
+  budget; the 80% value is a drafting default for the kickoff to confirm.
+
 ## Sources
 
+- **The release-process seed (2026-11-13).** A mission-control relay naming
+  four release-process gaps; this amendment carries the third alone (the
+  test-time warning), the others going to the release-hardening work. Its
+  evidence: `tests/test-policy-guard.sh` crept to 134 to 137 s against the
+  120 s per-file budget and nobody saw it coming; the first anyone knew was
+  the release commit, which could no longer pass. Drafting-session decision
+  (2026-11-13): fold into this bundle, not test-throughput, because
+  REQ-E1.1 owns the gate's thresholds; test-throughput touches only the
+  report's wait column (its REQ-A1.6) and a future macOS job.
 - **The invocation brief (2026-07-17).** The `/spec-draft` invocation
   enumerating the nine confirmed holes, the seed UIDs and legacy lines,
   and the fold-detection and security-escalation constraints.

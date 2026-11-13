@@ -1,7 +1,7 @@
 # Guard Coverage — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-07-17
+**Status:** Draft
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -299,6 +299,11 @@ suite re-run, fail-closed on missing entries, boundary operator, CI
 hard-fail / local loud-warn split, measurement context, and budget-file
 location pinned.)*
 
+**Superseded-by: D-14** (2026-11-13), in part — the gate also warns, without
+failing, once a file reaches a committed fraction of the per-file budget;
+the fail boundary, the CI-fails and local-warns split and every other
+property above stand.
+
 **Alternatives considered:**
 - Warn-then-fail grace band. Rejected because: the warn band is where
   boiling-frog regressions live — the exact failure mode obs:cf6a2bd2
@@ -449,8 +454,54 @@ posture, and the doc/dogfooding registration surfaces added.)*
 **Chosen because:** capability-vs-style: the mechanisms generalize (core
 catalog), the values are local (this repo's config).
 
+### D-14: An early-warning band ahead of the per-file budget  (N)
+
+**Decision:** `check:test-time` adds a warning band under the per-file
+budget. The budget file gains a required key, `warn_percent`, set to 80
+(open interval from 0 to 100; anything else is exit 2, like every other
+key). A file whose measured execution time is at or over
+`per_file_seconds` times `warn_percent` over 100, and under
+`per_file_seconds`, prints one warning line naming the file, its time and
+the budget. The line is printed in CI and local modes alike and never
+changes the exit status; in CI it is also emitted as a GitHub Actions
+`::warning::` annotation so it surfaces on the run summary, not only in the
+job log. A file at or over the budget is reported only by the existing
+verdict. The ranked table marks banded files. The band applies to the
+per-file budget only: the mean-file and per-shard budgets already move
+slowly and carry their own headroom, and one fraction per budget is a
+decision for when one of them is seen creeping unwarned.
+*(Supersedes D-8 in part: D-8's fail boundary and its CI/local split are
+unchanged; it rejected a warn band that stands in for failing.)*
+
+**Alternatives considered:**
+- Fail at the warn fraction. Rejected because: the 30 to 50% headroom
+  already sits inside the budget to cover runner noise, so a lower fail
+  line turns that noise into red CI on green code, the cost D-8 priced in.
+- Warn only in local mode. Rejected because: the creep was found on a
+  release commit's run; local numbers are not the baseline (the budget
+  file's own header says so), so the warning must reach the reference
+  runner's log.
+- Print the ranked table's top rows and call that the warning. Rejected
+  because: local mode prints only the slowest ten and CI prints every file,
+  so neither names the near-budget files as such, and nobody reads a
+  table for a threshold they do not know.
+- One shared warning fraction across all three budgets. Rejected for now
+  because: the mean sits near 77% of its budget on ordinary runs, so a
+  shared 80% would warn constantly and train readers to skip it.
+
+**Chosen because:** D-8 rejected a warn band as a grace period that lets
+growth pass; this one is additive, the trip is unchanged, and the
+reproduced failure was exactly a file that reached 134 to 137 s against a
+120 s budget with nothing earlier to read. A warning is the cheapest signal
+that turns the conscious-bump rule into a decision made before the release
+commit instead of on it. The 80% value is a drafting default awaiting the
+kickoff's confirmation; the evidence file would have warned from 96 s.
+
 ## Changelog
 
+- 2026-11-13 (reopened by `/spec-draft`, meaning-class): D-14 added and
+  D-8 marked superseded in part; REQ-E1.4 and Task 12 deliver it. The
+  bundle's stored status moves Ready to Draft pending the scoped kickoff.
 - 2026-07-22 (Task 2 execution, expression-only): corrected D-2's
   factual side-note on bypass mechanics against `githooks(5)` for the
   installed git (2.55): `--no-verify` does not suppress

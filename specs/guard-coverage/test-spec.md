@@ -1,11 +1,11 @@
 # Guard Coverage — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-07-17
+**Status:** Draft
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Coverage mix (nineteen REQs): most verify `[test]` (automated, running
+Coverage mix (REQ-E1.4 added 2026-11-13, a `[test]`; the counts below predate it): most verify `[test]` (automated, running
 in this repo's CI via `mise run check` or the test suite), one is pure
 `[manual]` (the fork-PR audit, a human-reviewed record), one is pure
 `[design-level]` (the doctrine amendment), and four are mixed
@@ -141,6 +141,17 @@ the Task 6 PR.
 ergonomics an explicit lens target for reviewers, noting the mechanical
 catch is REQ-E1.1's gate. Existence and wording of the amendment is the
 verification, reviewed at kickoff of the amendment.
+
+### REQ-E1.4 — per-file early-warning band [test]
+
+Fixture timing reports in `tests/test-check-test-time.sh`: a file between
+the warn line and the budget exits 0 in both modes with a warning naming
+the file, its time and the budget; a file exactly at the warn line warns
+and one just under it does not; a file at or over the budget produces only
+the REQ-E1.1 failure, with no second warning line for it; the annotation
+form appears only with `GITHUB_ACTIONS=true`; a budget file with
+`warn_percent` missing, 0, 100, negative or non-numeric exits 2. Runs in
+the suite, so in CI via `mise run check`.
 
 ## REQ-F — Drift tethers
 
