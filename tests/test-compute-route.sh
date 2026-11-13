@@ -167,6 +167,11 @@ assert_eq "a raised threshold turns away input younger than it" "local ran a" "$
 printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 0\n' >"$local_cfg"
 FAKE_HID_NS=1000000000 FAKE_CONSOLE=alice run --check -- "$tmp/lcmd" a
 assert_eq "threshold 0 turns the in-use probe off" "remote ran" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 0600\n' >"$local_cfg"
+FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
+assert_eq "a zero-padded threshold reads as the default, never octal" "remote ran" "$OUT"
+FAKE_HID_NS=300000000000 run --check -- "$tmp/lcmd" a
+assert_eq "and the default 600 still turns away input younger than it" "local ran a" "$OUT"
 printf 'fleet_compute_host: mac\nfleet_compute_account: alice\n' >"$local_cfg"
 FAKE_HID_NS=3600000000000 FAKE_CONSOLE=alice FAKE_LOGIN=fleet run --check -- "$tmp/lcmd" a
 assert_eq "the account knob names the fleet console user" "remote ran" "$OUT"

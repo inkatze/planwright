@@ -141,7 +141,7 @@ cap=$(conf fleet_compute_load_cap) || cap=0.4
 timeout_secs=$(conf fleet_compute_timeout) || timeout_secs=''
 idle_secs=$(conf fleet_compute_idle_threshold) || idle_secs=600
 account=$(conf fleet_compute_account) || account=''
-case $idle_secs in '' | *[!0-9]* | ?????????*) idle_secs=600 ;; esac
+case $idle_secs in 0) ;; '' | *[!0-9]* | 0* | ?????????*) idle_secs=600 ;; esac
 case $account in *[!A-Za-z0-9._-]*) account='' ;; esac
 case $cap in *[0-9]*) ;; *) cap=0.4 ;; esac
 case $cap in *[!0-9.]* | *.*.*) cap=0.4 ;; esac
