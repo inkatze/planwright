@@ -9,8 +9,8 @@
 #   list                print every host alias
 #
 # The registry path is the machine-local config key remote_hosts_file, read
-# through config-get.sh. It is refused when any tracked layer sets that key or
-# git tracks the file, so no alias, path or account label is ever committed.
+# through config-get.sh. It is refused when any other config layer sets that
+# key or git tracks the file, so no alias, path or account label is ever committed.
 # One host per line (blank lines and # comments ignored):
 #   host <alias> account=<label> ceiling=<n> [shared=yes|no] [idle=<min>]
 #        [hold=yes|no] [grace=<min>] [compute=login-free|accepted]

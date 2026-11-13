@@ -174,6 +174,13 @@ conf "$repo/hosts.txt"
 run "$repo" "$tmp/local.yml" validate
 assert_eq "tracked registry file refused" 1 "$rc"
 assert_contains "tracked registry file says tracked" tracked "$err"
+
+# A relative registry path is refused with the field named.
+conf reg.txt
+run none "$tmp/local.yml" validate
+assert_eq "relative registry path refused" 1 "$rc"
+assert_contains "relative registry path names the field" remote_hosts_file "$err"
+conf "$repo/hosts.txt"
 git -C "$repo" rm -q --cached hosts.txt
 run "$repo" "$tmp/local.yml" validate
 assert_eq "untracked registry file in a repo accepted" 0 "$rc"
