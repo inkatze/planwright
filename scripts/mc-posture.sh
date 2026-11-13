@@ -214,13 +214,14 @@ if [ -n "$missing" ]; then
   # below it; naming it turns a cryptic refusal into an actionable one.
   missing_first=${missing#*"$TAB"}
   parent_hint=
-  anc=$project
-  while :; do
+  anc=$(cd "$project" && pwd -P) || anc=$project
+  while [ "$managed_rules" = 0 ]; do
     up=$(dirname "$anc")
     [ "$up" != "$anc" ] || break
     anc=$up
     for pl in "$anc/.claude/settings.json" "$anc/.claude/settings.local.json"; do
       [ -f "$pl" ] && [ -r "$pl" ] || continue
+      [ "$pl" != "$user_dir/settings.json" ] || continue
       if facts "$pl" | grep -qxF "D $missing_first"; then
         parent_hint=" (the floor is held in $pl, a parent directory's layer a session rooted in $project does not load)"
         break 2

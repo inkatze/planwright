@@ -197,11 +197,22 @@ expect_fail "the refusal names the user settings layer as a fix" "the user setti
 expect_fail "the refusal names each repository's project layer as a fix" "each repository's .claude/settings.json"
 expect_fail "the refusal names the parent layer that is not loaded" "$tmp/parent/.claude/settings.local.json"
 OUT=$(cd "$tmp/parent/child" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN -u PLANWRIGHT_ROOT -u CLAUDE_PROJECT_DIR \
-  HOME="$home" timeout 20 /bin/bash "$POSTURE" check --managed "$absent" --project . 2>"$tmp/err")
+  HOME="$home" /bin/bash "$POSTURE" check --managed "$absent" --project . 2>"$tmp/err")
 RC=$?
-expect_fail "a relative --project ends the parent walk and still refuses" "the shipped deny floor is not in force"
+expect_fail "a relative --project resolves to its directory and names the parent layer" "$tmp/parent/.claude/settings.local.json"
 posture -- --project "$tmp/parent"
 expect_pass "the parent directory itself, as the start directory, passes"
+reset
+absolute_profile >"$home/.claude/settings.json"
+printf '%s\n' '{"allowManagedPermissionRulesOnly": true}' >"$tmp/managed-rules.json"
+mkdir -p "$home/work/repo"
+posture -- --managed "$tmp/managed-rules.json" --project "$home/work/repo"
+expect_fail "managed-only permission rules refuse" "the shipped deny floor is not in force"
+case $OUT in
+  *"a parent directory's layer"*) fail "the user layer is named a parent layer that is not loaded: $OUT" ;;
+  *) ok "the user layer is never named a parent layer that is not loaded" ;;
+esac
+rm -f "$tmp/managed-rules.json"
 reset
 posture -- --project "$proj"
 expect_fail "a floor held nowhere still refuses" "the shipped deny floor is not in force"
