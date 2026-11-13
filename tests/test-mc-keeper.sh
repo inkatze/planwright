@@ -273,8 +273,45 @@ keeper_as alpha 5060
 expect_no_out "and the unowned event is not raised again" "stream-json-worker-unowned"
 keeper_as beta 5120
 expect_no_out "nor raised under a second program" "rl-orphan"
+mc_run mc-event.sh list --program alpha
+expect_out "with no hub program configured, it falls back to the finding program" "rl-orphan"
 rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-prompts" "$fleet/mission-control/alpha/keeper-unowned"
+
+# The ruling: the unowned event goes to the hub program, the one whose mission
+# control sees every program, raised once however many keepers see it.
+cp "$tracked" "$tmp/tracked.keep"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha, beta, hub]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo/specs
+program_alpha_home: $tmp/mchome
+program_alpha_budget: {host_load: 1000000}
+program_beta_repositories: [$repo]
+program_beta_spec_root: $repo/specs
+program_beta_home: $tmp/mchome
+program_beta_budget: {host_load: 1000000}
+program_hub_repositories: [$repo]
+program_hub_spec_root: $repo/specs
+program_hub_home: $tmp/mchome
+program_hub_budget: {host_load: 1000000}
+EOF
+pp_req rl-hubbed none
+keeper_as alpha 5000
+expect_out "an unowned worker is raised once" "announced${tab}stream-json-worker-unowned${tab}rl-hubbed"
+keeper_as beta 5060
+expect_no_out "and not again by another program's keeper" "rl-hubbed"
+keeper_as hub 5120
+expect_no_out "nor by the hub's own" "rl-hubbed"
+mc_run mc-event.sh list --program hub
+expect_out "the event lands under the hub program" "rl-hubbed"
+mc_run mc-event.sh list --program alpha
+expect_no_out "never under the finding program" "rl-hubbed"
+mc_run mc-event.sh list --program beta
+expect_no_out "nor under another" "rl-hubbed"
+cp "$tmp/tracked.keep" "$tracked"
+rm -rf "$fleet/streamjson/rl-hubbed" "$fleet/dispatch-markers"
+rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned"
 
 # A request that has just arrived is announced at once, as pending-prompt, so
 # the operator need not wait for the overdue bound; the requests new to one

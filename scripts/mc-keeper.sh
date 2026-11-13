@@ -112,7 +112,9 @@ Usage:
       announced once per request (a worker the launcher records for
       another program left to that program, a row-less one's program being
       the owner its dispatch record keeps; one no record owns is raised
-      once as a stream-json-worker-unowned event, never to every
+      once as a stream-json-worker-unowned event under the hub program
+      mission_control_escalation_hub names, or under the program whose
+      keeper found it when none is configured, never to every
       program), and a request that has just
       arrived one pending-prompt event per pass that sees it (the requests
       new to that pass batched into the one event), and a dead worker this
@@ -517,20 +519,44 @@ worker_program() {
   return 0
 }
 
+# shellcheck disable=SC2329 # mc_knob calls it by name
+unowned_hub() {
+  [ "$1" = none ] || mc_valid_program "$1" || return 1
+  printf '%s\n' "$1"
+}
+
 # announce_unowned <worker>: a worker with no program to give its prompts to
 # is raised as one stream-json-worker-unowned event, however many programs'
 # keepers see it: the first to take the claim in the worker's directory raises
-# it, and a refused announce releases the claim so a later pass retries.
+# it, and a refused announce releases the claim so a later pass retries. The
+# event goes to the hub program (mission_control_escalation_hub), whose mission
+# control sees every program; with none configured it stays with the program
+# whose keeper found it.
 announce_unowned() {
   au_dir="$(mc_fleet_home)/streamjson/$1"
   [ -d "$au_dir" ] && [ ! -L "$au_dir" ] || return 0
   [ ! -e "$au_dir/unowned-announced" ] || return 0
+  au_target=$program
+  au_note=""
+  au_hub=$(mc_knob mission_control_escalation_hub unowned_hub) || au_hub=none
+  au_known=$(/bin/bash "$script_dir/mc-program.sh" list) || au_known=""
+  case "
+$au_known
+" in
+    *"
+$au_hub
+"*)
+      au_target=$au_hub
+      ;;
+    *) au_note=" (no hub program is configured, so it is raised under $program, whose keeper found it)" ;;
+  esac
+  mkdir -p "$(mc_fleet_home)/mission-control/$au_target" || return 1
   (
     set -C
     : >"$au_dir/unowned-announced"
   ) 2>/dev/null || return 0
-  mc_announce "$program" "$runtime/keeper-unowned" "$1" stream-json-worker-unowned "$1" \
-    "stream-json worker $1 has a request waiting but no launcher row or dispatch record names the program it belongs to, so none announces its prompts; fleet-streamjson.sh pending $1 shows them, mission-control-launch.sh retire $1 closes it" \
+  mc_announce "$au_target" "$(mc_fleet_home)/mission-control/$au_target/keeper-unowned" "$1" stream-json-worker-unowned "$1" \
+    "stream-json worker $1 has a request waiting but no launcher row or dispatch record names the program it belongs to, so none announces its prompts; fleet-streamjson.sh pending $1 shows them, mission-control-launch.sh retire $1 closes it$au_note" \
     || {
       rm -f "$au_dir/unowned-announced"
       return 1
