@@ -1415,7 +1415,7 @@ fixed-string check.)*
   the undo ledger, show the exact command, launch the host-chore session
   (or, for a read, run it), record the output tail and exit status, report
   one plain line and route a failure to a launched session without a retry;
-  the offer after a merged dotfiles change (standing rule r-1) uses the same
+  the offer after a merged dotfiles change (hub standing rule r-29) uses the same
   path; the skill and duty prose, kept inside the instruction budget; tests
   in `tests/test-mc-host-acts.sh`.
 - **Done when:** The REQ-A1.13 and REQ-A1.16 test-spec entries' fixtures

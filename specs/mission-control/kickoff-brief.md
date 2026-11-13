@@ -2161,3 +2161,17 @@ requirement or decision changes meaning.
 Class: expression-only
 Anchor: `c5a94f578f2528753da6d4c617ca14eb3b06d641` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — Task 65 rule citation (2026-11-13)
+
+Marked self-re-anchor for an expression-only edit, machine-written per the
+meta-spec's expression-only lane (`doctrine/spec-format.md`, *Writers*).
+Task 65 now cites hub standing rule r-29, the rule the Sources entry and
+REQ-A1.15 cite; no requirement or decision changes meaning.
+
+**Cites the changelog line:** the 2026-11-13 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `e174982fec90851456c94e2b3220ff6dacab000a` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

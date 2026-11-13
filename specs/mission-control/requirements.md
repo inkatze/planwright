@@ -1633,6 +1633,10 @@ later planwright bundles implement, D-12).
   the recorded anchor is refreshed after merging main's expression-only
   test-file pointer edits into the amendment branch. No requirement or
   decision changes meaning.
+- 2026-11-13 — Expression-only (brief Re-anchor, Task 65 rule citation):
+  Task 65 cites hub standing rule r-29 instead of r-1, the rule the Sources
+  entry and REQ-A1.15 already cite. No requirement or decision changes
+  meaning.
 
 ## Sources
 
