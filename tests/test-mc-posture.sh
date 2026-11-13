@@ -208,7 +208,9 @@ printf '%s\n' '{"allowManagedPermissionRulesOnly": true}' >"$tmp/managed-rules.j
 mkdir -p "$home/work/repo"
 posture -- --managed "$tmp/managed-rules.json" --project "$home/work/repo"
 expect_fail "managed-only permission rules refuse" "the shipped deny floor is not in force"
+expect_fail "managed-only permission rules refuse naming the managed settings file as the fix" "the managed settings file"
 case $OUT in
+  *"the user settings layer"*) fail "the advice names the user layer, which the managed rules-only switch ignores: $OUT" ;;
   *"a parent directory's layer"*) fail "the user layer is named a parent layer that is not loaded: $OUT" ;;
   *) ok "the user layer is never named a parent layer that is not loaded" ;;
 esac

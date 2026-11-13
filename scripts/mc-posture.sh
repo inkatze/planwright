@@ -228,7 +228,9 @@ if [ -n "$missing" ]; then
       fi
     done
   done
-  fail "the shipped deny floor is not in force: ${missing%%"$TAB"*} of its entries are in no loaded settings layer, among them $missing_first$parent_hint; put the floor in the user settings layer (${user_dir}/settings.json) or in each repository's .claude/settings.json"
+  fix_hint="put the floor in the user settings layer (${user_dir}/settings.json) or in each repository's .claude/settings.json"
+  [ "$managed_rules" = 0 ] || fix_hint="the managed settings file ($managed) sets allowManagedPermissionRulesOnly, so only its deny list counts: put the floor in the managed settings file"
+  fail "the shipped deny floor is not in force: ${missing%%"$TAB"*} of its entries are in no loaded settings layer, among them $missing_first$parent_hint; $fix_hint"
 fi
 
 # invocation <command>: the `scripts/<guard>.sh <args>` part of a shipped
