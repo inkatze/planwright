@@ -145,7 +145,9 @@ Usage:
             a value (`mission_control_stall_window at 10m`), or a rule
             that says mission control hands over at a context percent,
             which governs mission_control_handover_context. A rule with no
-            unit is compared with the number alone. The operator decides
+            unit is compared with the number alone. A rule saying to run
+            to 100% usage or that there are no usage stops, against a
+            mission_control_usage_hold below 100, is one too. The operator decides
             whether the rule or the knob is right; doctor changes neither
         temporary<TAB><file><TAB><knob><TAB><reason><TAB><comment><TAB><effective value><TAB><note>
             an adopter or machine-local setting whose comment
@@ -995,6 +997,29 @@ doctor_rules() {
   done
 }
 
+# A standing rule that says run to 100% usage or no stops, against a
+# usage-hold knob that still holds launches below 100, is a rule-knob finding.
+doctor_usage_rules() {
+  du_rules=$(mc_usage_stop_rules "$1")
+  [ -n "$du_rules" ] || return 0
+  du_exp=$(cfg_get --explain mission_control_usage_hold 2>/dev/null) || du_exp=''
+  if [ -z "$du_exp" ]; then
+    printf 'unknown\trules\tthe usage-hold knob could not be read, so a run-to-100 rule is not compared with it; read the knob by hand\n'
+    return 0
+  fi
+  du_layer=${du_exp%%"$tab"*}
+  du_eff=${du_exp#*"$tab"}
+  case $du_eff in '' | *[!0-9]*) return 0 ;; esac
+  [ "$du_eff" -lt 100 ] || return 0
+  du_file=$(doctor_layer_file "$du_layer")
+  du_where=$du_layer
+  [ -z "$du_file" ] || du_where="$du_layer, file $du_file"
+  printf '%s\n' "$du_rules" | while IFS="$tab" read -r du_id _; do
+    printf 'rule-knob\t%s\tmission_control_usage_hold\t100\t%s\t%s\trule %s says run to 100%% but mission_control_usage_hold is %s (set in %s), so launches are held below 100%%; decide which is right, then change the rule or the knob\n' \
+      "$du_id" "$du_eff" "$du_layer" "$du_id" "$du_eff" "$du_where"
+  done
+}
+
 # A local layer's (the operator's adopter file, or the machine-local file)
 # override carrying a date already past, or the word interim,
 # temporary or until, is someone's reminder to revisit it. Reported for the
@@ -1097,6 +1122,7 @@ v_doctor() {
     doctor_launches "$2"
     doctor_cron "$2"
     doctor_rules "$2"
+    doctor_usage_rules "$2"
     doctor_temporary
   )
   if [ -n "$dr_out" ]; then

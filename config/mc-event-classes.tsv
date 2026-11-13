@@ -22,6 +22,7 @@ keeper-sweep-failed	blocker
 throughput-unknown	failure
 mission-control-escalated	blocker
 usage-probe	blocker
+usage-hold-rule-conflict	failure
 blocker	blocker
 conflict	blocker
 handover-failed	failure

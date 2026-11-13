@@ -172,6 +172,34 @@ expect_rc "a drain is not refused by a hold whose every reset has passed" 0
 watch "$((now + 60))"
 expect_rc "a watch inside the hold" 0
 expect_no_out "a hold already announced is not announced again" "usage-held"
+expect_no_out "a hold with no run-to-100 rule raises no rule-conflict event" "usage-hold-rule-conflict"
+mc_run mc-rules.sh add alpha --text "Hold launches when a usage window reaches 90%." --subject usage --source "operator, fixture" --date 2026-01-01
+watch "$((now + 61))"
+expect_no_out "a rule that sets a hold and says no run-to-100 stays routine" "usage-hold-rule-conflict"
+mc_run mc-rules.sh add alpha --text "Run to 100% usage with no 90% or 95% stops: launch every ready unit." --subject usage-stops --source "operator, fixture" --date 2026-01-01
+watch "$((now + 62))"
+expect_out "a hold under a run-to-100 rule raises the failure event, naming the rule and the knob" "event${tab}usage-hold-rule-conflict${tab}r-2${tab}"
+expect_out "the event says the hold contradicts the rule" "mission_control_usage_hold"
+watch "$((now + 63))"
+expect_out "the event is raised again on the next tick, not once" "event${tab}usage-hold-rule-conflict${tab}r-2${tab}"
+if awk -F '\t' '$1 == "usage-hold-rule-conflict" && $2 == "failure" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv"; then
+  ok "the rule-conflict event is classed failure"
+else
+  fail "usage-hold-rule-conflict is not classed failure in config/mc-event-classes.tsv"
+fi
+long_rule="Run to 100% usage with no stops: $(printf 'padding %.0s' $(seq 1 90))"
+mc_run mc-rules.sh add alpha --text "$long_rule" --subject usage-long --source "operator, fixture" --date 2026-01-01
+watch "$((now + 65))"
+expect_out "a long rule still raises the event, its text cut to fit the event limit" "event${tab}usage-hold-rule-conflict${tab}r-3${tab}"
+mc_run mc-rules.sh supersede alpha r-3 --withdraw --source "operator, fixture" --date 2026-01-02
+mc_run mc-rules.sh add alpha --text "The piano stops are tuned, and overrun to 100% is rare." --subject unrelated --source "operator, fixture" --date 2026-01-01
+watch "$((now + 66))"
+expect_no_out "a rule that merely contains the words inside other words is no conflict" "event${tab}usage-hold-rule-conflict${tab}r-4"
+mc_run mc-rules.sh supersede alpha r-4 --withdraw --source "operator, fixture" --date 2026-01-02
+mc_run mc-rules.sh supersede alpha r-2 --withdraw --source "operator, fixture" --date 2026-01-02
+mc_run mc-rules.sh supersede alpha r-1 --withdraw --source "operator, fixture" --date 2026-01-02
+watch "$((now + 64))"
+expect_no_out "once the rule is withdrawn the event stops" "usage-hold-rule-conflict"
 
 # A frame received before the hold began is no fresh reading: with the
 # mirror stale, an older, lower frame for the same window never ends it.

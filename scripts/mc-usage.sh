@@ -72,6 +72,11 @@ budget reads hold-dispatch
 (scripts/mc-budget.sh), and the next units go to the queue instead. It is
 kept in <runtime>/usage/hold, the probe in <runtime>/usage/probe.
 
+A hold at a percent below 100 that a standing rule contradicts (one saying to
+run to 100% usage or that there are no usage stops) raises a
+usage-hold-rule-conflict event, a failure, at every watch for as long as the
+hold lasts, one per such rule.
+
 THE QUEUE is <runtime>/usage/queue/<id>/, one directory per entry holding
 its `entry` record and a copy of its brief, so it survives every session.
 An entry's trigger is the usage-reset event: it drains at the next reset,
@@ -731,6 +736,15 @@ watch() {
       printf 'event\tusage-held\t%s\t%s; queue the next units with mc-usage.sh enqueue\n' "$1" "$text"
     else
       write_hold "$since" || mc_fail "cannot write the usage hold"
+    fi
+    # A usage hold that stops launches below 100% against a standing rule to
+    # run to 100% is a failure on every tick, never a routine hold.
+    if [ "$thr" != off ] && [ "$thr" -lt 100 ] && printf '%s\n' "$CUR" | awk '$1 != "quota" { f = 1 } END { exit !f }'; then
+      mc_usage_stop_rules "$program" | while IFS="$TAB" read -r cf_id cf_text; do
+        [ -n "$cf_id" ] || continue
+        printf 'event\tusage-hold-rule-conflict\t%s\tlaunches are held at %s%% usage but rule %s says: %s; change mission_control_usage_hold or the rule\n' \
+          "$cf_id" "$thr" "$cf_id" "$(sanitize_printable "$cf_text" - | cut -c1-200)"
+      done
     fi
     if [ "$CUR" = "quota - $QUOTA_RESET" ] && mc_valid_uint "$QUOTA_RESET" && [ "$NOW" -ge "$QUOTA_RESET" ]; then
       probe

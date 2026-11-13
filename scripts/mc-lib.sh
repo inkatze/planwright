@@ -436,6 +436,18 @@ mc_unlock() {
   MC_LOCK_TOKEN=""
 }
 
+# mc_usage_stop_rules <program>: one `<id><TAB><text>` per active standing
+# rule that says to run to 100% usage or that there are no usage stops, the
+# rules mission_control_usage_hold must agree with. An unreadable store
+# reads as none; doctor reports that itself.
+mc_usage_stop_rules() {
+  /bin/bash "$script_dir/mc-rules.sh" active "$1" 2>/dev/null | awk -F '\t' '
+    $2 == "active" {
+      low = tolower($6)
+      if (low ~ /(^|[^a-z])(run|runs|running) to 100 ?%/ || low ~ /(^|[^a-z])no ([0-9]+ ?% (or |and |, )?)*(usage )?stops?([^a-z]|$)/) print $1 "\t" $6
+    }'
+}
+
 # mc_knob <key> <parser>: the highest layer's value of <key> that
 # `<parser> <raw>` accepts, printed as the parser prints it. An invalid
 # adopter or machine-local value is warned about and the next lower layer
