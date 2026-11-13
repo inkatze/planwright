@@ -2453,7 +2453,82 @@ guard_sed_inplace() {
   local cwn=${#words[@]}
   guard_sed || return 1
   for a in "${files[@]}"; do
-    sed_script_safe "$a" && ob_path "$a" exists && [ -f "$OB_PATH" ] || return 1
+    # Only a BSD sed reads the first word after a bare `-i` as its suffix, so
+    # the first file as the script; GNU sed takes the suffix attached and the
+    # next word as the script, so a file name is never read as one.
+    case $OSTYPE in
+      linux*) ;;
+      *) sed_script_safe "$a" || return 1 ;;
+    esac
+    ob_path "$a" exists && [ -f "$OB_PATH" ] || return 1
+  done
+  ob_mark write
+}
+
+# perl_subst_safe <program>: a lone `s/RE/REPL/FLAGS` whose text no perl
+# feature can turn into code: delimiter `/`, `|` or `#` that never recurs
+# inside the parts, no escaped delimiter, no braces (code blocks, `\x{..}`,
+# `@{[..]}`), no `(?`, no `@`, no backtick, `$` only before a digit in the
+# replacement or ending the pattern, flags from [gimsx] only (never `e`).
+perl_subst_safe() {
+  local p=$1 d re repl flags rest
+  case $p in
+    s/*) d=/ ;;
+    's|'*) d='|' ;;
+    's#'*) d='#' ;;
+    *) return 1 ;;
+  esac
+  rest=${p#s?}
+  re=${rest%%"$d"*}
+  [ "$re" != "$rest" ] || return 1
+  rest=${rest#*"$d"}
+  repl=${rest%%"$d"*}
+  [ "$repl" != "$rest" ] || return 1
+  flags=${rest#*"$d"}
+  case $flags in
+    *[!gimsx]*) return 1 ;;
+  esac
+  case $re$repl in
+    *[{}@\`]* | *'(?'* | *$'\n'*) return 1 ;;
+  esac
+  case $re$repl in
+    *\\) return 1 ;;
+  esac
+  case $re in
+    *\\"$d"* | *\\) return 1 ;;
+    *'$'*) [[ $re == *'$' && ${re%\$} != *'$'* ]] || return 1 ;;
+  esac
+  case $repl in
+    *\\"$d"* | *\\) return 1 ;;
+  esac
+  local t=$repl
+  while [ "${t#*'$'}" != "$t" ]; do
+    t=${t#*'$'}
+    case $t in
+      [0-9]*) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_perl_inplace: `perl -pi -e <s///> <file>...` (or `-i -pe`), only under
+# the own-branch arm, a bare `-i` (a suffix would back up beside the file),
+# one substitution from perl_subst_safe, and every file an existing regular
+# file ob_path admits.
+guard_perl_inplace() {
+  local i prog n=$cwn
+  ob_live || return 1
+  case "${cw[1]-} ${cw[2]-}" in
+    '-pi -e' | '-i -pe') ;;
+    *) return 1 ;;
+  esac
+  [ "$n" -ge 5 ] || return 1
+  prog=${cw[3]}
+  [ "${cdyn[3]}" = 0 ] && [ "${cglob[3]}" = 0 ] || return 1
+  perl_subst_safe "$prog" || return 1
+  for ((i = 4; i < n; i++)); do
+    ob_path "${cw[i]}" exists && [ -f "$OB_PATH" ] || return 1
   done
   ob_mark write
 }
@@ -3461,7 +3536,16 @@ guard_gh() {
       for ((i = 2; i < cwn; i++)); do
         case ${cw[i]} in
           --) break ;; # end of flags: what follows is the endpoint
-          --method | --method=* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
+          # An explicit GET is the default spelled out. The value must be the
+          # next literal word, so a `-X`/`--method` with anything else (or
+          # nothing) stays a write.
+          --method=GET | -XGET) continue ;;
+          -X | --method)
+            [ "$((i + 1))" -lt "$cwn" ] && [ "${cw[i + 1]}" = GET ] && [ "${cqp[i + 1]}" -lt 0 ] || return 1
+            i=$((i + 1))
+            continue
+            ;;
+          --method=* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
           --input | --input=*) return 1 ;;
           --*) ;;
           # gh uses pflag, which bundles short flags, so a write flag can ride
@@ -3472,6 +3556,13 @@ guard_gh() {
           -?*) short_flag_hit "${cw[i]}" 'XFf' 'Hqpt' && return 1 ;;
         esac
       done
+      return 0
+      ;;
+    search)
+      case $s in
+        code | issues | prs) gh_no_web || return 1 ;;
+        *) return 1 ;;
+      esac
       return 0
       ;;
     auth)
@@ -4708,6 +4799,7 @@ classify_verb() {
     file) guard_file ;;
     find) guard_find ;;
     sed) guard_sed || guard_sed_inplace ;;
+    perl) guard_perl_inplace ;;
     awk) guard_awk ;;
     jq) guard_jq ;;
     markdownlint | markdownlint-cli2) guard_mdlint ;;
@@ -5273,9 +5365,55 @@ strip_nice() {
 # being fish's.
 cd_target_ok() {
   [ "$cwn" -eq 2 ] || return 1
-  own_dir_ok 1 || return 1
-  PENDING_CD=$OWN_DIR
+  if [ "$OUTSIDE_CD" = 0 ] && own_dir_ok 1; then
+    PENDING_CD=$OWN_DIR
+    return 0
+  fi
+  cd_outside_ok 1 || return 1
+  PENDING_OUT=1
   return 0
+}
+
+# cd_outside_ok <word-index>: a `cd` to an existing directory outside the
+# worktree, for the read lines that start `cd /tmp; ...`. The guard does not
+# model the directory it lands in, so every later segment of the command is
+# held to the pure-read verbs (outside_cwd_verb) and to no file redirect: a
+# relative path in a write, a trusted script or a git command would otherwise
+# be judged against a directory the command is no longer in. Top level only,
+# an absolute canonical operand, never under /proc, /sys or /dev.
+cd_outside_ok() {
+  local n=$1 t=${cw[$1]-} canon
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] && [ "${ctl_depth:-1}" -eq 0 ] || return 1
+  word_unresolved "$t" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" && return 1
+  [ "${cz[n]-0}" = 0 ] || return 1
+  case $t in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case $t in
+    *[!A-Za-z0-9._/@%,:+-]*) return 1 ;;
+  esac
+  case /$t/ in
+    */../*) return 1 ;;
+  esac
+  canon=$(cd "$t" 2>/dev/null && pwd -P) || return 1
+  [ "$canon" = "$t" ] || [ "$canon/" = "$t" ] || return 1
+  case $canon in
+    /proc | /proc/* | /sys | /sys/* | /dev | /dev/*) return 1 ;;
+  esac
+  return 0
+}
+
+# outside_cwd_verb <verb>: the verbs a segment may run after a `cd` outside
+# the worktree: readers whose operands never run or write anything.
+outside_cwd_verb() {
+  case $1 in
+    cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | seq | true | false | od | tr | stat | grep | ls | diff) classify_verb "$1" ;;
+    printenv | readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum) classify_verb "$1" ;;
+    sort | uniq | jq | gh | rg | sleep | test | '[' | printf) classify_verb "$1" ;;
+    sed) guard_sed ;;
+    *) return 1 ;;
+  esac
 }
 
 # own_dir_ok <word-index>: the word is an operand naming an existing directory
@@ -5407,8 +5545,9 @@ verify_known_simple() {
     fi
     # The spec-root zone keeps its plain-literal rule: only the policy arms
     # read the expanded target.
-    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" \
-      || ob_redirect "${ro[i]}" "$rtw" || return 1
+    classify_redirect "${ro[i]}" "${rt[i]}" \
+      || { [ "$OUTSIDE_CD" = 0 ] && { spec_zone_redirect "${ro[i]}" "${rt[i]}" || ob_redirect "${ro[i]}" "$rtw"; }; } \
+      || return 1
     environ_redirect_ok "$rtw" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
@@ -5443,6 +5582,12 @@ verify_known_simple() {
   if [ "$verb" = cd ]; then
     cd_target_ok
     return
+  fi
+  if [ "$OUTSIDE_CD" = 1 ]; then
+    [ "$cwn" -ge 1 ] && outside_cwd_verb "$verb" || return 1
+    opens_operands "$verb" && { environ_words_ok || return 1; }
+    subst_words_ok || return 1
+    return 0
   fi
   if opens_operands "$verb"; then
     environ_words_ok || return 1
@@ -5527,7 +5672,17 @@ verify_tokens() {
     PENDING_ASSIGN_O=0
     PENDING_ASSIGN_S=0
     PENDING_CD=''
+    PENDING_OUT=0
     verify_simple || return 1
+    # A `cd` outside the worktree is approved only as a top-level `cd X;`
+    # step: the `&&` chain and every other placement keep deferring.
+    if [ "$PENDING_OUT" = 1 ]; then
+      [ "$ctl_depth" -eq 0 ] || return 1
+      case $seg_open:$close in
+        ':;' | ';:;') OUTSIDE_CD=1 ;;
+        *) return 1 ;;
+      esac
+    fi
     if [ "$cd_live" = 1 ] && [ "$ctl_depth" -eq 0 ]; then
       case $close in
         '&&' | '|' | ctl | end) ;;
@@ -5782,6 +5937,7 @@ analyze_command() {
   local VAR_C=0 LW_N=0
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_ASSIGN_S=0 PENDING_CD='' PREFIXED=0
+  local OUTSIDE_CD=${OUTSIDE_CD:-0} PENDING_OUT=0
   # Under the scratch arm, `$TMPDIR` is the recorded scratch root: the
   # launcher exported it, and assign_name_ok refuses re-pointing it. A
   # `fish -c` string is left to fish's own rules.
