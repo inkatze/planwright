@@ -1,0 +1,144 @@
+---
+name: PR-Agent
+
+# Backup automated reviewer, independent of the Claude agents that write the
+# code: open-source PR-Agent calling a non-Anthropic model through OpenRouter.
+# Review only, posted as inline review comments; no /describe, no /improve.
+#
+# The job runs only for pull requests from this repository (the job-level `if`
+# below is what scripts/check-workflow-posture.sh accepts as the same-repo
+# exception), so a fork PR never reaches the key. Never switch the trigger to
+# pull_request_target.
+#
+# Set the repository secret OPENROUTER_API_KEY to turn it on. Swap the model
+# with the repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS and
+# PR_AGENT_MAX_FINDINGS, no code change needed. A new PR-Agent release is a
+# manual bump of the image digest below.
+
+# The pinned digest and the shell commands run long; keep them whole.
+# yamllint disable rule:line-length
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, review_requested]
+
+permissions: {}
+
+jobs:
+  review:
+    name: PR-Agent
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+      && !contains(github.event.pull_request.labels.*.name, 'skip-pr-agent')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: pr-agent-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      HAS_KEY: ${{ secrets.OPENROUTER_API_KEY != '' }}
+    steps:
+      - name: Skip without an OpenRouter key
+        if: env.HAS_KEY != 'true'
+        run: >-
+          echo "::notice title=PR-Agent skipped::OPENROUTER_API_KEY is not set,
+          so no review ran."
+
+      # Read before the review, so the run marker below names the commit this
+      # run started from even when a push lands while it runs.
+      - name: Resolve the head under review
+        id: head
+        if: env.HAS_KEY == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        # A failed lookup must not stop the review, only the marker, and must
+        # say so. On an API error gh still prints the error body to stdout, so
+        # check the value's shape too, never just the exit status.
+        run: |
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .head.sha)" || sha=""
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            sha=""
+            echo "::warning title=PR-Agent run marker skipped::Could not read the PR's head commit," \
+              "so this run writes no run marker."
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The action's runtime image, pinned by digest: pragent/pr-agent:0.49.0-github_action.
+      # Dependabot does not update docker:// references; bump this by hand.
+      - name: Review
+        id: review
+        if: env.HAS_KEY == 'true'
+        uses: docker://pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c
+        # AI_TIMEOUT below is a per-read inactivity limit, not a total
+        # deadline, so a hung call plus replays can outlast the job. This step
+        # limit is the hard bound: it fails the step (the run marker still
+        # posts, with the failure status) instead of the job limit reporting
+        # "cancelled" with nothing posted.
+        timeout-minutes: 10
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+          CONFIG.MODEL: ${{ vars.PR_AGENT_MODEL || 'openrouter/moonshotai/kimi-k2.7-code' }}
+          # Tried in order; a second vendor family keeps one provider's outage
+          # from failing the review.
+          CONFIG.FALLBACK_MODELS: >-
+            ${{ vars.PR_AGENT_FALLBACK_MODELS
+            || '["openrouter/deepseek/deepseek-v4-pro-0813", "openrouter/google/gemini-3.8-flash"]' }}
+          # OpenRouter models litellm does not know need a context size; this
+          # is the smaller default's window. MAX_MODEL_TOKENS is the real cost
+          # cap: a diff over it is clipped, never billed in full.
+          CONFIG.CUSTOM_MODEL_MAX_TOKENS: "262144"
+          CONFIG.MAX_MODEL_TOKENS: "64000"
+          CONFIG.LARGE_PATCH_POLICY: clip
+          OPENROUTER.MAX_TOKENS: "16000"
+          # No replay on the model that just missed the limit: a replay lets
+          # the primary and fallback models spend several times the per-call
+          # limit.
+          CONFIG.AI_TIMEOUT: "90"
+          CONFIG.RETRY_SAME_MODEL_ON_TIMEOUT: "false"
+          CONFIG.LOG_LEVEL: INFO
+          CONFIG.REPO_CONTEXT_FILES: '[["AGENTS.md", "CLAUDE.md"]]'
+
+          GITHUB_ACTION_CONFIG.AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG.AUTO_IMPROVE: "false"
+          # The action's default leaves out synchronize, so it would skip every
+          # push after the PR opens. Keep this list equal to the trigger types
+          # above; scripts/check-workflow-posture.sh enforces it.
+          GITHUB_ACTION_CONFIG.PR_ACTIONS: '["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
+          GITHUB_ACTION_CONFIG.HANDLE_PUSH_TRIGGER: "true"
+          GITHUB_ACTION_CONFIG.PUSH_COMMANDS: '["/review -i"]'
+
+          PR_REVIEWER.INLINE_KEY_ISSUES: "true"
+          PR_REVIEWER.NUM_MAX_FINDINGS: ${{ vars.PR_AGENT_MAX_FINDINGS || '10' }}
+          PR_REVIEWER.ENABLE_REVIEW_LABELS_SECURITY: "false"
+          PR_REVIEWER.ENABLE_REVIEW_LABELS_EFFORT: "false"
+
+      # One comment per PR, edited in place on every run, for /bot-review:
+      # PR-Agent names the reviewed commit only when a full review edits its
+      # summary, and posts nothing when an automatic run fails. /bot-review's
+      # pr_agent_* regexes match the marker line; change them together.
+      - name: Record the run for /bot-review
+        if: ${{ !cancelled() && env.HAS_KEY == 'true' && steps.head.outputs.sha != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+          STATUS: ${{ steps.review.outcome }}
+        run: |
+          marker="<!-- pr-agent-run: id=$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT head=$HEAD_SHA status=$STATUS -->"
+          body="$marker"$'\n'"PR-Agent run $GITHUB_RUN_ID reviewed \`${HEAD_SHA:0:12}\`: $STATUS."
+          mine='.[] | select(.user.login == "github-actions[bot]"
+            and (.body | startswith("<!-- pr-agent-run: "))) | .id'
+          id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments?per_page=100" --jq "$mine" | tail -1)"
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body" >/dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$body" >/dev/null
+          fi

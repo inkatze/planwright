@@ -137,6 +137,23 @@
 # logic is deterministic shell over local git state and one fetch.
 set -u
 
+# LC_ALL=C below is for this script's own parsing only: git hooks run under the
+# caller's locale (C.UTF-8 when it sets none), since a C locale breaks UTF-8
+# file names in the hooked tools.
+if [ -n "${LC_ALL:-}" ]; then
+  hook_lc_all=$LC_ALL
+elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
+  hook_lc_all=
+else
+  hook_lc_all=C.UTF-8
+fi
+hook_git() {
+  if [ -n "$hook_lc_all" ]; then
+    env LC_ALL="$hook_lc_all" git "$@"
+  else
+    env -u LC_ALL git "$@"
+  fi
+}
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -441,7 +458,7 @@ EOF
     rm -f "$msg" "$stamped"
     die 12 resolution-failed "the sign-off trailer could not be stamped; the merge is still in progress"
   fi
-  if ! commit_err=$(git -C "$repo" commit -q -F "$stamped" 2>&1 >/dev/null); then
+  if ! commit_err=$(hook_git -C "$repo" commit -q -F "$stamped" 2>&1 >/dev/null); then
     rm -f "$msg" "$stamped"
     die 12 resolution-failed "git commit refused the resolution, and the merge is still in progress: $(printf '%s' "$commit_err" | tr '\n' ' ' | scrub)"
   fi
@@ -673,7 +690,7 @@ fi
 # `-c merge.ff=true` pins the default at the call site: an ambient
 # `merge.ff=only` would otherwise refuse every real merge, and `merge.ff=false`
 # would manufacture a merge commit for a fast-forward that needs none.
-merge_err=$(git -C "$repo" -c merge.ff=true merge --no-edit FETCH_HEAD 2>&1 >/dev/null) || {
+merge_err=$(hook_git -C "$repo" -c merge.ff=true merge --no-edit FETCH_HEAD 2>&1 >/dev/null) || {
   # `diff --diff-filter=U`, not `ls-files --unmerged`: it prints one path per
   # line already deduplicated across the three stages, so a path containing a
   # space survives into the message intact instead of being cut at the first

@@ -61,11 +61,15 @@ usage:
   mission-control-launch.sh launch --program <p> --kind <kind> --scope <s>
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
-      [--remote-control <name>]
+      [--remote-control <name>] [--model <alias>] [--effort <level>]
+      [--reserved] [--keep-config-env]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh reparent <name> --program <dest>
       (--authority <decisions-log id> | --undo)
+  mission-control-launch.sh wait <name> --on operator|ci|ready-flip
+  mission-control-launch.sh unwait <name>
+  mission-control-launch.sh bound
   mission-control-launch.sh list
   mission-control-launch.sh kinds
 
@@ -79,6 +83,29 @@ stderr naming the knob. A mission-control launch with no --brief opens on
 one, in a tmux window. `--remote-control <name>` (mission-control only)
 starts that window with Remote Control under the name; the stream-json
 rung has no terminal to attach it to, so it drops the flag with a warning.
+A stream-json mission-control launch also records the session as a wake
+target (scripts/mc-wake.sh target add) and retire removes it, so the
+runner's wakes reach a session that loads no mod.
+
+--model and --effort set this one launch's model and effort in place of its
+kind's tier; --reserved exempts it from the usage clamps. They write no
+knob or overlay and change no other launch. A value outside the allocation
+seam's rosters (haiku sonnet opus fable; low medium high) is refused before
+anything starts, and so are the flags on the tmux rung, whose tier
+offload-dispatch resolves. The choice is recorded in the row's tier field,
+in a `reserved` row field, in the allocation ledger (override-model=,
+override-effort=, reserved=) and in the worker's state for a relaunch, and
+`list` shows it. A tier the usage clamps lower is never silent: an ordinary
+launch prints a `tier-note` line saying what it was lowered from and why,
+and a --model or --effort the clamps would lower is refused, naming
+--reserved. The launcher's environment overlays (PLANWRIGHT_LOCAL_CONFIG,
+PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY and
+PLANWRIGHT_CONFIG_STRICT_OVERLAYS) steer its own tier resolution but are not
+handed to the session, which would otherwise keep a one-launch overlay for its
+whole life; --keep-config-env hands them on, on purpose. This is the
+stream-json rung's session: a tmux window starts from the tmux server's
+environment, never the launcher's. A --model or --effort on a kind whose tier
+is inherited (tower, mission-control, reviewer, ad-hoc) names both.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the
@@ -97,9 +124,13 @@ is refused.
 
 Every kind but mission-control is also held by the host-wide bound,
 fleet_host_max_live_workers: the live sessions of every program in the
-shared registry, mission-control sessions left out. The refusal names each
-program and how many it holds; --operator-asked goes past it, recorded
-first as a host-cap-bypass event.
+shared registry, mission-control sessions left out. A session whose only
+remaining step is a wait (parked on the operator, or with only CI or a ready
+flip outstanding) marks itself with `wait <name> --on operator|ci|ready-flip`
+and holds no slot until `unwait <name>`; `bound` prints the limit, the
+working count and the waiting count. The refusal names each program and how
+many working sessions it holds, and how many waiting ones went uncounted;
+--operator-asked goes past it, recorded first as a host-cap-bypass event.
 
 A kind that changes a repository (worker, reviewer, ad-hoc) starts in its
 own worktree, never a primary checkout. With no --cwd, the dispatch
@@ -144,14 +175,18 @@ reversal of one entry. Its exit codes are listed after the others, below.
 
 Output, tab separated:
   launch   launch <field> <value> for name, kind, program, owner, scope,
-           backend, profile, tier, brief, cwd
+           backend, profile, tier, brief, cwd, and a tier-note where the
+           clamps lowered the tier
   reparent reparent <name> moved <source> <dest> undo=<undo id>, with
            unrecorded=<undo,event-<program>> when the move landed but a
            record did not (exit 1)
   name     the name alone
   retire   retire <name> released|partial released=<classes> held=<classes>,
            over the classes process, pane, registry, attention and row
+  wait     wait <name> waiting <reason> (unwait: wait <name> working)
+  bound    bound <limit or off> <working count> <waiting count>
   list     <name> <program> <kind> <scope> <backend> <launched epoch>
+           <tier> <reserved|->
   kinds    <kind> <profile> <allocation key>
 
 A launch reserves the name with a complete row (backend, launcher pid and a
@@ -183,7 +218,8 @@ unresolvable rung knob with no --backend, no resolvable tier (an
 unreachable allocation store or a malformed tier knob), the admission gate
 withholding it, the usage hold (or one that cannot be read), an
 operator-asked launch past it whose bypass cannot be recorded, a broken
-allocation install, a program that is not configured, rules that would not
+allocation install, a --model or --effort the usage clamps would lower
+(--reserved goes past them), a program that is not configured, rules that would not
 render, a worktree that could not be created, a named directory that is not
 a worktree other than a primary checkout, a worktree path holding a control
 character, or any other refusal by the rung.
@@ -193,6 +229,11 @@ could not be recorded (the output's unrecorded field names which); 2 usage,
 an invalid value, --undo with --authority, no --authority, or a row it
 cannot read or rewrite; 3 no row of that name, or another launch or retire
 of it holds its lock; 4 any other refusal.
+
+wait and unwait exit 0 done; 2 usage or a row they cannot rewrite; 3 no row of
+that name, or a launch or retire of it holds its lock; 4 a mission-control
+session or one whose launch is not complete. bound exits 0 printed; 2 usage;
+4 fleet_host_max_live_workers cannot be resolved to a number or off.
 EOF
 }
 
@@ -384,6 +425,7 @@ row_write() {
     printf 'handle\t%s\n' "$handle"
     printf 'profile\t%s\n' "$profile"
     printf 'tier\t%s\n' "$tier"
+    printf 'reserved\t%s\n' "$([ "${ovr_reserved:-0}" = 1 ] && echo yes || echo -)"
     printf 'brief\t%s\n' "$composed"
     printf 'cwd\t%s\n' "${cwd:--}"
     printf 'task\t%s\n' "${task:--}"
@@ -714,6 +756,14 @@ before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through pos
 Close every gap it names first. Mission control's readiness check runs the
 same audit and refuses a PR with a gap. The PR body carries the rendered
 records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
+
+While the only thing left is a wait (an operator question, or CI or a ready
+flip outstanding), run \`$cs_root/scripts/mission-control-launch.sh wait $1 --on <why>\`,
+with \`<why>\` being operator, ci or ready-flip, so the host session bound does not
+count you, and run \`$cs_root/scripts/mission-control-launch.sh unwait $1\`
+before working again. Exit 3 can mean the name is
+locked for a moment: run it again a few times; a 3 that persists means the
+name is wrong.
 EOF
 }
 
@@ -749,6 +799,20 @@ abs_dir() {
   printf '%s\n' "$ad_dir"
 }
 
+# valid_alloc_value <model|effort> <value>: 0 when the allocation seam's
+# roster holds the value (allocation-ladder.sh owns the rosters).
+valid_alloc_value() {
+  [ -n "$2" ] || return 1
+  (
+    # shellcheck source=scripts/allocation-ladder.sh
+    . "$script_dir/allocation-ladder.sh" || exit 1
+    case $1 in
+      model) alloc_model_rank "$2" ;;
+      *) alloc_effort_rank "$2" ;;
+    esac
+  ) >/dev/null 2>&1
+}
+
 # posture_gate <command...> — run a posture check; die on anything but a pass.
 posture_gate() {
   pg_out=$("$@" </dev/null 2>&1)
@@ -763,7 +827,7 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
-  remote_control='' rc_given=0
+  remote_control='' rc_given=0 ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -795,6 +859,26 @@ cmd_launch() {
       --operator-asked)
         operator_asked=1
         shift
+        ;;
+      --reserved)
+        ovr_reserved=1
+        shift
+        ;;
+      --keep-config-env)
+        keep_env=1
+        shift
+        ;;
+      --model | --effort)
+        [ "$#" -ge 2 ] || usage
+        # The allocation seam's own rosters decide, so this never drifts.
+        if [ "$1" = --model ]; then
+          valid_alloc_value model "$2" || die "refusing --model '$(sanitize_printable "$2")': not one of haiku sonnet opus fable"
+          ovr_model=$2
+        else
+          valid_alloc_value effort "$2" || die "refusing --effort '$(sanitize_printable "$2")': not one of low medium high"
+          ovr_effort=$2
+        fi
+        shift 2
         ;;
       *) usage ;;
     esac
@@ -899,6 +983,9 @@ cmd_launch() {
   fi
 
   resolve_backend
+  if [ "$backend" = tmux ] && { [ -n "$ovr_model" ] || [ -n "$ovr_effort" ] || [ "$ovr_reserved" = 1 ]; }; then
+    die "refusing to launch $name: --model, --effort and --reserved apply to the stream-json rung only; the tmux rung resolves its tier in offload-dispatch" 2
+  fi
   if [ -n "$remote_control" ] && [ "$backend" != tmux ]; then
     printf '%s\n' "$me: warning: --remote-control is for the tmux rung; the $backend session starts without Remote Control" >&2
     remote_control=''
@@ -913,6 +1000,7 @@ cmd_launch() {
   composed="$ldir/brief.md"
   launched=$(date +%s)
   tier=-
+  tier_note=''
   # A stream-json session is found by its name; a tmux one by the window id
   # the rung reports.
   handle=-
@@ -976,9 +1064,10 @@ cmd_launch() {
     if [ "$hc_limit" != off ]; then
       hc_held=$(host_live_counts "$name" "$launched")
       hc_total=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $2 } END { print n + 0 }')
+      hc_idle=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $3 } END { print n + 0 }')
       if [ "$hc_total" -ge "$hc_limit" ]; then
-        hc_who=$(printf '%s\n' "$hc_held" | awk -F '\t' 'NF { printf "%s%s %s", (c++ ? ", " : ""), $1, $2 }')
-        hc_why="this host already runs $hc_total live sessions across programs (${hc_who:-none}), at the host-wide bound of $hc_limit (fleet_host_max_live_workers)"
+        hc_who=$(printf '%s\n' "$hc_held" | awk -F '\t' '$2 > 0 { printf "%s%s %s", (c++ ? ", " : ""), $1, $2 }')
+        hc_why="this host already runs $hc_total working sessions across programs (${hc_who:-none}), at the host-wide bound of $hc_limit (fleet_host_max_live_workers); $hc_idle waiting sessions are not counted"
         if [ "$operator_asked" -eq 1 ]; then
           /bin/bash "$script_dir/mc-event.sh" emit --program "$program" -- host-cap-bypass "$name" \
             "allowed past the host-wide bound because the operator asked ($hc_why)" </dev/null >/dev/null 2>&1 \
@@ -1032,6 +1121,13 @@ cmd_launch() {
   # its own at the kind's key, and --strict-tier stops it from launching at
   # the ambient tier when the allocation store is unreachable.
   unit="mission-control:$name"
+  # The per-call overlay variables the knob resolver honors steer this
+  # launcher's own tier resolution; the stream-json session must not keep one
+  # for its whole life, so they are not handed on unless the caller asked.
+  # Location variables (PLANWRIGHT_REPO_ROOT, CLAUDE_PLUGIN_ROOT/DATA) say
+  # where config lives, not what it says, and are left alone.
+  scrub='-u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS'
+  [ "$keep_env" != 1 ] || scrub=''
   # The row's token goes into the session, so a decided-by-mission-control
   # item it adds is bound to this row rather than to a name any caller can
   # type (tower-comms REQ-A1.14). It is handed to the rung as an explicit
@@ -1042,10 +1138,20 @@ cmd_launch() {
   # from PLANWRIGHT_TOWER_ID, and keeps it out of the session's environment.
   case $backend in
     stream-json)
-      plan=$(cd "$cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" </dev/null)
+      set --
+      [ -z "$ovr_model" ] || set -- "$@" --model "$ovr_model"
+      [ -z "$ovr_effort" ] || set -- "$@" --effort "$ovr_effort"
+      [ "$ovr_reserved" != 1 ] || set -- "$@" --reserved
+      plan=$(cd "$cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$K_KEY" --backend stream-json-persistent --unit "$unit" "$@" </dev/null)
       pr=$?
       case $pr in
         0) ;;
+        2)
+          if [ -n "$ovr_model$ovr_effort" ]; then
+            refuse "refusing to launch $name: the allocation seam refused the tier override (allocation-apply exit 2, see above)" 4
+          fi
+          refuse "refusing to launch $name: no launch tier resolves at the $K_KEY key (allocation-apply exit $pr)" 4
+          ;;
         3) refuse "refusing to launch $name: the admission gate withholds it (allocation-apply exit 3)" 4 ;;
         5) refuse "refusing to launch $name: the allocation seam is a broken install (allocation-apply exit 5)" 4 ;;
         *) refuse "refusing to launch $name: no launch tier resolves at the $K_KEY key (allocation-apply exit $pr)" 4 ;;
@@ -1055,15 +1161,32 @@ cmd_launch() {
       if [ -z "$model" ] || [ -z "$effort" ]; then
         refuse "refusing to launch $name: the tier plan carries no model or effort row (broken install)" 4
       fi
+      plan_field() { printf '%s\n' "$plan" | awk -F '\t' -v k="$1" '$1 == k { print $2; exit }'; }
+      # A tier the caller asked for is applied or refused, never lowered quietly.
+      if [ -n "$ovr_model" ] && [ "$model" != "$ovr_model" ]; then
+        refuse "refusing to launch $name: --model $ovr_model would run at $model, not as asked (rung $(plan_field rung)); --reserved exempts a unit from the usage clamps" 4
+      fi
+      if [ -n "$ovr_effort" ] && [ "$effort" != "$ovr_effort" ]; then
+        refuse "refusing to launch $name: --effort $ovr_effort would run at $effort, not as asked (rung $(plan_field rung)); --reserved exempts a unit from the usage clamps" 4
+      fi
+      pm=$(plan_field proposed_model)
+      pe=$(plan_field proposed_effort)
+      if [ -n "$pm" ] && [ -n "$pe" ] && [ "$pm/$pe" != "$model/$effort" ]; then
+        tier_note="lowered from $pm/$pe to $model/$effort by the $(plan_field rung) rung's usage clamps"
+      fi
       set -- launch "$name" "$scope" --prompt-file "$composed" --profile "$K_PROFILE" --cwd "$cwd" \
         --tier-key "$K_KEY" --tier-unit "$unit"
+      [ -z "$ovr_model" ] || set -- "$@" --tier-model "$ovr_model"
+      [ -z "$ovr_effort" ] || set -- "$@" --tier-effort "$ovr_effort"
+      [ "$ovr_reserved" != 1 ] || set -- "$@" --tier-reserved
       [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
       sr=0
-      PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
+      # shellcheck disable=SC2086 # $scrub is a word list of -u NAME pairs
+      PLANWRIGHT_TOWER_ID=$owner env $scrub /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
       case $sr in
         0) ;;
         3)
@@ -1117,6 +1240,12 @@ cmd_launch() {
     fi
     die "$name started but its registry row could not be completed and it could not be stopped; retire it by name" 1
   fi
+  # A headless mission control loads no mod to claim a wake target, so the
+  # launch records one: without it the runner's wake never reaches it.
+  if [ "$kind" = mission-control ] && [ "$backend" = stream-json ]; then
+    /bin/bash "$script_dir/mc-wake.sh" target add --program "$program" "$name" >/dev/null </dev/null \
+      || printf '%s\n' "$me: warning: the wake target for $name was not recorded; the runner's wakes will not reach it (scripts/mc-wake.sh target add --program $program $name)" >&2
+  fi
   report() { printf 'launch\t%s\t%s\n' "$1" "$(sanitize_printable "$2")"; }
   report name "$name"
   report kind "$kind"
@@ -1126,6 +1255,7 @@ cmd_launch() {
   report backend "$backend"
   report profile "$profile"
   report tier "$tier"
+  [ -z "$tier_note" ] || report tier-note "$tier_note"
   report brief "$composed"
   report cwd "$cwd"
 }
@@ -1341,6 +1471,10 @@ cmd_retire() {
       marker_cmd clear "$r_primary" "$r_task" \
         || printf '%s\n' "$me: the dispatch marker for $r_task was not cleared; the unit may read as in flight" >&2
     fi
+    if [ "$(row_get "$row" kind)" = mission-control ] && [ "$backend" = stream-json ]; then
+      /bin/bash "$script_dir/mc-wake.sh" target remove --program "$(row_get "$row" program)" "$name" >/dev/null </dev/null \
+        || printf '%s\n' "$me: the wake target for $name was not removed" >&2
+    fi
     rm -rf "${LAUNCHES:?}/$name"
     if [ -e "$LAUNCHES/$name" ]; then
       add_held row
@@ -1489,8 +1623,9 @@ $rp_dest
   printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id"
 }
 
-# host_live_counts <own-name> <own-launched> — one "<program><TAB><count>"
-# line per program holding registered non-mission-control sessions in the
+# host_live_counts <own-name> <own-launched> — one
+# "<program><TAB><working><TAB><waiting>" line per program holding
+# registered non-mission-control sessions in the
 # shared registry that reserved before the named session (its own row and
 # later reservations left out). A remote host's sessions sit in that
 # host's registry (scripts/fleet-remote.sh), so they are never counted here.
@@ -1508,10 +1643,77 @@ host_live_counts() {
     case $hl_at in '' | *[!0-9]*) hl_at=0 ;; esac
     if [ "$hl_at" -gt "$hl_when" ] || { [ "$hl_at" -eq "$hl_when" ] && expr "x${f##*/}" \> "x$hl_own" >/dev/null; }; then continue; fi
     [ "$(row_get "$f" kind)" != mission-control ] || continue
-    hl_rows="$hl_rows$(row_get "$f" program)
+    hl_p=$(row_get "$f" program)
+    [ -n "$hl_p" ] || continue
+    hl_w=w
+    [ -z "$(row_get "$f" waiting)" ] || hl_w=z
+    hl_rows="$hl_rows$hl_p $hl_w
 "
   done
-  printf '%s' "$hl_rows" | awk 'NF { c[$1]++ } END { for (p in c) printf "%s\t%d\n", p, c[p] }' | sort
+  printf '%s' "$hl_rows" | awk 'NF { if ($2 == "w") w[$1]++; else z[$1]++; p[$1] = 1 }
+    END { for (k in p) printf "%s\t%d\t%d\n", k, w[k] + 0, z[k] + 0 }' | sort
+}
+
+# row_set_waiting <row> <reason> — rewrite a registry row with its waiting
+# field set to <reason>, or with none when <reason> is empty.
+row_set_waiting() {
+  rs_tmp="$1.tmp.$$"
+  if ! (umask 077 && awk -F '\t' -v r="$2" '
+    $1 == "waiting" { next }
+    { print }
+    END { if (r != "") print "waiting\t" r }' "$1" >"$rs_tmp") 2>/dev/null \
+    || ! mv -f -- "$rs_tmp" "$1" 2>/dev/null; then
+    rm -f "$rs_tmp"
+    return 1
+  fi
+}
+
+# wait_target <name> — lock and check the row of a session that may be marked
+# waiting or working: a registered, launched session that is not a mission
+# control; sets wt_row.
+wait_target() {
+  valid_name "$1" || die "refusing the session name '$(sanitize_printable "$1")'"
+  fleet_home
+  wt_row="$REG/$1"
+  [ ! -L "$wt_row" ] || die "refusing the registry row for $1: a symbolic link"
+  [ -f "$wt_row" ] || die "no registered session is named $1" 3
+  name_lock "$1"
+  [ -f "$wt_row" ] || die "no registered session is named $1" 3
+  row_check "$wt_row"
+  [ "$(row_get "$wt_row" kind)" != mission-control ] \
+    || die "refusing $1: a mission-control session is never counted by the host-wide bound, so it is never marked waiting" 4
+  [ "$(row_get "$wt_row" state)" = launched ] \
+    || die "refusing $1: its launch is not complete (state $(sanitize_printable "$(row_get "$wt_row" state)"))" 4
+}
+
+cmd_wait() {
+  [ "$#" -eq 3 ] && [ "$2" = --on ] || usage
+  case $3 in operator | ci | ready-flip) ;; *) usage ;; esac
+  wait_target "$1"
+  row_set_waiting "$wt_row" "$3" || die "cannot rewrite the registry row for $1; nothing changed" 2
+  name_unlock
+  printf 'wait\t%s\twaiting\t%s\n' "$1" "$3"
+}
+
+cmd_unwait() {
+  [ "$#" -eq 1 ] || usage
+  wait_target "$1"
+  row_set_waiting "$wt_row" '' || die "cannot rewrite the registry row for $1; nothing changed" 2
+  name_unlock
+  printf 'wait\t%s\tworking\n' "$1"
+}
+
+# bound — the host-wide bound against every counted session: how many slots
+# work holds, how many sessions only wait (and so hold none).
+cmd_bound() {
+  [ "$#" -eq 0 ] || usage
+  fleet_home
+  bd_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
+    || die "fleet_host_max_live_workers cannot be resolved to a number or off" 4
+  bd_held=$(host_live_counts mc-zzz-zzz-9999999999 99999999999)
+  bd_w=$(printf '%s\n' "$bd_held" | awk -F '\t' '{ n += $2 } END { print n + 0 }')
+  bd_z=$(printf '%s\n' "$bd_held" | awk -F '\t' '{ n += $3 } END { print n + 0 }')
+  printf 'bound\t%s\t%s\t%s\n' "$bd_limit" "$bd_w" "$bd_z"
 }
 
 cmd_list() {
@@ -1530,8 +1732,11 @@ cmd_list() {
       printf '%s\n' "$me: skipping the registry row $(sanitize_printable "${f##*/}"): its format field is not $FORMAT" >&2
       continue
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${f##*/}" "$(row_get "$f" program)" "$(row_get "$f" kind)" \
-      "$(row_get "$f" scope)" "$(row_get "$f" backend)" "$(row_get "$f" launched)"
+    l_tier=$(row_get "$f" tier)
+    l_reserved=$(row_get "$f" reserved)
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${f##*/}" "$(row_get "$f" program)" "$(row_get "$f" kind)" \
+      "$(row_get "$f" scope)" "$(row_get "$f" backend)" "$(row_get "$f" launched)" \
+      "${l_tier:--}" "${l_reserved:--}"
   done
 }
 
@@ -1552,6 +1757,9 @@ case $verb in
   name) cmd_name "$@" ;;
   retire) cmd_retire "$@" ;;
   reparent) cmd_reparent "$@" ;;
+  wait) cmd_wait "$@" ;;
+  unwait) cmd_unwait "$@" ;;
+  bound) cmd_bound "$@" ;;
   list) cmd_list "$@" ;;
   kinds) cmd_kinds "$@" ;;
   *) usage ;;

@@ -277,7 +277,7 @@ sed 1d "$tmp/dialog.txt" >"$tmp/norule.txt"
 esc scan --program alpha --now $((T0 + 2300)) --pane "$tmp/norule.txt"
 esc scan --program alpha --now $((T0 + 3200)) --pane "$tmp/norule.txt"
 expect_out "a dialog with no opening rule held one window goes to the hub" "escalated${tab}hub${tab}alpha"
-last=$(hub_events | tail -n 1)
+last=$(hub_events | grep -F "cannot bind this dialog" | tail -n 1)
 case $last in
   *mc-pane-answer.sh*) fail "the unbindable dialog's escalation names the relay: '$last'" ;;
   *"answers it at its pane"*) ok "the hub is told to have a dialog the relay cannot bind answered at its pane" ;;
@@ -382,7 +382,7 @@ rm -f "$fleet/mission-control/alpha/escalate/self"
 esc scan --program alpha --now $((T0 + 100)) --pane "$tmp/menu-rule.txt"
 esc scan --program alpha --now $((T0 + 1000)) --pane "$tmp/menu-rule.txt"
 expect_out "a menu held one window goes to the hub" "escalated${tab}hub${tab}alpha"
-last=$(hub_events | tail -n 1)
+last=$(hub_events | grep -F "offers this dialog no option" | tail -n 1)
 case $last in
   *mc-pane-answer.sh*) fail "a menu the relay offers no option escalates with the relay: '$last'" ;;
   *"offers this dialog no option"*) ok "the hub is told to have a menu with no relayable option answered at its pane" ;;

@@ -141,7 +141,12 @@ Every step receives exactly these twelve fields:
 Among steps, a pooled step alone also carries the **hold mark**
 `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`, the slot owner's literal process id
 as `<pid>`, rendered as one optional trailing assignment after the twelve; a
-pooled full suite gets it too (*Expensive checks*).
+pooled full suite gets it too (*Expensive checks*). Any other
+`PLANWRIGHT_STEP_*` name in the runner's environment is a misspelling that
+would be dropped unread: `resolve-steps.sh --check-env` names it and its
+right spelling. `step-run.sh` refuses it for every verb but `resolve`, and
+`step-record.sh` for `new-run`, `write`, `regenerate`, and `status`; the
+other verbs of either warn.
 
 Two channels deliver the context. A **command step** gets the twelve
 variables, and a pooled step its hold mark, in its environment,
@@ -168,6 +173,14 @@ values to a command step.
 
 **Every hosting runs a command step's printed location, never the bare
 target**: a session shell would run a same-named builtin (`cd`, `printf`).
+
+An `isolated` session takes the unit's own launch backend. A headless unit
+(`offload-dispatch.sh launch-backend` prints `stream-json-persistent` or
+`headless-oneshot`) never hosts it in a `tmux` window in the operator's session
+(`offload-dispatch` refuses it). It launches the step through
+`scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`
+(which `offload-dispatch` does not drive) or runs it `in-session`, recorded as
+such. The step record names the backend the step actually ran on.
 
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step attaches to the unit's
@@ -309,7 +322,8 @@ calls whose seconds are summed); the owner releases after the check ends,
 whatever its exit. An unreleased slot is reclaimed once its owner exits, and a
 timeout never releases one while the check process lives. Capacity is
 `step_pool_capacity_<pool>` (hyphens as underscores), else
-`step_pool_capacity`; the wait, bounded by `step_pool_wait`, reports at its
+`step_pool_capacity` (the shipped `heavy-run` pool derives its own, below); the
+wait, bounded by `step_pool_wait`, reports at its
 start each live holder (pid, step id or full-suite marker, worktree) and
 admits unordered, and past the bound the step is `failed` naming the holders.
 A pool directory that is a symbolic link or not the user's, or a lock-library
@@ -322,6 +336,19 @@ holding a slot of it runs inside that hold, taking no slot and printing no
 warning, its release a successful no-op; a mark naming another pool or a dead
 owner, or failing the pool charset or a decimal pid, is ignored, and a
 same-owner take without a mark waits like any caller.
+
+**The shipped heavy pool.** `full_suite_pool` defaults to `heavy-run`, so every
+full local suite run holds a slot unless a layer sets the reserved value `none`
+or an empty value, either running the suite unpooled with no warning; `none` is
+never a pool name a declared step may use, and a step naming `heavy-run` shares
+the pool. A lone run on an idle host takes a slot with no wait. The pool's
+capacity is `step_pool_capacity_heavy_run` when set in any layer (the adopter
+layer reaches workers in worktrees), else one
+slot per 8 logical cores and per 16 GiB of total memory, whichever is fewer, at
+least 1, a host that cannot be read deriving 1 with one warning;
+`step_pool_capacity` never applies to it. The pool is independent of the
+per-file ticket pool a suite's test files run through, and a gate reaching
+`heavy-run` inside its own hold runs inside it under the mark (D-33, D-34).
 
 **The full suite.** When `full_suite_pool` names a pool, each full local suite
 attempt `/execute-task` makes, retries included, holds a slot of it, its owner
