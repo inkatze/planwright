@@ -27,11 +27,16 @@ done
 . "$script_dir/lock-lib.sh" || exit 2
 
 FORMAT=1
+# The follow-up ledger's row format is its own: format 2 adds the
+# done-condition and the acknowledgement; a format-1 ledger still reads,
+# every row as having no done-condition, and is rewritten on the next write.
+FU_FORMAT=2
 claude_dir=${CLAUDE_DIR:-$HOME/.claude}
 LOGS="decisions undo would-have locks"
 STORES="index.md followups.tsv sources.tsv mechanisms.tsv proposals.tsv"
 tab=$(printf '\t')
 MECH_HEADER="# kind${tab}mechanism${tab}where${tab}source"
+FU_HEADER="# id${tab}opened${tab}owner${tab}trigger${tab}state${tab}text${tab}evidence${tab}closed${tab}done${tab}acked${tab}next"
 PROP_HEADER="# id${tab}opened${tab}pattern${tab}shape${tab}subject${tab}target${tab}evidence${tab}kind${tab}mechanism${tab}where${tab}source${tab}change${tab}cadence${tab}intervene${tab}cost${tab}off${tab}state${tab}trigger${tab}closed"
 scratch=''
 TMP=''
@@ -71,8 +76,16 @@ Layout, under <home>/kb/:
                    `-`; the locks log records each dead holder's lock
                    released, under the locked file's kb/ path
   followups.tsv    id<TAB>opened<TAB>owner<TAB>trigger<TAB>state<TAB>text
-                   <TAB>evidence<TAB>closed; a trigger is date:<YYYY-MM-DD>
-                   or event:<name>
+                   <TAB>evidence<TAB>closed<TAB>done<TAB>acked<TAB>next
+                   (format 2); a trigger is date:<YYYY-MM-DD> or
+                   event:<class>, a done-condition is operator (the
+                   operator's own confirmation), date:<YYYY-MM-DD>,
+                   event:<class>, pr:<owner>/<repo>#<n> or
+                   cmd:<absolute path> [words] (a command whose exit status
+                   0 says done, run as words through exec, never a shell);
+                   `-` is none, which a format-1 row reads as; acked and
+                   next are when the item was acknowledged and what will
+                   be done next, `-` while it has not been
   sources.tsv      name<TAB>kind<TAB>watermark<TAB>ref; kind living (the
                    watermark is the epoch second it was last refreshed) or
                    consumed (the watermark is how far it was consumed, in
@@ -140,9 +153,31 @@ Usage (every verb takes --program <name> before its own options):
                                     (default the caller), printing the
                                     token; never a locks segment
   unlock <path> --token <token>     release it
-  followup add --owner <o> --trigger <t> --text <text>
+  followup add --owner <o> --trigger <t> --done <d> --text <text>
+         [--fallback-date <YYYY-MM-DD>]
+                                    add an item and print its id; refused
+                                    with no done-condition, and with an
+                                    event class nothing emits (the classes
+                                    of config/mc-event-classes.tsv, the
+                                    duty catalog's triggers and wake events
+                                    and the kinds the event store holds,
+                                    all named in the refusal) unless a
+                                    fallback date is given, which stores a
+                                    date trigger instead
   followup due [--date <YYYY-MM-DD>] [--event <name>]...
+  followup ack <id> --next <text> --trigger <date:D|event:class>
+                                    record what will be done next and the
+                                    new date or event the item waits on; the
+                                    item stays open
   followup close <id> --evidence <text>
+                                    the only way an item closes
+  followup audit                    one line per open item, a proposal and
+                                    never a change: close<TAB><id><TAB>
+                                    <evidence> when its done-condition is
+                                    already met, unemitted<TAB><id><TAB>
+                                    <class> when its trigger or done event
+                                    class nothing emits, no-done<TAB><id>
+                                    when it has no done-condition
   followup list
   source set <name> --kind <living|consumed> --ref <ref> [--watermark <w>]
   inventory-refresh                 rewrite the mechanism inventory from the
@@ -298,6 +333,7 @@ check_format() {
   [ -f "$1" ] || refuse "store $(lbl "$1") is missing (run mc-kb.sh init --program $PROGRAM)"
   cf_first=$(head -n 1 "$1")
   format_line_ok "$cf_first" && return 0
+  [ "$cf_first" = "# format: $FU_FORMAT" ] && [ "${1##*/}" = followups.tsv ] && return 0
   case $cf_first in
     "<!-- format: "*" -->")
       cf_v=${cf_first#"<!-- format: "}
@@ -341,7 +377,8 @@ refuse_staged() { # refuse_staged <file>
   refuse "cannot rewrite $(lbl "$1")"
 }
 publish() { # publish <file>
-  format_line_ok "$(head -n 1 "$TMP" 2>/dev/null)" || refuse_staged "$1"
+  pb_first=$(head -n 1 "$TMP" 2>/dev/null)
+  format_line_ok "$pb_first" || [ "$pb_first" = "# format: $FU_FORMAT" ] || refuse_staged "$1"
   mv -f -- "$TMP" "$1" || refuse_staged "$1"
   TMP=''
 }
@@ -611,7 +648,7 @@ v_init() {
   mkdir -p "$KB" || refuse "cannot create $KB"
   kb_contained
   new_store "$KB/index.md" "<!-- format: $FORMAT -->"
-  new_store "$KB/followups.tsv" "# format: $FORMAT" "# id${tab}opened${tab}owner${tab}trigger${tab}state${tab}text${tab}evidence${tab}closed"
+  new_store "$KB/followups.tsv" "# format: $FU_FORMAT" "$FU_HEADER"
   new_store "$KB/sources.tsv" "# format: $FORMAT" "# name${tab}kind${tab}watermark${tab}ref"
   new_store "$KB/mechanisms.tsv" "# format: $FORMAT" "$MECH_HEADER"
   new_store "$KB/proposals.tsv" "# format: $FORMAT" "$PROP_HEADER"
@@ -922,6 +959,97 @@ v_unlock() {
   esac
 }
 
+# fu_check <file>: the ledger carries a known format, 1 or 2.
+fu_check() {
+  [ ! -L "$1" ] && [ -f "$1" ] && [ "$(head -n 1 "$1")" = "# format: $FU_FORMAT" ] && return 0
+  check_format "$1"
+}
+# fu_rows <file>: every entry line as the eleven format-2 columns, a
+# format-1 row read as having no done-condition and no acknowledgement.
+fu_rows() {
+  awk -F '\t' -v OFS='\t' '
+    /^#/ { next }
+    { for (i = NF + 1; i <= 11; i++) $i = "-"; print }
+  ' "$1"
+}
+# fu_upgrade <file>: rewrite a format-1 ledger as format 2 under the
+# caller's lock.
+fu_upgrade() {
+  [ "$(head -n 1 "$1")" = "# format: $FORMAT" ] || return 0
+  tmp_for "$1"
+  {
+    printf '# format: %s\n%s\n' "$FU_FORMAT" "$FU_HEADER"
+    fu_rows "$1"
+  } >"$TMP" || refuse_staged "$1"
+  publish "$1"
+}
+# The event classes something emits: the shipped class table, the duty
+# catalog's triggers and wake events (what the watchers declare) and the
+# kinds the program's event store holds, as EMITTED, space-delimited.
+EMITTED=''
+load_emitted() {
+  [ -z "$EMITTED" ] || return 0
+  le_tab=$script_dir/../config/mc-event-classes.tsv
+  [ -r "$le_tab" ] || refuse "the event class table is missing (broken install)"
+  le_all=$(awk -F '\t' '!/^#/ && $1 != "" { print $1 }' "$le_tab")
+  le_ids=$(/bin/bash "$script_dir/mc-duties.sh" list) || refuse "cannot read the duty catalog"
+  for le_id in $(printf '%s\n' "$le_ids" | awk -F '\t' '{ print $1 }'); do
+    for le_f in triggers wake; do
+      le_v=$(/bin/bash "$script_dir/mc-duties.sh" get "$le_id" "$le_f") || refuse "cannot read the duty catalog"
+      le_all="$le_all $(printf '%s' "$le_v" | tr -d '[],')"
+    done
+  done
+  le_all="$le_all $(/bin/bash "$script_dir/mc-event.sh" list --program "$PROGRAM" 2>/dev/null | awk -F '\t' '{ print $3 }')"
+  # shellcheck disable=SC2086 # the classes are blank-separated words (globbing is off)
+  EMITTED=" $(printf '%s\n' $le_all | grep -vx none | sort -u | tr '\n' ' ')"
+}
+class_known() { case $EMITTED in *" $1 "*) return 0 ;; esac; return 1; }
+unknown_class() { # unknown_class <label> <class>: the refusal names the known ones
+  bad "$1 event class $2 is not one anything emits; the known classes are:$EMITTED"
+}
+# trigger_ok <trigger>: the grammar; the event class is checked by the
+# caller once the store is open.
+trigger_ok() {
+  case $1 in
+    date:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+    event:?*) kebab_ok "the trigger's event" "${1#event:}" ;;
+    *) bad "a trigger is date:<YYYY-MM-DD> or event:<class>" ;;
+  esac
+}
+# done_ok <done>: the done-condition grammar.
+done_ok() {
+  case $1 in
+    operator | date:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+    event:?*) kebab_ok "the done-condition's event" "${1#event:}" ;;
+    pr:?*/?*#[1-9]*)
+      case ${1#*#} in *[!0-9]*) bad "a pr done-condition is pr:<owner>/<repo>#<number>" ;; esac
+      ;;
+    cmd:/*) ;;
+    *) bad "a done-condition is operator, date:<YYYY-MM-DD>, event:<class>, pr:<owner>/<repo>#<n> or cmd:<absolute path> [words]" ;;
+  esac
+}
+iso_epoch() { # iso_epoch <YYYY-MM-DDTHH:MM:SSZ>
+  # shell-gnu-only-flag: BSD date -j -f is the fallback when GNU date -d fails
+  date -u -d "$1" '+%s' 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" '+%s'
+}
+# run_check <words...>: a command check, run as words through exec in the
+# background and given a bounded time; success only when it exits 0.
+run_check() {
+  ( exec "$@" ) >/dev/null 2>&1 &
+  rc_pid=$!
+  rc_i=0
+  while kill -0 "$rc_pid" 2>/dev/null; do
+    if [ "$rc_i" -ge 100 ]; then
+      kill "$rc_pid" 2>/dev/null
+      wait "$rc_pid" 2>/dev/null
+      return 1
+    fi
+    rc_i=$((rc_i + 1))
+    sleep 0.2
+  done
+  wait "$rc_pid"
+}
+
 v_followup() {
   [ $# -ge 1 ] || usage
   sub=$1
@@ -929,13 +1057,15 @@ v_followup() {
   fu=$KB/followups.tsv
   case $sub in
     add)
-      owner='' trigger='' text=''
+      owner='' trigger='' text='' done_c='' fallback=''
       while [ $# -gt 0 ]; do
         [ $# -ge 2 ] || usage
         case $1 in
           --owner) owner=$2 ;;
           --trigger) trigger=$2 ;;
           --text) text=$2 ;;
+          --done) done_c=$2 ;;
+          --fallback-date) fallback=$2 ;;
           *) usage ;;
         esac
         shift 2
@@ -943,22 +1073,124 @@ v_followup() {
       [ -n "$owner" ] || bad "--owner is required"
       kebab_ok "--owner" "$owner"
       [ -n "$trigger" ] || bad "--trigger is required"
-      case $trigger in
-        date:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
-        event:?*) kebab_ok "the trigger's event" "${trigger#event:}" ;;
-        *) bad "a trigger is date:<YYYY-MM-DD> or event:<name>" ;;
-      esac
+      trigger_ok "$trigger"
+      need "--done (what says the item is done)" "$done_c"
+      done_ok "$done_c"
+      if [ -n "$fallback" ]; then
+        case $fallback in
+          [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+          *) bad "--fallback-date takes YYYY-MM-DD" ;;
+        esac
+      fi
       need "--text" "$text"
       require_kb
-      check_format "$fu"
+      for ad_t in "$trigger" "$done_c"; do
+        case $ad_t in
+          event:*)
+            load_emitted
+            if ! class_known "${ad_t#event:}"; then
+              if [ -n "$fallback" ] && [ "$ad_t" = "$trigger" ]; then
+                trigger=date:$fallback
+              else
+                unknown_class "the" "${ad_t#event:}"
+              fi
+            fi
+            ;;
+        esac
+      done
+      fu_check "$fu"
       claim "$fu"
+      fu_upgrade "$fu"
       ends_in_newline "$fu" || refuse "kb/followups.tsv ends in a partial line; repair it by hand"
       count_rows "$fu"
       n=$((ROWS + 1))
-      printf 'f-%s\t%s\t%s\t%s\topen\t%s\t-\t-\n' "$n" "$(now_iso)" "$owner" "$trigger" "$text" >>"$fu" \
+      printf 'f-%s\t%s\t%s\t%s\topen\t%s\t-\t-\t%s\t-\t-\n' "$n" "$(now_iso)" "$owner" "$trigger" "$text" "$done_c" >>"$fu" \
         || refuse "cannot append to kb/followups.tsv"
       release "$fu"
       printf 'f-%s\n' "$n"
+      ;;
+    ack)
+      [ $# -ge 1 ] || usage
+      id=$1
+      shift
+      next='' trigger=''
+      while [ $# -gt 0 ]; do
+        [ $# -ge 2 ] || usage
+        case $1 in
+          --next) next=$2 ;;
+          --trigger) trigger=$2 ;;
+          *) usage ;;
+        esac
+        shift 2
+      done
+      case $id in
+        f-[1-9]*) ;;
+        *) bad "invalid follow-up id: $id" ;;
+      esac
+      case ${id#f-} in *[!0-9]*) bad "invalid follow-up id: $id" ;; esac
+      need "--next (what will be done next)" "$next"
+      [ -n "$trigger" ] || bad "--trigger (the new date or event) is required"
+      trigger_ok "$trigger"
+      require_kb
+      case $trigger in
+        event:*)
+          load_emitted
+          class_known "${trigger#event:}" || unknown_class "the" "${trigger#event:}"
+          ;;
+      esac
+      fu_check "$fu"
+      claim "$fu"
+      fu_upgrade "$fu"
+      state=$(I=$id awk -F '\t' '!/^#/ && $1 == ENVIRON["I"] { print $5; exit }' "$fu")
+      [ -n "$state" ] || refuse "no follow-up $id"
+      [ "$state" = open ] || refuse "follow-up $id is already $state"
+      tmp_for "$fu"
+      I=$id N=$next G=$trigger T=$(now_iso) awk -F '\t' -v OFS='\t' '
+        !/^#/ && $1 == ENVIRON["I"] { $4 = ENVIRON["G"]; $10 = ENVIRON["T"]; $11 = ENVIRON["N"] }
+        { print }
+      ' "$fu" >"$TMP" || refuse_staged "$fu"
+      publish "$fu"
+      release "$fu"
+      ;;
+    audit)
+      [ $# -eq 0 ] || usage
+      require_kb
+      fu_check "$fu"
+      load_emitted
+      au_events=$(/bin/bash "$script_dir/mc-event.sh" list --program "$PROGRAM" 2>/dev/null)
+      au_rows=$(fu_rows "$fu" | awk -F '\t' '$5 == "open"')
+      while IFS="$tab" read -r au_id au_opened _ au_trig _ _ _ _ au_done _; do
+        [ -n "$au_id" ] || continue
+        for au_c in "$au_trig" "$au_done"; do
+          case $au_c in
+            event:*)
+              class_known "${au_c#event:}" || printf 'unemitted\t%s\t%s\n' "$au_id" "${au_c#event:}"
+              ;;
+          esac
+        done
+        case $au_done in
+          - | "") printf 'no-done\t%s\n' "$au_id" ;;
+          cmd:*)
+            # shellcheck disable=SC2086 # the words are the check, split on blanks
+            if run_check ${au_done#cmd:}; then
+              printf 'close\t%s\tcommand check exited 0: %s\n' "$au_id" "$(sanitize_printable "${au_done#cmd:}")"
+            fi
+            ;;
+          event:*)
+            au_from=$(iso_epoch "$au_opened") || au_from=''
+            [ -n "$au_from" ] || continue
+            au_hit=$(printf '%s\n' "$au_events" | C=${au_done#event:} F=$au_from awk -F '\t' '$3 == ENVIRON["C"] && $2 + 0 >= ENVIRON["F"] + 0 { print $3 " " $4 " seen at epoch " $2; exit }')
+            [ -z "$au_hit" ] || printf 'close\t%s\tevent seen after the item opened: %s\n' "$au_id" "$(sanitize_printable "$au_hit")"
+            ;;
+          pr:*)
+            au_ref=${au_done#pr:}
+            au_state=$(gh pr view "${au_ref#*#}" -R "${au_ref%%#*}" --json state --jq .state 2>/dev/null)
+            [ "$au_state" != MERGED ] || printf 'close\t%s\tpull request %s merged\n' "$au_id" "$(sanitize_printable "$au_ref")"
+            ;;
+        esac
+      done <<EOF
+$au_rows
+EOF
       ;;
     due)
       day=$(date -u '+%Y-%m-%d')
@@ -981,7 +1213,7 @@ v_followup() {
         shift 2
       done
       require_kb
-      check_format "$fu"
+      fu_check "$fu"
       D=$day E=$events awk -F '\t' '
         /^#/ || $5 != "open" { next }
         $4 ~ /^date:/ && substr($4, 6) <= ENVIRON["D"] { print; next }
@@ -1005,8 +1237,9 @@ v_followup() {
       case ${id#f-} in *[!0-9]*) bad "invalid follow-up id: $id" ;; esac
       need "--evidence (a row closes only with evidence)" "$evidence"
       require_kb
-      check_format "$fu"
+      fu_check "$fu"
       claim "$fu"
+      fu_upgrade "$fu"
       state=$(I=$id awk -F '\t' '!/^#/ && $1 == ENVIRON["I"] { print $5; exit }' "$fu")
       [ -n "$state" ] || refuse "no follow-up $id"
       [ "$state" = open ] || refuse "follow-up $id is already $state"
@@ -1021,8 +1254,8 @@ v_followup() {
     list)
       [ $# -eq 0 ] || usage
       require_kb
-      check_format "$fu"
-      grep -v '^#' "$fu"
+      fu_check "$fu"
+      fu_rows "$fu"
       ;;
     *) usage ;;
   esac

@@ -122,8 +122,10 @@ alpha_block </dev/null
 # Format fields (D-8): every store carries one; a reader refuses others.
 # ---------------------------------------------------------------------------
 for f in index.md followups.tsv sources.tsv mechanisms.tsv; do
+  want="format: 1"
+  [ "$f" != followups.tsv ] || want="format: 2"
   case $(head -n 1 "$kb/$f") in
-    *"format: 1"*) ok "kb/$f carries its format field" ;;
+    *"$want"*) ok "kb/$f carries its format field" ;;
     *) fail "kb/$f lacks a format field" ;;
   esac
 done
@@ -548,6 +550,7 @@ cp "$tmp/followups.v2" "$kb/followups.tsv"
 mkdir -p "$tmp/bin"
 printf '%s\n' '#!/bin/sh' "cat '$tmp/ghstate'" >"$tmp/bin/gh"
 chmod +x "$tmp/bin/gh"
+PATH="$tmp/bin:$PATH"
 printf '%s\n' MERGED >"$tmp/ghstate"
 mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/usr/bin/true" --text "command passes"
 a_pass=$OUT
