@@ -64,7 +64,12 @@ phys() {
       _t=$(readlink -- "$_cur") || return 1
       case $_t in
         /*) _p=$(norm "$_t$_rest") ;;
-        *) _p=$(norm "${_cur%/*}/$_t$_rest") ;;
+        *)
+          # The link's parent may itself be a symlinked directory: a relative
+          # target resolves from the parent's real location.
+          _par=$(cd -P -- "${_cur%/*}/" 2>/dev/null && pwd -P) || return 1
+          _p=$(norm "$_par/$_t$_rest")
+          ;;
       esac
       continue
     fi
