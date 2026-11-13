@@ -738,7 +738,7 @@ watch() {
       mc_usage_stop_rules "$program" | while IFS="$TAB" read -r cf_id cf_text; do
         [ -n "$cf_id" ] || continue
         printf 'event\tusage-hold-rule-conflict\t%s\tlaunches are held at %s%% usage but rule %s says: %s; change mission_control_usage_hold or the rule\n' \
-          "$cf_id" "$thr" "$cf_id" "$(sanitize_printable "$cf_text" -)"
+          "$cf_id" "$thr" "$cf_id" "$(sanitize_printable "$cf_text" - | cut -c1-200)"
       done
     fi
     if [ "$CUR" = "quota - $QUOTA_RESET" ] && mc_valid_uint "$QUOTA_RESET" && [ "$NOW" -ge "$QUOTA_RESET" ]; then

@@ -444,7 +444,7 @@ mc_usage_stop_rules() {
   /bin/bash "$script_dir/mc-rules.sh" active "$1" 2>/dev/null | awk -F '\t' '
     $2 == "active" {
       low = tolower($6)
-      if (low ~ /(run|runs|running) to 100 ?%/ || low ~ /no ([0-9]+ ?% (or |and |, )?)*(usage )?stops?/) print $1 "\t" $6
+      if (low ~ /(^|[^a-z])(run|runs|running) to 100 ?%/ || low ~ /(^|[^a-z])no ([0-9]+ ?% (or |and |, )?)*(usage )?stops?([^a-z]|$)/) print $1 "\t" $6
     }'
 }
 

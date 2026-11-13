@@ -187,6 +187,15 @@ if awk -F '\t' '$1 == "usage-hold-rule-conflict" && $2 == "failure" { f = 1 } EN
 else
   fail "usage-hold-rule-conflict is not classed failure in config/mc-event-classes.tsv"
 fi
+long_rule="Run to 100% usage with no stops: $(printf 'padding %.0s' $(seq 1 90))"
+mc_run mc-rules.sh add alpha --text "$long_rule" --subject usage-long --source "operator, fixture" --date 2026-01-01
+watch "$((now + 65))"
+expect_out "a long rule still raises the event, its text cut to fit the event limit" "event${tab}usage-hold-rule-conflict${tab}r-3${tab}"
+mc_run mc-rules.sh supersede alpha r-3 --withdraw --source "operator, fixture" --date 2026-01-02
+mc_run mc-rules.sh add alpha --text "The piano stops are tuned, and overrun to 100% is rare." --subject unrelated --source "operator, fixture" --date 2026-01-01
+watch "$((now + 66))"
+expect_no_out "a rule that merely contains the words inside other words is no conflict" "event${tab}usage-hold-rule-conflict${tab}r-4"
+mc_run mc-rules.sh supersede alpha r-4 --withdraw --source "operator, fixture" --date 2026-01-02
 mc_run mc-rules.sh supersede alpha r-2 --withdraw --source "operator, fixture" --date 2026-01-02
 mc_run mc-rules.sh supersede alpha r-1 --withdraw --source "operator, fixture" --date 2026-01-02
 watch "$((now + 64))"
