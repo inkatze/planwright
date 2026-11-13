@@ -106,10 +106,11 @@ senv stop sji1 --grace 2 >"$tmp/stop1.out" || fail "i2: the stop exited non-zero
   || fail "i2: a close left start records beside pid files it dropped"
 sleep 600 &
 stranger=$!
+bogus=$(/bin/sh "$FDE" start "$stranger")9
 printf '%s\n' "$stranger" >"$wdir/supervisor.pid"
 printf '%s\n' "$stranger" >"$wdir/worker.pid"
-printf 'p1\n' >"$wdir/supervisor.start"
-printf 'p1\n' >"$wdir/worker.start"
+printf '%s\n' "$bogus" >"$wdir/supervisor.start"
+printf '%s\n' "$bogus" >"$wdir/worker.start"
 out=$(senv status sji1) || fail "i2: status exited non-zero"
 case $out in
   "status sji1 dead "*) ;;
