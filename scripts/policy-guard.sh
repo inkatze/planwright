@@ -1951,17 +1951,17 @@ kickoff_segment() {
     # that no check here reads, so it is refused as a consumer outright.
     case ${W[${SEG_S[$3]}]:-} in
       if | while | until | elif)
-        deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a compound command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+        deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a compound command that could run it - refusing (fail closed). Run it as $KICK_FORM."
         ;;
     esac
     if kickoff_cmd_reads "$3"; then
       kickoff_pipe_on "$3"
     else
-      deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+      deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run it as $KICK_FORM."
     fi
   fi
   if kickoff_fuzzy_name "$3" && ! kickoff_cmd_reads "$3"; then
-    deny_now 'this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+    deny_now "this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
   fi
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
@@ -2079,7 +2079,7 @@ classify_segments() {
       # the shell runs a prompt or startup hook's value as a command.
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
-        || deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+        || deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run it as $KICK_FORM."
       KICK_PIPED=0
       case $cur_text in
         *PROMPT_COMMAND=* | *BASH_ENV=* | *' ENV='*)
