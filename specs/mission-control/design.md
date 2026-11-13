@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-11
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1827,6 +1827,120 @@ stays as it is.
 **Chosen because:** the offload knob stayed at its local default while two
 rules said otherwise and nothing noticed; a structured required value turns
 that into a check, and the duty reports the waste it left.
+
+### D-59: Guard rules are loosened by their measured false-positive rate, and the hard lines stay  (N; C, D-23, D-57)
+
+**Decision:** The operator's friction ask is answered from data. A script
+(`guard-denial-stats`, REQ-G1.9) extracts each guard denial's refusal text
+and the command it refused from the fleet workers' event records, groups them
+by guard and rule, and reports per rule how many refused commands did not
+contain the act the rule protects. A rule that mostly blocked other work is
+loosened to fire on the act itself (in command position, REQ-G1.11) and not
+on its words; a rule whose refusals were real is kept. The refusal text of
+the sanctioned path stays the same. Merge under `merge_policy` human, a push
+to a protected branch, a history rewrite outside the rules, a message to a
+person without a yes and a secret read are the hard lines: they are not
+loosened, and a corpus of refusing cases pins each one (REQ-G1.18).
+
+First run, fleet records (1,446 denials across 378 sessions, the workers,
+reviewers, ad-hoc sessions and the stream-json mission control sessions the
+fleet launched). The hub's own count across this machine's session records
+(2026-11-11) is given beside it as relative weight only: its raw counts
+repeat tool results and tests quote the strings. "Real" means the refused
+command contained the act in command position; the judgment is from the
+refused command text, by sample and by the pattern named.
+
+| Rule (guard) | Fleet | Hub | Judgment | Disposition |
+| --- | --- | --- | --- | --- |
+| Unanalyzable construct: `$()`, backticks, grouping, here-document, while the text names an act (policy-guard) | 533 | 951+ | Mostly work: loops over `gh api` reads, `mktemp`, heredocs feeding files; 416 of 533 begin as plain statements (an assignment, `cd`, `for`, `until`, `umask`), so the act word sat in data or a substitution body | Loosen (REQ-G1.11, REQ-G1.12) |
+| Names a settings or configuration file, mission control tier | 172 | about 680 | 109 of 172 carry no write operator: greps, listings and follow-ups quoting a name | Loosen to writes (REQ-G1.10) |
+| Command name is an expansion (`~/.claude/scripts/...`, `$R`, `$S`) | 264 | about 300 | Legitimate scripts and plugin-root paths; every sampled one resolves to a literal | Loosen (REQ-G1.13) |
+| `gh api` body from a file or stdin, plus `--output` and a non-literal query | 106 | 148 | Replies and issue comments to automated reviewers and log downloads; endpoint literal | Loosen (REQ-G1.15); a message to a person stays under REQ-I1.3 |
+| `merge_policy` human, merge helper (policy-guard) | 66 | 171 | 0 of 66 ran the merge helper or `gh pr merge`: test runs and diffs whose text names it | Keep the line; fix the matcher (REQ-G1.11, REQ-G1.18) |
+| `git merge`, `pull`, `rebase` only on the unit's own branch | 108 | about 220 | 56 of 57 merges were of `origin/main` or the unit's own flight branch, often through `git -C` | Loosen (REQ-G1.14) |
+| Work handed to python3, `timeout`, `env`, `nice`, `bash` | 74 | about 125 | 31 of 33 python3 uses only edited files; but an interpreter can run any act | Keep: no loosening; guidance points at the edit tools |
+| Kickoff push script named in a form the guard cannot check | 31 | 65 | The sanctioned push, named through the plugin-root variable | Loosen with the same resolution (REQ-G1.13) |
+| Push to a protected branch | 10 | n/a | 0 of 10 targeted `main`; all were spec-branch pushes outside the kickoff helper | Keep: the protected set is a human-gates matter, the sanctioned path is the kickoff push |
+| Background-job guard (stream-json) | 17 | n/a | Real: a stream-json worker never resumes on a background job | Keep |
+| Ready-guard | 25 | n/a | Real catches, behind-base already relaxed by r-22 | Keep |
+| Mission control git mutation (`git fetch` in some forms) | 12 | n/a | Real under REQ-A1.3; the host-act lane (D-60) is its path | Keep |
+| Policy guard did not run (plugin root unset) | n/a | 266 | A setup bug, not a rule | Fix at the source (REQ-G1.17) |
+| `jq` missing, guard internal error | n/a | 45, 53 | Environmental fail-closed refusals | Keep |
+| Auto-mode bypass | n/a | 516 | Claude Code's own classifier, not a planwright rule | Out of scope |
+
+What the records cannot see: the operator's interactive hub session and any
+session that did not run on the stream-json backend leave no denial in the
+fleet records, and the guards write no denial log of their own (the allow
+audit under the program home records approvals, not refusals), so the
+mission-control denials the operator met first (the host-act refusals) are
+counted only in the hub's figures. The mise task-file denials are counted in
+the unanalyzable and expansion rows and are fixed in a separate unit, not
+redesigned here. Refused commands were read as text, never run.
+
+**Alternatives considered:**
+- Loosen by the operator's list of false positives alone. Rejected because:
+  the list named four; the data shows the larger weight elsewhere
+  (unanalyzable constructs, expansions, a body from a file), and a rule with
+  no refused-work evidence would be loosened on a guess.
+- Add a guard denial log and measure later. Rejected as the only step
+  because: the fleet records already hold the refusal text and the command;
+  a log is cheap and is left as a follow-up (the audit script reads either).
+- Remove every fail-closed construct rule. Rejected because: an unread
+  construct that names an act is the shape a guard bypass takes; the rule
+  stays and reads the construct instead of refusing it unread.
+- Loosen the interpreter hand-off rule. Rejected because: an interpreter
+  runs whatever its text says; the cost is the edit tools, which exist.
+
+**Chosen because:** the operator asked for friction removed where the data
+shows it and the hard lines kept; each loosening reads the act, not its
+words, so a real act still refuses, and each ships with the corpus that
+proves it.
+
+### D-60: A host act is the operator's ask, recorded, and run in a host-chore session  (N; C, D-23, D-24, D-36)
+
+**Decision:** Of the two shapes, the host-chore worker kind (a) is
+recommended, entered through the operator-ask recording of the lane (b). The
+operator's words are quoted in the undo ledger, the exact command from the
+register row is shown, and a host-chore session, launched with a launch
+record written before it starts (D-36's pattern), fast-forwards the one
+named primary checkout (clean tree, default branch, fast-forward only) and
+runs the row's one declared command once, its command shown first and its output tail and exit status logged. A read-only host
+act (a configuration read) runs in mission control itself. The register is
+data whose shipped copy holds no act, each machine's overlay supplying its
+rows (this machine's dotfiles update comes from the dotfiles repo's overlay),
+so no operator-specific path enters shared defaults. A host-chore session may
+also run the kickoff spec-push helper for a signed-off spec (REQ-A1.17): raw
+spec-branch pushes stay refused for every session, and the helper's sign-off
+check is what the push rests on. Walk answers kept: interpreter text naming
+an act stays refused; typing only into registry-listed plain-shell panes. A
+guard refusal log is deferred, undecided by the operator.
+The narrow exception to "mission control never edits a repository" is that
+the fast-forward takes in content the operator already merged, done by the
+host-chore session and never by mission control, and the narrow exception to
+"never edit a settings file" is that the declared command (the user-config
+playbook) writes machine configuration the operator's merged change already
+describes; mission control authors nothing and restarts only after the
+posture check.
+
+**Alternatives considered:**
+- (b) alone: mission control runs the command in a lane of its own. Rejected
+  because: it gives mission control's own tier a git mutation and a
+  host-writing command, undoing REQ-A1.3 and widening the posture the guard
+  tier keeps; the operator's standing rule says "through a launched session".
+- Loosen mission control's guard for `git pull --ff-only` and `tmux
+  send-keys`. Rejected because: it widens the tier for every session and
+  every checkout, with no register naming which act, which checkout and
+  which command.
+- A general host-command lane that runs any command the operator types.
+  Rejected because: it is a bypass of every guard by one sentence; a register
+  row is the closed set an adopter extends on purpose.
+- Leave the act to the operator. Rejected because: r-29 and r-40 say mission
+  control does it and hands over only the irreducible act.
+
+**Chosen because:** mission control already does every change through a
+launched, supervised session; a host-chore kind reuses that, keeps the
+invariants intact with two stated exceptions, and the ask recording gives the
+operator the quote, the command and the result in one place.
 
 ## Cross-cutting concerns
 
