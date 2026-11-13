@@ -13,6 +13,8 @@
 unset CDPATH
 # shellcheck source=tests/lib/policy-guard-harness.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/policy-guard-harness.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 
 OTHER="$SANDBOX/other"
 clone_on "$OTHER" planwright/demo/task-2 1
@@ -869,7 +871,9 @@ done
 NOENTER="$SANDBOX/noenter"
 mkdir -p "$NOENTER"
 chmod 000 "$NOENTER"
-if [ ! -x "$NOENTER" ]; then # root enters it anyway
+noenter_denied=0
+if hermetic_access_denied r "$NOENTER"; then noenter_denied=1; fi
+if [ ! -x "$NOENTER" ] && [ "$noenter_denied" -eq 1 ]; then # root enters it anyway
   pg worker "cd $NOENTER && cd $UNIT; git push" "$MAIN"
   expect deny "[worker] a cd into a directory the shell cannot enter does not vouch for the cd after it"
 else

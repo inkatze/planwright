@@ -18,6 +18,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 repo_root=$(cd "$here/.." && pwd -P)
 LAUNCH="$repo_root/scripts/mission-control-launch.sh"
 # shellcheck source=tests/lib/mc-launch-fixture.sh
@@ -187,9 +189,7 @@ fi
 # A launch that died after its reservation: retire finishes it; a launch
 # still in flight is refused.
 dead_row="$fleet/mission-control/sessions/mc-alpha-worker-2222222222"
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid"
+dead_pid=$(dead_owner_pid) || fail "no dead owner pid is available"
 printf 'format\t1\nname\tmc-alpha-worker-2222222222\nstate\tlaunching\ntoken\tx\npid\t%s\nbackend\tstream-json\nhandle\tmc-alpha-worker-2222222222\n' "$dead_pid" >"$dead_row"
 ml retire mc-alpha-worker-2222222222
 [ "$RC" = 0 ] && [ ! -e "$dead_row" ] && ok "retire clears the reservation of a launch that died" \

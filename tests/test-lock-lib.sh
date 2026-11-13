@@ -2379,9 +2379,7 @@ assert_exit "and a hidden table's absent process reads dead whatever its path" 1
 # and the acquire's, and the acquire then breaks it unseen. PW_LOCK_BROKEN
 # names the token the acquire itself broke, and is empty otherwise.
 
-sh -c 'exit 0' &
-broken_pid=$!
-wait "$broken_pid" 2>/dev/null
+broken_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 ln -s "$broken_pid-0-1" "$tmp/broken.lock"
 out="$(run_sh x '
   pw_lock_try "$1/broken.lock" || exit 9
@@ -2432,9 +2430,7 @@ esac
 rm -f "$tmp"/fresh-*.lock*
 # A break whose publish loses to a peer still removed the dead link, and says
 # so: staged by a publish that always loses.
-sh -c 'exit 0' &
-lost_pid=$!
-wait "$lost_pid" 2>/dev/null
+lost_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 ln -s "$lost_pid-0-1" "$tmp/lost.lock"
 out="$(run_sh x '
   _pw_lock_publish() { return 1; }

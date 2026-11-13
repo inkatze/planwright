@@ -1067,6 +1067,8 @@ echo "ok: c39 the worker's TMPDIR is its own short scratch root outside .claude,
 h39r=$(cd "$tmp/h39" && pwd -P)
 mkdir -p "$tmp/u39" "$tmp/out39/keep" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep"
 chmod 500 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"
+ro39a=0
+if hermetic_access_denied w "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"; then ro39a=1; fi
 ln -s "$tmp/out39" "$h39r/scratch/$(printf 'b%.0s' $(seq 40))"
 release39() {
   printf '%s\n' "$1" >"$tmp/u39/scratch-root"
@@ -1085,9 +1087,13 @@ make39() {
 new39=$(make39 "$(printf 'a%.0s' $(seq 40))") || fail "c39: no recorded root to release"
 mkdir -p "$new39/ro/deep" "$base39/0123456789abcdef/keep"
 chmod 500 "$new39/ro"
+ro39b=0
+if hermetic_access_denied w "$new39/ro"; then ro39b=1; fi
 ! release39 "$base39/0123456789abcdef" && [ -d "$base39/0123456789abcdef/keep" ] \
   || fail "c39: the final close removed a root the fleet home does not record"
-if ! release39 "$new39" || [ -e "$new39" ] || [ -e "$tmp/u39/scratch-root" ] \
+if [ "$ro39b" -eq 0 ]; then
+  echo "skip: c39: the running user still writes $new39/ro under mode 500, so no read-only directory is held"
+elif ! release39 "$new39" || [ -e "$new39" ] || [ -e "$tmp/u39/scratch-root" ] \
   || grep -rqxF "$new39" "$h39r/scratch"; then
   fail "c39: the final close did not remove a recorded root holding a read-only directory, and its record"
 fi
@@ -1100,9 +1106,13 @@ done
   || fail "c39: a refused pointer removed something"
 release39 "$h39r/scratch/$(printf 'b%.0s' $(seq 40))" >/dev/null 2>&1
 [ -d "$tmp/out39/keep" ] || fail "c39: the final close followed a symlinked root out of the fleet home"
-release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
-  && [ ! -e "$tmp/u39/scratch-root" ] \
-  || fail "c39: the final close did not remove a root holding a read-only directory"
+if [ "$ro39a" -eq 0 ]; then
+  echo "skip: c39: the running user still writes the scratch root's ro directory under mode 500, so no read-only directory is held"
+else
+  release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
+    && [ ! -e "$tmp/u39/scratch-root" ] \
+    || fail "c39: the final close did not remove a root holding a read-only directory"
+fi
 sess39="$h39r/scratch/$(printf 'c%.0s' $(seq 40))"
 mkdir -p "$sess39/$(printf 'd%.0s' $(seq 40))/f" "$sess39/$(printf 'e%.0s' $(seq 40))/f"
 release39 "$sess39/$(printf 'd%.0s' $(seq 40))" && [ ! -e "$sess39/$(printf 'd%.0s' $(seq 40))" ] \

@@ -15,6 +15,8 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 READ="$REPO_ROOT/scripts/inception-seed-read.sh"
 SPEC_DRAFT="$REPO_ROOT/skills/spec-draft/SKILL.md"
 MODES="$REPO_ROOT/doctrine/orchestration-modes.md"
@@ -187,10 +189,16 @@ rm -f "$root/_pending/inception-link.md"
 
 seed "$root/_pending/inception-locked.md" "inception:locked"
 chmod 000 "$root/_pending/inception-locked.md"
+locked_denied=0
+if hermetic_access_denied r "$root/_pending/inception-locked.md"; then locked_denied=1; fi
 rd "$root"
 chmod 644 "$root/_pending/inception-locked.md"
-assert_contains "an unreadable seed is skipped" "skipped	inception-locked.md	unreadable" "$out"
-assert_not_contains "it never reads as a seed" "seed	inception-locked.md	" "$out"
+if [ "$locked_denied" -eq 1 ]; then
+  assert_contains "an unreadable seed is skipped" "skipped	inception-locked.md	unreadable" "$out"
+  assert_not_contains "it never reads as a seed" "seed	inception-locked.md	" "$out"
+else
+  echo "skip: an unreadable seed: the running user still reads it under mode 000"
+fi
 rm -f "$root/_pending/inception-locked.md"
 
 # Control bytes and tabs in bundle text never reach the output raw.
@@ -216,10 +224,16 @@ mv "$tmp/real-pending" "$root/_pending"
 
 seed "$root/_pending/inception-hidden.md" "inception:hidden"
 chmod 000 "$root/_pending"
+pending_denied=0
+if hermetic_access_denied r "$root/_pending"; then pending_denied=1; fi
 rd "$root"
 chmod 755 "$root/_pending"
-assert_eq "an unreadable _pending is refused, not read as empty" 1 "$rc"
-assert_not_contains "it never reports no seed" "seed	none" "$out"
+if [ "$pending_denied" -eq 1 ]; then
+  assert_eq "an unreadable _pending is refused, not read as empty" 1 "$rc"
+  assert_not_contains "it never reports no seed" "seed	none" "$out"
+else
+  echo "skip: an unreadable _pending: the running user still reads it under mode 000"
+fi
 rm -f "$root/_pending/inception-hidden.md"
 
 rd

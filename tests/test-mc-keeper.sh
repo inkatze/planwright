@@ -16,6 +16,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY G
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -147,23 +149,33 @@ expect_out "a worktree under a dangling link is held" "held${tab}mc-alpha-worker
 mkdir -p "$tmp/locked/wt"
 mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-seven --repo acme/web --pr 7 --worktree "$tmp/locked/wt"
 chmod 000 "$tmp/locked"
-PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
-chmod 700 "$tmp/locked"
-expect_out "an unreadable worktree is held, not dropped" "held${tab}mc-alpha-worker-seven${tab}worktree"
-if grep -q "^mc-alpha-worker-seven${tab}" "$ledger"; then ok "and its line stays"; else fail "the unreadable worktree's line was dropped"; fi
+if hermetic_access_denied r "$tmp/locked"; then
+  PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
+  chmod 700 "$tmp/locked"
+  expect_out "an unreadable worktree is held, not dropped" "held${tab}mc-alpha-worker-seven${tab}worktree"
+  if grep -q "^mc-alpha-worker-seven${tab}" "$ledger"; then ok "and its line stays"; else fail "the unreadable worktree's line was dropped"; fi
+else
+  chmod 700 "$tmp/locked"
+  echo "skip: the unreadable worktree case (the mode does not deny reading here)"
+fi
 
 # A refused landing event keeps the line, so the next run raises it.
 mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-five --repo acme/web --pr 7
 events_dir="$fleet/attention/mission-control/alpha/events"
 chmod 500 "$events_dir"
-OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
-RC=$?
-chmod 700 "$events_dir"
-expect_rc "a refused landing event fails the run" 1
-if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then ok "and keeps the line"; else fail "the line went with the event refused"; fi
-OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
-expect_out "the next run raises it" "announced${tab}session-landed${tab}mc-alpha-worker-five"
-if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then fail "the landed line stayed once its event was stored"; else ok "and then drops the line"; fi
+if hermetic_access_denied w "$events_dir"; then
+  OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
+  RC=$?
+  chmod 700 "$events_dir"
+  expect_rc "a refused landing event fails the run" 1
+  if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then ok "and keeps the line"; else fail "the line went with the event refused"; fi
+  OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
+  expect_out "the next run raises it" "announced${tab}session-landed${tab}mc-alpha-worker-five"
+  if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then fail "the landed line stayed once its event was stored"; else ok "and then drops the line"; fi
+else
+  chmod 700 "$events_dir"
+  echo "skip: the refused landing event case (the mode does not deny writing here)"
+fi
 
 # ---------------------------------------------------------------------------
 # REQ-M1.4: the next ready unit dispatches while another waits on CI.

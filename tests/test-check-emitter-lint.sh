@@ -14,6 +14,8 @@ export LC_ALL
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 CHECK="$REPO_ROOT/scripts/check-emitter-lint.sh"
 FIX="$REPO_ROOT/tests/fixtures/emitter-lint"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 
 failures=0
 pass() { printf 'ok: %s\n' "$1"; }
@@ -118,7 +120,11 @@ esac
 if [ "$(id -u)" -ne 0 ]; then
   scratch_root "$tmp/locked" '# Emits: markdown'
   chmod 000 "$tmp/locked/tests"
-  expect "an unlistable tests/ directory fails closed" "$tmp/locked" 2 "cannot be listed"
+  if hermetic_access_denied r "$tmp/locked/tests"; then
+    expect "an unlistable tests/ directory fails closed" "$tmp/locked" 2 "cannot be listed"
+  else
+    printf '%s\n' "skip: unlistable tests/ directory: the directory is still listable here"
+  fi
   chmod 755 "$tmp/locked/tests"
 else
   printf '%s\n' "skip: unlistable tests/ directory: running as root, which lists it anyway"

@@ -14,6 +14,9 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
+
 failures=0
 fail() {
   echo "FAIL: $1" >&2
@@ -93,9 +96,9 @@ mc_run mc-kb.sh lock --program alpha "LOCKS-$month.log" --holder "$holder_pid"
 expect_rc "nor under another case" 2
 
 mc_run mc-kb.sh lock --program alpha "decisions-$month.log" --holder "$holder_pid"
+dead_pid=$holder_pid
 kill "$holder_pid" 2>/dev/null
 wait "$holder_pid" 2>/dev/null
-dead_pid=$holder_pid
 holder_pid=''
 mc_run mc-kb.sh append decisions --program alpha --subject pr-46 --act "after the holder died"
 expect_rc "the next writer releases a dead holder's lock" 0
@@ -139,12 +142,13 @@ if [ -L "$kb/followups.tsv.lock" ] && [ ! -e "$tmp/bg.rc" ]; then
 else
   fail "the writer was not waiting when the holder died"
 fi
+dead_waited=$holder_pid
 kill "$holder_pid" 2>/dev/null
 wait "$holder_pid" 2>/dev/null
 wait "$bg_pid" 2>/dev/null
 if [ "$(cat "$tmp/bg.rc" 2>/dev/null)" = 0 ]; then ok "a writer waits out a holder that dies during the wait"; else fail "the waiting writer exited $(cat "$tmp/bg.rc" 2>/dev/null)"; fi
 mc_run mc-kb.sh query locks --program alpha --subject kb/followups.tsv
-expect_out "a holder dying during the wait is logged too" "pid $holder_pid"
+expect_out "a holder dying during the wait is logged too" "pid $dead_waited"
 holder_pid=''
 
 # A locks log that cannot be written warns, and leaves no lock behind.
@@ -187,13 +191,11 @@ sleep 60 &
 holder_pid=$!
 month=$(date -u '+%Y-%m')
 mc_run mc-kb.sh lock --program alpha "decisions-$month.log" --holder "$holder_pid"
+dead_a=$holder_pid
 kill "$holder_pid" 2>/dev/null
 wait "$holder_pid" 2>/dev/null
-dead_a=$holder_pid
 holder_pid=''
-sh -c 'exit 0' &
-dead_b=$!
-wait "$dead_b" 2>/dev/null
+dead_b=$(dead_owner_pid) || fail "no PID above the host's range to stand for a dead owner"
 ln -s "$dead_b-0-0-$dead_b-1" "$kb/locks-$month.log.lock"
 mc_run mc-kb.sh append decisions --program alpha --subject nested --act "two dead holders"
 expect_rc "a write over two dead holders succeeds" 0

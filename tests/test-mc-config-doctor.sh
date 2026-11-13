@@ -12,6 +12,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -227,7 +229,13 @@ expect_out "launches are judged against the knob in force" "launch-backend${tab}
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$sessions"
   cfg doctor --program alpha
+  sessions_denied=0
+  hermetic_access_denied r "$sessions" && sessions_denied=1
   chmod 700 "$sessions"
+fi
+if [ "$(id -u)" != 0 ] && [ "$sessions_denied" -eq 0 ]; then
+  echo "skip: unreadable registry: the running user still reads $sessions under mode 000"
+elif [ "$(id -u)" != 0 ]; then
   expect_rc "doctor with an unreadable registry still reports" 0
   expect_out "an unreadable registry is an unknown launches check" "unknown${tab}launches${tab}the launch registry could not be read"
   expect_out "the other checks still report beside an unreadable registry" "override${tab}mission_control_launch_backend${tab}adopter${tab}tmux${tab}stream-json"
@@ -426,9 +434,11 @@ rm -f "$adopter/planwright.yml" "$mlocal"
 printf 'mission_control_stall_window: 20m # interim\n' >"$mlocal"
 chmod 000 "$mlocal"
 cfg doctor --program drift
+mlocal_denied=0
+hermetic_access_denied r "$mlocal" && mlocal_denied=1
 chmod 644 "$mlocal"
 rm -f "$mlocal"
-if [ "$(id -u)" -eq 0 ]; then ok "REQ-A1.9: drift: root reads any file, so the unreadable-layer case is skipped"; else
+if [ "$(id -u)" -eq 0 ]; then ok "REQ-A1.9: drift: root reads any file, so the unreadable-layer case is skipped"; elif [ "$mlocal_denied" -eq 0 ]; then echo "skip: drift: the running user still reads the local layer under mode 000"; else
   expect_out "drift: an unreadable local layer is an unknown temporary check" "unknown${tab}temporary${tab}$mlocal cannot be read"
   expect_no_out "drift: an unknown temporary check is printed as itself, never reshaped as a temporary finding" "temporary${tab}unknown"
 fi

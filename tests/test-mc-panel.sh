@@ -18,6 +18,11 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
+
 failures=0
 fail() {
   echo "FAIL: $1" >&2
@@ -351,11 +356,16 @@ expect_out "one approval is said in the singular" ", 1 approval mission control 
 # an approval is still pending in it.
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$fleet/attention/state"
-  mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
-  chmod 600 "$fleet/attention/state"
-  record "an unreadable queue is named" unreadable "operator queue"
-  expect_no_out "and no approvals are counted from it" "approvals${tab}"
-  expect_no_out "nor said in the line" "mission control is handling"
+  if hermetic_access_denied r "$fleet/attention/state"; then
+    mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+    chmod 600 "$fleet/attention/state"
+    record "an unreadable queue is named" unreadable "operator queue"
+    expect_no_out "and no approvals are counted from it" "approvals${tab}"
+    expect_no_out "nor said in the line" "mission control is handling"
+  else
+    chmod 600 "$fleet/attention/state"
+    echo "skip: an unreadable queue (the mode does not deny access here)"
+  fi
 fi
 for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
 
@@ -629,25 +639,35 @@ mc_run mc-panel.sh install --program alpha --root "$moved" --now 5060
 store=$fleet/attention/mission-control/alpha
 if [ "$(id -u)" -ne 0 ]; then
   chmod 500 "$store/events"
-  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
-  chmod 700 "$store/events"
-  expect_rc "a refused event fails the check" 1
-  expect_err "naming the event" "event could not be stored"
-  set +f
-  # shellcheck disable=SC2086 # the glob is the point
-  set -- $runtime/install.*
-  set -f
-  if [ -e "$1" ]; then fail "a refused event left a temporary record: $1"; else ok "and leaves no temporary record"; fi
+  if hermetic_access_denied w "$store/events"; then
+    mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
+    chmod 700 "$store/events"
+    expect_rc "a refused event fails the check" 1
+    expect_err "naming the event" "event could not be stored"
+    set +f
+    # shellcheck disable=SC2086 # the glob is the point
+    set -- $runtime/install.*
+    set -f
+    if [ -e "$1" ]; then fail "a refused event left a temporary record: $1"; else ok "and leaves no temporary record"; fi
+  else
+    chmod 700 "$store/events"
+    echo "skip: a refused event (the mode does not deny access here)"
+  fi
   before=$(events_of planwright-updated | wc -l | tr -d ' ')
   chmod 500 "$runtime"
-  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5075
-  chmod 700 "$runtime"
-  expect_rc "a record that cannot be written fails the check" 1
-  expect_err "naming the record" "cannot write the install record"
-  if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = "$before" ]; then
-    ok "and stores no event, so a retry cannot flood the store"
+  if hermetic_access_denied w "$runtime"; then
+    mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5075
+    chmod 700 "$runtime"
+    expect_rc "a record that cannot be written fails the check" 1
+    expect_err "naming the record" "cannot write the install record"
+    if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = "$before" ]; then
+      ok "and stores no event, so a retry cannot flood the store"
+    else
+      fail "an unwritable record still stored an event"
+    fi
   else
-    fail "an unwritable record still stored an event"
+    chmod 700 "$runtime"
+    echo "skip: a record that cannot be written (the mode does not deny access here)"
   fi
 else
   echo "skip: the refused-write cases (root writes through any mode)"
@@ -814,9 +834,7 @@ sid_c=33333333-2222-3333-4444-555555555555
 sid_d=44444444-2222-3333-4444-555555555555
 act=$fleet/mission-control/_panel/active
 live_pid=$$
-sleep 0 &
-dead_pid=$!
-wait "$dead_pid"
+dead_pid=$(dead_owner_pid) || fail "no PID above the host's range to stand for a dead owner"
 
 # The session-start hook records which session this process carries.
 OUT=$(printf '{"session_id":"%s","hook_event_name":"SessionStart","source":"startup"}' "$sid_a" \

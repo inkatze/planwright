@@ -70,6 +70,8 @@ export GIT_CONFIG_SYSTEM=/dev/null
 here=$(cd "$(dirname "$0")" && pwd)
 FC="$here/../scripts/fleet-cleanup.sh"
 FA="$here/../scripts/fleet-audit.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -379,6 +381,8 @@ other_key=$(printf '%s' "$tmp/wt-other" | git hash-object --stdin)
 mkdir -p "$fleet_home/scratch/$rec_key/sub/ro" "$fleet_home/scratch/$other_key" "$tmp/scratch-outside"
 : >"$fleet_home/scratch/$rec_key/sub/ro/x"
 chmod 500 "$fleet_home/scratch/$rec_key/sub/ro"
+ro_rec=0
+if hermetic_access_denied w "$fleet_home/scratch/$rec_key/sub/ro"; then ro_rec=1; fi
 : >"$tmp/scratch-outside/keep"
 ln -s "$tmp/scratch-outside" "$fleet_home/scratch/$rec_key/sub/link"
 mkdir -m 700 "$tmp/sb"
@@ -392,6 +396,8 @@ if ! new_root=$(scratch_make "$rec_key") || ! new_sess=$(scratch_make "$rec_key-
 fi
 mkdir -p "$new_root/ro" "$new_sess/f"
 chmod 500 "$new_root/ro"
+ro_new=0
+if hermetic_access_denied w "$new_root/ro"; then ro_new=1; fi
 rc=0
 run_worktree "$main_repo" "$wt_clean" "merged branch" "reclaiming clean worktree" \
   >/dev/null 2>&1 || rc=$?
@@ -402,15 +408,23 @@ run_worktree "$main_repo" "$wt_clean" "merged branch" "reclaiming clean worktree
   || fail "clean worktree: its session records survived the reclaim"
 [ -e "$fleet_home/session-records/$other_key.record" ] \
   || fail "clean worktree: another worktree's session record was removed"
-[ ! -e "$fleet_home/scratch/$rec_key" ] \
-  || fail "clean worktree: its scratch root survived the reclaim, read-only directory and all"
+if [ "$ro_rec" -eq 1 ]; then
+  [ ! -e "$fleet_home/scratch/$rec_key" ] \
+    || fail "clean worktree: its scratch root survived the reclaim, read-only directory and all"
+else
+  echo "skip: clean worktree: the running user still writes the scratch root's ro directory under mode 500"
+fi
 [ -f "$tmp/scratch-outside/keep" ] \
   || fail "clean worktree: the reclaim followed a link out of the scratch root"
 [ -d "$fleet_home/scratch/$other_key" ] \
   || fail "clean worktree: another worktree's scratch root was removed"
-[ ! -e "$new_root" ] && [ ! -e "$new_sess" ] && [ ! -e "$fleet_home/scratch/$rec_key.tmpdir" ] \
-  && [ ! -e "$fleet_home/scratch/$rec_key-$sess_key.tmpdir" ] \
-  || fail "clean worktree: its short scratch roots or their records survived the reclaim"
+if [ "$ro_new" -eq 1 ]; then
+  [ ! -e "$new_root" ] && [ ! -e "$new_sess" ] && [ ! -e "$fleet_home/scratch/$rec_key.tmpdir" ] \
+    && [ ! -e "$fleet_home/scratch/$rec_key-$sess_key.tmpdir" ] \
+    || fail "clean worktree: its short scratch roots or their records survived the reclaim"
+else
+  echo "skip: clean worktree: the running user still writes $new_root/ro under mode 500"
+fi
 [ -d "$new_other" ] && [ -f "$fleet_home/scratch/$other_key.tmpdir" ] \
   || fail "clean worktree: another worktree's short scratch root was removed"
 rows=$(audit_rows --mechanism worktree-cleanup)
