@@ -1143,7 +1143,12 @@ cmd_launch() {
       pr=$?
       case $pr in
         0) ;;
-        2) refuse "refusing to launch $name: the allocation seam refused the tier override (allocation-apply exit 2, see above)" 4 ;;
+        2)
+          if [ -n "$ovr_model$ovr_effort" ]; then
+            refuse "refusing to launch $name: the allocation seam refused the tier override (allocation-apply exit 2, see above)" 4
+          fi
+          refuse "refusing to launch $name: no launch tier resolves at the $K_KEY key (allocation-apply exit $pr)" 4
+          ;;
         3) refuse "refusing to launch $name: the admission gate withholds it (allocation-apply exit 3)" 4 ;;
         5) refuse "refusing to launch $name: the allocation seam is a broken install (allocation-apply exit 5)" 4 ;;
         *) refuse "refusing to launch $name: no launch tier resolves at the $K_KEY key (allocation-apply exit $pr)" 4 ;;
@@ -1156,10 +1161,10 @@ cmd_launch() {
       plan_field() { printf '%s\n' "$plan" | awk -F '\t' -v k="$1" '$1 == k { print $2; exit }'; }
       # A tier the caller asked for is applied or refused, never lowered quietly.
       if [ -n "$ovr_model" ] && [ "$model" != "$ovr_model" ]; then
-        refuse "refusing to launch $name: --model $ovr_model would run at $model (the $(plan_field rung) rung's usage clamps apply); pass --reserved to exempt a unit the operator chose" 4
+        refuse "refusing to launch $name: --model $ovr_model would run at $model, not as asked (rung $(plan_field rung)); --reserved exempts a unit from the usage clamps" 4
       fi
       if [ -n "$ovr_effort" ] && [ "$effort" != "$ovr_effort" ]; then
-        refuse "refusing to launch $name: --effort $ovr_effort would run at $effort (the $(plan_field rung) rung's usage clamps apply); pass --reserved to exempt a unit the operator chose" 4
+        refuse "refusing to launch $name: --effort $ovr_effort would run at $effort, not as asked (rung $(plan_field rung)); --reserved exempts a unit from the usage clamps" 4
       fi
       pm=$(plan_field proposed_model)
       pe=$(plan_field proposed_effort)
@@ -1714,9 +1719,11 @@ cmd_list() {
       printf '%s\n' "$me: skipping the registry row $(sanitize_printable "${f##*/}"): its format field is not $FORMAT" >&2
       continue
     fi
+    l_tier=$(row_get "$f" tier)
+    l_reserved=$(row_get "$f" reserved)
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${f##*/}" "$(row_get "$f" program)" "$(row_get "$f" kind)" \
       "$(row_get "$f" scope)" "$(row_get "$f" backend)" "$(row_get "$f" launched)" \
-      "$(row_get "$f" tier)" "$(row_get "$f" reserved)"
+      "${l_tier:--}" "${l_reserved:--}"
   done
 }
 
