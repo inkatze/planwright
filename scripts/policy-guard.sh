@@ -1826,7 +1826,9 @@ kickoff_git_reads() {
             --patch* | --cc | --stat* | --numstat | --shortstat | --word-diff*) patchy=1 ;;
             --*) ;;
             -*O*) return 1 ;;
-            -*[pucGS]*) patchy=1 ;;
+            -*[pucGSL]*) patchy=1 ;;
+            # An option word never names a blob, so a colon in it is no <rev>:<path>.
+            -*) ;;
             *:*) colon=1 ;;
           esac
           j=$((j + 1))
@@ -1996,7 +1998,7 @@ kickoff_var_run() {
 # expand to the script's name through a glob or an expansion that sits inside
 # it (scripts/kick*ff-spec-push.sh, scripts/kic${E}koff-spec-push.sh, and
 # scripts/k*.sh), with at least one literal character besides the .sh, or a
-# name of ? marks alone, so that a name made of stars alone (scripts/*.sh,
+# name of ? marks (with or without stars) alone, so that a name made of stars alone (scripts/*.sh,
 # which also matches every other script) stays an ordinary glob. Expansions and brace groups
 # (scripts/kick{off,x}-spec-push.sh) read as a wildcard.
 kickoff_fuzzy_name() {
@@ -2014,8 +2016,9 @@ kickoff_fuzzy_name() {
     case $p in *[\*\?\[]*) ;; *) continue ;; esac
     lit=${p//[\*\?]/}
     lit=${lit%.sh}
-    # No literal at all passes only with a star: a run of ? is one name's length.
-    [ "${#lit}" -ge 1 ] || case $p in *'*'*) continue ;; esac
+    # Stars alone (scripts/*.sh) stay an ordinary glob; any ? beside them
+    # (scripts/?*.sh) still narrows the name enough to be tested.
+    [ "${#lit}" -ge 1 ] || [[ ${p%.sh} == *[!\*]* ]] || continue
     # shellcheck disable=SC2053 # the glob is the point
     [[ $KICK_FILE == $p || $KICK_NAME == $p ]] && return 0
   done

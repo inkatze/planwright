@@ -393,6 +393,11 @@ for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-sp
   'bash scripts/k*.sh demo' \
   'bash scripts/k*h demo' \
   'sh scripts/k?*.sh demo' \
+  'bash scripts/?*.sh demo' \
+  'bash scripts/*?.sh demo' \
+  'bash scripts/?*? demo' \
+  'env scripts/?*.sh demo' \
+  'cp scripts/?*.sh copy.sh' \
   'bash scripts/k${E}.sh demo' \
   'bash scripts/${E}k*.sh demo' \
   'env scripts/*k*.sh demo' \
@@ -441,6 +446,8 @@ for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git cat-file --textconv HEAD:a scripts/kickoff-spec-push.sh' \
   'git grep --textconv foo -- scripts/kickoff-spec-push.sh' \
   'git blame scripts/kickoff-spec-push.sh' \
+  'git show -L1:x scripts/kickoff-spec-push.sh' \
+  'git show -L1:x HEAD:scripts/kickoff-spec-push.sh' \
   'git annotate scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
