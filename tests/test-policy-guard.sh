@@ -1431,5 +1431,94 @@ E' \
   done
 done
 
+# Four shapes that ran the script past the matching above. Each is refused, and
+# the nearest forms that run nothing still defer.
+echo "# the kickoff push: a line splice, a variable, a short glob, a persisted config"
+SPL=$'\\\n'
+for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-spec-push.sh" \
+  "cat scripts/kickoff-spec-push.sh; bash scripts/kickoff-spec-${SPL}push.sh demo" \
+  "git add scripts/kickoff-spec-push.sh && sh scripts/kick${SPL}off-spec-push.sh demo" \
+  "cat scripts/kickoff-spec-push.sh | grep -c x; bash scripts/kickoff-${SPL}spec-push.sh demo" \
+  "bash scripts/kickoff-spec-${SPL}push.sh demo" \
+  "printf -v x 'scripts/kickoff-spec-push.sh'; eval \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; eval \"\$x\"" \
+  "printf -vx 'scripts/kickoff-spec-push.sh demo'; eval \$x" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; true; eval \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo' && bash -c \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; source \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; . \"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; env \$x" \
+  "bash -c \"scripts/kickoff-spec-${SPL}push.sh demo\"; cat scripts/kickoff-spec-push.sh" \
+  "cat scripts/kickoff-spec-push.sh; sh -c \"scripts/kickoff-spec-${SPL}push.sh demo\"" \
+  "cat scripts/kickoff-spec-push.sh; eval \"scripts/kickoff-${SPL}spec-push.sh demo\"" \
+  'bash scripts/k*.sh demo' \
+  'bash scripts/k*h demo' \
+  'sh scripts/k?*.sh demo' \
+  'bash scripts/k${E}.sh demo' \
+  'bash scripts/${E}k*.sh demo' \
+  'env scripts/*k*.sh demo' \
+  'exec scripts/k*.sh demo' \
+  'cp scripts/k*.sh copy.sh' \
+  'git diff --ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff --ext scripts/kickoff-spec-push.sh' \
+  'git log -p --ext-diff -- scripts/kickoff-spec-push.sh' \
+  'git show --ext-diff HEAD:scripts/kickoff-spec-push.sh' \
+  'git config diff.external sh; git diff scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect deny "[$tier, task-1] a hidden run of the kickoff push is refused: $cmd"
+  done
+done
+EXTD="$SANDBOX/extdiff"
+clone_on "$EXTD" planwright/demo/task-1 1
+gitq -C "$EXTD" config diff.external sh
+for cmd in 'git diff scripts/kickoff-spec-push.sh' \
+  'git diff --stat -- scripts/kickoff-spec-push.sh' \
+  'git diff --no-ext-diff --ext-diff scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$EXTD" "$EXTD"
+    expect deny "[$tier, task-1] a git diff with diff.external set runs it on the file: $cmd"
+  done
+done
+PAGD="$SANDBOX/pager"
+clone_on "$PAGD" planwright/demo/task-1 1
+gitq -C "$PAGD" config core.pager sh
+gitq -C "$PAGD" config diff.algorithm patience
+for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
+  "cat scripts/kickoff-spec-push.sh; echo a${SPL}b" \
+  "git add scripts/kickoff-spec-push.sh; ls ${SPL}-l" \
+  "git diff scripts/kickoff-spec-push.sh; echo a${SPL}b" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; echo \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; cat \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; ls; true" \
+  "cat scripts/kickoff-spec-push.sh; bash -c \"echo a${SPL}b\"" \
+  "printf -v x 'other.sh'; eval \"\$x\"" \
+  "printf -v x 'scripts/other.sh' && bash -c \"\$x\"" \
+  "cat scripts/kickoff-spec-push.sh; eval ls" \
+  'bash scripts/t*.sh' \
+  'bash tests/test-*.sh' \
+  'ls scripts/k*.sh' \
+  'cat scripts/k*.sh' \
+  'shellcheck scripts/k*.sh' \
+  'git add scripts/k*.sh' \
+  'for f in scripts/*.sh; do shellcheck "$f"; done' \
+  'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff scripts/other.sh' \
+  'git diff --ext-diff scripts/other.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect defer "[$tier, task-1] a near miss of the hidden runs defers: $cmd"
+  done
+done
+for cmd in 'git diff scripts/kickoff-spec-push.sh' \
+  'git log -p -- scripts/kickoff-spec-push.sh' \
+  'git diff --stat scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$PAGD" "$PAGD"
+    expect defer "[$tier, task-1] core.pager and an unrelated key never run without a terminal, so a read defers: $cmd"
+  done
+done
+
 no_gh_calls
 finish
