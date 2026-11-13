@@ -1,1 +1,1 @@
-match ^mc-stall: usage: mc-stall\.sh classify --program <p> \[--now <epoch>\] \[--pane <file>\] <name> \| scan --program <p> \[--now <epoch>\]$
+match ^mc-stall: usage: mc-stall\.sh classify --program <p> \[--now <epoch>\] \[--pane <file>\] <name> \| scan --program <p> \[--now <epoch>\] \| answer --program <p> \[--now <epoch>\] <name> <prompt id> \(--standing <id> \| --operator-answer <id>\)$
