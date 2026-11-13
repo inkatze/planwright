@@ -15,7 +15,7 @@ failures=0
 
 check() {
   # check <label> <file> <fixed string>
-  if grep -qF -- "$3" "$2"; then
+  if tr '\n' ' ' <"$2" | grep -qF -- "$3"; then
     echo "ok: $1"
   else
     echo "FAIL: $1 ($2 lacks: $3)" >&2
