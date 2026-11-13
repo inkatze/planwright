@@ -270,10 +270,12 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
   # chmod_args(line) sets cm_mode and cm_target from a chmod, or a mkdir
   # given a mode, on the line; returns 0 when there is neither. cm_restore is
   # 1 for a chmod, which can close an open fixture, and 0 for a mkdir.
-  function chmod_args(line,   rest, n, i, t, mk) {
+  function chmod_args(line,   rest, n, i, t, mk, ml) {
     cm_mode = ""; cm_target = ""; cm_restore = 1
-    if (index(line, "chmod") && match(mask(line), /(^|[;&|(` \t])chmod[ \t]+/)) mk = 0
-    else if (index(line, "mkdir") && index(line, "-") && match(mask(line), /(^|[;&|(` \t])mkdir[ \t]+/)) { mk = 1; cm_restore = 0 }
+    ml = (index(line, "chmod") || (index(line, "mkdir") && index(line, "-"))) ? mask(line) : ""
+    sub(/(^|[ \t])#.*$/, "", ml)
+    if (index(line, "chmod") && match(ml, /(^|[;&|(` \t])chmod[ \t]+/)) mk = 0
+    else if (index(line, "mkdir") && index(line, "-") && match(ml, /(^|[;&|(` \t])mkdir[ \t]+/)) { mk = 1; cm_restore = 0 }
     else return 0
     rest = substr(line, RSTART + RLENGTH)
     n = split(rest, tok, /[ \t]+/)
@@ -281,9 +283,9 @@ HTH_PATTERN="$pattern" HTH_LIB="$lib" awk -v listfile="$work/list" '
       t = tok[i]
       if (t == "") continue
       if (mk) {
-        if (t == "-m" || t == "--mode" || t ~ /^-[A-Za-z]*m$/) { cm_mode = tok[++i]; continue }
-        if (t ~ /^-[A-Za-z]*m./) { sub(/^-[A-Za-z]*m/, "", t); cm_mode = t; continue }
-        if (t ~ /^--mode=/) { cm_mode = substr(t, 8); continue }
+        if (t == "-m" || t == "--mode" || t ~ /^-[A-Za-z]*m$/) { cm_mode = tok[++i]; gsub(/["\047]/, "", cm_mode); continue }
+        if (t ~ /^-[A-Za-z]*m./) { sub(/^-[A-Za-z]*m/, "", t); gsub(/["\047]/, "", t); cm_mode = t; continue }
+        if (t ~ /^--mode=/) { cm_mode = substr(t, 8); gsub(/["\047]/, "", cm_mode); continue }
         if (t ~ /^-/) continue
         if (cm_mode == "") return 0
       } else {

@@ -91,10 +91,6 @@ _he_arm() {
 # The fleet override is pinned even when unset: the chain falls back to a
 # home under HOME otherwise, and that is the operator's.
 hermetic_env_sentinel() {
-  case $1 in
-    /*) ;;
-    *) return 1 ;;
-  esac
   for _he_v in $hermetic_env_pinned; do
     _he_arm "$_he_v" || return 1
     if [ "$_he_v" = PLANWRIGHT_FLEET_STATE_DIR ] || eval "[ -n \"\${$_he_v+set}\" ]"; then

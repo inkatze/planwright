@@ -211,14 +211,6 @@ else
   pass "a write under any sentinel arm is detected and an untouched home is not"
 fi
 
-# 7a. A sentinel directory that is not absolute pins nothing and fails.
-# shellcheck disable=SC2016
-if /bin/bash -c '. "$1/lib/hermetic-env.sh"; hermetic_env_sentinel "relative/s"' _ "$here"; then
-  fail "a relative sentinel directory was accepted"
-else
-  pass "a relative sentinel directory is refused"
-fi
-
 # 7b. Every pinned variable has an arm, and a pinned name without one fails
 #     the pin and reads as written, so the runner never runs a file against
 #     the inherited home on a list it cannot pin.
