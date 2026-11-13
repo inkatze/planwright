@@ -113,6 +113,57 @@ if (cd "$clone" && "$SCRIPT") >/dev/null 2>&1; then
 fi
 pass "a missing or extra argument is refused"
 
+# --- the adopter's pre-push hook runs under the caller's locale ----------------
+# The script parses under LC_ALL=C, but the hook is the adopter's: a C locale
+# there broke UTF-8 file names (Elixir fell back to latin1).
+
+loc="$tmp/loc"
+g clone -q "$origin" "$loc"
+g -C "$loc" switch -q -c planwright/loc/spec
+hooklog="$tmp/hook-locale"
+cat >"$loc/.git/hooks/pre-push" <<HOOK
+#!/bin/sh
+l=\${LC_ALL:-\${LC_CTYPE:-\${LANG:-C}}}
+printf '%s\n' "\$l" >"$hooklog"
+case \$l in
+  *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) exit 0 ;;
+  *) echo "pre-push: non-UTF-8 locale: \$l" >&2; exit 1 ;;
+esac
+HOOK
+chmod +x "$loc/.git/hooks/pre-push"
+
+loc_push() {
+  g -C "$loc" commit -q --allow-empty -m "loc commit"
+  rm -f "$hooklog"
+  (cd "$loc" && env "$@" "$SCRIPT" loc) >"$tmp/loc.out" 2>&1
+}
+
+loc_push -u LC_ALL -u LC_CTYPE LANG=C.UTF-8 \
+  || fail "a UTF-8 LANG from the caller did not reach the pre-push hook: $(cat "$tmp/loc.out")"
+[ "$(cat "$hooklog")" = C.UTF-8 ] || fail "the hook saw '$(cat "$hooklog")', not the caller's LANG"
+pass "a caller with only LANG set gives the pre-push hook its own locale, not C"
+
+loc_push -u LANG -u LC_CTYPE LC_ALL=de_DE.UTF-8 \
+  || fail "a UTF-8 LC_ALL from the caller did not reach the pre-push hook: $(cat "$tmp/loc.out")"
+[ "$(cat "$hooklog")" = de_DE.UTF-8 ] || fail "the hook saw '$(cat "$hooklog")', not the caller's LC_ALL"
+pass "a caller's LC_ALL is what the pre-push hook sees"
+
+loc_push -u LC_ALL -u LANG -u LC_CTYPE \
+  || fail "a caller with no locale got a non-UTF-8 pre-push hook: $(cat "$tmp/loc.out")"
+[ "$(cat "$hooklog")" = C.UTF-8 ] || fail "the hook saw '$(cat "$hooklog")', not the C.UTF-8 default"
+pass "a caller with no locale gives the pre-push hook C.UTF-8"
+
+# Near miss: the script's own parsing stays byte-strict under a non-C caller.
+for spec in '' 'Demo' 'démo' '../demo' 'demo/x' '-f' 'de mo' flight; do
+  if (cd "$loc" && env LC_ALL=en_US.UTF-8 "$SCRIPT" "$spec") >/dev/null 2>&1; then
+    fail "a spec name outside the grammar ran under a UTF-8 caller (\"$spec\")"
+  fi
+done
+if (cd "$clone" && env LC_ALL=en_US.UTF-8 "$SCRIPT" demo) >/dev/null 2>&1; then
+  fail "a run from the wrong branch succeeded under a UTF-8 caller"
+fi
+pass "spec-name and branch checks refuse the same under a non-C caller locale"
+
 # --- the script never names a force --------------------------------------------
 
 if grep -Eq -- '--force|--mirror|--delete|push -[a-zA-Z]*f|[[:space:]]\+[a-zA-Z]|--all|--tags' "$SCRIPT"; then
