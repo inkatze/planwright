@@ -35,10 +35,10 @@ expect() { # expect <label> <json>
   ok "$1"
 }
 
-expect "the shipped default is window-lock alone" '["window-lock"]'
+expect "the shipped default is window-lock alone" '["release-window/window-lock"]'
 
-printf 'ready_base_state_checks: window-lock release-note\n' >"$tmp/adopter/planwright.yml"
-expect "an adopter list is honored" '["window-lock","release-note"]'
+printf 'ready_base_state_checks: release-window/window-lock ci/release-note\n' >"$tmp/adopter/planwright.yml"
+expect "an adopter list is honored" '["release-window/window-lock","ci/release-note"]'
 
 printf 'ready_base_state_checks:\n' >"$tmp/adopter/planwright.yml"
 expect "an empty adopter list excludes nothing" '[]'
@@ -49,7 +49,7 @@ expect "a malformed list excludes nothing" '[]'
 rm -f "$tmp/adopter/planwright.yml"
 printf 'ready_base_state_checks: sneaky\n' >"$tmp/repo/.claude/planwright.yml"
 printf 'ready_base_state_checks: sneaky\n' >"$tmp/repo/.claude/planwright.local.yml"
-expect "a repo-side value is ignored, since a session can edit it" '["window-lock"]'
+expect "a repo-side value is ignored, since a session can edit it" '["release-window/window-lock"]'
 
 mkdir -p "$tmp/inst/scripts" && cp "$BSC" "$here/../scripts/resolve-policy-knob.sh" "$here/../scripts/resolve-config-knob.sh" "$here/../scripts/echo-safety.sh" "$tmp/inst/scripts/"
 got=$(PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" /bin/sh "$tmp/inst/scripts/base-state-checks.sh") || fail "an unreadable core: exited non-zero"
@@ -57,6 +57,6 @@ got=$(PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" PLANWRIGHT_REPO_ROOT=none PLANWR
 ok "a list that cannot be read excludes nothing"
 printf 'ready_base_state_checks: widened\n' >"$tmp/envcore.yml"
 got=$(PLANWRIGHT_CONFIG_DEFAULTS="$tmp/envcore.yml" run) || fail "env override: exited non-zero"
-[ "$got" = '["window-lock"]' ] || fail "an inherited PLANWRIGHT_CONFIG_DEFAULTS widened the list: $got"
+[ "$got" = '["release-window/window-lock"]' ] || fail "an inherited PLANWRIGHT_CONFIG_DEFAULTS widened the list: $got"
 ok "an environment core override does not widen the list"
 echo "all base-state-checks tests passed"

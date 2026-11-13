@@ -18,10 +18,10 @@ def check_started: if (.status // "COMPLETED") != "COMPLETED" then "~"
 def check_passed: if .context != null then .state == "SUCCESS"
   else (.status // "COMPLETED") == "COMPLETED" and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED") end;
 
-# A check run named in $base_state (scripts/base-state-checks.sh) describes the
+# A check run whose "<workflow>/<name>" is in $base_state (scripts/base-state-checks.sh) describes the
 # base branch, not the pull request, so it is no flip condition. The caller
 # passes the array with --argjson base_state; a status context is never one.
-def base_state_check: .context == null and ((.name // "") as $n | any($base_state[]; . == $n));
+def base_state_check: .context == null and (((.workflowName // "") + "/" + (.name // "")) as $id | any($base_state[]; . == $id));
 
 # An array of rollup entries in, the latest run of each context out, in the
 # order the rollup listed them. A check run naming no workflow (one an app

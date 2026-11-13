@@ -1033,6 +1033,10 @@ run_checks "checks (default): a red window-lock beside passing checks defers" de
 run_checks "checks (default): a red window-lock beside another red check denies" deny \
   "$WL_RED"',{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a red window-lock alone is no passed check" deny "$WL_RED" 'no passed check'
+run_checks "checks (default): a window-lock from another workflow still counts" deny \
+  "$WL_OK"',{"name":"window-lock","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'window-lock is FAILURE'
+run_checks "checks (default): a window-lock naming no workflow still counts" deny \
+  "$WL_OK"',{"name":"window-lock","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'window-lock is FAILURE'
 WL_ADOPTER="$SANDBOX/adopter-wl"
 mkdir -p "$WL_ADOPTER"
 printf 'ready_base_state_checks: other-lock\n' >"$WL_ADOPTER/planwright.yml"
