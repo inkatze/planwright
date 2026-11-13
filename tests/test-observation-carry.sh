@@ -927,6 +927,37 @@ c21() {
   echo "ok c21: a legacy mkdir directory lock is contention, never removed under a running carry"
 }
 
+# ---------------------------------------------------------------------------
+# Case 22 — the chore-branch push runs the adopter's pre-push hook under the
+# caller's locale, not the script's LC_ALL=C (a C locale breaks UTF-8 file
+# names in the hooked tools).
+# ---------------------------------------------------------------------------
+c22() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c22.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  repo="$tmp/repo"
+  seed_repo "$repo"
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  add_frags "$repo" tower bbbb2222
+  # shellcheck disable=SC2016 # literal hook source, expanded by the hook
+  printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
+    >"$repo/.git/hooks/pre-push"
+  chmod +x "$repo/.git/hooks/pre-push"
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+
+  out=$(
+    unset LC_ALL LC_CTYPE
+    LANG=C.UTF-8
+    export LANG
+    run_carry "$gh" "$tmp/ghstate" "$repo" 2>"$tmp/err"
+  ) || fail "c22: carry exit $? — $(cat "$tmp/err")"
+  [ "$(tag_val "$out" carry)" = created ] || fail "c22: a UTF-8 pre-push hook blocked the carry under a UTF-8 caller: $out"
+  origin_entries "$repo" "planwright/chore/observations" | grep -qx "2026-07-20-tower-bbbb2222.md" \
+    || fail "c22: the chore branch on origin lacks the carried fragment"
+  echo "ok c22: the chore-branch push's hook runs under the caller's locale"
+}
+
 c1
 c2
 c3
@@ -948,4 +979,5 @@ c18
 c19
 c20
 c21
+c22
 echo "ALL PASS: observation-carry"

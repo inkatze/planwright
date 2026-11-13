@@ -421,6 +421,30 @@ w1() {
   echo "ok w1: /execute-task routes the sync's park, repair, and resolve outcomes"
 }
 
+# ---------------------------------------------------------------------------
+# The resolution commit runs the adopter's commit hooks under the caller's
+# locale, not the helper's LC_ALL=C (a C locale breaks UTF-8 file names in the
+# hooked tools).
+# ---------------------------------------------------------------------------
+h1() {
+  fixture h1
+  set_knobs 'worker_merge_conflict_policy: resolve'
+  advance_main shared.txt "main side"
+  run_sync "$T/worker"
+  [ "$RC" -eq 8 ] || fail "h1: expected exit 8 (conflict left for resolution), got $RC: $ERR"
+  printf 'resolved\n' >"$T/worker/shared.txt"
+  gitc "$T/worker" add shared.txt
+  # shellcheck disable=SC2016 # literal hook source, expanded by the hook
+  printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
+    >"$T/worker/.git/hooks/commit-msg"
+  chmod +x "$T/worker/.git/hooks/commit-msg"
+  RC=0
+  OUT=$(env -u LC_ALL -u LC_CTYPE LANG=C.UTF-8 "$SYNC" --commit-resolution demo/1 "$T/worker" 2>"$SANDBOX/err") || RC=$?
+  ERR=$(cat "$SANDBOX/err")
+  [ "$RC" -eq 0 ] || fail "h1: a UTF-8 caller's resolution commit was refused by a UTF-8-asserting hook ($RC): $ERR"
+  echo "ok h1: the resolution commit's hooks run under the caller's locale"
+}
+
 r1
 r2
 r3
@@ -428,6 +452,7 @@ r4
 r5
 r6
 r7
+h1
 w1
 
 echo "PASS: test-converge-sync-resolve.sh"
