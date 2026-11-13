@@ -264,7 +264,7 @@ OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha
 expect_out "a request that just arrived is announced as pending-prompt" "announced${tab}pending-prompt${tab}cp-fresh-a"
 expect_no_out "a burst's second arrival is folded into that one event" "announced${tab}pending-prompt${tab}cp-fresh-b"
 mc_run mc-event.sh list --program alpha
-expect_out "the batch lands in the event store, naming both workers" "pending-prompt${tab}cp-fresh-a${tab}2 requests on stream-json workers cp-fresh-a, cp-fresh-b arrived together"
+expect_out "the batch lands in the event store, naming both workers" "pending-prompt${tab}cp-fresh-a${tab}2 requests waiting on a decision: cp-fresh-a bbbb2222-bbbb-cccc-dddd-eeee00000001; cp-fresh-b bbbb2222-bbbb-cccc-dddd-eeee00000002"
 OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7020 2>/dev/null)
 expect_no_out "and the burst is not announced again at the next pass" "announced${tab}pending-prompt${tab}cp-fresh-a"
 rm -rf "$fleet/streamjson/cp-fresh-a" "$fleet/streamjson/cp-fresh-b"
@@ -296,6 +296,77 @@ pp_series cp-series 3 8000 7850
 OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 8010 2>/dev/null)
 expect_out "and the third raises its own wake" "announced${tab}pending-prompt${tab}cp-series"
 rm -rf "$fleet/streamjson/cp-series"
+
+# A pending-prompt event names every waiting request, worker and request id.
+# A repeat ask from a worker whose earlier event mission control already read
+# raises a new event naming it; an answered request is never named again.
+pp_ask() { # pp_ask <worker> <req-suffix> <received> pending|answered [<answered at>]
+  mkdir -p "$fleet/streamjson/$1"
+  printf 'cccc3333-bbbb-cccc-dddd-eeee0000000%s\tpermission\t%s\t%s\t%s\n' "$2" "$3" "$4" "${5:-}" >>"$fleet/streamjson/$1/journal"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
+  printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
+}
+pp_watch() { # pp_watch <now>
+  OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now "$1" 2>/dev/null)
+}
+pp_events() { # the pending-prompt events of one worker, one line each
+  mc_run mc-event.sh list --program alpha
+  printf '%s\n' "$OUT" | awk -F '\t' -v w="$1" '$3 == "pending-prompt" && $4 == w'
+}
+rm -f "$fleet/streamjson/cp-rep/journal"
+pp_ask cp-rep 1 9000 pending
+pp_watch 9010
+expect_out "a worker's first ask raises an event" "announced${tab}pending-prompt${tab}cp-rep"
+ev_a=$(pp_events cp-rep | awk -F '\t' 'NR == 1 { print $1 }')
+case $(pp_events cp-rep) in
+  *"cp-rep cccc3333-bbbb-cccc-dddd-eeee00000001"*) ok "the event names the worker and the request id" ;;
+  *) fail "the first event does not name the request: $(pp_events cp-rep)" ;;
+esac
+mc_run mc-event.sh mark --program alpha --target mc-alpha submitted "$ev_a"
+expect_rc "mission control reads the event" 0
+rm -f "$fleet/streamjson/cp-rep/journal"
+pp_ask cp-rep 1 9000 answered 9020
+pp_ask cp-rep 2 9030 pending
+pp_watch 9040
+expect_out "a repeat ask after a consumed event raises a new event" "announced${tab}pending-prompt${tab}cp-rep"
+ev_b=$(pp_events cp-rep | awk -F '\t' -v a="$ev_a" '$1 != a { print $1 }' | tail -n 1)
+[ -n "$ev_b" ] && ok "and it is a new event, not the consumed one" || fail "no new event past $ev_a"
+case $(pp_events cp-rep | awk -F '\t' -v b="$ev_b" '$1 == b') in
+  *"cccc3333-bbbb-cccc-dddd-eeee00000002"*) ok "the new event names the second request id" ;;
+  *) fail "the new event does not name request 2: $(pp_events cp-rep)" ;;
+esac
+case $(pp_events cp-rep | awk -F '\t' -v b="$ev_b" '$1 == b') in
+  *"eeee00000001"*) fail "the new event names the answered request" ;;
+  *) ok "an answered request is not named again" ;;
+esac
+rm -rf "$fleet/streamjson/cp-rep"
+
+# An earlier ask still waiting is named again beside a new one, so no waiting
+# request is left out of the event that wakes mission control.
+pp_ask cp-two 1 9100 pending
+pp_watch 9110
+ev_c=$(pp_events cp-two | awk -F '\t' 'NR == 1 { print $1 }')
+mc_run mc-event.sh mark --program alpha --target mc-alpha submitted "$ev_c"
+pp_ask cp-two 2 9120 pending
+pp_watch 9130
+case $(pp_events cp-two | awk -F '\t' -v c="$ev_c" '$1 != c') in
+  *"eeee00000001"*"eeee00000002"* | *"eeee00000002"*"eeee00000001"*) ok "a new event names every request still waiting" ;;
+  *) fail "the new event leaves a waiting request out: $(pp_events cp-two)" ;;
+esac
+rm -rf "$fleet/streamjson/cp-two"
+
+# Two unread asks from different workers share one event naming both ids.
+pp_ask cp-ua 1 9200 pending
+pp_ask cp-ub 2 9205 pending
+pp_watch 9210
+ev_n=$(pp_events cp-ua | awk 'END { print NR }')
+case $(pp_events cp-ua) in
+  *"cp-ua cccc3333-bbbb-cccc-dddd-eeee00000001"*"cp-ub cccc3333-bbbb-cccc-dddd-eeee00000002"*) ok "two unread asks share one event naming both workers and ids" ;;
+  *) fail "the shared event does not name both requests: $(pp_events cp-ua)" ;;
+esac
+[ "$ev_n" = 1 ] && ok "and it is one event" || fail "expected one event, saw $ev_n"
+rm -rf "$fleet/streamjson/cp-ua" "$fleet/streamjson/cp-ub"
 
 # A reviewer the program launched, in a repository of its own, is woken the
 # same as a worker: the sweep does not key on kind or repository.
