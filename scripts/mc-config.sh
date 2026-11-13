@@ -145,7 +145,9 @@ Usage:
             a value (`mission_control_stall_window at 10m`), or a rule
             that says mission control hands over at a context percent,
             which governs mission_control_handover_context. A rule with no
-            unit is compared with the number alone. The operator decides
+            unit is compared with the number alone. A rule saying to run
+            to 100% usage or that there are no usage stops, against a
+            mission_control_usage_hold below 100, is one too. The operator decides
             whether the rule or the knob is right; doctor changes neither
         temporary<TAB><file><TAB><knob><TAB><reason><TAB><comment><TAB><effective value><TAB><note>
             an adopter or machine-local setting whose comment

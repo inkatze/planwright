@@ -72,6 +72,11 @@ budget reads hold-dispatch
 (scripts/mc-budget.sh), and the next units go to the queue instead. It is
 kept in <runtime>/usage/hold, the probe in <runtime>/usage/probe.
 
+A hold at a percent below 100 that a standing rule contradicts (one saying to
+run to 100% usage or that there are no usage stops) raises a
+usage-hold-rule-conflict event, a failure, at every watch for as long as the
+hold lasts, one per such rule.
+
 THE QUEUE is <runtime>/usage/queue/<id>/, one directory per entry holding
 its `entry` record and a copy of its brief, so it survives every session.
 An entry's trigger is the usage-reset event: it drains at the next reset,
