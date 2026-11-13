@@ -43,7 +43,11 @@
 # grammar lib's canonical sanitizer, and a `--baseline` value is screened
 # against the ref grammar and rev-parse-validated before any use.
 #
-# Usage: check-anchor-freshness.sh [--baseline <ref>] [<specs-root>]
+# Usage: check-anchor-freshness.sh [--baseline <ref>] [--mismatches] [<specs-root>]
+#   --mismatches   one bundle's recompute arm only, for spec-validate.sh:
+#                  prints `recorded<TAB>recomputed` for an unparked stale
+#                  anchor and nothing else; <specs-root> may then be a single
+#                  bundle directory (any directory holding requirements.md).
 #   <specs-root>   defaults to the spec root the working directory resolves
 #                  (scripts/resolve-root.sh spec; the CI entry point).
 #   --baseline     the pairing check's comparison ref; defaults to origin/main
@@ -89,15 +93,20 @@ fi
 . "$spec_parse_sh" || exit 2
 
 usage() {
-  echo "usage: check-anchor-freshness.sh [--baseline <ref>] [<specs-root>]" >&2
+  echo "usage: check-anchor-freshness.sh [--baseline <ref>] [--mismatches] [<specs-root-or-bundle>]" >&2
   exit 2
 }
 
 baseline=origin/main
 explicit_baseline=0
+mismatch_only=0
 specs_root=
 while [ $# -gt 0 ]; do
   case $1 in
+    --mismatches)
+      mismatch_only=1
+      shift
+      ;;
     --baseline)
       [ $# -ge 2 ] || usage
       baseline=$2
@@ -358,6 +367,7 @@ seen=0
 record() {
   # $1 verdict, $2 bundle, $3 detail. Bundle names and parsed content are
   # sanitized: both are untrusted input headed for a terminal (REQ-D1.5).
+  [ "$mismatch_only" -eq 0 ] || return 0
   printf 'check-anchor-freshness: %-6s %s — %s\n' \
     "$1" "$(spec_parse_printable "$2")" "$3"
 }
@@ -385,7 +395,14 @@ report_recompute() {
   fi
 }
 
-for dir in "$specs_root"/*/; do
+# A directory holding requirements.md is one bundle, checked on its own (the
+# spec validator's entry); anything else is a specs root walked whole.
+if [ -f "$specs_root/requirements.md" ]; then
+  set -- "$specs_root/"
+else
+  set -- "$specs_root"/*/
+fi
+for dir in "$@"; do
   name=${dir%/}
   name=${name##*/}
   # Underscore-prefixed directories are reserved (the accumulators and the
@@ -501,6 +518,12 @@ for dir in "$specs_root"/*/; do
         if [ "$recorded" = "$got" ]; then
           say_ok "$name" "anchor $recorded"
         else
+          # --mismatches is the validator's view: only an unparked stale anchor,
+          # as `recorded<TAB>recomputed`, the same two values the table prints.
+          if [ "$mismatch_only" -eq 1 ]; then
+            [ "$parked" = yes ] || printf '%s\t%s\n' \
+              "$(spec_parse_printable "$recorded")" "$(spec_parse_printable "$got")"
+          fi
           report_recompute "$name" "$parked" \
             "anchor mismatch: recorded $recorded, recomputed $got"
         fi
@@ -522,6 +545,7 @@ for dir in "$specs_root"/*/; do
 
   # --- changelog pairing (REQ-D1.2) ---
   [ "$pairing" = on ] || continue
+  [ "$mismatch_only" -eq 0 ] || continue
   case $dir in
     "$git_top"/*) rel=${dir#"$git_top"/} ;;
     *) continue ;;
@@ -572,6 +596,8 @@ if [ "$seen" -eq 0 ]; then
   printf '%s\n' "check-anchor-freshness: no spec bundle found under $(spec_parse_printable "$specs_root")" >&2
   exit 2
 fi
+
+[ "$mismatch_only" -eq 0 ] || exit 0
 
 if [ "$pairing" = off ]; then
   printf '%s\n' "check-anchor-freshness: note: $pairing_note — pairing check skipped for every bundle."

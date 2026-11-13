@@ -368,6 +368,30 @@ run 0 "gc/bsd-mktemp" env PATH="$bsdbin:$PATH" \
   "$FF" gc --checkout "$A" --spec demo 4 >/dev/null
 [ -z "$(origin_refs)" ] || fail "gc under a BSD-style mktemp did not delete the fence"
 
+# The adopter's pre-push hook runs under the caller's locale, not the script's
+# LC_ALL=C (a C locale breaks UTF-8 file names in the hooked tools).
+# shellcheck disable=SC2016 # literal hook source, expanded by the hook
+printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
+  >"$A/.git/hooks/pre-push"
+chmod +x "$A/.git/hooks/pre-push"
+run 0 "fence/hook-locale" env -u LC_ALL -u LC_CTYPE LANG=C.UTF-8 \
+  "$FF" fence --checkout "$A" --spec demo 6 >/dev/null
+[ -n "$(origin_refs)" ] || fail "fence under a UTF-8 caller and a UTF-8-asserting pre-push hook created no ref"
+run 0 "gc/hook-locale" env -u LC_ALL -u LC_CTYPE LANG=C.UTF-8 \
+  "$FF" gc --checkout "$A" --spec demo 6 >/dev/null
+[ -z "$(origin_refs)" ] || fail "gc under a UTF-8 caller and a UTF-8-asserting pre-push hook left the fence"
+rm -f "$A/.git/hooks/pre-push"
+
+# A failed delete push whose message is not English (a translated locale) is
+# still a success when every ref is already gone from origin.
+run 0 "fence/gone-setup" "$FF" fence --checkout "$A" --spec demo 7 >/dev/null
+printf '#!/bin/sh\ngit --git-dir="%s" update-ref -d refs/planwright-fence/demo/7\necho "non-English failure" >&2\nexit 1\n' "$origin" \
+  >"$A/.git/hooks/pre-push"
+chmod +x "$A/.git/hooks/pre-push"
+run 0 "gc/ref-gone-after-failed-push" "$FF" gc --checkout "$A" --spec demo 7 >/dev/null
+[ -z "$(origin_refs)" ] || fail "gc left a fence after the push failed with the ref already gone"
+rm -f "$A/.git/hooks/pre-push"
+
 # ==========================================================================
 # list
 # ==========================================================================

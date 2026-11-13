@@ -11,7 +11,7 @@ unset CDPATH
 
 prog=mc-event
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh lock-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -21,6 +21,8 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh" || exit 2
 
 usage() {
   mc_usage_fail "usage: mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>] | list --program <p> [--target <t> [--pending]] [--limit <n>] [<id>...] | mark --program <p> --target <t> submitted|staged <id>... | prune --program <p> [--now <epoch>] [--kind <k>] [--older-than <dur>] [--target <t> --submitted] [--dry-run]"
@@ -192,19 +194,39 @@ case $verb in
     fi
     hex=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     [ -n "$hex" ] || hex=$$
-    # Events raised in one second sort by a zero-padded count of those already
-    # raised in it, ahead of the random part, so list order is raise order.
+    # Events raised in one second sort by a zero-padded count ahead of the
+    # random part, so list order is raise order. The next number is picked and
+    # written under one lock, so racing emitters never share one. It is one
+    # past the highest number a landed event holds (and never below the count), so a number is never
+    # reused even when earlier ones are unwritten.
+    pw_lock_trap_install
+    pw_lock_acquire "$store/emit.lock" 600 || mc_fail "cannot take the emit lock for '$program'"
     seq=0
+    n=0
     set +f
     for prior in "$store/events/e$NOW".*; do
       [ -e "$prior" ] || [ -L "$prior" ] || continue
-      seq=$((seq + 1))
+      n=$((n + 1))
+      held=${prior##*/}
+      held=${held#"e$NOW."}
+      held=${held%"${held#????}"}
+      case $held in *[!0-9]* | '') continue ;; esac
+      held=$((10#$held + 1))
+      [ "$held" -le "$seq" ] || seq=$held
     done
     set -f
-    [ "$seq" -le 9999 ] || mc_fail "more than 9999 events raised in second $NOW"
+    [ "$seq" -ge "$n" ] || seq=$n
+    [ "$seq" -le 9999 ] || {
+      pw_lock_release "$store/emit.lock"
+      mc_fail "more than 9999 events raised in second $NOW"
+    }
     id="e$NOW.$(printf '%04d' "$seq")$hex"
     printf '%s\t%s\t%s\t%s\n' "$NOW" "$kind" "$subject" "$text" \
-      | mc_write "$store/events/$id" || mc_fail "cannot write event $id"
+      | mc_write "$store/events/$id" || {
+      pw_lock_release "$store/emit.lock"
+      mc_fail "cannot write event $id"
+    }
+    pw_lock_release "$store/emit.lock"
     printf '%s\n' "$id"
     ;;
   list)
