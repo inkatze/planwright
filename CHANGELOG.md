@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.75.1](https://github.com/inkatze/planwright/compare/v0.75.0...v0.75.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* a handover from a tmux-rung registry holder defaults to the tmux rung ([#973](https://github.com/inkatze/planwright/issues/973)) ([eb32efd](https://github.com/inkatze/planwright/commit/eb32efd05a6f9b7f5d4c4c72457378054c247240))
+* **fleet:** host a headless worker's isolated step headless, never in tmux ([#945](https://github.com/inkatze/planwright/issues/945)) ([7a15fe1](https://github.com/inkatze/planwright/commit/7a15fe1947c8b00e03171eca3e4df8ef673f7cc0))
+* **fleet:** waiting workers stop holding the host session bound ([#951](https://github.com/inkatze/planwright/issues/951)) ([2a98bc8](https://github.com/inkatze/planwright/commit/2a98bc8edb88671d98f6ed53ab04493897d1352c))
+* **mission-control:** order hub events raised in the same second ([#952](https://github.com/inkatze/planwright/issues/952)) ([dd7ee84](https://github.com/inkatze/planwright/commit/dd7ee84c94ef8834cc113bdea6f2023b02fe0d0d))
+* **policy-guard:** match the kickoff push as a run, not a mention ([#961](https://github.com/inkatze/planwright/issues/961)) ([966fb6e](https://github.com/inkatze/planwright/commit/966fb6e1207f3bc95a2beeccf8b03d72fa1df9bd))
+* **steps:** refuse misspelled step context names ([#959](https://github.com/inkatze/planwright/issues/959)) ([109f4ab](https://github.com/inkatze/planwright/commit/109f4abd8a67d7c77beae130b2fece891a467e27))
+* **steps:** render every run by default ([#958](https://github.com/inkatze/planwright/issues/958)) ([cf59cd9](https://github.com/inkatze/planwright/commit/cf59cd9f03613a17c148b276b02c2b00034c2c92))
+
 ## [0.75.0](https://github.com/inkatze/planwright/compare/v0.74.0...v0.75.0) (2026-11-12)
 
 
