@@ -5,7 +5,7 @@ import type { SpriteState } from './panel-art'
 
 const STATES: SpriteState[] = ['bumpy', 'circling', 'landing', 'cruising', 'taxiing']
 
-const words = (b64: string) => new Uint32Array(Uint8Array.fromBase64(b64).buffer)
+const words = (b64: string) => new Uint32Array(Uint8Array.from(atob(b64), ch => ch.charCodeAt(0)).buffer)
 
 // The approved Prop pal (Mascot board): rows and palette, pixel for pixel.
 const APPROVED = [
