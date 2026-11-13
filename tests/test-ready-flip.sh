@@ -90,6 +90,10 @@ case "$1 $2" in
           tied-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
           superseded-red-first) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
           capped) roll=$(i=0; printf '['; while [ $i -lt 100 ]; do [ $i = 0 ] || printf ','; printf '{"__typename":"CheckRun","name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' "$i"; i=$((i + 1)); done; printf ']') ;;
+          window-lock-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          window-lock-and-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          window-lock-foreign) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          window-lock-only) roll='[{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           own-name-checkrun-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
         esac
         printf '{"headRefOid":"%s","statusCheckRollup":%s}\n' "$head" "$roll"
@@ -605,6 +609,26 @@ run_helper evaluate --spec specs/demo --task 1
 check "the green count is one per check context, not per run" grep -q 'ci-rollup	pass	1 check(s) green' <<<"$OUT"
 fixture
 set_policy unit-owner
+echo window-lock-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a red window-lock beside green checks never holds the flip" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo window-lock-and-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a red window-lock beside another red check still refuses (exit 4)" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
+echo window-lock-foreign >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a window-lock from another workflow still refuses (exit 4)" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
+echo window-lock-only >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a red window-lock alone is no positive green (exit 4)" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
 echo tied-red >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a failure started in the same second as a success of its check is not green" [ "$CODE" = 4 ]
@@ -705,6 +729,31 @@ check "an unwritable park exits 5" [ "$CODE" = 5 ]
 check "the tree is clean" [ -z "$(gitf status --porcelain --untracked-files=no)" ]
 check "no commit was left behind" [ "$(gitf rev-parse HEAD)" = "$before" ]
 check "the handoff names the unwritten park" grep -qi 'park.*not written\|could not write' <<<"$OUT"
+
+echo "# the park's commit and push run the adopter's hooks under the caller's locale"
+fixture
+set_policy unit-owner
+echo failing >"$GHS/ci"
+mkdir -p "$F/hooks"
+for hook in pre-commit pre-push; do
+  # shellcheck disable=SC2016 # literal hook source, expanded by the hook
+  printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\nprintf "%%s\\n" "$l" >>"%s/locale.%s"\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
+    "$F" "$hook" >"$F/hooks/$hook"
+  chmod +x "$F/hooks/$hook"
+done
+gitf config core.hooksPath "$F/hooks"
+before=$(origin_head)
+(
+  unset LC_ALL LC_CTYPE
+  export LANG=C.UTF-8
+  run_helper flip --spec specs/demo --task 1
+  printf '%s\n' "$CODE" >"$F/loc.code"
+)
+CODE=$(cat "$F/loc.code")
+check "a park whose hooks demand UTF-8 still lands under a UTF-8 caller (exit 4)" [ "$CODE" = 4 ]
+check "the park was pushed past the pre-push hook" [ "$(commits_since "$before")" = 1 ]
+check "the pre-commit hook saw the caller's locale" [ "$(cat "$F/locale.pre-commit")" = C.UTF-8 ]
+check "the pre-push hook saw the caller's locale" [ "$(cat "$F/locale.pre-push")" = C.UTF-8 ]
 
 echo "# a tasks.md that cannot be written is never committed"
 fixture
