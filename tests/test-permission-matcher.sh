@@ -1381,6 +1381,7 @@ deny|load-bearing|Edit|$GWT/../w2/mise.toml|a .. escape into a sibling worktree 
 deny|load-bearing|Write|$GWT/sub/../../../../../other/mise-tasks/x|a .. escape into another repository stays closed
 deny|load-bearing|Write|$GWT/sub2/mise-tasks/x|a task directory that is a symlink pointing out of the worktree stays closed
 deny|load-bearing|Edit|$GWT/sub2/link.toml|a file symlink pointing at another repository's mise.toml stays closed
+deny|load-bearing|Write|~/other/mise.toml|a home-relative task path the file tools may expand stays closed
 allow|legit|Edit|$GWT/scripts/x.sh|ordinary edits stay allowed
 deny|load-bearing|Edit|$GWT/chain/l41|a chain of 41 symlinks (longer than the resolver follows) ending at another repository's mise.toml is refused, not deferred
 allow|legit|Edit|$GWT/chain/s3|a short symlink chain ending at an ordinary file inside the worktree still defers

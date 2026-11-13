@@ -108,6 +108,9 @@ esac
 [ -n "$path" ] || exit 0
 
 case $path in
+  # The file tools may expand a leading ~ to the home folder, a place this
+  # hook cannot resolve; a task-named path there is never inside the worktree.
+  '~' | '~'/*) is_task "/$path" && deny || exit 0 ;;
   /*) abs=$path ;;
   *) [ -n "$cwd" ] && abs=$cwd/$path || abs=$path ;;
 esac
