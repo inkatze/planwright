@@ -373,6 +373,23 @@ test('the limits card says machine load is unknown when the host reading is miss
   await ui.unmount()
 })
 
+for (const [what, host] of [
+  ['the load', 'host\t-\t12\t50'],
+  ['the cores', 'host\t720\t-\t50'],
+] as const) {
+  test(`the limits card says machine load is unknown when only ${what} is missing`, async ($, on) => {
+    const w = world(on, {
+      digest: digestText({ extra: [tab('headroom', 'host_load', 60, 100, 60)] }).replace(/^host\t.*$/m, host),
+    })
+    await boot($, w)
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    const t = await rows(ui)
+    expect(t).toContain('Machine load: unknown')
+    expect(t.some(r => r.includes('NaN') || r.includes('/null'))).toBe(false)
+    await ui.unmount()
+  })
+}
+
 test('the summary counts a session that stopped responding apart from those working', async ($, on) => {
   const w = world(on, { digest: digestText({ extra: [tab('flight', 'st-1', 'billing:task-7', 'tmux', 'stuck')] }).replace(/^waiting\t.*$/m, 'waiting\t0') })
   await boot($, w)
