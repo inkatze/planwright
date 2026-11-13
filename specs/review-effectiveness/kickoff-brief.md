@@ -1007,7 +1007,7 @@ Anchor: `fb6568f6f13ce151faf6d76077c92c2e94b5462b` — computed as
 
 ### 2026-11-13 — Amendment: word bound on the discovery, validation and loop doctrine docs
 
-#### Header
+#### Mode and scope (word bound)
 
 - **Mode:** amendment of an Active bundle (status render: Active, derived),
   human-declared via the operator's hub picklist; no status flip.
@@ -1028,7 +1028,7 @@ D-12).
 A stale-reference sweep of the bundle found no other word-count clause to
 reconcile. Validator 0 errors, 0 warnings; lint 0 errors.
 
-#### Sign-off record (amendment)
+#### Sign-off record (word-bound amendment)
 
 Signed off 2026-11-13 by the operator ("sign off", relayed by the hub) after
 the approval summary. `Last reviewed:` 2026-11-13 on `requirements.md` and
