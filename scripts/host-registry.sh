@@ -82,6 +82,7 @@ valid_path() {
 
 # registry_file: print the registry path, or exit refusing a tracked source.
 registry_file() {
+  # shell-config-pin: a resolver, pinned by its caller (PLANWRIGHT_REPO_ROOT or the checkout it runs in)
   rf_lines=$(/bin/sh "$config_get" --layers remote_hosts_file)
   rf_rc=$?
   [ "$rf_rc" -eq 3 ] && die 3 "no registry configured (remote_hosts_file is not set in machine-local config)"
