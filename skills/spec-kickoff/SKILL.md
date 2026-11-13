@@ -254,7 +254,7 @@ section ends with an explicit
 in place with the human, section by section, and the brief records the list. A
 changelog line written here names the walk and points at the brief, never a
 state that sign-off changes. A signed bundle follows the stage-scaled
-change-handling above (REQ-D1.4); post-merge changes, `spec-format`'s supersede /
+change-handling above (REQ-D1.4); post-merge changes: `spec-format`'s supersede /
 changelog rules. An agent-authored meaning-class edit gets the
 mid-walk delta-scoped lens pass, its disposition
 recorded in the carrying brief section, an erroring pass surfaced
