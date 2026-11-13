@@ -34,20 +34,22 @@ Verbs (each runs on the remote host, through its own planwright and tools):
   status <worker>               fleet-streamjson.sh status
   stop <worker> [--grace <secs>]
                                 fleet-streamjson.sh stop (the remote supervisor's
-                                own close; --grace is a whole number of seconds)
+                                own close; --grace is a whole number of seconds,
+                                at most four digits)
   retire <name-or-worker>       mission-control-launch.sh retire
   version                       print "version <remote planwright version>" then
                                 "verbs <the verbs of this list the remote's own
                                 supervisor and launcher offer>", each
                                 "unavailable" or "none" where the remote cannot
                                 say, so a dispatch can refuse a remote that
-                                lacks a verb it needs
-  capacity                      print one line "load=<1-minute load> cores=<n>
+                                lacks a verb it needs; no planwright root on
+                                the remote exits 3
+  capacity                     print one line "load=<1-minute load> cores=<n>
                                 mem_free_mb=<n> idle_secs=<n>" read on the
                                 remote; a field the platform does not report
                                 (input idle time off macOS, say) is
                                 "unavailable", never zero
-  load                        print the remote's one-minute load average
+  load                          print the remote's one-minute load average
                                 and core count, one line, for a placement check
   compute [--worktree <abs-dir>] (--check | --task <name> | --test <tests/test-x.sh>)
           [--timeout <secs>]    push the worktree's HEAD commit (never its
@@ -74,7 +76,7 @@ password fails instead of hanging, and with agent, X11 and port forwarding
 off.
 
 The remote first sources its optional ~/.config/planwright/remote-env.sh, the
-place for PATH and CLAUDE_PLUGIN_DATA on that host; it holds no secrets,
+place for PATH and CLAUDE_PLUGIN_DATA on that host; it should hold no secrets,
 since compute runs the caller's code in that environment. The remote root is
 the first root the remote's installed-plugin record names (its
 resolve-installed-roots.sh --current, which needs jq there); no caller can

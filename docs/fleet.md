@@ -2836,9 +2836,9 @@ dispatch what the remote offers and can take, and `stop` closes a worker:
 
 | Verb | Prints |
 | --- | --- |
-| `version` | `version <remote planwright version>`, then `verbs <the channel's verbs the remote's supervisor and launcher offer>`; `unavailable` or `none` where the remote cannot say |
+| `version` | `version <remote planwright version>`, then `verbs <the channel's verbs the remote's supervisor and launcher offer>`; `unavailable` or `none` where the remote cannot say. A host with no planwright root exits 3 instead, as for any verb that needs the root |
 | `capacity` | one line, `load=<1-minute load> cores=<n> mem_free_mb=<n> idle_secs=<n>` |
-| `stop <worker> [--grace <secs>]` | the remote supervisor's own close of that worker |
+| `stop <worker> [--grace <secs>]` | the remote supervisor's own close of that worker; `--grace` takes a whole number of seconds, at most four digits |
 
 `capacity` reports only what the remote's platform offers. A field it cannot
 read prints `unavailable`, never `0`, so a consumer cannot mistake a missing
@@ -2864,6 +2864,8 @@ The channel installs nothing there; you set the host up once:
    never carries a credential. On macOS an SSH session may find the keychain
    locked; the fallback is a long-lived token from `claude setup-token` in an
    owner-only file the environment file below loads, never in a tracked file.
+   That file's contents are then readable by the code `compute` runs, so use
+   the fallback only if you accept that (see step 4).
 4. **The environment file (optional).** `~/.config/planwright/remote-env.sh` on
    the remote is sourced before every verb. It is the place for `PATH` (mise
    shims, Homebrew, the `claude` binary) and `CLAUDE_PLUGIN_DATA` (the remote's
