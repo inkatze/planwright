@@ -331,7 +331,7 @@ export function Band(t: Table, view: PanelView, isHeld: boolean, width: number) 
     <Box flexDirection="row" backgroundColor={STRIP_BG}>
       <Text backgroundColor={STRIP_BG}>{' '}</Text>
       {segments.map((s, i) => (
-        <Text key={i} backgroundColor={STRIP_BG} bold={s.bold} dimColor={s.dimColor} color={s.color}>
+        <Text key={String(i)} backgroundColor={STRIP_BG} bold={s.bold} dimColor={s.dimColor} color={s.color}>
           {s.text}
         </Text>
       ))}

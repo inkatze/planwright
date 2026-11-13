@@ -39,7 +39,7 @@ concurrency:
 # The Claude Code CLI the lint and test jobs install; see the lint job's
 # install step for why it is pinned and its floor.
 env:
-  CLAUDE_CODE_VERSION: 2.1.310
+  CLAUDE_CODE_VERSION: 2.1.323
 
 jobs:
   lint:
