@@ -2304,7 +2304,11 @@ secret_home_glob() {
   shopt -s nocasematch
   for s in /.ssh/id_rsa /.gnupg/pubring.kbx /.aws/credentials /.netrc /.npmrc /.git-credentials /.kube/config /.docker/config.json \
     /.config/gh/hosts.yml /.config/gcloud/credentials.db /.config/op/config /.config/rclone/rclone.conf /.config/containers/auth.json \
-    /.config/git/credentials /.local/share/keyrings/login.keyring /.cargo/credentials.toml /.claude/.credentials.json; do
+    /.config/git/credentials /.local/share/keyrings/login.keyring /.cargo/credentials.toml /.claude/.credentials.json \
+    /.pypirc /.azure/accessTokens.json /.password-store/x.gpg /.dockercfg /.pgpass /.my.cnf /.s3cfg /.boto /.oci/config \
+    /.m2/settings.xml /.composer/auth.json /.config/composer/auth.json /Library/Keychains/login.keychain-db /.config/hub/config \
+    /.config/doctl/config.yaml /.config/glab-cli/config.yml /.config/github-copilot/hosts.json /.gem/credentials \
+    /.terraform.d/credentials.tfrc.json /.vault-token /.claude.json; do
     # shellcheck disable=SC2053 # the operand is the pattern under test
     if [[ $s == $1 ]]; then
       hit=0
