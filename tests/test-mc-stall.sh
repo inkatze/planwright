@@ -522,7 +522,7 @@ event_text() { events | awk -F '\t' -v k="$1" -v s="$2" '$3 == k && $4 == s { pr
 sleep 600 &
 second_pid=$!
 arow mc-alpha-worker-aj1 worker stream-json wj1 "$second_pid"
-sj wj1 "$live_pid"
+sj wj1 "$second_pid"
 stall classify --program alpha --now 1000 mc-alpha-worker-aj1
 expect_state "an adopted stream-json worker whose process runs reads live" mc-alpha-worker-aj1 live
 kill "$second_pid" 2>/dev/null
@@ -538,10 +538,10 @@ stall classify --program alpha --now 1000 mc-alpha-ad-hoc-atmux
 expect_state "an adopted tmux session's liveness comes from its process, whatever its window is called" mc-alpha-ad-hoc-atmux idle
 
 arow mc-alpha-ad-hoc-atmux2 ad-hoc tmux @31 "$dead_pid"
-window 31 "$live_pid" "$tmp/idle.pane"
+window 31 "$dead_pid" "$tmp/idle.pane"
 printf 'another-name\n' >"$tmp/tmux/31.name"
 stall classify --program alpha --now 1000 mc-alpha-ad-hoc-atmux2
-expect_state "an adopted tmux session whose process exited is dead though its window stays" mc-alpha-ad-hoc-atmux2 dead
+expect_state "an adopted tmux session whose process exited is dead, the window staying" mc-alpha-ad-hoc-atmux2 dead
 
 arow mc-alpha-ad-hoc-atmux3 ad-hoc tmux @32 "$live_pid"
 window 32 "$live_pid" "$tmp/idle.pane"
@@ -550,17 +550,15 @@ stall classify --program alpha --now 1000 mc-alpha-ad-hoc-atmux3
 expect_state "an adopted tmux row whose window is gone is never read as live" mc-alpha-ad-hoc-atmux3 dead
 
 arow mc-alpha-worker-aj4 worker stream-json wj4 "$dead_pid"
-sj wj4 "$live_pid"
+sj wj4 -
 stall classify --program alpha --now 1000 mc-alpha-worker-aj4
-expect_state "a registry row naming an exited process is dead even beside a live pidfile" mc-alpha-worker-aj4 dead
+expect_state "an adopted row naming an exited process, with no pidfile, is dead" mc-alpha-worker-aj4 dead
 
 row mc-alpha-worker-norun worker stream-json mc-alpha-worker-norun
 sj mc-alpha-worker-norun none
 stall classify --program alpha --now 1000 mc-alpha-worker-norun
-case $(state_of mc-alpha-worker-norun) in
-  live | idle | working) fail "a row with no process behind it read as live" ;;
-  *) ok "a registry row with no process behind it is never read as live" ;;
-esac
+[ "$(state_of mc-alpha-worker-norun)" = unknown ] && ok "a registry row with no process behind it is never read as live" \
+  || fail "a row with no process behind it read as $(state_of mc-alpha-worker-norun)"
 
 # --- adopted sessions: a pending prompt (REQ-G1.6) -----------------------------
 
@@ -610,8 +608,12 @@ stall classify --program alpha --now 1600 mc-alpha-worker-ap1
 expect_state "no prompt left pending reads live again" mc-alpha-worker-ap1 live
 [ "$(event_count stall-prompt-cleared mc-alpha-worker-ap1)" = 2 ] && ok "each cleared prompt clears once" \
   || fail "the clearing is not once per prompt ($(event_count stall-prompt-cleared mc-alpha-worker-ap1))"
-mkreq wp1 "$p1" pending 'git status --short'
+p3='aaaa1111-bbbb-cccc-dddd-eeee00000003'
+mkreq wp1 "$p3" pending 'git log --oneline'
 stall classify --program alpha --now 1700 mc-alpha-worker-ap1
+expect_state "a prompt that arrives after the others cleared reads prompt-pending again" mc-alpha-worker-ap1 prompt-pending
+[ "$(event_count stall-prompt-pending mc-alpha-worker-ap1)" = 3 ] && ok "the new prompt is its own event" \
+  || fail "the new prompt raised $(event_count stall-prompt-pending mc-alpha-worker-ap1) events in all"
 awk -F '\t' '$1 == "stall-prompt-pending" && $2 == "routine" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv" \
   && fail "stall-prompt-pending is classed as quiet" || ok "a pending prompt's kind is left to wake"
 awk -F '\t' '$1 == "stall-prompt-cleared" && $2 == "routine" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv" \

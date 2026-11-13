@@ -43,18 +43,37 @@ Usage:
       file instead of capturing the session's tmux window.
   mc-stall.sh scan --program <p> [--now <epoch>]
       classify every launched session the program's registry rows name.
+  mc-stall.sh answer --program <p> [--now <epoch>] <name> <prompt id>
+      (--standing <decision id> | --operator-answer <decision entry id>)
+      answer one permission prompt pending in a stream-json session:
+      --standing through the tower-comms answer channel
+      (scripts/fleet-attention.sh claim), which re-checks that the
+      standing decision covers the prompt's command, and only for a
+      request that is one plain command; --operator-answer with the
+      operator's own recorded answer (scripts/mc-decide.sh note --shape
+      answer, subject `<name> prompt <prompt id>`, target allow or deny,
+      made after the prompt arrived). Each answer is written to the undo
+      ledger, naming what authorized it, before it is delivered. A tmux
+      session has no answer channel and is refused: its prompt takes the
+      operator's own answer at its pane.
 
 Liveness is positive evidence from the session's rung, through
 scripts/fleet-death-evidence.sh, never pane text or elapsed time:
   tmux         the window the launch recorded, which must still carry the
-               session's name, then the process in its pane
+               session's name (a session mission control adopted keeps
+               its owner's window name), then the process in its pane
   stream-json  the worker's pid the supervisor records (worker.pid, else
                supervisor.pid); a state directory holding neither pidfile
                is a supervisor that has exited, since it removes both
+A session mission control adopted (its row's origin is `adopted`) also
+carries the pid of its process; the rung's record, where it has one,
+outranks it, and a row with no process behind it is never live.
 The states, first match wins:
   dead                   the predicate reports the window or process gone,
                          or a stream-json state directory holds neither
                          pidfile
+  prompt-pending         a stream-json worker with a permission prompt
+                         pending in its journal (after dead and unknown)
   unknown                no liveness evidence either way (no state
                          directory, an unreadable pidfile, an unreachable
                          or unresponsive tmux server, a window id now naming
@@ -86,9 +105,13 @@ Each pass keeps one sample per session (the launch it belongs to, the pane's
 hash, when it last changed or, with no pane, when it entered its state, the
 state, when the sample was taken) under the program's runtime
 directory, behind a per-session lock. Entering any state from dead to
-busy-unchanged emits one event, kind stall-<state>, subject the session name
+busy-unchanged (but prompt-pending) emits one event, kind stall-<state>, subject the session name
 (scripts/mc-event.sh); a state held across passes emits no second one, and a
 relaunch under the same name starts a fresh sample.
+A pending prompt instead raises one stall-prompt-pending event per prompt
+id, however many passes see it, and one stall-prompt-cleared event once
+it is no longer pending, whatever answered it; an open-selector reason
+carries the dialog's command.
 
 Output, one line per session, tab separated:
   <name> <kind> <state> <reason> <event id or ->
@@ -98,7 +121,9 @@ read or written, an event could not be emitted, the stall-window knob or the
 fleet home does not resolve; a scan classifies every other session first;
 2 usage, a malformed name or a registry row of an unknown format; 3 the
 program is not configured, or no launched row names the session (none, a
-launch still in flight, or a row naming another session).
+launch still in flight, or a row naming another session); answer exits
+4 for a refusal (named on stderr), 0 delivered, and 1 for a store, the
+undo ledger or the delivery failing.
 HELP
 }
 
@@ -108,7 +133,7 @@ refuse() {
 }
 
 usage() {
-  mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>]"
+  mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>] | answer --program <p> [--now <epoch>] <name> <prompt id> (--standing <id> | --operator-answer <id>)"
 }
 
 valid_name() {
@@ -237,9 +262,10 @@ liveness() {
       return 0
       ;;
   esac
-  # The pid the registry holds (a session mission control adopted) outranks
-  # the backend's own record of it.
-  [ -z "$R_process" ] || lv_pid=$R_process
+  # The rung's own record of the process is current (a recovered worker has a
+  # new pid); the pid the registry holds for an adopted session stands in
+  # only where the rung records none.
+  [ -n "$lv_pid" ] || lv_pid=$R_process
   mc_valid_uint "$lv_pid" && [ "$lv_pid" -gt 0 ] || {
     L_REASON='unreadable pid'
     return 0
@@ -298,17 +324,26 @@ question_above_input() {
     }'
 }
 
-# pending_prompts <handle>: set P_LIST to one `<request id> <tool> <command>`
-# line, tab separated, per request the stream-json worker's journal still
-# reads pending; the command is the Bash request's own, else empty. Returns 1
-# when the worker's journal could not be read.
+# pending_prompts <handle>: set P_LIST to one `<request id> <tool> <command>
+# <shape>` line, tab separated, per request the stream-json worker's journal
+# still reads pending. The command is a Bash request's own; the shape is
+# `plain` only when that command is the whole request (one command line, no
+# other input field, no notice about the stored envelope), since a standing
+# decision is matched against the command alone. Returns 1 when the worker's
+# journal could not be read.
 pending_prompts() {
   P_LIST=''
   pp_out=$(bounded /bin/sh "$script_dir/fleet-streamjson.sh" pending "$1" 2>/dev/null </dev/null) || return 1
   P_LIST=$(printf '%s\n' "$pp_out" | awk '
-    function flush() { if (id != "") print id "\t" tool "\t" cmd; id = "" }
-    /^== / { flush(); n = split($0, f, " "); id = f[3]; tool = f[4]; cmd = ""; next }
-    /^\| / && id != "" && tool == "Bash" && cmd == "" { cmd = substr($0, 3); next }
+    function flush() {
+      if (id == "") return
+      if (tool != "Bash" || cmd == "" || lines != 1 || extra || cmd ~ /\t/) { if (cmd ~ /\t/) cmd = ""; shape = "complex" } else shape = "plain"
+      print id "\t" tool "\t" cmd "\t" shape
+      id = ""
+    }
+    /^== / { flush(); n = split($0, f, " "); id = f[3]; tool = f[4]; cmd = ""; lines = 0; extra = 0; next }
+    /^\| / && id != "" { lines++; if (lines == 1) cmd = substr($0, 3); next }
+    id != "" && /^(\+ |-- )/ { extra = 1 }
     END { flush() }')
 }
 
@@ -322,15 +357,16 @@ prompt_command() {
 
 # prompt_events <name> <kind> <current list>: one stall-prompt-pending event
 # per prompt not seen before and one stall-prompt-cleared per prompt gone,
-# the prompts raised so far kept in the session's ledger; sets
-# C_EVENT_FAILED on an event that could not be emitted, leaving the ledger as
-# it was so the next pass retries.
+# the prompts raised so far kept in the session's ledger. The ledger follows
+# each event that was emitted, so a failure part way (C_EVENT_FAILED) leaves
+# the next pass to retry only what is left.
 prompt_events() {
   pe_ledger="$STALL_DIR/prompts.$1"
   pe_old=''
   [ ! -f "$pe_ledger" ] || [ -L "$pe_ledger" ] || pe_old=$(cat "$pe_ledger" 2>/dev/null) || pe_old=''
   pe_cur=$(printf '%s\n' "$3" | awk -F '\t' 'NF { print $1 }')
-  while IFS='	' read -r pe_id pe_tool pe_cmd; do
+  pe_keep=$pe_old
+  while IFS='	' read -r pe_id pe_tool pe_cmd _; do
     [ -n "$pe_id" ] || continue
     case "
 $pe_old
@@ -341,31 +377,38 @@ $pe_id
       *)
         pe_text=$(sanitize_printable "$2: prompt $pe_id: $pe_tool $pe_cmd")
         pe_text=$(printf '%s' "$pe_text" | cut -c1-400)
-        mc_event emit --program "$PROGRAM" --now "$NOW" -- stall-prompt-pending "$1" "$pe_text" >/dev/null || {
+        if mc_event emit --program "$PROGRAM" --now "$NOW" -- stall-prompt-pending "$1" "$pe_text" >/dev/null; then
+          pe_keep="$pe_keep
+$pe_id"
+        else
           C_EVENT_FAILED=1
-          return 0
-        }
+        fi
         ;;
     esac
+    [ "$C_EVENT_FAILED" = 0 ] || break
   done <<EOF
 $3
 EOF
-  for pe_id in $pe_old; do
-    case "
+  if [ "$C_EVENT_FAILED" = 0 ]; then
+    for pe_id in $pe_old; do
+      case "
 $pe_cur
 " in
-      *"
+        *"
 $pe_id
 "*) ;;
-      *)
-        mc_event emit --program "$PROGRAM" --now "$NOW" -- stall-prompt-cleared "$1" "prompt $pe_id is no longer pending" >/dev/null || {
-          C_EVENT_FAILED=1
-          return 0
-        }
-        ;;
-    esac
-  done
-  printf '%s\n' "$pe_cur" | awk 'NF' | mc_write "$pe_ledger" || C_EVENT_FAILED=1
+        *)
+          if mc_event emit --program "$PROGRAM" --now "$NOW" -- stall-prompt-cleared "$1" "prompt $pe_id is no longer pending" >/dev/null; then
+            pe_keep=$(printf '%s\n' "$pe_keep" | awk -v i="$pe_id" '$0 != i')
+          else
+            C_EVENT_FAILED=1
+            break
+          fi
+          ;;
+      esac
+    done
+  fi
+  printf '%s\n' "$pe_keep" | awk 'NF' | mc_write "$pe_ledger" || C_EVENT_FAILED=1
 }
 
 # classify_one <row-file>: print the session's line, keep its sample, emit
@@ -630,12 +673,15 @@ case $verb in
     [ "$R_backend" = stream-json ] || refuse "$NAME is on the $(sanitize_printable "$R_backend") rung, which has no answer channel; only the operator's own answer reaches its prompt, at its pane (scripts/mc-pane-answer.sh)"
     mc_valid_handle "$R_handle" || refuse "the registry row of $NAME names no usable worker"
     mc_kb entries undo --program "$PROGRAM" >/dev/null 2>&1 || mc_fail "the undo ledger of $PROGRAM cannot be read; nothing was answered"
+    pw_lock_acquire "$STALL_DIR/.lock.answer.$NAME" 50 || mc_fail "another answer to $NAME is in flight"
     pending_prompts "$R_handle" || mc_fail "cannot read the pending prompts of $NAME"
     p_line=$(printf '%s\n' "$P_LIST" | REQ=$REQ awk -F '\t' '$1 == ENVIRON["REQ"] { print; exit }')
     [ -n "$p_line" ] || refuse "no prompt $REQ is pending in $NAME"
     p_tool=$(printf '%s\n' "$p_line" | cut -f 2)
-    p_cmd=$(printf '%s\n' "$p_line" | cut -f 3-)
+    p_cmd=$(printf '%s\n' "$p_line" | cut -f 3)
+    p_shape=$(printf '%s\n' "$p_line" | cut -f 4)
     if [ -n "$STANDING" ]; then
+      [ "$p_shape" = plain ] || refuse "the request of prompt $REQ is not one plain command (several lines, another input field, or a notice about its stored form), so no standing decision can cover it; only the operator's own answer settles it"
       # The permission-park record is what the channel matches a standing
       # decision against, and it holds the prompt's own command, never one
       # this script composes.

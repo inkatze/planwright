@@ -306,8 +306,13 @@ mkdir -p "$fleet/streamjson/w-nopid"
 ml adopt --program alpha --handle stream-json:w-nopid --kind worker --scope adopt-nopid
 [ "$RC" = 4 ] && [ "$(reg_count)" = "$before" ] && ok "a session with no resolvable pid is refused" \
   || fail "adopting a session with no pid exited $RC: $ERR"
-ml adopt --program alpha --handle stream-json:w-dead --kind mission-control --scope adopt-mc
-[ "$RC" = 4 ] && ok "a mission-control session is never adopted" || fail "adopting a mission control exited $RC"
+mksj w-mc "$adopt_live2"
+ml adopt --program alpha --handle stream-json:w-mc --kind mission-control --scope adopt-mc
+[ "$RC" = 4 ] && [ "$(reg_count)" = "$before" ] && ok "a mission-control session is never adopted" || fail "adopting a mission control exited $RC: $ERR"
+case $ERR in *mission-control*) ok "the refusal names the kind" ;; *) fail "the refusal does not name the kind: $ERR" ;; esac
+ml adopt --program zeta --handle stream-json:w-mc --kind worker --scope adopt-zeta
+[ "$RC" = 4 ] && [ "$(reg_count)" = "$before" ] && ok "adopting into a program that is not configured is refused" || fail "adopting into an unknown program exited $RC: $ERR"
+case $ERR in *"not configured"*) ok "the refusal says the program is not configured" ;; *) fail "the refusal does not say why: $ERR" ;; esac
 ml adopt --program alpha --handle 'nonsense' --kind worker --scope adopt-bad
 [ "$RC" = 2 ] && ok "a handle that is not <backend>:<id> is a usage error" || fail "a malformed handle exited $RC"
 ml adopt --program alpha --handle stream-json:w-dead --kind worker
@@ -345,7 +350,16 @@ ml adopt --program alpha --handle stream-json:w-tw --kind worker --scope adopt-t
 tw_name=$(adopted_name)
 [ "$(row_field "$tw_name" owner)" = tower ] && ok "the row holds the owner given" || fail "the owner given was not kept"
 ml adopt --program alpha --handle stream-json:w-tw --kind worker --scope adopt-tw2
-case $ERR in *tower*) ok "a session a tower holds is refused, naming the tower" ;; *) fail "a session held by a tower was adopted or refused unnamed (exit $RC): $ERR" ;; esac
+[ "$RC" = 3 ] && ok "a session a tower holds is refused" || fail "adopting a tower's session exited $RC: $ERR"
+case $ERR in *tower*) ok "the refusal names the tower" ;; *) fail "the refusal does not name the tower: $ERR" ;; esac
+mksj w-n1 "$adopt_live2"
+mksj w-n2 "$adopt_live"
+ml adopt --program alpha --handle stream-json:w-n1 --kind worker --scope adopt-name
+[ "$RC" = 0 ] || fail "adopting w-n1 exited $RC: $ERR"
+before=$(reg_count)
+ml adopt --program alpha --handle stream-json:w-n2 --kind worker --scope adopt-name
+[ "$RC" = 3 ] && [ "$(reg_count)" = "$before" ] && ok "a name a registered session holds is refused" || fail "adopting under a held name exited $RC: $ERR"
+case $ERR in *"is held"*) ok "the refusal says the name is held" ;; *) fail "the refusal does not say so: $ERR" ;; esac
 
 # tmux: a window that keeps its owner's name, its pane's process the evidence.
 mkdir -p "$tmp/tmux/pid"
@@ -357,6 +371,8 @@ if [ "$RC" = 0 ]; then
   [ "$(row_field "$tname" backend)" = tmux ] && [ "$(row_field "$tname" handle)" = @41 ] && [ "$(row_field "$tname" origin)" = adopted ] \
     && ok "an adopted tmux session is registered under its window" || fail "the tmux row is wrong"
   [ "$(row_field "$tname" process)" = "$adopt_live" ] && ok "the tmux row records its pane's process" || fail "the tmux row's process is '$(row_field "$tname" process)'"
+  ml adopt --program alpha --handle tmux:@41 --kind reviewer --scope adopt-tmux-again
+  [ "$RC" = 3 ] && ok "a tmux window another supervisor holds is refused" || fail "re-adopting a tmux window exited $RC: $ERR"
   ml retire "$tname"
   if [ "$RC" = 0 ] && [ ! -e "$tmp/tmux/@41" ] && [ ! -e "$areg/$tname" ]; then
     ok "an adopted tmux session retires by its window, whatever it is called"
@@ -378,6 +394,9 @@ mksj w-op "$adopt_live"
 ml adopt --program alpha --handle stream-json:w-op --kind ad-hoc --scope adopt-op --owner operator
 op_name=$(adopted_name)
 [ "$RC" = 0 ] || fail "adopting an operator's session exited $RC: $ERR"
+ml retire w-op
+[ "$RC" = 3 ] && ok "an adopted worker's handle does not retire it past its owner's guard" || fail "retiring by handle exited $RC: $OUT $ERR"
+kill -0 "$adopt_live" 2>/dev/null && ok "retiring by handle stopped nothing" || fail "retiring by handle stopped the session"
 ml retire "$op_name"
 [ "$RC" = 4 ] && [ -e "$areg/$op_name" ] && ok "retiring an operator-owned adopted session is refused and the row stays" \
   || fail "the operator-owned retire exited $RC (row present: $([ -e "$areg/$op_name" ] && echo yes || echo no))"
@@ -390,6 +409,21 @@ adopt_events | awk -F '\t' -v s="$op_name" '$3 == "retire-needs-confirmation" &&
 }
 awk -F '\t' '$1 == "retire-needs-confirmation" && $2 == "decision" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv" \
   && ok "the confirmation item is owed to the operator" || fail "retire-needs-confirmation is not classed as a decision"
+
+# A session whose owner is not the operator retires by its adopted handle.
+sleep 600 &
+rt_pid=$!
+mksj w-rt "$rt_pid"
+ml adopt --program alpha --handle stream-json:w-rt --kind worker --scope adopt-rt
+rt_name=$(adopted_name)
+kill "$rt_pid" 2>/dev/null
+wait "$rt_pid" 2>/dev/null
+ml retire "$rt_name"
+if [ "$RC" = 0 ] && [ ! -e "$areg/$rt_name" ]; then
+  ok "an adopted stream-json worker retires by its adopted handle and its row goes"
+else
+  fail "the adopted worker's retire exited $RC, row present: $([ -e "$areg/$rt_name" ] && echo yes || echo no): $OUT $ERR"
+fi
 
 kill "$adopt_live" "$adopt_live2" 2>/dev/null
 wait "$adopt_live" "$adopt_live2" 2>/dev/null

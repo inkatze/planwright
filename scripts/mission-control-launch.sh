@@ -18,6 +18,9 @@ unset CDPATH
 
 me=mission-control-launch
 FORMAT=1
+# A row's adoption fields are set only by `adopt`; a value inherited from the
+# environment never reaches a launch's row.
+origin='' process=''
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 # Run from an older cached copy (a path the calling session kept across an
@@ -176,7 +179,9 @@ Output, tab separated:
   adopt    adopt <name> adopted <backend> <handle> owner=<owner>
   name     the name alone
   retire   retire <name> released|partial released=<classes> held=<classes>,
-           over the classes process, pane, registry, attention and row
+           over the classes process, pane, registry, attention and row; or
+           retire <name> needs-confirmation event=<id> for an operator-owned
+           adopted session (nothing retired)
   wait     wait <name> waiting <reason> (unwait: wait <name> working)
   bound    bound <limit or off> <working count> <waiting count>
   list     <name> <program> <kind> <scope> <backend> <launched epoch>
@@ -214,7 +219,9 @@ operator-asked launch past it whose bypass cannot be recorded, a broken
 allocation install, a program that is not configured, rules that would not
 render, a worktree that could not be created, a named directory that is not
 a worktree other than a primary checkout, a worktree path holding a control
-character, or any other refusal by the rung.
+character, or any other refusal by the rung. A retire exits 4 only for an
+operator-owned adopted session (see adopt); an adopted stream-json worker
+is retired by its registry name, not by its worker handle.
 
 adopt exits 0 adopted; 2 usage, an invalid value, or a row it cannot write; 3
 the name or the session's handle is held by a registered session; 4 refused:
@@ -1274,6 +1281,19 @@ retire_unregistered() {
   if [ -L "$FH/streamjson/$1" ] || [ ! -d "$FH/streamjson/$1" ]; then
     die "no registered session and no stream-json worker is named $1; a headless worker closes with scripts/fleet-dispatch-headless.sh stop $1, a tmux window with tmux kill-window -t <window id>" 3
   fi
+  # A session adopted under this worker handle is retired by its registry
+  # name, where the owner's say is checked.
+  set +f
+  for ru_r in "$REG"/mc-*; do
+    set -f
+    [ -f "$ru_r" ] || continue
+    [ ! -L "$ru_r" ] || continue
+    row_format_ok "$ru_r" || continue
+    if [ "$(row_get "$ru_r" origin)" = adopted ] && [ "$(row_get "$ru_r" backend)" = stream-json ] && [ "$(row_get "$ru_r" handle)" = "$1" ]; then
+      die "$1 was adopted as ${ru_r##*/}: retire it by that name" 3
+    fi
+  done
+  set -f
   name_lock "$1"
   # A launch reserves its row under this same lock, so a row that appeared
   # since the caller looked is a launch to leave alone.
