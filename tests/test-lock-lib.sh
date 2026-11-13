@@ -30,6 +30,10 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$REPO_ROOT/tests/lib/dead-owner.sh"
 LIB="$REPO_ROOT/scripts/lock-lib.sh"
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$REPO_ROOT/tests/lib/fixture-procs.sh"
@@ -156,11 +160,9 @@ kill "$live_pid" 2>/dev/null
 wait "$live_pid" 2>/dev/null
 rm -f "$tmp/busy.lock"
 
-# A dead owner: spawn and reap a child, then use its pid. The pid is free, so
-# the token names no running process.
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null
+# A dead owner: a pid above every host's assignable range, so the token names
+# no running process.
+dead_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 ln -s "$dead_pid-0-1" "$tmp/dead.lock"
 # Fresh mtime: the break must fire on the absent process, not on an age.
 out="$(run_sh x '
@@ -350,9 +352,7 @@ assert_eq "no two writers were inside the critical section at once" \
 # break path together. Exactly one may come out holding the lock; the rest
 # must either wait it out or report busy — never share the section.
 
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null
+dead_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 rm -f "$tmp"/brk.lock* "$tmp/brk.occupancy" "$tmp/brk.violations" "$tmp/brk.counter"
 ln -s "$dead_pid-0-1" "$tmp/brk.lock"
 printf '0\n' >"$tmp/brk.counter"
@@ -624,9 +624,7 @@ fi
 # spins its whole budget, and every spin litters a stray link into somebody
 # else's directory.
 
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null
+dead_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 mkdir -p "$tmp/target-dir"
 ln -s "$tmp/target-dir" "$tmp/dirtarget.lock"
 run_sh x 'pw_lock_acquire "$1/dirtarget.lock" 20' >/dev/null 2>&1
@@ -758,9 +756,7 @@ assert_eq "break_force collects the break residue too" "0" "$left"
 # Without this the path is wedged for good: the dead owner's lock is breakable,
 # but every breaker finds a claim it must not step on and reports busy.
 
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null
+dead_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 ln -s "$dead_pid-0-0-1" "$tmp/orphan.lock"
 ln -s "$dead_pid-0-0-2" "$tmp/orphan.lock#break#$dead_pid-0-0-1"
 run_sh x 'pw_lock_acquire "$1/orphan.lock" 40' >/dev/null 2>&1
@@ -1093,9 +1089,7 @@ link=successor-token" "$out"
 rm -f "$tmp"/excl.lock*
 
 # And the ordinary break still works, leaving no residue of the claim it took.
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null
+dead_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 ln -s "$dead_pid-0-0-1" "$tmp/plain.lock"
 run_sh x 'pw_lock_acquire "$1/plain.lock" 20' >/dev/null 2>&1
 assert_exit "an uncontested break still takes the lock" 0 $?
@@ -1241,9 +1235,7 @@ run_sh x 'pw_lock_owner_alive "$$-1-notanumber-1-1"' >/dev/null 2>&1
 assert_exit "and so does one whose witness will not parse" 0 $?
 
 # It must not resurrect anything: an absent pid stays absent whatever the epoch.
-sh -c 'exit 0' &
-gone=$!
-wait "$gone" 2>/dev/null
+gone=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 run_sh x "pw_lock_owner_alive \"$gone-$now-$host_up-1-1\"" >/dev/null 2>&1
 assert_exit "an absent owner stays absent" 1 $?
 
@@ -2128,11 +2120,16 @@ assert_eq "a source that has already been moved is contention" "1" "$out"
 mkdir -p "$tmp/ro"
 ln -s tok "$tmp/ro/stuck.lock"
 chmod 500 "$tmp/ro"
-out=$(run_sh x 'cd "$1/ro" 2>/dev/null || exit 9
-  _pw_lock_displace ./stuck.lock taken tok 2>/dev/null
-  printf "%s\n" "$?"')
+out=skip
+if hermetic_access_denied w "$tmp/ro"; then
+  out=$(run_sh x 'cd "$1/ro" 2>/dev/null || exit 9
+    _pw_lock_displace ./stuck.lock taken tok 2>/dev/null
+    printf "%s\n" "$?"')
+else
+  echo "skip: unmovable displacement source: the running user still writes $tmp/ro under mode 500"
+fi
 chmod 700 "$tmp/ro"
-assert_eq "a source that stays put is a real error, not contention" "2" "$out"
+[ "$out" = skip ] || assert_eq "a source that stays put is a real error, not contention" "2" "$out"
 rm -rf "$tmp/ro"
 # And every site consumes it as a status, never as a plain condition: an
 # `if displace; then` discards the difference between the two, which is how one
@@ -2188,13 +2185,17 @@ rm -f "$tmp/peer.lock"
 mkdir -p "$tmp/ro2"
 ln -s tok "$tmp/ro2/stuck.lock"
 chmod 500 "$tmp/ro2"
-err=$(run_sh x 'cd "$1/ro2" 2>/dev/null || exit 9
-  _pw_lock_displace ./stuck.lock taken tok' 2>&1 >/dev/null)
+if hermetic_access_denied w "$tmp/ro2"; then
+  err=$(run_sh x 'cd "$1/ro2" 2>/dev/null || exit 9
+    _pw_lock_displace ./stuck.lock taken tok' 2>&1 >/dev/null)
+  case $err in
+    *'cannot move'*) pass "and an unwritable directory still reports a real error" ;;
+    *) fail "the unwritable case lost its diagnostic (got '$err')" ;;
+  esac
+else
+  echo "skip: unwritable displacement control: the running user still writes $tmp/ro2 under mode 500"
+fi
 chmod 700 "$tmp/ro2"
-case $err in
-  *'cannot move'*) pass "and an unwritable directory still reports a real error" ;;
-  *) fail "the unwritable case lost its diagnostic (got '$err')" ;;
-esac
 rm -rf "$tmp/ro2" "$tmp/fake"
 
 # ---------------------------------------------------------------------------
@@ -2378,9 +2379,7 @@ assert_exit "and a hidden table's absent process reads dead whatever its path" 1
 # and the acquire's, and the acquire then breaks it unseen. PW_LOCK_BROKEN
 # names the token the acquire itself broke, and is empty otherwise.
 
-sh -c 'exit 0' &
-broken_pid=$!
-wait "$broken_pid" 2>/dev/null
+broken_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 ln -s "$broken_pid-0-1" "$tmp/broken.lock"
 out="$(run_sh x '
   pw_lock_try "$1/broken.lock" || exit 9
@@ -2431,9 +2430,7 @@ esac
 rm -f "$tmp"/fresh-*.lock*
 # A break whose publish loses to a peer still removed the dead link, and says
 # so: staged by a publish that always loses.
-sh -c 'exit 0' &
-lost_pid=$!
-wait "$lost_pid" 2>/dev/null
+lost_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
 ln -s "$lost_pid-0-1" "$tmp/lost.lock"
 out="$(run_sh x '
   _pw_lock_publish() { return 1; }

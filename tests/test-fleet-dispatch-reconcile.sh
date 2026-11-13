@@ -49,6 +49,10 @@ export GIT_CONFIG_SYSTEM=/dev/null
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 REPO_ROOT=$(cd "$here/.." && pwd -P)
@@ -192,10 +196,7 @@ register() {
 }
 
 dead_pid() {
-  sleep 0 &
-  dp=$!
-  wait "$dp" 2>/dev/null
-  printf '%s\n' "$dp"
+  dead_owner_pid || fail "no PID is free to stand for a dead owner"
 }
 
 # ===========================================================================
@@ -680,12 +681,20 @@ ok r10 "an alive record its marker matches is counted live"
 h=$(home r11)
 register "$h" w-r11 --scope spec-r:13 --backend headless-oneshot --death-handle none
 chmod 000 "$h/registry"
-reconcile "$h"
+denied=0
+if hermetic_access_denied r "$h/registry"; then
+  denied=1
+  reconcile "$h"
+else
+  echo "skip: r11 unreadable registry: the running user still reads $h/registry under mode 000"
+fi
 chmod 600 "$h/registry"
-printf '%s\n' "$out" | grep -q "status=degraded" || fail "r11: an unreadable registry did not degrade the pass: $out"
-printf '%s\n' "$out" | grep -q "^heal${tab}" && fail "r11: an unreadable registry was read as empty and healed from"
-printf '%s\n' "$err" | grep -q 'could not read the registry' || fail "r11: the pass did not say the registry was unreadable: $err"
-ok r11 "an unreadable registry degrades the pass instead of reading as empty"
+if [ "$denied" = 1 ]; then
+  printf '%s\n' "$out" | grep -q "status=degraded" || fail "r11: an unreadable registry did not degrade the pass: $out"
+  printf '%s\n' "$out" | grep -q "^heal${tab}" && fail "r11: an unreadable registry was read as empty and healed from"
+  printf '%s\n' "$err" | grep -q 'could not read the registry' || fail "r11: the pass did not say the registry was unreadable: $err"
+  ok r11 "an unreadable registry degrades the pass instead of reading as empty"
+fi
 
 # ===========================================================================
 # r12 — a marker a retirement left renamed aside (its link back failed) is
@@ -953,15 +962,24 @@ chmod 000 "$srepo2"
 exit 0
 STUB
 chmod +x "$nocd/scripts/fleet-stuck-detector.sh"
-h=$(home s2)
-st=0
-at "$h" "$nocd/scripts" -- fleet-sweep.sh --repo "$srepo2" --tower-id "$owner" >"$tmp/out" 2>"$tmp/err" || st=$?
-chmod 755 "$srepo2"
-out=$(cat "$tmp/out")
-printf '%s\n' "$out" | grep -q "^registry${tab}failed${tab}no-checkout$" \
-  || fail "s2: an unenterable checkout was not reported as such: $out"
-grep -q 'could not enter the checkout' "$tmp/err" || fail "s2: the warning does not say the checkout could not be entered: $(cat "$tmp/err")"
-ok s2 "a checkout the reconcile cannot enter is reported as that, not as a reconcile failure"
+# The stub's mode change runs inside the sweep, so the denial is probed on a
+# directory staged the same way first.
+mkdir "$tmp/s2-probe"
+chmod 000 "$tmp/s2-probe"
+if hermetic_access_denied r "$tmp/s2-probe"; then
+  h=$(home s2)
+  st=0
+  at "$h" "$nocd/scripts" -- fleet-sweep.sh --repo "$srepo2" --tower-id "$owner" >"$tmp/out" 2>"$tmp/err" || st=$?
+  chmod 755 "$srepo2"
+  out=$(cat "$tmp/out")
+  printf '%s\n' "$out" | grep -q "^registry${tab}failed${tab}no-checkout$" \
+    || fail "s2: an unenterable checkout was not reported as such: $out"
+  grep -q 'could not enter the checkout' "$tmp/err" || fail "s2: the warning does not say the checkout could not be entered: $(cat "$tmp/err")"
+  ok s2 "a checkout the reconcile cannot enter is reported as that, not as a reconcile failure"
+else
+  echo "skip: s2 unenterable checkout: the running user still enters a mode-000 directory"
+fi
+chmod 755 "$tmp/s2-probe"
 
 # ===========================================================================
 # w1 — no seam still says no reconcile exists.

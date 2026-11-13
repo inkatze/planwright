@@ -57,6 +57,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 fails=0
 fail() {
@@ -572,22 +574,26 @@ r17() {
   done
   cp "$ROOT/config/worker-settings.json" "$bad/config/"
   chmod 000 "$bad/config/worker-settings.json"
-  for mode in launch dry-run; do
-    new_case
-    before=$(calls_now)
-    if [ "$mode" = dry-run ]; then
-      PLANWRIGHT_ROOT=$bad tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" --attach-dry-run
-    else
-      PLANWRIGHT_ROOT=$bad tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P"
-    fi
-    [ "$TLH_RC" -eq 12 ] || fail "r17 [$mode]: an unreadable worker profile must exit 12, got $TLH_RC ($TLH_ERR)"
-    case $TLH_ERR in
-      *"$(cd "$bad" && pwd -P)/config/worker-settings.json"*) ;;
-      *) fail "r17 [$mode]: the refusal does not name the profile: $TLH_ERR" ;;
-    esac
-    [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] || fail "r17 [$mode]: new-session was called"
-    nothing_placed "r17 [$mode]" 1
-  done
+  if hermetic_access_denied r "$bad/config/worker-settings.json"; then
+    for mode in launch dry-run; do
+      new_case
+      before=$(calls_now)
+      if [ "$mode" = dry-run ]; then
+        PLANWRIGHT_ROOT=$bad tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" --attach-dry-run
+      else
+        PLANWRIGHT_ROOT=$bad tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P"
+      fi
+      [ "$TLH_RC" -eq 12 ] || fail "r17 [$mode]: an unreadable worker profile must exit 12, got $TLH_RC ($TLH_ERR)"
+      case $TLH_ERR in
+        *"$(cd "$bad" && pwd -P)/config/worker-settings.json"*) ;;
+        *) fail "r17 [$mode]: the refusal does not name the profile: $TLH_ERR" ;;
+      esac
+      [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] || fail "r17 [$mode]: new-session was called"
+      nothing_placed "r17 [$mode]" 1
+    done
+  else
+    echo "skip: r17 unreadable worker profile: the running user still reads $bad/config/worker-settings.json under mode 000"
+  fi
   chmod 644 "$bad/config/worker-settings.json"
 }
 

@@ -34,6 +34,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 MARKER="$here/../scripts/orchestrate-marker.sh"
 STATE="$here/../scripts/orchestrate-state.sh"
 TAB=$(printf '\t')
@@ -179,24 +181,28 @@ echo "ok: clear removes the marker (→ ready) and is idempotent"
 #     `clear` must not report success while the marker survives. Skipped under
 #     root, which bypasses the directory permission and lets rm succeed anyway.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" -ne 0 ]; then
-  cfrepo="$tmp/clearfail"
-  cfspec="$cfrepo/specs/demo"
-  make_fixture "$cfrepo"
-  cfdir="$cfspec/.orchestrate/markers"
-  mkdir -p "$cfdir"
-  echo 100 >"$cfdir/1"
-  chmod 555 "$cfdir" # read+exec, no write: the marker child cannot be unlinked
+cfrepo="$tmp/clearfail"
+cfspec="$cfrepo/specs/demo"
+make_fixture "$cfrepo"
+cfdir="$cfspec/.orchestrate/markers"
+mkdir -p "$cfdir"
+echo 100 >"$cfdir/1"
+chmod 555 "$cfdir" # read+exec, no write: the marker child cannot be unlinked
+denied=0
+if hermetic_access_denied w "$cfdir"; then
+  denied=1
   rc=0
   "$MARKER" clear "$cfspec" 1 >/dev/null 2>&1 || rc=$?
-  chmod 755 "$cfdir" # restore before any assertion so trap cleanup can recurse
+else
+  echo "skip: clear fail-closed: the running user still writes $cfdir under mode 555"
+fi
+chmod 755 "$cfdir" # restore before any assertion so trap cleanup can recurse
+if [ "$denied" = 1 ]; then
   [ -e "$cfdir/1" ] \
     || fail "clear-failclosed: setup invalid — the marker was removable after all"
   [ "$rc" = 2 ] \
     || fail "clear-failclosed: a real removal failure must fail closed (exit 2), got $rc"
   echo "ok: clear surfaces a real removal failure (exit 2), never reports false success"
-else
-  echo "skip: clear fail-closed test (running as root bypasses dir permissions)"
 fi
 
 # ---------------------------------------------------------------------------

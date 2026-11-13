@@ -15,6 +15,8 @@ for v in $(compgen -e); do
 done
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 WRITER="$REPO_ROOT/scripts/worker-session-record.sh"
 GUARD="$REPO_ROOT/scripts/worker-command-guard.sh"
 ENVWRAP="$REPO_ROOT/scripts/fleet-dispatch-env.sh"
@@ -309,8 +311,12 @@ else
 fi
 mkdir -p "$root/old/ro" "$FLEET/scratch/$wt_key/old"
 chmod 500 "$root/old/ro"
+ro_old=0
+if hermetic_access_denied w "$root/old/ro"; then ro_old=1; fi
 REC=$(/bin/sh "$WRITER" write "$WT" "$id" --fresh-scratch 2>/dev/null)
-if [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ] \
+if [ "$ro_old" -eq 0 ]; then
+  echo "skip: G1.2: --fresh-scratch over a read-only directory: the running user still writes $root/old/ro under mode 500"
+elif [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ] \
   && [ ! -e "$FLEET/scratch/$wt_key" ]; then
   pass "G1.2: --fresh-scratch empties a root an earlier worktree at the path left, the earlier layout's too"
 else

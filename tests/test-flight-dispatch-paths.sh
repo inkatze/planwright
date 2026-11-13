@@ -28,6 +28,8 @@
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/flight-dispatch-fixture.sh
 . "$here/lib/flight-dispatch-fixture.sh"
 
@@ -351,14 +353,22 @@ done
 rm -rf "$c/primary/.claude/worktrees/flight-$fb"
 age "$c/fleet/flights/$fb"
 chmod 500 "$c/fleet/attention"
-run retire --repo-root "$c/primary"
-chmod 700 "$c/fleet/attention"
-if [ "$RC" -eq 0 ] || ! printf '%s\n' "$ERR" | grep -q "could not clear the attention row"; then
-  fail "a lifecycle row retire could not clear must fail the retire, not pass silently (rc $RC: $ERR)"
+denied=0
+if hermetic_access_denied w "$c/fleet/attention"; then
+  denied=1
+  run retire --repo-root "$c/primary"
+else
+  echo "skip: retire whose row clear fails: the running user still writes $c/fleet/attention under mode 500"
 fi
-# The brief stays until its row is cleared, so the next retire retries it.
-[ -f "$c/fleet/flights/$fb/brief.md" ] || fail "a retire whose row clear failed must keep the brief for the next retire"
-printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" && fail "a retire whose row clear failed must not report the flight retired (out: $OUT)"
+chmod 700 "$c/fleet/attention"
+if [ "$denied" = 1 ]; then
+  if [ "$RC" -eq 0 ] || ! printf '%s\n' "$ERR" | grep -q "could not clear the attention row"; then
+    fail "a lifecycle row retire could not clear must fail the retire, not pass silently (rc $RC: $ERR)"
+  fi
+  # The brief stays until its row is cleared, so the next retire retries it.
+  [ -f "$c/fleet/flights/$fb/brief.md" ] || fail "a retire whose row clear failed must keep the brief for the next retire"
+  printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" && fail "a retire whose row clear failed must not report the flight retired (out: $OUT)"
+fi
 run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "the retry retire exited $RC: $ERR"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "retire must retire a prunable flight (out: $OUT)"
@@ -490,14 +500,22 @@ case $ERR in *"newline"*) ;; *) fail "the newline refusal must say why: $ERR" ;;
 rmdir "$c/fleet/flights/x
 $fr"
 chmod 300 "$c/fleet/flights"
-run retire --repo-root "$c/primary"
-[ "$RC" -eq 4 ] || fail "retire must fail when the flights directory cannot be listed (rc $RC)"
-case $ERR in *"cannot list"*) ;; *) fail "the unlistable flights refusal must say why: $ERR" ;; esac
+if hermetic_access_denied r "$c/fleet/flights"; then
+  run retire --repo-root "$c/primary"
+  [ "$RC" -eq 4 ] || fail "retire must fail when the flights directory cannot be listed (rc $RC)"
+  case $ERR in *"cannot list"*) ;; *) fail "the unlistable flights refusal must say why: $ERR" ;; esac
+else
+  echo "skip: unlistable flights directory: the running user still reads $c/fleet/flights under mode 300"
+fi
 chmod 700 "$c/fleet/flights"
 chmod 500 "$c/fleet/flights/$fr"
-run retire --repo-root "$c/primary"
-[ "$RC" -eq 4 ] || fail "retire must fail when a retired brief cannot be removed (rc $RC)"
-case $ERR in *"could not remove"*"$fr"*) ;; *) fail "a failed removal must be named: $ERR" ;; esac
+if hermetic_access_denied w "$c/fleet/flights/$fr"; then
+  run retire --repo-root "$c/primary"
+  [ "$RC" -eq 4 ] || fail "retire must fail when a retired brief cannot be removed (rc $RC)"
+  case $ERR in *"could not remove"*"$fr"*) ;; *) fail "a failed removal must be named: $ERR" ;; esac
+else
+  echo "skip: unremovable retired brief: the running user still writes $c/fleet/flights/$fr under mode 500"
+fi
 chmod 700 "$c/fleet/flights/$fr"
 age "$c/fleet/flights/$fr"
 run retire --repo-root "$c/primary"

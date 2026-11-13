@@ -30,6 +30,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 SJ="$here/../scripts/fleet-streamjson.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
 
@@ -171,7 +173,13 @@ refused 'a vanished launch directory' 3 'launch directory'
 mv "$tmp/aside" "$wdir/cwd"
 
 chmod 000 "$wt"
-refused 'a launch directory the tier cannot be resolved in' 3 'no launch tier resolves'
+wt_denied=0
+if hermetic_access_denied r "$wt"; then wt_denied=1; fi
+if [ "$wt_denied" -eq 1 ]; then
+  refused 'a launch directory the tier cannot be resolved in' 3 'no launch tier resolves'
+else
+  echo "skip: a launch directory the tier cannot be resolved in: the running user still reads $wt under mode 000"
+fi
 chmod 755 "$wt"
 
 cp "$wdir/profile" "$tmp/aside"
@@ -276,18 +284,27 @@ else
   poll_until --what 'the recovered worker' -- test -s "$wdir/worker.pid" || fail "r7: setup: no recovered worker"
   [ -f "$wdir/journal" ] || : >"$wdir/journal"
   chmod 000 "$wdir/journal" || fail "r7: setup: cannot make the journal unreadable"
-  n=$(argv_lines)
-  err=$(senv -- relaunch sjr1 --grace 2 2>&1 >/dev/null)
-  rc=$?
-  chmod 644 "$wdir/journal"
-  [ "$rc" -eq 6 ] || fail "r7: a partial stop must be exit 6, got $rc: $err"
-  case $err in
-    *"recover sjr1 --cwd $wt"*) ;;
-    *) fail "r7: the partial stop must name the recover to run: $err" ;;
-  esac
-  [ "$(argv_lines)" = "$n" ] || fail "r7: a relaunch whose stop was partial resumed a session"
+  journal_denied=0
+  if hermetic_access_denied r "$wdir/journal"; then journal_denied=1; fi
+  if [ "$journal_denied" -eq 1 ]; then
+    n=$(argv_lines)
+    err=$(senv -- relaunch sjr1 --grace 2 2>&1 >/dev/null)
+    rc=$?
+    chmod 644 "$wdir/journal"
+    [ "$rc" -eq 6 ] || fail "r7: a partial stop must be exit 6, got $rc: $err"
+    case $err in
+      *"recover sjr1 --cwd $wt"*) ;;
+      *) fail "r7: the partial stop must name the recover to run: $err" ;;
+    esac
+    [ "$(argv_lines)" = "$n" ] || fail "r7: a relaunch whose stop was partial resumed a session"
+  else
+    chmod 644 "$wdir/journal"
+    echo "skip: r7 the running user still reads $wdir/journal under mode 000"
+  fi
   senv -- stop sjr1 --grace 2 >/dev/null 2>&1 || fail "r7: the follow-up stop with a readable journal did not close the worker"
-  echo "ok: r7 a partial stop during a relaunch is exit 6 naming the recover, and nothing is resumed (REQ-G1.3)"
+  if [ "$journal_denied" -eq 1 ]; then
+    echo "ok: r7 a partial stop during a relaunch is exit 6 naming the recover, and nothing is resumed (REQ-G1.3)"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

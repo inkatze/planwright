@@ -21,6 +21,8 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd -P)
 LAUNCH="$repo_root/scripts/mission-control-launch.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/mc-launch-fixture.sh
 . "$here/lib/mc-launch-fixture.sh"
 
@@ -355,12 +357,17 @@ ml reparent mc-alpha-tower-1000000002 --program beta --authority "$yes_id"
 # A registry the launcher cannot rewrite changes nothing.
 if [ "$(id -u)" != 0 ]; then
   chmod 500 "$REG"
-  ml reparent "$fold_name" --program beta --authority "$fold_id"
-  chmod 700 "$REG"
-  if [ "$RC" = 2 ] && [ "$(cat "$REG/$fold_name")" = "$before" ]; then
-    ok "a row that cannot be rewritten refuses and changes nothing (exit 2)"
+  if hermetic_access_denied w "$REG"; then
+    ml reparent "$fold_name" --program beta --authority "$fold_id"
+    chmod 700 "$REG"
+    if [ "$RC" = 2 ] && [ "$(cat "$REG/$fold_name")" = "$before" ]; then
+      ok "a row that cannot be rewritten refuses and changes nothing (exit 2)"
+    else
+      fail "an unwritable registry: exit $RC"
+    fi
   else
-    fail "an unwritable registry: exit $RC"
+    chmod 700 "$REG"
+    echo "skip: an unwritable registry: the read-only directory is still writable here"
   fi
 fi
 

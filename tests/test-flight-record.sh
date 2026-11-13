@@ -65,6 +65,8 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 ROOT=$(cd "$here/.." && pwd -P)
 SCRIPT="$ROOT/scripts/flight-record.sh"
 [ -r "$ROOT/tests/lib/emitter-lint.sh" ] || {
@@ -1322,10 +1324,18 @@ NOX=noenter-0a1b2c3d
 gitc "$repo" checkout -q -b "planwright/flight/$NOX" main
 mkdir -p "$repo/specs"
 chmod 000 "$repo/specs"
-run_land --flight-id "$NOX"
+nox_denied=0
+if hermetic_access_denied r "$repo/specs"; then
+  nox_denied=1
+  run_land --flight-id "$NOX"
+else
+  echo "skip: unenterable record directory: the running user still reads $repo/specs under mode 000"
+fi
 chmod 755 "$repo/specs"
-[ "$RC" -eq 4 ] || fail "a directory land cannot enter must fail with 4 (got $RC: $ERR)"
-printf '%s\n' "$ERR" | grep -q 'symlink' && fail "a directory land cannot enter is not a symlink: $ERR"
+if [ "$nox_denied" = 1 ]; then
+  [ "$RC" -eq 4 ] || fail "a directory land cannot enter must fail with 4 (got $RC: $ERR)"
+  printf '%s\n' "$ERR" | grep -q 'symlink' && fail "a directory land cannot enter is not a symlink: $ERR"
+fi
 rm -rf "$repo/specs"
 
 # A pre-commit hook that rewrites the record and then refuses the commit

@@ -16,6 +16,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECKER="$REPO_ROOT/scripts/check-instructions.sh"
 
 failures=0
@@ -153,12 +155,16 @@ scaffold "$t12"
 # a body well over the 4250 error floor; readable, it fails the guard.
 make_skill "$t12" unreadable 5000
 chmod 000 "$t12/skills/unreadable/SKILL.md"
-out="$(/bin/bash "$CHECKER" --root "$t12" 2>&1)"
-rc=$?
+if hermetic_access_denied r "$t12/skills/unreadable/SKILL.md"; then
+  out="$(/bin/bash "$CHECKER" --root "$t12" 2>&1)"
+  rc=$?
+  assert_exit "unreadable instruction file is a fail-loud error" 1 "$rc"
+  assert_contains "unreadable-file failure is diagnosed" "could not be measured" "$out"
+else
+  echo "skip: unreadable instruction file: the running user still reads $t12/skills/unreadable/SKILL.md under mode 000"
+fi
 # restore read permission so the trap's `rm -rf` can clean the fixture up.
 chmod 644 "$t12/skills/unreadable/SKILL.md"
-assert_exit "unreadable instruction file is a fail-loud error" 1 "$rc"
-assert_contains "unreadable-file failure is diagnosed" "could not be measured" "$out"
 
 ########################################################################
 # 13. Fenced Doctrine examples are documentation, not live manifest entries.

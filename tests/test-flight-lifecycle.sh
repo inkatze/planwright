@@ -88,12 +88,19 @@ brief_dir "$R"
 O=keep-aaaaaab6
 brief_dir "$O"
 chmod 500 "$tmp/fleet/attention"
-"$SCRIPT" push completion "$O" --handle "tmux-flight-$O" --landing "record:specs/_flights/$O.md" 2>/dev/null
-rc=$?
+rc=skip
+if hermetic_access_denied w "$tmp/fleet/attention"; then
+  "$SCRIPT" push completion "$O" --handle "tmux-flight-$O" --landing "record:specs/_flights/$O.md" 2>/dev/null
+  rc=$?
+else
+  echo "skip: completion the store refused: the running user still writes $tmp/fleet/attention under mode 500"
+fi
 chmod 700 "$tmp/fleet/attention"
-[ "$rc" -eq 4 ] || fail "a completion the store refused exits 4 (got $rc)"
-[ "$(cat "$tmp/fleet/flights/$O/landing" 2>/dev/null)" = "record:specs/_flights/$O.md" ] \
-  || fail "a completion the store refused still keeps its landing reference"
+if [ "$rc" != skip ]; then
+  [ "$rc" -eq 4 ] || fail "a completion the store refused exits 4 (got $rc)"
+  [ "$(cat "$tmp/fleet/flights/$O/landing" 2>/dev/null)" = "record:specs/_flights/$O.md" ] \
+    || fail "a completion the store refused still keeps its landing reference"
+fi
 
 # A fleet home others can write keeps nothing beside the brief: whoever can
 # write the home can swap its flights directory for one of their own.

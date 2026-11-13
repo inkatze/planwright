@@ -17,6 +17,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 SL="$here/../scripts/fleet-statusline.sh"
 TQ="$here/../scripts/tower-queue.sh"
 
@@ -147,19 +149,16 @@ echo "ok: a torn store line degrades to the unreadable marker and leaves the res
 
 # --- 6. A store that cannot be read degrades the same way --------------------
 
-# chmod 0000 does not make a file unreadable to root, so under a root CI
-# container this case would exercise nothing and fail green. Skipped there,
-# loudly, rather than asserted on a measurement that was not taken.
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: the unreadable-store case needs a non-root uid (chmod 0000 does not bind root)"
-else
-  chmod 0000 "$store"
+chmod 0000 "$store"
+if hermetic_access_denied r "$store"; then
   line=$(statusline statusline) || fail "statusline over an unreadable store: exit"
   [ "$(waiting_field "$line")" = "waiting ?" ] \
     || fail "an unreadable store did not degrade to the marker: '$(waiting_field "$line")'"
   case $line in *planwright*queue*) ;; *) fail "an unreadable store broke the rest of the line: '$line'" ;; esac
-  chmod 0600 "$store"
+else
+  echo "skip: unreadable store: the running user still reads $store under mode 0000"
 fi
+chmod 0600 "$store"
 
 rm -f "$store"
 line=$(statusline statusline) || fail "statusline over an absent store: exit"

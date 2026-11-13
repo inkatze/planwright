@@ -22,6 +22,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 REPO_ROOT=$(cd "$here/.." && pwd -P)
 FTL="$REPO_ROOT/scripts/fleet-tower-launch.sh"
 
@@ -149,14 +151,18 @@ bad="$tmp/badroot"
 mkdir -p "$bad/config" "$bad/scripts"
 cp "$REPO_ROOT/config/tower-settings.json" "$bad/config/"
 chmod 000 "$bad/config/tower-settings.json"
-rc=0
-env PLANWRIGHT_ROOT="$bad" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_TOWER_LAUNCH_CLAUDE="$tmp/claude" PLANWRIGHT_TEST_SEAM=1 \
-  SHIM_REC="$tmp/rec3" /bin/sh "$FTL" demo --checkout "$tmp/checkout" >/dev/null 2>"$tmp/err" || rc=$?
+if hermetic_access_denied r "$bad/config/tower-settings.json"; then
+  rc=0
+  env PLANWRIGHT_ROOT="$bad" PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" PLANWRIGHT_TOWER_LAUNCH_CLAUDE="$tmp/claude" PLANWRIGHT_TEST_SEAM=1 \
+    SHIM_REC="$tmp/rec3" /bin/sh "$FTL" demo --checkout "$tmp/checkout" >/dev/null 2>"$tmp/err" || rc=$?
+  [ "$rc" = 2 ] || fail "t3: an unreadable tower profile exited $rc, not 2"
+  grep -qF "$bad/config/tower-settings.json" "$tmp/err" || fail "t3: the refusal does not name the profile: $(cat "$tmp/err")"
+  [ ! -e "$tmp/rec3/argv" ] || fail "t3: the refused launch started a tower"
+  [ "$fails" = "$f0" ] && ok "t3 an unreadable tower profile refuses the launch, naming it"
+else
+  echo "skip: t3 unreadable tower profile: the running user still reads $bad/config/tower-settings.json under mode 000"
+fi
 chmod 644 "$bad/config/tower-settings.json"
-[ "$rc" = 2 ] || fail "t3: an unreadable tower profile exited $rc, not 2"
-grep -qF "$bad/config/tower-settings.json" "$tmp/err" || fail "t3: the refusal does not name the profile: $(cat "$tmp/err")"
-[ ! -e "$tmp/rec3/argv" ] || fail "t3: the refused launch started a tower"
-[ "$fails" = "$f0" ] && ok "t3 an unreadable tower profile refuses the launch, naming it"
 
 # --- t4 -----------------------------------------------------------------------
 f0=$fails

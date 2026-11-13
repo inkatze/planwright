@@ -16,6 +16,8 @@ unset PLANWRIGHT_STREAMJSON_PENDING_AGE
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -364,11 +366,16 @@ answer --program alpha --choice 1 --decision "$D1" --decided-in hub
 refused "a decision already used" "already used by an answer attempt"
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$esc_dir/answers.log"
-  answer --program alpha --choice 1 --decision "$D1" --decided-in hub
-  chmod 644 "$esc_dir/answers.log"
-  expect_rc "an answers log that cannot be read" 1
-  expect_err "fails the replay check" "was not used before"
-  [ -z "$(keys)" ] || fail "a key was sent past an unreadable answers log: $(keys)"
+  if hermetic_access_denied r "$esc_dir/answers.log"; then
+    answer --program alpha --choice 1 --decision "$D1" --decided-in hub
+    chmod 644 "$esc_dir/answers.log"
+    expect_rc "an answers log that cannot be read" 1
+    expect_err "fails the replay check" "was not used before"
+    [ -z "$(keys)" ] || fail "a key was sent past an unreadable answers log: $(keys)"
+  else
+    chmod 644 "$esc_dir/answers.log"
+    echo "skip: the unreadable answers log case (the mode does not deny reading here)"
+  fi
 fi
 D2=$(note hub answer 3)
 touch "$tmp/send-fails"
@@ -389,23 +396,28 @@ refused "a decision a failed send used" "already used by an answer attempt"
 if [ "$(id -u)" != 0 ]; then
   D4=$(note hub answer 1)
   chmod 444 "$esc_dir/answers.log"
-  answer --program alpha --choice 1 --decision "$D4" --decided-in hub
-  chmod 644 "$esc_dir/answers.log"
-  expect_rc "an answer that cannot be logged before the keystroke" 1
-  expect_err "sends nothing" "nothing was sent"
-  [ -z "$(keys)" ] || fail "a key was sent with no pending line: $(keys)"
-  touch "$tmp/send-locks-log"
-  answer --program alpha --choice 1 --decision "$D4" --decided-in hub
-  rm -f "$tmp/send-locks-log"
-  chmod 644 "$esc_dir/answers.log"
-  expect_rc "a sent answer whose outcome cannot be logged" 1
-  expect_out "still reports the send" "answered${tab}alpha${tab}%7${tab}1"
-  expect_err "and says its pending line keeps the decision used" "pending line still marks decision $D4 used"
-  if [ "$(keys)" = "-t %7 1" ]; then ok "the one digit was sent"; else fail "keys sent: '$(keys)'"; fi
-  : >"$tmp/keys"
-  cp "$tmp/self.saved" "$esc_dir/self"
-  answer --program alpha --choice 1 --decision "$D4" --decided-in hub
-  refused "a decision only a pending line used" "already used by an answer attempt"
+  if hermetic_access_denied w "$esc_dir/answers.log"; then
+    answer --program alpha --choice 1 --decision "$D4" --decided-in hub
+    chmod 644 "$esc_dir/answers.log"
+    expect_rc "an answer that cannot be logged before the keystroke" 1
+    expect_err "sends nothing" "nothing was sent"
+    [ -z "$(keys)" ] || fail "a key was sent with no pending line: $(keys)"
+    touch "$tmp/send-locks-log"
+    answer --program alpha --choice 1 --decision "$D4" --decided-in hub
+    rm -f "$tmp/send-locks-log"
+    chmod 644 "$esc_dir/answers.log"
+    expect_rc "a sent answer whose outcome cannot be logged" 1
+    expect_out "still reports the send" "answered${tab}alpha${tab}%7${tab}1"
+    expect_err "and says its pending line keeps the decision used" "pending line still marks decision $D4 used"
+    if [ "$(keys)" = "-t %7 1" ]; then ok "the one digit was sent"; else fail "keys sent: '$(keys)'"; fi
+    : >"$tmp/keys"
+    cp "$tmp/self.saved" "$esc_dir/self"
+    answer --program alpha --choice 1 --decision "$D4" --decided-in hub
+    refused "a decision only a pending line used" "already used by an answer attempt"
+  else
+    chmod 644 "$esc_dir/answers.log"
+    echo "skip: the unwritable answers log cases (the mode does not deny writing here)"
+  fi
 else
   echo "skip: the unwritable answers log cases, as root"
 fi
@@ -548,10 +560,15 @@ if (
     || fail "the dialog record read as '$MSP_REC_FIRST/$MSP_REC_SESS/$MSP_REC_PRINT'"
   if [ "$(id -u)" != 0 ]; then
     chmod 000 "$rec"
-    msp_record "$rec"
-    r=$?
-    chmod 644 "$rec"
-    [ "$r" = 1 ] || fail "an unreadable dialog record read as $r"
+    if hermetic_access_denied r "$rec"; then
+      msp_record "$rec"
+      r=$?
+      chmod 644 "$rec"
+      [ "$r" = 1 ] || fail "an unreadable dialog record read as $r"
+    else
+      chmod 644 "$rec"
+      echo "skip: the unreadable dialog record case (the mode does not deny reading here)"
+    fi
   fi
   awk() {
     rm -f "$rec"

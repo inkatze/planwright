@@ -30,11 +30,6 @@
 #   DEFER <=> exit 0 AND empty stdout.
 set -u
 unset CDPATH
-# The sync reads the base-merge policy; an operator's adopter overlay must not
-# reach the fixtures, whose own checkouts carry no overlay.
-PLANWRIGHT_ADOPTER_OVERLAY=/nonexistent/planwright-adopter
-export PLANWRIGHT_ADOPTER_OVERLAY
-unset PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 LC_ALL=C
 export LC_ALL
 # The sync fixtures run the real git. An inherited repository override (a
@@ -43,6 +38,12 @@ export LC_ALL
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
+# The sync reads the base-merge policy; an operator's adopter overlay must not
+# reach the fixtures, whose own checkouts carry no overlay.
+PLANWRIGHT_ADOPTER_OVERLAY=/nonexistent/planwright-adopter
+export PLANWRIGHT_ADOPTER_OVERLAY
 HOOKS_JSON="$REPO_ROOT/hooks/hooks.json"
 WORKER_SETTINGS="$REPO_ROOT/config/worker-settings.json"
 SYNC="$REPO_ROOT/scripts/converge-sync-main.sh"

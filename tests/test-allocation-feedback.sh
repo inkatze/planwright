@@ -42,6 +42,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FB="$here/../scripts/allocation-feedback.sh"
 AD="$here/../scripts/allocation-adapt.sh"
 LEDGER="$here/../scripts/allocation-ledger.sh"
@@ -635,18 +637,23 @@ adaptation_on
 escalate model-allocation:task-w drain s1 step-failure
 led=$(run_led path model-allocation:task-w)
 chmod 000 "$led"
-set +e
-out=$(run evaluate model-allocation:task-w --key drain --terminal completed \
-  --scope planwright --obs-dir "$obsdir" 2>/dev/null)
-rc=$?
-set -e
+if hermetic_access_denied r "$led"; then
+  set +e
+  out=$(run evaluate model-allocation:task-w --key drain --terminal completed \
+    --scope planwright --obs-dir "$obsdir" 2>/dev/null)
+  rc=$?
+  set -e
+  chmod 644 "$led"
+  [ "$rc" = 0 ] || fail "20g: an unreadable ledger should degrade, not fail; got exit $rc"
+  [ "$(printf '%s\n' "$out" | field fired)" = no ] || fail "20h: an unreadable ledger recorded"
+  [ "$(printf '%s\n' "$out" | field reason)" = degraded ] || fail "20i: the reason should be degraded"
+  [ "$(frag_count)" = 0 ] || fail "20j: an unreadable ledger wrote a fragment"
+  [ "$(marks_of model-allocation:task-w)" = 0 ] || fail "20k: an unreadable ledger left a mark row"
+  echo "ok: an unhealthy or unreadable ledger degrades without recording or marking"
+else
+  echo "skip: 20g unreadable ledger: the running user still reads $led under mode 000"
+fi
 chmod 644 "$led"
-[ "$rc" = 0 ] || fail "20g: an unreadable ledger should degrade, not fail; got exit $rc"
-[ "$(printf '%s\n' "$out" | field fired)" = no ] || fail "20h: an unreadable ledger recorded"
-[ "$(printf '%s\n' "$out" | field reason)" = degraded ] || fail "20i: the reason should be degraded"
-[ "$(frag_count)" = 0 ] || fail "20j: an unreadable ledger wrote a fragment"
-[ "$(marks_of model-allocation:task-w)" = 0 ] || fail "20k: an unreadable ledger left a mark row"
-echo "ok: an unhealthy or unreadable ledger degrades without recording or marking"
 
 # --- 21. a broken install is exit 5, never a recording failure --------------
 

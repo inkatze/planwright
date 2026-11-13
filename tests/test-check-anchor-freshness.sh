@@ -60,6 +60,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 repo=$(cd "$here/.." && pwd)
 GUARD="$repo/scripts/check-anchor-freshness.sh"
 ANCHOR="$repo/scripts/spec-anchor.sh"
@@ -410,8 +412,8 @@ chmod 000 "$f5d/unreadable/design.md"
 # As root, or on a mount that ignores the mode, the file stays readable and the
 # case would assert nothing. Probe rather than assume, so a vacuous pass is
 # reported as the skip it is.
-if cat "$f5d/unreadable/design.md" >/dev/null 2>&1; then
-  echo "skip: chmod 000 left design.md readable, so the unreadable-file case did not run" >&2
+if ! hermetic_access_denied r "$f5d/unreadable/design.md"; then
+  echo "skip: unreadable bundle file: the running user still reads design.md under mode 000" >&2
 else
   run_guard "$f5d"
   assert_rc "an unreadable bundle file fails the guard" 1

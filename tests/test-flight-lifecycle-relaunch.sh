@@ -55,12 +55,20 @@ brief_dir "$W"
 /bin/sh "$STATE" register "$HW" "flight:$W" --backend tmux --death-handle "process $(dead_pid 17)" >/dev/null
 before=$(launches)
 chmod 500 "$tmp/fleet/liveness/crash"
-out=$(supervise "$((t + 300000))")
+crash_denied=0
+if hermetic_access_denied w "$tmp/fleet/liveness/crash"; then
+  crash_denied=1
+  out=$(supervise "$((t + 300000))")
+else
+  echo "skip: uncounted crash record: the running user still writes $tmp/fleet/liveness/crash under mode 500"
+fi
 chmod 700 "$tmp/fleet/liveness/crash"
-[ "$(lineof "$out" "$W")" = failed ] || fail "a crash that could not be counted reads failed (got: $out)"
-[ "$(launches)" = "$before" ] || fail "an uncounted death is never relaunched"
-out=$(supervise "$((t + 300001))")
-[ "$(lineof "$out" "$W")" = backoff ] || fail "the uncounted death is counted on the next pass (got: $out)"
+if [ "$crash_denied" = 1 ]; then
+  [ "$(lineof "$out" "$W")" = failed ] || fail "a crash that could not be counted reads failed (got: $out)"
+  [ "$(launches)" = "$before" ] || fail "an uncounted death is never relaunched"
+  out=$(supervise "$((t + 300001))")
+  [ "$(lineof "$out" "$W")" = backoff ] || fail "the uncounted death is counted on the next pass (got: $out)"
+fi
 
 # Another pass's count that is not yet recorded holds the relaunch.
 V=race-aaaaaab4

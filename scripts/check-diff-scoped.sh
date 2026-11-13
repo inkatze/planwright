@@ -31,11 +31,14 @@
 # include list that never names the file (data, fixtures that are malformed on
 # purpose, generated files).
 #
-# Each test runs as scripts/run-tests.sh runs a file: PLANWRIGHT_FLEET_STATE_DIR,
-# and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when set, point at a sentinel home of
-# its own, and a test that creates anything there fails, since under a fleet
-# worker it would have written the operator's real state; and
-# SPEC_WALKTHROUGH_DOT_TIMEOUT defaults to the suite's load headroom.
+# Each test runs as scripts/run-tests.sh runs a file: the root and
+# configuration variables tests/lib/hermetic-env.sh clears are unset;
+# PLANWRIGHT_FLEET_STATE_DIR, and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when set,
+# point at a sentinel home of its own, and a test that creates anything there
+# fails, since under a fleet worker it would have written the operator's real
+# state; and SPEC_WALKTHROUGH_DOT_TIMEOUT defaults to the suite's load
+# headroom. The runner's PLANWRIGHT_TEST_PIN_ENV switch does not apply here:
+# this check always pins.
 #
 # Paths and output come from the branch, so non-printable bytes are stripped
 # from everything printed.
@@ -149,6 +152,8 @@ if [ -z "$runner" ]; then
   if [ -x /bin/bash ]; then runner=/bin/bash; else runner=bash; fi
 fi
 
+# Resolved before the cd below, which would strand a relative $0.
+self_dir=$(cd "$(dirname "$0")" && pwd -P) || die 2 "cannot resolve the script's own directory"
 top=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "not inside a git work tree"
 cd "$top"
 
@@ -245,27 +250,38 @@ fi
 
 # --- running -----------------------------------------------------------------
 
+# Each test is pinned as scripts/run-tests.sh pins a file, from the same list.
+# A failed `.` ends a POSIX shell before any `||`, so readability is checked first.
+[ -r "$self_dir/../tests/lib/hermetic-env.sh" ] || die 2 "could not load tests/lib/hermetic-env.sh"
+_hermetic_env_defer=1
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$self_dir/../tests/lib/hermetic-env.sh"
 status=0
 n=0
 while IFS= read -r t; do
   n=$((n + 1))
   sentinel=$work/sentinel/$n
   rc=0
-  (
-    export PLANWRIGHT_FLEET_STATE_DIR="$sentinel/fleet"
-    [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$sentinel/plugin-data"
-    [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$sentinel/claude"
-    export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
-    # shellcheck disable=SC2086 # --runner is a command line by contract
-    exec $runner "./$t"
-  ) >"$work/out" 2>&1 </dev/null || rc=$?
-  for fh in "$sentinel/fleet" "$sentinel/plugin-data" "$sentinel/claude"; do
-    if [ -e "$fh" ] || [ -L "$fh" ]; then
-      printf '%s\n' "$prog: the test wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" >>"$work/out"
-      rc=1
-      break
-    fi
-  done
+  pinned=1
+  # A pin that cannot complete runs nothing: the test would see the caller's
+  # fleet home. Tried in a subshell first, so this shell stays unpinned.
+  if ! (hermetic_env_sentinel "$sentinel"); then
+    printf '%s\n' "$prog: could not pin the fleet home (a pinned variable in tests/lib/hermetic-env.sh has no arm); not run" >"$work/out"
+    rc=1
+    pinned=0
+  else
+    (
+      hermetic_env_clear
+      hermetic_env_sentinel "$sentinel"
+      export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
+      # shellcheck disable=SC2086 # --runner is a command line by contract
+      exec $runner "./$t"
+    ) >"$work/out" 2>&1 </dev/null || rc=$?
+  fi
+  if [ "$pinned" -eq 1 ] && hermetic_env_sentinel_written "$sentinel"; then
+    printf '%s\n' "$prog: the test wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (fleet_home_pin, tests/lib/hermetic-env.sh)" >>"$work/out"
+    rc=1
+  fi
   if [ "$rc" -eq 0 ]; then
     say 'pass\ttest\t%s\n' "$t"
   else

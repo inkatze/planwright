@@ -13,6 +13,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 repo_root=$(cd "$here/.." && pwd)
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
@@ -302,9 +304,7 @@ if [ -z "$read_line" ]; then
 else
   vanished="$tmp/vanished-pid/cmdline"
   read_line=${read_line//\/proc\/\$1\/cmdline/$vanished}
-  true &
-  vanished_pid=$!
-  wait "$vanished_pid"
+  vanished_pid=$(dead_owner_pid) || fail "no dead owner pid is available"
   read_err=$(/bin/bash -c "f() { $read_line; return 0; }; f $vanished_pid" 2>&1)
   read_rc=$?
   if [ "$read_rc" -eq 1 ] && [ -z "$read_err" ]; then

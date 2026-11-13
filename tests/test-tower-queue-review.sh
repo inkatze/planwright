@@ -14,6 +14,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TQ="$here/../scripts/tower-queue.sh"
 MCL="$here/../scripts/mission-control-launch.sh"
 FIX="$here/fixtures/tower-comms"
@@ -334,15 +336,21 @@ echo "ok: every closed record carries its settling reason"
 # --- a ledger that will not read costs only the defaults it holds ----------------------
 
 chmod 0000 "$surface/ledger"
+ledger_denied=0
+if hermetic_access_denied r "$surface/ledger"; then ledger_denied=1; fi
 rm -f "$store"
 rc=0
 run settle --now 9100 >/dev/null || rc=$?
 chmod 0600 "$surface/ledger"
 [ "$rc" = 0 ] || fail "an unreadable ledger failed the rebuild: exit $rc"
-grep -q 'the ledger would not read' "$errf" || fail "the unreadable ledger was not reported"
-[ "$(fld "$sbd" 2)" = question ] && [ "$(fld "$sbd" 28)" = - ] || fail "a default came back without its review content: $(rec "$sbd")"
-[ "$(fld "$d3" 2)" = decided-by-mission-control ] || fail "an unreadable ledger cost an item it does not decide: $(rec "$d3")"
-echo "ok: an unreadable ledger rebuilds its defaults as plain questions and everything else as before"
+if [ "$ledger_denied" -eq 1 ]; then
+  grep -q 'the ledger would not read' "$errf" || fail "the unreadable ledger was not reported"
+  [ "$(fld "$sbd" 2)" = question ] && [ "$(fld "$sbd" 28)" = - ] || fail "a default came back without its review content: $(rec "$sbd")"
+  [ "$(fld "$d3" 2)" = decided-by-mission-control ] || fail "an unreadable ledger cost an item it does not decide: $(rec "$d3")"
+  echo "ok: an unreadable ledger rebuilds its defaults as plain questions and everything else as before"
+else
+  echo "skip: an unreadable ledger: the running user still reads $surface/ledger under mode 0000"
+fi
 
 # --- the rebuild restores a logged default only where one was admissible --------------
 

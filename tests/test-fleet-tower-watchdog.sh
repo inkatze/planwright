@@ -40,6 +40,10 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 FTW="$here/../scripts/fleet-tower-watchdog.sh"
 FTM="$here/../scripts/fleet-tower-marker.sh"
 FAU="$here/../scripts/fleet-audit.sh"
@@ -86,10 +90,8 @@ fake_root="$tmp/fake-repo-root"
 mkdir -p "$fake_root"
 git -C "$fake_root" -c init.defaultBranch=main init -q
 
-# A dead pid: spawn a short-lived child and wait for it.
-/bin/sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null || true
+# A dead pid: above every host's assignable range, so no process holds it.
+dead_pid=$(dead_owner_pid) || fail "no PID is free to stand for a dead tower"
 
 # An alive pid for the alive cases (killed in cleanup).
 sleep 300 &
@@ -537,25 +539,32 @@ chmod 000 "$badroot/config/tower-settings.json"
 rm -f "$tmux_log"
 record_marker unattended "$dead_pid"
 rm -f "$backoff_file"
-rc=0
-out=$(PATH="$bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
-  PLANWRIGHT_CONFIG_DEFAULTS="$defaults" \
-  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter.yml" \
-  PLANWRIGHT_REPO_ROOT="$fake_root" \
-  PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
-  PLANWRIGHT_TOWER_READY_CHECK="$bin/ready-ok" \
-  PLANWRIGHT_ROOT="$badroot" \
-  /bin/bash "$FTW" "$spec_dir" 2>"$tmp/badroot.err") || rc=$?
+rc=skip
+if hermetic_access_denied r "$badroot/config/tower-settings.json"; then
+  rc=0
+  out=$(PATH="$bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$defaults" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter.yml" \
+    PLANWRIGHT_REPO_ROOT="$fake_root" \
+    PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
+    PLANWRIGHT_TOWER_READY_CHECK="$bin/ready-ok" \
+    PLANWRIGHT_ROOT="$badroot" \
+    /bin/bash "$FTW" "$spec_dir" 2>"$tmp/badroot.err") || rc=$?
+else
+  echo "skip: unreadable tower profile relaunch: the running user still reads $badroot/config/tower-settings.json under mode 000"
+fi
 chmod 644 "$badroot/config/tower-settings.json"
-[ "$rc" = 2 ] || fail "an unreadable tower profile must fail the tick (exit 2), got $rc ($out)"
-grep -qF "$badroot/config/tower-settings.json" "$tmp/badroot.err" \
-  || fail "the refusal must name the tower profile: $(cat "$tmp/badroot.err")"
-grep -q '^invoke new-session' "$tmux_log" 2>/dev/null && fail "an unreadable tower profile still created a session"
-case $(fleet_env "$FAT" queue 2>/dev/null) in
-  *"tower profile"*) ;;
-  *) fail "an unreadable tower profile queued no decision" ;;
-esac
-echo "ok: an unreadable tower profile fails the relaunch visibly, naming it"
+if [ "$rc" != skip ]; then
+  [ "$rc" = 2 ] || fail "an unreadable tower profile must fail the tick (exit 2), got $rc ($out)"
+  grep -qF "$badroot/config/tower-settings.json" "$tmp/badroot.err" \
+    || fail "the refusal must name the tower profile: $(cat "$tmp/badroot.err")"
+  grep -q '^invoke new-session' "$tmux_log" 2>/dev/null && fail "an unreadable tower profile still created a session"
+  case $(fleet_env "$FAT" queue 2>/dev/null) in
+    *"tower profile"*) ;;
+    *) fail "an unreadable tower profile queued no decision" ;;
+  esac
+  echo "ok: an unreadable tower profile fails the relaunch visibly, naming it"
+fi
 
 # A colliding session name is a launch failure, not a hijack.
 cat >"$bin/tmux" <<EOF

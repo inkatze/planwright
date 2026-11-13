@@ -113,9 +113,16 @@
 #   PLANWRIGHT_TEST_BUDGET         the budget file --plan-shards reads
 #                                  (default: <repo-root>/config/
 #                                  test-time-budget.yml)
-#   PLANWRIGHT_FLEET_STATE_DIR     replaced per file by a sentinel fleet home
-#   CLAUDE_PLUGIN_DATA, CLAUDE_DIR (the latter two only when set); a file that
+#   the variables tests/lib/hermetic-env.sh lists
+#                                  pinned per file: the cleared ones unset, the
+#                                  fleet home's chain (PLANWRIGHT_FLEET_STATE_DIR,
+#                                  and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when
+#                                  set) replaced by a sentinel home; a file that
 #                                  creates anything in that home fails
+#   PLANWRIGHT_TEST_PIN_ENV        0 turns that pinning off, so the caller's
+#                                  values reach every file (the perturbed run);
+#                                  the switch itself is not passed on, so a
+#                                  nested run pins by default
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
 #   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
@@ -323,6 +330,17 @@ worker_signal() {
 if [ "${1:-}" = "--run-one" ]; then
   t="$2"
   name="${t##*/}"
+  # The list of variables pinned below; a file run without it is a failure,
+  # never a run against whatever the caller exported.
+  # shellcheck source=tests/lib/hermetic-env.sh
+  if ! _hermetic_env_defer=1 . "${0%/*}/../tests/lib/hermetic-env.sh"; then
+    printf '%s\n' "run-tests: could not load tests/lib/hermetic-env.sh; $name not run" \
+      >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.fail"
+    echo "FAIL: $name (log printed at end)" >&2
+    exit 0
+  fi
   clock="${PLANWRIGHT_TEST_CLOCK:-}"
   [ -n "$clock" ] || clock="$(probe_clock)"
   wait_started="$(now_ms)"
@@ -379,26 +397,44 @@ if [ "${1:-}" = "--run-one" ]; then
   # whole rather than at the leaf the resolver derives under it, so the check
   # never depends on that layout: anything written there would have landed in
   # the caller's own directory.
+  #
+  # The cleared variables are unset for the same reason: a root or overlay
+  # path inherited from the caller would decide what the file reads. Turning
+  # the pinning off hands the caller's values through untouched and skips the
+  # sentinel check, so the perturbed run's decoys reach the suites.
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
-  export PLANWRIGHT_FLEET_STATE_DIR="$fleet_sentinel/fleet"
-  # Workers' scratch roots lie outside the fleet home, under /tmp by default
-  # (scripts/fleet-scratch.sh), where a fixture home's would outlive it. Not
-  # `mkdir -p`: that would recreate a run directory something removed, which
-  # the checks around the file must see gone.
-  # not-a-lock: a sentinel that exists already keeps its own
-  mkdir -m 700 -- "$fleet_sentinel" "$fleet_sentinel/scratch-base" 2>/dev/null || :
-  export PLANWRIGHT_FLEET_SCRATCH_BASE="$fleet_sentinel/scratch-base"
-  # The usage gate prefers the operator's status-line mirror, which a fixture
-  # must never read; a suite that tests the mirror names its own.
-  export PLANWRIGHT_USAGE_MIRROR=""
-  [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
-  [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
+  pin_env=1
+  [ "${PLANWRIGHT_TEST_PIN_ENV:-1}" != 0 ] || pin_env=0
+  # The switch is this run's alone: a suite that drives a nested runner must
+  # get its default pinning, not the outer run's opt-out.
+  unset PLANWRIGHT_TEST_PIN_ENV
+  pin_failed=0
+  if [ "$pin_env" -eq 1 ]; then
+    hermetic_env_clear
+    hermetic_env_sentinel "$fleet_sentinel" || pin_failed=1
+    # Workers' scratch roots lie outside the fleet home, under /tmp by default
+    # (scripts/fleet-scratch.sh), where a fixture home's would outlive it. Not
+    # `mkdir -p`: that would recreate a run directory something removed, which
+    # the checks around the file must see gone.
+    # not-a-lock: a sentinel that exists already keeps its own
+    mkdir -m 700 -- "$fleet_sentinel" "$fleet_sentinel/scratch-base" 2>/dev/null || :
+    export PLANWRIGHT_FLEET_SCRATCH_BASE="$fleet_sentinel/scratch-base"
+    # The usage gate prefers the operator's status-line mirror, which a fixture
+    # must never read; a suite that tests the mirror names its own.
+    export PLANWRIGHT_USAGE_MIRROR=""
+  fi
   started="$(now_ms)"
+  past_deadline=0
+  file_rc=0
+  if [ "$pin_failed" -eq 1 ]; then
+    printf '%s\n' "run-tests: could not pin the fleet home for $name (a pinned variable in tests/lib/hermetic-env.sh has no arm); not run" \
+      >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
+    file_rc=1
   # A sibling can break the directory between the check above and these
   # redirects, so the shell's own complaint about a redirect is held back
   # until the directory is known to be healthy.
-  past_deadline=0
-  if [ -n "$deadline_tool" ]; then
+  elif [ -n "$deadline_tool" ]; then
     # In the background, so a trapped signal ends the wait at once and the trap
     # can pass it on: timeout's process group is not the terminal's, and the
     # worker's trap would otherwise wait for the file. An asynchronous command
@@ -451,14 +487,11 @@ if [ "${1:-}" = "--run-one" ]; then
     printf '%s\n' "run-tests: $name ran past its ${deadline}s deadline (PLANWRIGHT_TEST_FILE_DEADLINE) and was ended" \
       >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
   fi
-  for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data" "$fleet_sentinel/claude"; do
-    if [ -e "$fh" ] || [ -L "$fh" ]; then
-      verdict="fail"
-      printf '%s\n' "run-tests: $name wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" \
-        >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
-      break
-    fi
-  done
+  if [ "$pin_env" -eq 1 ] && [ "$pin_failed" -eq 0 ] && hermetic_env_sentinel_written "$fleet_sentinel"; then
+    verdict="fail"
+    printf '%s\n' "run-tests: $name wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (fleet_home_pin, tests/lib/hermetic-env.sh)" \
+      >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+  fi
   finished="$(now_ms)"
   [ -z "$slot_path" ] || pw_lock_release "$slot_path" 2>/dev/null || :
   # The timing record is this worker's own file, written before the verdict
@@ -1083,6 +1116,8 @@ for t in ${files[@]+"${files[@]}"}; do
     echo ""
     echo "=== FAIL: $name ==="
     cat "$log_dir/$name.log" 2>/dev/null || echo "(no captured log)"
+    # A file refused before it ran has no timing to account for.
+    [ ! -e "$log_dir/$name.norun" ] || continue
   elif [ ! -e "$log_dir/$name.done" ]; then
     fails=$((fails + 1))
     echo ""

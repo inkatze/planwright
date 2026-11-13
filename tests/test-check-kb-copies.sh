@@ -12,6 +12,8 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 lint=$repo_root/scripts/check-kb-copies.sh
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -119,9 +121,14 @@ if (cd "$tmp" && /bin/bash "$lint" --kb -dash --specs specs >/dev/null 2>&1); th
 if [ "$(id -u)" -ne 0 ]; then
   mkdir -p "$tmp/specs/locked"
   chmod 000 "$tmp/specs/locked"
-  run --kb "$tmp/kb" --specs "$tmp/specs"
-  chmod 700 "$tmp/specs/locked"
-  if [ "$RC" -eq 2 ]; then ok "an unlistable spec directory fails closed"; else fail "an unlistable spec directory exited $RC"; fi
+  if hermetic_access_denied r "$tmp/specs/locked"; then
+    run --kb "$tmp/kb" --specs "$tmp/specs"
+    chmod 700 "$tmp/specs/locked"
+    if [ "$RC" -eq 2 ]; then ok "an unlistable spec directory fails closed"; else fail "an unlistable spec directory exited $RC"; fi
+  else
+    chmod 700 "$tmp/specs/locked"
+    echo "skip: an unlistable spec directory: the directory is still listable here"
+  fi
   rmdir "$tmp/specs/locked"
 fi
 printf '%s\n' "# Notes" >"$tmp/kb/duty/notes.md"

@@ -37,7 +37,7 @@
 #      is refused (exit 3) and does not disturb the first.
 #   h8: status edges — `absent` for a never-dispatched unit; a garbled pid
 #      record is `unknown` (refuse to guess), never death.
-#   Every case runs against its own fleet home (tests/lib/fleet-home.sh): a
+#   Every case runs against its own fleet home (tests/lib/hermetic-env.sh): a
 #   launch registers its worker, and an unpinned home is the operator's real
 #   registry. The suite fails if the inherited registry names its temp root.
 #
@@ -79,8 +79,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# shellcheck source=tests/lib/fleet-home.sh
-. "$here/lib/fleet-home.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 
@@ -744,7 +746,7 @@ h16() {
   mkdir -p "$STATE/$ID"
   # Simulate a worker that finished but could not record its exit: a dead pid
   # plus a finish-error marker. status must refuse to guess (unknown), not died.
-  printf '999999999\n' >"$STATE/$ID/pid" # a pid that is not alive
+  dead_owner_pid >"$STATE/$ID/pid" || fail "h16: dead_owner_pid found a process at its PID"
   : >"$STATE/$ID/finish-error"
   code=0
   st=$(run_fdh status "$SPEC" "$ID") || code=$?
@@ -847,6 +849,11 @@ h20() {
   mkdir -p "$wt" "$bad/config" "$bad/scripts"
   cp "$REPO_ROOT/config/worker-settings.json" "$bad/config/"
   chmod 000 "$bad/config/worker-settings.json"
+  if ! hermetic_access_denied r "$bad/config/worker-settings.json"; then
+    chmod 644 "$bad/config/worker-settings.json"
+    echo "skip: h20 unreadable worker profile: the running user still reads $bad/config/worker-settings.json under mode 000"
+    return 0
+  fi
   make_fake "$rec"
   printf 'task\n' | env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
     PLANWRIGHT_ROOT="$bad" PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \

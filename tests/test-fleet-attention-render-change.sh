@@ -20,6 +20,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FA="$here/../scripts/fleet-attention.sh"
 
 fail() {
@@ -247,8 +249,8 @@ echo "ok: an untrustworthy seen file falls back to a full render"
 # 13. An unreadable store is an error on every call, not an exit-0 skip once
 #     its digest has been recorded.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" != 0 ]; then
-  chmod 000 "$store"
+chmod 000 "$store"
+if hermetic_access_denied r "$store"; then
   for _ in 1 2; do
     rc=0
     aenv "$home" render --on-change tower-1 >/dev/null 2>&1 || rc=$?
@@ -257,9 +259,11 @@ if [ "$(id -u)" != 0 ]; then
       fail "an unreadable store exited $rc, expected 2"
     }
   done
-  chmod 600 "$store"
   echo "ok: an unreadable store is an error every time"
+else
+  echo "skip: unreadable store: the running user still reads $store under mode 000"
 fi
+chmod 600 "$store"
 
 # ---------------------------------------------------------------------------
 # 14. A change that empties a view says so. Silence means "unchanged" in this
@@ -287,15 +291,18 @@ echo "ok: a change that empties a view is rendered, not silent"
 # 15. The queue refuses an unreadable store under --on-change, as render does,
 #     rather than digesting it as empty.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" != 0 ]; then
-  qstore="$qhome/attention/state"
-  chmod 000 "$qstore"
+qstore="$qhome/attention/state"
+chmod 000 "$qstore"
+if hermetic_access_denied r "$qstore"; then
   rc=0
   aenv "$qhome" queue --on-change t >/dev/null 2>&1 || rc=$?
   chmod 600 "$qstore"
   [ "$rc" = 2 ] || fail "queue: an unreadable store exited $rc, expected 2"
   echo "ok: the queue refuses an unreadable store"
+else
+  echo "skip: queue over an unreadable store: the running user still reads $qstore under mode 000"
 fi
+chmod 600 "$qstore"
 
 # ---------------------------------------------------------------------------
 # 16. A stalled worker becomes visible. Its state never changes, but the age

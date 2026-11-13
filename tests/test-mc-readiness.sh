@@ -16,6 +16,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY G
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -450,10 +452,15 @@ has "a worktree head that differs from the forge's is unaudited, naming both" "c
 git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
 # The audit itself failing is unaudited, with the resolver's reason.
 chmod 000 "$core/config/steps.yaml"
-PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
-chmod 644 "$core/config/steps.yaml"
-c=$(cat "$tmp/collected" 2>/dev/null)
-has "an audit that cannot resolve the cadence is unaudited, naming why" "cadence${tab}unaudited${tab}the audit in $tmp/feature-wt failed: step-run: the configured cadence did not resolve"
+if hermetic_access_denied r "$core/config/steps.yaml"; then
+  PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+  chmod 644 "$core/config/steps.yaml"
+  c=$(cat "$tmp/collected" 2>/dev/null)
+  has "an audit that cannot resolve the cadence is unaudited, naming why" "cadence${tab}unaudited${tab}the audit in $tmp/feature-wt failed: step-run: the configured cadence did not resolve"
+else
+  chmod 644 "$core/config/steps.yaml"
+  echo "skip: the unresolvable cadence case (the mode does not deny reading here)"
+fi
 # Another repository's worktree on the same branch name is never audited.
 git -C "$repo" remote set-url origin https://github.com/acme/api.git
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
@@ -670,12 +677,17 @@ expect_eq "a new head is announced again" "announced${tab}readiness-due${tab}acm
 snap 3333333333333333333333333333333333333333 >"$snapdir/forge"
 events_dir="$fleet/attention/mission-control/alpha/events"
 chmod 500 "$events_dir"
-mc_run mc-readiness.sh watch --program alpha
-chmod 700 "$events_dir"
-expect_rc "a refused event fails the run" 1
-mc_run mc-readiness.sh watch --program alpha
-expect_rc "the next run" 0
-expect_eq "raises it again, now stored" "announced${tab}readiness-due${tab}acme:web:7"
+if hermetic_access_denied w "$events_dir"; then
+  mc_run mc-readiness.sh watch --program alpha
+  chmod 700 "$events_dir"
+  expect_rc "a refused event fails the run" 1
+  mc_run mc-readiness.sh watch --program alpha
+  expect_rc "the next run" 0
+  expect_eq "raises it again, now stored" "announced${tab}readiness-due${tab}acme:web:7"
+else
+  chmod 700 "$events_dir"
+  echo "skip: the refused event case (the mode does not deny writing here)"
+fi
 
 # Between one and two cadences old a snapshot still counts (a budget rung
 # doubles the refresh); past twice its cadence it announces nothing.

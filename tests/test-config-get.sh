@@ -30,6 +30,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 CG="$here/../scripts/config-get.sh"
 
 fail() {
@@ -170,20 +172,21 @@ echo "ok: a missing tracked defaults file surfaces a diagnostic (not opaque)"
 unreadable="$tmp/unreadable-defaults.yml"
 printf 'dispatch_backend: subagent\n' >"$unreadable"
 chmod 000 "$unreadable"
-rc=0
-err=$(PLANWRIGHT_CONFIG_DEFAULTS="$unreadable" PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
-  /bin/bash "$CG" dispatch_backend 2>&1 >/dev/null) || rc=$?
+if hermetic_access_denied r "$unreadable"; then
+  rc=0
+  err=$(PLANWRIGHT_CONFIG_DEFAULTS="$unreadable" PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
+    /bin/bash "$CG" dispatch_backend 2>&1 >/dev/null) || rc=$?
+  case $err in
+    *"tracked defaults not found"*)
+      [ "$rc" = 3 ] || fail "unreadable defaults: exit $rc, expected 3"
+      echo "ok: an unreadable tracked defaults file also surfaces the diagnostic"
+      ;;
+    *) fail "unreadable defaults: no diagnostic (got: $err)" ;;
+  esac
+else
+  echo "skip: unreadable-defaults case: the running user still reads $unreadable under mode 000"
+fi
 chmod 644 "$unreadable" # restore for cleanup
-case $err in
-  *"tracked defaults not found"*)
-    [ "$rc" = 3 ] || fail "unreadable defaults: exit $rc, expected 3"
-    echo "ok: an unreadable tracked defaults file also surfaces the diagnostic"
-    ;;
-  *)
-    # Root reads through mode 000; the failure mode is unobservable there.
-    echo "skip: unreadable-defaults case (file still readable — likely running as root)"
-    ;;
-esac
 
 # ===========================================================================
 # Four-layer overlay resolution (Task 3: D-1, D-4, D-5, D-7, D-9;
@@ -383,41 +386,37 @@ echo "ok: an inline (flow) list value is well-formed, not malformed"
 
 # E1.4 — an unreadable repo-tracked overlay counts as malformed and hard-fails
 # (the hard-fail arm of the by-layer policy, the team-shared blast radius).
-if [ "$(id -u)" != 0 ]; then
-  reset_layers
-  printf 'dispatch_backend: core_v\n' >"$core_cfg"
-  printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
-  printf 'dispatch_backend: repo_v\n' >"$tracked_cfg"
-  chmod 000 "$tracked_cfg"
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
+printf 'dispatch_backend: repo_v\n' >"$tracked_cfg"
+chmod 000 "$tracked_cfg"
+if hermetic_access_denied r "$tracked_cfg"; then
   rc=0
   out=$(run4 dispatch_backend 2>/dev/null) || rc=$?
-  chmod 644 "$tracked_cfg"
-  if [ "$out" = local_v ] && [ "$rc" = 0 ]; then
-    echo "skip: unreadable repo-tracked readable anyway (likely root)"
-  else
-    [ "$rc" = 4 ] || fail "unreadable repo-tracked: exit $rc, expected 4 (hard-fail)"
-    echo "ok: an unreadable repo-tracked overlay hard-fails (exit 4)"
-  fi
+  [ "$rc" = 4 ] || fail "unreadable repo-tracked: exit $rc, expected 4 (hard-fail)"
+  echo "ok: an unreadable repo-tracked overlay hard-fails (exit 4)"
+else
+  echo "skip: unreadable repo-tracked overlay: the running user still reads $tracked_cfg under mode 000"
 fi
+chmod 644 "$tracked_cfg"
 
 # E1.4 — an unreadable overlay file counts as malformed for its layer
 # (degrade+warn for machine-local).
-if [ "$(id -u)" != 0 ]; then
-  reset_layers
-  printf 'dispatch_backend: core_v\n' >"$core_cfg"
-  printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
-  chmod 000 "$mlocal_cfg"
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
+chmod 000 "$mlocal_cfg"
+if hermetic_access_denied r "$mlocal_cfg"; then
   rc=0
   out=$(run4 dispatch_backend 2>/dev/null) || rc=$?
-  chmod 644 "$mlocal_cfg"
-  if [ "$out" = local_v ]; then
-    echo "skip: unreadable machine-local readable anyway (likely root)"
-  else
-    [ "$rc" = 0 ] || fail "unreadable machine-local: exit $rc, expected 0 (degrade)"
-    [ "$out" = core_v ] || fail "unreadable machine-local: did not degrade to core"
-    echo "ok: an unreadable overlay file is treated as malformed for its layer"
-  fi
+  [ "$rc" = 0 ] || fail "unreadable machine-local: exit $rc, expected 0 (degrade)"
+  [ "$out" = core_v ] || fail "unreadable machine-local: did not degrade to core"
+  echo "ok: an unreadable overlay file is treated as malformed for its layer"
+else
+  echo "skip: unreadable machine-local overlay: the running user still reads $mlocal_cfg under mode 000"
 fi
+chmod 644 "$mlocal_cfg"
 
 # E1.4 — a path that EXISTS at the overlay location but is not a regular file
 # (e.g. a directory, a botched mkdir, a merge artifact) is "present but not

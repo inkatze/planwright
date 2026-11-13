@@ -21,9 +21,11 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
-unset PLANWRIGHT_ORCH_STATE_DIR PLANWRIGHT_REPO_ROOT GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 S="$here/../scripts"
 HOME_HELPER="$S/orchestrate-marker-home.sh"
 MARKER="$S/orchestrate-marker.sh"
@@ -321,20 +323,24 @@ werr=$( (cd "$P" && "$MARKER" write specs/demo 1) 2>&1) \
 case "$werr" in *"skipping the shared marker dir"*"is not a directory"*) ;; *) fail "writer: the skipped shared home was not reported with its reason: $werr" ;; esac
 rm -f "$gcommon/planwright" "$P/specs/demo/.orchestrate/markers/1"
 # An existing shared home the writer cannot write to is skipped the same way.
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$shared"
-  chmod 555 "$shared"
+mkdir -p "$shared"
+chmod 555 "$shared"
+denied=0
+if hermetic_access_denied w "$shared"; then
+  denied=1
   werr=$( (cd "$P" && "$MARKER" write specs/demo 1) 2>&1) || {
     chmod 755 "$shared"
     fail "writer: an unwritable shared home failed the write: $werr"
   }
-  chmod 755 "$shared"
+else
+  echo "skip: the unwritable-shared-home case: the running user still writes $shared under mode 555"
+fi
+chmod 755 "$shared"
+if [ "$denied" = 1 ]; then
   [ -f "$P/specs/demo/.orchestrate/markers/1" ] || fail "writer: no local marker beside an unwritable shared home"
   case "$werr" in *"not writable"*) ;; *) fail "writer: the unwritable shared home was not reported: $werr" ;; esac
-  rm -rf "$P/specs/demo/.orchestrate/markers/1" "$gcommon/planwright"
-else
-  echo "skip: the unwritable-shared-home case (root bypasses dir permissions)"
 fi
+rm -rf "$P/specs/demo/.orchestrate/markers/1" "$gcommon/planwright"
 echo "ok: a shared home the writer cannot create or write is skipped with a warning, the local marker kept"
 
 # A symlink planted at the shared home's parent is never followed.
@@ -388,17 +394,22 @@ rm -f "$P/specs/demo/.orchestrate"
 echo "ok: a symlinked checkout-local .orchestrate is written, read, and cleared as before"
 
 # A clear that fails in one dir still clears the others.
-if [ "$(id -u)" -ne 0 ]; then
-  (cd "$P" && "$MARKER" write specs/demo 1) || fail "writer: setup write failed"
-  chmod 555 "$P/specs/demo/.orchestrate/markers"
+(cd "$P" && "$MARKER" write specs/demo 1) || fail "writer: setup write failed"
+chmod 555 "$P/specs/demo/.orchestrate/markers"
+rc=skip
+if hermetic_access_denied w "$P/specs/demo/.orchestrate/markers"; then
   rc=0
   (cd "$P" && "$MARKER" clear specs/demo 1 2>/dev/null) || rc=$?
-  chmod 755 "$P/specs/demo/.orchestrate/markers"
+else
+  echo "skip: the partial-clear case: the running user still writes $P/specs/demo/.orchestrate/markers under mode 555"
+fi
+chmod 755 "$P/specs/demo/.orchestrate/markers"
+if [ "$rc" != skip ]; then
   [ "$rc" = 2 ] || fail "writer: a partial clear returned $rc, expected 2"
   [ ! -e "$shared/1" ] || fail "writer: a failed local removal stranded the shared copy"
   echo "ok: a clear failing in one dir still clears the shared home"
 else
-  echo "skip: the partial-clear case (root bypasses dir permissions)"
+  (cd "$P" && "$MARKER" clear specs/demo 1) || fail "writer: clearing the skipped case's marker failed"
 fi
 
 # A temp that cannot be staged in the shared home, past the usability check,

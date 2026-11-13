@@ -24,11 +24,11 @@ export LC_ALL
 unset CDPATH
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
-unset CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT PLANWRIGHT_ROOT PLANWRIGHT_ADOPTER_OVERLAY \
-  PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_SKILLS_ROOT \
-  PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_TOWER_ID CLAUDE_PROJECT_DIR
+unset CLAUDE_PLUGIN_DATA PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_TOWER_ID
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 ROOT=$(cd "$here/.." && pwd -P)
 SCRIPT="$ROOT/scripts/fleet-task-brief.sh"
 FIX="$here/fixtures/task-brief"
@@ -290,8 +290,8 @@ OUT=$(
 [ -f "$home/tasks/demo/8/brief.md" ] || fail "retire removed a brief while the lock was held"
 
 # A lock that cannot be created is an error, not another holder's contention.
-if [ "$(id -u)" -ne 0 ]; then
-  chmod 500 "$home/tasks"
+chmod 500 "$home/tasks"
+if hermetic_access_denied w "$home/tasks"; then
   render demo 9
   chmod 700 "$home/tasks"
   [ "$RC" -eq 4 ] && [ -z "$OUT" ] || fail "render with an uncreatable lock must exit 4 printing nothing, got $RC: $OUT"
@@ -299,12 +299,18 @@ if [ "$(id -u)" -ne 0 ]; then
     *"cannot take the task brief lock"*) ;;
     *) fail "render must report an uncreatable lock as a lock error, not contention, got: $ERR" ;;
   esac
+else
+  chmod 700 "$home/tasks"
+  echo "skip: uncreatable brief lock: the running user still writes $home/tasks under mode 500"
 fi
 
 # An unreadable spec directory is named and skipped; the rest still retire.
-if [ "$(id -u)" -ne 0 ]; then
-  OUT=$("$SCRIPT" render other 1 --repo-root "$repo" 2>&1) || fail "fixture: other spec render: $OUT"
-  chmod 000 "$home/tasks/other"
+OUT=$("$SCRIPT" render other 1 --repo-root "$repo" 2>&1) || fail "fixture: other spec render: $OUT"
+chmod 000 "$home/tasks/other"
+if ! hermetic_access_denied r "$home/tasks/other"; then
+  chmod 700 "$home/tasks/other"
+  echo "skip: unreadable spec directory on retire: the running user still reads $home/tasks/other under mode 000"
+else
   OUT=$("$SCRIPT" retire --repo-root "$repo" 2>&1)
   RC=$?
   chmod 700 "$home/tasks/other"

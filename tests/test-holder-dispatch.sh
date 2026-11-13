@@ -14,6 +14,8 @@ SCRIPTS=$REPO_ROOT/scripts
 TAB=$(printf '\t')
 # shellcheck source=tests/lib/two-repo-fixture.sh
 . "$REPO_ROOT/tests/lib/two-repo-fixture.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$REPO_ROOT/tests/lib/dead-owner.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$REPO_ROOT/tests/lib/poll-until.sh"
 
@@ -285,9 +287,7 @@ rmdir "$HOLDER/.claude/worktrees" "$HOLDER/.claude"
 W=$TRF/watchdog
 mkdir -p "$W/home"
 printf 'fleet_daemon_pause: false\ntower_relaunch_backoff_base: 60\ntower_relaunch_disable_threshold: 3\n' >"$W/core.yml"
-/bin/sh -c 'exit 0' &
-w_dead=$!
-wait "$w_dead" 2>/dev/null
+w_dead=$(dead_owner_pid) || fail "I1.6 no dead owner pid is available"
 printf '#!/bin/sh\necho 1\n' >"$W/ready"
 printf '#!/bin/sh\necho %s\n' "$w_dead" >"$W/launch"
 chmod +x "$W/ready" "$W/launch"

@@ -28,6 +28,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TQ="$here/../scripts/tower-queue.sh"
 
 fail() {
@@ -332,11 +334,17 @@ if [ "$(id -u)" != 0 ]; then
   qf=$(add_q wf high 7000)
   pres $F --away --now 7000 >/dev/null || fail "F away write: exit"
   chmod 0500 "$surface/delivery"
+  delivery_denied=0
+  if hermetic_access_denied w "$surface/delivery"; then delivery_denied=1; fi
   rc=0
   run next --tower $F --now 7001 >/dev/null 2>&1 || rc=$?
   chmod 0700 "$surface/delivery"
-  [ "$rc" = 6 ] || fail "a delivery record that cannot be written did not fail next (exit $rc)"
-  [ "$(push_count "$qf")" = 0 ] || fail "the failed next spent the away push without sending it"
+  if [ "$delivery_denied" -eq 1 ]; then
+    [ "$rc" = 6 ] || fail "a delivery record that cannot be written did not fail next (exit $rc)"
+    [ "$(push_count "$qf")" = 0 ] || fail "the failed next spent the away push without sending it"
+  else
+    echo "skip: a delivery record that cannot be written: the running user still writes $surface/delivery under mode 0500"
+  fi
   run next --tower $F --now 7002 >/dev/null 2>&1 || fail "next after the delivery directory was restored: exit"
   [ "$(pushes_for "$qf")" = 1 ] || fail "the away push was lost to the failed switch record ($(pushes_for "$qf"))"
   run settle "$qf" --reason 'the worker landed it' --now 7100 >/dev/null 2>&1 || fail "settling qf"

@@ -47,6 +47,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 lib="$here/../scripts/spec-parse.sh"
 scripts_dir="$here/../scripts"
 
@@ -435,21 +437,26 @@ case $err in
 esac
 echo "ok: a missing file fails closed"
 
-# Unreadable file (skipped under uid 0: root reads mode-000 files).
-if [ "$(id -u)" -ne 0 ]; then
-  cp "$tmp/zero.md" "$tmp/unreadable.md"
-  chmod 000 "$tmp/unreadable.md"
+# Unreadable file.
+cp "$tmp/zero.md" "$tmp/unreadable.md"
+chmod 000 "$tmp/unreadable.md"
+if hermetic_access_denied r "$tmp/unreadable.md"; then
   if err=$(spec_parse_extract_tasks "$tmp/unreadable.md" 2>&1 >/dev/null); then
     chmod 644 "$tmp/unreadable.md"
     fail "unreadable file did not fail"
   fi
-  chmod 644 "$tmp/unreadable.md"
   case $err in
     *"missing or unreadable"*) ;;
-    *) fail "unreadable-file failure lacks a clear message: $err" ;;
+    *)
+      chmod 644 "$tmp/unreadable.md"
+      fail "unreadable-file failure lacks a clear message: $err"
+      ;;
   esac
   echo "ok: an unreadable file fails closed"
+else
+  printf '%s\n' "skip: unreadable task file: the running user still reads $tmp/unreadable.md under mode 000"
 fi
+chmod 644 "$tmp/unreadable.md"
 
 # ---------------------------------------------------------------------------
 # Property 5: consumers fail closed when the lib cannot be sourced
@@ -543,13 +550,12 @@ fi
 echo "ok: migrate-format-version.sh fails closed on a syntax-erroring lib (REQ-B1.6a)"
 
 # An unreadable lib must trip the guards' [ -r ] branch in both consumers
-# (skipped under uid 0: root reads mode-000 files).
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir "$tmp/scripts-noread"
-  cp "$scripts_dir/spec-anchor.sh" "$scripts_dir/migrate-format-version.sh" \
-    "$scripts_dir/echo-safety.sh" "$scripts_dir/orchestrate-lock.sh" \
-    "$scripts_dir/spec-parse.sh" "$tmp/scripts-noread/"
-  chmod 000 "$tmp/scripts-noread/spec-parse.sh"
+mkdir "$tmp/scripts-noread"
+cp "$scripts_dir/spec-anchor.sh" "$scripts_dir/migrate-format-version.sh" \
+  "$scripts_dir/echo-safety.sh" "$scripts_dir/orchestrate-lock.sh" \
+  "$scripts_dir/spec-parse.sh" "$tmp/scripts-noread/"
+chmod 000 "$tmp/scripts-noread/spec-parse.sh"
+if hermetic_access_denied r "$tmp/scripts-noread/spec-parse.sh"; then
   if out=$(sh "$tmp/scripts-noread/spec-anchor.sh" "$tmp/spec" 2>"$tmp/noread.err"); then
     fail "spec-anchor.sh succeeded with an unreadable lib (fail-open, REQ-B1.6a)"
   fi
@@ -561,9 +567,11 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
   grep -q "spec-parse.sh" "$tmp/noread-m.err" \
     || fail "migrate-format-version.sh unreadable-lib refusal does not name the lib: $(cat "$tmp/noread-m.err")"
-  chmod 644 "$tmp/scripts-noread/spec-parse.sh"
   echo "ok: both consumers fail closed on an unreadable lib (REQ-B1.6a)"
+else
+  printf '%s\n' "skip: unreadable spec-parse lib: the running user still reads $tmp/scripts-noread/spec-parse.sh under mode 000"
 fi
+chmod 644 "$tmp/scripts-noread/spec-parse.sh"
 
 # ---------------------------------------------------------------------------
 # Property 5b: the consumers the header-declaration, parked-map, and line-80

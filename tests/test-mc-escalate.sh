@@ -19,6 +19,9 @@ unset PLANWRIGHT_STREAMJSON_PENDING_AGE
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+
 failures=0
 fail() {
   echo "FAIL: $1" >&2
@@ -333,13 +336,18 @@ else
 fi
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$fleet/mission-control/alpha/escalate/self"
-  esc scan --program alpha --now $((T0 + 4150))
-  chmod 644 "$fleet/mission-control/alpha/escalate/self"
-  expect_rc "an absent pass over an unreadable dialog record fails" 1
-  if grep -q "^self${tab}$((T0 + 3000))${tab}500${tab}.*${tab}hub$" "$fleet/mission-control/alpha/escalate/sent"; then
-    ok "and keeps the hub escalation it cannot match to a record"
+  if hermetic_access_denied r "$fleet/mission-control/alpha/escalate/self"; then
+    esc scan --program alpha --now $((T0 + 4150))
+    chmod 644 "$fleet/mission-control/alpha/escalate/self"
+    expect_rc "an absent pass over an unreadable dialog record fails" 1
+    if grep -q "^self${tab}$((T0 + 3000))${tab}500${tab}.*${tab}hub$" "$fleet/mission-control/alpha/escalate/sent"; then
+      ok "and keeps the hub escalation it cannot match to a record"
+    else
+      fail "an unreadable record dropped what it raised: '$(cat "$fleet/mission-control/alpha/escalate/sent" 2>/dev/null)'"
+    fi
   else
-    fail "an unreadable record dropped what it raised: '$(cat "$fleet/mission-control/alpha/escalate/sent" 2>/dev/null)'"
+    chmod 644 "$fleet/mission-control/alpha/escalate/self"
+    echo "skip: an absent pass over an unreadable dialog record (the mode does not deny access here)"
   fi
 fi
 cp "$tmp/ps.saved" "$tmp/ps.out"
@@ -453,26 +461,36 @@ esc scan --program alpha --now $((T0 + 2800))
 before=$(count_of "$(hub_events)" "r7-0007")
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$reg/mc-alpha-worker-aaaaaaaaaa"
-  esc scan --program alpha --now $((T0 + 2860))
-  expect_rc "an unreadable launcher list fails the pass" 1
-  expect_err "and says so" "launcher's list cannot be read"
-  expect_out "the dialog half still runs" "self${tab}"
-  chmod 600 "$reg/mc-alpha-worker-aaaaaaaaaa"
-  esc scan --program alpha --now $((T0 + 2920))
-  if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ]; then
-    ok "after an unread list nothing is raised twice"
+  if hermetic_access_denied r "$reg/mc-alpha-worker-aaaaaaaaaa"; then
+    esc scan --program alpha --now $((T0 + 2860))
+    expect_rc "an unreadable launcher list fails the pass" 1
+    expect_err "and says so" "launcher's list cannot be read"
+    expect_out "the dialog half still runs" "self${tab}"
+    chmod 600 "$reg/mc-alpha-worker-aaaaaaaaaa"
+    esc scan --program alpha --now $((T0 + 2920))
+    if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ]; then
+      ok "after an unread list nothing is raised twice"
+    else
+      fail "after an unread list: toasts '$(toasts)'"
+    fi
   else
-    fail "after an unread list: toasts '$(toasts)'"
+    chmod 600 "$reg/mc-alpha-worker-aaaaaaaaaa"
+    echo "skip: an unreadable launcher list (the mode does not deny access here)"
   fi
   chmod 000 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
-  esc scan --program alpha --now $((T0 + 2980))
-  expect_rc "an unreadable journal fails the pass" 1
-  chmod 600 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
-  esc scan --program alpha --now $((T0 + 3040))
-  if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ] && [ "$(count_of "$(hub_events)" "r7-0007")" = "$before" ]; then
-    ok "after an unread journal nothing is raised twice"
+  if hermetic_access_denied r "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"; then
+    esc scan --program alpha --now $((T0 + 2980))
+    expect_rc "an unreadable journal fails the pass" 1
+    chmod 600 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
+    esc scan --program alpha --now $((T0 + 3040))
+    if [ "$(count_of "$(toasts)" "r7-0007")" = 1 ] && [ "$(count_of "$(hub_events)" "r7-0007")" = "$before" ]; then
+      ok "after an unread journal nothing is raised twice"
+    else
+      fail "after an unread journal: toasts '$(toasts)'"
+    fi
   else
-    fail "after an unread journal: toasts '$(toasts)'"
+    chmod 600 "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa/journal"
+    echo "skip: an unreadable journal (the mode does not deny access here)"
   fi
 fi
 wd="$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa"
@@ -535,10 +553,14 @@ hub_ev="$fleet/attention/mission-control/hub/events"
 mkdir -p "$hub_ev"
 if [ "$(id -u)" != 0 ]; then
   chmod 555 "$hub_ev"
-  esc scan --program alpha --now $((T0 + 1900))
-  expect_rc "a refused hub event fails the pass" 1
-  expect_err "the refusal is named" "refused the escalation"
-  expect_out "the operator hears it at the first level instead" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa${tab}editor-toast"
+  if hermetic_access_denied w "$hub_ev"; then
+    esc scan --program alpha --now $((T0 + 1900))
+    expect_rc "a refused hub event fails the pass" 1
+    expect_err "the refusal is named" "refused the escalation"
+    expect_out "the operator hears it at the first level instead" "escalated${tab}operator${tab}mc-alpha-worker-aaaaaaaaaa${tab}editor-toast"
+  else
+    echo "skip: a refused hub event (the mode does not deny access here)"
+  fi
   chmod 755 "$hub_ev"
 fi
 rm -rf "$fleet/streamjson/mc-alpha-worker-aaaaaaaaaa" "$fleet/mission-control/alpha/escalate/sent"
@@ -549,10 +571,14 @@ req mc-alpha-worker-aaaaaaaaaa r10-0010 "$T0"
 : >"$fleet/mission-control/alpha/escalate/sent"
 if [ "$(id -u)" != 0 ]; then
   chmod 444 "$fleet/mission-control/alpha/escalate/sent"
-  esc scan --program alpha --now $((T0 + 2800))
-  expect_rc "an unwritable record fails the pass" 1
-  expect_err "and says so" "nothing is raised this pass"
-  expect_no_out "and raises nothing" "escalated"
+  if hermetic_access_denied w "$fleet/mission-control/alpha/escalate/sent"; then
+    esc scan --program alpha --now $((T0 + 2800))
+    expect_rc "an unwritable record fails the pass" 1
+    expect_err "and says so" "nothing is raised this pass"
+    expect_no_out "and raises nothing" "escalated"
+  else
+    echo "skip: an unwritable record (the mode does not deny access here)"
+  fi
   chmod 644 "$fleet/mission-control/alpha/escalate/sent"
 fi
 rm -f "$fleet/mission-control/alpha/escalate/sent"

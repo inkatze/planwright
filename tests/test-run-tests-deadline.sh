@@ -383,6 +383,7 @@ else
     else
       check_hang_gone "$sc_label" "$sc_dir"
     fi
+    # hermetic-exempt: the earlier wait on this pid sits on a branch that returns, so the run is still unreaped here
     if poll_until -- pid_gone "$sc_run"; then
       pass "$sc_label: the run ends"
     else

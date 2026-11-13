@@ -13,6 +13,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd -P)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -50,8 +52,12 @@ bled=$(printf '%s\n' "$OUT" | head -n 1)
 # A decisions log that cannot be read is never written down as no ledger.
 if [ "$(id -u)" != 0 ]; then
   for seg in "$bhome"/kb/decisions-*.log; do chmod 000 "$seg"; done
-  ho write --program beta --session "$b1" --picture "$tmp/bpic" --digest "$bdigest"
-  [ "$RC" != 0 ] && [ ! -f "$bhf" ] && ok "an unreadable ledger fails the write" || fail "the write over an unreadable ledger exited $RC"
+  if hermetic_access_denied r "$seg"; then
+    ho write --program beta --session "$b1" --picture "$tmp/bpic" --digest "$bdigest"
+    [ "$RC" != 0 ] && [ ! -f "$bhf" ] && ok "an unreadable ledger fails the write" || fail "the write over an unreadable ledger exited $RC"
+  else
+    echo "skip: an unreadable ledger: the decisions log is still readable here"
+  fi
   for seg in "$bhome"/kb/decisions-*.log; do chmod 600 "$seg"; done
 fi
 # A relative picture shaped like an awk assignment is still read as a file.

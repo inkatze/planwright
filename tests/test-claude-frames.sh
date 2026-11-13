@@ -54,8 +54,8 @@ trap 'rm -rf "$tmp"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# shellcheck source=tests/lib/fleet-home.sh
-. "$here/lib/fleet-home.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 core_cfg="$tmp/core-defaults.yml"
 repo="$tmp/repo"

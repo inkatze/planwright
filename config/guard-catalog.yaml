@@ -235,6 +235,16 @@ breadth:
     tool: cdpath-check
     detect: "manual"
     core: false
+  # Test hermeticity: the test shapes that pass or fail on the host rather
+  # than the code (an unprobed mode-bit fixture, a reaped PID reused as a
+  # dead owner, a listed root or configuration variable read without the
+  # clearing library), over a variable list the repository owns
+  # (planwright: scripts/check-test-hermeticity.sh, tests/lib/hermetic-env.sh).
+  - id: test-hermeticity
+    category: house-pattern
+    tool: test-hermeticity-check
+    detect: "manual"
+    core: false
   # Shell rule set: one entry per recurring shell defect class a mechanical
   # check can own, the rule id the one a finding cites. disposition is the
   # categorization a finding takes when its conditions hold; the

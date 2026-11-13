@@ -56,6 +56,8 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CORPUS="$REPO_ROOT/tests/fixtures/worker-guard-corpus.tsv"
 SETTINGS="$REPO_ROOT/config/worker-settings.json"
 ROOT=""

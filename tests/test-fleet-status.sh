@@ -23,6 +23,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 ST="$here/../scripts/fleet-status.sh"
 FS="$here/../scripts/fleet-state.sh"
 
@@ -461,21 +463,25 @@ echo "ok: streamjson+oracle join fires with dashed attention cells"
 # 17. Unreadable attention store degrades to 'unavailable', distinct from an
 #     absent (missing) store. (Skipped as root, where the mode is ignored.)
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" -ne 0 ]; then
-  h17="$tmp/h17"
-  mkdir -p "$h17/attention"
-  printf 'w17\tspec=i:task-1\tworking\t100\t\t\t\t\n' >"$h17/attention/state"
-  chmod 000 "$h17/attention/state"
+h17="$tmp/h17"
+mkdir -p "$h17/attention"
+printf 'w17\tspec=i:task-1\tworking\t100\t\t\t\t\n' >"$h17/attention/state"
+chmod 000 "$h17/attention/state"
+denied=0
+if hermetic_access_denied r "$h17/attention/state"; then
+  denied=1
   printf '[]\n' >"$ofix"
   out=$(run "$h17" "$oshim" merge) || fail "17 merge: non-zero exit"
-  chmod 644 "$h17/attention/state" # restore so the trap cleanup can remove it
+else
+  echo "skip: 17 unreadable attention store: the running user still reads $h17/attention/state under mode 000"
+fi
+chmod 644 "$h17/attention/state" # restore so the trap cleanup can remove it
+if [ "$denied" = 1 ]; then
   case $(merge_line "$out" source attention) in
     "source${tab}attention${tab}unavailable$tab"*) ;;
     *) fail "17: unreadable store not marked unavailable: '$(merge_line "$out" source attention)'" ;;
   esac
   echo "ok: an unreadable store is 'unavailable', not 'absent'"
-else
-  echo "ok: (skipped as root) unreadable-store unavailable arm"
 fi
 
 # ---------------------------------------------------------------------------

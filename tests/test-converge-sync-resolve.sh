@@ -14,6 +14,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 SYNC="$here/../scripts/converge-sync-main.sh"
 SR="$here/../scripts/step-record.sh"
 SKILL="$here/../skills/execute-task/SKILL.md"
@@ -35,7 +37,6 @@ trap 'rm -rf "$SANDBOX"' EXIT
 PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/no-adopter"
 PLANWRIGHT_LOCAL_CONFIG="$SANDBOX/local.yml"
 export PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_LOCAL_CONFIG
-unset PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 
 set_knobs() {
   printf '%s\n' 'converge_sync_main: always' "$@" >"$PLANWRIGHT_LOCAL_CONFIG"

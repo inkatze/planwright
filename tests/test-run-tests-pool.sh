@@ -8,6 +8,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$REPO_ROOT/tests/lib/poll-until.sh"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"
@@ -293,19 +295,19 @@ if [ "$n" -eq 1 ]; then pass "a lock-library error warns once"; else fail "a loc
 assert_contains "the lock-library warning names the cause" "not a lock symlink" "$out"
 assert_contains "the lock-library warning counts the unpooled files" "3 file(s) ran unpooled" "$out"
 
-if [ "$(id -u)" -eq 0 ]; then
-  pass "unwritable-pool case skipped (running as root)"
-else
-  mkdir -p "$tmp/ro-pool"
-  chmod 500 "$tmp/ro-pool"
+mkdir -p "$tmp/ro-pool"
+chmod 500 "$tmp/ro-pool"
+if hermetic_access_denied w "$tmp/ro-pool"; then
   out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/ro-pool" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
   assert_exit "an unwritable pool still passes" 0 $?
   n="$(count_lines 'WARNING test pool' "$out")"
   if [ "$n" -eq 1 ]; then pass "an unwritable pool warns once"; else fail "an unwritable pool warned $n times: $out"; fi
   assert_contains "the unwritable warning names the cause" "not writable" "$out"
   assert_contains "the unwritable run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
-  chmod 700 "$tmp/ro-pool"
+else
+  echo "skip: unwritable pool: the running user still writes $tmp/ro-pool under mode 500"
 fi
+chmod 700 "$tmp/ro-pool"
 
 # ---------------------------------------------------------------------------
 # 7. Waiting is not test time: a file that waits on a held ticket reports the
