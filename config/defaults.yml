@@ -1151,9 +1151,12 @@ mission_control_handover_window: 2m
 # scripts/session-handover.sh is not installed, mission control retires it
 # and launches the successor itself); one idle at its prompt past the idle
 # bound is retired, its next round of work going to a fresh session with a
-# handover brief. Cadences.
+# handover brief. A stream-json worker whose last turn completed is retired
+# after the shorter completed grace, so a finished worker stops holding a
+# host slot. Cadences.
 mission_control_worker_lifetime: 4h
 mission_control_worker_idle: 30m
+mission_control_worker_completed_grace: 5m
 # How often each snapshot-mode source is refreshed, source: cadence. A source
 # left out refreshes at the cadence its adapter declares in
 # config/snapshot-adapters.yaml.
