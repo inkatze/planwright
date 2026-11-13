@@ -48,7 +48,8 @@ mc-event.sh — a mission-control program's events, kept in the attention
 store at <fleet-home>/attention/mission-control/<program>/.
 
 An event is one immutable file under events/, named by its id
-(e<epoch>.<hex>), holding one line:
+(e<epoch>.<4-digit count><hex>; ids from before the count have no
+count), holding one line:
   <epoch><TAB><kind><TAB><subject><TAB><text>
 Delivery to a wake target is recorded beside it, never in it: a mark file
 marks/<target>/<id> holding submitted or staged.
@@ -65,8 +66,9 @@ Usage:
   mc-event.sh list --program <p> [--target <t> [--pending]] [--limit <n>] [<id>...]
       one <id><TAB><epoch><TAB><kind><TAB><subject><TAB><text> line per
       event (only the named ones, when ids are given), in id order, which
-      is emission order to the second (events of one second in no set
-      order); with --target a sixth field, the target's mark or -;
+      is emission order (events of one second in the order they were
+      raised, unless emitters ran at once); with --target a sixth
+      field, the target's mark or -;
       --pending keeps only events the target has not been submitted. At
       most --limit events are printed (500 by default), the oldest first;
       when more match, stderr says how many were printed of how many. An
@@ -190,7 +192,17 @@ case $verb in
     fi
     hex=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     [ -n "$hex" ] || hex=$$
-    id="e$NOW.$hex"
+    # Events raised in one second sort by a zero-padded count of those already
+    # raised in it, ahead of the random part, so list order is raise order.
+    seq=0
+    set +f
+    for prior in "$store/events/e$NOW".*; do
+      [ -e "$prior" ] || [ -L "$prior" ] || continue
+      seq=$((seq + 1))
+    done
+    set -f
+    [ "$seq" -le 9999 ] || mc_fail "more than 9999 events raised in second $NOW"
+    id="e$NOW.$(printf '%04d' "$seq")$hex"
     printf '%s\t%s\t%s\t%s\n' "$NOW" "$kind" "$subject" "$text" \
       | mc_write "$store/events/$id" || mc_fail "cannot write event $id"
     printf '%s\n' "$id"
