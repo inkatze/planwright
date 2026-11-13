@@ -69,7 +69,8 @@ these knobs, each value checked by its kind:
       mission_control_handover_compactions
 Every other key is the operator's: a knob that moves autonomy, consent,
 budget, what is copied or run, or a policy knob such as ready_flip_policy
-is handed over, never written. Each write prints
+is handed over, never written; the refusal names the adopter and
+machine-local files the operator sets it in and what it holds today. Each write prints
   wrote<TAB><key><TAB><value><TAB><the adopter layer's previous value or ->
 and `restore` with that previous value (or none for -) reverses it.
 
@@ -604,9 +605,27 @@ v_duty() {
   VALIDATE=$du_p write_keys "$(pkey "$du_p" duties)" "$DUTY_LIST"
 }
 
+# knob_where <key>: where the operator sets a key mission control does not
+# write, and what it holds today; empty for a key no layer resolves. The
+# layers and their files come from config-get.sh and doctor_layer_file, so
+# no second list of them is kept here.
+knob_where() {
+  kw_exp=$(cfg_get --explain "$1" 2>/dev/null) || return 0
+  [ -n "$kw_exp" ] || return 0
+  kw_layer=${kw_exp%%"$tab"*}
+  kw_val=${kw_exp#*"$tab"}
+  kw_adopter=$(doctor_layer_file adopter)
+  kw_local=$(doctor_layer_file machine-local)
+  kw_cur=$kw_layer
+  kw_file=$(doctor_layer_file "$kw_layer")
+  [ -z "$kw_file" ] || kw_cur="$kw_layer, in $kw_file"
+  printf '; set it in %s (the operator'\''s own layer) or %s (this machine only); today it is %s (%s)' \
+    "${kw_adopter:-the adopter layer}" "${kw_local:-the machine-local layer}" "$kw_val" "$kw_cur"
+}
+
 v_knob() {
   [ $# -eq 2 ] || usage
-  knob_writable "$1" || mc_usage_fail "$(sanitize_printable "$1") is not a knob mission control writes; a change to it is the operator's"
+  knob_writable "$1" || mc_usage_fail "$(sanitize_printable "$1") is not a knob mission control writes; a change to it is the operator's$(sanitize_printable "$(knob_where "$1")")"
   check_value "$2"
   value_ok "$1" "$2" || mc_usage_fail "$2 is not a value of $1"
   layer_path
