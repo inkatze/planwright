@@ -3,6 +3,8 @@
 # D-7, D-11, D-16–D-18, D-20, D-21; REQ-B1.5, REQ-C1.1–C1.9, REQ-C1.11,
 # REQ-C1.12, REQ-E1.2, REQ-E1.7, REQ-E1.9, REQ-G1.5).
 #
+# Emits: markdown
+#
 # The tower routes an ask onto visual flight; this primitive places it. It
 # composes existing seams and mints nothing beside them:
 #   - the flight id comes from scripts/flight-id.sh (the flight-id grammar and
@@ -31,8 +33,8 @@
 #   - the concurrency bound is the existing `max_parallel_units` (REQ-C1.5),
 #     serialized by scripts/fleet-state.sh's lock under a per-checkout home.
 #
-# Subcommands:
-#   home [--repo-root <dir>]
+# Usage:
+#   flight-dispatch.sh home [--repo-root <dir>]
 #       Declare the record's home (REQ-E1.2): `pr` when every effective push
 #       destination of origin is one `flight_pr_hosts` approves (an entry
 #       `<host>` or `<host>/<owner>`, read from every layer but the
@@ -42,7 +44,7 @@
 #       `reason`. The tower states the home and the destination at routing
 #       time, before any dispatch and so before any push; the brief has the
 #       worker re-run `home` before its push and park on a mismatch.
-#   retire [--repo-root <dir>]
+#   flight-dispatch.sh retire [--repo-root <dir>]
 #       Remove the brief directory of each of this checkout's retired flights
 #       (its worktree removed, or gone and prunable), one `retired<TAB><id>`
 #       line each, under the checkout's flight lock. Other checkouts' briefs,
@@ -59,7 +61,7 @@
 #       removed. Every dispatch runs the same sweep under its
 #       lock: there a failed removal is only named on stderr, while a refused
 #       sweep stops the dispatch with exit 4 before anything is placed.
-#   dispatch <slug> --backend <tmux|print> --ask-file <file>
+#   flight-dispatch.sh dispatch <slug> --backend <tmux|print> --ask-file <file>
 #       --grounds-file <file> [--public-summary-file <file>] [--home pr|file]
 #       [--repo-root <dir>] [--attach-dry-run]
 #       Count the checkout's live flights against `max_parallel_units` under
@@ -872,7 +874,8 @@ write_brief() {
   if [ "$home" = pr ]; then
     _prepr_item="4. \`pre-pr\`: after the last convergence step, before the push."
     _postpr_item="5. \`post-pr\`: after the draft PR exists, with its number in the step
-   context (*Landing*)."
+   context (*Landing*). Do not wait on the PR's remote checks before its steps: they
+   run while those are pending, and only the flip needs them green."
   else
     _prepr_item="4. \`pre-pr\`: after the last convergence step, before landing the record."
     _postpr_item="5. \`post-pr\`: never fires on this flight. The file home opens no PR, and the

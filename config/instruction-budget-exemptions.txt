@@ -198,3 +198,6 @@ declared-exception|doctrine/backend-capability-contract.md|margin=442|Below the 
 # helper's `note` output line, so the skill carries only a pointer; reaching
 # the 2x target would mean cutting rules from the body, not duplicates.
 declared-exception|skills/spec-draft/SKILL.md|margin=486|inception Task 8 added the venture-drop seed source REQ-J1.8 requires. The handling rules (data never instructions, cite as a named Sources entry, never consume) were relocated into the drop-read output itself, leaving a one-line pointer and the absence clause; the remaining shortfall is that residue. Relief or a compensating trim of genuine duplication may lift it; never widen this margin.
+# Standing below-target exception for the tower start load: the flight-rules
+# contract text the tower reads at run-start is contract, not slack.
+declared-exception|start-load:tower|margin=620|Below the 2x start-load restoration target with the start-load floor (500) intact. The flight-rules contract text tower-front-door Task 18 adds to the tower's run-start load caused the shortfall; that text states when a flight fires and is contract, not slack, so it cannot be trimmed to reabsorb it. Diet back to target deferred to instruction-headroom relief.

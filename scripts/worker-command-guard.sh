@@ -24,10 +24,14 @@
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared steps, the spec-root write zone) is
 #     always in force; the own-branch arm, which approves writes confined to
-#     the unit branch and its worktree, only when the session record names it.
-#     The record is the launcher's (see session_record_load): the policy, the
-#     unit branch, and the worktree are never read from live config or the
-#     checkout.
+#     the unit branch and its worktree, and the scratch arm, which approves
+#     writes confined to the worker's scratch root, each only when the session
+#     record names it. The record is the launcher's (see session_record_load):
+#     the policy, the unit branch, the worktree, the scratch root, and the
+#     audit-log home are never read from live config, the checkout, or the
+#     environment. Each allow first appends a hashed line to the session's
+#     audit log (audit_append); a record naming no usable log home turns both
+#     write arms off.
 #   * The extracted command is treated strictly as INERT DATA — never eval-ed,
 #     re-expanded, glob-expanded, or used as a pattern/format/unquoted arg — so
 #     analyzing a hostile command can never execute it (REQ-B1.1).
@@ -36,9 +40,9 @@
 #     dispatchers hand in only when it lies outside the work repository (see
 #     in_spec_zone): a `>`/`>>` redirect, `tee [-a]`, or `mkdir [-p]` whose
 #     every target is a plain literal inside a bundle or reserved directory of
-#     that root. And the own-branch arm (see ob_path, ob_git), whose targets
-#     lie inside the recorded worktree and outside the paths a tool runs or
-#     trusts unprompted. Any other write defers.
+#     that root. And the policy arms (see ob_path, ob_git), whose targets lie
+#     inside the recorded worktree and outside the paths a tool runs or trusts
+#     unprompted, or inside the recorded scratch root. Any other write defers.
 #   * Fail safe on EVERYTHING: jq absent, malformed/empty/non-string input,
 #     unknown construct, parser confusion, recursion past the depth bound, or
 #     any internal error all DEFER (empty stdout, exit 0). The fallthrough
@@ -67,8 +71,9 @@
 # through to the command they wrap (see strip_prefixes); fin decides where
 # state may carry. The expansions the analyzer resolves itself are a variable
 # the same command assigned a plain literal (`f=a.md && grep x $f`; see
-# track_assignment and expand_words) and a `for` variable over plain-literal
-# head words (see loop_header): the substitution reproduces what the shell
+# track_assignment and expand_words), a `for` variable over plain-literal
+# head words (see loop_header), and under the scratch arm `$TMPDIR`, the
+# recorded scratch root: the substitution reproduces what the shell
 # will do for exactly those value classes and nothing else, and any other
 # expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
@@ -143,6 +148,42 @@ emit_allow() {
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"'"$ALLOW_REASON"'"}}'
 }
 
+# The policy arms whose checks admitted part of the command being approved:
+# set by ob_path, ob_git_ready, guard_mktemp, and expand_word's `$TMPDIR`,
+# reset per hook call. Read-only is whatever approval set neither.
+AUDIT_OB=0
+AUDIT_SC=0
+
+# audit_append <command> <session-id>: append the approval's line to the
+# session's audit log, before the decision is written. The command, its
+# trailing newlines already removed, is recorded only as its SHA-256, never
+# as text, since commands carry what workers type. One append write, so
+# concurrent hook calls interleave whole lines; a write that fails is dropped and the approval stands. The log is
+# checked again here because a FIFO in its place would hang the hook.
+audit_append() {
+  local f=$REC_AUDIT_LOG arm='' t h sid=$2
+  [ -n "$f" ] || return 0
+  [ "$AUDIT_OB" = 0 ] || arm=own-branch
+  [ "$AUDIT_SC" = 0 ] || arm=${arm:+$arm,}scratch
+  [ -n "$arm" ] || arm=read-only
+  [[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]] || sid=-
+  t=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || t=-
+  if command -v sha256sum >/dev/null 2>&1; then
+    h=$(printf '%s' "$1" | sha256sum 2>/dev/null) || h=-
+  else
+    h=$(printf '%s' "$1" | shasum -a 256 2>/dev/null) || h=-
+  fi
+  h=${h%% *}
+  [[ $h =~ ^[0-9a-f]{64}$ ]] || h=-
+  if [ -e "$f" ] || [ -L "$f" ]; then
+    [ -f "$f" ] && [ ! -L "$f" ] || return 0
+  fi
+  (
+    umask 077
+    printf '%s\n' "time=$t session=$sid arm=$arm cmd_sha256=$h" >>"$f"
+  ) 2>/dev/null || :
+}
+
 # --------------------------------------------------------------------------
 # Tokenizer (REQ-A1.4, REQ-A1.9). Scans the command as inert data into a token
 # stream held in the caller's (analyze_command's) locals TOK_TYPE / TOK_VAL /
@@ -186,6 +227,23 @@ tok_push() {
   TOK_QMIX[TOK_N]=${9:-0}
   TOK_SUBS[TOK_N]=${10:-}
   TOK_N=$((TOK_N + 1))
+}
+
+# dollar_count <text>: sets DOLLAR_N to the number of `$` in <text>, by
+# splitting on them, which stays linear. `${text//[!\$]/}` is quadratic in
+# bash 3.2, macOS's /bin/bash, and costs seconds on a command near
+# MAX_CMD_LEN, so the budget charge would outrun the work it bounds.
+dollar_count() {
+  local IFS='$' noglob=0
+  local -a dc_parts
+  DOLLAR_N=0
+  case $1 in *'$'*) ;; *) return 0 ;; esac
+  case $- in *f*) noglob=1 ;; esac
+  set -f
+  # shellcheck disable=SC2206 # split on `$` alone; the `.` keeps a trailing one
+  dc_parts=($1.)
+  [ "$noglob" = 1 ] || set +f
+  DOLLAR_N=$((${#dc_parts[@]} - 1))
 }
 
 # dollar_expands <next-char>: 0 when a `$` followed by <next-char> starts an
@@ -805,6 +863,9 @@ is_trusted_script() {
   # approved for a worker, under any casing a case-insensitive filesystem runs.
   case ${1##*/} in
     [Tt][Oo][Ww][Ee][Rr]-[Ff][Oo][Rr][Cc][Ee]-[Pp][Uu][Ss][Hh].[Ss][Hh]) return 1 ;;
+    # The router runs whatever follows its `--`: only strip_compute_route
+    # approves it, and only for a command the guard approves on its own.
+    [Cc][Oo][Mm][Pp][Uu][Tt][Ee]-[Rr][Oo][Uu][Tt][Ee].[Ss][Hh]) return 1 ;;
   esac
   # A hardlink of the helper is refused by each arm, against the root the path
   # resolves under.
@@ -886,7 +947,7 @@ spec_zone_redirect() {
 }
 
 # guard_tee / guard_mkdir: at least one operand, every operand a zone path
-# or one the own-branch arm admits (ob_path); the only flag `-a` (append) for
+# or one a policy arm admits (ob_path); the only flag `-a` (append) for
 # tee and `-p` for mkdir, so no mode, context, or ignore flag changes what
 # lands.
 guard_tee() {
@@ -904,7 +965,7 @@ guard_tee() {
       esac
     fi
     if ! in_spec_zone "$a" "$HOOK_CWD"; then
-      ob_live && ob_path "$a" leaf || return 1
+      wr_live && ob_path "$a" leaf write || return 1
       ob=1
     fi
     operands=$((operands + 1))
@@ -931,7 +992,7 @@ guard_mkdir() {
       esac
     fi
     if ! in_spec_zone "$a" "$HOOK_CWD"; then
-      ob_live && ob_path "$a" "$mode" || return 1
+      wr_live && ob_path "$a" "$mode" write || return 1
       ob=1
     fi
     operands=$((operands + 1))
@@ -942,25 +1003,36 @@ guard_mkdir() {
 
 # --------------------------------------------------------------------------
 # The session record. The launcher resolves the
-# self-approval policy, the unit branch, the worktree root, the PR base, and
-# the base-merge gate once, writes them to a record outside the worktree
+# self-approval policy, the unit branch, the worktree root, the PR base, the
+# base-merge gate, and the scratch root once, writes them to a record outside
+# the worktree
 # (scripts/worker-session-record.sh), and hands its path in as
 # PLANWRIGHT_WORKER_SESSION_RECORD. The guard reads them from there and never
 # from live config or the checkout, so neither a Write to an overlay nor a
 # `git switch` changes what it approves. A field that is missing, repeated, or
 # outside its grammar is dropped, disabling whatever reads it: the
 # policy reads as the empty list, and without the worktree root and unit
-# branch neither the own-branch arm nor a `cd` approves anything. A record
-# that is unreadable, not this user's own regular file, or inside the
-# worktree it describes is no record.
+# branch neither the own-branch arm nor a `cd` approves anything, and without
+# the scratch root the scratch arm approves nothing. The scratch root must be
+# this user's own canonical directory, apart from the worktree in both
+# directions. A record that is unreadable, not this user's own regular file,
+# or inside the worktree or the scratch root it describes is no record.
+#
+# The audit-log home must be this user's own writable canonical directory,
+# apart from the worktree and the scratch root in both directions, and the
+# session's log there (audit_append) a regular file or absent. Without one,
+# the policy drops both write arms, so neither approves a write with no log.
 REC_POLICY=''
 REC_UNIT=''
 REC_WT=''
 REC_BASE=''
 REC_BASE_MERGE=''
+REC_SCRATCH=''
+REC_AUDIT_LOG=''
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
-# grammar (is_unit_branch); a protected branch never matches it.
+# grammar (is_unit_branch) narrowed to flight names carrying the id every
+# launcher mints; a protected branch never matches it.
 rec_unit_branch_ok() {
   local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
   local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
@@ -987,7 +1059,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm=''
+  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1012,6 +1084,8 @@ session_record_load() {
       worktree_root) wt=$v ;;
       pr_base) base=$v ;;
       worker_base_merge) bm=$v ;;
+      scratch_root) sr=$v ;;
+      audit_log_home) ah=$v ;;
     esac
   done <"$p"
   case $dup in *" policy "*) policy='' ;; esac
@@ -1019,6 +1093,8 @@ session_record_load() {
   case $dup in *" worktree_root "*) wt='' ;; esac
   case $dup in *" pr_base "*) base='' ;; esac
   case $dup in *" worker_base_merge "*) bm='' ;; esac
+  case $dup in *" scratch_root "*) sr='' ;; esac
+  case $dup in *" audit_log_home "*) ah='' ;; esac
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
     /?*) ;;
@@ -1044,18 +1120,76 @@ session_record_load() {
     allow | deny) ;;
     *) bm='' ;;
   esac
-  # A record inside the worktree it describes is one the worker can rewrite.
+  case $sr in
+    /?*) ;;
+    *) sr='' ;;
+  esac
+  case $sr in
+    *[[:cntrl:]]*) sr='' ;;
+  esac
+  if [ -n "$sr" ]; then
+    [ -d "$sr" ] && [ -O "$sr" ] && [ "$(cd "$sr" 2>/dev/null && pwd -P)" = "$sr" ] || sr=''
+  fi
+  if [ -n "$sr" ] && [ -n "$wt" ]; then
+    case $sr/ in
+      "$wt"/*) sr='' ;;
+    esac
+    case $wt/ in
+      "$sr"/*) sr='' ;;
+    esac
+  fi
+  # A record inside the worktree or the scratch root it describes is one the
+  # worker can rewrite.
   dir=$(cd "$(dirname "$p")" 2>/dev/null && pwd -P) || return 0
   if [ -n "$wt" ]; then
     case $dir/ in
       "$wt"/*) return 0 ;;
     esac
   fi
-  REC_POLICY=$(rec_policy_norm "$policy")
+  if [ -n "$sr" ]; then
+    case $dir/ in
+      "$sr"/*) return 0 ;;
+    esac
+  fi
+  case $ah in
+    /?*) ;;
+    *) ah='' ;;
+  esac
+  case $ah in
+    *[[:cntrl:]]*) ah='' ;;
+  esac
+  if [ -n "$ah" ]; then
+    [ -d "$ah" ] && [ -O "$ah" ] && [ -w "$ah" ] && [ "$(cd "$ah" 2>/dev/null && pwd -P)" = "$ah" ] || ah=''
+  fi
+  for k in "$wt" "$sr"; do
+    [ -n "$ah" ] && [ -n "$k" ] || continue
+    case $ah/ in
+      "$k"/*) ah='' ;;
+    esac
+    case $k/ in
+      "$ah"/*) ah='' ;;
+    esac
+  done
+  # One log per record: the launch's own name for it.
+  k=${p##*/}
+  k=${k%.record}
+  case $k in
+    '' | .* | *[!A-Za-z0-9._-]*) ah='' ;;
+  esac
+  if [ -n "$ah" ]; then
+    log=$ah/$k.log
+    if [ -e "$log" ] || [ -L "$log" ]; then
+      [ -f "$log" ] && [ ! -L "$log" ] && [ -O "$log" ] || log=''
+    fi
+  fi
+  REC_AUDIT_LOG=$log
+  REC_POLICY=''
+  [ -z "$log" ] || REC_POLICY=$(rec_policy_norm "$policy")
   REC_UNIT=$unit
   REC_WT=$wt
   REC_BASE=$base
   REC_BASE_MERGE=$bm
+  REC_SCRATCH=$sr
 }
 
 # --------------------------------------------------------------------------
@@ -1136,7 +1270,10 @@ $DENY_RULES
 EOF
   [ "$n" -gt 0 ] || return 0
   deny_glob_ere "$globs"
-  mapfile -t eres <<<"${DENY_ERE%$'\n'}"
+  # A read loop, not mapfile: bash 3.2 (the macOS /bin/bash) has no mapfile.
+  while IFS= read -r rule; do
+    eres+=("$rule")
+  done <<<"${DENY_ERE%$'\n'}"
   [ "${#eres[@]}" -eq "$n" ] || return 1
   for ((i = 0; i < n; i++)); do
     if [ "${tails:i:1}" = w ]; then
@@ -1170,9 +1307,13 @@ floor_act() {
   [ "$cwn" -ne 2 ] || [ "${cw[1]}" != --version ] || return 1
   case ${cw[0]##*/} in
     git)
-      for ((i = 1; i < cwn; i++)); do
+      # A leading `-C <dir>` is read past: guard_git admits it for a read,
+      # and every verb after it is weighed as it would be without it.
+      i=1
+      [ "${cw[1]-}" != -C ] || [ "$cwn" -lt 4 ] || i=3
+      for (( ; i < cwn; i++)); do
         case ${cw[i]} in
-          -*) return 0 ;; # a global option: never approved, so never weighed
+          -*) return 0 ;; # any other global option: never approved, so never weighed
         esac
         sub=${cw[i]}
         break
@@ -1215,7 +1356,20 @@ floor_act_words() {
 # behind (a recursive copy, a move, a checkout, restore, or merge) is the only
 # writer its command may hold: the targets are checked before the command
 # runs, so a write after it could follow a link it created (ob_mark).
+#
+# The scratch arm: live when the record's policy names it, the record carries
+# a usable scratch root, and the TMPDIR the hook inherited names that root
+# (HOOK_TMPDIR_IS_SCRATCH), for the session's own command wherever its
+# payload directory lies. It approves the same file writers under the same
+# flag, symlink, `..`, hard-link, and link-creation rules, plus `mktemp`,
+# whose every target canonicalizes strictly inside the scratch root and
+# outside the trusted names ob_excluded_name lists, and resolves a literal
+# `$TMPDIR` to that root (analyze_command). The root comes from the record;
+# the inherited TMPDIR only has to agree with it. Nothing there is ever
+# trusted to run: the script runners admit only repository and
+# installed-plugin code.
 OB_ON=0
+SC_ON=0
 OB_WROTE=0
 OB_LINKY=0
 OB_EXCL_STATE=0
@@ -1223,6 +1377,15 @@ OB_EXCL_DIRS=''
 
 ob_live() {
   [ "$OB_ON" = 1 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ]
+}
+
+sc_live() {
+  [ "$SC_ON" = 1 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ]
+}
+
+# wr_live: a policy arm that approves file writes is live.
+wr_live() {
+  ob_live || sc_live
 }
 
 # ob_mark <write|link>: record an approved write, or a link-capable segment
@@ -1287,16 +1450,50 @@ ob_excluded_name() {
   local low
   low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   case $low in
-    .git | .claude | .envrc | .tool-versions | .config | .mise | mise | mise.toml | .mise.toml | mise.*.toml | .mise.*.toml | lefthook | lefthook.* | lefthook-local.* | .lefthook | .lefthook.* | .lefthook-local | .lefthook-local.*) return 0 ;;
+    .git | .claude | .envrc | .tool-versions | .config | .mise | mise.toml | .mise.toml | mise.*.toml | .mise.*.toml | .miserc*.toml | mise-tasks | .mise-tasks | mise*.lock | lefthook | lefthook.* | lefthook-local.* | .lefthook | .lefthook.* | .lefthook-local | .lefthook-local.*) return 0 ;;
   esac
   return 1
+}
+
+# ob_excluded_mise_child <component>: the entries of a `mise/` directory mise
+# loads, matched case-insensitively. Anything else there is never read.
+ob_excluded_mise_child() {
+  local low
+  low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case $low in
+    config*.toml | miserc*.toml | conf.d | tasks) return 0 ;;
+  esac
+  return 1
+}
+
+# ob_excluded_rel <relative-path> <root>: 0 when a component of the path
+# under <root> is an excluded name, a `mise/` entry mise loads (the root's own
+# name counting as its parent), or the last component is `mise` itself:
+# moving a directory onto that name would turn its config.toml or conf.d into
+# loaded config without any name inside it matching.
+ob_excluded_rel() {
+  local comp prev last=''
+  local -a comps=()
+  prev=$(printf '%s' "${2##*/}" | tr '[:upper:]' '[:lower:]')
+  IFS=/ read -r -a comps <<<"$1"
+  for comp in ${comps[@]+"${comps[@]}"}; do
+    case $comp in
+      '' | .) continue ;;
+    esac
+    ob_excluded_name "$comp" && return 0
+    if [ "$prev" = mise ] && ob_excluded_mise_child "$comp"; then
+      return 0
+    fi
+    prev=$(printf '%s' "$comp" | tr '[:upper:]' '[:lower:]')
+    last=$prev
+  done
+  [ "$last" = mise ]
 }
 
 # ob_excluded <canonical-path>: 0 when the path is, or lies under, an excluded
 # path.
 ob_excluded() {
-  local full=$1 low d comp
-  local -a comps=()
+  local full=$1 low d
   ob_excl_load || return 0
   low=$(printf '%s' "$full" | tr '[:upper:]' '[:lower:]')
   while IFS= read -r d; do
@@ -1307,11 +1504,7 @@ ob_excluded() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  IFS=/ read -r -a comps <<<"${full#"$REC_WT"/}"
-  for comp in ${comps[@]+"${comps[@]}"}; do
-    ob_excluded_name "$comp" && return 0
-  done
-  return 1
+  ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT"
 }
 
 # ob_tree_clean <canonical-dir>: 0 when nothing under the directory is an
@@ -1328,25 +1521,41 @@ ob_tree_clean() {
 $OB_EXCL_DIRS
 EOF
   hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
-    -o -iname .config -o -iname .mise -o -iname mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
-    -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname lefthook -o -iname 'lefthook.*' \
+    -o -iname .config -o -iname .mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
+    -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' -o -iname mise-tasks \
+    -o -iname .mise-tasks -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
+    -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
+    -o -iname lefthook -o -iname 'lefthook.*' \
     -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
-    -o -iname '.lefthook-local.*' \) -print 2>/dev/null) || return 1
+    -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
   [ -z "$hit" ]
 }
 
-# ob_path <word> <mode>: 0 when <word> names a write target the arm admits,
-# its canonical path left in OB_PATH. The word must be a plain literal (no
-# expansion, glob, tilde, or `..` can hide in the charset), absolute only
-# when written under the canonical worktree root. <mode>: `leaf` (only the
-# last component may be missing), `parents` (any trailing components may be,
-# for `mkdir -p`), or `exists`. No component may be a symlink; the target
-# lies strictly inside the worktree, outside every excluded path, and, when
-# it exists, is a directory or a regular file with one link.
+# ob_path <word> <mode> [<zones>]: 0 when <word> names a write target the
+# arm admits, its canonical path left in OB_PATH and its zone (`wt` or `sc`)
+# in OB_ZONE. The word must be a plain literal (no expansion, glob, tilde, or
+# `..` can hide in the charset), absolute only when written under a zone's
+# canonical root. <mode>: `leaf` (only the last component may be missing),
+# `parents` (any trailing components may be, for `mkdir -p`), or `exists`.
+# <zones>: `wt` (the default: the worktree), `write` (the zone of each live
+# write arm), `read` (a copy's source: the worktree, and the scratch root
+# under the scratch arm), or `sc` (the scratch root). No component may be a
+# symlink; the target lies strictly inside a zone, outside every excluded path
+# of the worktree, and, when it exists, is a directory or a regular file with
+# one link.
 ob_path() {
-  local w=$1 mode=$2 acc comp missing=0
+  local w=$1 mode=$2 zones=${3-wt} acc comp missing=0 wt_ok=0 sc_ok=0
   local -a comps=()
   OB_PATH=''
+  OB_ZONE=''
+  case $zones in
+    wt | read) [ -z "$REC_WT" ] || wt_ok=1 ;;
+    write) ! ob_live || wt_ok=1 ;;
+  esac
+  case $zones in
+    read | write | sc) ! sc_live || sc_ok=1 ;;
+  esac
+  [ "$wt_ok$sc_ok" != 00 ] || return 1
   case $w in
     '' | -* | *[!A-Za-z0-9._/@+%,:-]*) return 1 ;;
   esac
@@ -1355,12 +1564,14 @@ ob_path() {
   esac
   case $w in
     /*)
-      case $w in
-        "$REC_WT"/*) ;;
-        *) return 1 ;;
-      esac
-      acc=$REC_WT
-      w=${w#"$REC_WT"/}
+      if [ "$wt_ok" = 1 ] && [ "${w#"$REC_WT"/}" != "$w" ]; then
+        acc=$REC_WT
+      elif [ "$sc_ok" = 1 ] && [ "${w#"$REC_SCRATCH"/}" != "$w" ]; then
+        acc=$REC_SCRATCH
+      else
+        return 1
+      fi
+      w=${w#"$acc"/}
       ;;
     *) acc=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1 ;;
   esac
@@ -1379,11 +1590,21 @@ ob_path() {
     [ -e "$acc" ] || missing=1
   done
   [ "$missing" = 0 ] || [ "$mode" != exists ] || return 1
-  case $acc in
-    "$REC_WT"/*) ;;
-    *) return 1 ;;
-  esac
-  ob_excluded "$acc" && return 1
+  if [ "$wt_ok" = 1 ] && [ "${acc#"$REC_WT"/}" != "$acc" ]; then
+    ob_excluded "$acc" && return 1
+    OB_ZONE=wt
+  elif [ "$sc_ok" = 1 ] && [ "${acc#"$REC_SCRATCH"/}" != "$acc" ]; then
+    # The trusted names stay closed here too: a tool started there would
+    # read them as its own configuration. The root is the worker's TMPDIR,
+    # so its mise/ is mise's own temporary directory.
+    ob_excluded_rel "${acc#"$REC_SCRATCH"/}" "$REC_SCRATCH" && return 1
+    case $(printf '%s' "${acc#"$REC_SCRATCH"/}" | tr '[:upper:]' '[:lower:]') in
+      mise | mise/*) return 1 ;;
+    esac
+    OB_ZONE=sc
+  else
+    return 1
+  fi
   if [ -e "$acc" ]; then
     if [ -f "$acc" ]; then
       [ "$(find "$acc" -maxdepth 0 -links 1 2>/dev/null)" = "$acc" ] || return 1
@@ -1392,13 +1613,17 @@ ob_path() {
     fi
   fi
   OB_PATH=$acc
+  case $OB_ZONE in
+    wt) ! ob_live || AUDIT_OB=1 ;;
+    sc) AUDIT_SC=1 ;;
+  esac
 }
 
-# ob_target <word> <mode> <recursive>: ob_path, and for a recursive act on a
-# directory, nothing excluded beneath it.
+# ob_target <word> <mode> <recursive> [<zones>]: ob_path, and for a recursive
+# act on a worktree directory, nothing excluded beneath it.
 ob_target() {
-  ob_path "$1" "$2" || return 1
-  [ "$3" = 1 ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" && return 1
+  ob_path "$1" "$2" "${4-wt}" || return 1
+  [ "$3" = 1 ] && [ "$OB_ZONE" = wt ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" && return 1
   return 0
 }
 
@@ -1416,14 +1641,14 @@ ob_redirect() {
     '>' | '>>' | '>|' | '&>' | '&>>') ;;
     *) return 1 ;;
   esac
-  ob_live && ob_path "$2" leaf && ob_mark write
+  wr_live && ob_path "$2" leaf write && ob_mark write
 }
 
 # guard_rm: `rm` with the removal flags only (no `-i`, no
 # `--no-preserve-root`); a recursive removal is checked below its target.
 guard_rm() {
   local i a ends=0 rec=0 n=0
-  ob_live || return 1
+  wr_live || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -1449,7 +1674,7 @@ guard_rm() {
           ;;
       esac
     fi
-    ob_target "$a" leaf "$rec" || return 1
+    ob_target "$a" leaf "$rec" write || return 1
     n=$((n + 1))
   done
   [ "$n" -ge 1 ] && ob_mark write
@@ -1457,7 +1682,7 @@ guard_rm() {
 
 guard_touch() {
   local i a ends=0 n=0
-  ob_live || return 1
+  wr_live || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -1476,34 +1701,40 @@ guard_touch() {
           ;;
       esac
     fi
-    ob_path "$a" leaf || return 1
+    ob_path "$a" leaf write || return 1
     n=$((n + 1))
   done
   [ "$n" -ge 1 ] && ob_mark write
 }
 
-# ob_copy_move <cp|mv> <recursive> <operand>...: the operand rule `cp` and
-# `mv` share. Every source exists inside the worktree (a moved one is a
-# target too); the destination is a new path, or an existing directory whose
-# entry for each source is checked as the target. A recursive copy lands only
+# ob_copy_move <cp|mv> <recursive> <wt|write> <operand>...: the operand rule
+# `cp` and `mv` share, over the worktree alone or the live write arms' zones.
+# Every source exists inside a zone (a moved one is a target, so in a write
+# zone; a copied one is read, so the worktree or, under the scratch arm, the
+# scratch root); the destination is a new path, or an existing directory
+# whose entry for each source is checked as the target. A directory copied
+# or moved holds no excluded path, in either zone. A recursive copy lands only
 # where nothing exists yet, so it never writes through an existing file.
 ob_copy_move() {
-  local verb=$1 rec=$2 n dst s b final
-  shift 2
+  local verb=$1 rec=$2 zones=$3 n dst s b final src src_dir
+  shift 3
   n=$#
   [ "$n" -ge 2 ] || return 1
+  src=$zones
+  [ "$zones" = wt ] || [ "$verb" = mv ] || src='read'
   dst=${!n}
-  ob_path "$dst" leaf || return 1
+  ob_path "$dst" leaf "$zones" || return 1
   local dst_dir=0
   [ -d "$OB_PATH" ] && dst_dir=1
   [ "$dst_dir" = 1 ] || [ "$n" -eq 2 ] || return 1
   while [ "$#" -gt 1 ]; do
     s=$1
     shift
-    ob_path "$s" exists || return 1
+    ob_path "$s" exists "$src" || return 1
+    src_dir=''
     if [ -d "$OB_PATH" ]; then
       [ "$verb" = mv ] || [ "$rec" = 1 ] || return 1
-      ob_tree_clean "$OB_PATH" || return 1
+      src_dir=$OB_PATH
     fi
     if [ "$dst_dir" = 1 ]; then
       b=${s%/}
@@ -1512,9 +1743,12 @@ ob_copy_move() {
     else
       final=$dst
     fi
-    ob_path "$final" leaf || return 1
+    ob_path "$final" leaf "$zones" || return 1
     if [ "$rec" = 1 ] && [ -e "$OB_PATH" ]; then
       return 1
+    fi
+    if [ -n "$src_dir" ]; then
+      ob_tree_clean "$src_dir" || return 1
     fi
   done
   return 0
@@ -1526,7 +1760,7 @@ ob_copy_move() {
 guard_cp() {
   local i a ends=0 rec=0 n=0
   local -a ops=()
-  ob_live || return 1
+  wr_live || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -1555,7 +1789,7 @@ guard_cp() {
     ops[n]=$a
     n=$((n + 1))
   done
-  ob_copy_move cp "$rec" ${ops[@]+"${ops[@]}"} || return 1
+  ob_copy_move cp "$rec" write ${ops[@]+"${ops[@]}"} || return 1
   if [ "$rec" = 1 ]; then
     ob_mark link
   else
@@ -1566,7 +1800,7 @@ guard_cp() {
 guard_mv() {
   local i a ends=0 n=0
   local -a ops=()
-  ob_live || return 1
+  wr_live || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$ends" = 0 ]; then
@@ -1588,7 +1822,41 @@ guard_mv() {
     ops[n]=$a
     n=$((n + 1))
   done
-  ob_copy_move mv 0 ${ops[@]+"${ops[@]}"} && ob_mark link
+  ob_copy_move mv 0 write ${ops[@]+"${ops[@]}"} && ob_mark link
+}
+
+# guard_mktemp: the scratch arm's own writer. With no template it creates
+# under TMPDIR, which the launcher set to the scratch root; a template must
+# lie in the scratch root, since without `-p` or `-t` a relative one names
+# the working directory. Only `-d` and `-q`: `-p`, `-t`, and `--tmpdir` pick
+# another directory, and `-u` is not a write.
+guard_mktemp() {
+  local i a ends=0 n=0
+  sc_live || return 1
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$ends" = 0 ]; then
+      case $a in
+        --)
+          ends=1
+          continue
+          ;;
+        --directory | --quiet) continue ;;
+        --*) return 1 ;;
+        -?*)
+          case ${a#-} in
+            *[!dq]*) return 1 ;;
+          esac
+          continue
+          ;;
+      esac
+    fi
+    n=$((n + 1))
+    [ "$n" -eq 1 ] || return 1
+    ob_path "$a" leaf sc || return 1
+  done
+  AUDIT_SC=1
+  ob_mark write
 }
 
 # ob_git_ready: the git acts run in the worktree the record names, with its
@@ -1599,7 +1867,8 @@ ob_git_ready() {
   top=$(git -C "$HOOK_CWD" rev-parse --show-toplevel 2>/dev/null) || return 1
   [ "$(cd "$top" 2>/dev/null && pwd -P)" = "$REC_WT" ] || return 1
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
-  [ "$head" = "refs/heads/$REC_UNIT" ]
+  [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
+  AUDIT_OB=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -1622,6 +1891,40 @@ ob_ref_name() {
     '' | -* | *[!A-Za-z0-9._/-]* | *..* | *//* | */ | *.lock) return 1 ;;
   esac
   return 0
+}
+
+# git_fetch_ok <first-arg-index> <any|origin>: 0 only for a fetch of a
+# configured remote whose URL a built-in transport serves, with at most plain
+# branch names after it: no refspec (so nothing lands outside the remote's own
+# remote-tracking refs), no option that names a program or a config value. The
+# `origin` form is the policy-free one: the remote must be named origin, and
+# only the quiet and no-tags flags pass; `any` (the own-branch arm) also takes
+# other configured remotes, --prune and --tags.
+git_fetch_ok() {
+  local i=$1 mode=$2 a remote=''
+  for (( ; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      -q | --quiet | -v | --verbose | --no-tags) continue ;;
+      -p | --prune | --tags)
+        [ "$mode" = any ] || return 1
+        continue
+        ;;
+      -*) return 1 ;;
+    esac
+    if [ -z "$remote" ]; then
+      remote=$a
+    else
+      ob_ref_name "$a" && [ "$a" != tag ] || return 1
+    fi
+  done
+  case $remote in
+    '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "$mode" = any ] || [ "$remote" = origin ] || return 1
+  [ -e "$HOOK_CWD/$remote" ] || [ -e "$HOOK_CWD/$remote.git" ] && return 1
+  git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1 || return 1
+  ls_remote_url_ok "$remote"
 }
 
 # ob_git <sub> <subidx>: the own-branch git acts. Git's own writes to its
@@ -1752,7 +2055,7 @@ ob_git() {
         ops[n]=$a
         n=$((n + 1))
       done
-      ob_copy_move mv 0 ${ops[@]+"${ops[@]}"} && ob_mark link
+      ob_copy_move mv 0 wt ${ops[@]+"${ops[@]}"} && ob_mark link
       return
       ;;
     restore | checkout)
@@ -1809,24 +2112,7 @@ ob_git() {
       return
       ;;
     fetch)
-      for (( ; i < cwn; i++)); do
-        a=${cw[i]}
-        case $a in
-          -q | --quiet | -v | --verbose | -p | --prune | --no-tags | --tags) continue ;;
-          -*) return 1 ;;
-        esac
-        if [ -z "$remote" ]; then
-          remote=$a
-        else
-          ob_ref_name "$a" || return 1
-        fi
-      done
-      case $remote in
-        '' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
-      esac
-      [ -e "$HOOK_CWD/$remote" ] || [ -e "$HOOK_CWD/$remote.git" ] && return 1
-      git -C "$HOOK_CWD" config --get "remote.$remote.url" >/dev/null 2>&1 || return 1
-      ls_remote_url_ok "$remote"
+      git_fetch_ok "$i" any
       return
       ;;
     merge)
@@ -3076,11 +3362,63 @@ gh_no_web() {
   for ((i = 2; i < cwn; i++)); do
     case ${cw[i]} in
       --) break ;;
-      --web) return 1 ;;
+      --web | --web=*) return 1 ;;
       --*) ;;
       -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
     esac
   done
+  return 0
+}
+
+# gh_release_ok: `gh release view|list` with no `--web`/`-w` (it launches
+# $BROWSER) and no `--repo`/`-R` override (REQ-A1.17). `-R` and `-w` can ride
+# in a short cluster, and the value-taking short flags end one.
+gh_release_ok() {
+  local i a
+  for ((i = 3; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --) break ;;
+      --web | --web=* | --repo | --repo=*) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "$a" 'wR' 'JqtLO' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_gitleaks: `gitleaks detect` with only the read-and-report options
+# (REQ-A1.17): any report, baseline, or config option defers, and `--source`
+# names one plain literal path inside the worktree or the scratch root. The
+# path is read through ob_path, whose audit marks a write arm: a read is no
+# arm's act, so the marks are put back.
+guard_gitleaks() {
+  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC
+  [ "${cw[1]-}" = detect ] || return 1
+  for ((i = 2; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --no-git | --no-banner | --verbose | --redact) ;;
+      --source)
+        [ "$have" = 0 ] && [ "$((i + 1))" -lt "$cwn" ] || return 1
+        have=1
+        i=$((i + 1))
+        src=${cw[i]}
+        [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "$src" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+        ;;
+      --source=?*)
+        [ "$have" = 0 ] || return 1
+        have=1
+        src=${a#--source=}
+        [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "$a" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+        ;;
+      *) return 1 ;;
+    esac
+  done
+  [ "$have" = 1 ] || return 1
+  ob_path "$src" exists read || return 1
+  AUDIT_OB=$ao
+  AUDIT_SC=$as
   return 0
 }
 
@@ -3092,6 +3430,13 @@ guard_gh() {
   esac
   local i g=${cw[1]-} s=${cw[2]-}
   case $g in
+    release)
+      case $s in
+        view | list) gh_release_ok || return 1 ;;
+        *) return 1 ;;
+      esac
+      return 0
+      ;;
     pr | issue)
       case $s in
         view | list | status | diff | checks) gh_no_web || return 1 ;;
@@ -3143,8 +3488,15 @@ guard_gh() {
 # inject config/alias-driven execution, REQ-A1.8), and per-subcommand form
 # guards on the subcommands with a mutating twin (REQ-A1.5).
 guard_git() {
-  local i a sub='' subidx=0
-  for ((i = 1; i < cwn; i++)); do
+  local i a sub='' subidx=0 start=1 viac=0
+  # `git -C <dir>` for a read: the one global option admitted, and only when
+  # <dir> is the session's own worktree or a directory of it (own_dir_ok).
+  if [ "${cw[1]-}" = -C ] && [ "$cwn" -ge 4 ]; then
+    own_dir_ok 2 || return 1
+    start=3
+    viac=1
+  fi
+  for ((i = start; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
       -*) return 1 ;; # a pre-subcommand global option: defer
@@ -3156,6 +3508,12 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  if [ "$viac" = 1 ]; then
+    case $sub in
+      status | diff | log | show) ;;
+      *) return 1 ;;
+    esac
+  fi
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       # Read-only, but reject a following flag that WRITES a file
@@ -3306,7 +3664,17 @@ guard_git() {
         *) return 1 ;;
       esac
       ;;
-    add | rm | mv | restore | checkout | commit | fetch | merge) ob_git "$sub" "$subidx" ;;
+    fetch)
+      # Without the own-branch arm: `git fetch origin [<branch>]` from the
+      # session's own repository, which writes only remote-tracking refs and
+      # objects. Not through -C.
+      if [ "$viac" = 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ]; then
+        HOOK_WT_ROOT=$REC_WT
+        cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && return 0
+      fi
+      ob_git "$sub" "$subidx"
+      ;;
+    add | rm | mv | restore | checkout | commit | merge) ob_git "$sub" "$subidx" ;;
     *) return 1 ;;
   esac
 }
@@ -3347,7 +3715,8 @@ ls_remote_url_ok() {
 # defers (REQ-A1.8 recognized-safe-invocation rule).
 # --------------------------------------------------------------------------
 # Same-command variable tracking: the assignment expansion the analyzer
-# resolves (loop variables are the other; see loop_header).
+# resolves (loop variables and the scratch arm's `$TMPDIR` are the others; see
+# loop_header and analyze_command).
 #
 # Claude Code hands the hook the raw command, so `f=notes.md && grep -n x $f`
 # or `P=<root> && $P/scripts/x.sh` reaches the verifier with the `$` unexpanded.
@@ -3381,7 +3750,8 @@ ls_remote_url_ok() {
 # tool's shell on macOS) does not, so there it stays unresolved. An empty
 # value removes an unquoted word in both. A word carrying a literal `$`
 # (single quotes, backslash) is never substituted, an unknown `$NAME` is left in
-# place, and the table is per analyze_command entry, so a `fish -c` inner
+# place, and the table is per analyze_command entry, seeded only with the
+# scratch arm's TMPDIR at the top level, so a `fish -c` inner
 # string starts empty.
 
 # assign_name_ok <name>: the NAME rule above.
@@ -3597,6 +3967,7 @@ expand_word() {
       esac
     fi
     if [ "$hit" = 1 ]; then
+      [ "$name" != TMPDIR ] || [ "$SC_ON" = 0 ] || AUDIT_SC=1
       out="$out$found"
       i=$k
     else
@@ -4004,13 +4375,13 @@ guard_printf() {
 # known part says nothing about the rest. Every `$` spelling is read, a
 # literal one too, which can only narrow a verdict.
 word_tainted() {
-  local w=${cw[$1]} name v found weak=0 known=0 dollars
+  local w=${cw[$1]} name v found weak=0 known=0
   TAINT_WEAK=0
   [ -z "${csub[$1]-}" ] || known=1
   # Each `$` below copies the rest of the word, so a word holding more than
   # a handful is taken as inferred rather than read name by name.
-  dollars=${w//[!\$]/}
-  if [ "${#dollars}" -gt 64 ]; then
+  dollar_count "$w"
+  if [ "$DOLLAR_N" -gt 64 ]; then
     TAINT_WEAK=1
     return 0
   fi
@@ -4231,7 +4602,7 @@ loop_header() {
 # do/done pairs nested inside it; a `done` that is only an argument ends it
 # early, which can only under-charge, and the per-pass charge still holds.
 loop_fits() {
-  local j=$LH_NEXT nest=1 cost=0 d
+  local j=$LH_NEXT nest=1 cost=0
   while [ "$j" -lt "$TOK_N" ]; do
     if [ "${TOK_TYPE[j]}" = W ] && [ "${TOK_QUOTED[j]}" = 0 ]; then
       case ${TOK_VAL[j]} in
@@ -4242,8 +4613,8 @@ loop_fits() {
           ;;
       esac
     fi
-    d=${TOK_VAL[j]//[!\$]/}
-    cost=$((cost + ${#TOK_VAL[j]} + ${#d} * DOLLAR_COST))
+    dollar_count "${TOK_VAL[j]}"
+    cost=$((cost + ${#TOK_VAL[j]} + DOLLAR_N * DOLLAR_COST))
     j=$((j + 1))
   done
   [ $((SCANNED + cost * LH_COUNT)) -le "$MAX_SCANNED" ]
@@ -4349,16 +4720,18 @@ classify_verb() {
     # Enumerated read-only subcommand tools.
     git) guard_git ;;
     gh) guard_gh ;;
+    gitleaks) guard_gitleaks ;;
     mise) guard_mise ;;
     lefthook) guard_lefthook ;;
-    # Writers, approved inside the spec-root write zone or under the
-    # own-branch arm.
+    # Writers, approved inside the spec-root write zone or under a policy
+    # arm.
     tee) guard_tee ;;
     mkdir) guard_mkdir ;;
     rm) guard_rm ;;
     touch) guard_touch ;;
     cp) guard_cp ;;
     mv) guard_mv ;;
+    mktemp) guard_mktemp ;;
     # Trusted repo-code runners (path-contained) and the fish recursor.
     bash | sh) guard_bashsh ;;
     fish) guard_fish ;;
@@ -4562,7 +4935,7 @@ resolve_declared() {
   # Arithmetic reads a leading zero as octal, so strip it first.
   deadline=${deadline#"${deadline%%[!0]*}"}
   { [ "$deadline" -ge 1 ] && [ "$deadline" -le 60 ]; } 2>/dev/null || deadline=$STEPS_DEADLINE
-  DECL_TMP=$(mktemp -d "${TMPDIR:-/tmp}/planwright-guard.XXXXXX" 2>/dev/null) || {
+  DECL_TMP=$(mktemp -d "$HOOK_TMP_BASE/planwright-guard.XXXXXX" 2>/dev/null) || {
     DECL_TMP=''
     return 0
   }
@@ -4571,9 +4944,14 @@ resolve_declared() {
   set -m
   (
     cd "$HOOK_CWD" 2>/dev/null || exit 0
-    step_name_cataloged "${1##*/}" || exit 0
+    # The core layer is this guard's own root, never one the environment
+    # names: a flight's launch pins the brief's root there, and letting it
+    # choose the catalog the guard trusts would widen what a worker gets.
+    PLANWRIGHT_ROOT=$HOOK_SELF_ROOT CLAUDE_PLUGIN_ROOT=$HOOK_SELF_ROOT \
+      step_name_cataloged "${1##*/}" || exit 0
     # shellcheck disable=SC2086 # the wired points are meant to word-split
-    TMPDIR=$DECL_TMP exec /bin/bash "$rs" $STEP_POINTS --explain --unattended
+    PLANWRIGHT_ROOT=$HOOK_SELF_ROOT CLAUDE_PLUGIN_ROOT=$HOOK_SELF_ROOT TMPDIR=$DECL_TMP \
+      exec /bin/bash "$rs" $STEP_POINTS --explain --unattended
   ) </dev/null >"$DECL_TMP/out" 2>/dev/null &
   DECL_PGID=$!
   set +m
@@ -4692,14 +5070,14 @@ declared_line_ok() {
 # / count `cwn` and the redirect arrays `ro` (ops) / `rt` (targets) / `rn`
 # from the caller via dynamic scope. Returns 0 (safe) or non-zero (DEFER).
 verify_simple() {
-  local i swn=$cwn dollars
+  local i swn=$cwn
   SIMPLE_N=$((SIMPLE_N + 1))
   [ "$SIMPLE_N" -le "$MAX_SIMPLE_CMDS" ] || return 1
   # Each `$` costs a pass over the rest of its word (expand_word,
   # word_tainted), so it is charged DOLLAR_COST on top of the word's length.
   for ((i = 0; i < cwn; i++)); do
-    dollars=${cw[i]//[!\$]/}
-    SCANNED=$((SCANNED + ${#cw[i]} + ${#dollars} * DOLLAR_COST))
+    dollar_count "${cw[i]}"
+    SCANNED=$((SCANNED + ${#cw[i]} + DOLLAR_N * DOLLAR_COST))
   done
   [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a sw=() swq=()
@@ -4745,12 +5123,66 @@ is_duration() {
   [ "$DURATION_SECONDS" -le "$MAX_WAIT_SECONDS" ]
 }
 
-# strip_prefixes: drop the transparent `time [-p]` and `timeout <duration>`
-# prefixes (REQ-A1.13) from the current simple command, setting PREFIXED, so
-# the command they wrap is verified as if it stood alone. Non-zero defers: a
-# prefix with nothing to run, a `cd` under a prefix (its directory would not
-# carry), or a `time` or `timeout` left after the prefixes, which would be
-# the `time` program or a nested timeout rather than a keyword. A `timeout`
+# strip_step_context: drop a leading step-context prefix from the current
+# simple command, so the installed step script it feeds is verified as the bare
+# call is. The prefix is an optional bare `env` followed only by, or plain
+# leading, `PLANWRIGHT_STEP_<field>=<literal>` words, every field one of
+# STEP_CONTEXT_FIELDS, every value bare (no quote, expansion, glob or
+# substitution), inside the charset of a branch, path or number, and valid for
+# its field. The word after them must be step-run.sh or step-record.sh under an
+# installed planwright root; anything else leaves the words untouched, and the
+# `env` operands or the assignment prefix then defer as before. The pool hold
+# mark stays with declared_line_ok: it claims a pool a declaration must back.
+strip_step_context() {
+  local i=0 first f w name
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] || return 0
+  # An expansion that changed the word count is not the words as written.
+  [ "$cwn" -eq "$swn" ] || return 0
+  if [ "${sw[0]}" = env ] && [ "${swq[0]}" -lt 0 ] && [ "${cw[0]}" = env ]; then
+    i=1
+  fi
+  first=$i
+  while [ "$i" -lt "$swn" ]; do
+    w=${sw[i]}
+    case $w in
+      PLANWRIGHT_STEP_*=*) ;;
+      *) break ;;
+    esac
+    name=${w%%=*}
+    f=${name#PLANWRIGHT_STEP_}
+    case " $STEP_CONTEXT_FIELDS " in
+      *" $f "*) ;;
+      *) return 0 ;;
+    esac
+    [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "$w" ] && [ -z "${csub[i]-}" ] || return 0
+    word_unresolved "$w" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
+    # The charset leaves out `=`: zsh expands `=cmd` and `:=` forms in an
+    # assignment (assign_value_literal refuses the same).
+    case ${w#*=} in
+      *[!A-Za-z0-9._/:@%,+-]*) return 0 ;;
+    esac
+    step_context_value_ok "$f" "${w#*=}" || return 0
+    i=$((i + 1))
+  done
+  [ "$i" -gt "$first" ] && [ "$i" -lt "$swn" ] || return 0
+  [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "${sw[i]}" ] || return 0
+  word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
+  case ${cw[i]} in
+    */step-run.sh | */step-record.sh) ;;
+    *) return 0 ;;
+  esac
+  is_planwright_script "${cw[i]}" "$HOOK_CWD" || return 0
+  shift_words "$i"
+}
+
+# strip_prefixes: drop the transparent `time [-p]`, `timeout <duration>` and
+# `nice -n <0..19>` prefixes (REQ-A1.13, REQ-A1.16) from the current simple
+# command, setting PREFIXED, so the command they wrap is verified as if it
+# stood alone. Non-zero defers: a prefix with nothing to run, a `cd` under a
+# prefix (its directory would not carry), or a `time`, `timeout` or `nice`
+# left after the prefixes, which would be the program or a nested wrapper
+# rather than a keyword. A leading compute-route.sh `--` is dropped last (see
+# strip_compute_route), so a wrapper may precede it but never follow. A `timeout`
 # whose next word is not a duration is left as the verb, and classify_verb
 # defers it.
 strip_prefixes() {
@@ -4769,19 +5201,65 @@ strip_prefixes() {
     PREFIXED=1
     [ "$cwn" -ge 1 ] || return 1
   fi
+  # `nice -n <0..19>` and `timeout <duration>` wrap each other in either
+  # order, each at most once (a second one is left as the verb and defers).
+  local niced=0 before=$cwn
+  strip_nice
+  [ "$cwn" -lt "$before" ] && niced=1
   if [ "${cw[0]}" = timeout ] && [ "$cwn" -ge 2 ] && [ "${cqp[1]}" -lt 0 ] \
     && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" \
     && is_duration "${cw[1]}"; then
     shift_words 2
     PREFIXED=1
     [ "$cwn" -ge 1 ] || return 1
+    [ "$niced" = 0 ] && strip_nice
   fi
+  strip_compute_route || return 1
   if [ "$PREFIXED" = 1 ]; then
     case ${cw[0]} in
-      time | timeout | cd) return 1 ;;
+      time | timeout | nice | cd) return 1 ;;
     esac
   fi
   return 0
+}
+
+# strip_compute_route: drop a leading `<installed root>/scripts/compute-route.sh
+# --`, setting PREFIXED, so the command it routes is verified as if it stood
+# alone: the router only chooses where an approved command runs. A copy in the
+# checkout is a worker-authored script, so only the installed one counts. Only
+# the bare form is
+# transparent (no kind flag, which would name a different command to the host
+# than the one run here), and a router with nothing to run, or another router
+# as that command, defers. is_trusted_script refuses the script as a verb, so
+# no other spelling reaches the router.
+strip_compute_route() {
+  case ${cw[0]} in
+    compute-route.sh | */compute-route.sh) ;;
+    *) return 0 ;;
+  esac
+  [ "$cwn" -ge 3 ] && [ "${cw[1]}" = -- ] && [ "${cqp[0]}" -lt 0 ] && [ "${cqp[1]}" -lt 0 ] \
+    && ! word_unresolved "${cw[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" || return 1
+  is_planwright_script "${cw[0]}" "$HOOK_CWD" || return 1
+  shift_words 2
+  PREFIXED=1
+  case ${cw[0]} in
+    compute-route.sh | */compute-route.sh) return 1 ;;
+  esac
+  return 0
+}
+
+# strip_nice: drop a leading `nice -n <0..19>` (REQ-A1.16) when the adjustment
+# is a bare plain decimal literal, setting PREFIXED. Any other spelling is left
+# as the verb, which classify_verb defers: a negative adjustment is privileged
+# and a non-literal value is unreadable here.
+strip_nice() {
+  local re='^([0-9]|1[0-9])$'
+  [ "${cw[0]}" = nice ] && [ "$cwn" -ge 4 ] && [ "${cw[1]}" = -n ] \
+    && [ "${cqp[1]}" -lt 0 ] && [ "${cqp[2]}" -lt 0 ] \
+    && ! word_unresolved "${cw[2]}" "${cdyn[2]}" "${cglob[2]}" "${cx[2]}" \
+    && [[ ${cw[2]} =~ $re ]] || return 0
+  shift_words 3
+  PREFIXED=1
 }
 
 # cd_target_ok: the current simple command is `cd <dir>` naming an existing
@@ -4794,17 +5272,29 @@ strip_prefixes() {
 # written in its canonical form. A `fish -c` inner string defers, its `cd`
 # being fish's.
 cd_target_ok() {
-  local t=${cw[1]-} base acc comp canon
+  [ "$cwn" -eq 2 ] || return 1
+  own_dir_ok 1 || return 1
+  PENDING_CD=$OWN_DIR
+  return 0
+}
+
+# own_dir_ok <word-index>: the word is an operand naming an existing directory
+# inside the session's own worktree and repository, in a form bash, zsh and
+# git all read the same way; leaves its canonical path in OWN_DIR. Shared by
+# `cd <dir>` (above) and `git -C <dir>` (guard_git).
+own_dir_ok() {
+  local n=$1 t=${cw[$1]-} base acc comp canon
   local -a comps=()
-  [ "$cwn" -eq 2 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
+  OWN_DIR=''
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] || return 1
   # The worktree comes from the session record, never the checkout.
   [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ] || return 1
   HOOK_WT_ROOT=$REC_WT
-  word_unresolved "$t" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" && return 1
+  word_unresolved "$t" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" && return 1
   # A plain operand only: bash tilde-expands after `=`, zsh reads `+N` / `-N`
   # as the directory stack and `=cmd` as a command path, and zsh glob options
   # a shell snapshot can carry turn `^`, `#`, `~` and braces into patterns.
-  [ "${cz[1]-0}" = 0 ] || return 1
+  [ "${cz[n]-0}" = 0 ] || return 1
   case $t in
     '' | [-+]* | *[!A-Za-z0-9._/@%,:+-]*) return 1 ;;
   esac
@@ -4837,7 +5327,7 @@ cd_target_ok() {
     *) return 1 ;;
   esac
   cd_same_repo "$canon" || return 1
-  PENDING_CD=$canon
+  OWN_DIR=$canon
   return 0
 }
 
@@ -4846,7 +5336,7 @@ cd_target_ok() {
 # worktree root. A nested repository, a submodule, another worktree, or the
 # git directory itself would hand every later `git` that repository's own
 # config (its fsmonitor, hooks, aliases, pager), which is why `git -C <dir>`
-# defers; a `cd` there defers the same way. rev-parse reads config but runs
+# and a `cd` there defer; rev-parse reads config but runs
 # none of it.
 cd_same_repo() {
   local here
@@ -4887,11 +5377,39 @@ verify_known_simple() {
   fi
   # Redirects first: a write to a real file defers regardless of the verb,
   # unless its target is in the spec-root write zone (covers a leading
-  # redirect with no command too, e.g. `> f cat x`).
+  # redirect with no command too, e.g. `> f cat x`). A bare target takes the
+  # tracked values as a split word does, which leaves a value holding a space
+  # unresolved; a tracked value holds no pattern character to glob.
+  # On a bare assignment (`X=a >$X`) the shell assigns first and expands the
+  # target with the new value, so a target naming that variable stays
+  # unresolved (any name it prefixes, too, which only defers more).
+  local rtw rexp rname=''
+  if [ "$cwn" -eq 1 ]; then
+    case ${cw[0]} in
+      [A-Za-z_]*=*) rname=${cw[0]%%=*} ;;
+    esac
+  fi
   for ((i = 0; i < rn; i++)); do
+    rtw=${rt[i]}
+    rexp=1
+    if [ -n "$rname" ]; then
+      case $rtw in
+        *"\$$rname"* | *"\${$rname"*) rexp=0 ;;
+      esac
+    fi
+    if [ "$rexp" = 1 ] && [ "$VAR_C" -gt 0 ] && [ "${rtx[i]}" = 00 ]; then
+      case $rtw in
+        *'$'*)
+          expand_word "$rtw" split
+          rtw=$EXPANDED
+          ;;
+      esac
+    fi
+    # The spec-root zone keeps its plain-literal rule: only the policy arms
+    # read the expanded target.
     classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" \
-      || ob_redirect "${ro[i]}" "${rt[i]}" || return 1
-    environ_redirect_ok "${rt[i]}" || return 1
+      || ob_redirect "${ro[i]}" "$rtw" || return 1
+    environ_redirect_ok "$rtw" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
   # an empty simple command (e.g. a trailing separator) is a no-op.
@@ -4909,6 +5427,7 @@ verify_known_simple() {
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
+  strip_step_context
   strip_prefixes || return 1
   # The floor again, on the words the shell will run.
   deny_hit "${cw[@]}" && return 1
@@ -4981,7 +5500,7 @@ verify_tokens() {
   # reads these): words, their literal-dollar, quote-start, expansion, glob,
   # zsh-option and mixed-quoting flags, substitution indexes, and the
   # redirects. Reset by fin().
-  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() cqm=() csub=() ro=() rt=()
+  local -a cw=() cx=() cqp=() cdyn=() cglob=() cz=() cqm=() csub=() ro=() rt=() rtx=()
   local cwn=0 rn=0
   # The open `for` loops, innermost last: the loop variable's VAR slot, its
   # head words in LW, the word being verified, the first body token, and the
@@ -5064,6 +5583,7 @@ verify_tokens() {
     csub=()
     ro=()
     rt=()
+    rtx=()
     cwn=0
     rn=0
     return 0
@@ -5142,6 +5662,7 @@ verify_tokens() {
       [ -z "${TOK_SUBS[nxt]}" ] || return 1
       ro[rn]=$val
       rt[rn]=${TOK_VAL[nxt]}
+      rtx[rn]=${TOK_NOEXP[nxt]}${TOK_GLOB[nxt]}
       rn=$((rn + 1))
       idx=$((idx + 2))
       continue
@@ -5235,13 +5756,13 @@ verify_tokens() {
 # (guard_fish or subst_inner_ok -> analyze_command) gets a fresh, shadowing
 # token stream and never corrupts an outer walk.
 analyze_command() {
-  local cmd=$1 depth=$2 t seg lead dollars
+  local cmd=$1 depth=$2 t seg lead
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
   # The tokenizer screens each `$` against the rest of the command, so the
   # `$` are charged before it runs, not only when the words are walked.
-  dollars=${cmd//[!\$]/}
-  SCANNED=$((SCANNED + ${#cmd} + ${#dollars} * DOLLAR_COST))
+  dollar_count "$cmd"
+  SCANNED=$((SCANNED + ${#cmd} + DOLLAR_N * DOLLAR_COST))
   [ "$SCANNED" -le "$MAX_SCANNED" ] || return 1
   local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=() TOK_DYN=() TOK_GLOB=() TOK_ZOPT=() TOK_QMIX=() TOK_SUBS=()
   local TOK_N=0
@@ -5261,6 +5782,17 @@ analyze_command() {
   local VAR_C=0 LW_N=0
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_ASSIGN_S=0 PENDING_CD='' PREFIXED=0
+  # Under the scratch arm, `$TMPDIR` is the recorded scratch root: the
+  # launcher exported it, and assign_name_ok refuses re-pointing it. A
+  # `fish -c` string is left to fish's own rules.
+  if [ "$SC_ON" = 1 ] && [ "$depth" -eq 0 ]; then
+    VAR_N[0]=TMPDIR
+    VAR_V[0]=$REC_SCRATCH
+    VAR_L[0]=0
+    VAR_O[0]=0
+    VAR_S[0]=0
+    VAR_C=1
+  fi
   tokenize "$cmd" || return 1
   # Each `|`-separated segment holds a command or a redirect, and its first
   # word is no reserved word: anything else is not a pipeline.
@@ -5292,7 +5824,7 @@ analyze_command() {
 # jq is absent), and auto-approve only a known-safe Bash command. Every exit is
 # 0 with either the single allow object or empty stdout.
 main() {
-  local input tool cmd cwd
+  local input tool cmd cwd sid
 
   # Bounded, defensive stdin read: cap the payload so a giant blob can never
   # make the hook spin (REQ-B1.7). Command substitution strips trailing
@@ -5329,7 +5861,8 @@ main() {
   {
     IFS= read -r -d '' tool && IFS= read -r -d '' cmd \
       && IFS= read -r -d '' cwdkind && IFS= read -r -d '' cwd \
-      && IFS= read -r -d '' DENY_SRC && IFS= read -r -d '' DENY_RULES
+      && IFS= read -r -d '' DENY_SRC && IFS= read -r -d '' DENY_RULES \
+      && IFS= read -r -d '' sid
   } < <(printf '%s' "$input" | jq -j -s ${denyarg[@]+"${denyarg[@]}"} '
     if length == 1 then .[0] else empty end
     | (.tool_name // "" | if type == "string" then explode | map(select(. != 0)) | implode else "" end) as $t
@@ -5341,7 +5874,8 @@ main() {
           | join("\n") | explode | map(select(. != 0)) | implode)]
         catch ["err", ""] end) as $r
     | $t, "\u0000", .tool_input.command, "\u0000", $k, "\u0000", (if $k == "string" then .cwd else "" end), "\u0000",
-      $r[0], "\u0000", $r[1], "\u0000"
+      $r[0], "\u0000", $r[1], "\u0000",
+      (.session_id | if type == "string" and (explode | any(. == 0) | not) then . else "" end), "\u0000"
   ' 2>/dev/null) || return 0
   tool=${tool%"${tool##*[!$'\n']}"}
   [ "$tool" = Bash ] || return 0
@@ -5372,14 +5906,21 @@ main() {
       fi
       ;;
   esac
+  SC_ON=0
+  case " $REC_POLICY " in
+    *" scratch "*) [ "$HOOK_TMPDIR_IS_SCRATCH" = 0 ] || SC_ON=1 ;;
+  esac
   # Shared across `fish -c` recursion so nesting cannot multiply the bound.
   LOOP_PASSES=0
   SIMPLE_N=0
   # 1 while subst_inner_ok analyses a substitution's inner text.
   IN_SUBST=0
+  AUDIT_OB=0
+  AUDIT_SC=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
+  audit_append "$cmd" "$sid"
   emit_allow
   return 0
 }
@@ -5418,6 +5959,18 @@ spec_zone_load() {
 }
 SPEC_ZONE=$(spec_zone_load) || SPEC_ZONE=''
 session_record_load
+# The scratch arm resolves `$TMPDIR` to the recorded root, so it is live only
+# while the TMPDIR this hook inherited, which is the session's, names that
+# root: a sandbox, a settings env, or another launch's record would otherwise
+# point the shell elsewhere. Nor do the guard's own temp files belong in a
+# directory the worker may write to.
+HOOK_TMPDIR_IS_SCRATCH=0
+HOOK_TMP_BASE=${TMPDIR:-/tmp}
+if [ -n "$REC_SCRATCH" ] && [ -n "${TMPDIR:-}" ] \
+  && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
+  HOOK_TMPDIR_IS_SCRATCH=1
+  HOOK_TMP_BASE=/tmp
+fi
 # plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
 # resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
 # chain canonicalizes an arm, so a plugin cache root reached through a symlink

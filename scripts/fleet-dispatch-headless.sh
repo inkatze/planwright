@@ -93,6 +93,8 @@
 #     exit         `<rc> <epoch>` — the completion signal (atomic, written last)
 #     finish-error (only on a failed exit write) — marks a completed-but-
 #                  unrecordable worker so status reports `unknown`, not `died`
+#     scratch-root the worktree scratch root handed the worker as its TMPDIR,
+#                  which only a final close removes
 # All files are owner-only (umask 077). The default base sits under
 # <spec-root>/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
 # markers), so nothing here is ever committed.
@@ -127,7 +129,11 @@
 #                           caller must refuse to treat this as death
 #       5  absent           no dispatch record for this unit
 #   fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>]
-#       [--expect-dir <dir>] [--observe]
+#       [--expect-dir <dir>] [--observe] [--final]
+#     --final also removes, once the close completes, the worktree scratch
+#     root the run recorded in <unit>/scratch-root (the close a reap makes);
+#     an earlier-layout root a stream-json session still uses is left
+#     (scripts/fleet-stop-lib.sh).
 #     Close the worker named by its handle (`headless-<spec>-task-<id>`, the
 #     handle `launch` prints): terminate the runner and everything under it,
 #     SIGTERM then SIGKILL after the grace, and release its scratch temp and
@@ -211,7 +217,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir> [--repo-root <dir>] [-- <extra claude args>...]
        fleet-dispatch-headless.sh status <spec> <id> [--repo-root <dir>]
-       fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]
+       fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe] [--final]
 (prompt text on stdin for launch)
 EOF
   exit 2
@@ -804,12 +810,19 @@ do_run_worker() {
 
   # The session record the worker's command guard reads its self-approval
   # policy and unit identity from; without one the guard keeps to its
-  # read-only arm. An inherited path never stands in.
+  # read-only arm. An inherited path never stands in. The record also names
+  # the worktree's scratch root, which becomes the worker's TMPDIR, and only
+  # the worker's: the runner's own temp files stay out of a directory the
+  # worker may write to.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
-  r_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$r_wt" 2>/dev/null </dev/null) || r_record=''
+  r_scratch=''
+  r_record=$(PLANWRIGHT_LAUNCH_BACKEND=headless-oneshot /bin/sh "$script_dir/worker-session-record.sh" write "$r_wt" --scratch 2>/dev/null </dev/null) || r_record=''
   if [ -n "$r_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$r_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
+    r_scratch=$(sed -n 's/^scratch_root=//p' "$r_record" 2>/dev/null) || r_scratch=''
+    [ -z "$r_scratch" ] || printf '%s\n' "$r_scratch" >"$r_unit/scratch-root" \
+      || warn "cannot record the scratch root for $r_unit; a final close will leave it to the worktree reclaim"
   fi
 
   # The dispatch-time identity env (fleet-liveness.sh hook contract): the
@@ -838,7 +851,15 @@ do_run_worker() {
   # longer carries anything a close can match it by.
   r_worker=''
   trap '[ -z "$r_worker" ] || { kill "$r_worker" 2>/dev/null; wait "$r_worker" 2>/dev/null; }; finish 143; exit 0' TERM INT
-  "$ENVWRAP" "$@" <"$r_unit/prompt" >"$r_unit/result.json" 2>"$r_unit/stderr.log" &
+  if [ -n "$r_scratch" ]; then
+    (
+      TMPDIR=$r_scratch
+      export TMPDIR
+      exec "$ENVWRAP" "$@"
+    ) <"$r_unit/prompt" >"$r_unit/result.json" 2>"$r_unit/stderr.log" &
+  else
+    "$ENVWRAP" "$@" <"$r_unit/prompt" >"$r_unit/result.json" 2>"$r_unit/stderr.log" &
+  fi
   r_worker=$!
   r_rc=0
   wait "$r_worker" || r_rc=$?
@@ -1071,9 +1092,9 @@ stop_process_closed() {
   [ "$stop_signalled" = 1 ] || return 0
   [ "$(stop_marker "$1")" = "$t_launched" ] || return 0
   [ ! -e "$1/exit" ] && [ ! -e "$1/finish-error" ] || return 0
-  if spc_tmp=$(mktemp "$1/.exit.XXXXXX") \
+  if spc_tmp=$(mktemp -- "$1/.exit.XXXXXX") \
     && printf '143 %s\n' "$(date +%s)" >"$spc_tmp" \
-    && mv -f "$spc_tmp" "$1/exit"; then
+    && mv -f -- "$spc_tmp" "$1/exit"; then
     return 0
   fi
   [ -z "${spc_tmp:-}" ] || rm -f "$spc_tmp" 2>/dev/null
@@ -1136,10 +1157,15 @@ do_stop() {
   t_expect=''
   t_grace=$grace_default
   t_observe=0
+  t_final=0
   while [ "$#" -gt 0 ]; do
     case $1 in
       --observe)
         t_observe=1
+        shift
+        ;;
+      --final)
+        t_final=1
         shift
         ;;
       --repo-root)
@@ -1211,7 +1237,12 @@ do_stop() {
     stop_observe "$unit_dir" "$t_worker" "$t_root/attention/state"
     return
   fi
-  stop_walk "$unit_dir" "$t_worker" "$t_root/attention/state" "$t_grace"
+  t_rc=0
+  stop_walk "$unit_dir" "$t_worker" "$t_root/attention/state" "$t_grace" || t_rc=$?
+  if [ "$t_final" = 1 ] && [ "$t_rc" = 0 ] && ! stop_scratch_root_release "$unit_dir" "$t_root"; then
+    warn "closed $t_worker but could not remove its worktree scratch root"
+  fi
+  return "$t_rc"
 }
 
 # --- Entry -------------------------------------------------------------------

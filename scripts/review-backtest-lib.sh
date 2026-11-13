@@ -14,10 +14,10 @@ RBT_HEADER='id	pr	commit	path	line	category	reason	replayable	label_source	gist	
 
 # A class is a row's miss reason. The miss-ledger grammar's reason tokens are
 # the same list.
-RBT_REASONS='outside-diff runtime-tracing claim-vs-code pruned spec-conflict lintable declined other'
+RBT_REASONS='outside-diff runtime-tracing claim-vs-code pruned spec-conflict lintable host-dependent guard-bypass procedure-order declined other'
 
 # The miss-ledger grammar's lens tokens (doctrine/review-independence.md).
-RBT_LENSES='correctness security error-handling performance concurrency naming documentation tests cross-file sibling-sweep reviewer-basics other'
+RBT_LENSES='correctness security error-handling performance concurrency naming documentation tests cross-file sibling-sweep reviewer-basics procedure-tracing other'
 
 RBT_CATEGORIES='correctness security portability error-handling concurrency tests docs performance style other'
 
@@ -244,6 +244,7 @@ rbt_read_ledger() {
       [ "$_rrl_rc" -ne 1 ] || continue
       _rrl_row=
       if [ "$_rrl_rc" -eq 0 ]; then
+        # shell-fail-open-noop: an empty row is counted malformed just below
         _rrl_row=$(rbt_miss_row "$RBT_MISS_TEXT") || :
       fi
       if [ -z "$_rrl_row" ]; then

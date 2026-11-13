@@ -1,0 +1,7 @@
+# duty-proposal.persona — a repeat at the threshold a catalog duty covers raises one proposal with an explicit decline; nothing is enabled without the yes.
+arm=REQ-C1.7
+expertise=expert
+answer.1=@event:repeat pattern=chase-reviews count=3 threshold=3 duty=review-nudge
+answer.2=@event:repeat pattern=chase-reviews count=4 threshold=3 duty=review-nudge
+answer.3=yes
+answer.4=that's all

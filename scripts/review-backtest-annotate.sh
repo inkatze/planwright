@@ -44,6 +44,9 @@ for r in $RBT_REASONS; do
     pruned) d='it was visible in the changed lines, or a twin site of a fixed one was left unswept' ;;
     spec-conflict) d='it conflicts with a spec, doctrine rule, or repository convention' ;;
     lintable) d='a shell-lint or formatter rule could have caught it' ;;
+    host-dependent) d="a test's result depends on the host it runs on (umask, locale, installed tools, environment)" ;;
+    guard-bypass) d='a guard or matcher is evaded by another spelling of what it blocks' ;;
+    procedure-order) d='an ordered procedure (skill steps, a ritual, a runbook) runs a step before what it needs, or skips a step it requires' ;;
     other) d='none of the above fits' ;;
     declined) continue ;;
     *)

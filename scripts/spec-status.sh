@@ -65,8 +65,16 @@
 #            failure signal). Partial evidence is NOT presented as status; the
 #            locally-determinable facts (the stored header, reference-bullet
 #            parked state) are reported, marked as the only facts available.
+#            On a version 3 bundle whose tasks name repositories the failure
+#            is per repository (REQ-B1.7, REQ-F1.6): the failing repository is
+#            named, the tasks it withholds render as withheld, every other
+#            task renders normally, and no derived bundle status is claimed.
 #            No remote configured is NOT this mode: it is the first-class
 #            evidence-fallback path and renders fully with exit 0 (REQ-B1.2).
+#
+# Per-task repositories (REQ-F1.4, REQ-F1.5): every task naming a repository
+# shows its alias; one whose field does not resolve renders
+# repository-unresolved with the reason, and keeps the bundle from Done.
 #
 # Echo discipline (REQ-C1.9): every echoed value that originates in spec files
 # or the evidence stream — header values, bullet text, engine-stream fields,
@@ -153,17 +161,15 @@ if ! fv=$(spec_parse_header_value "$tasks_md" Format-version); then
   printf '%s\n' "spec-status: unparseable Format-version: declaration in $tasks_md (fail closed)" >&2
   exit 2
 fi
-case "$fv" in
-  1 | 2) ;;
-  '')
-    printf '%s\n' "spec-status: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
-    exit 2
-    ;;
-  *)
-    printf '%s\n' "spec-status: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
-    exit 2
-    ;;
-esac
+if [ -z "$fv" ]; then
+  printf '%s\n' "spec-status: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
+  exit 2
+fi
+# Keyed on the rule arm (version 3 takes the v2 arm), never the raw value.
+fv_arm=$(spec_parse_format_arm "$fv") || {
+  printf '%s\n' "spec-status: unparseable or undefined Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
+  exit 2
+}
 
 # --- Stored status (requirements.md, the authoritative home). --------------
 # Same lib parse, same fail-closed posture on a duplicate in-header
@@ -186,7 +192,7 @@ case "$stored" in
 esac
 # v2 restricts the stored vocabulary to the human-gated states (REQ-A1.3);
 # a stored Active/Done on a v2 bundle is malformed input, not a render mode.
-if [ "$fv" = 2 ]; then
+if [ "$fv_arm" = 2 ]; then
   case "$stored" in
     Active | Done)
       printf '%s\n' "spec-status: stored status '$stored' is not a v2 stored state (Active/Done are derived; REQ-A1.3)" >&2
@@ -235,7 +241,7 @@ fi
 # in the lib's record shape so every reader below is version-agnostic:
 #   ref<TAB><id><TAB><class><TAB><line><TAB><payload>
 #   refbad<TAB><raw-token><TAB><class><TAB><line>
-if [ "$fv" = 2 ]; then
+if [ "$fv_arm" = 2 ]; then
   parked_map=$(spec_parse_parked_map "$tasks_md") || {
     # Fail closed: an unreadable or malformed parked map would silently drop
     # an Awaiting-input park and let the bundle derive Done (REQ-B1.6's
@@ -315,13 +321,15 @@ rm -f "$engine_err"
 # Detect the record by its tag (the engine's documented consumption model:
 # "consumers switch on column 1"), never by the message text — an empty
 # message field must not fall open into a full render.
+# A per-repository record (column 2 `repository`) fails only the tasks the
+# engine withholds; it is reported below, before the per-task render.
 degraded=0
-if printf '%s\n' "$engine_out" | awk -F"$TAB" '$1 == "degraded" { found = 1 } END { exit !found }'; then
+if printf '%s\n' "$engine_out" | awk -F"$TAB" '$1 == "degraded" && $2 != "repository" { found = 1 } END { exit !found }'; then
   degraded=1
 fi
 if [ "$degraded" -eq 1 ]; then
   degraded_msg=$(printf '%s\n' "$engine_out" \
-    | awk -F"$TAB" '$1 == "degraded" { print $3; exit }')
+    | awk -F"$TAB" '$1 == "degraded" && $2 != "repository" { print $3; exit }')
   printf 'spec-status: transient evidence failure — %s\n' \
     "$(sanitize_printable "$degraded_msg" '(no diagnostic from the engine)')"
   echo 'evidence-derived status is unavailable; the facts below are locally determinable and are the only facts available:'
@@ -332,6 +340,37 @@ if [ "$degraded" -eq 1 ]; then
   done
   exit 3
 fi
+
+# repo_name <label> — a repository as the render names it.
+repo_name() {
+  if [ "$1" = - ]; then
+    printf 'the work repository'
+  else
+    printf 'repository %s' "$(sanitize_printable "$1" '(unprintable)')"
+  fi
+}
+repo_failed=0
+while IFS="$TAB" read -r tag kind label msg; do
+  [ "$tag" = degraded ] && [ "$kind" = repository ] || continue
+  repo_failed=1
+  printf 'spec-status: transient evidence failure in %s — %s\n' "$(repo_name "$label")" \
+    "$(sanitize_printable "$msg" '(no diagnostic from the engine)')"
+done <<EOF
+$engine_out
+EOF
+[ "$repo_failed" -eq 0 ] \
+  || echo 'evidence from a failed repository is not presented as status; its tasks and their direct dependents render as withheld'
+# Only a bundle naming repositories carries per-task records; a bundle without
+# them skips the per-task lookups.
+per_task_out=0
+if printf '%s\n' "$engine_out" | awk -F"$TAB" '$1 == "repository" || $1 == "repository-unresolved" || $1 == "withheld" { f = 1 } END { exit !f }'; then
+  per_task_out=1
+fi
+record_for() {
+  [ "$per_task_out" -eq 1 ] || return 0
+  printf '%s\n' "$engine_out" \
+    | awk -F"$TAB" -v t="$1" -v i="$2" '$1 == t && $2 == i { s = $3; for (k = 4; k <= NF; k++) s = s "\t" $k; print s; exit }'
+}
 
 # --- Per-task render. ---------------------------------------------------------
 # Engine task records, in file order, with reference-bullet authority applied
@@ -356,21 +395,41 @@ tasks_seen=0
 while IFS="$TAB" read -r tag id state ev; do
   [ "$tag" = task ] || continue
   tasks_seen=$((tasks_seen + 1))
+  where=""
+  unres=$(record_for repository-unresolved "$id")
+  alias=$(record_for repository "$id")
+  if [ -n "$unres" ]; then
+    where=" · repository $(sanitize_printable "${unres%%"$TAB"*}" '(empty)'): $(sanitize_printable "${unres#*"$TAB"}" '(no reason given)')"
+  elif [ -n "$alias" ]; then
+    where=" · repository $(sanitize_printable "$alias" '(unprintable)')"
+  fi
   class=$(parked_class_of "$id")
   if [ -n "$class" ]; then
     case "$class" in
       awaiting-input) await=$((await + 1)) ;;
-      *) : ;; # deferred / out-of-scope: excluded from the Done universe
+      # Deferred / out-of-scope leave the Done universe, except that the
+      # bundle never derives Done while any task is repository-unresolved.
+      *) [ "$state" != repository-unresolved ] || fwd=$((fwd + 1)) ;;
     esac
     payload=$(parked_payload_of "$id")
     if [ -n "$payload" ]; then
-      printf 'task %s %s (bullet: %s)\n' "$id" "$class" "$(sanitize_printable "$payload")"
+      printf 'task %s %s (bullet: %s)%s\n' "$id" "$class" "$(sanitize_printable "$payload")" "$where"
     else
-      printf 'task %s %s (parked)\n' "$id" "$class"
+      printf 'task %s %s (parked)%s\n' "$id" "$class" "$where"
     fi
     if [ "$state" = completed ]; then
       anomalies="${anomalies}anomaly: task $id is parked by a live $class bullet but its evidence derives completed (stale bullet)
 "
+    fi
+    continue
+  fi
+  held=$(record_for withheld "$id")
+  if [ -n "$held" ]; then
+    fwd=$((fwd + 1))
+    if [ "${held%%"$TAB"*}" = own ]; then
+      printf 'task %s withheld (evidence unavailable: %s failed)%s\n' "$id" "$(repo_name "${held#*"$TAB"}")" "$where"
+    else
+      printf 'task %s withheld (a direct dependency'"'"'s %s failed)%s\n' "$id" "$(repo_name "${held#*"$TAB"}")" "$where"
     fi
     continue
   fi
@@ -390,7 +449,7 @@ while IFS="$TAB" read -r tag id state ev; do
       detail="$detail · merged $(sanitize_printable "$c_date")"
     fi
   fi
-  printf 'task %s %s (%s)\n' "$id" "$detail" "$(sanitize_printable "$ev")"
+  printf 'task %s %s (%s)%s\n' "$id" "$detail" "$(sanitize_printable "$ev")" "$where"
 done <<EOF
 $engine_out
 EOF
@@ -435,6 +494,10 @@ done
 # Ready otherwise. Stored v1 Active/Done render as stored: the reconcile owns
 # those committed values, and a second derived claim here would be a second
 # writer's opinion.
+if [ "$repo_failed" -eq 1 ]; then
+  printf 'bundle status: not derived (an evidence fetch failed; see above)\n'
+  exit 3
+fi
 if [ "$stored" = Ready ]; then
   pending=0
   if [ "$fwd" -gt 0 ] || [ "$inp" -gt 0 ] || [ "$await" -gt 0 ]; then

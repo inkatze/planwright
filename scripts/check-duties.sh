@@ -12,7 +12,10 @@
 #   - a configured program whose block does not validate
 #     (scripts/mc-program.sh validate: repositories, spec root, home, budget,
 #     a source map naming an unknown class or mode), or whose enabled list
-#     names a duty the catalog lacks.
+#     names a duty the catalog lacks;
+#   - a `snapshot` source, in the default state-source map or a program's,
+#     with no adapter in the merged snapshot-adapters catalog
+#     (scripts/mc-snapshot.sh check), the source named.
 #
 # Only the core and repo-tracked layers are read: the adopter overlay and the
 # machine-local config are pointed at an empty scratch directory, and HOME
@@ -81,7 +84,7 @@ toplevel=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
   && toplevel=$(cd "$toplevel" && pwd -P) && [ "$toplevel" = "$repo" ] \
   || die "not a git toplevel: $(sanitize_printable "$repo")"
 
-scratch=$(mktemp -d) || die "mktemp -d failed"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/check-duties.XXXXXX") || die "mktemp -d failed"
 [ -n "$scratch" ] && [ -d "$scratch" ] || die "mktemp -d produced no directory"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/adopter" "$scratch/claude" "$scratch/home" || die "cannot populate the scratch directory"
@@ -154,13 +157,18 @@ if default_duties=$(run mc-program.sh default duties); then
 else
   relay mission_control_default_duties
 fi
-run mc-program.sh default sources >/dev/null || relay mission_control_default_sources
+if run mc-program.sh default sources >/dev/null; then
+  run mc-snapshot.sh check --defaults || relay mission_control_default_sources
+else
+  relay mission_control_default_sources
+fi
 run mc-program.sh default home >/dev/null || relay mission_control_home_root
 
 if programs=$(run mc-program.sh list); then
   for p in $programs; do
     if run mc-program.sh validate "$p"; then
       valid=1
+      run mc-snapshot.sh check --program "$p" || relay "program '$p' sources"
     else
       valid=0
       relay "program '$p'"

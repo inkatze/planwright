@@ -6,10 +6,10 @@ list: every skill, profile, guard, and doc restates it by citing this doc, and
 a copy that diverges from it is a defect.
 
 Citations: human-gates REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5,
-REQ-B1.1, REQ-C1.1, REQ-C1.5, REQ-C1.6, REQ-D1.1, REQ-D1.2, REQ-D1.4, REQ-D1.5,
-REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2, REQ-F1.4,
-REQ-F1.5, REQ-G1.7 · human-gates D-1, D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14,
-D-15 · supersedes
+REQ-A1.6, REQ-B1.1, REQ-C1.1, REQ-C1.6, REQ-C1.9, REQ-D1.1, REQ-D1.2, REQ-D1.4,
+REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2,
+REQ-F1.4, REQ-F1.5, REQ-G1.7, REQ-G1.9, REQ-G1.10, REQ-G1.13 · human-gates D-1,
+D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14, D-15, D-18 · supersedes
 bootstrap D-26 (scoped), bootstrap REQ-J1.1, bootstrap REQ-J1.4.
 
 ## The gate test
@@ -39,13 +39,14 @@ cannot be named does not ship.
 | Rewriting main, a protected branch, or a spec branch | Human gate | Irreversible arm; no tier under any value |
 | Executing an authorized merge | Policy | `merge_policy`, default `human`; `on-approval` lets the host merge once the human enables auto-merge, `policy-class` admits a declared class of task-branch PRs from the base repository, merged only through `scripts/merge-admitted.sh`; a release PR is never a class admission, so its merge stays a human approval act under every value |
 | The draft→ready flip of a unit PR | Policy | `ready_flip_policy`, default `unit-owner`; `human` reserves it, except the merge helper's own flip of a PR its class admits |
-| Refusing the draft→ready flip of a PR behind its base | Policy | `ready_guard_behind_base`, default `refuse`; `conflict-only` lets a behind PR through when GitHub reports it mergeable, read from the core and adopter layers only |
+| Refusing the draft→ready flip of a PR behind its base | Policy | `ready_guard_behind_base`, default `checks`: a behind PR passes when GitHub reports it mergeable and its checks passed on its head with at least one success; `refuse` refuses any behind PR; `conflict-only` passes a mergeable one whatever its checks; read from the core and adopter layers only |
 | The draft→ready flip of a spec PR | Policy | `mark_spec_pr_ready_on_kickoff`, default `true` |
-| Merging the PR base into the owned branch | Policy | `worker_base_merge`, default `allow`; conflicts by `worker_merge_conflict_policy`, default `halt` |
+| Merging the PR base or the branch's own remote branch into the owned branch | Policy | `worker_base_merge`, default `allow`; conflicts by `worker_merge_conflict_policy`, default `halt` |
 | Reshaping never-pushed commits on the owned unit branch | Policy | `unpushed_rewrite`, default `allow` |
 | Branches protected beyond the core floor | Policy | `protected_branches`, default empty; it adds to `main`, `master`, and `planwright/*/spec`, never removes |
 | Pushing the unit branch and opening its draft PR | Composition contract | `/execute-task`, or a standalone `/self-review`; `/polish` and every `--nested` review skill never push |
-| Flipping under `unit-owner` | Composition contract | `/execute-task`'s convergence run, or the review skill it delegates its terminal step to; a standalone review run never flips |
+| Pushing a spec branch and opening its draft PR | Composition contract | `/spec-kickoff`, run attended under no tier profile, or as the relayed kickoff session under the worker profile (scope `kickoff-<spec>`), which pushes only the one spec branch its launch record names, through `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>`: a plain, non-forced push, never forced; no other agent session may push a spec branch; a plain push of a spec branch is not a gate, and rewriting one stays a human gate |
+| Flipping under `unit-owner` | Composition contract | `/execute-task`'s convergence run, or the review skill it delegates its terminal step to; a mission-control session, for any pull request of the repository whose checkout it runs in, not only the units it launched; a standalone review run never flips |
 
 ## The floor
 

@@ -226,7 +226,12 @@ mapping's persona a); it is never required. The meta step itself dispatches
 only through the stream-json and headless rungs and parks a unit whose
 resolved rung is tmux or subagent; the meta step renders no task brief, the
 only prompt the tmux task arm carries, so this plumbing serves single-spec
-towers for now.
+towers for now. A single-spec tower whose spec resolves to the stream-json
+or headless rung dispatches through `scripts/orchestrate-meta-step.sh` too.
+Conversely, the tmux primitive refuses to launch a task worker for a spec
+resolving to any rung but tmux (exit 17) unless the tower passes
+`--backend tmux` for a tmux pick the unattended resolution cannot see, so no
+dispatch lands silently where its supervisor cannot answer its prompts.
 
 **The attention surface (the queue as default, D-13).** The fleet-entry loop
 keeps the attention store current and renders it, through
@@ -260,8 +265,8 @@ keeps the attention store current and renders it, through
   positively dead.
 - **Each watch iteration ends by rendering the surface on a transition**:
   `scripts/fleet-attention.sh render --on-change <tower>`, then
-  `queue --on-change <tower>` (`<tower>`: `scripts/fleet-presence.sh identity`,
-  else omit `--on-change`),
+  `queue --on-change <tower>` (`<tower>`: `scripts/fleet-presence.sh identity
+  --checkout <primary> --pid <pid>`, else omit `--on-change`),
   passing `--except <worker>` for each worker the iteration's own
   operator-comms step reported `delivered`. An iteration changing no worker's
   state or decision re-renders nothing but a periodic liveness line. When the
@@ -298,7 +303,10 @@ The out-of-session drain pass. Dispatches nothing; it:
 3. **Surfaces observation staleness**: report the accumulator's unmined count and
    oldest-entry age as the evaluator derives them — live fragments under
    `<root>/_observations/entries/` plus the frozen legacy file's unconsumed lines,
-   naming both, flagging stuck consumes and skipped invalid fragments.
+   naming both, flagging stuck consumes and skipped invalid fragments. Then the
+   venture drop's entry count from `scripts/inception-registry.sh drop-read`
+   (inception REQ-J1.8; `entry none` counts zero, exit 6 is named as
+   unavailable), its entries mined in `/spec-draft`, never here.
 4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
    `scripts/release-bookkeeping.sh` over the shared comparator (`release-pending.sh`,
    the one definition of "pending" the untagged-window lock also reads,

@@ -27,6 +27,8 @@ EXEC_SKILL="$REPO_ROOT/skills/execute-task/SKILL.md"
 
 # shellcheck source=tests/lib/inception-fixture.sh
 . "$REPO_ROOT/tests/lib/inception-fixture.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert_eq() {
@@ -63,6 +65,15 @@ fi
 
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
+
+assert_lint_md() {
+  if lint_emitted markdown venture-task.sh "$2"; then
+    echo "ok: $1: lint-clean markdown"
+  else
+    echo "FAIL: $1: fails the markdown lint" >&2
+    failures=$((failures + 1))
+  fi
+}
 
 export HOME="$tmp/home"
 mkdir -p "$HOME"
@@ -291,6 +302,7 @@ assert_eq "D1.3 the assumption status flipped" "validated" "$(field_of "$v/assum
 assert_eq "D1.3 the evidence cites the findings with its grade" "behavior — T-2 findings" "$(field_of "$v/assumptions.md" A-2 Evidence)"
 assert_eq "D1.3 the task is accepted" "accepted" "$(field_of "$v/plan.md" T-2 Status)"
 assert_contains "D1.4 the findings carry the acceptance record" "Accepted-by: Dana Reyes" "$(cat "$v/findings/T-2.md")"
+assert_lint_md "D1.4 the findings with the acceptance record" "$v/findings/T-2.md"
 assert_eq "D1.3 Last reviewed is bumped on the changed register" "**Last reviewed:** 2026-10-18" "$(grep -m1 'Last reviewed' "$v/assumptions.md")"
 assert_eq "D1.3 the untouched register keeps its date" "**Last reviewed:** 2026-08-20" "$(grep -m1 'Last reviewed' "$v/decisions.md")"
 "$REPO_ROOT/scripts/inception-validate.sh" "$v" >/dev/null 2>&1
@@ -414,6 +426,7 @@ assert_eq "the decider accepts the one-way decision" 0 "$rc"
 assert_eq "the decision status is recorded" "decided" "$(field_of "$v/decisions.md" DEC-1 Status)"
 assert_eq "the decision outcome is recorded" "end-of-shift handover only (2026-10-18)" "$(field_of "$v/decisions.md" DEC-1 Outcome)"
 assert_eq "the acceptance commit holds decisions, findings and plan" "decisions.md findings/T-3.md plan.md " "$(head_files "$v")"
+assert_lint_md "the decision's findings with the acceptance record" "$v/findings/T-3.md"
 
 # =========================================================================
 # reject: the registers stay untouched; the task returns to running or drops
@@ -429,6 +442,7 @@ assert_eq "reject exits 0" 0 "$rc"
 assert_eq "a rejected task returns to running" "running" "$(field_of "$v/plan.md" T-2 Status)"
 assert_eq "a rejection touches no register" "findings/T-2.md plan.md " "$(head_files "$v")"
 assert_contains "the findings carry the rejection record" "Rejected-by: Dana Reyes" "$(cat "$v/findings/T-2.md")"
+assert_lint_md "rejected findings" "$v/findings/T-2.md"
 vt check "$v"
 assert_eq "D1.3 a rejection commit passes the check" 0 "$rc"
 findings "$v" T-2 research "A-2: testing — opinion"
@@ -447,6 +461,7 @@ assert_eq "spike-init exits 0" 0 "$rc"
 marked=no
 [ -f "$v/spikes/T-1/DISPOSABLE.md" ] && marked=yes
 assert_eq "D1.5 spike-init marks the spike directory disposable" yes "$marked"
+assert_lint_md "D1.5 DISPOSABLE.md" "$v/spikes/T-1/DISPOSABLE.md"
 printf 'print("spike")\n' >"$v/spikes/T-1/main.py"
 vt spikes "$v"
 assert_eq "D1.5 a marked spike passes" 0 "$rc"

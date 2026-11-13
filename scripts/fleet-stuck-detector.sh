@@ -332,7 +332,7 @@ valid_tower_id() {
 # is comparable for equality even when the surface would not recognize it.
 valid_owner() {
   case $1 in
-    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._-]*) return 1 ;;
+    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._:-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
 }
@@ -656,7 +656,7 @@ git_ro() {
 # also accept for a fleet home that happens to live inside a checkout).
 is_git_toplevel() {
   igt_top=$(git_ro "$1" rev-parse --show-toplevel 2>/dev/null) || return 1
-  igt_dir=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  igt_dir=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
   [ "$igt_top" = "$igt_dir" ]
 }
 

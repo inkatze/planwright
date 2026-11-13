@@ -30,6 +30,25 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/mc-approve-hook.sh",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/retask-guard.sh hook"
+          }
+        ]
+      },
+      {
         "matcher": "^mcp__github__(merge_pull_request|update_pull_request|update_pull_request_branch|create_pull_request|push_files|create_or_update_file|delete_file)$",
         "hooks": [
           {
@@ -65,6 +84,14 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tool-discovery.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/mc-panel.sh session-hook"
           }
         ]
       },
@@ -120,6 +147,26 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-messaging.sh self-register",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/work-repo-registry.sh hook session-start",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/work-repo-registry.sh hook session-start",
             "timeout": 30
           }
         ]

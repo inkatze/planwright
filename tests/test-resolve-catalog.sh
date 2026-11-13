@@ -13,6 +13,8 @@ export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RESOLVER="$REPO_ROOT/scripts/resolve-catalog.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
 
 failures=0
 assert() {
@@ -134,6 +136,13 @@ assert_contains "supersede: alpha replaced (overlay note)" "overlay-a" "$out"
 assert_absent "supersede: alpha old note gone" "core-a" "$out"
 assert_contains "supersede: beta survives" "core-b" "$out"
 assert_absent "supersede: marker stripped from output" "supersede:" "$out"
+printf '%s\n' "$out" >"$tmp/merged.yaml"
+if lint_emitted yaml resolve-catalog.sh "$tmp/merged.yaml"; then
+  echo "ok: supersede: the merged catalog is lint-clean YAML"
+else
+  echo "FAIL: supersede: the merged catalog fails the YAML lint" >&2
+  failures=$((failures + 1))
+fi
 
 # ---------------------------------------------------------------------------
 # 2b. `supersede: false` (or any non-`true` value) is NOT a supersede marker
@@ -532,6 +541,13 @@ assert_absent "malformed ids are not emitted" "spaced" "$out"
 printf 'entries:\n  - id: gamma\n    note: "g"\n  - id: gamma\n      nested: x\n' >"$(adopter_cat "$sb" testcat)"
 rc "$sb" testcat >/dev/null 2>"$tmp/shape.err"
 assert_absent "a lost line on a skipped duplicate is not reported against its namesake" "not a field" "$(cat "$tmp/shape.err")"
+
+# A wrapped flow list joins only in the duties catalog; any other catalog's
+# readers take one-line lists, so there it stays a lost line.
+printf 'entries:\n  - id: wrapped\n    tags: [a,\n           b]\n' >"$(adopter_cat "$sb" testcat)"
+out=$(rc "$sb" testcat 2>"$tmp/wrap.err")
+assert_contains "outside the duties catalog a wrapped list is not joined" "not a field" "$(cat "$tmp/wrap.err")"
+assert_absent "nor emitted joined" "[a, b]" "$out"
 
 # ---------------------------------------------------------------------------
 echo

@@ -27,6 +27,13 @@ TAB=$(printf '\t')
 . "$here/lib/dead-owner.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
+[ -r "$here/lib/emitter-lint.sh" ] || {
+  echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
+  exit 1
+}
+EMITTER_LINT_ROOT=$repo_root
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 
 # The built-in screen, so the outcome does not depend on whether this host
 # has gitleaks installed.
@@ -770,7 +777,14 @@ cat >"$slow/inception-secret-screen.sh" <<'STUB'
 #!/bin/sh
 if grep -q slowstep "$2"; then
   : >"${0%/*}/slow-started"
-  sleep 6
+  # Hold the screen until the test has written the completion, so the step
+  # is still screening when its point completes; the cap only stops a broken
+  # run from hanging.
+  i=0
+  while [ ! -e "${0%/*}/slow-release" ] && [ "$i" -lt 600 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
   exit 0
 fi
 printf 'call\n' >>"${0%/*}/calls"
@@ -789,6 +803,7 @@ verdict "the slow step reached its screen before the completion" "the slow step 
   --head "$HEAD_SHA" >/dev/null
 [ ! -s "$slow/calls" ]
 verdict "a completion with no warning runs no screen" "the screen ran for a warning-free completion"
+: >"$slow/slow-release"
 wait "$slowpid"
 rc=$?
 left=$(find "$w9/.claude/steps/$r9" -mindepth 1 -exec basename {} \; | sort | tr '\n' ' ')
@@ -1178,6 +1193,11 @@ else
 fi
 grep -Fq "## Steps at \`convergence\` (run \`$run1\`)" "$tmp/regen.md"
 verdict "regenerate re-emits the per-point tables from the records" "no step tables after the checklist"
+if lint_emitted markdown step-record.sh "$tmp/regen.md"; then
+  ok "the regenerated checklist and step tables pass the markdown lint"
+else
+  fail "the regenerated checklist and step tables fail the markdown lint"
+fi
 
 sr regenerate --base "$BASE" --head "$HEAD2" | grep -Fq "## Steps at \`pre-pr\` (run \`$run4\`)"
 verdict "regenerate defaults to the latest run" "default run not rendered"
@@ -1196,12 +1216,36 @@ rc=$?
 [ "$rc" -eq 1 ] && grep -Fq -- "--base" "$tmp/err"
 verdict "an unresolvable range fails by name" "rc=$rc, or --base not named"
 
-# The latest run is the highest id, whether or not it holds a record.
-sr new-run >/dev/null
-[ -z "$(sr render)" ]
-verdict "render defaults to the latest run, even an empty one" "render showed an older run"
+# An empty run, the highest id, renders nothing under --run; regenerate
+# defaults to the latest run, whether or not it holds a record.
+emptyrun=$(sr new-run)
+[ -z "$(sr render --run "$emptyrun")" ]
+verdict "render --run on the latest run, even an empty one, shows no older run" "render showed an older run"
+! sr render --run "$emptyrun" | grep -q '^## Steps at'
+verdict "render --run on an empty run renders no table" "an empty run rendered a table"
 ! sr regenerate --base "$BASE" --head "$HEAD2" | grep -q '^## Steps at'
 verdict "regenerate defaults to the latest run, even an empty one" "regenerate showed an older run"
+
+# A bare render shows every run, oldest first, each under its run id.
+bare_all=$(sr render)
+runs_seen=$(printf '%s\n' "$bare_all" | grep '^## ' | grep -o "run \`[0-9]*\`" | tr -d '`' | awk '!s[$0]++' | tr '\n' ' ')
+[ "$runs_seen" = "run $run1 run $run2 run $run3 run $run4 " ]
+verdict "a bare render shows every run, oldest first, each under its run id" "runs: $runs_seen"
+one_run=$(sr render --run "$run1")
+! printf '%s\n' "$one_run" | grep -Fq "(run \`$run4\`)" && printf '%s\n' "$one_run" | grep -Fq "(run \`$run1\`)"
+verdict "render --run selects the one run and no other" "--run did not narrow to $run1"
+bare_pt=$(sr render --point pre-pr | grep -c "^## Steps at \`pre-pr\`")
+[ "$bare_pt" -ge 2 ]
+verdict "a bare render with --point names the point in every run that has it" "pre-pr tables: $bare_pt"
+before_run2=$(printf '%s\n' "$bare_all" | awk -v r="(run \`$run2\`)" 'index($0, r) && !d { print prev; d = 1 } { prev = $0 }')
+[ -z "$before_run2" ]
+verdict "a blank line separates one run's tables from the next" "line before run $run2: $before_run2"
+ln -s "$tmp/no-such-record" "$wt/.claude/steps/$emptyrun/001-step-pre-ci.rec"
+partial=$(sr render 2>"$tmp/err.partial")
+rc=$?
+rm "$wt/.claude/steps/$emptyrun/001-step-pre-ci.rec"
+[ "$rc" -eq 1 ] && [ -z "$partial" ] && grep -Fq "cannot be read" "$tmp/err.partial"
+verdict "a refusal in a later run prints nothing of the earlier runs" "rc=$rc, output: $partial"
 
 # --- a mkdir that tells every racer it won ---------------------------------------------
 # Some coreutils reimplementations report success to several concurrent
@@ -2676,9 +2720,74 @@ verdict "heads accepts any point of the vocabulary" "refused a flip point"
 grep -Fq 'a `skip` line records `skipped`, code `missing`' "$repo_root/skills/execute-task/SKILL.md"
 verdict "/execute-task records a missing-matrix skip with code missing" "the skill's skip call names no code"
 
+# --- a degraded isolated step records its reason (custom-steps REQ-D1) ---------------
+rund=$(sr new-run)
+sr write --run "$rund" --point convergence --step polish --kind skill \
+  --target planwright:polish --hosting in-session --backend claude-code \
+  --degraded 'no session-grade backend "claude-code" can spawn a fresh session' \
+  --head "$HEAD_SHA" --start 2026-09-28T12:00:00Z --end 2026-09-28T12:01:00Z \
+  --outcome applied >/dev/null
+verdict "write --degraded records an in-session step with its reason" "write --degraded failed"
+listing=$(sr list --run "$rund")
+printf '%s\n' "$listing" | grep -Fxq "degraded${TAB}no session-grade backend \"claude-code\" can spawn a fresh session"
+verdict "list round-trips the degraded reason" "list lacks the degraded reason"
+sr render --run "$rund" --point convergence | grep -Fq 'degraded: no session-grade backend'
+verdict "render shows the degradation with its reason" "render omits the degradation"
+rc=0
+sr write --run "$rund" --point convergence --step polish --kind skill \
+  --target planwright:polish --hosting isolated --backend claude-code \
+  --degraded 'reason' --head "$HEAD_SHA" --start 2026-09-28T12:00:00Z \
+  --end 2026-09-28T12:01:00Z --outcome applied >/dev/null 2>&1 || rc=$?
+[ "$rc" -ne 0 ]
+verdict "--degraded on an isolated step is refused" "--degraded on isolated was accepted"
+
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
 verdict "this repository ignores the record cache" ".claude/steps/ is not ignored"
+
+# --- a misspelled PLANWRIGHT_STEP_* name: write refuses, render warns -------------
+runbad=$(sr new-run)
+for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_BRANCH; do
+  bad=${pair%%:*} want=${pair#*:}
+  env "PLANWRIGHT_STEP_$bad=1" "$SR" --worktree "$wt" write --run "$runbad" --point convergence --step polish \
+    --kind skill --target planwright:polish --hosting isolated --backend terminal \
+    --head "$HEAD_SHA" --start 2026-09-28T10:00:00Z --end 2026-09-28T10:05:00Z --outcome applied \
+    >"$tmp/bad.out" 2>"$tmp/bad.err"
+  rc=$?
+  [ "$rc" -eq 2 ] && grep -q "PLANWRIGHT_STEP_$bad" "$tmp/bad.err" && grep -q "PLANWRIGHT_STEP_$want" "$tmp/bad.err"
+  verdict "write refuses PLANWRIGHT_STEP_$bad and names PLANWRIGHT_STEP_$want" "rc=$rc: $(cat "$tmp/bad.err")"
+done
+[ -z "$(sr list --run "$runbad")" ]
+verdict "the refused writes left no record" "a record was written under a misspelled name"
+env PLANWRIGHT_STEP_PR=7 "$SR" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && grep -q 'PLANWRIGHT_STEP_PR_NUMBER' "$tmp/bad.err"
+verdict "render only warns about PLANWRIGHT_STEP_PR" "rc=$rc: $(cat "$tmp/bad.err")"
+env PLANWRIGHT_STEP_PR_NUMBER=7 "$SR" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$tmp/bad.err" ]
+verdict "render with a documented PLANWRIGHT_STEP_PR_NUMBER stays silent" "rc=$rc: $(cat "$tmp/bad.err")"
+runs_before=$(ls "$wt/.claude/steps")
+env PLANWRIGHT_STEP_SPEC_ID=1 "$SR" --worktree "$wt" new-run >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+runs_after=$(ls "$wt/.claude/steps")
+[ "$rc" -eq 2 ] && grep -q 'PLANWRIGHT_STEP_SPEC' "$tmp/bad.err" && [ "$runs_before" = "$runs_after" ]
+verdict "new-run refuses PLANWRIGHT_STEP_SPEC_ID and issues no run" "rc=$rc: $(cat "$tmp/bad.err") runs: $runs_before / $runs_after"
+
+# A sibling resolve-steps.sh that cannot judge the context (any exit but its
+# own 6) is its own breakage, never reported as a misspelled name.
+broken="$tmp/broken-scripts"
+mkdir "$broken"
+for f in "$repo_root/scripts"/*.sh; do
+  [ "$f" = "$repo_root/scripts/resolve-steps.sh" ] || ln -s "$f" "$broken/${f##*/}"
+done
+# shellcheck disable=SC2016 # the stub's own $1 must stay literal
+printf '#!/bin/sh\ncase $1 in --check-env) echo "resolve-steps: broken install" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$repo_root/scripts/resolve-steps.sh" >"$broken/resolve-steps.sh"
+chmod +x "$broken/resolve-steps.sh"
+"$broken/step-record.sh" --worktree "$wt" render --run "$run1" >"$tmp/bad.out" 2>"$tmp/bad.err"
+rc=$?
+[ "$rc" -eq 0 ] && ! grep -q 'broken install' "$tmp/bad.err"
+verdict "a sibling that exits 5 on --check-env is not reported as a bad name" "rc=$rc: $(cat "$tmp/bad.err")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s\n' "$failures failure(s)" >&2

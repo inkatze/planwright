@@ -305,7 +305,7 @@ if [ -z "$ttl_sec" ]; then
   ttl_min=2
   cv=""
   if [ -x "$config_get" ]; then
-    cv=$("$config_get" dispatch_fetch_ttl 2>/dev/null) || cv=""
+    cv=$(cd -- "$repo_root" && env -u PLANWRIGHT_REPO_ROOT "$config_get" dispatch_fetch_ttl 2>/dev/null) || cv=""
   fi
   cv=${cv%m}
   case "$cv" in

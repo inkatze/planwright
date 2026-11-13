@@ -1,0 +1,8 @@
+# decide-or-queue.persona — a decision the record settles is taken and logged as decided by mission control; a human gate, a hard-disqualifier zone and a reserved proposal are queued.
+arm=REQ-F1.8
+expertise=expert
+answer.1=@event:decision subject=label-cleanup rule=r3
+answer.2=@event:decision subject=merge-release reserved=human-gate
+answer.3=@event:decision subject=schema-migration reserved=zone
+answer.4=@event:decision subject=enable-night-watch reserved=reserved-proposal
+answer.5=that's all

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # step-run.sh — host one custom-steps command step for /execute-task's runner:
 # the reuse check, the pool slot, the context, the run, and its record; plus
-# the per-run state the re-fire pass and resume continuation read.
+# the per-run state the re-fire pass and resume continuation read; and the
+# read-only cadence audit a hand-on boundary runs.
 # doctrine/custom-steps.md is the normative home of every rule applied here
 # (*Hosting*, *Expensive checks*, *Resume continuation*, *Records*); this
 # header pins the mechanics it delegates. Skill and prompt steps stay with the
@@ -22,6 +23,8 @@
 #   step-run.sh [--worktree <dir>] end --run <id> --point <point>
 #       --step <id> --exit <code> [--timed-out <seconds>] [--output <file>]
 #       [--session <id>]
+#   step-run.sh [--worktree <dir>] audit --through <point> [--head <sha>]
+#       [--base <rev>]
 #
 #   --worktree  the unit's worktree; default the enclosing git top level.
 #               Every command runs there.
@@ -91,12 +94,41 @@
 #           nothing again. The re-fire, backend, owner, pool, target, and
 #           hosting come from begin, never the resolved row; end refuses the
 #           flags.
+# audit     read-only: compare the configured cadence with the records, so a
+#           hand-on boundary catches a skipped point or step whoever skipped
+#           it. Resolves the in-run points from pre-implementation through
+#           <point> (--explain --unattended; a park or ask still names its
+#           steps); every row but `skip` is required. A point is judged by
+#           its newest run whose completion counts at the head: on an
+#           ancestor of it, and for the last point with a required step only
+#           on the head itself or behind clean two-parent merges, each tree
+#           exactly what the merge yields, and with --base only merges of
+#           commits it holds. That run must
+#           record each required step passed, applied, or skipped (a
+#           re-fire record counts for no point). Records
+#           are read as untrusted (run, kind, and point from the path, heads
+#           in commit-id form only). Per point with a required step:
+#           `gap<TAB><point><TAB>incomplete<TAB>-` with no counted
+#           completion in any run, then `...missing<TAB><step>` or
+#           `...failed<TAB><step>:<outcome>` over all runs;
+#           `...stale<TAB><head>` naming the newest completion when none
+#           counts, then that run's step gaps; the judged run's step gaps;
+#           else `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB>
+#           <head>`, the head --head or the worktree's. Exit 0 complete, 1
+#           gaps, 2 usage (an unknown --base included), 4 the records or the
+#           cadence could not be read.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
 # environment; POINT (post-pr for a re-fire), ID, PREV_RECORD (the run's last
 # step record at that point), and PREV_HEAD and NEW_HEAD (step-record.sh
-# heads at that point) are computed here.
+# heads at that point) are computed here. A field the caller leaves unset is
+# filled, for a flight worker only, from the launch record in
+# PLANWRIGHT_WORKER_SESSION_RECORD (UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE),
+# so the worker runs this script with no variable prefix. Any other
+# PLANWRIGHT_STEP_* name in the environment (resolve-steps.sh --check-env
+# judges it) is a misspelling: every verb but resolve exits 2 naming it and
+# its right spelling, and resolve only warns.
 #
 # Output of command, begin (but `run`), and end: `<outcome><TAB><record>
 # <TAB><hosting><TAB><session>`, the record path absolute and, for a reuse
@@ -117,9 +149,10 @@
 # Exit: 0 the step passed or was skipped, or the verb succeeded · 1 the step
 # failed (its record written) · 2 usage, a refused argument, or a row that is
 # not a resolved command step of the verb's hosting (nothing recorded or
-# taken) · 4 a record, state, or slot operation failed (a release that fails
+# taken), or a misspelled PLANWRIGHT_STEP_* name on any verb but resolve · 4 a record, state, or slot operation failed (a release that fails
 # after the record is written included) · 128+n a signal stopped `command`.
-# resolve exits as resolve-steps.sh did, save its own 2 and 4.
+# resolve exits as resolve-steps.sh did, save its own 2 and 4, and warns on a
+# misspelled PLANWRIGHT_STEP_* name without changing its exit.
 #
 # Portable bash 3.2 / BSD tooling.
 set -u
@@ -131,6 +164,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 SR="$script_dir/step-record.sh"
 SP="$script_dir/step-pool.sh"
 RS="$script_dir/resolve-steps.sh"
+CR="$script_dir/compute-route.sh"
 TAB=$'\t'
 NL=$'\n'
 
@@ -176,6 +210,36 @@ if [ -z "$worktree" ]; then
 fi
 worktree=$(cd -P -- "$worktree" 2>/dev/null && pwd -P) || die 2 "--worktree: not a directory"
 cd "$worktree" || die 2 "--worktree: cannot enter it"
+
+# launch_context: a flight worker's step context from the session record its
+# launcher wrote (scripts/worker-session-record.sh), for each field the caller
+# left unset, so the worker runs this script bare instead of exporting the
+# fields in front of it. Only a record for this very worktree, naming a flight
+# branch, counts; SPEC and TASK_IDS stay empty, as they are for a flight.
+launch_context() {
+  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_unit='' r_base=''
+  [ -n "$rec" ] && [ -f "$rec" ] && [ ! -L "$rec" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      worktree_root=*) r_wt=${line#worktree_root=} ;;
+      unit_branch=*) r_unit=${line#unit_branch=} ;;
+      pr_base=*) r_base=${line#pr_base=} ;;
+    esac
+  done <"$rec"
+  [ "$r_wt" = "$worktree" ] || return 0
+  case $r_unit in
+    planwright/flight/?*) ;;
+    *) return 0 ;;
+  esac
+  [ -n "${PLANWRIGHT_STEP_UNIT_KIND+x}" ] || export PLANWRIGHT_STEP_UNIT_KIND=flight
+  [ -n "${PLANWRIGHT_STEP_BRANCH+x}" ] || export PLANWRIGHT_STEP_BRANCH="$r_unit"
+  [ -n "${PLANWRIGHT_STEP_WORKTREE+x}" ] || export PLANWRIGHT_STEP_WORKTREE="$worktree"
+  case $r_base in
+    ?*/?*) [ -n "${PLANWRIGHT_STEP_BASE_BRANCH+x}" ] || export PLANWRIGHT_STEP_BASE_BRANCH="${r_base#*/}" ;;
+  esac
+  return 0
+}
+launch_context
 cache="$worktree/.claude/steps"
 
 sr() (
@@ -217,8 +281,8 @@ run_dir() {
 put_state() {
   local tmp
   [ ! -L "$1" ] || die 4 "runner state ${1##*/} is a symbolic link; refusing it"
-  tmp=$(mktemp "$(dirname "$1")/.runner-XXXXXX") || die 4 "cannot write runner state"
-  if ! { cat >"$tmp" && mv -f "$tmp" "$1"; }; then
+  tmp=$(mktemp -- "$(dirname "$1")/.runner-XXXXXX") || die 4 "cannot write runner state"
+  if ! { cat >"$tmp" && mv -f -- "$tmp" "$1"; }; then
     rm -f "$tmp"
     die 4 "cannot write runner state"
   fi
@@ -706,6 +770,9 @@ cmd_command() {
   set -m
   (
     [ "$STATE" != taken ] || export PLANWRIGHT_STEP_POOL_HOLD="$ROW_POOL:$OWNER"
+    # The compute router runs the check on fleet_compute_host when one is set
+    # and the command maps to a compute kind; otherwise it execs the command.
+    if [ -x "$CR" ]; then exec "$CR" -- "${ARGV[@]}" </dev/null >>"$o" 2>&1; fi
     exec "${ARGV[@]}" </dev/null >>"$o" 2>&1
   ) &
   child=$!
@@ -835,7 +902,199 @@ cmd_end() {
   if [ "$EXIT_CODE" -eq 0 ]; then finish passed "$o"; else finish failed "$o"; fi
 }
 
+# --- audit ------------------------------------------------------------------
+# The audit may read another session's worktree, so its git reads keep the
+# caller's configuration (a reader's fsmonitor and hooks overrides), clearing
+# only the repository selectors; rgit clears both.
+git_keep_config() (
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+  exec git "$@"
+)
+
+# audit_fresh <completion head> <head> <last: 1|0> <base or empty>: whether a
+# completion counts at the head. The last point stands past its completion
+# only behind clean two-parent merges, each tree exactly what the merge
+# yields (a conflict resolution or an edit made in the merge is new work),
+# and given a base, only of commits it already holds.
+audit_fresh() {
+  local f tree
+  git_keep_config merge-base --is-ancestor "$1" "$2" 2>/dev/null || return 1
+  [ "$3" = 1 ] && [ "$1" != "$2" ] || return 0
+  git_keep_config rev-list --first-parent --parents "$1..$2" >"$work/after" 2>/dev/null || return 1
+  while read -r -a f; do
+    [ "${#f[@]}" -eq 3 ] || return 1
+    [ -z "$4" ] || git_keep_config merge-base --is-ancestor "${f[2]}" "$4" 2>/dev/null || return 1
+    tree=$(git_keep_config merge-tree --write-tree --no-messages "${f[1]}" "${f[2]}" 2>/dev/null) || return 1
+    [ "$tree" = "$(git_keep_config rev-parse --verify -q "${f[0]}^{tree}")" ] || return 1
+  done <"$work/after"
+}
+
+cmd_audit() {
+  local through='' head='' base='' points=() p rc kind pt hd gaps last='' cur='' decided='' stale='' any=0 pg=0 g line
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --through | --head | --base) [ $# -ge 2 ] || usage ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --through) through=$2 ;;
+      --head) head=$2 ;;
+      --base) base=$2 ;;
+    esac
+    shift 2
+  done
+  is_in_run_point "$through" || die 2 "--through: not an in-run point"
+  if [ -n "$head" ]; then
+    [[ $head =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || die 2 "--head: not a full commit id"
+  else
+    head=$(git_keep_config rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
+  fi
+  if [ -n "$base" ]; then
+    case $base in -*) die 2 "--base: not a revision" ;; esac
+    base=$(git_keep_config rev-parse --verify -q "$base^{commit}") || die 2 "--base: no such commit"
+  fi
+  for p in pre-implementation pre-ci convergence pre-pr post-pr; do
+    points+=("$p")
+    [ "$p" != "$through" ] || break
+  done
+  "$RS" "${points[@]}" --explain --unattended >"$work/rows" 2>"$work/resolve.err"
+  rc=$?
+  if [ "$rc" -gt 1 ]; then
+    cat "$work/resolve.err" >&2
+    die 4 "the configured cadence did not resolve (resolve-steps exit $rc)"
+  fi
+  /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
+  # Records are untrusted: run, kind and point come from the path and must
+  # agree with the stored fields, and a head counts only in commit-id form.
+  # Per point: `point`, then one `cand` per run holding its completion (newest
+  # run first) with that run's step gaps, or `none` with the gaps over all runs.
+  awk -F '\t' -v PTS="${points[*]}" '
+    function hex(v) { return v ~ /^[0-9a-f]+$/ && (length(v) == 40 || length(v) == 64) }
+    function flush(   ok) {
+      if (!inrec) return
+      inrec = 0
+      if (bad || F["run"] != R || F["point"] != K) return
+      if (T == "done" && F["type"] == "completion") {
+        if (hex(F["head"])) { done[R, K] = F["head"]; if (!(R in hasrun)) { hasrun[R] = 1; runs[++nruns] = R } }
+        return
+      }
+      # A re-fire record belongs to the declaring point, never to the point in its path.
+      if (T != "step" || F["type"] != "step" || F["step"] !~ /^[a-z][a-z0-9-]*$/ || F["refire-of"] != "") return
+      o = F["outcome"]
+      if (o !~ /^[a-z]+$/) o = "malformed"
+      ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
+      st[R, K, F["step"]] = ok ? "ok" : o
+      seen_any[K, F["step"]] = 1
+      if (ok) ever[K, F["step"]] = 1
+      else lastbad[K, F["step"]] = o
+    }
+    function gaps_of(p, r,    j, id, s, out) {
+      out = ""
+      for (j = 1; j <= nr[p]; j++) {
+        id = req[p, j]
+        if (r != "") s = ((r, p, id) in st) ? st[r, p, id] : ""
+        else s = ever[p, id] ? "ok" : (((p, id) in seen_any) ? lastbad[p, id] : "")
+        if (s == "ok") continue
+        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : "failed:" id ":" s)
+      }
+      return out == "" ? "-" : out
+    }
+    FILENAME == ARGV[1] {
+      if ($1 != "skip" && $2 != "" && !(($3, $2) in want)) { want[$3, $2] = 1; req[$3, ++nr[$3]] = $2 }
+      next
+    }
+    $1 == "record" {
+      flush(); inrec = 1; bad = 0; split("", F)
+      n = split($2, part, "/"); b = part[n]; R = part[n - 1]; T = ""; K = ""
+      if (R !~ /^[0-9][0-9][0-9][0-9][0-9][0-9]$/ || b !~ /^[0-9][0-9][0-9]-(step|done)-[a-z][a-z-]*\.rec$/) bad = 1
+      else { T = substr(b, 5, 4); K = substr(b, 10, length(b) - 13) }
+      next
+    }
+    $0 == "" { flush(); next }
+    inrec { k = $1; if ((k in F) && k != "excerpt" && k != "warning" && k != "holder") bad = 1; F[k] = substr($0, length(k) + 2) }
+    END {
+      flush()
+      np = split(PTS, P, " ")
+      for (i = 1; i <= np; i++) {
+        p = P[i]
+        if (!nr[p]) continue
+        print "point\t" p
+        c = 0
+        for (r = nruns; r >= 1; r--) if ((runs[r], p) in done) { print "cand\t" p "\t" done[runs[r], p] "\t" gaps_of(p, runs[r]); c++ }
+        if (!c) print "none\t" p "\t-\t" gaps_of(p, "")
+      }
+    }' "$work/rows" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
+  while IFS=$TAB read -r kind pt hd gaps; do
+    [ "$kind" != point ] || last=$pt
+  done <"$work/plan"
+  # emit_gaps <point> <gaps>: one line per gap the plan names.
+  emit_gaps() {
+    local w
+    [ "$2" != - ] || return 0
+    for w in $2; do
+      case $w in
+        missing:*) printf 'gap\t%s\tmissing\t%s\n' "$1" "${w#missing:}" ;;
+        failed:*) printf 'gap\t%s\tfailed\t%s\n' "$1" "${w#failed:}" ;;
+      esac
+    done
+  }
+  # finish_point: report the point the loop was reading.
+  finish_point() {
+    [ -n "$cur" ] || return 0
+    g=${decided:--}
+    if [ -z "$decided" ] && [ -n "$stale" ]; then
+      printf 'gap\t%s\tstale\t%s\n' "$cur" "${stale%%"$TAB"*}"
+      g=${stale#*"$TAB"}
+      pg=1
+    fi
+    if [ "$g" != - ]; then
+      emit_gaps "$cur" "$g"
+      pg=1
+    fi
+    if [ "$pg" -eq 0 ]; then printf 'covered\t%s\n' "$cur"; else any=1; fi
+  }
+  set -f
+  while IFS=$TAB read -r kind pt hd gaps; do
+    case $kind in
+      point)
+        finish_point
+        cur=$pt decided='' stale='' pg=0
+        ;;
+      cand)
+        [ -z "$decided" ] || continue
+        if audit_fresh "$hd" "$head" "$([ "$pt" = "$last" ] && echo 1 || echo 0)" "$base"; then
+          decided=$gaps stale=''
+        elif [ -z "$stale" ]; then
+          stale="$hd$TAB$gaps"
+        fi
+        ;;
+      none)
+        printf 'gap\t%s\tincomplete\t-\n' "$pt"
+        pg=1
+        decided=$gaps
+        ;;
+    esac
+  done <"$work/plan"
+  finish_point
+  set +f
+  line="audit${TAB}complete${TAB}$head"
+  [ "$any" -eq 0 ] || line="audit${TAB}gaps${TAB}$head"
+  printf '%s\n' "$line"
+  [ "$any" -eq 0 ]
+}
+
+# A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
+# --check-env owns the list) would be dropped without a word: every verb that
+# writes, runs or audits refuses it, and the read-only resolve warns.
+env_rc=0
+env_msg=$("$RS" --check-env 2>&1) || env_rc=$?
+if [ "$env_rc" -eq 6 ]; then
+  printf '%s\n' "$env_msg" >&2
+  [ "$verb" = resolve ] || exit 2
+fi
+
 case $verb in
+  audit) cmd_audit "$@" ;;
   resolve) cmd_resolve "$@" ;;
   resume) cmd_resume "$@" ;;
   refire) cmd_refire "$@" ;;

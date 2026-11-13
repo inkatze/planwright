@@ -1,0 +1,21 @@
+W	0	0	-1	0	0	0	0	-	cd
+W	1	0	0	1	0	0	0	-	$wt
+O	&&
+W	0	0	-1	0	0	0	0	-	ls
+W	0	0	-1	0	0	0	0	-	-la
+W	0	0	-1	0	0	0	0	-	scripts
+O	|
+W	0	0	-1	0	0	0	0	-	head
+W	0	0	-1	0	0	0	0	-	-3
+O	&&
+W	0	0	-1	0	0	0	0	-	rg
+W	0	0	-1	0	0	0	0	-	-n
+W	1	0	0	0	0	0	0	-	tok_push
+W	0	0	-1	0	0	0	0	-	scripts/worker-command-guard.sh
+R	>
+W	0	0	-1	0	0	0	0	-	/dev/null
+R	2>&
+W	0	0	-1	0	0	0	0	-	1
+O	;
+W	0	0	-1	0	0	0	0	-	echo
+W	1	0	0	1	0	0	0	-	done: $x

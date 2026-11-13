@@ -1,0 +1,1 @@
+- 2026-10-25 [planwright] The scratch arm trusts that the TMPDIR a PreToolUse hook inherits is the one the Bash tool shell expands. Nothing in the suite can prove that against a live CLI (a sandbox, a CLAUDE_ENV_FILE export, or a shell snapshot could set TMPDIR for the command shell alone); a manual check against a live worker would settle it.

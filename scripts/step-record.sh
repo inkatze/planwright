@@ -8,6 +8,7 @@
 # holds and where it folds; doctrine/gate-wiring.md owns the checklist format.
 # This header pins what those docs delegate here: the verbs, the storage
 # layout, the excerpt bound, the screen action, and the rendered shapes.
+# Emits: markdown
 #
 # Usage:
 #   step-record.sh [--worktree <dir>] new-run
@@ -16,7 +17,8 @@
 #       --backend <name> [--head <sha>] [--end-head <sha>] --start <ts>
 #       [--end <ts>] --outcome <outcome> [--session <id>]
 #       [--excerpt-file <file>] [--output <path>] [--skip-code <code>]
-#       [--skip-reason <text>] [--stands-on <run>:<point>:<seq>]
+#       [--skip-reason <text>] [--degraded <reason>]
+#       [--stands-on <run>:<point>:<seq>]
 #       [--pool <pool> --wait <seconds> [--holder <text>]... [--unpooled]]
 #       [--fingerprint <fp> --args-digest <digest>] [--refire-of <point>]
 #   step-record.sh [--worktree <dir>] write --completion --run <id>
@@ -74,11 +76,15 @@
 #                 `record<TAB><worktree-relative path>` line, the record's
 #                 stored lines with C0 control bytes and DEL dropped, then a
 #                 blank line.
-#   render        print one markdown table per point of the run (default the
-#                 latest run), in the order the points first recorded, or
-#                 the named points in the order given, each once; a named
-#                 point with no record renders nothing. Given no point, the
-#                 run's full-suite records follow as one full-suite table.
+#   render        print one markdown table per point of the run, in the order
+#                 the points first recorded, or the named points in the order
+#                 given, each once. Without --run, every run renders, oldest
+#                 first, each table headed by its run id, so a PR body
+#                 rebuilt after a later run keeps the earlier runs' records;
+#                 --run selects one run; a blank line separates runs, and a
+#                 run with nothing to show is left out. A named point with
+#                 no record renders nothing. Given no point, each run's
+#                 full-suite records follow as one full-suite table.
 #   regenerate    print the pending-sign-off checklist rebuilt from the
 #                 marked commits of <base>..<head>, then, unless
 #                 --checklist-only, when the run (default the latest run)
@@ -359,9 +365,12 @@
 # Exit: 0 success · 1 a runtime failure (an unresolvable or unreadable range,
 # a cache that cannot be read or written, an exhausted counter, a cache lock
 # another writer held past the wait, a status with no attempt to post or a
-# post that failed, no SHA-256 tool for args-digest) · 2 a usage or
-# field-validation error · 3 lookup found no record to stand on (or no
-# unretired limited record), or heads found no move.
+# post that failed, no SHA-256 tool for args-digest, a new-run or status from
+# a plugin-cache copy the installed record no longer names) · 2 a usage or
+# field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
+# documented set on new-run, write, regenerate, or status (the other verbs,
+# bar excerpt and args-digest, only warn; resolve-steps.sh --check-env judges it) · 3 lookup found no
+# record to stand on (or no unretired limited record), or heads found no move.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
@@ -593,14 +602,14 @@ clean() {
   # iconv's status differs across platforms when it drops input, so it is
   # not read; its presence is checked once, at startup.
   iconv -c -f UTF-8 -t UTF-8 <"$2.t" >"$2.1" 2>/dev/null
-  rm -f "$2.0" "$2.t"
+  rm -f -- "$2.0" "$2.t"
   while :; do
     sed "$INVIS_SED" <"$2.1" >"$2.2" || die 1 "cannot clean text"
     cmp -s "$2.1" "$2.2" && break
-    mv "$2.2" "$2.1" || die 1 "cannot clean text"
+    mv -- "$2.2" "$2.1" || die 1 "cannot clean text"
   done
-  mv "$2.1" "$2" || die 1 "cannot clean text"
-  rm -f "$2.2"
+  mv -- "$2.1" "$2" || die 1 "cannot clean text"
+  rm -f -- "$2.2"
 }
 
 # clean_value <value>: sets CLEANED to the cleaned value.
@@ -690,6 +699,43 @@ done
 [ $# -ge 1 ] || usage
 verb=$1
 shift
+
+# Run from a plugin-cache copy the installed record no longer names (an older
+# version a session kept using after an upgrade), it refuses to open a run or
+# post a flip status, naming the installed copy, since the installed copy's
+# audit reads those records. Other verbs only warn, so a run opened before an
+# upgrade still finishes. Which install is current depends on the project the
+# records belong to, so the check runs as of --worktree. Another verb warns
+# unless stderr is discarded or a calling script already checked this copy
+# against this state of the record (PLANWRIGHT_COPY_CHECKED).
+sr_copy=$(cd -P -- "$script_dir/.." 2>/dev/null && pwd -P) || sr_copy=''
+sr_rir=$script_dir/resolve-installed-roots.sh
+case $sr_copy in
+  */plugins/cache/*)
+    [ -f "$sr_rir" ] || sr_copy=''
+    ;;
+  *) sr_copy='' ;;
+esac
+if [ -n "$sr_copy" ]; then
+  sr_proj=${CLAUDE_PROJECT_DIR:-}
+  [ -z "$worktree" ] || sr_proj=$(cd -P -- "$worktree" 2>/dev/null && pwd -P) || sr_proj=''
+  case $verb in
+    new-run | status)
+      sr_new=$(CLAUDE_PROJECT_DIR=$sr_proj /bin/sh "$sr_rir" --fresh "$sr_copy" 2>/dev/null </dev/null) || sr_new=''
+      if [ -n "$sr_new" ] && [ "$sr_new" != "$sr_copy" ]; then
+        die 1 "refusing $verb from $(printf '%s' "$sr_copy" | tr -d '\000-\037\177'), which is not the installed planwright; run $(printf '%s' "$sr_new" | tr -d '\000-\037\177')/scripts/step-record.sh instead"
+      fi
+      ;;
+    *)
+      sr_rec=${CLAUDE_DIR:-${HOME:-}/.claude}/plugins/installed_plugins.json
+      # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+      sr_stamp=$(stat -c %Y "$sr_rec" 2>/dev/null || stat -f %m "$sr_rec" 2>/dev/null)
+      if [ ! /dev/stderr -ef /dev/null ] && [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$sr_copy|$sr_stamp" ]; then
+        CLAUDE_PROJECT_DIR=$sr_proj /bin/sh "$sr_rir" --check "$sr_copy" >/dev/null </dev/null || :
+      fi
+      ;;
+  esac
+fi
 
 # excerpt reads no record cache, so it runs before the worktree is resolved.
 if [ "$verb" = excerpt ]; then
@@ -897,7 +943,7 @@ check_stands_on() {
 cmd_write() {
   completion=0 full_suite=0 run='' point='' step='' kind='' target='' hosting=''
   backend='' session='' head='' end_head='' start='' end='' outcome='' excerpt_file=''
-  output='' skip_reason='' skip_code='' skip_codes=0 stands_on='' pool='' wait=''
+  output='' skip_reason='' degraded='' skip_code='' skip_codes=0 stands_on='' pool='' wait=''
   holders='' unpooled=0 fingerprint='' args_digest='' refire_of='' wait_outcome=''
   warnings='' head_given=0 end_head_given=0 end_given=0 pool_given=0 wait_given=0
   while [ $# -gt 0 ]; do
@@ -913,7 +959,7 @@ cmd_write() {
         ;;
       --run | --point | --step | --kind | --target | --hosting | --backend | \
         --session | --head | --end-head | --start | --end | --outcome | \
-        --excerpt-file | --output | --skip-reason | --skip-code | --stands-on | \
+        --excerpt-file | --output | --skip-reason | --degraded | --skip-code | --stands-on | \
         --pool | --wait | --holder | --fingerprint | --args-digest | --refire-of | \
         --wait-outcome | --warning)
         [ $# -ge 2 ] || usage
@@ -923,7 +969,7 @@ cmd_write() {
     # An empty value for a field the extension added is a failed substitution
     # more likely than an absent field, so it is refused, never read as absent.
     case $1 in
-      --skip-code | --stands-on | --pool | --wait | --fingerprint | --args-digest | \
+      --degraded | --skip-code | --stands-on | --pool | --wait | --fingerprint | --args-digest | \
         --refire-of | --wait-outcome) [ -n "$2" ] || bad "$1" "given empty" ;;
     esac
     case $1 in
@@ -952,6 +998,7 @@ cmd_write() {
       --excerpt-file) excerpt_file=$2 ;;
       --output) output=$2 ;;
       --skip-reason) skip_reason=$2 ;;
+      --degraded) degraded=$2 ;;
       --skip-code)
         skip_code=$2
         skip_codes=$((skip_codes + 1))
@@ -998,7 +1045,7 @@ cmd_write() {
   if [ "$completion" -eq 1 ]; then
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
       "$start" "$end" "$outcome" "$excerpt_file" "$output" "$skip_reason" \
-      "$skip_code" "$stands_on" "$pool" "$wait" "$holders" "$fingerprint" \
+      "$degraded" "$skip_code" "$stands_on" "$pool" "$wait" "$holders" "$fingerprint" \
       "$args_digest" "$refire_of"; do
       [ -z "$f" ] || bad --completion "takes only --run, --point, --head, and --warning"
     done
@@ -1056,6 +1103,10 @@ cmd_write() {
     [ "$skip_codes" -eq 0 ] || bad --skip-code "only a skipped step carries one"
     [ -z "$skip_reason" ] || bad --skip-reason "only a skipped step carries one"
   fi
+  if [ -n "$degraded" ]; then
+    [ "$hosting" = in-session ] || bad --degraded "only an in-session step carries one"
+    is_text "$degraded" || bad --degraded "must be non-empty single-line text of at most $TEXT_MAX bytes"
+  fi
   case $skip_code in
     reuse | resume)
       [ -n "$stands_on" ] || bad --stands-on "required for a $skip_code skip"
@@ -1103,15 +1154,20 @@ cmd_write() {
     skip_reason=$CLEANED
     [ -n "$skip_reason" ] || bad --skip-reason "empty once cleaned"
   fi
+  if [ -n "$degraded" ]; then
+    clean_value "$degraded"
+    degraded=$CLEANED
+    [ -n "$degraded" ] || bad --degraded "empty once cleaned"
+  fi
   if [ -n "$rel_output" ]; then
     clean_value "$rel_output"
     [ "$CLEANED" = "$rel_output" ] || bad --output "carries control or invisible characters"
   fi
   clean_holders
   # The unpacking below reads these back by position, the holders after the
-  # six fixed values; the two lists change together.
+  # seven fixed values; the two lists change together.
   # shellcheck disable=SC2086 # the holders split on newlines by design (IFS)
-  screen_values value "$step" "$target" "$backend" "$session" "$rel_output" "$skip_reason" $HOLDERS_CLEAN
+  screen_values value "$step" "$target" "$backend" "$session" "$rel_output" "$skip_reason" "$degraded" $HOLDERS_CLEAN
   : >"$work/holders" || die 1 "cannot write a temporary file"
   i=0
   while IFS= read -r l; do
@@ -1123,6 +1179,7 @@ cmd_write() {
       4) s_session=$l ;;
       5) s_output=$l ;;
       6) s_skip=$l ;;
+      7) s_degraded=$l ;;
       *) printf '%s\n' "$l" >>"$work/holders" || die 1 "cannot write a temporary file" ;;
     esac
   done <"$work/screened"
@@ -1151,6 +1208,7 @@ cmd_write() {
     put output "$s_output"
     put skip-code "$skip_code"
     put skip-reason "$s_skip"
+    put degraded "$s_degraded"
     put stands-on "$stands_on"
     put pool "$pool"
     put wait "$wait"
@@ -1172,7 +1230,7 @@ cmd_write() {
 # ones it takes.
 write_full_suite() {
   for f in "$point" "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
-    "$outcome" "$excerpt_file" "$output" "$skip_reason" "$skip_code" "$stands_on" \
+    "$outcome" "$excerpt_file" "$output" "$skip_reason" "$degraded" "$skip_code" "$stands_on" \
     "$fingerprint" "$args_digest" "$refire_of" "$warnings"; do
     [ -z "$f" ] || bad --full-suite "takes only --run, --pool, --wait, --wait-outcome, --holder, --start, and --end"
   done
@@ -1418,6 +1476,7 @@ render_run() {
             if (F[i, "stands-on"] != "") outc = outc " on " F[i, "stands-on"]
             if (F[i, "skip-reason"] != "") outc = outc " (" F[i, "skip-reason"] ")"
           } else if (outc == "skipped") outc = outc ": " F[i, "skip-reason"]
+          if (F[i, "degraded"] != "") outc = outc " (degraded: " F[i, "degraded"] ")"
           hd = short(F[i, "head"])
           if (F[i, "end-head"] != "" && F[i, "end-head"] != F[i, "head"]) hd = hd " to " short(F[i, "end-head"])
           printf "| %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", rows,
@@ -1474,13 +1533,32 @@ cmd_render() {
   done
   if [ -n "$run" ]; then
     valid_run "$run"
+    runs=$run
   else
-    latest_run
-    run=$LATEST
-    [ -n "$run" ] || return 0
+    runs=$(run_ids)
   fi
   # shellcheck disable=SC2086 # points are validated vocabulary words
-  render_run "$run" $points
+  render_runs "$runs" $points
+}
+
+# render_runs <runs> [<point>...]: each listed run's tables, in order, a blank
+# line between runs that render anything. Nothing prints until every run has
+# rendered, so a refusal in a later run never leaves a body missing it.
+render_runs() {
+  runs=$1
+  shift
+  scratch
+  : >"$work/render-all" || die 1 "cannot write a temporary file"
+  sep=0
+  for rr in $runs; do
+    check_run "$rr"
+    render_run "$rr" "$@" >"$work/render-run" || exit 1
+    [ -s "$work/render-run" ] || continue
+    [ "$sep" -eq 0 ] || printf '\n' >>"$work/render-all"
+    sep=1
+    cat "$work/render-run" >>"$work/render-all" || die 1 "cannot write a temporary file"
+  done
+  cat "$work/render-all"
 }
 
 # --- regenerate ---------------------------------------------------------------------
@@ -1981,6 +2059,19 @@ check_dir "$cache"
 if command -v git >/dev/null 2>&1 && [ -d "$cache" ]; then
   tracked=$(git -C "$worktree" ls-files -- .claude/steps 2>/dev/null) || tracked=''
   [ -z "$tracked" ] || die 1 "git tracks the record cache; refusing it"
+fi
+
+# A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
+# --check-env owns the list) is dropped without a word by anything that reads
+# the context: new-run, write, regenerate, and status refuse it, the other
+# verbs (bar excerpt and args-digest, which exit earlier) warn.
+env_rc=0
+env_msg=$("$script_dir/resolve-steps.sh" --check-env 2>&1) || env_rc=$?
+if [ "$env_rc" -eq 6 ]; then
+  printf '%s\n' "$env_msg" >&2
+  case $verb in
+    new-run | write | regenerate | status) exit 2 ;;
+  esac
 fi
 
 case $verb in

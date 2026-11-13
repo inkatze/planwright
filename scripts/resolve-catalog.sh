@@ -6,6 +6,7 @@
 # and resolve-rule-doc.sh (doctrine, whole-doc shadow); this one merges data
 # catalogs by append/union with supersede-by-id, the merge contract the
 # engineering-builder guard catalog (bootstrap Task 16) consumes.
+# Emits: yaml
 #
 # planwright's four overlay layers, lowest to highest (REQ-A1.1): core defaults
 # < adopter overlay < repo-tracked overlay < machine-local overlay. Layer roots
@@ -68,6 +69,11 @@
 # and skipped; the warning names the layer so a consumer can apply its
 # by-layer policy. These warnings come from the merge path only: a core-only
 # catalog in yaml mode is emitted verbatim, while --explain always merges.
+# The duties catalog alone also lets a flow list left open on its field line
+# continue on lines indented five or more spaces until one closes it; the
+# merge path joins them into the one-line list they mean, and its reader
+# (scripts/mc-duties.sh) joins them the same way in a verbatim core seed.
+# Every other catalog keeps one-line lists, since its readers do not join.
 #
 # Path confinement (D-8, REQ-E1.5, risk R8): each present overlay file is routed
 # through resolve-overlay-root.sh --contain, which canonicalizes the joined path
@@ -246,13 +252,14 @@ add_layer() {
     echo "resolve-catalog: $name: $al_label overlay '$al_file' is not confined under its overlay root (malformed); degrading to the next lower layer" >&2
     return 0
   fi
-  if [ -r "$al_canon" ] && [ ! -d "$al_canon" ]; then
+  # A regular file only: a FIFO would block the reader forever.
+  if [ -f "$al_canon" ] && [ -r "$al_canon" ]; then
     files+=("$al_canon")
     labels="${labels:+$labels,}$al_label"
     policies="${policies:+$policies,}$al_policy"
     return 0
   fi
-  # Present but unreadable (or a directory where a file is expected): malformed.
+  # Present but unreadable, or not a regular file: malformed.
   if [ "$al_policy" = "hardfail" ]; then
     echo "resolve-catalog: $name: $al_label catalog '$al_file' is unreadable (hard-fail)" >&2
     exit 1
@@ -390,6 +397,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
 
   # A column-0 line is either a section header or the end of a sequence.
   /^[^ \t]/ {
+    open_list = 0
     flush_entry()
     if ($0 ~ /^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/) {
       section = $0
@@ -413,6 +421,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     cur_lost = 0
     cur_fields = ""
     cur_section = section
+    open_list = 0
     have_entry = 1
     next
   }
@@ -420,6 +429,17 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
   # Blank and whitespace-only lines are skipped before the indented-line
   # warnings below can flag them.
   /^[ \t]*$/ { next }
+
+  # A duties flow list left open on its field line continues (see the
+  # header, Entry format).
+  have_entry && open_list && /^     [ ]*[^ \t]/ {
+    raw = $0
+    sub(/^[ \t]+/, "", raw)
+    sub(/[ \t]*$/, "", raw)
+    cur_fields = cur_fields " " raw
+    if (raw ~ /\]$/) open_list = 0
+    next
+  }
 
   # An entry field at four-space indent. `supersede:` is a merge directive, not
   # catalog data — captured as the marker, kept out of the emitted payload.
@@ -441,6 +461,9 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
       if (val == "true") cur_supersede = 1
     } else {
       cur_fields = cur_fields (cur_fields == "" ? "" : "\n") raw
+      val = raw
+      sub(/^[^:]*:[ \t]*/, "", val)
+      open_list = (name == "duties" && val ~ /^\[/ && val !~ /\][ \t]*$/)
     }
     next
   }

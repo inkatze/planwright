@@ -446,6 +446,58 @@ lb2=$(bufname_of load-buffer "$tmp/idle2/log")
 [ "$lb1" != "$lb2" ] || fail "deliver must use a buffer name unique per invocation (both were '$lb1')"
 echo "ok: relay buffer name is unique per invocation and consistent within one"
 
+# 13r. A message shaped like a new unit of work is refused before the pane is
+#      read (exit 5, nothing pasted); --retask pastes it, logged.
+rtab=$(printf '\t')
+unit_msg="$tmp/unit-brief.txt"
+printf '/planwright:execute-task other-spec 4\n' >"$unit_msg"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask "$idle_pane" "@3" "$unit_msg"
+rc_is retask 5 "deliver of a unit-shaped message"
+[ -s "$tmp/retask/log" ] && fail "a refused re-task must not touch tmux, it saw: $(cat "$tmp/retask/log")"
+grep -q 're-tasking a live session is refused' "$tmp/retask/err" || fail "the re-task refusal must say why: $(cat "$tmp/retask/err")"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-ok "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
+rc_is retask-ok 0 "deliver of a unit-shaped message on an override"
+grep -q "relay${rtab}@3${rtab}operator asked\$" "$tmp/relay-fleet/mission-control/retasks.log" \
+  || fail "the relay override must be logged: $(cat "$tmp/relay-fleet/mission-control/retasks.log" 2>&1)"
+echo "ok: deliver refuses a unit-shaped message before reading the pane; --retask pastes it, logged"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-blank "$idle_pane" "@3" "$unit_msg" --retask ' '
+rc_is retask-blank 2 "deliver with a blank --retask reason"
+# An override refused before the paste is not logged.
+rt_rows=$(wc -l <"$tmp/relay-fleet/mission-control/retasks.log")
+FD_FLAGS=capture-fails PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-unpasted "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
+rc_is retask-unpasted 3 "an override deliver to an unreadable pane"
+[ "$(wc -l <"$tmp/relay-fleet/mission-control/retasks.log")" = "$rt_rows" ] || fail "an override that pasted nothing was logged"
+# A re-task check that cannot run refuses the deliver, pasting nothing.
+cp -R "$here/../scripts" "$tmp/relay-broken"
+printf '#!/bin/sh\nexit 3\n' >"$tmp/relay-broken/retask-guard.sh"
+rt_keep=$RELAY
+RELAY="$tmp/relay-broken/orchestrate-relay.sh"
+fake_deliver retask-broken "$idle_pane" "@3" "$multi"
+RELAY=$rt_keep
+rm -rf "$tmp/relay-broken"
+rc_is retask-broken 2 "deliver whose re-task check did not run"
+grep -q 'the re-task check did not run' "$tmp/retask-broken/err" || fail "the refusal must say the check did not run: $(cat "$tmp/retask-broken/err")"
+pasted_nothing retask-broken "a deliver whose re-task check did not run"
+echo "ok: deliver's --retask needs a reason, an unpasted override is not logged, and a check that cannot run refuses"
+# A registered tower is not bound; an override that could not be logged is
+# refused before the paste.
+mkdir -p "$tmp/relay-fleet/mission-control/sessions"
+printf 'format\t1\nname\tmc-p-tower-1\nprogram\tp\nkind\ttower\nbackend\ttmux\nhandle\t@3\nlaunched\t1\n' \
+  >"$tmp/relay-fleet/mission-control/sessions/mc-p-tower-1"
+PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-tower "$idle_pane" "@3" "$unit_msg" --retask "not needed"
+rc_is retask-tower 0 "deliver of a unit-shaped message to a registered tower"
+rm -f "$tmp/relay-fleet/mission-control/sessions/mc-p-tower-1"
+[ "$(wc -l <"$tmp/relay-fleet/mission-control/retasks.log")" = "$rt_rows" ] || fail "a tower's relay logged an override"
+# A read-only file stops only a non-root writer.
+if [ "$(id -u)" != 0 ]; then
+  chmod 444 "$tmp/relay-fleet/mission-control/retasks.log"
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-unlogged "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
+  chmod 644 "$tmp/relay-fleet/mission-control/retasks.log"
+  rc_is retask-unlogged 2 "an override deliver whose override could not be logged"
+  pasted_nothing retask-unlogged "an override that could not be logged"
+fi
+echo "ok: deliver passes a registered tower and refuses an override it could not log, pasting nothing"
+
 # 13c. Refuse, pasting nothing, while a selection prompt is open: a permission
 #      dialog, a select menu's footer, or the cursor on a numbered option.
 perm_pane='  Bash command

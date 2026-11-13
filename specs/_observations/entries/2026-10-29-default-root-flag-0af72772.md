@@ -1,0 +1,1 @@
+- 2026-10-29 [planwright] resolve-root.sh spec --explain cannot tell a caller that a layer-set spec_root names the default root (it reports the layer, and the default path is a literal check:spec-literals forbids outside the resolver), so work-repo-registry.sh infers default-ness from an absent marker; a default-ness column or flag on the resolver would let callers ask directly

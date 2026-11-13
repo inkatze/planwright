@@ -1,7 +1,7 @@
 # Prose disposition — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-21
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -77,8 +77,8 @@ work, is recorded in D-1 and cited here from the goal.
   two phases, evidence-free blocks by rule and the large evidenced headers
   by reading, with the verification method as a deliverable: reproducible
   measurement, mechanical code-invariance, and an independent reading pass
-  recorded in each cleanup PR (in full for Phase B, on a named sample for
-  Phase A).
+  recorded in each cleanup PR (in full for the Phase B family PRs, on a
+  named sample for the evidence-free PRs: Phase A and the `tests/` task).
 - Closing the deliverables gap for the scripts reachable through neither a
   commit trailer nor an owning bundle's deliverables, in the bundles that
   own them.
@@ -375,6 +375,17 @@ work, is recorded in D-1 and cited here from the goal.
   catches at landing, each naming the Phase B task whose family owns the
   file, so the aggregate check stays green from the day the guard lands.
   *(Cites: D-9, D-11, obs:a81cee76.)*
+- **REQ-F1.11** The `--audit` classification SHALL count two more kinds of
+  block as carrying evidence: a block whose last line sits directly above a
+  function definition (a `contract` class, describing what the function
+  takes, does or returns), and a block using a reason phrasing beyond the
+  shipped list, where each added phrasing comes from a comment in this
+  repository that the shipped list misclassified, recorded with that
+  example in the task's PR. The usage text SHALL state the widened
+  patterns. The phrasings are what the guard recognizes, never wording any
+  comment is asked to use.
+  *(Cites: D-15; the Task 5 halt (2026-11-01), drafting-session decision
+  (2026-11-02).)*
 
 ## REQ-G — Cleanup and verification
 
@@ -384,18 +395,26 @@ work, is recorded in D-1 and cited here from the goal.
   rule-doc, guard, and cleanup tasks carry explicit dependency edges
   enforcing that order.
   *(Cites: D-13, kickoff §4 (2026-09-04).)*
-- **REQ-G1.2** Phase A SHALL disposition every evidence-free block (a block
-  of two or more lines with no rationale language and no spec citation, per
-  the inventory's classification) under the taxonomy: deleted where the
-  code carries the information, kept where it names a non-obvious why or a
-  warning. Its PR SHALL carry the `--audit` figures before and after, the
-  list of kept evidence-free blocks each with its reason (completeness:
-  the after-audit's evidence-free count equals that list's length), and the
-  independent reading pass's record over a named sample of at least ten
-  kept blocks across at least three files, or all of them if fewer, with
-  every disagreement resolved before merge.
-  *(Cites: D-8, D-12, kickoff §8 lens pass (2026-09-04).)*
-- **REQ-G1.3** Phase B SHALL read every block at or above the error
+- **REQ-G1.2** The cleanup SHALL disposition every evidence-free block (a
+  block of two or more lines whose inventory class is `none`) under the
+  taxonomy: deleted where the code carries the information, kept where it
+  names a non-obvious why or a warning. It runs as two scopes, each in its
+  own PR: Phase A over every surface path outside `tests/`, and a Phase B
+  task over `tests/`. Each scope's PR SHALL carry the `--audit` figures
+  before and after, the list of its kept evidence-free blocks each with its
+  reason (completeness: the after-audit's evidence-free count within that
+  scope equals that list's length), and the independent reading pass's
+  record over a named sample of at least ten kept blocks across at least
+  three files, or all of them if fewer, with every disagreement resolved
+  before merge. The kept list sits in the PR body grouped by file, or,
+  where the body would pass GitHub's PR-body length limit, in a committed
+  file in this bundle that the body links.
+  *(Cites: D-8, D-12, D-16, kickoff §8 lens pass (2026-09-04).)*
+  *(Amended at the 2026-11-04 amendment: split into the two scopes, with
+  `tests/` moved to a Phase B task, and the overflow file added.)*
+- **REQ-G1.3** Each Phase B family task (the script-family split; the
+  `tests/` evidence-free task follows REQ-G1.2) SHALL read every block at or
+  above the error
   threshold in the audit run at the task's start and disposition it block
   by block under the taxonomy, remove provenance per REQ-E1.1, relocate
   cross-file protocol text to its owning doctrine doc or a design page with
@@ -405,7 +424,8 @@ work, is recorded in D-1 and cited here from the goal.
   `exempt` entry with its reason only for an own-surface section that
   remains over the error threshold because the taxonomy offers it no split
   and no other home.
-  *(Cites: D-8, D-13, D-14, kickoff §8 lens pass (2026-09-04).)*
+  *(Cites: D-8, D-13, D-14, D-16, kickoff §8 lens pass (2026-09-04).)*
+  *(Amended at the 2026-11-04 amendment: scoped to the family tasks.)*
 - **REQ-G1.4** Every Phase A and Phase B cleanup PR SHALL declare itself
   with a `comments` title scope, SHALL pass `--code-invariant` against its
   base in the PR-only CI step that runs on declared PRs, proving that no
@@ -414,7 +434,8 @@ work, is recorded in D-1 and cited here from the goal.
   the diff), SHALL record that result in its PR body beside the audit
   figures, and SHALL pass the project's shell format and lint checks.
   *(Cites: D-12, kickoff §5 (2026-09-04).)*
-- **REQ-G1.5** Every Phase B PR SHALL carry an independent verification
+- **REQ-G1.5** Every Phase B family PR (the `tests/` evidence-free PR takes
+  REQ-G1.2's sampled pass instead) SHALL carry an independent verification
   record: a second reading pass, from a fresh session or a non-Anthropic
   review backend, that confirms for each touched file that every removed
   line's information is recoverable from the code, the git history, or the
@@ -423,8 +444,10 @@ work, is recorded in D-1 and cited here from the goal.
   reason; every disagreement is resolved by the author in the PR before
   merge (the line restored or the record amended), and the operator's merge
   is the binding approval.
-  *(Cites: D-12, drafting-session decision (2026-09-03), kickoff §8 lens
-  pass (2026-09-04).)*
+  *(Cites: D-12, D-16, drafting-session decision (2026-09-03), kickoff §8
+  lens pass (2026-09-04).)*
+  *(Amended at the 2026-11-04 amendment: the `tests/` evidence-free PR
+  excepted.)*
 - **REQ-G1.6** The cleanup SHALL close the deliverables gap for every script
   REQ-E1.5's link test finds unlinked, by naming the script in its owning
   bundle's task deliverables (owner per REQ-E1.5) as an expression-only
@@ -439,6 +462,20 @@ work, is recorded in D-1 and cited here from the goal.
 
 ## Changelog
 
+- 2026-11-04 — Amendment (`/spec-kickoff`, operator-declared): Task 5
+  parked again after Task 4.1's recount, which still left 2,823
+  evidence-free blocks and a kept list past GitHub's PR-body limit. The
+  evidence-free disposition now runs as two scopes (D-16): Phase A (Task 5)
+  over every surface path outside `tests/`, and new Task 8.1 over `tests/`,
+  both under REQ-G1.2's method, the kept list overflowing to a committed
+  bundle file when the body would pass the limit. REQ-G1.5's full second
+  read stays with the family PRs; Task 9 depends on Task 8.1.
+- 2026-11-02 — Extended (`/spec-draft --extend`): Task 5 halted because the
+  guard counted 6,792 evidence-free blocks where a reading sample showed
+  nearly all should stay, mostly function descriptions and reasons phrased
+  outside the guard's word list. REQ-F1.11, D-15 and Task 4.1 teach the
+  guard both before Phase A runs; Task 5 now depends on Task 4.1, and
+  Phase A's scope is reconsidered against Task 4.1's recount.
 - 2026-09-21 — Task 2 execution, review round: Tasks 10, 11 and 12 write the
   same three skill files (`skills/polish/SKILL.md`,
   `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose), and
@@ -648,3 +685,13 @@ work, is recorded in D-1 and cited here from the goal.
   amendment axis and the writer obligations), `instruction-hygiene`,
   `security-posture`, `customization-boundary`, `autopilot-reflex`,
   `engineering-decisions`, `refactor-instinct`, `proportionality`.
+- **The Task 5 halt** (2026-11-01, execution record): Phase A stopped on
+  the guard's `--audit` count of 6,792 evidence-free blocks across the
+  surface; a reading sample showed nearly all should stay, being function
+  descriptions, fixture explanations, or reasons phrased outside the
+  guard's word list.
+- **The Task 5 re-park** (2026-11-04, execution record on the Task 5
+  branch): after Task 4.1, the guard's `--audit` on `main` counted 2,823
+  evidence-free blocks, two thirds of them under `tests/`, and the kept
+  list's bare locations alone passed GitHub's PR-body limit; the operator
+  chose to narrow Phase A and move `tests/` to Phase B.

@@ -123,6 +123,7 @@ TAB=$(printf '\t')
 # fleet-throttle.sh's helper — BSD `date -u -r`, then GNU `date -u -d @`, then a
 # bare `epoch N` fallback so a host with neither still renders something.
 utc_iso() {
+  # shell-gnu-only-flag: GNU date -d is the fallback after BSD date -r
   ui_v=$(TZ=UTC date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) \
     || ui_v=$(TZ=UTC date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) \
     || ui_v="epoch $1"
@@ -476,7 +477,7 @@ waiting_field() {
     return 0
   fi
   case $wf_top in
-    question | approval | request | news) ;;
+    question | approval | request | settled-by-default | decided-by-mission-control | news) ;;
     -)
       # The closed set's own "nothing ranked": legitimate only with an empty
       # queue. A total above zero with no top item is a reading that

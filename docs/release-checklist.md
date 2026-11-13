@@ -96,6 +96,17 @@ history and still **BLOCKS** — the gate has teeth beyond a tree check. **The
 checklist never performs the purge**: a human runs the rewrite, the
 checklist confirms it.
 
+## Before publishing a release
+
+Some of what planwright does rests on facts about hosts it does not control (Cowork, cloud
+sandboxes, the Notion API). They are recorded in the
+[platform claims register](platform-claims.md), each with a re-verify date, and the gate only
+lists the ones that are due. A release is where they get checked.
+
+- [ ] `scripts/check-platform-claims.sh --strict` exits `0`. For each `due` claim, re-read its
+      source; if the claim still holds, advance its dates; if it changed, fix the code that relies
+      on it before releasing.
+
 ## After publishing a release
 
 Merging a guard fix changes nothing for workers. They load the command guard

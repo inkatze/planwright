@@ -143,7 +143,8 @@ assert_contains "shard run states its share of the suite" "shard 1/2: 4 of 9 fil
 # 5. The shard reports together satisfy the timing gate, which requires one
 #    row for every discovered file; one shard's report alone does not.
 run_shard "$tmp/s" "$tmp/table.tsv" 2/2 "$tmp/r2.tsv" >/dev/null
-printf -- 'per_file_seconds: 100\nsuite_total_seconds: 1000\nshard_wall_seconds: 1000\n' >"$tmp/budget.yml"
+printf -- 'per_file_seconds: 100\nsuite_mean_file_seconds: 100\nshard_wall_seconds: 1000\n' >"$tmp/budget.yml"
+printf -- 'shard_target_seconds: 500\nshard_count_max: 4\nuntimed_warn_percent: 5\n' >>"$tmp/budget.yml"
 /bin/bash "$CHECKER" --mode ci --suite "$tmp/s" --budget "$tmp/budget.yml" \
   --report "$tmp/r1.tsv" --report "$tmp/r2.tsv" >"$tmp/check.out" 2>&1
 assert_eq "both shard reports pass the gate together" 0 "$?"
@@ -258,6 +259,54 @@ if [ -n "$coll" ]; then
 else
   echo "skip: no collating locale installed to compare against C"
 fi
+
+# 12. --plan-shards prints the shard list for CI's matrix and runs nothing:
+#     the table predicts the suite (here 49s timed plus two untimed files at
+#     the mean of 7s, 63s), divided by the parallelism (the job count, held
+#     to the pool's capacity) times the target, rounded up, then capped.
+# plan <target> <max> <jobs> <slots> [table] — the printed list; the exit code
+# goes to a file run_rc reads.
+plan() {
+  : >"$tmp/order.log"
+  printf 'per_file_seconds: 100\nshard_target_seconds: %s\nshard_count_max: %s\n' "$1" "$2" >"$tmp/plan-budget.yml"
+  ORDER_LOG="$tmp/order.log" PLANWRIGHT_TEST_JOBS="$3" PLANWRIGHT_TEST_SLOTS="$4" \
+    PLANWRIGHT_TEST_DURATIONS="${5-$tmp/table.tsv}" PLANWRIGHT_TEST_BUDGET="$tmp/plan-budget.yml" \
+    /bin/bash "$RUNNER" --plan-shards "$tmp/s" >"$tmp/plan.out" 2>"$tmp/plan.err"
+  echo "$?" >"$tmp/run.rc"
+  cat "$tmp/plan.out"
+}
+assert_eq "one job at a 20s target needs four shards" "[1,2,3,4]" "$(plan 20 10 1 1)"
+assert_eq "the plan exits 0" 0 "$(run_rc)"
+assert_eq "the plan runs no test file" "" "$(cat "$tmp/order.log")"
+assert_contains "the plan states its prediction" "predicted 63s of file time over 9 files (2 untimed" "$(cat "$tmp/plan.err")"
+assert_eq "two jobs halve the need" "[1,2]" "$(plan 20 10 2 2)"
+assert_eq "the pool's capacity bounds the parallelism" "[1,2,3,4]" "$(plan 20 10 3 1)"
+assert_eq "a suite under the target is one shard" "[1]" "$(plan 1000 10 1 1)"
+assert_eq "an exact fit takes no extra shard" "[1,2,3]" "$(plan 21 10 1 1)"
+assert_eq "the cap holds" "[1,2,3]" "$(plan 20 3 1 1)"
+assert_contains "a capped plan says so" "capped at shard_count_max" "$(cat "$tmp/plan.err")"
+assert_eq "with no table every file weighs 1s" "[1,2,3,4,5]" "$(plan 2 10 1 1 "")"
+plan 0 10 1 1 >/dev/null
+assert_eq "a zero target is refused" 2 "$(run_rc)"
+plan 20 0 1 1 >/dev/null
+assert_eq "a zero cap is refused" 2 "$(run_rc)"
+printf 'per_file_seconds: 100\n' >"$tmp/plan-budget.yml"
+PLANWRIGHT_TEST_BUDGET="$tmp/plan-budget.yml" /bin/bash "$RUNNER" --plan-shards "$tmp/s" >/dev/null 2>"$tmp/plan.err"
+assert_eq "a budget file without the planner's keys is refused" 2 "$?"
+assert_contains "the missing key is named" "shard_target_seconds" "$(cat "$tmp/plan.err")"
+PLANWRIGHT_TEST_BUDGET="$tmp/no-such-budget.yml" /bin/bash "$RUNNER" --plan-shards "$tmp/s" >/dev/null 2>&1
+assert_eq "a missing budget file is refused" 2 "$?"
+/bin/bash "$RUNNER" --plan-shards --shard 1/2 "$tmp/s" >/dev/null 2>&1
+assert_eq "--plan-shards with --shard is a usage error" 2 "$?"
+# The committed budget plans the real suite into a list within its cap.
+real="$(/bin/bash "$RUNNER" --plan-shards 2>/dev/null)"
+case "$real" in
+  '[1'*']') echo "ok: the committed budget plans the real suite ($real)" ;;
+  *)
+    echo "FAIL: the committed budget did not plan the real suite (got '$real')" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures assertion(s) failed" >&2

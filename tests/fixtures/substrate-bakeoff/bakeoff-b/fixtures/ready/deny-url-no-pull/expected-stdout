@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: the pull-request URL GitHub returned could not be read, so the guard cannot identify the repository to compare against - refusing (fail closed)."}}

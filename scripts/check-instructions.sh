@@ -170,7 +170,7 @@ warn() {
 }
 
 # Scratch space for the ranked per-file list (sorted at report time).
-work="$(mktemp -d)" || exit 2
+work="$(mktemp -d "${TMPDIR:-/tmp}/check-instructions.XXXXXX")" || exit 2
 trap 'rm -rf "$work"' EXIT
 perfile_list="$work/perfile"
 skill_list="$work/skills"

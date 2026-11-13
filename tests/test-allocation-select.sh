@@ -69,7 +69,8 @@ mlocal_cfg="$repo/.claude/planwright.local.yml"
 # The shipped core defaults for the whole knob family, kept in lockstep with
 # config/defaults.yml (test 11 asserts the real file carries the same rows).
 # The fleet-keyed general knobs ship the `unset` sentinel, which is what
-# arms the `fleet_*` fallback; every other row here ships `inherit`.
+# arms the `fleet_*` fallback; the review-step model rows (polish and
+# self-review) ship `sonnet`; every other row here ships `inherit`.
 cat >"$core_cfg" <<'EOF'
 fleet_model_execution: opus
 fleet_model_bookkeeping: sonnet
@@ -97,9 +98,9 @@ allocation_model_offload: inherit
 allocation_effort_offload: inherit
 allocation_model_step_implementation: inherit
 allocation_effort_step_implementation: inherit
-allocation_model_step_polish: inherit
+allocation_model_step_polish: sonnet
 allocation_effort_step_polish: inherit
-allocation_model_step_self_review: inherit
+allocation_model_step_self_review: sonnet
 allocation_effort_step_self_review: inherit
 EOF
 
@@ -616,17 +617,20 @@ echo "ok: the no-LLM stub is verified reachable"
 #     (this script's job); the one-directional APPLICATION half lives in
 #     tests/test-allocation-adapt.sh, which is the script that performs it.
 
-# 14a. Every shipped step type defaults to `inherit` in both columns, which is
-#      what makes per-step keys change nothing until an operator acts (D-13).
+# 14a. Every shipped step type defaults to `inherit` in both columns, except the
+#      review steps' model (polish, self-review), which ships `sonnet`. Nothing
+#      applies a step tier until the execute_step surface is tiered (D-13).
 reset_layers
 steps=$(run list-steps) || fail "list-steps exited nonzero"
 [ "$(printf '%s\n' "$steps" | wc -l | tr -d ' ')" = 3 ] \
   || fail "list-steps: expected the 3 shipped step types, got: $steps"
-for st in implementation polish self-review; do
-  printf '%s\n' "$steps" | grep -qx "$st	inherit	inherit" \
-    || fail "list-steps: step type '$st' should ship inherit/inherit, got: $steps"
+printf '%s\n' "$steps" | grep -qx "implementation	inherit	inherit" \
+  || fail "list-steps: implementation should ship inherit/inherit, got: $steps"
+for st in polish self-review; do
+  printf '%s\n' "$steps" | grep -qx "$st	sonnet	inherit" \
+    || fail "list-steps: step type '$st' should ship sonnet/inherit, got: $steps"
 done
-echo "ok: every shipped step type defaults to inherit in both columns"
+echo "ok: review steps ship sonnet, every other shipped step type inherits"
 
 # 14b. A step type with NO row in any layer still resolves — the key space is
 #      open, so a review skill added later inherits rather than hard-failing.
@@ -644,7 +648,7 @@ got=$(run step-tier self-review) || fail "step-tier self-review exited nonzero"
 [ "$got" = "haiku	low" ] || fail "a configured step tier should resolve, got '$got'"
 # The unconfigured columns of a DIFFERENT step type are untouched by it.
 got=$(run step-tier polish) || fail "step-tier polish exited nonzero"
-[ "$got" = "inherit	inherit" ] || fail "step types must not bleed into one another, got '$got'"
+[ "$got" = "sonnet	inherit" ] || fail "step types must not bleed into one another, got '$got'"
 echo "ok: step-type knobs resolve through the overlay layers, per step type"
 
 # 14d. One column at a time is legal: the other stays `inherit` and the engine
@@ -652,7 +656,7 @@ echo "ok: step-type knobs resolve through the overlay layers, per step type"
 reset_layers
 printf 'allocation_effort_step_polish: low\n' >"$mlocal_cfg"
 got=$(run step-tier polish) || fail "step-tier polish exited nonzero"
-[ "$got" = "inherit	low" ] || fail "an effort-only step tier should leave the model inherit, got '$got'"
+[ "$got" = "sonnet	low" ] || fail "an effort-only step tier should leave the shipped model in place, got '$got'"
 echo "ok: a step type may configure one column and inherit the other"
 
 # 14e. A step tier carries the column ENUMS, under the by-layer malformed
@@ -663,8 +667,8 @@ printf 'allocation_model_step_polish: gpt-5\n' >"$mlocal_cfg"
 rc=0
 got=$(run step-tier polish 2>/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "a malformed machine-local step tier should degrade, exit $rc"
-[ "$got" = "inherit	inherit" ] \
-  || fail "a malformed step tier should degrade to inherit, got '$got'"
+[ "$got" = "sonnet	inherit" ] \
+  || fail "a malformed step tier should degrade to the shipped value, got '$got'"
 # A repo-tracked one is a hard fail on the same terms as every other knob.
 reset_layers
 printf 'allocation_model_step_polish: gpt-5\n' >"$tracked_cfg"
@@ -739,15 +743,17 @@ for args in "step-tier" "step-tier a b" "list-steps extra"; do
 done
 echo "ok: the step-type verbs enforce their arity"
 
-# 14i. The shipped config carries a row for every step type list-steps names,
-#      and every one of them ships `inherit`.
+# 14i. The shipped config carries a row for every step type list-steps names.
+#      Every one ships `inherit`, except the review steps' model (sonnet).
 real_cfg="$here/../config/defaults.yml"
 for st in implementation polish self-review; do
   suffix=$(printf '%s' "$st" | tr -- - _)
   for col in model effort; do
-    grep -qE "^allocation_${col}_step_${suffix}: inherit\$" "$real_cfg" \
-      || fail "config/defaults.yml must ship 'allocation_${col}_step_${suffix}: inherit'"
+    want=inherit
+    if [ "$col" = model ] && [ "$st" != implementation ]; then want=sonnet; fi
+    grep -qE "^allocation_${col}_step_${suffix}: ${want}\$" "$real_cfg" \
+      || fail "config/defaults.yml must ship 'allocation_${col}_step_${suffix}: ${want}'"
   done
 done
-echo "ok: the shipped config carries an inherit row for every step type"
+echo "ok: the shipped config carries the expected row for every step type"
 echo "ALL PASS: allocation-select"

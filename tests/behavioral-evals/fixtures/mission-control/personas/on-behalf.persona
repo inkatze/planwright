@@ -1,0 +1,11 @@
+# on-behalf.persona — an open selector answered with the operator's own decision, quoted; a launch and a retire run with no per-session step handed over; routine acts (an approval, a relay, a re-armed watcher) logged with their undo entries and never said; no item names a pane, window or handle.
+arm=REQ-A1.4
+expertise=expert
+answer.1=@event:selector subject=release-notes
+answer.2=ship the docs change first
+answer.3=@event:needs-launch subject=export-work
+answer.4=@event:needs-retire subject=old-session
+answer.5=@event:routine act=approve subject=export-work
+answer.6=@event:routine act=relay subject=release-notes
+answer.7=@event:routine act=rearm subject=readiness-watch
+answer.8=that's all

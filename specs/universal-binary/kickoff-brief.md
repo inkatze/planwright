@@ -433,6 +433,45 @@ rows above were updated in place.
 
 Signed off: 2026-09-09
 
+### Research findings — Task 6 (bake-off A, 2026-11-02)
+
+Appended by the executing worker (research triggers: new toolchains, a
+licence screen). Depth: proportionate to a prototype. Sources, read at
+build time: each installed toolchain's own licence files (Go's `LICENSE` in
+its root, Zig's `LICENSE`, Rust's `share/doc/rust/licenses`), the build
+host's glibc copyright file, and Bun's licence documentation for the
+JavaScriptCore it embeds.
+
+- **Toolchains.** The bake-off names its own toolchain versions in
+  `tests/fixtures/substrate-bakeoff/bakeoff-a/README.md` rather than adding
+  them to the project's pinned development tools, so contributors and CI do
+  not pull the bake-off's compilers for an on-demand measurement. Rust runs as `rustc` alone:
+  no candidate uses a crate, so no manifest or lockfile enters the tree.
+- **Licences (R10 early signal).** Go's runtime is BSD-3-Clause, Rust's
+  standard library MIT or Apache-2.0, Zig's MIT: all compatible with
+  planwright's MIT. A Rust executable for glibc Linux statically links
+  glibc, LGPL-2.1-or-later: compatible, with a relinking obligation that a
+  musl build would avoid; the screen records it. A Bun-compiled executable statically embeds
+  JavaScriptCore, LGPL-2.1-or-later: compatible, but distribution carries a
+  relinking obligation. Bun is a comparison point and ships nothing, so the
+  screen admits it and records the obligation as a precondition of any
+  promotion (`docs/substrate-screen.md`).
+- **Zig's moving API.** The trivial program needed the pinned Zig's new entry
+  point and writer types; the screen record carries it as evidence for the
+  pre-1.0 caveat D-6 already names.
+- **Static linking.** Go links statically by default. Rust needs the C
+  runtime linked in explicitly on glibc Linux; the build does so. macOS has
+  no static system library for either, as expected.
+- **Two harness defects found and fixed**, each in
+  `scripts/substrate-bakeoff.sh` with a regression test. The harness
+  counted its own staging copy of a fixture's files as a spawn of the
+  candidate, inflating `distinct_commands` and the shell dependency count by
+  one wherever a fixture carries files (the committed stub bake-off's
+  fixtures carry none). And build and delivery scripts, which keep the
+  caller's environment, inherited the XDG base-directory variables, so a
+  tool honouring them could write outside the fresh home the harness
+  promises; they are now unset for every execution.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation, full bundle)
@@ -668,4 +707,79 @@ Changelog: requirements.md `## Changelog` entry dated 2026-10-19
 ("the Sources bullet on the drafting-session cost baseline said the REQ-G1.1
 script regenerates its figures").
 Anchor: `46a258246248edbacf357a7a1b14f0ff896dc04f` — computed as
+`scripts/spec-anchor.sh specs/universal-binary`
+
+### Amendment — the Alpine scope may span several jobs (meaning-class, 2026-11-04)
+
+**Mode:** post-merge amendment on its own spec PR (meaning-class, per
+REQ-A3.3), operator-declared. Walked from spec commit `8c33198b`; the prior
+anchor recomputed clean and the validator reported 0 errors, 0 warnings
+before the walk.
+
+**What changed.** The operator chose to move the Alpine install smoke out of
+the sharded `alpine-suite` job into a job of its own, as `macos-smoke` already
+is. REQ-B1.4 held the Alpine scope to a single job, so REQ-B1.6 supersedes it:
+the Alpine jobs together run the shell suite, the bake-off harness (which may
+run within the suite's step), and the install smoke, each in exactly one
+Alpine job, every other Alpine step a named setup step, and only the suite's
+job running more than once per workflow run. Operator decisions: classified
+meaning-class; the rule leaves the job layout open (each check in one job)
+rather than requiring the smoke to sit apart from the suite; the
+implementation is a new Task 4.2 depending on Task 4.1, not a reopening of the
+shipped Task 4.1.
+
+**Spec edits:** `requirements.md` (REQ-B1.4 marked `Superseded-by`, REQ-B1.6
+added, Changelog entry dated 2026-11-04); `test-spec.md` (REQ-B1.4 entry
+marked superseded, REQ-B1.6 entry added); `tasks.md` (Task 4.2 added).
+`Last reviewed:` bumped on those three; `design.md` untouched.
+
+**Design ledger.** D-13 confirmed, rationale intact, read at platform level:
+its "an Alpine job" names the platform's presence in the matrix, as its "a
+macOS job" already does while macOS runs as `macos-suite` and `macos-smoke`.
+The job count is REQ-level.
+
+**Task graph.** Task 4.2 depends on 4.1 only. Deliberate non-edge: Task 4.2
+does not depend on Task 5; the harness runs within the shell suite, so moving
+the smoke does not touch it.
+
+#### Lens review pass (delta-scoped, spec class)
+
+Path: inline, declared. The delta is one superseding REQ, its test entry, and
+one task, small and narrow enough for a single walk per `kickoff-verification`;
+self-critique pass run after the walk.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | F1: "each in exactly one Alpine job" read as requiring a dedicated harness step while the harness runs within the suite |
+| Ambiguity and interpretation forks | 1 | F2: "split into shards" left a non-shard matrix on the smoke job outside the REQ but inside the guard's refusal |
+| Citation and coverage integrity | 1 | F4: the guard and its test cite REQ-B1.4 and would go stale |
+| Dead verification paths | none | test-spec REQ-B1.6 names the guard cases Task 4.2 delivers |
+| Decision-domain gaps | none | CI shape only; no catalogued domain newly touched |
+| Testability | none | Task 4.2's Done-when is evaluable on its PR and the guard's fixtures |
+| Cross-file consistency | 1 | F3: D-13 says "an Alpine job" |
+| Documentation and glossary drift | none | "setup step" matches the guard's `setup: <what>` names |
+| Rendered-content safety | n/a | the prose renders into no executing or markup context |
+| Performance, concurrency / state, error handling | n/a | a prose contract has no execution path |
+
+Altitude check (REQ-H1.3): not applicable to this delta; the altitude record
+from first activation stands and nothing here moves it. Ship-gate check
+(REQ-L1.4): no out-of-band fix named; the follow-up is Task 4.2, and the
+required-status-check marking is in its Done-when.
+
+**Dispositions** (operator, 2026-11-04):
+
+- F1 applied: REQ-B1.6 says the harness may run within the suite's step.
+- F2 applied: only the suite's job may run more than once per workflow run.
+- F3 declined: D-13's decision is unchanged and its "a macOS job" already
+  reads at platform level; superseding it would move no decision.
+- F4 applied: Task 4.2 relabels the guard's and its test's citations.
+
+**Post-lens sweep.** REQ-B1.4 remains cited by Tasks 4 and 4.1 (shipped, and
+citations stay valid) and by earlier brief sections (append-only); no other
+stale reference. Lint: markdownlint clean on the edited spec files. Validator
+after the edits: 0 errors, 0 warnings.
+
+Class: meaning
+Lens-pass: section 9, "Amendment — the Alpine scope may span several jobs", "Lens review pass (delta-scoped, spec class)"
+Anchor: `623c163dcb5a4ad38c29c44b7df6d1c53e85c9e1` — computed as
 `scripts/spec-anchor.sh specs/universal-binary`

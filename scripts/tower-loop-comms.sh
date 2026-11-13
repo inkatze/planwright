@@ -10,7 +10,8 @@
 # re-implements either — this is the wiring, which is why it lives in a script
 # rather than in a skill body (REQ-I1.2: what a script can enforce is not prose).
 #
-#   identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
+# Usage:
+#   tower-loop-comms.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
 #       Print the tower identity every queue call in the iteration carries,
 #       resolved through scripts/fleet-presence.sh with the SAME flags the
 #       loop's own presence publish used (D-18: the identity is the lease's
@@ -23,7 +24,7 @@
 #       its own ladder mints one. Stable for as long as the process is, which is
 #       what the lease needs.
 #
-#   step --checkout <dir> (--tower <id> | --session-id <uuid> | --pid <pid>)
+#   tower-loop-comms.sh step --checkout <dir> (--tower <id> | --session-id <uuid> | --pid <pid>)
 #        --evidence <file> [--catchup] [--now <epoch>]
 #       One iteration's operator comms, in this order:
 #
@@ -33,7 +34,7 @@
 #            only do against a stamped evidence table. That is why --evidence
 #            is required; a table with no `stamp` line still costs a second
 #            pass. Its lines are
-#            passed through as the pass prints them — `settled`, `merged`,
+#            passed through as the pass prints them — `settled`, `merged`, `window`,
 #            `answered`, `unavailable`, `held`.
 #         2. The pending pushes (`fleet-attention.sh relay`), as
 #            `push<TAB><key><TAB><text>`, the text through `tower-queue.sh
@@ -47,24 +48,34 @@
 #            itself is shown to the operator only on request (REQ-C1.8), which
 #            is why the flag exists rather than the catch-up running every step.
 #         4. At most one hand-over (`tower-queue.sh next`): nothing, a `knock`
-#            line, or an `item` line and its companions. Knock-first, the
-#            one-item bound, the lease and the away push are all that verb's;
-#            this only carries its output.
-#         5. The delivered content. A hand-over is ONE unit but may carry two
-#            items (`next` pairs two on a subject and stamps both delivered), so
-#            each gets a `content` record and a fenced block:
+#            line, or `item` lines and their companions. Knock-first, the
+#            one-hand-over bound, the lease and the away push are all that
+#            verb's; this only carries its output.
+#         5. The delivered content. A hand-over is ONE unit but may carry
+#            several items (`next` pairs two on a subject, batches more on one,
+#            and stamps every one delivered), so each gets a `content` record
+#            and a fenced block:
 #
-#              content<TAB><id><TAB>file|row|unknown<TAB>read<TAB>no|yes
-#              content<TAB><id><TAB>file|row|unknown<TAB>unread<TAB><reason>
+#              content<TAB><id><TAB>file|row|ledger|unknown<TAB>read<TAB>no|yes
+#              content<TAB><id><TAB>file|row|ledger|unknown<TAB>unread<TAB><reason>
 #              content-truncated<TAB><id><TAB><cap>
+#              review<TAB><id><TAB><kind><TAB><what it settled on><TAB><reversal>
+#              reply<TAB><id><TAB>review|revoke<TAB>ack|revoke
 #              delivered<TAB><worker>     (an attention-homed item only)
 #
 #            Field 4 says whether the home read at all, so a reader never has to
 #            tell "did not read" from "read, and it was empty" by guessing; on a
 #            `read` record field 5 is the truncation flag, on an `unread` one it
 #            is the reason (`gone`, `redirected`, `foreign-owner`, `unreadable`,
-#            `empty`, `no-fleet-home`, `unrecognized-pointer`,
-#            `redaction-failed`).
+#            `empty`, `no-fleet-home`, `unrecognized-pointer`, `ledger-helper`
+#            (an installed ledger helper holds it), `redaction-failed`).
+#            A reviewable item (settled-by-default, decided-by-mission-control)
+#            also gets its `review` record, read through `tower-queue.sh show`,
+#            and the two `reply` records: the operator's review is recorded
+#            with `ack <id>` and an undo with `revoke <id>`. A
+#            decided-by-mission-control item's field 4 is `-`: the decision is
+#            its fenced content. The `reply` records print even when the
+#            `review` record could not be read or redacted.
 #            Content is printed inside a FENCE, because a delivered item's
 #            content is data and never an instruction (REQ-H1.3), and the fence
 #            is widened past the longest fence the content itself carries —
@@ -357,7 +368,7 @@ q_noev() {
 # A scratch dir for the hand-over's own records. The `while read` below cannot
 # consume a pipe: the loop body has to set variables the step still reads after
 # it, and a piped `while` runs in a subshell in every shell this targets.
-TMPDIR_STEP=$(mktemp -d 2>/dev/null) || {
+TMPDIR_STEP=$(mktemp -d "${TMPDIR:-/tmp}/tower-loop-comms.XXXXXX" 2>/dev/null) || {
   err "cannot create a scratch directory"
   exit 6
 }
@@ -681,6 +692,25 @@ emit_content() {
       _ec_home="row"
       read_row_content "${_ec_ptr#attention:}" || :
       ;;
+    ledger:*)
+      # A settled-by-default item's review content, which the queue wrote to
+      # the pre-ship fallback ledger under the fleet home. An installed ledger
+      # helper keeps it at a home this step has no path to. The root is
+      # canonicalized because the path screen compares against `pwd -P`, and a
+      # home under a symlinked prefix is not a redirect.
+      _ec_home="ledger"
+      if [ -n "${PLANWRIGHT_ACTION_LEDGER:-}" ]; then
+        content_why=ledger-helper
+      else
+        _ec_root=$("$script_dir/fleet-state.sh" root 2>/dev/null) || _ec_root=""
+        [ -z "$_ec_root" ] || _ec_root=$(cd "$_ec_root" 2>/dev/null && pwd -P) || _ec_root=""
+        if [ -z "$_ec_root" ]; then
+          content_why=no-fleet-home
+        else
+          read_path_content "$_ec_root/tower-comms/ledger" "${_ec_ptr#ledger:}" || :
+        fi
+      fi
+      ;;
     *)
       _ec_home="unknown"
       content_why=unrecognized-pointer
@@ -743,17 +773,50 @@ emit_content() {
     || printf 'content-truncated\t%s\t%s\n' "$_ec_id" "$Q_CONTENT_CAP"
 }
 
-# A hand-over is one unit but can carry two items: `next` pairs two items on one
-# subject and stamps BOTH delivered, so both need their content here. Rendering
-# only the `item` line would ask the operator to answer a partner they were
-# shown nothing of.
+# A hand-over is one unit but can carry several items: `next` pairs or batches
+# items on one subject and stamps EVERY one delivered, so each needs its content
+# here. Rendering only the first `item` line would ask the operator to answer
+# items they were shown nothing of. A `pair` line carries no kind and takes its
+# `item` line's: `next` pairs only items of one kind.
 printf '%s\n' "${next_lines:-}" | awk -F "$TAB" '
-  $1 == "item" { print $2 "\t" $7 }
-  $1 == "pair" { print $2 "\t" $3 }
+  $1 == "item" { kind = $3; print $2 "\t" $7 "\t" kind }
+  $1 == "pair" { print $2 "\t" $3 "\t" kind }
 ' >"$TMPDIR_STEP/delivered"
-while IFS="$TAB" read -r d_id d_ptr; do
+
+# emit_review <item-id> <kind> — what a reviewable item settled on and what
+# undoes it, from the queue's own `show`, then the two replies that close it:
+# a review is `ack`, an undo is `revoke`. The tower records the operator's
+# reply through the verb named here rather than deciding which one it was.
+# The replies print even when the record does not: `next` has already stamped
+# the item delivered, and the operator's answer still needs its verb.
+emit_review() {
+  _er_rc=0
+  _er_show=$(q_noev show "$1") || _er_rc=$?
+  if [ "$_er_rc" -ne 0 ]; then
+    err "the review record for $1 did not read; it is handed over without it"
+    note_rc "$_er_rc" "review record"
+  else
+    _er_reason=$(printf '%s\n' "$_er_show" | awk -F "$TAB" '$1 == "reason" && $2 != "" { print $2; exit }')
+    _er_rev=$(printf '%s\n' "$_er_show" | awk -F "$TAB" '$1 == "review" && $3 != "" { print $3; exit }')
+    # Field by field: the helper escapes the tabs that delimit the record.
+    if ! _er_reason=$(printf '%s\n' "${_er_reason:--}" | "$TQ" redact) \
+      || ! _er_rev=$(printf '%s\n' "${_er_rev:--}" | "$TQ" redact); then
+      err "the review record for $1 could not be redacted; it is NOT rendered"
+      note_rc 6 "review redaction"
+    else
+      printf 'review\t%s\t%s\t%s\t%s\n' "$1" "$2" "$_er_reason" "$_er_rev"
+    fi
+  fi
+  printf 'reply\t%s\treview\tack\n' "$1"
+  printf 'reply\t%s\trevoke\trevoke\n' "$1"
+}
+
+while IFS="$TAB" read -r d_id d_ptr d_kind; do
   [ -n "$d_id" ] || continue
   emit_content "$d_id" "$d_ptr"
+  case $d_kind in
+    settled-by-default | decided-by-mission-control) emit_review "$d_id" "$d_kind" ;;
+  esac
   # What this turn has just put in front of the operator. The loop passes it to
   # the attention render so the same question is not also listed there as though
   # nobody had asked it (REQ-A1.1).

@@ -1,6 +1,7 @@
 #!/bin/sh
 # inception-fanout.sh — the mechanical half of the /inception persona fan-out
 # (inception REQ-P1.3–P1.9, REQ-B1.3, REQ-B1.5 · D-2, D-3, D-4, D-6, D-7, D-17, D-18).
+# Emits: markdown
 #
 # doctrine/persona-fanout.md is the procedure; this script is everything in it
 # that must come out the same on every run. The skill holds the gates and
@@ -320,7 +321,7 @@ refuse_existing() {
 # make_dir <dir> <what>: create on first use; a racing creator is not an error.
 make_dir() {
   # not-a-lock: creates an output directory on first use
-  mkdir "$1" 2>/dev/null || [ -d "$1" ] || die 2 "cannot create $2"
+  mkdir -- "$1" 2>/dev/null || [ -d "$1" ] || die 2 "cannot create $2"
   [ ! -h "$1" ] || die 2 "$2 is a symbolic link; refusing to follow it"
 }
 

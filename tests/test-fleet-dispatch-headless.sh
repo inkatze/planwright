@@ -116,6 +116,7 @@ printf '%s\n' "\${PLANWRIGHT_WORKER_HANDLE-<unset>}" >"\$rec/handle"
 printf '%s\n' "\${PLANWRIGHT_WORKER_SCOPE-<unset>}" >"\$rec/scope"
 printf '%s\n' "\${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >"\$rec/specroot"
 printf '%s\n' "\${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >"\$rec/record"
+printf '%s\n' "\${TMPDIR-<unset>}" >"\$rec/tmpdir"
 printf '%s\n' "\${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >"\$rec/inbound"
 cat >"\$rec/stdin"
 while [ -f "\$rec/hold" ]; do sleep 0.1; done
@@ -770,7 +771,7 @@ launch_h19() {
   env $unsets -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR \
     HOME="$tmp/home-h19" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
     PLANWRIGHT_FLEET_STATE_DIR="$PLANWRIGHT_FLEET_STATE_DIR" PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_WORKER_SESSION_RECORD=/stale PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
-    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
+    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/sb-h19" \
     /bin/sh "$FDH" launch "$SPEC" "$1" --worktree "$2" >/dev/null
 }
 h19() {
@@ -780,6 +781,7 @@ h19() {
   wt="$tmp/wt-h19"
   store="$tmp/store-h19"
   mkdir -p "$tmp/home-h19" "$store" "$wt/.claude"
+  mkdir -m 700 "$tmp/sb-h19"
   git -c init.defaultBranch=main init -q "$wt"
   printf 'project: fixture\nlayout: 1\n' >"$store/planwright-spec-root.yml"
   printf 'spec_root: %s\n' "$store" >"$wt/.claude/planwright.local.yml"
@@ -802,6 +804,24 @@ h19() {
   esac
   grep -qx "worktree_root=$(cd "$wt" && pwd -P)" "$(cat "$rec/record")" 2>/dev/null \
     || fail "h19: the worker's session record does not name its worktree"
+  grep -qx "launch_backend=headless-oneshot" "$(cat "$rec/record")" 2>/dev/null \
+    || fail "h19: the worker's session record does not name the one-shot backend"
+  # Its scratch root (REQ-G1.2): the worktree's, under the scratch base and
+  # recorded in the fleet home, exported as TMPDIR and named in the record; a
+  # plain close keeps it and the final close removes it.
+  local root19
+  root19=$(cat "$(cd "$PLANWRIGHT_FLEET_STATE_DIR" && pwd -P)/scratch/$(printf '%s' "$(cd "$wt" && pwd -P)" | git hash-object --stdin).tmpdir" 2>/dev/null)
+  [ "$(cat "$rec/tmpdir")" = "$root19" ] && [ -d "$root19" ] && [ "${root19%/*}" = "$tmp/sb-h19" ] \
+    || fail "h19: the worker got TMPDIR '$(cat "$rec/tmpdir")', expected its scratch root '$root19'"
+  grep -qx "scratch_root=$root19" "$(cat "$rec/record")" 2>/dev/null \
+    || fail "h19: the worker's session record does not name its scratch root"
+  PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" stop "headless-$SPEC-task-19" --grace 2 >/dev/null 2>&1 \
+    || fail "h19: the close exited non-zero"
+  [ -d "$root19" ] || fail "h19: the close removed the worktree's scratch root"
+  PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" stop "headless-$SPEC-task-19" --grace 2 --final >/dev/null 2>&1 \
+    || fail "h19: the final close exited non-zero"
+  [ ! -e "$root19" ] && [ ! -e "$STATE/19/scratch-root" ] \
+    || fail "h19: the final close left the scratch root or its pointer behind"
   make_fake "$rec"
   rm -f "$wt/.claude/planwright.local.yml"
   printf 'p' | launch_h19 20 "$wt" || {

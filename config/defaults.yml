@@ -98,6 +98,19 @@ max_parallel_units: 3
 # an absent key keeps this default, a malformed value warns and falls back.
 fleet_max_parallel_units: 3
 
+# The host-wide ceiling on live sessions across every program sharing one
+# machine, with fleet_max_parallel_units and each program's own bounds kept
+# beneath it. It bounds the sum of every program's workers, reviewers,
+# walkers and relays registered in the shared mission-control registry
+# (mission-control sessions, and sessions marked waiting, are not counted), checked by
+# scripts/mission-control-launch.sh before every such launch. A
+# positive integer, or `off` for no host-wide bound. The shipped number is
+# sized for a 12-core host; set it lower on a smaller machine. Sessions
+# offloaded to another host (scripts/fleet-remote.sh) are counted on that host,
+# never here. An operator-asked launch (--operator-asked) goes past it, with a
+# host-cap-bypass event recorded first.
+fleet_host_max_live_workers: 6
+
 # How /execute-task sequences a unit's steps (D-5, REQ-C1.3). `per-step` runs
 # implementation and each step the convergence point runs in its own fresh
 # /resume-seeded session, so context stays bounded and each review's perspective
@@ -191,11 +204,9 @@ flight_pr_hosts: []
 # overlay catalogs); the list is resolved by scripts/resolve-steps.sh with
 # last-layer-wins per key and a warning naming every shadowed lower overlay
 # layer. `[]` runs nothing and is not malformed. doctrine/custom-steps.md
-# fixes when each point fires and what a step may do. Only the visual-flight
-# dispatch (scripts/flight-dispatch.sh) reads steps_convergence until
-# /execute-task is wired to the resolver; core then ships
-# behavior-identical, steps_convergence running the single /polish --nested
-# pass the retired convergence knob ran.
+# fixes when each point fires and what a step may do. /execute-task and every
+# visual flight fire the in-run points below; core ships steps_convergence
+# running the single /polish --nested pass the retired convergence knob ran.
 #
 # The in-run points of /execute-task, in firing order:
 steps_pre_implementation: []
@@ -222,13 +233,30 @@ steps_orchestrator_idle: []
 # Step pools (scripts/step-pool.sh; doctrine/custom-steps.md, *Expensive
 # checks*). A pool bounds how many checks naming it run at once across every
 # checkout and worktree of the user on the host. step_pool_capacity is the
-# slot count of every pool without its own step_pool_capacity_<pool> (hyphens
+# slot count of every pool but heavy-run without its own step_pool_capacity_<pool> (hyphens
 # as underscores), an open family with no core default. step_pool_wait bounds
 # a caller's wait for a free slot (a duration). full_suite_pool names the pool
-# /execute-task's full local suite joins; empty leaves the suite unpooled.
+# /execute-task's full local suite joins; it defaults to the shipped heavy-run
+# pool, whose capacity is derived from the host (one slot per 8 logical cores
+# and per 16 GiB of memory, at least 1; step_pool_capacity_heavy_run wins and
+# step_pool_capacity never applies). none, or empty, leaves the suite unpooled.
 step_pool_capacity: 1
 step_pool_wait: 60m
-full_suite_pool:
+full_suite_pool: heavy-run
+
+# Compute host (scripts/compute-route.sh). A test or lint run the gate runners
+# start (/execute-task's full suite, step-run.sh command steps) or a worker
+# starts itself through the router goes to this
+# SSH host alias through `fleet-remote.sh compute` instead of running here.
+# `local` (or empty) keeps every run on this machine, which is the shipped
+# posture: an adopter has no second machine. A host that is unreachable, over
+# fleet_compute_load_cap (one-minute load per core), or failing before its
+# command starts is passed over with one warning and the run happens here.
+# fleet_compute_timeout is the run's budget in seconds; empty takes the
+# channel's own default (long for the full check, short for one file).
+fleet_compute_host: local
+fleet_compute_load_cap: 0.4
+fleet_compute_timeout:
 
 # The operator kill-switch for the autonomous daemon layer (fleet-autonomy
 # D-15, REQ-F1.3). `true` pauses every autonomous daemon action the fleet
@@ -444,9 +472,10 @@ allocation_effort_offload: inherit
 # id, `-` written as `_`). Today every review pass inherits the unit's tier,
 # so nothing ever starts cheap; these are the knobs that let it.
 #
-# ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
-# golden baseline is reproduced exactly. Landing the mechanism changes runtime
-# behavior by nothing; turning it on is a separate operator decision (D-13).
+# The step knobs ship `inherit`, except the review steps' MODEL (polish and
+# self-review), which ship `sonnet`. Their effect waits on the execute_step
+# surface carrying a tier, so the shipped value changes nothing until that
+# surface is tiered (see below).
 # Nothing passes a step type yet either — Task 6 wires the launch points — so
 # setting one of these changes nothing at all until that lands.
 #
@@ -477,9 +506,9 @@ allocation_effort_offload: inherit
 # than the unit's, so the top could never apply here in any case.
 allocation_model_step_implementation: inherit
 allocation_effort_step_implementation: inherit
-allocation_model_step_polish: inherit
+allocation_model_step_polish: sonnet
 allocation_effort_step_polish: inherit
-allocation_model_step_self_review: inherit
+allocation_model_step_self_review: sonnet
 allocation_effort_step_self_review: inherit
 
 # Execution-time ADAPTATION: whether a unit's tier may move at a launch boundary
@@ -578,33 +607,37 @@ quota_ledger_retention_days: 90
 
 # The proactive, shared-aware `/usage` budget gate and its restriction ladder
 # (fleet-autonomy Task 9, D-23/D-28; REQ-E1.5, REQ-E1.6). scripts/fleet-usage-gate.sh
-# reads Claude Code's own `/usage` render, parses BOTH windows (session ~5-hour,
-# weekly), and maps each window's percentage to a rung on the monotone ladder
-# normal -> downshift -> reduce-concurrency -> defer-heavy -> defer-all. The more
-# restrictive window governs; the session window is capped at defer-heavy while
+# reads BOTH windows (session ~5-hour, weekly) from the status-line mirror, else
+# from a capture of Claude Code's own `/usage` render, and maps each window's
+# percentage to a rung on the monotone ladder normal -> downshift ->
+# reduce-concurrency -> defer-heavy -> defer-all. The more restrictive window
+# governs; the session window is capped at defer-heavy while
 # only weekly can reach defer-all. All knobs resolve through the shared resolver
 # (scripts/resolve-config-knob.sh -> config-get, D-22/REQ-G1.5) under the
 # customization-overlay REQ-E1.4 by-layer malformed policy; every value is a
-# positive integer. The `downshift`/`reduce-concurrency` rung CONSEQUENCE values
-# (which model/effort/concurrency) are fleet-autonomy Task 10's, not here.
+# positive integer, and a ladder threshold may also be `off`. The
+# `downshift`/`reduce-concurrency` rung CONSEQUENCE values (which
+# model/effort/concurrency) are fleet-autonomy Task 10's, not here.
 
-# The read cadence and cache TTL, in seconds. `/usage` capture is expensive, so
-# the signal is cached off the dispatch hot path and refreshed on the cadence,
-# never scraped synchronously per dispatch. A cached signal staler than the TTL
-# is treated as unavailable; the TTL MUST exceed the cadence (validated) so a
-# fresh read always lands inside the TTL.
+# The read cadence and cache TTL, in seconds. The signal is read off the
+# dispatch hot path on the cadence (the status-line mirror, else a `/usage`
+# capture, which is expensive), never scraped synchronously per dispatch. A
+# cached signal, or a status-line mirror, staler than the TTL is treated as
+# unavailable; the TTL MUST exceed the cadence (validated) so a fresh read
+# always lands inside the TTL.
 fleet_usage_read_cadence_seconds: 300
 fleet_usage_signal_ttl_seconds: 900
 
 # How many consecutive read cadences the signal may be unavailable before the
 # REQUIRED operator surface fires (a warning escalating to an Awaiting-input
-# hold via scripts/fleet-attention.sh), so a permanently broken `/usage` parse
-# (the D-23 version-drift fragility) is never silent.
+# hold via scripts/fleet-attention.sh), so losing both windows in every source
+# (a broken `/usage` parse with no fresh mirror) is never silent.
 fleet_usage_sustained_loss_count: 3
 
 # Per-window percentage thresholds mapping usage to a rung (>= at the threshold
-# trips it). Each window's thresholds MUST be strictly ascending and within
-# 1-100 (validated; a non-monotonic or out-of-range set is refused). The session
+# trips it). `off` disables a rung. Each window's enabled thresholds MUST be
+# strictly ascending and within 1-100 (validated; a non-monotonic or
+# out-of-range set is refused). The session
 # window has no defer-all threshold — it is capped at defer-heavy by design (a
 # session spike never proactively halts the fleet; the reactive backstop catches
 # a genuine session wall). The weekly window escalates harder and earlier and
@@ -775,6 +808,10 @@ instruction_budget_closure_floor: 1000
 # surface never fails the check. Grounded in the ~40-word present surface
 # (tool-discovery.sh) plus headroom, same test-and-measure discipline (D-13).
 instruction_budget_injected_warn: 200
+# Comment-block budget: the largest contiguous comment block per file, in
+# lines, boundary-inclusive (doctrine/comment-hygiene.md).
+comment_block_warn: 12
+comment_block_error: 25
 # Manifest-completeness assertion (prompt-hygiene REQ-A1.2, wired at Task 3). When
 # true, every skills/*/SKILL.md must declare a doctrine manifest, so a manifest-less
 # skill cannot silently under-report its start-load once manifests are the corpus
@@ -838,11 +875,27 @@ tower_tick_gap_max: 10m
 #                        once per item, not on a repeat: the away push fires
 #                        when the item first meets an away conversation and
 #                        then only on worsening, never on a schedule.
+# tower_presence_ttl     how long a presence marker the producer wrote stays
+#                        fresh. While fresh it is read before the quiet
+#                        interval; once stale, absent or unreadable, presence
+#                        falls back to the quiet interval.
+# tower_picklist_window  how long a question's picklist runs from the item's
+#                        birth before its declared end (a default option or
+#                        park) applies, when `add` is given no --window
+#                        (tower-comms D-21, REQ-A1.11).
+# tower_batch_max        how many items one hand-over from `next` may carry
+#                        when the top item names a subject: the other items
+#                        on that subject join it up to this many in all, a
+#                        pair counting two; the top item's own pair always
+#                        goes whole (tower-comms D-24, REQ-C1.14).
 tower_quiet_interval: 10m
 tower_lease_interval: 15m
 tower_catchup_limit: 20
 tower_shelve_return: 1h
 tower_reknock_age: 30m
+tower_presence_ttl: 2m
+tower_picklist_window: 30m
+tower_batch_max: 3
 
 # How a tower's bring-up is to respond to running in a checkout's main tree
 # rather than its own linked worktree; no bring-up reads it yet, so today no
@@ -907,20 +960,31 @@ messaging_heal_cadence_seconds: 300
 #                               layer's list joins, none replaces another's.
 # merge_class_strategy          the class's merge method: sole-allowed (the one
 #                               method the host allows), squash, merge, rebase.
-# worker_base_merge             whether a worker may merge its PR base into its
-#                               own unit branch: allow or deny.
+# worker_base_merge             whether a worker may merge its PR base (or its
+#                               own remote branch) into its own unit branch:
+#                               allow or deny.
 # worker_merge_conflict_policy  a conflicting base merge: halt (abort and park)
 #                               or resolve (commit the resolution for sign-off).
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
 #                               commits no remote holds, on its own unit
 #                               branch: allow or deny.
+# converge_sync_main            whether the convergence sync merges origin/main
+#                               every time (always) or only on a need
+#                               (on-need): a conflict with it, a need the
+#                               caller records, or ready_guard_behind_base of
+#                               refuse. Read from the primary checkout; a
+#                               malformed value parks the sync.
 # ready_guard_behind_base       whether the ready-guard refuses a draft->ready
-#                               flip of a PR behind its base: refuse (refused
-#                               however few commits behind), or conflict-only
-#                               (let through when GitHub reports it
-#                               MERGEABLE, refused otherwise). Read from
-#                               the core and adopter layers only
-#                               (merge-currency-guard REQ-C1.12).
+#                               flip of a PR behind its base: checks (let
+#                               through when GitHub reports it MERGEABLE and
+#                               the latest run of every check on its head
+#                               passed, neutral and skipped counting, with at
+#                               least one success), refuse (refused however few commits
+#                               behind), or conflict-only (let through when
+#                               MERGEABLE, whatever its checks say). Read
+#                               from the core and adopter layers only
+#                               (merge-currency-guard REQ-C1.12); a malformed
+#                               or unread value applies refuse.
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; every layer's list
@@ -935,7 +999,8 @@ merge_class_strategy: sole-allowed
 worker_base_merge: allow
 worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
-ready_guard_behind_base: refuse
+converge_sync_main: on-need
+ready_guard_behind_base: checks
 protected_branches:
 
 # The worker's self-approval policy: the arms the worker command guard may
@@ -945,8 +1010,25 @@ protected_branches:
 # layers, so a machine-local overlay can narrow a repo-tracked list. An
 # unknown member, a malformed value, or a read failure resolves to the empty
 # list. The launcher resolves it once into the worker's session record, so a
-# change reaches a worker only by relaunch.
-worker_self_approval:
+# change reaches a worker only by relaunch. The default is the scratch arm
+# alone: a worker's own scratch directory is the one write surface every task
+# needs, and it holds nothing the repository or its tools trust. Set the key
+# empty to drop it.
+worker_self_approval: scratch
+
+# Hook names (lefthook hook, command or skip-tag names, space separated) a
+# dispatched worker's commits skip, handed to it as LEFTHOOK_EXCLUDE so its
+# `git commit` never needs a variable prefix, which no allow rule matches.
+# Resolved once into the worker's session record at launch, like the policy;
+# an explicit LEFTHOOK_EXCLUDE in the launch environment wins. A name outside
+# [A-Za-z0-9_-] drops the whole list.
+worker_hook_exclude:
+
+# How many days a worker's audit log of allow decisions is kept under the
+# fleet home's allow-audit directory. The guard only appends; each worker
+# launch (scripts/worker-session-record.sh) prunes the logs older than this.
+# A positive integer; a value that cannot be read leaves the default.
+worker_audit_log_retention_days: 30
 
 # Where /inception creates venture repositories (inception REQ-A1.3, D-5):
 # an absolute path or a ~/ path. A relative or ~user adopter or machine-local
@@ -978,7 +1060,7 @@ mission_control_home_root: ~/.config/planwright/mission-control
 # The duties a program enables when its block names none: the shipped set in
 # config/duties.yaml.
 # yamllint disable-line rule:line-length
-mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals]
+mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals, throughput, usage-window]
 # The state-source map a program declaring none resolves to: class:
 # source:mode entries over the fact classes (work-items, code-state,
 # decisions, deadlines, designs), mode record, snapshot or cited. A class the
@@ -986,3 +1068,188 @@ mission_control_default_duties: [session-keeper, inbox, readiness-check, conflic
 # designs is cited by default.
 # yamllint disable-line rule:line-length
 mission_control_default_sources: {work-items: specs:record, code-state: forge:snapshot, decisions: specs:record, deadlines: specs:record}
+# The rung scripts/mission-control-launch.sh starts a session on when the
+# launch names none: stream-json (a supervised session reached by message,
+# whose permission prompts mission control answers through the fleet) or tmux
+# (a detached window, whose prompts only the operator can answer there).
+mission_control_launch_backend: stream-json
+# The knowledge base's loading caps (scripts/mc-kb.sh): the index, loaded
+# whole at bring-up, holds at most this many entry lines; a body above the
+# entry cap, in bytes, is never read inline but offloaded to a read-only
+# session that returns an answer.
+mission_control_kb_index_budget: 150
+mission_control_kb_entry_cap: 8192
+# How many seconds a knowledge-base writer waits on another writer's lock
+# before it fails, never interleaving.
+mission_control_kb_lock_wait: 5
+# How long a busy session's pane may stay unchanged, spinner lines aside,
+# before scripts/mc-stall.sh reads it busy-unchanged. A cadence; time alone
+# never makes a stall, only beside a busy marker and an unchanged pane.
+mission_control_stall_window: 10m
+# How long past its owner's alarm a worker request may stay pending, or a
+# mission control's own dialog stay open, before scripts/mc-escalate.sh
+# raises it to the hub; at twice the window it reaches the operator. A
+# cadence.
+mission_control_escalation_window: 15m
+# The program whose mission control hears what another program's mission
+# control left unanswered, before the operator does: a program name, or
+# none to go straight to the operator. A program never escalates to itself,
+# and a hub whose holder does not read live counts as none.
+mission_control_escalation_hub: hub
+# The ignored audit files scripts/mc-reclaim.sh copies into the program
+# home's reclaim folder before a worktree goes: worktree-relative paths, a
+# `*` allowed in the last component, a directory taken whole.
+mission_control_reclaim_files: [.claude/steps, .claude/polish-audit.md, .claude/handover.md]
+# How often the watcher runner (scripts/mc-watch.sh run) makes a pass: arms
+# the enabled duties' watchers, re-arms a stopped one, relays pending wakes
+# and runs the failsafe tick. A cadence: a positive count of s, m, h or d.
+mission_control_runner_interval: 1m
+# The failsafe tick's cadence: how often a session is checked for events the
+# push did not submit, by the daemon (scripts/mc-wake.sh tick) for a session
+# without the mod and by the mod's own timer where it loads.
+mission_control_tick_cadence: 5m
+# How often the panel mod rereads the stores and redraws: the cadence its
+# wake runs at, so a pending event reaches an idle session within one.
+mission_control_panel_refresh: 10s
+# How long the panel's reviews-at-a-glance snapshot (scripts/mc-reviews.sh)
+# is kept before the panel's reviews check reads the forge again. A cadence.
+mission_control_reviews_ttl: 5m
+# The panel's mascot, Prop pal: animated, still (one frame per state, for
+# reduced motion) or off (nothing drawn).
+mission_control_panel_mascot: animated
+# The handover trigger: the measured context percent at which the session
+# raises its handover, the completed-wake count that stands in where the
+# harness measures no context (a wake is one duty trigger or one operator
+# turn), and the compaction count that raises it whichever of the two
+# applies.
+mission_control_handover_context: 70
+mission_control_handover_wakes: 150
+mission_control_handover_compactions: 2
+# The panel's health line (scripts/mc-panel.sh health): the bounds past which
+# it flags what the duties should have caught. A live worker registered
+# longer than the worker age; one still live this long after the attention
+# store saw its pull request merge; a permission prompt pending this long;
+# the program's mission control held on its own dialog this long; a CI job
+# whose median queue time is at least this percent of its median run and at
+# least the floor (at or past the floor with no finished run, whatever the share);
+# a session idle this long. Cadences, but the share, a
+# whole percent from 1 to 100.
+mission_control_health_worker_age: 4h
+mission_control_health_merged_grace: 10m
+mission_control_health_permission_wait: 5m
+mission_control_health_stuck_after: 5m
+mission_control_health_ci_queue_share: 50
+mission_control_health_ci_queue_floor: 2m
+mission_control_health_idle_after: 30m
+# How long a successor waits for its predecessor to release the program
+# name before it retires the predecessor itself and takes the name. A
+# cadence.
+mission_control_handover_window: 2m
+# The bounds that keep worker, reviewer and ad-hoc sessions short-lived
+# (scripts/mc-keeper.sh bounds): one past the lifetime since its launch is
+# asked to hand over to a fresh successor at its next safe point (where
+# scripts/session-handover.sh is not installed, mission control retires it
+# and launches the successor itself); one idle at its prompt past the idle
+# bound is retired, its next round of work going to a fresh session with a
+# handover brief. Cadences.
+mission_control_worker_lifetime: 4h
+mission_control_worker_idle: 30m
+# How often each snapshot-mode source is refreshed, source: cadence. A source
+# left out refreshes at the cadence its adapter declares in
+# config/snapshot-adapters.yaml.
+mission_control_snapshot_cadence: {forge: 5m}
+# How long a program's events stay in the attention store before the runner
+# prunes them, with their delivery marks. A cadence.
+mission_control_event_retention: 7d
+# Which pull requests the forge adapter tracks in a program's repositories:
+# open (every open pull request) or authored (the open ones the forge CLI's
+# own account opened).
+mission_control_forge_tracked: open
+# The most conflict-predicted branch pairs the conflict radar announces in one
+# pass. The pairs past it are announced on later passes, and one summary event
+# says how many this pass held back.
+mission_control_radar_max_events: 20
+# Which branches the conflict radar pairs: authored (the pull requests the
+# forge snapshot holds, their base branches, and the program's own unit
+# branches), watched (the branches in mission_control_radar_watched), or all
+# (every origin branch). Merge-queue refs never pair.
+mission_control_radar_scope: authored
+# The branches the watched scope pairs, a list of branch names.
+mission_control_radar_watched: []
+# The rate-limit headroom at or below which a snapshot adapter's next read
+# waits for the limit's reset instead of polling.
+mission_control_ratelimit_floor: 50
+# The budget a program's own budget map is laid over, key by key: live
+# sessions, source polls per hour across every snapshot-mode source, the
+# highest watcher cost class armed (spend_ceiling, or spend_<duty> for one
+# duty, its hyphens written as underscores), context steps, and host load
+# as a percent of the host's processors.
+# yamllint disable-line rule:line-length
+mission_control_default_budget: {sessions: 4, polls_per_hour: 120, spend_ceiling: high, context_steps: 200, host_load: 100}
+# The degradation ladder's thresholds, as the percent of its limit the most
+# used budget dimension has reached: throttle doubles every cadence (at this
+# rung and every one above it),
+# pause_watchers stops high-cost watchers, hold_dispatch also stops
+# medium-cost ones and refuses new sessions and heavy work.
+mission_control_budget_ladder: {throttle: 70, pause_watchers: 85, hold_dispatch: 100}
+# The account usage percent (either the session or the weekly window) at
+# which the usage-window duty holds new launches until the window resets,
+# queueing the next units for the reset (scripts/mc-usage.sh); `off` holds
+# only on a claude quota hold.
+mission_control_usage_hold: 90
+# How many operator confirmations of a decision class's decisions, since the
+# latest revoke of one of them, restore the class from ask-first
+# (scripts/mc-decide.sh).
+mission_control_calibration_restore: 3
+# The window the interruption and settled-share measures cover, ending now.
+# A cadence.
+mission_control_measure_window: 24h
+# The repeat detector (scripts/mc-proposals.sh scan): how many entries of
+# one shape, inside the window (a cadence), make a repeat worth a
+# mechanization proposal.
+mission_control_repeat_threshold: 2
+mission_control_repeat_window: 14d
+# How many of a shadow duty's would-have entries the operator agrees with
+# before scripts/mc-shadow.sh suggests promoting it to live.
+mission_control_shadow_promote_after: 5
+# How long an active rule may go with no act on its subject before the
+# self-audit (scripts/mc-audit.sh) reports it idle. A cadence.
+mission_control_audit_idle_after: 30d
+# How near a known date makes its unit urgent (scripts/mc-deadlines.sh): a
+# date at most this many whole days away ranks ahead of undated work and
+# opens the first turn after silence. A cadence, read in whole days.
+mission_control_deadline_horizon: 3d
+# The throughput duty (scripts/mc-throughput.sh): how often it measures
+# (an interval shorter than its watcher's cadence in config/duties.yaml
+# measures at that cadence), how far back it reads, and how many of each
+# repository's Actions runs one measurement reads, the window's whole set
+# (at most 1000; more reads the CI source unknown). Cadences, and a count.
+mission_control_throughput_interval: 1h
+mission_control_throughput_window: 24h
+mission_control_throughput_ci_runs: 500
+# When a measurement is a bottleneck: its typical value (the median CI
+# queue wait, permission wait or step run; the longest stall) at or over
+# the threshold. Every key is required; each value a cadence.
+mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 20m}
+# How much, in percent, a raised bottleneck's total time must grow before
+# it is raised again.
+mission_control_throughput_worsen: 50
+# Where a draft for a person goes (scripts/mc-inbox.sh draft): auto, the
+# first clipboard tool that script finds, or the absolute path of a command
+# that reads the text on stdin. Never a sender; never read from the
+# repo-tracked layer.
+mission_control_clipboard: auto
+# How much the mission-control skill teaches as it goes: guided, standard
+# or expert (scripts/mc-config.sh mode guidance). A level the operator picks
+# is remembered in the adopter layer.
+mission_control_guidance: guided
+# How a kickoff or amendment the operator asks for runs: relay (mission
+# control launches the session and relays every question to the operator)
+# or manual (the operator runs the kickoff command themselves).
+mission_control_kickoff_mode: relay
+# Whether a mission-control handover successor starts with Remote Control
+# (the operator's phone link): off (none), inherit (what the predecessor's
+# own launch recorded, none when it cannot be read) or on (always, under the
+# successor's own name). Applies to attended (tmux) successors; the
+# stream-json rung has no terminal to attach it to and ignores it.
+mission_control_successor_remote_control: "off"

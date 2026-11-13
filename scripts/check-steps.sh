@@ -97,7 +97,7 @@ wired=$(sed -n 's/^WIRED_POINTS="\(.*\)"$/\1/p' "$resolver")
 unwired=$(sed -n 's/^UNWIRED_POINTS="\(.*\)"$/\1/p' "$resolver")
 [ -n "$wired" ] && [ -n "$unwired" ] || die "could not read WIRED_POINTS and UNWIRED_POINTS from the resolver"
 
-scratch=$(mktemp -d) || die "mktemp -d failed"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/check-steps.XXXXXX") || die "mktemp -d failed"
 [ -n "$scratch" ] && [ -d "$scratch" ] || die "mktemp -d produced no directory"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/adopter" "$scratch/claude" || die "cannot populate the scratch directory"

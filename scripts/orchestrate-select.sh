@@ -4,18 +4,19 @@
 # for the comprehension graph view (Task 7 of specs/spec-comprehension, D-6).
 #
 # A ready task is one the LIVE DERIVATION reports neither completed nor
-# in-progress, whose every dependency the derivation reports completed, and that
-# is a candidate under the bundle's declared format version (invariant-tasks
-# Task 5, D-8, REQ-C1.2): on a v1 bundle a candidate sits in `## Forward plan`;
-# on a v2 bundle (no placement sections) a candidate is any task NOT parked by a
-# live reference bullet (`- **Task <id>**` under ## Awaiting input / ## Deferred
-# / ## Out of scope — bullet task ids are grammar-validated before use,
-# REQ-C1.9). Among ready tasks the selector prefers the head of the
-# effort-weighted longest dependent chain — the unit that unblocks the
-# most downstream remaining work — and breaks ties FIFO, by first appearance in
-# tasks.md. This turns REQ-F1.2's critical-path-first rule into a deterministic,
-# testable computation instead of a hand-asserted one (the 2026-06-10
-# observation).
+# in-progress, whose every dependency the derivation reports completed, and
+# that is a candidate under the bundle's declared format version
+# (invariant-tasks Task 5, D-8, REQ-C1.2): on a v1 bundle a candidate sits in
+# `## Forward plan`; on a v2 bundle (no placement sections) a candidate is any
+# task NOT parked by a live reference bullet (`- **Task <id>**` under ##
+# Awaiting input / ## Deferred / ## Out of scope — bullet task ids are
+# grammar-validated before use, REQ-C1.9); a version 3 bundle takes the v2
+# candidacy. Among ready tasks the selector prefers the head of the
+# effort-weighted longest dependent chain — the unit that unblocks the most
+# downstream remaining work — and breaks ties FIFO, by first appearance in
+# tasks.md. This turns REQ-F1.2's critical-path-first rule into a
+# deterministic, testable computation instead of a hand-asserted one (the
+# 2026-06-10 observation).
 #
 # Live truth, not the committed snapshot (orchestration-concurrency Task 5, D-3,
 # REQ-B1.2). Completed / in-progress state is read from the derivation engine
@@ -53,21 +54,29 @@
 #
 # Exit: 0 a unit/path was produced (on stdout); 1 (selection only) no ready
 # unit this step; 2 the tasks.md is missing, unreadable, NUL-laden, holds no
-# task records, or has a missing/unparseable `Format-version:` line (REQ-C1.8 — the
-# candidacy rules cannot be known without a parsed version; both modes refuse
-# rather than guess; unparseable includes a DUPLICATE in-header declaration,
-# REQ-A1.2), or a parse the shared grammar lib refused — the parked map or the
-# task graph, either of which fails closed on end-of-file inside an open
-# column-0 fence — or a sourced helper is missing —
-# echo-safety.sh or spec-parse.sh (broken install, both modes) —, or
-# (selection only) the derivation engine is missing /
-# not executable or its derivation fails (no git work tree, invalid spec id) —
-# fail closed: a malformed file or unavailable live truth must not silently
-# report "nothing"; 3 (selection only, v2) transient evidence failure — the
-# remote is configured but the evidence fetch failed (the engine's `degraded`
-# record), so nothing is dispatched rather than selecting against partial
-# evidence (REQ-B1.5). v1 selection keeps its documented degraded-but-proceed
-# behavior (the record is forwarded to stderr) — v1 behavior unchanged.
+# task records, or has a missing, unparseable, or undefined `Format-version:`
+# line (REQ-C1.8 — the candidacy rules cannot be known without a parsed
+# version; both modes refuse rather than guess; unparseable includes a
+# DUPLICATE in-header declaration, REQ-A1.2), or a parse the shared grammar
+# lib refused — the parked map or the task graph, either of which fails closed
+# on end-of-file inside an open column-0 fence — or a sourced helper is
+# missing — echo-safety.sh or spec-parse.sh (broken install, both modes) —, or
+# (selection only) the derivation engine is missing / not executable or its
+# derivation fails (no git work tree, invalid spec id) — fail closed: a
+# malformed file or unavailable live truth must not silently report "nothing";
+# 3 (selection only, v2 and v3) transient evidence failure — the remote is
+# configured but the evidence fetch failed (the engine's `degraded` record), so
+# nothing is dispatched rather than selecting against partial evidence
+# (REQ-B1.5). On a version 3 bundle whose tasks name repositories the failure
+# is per task (REQ-B1.7, REQ-F1.6): a task the engine withholds (its own or a
+# direct dependency's repository failed) is never selected, every other task
+# selects normally, and exit 3 means no unit was ready while withheld work
+# remained. v1 selection keeps its documented degraded-but-proceed behavior
+# (the record is forwarded to stderr) — v1 behavior unchanged.
+#
+# A task whose `Repository:` field does not resolve (the engine's
+# `repository-unresolved` state) is never selected and never satisfies a
+# dependency (REQ-F1.5).
 #
 # Portable POSIX sh + awk (bash 3.2 / BSD awk compatible): no gawk-only
 # constructs (3-arg match, gensub), no eval, input treated as data. The
@@ -175,18 +184,15 @@ if ! fv=$(printf '%s\n' "$tasks_content" | spec_parse_header_value - Format-vers
   printf '%s\n' "orchestrate-select: unparseable Format-version: declaration in $tasks_md (fail closed)" >&2
   exit 2
 fi
-case "$fv" in
-  1 | 2) ;;
-  '')
-    printf '%s\n' "orchestrate-select: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
-    exit 2
-    ;;
-  *)
-    printf '%s\n' "orchestrate-select: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
-    exit 2
-    ;;
-esac
-
+if [ -z "$fv" ]; then
+  printf '%s\n' "orchestrate-select: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
+  exit 2
+fi
+# Keyed on the rule arm (version 3 takes the v2 arm), never the raw value.
+fv_arm=$(spec_parse_format_arm "$fv") || {
+  printf '%s\n' "orchestrate-select: unparseable or undefined Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
+  exit 2
+}
 # Live-truth state (orchestration-concurrency Task 5, D-3, REQ-B1.2; the
 # invariant-tasks Task 5 above is the format-version keying). In selection
 # mode the completed /
@@ -197,6 +203,8 @@ esac
 # unambiguous whole-token membership test in the awk below.
 completed=" "
 inprogress=" "
+held=" "
+withheld=""
 
 # v2 parked map (select mode only; D-3, D-8, REQ-C1.2): a live reference bullet
 # whose bolded lead is `**Task <id>**` under a human-payload section parks its
@@ -219,7 +227,7 @@ inprogress=" "
 # unchecked capture would silently un-park every task.
 parked_any=" "
 parked_oos=" "
-if [ "$mode" = select ] && [ "$fv" = 2 ]; then
+if [ "$mode" = select ] && [ "$fv_arm" = 2 ]; then
   if ! parked_map=$(printf '%s\n' "$tasks_content" | spec_parse_parked_map -); then
     printf '%s\n' "orchestrate-select: could not derive the parked map from $tasks_md (fail closed)" >&2
     exit 2
@@ -270,15 +278,23 @@ if [ "$mode" = select ]; then
     | awk -F"$TAB" '$1=="task" && $3=="completed"{print $2}' | tr '\n' ' ')"
   inprogress=" $(printf '%s\n' "$state_out" \
     | awk -F"$TAB" '$1=="task" && $3=="in-progress"{print $2}' | tr '\n' ' ')"
+  # Held per task (REQ-F1.5, REQ-B1.7): a repository-unresolved task, and one
+  # the engine withholds because its own or a direct dependency's repository
+  # failed. Neither is ever selected.
+  held=" $(printf '%s\n' "$state_out" \
+    | awk -F"$TAB" '($1=="task" && $3=="repository-unresolved") || $1=="withheld" {print $2}' | tr '\n' ' ')"
+  withheld=$(printf '%s\n' "$state_out" | awk -F"$TAB" '$1=="withheld"{print $2}' | tr '\n' ' ')
   # Transient evidence failure on a v2 bundle (REQ-B1.5): the engine's
-  # `degraded` record (a configured remote whose gh query failed — detected by
-  # tag, never by message text) means the evidence is partial. A v2 bundle has
-  # no committed placement to cross-check, so selecting here could re-dispatch
-  # work whose only completion evidence sits behind the failed fetch: dispatch
-  # nothing, distinct exit. v1 keeps its documented degraded-but-proceed
-  # behavior (forwarded to stderr below) — v1 behavior unchanged.
-  if [ "$fv" = 2 ] \
-    && printf '%s\n' "$state_out" | awk -F"$TAB" '$1=="degraded" { f = 1 } END { exit !f }'; then
+  # bundle-wide `degraded` record (a configured remote whose gh query failed —
+  # detected by tag, never by message text) means the evidence is partial. A v2
+  # bundle has no committed placement to cross-check, so selecting here could
+  # re-dispatch work whose only completion evidence sits behind the failed
+  # fetch: dispatch nothing, distinct exit. A per-repository record (column 2
+  # `repository`) is scoped by the withheld set above instead. v1 keeps its
+  # documented degraded-but-proceed behavior (forwarded to stderr below) — v1
+  # behavior unchanged.
+  if [ "$fv_arm" = 2 ] \
+    && printf '%s\n' "$state_out" | awk -F"$TAB" '$1=="degraded" && $2!="repository" { f = 1 } END { exit !f }'; then
     dmsg=$(printf '%s\n' "$state_out" \
       | awk -F"$TAB" '$1=="degraded" { print $3; exit }')
     printf '%s\n' "orchestrate-select: transient evidence failure - $(sanitize_printable "$dmsg" '(no diagnostic from the engine)'); dispatching nothing (REQ-B1.5)" >&2
@@ -293,7 +309,16 @@ if [ "$mode" = select ]; then
   # only makes them visible. The noisier `refused` / `malformed-deps` records are
   # deliberately left to those owners and not forwarded here.
   printf '%s\n' "$state_out" \
-    | awk -F"$TAB" '$1=="degraded" || $1=="contradiction"' >&2
+    | awk -F"$TAB" '($1=="degraded" && $2!="repository") || $1=="contradiction"' >&2
+  printf '%s\n' "$state_out" | awk -F"$TAB" '$1=="degraded" && $2=="repository" { print $3 "\t" $4 }' \
+    | while IFS="$TAB" read -r d_repo d_msg; do
+      if [ "$d_repo" = - ]; then
+        d_repo="the work repository"
+      else
+        d_repo="repository $(sanitize_printable "$d_repo" '(unprintable)')"
+      fi
+      printf '%s\n' "orchestrate-select: transient evidence failure in $d_repo - $(sanitize_printable "$d_msg" '(no diagnostic from the engine)'); its tasks and their direct dependents are withheld (REQ-B1.7)" >&2
+    done
 fi
 
 # The selection graph. Its grammar — the fence lexer, the task heading, and the
@@ -312,8 +337,8 @@ fi
 # sequences (the drain-gates statuses-whitelist rationale).
 sel_rc=0
 sel_out=$(printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_md" \
-  awk -v mode="$mode" -v fv="$fv" \
-  -v completed="$completed" -v inprogress="$inprogress" \
+  awk -v mode="$mode" -v fv="$fv_arm" \
+  -v completed="$completed" -v inprogress="$inprogress" -v held="$held" \
   -v parked="$parked_any" -v parked_oos="$parked_oos" \
   "$spec_parse_awk_fence$spec_parse_awk_grammar"'
   function weight(s) {
@@ -440,6 +465,7 @@ sel_out=$(printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_m
       # when the committed snapshot has not yet caught up (D-3, REQ-B1.2).
       if (index(completed, " " t " ") > 0) continue
       if (index(inprogress, " " t " ") > 0) continue
+      if (index(held, " " t " ") > 0) continue
       ready = 1
       m = split(deps[t], a, " ")
       for (i = 1; i <= m; i++) {
@@ -460,6 +486,21 @@ sel_out=$(printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_m
     print best_id
   }
 ') || sel_rc=$?
+
+# Nothing was ready while work that could otherwise be picked (not done, not
+# in flight, not parked) is withheld behind a failed repository: that is the
+# transient failure, not an empty frontier.
+pending_held=""
+for w in $withheld; do
+  case "$completed$inprogress$parked_any" in
+    *" $w "*) ;;
+    *) pending_held="$pending_held$w " ;;
+  esac
+done
+if [ "$sel_rc" -eq 1 ] && [ -n "$pending_held" ]; then
+  printf '%s\n' "orchestrate-select: no unit is ready; withheld behind a failed repository: Task $(sanitize_printable "$(printf '%s' "$pending_held" | sed 's/ $//; s/ /, Task /g')"); dispatching nothing (REQ-B1.7)" >&2
+  exit 3
+fi
 
 case $sel_rc in
   0)

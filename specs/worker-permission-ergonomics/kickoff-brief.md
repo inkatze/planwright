@@ -983,3 +983,234 @@ Class: meaning
 Lens-pass: §9 Amendment 3, 3.8 (delta-scoped fan-out, one reviewer per lens plus the declared security lens; canonical lens-coverage table above; all findings dispositioned — applied)
 Anchor: `88f9ec559aff449b9a2809b2e3874a2b509e8eba` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 4 — 2026-11-02 (delta kickoff: `wc` leaves the static allow set)
+
+**Trigger.** Task 12's convergence review found that `wc --files0-from=<file>`
+reads `<file>` as NUL-separated path names and prints each in its output or
+its error, so REQ-G1.1's static `wc` rule printed any file's content,
+another process's environment included, without passing the guard. The
+worker dropped the rule on its branch (sign-off item PS-1) and parked for
+this delta. Operator ruling, 2026-11-02: drop `wc`.
+
+**Delta walked.** REQ-G1.1 drops `wc` from its covered list, with an
+amendment note and the D-28 citation; D-28 records the decision; D-15 and
+D-27 carry in-part supersede pointers (D-27's rejected alternative rested
+on `wc` printing no content). The guard path is unchanged: `wc` is in its
+operand-opening set, whose screens refuse a word naming another process's
+environment.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(one requirement, one decision, one test entry); no fan-out, scoped by size.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | D-28 matches REQ-G1.1's existing ban on content-printing verbs |
+| Ambiguity and interpretation forks | 0 | None |
+| Citation and coverage integrity | 0 | D-28 cited from REQ-G1.1 |
+| Dead verification paths | 0 | The matcher test runs in CI |
+| Decision-domain gaps | 0 | Security posture already decided by D-27 |
+| Testability | 1 | The REQ-G1.1 test-spec entry's never-named list lacked `wc` |
+| Cross-file consistency | 0 | Folded into the testability row |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | None |
+
+**Dispositions.** Testability finding: applied, `wc` added to the test
+entry's never-named list (operator, 2026-11-02).
+
+#### Sign-off record (Amendment 4)
+
+Signed off 2026-11-02 by the operator after the approval summary, relayed
+through the fleet tower, as a delta re-walkthrough of a Ready (stored)
+bundle: no status flip; `Last reviewed:` bumped on all four spec files;
+`scripts/spec-validate.sh` re-run after the edits with 0 errors and 0
+warnings.
+
+Class: meaning
+Lens-pass: Amendment 4, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
+Anchor: `c80256e3043b9fd1dc8a3229372a0ecae2edd4c3` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Re-anchor — Task 12 convergence fix (2026-11-03)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by `/execute-task`'s
+convergence for Task 12.
+
+**Why the anchor moved:** the REQ-A1.11 and REQ-C1.1 test-spec entries said
+the `deny` block differs from its pre-change content only by the
+`Write`/`Edit` path rules, while REQ-E1.6 and Task 12's deliverables also add
+the `Read` rule for `/proc/*/environ`. Both entries now name that rule; no
+decision changes.
+
+**Cites the changelog line:** the 2026-11-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `fecd04fcd6f75d263c89aadbaac35781da021c0a` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 5 (2026-11-10, delta re-walkthrough: hooks-directory deny and command shapes)
+
+Spec path `specs/worker-permission-ergonomics`; walkthrough date 2026-11-10;
+mode: delta re-walkthrough of a Ready (stored) bundle, drafted into the bundle
+before the walk and walked through mission control, which relayed the
+operator's own words. The delta narrows the hooks-directory file-tool deny to
+the real hooks path (REQ-F1.7 supersedes REQ-F1.6; REQ-A1.15 supersedes
+REQ-A1.11; D-29) and admits six command shapes that still prompted: `nice -n
+<n>` (REQ-A1.16; D-30), `gitleaks detect` and `gh release view` (REQ-A1.17;
+D-31), allowlisted `export` (REQ-E1.7; D-32), scratch `mktemp` inside an
+assignment (REQ-E1.8; D-33), and fish `and`/`or`/`not` (REQ-E1.9; D-34),
+built as Tasks 16 to 18. The guard and profile are a hard-disqualifier zone:
+nothing here weakens the floor, the deny block's Bash rules, or the
+execution-bearing path closures.
+
+**Operator answers (2026-11-10, relayed through mission control).**
+
+- Narrow the githooks block to the real hooks path, using a profile rule if
+  one can express it and otherwise a guard script, keeping the old rule until
+  the script is proven to refuse on error: recommended option taken.
+- `export` approvable for an allowlist of harmless names only: recommended
+  option taken.
+- `X=$(mktemp -d)` approvable inside the worker's own scratch folder only:
+  recommended option taken.
+- The `nice`, `gitleaks`, `gh release view` and fish `and`/`or`/`not` shapes
+  followed the observation as drafted (settled, not asked).
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(six requirements and two supersessions, six decisions, three tasks, the test
+entries); no fan-out, scoped by size, with extra weight on the security
+posture of the guard.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 2 | A static profile rule cannot name a resolved `core.hooksPath`, so the hook covers it in every case (REQ-F1.7, D-29, Task 16); REQ-A1.12's `export`-with-a-value clause read through REQ-E1.7 |
+| Ambiguity and interpretation forks | 2 | Leading fish `and`/`or` with no predecessor now defers (REQ-E1.9); `mktemp` with a leading assignment or an unresolved-variable template defers (REQ-E1.8) |
+| Citation and coverage integrity | 0 | Every new REQ cites a D-ID and a Source |
+| Dead verification paths | 1 | The `mktemp` test row used an unresolved variable, which the opaque-variable rule defers: replaced by a literal path, with the variable form as a defer row |
+| Decision-domain gaps | 1 | Security posture: a locale name holding `/` can name a path the worker wrote, so `LC_ALL` and `LANG` values carry no `/` (REQ-E1.7); every other allowlisted name was checked as steering no tool, loader or shell |
+| Testability | 1 | Task 16 asserts the hook fails closed by crashing it, in every case rather than only on the hook route |
+| Cross-file consistency | 1 | The REQ-A1.13 test entry's `nice` wrapper fixtures read through REQ-A1.16 |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | No rendered content; the new shapes add no committed secret or hostname |
+
+**Dispositions.** All eight findings applied in place (append-only: no
+superseded body edited). Declined: none. Deferred: none. Post-lens
+stale-reference sweep: the remaining `nice`, `export` and REQ-F1.6 mentions
+in unsuperseded text are either superseded bodies, rejected-alternative
+prose, or carry a read-through note.
+
+Altitude check: no pinned seed claim. Ship-gate check: every out-of-band
+change is a task (Tasks 16 to 18); the profile and guard changes ship with
+their tests.
+
+#### Sign-off record (Amendment 5)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub: the approval summary was answered "Sign off all four
+(Recommended)". Amendment on a Ready bundle: no status flip;
+`Last reviewed:` 2026-11-10 on all four spec files; validator re-run with
+0 errors. The delta supersedes signed requirements in a permission-guard
+zone, so it is meaning-class. Accepted risk: the file-tool hook route for
+the real hooks path is untested until Task 16 runs (the old rows stay until
+it is proven to refuse on error).
+
+Class: meaning
+Lens-pass: Amendment 5, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `415a00fa61e7d4e9148be0b6b1f5e0e4faa3fa45` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 6 (2026-11-10, delta re-walkthrough: leased hooks edit and declared check commands)
+
+Spec path `specs/worker-permission-ergonomics`; walk started at `59175a11`;
+walkthrough date 2026-11-10. Mode: delta re-walkthrough on a Ready bundle,
+walked with the operator by relay in rounds of plain questions together with
+the mission-control amendment that owns the lease. Scope: a worker named by
+an operator-authorized lease may edit the git hooks directories and
+`lefthook.yml` in its own worktree; a repository declares test and check
+commands the guard approves with per-run arguments. The hooks-directory
+narrowing is signed (REQ-F1.7) and not redone.
+
+#### Goal and glossary (Amendment 6)
+
+Restatement: today no worker can build a hook, and every test run a repository
+needs beyond a mise task asks for approval. The delta lets one named worker
+edit hook files for a short time, and lets a repository declare the command
+shapes a worker may run. Rules out: any lease lifting a `Bash(…)` deny row,
+approving a runner in general, and reading a declaration from a file the worker
+can write. Terms: *lease* (mission-control D-57), *command shape* (literal
+words plus a closed set of placeholders).
+
+#### Requirements walkthrough (Amendment 6)
+
+Operator's answers, relayed through mission control and the hub: hook edits
+"Mid-run, one worker (Recommended)", an hour by default and four at most;
+test commands "Command shapes (Recommended)", a new setting. REQ-A1.19
+supersedes REQ-A1.15 because the static hooks file-tool rows leave the
+profile and the hook alone covers them: a profile deny cannot be lifted for
+one worker.
+
+#### Design walkthrough (Amendment 6)
+
+D-35 (leased hooks edit, the hook alone guards the files) and D-36 (declared
+check commands by shape) are new and confirmed. D-22 and D-29 are narrowed
+in part by D-35, as D-35 states.
+
+#### Verification approach (Amendment 6)
+
+Each new requirement has a `[test]` entry in the existing guard suites and the
+hook's suite. No dead path: each protected path is shown refused by the hook
+alone before its static row leaves.
+
+#### Task graph (Amendment 6)
+
+Task 19 depends on Task 16 and Task 20 on Task 17, per their `Dependencies:`
+lines. Deliberate non-edge: Task 19 has no cross-bundle edge to the lease
+store; with no lease the floor is unchanged.
+
+#### Risk register (Amendment 6)
+
+1. The hooks rows leave the static profile before the hook is proven.
+   Mitigation: Task 19 removes them only once the hook alone refuses each,
+   and fails closed.
+2. A leased worker's own commit runs the hook it edited. Mitigation: one
+   worker, a short lease, the diff and a posture-change flag; accepted.
+3. A declared shape is too wide. Mitigation: placeholders are a closed set,
+   a metacharacter or substitution never matches, the deny block is read first.
+
+Decision-domain gap check: security-posture and authorization touched and
+decided (the lease, the layer-trust read of the declaration).
+
+#### Lens review (Amendment 6, delta-scoped)
+
+Walked inline over the delta (REQ-F1.8, REQ-A1.18, REQ-A1.19, D-35, D-36,
+Tasks 19 and 20) with the mission-control lease read.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | Applied: REQ-F1.7 annotated as extended by REQ-F1.8; REQ-A1.15 marked superseded |
+| Ambiguity and interpretation forks | 0 | None |
+| Citation and coverage integrity | 0 | None |
+| Dead verification paths | 0 | None |
+| Decision-domain gaps | 0 | Decided above |
+| Testability | 0 | None |
+| Cross-file consistency | 1 | Applied: the lease is cited by qualified name (`mission-control D-57`) |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | None |
+
+Altitude check: no pinned seed claim. Ship-gate check: every change is a task.
+
+#### Sign-off record (Amendment 6)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub, together with the mission-control amendment (answer: "Signoff but
+this is impossible to understand and I thought we fixed it already", with
+the instruction on the pull request's plain top). Delta on a Ready bundle: no
+status flip; `Last reviewed:` 2026-11-10; validator re-run with 0 errors. The
+delta supersedes a signed requirement in a permission-guard zone, so it is
+meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 6, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `52fc8ef65c0e0b08ef9285b0e93f1a66a2f9c472` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`

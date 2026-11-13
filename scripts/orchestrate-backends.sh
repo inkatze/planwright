@@ -11,8 +11,8 @@
 # lives in the /orchestrate skill, which calls `detect` for the candidate set
 # and asks the operator — this script never silently picks for an attended run.
 #
-# Subcommands:
-#   detect [pluggable-name...]
+# Usage:
+#   orchestrate-backends.sh detect [pluggable-name...]
 #       Print one TSV row per PRESENT backend, richest rung first:
 #         backend<TAB>interactive<TAB>can_observe<TAB>can_steer_inflight<TAB>\
 #         provides_attention_surface<TAB>supports_parallel<TAB>session_grade<TAB>\
@@ -40,7 +40,7 @@
 #       diagnostic (REQ-A1.7, never a silent absence). A pluggable arg naming a
 #       shipped backend, or a hostile/invalid name, is skipped.
 #
-#   select-unattended [--tmux-candidate] <configured>
+#   orchestrate-backends.sh select-unattended [--tmux-candidate] <configured>
 #       Print the dispatch-time backend pick (execution-backends Task 5; D-8,
 #       REQ-B1.1, REQ-B1.4, REQ-B1.5). The SEMANTIC value `full-session`
 #       resolves to the richest PRESENT non-interactive session-grade rung via
@@ -57,7 +57,7 @@
 #       ladders apply to semantic values only). Runtime failover stays
 #       orchestrate-degrade.sh's logged one-rung descent.
 #
-#   present
+#   orchestrate-backends.sh present
 #       Read detect-format TSV rows on stdin and render the TWO-SEAM
 #       presentation the entry command shows an attended operator (Task 10;
 #       D-9, D-12, REQ-E1.2, REQ-E1.5): picking a backend chooses only how

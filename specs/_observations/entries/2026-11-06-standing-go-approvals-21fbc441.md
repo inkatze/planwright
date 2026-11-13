@@ -1,0 +1,1 @@
+- 2026-11-06 [planwright] gh pr review --approve on named teammates' PRs is classifier-denied as an external write, even with a standing go-ahead. Decide whether human-gates should name a sanctioned path for approvals a teammate has asked for, or whether a user allow rule for that command is the intended answer.

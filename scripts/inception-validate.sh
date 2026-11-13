@@ -187,6 +187,7 @@ GATE-TRACKS-PRESENCE the Tracks line is present in an untracked venture or absen
 GATE-TRACKS-COVERAGE a live declared track is missing from Tracks
 GATE-GRADUATE-OPEN a Graduate outcome leaves a blocking assumption unevaluated
 GATE-GRADUATE-LIVE-TRACK a top-level Graduate leaves a declared track live
+GATE-KILL-LIVE-TRACK a top-level Kill leaves a declared track live
 GATE-SYNTHETIC-DESIRABILITY synthetic evidence passes a desirability assumption at Graduate
 LIFE-STATUS-OUTCOME the venture status disagrees with the latest gate outcome
 BASE-ID-VANISHED an id present at the baseline was renumbered or removed
@@ -943,6 +944,12 @@ END {
         l = TRACKORD[li]
         if (!(l in TRACKLIVE)) continue
         emit("GATE-GRADUATE-LIVE-TRACK", "brief.md", "Gate " num " records a top-level Graduate while track \"" l "\" is still live")
+      }
+    if (oc == "Kill" && tracked && i == gaten)
+      for (li = 1; li <= ntrackord; li++) {
+        l = TRACKORD[li]
+        if (!(l in TRACKLIVE)) continue
+        emit("GATE-KILL-LIVE-TRACK", "brief.md", "Gate " num " records a top-level Kill while track \"" l "\" is still live")
       }
     if (i == gaten) LASTOUT = oc
   }

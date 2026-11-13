@@ -50,7 +50,8 @@
 #       [--log-dir <dir>]
 #
 #   --timeout  per record, default 600, applied when timeout(1) exists; a
-#              timed-out command reports exit 124, or 137 when it ignored the
+#              timed-out command reports exit 124 (143 under busybox timeout,
+#              which reports the TERM it sent), or 137 when it ignored the
 #              signal and was killed 10 seconds later
 #
 # Exit codes: 0 every fix held (or no records); 1 one or more regressed; 2
@@ -188,8 +189,8 @@ if env --default-signal=INT,QUIT true 2>/dev/null; then signals=--default-signal
 # A record may leave read-only files in its copy (a module cache, a chmod);
 # removal makes them writable first, and a cleanup failure is never a verdict.
 scrub() {
-  chmod -R u+w "$1" 2>/dev/null || true
-  rm -rf "$1" 2>/dev/null || true
+  chmod -R -- u+w "$1" 2>/dev/null || true
+  rm -rf -- "$1" 2>/dev/null || true
 }
 # reap <pid> — end what a record left running in its session, whose id is the
 # pid of the record's session leader: the session's members read from /proc

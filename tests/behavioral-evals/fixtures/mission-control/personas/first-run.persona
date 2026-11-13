@@ -1,0 +1,8 @@
+# first-run.persona — a fresh installation, only the questions its own work answers (what the work is and its repositories, then the duties as one yes), the rest settled and said in a line with no step count, ends with the program block, the knowledge-base skeleton and the enabled watches.
+arm=REQ-F1.12
+expertise=novice
+answer.1=@event:entry names=
+answer.2=open mission control
+answer.3=alpha, web and api
+answer.4=yes
+answer.5=that's all

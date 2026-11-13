@@ -12,7 +12,9 @@
 #                               never inside a listed repository
 #   duties        [id, ...]     enabled duties; default
 #                               mission_control_default_duties
-#   budget        {key: value}  the program's budget; default empty
+#   budget        {key: value}  the program's budget; default empty, laid
+#                               over mission_control_default_budget by
+#                               scripts/mc-budget.sh
 #   sources       {class: source:mode, ...}
 #                               the state-source map; default
 #                               mission_control_default_sources
@@ -23,7 +25,9 @@
 # The state-source map names, per fact class (work-items, code-state,
 # decisions, deadlines, designs), the authoritative source and its mode:
 # record, snapshot or cited. A program's own map replaces the default whole,
-# and a class the map in force leaves out resolves to cited with no source.
+# and a class the map in force leaves out resolves to cited with no source,
+# as does one written `-:cited`, so the rows `default sources` prints can be
+# written back as a map; `-` with any other mode is refused.
 #
 # Usage:
 #   mc-program.sh list                  configured program names, one per line
@@ -223,13 +227,14 @@ read_map() {
 # defaults fails, and so does a read config-get.sh itself fails. validate
 # sets STRICT, failing on any invalid value so a degrade hides nothing.
 STRICT=0
-scratch_err=$(mktemp) || exit 2
+scratch_err=$(mktemp "${TMPDIR:-/tmp}/mc-program.XXXXXX") || exit 2
 trap 'rm -f "$scratch_err"' EXIT
 
 # layered <name> <field> <key> <parser>: the value of <key>, parsed by
 # `<parser> <name> <raw>`. Status 0 printed; 3 no layer sets a valid value;
 # 1 a failure, named on stderr.
 layered() {
+  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
   ly_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$3" 2>"$scratch_err")
   ly_rc=$?
   cat "$scratch_err" >&2
@@ -403,6 +408,13 @@ parse_sources() {
     esac
     source=${value%:*}
     mode=${value##*:}
+    if [ "$source" = - ]; then
+      [ "$mode" = cited ] || {
+        problem "$1" sources "'$class' has no source, so its mode is cited, not '$mode'"
+        rc=1
+      }
+      continue
+    fi
     if ! valid_kebab "$source"; then
       problem "$1" sources "source '$source' for '$class' is not a kebab name"
       rc=1
@@ -532,7 +544,7 @@ field_sources() { with_default "$1" sources mission_control_default_sources pars
 
 # common_dir <dir>: the canonical git common directory of <dir>, or nothing.
 common_dir() {
-  (cd "$1" 2>/dev/null && d=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+  (cd -- "$1" 2>/dev/null && d=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     -u GIT_OBJECT_DIRECTORY -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT \
     git rev-parse --git-common-dir 2>/dev/null) && cd "$d" 2>/dev/null && pwd -P)
 }

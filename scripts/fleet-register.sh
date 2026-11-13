@@ -35,6 +35,8 @@
 #   2. $PLANWRIGHT_TOWER_ID                the tower's ALREADY-RESOLVED token,
 #      exported into a seam it invokes. This is the ordinary path: a tower
 #      knows its own identity, and a seam should not have to re-derive it.
+#      The mission-control launcher passes `mission-control:<program>` here,
+#      which no presence surface knows: every tower reads it unrecognized.
 #   3. $PLANWRIGHT_TOWER_SESSION_ID | $PLANWRIGHT_TOWER_PID   the identity
 #      INPUTS carried in the environment, resolved as in (1).
 #   4. Nothing resolvable -> the record's owner column is the absent sentinel,
@@ -276,7 +278,7 @@ fi
 valid_owner() {
   vo_v=$1
   case $vo_v in
-    "" | . | .. | unknown-owner | *[!A-Za-z0-9._-]*) return 1 ;;
+    "" | . | .. | unknown-owner | *[!A-Za-z0-9._:-]*) return 1 ;;
     -*) return 1 ;;
   esac
   [ "${#vo_v}" -le 128 ]
@@ -587,7 +589,7 @@ read_marker() {
 drop_marker() {
   mm_aside="${1%/*}/.retiring.$$.${1##*/}"
   mm_restore=$1
-  if ! mv -f "$1" "$mm_aside" 2>/dev/null; then
+  if ! mv -f -- "$1" "$mm_aside" 2>/dev/null; then
     mm_aside=""
     [ -e "$1" ] || [ -L "$1" ] || return 0
     return 1
@@ -595,7 +597,7 @@ drop_marker() {
   if [ "$(cat "$mm_aside" 2>/dev/null)" != "$2" ]; then
     # A newer marker already at the name supersedes this one; any other
     # failure to link back leaves it aside rather than losing it.
-    if ! ln "$mm_aside" "$1" 2>/dev/null && [ ! -e "$1" ] && [ ! -L "$1" ]; then
+    if ! ln -- "$mm_aside" "$1" 2>/dev/null && [ ! -e "$1" ] && [ ! -L "$1" ]; then
       warn "could not link the marker back to $1; it is kept as $mm_aside, and the next reconcile pass adopts it"
       mm_aside=""
       return 1

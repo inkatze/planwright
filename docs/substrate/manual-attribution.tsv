@@ -12,7 +12,7 @@
 legacy:2026-06-11:locale-range-globs	library,hook	Calls for a shared shell prelude that pins LC_ALL=C, plus the charset checks inside the hook scripts.
 legacy:2026-06-11:plugin-data	library	Durable runtime state home resolved by shared helpers such as fleet-state.sh and lock-lib.sh.
 legacy:2026-06-11:shfmt-absent	hook,dev-check	tool-discovery.sh hook could flag the shfmt gap that the lint:fmt mise task and CI depend on.
-legacy:2026-06-11:writer-ghost	tests-only	The ~/.claude/ writer is install.sh.
+legacy:2026-06-11:writer-ghost	library	The ~/.claude/ writer is install.sh.
 legacy:2026-06-15:coexistence	hook,skill-called	Plugin-name collision hits the hook registrations and the skill-named scripts installed under one namespace.
 legacy:2026-06-16:worktree-invariant	skill-called	/orchestrate worktree creation, proposed as a helper like fleet-dispatch-worktree.sh, which the skill calls.
 obs:00dccd4e	skill-called	The /panel-review pre-flight profile resolution is skill procedure that a dispatched worker runs.

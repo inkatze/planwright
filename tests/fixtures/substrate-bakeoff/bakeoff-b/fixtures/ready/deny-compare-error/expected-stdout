@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: GitHub's compare endpoint could not be reached for this pull request, so its currency with base branch main could not be confirmed - refusing (fail closed). Wait and retry."}}

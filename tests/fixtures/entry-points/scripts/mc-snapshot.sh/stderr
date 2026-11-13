@@ -1,0 +1,1 @@
+match ^mc-snapshot: usage: mc-snapshot\.sh refresh --program <p> \[--source <s>\] \[--now <epoch>\] \[--rung <rung>\] \| read --program <p> <source> \[--now <epoch>\] \| list --program <p> \[--now <epoch>\] \| adapters \| check \(--program <p> \| --defaults\)$

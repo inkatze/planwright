@@ -124,7 +124,7 @@ equals a threshold trips it. Two knobs set them, `comment_block_warn` and
 `comment_block_error`, core configuration in `config/defaults.yml` tunable
 through the overlay chain like any other knob, and documented in the options
 reference. A warning leaves the guard's exit status zero; an unsuppressed
-error fails it. A missing or non-numeric knob aborts the guard rather than
+error fails it. A knob that is missing or not a positive integer aborts the guard rather than
 falling back.
 
 **Two suppression forms** exist, both in `config/comment-budget-exemptions.txt`

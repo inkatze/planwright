@@ -513,6 +513,69 @@ out="$(PLANWRIGHT_ROOT=/decoy /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
 assert "without the switch the same file sees the pinned values" 1 $?
 unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA
 
+# 21. REQ-D1.3: a scratch directory that breaks mid-run is an environment
+#     error (exit 2, the cause named), never a failure recorded against a
+#     test file. The fixture breaks the runner's own log dir from inside a
+#     test file. The pooled runs hold one ticket between two jobs, so a
+#     worker is still waiting for it when the directory breaks.
+mkdir -p "$tmp/scratch-gone" "$tmp/scratch-ro" "$tmp/scratch-nx"
+cat >"$tmp/scratch-gone/test-a-break.sh" <<'EOF'
+#!/bin/bash
+# Renamed first: a plain rm -rf races the siblings still writing there.
+mv "${PLANWRIGHT_TEST_LOG_DIR:?}" "$PLANWRIGHT_TEST_LOG_DIR.gone"
+rm -rf "$PLANWRIGHT_TEST_LOG_DIR.gone"
+EOF
+cat >"$tmp/scratch-ro/test-a-break.sh" <<'EOF'
+#!/bin/bash
+chmod a-w "${PLANWRIGHT_TEST_LOG_DIR:?}"
+EOF
+cat >"$tmp/scratch-nx/test-a-break.sh" <<'EOF'
+#!/bin/bash
+chmod a-x "${PLANWRIGHT_TEST_LOG_DIR:?}"
+EOF
+# Several siblings, so the concurrent runs reliably have one between its
+# directory check and its log redirect when the break lands.
+for d in scratch-gone scratch-ro scratch-nx; do
+  for s in b c d e f g; do
+    printf '#!/bin/bash\n' >"$tmp/$d/test-$s-other.sh"
+  done
+done
+scratch_case() { # <label> <suite> <cause> [env assignment...]
+  sc_label="$1" sc_suite="$2" sc_cause="$3"
+  shift 3
+  rm -rf "$tmp/scratch-tmp"
+  mkdir -p "$tmp/scratch-tmp"
+  out="$(env "$@" TMPDIR="$tmp/scratch-tmp" PLANWRIGHT_TEST_DURATIONS= \
+    PLANWRIGHT_TEST_TIMING_REPORT="$tmp/$sc_suite.report.tsv" \
+    /bin/bash "$RUNNER" "$tmp/$sc_suite" 2>&1)"
+  assert "$sc_label: exits 2" 2 $?
+  assert_contains "$sc_label: names the scratch directory" "scratch directory" "$out"
+  assert_contains "$sc_label: names the cause" "$sc_cause" "$out"
+  assert_not_contains "$sc_label: no test file recorded as failed" "FAIL" "$out"
+  # A file started on the broken directory fails its log redirect out loud.
+  assert_not_contains "$sc_label: no file started after the break" ".log:" "$out"
+  if [ -n "$(ls -A "$tmp/scratch-tmp")" ]; then
+    echo "FAIL: $sc_label: the runner left its scratch directory behind" >&2
+    failures=$((failures + 1))
+    chmod -R u+rwx "$tmp/scratch-tmp"
+  else
+    echo "ok: $sc_label: the scratch directory was cleaned up"
+  fi
+}
+scratch_cases() { # <label> <suite> <cause>
+  scratch_case "pooled: $1" "$2" "$3" -u PLANWRIGHT_TEST_IN_POOLED_FILE \
+    PLANWRIGHT_TEST_SLOT_DIR="$tmp/scratch-pool" PLANWRIGHT_TEST_SLOTS=1 PLANWRIGHT_TEST_JOBS=2
+  scratch_case "unpooled: $1" "$2" "$3" PLANWRIGHT_TEST_IN_POOLED_FILE=1
+  scratch_case "serial: $1" "$2" "$3" PLANWRIGHT_TEST_IN_POOLED_FILE=1 PLANWRIGHT_TEST_FORCE_SERIAL=1
+}
+scratch_cases "scratch removed mid-run" scratch-gone "is gone"
+# Root writes through any mode bits, so neither permission case can be staged.
+if [ "$(id -u)" -ne 0 ]; then
+  scratch_cases "scratch unwritable mid-run" scratch-ro "is not writable"
+  scratch_cases "scratch unsearchable mid-run" scratch-nx "is not searchable"
+else
+  echo "ok: scratch unwritable and unsearchable mid-run (skipped under root)"
+fi
 # 22. A runner that cannot load the clearing library, or cannot pin a listed
 #     variable, runs nothing and fails the file once, never against whatever
 #     the caller exported.

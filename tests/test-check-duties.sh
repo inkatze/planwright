@@ -230,6 +230,10 @@ program "program_alpha_sources: {code-state: forge:mirrored}"
 run_fixture
 expect_fail "REQ-H1.4: a map naming an unknown mode fails check:duties"
 expect_out "REQ-H1.4: the unknown mode is named" "mirrored"
+program "program_alpha_sources: {work-items: jira:snapshot, code-state: forge:snapshot}"
+run_fixture
+expect_fail "REQ-H1.4: a snapshot source with no registered adapter fails check:duties"
+expect_out "REQ-H1.4: the adapter-less source is named" "snapshot source 'jira' has no registered adapter"
 
 reset_mc_fixture
 sed -e 's/^mission_control_default_sources: .*/mission_control_default_sources: {work-items: specs:recorded}/' \
@@ -238,6 +242,14 @@ sed -e 's/^mission_control_default_sources: .*/mission_control_default_sources: 
 run_fixture
 expect_fail "REQ-H1.4: a default map naming an unknown mode fails"
 expect_out "REQ-H1.4: the default map's unknown mode is named" "recorded"
+
+reset_mc_fixture
+sed -e 's/^mission_control_default_sources: .*/mission_control_default_sources: {code-state: forge:snapshot, designs: figma:snapshot}/' \
+  -e 's/^mission_control_default_duties: .*/mission_control_default_duties: [alpha-duty]/' \
+  "$repo_root/config/defaults.yml" | grep '^mission_control_' >"$core/config/defaults.yml"
+run_fixture
+expect_fail "REQ-H1.4: a default map's snapshot source with no adapter fails"
+expect_out "REQ-H1.4: the default map's adapter-less source is named" "snapshot source 'figma' has no registered adapter"
 
 # A reader that fails without a word still fails the guard: a stub
 # mc-program.sh whose program duty read exits 1 silently.

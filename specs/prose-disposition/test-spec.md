@@ -1,7 +1,7 @@
 # Prose disposition — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-21
+**Last reviewed:** 2026-11-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -279,30 +279,41 @@ The shipped defaults are 12 and 25; the baseline file lists a
 `pending-cleanup` entry naming a cleanup task for every file the error
 threshold catches at landing, and `mise run check` is green with it.
 
+### REQ-F1.11 — The classifier counts function descriptions and widened reasons [test]
+
+A fixture block ending directly above a function definition classifies as
+`contract`; each added reason phrasing has a fixture drawn from the
+repository comment that motivated it and classifies as `rationale`; the
+usage text names the widened patterns.
+
 ## REQ-G — Cleanup and verification
 
 ### REQ-G1.1 — Ordering [design-level]
 
 Task 3 carries dependency edges on Task 2 and on every task that
 instantiates the amended rules in a skill (Tasks 10, 11 and 12), Task 4 on
-Tasks 2 and 3, and Tasks 5 through 8 on Tasks 2 and 4 in `tasks.md`, Task 5
-directly and Tasks 6 through 8 through Task 5; Tasks 4 through 8 reach the
-instantiation tasks through Task 3. The selector cannot dispatch any of
-them earlier.
+Tasks 2 and 3, and Tasks 5 through 8.1 on Tasks 2 and 4 in `tasks.md`, Task
+5 directly and Tasks 6 through 8.1 through Task 5; Tasks 4 through 8.1
+reach the instantiation tasks through Task 3. The selector cannot dispatch
+any of them earlier.
 
-### REQ-G1.2 — Phase A disposition and figures [test + manual]
+### REQ-G1.2 — Evidence-free disposition and figures [test + manual]
 
-Test: the CI `--code-invariant` step passes on the Phase A PR and
-`mise run check` is green with the reduced transitional baseline. Manual:
-the PR body carries before and after audit figures, the kept-block list
-whose length equals the after-audit's evidence-free count, and the
-independent pass's record over a sample of at least ten kept blocks across
-at least three files (or all if fewer) with every disagreement resolved.
+Test: the CI `--code-invariant` step passes on the Phase A PR (Task 5) and
+on the `tests/` evidence-free PR (Task 8.1), and `mise run check` is green
+on each. Manual: each PR body carries before and after audit figures, the
+kept-block list for its scope (every surface path outside `tests/` for
+Task 5, `tests/` for Task 8.1) whose length equals the after-audit's
+evidence-free count within that scope, the list in the body grouped by
+file or in a committed bundle file the body links, and the independent
+pass's record over a sample of at least ten kept blocks across at least
+three files (or all if fewer) with every disagreement resolved; Task 5
+touches no `tests/` file and Task 8.1 only `tests/` and the overflow file.
 
 ### REQ-G1.3 — Phase B disposition [manual]
 
-Each Phase B PR's verification record classifies every surviving block in
-its family by taxonomy reason, names each relocation's destination, and
+Each Phase B family PR's (Tasks 6 through 8) verification record
+classifies every surviving block in its family by taxonomy reason, names each relocation's destination, and
 lists each `exempt` entry with its reason.
 
 ### REQ-G1.4 — Comments only [test + manual]
@@ -315,7 +326,8 @@ the invariance result; the closeout PR carries no such scope.
 
 ### REQ-G1.5 — Independent verification [manual]
 
-Each Phase B PR body carries the second pass's record (fresh session or
+Each Phase B family PR body (Tasks 6 through 8; Task 8.1 is verified under
+REQ-G1.2) carries the second pass's record (fresh session or
 non-Anthropic backend named), confirming recoverability of every removed
 line, the reason of every surviving block, the destination of every
 relocation, and the reason of every `exempt` entry, with every

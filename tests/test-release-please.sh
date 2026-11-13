@@ -186,13 +186,14 @@ fi
 # future genuine invocation cannot hide merely by resembling them):
 #   - whole-line comments (leading `#`) are documentation, not code;
 #   - the Claude Code PERMISSIONS POLICY files, whose `gh pr merge` token is a
-#     DENY rule (it BANS merging) — the opposite of a violation. Both the worker
-#     policy (config/worker-settings.json) and the tower policy
-#     (config/tower-settings.json, fleet-hardening D-8) carry the deny, so both
+#     DENY rule (it BANS merging) — the opposite of a violation. The worker
+#     policy (config/worker-settings.json), the tower policy
+#     (config/tower-settings.json, fleet-hardening D-8) and the mission-control
+#     policy (config/mission-control-settings.json) carry the deny, so they
 #     are excluded by PATH and separately asserted to be a deny.
 # Note the detection code in scripts/tasks-pr-sync.sh uses the `gh_pr` wrapper
 # (underscore), which never matches the literal `gh pr merge` scanned here.
-POLICY_FILES="config/worker-settings.json config/tower-settings.json"
+POLICY_FILES="config/worker-settings.json config/tower-settings.json config/mission-control-settings.json"
 # The policy guard names the merge spellings to REFUSE them, like the
 # permissions files; it is excluded by path the same way and proven below to
 # deny them. The policy-class merge helper is the one agent merge call site
@@ -201,13 +202,16 @@ POLICY_FILES="config/worker-settings.json config/tower-settings.json"
 # the class admits only task branches (human-gates REQ-D1.9).
 GUARD_FILES="scripts/policy-guard.sh"
 HELPER_FILES="scripts/merge-admitted.sh"
+# Mission control's merge-ready list prints the checked merge command for the
+# operator to run; it is excluded by path and proven below never to run it.
+PRINT_FILES="scripts/mc-merge-ready.sh"
 # Fixed-string exclusion, not ERE: a path like config/worker-settings.json carries
 # a regex metacharacter (the "." before json). Under grep -E that "." is a wildcard,
 # so the exclusion would also swallow look-alike paths (config/worker-settingsXjson)
 # and could hide a real merge invocation in such a file. Build one -e fixed pattern
 # per policy file and match with grep -vF so only the exact paths are excluded.
 policy_exclude_args=()
-for pf in $POLICY_FILES $GUARD_FILES $HELPER_FILES; do
+for pf in $POLICY_FILES $GUARD_FILES $HELPER_FILES $PRINT_FILES; do
   policy_exclude_args+=(-e "/${pf}:")
 done
 merge_hits="$(
@@ -237,6 +241,26 @@ if [ -n "$class_at" ] && [ -n "$fall_at" ] && [ -n "$merge_at" ] \
   pass "C1.4 the merge helper's one merge call follows the class evaluation and its fall-through exit"
 else
   fail "C1.4 the merge helper's merge call is not gated by the class evaluation; re-verify the exclusion"
+fi
+# The printing script names the merge only as text: every occurrence sits in
+# its help heredoc or inside a printf format, none at a command position, and
+# the script evaluates no built string. Text checks cannot see every way to
+# run a variable, so tests/test-mc-merge-ready.sh also proves no run merges.
+PRINTER="$REPO_ROOT/$PRINT_FILES"
+help_start=$(grep -n "<<'HELP'\$" "$PRINTER" | head -1 | cut -d: -f1)
+help_end=$(grep -n '^HELP$' "$PRINTER" | head -1 | cut -d: -f1)
+print_hits=$(awk -v s="${help_start:-0}" -v e="${help_end:-0}" -v q="'" '
+  NR > s && NR <= e { next }
+  { l = $0; gsub("printf " q "[^" q "]*" q, "", l) }
+  l ~ /gh pr merge|pulls\/[^ ]*\/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge/ { print NR ":" $0 }' "$PRINTER" || true)
+if [ -n "$help_start" ] && [ -n "$help_end" ] && [ -z "$print_hits" ] \
+  && ! grep -qE '(^|[;&|(]|then|do|else)[[:space:]]*(eval|sh -c|bash -c)[[:space:]]' "$PRINTER" \
+  && ! grep -qE '\|[[:space:]]*((command|exec|env|builtin|nohup)[[:space:]]+)*([^[:space:]|]*/)?(sh|bash|zsh|dash|ksh|xargs|eval|source)([[:space:]]|$)' "$PRINTER" \
+  && ! grep -qE '(^|[^[:alnum:]_])(sh|bash|zsh|dash|ksh)[[:space:]]+(-[a-z]+[[:space:]]+)*<<<' "$PRINTER"; then
+  pass "C1.4 $PRINT_FILES only prints the merge command for the operator, never runs it"
+else
+  fail "C1.4 $PRINT_FILES names a merge outside its help or a printf, or evaluates a built string; re-verify the exclusion"
+  [ -z "$print_hits" ] || printf '%s\n' "$print_hits" >&2
 fi
 if grep -q "^readonly TASK_BRANCH_RE='^planwright/\[a-z0-9\]\[a-z0-9-\]\*/task-" "$REPO_ROOT/scripts/merge-class.sh"; then
   pass "C1.4 the class admits only task branches, so the helper never reaches a release PR"

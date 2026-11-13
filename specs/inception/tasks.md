@@ -240,7 +240,17 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Awaiting input
 
-(none yet)
+- **Task 17** — the dogfood needs a real venture and an operator at its
+  gates, which a dispatched worker cannot supply. Every layer it exercises
+  has landed (Tasks 7–16), and no venture exists under `ventures_root` yet.
+  Operator: run `/inception` on a real idea through bundle, validation
+  tasks and a gate outcome, sweeping the `[manual]` entries in
+  `test-spec.md` and the dogfood items the brief's execution findings hand
+  over; file observations per run and record whether format amendments are
+  needed. Draft PR #781 lists the checklist. Its post-PR step `cubic-pr`
+  is halted (record `.claude/steps/000001/003-step-post-pr.rec`): the
+  cubic quota is exhausted until 2026-11-05, and the operator's secondary
+  review stands in for it.
 
 ## Deferred
 

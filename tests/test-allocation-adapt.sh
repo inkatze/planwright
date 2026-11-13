@@ -31,6 +31,9 @@
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-allocation-adapt.sh
 set -eu
+# The usage gate reads the status-line mirror when present; a fixture never
+# reads the host's real one.
+export PLANWRIGHT_USAGE_MIRROR=""
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -378,8 +381,9 @@ run resolve stuck:unit --key drain --step s2 --attempt 1 --event flailing >/dev/
 last_state=""
 i=1
 while [ "$i" -le 3 ]; do
-  last_state=$(env_run "$FLV" crash-record stuck-worker spec-1 2>/dev/null | awk '{ print $1 }') \
+  crash_out=$(env_run "$FLV" crash-record stuck-worker spec-1 2>/dev/null) \
     || fail "13e: crash-record failed"
+  last_state=$(printf '%s\n' "$crash_out" | awk '{ print $1 }')
   i=$((i + 1))
 done
 [ "$last_state" = disabled ] \
@@ -972,11 +976,15 @@ echo "ok: a unit-scoped step-tier row is refused at append and flagged by health
 # --- 15i. the shipped config carries the step-type knobs -------------------
 
 for k in allocation_model_step_implementation allocation_effort_step_implementation \
-  allocation_model_step_polish allocation_effort_step_polish \
-  allocation_model_step_self_review allocation_effort_step_self_review; do
+  allocation_effort_step_polish allocation_effort_step_self_review; do
   grep -q "^$k:" "$real_cfg" || fail "15i: config/defaults.yml is missing '$k'"
   grep -qE "^$k: inherit\$" "$real_cfg" \
     || fail "15i: '$k' must ship 'inherit' so defaults reproduce today's behavior (D-13)"
 done
-echo "ok: every step-type knob ships the inherit sentinel"
+for k in allocation_model_step_polish allocation_model_step_self_review; do
+  grep -q "^$k:" "$real_cfg" || fail "15i: config/defaults.yml is missing '$k'"
+  grep -qE "^$k: sonnet\$" "$real_cfg" \
+    || fail "15i: '$k' must ship 'sonnet'"
+done
+echo "ok: step-type knobs ship inherit, review step models ship sonnet"
 echo "PASS: allocation-adapt ($(basename "$0"))"

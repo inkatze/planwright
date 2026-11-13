@@ -7,11 +7,12 @@
 #
 # Contract under test:
 #   next [--tower <id>] [--now <epoch>]
-#       At most one line: `knock<TAB>...` when a knock is due, `item<TAB>...`
-#       when the calling tower's attention is confirmed by its marker
-#       (a reply at or after its last knock and later than its last
+#       At most one hand-over: `knock<TAB>...` when a knock is due, an
+#       `item<TAB>...` line when the calling tower's attention is confirmed by
+#       its marker (a reply at or after its last knock and later than its last
 #       hand-over, within tower_quiet_interval), else nothing. Leases the
-#       item it names.
+#       item it names. These items name no subject, so each goes alone; the
+#       subject batch is test-tower-queue-batch.sh's.
 #   ack <id> [--tower <id>] [--now <epoch>]
 #       Closes the item; refused (exit 1, logged) without a lease; a logged
 #       no-op on a closed item; never releases the next.
@@ -135,6 +136,7 @@ run ack "$x1" --tower $A --now 1605 >/dev/null || fail "ack: exit"
 [ "$(rec "$x1" | cut -f 15)" = 1605 ] || fail "ack did not stamp the record"
 [ "$(lease_of "$x1")" = - ] || fail "ack did not release the lease"
 grep -q "\"kind\":\"acknowledged\",\"tower\":\"$A\".*\"item\":\"$x1\"" "$log_file" || fail "no acknowledged event"
+grep -q "\"kind\":\"acknowledged\",\"tower\":\"$A\".*\"item\":\"$x1\".*\"reason\":\"acknowledged by the operator\"" "$log_file" || fail "the acknowledged line carries no settling reason"
 out=$(run next --tower $A --now 1606) || fail "next after ack: exit"
 [ -z "$out" ] || fail "ack released the next item: '$out'"
 marker $A 1607

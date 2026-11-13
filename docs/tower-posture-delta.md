@@ -2,7 +2,8 @@
 
 The `/tower` front door runs under the same permission profile as an
 orchestrating tower, `config/tower-settings.json`. This document is the delta
-that extends that profile for the front door's own routine commands, written
+that extends that profile for the front door's own routine commands, and it
+records the deny entries the tower placement floor appends after them, written
 for the human sign-off a permission change needs. The extension adds guard
 shapes and deny entries only: the profile's `allow` list, its hooks,
 `defaultMode`, and every deny entry it carried before are unchanged.
@@ -124,8 +125,8 @@ before defer, in code the two guards share:
 
 ## The deny delta
 
-Eight entries are appended after the existing floor, which stays byte-identical
-and in order:
+The front-door entries are appended after the existing floor, which stays
+byte-identical and in order:
 
 - `mcp__*__merge_pull_request`, `mcp__*__update_pull_request`,
   `mcp__*__push_files`, `mcp__*__create_or_update_file`, and
@@ -151,8 +152,50 @@ and in order:
 The `gh api` spellings of the merge and the ready flip are the policy guard's
 (`scripts/policy-guard.sh`, wired with the `tower` tier), not this profile's.
 
+### Branch-moving and stash-writing denies
+
+The tower placement floor (`doctrine/fleet-coordination-floor.md`) appends a
+further block after those entries, so a tower moves no branch, no checkout's
+HEAD, and no shared stash, in any checkout, its own included, short of the
+stored-refspec residual below:
+
+- `git checkout`, `git switch`, and `git reset` in every form, path restores
+  and `reset --soft` included.
+- A branch rename or copy: `git branch` with `-m`, `-M`, `-c`, `-C`, `--move`,
+  or `--copy`, at the start or as a later word.
+- `git worktree add -B` on any branch, which force-resets a branch that
+  exists.
+- A `git symbolic-ref` write: `-d`, `--delete`, `-m`, or `HEAD refs/…`. A
+  one-name read is not denied.
+- A `git fetch` refspec whose destination is `refs/heads/…` or `heads/…`. A
+  fetch into the remote-tracking refs is not denied.
+- `gh pr checkout` (and its `co` alias) and `gh repo sync`.
+- Every `git stash` form except `stash list` and `stash show`: bare `git
+  stash`, an option-led push, and the `push`, `save`, `pop`, `apply`, `drop`,
+  `clear`, `branch`, `create`, and `store` subcommands.
+
+The globs cover the plain spellings only. The policy guard's `branch-move` and
+`stash-write` acts (and its `worktree` act, for `worktree add -B`) refuse each
+act in every spelling its option parser reads (git's global options,
+long-option prefixes, short clusters, ref forms, case, and repository
+aliases), a bare-name fetch destination (`main:main`) and an expansion among a
+fetch's words included. The guard also refuses forms no glob names: a
+`git fetch` or `git remote` run beside `-c` configuration, a `GIT_*`
+variable, or a config or remote change in the same command; a glob
+destination that can reach `refs/heads/`; `git remote add -f` into a fetch
+mirror; `gh co` (gh's default alias of `pr checkout`); and an alias it cannot
+read. `tests/fixtures/tower-deny-acts.tsv` maps each entry to its act. Plain
+branch creation and deletion, with an expanded branch name placed after `--`,
+the commit family, `git restore`, and `git clean` stay outside the floor.
+
 ## Residuals
 
+- **A fetch refspec already stored.** The guard does not read
+  `remote.<r>.fetch`, so a plain `git fetch <r>` or `git remote update`
+  follows whatever mapping is already configured there; one written to map
+  into `refs/heads/` before the tower ran would advance local branches. The
+  guard refuses every way the tower could set such a mapping in the same
+  command, not one set earlier.
 - **Same-named tools elsewhere.** A glob also denies a tool that shares one of
   these names on a server that is not GitHub (a drive's `delete_file`, for
   one). The tower needs none of them; the worker profile is not changed.

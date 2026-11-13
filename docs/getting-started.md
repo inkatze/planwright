@@ -38,6 +38,10 @@ flag instead:
 claude --plugin-dir /path/to/planwright
 ```
 
+An installed planwright still loads beside it. To try a branch as a newcomer
+would, isolated from your own configuration and fleet, follow
+[Trying a branch in a fresh session](CONTRIBUTING.md#trying-a-branch-in-a-fresh-session).
+
 Validate a manifest you are hacking on with `claude plugin validate
 /path/to/planwright` (add `--strict` to treat unknown fields as errors).
 
@@ -226,7 +230,9 @@ Run it inside your repository; `<planwright>` is planwright's install root
 then land in `~/spec-holder/acme/<feature>/`, while task branches and task
 pull requests stay in your repository (the spec's own branch and PR live in
 the holder). The options, the three postures, and what each changes are in
-[Spec location](spec-location.md).
+[Spec location](spec-location.md). To drive a spec's tasks from the holder
+itself, sending each task to the repository it names, see
+[Running from a holder](spec-location.md#running-from-a-holder).
 
 ## 4. The controls you keep
 
@@ -335,7 +341,10 @@ policy and the altitude split behind it live in the doctrine.
    `autorelease: pending` to `autorelease: tagged` (best-effort — a failure here
    only warns, it never blocks the publish) so release-please's own state
    tracking stays in sync and doesn't deadlock on the next run. The window
-   closes and the required check goes green.
+   closes and the required check goes green; where the repository has the
+   lock, the command also re-runs it on each open pull request whose latest run
+   of it failed (best-effort too), since a pull request's check never re-runs
+   by itself.
 
 Merge (step 2) and publish (step 4) are the two irreversible, externally-visible
 acts; both are always conscious human steps. planwright automates everything up

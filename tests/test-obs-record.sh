@@ -49,7 +49,8 @@
 #      containment units — entries/ a symlink escaping to an existing dir, and
 #      to a non-existent target (proving the escape target is never
 #      materialized as a side effect), and the observations root itself a
-#      symlink (the obs-dir guard, refused before canonicalization); plus a
+#      symlink (the obs-dir guard, refused before canonicalization), and
+#      archive/ a symlink (the duplicate scan reads it); plus a
 #      hyphen-leading --obs-dir refused before mkdir/cd (a bare '-' would make
 #      `cd "$obsdir"` a `cd -` that roots the store at $OLDPWD).
 #  11. Exit-code contract (REQ-A1.6, D-6): missing required flags, an unknown
@@ -78,7 +79,10 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+EMITTER_LINT_ROOT=$(cd "$here/.." && pwd -P)
 REC="$here/../scripts/obs-record.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 
@@ -175,6 +179,11 @@ esac
 # The one-line entry form is the fragment's content.
 [ "$(cat "$frag")" = "- 2026-07-09 [planwright] a real observation" ] \
   || fail "1: fragment content is not the expected one-line entry form"
+if lint_emitted markdown obs-record.sh "$frag"; then
+  echo "ok 1b: the fragment lints clean as markdown"
+else
+  fail "1b: the fragment fails the markdown lint"
+fi
 # The only paths added are entries/ contents (the dir pre-existed).
 printf '%s\n' "$before" >"$tmp/before1"
 printf '%s\n' "$after" >"$tmp/after1"
@@ -582,6 +591,19 @@ _rc=0
 [ "$_rc" -eq 1 ] || fail "10: a symlinked obs-dir root expected exit 1, got $_rc"
 [ "$(frag_count "$escroot")" -eq 0 ] \
   || fail "10: a fragment escaped through the symlinked obs-dir root"
+
+# archive/ a symlink to an outside dir: the duplicate scan reads archive/, so
+# it is refused like entries/, and nothing is recorded.
+oa="$tmp/o10a"
+escarch="$tmp/escape10a"
+mkdir -p "$oa" "$escarch"
+ln -s "$escarch" "$oa/archive"
+_rc=0
+"$REC" --obs-dir "$oa" --slug ok --scope planwright --text 'x' \
+  --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "10: a symlinked archive/ expected exit 1, got $_rc"
+[ "$(frag_count "$oa/entries")" -eq 0 ] \
+  || fail "10: a fragment was recorded beside a symlinked archive/"
 
 # Echo-discipline on the --obs-dir failure path: a mkdir that fails names the
 # caller-supplied path on its own stderr, so the helper suppresses it (only the

@@ -10,11 +10,18 @@
 #   $repo      fixture git repository; $tracked its .claude/planwright.yml
 #   $adopter   the adopter overlay root
 #   $fixhome   HOME for the scripts under test
+#   $fleet     the fleet home (PLANWRIGHT_FLEET_STATE_DIR) the runtime
+#              scripts keep their state and events under
+#   mc_env <command...>         exec a command against the fixture (in a
+#                               subshell only)
 #   mc_run <script> [args...]   run scripts/<script> against the fixture;
 #                               sets RC, OUT (stdout) and ERR (stderr)
 
 # The runner resolves paths through a cd in a command substitution.
 unset CDPATH
+# A suite run from a git hook inherits the hook's repository selectors,
+# which would point the fixture repository's setup at the caller's.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 : "${tmp:?set tmp before sourcing}" "${repo_root:?set repo_root before sourcing}"
 
@@ -22,15 +29,17 @@ core="$tmp/core"
 repo="$tmp/repo"
 adopter="$tmp/adopter"
 fixhome="$tmp/home"
+fleet="$tmp/fleet"
 tracked="$repo/.claude/planwright.yml"
 mkdir -p "$core/config" "$core/doctrine" "$repo/.claude/catalogs" "$adopter/catalogs" "$fixhome" "$tmp/claude"
 git -C "$repo" init -q
 
 # write_core_defaults: the mission-control knobs as the shipped defaults set
-# them, plus any extra lines on stdin.
+# them, with the daemon gate and quota knobs the runtime scripts read, plus
+# any extra lines on stdin.
 write_core_defaults() {
   {
-    grep '^mission_control_' "$repo_root/config/defaults.yml"
+    grep -E '^(mission_control_|fleet_daemon_pause:|quota_ledger_retention_days:)' "$repo_root/config/defaults.yml"
     cat
   } >"$core/config/defaults.yml"
 }
@@ -64,22 +73,48 @@ duties:
 EOF
 }
 
+# write_core_adapters: the shipped snapshot-adapters seed.
+write_core_adapters() {
+  cp "$repo_root/config/snapshot-adapters.yaml" "$core/config/snapshot-adapters.yaml"
+}
+
+# write_mc_posture_pass: a fixture user settings layer that passes the
+# posture check scripts/mission-control-launch.sh runs before a launch: the
+# shipped mission-control profile, its guard hooks by absolute path.
+write_mc_posture_pass() {
+  mkdir -p "$fixhome/.claude"
+  jq --arg r "$repo_root" '(.. | objects | select(has("command")) | .command) |= gsub("\"\\$CLAUDE_PLUGIN_ROOT\""; $r)' \
+    "$repo_root/config/mission-control-settings.json" >"$fixhome/.claude/settings.json"
+}
+
 reset_mc_fixture() {
   write_core_defaults </dev/null
   write_core_duties
+  write_core_adapters
   : >"$tracked"
-  rm -f "$repo/.claude/catalogs/duties.yaml" "$adopter/catalogs/duties.yaml" "$adopter/planwright.yml"
+  rm -f "$repo/.claude/catalogs/duties.yaml" "$adopter/catalogs/duties.yaml" "$adopter/planwright.yml" \
+    "$repo/.claude/catalogs/snapshot-adapters.yaml" "$adopter/catalogs/snapshot-adapters.yaml"
+}
+
+# mc_env <command...>: exec a command in the fixture's repository with every
+# layer pointed at the fixture and the host's plugin context cleared. It
+# replaces the shell it runs in, so call it only in a subshell: a command
+# substitution, or in the background, where $! is then the command itself.
+mc_env() {
+  cd "$repo" && exec env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+    -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
+    -u XDG_CONFIG_HOME -u PLANWRIGHT_MC_CHECKED -u PLANWRIGHT_MC_PROGRAM -u PLANWRIGHT_MC_DUTY \
+    -u PLANWRIGHT_MC_TARGET -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN \
+    PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
+    PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
+    "$@"
 }
 
 mc_run() {
   mc_script=$1
   shift
-  OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
-    -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
-    -u XDG_CONFIG_HOME \
-    PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
-    /bin/bash "$repo_root/scripts/$mc_script" "$@" 2>"$tmp/stderr")
+  OUT=$(mc_env /bin/bash "$repo_root/scripts/$mc_script" "$@" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
 }

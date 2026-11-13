@@ -11,6 +11,10 @@
 #   DEFER  <=> exit 0 AND stdout is empty/whitespace (no decision).
 #   The hook NEVER exits non-zero and NEVER emits deny/ask (REQ-A1.2, B1.7).
 #
+# Hermetic: sourcing pins TMPDIR to /tmp, builds the sandbox there and drops
+#   an inherited PLANWRIGHT_WORKER_SESSION_RECORD, so a suite run inside a
+#   worker session does not have its fixtures approved by the scratch arm.
+#
 # Sourcing runs setup: it exits the sourcing suite (status 1) when jq or the
 # hook is absent, and removes the sandbox on exit. finish_suite prints the
 # counts and sets the suite's exit status.
@@ -45,7 +49,15 @@ fi
 
 # Default cwd for containment: a scratch repo with a .git marker and a
 # scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
-SANDBOX="$(mktemp -d)" || exit 1
+# The base is a fixed system directory and TMPDIR is pinned to it, never the
+# caller's: run from inside a worker session, that TMPDIR is the scratch root
+# the guard's scratch arm trusts, and fixtures under it would be approved by
+# design. The session record the shell inherited is dropped for the same reason
+# (a fixture that needs one sets it through HOOK_ENV, which wins).
+TMPDIR=/tmp
+export TMPDIR
+unset PLANWRIGHT_WORKER_SESSION_RECORD
+SANDBOX="$(mktemp -d /tmp/worker-command-guard-harness.XXXXXX)" || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 : >"$SANDBOX/.git" # worktree-style .git file marker
@@ -85,11 +97,14 @@ ln -sf "$SANDBOX/install/outside/evil.sh" "$PLUGIN_ROOT/scripts/evillink.sh"
 HOOK_ENV=()
 
 # write_record <file> <worktree-root> [policy] [unit-branch]: a session record
-# as the launcher writes it (scripts/worker-session-record.sh), for a fixture
-# to hand the hook through HOOK_ENV as PLANWRIGHT_WORKER_SESSION_RECORD.
+# as the launcher writes it (scripts/worker-session-record.sh), with an audit
+# home of its own at <file>.audit, for a fixture to hand the hook through
+# HOOK_ENV as PLANWRIGHT_WORKER_SESSION_RECORD.
 write_record() {
+  mkdir -p -- "$1.audit" || return 1
   printf '%s\n' "policy=${3-}" "unit_branch=${4:-planwright/demo/task-1}" \
-    "worktree_root=$2" "pr_base=origin/main" "worker_base_merge=allow" >"$1"
+    "worktree_root=$2" "pr_base=origin/main" "worker_base_merge=allow" \
+    "audit_log_home=$(cd -P -- "$1.audit" && pwd -P)" >"$1"
 }
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE

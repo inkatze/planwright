@@ -11,7 +11,10 @@ By contributing you agree your contributions are licensed under the project's
 [MIT license](../LICENSE) (inbound = outbound). Keep changes free of secrets,
 credentials, internal hostnames, or sensitive operational detail — committed
 artifacts (specs, briefs, the observations log, PR bodies) are held to the same
-data-hygiene bar, and CI runs a secret scan.
+data-hygiene bar, and CI runs a secret scan. The common archive and
+office-document types `.gitignore` lists are ignored repo-wide, so a stray one
+in a checkout stays out of `git add -A`; keep such files under
+`.claude/<name>.local/`, and add a genuine fixture with `git add -f`.
 
 ## Two sizes of change
 
@@ -55,6 +58,37 @@ is what the customization-overlay seam is for (see
 [getting-started.md §4](getting-started.md)); baking local preferences into core
 makes it less general for everyone and pollutes the upstream observation stream.
 
+## Trying a branch in a fresh session
+
+To see what a newcomer sees with a branch's planwright (first-run setup
+included), start a session from a plain terminal, not from inside a planwright
+session, whose shell carries fleet and worker variables:
+
+```bash
+wt=/path/to/planwright-checkout   # the branch under test
+ov=$(mktemp -d) data=$(mktemp -d) mch=$(mktemp -d) repo=$(mktemp -d)
+printf 'mission_control_home_root: %s\n' "$mch" >"$ov/planwright.yml"
+git -C "$repo" init -q && cd "$repo"
+export PLANWRIGHT_ROOT="$wt" PLANWRIGHT_ADOPTER_OVERLAY="$ov" \
+  CLAUDE_PLUGIN_DATA="$data" PLANWRIGHT_FLEET_STATE_DIR="$data/fleet"
+"$wt/scripts/mc-config.sh" entry   # prints first-run
+claude --plugin-dir "$wt" \
+  --settings '{"enabledPlugins":{"planwright@planwright":false}}'
+```
+
+- **`--plugin-dir` does not replace an installed planwright.** Both load, the
+  checkout as `planwright@inline`, so two copies of every skill and hook would
+  run. The `--settings` override disables the installed one for this session
+  only; `claude plugin list --json`, given the same flags, shows which is
+  enabled.
+- **Each variable isolates one piece of state.** `PLANWRIGHT_ROOT` makes the
+  scripts resolve the checkout rather than an install; the empty adopter
+  overlay and plugin-data directory hide your own configuration, programs and
+  fleet; `mission_control_home_root` keeps the program's knowledge base out of
+  `~/.config/planwright/`. The fresh repository has no repo-side overlay.
+  `HOME` stays put, so the session keeps your sign-in.
+- **Clean up** with `rm -rf "$ov" "$data" "$mch" "$repo"`.
+
 ## The quality gate
 
 Everything must pass the same gate CI enforces:
@@ -80,7 +114,7 @@ mise run check      # the full local equivalent of the CI gate
   snapshots, and the machine-local memory-link guard over spec files;
 - the spec validator over the resolved spec root (`specs/` by default), the
   anchor-freshness guard over every signed bundle, the observation-store guard,
-  and the miss-ledger grammar guard;
+  the miss-ledger grammar guard, and the platform-claims register guard;
 - the literal spec-home guard (`check:spec-literals`): a `specs/` path composed
   in a script, a hook, a `mise.toml` task body, `lefthook.yml`, `.gitignore`,
   or a workflow fails unless `config/spec-literal-allowlist.tsv` exempts it or
@@ -97,9 +131,9 @@ mise run check      # the full local equivalent of the CI gate
   where it describes sessions that launcher created before the change, the
   prior launcher), since the tmux rung launches its worker in a detached
   session of its own;
-- the CI posture guards: the fork-PR workflow-posture check, the transitive
-  CI-eval exclusion over the workflows and the task graph, and the
-  glob-allow-rule discipline check;
+- the CI posture guards: the fork-PR and platform-matrix workflow-posture
+  check, the transitive CI-eval exclusion over the workflows and the task
+  graph, and the glob-allow-rule discipline check;
 - the house-pattern checks: `unset CDPATH` before a `cd` in command
   substitution, printf over echo for any expanded value in a file whose
   shebang does not name bash or that turns on bash's `xpg_echo` (an `echo`
@@ -108,8 +142,31 @@ mise run check      # the full local equivalent of the CI gate
   test before every source of `scripts/echo-safety.sh`, and every
   `scripts/*.sh` committed at the mode its first line declares (100755 with a
   shebang, 100644 for a shebang-less sourced library), read from the git index;
+- the scripted shell rules (`scripts/check-shell-*.sh`, one `check:shell-*`
+  task each) over `scripts/`, `githooks/` and `tests/lib/`: each rule's
+  `--help` states what it flags, and a site it should pass is exempted with
+  `# <rule-id>: <reason>` trailing the line or directly above it (the
+  catalog's other `shell-*` rules ride shellcheck, `check:echo-discipline`
+  and `check:lock-primitive`, each with its own annotation, named in
+  `config/guard-catalog.yaml`);
+- the emitter output linting guard (`check:emitter-lint`): a script whose
+  header (its first 40 lines) declares `# Emits: markdown`, `yaml` or
+  `shell` must be linted in that format by some `tests/*.sh` suite through
+  `tests/lib/emitter-lint.sh`'s `lint_emitted <format> <script-name> <file>`,
+  and every such call must name a declared script and format;
+- the count-versus-list check (`check:counts`): a count stated in the
+  sentence introducing a Markdown list or table equals its length, over the
+  tracked doctrine, skill, docs, Draft-bundle and `specs/_pending/` prose,
+  with exemptions in `scripts/check-counts-exempt.tsv`;
+- the test-vacuity check (`check:test-vacuity`): no `tests/test-*.sh` file
+  asserts only absences, and no test under `tests/` reads a status from a
+  pipeline's filter stage or past an always-true alternative, compares an
+  operand to itself, or runs a corpus loop with no row floor; an exclusion
+  is a `# vacuity-ok: <reason>` annotation on the reported line;
 - the shebang-honoring invocation check (`check:script-invocation`): no line in
-  a skill or doctrine doc runs a script whose shebang names bash through `sh`;
+  a skill or doctrine doc runs a script whose shebang names bash through `sh`,
+  and every script a code span or fenced line there runs is run as its `#
+  Usage` header says (the header grammar is in `config/guard-catalog.yaml`);
 - the bash 3.2 construct lint (`check:bash32`): macOS ships bash 3.2 as
   `/bin/bash` and `/bin/sh`, and it misparses constructs inside a `$( )`
   such as a heredoc whose body it lexes unbalanced and a `case` pattern
@@ -123,20 +180,32 @@ mise run check      # the full local equivalent of the CI gate
   runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must
   be reachable from the aggregate (`check:task-registration`), so a guard task
   can never exist only in CI logs;
-- the instruction-budget guard over skills and doctrine, and the advisory
-  emit-sidedness report.
+- the instruction-budget guard over skills and doctrine, the comment-block
+  budget guard over the comments in shell, config YAML, root tool config and
+  workflow files, and the advisory emit-sidedness report.
 
 The `check` task's `depends` list in `mise.toml`, with the `check:non-test`
 aggregate it names, is the authoritative inventory; the two registration
 guards are what keep it complete. GitHub Actions runs the same gate on every
 pull request, split across parallel jobs: a `lint` job runs `check:non-test`,
-three `test` jobs each run a shard of the suite (`scripts/run-tests.sh
---shard <i>/3`), and the `check` job, the status branch protection reads,
-passes only when they all do and the test-time budget gate passes over the
-three shards' timing reports together. It also runs two checks outside
-`mise run check`: the awk-sensitive suites on macOS, and a parse of every
-tracked shell file (outside `tests/fixtures/bash32/`) under the real bash 3.2,
-a step of the `lint` job in Docker's official `bash:3.2` image pinned by
+a `plan` job picks the shard count (`scripts/run-tests.sh --plan-shards`,
+below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
+--shard <i>/<N>`), the `macos-suite` and `alpine-suite` jobs run the suite
+in shards of their own on macOS (the system bash 3.2 and BSD userland; a
+small fixed count on GitHub's scarce hosted runners, or, once the
+`PLANWRIGHT_MAC_RUNNER` repository variable enables it, one shard on the
+offload Mac's self-hosted runner for this repository's own branches, as
+[`ci-self-hosted-mac.md`](ci-self-hosted-mac.md) describes) and in an Alpine container
+(musl, dash, busybox; the planned count), and the `check` job, the status
+branch protection reads, passes only when every one of those jobs and shards
+does and the test-time budget gate passes over every Linux shard's timing
+report together. The install smoke (`scripts/install-smoke.sh`, installing
+through both delivery modes and running an adopter entry point with PATH
+narrowed to the allowlist the script defines: sh and bash with the POSIX
+utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
+the `macos-smoke` job, and in every Alpine shard. CI also runs a parse
+of every tracked shell file (outside `tests/fixtures/bash32/`) under the real
+bash 3.2, a step of the `lint` job in Docker's official `bash:3.2` image pinned by
 digest in `.github/workflows/ci.yml`. To reproduce the parse, set
 `BASH32_IMAGE` to that job's `env` value and run the step's `run:` block,
 the `git ls-files` pipe included; to refresh the image, edit only that
@@ -213,14 +282,15 @@ new head.
 `mise run test` also persists a per-file timing report (`tests/.timing-report.tsv`,
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
-ceiling for every test file, one for the suite's wall-clock (in CI, where the
-suite runs in shards, the shards' wall-clocks summed), and in CI one for the
-slowest shard's wall-clock. A measured time
-at or over its budget trips. Each file's row records its execution time and,
-separately, how long it waited for a test-pool ticket (below); the per-file
-budget reads the execution time only, while the suite wall-clock includes the
-waiting. On GitHub Actions, the reference runner the budgets
-are measured on, that fails CI's `check` job; on a dev box it only warns, loudly,
+ceiling for every test file, one for the mean file time over the whole suite,
+and in CI one for the slowest Linux shard's wall-clock. A measured time at or over
+its budget trips. The mean does not grow with the file count, so adding tests
+is free; a suite that gets slower per file trips it. Each file's row records
+its execution time and, separately, how long it waited for a test-pool ticket
+(below); the per-file and mean-per-file budgets read the execution time only,
+while a shard's wall-clock includes the waiting. On GitHub Actions, the
+reference runner the budgets are measured on, an overrun fails CI's `check`
+job; on a dev box it only warns, loudly,
 because local timings measure your machine's contention rather than the file.
 
 A budget is raised only as a conscious, reviewed edit in the PR that needs it,
@@ -237,15 +307,24 @@ there (a new one, say) starts ahead of every timed file. The table only orders
 the queue: every file still runs exactly once, and nothing in it is a budget.
 The order is exact on CI; on a dev box where other suites hold test-pool
 tickets it is best effort, since waiting files take tickets as they free up.
-When it drifts, regenerate it from reference-runner CI logs rather than editing
-it by hand. CI splits the suite across shard jobs by this table, and one
-runner can run its whole shard slow, so give it the `check` job logs of
-several green runs; each file takes the median of their times:
+CI splits the suite across shard jobs by this table, and plans how many shards
+to run from it: the `plan` job runs `scripts/run-tests.sh --plan-shards`, which
+predicts the suite's time and divides it by the runner's cores times
+`shard_target_seconds` in the budget file, so the shard count grows with the
+suite and no shard's wall-clock creeps toward its budget. When the table
+drifts (the timing gate warns once more than `untimed_warn_percent` of the
+suite has no row), regenerate it from CI rather than editing it by hand:
 
 ```bash
-gh run view --job <check-job-id> --log > run1.log   # one per run
-scripts/refresh-test-durations.sh run1.log run2.log run3.log
+mise run test:refresh-durations
 ```
+
+That downloads the shard timing reports of the last five main runs whose shard
+jobs all passed (`gh` must be signed in; it warns when the last twenty
+completed runs hold fewer) and gives each file the median of its
+times, since one runner can run its whole shard slow.
+`scripts/refresh-test-durations.sh` also takes `check` job logs or a local
+timing report directly.
 
 ### The machine-wide test pool
 
@@ -270,7 +349,12 @@ test file a sentinel fleet home (`PLANWRIGHT_FLEET_STATE_DIR`, and
 there by the time it exits. Pin a fixture home per case with `fleet_home_pin` from
 [`tests/lib/hermetic-env.sh`](../tests/lib/hermetic-env.sh), whose
 `fleet_home_leaked` also lets a suite run on its own check that it left the
-inherited registry alone.
+inherited registry alone. A worker's scratch root lies outside its fleet home,
+in `/tmp/planwright-<uid>` unless `PLANWRIGHT_FLEET_SCRATCH_BASE` names
+another directory (this user's, closed to everyone else), so
+the runner also points that variable into the file's sentinel; a suite that
+scrubs `PLANWRIGHT_*` and launches workers sets its own, or its roots outlive
+its fixture.
 
 ### Tests pass on the code, not on the host
 
@@ -373,10 +457,25 @@ recorded before the 2026-07-26 header-`**Status:**` exclusion (or with the
 interim whole-file form) mismatches over content nobody edited and takes the
 one-time self-re-anchor described in `doctrine/spec-format.md`.
 
+### The comment-budget mirror at commit time
+
+`scripts/check-comment-budget.sh` runs as a second `pre-commit` job through
+the same wiring, measuring only the staged files of its surface. It has the
+same posture as the anchor-freshness mirror: best-effort, reading the working
+tree rather than the staged index, with `mise run check` in CI as the
+normative gate. The rule it enforces is
+[comment-hygiene](../doctrine/comment-hygiene.md).
+
 ### Commit and PR conventions
 
 - **Conventional commits** (`type(scope): subject`) — enforced on commits ahead
   of `origin/main` and on the PR title.
+- **A `comments` scope declares a comment-only PR** (`type(comments):
+  subject`). CI then requires every code line of the comment-budget guard's
+  surface files to match the base (`check-comment-budget.sh
+  --code-invariant`). CI reads the title when it runs but does not run again
+  on a title edit, so after retitling a PR into or out of that scope, push or
+  re-run its checks.
 - **Pushed history is append-only**, outside the operator-requested
   force-push and secret-purge gates
   ([the floor](../doctrine/human-gates.md#the-floor)). Rewriting `main`, a

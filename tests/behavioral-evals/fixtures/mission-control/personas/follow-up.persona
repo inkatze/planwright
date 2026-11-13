@@ -1,0 +1,8 @@
+# follow-up.persona — a promise becomes a row with owner and trigger; the trigger starts the work; the row closes only with evidence.
+arm=REQ-F1.10
+expertise=expert
+answer.1=@event:promise owner=operator trigger=friday what=check-release
+answer.2=@event:row-evidence evidence=too-early
+answer.3=@event:trigger-fired
+answer.4=@event:row-evidence evidence=release-tagged
+answer.5=that's all

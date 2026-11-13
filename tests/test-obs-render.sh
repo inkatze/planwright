@@ -41,7 +41,10 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/hermetic-env.sh
 . "$here/lib/hermetic-env.sh"
+EMITTER_LINT_ROOT=$(cd "$here/.." && pwd -P)
 REN="$here/../scripts/obs-render.sh"
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$here/lib/emitter-lint.sh"
 
 fail() {
   printf '%s\n' "FAIL: $1" >&2
@@ -125,6 +128,11 @@ cmp -s "$tmp/out2" "$tmp/golden2" \
   || fail "2: --archived output does not byte-match the golden view:
 $(diff "$tmp/golden2" "$tmp/out2" || true)"
 echo "ok 2: --archived interleaves archive/ fragments in the total order"
+if lint_emitted markdown obs-render.sh "$tmp/out2"; then
+  echo "ok 2b: the rendered view lints clean as markdown"
+else
+  fail "2b: the rendered view fails the markdown lint"
+fi
 
 # --- 3. Pure function: two runs identical, tree untouched ----------------
 

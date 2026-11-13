@@ -13,8 +13,10 @@
 # a failed dispatch produces a visible failure report and a nonzero exit,
 # never a silent drop (REQ-C1.5).
 #
-# Subcommands:
-#   dispatch <backend> <prompt-file>
+# Usage:
+#   offload-dispatch.sh dispatch <backend> <prompt-file> [--unit <id>]
+#       [--key <selection-key>] [--strict-tier] [--profile <kind>]
+#       [--name <name>] [--scope <scope>]
 #       Dispatch the petition in <prompt-file> to <backend> and emit the
 #       report. Drivable rungs:
 #         tmux   — `tmux new-window -d` running an interactive `claude` worker
@@ -33,7 +35,45 @@
 #       have their own dispatch primitives, driven through `/orchestrate`
 #       (fleet-dispatch-headless.sh, fleet-streamjson.sh), not this skill.
 #
-#   report <backend> <handle>
+#       Options, for a caller that launches a session kind rather than a
+#       petition (scripts/mission-control-launch.sh):
+#         --key <selection-key>  resolve the launch tier at this allocation
+#                    key instead of `offload`
+#         --strict-tier  refuse (exit 6) where an unreachable allocation store
+#                    would otherwise launch at the ambient tier
+#         --profile worker|tower|mission-control  (tmux only) launch through
+#                    fleet-dispatch-env.sh with that shipped settings profile,
+#                    resolved by scripts/fleet-launch-profile.sh; an
+#                    unreadable profile refuses the dispatch (exit 2)
+#         --mc-token <token>  (tmux only) the mission-control launcher's
+#                    row token, letters, digits and . _ -; handed to a
+#                    mission-control-profile window alone, and the only
+#                    source of one (an inherited PLANWRIGHT_MC_TOKEN is
+#                    dropped)
+#         --name <name>  (tmux only) the session and window name, in the
+#                    stream-json-persistent handle grammar
+#         --remote-control <name>  (tmux only, mission-control profile only)
+#                    start the session with Remote Control under <name>, in the
+#                    stream-json-persistent handle grammar; any other profile
+#                    refuses it (exit 2)
+#         --scope <scope>  (tmux only) the worker scope a worker-profile
+#                    session's identity carries beside --name (default
+#                    offload); the wrapper is pinned to this install's root
+#                    and accepts inbound messages, and only a worker-profile
+#                    session carries the worker identity
+#
+#       A unit session launched headless (its launch record, read through
+#       PLANWRIGHT_WORKER_SESSION_RECORD, says launch_backend=stream-json or
+#       headless-oneshot and names a unit branch) is refused `tmux` (exit 2): an isolated step takes
+#       its unit's own backend, and a tmux window would open in the operator's
+#       session.
+#
+#   offload-dispatch.sh launch-backend
+#       Print the backend the calling session was launched on, for an isolated
+#       step to inherit: `stream-json-persistent` or `headless-oneshot` for a
+#       headless launch, else `interactive`.
+#
+#   offload-dispatch.sh report <backend> <handle>
 #       Emit the standardized report for an already-dispatched worker (the
 #       harness-native rungs, or a re-report of a known handle). Backends:
 #       tmux, subagent.
@@ -65,7 +105,8 @@
 # launch-tier resolver and the second also raised here when its plan is missing
 # a row this reads or carries an out-of-enum tier; 2 usage /
 # hostile input / refused backend / missing, empty, unreadable, or unsafe
-# prompt file / a missing sibling helper / internal resolution failure.
+# prompt file / a missing sibling helper / internal resolution failure; 6 the
+# allocation store is unreachable under --strict-tier.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, input
 # treated as data only (REQ-K1.5). Pathname expansion is disabled (set -f) so
@@ -134,7 +175,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] | report <backend> <handle>>" >&2
+  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--mc-token <token>] [--name <name>] [--scope <scope>] | report <backend> <handle> | launch-backend>" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -150,6 +191,14 @@ usage() {
 # --------------------------------------------------------------------------
 TIER_MODEL=inherit
 TIER_EFFORT=inherit
+D_KEY=offload
+D_STRICT=0
+D_PROFILE=''
+D_MC_TOKEN=''
+D_NAME=''
+D_REMOTE_CONTROL=''
+D_SCOPE=offload
+D_SCOPE_SET=0
 
 resolve_tier() {
   # $1 backend, $2 unit
@@ -157,8 +206,12 @@ resolve_tier() {
     printf '%s\n' "$me: required helper $apply_helper missing or not readable" >&2
     exit 2
   fi
-  rt_plan=$(/bin/sh "$apply_helper" plan --key offload --backend "$1" --unit "$2")
+  rt_plan=$(/bin/sh "$apply_helper" plan --key "$D_KEY" --backend "$1" --unit "$2")
   rt_rc=$?
+  if [ "$rt_rc" -eq 6 ] && [ "$D_STRICT" = 1 ]; then
+    printf '%s\n' "$me: dispatch: the allocation store is unreachable, so no launch tier resolves; --strict-tier refuses the dispatch" >&2
+    exit 6
+  fi
   if [ "$rt_rc" -ne 0 ]; then
     # ONLY an unreachable allocation store degrades, and it says so on its own
     # exit code (6). That is an availability question: refusing to dispatch
@@ -362,10 +415,42 @@ cmd_report() {
   emit_hints "$backend" "$handle"
 }
 
+# record_value <key>: the value of the one `<key>=` line of the calling
+# session's launch record (PLANWRIGHT_WORKER_SESSION_RECORD), empty when there
+# is no readable regular record or the key repeats. Read as data, never executed.
+record_value() {
+  rv_rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
+  [ -n "$rv_rec" ] && [ -f "$rv_rec" ] && [ ! -L "$rv_rec" ] && [ -r "$rv_rec" ] || return 0
+  rv_val=$(sed -n "s/^$1=//p" "$rv_rec" 2>/dev/null)
+  # A key the record repeats reads as unset, as the worker command guard reads it.
+  case $rv_val in
+    *"$nl"*) return 0 ;;
+  esac
+  printf '%s\n' "$rv_val"
+}
+
+# The backend the calling session was launched on, for an isolated step to
+# inherit: a headless launch names its backend, anything else is interactive.
+cmd_launch_backend() {
+  case $(record_value launch_backend) in
+    stream-json) printf '%s\n' stream-json-persistent ;;
+    headless-oneshot) printf '%s\n' headless-oneshot ;;
+    *) printf '%s\n' interactive ;;
+  esac
+}
+
 cmd_dispatch() {
   backend=$1
   promptfile=$2
   unit=${3:-}
+  # A unit session launched headless hosts its isolated step headless: a tmux
+  # window would open in the operator's session. A launcher session (a hub, no
+  # unit branch in its record) is not bound by this.
+  if [ "$backend" = tmux ] && [ -n "$(record_value unit_branch)" ] \
+    && [ "$(cmd_launch_backend)" != interactive ]; then
+    printf '%s\n' "$me: dispatch: this session was launched headless ($(cmd_launch_backend)), so its isolated step is hosted headless, never in a tmux window; use the headless backend stream-json-persistent (scripts/fleet-streamjson.sh launch), or run the step in-session" >&2
+    exit 2
+  fi
   case "$backend" in
     tmux | print) ;;
     subagent)
@@ -402,6 +487,37 @@ cmd_dispatch() {
   if ! valid_promptfile "$promptfile"; then
     printf '%s\n' "$me: dispatch: prompt file missing, empty, unreadable, or unsafe: '$(sanitize_printable "$promptfile" "(unprintable)")'" >&2
     exit 2
+  fi
+
+  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ] || [ -n "$D_REMOTE_CONTROL" ]; }; then
+    printf '%s\n' "$me: dispatch: --profile, --name, --scope and --remote-control apply to the tmux rung only" >&2
+    exit 2
+  fi
+  if [ -n "$D_REMOTE_CONTROL" ] && [ "$D_PROFILE" != mission-control ]; then
+    printf '%s\n' "$me: dispatch: --remote-control is for a mission-control profile session alone" >&2
+    exit 2
+  fi
+  launch_env=''
+  launch_settings=''
+  if [ -n "$D_PROFILE" ]; then
+    # The profile and the hooks it names come from this install: the wrapper
+    # is pinned to the same root, which also drops a tower identity the tmux
+    # server's environment may carry.
+    launch_root=$(cd -- "$script_dir/.." 2>/dev/null && pwd -P) || {
+      printf '%s\n' "$me: dispatch: cannot resolve this install's root for the profile launch" >&2
+      exit 2
+    }
+    # Run from an older cached copy, the launch still pins the installed one.
+    if [ -f "$script_dir/resolve-installed-roots.sh" ]; then
+      lr_fresh=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$launch_root" 2>/dev/null </dev/null) || lr_fresh=''
+      [ -z "$lr_fresh" ] || launch_root=$lr_fresh
+    fi
+    launch_settings=$(/bin/sh "$script_dir/fleet-launch-profile.sh" "$D_PROFILE" --root "$launch_root" </dev/null) || exit 2
+    launch_env="$script_dir/fleet-dispatch-env.sh"
+    if [ ! -f "$launch_env" ] || [ ! -x "$launch_env" ]; then
+      printf '%s\n' "$me: dispatch: $launch_env is missing or not executable, so the profile's hooks would find no planwright root; refusing" >&2
+      exit 2
+    fi
   fi
 
   [ -n "$unit" ] || unit=$(derive_unit "$promptfile")
@@ -454,14 +570,41 @@ cmd_dispatch() {
   # into the `sh -c` script text, which is what the argv-discipline clause of
   # REQ-B1.2 is about. Built with `set --` so each flag and its value stay
   # separate words with no re-splitting anywhere in the path.
+  # With --profile, the launch runs through the dispatch-env wrapper, which
+  # exports the planwright root the profile's hooks name, then the CLI.
+  win_name="offload-$$"
+  [ -z "$D_NAME" ] || win_name=$D_NAME
   set -- offload-worker "$promptfile"
+  if [ -n "$launch_env" ]; then
+    # The wrapper keeps an identity the tmux server's environment carries,
+    # so a session that is no worker has it dropped here.
+    [ "$D_PROFILE" = worker ] \
+      || set -- "$@" env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_WORKER_LAUNCH_TOKEN
+    set -- "$@" "$launch_env" --root "$launch_root" --inbound accept
+    # Only a worker carries the worker identity its hooks key on.
+    [ "$D_PROFILE" != worker ] || [ -z "$D_NAME" ] || set -- "$@" --identity "$D_NAME" "$D_SCOPE"
+    # The mission-control launcher's row token is taken only as its explicit
+    # --mc-token, never from this environment, and rides the argv into a
+    # mission-control session alone: a tmux window starts from the server's
+    # environment, so every other window drops one that carries it.
+    if [ "$D_PROFILE" = mission-control ] && [ -n "$D_MC_TOKEN" ]; then
+      set -- "$@" env "PLANWRIGHT_MC_TOKEN=$D_MC_TOKEN"
+    else
+      set -- "$@" env -u PLANWRIGHT_MC_TOKEN
+    fi
+    set -- "$@" claude --settings "$launch_settings"
+  else
+    set -- "$@" claude
+  fi
+  [ -z "$D_NAME" ] || set -- "$@" --name "$D_NAME"
+  [ -z "$D_REMOTE_CONTROL" ] || set -- "$@" --remote-control "$D_REMOTE_CONTROL"
   [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
   [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"
   # shellcheck disable=SC2016 # single quotes are deliberate: $1/$@ expand in
-  # the SPAWNED shell (argv-passed prompt path and tier flags), never here — no
-  # content splicing.
-  handle=$(tmux new-window -d -P -F '#{window_id}' -n "offload-$$" -c "$cwd" \
-    /bin/sh -c 'p=$(cat -- "$1") || exit 1; shift; exec claude "$@" -- "$p"' \
+  # the SPAWNED shell (argv-passed prompt path and launch words), never here —
+  # no content splicing.
+  handle=$(tmux new-window -d -P -F '#{window_id}' -n "$win_name" -c "$cwd" \
+    /bin/sh -c 'p=$(cat -- "$1") || exit 1; shift; exec "$@" -- "$p"' \
     "$@" 2>"$tmux_err")
   rc=$?
   err_text=$(cat "$tmux_err" 2>/dev/null)
@@ -540,6 +683,95 @@ case "$sub" in
           d_unit=$2
           shift 2
           ;;
+        --key)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          case $2 in
+            '' | *[!a-z_]*)
+              printf '%s\n' "$me: dispatch: refusing malformed --key '$(sanitize_printable "$2" "(unprintable)")'" >&2
+              exit 2
+              ;;
+          esac
+          D_KEY=$2
+          shift 2
+          ;;
+        --strict-tier)
+          D_STRICT=1
+          shift
+          ;;
+        --mc-token)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          case $2 in
+            '' | *[!A-Za-z0-9._-]*)
+              printf '%s\n' "$me: dispatch: --mc-token is one token of letters, digits and . _ -" >&2
+              exit 2
+              ;;
+          esac
+          D_MC_TOKEN=$2
+          shift 2
+          ;;
+        --profile)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          case $2 in
+            worker | tower | mission-control) D_PROFILE=$2 ;;
+            *)
+              printf '%s\n' "$me: dispatch: --profile names a shipped profile kind (worker, tower, mission-control), never a path" >&2
+              exit 2
+              ;;
+          esac
+          shift 2
+          ;;
+        --scope)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          case $2 in
+            '' | -* | . | .. | *[!A-Za-z0-9._=@:-]*)
+              printf '%s\n' "$me: dispatch: refusing malformed --scope '$(sanitize_printable "$2" "(unprintable)")'" >&2
+              exit 2
+              ;;
+          esac
+          [ "${#2}" -le 128 ] || {
+            printf '%s\n' "$me: dispatch: --scope exceeds 128 bytes" >&2
+            exit 2
+          }
+          D_SCOPE=$2
+          D_SCOPE_SET=1
+          shift 2
+          ;;
+        --name)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$2" 2>/dev/null || {
+            printf '%s\n' "$me: dispatch: refusing a --name outside the session-name grammar" >&2
+            exit 2
+          }
+          D_NAME=$2
+          shift 2
+          ;;
+        --remote-control)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle stream-json-persistent "$2" 2>/dev/null || {
+            printf '%s\n' "$me: dispatch: refusing a --remote-control name outside the session-name grammar" >&2
+            exit 2
+          }
+          D_REMOTE_CONTROL=$2
+          shift 2
+          ;;
         *)
           usage
           exit 2
@@ -559,6 +791,13 @@ case "$sub" in
       fi
     fi
     cmd_dispatch "$d_backend" "$d_promptfile" "$d_unit"
+    ;;
+  launch-backend)
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    cmd_launch_backend
     ;;
   report)
     [ "$#" -eq 2 ] || {

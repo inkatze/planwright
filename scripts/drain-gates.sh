@@ -46,12 +46,17 @@
 # grammar-validated before use and a violating id is rejected with a note
 # (REQ-C1.9). A missing or unparseable `Format-version:` fails closed as a
 # per-spec report error — the spec's gates are not evaluated under guessed
-# rules (REQ-C1.8); unparseable includes a DUPLICATE in-header declaration
-# (REQ-A1.2), and so does a parked map the grammar lib refused (a NUL byte, or
-# end-of-file inside an open column-0 fence). On a transient evidence failure (the engine's `degraded`
-# record: remote configured but the fetch failed) or an engine failure, v2
-# task atoms resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial
-# evidence, surfaced and counted as a report error, the sweep still completes.
+# rules (REQ-C1.8), as does an undefined version; unparseable includes a
+# DUPLICATE in-header declaration (REQ-A1.2), and so does a parked map the
+# grammar lib refused (a NUL byte, or end-of-file inside an open column-0
+# fence). On a transient evidence failure (the engine's `degraded` record:
+# remote configured but the fetch failed) or an engine failure, v2 task atoms
+# resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial evidence,
+# surfaced and counted as a report error, the sweep still completes. Version 3
+# takes the v2 resolution, per task on a bundle whose tasks name repositories
+# (REQ-F1.5, REQ-B1.7): an atom on a task whose field does not resolve, or
+# whose own repository's evidence failed, resolves UNRESOLVED, each such
+# repository named in a counted error, while every other atom evaluates.
 #
 # Confidence (REQ-H1.5): a bullet's `Confidence: <low|medium|high>` field
 # (matched as a whole token in the entry text before the gate marker)
@@ -410,14 +415,12 @@ report() {
     if [ "$fv_rc" -ne 0 ]; then
       fv=unparseable
     fi
-    case "$fv" in
-      1 | 2) ;;
-      *)
-        printf 'error: tasks.md has a missing or unparseable Format-version: line - gates not evaluated (fail closed)\n'
-        n_err=$((n_err + 1))
-        continue
-        ;;
-    esac
+    # Keyed on the rule arm (version 3 takes the v2 arm), never the raw value.
+    if ! fv_arm=$(spec_parse_format_arm "$fv"); then
+      printf 'error: tasks.md has a missing, unparseable, or undefined Format-version: line - gates not evaluated (fail closed)\n'
+      n_err=$((n_err + 1))
+      continue
+    fi
 
     # v2 completion evidence (REQ-C1.3, REQ-B1.4, REQ-B1.5): the completed set
     # comes from the derivation engine, minus every bullet-parked task (a live
@@ -425,8 +428,9 @@ report() {
     # transient evidence failure (`degraded`), task atoms resolve as unresolved
     # instead of evaluating against partial evidence.
     v2comp=" "
+    v2unres=" "
     v2evfail=0
-    if [ "$fv" = 2 ]; then
+    if [ "$fv_arm" = 2 ]; then
       # The parked map (live reference bullets under the three human-payload
       # sections) comes from the shared lib (REQ-B1.4, REQ-C1.1) — the single
       # v2 posture all four v2 parsers now consume, so it cannot re-diverge:
@@ -485,7 +489,7 @@ EOF
       # marker has no atoms to resolve — either way a needless derivation
       # (git subprocesses, potentially a gh network call) would only inflate
       # the error tally on unrelated failures.
-      if [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
+      if [ "$v2evfail" -eq 0 ] && [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
         if [ ! -x "$state_engine" ]; then
           printf 'error: derivation engine unavailable - task-completion atoms resolve as unresolved (fail closed)\n'
           n_err=$((n_err + 1))
@@ -498,16 +502,38 @@ EOF
             n_err=$((n_err + 1))
             v2evfail=1
           elif printf '%s\n' "$eng_out" \
-            | awk -F"$TAB" '$1 == "degraded" { f = 1 } END { exit !f }'; then
+            | awk -F"$TAB" '$1 == "degraded" && $2 != "repository" { f = 1 } END { exit !f }'; then
             # Detected by tag (the engine's documented consumption model),
             # never by message text (REQ-B1.5).
             printf 'error: transient evidence failure - task-completion atoms resolve as unresolved (REQ-B1.5)\n'
             n_err=$((n_err + 1))
             v2evfail=1
           else
+            # Per task on a bundle naming repositories (REQ-F1.5, REQ-B1.7):
+            # a task whose field does not resolve, or whose own repository
+            # failed, has its atoms resolve unresolved; the rest evaluate.
+            v2unres=" $(printf '%s\n' "$eng_out" \
+              | awk -F"$TAB" '($1 == "task" && $3 == "repository-unresolved") || ($1 == "withheld" && $3 == "own") { print $2 }' \
+              | tr '\n' ' ')"
+            v2notes=$(printf '%s\n' "$eng_out" | awk -F"$TAB" '
+              $1 == "task" && $3 == "repository-unresolved" { code[$2] = $4 }
+              $1 == "repository-unresolved" {
+                if (code[$2] == "alias-malformed") why = "has a Repository: value that is not a single alias"
+                else if (code[$2] == "alias-duplicate") why = "carries more than one Repository: field"
+                else if (code[$2] == "work-repository-unresolved") why = "names no repository, and the bundle'"'"'s work repository does not resolve here"
+                else why = "names repository " ($3 == "" ? "(empty)" : $3) ", which does not resolve here"
+                printf "error: task %s %s - its task-completion atoms resolve as unresolved (REQ-F1.5)\n", $2, why
+              }
+              $1 == "degraded" && $2 == "repository" {
+                printf "error: transient evidence failure in %s - task-completion atoms on its tasks resolve as unresolved (REQ-B1.7)\n", ($3 == "-" ? "the work repository" : "repository " $3)
+              }' | LC_ALL=C tr -d '\000-\011\013-\037\177')
+            if [ -n "$v2notes" ]; then
+              printf '%s\n' "$v2notes"
+              n_err=$((n_err + $(printf '%s\n' "$v2notes" | wc -l)))
+            fi
             for cid in $(printf '%s\n' "$eng_out" \
               | awk -F"$TAB" '$1 == "task" && $3 == "completed" { print $2 }'); do
-              case "$v2parked" in
+              case "$v2parked$v2unres" in
                 *" $cid "*) ;; # bullet authority: parked outranks evidence
                 *) v2comp="$v2comp$cid " ;;
               esac
@@ -535,7 +561,7 @@ EOF
     # applies to its taskless diagnostic; the statuses-whitelist comment
     # below documents the underlying -v hazard).
     if ! lines=$(DRAIN_GATES_TASKS_MD="$tasks" awk -v today="$today" -v statuses="$statuses" \
-      -v fv="$fv" -v comp="$v2comp" -v evfail="$v2evfail" '
+      -v fv="$fv_arm" -v comp="$v2comp" -v evfail="$v2evfail" -v unres="$v2unres" '
       BEGIN {
         n = split(statuses, a, " ")
         for (i = 1; i <= n; i++) {
@@ -773,7 +799,7 @@ EOF
           # membership; v2 reads the derivation-engine completed set (bullet
           # authority already applied), unresolved when evidence is unavailable.
           if (fv == 2) {
-            if (evfail) return "unresolved"
+            if (evfail || index(unres, " " tk[2] " ") > 0) return "unresolved"
             return (index(comp, " " tk[2] " ") > 0) ? "met" : "unmet"
           }
           return (tk[2] in COMP) ? "met" : "unmet"
@@ -886,9 +912,10 @@ EOF
   printf '\n== manual verification ==\n'
   man_any=0
   man_skipped=0
+  man_live=""
   for name in $specs; do
     case " $statuses " in
-      *" $name=draft "* | *" $name=ready "* | *" $name=active "*) ;;
+      *" $name=draft "* | *" $name=ready "* | *" $name=active "*) man_live="$man_live $name" ;;
       *" $name=done "* | *" $name=retired "* | *" $name=superseded "*) continue ;;
       *)
         if [ -f "$root/$name/test-spec.md" ]; then
@@ -954,6 +981,21 @@ EOF
       "$name" "$(printf '%s\n' "$man_rows" | grep -c .)"
     printf '%s\n' "$man_rows"
   done
+  # The eval cadence's runs: mission control's behavioral eval suite runs on
+  # demand and gates ready flips through a per-head ledger, so the sweep shows
+  # what was run (a head run again and again is a flaky suite's signal). The
+  # helper prints nothing unless a live bundle is one it gates.
+  if [ -n "$man_live" ] && [ -f "$script_dir/mc-eval-cadence.sh" ]; then
+    if man_evals=$(/bin/bash "$script_dir/mc-eval-cadence.sh" inventory --worktree "$root" --live "${man_live# }" 2>/dev/null); then
+      if [ -n "$man_evals" ]; then
+        man_any=1
+        printf '%s\n' "$man_evals"
+      fi
+    else
+      printf 'note: the eval cadence ledger for %s is unreadable; its runs are not inventoried\n' "$root"
+      man_skipped=1
+    fi
+  fi
   if [ "$man_any" -eq 0 ] && [ "$man_skipped" -eq 0 ]; then
     printf '(none pending)\n'
   fi

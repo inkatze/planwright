@@ -22,8 +22,8 @@
 # (a human runs the printed command, so planwright is not driving the worker
 # and cannot enforce its guards) — never an autonomous descent target.
 #
-# Subcommands:
-#   rung <backend|caps>
+# Usage:
+#   orchestrate-degrade.sh rung <backend|caps>
 #       Print the ladder rung of a shipped backend name, or of a six-,
 #       eight-, or nine-field advertised caps string `interactive can_observe
 #       can_steer_inflight provides_attention_surface supports_parallel
@@ -34,7 +34,7 @@
 #       (non-interactive session-grade pools); the finer five-way ordering of
 #       REQ-A1.8 is the resolver's concern, not the four-rung classifier's.
 #
-#   terminal-plan <id> [<id>...]
+#   orchestrate-degrade.sh terminal-plan <id> [<id>...]
 #       Emit the synchronous terminal rung's run plan: one `run <id>` line per
 #       unit with a `context-clear` line BETWEEN consecutive units (the bounded-
 #       context clears — never after the last). Each id is validated against the
@@ -42,7 +42,7 @@
 #       exits 2 with nothing emitted. (Per-STEP isolation clears are Task 4's
 #       resolve-dispatch-isolation.sh; this is the per-UNIT single-stream plan.)
 #
-#   record <spec-dir> <backend>
+#   orchestrate-degrade.sh record <spec-dir> <backend>
 #       Write the effective backend spec-locally to the effective-backend record
 #       in the checkout's dispatch-state root — the `<spec-dir>/.orchestrate/`
 #       default, or PLANWRIGHT_ORCH_STATE_DIR's parent (REQ-B1.6). By default
@@ -53,11 +53,11 @@
 #       (REQ-A1.1, the sibling contract). Atomic write-temp-then-rename; a
 #       symlink or non-regular file at the path is refused, not written through
 #       (marker parity); a hostile backend name is refused before any path use.
-#   read <spec-dir>
+#   orchestrate-degrade.sh read <spec-dir>
 #       Print the recorded effective backend name (exit 1 when no record exists),
 #       for a reconcile sweep / the cross-spec attention surface.
 #
-#   failover <spec-dir> <current-backend> [candidate...]
+#   orchestrate-degrade.sh failover <spec-dir> <current-backend> [candidate...]
 #       Runtime failover: a chosen backend died or proved unavailable mid-run.
 #       Descend one rung down the AVAILABLE ladder — to the richest present,
 #       guard-preserving candidate strictly below the current rung (an absent

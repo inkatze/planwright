@@ -41,9 +41,14 @@
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
+# The usage gate reads the status-line mirror when present; a fixture never
+# reads the host's real one.
+export PLANWRIGHT_USAGE_MIRROR=""
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# A headless host session must not leak its launch identity into the cases.
+unset PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_WORKER_SESSION_RECORD
 
 here="$(cd "$(dirname "$0")" && pwd)"
 script="$here/../scripts/offload-dispatch.sh"
@@ -179,9 +184,103 @@ grep -qF "$promptfile" "$tmp/tmux-argv" || fail "dispatch tmux: prompt-file path
 # never be parsed as a claude option. Any resolved launch-tier flags arrive as
 # argv the spawned shell forwards through "$@", ahead of that pin, so they are
 # never spliced into the script text.
-grep -q 'claude "$@" -- ' "$tmp/tmux-argv" \
-  || fail "dispatch tmux: claude launch not pinned with -- end-of-options"
+# shellcheck disable=SC2016 # the spawned shell's literal text is the needle
+grep -q 'exec "$@" -- "$p"' "$tmp/tmux-argv" \
+  || fail "dispatch tmux: the launch is not pinned with -- end-of-options"
+grep -qx 'claude' "$tmp/tmux-argv" || fail "dispatch tmux: claude is not the launched command word"
+grep -q 'fleet-dispatch-env.sh\|--settings' "$tmp/tmux-argv" \
+  && fail "dispatch tmux: a petition with no --profile must launch claude directly, with no profile"
 ok "dispatch tmux reports the spawned window handle; petition rides an absolutized file read behind --"
+
+# 4a. a session-kind launch: --profile goes through the dispatch-env wrapper
+#     with the shipped fragment, --name names the window and the session, and
+#     --key resolves the tier at that allocation key.
+: >"$tmp/tmux-argv"
+out=$(PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --name mc-alpha-reviewer-1 --key execution) \
+  || fail "dispatch tmux --profile exited nonzero"
+grep -q 'fleet-dispatch-env.sh$' "$tmp/tmux-argv" || fail "dispatch tmux --profile: not launched through fleet-dispatch-env.sh"
+grep -q '/config/mission-control-settings.json$' "$tmp/tmux-argv" || fail "dispatch tmux --profile: the mission-control fragment is not passed"
+grep -qx -- '--settings' "$tmp/tmux-argv" || fail "dispatch tmux --profile: no --settings word"
+[ "$(grep -cx 'mc-alpha-reviewer-1' "$tmp/tmux-argv")" = 2 ] \
+  || fail "dispatch tmux --name: the name must name both the window and the session"
+if ! grep -qx -- '--model' "$tmp/tmux-argv" || ! grep -qx 'opus' "$tmp/tmux-argv"; then
+  fail "dispatch tmux --key execution: the execution key's model is not applied"
+fi
+root_real=$(cd "$here/.." && pwd -P)
+if ! grep -qx -- '--root' "$tmp/tmux-argv" || ! grep -qxF "$root_real" "$tmp/tmux-argv"; then
+  fail "dispatch tmux --profile: the wrapper is not pinned to this install's root"
+fi
+if ! grep -qx -- '--inbound' "$tmp/tmux-argv" || ! grep -qx 'accept' "$tmp/tmux-argv"; then
+  fail "dispatch tmux --profile: the session does not accept inbound messages"
+fi
+grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile carried the worker identity"
+for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN; do
+  grep -qx -- "$v" "$tmp/tmux-argv" || fail "dispatch tmux --profile mission-control: an inherited $v is not dropped"
+done
+# A window starts from the tmux server's environment, which may carry some
+# mission-control session's row token; a window handed none drops it.
+grep -A1 -x -- '-u' "$tmp/tmux-argv" | grep -qx PLANWRIGHT_MC_TOKEN \
+  || fail "dispatch tmux --profile mission-control with no token: an inherited PLANWRIGHT_MC_TOKEN is not dropped"
+# The token is taken only as the launcher's explicit argument, never from
+# the dispatcher's own environment.
+: >"$tmp/tmux-argv"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_MC_TOKEN=tok-env /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --name mc-alpha-mc-1 --scope spec:alpha-3 >/dev/null \
+  || fail "dispatch tmux --profile mission-control with an inherited token exited nonzero"
+grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a token from the environment reached the window"
+: >"$tmp/tmux-argv"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_MC_TOKEN=tok-env /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --mc-token tok-arg --name mc-alpha-mc-2 --scope spec:alpha-3 >/dev/null \
+  || fail "dispatch tmux --profile mission-control --mc-token exited nonzero"
+grep -qx 'PLANWRIGHT_MC_TOKEN=tok-arg' "$tmp/tmux-argv" || fail "dispatch tmux --mc-token: the window does not hold the token it was given"
+: >"$tmp/tmux-argv"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_MC_TOKEN=tok-1 /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile worker --name mc-alpha-worker-1 --scope spec:alpha-3 >/dev/null \
+  || fail "dispatch tmux --profile worker exited nonzero"
+grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux-argv" && fail "dispatch tmux --profile worker: a worker window was handed a mission-control token"
+grep -A1 -x -- '-u' "$tmp/tmux-argv" | grep -qx PLANWRIGHT_MC_TOKEN \
+  || fail "dispatch tmux --profile worker: an inherited PLANWRIGHT_MC_TOKEN is not dropped"
+if ! grep -A2 -x -- '--identity' "$tmp/tmux-argv" | tr '\n' ' ' | grep -q 'mc-alpha-worker-1 spec:alpha-3'; then
+  fail "dispatch tmux --profile worker: the worker identity is not name and scope"
+fi
+for bad in '--profile /tmp/x.json' '--profile bogus' '--name bad=name' '--key Bad-Key' '--scope a/b' '--scope ..' '--scope .'; do
+  rc=0
+  # shellcheck disable=SC2086 # the option and its value, split on purpose
+  run_stub dispatch tmux "$promptfile" $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "dispatch tmux $bad: expected exit 2, got $rc"
+done
+for opt in '--profile worker' '--scope s'; do
+  rc=0
+  # shellcheck disable=SC2086 # the option and its value, split on purpose
+  run dispatch print "$promptfile" $opt >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "dispatch print $opt: expected exit 2 (tmux only), got $rc"
+done
+mkdir -p "$tmp/noprof/scripts"
+cp "$here"/../scripts/*.sh "$tmp/noprof/scripts/"
+: >"$tmp/tmux-argv"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env env PLANWRIGHT_ROOT="$tmp/noprof" /bin/sh "$tmp/noprof/scripts/offload-dispatch.sh" \
+  dispatch tmux "$promptfile" --profile tower >/dev/null 2>"$tmp/err4a" || rc=$?
+[ "$rc" -eq 2 ] || fail "dispatch tmux --profile with no readable profile: expected exit 2, got $rc"
+[ ! -s "$tmp/tmux-argv" ] || fail "dispatch tmux --profile with no readable profile: tmux was still called"
+# --strict-tier: an unreachable allocation store (allocation-apply exit 6)
+# refuses with exit 6 and no tmux call, where the default degrades.
+mkdir -p "$tmp/store6/config"
+cp -R "$here/../scripts" "$tmp/store6/scripts"
+cp "$here/../config/"*-settings.json "$tmp/store6/config/"
+printf '#!/bin/sh\nexit 6\n' >"$tmp/store6/scripts/allocation-apply.sh"
+: >"$tmp/tmux-argv"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env /bin/sh "$tmp/store6/scripts/offload-dispatch.sh" dispatch tmux "$promptfile" --strict-tier \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 6 ] || fail "dispatch tmux --strict-tier with an unreachable store: expected exit 6, got $rc"
+[ ! -s "$tmp/tmux-argv" ] || fail "dispatch tmux --strict-tier with an unreachable store: tmux was still called"
+rc=0
+PATH="$stubbin:$PATH" sandbox_env /bin/sh "$tmp/store6/scripts/offload-dispatch.sh" dispatch tmux "$promptfile" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "dispatch tmux without --strict-tier must degrade past an unreachable store, got $rc"
+ok "dispatch tmux --profile/--name/--key launch a session kind under its shipped fragment"
 
 # 4b. a RELATIVE prompt-file path is absolutized before dispatch. The
 #     expected form is pwd-normalized (a TMPDIR with a trailing slash makes
@@ -322,6 +421,78 @@ if grep -q "$(printf '\033')" "$tmp/err10"; then
   fail "control-byte backend name: raw ESC byte reached the diagnostic (echo discipline)"
 fi
 ok "hostile backend-name diagnostics are sanitized (no raw control bytes)"
+
+# 11. a headless unit session never opens a tmux window: its launch record
+#     says headless, `dispatch tmux` is refused with a message naming the
+#     headless backend, and no tmux is spawned.
+cat >"$stubbin/tmux" <<EOF || exit 1
+#!/bin/sh
+printf '%s\n' "\$@" >>"$tmp/tmux-argv"
+echo '@7'
+EOF
+chmod +x "$stubbin/tmux" || exit 1
+: >"$tmp/tmux-argv"
+printf 'policy=\nunit_branch=planwright/flight/x-0123abcd\nlaunch_backend=stream-json\n' >"$tmp/headless.record"
+printf 'policy=\nlaunch_backend=stream-json\n' >"$tmp/hub.record"
+printf 'policy=\n' >"$tmp/interactive.record"
+rc=0
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/headless.record" run_stub dispatch tmux "$promptfile" 2>"$tmp/err11") || rc=$?
+[ "$rc" -eq 2 ] || fail "headless record: dispatch tmux expected exit 2, got $rc"
+[ -z "$out" ] || fail "headless record: dispatch tmux emitted a report"
+grep -q 'stream-json-persistent' "$tmp/err11" || fail "headless record: refusal does not name the headless backend"
+[ ! -s "$tmp/tmux-argv" ] || fail "headless record: tmux was spawned anyway"
+# A headless hub (no unit branch in its record) still launches its workers'
+# tmux windows: only a unit session is bound to its own backend.
+: >"$tmp/tmux-argv"
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/hub.record" run_stub dispatch tmux "$promptfile") \
+  || fail "a headless hub must still dispatch to tmux"
+grep -q 'new-window' "$tmp/tmux-argv" || fail "headless hub: tmux was not spawned"
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/interactive.record" run_stub dispatch tmux "$promptfile") \
+  || fail "an interactive record must still dispatch to tmux"
+printf '%s\n' "$out" | grep -q "status	dispatched" || fail "interactive record: dispatch tmux did not dispatch"
+ok "dispatch tmux is refused from a headless launch and still works from an interactive one"
+
+# 12. `launch-backend` names the backend an isolated step inherits.
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/headless.record" run launch-backend) || fail "launch-backend exited nonzero (headless)"
+[ "$out" = stream-json-persistent ] || fail "launch-backend: a headless record must print stream-json-persistent, got '$out'"
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/interactive.record" run launch-backend) || fail "launch-backend exited nonzero (interactive)"
+[ "$out" = interactive ] || fail "launch-backend: an interactive record must print interactive, got '$out'"
+out=$(run launch-backend) || fail "launch-backend exited nonzero (no record)"
+[ "$out" = interactive ] || fail "launch-backend: no record must print interactive, got '$out'"
+ok "launch-backend prints the unit's own backend"
+
+# 13. the one-shot headless launch is headless too; an unknown value, a
+#     duplicated line, a symlinked record and a stray argument read as
+#     interactive or usage errors; `print` and `--profile` follow the rule.
+printf 'policy=\nunit_branch=planwright/flight/x-0123abcd\nlaunch_backend=headless-oneshot\n' >"$tmp/oneshot.record"
+printf 'policy=\nunit_branch=planwright/flight/x-0123abcd\nlaunch_backend=bogus\n' >"$tmp/bogus.record"
+printf 'policy=\nunit_branch=planwright/flight/x-0123abcd\nlaunch_backend=stream-json\nlaunch_backend=stream-json\n' >"$tmp/dup.record"
+printf 'policy=\nunit_branch=planwright/flight/x-0123abcd\n' >"$tmp/nobackend.record"
+ln -sf "$tmp/headless.record" "$tmp/link.record"
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/oneshot.record" run launch-backend) || fail "launch-backend exited nonzero (one-shot)"
+[ "$out" = headless-oneshot ] || fail "launch-backend: a one-shot record must print headless-oneshot, got '$out'"
+: >"$tmp/tmux-argv"
+rc=0
+PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/oneshot.record" run_stub dispatch tmux "$promptfile" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "one-shot record: dispatch tmux expected exit 2, got $rc"
+[ ! -s "$tmp/tmux-argv" ] || fail "one-shot record: tmux was spawned anyway"
+rc=0
+PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/headless.record" run_stub dispatch tmux "$promptfile" --profile worker >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "headless record: dispatch tmux --profile expected exit 2, got $rc"
+for r in bogus dup nobackend link; do
+  out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/$r.record" run launch-backend) || fail "launch-backend exited nonzero ($r)"
+  [ "$out" = interactive ] || fail "launch-backend: a $r record must print interactive, got '$out'"
+done
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/nobackend.record" run_stub dispatch tmux "$promptfile") \
+  || fail "a unit record with no launch_backend must still dispatch to tmux"
+printf '%s\n' "$out" | grep -q "status	dispatched" || fail "no-backend unit: dispatch tmux did not dispatch"
+rc=0
+out=$(PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/headless.record" run dispatch print "$promptfile" 2>/dev/null) || rc=$?
+[ "$rc" -eq 0 ] || fail "headless record: dispatch print expected exit 0, got $rc"
+rc=0
+run launch-backend extra >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "launch-backend with an argument: expected exit 2, got $rc"
+ok "one-shot, unknown, duplicated, symlinked and unit-without-backend records, print, --profile and usage"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

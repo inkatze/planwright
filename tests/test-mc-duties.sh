@@ -468,6 +468,34 @@ RC=$watchers_rc ERR=$watchers_err
 expect_rc "a failing arming pass fails watchers" 1
 expect_err "the arming failure names the reader" "the catalog reader failed"
 
+# A flow list wrapped onto lines indented past its field reads as the one
+# list it means, from the core seed alone and through an overlay's merge.
+reset_mc_fixture
+wrapped_entry='  - id: wrap-duty
+    summary: "A duty with a wrapped list"
+    triggers: [first-event,
+               second-event,
+               third-event]
+    watchers: []
+    wake: none
+    rules: []
+    kinds: []
+    files: wrap
+    lifecycle: "off"
+    never-propose: false'
+printf '%s\n' "$wrapped_entry" >>"$core/config/duties.yaml"
+mc_run mc-duties.sh get wrap-duty triggers
+expect_eq "a wrapped list joins, core seed alone" "[first-event, second-event, third-event]"
+mc_run mc-duties.sh validate
+expect_rc "and validates" 0
+printf '%s\n' 'duties:' "$(printf '%s\n' "$wrapped_entry" | sed 's/wrap-duty/wrap-two/; s/files: wrap/files: wrap-two/')" >"$repo/.claude/catalogs/duties.yaml"
+mc_run mc-duties.sh get wrap-two triggers
+expect_eq "a wrapped list joins through an overlay's merge" "[first-event, second-event, third-event]"
+case $ERR in *"not a field"*) fail "the merge lost a wrapped line: $ERR" ;; *) ok "with no line lost" ;; esac
+mc_run mc-duties.sh get wrap-duty triggers
+expect_eq "the core entry still joins beside the overlay" "[first-event, second-event, third-event]"
+reset_mc_fixture
+
 mc_run mc-duties.sh watchers
 expect_rc "watchers without --program is a usage error" 2
 mc_run mc-duties.sh bogus

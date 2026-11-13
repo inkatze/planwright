@@ -163,8 +163,8 @@ grep -qx 'step_pool_capacity: 1' "$DEFAULTS"
 verdict "core default step_pool_capacity is 1" "config/defaults.yml lacks 'step_pool_capacity: 1'"
 grep -qx 'step_pool_wait: 60m' "$DEFAULTS"
 verdict "core default step_pool_wait is 60m" "config/defaults.yml lacks 'step_pool_wait: 60m'"
-grep -qx 'full_suite_pool:' "$DEFAULTS"
-verdict "core default full_suite_pool is empty" "config/defaults.yml lacks an empty full_suite_pool"
+grep -qx 'full_suite_pool: heavy-run' "$DEFAULTS"
+verdict "REQ-K1.1: core default full_suite_pool is heavy-run" "config/defaults.yml lacks 'full_suite_pool: heavy-run'"
 ! grep -q '^step_pool_capacity_' "$DEFAULTS"
 verdict "the per-pool capacity family has no core default" "config/defaults.yml sets a step_pool_capacity_<pool> key"
 
@@ -1212,6 +1212,160 @@ if sh_dash=$(command -v dash); then
 else
   printf 'skip: the echo-safety.sh fallback check needs dash\n'
 fi
+
+# --- REQ-K1.2, REQ-K1.3, REQ-K1.4, REQ-K1.5: the heavy-run pool's capacity ------
+# The host's core count and memory are fixtures through the two test seams.
+HEAVY=heavy-run
+# host <cores> <mem-kib> -- <sp args>: the helper on a fixture host.
+host() {
+  _hc=$1
+  _hm=$2
+  shift 2
+  sp "PLANWRIGHT_HOST_CORES=$_hc" "PLANWRIGHT_HOST_MEMORY_KIB=$_hm" "$@"
+}
+GIB=1048576
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+a=$(owner)
+b=$(owner)
+c=$(owner)
+# A lone run on an idle host takes a slot with no wait and no warning.
+out=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$a" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ ! -s "$tmp/err" ]
+verdict "REQ-K1.5: a lone heavy-run take takes slot 1 with no wait and no warning" \
+  "lone take: out='$out'" "$tmp/err"
+# Capacity 1 (4 cores, 8 GiB): a second holder is refused within the bound.
+host 4 $((8 * GIB)) -- take "$HEAVY" "$b" --waited 1 >/dev/null 2>&1
+check $(($? == 3 ? 0 : 1)) "REQ-K1.2: a host deriving capacity 1 admits one heavy-run holder" \
+  "a second holder was admitted at derived capacity 1"
+# Nested inside the hold: no wait, no slot.
+out=$(host 4 $((8 * GIB)) "PLANWRIGHT_STEP_POOL_HOLD=$HEAVY:$a" -- take "$HEAVY" "$b" 2>"$tmp/err")
+[ "$out" = "nested${TAB}-${TAB}0" ] && [ ! -s "$tmp/err" ]
+verdict "REQ-K1.4: a heavy-run take inside its own hold waits on nothing" \
+  "nested heavy take: out='$out'" "$tmp/err"
+sp -- release "$HEAVY" "$a" >/dev/null
+
+# Derivation: one slot per 8 cores and per 16 GiB, whichever is fewer.
+derive_case() {
+  # <cores> <mem-gib> <want-slots>
+  reset
+  printf 'step_pool_wait: 1s\n' >"$mlocal"
+  _n=0
+  _got=0
+  while [ "$_n" -lt "$3" ]; do
+    _o=$(owner)
+    host "$1" $(($2 * GIB)) -- take "$HEAVY" "$_o" >/dev/null 2>&1 && _got=$((_got + 1))
+    _n=$((_n + 1))
+  done
+  _x=$(owner)
+  host "$1" $(($2 * GIB)) -- take "$HEAVY" "$_x" --waited 1 >/dev/null 2>&1
+  _rc=$?
+  [ "$_got" -eq "$3" ] && [ "$_rc" -eq 3 ]
+  verdict "REQ-K1.2: $1 cores and $2 GiB derive $3 slot(s)" "cores=$1 mem=$2GiB want=$3 got=$_got extra rc=$_rc"
+}
+derive_case 16 64 2
+derive_case 64 32 2
+derive_case 64 16 1
+derive_case 8 128 1
+derive_case 32 128 4
+derive_case 2 4 1
+# A memory total past nine digits of KiB (2 TiB here) still reads as readable.
+derive_case 16 2048 2
+
+# The adopter layer sets the per-pool capacity too.
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+printf 'step_pool_capacity_heavy_run: 2\n' >"$adopter/planwright.yml"
+o1=$(owner)
+o2=$(owner)
+o3=$(owner)
+r1=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o1" 2>/dev/null)
+r2=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o2" 2>/dev/null)
+host 4 $((8 * GIB)) -- take "$HEAVY" "$o3" --waited 1 >/dev/null 2>&1
+rc=$?
+[ "$r1" = "taken${TAB}1${TAB}0" ] && [ "$r2" = "taken${TAB}2${TAB}0" ] && [ "$rc" -eq 3 ]
+verdict "REQ-K1.3: step_pool_capacity_heavy_run set in the adopter layer sizes the pool" \
+  "adopter layer: '$r1' '$r2' rc=$rc"
+
+# A malformed per-pool value falls back to the derived capacity with one warning.
+reset
+printf 'step_pool_wait: 1s\nstep_pool_capacity: 5\nstep_pool_capacity_heavy_run: abc\n' >"$mlocal"
+o1=$(owner)
+o2=$(owner)
+out=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o1" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ "$(grep -c . "$tmp/err")" -eq 1 ] && grep -q 'step_pool_capacity_heavy_run' "$tmp/err"
+verdict "REQ-K1.3: a malformed step_pool_capacity_heavy_run warns once and falls back to the derived value" \
+  "malformed key: out='$out'" "$tmp/err"
+host 4 $((8 * GIB)) -- take "$HEAVY" "$o2" --waited 1 >/dev/null 2>&1
+check $(($? == 3 ? 0 : 1)) "REQ-K1.3: the fallback is the derived capacity, not the shared key" \
+  "a second holder was admitted after the malformed key"
+
+# With no seams the helper reads this host's own cores and memory: a usable
+# host takes a slot and warns of nothing.
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+o1=$(owner)
+out=$(sp -- take "$HEAVY" "$o1" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ ! -s "$tmp/err" ]
+verdict "REQ-K1.2: the host's own cores and memory derive a capacity with no warning" \
+  "real host read: out='$out'" "$tmp/err"
+
+# The per-pool key wins over the derived value; the shared key does not.
+reset
+printf 'step_pool_wait: 1s\nstep_pool_capacity_heavy_run: 3\n' >"$mlocal"
+o1=$(owner)
+o2=$(owner)
+o3=$(owner)
+o4=$(owner)
+r1=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o1" 2>/dev/null)
+r2=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o2" 2>/dev/null)
+r3=$(host 4 $((8 * GIB)) -- take "$HEAVY" "$o3" 2>/dev/null)
+host 4 $((8 * GIB)) -- take "$HEAVY" "$o4" --waited 1 >/dev/null 2>&1
+rc=$?
+[ "$r1" = "taken${TAB}1${TAB}0" ] && [ "$r2" = "taken${TAB}2${TAB}0" ] && [ "$r3" = "taken${TAB}3${TAB}0" ] && [ "$rc" -eq 3 ]
+verdict "REQ-K1.2: step_pool_capacity_heavy_run beats the derived value" "explicit: '$r1' '$r2' '$r3' rc=$rc"
+reset
+printf 'step_pool_wait: 1s\nstep_pool_capacity: 5\n' >"$mlocal"
+o1=$(owner)
+o2=$(owner)
+host 4 $((8 * GIB)) -- take "$HEAVY" "$o1" >/dev/null 2>&1
+host 4 $((8 * GIB)) -- take "$HEAVY" "$o2" --waited 1 >/dev/null 2>&1
+check $(($? == 3 ? 0 : 1)) "REQ-K1.2: step_pool_capacity does not widen the heavy-run pool" \
+  "the shared capacity key admitted a second heavy-run holder"
+# A cheap pool is unchanged: it still takes the shared key.
+o3=$(owner)
+o4=$(owner)
+host 4 $((8 * GIB)) -- take cheap "$o3" >/dev/null 2>&1
+out=$(host 4 $((8 * GIB)) -- take cheap "$o4" 2>/dev/null)
+[ "$out" = "taken${TAB}2${TAB}0" ]
+verdict "REQ-I1.3: another pool still takes step_pool_capacity" "cheap pool: '$out'"
+
+# An unreadable host derives 1 with one warning naming what could not be read.
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+o1=$(owner)
+o2=$(owner)
+out=$(host '' $((64 * GIB)) -- take "$HEAVY" "$o1" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ "$(grep -c . "$tmp/err")" -eq 1 ] && grep -q 'core count' "$tmp/err"
+verdict "REQ-K1.2: an unreadable core count derives 1 with one warning naming it" \
+  "unreadable cores: out='$out'" "$tmp/err"
+host '' $((64 * GIB)) -- take "$HEAVY" "$o2" --waited 1 >/dev/null 2>&1
+check $(($? == 3 ? 0 : 1)) "REQ-K1.2: the unreadable host's derived capacity is 1" "a second holder was admitted"
+reset
+printf 'step_pool_wait: 1s\n' >"$mlocal"
+o1=$(owner)
+out=$(host 64 '' -- take "$HEAVY" "$o1" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ "$(grep -c . "$tmp/err")" -eq 1 ] && grep -q 'memory' "$tmp/err"
+verdict "REQ-K1.2: an unreadable memory total derives 1 with one warning naming it" \
+  "unreadable memory: out='$out'" "$tmp/err"
+# An explicit capacity needs no host read, so an unreadable host warns of nothing.
+reset
+printf 'step_pool_wait: 1s\nstep_pool_capacity_heavy_run: 2\n' >"$mlocal"
+o1=$(owner)
+out=$(host '' '' -- take "$HEAVY" "$o1" 2>"$tmp/err")
+[ "$out" = "taken${TAB}1${TAB}0" ] && [ ! -s "$tmp/err" ]
+verdict "REQ-K1.3: an explicit heavy-run capacity reads no host and warns of nothing" \
+  "explicit on unreadable host: out='$out'" "$tmp/err"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

@@ -353,7 +353,7 @@ else
   OUT=$(cat "$SANDBOX/sig.out")
   set_decision
   expect deny "an unsignalled pause ends in the guard's own verdict"
-  reason_has 'git reset --hard' "the verdict after the pause is the guard's, not the internal one"
+  reason_has 'git reset is denied to the tower' "the verdict after the pause is the guard's, not the internal one"
   [ -e "$SANDBOX/paused" ] || fail "the hook never reached the pause point"
 fi
 
@@ -403,7 +403,7 @@ expect defer "an unmarked session's GitHub MCP branch update defers"
 echo "# hook timeouts exceed the guard's deadline plus margin, below the harness default (REQ-C1.5)"
 deadline=$(sed -n 's/^readonly OVERALL_DEADLINE=\([0-9][0-9]*\)$/\1/p' "$REAL_SCRIPTS/policy-guard.sh")
 margin=20
-entries=$(jq -c '[.hooks[][] | .hooks[] | select(.command | test("tower-session\\.sh"))]' "$PLUGIN_HOOKS")
+entries=$(jq -c '[.hooks[][] | .hooks[] | select(.command | test("tower-session\\.sh( (guard|prompt-hook))"))]' "$PLUGIN_HOOKS")
 if [ -z "$deadline" ]; then
   fail "the policy guard's OVERALL_DEADLINE was not found"
 elif [ "$(printf '%s' "$entries" | jq 'length')" != 3 ]; then

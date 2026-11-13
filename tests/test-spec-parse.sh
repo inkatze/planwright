@@ -198,6 +198,26 @@ case $eq_out in
 esac
 echo "ok: an =-bearing filename is read as a file, not an awk assignment"
 
+# A relative path starting with `-` must be screened and read as a file, not
+# taken for an option by any command that receives it as an operand.
+mkdir "$tmp/dash"
+printf '### Task 1 — Dash-led name\n\n- **Done when:** parsed as a file.\n' >"$tmp/dash/-t.md"
+dash_out=$(cd "$tmp/dash" && spec_parse_extract_tasks "-t.md" </dev/null) \
+  || fail "extraction failed on a dash-led filename"
+case $dash_out in
+  *"Dash-led name"*) ;;
+  *) fail "dash-led filename extraction lost the task content: $dash_out" ;;
+esac
+printf '### Task 1 — x\n\n- **Done when:** a \000 b\n' >"$tmp/dash/-nul.md"
+if dash_err=$(cd "$tmp/dash" && spec_parse_extract_tasks "-nul.md" 2>&1 >/dev/null); then
+  fail "a NUL-bearing dash-led filename passed the screen"
+fi
+case $dash_err in
+  *"NUL byte"*) ;;
+  *) fail "a NUL-bearing dash-led filename was not refused as a NUL: $dash_err" ;;
+esac
+echo "ok: a dash-led filename is screened and read as a file, not an option"
+
 # ---------------------------------------------------------------------------
 # Property 2b: the lib's working variables stay in the spec_parse__
 # namespace. POSIX sh has no locals, so a sourced lib's assignments land in
@@ -334,25 +354,27 @@ echo "ok: NUL-bearing input fails closed (REQ-B1.6d)"
 
 # ---------------------------------------------------------------------------
 # Property 4b2: the NUL screen fails CLOSED when its own tooling fails
-# (REQ-B1.6d). A failing `wc` must not silently skip the screen and let awk
-# parse a NUL-truncated stream with exit 0 — verified by stubbing wc as a
-# shell function (function lookup precedes PATH in the lib's command
-# substitutions, same shell).
+# (REQ-B1.6d). A failing `cmp` must not silently pass the screen — verified by
+# stubbing cmp as a shell function (function lookup precedes PATH, same
+# shell) over a NUL-free file the parse otherwise accepts, so only the
+# screen's own failure handling can refuse it.
 # ---------------------------------------------------------------------------
 if out=$(
-  wc() { return 1; }
-  spec_parse_extract_tasks "$tmp/nul.md" 2>/dev/null
+  # shellcheck disable=SC2329 # called by the sourced lib, out of shellcheck's sight
+  cmp() { return 2; }
+  spec_parse_extract_tasks "$tmp/tasks.md" 2>/dev/null
 ); then
-  fail "NUL screen fell open when wc failed (REQ-B1.6d fail-closed)"
+  fail "NUL screen fell open when cmp failed (REQ-B1.6d fail-closed)"
 fi
 [ -z "$out" ] || fail "NUL-screen tool failure emitted a stream: $out"
 echo "ok: NUL screen fails closed when its tooling fails (REQ-B1.6d)"
 
-# Same property for the tr side. A failing tr is NOT caught by its `||`
-# (the pipeline's exit status is wc's): it shortens the kept count instead,
-# so the screen must refuse via the count mismatch — still fail-closed,
-# with no stream on stdout.
+# Same property for the tr side. A failing tr is NOT caught by its status
+# (the pipeline's exit status is cmp's): it shortens the stream instead, so
+# the screen must refuse via the NUL refusal — still fail-closed, with no
+# stream on stdout.
 if out=$(
+  # shellcheck disable=SC2329 # called by the sourced lib, out of shellcheck's sight
   tr() { return 1; }
   spec_parse_extract_tasks "$tmp/nul.md" 2>/dev/null
 ); then
@@ -1655,5 +1677,64 @@ rc=0
 spec_parse_latest_anchor_entry "$tmp/b-two.md" --bogus >/dev/null 2>&1 || rc=$?
 eq "an unknown flag is a usage refusal" 2 "$rc"
 echo "ok: the anchor-entry parse reads the newest entry, its own labels, and refuses the undecidable"
+
+# --- The declared Format-version to rule-arm map (invariant-tasks REQ-F1.7,
+# REQ-C1.8): version 3 takes the version 2 arm; anything undefined fails
+# closed with nothing printed.
+eq "version 1 keys the v1 arm" 1 "$(spec_parse_format_arm 1)"
+eq "version 2 keys the v2 arm" 2 "$(spec_parse_format_arm 2)"
+eq "version 3 keys the v2 arm" 2 "$(spec_parse_format_arm 3)"
+for bad in '' 0 4 10 02 ' 2' 2.0 3beta banana; do
+  rc=0
+  got=$(spec_parse_format_arm "$bad") || rc=$?
+  eq "undefined version '$bad' fails closed" 1 "$rc"
+  eq "undefined version '$bad' prints nothing" '' "$got"
+done
+echo "ok: the format-version arm map gives version 3 the v2 arm and refuses undefined versions"
+
+# --- The task-repository map (invariant-tasks REQ-F1.2, REQ-F1.5): one record
+# per unfenced task block carrying the field, in document order, classed
+# alias, malformed (off the grammar, empty, or continued past its line), or
+# duplicate; fenced illustration and non-task H3s never count.
+# shellcheck disable=SC2016 # literal backticks: the fence is the fixture
+printf '%s\n' '# T' '' '## Tasks' '' '### Task 2 — b' '- **Repository:** beta' '- **Repository:** again' '' \
+  '### Task 1 — a' '- **Dependencies:** none' '' '### Notes' '- **Repository:** stray' '' \
+  '```markdown' '### Task 9 — example' '- **Repository:** fenced' '```' '' \
+  '### Task 3.5 — c' '- **Repository:** gamma' '' '### Task  4 — d' '- **Repository:** delta' '' \
+  '### Task 5 — e' '- **Repository:** acme/five' '' '### Task 6 — f' '- **Repository:** six' '  continued' '' \
+  '### Task 7 — g' '- **Repository:** seven  ' '### Task 8 — h' '- **Repository:**' '' \
+  '### Task x — i' '- **Repository:** eps' >"$tmp/repo-tasks.md"
+printf '### Task 10 — j\r\n- **Repository:** ten\r\n  \r\n' >>"$tmp/repo-tasks.md"
+repo_map_want=$(printf '2\tduplicate\tbeta\n3.5\talias\tgamma\n4\talias\tdelta\n5\tmalformed\tacme/five\n6\tmalformed\tsix\n7\talias\tseven\n8\tmalformed\t\n?\talias\teps\n10\talias\tten')
+eq "the map classes each field-bearing task once, in order, any task heading counted" "$repo_map_want" \
+  "$(spec_parse_repository_map "$tmp/repo-tasks.md")"
+eq "the map reads a caller snapshot on stdin" "$repo_map_want" \
+  "$(spec_parse_repository_map - <"$tmp/repo-tasks.md")"
+eq "one task's record reads from the map" "$(printf 'alias\tgamma')" \
+  "$(spec_parse_repository_field "$repo_map_want" 3.5)"
+eq "an empty value keeps its class" "$(printf 'malformed\t')" \
+  "$(spec_parse_repository_field "$repo_map_want" 8)"
+eq "a task the map does not name prints nothing" '' \
+  "$(spec_parse_repository_field "$repo_map_want" 1)"
+printf '%s\n' '# T' '' '### Task 1 — a' '- **Repository:** a-b' 'x' '- **Dependencies:** none' >"$tmp/repo-col0.md"
+eq "a column-0 line after the field is no continuation" "$(printf '1\talias\ta-b')" \
+  "$(spec_parse_repository_map "$tmp/repo-col0.md")"
+long=$(printf '%065d' 0 | tr 0 a)
+printf '%s\n' '# T' '' '### Task 1 — a' "- **Repository:** $long" >"$tmp/repo-long.md"
+eq "an alias past 64 characters is malformed" "$(printf '1\tmalformed\t%s' "$long")" \
+  "$(spec_parse_repository_map "$tmp/repo-long.md")"
+printf '### Task 1 — a\n- **Repository:** a\tb\n' >"$tmp/repo-tab.md"
+eq "a tab inside the value is folded so it cannot split the record" "$(printf '1\tmalformed\ta b')" \
+  "$(spec_parse_repository_map "$tmp/repo-tab.md")"
+printf '%s\n' '# T' '' '### Task 1 — a' '- **Dependencies:** none' >"$tmp/repo-none.md"
+eq "a bundle naming no repository prints nothing" '' "$(spec_parse_repository_map "$tmp/repo-none.md")"
+printf '%s\n' '# T' '' '```' '### Task 1 — a' >"$tmp/repo-open.md"
+rc=0
+spec_parse_repository_map "$tmp/repo-open.md" >/dev/null 2>&1 || rc=$?
+eq "an unclosed fence fails closed" 3 "$rc"
+rc=0
+spec_parse_repository_map "$tmp/does-not-exist.md" >/dev/null 2>&1 || rc=$?
+eq "a missing file fails closed" 1 "$rc"
+echo "ok: the task-repository map classes field-bearing tasks and fails closed on bad input"
 
 echo "PASS: test-spec-parse.sh"

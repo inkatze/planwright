@@ -443,7 +443,7 @@ tlh_session_pid() {
 tlh_canon() {
   local parent base dir target
   if [ -d "$1" ]; then
-    (cd "$1" && pwd -P)
+    (cd -- "$1" && pwd -P)
     return
   fi
   if [ -L "$1" ]; then

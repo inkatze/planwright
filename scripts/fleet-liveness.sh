@@ -845,7 +845,7 @@ valid_oracle_cwd() {
 # row. A path that cannot be entered (a deleted worktree) passes through as
 # given: it can then only produce `absent`, the safe no-evidence answer.
 normalize_oracle_cwd() {
-  noc_p=$(cd "$1" 2>/dev/null && pwd -P) || noc_p=""
+  noc_p=$(cd -- "$1" 2>/dev/null && pwd -P) || noc_p=""
   if [ -n "$noc_p" ]; then
     printf '%s' "$noc_p"
   else

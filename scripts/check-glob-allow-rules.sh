@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # check-glob-allow-rules.sh — correct-glob allow-rule discipline check
-# (fleet-hardening Task 6, D-6, REQ-B1.3, REQ-E1.3).
+# (fleet-hardening Task 6, D-20, REQ-B1.5, REQ-E1.3).
 #
 # Two guards, both pure shell — no model or API call is in the decision path
 # (REQ-E1.3, carrying fleet-autonomy D-18):
 #
-#   1. Footgun scan. A path-scoped Bash allow/deny rule must use the
-#      `Bash(<dir>/*)` glob, never the word-boundary `Bash(<dir>/:*)` form.
+#   1. Footgun scan. A path-scoped Bash allow/deny rule never uses the
+#      word-boundary `Bash(<dir>/:*)` form (an allow rule names an exact path).
 #      Claude Code's `:*` is a COMMAND-boundary glob: it matches only when a
 #      space or end-of-string follows the prefix, so `Bash(<dir>/:*)` never
 #      matches `<dir>/<file>` (a filename, not a space, follows the slash) and
@@ -14,7 +14,7 @@
 #      `Bash(<scripts-dir>/:*)` rule silently never matched the wrapper path on
 #      2026-07-19 and forced a bare launch. The scan flags any shipped config
 #      allow/deny entry whose inner text ends in `/:*`, while passing the
-#      correct `/*` path form and the legitimate command globs
+#      `/*` path form (check-allow-path-globs.sh flags that) and the command globs
 #      (`Bash(git status:*)`, `Bash(mise run:*)`), whose `:*` is correct.
 #      The scan matches one rule token per line (the pretty-printed
 #      one-entry-per-line JSON the profiles ship as, which excludes `_about`
@@ -29,6 +29,7 @@
 #      requirement is vacuously satisfied (this is what lets Task 6 land
 #      independently of Task 7, brief §6), and becomes enforced the moment the
 #      profile ships — so a later tower-settings author cannot omit it silently.
+#      The mission-control profile carries it too wherever it ships.
 #
 # Usage:
 #   check-glob-allow-rules.sh              full check: footgun scan over
@@ -38,7 +39,7 @@
 #
 # Doc-presence paths are overridable via env (defaults resolve under the repo
 # root): GLOB_ALLOW_OVERLAYS, GLOB_ALLOW_GHOST_DOC, GLOB_ALLOW_WORKER_SETTINGS,
-# GLOB_ALLOW_TOWER_SETTINGS.
+# GLOB_ALLOW_TOWER_SETTINGS, GLOB_ALLOW_MC_SETTINGS.
 #
 # Exit codes: 0 clean, 1 a footgun rule or a missing doc/cross-reference, 2
 # usage error (an input file that does not exist or cannot be read — fail
@@ -60,9 +61,9 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 # Stable markers the doc-presence check greps for — the single source of truth,
 # so the docs must carry these exact strings. GUIDE_ANCHOR is the GitHub
 # heading-slug of GUIDE_HEADING (checked by check-doc-links.sh).
-GUIDE_HEADING="### Path-scoped allow rules use the slash-star glob"
-GUIDE_ANCHOR="overlays.md#path-scoped-allow-rules-use-the-slash-star-glob"
-NOTE_MARKER="path-scoped allow entries use the trailing"
+GUIDE_HEADING="### Path-scoped allow rules name exact paths"
+GUIDE_ANCHOR="overlays.md#path-scoped-allow-rules-name-exact-paths"
+NOTE_MARKER="path-scoped allow entries never put a"
 
 status=0
 
@@ -105,7 +106,7 @@ run_footgun_scan() {
     while IFS= read -r hit; do
       lineno="${hit%%:*}"
       tok="${hit#*:}"
-      echo "check-glob-allow-rules: $f:$lineno path-scoped rule uses the never-match ':*' word-boundary form: $tok — use the '/*' path glob (Bash(<dir>/*)) instead (D-6, REQ-B1.3)" >&2
+      echo "check-glob-allow-rules: $f:$lineno path-scoped rule uses the never-match ':*' word-boundary form: $tok — a rule names the exact command path instead, with no '*' in it and no ':*' suffix (docs/overlays.md; D-20, REQ-B1.5)" >&2
       status=1
     done <<EOF
 $hits
@@ -122,36 +123,42 @@ doc_has() {
 
 # run_doc_presence — verify the guidance and cross-references exist.
 run_doc_presence() {
-  local overlays ghost worker tower
+  local overlays ghost worker tower mc
   overlays="${GLOB_ALLOW_OVERLAYS:-$repo_root/docs/overlays.md}"
   ghost="${GLOB_ALLOW_GHOST_DOC:-$repo_root/docs/fleet.md}"
   worker="${GLOB_ALLOW_WORKER_SETTINGS:-$repo_root/config/worker-settings.json}"
   tower="${GLOB_ALLOW_TOWER_SETTINGS:-$repo_root/config/tower-settings.json}"
+  mc="${GLOB_ALLOW_MC_SETTINGS:-$repo_root/config/mission-control-settings.json}"
 
   # 1. Guidance section present in the adopter allow-rule guidance.
   if ! doc_has "$overlays" "$GUIDE_HEADING"; then
-    echo "check-glob-allow-rules: allow-rule glob guidance missing from $overlays (expected a '$GUIDE_HEADING' section — D-6, REQ-B1.3)" >&2
+    echo "check-glob-allow-rules: allow-rule glob guidance missing from $overlays (expected a '$GUIDE_HEADING' section — D-20, REQ-B1.5)" >&2
     status=1
   fi
   # 2. Worker-settings profile carries the discipline note.
   if ! doc_has "$worker" "$NOTE_MARKER"; then
-    echo "check-glob-allow-rules: worker-settings profile $worker lacks the path-scoped allow-rule note ('$NOTE_MARKER …' — D-6)" >&2
+    echo "check-glob-allow-rules: worker-settings profile $worker lacks the path-scoped allow-rule note ('$NOTE_MARKER …' — D-20)" >&2
     status=1
   fi
   # 3. Ghost-text (D-5) doc cross-references the guidance.
   if ! doc_has "$ghost" "$GUIDE_ANCHOR"; then
-    echo "check-glob-allow-rules: ghost-text doc $ghost does not cross-reference the glob guidance (expected a link to $GUIDE_ANCHOR — D-6)" >&2
+    echo "check-glob-allow-rules: ghost-text doc $ghost does not cross-reference the glob guidance (expected a link to $GUIDE_ANCHOR — D-20)" >&2
     status=1
   fi
   # 4. Tower-guard (D-8) doc cross-references it — enforced once it exists
   #    (Task 7 deliverable; deferred, not skipped, until then).
   if [ -f "$tower" ]; then
     if ! doc_has "$tower" "$NOTE_MARKER"; then
-      echo "check-glob-allow-rules: tower-settings profile $tower lacks the path-scoped allow-rule note ('$NOTE_MARKER …' — D-6, Task 7 must carry it)" >&2
+      echo "check-glob-allow-rules: tower-settings profile $tower lacks the path-scoped allow-rule note ('$NOTE_MARKER …' — D-20, Task 7 must carry it)" >&2
       status=1
     fi
   else
     echo "check-glob-allow-rules: tower-settings profile not present yet ($tower) — tower-guard cross-reference deferred to Task 7"
+  fi
+  # 5. The mission-control profile carries the note wherever it ships.
+  if [ -f "$mc" ] && ! doc_has "$mc" "$NOTE_MARKER"; then
+    echo "check-glob-allow-rules: mission-control profile $mc lacks the path-scoped allow-rule note ('$NOTE_MARKER …')" >&2
+    status=1
   fi
 }
 

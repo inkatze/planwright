@@ -9,7 +9,7 @@
 # Each directory's links land before the next directory is read, so the
 # existence check still lets the earlier directory win.
 no_timeout_path() {
-  mkdir -p "$1" || return 1
+  mkdir -p -- "$1" || return 1
   ntp_ifs=$IFS
   IFS=:
   for ntp_d in $PATH; do

@@ -1,1 +1,1 @@
-match ^planwright: usage: resolve-root\.sh \[--explain\] install \[--all\] \| repo --primary\|--checkout \| spec \[--primary\] \[--posture\] \[--init\] \| marker <dir>$
+match ^planwright: usage: resolve-root\.sh \[--explain\] install \[--all\] \| repo --primary\|--checkout \| spec \[--primary\] \[--posture\] \[--init\] \| marker \[--project\] <dir>$

@@ -135,7 +135,8 @@
 # Usage (<spec> is the bare identifier or its `specs/<spec>` alias, with or
 # without one trailing slash; scripts/spec-id-lib.sh):
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] \
-#       [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] \
+#       [--backend tmux] [--repo-root <dir>] \
+#       [--launch-only | --attach-dry-run | --no-attach] \
 #       [-- <extra launch args>...]
 #       Validate, fetch `<base>`, reconcile, `git worktree add -b`, wire the
 #       hook backstop, launch, then confirm. The report is `dispatch<TAB><key><TAB><value>` lines (branch,
@@ -144,6 +145,16 @@
 #       Its exit status is the launch outcome (0, 14, or 16 below), never
 #       the worker's own.
 #       --repo-root      the primary checkout (default: resolve-root.sh repo --primary).
+#       --backend tmux   the caller asserts tmux was picked where the
+#                        unattended resolution cannot see it (an explicit
+#                        /orchestrate --backend tmux, or the tmux-context ask
+#                        answered yes). Not a safety gate: never the
+#                        remedy for an exit 17.
+#                        Without it a task launch (live or --launch-only, not
+#                        --attach-dry-run) first resolves the spec's backend
+#                        (resolve-dispatch-backend.sh, unattended) and refuses
+#                        with exit 17 unless it is tmux. Any other value, or
+#                        the flag on the flight arm, is a usage error.
 #       --launch-only    launch and report, without the confirm step, for a
 #                        caller that releases a lock before confirming (the
 #                        flight dispatch); exit 0 once the session exists.
@@ -259,6 +270,10 @@
 #   16 failed-at-startup: tmux answered that the worker's session is gone
 #      and no confirmation had arrived. The dispatch clears the marker it
 #      set; the worktree and branch stay for a retry to adopt.
+#   17 the task launch was refused before anything was placed: the spec
+#      resolves to a backend other than tmux (the message names it and the
+#      rung to use instead), or its backend did not resolve (the message
+#      relays the resolver's diagnostics and exit status).
 #
 # Every tmux call (the liveness probes and new-session) is ended after
 # PLANWRIGHT_DISPATCH_TMUX_TIMEOUT seconds (default 10, 1-999, no leading
@@ -310,6 +325,7 @@ FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 LAUNCH_SPEC_ROOT=""
 LAUNCH_RECORD=""
+LAUNCH_TMPDIR=""
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
 WIRE="$script_dir/wire-githooks.sh"
@@ -333,7 +349,7 @@ warn() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
+usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--brief <abs-file>] [--backend tmux] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--relaunch] [--repo-root <dir>] [--launch-only | --attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh attach <suffix> --dry-run [--brief <abs-file>] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh confirm --session <name> --handle <handle> [--since <epoch|unknown>] [--token <hex>]
@@ -637,7 +653,7 @@ valid_brief() {
   esac
   [ "$(basename "$1")" = brief.md ] || return 1
   [ -f "$1" ] && [ -r "$1" ] && [ -s "$1" ] && [ ! -L "$1" ] || return 1
-  _vb_dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || return 1
+  _vb_dir=$(cd -- "$(dirname "$1")" 2>/dev/null && pwd -P) || return 1
   _vb_home=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || return 1
   [ -n "$_vb_home" ] || return 1
   _vb_home=$(cd "$_vb_home" 2>/dev/null && pwd -P) || return 1
@@ -1077,9 +1093,14 @@ resolve_tmux_bin() {
 # resolved planwright root and fleet home, which the worker is pinned to, and
 # LAUNCH_SPEC_ROOT to the spec root outside <repo> its guard admits as a write
 # zone (empty for a same-repo root, or when it does not resolve: the posture
-# never blocks a dispatch).
+# never blocks a dispatch). A root naming an older plugin-cache copy, a pin the
+# dispatching session kept across an upgrade, resolves to the installed root.
 launch_roots() {
   LAUNCH_ROOT=$(/bin/sh "$script_dir/resolve-root.sh" install 2>/dev/null </dev/null) || LAUNCH_ROOT=''
+  if [ -n "$LAUNCH_ROOT" ] && [ -f "$script_dir/resolve-installed-roots.sh" ]; then
+    lr_fresh=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --fresh "$LAUNCH_ROOT" 2>/dev/null </dev/null) || lr_fresh=''
+    [ -z "$lr_fresh" ] || LAUNCH_ROOT=$lr_fresh
+  fi
   LAUNCH_HOME=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || LAUNCH_HOME=''
   LAUNCH_SPEC_ROOT=''
   [ -z "${1:-}" ] || LAUNCH_SPEC_ROOT=$(/bin/sh "$script_dir/worker-spec-root.sh" "$1" 2>/dev/null </dev/null) || LAUNCH_SPEC_ROOT=''
@@ -1111,6 +1132,7 @@ print_plan() {
   pp_claude=$(command -v claude 2>/dev/null) || pp_claude=claude
   launch_roots "${_repo_root:-${_aroot:-}}"
   LAUNCH_RECORD='<session-record>'
+  LAUNCH_TMPDIR='<scratch-root>'
   resolve_launch_profile || exit 12
   # A plan with no identity would be refused at launch; refuse it before a
   # word of it is printed (the bare legacy `task-<id>` suffix names no spec).
@@ -1165,6 +1187,7 @@ tmux_launch() {
   set -- --inbound accept "$@"
   [ -z "$LAUNCH_SPEC_ROOT" ] || set -- --spec-root "$LAUNCH_SPEC_ROOT" "$@"
   [ -z "$LAUNCH_RECORD" ] || set -- --session-record "$LAUNCH_RECORD" "$@"
+  [ -z "$LAUNCH_TMPDIR" ] || set -- --tmpdir "$LAUNCH_TMPDIR" "$@"
   [ -z "$LAUNCH_HOME" ] || set -- --fleet-home "$LAUNCH_HOME" "$@"
   [ -z "$LAUNCH_ROOT" ] || set -- --root "$LAUNCH_ROOT" "$@"
   [ -z "$tl_token" ] || set -- --launch-token "$tl_token" "$@"
@@ -1218,6 +1241,8 @@ do_dispatch() {
   _no_attach=0
   _launch_only=0
   _relaunch=0
+  _backend=''
+  _backend_set=0
   # Collect extra launch args (after `--`) verbatim.
   _have_extra=0
 
@@ -1259,6 +1284,12 @@ do_dispatch() {
         [ "$#" -ge 2 ] || usage
         _brief=$2
         _brief_set=1
+        shift 2
+        ;;
+      --backend)
+        [ "$#" -ge 2 ] || usage
+        _backend=$2
+        _backend_set=1
         shift 2
         ;;
       --*)
@@ -1315,6 +1346,16 @@ do_dispatch() {
   if [ -n "$_brief" ] && [ "$_no_attach" -eq 1 ]; then
     warn "--no-attach launches no worker; it takes no --brief"
     usage
+  fi
+  if [ "$_backend_set" -eq 1 ]; then
+    [ "$_backend" = tmux ] || {
+      warn "--backend takes only tmux: this primitive launches the tmux rung; place another rung's worktree with --no-attach and launch it through that rung"
+      usage
+    }
+    [ -z "$_flight" ] || {
+      warn "--backend is a task option; a flight's rung is chosen by its own dispatch"
+      usage
+    }
   fi
   if [ "$_relaunch" -eq 1 ]; then
     [ -n "$_flight" ] || {
@@ -1518,6 +1559,29 @@ do_dispatch() {
   if [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 1 ]; then
     launch_roots "$_repo_root"
     resolve_launch_profile || exit 12
+  fi
+  # A tmux worker placed for a spec configured for another rung parks on
+  # prompts that rung's supervisor never sees. Checked after the launch
+  # checks, so a missing tool or a live session keeps its own exit code.
+  if [ -z "$_flight" ] && [ "$_tmux_rung" -eq 1 ] && [ "$_attach_dry" -eq 0 ] && [ "$_backend" != tmux ]; then
+    _resolve_rc=0
+    _resolve_out=$(cd "$_repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-dispatch-backend.sh" resolve "$_spec_dir" 2>&1 </dev/null) || _resolve_rc=$?
+    _resolved_backend=$(printf '%s\n' "$_resolve_out" | awk -F"$TAB" '$1 == "backend" { print $2; exit }')
+    if [ "$_resolve_rc" -ne 0 ] || [ "$_resolved_backend" != tmux ]; then
+      # The resolver's own diagnostics (a malformed overlay, an unadvertised
+      # backend, a degrade note) say why; its TSV rows do not. Each carries
+      # its writer's own prefix.
+      printf '%s\n' "$_resolve_out" | grep -v -e "^configured$TAB" -e "^ask$TAB" -e "^backend$TAB" \
+        | while IFS= read -r _resolve_line; do
+          [ -z "$_resolve_line" ] || warn "$_resolve_line"
+        done
+      if [ "$_resolve_rc" -ne 0 ] || [ -z "$_resolved_backend" ]; then
+        warn "refusing the tmux launch: the backend for spec $_spec did not resolve (resolve-dispatch-backend exit $_resolve_rc, its reason above); nothing was placed"
+      else
+        warn "refusing the tmux launch: spec $_spec resolves to backend $_resolved_backend, whose supervisor would never see this worker's prompts; nothing was placed. Dispatch through that rung (orchestrate-meta-step.sh dispatch for stream-json-persistent or headless-oneshot), or create the worktree alone with --no-attach"
+      fi
+      exit 17
+    fi
   fi
 
   _made_branch=0
@@ -1790,7 +1854,16 @@ MERR
   # one the guard keeps to its read-only arm, so it never blocks a launch.
   # The record is this launch's own, so losing the session race below
   # rewrites nothing the winner reads.
-  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" 2>/dev/null </dev/null) || LAUNCH_RECORD=''
+  # The worker's scratch root, its TMPDIR, is the worktree's, kept for
+  # every later launch there and removed when the worktree is reclaimed
+  # (fleet-cleanup.sh worktree). A worktree this run created starts with an
+  # empty one: a root left there belonged to an earlier worktree at the path.
+  _scratch_opt=--scratch
+  [ "$_made_worktree" -ne 1 ] || _scratch_opt=--fresh-scratch
+  LAUNCH_RECORD=$(/bin/sh "$script_dir/worker-session-record.sh" write "$_worktree" "$_token" "$_scratch_opt" \
+    2>/dev/null </dev/null) || LAUNCH_RECORD=''
+  LAUNCH_TMPDIR=''
+  [ -z "$LAUNCH_RECORD" ] || LAUNCH_TMPDIR=$(sed -n 's/^scratch_root=//p' "$LAUNCH_RECORD" 2>/dev/null) || LAUNCH_TMPDIR=''
   tmux_launch run "$TMUX_BIN" "$_session" "$_worktree" "$_handle" "$_scope" \
     "$_token" "$WORKER_CLI" "$@"
   _ns_rc=$?
@@ -1807,7 +1880,7 @@ MERR
           # Everything this dispatch would own is the winner's: remove,
           # clear, and write nothing.
           warn "already-in-flight: another dispatch created $_session first; its worktree, branch, and marker are left as they are"
-          [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
+          launch_record_drop keep-scratch
           exit 3
           ;;
       esac
@@ -1872,8 +1945,26 @@ MERR
 # real directory, and is exactly the placed worktree.
 start_dir_ok() {
   [ ! -L "$1" ] && [ -d "$1" ] || return 1
-  sdo_phys=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  sdo_phys=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
   [ "$sdo_phys" = "$2" ]
+}
+
+# launch_record_drop [keep-scratch] — remove this launch's own session record,
+# for a launch whose worker never ran, and the worktree's scratch root with
+# it unless told to keep it: a launch that lost the race leaves it to the
+# winner, and an undo removes it with the worktree.
+launch_record_drop() {
+  [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
+  [ "${1-}" != keep-scratch ] || return 0
+  case $LAUNCH_TMPDIR in
+    /?*)
+      _ld_home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || _ld_home=''
+      if [ -z "$_ld_home" ] \
+        || ! /bin/sh "$script_dir/fleet-scratch.sh" release "$_ld_home" "$LAUNCH_TMPDIR" >/dev/null 2>&1 </dev/null; then
+        warn "could not remove the scratch root $LAUNCH_TMPDIR"
+      fi
+      ;;
+  esac
 }
 
 # undo_launch [unanswered] — after a post-create failure, remove only what
@@ -1895,7 +1986,7 @@ undo_launch() {
     fi
     ul_wt_left=1
   elif [ "$_made_worktree" -eq 1 ]; then
-    [ -z "$LAUNCH_RECORD" ] || rm -f -- "$LAUNCH_RECORD"
+    launch_record_drop
     if [ -L "$_worktree" ]; then
       ul_wt_left=1
     elif [ -d "$_worktree" ]; then

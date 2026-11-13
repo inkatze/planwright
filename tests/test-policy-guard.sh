@@ -349,11 +349,36 @@ gitq -C "$UNIT" branch -f main origin/main
 pg worker 'git merge main'
 expect defer "[worker] allow: a local main equal to the remote base defers"
 for cmd in 'git merge origin/planwright/demo/task-2' 'git merge origin/planwright/demo/spec' 'git merge HEAD~1' \
-  'git merge origin/main origin/planwright/demo/task-2' 'git pull' 'git pull origin planwright/demo/task-2' \
-  'git pull origin main:main' 'git merge $BASE'; do
+  'git merge origin/main origin/planwright/demo/task-2' 'git pull origin planwright/demo/task-2' \
+  'git pull origin main:main' 'git merge $BASE' 'git pull origin planwright/demo/task-1:planwright/demo/task-1'; do
   pg worker "$cmd"
-  expect deny "[worker] allow: $cmd denies (the source is not the PR base)"
+  expect deny "[worker] allow: $cmd denies (the source is neither the PR base nor the branch's own remote branch)"
 done
+echo "# the worker brings its own remote branch in"
+for cmd in 'git merge origin/planwright/demo/task-1' 'git merge --ff-only origin/planwright/demo/task-1' \
+  'git merge refs/remotes/origin/planwright/demo/task-1' 'git merge' 'git pull' 'git pull origin planwright/demo/task-1' \
+  'git pull --ff-only' 'git merge origin/main origin/planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] allow: $cmd defers (its own remote branch)"
+done
+gitq -C "$UNIT" branch origin/planwright/demo/task-1 HEAD~1
+pg worker 'git merge origin/planwright/demo/task-1'
+expect deny "[worker] allow: a local branch shadowing the own remote branch denies the merge"
+gitq -C "$UNIT" branch -D origin/planwright/demo/task-1
+gitq -C "$UNIT" config branch.planwright/demo/task-1.merge refs/heads/planwright/demo/task-2
+pg worker 'git merge'
+expect deny "[worker] allow: a no-source merge whose upstream is another branch denies"
+reason_has 'names no source' "the no-source refusal says why"
+pg worker 'git pull'
+expect deny "[worker] allow: a no-source pull whose upstream is another branch denies"
+gitq -C "$UNIT" config branch.planwright/demo/task-1.merge refs/heads/planwright/demo/task-1
+gitq -C "$UNIT" remote add fork "$ORIGIN"
+gitq -C "$UNIT" fetch fork
+for cmd in 'git merge fork/planwright/demo/task-1' 'git pull fork planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect deny "[worker] allow: the same branch on another remote is not its own remote branch: $cmd"
+done
+gitq -C "$UNIT" remote remove fork
 pg worker 'git merge origin/main' "$OTHER"
 expect deny "[worker] allow: a merge in another unit's worktree denies"
 pg worker "git -C $OTHER merge origin/main"
@@ -383,11 +408,282 @@ for cmd in 'git merge origin/main' 'git pull origin main' "git -C $UNIT merge or
   expect deny "[worker] deny: $cmd denies"
 done
 reason_has 'worker_base_merge is deny' "[worker] the base-merge deny names the knob"
+set_knobs 'worker_base_merge: allow' 'unpushed_rewrite: deny'
+printf '[pull]\n\trebase\n' >>"$UNIT/.git/config"
+pg worker 'git pull origin main'
+expect deny "[worker] unpushed_rewrite deny: pull.rebase written with no value is a rebasing pull"
+reason_has 'unpushed_rewrite is deny' "the valueless-rebase refusal names the knob"
+reason_has 'no-rebase merges instead\) is refused\. Merge the PR base instead: git merge origin/main' "the configured-rebase refusal names --no-rebase once and the base by name"
+for cmd in 'git pull --rebase origin main' 'git pull -r origin main'; do
+  pg worker "$cmd"
+  expect deny "[worker] unpushed_rewrite deny: an explicit rebasing pull is refused: $cmd"
+  reason_has 'instead: git pull --no-rebase, git merge origin/main' "the explicit rebasing-pull refusal names the merge remedies: $cmd"
+done
+gitq -C "$UNIT" config --unset pull.rebase
 set_knobs 'worker_base_merge: allow'
 for cmd in 'git merge origin/main' 'git pull' 'git pull origin main' 'git -C . merge origin/main' 'git "pull" origin main'; do
   pg tower "$cmd"
   expect deny "[tower] $cmd denies under allow"
   reads none "[tower] $cmd reads no knob"
+done
+
+echo "# the primary checkout's fast-forward"
+# The raw git spellings keep every refusal at both tiers; an ff-only one names
+# the sanctioned verb, so a launched session can keep the primary current
+# without the operator. The verb itself performs no reserved act here.
+FF_VERB='main-currency\.sh ff-primary'
+for cmd in "git -C $MAIN merge --ff-only origin/main" "git -C $MAIN pull --ff-only origin main" \
+  'git merge --ff-only origin/main' 'git pull --ff-only origin main'; do
+  pg tower "$cmd" "$MAIN"
+  expect deny "[tower] the raw fast-forward still denies: $cmd"
+  reads none "[tower] the raw fast-forward reads no knob: $cmd"
+  reason_has "$FF_VERB" "[tower] the fast-forward refusal names the sanctioned verb: $cmd"
+done
+for cmd in "git -C $MAIN merge --ff-only origin/main" "git -C $MAIN pull --ff-only origin main"; do
+  pg worker "$cmd"
+  expect deny "[worker] a fast-forward of the primary's main from a unit worktree still denies: $cmd"
+  reason_has "$FF_VERB" "[worker] that refusal names the sanctioned verb: $cmd"
+done
+pg worker 'git merge --ff-only origin/main' "$MAIN" "$MAIN"
+expect deny "[worker] a fast-forward run in the primary itself still denies"
+reason_has "$FF_VERB" "[worker] that refusal names the sanctioned verb"
+for spec in "tower|git -C $MAIN merge origin/main" "tower|git -C $MAIN merge --no-ff origin/main" \
+  "worker|git -C $MAIN merge origin/main" "tower|git -C $MAIN pull origin main"; do
+  pg "${spec%%|*}" "${spec#*|}"
+  expect deny "[${spec%%|*}] a merge that is not fast-forward-only still denies: ${spec#*|}"
+  case $REASON in
+    *main-currency.sh*) fail "[${spec%%|*}] a real merge's refusal points at the fast-forward verb: ${spec#*|}" ;;
+    *) pass "[${spec%%|*}] a real merge's refusal does not point at the fast-forward verb: ${spec#*|}" ;;
+  esac
+done
+for cmd in 'git merge --ff-only upstream/main' 'git merge --ff-only origin/develop' \
+  'git pull --ff-only upstream main' 'git pull --ff-only origin develop'; do
+  pg tower "$cmd"
+  expect deny "[tower] another remote or branch still denies: $cmd"
+  pg worker "$cmd"
+  expect deny "[worker] another remote or branch still denies on the unit branch: $cmd"
+  case $REASON in
+    *main-currency.sh*) fail "[worker] a source refusal on the unit branch points at the primary's fast-forward verb: $cmd" ;;
+    *) pass "[worker] a source refusal on the unit branch does not point at the primary's fast-forward verb: $cmd" ;;
+  esac
+done
+for spec in "1|--ff-" "1|--ff-o" "1|--no-ff --ff-only" "0|--ff" "0|--ff-only --no-ff" "0|--ff-only --no-f" "0|--ff-only --ff"; do
+  pg tower "git -C $MAIN merge ${spec#*|} origin/main"
+  expect deny "[tower] a merge with ${spec#*|} still denies"
+  case ${spec%%|*}:$REASON in
+    1:*main-currency.sh*) pass "[tower] ${spec#*|} leaves git fast-forward-only, and the refusal names the verb" ;;
+    0:*main-currency.sh*) fail "[tower] ${spec#*|} lets git merge for real, yet the refusal names the fast-forward verb" ;;
+    1:*) fail "[tower] ${spec#*|} leaves git fast-forward-only, yet the refusal does not name the verb" ;;
+    *) pass "[tower] ${spec#*|} lets git merge for real, and the refusal does not name the verb" ;;
+  esac
+done
+pg worker 'git merge --ff-only origin/main'
+expect defer "[worker] allow: a fast-forward-only merge of the base into the unit branch defers"
+pg worker 'git merge --ff-only origin/planwright/demo/task-2'
+expect deny "[worker] allow: a fast-forward-only merge of another source denies"
+case $REASON in
+  *main-currency.sh*) fail "[worker] a source refusal points at the primary's fast-forward verb" ;;
+  *) pass "[worker] a source refusal does not point at the primary's fast-forward verb" ;;
+esac
+set_knobs 'worker_base_merge: deny'
+pg worker 'git merge --ff-only origin/main'
+expect deny "[worker] deny: a fast-forward-only base merge denies"
+case $REASON in
+  *main-currency.sh*) fail "[worker] the worker_base_merge refusal points at the primary's fast-forward verb" ;;
+  *) pass "[worker] the worker_base_merge refusal does not point at the primary's fast-forward verb" ;;
+esac
+set_knobs 'worker_base_merge: allow'
+for tier in tower worker; do
+  for cmd in "$REPO_ROOT/scripts/main-currency.sh ff-primary" "$REPO_ROOT/scripts/main-currency.sh ff-primary --checkout $MAIN" \
+    "/bin/sh $REPO_ROOT/scripts/main-currency.sh ff-primary --checkout $SANDBOX/dotfiles"; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] the sanctioned fast-forward verb defers: $cmd"
+    reads none "[$tier] the sanctioned fast-forward verb reads no knob: $cmd"
+  done
+done
+
+echo "# a flight branch named before flight ids is still the session's unit branch"
+OLDF="$SANDBOX/oldflight"
+gitq -C "$SEED" switch -c planwright/flight/mc-panel-usability main
+gitq -C "$SEED" commit --allow-empty -m 'pushed on the older flight'
+gitq -C "$SEED" push origin planwright/flight/mc-panel-usability
+clone_on "$OLDF" planwright/flight/mc-panel-usability 1
+for cmd in 'git merge origin/main' 'git merge --ff-only origin/planwright/flight/mc-panel-usability' 'git pull' \
+  'git pull origin main' 'git merge'; do
+  pg worker "$cmd" "$OLDF" "$OLDF"
+  expect defer "[worker] an older flight branch without an id: $cmd defers"
+done
+pg worker 'git merge origin/planwright/demo/task-2' "$OLDF" "$OLDF"
+expect deny "[worker] an older flight branch still merges no other branch"
+pg tower 'git merge origin/main' "$OLDF" "$OLDF"
+expect deny "[tower] an older flight branch widens nothing for the tower"
+
+echo "# a session launched at the primary checkout syncs the linked worktree its shell is in"
+PRIM="$SANDBOX/prim"
+gitq clone "$ORIGIN" "$PRIM"
+gitq -C "$PRIM" remote set-head origin main
+LWT="$SANDBOX/prim-flight"
+gitq -C "$PRIM" worktree add -b planwright/flight/dispatch-backend-0123abcd "$LWT" origin/main
+LWT2="$SANDBOX/prim-sibling"
+gitq -C "$PRIM" worktree add -b planwright/demo/task-8 "$LWT2" origin/main
+mkdir -p "$LWT/sub"
+for cmd in 'git merge origin/main' "git -C $LWT merge origin/main" 'git pull origin main'; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect defer "[worker] project directory on main, shell in its flight worktree: $cmd defers"
+done
+for cmd in 'git merge origin/main' "git -C $LWT merge origin/main"; do
+  pg worker "$cmd" "$LWT/sub" "$PRIM"
+  expect defer "[worker] a shell in a subdirectory of its flight worktree owns it: $cmd"
+done
+pg worker 'git merge origin/main' "$PRIM" "$PRIM"
+expect deny "[worker] the primary checkout on main stays refused"
+reason_has 'primary checkout' "the refusal on main says the session was launched at the primary checkout"
+for cmd in "git -C $LWT merge origin/main" "cd $LWT && git merge origin/main"; do
+  pg worker "$cmd" "$PRIM" "$PRIM"
+  expect deny "[worker] a worktree the shell is not in is not the session's own: $cmd"
+  reason_has 'shell is in none' "the refusal says the shell is in no linked worktree: $cmd"
+done
+pg worker "git -C $PRIM merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] from its worktree, a -C into the primary checkout is refused"
+pg worker "git -C $LWT2 merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] a sibling worktree the shell is not in is refused"
+pg worker "git merge origin/main && git -C $LWT2 merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] a compound reaching a second worktree is refused"
+XC="$SANDBOX/same-name-clone"
+gitq clone "$ORIGIN" "$XC"
+gitq -C "$XC" remote set-head origin main
+gitq -C "$XC" switch -c planwright/flight/dispatch-backend-0123abcd
+for cmd in "git -C $XC merge origin/main" "git merge origin/main && git -C $XC merge origin/main" \
+  "git -C $XC merge origin/main && git merge origin/main" "git -C $LWT pull origin main && git -C $XC pull origin main"; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect deny "[worker] another checkout holding a branch of the same name is refused in any order: $cmd"
+done
+pg worker "git merge origin/main && git -C $XC merge origin/main" "$LWT" "$PRIM"
+reason_has 'other than this session' "the same-name refusal names the other checkout"
+gitq -C "$XC" switch planwright/demo/task-1
+pg worker "git merge origin/main && git -C $XC merge origin/main" "$UNIT" "$UNIT"
+expect deny "[worker] a session launched into its unit checkout never reaches a same-named branch elsewhere"
+for cmd in 'git commit --amend --no-edit' 'git rebase origin/main' 'git pull --rebase origin main' \
+  'git merge origin/main && git pull --rebase origin main' 'git pull origin main && git pull --rebase origin main'; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect deny "[worker] the shell's worktree is a base sync only, never a rewrite: $cmd"
+  reason_has 'never rewrites history' "the rewrite refusal says a primary launch never rewrites: $cmd"
+done
+pg worker 'git commit --amend --no-edit' "$PRIM" "$PRIM"
+expect deny "[worker] a rewrite from the primary checkout itself is refused"
+reason_has 'never rewrites history' "a rewrite gets the rewrite refusal before any shell-directory refusal"
+printf '[pull]\n\trebase\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] pull.rebase written with no value rebases, so it is a rewrite on the shell path"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase false
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase true
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] the branch rebase key wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+printf '[branch "planwright/flight/dispatch-backend-0123abcd"]\n\trebase\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] a branch rebase key written with no value wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config pull.rebase true
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase false
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect defer "[worker] a branch rebase key of false wins over pull.rebase true"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config --unset pull.rebase
+printf '[pull]\n\trebase =\n' >>"$PRIM/.git/config"
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect defer "[worker] pull.rebase set to an empty value is false to git, so the pull merges"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase merges
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] pull.rebase merges rebases, so it is a rewrite on the shell path"
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$PRIM" config pull.rebase false
+gitq -C "$PRIM" config branch.planwright/flight/dispatch-backend-0123abcd.rebase merges
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] a branch rebase key git's bool parser rejects still wins over pull.rebase false"
+gitq -C "$PRIM" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+gitq -C "$PRIM" config --unset pull.rebase
+gitq -C "$LWT" config branch.planwright/flight/dispatch-backend-0123abcd.rebase true
+pg worker 'git pull origin main' "$LWT" "$PRIM"
+expect deny "[worker] a pull that rebases by configuration is a rewrite on the shell path"
+reason_has 'no-rebase merges instead' "the configured-rebase refusal names git pull --no-rebase"
+pg worker 'git pull --no-rebase origin main' "$LWT" "$PRIM"
+expect defer "[worker] git pull --no-rebase overrides the configured rebase on the shell path"
+gitq -C "$LWT" config --unset branch.planwright/flight/dispatch-backend-0123abcd.rebase
+pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
+expect deny "[worker] a never-pushed branch has no own remote branch to merge"
+reason_has 'missing or a local branch or tag' "the missing own-remote-branch refusal says why"
+gitq -C "$LWT" commit --allow-empty -m 'flight work'
+gitq -C "$LWT" push -u origin planwright/flight/dispatch-backend-0123abcd
+for cmd in 'git merge origin/planwright/flight/dispatch-backend-0123abcd' 'git merge' 'git pull'; do
+  pg worker "$cmd" "$LWT" "$PRIM"
+  expect defer "[worker] once pushed, the shell's worktree brings its own remote branch in: $cmd"
+done
+gitq -C "$LWT" tag origin/planwright/flight/dispatch-backend-0123abcd HEAD~1
+pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
+expect deny "[worker] a tag shadowing the own remote branch is refused"
+reason_has 'missing or a local branch or tag' "the shadowed own-remote-branch refusal says why"
+gitq -C "$LWT" tag -d origin/planwright/flight/dispatch-backend-0123abcd
+gitq -C "$LWT" tag origin/planwright/flight/dispatch-backend-0123abcd HEAD
+pg worker 'git merge origin/planwright/flight/dispatch-backend-0123abcd' "$LWT" "$PRIM"
+expect defer "[worker] a tag of that name at the same commit is admitted: the merge takes that very commit"
+gitq -C "$LWT" tag -d origin/planwright/flight/dispatch-backend-0123abcd
+XCW="$SANDBOX/same-name-worktree-clone"
+gitq clone "$ORIGIN" "$XCW"
+gitq -C "$XCW" switch planwright/flight/dispatch-backend-0123abcd
+gitq -C "$XCW" config core.worktree "$LWT"
+pg worker "git -C $XCW merge origin/main" "$LWT" "$PRIM"
+expect deny "[worker] another repository whose core.worktree names the session's worktree is not its checkout"
+reason_has 'core.worktree' "the core.worktree refusal names the other repository's git directory"
+gitq -C "$PRIM" switch --detach
+pg worker 'git merge origin/main' "$LWT" "$PRIM"
+expect deny "[worker] a detached primary checkout owns no worktree"
+gitq -C "$PRIM" switch main
+pg worker 'git merge origin/main' "$LWT2" "$LWT"
+expect deny "[worker] a session launched into its own unit worktree never owns a sibling"
+LDET="$SANDBOX/prim-detached"
+gitq -C "$PRIM" worktree add --detach "$LDET" origin/main
+LREL="$SANDBOX/prim-release"
+gitq -C "$PRIM" worktree add -b release/1 "$LREL" origin/main
+for proj in "$LDET" "$LREL" "$SANDBOX/not-a-repo"; do
+  mkdir -p "$proj"
+  pg worker 'git merge origin/main' "$LWT" "$proj"
+  expect deny "[worker] only a primary-checkout launch owns the shell's worktree: project directory $proj"
+done
+pg worker 'git merge origin/main' "$LDET" "$PRIM"
+expect deny "[worker] a detached HEAD in the shell's worktree is refused"
+reason_has 'no branch' "the detached refusal says no branch is checked out"
+for b in planwright/flight/task-9 planwright/flight/foo- planwright/flight/Foo planwright/flight/a/b; do
+  d="$SANDBOX/prim-bad-$(printf '%s' "$b" | tr '/' '_')"
+  gitq -C "$PRIM" worktree add -b "$b" "$d" origin/main
+  pg worker 'git merge origin/main' "$d" "$PRIM"
+  expect deny "[worker] a linked worktree on a non-unit branch stays refused: $b"
+done
+pg worker 'git merge origin/main' "$LREL" "$PRIM"
+expect deny "[worker] a linked worktree on a release branch stays refused"
+set_knobs 'worker_base_merge: allow' 'protected_branches: planwright/flight/*'
+pg worker 'git merge origin/main' "$LWT" "$PRIM"
+expect deny "[worker] a protected flight branch in the shell's worktree stays refused"
+set_knobs 'worker_base_merge: allow'
+XWT="$SANDBOX/other-flight"
+gitq -C "$OTHER" worktree add -b planwright/flight/foreign-0123abcd "$XWT" HEAD
+pg worker 'git merge origin/main' "$XWT" "$PRIM"
+expect deny "[worker] a worktree of another repository is not the session's own"
+reason_has 'shell is in none' "the other-repository refusal says the shell is in none of this repository's worktrees"
+# The guard falls back to its own directory for a missing cwd; run from the
+# worktree so the case fails only if that fallback is trusted.
+cd "$LWT" || exit 1
+pg_payload worker bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"git merge origin/main"}}')" "$PRIM"
+expect deny "[worker] a payload reporting no cwd owns no worktree"
+reason_has 'no shell directory' "the no-cwd refusal says the hook was told no shell directory"
+pg_payload worker bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"git merge origin/main"}, cwd:""}')" "$PRIM"
+expect deny "[worker] a payload with an empty cwd owns no worktree"
+cd - >/dev/null || exit 1
+for tier in tower mission-control; do
+  pg "$tier" 'git merge origin/main' "$LWT" "$PRIM"
+  expect deny "[$tier] the shell's worktree widens nothing for $tier"
 done
 
 # --- history rewrites (REQ-F1.1) ---------------------------------------------
@@ -520,6 +816,111 @@ case $OUT in
   *) pass "the deny reason is stripped of control bytes" ;;
 esac
 
+# --- a cd that may not run --------------------------------------------------
+
+echo "# a cd is followed only when it runs"
+set_knobs 'protected_branches:' 'unpushed_rewrite: allow' 'worker_base_merge: allow' 'ready_flip_policy: unit-owner'
+# Each pair is <cwd>|<command>: the guard cannot tell that the shell runs the
+# cd, in this shell, before the last act; where it skips the cd or runs it in
+# a subshell, the act runs in the directory before it, a main checkout.
+for spec in "$UNIT|cd $MAIN; false && cd $UNIT; git push" \
+  "$UNIT|cd $MAIN; false && cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|true || cd $UNIT; git push" "$MAIN|true || cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|false && cd $UNIT
+git push" "$MAIN|false && cd $UNIT
+git merge origin/main" "$MAIN|false && cd $UNIT; gh pr ready 42" \
+  "$MAIN|if false; then cd $UNIT; fi; git push" "$MAIN|if false; then cd $UNIT; fi; git commit --amend --no-edit" \
+  "$MAIN|if true; then :; else cd $UNIT; fi; git push" "$MAIN|if false; then :; elif true; then cd $UNIT; fi; git push" \
+  "$MAIN|if cd $UNIT; then git push; fi" "$MAIN|while false; do cd $UNIT; done; git push" \
+  "$MAIN|until true; do cd $UNIT; done; git push" "$MAIN|for x in a; do cd $UNIT; done; git push" \
+  "$MAIN|time if false; then cd $UNIT; fi; git push" "$MAIN|time -p while false; do cd $UNIT; done; git push" \
+  "$MAIN|if false; then 'fi'; cd $UNIT; fi; git push" "$MAIN|\"then\" cd $UNIT; git push" \
+  "$MAIN|function f if true; then cd $UNIT; fi
+f; git push" "$MAIN|false && cd $UNIT || git push" \
+  "$MAIN|false && cd $UNIT || >/dev/null && git push" "$MAIN|false && cd $UNIT && >/dev/null; git push" \
+  "$MAIN|>/dev/null || cd $UNIT; git push" "$MAIN|<<EOF || cd $UNIT
+x
+EOF
+git push" "$MAIN|x=1 then cd $UNIT; git push" "$MAIN|x=1 coproc cd $UNIT; git push" \
+  "$MAIN|command time cd $UNIT; git push" "$MAIN|>/dev/null then cd $UNIT; git push" \
+  "$MAIN|shopt -s execfail; exec cd $UNIT; git push" \
+  "$MAIN|if false; then >/dev/null fi; cd $UNIT; fi; git push" \
+  "$MAIN|if false; then noglob fi; cd $UNIT; fi; git push" \
+  "$MAIN|a+b=1 cd $UNIT; git push" "$MAIN|\"x=1\" cd $UNIT; git push" "$MAIN|'x'=1 cd $UNIT; git push" \
+  "$MAIN|cd $UNIT && true & git push" "$MAIN|coproc cd $UNIT; git push" \
+  "$MAIN|! cd $UNIT && git push" "$MAIN|time ! cd $UNIT && git push" \
+  "$MAIN|true | cd $UNIT && git push" "$MAIN|true |& cd $UNIT && git push" \
+  "$MAIN|coproc foo if true; then cd $UNIT; fi; git push" \
+  "$MAIN|x=1 noglob if false; then cd $UNIT; fi; git push" \
+  "$MAIN|cd /nonexistent && cd $UNIT; git push" "$MAIN|cd - && cd $UNIT; git push" \
+  "$MAIN|cd nosuch && cd $UNIT; git commit --amend --no-edit" \
+  "$MAIN|cd /nonexistent && cd $UNIT && false || git push" \
+  "$MAIN|repeat 0; do cd $UNIT; done; git push" "$MAIN|repeat 0
+cd $UNIT
+git push" "$MAIN|if false; then repeat 1 do :; done; cd $UNIT; fi; git push" \
+  "$MAIN|cd $UNIT </nonexistent; git push" "$MAIN|cd $UNIT >/; git push" \
+  "$MAIN|cd $UNIT 2>/dev/null && false || git push" \
+  "$MAIN|noglob cd $UNIT; git push" "$MAIN|nocorrect cd $UNIT; git push"; do
+  cmd=${spec#*|}
+  pg worker "$cmd" "${spec%%|*}"
+  expect deny "[worker] a cd the guard cannot place before the act is not followed: ${cmd//$'\n'/ \\n }"
+  reason_has 'cannot follow' "[worker] the deny says the guard cannot follow the cd: ${cmd//$'\n'/ \\n }"
+done
+NOENTER="$SANDBOX/noenter"
+mkdir -p "$NOENTER"
+chmod 000 "$NOENTER"
+if [ ! -x "$NOENTER" ]; then # root enters it anyway
+  pg worker "cd $NOENTER && cd $UNIT; git push" "$MAIN"
+  expect deny "[worker] a cd into a directory the shell cannot enter does not vouch for the cd after it"
+else
+  printf '%s\n' 'skip: a cd into a directory the shell cannot enter (this user enters any directory)'
+fi
+chmod 755 "$NOENTER"
+pg worker "function f if true; then :; fi
+cd $UNIT; git push" "$MAIN"
+expect deny "[worker] an absolute cd after a function definition does not name the directory again"
+# An alias lives in the repository the shell is in, which a cd the guard cannot
+# follow hides.
+gitq -C "$MAIN" config alias.p push
+for cmd in "true && cd $MAIN; git p" "if true; then cd $MAIN; fi; git p"; do
+  pg worker "$cmd"
+  expect deny "[worker] an unknown git subcommand after a cd the guard cannot follow denies: $cmd"
+  reason_has 'may be an alias' "[worker] the deny says the subcommand may be an alias: $cmd"
+done
+gitq -C "$MAIN" config --unset alias.p
+# A cd its list is sure to run before the later act is still followed.
+for cmd in "cd $UNIT; git push" "cd $UNIT
+git push" "true && cd $UNIT && git push" "true || false && cd $UNIT && git push" \
+  "git status; cd $UNIT && git commit --amend --no-edit" "cd $UNIT; false || git push" \
+  "cd $UNIT && git status || true; git push" "cd ${UNIT%/*} && cd ${UNIT##*/}; git push" \
+  "x=\"1\" cd $UNIT; git push" "cd $UNIT; >/dev/null; git push" "2>/dev/null; cd $UNIT && git push" \
+  ">/tmp/x echo hi; cd $UNIT; git push" "exec 2>&1; cd $UNIT; git push" "a+=1 cd $UNIT; git push" \
+  "false && cd /tmp; cd $UNIT && git push" \
+  "true || echo x; cd $UNIT; git push" "if true; then echo x; fi; cd $UNIT && git push" \
+  "for x in a; do echo x; done; cd $UNIT; git commit --amend --no-edit" \
+  "cd $UNIT 2>/dev/null && git push"; do
+  pg worker "$cmd" "$MAIN"
+  expect defer "[worker] a cd sure to run is followed: ${cmd//$'\n'/ \\n }"
+done
+# A reserved word after a redirect only stops later cds being followed.
+pg worker '>/dev/null time true; git push'
+expect defer "[worker] a redirect before a reserved word leaves a command with no cd judged as before"
+for cmd in 'repeat 1 true; git push' 'coproc true; git push'; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd stops only later cds being followed"
+done
+# zsh runs a command of redirects alone as cat, passing piped text on.
+for cmd in "echo 'git push origin main' | >/dev/stdout | bash" "echo 'git push origin main' |& >/dev/stdout | bash" \
+  "echo 'git push origin main' | x=1 >/dev/stdout | bash"; do
+  pg worker "$cmd" "$MAIN"
+  expect deny "[worker] text piped through a redirect-only command into a shell is screened: $cmd"
+  reason_has 'pipes text' "[worker] the pipe screen refuses it: $cmd"
+done
+for cmd in "echo hi | >/dev/stdout | bash" "echo 'git push origin main' | x=1 | bash"; do
+  pg worker "$cmd" "$MAIN"
+  expect defer "[worker] a pipe that carries no reserved act into a shell is not refused: $cmd"
+done
+
 # --- fail-closed reads (REQ-G1.4) --------------------------------------------
 
 echo "# fail-closed reads"
@@ -591,6 +992,76 @@ pg worker 'sh <<EOF
 git push origin main
 EOF'
 expect deny "[worker] a here-document fed to a shell naming a push denies"
+# bash ends these bodies at E and E\F, so the lines between are commands.
+pg worker 'cat <<$'"'"'E'"'"'
+x
+E
+git push
+$E' "$MAIN"
+expect deny "[worker] a dollar-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<E\\F
+x
+E\F
+git push
+EF' "$MAIN"
+expect deny "[worker] a backslash-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<"E\"F"
+x
+E"F
+git push
+E\"F' "$MAIN"
+expect deny "[worker] an escape inside a double-quoted here-document delimiter cannot hide a push"
+pg worker 'cat <<E\
+F
+x
+EF
+git push
+E' "$MAIN"
+expect deny "[worker] a line-continued here-document delimiter cannot hide a push"
+pg worker 'cat <<E
+x
+E\
+
+git push
+E' "$MAIN"
+expect deny "[worker] a line continuation in a here-document body cannot hide a push"
+pg worker 'cat <<'"'"'E'"'"'
+x\
+E
+git push' "$UNIT"
+expect defer "[worker] a quoted here-document body may end a line with a backslash"
+for open in '<<\EOF' '<<"EOF"' "<<'E\\F'"; do
+  d=${open:2}
+  d=${d//[\"\']/}
+  [ "$d" = '\EOF' ] && d=EOF
+  pg worker "cat $open
+x
+$d
+git push" "$UNIT"
+  expect defer "[worker] a quoted here-document delimiter is read as bash reads it, so the push after it is judged: $open"
+done
+HT=$'\t'
+for open in "<<-\"${HT}E\"" "<<-'${HT}E'" "<<-\\${HT}E"; do
+  pg worker "cat $open
+x
+${HT}E
+git push
+E" "$MAIN"
+  expect deny "[worker] bash ends a <<- body at a tab-led delimiter as written, so it cannot hide a push: ${open//$HT/<tab>}"
+done
+pg worker 'cat <<E
+x\\
+E
+cd '"$UNIT"'; git push' "$MAIN"
+expect defer "[worker] an escaped backslash ending a here-document body line does not join it to the next"
+pg worker 'cat <<E
+x\\\
+E
+cat <<F
+E
+git push
+F' "$MAIN"
+expect deny "[worker] an odd run of backslashes ending a here-document body line still joins it to the next"
 mkdir -p "$SANDBOX/nojq"
 for t in head tr dirname cat; do ln -sf "$(command -v "$t")" "$SANDBOX/nojq/$t"; done
 NOJQ_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr ready 42"}}' \
@@ -650,6 +1121,457 @@ for d in "$BWT" "$SANDBOX"; do
   reads none "[worker] the unresolvable primary checkout denies before any read: $d"
 done
 reason_has 'primary checkout' "the unresolvable-primary deny says why"
+
+# --- the kickoff sign-off push (kickoff-spec-push.sh) ------------------------
+
+echo "# the kickoff sign-off push"
+KICKOFF_PUSH='"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo'
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] the kickoff push on its spec branch defers to the script"
+reads none "[worker, kickoff-demo] the kickoff push reads no knob"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "bash \"\$CLAUDE_PLUGIN_ROOT/scripts/kickoff-spec-push.sh\" demo" "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] the shell-run kickoff push defers"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, kickoff-demo] the kickoff push on another branch denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "false && cd \"$SPEC\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, kickoff-demo] the kickoff push after a cd the shell may skip denies"
+reason_has 'cannot place it' "[worker, kickoff-demo] the unplaced kickoff push names why"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "cd \"$SPEC\" && $KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect defer "[worker, kickoff-demo] the kickoff push after a cd sure to run follows it"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh other' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming another spec denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo --force' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push with an extra argument denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh main' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming main denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH && git push origin main" "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a chained push to main beside the kickoff push denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'git push origin planwright/demo/spec' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a raw push to the spec branch still denies"
+reason_has 'protected branch' "[worker, kickoff-demo] the raw spec-branch deny keeps today's text"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'git push -u origin planwright/demo/spec' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a raw first push of the spec branch still denies"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[worker, task-1] a non-kickoff worker's kickoff-push denies"
+reason_has 'protected branch' "[worker, task-1] the refusal keeps today's text"
+PLANWRIGHT_WORKER_SCOPE='' pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[worker, no scope] a worker with no scope denies the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg tower "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[tower, kickoff-demo] the tower never runs the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg mission-control "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect deny "[mission-control, kickoff-demo] mission control never runs the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg '' "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+expect defer "[no tier, kickoff-demo] outside jurisdiction, so the guard defers"
+for cmd in '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'sh "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'bash -c '"'"'"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo'"'"'' \
+  'sh -s demo < "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh' \
+  'env "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' \
+  '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo; "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh other' \
+  'X=kickoff-spec-push.sh; "$CLAUDE_PLUGIN_ROOT"/scripts/$X demo' \
+  'echo "kickoff-spec-push" demo'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
+  expect deny "[worker, kickoff-demo] an unreadable kickoff spelling denies: $cmd"
+done
+# A command the tokenizer refuses never reaches kickoff_segment, so naming the
+# kickoff push there is refused at every tier.
+for cmd in "{ $KICKOFF_PUSH; }" "($KICKOFF_PUSH)" "x=\$(true); $KICKOFF_PUSH" "cat <<E
+x
+E\\
+
+$KICKOFF_PUSH
+E"; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$SPEC" "$SPEC"
+    expect deny "[$tier, task-1] a kickoff push in a command the guard cannot parse denies: ${cmd//$'\n'/ \\n }"
+    reason_has 'will not analyze' "[$tier, task-1] the deny names the unparsed construct: ${cmd//$'\n'/ \\n }"
+  done
+done
+# An empty expansion splices the name back together for the shell, so the name
+# check reads the command with those splices removed.
+for cmd in 'kic$()koff-spec-push.sh demo' 'kic``koff-spec-push.sh demo' 'kic${}koff-spec-push.sh demo' \
+  'kic$""koff-spec-push.sh demo' 'KIC$()KOFF-SPEC-PUSH.SH demo'; do
+  PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$SPEC" "$SPEC"
+  expect deny "[worker, task-1] a kickoff push spliced with an empty expansion denies: $cmd"
+  reason_has 'will not analyze|cannot read' "[worker, task-1] the spliced kickoff push names the unparsed construct: $cmd"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo && git status' "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] a kickoff push chained with a read defers"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'PLANWRIGHT_WORKER_SCOPE=kickoff-demo "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, task-1] an inline scope assignment does not admit the kickoff push"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'sh /opt/planwright/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, task-1] a literal-path kickoff push without a git word still denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'sh "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect defer "[worker, kickoff-demo] a shell-run kickoff push through the plugin root defers to the script"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'sh /opt/planwright/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a literal absolute path to the script is refused (a checkout copy could be named the same)"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'GIT_DIR=/other/repo/.git "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push with a GIT_ variable set denies"
+reason_has 'GIT_' "[worker, kickoff-demo] the GIT_ refusal says why"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker 'export GIT_INDEX_FILE=/x; "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push after an exported GIT_ variable denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh flight' "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming the flight namespace denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "\"\$CLAUDE_PLUGIN_ROOT\"/scripts/kickoff-spec-push.sh $(printf 'a%.0s' $(seq 1 65))" "$SPEC" "$SPEC"
+expect deny "[worker, kickoff-demo] a kickoff push naming a spec over 64 characters denies"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh kickoff-spec-push' "$SPEC" "$SPEC"
+expect deny "[worker, task-1] a spec named like the script is not a kickoff push, and its refusal keeps today's text"
+reason_has 'protected branch' "[worker, task-1] the spec-named-like-the-script refusal is the protected-branch text, not a spelling refusal"
+for cmd in './kickoff-spec-push.sh demo' '/tmp/evil/kickoff-spec-push.sh demo' 'bash ./kickoff-spec-push.sh demo'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
+  expect deny "[worker, kickoff-demo] a same-named file outside scripts/ is not the kickoff script: $cmd"
+done
+
+# The script is matched as a command word (a run of it), not as any word that
+# contains its name: its test file, a read or a stage of it, and a note that
+# mentions it pass to the ordinary rules.
+echo "# the kickoff push is matched as a run, not as any mention"
+for cmd in 'bash tests/test-kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh tests/test-kickoff-spec-push.sh' \
+  'git -C /some/worktree add scripts/kickoff-spec-push.sh' \
+  'git diff scripts/kickoff-spec-push.sh' \
+  'git diff --stat -- scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh' \
+  'git log --oneline -- scripts/kickoff-spec-push.sh' \
+  'git commit -m "fix: kickoff-spec-push.sh quoting"' \
+  'grep -rln kickoff-spec-push hooks scripts' \
+  'grep -n foo scripts/kickoff-spec-push.sh' \
+  'grep -rn "kickoff-spec-push.sh" scripts tests' \
+  'cat scripts/kickoff-spec-push.sh' \
+  'cat scripts/kickoff-spec-push.sh | head -5' \
+  'shellcheck scripts/kickoff-spec-push.sh' \
+  'wc -l scripts/kickoff-spec-push.sh tests/test-kickoff-spec-push.sh' \
+  'timeout 500 bash tests/test-kickoff-spec-push.sh' \
+  'bash tests/test-kickoff-spec-push.sh && git add scripts/kickoff-spec-push.sh' \
+  'fleet-remote.sh --host mac compute --worktree /some/worktree --test tests/test-kickoff-spec-push.sh --timeout 540' \
+  'git log --oneline fix/kickoff-spec-push-quoting' \
+  'bash tests/kickoff-spec-push-helpers.sh' \
+  'git status scripts/kickoff-spec-push.sh' \
+  'git grep foo -- scripts/kickoff-spec-push.sh' \
+  'git rm --cached scripts/kickoff-spec-push.sh' \
+  'rg foo scripts/kickoff-spec-push.sh' \
+  'ls -l scripts/kickoff-spec-push.sh' \
+  '[ -f scripts/kickoff-spec-push.sh ]' \
+  'test -x scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh scripts/kickoff-spec-push.sh' \
+  'cat scripts/kickoff-spec-push.sh | cat | wc -l' \
+  "printf '%s\\n' 'note: scripts/kickoff-spec-push.sh needs a fix'" \
+  'echo "see scripts/kickoff-spec-push.sh for the push"' \
+  'find scripts -name kickoff-spec-push.sh' \
+  'find scripts -type f -name kickoff-spec-push.sh -print' \
+  'sed -n 1,5p scripts/kickoff-spec-push.sh' \
+  'sed -n 3p scripts/kickoff-spec-push.sh' \
+  'chmod +x scripts/kickoff-spec-push.sh' \
+  'chmod 755 scripts/kickoff-spec-push.sh' \
+  'chmod u+x,g-w scripts/kickoff-spec-push.sh' \
+  'git log --oneline --grep=kickoff-spec-push.sh' \
+  'git log --oneline --grep kickoff-spec-push.sh' \
+  'cat scripts/kickoff-spec-push.sh | git diff --no-index --stat -- - scripts/other.sh' \
+  'cat scripts/kickoff-spec-push.sh | grep -c foo' \
+  'sed -n 2,$p scripts/kickoff-spec-push.sh' \
+  'shellcheck scripts/*.sh tests/*.sh' \
+  'bash tests/test-*.sh' \
+  'ls scripts/kickoff-spec-p*' \
+  'git add scripts/kick*.sh' \
+  'bash scripts/mykickoff-spec-push.sh.bak demo' \
+  'grep -rn --xkickoff-spec-push.sh .' \
+  'cat scripts/kickoff-spec-push.sh | A=1; make test' \
+  'cat scripts/kick{off,x}-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect defer "[$tier, task-1] a mention of the kickoff push that is no run of it defers: $cmd"
+  done
+done
+# Every form that runs the script stays refused, wherever the guard can read
+# it and where it cannot.
+for cmd in 'scripts/kickoff-spec-push.sh demo' \
+  './scripts/kickoff-spec-push.sh demo' \
+  '/opt/planwright/scripts/kickoff-spec-push.sh demo' \
+  '"$ROOT"/scripts/kickoff-spec-push.sh demo' \
+  'bash scripts/kickoff-spec-push.sh demo' \
+  'sh -x scripts/kickoff-spec-push.sh demo' \
+  'bash -c "scripts/kickoff-spec-push.sh demo"' \
+  'env X=1 scripts/kickoff-spec-push.sh demo' \
+  'exec scripts/kickoff-spec-push.sh demo' \
+  'timeout 5 scripts/kickoff-spec-push.sh demo' \
+  'nohup scripts/kickoff-spec-push.sh demo' \
+  'find . -exec scripts/kickoff-spec-push.sh demo {} +' \
+  'true; scripts/kickoff-spec-push.sh demo' \
+  'true && scripts/kickoff-spec-push.sh demo' \
+  'false || scripts/kickoff-spec-push.sh demo' \
+  'echo x | scripts/kickoff-spec-push.sh demo' \
+  'cat scripts/kickoff-spec-push.sh | sh' \
+  'grep -n foo scripts/kickoff-spec-push.sh | bash' \
+  "printf 'scripts/kickoff-spec-push.sh demo\\n' | sh" \
+  'echo scripts/kickoff-spec-push.sh | xargs bash' \
+  'sh -s demo < scripts/kickoff-spec-push.sh' \
+  'git -c core.pager=scripts/kickoff-spec-push.sh diff' \
+  'git -c alias.x="!scripts/kickoff-spec-push.sh demo" x' \
+  'git grep -Oscripts/kickoff-spec-push.sh foo' \
+  'rg --pre scripts/kickoff-spec-push.sh foo .' \
+  'bash scripts/kickoff-spec-push.s? demo' \
+  'bash scripts/kickoff-spec-push.* demo' \
+  'bash scripts/kickoff-spec-push[.]sh demo' \
+  "find scripts -name 'kickoff-spec-push*' -exec bash {} demo \\;" \
+  'bash scripts/$1kickoff-spec-push.sh demo' \
+  'env X=1 scripts/$1kickoff-spec-push.sh demo' \
+  'bash kickoff-spec-push demo' \
+  'echo scripts/kickoff-spec-push.sh' \
+  "printf '%s\\n' scripts/kickoff-spec-push.sh" \
+  'cat scripts/kickoff-spec-push.sh | cat | sh' \
+  'cat scripts/kickoff-spec-push.sh | tr -d x | bash' \
+  'cat scripts/kickoff-spec-push.sh |& sh' \
+  'git add scripts/kickoff-spec-push.sh && scripts/kickoff-spec-push.sh demo' \
+  "echo 'scripts/kickoff-spec-push.sh demo' > wrapper.sh" \
+  'cat scripts/kickoff-spec-push.sh > copy.sh' \
+  'cat < scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh > copy.sh' \
+  'git mv scripts/kickoff-spec-push.sh scripts/other.sh' \
+  'git grep -Obash foo scripts/kickoff-spec-push.sh' \
+  'git grep --open-files-in-pager=bash foo -- scripts/kickoff-spec-push.sh' \
+  'git grep -nObash foo scripts/kickoff-spec-push.sh' \
+  'git grep --open=bash foo scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh --output=copy.sh' \
+  'uniq scripts/kickoff-spec-push.sh copy.sh' \
+  'bash scripts/kickoff-spec-push.sh.bak' \
+  "S=/; bash scripts\$S'kickoff-spec-push.sh' demo" \
+  'git bisect run scripts/kickoff-spec-push.sh' \
+  'git rebase -x scripts/kickoff-spec-push.sh' \
+  'GIT_EXTERNAL_DIFF=bash git diff scripts/kickoff-spec-push.sh' \
+  'source scripts/kickoff-spec-push.sh' \
+  '. scripts/kickoff-spec-push.sh' \
+  'eval "$(cat scripts/kickoff-spec-push.sh)"' \
+  'Scripts/KICKOFF-SPEC-PUSH.SH demo' \
+  'GIT_EXTERNAL_DIFF=scripts/kickoff-spec-push.sh git diff HEAD~1' \
+  'PAGER=scripts/kickoff-spec-push.sh git log' \
+  'cat <<E
+scripts/kickoff-spec-push.sh demo
+E' \
+  'X=scripts/kickoff-spec-push.sh; $X demo' \
+  'S=kickoff-spec-push.sh; scripts/$S demo' \
+  '(scripts/kickoff-spec-push.sh demo)' \
+  '$(scripts/kickoff-spec-push.sh demo)' \
+  '`scripts/kickoff-spec-push.sh demo`' \
+  "cat scripts/kickoff-spec-push.sh | git -c alias.x='!sh' x" \
+  'cat scripts/kickoff-spec-push.sh | git -c core.pager=sh log' \
+  'cat scripts/kickoff-spec-push.sh | git grep -Obash foo' \
+  'cat scripts/kickoff-spec-push.sh | cat > copy.sh' \
+  'cat scripts/kickoff-spec-push.sh | tee copy.sh' \
+  'cat scripts/kickoff-spec-push.sh | wc -c > copy.sh' \
+  'cat scripts/kickoff-spec-push.sh | GIT_EXTERNAL_DIFF=bash git diff' \
+  'cat scripts/kickoff-spec-push.sh | rg --pre bash foo' \
+  'cat scripts/kickoff-spec-push.sh | /bin/sh' \
+  'git grep -Okickoff-spec-push.sh -e pat' \
+  'git grep -nOkickoff-spec-push.sh -e pat' \
+  "git grep -O'kickoff-spec-push.sh' -e pat" \
+  'git grep -Oscripts/kickoff-spec-push.sh -e pat' \
+  'git grep -Okickoff-spec-push.sh -e pat -- scripts' \
+  "bash scripts/kickoff-spec-'push.sh' demo" \
+  "bash scripts/kick'off-spec-push.sh' demo" \
+  'bash scripts/"kickoff-spec-push".sh demo' \
+  'bash scripts/kickoff-spec-\push.sh demo' \
+  '/bin/bash scripts/kickoff-spec-push.sh demo' \
+  '/usr/bin/env scripts/kickoff-spec-push.sh demo' \
+  '/usr/bin/timeout 5 scripts/kickoff-spec-push.sh demo' \
+  '/usr/bin/git add scripts/kickoff-spec-push.sh && /bin/sh scripts/kickoff-spec-push.sh demo' \
+  '/bin/cat scripts/kickoff-spec-push.sh | /bin/sh' \
+  'rg --pre bash foo scripts/kickoff-spec-push.sh' \
+  'rg --pre=bash foo scripts/kickoff-spec-push.sh' \
+  'rg --hostname-bin bash foo scripts/kickoff-spec-push.sh' \
+  'find scripts -name kickoff-spec-push.sh -exec bash {} demo \;' \
+  'find scripts -name kickoff-spec-push.sh -execdir bash {} demo \;' \
+  'find scripts -name kickoff-spec-push.sh -ok bash {} \;' \
+  'find scripts -name kickoff-spec-push.sh -delete' \
+  'find scripts -name kickoff-spec-push.sh -fprint copy.sh' \
+  'find scripts -name kickoff-spec-push.sh -fls copy.sh' \
+  'sed -n 1,5w copy.sh scripts/kickoff-spec-push.sh' \
+  'sed -i s/a/b/ scripts/kickoff-spec-push.sh' \
+  'sed -n 1,5p scripts/kickoff-spec-push.sh > copy.sh' \
+  'sed -n e scripts/kickoff-spec-push.sh' \
+  'chmod +x scripts/kickoff-spec-push.sh && scripts/kickoff-spec-push.sh demo' \
+  'chmod --reference=scripts/kickoff-spec-push.sh copy.sh' \
+  'chmod -R +x scripts/kickoff-spec-push.sh' \
+  'git log --grep=kickoff-spec-push.sh --output=copy.sh' \
+  'git -c core.pager=sh log --grep=kickoff-spec-push.sh' \
+  'git grep -5Okickoff-spec-push.sh foo' \
+  'git grep -n5Okickoff-spec-push.sh foo' \
+  'git grep -e foo -5Okickoff-spec-push.sh .' \
+  'cat scripts/kickoff-spec-push.sh | > copy.sh' \
+  'cat scripts/kickoff-spec-push.sh |& > copy.sh' \
+  'cat scripts/kickoff-spec-push.sh | git apply' \
+  'sed -n 1,5p scripts/kickoff-spec-push.sh -i' \
+  'chmod +x copy.sh --reference=scripts/kickoff-spec-push.sh' \
+  'bash scripts/kick[o]ff-spec-push.sh spec' \
+  'bash scripts/k*-spec-push.sh spec' \
+  'sh scripts/kickoff-spec-p*.sh spec' \
+  'bash scripts/kickoff-spec-p?sh.sh spec' \
+  'timeout 5 bash scripts/ki*off-spec-push.sh spec' \
+  'cp scripts/k*ff-spec-push.sh c.sh' \
+  'cat x > scripts/kickoff-spec-p*.sh' \
+  '. scripts/kic${E}koff-spec-push.sh' \
+  'source scripts/kic${E}koff-spec-push.sh spec' \
+  'nohup bash scripts/kic${E}koff-spec-push.sh spec' \
+  'rg --grep=kickoff-spec-push.sh foo' \
+  'echo --grep=kickoff-spec-push.sh' \
+  'find scripts/kickoff-spec-push.sh -ex${Z}ec bash {} \;' \
+  'sed -n 1p scripts/kickoff-spec-push.sh ${Z}-e x' \
+  'rg ${Z}--pre bash x scripts/kickoff-spec-push.sh' \
+  'git grep ${Z}-Obash . scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh ${Z}--output=w.sh' \
+  "echo 'run scripts/kickoff-spec-push.sh demo' | if ls; then sh; fi" \
+  "echo 'run scripts/kickoff-spec-push.sh demo' | while ls; do sh; done" \
+  'env scripts/kick{off,x}-spec-push.sh myspec' \
+  'env scripts/kick{,}off-spec-push.sh myspec' \
+  'env scripts/kickoff-spec-pus{h,}.sh myspec' \
+  'export GIT_EXTERNAL_DIFF=bash; git diff scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect deny "[$tier, task-1] a run of the kickoff push stays refused: $cmd"
+  done
+done
+
+# Four shapes that ran the script past the matching above. Each is refused, and
+# the nearest forms that run nothing still defer.
+echo "# the kickoff push: a line splice, a variable, a short glob, a persisted config"
+SPL=$'\\\n'
+for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-spec-push.sh" \
+  "cat scripts/kickoff-spec-push.sh; bash scripts/kickoff-spec-${SPL}push.sh demo" \
+  "git add scripts/kickoff-spec-push.sh && sh scripts/kick${SPL}off-spec-push.sh demo" \
+  "cat scripts/kickoff-spec-push.sh | grep -c x; bash scripts/kickoff-${SPL}spec-push.sh demo" \
+  "bash scripts/kickoff-spec-${SPL}push.sh demo" \
+  "printf -v x 'scripts/kickoff-spec-push.sh'; eval \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; eval \"\$x\"" \
+  "printf -vx 'scripts/kickoff-spec-push.sh demo'; eval \$x" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; true; eval \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo' && bash -c \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; source \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; . \"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; env \$x" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; nice eval \"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; sudo sh -c \"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; fish -c \"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; trap \"\$x\" EXIT" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; setsid \$x" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; find . -maxdepth 0 -exec \$x \\;" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; git -c core.pager=\$x log -1" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; rg --pre \$x foo" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; sh <<<\"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; echo \"\$x\" | sh" \
+  'bash scripts/?????????????????.sh demo' \
+  "bash -c \"scripts/kickoff-spec-${SPL}push.sh demo\"; cat scripts/kickoff-spec-push.sh" \
+  "cat scripts/kickoff-spec-push.sh; sh -c \"scripts/kickoff-spec-${SPL}push.sh demo\"" \
+  "cat scripts/kickoff-spec-push.sh; eval \"scripts/kickoff-${SPL}spec-push.sh demo\"" \
+  'bash scripts/k*.sh demo' \
+  'bash scripts/k*h demo' \
+  'sh scripts/k?*.sh demo' \
+  'bash scripts/k${E}.sh demo' \
+  'bash scripts/${E}k*.sh demo' \
+  'env scripts/*k*.sh demo' \
+  'exec scripts/k*.sh demo' \
+  'cp scripts/k*.sh copy.sh' \
+  'git diff --ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff --ext scripts/kickoff-spec-push.sh' \
+  'git log -p --ext-diff -- scripts/kickoff-spec-push.sh' \
+  'git show --ext-diff HEAD:scripts/kickoff-spec-push.sh' \
+  'git config diff.external sh; git diff scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect deny "[$tier, task-1] a hidden run of the kickoff push is refused: $cmd"
+  done
+done
+EXTD="$SANDBOX/extdiff"
+clone_on "$EXTD" planwright/demo/task-1 1
+gitq -C "$EXTD" config diff.external sh
+for cmd in 'git diff scripts/kickoff-spec-push.sh' \
+  'git diff --stat -- scripts/kickoff-spec-push.sh' \
+  'git diff --no-ext-diff --ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff -- --no-ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff scripts/kickoff-spec-push.sh -- --no-ext-diff' \
+  'git -C /some/repo diff --stat scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$EXTD" "$EXTD"
+    expect deny "[$tier, task-1] a git diff with diff.external set runs it on the file: $cmd"
+  done
+done
+for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
+  'git log -p -- scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$EXTD" "$EXTD"
+    expect defer "[$tier, task-1] diff.external runs only for git diff without --no-ext-diff: $cmd"
+  done
+done
+DRVD="$SANDBOX/driver"
+clone_on "$DRVD" planwright/demo/task-1 1
+gitq -C "$DRVD" config diff.x.textconv sh
+gitq -C "$DRVD" config diff.y.command sh
+for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff --no-textconv scripts/kickoff-spec-push.sh' \
+  'git log -p scripts/kickoff-spec-push.sh' \
+  'git show HEAD -- scripts/kickoff-spec-push.sh' \
+  'git cat-file --textconv HEAD:a scripts/kickoff-spec-push.sh' \
+  'git grep --textconv foo -- scripts/kickoff-spec-push.sh' \
+  'git blame scripts/kickoff-spec-push.sh' \
+  'git annotate scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
+    expect deny "[$tier, task-1] a diff driver command or textconv filter runs on the file: $cmd"
+  done
+done
+for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
+  'git log -p --no-textconv -- scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh' \
+  'git log --oneline -- scripts/kickoff-spec-push.sh' \
+  'git log --follow -- scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh' \
+  'git status scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
+    expect defer "[$tier, task-1] a driver's filters stopped, or never reached, defer: $cmd"
+  done
+done
+PAGD="$SANDBOX/pager"
+clone_on "$PAGD" planwright/demo/task-1 1
+gitq -C "$PAGD" config core.pager sh
+gitq -C "$PAGD" config diff.algorithm patience
+for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
+  "cat scripts/kickoff-spec-push.sh; echo a${SPL}b" \
+  "git add scripts/kickoff-spec-push.sh; ls ${SPL}-l" \
+  "git diff scripts/kickoff-spec-push.sh; echo a${SPL}b" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; echo \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; cat \"\$x\"" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; ls; true" \
+  "cat scripts/kickoff-spec-push.sh; bash -c \"echo a${SPL}b\"" \
+  "printf -v x 'other.sh'; eval \"\$x\"" \
+  "printf -v x 'scripts/other.sh' && bash -c \"\$x\"" \
+  "cat scripts/kickoff-spec-push.sh; eval ls" \
+  'bash scripts/t*.sh' \
+  'bash tests/test-*.sh' \
+  'ls scripts/k*.sh' \
+  'cat scripts/k*.sh' \
+  'shellcheck scripts/k*.sh' \
+  'git add scripts/k*.sh' \
+  'for f in scripts/*.sh; do shellcheck "$f"; done' \
+  'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff scripts/other.sh' \
+  'git config core.autocrlf false && git add scripts/kickoff-spec-push.sh' \
+  'git remote add o u; git add scripts/kickoff-spec-push.sh' \
+  'git diff --ext-diff scripts/other.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect defer "[$tier, task-1] a near miss of the hidden runs defers: $cmd"
+  done
+done
+for cmd in 'git diff scripts/kickoff-spec-push.sh' \
+  'git log -p -- scripts/kickoff-spec-push.sh' \
+  'git diff --stat scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$PAGD" "$PAGD"
+    expect defer "[$tier, task-1] core.pager and an unrelated key never run without a terminal, so a read defers: $cmd"
+  done
+done
 
 no_gh_calls
 finish

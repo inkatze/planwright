@@ -1,0 +1,1 @@
+match ^mc-panel: usage: mc-panel\.sh digest\|line\|health\|text\|presence\|activate\|await\|lookup\|ack\|retire\|prune\|where\|floor\|session-hook\|install\|changes \.\.\. \(mc-panel\.sh --help\)$

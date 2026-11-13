@@ -4,7 +4,7 @@
 # permission prompt from a written rule through the sanctioned answer channel,
 # and what `next` surfaces beside an item without settling it (REQ-B1.2,
 # REQ-E1.4, REQ-E1.5, REQ-E1.7, REQ-E1.8, REQ-E1.9, REQ-E1.10, REQ-H1.1,
-# REQ-H1.2; D-12).
+# REQ-H1.5; D-12).
 #
 # Contract under test:
 #   match --decision <id> --command <text>

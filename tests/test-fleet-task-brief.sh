@@ -33,6 +33,8 @@ ROOT=$(cd "$here/.." && pwd -P)
 SCRIPT="$ROOT/scripts/fleet-task-brief.sh"
 FIX="$here/fixtures/task-brief"
 TAB=$(printf '\t')
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$ROOT/tests/lib/emitter-lint.sh"
 
 fails=0
 fail() {
@@ -91,6 +93,7 @@ done
 render demo 4.5 --tower tower-alpha
 [ "$RC" -eq 0 ] || fail "render with a name exited $RC: $ERR"
 cmp -s "$brief" "$FIX/named.md" || fail "the named brief differs from its fixture"
+lint_emitted markdown fleet-task-brief.sh "$brief" || fail "the named brief fails the markdown lint"
 for w in tower-alpha fork effective-mode; do
   grep -q -e "$w" "$FIX/named.md" || fail "the named fixture lacks '$w'"
 done

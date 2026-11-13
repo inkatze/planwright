@@ -1,7 +1,7 @@
 # Fleet Hardening — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-10
+**Last reviewed:** 2026-11-08
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -139,6 +139,9 @@ the same launch function, so it waits for Task 12 rather than running beside it.
   pass.
 - **Dependencies:** 1
 - **Citations:** D-6 · REQ-B1.3, REQ-E1.3
+  *(Amended at amendment 2026-11-08: D-20 and REQ-B1.5 supersede D-6 and REQ-B1.3; the `/*`
+  form this task confirmed is a traversal. The task stays completed; the exact-path correction
+  and the wildcard-path check ship in PR #862, outside the task graph.)*
 - **Estimated effort:** 1 day
 
 ### Task 7 — Tower-settings profile & deterministic tower command-guard

@@ -5,10 +5,11 @@ description: >-
   private or local-only venture repository under ventures_root, then run a
   phased Socratic elicitation that writes the inception bundle (brief,
   discipline and stakeholder map, assumption register, decision backlog,
-  validation plan) and resumes where it left off. Upstream of /spec-draft;
+  validation plan) and resumes where it left off; runs the venture gate and
+  packages a graduated scope as a /spec-draft seed. Upstream of /spec-draft;
   never invokes a downstream skill, never pushes off-machine without the
   operator's choice.
-argument-hint: "[<idea or seed path> | <venture-id> | status <venture-id>]"
+argument-hint: "[<idea or seed path> | <venture-id> | status <venture-id> | gate <venture-id>]"
 ---
 
 # /inception
@@ -42,14 +43,15 @@ Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
 
 Doctrine: run-start inception-format
 Doctrine: run-start interaction-style
-Doctrine: point-of-use security-posture (Phase 1, seed intake)
+Doctrine: point-of-use security-posture (Phase 1, seed intake; a seed's destination)
 Doctrine: point-of-use decision-domains (Phase 3, the discipline walk)
 Doctrine: point-of-use persona-fanout (Phase 3 staffing, Phase 4 fan-out)
-Doctrine: point-of-use evidence-quality (Phase 5, the minimum core)
+Doctrine: point-of-use evidence-quality (Phase 5, the minimum core; the gate)
 Doctrine: point-of-use proportionality (every skipped prompt)
 
 **The helpers.** Everything mechanical runs through
-`scripts/inception-venture.sh` (and `scripts/inception-fanout.sh`), called
+`scripts/inception-venture.sh` (and `scripts/inception-fanout.sh` and
+`scripts/inception-gate.sh`), called
 by their resolved literal absolute paths, one plain command per call
 (`doctrine/plugin-script-invocation.md`). Output a caller parses is
 `key<TAB>value` lines; a `degraded` line names a missing capability in plain
@@ -91,9 +93,9 @@ One skill, dispatched on the argument plus what is on disk:
   approaching first), then stop. Exit 1 means the venture is not
   registered, exit 2 that its registered bundle is gone, exit 3 that the
   validator refused it (its `degraded` line names why): say which and stop.
-- **Gate, export or publish**: not in this release. Say so in one line,
-  name what is available, and stop. Never improvise a gate record or an
-  export the later layers own.
+- **`gate <venture-id>`**, parsed as `status` is: *The gate* below.
+- **Export or publish**: not in this release. Say so in one line, name what
+  is available, and stop. Never improvise an export the later layers own.
 
 ## Pre-flight
 
@@ -101,12 +103,17 @@ Every degradation found here is emitted at the operator in plain words before
 the first question, and repeated in the handoff (REQ-H1.5).
 
 1. **Detect the environment.** Run `inception-venture.sh detect`. It names
-   whether git works, whether the session is ephemeral (a cloud session, or
-   the operator's `PLANWRIGHT_INCEPTION_EPHEMERAL` override), whether the
+   whether git works, the host (`cowork` only when the operator sets
+   `PLANWRIGHT_INCEPTION_HOST`, since Cowork marks nothing), whether
+   planwright is found from this session where the venture hook searches
+   (`plugin`), whether the session is ephemeral
+   (a cloud or Cowork host, or the operator's
+   `PLANWRIGHT_INCEPTION_EPHEMERAL` override), whether the
    private-remote home is available, and what the local arm amounts to:
    `durable` (a git repository), `plain` (a folder with no history), or
    `session-only` (lost when the session ends). The ladder (REQ-H1.1) never
-   loses the bundle: it degrades capability and says which.
+   loses the bundle: it degrades capability and says which. A `caveat` line
+   is a host limit (Cowork's), relayed like a degradation.
 2. **Resolve the ventures root.** `inception-venture.sh root` reads
    `ventures_root` through the config layers (default `~/ventures`). A warning
    it prints is a degradation; any non-zero exit halts, naming the option
@@ -159,8 +166,9 @@ the first question, and repeated in the handoff (REQ-H1.5).
    run add-remote on it. The output
    names the rung (`git`, `plain`, `session`); creation scaffolds the hygiene
    guards scaled to it (REQ-A1.9): a `.gitignore`, the pre-commit secret
-   screen, bundle validation and export regeneration, and on the remote rung
-   the CI guard.
+   screen, bundle validation and export regeneration, the sync protocol
+   (`sync-protocol.md`, imported from the venture's `CLAUDE.md`), and on the
+   remote rung the CI guard.
 5. **Write the skeleton and save it.** `inception-venture.sh bundle-init
    --title "<title>" <venture-dir>`, then `inception-venture.sh save
    <venture-dir> "Start the <title> venture"` (add `--push` on the remote
@@ -195,8 +203,7 @@ the first question, and repeated in the handoff (REQ-H1.5).
    bundle itself, never a replay; then continue at `next`. When `next` is
    `complete`, the operator is re-entering a finished elicitation: offer to
    update a register (an assumption's status or evidence, a decision, a plan
-   task) and continue with that phase's procedure; the gate itself is not in
-   this release.
+   task) and continue with that phase's procedure, or to run the gate.
 
 ## The elicitation
 
@@ -312,6 +319,46 @@ stays `Exploring`. Save (on the remote home with `--push`), then, on the
 local and remote homes, refresh the registry entry with
 `inception-registry.sh add <id> <venture-dir>`.
 
+## The gate (inception D-14, D-15)
+
+Mechanics run through `scripts/inception-gate.sh`, whose header lists every
+output line and exit; save after each write, with a plain message.
+
+1. **Evaluate**: `inception-gate.sh evaluate <venture-dir>` (and per live
+   track, `--track <label>`). Present the `gap` lines (what blocks a
+   Graduate), the completeness check (`unmapped` blocking assumptions,
+   `orphan` tasks), each kill criterion's state, and each `fork`, asking
+   whether it is load-bearing: one that is gets decided or deferred with its
+   reason first (REQ-E1.1). A `prompt kill-or-rescope` line is asked as that
+   choice, never answered for the operator (REQ-E1.3).
+2. **Ask for the outcome**: the four outcomes, none pre-selected, an
+   `admissible no` one marked unavailable with its gap. It is the `decider`
+   line's call: record only one that person made. Then a one-line rationale;
+   a tracked venture also gets each live track's outcome (partial
+   graduation: a top-level `Recycle` or `Hold`, the track at `Graduate`).
+3. **Record**: `inception-gate.sh record --outcome <o> --decider <name>
+   --rationale "<text>" [--tracks <label>=<o>,...] <venture-dir>`, then
+   `inception-registry.sh add`. Exit 1 relays the refusal; back to step 2.
+4. **Kill or abandon**: ask for a short post-mortem, then `inception-gate.sh
+   archive --note "<text>" <venture-dir>`; an abandonment is declared
+   directly, skipping steps 1 to 3, with `--abandon` (REQ-E1.6).
+5. **Graduate**: ask where the spec will live, with no default (REQ-F1.2):
+   this repository, an existing one, or a new one. Resolve its spec root
+   (`scripts/resolve-root.sh spec --primary` run there; one it cannot resolve
+   cannot host a spec) and, elsewhere, ask once first when its visibility is
+   wider than the venture's, since the seed carries bundle text (REQ-B1.6).
+   Run `inception-gate.sh seed --dest <spec-root> [--track <label>]
+   <venture-dir>` and hand off the seed path and its `cite` line: the human
+   runs `/spec-draft` there, whose seed gathering reads `_pending/`.
+6. **Lineage** (REQ-J1.5): once the spec exists, `inception-gate.sh link
+   --spec <spec-dir> [--track <label>] <venture-dir>`; `spec-side-missing`
+   means its Sources lack the `cite` key yet, and `refused` that a recorded
+   location is absolute, climbs with `..`, or resolves outside the venture.
+   `inception-gate.sh lineage [--spec <dir>]... <venture-dir>` checks both
+   directions; on resuming a venture with a `## Lineage` section, run it and
+   offer `link` per `pending` scope. A hole drafting found returns as a
+   register entry citing the spec (REQ-F1.4).
+
 ## Handoff
 
 Run `inception-venture.sh handoff <venture-dir>` and emit at the operator, in
@@ -320,7 +367,7 @@ bundle is clean (`pending` means markers remain; `findings` means the
 validator still reports some; `incomplete` means a file is missing;
 `refused` means the validator would not read it; `unchecked` means the
 check could not run here), where the elicitation stands, and every
-`degraded` line again. Then the human's next moves, as information rather
+`degraded` and `caveat` line again. Then the human's next moves, as information rather
 than a verdict: run the validation tasks, resume with
 `/inception <venture-id>`, or, once a track is ready, take it to
 `/spec-draft` themselves. Never invoke a downstream skill.

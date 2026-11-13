@@ -5,6 +5,15 @@
 # (merge-currency-guard Task 3; D-4; REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.6,
 # REQ-D1.3, REQ-K1.1).
 #
+# WHEN IT MERGES (REQ-B1.7, REQ-B1.8, D-12). The `converge_sync_main` knob
+# picks the mode. `always` merges whenever `origin/main` moved. `on-need`, the
+# shipped default, fetches and merges only on a need: the branch conflicts with
+# the fetched `origin/main` (probed with `git merge-tree --write-tree`, which
+# touches no working tree, index or ref, so a probe that cannot run or answer
+# merges rather than skips), the caller passes `--need <reason>`, or
+# `ready_guard_behind_base` is `refuse`. With none it merges nothing, leaves
+# the head and prints a skip record. Being behind is not itself a need.
+#
 # NOT the head `/execute-task`'s own full-CI step ran on: that step runs before
 # the Convergence section this sync opens, and the skill has no loop that
 # re-runs it afterwards. The merged head is covered by whatever wider-suite runs
@@ -62,13 +71,21 @@
 # fetched commit and the index's other merged entries are recorded in the git
 # dir at the conflict and checked again at the commit.
 #
-# Usage: converge-sync-main.sh [<repo-dir>]      (default: the current directory)
+# Usage: converge-sync-main.sh [--need <reason>] [<repo-dir>]
+#                                                (default: the current directory)
 #        converge-sync-main.sh --commit-resolution <spec>/<id>
 #          [--commit-resolution <spec>/<id> ...] [<repo-dir>]
 #
 # Output: tagged TSV records on stdout, a record's message (where it has one)
 # last and meant for a human:
 #   sync<TAB><up-to-date|fast-forward|merged|denied><TAB><head-sha>
+#   sync<TAB>skipped<TAB><head-sha><TAB><msg>   on-need, no need held: nothing
+#                                       merged, exit 0; the message names how
+#                                       far behind and why no need held
+#   need<TAB><conflict|recorded|ready-guard|probe-failed><TAB><text>
+#                                       the need that made an on-need sync
+#                                       merge; a recorded need's text is the
+#                                       caller's, one printable line
 #   park<TAB><reason><TAB><message>     the unit parks under Awaiting input
 #                                       with this message (exits 3-6 and 9,
 #                                       and exit 11 for a quoted name)
@@ -79,8 +96,8 @@
 # Failures also print `converge-sync-main: <reason>: <message>` on stderr.
 #
 # Exit codes:
-#   0  synced (already current, fast-forwarded, merged, or denied by policy),
-#      or the resolution committed
+#   0  synced (already current, fast-forwarded, merged, skipped for want of a
+#      need, or denied by policy), or the resolution committed
 #   2  usage — bad arguments, a target that is not a git work tree, or a
 #      missing `git`/`tr` or sibling script (reason `environment`)
 #   3  dirty-tree — tracked-file changes, or a merge/rebase/cherry-pick already
@@ -153,11 +170,17 @@ scrub() {
   tr -d '\000-\010\013-\037\177'
 }
 
-USAGE='usage: converge-sync-main.sh [--commit-resolution <spec>/<id> ...] [<repo-dir>]'
+USAGE='usage: converge-sync-main.sh [--need <reason>] [--commit-resolution <spec>/<id> ...] [<repo-dir>]'
 mode=sync
 task_refs=()
+need_arg=''
 while [ "$#" -gt 0 ]; do
   case $1 in
+    --need)
+      [ "$#" -ge 2 ] || die 2 usage "--need needs a reason; $USAGE"
+      need_arg=$2
+      shift 2
+      ;;
     --commit-resolution)
       [ "$#" -ge 2 ] || die 2 usage "--commit-resolution needs a <spec>/<id>; $USAGE"
       mode=commit
@@ -207,10 +230,12 @@ inside=$(git -C "$repo" rev-parse --is-inside-work-tree 2>/dev/null || true)
 # a relative path would name that checkout's copies.
 script_dir=$(cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) \
   || die 2 environment "the directory holding this script could not be resolved"
-for sib in resolve-policy-knob.sh protected-branch.sh planwright-commit-trailers.sh; do
+for sib in resolve-policy-knob.sh protected-branch.sh planwright-commit-trailers.sh echo-safety.sh; do
   [ -f "$script_dir/$sib" ] && [ -r "$script_dir/$sib" ] \
     || die 2 environment "$sib is missing beside this script (broken install)"
 done
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
 
 # The trailer helper owns the task-ref grammar; a dry stamp checks it before
 # anything else runs.
@@ -252,7 +277,10 @@ path_list() {
   [ "$n" -le 10 ] || printf '(and %s more) ' "$((n - 10))"
 }
 
-# The unit-branch grammar the policy guard admits.
+# The launchers' unit-branch grammar, flight names carrying their id. The
+# policy guard also admits an id-less flight name, but keep this one narrow:
+# the guard does not screen this script's caller by tier, so widening it here
+# would widen what a tower could sync.
 is_unit_branch() {
   local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
   local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
@@ -338,8 +366,8 @@ EOF
   merged_entries "$resolve_state" | cmp -s - "$resolve_state.index" \
     || die 11 resolution-refused "the index changes paths outside the conflicted ones, which a resolution commit may not carry; unstage those changes (they belong in their own commit after the merge), and a directory/file conflict whose resolution moves a path elsewhere needs a human under halt"
   shown=$(path_list "$names")
-  msg=$(mktemp) || die 12 resolution-failed "a scratch file could not be created"
-  stamped=$(mktemp) || {
+  msg=$(mktemp "${TMPDIR:-/tmp}/converge-sync-main.XXXXXX") || die 12 resolution-failed "a scratch file could not be created"
+  stamped=$(mktemp "${TMPDIR:-/tmp}/converge-sync-main.XXXXXX") || {
     rm -f "$msg"
     die 12 resolution-failed "a scratch file could not be created"
   }
@@ -484,6 +512,8 @@ if [ "$base_merge" = deny ]; then
 fi
 read_knob worker_merge_conflict_policy halt resolve
 conflict_policy=$KNOB
+read_knob converge_sync_main on-need always
+sync_mode=$KNOB
 
 # Untracked files are deliberately excluded: they cannot make a merge ambiguous
 # on paths the merge does not touch, and a worker's scratch output is not a
@@ -519,6 +549,50 @@ if git -C "$repo" merge-base --is-ancestor "$target" HEAD 2>/dev/null; then
   head=$(git -C "$repo" rev-parse HEAD)
   printf 'sync\tup-to-date\t%s\n' "$head"
   exit 0
+fi
+
+# Under on-need the merge waits for a need; the first one found is the one
+# reported. The caller's text is untrusted, so it reaches the record as one
+# printable line.
+if [ "$sync_mode" = on-need ]; then
+  need_kind=''
+  need_text=''
+  guard_value=''
+  if [ -n "$need_arg" ]; then
+    need_kind=recorded
+    need_text=$(sanitize_printable "$(printf '%s' "$need_arg" | tr '\t\n\r' '   ' | cut -c1-300)")
+  fi
+  if [ -z "$need_kind" ]; then
+    read_knob ready_guard_behind_base refuse conflict-only checks
+    guard_value=$KNOB
+    [ "$guard_value" != refuse ] || {
+      need_kind=ready-guard
+      need_text='ready_guard_behind_base is refuse, so the ready-guard would refuse a behind flip'
+    }
+  fi
+  if [ -z "$need_kind" ]; then
+    probe_rc=0
+    git -C "$repo" merge-tree --write-tree HEAD "$target" >/dev/null 2>&1 || probe_rc=$?
+    case $probe_rc in
+      0) ;;
+      1)
+        need_kind=conflict
+        need_text='this branch conflicts with the fetched origin/main'
+        ;;
+      *)
+        need_kind=probe-failed
+        need_text='the conflict probe could not answer, so the merge runs rather than skipping a sync the branch may need'
+        ;;
+    esac
+  fi
+  if [ -z "$need_kind" ]; then
+    head=$(git -C "$repo" rev-parse HEAD)
+    behind=$(git -C "$repo" rev-list --count "HEAD..$target" 2>/dev/null || echo '?')
+    printf 'sync\tskipped\t%s\torigin/main is %s commit(s) ahead of this branch; the merge was skipped because no need held: no conflict with origin/main, no recorded need (--need), and ready_guard_behind_base is %s\n' \
+      "$head" "$behind" "$guard_value"
+    exit 0
+  fi
+  printf 'need\t%s\t%s\n' "$need_kind" "$need_text"
 fi
 
 # Classified before the merge runs, because afterwards the two are

@@ -412,6 +412,7 @@ fi
 # (macOS-green, Linux-red). Shape-validating each candidate rather than trusting
 # its exit status makes the probe order-independent and immune to that class.
 stat_uid() {
+  # shell-gnu-only-flag: BSD stat -f is tried when the GNU value is not an integer
   su_v=$(stat -c '%u' "$1" 2>/dev/null) || su_v=''
   case $su_v in
     '' | *[!0-9]*) su_v=$(stat -f '%u' "$1" 2>/dev/null) || su_v='' ;;
@@ -433,7 +434,7 @@ state_dir_trusted() {
     '' | *[!0-9]*) return 1 ;;
   esac
   [ "$sdt_owner" = "$sdt_self" ] || return 1
-  chmod 0700 "$1" 2>/dev/null || return 1
+  chmod -- 0700 "$1" 2>/dev/null || return 1
   return 0
 }
 

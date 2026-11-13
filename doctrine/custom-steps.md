@@ -16,13 +16,13 @@ with the scripts it calls. *Attended* narrows [gate-wiring](gate-wiring.md)'s
 pause-protocol distinction to the backend seam's launch record: a headless
 launch is unattended, any other attended. *Unit* widens
 [spec-format](spec-format.md)'s task-or-bundle sense to the spec bundle and
-the flight (D-13); a *unit run* is one `/execute-task` invocation, a flight's
-convergence, or a flip point's firing.
+the flight (D-13); a *unit run* is one `/execute-task` invocation, one launch
+of a flight's worker, or a flip point's firing.
 
 Citations: custom-steps REQ-A1.1–A1.6, REQ-B1.1–B1.7, REQ-C1.1–C1.8,
 REQ-D1.1–D1.12, REQ-E1.1–E1.3, REQ-E1.5, REQ-E1.6, REQ-F1.5, REQ-G1.1–G1.4,
 REQ-H1.3–H1.5, REQ-I1.1–I1.11, REQ-J1.1–J1.3 · custom-steps D-1–D-32 ·
-tower-front-door REQ-H1.1.
+tower-front-door REQ-C1.7, REQ-C1.8, REQ-H1.1, D-16, D-22.
 
 ## The point vocabulary
 
@@ -31,9 +31,9 @@ core can wire, so an adopter needing a moment planwright does not name records
 an observation, never an overlay point (REQ-A1.3, D-2). A point name outside
 this vocabulary is a resolver usage error.
 
-**Wired in `/execute-task`** (the *in-run points*), each fired once when the
-run reaches it (a re-execution against a unit with an open PR is a new run,
-REQ-A1.1), in this order (D-3):
+**Wired in `/execute-task` and fired on every flight** (the *in-run
+points*), each fired once when the run reaches it (a re-execution against a
+unit with an open PR is a new run, REQ-A1.1), in this order (D-3):
 
 | Point | Fires |
 | --- | --- |
@@ -42,6 +42,15 @@ REQ-A1.1), in this order (D-3):
 | `convergence` | after CI is green: the point resolves, then the merge-currency-guard `main` sync once per firing (an empty list included), then the steps; this list is the unit's convergence phase |
 | `pre-pr` | after the last convergence step, before the push |
 | `post-pr` | after the draft PR exists and its body is assembled |
+
+**Remote checks and `post-pr`.** A `post-pr` step that consumes no CI result
+runs while the PR's remote checks are still pending; it never waits for them.
+That covers a bot-review request, a review skill, a walk and the PR body. Only
+the ready flip (`pre-ready-flip`, `scripts/ready-flip.sh`) needs every check
+green. A channel post or notice needs only that no check is red, and a red
+check goes straight to log diagnosis rather than to a wait. A step's record
+never reads as covering CI: a cadence that is done names its points and steps,
+not the checks.
 
 **Wired in `/spec-kickoff`:** `pre-spec-ready-flip`, after its push and PR
 step and before the terminal CI gate, on the head that flip lands on, once per
@@ -60,8 +69,11 @@ attempt (REQ-A1.1, REQ-E1.3, D-2).
 list at one of these resolves no steps; the resolver and `check:steps` report
 it as unwired, never silently.
 
-**Flights.** A flight converges through `steps_convergence` with unit kind
-`flight`, skill steps only (REQ-F1.5; [flight-rules](flight-rules.md)).
+**Flights.** A flight fires every in-run point with unit kind `flight`,
+resolved unattended, every step kind under this contract, `post-pr` only
+once its PR exists; its convergence
+reads `steps_convergence` like any unit's (REQ-F1.5;
+[flight-rules](flight-rules.md)).
 
 ## The step entry
 
@@ -129,7 +141,12 @@ Every step receives exactly these twelve fields:
 Among steps, a pooled step alone also carries the **hold mark**
 `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`, the slot owner's literal process id
 as `<pid>`, rendered as one optional trailing assignment after the twelve; a
-pooled full suite gets it too (*Expensive checks*).
+pooled full suite gets it too (*Expensive checks*). Any other
+`PLANWRIGHT_STEP_*` name in the runner's environment is a misspelling that
+would be dropped unread: `resolve-steps.sh --check-env` names it and its
+right spelling. `step-run.sh` refuses it for every verb but `resolve`, and
+`step-record.sh` for `new-run`, `write`, `regenerate`, and `status`; the
+other verbs of either warn.
 
 Two channels deliver the context. A **command step** gets the twelve
 variables, and a pooled step its hold mark, in its environment,
@@ -156,6 +173,14 @@ values to a command step.
 
 **Every hosting runs a command step's printed location, never the bare
 target**: a session shell would run a same-named builtin (`cd`, `printf`).
+
+An `isolated` session takes the unit's own launch backend. A headless unit
+(`offload-dispatch.sh launch-backend` prints `stream-json-persistent` or
+`headless-oneshot`) never hosts it in a `tmux` window in the operator's session
+(`offload-dispatch` refuses it). It launches the step through
+`scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`
+(which `offload-dispatch` does not drive) or runs it `in-session`, recorded as
+such. The step record names the backend the step actually ran on.
 
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step attaches to the unit's
@@ -211,8 +236,9 @@ safety stop is `failed`; an unresolved hard-disqualifier finding is `halted`
 **Posture (REQ-D1.2).** A `halted` or `failed` step whose `on-failure` is
 `halt` ends the point. At an **in-run point** it ends the unit through the
 gate-wiring [pause protocol](gate-wiring.md#pause-protocol)'s destinations:
-an unattended run parks the unit to `tasks.md` Awaiting input; an attended
-session presents it and waits. At a **flip point** it refuses the flip and
+an unattended run parks the unit to `tasks.md` Awaiting input, and a flight
+parks through the flight park, writing no spec state; an attended session
+presents it and waits. At a **flip point** it refuses the flip and
 surfaces the step (kickoff recording the pending flip to Awaiting input). An
 Awaiting-input entry this doc causes names only the point, the validated
 step ids, the outcome, token, or cause (a pool wait's holders, a re-fire's
@@ -296,7 +322,8 @@ calls whose seconds are summed); the owner releases after the check ends,
 whatever its exit. An unreleased slot is reclaimed once its owner exits, and a
 timeout never releases one while the check process lives. Capacity is
 `step_pool_capacity_<pool>` (hyphens as underscores), else
-`step_pool_capacity`; the wait, bounded by `step_pool_wait`, reports at its
+`step_pool_capacity` (the shipped `heavy-run` pool derives its own, below); the
+wait, bounded by `step_pool_wait`, reports at its
 start each live holder (pid, step id or full-suite marker, worktree) and
 admits unordered, and past the bound the step is `failed` naming the holders.
 A pool directory that is a symbolic link or not the user's, or a lock-library
@@ -309,6 +336,19 @@ holding a slot of it runs inside that hold, taking no slot and printing no
 warning, its release a successful no-op; a mark naming another pool or a dead
 owner, or failing the pool charset or a decimal pid, is ignored, and a
 same-owner take without a mark waits like any caller.
+
+**The shipped heavy pool.** `full_suite_pool` defaults to `heavy-run`, so every
+full local suite run holds a slot unless a layer sets the reserved value `none`
+or an empty value, either running the suite unpooled with no warning; `none` is
+never a pool name a declared step may use, and a step naming `heavy-run` shares
+the pool. A lone run on an idle host takes a slot with no wait. The pool's
+capacity is `step_pool_capacity_heavy_run` when set in any layer (the adopter
+layer reaches workers in worktrees), else one
+slot per 8 logical cores and per 16 GiB of total memory, whichever is fewer, at
+least 1, a host that cannot be read deriving 1 with one warning;
+`step_pool_capacity` never applies to it. The pool is independent of the
+per-file ticket pool a suite's test files run through, and a gate reaching
+`heavy-run` inside its own hold runs inside it under the mark (D-33, D-34).
 
 **The full suite.** When `full_suite_pool` names a pool, each full local suite
 attempt `/execute-task` makes, retries included, holds a slot of it, its owner
@@ -416,9 +456,10 @@ outcome, a bounded excerpt (a session step's classification excerpt or a
 command step's output tail, stored screened through the repository's secret
 screen and stripped of non-printable bytes), the full captured output's
 cache path where one exists (unscreened), and a skipped step's reason and
-detail, a `reuse` or `resume` skip also naming the run id, point, and record
-sequence it stands on. A pooled step adds its pool, wait seconds, holders,
-and unpooled flag, its start time the take (else the wait's start); a `paths`
+detail, a degraded in-session step's reason, a `reuse` or `resume` skip also
+naming the run id, point, and record sequence it stands on. A pooled step adds
+its pool, wait seconds, holders, and unpooled flag, its start time the take
+(else the wait's start); a `paths`
 step its fingerprint or none and its `args` digest (SHA-256 of `args` as
 written); a re-fire its `refire-of`. A legacy record (no end head, or a skip
 without a reason code) matches no reuse or resume lookup, never counts
@@ -434,6 +475,15 @@ records only, every rendered cell and warning screened and **table-safe**
 paths worktree-relative; layers by name). A point whose list was empty still
 emits its table with a single `none` row and its warnings; the turn reports
 counts.
+
+**The cadence audit.** At a hand-on boundary (before a push, before a PR is
+reported done, at mission control's readiness check) the records are read
+back against the configured lists, read-only, by `scripts/step-run.sh audit
+--through <point>`: a point is covered by its newest run whose completion
+counts at the head, that run recording every required step passed, applied,
+or skipped (a recorded skip counts), so a point or step left with no record
+is caught whoever omitted it. The
+script's usage header states the freshness rule and the output.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
 

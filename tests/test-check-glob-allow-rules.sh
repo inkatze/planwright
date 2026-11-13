@@ -1,11 +1,11 @@
 #!/bin/bash
 # Tests for scripts/check-glob-allow-rules.sh — the correct-glob allow-rule
-# discipline check (fleet-hardening Task 6, D-6, REQ-B1.3, REQ-E1.3).
+# discipline check (fleet-hardening Task 6, D-20, REQ-B1.5, REQ-E1.3).
 #
 # Two behaviours under test:
 #   1. Footgun scan — flag a path-scoped `Bash(<dir>/:*)` allow/deny rule (the
 #      word-boundary form that never matches `<dir>/<file>`), while passing the
-#      correct `Bash(<dir>/*)` form and the legitimate command globs
+#      `Bash(<dir>/*)` form (check-allow-path-globs.sh flags it) and the command globs
 #      (`Bash(git status:*)`, `Bash(mise run:*)`), which must NOT be flagged.
 #   2. Doc-presence — the correct-form guidance exists and is cross-referenced
 #      from the ghost-text (D-5) and, once it exists, the tower-guard (D-8) docs.
@@ -55,7 +55,8 @@ EOF
 /bin/bash "$CHECKER" "$tmp/footgun.json" >/dev/null 2>&1
 assert "path-scoped Bash(<dir>/:*) is flagged" 1 $?
 
-# 1c. The correct `Bash(<dir>/*)` path form passes.
+# 1c. The `Bash(<dir>/*)` path form passes this scan; check-allow-path-globs.sh
+#     is the check that flags it.
 cat >"$tmp/correct.json" <<'EOF'
 {
   "permissions": {
@@ -66,7 +67,7 @@ cat >"$tmp/correct.json" <<'EOF'
 }
 EOF
 /bin/bash "$CHECKER" "$tmp/correct.json" >/dev/null 2>&1
-assert "correct Bash(<dir>/*) path form passes" 0 $?
+assert "Bash(<dir>/*) path form is not this scan's finding" 0 $?
 
 # 1d. Legitimate command globs are NOT flagged (the false-positive guard):
 #     `:*` after a command word is the correct command-boundary form.
@@ -122,7 +123,7 @@ assert "a footgun among correct rules is caught" 1 $?
 #     rule entry and must not be flagged — only standalone array entries count.
 cat >"$tmp/prose.json" <<'EOF'
 {
-  "_about": "Path-scoped allow entries use the trailing /* glob, never a directory :* form which never matches <dir>/<file>.",
+  "_about": "Path-scoped allow entries never put a * in the path, and never use the directory :* form which never matches <dir>/<file>.",
   "permissions": {
     "allow": [
       "Bash(git status:*)",
@@ -161,9 +162,9 @@ assert "doc-presence fails when the guidance is missing" 1 $?
 # 2c. Doc-presence passes with a minimal well-formed fixture doc set, and the
 #     tower-settings cross-ref is required once config/tower-settings.json
 #     exists (proving the conditional gate enforces Task 7's cross-reference).
-GUIDE_HEADING="### Path-scoped allow rules use the slash-star glob"
-GUIDE_LINK="overlays.md#path-scoped-allow-rules-use-the-slash-star-glob"
-NOTE_MARKER="path-scoped allow entries use the trailing"
+GUIDE_HEADING="### Path-scoped allow rules name exact paths"
+GUIDE_LINK="overlays.md#path-scoped-allow-rules-name-exact-paths"
+NOTE_MARKER="path-scoped allow entries never put a"
 
 cat >"$tmp/docs/overlays.md" <<EOF
 $GUIDE_HEADING
@@ -207,6 +208,28 @@ GLOB_ALLOW_OVERLAYS="$tmp/docs/overlays.md" \
   GLOB_ALLOW_TOWER_SETTINGS="$tmp/config/tower-settings.json" \
   /bin/bash "$CHECKER" --docs >/dev/null 2>&1
 assert "doc-presence passes once the tower-settings note is added" 0 $?
+
+# The mission-control profile carries the note too.
+cat >"$tmp/config/mission-control-settings.json" <<EOF
+{ "_about": "mission-control settings with no glob-discipline note" }
+EOF
+GLOB_ALLOW_OVERLAYS="$tmp/docs/overlays.md" \
+  GLOB_ALLOW_GHOST_DOC="$tmp/docs/fleet.md" \
+  GLOB_ALLOW_WORKER_SETTINGS="$tmp/config/worker-settings.json" \
+  GLOB_ALLOW_TOWER_SETTINGS="$tmp/config/tower-settings.json" \
+  GLOB_ALLOW_MC_SETTINGS="$tmp/config/mission-control-settings.json" \
+  /bin/bash "$CHECKER" --docs >/dev/null 2>&1
+assert "the mission-control profile's note is required" 1 $?
+cat >"$tmp/config/mission-control-settings.json" <<EOF
+{ "_about": "$NOTE_MARKER /* glob." }
+EOF
+GLOB_ALLOW_OVERLAYS="$tmp/docs/overlays.md" \
+  GLOB_ALLOW_GHOST_DOC="$tmp/docs/fleet.md" \
+  GLOB_ALLOW_WORKER_SETTINGS="$tmp/config/worker-settings.json" \
+  GLOB_ALLOW_TOWER_SETTINGS="$tmp/config/tower-settings.json" \
+  GLOB_ALLOW_MC_SETTINGS="$tmp/config/mission-control-settings.json" \
+  /bin/bash "$CHECKER" --docs >/dev/null 2>&1
+assert "doc-presence passes once the mission-control note is added" 0 $?
 
 # --- 3. No LLM in the decision path (REQ-E1.3) ------------------------------
 

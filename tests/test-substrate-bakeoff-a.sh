@@ -1,0 +1,96 @@
+#!/bin/bash
+# Tests for bake-off A's committed prototype
+# (tests/fixtures/substrate-bakeoff/bakeoff-a/):
+# the hardened-shell candidate against every production differential fixture
+# (universal-binary REQ-C1.6), so each matrix platform's CI job runs it, and
+# the delivery script's promise that nothing it installs outlives its run.
+# The compiled candidates need their toolchains and are measured by the
+# harness on demand, not here.
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor):
+#   ./tests/test-substrate-bakeoff-a.sh
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+here=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$here/.." && pwd)
+BAKEOFF="$REPO_ROOT/tests/fixtures/substrate-bakeoff/bakeoff-a"
+SHELL_CAND="$BAKEOFF/candidates/shell"
+
+failures=0
+ok() { echo "ok: $1"; }
+bad() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-substrate-bakeoff-a.XXXXXX") || exit 1
+[ -n "$tmp" ] && [ -d "$tmp" ] || exit 1
+trap 'rm -rf "$tmp"' EXIT
+
+# --- the shell candidate on the production differential set ----------------
+
+# Staged the way the harness stages a fixture: files/, then links (parents
+# made), the fixture's stdin, and a fresh home that is also TMPDIR. A last
+# line without its newline still counts.
+nlock=0
+ndeps=0
+for fx in "$BAKEOFF"/fixtures/*/*/; do
+  [ -d "$fx" ] || continue
+  fx=${fx%/}
+  prim=${fx%/*}
+  prim=${prim##*/}
+  name="$prim/${fx##*/}"
+  case $prim in
+    lock) nlock=$((nlock + 1)) ;;
+    deps) ndeps=$((ndeps + 1)) ;;
+  esac
+  work="$tmp/fx.$((nlock + ndeps))"
+  mkdir "$work" "$work.home"
+  if [ -d "$fx/files" ] && ! cp -R "$fx/files/." "$work/"; then
+    bad "shell candidate: $name (could not stage files/)"
+    continue
+  fi
+  if [ -f "$fx/links" ]; then
+    while IFS="$(printf '\t')" read -r lname ltarget || [ -n "$lname" ]; do
+      if ! { mkdir -p "$(dirname "$work/$lname")" && ln -s "$ltarget" "$work/$lname"; }; then
+        bad "shell candidate: $name (could not link $lname)"
+      fi
+    done <"$fx/links"
+  fi
+  set --
+  if [ -f "$fx/args" ]; then
+    while IFS= read -r a || [ -n "$a" ]; do set -- "$@" "$a"; done <"$fx/args"
+  fi
+  stdin=/dev/null
+  [ -f "$fx/stdin" ] && stdin=$fx/stdin
+  (cd "$work" && env -i PATH="$PATH" LC_ALL=C HOME="$work.home" TMPDIR="$work.home" "$SHELL_CAND/bin/$prim" "$@" <"$stdin" >"$work.out" 2>"$work.err")
+  st=$?
+  want=$(cat "$fx/expected-status")
+  if [ "$st" = "$want" ] && cmp -s "$work.out" "$fx/expected-stdout"; then
+    ok "shell candidate: $name"
+  else
+    bad "shell candidate: $name (status $st, expected $want; stdout differs: $(cmp -s "$work.out" "$fx/expected-stdout" && echo no || echo yes); stderr: $(cat "$work.err"))"
+  fi
+done
+if [ "$nlock" -gt 0 ]; then ok "the lock fixture set is not empty"; else bad "the lock fixture set is not empty"; fi
+if [ "$ndeps" -gt 0 ]; then ok "the deps fixture set is not empty"; else bad "the deps fixture set is not empty"; fi
+
+# --- delivery writes nothing that outlives it --------------------------------
+
+for mode in marketplace writer; do
+  mkdir -p "$tmp/home-$mode" "$tmp/tmp-$mode"
+  HOME="$tmp/home-$mode" TMPDIR="$tmp/tmp-$mode" sh "$SHELL_CAND/delivery/$mode" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then ok "the $mode delivery runs the installed copy"; else bad "the $mode delivery runs the installed copy (exit $rc)"; fi
+  left=$(find "$tmp/home-$mode" "$tmp/tmp-$mode" -mindepth 1)
+  if [ -z "$left" ]; then ok "the $mode delivery leaves nothing behind"; else bad "the $mode delivery leaves nothing behind (found: $left)"; fi
+done
+
+if [ "$failures" -gt 0 ]; then
+  echo "test-substrate-bakeoff-a: $failures failure(s)" >&2
+  exit 1
+fi
+echo "test-substrate-bakeoff-a: all passed"

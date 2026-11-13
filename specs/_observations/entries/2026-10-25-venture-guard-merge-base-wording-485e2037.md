@@ -1,0 +1,1 @@
+- 2026-10-25 [planwright] inception-scaffold.sh describes the scaffolded venture-guard workflow (its comment and the hygiene-wiring.md text) as validating against the merge base, but the baseline it computes is the pull request's base.sha or the push's event.before, not a merge base; the wording overstates the comparison point

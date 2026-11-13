@@ -24,6 +24,11 @@
 #                               the kickoff brief's most recent anchor entry,
 #                               shared by the standing freshness guard and the
 #                               meta step's dispatch gate
+#   spec_parse_format_arm       the declared Format-version to rule-arm map
+#                               every version-keyed script selects through
+#   spec_parse_repository_map   each task block's version 3 `Repository:`
+#                               field, classed alias, malformed, or duplicate
+#   spec_parse_repository_field one task's record from that map
 #   spec_parse_printable        the stderr path sanitizer the lib's own
 #                               diagnostics use, exported so a caller adding
 #                               context to a refusal reuses this byte range
@@ -106,9 +111,9 @@
 # non-printables from parsed content and echoed paths before printing
 # (printf, never echo).
 #
-# Portable: POSIX sh + awk + tr + wc (bash 3.2 / BSD compatible, no eval,
+# Portable: POSIX sh + awk + tr + cmp (bash 3.2 / BSD compatible, no eval,
 # input treated as data only). LC_ALL=C is pinned on the locale-sensitive
-# commands (tr, awk); wc -c is byte-counting and locale-free. The awk
+# commands (tr, awk); cmp compares bytes and is locale-free. The awk
 # duplicate-id diagnostic uses `print > "/dev/stderr"`, emulated by every
 # supported awk (one-true-awk, gawk, mawk, busybox) though not literally
 # POSIX. Matches and emitted bytes do not vary by the caller's host locale.
@@ -130,6 +135,85 @@ spec_parse_printable() {
   printf '%s' "$spec_parse__p"
 }
 
+# spec_parse_format_arm <declared-version> — print the rule arm a declared
+# `Format-version:` selects: 1 for version 1, 2 for versions 2 and 3 (version
+# 3 is version 2 plus the per-task `Repository:` field, doctrine/spec-format.md
+# *Format-version 3*). Any other value, the empty string included, prints
+# nothing and returns 1: a version this lib does not define stays fail-closed,
+# so a consumer keys on the arm and never on the declared value itself.
+spec_parse_format_arm() {
+  case $1 in
+    1) printf '1\n' ;;
+    2 | 3) printf '2\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+# spec_parse_repository_map <tasks.md|-> — print, one record per unfenced
+# task block carrying a `- **Repository:**` field bullet, in document order,
+# `<id><TAB><class><TAB><value>`: the id (`?` for a task heading whose id
+# fails the grammar), the class, and the first field's value with its
+# surrounding blanks trimmed and any tab folded to a space. The class is
+# `alias` for one field holding one alias in the identifier grammar on its own
+# line, `malformed` for a value off that grammar (empty, a path, a URL, a list)
+# or one continued past its line, and `duplicate` for a block carrying the
+# field more than once; the derivation reads anything but `alias` as an
+# unresolved repository, never as the work repository. The value is raw
+# content: a caller sanitizes it before echoing. Prints nothing for a bundle
+# that names no repository. Fails closed (non-zero, message on stderr) on a
+# missing, unreadable, or NUL-bearing file, or end of file inside an open
+# column-0 fence. `-` reads the caller's snapshot from stdin under consumer
+# contract (g).
+spec_parse_repository_map() {
+  # shellcheck disable=SC2016 # awk source, not a shell expansion
+  spec_parse__repo_awk='
+    function flush() {
+      if (id != "" && n > 0) {
+        cls = "alias"
+        if (n > 1) cls = "duplicate"
+        else if (wrapped || val !~ /^[a-z0-9][a-z0-9-]*$/ || length(val) > 64) cls = "malformed"
+        printf "%s\t%s\t%s\n", id, cls, val
+      }
+      id = ""; n = 0; wrapped = 0; infield = 0
+    }
+    spec_parse_is_task_heading($0) {
+      flush()
+      id = spec_parse_task_id($0)
+      if (id == "") id = "?"
+      next
+    }
+    /^###? / { flush(); next }
+    id == "" { next }
+    !/^[ \t]+[^ \t]/ { infield = 0 }
+    infield && /^[ \t]+\r$/ { next }
+    infield { wrapped = 1; next }
+    /^- \*\*Repository:\*\*/ {
+      infield = 1
+      if (++n > 1) next
+      val = $0
+      sub(/^- \*\*Repository:\*\*/, "", val)
+      gsub(/\t/, " ", val)
+      sub(/^ +/, "", val)
+      sub(/[ \r]+$/, "", val)
+    }
+    END { flush(); spec_parse__fence_eof() }
+  '
+  if [ "$1" = - ]; then
+    LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar$spec_parse__repo_awk"
+    return $?
+  fi
+  spec_parse__readable "$1" || return 1
+  spec_parse__nul_screen "$1" || return 1
+  LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar$spec_parse__repo_awk" <"$1"
+}
+
+# spec_parse_repository_field <map> <id> — print one task's record from a
+# spec_parse_repository_map output as `<class><TAB><value>`, nothing for a
+# task the map does not name.
+spec_parse_repository_field() {
+  printf '%s\n' "$1" | LC_ALL=C awk -F'\t' -v i="$2" '$1 == i { print $2 "\t" $3; exit }'
+}
+
 # spec_parse__readable <path> — internal: refuse a missing, unreadable, or
 # non-regular source path. Shared by every path-taking entry point so the
 # refusal wording is identical across families.
@@ -145,13 +229,13 @@ spec_parse__readable() {
 # (REQ-B1.6d, generalizing the drain-gates.sh screen — awk truncates records
 # at NUL, which would silently hide parsed lines).
 #
-# A byte-count mismatch after tr -d '\000' means at least one NUL is present.
-# Both counts are captured through checked assignments and verified non-empty
-# so a failing wc fails the screen CLOSED — an errored `[ "" -ne "" ]`
-# comparison would otherwise skip the screen and let awk parse a NUL-truncated
-# stream. A failing tr is not caught by its `||` (a pipeline's exit status is
-# the last command's, wc's); it shortens the kept count instead and trips the
-# mismatch refusal below — still fail-closed.
+# The file with its NULs deleted differs from the file exactly when it holds
+# one, so one tr|cmp pipeline decides it, with no command substitution to
+# fork on every parse. Only cmp's 0 passes: its 1 is a
+# NUL, and anything else (a file it cannot read) fails the screen CLOSED. A
+# failing tr is not caught by its status (a pipeline's exit status is the last
+# command's, cmp's); it shortens the stream instead and trips the NUL
+# refusal, still fail-closed.
 #
 # Known bound: the file is read separately by the screen and by awk, so a
 # concurrent rewrite between the reads can produce a spurious (fail-closed)
@@ -159,17 +243,24 @@ spec_parse__readable() {
 # callers (migrate-format-version.sh) close the window entirely, and snapshot
 # callers close it by screening then parsing the snapshot (contract clause g).
 spec_parse__nul_screen() {
-  spec_parse__total=$(wc -c <"$1") || spec_parse__total=
-  spec_parse__kept=$(LC_ALL=C tr -d '\000' <"$1" | wc -c) || spec_parse__kept=
-  if [ -z "$spec_parse__total" ] || [ -z "$spec_parse__kept" ]; then
-    printf '%s\n' "spec-parse: NUL screen could not read $(spec_parse_printable "$1") (fail closed)" >&2
-    return 1
-  fi
-  if [ "$spec_parse__total" -ne "$spec_parse__kept" ]; then
-    printf '%s\n' "spec-parse: NUL byte in $(spec_parse_printable "$1") (malformed input; fail closed)" >&2
-    return 1
-  fi
-  return 0
+  spec_parse__rc=0
+  # cmp takes the path as an operand, where a leading dash would read as an
+  # option; the redirections around it are immune.
+  case $1 in
+    -*) spec_parse__operand=./$1 ;;
+    *) spec_parse__operand=$1 ;;
+  esac
+  # shellcheck disable=SC2094 # both ends only read the file
+  LC_ALL=C tr -d '\000' <"$1" | cmp -s - "$spec_parse__operand" 2>/dev/null || spec_parse__rc=$?
+  case $spec_parse__rc in
+    0) return 0 ;;
+    1)
+      printf '%s\n' "spec-parse: NUL byte in $(spec_parse_printable "$1") (malformed input; fail closed)" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "spec-parse: NUL screen could not read $(spec_parse_printable "$1") (fail closed)" >&2
+  return 1
 }
 
 # --- The fence lexer (Task 6; REQ-C1.2, REQ-D1.11 · D-5) ---------------------
@@ -259,11 +350,11 @@ spec_parse_fence_balance() {
 # definition-content extraction (doctrine/spec-format.md). Emits, for each
 # task block sorted numerically by task id (component-wise: 2 < 2.5 < 10):
 # the heading line and the five definition field bullets — Deliverables,
-# Done when, Dependencies, Citations, Estimated effort — with their indented
-# continuation lines, each line terminated by a newline, byte-for-byte as in
-# the source. Everything else (section headings, intro prose, state
-# annotations, Deferred / Out-of-scope bullets, non-task H3 content) is
-# excluded.
+# Done when, Dependencies, Citations, Estimated effort — plus the version 3
+# Repository field bullet, with their indented continuation lines, each line
+# terminated by a newline, byte-for-byte as in the source. Everything else
+# (section headings, intro prose, state annotations, Deferred / Out-of-scope
+# bullets, non-task H3 content) is excluded.
 #
 # Id-grammar bounds (shared byte-for-byte with the three pre-lib copies):
 # task ids follow the meta-spec grammar `<n>` or `<n>.<m>`. The sort key
@@ -327,7 +418,9 @@ spec_parse_extract_tasks() {
     }
     /^### / { in_task = 0; keep = 0; next }   # non-task H3 ends the block too
     !in_task { next }
-    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/ {
+    # Repository is kept at every format version, never keyed: a field
+    # outside version 3 is the validator error, not an extraction carve-out.
+    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Repository|Estimated effort):\*\*/ {
       keep = 1
       buf[cur] = buf[cur] $0 "\n"
       next
@@ -970,8 +1063,9 @@ spec_parse_awk_grammar='
 
   # --- Task definition fields ----------------------------------------------
   # The canonical name of the definition field a bullet declares, or "" for
-  # anything else (a state annotation, a prose bullet). The same five fields
-  # the canonical extraction keeps.
+  # anything else (a state annotation, a prose bullet). The five required
+  # fields; the canonical extraction also keeps the optional version 3
+  # `Repository:` bullet, which this function does not name.
   function spec_parse_task_field(s) {
     if (s ~ /^- \*\*Deliverables:\*\*/) return "deliverables"
     if (s ~ /^- \*\*Done when:\*\*/) return "donewhen"

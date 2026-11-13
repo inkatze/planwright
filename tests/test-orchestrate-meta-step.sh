@@ -26,10 +26,11 @@
 #     parks;
 #   - a silent headless launch still reports the rung's handle form;
 #   - a bad task id or spec name and an unwired rung are refused;
-#   - a spec root relocated inside the checkout, or at its top, dispatches;
-#   - a lock or fetch refusal, a spec root the repository does not hold, or a
-#     --repo-root other than the primary checkout is refused (exit 2) before
-#     anything is placed.
+#   - a spec root relocated inside the checkout, at its top, in a nested
+#     repository, or outside any repository dispatches, gated on that root's
+#     primary view;
+#   - a lock or fetch refusal, or a --repo-root other than the primary
+#     checkout, is refused (exit 2) before anything is placed.
 #
 # The worker CLI is a recording fake (PLANWRIGHT_HEADLESS_CLAUDE) on the
 # headless-oneshot rung, and the stream-json rung is a recording stub, so no
@@ -393,11 +394,11 @@ m5() {
   run_step dispatch specs/demo "$nl_id" --backend headless-oneshot --prompt-file "$C/prompt"
   [ "$RC" -eq 2 ] || fail "m5: a task id carrying a newline should be refused (exit 2), got $RC"
   # A linked worktree's copy of the bundle is a valid spec dir for the lock
-  # primitive, so only the primary-bundle check refuses it.
+  # primitive, so only the work repository's bundle check refuses it.
   gitc "$P" worktree add -q --detach "$C/wt2" main
   run_step dispatch "$C/wt2/specs/demo" 1 --backend headless-oneshot --prompt-file "$C/prompt"
   [ "$RC" -eq 2 ] || fail "m5: a linked worktree's bundle should be refused (exit 2), got $RC"
-  printf '%s\n' "$ERR" | grep -q "not the primary checkout's bundle" \
+  printf '%s\n' "$ERR" | grep -q "not the bundle the work repository resolves" \
     || fail "m5: the linked-worktree refusal names another reason: $ERR"
   run_step dispatch specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt" --repo-root ""
   [ "$RC" -eq 2 ] || fail "m5: an empty --repo-root should be refused (exit 2), got $RC"
@@ -591,7 +592,7 @@ exit 0'
   pass "m19: a TERM during the launch keeps the marker and releases the lock"
 }
 
-# --- m18: the primary checkout and an in-repo spec root are required ------
+# --- m18: the primary checkout is required; a spec root in any posture -----
 m18() {
   begin
   seed m18 || return
@@ -625,29 +626,31 @@ m18() {
   gitc "$P" push -q origin main
   run_step dispatch demo 1 --backend headless-oneshot --prompt-file "$C/prompt"
   [ "$RC" -eq 0 ] || fail "m18: a spec root at the checkout's top should dispatch, got $RC: $ERR $(halt_reason)"
-  # A separate repository nested in the checkout is not held by it.
+  # A separate repository nested in the checkout is a holder: the gate reads
+  # its committed view.
   seed m18-nested || return
   mkdir -p "$P/.claude" "$P/nested/specs"
   git -c init.defaultBranch=main init -q "$P/nested"
   printf 'spec_root: nested/specs\n' >"$P/.claude/planwright.local.yml"
   printf 'project: nested\nlayout: 1\n' >"$P/nested/specs/planwright-spec-root.yml"
   cp -R "$P/specs/demo" "$P/nested/specs/demo"
+  gitc "$P/nested" add -A
+  gitc "$P/nested" commit -q -m "the holder's bundle"
   run_step dispatch nested/specs/demo 1 --backend headless-oneshot --prompt-file "$C/prompt"
-  [ "$RC" -eq 2 ] || fail "m18: a spec root in a nested repository should be refused, got $RC"
-  printf '%s\n' "$ERR" | grep -q "outside the primary checkout's repository" || fail "m18: wrong nested refusal: $ERR"
-  # The step refuses before it takes the lock, so no lock line is recorded.
-  [ "$(field lock)" = "" ] || fail "m18: the nested-root refusal came after the lock"
-  # A spec root outside the checkout holds no bundle any ref of it can show.
+  [ "$RC" -eq 0 ] || fail "m18: a spec root in a nested repository should dispatch, got $RC: $ERR $(halt_reason)"
+  [ "$(field ref)" = store:main ] || fail "m18: the nested root was not gated at its own ref: $(field ref)"
+  [ "$(field worktree)" = "$P/.claude/worktrees/demo-task-1" ] || fail "m18: the nested root's unit was placed at '$(field worktree)'"
+  # A spec root outside any repository is gated on its files.
   seed m18-outside || return
   mkdir -p "$P/.claude" "$C/outside/specs"
   printf 'spec_root: %s\n' "$C/outside/specs" >"$P/.claude/planwright.local.yml"
   printf 'project: outside\nlayout: 1\n' >"$C/outside/specs/planwright-spec-root.yml"
   cp -R "$P/specs/demo" "$C/outside/specs/demo"
   run_step dispatch "$C/outside/specs/demo" 1 --backend headless-oneshot --prompt-file "$C/prompt"
-  [ "$RC" -eq 2 ] || fail "m18: a spec root outside the checkout should be refused, got $RC"
-  printf '%s\n' "$ERR" | grep -q "outside the primary checkout's repository" || fail "m18: wrong refusal: $ERR"
-  [ "$(field lock)" = "" ] || fail "m18: the outside-root refusal came after the lock"
-  pass "m18: the step needs the primary checkout and a spec root inside it, whatever the environment says"
+  [ "$RC" -eq 0 ] || fail "m18: a spec root outside the checkout should dispatch, got $RC: $ERR $(halt_reason)"
+  [ "$(field ref)" = files ] || fail "m18: the outside root was not gated on its files: $(field ref)"
+  [ "$(field worktree)" = "$P/.claude/worktrees/demo-task-1" ] || fail "m18: the outside root's unit was placed at '$(field worktree)'"
+  pass "m18: the step needs the primary checkout, whatever the environment says, and dispatches from a spec root in any posture"
 }
 
 # --- m9: a unit already in flight is a clean no-op ------------------------
@@ -710,6 +713,32 @@ EOF
   pass "m11: the stream-json rung launches in the unit worktree with the prompt"
 }
 
+# m20: /orchestrate dispatches its script-launched rungs through this step,
+# with the prompt riding the launch; its tmux rung places in the work
+# repository and limits --backend tmux; and no other mention of the
+# tmux-launching primitive omits --no-attach. Whitespace is squeezed so a
+# rewrap never fails it.
+m20() {
+  begin
+  local skill sj_rung tmux_rung other
+  skill="$here/../skills/orchestrate/SKILL.md"
+  sj_rung=$(awk '/^- \*\*stream-json-persistent\*\*/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ' | tr -s ' ')
+  case $sj_rung in
+    *headless-oneshot*"scripts/orchestrate-meta-step.sh dispatch"*--prompt-file*) ;;
+    *) fail "m20: the stream-json-persistent and headless-oneshot rungs must dispatch through orchestrate-meta-step.sh with --prompt-file: $sj_rung" ;;
+  esac
+  tmux_rung=$(awk '/^- \*\*tmux\*\* \(opt-in\)/ {on = 1; print; next} on && /^- \*\*/ {exit} on' "$skill" | tr '\n' ' ' | tr -s ' ')
+  case $tmux_rung in
+    *"--repo-root <work-repo>"*"Pass it \`--backend tmux\` only when"*) ;;
+    *) fail "m20: the tmux rung must place in the work repository and limit --backend tmux: $tmux_rung" ;;
+  esac
+  # shellcheck disable=SC2016 # a literal backtick, matched as written
+  other=$(awk '/^- \*\*tmux\*\* \(opt-in\)/ {skip = 1; next} skip && /^- \*\*/ {skip = 0} !skip' "$skill" | tr '\n' ' ' \
+    | grep -o 'fleet-dispatch-worktree\.sh[^`]*`' | grep -v -- '--no-attach' || true)
+  [ -z "$other" ] || fail "m20: a non-tmux mention of the primitive launches a tmux worker: $other"
+  pass "m20: the skill routes each rung's dispatch through its own primitive"
+}
+
 m1
 m2
 m3
@@ -729,6 +758,7 @@ m16
 m17
 m18
 m19
+m20
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

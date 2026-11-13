@@ -1,0 +1,3 @@
+#!/bin/sh
+# marketplace delivery of this candidate; ../../../deliver.sh does the work.
+exec sh "${0%/*}/../../../deliver.sh" marketplace "${0%/*}/.."

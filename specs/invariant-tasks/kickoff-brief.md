@@ -533,3 +533,90 @@ the ritual owed for the gate's earlier free-text conversion (PR #321).
 Class: expression-only
 Anchor: `70ef874889e98d3f3cb24951a460e41a7084e386` — computed as
 `scripts/spec-anchor.sh specs/invariant-tasks`
+
+### Amendment 7 — per-task repository extension delta re-sign-off (2026-10-29, PR #737)
+
+**Scope:** the `/spec-kickoff` delta re-walkthrough of the per-task
+repository extension (format-version 3: an optional per-task
+`Repository:` field, REQ-F1.1 to F1.8, D-13 to D-15, Tasks 9 to 12),
+drafted unattended on 2026-10-25 and walked with the operator on
+2026-10-29. The bundle derived Done; the header stays Ready.
+
+**Rulings (operator, 2026-10-29):**
+
+- Format-version 3 bump; version 1 and 2 untouched, so an old install
+  refuses a version 3 bundle rather than misrouting it. An automated
+  upgrade process for older bundles is seeded in
+  `specs/_pending/spec-format-upgrade.md`.
+- The alias resolves only through `custom-spec-location`'s work-repository
+  registry, never a path or URL.
+- One repository per task.
+- Transient-failure scope changed from bundle-wide to per task: a task is
+  withheld when its own repository or a direct dependency's repository
+  failed, and tasks wholly in healthy repositories keep selecting (new
+  REQ-B1.7 supersedes REQ-B1.5; REQ-F1.6 keys it per repository).
+- Cross-bundle ordering is a real Dependencies edge on Task 11
+  (`10 (cross-spec, hard: custom-spec-location Task 11)`), with a Done-when
+  check kept because the selector treats the edge as advisory; making such
+  edges gate selection is seeded in
+  `specs/_pending/selector-cross-spec-edges.md`.
+- The drafted Task 9 park is removed at sign-off, with no reopen.
+- The anchor includes the `Repository:` field line unconditionally;
+  `scripts/spec-anchor.sh` gains no version keying (D-13, REQ-F1.3).
+
+**Lens coverage (spec lens set, delta-scoped):**
+
+| Lens | Findings | Notes |
+|---|---|---|
+| Contract correctness / consistency | 2, 5 | plus the ruling edits |
+| Ambiguity / interpretation forks | 4, 6 | |
+| Citation and coverage integrity | none | IDs and counts verified |
+| Dead verification paths | 3, 7 | |
+| Decision-domain gaps | 5 | integration seam |
+| Testability (Done when) | 3, 7 | |
+| Cross-file consistency | 1, 5 | |
+| Documentation and glossary drift | 6 | |
+| Security (reframed) | 4 | fail-open fallback on an invalid alias |
+| Altitude check | none | covered by D-1; Task 9 is doctrine-first |
+| Ship-gate check | none | no out-of-band fix named |
+| Performance / concurrency / error handling | n/a | spec class |
+
+**Findings and dispositions (all applied):**
+
+1. The `cross-spec (hard)` Dependencies form copied from kickoff-lifecycle
+   failed the validator and leaked the foreign id into the engine as a
+   self-edge. Applied: the edge sits inside the parenthetical.
+2. The registry exists only for marker-bearing spec roots. Applied: the
+   precondition in REQ-F1.2 and D-14, and a validator warning in REQ-F1.7
+   and Task 10.
+3. "Leaves its dependents unmet" had no dependent in the two-task fixture.
+   Applied: a third fixture task (alpha-hosted, depending on Task 2).
+4. A malformed or duplicate field had no defined outcome and could fall
+   back to the work repository. Applied: both derive the alias-failure
+   state with no fallback (REQ-F1.5, D-15, security posture).
+5. "Resolved exactly as today" conflicted with the companion's holder arm.
+   Applied: REQ-F1.1 now points at `resolve-work-repo.sh` and its holder
+   arm.
+6. `unresolved` meant three things. Applied: the new state is
+   `repository-unresolved`.
+7. No check that version 3 gets version 2 behavior; two helpers test for
+   version 2 by equality. Applied: Task 10's Done-when and the REQ-F1.7
+   test entry, with the anchor sub-question settled by the ruling above.
+
+**Pre-flip verification:**
+
+- **Validator.** `scripts/spec-validate.sh specs/invariant-tasks`: 0
+  errors, 0 warnings after the edits.
+- **Lint.** `mise run lint:md`: 0 errors.
+- **Stale-reference sweep.** The four spec files no longer carry the
+  drafted bundle-wide rule, the bare `unresolved` state name, the Task 9
+  park, or Done-when-only cross-bundle ordering; the 2026-10-25 Changelog
+  line stays as history.
+- **Supersession.** REQ-B1.5 carries its `Superseded-by: REQ-B1.7` marker
+  with its body unedited, and REQ-B1.7 sits adjacent with a test-spec
+  entry.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (spec lens set plus altitude and ship-gate items, coverage table and dispositions above)
+Anchor: `51d504f608e107b2f4b0e570f497feb886a62173` — computed as
+`scripts/spec-anchor.sh specs/invariant-tasks`

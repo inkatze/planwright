@@ -43,6 +43,11 @@
 #       placed (fleet-messaging D-19, REQ-F1.1)
 #   r18 a suffix that yields no worker identity refuses its plan, naming the
 #       missing handle and scope, before printing any of it (REQ-B1.1)
+#   r19 a task launch whose spec resolves to another backend, or whose
+#       backend does not resolve, is refused before anything is placed,
+#       naming that backend or relaying the resolver's reason; --backend tmux
+#       (an explicit pick) launches, any other --backend value and the flag on
+#       the flight arm are refused, and --no-attach is unaffected
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-tmux-launch-refusals.sh
@@ -66,12 +71,17 @@ fail() {
 # shellcheck source=tests/lib/tmux-launch-cases.sh
 . "$here/lib/tmux-launch-cases.sh"
 
-# nothing_placed <label> <id> — no worktree, branch, marker, or record.
+# nothing_placed <label> <id> [<records>] — no worktree, branch, marker, or
+# record; with <records>, the registry still holds exactly that many lines.
 nothing_placed() {
   [ ! -e "$P/.claude/worktrees/demo-task-$2" ] || fail "$1: a worktree was placed"
   gitc "$P" show-ref --verify --quiet "refs/heads/planwright/demo/task-$2" && fail "$1: a branch was created"
   [ ! -e "$C/markers/$2" ] || fail "$1: a dispatch marker was written"
-  [ ! -s "$C/fleet/registry" ] || fail "$1: a registry record was written"
+  if [ -n "${3:-}" ]; then
+    [ "$(grep -c . "$C/fleet/registry" 2>/dev/null || true)" = "$3" ] || fail "$1: a registry record was written"
+  else
+    [ ! -s "$C/fleet/registry" ] || fail "$1: a registry record was written"
+  fi
   return 0
 }
 
@@ -604,6 +614,73 @@ r18() {
   [ -z "$TLH_OUT" ] || fail "r18: part of the plan was printed before the refusal: $TLH_OUT"
 }
 
+# --- r19: a spec resolving to another backend ---------------------------------
+# With no machine-local layer the spec resolves to the shipped default, which
+# never picks tmux unattended.
+r19() {
+  local before resolved records
+  new_case
+  rm -f "$P/.claude/planwright.local.yml"
+  resolved=$(cd "$P" && /bin/sh "$ROOT/scripts/resolve-dispatch-backend.sh" resolve "$P/specs/demo" 2>/dev/null \
+    | awk -F"$TAB" '$1 == "backend" { print $2 }')
+  [ -n "$resolved" ] && [ "$resolved" != tmux ] \
+    || fail "r19: the fixture must resolve to a non-tmux backend, got '$resolved'"
+  before=$(calls_now)
+  tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P"
+  [ "$TLH_RC" -eq 17 ] || fail "r19: a launch on a spec resolving to $resolved must exit 17, got $TLH_RC ($TLH_ERR)"
+  case $TLH_ERR in
+    *"resolves to backend $resolved,"*) ;;
+    *) fail "r19: the refusal does not name the resolved backend: $TLH_ERR" ;;
+  esac
+  case $TLH_ERR in
+    *--no-attach*) ;;
+    *) fail "r19: the refusal does not name --no-attach: $TLH_ERR" ;;
+  esac
+  # The resolver's TSV rows are data, never relayed as diagnostics.
+  case $TLH_ERR in
+    *"worktree: configured"* | *"worktree: backend"*) fail "r19: the resolver's rows leaked into the refusal: $TLH_ERR" ;;
+  esac
+  [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] \
+    || fail "r19: new-session was called"
+  nothing_placed r19 1
+  tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" --launch-only
+  [ "$TLH_RC" -eq 17 ] || fail "r19: --launch-only must be refused the same way, got $TLH_RC ($TLH_ERR)"
+  nothing_placed "r19 --launch-only" 1
+
+  tlh_run_bounded "$PRIM" dispatch demo 1 --repo-root "$P" --backend stream-json-persistent
+  [ "$TLH_RC" -eq 2 ] || fail "r19: --backend other than tmux must exit 2, got $TLH_RC ($TLH_ERR)"
+  nothing_placed "r19 --backend stream-json-persistent" 1
+
+  tlh_run_bounded "$PRIM" dispatch --flight demo-0123abcd --repo-root "$P" --backend tmux --no-attach
+  [ "$TLH_RC" -eq 2 ] || fail "r19: --backend on the flight arm must exit 2, got $TLH_RC ($TLH_ERR)"
+
+  tlh_run_bounded "$PRIM" dispatch demo 2 --repo-root "$P" --no-attach
+  [ "$TLH_RC" -eq 0 ] || fail "r19: --no-attach must not consult the backend, got $TLH_RC ($TLH_ERR)"
+
+  before=$(calls_now)
+  tlh_run_bounded "$PRIM" dispatch demo 3 --repo-root "$P" --backend tmux --launch-only
+  tlh_expect_returned "r19 --backend tmux" || return
+  [ "$TLH_RC" -eq 0 ] || fail "r19: --backend tmux must launch, got $TLH_RC ($TLH_ERR)"
+  tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"' \
+    | grep -qF "$(expect_session "$PP" demo-task-3)" || fail "r19: --backend tmux made no new-session call for its unit"
+
+  # A literal backend the host does not advertise: the resolver fails closed,
+  # and the refusal relays its reason.
+  printf 'dispatch_backend: nosuch-backend\n' >"$P/.claude/planwright.local.yml"
+  before=$(calls_now)
+  records=$(grep -c . "$C/fleet/registry" 2>/dev/null || true)
+  tlh_run_bounded "$PRIM" dispatch demo 4 --repo-root "$P"
+  [ "$TLH_RC" -eq 17 ] || fail "r19: an unresolved backend must exit 17, got $TLH_RC ($TLH_ERR)"
+  case $TLH_ERR in
+    *"not advertised"*"did not resolve"*) ;;
+    *) fail "r19: the unresolved refusal does not relay the resolver's reason: $TLH_ERR" ;;
+  esac
+  [ -z "$(tmux_calls_since "$before" | awk -F"$TAB" '$1 == "new-session"')" ] \
+    || fail "r19 unresolved: new-session was called"
+  # The case's registry already holds task 3's record, so only growth counts.
+  nothing_placed "r19 unresolved" 4 "$records"
+}
+
 r1
 r2
 r3
@@ -622,6 +699,7 @@ r15
 r16
 r17
 r18
+r19
 
 [ "$fails" -eq 0 ] || {
   echo "test-tmux-launch-refusals: $fails failure(s)" >&2

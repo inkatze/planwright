@@ -1,0 +1,4 @@
+{
+  "hooks": {},
+  "modules": ["./mission-control/register.tsx"]
+}

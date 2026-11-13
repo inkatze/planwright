@@ -1,10 +1,10 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034,SC2154 # the sourcing suite sets `here` and reads the paths and results set here
 # flight-dispatch-fixture.sh — the shared fixture for the scripts/flight-dispatch.sh
-# suites (sourced, never executed). tests/test-flight-dispatch.sh and
-# tests/test-flight-dispatch-paths.sh split the cases between them so the two
-# share the runner's parallelism rather than one file's budget; each sets
-# `here` to its own directory before sourcing this and ends with `finish`.
+# suites (sourced, never executed). The tests/test-flight-dispatch*.sh suites
+# split the cases between them so they share the runner's parallelism rather
+# than one file's budget; each sets `here` to its own directory before
+# sourcing this and ends with `finish`.
 #
 # Every case builds its own fixture through new_case, so a case can move
 # between the files without carrying state from another.
@@ -39,7 +39,7 @@ fail() {
   exit 1
 }
 
-tmp=$(mktemp -d)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/flight-dispatch-fixture.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 tmp=$(cd "$tmp" && pwd -P)
 
@@ -161,15 +161,15 @@ briefs() {
 # age <path...> — backdate past the sweep's grace, so its
 # young-brief guard does not hold a brief the case retires on purpose.
 age() {
-  touch -t 202001010000 "$@"
+  touch -t 202001010000 -- "$@"
 }
 
 # install_plugin_copy <dir> <version> — a runnable installed copy of this
 # plugin at <dir>, which the worker root resolves to when it sits under
 # $CLAUDE_DIR's plugin cache: dispatch checks the in-run points under it.
 install_plugin_copy() {
-  mkdir -p "$1"
-  cp -R "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$1/"
+  mkdir -p -- "$1"
+  cp -R -- "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$1/"
   printf '{"name":"planwright","version":"%s"}\n' "$2" >"$1/.claude-plugin/plugin.json"
 }
 

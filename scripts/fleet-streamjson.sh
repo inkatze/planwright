@@ -10,16 +10,23 @@
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
-# --settings <config/worker-settings.json> --name <worker>`, with the worker
-# identity and PLANWRIGHT_MESSAGING_INBOUND=accept exported, so its hooks
-# write attention rows and register its session name (fleet-messaging D-8,
-# D-19); a handle outside the relay's stream-json-persistent grammar, which
-# names the session, is refused; non-`--bare` pinned per
-# D-12/REQ-A1.5, and the worker-settings fragment pinned per fleet-autonomy
+# --settings <config/<profile>-settings.json> --name <worker>`, the profile
+# worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept,
+# PLANWRIGHT_SESSION_BACKEND=stream-json (the background-job guard's key) and, for a
+# worker, the worker identity exported, so its hooks write attention rows and
+# register its session name (fleet-messaging D-8, D-19), and the dispatcher's
+# tower identity cleared once the dispatch is registered; a handle outside
+# the relay's stream-json-persistent grammar, which names the session, is
+# refused; non-`--bare` pinned per
+# D-12/REQ-A1.5, and the settings fragment pinned per fleet-autonomy
 # D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
 # fragment under the root the core root chain names (fleet-launch-profile.sh),
 # and REFUSING a caller-supplied `--bare`,
-# `--settings`, or `--name`. The fragment is the mode source:
+# `--settings`, or `--name`. `launch --profile <kind>` picks another of the
+# shipped fragments by kind (tower or mission-control, for the sessions
+# scripts/mission-control-launch.sh starts), resolved the same way and
+# recorded so a recover relaunches under it; a path is never accepted. The
+# fragment is the mode source:
 # Claude Code honors a `defaultMode` of auto from the operator's own user
 # settings, so a worker launched without a readable fragment inherits the LLM
 # approval classifier in place of the human-reviewed allowlist, and the stdio
@@ -67,6 +74,18 @@
 #                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
 #   scope            the dispatch scope, when the launch supplied one
+#   cwd              the directory a fresh launch started the worker in,
+#                    where `relaunch` resumes it
+#   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
+#                    and --tier-unit named, which `relaunch` resolves at
+#   relaunch.lock    a relaunch's election, outside the release set
+#   scratch-root     the scratch root the launch handed the worker as its
+#                    TMPDIR: its own (scripts/fleet-scratch.sh), or for a
+#                    worker launched before roots were per session the
+#                    worktree's; only a final close removes it (scripts/
+#                    fleet-stop-lib.sh, stop_scratch_root_release)
+#   alarmed-<id>     the mark of a request whose overdue push has been made,
+#                    until the journal no longer reads it pending
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.* / .ratelimit.*
 #                    mktemp-beside-target staging
@@ -165,8 +184,15 @@
 #
 # Usage:
 #   fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>
+#       [--profile worker|tower|mission-control] [--mc-token <token>]
+#       [--tier-key <key>] [--tier-unit <unit>]
 #       [--cwd <dir>] [--foreground] [-- <extra claude args>...]
-#       Launch a worker under a supervisor. Detached by default (prints
+#       Launch a worker under a supervisor, under the settings fragment of
+#       --profile (default worker). --tier-key and --tier-unit record the
+#       allocation key and unit the caller resolved the tier in the extra
+#       args at, for `relaunch` to re-resolve it. --mc-token is the mission-control
+#       launcher's row token, exported into a mission-control session only;
+#       none is taken from the environment. Detached by default (prints
 #       `launched <worker> dir <dir>`); --foreground runs the supervisor
 #       loop in this process (fixtures; returns the worker's exit code). A
 #       caller-supplied `--bare` (or `-b`) in the extra args is refused
@@ -183,7 +209,7 @@
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
 #       included, so escape them), 64 KiB at most.
-#   fleet-streamjson.sh steer <worker> --message-file <file>
+#   fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
 #       `[planwright tower relay -> <worker>]`, JSON-encoded into one user
@@ -203,21 +229,60 @@
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
-#   fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]
+#       A message shaped like a new unit of work (scripts/retask-guard.sh
+#       check: a launch brief, a skill command) is refused, exit 5 with
+#       nothing written, unless the launcher registers the worker as a tower,
+#       orchestrator or mission-control session: new scope and each new
+#       review round go to a fresh worker. --retask <reason> delivers it
+#       anyway, logged as an override once delivered, with a warning on
+#       stderr; an override that could not be logged is refused first, exit
+#       2 with nothing written.
+#   fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
-#       then relaunch with `--resume <session_id>`. A missing session halts
+#       then relaunch with `--resume <session_id>`, in --cwd when given and
+#       otherwise in the caller's directory (a session resumes only from the
+#       directory it started in). A missing session halts
 #       with exit 4, a failed resume with exit 5 — both surfaced as
 #       attention items (the Awaiting-input halt of the affected unit; the
 #       tower and other workers continue).
-#   fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]
+#   fleet-streamjson.sh relaunch <worker> [--grace <secs>]
+#       Move a LIVE worker onto the profile and config installed now: a plain
+#       `stop` (the scratch root stays), then `recover --cwd` with the
+#       directory the launch recorded in <dir>/cwd, which passes the
+#       installed profile and rewrites the session record from current
+#       config. The tier is re-resolved from current allocation config
+#       (allocation-apply.sh plan, in that directory, at the recorded
+#       --tier-key/--tier-unit, else orchestrate_dispatch under the handle)
+#       and passed as `-- --model <m> --effort <e>`, a dimension resolving
+#       to inherit passing nothing; no other launch-time extra arg is
+#       carried over, and a tier that does not resolve is refused (exit 3). Single-initiator on <dir>/relaunch.lock, which no stop
+#       breaks. Refused before the stop, with the worker left running: a
+#       relaunch already in flight, a worker that is not running (that is
+#       `recover`'s case), a lock of the release set held by a live process
+#       other than the worker's own, or no recorded launch directory (exit
+#       3); no usable persisted session (exit 4); and every check the
+#       resumed launch makes (exit 7, 8 or 9). A partial stop is exit 6 and
+#       a failed resume after the stop exit 5, each naming the recover to
+#       run; any other stop failure passes its exit code through. Prints
+#       `relaunched <worker> session <id>` after the two verbs' own lines.
+#   fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>] [--once]
 #       Scan every worker journal for pending items older than the
 #       threshold (default 900s; PLANWRIGHT_STREAMJSON_PENDING_AGE
 #       overrides, the flag wins) and escalate each to a high-priority
 #       attention item + notify push. The outcome is operator escalation on
 #       the attention surface — never an auto-answer, never a worker kill.
-#       Prints `alarm <worker> <id> <age>` per firing.
-#   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]
+#       Prints `alarm <worker> <id> <age>` per firing. Every runtime directory
+#       is scanned, whatever planwright version launched its worker. --once
+#       pushes each overdue request once (the periodic form; the supervisor
+#       tick shares its mark) where a plain scan pushes on every call. A
+#       worker positively dead (every recorded pid dead through
+#       fleet-death-evidence.sh, or no pidfile left beside a complete result
+#       record, the run's recorded end) is never escalated: nobody can
+#       answer what it left, so its pending receipts are closed
+#       undeliverable, as a stop closes them, its request row is cleared
+#       from the queue, and the scan prints `dead <worker> <settled>`.
+#   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]
 #       Close the worker: terminate its process tree and release the locks,
 #       scratch temp, and attention record it holds. Prints one of
 #       `stop <worker> stopped released=<classes>`,
@@ -233,6 +298,12 @@
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
 #       reads as a successful close, and a close asked for from inside the
 #       worker's own process tree is refused with exit 3 rather than attempted.
+#       --final also removes, once the close completes, the worker's own
+#       scratch root the launch recorded in <dir>/scratch-root: the close no
+#       recover follows, and the one a reap makes (scripts/fleet-cleanup.sh
+#       process). An earlier-layout worktree root another worker's runtime
+#       directory also records, or that holds a session's, is left to the
+#       worktree reclaim. A plain close keeps it for the recover.
 #       --observe runs the same checks and probes and releases nothing, printing
 #       `stop <worker> would-release=<classes>` for what a close would take now,
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
@@ -265,7 +336,9 @@
 #       `-- request envelope ends early ...` line; every such notice comes
 #       before the content, so a piped `head` cannot drop it; a
 #       missing, symlinked or malformed envelope prints
-#       `-- request envelope unreadable` in place of the input. Request
+#       `-- request envelope unreadable` in place of the input. A worker
+#       positively dead (as `alarm-scan` judges it) gets a `-- worker dead`
+#       line under each header, since nobody can answer its requests. Request
 #       content is untrusted: control bytes are stripped and the prefixes
 #       keep it from forging a header. A named worker with no runtime dir, or
 #       a journal or worker dir that cannot be read, is exit 2. Never writes,
@@ -276,10 +349,16 @@
 #   already in flight / a launch already in flight or over a live supervisor /
 #   not orphaned / a close asked for from inside the worker's own process tree /
 #   the answer does not apply — the undeliverable-answer arms
-#   exit 3 AFTER surfacing the attention item); 4 recovery halt: no usable
-#   session to resume; 5 recovery halt: the `--resume` relaunch failed; 6 a
+#   exit 3 AFTER surfacing the attention item / a relaunch refused before its
+#   stop); 4 recovery halt: no usable session to resume (for a relaunch, a
+#   refusal before the stop with the worker left running); 5 recovery halt:
+#   the `--resume` relaunch failed (for a relaunch, after the stop); for a
+#   steer, 5 is instead a message shaped like a new unit of work, refused
+#   with nothing written; 6 a
 #   partial close: some class of the release set is still held; 7 the
-#   worker-settings fragment the launch pins is missing or unreadable; 8 the
+#   settings fragment of the launch's profile is missing or unreadable, or a
+#   recover finds its recorded profile unreadable, unknown, or (for a
+#   mission-control launch) absent; 8 the
 #   dispatch-env wrapper the launch goes through is missing or unreadable; 9
 #   the launch preflight could not prove the worker's auto-approve hook will
 #   approve its opening plugin-script call (see LAUNCH PREFLIGHT).
@@ -290,9 +369,10 @@
 # plumbing approved and the worker pended on its first tool call with nothing
 # to say so (2026-09-12, format-grammar task 7: the guard trusted the root the
 # LAUNCHER lives in, the skill called scripts under the root Claude Code
-# INSTALLED the plugin at). So before spawning, `launch` runs the hook the
-# worker will run (scripts/worker-command-guard.sh under the CLAUDE_PLUGIN_ROOT
-# the dispatch-env wrapper exports, through that wrapper and so with the
+# INSTALLED the plugin at). So before spawning a worker-profile session,
+# `launch` runs the hook the worker will run (scripts/worker-command-guard.sh
+# under the CLAUDE_PLUGIN_ROOT the dispatch-env wrapper exports, through that
+# wrapper and so with the
 # environment the worker gets) against a synthetic PreToolUse payload for
 # `<root>/scripts/resolve-rule-doc.sh spec-format`, once per root the worker
 # could run scripts from: this launcher's own root, that plugin root, and every
@@ -305,7 +385,8 @@
 # all, refuses the same way. PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT is `refuse`
 # by default; =warn downgrades every refusal to a warning (an operator who
 # intends to answer every prompt by hand); =off skips the proof; any other
-# value is a usage error (exit 2).
+# value is a usage error (exit 2). A tower or mission-control profile wires
+# the tower command guard instead, so its launch runs no preflight.
 #
 # ESCALATION TICK. The pending-age alarm used to be scan-only (`alarm-scan`),
 # and nothing in the fleet ran the scan, so a worker parked on an unanswerable
@@ -314,7 +395,8 @@
 # own worker, every PLANWRIGHT_STREAMJSON_ALARM_TICK seconds (default 60): a
 # receipt pending longer than PLANWRIGHT_STREAMJSON_PENDING_AGE (default 900)
 # is escalated to a high-priority queue item and pushed through the notify
-# seam once, on the tick that crosses the threshold. Scan-based over the
+# seam once, on the tick that crosses the threshold, unless `alarm-scan --once`
+# pushed it first (they share one mark per request). Scan-based over the
 # durable journal, so it holds the same crash-window properties `alarm-scan`
 # has, and still never auto-answers and never kills the worker.
 #
@@ -339,42 +421,6 @@ TAB=$(printf '\t')
 NL=$(printf '\nx')
 NL=${NL%x}
 me=fleet-streamjson
-
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-# Absolute path to this script, so the detached-supervisor re-exec survives a
-# relative invocation followed by a `--cwd` chdir (a bare `$0` would resolve
-# against the new cwd and silently fail to launch).
-self="$script_dir/$(basename "$0")"
-
-# The canonical echo-discipline sanitizer (doctrine/security-posture.md),
-# required readable and fail-closed when absent: worker-authored strings
-# (tool names, result subtypes) are sanitized before any operator-facing
-# echo or attention write.
-echo_safety="$script_dir/echo-safety.sh"
-if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
-  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
-  exit 2
-fi
-# shellcheck source=scripts/echo-safety.sh
-. "$echo_safety"
-
-# The one advisory-lock primitive (universal-binary D-11), required readable
-# and fail-closed when absent for the same reason the sanitizer is: every
-# election and every journal mutation below runs under it, so a missing
-# library is no mutual exclusion at all rather than a degraded kind.
-lock_lib="$script_dir/lock-lib.sh"
-if [ ! -r "$lock_lib" ]; then
-  printf '%s\n' "$me: required helper $lock_lib missing or not readable" >&2
-  exit 2
-fi
-# shellcheck source=scripts/lock-lib.sh
-. "$lock_lib"
-
-FS="$script_dir/fleet-state.sh"
-FA="$script_dir/fleet-attention.sh"
-FDE="$script_dir/fleet-death-evidence.sh"
-FRAMES="$script_dir/claude-frames.sh"
-WDEATH="$script_dir/worker-death.sh"
 
 # The worker binary. Tests point this at a shim; the default is the
 # installed CLI (D-4: the installed `claude` CLI is the only driver, never
@@ -428,18 +474,64 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--cwd <dir>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
-    echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
-    echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
-    echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
-    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]"
+    echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
+    echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
+    echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
+    echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>] [--once]"
+    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]"
     echo "       fleet-streamjson.sh status <worker>"
     echo "       fleet-streamjson.sh pending [<worker>...]"
     printf '%s\n' "  <scope> is $SCOPE_SHAPE"
   } >&2
   exit 2
 }
+
+# A bare or misspelled invocation is answered from argv alone, before any
+# helper is located or sourced, so nothing the install or the host is doing
+# can keep it from printing the usage at once. A verb added to the dispatch at
+# the end of this file must be added here too, or it is refused as unknown.
+case ${1:-} in
+  launch | answer | steer | recover | relaunch | alarm-scan | _tick | stop | status | pending | _supervise | _frame-check) ;;
+  *) usage ;;
+esac
+
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# Absolute path to this script, so the detached-supervisor re-exec survives a
+# relative invocation followed by a `--cwd` chdir (a bare `$0` would resolve
+# against the new cwd and silently fail to launch).
+self="$script_dir/$(basename "$0")"
+
+# The canonical echo-discipline sanitizer (doctrine/security-posture.md),
+# required readable and fail-closed when absent: worker-authored strings
+# (tool names, result subtypes) are sanitized before any operator-facing
+# echo or attention write.
+echo_safety="$script_dir/echo-safety.sh"
+if [ ! -f "$echo_safety" ] || [ ! -r "$echo_safety" ]; then
+  printf '%s\n' "$me: required helper echo-safety.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$echo_safety"
+
+# The one advisory-lock primitive (universal-binary D-11), required readable
+# and fail-closed when absent for the same reason the sanitizer is: every
+# election and every journal mutation below runs under it, so a missing
+# library is no mutual exclusion at all rather than a degraded kind.
+lock_lib="$script_dir/lock-lib.sh"
+if [ ! -r "$lock_lib" ]; then
+  printf '%s\n' "$me: required helper $lock_lib missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/lock-lib.sh
+. "$lock_lib"
+
+FS="$script_dir/fleet-state.sh"
+FA="$script_dir/fleet-attention.sh"
+FDE="$script_dir/fleet-death-evidence.sh"
+FRAMES="$script_dir/claude-frames.sh"
+WDEATH="$script_dir/worker-death.sh"
 
 now_epoch() {
   ne_v=$(date +%s)
@@ -503,8 +595,8 @@ lock_drop() {
 # A rename has no such window: the file is absent or complete, and absent is
 # what every reader already handles.
 write_pidfile() {
-  wp_tmp=$(mktemp "${1%/*}/.pid.XXXXXX") || return 1
-  printf '%s\n' "$2" >"$wp_tmp" && mv "$wp_tmp" "$1" && return 0
+  wp_tmp=$(mktemp -- "${1%/*}/.pid.XXXXXX") || return 1
+  printf '%s\n' "$2" >"$wp_tmp" && mv -- "$wp_tmp" "$1" && return 0
   rm -f "$wp_tmp" 2>/dev/null || :
   return 1
 }
@@ -592,13 +684,13 @@ journal_append() {
 # journal_set_state <dir> <id> <state> <epoch> — rewrite the id's row
 # atomically (temp + rename; caller holds the lock).
 journal_set_state() {
-  js_tmp=$(mktemp "$1/.journal.XXXXXX") || return 2
+  js_tmp=$(mktemp -- "$1/.journal.XXXXXX") || return 2
   awk -F'\t' -v OFS='\t' -v id="$2" -v st="$3" -v ep="$4" \
     '$1 == id { $4 = st; $5 = ep } { print }' "$1/journal" >"$js_tmp" || {
     rm -f "$js_tmp"
     return 2
   }
-  mv "$js_tmp" "$1/journal"
+  mv -- "$js_tmp" "$1/journal"
 }
 
 # journal_oldest_pending <dir> — print `<id> <kind>` for the oldest pending
@@ -824,6 +916,14 @@ read_scope() {
   fi
 }
 
+# The tail of every request row's question, and what dead_row_clear tells a
+# request row by, so rewording it here keeps the two in step. Rows written
+# by earlier versions carry the same text. scripts/fleet-attention.sh's
+# queue --tally tells a permission request by it too (STREAMJSON_ANSWER_HINT),
+# and by the request question's leading wording below, so reword neither
+# without it.
+ANSWER_HINT='answer via fleet-streamjson.sh answer'
+
 # attention_upsert <worker> <dir> <id> <kind> [priority] — upsert the
 # worker's decision-queue item for a pending request. Question text is
 # built from fixed prose plus sanitized, length-bounded fragments only.
@@ -841,9 +941,9 @@ attention_upsert() {
   au_tool=$(sanitize_printable "$au_tool" tool | cut -c1-64)
   au_short=$(printf '%s' "$au_id" | cut -c1-8)
   if [ "$au_kind" = question ]; then
-    au_q="worker question (AskUserQuestion) req $au_short - answer via fleet-streamjson.sh answer"
+    au_q="worker question (AskUserQuestion) req $au_short - $ANSWER_HINT"
   else
-    au_q="permission request tool $au_tool req $au_short - answer via fleet-streamjson.sh answer"
+    au_q="permission request tool $au_tool req $au_short - $ANSWER_HINT"
   fi
   if [ "$au_prio" = high ]; then
     au_q="OVERDUE $au_q"
@@ -916,7 +1016,7 @@ attention_sync() {
 # without confirming turns it into the shared mark, which the tick acts on
 # whoever raised it, since the writer (the supervisor, say) may well live on.
 attention_give_up() {
-  mv -f "$2" "$1/attention.dirty" 2>/dev/null || : >"$1/attention.dirty" 2>/dev/null || :
+  mv -f -- "$2" "$1/attention.dirty" 2>/dev/null || : >"$1/attention.dirty" 2>/dev/null || :
 }
 
 # attention_dirty <dir> — whether a re-sync mark is the tick's to act on: the
@@ -941,7 +1041,7 @@ attention_dirty() {
 # attention_clear_marks <dir> [all] — remove the marks attention_dirty would
 # act on, or every mark when the worker is being closed.
 attention_clear_marks() {
-  rm -f "$1/attention.dirty" 2>/dev/null || :
+  rm -f -- "$1/attention.dirty" 2>/dev/null || :
   set +f
   for ac_f in "$1"/attention.dirty.*; do
     [ -L "$ac_f" ] || [ -f "$ac_f" ] || continue
@@ -1098,7 +1198,7 @@ receipt_record() {
 # is still the only copy of the request.
 receipt_quarantine() {
   [ -n "${1:-}" ] || return 0
-  mv -f "$1" "${1%/*}/undrained-${1##*/deferred-}" 2>/dev/null || :
+  mv -f -- "$1" "${1%/*}/undrained-${1##*/deferred-}" 2>/dev/null || :
 }
 
 # receipt_requeue <dir> — put set-aside spools back where the drain looks, once:
@@ -1109,7 +1209,7 @@ receipt_requeue() {
     [ -f "$rq_f" ] && [ ! -L "$rq_f" ] || continue
     rq_id=${rq_f##*/undrained-}
     valid_reqid "$rq_id" || continue
-    [ -e "$1/deferred-$rq_id" ] || mv -f "$rq_f" "$1/deferred-$rq_id" 2>/dev/null || :
+    [ -e "$1/deferred-$rq_id" ] || mv -f -- "$rq_f" "$1/deferred-$rq_id" 2>/dev/null || :
   done
   set -f
 }
@@ -1124,8 +1224,8 @@ receipt_defer() {
   if [ -L "$1/deferred-$2" ] || { [ -e "$1/deferred-$2" ] && [ ! -f "$1/deferred-$2" ]; }; then
     return 1
   fi
-  rf_tmp=$(mktemp "$1/.deferred.XXXXXX") || return 1
-  if printf '%s\n%s\n' "$3" "$4" >"$rf_tmp" && mv "$rf_tmp" "$1/deferred-$2"; then
+  rf_tmp=$(mktemp -- "$1/.deferred.XXXXXX") || return 1
+  if printf '%s\n%s\n' "$3" "$4" >"$rf_tmp" && mv -- "$rf_tmp" "$1/deferred-$2"; then
     return 0
   fi
   rm -f "$rf_tmp" 2>/dev/null || :
@@ -1453,16 +1553,21 @@ refuse_mode_overrides() {
   done
 }
 
-# worker_settings_path — print the reviewed permission fragment the launch
-# pins: the worker profile under the root the core root chain names
+# profile_settings_path <kind> — print the reviewed permission fragment the
+# launch pins: the <kind> profile under the root the core root chain names
 # (fleet-launch-profile.sh), whose first arms are the roots the dispatch-env
 # wrapper pins the worker to, so the profile and the hooks it names come from
 # one install. Fails closed when it cannot be
 # read: an unverifiable mode source is no mode source, and a worker launched
 # without one inherits the operator's (see the header).
-worker_settings_path() {
-  if ! ws_path=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null); then
-    printf '%s\n' "$me: refusing to launch: without its worker-settings fragment the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
+profile_settings_path() {
+  # Resolved where the worker runs, as the wrapper resolves its hook root:
+  # which install is current there can depend on a project-scoped record entry.
+  if ! ws_path=$(
+    [ -z "${run_cwd:-}" ] || cd -- "$run_cwd" 2>/dev/null || :
+    /bin/sh "$script_dir/fleet-launch-profile.sh" "$1" </dev/null
+  ); then
+    printf '%s\n' "$me: refusing to launch: without its $1-settings fragment the session inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
     return 7
   fi
   printf '%s\n' "$ws_path"
@@ -1513,9 +1618,18 @@ guard_preflight() {
   # set, in which case another install's copy gates the worker. Prove that
   # file, and read the installed roots through the resolver beside it, so the
   # proof is of what the worker is actually gated by.
-  gp_hook_root=$("$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+  # Read in the worker's directory: which install is current there can depend
+  # on a project-scoped record entry.
+  gp_hook_root=$(
+    cd -- "$gp_cwd" 2>/dev/null || :
+    "$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1
+  )
   [ -n "$gp_hook_root" ] || gp_hook_root=$gp_launcher
   gp_hook_root=$(cd -- "$gp_hook_root" 2>/dev/null && pwd -P) || gp_hook_root=$gp_launcher
+  # Warned before the refusals below, so warn mode reports it too: without it
+  # a backgrounded command stalls the worker, and nothing else breaks.
+  [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
+    || printf '%s\n' "$me: launch preflight: warning: the background-job guard $(printf '%s' "$gp_hook_root" | tr -d '\000-\037\177')/scripts/background-job-guard.sh is missing or not executable; a worker that backgrounds a command will stall" >&2
   gp_guard="$gp_hook_root/scripts/worker-command-guard.sh"
   # Executable, not merely readable: the wrapper execs it, and a guard that
   # cannot run would otherwise read as "does not approve" every root below.
@@ -1532,7 +1646,7 @@ guard_preflight() {
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
-  gp_tmp=$(mktemp) || {
+  gp_tmp=$(mktemp "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || {
     printf '%s\n' "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
     [ "$gp_mode" = warn ] && return 0
     return 2
@@ -1646,6 +1760,14 @@ register_dispatch() {
   /bin/sh "$rd_reg" "$@" >/dev/null </dev/null || true
 }
 
+# drop_tower_identity — clear the dispatcher's tower identity before any
+# session starts. It is the owner the registration records, and a session that
+# inherited it would read it as its own: its dispatches would be recorded under
+# it and its sweeps would take a sibling's workers for its own.
+drop_tower_identity() {
+  unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID PLANWRIGHT_TOWER_CHECKOUT
+}
+
 # --- the close (the release set) --------------------------------------------
 
 # The classes a stop walks, in release order. Processes go first because a
@@ -1665,7 +1787,10 @@ stop_pidfiles='supervisor.pid worker.pid'
 # script's writers create beside their targets, and the residue of a broken
 # lock. Everything else in the state directory is the durable record a close
 # keeps: the capture, the journal, the session, the stored envelopes, the
-# result, and the rate-limit frame, whose reading outlives its worker.
+# result, and the rate-limit frame, whose reading outlives its worker. The
+# worker's scratch root is not here: it belongs to the worktree, outlives a
+# plain stop for the recover that may follow, and goes with a final close or
+# the worktree's reclaim (scripts/worker-session-record.sh).
 scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* *.lock#* *.broken.*'
 
 # stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
@@ -1686,7 +1811,7 @@ stop_match() {
 # which is why the trailing `|| :` on that line does not make it non-fatal.
 stop_process_closed() {
   for spc_f in $stop_pidfiles; do
-    rm -rf "${1:?}/$spc_f" 2>/dev/null || :
+    rm -rf -- "${1:?}/$spc_f" 2>/dev/null || :
   done
 }
 
@@ -1786,9 +1911,10 @@ release_attention() {
 journal_close() {
   # Spooled receipts were never journaled, and a close makes every receipt
   # undeliverable; left behind, a later supervisor would drain them into a
-  # session that never asked. A resumed worker that still wants one asks again.
+  # session that never asked. A resumed worker that still wants one asks again,
+  # and is alarmed afresh, so the alarm marks go too.
   set +f
-  for jc_f in "$1"/deferred-* "$1"/undrained-*; do
+  for jc_f in "$1"/deferred-* "$1"/undrained-* "$1"/alarmed-*; do
     if [ -L "$jc_f" ] || [ -f "$jc_f" ]; then rm -f "$jc_f" 2>/dev/null; fi
   done
   set -f
@@ -1819,14 +1945,14 @@ journal_close() {
   esac
   journal_lock "$1" || return 1
   jc_now=$(now_epoch) || jc_now=0
-  jc_tmp=$(mktemp "$1/.journal.XXXXXX") || {
+  jc_tmp=$(mktemp -- "$1/.journal.XXXXXX") || {
     journal_unlock "$1"
     return 1
   }
   jc_rc=0
   awk -F'\t' -v OFS='\t' -v ep="$jc_now" \
     '$4 == "pending" { $4 = "undeliverable"; $5 = ep } { print }' "$1/journal" >"$jc_tmp" \
-    && mv "$jc_tmp" "$1/journal" || jc_rc=1
+    && mv -- "$jc_tmp" "$1/journal" || jc_rc=1
   [ "$jc_rc" = 0 ] || rm -f "$jc_tmp" 2>/dev/null
   journal_unlock "$1"
   return "$jc_rc"
@@ -1878,6 +2004,44 @@ stop_release() {
   esac
 }
 
+# record_tier_field <dir> <name> <value> — write <dir>/<name> whole by rename,
+# or remove it when <value> is empty.
+record_tier_field() {
+  if [ -n "$3" ]; then
+    printf '%s\n' "$3" >"$1/$2.tmp" && mv -f -- "$1/$2.tmp" "$1/$2"
+  else
+    rm -f -- "$1/$2"
+  fi
+}
+
+# recorded_profile <dir> <worker> <verb> — print the settings profile a
+# launch recorded in <dir>/profile, for a recover or relaunch to resume under.
+# A launch from before the record existed was a worker's, except a
+# mission-control launch (its sessions are named mc-*), which always records
+# one, so a missing record there is never read as the worker posture. An
+# unusable record is refused, naming <verb>, with status 7.
+recorded_profile() {
+  if [ -e "$1/profile" ] || [ -L "$1/profile" ]; then
+    rp_p=$(cat "$1/profile" 2>/dev/null) || rp_p=''
+    case $rp_p in
+      worker | tower | mission-control) ;;
+      *)
+        printf '%s\n' "$me: refusing to $3 $2: its recorded settings profile is unreadable or unknown" >&2
+        return 7
+        ;;
+    esac
+    printf '%s\n' "$rp_p"
+    return 0
+  fi
+  case $2 in
+    mc-*)
+      printf '%s\n' "$me: refusing to $3 $2: a mission-control launch records its settings profile, and this one has none" >&2
+      return 7
+      ;;
+  esac
+  printf '%s\n' worker
+}
+
 # --- subcommands ------------------------------------------------------------
 
 cmd_launch() {
@@ -1887,11 +2051,47 @@ cmd_launch() {
   run_cwd=''
   foreground=0
   resume_sid=''
+  profile=''
+  mc_token_arg=''
+  tier_key=''
+  tier_unit=''
   while [ $# -gt 0 ]; do
     case $1 in
+      --tier-key)
+        [ $# -ge 2 ] || usage
+        # allocation-apply.sh's valid_key, so relaunch never meets a key it refuses.
+        case $2 in
+          '' | [!a-z]* | *[!a-z0-9_]*) usage ;;
+        esac
+        [ "${#2}" -le 64 ] || usage
+        tier_key=$2
+        shift 2
+        ;;
+      --tier-unit)
+        [ $# -ge 2 ] || usage
+        valid_field "$2" || usage
+        tier_unit=$2
+        shift 2
+        ;;
+      --mc-token)
+        [ $# -ge 2 ] || usage
+        case $2 in
+          '' | *[!A-Za-z0-9._-]*) usage ;;
+        esac
+        mc_token_arg=$2
+        shift 2
+        ;;
       --prompt-file)
         [ $# -ge 2 ] || usage
         prompt_file=$2
+        shift 2
+        ;;
+      --profile)
+        [ $# -ge 2 ] || usage
+        case $2 in
+          worker | tower | mission-control) profile=$2 ;;
+          *) usage ;;
+        esac
         shift 2
         ;;
       --cwd)
@@ -1958,10 +2158,19 @@ cmd_launch() {
     printf '%s\n' "$me: refusing to launch: the worker handle is outside the relay's stream-json-persistent grammar (orchestrate-relay.sh validate-handle), which names the session" >&2
     exit 2
   fi
-  worker_settings=$(worker_settings_path) || exit 7
+  # A recover relaunches under the fragment its launch recorded.
+  if [ -n "$resume_sid" ] && [ -z "$profile" ]; then
+    pf_dir=$(worker_dir "$worker") || exit 2
+    profile=$(recorded_profile "$pf_dir" "$worker" recover) || exit 7
+  fi
+  [ -n "$profile" ] || profile=worker
+  launch_settings=$(profile_settings_path "$profile") || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
-  guard_preflight "$dispatch_env" "${run_cwd:-$PWD}"
-  gp_rc=$?
+  # The preflight proves the worker command guard, the hook only the worker
+  # profile wires; the other profiles' approvals are pinned statically by
+  # tests/test-launch-profiles.sh.
+  gp_rc=0
+  [ "$profile" != worker ] || guard_preflight "$dispatch_env" "${run_cwd:-$PWD}" || gp_rc=$?
   [ "$gp_rc" -eq 0 ] || exit "$gp_rc"
 
   dir=$(worker_dir "$worker") || exit 2
@@ -2024,6 +2233,15 @@ cmd_launch() {
   if [ -n "$scope" ]; then
     printf '%s\n' "$scope" >"$dir/scope"
   fi
+  # Written whole by rename, so a recover never reads a truncated record.
+  if [ -z "$resume_sid" ]; then
+    printf '%s\n' "$profile" >"$dir/profile.tmp" && mv -f "$dir/profile.tmp" "$dir/profile" || exit 2
+    # The allocation key and unit the caller resolved this launch's tier at,
+    # so a relaunch re-resolves at the same ones; a launch that names none
+    # clears what a previous launch of this handle left.
+    record_tier_field "$dir" tier_key "$tier_key" || exit 2
+    record_tier_field "$dir" tier_unit "$tier_unit" || exit 2
+  fi
   # The worker identity its hooks key on (attention rows, liveness, and its
   # self-registration), and the inbound layer the messaging probe reads beside
   # the --settings profile (fleet-messaging D-8, D-17, D-19). A resume carries
@@ -2034,10 +2252,45 @@ cmd_launch() {
     printf '%s\n' "$me: refusing to launch $worker: no worker scope (PLANWRIGHT_WORKER_SCOPE) to export; its launch recorded none" >&2
     exit 2
   fi
-  PLANWRIGHT_WORKER_HANDLE=$worker
-  PLANWRIGHT_WORKER_SCOPE=$id_scope
+  # Only a worker carries the worker identity: the scripts that refuse a
+  # worker (the force-push helper among them) must not refuse a tower or a
+  # mission-control session.
+  if [ "$profile" = worker ]; then
+    PLANWRIGHT_WORKER_HANDLE=$worker
+    PLANWRIGHT_WORKER_SCOPE=$id_scope
+    export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+  else
+    unset PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN
+  fi
+  # The mission-control launcher's row token binds that session's decisions
+  # to its registry row; no other session may inherit it. A recover is run by
+  # whoever calls it, so the token comes from the recovered session's own row
+  # (the field tower-queue.sh mc_token_ok reads), never from the caller.
+  if [ "$profile" != mission-control ]; then
+    unset PLANWRIGHT_MC_TOKEN
+  elif [ -z "$resume_sid" ]; then
+    # A fresh launch holds a token only as the launcher's explicit argument,
+    # never one inherited from whoever runs it.
+    if [ -n "$mc_token_arg" ]; then
+      PLANWRIGHT_MC_TOKEN=$mc_token_arg
+      export PLANWRIGHT_MC_TOKEN
+    else
+      unset PLANWRIGHT_MC_TOKEN
+    fi
+  else
+    mc_tok=''
+    if mc_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null); then
+      mc_tok=$(awk -F '\t' '$1 == "token" { print $2; exit }' "$mc_root/mission-control/sessions/$worker" 2>/dev/null) || mc_tok=''
+    fi
+    if [ -n "$mc_tok" ]; then
+      PLANWRIGHT_MC_TOKEN=$mc_tok
+      export PLANWRIGHT_MC_TOKEN
+    else
+      unset PLANWRIGHT_MC_TOKEN
+    fi
+  fi
   PLANWRIGHT_MESSAGING_INBOUND=accept
-  export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_MESSAGING_INBOUND
+  export PLANWRIGHT_MESSAGING_INBOUND
 
   init_msg=$(mktemp "$dir/.init.XXXXXX") || exit 2
   if [ -n "$resume_sid" ]; then
@@ -2057,8 +2310,18 @@ cmd_launch() {
   # --verbose (required with -p stream-json output), the stdio permission
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
   # (the mode source), and NEVER --bare.
+  # A stream-json session never resumes on a background job's completion
+  # notice. The wrapper turns this request into the session's
+  # PLANWRIGHT_SESSION_BACKEND mark, which scripts/background-job-guard.sh
+  # keys its refusal on, and drops any mark it inherits.
+  PLANWRIGHT_LAUNCH_BACKEND=stream-json
+  export PLANWRIGHT_LAUNCH_BACKEND
+  # The worker has no pane: the starter's tmux context (a tower or mission
+  # control running in tmux) would read, in its own per-step launches, as an
+  # opt-in to tmux windows. Every start, recover and relaunch passes here.
+  unset TMUX TMUX_PANE
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
-    --verbose --permission-prompt-tool stdio --settings "$worker_settings" --name "$worker" "$@"
+    --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"
   fi
@@ -2076,6 +2339,14 @@ cmd_launch() {
       exit 2
     }
   fi
+  # The directory `relaunch` resumes in, since `--resume` finds a session only
+  # from the directory it was started in.
+  if [ -z "$resume_sid" ]; then
+    { pwd -P >"$dir/cwd.tmp" && mv -f "$dir/cwd.tmp" "$dir/cwd"; } || {
+      rm -f "$dir/cwd"
+      printf '%s\n' "$me: cannot record the launch directory for $dir; relaunch will refuse this worker" >&2
+    }
+  fi
 
   # The spec root outside the work repository, which the worker's command
   # guard admits as its write zone (custom-spec-location D-15), computed once
@@ -2091,17 +2362,35 @@ cmd_launch() {
   # The session record the worker's command guard reads its self-approval
   # policy and unit identity from, rewritten from current config on every launch and recover; without one
   # the guard keeps to its read-only arm. An inherited path never stands in.
+  # The record also names the worktree's scratch root, which every launch
+  # and recover of the worker finds again; it becomes the worker's TMPDIR,
+  # and only the worker's, so the supervisor keeps its temp files out of a
+  # directory the worker may write to. The root is this worker's own, keyed by
+  # worktree and handle (scripts/fleet-scratch.sh): every session mission
+  # control launches from one checkout shares that worktree, and a final close
+  # removes the root it recorded.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" 2>/dev/null </dev/null) || session_record=''
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
+    scratch_root=$(sed -n 's/^scratch_root=//p' "$session_record" 2>/dev/null) || scratch_root=''
+    if [ -n "$scratch_root" ]; then
+      printf '%s\n' "$scratch_root" >"$dir/scratch-root" \
+        || printf '%s\n' "$me: cannot record the scratch root for $dir; a final close will leave it to the worktree reclaim" >&2
+      # A wrapper path holding `=` would read as one more assignment.
+      case $1 in
+        *=*) ;;
+        *) set -- env "TMPDIR=$scratch_root" "$@" ;;
+      esac
+    fi
   fi
 
   if [ "$foreground" = 1 ]; then
     # This process becomes the supervisor, so it is its own death handle; the
     # record has to land before supervise blocks.
     register_dispatch "$worker" "$scope" "$dir" "$tower_checkout" "$$"
+    drop_tower_identity
     supervise "$worker" "$dir" "$init_msg" "$@"
     return $?
   fi
@@ -2118,8 +2407,14 @@ cmd_launch() {
   # is surfaced as a failure with a non-zero exit, never an optimistic
   # `launched` over a dead supervisor.
   rm -f "$dir/supervisor.pid" "$dir/worker.pid" "$dir/result"
-  (/bin/sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
-    >/dev/null 2>>"$dir/supervisor.log" </dev/null &)
+  # The drop runs before the `&`, never in an AND-list with it: bash would
+  # background the whole list in a subshell that holds the caller's output
+  # open for as long as the supervisor runs.
+  (
+    drop_tower_identity
+    /bin/sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
+      >/dev/null 2>>"$dir/supervisor.log" </dev/null &
+  )
   # Confirm startup by a signal that survives a fast run: supervisor.pid
   # appears while the supervisor is live, and it removes that pid plus writes a
   # `result` on exit — so a run that already finished shows `result` even
@@ -2347,11 +2642,18 @@ cmd_steer() {
     exit 2
   }
   st_file=''
+  st_retask=''
   while [ $# -gt 0 ]; do
     case $1 in
       --message-file)
         [ $# -ge 2 ] || usage
         st_file=$2
+        shift 2
+        ;;
+      --retask)
+        [ $# -ge 2 ] || usage
+        case $2 in *[![:space:]]*) ;; *) usage ;; esac
+        st_retask=$2
         shift 2
         ;;
       *) usage ;;
@@ -2386,10 +2688,46 @@ cmd_steer() {
       exit 2
       ;;
   esac
+  # The re-task check and the frame read one snapshot, so the file cannot
+  # change between the verdict and the delivery.
+  st_snap=$(mktemp "$dir/.steer.XXXXXX") || exit 2
+  if ! cat -- "$st_file" >"$st_snap"; then
+    rm -f "$st_snap"
+    exit 2
+  fi
+  st_override=0
+  /bin/sh "$script_dir/retask-guard.sh" check "$st_snap" --to "$worker" \
+    --hint "nothing was written to worker $worker; pass --retask <reason> to override, which is logged" >/dev/null
+  case $? in
+    0) ;;
+    5)
+      if [ -z "$st_retask" ]; then
+        rm -f "$st_snap"
+        exit 5
+      fi
+      if ! /bin/sh "$script_dir/retask-guard.sh" log --check --via steer --to "$worker" --reason "$st_retask"; then
+        rm -f "$st_snap"
+        printf '%s\n' "$me: steer refused, nothing written to worker $worker: its re-task override could not be logged" >&2
+        exit 2
+      fi
+      st_override=1
+      ;;
+    *)
+      rm -f "$st_snap"
+      printf '%s\n' "$me: steer refused, nothing written to worker $worker: the re-task check did not run" >&2
+      exit 2
+      ;;
+  esac
 
-  journal_lock "$dir" || exit 2
+  journal_lock "$dir" || {
+    rm -f "$st_snap"
+    exit 2
+  }
   now=$(now_epoch) || now=0
-  st_body=$(json_escape_file "$st_file") || {
+  st_body=$(json_escape_file "$st_snap")
+  st_esc=$?
+  rm -f "$st_snap"
+  [ "$st_esc" = 0 ] || {
     journal_unlock "$dir"
     exit 2
   }
@@ -2439,6 +2777,8 @@ cmd_steer() {
   if [ "$st_sent" = 0 ]; then
     printf '%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" >>"$dir/steers" || :
     journal_unlock "$dir"
+    [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
+      || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
     printf 'steered %s %s\n' "$worker" "$st_bytes"
   else
     journal_unlock "$dir"
@@ -2469,11 +2809,24 @@ cmd_recover() {
     exit 2
   }
   foreground=''
+  rc_cwd=''
   while [ $# -gt 0 ]; do
     case $1 in
       --foreground)
         foreground=--foreground
         shift
+        ;;
+      --cwd)
+        [ $# -ge 2 ] || usage
+        rc_cwd=$2
+        # Checked here, not left to the launch: an empty one would be dropped
+        # and resume in the caller's directory, and a missing one would read
+        # as a failed resume and halt the unit.
+        [ -n "$rc_cwd" ] && [ -d "$rc_cwd" ] || {
+          printf '%s\n' "$me: recover --cwd must name an existing directory" >&2
+          exit 2
+        }
+        shift 2
         ;;
       --)
         shift
@@ -2553,7 +2906,7 @@ cmd_recover() {
   # second recover cannot slip into the old release-before-startup window and
   # fork the session, and a silently-failed detached resume now returns
   # non-zero here instead of a false `recovered`.
-  if /bin/sh "$self" launch "$worker" --resume-session "$sid" ${foreground:+"$foreground"} "$@"; then
+  if /bin/sh "$self" launch "$worker" --resume-session "$sid" ${rc_cwd:+--cwd "$rc_cwd"} ${foreground:+"$foreground"} "$@"; then
     printf 'recovered %s session %s\n' "$worker" "$sid"
   else
     ec=$?
@@ -2570,6 +2923,165 @@ cmd_recover() {
     printf '%s\n' "$me: --resume relaunch failed for $worker (exit $ec); halt (REQ-E1.5)" >&2
     exit 5
   fi
+}
+
+# own_lock_holder <pid> <dir> — 0 when <pid> is one of the worker's own
+# processes: its supervisor, the supervisor's tick child, or the process a
+# `--foreground` launch or recover runs the supervisor under. Their locks are
+# the worker itself rather than an operation in flight, and the stop ends them.
+own_lock_holder() {
+  oh_sup=$(cat "$2/supervisor.pid" 2>/dev/null) || return 1
+  valid_posnum "${oh_sup:-}" || return 1
+  [ "$1" != "$oh_sup" ] || return 0
+  [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" != "$oh_sup" ] || return 0
+  [ "$(ps -o ppid= -p "$oh_sup" 2>/dev/null | tr -d ' ')" != "$1" ] || return 0
+  return 1
+}
+
+# A worker's settings profile is read at session start and its session record
+# is resolved from config at launch, so a change reaches a running worker only
+# through this verb. Everything the resume depends on is checked before the
+# stop, so a worker this cannot resume is left running rather than closed.
+cmd_relaunch() {
+  [ $# -ge 1 ] || usage
+  worker=$1
+  shift
+  valid_field "$worker" || {
+    printf '%s\n' "$me: invalid worker handle" >&2
+    exit 2
+  }
+  rx_grace=''
+  rx_has_grace=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --grace)
+        [ $# -ge 2 ] || usage
+        rx_grace=$2
+        rx_has_grace=1
+        shift 2
+        ;;
+      *)
+        usage
+        ;;
+    esac
+  done
+  dir=$(worker_dir "$worker") || exit 2
+  [ -d "$dir" ] || {
+    printf '%s\n' "$me: unknown worker $worker" >&2
+    exit 2
+  }
+  [ ! -L "$dir" ] || {
+    printf '%s\n' "$me: refusing to relaunch $worker: its state directory is a symlink" >&2
+    exit 2
+  }
+  # Outside `lock_classes`, so neither the stop below nor any other stop
+  # breaks it: a second relaunch cannot land its stop inside this one's recover.
+  pw_lock_trap_install
+  lock_take "$dir/relaunch.lock"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "$me: a relaunch is already in flight for $worker (refused: single initiator)" >&2
+      exit 3
+      ;;
+    *)
+      printf '%s\n' "$me: cannot take the relaunch election for $worker (lock error)" >&2
+      exit 2
+      ;;
+  esac
+  worker_alive "$dir" || {
+    printf '%s\n' "$me: worker $worker is not running; relaunch refused (a stopped worker is resumed with recover)" >&2
+    exit 3
+  }
+  clear_legacy_lock_dirs "$dir"
+  case $? in
+    0) ;;
+    1)
+      printf '%s\n' "$me: relaunch refused for $worker: a lock from before the upgrade may still be held" >&2
+      exit 3
+      ;;
+    *) exit 2 ;;
+  esac
+  # A lock held by another live process is an operation in flight (an answer,
+  # a steer, a recover) that the stop would cut short. Best effort: one taken
+  # between this check and the stop is broken by it, as by any stop.
+  for rx_l in $lock_classes; do
+    [ -L "$dir/$rx_l" ] || continue
+    rx_tok=$(pw_lock_owner "$dir/$rx_l")
+    [ -n "$rx_tok" ] || continue
+    pw_lock_owner_alive "$rx_tok" || continue
+    own_lock_holder "${rx_tok%%-*}" "$dir" && continue
+    printf '%s\n' "$me: $rx_l for $worker has a live holder (an operation in flight) that a stop would cut short; relaunch refused" >&2
+    exit 3
+  done
+  sid=$(cat "$dir/session" 2>/dev/null) || sid=''
+  valid_reqid "${sid:-}" || {
+    printf '%s\n' "$me: worker $worker has no usable persisted session_id; relaunch refused" >&2
+    exit 4
+  }
+  rx_cwd=$(cat "$dir/cwd" 2>/dev/null) || rx_cwd=''
+  case $rx_cwd in
+    /*) ;;
+    *) rx_cwd='' ;;
+  esac
+  [ -n "$rx_cwd" ] && [ -d "$rx_cwd" ] || {
+    printf '%s\n' "$me: $worker has no recorded launch directory that still exists; relaunch refused (stop it, then run recover --cwd <its worktree>)" >&2
+    exit 3
+  }
+  # The checks the resumed launch makes, run now so a profile or wrapper the
+  # new config broke refuses here with the worker still up.
+  rx_profile=$(recorded_profile "$dir" "$worker" relaunch) || exit 7
+  run_cwd=$rx_cwd
+  profile_settings_path "$rx_profile" >/dev/null || exit 7
+  rx_env=$(dispatch_env_path) || exit 8
+  rx_gp=0
+  [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" || rx_gp=$?
+  [ "$rx_gp" -eq 0 ] || exit "$rx_gp"
+  # The tier is re-resolved from current allocation config at the key and unit
+  # the launch recorded, else at the single-spec dispatch surface's key under
+  # the worker's handle, and resolved in the launch directory, whose config the
+  # worker runs under. Nothing else the launch carried after `--` survives.
+  rx_key=$(cat "$dir/tier_key" 2>/dev/null) || rx_key=''
+  rx_unit=$(cat "$dir/tier_unit" 2>/dev/null) || rx_unit=''
+  [ -n "$rx_key" ] || rx_key=orchestrate_dispatch
+  [ -n "$rx_unit" ] || rx_unit=$worker
+  rx_pr=0
+  rx_plan=$(cd "$rx_cwd" && /bin/sh "$script_dir/allocation-apply.sh" plan --key "$rx_key" \
+    --backend stream-json-persistent --unit "$rx_unit" </dev/null) || rx_pr=$?
+  [ "$rx_pr" -eq 0 ] || {
+    printf '%s\n' "$me: no launch tier resolves for $worker at the $rx_key key (allocation-apply exit $rx_pr); relaunch refused" >&2
+    exit 3
+  }
+  rx_model=$(printf '%s\n' "$rx_plan" | awk -F '\t' '$1 == "model" { print $2 }')
+  rx_effort=$(printf '%s\n' "$rx_plan" | awk -F '\t' '$1 == "effort" { print $2 }')
+  [ -n "$rx_model" ] && [ -n "$rx_effort" ] || {
+    printf '%s\n' "$me: the tier plan for $worker carries no model or effort row (broken install); relaunch refused" >&2
+    exit 3
+  }
+  set --
+  [ "$rx_model" = inherit ] || set -- "$@" --model "$rx_model"
+  [ "$rx_effort" = inherit ] || set -- "$@" --effort "$rx_effort"
+  [ $# -eq 0 ] || set -- -- "$@"
+
+  rx_rc=0
+  if [ "$rx_has_grace" = 1 ]; then
+    /bin/sh "$self" stop "$worker" --grace "$rx_grace" || rx_rc=$?
+  else
+    /bin/sh "$self" stop "$worker" || rx_rc=$?
+  fi
+  case $rx_rc in
+    0) ;;
+    6)
+      printf '%s\n' "$me: the stop of $worker was partial, so it was not resumed; check status, then run recover $worker --cwd $rx_cwd" >&2
+      exit 6
+      ;;
+    *) exit "$rx_rc" ;;
+  esac
+  /bin/sh "$self" recover "$worker" --cwd "$rx_cwd" "$@" || {
+    printf '%s\n' "$me: $worker is stopped but its resume failed (recover exit $?); run recover $worker --cwd $rx_cwd" >&2
+    exit 5
+  }
+  printf 'relaunched %s session %s\n' "$worker" "$sid"
 }
 
 cmd_stop() {
@@ -2591,6 +3103,7 @@ cmd_stop() {
   }
   grace=$grace_default
   observe=0
+  final=0
   while [ $# -gt 0 ]; do
     case $1 in
       --grace)
@@ -2600,6 +3113,10 @@ cmd_stop() {
         ;;
       --observe)
         observe=1
+        shift
+        ;;
+      --final)
+        final=1
         shift
         ;;
       *)
@@ -2632,7 +3149,12 @@ cmd_stop() {
     stop_observe "$dir" "$worker" "$st_root/attention/state"
     return
   fi
-  stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace"
+  sw_rc=0
+  stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace" || sw_rc=$?
+  if [ "$final" = 1 ] && [ "$sw_rc" = 0 ] && ! stop_scratch_root_release "$dir" "$st_root"; then
+    printf '%s\n' "$me: closed $worker but could not remove its scratch root" >&2
+  fi
+  return "$sw_rc"
 }
 
 # cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation
@@ -2694,8 +3216,13 @@ cmd__tick() {
 cmd_alarm_scan() {
   now=''
   threshold=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
+  once=''
   while [ $# -gt 0 ]; do
     case $1 in
+      --once)
+        once=1
+        shift
+        ;;
       --now)
         [ $# -ge 2 ] || usage
         now=$2
@@ -2724,34 +3251,103 @@ cmd_alarm_scan() {
   }
   as_root=$(/bin/sh "$FS" root) || exit 2
   [ -d "$as_root/streamjson" ] || return 0
+  pw_lock_trap_install
   # An intentional glob, like cmd_pending's: enumerate worker dirs (pathname
   # expansion is otherwise disabled by set -f).
   set +f
   for as_dir in "$as_root/streamjson"/*; do
-    [ -d "$as_dir" ] || continue
-    [ -f "$as_dir/journal" ] || continue
+    # This verb rewrites journals and deletes marks inside what it is handed.
+    [ -d "$as_dir" ] && [ ! -L "$as_dir" ] || continue
+    # Readable, not merely present: an awk that cannot read it reads as
+    # nothing pending, which would prune every mark.
+    [ -f "$as_dir/journal" ] && [ -r "$as_dir/journal" ] || continue
     as_worker=${as_dir##*/}
     valid_field "$as_worker" || continue
-    alarm_scan_worker "$as_worker" "$as_dir" "$now" "$threshold" ''
+    # The scan reads every runtime directory, whatever planwright version
+    # launched it. Most hold only settled rows, so one read decides whether
+    # there is anything to scan at all.
+    if ! awk -F'\t' '$4 == "pending" { f = 1; exit } END { exit !f }' "$as_dir/journal" 2>/dev/null; then
+      alarm_marks_prune "$as_dir" ''
+      continue
+    fi
+    # A worker whose supervisor died with it has no tick of its own: what it
+    # left pending is settled here, not escalated.
+    if worker_dead "$as_dir"; then
+      dead_settle "$as_worker" "$as_dir"
+      continue
+    fi
+    alarm_scan_worker "$as_worker" "$as_dir" "$now" "$threshold" '' "$once"
   done
   set -f
 }
 
-# alarm_scan_worker <worker> <dir> <now> <threshold> <tick> — one worker's
-# pending-age scan, shared by `alarm-scan` (every worker, on demand) and the
+# dead_settle <worker> <dir> — settle what a positively dead worker left
+# pending. Nobody can answer it now (the fifo's reader is gone), so its
+# receipts are closed undeliverable as a stop closes them, and the queue row
+# they raised is cleared rather than re-posted as an overdue live prompt.
+# Under the relaunch, recover and launch elections, taken in the order a
+# relaunch reaches them, so a relaunch, recover or launch in flight is never
+# raced, with the death proved again under them. A relaunch's own stop leaves
+# the dead shape before its recover runs, and a settle holding the recover
+# election then would refuse that recover. Prints `dead <worker> <settled>`; a
+# settle that could not complete says so on stderr.
+dead_settle() {
+  lock_take "$2/relaunch.lock" || return 0
+  if ! lock_take "$2/recover.lock"; then
+    lock_drop "$2/relaunch.lock"
+    return 0
+  fi
+  if ! lock_take "$2/launch.lock"; then
+    lock_drop "$2/recover.lock"
+    lock_drop "$2/relaunch.lock"
+    return 0
+  fi
+  if worker_dead "$2"; then
+    ds_n=$(awk -F'\t' '$4 == "pending" { n++ } END { print n + 0 }' "$2/journal" 2>/dev/null) || ds_n=0
+    if journal_close "$2"; then
+      dead_row_clear "$1"
+      printf 'dead %s %s\n' "$1" "${ds_n:-0}"
+    else
+      printf '%s\n' "$me: worker $1 is dead but its receipts could not be closed; its requests stay pending" >&2
+    fi
+  fi
+  lock_drop "$2/launch.lock"
+  lock_drop "$2/recover.lock"
+  lock_drop "$2/relaunch.lock"
+}
+
+# dead_row_clear <worker> — clear the worker's queue row when it is a request
+# row this rung wrote, judged then cleared through `clear --if-row` so a row
+# written since is kept. Any other row (a failure item, another rung's row
+# under the same handle) is the operator's and stays.
+dead_row_clear() {
+  dc_root=$(/bin/sh "$FS" root) || return 0
+  [ -f "$dc_root/attention/state" ] || return 0
+  dc_row=$(awk -F'\t' -v w="$1" -v hint="$ANSWER_HINT" '($1 "") == (w "") && $3 == "awaiting-input" && index($6, hint) { print $2 "\t" $3 "\t" $4; exit }' \
+    "$dc_root/attention/state" 2>/dev/null) || dc_row=''
+  [ -n "$dc_row" ] || return 0
+  dc_scope=${dc_row%%"$TAB"*}
+  dc_rest=${dc_row#*"$TAB"}
+  /bin/sh "$FA" clear "$1" --if-row "$dc_scope" "${dc_rest%%"$TAB"*}" "${dc_rest#*"$TAB"}" >/dev/null 2>&1 || :
+}
+
+# alarm_scan_worker <worker> <dir> <now> <threshold> <tick> [<once>] — one
+# worker's pending-age scan, shared by `alarm-scan` (every worker) and the
 # supervisor's escalation tick (its own worker, on a cadence). <now> empty
-# means the clock. <tick> empty means every overdue receipt is pushed through
-# the notify seam on every call, the on-demand contract; a tick width means
-# the push happens once, on the call whose window contains the crossing, while
-# the high-priority queue row is re-upserted on every call (idempotent, and the
-# row is what an attention watch reacts to). Prints `alarm <worker> <id> <age>`
-# per firing.
+# means the clock. With <tick> and <once> both empty every overdue receipt is
+# pushed through the notify seam on every call, the plain contract; a tick
+# width pushes on the call whose window contains the crossing, and <once>
+# (any non-empty value) on the first call to see it overdue, each only when
+# it claims the request's mark (alarm_claim). The high-priority queue row is
+# re-upserted on every call (idempotent, and the row is what an attention
+# watch reacts to). Prints `alarm <worker> <id> <age>` per firing.
 alarm_scan_worker() {
   aw_worker=$1
   aw_dir=$2
   aw_now=$3
   aw_thr=$4
   aw_tick=$5
+  aw_once=${6:-}
   if [ -z "$aw_now" ]; then
     aw_now=$(now_epoch) || return 2
   fi
@@ -2833,7 +3429,13 @@ alarm_scan_worker() {
         continue
       fi
     fi
-    if [ -z "$aw_tick" ] || [ "$aw_age" -le $((aw_thr + aw_tick)) ]; then
+    aw_push=1
+    if [ -n "$aw_tick" ]; then
+      [ "$aw_age" -le $((aw_thr + aw_tick)) ] && alarm_claim "$aw_dir" "$a_id" || aw_push=0
+    elif [ -n "$aw_once" ]; then
+      alarm_claim "$aw_dir" "$a_id" || aw_push=0
+    fi
+    if [ "$aw_push" = 1 ]; then
       /bin/sh "$FA" notify \
         "stream-json worker $aw_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${aw_age}s past threshold" \
         >/dev/null 2>&1 || :
@@ -2842,6 +3444,80 @@ alarm_scan_worker() {
   done <<AWIDS
 $aw_ids
 AWIDS
+  aw_pend=$(journal_pending_ids "$aw_dir") || return 0
+  alarm_marks_prune "$aw_dir" "$aw_pend"
+}
+
+# alarm_marks_prune <dir> <pending ids> — drop the marks of requests the
+# journal no longer reads pending, so one answered and asked again is pushed
+# again. Judged by journal state alone, never by a caller's threshold: the
+# tick and `--once` may run with different ones, and a prune by either's
+# overdue set would hand the other a fresh claim on every call.
+alarm_marks_prune() {
+  set +f
+  for am_m in "$1"/alarmed-*; do
+    [ -f "$am_m" ] && [ ! -L "$am_m" ] || continue
+    case "$NL$2$NL" in
+      *"$NL${am_m##*/alarmed-}$NL"*) ;;
+      *) rm -f "$am_m" 2>/dev/null || : ;;
+    esac
+  done
+  set -f
+}
+
+# alarm_claim <dir> <id> — 0 when this call is the first to push the
+# request's overdue alarm: the tick and `alarm-scan --once` share one mark per
+# request, so a worker both watch is pushed once. Anything already at the
+# mark's path, a link included, claims nothing: noclobber refuses only an
+# existing regular file and would open a link to a fifo or a device. The
+# create is exclusive, so two callers never both claim. A mark that cannot be
+# written at all still claims: a second push beats none.
+alarm_claim() {
+  [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ] || return 1
+  (set -C && : >"$1/alarmed-$2") 2>/dev/null && return 0
+  [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ]
+}
+
+# result_snapshot <dir> — one read of the result record into rs_raw; 0 when
+# that snapshot is a complete record (the terminator rule cmd_status explains).
+# Only a regular file is read: opening a fifo would block the caller.
+result_snapshot() {
+  rs_raw=''
+  [ -f "$1/result" ] || return 1
+  rs_raw=$(
+    head -c 4096 "$1/result" 2>/dev/null
+    printf x
+  )
+  rs_raw=${rs_raw%x}
+  case $rs_raw in
+    result"$TAB"*"$NL"* | exit"$TAB"*"$NL"*) return 0 ;;
+  esac
+  return 1
+}
+
+# worker_dead <dir> — 0 only on positive evidence that the worker is gone:
+# every pid it records (supervisor and worker) yields a dead verdict from
+# fleet-death-evidence.sh, or its supervisor recorded the run's end (what
+# `status` reports as completed, ended or limited): neither pidfile is left
+# and a complete result record is. The supervisor removes its pidfiles only
+# once its worker has exited, so that pair is a record, not silence. No
+# readable pidfile without one, a pidfile that records no pid, or any verdict
+# short of dead, is not death: silence is never evidence.
+worker_dead() {
+  if [ ! -e "$1/supervisor.pid" ] && [ ! -L "$1/supervisor.pid" ] \
+    && [ ! -e "$1/worker.pid" ] && [ ! -L "$1/worker.pid" ] \
+    && [ ! -L "$1/result" ] && result_snapshot "$1"; then
+    return 0
+  fi
+  wd_checked=0
+  for wd_f in supervisor.pid worker.pid; do
+    [ -e "$1/$wd_f" ] || [ -L "$1/$wd_f" ] || continue
+    wd_pid=$(cat "$1/$wd_f" 2>/dev/null) || wd_pid=''
+    valid_posnum "${wd_pid:-}" || return 1
+    wd_checked=$((wd_checked + 1))
+    /bin/sh "$FDE" process "$wd_pid" >/dev/null 2>&1 || return 1
+  done
+  [ "$wd_checked" -gt 0 ]
 }
 
 # status_awaiting <worker> <dir> <sup-pid> <wrk-pid> — print the awaiting-input
@@ -2927,15 +3603,9 @@ cmd_status() {
   # parses as subtype success, so stopping at the kind word calls a dead run
   # clean. Not the field count: a terminated two-field record is a shape
   # fleet-status.sh already renders completed.
-  st_raw=$(
-    head -c 4096 "$dir/result" 2>/dev/null
-    printf x
-  )
-  st_raw=${st_raw%x}
   st_seen=0
-  case $st_raw in
-    result"$TAB"*"$NL"* | exit"$TAB"*"$NL"*) st_seen=1 ;;
-  esac
+  ! result_snapshot "$dir" || st_seen=1
+  st_raw=$rs_raw
   st_line=${st_raw%%"$NL"*}
   if [ "$st_seen" = 1 ]; then
     # A persistent worker writes `result` at the end of every turn and stays
@@ -2979,19 +3649,7 @@ cmd_status() {
     printf 'status %s running supervisor=%s worker=%s\n' "$worker" "$sup_pid" "$wrk_pid"
     return 0
   fi
-  # Death is POSITIVE evidence only (the fleet discipline): every recorded
-  # handle must yield a dead verdict from fleet-death-evidence.sh; anything
-  # less is unknown, never dead-by-silence.
-  dead=0
-  checked=0
-  for pid in "$sup_pid" "$wrk_pid"; do
-    valid_posnum "${pid:-}" || continue
-    checked=$((checked + 1))
-    if /bin/sh "$FDE" process "$pid" >/dev/null 2>&1; then
-      dead=$((dead + 1))
-    fi
-  done
-  if [ "$checked" -gt 0 ] && [ "$dead" -eq "$checked" ]; then
+  if worker_dead "$dir"; then
     printf 'status %s dead supervisor+worker\n' "$worker"
   else
     printf 'status %s unknown insufficient-evidence\n' "$worker"
@@ -3197,6 +3855,9 @@ pending_show() {
   ps_extra=${ps_out%%"$NL"*}
   ps_out=${ps_out#*"$NL"}
   printf '== %s %s %s\n' "$1" "$3" "${ps_tool:-unknown}"
+  if [ "${4:-0}" = 1 ]; then
+    printf -- '-- worker dead: its processes are gone, so nobody can answer this request; alarm-scan settles it\n'
+  fi
   if [ "$ps_flag" = bad ] || [ -z "$ps_flag" ]; then
     echo '-- request envelope unreadable'
     return 0
@@ -3245,9 +3906,11 @@ pending_worker() {
     return 2
   }
   [ -n "$pw_ids" ] || return 0
+  pw_dead=0
+  ! worker_dead "$2" || pw_dead=1
   printf '%s\n' "$pw_ids" | while IFS= read -r pw_id; do
     valid_reqid "$pw_id" || continue
-    pending_show "$1" "$2" "$pw_id"
+    pending_show "$1" "$2" "$pw_id" "$pw_dead"
   done
 }
 
@@ -3300,6 +3963,7 @@ case $cmd in
   answer) cmd_answer "$@" ;;
   steer) cmd_steer "$@" ;;
   recover) cmd_recover "$@" ;;
+  relaunch) cmd_relaunch "$@" ;;
   alarm-scan) cmd_alarm_scan "$@" ;;
   _tick) cmd__tick "$@" ;;
   stop) cmd_stop "$@" ;;

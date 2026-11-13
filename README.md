@@ -4,49 +4,50 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://claude.com/plugins)
 
-planwright is an opinionated Claude Code framework for getting real work done
-by an agent without giving up the controls that matter. You start with one
-command, **`/tower`**, and say what you want in your own words. The tower
-answers questions itself, and for work that changes your repository it picks
-how much ceremony the work deserves, tells you why in one line, and hands the
-work to an isolated agent that builds it, reviews it, and lands it for your
-review as a **draft pull request**. Merging stays yours.
+**Come back to a few draft pull requests that were already tested and
+reviewed. You still merge.**
 
-Think autopilot, not a replacement crew. Small, reversible changes fly
-straight to review with an audit record of what was done and how it was
-checked. Risky or unclear work gets a written spec first, which you walk and
-sign off before any code is written. Under the hood it is a guardrailed
-**agent harness**: the model brings the intelligence; planwright brings the
-verification loops, bounded iteration, no-progress detection, and hard human
-checkpoints that make autonomous coding shippable.
+planwright is a Claude Code plugin. Type **`/tower`** in your repository and
+say what you want in your own words. Questions get an answer in the
+conversation. A change goes to an isolated agent that builds it, tests it,
+reviews its own work until the review stops finding problems it can fix, and
+opens a **draft pull request** (once you let it push to your GitHub account;
+until then the work stays on your machine). Work built from a spec is marked
+ready for you only once CI is green on it, and by default nothing merges until
+you do.
 
-> **Status: v1, self-hosting.** The founding spec (`specs/bootstrap/`) that
-> defines planwright v1 is complete, and planwright now develops itself through
-> the same pipeline it ships. It is young software — expect rough edges, and
-> please [report what you find](https://github.com/inkatze/planwright/issues/new/choose).
+> **Status: young and solo-maintained.** One person maintains planwright, it
+> runs on Claude Code only, and it builds itself with its own commands. Expect
+> rough edges, and please
+> [report what you find](https://github.com/inkatze/planwright/issues/new/choose).
 
 **New here?** The [getting-started guide](docs/getting-started.md) takes you
 from a clean machine to your first draft PR.
 
 ## Why planwright
 
-- **One front door.** Type `/tower` and ask. You do not need to learn the
-  framework's machinery to use it; the tower routes each request and states
-  its grounds.
-- **Rigor that fits the work.** A typo fix does not pay for a spec; a change
-  to authentication does not skip one. The choice is made per request, by
-  stake and reversibility, and you can override it in one sentence.
-- **You keep the controls.** Every pull request opens as a draft, and no agent
-  merges outside a policy you configured; a change that cannot reach your host
-  yet stays local. Work that runs from a spec runs only after you sign it off.
-  The full list is in [Human Gates](doctrine/human-gates.md).
-- **Guardrailed autonomy.** Review and execution run in bounded loops —
-  iteration caps, convergence criteria, no-progress detection — with hard pauses
-  at security-sensitive or irreversible steps.
-- **Adapts to your project.** Supply your own linters, test commands, and review
+- **Rules the agent cannot argue with.** Claude Code's auto mode asks a model
+  to judge each action. Every agent session planwright starts runs under hooks,
+  plain scripts that run before that judgment, which refuse a push to `main` or
+  any other protected branch, a pull-request merge, and a rewrite of history
+  someone already pushed. The few exceptions are yours to grant, and
+  [Human Gates](doctrine/human-gates.md) lists them all.
+- **Right-sized for each request.** A small, reversible fix becomes one draft
+  pull request with a record of what was asked, what was done, and how it was
+  checked. A risky feature, or one without a clear finish line, gets a written
+  spec first, which you read and sign before any code is written; size alone
+  never decides it. planwright tells you which it chose and why
+  in one line, and one sentence from you overrides it.
+- **Review that stops.** Its review loops have iteration caps and stop when no
+  progress is made, and they hand you the questions that need your judgment
+  rather than deciding them on their own.
+- **Your project's own checks.** Supply your linters, test commands, and review
   rigor through layered overlays, without editing planwright's core.
-- **Claude Code only.** Built entirely on Claude Code primitives (skills, hooks,
-  subagents, file-based state) — there is no second agent framework to install.
+- **Built on Claude Code itself.** Skills, hooks, subagents, and plain files;
+  there is no second agent framework to install.
+- **More repositories when you want them.** An optional standing session can
+  keep work moving across several of your repositories and bring you only the
+  decisions; see [the guide](docs/mission-control.md).
 
 ## Requirements
 
@@ -154,7 +155,8 @@ rest are there when you want to drive a stage yourself.
 | Stage | Command | What it does |
 | --- | --- | --- |
 | **Start** | `/tower` | The front door: ask in plain language; it answers, routes changes, and reports status. |
-| **Orient** | `/inception` | Turn a product-level idea with no repo yet into a venture repo and its inception bundle. |
+| | `/mission-control` | One standing conversation for a program spanning repositories: it runs every session for you and brings you only what needs your judgment ([guide](docs/mission-control.md)). |
+| **Orient** | `/inception` | Turn a product-level idea with no repo yet into a venture repo and its inception bundle ([guide](docs/inception.md)). |
 | **Author** | `/spec-draft` | Interactively elicit a four-file spec bundle (Status Draft). |
 | | `/spec-kickoff` | Walk a spec to sign-off and flip it Ready. *(your sign-off)* |
 | | `/spec-walkthrough` | Render a spec into a plain-language artifact for an unaided cold read. |
@@ -225,15 +227,23 @@ controls hold at fleet scale. See [Fleet operation](docs/fleet.md).
 - [Customizing with overlays](docs/overlays.md) — the four-layer model and
   per-kind merge rules.
 - [Conventions](docs/conventions.md) — branch, worktree, and repo conventions.
+- [Orienting an idea with `/inception`](docs/inception.md) — the venture
+  lifecycle, the non-engineer and expert modes, the stakeholder surfaces, the
+  persona layer and its boundaries, and the settings it adds.
 - [Spec location](docs/spec-location.md) — where bundles live: the
   `spec_root` option and its marker, the three postures and how authoring
-  works in each, holder layout and guards, and named observation targets.
+  works in each, holder layout and guards, running from a holder (the
+  work-repository registry and per-task repositories), and named
+  observation targets.
 - [Orchestration state](docs/orchestration-state.md) — how progress is derived
   from git/GitHub evidence rather than kept in a mutable ledger.
 - [Fleet operation](docs/fleet.md) — the approachable path: the one entry
   command, the decision queue, the persona-to-seams mapping, and the
   execution-backend seam (autodetect, the degradation ladder, plugging in
   your own backend) — no multiplexer knowledge required.
+- [Mission control](docs/mission-control.md) — running a whole program from
+  one conversation: the first run, where the program's state lives, duties,
+  proposals, preferences, resuming and handover.
 - [Per-tower checkouts](docs/per-tower-checkouts.md) — running several towers
   on one repository without them racing over a shared local `main`.
 - [Model allocation](docs/allocation.md) — which model and effort a unit runs

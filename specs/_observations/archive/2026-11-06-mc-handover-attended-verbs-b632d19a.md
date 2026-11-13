@@ -1,0 +1,2 @@
+- 2026-11-06 [planwright] mission-control: scripts/mc-handover.sh still ships the path and offer verbs, whose operator-act arm raises a handover-act item for an attended holder, which REQ-L1.8 forbids; since the mc-panel-usability flight no skill, doctrine or mod code calls them. Retire them (and their tests in tests/test-mc-handover.sh) or make offer refuse an attended holder.
+Consumed-by: specs/mission-control (2026-11-07)

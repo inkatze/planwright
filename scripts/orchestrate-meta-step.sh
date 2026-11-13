@@ -1,9 +1,12 @@
 #!/bin/sh
-# orchestrate-meta-step.sh — the meta-tower's single-spec step, run in the
-# meta-tower's own session.
+# orchestrate-meta-step.sh — the single-spec step for the script-launched
+# rungs (stream-json-persistent, headless-oneshot), run in the calling
+# tower's own session.
 #
-# After orchestrate-meta-select.sh picks `<spec-dir> <id>`, the meta-tower
-# calls this script. It carries the step's mechanical part, in the single-spec
+# Two callers: the meta-tower, after orchestrate-meta-select.sh picks
+# `<spec-dir> <id>`, and a single-spec /orchestrate whose unit resolves to
+# one of those rungs (which then runs none of its own record steps).
+# Either way it carries the step's mechanical part, in the single-spec
 # tower's order (skills/orchestrate/SKILL.md, *The dispatch record*):
 #
 #   1. take the per-spec lock (scripts/orchestrate-lock.sh); another holder is
@@ -14,8 +17,8 @@
 #      as committed at the ref the fetch resolved, compared against the
 #      fetch's recomputed anchor;
 #   3. write the dispatch record: scripts/fleet-dispatch-worktree.sh creates
-#      the task branch (the first durable act) and its worktree, then stamps
-#      the runtime marker;
+#      the task branch (the first durable act) and its worktree in the task's
+#      work repository, then stamps the runtime marker in the bundle's home;
 #   4. release the lock;
 #   5. launch the one worker through the rung's own primitive.
 #
@@ -36,10 +39,14 @@
 # Usage:
 #   orchestrate-meta-step.sh dispatch <spec-dir> <id> --backend <rung>
 #       --prompt-file <file> [--repo-root <dir>] [-- <extra launch args>...]
-#     <spec-dir>   the spec bundle as orchestrate-meta-select.sh printed it,
-#                  the primary checkout's own bundle under the spec root that
-#                  checkout resolves (a root outside it is refused).
-#     <id>         one task id; the meta step dispatches single units.
+#     <spec-dir>   the spec bundle the caller resolved (the meta-tower: as
+#                  orchestrate-meta-select.sh printed it), which must be
+#                  the bundle the task's work repository resolves, whose root
+#                  may lie in that repository, in a holder, or in no
+#                  repository.
+#     <id>         one task id; the meta step dispatches single units, each
+#                  into its work repository (resolve-work-repo.sh --task, run
+#                  from the primary checkout), which may not be this one.
 #     --backend    stream-json-persistent | headless-oneshot. Other rungs are
 #                  refused (exit 2): the harness-native ones belong to the
 #                  session itself, print hands the launch to a human, and the
@@ -47,12 +54,12 @@
 #                  brief (fleet-task-brief.sh).
 #     --prompt-file  the worker's prompt; its first non-blank line invokes
 #                  /execute-task (or /planwright:execute-task).
-#     --repo-root  the primary checkout (default: resolve-root.sh repo
-#                  --primary); <spec-dir> must be its own bundle.
+#     --repo-root  the primary checkout the step runs from (default:
+#                  resolve-root.sh repo --primary).
 #     Everything after `--` reaches the rung's launch (the resolved tier).
 #
 # Report: `meta-step<TAB><key><TAB><value>` lines (lock, record, gate, anchor,
-# ref, branch, worktree, backend, handle), or on a halt `halt<TAB><stage><TAB>
+# ref, work, branch, worktree, backend, handle), or on a halt `halt<TAB><stage><TAB>
 # <reason>`, plus `remedy<TAB><text>` on a park.
 #
 # Exit codes:
@@ -61,8 +68,10 @@
 #      is already in flight
 #   2  usage, a refused input or rung, or a lock or fetch refusal; nothing
 #      created
-#   4  the freshness gate parked the unit (route to `## Awaiting input`);
-#      nothing created, lock released
+#   4  the unit parked (route to `## Awaiting input`): its task has no work
+#      repository to dispatch into, the freshness gate stopped it, or its
+#      Repository: field differs from the gated ref's; nothing
+#      created, and a lock the gate held released
 #   5  the dispatch record could not be written; lock released, and a marker
 #      the primitive stamped is cleared
 #   6  the worker launch failed after the record. The marker is cleared so the
@@ -190,39 +199,88 @@ if [ -z "$repo_root" ]; then
 fi
 [ -d "$repo_root" ] || die "repo root is not a directory"
 
-# The lock lives in the spec directory, while the gate and the record address
-# the primary checkout's bundle. They must be one directory, or a
-# single-spec tower locking the primary's copy would not exclude this step.
-# The brief is read from the bundle's path inside the repository, derived as
-# dispatch-fetch.sh derives it, so a spec root this repository does not hold
-# (outside it, or a separate repository nested in it) is refused here, before
-# the lock.
+# The task's work repository receives the worktree, the branch, and the
+# worker; a holder session resolves it through the registry, and a refusal
+# here, before the lock, creates nothing anywhere.
 repo_phys=$(cd "$repo_root" && pwd -P) || die "the repo root cannot be entered"
 primary_phys=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
   || die "the primary checkout did not resolve from --repo-root"
 primary_phys=$(cd "$primary_phys" && pwd -P) || die "the primary checkout cannot be entered"
 [ "$repo_phys" = "$primary_phys" ] \
   || die "the repo root (--repo-root, else PLANWRIGHT_REPO_ROOT) is not the primary checkout; pass the primary checkout"
-spec_line=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary --explain 2>/dev/null) \
-  || die "the primary checkout's spec root did not resolve"
+spec_phys=$(cd "$spec_dir" && pwd -P) || die "the spec directory cannot be entered"
+wr_err=$(mktemp "${TMPDIR:-/tmp}/orchestrate-meta-step.XXXXXX") || exit 2
+wr_rc=0
+work_root=$(cd "$repo_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_phys" --task "$task_id" 2>"$wr_err") || wr_rc=$?
+relay "$wr_err"
+rm -f "$wr_err"
+
+# task_repository_field <tasks.md> — the task's Repository: field as
+# resolve-work-repo.sh --task reads it (class TAB value, empty for none);
+# exit 1 when the fields cannot be read.
+task_repository_field() {
+  trf_fv=$(spec_parse_header_value "$1" Format-version 2>/dev/null) || trf_fv=""
+  case $trf_fv in
+    1 | 2) return 0 ;;
+  esac
+  trf_map=$(spec_parse_repository_map "$1") || return 1
+  spec_parse_repository_field "$trf_map" "$task_id"
+}
+routed_field=""
+routed_ok=1
+[ "$wr_rc" -ne 0 ] || routed_field=$(task_repository_field "$spec_phys/tasks.md") || routed_ok=0
+# Exit 5 is a task whose repository resolves to nothing, an operator's fix;
+# anything else (no repository owns the spec dir, unreadable Repository:
+# fields) is a refused input, the resolver's line above saying which.
+case $wr_rc in
+  0) ;;
+  5)
+    printf 'halt\twork-repo\ttask %s has no work repository to dispatch into; nothing was created\n' "$task_id"
+    printf 'remedy\t%s\n' "register the task's work repository (work-repo-registry.sh register in its checkout), or name one in the task's Repository: field"
+    exit 4
+    ;;
+  *) die "task $task_id's work repository could not be resolved (resolve-work-repo exit $wr_rc); nothing was created" ;;
+esac
+work_root=$(cd "$work_root" 2>/dev/null && pwd -P) || die "the work repository cannot be entered"
+
+# The lock lives in the spec directory, and the gate and the record address
+# the bundle the work repository resolves: they must be one directory, or a
+# tower locking another copy would not exclude this step. The gate reads the
+# brief from the bundle's primary view, derived as dispatch-fetch.sh derives
+# it: a ref of the work repository, a ref of the holder, or the files.
+spec_line=$(cd "$work_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec --primary --explain 2>/dev/null) \
+  || die "the work repository's spec root did not resolve"
 # <source> TAB <path> TAB <posture> TAB <view>, the fields dispatch-fetch.sh
 # splits the same way.
 spec_rest=${spec_line#*"$TAB"}
 spec_root=${spec_rest%%"$TAB"*}
 spec_rest=${spec_rest#*"$TAB"}
 spec_posture=${spec_rest%%"$TAB"*}
-case $spec_posture:$spec_root in
-  "same-repo:$repo_phys") spec_rel=$spec_name ;;
-  "same-repo:$repo_phys"/*) spec_rel=${spec_root#"$repo_phys"/}/$spec_name ;;
-  *) die "the spec root lies outside the primary checkout's repository, so no ref of it holds the bundle" ;;
-esac
-spec_phys=$(cd "$spec_dir" && pwd -P) || die "the spec directory cannot be entered"
 primary_spec=$(cd "$spec_root" 2>/dev/null && cd "$spec_name" 2>/dev/null && pwd -P) \
-  || die "the primary checkout holds no bundle named $spec_name"
+  || die "the work repository's spec root holds no bundle named $spec_name"
 [ "$spec_phys" = "$primary_spec" ] \
-  || die "the spec directory is not the primary checkout's bundle; run from the primary checkout"
+  || die "the spec directory is not the bundle the work repository resolves; pass that bundle"
+store_top=""
+case $spec_posture in
+  same-repo) store_top=$work_root ;;
+  separate-repo)
+    store_top=$(cd -P -- "$spec_root" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || store_top=""
+    [ -z "$store_top" ] || store_top=$(cd -P -- "$store_top" 2>/dev/null && pwd -P) || store_top=""
+    ;;
+  plain) ;;
+  *) die "the work repository's spec root has no known posture" ;;
+esac
+# An empty top level would match any absolute root below.
+[ "$spec_posture" = plain ] || [ -n "$store_top" ] || die "the spec root's repository did not resolve"
+spec_rel=""
+case $spec_posture:$spec_root in
+  plain:*) ;;
+  *:"$store_top") spec_rel=$spec_name ;;
+  *:"$store_top"/*) spec_rel=${spec_root#"$store_top"/}/$spec_name ;;
+  *) die "the spec root is not inside the repository that should hold it, so no ref holds the bundle" ;;
+esac
 
-wtmp=$(mktemp -d) || exit 2
+wtmp=$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-meta-step.XXXXXX") || exit 2
 lock_held=0
 record_written=0
 launch_started=0
@@ -304,7 +362,7 @@ say lock held
 # --- 2. the execution freshness gate ------------------------------------
 
 fetch_rc=0
-"$script_dir/dispatch-fetch.sh" --spec "$spec_name" "$repo_root" >"$wtmp/fetch.out" 2>"$wtmp/fetch.err" </dev/null || fetch_rc=$?
+"$script_dir/dispatch-fetch.sh" --spec "$spec_name" "$work_root" >"$wtmp/fetch.out" 2>"$wtmp/fetch.err" </dev/null || fetch_rc=$?
 [ "$fetch_rc" -eq 0 ] || relay "$wtmp/fetch.err"
 case $fetch_rc in
   0 | 3) ;;
@@ -317,17 +375,39 @@ fetched_anchor=$(awk -F"$TAB" '$1 == "anchor" { print $2; exit }' "$wtmp/fetch.o
 ref=$(awk -F"$TAB" '$1 == "anchor" { print $3; exit }' "$wtmp/fetch.out")
 printf '%s' "$fetched_anchor" | grep -Eq '^[0-9a-f]{40}$' \
   || park fetch "no anchor reported" "inspect dispatch-fetch.sh output"
+# <ref> is the work repository's, store:<ref> the holder's, files a plain
+# root's directory; the report keeps the label as the fetch gave it.
+ref_label=$ref
 case $ref in
+  files) view=files ;;
+  store:*)
+    view=store
+    ref=${ref#store:}
+    ;;
+  *) view=work ;;
+esac
+[ "$view" = files ] || case $ref in
   '' | -* | *[!A-Za-z0-9._/-]*) park fetch "no usable ref reported" "inspect dispatch-fetch.sh output" ;;
 esac
+[ "$view:$spec_posture" = files:plain ] || [ "$view:$spec_posture" = store:separate-repo ] \
+  || [ "$view:$spec_posture" = work:same-repo ] \
+  || park fetch "the reported view does not match the spec root's posture" "inspect dispatch-fetch.sh output"
 
-if ! git -C "$repo_root" cat-file -e "$ref:$spec_rel/kickoff-brief.md" 2>/dev/null; then
-  park gate no-brief "run /spec-kickoff; the bundle has no kickoff brief at $ref"
+if [ "$view" = files ]; then
+  [ -f "$spec_phys/kickoff-brief.md" ] || park gate no-brief "run /spec-kickoff; the bundle has no kickoff brief"
+  cp -- "$spec_phys/kickoff-brief.md" "$wtmp/brief" 2>"$wtmp/show.err" || {
+    relay "$wtmp/show.err"
+    park gate brief-unreadable "the kickoff brief could not be read; inspect the spec root"
+  }
+else
+  if ! git -C "$store_top" cat-file -e "$ref:$spec_rel/kickoff-brief.md" 2>/dev/null; then
+    park gate no-brief "run /spec-kickoff; the bundle has no kickoff brief at $ref"
+  fi
+  git -C "$store_top" show "$ref:$spec_rel/kickoff-brief.md" >"$wtmp/brief" 2>"$wtmp/show.err" || {
+    relay "$wtmp/show.err"
+    park gate brief-unreadable "the kickoff brief at $ref could not be read; inspect the repository"
+  }
 fi
-git -C "$repo_root" show "$ref:$spec_rel/kickoff-brief.md" >"$wtmp/brief" 2>"$wtmp/show.err" || {
-  relay "$wtmp/show.err"
-  park gate brief-unreadable "the kickoff brief at $ref could not be read; inspect the repository"
-}
 
 entry_rc=0
 entry=$(spec_parse_latest_anchor_entry "$wtmp/brief" --record 2>"$wtmp/entry.err") || entry_rc=$?
@@ -363,17 +443,33 @@ case $class in
   *) park gate non-sanctioned-writer "the entry carries no sanctioned Class: marking; repair the sign-off record" ;;
 esac
 if [ "$recorded" != "$fetched_anchor" ]; then
-  park gate mismatch "anchored content changed since sign-off (recorded $recorded, $ref has $fetched_anchor); run a /spec-kickoff delta re-walkthrough"
+  park gate mismatch "anchored content changed since sign-off (recorded $recorded, $ref_label has $fetched_anchor); run a /spec-kickoff delta re-walkthrough"
+fi
+# The routing read the task's Repository: field from the working tree, the
+# gate the committed bundle: an uncommitted edit must not steer a dispatch
+# the gate passed.
+if [ "$view" != files ]; then
+  gated_ok=1
+  git -C "$store_top" show "$ref:$spec_rel/tasks.md" >"$wtmp/tasks" 2>/dev/null || gated_ok=0
+  gated_field=""
+  [ "$gated_ok" -eq 0 ] || gated_field=$(task_repository_field "$wtmp/tasks") || gated_ok=0
+  if [ "$routed_ok" -eq 0 ] || [ "$gated_ok" -eq 0 ]; then
+    park gate repository-unreadable "task $task_id's Repository: field could not be read at $ref_label or in the working tree; inspect tasks.md"
+  fi
+  if [ "$routed_field" != "$gated_field" ]; then
+    park gate repository-uncommitted "task $task_id's Repository: field differs between the working tree, which routed the dispatch, and $ref_label, which the gate checked; commit or revert the Repository: edit"
+  fi
 fi
 say gate match
 say anchor "$fetched_anchor"
-say ref "$ref"
+say ref "$ref_label"
+say work "$work_root"
 
 # --- 3. the dispatch record ---------------------------------------------
 
 record_rc=0
 "$script_dir/fleet-dispatch-worktree.sh" dispatch "$spec_name" "$task_id" \
-  --repo-root "$repo_root" --no-attach \
+  --repo-root "$work_root" --no-attach \
   >"$wtmp/record.out" 2>"$wtmp/record.err" </dev/null || record_rc=$?
 relay "$wtmp/record.err"
 case $record_rc in
@@ -422,7 +518,7 @@ case $backend in
   headless-oneshot)
     launch_started=1
     "$script_dir/fleet-dispatch-headless.sh" launch "$spec_name" "$task_id" \
-      --worktree "$worktree" --repo-root "$repo_root" "$@" \
+      --worktree "$worktree" --repo-root "$work_root" "$@" \
       <"$prompt" >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
     [ "$launch_rc" -eq 0 ] || launch_failed "$launch_rc" "fleet-dispatch-headless exit $launch_rc"
     handle=$(field "$wtmp/launch.out" headless handle)

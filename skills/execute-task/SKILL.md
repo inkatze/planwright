@@ -113,15 +113,14 @@ protocol's dispatched arm); attended, present and wait.
      wrong-writer entry** → halt (repair the record per REQ-F1.10). A
      **pre-change entry** (predating the header-`**Status:**` exclusion, or
      whole-file form) mismatches over unedited content; remedy: the one-time
-     classify-then-self-re-anchor. Halts go to
-     Awaiting input.
+     classify-then-self-re-anchor.
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
-   goal restatement, the task graph, and the unit's risk entries. From
-   `tasks.md`: each
-   block's `Deliverables`, `Done when`, `Dependencies`, and `Citations`. Confirm
-   every dependency is completed — on a v1 bundle it sits in `## Completed`; on a
-   v2 bundle it derives Completed via the derivation engine
-   (`scripts/orchestrate-state.sh`); if one is not, halt naming it.
+   goal restatement, the task graph, and the unit's risk entries; from
+   `tasks.md`, each block's definition fields. Confirm every dependency is
+   completed: in `## Completed` (v1), or derived Completed by
+   `scripts/orchestrate-state.sh` (version 3: from the repository its block
+   names, by default the work repository); else halt naming it, a
+   `repository-unresolved` one by alias.
 9. **Derive the full-CI command** (D-19). Pick the most comprehensive guard the
    repo ships, checking in order: a `mise.toml` aggregate task (planwright's own
    is `mise run check`); a `package.json` `ci`/`test` script; a `Makefile`
@@ -164,23 +163,24 @@ protocol's dispatched arm); attended, present and wait.
 
 This skill is the runner at its five in-run points; `custom-steps` owns the
 contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
-A `--resume <run>:<point>` run starts there, after
-`scripts/step-run.sh resume`, skipping the steps it prints. **Run a point**
+`--resume <run>:<point>` runs start there, skipping what
+`scripts/step-run.sh resume --run <this-run> --from <run>:<point>` prints. **Run a point**
 in the worktree, the `PLANWRIGHT_STEP_*` context exported (a PR number
 whenever one exists):
 
-1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>`,
-   `--unattended` exactly when the backend seam's launch record says headless,
-   else `--attended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
+1. **Resolve** it whole first: `scripts/step-run.sh resolve --run <run> <point>
+   --attended` when `launch-backend` is interactive,
+   else `--unattended`. Exit 1: `ask`, or attended all-`refuse` rows, presents
    and waits for a repair and re-resolve; otherwise park. Exit 2, 4, or 5: a stop condition.
 2. **Host** each step in order by its printed hosting, per the doc's
    *Hosting* table, a skill or prompt step receiving the `--preamble` block:
-   `isolated` sessions launch through the backend seam (`offload-dispatch`)
-   at their `execute_step` tier, recording the session id (a backend that
-   cannot spawn degrades to `in-session`, recorded, a following `continue`
-   attaching to the unit's session); `continue` resumes the predecessor's id
+   `isolated` sessions launch at `execute_step` tier through the backend
+   seam (`offload-dispatch`; headless refuses `tmux`:
+   `scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`), recording
+   session id (a backend that cannot spawn degrades to `in-session`, recorded, a following
+   `continue` attaching to unit's session); `continue` resumes the predecessor's id
    (behind a skip, the one its line names) or records `failed`. Commands run
-   through `step-run.sh` (backgrounded, waited in-turn): `isolated` by
+   through `step-run.sh` (foreground, waited in-turn): `isolated` by
    `command`, session-hosted between `begin --owner $PPID`, whose printed
    `run` line the shell tool runs, and `end`. A refused context value
    (exit 6) is `failed`. Past its `timeout`, a session-owned step is stopped
@@ -301,15 +301,15 @@ judgment.
 ### Run the full project CI (REQ-E1.2)
 
 Run the `pre-ci` point, then pre-flight step 9's command, saved to a `mktemp`
-file, as `scripts/full-suite-run.sh --run <run> -- bash <file>` (each attempt
-backgrounded, waited in-turn); exit 75 parks naming the holders, unretried. The full suite must pass
-before convergence; capture its output.
+file; each attempt is `scripts/detached-run.sh start -- scripts/full-suite-run.sh
+--run <run> -- bash <file>`, polling `status <run-dir>` in-turn. A failed start,
+`died` or `never-started` fails it as `logic`; `finished 75` parks naming holders
+in its `log`, unretried. The suite must pass before convergence.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
 
 On a CI failure, classify it with `scripts/classify-ci-failure.sh` over the
-captured output (it prints `transient` or `logic`; unknown patterns default to
-`logic`):
+attempt's `log`:
 
 - **`transient`** (network/DNS errors, registry failures, rate limits,
   timeouts): retry up to twice, waiting 30s before the first retry and 90s
@@ -323,10 +323,11 @@ captured output (it prints `transient` or `logic`; unknown patterns default to
 ## Convergence (REQ-E1.4, D-39; custom-steps REQ-E1.1)
 
 After CI passes, resolve the `convergence` point (*Points* step 1), then **sync
-`main`** once (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4), an empty list
+`main`** once (REQ-B1.1, REQ-B1.4, D-4), an empty list
 included: run `scripts/converge-sync-main.sh`; a non-zero exit halts the
 unit, parking a `park` record's text; a `resolve` or `repair` record's text
-overrides. The sync changes the head a later ready-flip lands on, never who flips.
+overrides. `--need <reason>` records a stale test or needed `main` change. The sync
+changes the head a later ready-flip lands on, never who flips.
 
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
 unit's convergence phase, core's default being `polish` with `--nested`. A
@@ -392,14 +393,14 @@ classify the edit on the amendment axis:
    `gate-wiring` doctrine (D-2). This skill supplies the summary inputs: the
    kickoff brief path relative to its repository or plain root, the task IDs,
    the REQs satisfied (from the task `Citations:`), the test additions and what
-   they verify, and implementation notes (key decisions). The audit record is the convergence
+   they verify, and key decisions. The audit record is the convergence
    steps' folded output plus every in-run point's table (`step-record.sh
    render --run <id>`, `none` rows included). The approval act, never the
    ready flip, signs off pending-sign-off items; reject one before it by its
    printed recipe.
 
-   Then run the
-   `post-pr` point, the PR number now in its context; after its list and the
+   Then run the `post-pr` point (PR number in context) without waiting on
+   checks (custom-steps); after its list and the
    re-fire pass (`step-run.sh refire`'s lines, hosted with `--refire-of`,
    before post-pr's completion), re-emit the tables, and if a post-pr record moved the
    head fetch and regenerate the
@@ -432,7 +433,7 @@ Apply artifact data-hygiene to everything surfaced.
 ## Stop conditions (mandatory human handoff)
 
 Halt and hand back when any of these fires, recording the unit to `tasks.md`
-Awaiting input with the reason (the pre-flight halt protocol above); each is
+Awaiting input with the reason; each is
 described at its point of use: every pre-flight halt;
 a test that cannot fail for the right reason; a CI logic failure, or transient
 retries exhausted; research revealing a risk the brief did not anticipate;

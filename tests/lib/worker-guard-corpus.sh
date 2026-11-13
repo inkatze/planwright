@@ -81,12 +81,12 @@ corpus_git() { corpus_git_env -C "$CORPUS_WORKTREE" "$@"; }
 
 corpus_sandbox() {
   local box main wt scratch outside col
-  mkdir -p "$1" || return 1
+  mkdir -p -- "$1" || return 1
   [ -z "$(ls -A "$1")" ] || {
     printf 'corpus: sandbox box is not empty: %s\n' "$1" >&2
     return 1
   }
-  box=$(cd -P "$1" && pwd -P) || return 1
+  box=$(cd -P -- "$1" && pwd -P) || return 1
   main=$box/main
   wt=$box/worktree
   scratch=$box/scratch
@@ -309,11 +309,12 @@ corpus_decide_payload() {
     # exported there, and resolves overlays and fleet state through it), so
     # the caller's exports are dropped and only what the row needs is set.
     # HOME is pinned so the guard never reads the host's installed plugins,
-    # and TMPDIR is not the scratch root, so a row resolving `$TMPDIR` proves
-    # the guard took the root from the record.
+    # and TMPDIR is the scratch root, as the launcher exports it: the guard
+    # takes the root from the record and keeps the scratch arm off when the
+    # two disagree (tests/test-worker-command-guard-scratch.sh).
     corpus_unexport PATH LC_ALL
     printf '%s' "$payload" \
-      | HOME="$CORPUS_BOX/home" TMPDIR="$CORPUS_BOX/hook-tmp" \
+      | HOME="$CORPUS_BOX/home" TMPDIR="$CORPUS_SCRATCH" \
         CLAUDE_PLUGIN_ROOT="$CORPUS_PLUGIN_ROOT" PLANWRIGHT_ROOT="$CORPUS_PLUGIN_ROOT" \
         PLANWRIGHT_WORKER_SESSION_RECORD="$CORPUS_BOX/state/record.$col" \
         "$runner" 2>/dev/null

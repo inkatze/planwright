@@ -73,7 +73,7 @@ records=$(awk '
     return line
   }
   function flush() {
-    if (have) printf "%s|%s|%s|%s|%s|%s\n", id, cat, tool, detect, core, section
+    if (have) printf "%s|%s|%s|%s|%s|%s|%s\n", id, cat, tool, detect, core, section, disp
     have = 0
   }
   /^guards:[ \t]*$/   { flush(); section = "guards";  next }
@@ -81,11 +81,12 @@ records=$(awk '
   /^[A-Za-z]/         { flush(); section = "" }
   section == ""       { next }
   /^[ \t]*#/          { next }
-  /^  -[ \t]+id:/     { flush(); id = val($0); cat = tool = detect = core = ""; have = 1; next }
+  /^  -[ \t]+id:/     { flush(); id = val($0); cat = tool = detect = core = disp = ""; have = 1; next }
   have && /^    category:/ { cat = val($0); next }
   have && /^    tool:/     { tool = val($0); next }
   have && /^    detect:/   { detect = val($0); next }
   have && /^    core:/     { core = val($0); next }
+  have && /^    disposition:/ { disp = val($0); next }
   END { flush() }
 ' "$CATALOG")
 [ -n "$records" ] || {
@@ -103,7 +104,7 @@ for section in guards breadth; do
 done
 
 n=0
-while IFS='|' read -r id cat tool detect core section; do
+while IFS='|' read -r id cat tool detect core section disp; do
   [ -n "$id" ] || {
     fail "a $section: entry with an empty id"
     continue
@@ -126,6 +127,12 @@ while IFS='|' read -r id cat tool detect core section; do
       esac
       [ "$detect" = manual ] || fail "$id: a breadth: entry must be detect: manual (never auto-fires), got '$detect'"
       ;;
+  esac
+  # The optional disposition is a finding-categorization slug, the field
+  # list in the catalog's own header comment.
+  case "$disp" in
+    '' | auto-applicable | agent-resolvable | needs-sign-off) : ;;
+    *) fail "$id: disposition '$disp' is not auto-applicable, agent-resolvable or needs-sign-off" ;;
   esac
   if [ -z "$cat" ] || [ "$cat" = breadth ] || in_enum "$cat"; then
     :
@@ -160,6 +167,9 @@ want_entry() {
 want_entry pinned-action-freshness security breadth false
 want_entry test-time-budget budget breadth false
 want_entry cdpath-house-pattern house-pattern breadth false
+want_entry script-invocation-house-pattern house-pattern breadth false
+want_entry count-versus-list linter breadth false
+want_entry test-vacuity linter breadth false
 for c in budget house-pattern; do
   if in_enum "$c"; then
     pass "doctrine enum names the amended category: $c"
@@ -195,7 +205,8 @@ if [ -z "${GUARD_CATALOG_SCHEMA_YAML:-}${GUARD_CATALOG_SCHEMA_DOC:-}" ]; then
       printf 'guards:\n  - id: format-shell\n'
       [ -n "$2" ] && printf '    category: %s\n' "$2"
       printf '    tool: shfmt\n    detect: "*.sh"\n    core: true\n\nbreadth:\n'
-      printf '%s\n' "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern" \
+      printf '%s\n' "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern" "script-invocation-house-pattern house-pattern" \
+        "count-versus-list linter" "test-vacuity linter" \
         | while read -r bid bcat; do
           printf '  - id: %s\n    category: %s\n    tool: advisory\n    detect: manual\n    core: false\n' "$bid" "$bcat"
         done
@@ -252,6 +263,9 @@ if [ -z "${GUARD_CATALOG_SCHEMA_YAML:-}${GUARD_CATALOG_SCHEMA_DOC:-}" ]; then
 
   sed 's/^    core: false$/    core: true/' "$tmp/good.yaml" >"$tmp/breadth-core.yaml"
   expect_fail "breadth entry promoted to core" "cannot be core: true" "$tmp/breadth-core.yaml" "$DOCTRINE"
+
+  awk '{ print } /^    core: true$/ { print "    disposition: Needs sign-off" }' "$tmp/good.yaml" >"$tmp/bad-disposition.yaml"
+  expect_fail "a disposition outside the slugs" "disposition 'Needs sign-off' is not" "$tmp/bad-disposition.yaml" "$DOCTRINE"
 
   sed 's/^    category: budget$/    category: security/' "$tmp/good.yaml" >"$tmp/recategorized.yaml"
   expect_fail "categorized breadth entry under the wrong category" "test-time-budget: category is 'security', expected 'budget'" "$tmp/recategorized.yaml" "$DOCTRINE"

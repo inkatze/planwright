@@ -27,7 +27,7 @@ fail() {
 # --- skill invariant sections cite the doctrine source (REQ-H1.1, REQ-A1.3) ---
 # The skills that carry an invariant section are pinned, so renaming a heading
 # cannot drop a skill from the check; a new section must be added here.
-expected="execute-task inception orchestrate polish resume spec-walkthrough tower"
+expected="execute-task inception mission-control orchestrate polish resume spec-walkthrough tower"
 found=""
 for f in "$REPO_ROOT"/skills/*/SKILL.md; do
   sec=$(awk '/^## .*[Ii]nvariants/ { on = 1; print; next } on && /^## / { exit } on' "$f")
@@ -203,9 +203,9 @@ fleet-lifecycle-closure REQ-J1.1 REQ-D1.6
 fleet-lifecycle-closure REQ-J1.2 REQ-F1.1,REQ-F1.2
 operator-dialogue REQ-F1.4 REQ-D1.6
 tower-comms REQ-H1.1 REQ-F1.2
-tower-placement REQ-G1.1 REQ-C1.5
+tower-placement REQ-G1.1 REQ-C1.9
 tower-placement REQ-G1.3 REQ-F1.1,REQ-F1.2
-merge-currency-guard REQ-B1.4 REQ-C1.1,REQ-C1.5
+merge-currency-guard REQ-B1.4 REQ-C1.1,REQ-C1.9
 merge-currency-guard D-9 D-4
 test-throughput D-5 D-4,D-6
 test-throughput D-15 D-4

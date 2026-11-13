@@ -26,6 +26,15 @@
 # mechanism this task must not perturb, and a self-contained security script is
 # auditable without a cross-file dependency that could break at runtime.
 #
+# Usage: tower-command-guard.sh [tower | mission-control]. The tower profile
+# wires it with no argument (tower mode). config/mission-control-settings.json
+# wires `mission-control`, which narrows the planwright scripts it approves to
+# the script verbs config/mission-control-verbs.txt lists (script_in_mode
+# below), also run detached under setsid (guard_setsid), and approves no
+# `mise run` and no `claude --worktree` hand-launch (mission control launches
+# through its launcher), so every other script, verb, task and launch reaches
+# the prompt. An unknown mode approves nothing.
+#
 # Security contract (identical to the worker guard's — the whole point):
 #   * No LLM in the decision path (REQ-E1.3); purely deterministic shell. The
 #     analyzed command is inert DATA — never eval-ed, re-expanded, or executed.
@@ -593,6 +602,47 @@ is_force_push_file() {
 # the tower's own, tighter policy. `tests/` is deliberately NOT
 # a trusted script directory for the tower (that is a worker-only shape), so the
 # tower set stays distinct from and tighter than the worker set (REQ-C1.2).
+# Under the mission-control profile (`tower-command-guard.sh mission-control`)
+# only the script verbs config/mission-control-verbs.txt lists are approved,
+# read from this guard's own root and never from an overlay; every other
+# script or verb defers to the permission prompt, and so does everything
+# when the list cannot be read. Only the plugin root's scripts count there.
+# Every caller of is_planwright_script sets SCRIPT_NEXT to the word after the
+# script path and SCRIPT_HAS_NEXT to 1 when there is one, else 0 and empty.
+MC_VERBS_DONE=0
+MC_VERBS=''
+cache_mc_verbs() {
+  [ "$MC_VERBS_DONE" = 1 ] && return 0
+  MC_VERBS_DONE=1
+  local f s v rest
+  [ -n "$HOOK_SCRIPTS" ] || return 0
+  f=$HOOK_SCRIPTS/../config/mission-control-verbs.txt
+  [ -f "$f" ] && [ -r "$f" ] || return 0
+  while read -r s v rest; do
+    case $s in '' | '#'*) continue ;; esac
+    [ -n "$v" ] && [ -z "$rest" ] || continue
+    MC_VERBS="$MC_VERBS $s:$v "
+  done <"$f"
+}
+SCRIPT_NEXT=''
+SCRIPT_HAS_NEXT=0
+script_in_mode() { # <path relative to its root>
+  [ "$GUARD_MODE" = mission-control ] || return 0
+  case $1 in scripts/*/*) return 1 ;; esac
+  local s=${1#scripts/}
+  # The raw prompt-answer verb prompts whatever the list says.
+  [ "$s $SCRIPT_HAS_NEXT $SCRIPT_NEXT" != "fleet-streamjson.sh 1 answer" ] || return 1
+  cache_mc_verbs
+  case $MC_VERBS in *" $s:* "*) return 0 ;; esac
+  if [ "$SCRIPT_HAS_NEXT" = 1 ]; then
+    case $SCRIPT_NEXT in '' | [!a-z0-9]* | *[!a-z0-9-]*) return 1 ;; esac
+    case $MC_VERBS in *" $s:$SCRIPT_NEXT "*) return 0 ;; esac
+  else
+    case $MC_VERBS in *" $s:- "*) return 0 ;; esac
+  fi
+  return 1
+}
+
 is_planwright_script() {
   local p=$1 cwd=$2 root proot full rel
   # The force-push path runs on the operator's request in the same turn, so
@@ -622,12 +672,13 @@ is_planwright_script() {
     *.sh) ;;
     *) return 1 ;;
   esac
-  # (a) under the repo checkout's scripts/ dir.
-  if [ -n "$root" ]; then
+  # (a) under the repo checkout's scripts/ dir; never in mission-control
+  # mode, whose session sits in repositories that are not planwright.
+  if [ -n "$root" ] && [ "$GUARD_MODE" != mission-control ]; then
     if full=$(canon_under "$p" "$cwd" "$root"); then
       rel=${full#"$root"/}
       case $rel in
-        scripts/*) return 0 ;;
+        scripts/*) script_in_mode "$rel" && return 0 ;;
       esac
     fi
   fi
@@ -636,7 +687,7 @@ is_planwright_script() {
     if full=$(canon_under "$p" "$cwd" "$proot"); then
       rel=${full#"$proot"/}
       case $rel in
-        scripts/*) return 0 ;;
+        scripts/*) script_in_mode "$rel" && return 0 ;;
       esac
     fi
   fi
@@ -1253,6 +1304,9 @@ guard_tmux() {
 # hold. A hand-launch carrying a resolved tier passes it (model-allocation
 # D-10), so leaving it off would make every such launch prompt.
 guard_claude() {
+  # Mission control launches through its launcher, which reads the posture
+  # check first; a hand launch would skip it.
+  [ "$GUARD_MODE" != mission-control ] || return 1
   local i a saw_worktree=0 expect_value=0
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
@@ -1295,7 +1349,30 @@ guard_bashsh() {
   case ${cw[1]} in
     -*) return 1 ;;
   esac
+  SCRIPT_HAS_NEXT=0 SCRIPT_NEXT=''
+  [ "$cwn" -lt 3 ] || SCRIPT_HAS_NEXT=1 SCRIPT_NEXT=${cw[2]}
   is_planwright_script "${cw[1]}" "$HOOK_CWD"
+}
+
+# guard_setsid: mission-control mode only, the detached form the skill starts
+# its runner with: `setsid <script> [args]` or `setsid bash|sh <script>
+# [args]`, judged exactly as that script run is. Any option, and every other
+# command under setsid, defers.
+guard_setsid() {
+  [ "$GUARD_MODE" = mission-control ] || return 1
+  local i=1
+  case ${cw[1]-} in
+    bash | sh) i=2 ;;
+  esac
+  [ "$cwn" -gt "$i" ] || return 1
+  case ${cw[i]} in
+    -*) return 1 ;;
+    */*) ;;
+    *) return 1 ;;
+  esac
+  SCRIPT_HAS_NEXT=0 SCRIPT_NEXT=''
+  [ "$cwn" -le $((i + 1)) ] || SCRIPT_HAS_NEXT=1 SCRIPT_NEXT=${cw[i + 1]}
+  is_planwright_script "${cw[i]}" "$HOOK_CWD"
 }
 
 # gh: read-only gh only. A leading flag, or any non-enumerated group/sub pair,
@@ -1699,6 +1776,9 @@ guard_mise() {
     run) ;; # fall through to the shell-override guard below
     *) return 1 ;;
   esac
+  # A task runs whatever its body says, a release among them, so under the
+  # mission-control mode a task run reaches the prompt.
+  [ "$GUARD_MODE" != mission-control ] || return 1
   for (( ; i < cwn; i++)); do
     case ${cw[i]} in
       --shell | --shell=*) return 1 ;;
@@ -2385,6 +2465,7 @@ classify_verb() {
     claude) guard_claude ;;
     # Trusted planwright-script runner (path-contained).
     bash | sh) guard_bashsh ;;
+    setsid) guard_setsid ;;
     *) return 1 ;; # fallthrough is DEFER, by construction
   esac
 }
@@ -2437,6 +2518,8 @@ verify_simple() {
   # case; every other path-prefixed verb defers.
   case $verb in
     */*)
+      SCRIPT_HAS_NEXT=0 SCRIPT_NEXT=''
+      [ "$cwn" -lt 2 ] || SCRIPT_HAS_NEXT=1 SCRIPT_NEXT=${cw[1]}
       is_planwright_script "$verb" "$HOOK_CWD" && return 0
       return 1
       ;;
@@ -2745,6 +2828,14 @@ cache_temp_dirs() {
 # Fail safe on any unexpected signal: empty stdout, exit 0. The hook never
 # blocks the tower's tool call.
 trap 'exit 0' HUP INT TERM PIPE
+
+# The profile that wires this hook names its mode; an unknown one approves
+# nothing, which for an allow-only guard is the safe side.
+GUARD_MODE=${1:-tower}
+case $GUARD_MODE in
+  tower | mission-control) ;;
+  *) exit 0 ;;
+esac
 
 main
 exit 0

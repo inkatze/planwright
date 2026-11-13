@@ -167,7 +167,7 @@ fleet_home_pin() {
     /*) ;;
     *) return 1 ;;
   esac
-  mkdir -p "$1" || return 1
+  mkdir -p -- "$1" || return 1
   for _he_v in $hermetic_env_pinned; do
     _he_arm "$_he_v" || return 1
     export "$_he_v=$1/$_he_a"

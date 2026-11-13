@@ -368,8 +368,9 @@ most recent anchor entry never describes spec content that was not walked.
    **Terminal re-anchor (REQ-C1.4, D-5):** anchored content edited after the
    sign-off record was written takes `spec-format`'s recompute-and-re-record
    ritual as the final pre-push step. Then push:
-   `git push -u origin planwright/<spec>/spec`. Then the PR: if one exists for
-   the branch, update its body; otherwise `gh pr create --draft` with `--title`
+   `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>` (the only push a kickoff may make; raw
+   spec-branch pushes are refused). Then the PR: if one exists for the branch,
+   update its body; otherwise `gh pr create --draft` with `--title`
    and `--body`. The title must pass the conventional PR-title lint
    (`scripts/check-commit-msgs.sh`, enforced in CI at 100 chars):
    `feat(spec): <spec> kickoff sign-off` for a first activation, `docs(spec):
@@ -384,7 +385,7 @@ most recent anchor entry never describes spec content that was not walked.
    D-13), whether or not a flip follows: resolve it (`scripts/resolve-steps.sh
    pre-spec-ready-flip --explain --attended`), run and record its steps under
    one new run, each record carrying its end head, complete it
-   (`scripts/step-record.sh write --completion`), then post
+   (`scripts/step-record.sh write --completion --run <run> --point pre-spec-ready-flip`), then post
    `scripts/step-record.sh status --point pre-spec-ready-flip --repo <base
    repo>` on the head the list ends on. A `failure` status or a failed post
    refuses the flip, recording the pending flip to Awaiting input naming the

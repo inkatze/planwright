@@ -1,0 +1,1 @@
+- 2026-11-02 [planwright] The substrate bake-off fixture format compares only stdout and the exit status, so a lock release that never unlinks passes release-own and stale-claim reclamation is unmeasured; an optional expected-tree (post-run directory listing with link targets) would let the differential set check on-disk state.

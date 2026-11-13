@@ -231,7 +231,7 @@ assert_not_contains "not a list page of blocks: no summary is printed" "summary	
 cur="$(jq -r .next_cursor "$FIX/comments-page-1.json")"
 printf 'GET /v1/comments?block_id=%s&page_size=100 comments-page-1.json 200\nGET /v1/comments?block_id=%s&page_size=100&start_cursor=%s comments-page-1.json 200\n' "$PAGE" "$PAGE" "$cur" >"$tmp/routesrc"
 notion_fake_install "$tmp/binrc" "$tmp" "$tmp/routesrc" "$tmp/logrc" || exit 1
-out="$(PATH="$tmp/binrc:$PATH" timeout 60 "$NOTION" harvest "$v" 2>"$tmp/err")"
+out="$(PATH="$tmp/binrc:$PATH" "$REPO_ROOT/scripts/bounded-run.sh" 60 "$NOTION" harvest "$v" 2>"$tmp/err")"
 assert_eq "repeated cursor: the harvest fails" "1" "$?"
 assert_not_contains "repeated cursor: no summary is printed" "summary	" "$out"
 

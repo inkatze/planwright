@@ -1,0 +1,1 @@
+- 2026-10-26 [planwright] doctrine/flight-rules.md cites tower-front-door D-13 in its Eval-only runs section, but neither its Citations line nor its doctrine/README.md row lists D-13. Predates tower-front-door Task 18; check:doctrine-index does not compare body citations to the Citations line.

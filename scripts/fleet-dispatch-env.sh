@@ -2,6 +2,8 @@
 # fleet-dispatch-env.sh — the dispatch-time environment-hardening wrapper
 # (fleet-autonomy Task 6; D-10, REQ-D1.1).
 #
+# Emits: shell
+#
 # Every fleet-launched Claude Code session that another session reads via pane
 # capture (a dispatched worker, and a tower the watchdog relaunches) is
 # launched THROUGH this wrapper. The wrapper pins
@@ -90,6 +92,16 @@
 #                                               guard reads its self-approval
 #                                               policy and unit identity from
 #                                               (scripts/worker-session-record.sh)
+#                                             --tmpdir <dir>
+#                                               an existing absolute directory,
+#                                               exported as TMPDIR: the
+#                                               worker's scratch root its
+#                                               session record names
+#                                           With --session-record, the record's
+#                                           hook_exclude list is also exported as
+#                                           LEFTHOOK_EXCLUDE unless one is already
+#                                           set, so a worker's commit needs no
+#                                           variable prefix.
 #                                           A malformed or half-supplied option is
 #                                           refused (exit 2) before anything runs.
 #                                           Any launch option but --inbound
@@ -132,6 +144,13 @@
 #                                           2026-07-19 bare launch that dropped
 #                                           the pin.
 #
+# Every exec'ing form also drops an inherited PLANWRIGHT_COPY_CHECKED and
+# PLANWRIGHT_SESSION_BACKEND, then sets PLANWRIGHT_SESSION_BACKEND=stream-json
+# only when PLANWRIGHT_LAUNCH_BACKEND (dropped too) asks for it, as the
+# stream-json rung does. PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT, when they come
+# from the environment or this wrapper's own location rather than --root, are
+# swapped for the installed root where they name an older plugin-cache copy.
+#
 # The command is exec'd directly (exec "$@") — no shell, no eval — so arguments
 # pass through unmangled and there is no injection surface; the wrapper only
 # adds fixed assignments (with launch options, the validated values they name)
@@ -169,7 +188,7 @@ usage() {
   echo "usage: fleet-dispatch-env.sh <cmd> [args...]           (exec <cmd> with the hardened dispatch env)" >&2
   echo "       fleet-dispatch-env.sh --print                   (print the KEY=VALUE assignment(s), one per line)" >&2
   echo "       fleet-dispatch-env.sh --emit-launch <argv...>   (print the pin-carrying wrapped launch command line)" >&2
-  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] [--session-record <file>] [--inbound accept] <cmd> [args...]" >&2
+  echo "       fleet-dispatch-env.sh [--check] [--identity <handle> <scope>] [--launch-token <hex>] [--root <dir>] [--fleet-home <dir>] [--spec-root <dir>] [--session-record <file>] [--tmpdir <dir>] [--inbound accept] <cmd> [args...]" >&2
   exit 2
 }
 
@@ -206,6 +225,7 @@ opt_root=''
 opt_home=''
 opt_spec_root=''
 opt_record=''
+opt_tmpdir=''
 opt_inbound=''
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -266,6 +286,14 @@ while [ "$#" -gt 0 ]; do
       opt_record=$2
       shift 2
       ;;
+    --tmpdir)
+      [ -z "$opt_tmpdir" ] || refuse_option "--tmpdir given twice"
+      if [ "$#" -lt 2 ] || ! valid_abs_path "$2" || [ ! -d "$2" ]; then
+        refuse_option "--tmpdir must name an existing directory by its absolute path"
+      fi
+      opt_tmpdir=$2
+      shift 2
+      ;;
     --inbound)
       [ -z "$opt_inbound" ] || refuse_option "--inbound given twice"
       [ "$#" -ge 2 ] && [ "$2" = accept ] || refuse_option "--inbound takes the one value accept"
@@ -276,7 +304,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 opt_pins=0
-[ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root$opt_record" ] || opt_pins=1
+[ -z "$opt_handle$opt_token$opt_root$opt_home$opt_spec_root$opt_record$opt_tmpdir" ] || opt_pins=1
 opt_any=0
 [ "$opt_check" -eq 0 ] && [ "$opt_pins" -eq 0 ] && [ -z "$opt_inbound" ] || opt_any=1
 if [ "$opt_any" -eq 1 ]; then
@@ -340,7 +368,12 @@ planwright_root() {
 # Unlike the ghost-text pin, these do NOT override an inherited value: both are
 # documented operator overrides (tests, adopters pointing at a checkout), and the
 # wrapper must not silently outrank a root the operator chose. --root is that
-# choice made explicit by the dispatcher, so it is set before this runs.
+# choice made explicit by the dispatcher, so it is set before this runs. The
+# one exception is a value naming an older plugin-cache copy the installed
+# record no longer names (see fresh_root): that is a pin the launching session
+# carried across an upgrade, not a choice, so the worker gets the installed
+# root instead. An explicit --root is the dispatcher's resolved root and is
+# applied as given: the dispatchers resolve it fresh themselves.
 # warn_unresolved_root — say so, once, when neither an operator value nor
 # self-location produced a root. Not fatal: the launch's own mode source is the
 # settings fragment, not this. But never silent, because the only symptom is a
@@ -352,6 +385,44 @@ warn_unresolved_root() {
   printf '%s\n' "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
 }
 
+# fresh_root <name> <value>: print <value>, or the installed root where
+# <value> is a stale cached copy, saying so on stderr. Only a path inside the
+# plugin cache (once canonical, so a link into it counts) can be stale, so
+# nothing else costs a resolver run; with no resolver beside this wrapper the
+# value stands.
+fresh_root() {
+  fr_val=$2
+  fr_phys=''
+  [ -z "$fr_val" ] || fr_phys=$(cd -P -- "$fr_val" 2>/dev/null && pwd -P) || fr_phys=''
+  case $fr_phys in
+    */plugins/cache/*) ;;
+    *)
+      printf '%s\n' "$fr_val"
+      return 0
+      ;;
+  esac
+  fr_rir=$(dirname "$(resolve_self)")/resolve-installed-roots.sh
+  if [ -f "$fr_rir" ]; then
+    fr_new=$(/bin/sh "$fr_rir" --fresh "$fr_val" 2>/dev/null </dev/null) || fr_new=''
+    if [ -n "$fr_new" ] && [ "$fr_new" != "$fr_val" ]; then
+      printf '%s\n' "fleet-dispatch-env.sh: $1 named $(printf '%s' "$fr_val" | tr -d '\000-\037\177'), a planwright copy the installed record no longer names; the session gets the installed root $(printf '%s' "$fr_new" | tr -d '\000-\037\177') instead" >&2
+      fr_val=$fr_new
+    fi
+  fi
+  printf '%s\n' "$fr_val"
+}
+
+# fresh_pair <planwright-root> <plugin-root>: FP_PW and FP_CP, the two values
+# through fresh_root, the resolver run once when both name the same root.
+fresh_pair() {
+  FP_PW=$(fresh_root PLANWRIGHT_ROOT "$1")
+  if [ "$2" = "$1" ]; then
+    FP_CP=$FP_PW
+  else
+    FP_CP=$(fresh_root CLAUDE_PLUGIN_ROOT "$2")
+  fi
+}
+
 # An operator value stands on its own: it must survive even when self-location
 # fails, since the two are independent answers to the same question and either
 # alone is complete. That branch is guarded by construction rather than by a
@@ -361,6 +432,11 @@ export_root_vars() {
   er_root=$(planwright_root)
   er_pw=${PLANWRIGHT_ROOT:-$er_root}
   er_cp=${CLAUDE_PLUGIN_ROOT:-$er_root}
+  if [ -z "$opt_root" ]; then
+    fresh_pair "$er_pw" "$er_cp"
+    er_pw=$FP_PW
+    er_cp=$FP_CP
+  fi
   [ -n "$er_pw" ] && {
     PLANWRIGHT_ROOT=$er_pw
     export PLANWRIGHT_ROOT
@@ -384,8 +460,9 @@ if [ "$1" = "--print" ]; then
   # cannot wrap the exec builds its environment from these lines alone, so an
   # operator override omitted here is an override lost.
   _root=$(planwright_root)
-  _pw=${PLANWRIGHT_ROOT:-$_root}
-  _cp=${CLAUDE_PLUGIN_ROOT:-$_root}
+  fresh_pair "${PLANWRIGHT_ROOT:-$_root}" "${CLAUDE_PLUGIN_ROOT:-$_root}"
+  _pw=$FP_PW
+  _cp=$FP_CP
   [ -n "$_pw" ] && printf 'PLANWRIGHT_ROOT=%s\n' "$_pw"
   [ -n "$_cp" ] && printf 'CLAUDE_PLUGIN_ROOT=%s\n' "$_cp"
   { [ -n "$_pw" ] && [ -n "$_cp" ]; } || warn_unresolved_root
@@ -453,6 +530,16 @@ fi
 # command. `export` makes the value visible to the launched session and every
 # descendant it spawns; the unconditional set overrides any inherited value.
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
+# The launcher's mark that it already checked its own copy against the record
+# would keep the session from hearing that the copy it runs is stale, and its
+# backend is not the session's: only the rung launching this session asks for
+# one, through PLANWRIGHT_LAUNCH_BACKEND, which goes no further.
+launch_backend=${PLANWRIGHT_LAUNCH_BACKEND:-}
+unset PLANWRIGHT_COPY_CHECKED PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_LAUNCH_BACKEND
+if [ "$launch_backend" = stream-json ]; then
+  PLANWRIGHT_SESSION_BACKEND=stream-json
+  export PLANWRIGHT_SESSION_BACKEND
+fi
 if [ "$opt_pins" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
     PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
@@ -485,6 +572,20 @@ fi
 if [ -n "$opt_record" ]; then
   PLANWRIGHT_WORKER_SESSION_RECORD=$opt_record
   export PLANWRIGHT_WORKER_SESSION_RECORD
+fi
+if [ -n "$opt_record" ] && [ -z "${LEFTHOOK_EXCLUDE+x}" ]; then
+  he=$(sed -n 's/^hook_exclude=//p' "$opt_record" 2>/dev/null | head -n 1)
+  case $he in
+    '' | *[!A-Za-z0-9_,-]* | ,* | *, | *,,*) ;;
+    *)
+      LEFTHOOK_EXCLUDE=$he
+      export LEFTHOOK_EXCLUDE
+      ;;
+  esac
+fi
+if [ -n "$opt_tmpdir" ]; then
+  TMPDIR=$opt_tmpdir
+  export TMPDIR
 fi
 if [ -n "$opt_inbound" ]; then
   PLANWRIGHT_MESSAGING_INBOUND=$opt_inbound

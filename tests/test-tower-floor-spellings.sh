@@ -7,6 +7,7 @@
 # tier unchanged (REQ-G1.2).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
+# shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
 unset CDPATH
 # shellcheck source=tests/lib/tower-floor-harness.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/tower-floor-harness.sh"
@@ -18,9 +19,19 @@ while IFS="$TAB" read -r kind act form cmd; do
   expect deny "[$act/$form] $cmd"
 done <"$MAP"
 
+echo "# a stash write is not read as a list when a newline splits it from the word 'list'"
+ts_bash $'git stash\nlist $(true)'
+expect deny "[stash-write/raw-fallback] git stash, a newline, then list \$(true)"
+
 echo "# the tower acts are tower-only: the worker tier is unchanged (REQ-G1.2)"
 for cmd in 'git reset --hard HEAD' 'git branch -f topic HEAD' 'git update-ref refs/heads/topic HEAD' \
-  'git worktree add --force ../w topic' 'git hr HEAD'; do
+  'git worktree add --force ../w topic' 'git hr HEAD' \
+  'git checkout topic' 'git switch topic' 'git reset --soft HEAD' 'git branch -m topic other' \
+  'git symbolic-ref HEAD refs/heads/topic' 'git fetch origin main:main' 'git stash pop' 'git stash' \
+  'git worktree add -B topic ../w' 'gh pr checkout 42' 'gh pr co 42' 'gh -R o/r repo sync' 'git co topic' 'git sp' \
+  'gh co 1' 'git remote add -f --mirror=fetch m ../x' 'git -c remote.origin.fetch=+refs/heads/*:refs/heads/* fetch origin' \
+  'GIT_TRACE=1 git fetch origin' 'git -c x.y=1 remote update' 'git --git-dir=.git zz main' 'env git co topic' 'x=$(git zz)' \
+  "env git -c 'a.b= status' co topic"; do
   pg worker "$cmd"
   expect defer "worker tier defers: $cmd"
 done

@@ -596,3 +596,72 @@ Anchor: `5fd4ea7e1341901d0417fde0948349dbd6f06495` — computed as
 `scripts/spec-anchor.sh specs/merge-currency-guard`
 
 Signed off: 2026-10-12
+
+### Amendment 4 — conditional convergence sync (2026-11-10)
+
+**Header.** Mode: reopened-bundle delta kickoff (stored Status Draft after
+the 2026-11-10 `/spec-draft --extend`, signed brief above). Delta: the
+extension commit `4e2541bd`: REQ-B1.7 (supersedes REQ-B1.1 in part),
+REQ-B1.8, REQ-D1.6 (supersedes REQ-D1.3 in part), D-12 (D-4 marked
+superseded in part), Task 6. Not yet signed: the entry below records the walk
+and the lens pass; the sign-off record is written only on the operator's
+approval.
+
+**Walk.** One decision, relayed to the operator through mission control
+(2026-11-10), standalone: should the convergence sync skip merging `main` when
+the branch is behind but does not conflict? The operator chose the
+recommended option: skipping is the shipped default (`converge_sync_main:
+on-need`), with `always` restoring today's every-iteration merge. The sync
+still merges on a conflict, on a need the caller records, or under a
+`ready_guard_behind_base` of `refuse`. D-12 states this departs from the
+`customization-boundary` default tilt (a default-preserving knob); the
+operator confirmed the departure by that choice. Cost accepted: an adopter
+relying on every-iteration merging must set `always`.
+
+**Classification.** Class: meaning (it supersedes the meaning of a signed
+requirement and adds requirements and a decision).
+
+**Lens pass (delta-scoped, spec lens set, one pass).**
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 3 | Applied: the out-of-scope bullet that still said the sync runs every iteration now reads as of the 2026-10-12 amendment; the design overview's claim that the in-loop sync keeps the guard floor from being hit gained the 2026-11-10 qualifier; D-12's claim that skipping costs nothing at the flip now states the `checks` condition (green head checks, which a sync would not change) |
+| Ambiguity and interpretation forks | 2 | Applied: the recorded-need argument named `--need <reason>` in REQ-B1.7 and Task 6; a malformed knob value resolves as a read failure (no degrade target in the resolver entry), matching the existing park |
+| Decision-domain gaps (security posture) | 1 | Applied: the caller-supplied need text is echoed as one sanitized line through the script's echo-safety path, with a test row |
+| Dead verification paths and testability | 1 | Applied: the resolver table needed a `converge_sync_main` entry, which no deliverable named; Task 6 and the REQ-B1.8 test now cover it |
+| Citation and coverage integrity | 0 | Every new REQ has a test-spec entry and a task citation; D-12 cites the seed observation, the pending note and the operator's rule |
+| Documentation and glossary drift | 1 | Deferred, below |
+| Rendered-content safety and data hygiene | 0 | Spec prose only; the echoed need is sanitized |
+
+Deferred: REQ-C1.12 and D-10 state a two-value `ready_guard_behind_base`
+with default `refuse`, while the shipped surface has three values
+(`checks`, `refuse`, `conflict-only`) with default `checks`, `refuse`
+being the fail-closed degrade target. The new text follows the shipped
+surface (a `refuse` policy is a need; `checks` and `conflict-only` are not).
+Correcting REQ-C1.12 and D-10 is a separate amendment to the ready-guard
+requirements, not part of this delta; it is the operator's to schedule.
+
+Altitude check: no pinned seed claim; not applicable. Ship-gate check: the
+out-of-band change (the script, knob, resolver entry and skill call line) is
+gated as Task 6.
+
+**Pre-flight verification (run before the sign-off record).** Post-lens
+stale-reference sweep run over the minted IDs and the changed wording in the
+four spec files. Validator and lint results are recorded at sign-off.
+
+#### Sign-off record (Amendment 4)
+
+Signed off 2026-11-10 by the operator, relayed through mission control and
+the hub: the approval summary was answered "Sign off all four
+(Recommended)". Reopened-bundle delta kickoff: `**Status:**` flipped
+Draft to Ready and `Last reviewed:` set to 2026-11-10 on all four spec
+files; validator re-run with 0 errors. The delta supersedes part of a
+signed requirement, so it is meaning-class. Accepted risk: the older
+ready-guard requirement and decision still state a two-value default
+`refuse` against the shipped three-value default `checks`; correcting
+them is a separate amendment the operator schedules.
+
+Class: meaning
+Lens-pass: Amendment 4, delta-scoped lens review above (spec lens set; every finding dispositioned, one deferred as recorded)
+Anchor: `0b17637c9f367f238c2ebdd10f357dfb676e98d9` — computed as
+`scripts/spec-anchor.sh specs/merge-currency-guard`

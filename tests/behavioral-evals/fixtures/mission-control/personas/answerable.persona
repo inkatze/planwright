@@ -1,0 +1,6 @@
+# answerable.persona — each delivered item carries the link, what it does, what is asked, whether it is right, each option's effect and what was checked, in the operator's words.
+arm=REQ-F1.7
+expertise=expert
+answer.1=@event:queued id=i1 consequence=2 age=1 cluster= subject=login-fix
+answer.2=@event:deliver
+answer.3=that's all

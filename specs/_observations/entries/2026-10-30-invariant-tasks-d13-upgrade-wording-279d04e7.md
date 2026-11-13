@@ -1,0 +1,1 @@
+- 2026-10-30 [planwright] invariant-tasks D-13 says upgrading a version 2 bundle is "only the Format-version: bump", but the same decision says a bundle declares version 3 only when a task needs the Repository field, so a real upgrade is the bump plus that field; reword D-13 when the bundle-upgrade process seeded in specs/_pending/spec-format-upgrade.md becomes a spec

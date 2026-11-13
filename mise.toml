@@ -49,6 +49,10 @@ run = "/bin/bash tests/rehearsal-lifecycle.sh --live"
 description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), up to N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides), bounded machine-wide by a shared ticket pool (PLANWRIGHT_TEST_SLOTS, default core count)"
 run = '/bin/bash scripts/run-tests.sh'
 
+[tasks."test:refresh-durations"]
+description = "Refresh config/test-durations.tsv, the table the suite's queue order, CI shard split, and shard planner read, from the timing reports of the last five main CI runs whose shard jobs all passed (warning when the last twenty completed runs hold fewer), each file taking its median time; needs a signed-in gh. On demand only, never in check or CI"
+run = "/bin/bash scripts/refresh-test-durations-ci.sh"
+
 [tasks.status]
 description = "Render a spec bundle's derived execution status (the canonical read surface for format-version 2 bundles; invariant-tasks D-6). Usage: mise run status specs/<spec>"
 run = "scripts/spec-status.sh"
@@ -80,6 +84,10 @@ trap 'exit 143' TERM
 description = "Print the script layer's maintenance-cost baseline as of --as-of <date>: fix-typed commits per month, observation inflow by class per month, the check aggregate's CI wall-clock from a committed capture (--capture-wallclock writes one through gh), and load-flake hand-backs. On demand only; scripts/substrate-baseline.sh's header documents each field"
 run = "/bin/sh scripts/substrate-baseline.sh"
 
+[tasks."substrate:bakeoff"]
+description = "Run the substrate bake-off harness: `run --bakeoff <dir> --out-dir <dir>` measures every candidate in a bake-off directory against the same differential fixtures and writes report.tsv and the rendered view.md; `validate <report.tsv>` and `render <report.tsv>` check and render a committed report. On demand only (the shell suite runs it over the committed stub bake-off); docs/substrate-bakeoff-report.md documents the input layout and the add-only report schema"
+run = "/bin/sh scripts/substrate-bakeoff.sh"
+
 [tasks."lint:shell"]
 description = "shellcheck on scripts, tests, sourced test libraries under tests/lib/, and the extensionless githooks/ hooks (whole-directory glob: everything in githooks/ must be shell; the tools read the shebang)"
 run = "shellcheck scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"
@@ -93,7 +101,7 @@ description = "markdownlint on prose, the dated substrate snapshots under docs/s
 run = '''
 root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
 case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
-markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'docs/substrate/*.md' 'cards/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
+markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'docs/substrate/**/*.md' 'cards/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
 '''
 
 [tasks."lint:yaml"]
@@ -133,7 +141,7 @@ case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
 '''
 
 [tasks."lint:json"]
-description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker/tower-settings permissions/hook fragments"
+description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker, tower and mission-control settings permissions/hook fragments"
 run = '''
 set -e
 jq . .claude-plugin/plugin.json >/dev/null
@@ -142,10 +150,14 @@ jq . .claude-plugin/marketplace.json >/dev/null
 echo marketplace.json valid
 jq . hooks/hooks.json >/dev/null
 echo hooks.json valid
+jq . hooks/mods.json >/dev/null
+echo mods.json valid
 jq . config/worker-settings.json >/dev/null
 echo worker-settings.json valid
 jq . config/tower-settings.json >/dev/null
 echo tower-settings.json valid
+jq . config/mission-control-settings.json >/dev/null
+echo mission-control-settings.json valid
 '''
 
 [tasks."lint:plugin-schema"]
@@ -157,8 +169,12 @@ description = "options-reference coverage drift check (D-43)"
 run = "/bin/bash scripts/check-options-reference.sh"
 
 [tasks."check:glob-allow-rules"]
-description = "correct-glob allow-rule discipline: flag any shipped `Bash(<path>/:*)` directory-scoped rule (a never-match footgun) and verify the `/*` guidance is documented + cross-referenced (fleet-hardening Task 6, D-6, REQ-B1.3, REQ-E1.3)"
+description = "correct-glob allow-rule discipline: flag any shipped `Bash(<path>/:*)` directory-scoped rule (a never-match footgun) and verify the exact-path guidance is documented + cross-referenced (fleet-hardening Task 6, D-20, REQ-B1.5, REQ-E1.3)"
 run = "/bin/bash scripts/check-glob-allow-rules.sh"
+
+[tasks."check:allow-path-globs"]
+description = "flag a Bash allow rule whose command path holds a wildcard or ../ (the traversal the matcher's * admits), naming the exact-path replacement: fails on the shipped profiles and the checkout's settings, warns on the user's home settings; read-only, never edits settings (fleet-hardening D-20, REQ-B1.5)"
+run = "/bin/bash scripts/check-allow-path-globs.sh"
 
 [tasks."check:ledger"]
 description = "structural-corruption + duplicate-Status guards over committed tasks.md snapshots (REQ-E1.1, REQ-E1.2)"
@@ -168,6 +184,10 @@ run = "/bin/bash scripts/check-ledger.sh"
 description = "anchor-freshness guard over every non-Draft, non-terminal bundle: the brief's most recent anchor entry parses, uses a sanctioned command form, and recomputes equal; an edit to anchored content since the baseline carries a dated Changelog entry (anchor-integrity Task 4, REQ-D1.1, REQ-D1.2, REQ-D1.4, D-6)"
 run = "/bin/sh scripts/check-anchor-freshness.sh"
 
+[tasks."check:platform-claims"]
+description = "platform-claims register guard: every entry in docs/platform-claims.md is well formed and names a file that still exists; a claim past its re-verify date is listed without failing (the release checklist runs the --strict form, which fails on it)"
+run = "/bin/sh scripts/check-platform-claims.sh"
+
 [tasks."check:obs"]
 description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4); then the miss-ledger grammar over every review-miss fragment (review-effectiveness REQ-E1.5)"
 run = ["/bin/bash scripts/check-obs.sh", "/bin/sh scripts/check-review-miss.sh"]
@@ -176,13 +196,17 @@ run = ["/bin/bash scripts/check-obs.sh", "/bin/sh scripts/check-review-miss.sh"]
 description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement, and the Task-8 closeout direction (no lingering pending-diet allowance) (prompt-hygiene Task 2, REQ-D1.4)"
 run = "/bin/bash scripts/check-instructions.sh --closeout"
 
+[tasks."check:comment-budget"]
+description = "comment-block budget guard: the largest contiguous comment block per file of the shell, config YAML, root tool config and workflow surface, against comment_block_warn and comment_block_error, with config/comment-budget-exemptions.txt as the suppression list (doctrine/comment-hygiene.md)"
+run = "/bin/sh scripts/check-comment-budget.sh"
+
 [tasks."check:no-ci-evals"]
 description = "standing CI-exclusion guard, so evals never run in CI. Three passes: a workflow-text scan of .github/workflows for a wired-in eval task or a direct runner call; a task-graph closure over depends/depends_post/wait_for from the tasks the workflows invoke, failing if it reaches the eval: namespace; and a scan of the run bodies in that closure, whose own task invocations feed it as edges. Parse boundary: mise.toml only, so file-based task definitions are outside it. Fails closed on an unparseable or zero-task mise.toml, on zero workflow roots, and on any input it cannot read. Run `scripts/check-no-ci-evals.sh --help` for the full contract, including what the graph passes deliberately do not follow."
 run = "/bin/sh scripts/check-no-ci-evals.sh"
 
 [tasks."check:workflow-posture"]
-description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter, pins the originating repository (head_repository.full_name == github.repository), and consumes no PR artifact; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6)"
-run = "/bin/bash scripts/check-workflow-posture.sh"
+description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter, pins the originating repository (head_repository.full_name == github.repository), and consumes no PR artifact; and ci.yml carries the Ubuntu, macOS, and Alpine jobs, none gated on a platform, every step blocking (no continue-on-error, no soft `||`), an install smoke step on each, and the Alpine job held to its named scope; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6); universal-binary REQ-B1.4"
+run = "/bin/bash scripts/check-workflow-posture.sh --matrix ci.yml"
 
 [tasks."check:githooks"]
 description = "hook-backstop wiring detection: fail on an unwired or half-wired clone (core.hooksPath not 'githooks', or a hook file missing/non-executable); detects only, never wires — remedy is scripts/wire-githooks.sh (guard-coverage Task 2, REQ-A1.3, D-2, D-3)"
@@ -205,7 +229,7 @@ description = "conditional coordination-artifact hygiene guard: when a coordinat
 run = "/bin/sh scripts/check-coordination-hygiene.sh"
 
 [tasks."check:hook-contracts"]
-description = "hook-registration guard over all three surfaces planwright registers through (hooks.json plus the worker and tower settings fragments): every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks — run as registered, arguments included, with the worker identity neutralised — emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
+description = "hook-registration guard over all four surfaces planwright registers through (hooks.json plus the worker, tower and mission-control settings fragments): every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks — run as registered, arguments included, with the worker identity neutralised — emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-hook-contracts.sh"
 
 [tasks."check:doctrine-index"]
@@ -240,6 +264,41 @@ run = "/bin/bash scripts/check-test-hermeticity.sh"
 description = "printf-not-echo guard: fail on a shell file under scripts/, tests/, or githooks/ whose `echo` carries any expansion (a variable, a positional, a command substitution) without a `# trusted: <reason>` annotation on that line, or that puts `sanitize_printable` output into the printf FORMAT operand or a printf `%b` (dash re-expands backslash escape TEXT into live control bytes); and fail on any shell file, bash included, that sources scripts/echo-safety.sh without first testing it readable; enumerates by shebang or .sh suffix, exempts bash-shebang files from the echo rule only, and fails closed on anything that would narrow the scan"
 run = "/bin/bash scripts/check-echo-discipline.sh"
 
+[tasks."check:shell-pipe-status"]
+description = "shell rule shell-pipe-status: fail on a $? read straight after a pipeline, where it holds the last stage's status, a printf or echo producer, a line naming PIPESTATUS and every line after a set -o pipefail up to a set +o pipefail excepted (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
+run = "/bin/bash scripts/check-shell-pipe-status.sh"
+
+[tasks."check:shell-fail-open-noop"]
+description = "shell rule shell-fail-open-noop: fail on an assignment from a command substitution whose failure a no-op alternative (|| true, || :) swallows, so an empty value reads as absent (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
+run = "/bin/bash scripts/check-shell-fail-open-noop.sh"
+
+[tasks."check:shell-mktemp-template"]
+description = "shell rule shell-mktemp-template: fail on a mktemp call given no template operand (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
+run = "/bin/bash scripts/check-shell-mktemp-template.sh"
+
+[tasks."check:shell-gnu-only-flag"]
+description = "shell rule shell-gnu-only-flag: fail on a GNU-only command option (timeout, readlink -f, date -d, stat -c, grep -P, xargs -r, sort -V, sed -i without a suffix, find -printf) outside an annotated fallback (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
+run = "/bin/bash scripts/check-shell-gnu-only-flag.sh"
+
+[tasks."check:shell-dash-operand"]
+description = "shell rule shell-dash-operand: fail on a directory or file primitive handed a positional parameter with no -- before it (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
+run = "/bin/bash scripts/check-shell-dash-operand.sh"
+
+[tasks."check:shell-config-pin"]
+description = "shell rule shell-config-pin: fail on a config-get.sh read pinned to no repository, neither PLANWRIGHT_REPO_ROOT nor a cd on its line (config/guard-catalog.yaml, the shell-* entries; --help states the escape hatch)"
+run = "/bin/bash scripts/check-shell-config-pin.sh"
+
+[tasks."check:emitter-lint"]
+description = "emitter output linting guard: every script under scripts/ declaring an `# Emits:` format (markdown, yaml, shell) must be linted in that format by a test calling tests/lib/emitter-lint.sh's lint_emitted with the script's name, and every such call must name a declared emitter (config/guard-catalog.yaml, emitter-output-lint); fails closed on no declared emitter"
+run = "/bin/sh scripts/check-emitter-lint.sh"
+[tasks."check:counts"]
+description = "count-versus-list guard: a count stated in the sentence introducing a Markdown list or table must equal the list's length, over the tracked doctrine, skill, docs, Draft-bundle and specs/_pending prose; a bundle at any other status is skipped; exemptions in scripts/check-counts-exempt.tsv with a reason each, and a stale one fails"
+run = "/bin/sh scripts/check-counts.sh"
+
+[tasks."check:test-vacuity"]
+description = "test-vacuity guard over tests/: fails a test file asserting only absences, a status read from a filter stage of a pipeline, a status masked by an always-true alternative, an operand compared to itself, and a corpus-fed while-read harness with no row floor above zero; an exclusion is a `# vacuity-ok: <reason>` annotation on the reported line"
+run = "/bin/bash scripts/check-test-vacuity.sh"
+
 [tasks."check:script-modes"]
 description = "executable-bit guard: every scripts/*.sh in the git index carries the mode its first line declares, a shebang file 100755 (called by path it otherwise fails with Permission denied) and a shebang-less sourced library 100644; reads modes and first lines from the index, not the working tree, and fails closed on no repository, an unreadable index or blob, or zero scripts"
 run = "/bin/bash scripts/check-script-modes.sh"
@@ -252,9 +311,17 @@ run = "/bin/sh scripts/check-spec-literals.sh"
 description = "mission control's duty and program guard: the merged duties catalog resolves without a resolver warning and every entry carries the grammar config/duties.yaml documents (the failing field named), the shipped default duty set names catalog duties, and every configured program validates (repositories, spec root, home, budget, a state-source map with known classes and modes) and enables only catalog duties; core and repo-tracked layers only, the adopter overlay and machine-local config held out"
 run = "/bin/bash scripts/check-duties.sh"
 
+[tasks."check:panel-mod"]
+description = "the panel mod: the claude CLI at or above the mods floor, every hook, call and environment read `claude plugin validate` reports named in config/panel-mod-surface.txt, the plugin tests (`claude plugin test`) green and not empty, and the suite failing on a seeded drawing defect (skips with a note where the claude CLI is absent)"
+run = "/bin/bash scripts/check-panel-mod.sh"
+
 [tasks."check:mc-knobs"]
 description = "mission control's knob inventory: every behaviour in config/mission-control-knobs.tsv names a mission_control_* knob the defaults ship, every such key resolves to a non-empty default through scripts/config-get.sh, is claimed by a behaviour and has a docs/options-reference.md row naming its evidence, and no scanned reader names an undeclared mission_control_* key"
 run = "/bin/bash scripts/check-mc-knobs.sh"
+
+[tasks."check:kb-copies"]
+description = "mission control's cite-never-copy lint: fail when a knowledge-base Markdown file under tests/fixtures/mission-control/kb carries a spec bundle's line verbatim (compared trimmed and blank-collapsed, lines of the length scripts/check-kb-copies.sh sets and longer, the underscore-prefixed reserved directories directly under the spec root held out), each copy named by file, line and the spec it copies; fails closed on a missing or unlistable directory or nothing to compare"
+run = "/bin/bash scripts/check-kb-copies.sh"
 
 [tasks."check:steps"]
 description = "custom-steps guard: resolve every named point (wired and unwired) through scripts/resolve-steps.sh in check mode against this repository's core and repo-tracked configuration, the adopter overlay and machine-local config file held out (a gitignored catalogs.local/ catalog is still read), failing on a step that does not resolve, a malformation, or a non-empty list at an unwired point; and fail on the retired review_sequence key outside the transitional line scripts/check-steps.sh describes"
@@ -267,6 +334,14 @@ run = "/bin/sh scripts/check-task-registration.sh"
 [tasks."check:number-copy"]
 description = "cite-don't-copy guard: fail when the universal-binary bundle's prose (outside its Sources and Changelog sections and a verdict decision's measurement and cost-benefit lines) carries a figure that a dated snapshot (docs/substrate/*.md or docs/substrate-*.md) also carries, so the bundle cites the snapshot instead of freezing its numbers; task, section, step and wave numerals and the id-valued metadata fields are references, not figures; exemptions live in scripts/check-number-copy-exempt.tsv with a reason each, and a stale one fails (universal-binary Task 3, REQ-A1.4, D-4)"
 run = "/bin/sh scripts/check-number-copy.sh"
+
+[tasks."check:verdict-figures"]
+description = "verdict-figure guard: fail when a figure in a universal-binary verdict decision's rationale (its Chosen because and Measurement spans) does not cite a field of the committed bake-off report its Report line names, as <figure> (`<candidate>.<field>`), or differs from that field's value; passes when the bundle holds no verdict (universal-binary Task 5, REQ-C1.5, D-7; docs/substrate-bakeoff-report.md holds the citation form)"
+run = "/bin/sh scripts/check-verdict-figures.sh"
+
+[tasks."check:verdict-effort"]
+description = "verdict-effort guard: fail when a universal-binary verdict decision lacks a Migration effort statement, or its statement neither cites the porting rate a full candidate logged in a report its Report line names (`<candidate>.porting_rate_min_per_kib`, any figure on it equal to the logged value) nor carries the absence token `porting-rate: absent` of a verdict the screen settled; passes when the bundle holds no verdict (universal-binary Task 5, REQ-G1.3, D-7)"
+run = "/bin/sh scripts/check-verdict-effort.sh"
 
 [tasks."check:entry-points"]
 description = "frozen entry-point guard: every script a skill body, a hook registration, or a tracked git hook names (the partition's entry points) must have a recorded fixture under tests/fixtures/entry-points/ and, run from a read-only copy of the tree in a clean environment, still exit, print to stdout, and write stderr as recorded; fails on an entry point without a fixture, a fixture whose entry point is gone or no longer one, a run exiting with the reserved shim fetch-failure code, and a shim (`# planwright-shim-target:`) of a script the partition flags. Computes the partition and passes it in. Record a fixture with `scripts/check-entry-points.sh --partition <file> --record <path> -- <args>` (universal-binary Task 2.1, REQ-E1.2, REQ-A1.3, D-10)"
@@ -285,7 +360,7 @@ description = "retired-mkdir guard over advisory locking: fail on any shell file
 run = "/bin/bash scripts/check-lock-primitive.sh"
 
 [tasks."check:script-invocation"]
-description = "shebang-honoring invocation guard: fail on a line in a .md file under skills/ or doctrine/ that runs, through an `sh` command word (bare or a path ending /sh), a top-level scripts/*.sh whose shebang names bash, the operand read past options, `--`, a `<` redirect, quotes, and `<placeholder>` prefixes; `sh -c` strings, by-path calls, and calls through bash pass; fails closed on no shebanged script, no instruction file, an unreadable file, or a symbolic link or newline-bearing name in scope (test-throughput REQ-E1.2, D-12)"
+description = "shebang-honoring and usage-header invocation guard: fail on a line in a .md file under skills/ or doctrine/ that runs, through an `sh` command word (bare or a path ending /sh), a top-level scripts/*.sh whose shebang names bash, the operand read past options, `--`, a `<` redirect, quotes, and `<placeholder>` prefixes; `sh -c` strings, by-path calls, and calls through bash pass; and on a code span or fenced command line running a shebanged scripts/*.sh in a way its `# Usage` header does not accept (an unknown subcommand, a flag the header lacks, a missing required argument, or no header the grammar in config/guard-catalog.yaml reads), a bare path mention and a sourced library unchecked; fails closed on no shebanged script, no instruction file, an unreadable file, or a symbolic link or newline-bearing name in scope (test-throughput REQ-E1.2, D-12; review-effectiveness REQ-F1.7, D-19)"
 run = "/bin/sh scripts/check-script-invocation.sh"
 
 [tasks."check:bash32"]
@@ -304,6 +379,10 @@ run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
 [tasks."eval:behavioral"]
 description = "on-demand behavioral eval harness (never in CI or `check`): drives a skill through a real interactive tmux TTY session, answered by simulated-operator personas, grading the durable artifacts a run writes; needs tmux + jq (operator-dialogue Task 5, REQ-G, D-8)"
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures"
+
+[tasks."eval:mission-control"]
+description = "on-demand mission control eval cadence (never in CI or `check`): the suite's completeness check (one fixture per [Gherkin] arm of the mission-control test spec), then the behavioral harness over the mission-control fixture on the current head, its outcome appended to the per-head ledger the pre-ready-flip cadence step reads; needs tmux + jq. Run `scripts/mc-eval-cadence.sh --help` for the contract"
+run = "/bin/bash scripts/mc-eval-cadence.sh run"
 
 [tasks."eval:turn-shape"]
 description = "on-demand turn-shape eval (never in CI or `check`): the behavioral harness over the turn-shape fixtures, grading each run's turn records against the invariants its fixture names (tests/behavioral-evals/README.md lists them); needs tmux + jq (operator-dialogue REQ-M1.1, REQ-M1.4, D-19)"
@@ -351,10 +430,13 @@ depends = [
   "check:memory-links",
   "check:options",
   "check:glob-allow-rules",
+  "check:allow-path-globs",
   "check:ledger",
   "check:anchor-freshness",
   "check:obs",
+  "check:platform-claims",
   "check:instructions",
+  "check:comment-budget",
   "check:no-ci-evals",
   "check:workflow-posture",
   "check:githooks",
@@ -368,15 +450,28 @@ depends = [
   "check:cdpath",
   "check:test-hermeticity",
   "check:echo-discipline",
+  "check:shell-pipe-status",
+  "check:shell-fail-open-noop",
+  "check:shell-mktemp-template",
+  "check:shell-gnu-only-flag",
+  "check:shell-dash-operand",
+  "check:shell-config-pin",
+  "check:emitter-lint",
+  "check:counts",
+  "check:test-vacuity",
   "check:script-modes",
   "check:script-invocation",
   "check:spec-literals",
   "check:duties",
   "check:mc-knobs",
+  "check:panel-mod",
+  "check:kb-copies",
   "check:steps",
   "check:task-registration",
   "check:lock-primitive",
   "check:number-copy",
+  "check:verdict-figures",
+  "check:verdict-effort",
   "check:entry-points",
   "check:bash32",
   "check:guard-wiring",

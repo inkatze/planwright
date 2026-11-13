@@ -43,7 +43,10 @@ T=$(cd "$T" && pwd -P)
 export HOME="$T/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export PLANWRIGHT_FLEET_STATE_DIR="$T/fleet"
 export PLANWRIGHT_ADOPTER_OVERLAY="$T/adopter"
+export PLANWRIGHT_FLEET_SCRATCH_BASE="$T/sb"
+SBASE=$T/sb
 mkdir -p "$HOME" "$T/adopter"
+mkdir -m 700 "$T/sb"
 
 MAIN=$T/main
 WT=$MAIN/.claude/worktrees/demo-task-1
@@ -78,11 +81,31 @@ set_layer() {
 
 echo "### REQ-F1.1 — the knob, its layers, and its fallback"
 write "$WT"
-if [ "$RC" -eq 0 ] && [ -f "$REC" ] && [ "$(field policy)" = "" ] && grep -qx 'policy=' "$REC"; then
-  pass "F1.1: no overlay resolves to the empty list"
+if [ "$RC" -eq 0 ] && [ -f "$REC" ] && [ "$(field policy)" = "scratch" ]; then
+  pass "F1.1: no overlay resolves to the shipped default, the scratch arm alone"
 else
   fail "F1.1: default policy (rc=$RC, $(cat "$T/err"))"
 fi
+if ! grep -q '^hook_exclude=' "$REC"; then
+  pass "hook skip list: no worker_hook_exclude, no record field"
+else
+  fail "hook skip list: the record carried a field with no config"
+fi
+set_layer machine-local 'worker_hook_exclude: lint-md spell_check'
+write "$WT"
+if [ "$(field hook_exclude)" = "lint-md,spell_check" ]; then
+  pass "hook skip list: the configured names reach the record, comma joined"
+else
+  fail "hook skip list: read '$(field hook_exclude)'"
+fi
+set_layer machine-local 'worker_hook_exclude: lint-md bad;name'
+write "$WT"
+if ! grep -q '^hook_exclude=' "$REC"; then
+  pass "hook skip list: one name outside the grammar drops the whole list"
+else
+  fail "hook skip list: a malformed list reached the record: $(field hook_exclude)"
+fi
+set_layer machine-local ''
 set_layer repo-tracked 'worker_self_approval: own-branch'
 write "$WT"
 if [ "$(field policy)" = own-branch ]; then
@@ -132,7 +155,7 @@ mkdir -p "$WT/.claude"
 printf 'worker_self_approval: own-branch\n' >"$WT/.claude/planwright.local.yml"
 set_layer repo-tracked ''
 write "$WT"
-if [ "$(field policy)" = "" ]; then
+if [ "$(field policy)" = "scratch" ]; then
   pass "F1.1: an overlay inside the worker's own worktree governs nothing"
 else
   fail "F1.1: the worktree's overlay was read: '$(field policy)'"
@@ -217,6 +240,142 @@ else
   pass "G1.8: a malformed launch id is refused"
 fi
 
+echo "### REQ-G1.2 — the scratch root"
+wt_key=$(printf '%s' "$WT" | git hash-object --stdin)
+FLEET=$(cd "$PLANWRIGHT_FLEET_STATE_DIR" && pwd -P)
+# The default base, /tmp: what a worker really gets. Each root this case makes
+# there goes through the release the final close uses.
+REC=$(env -u PLANWRIGHT_FLEET_SCRATCH_BASE /bin/sh "$WRITER" write "$WT" --session real-default --scratch 2>"$T/err")
+real=$(field scratch_root)
+case $real/ in
+  */.claude/* | "$FLEET"/* | "$T"/*) real_out=0 ;;
+  *) real_out=1 ;;
+esac
+bound=0
+if command -v python3 >/dev/null 2>&1 && [ -d "$real" ]; then
+  python3 -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()' \
+    "$real/rpc.sock" 2>/dev/null && bound=1
+  rm -f "$real/rpc.sock"
+elif ! command -v python3 >/dev/null 2>&1; then
+  echo "skip: G1.2 the socket bind needs python3"
+  bound=1
+fi
+if [ -n "$real" ] && [ -d "$real" ] && [ "${#real}" -lt 60 ] && [ "$real_out" = 1 ] && [ "$bound" = 1 ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    pass "G1.2: a worker's default scratch root is short, outside .claude and the fleet home, and takes a Unix socket"
+  else
+    pass "G1.2: a worker's default scratch root is short and outside .claude and the fleet home"
+  fi
+else
+  fail "G1.2: the default scratch root '$real' (${#real} characters, bound=$bound) $(cat "$T/err")"
+fi
+[ -z "$real" ] || /bin/sh "$REPO_ROOT/scripts/fleet-scratch.sh" release "$FLEET" "$real" \
+  || fail "G1.2: the release left the default root $real"
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>"$T/err")
+RC=$?
+root=$(field scratch_root)
+mode=$(stat -c %a "$root" 2>/dev/null || stat -f %Lp "$root" 2>/dev/null)
+if [ "$RC" -eq 0 ] && [ -n "$root" ] && [ -d "$root" ] && [ -O "$root" ] && [ "$mode" = 700 ] \
+  && [ "${root%/*}" = "$SBASE" ] && [ "$(cat "$FLEET/scratch/$wt_key.tmpdir")" = "$root" ]; then
+  pass "G1.2: --scratch creates the worktree's owner-only root under the scratch base and records it in the fleet home"
+else
+  fail "G1.2: --scratch (rc=$RC, mode=$mode, $(tr '\n' ' ' <"$REC" 2>/dev/null) $(cat "$T/err"))"
+fi
+: >"$root/kept"
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" --scratch 2>/dev/null)
+if [ "$(field scratch_root)" = "$root" ] && [ -f "$root/kept" ]; then
+  pass "G1.2: another launch of the worktree keeps the same root and its contents"
+else
+  fail "G1.2: the relaunch did not keep the root ('$(field scratch_root)')"
+fi
+mkdir -m 700 "$T/sb2"
+REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$T/sb2 /bin/sh "$WRITER" write "$WT" --scratch 2>/dev/null)
+if [ "$(field scratch_root)" = "$root" ] && [ -f "$root/kept" ]; then
+  pass "G1.2: a recorded root stands over another base"
+else
+  fail "G1.2: a changed base moved the root to '$(field scratch_root)'"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session sess-a --scratch 2>/dev/null)
+sess=$(field scratch_root)
+if [ -n "$sess" ] && [ -d "$sess" ] && [ "$sess" != "$root" ] && [ "${sess%/*}" = "$SBASE" ] \
+  && [ -f "$root/kept" ]; then
+  pass "G1.2: a session gets a root of its own beside the worktree's"
+else
+  fail "G1.2: the session root '$sess' (worktree's $root)"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" 2>/dev/null)
+if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC"; then
+  pass "G1.2: no scratch option records no scratch root"
+else
+  fail "G1.2: a scratch root was recorded unasked"
+fi
+mkdir -p "$root/old/ro" "$FLEET/scratch/$wt_key/old"
+chmod 500 "$root/old/ro"
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" --fresh-scratch 2>/dev/null)
+if [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ] \
+  && [ ! -e "$FLEET/scratch/$wt_key" ]; then
+  pass "G1.2: --fresh-scratch empties a root an earlier worktree at the path left, the earlier layout's too"
+else
+  fail "G1.2: --fresh-scratch left entries behind in $root"
+fi
+: >"$root/kept"
+if /bin/sh "$WRITER" write "$WT" --scratch --scratch >/dev/null 2>&1; then
+  fail "G1.2: a repeated --scratch was accepted"
+else
+  pass "G1.2: a repeated --scratch is a usage error"
+fi
+mkdir -p "$T/elsewhere"
+mv "$root" "$root.moved"
+ln -s "$T/elsewhere" "$root"
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC" && [ -s "$T/err" ]; then
+  pass "G1.2: a root that is a symlink is omitted with a warning, the record still written"
+else
+  fail "G1.2: a symlinked root (rc=$RC, $(tr '\n' ' ' <"$REC" 2>/dev/null))"
+fi
+rm -f "$root"
+mv "$root.moved" "$root"
+mkdir -m 700 "$WT/sb-in"
+REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$WT/sb-in /bin/sh "$WRITER" write "$WT" --session inside --scratch 2>"$T/err")
+if [ -n "$REC" ] && ! grep -q '^scratch_root=' "$REC" && [ -z "$(ls -A "$WT/sb-in")" ] \
+  && grep -q 'inside the worktree' "$T/err" \
+  && [ ! -e "$FLEET/scratch/$wt_key-$(printf '%s' inside | git hash-object --stdin).tmpdir" ]; then
+  pass "G1.2: a root inside the worktree is refused and released, its record gone"
+else
+  fail "G1.2: a root inside the worktree ($(ls -A "$WT/sb-in"), $(cat "$T/err"))"
+fi
+rm -rf "$WT/sb-in"
+REC=$(PLANWRIGHT_FLEET_SCRATCH_BASE=$T/nowhere /bin/sh "$WRITER" write "$WT" --session nowhere --scratch 2>"$T/err")
+if [ -n "$REC" ] && grep -q 'no scratch arm (fleet-scratch.sh: PLANWRIGHT_FLEET_SCRATCH_BASE names no directory)' "$T/err"; then
+  pass "G1.2: the warning names why the root is unusable"
+else
+  fail "G1.2: the warning gave no reason: $(cat "$T/err")"
+fi
+mkdir -p "$T/notours/keep"
+if ! /bin/sh "$REPO_ROOT/scripts/fleet-scratch.sh" release "$FLEET" "$T/notours" 2>/dev/null \
+  && [ -d "$T/notours/keep" ]; then
+  pass "G1.2: a release removes no directory the fleet home does not record"
+else
+  fail "G1.2: a release removed an unrecorded directory"
+fi
+set_layer repo-tracked 'worker_self_approval: scratch'
+REC=$(/bin/sh "$WRITER" write "$WT" --scratch 2>/dev/null)
+out=$(jq -cn --arg c 'touch $TMPDIR/x && mktemp -d' --arg w "$WT" '{tool_name:"Bash",tool_input:{command:$c},cwd:$w}' \
+  | (cd "$WT" && TMPDIR=$root PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+if [ "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)" = allow ]; then
+  pass "G1.2: the guard takes the launched record's scratch root"
+else
+  fail "G1.2: the guard did not approve a scratch write under the launched record"
+fi
+if /bin/sh "$REPO_ROOT/scripts/fleet-scratch.sh" reclaim "$FLEET" "$wt_key" && [ ! -e "$root" ] && [ ! -e "$sess" ] \
+  && [ -z "$(ls -A "$FLEET/scratch")" ]; then
+  pass "G1.2: a worktree reclaim removes its root and every session's, records included"
+else
+  fail "G1.2: the reclaim left $(find "$FLEET/scratch" "$SBASE" -mindepth 1 2>&1 | tr '\n' ' ')"
+fi
+set_layer repo-tracked 'worker_self_approval: own-branch'
+
 echo "### REQ-G1.8 — the guard's verdicts are fixed at launch"
 write "$WT"
 decide() {
@@ -277,6 +436,41 @@ if [ "$out" = unset ]; then
 else
   fail "G1.8: inherited record leaked: '$out'"
 fi
+echo "### hook skip list — the wrapper hands the record's list to the hooks runner"
+HX=$T/hx.record
+printf 'policy=\nhook_exclude=lint-md,spell_check\n' >"$HX"
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
+if [ "$out" = "lint-md,spell_check" ]; then
+  pass "hook skip list: the record's list is exported as LEFTHOOK_EXCLUDE"
+else
+  fail "hook skip list: wrapper exported '$out'"
+fi
+out=$(LEFTHOOK_EXCLUDE=mine /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
+if [ "$out" = "mine" ]; then
+  pass "hook skip list: an explicit LEFTHOOK_EXCLUDE is never replaced"
+else
+  fail "hook skip list: an explicit value was replaced by '$out'"
+fi
+printf 'policy=\nhook_exclude=lint-md\n' >"$HX"
+out=$(LEFTHOOK_EXCLUDE='' /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c 'printf "[%s]" "${LEFTHOOK_EXCLUDE-unset}"' 2>&1)
+if [ "$out" = "[]" ]; then
+  pass "hook skip list: an explicitly empty LEFTHOOK_EXCLUDE is kept, not replaced"
+else
+  fail "hook skip list: an empty value was replaced by '$out'"
+fi
+printf 'policy=\nhook_exclude=bad name;x\n' >"$HX"
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --session-record "$HX" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
+if [ "$out" = unset ]; then
+  pass "hook skip list: a list outside the name grammar is never exported"
+else
+  fail "hook skip list: a malformed list was exported: '$out'"
+fi
+out=$(env -u LEFTHOOK_EXCLUDE /bin/sh "$ENVWRAP" --root "$REPO_ROOT" /bin/sh -c "printf %s \"\${LEFTHOOK_EXCLUDE-unset}\"" 2>&1)
+if [ "$out" = unset ]; then
+  pass "hook skip list: a launch with no record exports nothing"
+else
+  fail "hook skip list: exported with no record: '$out'"
+fi
 /bin/sh "$ENVWRAP" --session-record relative.record true 2>/dev/null
 if [ $? -eq 2 ]; then
   pass "G1.8: a relative record path is refused"
@@ -288,6 +482,139 @@ if [ $? -eq 2 ]; then
   pass "G1.8: a missing record file is refused"
 else
   fail "G1.8: a missing record was accepted"
+fi
+root=$T/sb
+out=$(TMPDIR=/inherited /bin/sh "$ENVWRAP" --tmpdir "$root" /bin/sh -c 'printf %s "$TMPDIR"' 2>&1)
+if [ "$out" = "$root" ]; then
+  pass "G1.2: --tmpdir is exported as the worker's TMPDIR"
+else
+  fail "G1.2: wrapper exported TMPDIR '$out'"
+fi
+/bin/sh "$ENVWRAP" --tmpdir relative/tmp true 2>/dev/null
+if [ $? -eq 2 ]; then
+  pass "G1.2: a relative --tmpdir is refused"
+else
+  fail "G1.2: a relative --tmpdir was accepted"
+fi
+/bin/sh "$ENVWRAP" --tmpdir "$T/none-dir" true 2>/dev/null
+if [ $? -eq 2 ]; then
+  pass "G1.2: a missing --tmpdir directory is refused"
+else
+  fail "G1.2: a missing --tmpdir directory was accepted"
+fi
+
+echo "### REQ-H1.4 — the audit-log home and its retention bound"
+set_layer repo-tracked 'worker_self_approval: own-branch'
+set_layer machine-local ''
+AH=$T/fleet/allow-audit
+rm -rf "$AH"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ "$(field audit_log_home)" = "$AH" ] && [ -d "$AH" ] \
+  && [ "$(find "$AH" -maxdepth 0 -perm 700)" = "$AH" ]; then
+  pass "H1.4: the record names an owner-only audit-log home under the fleet home"
+else
+  fail "H1.4: audit_log_home='$(field audit_log_home)' rc=$RC"
+fi
+log=$AH/${REC##*/}
+log=${log%.record}.log
+out=$(jq -cn --arg c 'touch audit-new' --arg w "$WT" '{session_id:"s1", tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+  | (cd "$WT" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+if printf '%s' "$out" | grep -q '"allow"' && [ "$(wc -l <"$log" | tr -d ' ')" = 1 ] \
+  && grep -q ' session=s1 arm=own-branch cmd_sha256=' "$log"; then
+  pass "H1.4: a launched worker's approval lands in its own log there"
+else
+  fail "H1.4: no log line for the launched worker's approval (out='$out')"
+fi
+# aged <file> <days>: create <file> last written <days> days ago.
+aged() {
+  local e s
+  e=$(($(date +%s) - $2 * 86400))
+  s=$(date -u -d "@$e" +%Y%m%d%H%M 2>/dev/null || date -u -r "$e" +%Y%m%d%H%M)
+  : >"$1"
+  TZ=UTC0 touch -t "$s" "$1"
+}
+aged "$AH/old.log" 40
+aged "$AH/recent.log" 20
+: >"$AH/fresh.log"
+aged "$AH/old.keep" 40
+write "$WT"
+if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/recent.log" ] && [ -e "$AH/fresh.log" ] \
+  && [ -e "$AH/old.keep" ] && [ -e "$log" ]; then
+  pass "H1.4: at the default bound a launch prunes a 40-day log and keeps a 20-day one"
+else
+  fail "H1.4: pruning at the default bound (old.log $([ -e "$AH/old.log" ] && echo kept || echo gone), recent.log $([ -e "$AH/recent.log" ] && echo kept || echo gone))"
+fi
+aged "$AH/old.log" 40
+set_layer machine-local 'worker_audit_log_retention_days: 60'
+write "$WT"
+if [ "$RC" -eq 0 ] && [ -e "$AH/old.log" ]; then
+  pass "H1.4: the bound is the worker_audit_log_retention_days knob"
+else
+  fail "H1.4: a 60-day bound still pruned a 40-day log"
+fi
+set_layer machine-local 'worker_audit_log_retention_days: 2'
+aged "$AH/old.log" 5
+aged "$AH/day.log" 1
+write "$WT"
+if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/day.log" ]; then
+  pass "H1.4: a two-day bound prunes a 5-day log and keeps a 1-day one"
+else
+  fail "H1.4: a two-day bound"
+fi
+set_layer machine-local 'worker_audit_log_retention_days: soon'
+aged "$AH/old.log" 40
+aged "$AH/recent.log" 20
+write "$WT"
+if [ "$RC" -eq 0 ] && [ ! -e "$AH/old.log" ] && [ -e "$AH/recent.log" ] && [ -n "$(field audit_log_home)" ]; then
+  pass "H1.4: a malformed bound falls back to the default"
+else
+  fail "H1.4: a malformed bound (rc=$RC)"
+fi
+set_layer machine-local ''
+rm -rf "$AH"
+ln -s "$T/home" "$AH"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ -z "$(field audit_log_home)" ] && grep -q 'no write arm' "$T/err"; then
+  pass "H1.4: an audit-log home reached through a symlink is omitted with a warning"
+else
+  fail "H1.4: a symlinked audit-log home was recorded"
+fi
+out=$(jq -cn --arg c 'touch audit-new' --arg w "$WT" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+  | (cd "$WT" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+if [ -z "$out" ]; then
+  pass "H1.4: and the worker gets no own-branch approval"
+else
+  fail "H1.4: an own-branch approval without an audit-log home"
+fi
+rm -f "$AH"
+
+echo "### launch backend: a headless launch is recorded for the dispatcher to read"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
+  pass "launch_backend: an interactive launch records none"
+else
+  fail "launch_backend: an interactive launch recorded one (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND=stream-json /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field launch_backend)" = stream-json ]; then
+  pass "launch_backend: a stream-json launch records launch_backend=stream-json"
+else
+  fail "launch_backend: a stream-json launch left no record (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND=headless-oneshot /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field launch_backend)" = headless-oneshot ]; then
+  pass "launch_backend: a one-shot launch records launch_backend=headless-oneshot"
+else
+  fail "launch_backend: a one-shot launch left no record (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND='stream-json;x' /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
+  pass "launch_backend: a value that is not a headless backend is not recorded"
+else
+  fail "launch_backend: an unknown value was recorded (rc=$RC)"
 fi
 
 echo

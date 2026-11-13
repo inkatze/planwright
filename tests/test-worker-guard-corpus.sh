@@ -88,19 +88,19 @@ if [ "$(corpus_git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$CORPUS_UNIT_BRA
 else
   fail "sandbox: the unit branch or origin/main does not resolve"
 fi
-# Approves only when the hook's TMPDIR is a real directory other than the
-# recorded scratch root.
+# Approves only when the hook's TMPDIR is the recorded scratch root, as the
+# launcher exports it: the guard keeps the scratch arm off otherwise.
 tmpdir_probe() {
   cat >/dev/null
-  if [ -d "$TMPDIR" ] && [ "$TMPDIR" != "$CORPUS_SCRATCH" ]; then
+  if [ -d "$TMPDIR" ] && [ "$TMPDIR" = "$CORPUS_SCRATCH" ]; then
     printf '%s\n' '{"hookSpecificOutput":{"permissionDecision":"allow"}}'
   fi
 }
 if grep -qx "scratch_root=$CORPUS_SCRATCH" "$CORPUS_BOX/state/record.3" \
   && [ "$(corpus_decide tmpdir_probe 3 true)" = allow ]; then
-  pass "sandbox: the scratch root comes from the record, not the hook's TMPDIR"
+  pass "sandbox: the hook's TMPDIR is the recorded scratch root"
 else
-  fail "sandbox: the hook's TMPDIR is the recorded scratch root"
+  fail "sandbox: the hook's TMPDIR is not the recorded scratch root"
 fi
 if corpus_git rev-parse -q --verify refs/heads/other >/dev/null 2>&1 \
   && corpus_git rev-parse -q --verify origin/other >/dev/null 2>&1 \

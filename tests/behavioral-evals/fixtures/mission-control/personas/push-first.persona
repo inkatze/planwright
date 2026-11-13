@@ -1,0 +1,11 @@
+# push-first.persona — a wake is delivered while idle and held while busy until idle; with push off the tick finds it.
+arm=REQ-E1.3
+expertise=expert
+answer.1=@event:wake
+answer.2=@event:busy
+answer.3=@event:wake
+answer.4=@event:idle
+answer.5=@event:config push=off
+answer.6=@event:wake
+answer.7=@event:tick
+answer.8=that's all

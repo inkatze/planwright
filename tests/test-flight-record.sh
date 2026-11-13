@@ -69,6 +69,11 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lib/hermetic-env.sh"
 ROOT=$(cd "$here/.." && pwd -P)
 SCRIPT="$ROOT/scripts/flight-record.sh"
+[ -r "$ROOT/tests/lib/emitter-lint.sh" ] || {
+  echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
+  exit 1
+}
+. "$ROOT/tests/lib/emitter-lint.sh"
 ESC=$(printf '\033')
 ZWSP=$(printf '\342\200\213')
 
@@ -224,6 +229,9 @@ for home in pr file; do
   }
   lead=$(lead_of "$OUT")
   body=$(collapsed_of "$OUT")
+  printf '%s\n' "$OUT" >"$tmp/record-$home.md"
+  lint_emitted markdown flight-record.sh "$tmp/record-$home.md" \
+    || fail "$home: the rendered record must pass the markdown lint"
 
   printf '%s\n' "$OUT" | head -n 1 | grep -qx "<!-- planwright:flight-record id=$FID home=$home -->" \
     || fail "$home: the record must open with its marker line"

@@ -31,6 +31,13 @@ check() { # <label> <command...>
 }
 not() { ! "$@"; }
 
+[ -r "$REPO_ROOT/tests/lib/emitter-lint.sh" ] || {
+  echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
+  exit 1
+}
+# shellcheck source=tests/lib/emitter-lint.sh
+. "$REPO_ROOT/tests/lib/emitter-lint.sh"
+
 SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/ready-flip.XXXXXX") || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 STUBBIN="$SANDBOX/bin"
@@ -79,6 +86,10 @@ case "$1 $2" in
           none) roll='[]' ;;
           own-status-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"FAILURE"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"PENDING"}]' ;;
           own-status-only) roll='[{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"SUCCESS"}]' ;;
+          superseded-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}]' ;;
+          tied-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
+          superseded-red-first) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
+          capped) roll=$(i=0; printf '['; while [ $i -lt 100 ]; do [ $i = 0 ] || printf ','; printf '{"__typename":"CheckRun","name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' "$i"; i=$((i + 1)); done; printf ']') ;;
           own-name-checkrun-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
         esac
         printf '{"headRefOid":"%s","statusCheckRollup":%s}\n' "$head" "$roll"
@@ -274,8 +285,38 @@ check "the record names the head SHA" grep -q "$(gitf rev-parse HEAD)" "$GHS/com
 for p in ready-guard ci-rollup review-converged awaiting-input; do
   check "the record carries a passing row with evidence for $p" grep -Eq "^\| $p \| pass \| [^ |][^|]* \|$" "$GHS/comment.1"
 done
+check "the record passes the markdown lint" lint_emitted markdown ready-flip.sh "$GHS/comment.1"
 check "a pass writes no park" [ "$(leads)" = 0 ]
 check "the handoff says flipped" grep -q 'flipped' <<<"$OUT"
+
+echo "# version 3 parks as version 2; an undefined version is refused (invariant-tasks REQ-F1.7)"
+# redeclare <version> — the unit's tasks.md re-declared, committed and pushed.
+redeclare() {
+  sed "s/^\\*\\*Format-version:\\*\\* 2\$/**Format-version:** $1/; s/^- \\*\\*Deliverables:\\*\\* x\$/&\\
+- **Repository:** alpha/" "$F/wt/$TASKS" >"$F/wt/$TASKS.new"
+  mv "$F/wt/$TASKS.new" "$F/wt/$TASKS"
+  gitf commit -q -am "chore: version $1"
+  gitf push -q origin "$BRANCH" 2>/dev/null
+  record_review
+}
+for v in 3 4; do
+  fixture
+  set_policy unit-owner
+  redeclare "$v"
+  echo failing >"$GHS/ci"
+  before=$(origin_head)
+  run_helper flip --spec specs/demo --task 1
+  if [ "$v" = 3 ]; then
+    check "the version 3 fixture carries a Repository: field" grep -q '^- \*\*Repository:\*\* alpha$' "$F/wt/$TASKS"
+    check "a version 3 failing rollup parks (exit 4)" [ "$CODE" = 4 ]
+    check "the version 3 park names the predicate" grep -q '^- \*\*Task 1\*\* — pending ready-flip: ci-rollup' <<<"$(bullet)"
+  else
+    check "an undefined version (4) is refused (exit 5)" [ "$CODE" = 5 ]
+    check "the undefined-version refusal names the declaration" grep -q 'undefined Format-version' <<<"$OUT"
+    check "an undefined version writes no park" [ "$(origin_head)" = "$before" ]
+  fi
+  check "version $v makes no flip call" [ "$(calls 'pr ready')" = 0 ]
+done
 
 echo "# exactly one predicate fails: the PR stays draft and the predicate is parked"
 fixture
@@ -549,6 +590,31 @@ run_helper flip --spec specs/demo --task 1
 check "a check run named like a point status is judged, not excluded" [ "$CODE" = 4 ]
 fixture
 set_policy unit-owner
+echo superseded-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a failed run superseded by a passing re-run of its check is green, the newer listed first" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo superseded-red-first >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "and with the older failure listed first" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo superseded-red >"$GHS/ci"
+run_helper evaluate --spec specs/demo --task 1
+check "the green count is one per check context, not per run" grep -q 'ci-rollup	pass	1 check(s) green' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo tied-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a failure started in the same second as a success of its check is not green" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
+echo capped >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a check list at its cap of 100 is a failed precondition" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
 echo 0123456789012345678901234567890123456789 >"$GHS/head_override"
 run_helper flip --spec specs/demo --task 1
 check "a rollup that keeps naming another head is refused unparked (exit 5)" [ "$CODE" = 5 ]
@@ -579,6 +645,7 @@ check "a failing flip call parks (exit 4)" [ "$CODE" = 4 ]
 check "the record and a follow-up comment were both written" [ "$(calls 'pr comment')" = 2 ]
 check "the follow-up names the failed flip" grep -qi 'flip was not made.*gh exit 1' "$GHS/comment.2"
 check "the follow-up says the flip was parked" grep -q 'parked under' "$GHS/comment.2"
+check "the follow-up passes the markdown lint" lint_emitted markdown ready-flip.sh "$GHS/comment.2"
 check "the park names flip-call" grep -q 'pending ready-flip: flip-call' <<<"$(bullet)"
 
 echo "# skips: no PR, no host CLI, already ready, the human policy"
@@ -595,7 +662,7 @@ set_policy unit-owner
 before=$(origin_head)
 nogh="$SANDBOX/nogh-$RANDOM"
 mkdir -p "$nogh"
-for t in git jq sh bash cat sed awk grep tr date mktemp head tail wc cut sort printf env dirname basename rm mv cp mkdir timeout sleep; do
+for t in git jq sh bash cat sed awk grep tr date mktemp head tail wc cut sort printf env dirname basename rm mv cp mkdir timeout sleep cmp; do
   p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$nogh/$t"
 done
 OUT=$(cd "$F/wt" && env PATH="$nogh" PLANWRIGHT_REPO_ROOT="$F/wt" PLANWRIGHT_LOCAL_CONFIG= \

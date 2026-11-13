@@ -26,6 +26,14 @@
 #   resolve-steps.sh <point> --preamble
 #   resolve-steps.sh <point> [--pool <pool> --owner <pid>] --prefix
 #   resolve-steps.sh <point> [--pool <pool> --owner <pid>] --line <location> [<arg>...]
+#   resolve-steps.sh --check-env
+#
+#   --check-env   exit 6, naming each PLANWRIGHT_STEP_* variable in the
+#                 environment outside the documented context names (and the
+#                 right spelling for a known misspelling); 0 when none. The
+#                 sibling step scripts call it: step-run.sh and
+#                 step-record.sh refuse on it for the verbs their headers
+#                 name and only warn for the others.
 #
 #   <point>       one of the named points of doctrine/custom-steps.md's
 #                 vocabulary (the wired points, the two flip points, and the
@@ -179,14 +187,16 @@
 #      --explain, or with a render mode; --pool or --owner alone, repeated,
 #      without a value, or outside --prefix and --line; --line
 #      without an absolute location, with a control byte in it, or with an
-#      arg outside the charset
+#      arg outside the charset; --check-env with a point, a mode flag, or an
+#      attendance flag
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
 #      repo-tracked config or catalog (config-get's own 4, resolve-catalog's
 #      hard-fail naming the repo-tracked layer)
 #   5  broken install: a malformed core list, entry, or catalog, a point key
 #      absent from every layer, a missing or duplicated pipeline-entry line,
 #      an unusable sibling script
-#   6  a refused context value (--preamble / --prefix / --line only)
+#   6  a refused context value (--preamble / --prefix / --line only); or, with
+#      --check-env, a PLANWRIGHT_STEP_* name outside the documented set
 #   130 / 143  interrupted or terminated by a signal (the shell's own
 #      convention), the scratch directory removed and any sibling read
 #      still running stopped
@@ -249,6 +259,7 @@ usage() {
   echo "       resolve-steps.sh <point> --preamble" >&2
   echo "       resolve-steps.sh <point> [--pool <pool> --owner <pid>] --prefix" >&2
   echo "       resolve-steps.sh <point> [--pool <pool> --owner <pid>] --line <location> [<arg>...]" >&2
+  echo "       resolve-steps.sh --check-env" >&2
   exit 2
 }
 
@@ -260,6 +271,7 @@ preamble=0
 prefix=0
 line_mode=0
 line_words=()
+check_env=0
 attendance=""
 hold_pool=""
 hold_owner=""
@@ -292,6 +304,7 @@ while [ $# -gt 0 ]; do
       fi
       shift
       ;;
+    --check-env) check_env=1 ;;
     --explain) explain=1 ;;
     --check) check=1 ;;
     --preamble) preamble=1 ;;
@@ -332,6 +345,39 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# --check-env stands alone: it judges the environment's PLANWRIGHT_STEP_*
+# names against CONTEXT_FIELDS and the hold mark, the one list the sibling
+# step scripts consult, so a misspelled name fails loudly instead of being
+# dropped. The caller picks refuse (exit 6) or warn.
+if [ "$check_env" -eq 1 ]; then
+  [ "$n_points" -eq 0 ] && [ $((explain + check + preamble + prefix + line_mode + pool_given + owner_given)) -eq 0 ] \
+    && [ -z "$attendance" ] || usage
+  bad_names=0
+  for name in $(compgen -v PLANWRIGHT_STEP_); do
+    suffix=${name#PLANWRIGHT_STEP_}
+    case " $CONTEXT_FIELDS POOL_HOLD " in
+      *" $suffix "*) continue ;;
+    esac
+    case "$suffix" in
+      SPEC_ID) hint="PLANWRIGHT_STEP_SPEC" ;;
+      TASK_ID | TASK) hint="PLANWRIGHT_STEP_TASK_IDS" ;;
+      PR) hint="PLANWRIGHT_STEP_PR_NUMBER" ;;
+      BASE) hint="PLANWRIGHT_STEP_BASE_BRANCH" ;;
+      *) hint="" ;;
+    esac
+    if [ -n "$hint" ]; then
+      printf 'resolve-steps: %s is not a step context name; use %s\n' "$name" "$hint" >&2
+    else
+      documented=""
+      for f in $CONTEXT_FIELDS; do documented="$documented PLANWRIGHT_STEP_$f"; done
+      printf 'resolve-steps: %s is not a step context name; the documented names are:%s\n' \
+        "$name" "$documented" >&2
+    fi
+    bad_names=1
+  done
+  [ "$bad_names" -eq 0 ] || exit 6
+  exit 0
+fi
 [ "$n_points" -ge 1 ] || usage
 if [ "$pool_given" -ne "$owner_given" ] \
   || { [ "$pool_given" -eq 1 ] && { [ "$preamble" -eq 1 ] || [ $((prefix + line_mode)) -eq 0 ]; }; }; then
@@ -557,7 +603,7 @@ work=""
 pf_pids=""
 # shellcheck disable=SC2086 # the pid list is meant to word-split
 trap '[ -z "${pf_pids// /}" ] || kill $pf_pids 2>/dev/null; [ -z "$work" ] || rm -rf "$work"' EXIT
-work=$(mktemp -d) || die 5 "could not create a scratch directory"
+work=$(mktemp -d "${TMPDIR:-/tmp}/resolve-steps.XXXXXX") || die 5 "could not create a scratch directory"
 scratch="$work/scratch"
 replayed="$work/replayed"
 : >"$replayed"
@@ -1351,6 +1397,10 @@ validate_expensive() {
     }
     valid_id "$xpool" || {
       ERR="pool name outside the charset ^[a-z][a-z0-9-]*\$ (at most 64 bytes)"
+      return
+    }
+    [ "$xpool" != none ] || {
+      ERR="pool name none is reserved (it is full_suite_pool's unpooled value, never a pool)"
       return
     }
   fi

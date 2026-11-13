@@ -4,9 +4,10 @@
 dispatching skills — `/execute-task`, `/orchestrate`, `/spec-kickoff` — invoke
 plugin scripts (`scripts/<name>.sh`) many times per run. This doc fixes the one
 invocation shape they use, so a dispatched worker does not flood on a permission
-prompt for every such call. Its sections *Invoke by the shebang* and *One plain
-command per Bash call* cover every command any skill issues inside a dispatched
-worker or a tower session, `/polish` and `/self-review` included.
+prompt for every such call. Its sections *Invoke by the shebang*, *One plain
+command per Bash call* and *Test and lint runs go through the router* cover
+every command any skill issues inside a dispatched worker or a tower session,
+`/polish` and `/self-review` included.
 
 Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9 · custom-spec-location
 REQ-G1.4.
@@ -21,6 +22,17 @@ resolved literal absolute path. Never invoke through an unexpanded
 Resolve the root through the core root chain, defined in `spec-format`
 (*The core root chain*): `scripts/resolve-root.sh install`, invoked by its path
 in the copy the skill was loaded from, prints it.
+
+A root from an earlier invocation is never reused: after an upgrade or a
+plugin reload the plugin cache keeps older copies beside the installed one,
+and a remembered path still runs. A session that outlives an invocation (a
+standing one, or one resumed after a compaction) resolves again by running
+`scripts/resolve-root.sh install` from the installed copy: the first root
+`scripts/resolve-installed-roots.sh --current` prints, from any copy, or
+any copy when it prints none. The root resolver warns when it runs from, or
+answers with, a cached copy the record no longer names (a pin the session
+inherited included); the session then runs its scripts and docs from that
+first `--current` root instead. Mission control's scripts warn the same way.
 
 Take the resolved value once, then substitute it literally at each call site:
 
@@ -85,6 +97,17 @@ A declared command step's `--line` rendering is not an exception to strip: it
 runs exactly as the resolver prints it, its quoted `PLANWRIGHT_STEP_*`
 assignment prefix included, since that prefix carries the step's context and
 is the form the guard approves ([custom-steps](custom-steps.md)).
+
+## Test and lint runs go through the router
+
+Start every test or lint run, and a lefthook run, with the router:
+`<root>/scripts/compute-route.sh -- <command>` (for example
+`<root>/scripts/compute-route.sh -- bash tests/test-x.sh`), after any
+`timeout <secs>` or `nice -n <n>` prefix. With `fleet_compute_host` set it
+runs there; otherwise, or when the host is unreachable, busy or the tree has
+uncommitted changes, it runs here as written. The guard approves the form
+only when the command after `--` is one it approves on its own; a kind flag
+or a router run any other way prompts.
 
 ## Invoke by the shebang
 

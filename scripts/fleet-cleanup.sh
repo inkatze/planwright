@@ -34,8 +34,9 @@
 #       identity is resolved from the caller's own pane ($TMUX_PANE via
 #       `tmux display-message`); it is refused if it resolves to that window.
 #   fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]
-#       Remove a clean, provably-reclaimable git worktree (git worktree remove).
-#       Refused if <path> is (or contains) the caller's own worktree, or if it
+#       Remove a clean, provably-reclaimable git worktree (git worktree remove),
+#       with its session records and the scratch roots the fleet home records
+#       for it and its sessions (scripts/fleet-scratch.sh). Refused if <path> is (or contains) the caller's own worktree, or if it
 #       carries uncommitted work, or if neither evidence path below holds:
 #         A. upstream parity — a configured upstream, zero commits ahead;
 #         B. --merged-pr <n> — this script verifies via `gh` that PR <n> is
@@ -77,8 +78,9 @@
 #           failed completion or one with unlanded work (exit 9): the
 #           detector leaves those unclassified for the operator.
 #
-#       The close itself is the rung's own `stop`
-#       (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
+#       The close itself is the rung's own `stop --final`, the last close,
+#       which also removes the worker's scratch root when no other session
+#       still uses it (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
 #       the fleet has one kill path: this arm matches no process, sends no
 #       signal, and releases nothing of its own. It runs under the worker's
 #       reap lock (scripts/fleet-reap-lock.sh), so towers sweeping one fleet
@@ -206,7 +208,7 @@ valid_worker() {
 # The registry's owner-token grammar (fleet-state.sh valid_owner).
 valid_owner() {
   case $1 in
-    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._-]*) return 1 ;;
+    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._:-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
 }
@@ -677,7 +679,10 @@ case "$cmd" in
     fi
     # The worktree's session records (scripts/worker-session-record.sh) name
     # a worktree that no longer exists, and the tmux rung writes one per
-    # launch, so this is where they stop accumulating.
+    # launch, so this is where they stop accumulating. The worktree's scratch
+    # roots go with them, its own and every session's (scripts/
+    # fleet-scratch.sh reclaim): every rung keeps them across stops and
+    # recovers, and reclaiming the worktree is the unit's reap.
     rec_home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || rec_home=""
     rec_key=$(printf '%s' "$target_wt" | git hash-object --stdin 2>/dev/null) || rec_key=""
     case $rec_home:$rec_key in
@@ -687,7 +692,11 @@ case "$cmd" in
             \( -name "$rec_key.record" -o -name "$rec_key-*.record" \) \
             -exec rm -f -- {} + 2>/dev/null \
           || warn "removed worktree '$path' but could not remove its session records"
+        [ ! -d "$rec_home" ] \
+          || /bin/sh "$script_dir/fleet-scratch.sh" reclaim "$rec_home" "$rec_key" >/dev/null 2>&1 </dev/null \
+          || warn "removed worktree '$path' but could not remove its scratch roots"
         ;;
+      *) warn "removed worktree '$path' but could not name its session records and scratch root, so they stay" ;;
     esac
     if ! audit worktree-cleanup cleanup "$trigger" "$reasoning"; then
       warn "removed worktree '$path' but FAILED to record it in the audit trail"
@@ -977,7 +986,8 @@ EOF
       exit 5
     fi
     stop_rc=0
-    result=$(/bin/sh "$script_dir/$rung" stop "$worker" "$@") || stop_rc=$?
+    # A reap is the worker's last close, so its scratch root goes too.
+    result=$(/bin/sh "$script_dir/$rung" stop "$worker" "$@" --final) || stop_rc=$?
     [ -z "$result" ] || printf '%s\n' "$result"
 
     held=""

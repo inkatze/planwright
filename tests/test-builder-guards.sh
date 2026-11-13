@@ -36,7 +36,6 @@ fi
 # emits <tool>? — true if the run output names a guard backed by <tool>.
 # The output contract is tab-separated `<id>\t<category>\t<tool>` lines.
 tools_of() { awk -F'\t' '{print $3}'; }
-cats_of() { awk -F'\t' '{print $2}'; }
 ids_of() { awk -F'\t' '{print $1}'; }
 
 # ---------------------------------------------------------------------------
@@ -56,12 +55,14 @@ for t in shfmt shellcheck markdownlint yamllint jq shell-test-runner \
   fi
 done
 
-# planwright is a typed-language-free shell/docs project: no type-checker fires
-# (proving detection is real, not a fixed checklist).
-if printf '%s\n' "$(printf '%s\n' "$core_out" | cats_of)" | grep -qx "type-checker"; then
-  fail "dogfood wrongly recommends a type-checker for a shell-only project"
+# planwright is shell and docs plus the panel mod's TypeScript: the one
+# type-checker that fires is TypeScript's (proving detection is real, not a
+# fixed checklist).
+checkers=$(printf '%s\n' "$core_out" | awk -F'\t' '$2 == "type-checker" { print $1 }')
+if [ "$checkers" = "typecheck-ts" ]; then
+  pass "dogfood recommends exactly the TypeScript type-checker the mod's files call for"
 else
-  pass "dogfood recommends no type-checker (shell has none)"
+  fail "dogfood type-checkers are '$checkers', expected only typecheck-ts"
 fi
 
 # ---------------------------------------------------------------------------
@@ -90,7 +91,8 @@ fi
 # The breadth entries that carry a concrete category (`core: false` under
 # breadth:) follow the same contract: surfaced by a full run under that
 # category, never promoted into --core.
-for spec in "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern"; do
+for spec in "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern" \
+  "script-invocation-house-pattern house-pattern" "count-versus-list linter" "test-vacuity linter"; do
   bid=${spec% *}
   bcat=${spec#* }
   if printf '%s\n' "$full_out" | awk -F'\t' -v id="$bid" '$1==id{print $2}' | grep -qx "$bcat"; then

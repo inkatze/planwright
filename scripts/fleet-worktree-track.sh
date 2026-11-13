@@ -245,7 +245,7 @@ rewrite_locked() {
 # it unchanged (a remove of an already-gone worktree keeps the raw payload form).
 normalize_if_exists() {
   if [ -e "$1" ]; then
-    nie=$(cd "$1" 2>/dev/null && pwd -P) && [ -n "$nie" ] && {
+    nie=$(cd -- "$1" 2>/dev/null && pwd -P) && [ -n "$nie" ] && {
       printf '%s' "$nie"
       return 0
     }

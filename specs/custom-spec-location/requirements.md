@@ -1,7 +1,7 @@
 # Custom spec location — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-29
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -23,6 +23,23 @@ degrade by a stated ladder instead of failing or, worse, silently resolving to
 an empty location. The altitude of the deliverable is recorded in D-1: a core
 capability seam plus the doctrine amendments it needs, with the specific
 locations staying overlay values.
+
+**Extension (2026-10-25): dispatching from a holder.** Every dispatching
+session has had to start in the work repository that owns the pointer: a
+session started in a holder resolves the holder itself as the work
+repository, so it would derive state from the wrong repository and
+dispatch into it. The reverse registry this bundle deferred (D-21) is now
+needed, because mission-control's program runs from a holder and dispatches
+into several work repositories. The extension builds it as machine-local
+runtime state: each work repository registers itself against the root its
+pointer names, every read revalidates an entry against that repository's
+own pointer, and a repository goes by an alias every machine agrees on
+(REQ-I, D-22 to D-24). A session in a holder then resolves each task's
+work repository through the registry, by the task's own repository alias
+where `invariant-tasks`' format-version 3 gives it one, and dispatches the
+unit there (D-25). The altitude is unchanged: a capability seam under D-1.
+*(Cites: D-22, D-23, D-24, D-25; mission-control D-22 (Sources);
+obs:74a7f907, obs:e1722435.)*
 
 **Terms used throughout.** The **work repository** is the git repository
 whose code the tasks change and from whose branches, PRs, and commit
@@ -63,6 +80,9 @@ the **primary view** is the primary checkout's (or the holder's) copy
   checkout resolves its own tree.
 - Guards, CI wiring, the options reference, adopter docs, and the doctrine
   amendments the new shape needs.
+- *(Extension 2026-10-25.)* The work-repository registry (registration,
+  revalidation on read, rebuild by scan), the `repository_alias` option, and
+  dispatch from a holder checkout into each unit's work repository.
 
 ### Out of scope
 
@@ -76,6 +96,14 @@ the **primary view** is the primary checkout's (or the holder's) copy
 - A reverse registry mapping a root back to its work repository: not
   delivered here, deferred behind a gate (see `tasks.md`); every dispatching
   session today starts in the work repository that owns the pointer.
+  *(Amended at extension 2026-10-25: the gate is met and the registry moves
+  in scope as REQ-I, D-22 superseding D-21.)*
+- *(Extension 2026-10-25.)* The per-task repository field and the
+  per-repository derivation that reads it: `invariant-tasks`'
+  format-version 3, consumed here.
+- *(Extension 2026-10-25.)* Discovering checkouts the operator never opened
+  a planwright session in and never named to `scan`: the registry holds
+  only what registered or was scanned.
 - Public-adopter observation fan-in (repositories the operator cannot read,
   issue-based submission). Named targets cover one operator's own machine.
 - Any change to sign-off, merge, or the never-auto-merge invariants.
@@ -365,8 +393,104 @@ the **primary view** is the primary checkout's (or the holder's) copy
   *(Cites: D-3, D-4.)*
 - **REQ-H1.3** Every option this spec introduces SHALL ship dark: `spec_root`
   absent from `config/defaults.yml` (absent is unset; its options-reference
-  row states the default), `observation_targets` empty.
+  row states the default), `observation_targets` empty, `repository_alias`
+  absent (REQ-I1.7).
   *(Cites: D-3; customization-boundary criterion 5.)*
+  *(Amended at extension kickoff 2026-10-29: `repository_alias` named in the
+  list, gap-fill under the existing every-option rule.)*
+
+## REQ-I — The work-repository registry and holder dispatch
+
+- **REQ-I1.1** A machine-local work-repository registry SHALL map each
+  marker-bearing spec root, by its marker's `project` and its canonical
+  path, to the repositories registered against it, each entry an alias and
+  a primary checkout root. It is framework runtime state in the plugin data
+  home, never committed and never inside a work tree, and it SHALL be
+  losable: `scan` over the directories it is given rebuilds every entry.
+  *(Cites: D-22, D-23; mission-control REQ-H1.3 (Sources).)*
+- **REQ-I1.2** A work repository whose resolved spec root is not the
+  default SHALL be registered against that root whenever a planwright
+  session starts in it, and on demand through `register`; a holder checkout
+  MAY register itself against a root it contains, for tasks whose code
+  lives in the holder. Registration SHALL be idempotent and SHALL never
+  write a registry when no non-default root is configured.
+  *(Cites: D-23.)*
+- **REQ-I1.3** A repository's alias SHALL be its `repository_alias` value
+  from the repo-tracked layer when one is set and matches the identifier
+  grammar, and otherwise the repository name of its `origin` remote when
+  that name, lowercased, matches the identifier grammar. A
+  `repository_alias` value in any other layer SHALL be ignored with a
+  warning, since a machine-local alias could disagree across machines. A
+  repository with neither SHALL NOT be registered, and the refusal SHALL
+  name the option to set.
+  *(Cites: D-24.)*
+- **REQ-I1.4** Every registry read SHALL revalidate each entry it uses: the
+  checkout exists and is a primary checkout; a work repository's resolved
+  spec root canonicalizes to the entry's root, or a holder's checkout
+  contains it; and the root's marker names the entry's project. An entry
+  that fails SHALL be ignored and reported by `--explain`; two live entries
+  with the same alias under one project SHALL make that alias resolve to
+  nothing, naming both checkouts.
+  *(Cites: D-23.)*
+- **REQ-I1.5** In a holder session, where the bundle's root carries a
+  marker, lies in the current repository, and is not that repository's own
+  resolved spec root, a task's work repository SHALL resolve through the
+  registry: by the task's `Repository:` alias when it carries one
+  (`invariant-tasks` format-version 3), otherwise to the project's one
+  registered work repository other than the holder. No match, or more than
+  one, SHALL refuse naming the candidates, and SHALL never fall back to the
+  holder.
+  *(Cites: D-25; mission-control REQ-H1.3 (Sources).)*
+- **REQ-I1.6** `/orchestrate`, including its meta-step, SHALL dispatch a
+  selected unit into its task's resolved work repository whichever
+  repository the session started in: a task carrying a `Repository:` alias
+  into the alias's registry resolution (REQ-I1.5's lookup) from a holder or
+  a work-repository session alike, and a task without one into the
+  repository REQ-I1.5 or the existing resolver answers. The worktree, the
+  task branch, the worker's working directory, the pull request, and the
+  commit trailers are there; the spec root is handed to the worker's write
+  zone (REQ-E1.7); the dispatch markers and the per-spec lock stay in their
+  existing per-bundle home; and the freshness gate reads the bundle's
+  primary view (REQ-E1.5). A spec root outside the launch repository SHALL
+  never refuse a dispatch on that ground alone (REQ-E1.4). A dispatch
+  started in a work repository for a task without an alias SHALL otherwise
+  be unchanged.
+  *(Cites: D-25; REQ-E1.4; obs:e1722435.)*
+- **REQ-I1.7** With no non-default spec root configured in any layer, no
+  registry SHALL be written or read and every resolution SHALL be
+  byte-identical to before (the REQ-H1.1 fixture unchanged), and
+  `repository_alias` SHALL ship absent from `config/defaults.yml`.
+  *(Cites: D-22; REQ-H1.1, REQ-H1.3.)*
+- **REQ-I1.8** Registry content SHALL be treated as untrusted input:
+  aliases and project ids validated against the identifier grammar before
+  any use, paths canonicalized and checked before use, echoed values
+  sanitized, and the file replaced atomically under a lock so a concurrent
+  registration never leaves it torn.
+  *(Cites: D-23.)*
+
+## Settled rulings (extension kickoff, 2026-10-29)
+
+The extension was drafted unattended with its choices listed as open
+questions; the operator settled each at the kickoff. Record in
+`kickoff-brief.md` §9.
+
+1. **A runtime registry (D-22, D-23).** Machine-local runtime state,
+   auto-registered at session start, with `register` and `scan` for
+   on-demand registration and rebuilds; not an operator-maintained map.
+2. **The alias (D-24, REQ-I1.3).** The repo-tracked `repository_alias`,
+   else the `origin` repository name, resolved to a checkout only through
+   the registry.
+3. **The default for a task with no alias (REQ-I1.5).** The single
+   registered work repository; with several, the dispatch refuses.
+4. **One repository per task.** A task names at most one repository
+   (`invariant-tasks` format-version 3).
+5. **Cross-bundle ordering.** Carried as a cross-spec hard edge inside
+   Task 12's `Dependencies:` parenthetical (`invariant-tasks` Tasks 10 and
+   11), with a Done-when line as the ordering check; `invariant-tasks` Task
+   11 carries the edge to this Task 11. The selector reads the clause as
+   advisory today.
+6. **No status change.** The `anchor re-review pending` park on Task 11 is
+   removed at sign-off; the bundle keeps its derived status.
 
 ## Changelog
 
@@ -396,6 +520,27 @@ the **primary view** is the primary checkout's (or the holder's) copy
   lower layer (REQ-A1.3). Aligned D-3's Decision, the REQ-A1.3 test-spec
   pin, and Task 2's deliverables and Done-when. Record in `kickoff-brief.md`
   §9.
+- 2026-10-25 — Extension drafted via `/spec-draft --extend
+  custom-spec-location` (meaning-class, awaiting kickoff): the reverse
+  registry's gate is met, so the registry and dispatch from a holder move in
+  scope. New REQ-I1.1–REQ-I1.8, D-22–D-25 (D-22 supersedes D-21), Tasks
+  11–13, and their test-spec entries; the Out-of-scope line and the Deferred
+  entry annotated as promoted. Routed here by mission-control Task 12
+  (mission-control D-22); seeded by the reverse-registry pending note,
+  obs:74a7f907, and obs:e1722435. Drafted unattended, so every choice an
+  operator would have made is listed under *Open questions for the
+  kickoff*.
+- 2026-10-29 — Extension kickoff sign-off (meaning-class, pre-merge for the
+  extension, in place): the open questions recorded as *Settled rulings*;
+  REQ-I1.6 dispatches an aliased task into its own repository from any
+  session and carries the meta-step's out-of-repository refusal removal
+  (obs:e1722435); REQ-I1.3 reads `repository_alias` from the repo-tracked
+  layer only and grammar-checks it; Task 11 pins the `--repository` exit
+  contract; Task 12 gains the cross-spec hard edge, the meta-step
+  deliverable, and the aliased work-repository case; the REQ-I1.6 test-spec
+  entry tagged `manual`; REQ-H1.3 names `repository_alias` (post-merge,
+  gap-fill, annotated); the Task 11 park removed, no status change. Record
+  in `kickoff-brief.md` §9.
 
 ## Sources
 
@@ -452,6 +597,19 @@ the **primary view** is the primary checkout's (or the holder's) copy
   repository through a gitfile and a `commondir` entry whose paths are
   relative to the file holding them; the pointed-to location is a real
   repository, not a bare directory.
+- **mission-control D-22, REQ-H1.3 and Task 12 (2026-10-24).** The routed
+  amendment this extension carries: the holder-to-work-repository reverse
+  registry that lifts this bundle's deferred gate, so a session in a holder
+  dispatches into its work repositories.
+- **Pending note `specs/_pending/custom-spec-location-reverse-registry.md`
+  (2026-10-25).** The seed brief for this extension: the gap, what
+  mission-control needs, and the questions the drafting answered.
+- **obs:74a7f907** — a holder serving several work repositories: dispatch
+  from the launch repository sends every unit there, and state derives from
+  the wrong repository.
+- **obs:e1722435** — the meta-step refused a holder or plain store outright,
+  contradicting REQ-E1.4; the holder dispatch path is where that refusal
+  becomes a dispatch.
 - **Doctrine consulted:** `interaction-style`, `research-rigor`,
   `security-posture`, `proportionality`, `spec-format`,
   `engineering-decisions`, `customization-boundary`, `autopilot-reflex`,

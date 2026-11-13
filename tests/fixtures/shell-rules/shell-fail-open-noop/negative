@@ -1,0 +1,10 @@
+# expect-line: none
+# A handled failure, an explicit default, a plain best-effort command and an
+# annotated site.
+set -u
+prs=$(gh pr list --json number) || exit 2
+v=$(cat "$0.opt" 2>/dev/null) || v=''
+rm -f "$0.tmp" || true
+printf '%s\n' "x=\$(y) || true"
+w=$(cat "$0.w") || : # shell-fail-open-noop: an absent optional file means no override
+printf '%s %s %s\n' "$prs" "$v" "$w"

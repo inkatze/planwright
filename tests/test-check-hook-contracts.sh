@@ -178,6 +178,7 @@ assert_contains "a passing run says so" "hook-contracts" "$out"
 assert_contains "the plugin-global registration file is checked" "hooks/hooks.json" "$out"
 assert_contains "the worker settings fragment is checked" "worker-settings.json" "$out"
 assert_contains "the tower settings fragment is checked" "tower-settings.json" "$out"
+assert_contains "the mission-control settings fragment is checked" "mission-control-settings.json" "$out"
 
 # Helper: write a hooks.json registering one event at one command.
 write_hooks() {

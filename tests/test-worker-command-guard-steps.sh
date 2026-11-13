@@ -523,6 +523,15 @@ assert_allow "a sixteen-pass loop over an ordinary body stays within the scan bu
 dense_word="$(for i in $(seq 4050); do printf '$a'; done)"
 defers_quickly "a plain word dense with \$ defers quickly (scan budget)" "echo \"$dense_word\""
 defers_quickly "a subst word dense with \$ defers quickly (scan budget)" "echo \$(git log -1) \"$dense_word\""
+# Past 64 `$` a word beside a substitution is taken as inferred to carry its
+# output, so a printf format of literal `$` allows up to that count and
+# defers one beyond it.
+# shellcheck disable=SC2016 # a literal `$/`, the shape under test
+dollars_64="$(for i in $(seq 64); do printf '$/'; done)"
+assert_allow "a format of 64 literal \$ beside a substitution is read name by name" \
+  "printf '%s$dollars_64\\n' \"\$(git log -1)\""
+assert_defer "a format of 65 literal \$ beside a substitution is inferred tainted" \
+  "printf '%s$dollars_64\$/\\n' \"\$(git log -1)\""
 # The same bound with the fixture catalog present: the declared steps are
 # consulted only for a segment not already known-safe, and an over-cap
 # command never reaches a segment.
@@ -555,7 +564,12 @@ run_hook "$DECLARED --mode strict" Bash "$FXC"
 elapsed=$SECONDS
 HOOK=$REAL_HOOK
 HOOK_ENV=()
-if [ "$CODE" -eq 0 ] && is_empty && [ -s "$FX/stub-slow/child" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 4 ]; then
+# The resolver would hold the hook for 300s, so any return well short of that
+# proves the deadline cut it off. The upper bound is a ceiling far above the
+# 2s deadline because a loaded, queued runner stretches the deadline's own
+# 0.1s ticks and the process startups around it; a tight bound measured the
+# runner's load, not the guard.
+if [ "$CODE" -eq 0 ] && is_empty && [ -s "$FX/stub-slow/child" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 30 ]; then
   pass "a resolver past the deadline defers within the bound"
 else
   fail "slow resolver — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"

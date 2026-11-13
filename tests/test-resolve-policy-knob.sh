@@ -175,7 +175,7 @@ echo "ok: each gate knob resolves through all four layers and degrades to its st
 # the two outside every checkout, so a session cannot relax its own guard by
 # editing a repo-side file: those values are ignored, never degraded.
 printf 'ready_guard_behind_base: refuse\n' >"$core_cfg"
-for v in refuse conflict-only; do
+for v in refuse conflict-only checks; do
   reset_layers
   printf 'ready_guard_behind_base: %s\n' "$v" >"$core_cfg"
   got=$(rpk ready_guard_behind_base) || fail "ready_guard_behind_base: core '$v' did not resolve"
@@ -209,6 +209,29 @@ reset_layers
 got=$(rpk ready_guard_behind_base 2>/dev/null) || fail "ready_guard_behind_base: an unset key did not resolve"
 [ "$got" = refuse ] || fail "ready_guard_behind_base: an unset key resolved to '$got', expected refuse"
 echo "ok: ready_guard_behind_base reads only the core and adopter layers"
+
+# The convergence sync's knob declares no degrade target: every value of every
+# layer resolves, and a malformed one in any layer is a read failure the sync
+# parks on, never a silent merge or skip.
+for v in on-need always; do
+  for layer_cfg in "$core_cfg" "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
+    reset_layers
+    printf 'converge_sync_main: on-need\n' >"$core_cfg"
+    printf 'converge_sync_main: %s\n' "$v" >"$layer_cfg"
+    got=$(rpk converge_sync_main) || fail "converge_sync_main: '$v' in $layer_cfg did not resolve"
+    [ "$got" = "$v" ] || fail "converge_sync_main: '$v' in $layer_cfg resolved to '$got'"
+  done
+done
+for layer_cfg in "$core_cfg" "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'converge_sync_main: on-need\n' >"$core_cfg"
+  printf 'converge_sync_main: sometimes\n' >"$layer_cfg"
+  rc=0
+  rpk converge_sync_main >/dev/null 2>&1 || rc=$?
+  [ "$rc" != 0 ] || fail "converge_sync_main: a malformed value in $layer_cfg resolved instead of failing the read"
+done
+reset_layers
+echo "ok: converge_sync_main resolves from every layer and a malformed value fails the read"
 
 # YAML reads `key : v` as the key, and a repeated key as its last value, while
 # the flat reader skips the first and takes the first of the second: either
@@ -297,7 +320,8 @@ merge_class_strategy|sole-allowed
 worker_base_merge|allow
 worker_merge_conflict_policy|halt
 unpushed_rewrite|allow
-ready_guard_behind_base|refuse
+ready_guard_behind_base|checks
+converge_sync_main|on-need
 protected_branches|main master planwright/*/spec'
 reset_layers
 printf '%s\n' "$SHIPPED" | while IFS='|' read -r knob expected; do

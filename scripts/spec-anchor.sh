@@ -1,6 +1,9 @@
 #!/bin/sh
 # spec-anchor.sh — compute the planwright content anchor for a spec bundle.
 #
+# Usage:
+#   spec-anchor.sh <spec-dir>
+#
 # Canonical form, as defined in doctrine/spec-format.md (REQ-F1.9;
 # anchor-integrity REQ-A1.1, REQ-A1.2, REQ-A1.3): the anchor is the git hash
 # of the per-file digest list, in canonical order (requirements, design,
@@ -19,7 +22,8 @@
 #     this script parses no `Format-version:` at all.
 #   * tasks.md contributes its task-definition content only — task headings
 #     plus the Deliverables / Done when / Dependencies / Citations / Estimated
-#     effort field bullets (with their continuation lines), task records sorted
+#     effort field bullets and the version 3 Repository bullet, kept at every
+#     version (with their continuation lines), task records sorted
 #     by task id. Orchestration-state placement (which section a block sits in)
 #     and the Status / Last activity / Dispatch annotations are outside that
 #     extraction already, and so is its header block, so tasks.md needs no

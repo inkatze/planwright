@@ -5,14 +5,18 @@
 #   resolve-root.sh [--explain] install [--all]
 #   resolve-root.sh [--explain] repo --primary | --checkout
 #   resolve-root.sh [--explain] spec [--primary] [--posture] [--init]
-#   resolve-root.sh [--explain] marker <dir>
+#   resolve-root.sh [--explain | --project] marker <dir>
 #   (flags may appear anywhere among the arguments)
 #
 # install   which planwright copy runs: the first surviving arm of the core
 #           root chain (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, writer-mode,
 #           self-location), defined in doctrine/spec-format.md under "The core
 #           root chain", which also states which arms are skipped. This script
-#           is that definition's only implementation.
+#           is that definition's only implementation. Run from, or answering
+#           with, a plugin-cache copy the installed record no longer names, it
+#           still answers, and warns on stderr unless stderr is discarded
+#           (resolve-installed-roots.sh --check, which reads the record
+#           through jq).
 #   --all       print every content-bearing arm, one per line in chain order,
 #               instead of the first: for a consumer that looks a file up arm
 #               by arm, and for a command guard composing its trust set. An
@@ -73,6 +77,8 @@
 #           spec kind requires of a root other than the default. Prints the
 #           canonical directory; reads no config and no repository, so a
 #           caller can vet a root that belongs to another checkout.
+#   --project   print the valid marker's project field instead, so a caller
+#               never parses the marker itself; refused with --explain.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
@@ -104,9 +110,11 @@
 #   Callers treat 3 as "no repository" and degrade; they never compose a
 #   path from an empty root.
 #
-# POSIX sh with no dependency beyond git and tr, plus, for the spec kind,
-# (sed and head also for marker) sed, cut, grep, head, tail, mktemp, ln, rm, and the config resolvers: guards
-# and hooks exec it through /bin/sh, which is dash on Linux.
+# POSIX sh with no dependency beyond git and tr; the spec kind also needs
+# sed, cut, grep, head, tail, mktemp, ln, rm and the config resolvers, the
+# marker kind sed and head, and install from a plugin-cache copy stat and
+# the stale-copy check. Guards and hooks exec it through /bin/sh, which is
+# dash on Linux.
 set -u
 # Pin the C locale so tr's byte ranges below mean bytes.
 LC_ALL=C
@@ -125,7 +133,7 @@ say() {
 }
 
 usage() {
-  say "usage: resolve-root.sh [--explain] install [--all] | repo --primary|--checkout | spec [--primary] [--posture] [--init] | marker <dir>"
+  say "usage: resolve-root.sh [--explain] install [--all] | repo --primary|--checkout | spec [--primary] [--posture] [--init] | marker [--project] <dir>"
   exit 2
 }
 
@@ -135,6 +143,7 @@ explain=0
 posture_only=0
 init=0
 all=0
+project_only=0
 marker_dir=""
 for arg in "$@"; do
   case $arg in
@@ -142,6 +151,7 @@ for arg in "$@"; do
     --all) all=1 ;;
     --posture) posture_only=1 ;;
     --init) init=1 ;;
+    --project) project_only=1 ;;
     --primary | --checkout)
       [ -z "$view" ] || usage
       view=${arg#--}
@@ -214,6 +224,7 @@ try_arm() {
     skip_warn "$1" "$2" "not a directory holding doctrine/ or scripts/"
     return 0
   fi
+  [ "$found" -eq 1 ] || [ "$ta_canon" = "$ri_copy" ] || stale_check "$ta_canon"
   if [ "$all" -eq 1 ]; then
     found=1
     if [ "$explain" -eq 1 ]; then
@@ -226,8 +237,32 @@ try_arm() {
   emit "$1" "$ta_canon"
 }
 
+# stale_check <copy>: warn when <copy> is a plugin-cache copy the installed
+# record no longer names: an older version a session kept using, or a pin it
+# inherited. Skipped where stderr is discarded, and for a copy a calling
+# script already checked against this state of the record.
+stale_check() {
+  case $1 in
+    */plugins/cache/*) ;;
+    *) return 0 ;;
+  esac
+  [ ! /dev/stderr -ef /dev/null ] || return 0
+  [ -f "$script_dir/resolve-installed-roots.sh" ] || return 0
+  sc_rec=${CLAUDE_DIR:-${HOME:-}/.claude}/plugins/installed_plugins.json
+  # shell-gnu-only-flag: BSD stat -f is the fallback when GNU stat -c fails
+  sc_stamp=$(stat -c %Y "$sc_rec" 2>/dev/null || stat -f %m "$sc_rec" 2>/dev/null)
+  [ "${PLANWRIGHT_COPY_CHECKED:-}" != "$1|$sc_stamp" ] || return 0
+  /bin/sh "$script_dir/resolve-installed-roots.sh" --check "$1" >/dev/null || :
+}
+
 resolve_install() {
   found=0
+  # Still answered from a stale copy, never silently.
+  ri_copy=""
+  case $script_dir in
+    */plugins/cache/* | [!/]*) ri_copy=$(canon "$script_dir/..") || ri_copy="" ;;
+  esac
+  [ -z "$ri_copy" ] || stale_check "$ri_copy"
   writer_root=""
   if [ -n "${CLAUDE_DIR:-}" ]; then
     writer_root="$CLAUDE_DIR/planwright"
@@ -650,6 +685,7 @@ case $0 in
 esac
 
 [ "$all" -eq 0 ] || [ "$kind" = install ] || usage
+[ "$project_only" -eq 0 ] || { [ "$kind" = marker ] && [ "$explain" -eq 0 ]; } || usage
 case $kind in
   install | repo | marker)
     [ "$posture_only" -eq 0 ] && [ "$init" -eq 0 ] || usage
@@ -671,6 +707,10 @@ case $kind in
     [ "$(printf '%s' "$sr_primary" | tr -d '\000-\037\177')" = "$sr_primary" ] \
       || refuse_marker "its canonical path carries a control byte or tab"
     check_marker
+    if [ "$project_only" -eq 1 ]; then
+      printf '%s\n' "$cm_project"
+      exit 0
+    fi
     emit marker "$sr_primary"
     ;;
   repo | spec)

@@ -1,0 +1,1 @@
+match ^mc-readiness: usage: mc-readiness\.sh walk\|not-red\|collect\|check\|record\|watch \.\.\.; mc-readiness\.sh --help for each verb$

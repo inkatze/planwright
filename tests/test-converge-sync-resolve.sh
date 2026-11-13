@@ -39,7 +39,7 @@ PLANWRIGHT_LOCAL_CONFIG="$SANDBOX/local.yml"
 export PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_LOCAL_CONFIG
 
 set_knobs() {
-  printf '%s\n' "$@" >"$PLANWRIGHT_LOCAL_CONFIG"
+  printf '%s\n' 'converge_sync_main: always' "$@" >"$PLANWRIGHT_LOCAL_CONFIG"
 }
 
 gitc() {

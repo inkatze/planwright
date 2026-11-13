@@ -1,0 +1,1 @@
+- 2026-11-06 [planwright] Known security limitation for the remote-worker rung: the fleet account on the offload host (a Mac) has no keychain, so gh stores its token in plain text in the account's gh hosts.yml. Record it in the remote-worker rung's security posture and look for a keychain-backed or short-lived alternative.

@@ -95,6 +95,16 @@ cleanup() {
     senv "${cl_dir%/streamjson/*}" "$tmp/reap" -- stop "${cl_dir##*/}" --grace 2 >/dev/null 2>&1
   done
   fixture_reap "$tmp/"
+  # A root outside the fixture (c39's default base) outlives it otherwise.
+  for cl_rec in "$tmp"/h*/scratch/*.tmpdir; do
+    [ -f "$cl_rec" ] || continue
+    cl_home=${cl_rec%/scratch/*}
+    cl_root=$(head -n 1 "$cl_rec")
+    case $cl_root/ in
+      "$tmp"/*) ;;
+      *) /bin/sh "$here/../scripts/fleet-scratch.sh" release "$cl_home" "$cl_root" >/dev/null 2>&1 ;;
+    esac
+  done
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -106,6 +116,10 @@ tab=$(printf '\t')
 
 # The single env-driven CLI shim. One inode for the whole suite.
 mkdir -p "$tmp/bin"
+mkdir -m 700 "$tmp/scratch-base"
+# Every launch below, through senv or not, keeps its scratch root in the
+# fixture; c39's second worker alone takes the default base, on purpose.
+export PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
 # stream-json CLI shim (fixture), driven by env:
@@ -124,9 +138,15 @@ printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_R
 printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'spec_root=%s\n' "${PLANWRIGHT_WORKER_SPEC_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'record=%s\n' "${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'tmpdir=%s\n' "${TMPDIR-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'handle=%s\n' "${PLANWRIGHT_WORKER_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'scope=%s\n' "${PLANWRIGHT_WORKER_SCOPE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'backend=%s\n' "${PLANWRIGHT_SESSION_BACKEND-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'launch_token=%s\n' "${PLANWRIGHT_WORKER_LAUNCH_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'mc_token=%s\n' "${PLANWRIGHT_MC_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'tower=%s/%s/%s/%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" "${PLANWRIGHT_TOWER_SESSION_ID-<unset>}" \
+  "${PLANWRIGHT_TOWER_PID-<unset>}" "${PLANWRIGHT_TOWER_CHECKOUT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -180,7 +200,7 @@ env_scrub=(
   -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS
   -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
-  -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE
+  -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_MC_TOKEN
 )
 
 # senv <home> <record-dir> [SHIM_VAR=val...] -- <args...> — hermetic
@@ -198,6 +218,7 @@ senv() {
   shift
   env "${env_scrub[@]}" \
     PLANWRIGHT_FLEET_STATE_DIR="$se_home" \
+    PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
     SHIM_RECORD_DIR="$se_rec" \
     ${se_pre[@]+"${se_pre[@]}"} /bin/sh "$SJ" "$@"
@@ -244,6 +265,18 @@ plant_lock() {
 # out again while the cases below still read it as gone.
 dead_pid=999999999
 
+# live_pids <worker-dir> — make a worker whose run has ended read as live, with
+# this suite's own shell standing in for its supervisor and worker; unlive_pids
+# takes that back. An ended worker's requests are settled by a scan, never
+# escalated, so a case asserting escalation needs a live worker.
+live_pids() {
+  printf '%s\n' "$$" >"$1/supervisor.pid"
+  printf '%s\n' "$$" >"$1/worker.pid"
+}
+unlive_pids() {
+  rm -f "$1/supervisor.pid" "$1/worker.pid"
+}
+
 # ---------------------------------------------------------------------------
 # c1 (REQ-E1.1, REQ-A1.3): a can_use_tool receipt produces exactly one
 #    journal row and one decision-queue item; the duplicate delivery is
@@ -282,6 +315,9 @@ printf '%s\n' "$q" | grep -q "permission request tool Write" \
   || fail "c1: queue item should name the permission request"
 [ "$(aenv "$home" queue --count)" = 1 ] \
   || fail "c1: exactly one queue item expected (dedup), got: $(aenv "$home" queue --count)"
+# The question this writes is what the queue's tally tells an approval by.
+[ "$(aenv "$home" queue --tally)" = "operator${tab}0
+approvals${tab}1" ] || fail "c1: the request row must tally as an approval, got: $(aenv "$home" queue --tally)"
 out=$(senv "$home" "$rec" -- status sjw1) || fail "c1: status exited non-zero"
 case $out in
   "status sjw1 completed result=success") : ;;
@@ -321,6 +357,7 @@ echo "ok: c1f the supervisor stores the newest rate-limit frame (quota-handling 
 # ---------------------------------------------------------------------------
 received=$(awk -F'\t' -v id="$req_perm" '$1 == id { print $3 }' "$wdir/journal")
 [ -n "$received" ] || fail "c2: cannot read the received epoch"
+live_pids "$wdir"
 out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 100)) --threshold 900) \
   || fail "c2: below-threshold alarm-scan exited non-zero"
 [ -z "$out" ] || fail "c2: alarm fired below the threshold: $out"
@@ -356,6 +393,7 @@ rm -f "$wdir/journal.lock"
 cp "$tmp/j2.orig" "$wdir/journal" || fail "c2: cannot restore the journal"
 senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900 >/dev/null \
   || fail "c2: cannot restore the escalated queue row"
+unlive_pids "$wdir"
 echo "ok: c2 an alarm scan declines to publish while the journal is held (REQ-E1.1)"
 echo "ok: c2 pending-age alarm fires past threshold, escalation only (REQ-E1.1)"
 
@@ -388,10 +426,12 @@ grep -q 'Which way?' "$wdir3/req-$req_q.json" \
 grep -q '"label":"a"' "$wdir3/req-$req_q.json" \
   || fail "c3: the stored envelope must carry the question options (REQ-E1.2)"
 received=$(awk -F'\t' -v id="$req_q" '$1 == id { print $3 }' "$wdir3/journal")
+live_pids "$wdir3"
 out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900) \
   || fail "c3: alarm-scan exited non-zero"
 printf '%s\n' "$out" | grep -q "^alarm sjw3 $req_q " \
   || fail "c3: the question item should carry the same alarm coupling, got: $out"
+unlive_pids "$wdir3"
 echo "ok: c3 AskUserQuestion maps 1:1 with dedup and the same alarm coupling (REQ-E1.2)"
 
 # ---------------------------------------------------------------------------
@@ -588,10 +628,12 @@ grep -q -- "--resume $sid" "$rec/argv" \
 [ "$(grep -c "^$req_perm$tab" "$wdir7/journal")" = 1 ] \
   || fail "c7: dedup on request identity must hold across the resume boundary"
 received=$(awk -F'\t' -v id="$req_perm" '$1 == id { print $3 }' "$wdir7/journal")
+live_pids "$wdir7"
 out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900) \
   || fail "c7: post-recovery alarm-scan exited non-zero"
 printf '%s\n' "$out" | grep -q "^alarm sjw7 $req_perm " \
   || fail "c7: the pending item's alarm must re-arm after recovery, got: $out"
+unlive_pids "$wdir7"
 echo "ok: c7 crash window - durable receipt, single initiator, liveness check, --resume, dedup, alarm re-arm (REQ-E1.3, REQ-E1.5)"
 
 # ---------------------------------------------------------------------------
@@ -632,9 +674,17 @@ cat >"$tmp/prompt9" <<'EOF'
 run this: $(touch PWNED-marker) `touch PWNED-marker` "quoted" 'single'
 second line	with a tab
 EOF
-senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MESSAGING_INBOUND=refuse PLANWRIGHT_WORKER_HANDLE=stale -- \
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MESSAGING_INBOUND=refuse PLANWRIGHT_WORKER_HANDLE=stale \
+  PLANWRIGHT_TOWER_ID=stale-tower PLANWRIGHT_TOWER_PID=1 PLANWRIGHT_TOWER_CHECKOUT=/nonexistent \
+  PLANWRIGHT_SESSION_BACKEND=tmux -- \
   launch sjw9 execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
   || fail "c9: launch exited non-zero"
+grep -qx 'tower=<unset>/<unset>/<unset>/<unset>' "$rec/env" \
+  || fail "c9: the dispatcher's tower identity reached the worker: $(grep '^tower=' "$rec/env")"
+# The background-job guard keys on this: a stream-json session never resumes
+# on a background job's completion notice.
+grep -qx 'backend=stream-json' "$rec/env" \
+  || fail "c9: the worker must be told it runs on the stream-json backend: $(grep '^backend=' "$rec/env")"
 argv_line=$(cat "$rec/argv")
 case $argv_line in
   *"-p "*"--input-format stream-json"*"--output-format stream-json"*"--verbose"*"--permission-prompt-tool stdio"*) : ;;
@@ -776,6 +826,135 @@ chmod 644 "$tmp/badroot/config/worker-settings.json"
 echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 
 # ---------------------------------------------------------------------------
+# c9p (mission-control REQ-G1.1): --profile pins another shipped fragment by
+#    kind, a recover relaunches under the recorded one, and anything else is
+#    refused.
+# ---------------------------------------------------------------------------
+for kind in tower mission-control; do
+  : >"$rec/argv"
+  senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+    launch "sjw9p-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --foreground \
+    || fail "c9p: a --profile $kind launch exited non-zero"
+  case $(cat "$rec/argv") in
+    *"--settings "*"/config/$kind-settings.json"*) : ;;
+    *) fail "c9p: a --profile $kind launch must pin $kind-settings.json: $(cat "$rec/argv")" ;;
+  esac
+  [ "$(cat "$home/streamjson/sjw9p-$kind/profile" 2>/dev/null)" = "$kind" ] \
+    || fail "c9p: the launch must record the $kind profile for its recover"
+done
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9q mission-control:3 --prompt-file "$tmp/prompt9" --profile "$tmp/other.json" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c9p: a --profile that is not a shipped kind must be refused (exit 2)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused --profile launch must never spawn the worker"
+mkdir -p "$home/streamjson/sjw9t"
+printf 'mission-control:3\n' >"$home/streamjson/sjw9t/scope"
+printf 'tower\n' >"$home/streamjson/sjw9t/profile"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
+  launch sjw9t --resume-session "$sid" --foreground >/dev/null 2>&1
+case $(cat "$rec/argv") in
+  *"--settings "*"/config/tower-settings.json"*) : ;;
+  *) fail "c9p: a relaunch must pin the recorded tower profile: $(cat "$rec/argv")" ;;
+esac
+printf 'bogus\n' >"$home/streamjson/sjw9t/profile"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
+  launch sjw9t --resume-session "$sid" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] || fail "c9p: a relaunch with an unknown recorded profile must be refused (exit 7)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused relaunch must never spawn the worker"
+# Only a worker carries the worker identity.
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_WORKER_HANDLE=stale PLANWRIGHT_WORKER_LAUNCH_TOKEN=aaaaaaaaaaaaaaaa PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch sjw9i mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --foreground \
+  || fail "c9p: the identity-case tower launch exited non-zero"
+if ! grep -qx 'handle=<unset>' "$rec/env" || ! grep -qx 'scope=<unset>' "$rec/env"; then
+  fail "c9p: a tower-profile session must carry no worker identity: $(cat "$rec/env")"
+fi
+grep -qx 'inbound=accept' "$rec/env" || fail "c9p: a tower-profile session must still accept inbound messages"
+grep -qx 'launch_token=<unset>' "$rec/env" || fail "c9p: a tower-profile session must carry no worker launch token"
+grep -qx 'mc_token=<unset>' "$rec/env" || fail "c9p: a tower-profile session must drop an inherited mission-control token"
+[ "$(cat "$home/streamjson/sjw9i/profile")" = tower ] && [ ! -e "$home/streamjson/sjw9i/profile.tmp" ] \
+  || fail "c9p: the profile record must be written whole, with no temporary left"
+# A fresh mission-control launch holds a token only as the launcher's
+# explicit argument: one inherited from the caller is dropped.
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch sjw9m mission-control:3 --prompt-file "$tmp/prompt9" --profile mission-control --foreground \
+  || fail "c9p: the inherited-token mission-control launch exited non-zero"
+grep -qx 'mc_token=<unset>' "$rec/env" \
+  || fail "c9p: a mission-control launch must drop an inherited token: $(grep '^mc_token=' "$rec/env")"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch sjw9n mission-control:3 --prompt-file "$tmp/prompt9" --profile mission-control --mc-token argtoken-own --foreground \
+  || fail "c9p: the --mc-token mission-control launch exited non-zero"
+grep -qx 'mc_token=argtoken-own' "$rec/env" \
+  || fail "c9p: a mission-control launch must hold the --mc-token it was given: $(grep '^mc_token=' "$rec/env")"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --mc-token argtoken-own --foreground \
+  || fail "c9p: the --mc-token tower launch exited non-zero"
+grep -qx 'mc_token=<unset>' "$rec/env" \
+  || fail "c9p: a tower-profile launch must not take a --mc-token: $(grep '^mc_token=' "$rec/env")"
+# A recover with no recorded profile: a worker's from before the record
+# existed keeps the worker fragment, a mission-control launch's is refused.
+mkdir -p "$home/streamjson/sjw9old"
+printf 'mission-control:3\n' >"$home/streamjson/sjw9old/scope"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9old --resume-session "$sid" --foreground >/dev/null 2>&1
+case $(cat "$rec/argv") in
+  *"--settings "*"/config/worker-settings.json"*) : ;;
+  *) fail "c9p: a recover with no record must keep the worker fragment: $(cat "$rec/argv")" ;;
+esac
+mkdir -p "$home/streamjson/mc-alpha-tower-0123456789"
+printf 'mission-control:3\n' >"$home/streamjson/mc-alpha-tower-0123456789/scope"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resume-session "$sid" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] || fail "c9p: a mission-control recover with no recorded profile must be refused (exit 7)"
+[ ! -s "$rec/argv" ] || fail "c9p: the refused mission-control recover must never spawn"
+# A mission-control recover holds its own row's token, never the caller's,
+# and none at all when the row carries none.
+mc='mc-beta-tower-0123456789'
+mkdir -p "$home/streamjson/$mc" "$home/mission-control/sessions"
+printf 'mission-control:3\n' >"$home/streamjson/$mc/scope"
+printf 'mission-control\n' >"$home/streamjson/$mc/profile"
+printf 'backend\tstream-json\ntoken\trowtoken-own\n' >"$home/mission-control/sessions/$mc"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch "$mc" --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'mc_token=rowtoken-own' "$rec/env" \
+  || fail "c9p: a mission-control recover must hold its own row's token, not the caller's: $(grep '^mc_token=' "$rec/env")"
+printf 'backend\tstream-json\n' >"$home/mission-control/sessions/$mc"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch "$mc" --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'mc_token=<unset>' "$rec/env" \
+  || fail "c9p: a mission-control recover whose row has no token must hold none: $(grep '^mc_token=' "$rec/env")"
+rm -f "$home/mission-control/sessions/$mc"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 PLANWRIGHT_MC_TOKEN=callertoken-other -- \
+  launch "$mc" --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'mc_token=<unset>' "$rec/env" \
+  || fail "c9p: a mission-control recover with no registry row must hold no token: $(grep '^mc_token=' "$rec/env")"
+# The preflight proves the worker guard, so only a worker launch needs it.
+mkdir -p "$tmp/nowg"
+cp -R "$here/../scripts" "$tmp/nowg/scripts"
+cp -R "$here/../config" "$tmp/nowg/config"
+rm -f "$tmp/nowg/scripts/worker-command-guard.sh"
+for kind in worker tower; do
+  : >"$rec/argv"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" /bin/sh "$tmp/nowg/scripts/fleet-streamjson.sh" \
+    launch "sjw9g-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --foreground >/dev/null 2>&1
+  pf_rc=$?
+  case $kind in
+    worker) [ "$pf_rc" -eq 9 ] || fail "c9p: a worker launch with no worker guard must fail its preflight (exit 9), got $pf_rc" ;;
+    tower) [ "$pf_rc" -eq 0 ] || fail "c9p: a tower launch must not run the worker-guard preflight, got $pf_rc" ;;
+  esac
+done
+echo "ok: c9p --profile pins a shipped fragment by kind and a recover keeps it (mission-control REQ-G1.1)"
+
+# ---------------------------------------------------------------------------
 # c39 (custom-spec-location REQ-E1.7): the spec-root hand-off. A worker whose
 #     work repository keeps its spec root outside it (here a plain store) gets
 #     that root as PLANWRIGHT_WORKER_SPEC_ROOT; a worker whose root is in its
@@ -792,7 +971,11 @@ launch_c39() {
     export PLANWRIGHT_WORKER_SPEC_ROOT=/stale PLANWRIGHT_WORKER_SESSION_RECORD=/stale \
       GIT_CEILING_DIRECTORIES="$tmp" \
       GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-    senv "$tmp/h39" "$tmp/r39" SHIM_EVENTS="$tmp/ev9" -- \
+    # The second worker gets the default base, what a worker really gets;
+    # its final stop below removes its root. The first keeps the suite's.
+    c39_base=$tmp/scratch-base
+    [ "$1" != sjw39b ] || c39_base=''
+    senv "$tmp/h39" "$tmp/r39" SHIM_EVENTS="$tmp/ev9" PLANWRIGHT_FLEET_SCRATCH_BASE="$c39_base" -- \
       launch "$1" execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/wt39" --foreground
   )
 }
@@ -822,7 +1005,114 @@ case $rec39 in
 esac
 grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its worktree"
+grep -qx "launch_backend=stream-json" "$rec39" 2>/dev/null \
+  || fail "c39: the worker's session record does not name the stream-json backend"
 echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
+# The worker's scratch root (worker-permission-ergonomics REQ-G1.2): its
+# TMPDIR, and only the worker's, is its own root, which its session record
+# names; a recover keeps it, contents and all, and so does a stop, which a
+# recover may follow. It is short and outside any .claude directory: Linux
+# caps a Unix socket path at 108 bytes, and a path under ~/.claude reads as a
+# settings path to the guards a worker's tests exercise.
+tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
+root39=${tmp39#tmpdir=}
+if [ ! -d "$root39" ] || ! grep -qx "scratch_root=$root39" "$rec39" 2>/dev/null; then
+  fail "c39: the worker's TMPDIR '$root39' is not the scratch root its session record names"
+fi
+[ "${#root39}" -lt 60 ] || fail "c39: the worker's TMPDIR is ${#root39} characters long: $root39"
+case $root39/ in
+  */.claude/* | "$(cd "$tmp/h39" 2>/dev/null && pwd -P)"/*) fail "c39: the worker's TMPDIR lies under .claude or the fleet home: $root39" ;;
+esac
+if command -v python3 >/dev/null 2>&1; then
+  python3 -c 'import socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()' \
+    "$root39/rpc.sock" 2>/dev/null \
+    || fail "c39: a Unix socket cannot be bound in the worker's TMPDIR $root39"
+  rm -f "$root39/rpc.sock"
+else
+  echo "skip: c39 the socket bind needs python3"
+fi
+: >"$root39/kept"
+recover39() {
+  (
+    for _v in $(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+      unset "$_v"
+    done
+    cd "$tmp/wt39" && senv "$tmp/h39" "$tmp/r39" GIT_CEILING_DIRECTORIES="$tmp" \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHIM_EVENTS="$tmp/ev9" SHIM_READ_FIRST=0 -- \
+      recover sjw39b --foreground
+  ) >/dev/null 2>&1
+}
+n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
+recover39 || fail "c39: the recover exited non-zero"
+tmp39=$(grep '^tmpdir=' "$tmp/r39/env" | tail -n 1)
+[ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ "${tmp39#tmpdir=}" = "$root39" ] \
+  && [ -f "$root39/kept" ] \
+  || fail "c39: the recovered worker's TMPDIR was '${tmp39#tmpdir=}', or it never ran, or the root lost its contents"
+senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 >/dev/null 2>&1 || fail "c39: the stop exited non-zero"
+[ -f "$root39/kept" ] || fail "c39: the stop removed the scratch root a recover may still need"
+n39=$(grep -c '^tmpdir=' "$tmp/r39/env")
+recover39 || fail "c39: the recover after the stop exited non-zero"
+[ "$(grep -c '^tmpdir=' "$tmp/r39/env")" -gt "$n39" ] && [ -f "$root39/kept" ] \
+  || fail "c39: the recover after a stop did not find the same root"
+senv "$tmp/h39" "$tmp/r39" -- stop sjw39b --grace 2 --final >/dev/null 2>&1 || fail "c39: the final stop exited non-zero"
+[ ! -e "$root39" ] && [ ! -e "$tmp/h39/streamjson/sjw39b/scratch-root" ] \
+  || fail "c39: the final stop left the scratch root or its pointer behind"
+! grep -rqxF "$root39" "$tmp/h39/scratch" 2>/dev/null \
+  || fail "c39: the final stop left the fleet home's record of the scratch root"
+echo "ok: c39 the worker's TMPDIR is its own short scratch root outside .claude, kept across a recover and a stop, removed by the final stop (REQ-G1.2)"
+# The final close removes only a root the fleet home records, or one of the
+# earlier layout's shapes, <fleet-home>/scratch/<hash> or <hash>/<hash>, and
+# never through a symlink; a read-only directory the worker left does not stop
+# the removal.
+h39r=$(cd "$tmp/h39" && pwd -P)
+mkdir -p "$tmp/u39" "$tmp/out39/keep" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep"
+chmod 500 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"
+ln -s "$tmp/out39" "$h39r/scratch/$(printf 'b%.0s' $(seq 40))"
+release39() {
+  printf '%s\n' "$1" >"$tmp/u39/scratch-root"
+  (
+    script_dir=$here/../scripts
+    # shellcheck source=scripts/fleet-stop-lib.sh
+    . "$here/../scripts/fleet-stop-lib.sh"
+    stop_scratch_root_release "$tmp/u39" "$tmp/h39"
+  )
+}
+mkdir -m 700 "$tmp/base39"
+base39=$(cd "$tmp/base39" && pwd -P)
+make39() {
+  PLANWRIGHT_FLEET_SCRATCH_BASE=$base39 /bin/sh "$here/../scripts/fleet-scratch.sh" make "$tmp/h39" "$1"
+}
+new39=$(make39 "$(printf 'a%.0s' $(seq 40))") || fail "c39: no recorded root to release"
+mkdir -p "$new39/ro/deep" "$base39/0123456789abcdef/keep"
+chmod 500 "$new39/ro"
+! release39 "$base39/0123456789abcdef" && [ -d "$base39/0123456789abcdef/keep" ] \
+  || fail "c39: the final close removed a root the fleet home does not record"
+if ! release39 "$new39" || [ -e "$new39" ] || [ -e "$tmp/u39/scratch-root" ] \
+  || grep -rqxF "$new39" "$h39r/scratch"; then
+  fail "c39: the final close did not remove a recorded root holding a read-only directory, and its record"
+fi
+for bad39 in "$tmp/out39" "$h39r/scratch/../../out39" "$h39r/scratch/$(printf 'g%.0s' $(seq 40))" \
+  "$h39r/scratch/$(printf 'a%.0s' $(seq 39))" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"; do
+  ! release39 "$bad39" && [ -f "$tmp/u39/scratch-root" ] \
+    || fail "c39: the final close accepted the pointer '$bad39'"
+done
+[ -d "$tmp/out39/keep" ] && [ -d "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep" ] \
+  || fail "c39: a refused pointer removed something"
+release39 "$h39r/scratch/$(printf 'b%.0s' $(seq 40))" >/dev/null 2>&1
+[ -d "$tmp/out39/keep" ] || fail "c39: the final close followed a symlinked root out of the fleet home"
+release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
+  && [ ! -e "$tmp/u39/scratch-root" ] \
+  || fail "c39: the final close did not remove a root holding a read-only directory"
+sess39="$h39r/scratch/$(printf 'c%.0s' $(seq 40))"
+mkdir -p "$sess39/$(printf 'd%.0s' $(seq 40))/f" "$sess39/$(printf 'e%.0s' $(seq 40))/f"
+release39 "$sess39/$(printf 'd%.0s' $(seq 40))" && [ ! -e "$sess39/$(printf 'd%.0s' $(seq 40))" ] \
+  && [ -d "$sess39/$(printf 'e%.0s' $(seq 40))/f" ] \
+  || fail "c39: a session's final close must remove its own root and leave its sibling's"
+for bad39 in "$sess39/" "$sess39/$(printf 'e%.0s' $(seq 40))/f"; do
+  ! release39 "$bad39" || fail "c39: the final close accepted the pointer '$bad39'"
+done
+[ -d "$sess39/$(printf 'e%.0s' $(seq 40))/f" ] || fail "c39: a refused session pointer removed something"
+echo "ok: c39 the final close removes only a scratch root of the writer's shape, through no symlink (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.
@@ -1059,6 +1349,21 @@ esac
 wdir15="$home/streamjson/sjw15"
 poll_until --what 'the result' -- test -f "$wdir15/result" \
   || fail "c15: the detached supervisor never ran to a result"
+# The detached launch drops the tower identity too, and under bash (macOS
+# /bin/sh) still returns while the session runs: no process it leaves behind
+# holds the caller's output open.
+rec15t="$tmp/r15t"
+mkdir -p "$rec15t"
+t15=$(date +%s)
+out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$tmp/h15t" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec15t" SHIM_EVENTS="$ev" SHIM_SLEEP=15 PLANWRIGHT_TOWER_ID=stale-tower \
+  bash "$SJ" launch sjw15t execution-backends:4 --prompt-file "$tmp/prompt15" 2>&1) \
+  || fail "c15: a detached launch under bash exited non-zero: $out"
+[ $(($(date +%s) - t15)) -lt 12 ] || fail "c15: a detached launch under bash held the caller until the session ended"
+poll_until --what 'the worker environment' -- grep -q '^tower=' "$rec15t/env" \
+  || fail "c15: the detached worker never recorded its environment"
+grep -qx 'tower=<unset>/<unset>/<unset>/<unset>' "$rec15t/env" \
+  || fail "c15: the dispatcher's tower identity reached the detached worker: $(grep '^tower=' "$rec15t/env")"
 # A failed detached launch surfaces non-zero. Force the supervisor's mkfifo to
 # fail by pre-planting `in.fifo` as a NON-EMPTY directory: supervise's `rm -f`
 # cannot clear a non-empty dir, so `mkfifo` fails and supervise returns 2
@@ -1432,7 +1737,7 @@ printf '%s\n' "$audit" "$helper" | grep -qE '>[[:space:]]*"?[^ "|&;]*\.pid"?([[:
   && fail "c25d: a pid file must not be published by a bare redirect"
 # The helper writes its temp and renames it; if the temp were the target the
 # rename would be a no-op and the window would be back.
-printf '%s\n' "$helper" | grep -qE "mv[[:space:]]+\"[\$]wp_tmp\"[[:space:]]+\"[\$]1\"" \
+printf '%s\n' "$helper" | grep -qE "mv[[:space:]]+(--[[:space:]]+)?\"[\$]wp_tmp\"[[:space:]]+\"[\$]1\"" \
   || fail "c25d: write_pidfile must rename its staging temp over the target"
 if [ "$c25b_ran" = 1 ]; then
   echo "ok: c25 launch elects a single initiator under contention and breaks a dead holder's lock (obs:917e384e)"
@@ -1818,6 +2123,8 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS=
 grep -q "$preset/scripts/worker-command-guard.sh" "$tmp/pf33p.err" \
   || fail "c33: the refusal must name the guard under the worker's plugin root, got: $(cat "$tmp/pf33p.err")"
 [ ! -s "$rec/argv" ] || fail "c33: a missing worker-side guard must never spawn the worker"
+grep -q "$preset/scripts/background-job-guard.sh" "$tmp/pf33p.err" \
+  || fail "c33: the missing background-job guard must be warned about before any refusal, got: $(cat "$tmp/pf33p.err")"
 # A root carrying the command guard but no policy guard refuses too: the worker
 # profile leaves merges and rewrites to that guard.
 mkdir -p "$preset/scripts" "$preset/config"
@@ -1834,6 +2141,15 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS=
 grep -q "$preset/scripts/policy-guard.sh" "$tmp/pf33q.err" \
   || fail "c33: the refusal must name the policy guard under the worker's plugin root, got: $(cat "$tmp/pf33q.err")"
 [ ! -s "$rec/argv" ] || fail "c33: a missing policy guard must never spawn the worker"
+# A root without the background-job guard is warned about, whatever the proof
+# goes on to decide: its workers stall on a backgrounded command.
+cp "$here/../scripts/policy-guard.sh" "$preset/scripts/"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS="$ev" -- \
+  launch sjw33b execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33b.err"
+grep -q "$preset/scripts/background-job-guard.sh" "$tmp/pf33b.err" \
+  || fail "c33: a root without the background-job guard must be warned about, got: $(cat "$tmp/pf33b.err")"
 # The proof's own failure is a refusal with a cause, never a pass: a record it
 # cannot create exits 2 and says why. mktemp is made to fail outright, since
 # macOS's falls back to /tmp when TMPDIR names no directory.

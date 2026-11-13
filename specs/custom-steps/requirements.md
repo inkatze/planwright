@@ -1,7 +1,7 @@
 # Custom steps — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-06
+**Last reviewed:** 2026-11-10
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -811,6 +811,9 @@ obs:5aa3d7ee, quota-handling D-3 (Sources).)*
   is 1; a malformed value SHALL fall back to the next value in that order
   with one warning naming the layer.
   *(Cites: D-24, model-allocation REQ-E1.1 (Sources).)*
+  *(Amended at Amendment A, 2026-11-10: the `heavy-run` pool takes
+  `step_pool_capacity_heavy_run` or a host-derived default and never
+  `step_pool_capacity`, REQ-K1.2; every other pool is unchanged.)*
 - **REQ-I1.4** While no slot is free, the runner SHALL wait, reporting
   at the start of the wait each live holder (its process id, its step id
   or the full-suite run, and its worktree). Admission is unordered: a
@@ -839,6 +842,8 @@ obs:5aa3d7ee, quota-handling D-3 (Sources).)*
   document one recipe by which an operator's own full-suite run by hand
   takes the same slot.
   *(Cites: D-25, obs:7fe26f10, obs:6c3342a8.)*
+  **Superseded-by: REQ-K1.1** (2026-11-10), in part: the core default is no
+  longer empty; it names the shipped `heavy-run` pool.
 - **REQ-I1.6** The pool helper SHALL take, hold, report, and release slots
   and SHALL NOT execute any command; a check runs in the runner or the
   session that would run it unpooled, and the hold is taken on behalf of
@@ -965,6 +970,91 @@ obs:5aa3d7ee, quota-handling D-3 (Sources).)*
   validation and behavior are delivered by quota-handling's own tasks.
   *(Cites: D-29, quota-handling D-3 (Sources).)*
 
+## REQ-K — A machine-wide bound on heavy runs
+
+This group extends the 2026-10-06 expensive-check extension (2026-11-10,
+Amendment A, accepted apart from REQ-L). It changes what REQ-I1.5's
+shipped default means, so a full local suite is no longer unbounded across
+the host unless a project sets a pool. The bound has the pool's existing
+scope, one user's runs on one host (Cross-cutting concerns, host load), which
+is the whole machine in the single-operator case.
+
+- **REQ-K1.1** (supersedes REQ-I1.5's empty-default clause) The config
+  value `full_suite_pool` SHALL have the core default `heavy-run`, a
+  shipped pool name, so every full local suite run `/execute-task` makes
+  holds a slot of it under REQ-I1.1, REQ-I1.2, and REQ-I1.4 unless a layer
+  sets the reserved value `none` or sets the key to an empty value (the
+  prior opt-out, so a layer that already set it empty keeps its behavior),
+  either of which runs the suite unpooled with no warning. A gate that `/execute-task` runs is a full local suite run and
+  is covered; a gate or suite an operator runs by hand takes the same slot
+  through REQ-I1.5's documented recipe, and a declared step naming
+  `heavy-run` shares the pool. Everything else REQ-I1.5 states (the park
+  on an expired wait, the full-suite record and its audit row, the recipe)
+  stands, and `none` is never a valid pool name for a declared step.
+  *(Cites: D-33, obs:7fe26f10, mission-control kickoff Amendment 6
+  decision (2026-11-09).)*
+- **REQ-K1.2** The capacity of the `heavy-run` pool SHALL be
+  `step_pool_capacity_heavy_run` when set in any layer, and otherwise the
+  host-derived value: one slot per 8 logical cores and one per 16 GiB of
+  total memory, whichever is fewer, never below 1. A host whose core count
+  or memory cannot be read SHALL derive 1 with one warning naming what
+  could not be read. The shared `step_pool_capacity` key SHALL NOT change
+  the `heavy-run` capacity, so a value sized for cheap pools never widens
+  the heavy bound; REQ-I1.3 governs every other pool unchanged.
+  *(Cites: D-34, REQ-I1.3.)*
+- **REQ-K1.3** The override of REQ-K1.2 SHALL be documented as set in the
+  adopter layer, the per-user layer that reaches workers in worktrees (the
+  machine-local layer does not, as the Cross-cutting concerns state), with
+  the options reference naming the key, the derived default, and `none`.
+  *(Cites: D-34, REQ-I1.12.)*
+- **REQ-K1.4** The `heavy-run` pool SHALL be independent of
+  test-throughput's per-file ticket pool: a suite holding a `heavy-run`
+  slot runs its test files through the ticket pool as before, a gate that
+  reaches `heavy-run` again inside its own hold runs inside that hold
+  under REQ-I1.2's mark and never waits on itself, and neither pool's
+  capacity bounds the other.
+  *(Cites: D-34, test-throughput REQ-A1.1 (Sources), test-throughput
+  REQ-A1.8 (Sources), REQ-I1.2.)*
+- **REQ-K1.5** On a host where no other heavy run holds a slot, a default
+  full-suite run SHALL take a slot without waiting and change nothing
+  else about the run, so an adopter with one checkout sees no change in
+  practice; an unusable pool still runs the suite unpooled with one
+  warning (REQ-I1.2, REQ-I1.5).
+  *(Cites: D-33, D-21.)*
+- **REQ-K1.6** The options reference's rows for `full_suite_pool` and the
+  new capacity key, the custom-steps rule doc's *Expensive checks*
+  section, and the overlay documentation SHALL state the shipped default,
+  the derivation, `none`, and the override.
+  *(Cites: D-33, D-34, REQ-I1.12.)*
+
+## REQ-L — Audit refuses a review round that never ran
+
+This group is accepted apart from REQ-K (2026-11-10, Amendment A).
+
+- **REQ-L1.1** The cadence audit (`step-run.sh audit`, the verb the
+  readiness check runs) SHALL treat a step record of kind `skill` or
+  `prompt`, outcome `passed` or `applied`, whose start time equals its end
+  time and whose end head equals its start head as no evidence the step
+  ran: in the run the audit judges for a point, such a record SHALL NOT
+  satisfy its required step, which SHALL read as a gap of kind `unrun`
+  naming the step. Command steps are exempt, since a fast command may
+  legitimately finish within one second. Records carry second-resolution
+  times (REQ-D1.5), and a record written before the end head existed
+  (REQ-D1.12) is judged by its times alone.
+  *(Cites: D-35, REQ-D1.5, REQ-D1.12, mission-control observation W67
+  (Sources).)*
+- **REQ-L1.2** An `unrun` gap SHALL print as
+  `gap<TAB><point><TAB>unrun<TAB><step>` beside the existing gap kinds, set
+  the audit's gaps exit like any other gap, and its message to the worker
+  SHALL tell it to record the step `skipped` with reason `missing` in a
+  fresh run; no written record is edited or deleted. Every consumer that
+  refuses on any gap (the readiness check among them) therefore refuses.
+  *(Cites: D-35, mission-control D-33 (Sources).)*
+- **REQ-L1.3** The rule doc SHALL state the `unrun` gap, its exemption for
+  command steps, and that a round which did not run is recorded `skipped`
+  with reason `missing`.
+  *(Cites: D-35, REQ-J1.3.)*
+
 ## Changelog
 
 - 2026-09-22 — Draft. Elicited from the review-gauntlet seed brief, issues
@@ -1061,6 +1151,14 @@ obs:5aa3d7ee, quota-handling D-3 (Sources).)*
   `/execute-task`'s skip call into Task 13 beside the rule requiring it,
   and dropped the unreachable `missing` row at the attended spec-PR flip
   point (Task 6).
+- 2026-11-10 — Amendment A (meaning-class, Active; Draft content awaiting
+  its delta kickoff). Two independent deltas, each acceptable apart: REQ-K
+  gives the full local suite a machine-wide bound by default, a shipped
+  `heavy-run` pool whose capacity is derived from the host's cores and
+  memory with a per-pool override (REQ-K1.1 to REQ-K1.6, supersedes
+  REQ-I1.5's empty default; D-33, D-34; Task 17); REQ-L has the cadence
+  audit refuse a review round recorded passed or applied with zero
+  duration and no head move (REQ-L1.1 to REQ-L1.3; D-35; Task 18).
 
 ## Sources
 
@@ -1172,3 +1270,16 @@ obs:5aa3d7ee, quota-handling D-3 (Sources).)*
   decision this extension changes, quota-handling routes the re-fire ask
   here, and test-throughput owns test-file pooling only, so the idea
   extended custom-steps.
+- **mission-control observation W67 (2026-11-10)** — readiness and the
+  post-pr audit accepted a fix-round record marked passed with start equal
+  to end and head equal to end head (a round that never ran), caught by
+  hand on most PRs; the ask is that the audit refuse it and tell the worker
+  to record it skipped (code missing).
+- **mission-control D-33 (Sources)** — `specs/mission-control/design.md`,
+  the readiness check's use of the cadence audit; any gap refuses the walk.
+- **The heavy-run seed note (2026-11-09)** — the pending seed brief
+  `specs/_pending/custom-steps-heavy-run-bound-amendment.md`, captured at
+  the mission-control Amendment 6 kickoff from the operator's decision to
+  queue the bound as its own amendment ("Leave out, queue amendment").
+- **mission-control kickoff Amendment 6 decision (2026-11-09)** — the
+  operator's choice above, relayed through the hub.

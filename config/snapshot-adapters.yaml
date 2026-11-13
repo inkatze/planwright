@@ -1,0 +1,20 @@
+---
+# planwright core snapshot-adapters catalog: the adapter that refreshes each
+# snapshot-mode source of a mission-control program. scripts/resolve-catalog.sh
+# merges it with the adopter, repo-tracked and machine-local overlay catalogs
+# (append/union, supersede-by-id), so an overlay adds an adapter for a new
+# source with a new id; a snapshot-mode source no entry names fails
+# check:duties. The adapter contract is in `scripts/mc-snapshot.sh --help`.
+
+# Entry fields, every one required: `id`, the source's kebab name in the
+# state-source map; `summary`, one line on what the snapshot holds; `script`,
+# a relative path (letters, digits, `.`, `_`, `-`, `/`; no leading `/` or `-`,
+# no `..`) resolved against the planwright root, then each program
+# repository; `cadence`, a positive count of s, m, h or d, used when
+# mission_control_snapshot_cadence names none. Read by the constrained awk
+# parser config/duties.yaml describes.
+adapters:
+  - id: forge
+    summary: "Per tracked pull request: head, draft, mergeability, review, checks, patch id"
+    script: scripts/mc-adapter-forge.sh
+    cadence: 5m

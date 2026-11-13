@@ -1,0 +1,40 @@
+# Words mission control should not say to its operator, on top of
+# tower-jargon.txt beside this file (doctrine/mission-control.md, *The
+# register delta*). The tower list assumes a developer who knows
+# planwright's basics; mission control's operator need not, so planwright's
+# skill and flight vocabulary joins it here. Same matching as the tower
+# list: case-folded, on word boundaries, a multi-word entry as a phrase;
+# identifiers, file names, configuration keys and commands are refused by
+# shape, not listed. A skill name is said only when the operator must run
+# that skill themselves, which a reader of this list cannot tell, so every
+# skill name but mission control's own is listed here or in the tower's
+# list, save one that is an ordinary word (resume).
+bot-review
+builder
+cohesion bundle
+dispatch
+execute-task
+flight
+handover brief
+inception
+instrument flight
+kickoff
+knob
+offload
+orchestrator
+pane
+panel-review
+peer-review
+polish
+ready flip
+rung
+self-review
+spec root
+spec-draft
+spec-kickoff
+spec-walkthrough
+tower
+unit
+visual flight
+worker
+worktree

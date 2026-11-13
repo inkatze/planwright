@@ -8,7 +8,9 @@
 #   PRIM FLIGHT ROOT                the dispatch primitive, the flight dispatch,
 #                                   the checkout under test
 #   new_case [<repo-dir-name>]      a bare origin and a primary clone carrying
-#                                   the `demo` spec, under its own case dir $C,
+#                                   the `demo` spec and an untracked
+#                                   machine-local `dispatch_backend: tmux`,
+#                                   under its own case dir $C,
 #                                   with its own fleet home, marker dir, and
 #                                   fetch state. Sets P (the primary as the
 #                                   suite reaches it, through the harness's
@@ -70,13 +72,24 @@ new_case() {
   P="$C/$name"
   mkdir -p "$(dirname "$P")"
   git clone -q "$C/origin.git" "$P" 2>/dev/null
-  mkdir -p "$P/specs/demo"
+  mkdir -p "$P/specs/demo" "$P/.claude"
   printf 'x\n' >"$P/specs/demo/requirements.md"
   gitc "$P" add -A
   gitc "$P" commit -q -m init
   gitc "$P" branch -M main
   gitc "$P" push -q origin main
   PP=$(cd "$P" && pwd -P)
+  # The task arm launches only when the spec resolves to the tmux rung.
+  # Excluded, so a case's own `add -A` never commits it onto a branch whose
+  # checkout would then delete it.
+  printf 'dispatch_backend: tmux\n' >"$P/.claude/planwright.local.yml"
+  printf '/.claude/planwright.local.yml\n' >>"$P/.git/info/exclude"
+  # No inherited config layer may outrank the fixture's backend.
+  mkdir -p "$C/adopter"
+  export PLANWRIGHT_ADOPTER_OVERLAY="$C/adopter"
+  unset PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_BACKEND_TMUX \
+    PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT PLANWRIGHT_BACKEND_HEADLESS_ONESHOT \
+    PLANWRIGHT_BACKEND_SUBAGENT
   export PLANWRIGHT_FLEET_STATE_DIR="$C/fleet"
   export PLANWRIGHT_ORCH_STATE_DIR="$C/markers"
   export PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$C/fstate"
@@ -113,7 +126,7 @@ calls_matching() {
 #   no-socket    has-session answers as tmux does when no socket exists
 # shellcheck disable=SC2016 # the printed lines expand in the written shim
 tmux_shim() {
-  mkdir -p "$1"
+  mkdir -p -- "$1"
   case $2 in
     hang-probe) printf '[ "$1" = has-session ] && exec sleep 600\n' ;;
     hang-new) printf '[ "$1" = new-session ] && exec sleep 600\n' ;;
@@ -132,7 +145,7 @@ tmux_shim() {
     cat "$1/tmux.body"
     printf 'exec %s "$@"\n' "'$TLH_BIN/tmux'"
   } >"$1/tmux"
-  chmod +x "$1/tmux"
+  chmod -- +x "$1/tmux"
 }
 
 registry_col() {

@@ -30,6 +30,8 @@
 #   pw_lock_owner <path>                 print the holder's token
 #   pw_lock_owner_alive <token>          0 the owner is running, 1 it is gone
 #   PW_LOCK_TOKEN                        set by a successful acquire
+#   PW_LOCK_BROKEN                       the dead owners' tokens the last
+#                                        acquire verb removed, one per line
 #
 # THE LOCK-HOLDER LIST. Every script that implements an ADVISORY LOCK sources
 # this file and takes its locks through it:
@@ -54,11 +56,47 @@
 #                          cannot lose each other's change
 #   scripts/inception-fanout.sh   a venture's bundle, so concurrent staff and
 #                          record runs cannot lose an entry or a record
+#   scripts/inception-gate.sh     the same bundle lock, so a gate write and a
+#                          fan-out write cannot lose each other's change
 #   scripts/inception-review-cycle.sh  the same bundle lock, so a review
 #                          step's ledger rewrite or applied change cannot
 #                          interleave with another writer
+#   scripts/mc-rules.sh    a mission-control program's rule store, so
+#                          concurrent writers each land their entry under
+#                          a distinct id
+#   scripts/mc-kb.sh       a mission-control knowledge base's stores, log
+#                          segments and bodies, one writer per file, held for
+#                          the script itself or on a caller's behalf
 #   scripts/fleet-task-brief.sh   the fleet home's task briefs, so a retire
 #                          never removes a brief a render is writing
+#   scripts/mission-control-launch.sh   a launched session's name, held
+#                          for a whole launch and a whole retire, so the two
+#                          never act on one row at once
+#   scripts/mc-watch.sh    a mission-control program's runner lock, so two
+#                          runners never arm or relay over each other
+#   scripts/mc-stall.sh    a session's stall sample, so two passes never
+#                          decide from one sample or emit one event twice
+#   scripts/mc-escalate.sh a program's escalation pass, so two passes never
+#                          raise one escalation twice
+#   scripts/mc-pane-answer.sh   a program's dialog answer, so one decision
+#                          never answers twice; it also holds the escalation
+#                          pass lock above from its last check of the dialog
+#                          through the keystroke and the record's drop
+#   scripts/mc-reclaim.sh  a reclaim folder, so two reclaims of one branch
+#                          never copy into or roll back the same folder
+#   scripts/mc-config.sh   the adopter layer's planwright.yml, so two writes
+#                          never stage over each other's key
+#   scripts/mc-handover.sh   a mission-control program's handover lock, so a
+#                          take, a resume, a release and a launch never move
+#                          the program name over each other
+#   scripts/mc-keeper.sh   a mission-control program's keeper ledger, so a
+#                          track never re-points a session mid-retire
+#   scripts/mc-usage.sh    a mission-control program's usage hold and queue,
+#                          so a watch and a drain never launch one entry twice
+#   scripts/work-repo-registry.sh   the work-repository registry, so
+#                          concurrent registrations each land their entry
+#   scripts/spend-record.sh   a mission-control program's spend store, so
+#                          concurrent records each land a whole row
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is
@@ -169,8 +207,10 @@
 #
 # POSIX sh on the macOS + Linux support bar. No bashisms, no `local`.
 #
-# shellcheck disable=SC2034 # PW_LOCK_TOKEN is this library's output, read by
-# the caller and by cross-process releases, never by the library itself.
+# shellcheck disable=SC2034 # PW_LOCK_TOKEN and PW_LOCK_BROKEN are this
+# library's output, read by the caller and PW_LOCK_TOKEN by cross-process
+# releases too; the library reads PW_LOCK_TOKEN never and PW_LOCK_BROKEN only
+# to append to it.
 
 # The registry of locks this shell holds: one "<depth> <token> <path>" record
 # per line, always newline-terminated. Path comes last because it is the only
@@ -179,6 +219,13 @@ PW_LOCK_HELD=''
 # The caller's handle on its own hold: every verb that takes a lock publishes
 # the token here so a cross-process release can prove ownership.
 PW_LOCK_TOKEN=''
+# Set by every acquire verb, whatever it returns: the tokens of the dead
+# owners whose links this call removed, one per line, empty when it removed
+# none. A break whose publish then loses to a peer still counts, since the
+# dead link is gone either way. A caller that logs released holders reads it here: a probe
+# of its own before the call misses an owner that dies between that probe
+# and the call's.
+PW_LOCK_BROKEN=''
 PW_LOCK_SEQ=0
 PW_LOCK_EPOCH=''
 PW_LOCK_TRAP_ARMED=''
@@ -347,6 +394,7 @@ _pw_lock_etimes() {
     '' | *[!0-9]*) _pw_lock_etimes_out='' ;;
     *) return 0 ;;
   esac
+  # shell-fail-open-noop: the output is classified below, a diagnostic never read as an age
   _pwe_raw=$(ps -o etime= -p "$1" 2>&1 | tr -d ' ') || :
   case $_pwe_raw in
     *[!0-9:-]*)
@@ -513,6 +561,7 @@ pw_lock_owner_alive() {
   # with the running script's path, so an unanchored match reads every dead
   # owner as alive from any path containing the word. LC_ALL is pinned because
   # a translated message would read as absent and break a live process's lock.
+  # shell-fail-open-noop: only an EPERM message reads as alive; the process table already said absent
   _pwa_err=$(LC_ALL=C kill -0 "$_pwa_pid" 2>&1) || :
   case $_pwa_err in
     *[Pp]ermitted | *[Pp]ermission\ denied)
@@ -664,7 +713,7 @@ _pw_lock_displace() {
   # and the prompt reads stdin: a caller that inherited a terminal would stop
   # here, inside the step this whole family serializes on, with the question
   # itself swallowed by the redirect above it.
-  if mv -f "$1" "$_pw_lock_displaced" 2>/dev/null; then
+  if mv -f -- "$1" "$_pw_lock_displaced" 2>/dev/null; then
     # A RENAME THAT SUCCEEDED HAS NOT NECESSARILY DISPLACED ANYTHING. `mv src
     # dir` files the source INSIDE the directory and exits 0, the same
     # semantics the create is already guarded against. The derivation hands out
@@ -741,7 +790,7 @@ _pw_lock_link() {
   # almost never true is the whole cost.
   if [ -d "$2" ]; then
     _pwl_stray=${1##*/}
-    [ -z "$_pwl_stray" ] || rm -f "$2/$_pwl_stray" 2>/dev/null || :
+    [ -z "$_pwl_stray" ] || rm -f -- "$2/$_pwl_stray" 2>/dev/null || :
   fi
   return 1
 }
@@ -906,6 +955,7 @@ _pw_lock_break() {
     return 1
   fi
   rm -f "$_pwb_taken" 2>/dev/null || :
+  PW_LOCK_BROKEN=${PW_LOCK_BROKEN:+$PW_LOCK_BROKEN$PW_LOCK_NL}$_pwb_dead
   if _pw_lock_publish "$_pwb_lock" "$_pwb_token" "${_pwb_depth:-1}"; then
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 0
@@ -1075,6 +1125,7 @@ _pw_lock_acquire_core() {
 # PW_LOCK_TOKEN is the token to prove it), 1 a live holder has it, 2 a real
 # error.
 pw_lock_try() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_try "${1:-}" || return 2
   _pw_lock_try_core "$1" "$$" 1
 }
@@ -1082,6 +1133,7 @@ pw_lock_try() {
 # pw_lock_acquire <path> [<max-tries>] — spin until held or the budget runs
 # out. 0 held, 1 a live holder kept it for the whole budget, 2 a real error.
 pw_lock_acquire() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_acquire "${1:-}" || return 2
   _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" "$$"
 }
@@ -1139,12 +1191,14 @@ _pw_lock_take_disowned() {
 # That is the trade the liveness rule makes: it never breaks a live lock, and in
 # exchange it cannot guess about a hold with no owner to ask about.
 pw_lock_try_detached() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_try_detached "${1:-}" || return 2
   _pw_lock_take_disowned pw_lock_try_detached "$1" "detached-$$" ''
 }
 
 # pw_lock_acquire_detached <path> [<max-tries>] — the spinning form.
 pw_lock_acquire_detached() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_acquire_detached "${1:-}" || return 2
   _pw_lock_take_disowned pw_lock_acquire_detached "$1" "detached-$$" "${2:-$PW_LOCK_MAX_TRIES}"
 }
@@ -1157,6 +1211,7 @@ pw_lock_acquire_detached() {
 # a caller naming a pid that is already gone gets a lock anyone may break,
 # which is the correct outcome and not an error.
 pw_lock_acquire_for() {
+  PW_LOCK_BROKEN=''
   _pw_lock_path_ok pw_lock_acquire_for "${1:-}" || return 2
   case ${2:-} in
     '' | 0* | *[!0-9]*)
@@ -1328,18 +1383,18 @@ pw_lock_break_force() {
   _pw_lock_path_ok pw_lock_break_force "${1:-}" || return 2
   _pw_lock_sweep_claims "$1"
   if [ -L "$1" ]; then
-    rm -f "$1" 2>/dev/null || return 2
+    rm -f -- "$1" 2>/dev/null || return 2
     return 0
   fi
   if [ -d "$1" ]; then
-    rm -rf "$1" 2>/dev/null || return 2
+    rm -rf -- "$1" 2>/dev/null || return 2
     return 0
   fi
   # A regular file at a lock path is not a lock either, and an acquire refuses
   # to take the path over it. If the escape hatch refused it too, nothing in
   # the tree could clear it.
   if [ -e "$1" ]; then
-    rm -f "$1" 2>/dev/null || return 2
+    rm -f -- "$1" 2>/dev/null || return 2
   fi
   return 0
 }

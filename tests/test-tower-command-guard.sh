@@ -1165,10 +1165,11 @@ done
 # hold a space or come out empty. tokenize, tok_push, verify_simple,
 # verify_tokens and analyze_command also differ because only the worker guard
 # admits a narrow command substitution; the tower guard defers every one.
-# guard_rm differs because the worker's approves only own-branch removals
-# inside its recorded worktree, a policy the tower guard does not have.
+# guard_rm and guard_mktemp differ because the worker's approve only removals
+# inside its recorded worktree or scratch root and creation inside that scratch
+# root, a policy the tower guard does not have.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
-guard_gh guard_git guard_mise guard_rm is_planwright_script main \
+guard_gh guard_git guard_mise guard_mktemp guard_rm is_planwright_script main \
 tokenize tok_push verify_simple verify_tokens"
 
 fn_names() { grep -oE '^[a-z_][a-z0-9_]*\(\)' "$1" | tr -d '()' | sort -u; }
@@ -1450,6 +1451,228 @@ else
   fail "REQ-E1.3 — the no-LLM stub harness never records, so the assertion is vacuous"
 fi
 rm -rf "$STUBBIN"
+
+# --- REQ-G1.5: the mission-control tier approves exactly the listed verbs ---
+echo "# mission-control mode: the one pre-approval list (REQ-G1.5)"
+VERBS="$REPO_ROOT/config/mission-control-verbs.txt"
+CHECK_VERBS="$REPO_ROOT/scripts/check-mc-verbs.sh"
+# mc_says <guard> <command> [cwd]: allow, ask or defer from the guard's
+# mission-control mode, run against the real checkout so the scripts exist;
+# `exit <n>` when the guard itself fails.
+mc_says() {
+  local out rc
+  out=$(jq -nc --arg c "$2" --arg w "${3:-$REPO_ROOT}" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+    | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" HOME="$SANDBOX/no-home" /bin/bash "$1" mission-control 2>/dev/null)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'exit %s\n' "$rc"
+    return
+  fi
+  out=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)
+  printf '%s\n' "${out:-defer}"
+}
+expect_mc() { # <want> <label> <command> [guard]
+  local got
+  got=$(mc_says "${4:-$HOOK}" "$3")
+  if [ "$got" = "$1" ]; then
+    pass "$2"
+  else
+    [ "$got" != allow ] || false_allows=$((false_allows + 1))
+    fail "$2 — expected $1, got $got"
+  fi
+}
+# A guard that crashes is no defer: every defer row below would pass on it.
+CRASH_GUARD="$SANDBOX/crash-guard.sh"
+printf '#!/bin/bash\nexit 3\n' >"$CRASH_GUARD"
+crash_says=$(mc_says "$CRASH_GUARD" "true")
+if [ "$crash_says" != defer ]; then
+  pass "a guard that exits non-zero never reads as a defer"
+else
+  fail "a guard that exits non-zero read as a defer"
+fi
+listed=0
+while read -r s v rest; do
+  case $s in '' | '#'*) continue ;; esac
+  listed=$((listed + 1))
+  case $v in
+    -) args='' ;;
+    '*') args=' spec-format' ;;
+    *) args=" $v --program alpha" ;;
+  esac
+  expect_mc allow "a listed verb runs without a prompt: $s$args" "$REPO_ROOT/scripts/$s$args"
+  expect_mc allow "a listed verb runs without a prompt through bash: $s$args" "bash $REPO_ROOT/scripts/$s$args"
+done <"$VERBS"
+if [ "$listed" -gt 0 ]; then pass "the pre-approval list is not empty"; else fail "the pre-approval list holds no verb"; fi
+expect_mc defer "the raw prompt-answer verb prompts" "$REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes"
+expect_mc defer "the raw prompt-answer verb prompts through bash" "bash $REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes"
+expect_mc defer "an unlisted verb of a listed script prompts" "$REPO_ROOT/scripts/mc-kb.sh revert 3"
+expect_mc defer "a listed script run with no verb it lists prompts" "$REPO_ROOT/scripts/mc-rules.sh"
+expect_mc defer "a verb word that is not a plain word prompts" "$REPO_ROOT/scripts/mc-rules.sh 'load;x'"
+expect_mc allow "a * entry covers its script run with no argument" "$REPO_ROOT/scripts/resolve-rule-doc.sh"
+expect_mc defer "an unlisted script prompts" "$REPO_ROOT/scripts/offload-dispatch.sh dispatch tmux brief.md"
+expect_mc defer "a git mutation is never pre-approved" "git commit -m wip"
+expect_mc defer "a ready flip is never pre-approved" "gh pr ready 42"
+expect_mc defer "a hand launch skips the launcher's posture check, so it prompts" "claude --worktree mc-x"
+# The skill starts its runner detached under setsid: a listed verb runs so
+# without a prompt, and setsid adds nothing to what is listed.
+expect_mc allow "a listed verb under setsid runs without a prompt" \
+  "setsid $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
+expect_mc allow "a listed verb under setsid through bash, detached, runs without a prompt" \
+  "setsid bash $REPO_ROOT/scripts/mc-watch.sh run --program alpha >/dev/null 2>&1 &"
+expect_mc allow "a listed verb under setsid through sh runs without a prompt" \
+  "setsid sh $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
+expect_mc allow "a no-argument entry under setsid runs without a prompt" \
+  "setsid $REPO_ROOT/scripts/mc-keeper.sh"
+expect_mc defer "an unlisted script under setsid prompts" \
+  "setsid $REPO_ROOT/scripts/offload-dispatch.sh dispatch tmux brief.md"
+expect_mc defer "an unlisted verb of a listed script under setsid prompts" \
+  "setsid $REPO_ROOT/scripts/mc-kb.sh revert 3"
+expect_mc defer "the raw prompt-answer verb under setsid prompts" \
+  "setsid $REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes"
+expect_mc defer "the raw prompt-answer verb under setsid through bash prompts" \
+  "setsid bash $REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes"
+expect_mc defer "setsid with any other command prompts" "setsid rm x"
+expect_mc defer "setsid with an option prompts" "setsid -f $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
+expect_mc defer "setsid running a shell's command string prompts" \
+  "setsid bash -c '$REPO_ROOT/scripts/mc-watch.sh run --program alpha'"
+expect_mc defer "setsid alone prompts" "setsid"
+assert_defer "setsid stays outside the tower mode's approvals" \
+  "setsid $REPO_ROOT/scripts/mc-watch.sh run --program alpha"
+# Two copies of the guard: one whose root carries an extended list, and one
+# whose root carries none, which approves no planwright script.
+NOLIST="$SANDBOX/nolist"
+WILD="$SANDBOX/wild"
+mkdir -p "$WILD/config"
+cp -R "$REPO_ROOT/scripts" "$WILD/scripts"
+{
+  cat "$VERBS"
+  printf '%s\n' 'fleet-streamjson.sh *' 'mc-rules.sh load;x' 'mc-rules.sh --load'
+} >"$WILD/config/mission-control-verbs.txt"
+WILD_GUARD="$WILD/scripts/tower-command-guard.sh"
+mkdir -p "$NOLIST"
+cp -R "$REPO_ROOT/scripts" "$NOLIST/scripts"
+expect_mc allow "control: the copied guard resolves the plugin root and reads a list" \
+  "$REPO_ROOT/scripts/mc-rules.sh load alpha" "$WILD_GUARD"
+expect_mc defer "with no list beside the guard, a listed verb prompts" \
+  "$REPO_ROOT/scripts/mc-rules.sh load alpha" "$NOLIST/scripts/tower-command-guard.sh"
+expect_mc defer "a no-argument entry does not cover a literal - argument" "$REPO_ROOT/scripts/mc-keeper.sh - x"
+expect_mc defer "a flag in the verb position prompts" "$REPO_ROOT/scripts/mc-rules.sh --load alpha"
+# A list carrying those words must not make them pass: the plain-word check
+# runs before the list is consulted.
+expect_mc defer "a verb word that is not a plain word prompts even when listed" \
+  "$REPO_ROOT/scripts/mc-rules.sh 'load;x'" "$WILD_GUARD"
+expect_mc defer "a flag in the verb position prompts even when listed" \
+  "$REPO_ROOT/scripts/mc-rules.sh --load alpha" "$WILD_GUARD"
+# The guard refuses the raw prompt-answer verb itself, even under a list
+# whose wildcard would cover it.
+expect_mc allow "a wildcard entry covers its script's verbs" \
+  "$REPO_ROOT/scripts/fleet-streamjson.sh status mc-alpha" "$WILD_GUARD"
+expect_mc defer "the raw prompt-answer verb prompts under a wildcard entry" \
+  "$REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes" "$WILD_GUARD"
+expect_mc defer "the raw prompt-answer verb under a wildcard entry and setsid prompts" \
+  "setsid $REPO_ROOT/scripts/fleet-streamjson.sh answer mc-alpha 1 yes" "$WILD_GUARD"
+# A repository mission control sits in is not planwright: its scripts/
+# directory is never trusted at this tier, whatever the names.
+OTHER="$SANDBOX/other-repo"
+mkdir -p "$OTHER/scripts"
+: >"$OTHER/.git"
+: >"$OTHER/scripts/mc-rules.sh"
+other_says=$(mc_says "$HOOK" "$OTHER/scripts/mc-rules.sh load alpha" "$OTHER")
+if [ "$other_says" = defer ]; then
+  pass "a listed name under the session's own repository prompts"
+else
+  fail "a listed name under the session's own repository was approved: $other_says"
+  false_allows=$((false_allows + 1))
+fi
+
+# The list is derived: the check passes on the shipped sources and fails on
+# a reference the list does not carry.
+if out=$(/bin/bash "$CHECK_VERBS" 2>&1); then
+  pass "the shipped list matches what the skill and duty catalog invoke"
+else
+  fail "the shipped list drifted from its sources: $out"
+fi
+FIXSKILL="$SANDBOX/fixture-skill.md"
+cp "$REPO_ROOT/skills/mission-control/SKILL.md" "$FIXSKILL"
+# shellcheck disable=SC2016 # literal backticks in the fixture skill text
+printf '\n## Fixture\n\nRun `scripts/mc-unlisted.sh`'"'"'s `go` now.\n' >>"$FIXSKILL"
+if out=$(/bin/bash "$CHECK_VERBS" --skill "$FIXSKILL" 2>&1); then
+  fail "a fixture reference to an unlisted script passes the check"
+else
+  case $out in
+    *"mc-unlisted.sh go is invoked by mission control but not in"*) pass "a fixture reference to an unlisted script fails the check, naming it" ;;
+    *) fail "the check failed without naming the unlisted reference: $out" ;;
+  esac
+fi
+FIXDUTIES="$SANDBOX/fixture-duties.yaml"
+sed 's|scripts/mc-keeper.sh@|scripts/mc-unlisted-watch.sh@|' "$REPO_ROOT/config/duties.yaml" >"$FIXDUTIES"
+if out=$(/bin/bash "$CHECK_VERBS" --duties "$FIXDUTIES" 2>&1); then
+  fail "a fixture duty watcher missing from the list passes the check"
+else
+  case $out in
+    *"mc-unlisted-watch.sh - is invoked"*) pass "a fixture duty watcher missing from the list fails the check" ;;
+    *) fail "the check failed without naming the unlisted watcher: $out" ;;
+  esac
+fi
+FIXFORMS="$SANDBOX/fixture-forms.md"
+cp "$REPO_ROOT/skills/mission-control/SKILL.md" "$FIXFORMS"
+# shellcheck disable=SC2016 # literal backticks in the fixture skill text
+printf '\n## Fixture forms\n\nRun `scripts/mc-unlisted-a.sh go --now`, then `scripts/mc-unlisted-b.sh <worker>`, and never `scripts/mc-unlisted-c.sh --flag`.\n' >>"$FIXFORMS"
+out=$(/bin/bash "$CHECK_VERBS" --skill "$FIXFORMS" --print 2>&1)
+case $out in
+  *"mc-unlisted-a.sh go"*) pass "a span naming a script and a word derives that verb" ;;
+  *) fail "a span naming a script and a word derived no verb: $out" ;;
+esac
+case $out in
+  *"mc-unlisted-b.sh *"*) pass "a placeholder argument derives a * entry" ;;
+  *) fail "a placeholder argument derived no * entry: $out" ;;
+esac
+case $out in
+  *"mc-unlisted-c.sh"*) fail "a span with a leading flag derived a verb: $out" ;;
+  *) pass "a span with a leading flag derives nothing" ;;
+esac
+FIXLIST="$SANDBOX/fixture-verbs.txt"
+{
+  cat "$VERBS"
+  printf '%s\n' 'fleet-streamjson.sh answer'
+} >"$FIXLIST"
+if out=$(/bin/bash "$CHECK_VERBS" --list "$FIXLIST" 2>&1); then
+  fail "a list carrying the raw prompt-answer verb passes the check"
+else
+  case $out in
+    *"must never pre-approve fleet-streamjson.sh answer"*) pass "a list carrying the raw prompt-answer verb fails the check" ;;
+    *) fail "the check refused the answer verb for another reason: $out" ;;
+  esac
+fi
+# check_list_fails <label> <expected stderr fragment>: the check over
+# $FIXLIST must fail, naming the fragment.
+check_list_fails() {
+  if out=$(/bin/bash "$CHECK_VERBS" --list "$FIXLIST" 2>&1); then
+    fail "$1 passes the check"
+  else
+    case $out in
+      *"$2"*) pass "$1 fails the check" ;;
+      *) fail "$1 fails the check for another reason: $out" ;;
+    esac
+  fi
+}
+{
+  cat "$VERBS"
+  printf '%s\n' 'mc-keeper.sh stale'
+} >"$FIXLIST"
+check_list_fails "a list line nothing invokes" "mc-keeper.sh stale is in"
+{
+  cat "$VERBS"
+  printf '%s\n' 'fleet-streamjson.sh *'
+} >"$FIXLIST"
+check_list_fails "a list carrying a wildcard for the prompt-answer script" "must never pre-approve fleet-streamjson.sh answer"
+# The guard reads `<script> <verb>` lines with `read`, which skips a line
+# carrying a third word and drops a last line with no newline; the check
+# refuses both, so it never passes a list the guard reads differently.
+sed 's|^mc-rules.sh load$|mc-rules.sh load # the digest|' "$VERBS" >"$FIXLIST"
+check_list_fails "a list line with a third word" "not one <script> <verb> pair"
+printf '%s' "$(cat "$VERBS")" >"$FIXLIST"
+check_list_fails "a list with no final newline" "does not end in a newline"
 
 echo
 echo "=================================================="

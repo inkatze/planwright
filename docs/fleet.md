@@ -137,7 +137,8 @@ above always render in full.
 The decision queue above is the workers' list. A tower session keeps a second
 one for you: the **operator queue** (`scripts/tower-queue.sh`), which holds
 everything the tower means to put in front of you — a blocked worker's
-question, something waiting for your go-ahead, a request you made, and news —
+question, something waiting for your go-ahead, a request you made, a decision
+taken without you that waits for your review, and news —
 and hands it over one item at a time. Nothing reaches you as loose prose; if
 the tower is telling you something it needs from you, it came off this queue.
 
@@ -149,11 +150,19 @@ the tower is telling you something it needs from you, it came off this queue.
   you reply. The knock is not repeated on a timer; it comes again only after a
   hand-over has gone unanswered for `tower_quiet_interval`, or when the item it
   named is no longer at the top of the queue.
-- **One item per reply.** Your reply opens the conversation, and each reply
-  after it brings the next item. The one exception is a pair: two waiting
-  items of the same kind about the same worker, PR, branch, or request arrive together
-  as one hand-over, and you answer both. Blocked workers come first, then things
-  waiting for your go-ahead, then your own requests, then news; within a kind,
+- **One hand-over per reply.** Your reply opens the conversation, and each
+  reply after it brings the next hand-over. Usually that is one item. Two
+  waiting items of the same kind about the same worker, PR, branch, or
+  request arrive together as a pair, and you answer both. A **batch** goes
+  further: when the top item names a worker, PR, branch, or topic, the other
+  waiting items about that same subject, of any kind, come with it, up to
+  `tower_batch_max` items (the top item's pair always arrives whole), and you
+  answer each one on its own; the rest wait for a later reply. The knock says
+  how many items the hand-over would carry as things stand then, which can
+  change before you reply.
+  Blocked workers come first, then things
+  waiting for your go-ahead, then your own requests, then decisions taken
+  without you that wait for your review, then news; within a kind,
   the more urgent and then the older first. Each item is written so you can
   answer it from that message alone. Ask for more and you get one more layer,
   then the tower waits.
@@ -176,6 +185,60 @@ Worker content inside an item is shown fenced, as quoted data. If a worker's
 text contains what reads like an instruction to the tower, the tower does not
 act on it, and neither should you without reading it as a quote.
 
+### Short-list questions and decisions taken without you
+
+A question can come with a **picklist**: a short list of options, a window,
+and what happens when the window ends, which is one of the options (the
+declared default) or a park. All three are fixed when the question is
+asked, and the window runs from then, `tower_picklist_window` unless the
+asker set one. Answer inside the window and your answer is the answer. If
+the window ends first, the default is applied and work goes on, or, for a
+park, the question stays open and the work it blocks is parked. A default
+is never declared on a worker's permission prompt, on anything that would
+merge, mark ready, force-push or rewrite history, or behind a human gate or
+a hard-disqualifier zone; those only ever park.
+
+Two kinds of item record a decision already taken without you, and both
+wait for your review:
+
+- **Settled by default**: a picklist window ended and its default was
+  applied.
+- **Decided by mission control**: a mission-control session took the
+  decision under its own rules, with its grounds recorded and the one step
+  that undoes it (or none).
+
+Neither is ever pushed at you while you are away; a review of something
+already done is not worth waking you for. When you are back, each is handed
+over after your own requests and before news, with what it settled on and
+what undoes it. Say it looks fine and it closes as reviewed. Say "undo
+that" and the tower records a revocation: a defaulted question reopens as
+the open question it was, with no window, so it can never default again
+(unless a newer question about the same worker is already open, when it
+closes as revoked and that newer one stands); a mission-control decision
+closes as revoked, and the log carries its undo step for mission control to
+run. The queue itself never runs an undo.
+
+### Whether you are here
+
+Mission control's panel, when it runs, tells the queue whether you are
+present: it writes a presence marker each time you prompt it and refreshes
+it on a timer. While that marker is fresh (written within
+`tower_presence_ttl`), you are present when your last prompt there falls
+within `tower_quiet_interval`, and away otherwise. With no marker, or a
+stale or unreadable one, the queue falls back to the quiet-interval rule
+above, and it logs each switch between the two. A reply in this
+conversation newer than the panel's last write counts as present for
+`tower_quiet_interval`, whatever that write said.
+Presence decides whether anything is handed over and when the away push
+fires; it never replaces the knock, which is still the only thing that
+confirms this conversation has your attention.
+
+Each presence write also runs the settling pass, and a wake from mission
+control makes the tower run its next step at once (which still knocks
+first when your attention is not confirmed), so a window that
+has ended or a decision that has just been taken reaches the queue without
+waiting for the tower loop's next pass; that pass stays the fallback.
+
 ### Replies the tower understands
 
 There is no command syntax; say it the way you would to a colleague.
@@ -189,6 +252,8 @@ There is no command syntax; say it the way you would to a colleague.
 | "what did I miss?" | the catch-up list: what settled while you were away, and why |
 | "tell me more" | one more layer of context, then the tower waits |
 | "drop the rule about …" | the tower closes that standing decision, recording that you revoked it |
+| "looks fine", on a decision taken without you | it closes as reviewed |
+| "undo that", on a decision taken without you | it is revoked: a defaulted question reopens with no window (or closes, when a newer question about that worker is open), a mission-control decision closes with its undo step logged |
 
 Items also close without you when the evidence says they are done: a PR
 opened or merged, commits landed on the branch, a request's ledger item
@@ -246,9 +311,12 @@ scripts/tower-queue.sh report    # the scorecard over tower_report_window
 ```
 
 Its headline is your load: items that reached you per hour of fleet work,
-against items settled without you. Beside it: how long blocked workers
-waited, turns that asked you more than one thing, items delivered in prose
-with no queue record, friction moments, jargon counted in what the tower
+against items settled without you. The settled side is broken out into
+items evidence settled, items a picklist default settled, and items mission
+control decided, with how often you revoked each of the last two. Beside
+it: how long blocked workers waited, turns that asked you more than one
+thing (a batch counts once, with the batches and their items beside it),
+items delivered in prose with no queue record, friction moments, jargon counted in what the tower
 said to you, and items lost across restarts. It also counts log lines any
 writer dropped on a busy lock and lines that would not parse, the only signs a
 write was lost or torn. Stretches between a tower's
@@ -259,8 +327,9 @@ reported as gaps. It runs on demand, never in CI.
 
 These settings tune the queue: `tower_quiet_interval`, `tower_lease_interval`,
 `tower_reknock_age`, `tower_shelve_return`, `tower_catchup_limit`,
-`tower_tick_gap_max`, `tower_log_rotate_age`, `tower_report_window`, and
-`tower_hook_lock_wait`. Each has its row, with what it controls and its
+`tower_tick_gap_max`, `tower_log_rotate_age`, `tower_report_window`,
+`tower_hook_lock_wait`, `tower_picklist_window`, `tower_presence_ttl`, and
+`tower_batch_max`. Each has its row, with what it controls and its
 default, in [the knobs table](#the-knobs-capability-in-core-value-in-overlay)
 at the end of this guide. Every interval accepts the `ms`/`s`/`m`/`h`/`d`
 suffixes; full rules are in the [options reference](options-reference.md).
@@ -400,7 +469,12 @@ inputs in `PLANWRIGHT_TOWER_SESSION_ID` / `PLANWRIGHT_TOWER_PID` /
 composite identity, so it has to be the checkout the tower published under, not
 the worker's worktree, or the record names a tower that exists nowhere. With no
 identity resolvable the dispatch is recorded as unknown-owner and says so on
-stderr.
+stderr. A session the mission-control launcher starts is recorded under
+`mission-control:<program>` instead; no presence surface knows that token, so
+every tower reads its owner as unrecognized and never reaps it. The stream-json
+rung, like the tmux rung's dispatch-env wrapper, clears the dispatcher's tower
+identity (`PLANWRIGHT_TOWER_ID`, `_SESSION_ID`, `_PID`, `_CHECKOUT`) from every
+session it starts, so no session reads its dispatcher's identity as its own.
 
 Every render starts with a per-source availability line
 (`ok` / `absent` / `unavailable`): a source that is missing is **marked**, and
@@ -511,6 +585,18 @@ wrapper, such a worker carries its fleet identity like the headless rungs do.
 It therefore raises the same attention signals (a fork-park push, a status
 row) that tmux workers started without the wrapper never did; that is the
 identity working, not new noise.
+
+A task worker lands on the tmux rung only when its spec resolves there
+(`resolve-dispatch-backend.sh`, unattended, read with the configuration of
+the repository the worker is placed in) or the tower passes
+`--backend tmux`, which it does for an explicit `/orchestrate --backend tmux`
+or a yes to the tmux-context ask (an answer the unattended resolution never
+reads). For a spec resolving to any other rung `fleet-dispatch-worktree.sh`
+refuses the launch with exit 17, before anything is placed, rather than
+start a worker whose prompts the chosen rung's supervisor (mission control
+included) would never see. `/orchestrate` dispatches a stream-json or headless unit through
+`scripts/orchestrate-meta-step.sh`, the prompt riding the launch.
+`--attach-dry-run` is not refused: it prints a plan and launches nothing.
 
 ### The task worker's opening turn
 
@@ -723,6 +809,36 @@ closes it (below). `stream-json-persistent` is driven by the
 remain a deliberate test/early-adopter escape hatch that bypasses these
 defaults.)
 
+### After an upgrade: workers get the installed copy
+
+Claude Code keeps older versions in its plugin cache beside the installed
+one, and a long-running session (mission control, a tower) keeps the root it
+started with in `PLANWRIGHT_ROOT` and `CLAUDE_PLUGIN_ROOT`. On every
+session-grade rung (tmux, headless, stream-json), these keep that older copy
+from reaching the sessions it launches:
+
+- `scripts/resolve-installed-roots.sh --fresh` swaps a cached copy the
+  installed record no longer names for the installed root present on disk;
+  a root outside the cache, such as a checkout an operator points at, is
+  kept as given. The dispatch-env wrapper runs the roots it inherits or
+  finds at its own location through it, saying so on stderr. A dispatcher
+  passing `--root` (the tmux rung, `offload-dispatch`) resolves that root
+  through it first, and the wrapper applies an explicit `--root` as given.
+  The wrapper also drops an inherited `PLANWRIGHT_COPY_CHECKED`, so the new
+  session runs its own stale-copy check.
+- `scripts/fleet-launch-profile.sh` makes the same swap on the root it
+  resolves itself, so the settings profile and the hooks it names come from
+  that one installed copy.
+- `scripts/mission-control-launch.sh`, run from an older cached copy, runs
+  the installed launcher with the same arguments, so the brief and the
+  cadence section name the installed root's scripts.
+
+A session that still calls an older copy's scripts hears about it: they warn
+on stderr, and `scripts/step-record.sh` refuses `new-run` and `status`
+(exit 1), naming the installed `step-record.sh` to run instead, because the
+installed copy's audit is the one that reads those records. Its other verbs
+only warn, so a run opened before an upgrade still finishes.
+
 ### The stream-json supervisor runtime and its capture
 
 `scripts/fleet-streamjson.sh` (the Task 4 supervisor primitive) owns each
@@ -739,7 +855,27 @@ worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
 receipt pending past `PLANWRIGHT_STREAMJSON_PENDING_AGE` (default 900s)
 becomes a high-priority queue item plus one notify push within a tick of
 crossing the threshold, with nothing else having to run `alarm-scan` (the
-on-demand sweep over every worker, which remains). `answer` delivers the
+sweep over every worker, which remains). The tick lives in the supervisor, so a
+worker an older planwright launched has none. `alarm-scan` reads every runtime
+directory whatever version wrote it, and mission control's session-keeper
+watcher runs it as `alarm-scan --once` on every pass: an overdue request
+becomes a high-priority queue item, is pushed once (the tick and `--once` share
+one mark per request; a plain scan pushes on every call), and wakes the
+mission-control session as a `pending-prompt-overdue` event. A request that has
+just arrived wakes it sooner as a `pending-prompt` event, at most one per
+rate-limit window (`mc-keeper.sh` names it) so a burst is one wake.
+A pending-age setting the sweeps cannot read
+(`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends
+non-zero is named on stderr and wakes it once as a `keeper-sweep-failed` event;
+the default age stands in for a bad setting. A worker that is
+positively dead, or whose run ended (no pid file left beside a complete result
+record), is never escalated: what it left pending can no longer be answered,
+so the scan closes those receipts undeliverable, as a stop does, clears the
+request row it raised (a failure item stays), and prints
+`dead <worker> <settled>`, which the session-keeper announces as a
+`stream-json-worker-dead` event. While a launch, recover or relaunch of that
+worker is in flight, the scan neither settles nor escalates it, leaving its
+requests to a later scan. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
 crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
@@ -750,6 +886,40 @@ healthy-looking `running`. A worker records a `result` at the end of every turn
 and stays up for the next, so `awaiting-input` outranks an earlier turn's
 `completed`, and the stuck detector likewise keeps such a worker
 `waiting-on-a-human` rather than finished.
+
+**When the mission control itself does not answer.** The alarm's wake reaches
+the one session that should answer, which helps nothing when that session is
+stuck. A second session-keeper watcher, `scripts/mc-escalate.sh`, raises what
+a program's mission control leaves unanswered one level up, with no model in
+the path. Two things qualify: a request of one of the program's own live
+workers still pending `mission_control_escalation_window` past the alarm,
+and the mission control's own tmux pane showing an open dialog for that
+long. Auto mode's confirmation after blocked actions is one such dialog, and
+Remote Control does not show it. Either becomes a `mission-control-escalated`
+event in the hub program's store (`mission_control_escalation_hub`, when its
+holder is live), and at twice the window a push to the operator through the
+notification seam. With no live hub, or for the hub's own items, the first
+level goes to the operator. Each level is raised once.
+
+The operator's answer to such a dialog reaches the pane through
+`scripts/mc-pane-answer.sh`. It delivers one digit to that program's own
+mission-control pane, never a pane the caller names, and only against the
+hub's decisions-log entry noting the operator's answer (`mc-decide.sh note
+--shape answer`) about that very dialog: its subject names the dialog's
+digest from the escalation, its answer is the digit, it was made after the
+watcher first saw the dialog, and it is used once (a `pending` log line,
+written before the keystroke, marks it used). The pane is read again just
+before the keystroke, under the watcher's lock. It must show the dialog
+whole: from the rule that opens it, with no line cut off as the
+mission-control side panel's text, so a dialog with a side panel drawn
+beside it is answered at its pane, as is one offering no label the relay
+takes, and the watcher's escalation says so.
+The digit's label must be one that answers this dialog and nothing more
+(a short allowlist: Yes, No and their one-time variants), so a rule for
+later calls, a mode switch or a trust grant is refused. Its `--help`
+lists every refusal. With
+`mission_control_escalation_hub: none`, and for the hub's own dialog, there
+is no hub to record the answer, so such a dialog is answered at its pane.
 
 `pending [<worker>...]` shows what those pending receipts are asking, so a
 tower can bring the operator the actual decision rather than a count. For each
@@ -768,7 +938,11 @@ script's read bound, or still being written) gets a
 a sandbox bypass included, are not shown, yet an `answer --allow` would apply
 them. Every `--` notice prints before the request's content, so reading the
 view through `head` never drops one. A missing, symlinked, or malformed envelope
-prints `-- request envelope unreadable` instead. The request text is the worker's, so
+prints `-- request envelope unreadable` instead. A worker that is positively
+dead (every pid it recorded is gone, by `fleet-death-evidence.sh`, or its run
+ended: no pid file left beside a complete result record) gets a
+`-- worker dead` line under each header: nobody can answer those requests, and
+the next `alarm-scan` settles them. The request text is the worker's, so
 it is treated as untrusted: control bytes are stripped (C1 bytes too, which
 mangles some non-ASCII punctuation, the same trade the script's echo
 sanitizer makes), a tool name that had to be altered carries a `:sanitized`
@@ -782,10 +956,10 @@ by the resolved literal path (`<root>/scripts/fleet-streamjson.sh pending`, per
 [plugin-script invocation](../doctrine/plugin-script-invocation.md)); a `~` path
 or an unexpanded `$CLAUDE_PLUGIN_ROOT` falls to the permission prompt instead.
 
-Before spawning anything, `launch` proves the auto-approve hook the worker
-will run (`scripts/worker-command-guard.sh` under the plugin root the
-dispatch-env wrapper exports, run through that wrapper so it sees the worker's
-environment) will approve the worker's opening move — the
+Before spawning a worker-profile session, `launch` proves the auto-approve
+hook the worker will run (`scripts/worker-command-guard.sh` under the plugin
+root the dispatch-env wrapper exports, run through that wrapper so it sees the
+worker's environment) will approve the worker's opening move — the
 `<root>/scripts/resolve-rule-doc.sh` call `/execute-task` makes before any
 task work — once per root the worker could run scripts from: the launcher's
 own root, that plugin root, and every root `scripts/resolve-installed-roots.sh`
@@ -807,6 +981,42 @@ diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
 
+**A stream-json worker never backgrounds a command.** A stream-json session
+takes its turns from stdin, and a background job's completion notice starts
+no new turn there. So a worker that runs a command with `run_in_background`
+and then ends its turn waits forever, and looks stalled. `launch` asks the
+dispatch-env wrapper for the mark through `PLANWRIGHT_LAUNCH_BACKEND`, and
+the wrapper, which drops an inherited mark in every form, sets the
+session's `PLANWRIGHT_SESSION_BACKEND=stream-json`. The worker profile's
+`scripts/background-job-guard.sh` refuses a backgrounded Bash call when it
+is set. The refusal tells the worker to run the command in
+the foreground with an explicit timeout, and to split a longer run into
+bounded calls. It refuses a backgrounded call the worker meant to wait on
+inside its turn too, since the hook cannot tell the two apart. A tmux
+worker resumes on the notice and never carries `PLANWRIGHT_SESSION_BACKEND`,
+so the guard leaves it alone. The launch preflight warns when the worker's
+hook root has no `scripts/background-job-guard.sh`.
+
+The worker profile also wires `scripts/noop-padding-guard.sh` beside it, a
+deny-emitting hook (the command guard is allow-only) that refuses a Bash
+command whose only effect is to look different to the permission check:
+a redirect to or read of the null device, `|| true` or `; true`, a
+pass-through `| cat`, an empty heredoc, `cat >` with no input, a placeholder
+write, an empty function, a bare `echo` or `echo ok`, `true` or `:` as a step,
+`python3 -c 1`, `cd .`, `cd X || cd X`, `cd X; cd -`, a zero-count `head` or
+`sed -n 1,0p`, and a fixed or `mktemp -u` name under `/tmp`. Each refusal
+names the shape and the alternative: send output you do not need to a file in
+your own `mktemp -d` scratch directory, and use full paths. It reads the command
+quote- and heredoc-aware, so the same words inside a string, a heredoc body or
+a file's content pass, and a command it cannot follow (a subshell, a backtick,
+a substitution inside double quotes) is deferred whole, as is a command that
+hides the padded verb behind a wrapper such as `env` or `sudo`. A `/tmp` path
+is refused only as an unquoted word or a redirect target. The launch
+preflight does not check for this guard's script. It cannot judge an
+unused variable, a `mkdir -p` of a directory that exists, or a `sed` that
+replaces a line with itself from the text alone; those stay with the
+supervisor.
+
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
 its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
@@ -814,7 +1024,35 @@ attention record the worker held. `--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, the rate-limit
 reading, and the receipt journal survive a stop: they are the durable record,
-not runtime. The journal survives as a file but not untouched — the close
+not runtime. So does the worker's scratch root, the directory its launch
+exported as its `TMPDIR` and named in its session record: it belongs to the
+worktree, so every plain stop, `recover`, and relaunch of the worker finds it
+again, contents and all, on every rung, until the host reboots or its
+temporary-file cleaner ages the files out. The root is a short owner-only
+directory inside `/tmp/planwright-<uid>`, a parent only this user may open,
+as tmux keeps its sockets (`PLANWRIGHT_FLEET_SCRATCH_BASE` names another
+parent, which must be this user's, closed to everyone else, and short enough
+to keep worker socket paths within Linux's limit);
+`scripts/fleet-scratch.sh` places it and records it in
+`<fleet home>/scratch/<key>.tmpdir`, and a close or reclaim removes a root of
+this layout only when that record names it. It stays short because Linux caps
+a Unix socket path at 108 bytes, so a root under the fleet home left a worker
+no socket in its `TMPDIR`, and it stays out of `~/.claude` because a path
+there reads as a settings path to the guards a worker's tests exercise. On the stream-json
+rung it is the worker's own, keyed by worktree and handle
+(`worker-session-record.sh write --session`), because every session mission
+control launches from one checkout shares that worktree. A final close
+(`stop --final`, which a reap through `fleet-cleanup.sh process` and a
+mission-control retire make) removes it, taking that session's files alone.
+The other rungs record the worktree-wide root, which their final close
+removes. Roots of the earlier layout, under `<fleet home>/scratch/<hash>`,
+have no record and go by their shape instead: a worktree-wide one stays,
+dropping only the pointer, while another stream-json worker records it or a
+session's root sits in it, and a worker's next launch or `recover` moves it to
+a short root, its old files left behind. `fleet-cleanup.sh worktree` removes the
+worktree's root, every session's, and any of the earlier layout when it
+reclaims the worktree. The
+journal survives as a file but not untouched — the close
 marks its still-`pending` receipts `undeliverable` and discards any spooled
 receipt, because a close
 makes them undeliverable by definition and a receipt left pending is what
@@ -822,6 +1060,19 @@ makes them undeliverable by definition and a receipt left pending is what
 the branch, or the unit's fence: the release set is exactly the reproducible
 resources, and worktree reclamation stays with `fleet-cleanup.sh worktree` and
 its positive-evidence checks.
+
+Every approval the worker command guard grants also leaves a trace: one line
+in `<fleet home>/allow-audit/<record-name>.log`, the directory its session
+record names, carrying the time, the session id, the approving arm, and the
+command's SHA-256, never its text. This is not the fleet audit trail under
+`<fleet home>/audit/`. To check whether a suspected command was auto-approved,
+hash the command string from the transcript with its trailing newlines
+removed (`printf %s`) and look for the hash. A stop, a reap, and a worktree
+reclaim all leave the log in place; a later worker launch prunes it once it
+is older than `worker_audit_log_retention_days`. A record that names no usable
+log home leaves the worker without the `own-branch` and `scratch` arms, so
+those arms never approve a write with no log to trace it in; the options
+reference lists what the line records and when a write goes unlogged.
 
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee
@@ -884,7 +1135,8 @@ The two session-grade rungs, verb by verb:
 | Open | `launch <worker> <scope> --prompt-file <file>` | `launch <spec> <id> --worktree <dir>` |
 | Liveness and completion | `status <worker>` | `status <spec> <id>` |
 | Close | `stop <worker> [--grace <secs>] [--observe]` | `stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` |
-| Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
+| Resume a crashed worker | `recover <worker> [--cwd <dir>]` | none: a one-shot is re-dispatched, not resumed |
+| Relaunch a live worker under the current profile | `relaunch <worker> [--grace <secs>]` | none: a one-shot is re-dispatched, not resumed |
 | Read a pending prompt | `pending [<worker>...]` | none: a one-shot has no pend path |
 | Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
 | Steer in flight | `steer <worker>` | none: the rung advertises no steer |
@@ -892,6 +1144,36 @@ The two session-grade rungs, verb by verb:
 The first three rows are the lifecycle, and both rungs expose all three. The
 rest follow from what each rung advertises in the capability contract, not from
 a missing close.
+
+A worker reads its permission profile (the `--settings` fragment) once, at
+session start, and the launcher resolves the self-approval policy and the
+other launch-time inputs from config into the worker's session record once, at
+launch. A change to either therefore reaches a running worker only by
+relaunch. `relaunch <worker> [--grace <secs>]` is that relaunch for a live
+stream-json worker: a plain `stop`, which keeps the scratch root, then
+`recover --cwd` with the directory the worker's launch recorded, so the resumed
+session gets `--resume <session id>`, the installed profile's path, and a
+session record rewritten from current config, whichever directory the verb is
+run from. The model tier is re-resolved too: `allocation-apply.sh plan` runs
+in that directory at the allocation key and unit the launch recorded
+(mission control's launcher records its kind's key), or at
+`orchestrate_dispatch` under the worker's handle for a launch that recorded
+none, and the resumed session gets `--model` and `--effort` for each dimension
+that does not resolve to `inherit`. Any other extra argument the original
+launch passed after `--` is not carried over. (`recover --cwd <dir>` is
+available on its own; without it a recover
+resumes in the caller's directory, and a session resumes only from the one it
+started in.) One relaunch runs per worker at a time. Everything the resume
+depends on is checked before the stop, and a refusal leaves the worker
+running: exit `3` for a relaunch already in flight, a worker that is not
+running (that is `recover`'s case), a lock of the release set held by a live
+process other than the worker's own, no recorded launch directory (a worker
+launched before the directory was recorded; stop it and run `recover --cwd`
+from its worktree), or a tier that does not resolve; exit `4` for no usable
+session id; exit `7`, `8` or `9`
+for the profile, wrapper, and preflight checks `launch` makes; exit `2` for an
+unknown handle, as for `stop`. After the stop, a partial close is exit `6` and
+a failed resume exit `5`, each naming the `recover` to run.
 
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
@@ -906,7 +1188,14 @@ the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
 newline-terminated line, no raw control byte, a valid JSON object nested at
 most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
-written.
+written. A steer shaped like a new unit of work (a skill command, a launch
+brief) is refused with exit 5 and nothing written, unless the
+mission-control launcher registers the worker as a tower, orchestrator or
+mission-control session: workers are short-lived, so new scope and each new
+review round go to a fresh worker carrying a handover brief. `--retask
+<reason>` delivers it anyway and logs the override once delivered (an
+override that could not be logged is refused, exit 2);
+`scripts/retask-guard.sh --help` holds the rule.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
@@ -1306,7 +1595,13 @@ changes it too. After pasting it waits for the paste's fresh `(#<id>)` tag,
 which leads the line, and exits 4 if it never shows: observe the pane before
 any re-send, which would stage a duplicate. `PLANWRIGHT_RELAY_CONFIRM_TRIES`
 (default 5, at most 20) and `PLANWRIGHT_RELAY_CONFIRM_SLEEP` (seconds, default
-1, at most 3) bound that wait.
+1, at most 3) bound that wait. Before reading the pane at all it refuses
+(exit 5, nothing pasted) a message shaped like a new unit of work for any
+session but one the mission-control launcher registers as a tower,
+orchestrator or mission control (a target is read as its window first), the
+same rule as the stream-json steer; `--retask <reason>` pastes it anyway,
+logged once pasted (an override that could not be logged is refused, exit
+2).
 
 **A paste stages; one Enter submits it.** The tmux relay loads its pointer
 line with no trailing newline, so the paste never submits itself and a single
@@ -1340,7 +1635,7 @@ literal-path resolution auto-approves, so the pinned launch never floods the
 worker and never falls back to the bare launch that once dropped the pin. The
 allow rules that front it follow one discipline worth knowing when you add or
 edit them: see the
-[glob discipline](overlays.md#path-scoped-allow-rules-use-the-slash-star-glob).
+[glob discipline](overlays.md#path-scoped-allow-rules-name-exact-paths).
 
 A **backspace-probe** disambiguation check — send a backspace to the pane and
 diff it before and after to tell real input from a rendered suggestion — stays
@@ -1384,8 +1679,8 @@ dispatch-side wiring is in place for the `headless-oneshot` backend**
 session's hooks push), **for the tmux worktree rung** (its launch runs the
 worker through `fleet-dispatch-env.sh --identity`, with the launch token the
 `SessionStart` row carries), **and for the `stream-json-persistent` rung**
-(`fleet-streamjson.sh launch` exports the handle and the scope its launch
-persisted, a relaunch included). Sessions no dispatch seam launched still
+(`fleet-streamjson.sh launch` exports, for a worker-profile launch, the handle
+and the scope its launch persisted, a relaunch included). Sessions no dispatch seam launched still
 no-op this handler and stay on the existing observation path (a graceful
 REQ-A1.1 degradation, no breakage).
 The hook payload is drained, never parsed,
@@ -1689,7 +1984,12 @@ given.
 **The pane signatures are a platform surface.** The permission-dialog text
 and the busy footer markers live in one sourced file,
 `scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`,
-`fleet-stuck-detector.sh` and the relay's `deliver` step;
+`fleet-stuck-detector.sh`, the relay's `deliver` step and mission control's
+stall detector (`scripts/mc-stall.sh`) and escalation watcher and pane relay
+(`scripts/mc-escalate.sh`, `scripts/mc-pane-answer.sh`, through
+`scripts/mc-session-pane.sh`, which keeps the auto-mode phrases, the footers
+and rule glyphs that bound a dialog, and the relay's answerable labels itself,
+so the overrides that follow do not reach them);
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
@@ -1790,9 +2090,11 @@ which first clears a per-spec lock whose recorded holder is provably gone
 the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
 nothing, runs in both modes; the residues, which retire a gone
-flight's brief (clearing its attention row), prune the flight index of a
-checkout that no longer exists, and retire a task brief whose unit's worktree
-is gone; and the flight crash policy, below.
+flight's brief directory (clearing its attention row, and removing with it
+the private partial record a parked flight rendered there, so that record
+lasts while the worktree exists and is gone with the sweep that retires the
+flight), prune the flight index of a checkout that no longer exists, and
+retire a task brief whose unit's worktree is gone; and the flight crash policy, below.
 The registry reconcile follows the reap so a worker closed this cycle is
 retired in the same one, and the flight passes follow the reconcile so the
 dispatch records they read are already settled.
@@ -1913,9 +2215,11 @@ checkout is not judged on this checkout's specs. Each clear goes through
 `fleet-attention.sh clear --if-row`, so a worker that wrote since it was judged
 keeps its new row; each clear is audited under the `attention-reconcile`
 mechanism. `fleet_daemon_pause` pauses the pass.
-The pass clears display rows only: a dead headless worker's pending
-stream-json receipts stay for the rung's `stop` to settle, and until then
-`alarm-scan` can still re-queue a decision from them.
+The pass clears display rows only: a dead worker's pending stream-json
+receipts are the rung's to settle, which its `stop` does and so does the first
+`alarm-scan` that finds every pid the worker recorded positively dead or its
+run ended (no pid file left beside a complete result record) with no launch,
+recover or relaunch of it in flight.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
@@ -1989,12 +2293,32 @@ a captured `/usage` render on stdin (a throwaway-pane scrape, off the hot
 path), strips control bytes, parses **both** windows Claude Code renders — the
 session (~5-hour) and the weekly — **by label**, plausibility-checks each
 (0–100 and the expected shape), and caches the extracted signal per-tower with
-a read timestamp. `fleet-usage-gate.sh evaluate` maps each window's percentage
+a read timestamp. A scrape needs a TUI, which a background (stream-json)
+session lacks, so the gate first reads the **status-line mirror**: a copy of
+Claude Code's own rate-limit windows that the operator's own `statusLine`
+command writes, from the rate-limit fields Claude Code hands it, to
+`${XDG_CACHE_HOME:-$HOME/.cache}/claude-usage/rate-limits.json` as
+`{"five_hour":{"used_percentage":N,"resets_at":EPOCH},"seven_day":{...},"spend_limit":{...}}`
+(`$PLANWRIGHT_USAGE_MIRROR` names another absolute path; set empty, it is
+skipped). `scripts/fleet-usage-mirror.sh` writes it, atomically, from the
+rate-limit fields Claude Code passes a statusLine command; `scripts/fleet-statusline.sh`
+does not. Setup is in [the usage mirror](#the-usage-mirror). Each window
+comes from the first source holding it fresh: the mirror, a regular file
+with no control byte, within `fleet_usage_signal_ttl_seconds` by file age,
+and per window a 0–100 percentage whose reset is still ahead and no further
+out than one window span plus slack (an hour for the session window, a day
+for the weekly); then the capture cache. A window the mirror lacks
+falls back instead of reading 0%. The mirror is only as fresh as the last
+status-line redraw, so it goes stale while no interactive session draws one.
+`fleet-usage-gate.sh evaluate` maps each window's percentage
 to a rung on one monotone restriction ladder —
 `normal → downshift → reduce-concurrency → defer-heavy → defer-all` — by
 deterministic `≥` comparison against the overlay-resolved per-window thresholds
 (`fleet_usage_session_*`, `fleet_usage_weekly_*`; strictly ascending and in
-1–100, validated). The **more restrictive** window governs; the session window
+1–100, validated; `off` disables a rung, so every soft rung `off` beside a
+`fleet_usage_weekly_defer_all` leaves one ladder stop, though the per-tier caps
+below still apply until set to `100`). The **more restrictive**
+window governs; the session window
 is **capped at `defer-heavy`** (a session spike never proactively halts the
 fleet), while only the weekly window can reach `defer-all` (the weekly wall can
 halt work for days). `fleet-usage-gate.sh admit <model>` answers the
@@ -2008,14 +2332,14 @@ extracted percentages and the rung decision — never the raw `/usage` render,
 which can carry account or plan identifiers. Every rung transition is a
 throttle-family daemon action: kill-switch-gated (`fleet_daemon_pause`) and
 audit-logged (mechanism `usage-gate`), and the current rung folds into the
-existing throttle line Task 8's stats already render (no new stat type). When
-`/usage` cannot be captured, parsed, is implausible, or is stale beyond
-`fleet_usage_signal_ttl_seconds`, the signal is reported **unavailable**:
+existing throttle line Task 8's stats already render (no new stat type). A
+window no source holds fresh and plausible is reported **unavailable**:
 governance falls back to the reactive throttle (the deterministic floor) with
 no block and no guessed number, and unavailability sustained across
 `fleet_usage_sustained_loss_count` consecutive read cadences raises the
 required operator surface (a warning escalating to an Awaiting-input hold), so
-a permanently broken parse is never silent. The proactive read is
+losing every source is never silent. A fresh mirror masks a broken `/usage`
+parse, which the drift check below catches. The proactive read is
 **shared-aware by construction**: `/usage` is account-global, already
 reflecting every concurrent tower, all workers, and unrelated same-account
 work, so no per-orchestrator usage reservation is kept. Because the `/usage`
@@ -2024,10 +2348,21 @@ render is an undocumented, version-fragile surface (D-23), the parser carries a
 ladder) is in CI; confirming the parser still matches a live `/usage` format is
 the operator's periodic manual check.
 
-Schedule the read + evaluation on the `fleet_usage_read_cadence_seconds`
-cadence, off the dispatch hot path — the gate never scrapes `/usage`
-synchronously per dispatch. The scrape mechanism (a throwaway-pane capture of
-the live `/usage` TUI) is environment-specific; wire it as, e.g.:
+Schedule the evaluation on the `fleet_usage_read_cadence_seconds` cadence,
+off the dispatch hot path: the rung moves only when `evaluate` runs, and the
+gate never scrapes `/usage` synchronously per dispatch. With the status-line
+mirror in place the evaluation alone is enough. Install exactly one of the
+two lines below: each `evaluate` counts as one cadence toward
+`fleet_usage_sustained_loss_count`, so running both halves it.
+
+With the status-line mirror:
+
+```cron
+*/5 * * * * cd /path/to/repo && scripts/fleet-usage-gate.sh evaluate
+```
+
+Without it, feed a scrape (a throwaway-pane capture of the live `/usage` TUI,
+environment-specific) to `capture` first:
 
 ```cron
 */5 * * * * cd /path/to/repo && <scrape-/usage> | scripts/fleet-usage-gate.sh capture && scripts/fleet-usage-gate.sh evaluate
@@ -2290,7 +2625,11 @@ silently widened. Because the guard is allow-only with no default-deny, the
 profile's **deny block is the security floor**, effective regardless of guard
 output: it denies the shell guardrails (merge, every force-push spelling, amend
 / squash / rebase, `gh pr merge`), default-branch and local-`main` mutation
-(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), the equivalent
+(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), every
+branch-moving and stash-writing act in any checkout (`checkout`, `switch`,
+every `reset`, a branch rename or copy, `worktree add -B`, a `symbolic-ref` write, a fetch into a
+local branch, `gh pr checkout`, `gh repo sync`, and every `stash` form but
+`list` and `show`; [the posture delta](tower-posture-delta.md) lists them), the equivalent
 GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
 `create_or_update_file` / `delete_file` — denied wholesale by name because a
 Bash-string guard cannot intercept an MCP call, and on every MCP server by a
@@ -2332,16 +2671,35 @@ naming `config/worker-settings.json`, and the watchdog's default relaunch and
 (a custom `PLANWRIGHT_TOWER_LAUNCHER` passes its own, or none),
 each with `PLANWRIGHT_MESSAGING_INBOUND=accept` exported beside it (the layer
 the messaging probe reads, since a `--settings` profile is not one of the
-settings files it parses). Each launch also names its session with `--name`:
-the worker's registry handle, `planwright-tower-<spec>` for a relaunch, and
+settings files it parses). The mission-control launcher
+(`scripts/mission-control-launch.sh`) starts other session kinds on the same
+seams: `fleet-streamjson.sh launch --profile <kind>` and
+`offload-dispatch.sh dispatch tmux --profile <kind>` pin the tower or
+mission-control profile by kind, never by path, and a session under either
+carries no worker identity. A worker, reviewer or ad-hoc launch never starts
+in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
+--no-attach` create its worktree, or reuses the one holding its branch when
+no live session runs there (`--help` has the rules). Each launch also names
+its session with `--name`: the worker's registry handle,
+`planwright-tower-<spec>` for a relaunch, and
 `planwright-tower-<spec>-<epoch>-<pid>` for a handover, so the retiring tower
 and its replacement never share a name, nor do two launches in one second.
-The profile comes from the planwright root the core root chain names
-(`PLANWRIGHT_ROOT` first), resolved by `scripts/fleet-launch-profile.sh`; a
+Except on `offload-dispatch.sh`, which resolves the profile and pins the
+wrapper to its own install root, the profile comes from the planwright root
+the core root chain names (`PLANWRIGHT_ROOT` first), resolved by `scripts/fleet-launch-profile.sh`; a
 profile that cannot be read refuses the launch, naming the file, rather than
 starting a session under the operator's own settings. On Claude Code 2.1.303,
 two `-p` launches given the same `--name` both start and both carry that name: the CLI neither renames
 nor refuses, so a duplicate shows up only in the session listing.
+
+The launcher's `retire <name>` closes what it launched from its registry row.
+A stream-json worker launched without it (by an older planwright, by
+`/orchestrate`, or by hand) has no row, so `retire <worker>` takes it by its
+handle instead: `fleet-streamjson.sh stop <worker> --final`, then its fleet
+record and attention row, printing the same `retire` line over the classes
+`process`, `registry` and `attention`. A name with neither a row nor a
+stream-json runtime directory is exit 3, and the refusal names the headless
+rung's `stop` and `tmux kill-window` as the closes that apply.
 
 The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's
@@ -2351,6 +2709,54 @@ A tower launched with an earlier copy of the profile lacks those appended deny
 entries until it is relaunched: until then, the front door's bring-up posture
 check finds them missing and holds back repo-mutating routes and relays, unless the
 operator acknowledges running without them.
+
+### The usage mirror
+
+The gate needs a usage signal, and Claude Code's status line is the documented
+surface that carries the rate-limit fields: `rate_limits.five_hour` and
+`rate_limits.seven_day` for subscription accounts, and
+`rate_limits.spend_limit` (a percentage and reset, behind a Claude apps
+gateway). A host whose status line does not write the mirror has no signal:
+the gate then logs `no usage signal` on every cadence and relies on the
+reactive throttle.
+
+Install by wrapping the status line you already have, in your own settings
+file (planwright never edits it). `fleet-usage-mirror.sh statusline` writes the
+mirror, then runs your command on the same input and passes its output and
+exit status through, so your line is unchanged:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "<plugin-root>/scripts/fleet-usage-mirror.sh statusline '<your current statusLine command>'",
+  "refreshInterval": 60
+}
+```
+
+The wrapped command is one argument: quote it for `sh`, and JSON-escape it if
+it holds quotes. With no status line yet, use
+`"command": "<plugin-root>/scripts/fleet-usage-mirror.sh statusline"`, which
+writes the mirror and prints nothing. `refreshInterval` (seconds) re-runs
+the command while the session is idle, so the mirror stays inside
+`fleet_usage_signal_ttl_seconds`.
+
+- Check: `scripts/fleet-usage-gate.sh mirror-path` names the file;
+  `scripts/fleet-usage-gate.sh signal` prints the readings the gate uses.
+- Opt out: set `PLANWRIGHT_USAGE_MIRROR` empty. The writer then writes nothing,
+  and the gate skips the mirror.
+- A payload with no `rate_limits` writes nothing, so the last good mirror ages
+  out by the TTL rather than being replaced with nothing.
+- Dollar budgets: `spend_limit` fills the weekly window when the account has
+  no `seven_day` window. Its percentage is the same unit as the thresholds, so
+  the ladder applies unchanged; over the limit it reads as 100. The dollar
+  amounts are not used. Its period may be daily, weekly or monthly, and a reset
+  up to 32 days ahead is accepted.
+- Gap: a plain API-key account with no gateway gets no `rate_limits` at all, so
+  the gate can only report `no usage signal`. `cost.total_cost_usd` is this
+  session's estimated spend, not a budget, so it is not a substitute.
+- Unverified: the docs list the events that run the status line but not
+  whether a print-mode or stream-json session runs it. Check on a headless host
+  that the mirror refreshes before relying on it there.
 
 ## What the fleet decides without you (and what it never does)
 
@@ -2447,6 +2853,9 @@ are in the [options reference](options-reference.md).
 | `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
 | `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
 | `tower_hook_lock_wait` | The fleet-lock wait for every queue write and the reply hook's log line (the reads take no lock); at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
+| `tower_picklist_window` | A question's picklist window, run from the item's birth when the asker set none; at its end the declared default is applied for your review, or the question parks | How long a short-list question waits for you before its default applies | `30m` — work moves on while you are away, and the default is shown to you for review when you are back |
+| `tower_presence_ttl` | Presence from mission control's panel: a marker written within this long decides whether you are here; an older one falls back to `tower_quiet_interval` | How long a panel reading is trusted | `2m` — a panel that stops writing stops deciding, and the quiet-interval rule takes over |
+| `tower_batch_max` | Batching by subject: the most items one hand-over carries when the top item names a worker, PR, branch, or topic | How many things about one subject arrive together | `3` — one conversation per subject without a wall of items |
 | `messaging_discipline` | Cross-session messaging as the signal transport, with a fallback on every path ([messaging-transport doctrine](../doctrine/messaging-transport.md)) | Which model-composed messages your sessions send: `off`, `script`, `tiered`, or `open` | `tiered` — model-composed messages only on the doctrine's named paths, one value stricter toward workers; `off` sits outside the ladder as the per-fleet kill switch, every consumer then taking today's path |
 | `messaging_cross_machine` | The harness's approval prompt on every cross-machine message (`isolatePeerMachines: true`, which both shipped profiles must carry) | Whether you have decided to relax that setting for a fleet | `false` — a cue, not a gate: with that setting in place, nothing leaves the machine without the harness asking |
 | `messaging_heal_cadence_seconds` | The healing sweep, kept at every setting because messages are lossy | How often the tower-facing sweep runs where push is live | `300` — slow enough to cut store reads, and never past the watcher's liveness window |

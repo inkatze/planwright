@@ -3,9 +3,11 @@
 # prescribes runs on every PR. `mise run check`, the aggregate gate
 # contributors run locally, runs here split across parallel jobs, with tool
 # versions pinned in mise.toml (contributor/CI parity by construction): the
-# lint job runs `check:non-test` (every gate but the suite), three test jobs
-# each run a third of the suite, and the `check` job joins them and judges the
-# suite's timing over all three reports. The status branch protection and the
+# lint job runs `check:non-test` (every gate but the suite), the plan job
+# picks how many shards the suite needs, one test job runs each shard, the
+# macOS and Alpine jobs run the suite in shards of their own, and the `check`
+# job joins them all and judges the suite's timing over every Linux shard's
+# report. The status branch protection and the
 # ready-flip tooling read is `check`, so that job id must not change. The bash
 # 3.2 parse step needs Docker, so it runs here only. Actions are pinned to
 # full commit SHAs (supply-chain discipline per the security posture).
@@ -34,12 +36,15 @@ concurrency:
 # The Claude Code CLI the lint and test jobs install; see the lint job's
 # install step for why it is pinned and its floor.
 env:
-  CLAUDE_CODE_VERSION: 2.1.179
+  CLAUDE_CODE_VERSION: 2.1.310
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
     # The bash 3.2 parse step's image.
     env:
       BASH32_IMAGE: bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091
@@ -59,13 +64,15 @@ jobs:
           version: 2026.6.1
 
       # Install the Claude Code CLI so `check:non-test`'s lint:plugin-schema
-      # step ENFORCES the manifest schema (claude plugin validate) instead of
-      # degrading to a skip. `claude plugin validate` is a purely local schema
+      # step ENFORCES the manifest schema (claude plugin validate), and its
+      # check:panel-mod step runs the panel mod's plugin tests, instead of
+      # each degrading to a skip. `claude plugin validate` is a purely local schema
       # check: it needs no authentication or API key, so no secret is wired
       # here. Pinned to an exact version (CLAUDE_CODE_VERSION above) for
       # CI/local parity, the same discipline mise.toml applies to its other
-      # tools; keep the pin at or above 2.1.154 (the release that added the
-      # defaultEnabled manifest field this repo sets). npm installs the
+      # tools; keep the pin at or above the mods floor
+      # scripts/check-panel-mod.sh holds, below which the panel mod's plugin
+      # tests fail the gate rather than run. npm installs the
       # same native binary as the standalone installer and puts `claude` on
       # PATH; `claude --version` then fails the step loudly if the install did
       # not work, so the schema gate can never silently fall back to its skip
@@ -73,6 +80,12 @@ jobs:
       - run: |
           npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
           claude --version
+
+      # The Ubuntu leg of the install smoke the macOS and Alpine jobs below
+      # also run; here because this job already carries the Claude CLI its
+      # marketplace mode installs through.
+      - name: install smoke
+        run: /bin/sh scripts/install-smoke.sh
 
       # Wire the tracked hook backstop before the aggregate gate verifies it:
       # the pinned wire-then-verify contract (guard-coverage REQ-A1.3, D-3).
@@ -155,20 +168,91 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
 
-  # The suite in three shards (scripts/run-tests.sh --shard), split by the
-  # committed duration table so each runs about a third of the suite's time.
+      # A PR titled with the `comments` scope declares itself comment-only, so
+      # its surface files must keep every code line the base has. The title is
+      # fetched live, never read from the event payload: this workflow does not
+      # fire on `edited`, so only a live read lets a rerun see a corrected title.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .title)
+          if printf '%s\n' "$title" | grep -Eq '^[a-z]+\(comments\)!?: '; then
+            /bin/sh scripts/check-comment-budget.sh --code-invariant "origin/${BASE_REF}"
+          else
+            echo "not a comments-scoped PR; the code-invariance check does not apply"
+          fi
+
+  # The shard count, from the suite time the committed duration table
+  # predicts over shard_target_seconds in config/test-time-budget.yml
+  # (scripts/run-tests.sh --plan-shards), so the count grows with the suite
+  # and a shard's wall-clock stays near the target. It runs on the shards'
+  # runner type, since the prediction divides by this machine's cores, and
+  # needs no toolchain: the planner reads two files and runs nothing.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      mac_runner: ${{ steps.mac.outputs.runner }}
+      mac_shards: ${{ steps.mac.outputs.shards }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - id: plan
+        run: |
+          shards=$(/bin/bash scripts/run-tests.sh --plan-shards)
+          echo "shards=$shards" >>"$GITHUB_OUTPUT"
+
+      # Where the macOS jobs run (docs/ci-self-hosted-mac.md). The offload
+      # Mac's self-hosted runner takes them only when the repository variable
+      # switches it on AND the code is this repository's own: a push here, or
+      # a pull request whose head branch lives here. Anything else, a fork's
+      # pull request above all, gets GitHub's hosted macOS, the reason in the
+      # run summary. The workflow cannot stop a fork's edited copy of itself
+      # from naming the runner's labels; the runner's job-started hook is what
+      # refuses that. The runner takes one job at a time, so its path runs the
+      # suite as a single shard; the hosted path keeps four.
+      - id: mac
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          SWITCH: ${{ vars.PLANWRIGHT_MAC_RUNNER }}
+        run: |
+          runner=hosted
+          if [ "$SWITCH" != self-hosted ]; then
+            reason="the PLANWRIGHT_MAC_RUNNER variable is not set to self-hosted"
+          elif [ "$EVENT" = push ]; then
+            runner=self-hosted
+            reason="a push to $GITHUB_REPOSITORY"
+          elif [ "$EVENT" = pull_request ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+            runner=self-hosted
+            reason="a pull request from a branch of $GITHUB_REPOSITORY"
+          else
+            reason="a $EVENT from '$HEAD_REPO', not $GITHUB_REPOSITORY, stays on hosted macOS"
+          fi
+          if [ "$runner" = self-hosted ]; then shards='[1]'; else shards='[1, 2, 3, 4]'; fi
+          msg="macOS jobs: $runner runner, $shards shards ($reason)"
+          echo "$msg"
+          echo "$msg" >>"$GITHUB_STEP_SUMMARY"
+          { echo "runner=$runner"; echo "shards=$shards"; } >>"$GITHUB_OUTPUT"
+
+  # The suite in the planned shards (scripts/run-tests.sh --shard), split by
+  # the same table so each runs about an equal share of the suite's time.
   # Each shard prepares the runner exactly as the lint job does, so a
   # tool-gated case runs rather than skipping, and uploads its timing report
-  # for the `check` job. The matrix list is the shard count's one home: each
-  # job reads it as strategy.job-total.
+  # for the `check` job. Each job reads the count as strategy.job-total.
   test:
     name: test (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       # Full history, for the tests that check fixture provenance.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -203,24 +287,35 @@ jobs:
           path: ${{ runner.temp }}/timing-report.tsv
           overwrite: true
 
-  # The aggregate status. It always runs, so a failed, skipped, or cancelled
-  # job above fails it rather than leaving it skipped, which branch protection
-  # reads as passing; under `!cancelled()` a run cancelled while this job
-  # waited would skip it. Then it runs the timing gate
-  # (`check:test-time` in `mise run check`) over every shard's report at once:
-  # the gate needs one row per test file, which only the union holds.
+  # The aggregate status, joining every job on every platform. It always runs,
+  # so a failed, skipped, or cancelled job above fails it rather than leaving
+  # it skipped, which branch protection reads as passing; under `!cancelled()`
+  # a run cancelled while this job waited would skip it. A matrix job's result
+  # is success only when every one of its shards succeeded, and a failed plan
+  # skips every planned shard, which fails it too. Then it runs the timing
+  # gate (`check:test-time` in `mise run check`) over every Linux shard's
+  # report at once: the gate needs one row per test file, which only the union
+  # holds, and its budgets are the Ubuntu runner's.
   check:
-    needs: [lint, test]
+    needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - env:
           LINT_RESULT: ${{ needs.lint.result }}
+          PLAN_RESULT: ${{ needs.plan.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          MACOS_RESULT: ${{ needs.macos-suite.result }}
+          MACOS_SMOKE_RESULT: ${{ needs.macos-smoke.result }}
+          ALPINE_RESULT: ${{ needs.alpine-suite.result }}
         run: |
-          echo "lint: $LINT_RESULT; test: $TEST_RESULT"
-          [ "$LINT_RESULT" = success ] && [ "$TEST_RESULT" = success ]
+          echo "lint: $LINT_RESULT; plan: $PLAN_RESULT; test: $TEST_RESULT"
+          echo "macos-suite: $MACOS_RESULT; macos-smoke: $MACOS_SMOKE_RESULT"
+          echo "alpine-suite: $ALPINE_RESULT"
+          [ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ] \
+            && [ "$TEST_RESULT" = success ] && [ "$MACOS_RESULT" = success ] \
+            && [ "$MACOS_SMOKE_RESULT" = success ] && [ "$ALPINE_RESULT" = success ]
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
@@ -236,41 +331,44 @@ jobs:
           done
           /bin/bash scripts/check-test-time.sh "$@"
 
-  # The macOS userland the scripts actually run on for most operators: its
-  # /usr/bin/awk is one-true-awk, which rejects a newline inside a -v value
-  # where the ubuntu runner's awk accepts it, so that class of bug passes the
-  # test shard jobs and breaks every Mac. Deliberately narrow (the awk-sensitive
-  # suites, no mise, no tool installs) until the full suite is green under the
-  # macOS /bin/bash; REQUIRE_BSD_AWK makes a runner image without that awk fail
-  # instead of skipping green.
-  macos-awk:
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - env:
-          PLANWRIGHT_TEST_REQUIRE_BSD_AWK: "1"
-        run: |
-          /usr/bin/awk --version
-          /bin/sh tests/test-bsd-awk-multiline.sh
-          /bin/sh tests/test-spec-validate.sh
-          /bin/bash tests/test-spec-parse-corpus.sh
-
-  # The full shell suite on the two platforms the matrix adds beside Ubuntu,
-  # held to this branch until the suite is green on both: a platform joins
-  # the pull-request workflow only once it passes there, and the filter's
-  # removal is that join. Both run it as `mise run test` with the pinned dev
-  # toolchain, as the test shard jobs do, so a tool-gated case runs rather than
-  # skipping. Full history, for the tests that check fixture provenance.
+  # The two platforms the matrix adds beside the Ubuntu jobs above, each
+  # joined by `check`: the full shell suite and the install smoke on macOS
+  # (the system bash 3.2 and the BSD awk and sed) and on Alpine (musl, dash
+  # as /bin/sh, busybox). Both run the suite in shards (scripts/run-tests.sh
+  # --shard) as `mise run test` with the pinned dev toolchain, as the test
+  # shard jobs do, so a tool-gated case runs rather than skipping. Full
+  # history, for the tests that check fixture provenance. The install smoke
+  # (scripts/install-smoke.sh) installs planwright through the writer and the
+  # Claude CLI's marketplace flow and runs scripts/step-record.sh, the
+  # adopter-tier script with the largest coupling profile in the partition,
+  # with PATH narrowed to an allowlist of a POSIX shell's utilities, git, and
+  # gh; it runs on Ubuntu in the lint job. check:workflow-posture holds these
+  # jobs to the matrix: present, never gated on a platform, every step
+  # blocking, and the Alpine steps to its scope.
   #
-  # The macOS run narrows PATH to the system directories, so the suite meets
-  # the system bash 3.2 and the BSD awk and sed rather than the GNU tools the
-  # runner image layers on top; gh, mise, and node (for markdownlint-cli2)
-  # are linked into a directory of their own instead of exposing Homebrew's.
+  # The macOS jobs narrow PATH to the system directories, so they meet the
+  # system bash 3.2 and the BSD awk and sed rather than the GNU tools the
+  # runner image layers on top; gh, mise, node (for markdownlint-cli2), and the
+  # Claude CLI are linked into a directory of their own instead of exposing
+  # Homebrew's. REQUIRE_BSD_AWK makes a runner image without that awk fail
+  # instead of skipping green.
   macos-suite:
-    if: github.head_ref == 'planwright/universal-binary/task-4'
-    runs-on: macos-latest
-    timeout-minutes: 150
+    name: macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    # The runner and shard count are the plan job's `mac` step's choice: the
+    # offload Mac's runner (label offload-mac-ci) takes one shard, since it
+    # runs one job at a time; GitHub's scarce hosted Macs take a small fixed
+    # count. check:workflow-posture accepts exactly this runs-on shape as a
+    # macOS job; keep it identical in macos-smoke.
+    needs: plan
+    # yamllint disable-line rule:line-length
+    runs-on: ${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('["self-hosted", "macOS", "ARM64", "offload-mac-ci"]') || 'macos-latest' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.mac_shards) }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
@@ -279,29 +377,85 @@ jobs:
         with:
           version: 2026.6.1
       - run: |
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          claude --version
+      - run: |
           allow="$RUNNER_TEMP/allow-bin"
           mkdir -p "$allow"
-          ln -s "$(command -v gh)" "$(command -v node)" "$(command -v mise)" "$allow/"
-      - run: |
+          ln -s "$(command -v gh)" "$(command -v node)" "$(command -v mise)" \
+            "$(command -v claude)" "$allow/"
+      - name: shell suite
+        env:
+          PLANWRIGHT_TEST_REQUIRE_BSD_AWK: "1"
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: |
           allow="$RUNNER_TEMP/allow-bin"
           mise_bin=$(command -v mise)
           PATH="$allow:/usr/bin:/bin:/usr/sbin:/sbin"
           /bin/bash --version
           /usr/bin/awk --version
-          "$mise_bin" run test
+          "$mise_bin" run test -- --shard "$SHARD/$SHARDS"
+
+  macos-smoke:
+    needs: plan
+    # yamllint disable-line rule:line-length
+    runs-on: ${{ needs.plan.outputs.mac_runner == 'self-hosted' && fromJSON('["self-hosted", "macOS", "ARM64", "offload-mac-ci"]') || 'macos-latest' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        with:
+          version: 2026.6.1
+      - run: |
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          claude --version
+      - run: |
+          allow="$RUNNER_TEMP/allow-bin"
+          mkdir -p "$allow"
+          ln -s "$(command -v gh)" "$(command -v node)" "$(command -v mise)" \
+            "$(command -v claude)" "$allow/"
+      - name: install smoke
+        run: |
+          PATH="$RUNNER_TEMP/allow-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          /bin/sh scripts/install-smoke.sh
 
   # musl, dash as /bin/sh, and busybox for every other tool, in a stock
   # Alpine container pinned by digest, with an init so orphaned fixtures are
   # reaped as they are on a real host. Only the suite's own needs are added:
   # bash for the runner, git, jq, perl for the purged-identifier screen, and
   # the pinned mise (checksummed) with node and pipx for the npm and pipx
-  # tools it installs; no GNU userland, so awk, sed and the rest stay busybox.
+  # tools it installs; no GNU userland, so awk, sed and the rest stay busybox
+  # (GNU tar, which the toolchain cache needs, is removed before the suite runs).
   # The suite runs as an unprivileged user, since root passes the permission
   # checks several tests rely on failing.
+  #
+  # The job's scope is the shell suite, the install smoke, and (once it exists)
+  # the bake-off harness, each a step of that name; other steps are `setup:
+  # <what>`. Those need a tool without a musl build, Docker, or the Claude
+  # CLI's plugin schema check, so they run on Ubuntu only, in the lint job:
+  # `mise run check:non-test`, the bash 3.2 parse step, the PR-range commit
+  # lint, and the purged-identifier screen; the timing gate runs in the check
+  # job. The install smoke's marketplace mode needs the Claude CLI, added after
+  # the suite runs.
+  #
+  # The suite runs in the planned shards, since this runner type is the one
+  # the plan job measures. Every shard also runs the install smoke: the
+  # posture guard holds the Alpine scope to a single job (universal-binary
+  # REQ-B1.4), so the smoke cannot move to a job of its own as on macOS.
   alpine-suite:
-    if: github.head_ref == 'planwright/universal-binary/task-4'
+    name: alpine-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     container:
       image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
       options: --init
@@ -309,18 +463,76 @@ jobs:
       MISE_VERSION: v2026.6.1
       MISE_SHA256: f37f4be1f22e5f81d2bbdcdbf239a48f002acd345e001b07dddd3431fd808b60
     steps:
-      - run: apk add --no-cache bash git jq dash-binsh perl nodejs npm pipx
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      # GNU tar is here only for actions/cache, which busybox tar cannot
+      # serve; it is removed again before the suite runs.
+      - name: "setup: packages"
+        run: apk add --no-cache bash git jq dash-binsh perl nodejs npm pipx tar
+      - name: "setup: checkout"
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - run: |
+      # The npm and pipx tools mise installs run on the image's node and
+      # python, so their versions are part of the cache key.
+      - name: "setup: platform and the suite user"
+        id: platform
+        run: |
           test "$(readlink -f /bin/sh)" = /usr/bin/dash
           test "$(readlink -f "$(command -v awk)")" = /bin/busybox
           test "$(readlink -f "$(command -v sed)")" = /bin/busybox
-          wget -q -O /usr/local/bin/mise \
-            "https://github.com/jdx/mise/releases/download/$MISE_VERSION/mise-$MISE_VERSION-linux-x64-musl"
+          adduser -D suite
+          digest=$(cat /etc/alpine-release mise.toml && node --version && python3 --version)
+          digest=$(printf '%s\n' "$digest" | sha256sum | cut -c1-16)
+          echo "cache-key=alpine-mise-$MISE_VERSION-$digest" >> "$GITHUB_OUTPUT"
+      - name: "setup: restore mise and its tools"
+        id: toolchain
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            /usr/local/bin/mise
+            /home/suite/.local/share/mise
+          key: ${{ steps.platform.outputs.cache-key }}
+      # A restored mise is checksummed like a downloaded one. The retries ride
+      # out github.com release downloads failing for minutes at a time.
+      - name: "setup: mise and its tools"
+        run: |
+          retry() {
+            for pause in 15 45 90; do
+              "$@" && return 0
+              echo "retrying in ${pause}s: $*" >&2
+              sleep "$pause"
+            done
+            "$@"
+          }
+          if [ ! -f /usr/local/bin/mise ]; then
+            retry wget -q -T 60 -O /usr/local/bin/mise \
+              "https://github.com/jdx/mise/releases/download/$MISE_VERSION/mise-$MISE_VERSION-linux-x64-musl"
+          fi
           printf '%s  %s\n' "$MISE_SHA256" /usr/local/bin/mise | sha256sum -c -
           chmod 755 /usr/local/bin/mise
-          adduser -D suite
-          chown -R suite "$GITHUB_WORKSPACE"
-          su suite -c 'mise trust -q . && mise install && mise run test'
+          chown -R suite "$GITHUB_WORKSPACE" /home/suite
+          su suite -c 'mise trust -q .'
+          retry su suite -c 'mise install'
+      - name: "setup: save mise and its tools"
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            /usr/local/bin/mise
+            /home/suite/.local/share/mise
+          key: ${{ steps.toolchain.outputs.cache-primary-key }}
+      - name: "setup: busybox tar"
+        run: |
+          apk del tar
+          test "$(readlink -f "$(command -v tar)")" = /bin/busybox
+      - name: shell suite
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+        run: su suite -c "mise run test -- --shard $SHARD/$SHARDS"
+      - name: "setup: the Claude CLI"
+        run: |
+          apk add --no-cache libgcc libstdc++
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          claude --version
+      - name: install smoke
+        run: su suite -c '/bin/sh scripts/install-smoke.sh'
