@@ -1691,7 +1691,8 @@ tower_wrapped_git_check() {
 # sign-off branch, which the protected set otherwise refuses to every agent
 # session. Only the worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
 # hook's environment, which a command's inline assignment cannot change) is
-# kickoff-<spec> may run it, and only from that spec branch. Every other
+# kickoff-<spec> may run it, and only from that spec's branch or one of its
+# amendment branches (planwright/<spec>/amendment-<n>). Every other
 # session is refused the push it would make, with the text a push to that
 # branch gets. A run the guard cannot read is refused. A mention that is no run
 # (a read, a stage or a printed note) passes to the ordinary rules, and what a
@@ -1705,6 +1706,7 @@ KICK_DIR=''
 KICK_DIR_OK=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
+KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
 
 # The script is matched as a run of it, never as any word that merely contains
 # its name: a test file, a note, or a path that reads or stages it is not a run.
@@ -1988,7 +1990,7 @@ kickoff_var_run() {
     case $w in *'$'* | *'`'*) hit=1 ;; esac
   done
   [ "$hit" = 0 ] \
-    || deny_now 'this command could run text that an earlier printf -v filled with the name of scripts/kickoff-spec-push.sh - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+    || deny_now 'this command could run text that an earlier printf -v filled with the name of scripts/kickoff-spec-push.sh - refusing (fail closed). Run it as '"$KICK_FORM"'.'
 }
 
 # kickoff_fuzzy_name <segment> — 0 when a word of the segment, or the target of
@@ -2028,7 +2030,7 @@ kickoff_fuzzy_name() {
 # mention that is no run of it is tallied for kickoff_text_check, and what a
 # mention pipes into must itself only read or print it.
 kickoff_segment() {
-  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct piped=$KICK_PIPED
+  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct kick_ok piped=$KICK_PIPED
   KICK_PIPED=0
   KICK_DIR=$dir
   KICK_DIR_OK=$dir_ok
@@ -2038,17 +2040,17 @@ kickoff_segment() {
     # that no check here reads, so it is refused as a consumer outright.
     case ${W[${SEG_S[$3]}]:-} in
       if | while | until | elif)
-        deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a compound command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+        deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a compound command that could run it - refusing (fail closed). Run it as $KICK_FORM."
         ;;
     esac
     if kickoff_cmd_reads "$3"; then
       kickoff_pipe_on "$3"
     else
-      deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+      deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run it as $KICK_FORM."
     fi
   fi
   if kickoff_fuzzy_name "$3" && ! kickoff_cmd_reads "$3"; then
-    deny_now 'this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+    deny_now "this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
   fi
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
@@ -2073,7 +2075,7 @@ kickoff_segment() {
   elif [ "$form" = direct ] && [ "$n" = 2 ] && kickoff_script_at 0; then
     [ "${SWL[1]:-0}" = 1 ] && spec=${SW[1]}
   else
-    deny_now 'this command names scripts/kickoff-spec-push.sh in a form the guard cannot check - refusing (fail closed). Run it directly, as scripts/kickoff-spec-push.sh <spec>, with no other arguments.'
+    deny_now "this command names scripts/kickoff-spec-push.sh in a form the guard cannot check - refusing (fail closed). Run it as $KICK_FORM, with no other arguments."
     return 0
   fi
   case $spec in
@@ -2085,15 +2087,25 @@ kickoff_segment() {
   [ "${#spec}" -le 64 ] || spec=''
   [ "$spec" != flight ] || spec='' # the reserved flight namespace, not a spec
   [ -n "$spec" ] \
-    || deny_now 'this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Name the spec in lowercase letters, digits and hyphens.'
+    || deny_now "this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Run it as $KICK_FORM, naming the spec in lowercase letters, digits and hyphens."
   [ -n "$spec" ] || return 0
   if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
     [ "$dir_ok" = 1 ] \
-      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec branch checkout.'
+      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec or amendment branch checkout.'
     [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
-    [ "$b" = "planwright/$spec/spec" ] \
-      || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec), and this checkout has ${b:-no branch} checked out - refusing. Check out that branch in your worktree."
+    kick_ok=0
+    case $b in
+      "planwright/$spec/spec") kick_ok=1 ;;
+      "planwright/$spec/amendment-"*)
+        case ${b#"planwright/$spec/amendment-"} in
+          '' | *[!0-9]*) ;;
+          *) kick_ok=1 ;;
+        esac
+        ;;
+    esac
+    [ "$kick_ok" = 1 ] \
+      || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec) or one of its amendment branches (planwright/$spec/amendment-<n>), and this checkout has ${b:-no branch} checked out - refusing. Check out one of those in your worktree and run $KICK_FORM."
     return 0
   fi
   check_unprotected "$dir" 'this git push' "planwright/$spec/spec"
@@ -2108,7 +2120,7 @@ kickoff_segment() {
 kickoff_text_check() {
   kick_count "$P_CMD"
   [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
-    || deny_now 'this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+    || deny_now "this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
 }
 
 classify_segments() {
@@ -2158,7 +2170,7 @@ classify_segments() {
       # the shell runs a prompt or startup hook's value as a command.
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
-        || deny_now 'this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run the script directly, as scripts/kickoff-spec-push.sh <spec>.'
+        || deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run it as $KICK_FORM."
       KICK_PIPED=0
       case $cur_text in
         *PROMPT_COMMAND=* | *BASH_ENV=* | *' ENV='*)

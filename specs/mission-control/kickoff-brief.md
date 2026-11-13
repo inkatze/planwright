@@ -2035,3 +2035,116 @@ their cases moved into; no requirement or decision changes meaning.
 Class: expression-only
 Anchor: `d6cab8debc8599d3cb842fd5d3bdf7c0234013b7` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 15 (2026-11-13, amendment: the duty ledger drives itself, rulings do not cross handovers, outcomes are audited)
+
+Spec path `specs/mission-control`; walk started at `6653bb25`; walkthrough
+date 2026-11-13. Mode: amendment on an Active bundle, operator-declared
+through mission control and walked by relay, one plain question per turn.
+Scope: the runner repeating a due wake and sweeping validity (REQ-F1.25,
+REQ-P1.1 to P1.6, D-65 to D-67, Tasks 75 to 79) and, folded in by the
+operator mid-walk, rulings checked at every crossing (REQ-P1.7 to P1.10,
+D-68, Tasks 80 and 81) and the outcome audit with a miss ledger (REQ-P1.11
+to P1.14, D-69, Tasks 82 and 83). Changelog notes the numbering against the
+other unsigned amendments (9 to 14).
+
+#### Goal and glossary (Amendment 15)
+
+Restatement: nothing core may depend on the operator noticing. A duty is
+something monitored and fulfilled until done, whose moment may be unknown;
+the runner, not a session's memory, re-checks every open item, repeats the
+wake until acted on, and pushes an overdue one as a failure. A ruling given
+once is data every successor reads. The system audits outcomes the way the
+operator does and learns from each miss the operator caught first. Rules
+out: the sweep closing on a person's confirmation, moving a rule or
+deleting an item by itself, or reading free text for intent. Terms: *sweep*
+(the validity re-check), *miss* (a problem the operator caught first).
+
+#### Requirements walkthrough (Amendment 15)
+
+Operator's answers, relayed through mission control and the hub, verbatim:
+
+- **Home of the work.** "Extend mission-control (Recommended)".
+- **Scope.** "Fold all three in (Recommended)": crossed decisions, the
+  outcome audit with the miss ledger, and the unrelayed question as the
+  audit's first fixture (REQ-P1.12).
+- **Knob values.** "Tighter (Recommended)": repeat interval 2 hours, overdue
+  grace 12 hours, sweep interval 30 minutes, stale window 7 days, a relayed
+  question left unasked flagged after 30 minutes, other audit thresholds the
+  overdue grace. Values live in the knob defaults, not the spec.
+- **Behavior defaults.** "Confirm all three (Recommended)": the sweep closes
+  only on a passing machine check and raises person-only conditions as
+  stale; time-bound rules use `--until` and existing ones are only proposed;
+  dead event words are listed stale, never deleted.
+
+#### Design walkthrough (Amendment 15)
+
+D-65 (repeat and sweep; amends D-56's rejection of auto-close to a check,
+never a bare assertion), D-66, D-67, D-68 and D-69 are new and confirmed.
+No signed decision is superseded; REQ-F1.25 supersedes REQ-F1.23.
+
+#### Verification approach (Amendment 15)
+
+Every new requirement has a `[test]` entry. Coverage runs in the existing
+suites plus the registry check under `mise run check`, which must fail once
+on its fixture before it is trusted. No dead path found.
+
+#### Task graph (Amendment 15)
+
+Tasks 75 to 83; their `Dependencies:` lines are the graph. Deliberate
+non-edges: the registry check (77) and the ruling checks (80) depend only on
+Task 50 and run in parallel with the repeat and sweep work; the doctor flag
+(81) waits only on 80.
+
+#### Risk register (Amendment 15)
+
+1. Tasks 50 and 52 are not landed; the first flights extend what they add.
+   Mitigation: stated dependencies.
+2. Numbering may collide with the other unsigned amendments. Mitigation: the
+   changelog note; whichever is kicked off second renumbers.
+3. Subject matching can miss a ruling filed under another subject.
+   Mitigation: check-first only refuses or proposes; the miss ledger records
+   a crossing that still happens.
+4. The relayed-question event depends on the host's turn-end signal.
+   Mitigation: the audit's unasked check reads the relay record as backstop.
+5. A command check on an item runs operator-authored text. Mitigation: the
+   REQ-N1.4 limits, a hostile-text fixture.
+
+Decision-domain gap check: data handling (checks print presence, never a
+secret), authorization (the sweep closes only on a machine check),
+concurrency (one writer per file, per-item records in the runtime
+directory) and failure handling (a failed raise repeats) touched and decided.
+
+#### Lens review (Amendment 15, delta-scoped)
+
+Walked inline over the Amendment 15 delta (REQ-F1.25, REQ-P1.1 to P1.14,
+D-65 to D-69, Tasks 75 to 83, their test-spec entries).
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | Applied: Task 82 names the turn-end signal as the question event's source and the relay record as backstop |
+| Ambiguity and interpretation forks | 0 | None |
+| Citation and coverage integrity | 0 | Every cited ID resolves; every new REQ has a test entry |
+| Dead verification paths | 0 | None |
+| Decision-domain gaps | 0 | Decided above |
+| Testability | 1 | Accepted: subject matching (risk 3) |
+| Cross-file consistency | 0 | None |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | Hostile-text and secret fixtures in REQ-P1.3 |
+
+Altitude check: the duty-ledger report's pinned claim is core, default-on;
+D-67 records it and Tasks 79 and 82 ship the duties. Ship-gate check: every
+change is a task. Enumeration cross-check: no requirement states a count.
+
+#### Sign-off record (Amendment 15)
+
+Signed off 2026-11-13 by the operator, relayed through mission control and
+the hub: "Sign off (Recommended)". Amendment on an Active bundle: no status
+flip; `Last reviewed:` 2026-11-13 on all four spec files; validator re-run
+with 0 errors. The delta adds requirements and decisions, so it is
+meaning-class. Accepted risks: see the register above.
+
+Class: meaning
+Lens-pass: Amendment 15, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `2382840828be4b416a291dfebe9bc3d225d2bbc2` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
