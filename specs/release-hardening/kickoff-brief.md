@@ -618,3 +618,57 @@ edited files.
 Class: expression-only
 Anchor: `40d24a74ac732483ba0c41d1dc78ae7e8d02257b` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Amendment 4 — REQ-H1.2 contract drift resolved (2026-11-13)
+
+Delta re-walkthrough of the Ready bundle, entered because Task 10 halted on a
+contract drift in REQ-H1.2. Scope: REQ-H1.2, D-14, the REQ-H1.2 test-spec
+entry, Task 10, and the `## Awaiting input` halt note.
+
+**The drift, verified against the real artifact.** #339's `CHANGELOG.md` diff
+adds exactly one version heading, `0.34.0`, strictly above the then-latest tag
+`v0.33.0`, over 124 entries whose commits are all ancestors of `v0.33.0`. The
+signed-off REQ-H1.2 (SemVer comparison of added headings against the latest
+tag) therefore passes the very shape Task 10's `Done when:` requires it to
+catch, because "entry" meant a version heading in the requirement and a
+changelog bullet in the task.
+
+**Decision (operator, via the hub): both conditions.** The check fails a
+proposal that (a) adds a version heading at or below the latest tag by SemVer
+precedence, or (b) adds an entry citing a commit already contained in the
+latest tag. Rejected: ancestry alone (drops the shared comparator and misses a
+regenerated old-version heading) and the heading check alone (passes #339).
+This adds a failing condition the bundle had not decided; D-14 records it and
+its rejected alternatives.
+
+**Edits applied.** `requirements.md`: REQ-H1.2 restated as the two conditions,
+plus the dated `## Changelog` entry. `design.md`: D-14 Decision, a new rejected
+alternative, and the Chosen-because sentence. `test-spec.md`: REQ-H1.2 now has
+four fixtures (ancestry negative that the heading condition alone passes,
+heading negative, positive, fresh-dates-old-versions); heading renamed to
+cover bootstrapped proposals. `tasks.md`: Task 10 Deliverables and Done when
+follow, and the halt note is cleared. `Last reviewed:` moved on all four files.
+
+**Lens pass (delta-scoped, walked inline: the delta is one requirement and
+its dependents).** Two findings, both applied.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 1 | ancestry needs history and tags to resolve a cited commit; Task 10 now says the check fetches them and fails on an unresolvable commit (REQ-H1.2's unreadable-state clause) |
+| Security | none | the check reads a diff and git history only, no execution of proposal content |
+| Error handling and failure modes | none | unreadable state fails closed, stated in REQ-H1.2 and D-14 |
+| Performance | none | one ancestry query per cited commit |
+| Concurrency / state | none | read-only |
+| Naming, readability, structure | 1 | test-spec heading said only "backdated"; renamed |
+| Documentation | none | changelog entry written |
+| Tests / verification | none | each condition has its own negative fixture, and the ancestry fixture proves ancestry caught it |
+| Cross-file consistency | none | stale-reference sweep over the four files and brief found no other reference to the old single-condition wording (the 2026-09-03-era changelog entry is history and stays) |
+
+Altitude check: not applicable (no altitude trigger in this delta). Ship-gate
+check: no out-of-band fix named. Decision-domains gap check: unchanged by this
+delta. Validator 0 errors, 0 warnings.
+
+Class: meaning
+Lens-pass: delta-scoped, 2 findings, all dispositioned (applied)
+Anchor: `a0135b54082f817c2388e22f4b915fcce38cb76e` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
