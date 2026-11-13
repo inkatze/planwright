@@ -1343,6 +1343,7 @@ fi
 if mkdir -p "$GMAIN/.claude/worktrees/w2" "$GBOX/other/mise-tasks" "$GWT/sub2" \
   && ln -s "$GBOX/other/mise-tasks" "$GWT/sub2/mise-tasks" \
   && : >"$GBOX/other/mise.toml" && ln -s "$GBOX/other/mise.toml" "$GWT/sub2/link.toml" \
+  && mkdir -p "$GBOX/other/dir" && ln -s "$GBOX/other/dir" "$GWT/dirlink" && ln -s ../mise.toml "$GBOX/other/dir/rel" \
   && mkdir -p "$GWT/chain" && ln -s "$GBOX/other/mise.toml" "$GWT/chain/l1" \
   && : >"$GWT/chain/target.txt" && ln -s "$GWT/chain/target.txt" "$GWT/chain/s1" \
   && gi=2 && while [ "$gi" -le 41 ]; do
@@ -1383,6 +1384,7 @@ deny|load-bearing|Write|$GWT/sub2/mise-tasks/x|a task directory that is a symlin
 deny|load-bearing|Edit|$GWT/sub2/link.toml|a file symlink pointing at another repository's mise.toml stays closed
 deny|load-bearing|Write|~/other/mise.toml|a home-relative task path the file tools may expand stays closed
 allow|legit|Edit|$GWT/scripts/x.sh|ordinary edits stay allowed
+deny|load-bearing|Edit|$GWT/dirlink/rel|a relative symlink inside a symlinked directory is resolved from the directory's real location, so a ../mise.toml landing outside the worktree stays closed
 deny|load-bearing|Edit|$GWT/chain/l41|a chain of 41 symlinks (longer than the resolver follows) ending at another repository's mise.toml is refused, not deferred
 allow|legit|Edit|$GWT/chain/s3|a short symlink chain ending at an ordinary file inside the worktree still defers
 deny|load-bearing|Edit|$GWT/mise.local.toml|machine-local mise config stays closed
