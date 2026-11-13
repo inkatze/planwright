@@ -99,7 +99,10 @@ and a --model or --effort the clamps would lower is refused, naming
 PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY and
 PLANWRIGHT_CONFIG_STRICT_OVERLAYS) steer its own tier resolution but are not
 handed to the session, which would otherwise keep a one-launch overlay for its
-whole life; --keep-config-env hands them on, on purpose.
+whole life; --keep-config-env hands them on, on purpose. This is the
+stream-json rung's session: a tmux window starts from the tmux server's
+environment, never the launcher's. A --model or --effort on a kind whose tier
+is inherited (tower, mission-control, reviewer, ad-hoc) names both.
 
 Before anything is reserved, a launch runs the posture check
 (scripts/mc-posture.sh). A mission-control launch checks the posture the
@@ -212,7 +215,8 @@ unresolvable rung knob with no --backend, no resolvable tier (an
 unreachable allocation store or a malformed tier knob), the admission gate
 withholding it, the usage hold (or one that cannot be read), an
 operator-asked launch past it whose bypass cannot be recorded, a broken
-allocation install, a program that is not configured, rules that would not
+allocation install, a --model or --effort the usage clamps would lower
+(--reserved goes past them), a program that is not configured, rules that would not
 render, a worktree that could not be created, a named directory that is not
 a worktree other than a primary checkout, a worktree path holding a control
 character, or any other refusal by the rung.
@@ -1115,8 +1119,10 @@ cmd_launch() {
   # the ambient tier when the allocation store is unreachable.
   unit="mission-control:$name"
   # The per-call overlay variables the knob resolver honors steer this
-  # launcher's own tier resolution above; the session must not keep one for
-  # its whole life, so they are not handed on unless the caller asked.
+  # launcher's own tier resolution; the stream-json session must not keep one
+  # for its whole life, so they are not handed on unless the caller asked.
+  # Location variables (PLANWRIGHT_REPO_ROOT, CLAUDE_PLUGIN_ROOT/DATA) say
+  # where config lives, not what it says, and are left alone.
   scrub='-u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS'
   [ "$keep_env" != 1 ] || scrub=''
   # The row's token goes into the session, so a decided-by-mission-control
@@ -1137,6 +1143,7 @@ cmd_launch() {
       pr=$?
       case $pr in
         0) ;;
+        2) refuse "refusing to launch $name: the allocation seam refused the tier override (allocation-apply exit 2, see above)" 4 ;;
         3) refuse "refusing to launch $name: the admission gate withholds it (allocation-apply exit 3)" 4 ;;
         5) refuse "refusing to launch $name: the allocation seam is a broken install (allocation-apply exit 5)" 4 ;;
         *) refuse "refusing to launch $name: no launch tier resolves at the $K_KEY key (allocation-apply exit $pr)" 4 ;;
@@ -1192,8 +1199,7 @@ cmd_launch() {
       esac
       ;;
     tmux)
-      # shellcheck disable=SC2086 # $scrub is a word list of -u NAME pairs
-      out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner env $scrub /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
+      out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
         --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" </dev/null)
       dr=$?
       case $dr in

@@ -32,6 +32,7 @@ launch_worker() { # <scope> <rec> [launcher args...]
 }
 
 # --- 1. --model/--effort apply to this launch alone -------------------------
+cfg_sum=$(cksum <"$tracked")
 launch_worker model-a "$tmp/rec-a" --model sonnet --effort low
 if [ "$RC" = 0 ] && wait_for "$tmp/rec-a/argv"; then
   na=$(field name)
@@ -52,8 +53,8 @@ if [ "$RC" = 0 ] && wait_for "$tmp/rec-a/argv"; then
 else
   fail "the --model launch exited $RC: $ERR"
 fi
-grep -qE 'allocation_(model|effort)_execution|fleet_(model|effort)_execution' "$tracked" \
-  && fail "the --model launch wrote a knob" || ok "the --model launch wrote no knob or overlay"
+[ "$(cksum <"$tracked")" = "$cfg_sum" ] && [ ! -e "$tmp/absent.yml" ] && [ -z "$(find "$adopter" -type f 2>&1)" ] \
+  && ok "the --model launch wrote no knob or overlay" || fail "the --model launch changed a config layer"
 
 # --- 2. the next launch, without the flags, keeps the knob's tier -----------
 launch_worker model-b "$tmp/rec-b"
@@ -73,11 +74,11 @@ fi
 before=$(find "$fleet/mission-control/sessions" -type f | wc -l)
 for bad in 'gpt5' 'Opus' 'opus;x' '' 'inherit'; do
   launch_worker model-bad "$tmp/rec-bad" --model "$bad"
-  [ "$RC" != 0 ] && printf '%s\n' "$ERR" | grep -q -- '--model' \
+  [ "$RC" = 2 ] && printf '%s\n' "$ERR" | grep -q -- "refusing --model" \
     && ok "--model '$bad' is refused naming the flag" || fail "--model '$bad' exited $RC: $ERR"
 done
 launch_worker model-bad "$tmp/rec-bad" --effort extreme
-[ "$RC" != 0 ] && printf '%s\n' "$ERR" | grep -q -- '--effort' \
+[ "$RC" = 2 ] && printf '%s\n' "$ERR" | grep -q -- "refusing --effort" \
   && ok "--effort extreme is refused naming the flag" || fail "--effort extreme exited $RC: $ERR"
 after=$(find "$fleet/mission-control/sessions" -type f | wc -l)
 [ "$before" = "$after" ] && [ ! -e "$tmp/rec-bad/argv" ] && ok "a refused value starts nothing and reserves no name" \
@@ -98,9 +99,12 @@ if [ "$RC" = 0 ] && wait_for "$tmp/rec-lo/argv"; then
 else
   fail "the launch under the downshift rung exited $RC: $ERR"
 fi
+rows_before=$(find "$fleet/mission-control" -type f | wc -l)
 launch_worker model-refused "$tmp/rec-re" --model fable
 if [ "$RC" != 0 ] && printf '%s\n' "$ERR" | grep -q 'fable' && printf '%s\n' "$ERR" | grep -q -- '--reserved' && [ ! -e "$tmp/rec-re/argv" ]; then
   ok "a --model the downshift would lower is refused, naming --reserved"
+  [ "$rows_before" = "$(find "$fleet/mission-control" -type f | wc -l)" ] && ok "the refusal leaves no row or launch directory behind" \
+    || fail "the refusal left a registry row or launch directory"
 else
   fail "an unreserved --model fable under the downshift was not refused as expected (exit $RC): $ERR"
 fi
@@ -112,14 +116,36 @@ if [ "$RC" = 0 ] && wait_for "$tmp/rec-rs/argv"; then
     *) fail "a reserved fable launch did not run at fable/high: $(cat "$tmp/rec-rs/argv")" ;;
   esac
   rows=$(PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/allocation-ledger.sh" rows "mission-control:$nr")
-  printf '%s\n' "$rows" | grep -q 'reserved' && printf '%s\n' "$rows" | grep -q 'fable' \
+  printf '%s\n' "$rows" | grep -q 'reserved=yes' && printf '%s\n' "$rows" | grep -q 'override-model=fable' \
     && ok "the allocation ledger records the reserved override" || fail "the ledger lacks the reserved fable row: $rows"
   [ "$(cat "$fleet/streamjson/$nr/tier_reserved" 2>/dev/null)" = yes ] && ok "the reservation is recorded for a relaunch" \
     || fail "tier_reserved was not recorded"
+  awk -F "$TAB" '$1 == "reserved" && $2 == "yes" { f = 1 } END { exit !f }' "$fleet/mission-control/sessions/$nr" \
+    && ok "the registry row records the reservation" || fail "the registry row lacks reserved yes"
+  ml list
+  printf '%s\n' "$OUT" | awk -F "$TAB" -v n="$nr" '$1 == n && $7 == "fable/high" && $8 == "yes" { f = 1 } END { exit !f }' \
+    && ok "list shows the reserved tier" || fail "list does not show fable/high reserved: $OUT"
+  [ -z "$(field tier-note)" ] && ok "a reserved launch prints no tier-note (nothing was lowered)" || fail "a reserved launch printed a tier-note"
   wait_done "$nr"
 else
   fail "the reserved fable launch exited $RC: $ERR"
 fi
+launch_worker model-effort "$tmp/rec-ef" --effort high --reserved
+if [ "$RC" = 0 ] && wait_for "$tmp/rec-ef/argv"; then
+  case " $(cat "$tmp/rec-ef/argv") " in
+    *" --model opus --effort high "*) ok "--reserved alone exempts a launch from the downshift" ;;
+    *) fail "--reserved alone did not keep opus/high: $(cat "$tmp/rec-ef/argv")" ;;
+  esac
+  wait_done "$(field name)"
+else
+  fail "the --reserved launch exited $RC: $ERR"
+fi
+launch_worker model-efflow "$tmp/rec-el" --effort high
+[ "$RC" = 4 ] && printf '%s\n' "$ERR" | grep -q -- '--effort high would run at' && printf '%s\n' "$ERR" | grep -q -- '--reserved' \
+  && ok "an --effort the downshift would not keep is refused too" || fail "the effort refusal exited $RC: $ERR"
+ml launch --program alpha --kind tower --scope inherit-one --brief "$tmp/brief.md" --model opus
+[ "$RC" != 0 ] && printf '%s\n' "$ERR" | grep -q 'must name both' \
+  && ok "one dimension at a kind whose tier is inherited is refused, not left unclamped" || fail "a one-dimension override at an inherit key exited $RC: $ERR"
 launch_worker model-after "$tmp/rec-af"
 if [ "$RC" = 0 ] && wait_for "$tmp/rec-af/argv"; then
   case " $(cat "$tmp/rec-af/argv") " in

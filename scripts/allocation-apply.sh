@@ -64,6 +64,7 @@
 #                       nothing established.)
 #       model / effort  the value to APPLY, or `inherit` to apply nothing and
 #                       let the launch keep its ambient value
+#       (on an admitted plan)
 #       proposed_model / proposed_effort   the tier before the clamps, so a
 #                       caller can tell a lowered launch from an unlowered one
 #       rung / reserved the restriction rung and whether the unit was exempt

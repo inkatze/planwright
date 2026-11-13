@@ -902,6 +902,14 @@ cmd_resolve() {
     OVR_NOTE="${OVR_NOTE};override-effort=$OVR_EFFORT"
   }
   [ "$RESERVED" = no ] || OVR_NOTE="${OVR_NOTE};reserved=yes"
+  # At a surface whose shipped tier is `inherit`, one overridden dimension
+  # beside an inherited one would skip the ladder and the clamps entirely
+  # (an inherited tier is never clamped), so the override must name both.
+  if { [ -n "$OVR_MODEL" ] || [ -n "$OVR_EFFORT" ]; } \
+    && { [ "$START_MODEL" = inherit ] || [ "$START_EFFORT" = inherit ]; }; then
+    printf '%s\n' "allocation-adapt: the $KEY key inherits its tier, so a per-launch override must name both --model and --effort" >&2
+    exit 2
+  fi
 
   # The kill-switch: the operator has taken manual control, so allocation
   # reverts to the un-degraded normal policy rather than degrading further.
