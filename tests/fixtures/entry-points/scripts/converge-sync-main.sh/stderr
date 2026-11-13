@@ -1,1 +1,1 @@
-match ^converge-sync-main: usage: unknown option; usage: converge-sync-main\.sh \[--need <reason>\] \[--commit-resolution <spec>/<id> \.\.\.\] \[<repo-dir>\]$
+match ^converge-sync-main: usage: unknown option; usage: converge-sync-main\.sh \[--need <reason>\] \[--base <branch>\] \[--commit-resolution <spec>/<id> \.\.\.\] \[<repo-dir>\]$

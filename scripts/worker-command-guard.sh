@@ -1034,7 +1034,7 @@ REC_AUDIT_LOG=''
 # grammar (is_unit_branch) narrowed to flight names carrying the id every
 # launcher mints; a protected branch never matches it.
 rec_unit_branch_ok() {
-  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
+  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?(-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?)?$'
   local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
   case $1 in
     planwright/flight/task-*) return 1 ;;
