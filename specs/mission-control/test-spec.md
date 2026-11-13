@@ -1242,3 +1242,58 @@ duty disabled nothing is armed and `followup add` and `close` still work; a
 program list omitting the duty, and a disabled duty with open items, are
 each flagged by the doctor with the open count; the default set names the
 duty.
+
+### REQ-P1.7 — A ruling is recorded when given [test]
+
+`tests/test-mc-rules.sh` and `tests/test-mc-kb.sh` (Task 80): a ruling fixture
+given through the verbs lands in the rules store or the decisions log with
+the quoted words; the operator guide and skill prose name the rule, checked
+by the instruction-budget guard.
+
+### REQ-P1.8 — Handover verify refuses a brief that crosses a ruling [test]
+
+`tests/test-mc-handover.sh` (Task 80), in fixtures: a brief handing the
+operator a publish step, with a recorded ruling giving publish to the hub,
+fails `verify` and `resume` naming the ruling; a brief planning a question a
+decisions-log entry settled fails the same way; a brief with no match passes;
+the brief is never rewritten.
+
+### REQ-P1.9 — An item matching a ruling is applied, not asked [test]
+
+`tests/test-mc-inbox.sh` and `tests/test-mc-decide.sh` (Task 80): an item
+whose subject matches a recorded ruling is applied and not put, the match
+recorded with the ruling; an item with no match is put as before.
+
+### REQ-P1.10 — The doctor flags memory that holds a ruling [test]
+
+`tests/test-mc-config-doctor.sh` (Task 81): a fixture memory entry quoting an
+operator decision with no store entry is listed as a migration proposal
+naming it; once the store holds it the flag clears; the doctor changes
+nothing.
+
+### REQ-P1.11 — The outcome audit raises a red outcome to the operator [test]
+
+`tests/test-mc-duties.sh` and `tests/test-mc-event.sh` (Task 82), in fixtures:
+each check (pull requests going ready, ready pull requests waiting on merge,
+a parked or idle worker, a launch hold, an overdue item, an operator item
+unasked or put again) goes red past its threshold and raises one
+failure-class event naming the check, program and evidence, repeated each
+interval; each check passes on healthy state; the duty is in the default set.
+
+### REQ-P1.12 — A relayed question is raised at once [test]
+
+`tests/test-mc-event.sh` (Task 82): a relayed session's finished turn ending
+in a question raises an event to its mission control in the same pass; a
+question left unrelayed past the threshold turns the unasked check red (the
+25-minute case as the fixture).
+
+### REQ-P1.13 — A miss closes only with a detector and a fix [test]
+
+`tests/test-mc-followups.sh` and `tests/test-mc-kb.sh` (Task 83): a miss is
+recorded with the operator's words; `close` without detector evidence or
+without fix evidence is refused; with both it closes; no verb removes a row.
+
+### REQ-P1.14 — The caught-by report shows the trend [test]
+
+`tests/test-mc-followups.sh` (Task 83): a fixture period with operator-caught
+and system-raised problems reports both counts and names the open misses.

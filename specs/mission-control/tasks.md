@@ -1363,6 +1363,64 @@ fixed-string check.)*
 - **Citations:** D-67 · REQ-P1.6, REQ-C1.4
 - **Estimated effort:** 1 day
 
+### Task 80 — Rulings are recorded and checked at handover and at asking
+
+- **Deliverables:** in `scripts/mc-handover.sh`, `verify` and `resume`
+  matching the brief's operator steps and planned questions against the
+  rules store and the decisions log by recorded subject, failing naming the
+  ruling; in `scripts/mc-inbox.sh` and `scripts/mc-decide.sh`, the
+  check-first path applying a match and recording it; the operator guide
+  and skill prose stating that a ruling is recorded when given, inside the
+  instruction budget; tests in `tests/test-mc-handover.sh`,
+  `tests/test-mc-inbox.sh` and `tests/test-mc-decide.sh`.
+- **Done when:** The REQ-P1.7 to REQ-P1.9 test-spec entries' fixtures
+  pass, including a brief handing the operator a publish step a recorded
+  ruling gives to the hub.
+- **Dependencies:** 50
+- **Citations:** D-68 · REQ-P1.7, REQ-P1.8, REQ-P1.9
+- **Estimated effort:** 1.5 days
+
+### Task 81 — The doctor flags memory that holds a ruling
+
+- **Deliverables:** in `scripts/mc-config.sh`, a `doctor` check listing
+  session memory entries that quote an operator decision with no matching
+  store entry, as a migration proposal naming the entry; tests in
+  `tests/test-mc-config-doctor.sh`.
+- **Done when:** The REQ-P1.10 test-spec entry's fixtures pass and the
+  doctor changes nothing.
+- **Dependencies:** 80
+- **Citations:** D-68 · REQ-P1.10
+- **Estimated effort:** half day
+
+### Task 82 — The outcome-audit duty and the unrelayed-question event
+
+- **Deliverables:** an `outcome-audit` duty in `config/duties.yaml`
+  (lifecycle live, in `mission_control_default_duties`) running the
+  REQ-P1.11 checks over recorded state with threshold knobs in
+  `config/defaults.yml` and `config/mission-control-knobs.tsv`, raising a
+  failure-class event per red check; the event a relayed session's finished
+  question turn raises; the event class rows; tests in
+  `tests/test-mc-duties.sh` and `tests/test-mc-event.sh`.
+- **Done when:** The REQ-P1.11 and REQ-P1.12 test-spec entries' fixtures
+  pass, the unrelayed-question fixture among them; the knob and verbs
+  checks pass.
+- **Dependencies:** 75, 79
+- **Citations:** D-69 · REQ-P1.11, REQ-P1.12
+- **Estimated effort:** 2 days
+
+### Task 83 — The miss ledger and the caught-by report
+
+- **Deliverables:** the miss ledger on the follow-up ledger's row format,
+  with a verb recording a miss with the operator's words and the check that
+  would have raised it, and `close` requiring detector and fix evidence; the
+  periodic caught-by report; tests in `tests/test-mc-followups.sh` and
+  `tests/test-mc-kb.sh`.
+- **Done when:** The REQ-P1.13 and REQ-P1.14 test-spec entries' fixtures
+  pass.
+- **Dependencies:** 76, 82
+- **Citations:** D-69 · REQ-P1.13, REQ-P1.14
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.

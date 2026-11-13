@@ -1926,6 +1926,56 @@ words in existing triggers that nothing emits are reported by the sweep.
 **Chosen because:** the operator wants this for every hub and coworker, with
 no step to remember.
 
+### D-68: Rulings are recorded when given and checked at every crossing  (N; D-5, D-56, D-65)
+
+**Decision:** An operator ruling is data the moment it is given: it goes to
+the rules store when it is standing or to the decisions log when it settles
+one question, quoting the words. Three checks read that store so a ruling
+cannot cross a handover or a question unseen: handover verify and resume
+match each step the brief hands the operator and each question it plans to
+ask against the recorded rulings by their recorded subject and fail naming
+the ruling; the inbox and decide verbs check an item against the rulings
+first and apply a match instead of asking; the doctor lists session memory
+that holds a ruling as a proposal to migrate. Matching is on the recorded
+subject, never on free text read for intent (D-56), and every check only
+refuses or proposes.
+
+**Alternatives considered:**
+- Trust the successor to read the predecessor's brief carefully. Rejected
+  because: that is how a settled publish step was handed back to the
+  operator.
+- Infer rulings from prose in briefs and memory. Rejected because: D-56
+  records that detecting an intent in free text is unreliable.
+
+**Chosen because:** a ruling that lives only in a session's head is lost
+with the session; one in the store is read by every successor.
+
+### D-69: The outcome audit and the miss ledger  (N; D-9, D-65, D-67)
+
+**Decision:** The self-audit checks acts against rules and throughput
+measures time; neither checks outcomes. An outcome-audit duty ships default
+on (D-67) and runs, on a cadence, the checks the operator runs by eye over
+recorded state: pull requests going ready per program, ready pull requests
+waiting on merge, parked or idle workers, launch holds, overdue ledger
+items, operator items left unasked or put again after a ruling. A red check
+raises a failure-class event the operator is pushed (D-65's overdue path). A
+relayed session's finished turn ending in a question raises an event to its
+mission control at once, closing the unrelayed-question gap. When the
+operator catches a problem the system did not raise, it is recorded in a
+miss ledger (the follow-up ledger's format, D-65's close-only-with-evidence
+rule) with their words, and closes only when a detector exists with a test
+proving it fires on that case and the upstream fix exists. A periodic report
+counts misses caught by the operator against those the system raised first.
+
+**Alternatives considered:**
+- Add each check to the self-audit. Rejected because: it audits acts
+  against rules; an outcome has no rule it breaks.
+- Fix each missed case and record nothing. Rejected because: the next miss
+  has no trend and no detector.
+
+**Chosen because:** every core failure so far was found by the operator;
+the system should find the next one first, and learn from each it did not.
+
 ## Cross-cutting concerns
 
 - **Data hygiene.** The program home holds company data by design and is

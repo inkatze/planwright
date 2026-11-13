@@ -1357,6 +1357,73 @@ the runner works, never a list that grows and is forgotten.
   *(Cites: D-67; REQ-C1.2, REQ-C1.4; the duty-ledger report (2026-11-13,
   Sources).)*
 
+### Rulings do not cross handovers
+
+- **REQ-P1.7** Every operator ruling SHALL be recorded, at the moment it is
+  given, in the rules store (`mc-rules.sh`) when it is a standing rule, or
+  in the decisions log (`mc-kb.sh append decisions`) when it settles one
+  question, quoting the operator's words; a ruling held only in a brief, in
+  session memory or in a session's context is not recorded.
+  *(Cites: D-68; REQ-B1.2; the crossed-decisions report (2026-11-13,
+  Sources).)*
+- **REQ-P1.8** Handover verify and resume (`mc-handover.sh verify`,
+  `resume`) SHALL check the brief against the rules store and the decisions
+  log: a step the brief hands the operator, or a question it plans to ask,
+  that contradicts or re-asks a recorded ruling SHALL fail the self-check,
+  naming the ruling. The check is a recorded-subject match, never a reading
+  of free text for intent, and it only ever refuses, never rewrites the
+  brief.
+  *(Cites: D-68; REQ-F1.21; the crossed-decisions report (2026-11-13,
+  Sources).)*
+- **REQ-P1.9** An item put to the operator (`mc-inbox.sh item`,
+  `mc-decide.sh`) SHALL first be checked against the recorded rulings; a
+  match is applied and the item is not put to the operator, the match
+  recorded with the ruling it applied. No match puts the item as before.
+  *(Cites: D-68; the crossed-decisions report (2026-11-13, Sources).)*
+- **REQ-P1.10** The doctor (`mc-config.sh doctor`) SHALL flag session memory
+  that holds an operator ruling (a memory entry quoting an operator
+  decision with no matching entry in the store) as a proposal to migrate it
+  into the store, naming the entry, and SHALL never move one itself.
+  *(Cites: D-68; REQ-B1.2; the crossed-decisions report (2026-11-13,
+  Sources).)*
+
+### Outcomes are audited, and the operator's catches are recorded
+
+- **REQ-P1.11** An outcome-audit duty SHALL ship on by default (REQ-P1.6's
+  rule for default duties) and SHALL check on a cadence what the operator
+  would check: pull requests going ready per program, ready pull requests
+  waiting on merge, workers parked on prompts or idle, launch holds, overdue
+  ledger items, and operator items left unasked or put again after a
+  ruling. Each check reads recorded state with a stated threshold (a knob),
+  and any red result SHALL raise a failure-class event pushed to the
+  operator through the notification channel, naming the check, the program
+  and the evidence, repeated as REQ-P1.2 repeats.
+  *(Cites: D-69; REQ-P1.2, REQ-M1.11; the outcome-audit report
+  (2026-11-13, Sources).)*
+- **REQ-P1.12** A relayed session's finished turn that ends in a question
+  SHALL raise an event to its mission control at once, and the outcome
+  audit's operator-items-left-unasked check SHALL be red for a question
+  that has sat unrelayed past its threshold. A kickoff session's question
+  sat unrelayed for about 25 minutes until a manual check found it; that
+  case is the check's first fixture.
+  *(Cites: D-69; REQ-P1.11; the outcome-audit report (2026-11-13,
+  Sources).)*
+- **REQ-P1.13** A miss ledger SHALL record each problem the operator points
+  out that the system did not raise first, with the operator's words, the
+  date and the check that would have raised it. A miss SHALL close only
+  through `close` with evidence that a detector exists (a test proving the
+  detector fires on that case) and that the upstream fix exists; it is never
+  deleted or aged out. The miss ledger uses the follow-up ledger's row
+  format and writer rules (REQ-K1.5).
+  *(Cites: D-69; REQ-F1.25, REQ-K1.5; the outcome-audit report
+  (2026-11-13, Sources).)*
+- **REQ-P1.14** A periodic report SHALL give, per period, the misses the
+  operator caught against the problems the system raised first, so the
+  trend is visible, and SHALL be a count with the open misses named, not a
+  table of every check.
+  *(Cites: D-69; REQ-P1.13; the outcome-audit report (2026-11-13,
+  Sources).)*
+
 ## Changelog
 
 - 2026-10-22 — Drafted (`/spec-draft`): the requirement groups and
@@ -1567,6 +1634,12 @@ the runner works, never a list that grows and is forgotten.
   being undrafted may claim numbers from D-65 and Task 75, to be renumbered
   by whichever is kicked off second). Tasks 50 and 52 (not yet landed) are
   its dependencies, and the first two flights extend what they add.
+- 2026-11-13 — Amendment 15 extended at kickoff (operator rulings: extend
+  mission-control; fold three more gaps in): rulings do not cross handovers
+  (REQ-P1.7 to REQ-P1.10, D-68, Tasks 80 and 81) and outcomes are audited
+  with a miss ledger and a caught-by report (REQ-P1.11 to REQ-P1.14, D-69,
+  Tasks 82 and 83), the unrelayed-question case as the audit's first
+  fixture.
 
 ## Sources
 
@@ -1802,3 +1875,5 @@ the runner works, never a list that grows and is forgotten.
   the rules say to offload, and nothing noticed. Framed REQ-M1.11,
   REQ-B1.13, REQ-A1.11, D-58.
 - **The duty-ledger report (2026-11-13)** — relayed through the hub, the operator's top priority: "I myself trusted too much you would do that and ended up wasting an entire week at work." Their definition: a duty is something that has to be monitored and fulfilled until completed, whose moment may not be known in advance, so a program must be ready; items may be re-validated recurrently, and the ledger must not be a list that grows and is forgotten. One program's ledger held about twenty open items, mostly past their dates and never re-checked; another had event triggers no script emits. Framed REQ-F1.25, REQ-P1.1 to REQ-P1.6, D-65 to D-67. A pinned altitude claim: the duty ledger is a core, default-on planwright duty, not a per-machine habit.
+- **The crossed-decisions report (2026-11-13)** — relayed through the hub, the operator: "How do you keep crossing decisions? That's been another huge core miss." A handover brief handed the operator a publish step long ruled the hub's, and a settled PR-Agent ruling was re-asked. Framed REQ-P1.7 to REQ-P1.10, D-68.
+- **The outcome-audit report (2026-11-13)** — relayed through the hub, the operator: "Also I have always identified core issues for you; which is a core issue itself." Nothing audits outcomes or learns from a miss the operator caught; a kickoff session's question sat unrelayed about 25 minutes. Framed REQ-P1.11 to REQ-P1.14, D-69.
