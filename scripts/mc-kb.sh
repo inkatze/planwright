@@ -1003,7 +1003,10 @@ load_emitted() {
   # shellcheck disable=SC2086 # the classes are blank-separated words (globbing is off)
   EMITTED=" $(printf '%s\n' $le_all | grep -vx none | sort -u | tr '\n' ' ')"
 }
-class_known() { case $EMITTED in *" $1 "*) return 0 ;; esac; return 1; }
+class_known() {
+  case $EMITTED in *" $1 "*) return 0 ;; esac
+  return 1
+}
 unknown_class() { # unknown_class <label> <class>: the refusal names the known ones
   bad "$1 event class $2 is not one anything emits; the known classes are:$EMITTED"
 }
@@ -1035,7 +1038,7 @@ iso_epoch() { # iso_epoch <YYYY-MM-DDTHH:MM:SSZ>
 # run_check <words...>: a command check, run as words through exec in the
 # background and given a bounded time; success only when it exits 0.
 run_check() {
-  ( exec "$@" ) </dev/null >/dev/null 2>&1 &
+  (exec "$@") </dev/null >/dev/null 2>&1 &
   rc_pid=$!
   rc_i=0
   while kill -0 "$rc_pid" 2>/dev/null; do

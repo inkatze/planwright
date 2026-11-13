@@ -502,7 +502,6 @@ expect_out "a due date is read against the given day" "far away"
 mc_run mc-kb.sh followup close --program alpha f-999 --evidence x
 expect_rc "an unknown row is not found" 1
 
-
 # ---------------------------------------------------------------------------
 # REQ-F1.22: an event trigger names an emitted class; REQ-F1.10: a row
 # carries a done-condition, and an old row reads as having none.
@@ -581,7 +580,7 @@ if [ "$cksum_before" = "$(cksum <"$kb/followups.tsv")" ]; then ok "the audit cha
 printf '%s\n' OPEN >"$tmp/ghstate"
 mc_run mc-kb.sh followup audit --program alpha
 expect_no_out "an open pull request proposes nothing" "close${tab}$a_pr"
-mc_run mc-event.sh emit --program alpha --now "$(( $(date -u +%s) + 30 ))" -- ready-offer pr-9
+mc_run mc-event.sh emit --program alpha --now "$(($(date -u +%s) + 30))" -- ready-offer pr-9
 mc_run mc-kb.sh followup audit --program alpha
 expect_out "an event seen after the item opened proposes a close" "close${tab}$a_event${tab}"
 mc_run mc-kb.sh followup list --program alpha
