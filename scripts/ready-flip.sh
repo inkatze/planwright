@@ -824,14 +824,16 @@ ROLLUP_JQ='
   elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | latest_check_runs[]
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
+    | (.name // .context // "-" | tostring) as $n
     | if .__typename == "StatusContext" then
-        (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
+        (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending \($n)" else "failing" end)
       else
-        (if .status != "COMPLETED" then "pending" elif .conclusion == "SUCCESS" then "green"
+        (if .status != "COMPLETED" then "pending \($n)" elif .conclusion == "SUCCESS" then "green"
          elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "neutral" else "failing" end)
       end ] as $v
   | if any($v[]; . == "failing") then "failing"
-    elif any($v[]; . == "pending") then "pending"
+    elif any($v[]; startswith("pending")) then
+      "pending " + ([$v[] | select(startswith("pending ")) | ltrimstr("pending ")] | join(", "))
     elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)"
     else "none" end end'
 
@@ -885,7 +887,7 @@ $ROLLUP_JQ" 2>/dev/null) || verdict=''
           return
           ;;
         moved) ;;
-        pending) last='checks still pending' ;;
+        pending\ *) last="checks still pending: ${verdict#pending }" ;;
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
       esac

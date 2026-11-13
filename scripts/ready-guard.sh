@@ -44,7 +44,9 @@
 #   * No LLM and no model/API call in the decision path (REQ-C1.2, REQ-D1.4);
 #     purely deterministic shell over two GitHub reads, plus, for a PR behind
 #     its base, one bounded local config read (behind_base_policy) and, under
-#     `checks`, a third read of its head's checks (behind_checks).
+#     `checks`, a third read of its head's checks (behind_checks); any other
+#     passing flip reads the head's checks once (pending_checks), refusing
+#     while one is queued or running.
 #   * The intercepted command / tool payload is strictly INERT DATA (REQ-C1.5):
 #     never eval-ed, re-expanded, glob-expanded, or executed. Selectors are
 #     grammar-validated and passed to gh as separate argv arguments, never
@@ -1015,15 +1017,21 @@ evaluate_predicate() {
   valid_count "$behind" \
     || emit_deny "GitHub's compare endpoint returned no readable \`behind_by\` for this pull request, so its currency with its base branch could not be confirmed - refusing (fail closed). Wait and retry."
 
+  local checked=0
   if [ "$behind" != 0 ]; then
     case $(behind_base_policy) in
       conflict-only) ;;
-      checks) behind_checks "$cwd" "$head_oid" "$behind" "$base" ;;
+      checks)
+        behind_checks "$cwd" "$head_oid" "$behind" "$base"
+        checked=1
+        ;;
       *)
         emit_deny "this pull request is $behind commit(s) behind its base branch $(sanitize_printable "$base" 'its base'), so it has NOT been verified on a current head - refusing the draft->ready flip. Merge the base branch into it ('git fetch origin && git merge FETCH_HEAD'), let CI and review re-run, then retry."
         ;;
     esac
   fi
+  # behind_checks already judged every check, pending ones included.
+  [ "$checked" = 1 ] || pending_checks "$cwd" "$head_oid"
 
   # mergeable == MERGEABLE and either behind_by == 0, conflict-only, or
   # checks with every latest check run passed: emit nothing and let the flip
@@ -1091,6 +1099,50 @@ $CHECKS_JQ" 2>/dev/null) || verdict=''
     truncated) emit_deny "this pull request's check list came back at its cap of 100, so a check past it is unread, and $why - refusing (fail closed)." ;;
     '') emit_deny "this pull request's checks could not be read, and $why - refusing (fail closed). Wait and retry." ;;
     *) emit_deny "this pull request's check $(sanitize_printable "$verdict" 'unprintable'), and $why - refusing the draft->ready flip. Let CI finish green on the head (or merge the base branch into it and let CI re-run), then retry." ;;
+  esac
+}
+
+# Names the latest run of each check context that is still queued, running,
+# waiting or pending (scripts/check-runs.jq, which pending_checks prepends).
+# Prints `truncated` for a list at the read's cap of 100, `clear` when none is
+# pending, else the names, comma separated.
+# shellcheck disable=SC2016 # a jq program
+readonly PENDING_JQ='
+  def pending: if .context != null then ((.state // "PENDING") == "PENDING" or .state == "EXPECTED")
+    else (.status // "COMPLETED") != "COMPLETED" or (.conclusion // "") == "" end;
+  if ((.statusCheckRollup // []) | type) != "array" then empty
+  elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
+  [ (.statusCheckRollup // [])
+    | map(select((.context // "") as $c | any($ex[]; . == $c) | not))
+    | latest_check_runs[] | select(pending) | (.name // .context // "-" | tostring) ] as $p
+  | if ($p | length) == 0 then "clear" else ($p | join(", ")) end end'
+
+# pending_checks <cwd> <head> — a flip waits until every check on the head has
+# finished, macOS shards and matrix jobs included, whatever the base policy: a
+# check still queued or running means the PR is not ready to merge yet. Only
+# pending is judged here; a finished red check is the readiness walk's to hold.
+# Any doubt denies: a failed or timed-out read, an answer about another head,
+# or a list cut at its cap.
+pending_checks() {
+  local cwd=$1 head=$2 oid verdict runs_jq
+  gh_pr_view "$cwd" headRefOid,statusCheckRollup
+  if [ "$GH_VIEW_RC" = 124 ] || [ "$GH_VIEW_RC" = 143 ]; then
+    emit_deny "this pull request's checks could not be read within ${RG_GH_T}s, so whether any is still running is unknown - refusing (fail closed). Wait and retry."
+  fi
+  [ "$GH_VIEW_RC" = 0 ] && [ -n "$GH_VIEW_OUT" ] \
+    || emit_deny "this pull request's checks could not be read, so whether any is still running is unknown - refusing (fail closed). Wait and retry."
+  oid=$(printf '%s' "$GH_VIEW_OUT" | jq -r '.headRefOid // ""' 2>/dev/null) || oid=''
+  [ "$oid" = "$head" ] \
+    || emit_deny "this pull request's head moved while the guard read its checks - refusing (fail closed). Retry."
+  runs_jq=''
+  [ -z "$GUARD_DIR" ] || runs_jq=$(cat -- "$GUARD_DIR/check-runs.jq" 2>/dev/null) || runs_jq=''
+  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$runs_jq
+$PENDING_JQ" 2>/dev/null) || verdict=''
+  case $verdict in
+    clear) return 0 ;;
+    truncated) emit_deny "this pull request's check list came back at its cap of 100, so a check past it may still be running - refusing (fail closed)." ;;
+    '') emit_deny "this pull request's checks could not be read, so whether any is still running is unknown - refusing (fail closed). Wait and retry." ;;
+    *) emit_deny "this pull request still has check(s) queued or running on its head: $(sanitize_printable "$verdict" 'unprintable') - refusing the draft->ready flip. Wait until every check has finished (macOS shards included), then retry." ;;
   esac
 }
 

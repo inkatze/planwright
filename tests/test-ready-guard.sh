@@ -1096,11 +1096,47 @@ reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "checks (default): a current PR defers as before"
-if grep -q 'statusCheckRollup' "$STATE/argv.log"; then
-  fail "checks (default): a current PR paid for a check read"
-else
-  pass "checks (default): a current PR makes no check read"
-fi
+
+# A current PR still waits for its checks: a check queued or running on the
+# head, a macOS shard included, refuses the flip and is named. Everything
+# finished (green, or red apart from a base-state check) passes this guard.
+current_checks() { # current_checks <rollup entries JSON>: a check read for the current head
+  printf '{"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":[%s]}' "$1"
+}
+GREEN_RUN='{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-13T10:00:00Z"}'
+MAC_QUEUED='{"__typename":"CheckRun","name":"macos-suite (shard 2/4)","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z"}'
+CTX_PENDING='{"__typename":"StatusContext","context":"ci/external","state":"PENDING"}'
+WINDOW_RED='{"__typename":"CheckRun","name":"window-lock","workflowName":"window","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-13T10:00:00Z"}'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,$MAC_QUEUED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "pending: a current PR with a queued macOS shard denies, naming it" 'macos-suite .shard 2/4.'
+assert_reason_lacks "pending: the denial does not blame base currency" 'behind'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,$CTX_PENDING")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "pending: a pending status context denies, naming it" 'ci/external'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,$WINDOW_RED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "pending: a finished red check is not this guard's to hold"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "pending: a current PR with every check finished defers"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_RC=1
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "pending: an unreadable check list denies (fail closed)" 'could not be read'
 
 reset_stub_env
 knob_adopter checks

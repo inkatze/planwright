@@ -83,6 +83,7 @@ case "$1 $2" in
           green) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"lint","state":"SUCCESS"}]' ;;
           failing) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           pending) roll='[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":""}]' ;;
+          pending-macos) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"macos-suite (shard 2/4)","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z"}]' ;;
           none) roll='[]' ;;
           own-status-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"FAILURE"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"PENDING"}]' ;;
           own-status-only) roll='[{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"SUCCESS"}]' ;;
@@ -559,6 +560,18 @@ check "a rollup still pending at the bound parks (exit 4)" [ "$CODE" = 4 ]
 check "the wait polled to its bound" [ "$(rollups)" = 3 ]
 fixture
 set_policy unit-owner
+echo pending-macos >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a queued macOS shard keeps the flip parked (exit 4)" [ "$CODE" = 4 ]
+check "the flip is not made over a queued macOS shard" [ "$(calls 'pr ready')" = 0 ]
+fixture
+set_policy unit-owner
+echo pending-macos >"$GHS/ci"
+handp="$SANDBOX/handp-$RANDOM"
+run_helper evaluate --spec specs/demo --task 1 --out "$handp"
+check "the evaluation names the pending macOS shard" grep -q 'macos-suite (shard 2/4)' "$handp"
+fixture
+set_policy unit-owner
 echo none >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "an empty rollup is not green (exit 4)" [ "$CODE" = 4 ]
@@ -567,7 +580,7 @@ set_policy unit-owner
 echo 2 >"$GHS/rollup_fail_until"
 run_helper flip --spec specs/demo --task 1
 check "a transient host failure inside the wait is retried, then flips" [ "$CODE" = 0 ]
-check "the failed reads were retried" [ "$(rollups)" = 3 ]
+check "the failed reads were retried" [ "$(rollups)" = 4 ]
 fixture
 set_policy unit-owner
 echo 9 >"$GHS/rollup_fail_until"
@@ -793,7 +806,7 @@ check "the hand-in names the head" grep -q "^head	$(gitf rev-parse HEAD)$" "$han
 before=$(rollups)
 run_helper flip --spec specs/demo --task 1 --preconditions "$hand"
 check "a flip with a matching hand-in flips" [ "$CODE" = 0 ]
-check "a matching hand-in still reads the rollup once, without waiting" [ "$(rollups)" = "$((before + 1))" ]
+check "a matching hand-in still reads the rollup once, without waiting" [ "$(rollups)" = "$((before + 2))" ]
 
 echo "# a hand-in skips only the wait, never a check"
 fixture
@@ -837,7 +850,7 @@ gitf push -q origin "$BRANCH" 2>/dev/null
 record_review
 run_helper flip --spec specs/demo --task 1 --preconditions "$hand2"
 check "a hand-in for another head still flips after re-evaluating" [ "$CODE" = 0 ]
-check "a hand-in for another head is not trusted: the CI wait re-runs" [ "$(rollups)" = 2 ]
+check "a hand-in for another head is not trusted: the CI wait re-runs" [ "$(rollups)" = 4 ]
 
 echo "# reconcile alone"
 fixture
@@ -955,7 +968,7 @@ echo pending >"$GHS/ci"
 echo 3 >"$GHS/ci_green_from"
 run_polled 3 '' flip --spec specs/demo --task 1
 check "checks going green by the deadline flip (exit 0)" [ "$CODE" = 0 ]
-check "a 6s wait polled every 3s reads at 0s, 3s and 6s" [ "$(rollups)" = 3 ]
+check "a 6s wait polled every 3s reads at 0s, 3s and 6s" [ "$(rollups)" = 4 ]
 
 echo "# a wait that is not a multiple of the poll interval still reads at its deadline"
 fixture
@@ -973,7 +986,7 @@ echo pending >"$GHS/ci"
 echo 2 >"$GHS/ci_green_from"
 run_polled 00 2 flip --spec specs/demo --task 1
 check "a poll interval of 00 behaves as 0 (exit 0)" [ "$CODE" = 0 ]
-check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 2 ]
+check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 3 ]
 check "a poll interval of 00 raises no arithmetic error" not grep -qi 'division\|syntax error\|value too great' <<<"$OUT"
 fixture
 set_policy unit-owner
