@@ -16,6 +16,7 @@ retarget	decision
 deadline	decision
 packet	decision
 pending-prompt-overdue	blocker
+retire-needs-confirmation	decision
 conflict-predicted	blocker
 throughput-bottleneck	blocker
 keeper-sweep-failed	blocker
@@ -44,6 +45,8 @@ stall-turn-ended-background	act
 stall-idle-question	act
 stall-busy-unchanged	act
 stall-unknown	act
+stall-prompt-pending	act
+stall-prompt-cleared	routine
 handover-act	act
 handover-due	act
 handover-requested	act

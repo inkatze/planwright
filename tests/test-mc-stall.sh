@@ -508,6 +508,140 @@ printf 'format\t1\nname\tmc-beta-worker-x\nstate\tlaunched\nprogram\tbeta\nkind\
 stall scan --program alpha --now 2000
 expect_no_out "scan leaves another program's sessions out" "mc-beta-worker-x"
 
+# --- adopted sessions: liveness from the process (REQ-D1.12) -----------------
+
+# arow <name> <kind> <backend> <handle> <process> [<owner> [<scope>]]: a row
+# as `adopt` writes it, naming the session's own process and the adopted
+# origin.
+arow() {
+  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\tt\npid\t1\nprogram\talpha\nowner\t%s\nkind\t%s\nscope\t%s\nbackend\t%s\nhandle\t%s\nprofile\t-\ntier\t-\nbrief\t-\ncwd\t-\ntask\t-\nprimary\t-\nmarker\t-\nlaunched\t0\norigin\tadopted\nprocess\t%s\n' \
+    "$1" "${6:-mission-control:alpha}" "$2" "${7:-s}" "$3" "$4" "$5" >"$reg/$1"
+}
+event_text() { events | awk -F '\t' -v k="$1" -v s="$2" '$3 == k && $4 == s { print $5 }'; }
+
+sleep 600 &
+second_pid=$!
+arow mc-alpha-worker-aj1 worker stream-json wj1 "$second_pid"
+sj wj1 "$second_pid"
+stall classify --program alpha --now 1000 mc-alpha-worker-aj1
+expect_state "an adopted stream-json worker whose process runs reads live" mc-alpha-worker-aj1 live
+kill "$second_pid" 2>/dev/null
+wait "$second_pid" 2>/dev/null
+stall classify --program alpha --now 1100 mc-alpha-worker-aj1
+expect_state "an adopted stream-json worker is dead when its process exits" mc-alpha-worker-aj1 dead
+expect_event "the adopted worker's death emits an attention event" stall-dead mc-alpha-worker-aj1
+
+arow mc-alpha-ad-hoc-atmux ad-hoc tmux @30 "$live_pid"
+window 30 "$live_pid" "$tmp/idle.pane"
+printf 'a-name-the-owner-chose\n' >"$tmp/tmux/30.name"
+stall classify --program alpha --now 1000 mc-alpha-ad-hoc-atmux
+expect_state "an adopted tmux session's liveness comes from its process, whatever its window is called" mc-alpha-ad-hoc-atmux idle
+
+arow mc-alpha-ad-hoc-atmux2 ad-hoc tmux @31 "$dead_pid"
+window 31 "$dead_pid" "$tmp/idle.pane"
+printf 'another-name\n' >"$tmp/tmux/31.name"
+stall classify --program alpha --now 1000 mc-alpha-ad-hoc-atmux2
+expect_state "an adopted tmux session whose process exited is dead, the window staying" mc-alpha-ad-hoc-atmux2 dead
+
+arow mc-alpha-ad-hoc-atmux3 ad-hoc tmux @32 "$live_pid"
+window 32 "$live_pid" "$tmp/idle.pane"
+rm -f "$tmp/tmux/32.name"
+stall classify --program alpha --now 1000 mc-alpha-ad-hoc-atmux3
+expect_state "an adopted tmux row whose window is gone is never read as live" mc-alpha-ad-hoc-atmux3 dead
+
+arow mc-alpha-worker-aj4 worker stream-json wj4 "$dead_pid"
+sj wj4 -
+stall classify --program alpha --now 1000 mc-alpha-worker-aj4
+expect_state "an adopted row naming an exited process, with no pidfile, is dead" mc-alpha-worker-aj4 dead
+
+row mc-alpha-worker-norun worker stream-json mc-alpha-worker-norun
+sj mc-alpha-worker-norun none
+stall classify --program alpha --now 1000 mc-alpha-worker-norun
+[ "$(state_of mc-alpha-worker-norun)" = unknown ] && ok "a registry row with no process behind it is never read as live" \
+  || fail "a row with no process behind it read as $(state_of mc-alpha-worker-norun)"
+
+# --- adopted sessions: a pending prompt (REQ-G1.6) -----------------------------
+
+# mkreq <worker> <id> <state> <command>: one journal row and its stored
+# request envelope, in the shapes the supervisor writes.
+mkreq() {
+  mkdir -p "$fleet/streamjson/$1"
+  printf '%s\tpermission\t1700000000\t%s\n' "$2" "$3" >>"$fleet/streamjson/$1/journal"
+  printf '{"type":"control_request","request_id":"%s","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"%s"},"tool_use_id":"t"}}\n' \
+    "$2" "$4" >"$fleet/streamjson/$1/req-$2.json"
+}
+# setstate <worker> <id> <state>: the journal row of <id> in another state.
+setstate() {
+  awk -F '\t' -v OFS='\t' -v i="$2" -v s="$3" '$1 == i { $4 = s } { print }' "$fleet/streamjson/$1/journal" >"$tmp/journal.new" \
+    && mv "$tmp/journal.new" "$fleet/streamjson/$1/journal"
+}
+p1='aaaa1111-bbbb-cccc-dddd-eeee00000001'
+p2='aaaa1111-bbbb-cccc-dddd-eeee00000002'
+
+arow mc-alpha-worker-ap1 worker stream-json wp1 "$live_pid"
+sj wp1 "$live_pid"
+mkreq wp1 "$p1" pending 'git status --short'
+stall classify --program alpha --now 1000 mc-alpha-worker-ap1
+expect_state "an adopted stream-json worker with a pending prompt reads prompt-pending" mc-alpha-worker-ap1 prompt-pending
+[ "$(event_count stall-prompt-pending mc-alpha-worker-ap1)" = 1 ] && ok "a pending prompt writes one attention event" \
+  || fail "expected one stall-prompt-pending event, got $(event_count stall-prompt-pending mc-alpha-worker-ap1)"
+case $(event_text stall-prompt-pending mc-alpha-worker-ap1) in
+  *"$p1"*"git status --short"*) ok "the event names the prompt and its command" ;;
+  *) fail "the prompt event lacks the prompt id or its command: $(event_text stall-prompt-pending mc-alpha-worker-ap1)" ;;
+esac
+stall classify --program alpha --now 1100 mc-alpha-worker-ap1
+stall classify --program alpha --now 1200 mc-alpha-worker-ap1
+[ "$(event_count stall-prompt-pending mc-alpha-worker-ap1)" = 1 ] && ok "the prompt is still one event after two more stall passes" \
+  || fail "re-detecting the prompt raised another event ($(event_count stall-prompt-pending mc-alpha-worker-ap1))"
+mkreq wp1 "$p2" pending 'git push --tags'
+stall classify --program alpha --now 1300 mc-alpha-worker-ap1
+[ "$(event_count stall-prompt-pending mc-alpha-worker-ap1)" = 2 ] && ok "a second prompt is its own event" \
+  || fail "a second prompt did not raise its own event"
+setstate wp1 "$p1" answered
+stall classify --program alpha --now 1400 mc-alpha-worker-ap1
+expect_state "one prompt answered elsewhere leaves the other pending" mc-alpha-worker-ap1 prompt-pending
+[ "$(event_count stall-prompt-cleared mc-alpha-worker-ap1)" = 1 ] && ok "a prompt answered elsewhere clears" \
+  || fail "the answered prompt did not clear ($(event_count stall-prompt-cleared mc-alpha-worker-ap1))"
+setstate wp1 "$p2" answered
+stall classify --program alpha --now 1500 mc-alpha-worker-ap1
+stall classify --program alpha --now 1600 mc-alpha-worker-ap1
+expect_state "no prompt left pending reads live again" mc-alpha-worker-ap1 live
+[ "$(event_count stall-prompt-cleared mc-alpha-worker-ap1)" = 2 ] && ok "each cleared prompt clears once" \
+  || fail "the clearing is not once per prompt ($(event_count stall-prompt-cleared mc-alpha-worker-ap1))"
+p3='aaaa1111-bbbb-cccc-dddd-eeee00000003'
+mkreq wp1 "$p3" pending 'git log --oneline'
+stall classify --program alpha --now 1700 mc-alpha-worker-ap1
+expect_state "a prompt that arrives after the others cleared reads prompt-pending again" mc-alpha-worker-ap1 prompt-pending
+[ "$(event_count stall-prompt-pending mc-alpha-worker-ap1)" = 3 ] && ok "the new prompt is its own event" \
+  || fail "the new prompt raised $(event_count stall-prompt-pending mc-alpha-worker-ap1) events in all"
+p6='aaaa1111-bbbb-cccc-dddd-eeee00000006'
+printf '%s\tpermission\t1700000000\tpending\n' "$p6" >>"$fleet/streamjson/wp1/journal"
+printf '{"type":"control_request","request_id":"%s","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"file_path":"/etc/hosts"},"tool_use_id":"t"}}\n' "$p6" >"$fleet/streamjson/wp1/req-$p6.json"
+stall classify --program alpha --now 1750 mc-alpha-worker-ap1
+case $(event_text stall-prompt-pending mc-alpha-worker-ap1 | grep "$p6") in
+  *"prompt $p6: Read {"*) ok "a non-Bash prompt reads as its tool and input, never as a shape word" ;;
+  *) fail "the event for a non-Bash prompt is: $(event_text stall-prompt-pending mc-alpha-worker-ap1 | grep "$p6")" ;;
+esac
+awk -F '\t' '$1 == "stall-prompt-pending" && $2 == "routine" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv" \
+  && fail "stall-prompt-pending is classed as quiet" || ok "a pending prompt's kind is left to wake"
+awk -F '\t' '$1 == "stall-prompt-cleared" && $2 == "routine" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv" \
+  && ok "a cleared prompt is routine, so it wakes no turn" || fail "stall-prompt-cleared is not classed routine"
+
+# A tmux prompt has no answer channel: it is surfaced once, with its command.
+arow mc-alpha-worker-atp worker tmux @33 "$live_pid"
+window 33 "$live_pid" "$tmp/selector.pane"
+printf 'owner-named\n' >"$tmp/tmux/33.name"
+stall classify --program alpha --now 1000 mc-alpha-worker-atp
+stall classify --program alpha --now 1100 mc-alpha-worker-atp
+stall classify --program alpha --now 1200 mc-alpha-worker-atp
+expect_state "an adopted tmux session on a permission prompt reads open-selector" mc-alpha-worker-atp open-selector
+[ "$(event_count stall-open-selector mc-alpha-worker-atp)" = 1 ] && ok "a tmux prompt is surfaced once" \
+  || fail "a tmux prompt was surfaced $(event_count stall-open-selector mc-alpha-worker-atp) times"
+case $(event_text stall-open-selector mc-alpha-worker-atp) in
+  *"git status"*) ok "the tmux prompt's event carries its command" ;;
+  *) fail "the tmux prompt's event lacks its command: $(event_text stall-open-selector mc-alpha-worker-atp)" ;;
+esac
+
 # --- refusals ---------------------------------------------------------------
 
 stall classify --program alpha --now 1000 mc-alpha-absent

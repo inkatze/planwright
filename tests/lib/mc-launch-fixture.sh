@@ -138,6 +138,16 @@ case $1 in
       shift
     done
     [ -e "$TMUX_STUB/$t" ] || exit 1
+    # A window with a pane process recorded under pid/ reports it, as an
+    # adopted session's window does.
+    case $all in
+      *pane_pid*)
+        if [ -f "$TMUX_STUB/pid/$t" ]; then
+          printf '%s\t%s\n' "$(cat "$TMUX_STUB/$t")" "$(cat "$TMUX_STUB/pid/$t")"
+          exit 0
+        fi
+        ;;
+    esac
     case $all in *session_name*) echo stub ;; *) echo "$t" ;; esac
     ;;
   kill-window)
