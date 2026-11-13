@@ -122,9 +122,11 @@ launch --operator-asked takes past the hold is recorded first, as a
 usage-bypass event the reset's report names; one that cannot be recorded
 is refused.
 
-Every kind but mission-control is also held by the host-wide bound,
-fleet_host_max_live_workers: the live sessions of every program in the
-shared registry, mission-control sessions left out. A session whose only
+Every kind under the worker profile (worker, reviewer, ad-hoc) is also held
+by the host-wide bound, fleet_host_max_live_workers: the live sessions of
+every program in the shared registry, mission-control sessions left out. The
+tower and mission-control profiles run no tests or builds, so tower,
+orchestrator and mission-control are never held by it. A session whose only
 remaining step is a wait (parked on the operator, or with only CI or a ready
 flip outstanding) marks itself with `wait <name> --on operator|ci|ready-flip`
 and holds no slot until `unwait <name>`; `bound` prints the limit, the
@@ -255,6 +257,14 @@ kind_row() {
   esac
 }
 KINDS="tower orchestrator worker reviewer ad-hoc mission-control"
+
+# runs_local_work <profile> — 0 for a kind whose profile can run tests, builds
+# or other local work (the worker profile); only those are held by the
+# host-wide bound. The tower and mission-control profiles run none, so a kind
+# is exempt by the profile it declares in kind_row, never by a list of names.
+runs_local_work() {
+  [ "$1" = worker ]
+}
 
 # changes_repo <kind> — 0 for a kind that starts in its own worktree.
 changes_repo() {
@@ -1058,7 +1068,7 @@ cmd_launch() {
   # earlier name), so concurrent launches near the bound admit the first and
   # never refuse each other; mission-control sessions are never counted or
   # held. A row of a session that died stays counted until it is retired.
-  if [ "$kind" != mission-control ]; then
+  if runs_local_work "$K_PROFILE"; then
     hc_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
       || refuse "refusing to launch $name: fleet_host_max_live_workers cannot be resolved to a number or off" 4
     if [ "$hc_limit" != off ]; then

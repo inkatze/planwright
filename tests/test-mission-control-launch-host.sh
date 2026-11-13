@@ -145,6 +145,47 @@ set_cap lots
 cap_launch malformed
 [ "$RC" -ne 0 ] && ok "a malformed bound refuses the launch" || fail "a malformed bound let a launch through"
 
+# A kind whose profile runs no tests or builds (the tower profile) is never
+# held by the bound, so a host full of heavy units still takes a cheap
+# read-only session; every kind under the worker profile stays held, and the
+# exemption leaves no bypass event.
+set_cap 2
+kind_launch() { # <kind> <scope> [extra launch args...]
+  kl_kind=$1
+  kl_scope=$2
+  shift 2
+  rec="$tmp/rec-cap-$kl_kind-$kl_scope"
+  mkdir -p "$rec"
+  SHIM_RECORD_DIR=$rec ml_cap launch --program alpha --kind "$kl_kind" --scope "$kl_scope" --brief "$tmp/brief.md" --cwd "$repo" "$@"
+}
+for light_kind in tower orchestrator; do
+  kind_launch "$light_kind" "light-$light_kind"
+  if [ "$RC" = 0 ]; then
+    ok "a $light_kind launch is not held by a full host"
+    wait_done "$(field name)"
+  else
+    fail "a $light_kind launch on a full host exited $RC: $ERR"
+  fi
+done
+# With --operator-asked a held kind records a bypass; an exempt one is never
+# held, so it records none.
+kind_launch tower light-asked --operator-asked
+light_name=$(field name)
+wait_done "$light_name"
+ml_out=$(cd "$repo" && env PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" HOME="$fixhome" \
+  /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha)
+case $ml_out in
+  *"${TAB}host-cap-bypass${TAB}$light_name${TAB}"*) fail "an operator-asked launch of an exempt kind recorded a host-cap-bypass event: $ml_out" ;;
+  *"${TAB}host-cap-bypass${TAB}"*) [ "$RC" = 0 ] && ok "an exempt kind records no bypass event even when operator-asked" || fail "the operator-asked tower launch exited $RC: $ERR" ;;
+  *) fail "the event list holds no earlier bypass, so the lookup measures nothing: $ml_out" ;;
+esac
+for heavy_kind in worker reviewer ad-hoc; do
+  kind_launch "$heavy_kind" "heavy-$heavy_kind"
+  case $ERR in
+    *fleet_host_max_live_workers*) [ "$RC" = 4 ] && ok "a $heavy_kind launch is still held by a full host" || fail "a $heavy_kind launch on a full host exited $RC: $ERR" ;;
+    *) fail "a $heavy_kind launch on a full host was not refused by the bound (exit $RC): $ERR" ;;
+  esac
+done
 # ---------------------------------------------------------------------------
 # A session that is only waiting (on the operator, on CI, on a ready flip)
 # stops counting toward the host-wide bound, its state recorded on its row,
