@@ -816,7 +816,7 @@ do_run_worker() {
   # worker may write to.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
   r_scratch=''
-  r_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$r_wt" --scratch 2>/dev/null </dev/null) || r_record=''
+  r_record=$(PLANWRIGHT_LAUNCH_BACKEND=headless-oneshot /bin/sh "$script_dir/worker-session-record.sh" write "$r_wt" --scratch 2>/dev/null </dev/null) || r_record=''
   if [ -n "$r_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$r_record
     export PLANWRIGHT_WORKER_SESSION_RECORD

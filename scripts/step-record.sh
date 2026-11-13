@@ -76,11 +76,15 @@
 #                 `record<TAB><worktree-relative path>` line, the record's
 #                 stored lines with C0 control bytes and DEL dropped, then a
 #                 blank line.
-#   render        print one markdown table per point of the run (default the
-#                 latest run), in the order the points first recorded, or
-#                 the named points in the order given, each once; a named
-#                 point with no record renders nothing. Given no point, the
-#                 run's full-suite records follow as one full-suite table.
+#   render        print one markdown table per point of the run, in the order
+#                 the points first recorded, or the named points in the order
+#                 given, each once. Without --run, every run renders, oldest
+#                 first, each table headed by its run id, so a PR body
+#                 rebuilt after a later run keeps the earlier runs' records;
+#                 --run selects one run; a blank line separates runs, and a
+#                 run with nothing to show is left out. A named point with
+#                 no record renders nothing. Given no point, each run's
+#                 full-suite records follow as one full-suite table.
 #   regenerate    print the pending-sign-off checklist rebuilt from the
 #                 marked commits of <base>..<head>, then, unless
 #                 --checklist-only, when the run (default the latest run)
@@ -364,8 +368,10 @@
 # another writer held past the wait, a status with no attempt to post or a
 # post that failed, no SHA-256 tool for args-digest, a new-run or status from
 # a plugin-cache copy the installed record no longer names) · 2 a usage or
-# field-validation error · 3 lookup found no record to stand on (or no
-# unretired limited record), or heads found no move.
+# field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
+# documented set on new-run, write, regenerate, or status (the other verbs,
+# bar excerpt and args-digest, only warn; resolve-steps.sh --check-env judges it) · 3 lookup found no
+# record to stand on (or no unretired limited record), or heads found no move.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
 set -u
@@ -1535,13 +1541,32 @@ cmd_render() {
   done
   if [ -n "$run" ]; then
     valid_run "$run"
+    runs=$run
   else
-    latest_run
-    run=$LATEST
-    [ -n "$run" ] || return 0
+    runs=$(run_ids)
   fi
   # shellcheck disable=SC2086 # points are validated vocabulary words
-  render_run "$run" $points
+  render_runs "$runs" $points
+}
+
+# render_runs <runs> [<point>...]: each listed run's tables, in order, a blank
+# line between runs that render anything. Nothing prints until every run has
+# rendered, so a refusal in a later run never leaves a body missing it.
+render_runs() {
+  runs=$1
+  shift
+  scratch
+  : >"$work/render-all" || die 1 "cannot write a temporary file"
+  sep=0
+  for rr in $runs; do
+    check_run "$rr"
+    render_run "$rr" "$@" >"$work/render-run" || exit 1
+    [ -s "$work/render-run" ] || continue
+    [ "$sep" -eq 0 ] || printf '\n' >>"$work/render-all"
+    sep=1
+    cat "$work/render-run" >>"$work/render-all" || die 1 "cannot write a temporary file"
+  done
+  cat "$work/render-all"
 }
 
 # --- regenerate ---------------------------------------------------------------------
@@ -2042,6 +2067,19 @@ check_dir "$cache"
 if command -v git >/dev/null 2>&1 && [ -d "$cache" ]; then
   tracked=$(git -C "$worktree" ls-files -- .claude/steps 2>/dev/null) || tracked=''
   [ -z "$tracked" ] || die 1 "git tracks the record cache; refusing it"
+fi
+
+# A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
+# --check-env owns the list) is dropped without a word by anything that reads
+# the context: new-run, write, regenerate, and status refuse it, the other
+# verbs (bar excerpt and args-digest, which exit earlier) warn.
+env_rc=0
+env_msg=$("$script_dir/resolve-steps.sh" --check-env 2>&1) || env_rc=$?
+if [ "$env_rc" -eq 6 ]; then
+  printf '%s\n' "$env_msg" >&2
+  case $verb in
+    new-run | write | regenerate | status) exit 2 ;;
+  esac
 fi
 
 case $verb in
