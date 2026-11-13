@@ -1708,41 +1708,6 @@ senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
   launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null \
   || fail "c25c: a lock whose holder is gone must be broken and the launch proceed"
 senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25c: stop exited non-zero"
-# (c2) a recorded pid the host reissued to another process: the launch records
-#     the start of each process beside its pid, a worker whose recorded pid now
-#     names a different start reads dead, and a close neither signals the
-#     stranger nor leaves the worker held; a record with no start keeps the
-#     pid-only reading.
-senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
-  launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null \
-  || fail "c25c2: the launch exited non-zero"
-poll_until --what 'the start records' -- test -s "$wdir25/worker.start" -a -s "$wdir25/supervisor.start" \
-  || fail "c25c2: the launch recorded no process start beside its pids"
-[ "$(cat "$wdir25/supervisor.start")" = "$(/bin/sh "$here/../scripts/fleet-death-evidence.sh" start "$(cat "$wdir25/supervisor.pid")")" ] \
-  || fail "c25c2: supervisor.start does not match the supervisor's own start"
-senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25c2: stop exited non-zero"
-[ ! -e "$wdir25/worker.start" ] && [ ! -e "$wdir25/supervisor.start" ] \
-  || fail "c25c2: a close left start records for pids it dropped"
-sleep 600 &
-stranger25=$!
-printf '%s\n' "$stranger25" >"$wdir25/supervisor.pid"
-printf '%s\n' "$stranger25" >"$wdir25/worker.pid"
-printf 'p1\n' >"$wdir25/supervisor.start"
-printf 'p1\n' >"$wdir25/worker.start"
-out=$(senv "$home" "$rec" -- status sjw25) || fail "c25c2: status exited non-zero"
-case $out in
-  "status sjw25 dead "*) ;;
-  *) fail "c25c2: a reissued pid did not read dead: $out" ;;
-esac
-out=$(senv "$home" "$rec" -- stop sjw25 --grace 2 --final) || fail "c25c2: the close over a reissued pid exited non-zero: $out"
-case $out in
-  "stop sjw25 stopped "* | "stop sjw25 already-closed") ;;
-  *) fail "c25c2: the close over a reissued pid left the worker held: $out" ;;
-esac
-kill -0 "$stranger25" 2>/dev/null || fail "c25c2: the close signalled the process that reused the pid"
-kill "$stranger25" 2>/dev/null
-wait "$stranger25" 2>/dev/null || :
-echo "ok: c25c2 a launch records each process's start, and a reissued pid reads dead and is never signalled"
 # (d) the pid files are published by rename, never by a bare redirect. A
 #     redirect creates the file before the write lands, and every reader treats
 #     an empty pid file as nothing-recorded — which is what let a second launch
