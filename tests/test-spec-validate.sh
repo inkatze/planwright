@@ -2941,7 +2941,7 @@ run_v 0 "$mb/specs"
 lacks "renumbered or removed"
 
 # The branch's own removal of an ID the merge base had still fails.
-edit "$mb/specs/myspec/requirements.md" '/REQ-X1\.2/,+1d'
+edit "$mb/specs/myspec/requirements.md" '/REQ-X1\.2/{N;d;}'
 edit "$mb/specs/myspec/test-spec.md" 's/REQ-X1\.2/REQ-X1.1/g'
 run_v 1 "$mb/specs"
 has "REQ-X1.2 renumbered or removed"
