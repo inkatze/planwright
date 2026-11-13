@@ -5263,7 +5263,7 @@ strip_step_context() {
     # list is the one value that carries a space.
     case ${w#*=} in
       *[!A-Za-z0-9._/:@%,+-]*)
-        { [ "$f" = TASK_IDS ] && [ "${swq[i]}" -ge 0 ] && case ${w#*=} in *[!0-9.\ ]*) false ;; esac; } || return 0
+        { [ "$f" = TASK_IDS ] && [ "${swq[i]}" -ge 0 ] && case ${w#*=} in *[!0-9.\ ]*) false ;; esac } || return 0
         ;;
     esac
     step_context_value_ok "$f" "${w#*=}" || return 0
