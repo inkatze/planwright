@@ -1100,8 +1100,13 @@ cmd_write() {
     passed | applied | halted | failed | skipped | limited) ;;
     *) bad --outcome "not passed, applied, halted, failed, skipped, or limited" ;;
   esac
-  [ "$step:$outcome" != polish:passed ] || [ "$head" = "$end_head" ] \
-    || bad --outcome "a polish that moved the head (head $head, end-head $end_head) is applied, not passed"
+  if [ "$outcome" = passed ] && [ "$head" != "$end_head" ]; then
+    is_polish=0
+    [ "$step" != polish ] || is_polish=1
+    case $kind:$target in skill:polish | skill:*:polish | skill:/polish | skill:/*:polish) is_polish=1 ;; esac
+    [ "$is_polish" -eq 0 ] \
+      || bad --outcome "a polish that moved the head (head $head, end-head $end_head) is applied, not passed"
+  fi
   if [ "$outcome" = skipped ]; then
     [ "$skip_codes" -eq 1 ] || bad --skip-code "a skipped step carries exactly one"
     case $skip_code in missing | reuse | resume | answered) ;; *) bad --skip-code "not missing, reuse, resume, or answered" ;; esac

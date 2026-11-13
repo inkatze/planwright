@@ -144,6 +144,11 @@ if sr write --run "$r" --point convergence --step polish --kind skill --target p
   --outcome passed >"$tmp/w.out" 2>&1; then rc=0; else rc=1; fi
 [ "$rc" -eq 1 ] && grep -q "applied, not passed" "$tmp/w.out"
 verdict $? "write refuses a polish passed whose head moved, naming both heads" "$(cat "$tmp/w.out")"
+if sr write --run "$r" --point convergence --step polish-again --kind skill --target planwright:polish --hosting in-session \
+  --backend none --head "$old" --end-head "$(head_of)" --start 2026-11-04T10:00:11Z --end 2026-11-04T10:00:30Z \
+  --outcome passed >"$tmp/w.out" 2>&1; then rc=0; else rc=1; fi
+[ "$rc" -eq 1 ] && grep -q "applied, not passed" "$tmp/w.out"
+verdict $? "write refuses a passed polish skill step under another step name on a moved head" "rc $rc: $(cat "$tmp/w.out")"
 srec "$r" convergence polish /polish applied 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z "$old" "$(head_of)"
 done_at "$r" convergence
 forged="$wt/.claude/steps/$r/001-step-convergence.rec"
