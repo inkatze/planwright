@@ -620,7 +620,13 @@ gc_refs() {
   if [ "$gr_rc" != 0 ]; then
     # The one benign failure: the ref vanished between the read above and the
     # push (a peer GC'd the same terminal fence). Anything else is transient.
-    if grep -q 'remote ref does not exist' "$push_out"; then
+    # The message is matched in English, which a caller's LC_ALL can defeat
+    # (it outranks LANGUAGE), so every ref being gone on origin counts too.
+    gr_gone=1
+    for gr_r in $gr_todo; do
+      gr_left=$(ls_remote_fences "$gr_r") && [ -z "$gr_left" ] || gr_gone=0
+    done
+    if grep -q 'remote ref does not exist' "$push_out" || [ "$gr_gone" = 1 ]; then
       gr_rc=0
     else
       err "transient origin failure deleting a terminal fence — surfaced, retried next pass (REQ-C1.5): $(sanitize_printable "$(tr '\n' ' ' <"$push_out")" "(unprintable)")"
