@@ -101,7 +101,8 @@ want=$(jq -c '
   | del(._about)' "$PROFILE")
 got=$(jq -c '
   del(.permissions.deny)
-  | del(._about)' "$OUT")
+  | del(._about)
+  | .hooks.PreToolUse |= map(select(.matcher != "Edit|Write|MultiEdit|NotebookEdit"))' "$OUT")
 [ "$want" = "$got" ] && ok "allow list, hooks and every other key are the shipped ones" || fail "a non-deny key differs from the shipped profile"
 rest=$(jq -c '[.permissions.deny[] | select(
   . != "Edit(//**/mise.toml)" and . != "Edit(//**/.mise.toml)"

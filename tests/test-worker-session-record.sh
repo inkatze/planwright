@@ -628,6 +628,35 @@ else
   fail "mise opt-in: the field outlived its launch"
 fi
 
+echo "### launch backend: a headless launch is recorded for the dispatcher to read"
+write "$WT"
+if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
+  pass "launch_backend: an interactive launch records none"
+else
+  fail "launch_backend: an interactive launch recorded one (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND=stream-json /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field launch_backend)" = stream-json ]; then
+  pass "launch_backend: a stream-json launch records launch_backend=stream-json"
+else
+  fail "launch_backend: a stream-json launch left no record (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND=headless-oneshot /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field launch_backend)" = headless-oneshot ]; then
+  pass "launch_backend: a one-shot launch records launch_backend=headless-oneshot"
+else
+  fail "launch_backend: a one-shot launch left no record (rc=$RC)"
+fi
+REC=$(PLANWRIGHT_LAUNCH_BACKEND='stream-json;x' /bin/sh "$WRITER" write "$WT" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
+  pass "launch_backend: a value that is not a headless backend is not recorded"
+else
+  fail "launch_backend: an unknown value was recorded (rc=$RC)"
+fi
+
 echo
 echo "worker-session-record: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]

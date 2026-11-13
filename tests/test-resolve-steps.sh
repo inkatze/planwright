@@ -420,6 +420,8 @@ malformed_tracked() {
 }
 want_reason='pool name'
 malformed_case "a pool name outside the id charset" "kind: command" "target: fixture-tool" "pool: Gate"
+want_reason='reserved'
+malformed_case "the reserved pool name none (REQ-K1.1)" "kind: command" "target: fixture-tool" "pool: none"
 want_reason='paths word'
 malformed_case "an absolute paths word" "kind: command" "target: fixture-tool" "paths: src /etc"
 want_reason='refire value'
@@ -2123,6 +2125,36 @@ case "$bi_rc:$bi_err" in
   "5:"*"echo-safety.sh is missing or unreadable (broken install)"*) ok "an echo-safety.sh directory is refused as a broken install (exit 5)" ;;
   *) fail "an echo-safety.sh directory: rc=$bi_rc err='$bi_err', expected the broken-install refusal" ;;
 esac
+
+# 14. --check-env: a PLANWRIGHT_STEP_* name outside the documented set is
+# refused with its right spelling.
+ce_rc=0
+ce_err=$(env PLANWRIGHT_STEP_PR_NUMBER=7 PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_POOL_HOLD=gate:1 \
+  /bin/bash "$RS" --check-env 2>&1) || ce_rc=$?
+[ "$ce_rc" -eq 0 ] && [ -z "$ce_err" ]
+verdict "--check-env passes when every PLANWRIGHT_STEP_* name is documented" "--check-env documented: rc=$ce_rc err='$ce_err'"
+for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_BRANCH; do
+  bad=${pair%%:*} want=${pair#*:}
+  ce_rc=0
+  ce_err=$(env "PLANWRIGHT_STEP_$bad=1" /bin/bash "$RS" --check-env 2>&1) || ce_rc=$?
+  case "$ce_rc:$ce_err" in
+    "6:"*"PLANWRIGHT_STEP_$bad"*"PLANWRIGHT_STEP_$want"*) ok "--check-env refuses PLANWRIGHT_STEP_$bad and names PLANWRIGHT_STEP_$want" ;;
+    *) fail "--check-env PLANWRIGHT_STEP_$bad: rc=$ce_rc err='$ce_err'" ;;
+  esac
+done
+ce_rc=0
+ce_err=$(env PLANWRIGHT_STEP_UNIT=x /bin/bash "$RS" --check-env 2>&1) || ce_rc=$?
+case "$ce_rc:$ce_err" in
+  "6:"*"PLANWRIGHT_STEP_UNIT"*"PLANWRIGHT_STEP_UNIT_KIND"*"PLANWRIGHT_STEP_WORKTREE"*) ok "--check-env refuses an unmapped name and lists the documented set" ;;
+  *) fail "--check-env PLANWRIGHT_STEP_UNIT: rc=$ce_rc err='$ce_err'" ;;
+esac
+for combo in "--owner 5" "--pool p" "convergence" "--explain" "--preamble" "--unattended"; do
+  ce_rc=0
+  # shellcheck disable=SC2086 # the combo is a deliberate word list
+  ce_err=$(env /bin/bash "$RS" --check-env $combo 2>&1) || ce_rc=$?
+  [ "$ce_rc" -eq 2 ]
+  verdict "--check-env with '$combo' is a usage error" "--check-env $combo: rc=$ce_rc err='$ce_err'"
+done
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2

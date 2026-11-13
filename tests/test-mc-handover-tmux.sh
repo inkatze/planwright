@@ -292,6 +292,30 @@ rc_window_argv "$RC_SUCC" | rc_has_pair /dev/stdin "$RC_SUCC" \
   && ok "with the knob on a successor starts Remote Control under its own name" || fail "on-knob successor argv: $(rc_window_argv "$RC_SUCC" | tr '\n' ' ')"
 rc_settle '%17'
 
+# A successor that took the name on the tmux rung holds it as a registry
+# session, yet it runs in a tmux window: its own handover defaults to the tmux
+# rung (so the Remote Control knob applies) and its path is the pane path. The
+# holder here is the last settled successor, a registry holder on tmux.
+rc_th=$RC_SUCC
+holder_is "fixture: the holder is the tmux-rung registry successor" "$rc_th"
+case $(col holder 3) in registry) ;; *) fail "fixture: the tmux successor is not a registry holder: $OUT" ;; esac
+ho path --program alpha
+[ "$OUT" = "path${tab}pane${tab}tmux" ] && ok "a registry holder on the tmux rung gets the pane path" || fail "path for a tmux-rung registry holder: $OUT $ERR"
+rc_knob on
+ho write --program alpha --session "$rc_th" --picture "$tmp/picture" --digest "$digest"
+[ "$RC" = 0 ] || fail "fixture: write as the tmux-rung holder exited $RC: $OUT $ERR"
+RUN_TMUX_PANE='%9' ho launch --program alpha --brief "$tmp/brief.md" --handover
+th_rc=$RC th_err=$ERR th_succ=$(col successor 2)
+[ "$th_rc" = 0 ] || fail "the tmux-rung registry handover exited $th_rc: $OUT $th_err"
+rc_window_argv "$th_succ" | rc_has_pair /dev/stdin "$th_succ" \
+  && ok "a handover from a tmux-rung registry holder, with no --backend, starts a tmux successor with Remote Control" \
+  || fail "no tmux successor with Remote Control: $(rc_window_argv "$th_succ" | tr '\n' ' ') $th_err"
+case $th_err in *'--remote-control is for the tmux rung'*) fail "the handover fell to the stream-json rung: $th_err" ;; *) ok "and never warns that Remote Control is for the tmux rung" ;; esac
+grep -qx "predecessor-pane${tab}-" "$fleet/mission-control/alpha/successor" \
+  && ok "the registry predecessor's pane is not recorded for closing" || fail "a pane was recorded: $(cat "$fleet/mission-control/alpha/successor")"
+rm -f "$fleet/mission-control/alpha/successor"
+run mission-control-launch.sh retire "$th_succ"
+
 echo
 if [ "$failures" -gt 0 ]; then
   echo "test-mc-handover-tmux: $failures failure(s)" >&2

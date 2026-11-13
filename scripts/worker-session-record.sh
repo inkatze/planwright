@@ -60,6 +60,10 @@
 #                      policy; its default when it cannot be read). An
 #                      unusable home is omitted with a warning, which leaves
 #                      the worker without either write arm
+#   launch_backend     stream-json or headless-oneshot when the launcher asks
+#                      for a headless session through
+#                      PLANWRIGHT_LAUNCH_BACKEND (omitted otherwise); scripts/offload-dispatch.sh reads it so a
+#                      headless unit never opens a tmux window
 # and writes them as `key=value` lines to
 # <fleet-home>/session-records/<hash-of-worktree-root>.record, owner-only, by
 # an atomic rename, printing the path. Each <hash> is `git hash-object`'s, in
@@ -347,6 +351,9 @@ if ! {
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
   [ -z "$hook_exclude" ] || printf 'hook_exclude=%s\n' "$hook_exclude"
   [ "$mise_task_edit" = 0 ] || printf 'mise_task_edit=1\n'
+  case ${PLANWRIGHT_LAUNCH_BACKEND:-} in
+    stream-json | headless-oneshot) printf 'launch_backend=%s\n' "$PLANWRIGHT_LAUNCH_BACKEND" ;;
+  esac
 } >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
   rm -f -- "$tmp"
   die "cannot write the record"

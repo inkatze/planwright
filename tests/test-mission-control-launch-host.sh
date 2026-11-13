@@ -144,6 +144,133 @@ cap_launch default-held
 set_cap lots
 cap_launch malformed
 [ "$RC" -ne 0 ] && ok "a malformed bound refuses the launch" || fail "a malformed bound let a launch through"
+
+# ---------------------------------------------------------------------------
+# A session that is only waiting (on the operator, on CI, on a ready flip)
+# stops counting toward the host-wide bound, its state recorded on its row,
+# and the count says how many slots work holds versus waits. A bound held by
+# working sessions still refuses.
+# ---------------------------------------------------------------------------
+fleet="$tmp/fleet-wait"
+mkdir -p "$fleet/mission-control/sessions"
+capreg="$fleet/mission-control/sessions"
+set_cap 2
+seed_row mc-beta-worker-0000000011 beta worker
+seed_row mc-gamma-worker-0000000012 gamma worker
+w1=mc-beta-worker-0000000011
+w2=mc-gamma-worker-0000000012
+
+cap_launch work-full
+if [ "$RC" = 4 ]; then
+  ok "a bound held by two working sessions refuses a launch"
+else
+  fail "two working sessions under a bound of 2 exited $RC: $ERR"
+fi
+case $ERR in
+  *"2 working"*"0 waiting"*) ok "the refusal says how many slots work holds and how many waits hold" ;;
+  *) fail "the refusal does not split working from waiting: $ERR" ;;
+esac
+
+ml wait "$w1" --on operator
+[ "$RC" = 0 ] && ok "a worker is marked waiting on the operator" || fail "wait exited $RC: $ERR"
+[ "$OUT" = "wait${TAB}${w1}${TAB}waiting${TAB}operator" ] && ok "wait prints its name, state and reason" || fail "wait printed: $OUT"
+case $(cat "$capreg/$w1") in
+  *"waiting${TAB}operator"*) ok "the wait is recorded on the registry row" ;;
+  *) fail "the row records no wait: $(cat "$capreg/$w1")" ;;
+esac
+cap_launch one-waiting
+if [ "$RC" = 0 ]; then
+  ok "a waiting worker does not hold a slot: a bound of 2 with one working, one waiting admits a launch"
+  leak1=$(field name)
+  wait_done "$leak1"
+else
+  fail "a waiting worker still held the bound: $ERR"
+fi
+
+ml wait "$w2" --on ci
+[ "$RC" = 0 ] && ok "a worker is marked waiting on CI" || fail "wait --on ci exited $RC: $ERR"
+cap_launch all-waiting
+if [ "$RC" = 0 ]; then
+  ok "a full bound of waiting workers no longer refuses a launch"
+  leak2=$(field name)
+  wait_done "$leak2"
+else
+  fail "a bound full of waiting workers refused a launch: $ERR"
+fi
+
+ml bound
+case $OUT in
+  *"bound${TAB}2${TAB}"*) ok "bound reports the limit" ;;
+  *) fail "bound does not report the limit: $OUT" ;;
+esac
+bound_row=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "bound" { print $3 "/" $4 }')
+case $bound_row in
+  2/2) ok "bound reports working and waiting slots (the two launched sessions work, the two seeds wait)" ;;
+  *) fail "bound reports working/waiting as '$bound_row': $OUT" ;;
+esac
+
+ml wait "$w1" --on ready-flip
+[ "$RC" = 0 ] && ok "marking a waiting worker again updates its reason" || fail "a second wait exited $RC: $ERR"
+case $(cat "$capreg/$w1") in
+  *"waiting${TAB}ready-flip"*) ok "the second reason replaces the first" ;;
+  *) fail "the reason was not replaced: $(cat "$capreg/$w1")" ;;
+esac
+[ "$(grep -c "^waiting${TAB}" "$capreg/$w1")" = 1 ] && ok "a row holds one waiting field" || fail "a row holds several waiting fields"
+
+ml unwait "$w1"
+[ "$RC" = 0 ] && ok "unwait returns a worker to the count" || fail "unwait exited $RC: $ERR"
+[ "$OUT" = "wait${TAB}${w1}${TAB}working" ] && ok "unwait prints its name and the working state" || fail "unwait printed: $OUT"
+grep -q "^waiting${TAB}" "$capreg/$w1" && fail "unwait left the waiting field" || ok "unwait clears the waiting field"
+ml retire "$leak1"
+ml retire "$leak2"
+ml bound
+case $OUT in
+  *"bound${TAB}2${TAB}1${TAB}1"*) ok "with the launched sessions retired one seed works and one waits" ;;
+  *) fail "bound after the retires: $OUT" ;;
+esac
+ml wait "$w1" --on ready-flip
+ml bound
+case $OUT in
+  *"bound${TAB}2${TAB}0${TAB}2"*) ok "both seeds waiting leaves no working slot" ;;
+  *) fail "bound with both seeds waiting: $OUT" ;;
+esac
+ml unwait "$w2"
+cap_launch half-resumed
+if [ "$RC" = 0 ]; then
+  ok "one resumed worker leaves room under a bound of 2"
+  leak3=$(field name)
+  wait_done "$leak3"
+  ml retire "$leak3"
+else
+  fail "one resumed worker held a bound of 2: $ERR"
+fi
+ml unwait "$w1"
+ml wait "$w1" --on ci --extra
+[ "$RC" = 2 ] && ok "wait refuses extra arguments" || fail "wait with an extra argument exited $RC"
+ml unwait "$w1"
+cap_launch work-again
+[ "$RC" = 4 ] && ok "a bound held again by two resumed workers refuses a launch" || fail "resumed workers did not hold the bound (exit $RC): $ERR"
+seed_row mc-beta-worker-0000000014 beta worker
+sed "s/^state${TAB}.*/state${TAB}launching/" "$capreg/mc-beta-worker-0000000014" >"$capreg/mc-beta-worker-0000000014.tmp.sed" \
+  && mv "$capreg/mc-beta-worker-0000000014.tmp.sed" "$capreg/mc-beta-worker-0000000014"
+ml wait mc-beta-worker-0000000014 --on ci
+[ "$RC" = 4 ] && ok "a session whose launch is not complete is never marked waiting" || fail "a launching row was marked waiting (exit $RC)"
+
+ml wait mc-nobody-worker-0000000099 --on ci
+[ "$RC" = 3 ] && ok "wait on an unregistered session exits 3" || fail "wait on an unknown session exited $RC: $ERR"
+ml wait "$w1" --on lunch
+[ "$RC" = 2 ] && ok "wait refuses an unknown reason" || fail "wait accepted an unknown reason (exit $RC)"
+ml wait "$w1"
+[ "$RC" = 2 ] && ok "wait requires a reason" || fail "wait with no reason exited $RC"
+seed_row mc-beta-mission-control-0000000013 beta mission-control
+ml wait mc-beta-mission-control-0000000013 --on operator
+[ "$RC" = 4 ] && ok "a mission-control session is never marked waiting" || fail "a mission-control row was marked waiting (exit $RC)"
+ml unwait mc-beta-mission-control-0000000013
+[ "$RC" = 4 ] && ok "a mission-control session is never unwaited either" || fail "unwait on a mission-control row exited $RC"
+ml bound extra
+[ "$RC" = 2 ] && ok "bound takes no arguments" || fail "bound with an argument exited $RC"
+ml unwait mc-nobody-worker-0000000099
+[ "$RC" = 3 ] && ok "unwait on an unregistered session exits 3" || fail "unwait on an unknown session exited $RC"
 fleet="$tmp/fleet"
 
 # A session on another host (fleet-remote.sh) lives in that host's registry,
