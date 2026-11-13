@@ -73,6 +73,8 @@
 #                    the terminator is what says the writer finished, so a row
 #                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
+#   supervisor.start / worker.start  when each recorded process began, so a
+#                    pid the host reissued to another process reads dead
 #   scope            the dispatch scope, when the launch supplied one
 #   cwd              the directory a fresh launch started the worker in,
 #                    where `relaunch` resumes it

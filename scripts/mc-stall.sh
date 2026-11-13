@@ -49,7 +49,9 @@ scripts/fleet-death-evidence.sh, never pane text or elapsed time:
   tmux         the window the launch recorded, which must still carry the
                session's name, then the process in its pane
   stream-json  the worker's pid the supervisor records (worker.pid, else
-               supervisor.pid); a state directory holding neither pidfile
+               supervisor.pid), counted dead when the start recorded
+               beside it no longer matches the process holding that pid;
+               a state directory holding neither pidfile
                is a supervisor that has exited, since it removes both
 The states, first match wins:
   dead                   the predicate reports the window or process gone,
