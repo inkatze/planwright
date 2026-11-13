@@ -44,7 +44,7 @@ Verbs (each runs on the remote host, through its own planwright and tools):
                                 say, so a dispatch can refuse a remote that
                                 lacks a verb it needs; no planwright root on
                                 the remote exits 3
-  capacity                     print one line "load=<1-minute load> cores=<n>
+  capacity                      print one line "load=<1-minute load> cores=<n>
                                 mem_free_mb=<n> idle_secs=<n>" read on the
                                 remote; a field the platform does not report
                                 (input idle time off macOS, say) is
