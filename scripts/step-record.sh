@@ -214,8 +214,9 @@
 #                  only; a completion's --head is already its end.
 #   --start/--end  YYYY-MM-DDTHH:MM:SSZ; an omitted write --end is the UTC
 #                  time the record is written; --end is refused if earlier
-#                  than --start
+#                  than --start or later than the moment of writing
 #   --outcome      passed | applied | halted | failed | skipped | limited
+#                  (a polish step that moved the head is applied, never passed)
 #   --skip-code    missing | reuse | resume | answered; a skipped record
 #                  carries exactly one, and only a skipped record carries one
 #   --skip-reason  free-text detail of a skip; optional, skipped only
@@ -898,8 +899,13 @@ check_end() {
   fi
   is_ts "$end" || bad --end "not YYYY-MM-DDTHH:MM:SSZ"
   # Same-width UTC stamps: the digits compare as numbers.
-  [ "$(printf '%s' "$end" | tr -d -- '-:TZ')" -ge "$(printf '%s' "$start" | tr -d -- '-:TZ')" ] \
-    && return 0
+  if [ "$(printf '%s' "$end" | tr -d -- '-:TZ')" -ge "$(printf '%s' "$start" | tr -d -- '-:TZ')" ]; then
+    [ "$end_given" -eq 1 ] || return 0
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ) || die 1 "cannot read the clock"
+    [ "$(printf '%s' "$end" | tr -d -- '-:TZ')" -le "$(printf '%s' "$now" | tr -d -- '-:TZ')" ] \
+      || bad --end "later than the moment of writing: expected at most $now, got $end"
+    return 0
+  fi
   [ "$end_given" -eq 1 ] || bad --end "not given, and the clock now reads earlier than --start"
   bad --end "earlier than --start"
 }
@@ -1094,6 +1100,13 @@ cmd_write() {
     passed | applied | halted | failed | skipped | limited) ;;
     *) bad --outcome "not passed, applied, halted, failed, skipped, or limited" ;;
   esac
+  if [ "$outcome" = passed ] && [ "$head" != "$end_head" ]; then
+    is_polish=0
+    [ "$step" != polish ] || is_polish=1
+    case $kind:$target in skill:polish | skill:*:polish | skill:/polish | skill:*/polish/SKILL.md) is_polish=1 ;; esac
+    [ "$is_polish" -eq 0 ] \
+      || bad --outcome "a polish that moved the head (head $head, end-head $end_head) is applied, not passed"
+  fi
   if [ "$outcome" = skipped ]; then
     [ "$skip_codes" -eq 1 ] || bad --skip-code "a skipped step carries exactly one"
     case $skip_code in missing | reuse | resume | answered) ;; *) bad --skip-code "not missing, reuse, resume, or answered" ;; esac
