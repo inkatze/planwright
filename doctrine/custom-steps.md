@@ -141,7 +141,12 @@ Every step receives exactly these twelve fields:
 Among steps, a pooled step alone also carries the **hold mark**
 `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`, the slot owner's literal process id
 as `<pid>`, rendered as one optional trailing assignment after the twelve; a
-pooled full suite gets it too (*Expensive checks*).
+pooled full suite gets it too (*Expensive checks*). Any other
+`PLANWRIGHT_STEP_*` name in the runner's environment is a misspelling that
+would be dropped unread: `resolve-steps.sh --check-env` names it and its
+right spelling. `step-run.sh` refuses it for every verb but `resolve`, and
+`step-record.sh` for `new-run`, `write`, `regenerate`, and `status`; the
+other verbs of either warn.
 
 Two channels deliver the context. A **command step** gets the twelve
 variables, and a pooled step its hold mark, in its environment,
@@ -168,6 +173,14 @@ values to a command step.
 
 **Every hosting runs a command step's printed location, never the bare
 target**: a session shell would run a same-named builtin (`cd`, `printf`).
+
+An `isolated` session takes the unit's own launch backend. A headless unit
+(`offload-dispatch.sh launch-backend` prints `stream-json-persistent` or
+`headless-oneshot`) never hosts it in a `tmux` window in the operator's session
+(`offload-dispatch` refuses it). It launches the step through
+`scripts/fleet-streamjson.sh launch <worker> <scope> --prompt-file <file>`
+(which `offload-dispatch` does not drive) or runs it `in-session`, recorded as
+such. The step record names the backend the step actually ran on.
 
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step attaches to the unit's

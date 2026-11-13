@@ -1046,6 +1046,8 @@ case $rec39 in
 esac
 grep -qx "worktree_root=$(cd "$tmp/wt39" && pwd -P)" "$rec39" 2>/dev/null \
   || fail "c39: the worker's session record does not name its worktree"
+grep -qx "launch_backend=stream-json" "$rec39" 2>/dev/null \
+  || fail "c39: the worker's session record does not name the stream-json backend"
 echo "ok: c39 the worker gets a fresh session record, never an inherited one (REQ-G1.8)"
 # The worker's scratch root (worker-permission-ergonomics REQ-G1.2): its
 # TMPDIR, and only the worker's, is its own root, which its session record
