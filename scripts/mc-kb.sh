@@ -1032,8 +1032,15 @@ done_ok() {
   esac
 }
 iso_epoch() { # iso_epoch <YYYY-MM-DDTHH:MM:SSZ>
-  # shell-gnu-only-flag: BSD date -j -f is the fallback when GNU date -d fails
-  date -u -d "$1" '+%s' 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" '+%s'
+  # date flags differ across GNU, BSD and busybox, so the civil-date arithmetic is awk's
+  printf '%s' "$1" | awk -F '[-T:Z]' '{
+    y = $1 + 0; m = $2 + 0; d = $3 + 0
+    if (m <= 2) y--
+    era = int(y / 400); yoe = y - era * 400
+    doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+    doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+    printf "%d\n", (era * 146097 + doe - 719468) * 86400 + $4 * 3600 + $5 * 60 + $6
+  }'
 }
 # run_check <words...>: a command check, run as words through exec in the
 # background and given a bounded time; success only when it exits 0.

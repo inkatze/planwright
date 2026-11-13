@@ -553,9 +553,9 @@ PATH="$tmp/bin:$PATH"
 printf '%s\n' MERGED >"$tmp/ghstate"
 mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/bin/cat" --text "command reads stdin"
 a_cat=$OUT
-mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/usr/bin/true" --text "command passes"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/bin/sh -c true" --text "command passes"
 a_pass=$OUT
-mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/usr/bin/false" --text "command fails"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/bin/sh -c false" --text "command fails"
 a_fail=$OUT
 mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done event:ready-offer --text "event waits"
 a_event=$OUT
