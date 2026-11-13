@@ -102,6 +102,11 @@ launch still in flight, or a row naming another session).
 HELP
 }
 
+refuse() {
+  printf '%s\n' "$prog: refused: $1" >&2
+  exit 4
+}
+
 usage() {
   mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>]"
 }
@@ -132,9 +137,9 @@ valid_window() {
 
 # read_row <row>: set R_<field> from one read of a registry row.
 read_row() {
-  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_launched='' R_token=''
+  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_launched='' R_token='' R_origin='' R_process='' R_scope=''
   rr_out=$(awk -F '\t' '
-    $1 ~ /^(format|name|state|program|kind|backend|handle|launched|token)$/ && !($1 in seen) {
+    $1 ~ /^(format|name|state|program|kind|backend|handle|launched|token|origin|process|scope)$/ && !($1 in seen) {
       seen[$1] = 1; v = substr($0, length($1) + 2); gsub(/[^[:print:]]/, "", v); print $1 "\t" v
     }' "$1" 2>/dev/null) || return 1
   while IFS='	' read -r rr_k rr_v; do
@@ -148,6 +153,9 @@ read_row() {
       handle) R_handle=$rr_v ;;
       launched) R_launched=$rr_v ;;
       token) R_token=$rr_v ;;
+      origin) R_origin=$rr_v ;;
+      process) R_process=$rr_v ;;
+      scope) R_scope=$rr_v ;;
     esac
   done <<EOF
 $rr_out
@@ -191,7 +199,9 @@ liveness() {
         L_REASON="window $3 unreadable"
         return 0
       }
-      if [ "${lv_line%%	*}" != "$1" ]; then
+      # A session mission control launched owns its window's name; one it
+      # adopted keeps whatever its owner called it.
+      if [ "$R_origin" != adopted ] && [ "${lv_line%%	*}" != "$1" ]; then
         L_REASON="window $3 names another window"
         return 0
       fi
@@ -214,7 +224,7 @@ liveness() {
           break
         fi
       done
-      if [ -z "$lv_pid" ]; then
+      if [ -z "$lv_pid" ] && [ -z "$R_process" ]; then
         if [ ! -e "$lv_dir/worker.pid" ] && [ ! -L "$lv_dir/worker.pid" ] \
           && [ ! -e "$lv_dir/supervisor.pid" ] && [ ! -L "$lv_dir/supervisor.pid" ]; then
           L_STATE=dead L_REASON='the supervisor removed its pidfiles'
@@ -227,6 +237,9 @@ liveness() {
       return 0
       ;;
   esac
+  # The pid the registry holds (a session mission control adopted) outranks
+  # the backend's own record of it.
+  [ -z "$R_process" ] || lv_pid=$R_process
   mc_valid_uint "$lv_pid" && [ "$lv_pid" -gt 0 ] || {
     L_REASON='unreadable pid'
     return 0
@@ -283,6 +296,76 @@ question_above_input() {
       }
       exit 1
     }'
+}
+
+# pending_prompts <handle>: set P_LIST to one `<request id> <tool> <command>`
+# line, tab separated, per request the stream-json worker's journal still
+# reads pending; the command is the Bash request's own, else empty. Returns 1
+# when the worker's journal could not be read.
+pending_prompts() {
+  P_LIST=''
+  pp_out=$(bounded /bin/sh "$script_dir/fleet-streamjson.sh" pending "$1" 2>/dev/null </dev/null) || return 1
+  P_LIST=$(printf '%s\n' "$pp_out" | awk '
+    function flush() { if (id != "") print id "\t" tool "\t" cmd; id = "" }
+    /^== / { flush(); n = split($0, f, " "); id = f[3]; tool = f[4]; cmd = ""; next }
+    /^\| / && id != "" && tool == "Bash" && cmd == "" { cmd = substr($0, 3); next }
+    END { flush() }')
+}
+
+# prompt_command <pane>: the command a permission dialog asks about, the
+# first line under its "Bash command" heading, cut to 200 characters.
+prompt_command() {
+  printf '%s\n' "$1" | awk '
+    seen && NF { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print substr($0, 1, 200); exit }
+    /^[ \t]*Bash command[ \t]*$/ { seen = 1 }'
+}
+
+# prompt_events <name> <kind> <current list>: one stall-prompt-pending event
+# per prompt not seen before and one stall-prompt-cleared per prompt gone,
+# the prompts raised so far kept in the session's ledger; sets
+# C_EVENT_FAILED on an event that could not be emitted, leaving the ledger as
+# it was so the next pass retries.
+prompt_events() {
+  pe_ledger="$STALL_DIR/prompts.$1"
+  pe_old=''
+  [ ! -f "$pe_ledger" ] || [ -L "$pe_ledger" ] || pe_old=$(cat "$pe_ledger" 2>/dev/null) || pe_old=''
+  pe_cur=$(printf '%s\n' "$3" | awk -F '\t' 'NF { print $1 }')
+  while IFS='	' read -r pe_id pe_tool pe_cmd; do
+    [ -n "$pe_id" ] || continue
+    case "
+$pe_old
+" in
+      *"
+$pe_id
+"*) ;;
+      *)
+        pe_text=$(sanitize_printable "$2: prompt $pe_id: $pe_tool $pe_cmd")
+        pe_text=$(printf '%s' "$pe_text" | cut -c1-400)
+        mc_event emit --program "$PROGRAM" --now "$NOW" -- stall-prompt-pending "$1" "$pe_text" >/dev/null || {
+          C_EVENT_FAILED=1
+          return 0
+        }
+        ;;
+    esac
+  done <<EOF
+$3
+EOF
+  for pe_id in $pe_old; do
+    case "
+$pe_cur
+" in
+      *"
+$pe_id
+"*) ;;
+      *)
+        mc_event emit --program "$PROGRAM" --now "$NOW" -- stall-prompt-cleared "$1" "prompt $pe_id is no longer pending" >/dev/null || {
+          C_EVENT_FAILED=1
+          return 0
+        }
+        ;;
+    esac
+  done
+  printf '%s\n' "$pe_cur" | awk 'NF' | mc_write "$pe_ledger" || C_EVENT_FAILED=1
 }
 
 # classify_one <row-file>: print the session's line, keep its sample, emit
@@ -351,6 +434,20 @@ classify_one() {
 
   liveness "$c_name" "$R_backend" "$R_handle"
 
+  # A stream-json worker's pending prompts come from its journal, each raised
+  # as an event once and cleared once when it is no longer pending.
+  c_prompts=''
+  if [ "$R_backend" = stream-json ] && [ "$L_STATE" = alive ] && pending_prompts "$R_handle"; then
+    c_prompts=$P_LIST
+    C_EVENT_FAILED=0
+    prompt_events "$c_name" "$c_kind" "$c_prompts"
+    if [ "$C_EVENT_FAILED" = 1 ]; then
+      pw_lock_release "$c_lock" || :
+      printf '%s\n' "$prog: a prompt event or the prompt ledger of $c_name could not be written" >&2
+      return 1
+    fi
+  fi
+
   c_footer=$(printf '%s\n' "$c_pane" | tail -n "$FOOTER_LINES")
   c_footer_lc=$(printf '%s' "$c_footer" | tr '[:upper:]' '[:lower:]')
 
@@ -367,12 +464,17 @@ classify_one() {
     else
       c_reason="$L_REASON, pane-stable"
     fi
+  elif [ -n "$c_prompts" ]; then
+    c_state=prompt-pending
+    c_reason=$(printf '%s\n' "$c_prompts" | awk 'NF { n++ } END { printf "%d pending permission prompt(s)", n }')
   elif [ "$c_have_pane" = 0 ]; then
     c_state=live c_reason="$L_REASON, no pane"
   elif [ "$c_kind" = mission-control ] && selection_prompt_present "$c_pane" && ! permission_prompt_present "$c_pane"; then
     c_state=operator-question c_reason='mission control awaiting the operator'
   elif permission_prompt_present "$c_pane"; then
     c_state=open-selector c_reason='waiting on a permission prompt'
+    c_cmd=$(prompt_command "$c_pane")
+    [ -z "$c_cmd" ] || c_reason="$c_reason: $c_cmd"
   elif selection_prompt_present "$c_pane"; then
     c_state=open-selector c_reason='dialog signature in the pane'
   elif staged_paste_present "$c_pane"; then
@@ -408,7 +510,7 @@ classify_one() {
 
   c_event=-
   case $c_state in
-    working | idle | live | operator-question) ;;
+    working | idle | live | operator-question | prompt-pending) ;;
     *)
       if [ "$c_state" != "$c_prev_state" ]; then
         c_event=$(mc_event emit --program "$PROGRAM" --now "$NOW" -- "stall-$c_state" "$c_name" "$c_kind: $c_reason") || {
@@ -442,7 +544,7 @@ row_ok() {
   [ "$R_program" = "$PROGRAM" ] || return 3
 }
 
-PROGRAM='' NOW_RAW='' PANE_FILE='' NAME=''
+PROGRAM='' NOW_RAW='' PANE_FILE='' NAME='' REQ='' STANDING='' OPERATOR_ANSWER=''
 [ $# -ge 1 ] || usage
 verb=$1
 shift
@@ -451,12 +553,12 @@ case $verb in
     help_text
     exit 0
     ;;
-  classify | scan) ;;
+  classify | scan | answer) ;;
   *) usage ;;
 esac
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --now | --pane)
+    --program | --now | --pane | --standing | --operator-answer)
       [ $# -ge 2 ] || usage
       case $1 in
         --program) PROGRAM=$2 ;;
@@ -465,12 +567,24 @@ while [ $# -gt 0 ]; do
           [ "$verb" = classify ] || usage
           PANE_FILE=$2
           ;;
+        --standing | --operator-answer)
+          [ "$verb" = answer ] || usage
+          case $2 in
+            "" | *[!A-Za-z0-9._-]*) mc_usage_fail "$1 takes a decision id" ;;
+          esac
+          if [ "$1" = --standing ]; then STANDING=$2; else OPERATOR_ANSWER=$2; fi
+          ;;
       esac
       shift 2
       ;;
     -*) usage ;;
     *)
-      [ "$verb" = classify ] && [ -z "$NAME" ] || usage
+      if [ "$verb" = answer ] && [ -n "$NAME" ] && [ -z "$REQ" ]; then
+        REQ=$1
+        shift
+        continue
+      fi
+      [ "$verb" != scan ] && [ -z "$NAME" ] || usage
       NAME=$1
       shift
       ;;
@@ -478,6 +592,13 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$PROGRAM" ] || usage
 [ "$verb" = scan ] || [ -n "$NAME" ] || usage
+if [ "$verb" = answer ]; then
+  [ -n "$REQ" ] || usage
+  case $REQ in
+    *[!A-Za-z0-9-]*) mc_usage_fail "invalid prompt id '$(sanitize_printable "$REQ")'" ;;
+  esac
+  { [ -n "$STANDING" ] && [ -z "$OPERATOR_ANSWER" ]; } || { [ -z "$STANDING" ] && [ -n "$OPERATOR_ANSWER" ]; } || usage
+fi
 [ -z "$NAME" ] || valid_name "$NAME" || mc_usage_fail "invalid session name '$(sanitize_printable "$NAME")'"
 [ -z "$PANE_FILE" ] || { [ -f "$PANE_FILE" ] && [ -r "$PANE_FILE" ]; } || mc_usage_fail "cannot read the pane file $(sanitize_printable "$PANE_FILE")"
 mc_now_arg "$NOW_RAW"
@@ -493,6 +614,73 @@ mkdir -p "$STALL_DIR" 2>/dev/null || mc_fail "cannot create $(sanitize_printable
 pw_lock_trap_install
 
 case $verb in
+  answer)
+    row="$REG/$NAME"
+    row_ok "$row"
+    case $? in
+      0) ;;
+      2) mc_usage_fail "refusing the registry row $NAME: its format field is $(sanitize_printable "${R_format:-missing}"), not $ROW_FORMAT" ;;
+      4) mc_fail "cannot read the registry row $NAME" ;;
+      *)
+        printf '%s\n' "$prog: no session of program $PROGRAM is registered as $NAME" >&2
+        exit 3
+        ;;
+    esac
+    [ "$R_state" = launched ] || refuse "$NAME is not launched (its row reads $(sanitize_printable "${R_state:-no state}"))"
+    [ "$R_backend" = stream-json ] || refuse "$NAME is on the $(sanitize_printable "$R_backend") rung, which has no answer channel; only the operator's own answer reaches its prompt, at its pane (scripts/mc-pane-answer.sh)"
+    mc_valid_handle "$R_handle" || refuse "the registry row of $NAME names no usable worker"
+    mc_kb entries undo --program "$PROGRAM" >/dev/null 2>&1 || mc_fail "the undo ledger of $PROGRAM cannot be read; nothing was answered"
+    pending_prompts "$R_handle" || mc_fail "cannot read the pending prompts of $NAME"
+    p_line=$(printf '%s\n' "$P_LIST" | REQ=$REQ awk -F '\t' '$1 == ENVIRON["REQ"] { print; exit }')
+    [ -n "$p_line" ] || refuse "no prompt $REQ is pending in $NAME"
+    p_tool=$(printf '%s\n' "$p_line" | cut -f 2)
+    p_cmd=$(printf '%s\n' "$p_line" | cut -f 3-)
+    if [ -n "$STANDING" ]; then
+      # The permission-park record is what the channel matches a standing
+      # decision against, and it holds the prompt's own command, never one
+      # this script composes.
+      a_err=$(printf '%s\n' "$p_cmd" | /bin/sh "$script_dir/fleet-attention.sh" permission "$R_handle" "$R_scope" - 2>&1 >/dev/null) \
+        || refuse "the answer channel would not record the prompt of $NAME: $(sanitize_printable "$a_err")"
+      a_err=$(/bin/sh "$script_dir/fleet-attention.sh" claim "$R_handle" - 'approve in the worker session' --standing "$STANDING" 2>&1 >/dev/null </dev/null)
+      a_rc=$?
+      if [ "$a_rc" = 3 ]; then
+        refuse "the answer channel refused: $(sanitize_printable "$a_err")"
+      elif [ "$a_rc" != 0 ]; then
+        mc_fail "the answer channel failed (exit $a_rc): $(sanitize_printable "$a_err")"
+      fi
+      a_verdict=allow a_by="standing decision $STANDING"
+    else
+      a_entries=$(mc_kb entries decisions --program "$PROGRAM" 2>/dev/null) || mc_fail "cannot read the decisions log of $PROGRAM"
+      a_entry=$(printf '%s\n' "$a_entries" | D=$OPERATOR_ANSWER awk -F '\t' '$1 == ENVIRON["D"] { print; exit }')
+      [ -n "$a_entry" ] || refuse "decision $OPERATOR_ANSWER is not in the decisions log of $PROGRAM"
+      a_check=$(printf '%s\n' "$a_entry" | S="$NAME prompt $REQ" awk -F '\t' "$MC_GROUNDS_AWK"'
+        { r = grounds($6) ? G_REASON : ""
+          if (r != "answer") print "not the operator'"'"'s answer"
+          else if ($3 != ENVIRON["S"]) print "about another prompt"
+          else if ($5 != "allow" && $5 != "deny") print "neither allow nor deny"
+          else print "ok " $5 }')
+      case $a_check in
+        "ok "*) a_verdict=${a_check#ok } ;;
+        *) refuse "decision $OPERATOR_ANSWER is $a_check" ;;
+      esac
+      a_at=$(printf '%s\n' "$a_entry" | cut -f 2)
+      a_seen=$(awk -F '\t' -v i="$REQ" '$1 == i { print $3; exit }' "$FLEET_HOME/streamjson/$R_handle/journal" 2>/dev/null)
+      mc_valid_uint "$a_seen" || refuse "the journal of $NAME holds no readable time for prompt $REQ"
+      a_seen_iso=$(mc_iso "$a_seen") || mc_fail "cannot format the prompt's time"
+      [[ ! $a_at < $a_seen_iso ]] || refuse "decision $OPERATOR_ANSWER predates prompt $REQ"
+      a_by="the operator's answer $OPERATOR_ANSWER"
+    fi
+    # The entry is written before the answer is delivered, so an answer that
+    # lands is always on the ledger; an answer cannot be taken back.
+    mc_kb append undo --program "$PROGRAM" --subject "$NAME" --act answer-prompt --target "$NAME" \
+      --grounds "$a_verdict prompt $REQ ($(sanitize_printable "$p_tool")); authorized by $a_by" --no-reversal >/dev/null \
+      || mc_fail "cannot record the answer on the undo ledger; nothing was delivered"
+    if [ "$a_verdict" = allow ]; then a_flag=--allow; else a_flag=--deny; fi
+    a_err=$(/bin/sh "$script_dir/fleet-streamjson.sh" answer "$R_handle" "$REQ" "$a_flag" 2>&1 >/dev/null </dev/null) \
+      || mc_fail "the $a_verdict could not be delivered to $NAME ($(sanitize_printable "$a_err")); its ledger entry stands"
+    printf 'answered\t%s\t%s\t%s\t%s\n' "$NAME" "$REQ" "$a_verdict" "$(sanitize_printable "$a_by")"
+    exit 0
+    ;;
   classify)
     row="$REG/$NAME"
     row_ok "$row"

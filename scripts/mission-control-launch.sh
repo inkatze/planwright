@@ -64,6 +64,8 @@ usage:
       [--remote-control <name>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
+  mission-control-launch.sh adopt --program <p> --handle <backend:id> --kind <kind>
+      --scope <s> [--owner <o>]
   mission-control-launch.sh reparent <name> --program <dest>
       (--authority <decisions-log id> | --undo)
   mission-control-launch.sh wait <name> --on operator|ci|ready-flip
@@ -133,6 +135,19 @@ The name is derived from program, kind and scope alone, so the same inputs
 always name the same session, and a name with a registry row is held until
 it is retired. No output names a pane, window or attach hint.
 
+adopt registers a live session this launcher did not start, as a tower's
+dispatch or the operator's own hand launch: --handle is stream-json:<worker>
+or tmux:<window id>. Only positive evidence admits it: the process the rung
+records for it (the worker's pidfile, the window's pane process) must be
+running. It refuses an unknown handle, a session with no resolvable pid, a
+dead process, a mission-control kind (a holder moves by handover) and a
+session some registry row already holds, naming that row and its owner. The
+row carries the owner (default mission-control:<p>), kind, scope, handle,
+the process and the adopted origin; from then on stall detection
+(scripts/mc-stall.sh) and retire cover it as they cover a launched one,
+except that retiring a session whose owner is `operator` raises a
+retire-needs-confirmation event and retires nothing.
+
 reparent moves a live session to another program, as when one program folds
 into another: its registry program becomes <dest> and its owner
 mission-control:<dest>, so from then on its prompts, stalls and other events
@@ -158,6 +173,7 @@ Output, tab separated:
   reparent reparent <name> moved <source> <dest> undo=<undo id>, with
            unrecorded=<undo,event-<program>> when the move landed but a
            record did not (exit 1)
+  adopt    adopt <name> adopted <backend> <handle> owner=<owner>
   name     the name alone
   retire   retire <name> released|partial released=<classes> held=<classes>,
            over the classes process, pane, registry, attention and row
@@ -199,6 +215,12 @@ allocation install, a program that is not configured, rules that would not
 render, a worktree that could not be created, a named directory that is not
 a worktree other than a primary checkout, a worktree path holding a control
 character, or any other refusal by the rung.
+
+adopt exits 0 adopted; 2 usage, an invalid value, or a row it cannot write; 3
+the name or the session's handle is held by a registered session; 4 refused:
+an unknown handle or program, a session with no resolvable or no running
+process, or a mission-control kind. A retire of an operator-owned adopted
+session prints `retire <name> needs-confirmation event=<id>` and exits 4.
 
 reparent exits its own way: 0 moved; 1 moved but an undo entry or event
 could not be recorded (the output's unrecorded field names which); 2 usage,
@@ -407,6 +429,10 @@ row_write() {
     printf 'primary\t%s\n' "${placed_primary:--}"
     printf 'marker\t%s\n' "${PLACED_MARKER:--}"
     printf 'launched\t%s\n' "$launched"
+    if [ -n "${origin:-}" ]; then
+      printf 'origin\t%s\n' "$origin"
+      printf 'process\t%s\n' "$process"
+    fi
   } >"$rw_tmp"); then
     rm -f "$rw_tmp"
     return 1
@@ -417,7 +443,7 @@ row_write() {
     rm -f "$rw_tmp"
     return 1
   fi
-  if [ "$3" = launched ] && [ ! -s "$1" ]; then
+  if [ "$3" = launched ] && [ ! -s "$1" ] && [ -z "${origin:-}" ]; then
     rm -f "$rw_tmp"
     return 1
   fi
@@ -1306,15 +1332,31 @@ cmd_retire() {
   state=$(row_get "$row" state)
   backend=$(row_get "$row" backend)
   handle=$(row_get "$row" handle)
+  # A session mission control adopted is known to its rung by the handle it
+  # was adopted under, not by the registry name; one the operator owns is
+  # only retired on the operator's yes.
+  r_sess=$name r_wname=$name
+  if [ "$(row_get "$row" origin)" = adopted ]; then
+    if [ "$(row_get "$row" owner)" = operator ]; then
+      r_event=$(/bin/bash "$script_dir/mc-event.sh" emit --program "$(row_get "$row" program)" -- retire-needs-confirmation "$name" \
+        "operator-owned adopted session: retiring it needs the operator's yes" 2>/dev/null </dev/null) || r_event=-
+      name_unlock
+      printf 'retire\t%s\tneeds-confirmation\tevent=%s\n' "$name" "$r_event"
+      [ "$r_event" != - ] || printf '%s\n' "$me: the confirmation item for $name could not be recorded" >&2
+      return 4
+    fi
+    [ "$backend" != stream-json ] || r_sess=$handle
+    if [ "$backend" = tmux ]; then r_wname=$(window_name_of "$handle") || r_wname=$name; fi
+  fi
   released='' held=''
   add_released() { released="$released,$1"; }
   add_held() { held="$held,$1"; }
 
   case $backend in
     stream-json)
-      st=$(/bin/sh "$script_dir/fleet-streamjson.sh" stop "$name" --final </dev/null 2>/dev/null)
+      st=$(/bin/sh "$script_dir/fleet-streamjson.sh" stop "$r_sess" --final </dev/null 2>/dev/null)
       case $st in
-        "stop $name stopped "* | "stop $name already-closed") add_released process ;;
+        "stop $r_sess stopped "* | "stop $r_sess already-closed") add_released process ;;
         *)
           # A launch that died before its supervisor came up left no state.
           if [ "$state" = launching ] && [ ! -d "$FH/streamjson/$name" ]; then
@@ -1331,7 +1373,7 @@ cmd_retire() {
         self=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}' 2>/dev/null) || self=''
         [ "$self" != "$handle" ] || die "refusing to retire $name from inside its own window" 3
       fi
-      if release_pane "$name" "$handle"; then add_released pane; else add_held pane; fi
+      if release_pane "$r_wname" "$handle"; then add_released pane; else add_held pane; fi
       ;;
     *) die "the registry row for $name names an unknown backend" 2 ;;
   esac
@@ -1358,7 +1400,7 @@ cmd_retire() {
       fi
     done
     if [ "$reg_ok" = 1 ]; then add_released registry; else add_held registry; fi
-    if /bin/sh "$script_dir/fleet-attention.sh" clear "$name" >/dev/null 2>&1 </dev/null; then
+    if /bin/sh "$script_dir/fleet-attention.sh" clear "$r_sess" >/dev/null 2>&1 </dev/null; then
       add_released attention
     else
       add_held attention
@@ -1525,6 +1567,121 @@ $rp_dest
   printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id"
 }
 
+# window_name_of <window id> — print the name of the tmux window with that
+# id; 1 when tmux lists no such window.
+window_name_of() {
+  wo_list=$(tmux list-windows -a -F '#{window_id} #{window_name}' 2>/dev/null) || return 1
+  printf '%s\n' "$wo_list" | awk -v i="$1" '$1 == i { sub(/^[^ ]+ /, ""); print; f = 1; exit } END { exit !f }'
+}
+
+# cmd_adopt --program <p> --handle <backend:id> --kind <kind> --scope <s>
+# [--owner <o>] — register a live session this launcher did not start.
+# Only positive evidence admits it: its process, read from the rung's own
+# record, must be running; and no registry row may already hold its handle.
+cmd_adopt() {
+  program='' kind='' scope='' owner='' ad_handle=''
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --program | --kind | --scope | --owner | --handle)
+        [ "$#" -ge 2 ] || usage
+        case $1 in
+          --program) program=$2 ;;
+          --kind) kind=$2 ;;
+          --scope) scope=$2 ;;
+          --owner) owner=$2 ;;
+          --handle) ad_handle=$2 ;;
+        esac
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$program" ] && [ -n "$kind" ] && [ -n "$scope" ] && [ -n "$ad_handle" ] || usage
+  valid_program "$program" || die "refusing the program name '$(sanitize_printable "$program")'"
+  kind_row "$kind" || die "unknown session kind '$(sanitize_printable "$kind")' (one of: $KINDS)"
+  [ "$kind" != mission-control ] || die "refusing to adopt a mission-control session: a holder moves by handover" 4
+  valid_scope "$scope" || die "refusing the scope '$(sanitize_printable "$scope")'"
+  [ -n "$owner" ] || owner="mission-control:$program"
+  case $owner in
+    *[!A-Za-z0-9:._-]*) die "refusing the owner '$(sanitize_printable "$owner")'" ;;
+  esac
+  [ "${#owner}" -le 64 ] || die "refusing the owner '$(sanitize_printable "$owner")': over 64 characters"
+  case $ad_handle in
+    stream-json:?*)
+      backend=stream-json handle=${ad_handle#stream-json:}
+      valid_scope "$handle" || die "refusing the worker handle '$(sanitize_printable "$handle")'"
+      ;;
+    tmux:?*)
+      backend=tmux handle=${ad_handle#tmux:}
+      valid_window "$handle" || die "refusing the window id '$(sanitize_printable "$handle")'"
+      ;;
+    *) die "--handle is stream-json:<worker> or tmux:<window id>" ;;
+  esac
+  ad_list=$(/bin/bash "$script_dir/mc-program.sh" list 2>/dev/null </dev/null) || die "cannot list the configured programs" 4
+  case "
+$ad_list
+" in
+    *"
+$program
+"*) ;;
+    *) die "refusing to adopt into $(sanitize_printable "$program"): the program is not configured" 4 ;;
+  esac
+  fleet_home
+
+  ad_pid=''
+  case $backend in
+    stream-json)
+      ad_dir="$FH/streamjson/$handle"
+      { [ -d "$ad_dir" ] && [ ! -L "$ad_dir" ]; } || die "no stream-json worker named $handle is running here" 4
+      for ad_f in worker.pid supervisor.pid; do
+        if [ -f "$ad_dir/$ad_f" ] && [ ! -L "$ad_dir/$ad_f" ]; then
+          ad_pid=$(head -n 1 "$ad_dir/$ad_f" 2>/dev/null) || ad_pid=''
+          break
+        fi
+      done
+      ;;
+    tmux)
+      ad_line=$(tmux display-message -p -t "$handle" '#{window_name}	#{pane_pid}' 2>/dev/null) || die "no tmux window $handle is open" 4
+      ad_pid=${ad_line#*	}
+      ;;
+  esac
+  case $ad_pid in
+    '' | *[!0-9]* | 0) die "no resolvable process for $handle: the rung records no usable pid" 4 ;;
+  esac
+  # The verdict word is on stdout; its exit status is the verdict too (alive is 1).
+  ad_state=$(/bin/sh "$script_dir/fleet-death-evidence.sh" process "$ad_pid" 2>/dev/null </dev/null)
+  case $ad_state in
+    alive) ;;
+    dead) die "the process of $handle (pid $ad_pid) is not running" 4 ;;
+    *) die "cannot tell whether the process of $handle (pid $ad_pid) is running" 4 ;;
+  esac
+
+  name=$(session_name "$program" "$kind" "$scope")
+  private_dir "$FH/mission-control"
+  private_dir "$REG"
+  name_lock "$name"
+  [ ! -e "$REG/$name" ] && [ ! -L "$REG/$name" ] || die "the name $name is held by a registered session" 3
+  set +f
+  for ad_row in "$REG"/mc-*; do
+    set -f
+    [ -f "$ad_row" ] && [ ! -L "$ad_row" ] || continue
+    case ${ad_row##*/} in *.tmp.*) continue ;; esac
+    row_format_ok "$ad_row" || continue
+    if [ "$(row_get "$ad_row" backend)" = "$backend" ] && [ "$(row_get "$ad_row" handle)" = "$handle" ]; then
+      die "$handle is already supervised by ${ad_row##*/} (owner $(sanitize_printable "$(row_get "$ad_row" owner)"), program $(sanitize_printable "$(row_get "$ad_row" program)"))" 3
+    fi
+  done
+  set -f
+
+  profile=- tier=- composed=- cwd=- task=- placed_primary=- PLACED_MARKER=-
+  origin=adopted process=$ad_pid
+  launched=$(date +%s)
+  ad_token=$(new_token)
+  row_write "$REG/$name" "$ad_token" launched || die "cannot write the registry row for $name; nothing was adopted" 2
+  name_unlock
+  printf 'adopt\t%s\tadopted\t%s\t%s\towner=%s\n' "$name" "$backend" "$handle" "$owner"
+}
+
 # host_live_counts <own-name> <own-launched> — one
 # "<program><TAB><working><TAB><waiting>" line per program holding
 # registered non-mission-control sessions in the
@@ -1656,6 +1813,7 @@ case $verb in
   name) cmd_name "$@" ;;
   retire) cmd_retire "$@" ;;
   reparent) cmd_reparent "$@" ;;
+  adopt) cmd_adopt "$@" ;;
   wait) cmd_wait "$@" ;;
   unwait) cmd_unwait "$@" ;;
   bound) cmd_bound "$@" ;;
