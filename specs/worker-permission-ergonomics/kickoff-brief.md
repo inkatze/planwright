@@ -1273,3 +1273,21 @@ Class: meaning
 Lens-pass: Amendment 7, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
 Anchor: `f84e5e6e22648f8955d40c1e58805f1e92752cef` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Re-sign — Amendment 7 renumbering (2026-11-13)
+
+Delta re-walk after the main sync renumbered the REQ-A1.9 step-context
+amendment from 5 to 7. Walked only the renumbering: the brief's section and
+sign-off labels, and the requirements changelog line. Text unchanged from the
+2026-11-09 sign-off. Main's Amendments 5 and 6 were already signed.
+
+Operator classified the delta label-only (expression-only), via mission
+control and the hub (2026-11-13). No lens pass. `Last reviewed:` bumped to
+2026-11-13 on `requirements.md`. Validator re-run: 0 errors, 0 warnings. The
+sign-off, relayed through the hub: "sign off (Recommended)".
+
+#### Sign-off record (Re-sign, Amendment 7 renumbering)
+
+Class: expression-only
+Anchor: `76bdaf7fddb6eec397499994dcdd3a042dd06131` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`

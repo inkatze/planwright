@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
