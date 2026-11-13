@@ -97,9 +97,9 @@ Usage:
       `completed`, any result) past mission_control_worker_completed_grace
       retires too, its line naming that result:
         retire<TAB><session><TAB><launched><TAB>completed result=<r> <n>s ago, grace <g>s
-      so a finished worker stops holding a host slot. Otherwise, lived past mission_control_worker_lifetime since its
-      launch hands over. A session whose last line is a question (a tmux
-      pane the stall scan reads idle-question, a stream-json turn whose
+      so a finished worker stops holding a host slot. Otherwise, lived past
+      mission_control_worker_lifetime since its launch hands over. A
+      session whose last line is a question (a tmux pane the stall scan reads idle-question, a stream-json turn whose
       final text ends in `?`) is parked on the operator and never retired
       here (without jq a stream-json one cannot be told apart, so none is
       retired), and a kickoff relay (scope kickoff-<spec>) is never bound
