@@ -98,7 +98,7 @@ check "the merge record passes the markdown lint" lint_emitted markdown merge-ad
 check "the merge uses the resolved strategy" grep -q -- '--squash' <<<"$(merge_line)"
 check "the merge is pinned to the evaluated head" grep -q -- "--match-head-commit $(mp_origin_head)" <<<"$(merge_line)"
 check "the merge never deletes the branch" not grep -q -- '--delete-branch\|-d ' <<<"$(merge_line)"
-check "one CI wait in total: one polled read, one confirming read" [ "$(rollups)" = 2 ]
+check "one CI wait in total: one polled read, one confirming read, the ready-guard reads on top" [ "$(rollups)" = 4 ]
 check "the handoff says merged" grep -q 'merged PR #42' <<<"$OUT"
 
 echo "# an admitted PR already ready gets no second flip"
@@ -192,11 +192,11 @@ check "the park is said on the PR" grep -qi 'awaiting' "$GHS/comment.2"
 
 echo "# the flip takes the class's precondition record: one CI wait in total"
 admit
-printf 'green\npending\ngreen\n' >"$GHS/ci_seq"
+printf 'green\ngreen\npending\ngreen\n' >"$GHS/ci_seq"
 run
 check "the flip reads the rollup once without waiting, so a check turning pending stops it (exit 4)" [ "$CODE" = 4 ]
 check "no merge after a flip that did not go through" [ "$(mp_calls 'pr merge')" = 0 ]
-check "the flip never re-evaluated afresh" [ "$(rollups)" = 2 ]
+check "the flip never re-evaluated afresh" [ "$(rollups)" = 3 ]
 check "a flip that did not go through is said on the PR" grep -qi 'flip.*did not go through' "$GHS/comment.$(cat "$GHS/comments" 2>/dev/null || echo 0)"
 
 echo "# a PR someone flips ready meanwhile still merges"

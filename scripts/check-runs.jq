@@ -31,7 +31,19 @@ def mac_family: (.name // "") | split(" ")[0];
 # A check run whose "<workflow>/<name>" is in $base_state (scripts/base-state-checks.sh) describes the
 # base branch, not the pull request, so it is no flip condition. The caller
 # passes the array with --argjson base_state; a status context is never one.
-def base_state_check: .context == null and (((.workflowName // "") + "/" + (.name // "")) as $id | any($base_state[]; . == $id));
+#
+# One that has not finished is no exception: a queued or running base-state
+# check still holds the flip, like any other, until it reports.
+def base_state_check: .context == null and (.status // "COMPLETED") == "COMPLETED"
+  and (((.workflowName // "") + "/" + (.name // "")) as $id | any($base_state[]; . == $id));
+
+# An array of rollup entries in, the base-state checks whose latest finished run
+# did not pass out: what the operator bypasses at merge, named by each reader's
+# ready report.
+def bypassed_check_runs: [.[] | select(base_state_check)] | to_entries
+  | group_by(.value | check_context)
+  | map(max_by([(.value | check_started), .key]))
+  | sort_by(.key) | map(.value) | map(select(check_passed | not));
 
 # An array of rollup entries in, the latest run of each context out, in the
 # order the rollup listed them. A check run naming no workflow (one an app

@@ -45,6 +45,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       not a check ready_base_state_checks
                                       names (it describes the base);
                                       SUCCESS, NEUTRAL and SKIPPED pass
+  bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
+                                      latest finished run did not pass: no
+                                      condition, but named by a ready walk
+                                      as the check the operator bypasses
+                                      at merge
   require<TAB>macos                   the repository's CI has macOS jobs, which
                                       run only on a ready or ci-macos
                                       labelled pull request; both must be
@@ -107,7 +112,8 @@ repo, labels and paths.
 
 Usage:
   mc-readiness.sh walk --evidence <file> (--program <p> | --conditions <file>)
-      ready<TAB><head>, or not-ready<TAB><head|-> then
+      ready<TAB><head> (then bypass<TAB><name><TAB><state> per check
+      the operator bypasses at merge), or not-ready<TAB><head|-> then
       fail<TAB><what><TAB><detail> per failure
   mc-readiness.sh collect --program <p> --repo <owner/name> --pr <n>
                           [--worktree <dir>] --out <file>
@@ -292,6 +298,7 @@ FILENAME == ARGV[1] {
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit } ; next }
 $1 == "head" { head = $2 }
 $1 == "check" { nc++; if (!pass_check($3)) fail("check", $2 " is " $3) }
+$1 == "bypass" { byp[++nb] = $2 "\t" $3 }
 $1 == "check" && ($2 == "macos-suite" || $2 == "macos-smoke" || $2 ~ /^macos-(suite|smoke) /) {
   j = ($2 ~ /^macos-suite/) ? "macos-suite" : "macos-smoke"
   macn[j]++
@@ -359,6 +366,7 @@ END {
     exit 4
   }
   print "ready\t" head
+  for (i = 1; i <= nb; i++) print "bypass\t" byp[i]
 }' "$(operand "$2")" "$(operand "$1")"
 }
 
@@ -570,6 +578,8 @@ collect() {
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
+    ((.statusCheckRollup // []) | bypassed_check_runs[]
+      | "bypass\t" + ((.name // "-") | clean) + "\t" + ((.conclusion // "") | if . == "" then "UNKNOWN" else . end | clean)),
     (.files[]? | "path\t" + (.path | clean) + "\t" + ((.changeType // "-") | clean)),
     ((.statusCheckRollup // []) | latest_check_runs[]
       | "check\t" + ((.name // .context // "-") | clean) + "\t"

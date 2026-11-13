@@ -74,7 +74,7 @@ check "the record names the base and its OID" grep -q "^base	main	$(git --git-di
 check "the record names the PR" grep -q '^pr	42$' "$REC"
 check "the record names the resolved strategy" grep -q '^strategy	squash$' "$REC"
 check "evaluation never merges, flips, or comments" [ "$(($(mp_calls 'pr merge') + $(mp_calls 'pr ready') + $(mp_calls 'pr comment')))" = 0 ]
-check "one CI wait: the rollup was read once with the checks green" [ "$(mp_calls 'pr view 42 --json headRefOid,statusCheckRollup')" = 1 ]
+check "one CI wait: the rollup was read once for CI and once by the ready-guard, the checks green" [ "$(mp_calls 'pr view 42 --json headRefOid,statusCheckRollup')" = 2 ]
 mp_run "$CLASS" evaluate --spec specs/demo --task 1
 check "with no --out the record goes to stdout" grep -q '^pred	branch	pass' <<<"$OUT"
 
