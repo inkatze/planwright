@@ -1448,6 +1448,14 @@ for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-sp
   "printf -v x 'scripts/kickoff-spec-push.sh demo'; source \"\$x\"" \
   "printf -v x 'scripts/kickoff-spec-push.sh demo'; . \"\$x\"" \
   "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; env \$x" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; nice eval \"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; sudo sh -c \"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; fish -c \"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; trap \"\$x\" EXIT" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; setsid \$x" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; sh <<<\"\$x\"" \
+  "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; echo \"\$x\" | sh" \
+  'bash scripts/?????????????????.sh demo' \
   "bash -c \"scripts/kickoff-spec-${SPL}push.sh demo\"; cat scripts/kickoff-spec-push.sh" \
   "cat scripts/kickoff-spec-push.sh; sh -c \"scripts/kickoff-spec-${SPL}push.sh demo\"" \
   "cat scripts/kickoff-spec-push.sh; eval \"scripts/kickoff-${SPL}spec-push.sh demo\"" \
@@ -1474,10 +1482,44 @@ clone_on "$EXTD" planwright/demo/task-1 1
 gitq -C "$EXTD" config diff.external sh
 for cmd in 'git diff scripts/kickoff-spec-push.sh' \
   'git diff --stat -- scripts/kickoff-spec-push.sh' \
-  'git diff --no-ext-diff --ext-diff scripts/kickoff-spec-push.sh'; do
+  'git diff --no-ext-diff --ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff -- --no-ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff scripts/kickoff-spec-push.sh -- --no-ext-diff' \
+  'git -C /some/repo diff --stat scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$EXTD" "$EXTD"
     expect deny "[$tier, task-1] a git diff with diff.external set runs it on the file: $cmd"
+  done
+done
+for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
+  'git log -p -- scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$EXTD" "$EXTD"
+    expect defer "[$tier, task-1] diff.external runs only for git diff without --no-ext-diff: $cmd"
+  done
+done
+DRVD="$SANDBOX/driver"
+clone_on "$DRVD" planwright/demo/task-1 1
+gitq -C "$DRVD" config diff.x.textconv sh
+gitq -C "$DRVD" config diff.y.command sh
+for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
+  'git diff --no-textconv scripts/kickoff-spec-push.sh' \
+  'git log -p scripts/kickoff-spec-push.sh' \
+  'git blame scripts/kickoff-spec-push.sh' \
+  'git annotate scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
+    expect deny "[$tier, task-1] a diff driver command or textconv filter runs on the file: $cmd"
+  done
+done
+for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
+  'git log -p --no-textconv -- scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh' \
+  'git status scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
+    expect defer "[$tier, task-1] a driver's filters stopped, or never reached, defer: $cmd"
   done
 done
 PAGD="$SANDBOX/pager"
@@ -1505,6 +1547,8 @@ for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
   'for f in scripts/*.sh; do shellcheck "$f"; done' \
   'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git diff scripts/other.sh' \
+  'git config core.autocrlf false && git add scripts/kickoff-spec-push.sh' \
+  'git remote add o u; git add scripts/kickoff-spec-push.sh' \
   'git diff --ext-diff scripts/other.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
