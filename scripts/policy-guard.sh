@@ -1800,7 +1800,7 @@ kick_cfg_has() {
 # arguments: no option but -C before the subcommand (a -c could set a pager or
 # helper to the script), and a subcommand that does not run its arguments.
 kickoff_git_reads() {
-  local k=1 j moved=0 noext=0 notext=0
+  local k=1 j moved=0 noext=0 notext=0 patchy=0 colon=0
   while [ "$k" -lt "${#SW[@]}" ]; do
     case ${SW[$k]} in
       -C)
@@ -1818,14 +1818,20 @@ kickoff_git_reads() {
         while [ "$j" -lt "${#SW[@]}" ]; do
           case ${SW[$j]} in
             --) break ;;
-            --op* | --ou* | --ext | --ext-*) return 1 ;;
+            --op* | --ou* | --ext | --ext-* | --textc*) return 1 ;;
             --no-ext-diff) noext=1 ;;
             --no-textconv) notext=1 ;;
+            --patch* | --cc | --stat* | --numstat | --shortstat | --word-diff*) patchy=1 ;;
             --*) ;;
             -*O*) return 1 ;;
+            -*[pucGS]*) patchy=1 ;;
+            *:*) colon=1 ;;
           esac
           j=$((j + 1))
         done
+        # A commit shown by git show, and the history of git log -p, are
+        # patches; git log alone and a blob (git show <rev>:<path>) are not.
+        [ "${SW[$k]}" != show ] || [ "$colon" = 1 ] || patchy=1
         # The commands that format a file through a configured program: git diff
         # runs diff.external (or a diff.<driver>.command) on every file by
         # default, and --no-ext-diff is the only way to read it with one set; a
@@ -1839,7 +1845,9 @@ kickoff_git_reads() {
             if [ "${SW[$k]}" = diff ] && [ "$noext" = 0 ]; then
               kick_cfg_has "$moved" '^diff\.(external|.*\.command)$' && return 1
             fi
-            if [ "$notext" = 0 ] || [ "${SW[$k]}" = blame ] || [ "${SW[$k]}" = annotate ]; then
+            case ${SW[$k]} in diff | blame | annotate) patchy=1 ;; esac
+            [ "${SW[$k]}" != blame ] && [ "${SW[$k]}" != annotate ] || notext=0
+            if [ "$patchy" = 1 ] && [ "$notext" = 0 ]; then
               kick_cfg_has "$moved" '^diff\..*\.textconv$' && return 1
             fi
             ;;
@@ -1966,7 +1974,12 @@ kickoff_var_run() {
   local w hit=0 p=''
   [ "$KICK_VAR" = 1 ] || return 0
   kickoff_verb_class "${SW[0]}"
-  [ -z "$KV" ] || return 0
+  # find, sed, chmod, rg and git take a command (an -exec, a pager, a --pre) as
+  # an argument, so an expansion in them is not a plain read.
+  case ${SW[0]} in
+    find | sed | chmod | rg | git) ;;
+    *) [ -z "$KV" ] || return 0 ;;
+  esac
   [ "$1" = 0 ] || p=${SEG_TERM[$(($1 - 1))]:-}
   case $p in '|' | '|&') hit=1 ;; esac
   for w in "${SW[@]}" "${SEG_RT[$1]:-}"; do

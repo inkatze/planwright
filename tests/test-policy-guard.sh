@@ -1453,6 +1453,9 @@ for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-sp
   "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; fish -c \"\$x\"" \
   "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; trap \"\$x\" EXIT" \
   "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; setsid \$x" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; find . -maxdepth 0 -exec \$x \\;" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; git -c core.pager=\$x log -1" \
+  "printf -v x 'scripts/kickoff-spec-push.sh demo'; rg --pre \$x foo" \
   "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; sh <<<\"\$x\"" \
   "printf -v x 'bash scripts/kickoff-spec-push.sh demo'; echo \"\$x\" | sh" \
   'bash scripts/?????????????????.sh demo' \
@@ -1506,6 +1509,9 @@ gitq -C "$DRVD" config diff.y.command sh
 for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git diff --no-textconv scripts/kickoff-spec-push.sh' \
   'git log -p scripts/kickoff-spec-push.sh' \
+  'git show HEAD -- scripts/kickoff-spec-push.sh' \
+  'git cat-file --textconv HEAD:a scripts/kickoff-spec-push.sh' \
+  'git grep --textconv foo -- scripts/kickoff-spec-push.sh' \
   'git blame scripts/kickoff-spec-push.sh' \
   'git annotate scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
@@ -1516,6 +1522,9 @@ done
 for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
   'git log -p --no-textconv -- scripts/kickoff-spec-push.sh' \
   'git add scripts/kickoff-spec-push.sh' \
+  'git log --oneline -- scripts/kickoff-spec-push.sh' \
+  'git log --follow -- scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh' \
   'git status scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
