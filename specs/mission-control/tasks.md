@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1278,6 +1278,149 @@ fixed-string check.)*
   edits no file; the instruction-budget check passes.
 - **Dependencies:** 50
 - **Citations:** D-56 · REQ-F1.24
+- **Estimated effort:** 1 day
+
+### Task 75 — The runner repeats a due wake and raises overdue as a failure
+
+- **Deliverables:** in `scripts/mc-followups.sh`, the raise pass repeating a
+  due item's wake each repeat interval while it stays open and
+  unacknowledged (the per-item record in the runtime directory holding the
+  last raise time, not only that it was raised), a failed raise repeating on
+  the next pass, and `followup-overdue` raised past the overdue grace; the
+  `followup-overdue` (failure), `followup-stale` (act) and `followup-closed`
+  (routine) rows in `config/mc-event-classes.tsv`; the repeat-interval and
+  overdue-grace knobs in `config/defaults.yml` and
+  `config/mission-control-knobs.tsv`; the failure-class push to the
+  operator through the notification channel; tests in
+  `tests/test-mc-followups.sh` and `tests/test-mc-event.sh`.
+- **Done when:** The REQ-P1.1 and REQ-P1.2 test-spec entries' fixtures
+  pass; the knob and verbs checks pass.
+- **Dependencies:** 50, 52
+- **Citations:** D-65 · REQ-P1.1, REQ-P1.2
+- **Estimated effort:** 1 day
+
+### Task 76 — The validity sweep closes on evidence or raises stale
+
+- **Deliverables:** a `sweep` verb in `scripts/mc-followups.sh` and its
+  runner step in `scripts/mc-watch.sh`, run at the sweep interval, at
+  bring-up and at each handover: it re-checks each open item (command check
+  under the REQ-N1.4 limits, the pull request the item names from the
+  snapshot, an event of its class seen after it opened, the date), closes a
+  passing machine-checkable item through `mc-kb.sh followup close` with the
+  evidence, raises `followup-stale` for an unevaluable, unemittable or
+  past-window item, records one outcome per item per sweep in the runtime
+  directory, and never closes an item whose condition only a person can
+  confirm; the sweep interval and stale-window knobs; the audit of Task 50
+  reused rather than duplicated; tests in `tests/test-mc-followups.sh`.
+- **Done when:** The REQ-F1.25 and REQ-P1.3 test-spec entries' fixtures
+  pass, including a sweep whose every open item ends in one recorded
+  outcome; the knob and verbs checks pass.
+- **Dependencies:** 50, 75
+- **Citations:** D-65 · REQ-F1.25, REQ-P1.3, REQ-N1.4
+- **Estimated effort:** 1.5 days
+
+### Task 77 — The event registry is checked complete
+
+- **Deliverables:** a shipped check script, run under `mise run check`,
+  failing when an emitter in `scripts/` writes an event kind that
+  `config/mc-event-classes.tsv` lacks; the `followup add` refusal naming the
+  registry's kinds and the done-condition forms that need no emitted class;
+  tests including a fixture emitter with an unregistered kind (the check
+  must fail once before it is trusted).
+- **Done when:** The REQ-P1.4 test-spec entry's fixtures pass and the check
+  fails on the unregistered-kind fixture.
+- **Dependencies:** 50
+- **Citations:** D-67 · REQ-P1.4, REQ-F1.22
+- **Estimated effort:** half day
+
+### Task 78 — A time-bound rule is written with its ledger item
+
+- **Deliverables:** in `scripts/mc-rules.sh`, `add` taking an end condition
+  (`--until`) and writing the rule and its ledger item in one call, the
+  item naming the rule; the close of that item superseding the rule through
+  the rule store's supersede path; the sweep's proposal listing for active
+  rules reading as time-bound with no item; the operator guide and skill
+  prose inside the instruction budget; tests in `tests/test-mc-rules.sh`
+  and `tests/test-mc-followups.sh`.
+- **Done when:** The REQ-P1.5 test-spec entry's fixtures pass; the verbs
+  and instruction-budget checks pass.
+- **Dependencies:** 50, 76
+- **Citations:** D-66 · REQ-P1.5, REQ-B1.2
+- **Estimated effort:** 1 day
+
+### Task 79 — The ledger duty ships in the default set
+
+- **Deliverables:** a `duty-ledger` entry in `config/duties.yaml` (lifecycle
+  live) whose runner steps are the raise pass and the sweep, armed only
+  while it is enabled; the entry in `mission_control_default_duties`; the
+  doctor flag for a program list omitting it and for a disabled duty with
+  open items; the duty catalog and operator guide rows; tests in
+  `tests/test-mc-duties.sh` and `tests/test-mc-config-doctor.sh`.
+- **Done when:** The REQ-P1.6 test-spec entry's fixtures pass: a fresh
+  program with no duty list arms both steps, a disabled duty arms nothing,
+  and the doctor names the open count.
+- **Dependencies:** 75, 76
+- **Citations:** D-67 · REQ-P1.6, REQ-C1.4
+- **Estimated effort:** 1 day
+
+### Task 80 — Rulings are recorded and checked at handover and at asking
+
+- **Deliverables:** in `scripts/mc-handover.sh`, `verify` and `resume`
+  matching the brief's operator steps and planned questions against the
+  rules store and the decisions log by recorded subject, failing naming the
+  ruling; in `scripts/mc-inbox.sh` and `scripts/mc-decide.sh`, the
+  check-first path applying a match and recording it; the operator guide
+  and skill prose stating that a ruling is recorded when given, inside the
+  instruction budget; tests in `tests/test-mc-handover.sh`,
+  `tests/test-mc-inbox.sh` and `tests/test-mc-decide.sh`.
+- **Done when:** The REQ-P1.7 to REQ-P1.9 test-spec entries' fixtures
+  pass, including a brief handing the operator a publish step a recorded
+  ruling gives to the hub.
+- **Dependencies:** 50
+- **Citations:** D-68 · REQ-P1.7, REQ-P1.8, REQ-P1.9
+- **Estimated effort:** 1.5 days
+
+### Task 81 — The doctor flags memory that holds a ruling
+
+- **Deliverables:** in `scripts/mc-config.sh`, a `doctor` check listing
+  session memory entries that quote an operator decision with no matching
+  store entry, as a migration proposal naming the entry; tests in
+  `tests/test-mc-config-doctor.sh`.
+- **Done when:** The REQ-P1.10 test-spec entry's fixtures pass and the
+  doctor changes nothing.
+- **Dependencies:** 80
+- **Citations:** D-68 · REQ-P1.10
+- **Estimated effort:** half day
+
+### Task 82 — The outcome-audit duty and the unrelayed-question event
+
+- **Deliverables:** an `outcome-audit` duty in `config/duties.yaml`
+  (lifecycle live, in `mission_control_default_duties`) running the
+  REQ-P1.11 checks over recorded state with threshold knobs in
+  `config/defaults.yml` and `config/mission-control-knobs.tsv`, raising a
+  failure-class event per red check; the event a relayed session's finished
+  question turn raises (from the host's turn-end signal, with the audit's
+  unasked check reading the relay record as the backstop when the signal does
+  not fire); the event class rows; tests in
+  `tests/test-mc-duties.sh` and `tests/test-mc-event.sh`.
+- **Done when:** The REQ-P1.11 and REQ-P1.12 test-spec entries' fixtures
+  pass, the unrelayed-question fixture among them; the knob and verbs
+  checks pass.
+- **Dependencies:** 75, 79
+- **Citations:** D-69 · REQ-P1.11, REQ-P1.12
+- **Estimated effort:** 2 days
+
+### Task 83 — The miss ledger and the caught-by report
+
+- **Deliverables:** the miss ledger on the follow-up ledger's row format,
+  with a verb recording a miss with the operator's words and the check that
+  would have raised it, and `close` requiring detector and fix evidence; the
+  periodic caught-by report; tests in `tests/test-mc-followups.sh` and
+  `tests/test-mc-kb.sh`.
+- **Done when:** The REQ-P1.13 and REQ-P1.14 test-spec entries' fixtures
+  pass.
+- **Dependencies:** 76, 82
+- **Citations:** D-69 · REQ-P1.13, REQ-P1.14
 - **Estimated effort:** 1 day
 
 ## Awaiting input

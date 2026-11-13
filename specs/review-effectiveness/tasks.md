@@ -1,7 +1,7 @@
 # Review effectiveness — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-21
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -118,8 +118,11 @@ replays the backtest rows in the classes it targets before it lands (D-9).
   copy is the gated Deferred entry below).
 - **Done when:** prose-disposition Task 1, Task 2, Task 11, and Task 12
   are merged on main; every rule a `[design-level]` test-spec entry assigns
-  to these docs appears in them; the two docs' word counts are no larger
-  than before; `check:doctrine-index`, `check:links`, `lint:md`, and
+  to these docs appears in them; each of the two docs stays within 150
+  words of its pre-amendment count (`discovery-rigor.md` 1015,
+  `artifact-lenses.md` 1037; Tasks 3 and 3.1 share that budget, so the
+  two tasks together may add at most 150 words to each doc);
+  `check:doctrine-index`, `check:links`, `lint:md`, and
   `check:instructions` pass with no new exception.
 - **Dependencies:** 2
 - **Citations:** D-2, D-3, D-4, D-8, D-14 · REQ-A1.1, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7, REQ-B1.8, REQ-E1.5
@@ -142,7 +145,8 @@ replays the backtest rows in the classes it targets before it lands (D-9).
   categories.
 - **Done when:** every rule a `[design-level]` test-spec entry assigns to
   these docs appears in them; the word counts of `discovery-rigor.md` and
-  `artifact-lenses.md` are no larger than before, and `guard-catalog.md`
+  `artifact-lenses.md` stay within the Task 3 budget (Task 3's Done-when,
+  shared with this task), and `guard-catalog.md`
   stays below its doctrine warn line; both skills' start-loads are no
   larger than before and the PR body names the text each addition
   replaces; `check:doctrine-index`, `check:links`, `lint:md`, and
@@ -172,8 +176,9 @@ replays the backtest rows in the classes it targets before it lands (D-9).
 - **Done when:** prose-disposition Task 1 and human-gates Task 1 are
   merged on main; every rule a
   `[design-level]` test-spec entry assigns to these docs appears in them;
-  the word counts of the three docs are no
-  larger than before; `check:doctrine-index`, `check:links`, `lint:md`,
+  each of the three docs stays within 150
+  words of its pre-amendment count (`validation-rigor.md` 1131,
+  `finding-categorization.md` 1492, `gate-wiring.md` 2639); `check:doctrine-index`, `check:links`, `lint:md`,
   and `check:instructions` pass with no new exception.
 - **Dependencies:** 2
 - **Citations:** D-11, D-12, D-14 · REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-C1.5, REQ-D1.3, REQ-D1.4, REQ-D1.5

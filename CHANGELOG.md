@@ -1,17 +1,35 @@
 # Changelog
 
-## [0.75.1](https://github.com/inkatze/planwright/compare/v0.75.0...v0.75.1) (2026-11-13)
+## [0.75.2](https://github.com/inkatze/planwright/compare/v0.75.0...v0.75.2) (2026-11-13)
+
+
+### Features
+
+* **mission-control:** launch one session on a chosen model without touching any default ([#983](https://github.com/inkatze/planwright/issues/983)) ([8f19e1b](https://github.com/inkatze/planwright/commit/8f19e1bbd315b1ab8617f8917580014194cbfdce))
 
 
 ### Bug Fixes
 
 * a handover from a tmux-rung registry holder defaults to the tmux rung ([#973](https://github.com/inkatze/planwright/issues/973)) ([eb32efd](https://github.com/inkatze/planwright/commit/eb32efd05a6f9b7f5d4c4c72457378054c247240))
+* claim a hub event's sequence number atomically ([#974](https://github.com/inkatze/planwright/issues/974)) ([67a4291](https://github.com/inkatze/planwright/commit/67a4291a32146816bc7e5c8197b027f940e7927d))
 * **fleet:** host a headless worker's isolated step headless, never in tmux ([#945](https://github.com/inkatze/planwright/issues/945)) ([7a15fe1](https://github.com/inkatze/planwright/commit/7a15fe1947c8b00e03171eca3e4df8ef673f7cc0))
 * **fleet:** waiting workers stop holding the host session bound ([#951](https://github.com/inkatze/planwright/issues/951)) ([2a98bc8](https://github.com/inkatze/planwright/commit/2a98bc8edb88671d98f6ed53ab04493897d1352c))
+* let an amendment kickoff push its own branch without an operator step ([#946](https://github.com/inkatze/planwright/issues/946)) ([6d27556](https://github.com/inkatze/planwright/commit/6d27556832d10ef012445a05898b34c25155ed6d))
 * **mission-control:** order hub events raised in the same second ([#952](https://github.com/inkatze/planwright/issues/952)) ([dd7ee84](https://github.com/inkatze/planwright/commit/dd7ee84c94ef8834cc113bdea6f2023b02fe0d0d))
 * **policy-guard:** match the kickoff push as a run, not a mention ([#961](https://github.com/inkatze/planwright/issues/961)) ([966fb6e](https://github.com/inkatze/planwright/commit/966fb6e1207f3bc95a2beeccf8b03d72fa1df9bd))
+* **policy-guard:** refuse four hidden runs of the kickoff push ([#977](https://github.com/inkatze/planwright/issues/977)) ([892f63b](https://github.com/inkatze/planwright/commit/892f63bbd788ccdb0eae9828204030c34d204e2f))
+* record a wake target for a headless mission control at launch ([#972](https://github.com/inkatze/planwright/issues/972)) ([a26967b](https://github.com/inkatze/planwright/commit/a26967bb5f0859c5cb341723d098878b40ea259b))
+* retire a completed stream-json worker after a short grace ([#984](https://github.com/inkatze/planwright/issues/984)) ([6353f57](https://github.com/inkatze/planwright/commit/6353f57a124c869d8a593fc84400e6e8a410809d))
+* run the adopter's git hooks under the caller's locale, not LC_ALL=C ([#980](https://github.com/inkatze/planwright/issues/980)) ([eb5b4b6](https://github.com/inkatze/planwright/commit/eb5b4b632fb5db374f01f931a42601578acb58da))
+* **spec-validate:** report a stale recorded anchor ([#985](https://github.com/inkatze/planwright/issues/985)) ([be8f252](https://github.com/inkatze/planwright/commit/be8f252b0adeffaa9a15ba472dfce78c24617f7e))
 * **steps:** refuse misspelled step context names ([#959](https://github.com/inkatze/planwright/issues/959)) ([109f4ab](https://github.com/inkatze/planwright/commit/109f4abd8a67d7c77beae130b2fece891a467e27))
 * **steps:** render every run by default ([#958](https://github.com/inkatze/planwright/issues/958)) ([cf59cd9](https://github.com/inkatze/planwright/commit/cf59cd9f03613a17c148b276b02c2b00034c2c92))
+* **tests:** clear leaked worker session variables in the launch fixture ([#982](https://github.com/inkatze/planwright/issues/982)) ([62505ab](https://github.com/inkatze/planwright/commit/62505ab0106560c3ad0a44965adf361477cde922))
+
+
+### Miscellaneous Chores
+
+* skip the untagged 0.75.1 so release-please proposes 0.75.2 ([#987](https://github.com/inkatze/planwright/issues/987)) ([5e822d8](https://github.com/inkatze/planwright/commit/5e822d8ea0869bf7865a3f76d715377f356b62b0))
 
 ## [0.75.0](https://github.com/inkatze/planwright/compare/v0.74.0...v0.75.0) (2026-11-12)
 
