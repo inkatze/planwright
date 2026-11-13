@@ -250,14 +250,14 @@ section ends with an explicit
    questions must be resolved into decisions or explicitly accepted risks before
    sign-off.
 
-**Spec edits during the walkthrough.** A Draft bundle is unsigned: edits land
-in place with the human, section by section, and the brief records the list. A
-changelog line written here names the walk and points at the brief, never a
-state that sign-off changes. A signed bundle follows the stage-scaled
-change-handling above (REQ-D1.4); post-merge changes: `spec-format`'s supersede /
-changelog rules. An agent-authored meaning-class edit gets the
-mid-walk delta-scoped lens pass, its disposition
-recorded in the carrying brief section, an erroring pass surfaced
+**Spec edits during the walkthrough.** Draft edits land in place
+with the human, section by section; the brief records the list. A changelog line
+names the walk and points at the brief, never a state that sign-off
+changes. A signed bundle follows the stage-scaled change-handling above
+(REQ-D1.4); post-merge changes: `spec-format`'s supersede / changelog rules. An
+agent-authored meaning-class edit gets the mid-walk delta-scoped
+lens pass at the point of application — its disposition recorded in the brief
+section carrying it, an erroring pass surfaced
 (`kickoff-verification`, REQ-B1.4, D-5).
 
 **The inconsistency halt (REQ-B2.3).** A genuine spec inconsistency — two
