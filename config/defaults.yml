@@ -985,6 +985,15 @@ messaging_heal_cadence_seconds: 300
 #                               from the core and adopter layers only
 #                               (merge-currency-guard REQ-C1.12); a malformed
 #                               or unread value applies refuse.
+# ready_base_state_checks       check names a ready flip does not count
+#                               because they describe the base branch, not
+#                               the pull request (the release-window lock is
+#                               red on every PR while main sits in an
+#                               untagged window), space separated on one
+#                               line. Read by scripts/base-state-checks.sh
+#                               from the core and adopter layers only; a
+#                               malformed or unread value excludes nothing,
+#                               so every check counts.
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; every layer's list
@@ -1001,6 +1010,7 @@ worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
 converge_sync_main: on-need
 ready_guard_behind_base: checks
+ready_base_state_checks: window-lock
 protected_branches:
 
 # The worker's self-approval policy: the arms the worker command guard may

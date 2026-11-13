@@ -251,6 +251,7 @@ cat >"$tmp/pr.json" <<EOF
    {"__typename": "CheckRun", "name": "title", "workflowName": "other-lint", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "conclusion": "SUCCESS", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "status": "QUEUED", "conclusion": "", "startedAt": "0001-01-01T00:00:00Z"},
+   {"__typename": "CheckRun", "name": "window-lock", "workflowName": "release-window", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"context": "deploy", "state": "PENDING", "conclusion": ""}]}
 EOF
 cat >"$tmp/threads.json" <<'EOF'
@@ -304,6 +305,7 @@ has "the evidence carries its format" "# format: 1"
 has "REQ-D1.8: the head is the forge's" "head${tab}$head"
 has "REQ-D1.8: each check context is read on its own" "check${tab}build${tab}SUCCESS"
 has "an empty conclusion reads its state" "check${tab}deploy${tab}PENDING"
+hasnt "a red window-lock describes the base, so it is no flip condition" "check${tab}window-lock"
 has "only the latest run of a check counts" "check${tab}title${tab}SUCCESS"
 n_title=$(printf '%s\n' "$c" | grep -c "^check${tab}title${tab}")
 if [ "$n_title" -eq 2 ]; then ok "one line per check context: the same name in another workflow is its own context"; else fail "expected two title contexts, got $n_title"; fi
