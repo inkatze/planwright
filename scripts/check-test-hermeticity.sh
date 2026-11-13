@@ -1,63 +1,26 @@
 #!/usr/bin/env bash
 # check-test-hermeticity.sh — fail the test shapes that pass or fail on the
-# running host rather than on the code under test.
+# running host rather than on the code under test. Three shapes:
 #
-# Three shapes:
+#   mode-bit   a chmod (or mkdir with a mode) taking owner read or write away
+#              with no probe that the access is now denied: root reads what the
+#              mode forbids. A probe is hermetic_access_denied
+#              (tests/lib/hermetic-env.sh) or a `[ -r|-w ... ]` / `test` on the
+#              same target, between the change and the next chmod of it.
+#   dead-owner a `$!` PID reaped with wait and used again as though it named
+#              nobody; the host may have reused it. Draw the PID from
+#              tests/lib/dead-owner.sh, or use a lock-library token minted for
+#              a holder that has exited.
+#   unsourced  a suite reading a variable the list in tests/lib/hermetic-env.sh
+#              owns without sourcing that library first.
 #
-#   mode-bit   a `chmod`, or a `mkdir` given a mode, that takes read or write
-#              away from the owner, with no probe that the access is now
-#              denied. Root, or a capability override, reads and writes what
-#              the mode forbids, so the refusal the test asserts never happens
-#              there and the test fails for a reason unrelated to the guard
-#              under test. A probe is a call to hermetic_access_denied
-#              (tests/lib/hermetic-env.sh) or a `[ -r ... ]` / `[ -w ... ]` /
-#              `test -r|-w` test whose line names the same target (`$x` and
-#              `${x}` alike, never as the prefix of a longer name), anywhere
-#              between the mode change and the next chmod of that target (the
-#              restore) or the end of the file; where it sits relative to the
-#              assertion is not checked.
-#   dead-owner a PID captured from `$!`, reaped with `wait` (a bare `wait`
-#              reaps every capture; a line is read a command at a time, so
-#              a use after the wait on its own line counts), then used again,
-#              in code or in an unquoted heredoc body, as though it still
-#              named nobody. The host may already have handed that PID to
-#              another process. Conforming fixtures draw a PID from
-#              tests/lib/dead-owner.sh, or a token the lock library minted
-#              for a holder that has exited.
-#   unsourced  a suite that reads one of the listed configuration or root
-#              variables (tests/lib/hermetic-env.sh owns the list) without
-#              sourcing that library first, which clears them; its fleet_home
-#              helpers carry the pinning, so a suite pinning through them
-#              conforms. A read is any `$NAME` or `${NAME...}` in code or in
-#              an unquoted heredoc body, which the suite itself expands; a
-#              read on a line above the source is still an offense, inside a
-#              function body defined there too, and a source spelled inside a
-#              quoted string is no source.
+# Never an offense: full-line comments, and heredoc bodies for mode-bit. Only
+# owner read and write count: a missing execute bit refuses root too.
+# Exclude a site with `# hermetic-exempt: <reason>` on its line or the one
+# above; a marker with no reason excludes nothing.
 #
-# Not code, so never an offense: full-line comments, and heredoc bodies for
-# the mode-bit shape (a chmod written into a stub runs later, in the stub).
-# Only owner read and write count for mode-bit: a missing
-# execute bit refuses root too, and a directory's search bit cannot be told
-# from a file's execute bit by text. Those, and every dependence with no
-# textual shape (locale, a symlinked temporary root), are the Tests lens's and
-# the perturbed CI run's to catch.
-#
-# An exclusion is recorded on the offending line, or the line above it, as a
-# `# hermetic-exempt: <reason>` comment; a marker with no reason excludes
-# nothing.
-#
-# Usage:
-#   check-test-hermeticity.sh [<root>]   scan <root>/tests, outside
-#                                        <root>/tests/fixtures, against the
-#                                        list in <root>/tests/lib/hermetic-env.sh
-#                                        (default root: the parent of this
-#                                        script's directory)
-#   check-test-hermeticity.sh --help | -h
-#
-# Exit codes: 0 clean, 1 an offending file, 2 usage or a broken enumeration
-# (an absent root, tests directory or library, a library that lists nothing,
-# an unreadable file, a find that fails, a scan reaching no files).
-#
+# Exit: 0 clean, 1 an offending file, 2 usage or a broken enumeration.
+# Portable bash 3.2 / BSD tooling.
 # Portable bash 3.2 / BSD tooling.
 set -u
 

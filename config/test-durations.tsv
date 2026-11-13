@@ -395,7 +395,6 @@ test-settings-fragment-hook-expansion.sh	0.254
 test-check-glob-allow-rules.sh	0.219
 test-obs-consume-legacy.sh	0.218
 test-docs-inversion.sh	0.216
-test-fleet-home.sh	0.169
 test-pr-title-trigger.sh	0.156
 test-resolve-installed-roots.sh	0.153
 test-check-doctrine-manifest.sh	0.152

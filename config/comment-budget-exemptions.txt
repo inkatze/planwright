@@ -259,7 +259,6 @@ pending-cleanup|tests/behavioral-evals/fixtures/kickoff/skill.sh|Task 8|over the
 pending-cleanup|tests/behavioral-evals/fixtures/tower/skill.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|tests/behavioral-evals/lib/turn-surface.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|tests/lib/fixture-procs.sh|Task 8|over the error threshold when the guard landed
-pending-cleanup|tests/lib/fleet-home.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|tests/lib/fleet-stop-table.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|tests/lib/golden-replay.sh|Task 8|over the error threshold when the guard landed
 pending-cleanup|tests/lib/permission-matcher.sh|Task 8|over the error threshold when the guard landed

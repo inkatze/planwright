@@ -1,66 +1,27 @@
 # shellcheck shell=bash
 # hermetic-env.sh — the one list of configuration and root variables a suite
 # must not inherit, and the helpers that clear or pin them (sourced, never
-# executed). A suite run by hand inherits the operator's shell, and a suite
-# run from a fleet worker inherits the worker's: a root variable pointing at an
-# installed plugin, an overlay path, or the operator's real fleet home then
-# decides what the code under test reads, so the test passes or fails on the
-# host rather than on the code.
+# executed). An inherited root, overlay or fleet-home variable decides what the
+# code under test reads, so the test passes or fails on the host.
 #
-# Sourcing clears every cleared variable, so a suite conforms by sourcing this
-# file before it reads or sets one. The pinned variables (the fleet home's
-# resolution chain) are left in place: clearing them would fall through to the
-# operator's default home, so a suite that writes fleet state pins them per
-# case with fleet_home_pin instead.
+# Sourcing clears the cleared variables. The pinned ones (the fleet home's
+# chain) stay, since clearing them would fall through to the operator's home;
+# a suite that writes fleet state pins them per case with fleet_home_pin.
+# scripts/run-tests.sh pins the same list per file and
+# scripts/check-test-hermeticity.sh checks suites against it: add a variable
+# here, never in a suite. _hermetic_env_defer=1 before sourcing skips clearing.
 #
-# The list is the single source scripts/run-tests.sh pins per file,
-# scripts/check-test-hermeticity.sh checks suites against, and the perturbed
-# CI run sets decoys for. Add a variable here, never in a suite.
-#
-#   hermetic_env_names        print every listed variable, one per line
-#   hermetic_env_clear        unset the cleared variables (sourcing runs it)
-#   hermetic_env_sentinel <dir>
-#                             point the pinned variables at arms under <dir>:
-#                             the fleet override always, the plugin-data and
-#                             writer arms only when set, so a file sees the
-#                             set/unset shape it would have seen without it;
-#                             fails when a pinned variable has no arm
+#   hermetic_env_names, hermetic_env_clear   print / unset the listed variables
+#   hermetic_env_sentinel <dir>    point the pinned ones under <dir>; fails when
+#                                  one has no arm
 #   hermetic_env_sentinel_written <dir>
-#                             succeed when anything exists at a pinned arm
-#                             under <dir>: a write that would have landed in
-#                             the inherited home. A pinned variable with no
-#                             arm also succeeds, since it cannot be checked
-#   fleet_home_pin <dir>      point every arm of the fleet chain at <dir>, an
-#                             absolute path it can create (else it fails and
-#                             pins nothing): the override at <dir>/fleet, the
-#                             plugin-data arm at <dir>/plugin-data, the writer
-#                             arm at <dir>/claude. The first call of any
-#                             fleet_home verb remembers the home the inherited
-#                             environment resolved to, so later pins (one per
-#                             case) never mistake a fixture for the inherited
-#                             home
-#   fleet_home_leaked <path>  succeed when the inherited registry names <path>;
-#                             pass the suite's own mktemp root, which no real
-#                             record can carry, so a concurrent real fleet
-#                             write is never read as this suite's leak. The
-#                             records are read through fleet-state.sh's own
-#                             registry verb, so the check follows wherever
-#                             that store keeps them. A check that cannot run
-#                             (no fleet-state.sh to reach, or its registry
-#                             verb failing) also succeeds, naming why on
-#                             stderr
-#   fleet_home_inherited      print the inherited fleet home (empty when the
-#                             inherited environment resolved none)
+#                                  succeed when anything exists at a pinned arm
+#   fleet_home_pin <dir>           pin every arm of the chain under an absolute
+#                                  <dir>; fleet_home_leaked <path> and
+#                                  fleet_home_inherited read the inherited home
 #   hermetic_access_denied <r|w> <path>
-#                             succeed when the running user is actually denied
-#                             that access. Root, or a capability override,
-#                             reads and writes what the mode bits forbid, so a
-#                             mode-bit fixture probes this before asserting a
-#                             refusal and skips by name when it fails
-#
-# A shell that needs the list without clearing its own environment (the
-# runner, which clears per file and can be told not to) sets
-# _hermetic_env_defer=1 before sourcing.
+#                                  succeed when the user is really denied that
+#                                  access (root is not)
 
 hermetic_env_cleared='
   PLANWRIGHT_ROOT
