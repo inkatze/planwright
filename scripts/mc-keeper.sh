@@ -532,9 +532,9 @@ announce_unowned() {
   mc_announce "$program" "$runtime/keeper-unowned" "$1" stream-json-worker-unowned "$1" \
     "stream-json worker $1 has a request waiting but no launcher row or dispatch record names the program it belongs to, so none announces its prompts; fleet-streamjson.sh pending $1 shows them, mission-control-launch.sh retire $1 closes it" \
     || {
-    rm -f "$au_dir/unowned-announced"
-    return 1
-  }
+      rm -f "$au_dir/unowned-announced"
+      return 1
+    }
 }
 
 # pending_prompts: the stream-json pending-age sweep over every worker on
