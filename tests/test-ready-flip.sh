@@ -706,6 +706,31 @@ check "the tree is clean" [ -z "$(gitf status --porcelain --untracked-files=no)"
 check "no commit was left behind" [ "$(gitf rev-parse HEAD)" = "$before" ]
 check "the handoff names the unwritten park" grep -qi 'park.*not written\|could not write' <<<"$OUT"
 
+echo "# the park's commit and push run the adopter's hooks under the caller's locale"
+fixture
+set_policy unit-owner
+echo failing >"$GHS/ci"
+mkdir -p "$F/hooks"
+for hook in pre-commit pre-push; do
+  # shellcheck disable=SC2016 # literal hook source, expanded by the hook
+  printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\nprintf "%%s\\n" "$l" >>"%s/locale.%s"\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
+    "$F" "$hook" >"$F/hooks/$hook"
+  chmod +x "$F/hooks/$hook"
+done
+gitf config core.hooksPath "$F/hooks"
+before=$(origin_head)
+_lc_all=${LC_ALL-} _lc_ctype=${LC_CTYPE-} _lang=${LANG-}
+unset LC_ALL LC_CTYPE
+export LANG=C.UTF-8
+run_helper flip --spec specs/demo --task 1
+LC_ALL=$_lc_all LC_CTYPE=$_lc_ctype LANG=$_lang
+[ -n "$_lc_all" ] || unset LC_ALL
+[ -n "$_lc_ctype" ] || unset LC_CTYPE
+check "a park whose hooks demand UTF-8 still lands under a UTF-8 caller (exit 4)" [ "$CODE" = 4 ]
+check "the park was pushed past the pre-push hook" [ "$(commits_since "$before")" = 1 ]
+check "the pre-commit hook saw the caller's locale" [ "$(cat "$F/locale.pre-commit")" = C.UTF-8 ]
+check "the pre-push hook saw the caller's locale" [ "$(cat "$F/locale.pre-push")" = C.UTF-8 ]
+
 echo "# a tasks.md that cannot be written is never committed"
 fixture
 set_policy unit-owner

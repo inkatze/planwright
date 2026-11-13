@@ -1516,6 +1516,28 @@ mkdir -p "$tmp/not-git"
 run_land --repo-root "$tmp/not-git"
 [ "$RC" -eq 4 ] || fail "a --repo-root outside git must fail with 4 (got $RC)"
 
+# The record's commit runs the adopter's pre-commit hook under the caller's
+# locale, not the script's LC_ALL=C (a C locale breaks UTF-8 file names in the
+# hooked tools).
+LOCFID=hooklocale-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$LOCFID" main
+# shellcheck disable=SC2016 # literal hook source, expanded by the hook
+printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
+  >"$repo/.git/hooks/pre-commit"
+chmod +x "$repo/.git/hooks/pre-commit"
+_lc_all=${LC_ALL-} _lc_ctype=${LC_CTYPE-} _lang=${LANG-}
+unset LC_ALL LC_CTYPE
+export LANG=C.UTF-8
+run_land --flight-id "$LOCFID"
+LC_ALL=$_lc_all LC_CTYPE=$_lc_ctype LANG=$_lang
+[ -n "$_lc_all" ] || unset LC_ALL
+[ -n "$_lc_ctype" ] || unset LC_CTYPE
+[ "$RC" -eq 0 ] || fail "land under a UTF-8 caller was refused by a UTF-8-asserting pre-commit hook ($RC): $ERR"
+git -C "$repo" cat-file -e "HEAD:specs/_flights/$LOCFID.md" 2>/dev/null || fail "land under a UTF-8 caller did not commit the record"
+rm -f "$repo/.git/hooks/pre-commit"
+rm -rf "$repo/specs"
+gitc "$repo" checkout -q main
+
 # --- 7: a public summary stands in for a private ask --------------------------
 # REQ-E1.6, REQ-E1.7, REQ-E1.8, REQ-E1.11: with --public-summary-file the
 # record quotes the summary and the fixed briefed-beyond line, never the

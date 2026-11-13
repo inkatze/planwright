@@ -131,6 +131,23 @@
 # No model in the decision path: every predicate is a comparison.
 set -u
 unset CDPATH
+# LC_ALL=C below is for this script's own parsing only: git hooks run under the
+# caller's locale (C.UTF-8 when it sets none), since a C locale breaks UTF-8
+# file names in the hooked tools.
+if [ -n "${LC_ALL:-}" ]; then
+  hook_lc_all=$LC_ALL
+elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
+  hook_lc_all=
+else
+  hook_lc_all=C.UTF-8
+fi
+hook_git() {
+  if [ -n "$hook_lc_all" ]; then
+    env LC_ALL="$hook_lc_all" git "$@"
+  else
+    env -u LC_ALL git "$@"
+  fi
+}
 LC_ALL=C
 export LC_ALL
 
@@ -475,7 +492,7 @@ commit_tasks() {
     COMMIT_ERR='the commit trailers could not be stamped'
     return 1
   fi
-  if ! git commit -q -F "$msg" -- "$TASKS" >/dev/null 2>&1; then
+  if ! hook_git commit -q -F "$msg" -- "$TASKS" >/dev/null 2>&1; then
     git checkout -q -- "$TASKS" 2>/dev/null
     COMMIT_ERR='the commit failed'
     return 1
@@ -486,7 +503,7 @@ commit_tasks() {
   }
 }
 
-push_branch() { git push -q "$REMOTE" "$BRANCH" >/dev/null 2>&1; }
+push_branch() { hook_git push -q "$REMOTE" "$BRANCH" >/dev/null 2>&1; }
 
 # unpushed — 0 when the branch holds commits its remote-tracking ref lacks,
 # such as a park whose push failed last run. A branch the remote does not
