@@ -102,7 +102,7 @@ fleet_max_parallel_units: 3
 # machine, with fleet_max_parallel_units and each program's own bounds kept
 # beneath it. It bounds the sum of every program's workers, reviewers,
 # walkers and relays registered in the shared mission-control registry
-# (mission-control sessions are not counted), checked by
+# (mission-control sessions, and sessions marked waiting, are not counted), checked by
 # scripts/mission-control-launch.sh before every such launch. A
 # positive integer, or `off` for no host-wide bound. The shipped number is
 # sized for a 12-core host; set it lower on a smaller machine. Sessions
@@ -233,13 +233,16 @@ steps_orchestrator_idle: []
 # Step pools (scripts/step-pool.sh; doctrine/custom-steps.md, *Expensive
 # checks*). A pool bounds how many checks naming it run at once across every
 # checkout and worktree of the user on the host. step_pool_capacity is the
-# slot count of every pool without its own step_pool_capacity_<pool> (hyphens
+# slot count of every pool but heavy-run without its own step_pool_capacity_<pool> (hyphens
 # as underscores), an open family with no core default. step_pool_wait bounds
 # a caller's wait for a free slot (a duration). full_suite_pool names the pool
-# /execute-task's full local suite joins; empty leaves the suite unpooled.
+# /execute-task's full local suite joins; it defaults to the shipped heavy-run
+# pool, whose capacity is derived from the host (one slot per 8 logical cores
+# and per 16 GiB of memory, at least 1; step_pool_capacity_heavy_run wins and
+# step_pool_capacity never applies). none, or empty, leaves the suite unpooled.
 step_pool_capacity: 1
 step_pool_wait: 60m
-full_suite_pool:
+full_suite_pool: heavy-run
 
 # Compute host (scripts/compute-route.sh). A test or lint run the gate runners
 # start (/execute-task's full suite, step-run.sh command steps) or a worker
