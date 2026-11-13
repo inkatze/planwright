@@ -61,6 +61,8 @@ else
 fi
 [ ! -e "$fleet/mission-control/sessions/$worker_name" ] && [ ! -e "$fleet/mission-control/launch/$worker_name" ] \
   && ok "the retired session has no registry row and no launch directory" || fail "retire left the row or the launch directory"
+[ ! -e "$fleet/streamjson/$worker_name/launcher-row" ] && ok "retire drops the row's kept copy, so a recover cannot bring the session back" \
+  || fail "retire left the row's kept copy for a recover to restore"
 [ ! -e "$fleet/dispatch-markers/$worker_name" ] && ok "the fleet registry marker is retired" || fail "the fleet registry marker remains"
 last=$(env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-state.sh" registry 2>/dev/null \
   | awk -F '\t' -v w="$worker_name" '$2 == w { l = $0 } END { print l }')

@@ -271,11 +271,17 @@ expect_out "a worker no row or record owns is raised once, as unowned" "announce
 expect_no_out "and its prompt is not announced as the program's own" "pending-prompt-overdue${tab}rl-orphan"
 keeper_as alpha 5060
 expect_no_out "and the unowned event is not raised again" "stream-json-worker-unowned"
+[ -e "$fleet/streamjson/rl-orphan/unowned-announced" ] && ok "the raise is claimed in the worker's directory, for every keeper to see" \
+  || fail "the unowned raise left no claim in the worker's directory"
 keeper_as beta 5120
 expect_no_out "nor raised under a second program" "rl-orphan"
 mc_run mc-event.sh list --program alpha
 expect_out "with no hub program configured, it falls back to the finding program" "rl-orphan"
-rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/dispatch-markers"
+pp_req rl-fresh-orphan none
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000002\tpermission\t5190\tpending\n' >"$fleet/streamjson/rl-fresh-orphan/journal"
+keeper_as alpha 5200
+expect_out "a request that has just arrived on a worker no one owns is raised as unowned too" "announced${tab}stream-json-worker-unowned${tab}rl-fresh-orphan"
+rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-prompts" "$fleet/mission-control/alpha/keeper-unowned"
 
 # The ruling: the unowned event goes to the hub program, the one whose mission

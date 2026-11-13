@@ -392,7 +392,7 @@ refresh_row_copy() {
   rc_dir="$FH/streamjson/$1"
   [ -d "$rc_dir" ] && [ ! -L "$rc_dir" ] || return 0
   (umask 077 && cp -- "$2" "$rc_dir/launcher-row.tmp.$$" && mv -f "$rc_dir/launcher-row.tmp.$$" "$rc_dir/launcher-row") 2>/dev/null \
-    || rm -f "$rc_dir/launcher-row.tmp.$$"
+    || rm -f "$rc_dir/launcher-row.tmp.$$" "$rc_dir/launcher-row"
   return 0
 }
 
@@ -1393,7 +1393,14 @@ cmd_retire() {
         || printf '%s\n' "$me: the wake target for $name was not removed" >&2
     fi
     rm -rf "${LAUNCHES:?}/$name"
-    if [ -e "$LAUNCHES/$name" ]; then
+    # A recover restores a missing row from the kept copy, so a copy left
+    # behind would bring a retired session back into the registry.
+    copy_left=''
+    if [ "$backend" = stream-json ] && [ ! -L "$FH/streamjson/$name" ]; then
+      rm -f "$FH/streamjson/$name/launcher-row"
+      [ ! -e "$FH/streamjson/$name/launcher-row" ] || copy_left=1
+    fi
+    if [ -e "$LAUNCHES/$name" ] || [ -n "$copy_left" ]; then
       add_held row
     else
       rm -f "$row"
