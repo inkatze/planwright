@@ -15,11 +15,11 @@
 #   host <alias> account=<label> ceiling=<n> [shared=yes|no] [idle=<min>]
 #        [hold=yes|no] [grace=<min>] [compute=login-free|accepted]
 #        [clone.<repo-alias>=<absolute path>]...
-# The alias is an SSH alias: letters, digits, dot, underscore and dash, no
-# leading dash. A host with no compute stance still takes workers; a compute
-# run needs compute=login-free (an account holding no hosting-remote or model
-# login) or compute=accepted (the operator accepts that the code can read the
-# logins the account holds).
+# The alias is an SSH alias: it starts with a letter or digit, then letters,
+# digits, dot, underscore and dash. A host with no compute stance still takes
+# workers; a compute run needs compute=login-free (an account holding no
+# hosting-remote or model login) or compute=accepted (the operator accepts
+# that the code can read the logins the account holds).
 #
 # Exit: 0 ok · 1 refused (the field is named) · 2 usage · 3 no registry
 # configured or readable, or the host or field is not set

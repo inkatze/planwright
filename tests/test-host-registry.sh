@@ -80,12 +80,15 @@ assert_eq "unknown host is not found" 3 "$rc"
 
 # A malformed alias is refused with the field named.
 # shellcheck disable=SC2016
-for bad in -lead 'sp;ace' 'a$b' ''; do
+for bad in -lead .host _host 'sp;ace' 'a$b' ''; do
   reg "host $bad account=acct-one ceiling=1 compute=accepted"
   run none "$tmp/local.yml" validate
   assert_eq "alias '$bad' refused" 1 "$rc"
   assert_contains "alias '$bad' names the field" alias "$err"
 done
+reg "host a.b_c-d account=acct-one ceiling=1 compute=accepted"
+run none "$tmp/local.yml" validate
+assert_eq "alias with dot, underscore and dash accepted" 0 "$rc"
 reg "$GOOD"
 
 # A relative clone path is refused with the field named.
