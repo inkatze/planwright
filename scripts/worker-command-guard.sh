@@ -5222,8 +5222,8 @@ is_duration() {
 # STEP_CONTEXT_FIELDS, every value bare (no quote, expansion, glob or
 # substitution; a quoted literal in the same charset passes), inside the charset
 # of a branch, path or number, and valid for its field. A field is carried once,
-# and, before a script other than the step runner or recorder, a caller field
-# must be the value the session record implies. The word
+# and, before any script, a caller field must be the value the session record
+# implies. The word
 # after them must be a script under an installed planwright root; anything else
 # leaves the words untouched, and the
 # `env` operands or the assignment prefix then defer as before. The pool hold
@@ -5292,17 +5292,16 @@ strip_step_context() {
   is_planwright_script "${cw[i]}" "$HOOK_CWD" || return 0
   # The runner's own fields and the `env` form are for the step runner and
   # recorder. Any other trusted script takes the caller's fields as plain
-  # leading assignments, each the value the session record implies, so a
+  # leading assignments only. Every script, the runner and recorder included,
+  # takes each caller field as the value the session record implies, so a
   # worker carries its own unit's context only.
   case ${cw[i]##*/} in
     step-run.sh | step-record.sh) ;;
-    *)
-      [ "$runner_field" = 0 ] && [ "$first" -eq 0 ] || return 0
-      for ((n = 0; n < ${#rec_f[@]}; n++)); do
-        step_context_record_ok "${rec_f[n]}" "${rec_v[n]}" || return 0
-      done
-      ;;
+    *) [ "$runner_field" = 0 ] && [ "$first" -eq 0 ] || return 0 ;;
   esac
+  for ((n = 0; n < ${#rec_f[@]}; n++)); do
+    step_context_record_ok "${rec_f[n]}" "${rec_v[n]}" || return 0
+  done
   shift_words "$i"
 }
 

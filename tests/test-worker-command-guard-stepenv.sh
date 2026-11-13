@@ -17,9 +17,17 @@ WT="$SANDBOX/install/worktree"
 mkdir -p "$WT/scripts"
 : >"$WT/.git"
 : >"$WT/scripts/step-run.sh"
-HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+write_record "$SANDBOX/records/flight.record" "$WT" "" planwright/flight/demo-0123abcd
+write_record "$SANDBOX/records/task.record" "$WT" "" planwright/demo/task-3.1
+printf '%s\n' pr_number=12 >>"$SANDBOX/records/task.record"
+write_record "$SANDBOX/records/other.record" "$WT" "" planwright/flight/other-89abcdef
+FLIGHT_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/flight.record")
+TASK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/task.record")
+OTHER_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/other.record")
+NONE_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=")
+HOOK_ENV=("${FLIGHT_ENV[@]}")
 
-CTX="PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_BRANCH=planwright/flight/x PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=$WT"
+CTX="PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=$WT"
 assert_allow "the bare step-record call (baseline)" "$SREC new-run" Bash "$WT"
 assert_allow "env + step names + step-record.sh" "env $CTX $SREC new-run" Bash "$WT"
 assert_allow "env + step names + step-run.sh" "env $CTX $SR audit --through pre-pr --base origin/main" Bash "$WT"
@@ -27,8 +35,10 @@ assert_allow "plain assignments + step-record.sh" "$CTX $SREC new-run" Bash "$WT
 assert_allow "plain assignments + step-run.sh" "$CTX $SR audit --through pre-pr" Bash "$WT"
 assert_allow "every documented context name" \
   "env PLANWRIGHT_STEP_SPEC= PLANWRIGHT_STEP_TASK_IDS= $SREC new-run" Bash "$WT"
+HOOK_ENV=("${TASK_ENV[@]}")
 assert_allow "numeric PR number and task ids" \
   "env PLANWRIGHT_STEP_PR_NUMBER=12 PLANWRIGHT_STEP_TASK_IDS=3.1 $SREC new-run" Bash "$WT"
+HOOK_ENV=("${FLIGHT_ENV[@]}")
 assert_allow "chained after a known-safe segment" "git status && env $CTX $SREC new-run" Bash "$WT"
 
 assert_defer "a non-step name" "env FOO=1 $SREC new-run" Bash "$WT"
@@ -59,5 +69,13 @@ assert_defer "a different installed script after the prefix" "env $CTX $PLUGIN_R
 assert_defer "bash running the step script" "env $CTX bash $SREC new-run" Bash "$WT"
 assert_defer "the prefix with no command" "env $CTX" Bash "$WT"
 assert_defer "a redirect to a real file" "env $CTX $SREC new-run > out.txt" Bash "$WT"
+
+HOOK_ENV=("${OTHER_ENV[@]}")
+assert_defer "a mismatched record defers the caller fields before step-run.sh" "env $CTX $SR audit --through pre-pr" Bash "$WT"
+assert_defer "a mismatched record defers the caller fields before step-record.sh" "env $CTX $SREC new-run" Bash "$WT"
+assert_defer "a mismatched record defers plain assignments before step-run.sh" "$CTX $SR audit --through pre-pr" Bash "$WT"
+HOOK_ENV=("${NONE_ENV[@]}")
+assert_defer "a missing record defers the caller fields before step-run.sh" "env $CTX $SR audit --through pre-pr" Bash "$WT"
+assert_defer "a missing record defers the caller fields before step-record.sh" "env $CTX $SREC new-run" Bash "$WT"
 
 finish_suite worker-command-guard-stepenv
