@@ -5318,6 +5318,7 @@ strip_step_context() {
 # defers it.
 strip_prefixes() {
   PREFIXED=0
+  strip_env_chdir
   # `time` is a keyword only when written as a bare word, and `-p` its option
   # only when written bare too (a quoted `"-p"` is the command it runs), so
   # both are read from the unsubstituted words (`sw` / `swq`, verify_simple's
@@ -5376,6 +5377,33 @@ strip_compute_route() {
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) return 1 ;;
   esac
+  return 0
+}
+
+# strip_env_chdir: drop a leading `env --chdir=<dir>` (the one env option
+# admitted, with no assignment or other option) when <dir> is a plain literal
+# naming the directory the command already runs in, which is inside the
+# session's own worktree: the prefix then changes nothing, so the command it
+# wraps is verified as if it stood alone. Any other shape is left as the verb,
+# and the bare-env check defers it. Sets PREFIXED when it strips.
+strip_env_chdir() {
+  local v base
+  [ "${cw[0]}" = env ] && [ "$cwn" -ge 3 ] && [ "${cqp[0]}" -lt 0 ] && [ "${cqp[1]}" -lt 0 ] || return 0
+  case ${cw[1]} in
+    --chdir=?*) ;;
+    *) return 0 ;;
+  esac
+  v=${cw[1]#--chdir=}
+  cw[1]=$v
+  if own_dir_ok 1; then
+    base=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || base=''
+    if [ -n "$base" ] && [ "$OWN_DIR" = "$base" ]; then
+      shift_words 2
+      PREFIXED=1
+      return 0
+    fi
+  fi
+  cw[1]=--chdir=$v
   return 0
 }
 

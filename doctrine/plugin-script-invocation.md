@@ -96,8 +96,9 @@ command per Bash call** instead:
   from an `echo` or `printf` pipe. A pipe that carries data one command cannot
   produce alone, such as the commit-trailer composition, is the one kept form.
 - **No loops or background jobs.** No `for`, `while` or `until`, and no `&`
-  or `nohup`: a loop or a detached job is a compound line the guard defers.
-  Issue each iteration as its own call, and wait on a job in the foreground.
+  or `nohup`: an unbounded loop or detached job is a compound line the guard
+  defers. Issue each iteration as its own call, and wait on a job in the
+  foreground.
 - **Files are written with the Write tool.** Never with a heredoc, `printf`,
   `echo` or `tee` redirect; read them with the Read tool or one plain
   `grep`, `sed -n`, `head` or `cat` call on the file.
