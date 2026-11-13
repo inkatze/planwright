@@ -113,6 +113,48 @@ if (cd "$clone" && "$SCRIPT") >/dev/null 2>&1; then
 fi
 pass "a missing or extra argument is refused"
 
+# --- the spec's own amendment branch -------------------------------------------
+
+g -C "$clone" switch -q -c planwright/demo/amendment-3
+g -C "$clone" commit -q --allow-empty -m "amendment sign-off"
+amend_head=$(g -C "$clone" rev-parse HEAD)
+(cd "$clone" && "$SCRIPT" demo) >/dev/null 2>&1 || fail "the push on the spec's own amendment branch did not succeed"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$amend_head" ] || fail "the amendment branch on origin is not the local head after the push"
+upstream=$(g -C "$clone" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || upstream=''
+[ "$upstream" = origin/planwright/demo/amendment-3 ] || fail "the amendment push did not set the upstream (got '$upstream')"
+pass "[amendment] the spec's own amendment branch pushes and sets its upstream"
+
+if (cd "$clone" && "$SCRIPT" other) >/dev/null 2>&1; then
+  fail "another spec's name pushed from demo's amendment branch"
+fi
+pass "[amendment] another spec's name refuses from this amendment branch"
+
+for bad in amendment-3b amendment- amendment amendment-3-1 amendment-x; do
+  g -C "$clone" switch -q -c "planwright/demo/$bad"
+  if (cd "$clone" && "$SCRIPT" demo) >/dev/null 2>&1; then
+    fail "a non-digit amendment suffix pushed ($bad)"
+  fi
+  if g -C "$origin" rev-parse --verify -q "planwright/demo/$bad" >/dev/null; then
+    fail "a refused amendment suffix reached origin ($bad)"
+  fi
+  g -C "$clone" switch -q planwright/demo/amendment-3
+done
+pass "[amendment] a non-digit or empty amendment suffix refuses and pushes nothing"
+
+g -C "$clone" switch -q -c planwright/other/amendment-1
+if (cd "$clone" && "$SCRIPT" demo) >/dev/null 2>&1; then
+  fail "another spec's amendment branch pushed under demo"
+fi
+pass "[amendment] another spec's amendment branch refuses"
+refusal=$(cd "$clone" && "$SCRIPT" demo 2>&1) && fail "the wrong-branch run succeeded"
+# shellcheck disable=SC2016 # the unexpanded variable is the text under test
+case $refusal in
+  *'${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>'*) ;;
+  *) fail "[refusal] the wrong-branch text does not name the accepted form: $refusal" ;;
+esac
+pass "[refusal] the wrong-branch text names the accepted form"
+g -C "$clone" switch -q planwright/demo/spec
+
 # --- the adopter's pre-push hook runs under the caller's locale ----------------
 # The script parses under LC_ALL=C, but the hook is the adopter's: a C locale
 # there broke UTF-8 file names (Elixir fell back to latin1).

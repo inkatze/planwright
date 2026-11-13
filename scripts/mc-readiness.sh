@@ -41,7 +41,9 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       COPIED name no source path)
   check<TAB><name><TAB><state>        one per individual check context,
                                       its latest run only (a re-run
-                                      supersedes the runs before it);
+                                      supersedes the runs before it), but
+                                      not a check ready_base_state_checks
+                                      names (it describes the base);
                                       SUCCESS, NEUTRAL and SKIPPED pass
   require<TAB>macos                   the repository's CI has macOS jobs, which
                                       run only on a ready or ci-macos
@@ -80,7 +82,9 @@ Unknown kinds are ignored.
 THE WALK refuses, each failure one line:
   - no head: nothing at a head was collected, so a report alone never
     passes;
-  - no individual check, or any check outside SUCCESS, NEUTRAL and
+  - no individual check (a check ready_base_state_checks names is left
+    out of the evidence, so a pull request whose only check is that one
+    has none), or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
   - where macOS is required, a macos-suite or macos-smoke check that never
     ran, was skipped (a draft head) or is not SUCCESS, named with the
@@ -553,6 +557,9 @@ collect() {
   cl_owner=${2%%/*}
   cl_name=${2#*/}
   cl_runs=$(cat -- "$script_dir/check-runs.jq") || mc_fail "check-runs.jq is missing or unreadable (broken install)"
+  # gh --jq takes no variables, so the list the shared module reads is bound inline.
+  cl_base=$(/bin/sh "$script_dir/base-state-checks.sh") || cl_base='[]'
+  cl_runs="${cl_base:-[]} as \$base_state | $cl_runs"
   # shellcheck disable=SC2016 # a jq program
   gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,labels,files,body,statusCheckRollup --jq "$cl_runs"'
     def clean: tostring | gsub("[\t\r\n]"; " ");
