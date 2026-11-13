@@ -552,6 +552,8 @@ printf '%s\n' '#!/bin/sh' "cat '$tmp/ghstate'" >"$tmp/bin/gh"
 chmod +x "$tmp/bin/gh"
 PATH="$tmp/bin:$PATH"
 printf '%s\n' MERGED >"$tmp/ghstate"
+mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/bin/cat" --text "command reads stdin"
+a_cat=$OUT
 mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/usr/bin/true" --text "command passes"
 a_pass=$OUT
 mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-01-01 --done "cmd:/usr/bin/false" --text "command fails"
@@ -568,11 +570,12 @@ cksum_before=$(cksum <"$kb/followups.tsv")
 mc_run mc-kb.sh followup audit --program alpha
 expect_rc "the audit runs" 0
 expect_out "a passing command check proposes a close" "close${tab}$a_pass${tab}"
-expect_no_out "a failing command check proposes nothing" "$a_fail"
-expect_no_out "an event not yet seen proposes nothing" "$a_event"
+expect_out "a command that reads stdin neither hangs nor hides the rows after it" "close${tab}$a_cat${tab}"
+expect_no_out "a failing command check proposes nothing" "close${tab}$a_fail${tab}"
+expect_no_out "an event not yet seen proposes nothing" "close${tab}$a_event${tab}"
 expect_out "a merged pull request proposes a close" "close${tab}$a_pr${tab}"
 expect_out "the evidence names the pull request" "merged"
-expect_no_out "an operator-confirmed item is never proposed" "$a_op"
+expect_no_out "an operator-confirmed item is never proposed" "close${tab}$a_op${tab}"
 expect_out "an item whose class nothing emits is listed" "unemitted${tab}f-900${tab}vanished-class"
 if [ "$cksum_before" = "$(cksum <"$kb/followups.tsv")" ]; then ok "the audit changes no row"; else fail "the audit rewrote the ledger"; fi
 printf '%s\n' OPEN >"$tmp/ghstate"

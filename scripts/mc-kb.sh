@@ -1035,7 +1035,7 @@ iso_epoch() { # iso_epoch <YYYY-MM-DDTHH:MM:SSZ>
 # run_check <words...>: a command check, run as words through exec in the
 # background and given a bounded time; success only when it exits 0.
 run_check() {
-  ( exec "$@" ) >/dev/null 2>&1 &
+  ( exec "$@" ) </dev/null >/dev/null 2>&1 &
   rc_pid=$!
   rc_i=0
   while kill -0 "$rc_pid" 2>/dev/null; do
@@ -1184,7 +1184,7 @@ v_followup() {
             ;;
           pr:*)
             au_ref=${au_done#pr:}
-            au_state=$(gh pr view "${au_ref#*#}" -R "${au_ref%%#*}" --json state --jq .state 2>/dev/null)
+            au_state=$(gh pr view "${au_ref#*#}" -R "${au_ref%%#*}" --json state --jq .state </dev/null 2>/dev/null)
             [ "$au_state" != MERGED ] || printf 'close\t%s\tpull request %s merged\n' "$au_id" "$(sanitize_printable "$au_ref")"
             ;;
         esac
