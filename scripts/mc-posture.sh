@@ -33,6 +33,11 @@ the check. Under the managed layer's allowManagedHooksOnly only its hooks
 count, and under its allowManagedPermissionRulesOnly only its deny entries;
 either set in another layer changes nothing.
 
+A floor held only in a parent directory's project layer is not loaded by a
+session rooted in a child directory, so the check fails for that start
+directory; the refusal names that layer and the fix (the user layer, or each
+repository's .claude/settings.json).
+
   --project  the project root (default: with PLANWRIGHT_MC_TOKEN, the
              directory the launcher started the session in; else
              CLAUDE_PROJECT_DIR; else the current directory, never a git
@@ -204,7 +209,29 @@ done
 printf '%s\n' "$floor_facts" | sed -n 's/^D //p' >"$tmpd/floor-deny"
 missing=$(awk 'FILENAME == ARGV[1] { have[$0] = 1; next } !($0 in have) { n++; if (n == 1) first = $0 }
   END { if (n) print n "\t" first }' "$union_deny" "$tmpd/floor-deny")
-[ -z "$missing" ] || fail "the shipped deny floor is not in force: ${missing%%"$TAB"*} of its entries are in no loaded settings layer, among them ${missing#*"$TAB"}"
+if [ -n "$missing" ]; then
+  # A parent directory's project layer is not loaded by a session rooted
+  # below it; naming it turns a cryptic refusal into an actionable one.
+  missing_first=${missing#*"$TAB"}
+  parent_hint=
+  anc=$(cd "$project" && pwd -P) || anc=$project
+  while [ "$managed_rules" = 0 ]; do
+    up=$(dirname "$anc")
+    [ "$up" != "$anc" ] || break
+    anc=$up
+    for pl in "$anc/.claude/settings.json" "$anc/.claude/settings.local.json"; do
+      [ -f "$pl" ] && [ -r "$pl" ] || continue
+      [ "$pl" != "$user_dir/settings.json" ] || continue
+      if facts "$pl" | grep -qxF "D $missing_first"; then
+        parent_hint=" (the floor is held in $pl, a parent directory's layer a session rooted in $project does not load)"
+        break 2
+      fi
+    done
+  done
+  fix_hint="put the floor in the user settings layer (${user_dir}/settings.json) or in each repository's .claude/settings.json"
+  [ "$managed_rules" = 0 ] || fix_hint="the managed settings file ($managed) sets allowManagedPermissionRulesOnly, so only its deny list counts: put the floor in the managed settings file"
+  fail "the shipped deny floor is not in force: ${missing%%"$TAB"*} of its entries are in no loaded settings layer, among them $missing_first$parent_hint; $fix_hint"
+fi
 
 # invocation <command>: the `scripts/<guard>.sh <args>` part of a shipped
 # hook command, up to its first non-word argument.
