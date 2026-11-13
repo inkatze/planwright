@@ -1017,6 +1017,7 @@ run_checks "checks (default): only skipped and neutral checks are not a pass" de
   '{"name":"a","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"b","workflowName":"ci","status":"COMPLETED","conclusion":"NEUTRAL","startedAt":"2026-11-05T19:00:00Z"}' 'no passed check'
 run_checks "checks (default): a skipped macOS job (a draft run) is not a pass" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard 1/4)","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"}' 'macos-suite .shard 1/4. is SKIPPED'
+# shellcheck disable=SC2016 # the matrix expression is the literal check name
 run_checks "checks (default): a stale skipped macOS shard beside green shards of the same job passes" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard 1/4)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:10:00Z"}'
 run_checks "checks (default): a skipped non-macOS job still passes" defer \

@@ -686,7 +686,9 @@ collect() {
   # labelled), so the walk must be told to want them green, not skipped.
   : >"$cl_tmp/require"
   cl_ci=${cl_ciwt:-$cl_first}
-  if grep -rqE --include='*.yml' '^  macos-(suite|smoke):' "$cl_ci/.github/workflows" 2>/dev/null; then
+  # find, not grep -r --include (busybox grep has no --include) and not a
+  # glob (this script runs with globbing off).
+  if [ -n "$(find "$cl_ci/.github/workflows" -name '*.yml' -exec grep -lE '^  macos-(suite|smoke):' {} + 2>/dev/null)" ]; then
     printf 'require\tmacos\n' >"$cl_tmp/require"
   fi
   printf '{"tool_name":"Bash","tool_input":{"command":"gh pr ready %s --repo %s"}}' "$3" "$2" >"$cl_tmp/payload"
