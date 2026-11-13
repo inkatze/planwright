@@ -58,6 +58,10 @@ export function usageStop(view: PanelView): UsageStop {
   const v = view.digest?.knobs['usage-hold']
   return v === undefined ? null : v === 0 ? 'off' : v
 }
+// Host load as load over cores, the one wording every card uses for it.
+const hostLoadWord = (host: { load: number | null; cores: number | null } | undefined) =>
+  host?.load != null && host.cores != null ? `${(host.load / 100).toFixed(1)}/${host.cores}` : 'unknown'
+
 const stopWord = (stop: UsageStop) => (stop === null ? 'stop unknown' : stop === 'off' ? 'no stop set' : `stop at ${stop}%`)
 const WINDOW_NAME: Record<string, string> = { five_hour: '5-hour', seven_day: 'weekly' }
 // The weekly window first: it is the limit the operator plans around.
@@ -104,7 +108,7 @@ export function readouts(view: PanelView): Readout[] {
     out.push(line('Machine load unknown, mem unknown', 'UNKNOWN'))
   } else {
     const isHot = (load !== null && cores !== null && load / cores >= 1) || (mem !== null && mem < LOW_MEMORY_PCT)
-    const loadWord = load === null ? 'unknown' : `${load.toFixed(1)}/${cores}`
+    const loadWord = hostLoadWord(host)
     out.push(
       line(`Machine load ${loadWord}, mem ${mem === null ? 'unknown' : `${mem}%`}`, isHot ? 'ACT' : load === null || mem === null ? 'UNKNOWN' : 'OK'),
     )
@@ -541,11 +545,11 @@ const HEADROOM_NAME: Record<string, string> = {
   host_load: 'Machine load',
 }
 
-// Machine load is a percent of the processors, so it reads as a percent of its
-// limit; the other limits are counts.
-function headroomRow(h: { dimension: string; used: number; limit: number; percent: number }): string {
+// Machine load reads as load over cores, the same as the top card; the other
+// limits are counts.
+function headroomRow(h: { dimension: string; used: number; limit: number; percent: number }, host: Parameters<typeof hostLoadWord>[0]): string {
   const name = HEADROOM_NAME[h.dimension] ?? h.dimension.replace(/_/g, ' ')
-  return h.dimension === 'host_load' ? `${name}: ${h.used}% of the ${h.limit}% limit` : `${name}: ${h.used} of ${h.limit} (${h.percent}%)`
+  return h.dimension === 'host_load' ? `${name}: ${hostLoadWord(host)}` : `${name}: ${h.used} of ${h.limit} (${h.percent}%)`
 }
 
 // The low-signal facts, plainly worded, in one compact card: how much of each
@@ -559,7 +563,7 @@ function upkeep(view: PanelView): string[] {
       ? 'Notes not written yet'
       : `Notes last updated ${age(d.kbAge)} ago`
   return [
-    ...d.headroom.map(headroomRow),
+    ...d.headroom.map(h => headroomRow(h, d.host)),
     `Context resets since start: ${view.compactions}`,
     notes,
   ]

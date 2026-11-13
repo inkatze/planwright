@@ -341,12 +341,54 @@ test('every limit mission control reports has a plain name and reads in plain wo
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const t = await rows(ui)
   expect(t).toContain('Mission control steps: 3 of 200 (2%)')
-  expect(t).toContain('Machine load: 10% of the 100% limit')
+  expect(t).toContain('Machine load: 1.5/4')
   expect(t).not.toContain('context steps')
   expect(t).not.toContain('host load')
   expect(t).not.toContain('of 100 (10%)')
+  expect(t).not.toContain('Machine load: 10% of the 100% limit')
   await ui.unmount()
 })
+
+test('the limits card words machine load as load over cores, the same as the top card', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: [tab('headroom', 'host_load', 60, 100, 60)] }).replace(/^host\t.*$/m, 'host\t720\t12\t50'),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t.some(r => r.includes('Machine load 7.2/12, mem 50%'))).toBe(true)
+  expect(t).toContain('Machine load: 7.2/12')
+  expect(t.some(r => r.includes('% of the 100% limit'))).toBe(false)
+  await ui.unmount()
+})
+
+test('the limits card says machine load is unknown when the host reading is missing', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: [tab('headroom', 'host_load', 60, 100, 60)] }).replace(/^host\t.*$/m, 'host\t-\t-\t-'),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain('Machine load: unknown')
+  await ui.unmount()
+})
+
+for (const [what, host] of [
+  ['the load', 'host\t-\t12\t50'],
+  ['the cores', 'host\t720\t-\t50'],
+] as const) {
+  test(`the limits card says machine load is unknown when only ${what} is missing`, async ($, on) => {
+    const w = world(on, {
+      digest: digestText({ extra: [tab('headroom', 'host_load', 60, 100, 60)] }).replace(/^host\t.*$/m, host),
+    })
+    await boot($, w)
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    const t = await rows(ui)
+    expect(t).toContain('Machine load: unknown')
+    expect(t.some(r => r.includes('NaN') || r.includes('/null'))).toBe(false)
+    await ui.unmount()
+  })
+}
 
 test('the summary counts a session that stopped responding apart from those working', async ($, on) => {
   const w = world(on, { digest: digestText({ extra: [tab('flight', 'st-1', 'billing:task-7', 'tmux', 'stuck')] }).replace(/^waiting\t.*$/m, 'waiting\t0') })
