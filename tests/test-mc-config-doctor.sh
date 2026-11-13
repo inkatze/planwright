@@ -358,6 +358,31 @@ expect_out "REQ-A1.9: drift: a rule naming the full knob name is a finding on th
 expect_no_out "REQ-A1.9: drift: a knob name inside a longer name is not matched as the shorter knob" "rule-knob${tab}r-8${tab}max_parallel_units"
 rm -f "$adopter/planwright.yml"
 
+# A standing rule that says run to 100% or no stops, against a usage-hold
+# knob that still holds below 100, is a rule-knob finding.
+reset_mc_fixture
+stops_home="$tmp/stops-home"
+printf 'mission_control_programs: [stops]\nprogram_stops_repositories: [%s]\nprogram_stops_spec_root: %s/specs\nprogram_stops_home: %s\n' "$repo" "$repo" "$stops_home" >"$tracked"
+mc_run mc-rules.sh add stops --text "Hold launches when a usage window reaches 90%." --subject usage --source "operator, fixture" --date 2026-01-01
+cfg doctor --program stops
+expect_no_out "usage-hold: a rule that names a hold and no run-to-100 is no finding" "rule-knob${tab}r-1"
+mc_run mc-rules.sh add stops --text "Run to 100% usage with no 90% or 95% stops: launch every ready unit." --subject usage-stops --source "operator, fixture" --date 2026-01-01
+cfg doctor --program stops
+expect_out "usage-hold: a run-to-100 rule against the shipped 90 hold is a finding with rule, knob, value and layer" "rule-knob${tab}r-2${tab}mission_control_usage_hold${tab}100${tab}90${tab}core"
+expect_out "usage-hold: the finding says the hold stops launches below 100" "says run to 100% but mission_control_usage_hold is 90"
+printf 'mission_control_usage_hold: 95\n' >"$adopter/planwright.yml"
+cfg doctor --program stops
+expect_out "usage-hold: a hold moved to another value below 100 is still a finding, with its layer" "rule-knob${tab}r-2${tab}mission_control_usage_hold${tab}100${tab}95${tab}adopter"
+printf 'mission_control_usage_hold: 100\n' >"$adopter/planwright.yml"
+cfg doctor --program stops
+expect_no_out "usage-hold: a hold at 100 agrees with the rule" "rule-knob${tab}r-2"
+printf 'mission_control_usage_hold: off\n' >"$adopter/planwright.yml"
+cfg doctor --program stops
+expect_no_out "usage-hold: a hold off (quota only) agrees with the rule" "rule-knob${tab}r-2"
+rm -f "$adopter/planwright.yml"
+reset_mc_fixture
+printf 'mission_control_programs: [drift]\nprogram_drift_repositories: [%s]\nprogram_drift_spec_root: %s/specs\nprogram_drift_home: %s\n' "$repo" "$repo" "$drift_home" >"$tracked"
+
 bs_dir="$tmp/back\\ntab\\tslash"
 mkdir -p "$bs_dir"
 bs_file="$bs_dir/planwright.yml"
