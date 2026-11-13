@@ -91,10 +91,13 @@ Usage:
       one line each, read-only:
         retire<TAB><session><TAB><launched><TAB>idle <n>s, bound <b>s
         handover<TAB><session><TAB><launched><TAB>lived <n>s, bound <b>s
-      idle past mission_control_worker_idle retires: a tmux session whose
+      idle past mission_control_worker_idle retires a tmux session whose
       pane has sat at the prompt that long, by the stall scan's last
-      sample, or a stream-json session whose last turn completed that long
-      ago. Otherwise, lived past mission_control_worker_lifetime since its
+      sample; a stream-json session whose last turn completed (status
+      `completed`, any result) past mission_control_worker_completed_grace
+      retires too, its line naming that result:
+        retire<TAB><session><TAB><launched><TAB>completed result=<r> <n>s ago, grace <g>s
+      so a finished worker stops holding a host slot. Otherwise, lived past mission_control_worker_lifetime since its
       launch hands over. A session whose last line is a question (a tmux
       pane the stall scan reads idle-question, a stream-json turn whose
       final text ends in `?`) is parked on the operator and never retired
@@ -600,6 +603,13 @@ idle_since_streamjson() {
   printf '%s\n' "$is_at"
 }
 
+# last_result <session>: the subtype of the session's last recorded result
+# (the second field of the rung's result record), sanitised for a line.
+last_result() {
+  lr_sub=$(awk -F '\t' 'NR == 1 { print $2 }' "$sj_root/$1/result" 2>/dev/null | mc_clean)
+  printf '%s' "${lr_sub:-unknown}"
+}
+
 # bounds: one retire or handover line per session a bound ends.
 # Repository-changing kinds only: a tower, an orchestrator and mission
 # control itself hand over through scripts/mc-handover.sh. A kickoff relay
@@ -621,16 +631,20 @@ bounds() {
   bd_idle=$(bound_secs mission_control_worker_idle) || return 1
   bd_now=${now:-$(mc_now)}
   bd_cut=$((bd_now - bd_idle))
+  bd_grace=$(bound_secs mission_control_worker_completed_grace) || return 1
+  bd_gcut=$((bd_now - bd_grace))
   [ -n "${sj_root:-}" ] || sj_root="$(mc_fleet_home)/streamjson" || return 1
   while IFS='	' read -r bd_s bd_b bd_l; do
     mc_valid_handle "$bd_s" || continue
     mc_valid_uint "$bd_l" || continue
     case $bd_b in
       tmux) bd_since=$(idle_since_tmux "$bd_s" "$bd_l" "$bd_cut") ;;
-      stream-json) bd_since=$(idle_since_streamjson "$bd_s" "$bd_l" "$bd_cut") ;;
+      stream-json) bd_since=$(idle_since_streamjson "$bd_s" "$bd_l" "$bd_gcut") ;;
       *) bd_since="" ;;
     esac
-    if [ -n "$bd_since" ]; then
+    if [ -n "$bd_since" ] && [ "$bd_b" = stream-json ]; then
+      printf 'retire\t%s\t%s\tcompleted result=%s %ss ago, grace %ss\n' "$bd_s" "$bd_l" "$(last_result "$bd_s")" $((bd_now - bd_since)) "$bd_grace"
+    elif [ -n "$bd_since" ]; then
       printf 'retire\t%s\t%s\tidle %ss, bound %ss\n' "$bd_s" "$bd_l" $((bd_now - bd_since)) "$bd_idle"
     elif [ $((bd_now - bd_l)) -ge "$bd_life" ]; then
       printf 'handover\t%s\t%s\tlived %ss, bound %ss\n' "$bd_s" "$bd_l" $((bd_now - bd_l)) "$bd_life"
@@ -650,7 +664,7 @@ request_handover() {
   /bin/bash "$script_dir/session-handover.sh" request --session "$1" --reason "$2" >/dev/null
 }
 
-# still_due <session> <launched> <backend> <cutoff>: the bounds' verdict
+# still_due <session> <launched> <backend> <idle-cutoff> <grace-cutoff>: the bounds' verdict
 # holds now: the registry row is still the launch decided on, and the
 # session is still idle since before the cutoff. A tmux pane is sampled
 # again first, so input since the pass's stall scan counts.
@@ -663,7 +677,7 @@ still_due() {
       /bin/bash "$script_dir/mc-stall.sh" classify --program "$program" ${now:+--now "$now"} "$1" >/dev/null 2>&1 || return 1
       [ -n "$(idle_since_tmux "$1" "$2" "$4")" ]
       ;;
-    stream-json) [ -n "$(idle_since_streamjson "$1" "$2" "$4")" ] ;;
+    stream-json) [ -n "$(idle_since_streamjson "$1" "$2" "$5")" ] ;;
     *) return 1 ;;
   esac
 }
@@ -718,10 +732,11 @@ EOF
     pw_lock_release "$runtime/keeper-bounds.lock" >/dev/null 2>&1
     return 1
   }
-  ab_cut=0
+  ab_cut=0 ab_gcut=0
   if [ -n "$ab_out" ]; then
-    if ab_idle=$(bound_secs mission_control_worker_idle); then
+    if ab_idle=$(bound_secs mission_control_worker_idle) && ab_grace=$(bound_secs mission_control_worker_completed_grace); then
       ab_cut=$((${now:-$(mc_now)} - ab_idle))
+      ab_gcut=$((${now:-$(mc_now)} - ab_grace))
     else
       ab_rc=1
     fi
@@ -743,7 +758,7 @@ EOF
           ab_rc=1
           continue
         fi
-        still_due "$ab_s" "$ab_l" "$ab_b" "$ab_cut" || continue
+        still_due "$ab_s" "$ab_l" "$ab_b" "$ab_cut" "$ab_gcut" || continue
         ab_r=$(launcher retire "$ab_s" 2>&1)
         case $? in
           0)
