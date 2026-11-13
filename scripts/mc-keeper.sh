@@ -506,13 +506,26 @@ run_pending_sweep() {
 # worker_program <worker> <launcher list> <fleet home>: the program a
 # stream-json worker belongs to: its launcher row's, else the owner its
 # dispatch record keeps (mission-control:<program>), which outlives a row that
-# was removed. Prints nothing when neither names one.
+# was removed, provided that program is still configured: a record naming a
+# removed one would send the prompt to a keeper that no longer runs. Prints
+# nothing when neither names one.
 worker_program() {
   wp_p=$(printf '%s\n' "$2" | W=$1 awk -F '\t' 'NF && $1 == ENVIRON["W"] { print $2; exit }')
   if [ -z "$wp_p" ]; then
     wp_m="$3/dispatch-markers/$1"
     if [ -f "$wp_m" ] && [ ! -L "$wp_m" ]; then
       wp_p=$(awk -F '\t' 'NR == 1 && index($3, "mission-control:") == 1 { print substr($3, 17) }' "$wp_m")
+      if [ -n "$wp_p" ]; then
+        wp_k=$(/bin/bash "$script_dir/mc-program.sh" list) || wp_k=""
+        case "
+$wp_k
+" in
+          *"
+$wp_p
+"*) ;;
+          *) wp_p="" ;;
+        esac
+      fi
     fi
   fi
   mc_valid_program "$wp_p" && printf '%s\n' "$wp_p"

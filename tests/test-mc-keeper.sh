@@ -40,7 +40,7 @@ command -v jq >/dev/null 2>&1 || {
 tab=$(printf '\t')
 reset_mc_fixture
 cat >"$tracked" <<EOF
-mission_control_programs: [alpha]
+mission_control_programs: [alpha, beta]
 program_alpha_repositories: [$repo]
 program_alpha_spec_root: $repo/specs
 program_alpha_home: $tmp/mchome
@@ -281,7 +281,10 @@ pp_req rl-fresh-orphan none
 printf 'aaaa1111-bbbb-cccc-dddd-eeee00000002\tpermission\t5190\tpending\n' >"$fleet/streamjson/rl-fresh-orphan/journal"
 keeper_as alpha 5200
 expect_out "a request that has just arrived on a worker no one owns is raised as unowned too" "announced${tab}stream-json-worker-unowned${tab}rl-fresh-orphan"
-rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/dispatch-markers"
+pp_req rl-gone mission-control:removedprog
+keeper_as alpha 5260
+expect_out "a worker whose record names a program no longer configured is raised as unowned" "announced${tab}stream-json-worker-unowned${tab}rl-gone"
+rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/streamjson/rl-gone" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-prompts" "$fleet/mission-control/alpha/keeper-unowned"
 
 # The ruling: the unowned event goes to the hub program, the one whose mission
