@@ -87,6 +87,10 @@ case "$knob" in
       exec /bin/sh "$rck" --key "$knob" --type enum --values 'refuse conflict-only checks' \
       --fallback refuse --degrade refuse
     ;;
+  ready_base_state_checks)
+    PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG='' \
+      exec /bin/sh "$rck" --key "$knob" --type globlist --fallback '' --degrade ''
+    ;;
   converge_sync_main)
     exec /bin/sh "$rck" --key "$knob" --type enum --values 'on-need always' --no-degrade
     ;;
