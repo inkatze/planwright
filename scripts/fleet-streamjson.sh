@@ -10,7 +10,9 @@
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
 # --output-format stream-json --verbose --permission-prompt-tool stdio
-# --settings <config/<profile>-settings.json> --name <worker>`, the profile
+# --settings <config/<profile>-settings.json> --name <worker>
+# --append-system-prompt <config/launch-shell-rules.txt, on one line>`, the
+# rules dropped with a warning when that file reads empty, the profile
 # worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept,
 # PLANWRIGHT_SESSION_BACKEND=stream-json (the background-job guard's key) and, for a
 # worker, the worker identity exported, so its hooks write attention rows and
@@ -2382,13 +2384,20 @@ cmd_launch() {
       rm -f "$dir/mise-task-edit"
     fi
   fi
+  # The shell rules go in the system prompt, not the brief: a long-running
+  # session compacts its first message away, and with it any rule the brief
+  # carried, while the appended system prompt stays. They are read from the
+  # profile's own install, so they never ask for a shape that install's guard
+  # does not approve. Joined onto one line: what reads a launch's argv back
+  # reads it by line.
+  shell_rules=$(/bin/sh "$script_dir/launch-shell-rules.sh" "$launch_settings" "$worker" </dev/null) || shell_rules=''
 
   # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
   # environment-hardening wrapper in front (it execs the rest, so the fifos
   # below still attach to the CLI), then -p with stream-json both ways,
   # --verbose (required with -p stream-json output), the stdio permission
   # prompt tool (the receipt channel), the reviewed worker-settings fragment
-  # (the mode source), and NEVER --bare.
+  # (the mode source), the shell rules when they read, and NEVER --bare.
   # A stream-json session never resumes on a background job's completion
   # notice. The wrapper turns this request into the session's
   # PLANWRIGHT_SESSION_BACKEND mark, which scripts/background-job-guard.sh
@@ -2400,7 +2409,8 @@ cmd_launch() {
   # opt-in to tmux windows. Every start, recover and relaunch passes here.
   unset TMUX TMUX_PANE
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
-    --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
+    --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" \
+    ${shell_rules:+--append-system-prompt "$shell_rules"} "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"
   fi

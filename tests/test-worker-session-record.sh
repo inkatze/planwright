@@ -586,6 +586,116 @@ else
 fi
 rm -f "$AH"
 
+echo "### pr: the unit branch's open PR, looked up, recorded for the guard"
+# A gh stand-in: it logs its arguments and prints what the case staged, so a
+# row controls what GitHub reports.
+mkdir -p "$T/ghbin"
+cat >"$T/ghbin/gh" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >"$T/gh.args"
+if [ -f "$T/gh.json" ]; then
+  while [ "\$#" -gt 0 ]; do
+    [ "\$1" = --jq ] && { jq -r "\$2" "$T/gh.json"; exit \$?; }
+    shift
+  done
+fi
+cat "$T/gh.out"
+exit "\$(cat "$T/gh.rc")"
+EOF
+chmod +x "$T/ghbin/gh"
+# record_pr <stdout> [<rc>]: stage gh's reply, run the verb against REC,
+# leaving its stdout in PROUT and its status in RC.
+record_pr() {
+  printf '%s' "$1" >"$T/gh.out"
+  printf '%s\n' "${2:-0}" >"$T/gh.rc"
+  PROUT=$(cd "$WT" && PATH="$T/ghbin:$PATH" PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/sh "$WRITER" pr 2>"$T/err")
+  RC=$?
+}
+write "$WT"
+before=$(grep -v '^pr_number=' "$REC")
+record_pr '42
+'
+if [ "$RC" -eq 0 ] && [ "$PROUT" = 42 ] && [ "$(field pr_number)" = 42 ] \
+  && [ "$(grep -v '^pr_number=' "$REC")" = "$before" ]; then
+  pass "pr: the one open PR's number is recorded, every other field kept"
+else
+  fail "pr: rc=$RC out=$PROUT pr_number=$(field pr_number) $(cat "$T/err")"
+fi
+case " $(cat "$T/gh.args") " in
+  *" pr list "*"--head $UNIT "*"--state open "*)
+    pass "pr: the PR is looked up by the record's unit branch, open ones only"
+    ;;
+  *) fail "pr: gh was asked: $(cat "$T/gh.args")" ;;
+esac
+if [ "$(decide "PLANWRIGHT_STEP_PR_NUMBER=42 $REPO_ROOT/scripts/step-run.sh resolve")" = allow ] \
+  && [ "$(decide "PLANWRIGHT_STEP_PR_NUMBER=43 $REPO_ROOT/scripts/step-run.sh resolve")" = defer ]; then
+  pass "pr: the guard approves the recorded number in the step context, and no other"
+else
+  fail "pr: the guard did not bind the step context to the recorded number"
+fi
+record_pr '43'
+if [ "$RC" -eq 0 ] && [ "$(grep -c '^pr_number=' "$REC")" = 1 ] && [ "$(field pr_number)" = 43 ]; then
+  pass "pr: a later run replaces the recorded number"
+else
+  fail "pr: a second run left $(grep -c '^pr_number=' "$REC") numbers"
+fi
+cp "$REC" "$T/rec.kept"
+for c in 'none open|' 'two open|7
+8' 'gh failing|7|1' 'not a number|7a' 'a leading zero|07'; do
+  name=${c%%|*}
+  rest=${c#*|}
+  case $rest in
+    *'|'*) record_pr "${rest%|*}" "${rest##*|}" ;;
+    *) record_pr "$rest" ;;
+  esac
+  if [ "$RC" -eq 1 ] && cmp -s "$REC" "$T/rec.kept"; then
+    pass "pr: $name refuses and leaves the record as it was"
+  else
+    fail "pr: $name: rc=$RC, record changed or kept wrongly"
+  fi
+done
+# GitHub lists a fork's PR under the same head name; only a same-repo PR binds.
+printf '%s\n' '[{"number":9,"isCrossRepository":true}]' >"$T/gh.json"
+record_pr ''
+if [ "$RC" -eq 1 ] && cmp -s "$REC" "$T/rec.kept"; then
+  pass "pr: a fork's PR alone refuses and leaves the record as it was"
+else
+  fail "pr: a fork's PR alone: rc=$RC, record changed or kept wrongly"
+fi
+printf '%s\n' '[{"number":9,"isCrossRepository":true},{"number":7,"isCrossRepository":false}]' >"$T/gh.json"
+record_pr ''
+if [ "$RC" -eq 0 ] && [ "$(field pr_number)" = 7 ]; then
+  pass "pr: the same-repo PR binds when a fork's PR shares the head name"
+else
+  fail "pr: a fork's PR beside the real one: rc=$RC pr_number=$(field pr_number)"
+fi
+rm -f "$T/gh.json"
+cp "$T/rec.kept" "$REC"
+cp "$REC" "$T/elsewhere.record"
+printf '%s\n' 7 >"$T/gh.out"
+printf '%s\n' 0 >"$T/gh.rc"
+(cd "$WT" && PATH="$T/ghbin:$PATH" PLANWRIGHT_WORKER_SESSION_RECORD=$T/elsewhere.record /bin/sh "$WRITER" pr >/dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 1 ] && cmp -s "$REC" "$T/elsewhere.record"; then
+  pass "pr: a record outside the fleet home's record directory is refused"
+else
+  fail "pr: rc=$RC for a record outside the record directory"
+fi
+(cd "$WT" && PATH="$T/ghbin:$PATH" PLANWRIGHT_WORKER_SESSION_RECORD='' /bin/sh "$WRITER" pr >/dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 1 ]; then
+  pass "pr: no session record is refused"
+else
+  fail "pr: rc=$RC with no session record"
+fi
+(cd "$WT" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/sh "$WRITER" pr 12 >/dev/null 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ] && cmp -s "$REC" "$T/rec.kept"; then
+  pass "pr: a number given by the caller is a usage error"
+else
+  fail "pr: rc=$RC for a caller-given number"
+fi
+
 echo "### the mise task-file opt-in is a launch-time field"
 write "$WT"
 if [ "$RC" -eq 0 ] && ! grep -q '^mise_task_edit=' "$REC"; then

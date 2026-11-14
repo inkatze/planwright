@@ -188,6 +188,10 @@ line two'
     want="headless-$SPEC-task-$ID" "$rec/argv" || fail "h1: argv does not name the session after its handle"
   awk 'p == "--settings" && $0 == want { ok = 1 } { p = $0 } END { exit !ok }' \
     want="$(cd "$REPO_ROOT" && pwd -P)/config/worker-settings.json" "$rec/argv" || fail "h1: argv does not pass the worker profile: $(tr '\n' ' ' <"$rec/argv")"
+  # The shell rules ride the system prompt as exactly one argument.
+  h_rules=$(tr -s '\r\n' '  ' <"$REPO_ROOT/config/launch-shell-rules.txt")
+  awk 'p == "--append-system-prompt" && $0 == want { ok = 1 } { p = $0 } END { exit !ok }' \
+    want="${h_rules% }" "$rec/argv" || fail "h1: argv does not append the shell rules as one argument: $(tr '\n' ' ' <"$rec/argv")"
   "$REPO_ROOT/scripts/orchestrate-relay.sh" validate-handle headless-oneshot "headless-$SPEC-task-$ID" \
     || fail "h1: the derived name fails the headless-oneshot grammar"
   [ "$(cat "$rec/inbound")" = accept ] || fail "h1: PLANWRIGHT_MESSAGING_INBOUND is not accept in the worker env"

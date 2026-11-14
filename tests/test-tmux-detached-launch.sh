@@ -80,6 +80,12 @@ check_worker() {
     *"$TAB--settings$TAB$ROOT/config/worker-settings.json$TAB"*) ;;
     *) fail "$label: the worker argv does not pass the worker profile: $argv" ;;
   esac
+  # The shell rules ride the system prompt as exactly one argument.
+  t_rules=$(tr -s '\r\n' '  ' <"$ROOT/config/launch-shell-rules.txt")
+  case "$argv$TAB" in
+    *"$TAB--append-system-prompt$TAB${t_rules% }$TAB"*) ;;
+    *) fail "$label: the worker argv does not append the shell rules: $argv" ;;
+  esac
   "$ROOT/scripts/orchestrate-relay.sh" validate-handle tmux "$handle" \
     || fail "$label: the derived name '$handle' fails the tmux handle grammar"
   v=$(tlh_worker_env "$rec" PLANWRIGHT_MESSAGING_INBOUND) || v='<unset>'

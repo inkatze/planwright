@@ -99,6 +99,14 @@ catch once fixed.
 stand; command substitution is admitted under D-11's narrow rule, segments
 are read in run order (D-19), and write-redirects and writers inside an
 enabled policy arm's roots are approvable (D-12, D-14).)*
+*(Amended 2026-11-08: the one prefix kept is the verification cadence's step
+context, `PLANWRIGHT_STEP_*` assignments in front of a trusted planwright
+script. A worker's Bash call is a fresh shell, so an export dies with the call
+and no single command could carry the context otherwise; each chained or
+staged form it forced prompted instead. The guard reads the run as written,
+approves only the fields and values the launcher's session record implies (D-23)
+and the PR number the worker recorded, and defers every other assignment as
+before. REQ-A1.9 carries the exception.)*
 
 ### D-4: `jq` for JSON field extraction, with graceful degradation; analysis in pure shell (N)
 

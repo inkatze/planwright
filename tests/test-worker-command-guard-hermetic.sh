@@ -34,7 +34,7 @@ if [ -n "${WCG_HERMETIC_INNER:-}" ]; then
   fi
   case $SANDBOX in
     "$INH_TMPDIR"/*) fail "the fixture sandbox sits under the session scratch" ;;
-    /tmp/*) pass "the fixture sandbox sits outside the session scratch" ;;
+    /tmp/* | "$(cd /tmp && pwd -P)"/*) pass "the fixture sandbox sits outside the session scratch" ;;
     *) fail "the fixture sandbox is at $SANDBOX" ;;
   esac
   assert_defer "a relative rm in the fixture sandbox is deferred" "rm -rf x"

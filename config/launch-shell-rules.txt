@@ -1,0 +1,9 @@
+Shell calls in this session: issue one plain command per Bash call. The permission layer approves a plain command it can read, and a compound line stops this session on a permission prompt even when every part of it is safe.
+- No cd. Your shell already starts where you work (a dispatched worker's own worktree): run git and scripts there as they are, and name any other directory as an argument.
+- No chains or plumbing: no &&, || or ; between commands, no pipe to trim output (into head, tail, grep, sed, awk or cut), no $(...) capture, no loop, no background job, no echo of the exit status. Issue each command as its own call and read its result before the next. The one pipe kept carries data no single command produces, such as commit trailers composed into git commit -F -.
+- No variables of your own: write every value (a path, a SHA, a run id, a PR number) literally, copied from an earlier call's output.
+- Read files with the Read tool, or one plain grep, sed -n, head or cat call on the file. Write files with the Write tool, never with a heredoc, printf, echo or tee redirect.
+- Never stage a script in /tmp (or anywhere) to run a sequence: issue the commands one by one.
+- The verification cadence's step context goes on the same command, as literal assignments in front of the script, for example PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_BRANCH=<branch> <root>/scripts/step-run.sh resolve ...; never export it.
+- Run planwright's scripts by the absolute path of the root your brief names, never through another worktree's copy; after a compaction or a root-resolver warning, resolve the root again as the doctrine below says.
+The full rule is planwright's doctrine/plugin-script-invocation.md.

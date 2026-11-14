@@ -128,6 +128,13 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #   SHIM_SLEEP        sleep after emitting (crash-window hold)
 #   SHIM_EXIT         exit code (default 0)
 printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
+# The appended system prompt as the one argument it must arrive as, which the
+# space-joined argv line cannot show.
+shim_prev=''
+for shim_a in "$@"; do
+  [ "$shim_prev" = --append-system-prompt ] && printf '%s\n' "$shim_a" >>"$SHIM_RECORD_DIR/system-prompt"
+  shim_prev=$shim_a
+done
 # The wrapper execs this shim, so it cannot appear in argv; what it leaves
 # behind is the environment, which is the property worth asserting.
 printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_RECORD_DIR/env"
@@ -616,11 +623,18 @@ rm -f "$wdir7/worker.pid"
 # duplicate request dedups across the boundary; the alarm re-arms.
 ev_resume="$tmp/ev7r"
 printf '%s\n%s\n' "$line_perm" "$line_result" >"$ev_resume"
+# The shell rules as the launcher appends them: one argument, newlines joined.
+rules_text=$(tr '\n' ' ' <"$here/../config/launch-shell-rules.txt") \
+  || fail "the shipped launch shell rules are missing"
+rules_text=${rules_text% }
 : >"$rec/argv"
+: >"$rec/system-prompt"
 senv "$home" "$rec" SHIM_EVENTS="$ev_resume" SHIM_READ_FIRST=0 -- \
   recover sjw7 --foreground || fail "c7: recovery exited non-zero"
 grep -q -- "--resume $sid" "$rec/argv" \
   || fail "c7: the relaunch must use --resume with the persisted session_id, got: $(cat "$rec/argv")"
+[ "$(cat "$rec/system-prompt")" = "$rules_text" ] \
+  || fail "c7: the relaunch must append the shipped shell rules again as one argument: $(cat "$rec/system-prompt")"
 [ "$(grep -c "^$req_perm$tab" "$wdir7/journal")" = 1 ] \
   || fail "c7: dedup on request identity must hold across the resume boundary"
 received=$(awk -F'\t' -v id="$req_perm" '$1 == id { print $3 }' "$wdir7/journal")
@@ -721,6 +735,15 @@ case "$argv_line " in
   *" --name sjw9 "*) : ;;
   *) fail "c9: the launch argv must name the session after its handle: $argv_line" ;;
 esac
+# The shell rules ride the launch as a system-prompt append, so a long-running
+# worker keeps them past a compaction that drops its first message.
+[ "$(wc -l <"$rec/argv")" -eq 1 ] || fail "c9: the launch argv must stay on one recorded line: $(cat "$rec/argv")"
+case $rules_text in
+  *"one plain command"*) : ;;
+  *) fail "c9: the launch shell rules must state the one-plain-command rule: $rules_text" ;;
+esac
+[ "$(cat "$rec/system-prompt" 2>/dev/null)" = "$rules_text" ] \
+  || fail "c9: the launch must append the shipped shell rules as one system-prompt argument: $(cat "$rec/system-prompt" 2>/dev/null)"
 "$here/../scripts/orchestrate-relay.sh" validate-handle stream-json-persistent sjw9 \
   || fail "c9: the derived name fails the stream-json-persistent grammar"
 for want in handle=sjw9 scope=execution-backends:4 inbound=accept; do
@@ -819,6 +842,28 @@ else
   [ ! -s "$rec/argv" ] || fail "c9: the unreadable-profile launch must never spawn the worker"
 fi
 chmod 644 "$tmp/badroot/config/worker-settings.json"
+# The shell rules come from the install whose profile the launch pins, and a
+# rules file that is missing or holds only blank lines degrades to a launch
+# without them, with a warning, never to a refusal or an empty append.
+mkdir -p "$tmp/norules"
+cp -R "$here/../scripts" "$tmp/norules/scripts"
+cp -R "$here/../config" "$tmp/norules/config"
+rm -f "$tmp/norules/config/launch-shell-rules.txt"
+for nr_case in missing blank; do
+  [ "$nr_case" = blank ] && printf '\n\n \n' >"$tmp/norules/config/launch-shell-rules.txt"
+  : >"$rec/argv"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_ROOT="$tmp/norules" \
+    PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
+    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" \
+    /bin/sh "$here/../scripts/fleet-streamjson.sh" \
+    launch "sjw9nr-$nr_case" execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
+    >/dev/null 2>"$tmp/norules.err" \
+    || fail "c9: a $nr_case rules file under the pinned root must not refuse the launch: $(cat "$tmp/norules.err")"
+  grep -q 'launches without the shell rules' "$tmp/norules.err" \
+    || fail "c9: a $nr_case rules file must warn that the launch goes without them: $(cat "$tmp/norules.err")"
+  grep -q -- '--append-system-prompt' "$rec/argv" \
+    && fail "c9: a $nr_case rules file under the pinned root must append no system prompt: $(cat "$rec/argv")"
+done
 echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 
 # ---------------------------------------------------------------------------

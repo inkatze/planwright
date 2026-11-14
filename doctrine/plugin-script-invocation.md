@@ -74,13 +74,18 @@ literal command prefix followed by plain arguments. So a line such as
 as a prompt even when every command in it is routine. Issue **one plain
 command per Bash call** instead:
 
-- **No `cd`.** Pass the directory as an argument (`git -C <dir>`, a script's
-  `--checkout <dir>`), or rely on the session's working directory, which for a
-  dispatched worker is its own worktree.
+- **No `cd`.** A dispatched worker's shell starts in its own worktree, so
+  `git` and scripts run there as written, with no `cd` and no `git -C`. Name
+  any other directory as an argument (`git -C <dir>`, a script's
+  `--checkout <dir>`).
 - **No variable assignments.** Substitute every resolved value literally, the
   way the root is substituted above. A value one command prints (a config
   value, a SHA) is read from that call's result and written literally into the
-  next call, never captured with `$(...)`.
+  next call, never captured with `$(...)`. The one prefix kept is the step
+  context: literal `PLANWRIGHT_STEP_*` assignments in front of the script
+  call they serve, never exported, since each call is a fresh shell.
+- **No staged scripts.** Never write a sequence into a file to run it as one
+  call; issue its commands one by one.
 - **No chains.** No `;`, `&&`, or `||` between commands: each command is its
   own call, issued after the previous call's result has been read.
 - **No display pipes.** Never pipe into `sed`, `awk`, `head`, `tail`, `grep`,
@@ -90,8 +95,19 @@ command per Bash call** instead:
   comes from a file written with the file-writing tool (`< <file>`), never
   from an `echo` or `printf` pipe. A pipe that carries data one command cannot
   produce alone, such as the commit-trailer composition, is the one kept form.
+- **No loops or background jobs.** No `for`, `while` or `until`, and no `&`
+  or `nohup`: an unbounded loop or detached job is a compound line the guard
+  defers. Issue each iteration as its own call, and wait on a job in the
+  foreground.
+- **Files are written with the Write tool.** Never with a heredoc, `printf`,
+  `echo` or `tee` redirect; read them with the Read tool or one plain
+  `grep`, `sed -n`, `head` or `cat` call on the file.
 - **Exit status from the result.** The tool result already reports the exit
   code; never append `echo rc=$?` or a similar probe.
+
+A stream-json, tmux or headless launch appends these rules to the session's system prompt
+(`config/launch-shell-rules.txt`, which changes with this section), so a
+session keeps them after compaction drops its brief.
 
 A declared command step's `--line` rendering is not an exception to strip: it
 runs exactly as the resolver prints it, its quoted `PLANWRIGHT_STEP_*`

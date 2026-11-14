@@ -571,6 +571,7 @@ do_launch() {
     exit 2
   fi
   l_profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null) || exit 2
+  l_rules=$(/bin/sh "$script_dir/launch-shell-rules.sh" "$l_profile" "the headless worker" </dev/null) || l_rules=''
 
   # Collision guard: never double-dispatch a unit whose runner may be live.
   # Death is decided by positive evidence only; UNKNOWN refuses too (lost
@@ -688,7 +689,8 @@ do_launch() {
   # completion, and only an untrappable SIGKILL leaves the positive-evidence
   # `died` verdict.
   nohup /bin/sh "$SELF" run-worker "$unit_dir" "$l_worktree" "$l_handle" "$l_scope" -- \
-    "$l_bin" --print --output-format json --settings "$l_profile" --name "$l_handle" "$@" \
+    "$l_bin" --print --output-format json --settings "$l_profile" --name "$l_handle" \
+    ${l_rules:+--append-system-prompt "$l_rules"} "$@" \
     >/dev/null 2>&1 </dev/null &
   l_pid=$!
   if ! printf '%s\n' "$l_pid" >"$unit_dir/pid"; then

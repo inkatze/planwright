@@ -63,7 +63,8 @@
 # it uses no construct the analyzer cannot confidently parse — process
 # substitution, a command substitution outside the narrow form
 # verify_known_simple and subst_words_ok admit, here-docs, subshell or brace
-# grouping, env-assignment prefixes, path-prefixed verbs, escaped operators,
+# grouping, env-assignment prefixes (but the step context, strip_step_context),
+# path-prefixed verbs, escaped operators,
 # ANSI-C quoting, shell comments, named-fd redirects — all of which defer
 # (REQ-A1.9). The segments are read in run order, so the state one sets applies to those after it: a `cd` into the
 # session's own worktree moves the working directory later segments are
@@ -1022,6 +1023,11 @@ guard_mkdir() {
 # apart from the worktree and the scratch root in both directions, and the
 # session's log there (audit_append) a regular file or absent. Without one,
 # the policy drops both write arms, so neither approves a write with no log.
+#
+# The PR number is the one field written after launch: the worker records its
+# unit branch's open PR once it exists (worker-session-record.sh pr, which
+# looks it up and takes no number from the worker), and the step context's
+# PR number must equal it.
 REC_POLICY=''
 REC_UNIT=''
 REC_WT=''
@@ -1029,6 +1035,7 @@ REC_BASE=''
 REC_BASE_MERGE=''
 REC_SCRATCH=''
 REC_AUDIT_LOG=''
+REC_PR=''
 # 1 when the launch opted in to editing the worktree's own mise task files
 # (the record's mise_task_edit=1); see ob_excluded_name.
 REC_MISE_TASKS=0
@@ -1062,7 +1069,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' mt=''
+  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' pr='' mt=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1089,6 +1096,7 @@ session_record_load() {
       worker_base_merge) bm=$v ;;
       scratch_root) sr=$v ;;
       audit_log_home) ah=$v ;;
+      pr_number) pr=$v ;;
       mise_task_edit) mt=$v ;;
     esac
   done <"$p"
@@ -1099,6 +1107,14 @@ session_record_load() {
   case $dup in *" worker_base_merge "*) bm='' ;; esac
   case $dup in *" scratch_root "*) sr='' ;; esac
   case $dup in *" audit_log_home "*) ah='' ;; esac
+  case $dup in *" pr_number "*) pr='' ;; esac
+  case $pr in
+    [1-9] | [1-9]*[0-9]) ;;
+    *) pr='' ;;
+  esac
+  case $pr in
+    *[!0-9]*) pr='' ;;
+  esac
   case $dup in *" mise_task_edit "*) mt='' ;; esac
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
@@ -1195,6 +1211,7 @@ session_record_load() {
   REC_BASE=$base
   REC_BASE_MERGE=$bm
   REC_SCRATCH=$sr
+  REC_PR=$pr
   REC_MISE_TASKS=0
   [ "$mt" != 1 ] || REC_MISE_TASKS=1
 }
@@ -2746,6 +2763,19 @@ jq_home_safe() {
   return 0
 }
 
+# jq_data_path_ok <index>: 0 when word <index> is a plain literal path inside
+# the worktree or the scratch root. ob_path's audit marks a write arm, and a
+# read is no arm's act, so the marks are put back (as guard_gitleaks does).
+jq_data_path_ok() {
+  local n=$1 ao=$AUDIT_OB as=$AUDIT_SC
+  [ "$n" -lt "$cwn" ] || return 1
+  [ "${cqp[n]}" -lt 0 ] && ! word_unresolved "${cw[n]}" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" || return 1
+  ob_path "${cw[n]}" exists read || return 1
+  AUDIT_OB=$ao
+  AUDIT_SC=$as
+  return 0
+}
+
 # guard_jq: strict flag allowlist plus the environment-read and module checks
 # on the filter. Only the inline-filter form is verifiable, so `-f`/`--from-file`
 # (a filter in a file) and `-L`/`--library-path` (which is where `include` and
@@ -2780,7 +2810,14 @@ guard_jq() {
           expect=1
           continue
           ;;
-        --arg | --argjson | --slurpfile | --rawfile)
+        --arg | --argjson)
+          expect=2
+          continue
+          ;;
+        --slurpfile | --rawfile)
+          # The second word is a file loaded into a variable: a path outside
+          # the worktree and the scratch root is a read of anything on disk.
+          jq_data_path_ok "$((i + 2))" || return 1
           expect=2
           continue
           ;;
@@ -3395,6 +3432,22 @@ gh_no_web() {
   return 0
 }
 
+# gh_no_method: 0 unless a request-method flag (`-X`, `--method`) is present.
+# The read verbs take none, so one is a sign the command is not the read it
+# looks like.
+gh_no_method() {
+  local i
+  for ((i = 2; i < cwn; i++)); do
+    case ${cw[i]} in
+      --) break ;;
+      --method | --method=*) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "${cw[i]}" 'X' 'Hqpt' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # gh_release_ok: `gh release view|list` with no `--web`/`-w` (it launches
 # $BROWSER) and no `--repo`/`-R` override (REQ-A1.17). `-R` and `-w` can ride
 # in a short cluster, and the value-taking short flags end one.
@@ -3464,14 +3517,14 @@ guard_gh() {
       ;;
     pr | issue)
       case $s in
-        view | list | status | diff | checks) gh_no_web || return 1 ;;
+        view | list | status | diff | checks) gh_no_web && gh_no_method || return 1 ;;
         *) return 1 ;;
       esac
       return 0
       ;;
     run)
       case $s in
-        view | list) gh_no_web || return 1 ;;
+        view | list) gh_no_web && gh_no_method || return 1 ;;
         *) return 1 ;; # download / rerun / cancel / delete / watch
       esac
       return 0
@@ -3756,7 +3809,8 @@ ls_remote_url_ok() {
 #     shell itself consumes, evaluates as arithmetic, or rewrites on its own
 #     (IFS, CDPATH, the BASH_* family, PS4, RANDOM, REPLY, UID...);
 #   * the name and the `=` are unquoted, and the word is the WHOLE simple
-#     command: an assignment PREFIX before a verb still defers (REQ-A1.9);
+#     command: an assignment PREFIX before a verb still defers (REQ-A1.9),
+#     the step context strip_step_context reads aside;
 #   * the VALUE is any literal of a plain character set (see
 #     assign_value_literal), bare or quoted as a whole from its first
 #     character; one carrying an expansion, any other character, a quote
@@ -4857,6 +4911,44 @@ step_context_value_ok() {
   return 0
 }
 
+# The fields a caller of step-run.sh supplies; it computes the rest itself.
+readonly STEP_CALLER_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER'
+
+# step_context_record_ok <field> <value>: the value the session record implies
+# for a field, so a worker can carry its own unit's context and no other. The
+# unit comes from the record's unit branch (a flight carries no spec or task
+# ids), the worktree and base from its worktree root and PR base, the PR
+# number from the one the worker recorded (none before its PR exists).
+step_context_record_ok() {
+  local f=$1 v=$2 kind spec ids
+  [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] || return 1
+  case $REC_UNIT in
+    planwright/flight/*)
+      kind=flight spec='' ids=''
+      ;;
+    planwright/*/task-*)
+      kind=task
+      spec=${REC_UNIT#planwright/}
+      spec=${spec%%/*}
+      ids=${REC_UNIT##*/task-}
+      ids=${ids//-/ }
+      ;;
+    *) return 1 ;;
+  esac
+  case $f in
+    UNIT_KIND) [ "$v" = "$kind" ] ;;
+    SPEC) [ "$v" = "$spec" ] ;;
+    # Exactly the branch's ids, in its order: a subset or reorder is another
+    # unit's context.
+    TASK_IDS) [ "$v" = "$ids" ] ;;
+    BRANCH) [ "$v" = "$REC_UNIT" ] ;;
+    BASE_BRANCH) [ -n "$REC_BASE" ] && { [ "$v" = "$REC_BASE" ] || [ "origin/$v" = "$REC_BASE" ]; } ;;
+    WORKTREE) [ "$v" = "$REC_WT" ] || [ "$v" = "$REC_WT/" ] ;;
+    PR_NUMBER) [ "$v" = "$REC_PR" ] ;;
+    *) return 1 ;;
+  esac
+}
+
 # step_pool_hold_ok <value>: the resolver's hold mark, `<pool>:<pid>`, the pool
 # in the step-id charset (at most 64 bytes) and the pid decimal with no
 # leading zero (at most ten digits), as scripts/step-pool.sh reads it.
@@ -5153,13 +5245,17 @@ is_duration() {
 # call is. The prefix is an optional bare `env` followed only by, or plain
 # leading, `PLANWRIGHT_STEP_<field>=<literal>` words, every field one of
 # STEP_CONTEXT_FIELDS, every value bare (no quote, expansion, glob or
-# substitution), inside the charset of a branch, path or number, and valid for
-# its field. The word after them must be step-run.sh or step-record.sh under an
-# installed planwright root; anything else leaves the words untouched, and the
+# substitution; a quoted literal in the same charset passes), inside the charset
+# of a branch, path or number, and valid for its field. A field is carried once,
+# and, before any script, a caller field must be the value the session record
+# implies. The word
+# after them must be a script under an installed planwright root; anything else
+# leaves the words untouched, and the
 # `env` operands or the assignment prefix then defer as before. The pool hold
 # mark stays with declared_line_ok: it claims a pool a declaration must back.
 strip_step_context() {
-  local i=0 first f w name
+  local i=0 first f w name seen=' ' runner_field=0 n
+  local -a rec_f=() rec_v=()
   [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] || return 0
   # An expansion that changed the word count is not the words as written.
   [ "$cwn" -eq "$swn" ] || return 0
@@ -5179,24 +5275,58 @@ strip_step_context() {
       *" $f "*) ;;
       *) return 0 ;;
     esac
-    [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "$w" ] && [ -z "${csub[i]-}" ] || return 0
+    # A quote before the `=` makes the word a command name, not an assignment;
+    # one inside the value only quotes a literal, which the charset below holds
+    # to the same bare characters.
+    if [ "${swq[i]}" -ge 0 ] && [ "${swq[i]}" -le "${#name}" ]; then
+      return 0
+    fi
+    [ "${cw[i]}" = "$w" ] && [ -z "${csub[i]-}" ] || return 0
     word_unresolved "$w" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
     # The charset leaves out `=`: zsh expands `=cmd` and `:=` forms in an
-    # assignment (assign_value_literal refuses the same).
+    # assignment (assign_value_literal refuses the same). A quoted task-id
+    # list is the one value that carries a space.
     case ${w#*=} in
-      *[!A-Za-z0-9._/:@%,+-]*) return 0 ;;
+      *[!A-Za-z0-9._/:@%,+-]*)
+        { [ "$f" = TASK_IDS ] && [ "${swq[i]}" -ge 0 ] && case ${w#*=} in *[!0-9.\ ]*) false ;; esac } || return 0
+        ;;
     esac
     step_context_value_ok "$f" "${w#*=}" || return 0
+    # A field carried twice is ambiguous.
+    case $seen in
+      *" $f "*) return 0 ;;
+    esac
+    seen="$seen$f "
+    case " $STEP_CALLER_FIELDS " in
+      *" $f "*)
+        rec_f[${#rec_f[@]}]=$f
+        rec_v[${#rec_v[@]}]=${w#*=}
+        ;;
+      *) runner_field=1 ;;
+    esac
     i=$((i + 1))
   done
   [ "$i" -gt "$first" ] && [ "$i" -lt "$swn" ] || return 0
   [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "${sw[i]}" ] || return 0
   word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 0
-  case ${cw[i]} in
-    */step-run.sh | */step-record.sh) ;;
-    *) return 0 ;;
+  # Any installed planwright script, as the cadence's resolver calls need; never
+  # the compute router, which runs whatever follows its `--`.
+  case ${cw[i]##*/} in
+    [Cc][Oo][Mm][Pp][Uu][Tt][Ee]-[Rr][Oo][Uu][Tt][Ee].[Ss][Hh]) return 0 ;;
   esac
   is_planwright_script "${cw[i]}" "$HOOK_CWD" || return 0
+  # The runner's own fields and the `env` form are for the step runner and
+  # recorder. Any other trusted script takes the caller's fields as plain
+  # leading assignments only. Every script, the runner and recorder included,
+  # takes each caller field as the value the session record implies, so a
+  # worker carries its own unit's context only.
+  case ${cw[i]##*/} in
+    step-run.sh | step-record.sh) ;;
+    *) [ "$runner_field" = 0 ] && [ "$first" -eq 0 ] || return 0 ;;
+  esac
+  for ((n = 0; n < ${#rec_f[@]}; n++)); do
+    step_context_record_ok "${rec_f[n]}" "${rec_v[n]}" || return 0
+  done
   shift_words "$i"
 }
 
@@ -5212,6 +5342,7 @@ strip_step_context() {
 # defers it.
 strip_prefixes() {
   PREFIXED=0
+  strip_env_chdir
   # `time` is a keyword only when written as a bare word, and `-p` its option
   # only when written bare too (a quoted `"-p"` is the command it runs), so
   # both are read from the unsubstituted words (`sw` / `swq`, verify_simple's
@@ -5270,6 +5401,33 @@ strip_compute_route() {
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) return 1 ;;
   esac
+  return 0
+}
+
+# strip_env_chdir: drop a leading `env --chdir=<dir>` (the one env option
+# admitted, with no assignment or other option) when <dir> is a plain literal
+# naming the directory the command already runs in, which is inside the
+# session's own worktree: the prefix then changes nothing, so the command it
+# wraps is verified as if it stood alone. Any other shape is left as the verb,
+# and the bare-env check defers it. Sets PREFIXED when it strips.
+strip_env_chdir() {
+  local v base
+  [ "${cw[0]}" = env ] && [ "$cwn" -ge 3 ] && [ "${cqp[0]}" -lt 0 ] && [ "${cqp[1]}" -lt 0 ] || return 0
+  case ${cw[1]} in
+    --chdir=?*) ;;
+    *) return 0 ;;
+  esac
+  v=${cw[1]#--chdir=}
+  cw[1]=$v
+  if own_dir_ok 1; then
+    base=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || base=''
+    if [ -n "$base" ] && [ "$OWN_DIR" = "$base" ]; then
+      shift_words 2
+      PREFIXED=1
+      return 0
+    fi
+  fi
+  cw[1]=--chdir=$v
   return 0
 }
 

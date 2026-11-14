@@ -916,7 +916,8 @@ open\". A landed relaunch skips the push-and-create line, fires \`post-pr\`
 only if the Relaunch bullet says it is still due, and runs the sequence after
 it (re-emit, draft check, completion) either way.
 
-Now the draft PR exists: fire \`post-pr\` (*Work and the points*) with the PR's
+Now the draft PR exists: record its number with \`$brief_root/scripts/worker-session-record.sh pr\`
+(the mapping below), then fire \`post-pr\` (*Work and the points*) with the PR's
 number as \`PLANWRIGHT_STEP_PR_NUMBER\`. After its list, run the sequence
 \`/execute-task\` runs after its own \`post-pr\` list (its *PR creation* section,
 read from that skill), less the unit-PR ready flip, which a flight never
@@ -1012,9 +1013,14 @@ record naming what the line printed."
     printf '%s\n' "  checked under: call the resolver as"
     printf '%s\n' "  \`$_resolver <point> --explain --unattended\`,"
     printf '%s\n' "  and every other script the procedure names under that root's \`scripts/\`."
-    printf '%s\n' "- Export the step context with \`PLANWRIGHT_STEP_UNIT_KIND=flight\`, an empty"
-    printf '%s\n' "  spec and task ids, branch \`$branch\`, base branch \`main\`, and this worktree;"
-    printf '%s\n' "  an isolated step's launch tier takes the unit \`flight:$flight_id\`."
+    printf '%s\n' "- Pass the step context as literal assignments in front of each"
+    printf '%s\n' "  \`step-run.sh\` and \`resolve-steps.sh\` call, in that same command, never"
+    printf '%s\n' "  exported (each Bash call is a fresh shell): \`PLANWRIGHT_STEP_UNIT_KIND=flight\`,"
+    printf '%s\n' "  an empty spec and task ids, branch \`$branch\`, base branch \`main\`, and this"
+    printf '%s\n' "  worktree; an isolated step's launch tier takes the unit \`flight:$flight_id\`."
+    printf '%s\n' "- Once the PR is open, run \`$brief_root/scripts/worker-session-record.sh pr\` to"
+    printf '%s\n' "  record its number, then pass it as \`PLANWRIGHT_STEP_PR_NUMBER\`; the guard"
+    printf '%s\n' "  approves only the recorded number."
     printf '%s\n' "- Relaunch: issue one run id per worker launch. A relaunched worker fires"
     printf '%s\n' "  again, each at its moment below, every point no run of this flight"
     printf '%s\n' "  completed without a halted, failed, or limited step (\`step-record.sh list\`"
