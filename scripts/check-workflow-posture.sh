@@ -928,7 +928,7 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
   if (job_body < 0) job_body = indent
   if (indent == job_body && !isseq) {
     in_steps = 0; in_container = 0; in_strategy = 0
-    if (key == "strategy") { in_strategy = 1; if (val ~ /matrix/) printf "M\t%s\n", cur }
+    if (key == "strategy") { in_strategy = 1; if (val != "" && val !~ /^[|>]/) printf "M\t%s\n", cur }
     if (key == "runs-on") printf "O\t%s\t%s\n", cur, clean(unquote(val))
     else if (key == "container") { if (val != "") printf "C\t%s\t%s\n", cur, clean(unquote(val)); else in_container = 1 }
     else if (key == "if") {
@@ -940,7 +940,7 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
     if (scalar) { bs = 1; bs_indent = kindent }
     next
   }
-  if (in_strategy && haskey && key == "matrix") printf "M\t%s\n", cur
+  if (in_strategy && ((haskey && key == "matrix") || body ~ /^[{[]/)) printf "M\t%s\n", cur
   if (in_container && haskey && key == "image") { printf "C\t%s\t%s\n", cur, clean(unquote(val)); in_container = 0 }
   if (in_steps && indent >= job_body) {
     stepkey = 0

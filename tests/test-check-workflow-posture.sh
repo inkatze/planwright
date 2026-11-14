@@ -1934,6 +1934,14 @@ matrix_case "matrix: the install smoke in two Alpine jobs fails" 1 "2 \`install 
   "M_LINT_STEP=$SMOKE_JOB"
 matrix_case "matrix: the install smoke in a sharded Alpine job fails" 1 "strategy.matrix" \
   "M_ALP_JOB=$SHARDED"
+matrix_case "matrix: a whole-strategy expression on the smoke job fails closed" 1 "strategy.matrix" \
+  "M_ALP_JOB=    strategy: \$\{\{ fromJSON(needs.plan.outputs.shards) \}\}"
+matrix_case "matrix: a flow mapping under strategy on the smoke job fails closed" 1 "strategy.matrix" \
+  "M_ALP_JOB=    strategy:
+      { matrix: { shard: [1, 2] } }"
+matrix_case "matrix: a strategy without a matrix on the smoke job passes" 0 "holds the platform matrix" \
+  "M_ALP_JOB=    strategy:
+      fail-fast: false"
 matrix_case "matrix: a sharded Alpine job of its own carrying the smoke fails" 1 "strategy.matrix" \
   DROP_ALPINE_SMOKE=1 "M_LINT_STEP=$SMOKE_JOB
 $SHARDED"
