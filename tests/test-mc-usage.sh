@@ -438,10 +438,13 @@ write_tracked
 write_mirror 40 95
 watch "$now"
 expect_out "a hold starts at 95% under the shipped threshold" "event${tab}usage-held${tab}weekly${tab}"
+mc_run mc-usage.sh enqueue --program alpha --kind tower --scope knob-one --brief "$tmp/brief.md" --backend stream-json
+expect_rc "a unit queued under the hold" 0
 write_tracked "mission_control_usage_hold: off"
 watch "$((now + 60))"
 expect_rc "the watch after the hold was turned off" 0
 expect_out "turning the hold off releases it with its own event" "event${tab}usage-released${tab}weekly${tab}"
+expect_out "a knob release still drains the queue, as any hold-free watch does" "launched${tab}"
 expect_out "the release says the threshold is off" "the hold threshold is off"
 expect_out "the release names the window's real usage" "weekly usage window is still at 95%"
 expect_out "the release names the window's real reset time" "resets $(date -u -d "@$week_at" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$week_at" +%Y-%m-%dT%H:%M:%SZ)"
