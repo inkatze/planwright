@@ -64,7 +64,8 @@ these knobs, each value checked by its kind:
       mission_control_event_retention, mission_control_measure_window,
       mission_control_repeat_window, mission_control_audit_idle_after,
       mission_control_deadline_horizon, mission_control_escalation_window,
-      mission_control_stalled_pipeline_window
+      mission_control_stalled_pipeline_window,
+      mission_control_stalled_draft_threshold
   a count of at least one           mission_control_repeat_threshold,
       mission_control_shadow_promote_after, mission_control_handover_wakes,
       mission_control_handover_compactions
@@ -245,7 +246,7 @@ knob_parser() {
       mission_control_stall_window | mission_control_handover_window | mission_control_event_retention | \
       mission_control_measure_window | mission_control_repeat_window | mission_control_audit_idle_after | \
       mission_control_deadline_horizon | mission_control_escalation_window | \
-      mission_control_stalled_pipeline_window)
+      mission_control_stalled_pipeline_window | mission_control_stalled_draft_threshold)
       printf 'mc_parse_cadence\n'
       ;;
     mission_control_repeat_threshold | mission_control_shadow_promote_after | mission_control_handover_wakes | \
