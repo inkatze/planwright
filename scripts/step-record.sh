@@ -804,8 +804,8 @@ worktree=$(cd -P -- "$worktree" && pwd -P) || bad --worktree "not readable"
 cache="$worktree/.claude/steps"
 # Fields git knows are filled when unset, and an exported one that disagrees
 # with git is refused (scripts/step-context.sh).
-# shellcheck source=scripts/step-context.sh
 [ -r "$script_dir/step-context.sh" ] || die 1 "step-context.sh is missing or unreadable (broken install)"
+# shellcheck source=scripts/step-context.sh
 . "$script_dir/step-context.sh"
 
 case $verb in

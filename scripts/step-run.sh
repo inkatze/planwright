@@ -245,8 +245,8 @@ launch_context() {
 launch_context
 # What git knows fills any field still unset; an exported one that disagrees
 # with git is refused.
-# shellcheck source=scripts/step-context.sh
 [ -r "$script_dir/step-context.sh" ] || die 2 "step-context.sh is missing or unreadable (broken install)"
+# shellcheck source=scripts/step-context.sh
 . "$script_dir/step-context.sh"
 
 [ "$verb" = audit ] || step_context_derive "$worktree" step-run || exit 2

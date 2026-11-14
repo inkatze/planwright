@@ -1397,12 +1397,19 @@ GH_STUB_FAIL=0
 export GH_STUB_LOG GH_STUB_FAIL
 
 sr2() { PATH="$stub:$PATH" "$SR" --worktree "$wt2" "$@"; }
-# Real commits on one branch, so each is reachable from the worktree's HEAD.
-for _l in A B C D E F G X Y; do
+mkcommit() {
   git -C "$wt2" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
-    commit -q --allow-empty -m "chore: fixture $_l"
-  eval "H_$_l=$(git -C "$wt2" rev-parse HEAD)"
-done
+    commit -q --allow-empty -m "chore: fixture $1" && git -C "$wt2" rev-parse HEAD
+}
+H_A=$(mkcommit A)
+H_B=$(mkcommit B)
+H_C=$(mkcommit C)
+H_D=$(mkcommit D)
+H_E=$(mkcommit E)
+H_F=$(mkcommit F)
+H_G=$(mkcommit G)
+H_X=$(mkcommit X)
+H_Y=$(mkcommit Y)
 
 # step_rec <run> <point> <outcome> <head>: one step record at the point.
 step_rec() {
@@ -1518,8 +1525,8 @@ verdict "another point's failed record does not fail this point's status" "rc=$S
 
 # A head with no completion record is refused, with no post.
 r=$(sr2 new-run)
-step_rec "$r" pre-ready-flip passed $H_Y
-post_state pre-ready-flip $H_Y
+step_rec "$r" pre-ready-flip passed "$H_Y"
+post_state pre-ready-flip "$H_Y"
 [ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ] && grep -Fq 'no completion record' "$tmp/st.err"
 verdict_of $? "status refuses a head with no completion record, posting nothing" "rc=$ST_RC: $(cat "$tmp/st.err")"
 post_state pre-spec-ready-flip "$H_A"
