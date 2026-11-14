@@ -686,7 +686,10 @@ parse_deps() {
   raw_deps=$1
   clean_deps=""
   deps_malformed=0
-  for tok in $(printf '%s' "$raw_deps" | tr ',' ' '); do
+  # An item may carry a `Task ` prefix ("Task 1, Task 4.2"): it reads as the
+  # bare id. Only a `Task` directly before an id is dropped, so `Task foo` is
+  # still malformed.
+  for tok in $(printf '%s' "$raw_deps" | tr ',' ' ' | sed -E 's/(^|[[:space:]])Task[[:space:]]+([0-9])/\1\2/g'); do
     # A prose dependency list commonly ends its final entry with a period
     # ("...Task 13."). Strip a trailing run of periods so the id is still
     # recognized: a task id (n or n.m) always ends in a digit, so this only ever
