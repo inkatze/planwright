@@ -59,6 +59,7 @@ case \${args[0]}:\${args[1]} in
     jq -r "\$jqp" <"\$f"
     ;;
   api:*)
+    echo "\${args[1]}" >>"$tmp/gh.calls"
     case \${args[1]} in
       repos/*/issues/*) f="$tmp/issue.\${args[1]##*/}.json" ;;
       repos/*/check-runs*) f="$tmp/window.json" ;;
@@ -263,6 +264,26 @@ pr 7 "$H" "Holding pattern, nothing is blocked." '[{"name":"stakeholder-review"}
 row 7 "$H" FAILURE | put "$T"
 run "$T"
 expect_out "a label or line that only contains hold is no hold" "raised${tab}draft-stalled${tab}1"
+
+# --- a reference cut out of a longer path is no reference -------------------
+rm -f "$runtime"/draft-stall.tsv
+pr 7 "$H" "Blocked by example/foo/bar#50 and #51." '[]' "$(cancelled "$T")"
+printf '{"state":"open"}' >"$tmp/issue.50.json"
+printf '{"state":"closed"}' >"$tmp/issue.51.json"
+row 7 "$H" FAILURE | put "$T"
+run "$T"
+expect_out "only the standalone reference counts, and it is closed" "raised${tab}draft-stalled${tab}1"
+
+# --- a reference several drafts name is read once a pass --------------------
+rm -f "$runtime"/draft-stall.tsv "$tmp/gh.calls"
+for n in 7 8; do pr "$n" "$H" "Waiting on #52." '[]' "$(cancelled "$T")"; done
+printf '{"state":"open"}' >"$tmp/issue.52.json"
+{
+  row 7 "$H" FAILURE
+  row 8 "$H" FAILURE
+} | put "$T"
+run "$T"
+if [ "$(grep -c 'issues/52' "$tmp/gh.calls")" = 1 ]; then ok "the shared reference is read once"; else fail "read it $(grep -c 'issues/52' "$tmp/gh.calls") times"; fi
 
 # --- twenty stalled drafts fit the event cap, the rest wait a pass ----------
 rm -f "$runtime"/draft-stall.tsv

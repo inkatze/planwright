@@ -163,6 +163,22 @@ JQ_PROG="${base_json:-[]} as \$base_state | $jq_runs"'
       else empty end),
   ((.body // "") | split("\n")[] | select(test("^[^A-Za-z0-9]*(hold|held|blocked|waiting|waits|depends on)\\b"; "i")) | "holdline\t" + (gsub("[\t\r]"; " ")))'
 
+# forge_read <key> <command...>: its one-line answer, `unreadable` when it fails.
+# A pass reads each key once however many drafts name it; hold_state runs in a
+# command substitution, so the answers live in a file.
+: >"$scratch/cache.tsv"
+forge_read() {
+  fr_key=$1
+  shift
+  fr_val=$(awk -F '\t' -v k="$fr_key" '$1 == k { print $2; exit }' "$scratch/cache.tsv")
+  if [ -z "$fr_val" ]; then
+    fr_val=$("$@" 2>"$scratch/err") || fr_val=unreadable
+    [ -n "$fr_val" ] || fr_val=unreadable
+    printf '%s\t%s\n' "$fr_key" "$fr_val" >>"$scratch/cache.tsv"
+  fi
+  printf '%s\n' "$fr_val"
+}
+
 # hold_state <slug> <pr file> <own number>: `none` when the pull request states
 # no hold, `applies <why>` when one still does, else `cleared <why>`.
 hold_state() {
@@ -182,7 +198,15 @@ hold_state() {
   }
   hs_refs=$(printf '%s\n' "$hs_lines" | awk '{
     s = $0
-    while (match(s, /[A-Za-z0-9_.-]*\/?[A-Za-z0-9_.-]*#[0-9]+/)) { print substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH) }
+    full = $0
+    off = 0
+    # A reference stands alone: one cut out of a longer path or word is no reference.
+    while (match(s, /[A-Za-z0-9_.-]*\/?[A-Za-z0-9_.-]*#[0-9]+/)) {
+      before = (off + RSTART > 1) ? substr(full, off + RSTART - 1, 1) : ""
+      if (before == "" || before !~ /[A-Za-z0-9_.\/-]/) print substr(s, RSTART, RLENGTH)
+      off += RSTART + RLENGTH - 1
+      s = substr(s, RSTART + RLENGTH)
+    }
   }' | awk '!seen[$0]++' | head -n "$MAX_REFS")
   hs_window=0
   printf '%s\n' "$hs_lines" | grep -qiE 'release window|untagged window' && hs_window=1
@@ -198,7 +222,7 @@ hold_state() {
     mc_valid_uint "$hs_n" || continue
     [ "$hs_rs#$hs_n" != "$hs_slug#$hs_self" ] || continue
     hs_named=1
-    hs_st=$(gh api "repos/$hs_rs/issues/$hs_n" --jq '.state' 2>"$scratch/err") || hs_st=unreadable
+    hs_st=$(forge_read "issue $hs_rs#$hs_n" gh api "repos/$hs_rs/issues/$hs_n" --jq '.state')
     case $hs_st in
       closed) hs_why="${hs_why}${hs_why:+, }$hs_rs#$hs_n is closed or merged" ;;
       *)
@@ -211,8 +235,8 @@ $hs_refs
 EOF
   if [ "$hs_window" = 1 ]; then
     hs_named=1
-    hs_wl=$(gh api "repos/$hs_slug/commits/${hs_base:-main}/check-runs?check_name=window-lock" \
-      --jq '[.check_runs[] | .conclusion // "pending"] | if length == 0 then "none" else .[0] end' 2>"$scratch/err") || hs_wl=unreadable
+    hs_wl=$(forge_read "window $hs_slug ${hs_base:-main}" gh api "repos/$hs_slug/commits/${hs_base:-main}/check-runs?check_name=window-lock" \
+      --jq '[.check_runs[] | .conclusion // "pending"] | if length == 0 then "none" else .[0] end')
     case $hs_wl in
       none | success | skipped | neutral) hs_why="${hs_why}${hs_why:+, }the release window is closed" ;;
       *)
