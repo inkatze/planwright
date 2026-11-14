@@ -110,33 +110,33 @@ duties:
     never-propose: false
   - id: undo-ledger
     summary: "Records how to reverse every act taken on the operator's behalf"
-    triggers: []
-    watchers: []
-    wake: none
+    triggers: [undo-revert-stuck]
+    watchers: [scripts/mc-duty-watch.sh@1h/low]
+    wake: undo-revert-stuck
     rules: []
     kinds: []
     files: undo-ledger
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: self-audit
     summary: "Checks what was done against the standing rules and flags rules that collide"
-    triggers: []
-    watchers: []
-    wake: none
+    triggers: [self-audit-finding]
+    watchers: [scripts/mc-duty-watch.sh@1d/low]
+    wake: self-audit-finding
     rules: []
     kinds: []
     files: self-audit
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: proposals
     summary: "Notices repeated manual steps and proposes the smallest mechanism that covers them"
-    triggers: []
-    watchers: []
-    wake: none
+    triggers: [proposal-repeat]
+    watchers: [scripts/mc-duty-watch.sh@1h/low]
+    wake: proposal-repeat
     rules: []
     kinds: []
     files: proposals
-    lifecycle: "off"
+    lifecycle: live
     never-propose: false
   - id: throughput
     summary: "Measures where the work's time goes and raises the single biggest bottleneck"

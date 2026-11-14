@@ -15,7 +15,12 @@
 #     names a duty the catalog lacks;
 #   - a `snapshot` source, in the default state-source map or a program's,
 #     with no adapter in the merged snapshot-adapters catalog
-#     (scripts/mc-snapshot.sh check), the source named.
+#     (scripts/mc-snapshot.sh check), the source named;
+#   - a paragraph of docs/mission-control.md or skills/mission-control/SKILL.md
+#     naming a duty by its backticked id when that duty has no armed entry (off,
+#     or with neither a watcher nor a trigger) and the paragraph lacks the
+#     phrase "not yet available"; and a default duty with no armed entry when
+#     the SKILL.md's guided first run lacks the phrase.
 #
 # Only the core and repo-tracked layers are read: the adopter overlay and the
 # machine-local config are pointed at an empty scratch directory, and HOME
@@ -182,6 +187,59 @@ if programs=$(run mc-program.sh list); then
   done
 else
   relay mission_control_programs
+fi
+
+# A duty the operator guide or the first run presents as working must be
+# armed: live or shadow, with a watcher or a trigger. A paragraph naming an
+# unarmed duty by its backticked id says "not yet available", and so does the
+# first run when the default set holds one.
+phrase="not yet available"
+unarmed=""
+while IFS= read -r ua_id; do
+  [ -n "$ua_id" ] || continue
+  ua_life=$(run mc-duties.sh get "$ua_id" lifecycle) || continue
+  ua_w=$(run mc-duties.sh get "$ua_id" watchers) || continue
+  ua_t=$(run mc-duties.sh get "$ua_id" triggers) || continue
+  ua_w=$(printf '%s' "$ua_w" | tr -d ' ')
+  ua_t=$(printf '%s' "$ua_t" | tr -d ' ')
+  if [ "$ua_life" = off ] || { [ "$ua_w" = '[]' ] && [ "$ua_t" = '[]' ]; }; then
+    unarmed="$unarmed$ua_id
+"
+  fi
+done <<UNARMED
+$ids
+UNARMED
+if [ -n "$unarmed" ]; then
+  for guide_rel in docs/mission-control.md skills/mission-control/SKILL.md; do
+    [ -r "$core/$guide_rel" ] || continue
+    UNARMED=$unarmed awk -v phrase="$phrase" 'BEGIN { RS = ""; n = split(ENVIRON["UNARMED"], u, "\n"); for (i = 1; i <= n; i++) if (u[i] != "") bad[u[i]] = 1 }
+      { whole = $0; gsub(/[ \t\n]+/, " ", whole); p = whole; seen = ""
+        while (match(p, /`[a-z0-9][a-z0-9-]*`/)) {
+          id = substr(p, RSTART + 1, RLENGTH - 2); p = substr(p, RSTART + RLENGTH)
+          if ((id in bad) && index(seen, " " id " ") == 0 && index(whole, phrase) == 0) { print id; seen = seen " " id " " }
+        } }' "$core/$guide_rel" >"$scratch/guide.out"
+    while IFS= read -r g_id; do
+      [ -n "$g_id" ] || continue
+      finding "$guide_rel presents duty '$g_id' with no armed entry; say \"$phrase\""
+    done <"$scratch/guide.out"
+  done
+  if [ -r "$core/skills/mission-control/SKILL.md" ]; then
+    first_run=$(awk '/^## Guided first run/ { on = 1; next } on && /^## / { exit } on { print }' "$core/skills/mission-control/SKILL.md" | tr -s ' \n' '  ')
+    for d_id in $default_duties; do
+      case "
+$unarmed
+" in
+        *"
+$d_id
+"*)
+          case $first_run in
+            *"$phrase"*) ;;
+            *) finding "the default duty '$d_id' has no armed entry, and the first run in skills/mission-control/SKILL.md does not say \"$phrase\"" ;;
+          esac
+          ;;
+      esac
+    done
+  fi
 fi
 
 if [ "$findings" -ne 0 ]; then

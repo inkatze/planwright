@@ -252,9 +252,8 @@ expect_err "the catalog is refused, not the duty skipped" "refusing an invalid c
 rm -f "$repo/.claude/catalogs/duties.yaml"
 
 # An adopter override taking a later duty's directory is the adopter's
-# fault: the override is skipped and the core duty it collided with stays.
-# The core entry the override superseded is gone from the merged catalog,
-# so it is not restored.
+# fault: the override is skipped and the core entry it superseded stays in
+# force, so the duty keeps working as shipped (REQ-C1.8).
 cat >"$adopter/catalogs/duties.yaml" <<'EOF'
 duties:
   - id: alpha-duty
@@ -277,7 +276,8 @@ program_alpha_duties: [alpha-duty, beta-duty]
 EOF
 mc_run mc-duties.sh watchers --program alpha
 expect_rc "an adopter override colliding on a directory is skipped, not refused" 0
-expect_eq "the skipped override arms nothing, and the off core duty nothing" ""
+expect_eq "the skipped override leaves the shipped alpha-duty armed, and the off core duty nothing" "alpha-duty${tab}scripts/alpha-watch.sh${tab}5m${tab}low
+alpha-duty${tab}scripts/alpha-sweep.sh${tab}1h${tab}medium"
 expect_err "the override is the one skipped" "skipping duty 'alpha-duty' from the adopter layer"
 
 # A layer is named by id, not by place: the resolver groups its output by
@@ -494,6 +494,128 @@ expect_eq "a wrapped list joins through an overlay's merge" "[first-event, secon
 case $ERR in *"not a field"*) fail "the merge lost a wrapped line: $ERR" ;; *) ok "with no line lost" ;; esac
 mc_run mc-duties.sh get wrap-duty triggers
 expect_eq "the core entry still joins beside the overlay" "[first-event, second-event, third-event]"
+reset_mc_fixture
+
+# ---------------------------------------------------------------------------
+# REQ-C1.8: an overlay entry the catalog skips as invalid leaves the next
+# lower layer's valid entry in force.
+# ---------------------------------------------------------------------------
+mc_ml="$repo/.claude/catalogs.local/duties.yaml"
+mkdir -p "$repo/.claude/catalogs.local"
+alpha_program() {
+  cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty]
+EOF
+}
+# alpha_entry <watcher> <lifecycle>: a superseding alpha-duty entry.
+alpha_entry() {
+  printf '%s\n' 'duties:' '  - id: alpha-duty' '    supersede: true' '    summary: "An override"' \
+    '    triggers: []' "    watchers: [$1]" '    wake: none' '    rules: []' '    kinds: []' \
+    '    files: alpha' "    lifecycle: $2" '    never-propose: false'
+}
+core_alpha="alpha-duty${tab}scripts/alpha-watch.sh${tab}5m${tab}low
+alpha-duty${tab}scripts/alpha-sweep.sh${tab}1h${tab}medium"
+
+reset_mc_fixture
+alpha_program
+alpha_entry scripts/adopter-watch.sh@5m/low bogus >"$adopter/catalogs/duties.yaml"
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "REQ-C1.8: an invalid superseding adopter entry is skipped, not refused" 0
+expect_eq "REQ-C1.8: the shipped entry stays armed under an invalid adopter supersede" "$core_alpha"
+expect_err "REQ-C1.8: the skip is still warned about" "skipping duty 'alpha-duty' from the adopter layer"
+mc_run mc-duties.sh files --program alpha
+expect_eq "REQ-C1.8: the shipped entry's directory stays owned" "alpha-duty${tab}alpha"
+
+# A valid adopter supersede is the entry in force; an invalid machine-local
+# one over it leaves the adopter's, not the shipped one.
+alpha_entry scripts/adopter-watch.sh@7m/low live >"$adopter/catalogs/duties.yaml"
+alpha_entry scripts/local-watch.sh@3m/low bogus >"$mc_ml"
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "REQ-C1.8: an invalid machine-local supersede is skipped, not refused" 0
+expect_eq "REQ-C1.8: the adopter's valid entry stays armed under an invalid machine-local one" "alpha-duty${tab}scripts/adopter-watch.sh${tab}7m${tab}low"
+expect_err "REQ-C1.8: the machine-local skip names its layer" "from the machine-local layer"
+
+# Both overlay entries invalid: the shipped entry is the next valid one down.
+alpha_entry scripts/adopter-watch.sh@7m/low bogus >"$adopter/catalogs/duties.yaml"
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "REQ-C1.8: two invalid overlay supersedes are both skipped" 0
+expect_eq "REQ-C1.8: the shipped entry stays armed under two invalid supersedes" "$core_alpha"
+
+# A valid machine-local supersede still wins over everything below it.
+alpha_entry scripts/local-watch.sh@3m/low live >"$mc_ml"
+mc_run mc-duties.sh watchers --program alpha
+expect_eq "REQ-C1.8: a valid machine-local supersede is the entry in force" "alpha-duty${tab}scripts/local-watch.sh${tab}3m${tab}low"
+
+# A restored entry that clashes with another duty's directory must not take
+# the catalog down: the override is skipped by id, as before the fallback.
+rm -f "$mc_ml"
+alpha_entry scripts/adopter-watch.sh@7m/low bogus | sed 's#files: alpha#files: zzz#' >"$adopter/catalogs/duties.yaml"
+alpha_entry scripts/gamma-watch.sh@5m/low live | sed -n '2,$p' | sed 's/id: alpha-duty/id: gamma-duty/; /supersede: true/d' >>"$adopter/catalogs/duties.yaml"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty, gamma-duty]
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "REQ-C1.8: a fallback clashing on a directory does not refuse the catalog" 0
+expect_out "REQ-C1.8: the clash leaves the other adopter duty armed" "gamma-duty${tab}scripts/gamma-watch.sh"
+alpha_program
+
+# An invalid addition with nothing below it is skipped and arms nothing.
+rm -f "$mc_ml" "$adopter/catalogs/duties.yaml"
+alpha_entry scripts/new-watch.sh@5m/low bogus | sed 's/id: alpha-duty/id: new-duty/; /supersede: true/d; s/files: alpha/files: new/' >"$adopter/catalogs/duties.yaml"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty, new-duty]
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "REQ-C1.8: an invalid addition with no lower layer is skipped" 0
+expect_eq "REQ-C1.8: only the shipped duty arms beside it" "$core_alpha"
+rm -f "$adopter/catalogs/duties.yaml"
+rmdir "$repo/.claude/catalogs.local"
+
+# ---------------------------------------------------------------------------
+# REQ-C1.8, REQ-C1.4: the shipped undo-ledger, self-audit and proposals
+# duties arm a watcher each when enabled, and none of them when disabled.
+# ---------------------------------------------------------------------------
+shipped_core=$core
+core=$repo_root
+armed_duties="undo-ledger self-audit proposals"
+for d in $armed_duties; do
+  cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [$d]
+EOF
+  mc_run mc-duties.sh watchers --program alpha
+  expect_rc "REQ-C1.8: enabling $d resolves" 0
+  expect_out "REQ-C1.8: enabling $d arms its watcher" "$d${tab}scripts/"
+  mc_run mc-duties.sh files --program alpha
+  expect_eq "REQ-C1.8: enabling $d owns its directory" "$d${tab}$d"
+  mc_run mc-duties.sh watchers --program alpha
+  script=$(printf '%s\n' "$OUT" | awk -F '\t' 'NR == 1 { print $2 }')
+  if [ -f "$repo_root/$script" ]; then ok "REQ-C1.8: the $d watcher script exists"; else fail "REQ-C1.8: the $d watcher script $script is missing"; fi
+  # Disabled: the program enables only a duty that is not this one.
+  other=inbox
+  cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [$other]
+EOF
+  mc_run mc-duties.sh watchers --program alpha
+  expect_no_out "REQ-C1.4: disabling $d leaves no watcher" "$d${tab}"
+  mc_run mc-duties.sh files --program alpha
+  expect_no_out "REQ-C1.4: disabling $d leaves no directory" "$d${tab}"
+done
+core=$shipped_core
 reset_mc_fixture
 
 mc_run mc-duties.sh watchers
