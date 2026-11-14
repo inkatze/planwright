@@ -258,7 +258,11 @@
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
 #       then relaunch with `--resume <session_id>`, in --cwd when given and
 #       otherwise in the caller's directory (a session resumes only from the
-#       directory it started in). A missing session halts
+#       directory it started in). A worker a mission control launched keeps
+#       its launcher registry row and recorded owner whoever runs the
+#       recover (a missing row is rebuilt from its launch directory); one
+#       nothing places is raised once to the escalation hub as unowned. A
+#       missing session halts
 #       with exit 4, a failed resume with exit 5 — both surfaced as
 #       attention items (the Awaiting-input halt of the affected unit; the
 #       tower and other workers continue).
@@ -2887,9 +2891,11 @@ cmd__frame_check() {
 # control) would otherwise record that identity, or none, and leave the worker
 # with no program for its prompts to be routed to. The owner is the launcher's
 # registry row (rebuilt from the launch directory when it is gone), else the
-# one the dispatch record already holds; a worker neither places is raised once
-# to the hub as unowned. Only a mission-control launch (an `mc-` name) has a
-# row, so any other worker recovers as it always did.
+# one the dispatch record already holds. A worker neither places is not
+# registered under the caller's identity, and is raised once to the hub as
+# unowned when the launcher confirms there is no launch state to rebuild from.
+# Only a mission-control launch (an `mc-` name) has a row, so any other worker
+# recovers as it always did.
 recover_owner() {
   case $1 in
     mc-*) ;;
@@ -2897,13 +2903,16 @@ recover_owner() {
   esac
   ro_tab=$(printf '\t')
   ro_owner=''
-  ro_out=$(/bin/sh "$script_dir/mission-control-launch.sh" restore "$1" </dev/null 2>&1)
+  ro_err="$2/.restore.err"
+  ro_rc=0
+  ro_out=$(/bin/sh "$script_dir/mission-control-launch.sh" restore "$1" </dev/null 2>"$ro_err") || ro_rc=$?
   case $ro_out in
-    present"$ro_tab"* | restored"$ro_tab"*)
-      ro_owner=${ro_out##*"$ro_tab"}
-      ;;
-    *) printf '%s\n' "$me: $ro_out" >&2 ;;
+    present"$ro_tab"* | restored"$ro_tab"*) ro_owner=${ro_out##*"$ro_tab"} ;;
   esac
+  if [ -z "$ro_owner" ] && [ "$ro_rc" -ne 4 ]; then
+    printf '%s\n' "$me: the registry row of $1 could not be read or restored: $(cat "$ro_err" 2>/dev/null)" >&2
+  fi
+  rm -f "$ro_err"
   if [ -z "$ro_owner" ]; then
     ro_owner=$(/bin/sh "$FS" registry 2>/dev/null </dev/null | awk -F '\t' -v h="$1" '$2 == h { o = $4 } END { print o }')
   fi
@@ -2911,19 +2920,27 @@ recover_owner() {
     '' | - | unknown-owner | *[!A-Za-z0-9._:-]*) ro_owner='' ;;
   esac
   if [ -n "$ro_owner" ]; then
+    rm -f "$2/unowned-raised"
     PLANWRIGHT_TOWER_ID=$ro_owner
     export PLANWRIGHT_TOWER_ID
     return 0
   fi
+  # Nothing places it: the caller's identity is not this worker's owner.
+  drop_tower_identity
+  [ "$ro_rc" -eq 4 ] || return 0
   [ ! -e "$2/unowned-raised" ] || return 0
-  ro_hub=$(/bin/sh "$script_dir/config-get.sh" mission_control_escalation_hub 2>/dev/null </dev/null) || ro_hub=''
+  ro_hub=''
+  if ! ro_hub=$(/bin/sh "$script_dir/config-get.sh" mission_control_escalation_hub </dev/null); then
+    printf '%s\n' "$me: cannot read mission_control_escalation_hub; the unowned worker $1 is not raised" >&2
+    return 0
+  fi
   case $ro_hub in
     '' | none) return 0 ;;
   esac
   if /bin/bash "$script_dir/mc-event.sh" emit --program "$ro_hub" -- mission-control-escalated "$1" \
     "worker $1 was recovered and no program can place it (no registry row, no launch directory and no owner on its dispatch record); it is unowned" \
     >/dev/null </dev/null; then
-    : >"$2/unowned-raised"
+    : >"$2/unowned-raised" || printf '%s\n' "$me: could not record that the unowned worker $1 was raised; it may be raised again" >&2
   else
     printf '%s\n' "$me: could not raise the unowned worker $1 to the hub program $ro_hub" >&2
   fi

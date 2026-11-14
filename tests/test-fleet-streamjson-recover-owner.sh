@@ -114,7 +114,11 @@ sj() {
 rows="$fleet/mission-control/sessions"
 launches="$fleet/mission-control/launch"
 
-# launched <name> <owner-or-empty> [<program> <kind>]: launch the worker as
+# nm <program> <kind> <scope>: the name the launcher derives, which restore
+# checks a launch directory's provenance line against.
+nm() { (mc_env /bin/sh "$repo_root/scripts/mission-control-launch.sh" name --program "$1" --kind "$2" --scope "$3"); }
+
+# launched <name> <owner-or-empty> [<program> <kind> <scope>]: launch the worker as
 # its mission control would, then stop it so a recover is what resumes it;
 # with a program, the launcher's row and launch directory are written the way
 # the launcher writes them.
@@ -132,9 +136,9 @@ launched() {
     || fail "setup: $l_name never persisted its session"
   if [ -n "${3:-}" ]; then
     mkdir -p "$rows" "$launches/$l_name"
-    printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\t1-abc\npid\t1\nprogram\t%s\nowner\tmission-control:%s\nkind\t%s\nscope\tdemo:task-1\nbackend\tstream-json\nhandle\t%s\nprofile\tworker\ntier\t-\nreserved\t-\nbrief\t%s\ncwd\t%s\ntask\t-\nprimary\t-\nmarker\t-\nlaunched\t1\n' \
-      "$l_name" "$3" "$3" "$4" "$l_name" "$launches/$l_name/brief.md" "$repo" >"$rows/$l_name"
-    printf '<!-- mission-control launch: %s (kind %s, scope demo:task-1, program %s) -->\n' "$l_name" "$4" "$3" >"$launches/$l_name/brief.md"
+    printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\t1-abc\npid\t1\nprogram\t%s\nowner\tmission-control:%s\nkind\t%s\nscope\t%s\nbackend\tstream-json\nhandle\t%s\nprofile\tworker\ntier\t-\nreserved\t-\nbrief\t%s\ncwd\t%s\ntask\t-\nprimary\t-\nmarker\t-\nlaunched\t1\n' \
+      "$l_name" "$3" "$3" "$4" "$5" "$l_name" "$launches/$l_name/brief.md" "$repo" >"$rows/$l_name"
+    printf '<!-- mission-control launch: %s (kind %s, scope %s, program %s) -->\n' "$l_name" "$4" "$5" "$3" >"$launches/$l_name/brief.md"
   fi
   sj -- stop "$l_name" --grace 2 >/dev/null 2>&1
 }
@@ -172,8 +176,8 @@ watch() {
 # o1, o2: the row, program and owner survive a recover run by another program's
 # mission control, and the prompt reaches the owner's keeper only.
 # ---------------------------------------------------------------------------
-w1=mc-alpha-worker-0000000001
-launched "$w1" mission-control:alpha alpha worker
+w1=$(nm alpha worker s1)
+launched "$w1" mission-control:alpha alpha worker s1
 before=$(cksum <"$rows/$w1")
 recovered "$w1" PLANWRIGHT_TOWER_ID=mission-control:beta
 [ "$(cksum <"$rows/$w1")" = "$before" ] && ok "o1: the recovered worker's registry row is untouched" \
@@ -196,8 +200,8 @@ case $b_out in *"$w1"*) fail "o2: another program's keeper announced the prompt:
 # ---------------------------------------------------------------------------
 # o3: a missing row is rebuilt from the launch directory.
 # ---------------------------------------------------------------------------
-w3=mc-alpha-worker-0000000003
-launched "$w3" mission-control:alpha alpha worker
+w3=$(nm alpha worker s3)
+launched "$w3" mission-control:alpha alpha worker s3
 rm -f "$rows/$w3"
 recovered "$w3" PLANWRIGHT_TOWER_ID=mission-control:beta
 if [ -f "$rows/$w3" ]; then
@@ -205,7 +209,7 @@ if [ -f "$rows/$w3" ]; then
 else
   fail "o3: the recover left no registry row"
 fi
-for kv in 'program alpha' 'owner mission-control:alpha' 'kind worker' 'scope demo:task-1' 'backend stream-json' 'format 1' "name $w3"; do
+for kv in 'program alpha' 'owner mission-control:alpha' 'kind worker' 'scope s3' 'backend stream-json' 'format 1' "name $w3"; do
   [ "$(awk -F '\t' -v k="${kv%% *}" '$1 == k { print $2 }' "$rows/$w3" 2>/dev/null)" = "${kv#* }" ] \
     || fail "o3: the rebuilt row's ${kv%% *} is not ${kv#* }"
 done
@@ -213,7 +217,13 @@ done
   || fail "o3: the dispatch record's owner is '$(owner_of "$w3")'"
 list=$(mc_env /bin/sh "$repo_root/scripts/mission-control-launch.sh" list)
 case $list in *"$w3${tab}alpha${tab}worker"*) ok "o3: the launcher lists the rebuilt row under its program" ;; *) fail "o3: the launcher's list: $list" ;; esac
+for kv in 'state launched' "cwd $repo" "handle $w3" 'profile worker'; do
+  [ "$(awk -F '\t' -v k="${kv%% *}" '$1 == k { print $2 }' "$rows/$w3")" = "${kv#* }" ] \
+    || fail "o3: the rebuilt row's ${kv%% *} is not ${kv#* }"
+done
 pending "$w3" 5000
+a_out=$(watch alpha)
+case $a_out in *"announced${tab}pending-prompt${tab}$w3"*) ok "o3: the rebuilt row's program hears the prompt" ;; *) fail "o3: the owner heard nothing: $a_out" ;; esac
 b_out=$(watch beta)
 case $b_out in *"$w3"*) fail "o3: another program's keeper announced the rebuilt worker: $b_out" ;; *) ok "o3: the rebuilt row keeps the prompt from every other program" ;; esac
 
@@ -243,6 +253,32 @@ case $hub_events in *unowned*) ok "o5: the event says the worker is unowned" ;; 
 alpha_events=$(mc_env /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha)
 case $alpha_events in *"$w5"*) fail "o5: the unowned worker was raised to a program: $alpha_events" ;; *) ok "o5: no other program is told" ;; esac
 [ ! -e "$rows/$w5" ] && ok "o5: no row is invented for it" || fail "o5: a row was invented for the unowned worker"
+
+# A caller's own identity is not an unplaced worker's owner.
+w7=mc-alpha-worker-0000000007
+launched "$w7" ''
+recovered "$w7" PLANWRIGHT_TOWER_ID=mission-control:beta
+[ "$(owner_of "$w7")" != mission-control:beta ] && ok "o5: an unplaced worker is not registered under the identity of whoever ran the recover" \
+  || fail "o5: the unplaced worker was registered to the caller"
+
+# restore, driven directly: what it refuses and what it leaves alone.
+restore() { (mc_env /bin/sh "$repo_root/scripts/mission-control-launch.sh" restore "$@" 2>"$tmp/restore.err"); }
+restore not-a-session >/dev/null
+[ $? -eq 2 ] && ok "o7: restore refuses a name that is not a session name" || fail "o7: a bad name was not refused"
+out=$(restore mc-alpha-worker-0000000099)
+[ $? -eq 4 ] && [ ! -e "$rows/mc-alpha-worker-0000000099" ] && ok "o7: with no row and no launch directory restore exits 4 and writes nothing" \
+  || fail "o7: restore of an unknown session: $out"
+out=$(restore "$w1")
+[ "$out" = "present${tab}alpha${tab}mission-control:alpha" ] && ok "o7: a row that is there is reported, not rewritten" || fail "o7: restore of a present row printed: $out"
+w8=$(nm alpha worker s8)
+w9=$(nm alpha worker s9)
+mkdir -p "$launches/$w8"
+printf '<!-- mission-control launch: %s (kind worker, scope s9, program alpha) -->\n' "$w9" >"$launches/$w8/brief.md"
+restore "$w8" >/dev/null
+[ $? -eq 4 ] && [ ! -e "$rows/$w8" ] && ok "o7: a launch directory whose provenance names another session is not trusted" || fail "o7: a mismatched provenance line was accepted"
+printf '<!-- mission-control launch: %s (kind worker, scope s8, program beta) -->\n' "$w8" >"$launches/$w8/brief.md"
+restore "$w8" >/dev/null
+[ $? -eq 4 ] && [ ! -e "$rows/$w8" ] && ok "o7: a provenance line whose program does not derive the name is not trusted" || fail "o7: a forged program was accepted"
 
 # ---------------------------------------------------------------------------
 # o6: a worker no mission control launched recovers as before.

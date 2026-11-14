@@ -471,7 +471,12 @@ the worker's worktree, or the record names a tower that exists nowhere. With no
 identity resolvable the dispatch is recorded as unknown-owner and says so on
 stderr. A session the mission-control launcher starts is recorded under
 `mission-control:<program>` instead; no presence surface knows that token, so
-every tower reads its owner as unrecognized and never reaps it. The stream-json
+every tower reads its owner as unrecognized and never reaps it. A `recover` of
+such a worker keeps that owner whoever runs it: the launcher's registry row
+(rebuilt from the launch directory when it is gone) or, failing that, the owner
+the dispatch record already holds is what the relaunch registers, never the
+recovering shell's identity; a worker neither places is raised once to the
+escalation hub program as unowned. The stream-json
 rung, like the tmux rung's dispatch-env wrapper, clears the dispatcher's tower
 identity (`PLANWRIGHT_TOWER_ID`, `_SESSION_ID`, `_PID`, `_CHECKOUT`) from every
 session it starts, so no session reads its dispatcher's identity as its own.
