@@ -83,8 +83,10 @@ done
 # ignored, and an old bash cannot reset an inherited ignore; the signal under
 # test would then never land. DFLT hands the sweep the default dispositions.
 if env --default-signal=INT,QUIT true >/dev/null 2>&1; then
+  # shellcheck disable=SC2054 # the comma is env's signal-list separator, not an array separator
   DFLT=(env --default-signal=INT,QUIT)
 elif command -v perl >/dev/null 2>&1; then
+  # shellcheck disable=SC2016 # the perl program must reach perl unexpanded
   DFLT=(perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "exec: $!"')
 else
   DFLT=(env)
