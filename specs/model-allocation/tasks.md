@@ -1,7 +1,7 @@
 # Model Allocation — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-11-13
+**Status:** Ready
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -177,7 +177,9 @@
   `allocation_model_step_self_review` are `sonnet`; their effort knobs and every other
   per-step key are `inherit`; wired into the repository's test run. The existing
   golden-baseline fixtures are checked for the review-step rows and corrected if they
-  still assert `inherit` there.
+  still assert `inherit` there. `tests/test-allocation-adapt.sh` (15i) already greps
+  the shipped values; the new test is the dedicated pin of record and adds the
+  defaults-only resolver fixture, and 15i is left in place.
 - **Done when:** the test passes on the shipped defaults and fails when either review
   model key is set back to `inherit` or any other per-step key leaves `inherit`
   (checked once by hand-mutating the value); the allocation suites still pass.
@@ -201,11 +203,7 @@
 
 ## Awaiting input
 
-- **Task 8** Blocking question: should `allocation_model_execute_step` ship
-  a tier so the review-step model applies at run time, and which one? At its shipped
-  `inherit` the review-step `sonnet` is inert. A tier there also sets the model of
-  every per-step session at that surface, not only review. Raised at the kickoff of
-  this amendment. Citations: D-14, REQ-A1.5.
+(none)
 
 ## Deferred
 

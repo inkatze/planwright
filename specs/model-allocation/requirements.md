@@ -1,7 +1,7 @@
 # Model Allocation — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-11-13
+**Status:** Ready
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -239,8 +239,9 @@ default-preserving configuration — shipped defaults change no behavior at any 
   REQ-E1.3 minted, D-14 (supersedes D-13 in part), Tasks 8 and 9 appended. The
   shipped values and docs landed earlier in PR #913; this records them and adds the
   pinning test. The review-step model is inert at run time until the
-  `execute_step` surface carries a tier: an open operator decision, listed under
-  Awaiting input. Review quality on Sonnet is not measured; the saving is an estimate.
+  `execute_step` surface carries a tier; the operator decided at kickoff (2026-11-14)
+  that surface keeps `inherit`, a tier there being a later decision. Review quality
+  on Sonnet is not measured; the saving is an estimate.
 - 2026-09-05 — Expression-only, during Task 6 review: the enumeration below is
   corrected in place — the count reconciled with the three paths it lists, the
   `/orchestrate` pointer moved to the step that actually carries the resolution,

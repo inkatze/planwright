@@ -1,7 +1,7 @@
 # Model Allocation — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-11-13
+**Status:** Ready
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -414,8 +414,9 @@ overturns D-13's "shipped defaults change nothing" for those two keys only, on t
 operator's explicit call (2026-11-09). It changes the shipped value, not the runtime:
 the resolver refuses a step tier at a surface whose own tier is `inherit`, and
 `allocation_model_execute_step` ships `inherit`, so the review-step model applies only
-once that surface carries a tier. Which tier, if any, is an open operator decision
-(Awaiting input), not made here. A test pins the two shipped values.
+once that surface carries a tier. The operator decided at this amendment's kickoff
+(2026-11-14) that `execute_step` keeps shipping `inherit`; a tier there is a separate
+later decision. A test pins the two shipped values.
 
 **Alternatives considered:**
 - Keep `inherit` and document a recommended override. Rejected because: the cut would
