@@ -66,10 +66,75 @@ for bad in amendment- amendment-3-1; do
 done
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$AMEND" "$AMEND"
 expect deny "[worker, task-1] a different scope on the amendment branch denies"
-reason_has 'protected branch' "[worker, task-1] the amendment-branch refusal keeps today's protected-branch text"
+reason_has 'not the kickoff for demo' "[worker, task-1] the amendment-branch refusal says the session is not the kickoff"
+reason_has "planwright/demo/amendment-2 checked out" "[worker, task-1] the amendment-branch refusal names the branch checked out"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg tower "$KICKOFF_PUSH" "$AMEND" "$AMEND"
 expect deny "[tower, kickoff-demo] a non-worker tier on the amendment branch denies"
-reason_has 'protected branch' "[tower, kickoff-demo] the non-worker amendment-branch refusal keeps today's protected-branch text"
+reason_has 'not the kickoff for demo' "[tower, kickoff-demo] the non-worker amendment-branch refusal says the session is not the kickoff"
+reason_has "planwright/demo/amendment-2 checked out" "[tower, kickoff-demo] the non-worker amendment-branch refusal names the branch checked out"
+
+# An amendment kickoff on a branch that tracks its origin branch and is ahead
+# of it, the way a relayed amendment kickoff finds it after a first push. The
+# launcher derives a session's name from its scope, so a relaunched or relayed
+# kickoff takes a fresh scope: kickoff-<spec>-a<n>, then a letter or a -<word>.
+AMEND_UP="$SANDBOX/amend-up"
+gitq clone "$ORIGIN" "$AMEND_UP"
+gitq -C "$AMEND_UP" switch -c planwright/demo/amendment-2 main
+gitq -C "$AMEND_UP" commit --allow-empty -m "amendment sign-off"
+gitq -C "$AMEND_UP" push -u origin planwright/demo/amendment-2
+gitq -C "$AMEND_UP" commit --allow-empty -m "delta 1"
+gitq -C "$AMEND_UP" commit --allow-empty -m "delta 2"
+AMEND_STALE="$SANDBOX/amend-stale"
+gitq clone "$ORIGIN" "$AMEND_STALE"
+gitq -C "$AMEND_STALE" branch planwright/demo/spec main
+gitq -C "$AMEND_STALE" switch -c planwright/demo/amendment-2 origin/planwright/demo/amendment-2
+gitq -C "$AMEND_STALE" commit --allow-empty -m "delta 1"
+gitq -C "$AMEND_STALE" commit --allow-empty -m "delta 2"
+for scope in kickoff-demo kickoff-demo-a2 kickoff-demo-a2b kickoff-demo-a2-delta; do
+  for d in "$AMEND_UP" "$AMEND_STALE"; do
+    PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$d" "$d"
+    expect defer "[worker, $scope] the kickoff push on an amendment branch ahead of its origin branch defers (${d##*/})"
+  done
+done
+for scope in kickoff-demo-a2 kickoff-demo-a2-delta; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+  expect deny "[worker, $scope] an amendment kickoff's push from the spec branch denies"
+  reason_has 'protected branch' "[worker, $scope] the spec-branch refusal keeps today's protected-branch text"
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker 'git push origin HEAD:planwright/demo/spec' "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, $scope] a raw push of the amendment onto the spec branch denies"
+  reason_has 'protected branch' "[worker, $scope] the raw spec-branch refusal keeps today's text"
+done
+for scope in kickoff-demo-a3 kickoff-demo-a3-delta kickoff-demo-a22 kickoff-demo-a kickoff-demo-a2- \
+  kickoff-demo-a2-Delta kickoff-demo-a2-x-y kickoff-demo-a2bc kickoff-demo-x kickoff-demox-a2 \
+  kickoff-demo-2 kickoff-other-a2 kickoff-push-target xkickoff-demo-a2 kickoff-demo-a2_x task-1; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, $scope] a session that is not amendment 2's kickoff denies on amendment-2"
+  reason_has 'not the kickoff for demo' "[worker, $scope] the refusal says the session is not the kickoff"
+  reason_has 'planwright/demo/amendment-2 checked out' "[worker, $scope] the refusal names the branch checked out"
+  if printf '%s' "$REASON" | grep -q 'targets a protected branch'; then
+    fail "[worker, $scope] the refusal claims a protected target the push would not reach: $REASON"
+  else
+    pass "[worker, $scope] the refusal claims no protected target"
+  fi
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
+expect defer "[worker, kickoff-demo-a2-delta] a stale local spec branch beside the amendment does not move the decision"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
+reason_has 'planwright/demo/amendment-2 checked out' "[worker, task-1] with a stale local spec branch, the refusal names the amendment branch"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, task-1] a non-kickoff session on a unit branch denies"
+reason_has 'not the kickoff for demo' "[worker, task-1] the unit-branch refusal says the session is not the kickoff"
+reason_has 'planwright/demo/task-1 checked out' "[worker, task-1] the unit-branch refusal names the branch checked out"
+for tier in tower mission-control; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg "$tier" "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[$tier, kickoff-demo-a2-delta] a non-worker tier never runs an amendment kickoff push"
+  reason_has 'not the kickoff for demo' "[$tier, kickoff-demo-a2-delta] the refusal says the session is not the kickoff"
+done
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, task-1] an inline amendment-kickoff scope does not admit the push"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "false && cd \"$AMEND_UP\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, task-1] a non-kickoff push the guard cannot place denies"
+reason_has 'not the kickoff for demo' "[worker, task-1] the unplaced non-kickoff refusal says the session is not the kickoff"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$UNIT" "$UNIT"
 reason_has 'CLAUDE_PLUGIN_ROOT.?/scripts/kickoff-spec-push[.]sh <spec>' "[worker, kickoff-demo] the wrong-branch refusal names the accepted form"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker './kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
@@ -140,8 +205,13 @@ expect deny "[worker, kickoff-demo] a kickoff push naming the flight namespace d
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "\"\$CLAUDE_PLUGIN_ROOT\"/scripts/kickoff-spec-push.sh $(printf 'a%.0s' $(seq 1 65))" "$SPEC" "$SPEC"
 expect deny "[worker, kickoff-demo] a kickoff push naming a spec over 64 characters denies"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh kickoff-spec-push' "$SPEC" "$SPEC"
-expect deny "[worker, task-1] a spec named like the script is not a kickoff push, and its refusal keeps today's text"
-reason_has 'protected branch' "[worker, task-1] the spec-named-like-the-script refusal is the protected-branch text, not a spelling refusal"
+expect deny "[worker, task-1] a spec named like the script is not a kickoff push, and its refusal is the kickoff decision's text"
+reason_has 'not the kickoff for kickoff-spec-push ' "[worker, task-1] the spec-named-like-the-script refusal is the not-the-kickoff text for that spec, not a spelling refusal"
+if printf '%s' "$REASON" | grep -q 'spelling'; then
+  fail "[worker, task-1] the spec-named-like-the-script refusal is a spelling refusal: $REASON"
+else
+  pass "[worker, task-1] the spec-named-like-the-script refusal is no spelling refusal"
+fi
 for cmd in './kickoff-spec-push.sh demo' '/tmp/evil/kickoff-spec-push.sh demo' 'bash ./kickoff-spec-push.sh demo'; do
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
   expect deny "[worker, kickoff-demo] a same-named file outside scripts/ is not the kickoff script: $cmd"

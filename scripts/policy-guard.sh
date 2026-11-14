@@ -1692,9 +1692,11 @@ tower_wrapped_git_check() {
 # session. Only the worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
 # hook's environment, which a command's inline assignment cannot change) is
 # kickoff-<spec> may run it, and only from that spec's branch or one of its
-# amendment branches (planwright/<spec>/amendment-<n>). Every other
-# session is refused the push it would make, with the text a push to that
-# branch gets. A run the guard cannot read is refused. A mention that is no run
+# amendment branches (planwright/<spec>/amendment-<n>), or an amendment
+# kickoff's scope (kickoff_amendment_scope) from its own amendment branch. Any
+# other session is refused: from the spec branch with the text a push to that
+# branch gets, elsewhere as not the kickoff, naming the branch checked out (the
+# one the helper pushes). A run the guard cannot read is refused. A mention that is no run
 # (a read, a stage or a printed note) passes to the ordinary rules, and what a
 # mention pipes into must itself only read or print it.
 
@@ -2086,28 +2088,73 @@ kickoff_segment() {
   [ -n "$spec" ] \
     || deny_now "this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Run it as $KICK_FORM, naming the spec in lowercase letters, digits and hyphens."
   [ -n "$spec" ] || return 0
-  if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
+  kickoff_amendment_scope "$spec"
+  if [ "$TIER" = worker ] && { [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ] || [ -n "$KAS_N" ]; }; then
     [ "$dir_ok" = 1 ] \
       || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec or amendment branch checkout.'
     [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
-    kick_ok=0
-    case $b in
-      "planwright/$spec/spec") kick_ok=1 ;;
-      "planwright/$spec/amendment-"*)
-        case ${b#"planwright/$spec/amendment-"} in
-          '' | *[!0-9]*) ;;
-          *) kick_ok=1 ;;
-        esac
-        ;;
-    esac
-    [ "$kick_ok" = 1 ] \
-      || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec) or one of its amendment branches (planwright/$spec/amendment-<n>), and this checkout has ${b:-no branch} checked out - refusing. Check out one of those in your worktree and run $KICK_FORM."
+    if [ -n "$KAS_N" ]; then
+      [ "$b" != "planwright/$spec/amendment-$KAS_N" ] || return 0
+    else
+      kick_ok=0
+      case $b in
+        "planwright/$spec/spec") kick_ok=1 ;;
+        "planwright/$spec/amendment-"*)
+          case ${b#"planwright/$spec/amendment-"} in
+            '' | *[!0-9]*) ;;
+            *) kick_ok=1 ;;
+          esac
+          ;;
+      esac
+      [ "$kick_ok" = 1 ] \
+        || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec) or one of its amendment branches (planwright/$spec/amendment-<n>), and this checkout has ${b:-no branch} checked out - refusing. Check out one of those in your worktree and run $KICK_FORM."
+      return 0
+    fi
+  elif [ "$dir_ok" = 1 ]; then
+    b=$(current_branch "$dir")
+  else
+    b=''
+  fi
+  # The helper pushes the branch checked out, so only that one is a target.
+  if [ "$b" = "planwright/$spec/spec" ]; then
+    check_unprotected "$dir" 'this git push' "planwright/$spec/spec"
+    deny_now "this git push targets a protected branch (planwright/$spec/spec); the spec branch is never written by an agent session at any tier. Work on your own unit branch."
     return 0
   fi
-  check_unprotected "$dir" 'this git push' "planwright/$spec/spec"
-  deny_now "this git push targets a protected branch (planwright/$spec/spec); the spec branch is never written by an agent session at any tier. Work on your own unit branch."
+  local scope_seen=${PLANWRIGHT_WORKER_SCOPE:-}
+  scope_seen=$(sanitize_printable "${scope_seen:0:128}" 'none')
+  if [ "$dir_ok" = 1 ]; then
+    b="this checkout has ${b:-no branch} checked out"
+  else
+    b='the guard cannot place where it runs, so cannot read which branch it would push'
+  fi
+  deny_now "this session is not the kickoff for $spec (tier $TIER, launch scope $scope_seen), so it may not run the kickoff push; $b - refusing. Only $spec's kickoff session runs it: a worker launched with scope kickoff-$spec, or kickoff-$spec-a<n> from planwright/$spec/amendment-<n>."
   return 0
+}
+
+# kickoff_amendment_scope <spec> — set KAS_N to <n> when the session's launch
+# scope is an amendment kickoff's for <spec>: kickoff-<spec>-a<n>, then nothing,
+# one lowercase letter, or -<word> of lowercase letters and digits. The
+# launcher names a session after its scope, so a relaunched or relayed
+# amendment kickoff takes a fresh scope in this form (a16-delta, a10b). Such a
+# session pushes only planwright/<spec>/amendment-<n>.
+KAS_N=''
+kickoff_amendment_scope() {
+  local s=${PLANWRIGHT_WORKER_SCOPE:-} rest n
+  KAS_N=''
+  case $s in "kickoff-$1-a"[0-9]*) ;; *) return 0 ;; esac
+  rest=${s#"kickoff-$1-a"}
+  n=${rest%%[!0-9]*}
+  rest=${rest#"$n"}
+  case $rest in
+    '' | [a-z]) ;;
+    -*)
+      case ${rest#-} in '' | *[!a-z0-9]*) return 0 ;; esac
+      ;;
+    *) return 0 ;;
+  esac
+  KAS_N=$n
 }
 
 # kickoff_text_check — every spelling of the kickoff push's name in the command

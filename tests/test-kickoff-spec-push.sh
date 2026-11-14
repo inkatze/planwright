@@ -124,6 +124,25 @@ upstream=$(g -C "$clone" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/d
 [ "$upstream" = origin/planwright/demo/amendment-3 ] || fail "the amendment push did not set the upstream (got '$upstream')"
 pass "[amendment] the spec's own amendment branch pushes and sets its upstream"
 
+# Ahead of its origin branch, beside a stale local spec branch, and under a
+# push mapping that would carry a short-name push onto the spec branch: the
+# push still lands on the amendment branch and leaves the spec branch alone.
+amend_up="$tmp/amend-up"
+g clone -q "$origin" "$amend_up"
+g -C "$amend_up" branch -q planwright/demo/spec main
+g -C "$amend_up" switch -q planwright/demo/amendment-3
+g -C "$amend_up" commit -q --allow-empty -m "delta 1"
+g -C "$amend_up" commit -q --allow-empty -m "delta 2"
+g -C "$amend_up" config remote.origin.push 'refs/heads/planwright/demo/amendment-3:refs/heads/planwright/demo/spec'
+amend_up_head=$(g -C "$amend_up" rev-parse HEAD)
+spec_before=$(g -C "$origin" rev-parse planwright/demo/spec)
+(cd "$amend_up" && "$SCRIPT" demo) >/dev/null 2>&1 || fail "the push of an amendment branch ahead of its origin branch did not succeed"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$amend_up_head" ] || fail "the amendment branch on origin is not the local head after the push"
+[ "$(g -C "$origin" rev-parse planwright/demo/spec)" = "$spec_before" ] || fail "the amendment push moved origin's spec branch"
+upstream=$(g -C "$amend_up" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || upstream=''
+[ "$upstream" = origin/planwright/demo/amendment-3 ] || fail "the amendment push did not keep its upstream (got '$upstream')"
+pass "[amendment] an amendment branch ahead of origin pushes to itself, never the spec branch, whatever the push mapping"
+
 if (cd "$clone" && "$SCRIPT" other) >/dev/null 2>&1; then
   fail "another spec's name pushed from demo's amendment branch"
 fi

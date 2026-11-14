@@ -6,7 +6,8 @@
 # The one push a kickoff session may make. The policy guard admits it only to
 # the worker launched as that spec's kickoff, on that spec's branch or one of
 # its amendment branches (planwright/<spec>/amendment-<n>, digits only); this
-# script checks the branch and runs one plain `git push -u origin`. It never
+# script checks the branch and runs one plain `git push -u origin` of that
+# branch to the same name. It never
 # forces, deletes, or pushes another ref, and git refuses a non-fast-forward.
 #
 # Exit: 0 pushed; 1 refused here; otherwise git's own push status.
@@ -57,7 +58,10 @@ case $current in
   *) die "this checkout is on '$current', not planwright/$spec/spec or planwright/$spec/amendment-<n>; run as $form from one of them" ;;
 esac
 
+# A full refspec: a short name is mapped through remote.origin.push, which can
+# carry an amendment branch onto the spec branch.
+refspec="refs/heads/$current:refs/heads/$current"
 if [ -n "$hook_lc_all" ]; then
-  exec env LC_ALL="$hook_lc_all" git push -u origin "$current"
+  exec env LC_ALL="$hook_lc_all" git push -u origin "$refspec"
 fi
-exec env -u LC_ALL git push -u origin "$current"
+exec env -u LC_ALL git push -u origin "$refspec"
