@@ -80,6 +80,8 @@
 #                    and --tier-unit named, which `relaunch` resolves at
 #   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
 #                    recover and a relaunch read back; absent otherwise
+#   proven-declines  `1` when the launch was given --proven-declines, which a
+#                    recover and a relaunch read back; absent otherwise
 #   worker-settings.json  the per-launch settings profile of an opted-in
 #                    worker (scripts/worker-settings-generate.sh), rewritten
 #                    by every launch, recover and relaunch of it
@@ -194,9 +196,14 @@
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
 #       [--tier-key <key>] [--tier-unit <unit>]
 #       [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved]
-#       [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra claude args>...]
+#       [--cwd <dir>] [--mise-task-edit] [--proven-declines] [--foreground]
+#       [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
-#       --profile (default worker). --mise-task-edit (worker profile only,
+#       --profile (default worker). --proven-declines (worker profile only,
+#       recorded for a recover) starts the session with
+#       BOT_REVIEW_PROVEN_DECLINES=mission-control, so the bot-review skill
+#       sends a decline carrying proof to its mission control; every other
+#       launch and recover drops one the caller carries. --mise-task-edit (worker profile only,
 #       off by default, recorded for a recover) opts the worker in to editing
 #       the mise task files inside its own worktree: the launch passes a
 #       profile generated for it (scripts/worker-settings-generate.sh) and the
@@ -490,7 +497,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--proven-declines] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
@@ -2072,6 +2079,7 @@ cmd_launch() {
   tier_key=''
   tier_unit=''
   mise_edit=0
+  proven_declines=0
   tier_model=''
   tier_effort=''
   tier_reserved=''
@@ -2083,6 +2091,12 @@ cmd_launch() {
         # recorded.
         [ "$mise_edit" = 0 ] || usage
         mise_edit=1
+        shift
+        ;;
+      --proven-declines)
+        # Like the mise opt-in, a launch argument only, never inherited.
+        [ "$proven_declines" = 0 ] || usage
+        proven_declines=1
         shift
         ;;
       --tier-model | --tier-effort)
@@ -2211,10 +2225,15 @@ cmd_launch() {
     printf '%s\n' "$me: --mise-task-edit applies to the worker profile only" >&2
     exit 2
   fi
-  # A recover relaunches under the opt-in its launch recorded.
+  if [ "$proven_declines" = 1 ] && [ "$profile" != worker ]; then
+    printf '%s\n' "$me: --proven-declines applies to the worker profile only" >&2
+    exit 2
+  fi
+  # A recover relaunches under the opt-ins its launch recorded.
   if [ -n "$resume_sid" ] && [ "$profile" = worker ]; then
     pf_dir=$(worker_dir "$worker") || exit 2
     [ "$(cat "$pf_dir/mise-task-edit" 2>/dev/null)" != 1 ] || mise_edit=1
+    [ "$(cat "$pf_dir/proven-declines" 2>/dev/null)" != 1 ] || proven_declines=1
   fi
   launch_settings=$(profile_settings_path "$profile") || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
@@ -2347,6 +2366,15 @@ cmd_launch() {
   fi
   PLANWRIGHT_MESSAGING_INBOUND=accept
   export PLANWRIGHT_MESSAGING_INBOUND
+  # The bot-review skill's decline route (the operator's dotfiles): set, a
+  # decline carrying proof goes to the supervising mission control rather
+  # than the operator, so only a session launched to route it there has it.
+  if [ "$proven_declines" = 1 ]; then
+    BOT_REVIEW_PROVEN_DECLINES=mission-control
+    export BOT_REVIEW_PROVEN_DECLINES
+  else
+    unset BOT_REVIEW_PROVEN_DECLINES
+  fi
 
   init_msg=$(mktemp "$dir/.init.XXXXXX") || exit 2
   if [ -n "$resume_sid" ]; then
@@ -2380,6 +2408,11 @@ cmd_launch() {
       printf '1\n' >"$dir/mise-task-edit.tmp" && mv -f "$dir/mise-task-edit.tmp" "$dir/mise-task-edit" || exit 2
     else
       rm -f "$dir/mise-task-edit"
+    fi
+    if [ "$proven_declines" = 1 ]; then
+      printf '1\n' >"$dir/proven-declines.tmp" && mv -f "$dir/proven-declines.tmp" "$dir/proven-declines" || exit 2
+    else
+      rm -f "$dir/proven-declines"
     fi
   fi
 

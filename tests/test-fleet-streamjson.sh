@@ -141,6 +141,7 @@ printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_
 printf 'backend=%s\n' "${PLANWRIGHT_SESSION_BACKEND-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'launch_token=%s\n' "${PLANWRIGHT_WORKER_LAUNCH_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'mc_token=%s\n' "${PLANWRIGHT_MC_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'declines=%s\n' "${BOT_REVIEW_PROVEN_DECLINES-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'tower=%s/%s/%s/%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" "${PLANWRIGHT_TOWER_SESSION_ID-<unset>}" \
   "${PLANWRIGHT_TOWER_PID-<unset>}" "${PLANWRIGHT_TOWER_CHECKOUT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
@@ -197,6 +198,7 @@ env_scrub=(
   -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
   -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_MC_TOKEN
+  -u BOT_REVIEW_PROVEN_DECLINES
 )
 
 # senv <home> <record-dir> [SHIM_VAR=val...] -- <args...> — hermetic
@@ -984,6 +986,48 @@ senv "$home" "$rec" -- \
 [ ! -s "$rec/argv" ] || fail "c9m: the refused opted-in launch must never spawn the worker"
 [ ! -e "$home/streamjson/sjw9m4/mise-task-edit" ] || fail "c9m: a refused opted-in launch must record no opt-in"
 echo "ok: c9m mise task-file opt-in: per-launch profile, recorded for recover, shipped profile byte for byte without it"
+
+# c9d (proven bot-review declines): `launch --proven-declines` on the worker
+#    profile starts the session with BOT_REVIEW_PROVEN_DECLINES=mission-control
+#    and records it for a recover; any other launch or recover drops one the
+#    caller carries; every other profile is refused.
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" BOT_REVIEW_PROVEN_DECLINES=operator-caller -- \
+  launch sjw9d1 execution-backends:4 --prompt-file "$tmp/prompt9" --proven-declines --foreground \
+  || fail "c9d: a --proven-declines launch exited non-zero"
+grep -qx 'declines=mission-control' "$rec/env" \
+  || fail "c9d: a --proven-declines session must hold BOT_REVIEW_PROVEN_DECLINES=mission-control: $(grep '^declines=' "$rec/env")"
+[ "$(cat "$home/streamjson/sjw9d1/proven-declines" 2>/dev/null)" = 1 ] \
+  || fail "c9d: the launch must record the routing for its recover"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9d1 --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'declines=mission-control' "$rec/env" \
+  || fail "c9d: a recover must keep the recorded routing: $(grep '^declines=' "$rec/env")"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" BOT_REVIEW_PROVEN_DECLINES=operator-caller -- \
+  launch sjw9d2 execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
+  || fail "c9d: a plain launch exited non-zero"
+grep -qx 'declines=<unset>' "$rec/env" \
+  || fail "c9d: a plain launch must drop the caller's BOT_REVIEW_PROVEN_DECLINES: $(grep '^declines=' "$rec/env")"
+[ ! -e "$home/streamjson/sjw9d2/proven-declines" ] || fail "c9d: a plain launch must record no routing"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 BOT_REVIEW_PROVEN_DECLINES=operator-caller -- \
+  launch sjw9d2 --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'declines=<unset>' "$rec/env" \
+  || fail "c9d: a recover with no recorded routing must drop the caller's: $(grep '^declines=' "$rec/env")"
+for kind in tower mission-control; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch "sjw9d-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --proven-declines --foreground >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c9d: --proven-declines with the $kind profile must be refused (exit 2)"
+  [ ! -s "$rec/argv" ] || fail "c9d: the refused $kind --proven-declines launch must never spawn"
+done
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 BOT_REVIEW_PROVEN_DECLINES=operator-caller -- \
+  launch sjw9n --resume-session "$sid" --foreground >/dev/null 2>&1
+grep -qx 'declines=<unset>' "$rec/env" \
+  || fail "c9d: a mission-control recover must drop the caller's BOT_REVIEW_PROVEN_DECLINES: $(grep '^declines=' "$rec/env")"
+echo "ok: c9d proven bot-review declines: set only on an opted-in worker launch, recorded for recover, dropped otherwise"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.
 mc='mc-beta-tower-0123456789'
