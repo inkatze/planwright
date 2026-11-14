@@ -167,7 +167,7 @@ expect_eq "a session with no row reads unknown" "context${tab}mc-alpha-mission-c
 # end: the tail holds only the low one.
 {
   msg h1 190000 0 0
-  win 200000
+  win 400000
   i=0
   while [ "$i" -lt 12000 ]; do
     printf '{"type":"user","message":{"content":"%0100d"}}\n' "$i"
@@ -214,9 +214,12 @@ expect_eq "a session never recorded is unknown" "unknown"
 
 # due: a recorded 41 against the trigger set to 40; unknown falls to wakes.
 printf 'mission_control_handover_context: 40\nmission_control_handover_wakes: 3\n' >>"$tracked"
-printf 'format\t1\nwritten\t%s\npercent\t41\nsource\ttranscript\n' "$NOW" >"$rt/readings/mc-alpha-mission-control-0000000001"
+msg f1 82000 0 0 >"$tr/f41.jsonl"
+row mc-alpha-mission-control-0000000001 tmux "$tr/f41.jsonl"
+mc_run mc-context.sh record --program alpha --now "$NOW"
+expect_out "the runner records 41" "context${tab}mc-alpha-mission-control-0000000001${tab}41${tab}transcript"
 mc_run mc-handover.sh due --program alpha --session mc-alpha-mission-control-0000000001 --context - --wakes 0 --compactions 0 --now "$NOW"
-expect_eq "a recorded 41 against 40 is due" "due${tab}context at 41%"
+expect_eq "what the runner recorded, 41 against 40, is due" "due${tab}context at 41%"
 printf 'format\t1\nwritten\t%s\npercent\t39\nsource\ttranscript\n' "$NOW" >"$rt/readings/mc-alpha-mission-control-0000000001"
 mc_run mc-handover.sh due --program alpha --session mc-alpha-mission-control-0000000001 --context - --wakes 9 --compactions 0 --now "$NOW"
 expect_eq "a recorded 39 is not due, whatever the wakes" "not-due"
@@ -225,8 +228,46 @@ expect_eq "an unknown reading falls back to the wake count" "due${tab}3 wakes"
 mc_run mc-handover.sh due --program alpha --session mc-alpha-mission-control-0000000002 --context - --wakes 2 --compactions 0 --now "$NOW"
 expect_eq "and not before the ceiling" "not-due"
 
+# --- The attended session, pruning, and hostile numbers ---------------------
+printf 'format\t1\nwritten\t%s\npercent\t55\nthreshold\t70\npid\t-\n' "$((NOW - 10))" >"$rt/context"
+printf 'format\t1\nsession\top-x\nsince\t%s\ngeneration\t1\nkind\tattended\n' "$NOW" >"$rt/holder"
+mc_run mc-context.sh read --program alpha --now "$NOW"
+expect_eq "an attended session reads the host's percent" "context${tab}-${tab}55${tab}host"
+mc_run mc-context.sh record --program alpha --now "$NOW"
+expect_out "the runner records the attended session too" "context${tab}attended${tab}55${tab}host"
+mc_run mc-context.sh recorded --program alpha --session attended --now "$NOW"
+expect_eq "and its record is read back" "55"
+rm -f "$rt/context" "$rt/holder" "$reg/mc-alpha-mission-control-0000000002"
+mc_run mc-context.sh record --program alpha --now "$NOW"
+if [ ! -e "$rt/readings/mc-alpha-mission-control-0000000002" ] && [ ! -e "$rt/readings/attended" ]; then
+  ok "a record of a session no longer registered is dropped"
+else
+  fail "a stale record was kept"
+fi
+mc_run mc-context.sh read --program alpha --now "$NOW"
+expect_eq "with no host percent an attended session reads unknown" "context${tab}-${tab}unknown${tab}-"
+
+# A last frame that counts no input is no reading; the real one before it is.
+{
+  msg z1 82000 0 0
+  msg z2 0 0 0
+} >"$tr/zero.jsonl"
+row mc-alpha-mission-control-0000000012 tmux "$tr/zero.jsonl"
+mc_run mc-context.sh read --program alpha --session mc-alpha-mission-control-0000000012 --now "$NOW"
+expect_eq "a synthetic zero-usage last frame does not hide the real one" "context${tab}mc-alpha-mission-control-0000000012${tab}41${tab}transcript"
+# Negative and absurd token counts are read as zero, never as a percent.
+printf '{"type":"assistant","message":{"id":"n1","usage":{"input_tokens":150000,"cache_read_input_tokens":-60000}}}\n' >"$tr/neg.jsonl"
+row mc-alpha-mission-control-0000000013 tmux "$tr/neg.jsonl"
+mc_run mc-context.sh read --program alpha --session mc-alpha-mission-control-0000000013 --now "$NOW"
+expect_eq "a negative count does not lower the reading" "context${tab}mc-alpha-mission-control-0000000013${tab}75${tab}transcript"
+printf '{"type":"assistant","message":{"id":"n2","usage":{"input_tokens":93000000000000000}}}\n' >"$tr/huge.jsonl"
+row mc-alpha-mission-control-0000000014 tmux "$tr/huge.jsonl"
+mc_run mc-context.sh read --program alpha --session mc-alpha-mission-control-0000000014 --now "$NOW"
+expect_eq "an absurd count reads unknown, not a wrapped percent" "context${tab}mc-alpha-mission-control-0000000014${tab}unknown${tab}-"
+
 # --- The panel's text form --------------------------------------------------
 printf 'format\t1\nwritten\t%s\npercent\t41\nsource\ttranscript\n' "$NOW" >"$rt/readings/mc-alpha-mission-control-0000000001"
+printf 'format\t1\nwritten\t%s\npercent\tunknown\nsource\t-\n' "$NOW" >"$rt/readings/mc-alpha-mission-control-0000000002"
 mc_run mc-panel.sh text --program alpha --now "$NOW"
 expect_out "the text panel prints the reading and its source" "context: mc-alpha-mission-control-0000000001 41% (transcript)"
 expect_out "and unknown for a session with no transcript" "context: mc-alpha-mission-control-0000000002 unknown"

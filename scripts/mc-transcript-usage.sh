@@ -35,7 +35,7 @@ esac
 
 # shellcheck disable=SC2016 # a jq program
 filter='
-def n: if type == "number" then . else 0 end;
+def n: if type == "number" and . >= 0 and . <= 1000000000 then floor else 0 end;
 def id: (. // "-") | tostring | explode | map(select(. > 31 and . != 127)) | implode;
 fromjson? | try (
   if .type == "assistant" and (.message.usage | type) == "object" then

@@ -56,7 +56,8 @@ Usage:
   mc-context.sh record --program <p> [--now <epoch>]
       the runner's act, once per wake: one reading for each of the
       program's registered mission-control sessions (and its attended
-      session where the mod gave a fresh percent), each printed as above and
+      session, printed under the name `attended`, where the mod gave a fresh
+      percent), each printed as above and
       kept in <runtime>/readings/<name>:
         format<TAB>1   written<TAB><epoch>   percent<TAB><n|unknown>
         source<TAB><host|transcript|->
@@ -170,7 +171,8 @@ transcript_percent() {
   tp_win=""
   tp_ctx=$(printf '%s\n' "$tp_out" | awk -F '\t' '
     $1 == "w" && $2 + 0 > w { w = $2 + 0 }
-    $1 == "m" { ctx = $3 + $4 + $5 + $6; seen = 1 }
+    # A frame that counts no input (a synthetic one) is no reading.
+    $1 == "m" && $3 + $4 + $5 + $6 > 0 { ctx = $3 + $4 + $5 + $6; seen = 1 }
     END { if (seen) print ctx " " w }') || return 1
   [ -n "$tp_ctx" ] || return 1
   tp_win=${tp_ctx#* }
@@ -213,7 +215,7 @@ case $verb in
       [ -f "$row" ] && [ ! -L "$row" ] || continue
       n=${row##*/}
       [ "${#n}" -le 64 ] || continue
-      case $n in *[!a-z0-9-]* | -*) continue ;; esac
+      case $n in *[!a-z0-9-]* | -* | attended) continue ;; esac
       [ "$(mc_kv "$row" format)" = 1 ] && [ "$(mc_kv "$row" program)" = "$program" ] \
         && [ "$(mc_kv "$row" kind)" = mission-control ] || continue
       line=$(reading "$n")

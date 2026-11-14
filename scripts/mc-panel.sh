@@ -1368,7 +1368,7 @@ measures() {
 # (scripts/mc-context.sh record): one
 # `context<TAB><session><TAB><percent|unknown><TAB><source|->` line each.
 # The panel parses no transcript; a record that is a link, does not parse
-# or is older than the runner's cadence allows reads unknown.
+# or is over an hour old reads unknown.
 contexts() {
   cx_dir=$runtime/readings
   [ -d "$cx_dir" ] && [ ! -L "$cx_dir" ] || return 0

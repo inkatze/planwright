@@ -496,7 +496,7 @@ const CASES: [string, Parameters<typeof world>[1], string][] = [
   ['context under the hand-over point is OK and says where it hands over', { digest: registry }, 'Context 42% · hand over 70% · compacts at 95% · OK'],
   ['context at the hand-over point is ACT', { digest: registry, contextPercent: 75 }, 'Context 75% · hand over 70% · compacts at 95% · ACT'],
   ['a recorded reading says its source', { digest: digestText({ extra: ['context\tmc-alpha-mission-control-0000000001\t41\ttranscript'] }) }, 'Context …000001 41% (transcript) · OK'],
-  ['a host reading says so', { digest: digestText({ extra: ['context\tattended\t55\thost'] }) }, 'Context attended 55% (host) · OK'],
+  ['a host reading says so', { digest: digestText({ extra: ['context\tattended\t55\thost'] }), contextPercent: undefined }, 'Context attended 55% (host) · OK'],
   ['a session with no reading is unknown, never zero', { digest: digestText({ extra: ['context\tmc-alpha-mission-control-0000000002\tunknown\t-'] }) }, 'Context …000002 unknown · UNKNOWN'],
   ['nothing waiting is OK', { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t0') }, 'Waiting on you none · OK'],
   ['an unread queue is unknown', { digest: digestText().replace(/^waiting\t.*$/m, 'waiting\t-') }, 'Waiting on you unknown · UNKNOWN'],
