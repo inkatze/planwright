@@ -1011,7 +1011,7 @@ cmd_audit() {
       next
     }
     $0 == "" { flush(); next }
-    inrec { k = $1; if ((k in F) && k != "excerpt" && k != "warning" && k != "holder") bad = 1; F[k] = substr($0, length(k) + 2) }
+    inrec { k = $1; if ((k in F) && k != "excerpt" && k != "warning" && k != "holder" && k != "awaiting") bad = 1; F[k] = substr($0, length(k) + 2) }
     END {
       flush()
       np = split(PTS, P, " ")

@@ -1949,6 +1949,14 @@ xrefuse "a span with a malformed time" --awaiting-operator --point pre-pr --step
   --awaiting-operator "EVIL,2026-10-06T10:00:01Z,x"
 xrefuse "a span naming nothing awaited" --awaiting-operator --point pre-pr --step s --outcome passed \
   --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,"
+xrefuse "a span with a start and end but no second comma" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z"
+xrefuse "overlapping spans" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --start 2026-10-06T10:00:00Z --end 2026-10-06T12:00:00Z \
+  --awaiting-operator "2026-10-06T10:10:00Z,2026-10-06T10:40:00Z,first" \
+  --awaiting-operator "2026-10-06T10:30:00Z,2026-10-06T10:50:00Z,second"
+xrefuse "a span on a full-suite record" --awaiting-operator --full-suite --pool suite --wait 1 \
+  --wait-outcome taken --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,x"
 xrefuse "an empty span" --awaiting-operator --point pre-pr --step s --outcome passed --awaiting-operator ""
 xrefuse "a span on a completion" --awaiting-operator --completion --point pre-pr \
   --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,x"

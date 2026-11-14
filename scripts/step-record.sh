@@ -237,6 +237,7 @@
 #                  end not earlier than the start, both inside the step's own
 #                  --start and --end; <what> is the single-line text of what
 #                  was awaited (it may hold commas: only the first two split).
+#                  Spans of one record may touch but never overlap.
 #                  The record stores one `awaiting` line each, `<start>
 #                  <end> <what>`, and renders them below its table. A record
 #                  with none reads as no recorded wait; scripts/mc-throughput.sh
@@ -954,6 +955,13 @@ check_awaiting() {
     is_text "$_what" || bad --awaiting-operator "must name what was awaited, single-line text of at most $TEXT_MAX bytes"
     clean_value "$_what"
     [ -n "$CLEANED" ] || bad --awaiting-operator "what was awaited is empty once cleaned"
+    for _p in $AWAITING_CLEAN; do
+      _ps=${_p%% *}
+      _pe=${_p#* }
+      _pe=${_pe%% *}
+      [ "$(ts_num "$_as")" -lt "$(ts_num "$_pe")" ] && [ "$(ts_num "$_ae")" -gt "$(ts_num "$_ps")" ] \
+        && bad --awaiting-operator "spans overlap"
+    done
     AWAITING_CLEAN="$AWAITING_CLEAN$_as $_ae $CLEANED$LF"
   done
 }

@@ -268,6 +268,14 @@ awrec "$steps/000003/003-step-convergence.rec" stray-span 2026-11-01T11:00:00Z 2
   "2026-11-01T10:00:00Z 2026-11-01T10:30:00Z outside the step"
 awrec "$steps/000003/004-step-convergence.rec" backwards-span 2026-11-01T11:00:00Z 2026-11-01T11:10:00Z 004 \
   "2026-11-01T11:08:00Z 2026-11-01T11:02:00Z ends before it starts"
+# A span that began before the window counts only the part inside it, for the
+# step and the wait alike; overlapping spans, which the writer refuses, cannot
+# take a step below nothing.
+awrec "$steps/000003/006-step-convergence.rec" winclip 2026-10-31T11:00:00Z 2026-10-31T12:30:00Z 006 \
+  "2026-10-31T11:10:00Z 2026-10-31T12:21:40Z straddles the window start"
+awrec "$steps/000003/007-step-convergence.rec" overlap-span 2026-11-01T11:00:00Z 2026-11-01T11:10:00Z 007 \
+  "2026-11-01T11:00:00Z 2026-11-01T11:08:00Z first" \
+  "2026-11-01T11:04:00Z 2026-11-01T11:10:00Z overlaps the first"
 awrec "$steps/000003/005-step-convergence.rec" plain-step 2026-11-01T11:00:00Z 2026-11-01T11:10:00Z 005
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "measure with operator spans" 0
@@ -275,6 +283,9 @@ expect_out "a step with spans reports its step time less the spans" "step${tab}b
 expect_out "the spans are their own line, per step, counted by span" "operator-wait${tab}bot-review${tab}2${tab}1050${tab}2100${tab}1200${tab}feature"
 expect_out "a span outside the step is no wait: the step keeps its time" "step${tab}stray-span${tab}1${tab}600${tab}600${tab}600${tab}feature"
 expect_out "a span ending before it starts is no wait either" "step${tab}backwards-span${tab}1${tab}600${tab}600${tab}600${tab}feature"
+expect_out "a span straddling the window start takes only its inside part from the step's inside time" "step${tab}winclip${tab}1${tab}1100${tab}500${tab}1100${tab}feature"
+expect_out "and counts only that part as wait inside the window" "operator-wait${tab}winclip${tab}1${tab}4300${tab}1300${tab}4300${tab}feature"
+expect_out "overlapping spans leave a step no less than nothing" "step${tab}overlap-span${tab}1${tab}0${tab}0${tab}0${tab}feature"
 expect_out "a record with no span reads as before" "step${tab}plain-step${tab}1${tab}600${tab}600${tab}600${tab}feature"
 expect_no_out "a step with no recorded wait has no operator line" "operator-wait${tab}plain-step"
 expect_no_out "nor does a refused span" "operator-wait${tab}stray-span"
@@ -292,7 +303,7 @@ expect_out "with the stall gone, the slow step leads" "top${tab}step:polish${tab
 expect_out "its text carries the numbers" "Slow cadence step polish: median 40m over 2 runs, 1h20m in all, slowest 50m on feature (threshold 20m)"
 expect_no_out "the step-time bottleneck is computed with the spans subtracted: a 50m step with 35m awaited is no slow step" "step:bot-review"
 expect_out "the bottleneck summary carries operator wait on its own line, apart from step time" \
-  "operator-wait-total${tab}2100${tab}Operator wait, kept apart from step time: 35m over 2 spans, longest 20m on feature (bot-review)"
+  "operator-wait-total${tab}4240${tab}Operator wait, kept apart from step time: 1h10m over 5 spans, longest 1h11m on feature (winclip)"
 printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 1h}\n' >>"$tracked"
 mc_run mc-throughput.sh top --program alpha --now "$NOW"
 expect_out "a step under a raised threshold is no bottleneck; the CI queue leads" "top${tab}ci:ci / macos-suite${tab}3000${tab}Top bottleneck over the last 1d: CI runner queue, ci / macos-suite: median wait 25m over 2 jobs"
@@ -386,6 +397,7 @@ expect_out "the top bottleneck is raised" "raised${tab}step:polish${tab}4800"
 expect_out "with no stall sample at all, the stalls source is unknown" "source${tab}stalls${tab}unknown${tab}no current stall sample for any of the 9 sessions"
 events
 expect_out "as a throughput-bottleneck event with its numbers" "throughput-bottleneck${tab}step:polish${tab}Top bottleneck over the last 1d: Slow cadence step polish: median 40m"
+expect_out "operator wait rides the event as its own sentence, apart from the step's numbers" "Operator wait, kept apart from step time: 1h10m over 5 spans"
 expect_out "a reason that fits beside the bottleneck is kept" "Not measured: stalls (no current stall sample for any of the 9 sessions"
 if [ "$(count_raised)" = 1 ]; then ok "one event"; else fail "expected one event, got $(count_raised)"; fi
 if [ -f "$mchome/kb/throughput/measure.tsv" ] && [ "$(head -n 1 "$mchome/kb/throughput/measure.tsv")" = "# format: 1" ]; then
