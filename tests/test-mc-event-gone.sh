@@ -168,17 +168,19 @@ case $OUT in "pruned${tab}4") ok "with no holder the handover and announce event
 mc_run mc-wake.sh compose --program alpha tw
 case $OUT in *"$gone_d"*) ok "and still wake" ;; *) fail "an announce event was dropped with no holder" ;; esac
 
-# An unreadable session list keeps the session events (a root user reads
-# any directory, so the case is skipped there).
-if [ "$(id -u)" -ne 0 ]; then
-  setup
-  backlog
-  chmod 000 "$sess"
+# An unreadable session list keeps the session events (skipped where the
+# running user, root among them, still reads it under mode 000).
+setup
+backlog
+chmod 000 "$sess"
+if [ ! -r "$sess" ]; then
   mc_run mc-event.sh prune --program alpha --gone
   mc_run mc-event.sh list --program alpha
   case $OUT in *"$gone_a"*) ok "a session event is kept while the session list cannot be read" ;; *) fail "a session event was dropped" ;; esac
-  chmod 755 "$sess"
+else
+  echo "skip: unreadable session list: the running user still reads $sess under mode 000"
 fi
+chmod 755 "$sess"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-event-gone: $failures failure(s)" >&2
