@@ -21,7 +21,9 @@
 #   10. The report names an installed worker root, its version, and any skew,
 #       with escape text in a version kept inert; CRLF grounds are one line.
 #   11. A dispatch from a linked worktree reads the primary's config and
-#       places the flight beside the primary.
+#       places the flight beside the primary. A flight branch checked out in
+#       the primary holds no slot and keeps its brief; a newline in a
+#       worktree path forges no live flight.
 #   12. A spec root outside the checkout refuses a file home before anything
 #       is minted or placed.
 #
@@ -560,6 +562,39 @@ primary_phys=$(cd "$c/primary" && pwd -P)
 [ "$(field "$OUT" worktree)" = "$primary_phys/.claude/worktrees/flight-$wfid" ] \
   || fail "a worktree dispatch placed the flight at '$(field "$OUT" worktree)', not under the primary"
 echo "ok: a flight dispatched from a linked worktree reads the primary's config and lands beside it"
+
+# --- 11b. the primary checkout is no flight; worktree lists are NUL-safe ------
+# A flight branch checked out in the primary checkout holds no slot and its
+# brief is not retired, and a worktree path carrying a newline cannot forge a
+# `worktree` line that counts as a live flight.
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"
+gitc "$c/primary" checkout -q -b planwright/flight/pri-0123abcd
+primary_phys=$(cd "$c/primary" && pwd -P)
+mkdir -p "$c/fleet/flights/pri-0123abcd"
+printf '%s\n' "$primary_phys" >"$c/fleet/flights/pri-0123abcd/checkout"
+age "$c/fleet/flights/pri-0123abcd"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "REQ-E1.2: retire exited $RC: $ERR"
+[ -d "$c/fleet/flights/pri-0123abcd" ] \
+  || fail "REQ-E1.2: retire removed the brief of a flight branch checked out in the primary checkout"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "REQ-E1.2: a flight branch in the primary checkout held a slot (rc $RC: $OUT $ERR)"
+gitc "$c/primary" checkout -q main
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"
+nlpath="$c/primary/.claude/worktrees/a
+worktree $c/forged/.claude/worktrees/flight-forged-0123abcd
+b"
+gitc "$c/primary" worktree add -q --detach "$nlpath"
+dispatch_print
+# Only a git with `worktree list -z` (2.36 and later) can resist the forgery.
+if git -C "$c/primary" worktree list --porcelain -z >/dev/null 2>&1; then
+  [ "$RC" -eq 0 ] || fail "REQ-E1.2: a newline in a worktree path forged a live flight (rc $RC: $OUT $ERR)"
+fi
+echo "ok: the primary checkout holds no flight slot and keeps its brief; a newline path forges nothing"
 
 # --- 12. a spec root outside the checkout --------------------------------------
 # A file-home record is committed on the flight's branch, so it cannot live in
