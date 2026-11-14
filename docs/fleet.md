@@ -2837,6 +2837,65 @@ you deciding it. Command text shown to you for approval is plain ASCII; any
 other byte is shown as an escape with a warning, so you never approve text
 that renders as something else.
 
+## Another host over SSH: the channel and the remote's setup
+
+`scripts/fleet-remote.sh --host <alias> <verb>` is the one near-side path to
+another computer you reach by SSH (a LAN machine, a cloud workspace). The alias
+is whatever your `~/.ssh/config` resolves; the script runs a fixed set of verbs
+through the remote's own installed planwright and never runs a command you
+supply. `--help` prints the verb list and exit codes. Beyond the worker verbs
+(`launch`, `pending`, `answer`, `steer`, `status`, `retire`) and `compute`,
+`version` and `capacity` are read-only probes that tell a placement or a
+dispatch what the remote offers and can take, and `stop` closes a worker:
+
+| Verb | Prints |
+| --- | --- |
+| `version` | `version <remote planwright version>`, then `verbs <the channel's verbs the remote's supervisor and launcher offer>`; `unavailable` or `none` where the remote cannot say. A host with no planwright root exits 3 instead, as for any verb that needs the root |
+| `capacity` | one line, `load=<1-minute load> cores=<n> mem_free_mb=<n> idle_secs=<n>` |
+| `stop <worker> [--grace <secs>]` | the remote supervisor's own close of that worker; `--grace` takes a whole number of seconds, at most four digits |
+
+`capacity` reports only what the remote's platform offers. A field it cannot
+read prints `unavailable`, never `0`, so a consumer cannot mistake a missing
+reading for an idle or empty host. Free memory is Linux's available memory, or
+macOS's free, inactive and speculative pages. Input idle time is read from
+macOS's HID idle counter and is `unavailable` on Linux, where there is no
+portable equivalent.
+
+### Setting up the remote host
+
+The channel installs nothing there; you set the host up once:
+
+1. **Key-only SSH.** The alias must connect without a prompt: the channel runs
+   SSH in batch mode with agent, X11 and port forwarding off, so a host that
+   would ask for a password or a host key fails at once (exit 255).
+2. **Planwright and `jq`.** Install planwright on the remote through its own
+   plugin install. The channel finds the root from that host's installed-plugin
+   record (which needs `jq` there); no option and no environment variable picks
+   another copy. With no record, a verb that needs the root exits 3 and names
+   the fix (`capacity`, `load` and `compute` never need it).
+3. **The remote's own logins.** The Claude login (and, if the host should push
+   its own branches, the hosting-remote login) is made on that host. The channel
+   never carries a credential. On macOS an SSH session may find the keychain
+   locked; the fallback is a long-lived token from `claude setup-token` in an
+   owner-only file the environment file below loads, never in a tracked file.
+   That file's contents are then readable by the code `compute` runs, so use
+   the fallback only if you accept that (see step 4).
+4. **The environment file (optional).** `~/.config/planwright/remote-env.sh` on
+   the remote is sourced before every verb. It is the place for `PATH` (mise
+   shims, Homebrew, the `claude` binary) and `CLAUDE_PLUGIN_DATA` (the remote's
+   fleet home), because SSH runs a non-login shell that loads neither. A file
+   whose sourcing returns nonzero fails the verb with exit 3; one that calls
+   `exit` itself ends the verb with that status instead. Keep secrets out of it unless
+   you accept that compute runs (below) can read them: it is sourced into the
+   same shell that runs the shipped commit's code.
+5. **A clone per repository (for `compute`).** The repository must be cloned at
+   `~/dev/<origin repository name>` on the remote, with `git`, `perl` and `mise`
+   (or `/bin/bash` for a single test file) installed.
+
+`compute` runs the caller's committed code as the remote account, so whatever
+that account can read, the code can too. Prefer an account with no hosting-remote
+or model login for it, or accept that exposure deliberately.
+
 ## The knobs: capability in core, value in overlay
 
 Every fleet preference splits on the capability-vs-style boundary: the
