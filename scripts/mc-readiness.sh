@@ -469,7 +469,10 @@ drift_scope() {
   local home rel repo b why rc=0
   home=$(spec_home "$1" "$2") || return 0
   rel=${home#*	} repo=${home%%	*}
-  [ -n "$4" ] || { printf 'drift\t*\tthe pull request names no base branch\n'; return 0; }
+  [ -n "$4" ] || {
+    printf 'drift\t*\tthe pull request names no base branch\n'
+    return 0
+  }
   # A bundle is any directory directly under the root that does not open with
   # `_`, edited by any file under it.
   SPEC_REL=$rel awk -F '\t' '

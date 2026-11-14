@@ -86,8 +86,8 @@ run() {
   rc=$?
 }
 expect_rc() { if [ "$rc" = "$2" ]; then ok "$1"; else fail "$1: exit $rc, wanted $2 ($out $(cat "$tmp/err"))"; fi; }
-expect_out() { case $out in *"$2"*) ok "$1" ;; *) fail "$1: output lacks '$2' ($out)" ;; esac; }
-expect_err() { case $(cat "$tmp/err") in *"$2"*) ok "$1" ;; *) fail "$1: stderr lacks '$2' ($(cat "$tmp/err"))" ;; esac; }
+expect_out() { case $out in *"$2"*) ok "$1" ;; *) fail "$1: output lacks '$2' ($out)" ;; esac }
+expect_err() { case $(cat "$tmp/err") in *"$2"*) ok "$1" ;; *) fail "$1: stderr lacks '$2' ($(cat "$tmp/err"))" ;; esac }
 
 # REQ-D1.13: a changed listed deliverable with no spec edit and no reason.
 pr "feat: change a" scripts/a.sh
