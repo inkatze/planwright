@@ -102,7 +102,9 @@ override-effort=, reserved=) and in the worker's state for a relaunch, and
 `list` shows it. A tier the usage clamps lower is never silent: an ordinary
 launch prints a `tier-note` line saying what it was lowered from and why,
 and a --model or --effort the clamps would lower is refused, naming
---reserved. The launcher's environment overlays (PLANWRIGHT_LOCAL_CONFIG,
+--reserved. The clamps follow a current usage rung: one whose last evaluation
+is older than fleet_usage_read_cadence_seconds is re-evaluated first
+(fleet-usage-gate.sh refresh). The launcher's environment overlays (PLANWRIGHT_LOCAL_CONFIG,
 PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY and
 PLANWRIGHT_CONFIG_STRICT_OVERLAYS) steer its own tier resolution but are not
 handed to the session, which would otherwise keep a one-launch overlay for its

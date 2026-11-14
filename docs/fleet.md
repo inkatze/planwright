@@ -2372,6 +2372,15 @@ environment-specific) to `capture` first:
 */5 * * * * cd /path/to/repo && <scrape-/usage> | scripts/fleet-usage-gate.sh capture && scripts/fleet-usage-gate.sh evaluate
 ```
 
+A mission-control launch does not wait on that schedule:
+`scripts/mission-control-launch.sh` runs `fleet-usage-gate.sh refresh` before
+it resolves the tier, which runs `evaluate` first when the later of the last
+evaluation and the last transition is older than the cadence. A host with no
+cron line therefore still clamps a launch from a current rung, and where a
+cron line runs, a launch inside the cadence evaluates nothing. Each evaluation
+`refresh` runs counts toward `fleet_usage_sustained_loss_count` like a
+scheduled one.
+
 Then at dispatch time a tower consults `scripts/fleet-usage-gate.sh admit
 <model>` (a fast, audit-derived read — no scrape) to decide whether a unit of a
 given tier may launch under the current rung.
