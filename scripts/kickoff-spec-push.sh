@@ -59,6 +59,31 @@ case $current in
   *) die "this checkout is on '$current', not planwright/$spec/spec or planwright/$spec/amendment-<n>; run as $form from one of them" ;;
 esac
 
+# A session's launch scope binds the push here, at run time, since the guard
+# reads the branch before a command runs and anything may move HEAD after it
+# or run this script where the guard never sees it. No scope is an attended
+# run, which the branch checks above govern alone.
+scope=${PLANWRIGHT_WORKER_SCOPE:-}
+not_kickoff="this session is not the kickoff for $spec (launch scope '$scope'), so it may not push; only a session launched with scope kickoff-$spec, or kickoff-$spec-a<n> on planwright/$spec/amendment-<n>, runs $form"
+if [ -n "$scope" ] && [ "$scope" != "kickoff-$spec" ]; then
+  case $scope in
+    "kickoff-$spec-a"[0-9]*) ;;
+    *) die "$not_kickoff" ;;
+  esac
+  rest=${scope#"kickoff-$spec-a"}
+  n=${rest%%[!0-9]*}
+  rest=${rest#"$n"}
+  case $rest in
+    '' | [a-z]) ;;
+    -*)
+      case ${rest#-} in '' | *[!a-z0-9]*) die "$not_kickoff" ;; esac
+      ;;
+    *) die "$not_kickoff" ;;
+  esac
+  [ "$current" = "planwright/$spec/amendment-$n" ] \
+    || die "amendment $n's kickoff for $spec pushes only planwright/$spec/amendment-$n, and this checkout is on '$current'; check that branch out and run $form"
+fi
+
 # A full refspec: a short name is mapped through remote.origin.push, which can
 # carry an amendment branch onto the spec branch.
 refspec="refs/heads/$current:refs/heads/$current"

@@ -13,6 +13,8 @@ export LC_ALL
 unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE GIT_PREFIX
+# Rows run as an attended run (no launch scope) unless they set one.
+unset PLANWRIGHT_WORKER_SCOPE
 
 here=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$here/../scripts/kickoff-spec-push.sh"
@@ -156,13 +158,122 @@ g -C "$mc_primary" worktree add -q "$mc_a16" planwright/mission-control/amendmen
 g -C "$mc_a16" commit -q --allow-empty -m "delta 1"
 g -C "$mc_a16" commit -q --allow-empty -m "delta 2"
 mc_head=$(g -C "$mc_a16" rev-parse HEAD)
-(cd "$mc_a16" && "$SCRIPT" mission-control) >/dev/null 2>&1 || fail "relayed amendment case: the amendment-16 push from a linked worktree did not succeed"
+(cd "$mc_a16" && PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta "$SCRIPT" mission-control) >/dev/null 2>&1 \
+  || fail "relayed amendment case: the amendment-16 push from a linked worktree did not succeed"
 [ "$(g -C "$origin" rev-parse refs/heads/planwright/mission-control/amendment-16)" = "$mc_head" ] \
   || fail "relayed amendment case: refs/heads/planwright/mission-control/amendment-16 on origin is not the worktree head"
 if g -C "$origin" rev-parse --verify -q refs/heads/planwright/mission-control/spec >/dev/null; then
   fail "relayed amendment case: the amendment-16 push created planwright/mission-control/spec on origin"
 fi
 pass "[amendment] relayed amendment case: amendment-16 from a linked worktree lands on refs/heads/planwright/mission-control/amendment-16 alone"
+
+# --- the launch scope binds the push at run time ---------------------------------
+# The guard reads the branch before a command runs; whatever moves HEAD after
+# that (a shell string, a script, a loop, a direct HEAD write, a rebase), the
+# script itself refuses a push its session's scope does not cover.
+
+bind="$tmp/bind"
+g clone -q "$origin" "$bind"
+g -C "$bind" branch -q planwright/demo/spec origin/planwright/demo/spec
+g -C "$bind" switch -q planwright/demo/amendment-3
+g -C "$bind" commit -q --allow-empty -m "amendment 3 delta"
+printf '%s\n' 'git switch -q planwright/demo/spec' >"$tmp/sw.sh"
+printf 'sw:\n\tgit switch -q planwright/demo/spec\n' >"$tmp/sw.mk"
+spec_ref=$(g -C "$origin" rev-parse planwright/demo/spec)
+amend3_ref=$(g -C "$origin" rev-parse planwright/demo/amendment-3)
+
+# bound_refusal <label> — the a3 kickoff's push from the moved HEAD refuses and
+# moves nothing on origin.
+bound_refusal() {
+  out=$(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a3 "$SCRIPT" demo 2>&1) \
+    && fail "[bind] after $1, amendment 3's kickoff pushed from $(g -C "$bind" symbolic-ref --short HEAD 2>&1)"
+  case $out in
+    *"amendment 3's kickoff"*) ;;
+    *) fail "[bind] after $1, the refusal does not name amendment 3's kickoff: $out" ;;
+  esac
+  [ "$(g -C "$origin" rev-parse planwright/demo/spec)" = "$spec_ref" ] || fail "[bind] after $1, origin's spec branch moved"
+  if g -C "$origin" rev-parse --verify -q planwright/demo/amendment-9 >/dev/null; then
+    fail "[bind] after $1, planwright/demo/amendment-9 reached origin"
+  fi
+  pass "[bind] after $1, amendment 3's kickoff refuses to push and moves nothing"
+}
+bind_reset() {
+  g -C "$bind" bisect reset >/dev/null 2>&1 || :
+  g -C "$bind" switch -q -f planwright/demo/amendment-3
+  g -C "$bind" branch -q -D planwright/demo/amendment-9 >/dev/null 2>&1 || :
+  rm -f "$bind/stashed"
+}
+
+(cd "$bind" && sh -c 'git switch -q planwright/demo/spec')
+bound_refusal "a HEAD move in sh -c"
+bind_reset
+(cd "$bind" && eval 'git switch -q planwright/demo/spec')
+bound_refusal "a HEAD move through eval"
+bind_reset
+(cd "$bind" && sh "$tmp/sw.sh")
+bound_refusal "a HEAD move in a script"
+bind_reset
+(cd "$bind" && printf '%s\n' planwright/demo/spec | xargs git switch -q)
+bound_refusal "a HEAD move through xargs"
+bind_reset
+(cd "$bind" && find . -maxdepth 0 -exec git switch -q planwright/demo/spec \;)
+bound_refusal "a HEAD move through find -exec"
+bind_reset
+if command -v make >/dev/null 2>&1; then
+  (cd "$bind" && make -s -f "$tmp/sw.mk" sw)
+  bound_refusal "a HEAD move through make"
+  bind_reset
+fi
+(cd "$bind" && for b in planwright/demo/spec; do git switch -q "$b"; done)
+bound_refusal "a HEAD move in a loop"
+bind_reset
+printf '%s\n' 'ref: refs/heads/planwright/demo/spec' >"$bind/.git/HEAD"
+bound_refusal "a direct write to .git/HEAD"
+bind_reset
+g -C "$bind" rebase -q main planwright/demo/spec >/dev/null 2>&1 || :
+bound_refusal "a two-argument rebase"
+bind_reset
+g -C "$bind" branch -q -f planwright/demo/spec origin/planwright/demo/spec
+(cd "$bind" && git bisect start >/dev/null 2>&1 && git bisect reset planwright/demo/spec >/dev/null 2>&1)
+bound_refusal "a bisect reset onto the spec branch"
+bind_reset
+printf x >"$bind/stashed"
+g -C "$bind" add stashed && g -C "$bind" stash -q && g -C "$bind" stash branch planwright/demo/amendment-9 >/dev/null 2>&1
+bound_refusal "a stash branch onto a new amendment branch"
+bind_reset
+if (cd "$bind" && printf '%s\n' 'symref-update HEAD refs/heads/planwright/demo/spec' | git update-ref --no-deref --stdin) >/dev/null 2>&1; then
+  bound_refusal "a symref update of HEAD through update-ref --stdin"
+else
+  pass "[bind] skipped the update-ref --stdin row: this git has no symref-update"
+fi
+bind_reset
+
+out=$(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a4 "$SCRIPT" demo 2>&1) && fail "[bind] amendment 4's kickoff pushed amendment-3"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$amend3_ref" ] || fail "[bind] amendment 4's kickoff moved origin's amendment-3"
+pass "[bind] another amendment's kickoff refuses on amendment-3"
+for scope in task-1 kickoff-other kickoff-other-a3 kickoff-demox; do
+  for b in planwright/demo/amendment-3 planwright/demo/spec; do
+    g -C "$bind" switch -q "$b"
+    out=$(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=$scope "$SCRIPT" demo 2>&1) && fail "[bind] scope $scope pushed $b"
+    case $out in
+      *"not the kickoff for demo"*) ;;
+      *) fail "[bind] scope $scope on $b: the refusal does not say it is not the kickoff: $out" ;;
+    esac
+  done
+  bind_reset
+  [ "$(g -C "$origin" rev-parse planwright/demo/spec)" = "$spec_ref" ] || fail "[bind] scope $scope moved origin's spec branch"
+  [ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$amend3_ref" ] || fail "[bind] scope $scope moved origin's amendment-3"
+  pass "[bind] a session scoped $scope, not demo's kickoff, pushes nothing"
+done
+bind_head=$(g -C "$bind" rev-parse HEAD)
+out=$(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a3 "$SCRIPT" demo 2>&1) || fail "[bind] amendment 3's kickoff did not push its own branch: $out"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$bind_head" ] || fail "[bind] amendment 3's push did not land"
+pass "[bind] amendment 3's kickoff pushes planwright/demo/amendment-3"
+g -C "$bind" commit -q --allow-empty -m "amendment 3 second delta"
+bind_head=$(g -C "$bind" rev-parse HEAD)
+(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=kickoff-demo "$SCRIPT" demo) >/dev/null 2>&1 || fail "[bind] the spec's own kickoff did not push its amendment branch"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$bind_head" ] || fail "[bind] the spec kickoff's push did not land"
+pass "[bind] the spec's own kickoff (kickoff-demo) pushes an amendment branch"
 
 if (cd "$clone" && "$SCRIPT" other) >/dev/null 2>&1; then
   fail "another spec's name pushed from demo's amendment branch"

@@ -151,7 +151,9 @@ for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwrig
   'git update-ref --no-deref HEAD HEAD &&' 'git worktree add ../w9 planwright/demo/amendment-9 &&' \
   'env git switch planwright/demo/spec &&' 'git co planwright/demo/spec &&' \
   'git branch -fm planwright/demo/amendment-9 &&' 'git branch --move planwright/demo/amendment-9 &&' \
-  'git branch -M planwright/demo/amendment-9 &&' 'GIT switch planwright/demo/spec &&'; do
+  'git branch -M planwright/demo/amendment-9 &&' 'GIT switch planwright/demo/spec &&' \
+  'git rebase main planwright/demo/spec ;' 'git bisect reset planwright/demo/spec &&' \
+  'git stash branch planwright/demo/amendment-9 &&' 'printf x | git update-ref --stdin &&'; do
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
   expect deny "[worker, kickoff-demo-a2] a kickoff push after a git command that may move HEAD denies: $pre"
   reason_has 'cannot place it' "[worker, kickoff-demo-a2] the refusal after a HEAD move names why: $pre"
@@ -166,7 +168,7 @@ for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwrig
 done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git \$SUB planwright/demo/spec && $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
 expect deny "[worker, kickoff-demo-a2] a kickoff push after a git subcommand the guard cannot read denies"
-for pre in 'git status &&' 'git log -1 ;' 'git branch --show-current &&' 'git diff --stat HEAD &&'; do
+for pre in 'git status &&' 'git log -1 ;' 'git branch --show-current &&' 'git diff --stat HEAD &&' 'git stash list &&'; do
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
   expect defer "[worker, kickoff-demo-a2] a kickoff push after a git read still defers: $pre"
 done
@@ -227,6 +229,9 @@ reason_has 'planwright/mission-control/amendment-1 checked out' "[worker, kickof
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a10b pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
 expect deny "[worker, kickoff-mission-control-a10b] amendment 10's relaunch scope denies on amendment-16"
 reason_has "amendment 10's kickoff for mission-control pushes only" "[worker, kickoff-mission-control-a10b] the refusal reads the relaunch scope as amendment 10's"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "git rebase main planwright/mission-control/amendment-17 ; $KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] a kickoff push after a two-argument rebase in a linked worktree denies"
+reason_has 'cannot place it' "[worker, kickoff-mission-control-a16-delta] the refusal after a rebase that checks out a branch names why"
 mkdir -p "$MC_A16/specs/mission-control"
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
 expect defer "[worker, kickoff-mission-control-a16-delta] relayed amendment case: admitted with its own spec under the spec root and no colliding one"

@@ -2211,10 +2211,10 @@ kickoff_scope_shared() {
 }
 
 # kickoff_head_moves — 0 when the segment runs git in a way that may change
-# which branch is checked out: switch, checkout, worktree, symbolic-ref,
-# update-ref on HEAD, a branch rename, an alias or a subcommand or argument
-# the guard cannot read. A later kickoff push in the same command then cannot
-# be placed, since its branch is read before anything runs.
+# which branch is checked out (the subcommands below, an alias, or a word the
+# guard cannot read). A later kickoff push in the same command then cannot be
+# placed, since its branch is read before anything runs. A move this cannot
+# see (a shell string, a script) is caught by the helper's own run-time check.
 kickoff_head_moves() {
   local i=0 n=${#SW[@]} k sub
   while [ "$i" -lt "$n" ]; do
@@ -2241,13 +2241,13 @@ kickoff_head_moves() {
         sub=$LC
         case " $GIT_BUILTINS " in *" $sub "*) ;; *) return 0 ;; esac
         case $sub in
-          switch | checkout | worktree | symbolic-ref) return 0 ;;
-          update-ref | branch)
+          switch | checkout | worktree | symbolic-ref | rebase | bisect) return 0 ;;
+          update-ref | branch | stash)
             k=$((k + 1))
             while [ "$k" -lt "$n" ]; do
               [ "${SWL[$k]}" = 1 ] || return 0
               case $sub:${SW[$k]} in
-                update-ref:HEAD | branch:-m* | branch:-M* | branch:--move | branch:-[!-]*[mM]*) return 0 ;;
+                update-ref:HEAD | update-ref:--stdin | stash:branch | branch:-m* | branch:-M* | branch:--move | branch:-[!-]*[mM]*) return 0 ;;
               esac
               k=$((k + 1))
             done
