@@ -603,7 +603,10 @@ reap_dispatch() {
 # A cancelled run (INT, TERM or HUP) takes its worker tree with it, then ends
 # with the conventional 128+signal status; the EXIT trap removes the scratch.
 cancel_run() {
+  # $! is unbound until the shell has started a background job.
+  set +u
   cr_last=$!
+  set -u
   trap '' INT TERM HUP
   # A signal can land between the dispatcher's launch and the assignment of
   # its pid; the launch's own pid is then still $!, trusted only while it is
