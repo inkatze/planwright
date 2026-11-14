@@ -2246,6 +2246,8 @@ kickoff_head_moves() {
             -C?* | -c?* | --*=*)
             k=$((k + 1))
             ;;
+          # These print and exit before any subcommand, as classify_git reads them.
+          --exec-path | --html-path | --man-path | --info-path | --version | --help | -v | -h) k=$n ;;
           -*) return 0 ;;
           *) break ;;
         esac

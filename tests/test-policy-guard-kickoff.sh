@@ -168,7 +168,11 @@ for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwrig
 done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git \$SUB planwright/demo/spec && $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
 expect deny "[worker, kickoff-demo-a2] a kickoff push after a git subcommand the guard cannot read denies"
-for pre in 'git status &&' 'git log -1 ;' 'git branch --show-current &&' 'git diff --stat HEAD &&' 'git stash list &&'; do
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git symbolic-ref HEAD && $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, kickoff-demo-a2] a symbolic-ref read before the push stays refused (fail closed)"
+reason_has 'cannot place it' "[worker, kickoff-demo-a2] the symbolic-ref refusal is the unplaceable one"
+for pre in 'git status &&' 'git log -1 ;' 'git branch --show-current &&' 'git diff --stat HEAD &&' 'git stash list &&' \
+  'git --version &&' 'git -h ;' 'git --exec-path &&'; do
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
   expect defer "[worker, kickoff-demo-a2] a kickoff push after a git read still defers: $pre"
 done
