@@ -187,6 +187,37 @@ ml list
 [ "$(printf '%s\n' "$OUT" | grep -c .)" = 6 ] && ok "list shows the six launched sessions" \
   || fail "list does not show six sessions: $OUT"
 
+# The plugin root a session loaded is recorded in its row, and list judges it
+# against the installed version: older is stale, current is current, and a
+# row with no recorded root (launched before the field) is unknown.
+rr_cache="$tmp/claude/plugins/cache/mkt/planwright"
+mkdir -p "$rr_cache/0.62.0" "$rr_cache/9.9.9"
+jq -n --arg p "$rr_cache/9.9.9" '{version: 2, plugins: {"planwright@planwright": [{scope: "user", installPath: $p, version: "9.9.9"}]}}' \
+  >"$tmp/claude/plugins/installed_plugins.json"
+rr_name=$(ls "$fleet/mission-control/sessions" | grep -v '\.tmp\.' | head -n 1)
+rr_row="$fleet/mission-control/sessions/$rr_name"
+rr_recorded=$(awk -F '\t' '$1 == "root" { print $2 }' "$rr_row")
+[ -n "$rr_recorded" ] && [ "$rr_recorded" != - ] && ok "a launched row records the plugin root the session loaded" \
+  || fail "the launched row records no plugin root: $(cat "$rr_row")"
+rr_orig=$(cat "$rr_row")
+rr_state() { # rr_state <root or ->: the list's root state for the first row
+  awk -F '\t' -v r="$1" 'BEGIN { OFS = "\t" } $1 == "root" { $2 = r } { print }' <<<"$rr_orig" >"$rr_row"
+  [ "$1" != - ] || grep -v '^root	' <<<"$rr_orig" >"$rr_row"
+  ml list
+  printf '%s\n' "$OUT" | awk -F '\t' -v n="$rr_name" '$1 == n { print $10 }'
+}
+[ "$(rr_state "$rr_cache/0.62.0")" = "stale 0.62.0 9.9.9" ] && ok "list flags a session recorded on an older root as stale" \
+  || fail "list did not flag the older root: $OUT"
+[ "$(rr_state "$rr_cache/9.9.9")" = current ] && ok "list reports a session on the installed root as current" \
+  || fail "list did not report the installed root as current: $OUT"
+rr_legacy=$(rr_state -)
+case $rr_legacy in
+  unknown*) ok "list reports a row with no recorded root as unknown, never current" ;;
+  *) fail "list read a row with no recorded root as '$rr_legacy'" ;;
+esac
+printf '%s\n' "$rr_orig" >"$rr_row"
+rm -f "$tmp/claude/plugins/installed_plugins.json"
+
 # A brief that runs a skill command leaves the cadence to that skill.
 printf '%s\n' '/planwright:execute-task specs/alpha 3' >"$tmp/skill-brief.md"
 rec="$tmp/rec-skill"
