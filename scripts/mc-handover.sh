@@ -609,19 +609,20 @@ await_exit() {
 
 # retire_row <name> <kind>: retire a session the launcher registered, setting
 # RS_STATE to released, gone, attended (no row to retire) or partial, which
-# also raises an item.
+# also raises an item carrying what the launcher said, flattened to one line.
 retire_row() {
   if [ "$2" != registry ]; then
     RS_STATE=attended
   elif ! row_exists "$1"; then
     RS_STATE=gone
-  elif /bin/sh "$script_dir/mission-control-launch.sh" retire "$1" >/dev/null 2>&1 </dev/null; then
+  elif rr_said=$(/bin/sh "$script_dir/mission-control-launch.sh" retire "$1" 2>&1 </dev/null); then
     RS_STATE=released
   elif ! row_exists "$1"; then
     RS_STATE=gone
   else
     RS_STATE=partial
-    raise handover-retire-failed "$1" "$1 could not be retired; retire it by name"
+    rr_said=$(printf '%s' "$rr_said" | tr '\t\n\r' '   ' | tr -s ' ' | sed 's/^ //; s/ $//')
+    raise handover-retire-failed "$1" "$1 could not be retired; retire it by name${rr_said:+ (the launcher said: $rr_said)}"
   fi
 }
 

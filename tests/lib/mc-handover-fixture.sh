@@ -73,7 +73,8 @@ SHIM
 chmod +x "$tmp/bin/claude"
 
 # run <script> <args...>: against the fixture, the shim on PATH, as the
-# Claude session RUN_SESSION names (none when unset). Sets RC, OUT, ERR.
+# Claude session RUN_SESSION names (none when unset), from the scripts
+# directory RUN_SCRIPTS names (the repository's when unset). Sets RC, OUT, ERR.
 run() {
   r_script=$1
   shift
@@ -88,7 +89,7 @@ run() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
-    /bin/bash "$repo_root/scripts/$r_script" "$@" 2>"${RUN_ERR:-$tmp/stderr}")
+    /bin/bash "${RUN_SCRIPTS:-$repo_root/scripts}/$r_script" "$@" 2>"${RUN_ERR:-$tmp/stderr}")
   RC=$?
   ERR=$(cat "${RUN_ERR:-$tmp/stderr}")
 }

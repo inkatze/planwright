@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for scripts/mc-handover.sh's recovery and edge paths: a dead
 # predecessor, a misdirected or stale release, a launch in flight, a
-# resume that gives up, and the usage contract (mission-control REQ-A1.1,
+# resume that gives up, a retire the launcher refuses, and the usage contract (mission-control REQ-A1.1,
 # REQ-A1.7, REQ-L1.5, REQ-L1.6). The fixture is tests/lib/mc-handover-fixture.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
@@ -193,6 +193,131 @@ s2=$(col successor 2)
 wait_done "$s2"
 [ -n "$s1" ] && [ -n "$s2" ] && [ "$s1" != "$s2" ] && ok "a same-second relaunch gets a name of its own" || fail "the relaunch reused $s1 (got '$s2')"
 run mission-control-launch.sh retire "$s2"
+
+# ---------------------------------------------------------------------------
+# A retire the launcher refuses carries the launcher's own words into the
+# handover-retire-failed event, one sanitized line; a retire it completes
+# raises nothing. The stub stands in for the launcher at the path
+# mc-handover.sh calls: it answers retire as stub-retire says and, while
+# stub-stray exists, a launch with a successor of another name, which the
+# handover retires; every other verb goes to the real launcher.
+# ---------------------------------------------------------------------------
+stub="$tmp/stub"
+mkdir -p "$stub"
+cp -R "$repo_root/scripts" "$repo_root/config" "$stub/"
+cat >"$stub/scripts/mission-control-launch.sh" <<STUB
+#!/bin/sh
+case \$1 in
+  retire)
+    case \$(cat "$tmp/stub-retire") in
+      held)
+        printf 'retire\t%s\theld\treleased=-\theld=pane\n' "\$2"
+        exit 1
+        ;;
+      stderr)
+        printf '%s\n' 'launcher: the registry lock is held by another retire' >&2
+        exit 1
+        ;;
+      dirty)
+        printf 'retire\t%s\theld\nsecond-part\033[31m\001\r\n' "\$2"
+        printf '%s\n' stderr-part >&2
+        printf '%0900d\n' 0
+        exit 1
+        ;;
+      quiet)
+        printf 'retire\t%s\treleased\n' "\$2"
+        printf '%s\n' 'launcher: noise on a good retire' >&2
+        exit 0
+        ;;
+    esac
+    ;;
+  launch)
+    if [ -f "$tmp/stub-stray" ]; then
+      mkdir -p "$fleet/mission-control/sessions"
+      : >"$fleet/mission-control/sessions/mc-stub-stray"
+      printf 'launch\tname\tmc-stub-stray\n'
+      exit 0
+    fi
+    ;;
+esac
+exec /bin/sh "$repo_root/scripts/mission-control-launch.sh" "\$@"
+STUB
+# last_retire_failed: the raw stored line of alpha's newest
+# handover-retire-failed event, or nothing.
+last_retire_failed() {
+  lrf_id=$(events_of handover-retire-failed alpha | tail -n 1 | cut -f 1)
+  [ -z "$lrf_id" ] || cat "$fleet/attention/mission-control/alpha/events/$lrf_id"
+}
+# stray_launch <mode>: an asked launch whose successor the stub names
+# mc-stub-stray, retired with the stub answering <mode>.
+stray_launch() {
+  printf '%s\n' "$1" >"$tmp/stub-retire"
+  : >"$tmp/stub-stray"
+  RUN_SCRIPTS="$stub/scripts" ho launch --program alpha --brief "$tmp/brief.md" --asked
+  rm -f "$tmp/stub-stray" "$fleet/mission-control/sessions/mc-stub-stray"
+}
+
+run mc-kb.sh init --program alpha
+run mc-rules.sh load alpha
+adigest=$(printf '%s\n' "$OUT" | sed -n 's/.*, digest \([0-9a-f]*\) -->.*/\1/p' | head -n 1)
+[ "${#adigest}" = 64 ] || fail "fixture: no rules digest for alpha: $OUT"
+printf '%s\n' "item a-1" >"$tmp/apic"
+printf '%s\n' quiet >"$tmp/stub-retire"
+RUN_SCRIPTS="$stub/scripts" ho launch --program alpha --brief "$tmp/brief.md"
+a1=$(col successor 2)
+wait_done "$a1"
+RUN_SCRIPTS="$stub/scripts" ho verify --program alpha --session "$a1" --picture "$tmp/apic" --digest "$adigest" --ledger - --durable "$tmp/apic"
+RUN_SCRIPTS="$stub/scripts" ho take --program alpha --session "$a1" --window 1s
+holder_is "fixture: alpha's first session holds its name" "$a1"
+RUN_SCRIPTS="$stub/scripts" ho write --program alpha --session "$a1" --picture "$tmp/apic" --digest "$adigest"
+RUN_SCRIPTS="$stub/scripts" ho launch --program alpha --brief "$tmp/brief.md" --handover
+a2=$(col successor 2)
+wait_done "$a2"
+RUN_SCRIPTS="$stub/scripts" ho verify --program alpha --session "$a2" --picture "$tmp/apic" --digest "$adigest" --ledger -
+[ "$RC" = 0 ] || fail "fixture: alpha's successor did not verify: $RC $OUT $ERR"
+
+printf '%s\n' held >"$tmp/stub-retire"
+before=$(count_of handover-retire-failed alpha)
+RUN_SCRIPTS="$stub/scripts" ho take --program alpha --session "$a2" --window 1s
+[ "$(col took 4)" = retired ] && [ "$(col retire 3)" = partial ] || fail "fixture: the take did not meet a refused retire: $RC $OUT $ERR"
+ev=$(last_retire_failed)
+[ "$(count_of handover-retire-failed alpha)" = $((before + 1)) ] || fail "the refused retire raised no handover-retire-failed event"
+case $ev in
+  *"$a1 could not be retired; retire it by name"*held=pane*) ok "a refused retire's event carries the launcher's retire line" ;;
+  *) fail "the refused retire's event lacks the launcher's held=pane: $ev" ;;
+esac
+
+before=$(count_of handover-retire-failed alpha)
+stray_launch stderr
+ev=$(last_retire_failed)
+[ "$(count_of handover-retire-failed alpha)" = $((before + 1)) ] || fail "the stray successor's refused retire raised no event: $RC $OUT $ERR"
+case $ev in
+  *'launcher: the registry lock is held by another retire'*) ok "a refused retire's event carries the launcher's stderr" ;;
+  *) fail "the event lacks the launcher's stderr: $ev" ;;
+esac
+
+before=$(count_of handover-retire-failed alpha)
+stray_launch dirty
+ev=$(last_retire_failed)
+ev_text=$(printf '%s\n' "$ev" | cut -f 4-)
+if [ "$(count_of handover-retire-failed alpha)" != $((before + 1)) ]; then
+  fail "a retire whose output carries newlines and control bytes raised no event: $OUT $ERR"
+elif [ "$(printf '%s\n' "$ev" | wc -l | tr -d ' ')" != 1 ] || [ "$(printf '%s\n' "$ev" | awk -F '\t' '{ print NF }')" != 4 ]; then
+  fail "the event is not one stored line of four fields: $ev"
+elif printf '%s' "$ev_text" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+  fail "the event text keeps a control byte: $ev_text"
+elif [ "${#ev_text}" -gt 512 ]; then
+  fail "the event text runs past its bound: ${#ev_text} bytes"
+else
+  case $ev_text in
+    *"mc-stub-stray held second-part"*stderr-part*) ok "a multi-line launcher answer becomes one sanitized, bounded line" ;;
+    *) fail "the sanitized event text lost the launcher's words: $ev_text" ;;
+  esac
+fi
+
+before=$(count_of handover-retire-failed alpha)
+stray_launch quiet
+[ "$(count_of handover-retire-failed alpha)" = "$before" ] && ok "a retire the launcher completes raises no failure event" || fail "a good retire raised a failure event: $(last_retire_failed)"
 
 echo
 if [ "$failures" -gt 0 ]; then
