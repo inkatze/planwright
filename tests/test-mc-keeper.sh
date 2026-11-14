@@ -273,6 +273,22 @@ OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha
 expect_out "a request that arrives in a later pass is announced in that pass, not held for a window" "announced${tab}pending-prompt${tab}cp-fresh-c"
 rm -rf "$fleet/streamjson/cp-fresh-c"
 
+# A fresh request wakes only its own program: one from a worker the launcher
+# records for another program is left to that program's keeper.
+pp_fresh mc-alpha-worker-0123456789 4 7040
+pp_fresh mc-beta-worker-0123456789 5 7041
+for pp_s in alpha beta; do
+  printf 'format\t1\nname\tmc-%s-worker-0123456789\nprogram\t%s\nkind\tworker\nscope\tx\nbackend\tstream-json\nlaunched\t1\n' "$pp_s" "$pp_s" \
+    >"$fleet/mission-control/sessions/mc-$pp_s-worker-0123456789"
+done
+OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7050 2>/dev/null)
+expect_out "the owner's fresh request raises its pending-prompt" "announced${tab}pending-prompt${tab}mc-alpha-worker-0123456789"
+mc_run mc-event.sh list --program alpha
+expect_no_out "another program's fresh request stays out of this program's store" "mc-beta-worker-0123456789"
+for pp_s in alpha beta; do
+  rm -rf "$fleet/streamjson/mc-$pp_s-worker-0123456789" "$fleet/mission-control/sessions/mc-$pp_s-worker-0123456789"
+done
+
 # Several prompts from one worker in a row: each arrives in its own pass after
 # the last was answered, and each raises its own pending-prompt wake.
 pp_series() { # pp_series <worker> <n> <received> [<previous answered at>]

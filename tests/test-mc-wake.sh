@@ -390,6 +390,46 @@ else
   fail "the tick's wake left the new event out: $(cat "$msg")"
 fi
 
+# A pending prompt reaches the next relay ahead of any backlog. A successor
+# mission control inherits every event its program raised, unmarked, and the
+# relay sends twenty a pass, so a fresh prompt queued oldest first sat behind
+# hundreds of days-old events, stale prompts among them, for hours.
+tmux_target
+printf '%s\n' "$idle_pane" >"$tmp/tmux/pane"
+backlog() { # backlog <epoch> <copies> <kind> <subject>: one event and its copies
+  mc_run mc-event.sh emit --program alpha --now "$1" "$3" "$4"
+  bl_src=$(find "$fleet/attention" -type f -name "$OUT" | head -n 1)
+  for bl_n in $(seq 1 "$2"); do cp "$bl_src" "${bl_src%.*}.$(printf '%08x' "$bl_n")"; done
+}
+backlog 1000 300 conflict-predicted pr-1
+backlog 2000 300 pending-prompt gone-worker
+backlog 3000 100 pending-prompt-overdue gone-worker
+mc_run mc-event.sh emit --program alpha --now 9000 pending-prompt live-worker
+fresh=$OUT
+mc_run mc-wake.sh relay --program alpha
+expect_out "a relay over a large backlog still carries twenty" "staged${tab}tw${tab}20"
+msg=$(sed -n 's/.*read \(.*\)$/\1/p' "$tmp/tmux/pasted")
+if [ "$(awk '/^- /{ print; exit }' "$msg")" = "- pending-prompt live-worker" ] && grep -q " $fresh" "$msg"; then
+  ok "a fresh pending prompt leads the next relay, ahead of an older backlog"
+else
+  fail "the next relay left the fresh pending prompt out: $(cat "$msg")"
+fi
+mc_run mc-event.sh emit --program alpha --now 9100 pending-prompt-overdue live-worker
+overdue=$OUT
+printf '%s\n' "$idle_pane" >"$tmp/tmux/pane"
+mc_run mc-wake.sh relay --program alpha
+msg=$(sed -n 's/.*read \(.*\)$/\1/p' "$tmp/tmux/pasted")
+if [ "$(awk '/^- /{ print; exit }' "$msg")" = "- pending-prompt-overdue live-worker" ] && grep -q " $overdue" "$msg"; then
+  ok "an overdue prompt leads the next relay too"
+else
+  fail "the next relay left the overdue prompt out: $(cat "$msg")"
+fi
+mc_run mc-event.sh emit --program alpha --now 9200 pending-prompt live-worker
+mc_run mc-wake.sh compose --program alpha tw
+first_id=$(printf '%s\n' "$OUT" | awk -F '\t' 'NR == 1 { split($3, a, " "); print a[1] }')
+mc_run mc-event.sh list --program alpha "$first_id"
+expect_out "the wake a session with the mod composes leads with the newest prompt" "${tab}9200${tab}pending-prompt${tab}live-worker"
+
 tmux_target
 mc_run mc-wake.sh tick --program alpha --now 10000
 expect_out "REQ-E1.3: a tick with nothing pending sends nothing" "idle${tab}tw"
