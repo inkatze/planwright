@@ -42,7 +42,7 @@ cannot be named does not ship.
 | Merging a release PR | Policy | `auto_merge_classes`, default empty; class `release`: the release tool's own PR from a bot author, touching only the version file, changelog, and manifest, passing the release tool's pre-validation; its outward effect is the publish, accepted by the operator at a kickoff before the class is enabled |
 | Merging a dependency-bot PR | Policy | `auto_merge_classes`, default empty; class `dependency`: a bot author on `auto_merge_dependency_authors`, only manifests and lockfiles, patch or minor updates, never a major one |
 | Merging a test-only PR | Policy | `auto_merge_classes`, default empty; class `test-only`: only test paths, no test file deleted or renamed away, every required check green |
-| Merging an observation-carry PR | Policy | `auto_merge_classes`, default empty; class `observation-carry`: only observation fragments added or moved, content unchanged |
+| Merging an observation-carry PR | Policy | `auto_merge_classes`, default empty; class `observation-carry`: only observation fragments added or moved, a move changing only the consumption lines the archive step appends |
 | Merging a bookkeeping PR | Policy | `auto_merge_classes`, default empty; class `bookkeeping`: only Awaiting-input reference bullets removed, for tasks that derive Completed on the base |
 | Merging a docs-only PR | Policy | `auto_merge_classes`, default empty; class `docs-only`: only adopter-facing documentation, never doctrine, skills, specs, or agent instruction files |
 | Merging a regeneration PR | Policy | `auto_merge_classes`, default empty; class `regeneration`: the head is exactly what the base's own named command reproduces from a clean base checkout |

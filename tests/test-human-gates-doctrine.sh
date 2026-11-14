@@ -245,10 +245,13 @@ rm -rf "$fx"
 # "never a class admission" phrasing.
 for f in doctrine/release-tagging.md doctrine/guard-catalog.md docs/getting-started.md \
   docs/options-reference.md templates/release-please/README.md \
-  templates/release-please/release-please.yml .github/workflows/release-please.yml; do
-  if grep -qF 'never a class admission' "$REPO_ROOT/$f"; then
+  templates/release-please/release-please.yml templates/release-please/release-please-config.json \
+  .github/workflows/release-please.yml; do
+  # Comment markers and wrapping are flattened so a phrase split across lines is still seen.
+  flat=$(tr '\n' ' ' <"$REPO_ROOT/$f" | tr -s ' #' ' ')
+  if printf '%s\n' "$flat" | grep -qF 'never a class admission'; then
     fail "$f still states a release PR is never a class admission"
-  elif grep -qF 'auto_merge_classes' "$REPO_ROOT/$f"; then
+  elif printf '%s\n' "$flat" | grep -qE 'release.{0,200}auto_merge_classes|auto_merge_classes.{0,200}release'; then
     ok "$f states the release class exception"
   else
     fail "$f describes the release approval without the auto_merge_classes exception"
