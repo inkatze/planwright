@@ -42,6 +42,11 @@
 #   orchestrate-select.sh <spec-dir>
 #       prints the selected ready task id on stdout (the default; for
 #       /orchestrate dispatch).
+#   orchestrate-select.sh --ready <spec-dir>
+#       prints every ready task id, one per line, in the order repeated
+#       selection would take them (the first is what the default prints), so
+#       a caller that names several units to start reads the selection's own
+#       candidacy, withheld and held tasks left out. Same exit codes.
 #   orchestrate-select.sh --critical-path <spec-dir>
 #       prints the effort-weighted longest-dependent chain — the structural
 #       critical path — as ordered task ids, one per line. This is the single
@@ -124,16 +129,21 @@ fi
 # Mode: the optional leading --critical-path flag selects the path-emitting mode
 # (D-6); without it the script is the unchanged ready-unit selector.
 mode=select
+list=0
 case "${1:-}" in
   --critical-path)
     mode=path
+    shift
+    ;;
+  --ready)
+    list=1
     shift
     ;;
 esac
 
 spec_dir="${1:-}"
 if [ -z "$spec_dir" ]; then
-  printf '%s\n' "usage: orchestrate-select.sh [--critical-path] <spec-dir>" >&2
+  printf '%s\n' "usage: orchestrate-select.sh [--critical-path | --ready] <spec-dir>" >&2
   exit 2
 fi
 tasks_md="$spec_dir/tasks.md"
@@ -338,7 +348,7 @@ fi
 sel_rc=0
 sel_out=$(printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_md" \
   awk -v mode="$mode" -v fv="$fv_arm" \
-  -v completed="$completed" -v inprogress="$inprogress" -v held="$held" \
+  -v list="$list" -v completed="$completed" -v inprogress="$inprogress" -v held="$held" \
   -v parked="$parked_any" -v parked_oos="$parked_oos" \
   "$spec_parse_awk_fence$spec_parse_awk_grammar"'
   function weight(s) {
@@ -476,11 +486,27 @@ sel_out=$(printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_m
       }
       if (!ready) continue
       w = crit(t)
+      if (list) { nr++; rdy[nr] = t; rw[t] = w; continue }
       if (w > best_w || (w == best_w && order[t] < best_order)) {
         best_w = w
         best_id = t
         best_order = order[t]
       }
+    }
+    if (list) {
+      # Every ready unit, in the order repeated selection would take them.
+      if (nr == 0) exit 1
+      for (k = 1; k <= nr; k++) {
+        bi = 0
+        for (j = 1; j <= nr; j++) {
+          t = rdy[j]
+          if (t in taken) continue
+          if (!bi || rw[t] > rw[rdy[bi]] || (rw[t] == rw[rdy[bi]] && order[t] < order[rdy[bi]])) bi = j
+        }
+        taken[rdy[bi]] = 1
+        print rdy[bi]
+      }
+      exit 0
     }
     if (best_id == "") exit 1
     print best_id

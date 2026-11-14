@@ -224,6 +224,38 @@ printf '%s\n' "mission_control_measure_window: 2h" >>"$tracked"
 decide measures --program alpha --now "$now"
 expect_rc "the window defaults to its knob" 0
 expect_out "the default window comes from the knob" "window${tab}7200"
+# REQ-M1.8, D-40: the calibration run writes the measures file in the shape
+# the panel reads, and the panel shows what it holds. An explicit window is a
+# one-off read and writes nothing.
+measures_file="$fleet/mission-control/alpha/measures"
+expect_eq_text() { # expect_eq_text <label> <want> <got>
+  if [ "$3" = "$2" ]; then ok "$1"; else fail "$1: wanted '$2', got '$3'"; fi
+}
+check_measures_unwritten() { [ ! -e "$measures_file" ]; }
+rm -f "$measures_file"
+decide measures --program alpha --now "$now" --window 4h
+if check_measures_unwritten; then ok "an explicit window writes no measures file"; else fail "an explicit window wrote the measures file"; fi
+decide measures --program alpha --now "$now"
+expect_rc "the default-window run writes the file" 0
+if [ -f "$measures_file" ]; then
+  ok "REQ-M1.8: the measures file is written"
+  expect_eq_text "the file opens with its format" "format${tab}1" "$(sed -n 1p "$measures_file")"
+  expect_eq_text "and the time it was taken" "taken${tab}$now" "$(sed -n 2p "$measures_file")"
+  expect_eq_text "interruptions per hour in the panel's key" "interruptions_per_hour${tab}0.50" "$(sed -n 3p "$measures_file")"
+  expect_eq_text "the settled share in the panel's key" "settled_share${tab}50" "$(sed -n 4p "$measures_file")"
+else
+  fail "REQ-M1.8: the default-window run wrote no measures file"
+fi
+mc_run mc-panel.sh digest --program alpha --target mc-alpha --now "$now"
+expect_out "the panel shows the interruptions per hour" "measure${tab}interruptions_per_hour${tab}0.50${tab}0"
+expect_out "and the settled share" "measure${tab}settled_share${tab}50${tab}0"
+decide measures --program alpha --now "$((now + 1))" --window 1s
+expect_rc "an empty explicit window still computes" 0
+decide measures --program alpha --now "$((now + 86400 * 30))"
+expect_rc "a window with no decisions" 0
+expect_eq_text "writes no settled share" "interruptions_per_hour${tab}0.00" "$(sed -n 3p "$measures_file")"
+if [ "$(wc -l <"$measures_file" | tr -d ' ')" -eq 3 ]; then ok "and no settled-share row"; else fail "a window with no decision wrote a settled share"; fi
+
 sed 's/^mission_control_calibration_restore: .*/mission_control_calibration_restore: 0/' "$tracked" >"$tmp/t" && mv "$tmp/t" "$tracked"
 decide ledger --program alpha
 expect_rc "a restore count of zero is refused" 1

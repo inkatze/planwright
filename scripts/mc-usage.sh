@@ -137,6 +137,7 @@ Usage:
       nothing else: since the hold began, each landing (session-landed),
       each decision (an operator item of a kind an armed duty declares) and
       each failure (stall-dead, stream-json-worker-dead, watcher-stopped,
+      watcher-timeout, snapshot-timeout,
       and the drain's own failures), each launch --operator-asked took past
       the hold (usage-bypass), and each entry the reset drain kept that
       still waits, with its reason:
@@ -766,7 +767,7 @@ report() {
       c = ""
       if ($3 == "session-landed") c = "landed"
       else if ($3 == "usage-bypass") c = "bypass"
-      else if ($3 == "stall-dead" || $3 == "stream-json-worker-dead" || $3 == "watcher-stopped") c = "failed"
+      else if ($3 == "stall-dead" || $3 == "stream-json-worker-dead" || $3 == "watcher-stopped" || $3 == "watcher-timeout" || $3 == "snapshot-timeout") c = "failed"
       else if ($3 in dk) c = "decision"
       if (c != "") { t = $5; gsub(/[^[:print:]]/, "", t); print c "\t" $4 "\t" t }
     }'

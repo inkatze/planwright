@@ -340,6 +340,50 @@ got=$(/bin/bash "$SEL" "$d8spec") || fail "depless fixture: non-zero exit"
 [ "$got" = 1 ] || fail "depless fixture: selected '$got', expected 1"
 echo "ok: a task with 'Dependencies: none' is ready"
 
+# 7b. --ready lists every ready task in the order repeated selection takes
+#     them: the longest dependent chain first, file order among equals; its
+#     first line is the default output; a task behind an unmet dependency is
+#     left out.
+d8b="$tmp/r8b"
+d8bspec=$(new_spec "$d8b" readylist)
+cat >"$d8bspec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — long chain head
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+### Task 2 — first of the equals
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+### Task 3 — behind task 1
+
+- **Dependencies:** 1
+- **Estimated effort:** 1 day
+
+### Task 4 — second of the equals
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+EOF
+seal_base "$d8b"
+ready_out=$(/bin/bash "$SEL" --ready "$d8bspec") || fail "--ready: non-zero exit"
+got=$(printf '%s\n' "$ready_out" | tr '\n' ' ')
+[ "$got" = "1 2 4 " ] || fail "--ready: listed [$got], expected [1 2 4 ]"
+first=$(/bin/bash "$SEL" "$d8bspec") || fail "default selection: non-zero exit"
+[ "$first" = 1 ] || fail "--ready: the default output is [$first], expected the list's first, 1"
+rc=0
+/bin/bash "$SEL" --ready "$tmp/does-not-exist" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "--ready missing tasks.md: exit $rc, expected 2"
+echo "ok: --ready lists the ready tasks in selection order"
+
 # 8. A task whose dependency does not exist as a task record is NOT ready (a
 #    dangling id is never derived completed, so it fails closed to blocked) —
 #    selection skips it and picks the genuinely-ready task instead.

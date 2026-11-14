@@ -13,6 +13,8 @@ kb-index-budget	mission_control_kb_index_budget	scripts/mc-kb.sh
 kb-entry-cap	mission_control_kb_entry_cap	scripts/mc-kb.sh
 kb-lock-wait	mission_control_kb_lock_wait	scripts/mc-kb.sh
 runner-interval	mission_control_runner_interval	scripts/mc-watch.sh
+step-timeout	mission_control_step_timeout	scripts/mc-lib.sh
+step-timeout-overrides	mission_control_step_timeout_overrides	scripts/mc-lib.sh
 failsafe-tick-cadence	mission_control_tick_cadence	scripts/mc-wake.sh
 panel-redraw-cadence	mission_control_panel_refresh	scripts/mc-panel.sh
 panel-mascot	mission_control_panel_mascot	scripts/mc-panel.sh

@@ -50,6 +50,11 @@ form
   event<TAB><kind><TAB><subject>[<TAB><text>]
 becomes an event (scripts/mc-event.sh emit) and every other line is
 ignored; a line the event store refuses is counted, not dropped silently.
+A run, like the pass's snapshot refresh, is stopped when it outlives
+mission_control_step_timeout (a duty's own entry in
+mission_control_step_timeout_overrides, `snapshot` for the refresh): a
+watcher-timeout or snapshot-timeout event names the expiry and the step runs
+again on its next cadence or pass.
 A loop re-checks the fleet daemon gate before each run and skips the run
 while the gate is closed, doubles its cadence at any budget rung above
 normal (and when the budget file cannot be read), and exits once its
@@ -312,6 +317,26 @@ step() {
   return "$st_rc"
 }
 
+# snapshot_step <rung>: the snapshot refresh, stopped when it outlives its
+# timeout; the expiry is a line and an event, and the pass goes on.
+snapshot_step() {
+  ss_to=$(mc_step_timeout snapshot) || return 1
+  ss_out=$(mktemp "$runtime/.snapshot.out.XXXXXX") || return 1
+  mc_run_bounded "$ss_to" "$ss_out" /bin/bash "$script_dir/mc-snapshot.sh" refresh --program "$program" \
+    --rung "$1" ${now_args[@]+"${now_args[@]}"}
+  ss_rc=$MRB_RC
+  ss_text=$(cat "$ss_out")
+  rm -f "$ss_out"
+  [ -z "$ss_text" ] || printf '%s\n' "$ss_text" | sed "s/^/snapshot	/"
+  if [ "$MRB_EXPIRED" -eq 1 ]; then
+    mc_event emit --program "$program" ${now_args[@]+"${now_args[@]}"} -- \
+      snapshot-timeout snapshot "the snapshot refresh ran past ${ss_to}s and was stopped" >/dev/null || :
+    printf 'snapshot\ttimeout\t%s\n' "$ss_to"
+    return 1
+  fi
+  return "$ss_rc"
+}
+
 pass() {
   if ! mc_gate mc-watch; then
     if [ "$MC_GATE_RC" -eq 1 ]; then
@@ -409,8 +434,7 @@ EOF
     esac
   done
   step event mc_event prune --program "$program" ${now_args[@]+"${now_args[@]}"} || status=1
-  step snapshot /bin/bash "$script_dir/mc-snapshot.sh" refresh --program "$program" \
-    --rung "$rung" ${now_args[@]+"${now_args[@]}"} || status=1
+  snapshot_step "$rung" || status=1
   step followup /bin/bash "$script_dir/mc-followups.sh" raise --program "$program" ${now_args[@]+"${now_args[@]}"} || status=1
   step wake /bin/bash "$script_dir/mc-wake.sh" relay --program "$program" || status=1
   step wake /bin/bash "$script_dir/mc-wake.sh" tick --program "$program" ${now_args[@]+"${now_args[@]}"} || status=1
@@ -425,8 +449,9 @@ runner_sleeping=0
 # closed terminal, timeout(1), a service manager) also reaches the pass,
 # which stops where it is: its subshell cannot ignore the signal, since the
 # watcher loops it starts would inherit that and could then never be
-# stopped. A pass has no deadline of its own, so one stuck in a hung adapter
-# needs a KILL, which leaves that pass running without the lock.
+# stopped. Only the snapshot refresh has a deadline of its own, so a pass
+# stuck anywhere else (a hung relay, say) needs a KILL, which leaves that pass
+# running without the lock.
 runner_exit() {
   # A second signal must not cut the wait short.
   trap '' TERM INT HUP
@@ -481,19 +506,20 @@ loop() {
   out=""
   # Under setsid this loop leads its own process group, so a stop takes the
   # watcher's own children with it; elsewhere it takes the watcher.
-  trap 'trap - TERM INT HUP; [ -z "$out" ] || rm -f "$out"; [ -z "$child" ] || kill "$child" 2>/dev/null; kill -TERM -- -$$ 2>/dev/null; exit 0' TERM INT HUP
+  trap 'trap - TERM INT HUP; [ -z "$out" ] || rm -f "$out" "$out.expired"; [ -z "$child" ] || kill "$child" 2>/dev/null; [ -z "$MRB_PID" ] || kill "$MRB_PID" "$MRB_DOG" 2>/dev/null; kill -TERM -- -$$ 2>/dev/null; exit 0' TERM INT HUP
   while :; do
     [ "$(record_pid "$slot")" = "$$" ] || exit 0
     if mc_gate mc-watch; then
+      # A knob that cannot be read is named in the log and never idles the
+      # watcher: its run goes on under the shipped default.
+      tmo=$(mc_step_timeout "$duty") || tmo=300
       out=$(mktemp "$wdir/.$slot.out.XXXXXX") || exit 1
       mc_usable_tmpdir
-      # Run in the background and waited for, so a TERM stops this run too.
-      env -u PLANWRIGHT_MC_CHECKED PLANWRIGHT_MC_PROGRAM="$program" PLANWRIGHT_MC_DUTY="$duty" \
-        /bin/bash "$path" </dev/null >"$out" &
-      child=$!
-      wait "$child"
-      rc=$?
-      child=""
+      # Run in the background and waited for, so a TERM stops this run too;
+      # past its timeout the run is stopped and the loop goes on.
+      mc_run_bounded "$tmo" "$out" env -u PLANWRIGHT_MC_CHECKED PLANWRIGHT_MC_PROGRAM="$program" PLANWRIGHT_MC_DUTY="$duty" \
+        /bin/bash "$path"
+      rc=$MRB_RC
       refused=0
       while IFS='	' read -r tag kind subject text || [ -n "$tag" ]; do
         [ "$tag" = event ] || continue
@@ -505,6 +531,9 @@ loop() {
       done <"$out"
       rm -f "$out"
       out=""
+      if [ "$MRB_EXPIRED" -eq 1 ]; then
+        mc_event emit --program "$program" -- watcher-timeout "$duty" "$script ran past ${tmo}s and was stopped" >/dev/null || :
+      fi
       printf '%s\t%s\t%s\n' "$(mc_now)" "$rc" "$refused" | mc_write "$wdir/$slot.last" 2>/dev/null || :
     fi
     # A budget file that cannot be read is pressure, as the snapshot seam

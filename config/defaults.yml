@@ -1115,6 +1115,14 @@ mission_control_reclaim_files: [.claude/steps, .claude/polish-audit.md, .claude/
 # the enabled duties' watchers, re-arms a stopped one, relays pending wakes
 # and runs the failsafe tick. A cadence: a positive count of s, m, h or d.
 mission_control_runner_interval: 1m
+# The seconds a watcher run or the runner's snapshot refresh may take before
+# the runner stops it, emits the expiry as an event and lets it run again on
+# its next cadence or pass, so one hung step never stalls the rest. A count of
+# at least one.
+mission_control_step_timeout: 300
+# Per-step overrides of the timeout above, an inline {id: seconds} map: a
+# duty id for that duty's watchers, `snapshot` for the snapshot refresh.
+mission_control_step_timeout_overrides: {}
 # The failsafe tick's cadence: how often a session is checked for events the
 # push did not submit, by the daemon (scripts/mc-wake.sh tick) for a session
 # without the mod and by the mod's own timer where it loads.

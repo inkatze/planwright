@@ -2,7 +2,8 @@
 # mc-decide.sh — a mission-control program's decisions: the
 # decided-by-mission-control record and its reasons grammar, the calibration
 # ledger over it, the operator's repeats noted for scripts/mc-proposals.sh,
-# and the interruption and settled-share measures. Every entry lands in the
+# and the interruption and settled-share measures (the panel's measures file
+# included). Every entry lands in the
 # knowledge base's decisions log (scripts/mc-kb.sh).
 #
 # `mc-decide.sh --help` prints the contract: verbs, outputs, exit codes.
@@ -90,6 +91,9 @@ Usage:
       window<TAB><seconds>, decisions<TAB><settled plus asked>,
       interruptions<TAB><asked>, interruptions-per-hour<TAB><n.nn>,
       settled-share<TAB><percent, or - with no decision>
+      Over the default window the run also writes <runtime>/measures, the
+      file the panel reads (format, taken, interruptions_per_hour and, with
+      a decision, settled_share); a window named here is a one-off read.
 
 Exit codes: 0 done; 1 refused (an entry not found or not in the state the
 verb needs, a duty not armed, a knowledge-base refusal); 2 usage or an
@@ -330,13 +334,15 @@ v_measures() {
     secs=$(mc_seconds "$window") || mc_usage_fail "--window takes a cadence: a positive count of s, m, h or d"
   fi
   mc_require_program "$PROGRAM"
+  write_file=0
   if [ -z "$window" ]; then
     window=$(mc_knob mission_control_measure_window mc_parse_cadence) || exit 1
     secs=$(mc_seconds "$window")
+    write_file=1
   fi
   all=$(entries) || exit $?
   # shellcheck disable=SC2016 # an awk program, expanded by awk
-  printf '%s\n' "$all" | FROM=$(mc_iso $((NOW - secs))) TO=$(mc_iso "$NOW") W=$secs awk -F '\t' "$MC_GROUNDS_AWK"'
+  rows=$(printf '%s\n' "$all" | FROM=$(mc_iso $((NOW - secs))) TO=$(mc_iso "$NOW") W=$secs awk -F '\t' "$MC_GROUNDS_AWK"'
     !/^#/ && $2 >= ENVIRON["FROM"] && $2 <= ENVIRON["TO"] && grounds($6) {
       if (G_REASON == "settled") s++
       else if (asked(G_REASON)) a++
@@ -347,7 +353,19 @@ v_measures() {
       printf "interruptions-per-hour\t%.2f\n", a * 3600 / ENVIRON["W"]
       if (d > 0) printf "settled-share\t%d\n", int(s * 100 / d + 0.5)
       else print "settled-share\t-"
-    }'
+    }') || exit $?
+  printf '%s\n' "$rows"
+  # The run over the knob's window is the calibration run: it leaves the file
+  # the panel reads (scripts/mc-panel.sh), in its shape. A window named on the
+  # command line is a one-off read and leaves it alone.
+  [ "$write_file" -eq 1 ] || return 0
+  rt=$(mc_runtime "$PROGRAM") || mc_fail "cannot create the runtime directory for '$PROGRAM'"
+  {
+    printf 'format\t%s\ntaken\t%s\n' "$MC_FORMAT" "$NOW"
+    printf '%s\n' "$rows" | awk -F '\t' '
+      $1 == "interruptions-per-hour" { print "interruptions_per_hour\t" $2 }
+      $1 == "settled-share" && $2 ~ /^[0-9]+$/ { print "settled_share\t" $2 }'
+  } | mc_write "$rt/measures" || mc_fail "the measures file was not written"
 }
 
 # --- dispatch ----------------------------------------------------------------
