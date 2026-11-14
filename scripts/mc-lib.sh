@@ -329,7 +329,7 @@ mc_event_wakes() {
 
 # mc_event_gone <program>: the ids of the event rows on stdin (`mc-event.sh
 # list` lines) whose subject no longer exists, one per line: a session that
-# is neither in the launcher's list nor live in the fleet registry
+# is not among mc-session-names.sh's names
 # (pending-prompt, pending-prompt-overdue), a handover or announce naming a session that is
 # not the program's holder, a pull request that is merged or closed (named
 # <owner>:<name>:<n>). Every read that fails or comes back empty (no holder,
@@ -348,16 +348,9 @@ mc_event_gone() {
       pending-prompt | pending-prompt-overdue)
         if [ "$meg_sess_state" -eq 0 ]; then
           meg_sess_state=2
-          if meg_l=$(/bin/sh "$script_dir/mission-control-launch.sh" list 2>/dev/null </dev/null) \
-            && meg_r=$(/bin/sh "$script_dir/fleet-state.sh" registry 2>/dev/null </dev/null); then
-            meg_sess=$(
-              {
-                printf '%s\n' "$meg_l" | awk -F '\t' 'NF { print $1 }'
-                printf '%s\n' "$meg_r" | awk -F '\t' 'NF { closed[$2] = (NF == 8 && $8 == "closed") } END { for (w in closed) if (!closed[w]) print w }'
-              } | awk 'NF { printf " %s", $0; n++ } END { print n ? " " : "" }'
-            )
-            # No session at all reads as a registry that could not be read.
-            [ -z "$meg_sess" ] || meg_sess_state=1
+          if meg_n=$(/bin/sh "$script_dir/mc-session-names.sh" 2>/dev/null </dev/null); then
+            meg_sess=$(printf '%s\n' "$meg_n" | awk 'NF { printf " %s", $0 } END { print " " }')
+            meg_sess_state=1
           fi
         fi
         [ "$meg_sess_state" -eq 1 ] || continue

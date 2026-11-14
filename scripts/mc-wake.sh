@@ -68,8 +68,8 @@ operator; it stays listable. With the table unreadable every event wakes,
 said on stderr.
 AN EVENT WHOSE SUBJECT IS GONE never wakes either: relay, tick and compose
 mark it submitted unsent (mc-event.sh prune --gone clears the same ones from
-the store). Gone is a session neither listed by scripts/mission-control-launch.sh
-nor live in the fleet registry (pending-prompt, pending-prompt-overdue), a
+the store). Gone is a session that scripts/mc-session-names.sh does not name
+(pending-prompt, pending-prompt-overdue), a
 handover-requested or announce naming a session that is not the program's
 holder, and a merged or closed pull request (merge-ready, readiness-due,
 ready-to-merge, ready-offer). A read that fails or comes back empty, or a
