@@ -1253,6 +1253,11 @@ mission_control_throughput_worsen: 50
 # is free is per program: program_<name>_idle_backlog, the path of a file of
 # ranked units (see docs/options-reference.md), `off` when unset.
 mission_control_idle_interval: 30m
+# The stalled-pipeline alarm (scripts/mc-pipeline-stall.sh): how long a
+# program may have open draft pull requests with no ready flip before a
+# pipeline-stalled failure is raised, and again after each further window
+# while the stall lasts. A cadence.
+mission_control_stalled_pipeline_window: 2h
 # Where a draft for a person goes (scripts/mc-inbox.sh draft): auto, the
 # first clipboard tool that script finds, or the absolute path of a command
 # that reads the text on stdin. Never a sender; never read from the

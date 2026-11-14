@@ -22,6 +22,7 @@ keeper-sweep-failed	blocker
 throughput-unknown	failure
 idle-capacity	blocker
 idle-capacity-undeclared	decision
+pipeline-stalled	failure
 mission-control-escalated	blocker
 usage-probe	blocker
 blocker	blocker

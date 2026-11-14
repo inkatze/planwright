@@ -53,6 +53,7 @@ mc-panel.sh changes
 mc-panel.sh line
 mc-panel.sh retire
 mc-panel.sh text
+mc-pipeline-stall.sh -
 mc-posture.sh check
 mc-program.sh default
 mc-program.sh get
