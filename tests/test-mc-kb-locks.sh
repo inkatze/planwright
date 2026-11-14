@@ -129,7 +129,7 @@ sleep 60 &
 holder_pid=$!
 mc_run mc-kb.sh lock --program alpha followups.tsv --holder "$holder_pid"
 (
-  mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-12-31 --text "after a wait"
+  mc_run mc-kb.sh followup add --program alpha --owner operator --trigger date:2999-12-31 --done operator --text "after a wait"
   printf '%s\n' "$RC" >"$tmp/bg.rc"
 ) &
 bg_pid=$!
