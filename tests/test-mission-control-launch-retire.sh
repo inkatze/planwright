@@ -425,7 +425,7 @@ else
   fail "retire --force-parked: exit $RC, $OUT $ERR"
 fi
 ml retire "$n1" --force-parked
-[ "$RC" = 3 ] && ok "--force-parked on an unknown name still reports no such session" || fail "force on a retired name exited $RC"
+[ "$RC" = 0 ] && ok "--force-parked on a row-less worker retires it as plainly" || fail "force on a row-less worker exited $RC: $ERR"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
