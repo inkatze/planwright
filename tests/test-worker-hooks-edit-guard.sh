@@ -189,7 +189,7 @@ expect denied "a cwd outside any repository" "$(payload Write "$T/norepo/githook
 # The guard exits 0 on every path above, whatever it decided.
 printf '%s' "$good" | "$GUARD" >/dev/null 2>&1
 rc=$?
-[ "$rc" = 0 ] && ok "the guard exits 0 with a decision" || fail "the guard exited $rc"
+if [ "$rc" = 0 ]; then ok "the guard exits 0 with a decision"; else fail "the guard exited $rc"; fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2
