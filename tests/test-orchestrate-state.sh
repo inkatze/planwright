@@ -1233,4 +1233,134 @@ has_record "$bout" completion 1 || fail "completion-git: no completion record fo
 [ "$(completion_field "$bout" 1 4)" = "$bexpect" ] || fail "completion-git: branch-tip merge date not surfaced"
 echo "ok: a git-only completion surfaces a branch-tip date with no invented PR number (REQ-E1.2)"
 
+# ---------------------------------------------------------------------------
+# 7b. A merged PR whose body names the task counts it complete, whatever the PR's
+#    head branch was called; naming alone, a PR that is not merged, another
+#    spec's id, or a failed forge query counts nothing. The gh batch carries the
+#    body's `Planwright-Task` values as a fifth column on a merged PR.
+# ---------------------------------------------------------------------------
+prrepo="$tmp/prbody"
+prspec="$prrepo/specs/demo"
+mkdir -p "$prspec"
+gitc_init "$prrepo"
+cat >"$prspec/tasks.md" <<'EOF2'
+# Demo — Tasks
+
+**Status:** Active
+
+## Forward plan
+
+### Task 1 — merged PR body names it
+- **Dependencies:** none
+
+### Task 2 — open PR body names it
+- **Dependencies:** none
+
+### Task 3 — mentioned in prose only
+- **Dependencies:** none
+
+### Task 4 — in-flight branch
+- **Dependencies:** none
+
+### Task 5 — merged PR body names another spec's task
+- **Dependencies:** none
+
+### Task 6 — base commit message names it
+- **Dependencies:** none
+
+### Task 7 — closed PR body names it
+- **Dependencies:** none
+EOF2
+gitc "$prrepo" add -A
+gitc "$prrepo" commit -q -m "base: spec bundle"
+gitc "$prrepo" remote add origin https://example.invalid/demo.git
+gitc "$prrepo" commit -q --allow-empty -m "feat: task 6 work" -m "Planwright-Task: demo/6"
+gitc "$prrepo" checkout -q -b planwright/demo/task-4
+gitc "$prrepo" commit -q --allow-empty -m "task 4 wip"
+gitc "$prrepo" checkout -q main
+
+prstub="$tmp/binprbody"
+make_gh_stub "$prstub" \
+  "planwright/flight/a1${TAB}MERGED${TAB}10${TAB}2026-11-01T00:00:00Z${TAB}demo/1${TAB}main" \
+  "planwright/flight/a2${TAB}OPEN${TAB}11${TAB}${TAB}demo/2" \
+  "planwright/flight/a3${TAB}MERGED${TAB}12${TAB}2026-11-01T00:00:00Z" \
+  "planwright/flight/a5${TAB}MERGED${TAB}13${TAB}2026-11-01T00:00:00Z${TAB}other/5${TAB}main" \
+  "planwright/flight/a7${TAB}CLOSED${TAB}14${TAB}${TAB}demo/7"
+prout=$(PATH="$prstub:$PATH" "$STATE" "$prspec")
+assert_state "$prout" 1 completed "pr-body: merged PR body names the task"
+assert_evidence "$prout" 1 trailer "pr-body: merged PR body names the task"
+assert_state "$prout" 2 ready "pr-body: an open PR does not count"
+assert_state "$prout" 3 ready "pr-body: a merged PR that does not name the task does not count"
+assert_state "$prout" 4 in-progress "pr-body: an existing in-progress case stays in progress"
+assert_state "$prout" 5 ready "pr-body: another spec's task id does not count"
+assert_state "$prout" 6 completed "pr-body: a base commit message naming the task counts"
+assert_state "$prout" 7 ready "pr-body: a closed, unmerged PR does not count"
+
+prfail="$tmp/binprfail"
+make_failing_gh_stub "$prfail"
+prfout=$(PATH="$prfail:$PATH" "$STATE" "$prspec") || fail "pr-body: failing gh wedged the engine"
+assert_state "$prfout" 1 ready "pr-body: forge unreachable counts nothing complete"
+printf '%s\n' "$prfout" | grep -q "^degraded${TAB}gh" || fail "pr-body: failing gh surfaced no degradation"
+echo "ok: a merged PR naming the task counts it complete; nothing weaker does, and a failed forge counts nothing"
+
+# A gh stub that runs the engine's own --jq filter over canned JSON with the
+# real jq, so the body parsing is exercised, not just the TSV the engine reads.
+make_jq_gh_stub() {
+  dir="$1"
+  json="$2"
+  mkdir -p "$dir"
+  cat >"$dir/gh" <<EOF3
+#!/bin/sh
+filter=""
+while [ \$# -gt 0 ]; do
+  [ "\$1" = --jq ] && filter=\$2
+  shift
+done
+exec jq -r "\$filter" "$json"
+EOF3
+  chmod +x "$dir/gh"
+}
+
+if command -v jq >/dev/null 2>&1; then
+  jqrepo="$tmp/prjq"
+  jqspec="$jqrepo/specs/demo"
+  mkdir -p "$jqspec"
+  gitc_init "$jqrepo"
+  {
+    printf '# Demo — Tasks\n\n**Status:** Active\n\n## Forward plan\n\n'
+    for i in 1 2 3 4 5 6 7 8; do printf '### Task %s — t\n- **Dependencies:** none\n\n' "$i"; done
+  } >"$jqspec/tasks.md"
+  gitc "$jqrepo" add -A
+  gitc "$jqrepo" commit -q -m "base: spec bundle"
+  gitc "$jqrepo" remote add origin https://example.invalid/demo.git
+  jqjson="$tmp/prs.json"
+  cat >"$jqjson" <<'EOF3'
+[
+ {"headRefName":"f/a","state":"MERGED","number":1,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"main","body":"Intro\r\nplanwright-task: demo/1\r\nPlanwright-Task: demo/2"},
+ {"headRefName":"f/b","state":"MERGED","number":2,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"main","body":"Mentions Planwright-Task: demo/3 in prose\n  Planwright-Task: demo/4"},
+ {"headRefName":"f/c","state":"MERGED","number":3,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"feature-x","body":"Planwright-Task: demo/5"},
+ {"headRefName":"f/d","state":"OPEN","number":4,"mergedAt":null,"baseRefName":"main","body":"Planwright-Task: demo/6"},
+ {"headRefName":"f/e","state":"MERGED","number":5,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"main","body":null},
+ {"headRefName":"f/g","state":"MERGED","number":7,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"main","body":"Planwright-Task: demo/8|junk"},
+ {"headRefName":"f/f","state":"MERGED","number":6,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"main","body":"Planwright-Task: demo/7 (blocked on demo/2)"}
+]
+EOF3
+  jqstub="$tmp/binjq"
+  make_jq_gh_stub "$jqstub" "$jqjson"
+  jqout=$(PATH="$jqstub:$PATH" "$STATE" "$jqspec")
+  assert_state "$jqout" 1 completed "pr-jq: a lowercase key with CRLF endings counts"
+  assert_state "$jqout" 2 completed "pr-jq: a second trailer line in one body counts"
+  assert_state "$jqout" 3 ready "pr-jq: a mid-line prose mention does not count"
+  assert_state "$jqout" 4 ready "pr-jq: an indented line is not a column-0 trailer"
+  assert_state "$jqout" 5 ready "pr-jq: a PR merged into another branch does not count"
+  assert_state "$jqout" 6 ready "pr-jq: an open PR does not count"
+  assert_state "$jqout" 7 ready "pr-jq: a value with prose after it is refused whole"
+  assert_state "$jqout" 8 ready "pr-jq: a line carrying the column delimiter never counts"
+  printf '%s\n' "$jqout" | grep -q "^refused${TAB}Planwright-Task${TAB}demo/7 (blocked on demo/2)" \
+    || fail "pr-jq: the prose-carrying value was not refused whole"
+  echo "ok: the PR-body filter honours column-0 trailers, merged state and the base branch"
+else
+  echo "skip: jq not installed, the PR-body filter test needs it"
+fi
+
 echo "PASS: test-orchestrate-state.sh"

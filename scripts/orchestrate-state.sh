@@ -311,6 +311,45 @@ now=$(date +%s)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || exit 2
 trap 'rm -rf "$scratch"' EXIT
 
+# ingest_trailers <raw> — validate newline-separated `Planwright-Task`
+# values and add this spec's task ids to reachable_ours. Called once for the
+# base commit messages and once for merged PR bodies.
+ingest_trailers() {
+  # Iterate values line by line; blank lines (commits without the trailer) are
+  # skipped. Read from a here-doc so the loop runs in this shell (no subshell).
+  while IFS= read -r tval; do
+    [ -n "$tval" ] || continue
+    # Strip surrounding whitespace a trailer may carry.
+    tval=$(printf '%s' "$tval" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    [ -n "$tval" ] || continue
+    # Well-formed shape: <spec-id>/<task-id>, both against their grammars.
+    spec_part=${tval%%/*}
+    id_part=${tval#*/}
+    well_formed=1
+    case "$tval" in
+      */*) ;;
+      *) well_formed=0 ;;
+    esac
+    case "$spec_part" in
+      '' | *[!a-z0-9-]* | [!a-z0-9]* | flight) well_formed=0 ;;
+    esac
+    case "$id_part" in
+      '' | *[!0-9.]*) well_formed=0 ;;
+    esac
+    if [ "$well_formed" -ne 1 ] || ! printf '%s' "$id_part" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+      printf 'refused%sPlanwright-Task%s%s\n' "$TAB" "$TAB" "$tval"
+      continue
+    fi
+    [ "$spec_part" = "$spec_id" ] || continue # another spec's trailer
+    case "$reachable_ours" in
+      *" $id_part "*) ;;
+      *) reachable_ours="$reachable_ours$id_part " ;;
+    esac
+  done <<EOF
+$1
+EOF
+}
+
 # load_repo <root> [<name>] — point every evidence helper below at one
 # repository: its base ref, the refs the trailer scan reads, this spec's
 # completion trailers, and its PR states. Returns 2 (message on stderr, naming
@@ -436,39 +475,7 @@ load_repo() {
     # shellcheck disable=SC2086
     trailer_raw=$(git -C "$repo_root" log $scan_refs --format='%B' 2>/dev/null \
       | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
-    # Iterate values line by line; blank lines (commits without the trailer) are
-    # skipped. Read from a here-doc so the loop runs in this shell (no subshell).
-    while IFS= read -r tval; do
-      [ -n "$tval" ] || continue
-      # Strip surrounding whitespace a trailer may carry.
-      tval=$(printf '%s' "$tval" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-      [ -n "$tval" ] || continue
-      # Well-formed shape: <spec-id>/<task-id>, both against their grammars.
-      spec_part=${tval%%/*}
-      id_part=${tval#*/}
-      well_formed=1
-      case "$tval" in
-        */*) ;;
-        *) well_formed=0 ;;
-      esac
-      case "$spec_part" in
-        '' | *[!a-z0-9-]* | [!a-z0-9]* | flight) well_formed=0 ;;
-      esac
-      case "$id_part" in
-        '' | *[!0-9.]*) well_formed=0 ;;
-      esac
-      if [ "$well_formed" -ne 1 ] || ! printf '%s' "$id_part" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
-        printf 'refused%sPlanwright-Task%s%s\n' "$TAB" "$TAB" "$tval"
-        continue
-      fi
-      [ "$spec_part" = "$spec_id" ] || continue # another spec's trailer
-      case "$reachable_ours" in
-        *" $id_part "*) ;;
-        *) reachable_ours="$reachable_ours$id_part " ;;
-      esac
-    done <<EOF
-$trailer_raw
-EOF
+    ingest_trailers "$trailer_raw"
   fi
 
   # Probe gh once for PR state, keyed by head ref. No-remote / no-gh is the
@@ -484,11 +491,26 @@ EOF
     # ref and over-fetching is harmless, so request a generous ceiling.
     # The batch also carries `number` and `mergedAt` so the completion-annotation
     # stamp (output-hygiene Task 7, D-5, REQ-E1.2) reuses this one query — no new
-    # per-task lookup. Columns: headRefName<TAB>state<TAB>number<TAB>mergedAt.
+    # per-task lookup. Columns: headRefName<TAB>state<TAB>number<TAB>mergedAt<TAB>
+    # trailers<TAB>baseRefName. `trailers` is the `|`-joined values of the
+    # `Planwright-Task` lines in a MERGED PR's body (empty otherwise; a line
+    # carrying `|` is dropped, so each kept line is validated whole): a squash merge
+    # keeps the PR body, not the task's commits, so work shipped through a PR
+    # whose head branch is not the task branch still names its task there. Only
+    # the matching lines leave jq, so a large body never reaches the shell.
     if gh_out=$(cd "$repo_root" && gh pr list --state all --limit 1000 \
-      --json state,headRefName,number,mergedAt \
-      --jq '.[] | [.headRefName, .state, (.number|tostring), (.mergedAt // "")] | @tsv' 2>/dev/null); then
+      --json state,headRefName,number,mergedAt,body,baseRefName \
+      --jq '.[] | [.headRefName, .state, (.number|tostring), (.mergedAt // ""),
+        (if .state == "MERGED" then [(.body // "") | split("\n")[] | select(test("^planwright-task:";"i")) | sub("^[^:]*:\\s*";"") | gsub("\\s+$";"") | select(contains("|") | not)] | join("|") else "" end), .baseRefName] | @tsv' 2>/dev/null); then
       gh_lines=$gh_out
+      # A forge that cannot be read adds nothing here (the else arm returns 3),
+      # so an unreachable forge never counts a task complete. Only a PR merged
+      # into the base branch counts: work merged into another branch never
+      # reached base. A detached HEAD base names no branch, so it filters none.
+      pr_base=${base#origin/}
+      [ "$pr_base" != HEAD ] || pr_base=""
+      ingest_trailers "$(printf '%s\n' "$gh_lines" | awk -F"$TAB" -v b="$pr_base" \
+        '$2=="MERGED" && $5!="" && (b=="" || $6==b) {n=split($5, v, "|"); for (i=1;i<=n;i++) print v[i]}')"
     else
       return 3
     fi
