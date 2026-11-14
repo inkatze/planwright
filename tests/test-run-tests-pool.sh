@@ -329,8 +329,13 @@ assert_contains "the report is version 2" "planwright-test-timing	2	" "$(head -n
 exec_t="$(awk -F'\t' '$1 == "file" && $2 == "test-quick.sh" { print $3 }' "$rep")"
 wait_t="$(awk -F'\t' '$1 == "file" && $2 == "test-quick.sh" { print $4 }' "$rep")"
 if awk -v w="$wait_t" 'BEGIN { exit !(w != "" && w >= 1.0) }'; then pass "the wait field records the wait ($wait_t)"; else fail "the wait field did not record the wait: '$wait_t'"; fi
-if awk -v e="$exec_t" 'BEGIN { exit !(e != "" && e < 1.0) }'; then pass "the execution time excludes the wait ($exec_t)"; else fail "the execution time includes the wait: '$exec_t'"; fi
-printf -- '---\nper_file_seconds: 1\nsuite_mean_file_seconds: 600\nshard_wall_seconds: 600\n' >"$tmp/budget.yml"
+# Relative to the wait: a run that counted the wait would read at least as long
+# as it, while a busy machine can stretch an empty file's own run past any
+# fixed bound (python3's clock probe alone starts slowly under load).
+if awk -v e="$exec_t" -v w="$wait_t" 'BEGIN { exit !(e != "" && e < w) }'; then pass "the execution time excludes the wait ($exec_t)"; else fail "the execution time includes the wait: '$exec_t'"; fi
+# One millisecond under the wait: the wait would break this budget, the execution time cannot.
+cap="$(awk -v w="$wait_t" 'BEGIN { c = w - 0.001; printf "%.3f", (c > 0.001 ? c : 0.001) }')"
+printf -- '---\nper_file_seconds: %s\nsuite_mean_file_seconds: 600\nshard_wall_seconds: 600\n' "$cap" >"$tmp/budget.yml"
 printf -- 'shard_target_seconds: 300\nshard_count_max: 4\nuntimed_warn_percent: 5\n' >>"$tmp/budget.yml"
 out="$(/bin/bash "$REPO_ROOT/scripts/check-test-time.sh" --mode ci --suite "$tmp/quick" \
   --report "$rep" --budget "$tmp/budget.yml" 2>&1)"

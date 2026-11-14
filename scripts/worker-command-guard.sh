@@ -1029,6 +1029,9 @@ REC_BASE=''
 REC_BASE_MERGE=''
 REC_SCRATCH=''
 REC_AUDIT_LOG=''
+# 1 when the launch opted in to editing the worktree's own mise task files
+# (the record's mise_task_edit=1); see ob_excluded_name.
+REC_MISE_TASKS=0
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
 # grammar (is_unit_branch) narrowed to flight names carrying the id every
@@ -1059,7 +1062,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log=''
+  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' mt=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1086,6 +1089,7 @@ session_record_load() {
       worker_base_merge) bm=$v ;;
       scratch_root) sr=$v ;;
       audit_log_home) ah=$v ;;
+      mise_task_edit) mt=$v ;;
     esac
   done <"$p"
   case $dup in *" policy "*) policy='' ;; esac
@@ -1095,6 +1099,7 @@ session_record_load() {
   case $dup in *" worker_base_merge "*) bm='' ;; esac
   case $dup in *" scratch_root "*) sr='' ;; esac
   case $dup in *" audit_log_home "*) ah='' ;; esac
+  case $dup in *" mise_task_edit "*) mt='' ;; esac
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
     /?*) ;;
@@ -1190,6 +1195,8 @@ session_record_load() {
   REC_BASE=$base
   REC_BASE_MERGE=$bm
   REC_SCRATCH=$sr
+  REC_MISE_TASKS=0
+  [ "$mt" != 1 ] || REC_MISE_TASKS=1
 }
 
 # --------------------------------------------------------------------------
@@ -1443,12 +1450,19 @@ EOF
   OB_EXCL_STATE=1
 }
 
-# ob_excluded_name <component>: the names a tool runs or trusts without a
-# further prompt, matched case-insensitively at any depth, since
-# mise reads a config from whatever directory it starts in.
+# ob_excluded_name <component> [<task-open>]: the names a tool runs or trusts
+# without a further prompt, matched case-insensitively at any depth, since
+# mise reads a config from whatever directory it starts in. With <task-open>
+# 1, the four task-file names (mise.toml, .mise.toml, mise-tasks, .mise-tasks)
+# are let through: only the worktree zone of an opted-in session asks for it.
 ob_excluded_name() {
   local low
   low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  if [ "${2:-0}" = 1 ]; then
+    case $low in
+      mise.toml | .mise.toml | mise-tasks | .mise-tasks) return 1 ;;
+    esac
+  fi
   case $low in
     .git | .claude | .envrc | .tool-versions | .config | .mise | mise.toml | .mise.toml | mise.*.toml | .mise.*.toml | .miserc*.toml | mise-tasks | .mise-tasks | mise*.lock | lefthook | lefthook.* | lefthook-local.* | .lefthook | .lefthook.* | .lefthook-local | .lefthook-local.*) return 0 ;;
   esac
@@ -1466,7 +1480,7 @@ ob_excluded_mise_child() {
   return 1
 }
 
-# ob_excluded_rel <relative-path> <root>: 0 when a component of the path
+# ob_excluded_rel <relative-path> <root> [<task-open>]: 0 when a component of the path
 # under <root> is an excluded name, a `mise/` entry mise loads (the root's own
 # name counting as its parent), or the last component is `mise` itself:
 # moving a directory onto that name would turn its config.toml or conf.d into
@@ -1480,7 +1494,7 @@ ob_excluded_rel() {
     case $comp in
       '' | .) continue ;;
     esac
-    ob_excluded_name "$comp" && return 0
+    ob_excluded_name "$comp" "${3:-0}" && return 0
     if [ "$prev" = mise ] && ob_excluded_mise_child "$comp"; then
       return 0
     fi
@@ -1504,7 +1518,7 @@ ob_excluded() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT"
+  ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT" "$REC_MISE_TASKS"
 }
 
 # ob_tree_clean <canonical-dir>: 0 when nothing under the directory is an
@@ -1520,14 +1534,25 @@ ob_tree_clean() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
-    -o -iname .config -o -iname .mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
-    -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' -o -iname mise-tasks \
-    -o -iname .mise-tasks -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
-    -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
-    -o -iname lefthook -o -iname 'lefthook.*' \
-    -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
-    -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
+  if [ "$REC_MISE_TASKS" = 1 ]; then
+    hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
+      -o -iname .config -o -iname .mise \
+      -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' \
+      -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
+      -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
+      -o -iname lefthook -o -iname 'lefthook.*' \
+      -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
+      -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
+  else
+    hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
+      -o -iname .config -o -iname .mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
+      -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' -o -iname mise-tasks \
+      -o -iname .mise-tasks -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
+      -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
+      -o -iname lefthook -o -iname 'lefthook.*' \
+      -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
+      -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
+  fi
   [ -z "$hit" ]
 }
 
