@@ -54,11 +54,11 @@ expect_due_count() { # expect_due_count <label> <want>
   if [ "$dc" = "$2" ]; then ok "$1"; else fail "$1: expected $2 followup-due events, got $dc"; fi
 }
 
-mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger date:2026-11-09 --text "answer the overdue ask"
+mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger date:2026-11-09 --done operator --text "answer the overdue ask"
 due_id=$OUT
-mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger date:2026-12-01 --text "later duty"
+mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger date:2026-12-01 --done operator --text "later duty"
 later_id=$OUT
-mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger event:alpha-landed --text "start the landed follow-up"
+mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger event:merge-ready --done operator --text "start the landed follow-up"
 event_id=$OUT
 
 raise
@@ -71,7 +71,7 @@ mc_run mc-event.sh list --program alpha
 expect_out "the event names the follow-up" "followup-due${tab}$due_id${tab}"
 expect_out "the text carries the ask" "answer the overdue ask"
 
-mc_run mc-event.sh emit --program alpha --now "$today" -- alpha-landed pr-1
+mc_run mc-event.sh emit --program alpha --now "$today" -- merge-ready pr-1
 raise
 expect_out "a matched event item is raised" "raised${tab}$event_id"
 expect_no_out "the already raised date item is not raised again" "raised${tab}$due_id"
@@ -87,7 +87,7 @@ mc_run mc-kb.sh followup close --program alpha "$event_id" --evidence "started"
 raise
 expect_eq "an open item whose event was pruned is not raised again" ""
 
-mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger date:2026-11-10 --text "due today"
+mc_run mc-kb.sh followup add --program alpha --owner mission-control --trigger date:2026-11-10 --done operator --text "due today"
 today_id=$OUT
 raise
 expect_out "a new item due today is raised" "raised${tab}$today_id"
