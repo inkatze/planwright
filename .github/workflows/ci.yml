@@ -217,8 +217,8 @@ jobs:
       # pull request above all, gets GitHub's hosted macOS, the reason in the
       # run summary. The workflow cannot stop a fork's edited copy of itself
       # from naming the runner's labels; the runner's job-started hook is what
-      # refuses that. Both paths run four shards: the self-hosted Macs (four
-      # runners) take one each, so no one job has to fit the whole suite.
+      # refuses that. Both paths run four shards, so no one job has to fit
+      # the whole suite inside its timeout.
       #
       # Whether they run at all is decided first (macOS runners are scarce, and
       # draft pushes queued behind each other and main): a push to main, and a
@@ -386,7 +386,7 @@ jobs:
   # instead of skipping green.
   macos-suite:
     name: macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
-    # The runner is the plan job's `mac` step's choice (the offload Macs'
+    # The runner is the plan job's `mac` step's choice (the offload Mac's
     # runners carry the label offload-mac-ci); both kinds run four shards.
     # check:workflow-posture accepts exactly this runs-on shape as a
     # macOS job; keep it identical in macos-smoke.

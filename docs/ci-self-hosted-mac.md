@@ -126,14 +126,14 @@ it once: a pull request from a branch of this repository must pass the hook
 `GITHUB_EVENT_NAME=pull_request` and an event file whose head repository is a
 fork.
 
-## One job at a time, and the shard count
+## The shard count
 
 The self-hosted path runs the same four shards (`[1, 2, 3, 4]`) as the hosted
-path, so the four Mac runners take one shard each and no single job has to fit
-the whole suite inside its timeout (one shard on one runner needed about 90
-minutes). `scripts/run-tests.sh` runs as many test files at once as the
-machine has cores, so a runner that holds several shards at once splits its
-cores between them; each shard's job timeout leaves room for that.
+path, so the runners that are free each take a shard and no single job has to
+fit the whole suite inside its timeout (one shard holding the whole suite
+needed about 90 minutes). `scripts/run-tests.sh` runs as many test files at
+once as the machine has cores, so runners sharing one machine split its cores
+between their shards; each shard's job timeout leaves room for that.
 
 Estimate, from the last green `ci` run before this change (no queueing): the
 four hosted shards took 18, 24, 9 and 22 minutes on 3-core hosted Macs, about

@@ -194,7 +194,7 @@ below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
 in shards of their own on macOS (the system bash 3.2 and BSD userland; a
 fixed count of four shards, on GitHub's scarce hosted runners or, once the
 `PLANWRIGHT_MAC_RUNNER` repository variable enables it, on the
-offload Macs' self-hosted runners for this repository's own branches, as
+offload Mac's self-hosted runners for this repository's own branches, as
 [`ci-self-hosted-mac.md`](ci-self-hosted-mac.md) describes; the two macOS
 jobs run on a push, a ready pull request, or a draft labelled `ci-macos`, and
 skip on a plain draft push) and in an Alpine container
