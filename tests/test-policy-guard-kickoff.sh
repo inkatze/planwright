@@ -220,6 +220,32 @@ PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "
 expect deny "[worker, kickoff-mission-control-a16-delta] an a16 scope denies on amendment-1"
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a10b pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
 expect deny "[worker, kickoff-mission-control-a10b] amendment 10's relaunch scope denies on amendment-16"
+mkdir -p "$MC_A16/specs/mission-control"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect defer "[worker, kickoff-mission-control-a16-delta] #1021 case: admitted with its own spec under the spec root and no colliding one"
+
+# An amendment kickoff's scope that is also another spec's kickoff scope: a
+# spec named <spec>-a<n> (or the scope's whole tail) under the spec root.
+AMEND_COL="$SANDBOX/amend-col"
+gitq clone "$ORIGIN" "$AMEND_COL"
+gitq -C "$AMEND_COL" switch -c planwright/demo/amendment-2 main
+mkdir -p "$AMEND_COL/specs/demo" "$AMEND_COL/specs/demo-a2" "$AMEND_COL/specs/demo-a2b"
+for scope in kickoff-demo-a2 kickoff-demo-a2-a3 kickoff-demo-a2b; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_COL" "$AMEND_COL"
+  expect deny "[worker, $scope] an amendment scope another spec's kickoff can share denies"
+  reason_has "reads as amendment 2's kickoff for demo, but a spec named demo-a2b? exists" "[worker, $scope] the collision refusal names the other spec"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg worker "$KICKOFF_PUSH" "$AMEND_COL" "$AMEND_COL"
+expect defer "[worker, kickoff-demo-a2-delta] a scope no existing spec's kickoff shares is admitted beside a demo-a2 spec"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$AMEND_COL" "$AMEND_COL"
+expect defer "[worker, kickoff-demo] the spec's own kickoff scope is admitted beside a demo-a2 spec"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow' "spec_root: $SANDBOX/no-such-spec-root"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] an amendment scope denies when the spec root cannot be resolved"
+reason_has 'spec root could not be resolved' "[worker, kickoff-mission-control-a16-delta] the unresolvable-root refusal says why"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect defer "[worker, kickoff-mission-control] the spec's own kickoff scope reads no spec root"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$AMEND_UP" "$AMEND_UP"
 expect deny "[worker, task-1] an inline amendment-kickoff scope does not admit the push"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "false && cd \"$AMEND_UP\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"

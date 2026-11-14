@@ -67,12 +67,16 @@ printf '%s\n' "\$1" >>"$LOG"
 [ "\${STUB_FAIL_KNOB:-}" != "\$1" ] || exit 4
 exec /bin/sh "$REAL_SCRIPTS/resolve-policy-knob.sh" "\$@"
 EOF
+cat >"$S/resolve-root.sh" <<EOF
+#!/bin/sh
+exec /bin/sh "$REAL_SCRIPTS/resolve-root.sh" "\$@"
+EOF
 cat >"$BIN/gh" <<EOF
 #!/bin/sh
 printf '%s\n' "gh \$*" >>"$GHLOG"
 exit 1
 EOF
-chmod +x "$S/resolve-policy-knob.sh" "$BIN/gh"
+chmod +x "$S/resolve-policy-knob.sh" "$S/resolve-root.sh" "$BIN/gh"
 
 gitq() { git -c init.defaultBranch=main -c user.name=t -c user.email=t@example.invalid "$@" >/dev/null 2>&1; }
 ORIGIN="$SANDBOX/origin.git"

@@ -2099,7 +2099,11 @@ kickoff_segment() {
     [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
     if [ -n "$KAS_N" ]; then
-      [ "$b" != "planwright/$spec/amendment-$KAS_N" ] || return 0
+      if [ "$b" = "planwright/$spec/amendment-$KAS_N" ]; then
+        kickoff_scope_shared "$spec" "$dir" || return 0
+        deny_now "the launch scope ${PLANWRIGHT_WORKER_SCOPE} reads as amendment $KAS_N's kickoff for $spec, but $KSS_WHY - refusing (fail closed). Relaunch the kickoff with a scope no other spec's kickoff can share."
+        return 0
+      fi
     else
       kick_ok=0
       case $b in
@@ -2163,6 +2167,46 @@ kickoff_amendment_scope() {
     *) return 0 ;;
   esac
   KAS_N=$n
+}
+
+# kickoff_scope_shared <spec> <dir> — 0, with KSS_WHY set, when the amendment
+# reading of the session's scope (KAS_N set for <spec>) may instead be another
+# spec's kickoff: a bundle named for the scope's whole tail (that spec's own
+# kickoff scope) or <spec>-a<n> (when the rest of the scope reads as one of
+# its amendment kickoffs) lies under the spec root, or the root cannot be
+# resolved. 1 when no other spec can share it.
+KSS_WHY=''
+kickoff_scope_shared() {
+  local spec=$1 dir=$2 root rc=0 n=$KAS_N x
+  KSS_WHY=''
+  need_timeout
+  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-root.sh" ] || {
+    KSS_WHY='the spec-root resolver is missing beside this guard, so it cannot tell that scope from another spec'"'"'s kickoff'
+    return 0
+  }
+  policy_root "$dir"
+  root=$(cd -- "$dir" 2>/dev/null && PLANWRIGHT_REPO_ROOT=$POLICY_ROOT "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-root.sh" spec 2>/dev/null </dev/null) || rc=$?
+  case $root in
+    /*) ;;
+    *) [ "$rc" != 0 ] || rc=empty ;;
+  esac
+  if [ "$rc" != 0 ]; then
+    KSS_WHY="the spec root could not be resolved (resolver exit $rc), so the guard cannot tell that scope from another spec's kickoff"
+    return 0
+  fi
+  x=${PLANWRIGHT_WORKER_SCOPE#kickoff-}
+  if [ -d "$root/$x" ]; then
+    KSS_WHY="a spec named $x exists, whose own kickoff that scope is"
+    return 0
+  fi
+  kickoff_amendment_scope "$spec-a$n"
+  x=$KAS_N
+  KAS_N=$n
+  if [ -n "$x" ] && [ -d "$root/$spec-a$n" ]; then
+    KSS_WHY="a spec named $spec-a$n exists, whose amendment $x kickoff that scope is"
+    return 0
+  fi
+  return 1
 }
 
 # kickoff_head_moves — 0 when the segment runs git in a way that may change
