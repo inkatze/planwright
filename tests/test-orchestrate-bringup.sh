@@ -84,7 +84,7 @@ check "the classifier is called and none counts as a main tree (REQ-B1.1)" "$bri
   'scripts/tower-placement\.sh' '`none`[^.]*main tree'
 
 check "the response follows tower_placement (REQ-B1.2)" "$bringup" \
-  '`warn`[^.]*once' '`refuse`' '`allow`'
+  '`warn`[^.]*once' '`refuse` holds' '`allow` says nothing'
 
 check "refuse holds dispatch, relay, and the bookkeeping push and PR (REQ-B1.2)" "$bringup" \
   'refuse[^.]*dispatch, relay' 'bookkeeping push and PR' 'status[^.]*continu'
@@ -99,7 +99,7 @@ check "the isolation probe warns once, names the supported launch, never blocks 
   'isolation probe' 'warns? once' 'never blocks?'
 
 check "the activation handshake re-marks the session (REQ-C1.8, REQ-C1.9)" "$bringup" \
-  'scripts/tower-session\.sh activate' 'handshake' 'each posture check|on-request posture check|on request'
+  'scripts/tower-session\.sh activate' 'handshake' 'repeated on request'
 
 check "enforcement counts active only on the ACTIVE refusal (REQ-B1.4)" "$bringup" \
   'ACTIVE' 'only[^.]*refus'

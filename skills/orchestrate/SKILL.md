@@ -92,8 +92,8 @@ per **Halt → Awaiting input**; simultaneous ones batch into the step report
    `/spec-kickoff`; for Done or terminal, say it has nothing to orchestrate.
 5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh <root>/<spec>`. On
    a dispatch step a missing or non-executable validator **fails closed** and
-   halts (REQ-A2.1 outranks degradation); a Ready or Active bundle's findings are
-   errors, halting (REQ-B1.2). On `--bookkeeping` it degrades with a message.
+   halts (REQ-A2.1 outranks degradation); a Ready or Active bundle's findings halt
+   (REQ-B1.2). On `--bookkeeping` it degrades with a message.
 6. **Verify the kickoff brief** (D-36). `<root>/<spec>/kickoff-brief.md` must exist
    and carry a final sign-off record with its anchor line (formats: `spec-format`).
    Absent or partial: halt and prompt `/spec-kickoff`.
@@ -102,8 +102,8 @@ per **Halt → Awaiting input**; simultaneous ones batch into the step report
 
 ## Bring-up (REQ-B1.1 to REQ-B1.5, D-4, D-6, D-8)
 
-Once per invocation, before the first step; `--watch` steps do not repeat it.
-Each read is bounded, inline, repeated on request, never polled.
+Once per invocation, before the first step; `--watch` does not repeat it.
+Each read is bounded, inline, repeated on request, not polled.
 
 1. **Placement.** `scripts/tower-placement.sh` prints `main`, `linked`, or
    `none` beside the resolved `tower_placement`; `none` counts as a main tree,
@@ -153,7 +153,7 @@ When the spec's prose or a `Done when:` marks a unit as guard/CI infrastructure
 everything else should merge under, prefer it over the raw critical-path head and
 say so in the step report: a judgment overlay, never silent.
 
-**Cohesion-first bundling (REQ-F1.7, D-9).** Bundle the selected unit with the
+**Cohesion-first bundling (REQ-F1.7, D-9).** Consider bundling the selected unit with the
 next consecutive ready task(s) **only** when together they form one coherent,
 revertable, single-purpose deliverable (same module/concern, shared
 dependencies); combined size is a bloat guardrail, not the primary signal.
@@ -290,7 +290,7 @@ after a worker.
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. The shipped `config/worker-settings.json`
   pre-approves the routine `/execute-task` toolset and denies the
-  PR-merge/force-push guardrails; a human merges it in (REQ-I1.2).
+  PR-merge/force-push guardrails; a human merges it in (never edits settings.json, REQ-I1.2).
 - **tmux** (opt-in). An interactive worker in a detached session
   `scripts/fleet-dispatch-worktree.sh` creates. Every task dispatch first
   renders the unit's task brief, `scripts/fleet-task-brief.sh render <spec>

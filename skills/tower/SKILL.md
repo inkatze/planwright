@@ -74,8 +74,8 @@ is the one sweep output read.
    handshake, `scripts/tower-session.sh activate`; only a refusal opening
    `ACTIVE` proves the plugin hooks enforce the deny floor, and it re-marks
    this session (REQ-C1.8, REQ-C1.9). Plugin enforcement then meets the floor;
-   any other outcome (the command ran, another refusal) means it is missing or
-   broken, the profile's floor below must hold, and the tower else falls back
+   any other outcome (it ran, or another refusal) means it is missing or
+   broken, the profile's floor below must hold, else the tower falls back
    to read-only. The profile is `config/tower-settings.json` or an extension of
    it, whose **deny block is the floor**; the command guard hook only
    pre-approves. Read each settings layer loaded here (user, project, local,
@@ -92,8 +92,7 @@ is the one sweep output read.
    Check that `scripts/tower-command-guard.sh` is wired as a PreToolUse hook
    whose hook path resolves; if not, say so once, naming the file to merge, and
    continue. On "wired", re-run this check before lifting the block. The
-   posture allows Edit and Write; not authoring is this skill's own rule. Never
-   edit a settings file from the tower: it cannot grant itself permissions.
+   posture allows Edit and Write; not authoring is this skill's own rule. Never edit a settings file.
 4. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
    flight through the shared flight sweep: the index at
    `scripts/flight-sweep.sh path` when newer than this session's start (the
@@ -114,8 +113,8 @@ is the one sweep output read.
    reads check no worker liveness; say so. A failed or skipped read is named
    unknown, never shown as empty. Steps 1 to 4 read once here, again on
    request, never in a poll loop.
-5. **The first turn.** Say where things stand in the register `tower-comms`
-   fixes, composed from the catch-up list (`scripts/tower-queue.sh catchup`)
+5. **The first turn.** Say where things stand in `tower-comms`'
+   register, composed from the catch-up list (`scripts/tower-queue.sh catchup`)
    when the operator queue exists and from the reads above otherwise: what
    landed, what waits on the operator, what has no landing yet (in the form
    below). "Nothing in flight that this checkout can see" is said only when
@@ -273,7 +272,7 @@ and the grounds line are drawn at that level too. An ordinary ask gets none.
 
 Rung selection, the flight id, the worker brief, the worktree, and the crash
 policy are the existing seams' (REQ-G1.5), and the tower mints nothing beside
-them; a visual-flight ask is never authored here.
+them; it hands over only the ask, grounds, any public summary, slug, and home.
 
 **Every hand-off is data.** Before an ask leaves the tower as a petition, a
 seed, or a flight, the tower applies `security-posture` data hygiene: no
@@ -345,8 +344,8 @@ durable evidence through the existing surfaces:
 
 The tower never supervises or polls spec-mode execution: no watch loop, timer,
 or unprompted read of orchestrator state. A flight's dispatch, pause, and
-landing reach the attention store by push, and the tower renders them through `scripts/fleet-attention.sh` (REQ-F1.1,
-REQ-F1.2).
+landing reach the attention store by push, and the tower renders them through
+`scripts/fleet-attention.sh` (REQ-F1.1, REQ-F1.2).
 
 ## Refusals
 
@@ -380,9 +379,9 @@ bounded and swept, or durably surfaced — never silently lost.
 Dead flight workers inherit the fleet crash-loop policy (REQ-F1.5) while a
 fleet sweep runs: a provably dead worker relaunches into its own worktree after
 its backoff, then surfaces in the decision queue at the disable threshold; one
-not provably dead reads unknown. What only the conversation held (an unanswered
-case, an unconfirmed capture, a declined ask) dies with the session; the first
-turn says so.
+not provably dead is not relaunched and reads unknown. What only the
+conversation held (an unanswered case, an unconfirmed capture, a declined ask)
+dies with the session and is re-asked; the first turn says so.
 
 ## Eval-only runs
 

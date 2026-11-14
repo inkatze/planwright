@@ -414,15 +414,15 @@ bu_check() { # bu_check <label> <extended-regex>...: each must match the bring-u
 
 # shellcheck disable=SC2016
 bu_check "runs the classifier, counts none as a main tree, and responds per knob (REQ-B1.1, REQ-B1.2)" \
-  'scripts/tower-placement\.sh' '`none`[^.]*main tree' '`warn`[^.]*once' '`refuse`[^.]*no repo-mutating route' '`allow`'
+  'scripts/tower-placement\.sh' '`none`[^.]*main tree' '`warn`[^.]*once' '`refuse`[^.]*no repo-mutating route' '`allow` says nothing'
 bu_check "runs the isolation probe, warns once, never blocks (REQ-B1.3)" \
   'isolation probe' 'warns? once' 'never blocks?'
 bu_check "re-marks the session through the activation handshake (REQ-C1.8, REQ-C1.9)" \
-  'scripts/tower-session\.sh activate' 'handshake' 'on request'
+  'scripts/tower-session\.sh activate' 'handshake' 'Steps 1 to 4 read once here, again on request'
 bu_check "judges plugin enforcement active only on the ACTIVE refusal (REQ-B1.4)" \
   'ACTIVE' 'only[^.]*refus' 'plugin enforcement'
 bu_check "falls back to read-only when enforcement is missing or broken (REQ-B1.4)" \
-  'missing or broken' 'read-only'
+  'missing or broken[^.]*falls back to read-only'
 bu_check "names every layer read, the plugin hooks file included (REQ-B1.4)" \
   'names? every (settings )?layer' 'hooks/hooks\.json'
 
