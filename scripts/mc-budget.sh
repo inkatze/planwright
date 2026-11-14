@@ -25,7 +25,7 @@ done
 DIMENSIONS="sessions polls_per_hour context_steps host_load"
 
 usage() {
-  mc_usage_fail "usage: mc-budget.sh report|rung --program <p> [--now <epoch>] [--load <pct>] | admit --program <p> session|heavy [--now <epoch>] [--load <pct>] | poll --program <p> <source> [--now <epoch>] | record --program <p> sessions|context_steps <n> | ceiling --program <p> <duty> | read --program <p>"
+  mc_usage_fail "usage: mc-budget.sh report|rung --program <p> [--now <epoch>] [--load <pct>] [--mem <pct>] | admit --program <p> session|heavy [--now <epoch>] [--load <pct>] | reserve --program <p> [--holder <pid>] [--name <session>] [--now <epoch>] [--load <pct>] [--mem <pct>] | release --program <p> <id> | poll --program <p> <source> [--now <epoch>] | record --program <p> sessions|context_steps <n> | ceiling --program <p> <duty> | read --program <p>"
 }
 
 help_text() {
@@ -76,6 +76,9 @@ Usage:
         taken<TAB><epoch>
         rung<TAB><rung><TAB><reason>
         dimension<TAB><name><TAB><used><TAB><limit><TAB><headroom><TAB><pct>
+        admission<TAB><axis|open><TAB><why>   the axis `reserve` would hold a
+                                              launch on (a failure to read
+                                              it prints `unknown`)
         spend<TAB>ceiling<TAB><class>
         spend<TAB><duty><TAB><class>     one per duty with its own class
   mc-budget.sh rung --program <p> [--now <epoch>] [--load <pct>]
@@ -85,6 +88,38 @@ Usage:
       queued<TAB><reason>. Heavy work is scheduled by host load: it waits
       while host load is at or over the throttle threshold, whatever the
       session count
+  mc-budget.sh reserve --program <p> [--holder <pid>] [--name <session>]
+                       [--now <epoch>] [--load <pct>] [--mem <pct>]
+      host-shared launch admission (mission-control D-41): admit one launch
+      and take a reservation for it under the fleet lock, or hold it. Held
+      axes, checked in this order, each printed `queued<TAB><axis>: <why>`
+      with exit 1:
+        paused    the fleet daemon pause
+        account   a vendor quota hold, a usage window (session or weekly,
+                  the status-line cache, else the stream-json frames) at or
+                  over mission_control_usage_hold, or no usage reading at
+                  all (an unreadable cache)
+        load      host load at or over mission_control_admit_load
+        memory    available memory under mission_control_admit_memory
+        lock      the fleet lock not taken in about ten seconds
+        ceiling   live sessions plus reservations, every program counted,
+                  at fleet_max_parallel_units
+        sessions  the program's own live sessions plus reservations at its
+                  budget's sessions limit
+      Load and memory count each reservation and each registered session
+      younger than the warm-up (mission_control_admit_warmup) at its share,
+      so a lagging reading never admits a burst. Every program's registry
+      rows are recounted under the lock; a waiting session holds no slot.
+      A reservation whose holder pid (default: the caller's parent) is dead,
+      or older than mission_control_admit_timeout, is reclaimed by the next
+      admitter, printing `reclaimed<TAB><id><TAB>dead|timeout`; one whose
+      --name session has registered is dropped, being counted as that
+      session. Admitted: `reserved<TAB><id>` and exit 0. --mem gives the
+      available memory percent as --load gives the load. A reservation
+      store of an unknown format is refused (exit 1, naming the field).
+  mc-budget.sh release --program <p> <id>
+      give a reservation back (its launch failed or registered); prints
+      `released<TAB><id>`, or `absent<TAB><id>` when none is stored
   mc-budget.sh poll --program <p> <source> [--now <epoch>]
       count one poll of <source> when the hour's polls are under the cap
       (exit 0); at the cap nothing is counted (exit 4, printing capped)
@@ -115,15 +150,21 @@ shift
 program=""
 now=""
 load=""
+mem=""
+holder=""
+sname=""
 args=()
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --now | --load)
+    --program | --now | --load | --mem | --holder | --name)
       [ $# -ge 2 ] || usage
       case $1 in
         --program) program=$2 ;;
         --now) now=$2 ;;
         --load) load=$2 ;;
+        --mem) mem=$2 ;;
+        --holder) holder=$2 ;;
+        --name) sname=$2 ;;
       esac
       shift 2
       ;;
@@ -136,6 +177,9 @@ done
 [ -n "$program" ] || usage
 mc_now_arg "$now"
 [ -z "$load" ] || mc_valid_uint "$load" || mc_usage_fail "--load takes a whole percent"
+[ -z "$mem" ] || { mc_valid_uint "$mem" && [ "$mem" -le 100 ]; } || mc_usage_fail "--mem takes a whole percent"
+[ -z "$holder" ] || { mc_valid_uint "$holder" && [ "$holder" -gt 0 ]; } || mc_usage_fail "--holder takes a process id"
+[ -z "$sname" ] || mc_valid_handle "$sname" || mc_usage_fail "--name takes a session name"
 mc_require_program "$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory for '$program'"
 
@@ -241,6 +285,248 @@ quota_held() {
   printf '%s\n' "$qh_out" | awk -F '\t' '$1 == "vendor" && $3 == "held" { f = 1 } END { exit !f }'
 }
 
+# Host-shared launch admission (mission-control D-41, REQ-L1.7).
+ROW_FORMAT=1
+
+parse_pct() {
+  mc_valid_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 100 ] || return 1
+  printf '%s\n' "$1"
+}
+parse_usage_hold() {
+  case $1 in
+    off) printf 'off\n' ;;
+    *) parse_pct "$1" ;;
+  esac
+}
+parse_warmup() {
+  pw_map=$(mc_map "$1") || return 1
+  [ "$(printf '%s\n' "$pw_map" | awk 'END { print NR }')" -eq 3 ] || return 1
+  for pw_k in seconds load memory; do
+    mc_valid_uint "$(mc_lookup "$pw_k" "$pw_map")" || return 1
+  done
+  [ "$(mc_lookup seconds "$pw_map")" -gt 0 ] || return 1
+  printf '%s\n' "$pw_map"
+}
+
+# host_mem: available memory as a percent of the total, or --mem's value.
+host_mem() {
+  if [ -n "$mem" ]; then
+    printf '%s\n' "$mem"
+    return 0
+  fi
+  if [ -r /proc/meminfo ]; then
+    hm=$(awk '$1 == "MemTotal:" { t = $2 } $1 == "MemAvailable:" { a = $2 }
+      END { if (t + 0 > 0 && a != "") printf "%d\n", a * 100 / t; else exit 1 }' /proc/meminfo) || return 1
+  else
+    hm_total=$(sysctl -n hw.memsize 2>/dev/null) || return 1
+    hm=$(vm_stat 2>/dev/null | T=$hm_total awk '
+      /page size of/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+$/) ps = $i }
+      /^Pages (free|inactive|speculative):/ { gsub(/\./, "", $NF); p += $NF }
+      END { if (ps > 0 && ENVIRON["T"] + 0 > 0) printf "%d\n", p * ps * 100 / ENVIRON["T"]; else exit 1 }') || return 1
+  fi
+  mc_valid_uint "$hm" || return 1
+  printf '%s\n' "$hm"
+}
+
+# account_held: 0 with WHY set when the account allows no launch: a vendor
+# quota hold, a usage window at or over the hold knob, or no reading of
+# either window at all (a cache that cannot be read holds, never admits).
+account_held() {
+  quota_held
+  case $? in
+    0)
+      WHY="a vendor quota hold (limited)"
+      return 0
+      ;;
+    2)
+      WHY="the quota store cannot be read"
+      return 0
+      ;;
+  esac
+  ah_hold=$(mc_knob mission_control_usage_hold parse_usage_hold) || {
+    WHY="mission_control_usage_hold cannot be read"
+    return 0
+  }
+  ah_win=$(/bin/sh "$script_dir/fleet-usage-gate.sh" windows --now "$NOW" 2>/dev/null) || ah_win=""
+  ah_frames=$(/bin/sh "$script_dir/claude-frames.sh" read --now "$NOW" 2>/dev/null) || ah_frames=""
+  ah_read=$(printf '%s\n%s\n' "$ah_win" "$ah_frames" | awk -F '\t' '
+    function ok(p, r) { return p ~ /^[0-9]+([.][0-9]+)?$/ && p + 0 <= 100 && r ~ /^[0-9]+$/ }
+    ($1 == "session" || $1 == "weekly") && ok($2, $3) && !($1 in w) { w[$1] = int($2) }
+    $1 == "window" && ($2 == "session" || $2 == "weekly") && ok($3, $4) && !($2 in w) { w[$2] = int($3) }
+    END { if ("session" in w) print "session " w["session"]; if ("weekly" in w) print "weekly " w["weekly"] }')
+  if [ -z "$ah_read" ]; then
+    WHY="no usage reading is available (the usage cache cannot be read)"
+    return 0
+  fi
+  [ "$ah_hold" != off ] || return 1
+  WHY=$(printf '%s\n' "$ah_read" | H=$ah_hold awk '$2 + 0 >= ENVIRON["H"] + 0 {
+    print "the " $1 " usage window is at " $2 "% (the hold is at " ENVIRON["H"] "%)"; exit }')
+  [ -n "$WHY" ]
+}
+
+# registry_scan <warm seconds>: R_ALL, R_OWN and R_WARM, the live sessions
+# every program's registry holds (mission-control sessions and waiting ones
+# left out), this program's, and those launched inside the warm-up; R_NAMES,
+# every registered name, one per line.
+registry_scan() {
+  rs_warm=$1
+  FH=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+  rs_rows=""
+  R_NAMES=""
+  if [ -d "$FH/mission-control/sessions" ]; then
+    set +f
+    set -- "$FH/mission-control/sessions"/mc-*
+    set -f
+    for rs_f in "$@"; do
+      [ -f "$rs_f" ] && [ ! -L "$rs_f" ] || continue
+      case ${rs_f##*/} in *.tmp.*) continue ;; esac
+      [ -r "$rs_f" ] || mc_fail "cannot read the registry row $(sanitize_printable "${rs_f##*/}")"
+      [ "$(mc_kv "$rs_f" format)" = "$ROW_FORMAT" ] || continue
+      [ "$(mc_kv "$rs_f" kind)" != mission-control ] || continue
+      rs_p=$(mc_kv "$rs_f" program)
+      [ -n "$rs_p" ] || continue
+      R_NAMES="$R_NAMES${rs_f##*/}
+"
+      [ -z "$(mc_kv "$rs_f" waiting)" ] || continue
+      rs_rows="$rs_rows$rs_p	$(mc_kv "$rs_f" launched)
+"
+    done
+  fi
+  rs_out=$(printf '%s' "$rs_rows" | P=$program N=$NOW W=$rs_warm awk -F '\t' '
+    NF { a++; if ($1 == ENVIRON["P"]) o++
+      if ($2 ~ /^[0-9]+$/ && ENVIRON["N"] - $2 < ENVIRON["W"]) w++ }
+    END { print a + 0 " " o + 0 " " w + 0 }')
+  R_ALL=${rs_out%% *}
+  rs_out=${rs_out#* }
+  R_OWN=${rs_out%% *}
+  R_WARM=${rs_out#* }
+}
+
+# store_read <timeout seconds>: the reservation store's live lines in RES
+# (reservation<TAB>id<TAB>program<TAB>holder<TAB>epoch<TAB>name) and the
+# reclaimed ones in RECLAIMED (id<TAB>why); returns 1 with STORE_ERR set for
+# a store this script cannot read. Needs R_NAMES from registry_scan.
+store_read() {
+  RES=""
+  RECLAIMED=""
+  STORE_ERR=""
+  [ -e "$ASTORE" ] || return 0
+  if ! mc_format_ok "$ASTORE"; then
+    STORE_ERR="reservation store: format: unknown format"
+    return 1
+  fi
+  sr_lines=$(awk -F '\t' 'NR > 1' "$ASTORE") || {
+    STORE_ERR="cannot read the reservation store"
+    return 1
+  }
+  while IFS='	' read -r sr_k sr_id sr_p sr_pid sr_at sr_name; do
+    [ -n "$sr_k" ] || continue
+    if [ "$sr_k" != reservation ] || ! mc_valid_uint "$sr_pid" || ! mc_valid_uint "$sr_at"; then
+      STORE_ERR="reservation store: a line outside the grammar"
+      return 1
+    fi
+    sr_line="$sr_k	$sr_id	$sr_p	$sr_pid	$sr_at	$sr_name"
+    if ! kill -0 "$sr_pid" 2>/dev/null; then
+      RECLAIMED="$RECLAIMED$sr_id	dead
+"
+    elif [ $((NOW - sr_at)) -gt "$1" ]; then
+      RECLAIMED="$RECLAIMED$sr_id	timeout
+"
+    elif [ "$sr_name" != - ] && printf '%s' "$R_NAMES" | N=$sr_name awk '$0 == ENVIRON["N"] { f = 1 } END { exit !f }'; then
+      RECLAIMED="$RECLAIMED$sr_id	registered
+"
+    else
+      RES="$RES$sr_line
+"
+    fi
+  done <<EOF
+$sr_lines
+EOF
+}
+
+# admission_knobs: the admission knobs, in ADM_LOAD, ADM_MEM, ADM_WARM_S,
+# ADM_WARM_LOAD, ADM_WARM_MEM, ADM_TIMEOUT and ADM_CEILING; exits on a bad one.
+admission_knobs() {
+  ADM_LOAD=$(mc_knob mission_control_admit_load parse_pct) || exit 1
+  ADM_MEM=$(mc_knob mission_control_admit_memory parse_pct) || exit 1
+  ak_warm=$(mc_knob mission_control_admit_warmup parse_warmup) || exit 1
+  ADM_WARM_S=$(mc_lookup seconds "$ak_warm")
+  ADM_WARM_LOAD=$(mc_lookup load "$ak_warm")
+  ADM_WARM_MEM=$(mc_lookup memory "$ak_warm")
+  ak_to=$(mc_knob mission_control_admit_timeout mc_parse_cadence) || exit 1
+  ADM_TIMEOUT=$(mc_seconds "$ak_to") || exit 1
+  ADM_CEILING=$(mc_knob fleet_max_parallel_units mc_parse_count) || exit 1
+}
+
+# admission_verdict: the axis check shared by `reserve` and the budget's
+# admission line. Needs the knobs, load_limits, store_read and registry_scan
+# done; sets AXIS (open or the held axis) and WHY.
+admission_verdict() {
+  AXIS=open
+  WHY=""
+  av_n=$((R_WARM + $(printf '%s' "$RES" | awk 'NF { n++ } END { print n + 0 }')))
+  av_res_all=$(printf '%s' "$RES" | awk 'NF { n++ } END { print n + 0 }')
+  av_res_own=$(printf '%s' "$RES" | P=$program awk -F '\t' '$3 == ENVIRON["P"] { n++ } END { print n + 0 }')
+  if [ $((R_ALL + av_res_all)) -ge "$ADM_CEILING" ]; then
+    AXIS=ceiling
+    WHY="$((R_ALL + av_res_all)) sessions and reservations on this host, at fleet_max_parallel_units $ADM_CEILING"
+    return 0
+  fi
+  if [ $((R_OWN + av_res_own)) -ge "$(mc_lookup sessions "$LIMITS")" ]; then
+    AXIS=sessions
+    WHY="program $program holds $((R_OWN + av_res_own)), at its sessions limit $(mc_lookup sessions "$LIMITS")"
+    return 0
+  fi
+  av_load=$((ADM_PCT + av_n * ADM_WARM_LOAD))
+  if [ "$av_load" -ge "$ADM_LOAD" ]; then
+    AXIS=load
+    WHY="host load at $ADM_PCT% ($av_load% counting $av_n launches still warming up), at or over mission_control_admit_load $ADM_LOAD%"
+    return 0
+  fi
+  av_mem=$((ADM_AVAIL - av_n * ADM_WARM_MEM))
+  if [ "$av_mem" -lt "$ADM_MEM" ]; then
+    AXIS=memory
+    WHY="available memory at $ADM_AVAIL% ($av_mem% counting $av_n launches still warming up), under mission_control_admit_memory $ADM_MEM%"
+  fi
+  return 0
+}
+
+# measure: ADM_PCT and ADM_AVAIL; an unreadable memory figure is a hold.
+measure() {
+  ADM_PCT=$(host_load)
+  ADM_AVAIL=$(host_mem) || ADM_AVAIL=""
+}
+
+# admission_line: the budget file's `admission` line, never failing the report.
+admission_line() {
+  (
+    prog=mc-budget
+    load_limits
+    admission_knobs
+    if ! mc_gate mc-budget; then
+      printf 'admission\tpaused\tthe fleet daemon pause or gate\n'
+      exit 0
+    fi
+    if account_held; then
+      printf 'admission\taccount\t%s\n' "$(printf '%s' "$WHY" | tr '\t\n' '  ')"
+      exit 0
+    fi
+    measure
+    if [ -z "$ADM_AVAIL" ]; then
+      printf 'admission\tmemory\tavailable memory cannot be read\n'
+      exit 0
+    fi
+    ASTORE=$(mc_fleet_home)/mission-control/admission
+    registry_scan "$ADM_WARM_S"
+    if ! store_read "$ADM_TIMEOUT"; then
+      printf 'admission\tstore\t%s\n' "$STORE_ERR"
+      exit 0
+    fi
+    admission_verdict
+    printf 'admission\t%s\t%s\n' "$AXIS" "$(printf '%s' "$WHY" | tr '\t\n' '  ')"
+  ) 2>/dev/null || printf 'admission\tunknown\tthe admission state cannot be computed\n'
+}
+
 # compute: sets RUNG, REASON, DIMS (name<TAB>used<TAB>limit<TAB>headroom<TAB>pct
 # lines), LIMITS, LADDER and HOSTPCT.
 compute() {
@@ -333,6 +619,7 @@ render() {
   printf '%s' "$DIMS" | while IFS= read -r line; do
     [ -n "$line" ] && printf 'dimension\t%s\n' "$line"
   done
+  printf '%s\n' "$ADMISSION"
   printf 'spend\tceiling\t%s\n' "$(mc_lookup spend_ceiling "$LIMITS")"
   printf '%s\n' "$LIMITS" | awk -F '\t' '$1 ~ /^spend_/ && $1 != "spend_ceiling" {
     d = substr($1, 7); gsub(/_/, "-", d); print "spend\t" d "\t" $2 }'
@@ -342,6 +629,7 @@ case $verb in
   report)
     [ "${#args[@]}" -eq 0 ] || usage
     compute
+    ADMISSION=$(admission_line)
     render | mc_write "$runtime/budget" || mc_fail "cannot write the budget file"
     cat "$runtime/budget"
     ;;
@@ -379,6 +667,75 @@ case $verb in
       exit 1
     fi
     printf 'admitted\n'
+    ;;
+  reserve)
+    [ "${#args[@]}" -eq 0 ] || usage
+    [ -n "$holder" ] || holder=$PPID
+    held() { # held <axis> <why>: the launch waits
+      printf 'queued\t%s: %s\n' "$1" "$2"
+      exit 1
+    }
+    mc_gate mc-budget || held paused "the fleet daemon pause or gate"
+    if account_held; then held account "$WHY"; fi
+    load_limits
+    admission_knobs
+    measure
+    [ -n "$ADM_AVAIL" ] || held memory "available memory cannot be read"
+    [ "$ADM_PCT" -lt "$ADM_LOAD" ] || held load "host load at $ADM_PCT%, at or over mission_control_admit_load $ADM_LOAD%"
+    [ "$ADM_AVAIL" -ge "$ADM_MEM" ] || held memory "available memory at $ADM_AVAIL%, under mission_control_admit_memory $ADM_MEM%"
+    FH=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+    ASTORE=$FH/mission-control/admission
+    mkdir -p "$FH/mission-control" || mc_fail "cannot create the admission store's directory"
+    mc_lock || held lock "the fleet lock was not taken in time"
+    trap 'mc_unlock' EXIT
+    registry_scan "$ADM_WARM_S"
+    store_read "$ADM_TIMEOUT" || mc_fail "$STORE_ERR"
+    if [ -n "$RECLAIMED" ]; then
+      {
+        printf 'format\t%s\n' "$MC_FORMAT"
+        printf '%s' "$RES"
+      } | mc_write "$ASTORE" || mc_fail "cannot write the reservation store"
+      printf '%s' "$RECLAIMED" | awk -F '\t' 'NF { print "reclaimed\t" $1 "\t" $2 }'
+    fi
+    admission_verdict
+    [ "$AXIS" = open ] || held "$AXIS" "$WHY"
+    rid="r$NOW.$$"
+    {
+      printf 'format\t%s\n' "$MC_FORMAT"
+      printf '%s' "$RES"
+      printf 'reservation\t%s\t%s\t%s\t%s\t%s\n' "$rid" "$program" "$holder" "$NOW" "${sname:--}"
+    } | mc_write "$ASTORE" || mc_fail "cannot write the reservation store"
+    printf 'reserved\t%s\n' "$rid"
+    ;;
+  release)
+    [ "${#args[@]}" -eq 1 ] || usage
+    case ${args[0]} in
+      r[0-9]*.[0-9]*) ;;
+      *) usage ;;
+    esac
+    case ${args[0]} in
+      *[!0-9r.]*) usage ;;
+    esac
+    FH=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+    ASTORE=$FH/mission-control/admission
+    mc_lock || mc_fail "cannot take the fleet lock"
+    trap 'mc_unlock' EXIT
+    if [ ! -e "$ASTORE" ]; then
+      printf 'absent\t%s\n' "${args[0]}"
+      exit 0
+    fi
+    mc_format_ok "$ASTORE" || mc_fail "reservation store: format: unknown format"
+    kept=$(awk -F '\t' -v id="${args[0]}" 'NR > 1 && $2 != id' "$ASTORE") || mc_fail "cannot read the reservation store"
+    had=$(awk -F '\t' -v id="${args[0]}" 'NR > 1 && $2 == id { n++ } END { print n + 0 }' "$ASTORE")
+    {
+      printf 'format\t%s\n' "$MC_FORMAT"
+      [ -z "$kept" ] || printf '%s\n' "$kept"
+    } | mc_write "$ASTORE" || mc_fail "cannot write the reservation store"
+    if [ "$had" -gt 0 ]; then
+      printf 'released\t%s\n' "${args[0]}"
+    else
+      printf 'absent\t%s\n' "${args[0]}"
+    fi
     ;;
   poll)
     [ "${#args[@]}" -eq 1 ] || usage

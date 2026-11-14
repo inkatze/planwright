@@ -148,6 +148,8 @@ Usage:
                                              decisions, newest first
         rung<TAB><rung><TAB><reason>         the budget file's rung, or
                                              `-` before the first budget
+        admission<TAB><axis|open><TAB><why>  the axis holding new launches
+                                             (scripts/mc-budget.sh reserve)
         headroom<TAB><dimension><TAB><used><TAB><limit><TAB><percent>
         watcher<TAB><duty><TAB><script><TAB><state><TAB><seconds to next>
                                              a negative next is an expiry
@@ -1260,6 +1262,7 @@ budget() {
   }
   printf '%s\n' "$bg" | awk -F '\t' '
     $1 == "rung" { print "rung\t" $2 "\t" $3 }
+    $1 == "admission" { print "admission\t" $2 "\t" $3 }
     $1 == "dimension" { print "headroom\t" $2 "\t" $3 "\t" $4 "\t" $6 }' | mc_clean
   D_RUNG=$(printf '%s\n' "$bg" | awk -F '\t' '$1 == "rung" { print $2; exit }' | mc_clean)
   [ -n "$D_RUNG" ] || D_RUNG=-

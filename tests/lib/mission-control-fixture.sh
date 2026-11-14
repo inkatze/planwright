@@ -39,7 +39,7 @@ git -C "$repo" init -q
 # any extra lines on stdin.
 write_core_defaults() {
   {
-    grep -E '^(mission_control_|fleet_daemon_pause:|quota_ledger_retention_days:)' "$repo_root/config/defaults.yml"
+    grep -E '^(mission_control_|fleet_max_parallel_units:|fleet_daemon_pause:|quota_ledger_retention_days:)' "$repo_root/config/defaults.yml"
     cat
   } >"$core/config/defaults.yml"
 }

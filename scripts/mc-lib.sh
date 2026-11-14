@@ -420,7 +420,9 @@ mc_upsert() {
 MC_LOCK_TOKEN=""
 mc_lock() {
   ml_try=0
-  while [ "$ml_try" -lt 100 ]; do
+  ml_max=${MC_LOCK_TRIES:-100}
+  mc_valid_uint "$ml_max" && [ "$ml_max" -gt 0 ] || ml_max=100
+  while [ "$ml_try" -lt "$ml_max" ]; do
     MC_LOCK_TOKEN=$(/bin/sh "$script_dir/fleet-state.sh" lock --owner-pid "$$" 2>/dev/null)
     ml_rc=$?
     [ "$ml_rc" -ne 0 ] || return 0

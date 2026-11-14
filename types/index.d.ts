@@ -49,6 +49,8 @@ export type PanelDigest = {
   approvals: number | null
   decisions: PanelDecision[]
   rung: { name: string; reason: string }
+  // The axis holding new launches (account, load, memory, ceiling, sessions, lock), null while none does; absent from a digest a reload carried over.
+  admission?: { axis: string; reason: string } | null
   headroom: PanelHeadroom[]
   watchers: PanelWatcher[]
   sources: PanelSource[]
