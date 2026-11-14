@@ -72,11 +72,20 @@ plain() {
 # shape, the named token's value, or command syntax.
 unsafe_text() {
   case $1 in
-    */home/* | */Users/* | */root/* | *sk-ant-* | *\$\(* | *\`*) return 0 ;;
+    */home | */home/* | */Users | */Users/* | */root | */root/* | *~/* | *\$HOME* | *\$\{* | *sk-ant-* | *\$\(* | *\`*) return 0 ;;
   esac
   if [ -n "${RR_TOKEN_VALUE:-}" ]; then
     case $1 in *"$RR_TOKEN_VALUE"*) return 0 ;; esac
   fi
+  return 1
+}
+
+# cmd_syntax <text>: success when prose text carries a pipeline or an and-list,
+# the shapes a pasted command takes.
+cmd_syntax() {
+  case $1 in
+    *' | '* | *' && '* | *' || '*) return 0 ;;
+  esac
   return 1
 }
 
@@ -87,6 +96,7 @@ load_token() {
     *[!A-Za-z0-9_]*) die "--token-env must name an environment variable" 2 ;;
   esac
   RR_TOKEN_VALUE=$(printenv "$1" 2>/dev/null) || RR_TOKEN_VALUE=''
+  [ -n "$RR_TOKEN_VALUE" ] || die "--token-env names an unset or empty variable" 2
 }
 
 # ---------------------------------------------------------------- record
@@ -127,19 +137,23 @@ cmd_record() {
   fi
 
   # Gate verdict: the last GATE_EXIT=<n> line.
-  gate_line=$(grep -E '^GATE_EXIT=[0-9]+$' "$gate" | tail -n 1)
+  gate_line=$(grep -E '^GATE_EXIT=(0|[1-9][0-9]*)$' <"$gate" | tail -n 1)
   [ -n "$gate_line" ] || die "missing source: gate (no GATE_EXIT line in the gate output)" 3
   gate_exit=${gate_line#GATE_EXIT=}
 
   # Outcome from the supervisor's result row.
-  row=$(sed -n '1p' "$result")
+  # A row without its newline is a write in flight, never a completion.
+  [ -z "$(tail -c 1 <"$result")" ] || die "missing source: result (unterminated row)" 3
+  row=$(sed -n '1p' <"$result")
   kind=$(printf '%s' "$row" | cut -f1)
   second=$(printf '%s' "$row" | cut -f2)
   iserr=$(printf '%s' "$row" | cut -f4)
   cause=$(printf '%s' "$row" | cut -f5)
   case $kind in
-    result)
-      if [ "$iserr" = true ]; then
+    result | exit)
+      if [ "$kind" = exit ] && [ "$second" = 124 ]; then
+        outcome=timed-out
+      elif [ "$iserr" = true ] || { [ "$kind" = exit ] && [ "$second" != 0 ]; }; then
         case $cause in
           limited=*) outcome=rate-limited ;;
           *) outcome=crashed ;;
@@ -148,25 +162,13 @@ cmd_record() {
         outcome=completed
       fi
       ;;
-    exit)
-      case $second in
-        0) outcome=completed ;;
-        124) outcome=timed-out ;;
-        *)
-          case $cause in
-            limited=*) outcome=rate-limited ;;
-            *) outcome=crashed ;;
-          esac
-          ;;
-      esac
-      ;;
     *) die "missing source: result (unrecognised result row)" 3 ;;
   esac
 
   # Identity: every key present, each a plain token.
   ident='{}'
   for k in $ID_KEYS; do
-    v=$(grep "^$k=" "$idfile" | tail -n 1)
+    v=$(grep "^$k=" <"$idfile" | tail -n 1)
     [ -n "$v" ] || die "missing source: identity (no $k)" 3
     v=${v#"$k="}
     [ -n "$v" ] || die "identity field $k is empty" 2
@@ -174,18 +176,18 @@ cmd_record() {
     ident=$(printf '%s' "$ident" | jq -c --arg k "$k" --arg v "$v" '. + {($k): $v}') || die "jq failed" 2
   done
 
-  approvals=$(grep -c 'cmd_sha256=' "$audit")
+  approvals=$(grep -c 'cmd_sha256=' <"$audit")
   [ -n "$approvals" ] || approvals=0
 
   rec=$(jq -nR -c --argjson ident "$ident" --arg outcome "$outcome" \
     --argjson gexit "$gate_exit" --argjson approvals "$approvals" '
-    def text: if type == "array" then map(.text? // "") | join(" ") else (. // "") end;
-    [inputs | fromjson?] as $ev
+    def text: if type == "array" then map(.text? // "") | join(" ") else (. // "" | tostring) end;
+    [inputs | fromjson? | select(type == "object")] as $ev
     | if ($ev | length) == 0 then error("no frames") else . end
-    | [$ev[] | select(.type == "assistant") | .message | select(. != null)] as $msgs
-    | [$msgs[] | .content[]? | select(.type == "tool_use")] as $uses
+    | [$ev[] | select(.type == "assistant") | .message | select(type == "object")] as $msgs
+    | [$msgs[] | .content[]? | select(type == "object" and .type == "tool_use")] as $uses
     | ($msgs | map(select(.id != null)) | group_by(.id) | map(last | .usage // {})) as $usage
-    | def tok(f): ($usage | map(.[f] // 0) | add // 0);
+    | def tok(f): ($usage | map(.[f] | if type == "number" then . else 0 end) | add // 0);
     {
       schema_version: 1,
       tool_calls: ($uses | unique_by(.id) | length),
@@ -193,9 +195,9 @@ cmd_record() {
           and .request.subtype == "can_use_tool"
           and .request.tool_name != "AskUserQuestion")] | unique_by(.request_id) | length),
       denials: ([$ev[] | select(.type == "user") | .message.content[]?
-          | select(.type == "tool_result" and .is_error == true
+          | select(type == "object" and .type == "tool_result" and .is_error == true
             and ((.content | text) | test("has been denied|denied by|doesn.t want to proceed|blocked by"; "i")))]
-          | length),
+          | unique_by(.tool_use_id) | length),
       audited_approvals: $approvals,
       tokens: {
         input: tok("input_tokens"),
@@ -203,29 +205,31 @@ cmd_record() {
         cache_creation: tok("cache_creation_input_tokens"),
         cache_read: tok("cache_read_input_tokens")
       },
-      wall_time_seconds: ([$ev[] | select(.type == "result") | .duration_ms] | last
+      wall_time_seconds: ([$ev[] | select(.type == "result") | .duration_ms | numbers] | last
           | if . == null then null else ((. / 1000) | floor) end),
       polish_rounds: ([$uses[] | select(.name == "Skill"
           and ((.input.skill // "") | test("self-review")))] | unique_by(.id) | length),
       lens_agents: ([$uses[] | select((.name == "Agent" or .name == "Task")
-          and (((.input.description // "") + " " + (.input.subagent_type // "")) | test("lens"; "i")))]
+          and (((.input.description // "" | tostring) + " " + (.input.subagent_type // "" | tostring)) | test("(^|[^a-z])lens"; "i")))]
           | unique_by(.id) | length),
       outcome: $outcome,
       gate: {exit: $gexit, passed: ($gexit == 0)},
       harness: $ident
     }
-    | .tokens.total = (.tokens | add)' <"$events") || die "events: not a readable stream-json log" 3
+    | .tokens.total = (.tokens | add)' <"$events" 2>/dev/null) || die "events: not a readable stream-json log" 3
 
   tok_for_jq=$RR_TOKEN_VALUE
   rec=$(printf '%s' "$rec" | RR_TOK=$tok_for_jq jq -c '
     ($ENV.RR_TOK // "") as $t
     | walk(if type == "string"
-        then ((if $t != "" then split($t) | join("[scrubbed]") else . end)
-              | gsub("sk-ant-[A-Za-z0-9_-]+"; "[scrubbed]"))
+        then ((if $t != "" then split($t) | join("scrubbed") else . end)
+              | gsub("sk-ant-[^[:space:]\"]+"; "scrubbed"))
         else . end)') || die "scrub failed" 2
 
   if [ -n "$out" ]; then
-    (umask 077 && printf '%s\n' "$rec" >"$out") || die "cannot write the record" 2
+    # Written to a new owner-only file and renamed over the target, so an
+    # existing file's mode and a planted symlink at the target are replaced.
+    (umask 077 && printf '%s\n' "$rec" >"$out.tmp.$$" && mv -f "$out.tmp.$$" "$out") || die "cannot write the record" 2
   else
     printf '%s\n' "$rec"
   fi
@@ -267,8 +271,8 @@ cmd_compare() {
 
   diffs=''
   for k in $ID_KEYS; do
-    va=$(jq -r --arg k "$k" '.harness[$k] // ""' "$a") || die "compare: unreadable record" 2
-    vb=$(jq -r --arg k "$k" '.harness[$k] // ""' "$b") || die "compare: unreadable record" 2
+    va=$(jq -r --arg k "$k" '.harness[$k] // ""' "$a" 2>/dev/null) || die "compare: unreadable record" 2
+    vb=$(jq -r --arg k "$k" '.harness[$k] // ""' "$b" 2>/dev/null) || die "compare: unreadable record" 2
     if [ -z "$va" ] || [ -z "$vb" ]; then
       die "compare refused: a record is missing harness field $k" 1
     fi
@@ -291,7 +295,11 @@ cmd_compare() {
     names=$(printf '%s' "$diffs" | sed 's/^ //; s/ /, /g')
     die "compare refused: records differ in more than $var: $names" 1
   fi
-  printf 'compare ok: records differ only in %s\n' "$var"
+  if [ -z "$diffs" ]; then
+    printf 'compare ok: the records share one harness identity\n'
+  else
+    printf 'compare ok: records differ only in %s\n' "$var"
+  fi
 }
 
 # ---------------------------------------------------------------- report
@@ -330,13 +338,17 @@ $1"
   need_jq
   load_token "$tokenv"
 
-  unsafe_text "$title" && die "report refused: the title carries a command, home path or token" 1
+  if unsafe_text "$title" || cmd_syntax "$title"; then
+    die "report refused: the title carries a command, home path or token" 1
+  fi
   oldifs=$IFS
   set -f
   IFS='
 '
   for n in $notes; do
-    unsafe_text "$n" && die "report refused: a note carries a command, home path or token" 1
+    if unsafe_text "$n" || cmd_syntax "$n"; then
+      die "report refused: a note carries a command, home path or token" 1
+    fi
   done
 
   body="# $title
@@ -356,7 +368,7 @@ $n
     [ -f "$r" ] || die "report: a record is missing" 2
     IFS=$oldifs
     for k in $ID_KEYS; do
-      v=$(jq -r --arg k "$k" '.harness[$k] // ""' "$r") || die "report: unreadable record" 2
+      v=$(jq -r --arg k "$k" '.harness[$k] // ""' "$r" 2>/dev/null) || die "report: unreadable record" 2
       [ -n "$v" ] || die "report refused: record $idx lacks harness field $k" 1
       plain "$v" || die "report refused: record $idx field $k is not a plain token" 1
     done
@@ -364,12 +376,13 @@ $n
 '
     row=$(jq -r --argjson i "$idx" '
       def num: if type == "number" then . else error("not a number") end;
-      "| \($i) | \(.harness.permission_arm) | \(.outcome) | \(.tool_calls | num) | \(.permission_prompts | num) | \(.denials | num) | \(.tokens.total | num) | \(.wall_time_seconds // "n/a") | \(.polish_rounds | num) | \(.lens_agents | num) | \(if .gate.passed then "pass" else "fail" end) |"' "$r") \
+      def oneof(s): if . as $v | s | index($v) then . else error("not allowed") end;
+      "| \($i) | \(.harness.permission_arm) | \(.outcome | oneof(["completed", "rate-limited", "crashed", "timed-out"])) | \(.tool_calls | num) | \(.permission_prompts | num) | \(.denials | num) | \(.tokens.total | num) | \(if .wall_time_seconds == null then "n/a" else .wall_time_seconds | num end) | \(.polish_rounds | num) | \(.lens_agents | num) | \(if .gate.passed == true then "pass" else "fail" end) |"' "$r" 2>/dev/null) \
       || die "report refused: record $idx is not a run record" 1
     body="$body
 $row"
-    id_row=$(jq -r --argjson i "$idx" '
-      "- run \($i): " + ([.harness | to_entries[] | "\(.key)=\(.value)"] | join(" "))' "$r") \
+    id_row=$(jq -r --argjson i "$idx" --arg keys "$ID_KEYS" '
+      . as $r | "- run \($i): " + ([($keys | split(" "))[] as $k | "\($k)=\($r.harness[$k])"] | join(" "))' "$r" 2>/dev/null) \
       || die "report refused: record $idx is not a run record" 1
     ident_md="$ident_md
 $id_row"
