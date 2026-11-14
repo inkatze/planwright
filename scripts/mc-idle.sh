@@ -152,7 +152,8 @@ live_counts() {
     case ${f##*/} in *.tmp.*) continue ;; esac
     [ "$(mc_kv "$f" format)" = 1 ] || continue
     [ "$(mc_kv "$f" kind)" != mission-control ] || continue
-    lc_host=$((lc_host + 1))
+    # The launcher's host-wide bound leaves waiting sessions uncounted.
+    [ -n "$(mc_kv "$f" waiting)" ] || lc_host=$((lc_host + 1))
     [ "$(mc_kv "$f" program)" != "$program" ] || lc_own=$((lc_own + 1))
   done
   printf '%s\t%s\n' "$lc_host" "$lc_own"
@@ -194,11 +195,10 @@ check() {
     return 0
   fi
   if ! gate=$(/bin/bash "$script_dir/mc-budget.sh" admit --program "$program" heavy --now "$NOW" ${load:+--load "$load"} 2>&1); then
-    case $gate in
-      queued*) ;;
-      *) mc_fail "the launch gate could not be read: $gate" ;;
-    esac
-    REASON="queued: $(printf '%s' "$gate" | tr '\t\n' '  ')"
+    # A warning on stderr may precede the verdict line.
+    queued=$(printf '%s\n' "$gate" | awk '/^queued/ { print; exit }')
+    [ -n "$queued" ] || mc_fail "the launch gate could not be read: $gate"
+    REASON="queued: $(printf '%s' "$queued" | tr '\t\n' '  ')"
     return 0
   fi
   backlog=$(/bin/bash "$script_dir/mc-program.sh" get "$program" idle_backlog) || exit 1
@@ -210,6 +210,7 @@ check() {
   BACKLOG_READ=1
   # At most MAX_UNITS ids, each short, keep the event text inside its bound.
   UNITS=$(awk -v n="$FREE" -v max="$MAX_UNITS" '
+    { sub(/\r$/, "") }
     /^[[:space:]]*(#|$)/ { next }
     { u = $1; if (u ~ /^[A-Za-z0-9][A-Za-z0-9._:@=-]*$/ && length(u) <= 64 && !(u in seen)) { seen[u] = 1; print u; if (++c >= n || c >= max) exit } }' "$backlog")
   [ -n "$UNITS" ] || REASON=no-backlog

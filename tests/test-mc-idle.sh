@@ -339,6 +339,35 @@ case $OUT in
   *) fail "both bounds off did not read open: $OUT $ERR" ;;
 esac
 
+# The host-wide bound leaves waiting sessions uncounted, as the launcher does.
+write_tracked "program_alpha_idle_backlog: $backlog"
+clear_rows
+add_row mc-alpha-worker-aaaaaaaaaa alpha worker
+for i in 1 2 3 4 5; do
+  add_row "mc-other-worker-$i" other worker
+  printf 'waiting\tci\n' >>"$reg/mc-other-worker-$i"
+done
+mc_run mc-idle.sh check --program alpha --now "$now" --load 10
+case $OUT in
+  *"${tab}1/6${tab}"*) ok "waiting sessions of other programs do not fill the host-wide bound" ;;
+  *) fail "waiting sessions were counted against the host bound: $OUT $ERR" ;;
+esac
+
+# A backlog saved with CRLF line endings still names its units.
+clear_rows
+printf 'alpha-crlf-unit\r\nalpha-crlf-two\r\n' >"$backlog"
+mc_run mc-idle.sh check --program alpha --now "$now" --load 10
+case $OUT in
+  *"raise${tab}"*alpha-crlf-unit*) ok "a CRLF backlog names its units" ;;
+  *) fail "a CRLF backlog was read as empty: $OUT $ERR" ;;
+esac
+
+# The runner starts the duty with no arguments and the program in the environment.
+PLANWRIGHT_MC_PROGRAM=alpha mc_run mc-idle.sh
+if [ "$RC" -eq 0 ]; then ok "started bare with PLANWRIGHT_MC_PROGRAM, the duty watches that program"; else fail "the bare runner entry failed: rc=$RC $ERR"; fi
+mc_run mc-idle.sh
+if [ "$RC" -ne 0 ]; then ok "started bare without a program, the duty refuses"; else fail "the bare entry without a program exited 0"; fi
+
 if [ "$failures" -gt 0 ]; then
   echo "test-mc-idle: $failures failure(s)" >&2
   exit 1
