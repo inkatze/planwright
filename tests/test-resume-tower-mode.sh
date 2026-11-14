@@ -59,7 +59,7 @@ done
 frontmatter=$(awk 'NR==1{next} $0=="---"{exit} {print}' "$resume")
 mode=$(awk '/^## Tower mode/ { on = 1; next } on && /^## / { exit } on' "$resume" | flat)
 invariants=$(awk '/^## Invariants/ { on = 1; next } on && /^## / { exit } on' "$resume" | flat)
-tower_bringup=$(awk '/^[0-9]\. \*\*Reconstruct/ { on = 1 } /^[0-9]\. \*\*The first turn/ { on = 0 } on' "$tower" | flat)
+tower_bringup=$(awk '/^2\. \*\*Reconstruct/ { on = 1 } /^3\. \*\*The first turn/ { on = 0 } on' "$tower" | flat)
 tower_status=$(awk '/^## Status on demand/ { on = 1; next } on && /^## / { exit } on' "$tower" | flat)
 
 sweep_cmd='scripts/flight-sweep.sh sweep --no-write'

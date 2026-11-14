@@ -66,22 +66,21 @@ is the one sweep output read.
    tower moves or the operator acknowledges, questions and read-only work
    continuing; `allow` says nothing. The supported launch is its own tree (a
    linked worktree or a separate clone), never `--worktree`.
-2. **Isolation probe (REQ-B1.3, D-6).** One harmless read of the primary
+   **Isolation probe (REQ-B1.3, D-6).** One harmless read of the primary
    checkout (`git -C <primary checkout> rev-parse --git-dir`): a refusal means
-   worktree isolation, so warn once, naming the supported launch. The probe
-   never blocks.
-3. **Posture check (REQ-A1.3, REQ-B1.4, D-8, D-14).** Run the activation
+   worktree isolation: warn once, naming the supported launch; it never blocks.
+   **Posture check (REQ-A1.3, REQ-B1.4, D-8, D-14).** Run the activation
    handshake, `scripts/tower-session.sh activate`; only a refusal opening
    `ACTIVE` proves the plugin hooks enforce the deny floor, and it re-marks
    this session (REQ-C1.8, REQ-C1.9). Plugin enforcement then meets the floor;
-   any other outcome (it ran, or another refusal) means it is missing or
+   any other outcome means it is missing or
    broken, the profile's floor below must hold, else the tower falls back
    to read-only. The profile is `config/tower-settings.json` or an extension of
    it, whose **deny block is the floor**; the command guard hook only
    pre-approves. Read each settings layer loaded here (user, project, local,
    managed, any `--settings` file) by `jq` projection only (`.permissions.deny`,
-   `.hooks`), plus the plugin's `hooks/hooks.json`; name every layer read, each
-   file by its literal path (the user layer by its absolute path, never `~` or
+   `.hooks`), plus the plugin's `hooks/hooks.json`; name every layer read, the shipped
+   one included, each file by its literal path (the user layer by its absolute path, never `~` or
    an unexpanded variable, which the command guard defers). Union the deny
    lists and compare against the shipped file's. An absent layer counts as
    empty; only a parse or read error makes a layer unreadable. The check fails
@@ -92,8 +91,9 @@ is the one sweep output read.
    Check that `scripts/tower-command-guard.sh` is wired as a PreToolUse hook
    whose hook path resolves; if not, say so once, naming the file to merge, and
    continue. On "wired", re-run this check before lifting the block. The
-   posture allows Edit and Write; not authoring is this skill's own rule. Never edit a settings file.
-4. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
+   posture allows Edit and Write; not authoring is this skill's own rule. Never
+   edit a settings file: the tower cannot grant itself permissions.
+2. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
    flight through the shared flight sweep: the index at
    `scripts/flight-sweep.sh path` when newer than this session's start (the
    SessionStart hook writes it), its `checkout` row this checkout, and its
@@ -111,9 +111,9 @@ is the one sweep output read.
    declared at dispatch picking which the worker lands; and the decision queue
    (`scripts/fleet-attention.sh queue`). These fallback
    reads check no worker liveness; say so. A failed or skipped read is named
-   unknown, never shown as empty. Steps 1 to 4 read once here, again on
+   unknown, never shown as empty. Steps 1 and 2 read once here, again on
    request, never in a poll loop.
-5. **The first turn.** Say where things stand in `tower-comms`'
+3. **The first turn.** Say where things stand in `tower-comms`'
    register, composed from the catch-up list (`scripts/tower-queue.sh catchup`)
    when the operator queue exists and from the reads above otherwise: what
    landed, what waits on the operator, what has no landing yet (in the form
@@ -235,7 +235,7 @@ when every push destination of `origin` is covered by a `flight_pr_hosts` entry 
 authenticated to the first one's host (the list is empty until the operator opts in outside the
 repo-tracked config); a committed record file at `specs/_flights/<flight-id>.md`
 on the flight's own branch otherwise. It states the destination with
-the home, so the operator hears where a push goes first. It then
+the home, so the operator hears where a push goes. It then
 hands `/offload` a **flight petition**: the ask and the grounds line as stated,
 and any public summary (below), each in a temp file of the tower's own, made
 by a bare `mktemp` run as its own command, written with the file tool (never
