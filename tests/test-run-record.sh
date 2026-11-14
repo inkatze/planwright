@@ -290,8 +290,15 @@ pass "c1: the report holds no command text, home path or token"
 # ---- d1: malformed frames never abort or leak ------------------------------
 
 mk_run "$tmp/f" today
-printf '%s\n' '5' '"x"' '[]' >>"$tmp/f/events.jsonl"
-printf '%s\n' '{"type":"assistant","message":{"id":"mx","usage":{"input_tokens":"cat /home/bob/.ssh/id_rsa","output_tokens":2},"content":[]}}' >>"$tmp/f/events.jsonl"
+printf '%s\n' '5' '"x"' '[]' \
+  '{"type":"assistant","message":{"id":"mx","usage":{"input_tokens":"cat /home/bob/.ssh/id_rsa","output_tokens":2},"content":[]}}' \
+  '{"type":"user","message":"hi"}' '{"type":"control_request","request":"x"}' \
+  '{"type":"assistant","message":{"id":"mu","usage":"x","content":[]}}' \
+  '{"type":"assistant","message":{"id":"mi","content":[{"type":"tool_use","id":"ti","name":"Skill","input":"s"},{"type":"tool_use","id":"tj","name":"Agent","input":7}]}}' >>"$tmp/f/events.jsonl"
+mkdir -p "$tmp/f/dir"
+rc=0
+rec "$tmp/f" "$tmp/f/dir" 2>/dev/null || rc=$?
+[ "$rc" -eq 2 ] || fail "d1: --out naming a directory must be refused, got $rc"
 rec "$tmp/f" "$tmp/f.json" 2>"$tmp/f.err" || fail "d1: scalar frames and string usage values must not abort the record"
 [ "$(jq -r '.tokens.input | type' "$tmp/f.json")" = number ] || fail "d1: a string usage value must not reach the record"
 if grep -q "bob" "$tmp/f.json" "$tmp/f.err"; then fail "d1: event text leaked into the record or stderr"; fi

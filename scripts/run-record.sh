@@ -185,16 +185,19 @@ cmd_record() {
     [inputs | fromjson? | select(type == "object")] as $ev
     | if ($ev | length) == 0 then error("no frames") else . end
     | [$ev[] | select(.type == "assistant") | .message | select(type == "object")] as $msgs
-    | [$msgs[] | .content[]? | select(type == "object" and .type == "tool_use")] as $uses
-    | ($msgs | map(select(.id != null)) | group_by(.id) | map(last | .usage // {})) as $usage
+    | [$msgs[] | .content[]? | select(type == "object" and .type == "tool_use")
+        | .input |= (if type == "object" then . else {} end)] as $uses
+    | ($msgs | map(select(.id != null)) | group_by(.id)
+        | map(last | .usage | if type == "object" then . else {} end)) as $usage
     | def tok(f): ($usage | map(.[f] | if type == "number" then . else 0 end) | add // 0);
     {
       schema_version: 1,
       tool_calls: ($uses | unique_by(.id) | length),
       permission_prompts: ([$ev[] | select(.type == "control_request"
+          and (.request | type) == "object"
           and .request.subtype == "can_use_tool"
           and .request.tool_name != "AskUserQuestion")] | unique_by(.request_id) | length),
-      denials: ([$ev[] | select(.type == "user") | .message.content[]?
+      denials: ([$ev[] | select(.type == "user" and (.message | type) == "object") | .message.content[]?
           | select(type == "object" and .type == "tool_result" and .is_error == true
             and ((.content | text) | test("has been denied|denied by|doesn.t want to proceed|blocked by"; "i")))]
           | unique_by(.tool_use_id) | length),
@@ -227,6 +230,7 @@ cmd_record() {
         else . end)') || die "scrub failed" 2
 
   if [ -n "$out" ]; then
+    [ ! -d "$out" ] || die "--out names a directory" 2
     # Written to a new owner-only file and renamed over the target, so an
     # existing file's mode and a planted symlink at the target are replaced.
     (umask 077 && printf '%s\n' "$rec" >"$out.tmp.$$" && mv -f "$out.tmp.$$" "$out") || die "cannot write the record" 2
