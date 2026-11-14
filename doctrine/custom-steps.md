@@ -193,11 +193,12 @@ never degraded, when the backend cannot resume the session it would attach to,
 that session's record holds no session id (an `in-session` predecessor
 excepted), or the predecessor was skipped for any other reason. An `isolated`
 skill or prompt step on a backend that cannot spawn a fresh session degrades
-to `in-session` and records it (`--backend in-session`, the backend that could not spawn named in `--degraded`; `step-record.sh write` refuses any other); a `timeout` on a skill or prompt step that
-becomes `in-session` at run time is unapplied and recorded. Model and effort
-come from the per-step allocation knobs keyed on the step id (hyphens as
-underscores), one-directional per model-allocation; an `in-session` step
-inherits the session's tier, recorded and not applied (REQ-C1.7).
+to `in-session` and records it (`--backend in-session`, the backend that could
+not spawn named in `--degraded`; `step-record.sh write` refuses any other); a
+`timeout` on a skill or prompt step that becomes `in-session` at run time is
+unapplied and recorded. Model and effort come from the per-step allocation
+knobs keyed on the step id (hyphens as underscores), one-directional per
+model-allocation; an `in-session` step inherits the session's tier, recorded and not applied (REQ-C1.7).
 
 ## Outcomes, posture, and timeout
 
