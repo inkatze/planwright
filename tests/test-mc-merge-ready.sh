@@ -89,6 +89,28 @@ printf '%s\n' "\$*" >>"$tmp/gh.calls"
 case "\$1 \$2" in
   "repo view") m=\$(cat "$tmp/method" 2>/dev/null) && [ -n "\$m" ] && printf '%s\n' "\$m" && exit 0 ;;
 esac
+if [ "\$1 \$2" = "api graphql" ]; then
+  # The fresh read: raw JSON from fresh.<n> (default: an open pull request at
+  # head.<n> with a bot review of that head and every bot thread resolved),
+  # run through the caller's own --jq program.
+  n="" q=""
+  while [ \$# -gt 0 ]; do
+    case \$1 in
+      -F) case \$2 in number=*) n=\${2#number=} ;; esac; shift ;;
+      --jq) q=\$2; shift ;;
+    esac
+    shift
+  done
+  f="$tmp/fresh.\$n"
+  if [ ! -f "\$f" ]; then
+    h=\$(cat "$tmp/head.\$n" 2>/dev/null) || { printf 'HTTP 502\n' >&2; exit 1; }
+    f="$tmp/fresh.default"
+    printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[{"author":{"__typename":"Bot","login":"pr-agent[bot]"},"commit":{"oid":"%s"}}]},"reviewThreads":{"nodes":[]}}}}}' "\$h" "\$h" >"\$f"
+  fi
+  [ "\$(cat "\$f")" != fail ] || { printf 'HTTP 502\n' >&2; exit 1; }
+  jq -r "\$q" "\$f"
+  exit \$?
+fi
 printf 'HTTP 502\n' >&2
 exit 1
 EOF
@@ -390,6 +412,57 @@ expect_eq "and one with no state line" "1${tab}partial"
 printf 'state\tok\t%s\n%s\n' "$real" "$row7" >"$store"
 run count --program alpha
 expect_eq "a fresh one is whole" "1${tab}all"
+
+# ---------------------------------------------------------------------------
+# A ready row is re-read from the forge before it is announced: a pull
+# request that merged or closed since the snapshot, or whose bot round on
+# this head is not finished, raises nothing; a read that fails is unknown.
+# ---------------------------------------------------------------------------
+fresh() { # fresh <n> <state> <head> <bot-review head|none> <open bot threads> [<resolved bot threads>]
+  rev='[]'
+  [ "$4" = none ] || rev="[{\"author\":{\"__typename\":\"Bot\",\"login\":\"pr-agent[bot]\"},\"commit\":{\"oid\":\"$4\"}},{\"author\":{\"__typename\":\"User\",\"login\":\"alice\"},\"commit\":{\"oid\":\"$3\"}}]"
+  thr='[]'
+  [ "$5" -eq 0 ] || thr='[{"id":"t1","isResolved":false,"comments":{"nodes":[{"author":{"__typename":"Bot","login":"pr-agent[bot]"}}]}}]'
+  [ "${6:-0}" -eq 0 ] || thr='[{"id":"t2","isResolved":true,"comments":{"nodes":[{"author":{"__typename":"Bot","login":"pr-agent[bot]"}}]}}]'
+  printf '{"data":{"repository":{"pullRequest":{"state":"%s","headRefOid":"%s","reviews":{"nodes":%s},"reviewThreads":{"nodes":%s}}}}}' "$2" "$3" "$rev" "$thr" >"$tmp/fresh.$1"
+}
+{
+  taken
+  for n in 30 31 32 33 34 35 36 37; do row "$n" "$H" false MERGEABLE 0 SUCCESS; done
+} >"$snapdir/forge"
+for n in 30 31 32 33 34 35 36 37; do
+  printf '%s\n' "$H" >"$tmp/head.$n"
+  printf 'ready\n' >"$tmp/verdict.$n"
+done
+fresh 30 OPEN "$H" "$H" 0
+fresh 31 MERGED "$H" "$H" 0
+fresh 32 CLOSED "$H" "$H" 0
+fresh 33 OPEN "$H" none 0
+fresh 34 OPEN "$H" "$H" 1
+fresh 35 OPEN "$H" "$J" 0
+printf 'fail\n' >"$tmp/fresh.36"
+fresh 37 OPEN "$H" "$H" 0 1
+run watch --program alpha --now "$T"
+expect_rc "a failed fresh read fails the watcher run" 1
+expect_eq "only an open pull request with a bot review of its head and no open bot thread is announced" "announced${tab}merge-ready${tab}acme:web:30
+announced${tab}merge-ready${tab}acme:web:37"
+expect_err "a failed read is named unknown" "unknown: acme/web#36: its state could not be read from the forge: HTTP 502"
+mc_run mc-event.sh list --program alpha
+case $OUT in
+  *acme:web:31* | *acme:web:32* | *acme:web:33* | *acme:web:34* | *acme:web:35* | *acme:web:36*) fail "a stale or unfinished pull request was announced: $OUT" ;;
+  *) ok "merged, closed, no bot review, an open bot thread, an older bot review and a failed read emit nothing" ;;
+esac
+fresh 33 OPEN "$H" "$H" 0
+run watch --program alpha --now "$T"
+expect_eq "the head is announced once its bot round completes" "announced${tab}merge-ready${tab}acme:web:33"
+run fresh --program alpha --repo acme/web --pr 31 --head "$H"
+expect_rc "the fresh verb says a merged pull request is stale" 4
+run fresh --program alpha --repo acme/web --pr 30 --head "$H"
+expect_rc "and a live one is live" 0
+printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"pageInfo":{"hasPreviousPage":true},"nodes":[]},"reviewThreads":{"nodes":[]}}}}}' "$H" >"$tmp/fresh.38"
+run fresh --program alpha --repo acme/web --pr 38 --head "$H"
+expect_rc "no bot review on a truncated review page is unknown, never pending" 1
+rm -f "$tmp"/fresh.3? "$store"
 
 # ---------------------------------------------------------------------------
 # Every program on the host hears of it: another program whose repositories
