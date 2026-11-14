@@ -138,6 +138,15 @@ Every step receives exactly these twelve fields:
 | `PLANWRIGHT_STEP_PREV_HEAD` | the start head (a full commit id, as both heads are) of the latest head move by an earlier step at the same point in the run, a `resume` skip carrying its record's move; empty when none |
 | `PLANWRIGHT_STEP_NEW_HEAD` | that move's end head; empty when none |
 
+`step-run.sh` and `step-record.sh` fill what git already knows when it is
+unset: `PLANWRIGHT_STEP_WORKTREE` (the literal worktree path),
+`PLANWRIGHT_STEP_BRANCH` (`git symbolic-ref --short HEAD`),
+`PLANWRIGHT_STEP_BASE_BRANCH` (`main`), and `PLANWRIGHT_STEP_UNIT_KIND` from
+the branch namespace (`planwright/flight/…` a flight, `planwright/<spec>/spec`
+a spec, `planwright/<spec>/task-…` a task). An exported value that disagrees
+with git is refused with exit 2, naming both. The spec, task ids, and PR
+number are never derived.
+
 Among steps, a pooled step alone also carries the **hold mark**
 `PLANWRIGHT_STEP_POOL_HOLD=<pool>:<pid>`, the slot owner's literal process id
 as `<pid>`, rendered as one optional trailing assignment after the twelve; a

@@ -748,9 +748,11 @@ procedure, read from \`$cs_root/skills/execute-task/SKILL.md\`, with these
 mappings for $cs_unit:
 
 - Resolve every point \`--unattended\`, under \`$cs_root/scripts/\`.
-- Export the step context with $cs_ctx, this branch,
-  its base branch and this worktree; an isolated step's launch tier takes the
-  unit \`mission-control:$1\`.
+- Export only the step context git cannot know: $cs_ctx (and a PR number
+  once one exists). step-run.sh and step-record.sh derive the worktree,
+  branch and base branch from git and refuse an exported value that
+  disagrees; an isolated step's launch tier takes the unit
+  \`mission-control:$1\`.
 - Wherever the procedure parks or stops the unit, stop and report the point,
   the step and what it printed to mission control instead; write nothing to
   any \`tasks.md\` or other spec state.
