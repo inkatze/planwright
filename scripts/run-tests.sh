@@ -489,6 +489,111 @@ fi
 self_dir="${self%/*}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
+# A runner started asynchronously by a shell without job control (a CI
+# runner's cancel path among them) inherits INT and QUIT ignored, which bash
+# cannot trap or reset, and everything it starts would inherit the ignore, so
+# an interrupt would never reach the run. The first pass re-executes itself
+# with the defaults restored; the mark is dropped at once so a nested runner
+# resets for itself.
+if [ -n "${PLANWRIGHT_TEST_SIGNALS_RESET:-}" ]; then
+  unset PLANWRIGHT_TEST_SIGNALS_RESET
+else
+  export PLANWRIGHT_TEST_SIGNALS_RESET=1
+  for env_name in env genv; do
+    env_path="$(command -v "$env_name" 2>/dev/null)" || continue
+    if "$env_path" --default-signal=INT,QUIT true >/dev/null 2>&1; then
+      exec "$env_path" --default-signal=INT,QUIT /bin/bash "$self" "$@"
+    fi
+  done
+  if command -v perl >/dev/null 2>&1; then
+    exec perl -e '$SIG{INT} = "DEFAULT"; $SIG{QUIT} = "DEFAULT"; exec @ARGV or exit 127' \
+      -- /bin/bash "$self" "$@"
+  fi
+  unset PLANWRIGHT_TEST_SIGNALS_RESET
+fi
+
+# A dispatched command starts with INT and QUIT at their defaults: through an
+# env taking --default-signal, else perl, else as inherited. reset_cmd is that
+# prefix.
+reset_cmd=()
+for env_name in env genv; do
+  env_path="$(command -v "$env_name" 2>/dev/null)" || continue
+  if "$env_path" --default-signal=INT,QUIT true >/dev/null 2>&1; then
+    # shellcheck disable=SC2054 # one env option, not array elements
+    reset_cmd=("$env_path" --default-signal=INT,QUIT)
+    break
+  fi
+done
+if [ "${#reset_cmd[@]}" -eq 0 ] && command -v perl >/dev/null 2>&1; then
+  # shellcheck disable=SC2016 # perl source, not shell
+  reset_cmd=(perl -e '$SIG{INT} = "DEFAULT"; $SIG{QUIT} = "DEFAULT"; exec @ARGV or exit 127' --)
+fi
+
+# children_of <pid> — direct children, from pgrep where it takes -P, else ps.
+children_of() {
+  pgrep -P "$1" 2>/dev/null \
+    || ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$1" '$2 == p { print $1 }'
+}
+
+# tree_of <pid> — <pid> and every descendant, into tree_pids, parents first.
+tree_of() {
+  tree_pids=""
+  tree_frontier="$1"
+  while [ -n "$tree_frontier" ]; do
+    tree_next=""
+    for tree_p in $tree_frontier; do
+      tree_pids="$tree_pids $tree_p"
+      tree_next="$tree_next $(children_of "$tree_p")"
+    done
+    # shellcheck disable=SC2086,SC2116 # the echo re-splits the pid list onto one line
+    tree_frontier="$(echo $tree_next)"
+  done
+}
+
+# dispatch_pid is the run's one dispatcher (xargs, or the serial worker);
+# everything the run started is below it. reap_dispatch ends that tree: the
+# dispatcher is stopped so it starts nothing more, the tree is snapshotted (a
+# child reparents to init once its parent dies), every member gets TERM (a
+# worker passes it on to its file's group), and survivors of the grace are
+# killed. Only pids found below the dispatcher are ever signalled.
+dispatch_pid=""
+reap_dispatch() {
+  [ -n "$dispatch_pid" ] || return 0
+  rd_pid=$dispatch_pid
+  dispatch_pid=""
+  kill -0 "$rd_pid" 2>/dev/null || return 0
+  kill -s STOP "$rd_pid" 2>/dev/null
+  tree_of "$rd_pid"
+  rd_tree=$tree_pids
+  # shellcheck disable=SC2086 # a list of pids
+  kill -s TERM $rd_tree 2>/dev/null
+  kill -s CONT "$rd_pid" 2>/dev/null
+  # Reaped here: a dead child of this shell still answers kill -0 until waited.
+  wait "$rd_pid" 2>/dev/null
+  rd_try=0
+  while [ "$rd_try" -lt 60 ]; do
+    rd_alive=""
+    for rd_p in $rd_tree; do
+      [ "$rd_p" != "$rd_pid" ] || continue
+      ! kill -0 "$rd_p" 2>/dev/null || rd_alive="$rd_alive $rd_p"
+    done
+    [ -n "$rd_alive" ] || return 0
+    sleep 0.2
+    rd_try=$((rd_try + 1))
+  done
+  # shellcheck disable=SC2086 # a list of pids
+  kill -s KILL $rd_alive 2>/dev/null
+  return 0
+}
+
+# A cancelled run (INT, TERM or HUP) takes its worker tree with it, then ends
+# with the conventional 128+signal status; the EXIT trap removes the scratch.
+cancel_run() {
+  trap '' INT TERM HUP
+  reap_dispatch
+  exit "$((128 + $1))"
+}
+
 usage_error() {
   echo "run-tests: $1 (usage: run-tests.sh [--shard <i>/<N> | --plan-shards] [suite-dir])" >&2
   exit 2
@@ -711,7 +816,15 @@ export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
 log_dir="$(mktemp -d "${TMPDIR:-/tmp}/run-tests.XXXXXX")" || exit 2
 # A file that made the directory unwritable or unsearchable would otherwise
 # leave it behind.
-trap '[ -L "$log_dir" ] || [ ! -d "$log_dir" ] || chmod u+rwx "$log_dir" 2>/dev/null; rm -rf "$log_dir"' EXIT
+on_exit() {
+  reap_dispatch
+  [ -L "$log_dir" ] || [ ! -d "$log_dir" ] || chmod u+rwx "$log_dir" 2>/dev/null
+  rm -rf "$log_dir"
+}
+trap on_exit EXIT
+trap 'cancel_run 2' INT
+trap 'cancel_run 15' TERM
+trap 'cancel_run 1' HUP
 export PLANWRIGHT_TEST_LOG_DIR="$log_dir"
 
 clock="$(probe_clock)"
@@ -1022,16 +1135,32 @@ if [ "$parallel" -eq 1 ]; then
   # A shard can be empty when it outnumbers the files, and xargs would still
   # run its command once on no input.
   if [ "${#queue[@]}" -gt 0 ]; then
-    printf '%s\0' "${queue[@]}" \
-      | xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one \
-      || dispatch_failed=1
+    printf '%s\0' "${queue[@]}" >"$log_dir/.queue"
+    # In the background, so a trapped signal is acted on at once rather than
+    # once xargs ends; its stdin is the queue file, where it was a pipe.
+    {
+      (
+        exec ${reset_cmd[@]+"${reset_cmd[@]}"} \
+          xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one <"$log_dir/.queue"
+      ) &
+    } 2>/dev/null
+    dispatch_pid=$!
+    wait "$dispatch_pid" || dispatch_failed=1
+    dispatch_pid=""
   fi
 else
   mode=serial
   echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc, $deadline_desc"
   echo "run-tests: queue $order_desc"
   for t in ${queue[@]+"${queue[@]}"}; do
-    /bin/bash "$self" --run-one "$t" || dispatch_failed=1
+    {
+      (
+        exec ${reset_cmd[@]+"${reset_cmd[@]}"} /bin/bash "$self" --run-one "$t"
+      ) &
+    } 2>/dev/null
+    dispatch_pid=$!
+    wait "$dispatch_pid" || dispatch_failed=1
+    dispatch_pid=""
   done
 fi
 suite_finished="$(now_ms)"
