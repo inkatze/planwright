@@ -23,6 +23,7 @@ OTHER=99999999-8888-4777-8666-555555555555
 FRESH=33333333-4444-4555-8666-777777777777
 PLUGIN_HOOKS="$REPO_ROOT/hooks/hooks.json"
 ACTIVATE="\"$S/tower-session.sh\" activate"
+ACTIVATE_TOWER="\"$S/tower-session.sh\" activate tower"
 
 # ts_run <args...> — the hook as the plugin runs it, the payload on stdin.
 ts_run() {
@@ -187,6 +188,126 @@ mv "$S/policy-guard.sh.off" "$S/policy-guard.sh"
 chmod 770 "$STORE"
 ts_bash "$FRESH" "$ACTIVATE"
 reason_has 'NOT ACTIVE: this session could not be marked' "the handshake is NOT ACTIVE over a store that is not owner-only"
+reset_store
+
+echo "# the mark records its kind; tower is sticky (fleet-hardening REQ-I1.4, REQ-I1.5)"
+# kind_field <sid> — the mark's fourth field, empty for a kindless mark.
+kind_field() { awk -F'\t' '{ print $4 }' "$STORE/$1" 2>/dev/null; }
+# ts_kind <sid> — the guard's read of the kind, as the file surface takes it.
+ts_kind() { ts_run kind "$1"; }
+kmark() { # <sid> <field line> — a hand-written mark, owner-only
+  mkdir -p "$STORE"
+  chmod 700 "$FLEET" "$STORE"
+  printf '%s\n' "$2" >"$STORE/$1"
+  chmod 600 "$STORE/$1"
+}
+now=$(date +%s)
+k=0
+newsid() { k=$((k + 1)); SID=$(printf 'cccccccc-0000-4000-8000-%012d' "$k"); }
+for case_ in '/tower|tower' '/planwright:tower open?|tower' '/orchestrate x|orchestrate' '/planwright:orchestrate --watch|orchestrate'; do
+  newsid
+  prompt "$SID" "${case_%|*}"
+  got=$(kind_field "$SID")
+  if [ "$got" = "${case_#*|}" ]; then pass "the prompt '${case_%|*}' writes kind ${case_#*|}"; else fail "the prompt '${case_%|*}' wrote kind '$got', wanted ${case_#*|}"; fi
+done
+newsid
+ts_bash "$SID" "$ACTIVATE_TOWER"
+expect deny "the tower handshake is refused in a wired session"
+reason_has '^planwright tower-session: ACTIVE: ' "the tower handshake is refused with the ACTIVE message"
+got=$(kind_field "$SID")
+if [ "$got" = tower ]; then pass "the tower handshake writes kind tower"; else fail "the tower handshake wrote kind '$got'"; fi
+newsid
+ts_bash "$SID" "$ACTIVATE"
+expect deny "the original handshake spelling is refused in a wired session"
+reason_has '^planwright tower-session: ACTIVE: ' "the original spelling is refused with the ACTIVE message"
+got=$(kind_field "$SID")
+if [ "$got" = orchestrate ]; then pass "the original spelling writes kind orchestrate"; else fail "the original spelling wrote kind '$got'"; fi
+for form in "'$S/tower-session.sh' activate tower" 'scripts/tower-session.sh activate tower' "  $S/tower-session.sh activate tower  "; do
+  newsid
+  ts_bash "$SID" "$form"
+  reason_has '^planwright tower-session: ACTIVE: ' "the tower spelling is recognized: $form"
+done
+for form in "$ACTIVATE_TOWER; touch $SANDBOX/ran" "$ACTIVATE_TOWER extra" "$ACTIVATE_TOWER && true" "$ACTIVATE tower2" "$ACTIVATE Tower" "$ACTIVATE towers" "$ACTIVATE orchestrate" "echo $ACTIVATE_TOWER" "$ACTIVATE | cat"; do
+  newsid
+  ts_bash "$SID" "$form"
+  if is_marked "$SID"; then fail "a command containing a spelling without equalling it marked the session: $form"; else pass "a command containing a spelling without equalling it marks nothing: $form"; fi
+done
+out=$(/bin/bash "$S/tower-session.sh" activate tower 2>/dev/null)
+rc=$?
+if [ "$rc" = 3 ] && printf '%s' "$out" | grep -q 'NOT ACTIVE'; then
+  pass "the tower spelling's own body, run where no hook stopped it, reports NOT ACTIVE and exits 3"
+else
+  fail "the tower spelling's body exited $rc: $out"
+fi
+newsid
+prompt "$SID" '/tower'
+prompt "$SID" '/orchestrate x'
+got=$(kind_field "$SID")
+if [ "$got" = tower ]; then pass "an /orchestrate prompt refreshing a tower mark leaves it tower"; else fail "an /orchestrate prompt turned a tower mark into '$got'"; fi
+ts_bash "$SID" "$ACTIVATE"
+got=$(kind_field "$SID")
+if [ "$got" = tower ]; then pass "the original handshake spelling refreshing a tower mark leaves it tower"; else fail "the original spelling turned a tower mark into '$got'"; fi
+newsid
+kmark "$SID" "tower	$now	prompt"
+ts_bash "$SID" "$ACTIVATE_TOWER"
+got=$(kind_field "$SID")
+if [ "$got" = tower ]; then pass "the tower handshake turns a kindless mark into tower"; else fail "the tower handshake left a kindless mark as '$got'"; fi
+newsid
+kmark "$SID" "tower	$now	prompt	orchestrate"
+ts_bash "$SID" "$ACTIVATE_TOWER"
+got=$(kind_field "$SID")
+if [ "$got" = tower ]; then pass "the tower handshake turns an orchestrate mark into tower"; else fail "the tower handshake left an orchestrate mark as '$got'"; fi
+newsid
+kmark "$SID" "tower	$now	prompt	orchestrate"
+prompt "$SID" '/tower'
+got=$(kind_field "$SID")
+if [ "$got" = tower ]; then pass "a /tower prompt turns an orchestrate mark into tower"; else fail "a /tower prompt left an orchestrate mark as '$got'"; fi
+newsid
+kmark "$SID" "tower	$now	prompt	orchestrate"
+prompt "$SID" '/orchestrate'
+got=$(kind_field "$SID")
+if [ "$got" = orchestrate ]; then pass "an /orchestrate prompt keeps an orchestrate mark orchestrate"; else fail "an /orchestrate prompt turned an orchestrate mark into '$got'"; fi
+
+echo "# the guard's read of the kind (REQ-I1.4, REQ-I1.5)"
+newsid
+kmark "$SID" "tower	$now	prompt"
+got=$(ts_kind "$SID")
+if [ "$got" = orchestrate ]; then pass "a kindless mark reads orchestrate"; else fail "a kindless mark read '$got'"; fi
+kmark "$SID" "tower	$now	prompt	tower"
+got=$(ts_kind "$SID")
+if [ "$got" = tower ]; then pass "a tower mark reads tower"; else fail "a tower mark read '$got'"; fi
+kmark "$SID" "tower	$now	prompt	orchestrate"
+got=$(ts_kind "$SID")
+if [ "$got" = orchestrate ]; then pass "an orchestrate mark reads orchestrate"; else fail "an orchestrate mark read '$got'"; fi
+kmark "$SID" "tower	$now	prompt	wizard"
+got=$(ts_kind "$SID")
+if [ "$got" = tower ]; then pass "an unknown kind reads tower"; else fail "an unknown kind read '$got'"; fi
+kmark "$SID" "tower	$now	prompt	orchestrate"
+chmod 644 "$STORE/$SID"
+got=$(ts_kind "$SID")
+if [ "$got" = tower ]; then pass "a mark that is not owner-only reads tower"; else fail "a tampered mark read '$got'"; fi
+kmark "$SID" "tower	$now	prompt	orchestrate	extra"
+got=$(ts_kind "$SID")
+if [ "$got" = tower ]; then pass "a mark with a stray field reads tower"; else fail "a mark with a stray field read '$got'"; fi
+kmark "$SID" "tower	$now	prompt	orchestrate"
+rm -f "$STORE/$SID.real"
+mv "$STORE/$SID" "$STORE/$SID.real"
+ln -s "$STORE/$SID.real" "$STORE/$SID"
+got=$(ts_kind "$SID")
+if [ "$got" = tower ]; then pass "a symlinked mark reads tower"; else fail "a symlinked mark read '$got'"; fi
+rm -f "$STORE/$SID" "$STORE/$SID.real"
+kmark "$SID" "tower	$now	prompt	orchestrate"
+chmod 000 "$STORE"
+got=$(ts_kind "$SID")
+chmod 700 "$STORE"
+if [ "$got" = tower ]; then pass "an unsearchable store reads tower"; else fail "an unsearchable store read '$got'"; fi
+newsid
+got=$(ts_kind "$SID")
+if [ "$got" = none ]; then pass "an unmarked session reads none"; else fail "an unmarked session read '$got'"; fi
+got=$(TS_FLEET="$SANDBOX/no-fleet" ts_kind "$SID")
+if [ "$got" = none ]; then pass "a session with no store reads none"; else fail "a session with no store read '$got'"; fi
+got=$(ts_kind 'not-a-uuid')
+if [ "$got" = none ]; then pass "an id that is not a UUID reads none"; else fail "a non-UUID id read '$got'"; fi
 reset_store
 
 echo "# a self-marked session gains no allow, and the plugin hooks carry no command guard (REQ-C1.2)"
