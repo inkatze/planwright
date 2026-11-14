@@ -489,6 +489,9 @@ for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
   'shellcheck scripts/k*.sh' \
   'git add scripts/k*.sh' \
   'for f in scripts/*.sh; do shellcheck "$f"; done' \
+  'env scripts/*.sh' \
+  'cp scripts/*.sh copy.sh' \
+  'cp scripts/*.sh* copy.sh' \
   'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git diff scripts/other.sh' \
   'git config core.autocrlf false && git add scripts/kickoff-spec-push.sh' \

@@ -2018,7 +2018,7 @@ kickoff_fuzzy_name() {
     lit=${lit%.sh}
     # Stars alone (scripts/*.sh) stay an ordinary glob; any ? beside them
     # (scripts/?*.sh) still narrows the name enough to be tested.
-    [ "${#lit}" -ge 1 ] || [[ ${p%.sh} == *[!\*]* ]] || continue
+    [ "${#lit}" -ge 1 ] || [[ $p == *\?* ]] || continue
     # shellcheck disable=SC2053 # the glob is the point
     [[ $KICK_FILE == $p || $KICK_NAME == $p ]] && return 0
   done
