@@ -35,6 +35,10 @@ case $verb in
     [ -z "${FAKE_LOAD_DOWN:-}" ] || exit 255
     echo "${FAKE_LOAD:-0.5} ${FAKE_CORES:-16}"
     ;;
+  inuse)
+    [ -z "${FAKE_INUSE_DOWN:-}" ] || exit 255
+    echo "${FAKE_HID_NS:--} ${FAKE_CONSOLE:-fleet} ${FAKE_LOGIN:-fleet}"
+    ;;
   compute)
     if [ -n "${FAKE_NOSTART:-}" ]; then
       echo "fleet-remote: could not ship HEAD" >&2
@@ -52,7 +56,7 @@ export FAKE_CHANNEL_LOG="$tmp/channel.log"
 
 defaults="$tmp/defaults.yml"
 local_cfg="$tmp/local.yml"
-printf 'fleet_compute_host: local\nfleet_compute_load_cap: 0.4\nfleet_compute_timeout:\n' >"$defaults"
+printf 'fleet_compute_host: local\nfleet_compute_load_cap: 0.4\nfleet_compute_idle_threshold: 600\nfleet_compute_account:\nfleet_compute_timeout:\n' >"$defaults"
 export PLANWRIGHT_CONFIG_DEFAULTS="$defaults" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_REPO_ROOT="$tmp"
 
 mkdir -p "$tmp/wt"
@@ -135,6 +139,43 @@ FAKE_NOSTART=1 run --check -- "$tmp/lcmd" a
 assert_eq "another early exit is the result, not a rerun" 1 "$CODE"
 FAKE_NOSTART=2 run --check -- "$tmp/lcmd" a
 assert_eq "a refusal before the command started reruns locally" "local ran a" "$OUT"
+
+# A Mac a person is using yields to the local host.
+printf 'fleet_compute_host: mac\n' >"$local_cfg"
+FAKE_HID_NS=3600000000000 FAKE_CONSOLE=fleet run --check -- "$tmp/lcmd" a
+assert_eq "an idle host with only the fleet console user takes the run" "remote ran" "$OUT"
+FAKE_HID_NS=- FAKE_CONSOLE=- run --check -- "$tmp/lcmd" a
+assert_eq "a host with no HID or console reading takes the run" "remote ran" "$OUT"
+FAKE_HID_NS=5000000000 run --check -- "$tmp/lcmd" a
+assert_eq "recent HID input runs locally" "local ran a" "$OUT"
+has "the in-use fallback is announced" "compute-route: warning: compute host is in use" "$ERR"
+assert_eq "one in-use warning line" 1 "$(printf '%s\n' "$ERR" | grep -c 'warning')"
+FAKE_HID_NS=3600000000000 FAKE_CONSOLE=alice run --check -- "$tmp/lcmd" a
+assert_eq "another console user runs locally" "local ran a" "$OUT"
+has "the console user is named" "console user alice" "$ERR"
+FAKE_HID_NS=3600000000000 FAKE_CONSOLE=root run --check -- "$tmp/lcmd" a
+assert_eq "the login window (root) is not a person" "remote ran" "$OUT"
+FAKE_INUSE_DOWN=1 run --check -- "$tmp/lcmd" a
+assert_eq "a failed in-use probe falls back like an unreachable host" "local ran a" "$OUT"
+has "and is announced as unreachable" "compute host unreachable" "$ERR"
+printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 60\n' >"$local_cfg"
+FAKE_HID_NS=120000000000 run --check -- "$tmp/lcmd" a
+assert_eq "a lowered threshold admits input older than it" "remote ran" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 3600\n' >"$local_cfg"
+FAKE_HID_NS=1800000000000 run --check -- "$tmp/lcmd" a
+assert_eq "a raised threshold turns away input younger than it" "local ran a" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 0\n' >"$local_cfg"
+FAKE_HID_NS=1000000000 FAKE_CONSOLE=alice run --check -- "$tmp/lcmd" a
+assert_eq "threshold 0 turns the in-use probe off" "remote ran" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 0600\n' >"$local_cfg"
+FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
+assert_eq "a zero-padded threshold reads as the default, never octal" "remote ran" "$OUT"
+FAKE_HID_NS=300000000000 run --check -- "$tmp/lcmd" a
+assert_eq "and the default 600 still turns away input younger than it" "local ran a" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_account: alice\n' >"$local_cfg"
+FAKE_HID_NS=3600000000000 FAKE_CONSOLE=alice FAKE_LOGIN=fleet run --check -- "$tmp/lcmd" a
+assert_eq "the account knob names the fleet console user" "remote ran" "$OUT"
+printf 'fleet_compute_host: mac\n' >"$local_cfg"
 
 # Targets the channel would refuse, and out-of-range knobs, never reach it as is.
 run --task 'a.b' -- "$tmp/lcmd" a
