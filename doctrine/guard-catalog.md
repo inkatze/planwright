@@ -126,8 +126,9 @@ has two facets:
     release-merge commit.
 
 The policy the scaffold realizes — proposal automated, approval the human
-merge under every `merge_policy` value (a release PR is never a class
-admission), publish human-gated and signed, the window locked — is
+merge under every `merge_policy` value (a release PR merges unattended only
+when the operator enabled the `release` class in `auto_merge_classes`), publish
+human-gated and signed, the window locked — is
 [release-tagging.md](release-tagging.md);
 this entry is the builder-facing consent surface that doc's mechanism row
 (capability in core, mechanism as opt-in template, value as config) points at.

@@ -13,8 +13,9 @@
 # PR-ONLY: `skip-github-release: true` means this workflow NEVER creates a tag
 # or a GitHub Release. Tagging is the human-gated, signed publish step
 # (scripts/release-publish.sh, Task 4), never CI (REQ-C1.3). Merging the
-# release PR is the release approval and stays a human act; no path here
-# merges it (REQ-C1.4).
+# release PR is the release approval and stays a human act unless the
+# operator enabled the `release` class in `auto_merge_classes`; no path in
+# this workflow merges it (REQ-C1.4).
 #
 # THE UNTAGGED WINDOW (release-hardening Task 9; REQ-H1.1, D-13; obs:fd6c2f4f):
 # this workflow fires when `ci` completes on main, which is precisely the window

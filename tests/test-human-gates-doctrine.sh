@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for doctrine/human-gates.md and the pointers that retire the rules it
 # replaces (human-gates REQ-A1.1, REQ-A1.2, REQ-A1.4, REQ-A1.5, REQ-A1.6,
-# REQ-B1.1, REQ-B1.9, REQ-D1.6). Every rule in the doc's list carries a kind
+# REQ-A1.7, REQ-A1.8, REQ-D1.10, REQ-I1.17, REQ-B1.1, REQ-B1.9, REQ-D1.6). Every rule in the doc's list carries a kind
 # naming what it must (a gate its arm, a policy its knob and default, a
 # contract its owning skill), the named rows among them; bootstrap D-26,
 # REQ-J1.1, and REQ-J1.4 carry resolving human-gates pointers, one dated
@@ -152,11 +152,11 @@ fi
 # REQ-A1.7, REQ-A1.8: the class test is the bar for every automatic merge
 # class, in its own section with four arms, the named-outward-effect clause,
 # and the standing-authorization rule with the gates no class changes.
-class_sec=$(awk '/^## / { on = ($0 == "## The class test"); next } on' "$DOC")
-if [ -n "$class_sec" ]; then
-  ok "the doc carries a class-test section"
+class_sec=$(awk '/^## / { on = ($0 == "## The class test" || $0 == "## Standing authorization"); next } on' "$DOC")
+if grep -qxF '## The class test' "$DOC" && grep -qxF '## Standing authorization' "$DOC"; then
+  ok "the doc carries the class-test and standing-authorization sections"
 else
-  fail "the doc has no \"## The class test\" section"
+  fail "the doc lacks the \"## The class test\" or \"## Standing authorization\" section"
 fi
 # shellcheck disable=SC2016 # the backticks are the doc's markdown
 for phrase in '**Mechanical membership.**' '**Verifiable on the current head.**' \
@@ -174,6 +174,7 @@ done
 
 # A row per core class, each a policy opening with auto_merge_classes and its
 # empty default and naming its class; the kill switch row opens with its knob.
+# shellcheck disable=SC2016 # the backticks are the row's markdown
 for class in release dependency test-only observation-carry bookkeeping docs-only regeneration; do
   class_row=$(printf '%s\n' "$policy_rows" | grep -F "class \`$class\`")
   if [ -n "$class_row" ] && case "$(field "$class_row" 4)" in '`auto_merge_classes`, default empty'*) true ;; *) false ;; esac; then
@@ -182,7 +183,9 @@ for class in release dependency test-only observation-carry bookkeeping docs-onl
     fail "no policy row for the $class class opening with auto_merge_classes and its empty default"
   fi
 done
+# shellcheck disable=SC2016 # the backticks are the row's markdown
 halt_row=$(printf '%s\n' "$policy_rows" | grep -F '`auto_merge_halt`')
+# shellcheck disable=SC2016 # the backticks are the row's markdown
 if [ -n "$halt_row" ] && case "$(field "$halt_row" 4)" in '`auto_merge_halt`, default `false`'*) true ;; *) false ;; esac; then
   ok "the kill switch is a policy row with its knob and default"
 else
@@ -192,6 +195,7 @@ fi
 # The merge-execution row names the class route and the release exception
 # rather than stating a release merge is always a human act.
 exec_row=$(printf '%s\n' "$policy_rows" | grep -F '| Executing an authorized merge |')
+# shellcheck disable=SC2016 # the backticks are the row's markdown
 if printf '%s\n' "$exec_row" | grep -qF '`auto_merge_classes`' \
   && ! printf '%s\n' "$exec_row" | grep -qF 'never a class admission'; then
   ok "the merge-execution row names the automatic classes and drops the release-never rule"
@@ -250,13 +254,11 @@ for f in doctrine/release-tagging.md doctrine/guard-catalog.md docs/getting-star
     fail "$f describes the release approval without the auto_merge_classes exception"
   fi
 done
-for f in doctrine/README.md; do
-  if grep -E '^\| \[(release-tagging|guard-catalog|human-gates)\.md\]' "$REPO_ROOT/$f" | grep -qF 'never a class admission'; then
-    fail "$f README rows still state a release PR is never a class admission"
-  else
-    ok "$f rows drop the release-never phrasing"
-  fi
-done
+if grep -E '^\| \[(release-tagging|guard-catalog|human-gates)\.md\]' "$REPO_ROOT/doctrine/README.md" | grep -qF 'never a class admission'; then
+  fail "doctrine/README.md rows still state a release PR is never a class admission"
+else
+  ok "doctrine/README.md rows drop the release-never phrasing"
+fi
 
 # Approval is the approval act; the flip approves nothing.
 for f in "$DOC" "$REPO_ROOT/doctrine/gate-wiring.md" "$REPO_ROOT/doctrine/finding-categorization.md"; do
