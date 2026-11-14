@@ -96,6 +96,9 @@ max_parallel_units: 3
 # enabling the (opt-in) meta-tower never multiplies load until an operator
 # raises it. Resolved through scripts/orchestrate-meta-select.sh via config-get;
 # an absent key keeps this default, a malformed value warns and falls back.
+# It is also the host-wide ceiling mission control's launch admission
+# (scripts/mc-budget.sh reserve) holds against, live sessions and reservations
+# of every program counted together.
 fleet_max_parallel_units: 3
 
 # The host-wide ceiling on live sessions across every program sharing one
@@ -1211,6 +1214,17 @@ mission_control_budget_ladder: {throttle: 70, pause_watchers: 85, hold_dispatch:
 # queueing the next units for the reset (scripts/mc-usage.sh); `off` holds
 # only on a claude quota hold.
 mission_control_usage_hold: 90
+# Host-shared launch admission (scripts/mc-budget.sh reserve): a launch is
+# held while host load is at or over admit_load (percent of the processors) or
+# available memory is under admit_memory (percent of the total). Each
+# reservation, and each registered session younger than the warm-up
+# seconds, counts at its load and memory share, so a lagging reading never
+# admits a burst. A reservation whose holder is dead, or older than the
+# timeout, is reclaimed by the next admitter.
+mission_control_admit_load: 85
+mission_control_admit_memory: 15
+mission_control_admit_warmup: {seconds: 120, load: 10, memory: 5}
+mission_control_admit_timeout: 5m
 # How many operator confirmations of a decision class's decisions, since the
 # latest revoke of one of them, restore the class from ask-first
 # (scripts/mc-decide.sh).

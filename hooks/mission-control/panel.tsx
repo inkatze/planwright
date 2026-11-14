@@ -559,6 +559,7 @@ function upkeep(view: PanelView): string[] {
       ? 'Notes not written yet'
       : `Notes last updated ${age(d.kbAge)} ago`
   return [
+    ...(d.admission ? [`New launches held (${d.admission.axis}): ${d.admission.reason}`] : []),
     ...d.headroom.map(headroomRow),
     `Context resets since start: ${view.compactions}`,
     notes,

@@ -26,6 +26,7 @@ export function parseDigest(text: string): PanelDigest | null {
     approvals: null,
     decisions: [],
     rung: { name: '-', reason: '' },
+    admission: null,
     headroom: [],
     watchers: [],
     sources: [],
@@ -87,6 +88,9 @@ export function parseDigest(text: string): PanelDigest | null {
         break
       case 'rung':
         d.rung = { name: f[1] ?? '-', reason: f[2] ?? '' }
+        break
+      case 'admission':
+        d.admission = f[1] && f[1] !== 'open' ? { axis: f[1], reason: f[2] ?? '' } : null
         break
       case 'headroom':
         d.headroom.push({

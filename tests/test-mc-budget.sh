@@ -263,6 +263,298 @@ for dim in $budget_dims; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# REQ-L1.7 / D-41: host-shared launch admission. `reserve` admits a launch only
+# while the account, the host's load and its memory are each inside their knob,
+# the host-wide ceiling has room and the program's own session bound has room,
+# and takes a reservation under one lock; `release` gives it back.
+# ---------------------------------------------------------------------------
+anow=$(date +%s)
+mirror="$tmp/rate-limits.json"
+export PLANWRIGHT_USAGE_MIRROR="$mirror"
+write_mirror() { # write_mirror <session pct> <weekly pct>
+  printf '{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}\n' \
+    "$1" "$((anow + 3600))" "$2" "$((anow + 86400))" >"$mirror"
+  TZ=UTC touch -t "$(date -u -d "@$anow" +%Y%m%d%H%M.%S 2>/dev/null || date -u -r "$anow" +%Y%m%d%H%M.%S)" "$mirror"
+}
+store="$fleet/mission-control/admission"
+# two_programs <ceiling> [<alpha budget map>]: programs alpha and beta, the
+# host-wide ceiling, a healthy account and no sessions.
+two_programs() {
+  alpha_budget=${2:-"{}"}
+  reset_mc_fixture
+  rm -rf "$fleet"
+  mkdir -p "$fleet/mission-control"
+  cat >"$tracked" <<EOF
+mission_control_programs: [alpha, beta]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_budget: $alpha_budget
+program_beta_repositories: [$repo]
+program_beta_spec_root: $repo
+fleet_max_parallel_units: $1
+EOF
+  write_mirror 20 20
+}
+reserve() { # reserve <program> [args...]
+  rv_p=$1
+  shift
+  mc_run mc-budget.sh reserve --program "$rv_p" --now "$anow" --holder "$$" "$@"
+}
+# registry_row <name> <program> <launched> [<waiting>]: a launcher registry row.
+registry_row() {
+  mkdir -p "$fleet/mission-control/sessions"
+  {
+    printf 'format\t1\nname\t%s\nstate\tlaunched\nprogram\t%s\nkind\tworker\nlaunched\t%s\n' "$1" "$2" "$3"
+    [ -z "${4:-}" ] || printf 'waiting\t%s\n' "$4"
+  } >"$fleet/mission-control/sessions/$1"
+}
+# dead_pid: a process id that has exited.
+dead_pid() {
+  sleep 0 &
+  dp=$!
+  wait "$dp"
+  printf '%s\n' "$dp"
+}
+old=$((anow - 100000))
+
+two_programs 5
+reserve alpha --load 95 --mem 80
+expect_rc "REQ-L1.7: load past its knob holds the launch" 1
+expect_out "REQ-L1.7: the hold names the load axis" "queued${tab}load"
+two_programs 5
+reserve alpha --load 10 --mem 5
+expect_rc "REQ-L1.7: memory under its knob holds the launch" 1
+expect_out "REQ-L1.7: the hold names the memory axis" "queued${tab}memory"
+two_programs 5
+write_mirror 20 95
+reserve alpha --load 10 --mem 80
+expect_rc "REQ-L1.7: spent account headroom holds the launch" 1
+expect_out "REQ-L1.7: the hold names the account axis" "queued${tab}account"
+two_programs 5
+write_mirror 95 20
+reserve alpha --load 10 --mem 80
+expect_out "REQ-L1.7: the session window counts as account headroom too" "queued${tab}account"
+two_programs 5
+rm -f "$mirror"
+reserve alpha --load 10 --mem 80
+expect_rc "REQ-L1.7: an unreadable usage cache holds the launch" 1
+expect_out "REQ-L1.7: the unreadable cache is an account hold" "queued${tab}account"
+
+two_programs 5
+reserve alpha --load 10 --mem 80
+expect_rc "REQ-L1.7: a launch inside every limit is admitted" 0
+expect_out "REQ-L1.7: admission prints a reservation" "reserved${tab}"
+if [ "$(head -n 1 "$store")" = "format${tab}1" ]; then
+  ok "REQ-L1.7: the reservation store opens with its format, under the fleet home"
+else
+  fail "REQ-L1.7: no reservation store opening with a format field at $store"
+fi
+rid=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "reserved" { print $2 }')
+mc_run mc-budget.sh release --program alpha "$rid"
+expect_rc "D-41: a reservation is released by its id" 0
+if grep -q "$rid" "$store"; then fail "D-41: the released reservation is still stored"; else ok "D-41: the released reservation is gone"; fi
+
+# Four concurrent admissions from two programs, capacity for two.
+two_programs 2
+mkdir -p "$tmp/conc"
+rm -f "$tmp"/conc/*
+ci=0
+for p in alpha beta alpha beta; do
+  ci=$((ci + 1))
+  (mc_env /bin/bash "$repo_root/scripts/mc-budget.sh" reserve --program "$p" --now "$anow" --holder "$$" --load 10 --mem 80 >"$tmp/conc/$ci" 2>&1) &
+done
+wait
+admitted=$(cat "$tmp"/conc/* | grep -c "^reserved")
+if [ "$admitted" -eq 2 ]; then
+  ok "REQ-L1.7: four concurrent admissions from two programs admit exactly two"
+else
+  fail "REQ-L1.7: four concurrent admissions admitted $admitted, not two"
+  cat "$tmp"/conc/* >&2
+fi
+
+# The ceiling caps a host with room to spare, whatever registered sessions it
+# counts; a waiting session holds no slot.
+two_programs 1
+registry_row mc-fix-1 beta "$old"
+reserve alpha --load 0 --mem 99
+expect_rc "REQ-L1.7: the ceiling caps a host with load and memory to spare" 1
+expect_out "REQ-L1.7: the hold names the ceiling" "queued${tab}ceiling"
+two_programs 1
+registry_row mc-fix-1 beta "$old" ci
+reserve alpha --load 0 --mem 99
+expect_rc "REQ-L1.7: a waiting session holds no slot" 0
+
+# A program's own session bound still caps it beneath the shared total.
+two_programs 9 '{sessions: 1}'
+registry_row mc-fix-1 alpha "$old"
+reserve alpha --load 0 --mem 99
+expect_rc "REQ-L1.2: the program's own session bound caps it under the shared total" 1
+expect_out "REQ-L1.2: the hold names the program's sessions" "queued${tab}sessions"
+reserve beta --load 0 --mem 99
+expect_rc "REQ-L1.2: another program is not held by it" 0
+
+# Warm-up: a reservation counts at its configured share, so a lagging load
+# reading never admits a burst.
+two_programs 9
+printf '%s\n' 'mission_control_admit_load: 85' 'mission_control_admit_warmup: {seconds: 120, load: 10, memory: 5}' >>"$tracked"
+reserve alpha --load 78 --mem 99
+expect_rc "REQ-L1.7: the first launch at 78% load is admitted" 0
+reserve beta --load 78 --mem 99
+expect_rc "REQ-L1.7: the reservation's warm-up share holds the next launch" 1
+expect_out "REQ-L1.7: the warm-up hold names load" "queued${tab}load"
+two_programs 9
+printf '%s\n' 'mission_control_admit_load: 85' 'mission_control_admit_warmup: {seconds: 120, load: 10, memory: 5}' >>"$tracked"
+registry_row mc-fix-1 alpha "$((anow - 30))"
+reserve beta --load 70 --mem 99
+expect_rc "REQ-L1.7: a session younger than the warm-up counts at its share" 0
+expect_out "REQ-L1.7: a lone warm session leaves 70+10 under the knob" "reserved${tab}"
+registry_row mc-fix-2 alpha "$((anow - 30))"
+registry_row mc-fix-3 alpha "$((anow - 30))"
+reserve beta --load 70 --mem 99
+expect_rc "REQ-L1.7: three warm sessions push the projection over the knob" 1
+two_programs 9
+printf '%s\n' 'mission_control_admit_load: 85' 'mission_control_admit_warmup: {seconds: 120, load: 10, memory: 5}' >>"$tracked"
+registry_row mc-fix-1 alpha "$old"
+registry_row mc-fix-2 alpha "$old"
+registry_row mc-fix-3 alpha "$old"
+reserve beta --load 70 --mem 99
+expect_rc "REQ-L1.7: a session past the warm-up is measured, not counted again" 0
+
+# Reclaim: a reservation whose holder is dead, or older than the timeout, goes.
+two_programs 1
+mkdir -p "$fleet/mission-control"
+printf 'format\t1\nreservation\tr1.1\tbeta\t%s\t%s\t-\n' "$(dead_pid)" "$anow" >"$store"
+reserve alpha --load 10 --mem 80
+expect_rc "D-41: the next admitter reclaims a dead holder's reservation" 0
+expect_out "D-41: the reclaim is logged" "reclaimed${tab}r1.1"
+two_programs 1
+printf 'mission_control_admit_timeout: 5m\n' >>"$tracked"
+printf 'format\t1\nreservation\tr1.1\tbeta\t%s\t%s\t-\n' "$$" "$((anow - 400))" >"$store"
+reserve alpha --load 10 --mem 80
+expect_rc "D-41: a reservation older than the timeout is reclaimed" 0
+expect_out "D-41: the timeout reclaim is logged" "reclaimed${tab}r1.1"
+two_programs 1
+printf 'format\t1\nreservation\tr1.1\tbeta\t%s\t%s\t-\n' "$$" "$((anow - 30))" >"$store"
+reserve alpha --load 10 --mem 80
+expect_rc "D-41: a live young reservation holds its slot" 1
+# A reservation whose session registered is released: counted once, as a session.
+two_programs 2
+printf 'format\t1\nreservation\tr1.1\tbeta\t%s\t%s\tmc-fix-1\n' "$$" "$((anow - 30))" >"$store"
+registry_row mc-fix-1 beta "$old"
+reserve alpha --load 10 --mem 80
+expect_rc "D-41: a reservation is released once its session registers" 0
+
+# The budget output names the held axis, so the panel can show it.
+two_programs 5
+mc_run mc-budget.sh report --program alpha --now "$anow" --load 10 --mem 80
+expect_out "REQ-L1.4: the budget names an open admission" "admission${tab}open"
+two_programs 5
+mc_run mc-budget.sh report --program alpha --now "$anow" --load 95 --mem 80
+expect_out "REQ-L1.4: the budget names the load axis holding launches" "admission${tab}load${tab}"
+two_programs 5
+mc_run mc-budget.sh report --program alpha --now "$anow" --load 10 --mem 5
+expect_out "REQ-L1.4: the budget names the memory axis holding launches" "admission${tab}memory${tab}"
+if grep -q "^admission${tab}memory" "$fleet/mission-control/alpha/budget"; then
+  ok "REQ-L1.4: the budget file the panel reads carries the held axis"
+else
+  fail "REQ-L1.4: the budget file lacks the held axis"
+fi
+
+# A lock not taken in time holds the launch.
+two_programs 5
+sleep 30 &
+holder=$!
+tok=$(mc_env /bin/sh "$repo_root/scripts/fleet-state.sh" lock --owner-pid "$holder")
+MC_LOCK_TRIES=3 reserve alpha --load 10 --mem 80
+expect_rc "REQ-L1.7: a lock not taken in time holds the launch" 1
+expect_out "REQ-L1.7: the lock hold is named" "queued${tab}lock"
+(mc_env /bin/sh "$repo_root/scripts/fleet-state.sh" unlock "$tok" >"$tmp/unlock.out" 2>&1)
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+
+# The concurrent losers held on the ceiling, and the store holds two rows.
+two_programs 2
+rm -f "$tmp"/conc/*
+ci=0
+for p in alpha beta alpha beta; do
+  ci=$((ci + 1))
+  (mc_env /bin/bash "$repo_root/scripts/mc-budget.sh" reserve --program "$p" --now "$anow" --holder "$$" --load 10 --mem 80 >"$tmp/conc/$ci" 2>&1) &
+done
+wait
+if [ "$(cat "$tmp"/conc/* | grep -c "^queued${tab}ceiling")" -eq 2 ] && [ "$(grep -c "^reservation" "$store")" -eq 2 ]; then
+  ok "REQ-L1.7: the two losers held on the ceiling and the store holds two reservations"
+else
+  fail "REQ-L1.7: the concurrent losers did not hold on the ceiling, or the store lacks two rows"
+  cat "$tmp"/conc/* >&2
+fi
+
+# Axis order: load is named before the ceiling, in reserve and in the budget.
+two_programs 1
+registry_row mc-fix-1 beta "$old"
+reserve alpha --load 95 --mem 80
+expect_out "REQ-L1.7: load is named ahead of a full ceiling" "queued${tab}load"
+mc_run mc-budget.sh report --program alpha --now "$anow" --load 95 --mem 80
+expect_out "REQ-L1.4: the budget names the same axis reserve does" "admission${tab}load${tab}"
+
+# The fleet daemon pause holds the launch.
+two_programs 5
+printf '%s\n' "fleet_daemon_pause: true" >>"$tracked"
+reserve alpha --load 10 --mem 80
+expect_rc "REQ-L1.7: the fleet daemon pause holds the launch" 1
+expect_out "REQ-L1.7: the pause is named" "queued${tab}paused"
+
+# A registry row of an unknown format still counts as a session.
+two_programs 1
+mkdir -p "$fleet/mission-control/sessions"
+printf 'format\t9\nname\tmc-fix-9\nprogram\talpha\nkind\tworker\n' >"$fleet/mission-control/sessions/mc-fix-9"
+reserve alpha --load 10 --mem 80
+expect_rc "REQ-L1.7: a session row of an unknown format still counts toward the ceiling" 1
+expect_out "REQ-L1.7: and the hold names the ceiling" "queued${tab}ceiling"
+
+# release: one row among several, and an id that is not stored.
+two_programs 5
+reserve alpha --load 10 --mem 80
+r1=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "reserved" { print $2 }')
+reserve beta --load 10 --mem 80
+r2=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "reserved" { print $2 }')
+mc_run mc-budget.sh release --program alpha "$r1"
+if grep -q "$r2" "$store" && ! grep -q "$r1" "$store"; then
+  ok "D-41: releasing one reservation leaves the others"
+else
+  fail "D-41: release dropped the wrong reservation"
+fi
+mc_run mc-budget.sh release --program alpha "$r1"
+expect_rc "D-41: releasing a reservation twice is no error" 0
+expect_out "D-41: the second release says it is absent" "absent${tab}$r1"
+mc_run mc-budget.sh release --program alpha "r1;x"
+expect_rc "D-41: an id outside the grammar is refused" 2
+
+# A reservation line outside the grammar (a holder of 0, which signals a whole
+# process group) is refused, and one dated in the future is reclaimed.
+two_programs 5
+printf 'format\t1\nreservation\tr1.1\tbeta\t0\t%s\t-\n' "$anow" >"$store"
+reserve alpha --load 10 --mem 80
+expect_rc "D-41: a reservation held by process 0 is refused as outside the grammar" 1
+two_programs 5
+printf 'format\t1\nreservation\tr1.1\tbeta\t%s\t%s\t-\n' "$$" "$((anow + 100000))" >"$store"
+reserve alpha --load 10 --mem 80
+expect_out "D-41: a reservation dated far in the future is reclaimed" "reclaimed${tab}r1.1${tab}timeout"
+# A registered session's reservation is dropped and logged.
+two_programs 5
+printf 'format\t1\nreservation\tr1.1\tbeta\t%s\t%s\tmc-fix-1\n' "$$" "$((anow - 30))" >"$store"
+registry_row mc-fix-1 beta "$old"
+reserve alpha --load 10 --mem 80
+expect_out "D-41: a registered session's reservation is dropped and logged" "reclaimed${tab}r1.1${tab}registered"
+
+# A store of an unknown format is refused.
+two_programs 5
+mkdir -p "$fleet/mission-control"
+printf 'format\t9\n' >"$store"
+reserve alpha --load 10 --mem 80
+expect_rc "D-8: a reservation store of an unknown format is refused" 1
+expect_err "D-8: the refusal names the field" "format"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-budget: $failures failure(s)" >&2
   exit 1
