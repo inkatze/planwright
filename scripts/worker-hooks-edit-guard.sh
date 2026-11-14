@@ -5,13 +5,11 @@
 # worker's next commit.
 #
 # Usage: worker-hooks-edit-guard.sh < <PreToolUse payload>
-# Output: a permissionDecision "deny" with its reason, or nothing (defer).
-# Exit: 0 always.
+# Output: a permissionDecision "deny" with its reason, or nothing (defer); exit 0.
 #
 # The protected directories, resolved from the payload's working directory:
 #   - the hooks directory git runs from (core.hooksPath, relative or absolute,
-#     or the default one in the common git directory), the same set the command
-#     guard's ob_excl_load names for a shell write;
+#     or the default one in the common git directory);
 #   - the worktree root's `githooks/` and `.githooks/`, and the primary
 #     checkout's, since a hook may be wired to run from either by a later
 #     config edit. A deeper directory of that name (`test/githooks/`) is not
