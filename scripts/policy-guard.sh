@@ -2102,7 +2102,7 @@ kickoff_segment() {
     if [ -n "$KAS_N" ]; then
       if [ "$b" = "planwright/$spec/amendment-$KAS_N" ]; then
         kickoff_scope_shared "$spec" "$dir" || return 0
-        deny_now "the launch scope ${PLANWRIGHT_WORKER_SCOPE} reads as amendment $KAS_N's kickoff for $spec, but $KSS_WHY - refusing (fail closed). Relaunch the kickoff with a scope no other spec's kickoff can share."
+        deny_now "the launch scope ${PLANWRIGHT_WORKER_SCOPE} reads as amendment $KAS_N's kickoff for $spec, but $KSS_WHY - refusing (fail closed). $KSS_FIX"
         return 0
       fi
     else
@@ -2174,39 +2174,54 @@ kickoff_amendment_scope() {
 # reading of the session's scope (KAS_N set for <spec>) may instead be another
 # spec's kickoff: a bundle named for the scope's whole tail (that spec's own
 # kickoff scope) or <spec>-a<n> (when the rest of the scope reads as one of
-# its amendment kickoffs) lies under the spec root, or the root cannot be
-# resolved. 1 when no other spec can share it.
+# its amendment kickoffs) lies under the spec root, in the worktree's view or
+# the primary checkout's, or a root cannot be resolved. KSS_FIX is the remedy
+# for that cause. 1 when no other spec can share it.
 KSS_WHY=''
+KSS_FIX=''
 kickoff_scope_shared() {
-  local spec=$1 dir=$2 root rc=0 n=$KAS_N x
+  local spec=$1 dir=$2 root rc view n=$KAS_N x tail=${PLANWRIGHT_WORKER_SCOPE#kickoff-} sub_n
   KSS_WHY=''
-  need_timeout
+  KSS_FIX=''
   [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-root.sh" ] || {
     KSS_WHY='the spec-root resolver is missing beside this guard, so it cannot tell that scope from another spec'"'"'s kickoff'
+    KSS_FIX='Reinstall planwright.'
     return 0
   }
-  policy_root "$dir"
-  root=$(cd -- "$dir" 2>/dev/null && PLANWRIGHT_REPO_ROOT=$POLICY_ROOT "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-root.sh" spec 2>/dev/null </dev/null) || rc=$?
-  case $root in
-    /*) ;;
-    *) [ "$rc" != 0 ] || rc=empty ;;
-  esac
-  if [ "$rc" != 0 ]; then
-    KSS_WHY="the spec root could not be resolved (resolver exit $rc), so the guard cannot tell that scope from another spec's kickoff"
-    return 0
-  fi
-  x=${PLANWRIGHT_WORKER_SCOPE#kickoff-}
-  if [ -d "$root/$x" ]; then
-    KSS_WHY="a spec named $x exists, whose own kickoff that scope is"
-    return 0
-  fi
   kickoff_amendment_scope "$spec-a$n"
-  x=$KAS_N
+  sub_n=$KAS_N
   KAS_N=$n
-  if [ -n "$x" ] && [ -d "$root/$spec-a$n" ]; then
-    KSS_WHY="a spec named $spec-a$n exists, whose amendment $x kickoff that scope is"
-    return 0
-  fi
+  policy_root "$dir"
+  for view in '' --primary; do
+    need_timeout
+    rc=0
+    root=$(cd -- "$dir" 2>/dev/null && PLANWRIGHT_REPO_ROOT=$POLICY_ROOT "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-root.sh" spec $view 2>/dev/null </dev/null) || rc=$?
+    case $rc in
+      124 | 143)
+        KSS_WHY="reading the spec root did not finish within ${KNOB_B}s, so the guard cannot tell that scope from another spec's kickoff"
+        KSS_FIX='This is a timeout, not a policy decision: retry.'
+        return 0
+        ;;
+    esac
+    case $root in
+      /*) ;;
+      *) [ "$rc" != 0 ] || rc=empty ;;
+    esac
+    if [ "$rc" != 0 ]; then
+      KSS_WHY="the spec root could not be resolved (resolver exit $rc), so the guard cannot tell that scope from another spec's kickoff"
+      KSS_FIX='Repair spec_root, then retry.'
+      return 0
+    fi
+    KSS_FIX='Relaunch the kickoff with a scope no other spec'"'"'s kickoff can share.'
+    if [ -d "$root/$tail" ]; then
+      KSS_WHY="a spec named $tail exists, whose own kickoff that scope is"
+      return 0
+    fi
+    if [ -n "$sub_n" ] && [ -d "$root/$spec-a$n" ]; then
+      KSS_WHY="a spec named $spec-a$n exists, whose amendment $sub_n kickoff that scope is"
+      return 0
+    fi
+  done
   return 1
 }
 

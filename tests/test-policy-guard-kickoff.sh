@@ -246,6 +246,38 @@ for scope in kickoff-demo-a2 kickoff-demo-a2-a3 kickoff-demo-a2b; do
   PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_COL" "$AMEND_COL"
   expect deny "[worker, $scope] an amendment scope another spec's kickoff can share denies"
   reason_has "reads as amendment 2's kickoff for demo, but a spec named demo-a2b? exists" "[worker, $scope] the collision refusal names the other spec"
+  reason_has 'Relaunch the kickoff with a scope no other spec' "[worker, $scope] the collision refusal's remedy is a fresh scope"
+done
+# A colliding bundle the worktree does not hold but the primary checkout does.
+mkdir -p "$MC_PRIMARY/specs/mission-control-a16-delta"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] a colliding bundle only in the primary checkout denies"
+reason_has 'a spec named mission-control-a16-delta exists' "[worker, kickoff-mission-control-a16-delta] the primary-only collision names the other spec"
+rmdir "$MC_PRIMARY/specs/mission-control-a16-delta"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect defer "[worker, kickoff-mission-control-a16-delta] admitted again once the primary holds no colliding bundle"
+# The resolver's own failures each name their own remedy, never a relaunch.
+STUB_ROOT=empty PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] an empty spec-root answer denies"
+reason_has 'spec root could not be resolved' "[worker, kickoff-mission-control-a16-delta] the empty-answer refusal says why"
+reason_has 'Repair spec_root' "[worker, kickoff-mission-control-a16-delta] the empty-answer refusal's remedy is the spec_root repair"
+STUB_ROOT=hang PG_TIMEOUT=1 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] a spec-root read past its bound denies"
+reason_has 'did not finish within 1s' "[worker, kickoff-mission-control-a16-delta] the timeout refusal names the bound"
+reason_has 'retry' "[worker, kickoff-mission-control-a16-delta] the timeout refusal's remedy is a retry"
+mv "$S/resolve-root.sh" "$S/resolve-root.sh.away"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] a missing spec-root resolver denies"
+reason_has 'resolver is missing beside this guard' "[worker, kickoff-mission-control-a16-delta] the missing-resolver refusal says why"
+reason_has 'Reinstall planwright' "[worker, kickoff-mission-control-a16-delta] the missing-resolver refusal's remedy is a reinstall"
+mv "$S/resolve-root.sh.away" "$S/resolve-root.sh"
+for r in empty hang; do
+  STUB_ROOT=$r PG_TIMEOUT=1 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+  if printf '%s' "$REASON" | grep -q 'Relaunch'; then
+    fail "[worker, kickoff-mission-control-a16-delta] a resolver failure ($r) prescribes a relaunch: $REASON"
+  else
+    pass "[worker, kickoff-mission-control-a16-delta] a resolver failure ($r) prescribes no relaunch"
+  fi
 done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg worker "$KICKOFF_PUSH" "$AMEND_COL" "$AMEND_COL"
 expect defer "[worker, kickoff-demo-a2-delta] a scope no existing spec's kickoff shares is admitted beside a demo-a2 spec"
@@ -255,6 +287,7 @@ set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_r
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
 expect deny "[worker, kickoff-mission-control-a16-delta] an amendment scope denies when the spec root cannot be resolved"
 reason_has 'spec root could not be resolved' "[worker, kickoff-mission-control-a16-delta] the unresolvable-root refusal says why"
+reason_has 'Repair spec_root' "[worker, kickoff-mission-control-a16-delta] the unresolvable-root refusal's remedy is the spec_root repair"
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
 expect defer "[worker, kickoff-mission-control] the spec's own kickoff scope reads no spec root"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'

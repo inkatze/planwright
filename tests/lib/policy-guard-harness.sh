@@ -67,8 +67,14 @@ printf '%s\n' "\$1" >>"$LOG"
 [ "\${STUB_FAIL_KNOB:-}" != "\$1" ] || exit 4
 exec /bin/sh "$REAL_SCRIPTS/resolve-policy-knob.sh" "\$@"
 EOF
+# STUB_ROOT=empty prints nothing and succeeds; STUB_ROOT=hang outlasts the
+# guard's read bound.
 cat >"$S/resolve-root.sh" <<EOF
 #!/bin/sh
+case \${STUB_ROOT:-} in
+  empty) exit 0 ;;
+  hang) exec sleep 30 ;;
+esac
 exec /bin/sh "$REAL_SCRIPTS/resolve-root.sh" "\$@"
 EOF
 cat >"$BIN/gh" <<EOF
