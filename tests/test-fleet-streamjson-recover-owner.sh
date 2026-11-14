@@ -78,6 +78,7 @@ program_hub_budget: {host_load: 1000000}
 mission_control_escalation_hub: hub
 EOF
 
+cp "$repo_root/config/worker-settings.json" "$core/config/worker-settings.json" || exit 1
 sid='11111111-2222-3333-4444-555555555555'
 rec="$tmp/rec"
 mkdir -p "$tmp/bin" "$rec"
@@ -101,11 +102,13 @@ sj() {
   done
   shift
   # shellcheck disable=SC2086 # a word list of NAME=value pairs
-  mc_env env -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID \
-    $sj_extra \
-    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
-    SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" \
-    /bin/sh "$SJ" "$@"
+  (
+    mc_env env -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID \
+      $sj_extra \
+      PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
+      SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" \
+      /bin/sh "$SJ" "$@"
+  )
 }
 
 rows="$fleet/mission-control/sessions"
@@ -139,7 +142,7 @@ launched() {
 # owner_of <handle>: the owner column of the handle's last dispatch record.
 owner_of() {
   mc_env /bin/sh "$repo_root/scripts/fleet-state.sh" registry \
-    | awk -F '\t' -v h="$1" '$1 == h { o = $4 } END { print o }'
+    | awk -F '\t' -v h="$1" '$2 == h { o = $4 } END { print o }'
 }
 
 # recovered <name> [<env assignment>...]: recover the stopped worker.
