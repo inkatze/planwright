@@ -130,6 +130,12 @@
 #   fleet-usage-gate.sh rung
 #       Print the current rung derived from the audit trail (a pure read: no
 #       gate, no lock, no transition). `normal` when the trail has no rows.
+#   fleet-usage-gate.sh refresh
+#       The rung a launch clamps from: run `evaluate` first when the later of
+#       the last evaluation and the last transition is older than
+#       `fleet_usage_read_cadence_seconds`, then print the current rung as
+#       `rung` does. A fresh rung is printed with no evaluation and no side
+#       effect. Exit 0; otherwise evaluate's exit, printing nothing.
 #   fleet-usage-gate.sh signal
 #       Read-only view of the signal (Task 10): print
 #       `session<TAB><pct|unavailable>` / `weekly<TAB><pct|unavailable>` after
@@ -147,7 +153,7 @@
 #       (opus, fable) are withheld at defer-heavy; every tier is withheld at
 #       defer-all; lighter rungs admit all. Exit 0 admit, exit 1 withheld.
 #
-# Exit codes: 0 success; 1 kill-switch short-circuit (evaluate) or withheld
+# Exit codes: 0 success; 1 kill-switch short-circuit (evaluate, or a refresh that evaluates) or withheld
 #   (admit); 2 usage error, corrupt state, refused input, or a filesystem/lock
 #   error (fail closed) — this also covers a missing/unrunnable fleet-state.sh,
 #   fleet-audit.sh, or fleet-attention.sh helper, whose failure surfaces through
@@ -199,7 +205,7 @@ TAB=$(printf '\t')
 SESSION_CAP=3 # the session window never selects above defer-heavy (REQ-E1.6).
 
 usage() {
-  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | signal | windows [--now <epoch>] | admit <model> | mirror-path" >&2
+  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | refresh | signal | windows [--now <epoch>] | admit <model> | mirror-path" >&2
 }
 
 # rung_name <index>: the ladder rung name for an index, for composing the
@@ -827,6 +833,44 @@ reset_unavail() {
   rm -f "$ru_file" 2>/dev/null || true
 }
 
+# --- The last-evaluation stamp (evaluate, refresh) --------------------------
+#
+# An unchanged rung records no audit row, so the trail alone cannot tell a rung
+# evaluate keeps confirming from one nobody has re-read. Every completed
+# evaluate stamps its epoch beside the signal cache (per-tower, advisory, like
+# the counter above). A stamp that cannot be written only costs the next
+# refresh an evaluation.
+eval_stamp_file() {
+  esf_dir=$(signal_dir) || return 2
+  printf '%s/evaluated' "$esf_dir"
+}
+stamp_evaluated() {
+  se_file=$(eval_stamp_file) || return 0
+  se_now=$(now_epoch) || return 0
+  mkdir -p "$(dirname "$se_file")" 2>/dev/null || return 0
+  if printf '%s\n' "$se_now" >"$se_file.$$" 2>/dev/null; then
+    mv -f "$se_file.$$" "$se_file" 2>/dev/null || rm -f "$se_file.$$"
+  fi
+  return 0
+}
+
+# rung_is_fresh <cadence>: 0 when the later of the last evaluation and the last
+# transition is under <cadence> seconds old. No basis, a corrupt stamp, an
+# unreadable trail or clock, and a basis in the future are all stale.
+rung_is_fresh() {
+  rif_basis=$(last_transition_epoch 2>/dev/null) || rif_basis=""
+  case $rif_basis in "" | *[!0-9]* | 0?*) rif_basis=0 ;; esac
+  rif_file=$(eval_stamp_file) || rif_file=""
+  rif_eval=""
+  [ -z "$rif_file" ] || rif_eval=$(sed -n '1p' "$rif_file" 2>/dev/null)
+  case $rif_eval in "" | *[!0-9]* | 0?*) rif_eval=0 ;; esac
+  [ "$rif_eval" -gt "$rif_basis" ] && rif_basis=$rif_eval
+  [ "$rif_basis" -gt 0 ] || return 1
+  rif_now=$(now_epoch) || return 1
+  rif_age=$((rif_now - rif_basis))
+  [ "$rif_age" -ge 0 ] && [ "$rif_age" -lt "$1" ]
+}
+
 if [ "$#" -lt 1 ]; then
   usage
   exit 2
@@ -897,6 +941,20 @@ case "$cmd" in
       usage
       exit 2
     }
+    cur=$(derive_rung) || exit 2
+    printf '%s\n' "$cur"
+    exit 0
+    ;;
+
+  refresh)
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    rf_cadence=$(resolve_posint fleet_usage_read_cadence_seconds 300) || exit $?
+    if ! rung_is_fresh "$rf_cadence"; then
+      /bin/sh "$script_dir/fleet-usage-gate.sh" evaluate >/dev/null || exit $?
+    fi
     cur=$(derive_rung) || exit 2
     printf '%s\n' "$cur"
     exit 0
@@ -1104,6 +1162,7 @@ case "$cmd" in
         printf '%s\n' "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change; a stale or missing mirror means no statusLine is refreshing it: $USAGE_MIRROR_FIX" >&2
       fi
       since=$(last_transition_epoch 2>/dev/null) || since=""
+      stamp_evaluated
       printf 'rung\t%s\tsince\t%s\tsession\tunavailable\tweekly\tunavailable\n' "$cur" "$since"
       exit 0
     fi
@@ -1133,6 +1192,7 @@ case "$cmd" in
     target=$(hysteresis_target "$cur" "$target_raw") || exit $?
     if [ "$target" = "$cur" ]; then
       since=$(last_transition_epoch 2>/dev/null) || since=""
+      stamp_evaluated
       printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$since" "$sess" "$week"
       exit 0
     fi
@@ -1165,6 +1225,7 @@ case "$cmd" in
       # transition, so `since` is the epoch of the rung we are reporting.
       since=$(last_transition_epoch 2>/dev/null) || since=""
       release_lock
+      stamp_evaluated
       printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$since" "$sess" "$week"
       exit 0
     fi
@@ -1189,6 +1250,7 @@ case "$cmd" in
     # last_transition_epoch does a lockless query, so it is safe to call here.
     since=$(last_transition_epoch 2>/dev/null) || since=""
     release_lock
+    stamp_evaluated
     printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$target" "$since" "$sess" "$week"
     exit 0
     ;;

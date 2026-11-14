@@ -1132,6 +1132,18 @@ cmd_launch() {
   # runs in, where a relaunch re-resolves it; offload-dispatch resolves
   # its own at the kind's key, and --strict-tier stops it from launching at
   # the ambient tier when the allocation store is unreachable.
+  #
+  # Both read the usage rung as last recorded, and on a host where no loop
+  # runs the gate's evaluate that record can be hours old, so a rung past the
+  # read cadence is re-evaluated before either clamps from it. Exit 1 is the
+  # kill-switch, which the tier resolution reports itself.
+  rf_err=$( (cd "$cwd" && /bin/sh "$script_dir/fleet-usage-gate.sh" refresh </dev/null 2>&1 >/dev/null))
+  case $? in
+    0 | 1) ;;
+    *)
+      printf '%s\n' "$me: warning: the usage rung could not be re-evaluated, so the tier clamps use the last recorded rung: $(printf '%s\n' "$rf_err" | sed -n '$p')" >&2
+      ;;
+  esac
   unit="mission-control:$name"
   # The per-call overlay variables the knob resolver honors steer this
   # launcher's own tier resolution; the stream-json session must not keep one
