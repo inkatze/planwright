@@ -25,8 +25,9 @@
 # The state-source map names, per fact class (work-items, code-state,
 # decisions, deadlines, designs, platform), the authoritative source and its
 # mode: record, snapshot or cited; platform (the releases of the tools the
-# program builds on) admits only snapshot and cited. A program's own map replaces the default whole,
-# and a class the map in force leaves out resolves to cited with no source,
+# program builds on) admits only snapshot and cited. A program's own map
+# replaces the default whole, and a class the map in force leaves out
+# resolves to cited with no source,
 # as does one written `-:cited`, so the rows `default sources` prints can be
 # written back as a map; `-` with any other mode is refused.
 #
