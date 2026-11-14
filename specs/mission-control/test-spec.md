@@ -749,6 +749,7 @@ refuses on it; every script verb the skill and duty catalog invoke runs
 without a prompt at the tier and an unlisted reference fails the test;
 `fleet-streamjson.sh answer` prompts. `tests/test-policy-guard-mission-control.sh`:
 an edit and a git mutation are denied.
+*(Amended at Amendment 16, 2026-11-13: a bare `answer` line in the list still fails the check, and the one vet-gated shape is tested under REQ-Q1.1, REQ-Q1.4 and REQ-Q1.5.)*
 
 ### REQ-G1.6 — Prompts wake mission control and are answered through the channel [test]
 
@@ -767,6 +768,7 @@ marker, on another version's or a symlinked path, and in an unmarked
 session; an answer with neither a covering standing decision nor the
 operator's own answer is still refused upstream of the call.
 *(Amended at Amendment 6, 2026-11-09: the notifier's delivery and a direct unit's prompt routing are tested under REQ-E1.7 and REQ-D1.15.)*
+*(Amended at Amendment 16, 2026-11-13: the owner's answer for a request the vet clears within scope is tested under REQ-Q1.1 to REQ-Q1.5; the entries above keep their fixtures.)*
 
 ### REQ-G1.7 — A lease is the one shape, opened only by mission control [test]
 
@@ -1297,3 +1299,72 @@ without fix evidence is refused; with both it closes; no verb removes a row.
 
 `tests/test-mc-followups.sh` (Task 83): a fixture period with operator-caught
 and system-raised problems reports both counts and names the open misses.
+
+## REQ-Q — A mission control answers its own workers' prompts
+
+### REQ-Q1.1 — The owner's vetted answer skips the classifier [test]
+
+`tests/test-tower-command-guard.sh` and `tests/test-mission-control-profile.sh`
+(Task 86), in the mission-control mode with a fixture vet: `answer <worker>
+<request> --allow` and `--deny [--message <text>]` for an owned worker and a
+request the vet calls within scope print an allow decision; the same call
+for a request the vet escalates, for a missing vet and for a vet that
+errors prints nothing; the verbs list holds no bare `answer` line and the
+verbs check fails when one is added; the settings `_about` names the arm.
+
+### REQ-Q1.2 — The vet classifies through the worker's own guards [test]
+
+`tests/test-mc-answer-vet.sh` (Task 85) over the classify entries of
+Task 84, with a fixture envelope and session record: an in-worktree read, an
+in-worktree edit outside trusted paths, the repository's test and lint
+commands and a reading step-runner verb are within scope; a command the
+worker guard defers in that context (a here-document, an unresolved variable,
+an in-worktree write under an empty recorded policy) is escalated, and the
+same command is within scope when the recorded policy names the arm that
+allows it, so the vet adds no policy; an unreadable envelope, an unknown tool
+and a missing session record escalate; the vet writes nothing.
+`tests/test-worker-command-guard-parity.sh` (Task 84): the classify mode and
+the hook agree over the shape fixtures.
+
+### REQ-Q1.3 — Reserved acts and step-record writes escalate [test]
+
+`tests/test-mc-answer-vet.sh` (Task 85): a push, a pull request or comment
+post, a write outside the worktree, a floor-denied command, an
+AskUserQuestion request and a request of a worker with no readable context
+each escalate with their own reason; a `step-record.sh write` and a
+`step-run.sh begin` or `end` escalate with the held-for-step-record-check
+reason; with a fixture of Amendment 13's check present, a record it refuses
+escalates and one it passes is within scope (the second half runs once that
+check exists and is a `[design-level]` note until then).
+
+### REQ-Q1.4 — Only the owner, in one shape [test]
+
+`tests/test-tower-command-guard.sh` (Task 86): a caller whose identity is not
+the registry owner, a worker with no recorded owner, a caller with no
+identity, `--takeover`, `--response-file`, an extra argument, a compound and
+a redirect each print nothing, with the vet never consulted for the first
+three; the owner's call prints an allow.
+
+### REQ-Q1.5 — Admitted answers are recorded and counted [test]
+
+`tests/test-mc-kb.sh` and `tests/test-mc-config-doctor.sh` (Task 87): an
+admitted answer leaves one undo-ledger entry naming worker, request, digest
+and verdict; an escalated request leaves none; the doctor prints the verdict
+counts by reason from a fixture audit log. `tests/test-mission-control-profile.sh`
+(Task 86): the posture check fails with the vet or the arm absent.
+
+### REQ-Q1.6 — One vetted verb resolves a bot thread [test]
+
+`tests/test-mc-thread-resolve.sh` (Task 88) with fake `gh` responses: a
+thread whose comments are all an automated reviewer's or the session's own
+recorded replies, with the last one a recorded reply, on a pull request the
+program opened, resolves with one write; a thread with a comment by any
+other person, a reply not in the record, a last comment that is the
+reviewer's (reply not yet posted), a pull request the program did not open
+and a failed read each refuse, name the reason and write nothing; a bot is
+recognised by GitHub's bot type and by a configured pattern matched in full,
+and a login that merely contains the pattern is not one.
+`tests/test-policy-guard-mission-control.sh` and
+`tests/test-mission-control-profile.sh` (Task 89): the verb is approved in
+the mission-control tier, a bare `gh api graphql` write stays refused, and
+the verbs check derives the verb from the skill.

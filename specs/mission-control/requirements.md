@@ -870,6 +870,7 @@ later planwright bundles implement, D-12).
   invoke, that excludes the raw prompt-answer verb.
   *(Cites: D-32; audit item 1 (Sources); tower-front-door D-14 (Sources);
   obs:bb22668a.)*
+  *(Amended at Amendment 16, 2026-11-13: the exclusion of the raw prompt-answer verb from the list stands for a bare `answer`; REQ-Q1.1 admits one argument-aware shape of it through the guard's own arm.)*
 - **REQ-G1.6** A permission prompt pending in any session mission control
   supervises SHALL raise an attention event keyed by session and prompt,
   waking mission control by push (REQ-E1.3); re-detection is a no-op and
@@ -907,6 +908,7 @@ later planwright bundles implement, D-12).
   defers.)*
   *(Amended at Amendment 6, 2026-11-09: the prompt's wake is the notifier's delivery to the mission control that answers it, REQ-E1.7; a direct unit's prompts go to its launching mission control, REQ-D1.15; who may answer is unchanged.)*
   *(Amended at Amendment 7, 2026-11-10: a session moved to another program, REQ-D1.16, is supervised by the destination's mission control from the move; its pending prompts raise their events there and not in the source.)*
+  *(Amended at Amendment 16, 2026-11-13: the "never on mission control's own judgment" bar and the list's exclusion of the raw answer verb (REQ-G1.5) each gain one narrow exception, REQ-Q1.1: an owner's `answer` for a request planwright's own vet classifies within worker scope is admitted by hook, the vet's check and not mission control's judgment being what authorizes it; every other answer keeps this requirement unchanged.)*
 
 - **REQ-G1.7** A lease SHALL be the one way a worker is allowed, for a named
   purpose and a short time, something a standing rule denies. A lease is a
@@ -1424,6 +1426,80 @@ the runner works, never a list that grows and is forgotten.
   *(Cites: D-69; REQ-P1.13; the outcome-audit report (2026-11-13,
   Sources).)*
 
+## REQ-Q — A mission control answers its own workers' prompts
+
+Today every answer a mission control gives its own stream-json worker's
+permission prompt reaches the auto-mode classifier, which refuses them. The
+group lets planwright's own checks, not the classifier, vet and admit the
+answers that are plainly inside a worker's scope, and leaves every other act
+with the operator.
+
+- **REQ-Q1.1** A mission control SHALL answer a permission prompt of a worker
+  it launched and owns, the owner being the launcher's registry owner, through
+  `fleet-streamjson.sh answer <worker> <request-id> --allow` or `--deny`,
+  admitted by its settings profile and its verbs list, so that the auto-mode
+  classifier does not judge each answer. The admission SHALL be an
+  argument-aware hook approval of exactly that shape for a request the vet
+  (REQ-Q1.2) has classified within scope; the verbs list SHALL carry the
+  verb only through that arm, never as a bare pre-approval of every `answer`.
+  *(Cites: D-70; the operator's ruling (2026-11-13, Sources); REQ-G1.5,
+  REQ-G1.6.)*
+- **REQ-Q1.2** Planwright's own vetting SHALL be the gate: a read-only vet
+  reads the pending request itself, the tool it asks to run and its input,
+  and classifies it through the same checks the worker's own hooks run, in the
+  worker's recorded context (its worktree, its recorded self-approval policy
+  and its scratch root): the worker command guard for a command, and the
+  policy guard at its worker tier. A request is within scope only when those
+  checks allow it and it is one of: a read inside the worker's worktree, an
+  edit inside the worker's worktree outside the paths a tool runs or trusts
+  unprompted, the repository's own test and lint commands, or a step-runner
+  verb that reads (REQ-Q1.3 holds the ones that write). The vet SHALL carry
+  no policy of its own: it never allows what those checks defer or deny, a
+  request it cannot read, resolve or classify is escalated, and it changes
+  nothing.
+  *(Cites: D-71; worker-permission-ergonomics REQ-F1.2 and execution-backends
+  D-5 (Sources); the deterministic-worker-approvals note (Sources).)*
+- **REQ-Q1.3** A request outside that scope SHALL escalate to the operator
+  as it does today and SHALL never be answered by mission control's allow: a
+  push, a pull request or comment post, a write outside the worker's
+  worktree, any act the worker floor reserves or denies, a question to the
+  operator (an AskUserQuestion request), a request of a worker whose
+  recorded context cannot be read, and a step-record write. A step-record
+  write SHALL stay with mission control's own hand review until the
+  mechanical check against overstated step records (Amendment 13's, held by
+  the mc-fixes program) exists; once it does, the vet SHALL admit such a
+  write only through that check, so automation never approves a record a
+  mission control would refuse by hand.
+  *(Cites: D-71; the operator's ruling (2026-11-13, Sources); the mc-fixes
+  boundary notes (2026-11-13, Sources).)*
+- **REQ-Q1.4** Only the owning mission control may answer. The admission SHALL
+  refuse, leaving the prompt to the permission prompt, an answer whose caller
+  is not the registry owner of the worker, one carrying `--takeover` or
+  `--response-file`, and any shape beyond the one REQ-Q1.1 names; a worker
+  with no recorded owner, or a caller with no identity, SHALL read as not
+  owned for this path (the owner check of `fleet-streamjson.sh` itself keeps
+  its own rule).
+  *(Cites: D-72; PR #967 (Sources).)*
+- **REQ-Q1.5** Each answer the vet admits SHALL be recorded where the undo
+  ledger (D-24) records it, naming the worker, the request, a digest of what
+  it asked to run and the vet's verdict, and the vet SHALL count its verdicts
+  by escalation reason, so the share of prompts it answers is measured and
+  never assumed. The posture check (REQ-G1.5) SHALL fail when the vet or the
+  admission arm is absent, so a launch without them reads as the old posture.
+  *(Cites: D-70, D-71; REQ-G1.5; the deterministic-worker-approvals note
+  (Sources).)*
+- **REQ-Q1.6** Mission control SHALL resolve a review thread through one
+  script verb, admitted by the same profile and verbs list, so the classifier
+  does not judge the write, only when every comment on the thread is one of
+  an automated reviewer's, whose login GitHub reports as a bot or a
+  configured bot-review pattern matches in full, or one of this session's
+  own recorded replies; the pull request is one the session's own program
+  opened; and the reply is already posted. A thread any other person has
+  written in SHALL escalate to the operator. The act is the thread's
+  resolution alone: the verb posts nothing and writes no branch.
+  *(Cites: D-73; the hub's addition (2026-11-13, Sources); the bot-review
+  reviewer config and the pr-agent-step flight (Sources).)*
+
 ## Changelog
 
 - 2026-10-22 — Drafted (`/spec-draft`): the requirement groups and
@@ -1640,6 +1716,36 @@ the runner works, never a list that grows and is forgotten.
   with a miss ledger and a caught-by report (REQ-P1.11 to REQ-P1.14, D-69,
   Tasks 82 and 83), the unrelayed-question case as the audit's first
   fixture.
+- 2026-11-13 — Amendment 16 (meaning-class, Draft on the Active bundle,
+  drafted in the spec-pipeline program): a mission control answers its own
+  workers' prompts without the classifier judging each answer (REQ-Q1.1 to
+  REQ-Q1.5: a read-only vet classifies the pending request through the
+  worker guard and policy guard in the worker's recorded context, an
+  argument-aware hook arm admits the owner's `answer --allow` or `--deny`
+  for a request in scope, and everything reserved still escalates), and
+  resolves an automated reviewer's thread through one vetted verb (REQ-Q1.6);
+  D-70 to D-73, Tasks 84 to 89. REQ-G1.5 and REQ-G1.6 carry amendment notes:
+  the "never on mission control's own judgment" bar and the verbs list's
+  exclusion of the raw answer verb each gain one narrow, vet-gated
+  exception, which the kickoff classifies. Reconcile notes: group Q, D-70
+  onward and Task 84 onward follow the highest numbers on the open
+  amendment branches (Amendment 15 is REQ-P, D-65 to D-69, Tasks 75 to 83,
+  and its REQ-P is in this tree; Amendment 14 takes REQ-O, D-62 to D-64,
+  Tasks up to 74; Amendment 13 is undrafted and may claim numbers from here
+  too, to be renumbered by whichever is kicked off second). Boundaries:
+  `specs/_pending/deterministic-worker-approvals.md` is related, not
+  consumed. Amendment 13 folds it in, so the script that answers routine
+  requests itself, the `git -C` and `git push -q` spellings and the
+  turn-on of the self-approval arms stay there; this amendment keeps to the
+  mission-control-answers-its-own-workers path and its settings and verbs
+  admission, and the vet reuses the guards unchanged, so what Amendment 13
+  widens widens its yield with no change here. Step-record writes wait for
+  Amendment 13's mechanical check (REQ-Q1.3); "bot-reviewed" is not defined
+  here and follows the pr-agent-step flight, the thread verb needing only
+  that every comment is an automated reviewer's (REQ-Q1.6); nothing here
+  acts on readiness, and any later reader of a flip condition reads through
+  PR #999's refusal on a pending check. PR #967's owner work is a
+  dependency of Task 85.
 
 ## Sources
 
@@ -1877,3 +1983,8 @@ the runner works, never a list that grows and is forgotten.
 - **The duty-ledger report (2026-11-13)** — relayed through the hub, the operator's top priority: "I myself trusted too much you would do that and ended up wasting an entire week at work." Their definition: a duty is something that has to be monitored and fulfilled until completed, whose moment may not be known in advance, so a program must be ready; items may be re-validated recurrently, and the ledger must not be a list that grows and is forgotten. One program's ledger held about twenty open items, mostly past their dates and never re-checked; another had event triggers no script emits. Framed REQ-F1.25, REQ-P1.1 to REQ-P1.6, D-65 to D-67. A pinned altitude claim: the duty ledger is a core, default-on planwright duty, not a per-machine habit.
 - **The crossed-decisions report (2026-11-13)** — relayed through the hub, the operator: "How do you keep crossing decisions? That's been another huge core miss." A handover brief handed the operator a publish step long ruled the hub's, and a settled PR-Agent ruling was re-asked. Framed REQ-P1.7 to REQ-P1.10, D-68.
 - **The outcome-audit report (2026-11-13)** — relayed through the hub, the operator: "Also I have always identified core issues for you; which is a core issue itself." Nothing audits outcomes or learns from a miss the operator caught; a kickoff session's question sat unrelayed about 25 minutes. Framed REQ-P1.11 to REQ-P1.14, D-69.
+- **The own-worker-answers ruling (2026-11-13)** — relayed through the hub, the operator chose "(a) Approval fix (Recommended)": a mission control answers its own workers' prompts without the auto-mode classifier judging each answer, which refused them ("Instruction Poisoning", "Auto-Mode Bypass"). The hub added the same path for resolving an automated reviewer's thread, refused as an external-system write on a bot-only thread twice on one pull request after the reply posted, though the same act passed earlier on two others. Framed REQ-Q1.1 to REQ-Q1.6, D-70 to D-73.
+- **The deterministic worker approvals note (`specs/_pending/deterministic-worker-approvals.md`, 2026-11-07)** — cited as related, not consumed: it measured that an answerer limited to "never approve what the guard would not" approves almost nothing (7 of 3,695 sampled requests replayed through the guard), and holds the redesign that Amendment 13 folds in. Framed the vet's no-own-policy rule and the yield count, D-71.
+- **The execution-backends and worker-permission-ergonomics rules (2026-10)** — execution-backends D-5 rejected a second approval engine in the supervisor and worker-permission-ergonomics REQ-F1.2 keeps the worker guard the only self-approval mechanism. The vet replays that guard and carries no policy of its own, which is how D-71 stays inside both.
+- **The mc-fixes boundary notes (2026-11-13)** — relayed through the hub: step-record writes wait for Amendment 13's mechanical check; a queued mc-fixes flight (pr-agent-step, a catalog step for PR-Agent that retires a limited cubic-pr record) owns what "bot-reviewed" means; PR #999 (readiness-pending-checks) makes the flip-condition readers refuse while any check is pending. Framed REQ-Q1.3, REQ-Q1.6, D-71, D-73.
+- **PR #967 (open, 2026-11-13)** — `fleet-streamjson.sh pending` shows each pending prompt's registry owner and `answer` from a non-owner exits 3 unless `--takeover` is passed. REQ-Q1.4 builds on it and admits neither `--takeover` nor a caller without identity.

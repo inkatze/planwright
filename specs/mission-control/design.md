@@ -1976,6 +1976,179 @@ counts misses caught by the operator against those the system raised first.
 **Chosen because:** every core failure so far was found by the operator;
 the system should find the next one first, and learn from each it did not.
 
+### D-70: A vet and an argument-aware arm admit the owner's answer  (N; C, D-10, D-35)
+
+**Decision:** The classifier refuses every answer a mission control gives its
+own worker, so the answers that are plainly routine get a deterministic path
+that skips it. A read-only script, the vet, takes a worker and a request id
+and prints a verdict (`within-scope`, or `escalate` with one reason). The
+mission-control mode of the tower command guard gains one argument-aware arm
+for `fleet-streamjson.sh answer <worker> <request-id> --allow` or `--deny`
+(a deny may carry `--message`): it approves the call only when the vet says
+`within-scope` for that very worker and request, and defers otherwise, so
+the permission prompt and the classifier see everything else exactly as
+before. The verbs list does not gain a bare `answer` line, because a bare
+line would admit every answer; the list's header and the verbs check
+(`scripts/check-mc-verbs.sh`) state that the arm, not the list, carries it,
+and the settings profile's `_about` says the same. The posture check fails
+when the vet or the arm is missing (D-32), so a launch without them reads as
+the old posture. Each admitted answer is written where the undo ledger
+(D-24) records it, with the worker, the request, a digest of what it asked
+to run and the verdict, and the vet counts verdicts by escalation reason.
+
+An existing arm already approves the shape. The plugin's own prompt hook
+(`scripts/mc-approve-hook.sh`, REQ-G1.6's 2026-11-08 amendment) approves
+`fleet-streamjson.sh pending` and `answer` by shape alone in a marked
+mission-control session, leaving what authorizes the answer to the answer
+channel. The reported refusals ("Instruction Poisoning", "Auto-Mode
+Bypass") happen with that hook shipped, so a hook allow in auto mode does
+not, by itself, keep the classifier from judging the call. Which mechanism
+does is the first thing Task 86 proves with a fixture on the installed CLI,
+and the draft states both forms rather than guess: (a) the vet-gated hook
+allow above, the default; or (b) if only a settings `allow` entry skips the
+classifier, that entry for the exact answer shape paired with a deny-or-ask
+hook that refuses every call the vet does not clear, so an out-of-scope
+answer stops at the prompt instead of passing on the allow. The kickoff
+settles which, with Task 86's result in hand; the vet, the owner rule and
+the record do not change between them. The existing shape-only hook stays
+for answers the standing-decision record or the operator authorizes.
+
+**Alternatives considered:**
+- Add `fleet-streamjson.sh answer` to the verbs list. Rejected because: the
+  list approves a verb for any arguments, so every answer, vetted or not,
+  would skip the classifier and the prompt, which is the opposite of the
+  point.
+- A wrapper verb that vets and answers in one step, admitted by the list.
+  Rejected because: it adds a second script that must repeat the answer
+  verb's checks (journal, frame check, owner), and the seed asks for the
+  admission of `answer` itself; the arm keeps one writer.
+- Route the answer through the standing-decision record (REQ-G1.2). Rejected
+  because: that record covers command prefixes the operator has granted, not
+  a classification of a request's content, and it does not reduce the
+  classifier's refusals of the answer call itself.
+- Leave the classifier to judge and ask the operator to allow-list the
+  call. Rejected because: the refusal text names the answer as bypassing
+  auto mode whatever the operator's yes, and a per-machine allow rule is
+  the per-release bump REQ-G1.6's earlier amendment removed.
+
+**Chosen because:** the guard is the one place that already decides, with no
+model in the path, which commands a mission control session may run without
+a prompt; making it ask the vet keeps the decision deterministic and keeps
+the answer verb as its own single writer.
+
+### D-71: The vet replays the worker's own guards and carries no policy  (N; C, worker-permission-ergonomics D-12, execution-backends D-5)
+
+**Decision:** The vet classifies a pending request from the request itself
+(the journaled envelope's tool and input), never from the worker's summary of
+it. For a command it replays the installed worker command guard and the
+policy guard at the worker tier in the worker's recorded context: its
+worktree, its recorded self-approval policy and its scratch root, read from
+the launcher's session record and never from live configuration. It returns
+`within-scope` only on the guard's allow with no policy-guard denial or ask
+and only for the classes REQ-Q1.2 lists; every other result, an unreadable
+envelope, an unrecorded context, an unknown tool, a question request, a
+reserved act, a write outside the worktree and a step-record write,
+escalates. A step-record write waits for Amendment 13's mechanical check
+(REQ-Q1.3): until it exists the vet escalates one, and once it exists the
+vet calls it, so no record a mission control would refuse by hand is
+approved by automation. The replay entry is a classify mode on the guards
+that takes data in and prints a verdict out, so the vet composes the guards
+and copies none of their parsing.
+
+This keeps D-5 of execution-backends and REQ-F1.2 of
+worker-permission-ergonomics intact: the vet is not a second approval
+engine, it runs the one guard and approves only on its allow, as that
+guard's own hook would have. The yield is bounded by what the guard can read,
+and a request the guard could read was normally allowed before it queued, so
+the path's yield is expected small until the shell-rule change and the
+operator's decision on the self-approval arms land (the pending note's
+measure: 7 of 3,695 sampled requests approved). It states that rather than
+widening the guard here, and the verdict counts (REQ-Q1.5) turn the
+expectation into a measure. The posture of that policy knob stays the
+operator's; the vet never forces an arm on.
+
+**Alternatives considered:**
+- Replay with the own-branch and scratch arms forced on, so in-worktree
+  writes read as in scope whatever the worker's record says. Rejected
+  because: it is a posture change the pending note reserves to the operator,
+  and it would make mission control's path approve what the worker's own
+  guard does not.
+- A mission-control-side shape list of its own ("looks like a test run").
+  Rejected because: that is a second approval engine over a security
+  surface, which execution-backends D-5 rejected.
+- Answer only when the hook never ran or timed out. Rejected because: it is
+  narrower than the operator's ruling and the record shows no such cause;
+  the replay already covers it.
+- Fold the answerer into Amendment 13's deterministic-approvals script.
+  Rejected because: that script answers by itself with no mission control in
+  the path; this amendment is the owner's answer and its admission, and the
+  boundary is stated in the changelog.
+
+**Chosen because:** the only way to skip the classifier without adding an
+approval engine is to approve exactly what the existing guard approves, in
+the same context, and to say plainly how much that is.
+
+### D-72: Only the owner answers, in one exact shape  (N; D-35, D-23)
+
+**Decision:** The arm of D-70 checks the caller's identity against the
+worker's registry owner, the column PR #967's pending listing shows, and
+approves only on a match. A worker with no recorded owner, a caller with no
+identity, `--takeover`, `--response-file` and any extra argument or compound
+defer. That is stricter than the answer verb's own owner check, which lets
+an ownerless worker or an unidentified caller answer: the verb's rule stays
+for the operator's own use, and the arm's stricter reading binds only the
+admission. A non-owner's answer therefore stays refused by the verb and
+reaches the prompt, not the allow.
+
+**Alternatives considered:**
+- Mirror the verb's rule (unidentified callers allowed). Rejected because:
+  an arm that skips the classifier on a caller it cannot name admits any
+  session of the user.
+- Admit `--takeover` when the vet says in scope. Rejected because: a
+  takeover is the operator's escape hatch for a dead owner, and the vet
+  knows nothing of the owner's state.
+
+**Chosen because:** the admission skips a safeguard, so it must be the one
+case where the identity is proven, not the loosest the verb tolerates.
+
+### D-73: One vetted verb resolves an automated reviewer's thread  (N; D-70, D-23)
+
+**Decision:** Resolving a review thread is a GraphQL write, so it gets its
+own script verb (`scripts/mc-thread-resolve.sh`), listed in the verbs list
+and derived by the verbs check like every verb. It takes a repository, a pull
+request number and a thread id, reads the thread, and resolves it only when
+all of these hold, each re-read at the call: every comment on the thread is
+by an automated reviewer (a login GitHub reports as a bot, or one a
+configured bot-review reviewer's `login_pattern` matches in full, read the
+way the bot-review skill reads it) or is one of this session's own recorded
+replies, matched by the comment id the reply record holds, not by login,
+since the operator's account posts the reply; the pull request is one the
+session's own program opened, from the program's recorded pull requests; and
+the reply is already posted, that is the thread's last comment is a recorded
+reply of this session. A thread any other person has written in, a reply
+that is not recorded, a pull request the program did not open or any read
+failure refuses with the reason and resolves nothing. The verb posts nothing
+and writes no branch. What counts as a bot-reviewed pull request is not
+defined here: it follows the catalog step of the queued mc-fixes
+pr-agent-step flight, and this verb needs only the per-comment test above.
+Nothing in the verb acts on readiness; any later reader of a flip condition
+reads through the refusal on a pending check (PR #999).
+
+**Alternatives considered:**
+- Admit a bare `gh api graphql` in the profile. Rejected because: it
+  admits every GraphQL write, branches and merges included, which the
+  non-authoring tier forbids.
+- Count the human account's reply as disqualifying and resolve only
+  untouched bot threads. Rejected because: the reply is posted before the
+  resolve in the settled flow, so that rule would never admit one.
+- Leave the resolve to the operator. Rejected because: it was refused twice
+  on one pull request with the operator's yes and then did a manual quest
+  each time, which the hub's ruling is meant to end.
+
+**Chosen because:** a verb that checks the thread's authors and the pull
+request's origin each time is the narrowest form of the act the hub wants,
+and it is admitted by the same list every other verb is.
+
 ## Cross-cutting concerns
 
 - **Data hygiene.** The program home holds company data by design and is
