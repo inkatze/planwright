@@ -24,7 +24,8 @@
 #   launch's ambient value), so an unconfigured operator sees no change.
 #
 #   Step type (one step of a unit): implementation, or a step id. Only model
-#   and effort, as allocation_<column>_step_<step-type>, shipped `inherit`.
+#   and effort, as allocation_<column>_step_<step-type>, with a shipped row
+#   per shipped step type in config/defaults.yml.
 #   The key space is open: any charset-valid step type resolves, and an
 #   unconfigured one is `inherit`, so a new step needs no edit here.
 #
@@ -33,7 +34,7 @@
 #   2. If that is the `unset` sentinel, the deprecated legacy knob
 #      fleet_<column>_<key>, so existing fleet overlays keep working. Core
 #      ships `unset` for the fleet-keyed general knobs to arm this.
-#   3. If the key has no legacy counterpart, its shipped default.
+#   3. Otherwise the key's shipped default, the final fallback for every key.
 # A set general knob returns before the legacy one is read, so a malformed
 # legacy knob it shadows does not hard-fail.
 #
@@ -69,7 +70,8 @@
 # Exit codes: 0 printed; 2 usage error, unknown or hostile key or column, or a
 # column the key does not carry (fail closed, never a silent default); 4
 # malformed repo-tracked knob (propagated from the resolver); 5 broken
-# install (resolver unavailable or a core default itself malformed).
+# install (a sourced helper or the resolver is unavailable, or a core default
+# itself malformed).
 #
 # POSIX sh on the macOS + Linux support bar. All input is data. Pathname
 # expansion is disabled (set -f).
