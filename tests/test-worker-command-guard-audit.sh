@@ -12,6 +12,8 @@ unset CDPATH
 . "$(cd "$(dirname "$0")" && pwd)/lib/worker-command-guard-harness.sh"
 # shellcheck source=tests/lib/worker-guard-corpus.sh
 . "$REPO_ROOT/tests/lib/worker-guard-corpus.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 
 corpus_sandbox "$SANDBOX/box" "$REPO_ROOT" || {
   echo "FAIL: could not build the corpus sandbox" >&2
@@ -174,9 +176,13 @@ if [ "$(id -u)" = 0 ]; then
   echo "skip: H1.4: unwritable-log rows (running as root, permissions do not bind)"
 else
   chmod 400 "$LOG"
+  log_denied=0
+  if hermetic_access_denied w "$LOG"; then log_denied=1; fi
   n=$(lines_of "$LOG")
   run_session 'touch build/after-ro' sess-a1
-  if [ "$CODE" = 0 ] && is_allow && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' >/dev/null 2>&1 \
+  if [ "$log_denied" -eq 0 ]; then
+    echo "skip: H1.4: the running user still writes $LOG under mode 400"
+  elif [ "$CODE" = 0 ] && is_allow && printf '%s' "$OUT" | jq -e '.hookSpecificOutput.permissionDecision == "allow"' >/dev/null 2>&1 \
     && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 1 ] && [ "$(lines_of "$LOG")" = "$n" ]; then
     pass "H1.4: an own-branch allow survives an unwritable log, well-formed"
   else

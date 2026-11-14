@@ -78,6 +78,8 @@
 #                          decide from one sample or emit one event twice
 #   scripts/mc-escalate.sh a program's escalation pass, so two passes never
 #                          raise one escalation twice
+#   scripts/mc-event.sh    a program's hub event log, so concurrent emitters
+#                          each claim a distinct sequence number
 #   scripts/mc-pane-answer.sh   a program's dialog answer, so one decision
 #                          never answers twice; it also holds the escalation
 #                          pass lock above from its last check of the dialog

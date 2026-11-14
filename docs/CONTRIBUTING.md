@@ -50,7 +50,7 @@ the comprehension pass usually pays for itself.
 | Skills | `skills/<name>/SKILL.md` | The pipeline skills. Procedure, not doctrine — skills cite doctrine, they do not restate it. |
 | Scripts | [`scripts/`](../scripts/) | Portable bash entry points (validator, resolver, hooks, checks). Bash 3.2 + BSD tooling, **no fish/mise/tmux/Ansible** (REQ-K1.5). |
 | Config | [`config/defaults.yml`](../config/defaults.yml) | Tracked defaults. Every option must have an [options-reference](options-reference.md) entry or CI fails. |
-| Tests | `tests/*.sh` | Shell test suites, run under `/bin/bash`; a script may have more than one. Fixture libraries live under `tests/lib/`, sourced by a suite or run by the stub shims a fixture harness writes, and are linted, never run as suites. |
+| Tests | `tests/*.sh` | Shell test suites, run under `/bin/bash`; a script may have more than one. Fixture libraries live under `tests/lib/`, sourced by a suite, by the test runners, or run by the stub shims a fixture harness writes, and are linted, never run as suites. |
 | Specs | `specs/<feature>/` | The four-file bundles, including planwright's own, at the default spec root. |
 
 **Do not encode project- or team-specific style into core `doctrine/`.** That
@@ -192,17 +192,19 @@ a `plan` job picks the shard count (`scripts/run-tests.sh --plan-shards`,
 below), one `test` job runs each shard of the suite (`scripts/run-tests.sh
 --shard <i>/<N>`), the `macos-suite` and `alpine-suite` jobs run the suite
 in shards of their own on macOS (the system bash 3.2 and BSD userland; a
-small fixed count on GitHub's scarce hosted runners, or, once the
-`PLANWRIGHT_MAC_RUNNER` repository variable enables it, one shard on the
-offload Mac's self-hosted runner for this repository's own branches, as
-[`ci-self-hosted-mac.md`](ci-self-hosted-mac.md) describes) and in an Alpine container
+fixed count of four shards, on GitHub's scarce hosted runners or, once the
+`PLANWRIGHT_MAC_RUNNER` repository variable enables it, on the
+offload Mac's self-hosted runners for this repository's own branches, as
+[`ci-self-hosted-mac.md`](ci-self-hosted-mac.md) describes; the two macOS
+jobs run on a push, a ready pull request, or a draft labelled `ci-macos`, and
+skip on a plain draft push) and in an Alpine container
 (musl, dash, busybox; the planned count), and the `check` job, the status
 branch protection reads, passes only when every one of those jobs and shards
-does and the test-time budget gate passes over every Linux shard's timing
-report together. The install smoke (`scripts/install-smoke.sh`, installing
-through both delivery modes and running an adopter entry point with PATH
-narrowed to the allowlist the script defines: sh and bash with the POSIX
-utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
+does (the macOS jobs may be skipped on a plain draft) and the test-time budget
+gate passes over every Linux shard's timing report together. The install smoke
+(`scripts/install-smoke.sh`, installing through both delivery modes and running
+an adopter entry point with PATH narrowed to the allowlist the script defines:
+sh and bash with the POSIX utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
 the `macos-smoke` job, and in every Alpine shard. CI also runs a parse
 of every tracked shell file (outside `tests/fixtures/bash32/`) under the real
 bash 3.2, a step of the `lint` job in Docker's official `bash:3.2` image pinned by
@@ -347,7 +349,7 @@ pinning a home of its own writes the operator's registry. The runner gives every
 test file a sentinel fleet home (`PLANWRIGHT_FLEET_STATE_DIR`, and
 `CLAUDE_PLUGIN_DATA` and `CLAUDE_DIR` when they are set) and fails a file that has created anything
 there by the time it exits. Pin a fixture home per case with `fleet_home_pin` from
-[`tests/lib/fleet-home.sh`](../tests/lib/fleet-home.sh), whose
+[`tests/lib/hermetic-env.sh`](../tests/lib/hermetic-env.sh), whose
 `fleet_home_leaked` also lets a suite run on its own check that it left the
 inherited registry alone. A worker's scratch root lies outside its fleet home,
 in `/tmp/planwright-<uid>` unless `PLANWRIGHT_FLEET_SCRATCH_BASE` names
@@ -355,6 +357,23 @@ another directory (this user's, closed to everyone else), so
 the runner also points that variable into the file's sentinel; a suite that
 scrubs `PLANWRIGHT_*` and launches workers sets its own, or its roots outlive
 its fixture.
+
+### Tests pass on the code, not on the host
+
+A suite run by hand inherits whoever runs it, so a root or overlay variable
+from that shell can decide what the code under test reads.
+[`tests/lib/hermetic-env.sh`](../tests/lib/hermetic-env.sh) holds the one
+list of those variables and clears them when sourced; the runner pins the
+same list per file (`PLANWRIGHT_TEST_PIN_ENV=0` turns that off). A suite that
+reads a listed variable sources the library; a new variable goes on its list,
+never into a suite's own `unset` line. A mode-bit fixture probes the denial
+with `hermetic_access_denied` before asserting a refusal, since root reads
+what the mode forbids, and skips by name when the probe fails. A dead owner
+is a PID from `dead_owner_pid`
+([`tests/lib/dead-owner.sh`](../tests/lib/dead-owner.sh)) or a lock-library
+token, never a PID the test spawned and reaped. `check:test-hermeticity`
+fails each shape; a line it flags wrongly takes a
+`# hermetic-exempt: <reason>` comment.
 
 ### Waits hold up on a busy machine
 

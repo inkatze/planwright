@@ -43,6 +43,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 script="$here/../scripts/spec-walkthrough.sh"
 
 fail() {
@@ -456,22 +458,22 @@ esac
 # fails — the containment gate must refuse before any read, not fall through to
 # the file reads with the gate silently bypassed. A directory with no search
 # (execute) permission makes [ -d ] succeed (the parent is searchable) while
-# `cd` into it fails. Skipped as root, where permission bits are ignored.
+# `cd` into it fails.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" -ne 0 ]; then
-  uws="$tmp/unresolvable"
-  new_ws "$uws"
-  mkdir -p "$uws/specs"
-  # Real files inside, so a fall-through past the gate would actually read them.
-  make_bundle "$uws/specs" locked Active
-  chmod 000 "$uws/specs/locked"
+uws="$tmp/unresolvable"
+new_ws "$uws"
+mkdir -p "$uws/specs"
+# Real files inside, so a fall-through past the gate would actually read them.
+make_bundle "$uws/specs" locked Active
+chmod 000 "$uws/specs/locked"
+if hermetic_access_denied r "$uws/specs/locked"; then
   run_w 2 "$uws" locked
-  # Restore search permission immediately so the EXIT trap can clean up and the
-  # captured $out is still asserted below.
-  chmod 755 "$uws/specs/locked"
   has "could not resolve"
   has "before any read"
+else
+  printf '%s\n' "skip: unresolvable bundle dir: the running user still reads $uws/specs/locked under mode 000"
 fi
+chmod 755 "$uws/specs/locked"
 
 # ---------------------------------------------------------------------------
 # 12. Partial-bundle scope degradation names the absent source file, matching
@@ -543,19 +545,21 @@ has "no decisions"
 # grep's stderr like the sibling probes (`reqs:`, `decision:`, and the two
 # listers all use `2>/dev/null`), so an unreadable design.md degrades cleanly
 # through the script's own message rather than leaking grep's "Permission
-# denied" diagnostic into the output. Skipped as root (permission bits ignored).
+# denied" diagnostic into the output.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" -ne 0 ]; then
-  grws="$tmp/grep-noise"
-  new_ws "$grws"
-  mkdir -p "$grws/specs"
-  make_bundle "$grws/specs" demo Active
-  chmod 000 "$grws/specs/demo/design.md"
+grws="$tmp/grep-noise"
+new_ws "$grws"
+mkdir -p "$grws/specs"
+make_bundle "$grws/specs" demo Active
+chmod 000 "$grws/specs/demo/design.md"
+if hermetic_access_denied r "$grws/specs/demo/design.md"; then
   run_w 1 "$grws" --scope decisions demo
-  chmod 644 "$grws/specs/demo/design.md"
   lacks "Permission denied"
   has "no decision set"
+else
+  printf '%s\n' "skip: unreadable design.md grep noise: the running user still reads $grws/specs/demo/design.md under mode 000"
 fi
+chmod 644 "$grws/specs/demo/design.md"
 
 # ---------------------------------------------------------------------------
 # 15. Artifact write is atomic: a failed assembly never creates, truncates, or

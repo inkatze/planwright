@@ -56,6 +56,23 @@
 # Untrusted text (subjects, names) reaches the terminal only through
 # sanitize_printable or as jq-encoded JSON. Portable bash 3.2.
 set -u
+# LC_ALL=C below is for this script's own parsing only: git hooks run under the
+# caller's locale (C.UTF-8 when it sets none), since a C locale breaks UTF-8
+# file names in the hooked tools.
+if [ -n "${LC_ALL:-}" ]; then
+  hook_lc_all=$LC_ALL
+elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
+  hook_lc_all=
+else
+  hook_lc_all=C.UTF-8
+fi
+hook_git() {
+  if [ -n "$hook_lc_all" ]; then
+    env LC_ALL="$hook_lc_all" git "$@"
+  else
+    env -u LC_ALL git "$@"
+  fi
+}
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -328,7 +345,7 @@ push() {
   [ -n "$drops" ] || broken "no dropped commit could be listed; nothing was pushed"
   legacy=$(legacy_changes "$LEASE" "$TO")
   [ -n "$TO" ] || usage "push has no commit to push"
-  if ! git push --quiet --force-with-lease="refs/heads/$BRANCH:$LEASE" --force-if-includes \
+  if ! hook_git push --quiet --force-with-lease="refs/heads/$BRANCH:$LEASE" --force-if-includes \
     "$REMOTE" "$TO:refs/heads/$BRANCH"; then
     # A lease lost to a push or a deletion that landed in between is a
     # refusal, not a failure to retry: someone else works from the branch now.

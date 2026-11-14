@@ -13,6 +13,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 REPO_ROOT=$(cd "$here/.." && pwd)
 G="$REPO_ROOT/scripts/check-entry-points.sh"
 
@@ -266,17 +268,19 @@ printf 'two\n' >"$t/tests/fixtures/entry-points/scripts/cli.sh/exit"
 guard "$t"
 expect 5 "exit is not a number" "malformed exit"
 # An unreadable fixture file fails closed rather than reusing the previous
-# entry point's run (unenforceable as root, where every file reads).
-if [ "$(id -u)" -ne 0 ]; then
-  for f in stdin stderr; do
-    t="$tmp/unreadable-$f"
-    cp -R "$base" "$t"
-    chmod 000 "$t/tests/fixtures/entry-points/scripts/hook.sh/$f"
+# entry point's run (unenforceable where the running user reads every file).
+for f in stdin stderr; do
+  t="$tmp/unreadable-$f"
+  cp -R "$base" "$t"
+  chmod 000 "$t/tests/fixtures/entry-points/scripts/hook.sh/$f"
+  if hermetic_access_denied r "$t/tests/fixtures/entry-points/scripts/hook.sh/$f"; then
     guard "$t"
     expect 5 "scripts/hook.sh: the fixture's $f" "unreadable fixture $f"
-    chmod 644 "$t/tests/fixtures/entry-points/scripts/hook.sh/$f"
-  done
-fi
+  else
+    echo "skip: unreadable fixture $f: the running user still reads it under mode 000"
+  fi
+  chmod 644 "$t/tests/fixtures/entry-points/scripts/hook.sh/$f"
+done
 # Re-recording replaces the fixture whole: a stdin the new recording does not
 # feed is gone.
 t="$tmp/rerecord"

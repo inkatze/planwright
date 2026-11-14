@@ -19,6 +19,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 GUARD="$REPO_ROOT/scripts/check-workflow-posture.sh"
 
 failures=0
@@ -1408,18 +1410,18 @@ jobs:\r
       - run: echo x\r
 '
 
-# A workflow file the parser cannot READ is not a clean tree. Skipped under
-# root, where mode 000 does not deny a read and the case cannot be staged.
-if [ "$(id -u)" -ne 0 ]; then
-  d="$(mkdir_case fail-unreadable)"
-  printf 'name: x\n' >"$d/x.yml"
-  chmod 000 "$d/x.yml"
+# A workflow file the parser cannot READ is not a clean tree. Skipped where
+# mode 000 does not deny the running user a read and the case cannot be staged.
+d="$(mkdir_case fail-unreadable)"
+printf 'name: x\n' >"$d/x.yml"
+chmod 000 "$d/x.yml"
+if hermetic_access_denied r "$d/x.yml"; then
   out="$("$GUARD" "$d" 2>&1)"
   assert_exit "an unreadable workflow file fails closed" 1 $?
-  chmod 644 "$d/x.yml"
 else
-  echo "ok: an unreadable workflow file fails closed (skipped: running as root)"
+  echo "skip: unreadable workflow file: the running user still reads $d/x.yml under mode 000"
 fi
+chmod 644 "$d/x.yml"
 
 # ---------------------------------------------------------------------------
 # The same-repo exception: a job gated, at its own `if:`, on the PR's head
@@ -1714,6 +1716,27 @@ assert_exit "too many arguments is a usage error" 2 $?
 out="$("$GUARD" "$REPO_ROOT/.github/workflows" 2>&1)"
 assert_exit "the repo's own workflows pass" 0 $?
 
+# macOS CI runs only on a push to main, on a ready pull request, or when a pull
+# request carries the ci-macos label: the real workflow must wake on the events
+# that start it, gate both macOS jobs on the plan job's verdict, and let the
+# aggregate check job accept a skip only when that verdict was no.
+CI_YML="$REPO_ROOT/.github/workflows/ci.yml"
+for ev in opened reopened synchronize ready_for_review labeled; do
+  grep -qE "^    types: \[.*\b$ev\b.*\]" "$CI_YML"
+  assert_exit "ci.yml wakes on pull_request $ev" 0 $?
+done
+n_gate="$(grep -cF "if: \${{ needs.plan.outputs.mac_run == 'true' }}" "$CI_YML")"
+gate_rc=1
+[ "$n_gate" = 2 ] && gate_rc=0
+assert_exit "ci.yml gates exactly the two macOS jobs on the plan job's mac_run" 0 "$gate_rc"
+grep -qF "ci-macos" "$CI_YML"
+assert_exit "ci.yml names the ci-macos label" 0 $?
+# shellcheck disable=SC2016 # a literal GitHub expression
+grep -qF 'MAC_RUN: ${{ needs.plan.outputs.mac_run }}' "$CI_YML"
+assert_exit "the aggregate check job reads the mac_run verdict" 0 $?
+grep -qE 'MACOS_RESULT" = skipped' "$CI_YML"
+assert_exit "the aggregate check job accepts a macOS skip only by that verdict" 0 $?
+
 # The default argument resolves to the repo's workflow directory, so a bare
 # invocation from anywhere gives the same verdict as the explicit one.
 out="$(cd "$TMP" && "$GUARD" 2>&1)"
@@ -1803,6 +1826,30 @@ matrix_case "matrix: || : in a run block fails" 1 "swallows a failure" \
   "M_MAC_RUN=          mise run test ||:"
 matrix_case "matrix: a branch filter on the macOS job fails" 1 "carries a job-level" \
   "M_MAC_JOB=    if: github.head_ref == 'planwright/x'"
+# The one job-level if a macOS job may carry: the plan job's own verdict that
+# macOS runs for this event (a push, a ready pull request, or the ci-macos
+# label). It names no platform and cannot be widened.
+# shellcheck disable=SC2016 # literal GitHub expressions
+{
+  matrix_case "matrix: the plan job's mac_run gate on the macOS job passes" 0 \
+    "holds the platform matrix" \
+    "M_MAC_JOB=    if: \${{ needs.plan.outputs.mac_run == 'true' }}"
+  matrix_case "matrix: the bare mac_run gate on the macOS job passes, its install smoke still counted" 0 \
+    "holds the platform matrix" \
+    "M_MAC_JOB=    if: needs.plan.outputs.mac_run == 'true'"
+  matrix_case "matrix: mac_run joined to another condition on the macOS job fails" 1 "carries a job-level" \
+    "M_MAC_JOB=    if: needs.plan.outputs.mac_run == 'true' && github.head_ref == 'planwright/x'"
+  matrix_case "matrix: a mac_run gate spread over two lines with another condition fails" 1 "carries a job-level" \
+    "M_MAC_JOB=    if: >-
+      needs.plan.outputs.mac_run == 'true'
+      || github.event_name == 'push'"
+  matrix_case "matrix: mac_run compared to anything but 'true' fails" 1 "carries a job-level" \
+    "M_MAC_JOB=    if: needs.plan.outputs.mac_run != 'true'"
+  matrix_case "matrix: the mac_run gate on the Alpine job fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: needs.plan.outputs.mac_run == 'true'"
+  matrix_case "matrix: the mac_run gate on the Ubuntu job leaves its install smoke gated" 1 "install smoke" \
+    "M_LINT_JOB=    if: needs.plan.outputs.mac_run == 'true'"
+}
 # shellcheck disable=SC2016 # a literal GitHub expression
 matrix_case "matrix: any job-level if on the Alpine job fails" 1 "carries a job-level" \
   'M_ALP_JOB=    if: ${{ !cancelled() }}'

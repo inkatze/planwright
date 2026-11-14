@@ -1,7 +1,9 @@
 # shellcheck shell=bash
 # policy-guard-harness.sh — the shared fixture harness for the policy-guard
-# suites (sourced, never executed): tests/test-policy-guard.sh (the git and
-# pull-request acts), tests/test-policy-guard-hidden.sh (spellings that hide
+# suites (sourced, never executed): tests/test-policy-guard.sh (the pull-request
+# and base-merge acts), tests/test-policy-guard-rewrites.sh (rewrites, pushes,
+# the protected set), tests/test-policy-guard-kickoff.sh (the kickoff sign-off
+# push), tests/test-policy-guard-hidden.sh (spellings that hide
 # an act, and routine commands that must stay deferred), and
 # tests/test-policy-guard-gh-api.sh (the gh api acts).
 #
