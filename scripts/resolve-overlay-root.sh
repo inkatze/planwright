@@ -262,8 +262,8 @@ case $layer in
     # directory already holds an overlay, so nothing is guessed.
     if [ -n "$claude_dir" ] && [ -r "$script_dir/resolve-installed-roots.sh" ]; then
       pd_roots=$(
-        /bin/sh "$script_dir/resolve-installed-roots.sh" --current
-        /bin/sh "$script_dir/resolve-installed-roots.sh"
+        /bin/sh "$script_dir/resolve-installed-roots.sh" --current || :
+        /bin/sh "$script_dir/resolve-installed-roots.sh" || :
       ) || pd_roots=''
       pd_nl='
 '
