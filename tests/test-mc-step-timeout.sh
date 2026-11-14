@@ -1,0 +1,158 @@
+#!/bin/bash
+# Tests for the runner's step timeout: a watcher run or a snapshot refresh
+# that runs past its timeout knob is stopped, the expiry is an event, the
+# pass's other watchers still run, and the watcher runs again on its next
+# cadence (mission-control REQ-E1.6, REQ-E1.5; D-40).
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor):
+#   ./tests/test-mc-step-timeout.sh
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+here=$(cd "$(dirname "$0")" && pwd)
+repo_root=$(cd "$here/.." && pwd)
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
+
+failures=0
+fail() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
+ok() { echo "ok: $1"; }
+
+tmp=$(mktemp -d) || exit 1
+if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
+  echo "FAIL: mktemp -d produced no usable directory" >&2
+  exit 1
+fi
+tmp=$(cd "$tmp" && pwd -P) || exit 1
+
+# shellcheck source=tests/lib/mission-control-fixture.sh
+. "$here/lib/mission-control-fixture.sh"
+
+# shellcheck source=tests/lib/mc-watch-fixture.sh
+. "$here/lib/mc-watch-fixture.sh"
+
+# A watcher that never returns, recording when it started and the pid of the
+# child it hangs on.
+cat >"$core/scripts/hang-watch.sh" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$(date +%s)" >>"$WATCH_RUNS/hang-start"
+printf 'run\n' >>"$WATCH_RUNS/hang-watch"
+sleep 60 &
+printf '%s\n' "$!" >>"$WATCH_RUNS/hang-child"
+wait
+EOF
+
+# setup_hang <knob lines>: a duty with the hanging watcher and a fast one,
+# both on a one-second cadence, and the knob lines in the repo layer.
+setup_hang() {
+  setup '[hang-duty]'
+  cat >"$repo/.claude/catalogs/duties.yaml" <<'EOF'
+duties:
+  - id: hang-duty
+    summary: "A duty whose first watcher hangs"
+    triggers: []
+    watchers: [scripts/hang-watch.sh@1s/low, scripts/fast-watch.sh@1s/low]
+    wake: none
+    rules: []
+    kinds: []
+    files: hang
+    lifecycle: live
+    never-propose: false
+EOF
+  printf '%s\n' "$1" >>"$tracked"
+}
+
+# ---------------------------------------------------------------------------
+# REQ-E1.6: the default knob stops a hung watcher run within a second of it,
+# the event names the expiry, the other watcher keeps running, and the hung
+# one runs again.
+# ---------------------------------------------------------------------------
+setup_hang 'mission_control_step_timeout: 2'
+mc_run mc-watch.sh pass --program alpha
+expect_rc "REQ-E1.6: a pass arms the hanging watcher" 0
+hang_slot=$(slot_for hang-watch.sh)
+check "the hung run's end is recorded" poll_until --what "the stopped run's record" -- test -s "$wdir/$hang_slot.last"
+started=$(head -n 1 "$WATCH_RUNS/hang-start")
+IFS="$tab" read -r stopped_at last_rc _ <"$wdir/$hang_slot.last"
+if [ $((stopped_at - started)) -le 3 ]; then
+  ok "REQ-E1.6: the run was stopped within a second of the 2s knob"
+else
+  fail "REQ-E1.6: the run ended $((stopped_at - started))s after it started, past the 2s knob"
+fi
+check "REQ-E1.6: the stopped run did not exit cleanly" test "$last_rc" != 0
+hang_child=$(head -n 1 "$WATCH_RUNS/hang-child")
+check "REQ-E1.6: the hung run's own child is stopped too" poll_until --deadline 10 --what "the hung child's exit" -- pid_gone "$hang_child"
+mc_run mc-event.sh list --program alpha
+expect_out "REQ-E1.5: the expiry is an event naming the duty" "watcher-timeout${tab}hang-duty${tab}scripts/hang-watch.sh ran past 2s and was stopped"
+check "REQ-E1.6: the pass's other watcher still runs" poll_until --what "the fast watcher's run" -- ran fast-watch 2
+check "REQ-E1.6: the stopped watcher runs again on its next cadence" poll_until --what "the second hung run" -- ran hang-watch 2
+
+# ---------------------------------------------------------------------------
+# REQ-E1.6: a per-watcher override beats the default knob.
+# ---------------------------------------------------------------------------
+setup_hang 'mission_control_step_timeout: 300
+mission_control_step_timeout_overrides: {hang-duty: 2}'
+mc_run mc-watch.sh pass --program alpha
+hang_slot=$(slot_for hang-watch.sh)
+check "an override's run is stopped although the default is 300s" poll_until --what "the stopped run's record" -- test -s "$wdir/$hang_slot.last"
+mc_run mc-event.sh list --program alpha
+expect_out "the override's expiry is an event" "watcher-timeout${tab}hang-duty${tab}scripts/hang-watch.sh ran past 2s and was stopped"
+
+# A default that is no count of seconds fails the read, named.
+setup_hang 'mission_control_step_timeout: soon'
+mc_run mc-watch.sh pass --program alpha
+expect_rc "an invalid repo-layer default fails the pass" 1
+expect_err "and names the knob" "mission_control_step_timeout"
+
+# ---------------------------------------------------------------------------
+# REQ-E1.6: a hung snapshot refresh is stopped the same way, the pass goes
+# on, and the next pass refreshes.
+# ---------------------------------------------------------------------------
+setup '[beta-duty]' '' '{work-items: tracker:snapshot}'
+printf '%s\n' 'mission_control_step_timeout_overrides: {snapshot: 2}' >>"$tracked"
+cat >"$repo/scripts/tracker-adapter.sh" <<'EOF'
+#!/bin/sh
+sleep 60 &
+printf '%s\n' "$!" >>"$WATCH_RUNS/adapter-child"
+wait
+EOF
+mc_run mc-wake.sh target add --program alpha ghost
+mc_run mc-event.sh emit --program alpha pr-ready pr-1
+snap_start=$(date +%s)
+mc_run mc-watch.sh pass --program alpha
+snap_end=$(date +%s)
+expect_rc "REQ-E1.6: a pass with a hung refresh fails" 1
+expect_out "the stopped refresh is reported" "snapshot${tab}timeout${tab}2"
+if [ $((snap_end - snap_start)) -le 4 ]; then
+  ok "REQ-E1.6: the pass was not held past the 2s knob by more than a second or two"
+else
+  fail "REQ-E1.6: the pass ran $((snap_end - snap_start))s with a 2s refresh timeout"
+fi
+expect_out "REQ-E1.6: the rest of the pass still runs" "wake${tab}unreachable${tab}ghost"
+adapter_child=$(head -n 1 "$WATCH_RUNS/adapter-child")
+check "the hung adapter's child is stopped" poll_until --deadline 10 --what "the adapter child's exit" -- pid_gone "$adapter_child"
+mc_run mc-event.sh list --program alpha
+expect_out "REQ-E1.5: the refresh expiry is an event" "snapshot-timeout${tab}snapshot${tab}the snapshot refresh ran past 2s and was stopped"
+cat >"$repo/scripts/tracker-adapter.sh" <<'EOF'
+#!/bin/sh
+out=""
+while [ $# -gt 0 ]; do
+  [ "$1" = --out ] && out=$2
+  shift
+done
+printf 'item\tT-1\topen\n' >"$out"
+EOF
+mc_run mc-watch.sh pass --program alpha
+expect_rc "REQ-E1.6: the next pass runs again" 0
+expect_out "and refreshes the snapshot" "snapshot${tab}refreshed${tab}tracker"
+
+if [ "$failures" -gt 0 ]; then
+  echo "$failures failure(s)" >&2
+  exit 1
+fi
+echo "all passed"
