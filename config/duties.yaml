@@ -158,3 +158,13 @@ duties:
     files: usage-window
     lifecycle: live
     never-propose: false
+  - id: idle-capacity
+    summary: "Notices free worker slots beside a waiting backlog and says which units to launch"
+    triggers: [idle-capacity, idle-capacity-undeclared]
+    watchers: [scripts/mc-idle.sh@5m/low]
+    wake: idle-capacity
+    rules: []
+    kinds: []
+    files: idle-capacity
+    lifecycle: live
+    never-propose: false

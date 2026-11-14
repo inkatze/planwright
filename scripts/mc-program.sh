@@ -18,6 +18,9 @@
 #   sources       {class: source:mode, ...}
 #                               the state-source map; default
 #                               mission_control_default_sources
+#   idle_backlog  path | off    the file of ranked unit ids the idle-capacity
+#                               duty reads for this program alone (absolute
+#                               or ~/); default off, none
 # A program name is lowercase letters and digits, hyphen separated, starting
 # with a letter, at most 64 characters. A budget key is lowercase snake case;
 # a source is a kebab name (lowercase letters, digits and hyphens).
@@ -78,7 +81,7 @@ fi
 . "$script_dir/echo-safety.sh" || exit 2
 
 CLASSES="work-items code-state decisions deadlines designs"
-FIELDS="repositories spec_root home duties budget sources"
+FIELDS="repositories spec_root home duties budget sources idle_backlog"
 
 usage() {
   printf '%s\n' "usage: mc-program.sh list | get <name> <field> | default <field> | posture <name> | validate <name>" >&2
@@ -350,6 +353,14 @@ EOF
 parse_spec_root() { expand_path "$1" spec_root "$2"; }
 parse_home() { expand_path "$1" home "$2"; }
 
+parse_idle_backlog() {
+  if [ "$2" = off ]; then
+    printf '%s\n' off
+  else
+    expand_path "$1" idle_backlog "$2"
+  fi
+}
+
 parse_duties() {
   members=$(read_list "$1" duties "$2") || return 1
   while IFS= read -r m; do
@@ -541,6 +552,16 @@ field_budget() {
 }
 
 field_sources() { with_default "$1" sources mission_control_default_sources parse_sources; }
+
+field_idle_backlog() {
+  layered "$1" idle_backlog "$(key_of "$1" idle_backlog)" parse_idle_backlog
+  fi_rc=$?
+  if [ "$fi_rc" -eq 3 ]; then
+    printf '%s\n' off
+    return 0
+  fi
+  return "$fi_rc"
+}
 
 # common_dir <dir>: the canonical git common directory of <dir>, or nothing.
 common_dir() {

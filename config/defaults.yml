@@ -1071,7 +1071,7 @@ mission_control_home_root: ~/.config/planwright/mission-control
 # The duties a program enables when its block names none: the shipped set in
 # config/duties.yaml.
 # yamllint disable-line rule:line-length
-mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals, throughput, usage-window]
+mission_control_default_duties: [session-keeper, inbox, readiness-check, conflict-radar, deadline-watch, prepared-moments, undo-ledger, self-audit, proposals, throughput, usage-window, idle-capacity]
 # The state-source map a program declaring none resolves to: class:
 # source:mode entries over the fact classes (work-items, code-state,
 # decisions, deadlines, designs), mode record, snapshot or cited. A class the
@@ -1248,6 +1248,11 @@ mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 
 # How much, in percent, a raised bottleneck's total time must grow before
 # it is raised again.
 mission_control_throughput_worsen: 50
+# The idle-capacity duty (scripts/mc-idle.sh): how long before it raises the
+# same idle state again, a cadence. The backlog it reads when a worker slot
+# is free is per program: program_<name>_idle_backlog, the path of a file of
+# ranked units (see docs/options-reference.md), `off` when unset.
+mission_control_idle_interval: 30m
 # The stalled-pipeline alarm (scripts/mc-pipeline-stall.sh): how long a
 # program may have open draft pull requests with no ready flip before a
 # pipeline-stalled failure is raised, and again after each further window

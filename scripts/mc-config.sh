@@ -53,7 +53,8 @@ and the command exits 4.
 
 WHAT IT WRITES, and nothing else: mission_control_programs (by add, or a
 restore naming valid program names), a program_<name>_<field> key of a
-program block (repositories, spec_root, home, duties, budget, sources), and
+program block (repositories, spec_root, home, duties, budget, sources,
+idle_backlog), and
 these knobs, each value checked by its kind:
   mission_control_guidance          guided, standard or expert
   mission_control_kickoff_mode      relay or manual
@@ -174,7 +175,7 @@ usage() {
   mc_usage_fail "usage: mc-config.sh entry|mode|layer|add|set|duty|knob|restore|apply|doctor ... (mc-config.sh --help)"
 }
 
-FIELDS='repositories spec_root home duties budget sources'
+FIELDS='repositories spec_root home duties budget sources idle_backlog'
 
 scratch=''
 # shellcheck disable=SC2329 # invoked from the EXIT trap

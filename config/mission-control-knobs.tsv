@@ -63,6 +63,7 @@ throughput-window	mission_control_throughput_window	scripts/mc-throughput.sh
 throughput-ci-runs	mission_control_throughput_ci_runs	scripts/mc-throughput.sh
 throughput-thresholds	mission_control_throughput_thresholds	scripts/mc-throughput.sh
 throughput-worsen	mission_control_throughput_worsen	scripts/mc-throughput.sh
+idle-interval	mission_control_idle_interval	scripts/mc-idle.sh
 stalled-pipeline-window	mission_control_stalled_pipeline_window	scripts/mc-pipeline-stall.sh
 draft-clipboard	mission_control_clipboard	scripts/mc-inbox.sh
 guidance-level	mission_control_guidance	scripts/mc-config.sh
