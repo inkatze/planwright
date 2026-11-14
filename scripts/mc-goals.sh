@@ -156,7 +156,7 @@ while [ $# -gt 0 ]; do
         --text) text=$2 ;;
         --now) now_raw=$2 ;;
         --timeout)
-          mc_valid_uint "$2" && [ "$2" -ge 1 ] || mc_usage_fail "--timeout takes a whole number of seconds"
+          mc_valid_uint "$2" && [ "$2" -ge 1 ] && [ "${#2}" -le 6 ] || mc_usage_fail "--timeout takes a whole number of seconds, at most six digits"
           timeout=$2
           ;;
       esac
@@ -202,7 +202,7 @@ valid_ref() {
       vr_body=${1#pr:}
       vr_slug=${vr_body%%#*}
       vr_n=${vr_body##*#}
-      case $vr_slug in *[!A-Za-z0-9._/-]* | -* | */-* | */*/*) return 1 ;; esac
+      case $vr_slug in "" | /* | */ | *[!A-Za-z0-9._/-]* | -* | */-* | */*/*) return 1 ;; esac
       case $vr_n in *[!0-9]*) return 1 ;; esac
       return 0
       ;;
@@ -219,7 +219,7 @@ valid_ref() {
 }
 
 check_store() {
-  [ -f "$store" ] || exit 0
+  [ -f "$store" ] || mc_fail "no goal ${1:-$id}: there are no goals yet"
   mc_store_ok "$store" || mc_fail "the goal store has a missing or unknown format: $store"
 }
 
@@ -251,6 +251,12 @@ mutate() {
   mc_kb_unlock
 }
 
+# reset_flags: a new check starts a new episode, so it may route and raise again.
+reset_flags() {
+  del_flag routed
+  del_flag reopened
+  del_flag verify
+}
 has_word() {
   case " $1 " in *" $2 "*) return 0 ;; esac
   return 1
@@ -303,11 +309,12 @@ show_line() {
 # run_check: the loaded goal's stored command run as written, from the home,
 # under the timeout; RUN_RC, RUN_EVIDENCE.
 run_check() {
+  RUN_CMD=$1
   rc_dir=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory"
   rc_script=$(mktemp "$rc_dir/goal-check.XXXXXX") || mc_fail "cannot create the check file"
   rc_out=$(mktemp "$rc_dir/goal-check-out.XXXXXX") || mc_fail "cannot create the check output file"
   printf '%s' "$1" >"$rc_script" || mc_fail "cannot write the check file"
-  (cd "$home" && /bin/sh "$script_dir/bounded-run.sh" "$timeout" /bin/bash "$rc_script" </dev/null >"$rc_out" 2>&1)
+  (cd "$home" && /bin/sh "$script_dir/bounded-run.sh" -k 5 "$timeout" /bin/bash "$rc_script" </dev/null >"$rc_out" 2>&1)
   RUN_RC=$?
   RUN_OUT=$(head -c "$EVIDENCE_MAX" "$rc_out" | tr '\t\n\r' '   ' | mc_clean_text)
   rm -f "$rc_script" "$rc_out"
@@ -322,6 +329,8 @@ run_check() {
 }
 
 apply_run() {
+  # The check was confirmed again while it ran: its result is for the old command.
+  [ "$G_command" = "$RUN_CMD" ] || return 0
   G_ran=$NOW
   G_evidence=$RUN_EVIDENCE
   if [ "$RUN_RC" -eq 0 ]; then
@@ -373,12 +382,13 @@ case $verb in
     ;;
   confirm)
     do_confirm() {
-      [ -z "$statement" ] || G_statement=$(fld "$statement")
+      [ -z "$statement" ] || G_statement=$(fld "$statement") || exit 1
       if [ "$no_command" -eq 1 ]; then
         [ "$G_command" = - ] || {
           G_command=-
           G_state=unrun
           G_evidence=-
+          reset_flags
         }
       elif [ "$has_command" -eq 1 ]; then
         dc_cmd=$(fld "$command") || exit 1
@@ -386,6 +396,7 @@ case $verb in
           G_command=$dc_cmd
           G_state=unrun
           G_evidence=-
+          reset_flags
         }
       fi
       [ "$G_state" != unconfirmed ] || G_state=unrun
@@ -412,7 +423,16 @@ case $verb in
       [ "$G_command" = - ] || mc_fail "$G_id has a command check; evidence is for a check with no command"
       G_ran=$NOW
       G_evidence="reported $holds: $ev"
-      if [ "$holds" = yes ]; then G_state=passing; else G_state=failing; fi
+      if [ "$holds" = yes ]; then
+        G_state=passing
+        del_flag routed
+      else
+        G_state=failing
+        if all_merged && ! has_word "$G_flags" routed; then
+          route_fix "goal $G_id merged but not done: $(val "$G_outcome"): $G_evidence"
+          add_flag routed
+        fi
+      fi
     }
     mutate "$id" do_evidence
     printf 'recorded\t%s\n' "$id"
@@ -441,6 +461,7 @@ case $verb in
     show_line
     ;;
   list)
+    [ -f "$store" ] || exit 0
     check_store
     for gid in $(ids); do
       load "$gid"
@@ -448,8 +469,26 @@ case $verb in
     done
     ;;
   watch)
+    [ -f "$store" ] || exit 0
     check_store
     status_rc=0
+    # The runner starts the watcher bare: the first run after its armed time
+    # changes is the bring-up.
+    if [ "$bring_up" -eq 0 ] && [ "${PLANWRIGHT_MC_DUTY:-}" = goal-check ]; then
+      wrt=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory"
+      armed=""
+      set +f
+      for rec in "$wrt"/watchers/*.rec; do
+        [ -f "$rec" ] || continue
+        armed=$(awk -F '\t' '$3 == "goal-check" { print $2; exit }' "$rec")
+        [ -z "$armed" ] || break
+      done
+      set -f
+      if [ -n "$armed" ] && [ "$armed" != "$(cat "$wrt/goal-check.armed" 2>/dev/null)" ]; then
+        bring_up=1
+        printf '%s\n' "$armed" | mc_write "$wrt/goal-check.armed" || mc_fail "cannot write $wrt/goal-check.armed"
+      fi
+    fi
     for gid in $(ids); do
       load "$gid"
       [ "$G_state" != unconfirmed ] || continue

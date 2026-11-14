@@ -344,7 +344,8 @@ operator's yes, with `scripts/mc-config.sh`'s
 **Goals** (D-44): draft the check for a goal the operator sets and add it with
 `scripts/mc-goals.sh`'s `set`; put `show`'s command to them verbatim and
 `confirm` their one-line answer. A goal is done only when `list` says `done`;
-on a `goal-verify-due` event, `verify --launch` starts the read-only session and
+`run` runs a confirmed command check and `attach` tracks more work; on a
+`goal-verify-due` event, `verify --launch` starts the read-only session and
 `evidence` records what it reported; `landed` records a merged flight or task.
 
 ## Kickoffs and amendments (REQ-I1.5)

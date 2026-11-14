@@ -82,6 +82,15 @@ expect_status() { # expect_status <label> <id> <want>
   got=$(status_of "$2")
   if [ "$got" = "$3" ]; then ok "$1"; else fail "$1: status of $2 is '$got', wanted '$3'"; fi
 }
+goals_duty() { # goals_duty <args...>: the watcher as the runner starts it
+  OUT=$(PATH="$tmp/bin:$PATH" FAKE_FORGE="$tmp/forge" mc_env env PLANWRIGHT_MC_DUTY=goal-check /bin/bash "$repo_root/scripts/mc-goals.sh" "$@" --program alpha 2>"$tmp/stderr")
+  RC=$?
+  ERR=$(cat "$tmp/stderr")
+}
+expect_items() { # expect_items <label> <id> <want>
+  got=$(item_count "$2")
+  if [ "$got" = "$3" ]; then ok "$1"; else fail "$1: $2 has $got open items, wanted $3"; fi
+}
 
 # ---------------------------------------------------------------------------
 # REQ-N1.1: an unconfirmed check lists as unconfirmed and never as done;
@@ -135,6 +144,9 @@ n=$(item_count "$g2")
 goals watch --now $((now + 60))
 n=$(item_count "$g2")
 [ "$n" = 1 ] && ok "REQ-N1.2: a later pass does not route the same failure again" || fail "REQ-N1.2: expected still 1 item, got $n"
+goals confirm "$g2" --command "exit 5"
+goals watch --now $((now + 7200))
+expect_items "REQ-N1.2: a corrected check that fails again routes its own fix" "$g2" 2
 
 forge 202 MERGED "slow check work"
 goals set --outcome "Slow" --statement "slow check" --command "sleep 5" --work "pr:inkatze/planwright#202"
@@ -145,6 +157,7 @@ expect_out "REQ-N1.2: a timed-out check reports failing" "checked${tab}$g3${tab}
 goals show "$g3"
 expect_out "REQ-N1.2: the timeout is named" "timed out"
 expect_status "REQ-N1.2: a timed-out check on merged work is merged but not done" "$g3" merged-not-done
+expect_items "REQ-N1.2: the timed-out check routes one fix" "$g3" 1
 
 # A merge of work no goal tracks runs no check.
 forge 999 MERGED "unrelated work"
@@ -230,12 +243,50 @@ case $(cat "$brief" 2>/dev/null) in
 esac
 goals evidence "$g6" --holds no --text "host still on 0.70"
 expect_status "REQ-N1.2: evidence that the outcome does not hold leaves it not done" "$g6" merged-not-done
+expect_items "REQ-N1.2: evidence that the outcome does not hold routes one fix" "$g6" 1
+goals run "$g6"
+expect_rc "run refuses a goal whose check has no command" 1
 goals evidence "$g6" --holds yes --text "host reports 0.75.2"
 expect_status "REQ-N1.2: evidence that the outcome holds makes it done" "$g6" "done"
 goals watch --now $((now + 10 * day)) --bring-up
 expect_status "REQ-N1.3: a done session goal is not re-run on its own" "$g6" "done"
 launches=$(event_count goal-verify-due)
 [ "$launches" = 1 ] && ok "REQ-N1.3: no verification is requested for a done session goal" || fail "REQ-N1.3: re-requested a done session goal"
+
+# attach and landed: a flight ref is tracked, and merged only when recorded.
+goals set --outcome "Flight work" --statement "f" --command "true" --work "flight:mc-example-1"
+g8=$OUT
+goals confirm "$g8"
+goals landed "$g8" --work "flight:other"
+expect_rc "landed refuses a ref the goal does not track" 1
+goals attach "$g8" --work "pr:inkatze/planwright#403"
+expect_rc "attach tracks more work" 0
+goals landed "$g8" --work "pr:inkatze/planwright#403"
+expect_rc "landed refuses a pull request ref, which the forge answers" 1
+goals landed "$g8" --work "flight:mc-example-1"
+expect_rc "landed records the flight as merged" 0
+expect_status "a goal tracking an unmerged pull request is still open" "$g8" open
+
+# The runner starts the watcher bare: the first run after it is armed is the
+# bring-up, once.
+sentinel8="$tmp/bringup-ok"
+: >"$sentinel8"
+goals set --outcome "Bring-up" --statement "b" --command "test -e $sentinel8" --work "pr:inkatze/planwright#203"
+g9=$OUT
+goals confirm "$g9"
+goals run "$g9" --now "$now"
+rm -f "$sentinel8"
+mkdir -p "$fleet/mission-control/alpha/watchers"
+printf '1234\t%s\tgoal-check\tscripts/mc-goals.sh\t15m\tlow\n' "$now" >"$fleet/mission-control/alpha/watchers/goal-check.rec"
+ev0=$(event_count goal-reopened)
+goals_duty watch --now $((now + 10))
+ev1=$(event_count goal-reopened)
+[ "$ev1" = $((ev0 + 1)) ] && ok "REQ-N1.3: a bare watcher run after it is armed re-checks at bring-up" || fail "REQ-N1.3: no bring-up re-check from the bare watcher run"
+: >"$sentinel8"
+goals run "$g9" --now $((now + 20))
+rm -f "$sentinel8"
+goals_duty watch --now $((now + 30))
+expect_status "REQ-N1.3: the next bare run inside the day is not a bring-up" "$g9" "done"
 
 # ---------------------------------------------------------------------------
 # REQ-N1.4: a hostile pull request title leaves no sentinel; the executed
