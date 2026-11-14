@@ -9,7 +9,7 @@
 # tier in exactly the sessions marked as towers and defers everywhere else.
 # The profile launch stays a second, additional layer; both only deny.
 #
-# Usage, as hooks/hooks.json wires it:
+# Usage (as hooks/hooks.json wires it):
 #   tower-session.sh guard bash    PreToolUse on Bash.
 #   tower-session.sh guard mcp     PreToolUse on the GitHub MCP write tools.
 #   tower-session.sh prompt-hook   UserPromptSubmit: mark the session when the
@@ -18,15 +18,15 @@
 #                                  /mission-control prompt writes the sibling
 #                                  <session id>.mission-control mark instead.
 # And as a tower's bring-up runs it, the activation handshake:
-#   tower-session.sh activate      In a session where the guard hook is live,
-#   tower-session.sh activate tower  the hook marks the session and refuses
-#                                  the command with a reason opening with
-#                                  ACTIVE, so its body never runs. If it runs,
-#                                  no hook stopped it: it says so and exits 3.
-#                                  The two spellings are the two kinds of mark:
-#                                  bare is `orchestrate`, `activate tower` is
-#                                  `tower`; only a command equal to one of them
-#                                  is a handshake.
+#   tower-session.sh activate [tower]   In a session where the guard hook is
+#                                  live, the hook marks the session and
+#                                  refuses the command with a reason opening
+#                                  with ACTIVE, so its body never runs. If it
+#                                  runs, no hook stopped it: it says so and
+#                                  exits 3. Bare marks the session
+#                                  orchestrate, `activate tower` marks it
+#                                  tower; only a command equal to one of the
+#                                  two spellings is a handshake.
 #   tower-session.sh kind <sid>    Print the session's mark kind: none,
 #                                  orchestrate, or tower. A mark written
 #                                  before kinds existed carries none and reads
