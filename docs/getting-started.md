@@ -325,9 +325,10 @@ policy and the altitude split behind it live in the doctrine.
 2. **You merge the release PR.** The merge *is* the release approval, and it
    stays a human act in GitHub's UI (or, under `merge_policy: on-approval`,
    your enabling auto-merge) under every `merge_policy` value: the policy class
-   admits only task branches, so the one exception is the `release` class you
-   enable in `auto_merge_classes` (default empty), your standing authorization.
-   With it off, no planwright command merges the release PR. Merging
+   admits only task branches, so a release PR merges only through the `release`
+   class in `auto_merge_classes`, otherwise only by a human. The class is your
+   standing authorization and is empty by default; with it off, no planwright
+   command merges the release PR. Merging
    lands the version bump on `main` and opens the **untagged window**.
 3. **The untagged window is locked by a required CI check.** This is the
    [release-tagging policy](../doctrine/release-tagging.md)'s forcing function:
