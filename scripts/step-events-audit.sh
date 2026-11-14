@@ -11,8 +11,9 @@
 #   - an in-session skill step starts on the second of its Skill tool call;
 #   - a polish or self-review recorded passed or applied has an Agent tool
 #     call inside its span;
-#   - a fix-round step does not start before the session's first event, unless
-#     it repeats the start of an earlier run's record of the same step;
+#   - a fix-round step does not start before the first event of the earliest
+#     session live at its end (any session when none is), unless it repeats
+#     the start of an earlier run's record of the same step;
 #   - a polish recorded passed ended on its start head (record alone).
 #
 # Output:
@@ -74,8 +75,8 @@ if [ -s "$work/files" ]; then
     set --
     while IFS= read -r f; do set -- "$@" "$f"; done <"$work/files"
     # shellcheck disable=SC2016 # a jq program
-    if jq -r 'select(.timestamp != null) | (.timestamp[0:19] + "Z") as $t
-      | ("first\t" + $t),
+    if jq -r 'input_filename as $f | select(.timestamp != null) | (.timestamp[0:19] + "Z") as $t
+      | ("first\t" + $t + "\t" + $f),
         ((.message.content? // [])[]? | select(type == "object" and .type == "tool_use")
           | select(.name == "Skill" or .name == "Agent" or .name == "Task")
           | "call\t" + $t + "\t" + .name + "\t" + ((.input.skill // "") | tostring))' \
@@ -111,7 +112,7 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
   }
   function fault(msg) { print "fault\t" id "\t" F["step"] "\t" msg; bad = 1 }
   function unverified() { print "unverified\t" id "\t" F["step"] "\t" WHY }
-  function judge(   sk, o, near, d, best, i, got, span, s, e) {
+  function judge(   sk, o, near, d, best, i, got, span, s, e, floor) {
     o = F["outcome"]
     sk = F["kind"] == "skill" ? skill_name(F["target"]) : ""
     if (o == "passed" && (sk == "polish" || F["step"] == "polish") && F["head"] != F["end-head"])
@@ -137,7 +138,12 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
       for (i = 1; i <= nag; i++) if (agt[i] >= s && agt[i] <= e) { span = 1; break }
       if (!span) fault("recorded " o ", but the session events show no Agent tool call between " s " and " e)
     }
-    if (need5 && first != "" && s < first && !(((F["step"] SUBSEP s) in rstart) && rstart[F["step"] SUBSEP s] != curun)) fault("start " s " is before the session first event at " first)
+    if (need5) {
+      floor = ""
+      for (i in sf) if (sf[i] <= e && sl[i] >= e && (floor == "" || sf[i] < floor)) floor = sf[i]
+      if (floor == "") floor = first
+      if (floor != "" && s < floor && !(((F["step"] SUBSEP s) in rstart) && rstart[F["step"] SUBSEP s] != curun)) fault("start " s " is before the session first event at " floor)
+    }
   }
   # A round repeated in a later run by a fresh records worker keeps the start of
   # the earlier record of that round; only the start of an earlier run counts.
@@ -157,7 +163,11 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
     note_start(parts[n - 1])
   }
   FILENAME == ARGV[1] {
-    if ($1 == "first" && (first == "" || $2 < first)) first = $2
+    if ($1 == "first") {
+      if (first == "" || $2 < first) first = $2
+      if (!($3 in sf) || $2 < sf[$3]) sf[$3] = $2
+      if (!($3 in sl) || $2 > sl[$3]) sl[$3] = $2
+    }
     else if ($1 == "call" && $3 == "Skill") { sk = $4; sub(/^[^:]*:/, "", sk); skt[sk, ++nsk[sk]] = $2 }
     else if ($1 == "call") agt[++nag] = $2
     next

@@ -207,6 +207,35 @@ done_at "$r2" post-pr
 audit --through post-pr
 [ "$RC" -eq 0 ]
 verdict $? "a repeated round starting after the first event passes" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+fresh
+catalog "$FIX"
+config 'steps_convergence: []' 'steps_post_pr: [fix-round-1]'
+session 2026-11-04T09:00:00
+call 2026-11-04T09:10:00 Agent
+n=$((n + 1))
+session 2026-11-04T10:00:00
+call 2026-11-04T10:31:00 Agent
+r=$(sr new-run)
+prec "$r" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T09:50:00Z 2026-11-04T10:30:00Z
+done_at "$r" post-pr
+audit --through post-pr
+[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:50:00Z is before the session first event at 2026-11-04T10:00:00Z"
+verdict $? "an earlier session in the worktree does not cover a fix round started before its own session" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+fresh
+catalog "$FIX"
+config 'steps_convergence: []' 'steps_post_pr: [fix-round-1]'
+session 2026-11-04T10:00:00
+call 2026-11-04T10:31:00 Agent
+n=$((n + 1))
+session 2026-11-04T10:20:00
+call 2026-11-04T10:40:00 Agent
+r=$(sr new-run)
+prec "$r" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T10:05:00Z 2026-11-04T10:30:00Z
+done_at "$r" post-pr
+audit --through post-pr
+[ "$RC" -eq 0 ]
+verdict $? "a session opened inside a fix round's span does not fault the round" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
 # --- events that cannot be reached are reported, never passed silently ---------
 fresh
