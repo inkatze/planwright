@@ -108,7 +108,8 @@
 #                 end head is --head, retired once a higher run holds a
 #                 passed, applied, or `resume`-skipped record of the same
 #                 step id ending there (a skip only when the record it names
-#                 would qualify for lookup resume). Records are read as lookup reads
+#                 would qualify for lookup resume; a pr-agent-pr one also
+#                 retires a limited cubic-pr). Records are read as lookup reads
 #                 them, a run's order taken from its directory: a malformed
 #                 record retires nothing and, recording limited (or, in the
 #                 attempt, anything; or any outcome but passed, applied,
