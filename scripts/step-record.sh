@@ -21,6 +21,7 @@
 #       [--stands-on <run>:<point>:<seq>]
 #       [--pool <pool> --wait <seconds> [--holder <text>]... [--unpooled]]
 #       [--fingerprint <fp> --args-digest <digest>] [--refire-of <point>]
+#       [--awaiting-operator <start>,<end>,<what>]...
 #   step-record.sh [--worktree <dir>] write --completion --run <id>
 #       --point <point> [--head <sha>] [--warning <text>]...
 #   step-record.sh [--worktree <dir>] write --full-suite --run <id>
@@ -229,6 +230,17 @@
 #                  --wait (whole seconds, at most nine digits) is required,
 #                  and --wait, --holder (repeats), and --unpooled (a flag)
 #                  are refused without it
+#   --awaiting-operator
+#                  <start>,<end>,<what>: a span the step parked on a person
+#                  and resumed, repeatable, a step record only. Start and end
+#                  are YYYY-MM-DDTHH:MM:SSZ, literal UTC to the second, the
+#                  end not earlier than the start, both inside the step's own
+#                  --start and --end; <what> is the single-line text of what
+#                  was awaited (it may hold commas: only the first two split).
+#                  The record stores one `awaiting` line each, `<start>
+#                  <end> <what>`, and renders them below its table. A record
+#                  with none reads as no recorded wait; scripts/mc-throughput.sh
+#                  reports the spans apart from step time.
 #   --fingerprint  `none` or the fingerprint verb's output (40 or 64
 #                  lowercase hex digits, the id of an object git does not
 #                  store); it and --args-digest (64 lowercase hex digits)
@@ -916,6 +928,36 @@ check_pool_fields() {
   fi
 }
 
+# ts_num <ts>: the stamp's digits, comparable as numbers (same width).
+ts_num() { printf '%s' "$1" | tr -d -- '-:TZ'; }
+
+# check_awaiting: each --awaiting-operator span is <start>,<end>,<what>, the
+# times stamps, the end not before the start, the span inside the step's own
+# window; sets AWAITING_CLEAN to the cleaned `<start> <end> <what>` lines.
+check_awaiting() {
+  AWAITING_CLEAN=''
+  _ws=$(ts_num "$start") _we=$(ts_num "$end")
+  _aw=$awaiting
+  while [ -n "$_aw" ]; do
+    _line=${_aw%%"$LF"*}
+    _aw=${_aw#*"$LF"}
+    _as=${_line%%,*}
+    case $_line in *,*) _rest=${_line#*,} ;; *) bad --awaiting-operator "not <start>,<end>,<what>" ;; esac
+    case $_rest in *,*) ;; *) bad --awaiting-operator "not <start>,<end>,<what>" ;; esac
+    _ae=${_rest%%,*}
+    _what=${_rest#*,}
+    is_ts "$_as" || bad --awaiting-operator "start not YYYY-MM-DDTHH:MM:SSZ"
+    is_ts "$_ae" || bad --awaiting-operator "end not YYYY-MM-DDTHH:MM:SSZ"
+    [ "$(ts_num "$_ae")" -ge "$(ts_num "$_as")" ] || bad --awaiting-operator "span ends before it starts"
+    [ "$(ts_num "$_as")" -ge "$_ws" ] && [ "$(ts_num "$_ae")" -le "$_we" ] \
+      || bad --awaiting-operator "span lies outside the step's --start and --end"
+    is_text "$_what" || bad --awaiting-operator "must name what was awaited, single-line text of at most $TEXT_MAX bytes"
+    clean_value "$_what"
+    [ -n "$CLEANED" ] || bad --awaiting-operator "what was awaited is empty once cleaned"
+    AWAITING_CLEAN="$AWAITING_CLEAN$_as $_ae $CLEANED$LF"
+  done
+}
+
 # clean_holders: sets HOLDERS_CLEAN to the cleaned holders, one a line.
 clean_holders() {
   HOLDERS_CLEAN=''
@@ -945,7 +987,7 @@ cmd_write() {
   backend='' session='' head='' end_head='' start='' end='' outcome='' excerpt_file=''
   output='' skip_reason='' degraded='' skip_code='' skip_codes=0 stands_on='' pool='' wait=''
   holders='' unpooled=0 fingerprint='' args_digest='' refire_of='' wait_outcome=''
-  warnings='' head_given=0 end_head_given=0 end_given=0 pool_given=0 wait_given=0
+  warnings='' awaiting='' head_given=0 end_head_given=0 end_given=0 pool_given=0 wait_given=0
   while [ $# -gt 0 ]; do
     case $1 in
       --completion | --full-suite | --unpooled)
@@ -961,7 +1003,7 @@ cmd_write() {
         --session | --head | --end-head | --start | --end | --outcome | \
         --excerpt-file | --output | --skip-reason | --degraded | --skip-code | --stands-on | \
         --pool | --wait | --holder | --fingerprint | --args-digest | --refire-of | \
-        --wait-outcome | --warning)
+        --wait-outcome | --warning | --awaiting-operator)
         [ $# -ge 2 ] || usage
         ;;
       *) usage ;;
@@ -970,7 +1012,7 @@ cmd_write() {
     # more likely than an absent field, so it is refused, never read as absent.
     case $1 in
       --degraded | --skip-code | --stands-on | --pool | --wait | --fingerprint | --args-digest | \
-        --refire-of | --wait-outcome) [ -n "$2" ] || bad "$1" "given empty" ;;
+        --refire-of | --wait-outcome | --awaiting-operator) [ -n "$2" ] || bad "$1" "given empty" ;;
     esac
     case $1 in
       --run) run=$2 ;;
@@ -1020,6 +1062,7 @@ cmd_write() {
       --args-digest) args_digest=$2 ;;
       --refire-of) refire_of=$2 ;;
       --wait-outcome) wait_outcome=$2 ;;
+      --awaiting-operator) awaiting="$awaiting$2$LF" ;;
       --warning)
         is_text "$2" || bad --warning "must be non-empty single-line text of at most $TEXT_MAX bytes"
         warnings="$warnings$2$LF"
@@ -1035,6 +1078,7 @@ cmd_write() {
     return
   fi
   [ -z "$wait_outcome" ] || bad --wait-outcome "belongs to write --full-suite"
+  [ -z "$awaiting" ] || [ "$completion" -eq 0 ] || bad --awaiting-operator "belongs to a step record, not a completion"
   is_point "$point" || bad --point "not a point of the vocabulary"
   # An explicit --head, even an empty one, is never defaulted: an empty value
   # is more likely a failed substitution than a request for HEAD.
@@ -1118,6 +1162,7 @@ cmd_write() {
     *) [ -z "$stands_on" ] || bad --stands-on "only a reuse or resume skip stands on a record" ;;
   esac
   check_pool_fields
+  check_awaiting
   if [ -n "$fingerprint" ] || [ -n "$args_digest" ]; then
     [ -n "$args_digest" ] || bad --args-digest "required with --fingerprint"
     [ -n "$fingerprint" ] || bad --fingerprint "required with --args-digest"
@@ -1184,6 +1229,13 @@ cmd_write() {
     esac
   done <"$work/screened"
 
+  : >"$work/awaiting" || die 1 "cannot write a temporary file"
+  if [ -n "$AWAITING_CLEAN" ]; then
+    # shellcheck disable=SC2086 # split on newlines by design (IFS)
+    screen_values value $AWAITING_CLEAN
+    mv "$work/screened" "$work/awaiting" || die 1 "cannot write a temporary file"
+  fi
+
   : >"$work/excerpt"
   [ -z "$excerpt_file" ] || build_excerpt "$excerpt_file" "$work/excerpt"
 
@@ -1219,6 +1271,9 @@ cmd_write() {
     put fingerprint "$fingerprint"
     put args-digest "$args_digest"
     put refire-of "$refire_of"
+    while IFS= read -r a; do
+      put awaiting "$a"
+    done <"$work/awaiting"
     while IFS= read -r line || [ -n "$line" ]; do
       put excerpt "$line"
     done <"$work/excerpt"
@@ -1229,6 +1284,7 @@ cmd_write() {
 # write_full_suite: the full-suite record, its flags checked against the
 # ones it takes.
 write_full_suite() {
+  [ -z "$awaiting" ] || bad --awaiting-operator "belongs to a step record, not a full-suite record"
   for f in "$point" "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
     "$outcome" "$excerpt_file" "$output" "$skip_reason" "$degraded" "$skip_code" "$stands_on" \
     "$fingerprint" "$args_digest" "$refire_of" "$warnings"; do
@@ -1345,7 +1401,7 @@ function load(p, optional,    line, r, t, k, n, parts, b) {
     t = index(line, TAB)
     if (!t) { bad = 1; continue }
     k = substr(line, 1, t - 1)
-    if ((k in F) && k != "excerpt" && k != "warning" && k != "holder") bad = 1
+    if ((k in F) && k != "excerpt" && k != "warning" && k != "holder" && k != "awaiting") bad = 1
     F[k] = substr(line, t + 1)
   }
   close(p)
@@ -1420,7 +1476,7 @@ render_run() {
   awk -v run="$r" -v want="$want" -v TAB="$TAB" "$AWK_SAFE"'
     function short(h) { return substr(h, 1, 12) }
     # details(i): the pool, paths, and re-fire fields of record i, joined.
-    function details(i,    d, j, hs) {
+    function details(i,    d, j, hs, q, w) {
       d = ""
       if (F[i, "pool"] != "") {
         d = "pool `" safe(F[i, "pool"]) "`; waited " safe(F[i, "wait"]) " s"
@@ -1436,6 +1492,11 @@ render_run() {
         d = d "; args digest `" safe(short(F[i, "args-digest"])) "`"
       }
       if (F[i, "refire-of"] != "") d = d (d == "" ? "" : "; ") "re-fire of `" safe(F[i, "refire-of"]) "`"
+      for (j = 1; j <= na[i]; j++) {
+        split(A[i, j], q, " ")
+        w = substr(A[i, j], length(q[1]) + length(q[2]) + 3)
+        d = d (d == "" ? "" : "; ") "awaiting operator " safe(q[1]) " to " safe(q[2]) " (" safe(w) ")"
+      }
       return d
     }
     FNR == 1 { k++ }
@@ -1444,6 +1505,7 @@ render_run() {
       if (key == "excerpt") ex[k] = ex[k] (nx[k]++ ? " / " : "") safe(val)
       else if (key == "warning") { nw[k]++; W[k, nw[k]] = val }
       else if (key == "holder") { nh[k]++; H[k, nh[k]] = val }
+      else if (key == "awaiting") { na[k]++; A[k, na[k]] = val }
       else F[k, key] = val
     }
     END {
