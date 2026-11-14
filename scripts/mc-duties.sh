@@ -369,8 +369,14 @@ armed() { # armed <watchers|files> <program>
   # lower layer holds a valid one; the rest stay skipped by id.
   skip_ids=""
   skip_pos=" "
+  all_skip_ids=""
+  all_skip_pos=" "
+  cat_unrestored=$cat_out
   while IFS='	' read -r pos layer id; do
     [ -n "$pos" ] || continue
+    all_skip_ids="$all_skip_ids$id
+"
+    all_skip_pos="$all_skip_pos$pos "
     if fb=$(fallback_block "$id" "$layer"); then
       cat_out=$(replace_entry "$cat_out" "$pos" "${fb#*
 }") || fail "the catalog reader failed"
@@ -389,8 +395,12 @@ EOF
     case $? in
       0) ;;
       1)
-        report "$rest"
-        fail "refusing an invalid catalog; run scripts/check-duties.sh"
+        # A restored entry that clashes with another duty (a directory it
+        # shares) costs nothing it did not already: skip the overrides by id.
+        printf '%s\n' "$prog: warning: a restored duty entry conflicts with another; skipping the invalid overrides instead" >&2
+        cat_out=$cat_unrestored
+        skip_ids=$all_skip_ids
+        skip_pos=$all_skip_pos
         ;;
       *) fail "the catalog reader failed" ;;
     esac

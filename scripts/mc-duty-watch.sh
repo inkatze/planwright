@@ -74,7 +74,11 @@ case ${1:-} in
     exit 0
     ;;
 esac
-[ "${1:-}" = watch ] || usage
+# The runner starts a watcher with no arguments.
+if [ $# -eq 0 ]; then
+  set -- watch
+fi
+[ "$1" = watch ] || usage
 shift
 PROGRAM=${PLANWRIGHT_MC_PROGRAM:-}
 DUTY=${PLANWRIGHT_MC_DUTY:-}

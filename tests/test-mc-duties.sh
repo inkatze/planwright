@@ -549,6 +549,22 @@ alpha_entry scripts/local-watch.sh@3m/low live >"$mc_ml"
 mc_run mc-duties.sh watchers --program alpha
 expect_eq "REQ-C1.8: a valid machine-local supersede is the entry in force" "alpha-duty${tab}scripts/local-watch.sh${tab}3m${tab}low"
 
+# A restored entry that clashes with another duty's directory must not take
+# the catalog down: the override is skipped by id, as before the fallback.
+rm -f "$mc_ml"
+alpha_entry scripts/adopter-watch.sh@7m/low bogus | sed 's#files: alpha#files: zzz#' >"$adopter/catalogs/duties.yaml"
+alpha_entry scripts/gamma-watch.sh@5m/low live | sed -n '2,$p' | sed 's/id: alpha-duty/id: gamma-duty/; /supersede: true/d' >>"$adopter/catalogs/duties.yaml"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo
+program_alpha_duties: [alpha-duty, gamma-duty]
+EOF
+mc_run mc-duties.sh watchers --program alpha
+expect_rc "REQ-C1.8: a fallback clashing on a directory does not refuse the catalog" 0
+expect_out "REQ-C1.8: the clash leaves the other adopter duty armed" "gamma-duty${tab}scripts/gamma-watch.sh"
+alpha_program
+
 # An invalid addition with nothing below it is skipped and arms nothing.
 rm -f "$mc_ml" "$adopter/catalogs/duties.yaml"
 alpha_entry scripts/new-watch.sh@5m/low bogus | sed 's/id: alpha-duty/id: new-duty/; /supersede: true/d; s/files: alpha/files: new/' >"$adopter/catalogs/duties.yaml"

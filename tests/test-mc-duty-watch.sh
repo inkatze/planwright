@@ -112,7 +112,7 @@ expect_out "REQ-C1.8: a settled revert is cleared" "cleared${tab}undo-ledger"
 # ---------------------------------------------------------------------------
 # The runner's way: no arguments, the program and duty from its environment.
 # ---------------------------------------------------------------------------
-OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_MC_DUTY=proposals /bin/bash "$repo_root/scripts/mc-duty-watch.sh" watch 2>"$tmp/stderr")
+OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_MC_DUTY=proposals /bin/bash "$repo_root/scripts/mc-duty-watch.sh" 2>"$tmp/stderr")
 RC=$?
 ERR=$(cat "$tmp/stderr")
 expect_rc "REQ-C1.8: a run with its environment set works" 0
