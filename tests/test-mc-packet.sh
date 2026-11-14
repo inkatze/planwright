@@ -65,6 +65,7 @@ for moment in merge-recommendation ready-flip merge-intent; do
   packet "$tmp/gap" "$moment" --level standard
   expect_no_out "REQ-F1.15: $moment: standard has no lesson" "Why it matters:"
   expect_out "REQ-F1.15: $moment: standard has the recommendation" "Recommend:"
+  case $(section_first) in *convergence*pre-pr* | *pre-pr*convergence*) ok "REQ-F1.15: $moment: standard still has the line" ;; *) fail "REQ-F1.15: $moment: standard lost the line" ;; esac
   packet "$tmp/gap" "$moment" --level expert
   expect_no_out "REQ-F1.15: $moment: expert has no lesson" "Why it matters:"
   expect_no_out "REQ-F1.15: $moment: expert has no recommendation" "Recommend:"
@@ -82,6 +83,10 @@ packet "$tmp/unaud" ready-flip --level guided
 expect_out "an unaudited result names its reason" "not planwright-run"
 expect_no_out "and carries no lesson" "Why it matters:"
 expect_no_out "and no recommendation" "Recommend:"
+printf '# format: 1\ncadence\tunaudited\tcheckout missing\ncadence\tgap\tpre-ci\tincomplete\tx\n' >"$tmp/unaudgap"
+packet "$tmp/unaudgap" ready-flip --level guided
+expect_no_out "an unaudited result with a stray gap row carries no lesson" "Why it matters:"
+expect_no_out "nor a recommendation" "Recommend:"
 
 packet "$tmp/clean" ready-flip --level guided
 expect_out "an audited clean result says so" "all covered"
