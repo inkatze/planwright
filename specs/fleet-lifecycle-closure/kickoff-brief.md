@@ -696,7 +696,7 @@ this sign-off.
 Class: meaning
 Lens-pass: the *Lens review pass* paragraph in this entry — delta-scoped,
 fan-out, every finding applied.
-Anchor: `72e02fea8222571f97dbe95184c419106f059f92` — computed as
+Anchor: `61db84375aab78edd90f7b58d2f5b0a316afa402` — computed as
 `scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
 
 ## 10. Execution research log
