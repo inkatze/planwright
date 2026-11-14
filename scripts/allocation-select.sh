@@ -1,142 +1,80 @@
 #!/bin/sh
-# allocation-select.sh — the surface-agnostic selection resolver
-# (model-allocation Task 1; D-5, D-13, REQ-A1.1, REQ-A1.2, REQ-A1.3,
-# REQ-A1.4, REQ-E1.1, REQ-E1.2).
+# allocation-select.sh — resolves the configured model, effort and command for
+# a launch, by table lookup plus config reads: no network, no LLM, no
+# subprocess beyond the shared knob resolver. It only resolves; applying the
+# choice is allocation-apply.sh's job, and comparing a step tier against its
+# unit's tier is allocation-adapt.sh's.
 #
-# fleet-resource-select.sh shipped one selection table keyed by fleet task
-# type. This is that table generalized: one resolver, keyed by SELECTION KEY,
-# that ANY launch point can call — fleet dispatch, single-spec /orchestrate
-# dispatch, /execute-task's per-step sessions, /offload. fleet-resource-
-# select.sh is now a thin fleet-scoped front door onto this table, so
-# selection logic lives in exactly one place (D-5, the existing-seam-reuse
-# disposition).
+# Two axes, resolved by separate verbs over separate knob families:
 #
-# Every launch point reads this table: fleet dispatch by task type, and
-# single-spec /orchestrate dispatch, /execute-task's per-step sessions, and
-# /offload by surface. The three non-fleet rows ship the `inherit` sentinel, so
-# the resolver is consulted and applies nothing until an operator configures a
-# tier, which is the shipped posture (D-13). How the choice is APPLIED is
-# scripts/allocation-apply.sh's job, per the backend's advertised capability.
+#   Selection key (a whole unit). Keys and shipped defaults:
 #
-# Resolution stays DETERMINISTIC table lookup plus config-file reads: no
-# network, no LLM call, no subprocess beyond the shared knob resolver chain
-# (REQ-A1.1; the D-18 no-LLM-daemon-mechanics floor it inherits).
+#     key                    model    effort   command       legacy family
+#     execution              opus     high     execute-task  fleet_*_execution
+#     bookkeeping            sonnet   medium   orchestrate   fleet_*_bookkeeping
+#     drain                  sonnet   low      drain         fleet_*_drain
+#     orchestrate_dispatch   inherit  inherit  (none)        (none)
+#     execute_step           inherit  inherit  (none)        (none)
+#     offload                inherit  inherit  (none)        (none)
 #
-# THE TABLE. One row per selection key:
+#   The first three are the fleet task types; their cells match the golden
+#   baseline in tests/fixtures/allocation-golden-baseline.tsv, and
+#   fleet-resource-select.sh is a thin front door onto them. The last three
+#   are the non-fleet surfaces, which ship `inherit` (apply nothing, keep the
+#   launch's ambient value), so an unconfigured operator sees no change.
 #
-#   key                    model      effort     command       legacy family
-#   execution              opus       high       execute-task  fleet_*_execution
-#   bookkeeping            sonnet     medium     orchestrate   fleet_*_bookkeeping
-#   drain                  sonnet     low        drain         fleet_*_drain
-#   orchestrate_dispatch   inherit    inherit    (none)        (none)
-#   execute_step           inherit    inherit    (none)        (none)
-#   offload                inherit    inherit    (none)        (none)
+#   Step type (one step of a unit): implementation, or a step id. Only model
+#   and effort, as allocation_<column>_step_<step-type>, with a shipped row
+#   per shipped step type in config/defaults.yml.
+#   The key space is open: any charset-valid step type resolves, and an
+#   unconfigured one is `inherit`, so a new step needs no edit here.
 #
-# The first three are the fleet task types, shipped defaults unchanged: their
-# cells are the captured golden baseline (REQ-A1.2,
-# tests/fixtures/allocation-golden-baseline.tsv). The last three are the
-# surfaces that perform no selection today; their shipped default is the
-# explicit `inherit` sentinel, so the resolver is consulted but applies
-# nothing and the launch keeps its ambient model/effort (D-13). The capability
-# therefore ships dark: an operator who configures nothing sees no
-# selection-behavior change at any surface.
+# Knob chain for a selection key's column:
+#   1. allocation_<column>_<key>, through the shared resolver's overlay layers.
+#   2. If that is the `unset` sentinel, the deprecated legacy knob
+#      fleet_<column>_<key>, so existing fleet overlays keep working. Core
+#      ships `unset` for the fleet-keyed general knobs to arm this.
+#   3. Otherwise the key's shipped default, the final fallback for every key.
+# A set general knob returns before the legacy one is read, so a malformed
+# legacy knob it shadows does not hard-fail.
 #
-# THE KNOB CHAIN (REQ-A1.3). Each column of each key resolves in this order:
+# Enums are the Claude Code aliases, not dated ids. The model enum is the
+# ladder's starting roster, without its escalation-only top model, so a
+# config that starts a unit there is refused as out of enum. `inherit` is
+# legal only where the surface has an ambient value: the three non-fleet keys
+# and step types. At a fleet key it is refused, since fleet dispatch has
+# nothing to inherit from.
 #
-#   1. allocation_<column>_<key>, through the shared knob resolver's four
-#      overlay layers. The general, surface-agnostic family this spec
-#      introduces.
-#   2. If that resolves to the `unset` sentinel, fleet_<column>_<key> — the
-#      legacy fleet family, kept as a DEPRECATED FALLBACK and never removed,
-#      so every overlay written against it keeps working untouched.
-#   3. If the key has no legacy counterpart, the key's shipped default.
-#
-# `unset` is how a flat config file spells "this general knob is not set".
-# Core ships it for all nine fleet-keyed general knobs, which is precisely
-# what arms step 2 by default and keeps `allocation_*` from silently
-# overriding an operator's existing `fleet_*` overlay. Setting the general
-# knob at any layer wins over the legacy one; setting it back to `unset`
-# re-arms the fallback.
-#
-# THE `inherit` SENTINEL is legal only where the launching surface HAS an
-# ambient value to fall back to — the three non-fleet keys. At a fleet task
-# type it is refused as an out-of-enum value under the same by-layer policy as
-# any other: fleet dispatch validates the resolved row against the concrete
-# enums downstream (fleet-allocate.sh) and has nothing to inherit from, so
-# emitting the sentinel there would turn a config choice into a broken-install
-# failure at launch time. Refusing it at resolution keeps the diagnostic
-# pointed at the knob that is actually wrong.
-#
-# THE COMMAND COLUMN is fleet-only (D-5): only a fleet dispatch turns a
-# selection into a `/<command> <args>` invocation. Non-fleet keys do not carry
-# it — `resolve <key> command` is refused for them, and `select`/`list` mark
-# it absent with `-` (not a legal command value, so it can never be mistaken
-# for one). The command enum stays exactly the dispatch-entry set
-# {execute-task orchestrate drain}, which is the carrier of the
-# dispatch-entry disjointness invariant (REQ-A1.4): none of its members is a
-# step a point may run, each is on the custom-steps rule doc's
-# pipeline-entry list that resolve-steps.sh refuses as a step target, and a
-# configured command outside the set is refused
-# at every layer, so disjointness holds by CONSTRUCTION rather than only for
-# the shipped defaults.
-#
-# THE STEP-TYPE AXIS (Task 5; D-8, D-12, REQ-C1.3) is the table's SECOND key.
-# A selection key prices a whole unit; a step type prices ONE STEP of it — the
-# implementation step, or one step by its step id. The two axes
-# are resolved by separate verbs over separate knob families and never mix:
-#
-#   allocation_<column>_step_<step-type>    model | effort. No command column.
-#
-# NO STEP TYPE CARRIES THE COMMAND COLUMN, and that is load-bearing rather than
-# an omission. The command enum is the carrier of the dispatch-entry
-# disjointness invariant (REQ-A1.4, above): it must stay exactly the
-# dispatch-entry set and must never name a step. Step types are
-# `implementation` plus any step id (the core catalog seeds polish and
-# self-review), so letting the two axes share the command column is precisely
-# how that invariant would be lost. Keeping the
-# axes separate means adding a step cannot widen the command enum
-# — the enum is untouched by construction, not merely by convention.
-#
-# THE SHIPPED DEFAULT IS `inherit` for every step type, so a step resolves to
-# the unit's own tier and per-step keys change runtime behavior by exactly
-# nothing until an operator configures one (D-13).
-#
-# APPLICATION IS ONE-DIRECTIONAL, and this script does NOT perform it: it only
-# resolves the configured cell. allocation-adapt.sh owns the comparison — a
-# step tier CHEAPER than the unit's current tier applies for that launch alone
-# and is scope-marked in the ledger; an equal or more expensive one is ignored
-# with a row (D-8). A step may never ratchet a unit up.
-#
-# HOW THE CHOICE IS APPLIED is the launching backend's job, per its advertised
-# capability — not this script's. This script only resolves.
+# The command column is fleet-only and is exactly the dispatch-entry set
+# {execute-task orchestrate drain}. No step type carries it, so adding a step
+# can never widen the set, which keeps it disjoint from every step a point may
+# run. For keys without it, `resolve <key> command` is refused and
+# `select`/`list` print `-`.
 #
 # Usage:
 #   allocation-select.sh resolve <key> <column>
-#       Print one resolved value: <column> is model | effort | command.
+#       Print one value; <column> is model | effort | command.
 #   allocation-select.sh select <key>
-#       Print one TSV row: <model>TAB<effort>TAB<command> ('-' when the key
-#       does not carry the command column).
+#       Print <model>TAB<effort>TAB<command> ('-' without a command column).
 #   allocation-select.sh list
-#       Print the full table, one TSV row per key:
-#       <key>TAB<model>TAB<effort>TAB<command>.
+#       Print every key as <key>TAB<model>TAB<effort>TAB<command>.
 #   allocation-select.sh step-tier <step-type>
-#       Print one step type's configured tier as <model>TAB<effort>, each
-#       `inherit` when that column is unconfigured. No command column, ever.
+#       Print <model>TAB<effort> for one step type.
 #   allocation-select.sh list-steps
-#       Print the shipped step types, one TSV row each:
-#       <step-type>TAB<model>TAB<effort>.
+#       Print the shipped step types as <step-type>TAB<model>TAB<effort>.
 #
 # Environment: honors every override the shared knob resolver honors
 # (PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY,
 # PLANWRIGHT_REPO_ROOT, PLANWRIGHT_LOCAL_CONFIG, CLAUDE_PLUGIN_ROOT/DATA).
 #
-# Exit codes: 0 value/row(s) printed; 2 usage error, unknown/hostile key or
-# column, or a column the key does not carry (fail closed, never a silent
-# default); 4 malformed repo-tracked knob (resolver hard-fail, propagated);
-# 5 broken install (resolver unavailable or a core default itself malformed).
+# Exit codes: 0 printed; 2 usage error, unknown or hostile key or column, or a
+# column the key does not carry (fail closed, never a silent default); 4
+# malformed repo-tracked knob (propagated from the resolver); 5 broken
+# install (a sourced helper or the resolver is unavailable, or a core default
+# itself malformed).
 #
-# POSIX sh on the macOS + Linux support bar. All input is data (REQ-K1.5).
-# Pathname expansion is disabled (set -f).
+# POSIX sh on the macOS + Linux support bar. All input is data. Pathname
+# expansion is disabled (set -f).
 set -uf
 
 # Pin C so the charset checks below mean exactly their ASCII range on every
