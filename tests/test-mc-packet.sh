@@ -94,7 +94,7 @@ case $(section_first) in *convergence*) ok "and still prints the line" ;; *) fai
 expect_no_out "and prints no text" "Why it matters:"
 
 # The gate result is identical at every level; no option is marked.
-gate() { printf '%s\n' "$OUT" | awk '/^Readiness$/ { on = 1; getline; getline; print; exit }'; }
+gate() { printf '%s\n' "$OUT" | grep -E "^(ready|not-ready)""$tab" | head -n 1; }
 packet "$tmp/gap" ready-flip --level guided
 g1=$(gate)
 packet "$tmp/gap" ready-flip --level expert
