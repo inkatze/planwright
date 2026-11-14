@@ -162,6 +162,7 @@ cadence_lines() {
       if (gaps == "") print "Cadence: all covered (" cov ")"
       else { print "Cadence: covered " (cov == "" ? "none" : cov) "; gap " gaps; exit 3 }
     }' "$evidence" || cl_rc=$?
+  [ "$cl_rc" -eq 0 ] || [ "$cl_rc" -eq 3 ] || mc_fail "the cadence evidence cannot be read: $(sanitize_printable "$evidence")"
   [ "$cl_rc" -eq 3 ] || return 0
   case $level in standard) kinds="recommend" ;; guided) kinds="lesson recommend" ;; *) kinds="" ;; esac
   for k in $kinds; do
@@ -173,7 +174,7 @@ cadence_lines() {
 case $verb in
   look)
     mc_valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
-    [ -z "$readiness$focus$checkout$risks$order" ] || usage
+    [ -z "$readiness$focus$checkout$risks$order$moment$evidence$level$lessons" ] || usage
     mkdir -p "${store%/*}" || mc_fail "cannot create ${store%/*}"
     trap mc_kb_unlock EXIT
     mc_kb_lock "$program" prepared-moments/looks.tsv
@@ -229,9 +230,9 @@ case $verb in
       case $moment in merge-recommendation | ready-flip | merge-intent) ;; *) mc_usage_fail "--moment is merge-recommendation, ready-flip or merge-intent" ;; esac
       level=${level:-guided}
       case $level in guided | standard | expert) ;; *) mc_usage_fail "--level is guided, standard or expert" ;; esac
-      [ -n "$evidence" ] && [ -r "$evidence" ] || mc_usage_fail "--moment takes --evidence, a readable file"
+      [ -n "$evidence" ] && [ -f "$evidence" ] && [ -r "$evidence" ] || mc_usage_fail "--moment takes --evidence, a readable file"
       lessons=${lessons:-$script_dir/../config/mc-cadence-lessons.tsv}
-      [ -r "$lessons" ] || mc_fail "the lesson data is unreadable: $(sanitize_printable "$lessons")"
+      [ -f "$lessons" ] && [ -r "$lessons" ] || mc_fail "the lesson data is unreadable: $(sanitize_printable "$lessons")"
       cadence_lines >"$cadence"
     fi
     printf 'Packet: %s\n' "$unit" | mc_clean_text

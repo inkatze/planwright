@@ -79,6 +79,15 @@ expect_rc "an unknown level is refused" 2
 packet "$tmp/gap" no-such-moment --level guided
 expect_rc "an unknown moment is refused" 2
 
+mkdir "$tmp/evdir"
+packet "$tmp/evdir" ready-flip --level guided
+expect_rc "a directory as the evidence is refused" 2
+expect_no_out "and assembles no packet" "Packet:"
+for opt in --moment --evidence --level --lessons; do
+  mc_run mc-packet.sh look --program alpha --unit web#7 --head "$head" "$opt" x
+  expect_rc "look refuses $opt" 2
+done
+
 packet "$tmp/unaud" ready-flip --level guided
 expect_out "an unaudited result names its reason" "not planwright-run"
 expect_no_out "and carries no lesson" "Why it matters:"
