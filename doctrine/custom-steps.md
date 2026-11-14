@@ -498,7 +498,8 @@ later run holds a `passed`, `applied`, or `resume`-skipped record of the
 same step id ending there. One substitution holds: a `pr-agent-pr` record
 of those outcomes in a later run, ending on that head, also retires a
 `cubic-pr` `limited` record, since PR-Agent's review is the bot review when
-cubic refuses; a record ending on another head retires nothing. **The flip targets the head the list ends on**,
+cubic refuses; a record ending on another head retires nothing. **The flip
+targets the head the list ends on**,
 and the flip's own checks (the ready-guard's currency check for a unit PR,
 the CI gate for the spec PR) check that head. This doctrine authorizes no
 flip.
