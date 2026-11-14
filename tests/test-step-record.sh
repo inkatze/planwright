@@ -80,7 +80,10 @@ git -C "$wt" config commit.gpgsign false
 printf 'base\n' >"$wt/file.txt"
 git -C "$wt" add file.txt
 git -C "$wt" commit -q -m "chore: base"
+HX_A=$(git -C "$wt" rev-parse HEAD)
+git -C "$wt" commit -q --allow-empty -m "chore: second"
 HEAD_SHA=$(git -C "$wt" rev-parse HEAD)
+HX_B=$HEAD_SHA
 
 sr() { "$SR" --worktree "$wt" "$@"; }
 
@@ -280,10 +283,14 @@ refuse "a backend carrying a newline" "--backend" --run "$run2" --point pre-ci -
 typeEVIL" --head "$HEAD_SHA" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
 needle=$(printf '%s' "$HEAD_SHA" | cut -c1-12)
-refuse "an abbreviated head" "--head" --run "$run2" --point pre-ci --step s \
+refuse "a head too short to be an abbreviation" "--head" --run "$run2" --point pre-ci --step s \
   --kind command --target t --hosting isolated --backend runner \
-  --head "$needle" \
+  --head "$(printf '%s' "$HEAD_SHA" | cut -c1-6)" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
+sr write --run "$run2" --point pre-ci --step s-abbrev --kind command --target t --hosting isolated --backend runner \
+  --head "$needle" --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed >/dev/null 2>&1
+sr list --run "$run2" --point pre-ci | grep -qx "head${TAB}$HEAD_SHA"
+verdict "a unique abbreviated head is accepted and stored in full" "abbreviated head not stored in full"
 needle=
 
 # A secret the cut would drop out of the kept tail is still caught: the whole
@@ -493,7 +500,7 @@ fresh() {
   git -C "$1" config user.name Fixture
   git -C "$1" config user.email fixture@example.invalid
   git -C "$1" config commit.gpgsign false
-  git -C "$1" commit -q --allow-empty -m "chore: base"
+  git -C "$1" fetch -q "$wt" HEAD && git -C "$1" reset -q --hard FETCH_HEAD
 }
 w2="$tmp/w2"
 fresh "$w2"
@@ -507,10 +514,11 @@ sr2 write $args2 --point pre-ci --step edge-a --end "not-a-time" >/dev/null 2>&1
 [ $? -eq 2 ]
 verdict "a malformed end time is refused" "bad --end accepted"
 h64=$(printf '%064d' 0 | tr 0 a)
-sr2 write --run "$r" --point pre-ci --step edge-b --kind command --target t --hosting isolated \
+err=$(sr2 write --run "$r" --point pre-ci --step edge-b --kind command --target t --hosting isolated \
   --backend runner --head "$h64" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z \
-  --outcome passed >/dev/null
-verdict "a 64-hex head is accepted" "64-hex head refused"
+  --outcome passed 2>&1 >/dev/null)
+[ $? -eq 2 ] && printf '%s' "$err" | grep -Fq "$h64"
+verdict "a 64-hex head that is no commit is refused naming it" "64-hex non-commit accepted: $err"
 t1024=$(printf 'x%.0s' $(seq 1 1024))
 # shellcheck disable=SC2086
 sr2 write $args2 --point pre-ci --step edge-c --target "$t1024" >/dev/null
@@ -703,7 +711,7 @@ verdict "a retried completion after a failed one succeeds" "the failed completio
 # A missing secret screen withholds, never passes.
 lone="$tmp/lone"
 mkdir -p "$lone"
-cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$lone/"
+cp "$SR" "$repo_root/scripts/step-context.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$lone/"
 w6="$tmp/w6"
 fresh "$w6"
 r6=$(/bin/sh "$lone/step-record.sh" --worktree "$w6" new-run)
@@ -768,7 +776,7 @@ verdict "a merge commit's entry names the rejection trailer" "merge recipe missi
 # nothing behind; a completion with no warning runs no screen.
 slow="$tmp/slow"
 mkdir -p "$slow"
-cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$slow/"
+cp "$SR" "$repo_root/scripts/step-context.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$slow/"
 cat >"$slow/inception-secret-screen.sh" <<'STUB'
 #!/bin/sh
 if grep -q slowstep "$2"; then
@@ -1389,13 +1397,19 @@ GH_STUB_FAIL=0
 export GH_STUB_LOG GH_STUB_FAIL
 
 sr2() { PATH="$stub:$PATH" "$SR" --worktree "$wt2" "$@"; }
-H_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-H_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-H_C=cccccccccccccccccccccccccccccccccccccccc
-H_D=dddddddddddddddddddddddddddddddddddddddd
-H_E=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-H_F=ffffffffffffffffffffffffffffffffffffffff
-H_G=1111111111111111111111111111111111111111
+mkcommit() {
+  git -C "$wt2" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+    commit -q --allow-empty -m "chore: fixture $1" && git -C "$wt2" rev-parse HEAD
+}
+H_A=$(mkcommit A)
+H_B=$(mkcommit B)
+H_C=$(mkcommit C)
+H_D=$(mkcommit D)
+H_E=$(mkcommit E)
+H_F=$(mkcommit F)
+H_G=$(mkcommit G)
+H_X=$(mkcommit X)
+H_Y=$(mkcommit Y)
 
 # step_rec <run> <point> <outcome> <head>: one step record at the point.
 step_rec() {
@@ -1500,7 +1514,6 @@ verdict "the spec-PR flip point posts the pre-spec-ready-flip context" "rc=$ST_R
 
 # Only the queried point's records count: another point's failure in the same
 # run leaves this point's status green.
-H_X=3333333333333333333333333333333333333333
 r=$(sr2 new-run)
 step_rec "$r" pre-ready-flip failed "$H_X"
 done_rec "$r" pre-ready-flip "$H_X"
@@ -1512,8 +1525,8 @@ verdict "another point's failed record does not fail this point's status" "rc=$S
 
 # A head with no completion record is refused, with no post.
 r=$(sr2 new-run)
-step_rec "$r" pre-ready-flip passed 2222222222222222222222222222222222222222
-post_state pre-ready-flip 2222222222222222222222222222222222222222
+step_rec "$r" pre-ready-flip passed "$H_Y"
+post_state pre-ready-flip "$H_Y"
 [ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ] && grep -Fq 'no completion record' "$tmp/st.err"
 verdict_of $? "status refuses a head with no completion record, posting nothing" "rc=$ST_RC: $(cat "$tmp/st.err")"
 post_state pre-spec-ready-flip "$H_A"
@@ -1772,8 +1785,6 @@ legacy_rec() {
   } >"$_lf" || fail "fixture: cannot write $_lf"
 }
 X_HEAD=$(git -C "$wx" rev-parse HEAD)
-HX_A=4444444444444444444444444444444444444444
-HX_B=5555555555555555555555555555555555555555
 DIG_ABC=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 FP_1=6666666666666666666666666666666666666666
 FP_2=7777777777777777777777777777777777777777
@@ -1946,7 +1957,7 @@ verdict "a re-fire record is written under post-pr before its completion" "re-fi
 srx write --completion --run "$rx" --point post-pr >/dev/null
 verdict "the post-pr completion follows the re-fire pass" "completion refused after re-fire"
 tbl=$(srx render --run "$rx" --point post-pr)
-printf '%s\n' "$tbl" | grep '^| 1 |' | grep -Fq "| 444444444444 to 555555555555 |"
+printf '%s\n' "$tbl" | grep '^| 1 |' | grep -Fq "| $(printf %s "$HX_A" | cut -c1-12) to $(printf %s "$HX_B" | cut -c1-12) |"
 verdict_of $? "a step that moved the head renders both heads" "row: $(printf '%s\n' "$tbl" | grep '^| 1 |')"
 printf '%s\n' "$tbl" | grep -Fq -- "- Row 2: fingerprint \`666666666666\`; args digest \`ba7816bf8f01\`; re-fire of \`pre-pr\`"
 verdict_of $? "a re-fire record renders its declaring point" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 2')"

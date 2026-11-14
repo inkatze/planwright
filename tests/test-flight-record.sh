@@ -173,9 +173,9 @@ Steps at `pre-pr`'
 # SR_HEADER — the header row of the step tables scripts/step-record.sh renders,
 # which the file home's not-fired post-pr table must match.
 git init -q "$tmp/sr"
+git -C "$tmp/sr" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m "chore: base"
 sr_run=$("$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" new-run)
-"$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" write --completion --run "$sr_run" --point pre-pr \
-  --head 0123456789abcdef0123456789abcdef01234567 >/dev/null
+"$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" write --completion --run "$sr_run" --point pre-pr >/dev/null
 SR_HEADER=$("$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" render --run "$sr_run" | grep '^| # |')
 [ -n "$SR_HEADER" ] || fail "fixture: step-record.sh rendered no table header"
 

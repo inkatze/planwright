@@ -45,7 +45,11 @@
 #   adopter        per-operator, cross-repo, per-plugin namespace. Chain (first
 #                  derivable wins): $PLANWRIGHT_ADOPTER_OVERLAY (explicit
 #                  override) → $CLAUDE_PLUGIN_DATA/overlay (plugin mode; the
-#                  plugin-data id IS the namespace, update-stable) →
+#                  plugin-data id IS the namespace, update-stable) → the
+#                  data overlay of the installed plugin
+#                  (<claude-dir>/plugins/data/planwright-<marketplace>/overlay,
+#                  for a session whose shell was never handed
+#                  CLAUDE_PLUGIN_DATA; used only when it exists) →
 #                  <claude-dir>/planwright/<name>/overlay (writer mode, where
 #                  <name> is the plugin manifest `name`, charset-validated).
 #   repo-tracked   <repo>/.claude (the tracked team overlay root).
@@ -249,6 +253,44 @@ case $layer in
     if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
       printf '%s\n' "$CLAUDE_PLUGIN_DATA/overlay"
       exit 0
+    fi
+    # 2b. A session whose shell was never handed CLAUDE_PLUGIN_DATA (a launched
+    # worker's or mission control's plain bash) derives it from the installed
+    # plugin: a root at <claude-dir>/plugins/cache/<marketplace>/planwright/
+    # <version> owns the data directory
+    # <claude-dir>/plugins/data/planwright-<marketplace>. Used only when that
+    # directory already holds an overlay, so nothing is guessed.
+    if [ -n "$claude_dir" ] && [ -r "$script_dir/resolve-installed-roots.sh" ]; then
+      pd_roots=$(
+        /bin/sh "$script_dir/resolve-installed-roots.sh" --current || :
+        /bin/sh "$script_dir/resolve-installed-roots.sh" || :
+      ) || pd_roots=''
+      pd_nl='
+'
+      pd_ifs=$IFS
+      set -f
+      IFS=$pd_nl
+      for pd_root in $pd_roots; do
+        IFS=$pd_ifs
+        case $pd_root in
+          "$claude_dir"/plugins/cache/*/planwright/*)
+            pd_rest=${pd_root#"$claude_dir"/plugins/cache/}
+            pd_mkt=${pd_rest%%/*}
+            case $pd_mkt in
+              "" | *[!A-Za-z0-9._-]*) ;;
+              *)
+                if [ -d "$claude_dir/plugins/data/planwright-$pd_mkt/overlay" ]; then
+                  printf '%s\n' "$claude_dir/plugins/data/planwright-$pd_mkt/overlay"
+                  exit 0
+                fi
+                ;;
+            esac
+            ;;
+        esac
+        IFS=$pd_nl
+      done
+      IFS=$pd_ifs
+      set +f
     fi
     # 3. Writer mode: derive the namespace from the manifest `name`.
     if [ -n "$claude_dir" ]; then
