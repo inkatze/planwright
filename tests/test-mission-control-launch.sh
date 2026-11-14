@@ -199,6 +199,8 @@ rr_name=${rr_row##*/}
 rr_recorded=$(awk -F '\t' '$1 == "root" { print $2 }' "$rr_row")
 [ -n "$rr_recorded" ] && [ "$rr_recorded" != - ] && ok "a launched row records the plugin root the session loaded" \
   || fail "the launched row records no plugin root: $(cat "$rr_row")"
+[ -f "$rr_recorded/scripts/mc-session-root.sh" ] && ok "the recorded root is a planwright root on disk" \
+  || fail "the recorded root '$rr_recorded' is not a planwright root"
 rr_orig=$(cat "$rr_row")
 rr_state() { # rr_state <root or ->: the list's root state for the first row
   awk -F '\t' -v r="$1" 'BEGIN { OFS = "\t" } $1 == "root" { $2 = r } { print }' <<<"$rr_orig" >"$rr_row"

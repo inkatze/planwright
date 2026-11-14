@@ -1,32 +1,21 @@
 #!/bin/sh
 # mc-session-root.sh — judge the plugin root a session loaded at launch
-# against the installed version.
-#
-# A session's hooks and scripts come from the root it started under, so a
-# long-lived session keeps running an older planwright after an upgrade. The
-# launcher records that root in the session's registry row; this script turns
-# a recorded root into a verdict, so list, doctor and the stall scan read one
-# answer.
+# against the installed version. A session keeps the hooks of the root it
+# started under, so one launched before an upgrade runs an older planwright;
+# the launcher records that root in the session's registry row and list,
+# doctor, the stall scan and the panel read one verdict from here.
 #
 # Usage:
-#   mc-session-root.sh current-root
-#     The root a session launched from this install loads: this script's own
-#     canonical root.
+#   mc-session-root.sh current-root    this install's canonical root
 #   mc-session-root.sh verdict <root | ->
-#     One line on stdout, tab-separated:
-#       current                          the root is the installed version or newer
-#       stale <recorded> <installed>     the root's version is older than installed
-#       unknown <why>                    no root was recorded (a row from before
-#                                        the field), or a version could not be read
-#     "-" and the empty string are the absence of a recorded root.
+#     one tab-separated line: `current`; `stale <recorded> <installed>`;
+#     or `unknown <why>` for no recorded root ("-" or empty, a row from
+#     before the field) or a version that cannot be read, never `current`.
 #
-# A root's version is its directory name under the plugin cache
-# (<cache>/<marketplace>/planwright/<version>), else the version field of its
-# .claude-plugin/plugin.json. The installed version is that of the first root
-# resolve-installed-roots.sh --current names. A version the script cannot read
-# is unknown, never current.
-#
-# Exit: 0 always for verdict; 2 usage.
+# A root's version is its directory name under the plugin cache, else the
+# version of its .claude-plugin/plugin.json; the installed version is that of
+# the first root resolve-installed-roots.sh --current names.
+# Exit: 0 for verdict; 2 usage.
 set -u
 LC_ALL=C
 export LC_ALL

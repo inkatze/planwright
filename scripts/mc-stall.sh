@@ -97,6 +97,8 @@ is unknown and raises none.
 
 Output, one line per session, tab separated:
   <name> <kind> <state> <reason> <event id or ->
+The event id is the stall event's; a stale-plugin-root event raised in the same
+pass is not named in the line.
 
 Exit codes: 0 classified; 1 the registry, a sample or a lock could not be
 read or written, an event could not be emitted, the stall-window knob or the

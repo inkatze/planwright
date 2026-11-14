@@ -162,7 +162,8 @@ Usage:
             before the field) is an unknown launches finding, never current
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches, cron, rules or temporary) whose read failed; for launches, also a
-            session whose row names no known rung; for overrides, also a
+            session whose row names no known rung, or whose plugin root is
+            unrecorded or unreadable; for overrides, also a
             layer that is malformed or sets a knob twice or as key : v,
             the override lines a plain read finds still following, and a
             knob a layer sets that the shipped defaults read give no value
