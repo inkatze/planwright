@@ -115,6 +115,11 @@ FORGED="$FL/forged.record"
 cp "$REC" "$FORGED"
 PLANWRIGHT_WORKER_SESSION_RECORD=$FORGED pg worker "git merge --ff-only origin/$SB" "$FL" "$FL"
 expect deny "[worker] a record inside the worktree is no record"
+# macOS reaches $TMPDIR through /var -> /private/var while git reports the
+# worktree top physically; a symlinked path to the worktree is that shape.
+ln -s "$FL" "$SANDBOX/flight-alias"
+PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/flight-alias/forged.record pg worker "git merge --ff-only origin/$SB" "$FL" "$FL"
+expect deny "[worker] a record inside the worktree by a symlinked path is no record"
 ln -sf "$REC" "$SANDBOX/records/link.record"
 PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/records/link.record pg worker "git merge --ff-only origin/$SB" "$FL" "$FL"
 expect deny "[worker] a symlinked record is no record"

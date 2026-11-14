@@ -4466,18 +4466,23 @@ base_merge_allowed() { # <dir> <what> [<remedy for a branch refusal>]
 # or empty. The only carrier is spec_branch= in the worker's session record
 # (PLANWRIGHT_WORKER_SESSION_RECORD, written by the launcher outside the
 # worktree), never the command text. A record that is not this user's own
-# regular file, a symlink, oversized or inside the worktree, a field given
+# regular file, a symlink, oversized or inside the worktree (lexically or
+# physically, as macOS's /var -> /private/var makes them differ), a field given
 # twice, or a value outside planwright/<spec>/<name> (a task or flight branch,
 # or a protected one) names nothing.
 SPEC_BRANCH=''
 record_spec_branch() { # <worktree top>
-  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line n=0 v='' size
+  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line n=0 v='' size top pdir ptop
   local re='^planwright/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9.-]*$'
   SPEC_BRANCH=''
   [ "$TIER" = worker ] || return 0
   case $p in /?*) ;; *) return 0 ;; esac
   [ -f "$p" ] && [ ! -L "$p" ] && [ -r "$p" ] && [ -O "$p" ] || return 0
-  case $p in "${1:-$UNIT_TOP}"/*) return 0 ;; esac
+  top=${1:-$UNIT_TOP}
+  case $p in "$top"/*) return 0 ;; esac
+  pdir=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd) || return 0
+  ptop=$(cd -P -- "$top" 2>/dev/null && pwd) || return 0
+  case "${pdir%/}/" in "${ptop%/}"/*) return 0 ;; esac
   size=$(wc -c <"$p" 2>/dev/null) || return 0
   [ "${size// /}" -le 4096 ] 2>/dev/null || return 0
   while IFS= read -r line || [ -n "$line" ]; do
