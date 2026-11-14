@@ -161,7 +161,7 @@ cadence_lines() {
       if (gaps == "") print "Cadence: all covered (" cov ")"
       else print "Cadence: covered " (cov == "" ? "none" : cov) "; gap " gaps
     }' "$evidence"
-  grep -q "$(printf 'cadence\tgap\t')" "$evidence" || return 0
+  awk -F '\t' '$1 == "cadence" && $2 == "gap" { found = 1 } END { exit !found }' "$evidence" || return 0
   case $level in standard) kinds="recommend" ;; guided) kinds="lesson recommend" ;; *) kinds="" ;; esac
   for k in $kinds; do
     text=$(M=$moment L=$level K=$k awk -F '\t' '$1 == ENVIRON["M"] && $2 == ENVIRON["L"] && $3 == ENVIRON["K"] { print $4; exit }' "$lessons")

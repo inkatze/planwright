@@ -86,6 +86,9 @@ expect_no_out "and no recommendation" "Recommend:"
 packet "$tmp/clean" ready-flip --level guided
 expect_out "an audited clean result says so" "all covered"
 expect_no_out "a clean result carries no lesson" "Why it matters:"
+printf '# format: 1\ncadence\taudited\t%s\nbodyline\tcadence\tgap\tx\n' "$head" >"$tmp/spoof"
+packet "$tmp/spoof" ready-flip --level guided
+expect_no_out "a body line shaped like a gap row carries no lesson" "Why it matters:"
 
 printf 'merge-intent\tguided\tlesson\tonly this\n' >"$tmp/lessons"
 packet "$tmp/gap" ready-flip --level guided --lessons "$tmp/lessons"
