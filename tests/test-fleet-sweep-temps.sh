@@ -163,7 +163,10 @@ parked_sweep() {
       sleep 1
       ps_i=$((ps_i + 1))
     done
-    [ -e "$reached.done" ] || { : >"$reached.outlived"; kill -9 -- "-$ps_pid"; }
+    [ -e "$reached.done" ] || {
+      : >"$reached.outlived"
+      kill -9 -- "-$ps_pid"
+    }
   ) &
   ps_rc=0
   wait "$ps_pid" || ps_rc=$?
