@@ -170,8 +170,8 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    `kickoff_ready_ci_wait` bounds its CI wait (sign-off step 8).
 5. **Resolve the working location** (D-44, graceful in every starting state).
    The spec branch is `planwright/<spec>/spec` (the namespace `tasks-pr-sync`
-   no-ops on), or `planwright/<spec>/amendment-<n>` for an amendment (any
-   signed-off spec); the spec worktree is `<repo>/.claude/worktrees/<spec>-spec` (D-37).
+   no-ops on), or `planwright/<spec>/amendment-<n>` for an amendment (Ready
+   or Active spec); the spec worktree is `<repo>/.claude/worktrees/<spec>-spec` (D-37).
    - **Already in the spec worktree:** proceed; on dirty/diverged state, surface
      it and ask first — never auto-stash, auto-commit, or clean.
    - **In the main checkout or an unrelated worktree:** if the spec worktree
