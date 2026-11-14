@@ -215,7 +215,9 @@
 #   --start/--end  YYYY-MM-DDTHH:MM:SSZ; an omitted write --end is the UTC
 #                  time the record is written; --end is refused if earlier
 #                  than --start
-#   --outcome      passed | applied | halted | failed | skipped | limited
+#   --outcome      passed | applied | halted | failed | skipped | limited; a
+#                  skill or prompt step whose end head differs from its head
+#                  is applied, and passed is refused there
 #   --skip-code    missing | reuse | resume | answered; a skipped record
 #                  carries exactly one, and only a skipped record carries one
 #   --skip-reason  free-text detail of a skip; optional, skipped only
@@ -426,6 +428,9 @@ usage() {
 }
 # bad <flag> <reason>: a refused field, named, its value never echoed.
 bad() { die 2 "$1: $2"; }
+# A revision, short id, or ref would be resolved at write time and can drift
+# from the commit the step saw, so only a full id is taken.
+bad_head() { bad "$1" "not a full commit id; pass the full output of git rev-parse <rev>"; }
 
 # scratch: the one temporary directory, made in the main shell so its
 # cleanup trap runs.
@@ -1039,7 +1044,7 @@ cmd_write() {
   # An explicit --head, even an empty one, is never defaulted: an empty value
   # is more likely a failed substitution than a request for HEAD.
   [ "$head_given" -eq 1 ] || set_head_from_worktree
-  is_head "$head" || bad --head "not a full commit id"
+  is_head "$head" || bad_head --head
   ! point_done "$run" "$point" || bad --point "already completed in this run"
 
   if [ "$completion" -eq 1 ]; then
@@ -1087,13 +1092,20 @@ cmd_write() {
     worktree_head --end-head
     end_head=$WT_HEAD
   fi
-  is_head "$end_head" || bad --end-head "not a full commit id"
+  is_head "$end_head" || bad_head --end-head
   is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
   check_end
   case $outcome in
     passed | applied | halted | failed | skipped | limited) ;;
     *) bad --outcome "not passed, applied, halted, failed, skipped, or limited" ;;
   esac
+  # A command's passed is its exit status, so only a session step is held to
+  # an unmoved head.
+  if [ "$outcome" = passed ] && [ "$end_head" != "$head" ]; then
+    case $kind in
+      skill | prompt) bad --outcome "passed, but the head moved during the step; a step that committed is recorded applied" ;;
+    esac
+  fi
   if [ "$outcome" = skipped ]; then
     [ "$skip_codes" -eq 1 ] || bad --skip-code "a skipped step carries exactly one"
     case $skip_code in missing | reuse | resume | answered) ;; *) bad --skip-code "not missing, reuse, resume, or answered" ;; esac
@@ -1754,7 +1766,7 @@ cmd_status() {
   done
   case $point in pre-ready-flip | pre-spec-ready-flip) ;; *) bad --point "not a flip point" ;; esac
   [ "$head_given" -eq 1 ] || set_head_from_worktree
-  is_head "$head" || bad --head "not a full commit id"
+  is_head "$head" || bad_head --head
   is_repo "$repo" || bad --repo "not an <owner>/<name> repository"
 
   # One pass over every run's records: the latest attempt (the highest run
@@ -1988,7 +2000,7 @@ lookup_resume() {
   is_in_run_point "$point" || bad --point "not an in-run point"
   valid_run "$run"
   [ "$head_given" -eq 1 ] || set_head_from_worktree
-  is_head "$head" || bad --head "not a full commit id"
+  is_head "$head" || bad_head --head
   # Every run is checked, since a resume skip's record may sit in any.
   all_records
   record_files "$run" >"$work/run-records" || die 1 "cannot list the record cache"
@@ -2014,7 +2026,7 @@ lookup_resume() {
 lookup_limited() {
   [ $# -eq 2 ] && [ "$1" = --head ] || usage
   head=$2
-  is_head "$head" || bad --head "not a full commit id"
+  is_head "$head" || bad_head --head
   all_records
   out=$(CACHE_DIR=$cache awk -v TAB="$TAB" -v H="$head" "$AWK_RECORD$AWK_LIMIT"'
     { if (load($0)) limit_scan() }

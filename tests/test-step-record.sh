@@ -1797,6 +1797,115 @@ srx write --run "$rx" --point pre-ci --step e $xbase --end-head "abc123" --outco
 [ $? -eq 2 ]
 verdict "a short end head is refused" "short --end-head accepted"
 
+# --- a session step that committed is applied, never passed; heads are full ids --
+whd="$tmp/whd"
+fresh "$whd"
+for _c in one two three; do git -C "$whd" commit -q --allow-empty -m "chore: $_c"; done
+srh() { "$SR" --worktree "$whd" "$@"; }
+HD_0=$(git -C "$whd" rev-parse HEAD~3)
+HD_3=$(git -C "$whd" rev-parse HEAD)
+HD_SHORT=$(git -C "$whd" rev-parse --short=12 HEAD)
+skbase="--kind skill --target planwright:polish --hosting in-session --backend in-session --start 2026-11-14T10:00:00Z --end 2026-11-14T10:05:00Z"
+# nrec <run>: how many records the run holds.
+nrec() { find "$whd/.claude/steps/$1" -name '*.rec' | wc -l | tr -d ' '; }
+rh=$(srh new-run)
+# shellcheck disable=SC2086 # skbase is a fixed word list
+srh write --run "$rh" --point convergence --step polish $skbase --head "$HD_0" --end-head "$HD_3" \
+  --outcome passed >"$tmp/hd.out" 2>"$tmp/hd.err"
+rc=$?
+[ "$rc" -eq 2 ] && [ ! -s "$tmp/hd.out" ] && [ "$(nrec "$rh")" -eq 0 ] \
+  && grep -q -- '--outcome' "$tmp/hd.err" && grep -q 'applied' "$tmp/hd.err"
+verdict_of $? "a skill step recorded passed over a moved head is refused, naming applied, nothing written" \
+  "rc=$rc records=$(nrec "$rh") err=$(cat "$tmp/hd.err")"
+srh write --run "$rh" --point convergence --step ask --kind prompt --target t --hosting in-session \
+  --backend in-session --start 2026-11-14T10:00:00Z --end 2026-11-14T10:05:00Z \
+  --head "$HD_0" --end-head "$HD_3" --outcome passed >"$tmp/hd.out" 2>"$tmp/hd.err"
+rc=$?
+[ "$rc" -eq 2 ] && [ "$(nrec "$rh")" -eq 0 ] && grep -q 'applied' "$tmp/hd.err"
+verdict_of $? "a prompt step recorded passed over a moved head is refused" "rc=$rc records=$(nrec "$rh")"
+# The worktree's HEAD is the end head when --end-head is omitted, so the
+# same move is refused there too.
+# shellcheck disable=SC2086
+srh write --run "$rh" --point convergence --step polish $skbase --head "$HD_0" --outcome passed \
+  >"$tmp/hd.out" 2>"$tmp/hd.err"
+rc=$?
+[ "$rc" -eq 2 ] && [ "$(nrec "$rh")" -eq 0 ] && grep -q 'applied' "$tmp/hd.err"
+verdict_of $? "a passed skill step whose defaulted end head moved is refused" "rc=$rc records=$(nrec "$rh")"
+# shellcheck disable=SC2086
+rec=$(srh write --run "$rh" --point convergence --step polish $skbase --head "$HD_0" --end-head "$HD_3" \
+  --outcome applied)
+rc=$?
+[ "$rc" -eq 0 ] && grep -Fxq "outcome${TAB}applied" "$rec" && grep -Fxq "head${TAB}$HD_0" "$rec" \
+  && grep -Fxq "end-head${TAB}$HD_3" "$rec"
+verdict_of $? "the same moved head recorded applied is stored" "rc=$rc rec=$rec"
+# shellcheck disable=SC2086
+rec=$(srh write --run "$rh" --point convergence --step polish $skbase --head "$HD_3" --end-head "$HD_3" \
+  --outcome passed)
+rc=$?
+[ "$rc" -eq 0 ] && grep -Fxq "outcome${TAB}passed" "$rec" && grep -Fxq "end-head${TAB}$HD_3" "$rec"
+verdict_of $? "a passed skill step whose end head equals its head is stored" "rc=$rc rec=$rec"
+# shellcheck disable=SC2086
+rec=$(srh write --run "$rh" --point convergence --step polish $skbase --head "$HD_3" --outcome passed)
+rc=$?
+[ "$rc" -eq 0 ] && grep -Fxq "end-head${TAB}$HD_3" "$rec"
+verdict_of $? "a passed skill step on an unmoved defaulted end head is stored" "rc=$rc rec=$rec"
+# A command's passed is its exit status, whatever the head did.
+rec=$(srh write --run "$rh" --point convergence --step fmt --kind command --target t --hosting isolated \
+  --backend runner --start 2026-11-14T10:00:00Z --end 2026-11-14T10:00:01Z \
+  --head "$HD_0" --end-head "$HD_3" --outcome passed)
+rc=$?
+[ "$rc" -eq 0 ] && grep -Fxq "outcome${TAB}passed" "$rec"
+verdict_of $? "a command step that moved the head still records passed" "rc=$rc rec=$rec"
+
+# A revision, a short id, or a branch name is refused for either head, naming
+# git rev-parse, with nothing written; each resolves in the fixture, so the
+# refusal is the shape, not a lookup miss.
+for _rev in "HEAD~3" "$HD_SHORT" main; do
+  git -C "$whd" rev-parse --verify -q "$_rev^{commit}" >"$tmp/hd.out"
+  verdict_of $? "fixture: '$_rev' resolves" "fixture: '$_rev' does not resolve"
+  for _flag in --head --end-head; do
+    _before=$(nrec "$rh")
+    if [ "$_flag" = --head ]; then
+      set -- --head "$_rev" --end-head "$HD_3"
+    else
+      set -- --head "$HD_3" --end-head "$_rev"
+    fi
+    # shellcheck disable=SC2086
+    srh write --run "$rh" --point pre-pr --step polish $skbase "$@" --outcome passed \
+      >"$tmp/hd.out" 2>"$tmp/hd.err"
+    rc=$?
+    [ "$rc" -eq 2 ] && [ ! -s "$tmp/hd.out" ] && [ "$(nrec "$rh")" -eq "$_before" ] \
+      && grep -q -- "$_flag" "$tmp/hd.err" && grep -q 'git rev-parse' "$tmp/hd.err"
+    verdict_of $? "write refuses $_flag '$_rev', naming git rev-parse, nothing written" \
+      "rc=$rc records=$(nrec "$rh") err=$(cat "$tmp/hd.err")"
+  done
+  _before=$(nrec "$rh")
+  srh write --completion --run "$rh" --point pre-pr --head "$_rev" >"$tmp/hd.out" 2>"$tmp/hd.err"
+  rc=$?
+  [ "$rc" -eq 2 ] && [ "$(nrec "$rh")" -eq "$_before" ] && grep -q 'git rev-parse' "$tmp/hd.err"
+  verdict_of $? "a completion refuses --head '$_rev', nothing written" "rc=$rc err=$(cat "$tmp/hd.err")"
+  srh status --point pre-ready-flip --head "$_rev" --repo o/r >"$tmp/hd.out" 2>"$tmp/hd.err"
+  rc=$?
+  [ "$rc" -eq 2 ] && grep -q 'git rev-parse' "$tmp/hd.err"
+  verdict_of $? "status refuses --head '$_rev'" "rc=$rc err=$(cat "$tmp/hd.err")"
+  srh lookup limited --head "$_rev" >"$tmp/hd.out" 2>"$tmp/hd.err"
+  rc=$?
+  [ "$rc" -eq 2 ] && grep -q 'git rev-parse' "$tmp/hd.err"
+  verdict_of $? "lookup limited refuses --head '$_rev'" "rc=$rc err=$(cat "$tmp/hd.err")"
+  srh lookup resume --run "$rh" --point convergence --head "$_rev" >"$tmp/hd.out" 2>"$tmp/hd.err"
+  rc=$?
+  [ "$rc" -eq 2 ] && grep -q 'git rev-parse' "$tmp/hd.err"
+  verdict_of $? "lookup resume refuses --head '$_rev'" "rc=$rc err=$(cat "$tmp/hd.err")"
+done
+# shellcheck disable=SC2086
+rec=$(srh write --run "$rh" --point pre-pr --step polish $skbase --head "$HD_3" --end-head "$HD_3" \
+  --outcome passed)
+rc=$?
+[ "$rc" -eq 0 ] && grep -Fxq "head${TAB}$HD_3" "$rec"
+verdict_of $? "write takes a full commit id for both heads" "rc=$rc rec=$rec"
+srh write --completion --run "$rh" --point pre-pr --head "$HD_3" >"$tmp/hd.out"
+verdict "a completion takes a full commit id" "completion refused a full commit id"
+
 # The outcome enum is closed at the six names, limited among them.
 # shellcheck disable=SC2086
 rec=$(srx write --run "$rx" --point pre-ci --step lim $xbase --outcome limited)
