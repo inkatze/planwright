@@ -18,6 +18,8 @@
 #   a6: the echo carries no control byte from the command.
 #   a7: a malformed token, a worker row's token, and --deny and --response-file
 #       answers from another program are refused too.
+#   a9: a worker name with a slash, a leading ../ or whitespace is refused by the
+#       handle check, exit 2, before the owner check reads any registry row.
 #   a8: the owner's --deny and --response-file answers pass, echoing the
 #       command, or the tool name when there is none.
 #
@@ -196,6 +198,19 @@ rc=$?
 [ "$rc" = 2 ] || fail "a7: another program's --response-file answer must be refused with exit 2, got $rc: $out"
 [ "$(lines_of "$rec/stdin")" = "$before" ] || fail "a7: a refused answer reached the worker"
 echo "ok: a7 a malformed token, a worker row's token and every answer mode from another program are refused"
+# a9: a worker name that is not a plain handle is refused before any registry
+# row path is built from it, even for a caller holding a valid token.
+for bad in '../mc-p2-worker-x' 'a/b' 'a b' 'a;b'; do
+  out=$(senv "$home" "$rec" PLANWRIGHT_MC_TOKEN=tok-acme -- answer "$bad" "$req" --allow 2>&1)
+  rc=$?
+  [ "$rc" = 2 ] || fail "a9: a worker name '$bad' must be refused with exit 2, got $rc: $out"
+  case $out in *"invalid worker handle"*) : ;; *) fail "a9: the refusal for '$bad' must be the handle check: $out" ;; esac
+  case $out in *"owned by"* | *"mission-control for"*) fail "a9: '$bad' reached the owner check: $out" ;; esac
+  [ "$(lines_of "$rec/stdin")" = "$before" ] || fail "a9: a refused answer for '$bad' reached a worker"
+done
+grep -q "^$req.*pending" "$wdir/journal" || fail "a9: a refused name must leave the request pending"
+echo "ok: a9 a path-shaped or spaced worker name is refused before any registry row is read, with nothing written"
+
 home4="$tmp/h4"
 rec4="$tmp/r4"
 start_worker "$home4" "$rec4" sj-orphan SHIM_EVENTS="$tmp/ev-perm"
