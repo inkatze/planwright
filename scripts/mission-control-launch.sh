@@ -64,7 +64,7 @@ usage:
       [--remote-control <name>] [--model <alias>] [--effort <level>]
       [--reserved] [--keep-config-env] [--mise-task-edit]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
-  mission-control-launch.sh retire <name>|<worker>
+  mission-control-launch.sh retire <name>|<worker> [--force-parked]
   mission-control-launch.sh reparent <name> --program <dest>
       (--authority <decisions-log id> | --undo)
   mission-control-launch.sh wait <name> --on operator|ci|ready-flip
@@ -196,7 +196,10 @@ Output, tab separated:
 A launch reserves the name with a complete row (backend, launcher pid and a
 token) before it starts anything, and a session that started but could not
 be recorded is stopped. A mission-control session starts holding that token
-as PLANWRIGHT_MC_TOKEN, which no other kind is handed. A retire refuses a launch still in flight, closes the
+as PLANWRIGHT_MC_TOKEN, which no other kind is handed. A retire refuses a session with a live operator, ci or ready-flip wait
+(exit 4, naming the wait) unless given --force-parked: a parked session
+is waiting on someone, and its finished-looking turn is not a finished
+job. A retire refuses a launch still in flight, closes the
 process or window first, and releases the fleet record, the attention row
 and the row only once it is gone; a window counts as closed only when tmux
 lists the windows and that one is not among them. A session with no row
@@ -216,7 +219,8 @@ is in flight, a live session uses its worktree, another launch is placing
 its branch, or a dispatch holds it or cannot say (launch), or there is
 neither a row nor a stream-json worker of that name, a launch, recover,
 relaunch or another retire of it is in flight, or the caller runs inside
-its window (retire); 4 a launch refused before it started: a posture check
+its window (retire); 4 a retire refused because the session holds a live
+wait and --force-parked was not given, or a launch refused before it started: a posture check
 (scripts/mc-posture.sh) that failed or did not run, no readable profile, an
 unresolvable rung knob with no --backend, no resolvable tier (an
 unreachable allocation store or a malformed tier knob), the admission gate
@@ -1396,6 +1400,11 @@ retire_unregistered() {
 }
 
 cmd_retire() {
+  force_parked=0
+  if [ "$#" -eq 2 ] && [ "$2" = --force-parked ]; then
+    force_parked=1
+    set -- "$1"
+  fi
   [ "$#" -eq 1 ] || usage
   name=$1
   if ! valid_name "$name"; then
@@ -1417,6 +1426,10 @@ cmd_retire() {
   state=$(row_get "$row" state)
   backend=$(row_get "$row" backend)
   handle=$(row_get "$row" handle)
+  parked_on=$(row_get "$row" waiting)
+  if [ -n "$parked_on" ] && [ "$force_parked" != 1 ]; then
+    die "refusing to retire $name: it is parked, waiting on $(sanitize_printable "$parked_on") (unwait it first, or pass --force-parked to retire it anyway)" 4
+  fi
   released='' held=''
   add_released() { released="$released,$1"; }
   add_held() { held="$held,$1"; }

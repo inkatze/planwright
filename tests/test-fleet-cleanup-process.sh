@@ -316,6 +316,27 @@ for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success
 done
 echo "ok: a print-backend unit is refused with its own exit (8) under every evidence"
 
+# --- a parked session is never reaped, under positive evidence (exit 5) ----
+mkdir -p "$gate_home/mission-control/sessions"
+for why in operator ci ready-flip; do
+  printf 'format\t1\nname\tw1\nwaiting\t%s\n' "$why" >"$gate_home/mission-control/sessions/w1"
+  for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success'; do
+    det "${st% *}" dead-or-unknown "${st#* }" stream-json-persistent dead
+    gate w1 trig why
+    expect 5 "a session waiting on $why ($st)"
+    never_stopped "a session waiting on $why ($st)"
+    case $err in
+      *"waiting on $why"*) ;;
+      *) fail "a parked session's refusal does not name the wait: $err" ;;
+    esac
+  done
+done
+rm -f "$gate_home/mission-control/sessions/w1"
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead
+gate w1 trig why
+expect 0 "the same session once its wait is cleared"
+echo "ok: a session with a live wait is never reaped, and is again once the wait is cleared"
+
 # --- a live peer's worker is never touched, under any evidence (exit 7) -----
 for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success' \
   'unclassified completion-failed:exit=1' 'working runtime-running'; do

@@ -559,6 +559,25 @@ expect_no_out "a stream-json worker whose status cannot be read counts as live" 
 expect_no_out "a running stream-json worker is untouched" "mc-alpha-worker-sjrunning"
 expect_no_out "a tmux worker is untouched by the completed rule" "mc-alpha-worker-tmuxgrace"
 chmod 600 "$fleet/streamjson/mc-alpha-worker-sjunread/result"
+
+# A session with a live wait (operator, ci or ready-flip) is parked, not
+# finished: no bound retires it, whichever rung it runs on and however long
+# its last turn ended ago. Clearing the wait makes it retire as any other.
+sj_row mc-alpha-worker-sjparked "$t1" "$t1" "Done: walked the spec."
+printf 'waiting\toperator\n' >>"$sessions/mc-alpha-worker-sjparked"
+sj_row mc-alpha-worker-sjci "$t1" "$t1" "Done."
+printf 'waiting\tci\n' >>"$sessions/mc-alpha-worker-sjci"
+bound_row mc-alpha-worker-tmuxparked worker 34 "$t1" "$tmp/idle.pane"
+printf 'waiting\tready-flip\n' >>"$sessions/mc-alpha-worker-tmuxparked"
+printf '%s:t\th\t%s\tidle\n' "$t1" "$t1" >"$fleet/mission-control/alpha/stall/mc-alpha-worker-tmuxparked"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
+expect_no_out "a completed stream-json session with an operator wait is never retired" "retire${tab}mc-alpha-worker-sjparked"
+expect_no_out "nor one with a ci wait" "retire${tab}mc-alpha-worker-sjci"
+expect_no_out "nor an idle tmux session with a ready-flip wait" "retire${tab}mc-alpha-worker-tmuxparked"
+awk -F '\t' '$1 != "waiting"' "$sessions/mc-alpha-worker-sjci" >"$sessions/mc-alpha-worker-sjci.new" && mv -f "$sessions/mc-alpha-worker-sjci.new" "$sessions/mc-alpha-worker-sjci"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
+expect_out "clearing the wait restores the retire" "retire${tab}mc-alpha-worker-sjci${tab}${t1}${tab}completed result=success"
+rm -f "$sessions/mc-alpha-worker-sjci" && rm -rf "$fleet/streamjson/mc-alpha-worker-sjci"
 for s in mc-alpha-worker-sjunread mc-alpha-worker-sjrunning mc-alpha-worker-tmuxgrace; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
 
 # The bounds are knobs.
@@ -583,6 +602,17 @@ else
 fi
 expect_out "an idle stream-json session is retired too" "announced${tab}worker-retired-idle${tab}mc-alpha-worker-sjidle"
 if [ ! -e "$sessions/mc-alpha-worker-sjidle" ]; then ok "and its row released"; else fail "the stream-json session's row stayed: $ERR"; fi
+expect_no_out "a parked session is not retired by the watch" "worker-retired-idle${tab}mc-alpha-worker-sjparked"
+expect_no_out "nor a parked tmux session" "worker-retired-idle${tab}mc-alpha-worker-tmuxparked"
+if [ -e "$sessions/mc-alpha-worker-sjparked" ] && [ -e "$sessions/mc-alpha-worker-tmuxparked" ] && [ -d "$fleet/streamjson/mc-alpha-worker-sjparked" ] && [ -e "$tmp/tmux/34.name" ]; then
+  ok "and both stay, row, runtime and window"
+else
+  fail "a parked session was retired by the watch: $(ls "$sessions") $ERR"
+fi
+case $ERR in
+  *"mc-alpha-worker-sjparked"* | *"mc-alpha-worker-tmuxparked"*) fail "a parked session was reported as a failed retire: $ERR" ;;
+  *) ok "and the watch reports nothing of them" ;;
+esac
 expect_out "the lifetime handover is announced" "announced${tab}worker-handover-due${tab}mc-alpha-reviewer-old"
 expect_out "each session's own" "announced${tab}worker-handover-due${tab}mc-alpha-worker-old"
 expect_no_out "input since the scan stops the retire" "worker-retired-idle${tab}mc-alpha-worker-typed"
