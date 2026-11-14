@@ -439,6 +439,98 @@ the latest tag already contains, is wrong however it was produced. This mirrors 
 `tests/test-permission-matcher.sh`: an assertion on the shape of the output
 catches regressions that the generating logic can otherwise hide.
 
+### D-15: A release commit's CI run gets its own uncancellable group  (N)
+
+**Decision:** `ci.yml` selects its concurrency group by the pushed commit. A
+push to the default branch whose head commit message is a release-please
+release commit (`chore: release <version>`, the `pull-request-title-pattern`
+in `release-please-config.json`) runs in group `ci-release-<sha>` with
+`cancel-in-progress: false`; every other event keeps `ci-<ref>` with
+`cancel-in-progress: true` (REQ-I1.1). Both the group and the cancel flag are
+expressions over the same predicate, so they cannot disagree.
+
+**Alternatives considered:**
+- Disable cancellation for every push to the default branch. Rejected because:
+  it spends a full multi-shard run on every superseded main commit to protect
+  the one commit whose verdict publish depends on.
+- Re-run the cancelled CI before publishing. Rejected because: it is a manual
+  recovery step that depends on someone noticing, which is the failure this
+  amendment removes; the 0.75.1 cycle lost its release to exactly that.
+- Make publish ignore a cancelled run. Rejected because: a cancelled run is
+  not positive confirmation, and `rl_ci_state` refusing it is correct (REQ-C1.1).
+- Key the group on the release PR's branch name. Rejected because: a push to
+  the default branch carries no PR branch, so the commit message is the only
+  signal present on the event.
+
+**Chosen because:** the verdict publish waits on belongs to one known commit,
+so that commit alone needs protection. Other release-adjacent workflows keep
+their groups: `release-window.yml` is excluded from the verdict (D-4), and
+`release-please.yml` already runs with `cancel-in-progress: false`.
+
+### D-16: Verify the window check is required, never set it  (N)
+
+**Decision:** A new read-only verifier, `scripts/release-window-enforced.sh`,
+asks GitHub which checks are required on the default branch (the rules that
+apply to the branch, readable with repository read access) and exits 0 when the
+`window-lock` context is among them, 1 when it is not, 2 when it cannot
+determine the answer (REQ-I1.2). The release-please workflow guard and
+`release-bookkeeping.sh` call it while the window is open and surface exit 1
+or 2 as a defect. Making the check required stays an administrator act,
+documented in `templates/release-window/README.md`, whose "required only once
+the window is closed" advice is restated as "required before the next release
+PR merges, never enabled mid-window".
+
+**Alternatives considered:**
+- Have CI turn the requirement on when the window opens. Rejected because:
+  it needs administration scope, which `GITHUB_TOKEN` lacks and a workflow
+  holding it widens the blast radius of every other workflow bug.
+- Rely on documentation alone. Rejected because: this repository's own default
+  ruleset carried no required-check rule (recorded under REQ-G1.4), so a
+  documented-only requirement is exactly the gap that let other work merge
+  during the window.
+- Add a second always-failing aggregate check. Rejected because: it is still
+  only as binding as the ruleset that requires it.
+
+**Chosen because:** surfacing the unenforced state at the two moments the
+operator is already looking (the proposal and the bookkeeping report) closes
+the gap without handing CI an authority it should not hold. Fail closed on an
+unreadable answer keeps this bundle's posture (D-2). Kickoff confirms the
+rules endpoint answers under the workflow's token before Task 12 starts; if it
+does not, the workflow-side call degrades to the bookkeeping call only.
+
+### D-17: A skip is a tracked, commit-bound record  (N)
+
+**Decision:** A skipped release is recorded in a tracked file (default
+`.release-skips`, one `<version> <sha>` per line, `#` comments and blank lines
+ignored) read from the same ref as the version of truth. `release-lib.sh`
+gains one helper, `rl_release_skipped <version> <sha>`, and the comparator and
+`release-window-check.sh` treat a version of truth that matches a recorded
+skip, at the commit that last set it, as not pending (REQ-I1.3). Nothing about
+a later version changes: it is pending again. `release-publish.sh` refuses a
+recorded-skipped version. The file is read with the version file's existing
+path guards and canonicalization (D-5), and a present-but-malformed file exits
+2.
+
+**Alternatives considered:**
+- A signed skip tag. Rejected because: it either pollutes the `v*` namespace
+  `rl_latest_release_tag` reads or needs a second namespace and its own
+  fetch rules, and it would leave an artifact that looks like a release.
+- A config knob in `.claude/planwright.yml` listing skipped versions.
+  Rejected because: this is per-event state, not a policy value
+  (`customization-boundary`), and a version-only record would also cover a
+  later, different commit at the same version.
+- Reset the version files by hand and use `Release-As` (the 0.75.1 stopgap).
+  Rejected as the steady state because: it rewrites version history to make a
+  guard happy and needs the operator to know the trick.
+- Bind the record to the version only. Rejected because: the same version
+  re-proposed after a revert would silently pass as skipped.
+
+**Chosen because:** a tracked record changed only by a human-merged PR keeps
+"skip" an operator decision, visible in review and history, while binding it
+to the commit means it can only ever close the window it was written for.
+Parsing and the recorded-skip refusal reuse `release-lib.sh`'s existing
+primitives, so the comparator stays the one definition (autopilot-reflex REQ-D1.8).
+
 ## Cross-cutting concerns
 
 - **Shared-file coordination.** REQ-C (rl_ci_state → publish + arm), REQ-B
@@ -462,6 +554,10 @@ catches regressions that the generating logic can otherwise hide.
   own table.
   *(Amended at the 2026-08-25 bootstrap-race amendment: Task 10 added to the
   `mise.toml` overlap.)*
+  Task 11-13 (REQ-I): Task 12 and Task 13 both touch `release-lib.sh` callers
+  (`release-bookkeeping.sh`, `release-window-check.sh`) and
+  `templates/release-window/README.md`; the 13→12 edge serializes them, and
+  Task 11 touches only `ci.yml`.
 - **Fail-closed invariant.** Every new refusal path (comparator error, SHA
   mismatch, containment failure, CI query failure) exits non-zero with a
   diagnostic and no side effects, consistent with the pipeline's existing

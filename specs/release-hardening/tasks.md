@@ -289,6 +289,64 @@ and knob changes that share the file.
 - **Citations:** D-14 · REQ-H1.2, REQ-H1.3 · obs:fd6c2f4f
 - **Estimated effort:** 1 day
 
+### Task 11 — Uncancellable CI group for release commits
+
+- **Deliverables:** `.github/workflows/ci.yml` selects its concurrency `group`
+  and `cancel-in-progress` from one predicate: a push to the default branch
+  whose head commit message starts with `chore: release` gets group
+  `ci-release-<sha>` and no cancellation; everything else keeps `ci-<ref>`
+  with cancellation. The header comment states why. A case in the workflow
+  tests (new or extending the existing workflow test) pinning both branches of
+  the predicate and that the group and the cancel flag use the same predicate.
+- **Done when:** the workflow carries the predicate; tests fail if either
+  branch is removed or the two expressions diverge; yamllint is green; the
+  next release commit's CI run survives a later merge to the default branch;
+  `mise run check` is green.
+- **Dependencies:** none
+- **Citations:** D-15 · REQ-I1.1 · drafting-session decision (2026-11-13)
+- **Estimated effort:** 0.5 day
+
+### Task 12 — Required-check verifier for the window check
+
+- **Deliverables:** `scripts/release-window-enforced.sh` with the 0/1/2
+  contract of REQ-I1.2, read-only, bash 3.2 portable, with the diagnostic
+  routed through `sanitize_printable`. `release-bookkeeping.sh` and the
+  `release-please.yml` guard call it while the window is open and surface exit
+  1 or 2. `templates/release-window/README.md` restates the adoption advice
+  (required before the next release PR merges, never enabled mid-window).
+  Tests in a new `tests/test-release-window-enforced.sh` using a stubbed
+  query: required, not required, query failure, unparseable answer.
+- **Done when:** each of the four cases returns its status and a failing query
+  never returns 0; the bookkeeping report and the workflow guard surface a
+  non-zero status while the window is open and stay quiet when it is closed;
+  the rules endpoint is confirmed readable under the workflow token or the
+  workflow-side call is dropped per D-16; `mise run check` is green.
+- **Dependencies:** Task 13 (the verifier is consulted only while the window is
+  open, and a recorded skip closes it)
+- **Citations:** D-16 · REQ-I1.2, REQ-A1.3, REQ-G1.4 · drafting-session
+  decision (2026-11-13)
+- **Estimated effort:** 1 day
+
+### Task 13 — Recorded skip honoured by comparator, window check and publish
+
+- **Deliverables:** `rl_release_skipped` in `release-lib.sh` and a parser for
+  the skip file (path guards and canonicalization shared with the version
+  file, D-5). `release-pending.sh` and `release-window-check.sh` (both the
+  working-tree and `--ref` paths) report a recorded skip as not pending; a
+  malformed skip file exits 2. `release-publish.sh` refuses a recorded-skipped
+  version with a message naming the record. `templates/release-window/README.md`
+  and `doctrine/release-tagging.md` gain the skip procedure. Tests extending
+  `tests/test-release-pending.sh`, `tests/test-release-window-check.sh` and
+  the publish tests: skipped version passes, later version pending, same
+  version at a different commit pending, malformed file exits 2, publish
+  refuses.
+- **Done when:** the 0.75.1 shape (version ahead of the latest tag, recorded
+  as skipped) leaves the window closed and the `release-please` guard
+  proceeds; every negative case above holds; `mise run check` is green.
+- **Dependencies:** none
+- **Citations:** D-17 · REQ-I1.3, REQ-A1.3, REQ-D1.1 · drafting-session decision (2026-11-13)
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 (none yet)

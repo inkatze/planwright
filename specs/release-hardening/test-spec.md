@@ -243,3 +243,32 @@ The verified behaviour of release-please 17.6.0 with `bootstrap-sha` absent is
 recorded in the bundle changelog, together with the evidence that established
 it. Satisfied by the record existing and being sourced; removal of the key is
 explicitly not required by this REQ.
+
+## REQ-I — release-window gaps found in the 0.75.1 cycle
+
+### REQ-I1.1 — release commit CI is uncancellable [test]
+
+A workflow test asserts `ci.yml` selects group `ci-release-<sha>` with
+`cancel-in-progress: false` for a release-commit push, keeps `ci-<ref>` with
+cancellation otherwise, and derives both from the same predicate (mutating
+either expression alone fails the test). The end-to-end property, a later
+merge not cancelling the run, is checked once on the next release cycle
+(`[manual]`).
+
+### REQ-I1.2 — window check required while a release is pending [test]
+
+`tests/test-release-window-enforced.sh` stubs the rules query and asserts exit
+0 (required), 1 (not required), and 2 for a failed query and an unparseable
+answer, with 2 never collapsing into 0. Further cases assert the bookkeeping
+report and the proposal guard surface exit 1 and 2 while the window is open
+and are silent when it is closed. Runs under `mise run check`.
+
+### REQ-I1.3 — a recorded skip closes the window for that version only [test]
+
+Fixtures over `release-pending.sh`, `release-window-check.sh` (both paths) and
+`release-publish.sh`: a version of truth recorded as skipped at its commit is
+not pending; a later version is pending; the same version at a different
+commit is pending; an unparseable skip file exits 2; publish refuses a
+recorded-skipped version. A negative control proves the skipped fixture is
+pending when the record is removed, so the pass is the record's doing. Runs
+under `mise run check`.
