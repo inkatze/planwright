@@ -1689,16 +1689,17 @@ tower_wrapped_git_check() {
 # --------------------------------------------------------------------------
 # The kickoff sign-off push. scripts/kickoff-spec-push.sh pushes a spec's own
 # sign-off branch, which the protected set otherwise refuses to every agent
-# session. Only the worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
-# hook's environment, which a command's inline assignment cannot change) is
-# kickoff-<spec> may run it, and only from that spec's branch or one of its
-# amendment branches (planwright/<spec>/amendment-<n>), or an amendment
-# kickoff's scope (kickoff_amendment_scope) from its own amendment branch. Any
-# other session is refused: from the spec branch with the text a push to that
-# branch gets, elsewhere as not the kickoff, naming the branch checked out (the
-# one the helper pushes). A run the guard cannot read is refused. A mention that is no run
-# (a read, a stage or a printed note) passes to the ordinary rules, and what a
-# mention pipes into must itself only read or print it.
+# session. Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
+# hook's environment, which a command's inline assignment cannot change) names
+# that spec's kickoff may run it: kickoff-<spec>, from the spec branch or any of
+# its amendment branches (planwright/<spec>/amendment-<n>), or an amendment
+# kickoff's kickoff-<spec>-a<n> (kickoff_amendment_scope), from
+# planwright/<spec>/amendment-<n> alone. Any other session is refused: from the
+# spec branch with the text a push to that branch gets, elsewhere as not the
+# kickoff, naming the branch checked out (the one the helper pushes). A run
+# the guard cannot read is refused. A mention that is no run (a read, a stage
+# or a printed note) passes to the ordinary rules, and what a mention pipes
+# into must itself only read or print it.
 
 KICK_SEEN=0
 KICK_PASSED=0
@@ -2030,7 +2031,7 @@ kickoff_fuzzy_name() {
 # mention that is no run of it is tallied for kickoff_text_check, and what a
 # mention pipes into must itself only read or print it.
 kickoff_segment() {
-  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct kick_ok piped=$KICK_PIPED
+  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct kick_ok piped=$KICK_PIPED scope_seen where
   KICK_PIPED=0
   KICK_DIR=$dir
   KICK_DIR_OK=$dir_ok
@@ -2134,14 +2135,14 @@ kickoff_segment() {
     deny_now "amendment $KAS_N's kickoff for $spec pushes only planwright/$spec/amendment-$KAS_N, and this checkout has ${b:-no branch} checked out - refusing. Check out planwright/$spec/amendment-$KAS_N in your worktree and run $KICK_FORM."
     return 0
   fi
-  local scope_seen=${PLANWRIGHT_WORKER_SCOPE:-}
+  scope_seen=${PLANWRIGHT_WORKER_SCOPE:-}
   scope_seen=$(sanitize_printable "${scope_seen:0:128}" 'none')
   if [ "$dir_ok" = 1 ]; then
-    b="this checkout has ${b:-no branch} checked out"
+    where="this checkout has ${b:-no branch} checked out"
   else
-    b='the guard cannot place where it runs, so cannot read which branch it would push'
+    where='the guard cannot place where it runs, so cannot read which branch it would push'
   fi
-  deny_now "this session is not the kickoff for $spec (tier $TIER, launch scope $scope_seen), so it may not run the kickoff push; $b - refusing. Only $spec's kickoff session runs it: a worker launched with scope kickoff-$spec, or kickoff-$spec-a<n> from planwright/$spec/amendment-<n>."
+  deny_now "this session is not the kickoff for $spec (tier $TIER, launch scope $scope_seen), so it may not run the kickoff push; $where - refusing. Only $spec's kickoff session runs it: a worker launched with scope kickoff-$spec, or kickoff-$spec-a<n> from planwright/$spec/amendment-<n>."
   return 0
 }
 
