@@ -5090,10 +5090,18 @@ mc_write_via_link() {
   mc_physical_dir "$w" || return 1
   [ "$MC_PHYS_DIR${MC_PHYS_REST}" != "$w" ] || [ -L "${w%/}" ] || return 1
   if [ -L "${w%/}" ]; then
-    local l
-    l=$(cd -P -- "${w%/*}" 2>/dev/null && readlink -f -- "$w" 2>/dev/null) || return 0
+    # Follow the link chain by hand: readlink -f is not portable.
+    local l=$w n=0 tgt
+    while [ -L "$l" ] && [ "$n" -lt 20 ]; do
+      tgt=$(readlink "$l") || return 0
+      case $tgt in /*) l=$tgt ;; *) l=${l%/*}/$tgt ;; esac
+      n=$((n + 1))
+    done
+    [ "$n" -lt 20 ] || return 0
     mc_posture_word "$l" && return 0
-    return 1
+    mc_physical_dir "$l" || return 0
+    mc_posture_word "${MC_PHYS_DIR%/}$MC_PHYS_REST"
+    return
   fi
   mc_posture_word "${MC_PHYS_DIR%/}$MC_PHYS_REST"
 }
@@ -5106,7 +5114,7 @@ mc_write_via_link() {
 # delimiter, a redirect elsewhere) returns 1 and the whole text is screened.
 mc_store_doc_strip() {
   local t=$1 line out='' chk='' delim='' tabs=0 any=0 d m w q hdr
-  local re_open="(^|[^[:alnum:]_.-])cat([[:space:]][^<;&|()\`\$]*)?<<(-?)[[:space:]]*(['\"])([A-Za-z_][A-Za-z0-9_]*)\\4"
+  local re_open="(^|[^[:alnum:]_.-])cat([[:space:]][^<;&|()\`\$]*)?<<(-?)[[:space:]]*(['\"])([A-Za-z_][A-Za-z0-9_]*)['\"]"
   case $t in *'<<'*) ;; *) return 1 ;; esac
   while IFS= read -r line || [ -n "$line" ]; do
     if [ -n "$delim" ]; then
@@ -5119,7 +5127,8 @@ mc_store_doc_strip() {
       continue
     fi
     out="$out$line$NL"
-    if [[ $line =~ $re_open ]]; then
+    # The closing quote must be the opening one: ERE has no back-reference.
+    if [[ $line =~ $re_open ]] && [ "${BASH_REMATCH[0]: -1}" = "${BASH_REMATCH[4]}" ]; then
       # One document on the line, and nothing after it that opens another.
       q=${line#*"${BASH_REMATCH[0]}"}
       case $q in *'<<'*) return 1 ;; esac

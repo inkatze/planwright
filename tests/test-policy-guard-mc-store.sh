@@ -18,7 +18,7 @@ export HOME="$FIXHOME"
 OUTSIDE=$(mktemp -d /var/tmp/pg-mc-store.XXXXXX) || exit 1
 trap 'rm -rf "$SANDBOX" "$OUTSIDE"' EXIT
 ROOT="$OUTSIDE/mchome"
-H="$ROOT/tecpan"
+H="$ROOT/alpha"
 OTHER="$OUTSIDE/elsewhere/beta-home"
 FLEET="$FIXHOME/.claude/plugins/data/planwright/fleet"
 MCLOG="$SANDBOX/mcprog.log"
@@ -40,9 +40,9 @@ cat >"$S/mc-program.sh" <<EOS
 printf '%s\n' "\$*" >>"$MCLOG"
 case "\$1 \$2 \$3" in
   "default home "*) printf '%s\n' "$ROOT" ;;
-  "list  ") printf 'tecpan\nbeta\n' ;;
+  "list  ") printf 'alpha\nbeta\n' ;;
   "get beta home") printf '%s\n' "$OTHER" ;;
-  "get tecpan home") printf '%s\n' "$H" ;;
+  "get alpha home") printf '%s\n' "$H" ;;
   *) exit 2 ;;
 esac
 EOS
