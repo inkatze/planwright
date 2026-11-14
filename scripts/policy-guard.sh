@@ -1706,6 +1706,7 @@ KICK_PIPED=0
 KICK_VAR=0
 KICK_DIR=''
 KICK_DIR_OK=0
+KICK_HEAD_MOVED=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
@@ -2088,10 +2089,13 @@ kickoff_segment() {
   [ -n "$spec" ] \
     || deny_now "this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Run it as $KICK_FORM, naming the spec in lowercase letters, digits and hyphens."
   [ -n "$spec" ] || return 0
+  # The branch is read before the command runs, so an earlier HEAD move makes
+  # what the helper will push unknown.
+  [ "$KICK_HEAD_MOVED" = 0 ] || dir_ok=0
   kickoff_amendment_scope "$spec"
   if [ "$TIER" = worker ] && { [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ] || [ -n "$KAS_N" ]; }; then
     [ "$dir_ok" = 1 ] \
-      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec or amendment branch checkout.'
+      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, after a git command that may change the branch checked out, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec or amendment branch checkout.'
     [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
     if [ -n "$KAS_N" ]; then
@@ -2161,6 +2165,56 @@ kickoff_amendment_scope() {
   KAS_N=$n
 }
 
+# kickoff_head_moves — 0 when the segment runs git in a way that may change
+# which branch is checked out: switch, checkout, worktree, symbolic-ref,
+# update-ref on HEAD, a branch rename, an alias or a subcommand or argument
+# the guard cannot read. A later kickoff push in the same command then cannot
+# be placed, since its branch is read before anything runs.
+kickoff_head_moves() {
+  local i=0 n=${#SW[@]} k sub
+  while [ "$i" -lt "$n" ]; do
+    case ${SW[$i]##*/} in [Gg][Ii][Tt]) sub=git ;; *) sub='' ;; esac
+    if [ "$sub" = git ]; then
+      k=$((i + 1))
+      while [ "$k" -lt "$n" ]; do
+        case ${SW[$k]} in
+          -C | -c | --config-env | --git-dir | --work-tree | --namespace | --super-prefix | --attr-source | --list-cmds)
+            k=$((k + 2))
+            ;;
+          -p | -P | --paginate | --no-pager | --no-replace-objects | --no-lazy-fetch | --no-optional-locks | \
+            --no-advice | --literal-pathspecs | --glob-pathspecs | --noglob-pathspecs | --icase-pathspecs | --bare | \
+            -C?* | -c?* | --*=*)
+            k=$((k + 1))
+            ;;
+          -*) return 0 ;;
+          *) break ;;
+        esac
+      done
+      if [ "$k" -lt "$n" ]; then
+        [ "${SWL[$k]}" = 1 ] || return 0
+        lc "${SW[$k]}"
+        sub=$LC
+        case " $GIT_BUILTINS " in *" $sub "*) ;; *) return 0 ;; esac
+        case $sub in
+          switch | checkout | worktree | symbolic-ref) return 0 ;;
+          update-ref | branch)
+            k=$((k + 1))
+            while [ "$k" -lt "$n" ]; do
+              [ "${SWL[$k]}" = 1 ] || return 0
+              case $sub:${SW[$k]} in
+                update-ref:HEAD | branch:-m* | branch:-M* | branch:--move | branch:-[!-]*[mM]*) return 0 ;;
+              esac
+              k=$((k + 1))
+            done
+            ;;
+        esac
+      fi
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
 # kickoff_text_check — every spelling of the kickoff push's name in the command
 # must be a run, or a mention that only reads, stages or prints it, in the
 # segments read above; a name in a redirect, a -c string or a quoted or
@@ -2178,6 +2232,7 @@ classify_segments() {
   KICK_PASSED=0
   KICK_PIPED=0
   KICK_VAR=0
+  KICK_HEAD_MOVED=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0
@@ -2253,6 +2308,9 @@ classify_segments() {
       si=$((si + 1))
       continue
     fi
+    case $P_CMD in
+      *[Kk][Ii][Cc][Kk][Oo][Ff][Ff]*) ! kickoff_head_moves || KICK_HEAD_MOVED=1 ;;
+    esac
     if [ "${SWL[0]}" != 1 ]; then
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and

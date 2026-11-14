@@ -143,6 +143,31 @@ done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "false && cd \"$AMEND_UP\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"
 expect deny "[worker, kickoff-demo-a2] an amendment kickoff push the guard cannot place denies"
 reason_has 'cannot place it' "[worker, kickoff-demo-a2] the unplaced amendment kickoff push names why"
+# The guard reads the branch before the command runs, so a git command earlier
+# in the same command that may move HEAD leaves the push unplaceable.
+for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwright/demo/spec ;' \
+  'git checkout -b planwright/demo/amendment-9 ;' 'git -C . switch planwright/demo/spec &&' \
+  'git branch -m planwright/demo/amendment-9 &&' 'git symbolic-ref HEAD refs/heads/planwright/demo/amendment-9 &&' \
+  'git update-ref --no-deref HEAD HEAD &&' 'git worktree add ../w9 planwright/demo/amendment-9 &&' \
+  'env git switch planwright/demo/spec &&' 'git co planwright/demo/spec &&' \
+  'git branch -fm planwright/demo/amendment-9 &&'; do
+  for scope in kickoff-demo-a2 kickoff-demo; do
+    PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+    expect deny "[worker, $scope] a kickoff push after a git command that may move HEAD denies: $pre"
+    reason_has 'cannot place it' "[worker, $scope] the refusal after a HEAD move names why: $pre"
+  done
+  PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, task-1] a non-kickoff push after a git command that may move HEAD denies: $pre"
+  reason_has 'not the kickoff for demo' "[worker, task-1] the non-kickoff refusal after a HEAD move says so: $pre"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git \$SUB planwright/demo/spec && $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, kickoff-demo-a2] a kickoff push after a git subcommand the guard cannot read denies"
+for pre in 'git status &&' 'git log -1 ;' 'git branch --show-current &&' 'git diff --stat HEAD &&'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect defer "[worker, kickoff-demo-a2] a kickoff push after a git read still defers: $pre"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$KICKOFF_PUSH && git switch planwright/demo/spec" "$AMEND_UP" "$AMEND_UP"
+expect defer "[worker, kickoff-demo-a2] a HEAD move after the kickoff push does not move its decision"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
 expect defer "[worker, kickoff-demo-a2-delta] a stale local spec branch beside the amendment does not move the decision"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
