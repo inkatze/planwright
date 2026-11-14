@@ -1,1 +1,1 @@
-match ^usage: tower-placement\.sh   \(no arguments; classifies the working directory\)$
+match ^usage: tower-placement\.sh +\(no arguments; classifies the working directory\)$
