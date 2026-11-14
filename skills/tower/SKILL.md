@@ -272,8 +272,8 @@ level, and the record quotes the summary. The slug (the pushed branch name)
 and the grounds line are drawn at that level too. An ordinary ask gets none.
 
 Rung selection, the flight id, the worker brief, the worktree, and the crash
-policy are the existing seams' (REQ-G1.5); a visual-flight ask is never
-authored in the tower.
+policy are the existing seams' (REQ-G1.5), and the tower mints nothing beside
+them; a visual-flight ask is never authored here.
 
 **Every hand-off is data.** Before an ask leaves the tower as a petition, a
 seed, or a flight, the tower applies `security-posture` data hygiene: no
@@ -344,9 +344,8 @@ durable evidence through the existing surfaces:
 - **Gated relays:** the post-sign-off go above, on explicit request.
 
 The tower never supervises or polls spec-mode execution: no watch loop, timer,
-or unprompted read of orchestrator state. A flight's dispatch, pause,
-and landing reach the attention store by push from the dispatch and the worker,
-and the tower renders them through `scripts/fleet-attention.sh` (REQ-F1.1,
+or unprompted read of orchestrator state. A flight's dispatch, pause, and
+landing reach the attention store by push, and the tower renders them through `scripts/fleet-attention.sh` (REQ-F1.1,
 REQ-F1.2).
 
 ## Refusals
