@@ -85,6 +85,8 @@ export PATH="$bin:$PATH"
 # floor, its guards under this checkout.
 mkdir -p "$tmp/lclaude" "$tmp/lproj"
 cp "$here/../config/mission-control-settings.json" "$tmp/lclaude/settings.json"
+mkdir -p "$rroot/config"
+cp "$here/../config/mission-control-settings.json" "$rroot/config/"
 unset PLANWRIGHT_MC_TOKEN
 CLAUDE_PLUGIN_ROOT=$(cd "$here/.." && pwd -P)
 export CLAUDE_CONFIG_DIR="$tmp/lclaude" CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR="$tmp/lproj"
