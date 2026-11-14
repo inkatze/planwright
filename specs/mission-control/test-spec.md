@@ -1311,6 +1311,10 @@ request the vet calls within scope print an allow decision; the same call
 for a request the vet escalates, for a missing vet and for a vet that
 errors prints nothing; the verbs list holds no bare `answer` line and the
 verbs check fails when one is added; the settings `_about` names the arm.
+If Task 86 selects the fallback form (D-70, a settings `allow` entry paired
+with a deny-or-ask hook), the same fixtures run against that hook: the owner's
+in-scope call is allowed and every call the vet does not clear, or cannot
+read, is denied or asked, never passed on the allow entry.
 
 ### REQ-Q1.2 — The vet classifies through the worker's own guards [test]
 

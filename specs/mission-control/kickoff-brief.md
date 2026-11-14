@@ -2148,3 +2148,109 @@ Class: meaning
 Lens-pass: Amendment 15, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `2382840828be4b416a291dfebe9bc3d225d2bbc2` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 16 (2026-11-13, amendment: a mission control answers its own workers' prompts)
+
+Spec path `specs/mission-control`; walk started at `36770616`; walkthrough
+date 2026-11-13. Mode: delta walk on an Active bundle, operator-declared
+through mission control and the hub, walked by relay, one plain question per
+turn. Scope: REQ-Q1.1 to Q1.6, D-70 to D-73, Tasks 84 to 89, and the
+amendment notes on REQ-G1.5 and REQ-G1.6.
+
+#### Goal and glossary (Amendment 16)
+
+Restatement: the auto-mode classifier refuses every answer a mission control
+gives its own worker's permission prompt. Planwright's own checks, not the
+classifier, vet the answers plainly inside a worker's scope and admit them
+through one argument-aware arm; everything else still reaches the operator.
+Rules out: a second approval engine, forcing worker self-approval arms on,
+answering for a non-owner, and acting on readiness. Terms: *vet* (the
+read-only classifier script), *arm* (the argument-aware approval in the
+mission-control mode of the command guard), *owner* (the worker's registry
+owner).
+
+#### Requirements walkthrough (Amendment 16)
+
+Operator's answers, relayed through mission control and the hub, verbatim:
+
+- **Mechanism (default 1).** "All recommendations (Recommended)", mapped by
+  the hub to a vet-gated hook allow, with the settings-allow plus
+  deny-or-ask hook as the fallback if Task 86 shows only a settings allow
+  skips the classifier.
+- **Defaults 2 to 9.** "All: recs for Q2 to Q9 (Recommended)": the vet
+  replays the worker's recorded self-approval policy and never forces the
+  own-branch or scratch arms on; the yield is expected small and counted by
+  escalation reason; a bot-only thread admits the session's own recorded
+  replies by comment id and any other human comment escalates; step-record
+  writes always escalate until Amendment 13's mechanical check exists; the
+  arm refuses an ownerless worker or an unidentified caller; REQ-G1.5 and
+  REQ-G1.6 are amended in place (meaning-class); "bot-reviewed" is left to
+  the mc-fixes pr-agent-step flight; nothing acts on readiness.
+
+PR #967 must land before Task 85.
+
+#### Design walkthrough (Amendment 16)
+
+D-70 to D-73 are new and confirmed. No signed decision is superseded.
+
+#### Verification approach (Amendment 16)
+
+Every new requirement has a `[test]` entry. One entry (REQ-Q1.3's second
+half) is a design-level note until Amendment 13's check exists. No dead path.
+
+#### Task graph (Amendment 16)
+
+Tasks 84 to 89; their `Dependencies:` lines are the graph. Deliberate
+non-edges: Task 88 (the thread verb) depends on nothing and runs parallel to
+84 to 87; Task 85 also waits on PR #967, stated in its deliverables.
+
+#### Risk register (Amendment 16)
+
+1. The yield may be very small (7 of 3,695 sampled). Mitigation: verdict
+   counts by reason (REQ-Q1.5) measure it.
+2. Which mechanism skips the classifier is unproven. Mitigation: Task 86
+   proves it first; both forms are specified and tested.
+3. Amendment 13's step-record check has no stable ID yet (it is being drafted
+   as REQ-U). Mitigation: cited by name; cite the ID once it signs off.
+4. PR #967 not landed. Mitigation: stated dependency of Task 85.
+5. Numbering may collide with other amendments. Mitigation: the changelog
+   note; whichever is kicked off second renumbers.
+
+Decision-domain gap check: authorization (owner-only, vet-gated),
+data handling (digest of the asked command, not its text) and failure
+handling (any unreadable input escalates) touched and decided.
+
+#### Lens review (Amendment 16, delta-scoped)
+
+Walked inline over the Amendment 16 delta; scripts, tests and the
+`script_in_mode` refusal the spec names were checked against the tree.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | None |
+| Ambiguity and interpretation forks | 0 | None |
+| Citation and coverage integrity | 1 | Deferred: cite Amendment 13's step-record check by ID once it signs off (risk 3) |
+| Dead verification paths | 0 | None |
+| Decision-domain gaps | 0 | Decided above |
+| Testability | 1 | Applied: REQ-Q1.1's test entry now runs the same fixtures against the fallback hook |
+| Cross-file consistency | 0 | None |
+| Documentation and glossary drift | 0 | None |
+| Rendered-content safety and data hygiene | 0 | None |
+
+Altitude check: not applicable (no altitude seed claim). Ship-gate check:
+every change is a task. Enumeration cross-check: no requirement states a
+count.
+
+#### Sign-off record (Amendment 16)
+
+Signed off 2026-11-13 by the operator, relayed through mission control and
+the hub: "Sign off with test line (Recommended)". Amendment on an Active
+bundle: no status flip; `Last reviewed:` is 2026-11-13 on all four spec
+files; validator re-run after the anchor. The delta adds requirements and
+decisions and amends two, so it is meaning-class. Accepted risks: see the
+register above.
+
+Class: meaning
+Lens-pass: Amendment 16, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `57fe5113227885b31ac02caf274d2f8c17476fe2` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
