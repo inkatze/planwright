@@ -50,6 +50,11 @@ form
   event<TAB><kind><TAB><subject>[<TAB><text>]
 becomes an event (scripts/mc-event.sh emit) and every other line is
 ignored; a line the event store refuses is counted, not dropped silently.
+A run, like the pass's snapshot refresh, is stopped when it outlives
+mission_control_step_timeout (a duty's own entry in
+mission_control_step_timeout_overrides, `snapshot` for the refresh): a
+watcher-timeout or snapshot-timeout event names the expiry and the step runs
+again on its next cadence or pass.
 A loop re-checks the fleet daemon gate before each run and skips the run
 while the gate is closed, doubles its cadence at any budget rung above
 normal (and when the budget file cannot be read), and exits once its
@@ -500,7 +505,7 @@ loop() {
   out=""
   # Under setsid this loop leads its own process group, so a stop takes the
   # watcher's own children with it; elsewhere it takes the watcher.
-  trap 'trap - TERM INT HUP; [ -z "$out" ] || rm -f "$out"; [ -z "$child" ] || kill "$child" 2>/dev/null; [ -z "$MRB_PID" ] || kill "$MRB_PID" "$MRB_DOG" 2>/dev/null; kill -TERM -- -$$ 2>/dev/null; exit 0' TERM INT HUP
+  trap 'trap - TERM INT HUP; [ -z "$out" ] || rm -f "$out" "$out.expired"; [ -z "$child" ] || kill "$child" 2>/dev/null; [ -z "$MRB_PID" ] || kill "$MRB_PID" "$MRB_DOG" 2>/dev/null; kill -TERM -- -$$ 2>/dev/null; exit 0' TERM INT HUP
   while :; do
     [ "$(record_pid "$slot")" = "$$" ] || exit 0
     if mc_gate mc-watch && tmo=$(mc_step_timeout "$duty"); then

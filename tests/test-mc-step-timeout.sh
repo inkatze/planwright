@@ -157,6 +157,16 @@ mc_run mc-watch.sh pass --program alpha
 expect_rc "REQ-E1.6: the next pass runs again" 0
 expect_out "and refreshes the snapshot" "snapshot${tab}refreshed${tab}tracker"
 
+# The expiry events are routine: the runner re-arms the step itself, so they
+# wake no session.
+for kind in watcher-timeout snapshot-timeout; do
+  if awk -F '\t' -v k="$kind" '$1 == k && $2 == "routine" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv"; then
+    ok "$kind is a routine event"
+  else
+    fail "$kind has no routine row in config/mc-event-classes.tsv"
+  fi
+done
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

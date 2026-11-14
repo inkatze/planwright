@@ -54,6 +54,8 @@ planwright-updated	act
 usage-held	act
 usage-reset	act
 watcher-stopped	routine
+watcher-timeout	routine
+snapshot-timeout	routine
 usage-drained	routine
 usage-bypass	routine
 session-reparented	routine
