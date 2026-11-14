@@ -300,11 +300,11 @@ grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=flight' "$tmp/show.show.env" \
 verdict $? "a flight worker's step sees its kind, branch, base and worktree from the launch record" \
   "env: $(cat "$tmp/show.show.env" 2>&1) err: $(cat "$tmp/err")"
 rm -f "$tmp/show.show.env"
-printf 'policy=\nunit_branch=planwright/flight/demo-0123abcd\nworktree_root=%s/elsewhere\npr_base=origin/main\n' "$wtp" >"$tmp/other.record"
+printf 'policy=\nunit_branch=planwright/flight/other-99999999\nworktree_root=%s/elsewhere\npr_base=origin/develop\n' "$wtp" >"$tmp/other.record"
 r=$(sr new-run)
 noctx "$tmp/other.record" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"
 noctx "$tmp/other.record" command --run "$r" --point pre-pr --step show >/dev/null 2>>"$tmp/err"
-grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=flight' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd' "$tmp/show.show.env"
+grep -qx 'PLANWRIGHT_STEP_BASE_BRANCH=main' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd' "$tmp/show.show.env"
 verdict $? "a record naming another worktree supplies nothing of its own (git's values fill the context)" "env: $(cat "$tmp/show.show.env" 2>&1)"
 rm -f "$tmp/show.show.env"
 r=$(sr new-run)

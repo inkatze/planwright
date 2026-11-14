@@ -373,7 +373,7 @@
 # post that failed, no SHA-256 tool for args-digest, a new-run or status from
 # a plugin-cache copy the installed record no longer names) · 2 a usage or
 # field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
-# documented set on new-run, write, regenerate, or status (the other verbs,
+# documented set on new-run, write, regenerate, or status, or an exported branch, worktree, or kind that disagrees with git there (the other verbs,
 # bar excerpt and args-digest, only warn; resolve-steps.sh --check-env judges it) · 3 lookup found no
 # record to stand on (or no unretired limited record), or heads found no move.
 #
@@ -507,7 +507,10 @@ set_head_from_worktree() {
 # norm_head <flag> <value>: sets NORM to the full id of the commit <value>
 # names, a full id or an abbreviation of at least seven hex digits that
 # resolves to exactly one commit, and refuses (naming the value) one that is
-# no commit or is not reachable from the worktree's HEAD.
+# no commit or is not reachable from the worktree's HEAD. A third argument
+# names a commit exempt from the reachability test: the head step-run.sh's
+# begin recorded, which a step that rewrote history legitimately leaves behind,
+# as does the runner's own start head (PLANWRIGHT_RUNNER_HEAD, set by step-run.sh).
 norm_head() {
   nh_v=$2
   case $nh_v in
@@ -519,6 +522,7 @@ norm_head() {
   fi
   NORM=$(git_wt rev-parse --verify --quiet "$nh_v^{commit}") \
     || bad "$1" "$nh_v is not a commit here, or an abbreviation that names more than one"
+  [ "$NORM" != "${3:-}" ] && [ "$NORM" != "${PLANWRIGHT_RUNNER_HEAD:-}" ] || return 0
   git_wt merge-base --is-ancestor "$NORM" HEAD \
     || bad "$1" "$nh_v is not a commit on the current branch (not reachable from HEAD)"
 }
@@ -803,7 +807,9 @@ cache="$worktree/.claude/steps"
 [ -r "$script_dir/step-context.sh" ] || die 1 "step-context.sh is missing or unreadable (broken install)"
 . "$script_dir/step-context.sh"
 
-step_context_derive "$worktree" step-record || exit 2
+case $verb in
+  new-run | write | regenerate | status) step_context_derive "$worktree" step-record || exit 2 ;;
+esac
 
 # check_dir <dir>: refuse a symlinked or unreadable cache directory.
 check_dir() {
@@ -1081,7 +1087,12 @@ cmd_write() {
   # is more likely a failed substitution than a request for HEAD.
   # A step record resolves its head once the kind and outcome are known.
   if [ "$head_given" -eq 1 ]; then
-    norm_head --head "$head"
+    bh_x=''
+    if [ "$completion" -eq 0 ] && is_step_id "$step"; then
+      begin_head "$run" "$point" "$step"
+      bh_x=$BEGIN_HEAD
+    fi
+    norm_head --head "$head" "$bh_x"
     head=$NORM
   elif [ "$completion" -eq 1 ]; then
     set_head_from_worktree

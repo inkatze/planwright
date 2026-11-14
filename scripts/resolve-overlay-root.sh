@@ -268,6 +268,7 @@ case $layer in
       pd_nl='
 '
       pd_ifs=$IFS
+      set -f
       IFS=$pd_nl
       for pd_root in $pd_roots; do
         IFS=$pd_ifs
@@ -289,6 +290,7 @@ case $layer in
         IFS=$pd_nl
       done
       IFS=$pd_ifs
+      set +f
     fi
     # 3. Writer mode: derive the namespace from the manifest `name`.
     if [ -n "$claude_dir" ]; then

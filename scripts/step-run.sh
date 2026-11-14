@@ -249,7 +249,7 @@ launch_context
 [ -r "$script_dir/step-context.sh" ] || die 2 "step-context.sh is missing or unreadable (broken install)"
 . "$script_dir/step-context.sh"
 
-step_context_derive "$worktree" step-run || exit 2
+[ "$verb" = audit ] || step_context_derive "$worktree" step-run || exit 2
 cache="$worktree/.claude/steps"
 
 sr() (
@@ -666,7 +666,7 @@ finish() {
   fi
   end_head=$(rgit rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
   [ -z "$SESSION" ] || session_args=(--session "$SESSION")
-  out=$(sr write --run "$RUN" --point "$CTX_POINT" --step "$STEP" --kind command \
+  out=$(PLANWRIGHT_RUNNER_HEAD=$HEAD0 sr write --run "$RUN" --point "$CTX_POINT" --step "$STEP" --kind command \
     --target "$ROW_TARGET" --hosting "$ROW_HOSTING" --backend "$BACKEND" ${session_args[@]+"${session_args[@]}"} \
     --head "$HEAD0" --end-head "$end_head" --start "$START" --outcome "$outcome" \
     --excerpt-file "$output" --output "$output" ${POOL_ARGS[@]+"${POOL_ARGS[@]}"} ${FP_ARGS[@]+"${FP_ARGS[@]}"} \

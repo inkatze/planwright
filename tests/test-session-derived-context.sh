@@ -108,7 +108,17 @@ r=$(sr new-run)
 hosted_show "$r"
 grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_BRANCH=scratch-branch' "$tmp/show.show.env"
 verdict $? "a branch outside the planwright namespace derives no kind, and the branch itself" "env: $(cat "$tmp/show.show.env" 2>&1)"
-git -C "$wt" branch -m planwright/flight/demo-0123abcd
+git -C "$wt" branch -m planwright/demo/spec
+r=$(sr new-run)
+hosted_show "$r"
+grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=spec' "$tmp/show.show.env"
+verdict $? "a planwright/<spec>/spec branch derives the spec kind" "env: $(cat "$tmp/show.show.env" 2>&1)"
+git -C "$wt" checkout -q --detach
+r=$(sr new-run)
+hosted_show "$r" PLANWRIGHT_STEP_BRANCH=exported-name
+grep -qx 'PLANWRIGHT_STEP_BRANCH=exported-name' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=' "$tmp/show.show.env"
+verdict $? "a detached HEAD derives no branch or kind, so an exported branch has nothing to disagree with" "rc $HRC err: $(cat "$tmp/err")"
+git -C "$wt" checkout -q -B planwright/flight/demo-0123abcd
 
 # An exported value that disagrees with git is refused, naming both.
 r=$(sr new-run)
@@ -130,6 +140,12 @@ hosted_show "$r" PLANWRIGHT_STEP_BASE_BRANCH=develop PLANWRIGHT_STEP_SPEC=demo P
 grep -qx 'PLANWRIGHT_STEP_BASE_BRANCH=develop' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_SPEC=demo' "$tmp/show.show.env" \
   && grep -qx 'PLANWRIGHT_STEP_PR_NUMBER=5' "$tmp/show.show.env"
 verdict $? "a base, spec, task ids and PR number git cannot know are taken as exported" "env: $(cat "$tmp/show.show.env" 2>&1)"
+
+# A read of another worktree is not refused for the exported context of this one.
+env_run env PLANWRIGHT_STEP_BRANCH=planwright/other/task-9 "$RUN" --worktree "$wt" audit --through pre-pr >"$tmp/out" 2>"$tmp/err"
+case $? in 0 | 1) ok "audit does not refuse an exported context that names another unit" ;; *) fail "audit refused: $(cat "$tmp/err")" ;; esac
+env_run env PLANWRIGHT_STEP_BRANCH=planwright/other/task-9 "$SR" --worktree "$wt" list >"$tmp/out" 2>"$tmp/err"
+verdict $? "step-record.sh list does not refuse an exported context that names another unit" "err: $(cat "$tmp/err")"
 
 # step-record.sh derives the same context and refuses the same disagreement.
 srec() { bare_ctx "$SR" --worktree "$wt" "$@"; }

@@ -107,6 +107,22 @@ w "$r" show command applied
 verdict $? "the begin record's head is the start head and HEAD the end when --head is omitted" \
   "rc $WRC err: $(cat "$tmp/err") head: $(field "$r" head) end: $(field "$r" end-head) want $hb $hm"
 
+# A command step that rewrites history still records: the runner's own start head is exempt from reachability.
+fresh
+catalog "amend|kind: command|target: $bin/amend.sh"
+config 'steps_pre_pr: [amend]'
+cat >"$bin/amend.sh" <<'EOF'
+#!/bin/sh
+git commit -q --amend --allow-empty -m "chore: rewritten"
+EOF
+chmod +x "$bin/amend.sh"
+ha=$(head_of)
+r=$(sr new-run)
+srun resolve --run "$r" pre-pr --unattended >"$tmp/rows" 2>"$tmp/err"
+srun command --run "$r" --point pre-pr --step amend >"$tmp/out" 2>>"$tmp/err"
+[ "$(field "$r" head)" = "$ha" ] && [ "$(field "$r" end-head)" = "$(head_of)" ] && [ "$ha" != "$(head_of)" ]
+verdict $? "a command step that amends HEAD is recorded with its start head" "err: $(cat "$tmp/err") out: $(cat "$tmp/out")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1
