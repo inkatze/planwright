@@ -51,7 +51,7 @@ EOF
 # The watchers' behaviour has its own tests; here each is a no-op stand-in
 # under the fixture core, so arming runs nothing that reads a forge.
 mkdir -p "$core/scripts"
-for s in mc-keeper.sh mc-escalate.sh mc-readiness.sh mc-merge-ready.sh mc-pipeline-stall.sh mc-radar.sh mc-deadlines.sh mc-throughput.sh mc-usage.sh; do
+for s in mc-keeper.sh mc-escalate.sh mc-readiness.sh mc-merge-ready.sh mc-pipeline-stall.sh mc-draft-stall.sh mc-radar.sh mc-deadlines.sh mc-throughput.sh mc-usage.sh; do
   printf '#!/bin/sh\n:\n' >"$core/scripts/$s"
 done
 
@@ -72,6 +72,7 @@ expect_out "session-keeper's escalation watcher" "session-keeper${tab}scripts/mc
 expect_out "readiness-check's watcher" "readiness-check${tab}scripts/mc-readiness.sh${tab}5m${tab}low"
 expect_out "readiness-check's merge watcher" "readiness-check${tab}scripts/mc-merge-ready.sh${tab}5m${tab}low"
 expect_out "readiness-check's stalled-pipeline watcher" "readiness-check${tab}scripts/mc-pipeline-stall.sh${tab}15m${tab}low"
+expect_out "readiness-check's stalled-draft watcher" "readiness-check${tab}scripts/mc-draft-stall.sh${tab}15m${tab}low"
 expect_out "conflict-radar's watcher" "conflict-radar${tab}scripts/mc-radar.sh${tab}15m${tab}medium"
 expect_out "deadline-watch's watcher" "deadline-watch${tab}scripts/mc-deadlines.sh${tab}1h${tab}low"
 expect_out "throughput's watcher" "throughput${tab}scripts/mc-throughput.sh${tab}15m${tab}medium"
@@ -79,7 +80,7 @@ expect_out "usage-window's watcher" "usage-window${tab}scripts/mc-usage.sh${tab}
 
 mc_run mc-watch.sh pass --program alpha
 expect_rc "a runner pass" 0
-for w in session-keeper:mc-keeper.sh session-keeper:mc-escalate.sh readiness-check:mc-readiness.sh readiness-check:mc-merge-ready.sh readiness-check:mc-pipeline-stall.sh conflict-radar:mc-radar.sh deadline-watch:mc-deadlines.sh usage-window:mc-usage.sh; do
+for w in session-keeper:mc-keeper.sh session-keeper:mc-escalate.sh readiness-check:mc-readiness.sh readiness-check:mc-merge-ready.sh readiness-check:mc-pipeline-stall.sh readiness-check:mc-draft-stall.sh conflict-radar:mc-radar.sh deadline-watch:mc-deadlines.sh usage-window:mc-usage.sh; do
   expect_out "D-27: the watcher arms under the runner: ${w%%:*}" "armed${tab}${w%%:*}${tab}scripts/${w#*:}"
 done
 expect_out "the watcher arms under the runner: throughput" "armed${tab}throughput${tab}scripts/mc-throughput.sh"
@@ -87,7 +88,7 @@ expect_no_out "nothing is unresolvable" "unresolvable"
 mc_run mc-watch.sh stop --program alpha
 expect_rc "the watchers stop" 0
 
-for s in mc-keeper.sh mc-escalate.sh mc-readiness.sh mc-merge-ready.sh mc-pipeline-stall.sh mc-radar.sh mc-deadlines.sh mc-throughput.sh mc-usage.sh; do
+for s in mc-keeper.sh mc-escalate.sh mc-readiness.sh mc-merge-ready.sh mc-pipeline-stall.sh mc-draft-stall.sh mc-radar.sh mc-deadlines.sh mc-throughput.sh mc-usage.sh; do
   if [ -x "$repo_root/scripts/$s" ]; then ok "the shipped $s exists"; else fail "the shipped $s is missing"; fi
 done
 

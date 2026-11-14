@@ -69,9 +69,9 @@ duties:
     never-propose: false
   - id: readiness-check
     summary: "Checks pull requests before they go ready, and brings the operator each one to merge"
-    triggers: [readiness-due, merge-ready, pipeline-stalled]
+    triggers: [readiness-due, merge-ready, pipeline-stalled, draft-stalled]
     # yamllint disable-line rule:line-length
-    watchers: [scripts/mc-readiness.sh@5m/low, scripts/mc-merge-ready.sh@5m/low, scripts/mc-pipeline-stall.sh@15m/low]
+    watchers: [scripts/mc-readiness.sh@5m/low, scripts/mc-merge-ready.sh@5m/low, scripts/mc-pipeline-stall.sh@15m/low, scripts/mc-draft-stall.sh@15m/low]
     wake: readiness-due
     rules: [ready-conditions]
     kinds: [ready-offer, ready-to-merge]
