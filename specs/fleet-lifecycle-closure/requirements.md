@@ -567,6 +567,14 @@ ending and what evidence that authorization required.
 
 ## Changelog
 
+- 2026-11-14: Amendment (session kinds, meaning-class, signed off
+  2026-11-14): the floor extends to every launcher-opened session, with
+  declared session classes and two separate stuck detectors; `retire` closes
+  the stall sample and runs a residue check; the reclaim folder gains a size
+  report and an operator-run cleanup verb; Tasks 13 to 17. Completes the
+  operator's sign-off of the 2026-11-13 amendment, whose kickoff brief entry
+  cites this line.
+
 - **2026-11-13** — Amendment (meaning-class, Draft extension). Added group
   REQ-L, D-17 to D-20 and Tasks 13 to 17: the floor extends to launched
   sessions of every kind, the launcher's registry row and launch directory,

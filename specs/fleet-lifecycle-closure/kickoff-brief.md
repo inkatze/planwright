@@ -690,10 +690,13 @@ re-run found no error beyond the anchor this entry replaces. `Last
 reviewed:` was bumped on all four spec files. The consumed pending note is
 removed.
 
+Changelog: the 2026-11-14 line in `requirements.md`, added at the operator's
+answer "A for 1020 and 1021" (relayed by the hub, 2026-11-14), which completes
+this sign-off.
 Class: meaning
 Lens-pass: the *Lens review pass* paragraph in this entry — delta-scoped,
 fan-out, every finding applied.
-Anchor: `0730ee6cd659232d314c869b10caf6a2270d7784` — computed as
+Anchor: `72e02fea8222571f97dbe95184c419106f059f92` — computed as
 `scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
 
 ## 10. Execution research log
