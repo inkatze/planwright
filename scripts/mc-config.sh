@@ -155,6 +155,11 @@ Usage:
             date still ahead; a comment standing alone names the first
             knob-shaped word in it. The operator reviews it; doctor never
             edits the file. Ordinary values and comments are not listed
+        stale-root<TAB><session><TAB><recorded version><TAB><installed version>
+            a registered session of the program whose recorded plugin root
+            is older than the installed version: its hooks are the older
+            copy's, so relaunch it. A row with no recorded root (launched
+            before the field) is an unknown launches finding, never current
         unknown<TAB><check><TAB><why>   a check (overrides, duties,
             launches, cron, rules or temporary) whose read failed; for launches, also a
             session whose row names no known rung; for overrides, also a
@@ -828,7 +833,9 @@ doctor_launches() {
     BEGIN { n = split(ENVIRON["DL_RUNGS"], r, " "); for (i = 1; i <= n; i++) rung[r[i]] = 1 }
     NF < 5 || $2 != p { next }
     !($5 in rung) { print "unknown\tlaunches\t" $1 " names no rung doctor knows"; next }
-    $5 != k { print "launch-backend\t" $1 "\t" $5 "\t" k }'
+    { if ($5 != k) print "launch-backend\t" $1 "\t" $5 "\t" k }
+    $10 ~ /^stale / { split($10, v, " "); print "stale-root\t" $1 "\t" v[2] "\t" v[3]; next }
+    $10 ~ /^unknown/ { w = substr($10, 9); print "unknown\tlaunches\t" $1 " plugin root: " (w == "" ? "unreadable" : w) }'
 }
 
 # A cron line naming planwright, claude, or a path of the program's is a
