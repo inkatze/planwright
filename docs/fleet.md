@@ -862,8 +862,11 @@ watcher runs it as `alarm-scan --once` on every pass: an overdue request
 becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
 mission-control session as a `pending-prompt-overdue` event. A request that has
-just arrived wakes it sooner as a `pending-prompt` event, at most one per
-rate-limit window (`mc-keeper.sh` names it) so a burst is one wake.
+just arrived wakes it sooner as a `pending-prompt` event, one per pass so a
+burst is one wake (a batch whose names outgrow one event's text spans a
+few). The event names every request still waiting, worker and request id,
+and a request that arrives later is always a new event, never folded into
+one already read.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends
 non-zero is named on stderr and wakes it once as a `keeper-sweep-failed` event;

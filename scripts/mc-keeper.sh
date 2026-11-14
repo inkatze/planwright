@@ -115,7 +115,9 @@ Usage:
       announced once per request (a worker the launcher records for
       another program left to that program), and a request that has just
       arrived one pending-prompt event per pass that sees it (the requests
-      new to that pass batched into the one event), and a dead worker this
+      new to that pass batched into the one event, which names every
+      request still waiting, worker and request id, so a repeat ask is never
+      folded into an event already read), and a dead worker this
       scan settled one stream-json-worker-dead
       event, whatever its program, printing
         announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
@@ -824,7 +826,8 @@ EOF
 # as pending-prompt at the first pass that sees it, so the operator hears of it
 # within one watch pass rather than at the overdue bound. The requests new to a
 # pass are one event, a burst arriving together included: its subject is the
-# first worker and its text names the rest. A request is marked announced only
+# first worker and its text names every request still waiting, worker and
+# request id, new or not. A request is marked announced only
 # once its event is stored, so a refused announce is retried on the next pass.
 # Runs after pending_prompts, so a dead worker's requests are already settled
 # and not announced here.
@@ -839,6 +842,7 @@ pending_arrivals() {
   pa_list=$(launcher list 2>/dev/null) || pa_list=""
   pa_theirs=$(printf '%s\n' "$pa_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
   pa_fresh=""
+  pa_all=""
   pa_live=""
   # The glob needs pathname expansion, which this script turns off (set -f).
   set +f
@@ -854,6 +858,7 @@ pending_arrivals() {
       case "$NL$pa_theirs$NL" in *"$NL$pa_w$NL"*) continue ;; esac
       pa_key="$pa_w	$pa_id"
       pa_live="$pa_live$pa_key$NL"
+      pa_all="$pa_all$pa_key$NL"
       [ $((pa_now - pa_recv)) -le "$pa_thr" ] || continue
       grep -Fxq -- "$pa_key" "$pa_seen" 2>/dev/null && continue
       pa_fresh="$pa_fresh$pa_key$NL"
@@ -863,24 +868,49 @@ EOF
   done
   set -f
   pa_rc=0
-  pa_first=$(printf '%s' "$pa_fresh" | awk 'NF { print; exit }')
-  if [ -n "$pa_first" ]; then
-    pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')
+  # Fresh requests lead, then every other request still waiting, cut into
+  # events whose names fit the event text. Each chunk holding a fresh request
+  # is one event naming all of its requests, so a repeat ask is never left to
+  # an event mission control has already read.
+  pa_chunks=$(
+    FRESH=$pa_fresh awk -F '\t' '
+    BEGIN { n = split(ENVIRON["FRESH"], f, "\n"); for (i = 1; i <= n; i++) if (f[i] != "") fresh[f[i]] = 1 }
+    NF { all[++m] = $0 }
+    END {
+      for (pass = 0; pass < 2; pass++)
+        for (i = 1; i <= m; i++) {
+          if (((all[i] in fresh) ? 0 : 1) != pass) continue
+          split(all[i], kv, "\t")
+          w = length(kv[1]) + length(kv[2]) + 2
+          len += w
+          if (len > 370 && started) { c++; len = w }
+          started = 1
+          print c + 0 "\t" (pass ? "-" : "F") "\t" kv[1] "\t" kv[2]
+        }
+    }' <<EOF
+$pa_all
+EOF
+  )
+  pa_cs=$(printf '%s\n' "$pa_chunks" | awk -F '\t' 'NF && $2 == "F" && !s[$1]++ { print $1 }')
+  for pa_c in $pa_cs; do
+    pa_rowsc=$(printf '%s\n' "$pa_chunks" | C=$pa_c awk -F '\t' '$1 == ENVIRON["C"]')
+    pa_n=$(printf '%s\n' "$pa_rowsc" | awk 'NF { n++ } END { print n + 0 }')
+    pa_names=$(printf '%s\n' "$pa_rowsc" | awk -F '\t' 'NF { printf "%s%s %s", sep, $3, $4; sep = "; " }')
+    pa_fresh_c=$(printf '%s\n' "$pa_rowsc" | awk -F '\t' '$2 == "F" { print $3 "\t" $4 }')
+    pa_first=$(printf '%s\n' "$pa_fresh_c" | awk 'NF { print; exit }')
     pa_fw=${pa_first%%	*}
-    pa_text="stream-json worker $pa_fw has a request waiting on a decision; fleet-streamjson.sh pending shows it, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles it"
-    if [ "$pa_count" -gt 1 ]; then
-      pa_names=$(printf '%s' "$pa_fresh" | awk -F '\t' 'NF && !s[$1]++ { n = n ? n ", " $1 : $1 } END { print n }')
-      pa_text="$pa_count requests on stream-json workers $pa_names arrived together, waiting on a decision; fleet-streamjson.sh pending <worker> shows them, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one"
-    fi
-    # The rest of the batch is marked announced only once the event is stored,
+    pa_plural=s
+    [ "$pa_n" -ne 1 ] || pa_plural=""
+    pa_text="$pa_n request$pa_plural waiting on a decision: $pa_names; fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one"
+    # The rest of the chunk is marked announced only once the event is stored,
     # so a refused announce is retried on the next pass.
     if mc_announce "$program" "$pa_seen" "$pa_first" pending-prompt "$pa_fw" "$pa_text"; then
-      pa_rest=$(printf '%s' "$pa_fresh" | awk -v first="$pa_first" 'NF && $0 != first')
+      pa_rest=$(printf '%s\n' "$pa_fresh_c" | awk -v first="$pa_first" 'NF && $0 != first')
       [ -z "$pa_rest" ] || printf '%s\n' "$pa_rest" >>"$pa_seen" || pa_rc=1
     else
       pa_rc=1
     fi
-  fi
+  done
   mc_announce_prune "$pa_seen" "$pa_live" || pa_rc=1
   return "$pa_rc"
 }
