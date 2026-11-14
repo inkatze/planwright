@@ -229,13 +229,18 @@
 #                  rule and what would pass; nothing stored) a skill or prompt
 #                  record, outcome not skipped, that breaks a rule. Rules:
 #                  hosting-backend (--hosting in-session with a --backend other
-#                  than in-session, which a --degraded text says was no backend
-#                  run); window-floor (a skill passed or applied over a window
-#                  under 30 seconds); start-from-clock and start-round-minutes
+#                  than in-session, refused whatever --degraded says: the step
+#                  ran in the session; name an unspawnable backend in
+#                  --degraded); then, for outcome passed or applied only,
+#                  window-floor (a skill over a window under 30 seconds);
+#                  start-from-clock, start-round-minutes, window-round-minutes
 #                  and start-round-minute (no --start-source, and --start is
 #                  the clock at writing, a whole number of minutes before the
-#                  clock or before --end, or on seconds :00); outcome-heads
-#                  (passed over a moved head, applied over an unmoved one).
+#                  clock, --end a whole number of minutes after --start, or
+#                  --start on seconds :00; a stored record is judged by the
+#                  last two together only); outcome-heads (passed over a moved
+#                  head, applied over an unmoved one, --head being the head the
+#                  step began on). `untrue` also reports malformed-times.
 #   --outcome      passed | applied | halted | failed | skipped | limited
 #   --skip-code    missing | reuse | resume | answered; a skipped record
 #                  carries exactly one, and only a skipped record carries one
@@ -955,9 +960,10 @@ check_start_source() {
 # given; a record that breaks a rule is refused with nothing stored, naming the
 # flag, the rule, and what would pass. It never corrects a value.
 truth_check() {
+  case $kind:$outcome in command:* | *:skipped) return 0 ;; esac
   _now=$(date -u +%s) || die 1 "cannot read the clock"
   _t=$(awk -v TAB="$TAB" -v FLOOR="$TRUTH_FLOOR" -v TOL="$TRUTH_NOW_TOL" -v NOW="$_now" "$AWK_TRUTH"'
-    BEGIN { print truth("w", ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6], ARGV[7], ARGV[8], ARGV[9]); exit }' \
+    BEGIN { print truth("write", ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6], ARGV[7], ARGV[8], ARGV[9]); exit }' \
     "$kind" "$outcome" "$hosting" "$backend" "$start" "$end" "$head" "$end_head" "$start_source") \
     || die 1 "cannot run the step-record truth check"
   [ -z "$_t" ] || bad "${_t%%"$TAB"*}" "step-record truth check, rule ${_t#*"$TAB"}"
@@ -1445,27 +1451,35 @@ function epoch(ts,    y, m, d, era, yoe, doy, doe) {
   doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
   return (era * 146097 + doe - 719468) * 86400 + substr(ts, 12, 2) * 3600 + substr(ts, 15, 2) * 60 + substr(ts, 18, 2)
 }
-function truth(mode, kind, outcome, hosting, backend, start, end, head, endhead, source,    s, e, w) {
+function truth(mode, kind, outcome, hosting, backend, start, end, head, endhead, source,    s, e, w, work) {
   if ((kind != "skill" && kind != "prompt") || outcome == "skipped") return ""
+  if (start !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ || end !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/)
+    return "--start" TAB "malformed-times" TAB "--start and --end are not UTC timestamps"
   if (hosting == "in-session" && backend != "in-session")
-    return "--backend" TAB "hosting-backend" TAB "an in-session step ran no backend; record --backend in-session, or the real hosting and backend"
+    return "--backend" TAB "hosting-backend" TAB "an in-session step ran no backend, whatever --degraded says; record --backend in-session, or the real hosting and backend"
+  work = (outcome == "passed" || outcome == "applied")
+  if (!work) return ""
   s = epoch(start); e = epoch(end); w = e - s
-  if (kind == "skill" && (outcome == "passed" || outcome == "applied") && w < FLOOR)
+  if (kind == "skill" && w < FLOOR)
     return "--start" TAB "window-floor" TAB "a skill step that ran is under " FLOOR " seconds from --start to --end; give the run real start and end times"
   if (source == "") {
-    if (mode == "w" && (NOW - s <= TOL && s - NOW <= TOL))
+    if (mode == "write" && (NOW - s <= TOL && s - NOW <= TOL))
       return "--start" TAB "start-from-clock" TAB "--start is the clock at writing; give the time the step began, or --start-source commit:<commit>"
-    if (mode == "w" && NOW > s && (NOW - s) % 60 == 0)
+    if (mode == "write" && NOW > s && (NOW - s) % 60 == 0)
       return "--start" TAB "start-round-minutes" TAB "--start lies a whole number of minutes before the clock; give the time the step began, or --start-source commit:<commit>"
-    if (w % 60 == 0)
-      return "--start" TAB "start-round-minutes" TAB "--end lies a whole number of minutes after --start; give the times the step really began and ended, or --start-source commit:<commit>"
-    if (substr(start, 18, 2) == "00")
+    if (mode == "write" && w % 60 == 0)
+      return "--start" TAB "window-round-minutes" TAB "--end lies a whole number of minutes after --start; give the times the step really began and ended, or --start-source commit:<commit>"
+    if (mode == "write" && substr(start, 18, 2) == "00")
       return "--start" TAB "start-round-minute" TAB "--start is on seconds :00; give the time the step began, or --start-source commit:<commit>"
+    # A stored record is judged on the coincidence of both, which an honest
+    # record shows about once in thousands.
+    if (mode == "audit" && w % 60 == 0 && substr(start, 18, 2) == "00")
+      return "--start" TAB "window-round-minutes" TAB "start on seconds :00 and a window of whole minutes, with no start source"
   }
   if (outcome == "passed" && head != endhead)
-    return "--outcome" TAB "outcome-heads" TAB "the head moved over the step; record applied, not passed"
+    return "--outcome" TAB "outcome-heads" TAB "the head moved over the step; record applied, not passed (--head is the head the step began on)"
   if (outcome == "applied" && head == endhead)
-    return "--outcome" TAB "outcome-heads" TAB "the head did not move over the step; record passed, not applied"
+    return "--outcome" TAB "outcome-heads" TAB "the head did not move over the step; record passed, not applied (--head is the head the step began on)"
   return ""
 }
 '
@@ -2164,8 +2178,8 @@ cmd_untrue() {
   all_records
   CACHE_DIR=$cache awk -v TAB="$TAB" -v FLOOR="$TRUTH_FLOOR" -v TOL="$TRUTH_NOW_TOL" "$AWK_RECORD$AWK_TRUTH"'
     {
-      if (!load($0) || R_KIND != "step" || !ok_step()) next
-      t = truth("a", F["kind"], F["outcome"], F["hosting"], F["backend"], F["start"], F["end"], F["head"], F["end-head"], F["start-source"])
+      if (!load($0) || R_KIND != "step") next
+      t = truth("audit", F["kind"], F["outcome"], F["hosting"], F["backend"], F["start"], F["end"], F["head"], F["end-head"], F["start-source"])
       if (t == "") next
       split(t, p, TAB)
       print R_RUN ":" R_POINT ":" R_SEQ TAB F["step"] TAB p[1] TAB p[2]

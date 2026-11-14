@@ -988,7 +988,7 @@ cmd_audit() {
       ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
       # A record the step-record truth check would refuse covers nothing: the
       # step is reported unaudited, not done.
-      if (ok && ((R ":" K ":" F["seq"], F["step"]) in untrue)) { ok = 0; o = "unaudited" }
+      if (ok && ((R ":" K ":" substr(b, 1, 3), F["step"]) in untrue)) { ok = 0; o = "unaudited" }
       st[R, K, F["step"]] = ok ? "ok" : o
       seen_any[K, F["step"]] = 1
       if (ok) ever[K, F["step"]] = 1

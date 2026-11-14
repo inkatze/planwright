@@ -2726,7 +2726,7 @@ verdict "render shows the degradation with its reason" "render omits the degrada
 rc=0
 sr write --run "$rund" --point convergence --step polish --kind skill \
   --target planwright:polish --hosting isolated --backend claude-code \
-  --degraded 'reason' --head "$HEAD_SHA" --start 2026-09-28T12:00:07Z \
+  --degraded 'reason' --head "$HEAD_SHA" --end-head 2222222222222222222222222222222222222222 --start 2026-09-28T12:00:07Z \
   --end 2026-09-28T12:01:19Z --outcome applied >/dev/null 2>&1 || rc=$?
 [ "$rc" -ne 0 ]
 verdict "--degraded on an isolated step is refused" "--degraded on isolated was accepted"

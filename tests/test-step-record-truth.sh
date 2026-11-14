@@ -77,7 +77,6 @@ refuses_full() {
   fi
 }
 
-NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Shapes the hub denied by hand.
 refuses_full "an in-session skill recorded with an adopter backend" hosting-backend --backend \
   --hosting in-session --backend adopter --head "$H1" --end-head "$H1" --start "$START" --end "$END" --outcome passed
@@ -85,8 +84,8 @@ refuses_full "a window of seconds on a skill that passed" window-floor --start \
   --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
   --start 2026-11-14T10:03:17Z --end 2026-11-14T10:03:21Z --outcome passed
 refuses_full "a start that is the clock at writing" start-from-clock --start \
-  --kind prompt --hosting in-session --backend in-session --head "$H1" --end-head "$H1" --start "$NOW" --outcome passed
-refuses_full "a window of whole minutes" start-round-minutes --start \
+  --kind prompt --hosting in-session --backend in-session --head "$H1" --end-head "$H1" --start "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --outcome passed
+refuses_full "a window of whole minutes" window-round-minutes --start \
   --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
   --start 2026-11-14T10:03:17Z --end 2026-11-14T10:08:17Z --outcome passed
 refuses_full "a start on seconds :00" start-round-minute --start \
@@ -126,6 +125,42 @@ err=$(sr write --run "$run" --point pre-ci --step polish --kind skill --target p
   --start 2026-11-14T10:03:17Z --end "$END" --start-source "commit:$H2" --outcome passed 2>&1 >/dev/null)
 if [ $? -eq 2 ] && printf '%s' "$err" | grep -q -- '--start-source'; then ok "a commit source whose time is not --start is refused"; else fail "a mismatched commit source passed: $err"; fi
 
+# A start source lifts the made-up-start rules: a whole-minute window and a :00
+# start pass with a forge source, and are refused without one.
+refuses_full "a round start and window with no source" window-round-minutes --start \
+  --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+  --start 2026-11-14T10:03:00Z --end 2026-11-14T10:08:00Z --outcome passed
+path=$(wr --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+  --start 2026-11-14T10:03:00Z --end 2026-11-14T10:08:00Z --start-source comment:4242 --outcome passed) \
+  && grep -qx "start-source${TAB}comment:4242" "$path"
+verdict "a forge source lifts the made-up-start rules and is stored" "the forge source was refused or not stored"
+for bad in comment:12x commit:abc review: stamp; do
+  err=$(wr --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+    --start "$START" --end "$END" --start-source "$bad" --outcome passed 2>&1 >/dev/null)
+  [ $? -eq 2 ] && printf '%s' "$err" | grep -q -- '--start-source'
+  verdict "a start source outside the grammar ($bad) is refused" "start source $bad: $err"
+done
+
+# The window floor: 29 seconds is refused, 30 passes; an applied skill is held to it.
+refuses_full "an applied skill under the floor" window-floor --start \
+  --hosting in-session --backend in-session --head "$H1" --end-head "$H2" \
+  --start 2026-11-14T10:03:17Z --end 2026-11-14T10:03:46Z --outcome applied
+wr --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+  --start 2026-11-14T10:03:17Z --end 2026-11-14T10:03:47Z --outcome passed >/dev/null
+verdict "a window of exactly the floor passes" "a 30 second window was refused"
+
+# A step that failed or halted claims no work: the start and floor rules leave
+# it, so a fast honest failure can be recorded.
+sr write --run "$run" --point pre-ci --step fastfail --kind skill --target x \
+  --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+  --start 2026-11-14T10:03:00Z --end 2026-11-14T10:03:00Z --outcome failed >/dev/null
+verdict "a failed skill over a zero window is stored" "a failed record was refused"
+err=$(sr write --run "$run" --point pre-ci --step fastfail2 --kind skill --target x \
+  --hosting in-session --backend adopter --head "$H1" --end-head "$H1" \
+  --start 2026-11-14T10:03:17Z --end 2026-11-14T10:04:29Z --outcome failed 2>&1 >/dev/null)
+[ $? -eq 2 ] && printf '%s' "$err" | grep -q "rule hosting-backend"
+verdict "a failed in-session record with a backend is still refused" "hosting-backend skipped a failed record: $err"
+
 # Command records and skipped records are outside the check.
 sr write --run "$run" --point pre-ci --step lint --kind command --target lint \
   --hosting in-session --backend runner --head "$H1" --end-head "$H2" \
@@ -153,6 +188,28 @@ if printf '%s\n' "$out" | grep -q "^$run2:convergence:002${TAB}fabricated${TAB}-
 else
   fail "untrue printed: $out"
 fi
+
+# A stored record is judged on a :00 start with a whole-minute window together,
+# not on either alone, so an honest one-in-sixty record stays audited.
+run3=$(sr new-run)
+r1=$(sr write --run "$run3" --point convergence --step lone --kind skill --target x \
+  --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+  --start 2026-11-14T10:03:00Z --end 2026-11-14T10:03:41Z --outcome passed --start-source comment:7)
+sed -e "/^start-source${TAB}/d" "$r1" >"$r1.new" && mv "$r1.new" "$r1"
+out=$(sr untrue)
+! printf '%s\n' "$out" | grep -q "$run3"
+verdict "untrue leaves a stored record with only a :00 start" "untrue flagged: $out"
+r2=$(sr write --run "$run3" --point pre-ci --step both --kind skill --target x \
+  --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+  --start 2026-11-14T10:03:00Z --end 2026-11-14T10:08:00Z --outcome passed --start-source comment:7)
+sed -e "/^start-source${TAB}/d" "$r2" >"$r2.new" && mv "$r2.new" "$r2"
+out=$(sr untrue)
+printf '%s\n' "$out" | grep -q "^$run3:pre-ci:002${TAB}both${TAB}--start${TAB}window-round-minutes$"
+verdict "untrue names a stored record with a :00 start and a whole-minute window" "untrue printed: $out"
+sed -e "s/^start${TAB}.*/start${TAB}garbage/" "$r2" >"$r2.new" && mv "$r2.new" "$r2"
+out=$(sr untrue)
+printf '%s\n' "$out" | grep -q "^$run3:pre-ci:002${TAB}both${TAB}--start${TAB}malformed-times$"
+verdict "untrue names a stored record whose times are not timestamps" "untrue printed: $out"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s\n' "$failures failure(s)" >&2
