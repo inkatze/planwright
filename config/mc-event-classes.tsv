@@ -40,6 +40,9 @@ pr-merged	landed
 pending-prompt	act
 stall-open-selector	act
 followup-due	act
+undo-revert-stuck	act
+self-audit-finding	act
+proposal-repeat	act
 stall-unsubmitted-prompt	act
 stall-turn-ended-background	act
 stall-idle-question	act

@@ -22,6 +22,7 @@ mc-decide.sh decide
 mc-decide.sh note
 mc-duties.sh get
 mc-duties.sh list
+mc-duty-watch.sh -
 mc-escalate.sh -
 mc-event.sh list
 mc-handover.sh due
