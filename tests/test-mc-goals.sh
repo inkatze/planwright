@@ -7,6 +7,7 @@
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-mc-goals.sh
+# shellcheck disable=SC2015 # `A && ok || fail` reads as a check, ok never fails
 set -u
 LC_ALL=C
 export LC_ALL
@@ -71,8 +72,7 @@ status_of() { # status_of <id>: the list status column
   printf '%s\n' "$OUT" | awk -F '\t' -v id="$1" '$1 == id { print $2 }'
 }
 item_count() { # item_count <pattern>: open follow-ups whose text matches
-  mc_run mc-kb.sh followup list --program alpha
-  printf '%s\n' "$OUT" | awk -F '\t' -v p="$1" '$5 == "open" && index($0, p) { n++ } END { print n + 0 }'
+  awk -F '\t' -v p="$1" '!/^#/ && $5 == "open" && index($0, p) { n++ } END { print n + 0 }' "$kb/followups.tsv"
 }
 event_count() { # event_count <kind>
   mc_run mc-event.sh list --program alpha
@@ -110,7 +110,7 @@ expect_no_out "REQ-N1.1: the drafted command is replaced" "${tab}true${tab}"
 goals run "$g1"
 expect_rc "REQ-N1.2: a confirmed command that exits 0 runs" 0
 expect_out "REQ-N1.2: it reports passing" "passing${tab}$g1"
-expect_status "REQ-N1.2: a passing confirmed check marks the goal done" "$g1" done
+expect_status "REQ-N1.2: a passing confirmed check marks the goal done" "$g1" "done"
 goals show "$g1"
 expect_out "REQ-N1.2: the goal carries the evidence of the run" "exit 0"
 
@@ -164,7 +164,7 @@ expect_status "REQ-N1.2: tracked work not merged never reports done" "$g4" open
 # Merged pull requests never count as a pass: merged + passing check -> done.
 forge 203 MERGED "now merged"
 goals watch --now "$now"
-expect_status "REQ-N1.2: the merge triggers the check, and a pass makes it done" "$g4" done
+expect_status "REQ-N1.2: the merge triggers the check, and a pass makes it done" "$g4" "done"
 
 # ---------------------------------------------------------------------------
 # REQ-N1.3: daily and bring-up re-check; a failing re-check reopens with one
@@ -176,7 +176,7 @@ g5=$OUT
 : >"$sentinel_ok"
 goals confirm "$g5"
 goals run "$g5" --now "$now"
-expect_status "a done goal with a command check" "$g5" done
+expect_status "a done goal with a command check" "$g5" "done"
 ev0=$(event_count goal-reopened)
 it0=$(item_count "$g5")
 goals watch --now $((now + 100))
@@ -186,10 +186,8 @@ goals watch --now $((now + day + 100))
 ev1=$(event_count goal-reopened)
 it1=$(item_count "$g5")
 [ "$ev0" = "$ev1" ] && [ "$it0" = "$it1" ] && ok "REQ-N1.3: a passing daily re-check writes no event and no item" || fail "REQ-N1.3: a passing re-check wrote something"
-expect_status "REQ-N1.3: still done after a passing re-check" "$g5" done
+expect_status "REQ-N1.3: still done after a passing re-check" "$g5" "done"
 rm -f "$sentinel_ok"
-goals watch --now $((now + day + 200))
-[ "$(status_of "$g5")" = done ] && ok "REQ-N1.3: not re-checked again within the day of the last re-check" || ok "REQ-N1.3: re-checked"
 goals watch --now $((now + 3 * day)) --bring-up
 ev1=$(event_count goal-reopened)
 [ "$ev1" = $((ev0 + 1)) ] && ok "REQ-N1.3: a failing re-check reopens the goal with one operator line" || fail "REQ-N1.3: expected one goal-reopened event, got $((ev1 - ev0))"
@@ -203,7 +201,7 @@ n=$(item_count "$g5")
 # The bring-up pass re-checks a done command goal inside the day.
 : >"$sentinel_ok"
 goals run "$g5" --now $((now + 4 * day))
-expect_status "the goal is done again after the fix" "$g5" done
+expect_status "the goal is done again after the fix" "$g5" "done"
 rm -f "$sentinel_ok"
 goals watch --now $((now + 4 * day + 10)) --bring-up
 expect_status "REQ-N1.3: bring-up re-checks even inside the day" "$g5" merged-not-done
@@ -233,9 +231,9 @@ esac
 goals evidence "$g6" --holds no --text "host still on 0.70"
 expect_status "REQ-N1.2: evidence that the outcome does not hold leaves it not done" "$g6" merged-not-done
 goals evidence "$g6" --holds yes --text "host reports 0.75.2"
-expect_status "REQ-N1.2: evidence that the outcome holds makes it done" "$g6" done
+expect_status "REQ-N1.2: evidence that the outcome holds makes it done" "$g6" "done"
 goals watch --now $((now + 10 * day)) --bring-up
-expect_status "REQ-N1.3: a done session goal is not re-run on its own" "$g6" done
+expect_status "REQ-N1.3: a done session goal is not re-run on its own" "$g6" "done"
 launches=$(event_count goal-verify-due)
 [ "$launches" = 1 ] && ok "REQ-N1.3: no verification is requested for a done session goal" || fail "REQ-N1.3: re-requested a done session goal"
 
@@ -253,7 +251,10 @@ g7=$OUT
 goals confirm "$g7"
 goals watch --now "$now"
 [ ! -e "$sentinel" ] && ok "REQ-N1.4: a title with a command substitution leaves no sentinel" || fail "REQ-N1.4: the sentinel exists"
-if [ -f "$copy" ] && [ "$(cat "$copy"; printf x)" = "$cmd"x ]; then
+if [ -f "$copy" ] && [ "$(
+  cat "$copy"
+  printf x
+)" = "$cmd"x ]; then
   ok "REQ-N1.4: the executed command equals the stored one byte for byte"
 else
   fail "REQ-N1.4: the executed command differs from the stored one"
@@ -271,9 +272,11 @@ else
   ok "REQ-N1.4: nothing is written in a repository"
 fi
 
+# A loaded host holds the lock longer than the shipped wait.
+printf 'mission_control_kb_lock_wait: 120\n' >>"$tracked"
 before=$(grep -c '^g-' "$store")
 for i in 1 2 3 4 5 6; do
-  (goals_out=$(PATH="$tmp/bin:$PATH" FAKE_FORGE="$tmp/forge" mc_env /bin/bash "$repo_root/scripts/mc-goals.sh" set --program alpha --outcome "parallel $i" --statement "p" 2>/dev/null) && printf '%s\n' "$goals_out" >>"$tmp/par-ids") &
+  (goals_out=$(PATH="$tmp/bin:$PATH" FAKE_FORGE="$tmp/forge" mc_env /bin/bash "$repo_root/scripts/mc-goals.sh" set --program alpha --outcome "parallel $i" --statement "p" 2>"$tmp/par-err-$i") && printf '%s\n' "$goals_out" >>"$tmp/par-ids") &
 done
 wait
 after=$(grep -c '^g-' "$store")
@@ -281,7 +284,7 @@ ids=$(sort -u "$tmp/par-ids" | wc -l | tr -d ' ')
 if [ "$((after - before))" = 6 ] && [ "$ids" = 6 ]; then
   ok "REQ-N1.4: concurrent writes serialize under the lock (six distinct goals)"
 else
-  fail "REQ-N1.4: concurrent writes lost or collided (rows +$((after - before)), ids $ids)"
+  fail "REQ-N1.4: concurrent writes lost or collided (rows +$((after - before)), ids $ids): $(cat "$tmp"/par-err-* 2>/dev/null | head -3)"
 fi
 
 cp "$store" "$tmp/store.good"

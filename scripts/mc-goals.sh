@@ -4,6 +4,7 @@
 # merged.
 #
 # `mc-goals.sh --help` prints the contract: verbs, outputs, exit codes.
+# shellcheck disable=SC2329 # the mutate callbacks below run indirectly
 set -u
 set -f
 LC_ALL=C
@@ -250,7 +251,10 @@ mutate() {
   mc_kb_unlock
 }
 
-has_word() { case " $1 " in *" $2 "*) return 0 ;; esac; return 1; }
+has_word() {
+  case " $1 " in *" $2 "*) return 0 ;; esac
+  return 1
+}
 add_flag() {
   if [ "$G_flags" = - ]; then G_flags=$1; elif ! has_word "$G_flags" "$1"; then G_flags="$G_flags $1"; fi
 }
@@ -424,6 +428,7 @@ case $verb in
       printf 'Outcome: %s\n\n' "$(val "$G_outcome")"
       printf 'Check: %s\n\n' "$(val "$G_statement")"
       printf 'This session is read-only: look and report; change nothing, in any repository, host or file.\n'
+      # shellcheck disable=SC2016 # backticks are literal Markdown
       printf 'Finish with one line: `Holds: yes|no - <what you found>`. Mission control records it.\n'
     } | mc_write "$brief" || mc_fail "cannot write $brief"
     printf 'launch\treviewer\tgoal-%s\t%s\n' "$id" "$brief"
@@ -510,7 +515,10 @@ case $verb in
         has_word "$G_flags" reopened && continue
         mc_event emit --program "$program" --now "$NOW" -- goal-reopened "$gid" \
           "goal $gid reopened, its check now fails: $outcome_text: $RUN_EVIDENCE" >/dev/null || mc_fail "the goal-reopened event was refused"
-        do_reopen_flag() { add_flag reopened; add_flag routed; }
+        do_reopen_flag() {
+          add_flag reopened
+          add_flag routed
+        }
         route_fix "goal $gid reopened, its check fails: $outcome_text: $RUN_EVIDENCE"
         mutate "$gid" do_reopen_flag
       else
