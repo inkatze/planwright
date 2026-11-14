@@ -5192,7 +5192,7 @@ mc_doc_rest_safe() {
     lc "${first##*/}"
     [ "$first" = "$LC" ] || return 1
     case $LC in
-      cat | head | tail | grep | egrep | fgrep | wc | ls | stat | diff | cmp | cut | tr | nl | tac | rev | sort | uniq | echo | printf | true | ':') ;;
+      cat | head | tail | grep | egrep | fgrep | wc | ls | stat | diff | cmp | cut | tr | nl | tac | rev | echo | printf | true | ':') ;;
       sed)
         # Only printing line ranges.
         [[ $rest =~ ^[[:space:]]+-n[[:space:]]+[0-9,\$]+p([[:space:]]|$) ]] || return 1
