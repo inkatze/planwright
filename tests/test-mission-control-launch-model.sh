@@ -182,6 +182,76 @@ ml launch --program alpha --kind ad-hoc --scope model-tmux --brief "$tmp/brief.m
 [ "$RC" != 0 ] && printf '%s\n' "$ERR" | grep -q 'stream-json rung only' && ok "--model on the tmux rung is refused, not dropped" \
   || fail "--model on the tmux rung exited $RC: $ERR"
 
+# --- 7. a stale usage rung is re-evaluated before a launch clamps from it ----
+# Fixtures only: the mirror is a scratch file and the rung lives in the
+# fixture's fleet home.
+fixture_mirror="$tmp/rate-limits.json"
+in_day=$(($(date +%s) + 86400))
+in_hour=$(($(date +%s) + 3600))
+put_mirror() { printf '%s\n' "$1" >"$fixture_mirror"; }
+age_rung() { # every usage-gate row and the last-evaluation stamp, two hours back
+  ar_ts=$(($(date +%s) - 7200))
+  for ar_f in "$fleet"/audit/audit-*.tsv; do
+    [ -f "$ar_f" ] || continue
+    awk -F "$TAB" -v OFS="$TAB" -v ts="$ar_ts" '$3 == "usage-gate" { $1 = ts } { print }' "$ar_f" >"$ar_f.tmp" && mv "$ar_f.tmp" "$ar_f"
+  done
+  [ ! -e "$fleet/usage/evaluated" ] || printf '%s\n' "$ar_ts" >"$fleet/usage/evaluated"
+}
+gate_rung() { PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-usage-gate.sh" rung; }
+gate_rows() { PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-audit.sh" query --mechanism usage-gate | wc -l | tr -d ' '; }
+export PLANWRIGHT_USAGE_MIRROR="$fixture_mirror"
+
+# The downshift seeded above, now old; the session window unavailable, the
+# weekly healthy.
+age_rung
+put_mirror "{\"seven_day\":{\"used_percentage\":51,\"resets_at\":$in_day}}"
+launch_worker rung-stale "$tmp/rec-rst"
+if [ "$RC" = 0 ] && wait_for "$tmp/rec-rst/argv"; then
+  case " $(cat "$tmp/rec-rst/argv") " in
+    *" --model opus --effort high "*) ok "a rung older than the cadence is re-evaluated before the launch clamps" ;;
+    *) fail "a stale downshift still clamped the launch: $(cat "$tmp/rec-rst/argv")" ;;
+  esac
+  [ -z "$(field tier-note)" ] && ok "the re-evaluated launch says nothing was lowered" || fail "a tier-note named the stale rung: $(field tier-note)"
+  [ "$(gate_rung)" = normal ] && ok "an unavailable session window with a healthy weekly window yields normal" \
+    || fail "the re-evaluated rung is $(gate_rung), not normal"
+  wait_done "$(field name)"
+else
+  fail "the launch over a stale rung exited $RC: $ERR"
+fi
+
+# An old normal the fresh reading says is downshift: the clamp still applies.
+age_rung
+put_mirror "{\"seven_day\":{\"used_percentage\":65,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":20,\"resets_at\":$in_hour}}"
+launch_worker rung-climb "$tmp/rec-rcl"
+if [ "$RC" = 0 ] && wait_for "$tmp/rec-rcl/argv"; then
+  case " $(cat "$tmp/rec-rcl/argv") " in
+    *" --model sonnet --effort medium "*) ok "a fresh evaluation that says downshift still clamps the launch" ;;
+    *) fail "the fresh downshift did not clamp the launch: $(cat "$tmp/rec-rcl/argv")" ;;
+  esac
+  printf '%s\n' "$OUT" | awk -F "$TAB" '$1 == "launch" && $2 == "tier-note" && /downshift/ { f = 1 } END { exit !f }' \
+    && ok "the clamp from the fresh evaluation is reported" || fail "the fresh clamp was not reported: $OUT"
+  wait_done "$(field name)"
+else
+  fail "the launch over a climbing reading exited $RC: $ERR"
+fi
+
+# A rung evaluated inside the cadence is used as is: a relaxed reading is not
+# re-read, and nothing is recorded.
+rows_before=$(gate_rows)
+put_mirror "{\"seven_day\":{\"used_percentage\":10,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":10,\"resets_at\":$in_hour}}"
+launch_worker rung-fresh "$tmp/rec-rfr"
+if [ "$RC" = 0 ] && wait_for "$tmp/rec-rfr/argv"; then
+  case " $(cat "$tmp/rec-rfr/argv") " in
+    *" --model sonnet --effort medium "*) ok "a fresh rung is used as is" ;;
+    *) fail "a fresh downshift was re-read: $(cat "$tmp/rec-rfr/argv")" ;;
+  esac
+  [ "$(gate_rows)" = "$rows_before" ] && ok "a fresh rung records no evaluation" || fail "a fresh rung was re-evaluated ($rows_before -> $(gate_rows) rows)"
+  wait_done "$(field name)"
+else
+  fail "the launch over a fresh rung exited $RC: $ERR"
+fi
+export PLANWRIGHT_USAGE_MIRROR=""
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

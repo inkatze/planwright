@@ -1044,4 +1044,59 @@ run windows --now 0123 >/dev/null 2>&1 || rc=$?
 no_llm "windows"
 echo "ok: windows reads each mirror window's percentage and reset epoch"
 
+# --- 40. `refresh` re-evaluates a rung older than the read cadence before a
+#         caller clamps from it, and uses a fresh rung as is. ---
+stamp_file="$fleet_home/usage/evaluated"
+rows_now() { audit_query --mechanism usage-gate 2>/dev/null | wc -l | tr -d ' '; }
+reset_state
+rc=0
+run refresh extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "refresh with an argument must be a usage error (got $rc)"
+# No rung ever evaluated: refresh evaluates, so a downshift reading takes.
+write_mirror "{\"seven_day\":{\"used_percentage\":65,\"resets_at\":$in_day}}"
+[ "$(run refresh)" = downshift ] || fail "refresh with no evaluation on record must evaluate (got $(run rung))"
+[ -s "$stamp_file" ] || fail "evaluate must stamp the time it last ran"
+# Fresh: a relaxed reading inside the cadence is not re-read, and nothing is written.
+write_mirror "{\"seven_day\":{\"used_percentage\":10,\"resets_at\":$in_day}}"
+[ "$(run refresh)" = downshift ] || fail "a rung evaluated inside the cadence must be used as is"
+[ "$(rows_now)" = 1 ] || fail "a fresh rung must record nothing (found $(rows_now) rows)"
+# Stale: the same reading, the last evaluation and transition past the cadence.
+backdate_transition 7200
+printf '%s\n' "$(($(date +%s) - 7200))" >"$stamp_file"
+[ "$(run refresh)" = normal ] || fail "a rung older than the cadence must be re-evaluated (got $(run rung))"
+[ "$(rows_now)" = 2 ] || fail "the re-evaluation must record the one transition (found $(rows_now) rows)"
+st=$(sed -n 1p "$stamp_file")
+[ "$(($(date +%s) - st))" -lt 60 ] || fail "the re-evaluation must restamp its time (stamp $st)"
+# A long-standing rung evaluate keeps confirming is fresh: the stamp, not the
+# last transition, is what ages.
+write_mirror "{\"seven_day\":{\"used_percentage\":65,\"resets_at\":$in_day}}"
+backdate_transition 7200
+[ "$(run refresh)" = normal ] || fail "a rung confirmed inside the cadence must be used as is, however old its transition"
+# A stamp from the future (a clock step) is not fresh forever.
+printf '%s\n' "$(($(date +%s) + 7200))" >"$stamp_file"
+[ "$(run refresh)" = downshift ] || fail "a future stamp must count as stale (got $(run rung))"
+# A corrupt stamp counts as no evaluation.
+backdate_transition 7200
+printf 'garbage\n' >"$stamp_file"
+write_mirror "{\"seven_day\":{\"used_percentage\":10,\"resets_at\":$in_day}}"
+[ "$(run refresh)" = normal ] || fail "a corrupt stamp must count as no evaluation (got $(run rung))"
+no_llm "refresh"
+echo "ok: refresh re-evaluates a rung older than the cadence and uses a fresh one as is"
+
+# --- 41. An unavailable session window never keeps an old rung: the weekly
+#         window it can read governs. ---
+reset_state
+PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$FA" record usage-gate downshift test-seed "seed the rung" >/dev/null \
+  || fail "seeding the downshift rung failed"
+backdate_transition 7200
+write_mirror "{\"seven_day\":{\"used_percentage\":51,\"resets_at\":$in_day}}"
+[ "$(run refresh)" = normal ] || fail "an unavailable session window with a healthy weekly window must yield normal (got $(run rung))"
+# A climb the fresh reading calls for still applies.
+backdate_transition 7200
+rm -f "$stamp_file"
+write_mirror "{\"seven_day\":{\"used_percentage\":51,\"resets_at\":$in_day},\"five_hour\":{\"used_percentage\":55,\"resets_at\":$in_hour}}"
+[ "$(run refresh)" = downshift ] || fail "a stale rung re-evaluated to downshift must say downshift (got $(run rung))"
+no_llm "refresh-partial"
+echo "ok: an unavailable session window falls back to the weekly window, never to an old rung"
+
 echo "ALL fleet-usage-gate tests passed"
