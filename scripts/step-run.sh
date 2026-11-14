@@ -990,7 +990,7 @@ cmd_audit() {
       ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
       # A model-session step cannot run in zero seconds without moving the head.
       if ((o == "passed" || o == "applied") && (F["kind"] == "skill" || F["kind"] == "prompt") \
-          && F["start"] != "" && F["start"] == F["end"] && (F["end-head"] == "" || F["end-head"] == F["head"])) {
+          && length(F["start"]) > 0 && F["start"] == F["end"] && (length(F["end-head"]) == 0 || F["end-head"] == F["head"])) {
         ok = 0; o = "!unrun"
       }
       if (!ok && o == "ok") o = "malformed"
