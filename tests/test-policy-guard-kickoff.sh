@@ -117,6 +117,22 @@ for scope in kickoff-demo-a3 kickoff-demo-a3-delta kickoff-demo-a22 kickoff-demo
     pass "[worker, $scope] the refusal claims no protected target"
   fi
 done
+for scope in kickoff-demo-a2-d3 kickoff-demo-a2-9; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect defer "[worker, $scope] a -<word> of lowercase letters and digits is an amendment kickoff's scope"
+done
+for scope in kickoff-demo-a2B kickoff-demo-a2--x; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, $scope] a suffix outside the amendment scope grammar denies"
+  reason_has 'not the kickoff for demo' "[worker, $scope] the out-of-grammar refusal says the session is not the kickoff"
+done
+for d in "$UNIT" "$AMEND_OTHER"; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$KICKOFF_PUSH" "$d" "$d"
+  expect deny "[worker, kickoff-demo-a2] an amendment kickoff off its amendment branch denies (${d##*/})"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "false && cd \"$AMEND_UP\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, kickoff-demo-a2] an amendment kickoff push the guard cannot place denies"
+reason_has 'cannot place it' "[worker, kickoff-demo-a2] the unplaced amendment kickoff push names why"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
 expect defer "[worker, kickoff-demo-a2-delta] a stale local spec branch beside the amendment does not move the decision"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
@@ -129,7 +145,45 @@ for tier in tower mission-control; do
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg "$tier" "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
   expect deny "[$tier, kickoff-demo-a2-delta] a non-worker tier never runs an amendment kickoff push"
   reason_has 'not the kickoff for demo' "[$tier, kickoff-demo-a2-delta] the refusal says the session is not the kickoff"
+  if printf '%s' "$REASON" | grep -q 'targets a protected branch'; then
+    fail "[$tier, kickoff-demo-a2-delta] the refusal claims a protected target the push would not reach: $REASON"
+  else
+    pass "[$tier, kickoff-demo-a2-delta] the refusal claims no protected target"
+  fi
 done
+
+# The #1021 case: a relayed amendment kickoff in a linked worktree with the
+# amendment branch checked out directly (no flight branch, no local spec
+# branch), tracking its origin branch and ahead of it.
+MC_PRIMARY="$SANDBOX/mc-primary"
+gitq clone "$ORIGIN" "$MC_PRIMARY"
+gitq -C "$MC_PRIMARY" switch -c planwright/mission-control/amendment-16 main
+gitq -C "$MC_PRIMARY" commit --allow-empty -m "amendment 16 sign-off"
+gitq -C "$MC_PRIMARY" push -u origin planwright/mission-control/amendment-16
+gitq -C "$MC_PRIMARY" switch main
+MC_A16="$SANDBOX/mc-a16"
+gitq -C "$MC_PRIMARY" worktree add "$MC_A16" planwright/mission-control/amendment-16
+gitq -C "$MC_A16" commit --allow-empty -m "delta 1"
+gitq -C "$MC_A16" commit --allow-empty -m "delta 2"
+MC_A17="$SANDBOX/mc-a17"
+gitq -C "$MC_PRIMARY" worktree add -b planwright/mission-control/amendment-17 "$MC_A17" main
+MC_A1="$SANDBOX/mc-a1"
+gitq -C "$MC_PRIMARY" worktree add -b planwright/mission-control/amendment-1 "$MC_A1" main
+KICK_MC='${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh mission-control'
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect defer "[worker, kickoff-mission-control-a16-delta] #1021 case: the relayed amendment-16 kickoff push is admitted"
+reads none "[worker, kickoff-mission-control-a16-delta] #1021 case: the admitted push reads no knob"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A17" "$MC_A17"
+expect deny "[worker, kickoff-mission-control-a16-delta] #1021 case: the a16 scope on amendment-17 denies"
+reason_has 'planwright/mission-control/amendment-17 checked out' "[worker, kickoff-mission-control-a16-delta] #1021 case: the amendment-17 refusal names the branch checked out"
+for scope in kickoff-mission-control-a1 kickoff-mission-control-a160; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+  expect deny "[worker, $scope] another amendment number's scope denies on amendment-16"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A1" "$MC_A1"
+expect deny "[worker, kickoff-mission-control-a16-delta] an a16 scope denies on amendment-1"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a10b pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a10b] amendment 10's relaunch scope denies on amendment-16"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$AMEND_UP" "$AMEND_UP"
 expect deny "[worker, task-1] an inline amendment-kickoff scope does not admit the push"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "false && cd \"$AMEND_UP\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"

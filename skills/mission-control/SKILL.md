@@ -348,7 +348,7 @@ the operator asks for runs by `scripts/mc-config.sh`'s `mode kickoff`:
 
 - `relay` — launch the kickoff session through the launcher (kind
   `ad-hoc`, scope `kickoff-<spec>`, or `kickoff-<spec>-a<n>[<letter>|-<word>]`
-  for amendment `<n>`, `--repo` the spec root's repository)
+  (lowercase) for amendment `<n>`, `--repo` the spec root's repository)
   with the kickoff command for the spec as its brief, and relay each question it
   raises to the operator as an item. Every kickoff question is
   operator-only: answer it with the operator's own words, quoted, and never
