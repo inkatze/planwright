@@ -373,6 +373,22 @@ audit --through convergence --base spec-base
 verdict $? "on a signed-off spec branch only polish is exempt; another convergence step still counts" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [polish]'
+spec_bundle 0
+audit --through convergence
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}missing${TAB}polish" "$tmp/audit" \
+  && ! grep -q "^exempt" "$tmp/audit"
+verdict $? "a spec branch with no base to measure against keeps the polish gap" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+git -C "$wt" update-ref refs/remotes/origin/main spec-base
+audit --through convergence
+[ "$RC" -eq 0 ] && grep -q "^exempt${TAB}convergence${TAB}polish" "$tmp/audit"
+verdict $? "the base falls back to origin/<the step context's base branch>" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+audit --through pre-ci
+[ "$RC" -eq 0 ] && ! grep -q "^exempt" "$tmp/audit"
+verdict $? "a boundary before convergence names no exemption" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1
