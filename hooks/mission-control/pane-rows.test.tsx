@@ -331,6 +331,26 @@ test('a still landing is drawn in its settled pose', async ($, on) => {
   await ui.unmount()
 })
 
+test('the axis holding new launches is named in the upkeep card', async ($, on) => {
+  const w = world(on, {
+    digest: digestText({ extra: [tab('admission', 'load', 'host load at 95%, at or over the 85% limit')] }),
+  })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const t = await rows(ui)
+  expect(t).toContain('New launches held (load): host load at 95%, at or over the')
+  expect(t).toContain('85% limit')
+  await ui.unmount()
+})
+
+test('an open admission draws no held line', async ($, on) => {
+  const w = world(on, { digest: digestText({ extra: [tab('admission', 'open', '')] }) })
+  await boot($, w)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await rows(ui)).not.toContain('New launches held')
+  await ui.unmount()
+})
+
 test('every limit mission control reports has a plain name and reads in plain words', async ($, on) => {
   const w = world(on, {
     digest: digestText({

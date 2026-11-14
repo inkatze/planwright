@@ -469,7 +469,7 @@ admission_verdict() {
   av_res_own=$(printf '%s' "$RES" | P=$program awk -F '\t' '$3 == ENVIRON["P"] { n++ } END { print n + 0 }')
   if [ $((R_ALL + av_res_all)) -ge "$ADM_CEILING" ]; then
     AXIS=ceiling
-    WHY="$((R_ALL + av_res_all)) sessions and reservations on this host, at fleet_max_parallel_units $ADM_CEILING"
+    WHY="$((R_ALL + av_res_all)) sessions and reservations on this host, at the host-wide limit of $ADM_CEILING"
     return 0
   fi
   if [ $((R_OWN + av_res_own)) -ge "$(mc_lookup sessions "$LIMITS")" ]; then
@@ -480,13 +480,13 @@ admission_verdict() {
   av_load=$((ADM_PCT + av_n * ADM_WARM_LOAD))
   if [ "$av_load" -ge "$ADM_LOAD" ]; then
     AXIS=load
-    WHY="host load at $ADM_PCT% ($av_load% counting $av_n launches still warming up), at or over mission_control_admit_load $ADM_LOAD%"
+    WHY="host load at $ADM_PCT% ($av_load% counting $av_n launches still warming up), at or over the $ADM_LOAD% limit"
     return 0
   fi
   av_mem=$((ADM_AVAIL - av_n * ADM_WARM_MEM))
   if [ "$av_mem" -lt "$ADM_MEM" ]; then
     AXIS=memory
-    WHY="available memory at $ADM_AVAIL% ($av_mem% counting $av_n launches still warming up), under mission_control_admit_memory $ADM_MEM%"
+    WHY="available memory at $ADM_AVAIL% ($av_mem% counting $av_n launches still warming up), under the $ADM_MEM% floor"
   fi
   return 0
 }
@@ -681,8 +681,8 @@ case $verb in
     admission_knobs
     measure
     [ -n "$ADM_AVAIL" ] || held memory "available memory cannot be read"
-    [ "$ADM_PCT" -lt "$ADM_LOAD" ] || held load "host load at $ADM_PCT%, at or over mission_control_admit_load $ADM_LOAD%"
-    [ "$ADM_AVAIL" -ge "$ADM_MEM" ] || held memory "available memory at $ADM_AVAIL%, under mission_control_admit_memory $ADM_MEM%"
+    [ "$ADM_PCT" -lt "$ADM_LOAD" ] || held load "host load at $ADM_PCT%, at or over the $ADM_LOAD% limit"
+    [ "$ADM_AVAIL" -ge "$ADM_MEM" ] || held memory "available memory at $ADM_AVAIL%, under the $ADM_MEM% floor"
     FH=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
     ASTORE=$FH/mission-control/admission
     mkdir -p "$FH/mission-control" || mc_fail "cannot create the admission store's directory"
