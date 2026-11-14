@@ -1,27 +1,9 @@
 #!/bin/bash
 # Tests for the answer verb's self-description and owner check
-# (scripts/fleet-streamjson.sh `answer`).
-#
-#   a1: an answer echoes, before acting, the screened command's first line (and
-#       only the first), the worker's name and its owning program, on stderr,
-#       so the call that delivers it is self-describing to a reader of the
-#       transcript.
-#   a2: a mission-control session answering a worker its own program owns
-#       passes, echo included, and the answer reaches the worker.
-#   a3: a mission-control session answering another program's worker is
-#       refused with nothing written, naming the owner; the request stays
-#       pending and the owner can still answer it.
-#   a4: a token that matches no mission-control row, and a worker with no
-#       recorded owner, are refused fail closed.
-#   a5: a caller holding no mission-control token (the operator's shell)
-#       answers as before.
-#   a6: the echo carries no control byte from the command.
-#   a7: a malformed token, a worker row's token, and --deny and --response-file
-#       answers from another program are refused too.
-#   a9: a worker name with a slash, a leading ../ or whitespace is refused by the
-#       handle check, exit 2, before the owner check reads any registry row.
-#   a8: the owner's --deny and --response-file answers pass, echoing the
-#       command, or the tool name when there is none.
+# (scripts/fleet-streamjson.sh `answer`). The echo exists so the call that
+# delivers an answer is self-describing in the transcript; the owner check lets
+# a mission-control session answer only its own program's workers, failing
+# closed on an unknown token or an unowned worker.
 #
 # Hermetic: the fleet home and the CLI seam are case-local, the CLI is a shim
 # that records its stdin. Runs standalone under /bin/bash (bash 3.2).
