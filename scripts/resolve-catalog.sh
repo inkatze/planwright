@@ -32,6 +32,10 @@
 #                 this exactly as it reads the raw seed.
 #     --explain   prints one `<id><TAB><layer>` line per merged entry naming the
 #                 layer that supplied it (D-9, REQ-B1.6), in merged order.
+#     --below <layer>
+#                 merges only the layers under <layer> (adopter, repo-tracked
+#                 or machine-local): the view a consumer falls back to when an
+#                 entry <layer> supplied is unusable.
 #
 # Merge contract (the pinned overlay-catalog merge semantics, D-5, REQ-B1.3):
 #   * Append/union. An overlay entry whose id is new is appended. Layers merge
@@ -100,16 +104,28 @@ export LC_ALL
 unset CDPATH
 
 usage() {
-  echo "usage: resolve-catalog.sh <name> [--explain]" >&2
+  echo "usage: resolve-catalog.sh <name> [--explain] [--below <layer>]" >&2
   exit 2
 }
 
 mode="yaml"
 name=""
 name_set=0
+below=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --explain) mode="explain" ;;
+    --below)
+      [ $# -ge 2 ] || usage
+      case "$2" in
+        adopter | repo-tracked | machine-local) below="$2" ;;
+        *)
+          echo "resolve-catalog: --below takes adopter, repo-tracked or machine-local" >&2
+          usage
+          ;;
+      esac
+      shift
+      ;;
     -h | --help)
       awk 'NR>=2 { if ($0 ~ /^#/) { sub(/^# ?/, ""); print } else exit }' "$0"
       exit 0
@@ -268,9 +284,9 @@ add_layer() {
 }
 
 add_layer "$core_root" "$core_rel" core hardfail
-add_layer "$adopter_root" "$adopter_rel" adopter degrade
-add_layer "$repo_root" "$repo_rel" repo-tracked hardfail
-add_layer "$local_root" "$local_rel" machine-local degrade
+[ "$below" = adopter ] || add_layer "$adopter_root" "$adopter_rel" adopter degrade
+{ [ "$below" = adopter ] || [ "$below" = repo-tracked ]; } || add_layer "$repo_root" "$repo_rel" repo-tracked hardfail
+[ -n "$below" ] || add_layer "$local_root" "$local_rel" machine-local degrade
 
 # No layer present → an absent catalog is a normal empty result (REQ-A1.4).
 if [ "${#files[@]}" -eq 0 ]; then

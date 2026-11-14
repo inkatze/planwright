@@ -148,18 +148,20 @@ merges itself), predicting
 overlapping changes and merge order, letting known dates set priorities,
 measuring where the work's time
 goes and raising the biggest bottleneck, preparing what you need before a
-decision, recording how to undo each act, checking what was done against
-your rules, noticing what you keep doing by hand, and holding new work
+decision, recording how to undo each act (`undo-ledger`, which also
+flags a revert that began and never settled), checking what was done
+against your rules (`self-audit`, daily), noticing what you keep doing by
+hand (`proposals`, which raises a repeat no proposal covers yet), and
+holding new work
 near your account's usage limit until it resets
 ([below](#usage-windows-and-the-reset-queue)). If you run several
 programs with one hub program over all their repositories, and the hub's
 duties leave out the readiness check (it is on by default), the hub hears of
 every pull request ready to merge in them without checking readiness itself:
-the program that checked it tells the hub too. Recording how to undo,
-the check against your rules and noticing repeats
-do not run in the background yet, and turning them on changes nothing for
-now: mission control records how to undo its acts and proposes automations
-as it works with you, and the check against your rules does not run yet.
+the program that checked it tells the hub too. Each of those three
+runs a small background check once enabled, and each only reports: it
+raises an event when its findings change and edits none of your rules or
+records.
 
 Ask for the list at any time ("what duties are there?"), and turn any duty
 on or off by saying so. A duty that is off watches nothing and costs

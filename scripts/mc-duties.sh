@@ -312,17 +312,93 @@ EOF
   # The id comes last, so read keeps whatever it carries.
   printf '%s' "$skip_lines" | while IFS='	' read -r pos layer id; do
     printf '%s\n' "$prog: warning: skipping duty '$(sanitize_printable "$id")' from the $layer layer; its entry is invalid" >&2
-    printf '%s\t%s\n' "$pos" "$id"
+    printf '%s\t%s\t%s\n' "$pos" "$layer" "$id"
   done
+}
+
+# fallback_block <id> <layer>: the entry <id> has in the layers below <layer>
+# (the next lower layer's valid entry, REQ-C1.8): its layer on the first line
+# and its text after. A lower entry that is itself invalid from an adopter or
+# machine-local layer gives way to the one under it. Status 1 when no layer
+# below holds a valid one.
+fallback_block() {
+  fb_id=$1
+  fb_layer=$2
+  case $fb_id in *[[:cntrl:]]*) return 1 ;; esac
+  fb_lower=$(catalog --below "$fb_layer" 2>/dev/null) || return 1
+  fb_layers=$(catalog --below "$fb_layer" --explain 2>/dev/null) || return 1
+  fb_text=$(printf '%s\n' "$fb_lower" | ID=$fb_id awk '
+    function trim(s) { sub(/^[ ]+/, "", s); sub(/[ ]+$/, "", s); return s }
+    function unq(s) { if (s ~ /^".*"$/) s = substr(s, 2, length(s) - 2); return s }
+    /^  - id:/ {
+      v = $0; sub(/^  - id:[ ]*/, "", v); v = unq(trim(v))
+      if (on) exit
+      if (v "" == ENVIRON["ID"] "") { on = 1; print; next }
+    }
+    on && /^[^ ]/ { exit }
+    on { print }
+  ')
+  [ -n "$fb_text" ] || return 1
+  fb_from=$(printf '%s\n' "$fb_layers" | ID=$fb_id awk '{ l = $0; sub(/\t[^\t]*$/, "", l) } l "" == ENVIRON["ID"] "" { sub(/.*\t/, ""); print; exit }')
+  [ -n "$fb_from" ] || return 1
+  if printf 'duties:\n%s\n' "$fb_text" | walk validate >/dev/null 2>&1; then
+    printf '%s\n%s\n' "$fb_from" "$fb_text"
+    return 0
+  fi
+  case $fb_from in
+    adopter | machine-local) fallback_block "$fb_id" "$fb_from" ;;
+    *) return 1 ;;
+  esac
+}
+
+# replace_entry <catalog> <position> <text>: the catalog with its <position>th
+# entry replaced by <text>.
+replace_entry() {
+  printf '%s\n' "$1" | POS=$2 NEW=$3 awk '
+    /^  - id:/ { n++; if (n == ENVIRON["POS"] + 0) { print ENVIRON["NEW"]; skip = 1; next } else skip = 0 }
+    skip && /^[^ ]/ { skip = 0 }
+    skip { next }
+    { print }
+  '
 }
 
 armed() { # armed <watchers|files> <program>
   cat_out=$(merged) || exit 1
   skipped=$(skipped_entries "$cat_out") || exit 1
+  # An entry skipped as invalid hands its duty to the entry below it, when a
+  # lower layer holds a valid one; the rest stay skipped by id.
+  skip_ids=""
+  skip_pos=" "
+  while IFS='	' read -r pos layer id; do
+    [ -n "$pos" ] || continue
+    if fb=$(fallback_block "$id" "$layer"); then
+      cat_out=$(replace_entry "$cat_out" "$pos" "${fb#*
+}") || fail "the catalog reader failed"
+      printf '%s\n' "$prog: warning: duty '$(sanitize_printable "$id")' keeps its entry from the ${fb%%
+*} layer" >&2
+    else
+      skip_ids="$skip_ids$id
+"
+      skip_pos="$skip_pos$pos "
+    fi
+  done <<EOF
+$skipped
+EOF
+  if [ -n "$skipped" ]; then
+    rest=$(printf '%s\n' "$cat_out" | SKIPPOS=$skip_pos walk validate 2>&1)
+    case $? in
+      0) ;;
+      1)
+        report "$rest"
+        fail "refusing an invalid catalog; run scripts/check-duties.sh"
+        ;;
+      *) fail "the catalog reader failed" ;;
+    esac
+  fi
   enabled=$(bash "$script_dir/mc-program.sh" get "$2" duties)
   rc=$?
   [ "$rc" -eq 0 ] || exit "$rc"
-  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled SKIP=$(printf '%s\n' "$skipped" | awk '{ print substr($0, index($0, "\t") + 1) }') walk "$1") \
+  out=$(printf '%s\n' "$cat_out" | ENABLED=$enabled SKIP=$skip_ids walk "$1") \
     || fail "the catalog reader failed"
   missing=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "!missing" { print $2 }')
   if [ -n "$missing" ]; then
