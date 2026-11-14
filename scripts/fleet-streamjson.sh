@@ -224,7 +224,12 @@
 #       --deny composes behavior=deny (optional message); --response-file
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
-#       included, so escape them), 64 KiB at most.
+#       included, so escape them), 64 KiB at most. Before acting it says on
+#       stderr which worker and program the answer is for and the first line
+#       of the command it approves. A caller holding PLANWRIGHT_MC_TOKEN (a
+#       mission-control session) may answer only a worker its own program
+#       owns, by the launcher's registry rows: any other is refused (exit 2)
+#       naming the owner, with nothing written and the request still pending.
 #   fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
