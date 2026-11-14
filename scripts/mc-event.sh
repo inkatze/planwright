@@ -331,10 +331,18 @@ case $verb in
         older_secs=$(mc_seconds "$older") || mc_usage_fail "--older-than takes a duration such as 30m or 7d"
         cutoff=$((NOW - older_secs))
       fi
-      gone_ids=" "
+      # The gone ids are kept as one empty file each in a scratch directory,
+      # so the per-event test is a lookup, not a scan of one long string.
+      gone_dir=""
       if [ "$gone_only" -eq 1 ]; then
         gone_rows=$(mc_event list --program "$program" --limit 1000000 2>/dev/null) || mc_fail "cannot list the events of '$program'"
-        gone_ids=" $(printf '%s\n' "$gone_rows" | mc_event_gone "$program" | tr '\n' ' ') "
+        gone_dir=$(mktemp -d "${TMPDIR:-/tmp}/mc-event-gone.XXXXXX") || mc_fail "cannot make a scratch directory"
+        trap 'rm -rf "$gone_dir"' EXIT
+        while IFS= read -r gone_id; do
+          valid_id "$gone_id" && : >"$gone_dir/$gone_id"
+        done <<EOF
+$(printf '%s\n' "$gone_rows" | mc_event_gone "$program")
+EOF
       fi
       n=0
       set +f
@@ -345,7 +353,7 @@ case $verb in
         at=${id#e}
         at=${at%%.*}
         mc_valid_uint "$at" || continue
-        [ "$gone_only" -eq 0 ] || case $gone_ids in *" $id "*) ;; *) continue ;; esac
+        [ "$gone_only" -eq 0 ] || [ -e "$gone_dir/$id" ] || continue
         [ -z "$cutoff" ] || [ "$at" -lt "$cutoff" ] || continue
         if [ -n "$kind" ]; then
           IFS="	" read -r ev_at ev_kind _ <"$f" || continue
