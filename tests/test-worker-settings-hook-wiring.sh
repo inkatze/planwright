@@ -252,6 +252,22 @@ else
   ok "no plugin-global PreToolUse entry references the auto-approve hook (REQ-C1.2)"
 fi
 
+# --- MCP allow entries: exact tool names only, never a wildcard -------------
+# The shipped read-only MCP allow list is empty; an adopter adds exact names
+# (docs/worker-mcp-reads.md), so a name pattern alone never approves a tool.
+mcp_wild_filter='[.permissions.allow[]? | select(startswith("mcp__") and contains("*"))] | length == 0'
+if jq -e "$mcp_wild_filter" "$worker_settings" >/dev/null 2>&1; then
+  ok "no mcp__ allow entry carries a wildcard"
+else
+  fail "an mcp__ allow entry carries a wildcard"
+fi
+# The filter must catch a wildcard entry (a check that never fails measures nothing).
+if printf '%s' '{"permissions":{"allow":["mcp__github__*"]}}' | jq -e "$mcp_wild_filter" >/dev/null 2>&1; then
+  fail "the mcp__ wildcard filter missed a wildcard entry"
+else
+  ok "the mcp__ wildcard filter catches a wildcard entry"
+fi
+
 # --- REQ-C1.3: _about documents the hook and its posture --------------------
 # Assert on distinctive LITERAL phrases (grep -F) rather than `.*`-bridged
 # patterns: _about is a single long line, so an unbounded `.*` alternation
