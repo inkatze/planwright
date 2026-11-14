@@ -18,8 +18,9 @@
 #   completed   the task branch (planwright/<spec>/task-<id>) is merge-reachable
 #               into the base ref, OR a `Planwright-Task: <spec>/<id>` trailer
 #               (D-2) is reachable from base, OR gh reports its PR MERGED, OR a
-#               PR merged into base carries that line at column 0 of its body
-#               (outside a fenced block). The trailer is the durable anchor
+#               PR merged into base from a branch of this repository (not a
+#               fork) carries that line at column 0 of its body (outside a
+#               fenced block; evidence `pr-body`). The trailer is the durable anchor
 #               that survives branch deletion and covers solo direct-to-base
 #               commits and squash merges (R2); the body line covers a squash
 #               whose message dropped it.
@@ -468,11 +469,14 @@ load_repo() {
     # branch committed without it) while the PR body keeps the declaration, so
     # merged PRs' bodies are read for the same column-0 line. The search only
     # narrows the fetch; pr_body_values's anchored match decides. A failed
-    # search is the same degradation as a failed list: nothing completes on it.
+    # search, or one that fills its page (older declarations would be cut
+    # off unseen), is the same degradation as a failed list: nothing
+    # completes on it.
     if gh_out=$(cd "$repo_root" && gh pr list --state merged --search '"Planwright-Task" in:body' \
-      --limit 1000 --json number,state,baseRefName,body \
-      --jq '.[] | [(.number|tostring), .state, .baseRefName, (.body // "")] | @tsv' 2>/dev/null); then
-      collect_ours "$(printf '%s\n' "$gh_out" | pr_body_values "$(base_branch_name)")"
+      --limit 1000 --json number,state,isCrossRepository,baseRefName,body \
+      --jq '.[] | [(.number|tostring), .state, (.isCrossRepository|tostring), .baseRefName, (.body // "")] | @tsv' 2>/dev/null) \
+      && [ "$(printf '%s' "$gh_out" | awk 'END { print NR }')" -lt 1000 ]; then
+      collect_ours "$(printf '%s\n' "$gh_out" | pr_body_values "$(base_branch_name)")" body
       body_ours=$ours
     else
       gh_lines=""
@@ -482,11 +486,14 @@ load_repo() {
   return 0
 }
 
-# collect_ours <values> — set ours to the task ids of this spec among
+# collect_ours <values> [body] — set ours to the task ids of this spec among
 # newline-separated Planwright-Task values. Each value is validated before use;
 # a malformed/hostile value is refused on the output stream and never matched
 # against a task. Well-formed values for OTHER specs are simply ignored (not
-# ours, not an error). Read from a here-doc so the loop runs in this shell.
+# ours, not an error). With `body`, a value naming another spec is ignored
+# unvalidated too: PR bodies quote the line as prose (a placeholder, another
+# spec's example), and every spec's run would otherwise repeat its refusal.
+# Read from a here-doc so the loop runs in this shell.
 collect_ours() {
   ours=" "
   while IFS= read -r tval; do
@@ -496,6 +503,7 @@ collect_ours() {
     # Well-formed shape: <spec-id>/<task-id>, both against their grammars.
     spec_part=${tval%%/*}
     id_part=${tval#*/}
+    [ "${2:-}" != body ] || [ "$spec_part" = "$spec_id" ] || continue
     well_formed=1
     case "$tval" in
       */*) ;;
@@ -523,13 +531,22 @@ EOF
 
 # base_branch_name — the branch name a PR targeting base carries as its
 # baseRefName: base without a refs/ or remote prefix, the checked-out branch
-# for HEAD, empty (no PR matches) for a detached HEAD.
+# for HEAD, empty (no PR matches) for a detached HEAD. Only a ref that is
+# remote-tracking loses its remote, so a branch `release/1.0` stays whole
+# beside a remote named `release`.
 base_branch_name() {
   bb=$base
   case "$bb" in
     HEAD) bb=$(git -C "$repo_root" symbolic-ref --quiet --short HEAD 2>/dev/null) || bb="" ;;
     refs/heads/*) bb=${bb#refs/heads/} ;;
     refs/remotes/*) bb=${bb#refs/remotes/} ;;
+  esac
+  case "$base" in
+    refs/remotes/*) ;;
+    *) git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$bb" || {
+      printf '%s' "$bb"
+      return 0
+    } ;;
   esac
   for bb_remote in $(git -C "$repo_root" remote 2>/dev/null); do
     case "$bb" in
@@ -542,21 +559,26 @@ base_branch_name() {
   printf '%s' "$bb"
 }
 
-# pr_body_values <base-branch> — read `<number> <state> <baseRefName> <body>`
-# rows (body escaped as jq's @tsv escapes it) and print the value of each
-# column-0 Planwright-Task line in the body of a PR merged into <base-branch>.
+# pr_body_values <base-branch> — read `<number> <state> <cross-repository>
+# <baseRefName> <body>` rows (body escaped as jq's @tsv escapes it) and print
+# the value of each column-0 Planwright-Task line in the body of a PR merged
+# into <base-branch> from a branch of this repository. A fork's PR is skipped:
+# its author can edit the body after the merge without write access here.
 # An indented line, a mid-line mention and a line inside a fenced block are
 # not declarations. The key matches case-insensitively, as the commit scan's.
+# A tab or control byte never reaches the output, which is a TSV stream.
 pr_body_values() {
   awk -F"$TAB" -v b="$1" '
     function decode(l,  p) {
       gsub(/\\r/, "", l)
-      gsub(/\\t/, "\t", l)
+      gsub(/\\t/, " ", l)
       while ((p = index(l, "\001")) > 0) l = substr(l, 1, p - 1) "\\" substr(l, p + 1)
+      gsub(/[[:cntrl:]]/, "", l)
       return l
     }
-    b != "" && $1 ~ /^[0-9]+$/ && $2 == "MERGED" && $3 == b {
-      s = $4
+    b != "" && $1 ~ /^[0-9]+$/ && $2 == "MERGED" && $3 == "false" && $4 == b {
+      s = $5
+      gsub(/\001/, "", s)
       gsub(/\\\\/, "\001", s)
       n = split(s, lines, /\\n/)
       fence = 0

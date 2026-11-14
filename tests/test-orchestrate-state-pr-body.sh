@@ -42,20 +42,22 @@ assert_task() {
   fi
 }
 
-# make_stub <dir> <list-mode> <search-mode> <search-rows-file>: mode is ok or
-# fail; the list call prints nothing on ok (no convention-branch PRs).
+# make_stub <dir> <search-rows-file|fail>: the search answers with the rows
+# (whatever --state it was asked for, so the engine's own filter is what the
+# open and closed cases prove) or fails; the list call finds no
+# convention-branch PR.
 make_stub() {
   mkdir -p "$1"
   {
     echo '#!/bin/sh'
     echo 'case " $* " in'
-    if [ "$3" = ok ]; then
-      printf '  *" --search "*) cat "%s"; exit 0 ;;\n' "$4"
+    if [ "$2" != fail ]; then
+      printf '  *" --search "*) cat "%s"; exit 0 ;;\n' "$2"
     else
       echo '  *" --search "*) echo "gh: simulated search failure" >&2; exit 1 ;;'
     fi
     echo 'esac'
-    if [ "$2" = ok ]; then echo 'exit 0'; else echo 'exit 1'; fi
+    echo 'exit 0'
   } >"$1/gh"
   chmod +x "$1/gh"
 }
@@ -103,6 +105,9 @@ cat >"$spec/tasks.md" <<'EOF'
 
 ### Task 10 — a closed, unmerged PR's body names it
 - **Dependencies:** none
+
+### Task 11 — a fork's merged PR body names it
+- **Dependencies:** none
 EOF
 gitc "$repo" add -A
 gitc "$repo" commit -q -m "base"
@@ -112,19 +117,20 @@ gitc "$repo" remote add origin https://example.invalid/demo.git
 rows="$tmp/rows.tsv"
 # shellcheck disable=SC2016 # the backticks are body text, not expansions
 {
-  printf '41\tMERGED\tmain\tFixes the thing.\\r\\n\\r\\n<details><summary>Records</summary>\\r\\n\\r\\nPlanwright-Task: demo/1\\r\\n</details>\\r\\n\n'
-  printf '42\tMERGED\tmain\tSummary\\n  Planwright-Task: demo/3\\n\n'
-  printf '43\tMERGED\tmain\tExample:\\n\\n```\\nPlanwright-Task: demo/4\\n```\\n\n'
-  printf '44\tMERGED\tplanwright/demo/spec\tPlanwright-Task: demo/5\n'
-  printf '45\tMERGED\tmain\tSee the `Planwright-Task: demo/6` line.\n'
-  printf '46\tMERGED\tmain\tPlanwright-Task: other/7\\nPlanwright-Task: demo/7;rm -rf /\n'
-  printf '47\tMERGED\tmain\tplanwright-task: demo/8\n'
-  printf '48\tOPEN\tmain\tPlanwright-Task: demo/9\n'
-  printf '49\tCLOSED\tmain\tPlanwright-Task: demo/10\n'
-  printf 'planwright/demo/task-9\tMERGED\n'
+  printf '41\tMERGED\tfalse\tmain\tFixes the thing.\\r\\n\\r\\n<details><summary>Records</summary>\\r\\n\\r\\nPlanwright-Task: demo/1\\r\\n</details>\\r\\n\n'
+  printf '42\tMERGED\tfalse\tmain\tSummary\\n  Planwright-Task: demo/3\\n\n'
+  printf '43\tMERGED\tfalse\tmain\tExample:\\n\\n```\\nPlanwright-Task: demo/4\\n```\\n\n'
+  printf '44\tMERGED\tfalse\tplanwright/demo/spec\tPlanwright-Task: demo/5\n'
+  printf '45\tMERGED\tfalse\tmain\tSee the `Planwright-Task: demo/6` line.\n'
+  printf '46\tMERGED\tfalse\tmain\tPlanwright-Task: other/7\\nPlanwright-Task: demo/7;rm -rf /\\nPlanwright-Task: demo/7\\tforged\n'
+  printf '47\tMERGED\tfalse\tmain\tplanwright-task: demo/8\n'
+  printf '48\tOPEN\tfalse\tmain\tPlanwright-Task: demo/9\n'
+  printf '49\tCLOSED\tfalse\tmain\tPlanwright-Task: demo/10\n'
+  printf '50\tMERGED\ttrue\tmain\tPlanwright-Task: demo/11\n'
+  printf '51\tMERGED\tfalse\tmain\tAdd the line:\\nPlanwright-Task: <spec>/<id>\n'
 } >"$rows"
 
-make_stub "$tmp/bin-ok" ok ok "$rows"
+make_stub "$tmp/bin-ok" "$rows"
 out=$(PATH="$tmp/bin-ok:$PATH" "$STATE" "$spec") || fail "engine exited non-zero"
 
 assert_task "$out" 1 completed pr-body "body trailer, CRLF body, inside <details>"
@@ -137,19 +143,36 @@ assert_task "$out" 7 ready "" "another spec's line and a malformed value complet
 assert_task "$out" 8 completed pr-body "a lowercased key matches, as in commits"
 assert_task "$out" 9 ready "" "an open PR's body completes nothing"
 assert_task "$out" 10 ready "" "a closed, unmerged PR's body completes nothing"
+assert_task "$out" 11 ready "" "a fork's merged PR body completes nothing"
 printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7;rm -rf /" \
   || fail "a malformed body value is not surfaced as refused"
+printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7 forged" \
+  || fail "a tab in a body value reached the output as a field break"
+refusals=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "refused"' | awk 'END { print NR }')
+[ "$refusals" = 2 ] || fail "another spec's or a placeholder's line was refused ($refusals refusals)"
 echo "ok: a merged PR's body trailer completes its task, anchored and grammar-checked"
 
 out2=$(PATH="$tmp/bin-ok:$PATH" "$STATE" "$spec") || fail "second run exited non-zero"
 [ "$out" = "$out2" ] || fail "two runs disagree"
 echo "ok: the body read is idempotent"
 
-make_stub "$tmp/bin-searchfail" ok fail "$rows"
+make_stub "$tmp/bin-searchfail" fail
 fout=$(PATH="$tmp/bin-searchfail:$PATH" "$STATE" "$spec") || fail "search failure: engine exited non-zero"
 printf '%s\n' "$fout" | awk -F"$TAB" '$1=="degraded" && $2=="gh" {f=1} END{exit !f}' \
   || fail "search failure: no degraded record"
 assert_task "$fout" 1 ready "" "search failure: a body-only task is never completed"
 echo "ok: a failed body search degrades and completes nothing"
+
+full="$tmp/full.tsv"
+{
+  cat "$rows"
+  awk 'BEGIN { for (i = 1000; i < 2000; i++) printf "%d\tMERGED\tfalse\tmain\tno declaration\n", i }'
+} >"$full"
+make_stub "$tmp/bin-full" "$full"
+pout=$(PATH="$tmp/bin-full:$PATH" "$STATE" "$spec") || fail "full page: engine exited non-zero"
+printf '%s\n' "$pout" | awk -F"$TAB" '$1=="degraded" && $2=="gh" {f=1} END{exit !f}' \
+  || fail "full page: no degraded record"
+assert_task "$pout" 1 ready "" "full page: a body-only task is never completed"
+echo "ok: a search that fills its page degrades rather than miss older declarations"
 
 echo "PASS: test-orchestrate-state-pr-body.sh"

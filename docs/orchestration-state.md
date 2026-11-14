@@ -85,6 +85,11 @@ the engine applies them, are:
    mainline-membership check).
 2. **The `Planwright-Task` trailer** on a reachable base commit.
 3. **PR / merge state** via `gh` (only when a remote is configured).
+4. **A `Planwright-Task` line in a merged PR's body** via `gh` (evidence
+   `pr-body`): a PR merged into the base from a branch of this repository, not
+   a fork, whose body has the line at column 0 outside a fenced block. This
+   covers a squash whose message dropped the trailer. A failed body search
+   degrades like a failed PR query.
 
 If none of those marks the task done, the in-progress signals are, in order: a
 **branch carrying commits**, an **open PR** (via `gh`), a **fresh runtime
@@ -247,7 +252,10 @@ branch is no longer an ancestor of `main`.
   enough; footer position is not required.** If you squash-merge, just keep the
   `Planwright-Task` line in the resulting message (GitHub's squash UI lets you
   edit it; a local squash should carry it forward), or the task will not derive
-  as Completed from git alone.
+  as Completed from git alone. Mission control's printed merge command passes
+  the PR body's `Planwright-Task` lines as the squash body for you. Where `gh`
+  is configured, the same line in the merged PR's body also counts (signal 4
+  above), so a squash that dropped it still completes the task.
 - **Across a stale local base.** A merged PR's trailer reaches the remote first;
   the local base ref (`main`) does not carry it until a fetch has
   fast-forwarded that branch. So the trailer scan reads the **union of the base

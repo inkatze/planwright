@@ -44,7 +44,8 @@ mkdir -p "$mchome"
 
 # The scripts under test run from a copy whose readiness check is a stub.
 # collect writes the evidence at the head in $tmp/head.<n> with the labels
-# in $tmp/labels.<n> and the body lines in $tmp/body.<n>, or fails when $tmp/verdict.<n> says broken; walk
+# in $tmp/labels.<n> and the body lines in $tmp/body.<n>, or fails when
+# $tmp/verdict.<n> says broken; walk
 # answers from $tmp/verdict.<n> (ready, not-ready, or walkfail). Each
 # collect is logged.
 pw="$tmp/pw"
@@ -401,9 +402,12 @@ snap30 >"$snapdir/forge"
 run list --program alpha --now "$T"
 expect_out "a rebase has no commit body to carry them" "ready${tab}acme/web#30${tab}$H${tab}$(cmd 30 "$H" rebase)"
 printf 'SQUASH\n' >"$tmp/method"
-printf 'state\tok\t%s\nacme/web#30\tk\tready\t%s\tsquash\t-\n' "$T" "$T" >"$store"
+printf 'state\tok\t%s\nacme/web#30\t%s|false\tready\t%s\tsquash\t-\n' "$T" "$H" "$T" >"$store"
 run commands --program alpha --now "$T"
 expect_eq "a stored row with no task list prints no command that would drop them" ""
+printf 'state\tok\t%s\nacme/web#30\t%s|false\tready\t%s\tsquash\t-\t-\n' "$T" "$H" "$T" >"$store"
+run commands --program alpha --now "$T"
+expect_eq "while the same row with its task list does" "ready${tab}acme/web#30${tab}$(cmd 30 "$H")"
 
 # A row outside the snapshot's grammar is named without its text.
 {
