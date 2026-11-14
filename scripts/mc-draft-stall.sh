@@ -170,7 +170,6 @@ hold_state() {
   hs_file=$2
   hs_self=$3
   hs_base=$(awk -F '\t' '$1 == "base" { print $2; exit }' "$hs_file")
-  hs_stated=0
   hs_why=""
   if awk -F '\t' '$1 == "label" && tolower($2) ~ /(^|[^a-z0-9])hold($|[^a-z0-9])/ { f = 1 } END { exit !f }' "$hs_file"; then
     printf 'applies a hold label is on it\n'
@@ -195,7 +194,8 @@ hold_state() {
     case $hs_ref in
       */*#*) hs_rs=${hs_ref%#*} ;;
     esac
-    mc_valid_slug "$hs_rs" && mc_valid_uint "$hs_n" || continue
+    mc_valid_slug "$hs_rs" || continue
+    mc_valid_uint "$hs_n" || continue
     [ "$hs_rs#$hs_n" != "$hs_slug#$hs_self" ] || continue
     hs_named=1
     hs_st=$(gh api "repos/$hs_rs/issues/$hs_n" --jq '.state' 2>"$scratch/err") || hs_st=unreadable

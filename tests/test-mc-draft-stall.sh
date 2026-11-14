@@ -89,7 +89,10 @@ snapshot() { # snapshot <taken> then rows on stdin
   printf 'format\t1\nsource\tforge\ntaken\t%s\n' "$1"
   cat
 }
-put() { cat >"$tmp/rows"; snapshot "$1" <"$tmp/rows" >"$snapdir/forge"; }
+put() {
+  cat >"$tmp/rows"
+  snapshot "$1" <"$tmp/rows" >"$snapdir/forge"
+}
 run() { # run <now>: the snapshot is retaken each pass, as the runner keeps it fresh
   [ -n "${STALE:-}" ] || [ ! -f "$snapdir/forge" ] || snapshot "$1" <"$tmp/rows" >"$snapdir/forge"
   OUT=$(mc_env env PATH="$tmp/bin:$PATH" /bin/bash "$repo_root/scripts/mc-draft-stall.sh" watch --program alpha --now "$1" 2>"$tmp/stderr")
