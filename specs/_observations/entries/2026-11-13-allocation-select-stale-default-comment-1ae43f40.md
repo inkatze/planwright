@@ -1,1 +1,1 @@
-- 2026-11-13 [planwright] scripts/allocation-select.sh header says the shipped default is inherit for every step type (D-13); the two review-step model keys now ship sonnet (model-allocation D-14), so the comment is stale. Fix with the Task 8 change.
+- 2026-11-13 [planwright] scripts/allocation-select.sh header says the shipped default is inherit for every step type (D-13); the two review-step model keys now ship sonnet (model-allocation D-14), so the comment is stale. No current task covers the script: a captured gap for a later amendment or a small flight to fix.
