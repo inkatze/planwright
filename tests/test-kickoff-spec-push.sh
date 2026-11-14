@@ -143,7 +143,7 @@ upstream=$(g -C "$amend_up" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2
 [ "$upstream" = origin/planwright/demo/amendment-3 ] || fail "the amendment push did not keep its upstream (got '$upstream')"
 pass "[amendment] an amendment branch ahead of origin pushes to itself, never the spec branch, whatever the push mapping"
 
-# The #1021 case: amendment-16 checked out directly in a linked worktree,
+# A relayed amendment kickoff: amendment-16 checked out directly in a linked worktree,
 # tracking its origin branch and ahead of it, with no spec branch anywhere.
 mc_primary="$tmp/mc-primary"
 g clone -q "$origin" "$mc_primary"
@@ -156,13 +156,13 @@ g -C "$mc_primary" worktree add -q "$mc_a16" planwright/mission-control/amendmen
 g -C "$mc_a16" commit -q --allow-empty -m "delta 1"
 g -C "$mc_a16" commit -q --allow-empty -m "delta 2"
 mc_head=$(g -C "$mc_a16" rev-parse HEAD)
-(cd "$mc_a16" && "$SCRIPT" mission-control) >/dev/null 2>&1 || fail "#1021 case: the amendment-16 push from a linked worktree did not succeed"
+(cd "$mc_a16" && "$SCRIPT" mission-control) >/dev/null 2>&1 || fail "relayed amendment case: the amendment-16 push from a linked worktree did not succeed"
 [ "$(g -C "$origin" rev-parse refs/heads/planwright/mission-control/amendment-16)" = "$mc_head" ] \
-  || fail "#1021 case: refs/heads/planwright/mission-control/amendment-16 on origin is not the worktree head"
+  || fail "relayed amendment case: refs/heads/planwright/mission-control/amendment-16 on origin is not the worktree head"
 if g -C "$origin" rev-parse --verify -q refs/heads/planwright/mission-control/spec >/dev/null; then
-  fail "#1021 case: the amendment-16 push created planwright/mission-control/spec on origin"
+  fail "relayed amendment case: the amendment-16 push created planwright/mission-control/spec on origin"
 fi
-pass "[amendment] #1021 case: amendment-16 from a linked worktree lands on refs/heads/planwright/mission-control/amendment-16 alone"
+pass "[amendment] relayed amendment case: amendment-16 from a linked worktree lands on refs/heads/planwright/mission-control/amendment-16 alone"
 
 if (cd "$clone" && "$SCRIPT" other) >/dev/null 2>&1; then
   fail "another spec's name pushed from demo's amendment branch"

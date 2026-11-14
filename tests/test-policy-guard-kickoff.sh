@@ -150,12 +150,16 @@ for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwrig
   'git branch -m planwright/demo/amendment-9 &&' 'git symbolic-ref HEAD refs/heads/planwright/demo/amendment-9 &&' \
   'git update-ref --no-deref HEAD HEAD &&' 'git worktree add ../w9 planwright/demo/amendment-9 &&' \
   'env git switch planwright/demo/spec &&' 'git co planwright/demo/spec &&' \
-  'git branch -fm planwright/demo/amendment-9 &&'; do
-  for scope in kickoff-demo-a2 kickoff-demo; do
-    PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
-    expect deny "[worker, $scope] a kickoff push after a git command that may move HEAD denies: $pre"
-    reason_has 'cannot place it' "[worker, $scope] the refusal after a HEAD move names why: $pre"
-  done
+  'git branch -fm planwright/demo/amendment-9 &&' 'git branch --move planwright/demo/amendment-9 &&' \
+  'git branch -M planwright/demo/amendment-9 &&' 'GIT switch planwright/demo/spec &&'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, kickoff-demo-a2] a kickoff push after a git command that may move HEAD denies: $pre"
+  reason_has 'cannot place it' "[worker, kickoff-demo-a2] the refusal after a HEAD move names why: $pre"
+done
+for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwright/demo/spec ;'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, kickoff-demo] a kickoff push after a git command that may move HEAD denies: $pre"
+  reason_has 'cannot place it' "[worker, kickoff-demo] the refusal after a HEAD move names why: $pre"
   PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
   expect deny "[worker, task-1] a non-kickoff push after a git command that may move HEAD denies: $pre"
   reason_has 'not the kickoff for demo' "[worker, task-1] the non-kickoff refusal after a HEAD move says so: $pre"
@@ -187,7 +191,7 @@ for tier in tower mission-control; do
   fi
 done
 
-# The #1021 case: a relayed amendment kickoff in a linked worktree with the
+# A relayed amendment kickoff in a linked worktree with the
 # amendment branch checked out directly (no flight branch, no local spec
 # branch), tracking its origin branch and ahead of it.
 MC_PRIMARY="$SANDBOX/mc-primary"
@@ -206,23 +210,26 @@ MC_A1="$SANDBOX/mc-a1"
 gitq -C "$MC_PRIMARY" worktree add -b planwright/mission-control/amendment-1 "$MC_A1" main
 KICK_MC='${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh mission-control'
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
-expect defer "[worker, kickoff-mission-control-a16-delta] #1021 case: the relayed amendment-16 kickoff push is admitted"
-reads none "[worker, kickoff-mission-control-a16-delta] #1021 case: the admitted push reads no knob"
+expect defer "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the relayed amendment-16 kickoff push is admitted"
+reads none "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the admitted push reads no knob"
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A17" "$MC_A17"
-expect deny "[worker, kickoff-mission-control-a16-delta] #1021 case: the a16 scope on amendment-17 denies"
-reason_has 'planwright/mission-control/amendment-17 checked out' "[worker, kickoff-mission-control-a16-delta] #1021 case: the amendment-17 refusal names the branch checked out"
-reason_has "amendment 16's kickoff for mission-control pushes only planwright/mission-control/amendment-16," "[worker, kickoff-mission-control-a16-delta] #1021 case: the amendment-17 refusal names the one branch amendment 16's kickoff pushes"
+expect deny "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the a16 scope on amendment-17 denies"
+reason_has 'planwright/mission-control/amendment-17 checked out' "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the amendment-17 refusal names the branch checked out"
+reason_has "amendment 16's kickoff for mission-control pushes only planwright/mission-control/amendment-16," "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the amendment-17 refusal names the one branch amendment 16's kickoff pushes"
 for scope in kickoff-mission-control-a1 kickoff-mission-control-a160; do
   PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
   expect deny "[worker, $scope] another amendment number's scope denies on amendment-16"
+  reason_has "amendment ${scope#kickoff-mission-control-a}'s kickoff for mission-control pushes only" "[worker, $scope] the refusal names that scope's own amendment"
 done
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A1" "$MC_A1"
 expect deny "[worker, kickoff-mission-control-a16-delta] an a16 scope denies on amendment-1"
+reason_has 'planwright/mission-control/amendment-1 checked out' "[worker, kickoff-mission-control-a16-delta] the amendment-1 refusal names the branch checked out"
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a10b pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
 expect deny "[worker, kickoff-mission-control-a10b] amendment 10's relaunch scope denies on amendment-16"
+reason_has "amendment 10's kickoff for mission-control pushes only" "[worker, kickoff-mission-control-a10b] the refusal reads the relaunch scope as amendment 10's"
 mkdir -p "$MC_A16/specs/mission-control"
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
-expect defer "[worker, kickoff-mission-control-a16-delta] #1021 case: admitted with its own spec under the spec root and no colliding one"
+expect defer "[worker, kickoff-mission-control-a16-delta] relayed amendment case: admitted with its own spec under the spec root and no colliding one"
 
 # An amendment kickoff's scope that is also another spec's kickoff scope: a
 # spec named <spec>-a<n> (or the scope's whole tail) under the spec root.
