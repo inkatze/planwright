@@ -18,8 +18,7 @@ The orchestration layer of the planwright pipeline (REQ-F1.1–REQ-F1.10): a
 **stateless step machine** (D-7) advancing a Ready or Active spec one unit per
 step (read `tasks.md`, select, record the dispatch, dispatch `/execute-task`,
 exit). The step is the unit of crash-safety (D-8); progress state is a
-**derived projection** (D-1), so the tower is **disposable** (D-38), safe under
-headless cron and concurrent towers on one spec.
+**derived projection** (D-1), so the tower is **disposable** (D-38).
 
 ## Doctrine
 
@@ -44,13 +43,13 @@ Doctrine: point-of-use orchestration-modes (--meta / --fleet / --bookkeeping / d
 Doctrine: point-of-use tower-comms (how the loop's turns speak to the operator)
 
 On a **dispatch path** (selecting and dispatching a unit), a missing core doc
-fails closed (REQ-K1.7). Halt, naming the missing doc and the chain consulted.
-On **non-dispatching** paths (`--bookkeeping`, a read-only status step) it
-degrades — note it in one line and continue.
+fails closed (REQ-K1.7): halt, naming the missing doc and the chain consulted.
+On **non-dispatching** paths (`--bookkeeping`, a read-only status step) note
+it in one line and continue.
 
 ## Modes
 
-Selected from `$ARGUMENTS` at pre-flight:
+Selected from `$ARGUMENTS`:
 
 - **Step** (default). Advance exactly one ready unit, then exit.
 - **`--watch`.** Repeat the step until no ready unit remains or a halt fires.
@@ -58,18 +57,18 @@ Selected from `$ARGUMENTS` at pre-flight:
 - **`--bookkeeping`.** The out-of-session drain pass (D-31), below.
 - **`--meta`** (the meta-tower, D-6: one unit across several Ready/Active specs
   per step, under a fleet-level bound) and **`--fleet`** (the one fleet entry
-  command, D-9: `--meta --watch` with the attention surface). Both are defined
-  in `orchestration-modes`; read it when taken.
+  command, D-9: `--meta --watch` with the attention surface), both defined in
+  `orchestration-modes`; read it when taken.
 
 Flags: `--backend <name|full-session>` overrides `dispatch_backend`;
-`--unattended` selects headless mode (skip confirms, route every
-would-be prompt to Awaiting input), implied for non-interactive sessions.
+`--unattended` selects headless mode (skip confirms, route every prompt to
+Awaiting input), implied for non-interactive sessions.
 
 ## Pre-flight (per step)
 
 Run in order. Any halt records the unit (when one is selected) and ends the step,
-per **Halt → Awaiting input** below; simultaneous ones batch into the step
-report (D-45).
+per **Halt → Awaiting input**; simultaneous ones batch into the step report
+(D-45).
 
 1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional bare
    `<spec>` (alias `specs/<spec>`, one trailing slash allowed; `--meta`
@@ -105,7 +104,7 @@ report (D-45).
 ## Bring-up (REQ-B1.1 to REQ-B1.5, D-4, D-6, D-8)
 
 Once per invocation, before the first step; `--watch` steps do not repeat it.
-Each read is bounded and inline, taken again on request, never polled.
+Each read is bounded, inline, and repeated on request, never polled.
 
 1. **Placement.** `scripts/tower-placement.sh` prints `main`, `linked`, or
    `none` beside the resolved `tower_placement`; `none` counts as a main tree,
@@ -116,7 +115,7 @@ Each read is bounded and inline, taken again on request, never polled.
    nothing. An unattended `refuse` notifies and parks in Awaiting input.
 2. **Isolation probe.** One harmless read of the primary checkout (`git -C
    <primary checkout> rev-parse --git-dir`): a refusal means worktree
-   isolation, so warn once, naming the supported launch. It never blocks.
+   isolation: warn once, naming the supported launch, never blocking.
 3. **Posture.** The activation handshake, `scripts/tower-session.sh activate`:
    only a refusal opening `ACTIVE` proves plugin enforcement, and it re-marks
    the session; plugin enforcement then meets the floor. Any other outcome
@@ -129,9 +128,9 @@ Each read is bounded and inline, taken again on request, never polled.
 Pick the next ready unit with `scripts/orchestrate-select.sh <root>/<spec>`,
 critical-path-first over the **live derivation** (`scripts/orchestrate-state.sh`:
 git + trailer + marker + gh evidence), not the committed `tasks.md` snapshot (D-3,
-REQ-B1.2); the full candidacy and exit-code mechanics are the `selection-contract`
-doctrine. **Candidacy is version-keyed** to the declared `Format-version:` (the
-selector refuses a missing or unparseable one, REQ-C1.8): on a **version 1** bundle
+REQ-B1.2); the `selection-contract` doctrine owns the full mechanics.
+**Candidacy is version-keyed** to the declared `Format-version:` (the selector
+refuses a missing or unparseable one, REQ-C1.8): on a **version 1** bundle
 a task is a candidate while its block sits in `## Forward plan`; on a
 **format-version 2** bundle no placement section exists, so candidacy is
 derivational and parked-ness is a live reference bullet naming the task in
@@ -147,9 +146,8 @@ Selector exits:
 - Exit 3 (transient evidence hold: format-version 2 bundle-wide, or format-version
   3 with nothing ready while work is withheld behind a failed repository) →
   **report the hold and end the step cleanly** (REQ-B1.5, REQ-B1.7), the
-  lock-contention shape; a later step
-  re-selects (the `--watch` loop continues, unlike exit 1). v1 keeps its
-  degraded-but-proceed behavior.
+  lock-contention shape; a later step re-selects (the `--watch` loop continues,
+  unlike exit 1). v1 keeps its degraded-but-proceed behavior.
 
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
 blind to tasks that *gate other tasks' verification* without a dependency edge.
@@ -201,8 +199,8 @@ tmux each task id is its own unit (no bundle). Ordered steps:
      — meaning-class — a dispositioned `Lens-pass:`.
    - **Compare** against `dispatch-fetch.sh`'s anchor. **Match** → proceed.
      **Mismatch** → halt (remedy: `/spec-kickoff` delta re-walkthrough). **No /
-     unparseable / non-sanctioned / wrong-writer entry** → halt (remedy: repair the
-     record per REQ-F1.10). A **pre-change entry** (`spec-format` *Pre-change
+     unparseable / non-sanctioned / wrong-writer entry** → halt (repair the
+     record, REQ-F1.10). A **pre-change entry** (`spec-format` *Pre-change
      anchors*) mismatches over unedited content (remedy: its one-time
      classify-then-self-re-anchor). Halts go to Awaiting input; no bypass flag.
 3. **Create the task branch as the first durable act** (REQ-A1.1, D-3), via the
@@ -227,7 +225,7 @@ this session's repository, place it with `scripts/fleet-dispatch-worktree.sh
 dispatch <spec> <id> --repo-root <work-repo> --no-attach`, which launches
 nothing (the tmux rung's own call places and launches). Reuse the current
 worktree when clean, after a one-line confirm (**attended only**; unattended
-creates fresh); print the re-open command.
+creates fresh), printing the re-open command.
 
 **Dispatch-time environment hardening**: `scripts/fleet-dispatch-env.sh --emit-launch <argv>`
 emits the `worker-command-guard`-auto-approved launch whose prefix applies
@@ -236,12 +234,12 @@ Pin the umask, pre-trust the worktree's config paths, and verify the
 SSH-agent indirection before signed commits.
 
 **Resource governance** (REQ-E1.1–REQ-E1.4; contract in `docs/fleet.md`):
-`scripts/fleet-throttle.sh check` before dispatch — exit 1 = paused until reset
+`scripts/fleet-throttle.sh check` before dispatch: exit 1 = paused until reset
 (skip the iteration; pipe rate-limit prompts to `observe`);
 `scripts/allocation-adapt.sh resolve <unit> --key <task-type>` resolves the
 unit's admit/model/effort/command; `scripts/fleet-dispatch-guard.sh check-launch
-<launch-argv>` (or `check-inherited`, in-process) lints the launch — a refusal is
-a stop condition, never bypassed.
+<launch-argv>` (or `check-inherited`, in-process) lints the launch, a refusal
+being a stop condition, never bypassed.
 
 Single-spec dispatch keys by surface:
 `scripts/allocation-apply.sh plan --key orchestrate_dispatch --backend <b>
@@ -277,8 +275,8 @@ REQ-B1.1–B1.5). Never silently pick one. Resolve in order:
 Concurrency is capped by `max_parallel_units` (via config-get): if that many
 units already derive **In progress** for this spec (the live derivation sees
 just-written markers), do not dispatch another; report the cap and exit.
-Division of labor: `inter-orchestrator-coordination` (D-7); read
-it when relaying to or cleaning up after a worker.
+Read `inter-orchestrator-coordination` (D-7) when relaying to or cleaning up
+after a worker.
 
 - **stream-json-persistent** (`full-session`'s usual rung) and
   **headless-oneshot**. Script-launched workers; a stream-json worker's
@@ -334,8 +332,8 @@ the flag dropped when it fails; clear it on graceful exit.
 same identity flags. Never assume solitude; failure postures (exits 2–5) per
 `docs/fleet.md`.
 
-Then loop the full step (pre-flight → reconcile → select → backend → dispatch record →
-dispatch), surfacing the reason the loop ends.
+Then loop the full step (pre-flight → reconcile → select → backend → dispatch
+record → dispatch), surfacing why the loop ends.
 
 **Operator comms (tower-comms D-6, D-19).** Nothing reaches the operator as
 loose prose. Resolve identity once with `publish`'s flag,
@@ -371,9 +369,9 @@ count): `ok` or `disabled` proceeds; `near-limit` hands over per
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
-The predicate's law is `orchestration-concurrency` (read here). Its version-keyed
-arms read the declared `Format-version:`; unparseable fails closed, never the v1
-write (D-7). The sweep:
+The predicate's law is `orchestration-concurrency` (read here); its version-keyed
+arms read the declared `Format-version:`, unparseable failing closed, never the
+v1 write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
    --best-effort <primary-checkout>`: one attempt, coalesced with the gate's
@@ -414,10 +412,9 @@ a relaunch.
 
 The out-of-session drain pass, a rare mode arm: its passes are
 `orchestration-modes` (read when taken), its gate lanes `accumulator-taxonomy`.
-It dispatches nothing, re-surfaces a
-satisfied gate rather than closing it, reconciles placement on v1 bundles only
-(a v2 bundle has no placement to reconcile), never merges, and never advances
-local `main`.
+It dispatches nothing, re-surfaces a satisfied gate rather than closing it,
+reconciles placement on v1 bundles only, never merges, and never advances local
+`main`.
 
 ## Step report
 
@@ -435,8 +432,7 @@ log, sanitized (D-19); without that log, say the mirror was skipped.
 ## Halt → Awaiting input (REQ-F1.5)
 
 Halt to Awaiting input on ambiguity, a missing dependency, a relayed worker test
-failure, a hard-disqualifier, or contract drift (non-exhaustive; pre-flight
-refusals are defined at their steps). Each halt writes the unit to `## Awaiting
+failure, a hard-disqualifier, or contract drift (non-exhaustive). Each halt writes the unit to `## Awaiting
 input` with the reason (a v2 bundle's `**Task <id>**` reference bullet, D-3; in a
 holder or plain store `scripts/halt-note.sh` writes it uncommitted, named in the
 report, custom-spec-location REQ-E1.9; the `gate-wiring` pause protocol's
@@ -445,20 +441,13 @@ dispatched arm); attended, present it and wait.
 ## Stop conditions (mandatory human handoff)
 
 Each is defined at its point of use; this is the enumeration, not a second
-definition.
-
-| Condition | Where |
-| --- | --- |
-| Spec not Ready or Active | Pre-flight step 4. |
-| Missing/erroring validator | Pre-flight step 5 (dispatch path). |
-| No / partial kickoff brief | Pre-flight step 6. |
-| Freshness-gate halt | The locked-window gate. |
-| Taskless / unreadable tasks.md | Selection exit 2. |
-| Selection transient-evidence hold | Selection exit 3: reported, not a halt. |
-| Lock contention | `acquire` exit 1: a clean no-op. |
-| Cohesion ambiguity | Cohesion-first bundling: ask. |
-| Worker halt relayed | Recorded, never re-dispatched. |
-| `gh` unreachable | Any `gh` read: record Awaiting input, continue local (REQ-K1.6, K1.7). |
+definition: a spec not Ready or Active, a missing or erroring validator on a
+dispatch path, or a missing or partial kickoff brief (pre-flight steps 4 to
+6); a freshness-gate halt; a taskless or unreadable `tasks.md` (selection exit
+2); cohesion ambiguity (ask); a relayed worker halt (recorded, never
+re-dispatched); `gh` unreachable (record Awaiting input, continue local,
+REQ-K1.6, K1.7). A selection transient-evidence hold (exit 3) is reported and
+lock contention (`acquire` exit 1) is a clean no-op; neither is a halt.
 
 ## Invariants
 
