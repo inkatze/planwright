@@ -42,6 +42,7 @@ tmp=$(cd "$tmp" && pwd -P) || exit 1
 
 tab=$(printf '\t')
 store="$home/goals.tsv"
+repo_status0=$(git -C "$repo" status --porcelain)
 # 2026-11-10T12:00:00Z
 now=1794312000
 day=86400
@@ -125,7 +126,7 @@ expect_rc "confirm with no correction keeps the drafted check" 0
 expect_status "a confirmed check that has not run, work not yet seen merged, is open" "$g2" open
 goals watch --now "$now"
 expect_rc "the watcher pass runs the check of the merged goal" 0
-expect_out "the watcher reports the failing check" "failing${tab}$g2"
+expect_out "the watcher reports the failing check" "checked${tab}$g2${tab}failing"
 expect_status "REQ-N1.2: merged work with a failing check is merged but not done" "$g2" merged-not-done
 goals show "$g2"
 expect_out "REQ-N1.2: the failure is named" "exit 3"
@@ -140,7 +141,7 @@ goals set --outcome "Slow" --statement "slow check" --command "sleep 5" --work "
 g3=$OUT
 goals confirm "$g3"
 goals watch --now "$now" --timeout 1
-expect_out "REQ-N1.2: a timed-out check reports failing" "failing${tab}$g3"
+expect_out "REQ-N1.2: a timed-out check reports failing" "checked${tab}$g3${tab}failing"
 goals show "$g3"
 expect_out "REQ-N1.2: the timeout is named" "timed out"
 expect_status "REQ-N1.2: a timed-out check on merged work is merged but not done" "$g3" merged-not-done
@@ -264,7 +265,7 @@ expect_out "REQ-N1.4: the evidence was written" "exit 4"
 
 [ -f "$store" ] && ok "REQ-N1.4: the store sits under the program home" || fail "REQ-N1.4: no store at $store"
 [ "$(sed -n 1p "$store")" = "# format: 1" ] && ok "REQ-N1.4: the store opens with its format line" || fail "REQ-N1.4: the store lacks a format line"
-if [ -n "$(git -C "$repo" status --porcelain)" ]; then
+if [ "$(git -C "$repo" status --porcelain)" != "$repo_status0" ]; then
   fail "REQ-N1.4: a repository file changed: $(git -C "$repo" status --porcelain)"
 else
   ok "REQ-N1.4: nothing is written in a repository"

@@ -341,6 +341,12 @@ operator; a no declines. Nothing enables itself.
 operator's yes, with `scripts/mc-config.sh`'s
 `duty --program <p> enable|disable <id>`.
 
+**Goals** (D-44): draft the check for a goal the operator sets and add it with
+`scripts/mc-goals.sh`'s `set`; put `show`'s command to them verbatim and
+`confirm` their one-line answer. A goal is done only when `list` says `done`;
+on a `goal-verify-due` event, `verify --launch` starts the read-only session and
+`evidence` records what it reported; `landed` records a merged flight or task.
+
 ## Kickoffs and amendments (REQ-I1.5)
 
 Never open a kickoff or an amendment unasked, and never sign off a spec. One
