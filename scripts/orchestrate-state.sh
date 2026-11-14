@@ -493,15 +493,15 @@ load_repo() {
     # stamp (output-hygiene Task 7, D-5, REQ-E1.2) reuses this one query — no new
     # per-task lookup. Columns: headRefName<TAB>state<TAB>number<TAB>mergedAt<TAB>
     # trailers<TAB>baseRefName. `trailers` is the `|`-joined values of the
-    # `Planwright-Task` lines in a MERGED PR's body (empty otherwise; `|` cannot
-    # occur in a valid value, so each line is validated whole): a squash merge
+    # `Planwright-Task` lines in a MERGED PR's body (empty otherwise; a line
+    # carrying `|` is dropped, so each kept line is validated whole): a squash merge
     # keeps the PR body, not the task's commits, so work shipped through a PR
     # whose head branch is not the task branch still names its task there. Only
     # the matching lines leave jq, so a large body never reaches the shell.
     if gh_out=$(cd "$repo_root" && gh pr list --state all --limit 1000 \
       --json state,headRefName,number,mergedAt,body,baseRefName \
       --jq '.[] | [.headRefName, .state, (.number|tostring), (.mergedAt // ""),
-        (if .state == "MERGED" then [(.body // "") | split("\n")[] | select(test("^planwright-task:";"i")) | sub("^[^:]*:\\s*";"") | gsub("\\s+$";"")] | join("|") else "" end), .baseRefName] | @tsv' 2>/dev/null); then
+        (if .state == "MERGED" then [(.body // "") | split("\n")[] | select(test("^planwright-task:";"i")) | sub("^[^:]*:\\s*";"") | gsub("\\s+$";"") | select(contains("|") | not)] | join("|") else "" end), .baseRefName] | @tsv' 2>/dev/null); then
       gh_lines=$gh_out
       # A forge that cannot be read adds nothing here (the else arm returns 3),
       # so an unreachable forge never counts a task complete. Only a PR merged

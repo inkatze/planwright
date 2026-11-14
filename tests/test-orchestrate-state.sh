@@ -1328,7 +1328,7 @@ if command -v jq >/dev/null 2>&1; then
   gitc_init "$jqrepo"
   {
     printf '# Demo — Tasks\n\n**Status:** Active\n\n## Forward plan\n\n'
-    for i in 1 2 3 4 5 6 7; do printf '### Task %s — t\n- **Dependencies:** none\n\n' "$i"; done
+    for i in 1 2 3 4 5 6 7 8; do printf '### Task %s — t\n- **Dependencies:** none\n\n' "$i"; done
   } >"$jqspec/tasks.md"
   gitc "$jqrepo" add -A
   gitc "$jqrepo" commit -q -m "base: spec bundle"
@@ -1341,6 +1341,7 @@ if command -v jq >/dev/null 2>&1; then
  {"headRefName":"f/c","state":"MERGED","number":3,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"feature-x","body":"Planwright-Task: demo/5"},
  {"headRefName":"f/d","state":"OPEN","number":4,"mergedAt":null,"baseRefName":"main","body":"Planwright-Task: demo/6"},
  {"headRefName":"f/e","state":"MERGED","number":5,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"main","body":null},
+ {"headRefName":"f/g","state":"MERGED","number":7,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"main","body":"Planwright-Task: demo/8|junk"},
  {"headRefName":"f/f","state":"MERGED","number":6,"mergedAt":"2026-11-01T00:00:00Z","baseRefName":"main","body":"Planwright-Task: demo/7 (blocked on demo/2)"}
 ]
 EOF3
@@ -1354,6 +1355,7 @@ EOF3
   assert_state "$jqout" 5 ready "pr-jq: a PR merged into another branch does not count"
   assert_state "$jqout" 6 ready "pr-jq: an open PR does not count"
   assert_state "$jqout" 7 ready "pr-jq: a value with prose after it is refused whole"
+  assert_state "$jqout" 8 ready "pr-jq: a line carrying the column delimiter never counts"
   printf '%s\n' "$jqout" | grep -q "^refused${TAB}Planwright-Task${TAB}demo/7 (blocked on demo/2)" \
     || fail "pr-jq: the prose-carrying value was not refused whole"
   echo "ok: the PR-body filter honours column-0 trailers, merged state and the base branch"
