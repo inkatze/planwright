@@ -128,7 +128,10 @@ main() {
   [ -n "$cwd" ] || cwd=$PWD
 
   case $path in
-    '~' | '~'/*) [ -n "${HOME:-}" ] || emit_deny "$DENY_UNREAD"; path=$HOME${path#\~} ;;
+    '~' | '~'/*)
+      [ -n "${HOME:-}" ] || emit_deny "$DENY_UNREAD"
+      path=$HOME${path#\~}
+      ;;
   esac
   case $path in
     /*) abs=$path ;;

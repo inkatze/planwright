@@ -1096,13 +1096,17 @@ for dir in githooks .githooks; do
     pm_path_matches deny "$spelling" "$PM_CWD/$dir/sub/x" && nested_hit=y
     case "$spelling" in
       "$dir/**" | "./$dir/**")
-        want="y y y" ;; # a single directory segment before /** matches at any depth (M10)
+        want="y y y"
+        ;; # a single directory segment before /** matches at any depth (M10)
       "$dir/**/*" | "./$dir/**/*")
-        want="y n y" ;; # anchored at the working directory: the shipped spelling
+        want="y n y"
+        ;; # anchored at the working directory: the shipped spelling
       "$dir/*")
-        want="y n n" ;;
+        want="y n n"
+        ;;
       *)
-        want="n n n" ;; # settings-anchored: never the worktree
+        want="n n n"
+        ;; # settings-anchored: never the worktree
     esac
     if [ "$root_hit $deep_hit $nested_hit" = "$want" ]; then
       ok "probe: deny $spelling matches (root, deeper-dir, below-root) = $want"
