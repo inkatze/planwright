@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -704,6 +704,10 @@ control evaluates them to prepare, verify and recommend. They never place a
 flip or a merge below the human-gates floors: the configured
 `ready_flip_policy` and `merge_policy` bound them, and no condition can
 authorize a merge.
+
+*(Amended at Amendment 17: a condition still never authorizes a merge. The
+operator's own `auto_merge` setting is the one authorization, D-74 and D-79,
+and D-75's conditions bound what it admits.)*
 
 **Alternatives considered:**
 - Fixed conditions in the skill. Rejected because: the record shows
@@ -1975,6 +1979,127 @@ counts misses caught by the operator against those the system raised first.
 
 **Chosen because:** every core failure so far was found by the operator;
 the system should find the next one first, and learn from each it did not.
+
+### D-74: `auto_merge` is an opt-in, per-repository setting read from trusted layers, solo repositories only  (S)
+
+**Decision:** One setting, `auto_merge`, with values `off` (default), `merge`
+and `merge-and-publish`. It is read from the shipped and adopter layers only
+(as `ready_guard_behind_base` is), so no session, worker or worktree file can
+turn it on. planwright's adopter configuration sets `merge-and-publish`. The
+repository's kind is judged as the ready-flip rule judges it (solo,
+collaborative, work); outside a solo repository the value is ignored and the
+merge stays the operator's. `merge_policy` is unchanged and independent:
+`auto_merge` governs mission control's own merges, `merge_policy` the
+worker-tier policy-class path.
+
+**Alternatives considered:**
+- Make planwright merge-capable with no knob. Rejected because: the
+  operator wants it off elsewhere and per repository.
+- Honor it in collaborative repositories too. Rejected because: the
+  operator ruled solo only; another person's work should not merge unseen.
+
+**Chosen because:** the operator's decisions (2026-11-11, 2026-11-14): an
+opt-in knob in planwright, off by default, three reaches, solo only.
+
+### D-75: A merge needs the readiness result, finished green checks and an empty operator-item list, re-read at the act  (S)
+
+**Decision:** The conditions are the readiness check on the current head
+(D-25, D-33), every check on that head finished green, GitHub reporting it
+mergeable, and no item open for the operator on the PR (the operator-item
+list mission control already keeps: render-gate screenshots, pending
+decisions, sign-off items, unresolved human review threads). They are
+evaluated when mission control decides to launch the merge and again, from
+primary sources, as the helper's last step before the merge, which names the
+head it evaluated and merges only that head. A condition that cannot be read
+counts as unmet. The gate-condition data (D-26) may add conditions and
+never removes one. A check the operator must bypass, or a window lock, is
+never bypassed: that PR is reported ready for the operator's merge, as
+today.
+
+**Alternatives considered:**
+- Trust the earlier readiness result. Rejected because: the head, the
+  checks and the operator-item list move between the decision and the act.
+
+**Chosen because:** the operator's condition: the readiness check passes on
+the current head and nothing is open for them.
+
+### D-76: One worker per merge, one sanctioned helper, the guard's denies kept  (S)
+
+**Decision:** Mission control never runs the merge. Per merge it launches a
+short-lived worker, retired on landing, that runs one new helper,
+`scripts/auto-merge.sh`, beside `merge-admitted.sh`. The policy guard admits
+the helper only to that worker tier, only when `auto_merge` resolves to
+`merge` or `merge-and-publish` for the repository and the repository is
+solo; every other merge spelling stays denied in every tier, mission
+control's own included. The helper re-resolves the setting, runs D-75's
+checks, merges the named head and exits, recording the merge as D-78 says.
+
+**Alternatives considered:**
+- Mission control runs the merge command with the guard relaxed. Rejected
+  because: it weakens the one refusal that covers every other spelling.
+- Reuse `merge-admitted.sh` under `merge_policy: policy-class`. Rejected
+  because: that path admits a declared class of task PRs; this one admits
+  by the readiness and operator-item conditions in any PR D-77 does not
+  exclude.
+
+**Chosen because:** the operator chose one worker per merge: the re-check
+sits beside the act and the guard's refusal stays intact.
+
+### D-77: Spec PRs, sign-off items and bypass merges are never automatic; a release follows the value  (S)
+
+**Decision:** Never automatic under any value: a spec PR (its merge is the
+second key of the two-key launch), a PR carrying a sign-off item, and a
+merge that exists only through the operator's bypass of a check or window
+lock. A release PR is merged and its release published automatically only
+under `merge-and-publish`, after the release window check and checklist
+pass (`scripts/release-window-check.sh`, `scripts/release-checklist.sh`),
+through the existing publish script run by a short-lived worker as D-76
+describes; under `merge` it is left to the operator like a spec PR.
+
+**Alternatives considered:**
+- Include spec PRs. Rejected because: the operator ruled specs stay theirs.
+- Publish only after the operator merges the release PR. Rejected because:
+  the operator chose both automatic, with the reach configurable.
+
+**Chosen because:** the operator's rulings (2026-11-14).
+
+### D-78: Every automatic merge is recorded, reported and stoppable  (S)
+
+**Decision:** The helper leaves a record comment on the PR (the value, the
+head, the base, the method and each condition's evidence, as
+`merge-admitted.sh` does) and mission control reports the merge to the
+operator as a landing, one terse line. Setting the value to `off` stops
+further merges at once: the helper re-reads it as its first and last
+checks, so one in flight stops at its next check. A merge the helper
+refuses reports the failed condition, not a retry loop. One automatic merge
+runs per repository at a time (a lease the helper takes), and the next
+re-evaluates D-75 once the base has moved. A publish that fails after its
+merge landed is reported as a failure and not retried; mission control never
+reverts a merge, which stays the operator's.
+
+**Alternatives considered:**
+- Merge silently. Rejected because: a merge the operator did not see is the
+  failure their rules exist to prevent.
+
+**Chosen because:** an automatic merge is only as safe as its visibility
+and its off switch.
+
+### D-79: The doctrine and the guard name the operator's setting as the one agent merge authorization  (S)
+
+**Decision:** `human-gates` keeps its floor, "authorizing a PR merge is a
+human gate", and gains one named case: the operator's own standing
+configuration of `auto_merge` in the adopter layer is the human's act,
+bounded by D-74 to D-77; no other agent-side authorization exists. The
+policy guard's merge row and tests name the helper path (D-76), and every
+other spelling stays denied. The operator changes their own CLAUDE.md merge
+line once this amendment is signed off; the amendment does not edit it.
+
+**Alternatives considered:**
+- Leave the doctrine silent. Rejected because: the guard and the doctrine
+  would then disagree about who may authorize a merge.
+
+**Chosen because:** the invariant stays checkable: a merge happens only
+through an act the operator configured in a layer no agent writes.
 
 ## Cross-cutting concerns
 

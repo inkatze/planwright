@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1421,6 +1421,70 @@ fixed-string check.)*
   pass.
 - **Dependencies:** 76, 82
 - **Citations:** D-69 · REQ-P1.13, REQ-P1.14
+- **Estimated effort:** 1 day
+
+### Task 90 — The `auto_merge` setting and its solo-only reading
+
+- **Deliverables:** `auto_merge` in `config/defaults.yml` (default `off`), its row in `docs/options-reference.md`, and a resolver that reads it from the shipped and adopter layers only and returns `off` when the repository is not solo or its kind is unknown; tests in `tests/test-mc-config.sh`.
+- **Done when:** The REQ-R1.1 and REQ-R1.2 test-spec entries' fixtures pass, and the options-reference check passes.
+- **Dependencies:** none
+- **Citations:** D-74 · REQ-R1.1, REQ-R1.2
+- **Estimated effort:** 1 day
+
+### Task 91 — The open-operator-item predicate in the readiness check
+
+- **Deliverables:** a predicate in the readiness check that lists the items open for the operator on a PR (render-gate screenshot, pending decision, sign-off item, unresolved human review thread) from the operator-item list, an unreadable list counting as open; tests in `tests/test-mc-readiness.sh`.
+- **Done when:** The REQ-R1.3 test-spec entry's fixtures pass for the predicate.
+- **Dependencies:** 90
+- **Citations:** D-75 · REQ-R1.3, REQ-D1.14
+- **Estimated effort:** 1 day
+
+### Task 92 — The sanctioned auto-merge helper
+
+- **Deliverables:** `scripts/auto-merge.sh`: re-resolves `auto_merge`, evaluates D-75's conditions from primary sources, merges only the named head, never bypasses a check or window lock, refuses a spec PR, a PR carrying a sign-off item and a non-solo repository, and writes the record comment; tests in `tests/test-auto-merge.sh`.
+- **Done when:** The REQ-R1.3, REQ-R1.4, REQ-R1.5 and REQ-R1.7 test-spec entries' fixtures pass.
+- **Dependencies:** 90, 91
+- **Citations:** D-75, D-76, D-77, D-78 · REQ-R1.3, REQ-R1.4, REQ-R1.5, REQ-R1.7
+- **Estimated effort:** 2 days
+
+### Task 93 — The policy guard admits the helper and nothing else
+
+- **Deliverables:** the guard's merge row admits `scripts/auto-merge.sh` only to a worker whose resolved `auto_merge` is `merge` or `merge-and-publish` in a solo repository, and keeps every other merge spelling denied in every tier; fixtures in the guard's table under the `mission-control` and worker tiers.
+- **Done when:** The REQ-R1.5 guard fixtures pass: the helper is admitted under the two values and refused under `off`, in a non-solo repository and to mission control; every other spelling stays denied.
+- **Dependencies:** 92, 94
+- **Citations:** D-76 · REQ-R1.5, REQ-I1.1
+- **Estimated effort:** 1 day
+
+### Task 94 — The `human-gates` amendment naming the operator's setting (routed)
+
+- **Deliverables:** a `doctrine/human-gates.md` amendment, through its owner bundle: the authorizing-a-merge floor names the operator's own `auto_merge` configuration in the adopter layer as the one agent-side case, with the bounds D-74 to D-77; the doctrine README row and the guard-wiring checks follow.
+- **Done when:** The doctrine checks pass and the gate table, the guard and this bundle name the same single case.
+- **Dependencies:** none
+- **Citations:** D-79 · REQ-R1.1, REQ-I1.1
+- **Estimated effort:** 1 day
+
+### Task 95 — Release merge and publish under `merge-and-publish`
+
+- **Deliverables:** the release path in the helper and its worker: under `merge-and-publish` the release window check and checklist run, the release PR is merged and the publish script runs; under `merge` and `off` neither runs; tests in `tests/test-auto-merge.sh` and `tests/test-release-publish.sh`.
+- **Done when:** The REQ-R1.6 test-spec entry's fixtures pass.
+- **Dependencies:** 92, 93
+- **Citations:** D-77 · REQ-R1.6
+- **Estimated effort:** 2 days
+
+### Task 96 — Mission control launches the merge worker and reports it
+
+- **Deliverables:** a duty that, on a PR meeting D-75's conditions under an enabled value, launches one short-lived merge worker through the launcher, retires it on landing, reports the merge as a landing, and stops at once when the value turns `off`; tests in `tests/test-mc-duties.sh`.
+- **Done when:** The REQ-R1.5 and REQ-R1.7 test-spec entries' mission-control fixtures pass.
+- **Dependencies:** 92, 93
+- **Citations:** D-76, D-78 · REQ-R1.5, REQ-R1.7
+- **Estimated effort:** 2 days
+
+### Task 97 — Docs, skill and the planwright configuration
+
+- **Deliverables:** the skill, guide and `docs/` prose for `auto_merge` inside the instruction budget (D-21), and planwright's adopter configuration line setting `merge-and-publish`, with a fixture that it resolves so (it goes on only after the helper, guard and doctrine exist); the operator's own CLAUDE.md is not edited.
+- **Done when:** The options-reference, instruction-budget and doc checks pass, and a fixture shows planwright's configuration resolves `merge-and-publish`.
+- **Dependencies:** 94, 95, 96
+- **Citations:** D-74, D-79, D-21 · REQ-R1.1, REQ-R1.6
 - **Estimated effort:** 1 day
 
 ## Awaiting input

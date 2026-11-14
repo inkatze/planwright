@@ -2148,3 +2148,106 @@ Class: meaning
 Lens-pass: Amendment 15, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `2382840828be4b416a291dfebe9bc3d225d2bbc2` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 17 (2026-11-14, amendment: an opt-in automatic merge and release)
+
+Spec path `specs/mission-control`; walk started at `070737854b1c`; walkthrough
+date 2026-11-14. Mode: amendment on an Active bundle, operator-declared
+through mission control and walked by relay, one plain question per turn.
+Scope: REQ-R1.1 to R1.7, D-74 to D-79, Tasks 90 to 97 (the reserved
+numbering), the REQ-I1.1 exception, and amendment notes on the Out of scope
+merge line, REQ-I1.7 and D-26.
+
+#### Goal and glossary (Amendment 17)
+
+Restatement: a per-repository `auto_merge` setting, off by default and on
+for planwright, lets mission control merge a PR and publish its release
+when the readiness check passes on the current head and nothing is open
+for the operator. It rules out spec PRs, collaborative and work
+repositories, and bypassing a check or window lock. Terms: *auto_merge*
+(`off`, `merge`, `merge-and-publish`), *solo repository* (the ready-flip
+rule's ownership test), *open operator item* (an item mission control holds
+for the operator naming the PR, or an unresolved human review thread),
+*bypass case* (a merge possible only if the operator overrides a required
+check or window lock).
+
+Signed off: 2026-11-14
+
+#### Requirements and design walkthrough (Amendment 17)
+
+Operator answers, relayed and verbatim: spec PRs: "No, specs stay mine
+(Recommended)"; release reach: "1 but make it configurable too"; setting
+values: "All recommendations (Recommended)"; where it applies: "A: solo
+repos only (Recommended)"; who merges: "A: one worker per merge
+(Recommended)". D-74 to D-79 record them; D-26 and REQ-I1.7 gain notes
+that a condition never authorizes a merge and the setting is the one
+authorization. At sign-off the operator accepted four defaults: one merge per
+repository at a time, a failed publish reported and never retried, no
+revert by mission control, and planwright's own setting switched on in the
+last task.
+
+Signed off: 2026-11-14
+
+#### Verification approach (Amendment 17)
+
+Every REQ-R entry is `[test]` (config, helper, readiness predicate, guard
+fixtures, duty); REQ-I1.1 and REQ-I1.7 entries gain the exception and the
+single-authorization lines. Task 94 carries the doctrine check.
+
+Signed off: 2026-11-14
+
+#### Task graph (Amendment 17)
+
+90 first; 91 after 90; 92 after 90 and 91; 93 after 92 and 94; 94 routed
+and independent; 95 and 96 after 92 and 93; 97 last, after 94, 95 and 96,
+so the setting turns on only once the helper, guard and doctrine exist.
+
+Signed off: 2026-11-14
+
+#### Risk register (Amendment 17)
+
+1. **A wrong automatic merge.** Mitigation: re-check at the act, the head
+   named, the off switch, the record comment and landing report; revert stays
+   the operator's. Early signal: a landing the operator did not expect.
+2. **The setting turned on by a session.** Mitigation: read only from the
+   shipped and adopter layers.
+3. **A merge worker racing another.** Mitigation: one per repository,
+   re-evaluate after the base moves.
+4. **Publish failing after the merge.** Mitigation: reported as a failure,
+   not retried.
+5. **Decision-domain gap check** over the delta: security, concurrency, failure
+   modes, rollback and observability are decided in D-74 to D-78.
+
+Signed off: 2026-11-14
+
+#### Lens review (Amendment 17, delta-scoped)
+
+One read-only reviewer over the diff against the spec lens set; 14 findings,
+each applied: the superseded REQ-D1.9 citation (now REQ-D1.14), the D-26 and
+REQ-I1.7 conflict (notes added), task order (Task 93 after 94; the adopter
+configuration moved to Task 97), the test file name, the terms solo,
+operator item and bypass (defined), release reach (REQ-R1.6 meets REQ-R1.3),
+the failure, rollback and concurrency domains (REQ-R1.6, REQ-R1.7, D-78),
+the REQ-I1.1 bound and a doctrine line in its test entry, and dates.
+Altitude check: no pinned altitude claim in the delta. Ship-gate check:
+every change is a task, the doctrine and guard changes being Tasks 93 and 94.
+
+#### Pre-flip verification (Amendment 17)
+
+`markdownlint-cli2` over the bundle: 0 errors. `scripts/spec-validate.sh
+specs/mission-control` at pre-flight: 0 errors apart from the anchor, and 0
+warnings after the REQ-I1.7 test entry. The recorded claims are explicit
+lists, not derived figures.
+
+#### Sign-off record (Amendment 17)
+
+Signed off 2026-11-14 by the operator, relayed through mission control and
+the hub: "Sign off (Recommended)", with the four defaults as presented.
+Amendment on an Active bundle: no status flip; `Last reviewed:` 2026-11-14
+on all four spec files. The delta adds requirements and decisions and
+amends REQ-I1.1, so it is meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 17, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `6fd284f9aca1bb7c9953e8bb4345af6b24cc44b0` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
