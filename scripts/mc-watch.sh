@@ -87,7 +87,9 @@ scripts/lock-lib.sh), so two runners never interleave, and in order:
      catalog's armed set is disarmed;
   4. old events pruned (scripts/mc-event.sh prune), the snapshots
      (scripts/mc-snapshot.sh refresh), the due follow-ups raised as events
-     (scripts/mc-followups.sh raise), the wake relay and the tick
+     (scripts/mc-followups.sh raise), one context reading per
+     mission-control session recorded (scripts/mc-context.sh record,
+     lines prefixed `context`), the wake relay and the tick
      (scripts/mc-wake.sh relay, tick).
 One line per act: armed, rearmed, updated, running (with `unverified` when the
 process table could not be read for its pid, and nothing is re-armed),
@@ -412,6 +414,7 @@ EOF
   step snapshot /bin/bash "$script_dir/mc-snapshot.sh" refresh --program "$program" \
     --rung "$rung" ${now_args[@]+"${now_args[@]}"} || status=1
   step followup /bin/bash "$script_dir/mc-followups.sh" raise --program "$program" ${now_args[@]+"${now_args[@]}"} || status=1
+  step context /bin/bash "$script_dir/mc-context.sh" record --program "$program" ${now_args[@]+"${now_args[@]}"} || status=1
   step wake /bin/bash "$script_dir/mc-wake.sh" relay --program "$program" || status=1
   step wake /bin/bash "$script_dir/mc-wake.sh" tick --program "$program" ${now_args[@]+"${now_args[@]}"} || status=1
   return "$status"

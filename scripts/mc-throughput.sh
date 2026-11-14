@@ -861,17 +861,7 @@ curve() {
     # Every frame is judged alone and a malformed one yields nothing, since
     # jq's exit status reflects only its last input. A usage with no
     # cache_creation breakdown reports its cache writes as 5-minute ones.
-    cv_out=$(jq -R -r 'fromjson? | try (
-      if .type == "assistant" and (.message.usage | type) == "object" then
-        .message.usage as $u
-        | (if ($u.cache_creation | type) == "object"
-          then [($u.cache_creation.ephemeral_5m_input_tokens // 0), ($u.cache_creation.ephemeral_1h_input_tokens // 0)]
-          else [($u.cache_creation_input_tokens // 0), 0] end) as $w
-        | ["m", (.message.id // "-"), ($u.input_tokens // 0), ($u.cache_read_input_tokens // 0), $w[0], $w[1],
-          ($u.output_tokens // 0)] | @tsv
-      elif .type == "result" and (.modelUsage | type) == "object" then
-        ["w", ([.modelUsage[] | .contextWindow // 0] | max // 0)] | @tsv
-      else empty end) catch empty' "$cv_e" 2>/dev/null) || {
+    cv_out=$(/bin/bash "$script_dir/mc-transcript-usage.sh" "$cv_e") || {
       set -f
       unknown cost "cannot read the capture of ${cv_d##*/}"
       return 0

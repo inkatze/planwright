@@ -63,6 +63,11 @@ export type PanelDigest = {
   // The holder record's kind: only a registry holder (a session mission
   // control launched) hands over; null with no record or an unreadable one.
   holder: 'registry' | 'attended' | null
+  // Each mission-control session's context reading as the runner recorded
+  // it (scripts/mc-context.sh): a percent, or null where it reads unknown,
+  // with the source it came from (host or transcript, `-` when unknown).
+  // Absent from a digest a reload carried over from before it was read.
+  contexts?: { session: string; percent: number | null; source: string }[]
   unreadable: string[]
   // Empty when every health check is within its bound; absent from a
   // digest a reload carried over from before the checks were read.

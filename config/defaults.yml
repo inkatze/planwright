@@ -1136,6 +1136,9 @@ mission_control_panel_mascot: animated
 mission_control_handover_context: 70
 mission_control_handover_wakes: 150
 mission_control_handover_compactions: 2
+# The context window, in tokens, a session's reading is taken against when
+# neither its transcript nor its context/<name> file records one.
+mission_control_context_window: 200000
 # The panel's health line (scripts/mc-panel.sh health): the bounds past which
 # it flags what the duties should have caught. A live worker registered
 # longer than the worker age; one still live this long after the attention

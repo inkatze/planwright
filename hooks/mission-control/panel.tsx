@@ -95,6 +95,12 @@ export function readouts(view: PanelView): Readout[] {
     const isDue = view.handover !== null || (handoverAt !== undefined && view.contextPercent >= handoverAt)
     out.push(line(`Context ${view.contextPercent}%${note} · compacts at ${CONTEXT_CEILING_PCT}%`, isDue ? 'ACT' : 'OK'))
   }
+  // Each session's reading as the runner recorded it, with where it came from.
+  for (const c of d?.contexts ?? []) {
+    if (c.session === 'attended' && view.contextPercent !== null) continue
+    const who = c.session.length > 12 ? `…${c.session.slice(-6)}` : c.session
+    out.push(line(c.percent === null ? `Context ${who} unknown` : `Context ${who} ${c.percent}% (${c.source})`, c.percent === null ? 'UNKNOWN' : 'OK'))
+  }
 
   const host = d?.host
   const cores = host?.cores ?? null

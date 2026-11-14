@@ -310,6 +310,17 @@ record "a symlinked attention store is unreadable" unreadable "attention store"
 expect_out "and the count, counting idle sessions it cannot tell apart, says it may be fewer" "up to 9 in flight"
 mc_run mc-panel.sh text --program alpha
 expect_out "the text panel says the count may be fewer" "in flight: up to 9 (the attention store cannot be read)"
+# A session's recorded context reading and its source, and unknown for one
+# with no transcript (scripts/mc-context.sh record writes them).
+mkdir -p "$runtime/readings"
+printf 'format\t1\nwritten\t1000\npercent\t41\nsource\ttranscript\n' >"$runtime/readings/mc-alpha-mission-control-0000000001"
+printf 'format\t1\nwritten\t1000\npercent\tunknown\nsource\t-\n' >"$runtime/readings/mc-alpha-mission-control-0000000002"
+mc_run mc-panel.sh text --program alpha --now 1030
+expect_out "the text panel prints the reading and its source" "context: mc-alpha-mission-control-0000000001 41% (transcript)"
+expect_out "and unknown for a session with no transcript" "context: mc-alpha-mission-control-0000000002 unknown"
+mc_run mc-panel.sh digest --program alpha --now 1030
+expect_out "the digest carries the reading for the mod" "context${tab}mc-alpha-mission-control-0000000001${tab}41${tab}transcript"
+rm -rf "$runtime/readings"
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_out "with the tmux server not answering as well, the count is unknown" "alpha: ? in flight"
