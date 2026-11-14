@@ -1939,6 +1939,9 @@ matrix_case "matrix: a whole-strategy expression on the smoke job fails closed" 
 matrix_case "matrix: a flow mapping under strategy on the smoke job fails closed" 1 "strategy.matrix" \
   "M_ALP_JOB=    strategy:
       { matrix: { shard: [1, 2] } }"
+matrix_case "matrix: a strategy key with a trailing comment and no matrix passes" 0 "holds the platform matrix" \
+  "M_ALP_JOB=    strategy:  # note
+      fail-fast: false"
 matrix_case "matrix: a strategy without a matrix on the smoke job passes" 0 "holds the platform matrix" \
   "M_ALP_JOB=    strategy:
       fail-fast: false"
