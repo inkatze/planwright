@@ -95,7 +95,7 @@ invisible to review and die with the plugin's data.
 ### The state-source map
 
 The **state-source map** declares, per fact class (work items, code state,
-decisions, deadlines, designs), the authoritative source and its mode:
+decisions, deadlines, designs, `platform`), the authoritative source and its mode:
 
 - **`record`:** a store planwright writes, directly or through a session
   mission control dispatches (the specs, by default);
@@ -105,6 +105,10 @@ decisions, deadlines, designs), the authoritative source and its mode:
 - **`cited`:** a source with no adapter: mission control holds only its
   links and what the operator said about it, and never claims to know its
   state.
+
+The `platform` class (the releases of the host tools and platforms the
+program builds on) admits only `snapshot` and `cited`, and is `cited` unless
+the map says otherwise; the reader refuses `record` for it.
 
 The map is the operator's; a mode is never inferred. Wherever a report draws
 on a source it names the mode and the age, and where a fact class is only

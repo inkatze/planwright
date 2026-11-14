@@ -146,7 +146,8 @@ expect_eq "REQ-H1.4: a program without a map resolves to the default map" "work-
 code-state${tab}forge${tab}snapshot
 decisions${tab}specs${tab}record
 deadlines${tab}specs${tab}record
-designs${tab}-${tab}cited"
+designs${tab}-${tab}cited
+platform${tab}-${tab}cited"
 
 printf 'program_alpha_sources: {work-items: jira:cited, code-state: forge:snapshot}\n' >>"$tracked"
 mc_run mc-program.sh get alpha sources
@@ -154,7 +155,34 @@ expect_eq "REQ-H1.4: a class the map leaves out resolves to cited" "work-items${
 code-state${tab}forge${tab}snapshot
 decisions${tab}-${tab}cited
 deadlines${tab}-${tab}cited
-designs${tab}-${tab}cited"
+designs${tab}-${tab}cited
+platform${tab}-${tab}cited"
+
+# REQ-H1.5: the platform class admits snapshot and cited, never record.
+alpha_block
+printf 'program_alpha_sources: {platform: releases:snapshot}\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "REQ-H1.5: platform mapped to a snapshot source validates" 0
+mc_run mc-program.sh get alpha sources
+expect_out "REQ-H1.5: platform reads as a snapshot source" "platform${tab}releases${tab}snapshot"
+
+alpha_block
+printf 'program_alpha_sources: {platform: releases:cited}\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "REQ-H1.5: platform written cited validates" 0
+
+alpha_block
+printf 'program_alpha_sources: {platform: releases:record}\n' >>"$tracked"
+mc_run mc-program.sh validate alpha
+expect_rc "REQ-H1.5: platform mapped to record fails" 1
+expect_err "REQ-H1.5: the refused class is named" "platform"
+mc_run mc-program.sh get alpha sources
+expect_rc "REQ-H1.5: platform mapped to record refuses the read" 1
+
+alpha_block
+printf 'program_alpha_sources: {work-items: specs:record}\n' >>"$tracked"
+mc_run mc-program.sh get alpha sources
+expect_out "REQ-H1.5: a map leaving platform out resolves it cited" "platform${tab}-${tab}cited"
 
 alpha_block
 printf 'program_alpha_sources: {work-items: specs:record, designs: -:cited}\n' >>"$tracked"
@@ -466,6 +494,20 @@ mc_run mc-program.sh get alpha nonsense
 expect_rc "an unknown field is a usage error" 2
 mc_run mc-program.sh bogus
 expect_rc "an unknown verb is a usage error" 2
+
+# REQ-H1.5: the platform class is named where the map is documented.
+for f in docs/options-reference.md docs/mission-control.md doctrine/mission-control.md skills/mission-control/SKILL.md; do
+  if grep -qF "\`platform\`" "$repo_root/$f"; then
+    ok "REQ-H1.5: $f names the platform class"
+  else
+    fail "REQ-H1.5: $f does not name the platform class"
+  fi
+done
+if grep -F 'mission-control.md](mission-control.md)' "$repo_root/doctrine/README.md" | grep -qF 'REQ-H1.5'; then
+  ok "REQ-H1.5: the doctrine README row cites REQ-H1.5"
+else
+  fail "REQ-H1.5: the doctrine README row does not cite REQ-H1.5"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-program: $failures failure(s)" >&2
