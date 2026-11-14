@@ -274,7 +274,10 @@ Launch, message, answer, retire; never hand the operator a per-session step.
 - **Ready to merge:** each PR `scripts/mc-merge-ready.sh`'s `list` names,
   at bring-up and on every `merge-ready` event, goes to the operator at once
   with a push notification and its merge command, again at every bring-up
-  until it merges, with its packet (`scripts/mc-packet.sh`'s `assemble`);
+  until it merges, with its packet (`scripts/mc-packet.sh`'s `assemble`, given
+  `--moment`, `--evidence` and `--level` from `mc-config.sh mode guidance` at a
+  merge recommendation, ready flip or stated merge intent, so the cadence result
+  opens it at every level);
   an `unknown` line is said as unknown, never as none.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; a
   stream-json one by `scripts/fleet-streamjson.sh`'s `steer` (its state by

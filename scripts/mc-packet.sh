@@ -39,6 +39,7 @@ Usage:
   mc-packet.sh assemble --program <p> --unit <unit> --readiness <file>
                         [--focus <file>] [--checkout <dir> --head <sha>]
                         [--risks <file>] [--order <file>]
+                        [--moment <m> --evidence <file> [--level <l>]]
       the packet, its sections always in this order:
         Readiness             the walk (scripts/mc-readiness.sh walk), whole
         What to look at       --focus's lines
@@ -54,6 +55,14 @@ Usage:
                               it
         Risks                 --risks' lines
         Order                 --order's lines (scripts/mc-radar.sh order)
+      with --moment (merge-recommendation, ready-flip or merge-intent) and
+      --evidence (the readiness evidence file) the Readiness section opens
+      with one line, the cadence audit's result: the points covered and
+      the gaps, or that it could not run and why. --level (guided, standard
+      or expert; guided when absent) adds, only when a gap is named, a lesson
+      and a recommendation (guided) or the recommendation (standard), from
+      config/mc-cadence-lessons.tsv (--lessons names another file); no level
+      changes the walk or marks an option
       a section with no input reads `- none`; a readiness file that does
       not open with ready or not-ready is refused, so no packet goes out
       without its readiness result
@@ -86,9 +95,13 @@ focus=""
 checkout=""
 risks=""
 order=""
+moment=""
+evidence=""
+level=""
+lessons=""
 while [ $# -gt 0 ]; do
   case $1 in
-    --program | --unit | --head | --readiness | --focus | --checkout | --risks | --order)
+    --program | --unit | --head | --readiness | --focus | --checkout | --risks | --order | --moment | --evidence | --level | --lessons)
       [ $# -ge 2 ] || usage
       mc_valid_text "$2" || mc_usage_fail "$1 takes text with no control byte"
       case $1 in
@@ -100,6 +113,10 @@ while [ $# -gt 0 ]; do
         --checkout) checkout=$2 ;;
         --risks) risks=$2 ;;
         --order) order=$2 ;;
+        --moment) moment=$2 ;;
+        --evidence) evidence=$2 ;;
+        --level) level=$2 ;;
+        --lessons) lessons=$2 ;;
       esac
       shift 2
       ;;
@@ -123,6 +140,34 @@ section() { # section <title> <file|"">
   else
     printf -- '- none\n'
   fi
+}
+
+# cadence_lines: the cadence audit's one line from --evidence's cadence rows,
+# then, only when a gap was named, the lesson and recommendation --level
+# picks from the lessons data for --moment. The level shapes nothing else.
+cadence_lines() {
+  cl_rc=0
+  awk -F '\t' '
+    $1 == "cadence" && $2 == "audited" { audited = 1 }
+    $1 == "cadence" && $2 == "unaudited" { why = $3 }
+    $1 == "cadence" && $2 == "gap" {
+      gaps = gaps (gaps == "" ? "" : "; ") $3 " (" ($4 == "incomplete" ? "no completion record" : $4) ")"
+      isgap[$3] = 1
+    }
+    END {
+      if (why != "") { print "Cadence: not audited: " why; exit }
+      if (!audited) { print "Cadence: not audited: no audit result was collected"; exit }
+      n = split("pre-implementation pre-ci convergence pre-pr post-pr", pts, " ")
+      for (i = 1; i <= n; i++) if (!isgap[pts[i]]) cov = cov (cov == "" ? "" : ", ") pts[i]
+      if (gaps == "") print "Cadence: all covered (" cov ")"
+      else { print "Cadence: covered " (cov == "" ? "none" : cov) "; gap " gaps; exit 3 }
+    }' "$evidence" || cl_rc=$?
+  [ "$cl_rc" -eq 3 ] || return 0
+  case $level in standard) kinds="recommend" ;; guided) kinds="lesson recommend" ;; *) kinds="" ;; esac
+  for k in $kinds; do
+    text=$(M=$moment L=$level K=$k awk -F '\t' '$1 == ENVIRON["M"] && $2 == ENVIRON["L"] && $3 == ENVIRON["K"] { print $4; exit }' "$lessons")
+    [ -z "$text" ] || printf '%s %s\n' "$([ "$k" = lesson ] && echo 'Why it matters:' || echo 'Recommend:')" "$text"
+  done
 }
 
 case $verb in
@@ -178,8 +223,21 @@ case $verb in
     else
       : >"$changed"
     fi
+    cadence=$scratch/cadence
+    : >"$cadence"
+    if [ -n "$moment" ]; then
+      case $moment in merge-recommendation | ready-flip | merge-intent) ;; *) mc_usage_fail "--moment is merge-recommendation, ready-flip or merge-intent" ;; esac
+      level=${level:-guided}
+      case $level in guided | standard | expert) ;; *) mc_usage_fail "--level is guided, standard or expert" ;; esac
+      [ -n "$evidence" ] && [ -r "$evidence" ] || mc_usage_fail "--moment takes --evidence, a readable file"
+      lessons=${lessons:-$script_dir/../config/mc-cadence-lessons.tsv}
+      [ -r "$lessons" ] || mc_fail "the lesson data is unreadable: $(sanitize_printable "$lessons")"
+      cadence_lines >"$cadence"
+    fi
     printf 'Packet: %s\n' "$unit" | mc_clean_text
-    section Readiness "$readiness"
+    printf '\nReadiness\n'
+    [ ! -s "$cadence" ] || mc_clean_text <"$cadence"
+    mc_clean_text <"$readiness"
     section "What to look at" "$focus"
     section "Changed since you last looked" "$changed"
     section Risks "$risks"
