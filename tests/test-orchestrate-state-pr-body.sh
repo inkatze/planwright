@@ -108,6 +108,9 @@ cat >"$spec/tasks.md" <<'EOF'
 
 ### Task 11 — a fork's merged PR body names it
 - **Dependencies:** none
+
+### Task 12 — a control byte before the key names it
+- **Dependencies:** none
 EOF
 gitc "$repo" add -A
 gitc "$repo" commit -q -m "base"
@@ -128,6 +131,7 @@ rows="$tmp/rows.tsv"
   printf '49\tCLOSED\tfalse\tmain\tPlanwright-Task: demo/10\n'
   printf '50\tMERGED\ttrue\tmain\tPlanwright-Task: demo/11\n'
   printf '51\tMERGED\tfalse\tmain\tAdd the line:\\nPlanwright-Task: <spec>/<id>\n'
+  printf '52\tMERGED\tfalse\tmain\t\013Planwright-Task: demo/12\\nPlanwright-Task: demo/7\033[31m\n'
 } >"$rows"
 
 make_stub "$tmp/bin-ok" "$rows"
@@ -144,12 +148,15 @@ assert_task "$out" 8 completed pr-body "a lowercased key matches, as in commits"
 assert_task "$out" 9 ready "" "an open PR's body completes nothing"
 assert_task "$out" 10 ready "" "a closed, unmerged PR's body completes nothing"
 assert_task "$out" 11 ready "" "a fork's merged PR body completes nothing"
+assert_task "$out" 12 ready "" "a control byte before the key is not column 0"
 printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7;rm -rf /" \
   || fail "a malformed body value is not surfaced as refused"
 printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7 forged" \
   || fail "a tab in a body value reached the output as a field break"
+printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7[31m" \
+  || fail "a control byte in a body value reached the output"
 refusals=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "refused"' | awk 'END { print NR }')
-[ "$refusals" = 2 ] || fail "another spec's or a placeholder's line was refused ($refusals refusals)"
+[ "$refusals" = 3 ] || fail "another spec's or a placeholder's line was refused ($refusals refusals)"
 echo "ok: a merged PR's body trailer completes its task, anchored and grammar-checked"
 
 out2=$(PATH="$tmp/bin-ok:$PATH" "$STATE" "$spec") || fail "second run exited non-zero"
@@ -163,16 +170,33 @@ printf '%s\n' "$fout" | awk -F"$TAB" '$1=="degraded" && $2=="gh" {f=1} END{exit 
 assert_task "$fout" 1 ready "" "search failure: a body-only task is never completed"
 echo "ok: a failed body search degrades and completes nothing"
 
-full="$tmp/full.tsv"
-{
+# page <rows>: the fixture padded with undeclaring PRs to <rows> rows.
+page() {
   cat "$rows"
-  awk 'BEGIN { for (i = 1000; i < 2000; i++) printf "%d\tMERGED\tfalse\tmain\tno declaration\n", i }'
-} >"$full"
-make_stub "$tmp/bin-full" "$full"
+  awk -v n="$1" -v have="$(awk 'END { print NR }' "$rows")" \
+    'BEGIN { for (i = have; i < n; i++) printf "%d\tMERGED\tfalse\tmain\tno declaration\n", 1000 + i }'
+}
+page 999 >"$tmp/under.tsv"
+make_stub "$tmp/bin-under" "$tmp/under.tsv"
+uout=$(PATH="$tmp/bin-under:$PATH" "$STATE" "$spec") || fail "a page short of full: engine exited non-zero"
+assert_task "$uout" 1 completed pr-body "a page short of full still counts"
+page 1000 >"$tmp/full.tsv"
+make_stub "$tmp/bin-full" "$tmp/full.tsv"
 pout=$(PATH="$tmp/bin-full:$PATH" "$STATE" "$spec") || fail "full page: engine exited non-zero"
 printf '%s\n' "$pout" | awk -F"$TAB" '$1=="degraded" && $2=="gh" {f=1} END{exit !f}' \
   || fail "full page: no degraded record"
 assert_task "$pout" 1 ready "" "full page: a body-only task is never completed"
 echo "ok: a search that fills its page degrades rather than miss older declarations"
+
+# A base named like a remote-tracking ref is the local branch it names.
+gitc "$repo" branch release/1.0
+gitc "$repo" remote add release https://example.invalid/release.git
+gitc "$repo" update-ref refs/remotes/release/1.0 HEAD
+printf '60\tMERGED\tfalse\trelease/1.0\tPlanwright-Task: demo/3\n' >"$tmp/release.tsv"
+make_stub "$tmp/bin-release" "$tmp/release.tsv"
+rout=$(PATH="$tmp/bin-release:$PATH" PLANWRIGHT_BASE_REF=release/1.0 "$STATE" "$spec") \
+  || fail "release base: engine exited non-zero"
+assert_task "$rout" 3 completed pr-body "a PR into a local branch named like a remote's counts"
+echo "ok: a base branch keeps its whole name beside a like-named remote"
 
 echo "PASS: test-orchestrate-state-pr-body.sh"

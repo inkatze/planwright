@@ -531,9 +531,9 @@ EOF
 
 # base_branch_name — the branch name a PR targeting base carries as its
 # baseRefName: base without a refs/ or remote prefix, the checked-out branch
-# for HEAD, empty (no PR matches) for a detached HEAD. Only a ref that is
-# remote-tracking loses its remote, so a branch `release/1.0` stays whole
-# beside a remote named `release`.
+# for HEAD, empty (no PR matches) for a detached HEAD. A name resolves as git
+# resolves it, a local branch before a remote-tracking ref, so a branch
+# `release/1.0` stays whole beside a remote named `release`.
 base_branch_name() {
   bb=$base
   case "$bb" in
@@ -543,10 +543,13 @@ base_branch_name() {
   esac
   case "$base" in
     refs/remotes/*) ;;
-    *) git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$bb" || {
-      printf '%s' "$bb"
-      return 0
-    } ;;
+    *)
+      if [ -z "$bb" ] || git -C "$repo_root" show-ref --verify --quiet "refs/heads/$bb" \
+        || ! git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$bb"; then
+        printf '%s' "$bb"
+        return 0
+      fi
+      ;;
   esac
   for bb_remote in $(git -C "$repo_root" remote 2>/dev/null); do
     case "$bb" in
@@ -573,7 +576,6 @@ pr_body_values() {
       gsub(/\\r/, "", l)
       gsub(/\\t/, " ", l)
       while ((p = index(l, "\001")) > 0) l = substr(l, 1, p - 1) "\\" substr(l, p + 1)
-      gsub(/[[:cntrl:]]/, "", l)
       return l
     }
     b != "" && $1 ~ /^[0-9]+$/ && $2 == "MERGED" && $3 == "false" && $4 == b {
@@ -587,6 +589,7 @@ pr_body_values() {
         if (l ~ /^ *(```|~~~)/) { fence = !fence; continue }
         if (fence || tolower(l) !~ /^planwright-task:/) continue
         sub(/^[^:]*:[[:space:]]*/, "", l)
+        gsub(/[[:cntrl:]]/, "", l)
         print l
       }
     }'
