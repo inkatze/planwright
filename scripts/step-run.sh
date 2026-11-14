@@ -978,6 +978,8 @@ cmd_audit() {
     function flush(   ok) {
       if (!inrec) return
       inrec = 0
+      nk = split("run point type step kind start end head end-head outcome refire-of", KEYS, " ")
+      for (ki = 1; ki <= nk; ki++) if (!(KEYS[ki] in F)) F[KEYS[ki]] = ""
       if (bad || F["run"] != R || F["point"] != K) return
       if (T == "done" && F["type"] == "completion") {
         if (hex(F["head"])) { done[R, K] = F["head"]; if (!(R in hasrun)) { hasrun[R] = 1; runs[++nruns] = R } }
@@ -991,7 +993,7 @@ cmd_audit() {
       # A model-session step cannot run in zero seconds without moving the head.
       if ((o == "passed" || o == "applied") && (F["kind"] == "skill" || F["kind"] == "prompt") \
           && length(F["start"]) > 0 && F["start"] == F["end"] && (length(F["end-head"]) == 0 || F["end-head"] == F["head"])) {
-        ok = 0; o = "!unrun"
+        ok = 0; o = "0unrun"
       }
       if (!ok && o == "ok") o = "malformed"
       st[R, K, F["step"]] = ok ? "ok" : o
@@ -1006,7 +1008,7 @@ cmd_audit() {
         if (r != "") s = ((r, p, id) in st) ? st[r, p, id] : ""
         else s = ever[p, id] ? "ok" : (((p, id) in seen_any) ? lastbad[p, id] : "")
         if (s == "ok") continue
-        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : (s == "!unrun" ? "unrun:" id : "failed:" id ":" s))
+        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : (s == "0unrun" ? "unrun:" id : "failed:" id ":" s))
       }
       return out == "" ? "-" : out
     }
