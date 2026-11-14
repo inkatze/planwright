@@ -73,6 +73,8 @@
 #                    the terminator is what says the writer finished, so a row
 #                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
+#   supervisor.start / worker.start  when each recorded process began, so a
+#                    pid the host reissued to another process reads dead
 #   scope            the dispatch scope, when the launch supplied one
 #   cwd              the directory a fresh launch started the worker in,
 #                    where `relaunch` resumes it
@@ -634,11 +636,38 @@ pid_live() {
 worker_alive() {
   for wa_f in supervisor.pid worker.pid; do
     wa_p=$(cat "$1/$wa_f" 2>/dev/null) || wa_p=''
-    if valid_posnum "${wa_p:-}" && pid_live "$wa_p"; then
+    if valid_posnum "${wa_p:-}" && pidfile_live "$1" "$wa_f"; then
       return 0
     fi
   done
   return 1
+}
+
+# record_start <dir> <pidfile-name> <pid> — record when the process began,
+# beside its pid file (supervisor.pid -> supervisor.start). A pid names a
+# process only until the host reissues it; the start tells the two apart. No
+# readable start records nothing, and the pid is then read as it always was.
+record_start() {
+  rs_tok=$(/bin/sh "$FDE" start "$3" 2>/dev/null) || rs_tok=''
+  [ -n "$rs_tok" ] || return 0
+  write_pidfile "$1/${2%.pid}.start" "$rs_tok" || return 0
+}
+
+# pid_reused <dir> <pidfile-name> <pid> — true only when the start recorded
+# beside the pid file differs from the start of the process now holding that
+# pid, which makes the pid a stranger's: the recorded process is gone. No
+# record, or a start that cannot be read now, is not reuse.
+pid_reused() {
+  pr_rec=$(head -n 1 "$1/${2%.pid}.start" 2>/dev/null) || pr_rec=''
+  [ -n "$pr_rec" ] || return 1
+  [ "$(/bin/sh "$FDE" process "$3" "$pr_rec" 2>/dev/null)" = dead ]
+}
+
+# pidfile_live <dir> <pidfile-name> — the pid the file records names a live
+# process and not a stranger that reused its number.
+pidfile_live() {
+  pl_p=$(cat "$1/$2" 2>/dev/null) || pl_p=''
+  valid_posnum "${pl_p:-}" && pid_live "$pl_p" && ! pid_reused "$1" "$2" "$pl_p"
 }
 
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
@@ -913,8 +942,8 @@ frame_send() {
   frame_check "$2" || return 2
   fs_sup=$(cat "$1/supervisor.pid" 2>/dev/null) || fs_sup=''
   fs_wrk=$(cat "$1/worker.pid" 2>/dev/null) || fs_wrk=''
-  valid_posnum "$fs_sup" && pid_live "$fs_sup" || return 3
-  valid_posnum "$fs_wrk" && pid_live "$fs_wrk" || return 3
+  valid_posnum "$fs_sup" && pidfile_live "$1" supervisor.pid || return 3
+  valid_posnum "$fs_wrk" && pidfile_live "$1" worker.pid || return 3
   [ -p "$1/in.fifo" ] || return 3
   cat "$2" >>"$1/in.fifo" 2>/dev/null || return 1
 }
@@ -1401,9 +1430,13 @@ supervise() {
   shift 3
   rm -f "$sv_dir/in.fifo" "$sv_dir/out.fifo"
   mkfifo "$sv_dir/in.fifo" "$sv_dir/out.fifo" || return 2
+  # The start is recorded first: a reader that finds the pid file finds, or
+  # never finds, a start that was already there.
+  record_start "$sv_dir" supervisor.pid "$$"
   write_pidfile "$sv_dir/supervisor.pid" "$$" || return 2
   "$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
   sv_pid=$!
+  record_start "$sv_dir" worker.pid "$sv_pid"
   if ! write_pidfile "$sv_dir/worker.pid" "$sv_pid"; then
     # Fatal, like its sibling one line above, and for a sharper reason than
     # symmetry. `recover` decides a worker is orphaned by reading these pid
@@ -1487,7 +1520,7 @@ supervise() {
   exec 3>&-
   wait "$sv_pid"
   sv_ec=$?
-  rm -f "$sv_dir/worker.pid" "$sv_dir/supervisor.pid"
+  rm -f "$sv_dir/worker.pid" "$sv_dir/supervisor.pid" "$sv_dir/worker.start" "$sv_dir/supervisor.start"
   if [ ! -f "$sv_dir/result" ]; then
     # The read loop ended with no `result` event: the worker exited without
     # completing the protocol. This is an END record, not a completion —
@@ -1827,7 +1860,7 @@ stop_match() {
 # which is why the trailing `|| :` on that line does not make it non-fatal.
 stop_process_closed() {
   for spc_f in $stop_pidfiles; do
-    rm -rf -- "${1:?}/$spc_f" 2>/dev/null || :
+    rm -rf -- "${1:?}/$spc_f" "${1:?}/${spc_f%.pid}.start" 2>/dev/null || :
   done
 }
 
@@ -2487,7 +2520,7 @@ cmd_launch() {
   # is the "did the supervisor start" signal. A launch that never produces it
   # is surfaced as a failure with a non-zero exit, never an optimistic
   # `launched` over a dead supervisor.
-  rm -f "$dir/supervisor.pid" "$dir/worker.pid" "$dir/result"
+  rm -f "$dir/supervisor.pid" "$dir/worker.pid" "$dir/supervisor.start" "$dir/worker.start" "$dir/result"
   # The drop runs before the `&`, never in an AND-list with it: bash would
   # background the whole list in a subshell that holds the caller's output
   # open for as long as the supervisor runs.
@@ -2963,7 +2996,7 @@ cmd_recover() {
   # supervisor is not orphaned; resuming over it would fork the session.
   for pidfile in worker.pid supervisor.pid; do
     pid=$(cat "$dir/$pidfile" 2>/dev/null) || pid=''
-    if valid_posnum "${pid:-}" && pid_live "$pid"; then
+    if valid_posnum "${pid:-}" && pidfile_live "$dir" "$pidfile"; then
       printf '%s\n' "$me: $pidfile ($pid) still alive for $worker - not orphaned, recovery refused" >&2
       exit 3
     fi
@@ -3612,7 +3645,8 @@ worker_dead() {
     wd_pid=$(cat "$1/$wd_f" 2>/dev/null) || wd_pid=''
     valid_posnum "${wd_pid:-}" || return 1
     wd_checked=$((wd_checked + 1))
-    /bin/sh "$FDE" process "$wd_pid" >/dev/null 2>&1 || return 1
+    wd_start=$(head -n 1 "$1/${wd_f%.pid}.start" 2>/dev/null) || wd_start=''
+    /bin/sh "$FDE" process "$wd_pid" ${wd_start:+"$wd_start"} >/dev/null 2>&1 || return 1
   done
   [ "$wd_checked" -gt 0 ]
 }
@@ -3675,8 +3709,8 @@ cmd_status() {
   sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
   wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
   st_live=0
-  if valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" \
-    && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
+  if valid_posnum "${sup_pid:-}" && pidfile_live "$dir" supervisor.pid \
+    && valid_posnum "${wrk_pid:-}" && pidfile_live "$dir" worker.pid; then
     st_live=1
   fi
   # ONE read, with every field parsed from that single snapshot. The writer

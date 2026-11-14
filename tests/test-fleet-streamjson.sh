@@ -607,11 +607,15 @@ rm -f "$wdir7/recover.lock"
 sleep 60 &
 alive_pid=$!
 printf '%s\n' "$alive_pid" >"$wdir7/worker.pid"
+# The crashed worker's start record is for another process: the planted live
+# one gets its own, or its pid would read as a reissued number.
+/bin/sh "$here/../scripts/fleet-death-evidence.sh" start "$alive_pid" >"$wdir7/worker.start" \
+  || fail "c7: the planted worker's start must be readable"
 senv "$home" "$rec" -- recover sjw7 --foreground >/dev/null 2>&1
 [ $? -eq 3 ] || fail "c7: recovery over a live worker must be refused (exit 3)"
 kill -9 "$alive_pid" 2>/dev/null
 wait "$alive_pid" 2>/dev/null
-rm -f "$wdir7/worker.pid"
+rm -f "$wdir7/worker.pid" "$wdir7/worker.start"
 # The real recovery: the relaunch argv carries --resume <sid>; the re-issued
 # duplicate request dedups across the boundary; the alarm re-arms.
 ev_resume="$tmp/ev7r"
