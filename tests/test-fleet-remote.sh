@@ -196,7 +196,7 @@ for sh in /bin/sh bash zsh fish; do
   OUT=$(printf 'brief body\n' | /bin/sh "$script" --host mac launch --program p --kind worker --scope 's:a b' 2>"$tmp/err")
   f=$(printf '%s\n' "$OUT" | sed -n 's/^file://p')
   assert_eq "[$sh] launch sends stdin as the brief" \
-    "$(printf 'mission-control-launch\n[launch]\n[--program]\n[p]\n[--kind]\n[worker]\n[--scope]\n[s:a b]\n[--brief]\n[%s]\nfile:%s\nbrief body' "$f" "$f")" "$OUT"
+    "$(printf 'mission-control-launch\n[launch]\n[--program]\n[p]\n[--kind]\n[worker]\n[--scope]\n[s:a b]\n[--repo]\n[%s]\n[--brief]\n[%s]\nfile:%s\nbrief body' "$rhome" "$f" "$f")" "$OUT"
 
   OUT=$(/bin/sh "$script" --host mac steer w1 </dev/null 2>"$tmp/err")
   CODE=$?

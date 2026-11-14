@@ -99,13 +99,15 @@ for a in "$@"; do
 done
 printf 'mise-trust:%s\n' "${MISE_TRUSTED_CONFIG_PATHS-}"
 printf 'project-dir:%s\n' "${CLAUDE_PROJECT_DIR-unset}"
+printf 'mc-token:%s\n' "${PLANWRIGHT_MC_TOKEN-unset}"
 EOF
 printf '#!/bin/sh\necho fleet-streamjson\n' >"$rroot/scripts/fleet-streamjson.sh"
 
 rcache="$rhome/.claude/plugins/cache/pw-local/planwright/1.0.0/scripts"
 mkdir -p "$rcache"
 # shellcheck disable=SC2016 # the $1 belongs to the fake
-printf '#!/bin/sh\n[ "$1" = --current ] && echo %s\n' "$rroot" >"$rcache/resolve-installed-roots.sh"
+printf '#!/bin/sh\n[ "$1" = --current ] && cat %s\n' "$tmp/root-pointer" >"$rcache/resolve-installed-roots.sh"
+printf '%s\n' "$rroot" >"$tmp/root-pointer"
 : >"$rhome/.config/planwright/remote-env.sh"
 
 # The folder marketplace on the remote: a checkout of a bare upstream that
@@ -137,15 +139,16 @@ printf '[{"name":"pw-local","source":"directory","path":"%s","installLocation":"
 # The stub claude: a plugin update installs the marketplace's version when it
 # differs from the recorded one, and reports up to date otherwise. The remote
 # runs under env -i, so its settings sit beside it: the call log, the
-# marketplace list, and optional failures (list_fail, update_out).
+# marketplace list, the root pointer, and optional failures and moves
+# (list_fail, update_out, move_root).
 claude_log="$tmp/claude.log"
 stub_conf() {
-  printf 'claude_log=%s\nmkt=%s\n%s\n' "$claude_log" "$mkt" "${1-}" >"$rbin/claude.conf"
+  printf 'claude_log=%s\nmkt=%s\nroot_pointer=%s\n%s\n' "$claude_log" "$mkt" "$tmp/root-pointer" "${1-}" >"$rbin/claude.conf"
 }
 stub_conf
 cat >"$rbin/claude" <<'EOF'
 #!/bin/sh
-list_fail='' update_out=''
+list_fail='' update_out='' move_root=''
 . "$(dirname "$0")/claude.conf"
 printf '%s\n' "$*" >>"$claude_log"
 rec="$HOME/.claude/plugins/installed_plugins.json"
@@ -157,6 +160,7 @@ case $1:${2-}:${3-} in
   plugin:marketplace:update) echo "Successfully updated marketplace: $4" ;;
   plugin:update:*)
     [ -z "$update_out" ] || { printf '%s\n' "$update_out"; exit 0; }
+    [ -z "$move_root" ] || printf '%s\n' "$move_root" >"$root_pointer"
     old=$(jq -r --arg id "$3" '.plugins[$id][0].version' "$rec")
     src=$(jq -r '.[0].path // empty' "$mkt")
     new=$(jq -r .version "$src/.claude-plugin/plugin.json" 2>/dev/null) || new=$old
@@ -217,7 +221,19 @@ lacks "no posture refusal" "posture check failed" "$ERR"
 has "the launched session is handed no project directory" project-dir:unset "$OUT"
 has "a kind that starts where it is launched still starts in the remote home" "$(printf '[--cwd]\n[%s]' "$rhome")" "$OUT"
 launch --program p --kind tower --scope s --cwd "$tmp"
-lacks "a named --cwd is passed as given" "$(printf '[--cwd]\n[%s]' "$rhome")" "$OUT"
+assert_eq "a launch naming its --cwd runs" 0 "$CODE"
+has "a named --cwd is passed as given" "$(printf '[--cwd]\n[%s]' "$tmp")" "$OUT"
+lacks "a named --cwd gets no home default" "$(printf '[--cwd]\n[%s]' "$rhome")" "$OUT"
+launch --program p --kind worker --scope s
+has "a repository-changing kind naming nothing gets the remote home as its repository" "$(printf '[--repo]\n[%s]' "$rhome")" "$OUT"
+launch --kind tower --scope --cwd --program p
+has "an option's value is never read as an option" "$(printf '[--cwd]\n[%s]' "$rhome")" "$(printf '%s\n' "$OUT" | grep '^\[')"
+printf 'CLAUDE_PROJECT_DIR=/leaked\nexport CLAUDE_PROJECT_DIR\nPLANWRIGHT_MC_TOKEN=leaked\nexport PLANWRIGHT_MC_TOKEN\n' >"$rhome/.config/planwright/remote-env.sh"
+launch --program p --kind tower --scope s
+assert_eq "a launch under an env file setting the session variables runs" 0 "$CODE"
+has "no project directory reaches the launcher" project-dir:unset "$OUT"
+has "no mission-control token reaches the launcher" mc-token:unset "$OUT"
+: >"$rhome/.config/planwright/remote-env.sh"
 launch --program p --kind worker --scope 's:a\b'
 assert_eq "a launch argument holding a backslash is refused" 2 "$CODE"
 
@@ -231,10 +247,19 @@ printf '{}\n' >"$lclaude/settings.json"
 : >"$FAKE_SSH_LOG"
 launch --program p --kind worker --scope s
 assert_eq "a caller here without the floor cannot launch remotely" 4 "$CODE"
-has "the refusal names this host's posture" "this host's posture check failed" "$ERR"
+has "the refusal names this host's posture" "local posture check failed" "$ERR"
 assert_eq "the refused launch never reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
 launch --program p --kind mission-control --scope s
 assert_eq "a mission control without a token is left to the remote launcher's own check" 0 "$CODE"
+: >"$FAKE_SSH_LOG"
+launch --program p --kind mission-control --kind worker --scope s
+assert_eq "a later --kind wins, as in the launcher, so a worker is still checked here" 4 "$CODE"
+assert_eq "that launch never reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
+PLANWRIGHT_MC_TOKEN=successor
+export PLANWRIGHT_MC_TOKEN
+launch --program p --kind mission-control --scope s
+unset PLANWRIGHT_MC_TOKEN
+assert_eq "a mission control holding a token is checked here" 4 "$CODE"
 cp "$floor_src" "$lclaude/settings.json"
 
 mv "$rroot/config/mission-control-settings.json" "$tmp/floor.aside"
@@ -271,7 +296,15 @@ has "a --cwd clone is fetched too" "origin-main:$app_new" "$OUT"
 has "a --cwd clone is trusted" "mise-trust:$rhome/.config/mise:$rhome/dev/app" "$OUT"
 mkdir -p "$rhome/dev/app/sub"
 launch --program p --kind worker --scope s --repo "$rhome/dev/app/sub"
-assert_eq "a directory inside a clone is not trusted" "mise-trust:$rhome/.config/mise:/env/listed" "$(printf '%s\n' "$OUT" | grep '^mise-trust:')"
+assert_eq "a directory inside a clone resolves to that clone" "mise-trust:$rhome/.config/mise:$rhome/dev/app:/env/listed" "$(printf '%s\n' "$OUT" | grep '^mise-trust:')"
+git -C "$rhome/dev/app" worktree add -q --detach "$rhome/dev/app/.claude/worktrees/w1"
+launch --program p --kind worker --scope s --cwd "$rhome/dev/app/.claude/worktrees/w1"
+assert_eq "a linked worktree resolves to its primary checkout" "mise-trust:$rhome/.config/mise:$rhome/dev/app:/env/listed" "$(printf '%s\n' "$OUT" | grep '^mise-trust:')"
+git init -q "$rhome"
+launch --program p --kind worker --scope s --repo "$rhome"
+rm -rf "$rhome/.git"
+assert_eq "a clone holding the home directory is never trusted" "mise-trust:$rhome/.config/mise:/env/listed" "$(printf '%s\n' "$OUT" | grep '^mise-trust:')"
+has "the refusal to trust it is a warning" "not trusting $rhome" "$ERR"
 launch --program p --kind ad-hoc --scope s --cwd /
 assert_eq "the root directory is never trusted" "mise-trust:$rhome/.config/mise:/env/listed" "$(printf '%s\n' "$OUT" | grep '^mise-trust:')"
 git clone -q "$app_bare" "$rhome/dev/gone"
@@ -378,6 +411,26 @@ FAKE_REMOTE_PATH="$tmp/tools:$farm"
 run --host mac setup
 assert_eq "setup with no claude on the remote is refused as not set up" 3 "$CODE"
 has "setup's preflight names the missing claude" "claude not found" "$ERR"
+FAKE_REMOTE_PATH="$farm"
+launch --program p --kind worker --scope s
+assert_eq "a launch with no jq on the remote is refused as not set up" 3 "$CODE"
+has "the launch preflight names the missing jq" "jq not found" "$ERR"
+# shellcheck disable=SC2016 # the $1 belongs to the fake
+printf '#!/bin/sh\n[ "$1" = bin-paths ] && echo %s\n' "$tmp/tools" >"$rbin/mise"
+chmod +x "$rbin/mise"
+FAKE_REMOTE_PATH="$rbin:$farm"
+launch --program p --kind tower --scope s
+assert_eq "a launch finds jq among the account's mise tool paths" 0 "$CODE"
+rm -f "$rbin/mise"
+farm_nogit="$tmp/farm-nogit"
+mkdir -p "$farm_nogit"
+for t in "$farm"/*; do
+  case ${t##*/} in git | git-*) ;; *) ln -s "$(readlink "$t")" "$farm_nogit/${t##*/}" ;; esac
+done
+FAKE_REMOTE_PATH="$rbin:$tmp/tools:$farm_nogit"
+run --host mac setup
+assert_eq "setup with no git on the remote is refused as not set up" 3 "$CODE"
+has "setup's preflight names the missing git" "git not found" "$ERR"
 FAKE_REMOTE_PATH="$rbin:$PATH"
 # This host's posture check cannot run without jq: the launch is refused.
 saved_path=$PATH
@@ -386,7 +439,7 @@ PATH="$bin:$farm"
 launch --program p --kind worker --scope s
 PATH=$saved_path
 assert_eq "a launch whose posture check here cannot run is refused" 4 "$CODE"
-has "the refusal says the check did not run" "this host's posture check did not run" "$ERR"
+has "the refusal says the check did not run" "local posture check did not run" "$ERR"
 assert_eq "that refused launch never reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
 
 # --- setup: the folder marketplace's plugin brought current, posture verified --
@@ -482,11 +535,42 @@ assert_eq "the enclosing repository is left alone" "$inner_head" "$(git -C "$rho
 dir_mkt "$rhome/planwright"
 
 rec="$rhome/.claude/plugins/installed_plugins.json"
-jq --arg p "$tmp/elsewhere" '.plugins["planwright@aaa"] = [{"scope":"user","installPath":$p,"version":"0.1.0"}]' "$rec" >"$rec.new" && mv "$rec.new" "$rec"
+jq --arg p "$tmp/elsewhere" '{version, plugins: ({"planwright@aaa": [{"scope":"user","installPath":$p,"version":"0.1.0"}]} + .plugins)}' "$rec" >"$rec.new" && mv "$rec.new" "$rec"
+assert_eq "the decoy install is recorded first" planwright@aaa "$(jq -r '.plugins | keys_unsorted[0]' "$rec")"
 : >"$claude_log"
 run --host mac setup
 assert_eq "setup with two planwright installs succeeds" 0 "$CODE"
 has "setup updates the install the root came from" "plugin marketplace update pw-local" "$(cat "$claude_log")"
+
+# An update that moves the installed root: the posture is checked under the new one.
+rroot2="$tmp/rroot2"
+mkdir -p "$rroot2/scripts" "$rroot2/config"
+cp "$floor_src" "$rroot2/config/"
+printf '#!/bin/sh\nprintf "posture\\tpass\\tfrom the new root\\n"\n' >"$rroot2/scripts/mc-posture.sh"
+stub_conf "move_root='$rroot2'"
+run --host mac setup
+assert_eq "setup after an update that moved the root succeeds" 0 "$CODE"
+has "the posture is checked under the moved root" "from the new root" "$OUT"
+printf '%s\n' "$rroot" >"$tmp/root-pointer"
+stub_conf
+
+stub_conf "update_out='{\"outcome\":\"bad\\u001b[31m\"}'"
+run --host mac setup
+assert_eq "setup refuses an outcome carrying a control character" 3 "$CODE"
+esc=$(printf '\033')
+case $ERR in *"$esc"*) fail "a control character reached the caller's terminal" ;; *) ok "control characters never reach the caller's terminal" ;; esac
+stub_conf
+
+# The scratch directory is removed, refused or not.
+mkdir -p "$tmp/rtmp"
+printf 'TMPDIR=%s\nexport TMPDIR\n' "$tmp/rtmp" >"$rhome/.config/planwright/remote-env.sh"
+run --host mac setup
+launch --program p --kind tower --scope s
+stub_conf 'list_fail=1'
+run --host mac setup
+stub_conf
+assert_eq "no scratch directory is left behind" "" "$(ls -A "$tmp/rtmp")"
+: >"$rhome/.config/planwright/remote-env.sh"
 
 printf '{"disableAllHooks": true}\n' >"$rhome/.claude/settings.json"
 run --host mac setup
