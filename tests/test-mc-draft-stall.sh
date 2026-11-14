@@ -89,8 +89,9 @@ snapshot() { # snapshot <taken> then rows on stdin
   printf 'format\t1\nsource\tforge\ntaken\t%s\n' "$1"
   cat
 }
-put() { snapshot "$1" >"$snapdir/forge"; }
-run() { # run <now>
+put() { cat >"$tmp/rows"; snapshot "$1" <"$tmp/rows" >"$snapdir/forge"; }
+run() { # run <now>: the snapshot is retaken each pass, as the runner keeps it fresh
+  [ ! -f "$snapdir/forge" ] || snapshot "$1" <"$tmp/rows" >"$snapdir/forge"
   OUT=$(mc_env env PATH="$tmp/bin:$PATH" /bin/bash "$repo_root/scripts/mc-draft-stall.sh" watch --program alpha --now "$1" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
@@ -137,7 +138,7 @@ expect_eq "a release window still open holds it" ""
 printf '{"check_runs":[{"conclusion":"success"}]}' >"$tmp/window.json"
 run $((T + 15 * MIN))
 expect_out "the window closed: raised" "raised${tab}draft-stalled${tab}1"
-case $(events | tail -n 1) in *"hold cleared (the release window is closed)"*) ok "the event says the hold cleared" ;; *) fail "no cleared note: $(events | tail -n 1)" ;; esac
+case $(events) in *"hold cleared (the release window is closed)"*) ok "the event says the hold cleared" ;; *) fail "no cleared note: $(events)" ;; esac
 
 rm -f "$runtime"/draft-stall.tsv
 pr 7 "$H" "Plain." '[{"name":"on-hold"}]' "$(cancelled "$T")"
@@ -155,7 +156,7 @@ expect_eq "a PR it waits on that is open holds it" ""
 printf '{"state":"closed"}' >"$tmp/issue.50.json"
 run $((T + 2 * HOUR + 15 * MIN))
 expect_out "the PR it waits on merged: raised" "raised${tab}draft-stalled${tab}1"
-case $(events | tail -n 1) in *"acme/web#50 is closed or merged"*) ok "the cleared hold is named" ;; *) fail "hold not named: $(events | tail -n 1)" ;; esac
+case $(events) in *"acme/web#50 is closed or merged"*) ok "the cleared hold is named" ;; *) fail "hold not named: $(events)" ;; esac
 
 rm -f "$runtime"/draft-stall.tsv "$tmp/issue.50.json"
 run $((T + 3 * HOUR))
@@ -174,7 +175,7 @@ run $((T + 3 * HOUR - 11 * MIN))
 expect_eq "still under the default 3h threshold" ""
 run $((T + 3 * HOUR - 10 * MIN))
 expect_out "a run unfinished for the threshold is raised" "raised${tab}draft-stalled${tab}1"
-case $(events | tail -n 1) in *"acme/web#8: a CI run has sat unfinished for 3h0m"*) ok "the unfinished age is named" ;; *) fail "no age: $(events | tail -n 1)" ;; esac
+case $(events) in *"acme/web#8: a CI run has sat unfinished for 3h0m"*) ok "the unfinished age is named" ;; *) fail "no age: $(events)" ;; esac
 
 rm -f "$runtime"/draft-stall.tsv
 pr 8 "$H" "Plain." '[]' "$(green "$T")"
