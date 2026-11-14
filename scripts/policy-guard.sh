@@ -1826,6 +1826,7 @@ kickoff_git_reads() {
             --patch* | --cc | --stat* | --numstat | --shortstat | --word-diff*) patchy=1 ;;
             --*) ;;
             -*O*) return 1 ;;
+            # -L<range>:<file> prints a patch even beside a <rev>:<path>.
             -*[pucGSL]*) patchy=1 ;;
             # An option word never names a blob, so a colon in it is no <rev>:<path>.
             -*) ;;
@@ -1997,10 +1998,10 @@ kickoff_var_run() {
 # one of its redirects (which the tokenizer keeps apart, in SEG_RT), could
 # expand to the script's name through a glob or an expansion that sits inside
 # it (scripts/kick*ff-spec-push.sh, scripts/kic${E}koff-spec-push.sh, and
-# scripts/k*.sh), with at least one literal character besides the .sh, or a
-# name of ? marks (with or without stars) alone, so that a name made of stars alone (scripts/*.sh,
-# which also matches every other script) stays an ordinary glob. Expansions and brace groups
-# (scripts/kick{off,x}-spec-push.sh) read as a wildcard.
+# scripts/k*.sh), with at least one literal character besides the .sh or at
+# least one ?, so that a name made of stars alone (scripts/*.sh, which also
+# matches every other script) stays an ordinary glob. Expansions and brace
+# groups (scripts/kick{off,x}-spec-push.sh) read as a wildcard.
 kickoff_fuzzy_name() {
   local words=("${W[@]:${SEG_S[$1]}:$((SEG_E[$1] - SEG_S[$1]))}") p lit
   local rt=${SEG_RT[$1]//[\"\'\\]/} extra=()
