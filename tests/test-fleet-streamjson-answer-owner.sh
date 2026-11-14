@@ -44,7 +44,6 @@ fail() {
 command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs the auto-approve hook"
 
 tmp=$(fixture_scratch) || fail "no scratch directory to run in"
-tab=$(printf '\t')
 live_pids=''
 cleanup() {
   trap '' INT TERM
