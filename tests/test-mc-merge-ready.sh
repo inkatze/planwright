@@ -459,6 +459,9 @@ run fresh --program alpha --repo acme/web --pr 31 --head "$H"
 expect_rc "the fresh verb says a merged pull request is stale" 4
 run fresh --program alpha --repo acme/web --pr 30 --head "$H"
 expect_rc "and a live one is live" 0
+printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"pageInfo":{"hasPreviousPage":true},"nodes":[]},"reviewThreads":{"nodes":[]}}}}}' "$H" >"$tmp/fresh.38"
+run fresh --program alpha --repo acme/web --pr 38 --head "$H"
+expect_rc "no bot review on a truncated review page is unknown, never pending" 1
 rm -f "$tmp"/fresh.3? "$store"
 
 # ---------------------------------------------------------------------------

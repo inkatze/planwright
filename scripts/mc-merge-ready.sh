@@ -163,7 +163,7 @@ case $verb in
   count) [ "$as_status" -eq 0 ] && [ -z "$now_raw" ] || usage ;;
   fresh)
     [ "$as_status" -eq 0 ] && [ -z "$now_raw" ] || usage
-    mc_valid_slug "$f_repo" && mc_valid_uint "$f_pr" && mc_valid_sha "$f_head" || usage
+    if ! mc_valid_slug "$f_repo" || ! mc_valid_uint "$f_pr" || ! mc_valid_sha "$f_head"; then usage; fi
     ;;
   commands) [ "$as_status" -eq 0 ] || usage ;;
   watch)
@@ -196,7 +196,7 @@ fresh_check() {
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
         state headRefOid
-        reviews(last: 100) { nodes { author { __typename login } commit { oid } } }
+        reviews(last: 100) { pageInfo { hasPreviousPage } nodes { author { __typename login } commit { oid } } }
         reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved
           comments(first: 1) { nodes { author { __typename login } } } } } } } }' --jq '
     def bot: ((.author.__typename // "") == "Bot") or ((.author.login // "") | endswith("[bot]"));
@@ -204,6 +204,7 @@ fresh_check() {
     | if $p == null then empty else
       "state\t" + ($p.state // "-"), "head\t" + ($p.headRefOid // "-"),
       (if $p.reviewThreads.pageInfo.hasNextPage then "truncated\tthreads" else empty end),
+      (if $p.reviews.pageInfo.hasPreviousPage then "truncated\treviews" else empty end),
       ($p.reviews.nodes[]? | select(bot) | "botreview\t" + (.commit.oid // "-")),
       ($p.reviewThreads.nodes[]? | select((.isResolved | not) and (.comments.nodes[0] // {} | bot)) | "botthread\topen")
       end' 2>"$fc_err" </dev/null) || {
@@ -227,11 +228,15 @@ fresh_check() {
     printf 'stale\tits head moved to %s\n' "$fc_head"
     return 4
   fi
-  if printf '%s\n' "$fc_out" | grep -q '^truncated'; then
+  if printf '%s\n' "$fc_out" | grep -q '^truncated.threads'; then
     printf 'unknown\tits review threads exceed the first page, so the bot round cannot be confirmed\n'
     return 1
   fi
   if ! printf '%s\n' "$fc_out" | H=$3 awk -F '\t' '$1 == "botreview" && $2 == ENVIRON["H"] { f = 1 } END { exit !f }'; then
+    if printf '%s\n' "$fc_out" | grep -q '^truncated.reviews'; then
+      printf 'unknown\tits reviews exceed the last page, so a bot review of this head cannot be ruled out\n'
+      return 1
+    fi
     printf 'pending\tno bot review of this head yet\n'
     return 5
   fi

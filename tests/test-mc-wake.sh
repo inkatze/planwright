@@ -490,10 +490,12 @@ mrfresh() { # mrfresh <n> <state>: a bot review of the head, no thread
 }
 mrfresh 51 MERGED
 mrfresh 52 OPEN
-for n in 51 52 53; do
-  mc_run mc-event.sh emit --program alpha merge-ready "acme:web:$n" "acme/web#$n is ready to merge: gh pr merge $n --repo acme/web --squash --match-head-commit $mrh"
-  eval "mr_ev_$n=\$OUT"
-done
+mremit() { mc_run mc-event.sh emit --program alpha merge-ready "acme:web:$1" "acme/web#$1 is ready to merge: gh pr merge $1 --repo acme/web --squash --match-head-commit $mrh"; }
+mremit 51
+mr_ev_51=$OUT
+mremit 52
+mremit 53
+mr_ev_53=$OUT
 OUT=$(PATH="$ghbin:$PATH" mc_env /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha tw 2>"$tmp/stderr")
 ERR=$(cat "$tmp/stderr")
 expect_out "a merge-ready event for a live pull request wakes" "- merge-ready acme:web:52"
