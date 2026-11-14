@@ -113,6 +113,11 @@
 #           `...failed<TAB><step>:<outcome>` over all runs;
 #           `...stale<TAB><head>` naming the newest completion when none
 #           counts, then that run's step gaps; the judged run's step gaps;
+#           `...mismatch<TAB>run` for a record whose stored run or point
+#           differs from its path, and `...mismatch<TAB>head:<step>` or
+#           `outcome:<step>` for a step of the judged run whose heads are not
+#           on the completion's branch in order, or whose skip code or moved
+#           head contradicts its outcome; any such gap withholds `covered`;
 #           else `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB>
 #           <head>`, the head --head or the worktree's. Exit 0 complete, 1
 #           gaps, 2 usage (an unknown --base included), 4 the records or the

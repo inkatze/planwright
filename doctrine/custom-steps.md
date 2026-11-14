@@ -482,7 +482,11 @@ back against the configured lists, read-only, by `scripts/step-run.sh audit
 --through <point>`: a point is covered by its newest run whose completion
 counts at the head, that run recording every required step passed, applied,
 or skipped (a recorded skip counts), so a point or step left with no record
-is caught whoever omitted it. The
+is caught whoever omitted it. A record that does not match the branch it
+claims is refused as a `mismatch` gap, never counted: a stored run or point
+that differs from its path, a step whose start and end heads are not commits
+of the completion's branch in order, or an outcome its own fields contradict
+(a skip with no code or a moved head, a code on a step that did not skip). The
 script's usage header states the freshness rule and the output.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
