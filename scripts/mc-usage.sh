@@ -691,9 +691,10 @@ take_lock() {
 
 # knob_released <threshold>: success when every window of the hold so far
 # is still inside its own reset and ended only because the threshold moved:
-# usage within a window never falls, so a reading under the new threshold on
-# the same reset epoch is the knob, never a reset. A window with no stated
-# reset counts only when the threshold is off.
+# usage within a window never falls, so a reading no lower than the held one,
+# on the same reset epoch and under the new threshold (or any, with it off),
+# is the knob, never a reset. A window whose reset or reading moved is a
+# reset.
 knob_released() {
   printf '%s\n--\n%s\n' "$WIN" "$PREV" | N=$NOW T=$1 awk '
     BEGIN { now = ENVIRON["N"] + 0; thr = ENVIRON["T"]; part = 1; ok = 1 }
@@ -704,7 +705,7 @@ knob_released() {
     $3 != "-" && now >= $3 + 0 { ok = 0; next }
     ($1 in pct) && (rst[$1] != $3 || pct[$1] + 0 < $2 + 0) { ok = 0; next }
     thr == "off" { next }
-    $3 == "-" || !($1 in pct) || pct[$1] + 0 >= thr + 0 { ok = 0 }
+    !($1 in pct) || pct[$1] + 0 >= thr + 0 { ok = 0 }
     END { exit !ok }'
 }
 
