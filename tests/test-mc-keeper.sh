@@ -331,7 +331,7 @@ pp_ask cp-rep 2 9030 pending
 pp_watch 9040
 expect_out "a repeat ask after a consumed event raises a new event" "announced${tab}pending-prompt${tab}cp-rep"
 ev_b=$(pp_events cp-rep | awk -F '\t' -v a="$ev_a" '$1 != a { print $1 }' | tail -n 1)
-[ -n "$ev_b" ] && ok "and it is a new event, not the consumed one" || fail "no new event past $ev_a"
+if [ -n "$ev_b" ]; then ok "and it is a new event, not the consumed one"; else fail "no new event past $ev_a"; fi
 case $(pp_events cp-rep | awk -F '\t' -v b="$ev_b" '$1 == b') in
   *"cccc3333-bbbb-cccc-dddd-eeee00000002"*) ok "the new event names the second request id" ;;
   *) fail "the new event does not name request 2: $(pp_events cp-rep)" ;;
@@ -365,7 +365,7 @@ case $(pp_events cp-ua) in
   *"cp-ua cccc3333-bbbb-cccc-dddd-eeee00000001"*"cp-ub cccc3333-bbbb-cccc-dddd-eeee00000002"*) ok "two unread asks share one event naming both workers and ids" ;;
   *) fail "the shared event does not name both requests: $(pp_events cp-ua)" ;;
 esac
-[ "$ev_n" = 1 ] && ok "and it is one event" || fail "expected one event, saw $ev_n"
+if [ "$ev_n" = 1 ]; then ok "and it is one event"; else fail "expected one event, saw $ev_n"; fi
 rm -rf "$fleet/streamjson/cp-ua" "$fleet/streamjson/cp-ub"
 
 # A batch too large for one event's text is split over events, and every
@@ -375,14 +375,14 @@ pp_watch 9310
 mc_run mc-event.sh list --program alpha
 ck_events=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "pending-prompt" && index($4, "cp-chunk-") == 1')
 ck_n=$(printf '%s\n' "$ck_events" | awk 'NF { n++ } END { print n + 0 }')
-[ "$ck_n" -ge 2 ] && ok "a batch too large for one event is split" || fail "expected the batch split, saw $ck_n event(s)"
+if [ "$ck_n" -ge 2 ]; then ok "a batch too large for one event is split"; else fail "expected the batch split, saw $ck_n event(s)"; fi
 ck_miss=0
 for ck in 1 2 3 4 5 6 7 8; do
   case $ck_events in *"cp-chunk-long-worker-name-pad-0$ck cccc3333-bbbb-cccc-dddd-eeee0000000$ck"*) ;; *) ck_miss=1 ;; esac
 done
-[ "$ck_miss" = 0 ] && ok "and every waiting request is named in one of the events" || fail "a request is left out: $ck_events"
+if [ "$ck_miss" = 0 ]; then ok "and every waiting request is named in one of the events"; else fail "a request is left out: $ck_events"; fi
 ck_long=$(printf '%s\n' "$ck_events" | awk -F '\t' 'length($5) > 500 { n++ } END { print n + 0 }')
-[ "$ck_long" = 0 ] && ok "and no event text is cut short" || fail "an event text outgrew its cap"
+if [ "$ck_long" = 0 ]; then ok "and no event text is cut short"; else fail "an event text outgrew its cap"; fi
 rm -rf "$fleet"/streamjson/cp-chunk-*
 
 # A reviewer the program launched, in a repository of its own, is woken the
