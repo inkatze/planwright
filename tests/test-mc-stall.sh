@@ -491,6 +491,45 @@ stall classify --program alpha --now 1100 mc-alpha-worker-again
 [ "$(event_count stall-dead mc-alpha-worker-again)" = 2 ] && ok "a relaunched session that dies again raises its own event" \
   || fail "a relaunch under the same name inherited the old sample's state"
 
+# --- a session on an older plugin root is raised once per launch --------------
+
+st_cache="$tmp/claude/plugins/cache/mkt/planwright"
+mkdir -p "$st_cache/0.62.0" "$st_cache/9.9.9"
+jq -n --arg p "$st_cache/9.9.9" '{version: 2, plugins: {"planwright@planwright": [{scope: "user", installPath: $p, version: "9.9.9"}]}}' \
+  >"$tmp/claude/plugins/installed_plugins.json"
+# stale_row <name> <root | none> [<token>]: a live stream-json worker's row, with the root it loaded
+stale_row() {
+  row "$1" worker stream-json "$1" launched "${3:-t}"
+  [ "$2" = none ] || printf 'root\t%s\n' "$2" >>"$reg/$1"
+  sj "$1" "$live_pid"
+}
+stale_row mc-alpha-worker-oldroot "$st_cache/0.62.0"
+stall classify --program alpha --now 3000 mc-alpha-worker-oldroot
+stall classify --program alpha --now 3100 mc-alpha-worker-oldroot
+[ "$(event_count stale-plugin-root mc-alpha-worker-oldroot)" = 1 ] && ok "a session on an older plugin root raises one stale-plugin-root event, not one per pass" \
+  || fail "the stale session raised $(event_count stale-plugin-root mc-alpha-worker-oldroot) events over two passes"
+stall scan --program alpha --now 3200
+[ "$(event_count stale-plugin-root mc-alpha-worker-oldroot)" = 1 ] && ok "a scan does not raise it again" \
+  || fail "a scan raised the stale session again"
+stale_row mc-alpha-worker-oldroot "$st_cache/0.62.0" relaunched
+stall classify --program alpha --now 3300 mc-alpha-worker-oldroot
+[ "$(event_count stale-plugin-root mc-alpha-worker-oldroot)" = 2 ] && ok "a relaunch that is again stale is raised again" \
+  || fail "a relaunched stale session did not raise its own event"
+stale_row mc-alpha-worker-curroot "$st_cache/9.9.9"
+stall classify --program alpha --now 3000 mc-alpha-worker-curroot
+[ "$(event_count stale-plugin-root mc-alpha-worker-curroot)" = 0 ] && ok "a session on the installed root raises nothing" \
+  || fail "a current session raised a stale-plugin-root event"
+stale_row mc-alpha-worker-noroot none
+stall classify --program alpha --now 3000 mc-alpha-worker-noroot
+[ "$(event_count stale-plugin-root mc-alpha-worker-noroot)" = 0 ] && ok "a row with no recorded root raises no stale event (it is unknown, never current)" \
+  || fail "a row with no recorded root raised a stale-plugin-root event"
+stale_row mc-alpha-worker-deadroot "$st_cache/0.62.0"
+sj mc-alpha-worker-deadroot "$dead_pid"
+stall classify --program alpha --now 3000 mc-alpha-worker-deadroot
+[ "$(event_count stale-plugin-root mc-alpha-worker-deadroot)" = 0 ] && ok "a dead session raises its stall-dead event, not a relaunch item" \
+  || fail "a dead stale session raised a stale-plugin-root event"
+rm -f "$tmp/claude/plugins/installed_plugins.json"
+
 # --- scan: every registered session of the program -------------------------
 
 row mc-alpha-worker-launching worker tmux @15 launching
