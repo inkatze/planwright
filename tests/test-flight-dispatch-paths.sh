@@ -566,8 +566,8 @@ echo "ok: a flight dispatched from a linked worktree reads the primary's config 
 # brief is not retired, and a worktree path carrying a newline cannot forge a
 # `worktree` line that counts as a live flight.
 new_case
-printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml" 2>/dev/null \
-  || { mkdir -p "$c/primary/.claude" && printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"; }
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"
 gitc "$c/primary" checkout -q -b planwright/flight/pri-0123abcd
 primary_phys=$(cd "$c/primary" && pwd -P)
 mkdir -p "$c/fleet/flights/pri-0123abcd"
