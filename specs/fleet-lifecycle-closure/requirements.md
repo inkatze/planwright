@@ -31,8 +31,9 @@ worker, because the line was stable *precisely because* it was stuck
 (obs:50eac4ac). Meanwhile `status` can report `completed result=success` over
 work that never landed (obs:cc13d432).
 
-This bundle gives every worker lifecycle phase — every resource class a
-worker acquires — three deterministic things: an
+This bundle gives every lifecycle phase — every resource class a worker, or
+any session the launcher opens, acquires (D-1, D-17) — three deterministic
+things: an
 **open** that starts the phase and records that it started, a **close** that
 ends it and releases its resources, and a **stuck-detector** that positively
 separates working / waiting-on-a-human / finished-but-unreaped / dead. All
@@ -84,6 +85,9 @@ releasing a process must never be confused with reclaiming a unit of work
   orchestrator, worker, reviewer, ad-hoc and mission control), the resource
   classes mission control's launcher and stall detector acquire, and the
   close the launcher's `retire` owes the stall sample (REQ-L, D-17).
+- The reclaim folder's growth report, its keeper-run check and the
+  operator-invoked cleanup verb, and the read-only residue check for session
+  classes (REQ-L1.3 to L1.5, D-19, D-20).
 
 ### Out of scope
 
@@ -114,8 +118,9 @@ releasing a process must never be confused with reclaiming a unit of work
   known residue for a hardening bundle (D-10).
 - **Cross-machine or containerised peer awareness.** Single-host scope,
   inherited from the presence surface.
-- **A retention rule or any lifecycle close for the reclaim folder.** It is
-  operator-owned work product, and no verb of this bundle removes it (D-19).
+- **An automatic retention rule or any automatic close for the reclaim
+  folder.** It is operator-owned work product, and no verb of this bundle
+  removes it unprompted (D-19).
 
 ## Vocabulary
 
@@ -490,56 +495,89 @@ ending and what evidence that authorization required.
   mission control's launcher opens, whatever its kind (tower, orchestrator,
   worker, reviewer, ad-hoc, mission control), on every rung that hosts one,
   not to dispatched workers alone. A new session kind or rung SHALL declare
-  all three parts for every class it acquires, as REQ-A1.5 already requires
-  of a backend.
+  all three parts (open, close, detector) for every class it acquires, as
+  REQ-A1.5 already requires of a backend. A kind and rung pair that does not
+  exist SHALL read `n/a` with its reason, never blank. A check SHALL fail
+  when a kind the launcher names is absent from the floor's tables.
   *(Cites: D-17; mission-control D-11 (Sources); the lifecycle-closure
   amendment note (Sources).)*
 - **REQ-L1.2** A launched session's process (on the tmux rung its window; on
   the stream-json rung its supervisor and state directory) SHALL be a
   resource class opened by the launcher's `launch` and closed by its
-  `retire`, with `scripts/mc-stall.sh` as its script-readable detector.
-  *(Cites: D-17; REQ-A1.1.)*
-- **REQ-L1.3** The launcher's registry row and launch directory SHALL be a
-  resource class opened by `launch`, and `retire` SHALL release it last,
-  after every class it depends on, reporting by class what it released and
-  what it held. A partial release SHALL be reported as partial (REQ-A1.3);
-  the row of a session whose release was partial SHALL remain so a later
-  `retire` retries exactly the classes still held. A script-readable
-  detector SHALL name a row or launch directory whose session is dead or
-  absent as residue.
-  *(Cites: D-17; REQ-A1.3; REQ-B1.7.)*
+  `retire`, with `scripts/mc-stall.sh` as its script-readable detector. For a
+  dispatched worker `retire` SHALL be idempotent with `stop` (REQ-B1.7): it
+  SHALL NOT signal a process that is gone or whose pid was reissued, and it
+  SHALL honour the presence and fence checks (REQ-D1.1, REQ-D1.2).
+  *(Cites: D-17; REQ-A1.1; REQ-B1.7; REQ-D1.1; REQ-D1.2.)*
+- **REQ-L1.3** The launcher's own registry row and launch directory (the
+  `row` class `retire` already reports, not the fleet dispatch registry of
+  REQ-D1.1) SHALL be a resource class opened by `launch`, and `retire` SHALL
+  release it last, after every class it depends on (the stream-json state
+  directory goes with the process class, the launch directory with the row),
+  reporting by class what it released and what it held. A partial release
+  SHALL be reported as partial (REQ-A1.3); the row of a session whose release
+  was partial SHALL remain so a later `retire` retries exactly the classes
+  still held. A script-readable detector SHALL name a row or launch
+  directory whose session is gone and whose release is not held as residue,
+  SHALL list a held (partial) row separately as awaiting retry, and SHALL
+  never list a session whose launch is still in progress.
+  *(Cites: D-17; REQ-A1.3; REQ-B1.7; REQ-D1.1.)*
 - **REQ-L1.4** The stall sample `mc-stall.sh` keeps per session SHALL be a
-  resource class: opened by the session's first sample, closed by `retire`
-  (which SHALL remove the sample and report it by class), and detected as
-  residue when a sample has no registry row. A relaunch under the same name
+  resource class named `stall-sample`: opened by the session's first sample,
+  closed by `retire` (which SHALL remove the sample under the sample's lock
+  and report it by that class), and detected as residue when a sample has no
+  registry row. A scan SHALL NOT create a sample for a name with no row, so
+  a scan after `retire` leaves none. `retire` of a name with no row SHALL
+  still remove an orphan sample of that name. A relaunch under the same name
   SHALL still start a fresh sample. The `stall-<state>` events the detector
   emits are attention-store content bounded by its retention knob and SHALL
   NOT be a per-session close.
   *(Cites: D-20; REQ-A1.1.)*
 - **REQ-L1.5** The reclaim folder `scripts/mc-reclaim.sh` opens under the
   program home SHALL be declared in the floor as operator-owned work product
-  with no lifecycle close: no `retire`, sweep or cleanup verb SHALL remove
-  it, and the declaration SHALL name its owner and the reason (D-19). The
-  worktree it precedes stays outside the floor's release set (D-3), and
-  reclamation stays `fleet-cleanup.sh`'s.
-  *(Cites: D-19; D-3; mission-control D-8 (Sources).)*
+  with no automatic close: no `retire`, sweep or scheduled verb SHALL remove
+  it, and the declaration SHALL name its owner and the reason (D-19). It is
+  the one declared exception to REQ-A1.1's deterministic close: the growth
+  event below replaces anyone having to remember (REQ-A1.2). The class owes an
+  open (the predicate-gated backup), an integrity detector (the reclaim's own
+  hash and size verification) and a growth detector: a read-only check
+  reports the folder's size and the age of each backup (a
+  `reclaimed/<repository>/<branch>` folder) and, on every run while the size
+  is over a knob-set threshold (bytes, resolved per REQ-K1.6), emits one
+  attention event, keeping no state and writing nothing to the folder. The
+  check runs from the keeper's periodic sweep. Its only close SHALL be an
+  operator-invoked verb, absent from mission control's verb allow-list, that
+  dry-runs by default, removes only backups the operator names as arguments,
+  refuses any path outside the folder or any symlink, refuses a backup whose
+  hash and size do not verify unless named with an explicit flag, and writes
+  an audit line. The worktree it precedes stays outside the floor's release
+  set (D-3), and worktree reclamation stays `fleet-cleanup.sh`'s.
+  *(Cites: D-19; D-3; REQ-A1.1; REQ-A1.2; REQ-K1.6; mission-control D-8
+  (Sources).)*
 - **REQ-L1.6** The floor SHALL name both stuck-detectors, the four-state
   worker classifier and the session stall classifier, each as the detector of
   its own class, and SHALL NOT merge their vocabularies. Each SHALL
-  enumerate its states positively, and a stable pane SHALL corroborate a
-  positively detected state (a busy signature) and SHALL NOT establish one
-  alone (REQ-A1.2, REQ-C1.1).
+  enumerate its states positively, naming the states the script emits. For
+  the session classifier a stable pane SHALL corroborate a positively
+  detected busy signature and SHALL NOT establish a state alone, and a
+  `dead` session SHALL rest on positive evidence (REQ-C1.5); the worker
+  classifier rests on hook and process signals and has no pane rule
+  (REQ-A1.2, REQ-C1.1).
   *(Cites: D-18; obs:50eac4ac.)*
 
 ## Changelog
 
 - **2026-11-13** — Amendment (meaning-class, Draft extension). Added group
-  REQ-L, D-17 to D-20 and Tasks 13 to 15: the floor extends to launched
+  REQ-L, D-17 to D-20 and Tasks 13 to 17: the floor extends to launched
   sessions of every kind, the launcher's registry row and launch directory,
   the stall sample and the reclaim folder become declared classes, `retire`
   owes the stall sample a close, and the two detectors are named separately.
   Seeded by the 2026-10-27 pending note; the 2026-11-09 idle-worker note is
-  cited as related only.
+  cited as related only. At the kickoff walk the operator reversed the
+  reclaim folder's "no close" to no automatic close, adding a growth report,
+  a knob-set threshold event and an operator-run cleanup verb (REQ-L1.5, D-19,
+  Task 16); the lens review added Task 17 and tightened retire, residue and
+  detector wording (REQ-L1.1 to L1.4, L1.6).
 
 - **2026-08-18** — Bundle drafted at Status Draft. Scope resolved as one new
   bundle plus two scoped amendments routed to their doctrinal owners (D-9).
@@ -667,8 +705,8 @@ ending and what evidence that authorization required.
   `fleet-lifecycle-closure-amendment` seed captured by mission control's
   routing (mission-control D-11 and D-22): the gap (the floor covers workers
   only), the four classes to bring under it, and the two questions resolved in
-  D-18 and D-19. Left in `specs/_pending/`; spec-draft archives observations
-  only, and removing a note is the kickoff's.
+  D-18 and D-19. Consumed and removed from `specs/_pending/` at the
+  amendment's kickoff.
 - **Related, not consumed: the idle-worker-end note (2026-11-09).**
   `specs/_pending/fleet-idle-worker-end-amendment.md` proposes ending a
   worker whose wait would pass 55 minutes; it is folded into mission-control's

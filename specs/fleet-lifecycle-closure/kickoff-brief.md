@@ -643,6 +643,59 @@ applied.
 Anchor: `b48c68c505dab14ede6cba769d62a3b1b5d25116` — computed as
 `scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
 
+### Amendment — the floor covers every session kind (2026-11-13)
+
+**Mode:** delta re-walkthrough on an Active bundle · **Scope:** delta only,
+REQ-L1.1 to L1.6, D-17 to D-20, Tasks 13 to 17 and the REQ-L test-spec
+entries · **Freshness at start:** recorded anchor `b48c68c…`, recomputed
+mismatch (the drafted extension) · **Validator:** 0 errors, 0 warnings apart
+from the stale anchor, before and after the edits; markdownlint clean.
+
+**Operator decisions.** The floor is extended rather than a second floor
+added (D-17). The two stuck detectors stay separate, one per class (D-18).
+The reclaim folder keeps no automatic close, but the operator reversed the
+drafted "no close at all": it gains a growth report, a knob-set threshold
+event and an operator-run cleanup verb (D-19, REQ-L1.5, Task 16). `retire`
+removes the stall sample, with a read-only residue check, and also removes an
+orphan sample of a name with no row (D-20, Tasks 14 and 15). The growth event
+fires on every check run while over the threshold, keeping no state. IDs as
+drafted, plus Task 16 and Task 17; the consumed lifecycle-closure pending
+note is removed, the idle-worker note stays as related only.
+
+**Lens review pass (delta-scoped).** Fan-out, declared: five read-only
+agents over the spec lens set (contract correctness; ambiguity and glossary
+drift; citation and coverage integrity; dead verification and testability;
+decision-domain gaps with the altitude and ship-gate checks). Performance,
+concurrency and error-handling are n/a for a spec. About twenty distinct
+findings after merging, every one confirmed against the repository and
+applied: Task 14 and 15 fixture ownership split; Task 17 added for the
+session-kind and detector checks; the sample lock and orphan removal;
+residue versus a held row; class naming (`stall-sample`, `row`); the
+reclaim folder's exception to REQ-A1.1, its cleanup-verb guards, its knob
+and its keeper-run check; the session classifier's pane rule; and the stale
+Goal, scope, citation and changelog text. Altitude: D-17 is the record,
+cited from the Goal, doctrine-first then mechanism. Ship-gate: the residue
+remover is `retire`, with a `[manual]` one-time sweep entry. No finding was
+declined or deferred.
+
+**Decision-domains gap check (delta).** Destructive operations (the cleanup
+verb), configuration (the knob), observability (the event and its cadence),
+concurrency of retire and deletion safety were each undecided in the draft
+and are decided in REQ-L1.4, REQ-L1.5, D-19 and D-20.
+
+**Pre-flip verification.** No status flip: the bundle stays Ready. Stale-
+reference sweep over the bundle for the old "no close" wording and the
+task range found the stragglers, fixed before the anchor. The validator
+re-run found no error beyond the anchor this entry replaces. `Last
+reviewed:` was bumped on all four spec files. The consumed pending note is
+removed.
+
+Class: meaning
+Lens-pass: the *Lens review pass* paragraph in this entry — delta-scoped,
+fan-out, every finding applied.
+Anchor: `0730ee6cd659232d314c869b10caf6a2270d7784` — computed as
+`scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
+
 ## 10. Execution research log
 
 <!-- Research-rigor recordings appended during execution (findings, tradeoffs,

@@ -365,33 +365,38 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
 
 - **Deliverables:** `doctrine/fleet-coordination-floor.md` extended: the
   class contract table gains rows for the launched session, the launcher's
-  registry row and launch directory, and the stall sample, each with open,
-  close and detector; the reclaim folder is declared with its owner and no
-  close; the rungs-crossed-with-classes table gains the session kinds, with
-  no blank cell; both detectors are named as separate detectors of their own
-  classes, with the rule that a stable pane corroborates and never
-  establishes a state. No executable behaviour in this task.
+  registry row and launch directory (the `row` class), and the `stall-sample`
+  class, each with open, close and detector; the reclaim folder is declared
+  with its owner, no automatic close, its integrity and growth detectors, its
+  operator-invoked close and the exception it is to REQ-A1.1; the
+  rungs-crossed-with-classes table gains the session kinds, with `n/a` and a
+  reason where a pair does not exist and no blank cell; both detectors are
+  named as separate detectors of their own classes, with the session
+  classifier's rule that a stable pane corroborates and never establishes a
+  state. The mechanisms Tasks 14 to 17 build are named as declared, not yet
+  built. No executable behaviour in this task.
 - **Done when:** the doctrine carries every row and declaration above and
-  cites REQ-L1.1, REQ-L1.2, REQ-L1.3, REQ-L1.5 and REQ-L1.6;
-  `scripts/spec-validate.sh` over the bundle,
-  `scripts/check-doctrine-manifest.sh` and the doc-link check pass; no
-  script under `scripts/` is modified.
+  cites REQ-L1.1 to REQ-L1.6; `scripts/spec-validate.sh` over the bundle
+  and the doc-link check pass; no script under `scripts/` is modified.
 - **Dependencies:** 1
-- **Citations:** REQ-L1.1 · REQ-L1.2 · REQ-L1.3 · REQ-L1.5 · REQ-L1.6 ·
-  D-17 · D-18 · D-19
+- **Citations:** REQ-L1.1 · REQ-L1.2 · REQ-L1.3 · REQ-L1.4 · REQ-L1.5 ·
+  REQ-L1.6 · D-17 · D-18 · D-19 · D-20
 - **Estimated effort:** 1 day
 
 ### Task 14 — `retire` closes the stall sample
 
 - **Deliverables:** the launcher's `retire` removes the session's stall
-  sample after the process class and before the row, reports it as its own
-  released or held class, and keeps the row when the sample could not be
-  removed so a second retire retries it; tests over both rungs, a partial
-  result, and a relaunch under the same name.
-- **Done when:** the REQ-L1.2 to REQ-L1.4 fixtures pass in `mise run check`;
-  a retire of a session with a sample leaves no sample; a forced failure to
-  remove the sample reports `partial` naming it; the emitted stall events
-  are untouched.
+  sample under the sample's lock after the process class and before the row,
+  reports it as the `stall-sample` released or held class, and keeps the row
+  when the sample could not be removed so a second retire retries it; a scan
+  never creates a sample for a name with no row; `retire` of a name with no
+  row still removes an orphan sample of that name; tests over both rungs, a
+  partial result, a scan after retire, a retire of an orphan, and a relaunch
+  under the same name.
+- **Done when:** the retire-side REQ-L1.2 to REQ-L1.4 fixtures pass in `mise
+  run check`; a retire of a session with a sample leaves no sample, and a
+  scan afterwards creates none; a forced failure to remove the sample
+  reports `partial` naming it; the emitted stall events are untouched.
 - **Dependencies:** 13
 - **Citations:** REQ-L1.2 · REQ-L1.3 · REQ-L1.4 · D-20
 - **Estimated effort:** 1 day
@@ -399,12 +404,53 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
 ### Task 15 — The residue detector for session classes
 
 - **Deliverables:** a read-only residue check, in `mc-stall.sh` or beside
-  it, listing a registry row or launch directory whose session is gone and a
-  stall sample with no registry row, in a stable parseable form; tests.
-- **Done when:** fixtures for each residue kind pass in `mise run check`; the
-  check writes nothing and invokes no model; a live session is never listed.
+  it, listing a registry row or launch directory whose session is gone and
+  whose release is not held, a held (partial) row separately as awaiting
+  retry, and a stall sample with no registry row, in a stable parseable form,
+  run from the keeper's periodic sweep; tests.
+- **Done when:** the residue-side REQ-L1.3 and REQ-L1.4 fixtures pass in
+  `mise run check`; the check writes nothing and invokes no model; a live
+  session and a launch in progress are never listed; a held row is listed
+  as awaiting retry, not residue.
 - **Dependencies:** 14
 - **Citations:** REQ-L1.3 · REQ-L1.4 · REQ-C1.8 · D-20
+- **Estimated effort:** 1 day
+
+### Task 16 — The reclaim folder's growth report and operator-run cleanup
+
+- **Deliverables:** a read-only growth check over the reclaim folder, beside
+  `mc-reclaim.sh`, reporting its size and each backup's age in a stable
+  parseable form and emitting one attention event on every run while the
+  size is over a threshold held in a new mission-control knob (bytes, with
+  its default, overlay resolution and options-reference row per REQ-K1.6),
+  run from the keeper's periodic sweep; an operator-invoked cleanup verb that
+  dry-runs by default, removes only backups named as arguments, refuses
+  paths outside the folder and symlinks, refuses a backup whose hash and
+  size do not verify unless named with an explicit flag, writes an audit
+  line, and is absent from the mission-control verb allow-list; tests.
+- **Done when:** fixtures pass in `mise run check`: the check writes nothing
+  to the folder and invokes no model; the event fires on each run over the
+  threshold and not below it; the cleanup verb removes nothing without a
+  named backup; a behavioural fixture populates the folder and runs `retire`,
+  the keeper sweep and `fleet-cleanup.sh` and finds it intact; the knob
+  checks (`scripts/check-mc-knobs.sh` and the options-reference check) pass.
+- **Dependencies:** 13
+- **Citations:** REQ-L1.5 · REQ-K1.6 · REQ-A1.2 · D-19
+- **Estimated effort:** 1 day
+
+### Task 17 — The floor's session-kind and detector checks
+
+- **Deliverables:** a check that derives the session kinds from the
+  launcher's own `kinds` verb and asserts each appears in the floor's
+  rungs-crossed-with-classes table with no blank cell, registered in the
+  `mise` check aggregate; fixtures for REQ-L1.6: a stable pane without a
+  busy signature yields no stall state, and the session state set is not
+  added to the worker classifier's.
+- **Done when:** the check fails once on a kind added to the launcher and
+  absent from the table (shown failing before it passes) and passes on the
+  real tables, in `mise run check`; the REQ-L1.6 fixtures pass.
+- **Dependencies:** 13
+- **Citations:** REQ-L1.1 · REQ-L1.6 · D-17 · D-18
 - **Estimated effort:** 1 day
 
 ## Awaiting input
