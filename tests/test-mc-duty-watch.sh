@@ -71,7 +71,7 @@ expect_out "REQ-C1.8: it raises one self-audit-finding event" "event${tab}self-a
 expect_out "REQ-C1.8: the event names the command that shows the finding" "scripts/mc-audit.sh run --program alpha"
 watch self-audit
 expect_eq "REQ-C1.8: the same finding is not raised again" "checked${tab}self-audit${tab}1"
-[ "$(cksum <"$home/rules.yaml")" = "$rules_sum" ] && ok "the watcher edits no rule" || fail "the watcher changed the rule store"
+if [ "$(cksum <"$home/rules.yaml")" = "$rules_sum" ]; then ok "the watcher edits no rule"; else fail "the watcher changed the rule store"; fi
 
 mc_run mc-rules.sh supersede alpha r-1 --withdraw --source "the operator, fixture" --date "$today"
 watch self-audit

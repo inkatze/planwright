@@ -585,7 +585,7 @@ EOF
   expect_eq "REQ-C1.8: enabling $d owns its directory" "$d${tab}$d"
   mc_run mc-duties.sh watchers --program alpha
   script=$(printf '%s\n' "$OUT" | awk -F '\t' 'NR == 1 { print $2 }')
-  [ -f "$repo_root/$script" ] && ok "REQ-C1.8: the $d watcher script exists" || fail "REQ-C1.8: the $d watcher script $script is missing"
+  if [ -f "$repo_root/$script" ]; then ok "REQ-C1.8: the $d watcher script exists"; else fail "REQ-C1.8: the $d watcher script $script is missing"; fi
   # Disabled: the program enables only a duty that is not this one.
   other=inbox
   cat >"$tracked" <<EOF

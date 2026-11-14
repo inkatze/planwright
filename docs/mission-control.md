@@ -148,8 +148,8 @@ merges itself), predicting
 overlapping changes and merge order, letting known dates set priorities,
 measuring where the work's time
 goes and raising the biggest bottleneck, preparing what you need before a
-decision, recording how to undo each act (`undo-ledger`, which also
-flags a revert that began and never settled), checking what was done
+decision, recording how to undo each act (and flagging an undo
+that began and never settled), checking what was done
 against your rules (`self-audit`, daily), noticing what you keep doing by
 hand (`proposals`, which raises a repeat no proposal covers yet), and
 holding new work

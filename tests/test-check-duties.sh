@@ -63,6 +63,16 @@ expect_fail() { # expect_fail <label>
 run_guard
 expect_rc "the real repository's catalog and defaults pass" 0
 
+# The operator guide's register forbids the word "ledger", so the undo duty
+# is presented there in plain words and cannot be named by its id.
+for d in self-audit proposals; do
+  if grep -q "\`$d\`" "$repo_root/docs/mission-control.md"; then
+    ok "REQ-C1.8: the shipped guide names $d, so the guide check engages on it"
+  else
+    fail "REQ-C1.8: the shipped guide no longer names $d by its id"
+  fi
+done
+
 if awk '/^\[/{c=0} /^\[tasks\."check:non-test"\]$/{c=1} c && /"check:duties"/{f=1} END{exit !f}' "$repo_root/mise.toml"; then
   ok "check:duties is a dependency of check:non-test"
 else
@@ -277,41 +287,43 @@ expect_out "the silent failure is named" "program 'alpha' duties: the read faile
 # ---------------------------------------------------------------------------
 reset_mc_fixture
 fixture_defaults
+# put <line>...: the lines, an @ standing for a backtick.
+put() { printf '%s\n' "$@" | tr '@' '\140'; }
 mkdir -p "$core/docs" "$core/skills/mission-control"
 guide="$core/docs/mission-control.md"
 skill="$core/skills/mission-control/SKILL.md"
-printf '%s\n' '# Guide' '' 'The `alpha-duty` watches pull requests for you.' '' 'Plain words about the beta duty, never its id.' >"$guide"
-printf '%s\n' '# Skill' '' '## Guided first run' '' 'Offer the shipped default set.' '' '## Next' >"$skill"
+put '# Guide' '' "The @alpha-duty@ watches pull requests for you." '' 'Plain words about the beta duty, never its id.' >"$guide"
+put '# Skill' '' '## Guided first run' '' 'Offer the shipped default set.' '' '## Next' >"$skill"
 run_fixture
 expect_rc "REQ-C1.8: a guide presenting only an armed duty passes" 0
 
-printf '%s\n' '# Guide' '' 'The `beta-duty` is on and watches for you,' 'across two lines.' >"$guide"
+put '# Guide' '' 'The @beta-duty@ is on and watches for you,' 'across two lines.' >"$guide"
 run_fixture
 expect_fail "REQ-C1.8: a guide presenting an unarmed duty without the phrase fails"
 expect_out "REQ-C1.8: the finding names the duty" "'beta-duty'"
 expect_out "REQ-C1.8: the finding names the guide" "docs/mission-control.md"
 
-printf '%s\n' '# Guide' '' 'The `beta-duty` is not yet available: it watches nothing,' 'whatever you enable.' >"$guide"
+put '# Guide' '' 'The @beta-duty@ is not yet available: it watches nothing,' 'whatever you enable.' >"$guide"
 run_fixture
 expect_rc "REQ-C1.8: the same duty presented as not yet available passes" 0
 
-printf '%s\n' '# Guide' '' 'The `beta-duty` is on.' '' 'Elsewhere the phrase not yet available appears.' >"$guide"
+put '# Guide' '' 'The @beta-duty@ is on.' '' 'Elsewhere the phrase not yet available appears.' >"$guide"
 run_fixture
 expect_fail "REQ-C1.8: the phrase in another paragraph does not cover the duty"
 
-printf '%s\n' '# Guide' >"$guide"
-printf '%s\n' '# Skill' '' '## Guided first run' '' 'Say that `beta-duty` is working.' >"$skill"
+put '# Guide' >"$guide"
+put '# Skill' '' '## Guided first run' '' 'Say that @beta-duty@ is working.' >"$skill"
 run_fixture
 expect_fail "REQ-C1.8: the first run presenting an unarmed duty fails too"
 expect_out "REQ-C1.8: the finding names the skill" "skills/mission-control/SKILL.md"
 
 # A default duty with no armed entry makes the first run's offer of the
 # default set a promise it must qualify.
-printf '%s\n' '# Skill' '' '## Guided first run' '' 'Offer the shipped default set.' '' '## Next' >"$skill"
+put '# Skill' '' '## Guided first run' '' 'Offer the shipped default set.' '' '## Next' >"$skill"
 sed -e 's/^mission_control_default_duties: .*/mission_control_default_duties: [alpha-duty, beta-duty]/' "$core/config/defaults.yml" >"$tmp/dd" && mv "$tmp/dd" "$core/config/defaults.yml"
 run_fixture
 expect_fail "REQ-C1.8: a default duty with no armed entry fails unless the first run says so"
-printf '%s\n' '# Skill' '' '## Guided first run' '' 'Offer the default set; beta-duty is not yet available.' '' '## Next' >"$skill"
+put '# Skill' '' '## Guided first run' '' 'Offer the default set; beta-duty is not yet available.' '' '## Next' >"$skill"
 run_fixture
 expect_rc "REQ-C1.8: the first run qualifying it passes" 0
 rm -f "$guide" "$skill"
@@ -319,7 +331,7 @@ fixture_defaults
 
 # A duty with no watcher and no trigger is unarmed even when live.
 sed -e 's/^    lifecycle: off$/    lifecycle: live/' -e 's#^    watchers: \[scripts/beta-watch.sh@10m/high\]#    watchers: []#' "$core/config/duties.yaml" >"$tmp/d" && mv "$tmp/d" "$core/config/duties.yaml"
-printf '%s\n' '# Guide' '' 'The `beta-duty` is on.' >"$guide"
+put '# Guide' '' 'The @beta-duty@ is on.' >"$guide"
 run_fixture
 expect_fail "REQ-C1.8: a live duty with no watcher and no trigger is unarmed"
 rm -f "$guide"
