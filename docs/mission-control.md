@@ -132,6 +132,10 @@ it:
   and never claims to know the current state there; when it reports on such
   a fact, it says the picture is yours, not a fresh reading.
 
+The releases of the tools and platforms your program builds on are their own
+kind of fact, `platform`: kept fresh when a copy exists, otherwise only
+cited, and never read directly.
+
 It offers a starting map and you change it as you like. It never guesses a
 place for you.
 

@@ -123,6 +123,7 @@ mc_run mc-snapshot.sh list --program alpha --now 1900
 expect_out "REQ-H1.4: list names each class's mode and age" "code-state${tab}forge${tab}snapshot${tab}100"
 expect_out "REQ-H1.4: a record source has no age" "decisions${tab}specs${tab}record${tab}-"
 expect_out "REQ-H1.4: a class the map leaves out is cited" "designs${tab}-${tab}cited${tab}-"
+expect_out "REQ-H1.5: the status line of a class left out says platform is cited" "platform${tab}-${tab}cited${tab}-"
 
 # ---------------------------------------------------------------------------
 # REQ-M1.1: exhausted rate-limit headroom delays the next read instead of

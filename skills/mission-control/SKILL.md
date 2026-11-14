@@ -211,8 +211,9 @@ The objectives, in order:
    (`gh auth status`); store nothing. Signed in is one line; signed out is
    said with the command to sign in, then checked again.
 4. **Where the program's state lives**, per fact class (work items, code
-   state, decisions, deadlines, designs) and its mode, `record`, `snapshot`
-   or `cited` (REQ-H1.4). Settled as the default map
+   state, decisions, deadlines, designs, `platform`) and its mode, `record`, `snapshot`
+   or `cited` (REQ-H1.5; `platform`, the releases of the tools the program
+   builds on, admits only `snapshot` and `cited`). Settled as the default map
    (`scripts/mc-program.sh`'s `default sources`), said by where each fact
    comes from, never by mode name; a tracker, document store or design tool
    the operator names is `cited` until an adapter exists. The map is the
