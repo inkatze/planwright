@@ -1914,6 +1914,61 @@ printf '%s\n' "$tbl" | grep -Fq -- "- Row 5: pool \`suite\`; waited 37 s; holder
 verdict_of $? "the pool and paths fields render table-safe below the table" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 5')"
 printf '%s\n' "$tbl" | grep -Fq -- "- Row 6: fingerprint none; args digest \`ba7816bf8f01\`"
 verdict_of $? "an absent fingerprint renders as none" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 6')"
+# Awaiting-operator spans round-trip, render table-safe, and are refused
+# outside the step's window or with an end before the start.
+# shellcheck disable=SC2086
+rec=$(srx write --run "$rx" --point pre-pr --step parked $xbase --outcome passed \
+  --start 2026-10-06T10:00:00Z --end 2026-10-06T12:00:00Z \
+  --awaiting-operator "2026-10-06T10:10:00Z,2026-10-06T10:40:00Z,sign-off, on #12" \
+  --awaiting-operator "2026-10-06T11:00:00Z,2026-10-06T11:05:00Z,second ask")
+for pair in "awaiting${TAB}2026-10-06T10:10:00Z 2026-10-06T10:40:00Z sign-off, on #12" \
+  "awaiting${TAB}2026-10-06T11:00:00Z 2026-10-06T11:05:00Z second ask"; do
+  grep -Fxq "$pair" "$rec"
+  verdict "an awaiting-operator span round-trips '$pair'" "record lacks '$pair'"
+done
+srx list --run "$rx" >"$tmp/awaiting.list" && grep -Fq "second ask" "$tmp/awaiting.list"
+verdict "a record with two spans is read whole by list" "list lost the spans"
+srx lookup limited --head "$(git -C "$wx" rev-parse HEAD)" >"$tmp/awaiting.lk"
+verdict_of $? "a two-span record is no malformed record to lookup" "lookup choked on a span record"
+tbl=$(srx render --run "$rx" --point pre-pr)
+printf '%s\n' "$tbl" | grep -Fq "awaiting operator 2026-10-06T10:10:00Z to 2026-10-06T10:40:00Z (sign-off, on #&#8203;12)"
+verdict_of $? "the spans render below the table" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row')"
+# shellcheck disable=SC2086
+rec=$(srx write --run "$rx" --point pre-pr --step unparked $xbase --outcome passed)
+! grep -q "^awaiting" "$rec"
+verdict "a record written without a span carries none" "an awaiting line appeared"
+xrefuse "a span with no end or text" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --awaiting-operator "2026-10-06T10:00:00Z"
+xrefuse "a span ending before it starts" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T09:59:59Z,x"
+xrefuse "a span starting before the step" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --awaiting-operator "2026-10-06T09:59:59Z,2026-10-06T10:00:01Z,x"
+xrefuse "a span ending after the step" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:02Z,x"
+xrefuse "a span with a malformed time" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --awaiting-operator "EVIL,2026-10-06T10:00:01Z,x"
+xrefuse "a span naming nothing awaited" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,"
+# A flagged text is withheld alone: the span keeps its times.
+# shellcheck disable=SC2086
+rec=$(srx write --run "$rx" --point pre-pr --step leaky $xbase --outcome passed \
+  --start 2026-10-06T10:00:00Z --end 2026-10-06T12:00:00Z \
+  --awaiting-operator "2026-10-06T10:10:00Z,2026-10-06T10:40:00Z,approve with $tok")
+grep -Fxq "awaiting${TAB}2026-10-06T10:10:00Z 2026-10-06T10:40:00Z [withheld: the secret screen flagged this value]" "$rec" \
+  && ! grep -Fq "$tok" "$rec"
+verdict "a flagged awaiting text is withheld, its span's times kept" "record: $(cat "$rec")"
+xrefuse "a span with a start and end but no second comma" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z"
+xrefuse "overlapping spans" --awaiting-operator --point pre-pr --step s --outcome passed \
+  --start 2026-10-06T10:00:00Z --end 2026-10-06T12:00:00Z \
+  --awaiting-operator "2026-10-06T10:10:00Z,2026-10-06T10:40:00Z,first sign-off" \
+  --awaiting-operator "2026-10-06T10:30:00Z,2026-10-06T10:50:00Z,second sign-off"
+xrefuse "a span on a full-suite record" --awaiting-operator --full-suite --pool suite --wait 1 \
+  --wait-outcome taken --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,x"
+xrefuse "an empty span" --awaiting-operator --point pre-pr --step s --outcome passed --awaiting-operator ""
+xrefuse "a span on a completion" --awaiting-operator --completion --point pre-pr \
+  --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,x"
+
 xrefuse "a malformed pool" --pool --point pre-pr --step s --outcome passed --pool "EVIL pool" --wait 1
 xrefuse "a pool with no wait" --wait --point pre-pr --step s --outcome passed --pool suite
 xrefuse "a wait with no pool" --pool --point pre-pr --step s --outcome passed --wait 3

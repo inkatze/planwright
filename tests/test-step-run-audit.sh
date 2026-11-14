@@ -88,6 +88,23 @@ audit --through post-pr
 verdict $? "a commit after the last point's completion is stale there; an earlier point on an ancestor stands" \
   "rc $RC: $(cat "$tmp/audit")"
 
+# --- a step that parked on the operator twice is still a recorded step ---------
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [show]'
+r=$(sr new-run)
+sr write --run "$r" --point convergence --step show --kind command --target "$bin/show.sh" \
+  --hosting isolated --backend runner --head "$(head_of)" --end-head "$(head_of)" \
+  --start 2026-11-04T00:00:00Z --end 2026-11-04T01:00:00Z --outcome passed \
+  --awaiting-operator "2026-11-04T00:10:00Z,2026-11-04T00:20:00Z,first sign-off" \
+  --awaiting-operator "2026-11-04T00:30:00Z,2026-11-04T00:40:00Z,second sign-off" >/dev/null \
+  || fail "fixture: a two-span record"
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && grep -qx "covered${TAB}convergence" "$tmp/audit"
+verdict $? "a record carrying two awaiting-operator spans counts toward the cadence" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 # --- a merge of the base alone keeps the record fresh; any other merge does not --
 fresh
 catalog "$SHOW"

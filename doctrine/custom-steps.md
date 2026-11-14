@@ -461,7 +461,10 @@ naming the run id, point, and record sequence it stands on. A pooled step adds
 its pool, wait seconds, holders, and unpooled flag, its start time the take
 (else the wait's start); a `paths`
 step its fingerprint or none and its `args` digest (SHA-256 of `args` as
-written); a re-fire its `refire-of`. A legacy record (no end head, or a skip
+written); a re-fire its `refire-of`. A step that parked on a person adds one
+`--awaiting-operator` span (start, end, what was awaited, inside the step's
+own window) per park, so the throughput duty reports that wait apart from
+step time; a record without one reads as no recorded wait. A legacy record (no end head, or a skip
 without a reason code) matches no reuse or resume lookup, never counts
 toward a `limited` scan, and renders its free-text reason as written. The runner also writes
 one **point-completion record** per point whose list ran, to completion or

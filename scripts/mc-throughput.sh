@@ -64,6 +64,13 @@ as they stand now):
              step id, naming the branch of the slowest; a record with the
              same step, branch, run, sequence, point, start and end as one
              already read is a copy
+             A step that parked on a person carries awaiting-operator
+             spans (step-record.sh write --awaiting-operator): its step
+             time is its run less those spans, and the spans are reported
+             apart, one `operator-wait` line per step id counting them
+             (never hidden in, or merged into, the step time). A record with
+             none reads as no wait; a span outside its step, or ending
+             before it starts, is no wait.
 A stream-json session is the program's when its name is in the
 registry's grammar (mc-, then lowercase letters, digits and hyphens, at
 most 64 characters) and its registry row names the program, or, with no
@@ -92,10 +99,14 @@ Usage:
         <longest pending s|->
       stall<TAB><session><TAB><state><TAB><seconds>
       step<TAB><step id><TAB><runs><TAB><median s><TAB><total s><TAB>
-        <max s><TAB><slowest branch>
+        <max s><TAB><slowest branch>      (step time, spans taken out)
+      operator-wait<TAB><step id><TAB><spans><TAB><median s><TAB>
+        <total s><TAB><max s><TAB><branch of the longest>
   mc-throughput.sh top --program <p> [--now <epoch>]
       the measure lines, then
         top<TAB><key><TAB><total s><TAB><text>   or   top<TAB>none
+      then, when any span is recorded, its own line
+        operator-wait-total<TAB><total s><TAB><text>
   mc-throughput.sh curve --program <p> [--now <epoch>]
       cost per model request against context size, from each of the
       program's stream-json sessions' event captures (not links) last
@@ -636,12 +647,35 @@ step_rows() {
     function flush() {
       if (v["type"] == "step" && v["outcome"] != "skipped" && v["step"] ~ /^[A-Za-z0-9._-]+$/) {
         s = iso(v["start"]); e = iso(v["end"])
-        if (s >= 0 && e >= s && e >= ENVIRON["SINCE"] + 0)
-          print v["step"] "\t" (e - s) "\t" b "\t" (e - (s > ENVIRON["SINCE"] + 0 ? s : ENVIRON["SINCE"])) "\t" v["run"] ":" v["seq"] ":" v["point"] ":" v["start"] ":" v["end"]
+        if (s >= 0 && e >= s && e >= ENVIRON["SINCE"] + 0) {
+          lo = s > ENVIRON["SINCE"] + 0 ? s : ENVIRON["SINCE"] + 0
+          # An awaiting-operator span is read only when whole: two stamps,
+          # the end not before the start, both inside the step. Any other is
+          # no recorded wait. Spans are taken out of the step time and
+          # reported apart as @<step> rows.
+          wt = 0; wi = 0; nk = 0
+          for (j = 1; j <= na; j++) {
+            split(A[j], q, " ")
+            as = iso(q[1]); ae = iso(q[2])
+            if (as < s || ae > e || ae < as) continue
+            # A span overlapping one already taken is no wait, so the waits
+            # never sum past the step.
+            dup = 0
+            for (m = 1; m <= nk; m++) if (as < KE[m] && ae > KS[m]) dup = 1
+            if (dup) continue
+            KS[++nk] = as; KE[nk] = ae
+            ov = ae - (as > lo ? as : lo)
+            if (ov < 0) ov = 0
+            wt += ae - as; wi += ov
+            print "@" v["step"] "\t" (ae - as) "\t" b "\t" ov "\t" v["run"] ":" v["seq"] ":" v["point"] ":" q[1] ":" q[2]
+          }
+          print v["step"] "\t" (e - s - wt) "\t" b "\t" (e - lo - wi) "\t" v["run"] ":" v["seq"] ":" v["point"] ":" v["start"] ":" v["end"]
+        }
       }
-      delete v
+      delete v; na = 0
     }
     $1 == "record" || $0 == "" { flush() }
+    $1 == "awaiting" { A[++na] = substr($0, length($1) + 2); next }
     $0 != "" && !($1 in v) { v[$1] = substr($0, length($1) + 2) }
     END { flush() }'
 }
@@ -758,8 +792,9 @@ EOF
   [ -n "$st_rows" ] || return 0
   # A reclaimed copy of a worktree still on disk holds the same records;
   # another cache of the same branch reuses run ids for other records.
-  printf '%s' "$st_rows" | awk -F '\t' '!(($1, $3, $5) in seen) { seen[$1, $3, $5] = 1; print $1 "\t" $2 "\t" $3 "\t" $4 }' \
-    | aggregate | awk '{ print "step\t" $0 }'
+  st_dedup=$(printf '%s' "$st_rows" | awk -F '\t' '!(($1, $3, $5) in seen) { seen[$1, $3, $5] = 1; print $1 "\t" $2 "\t" $3 "\t" $4 }')
+  printf '%s\n' "$st_dedup" | awk -F '\t' '$1 !~ /^@/' | aggregate | awk '{ print "step\t" $0 }'
+  printf '%s\n' "$st_dedup" | awk -F '\t' '$1 ~ /^@/ { sub(/^@/, ""); print }' | aggregate | awk '{ print "operator-wait\t" $0 }'
 }
 
 measure() {
@@ -788,6 +823,27 @@ candidates() {
     END {
       if (sn) out("stalls", sl, st, ENVIRON["TST"], "Stalled or idle sessions: " sn " past " d(ENVIRON["TST"]) ", " d(st) " in all, longest " d(sl) " (" sw ")")
     }'
+}
+
+# operator_line <measure lines>: sets OP_TOTAL (seconds) and OP_TEXT, the
+# operator wait the records carry (awaiting-operator spans) summed over
+# every step, empty when none is recorded. It is its own line, never part
+# of a step's time or of the top candidate.
+operator_line() {
+  OP_TOTAL="" OP_TEXT=""
+  ol=$(printf '%s\n' "$1" | awk -F '\t' '
+    function d(s,   h, m) {
+      s = int(s); if (s < 60) return s "s"
+      if (s < 3600) return int(s / 60) "m"
+      h = int(s / 3600); m = int((s % 3600) / 60)
+      return (m ? h "h" m "m" : h "h")
+    }
+    $1 == "operator-wait" { n += $3; t += $5; if (!seen || $6 + 0 > mx) { seen = 1; mx = $6 + 0; ms = $2; mb = $7 } }
+    END { if (n) print t "\tOperator wait, kept apart from step time: " d(t) " over " n " spans, longest " d(mx) " on " mb " (" ms ")" }')
+  [ -z "$ol" ] || {
+    OP_TOTAL=$(printf '%s\n' "$ol" | cut -f1)
+    OP_TEXT=$(printf '%s\n' "$ol" | cut -f2)
+  }
 }
 
 # pick <candidates>: the top candidate's line.
@@ -930,6 +986,8 @@ case $verb in
     else
       printf 'top\tnone\n'
     fi
+    operator_line "$m"
+    [ -z "$OP_TOTAL" ] || printf 'operator-wait-total\t%s\t%s\n' "$OP_TOTAL" "$OP_TEXT"
     ;;
   curve)
     load_window
@@ -1010,6 +1068,12 @@ case $verb in
         note=$(printf '%s' "$note" | cut -c1-500)
         text=""
         [ "${#note}" -ge 500 ] || text=$(printf '%s' "$ev_head" | cut -c1-$((500 - ${#note})))
+        # Operator wait rides after the bottleneck when it fits whole, a
+        # sentence of its own, never folded into the step's numbers.
+        operator_line "$m"
+        if [ -n "$OP_TEXT" ] && [ $((${#text} + ${#note} + ${#OP_TEXT} + 3)) -le 500 ]; then
+          note="$note. $OP_TEXT"
+        fi
         mc_event emit --program "$program" --now "$NOW" -- throughput-bottleneck "$subject" "$text$note" >/dev/null || mc_fail "the throughput-bottleneck event was refused"
         kept=$(printf '%s\n' "$kept" | K=$key awk -F '\t' 'NF && $1 != ENVIRON["K"]')
         kept="${kept:+$kept
