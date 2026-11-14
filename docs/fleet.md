@@ -876,7 +876,10 @@ request row it raised (a failure item stays), and prints
 `stream-json-worker-dead` event. While a launch, recover or relaunch of that
 worker is in flight, the scan neither settles nor escalates it, leaving its
 requests to a later scan. `answer` delivers the
-operator's recorded answer as the control_response; `recover` resumes a
+operator's recorded answer as the control_response, first saying on stderr
+which worker and program it is for and the first line of the command it
+approves, and refusing (exit 2, nothing written) a mission-control session
+whose program does not own the worker; `recover` resumes a
 crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
