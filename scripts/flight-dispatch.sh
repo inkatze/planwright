@@ -46,8 +46,9 @@
 #       worker re-run `home` before its push and park on a mismatch.
 #   flight-dispatch.sh retire [--repo-root <dir>]
 #       Remove the brief directory of each of this checkout's retired flights
-#       (its worktree removed, or gone and prunable), one `retired<TAB><id>`
-#       line each, under the checkout's flight lock. Other checkouts' briefs,
+#       (its worktree removed, or gone and prunable; a flight branch merely
+#       checked out in the primary checkout is not retired), one
+#       `retired<TAB><id>` line each, under the checkout's flight lock. Other checkouts' briefs,
 #       and briefs younger than its 15-minute grace, stay; so does
 #       everything when the worktree list or the flights directory cannot be
 #       read, the fleet home or the flights directory is not private to the
@@ -454,7 +455,7 @@ read_worktrees() {
   # git before 2.36 has no `-z` here: its plain listing stands in, newline
   # paths unguarded there, rather than failing every dispatch closed.
   _wl=$({ git -C "$repo_root" worktree list --porcelain -z 2>/dev/null </dev/null \
-    || printf 'failed\000'; } | tr '\012\000' '\001\012') || return 1
+    || printf '\000failed\000'; } | tr '\012\000' '\001\012') || return 1
   case $_wl in
     failed | *"$LF"failed)
       _wl=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null </dev/null) || return 1
@@ -463,7 +464,7 @@ read_worktrees() {
 }
 
 # LIVE_AWK — for each registered, non-prunable flight worktree in a
-# `worktree_stream`, print the flight ids it holds: the
+# `read_worktrees` stream, print the flight ids it holds: the
 # one its path names (`.claude/worktrees/flight-<id>`, so a detached or
 # mid-rebase flight still counts) and the one its branch names, when they
 # differ. With `-v count=1` it prints only the number of such worktrees. The
@@ -492,7 +493,8 @@ LIVE_AWK='
   /^prunable/ { prunable = 1 }
   END { close_block(); if (count) print n + 0 }'
 
-# count_live — set `live` to the registered, non-prunable flight worktrees.
+# count_live — set `live` to the registered, non-prunable flight worktrees,
+# the primary checkout excluded.
 # Runs in the calling shell so a failed listing exits the dispatch instead of
 # reading as an empty count.
 live=''

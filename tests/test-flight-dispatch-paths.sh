@@ -21,7 +21,9 @@
 #   10. The report names an installed worker root, its version, and any skew,
 #       with escape text in a version kept inert; CRLF grounds are one line.
 #   11. A dispatch from a linked worktree reads the primary's config and
-#       places the flight beside the primary.
+#       places the flight beside the primary. A flight branch checked out in
+#       the primary holds no slot and keeps its brief; a newline in a
+#       worktree path forges no live flight.
 #   12. A spec root outside the checkout refuses a file home before anything
 #       is minted or placed.
 #
@@ -588,7 +590,10 @@ worktree $c/forged/.claude/worktrees/flight-forged-0123abcd
 b"
 gitc "$c/primary" worktree add -q --detach "$nlpath"
 dispatch_print
-[ "$RC" -eq 0 ] || fail "REQ-E1.2: a newline in a worktree path forged a live flight (rc $RC: $OUT $ERR)"
+# Only a git with `worktree list -z` (2.36 and later) can resist the forgery.
+if git -C "$c/primary" worktree list --porcelain -z >/dev/null 2>&1; then
+  [ "$RC" -eq 0 ] || fail "REQ-E1.2: a newline in a worktree path forged a live flight (rc $RC: $OUT $ERR)"
+fi
 echo "ok: the primary checkout holds no flight slot and keeps its brief; a newline path forges nothing"
 
 # --- 12. a spec root outside the checkout --------------------------------------
