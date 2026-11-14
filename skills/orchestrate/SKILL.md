@@ -87,14 +87,13 @@ per **Halt → Awaiting input**; simultaneous ones batch into the step report
 3. **Resolve the doctrine docs** (above).
 4. **Verify the spec is Ready or Active** (REQ-C1.1, D-33). Read the
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
-   started) and `Active` (work in flight) are both dispatchable; refuse Draft,
-   Done, Retired, and Superseded. For **Draft**, halt and prompt
+   started) and `Active` (work in flight) are dispatchable;
+   refuse Draft, Done, Retired, and Superseded. For **Draft**, halt and prompt
    `/spec-kickoff`; for Done or terminal, say it has nothing to orchestrate.
 5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh <root>/<spec>`. On
    a dispatch step a missing or non-executable validator **fails closed** and
    halts (REQ-A2.1 outranks degradation); a Ready or Active bundle's findings are
-   errors, surfaced with a halt (REQ-B1.2). On `--bookkeeping` it degrades with a
-   message.
+   errors, halting (REQ-B1.2). On `--bookkeeping` it degrades with a message.
 6. **Verify the kickoff brief** (D-36). `<root>/<spec>/kickoff-brief.md` must exist
    and carry a final sign-off record with its anchor line (formats: `spec-format`).
    Absent or partial: halt and prompt `/spec-kickoff`.
@@ -104,7 +103,7 @@ per **Halt → Awaiting input**; simultaneous ones batch into the step report
 ## Bring-up (REQ-B1.1 to REQ-B1.5, D-4, D-6, D-8)
 
 Once per invocation, before the first step; `--watch` steps do not repeat it.
-Each read is bounded, inline, and repeated on request, never polled.
+Each read is bounded, inline, repeated on request, never polled.
 
 1. **Placement.** `scripts/tower-placement.sh` prints `main`, `linked`, or
    `none` beside the resolved `tower_placement`; `none` counts as a main tree,
@@ -117,11 +116,10 @@ Each read is bounded, inline, and repeated on request, never polled.
    <primary checkout> rev-parse --git-dir`): a refusal means worktree
    isolation: warn once, naming the supported launch, never blocking.
 3. **Posture.** The activation handshake, `scripts/tower-session.sh activate`:
-   only a refusal opening `ACTIVE` proves plugin enforcement, and it re-marks
-   the session; plugin enforcement then meets the floor. Any other outcome
-   means it is missing or broken, and the orchestrator holds its outward acts
-   as `refuse` does. Name every layer read, the plugin's `hooks/hooks.json`
-   included.
+   only a refusal opening `ACTIVE` proves plugin enforcement, which then meets
+   the floor, and it re-marks the session. Any other outcome means it is
+   missing or broken, and the orchestrator holds its outward acts as `refuse`
+   does. Name every layer read, `hooks/hooks.json` included.
 
 ## Selection (REQ-F1.2)
 
@@ -370,8 +368,8 @@ count): `ok` or `disabled` proceeds; `near-limit` hands over per
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
 The predicate's law is `orchestration-concurrency` (read here); its version-keyed
-arms read the declared `Format-version:`, unparseable failing closed, never the
-v1 write (D-7). The sweep:
+arms read the declared `Format-version:`; unparseable fails closed, never the v1
+write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
    --best-effort <primary-checkout>`: one attempt, coalesced with the gate's
@@ -386,8 +384,8 @@ v1 write (D-7). The sweep:
    states (grace threshold, observable liveness, positive evidence of death),
    print-backend units exempt behind a human confirm.
 4. **An orphan is parked to `## Awaiting input`** with an orphan note: a v1 block
-   moves; on a v2 bundle write a reference bullet (`**Task <id>** — <orphan
-   note>`) on the primary checkout's main view (REQ-B1.4), never the dead
+   moves; on a v2 bundle write an Awaiting-input reference bullet (`**Task <id>** —
+   <orphan note>`) on the primary checkout's main view (REQ-B1.4), never the dead
    worker's branch, and only if no live bullet already names the task. Never left
    In progress silently, and **never auto-re-dispatched**.
 5. **Clear stale attention rows**: `scripts/fleet-attention-reconcile.sh --repo
@@ -413,8 +411,8 @@ a relaunch.
 The out-of-session drain pass, a rare mode arm: its passes are
 `orchestration-modes` (read when taken), its gate lanes `accumulator-taxonomy`.
 It dispatches nothing, re-surfaces a satisfied gate rather than closing it,
-reconciles placement on v1 bundles only, never merges, and never advances local
-`main`.
+reconciles placement on v1 bundles only (a v2 bundle has no placement to
+reconcile), never merges, and never advances local `main`.
 
 ## Step report
 
@@ -446,7 +444,7 @@ dispatch path, or a missing or partial kickoff brief (pre-flight steps 4 to
 6); a freshness-gate halt; a taskless or unreadable `tasks.md` (selection exit
 2); cohesion ambiguity (ask); a relayed worker halt (recorded, never
 re-dispatched); `gh` unreachable (record Awaiting input, continue local,
-REQ-K1.6, K1.7). A selection transient-evidence hold (exit 3) is reported and
+REQ-K1.6, K1.7). Selection transient-evidence hold (exit 3) is reported and
 lock contention (`acquire` exit 1) is a clean no-op; neither is a halt.
 
 ## Invariants
