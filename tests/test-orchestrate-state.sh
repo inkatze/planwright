@@ -1233,4 +1233,74 @@ has_record "$bout" completion 1 || fail "completion-git: no completion record fo
 [ "$(completion_field "$bout" 1 4)" = "$bexpect" ] || fail "completion-git: branch-tip merge date not surfaced"
 echo "ok: a git-only completion surfaces a branch-tip date with no invented PR number (REQ-E1.2)"
 
+# ---------------------------------------------------------------------------
+# 7. A merged PR whose body names the task counts it complete, whatever the PR's
+#    head branch was called; naming alone, a PR that is not merged, another
+#    spec's id, or a failed forge query counts nothing. The gh batch carries the
+#    body's `Planwright-Task` values as a fifth column on a merged PR.
+# ---------------------------------------------------------------------------
+prrepo="$tmp/prbody"
+prspec="$prrepo/specs/demo"
+mkdir -p "$prspec"
+gitc_init "$prrepo"
+cat >"$prspec/tasks.md" <<'EOF2'
+# Demo — Tasks
+
+**Status:** Active
+
+## Forward plan
+
+### Task 1 — merged PR body names it
+- **Dependencies:** none
+
+### Task 2 — open PR body names it
+- **Dependencies:** none
+
+### Task 3 — mentioned in prose only
+- **Dependencies:** none
+
+### Task 4 — in-flight branch
+- **Dependencies:** none
+
+### Task 5 — merged PR body names another spec's task
+- **Dependencies:** none
+
+### Task 6 — base commit message names it
+- **Dependencies:** none
+
+### Task 7 — closed PR body names it
+- **Dependencies:** none
+EOF2
+gitc "$prrepo" add -A
+gitc "$prrepo" commit -q -m "base: spec bundle"
+gitc "$prrepo" remote add origin https://example.invalid/demo.git
+gitc "$prrepo" commit -q --allow-empty -m "feat: task 6 work" -m "Planwright-Task: demo/6"
+gitc "$prrepo" checkout -q -b planwright/demo/task-4
+gitc "$prrepo" commit -q --allow-empty -m "task 4 wip"
+gitc "$prrepo" checkout -q main
+
+prstub="$tmp/binprbody"
+make_gh_stub "$prstub" \
+  "planwright/flight/a1${TAB}MERGED${TAB}10${TAB}2026-11-01T00:00:00Z${TAB}demo/1" \
+  "planwright/flight/a2${TAB}OPEN${TAB}11${TAB}${TAB}demo/2" \
+  "planwright/flight/a3${TAB}MERGED${TAB}12${TAB}2026-11-01T00:00:00Z" \
+  "planwright/flight/a5${TAB}MERGED${TAB}13${TAB}2026-11-01T00:00:00Z${TAB}other/5" \
+  "planwright/flight/a7${TAB}CLOSED${TAB}14${TAB}${TAB}demo/7"
+prout=$(PATH="$prstub:$PATH" "$STATE" "$prspec")
+assert_state "$prout" 1 completed "pr-body: merged PR body names the task"
+assert_evidence "$prout" 1 trailer "pr-body: merged PR body names the task"
+assert_state "$prout" 2 ready "pr-body: an open PR does not count"
+assert_state "$prout" 3 ready "pr-body: a merged PR that does not name the task does not count"
+assert_state "$prout" 4 in-progress "pr-body: an existing in-progress case stays in progress"
+assert_state "$prout" 5 ready "pr-body: another spec's task id does not count"
+assert_state "$prout" 6 completed "pr-body: a base commit message naming the task counts"
+assert_state "$prout" 7 ready "pr-body: a closed, unmerged PR does not count"
+
+prfail="$tmp/binprfail"
+make_failing_gh_stub "$prfail"
+prfout=$(PATH="$prfail:$PATH" "$STATE" "$prspec") || fail "pr-body: failing gh wedged the engine"
+assert_state "$prfout" 1 ready "pr-body: forge unreachable counts nothing complete"
+printf '%s\n' "$prfout" | grep -q "^degraded${TAB}gh" || fail "pr-body: failing gh surfaced no degradation"
+echo "ok: a merged PR naming the task counts it complete; nothing weaker does, and a failed forge counts nothing"
+
 echo "PASS: test-orchestrate-state.sh"
