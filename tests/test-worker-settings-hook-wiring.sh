@@ -127,6 +127,22 @@ for pg_wire in 'Bash|worker bash' 'mcp__github__update_pull_request|worker mcp';
     fail "worker-settings does not wire \"\$CLAUDE_PLUGIN_ROOT\"/scripts/policy-guard.sh $pg_args on $pg_matcher (human-gates REQ-G1.5)"
   fi
 done
+# --- worker-permission-ergonomics REQ-F1.7: the hooks-directory file-tool hook
+if jq -e '
+  (.hooks.PreToolUse // [])
+  | map(select(.matcher == "Edit|Write|MultiEdit|NotebookEdit"))
+  | map(.hooks[]? | select(.type == "command") | .command)
+  | any(. == "\"$CLAUDE_PLUGIN_ROOT\"/scripts/worker-hooks-edit-guard.sh")
+' "$worker_settings" >/dev/null 2>&1; then
+  ok "worker-settings wires worker-hooks-edit-guard.sh on the file-tool matcher (REQ-F1.7)"
+else
+  fail "worker-settings does not wire \"\$CLAUDE_PLUGIN_ROOT\"/scripts/worker-hooks-edit-guard.sh on Edit|Write|MultiEdit|NotebookEdit (REQ-F1.7)"
+fi
+if [ -x "$REPO_ROOT/scripts/worker-hooks-edit-guard.sh" ]; then
+  ok "the wired hooks-directory guard exists and is executable"
+else
+  fail "the wired scripts/worker-hooks-edit-guard.sh is missing or not executable"
+fi
 if [ -x "$REPO_ROOT/scripts/policy-guard.sh" ]; then
   ok "the wired policy guard exists and is executable"
 else
@@ -159,7 +175,7 @@ expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready --undo:*)","Bash(gh pr r
 # The only entries the deny block gained since that baseline are the Read and
 # Edit path rules for execution-bearing paths, the guard's session record and
 # overlays, and other processes' environments (REQ-F1.6, REQ-G1.8, REQ-E1.6).
-expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(//**/githooks/**)","Edit(//**/.githooks/**)","Edit(.claude/**)","Edit(//**/.envrc)","Edit(//**/.tool-versions)","Edit(//**/.config/**)","Edit(//**/.mise/**)","Edit(//**/mise/config*.toml)","Edit(//**/mise/miserc*.toml)","Edit(//**/mise/conf.d/**)","Edit(//**/mise/tasks/**)","Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise.*.toml)","Edit(//**/.mise.*.toml)","Edit(//**/.miserc*.toml)","Edit(//**/mise-tasks/**)","Edit(//**/.mise-tasks/**)","Edit(//**/mise*.lock)","Edit(//**/.local/share/mise/**)","Edit(//**/.local/state/mise/**)","Edit(//**/.cache/mise/**)","Edit(//**/Library/Caches/mise/**)","Edit(//usr/local/share/mise/**)","Edit(//tmp/**/mise/**)","Edit(//var/folders/**/mise/**)","Edit(//private/tmp/**/mise/**)","Edit(//private/var/folders/**/mise/**)","Edit(//**/lefthook/**)","Edit(//**/lefthook.*)","Edit(//**/lefthook-local.*)","Edit(//**/.lefthook/**)","Edit(//**/.lefthook.*)","Edit(//**/.lefthook-local/**)","Edit(//**/.lefthook-local.*)","Edit(//**/session-records/*.record)","Edit(//**/streamjson/*/mise-task-edit)","Edit(//**/streamjson/*/worker-settings.json)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
+expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(githooks/**/*)","Edit(.githooks/**/*)","Edit(.claude/**)","Edit(//**/.envrc)","Edit(//**/.tool-versions)","Edit(//**/.config/**)","Edit(//**/.mise/**)","Edit(//**/mise/config*.toml)","Edit(//**/mise/miserc*.toml)","Edit(//**/mise/conf.d/**)","Edit(//**/mise/tasks/**)","Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise.*.toml)","Edit(//**/.mise.*.toml)","Edit(//**/.miserc*.toml)","Edit(//**/mise-tasks/**)","Edit(//**/.mise-tasks/**)","Edit(//**/mise*.lock)","Edit(//**/.local/share/mise/**)","Edit(//**/.local/state/mise/**)","Edit(//**/.cache/mise/**)","Edit(//**/Library/Caches/mise/**)","Edit(//usr/local/share/mise/**)","Edit(//tmp/**/mise/**)","Edit(//var/folders/**/mise/**)","Edit(//private/tmp/**/mise/**)","Edit(//private/var/folders/**/mise/**)","Edit(//**/lefthook/**)","Edit(//**/lefthook.*)","Edit(//**/lefthook-local.*)","Edit(//**/.lefthook/**)","Edit(//**/.lefthook.*)","Edit(//**/.lefthook-local/**)","Edit(//**/.lefthook-local.*)","Edit(//**/session-records/*.record)","Edit(//**/streamjson/*/mise-task-edit)","Edit(//**/streamjson/*/worker-settings.json)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
 path_rule_re='^(Read|Edit|Write|NotebookEdit)\('
 actual_deny="$(jq -cS --arg re "$path_rule_re" '[.permissions.deny[] | select(test($re) | not)]' "$worker_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
