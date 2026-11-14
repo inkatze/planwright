@@ -79,6 +79,17 @@ SHIM
   chmod +x "$shims/$t"
 done
 
+# An async job, which a parallel runner's file is, starts with INT and QUIT
+# ignored, and an old bash cannot reset an inherited ignore; the signal under
+# test would then never land. DFLT hands the sweep the default dispositions.
+if env --default-signal=INT,QUIT true >/dev/null 2>&1; then
+  DFLT=(env --default-signal=INT,QUIT)
+elif command -v perl >/dev/null 2>&1; then
+  DFLT=(perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "exec: $!"')
+else
+  DFLT=(env)
+fi
+
 git_env() {
   GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t \
     GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t "$@"
@@ -135,14 +146,23 @@ parked_sweep() {
   # exec'd, so the job's pid is the sweep itself: waiting on a wrapper shell
   # that died of the signal would return before the sweep's traps had run.
   set -m
-  (exec "${SW[@]}" PATH="$shims:$PATH" PARK_ON="$2" PARK_REACHED="$reached" \
+  (exec "${DFLT[@]}" "${SW[@]}" PATH="$shims:$PATH" PARK_ON="$2" PARK_REACHED="$reached" \
     /bin/sh "$SWEEP" --repo "$repo" >/dev/null 2>"$tmp/err") &
   ps_pid=$!
   set +m
   poll_until --what 'the parking site' -- test -e "$reached" || fail "$5 ($ps_sig): the sweep never reached the site: $(cat "$tmp/err")"
   kill -"$ps_sig" -- "-$ps_pid"
+  # A sweep that survives the signal would hold the wait forever; a zombie
+  # still answers kill -0, so a watchdog ends it instead of a poll.
+  rm -f "$reached.outlived"
+  set -m
+  (sleep 60 && : >"$reached.outlived" && kill -9 -- "-$ps_pid") &
+  ps_dog=$!
+  set +m
   ps_rc=0
   wait "$ps_pid" || ps_rc=$?
+  kill -- "-$ps_dog" || :
+  [ ! -e "$reached.outlived" ] || fail "$5 ($ps_sig): the sweep outlived the signal"
   [ "$ps_rc" != 0 ] || fail "$5 ($ps_sig): a sweep stopped by a signal exited 0"
   # A site several processes below the sweep runs its trap after the sweep
   # itself has exited, so the check waits for the group to finish.
