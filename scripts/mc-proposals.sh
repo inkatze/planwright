@@ -523,7 +523,7 @@ v_outcome() { # v_outcome <accept|decline|park|reopen> <id> [--trigger <t>]
     park)
       require_state "$id" open
       set_state "$id" parked "$trigger"
-      if ! kb followup add --program "$PROGRAM" --owner mission-control --trigger "$trigger" \
+      if ! kb followup add --program "$PROGRAM" --owner mission-control --trigger "$trigger" --done operator \
         --text "$(followup_text "$id")" >/dev/null; then
         set_state "$id" open
         mc_fail "the follow-up was not written; proposal $id stays open"

@@ -18,6 +18,11 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
+
 failures=0
 fail() {
   echo "FAIL: $1" >&2
@@ -233,7 +238,7 @@ expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 7 in fligh
 judged=$(date +%s)
 mr_rows() { # mr_rows <state>: a merge-ready store judged now
   printf 'state\t%s\t%s\n' "$1" "$judged"
-  printf 'acme/web#7\tk\tready\t1\tsquash\t-\nacme/web#8\tk\tnot-ready\t1\t-\t-\nacme/web#9\tk\tready\t1\tsquash\t-\n'
+  printf 'acme/web#7\tk\tready\t1\tsquash\t-\t-\nacme/web#8\tk\tnot-ready\t1\t-\t-\t-\nacme/web#9\tk\tready\t1\tsquash\t-\t-\n'
 }
 mr_rows ok >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
@@ -246,29 +251,32 @@ expect_out "and so does the text panel" "ready to merge: 2"
 head40=0123456789abcdef0123456789abcdef01234567
 {
   printf 'state\tok\t%s\n' "$judged"
-  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
-  printf 'acme/web#8\t%s|false|MERGEABLE\tnot-ready\t1\t-\tno\n' "$head40"
-  printf 'acme/web#9\tk\tready\t1\tsquash\t-\n'
-  printf 'acme/web#10\t%s|x\tready\t1\tvaporize\t-\n' "$head40"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\tdemo/1\n' "$head40"
+  printf 'acme/web#8\t%s|false|MERGEABLE\tnot-ready\t1\t-\tno\t-\n' "$head40"
+  printf 'acme/web#9\tk\tready\t1\tsquash\t-\t-\n'
+  printf 'acme/web#10\t%s|x\tready\t1\tvaporize\t-\t-\n' "$head40"
+  printf 'acme/web#11\t%s|x\tready\t1\tsquash\t-\n' "$head40"
 } >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh digest --program alpha --now "$judged"
-record "a ready pull request carries its checked merge command" merge-command acme/web 7 "gh pr merge 7 --repo acme/web --squash --match-head-commit $head40"
+# shellcheck disable=SC2016 # the command is text the operator runs, not run here
+record "a ready pull request carries its checked merge command, its task lines piped in" merge-command acme/web 7 \
+  "printf '%s\n' 'Planwright-Task: demo/1' | gh pr merge 7 --repo acme/web --squash --body-file - --match-head-commit $head40"
 if [ "$(printf '%s\n' "$OUT" | grep -c '^merge-command')" = 1 ]; then
   ok "and only the well-formed ready rows do"
 else
-  fail "a not-ready, headless or odd-method row carried a merge command"
+  fail "a not-ready, headless, odd-method or task-list-less row carried a merge command"
 fi
 # A store the last judgment did not write as ok, or an old one, is unconfirmed:
 # its verdicts carry no command.
 {
   printf 'state\tstale\t%s\n' "$judged"
-  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\t-\n' "$head40"
 } >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh digest --program alpha --now "$judged"
 if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "a stale store carried a merge command"; else ok "a stale store carries no merge command"; fi
 {
   printf 'state\tok\t%s\n' "$judged"
-  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\t-\n' "$head40"
 } >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh digest --program alpha --now $((judged + 7200))
 if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "an old store carried a merge command"; else ok "an old store carries no merge command"; fi
@@ -351,11 +359,16 @@ expect_out "one approval is said in the singular" ", 1 approval mission control 
 # an approval is still pending in it.
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$fleet/attention/state"
-  mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
-  chmod 600 "$fleet/attention/state"
-  record "an unreadable queue is named" unreadable "operator queue"
-  expect_no_out "and no approvals are counted from it" "approvals${tab}"
-  expect_no_out "nor said in the line" "mission control is handling"
+  if hermetic_access_denied r "$fleet/attention/state"; then
+    mc_run mc-panel.sh digest --program alpha --target mc-alpha --now 1030
+    chmod 600 "$fleet/attention/state"
+    record "an unreadable queue is named" unreadable "operator queue"
+    expect_no_out "and no approvals are counted from it" "approvals${tab}"
+    expect_no_out "nor said in the line" "mission control is handling"
+  else
+    chmod 600 "$fleet/attention/state"
+    echo "skip: an unreadable queue (the mode does not deny access here)"
+  fi
 fi
 for w in w-perm w-ask; do mc_run fleet-attention.sh clear "$w"; done
 
@@ -629,25 +642,35 @@ mc_run mc-panel.sh install --program alpha --root "$moved" --now 5060
 store=$fleet/attention/mission-control/alpha
 if [ "$(id -u)" -ne 0 ]; then
   chmod 500 "$store/events"
-  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
-  chmod 700 "$store/events"
-  expect_rc "a refused event fails the check" 1
-  expect_err "naming the event" "event could not be stored"
-  set +f
-  # shellcheck disable=SC2086 # the glob is the point
-  set -- $runtime/install.*
-  set -f
-  if [ -e "$1" ]; then fail "a refused event left a temporary record: $1"; else ok "and leaves no temporary record"; fi
+  if hermetic_access_denied w "$store/events"; then
+    mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5070
+    chmod 700 "$store/events"
+    expect_rc "a refused event fails the check" 1
+    expect_err "naming the event" "event could not be stored"
+    set +f
+    # shellcheck disable=SC2086 # the glob is the point
+    set -- $runtime/install.*
+    set -f
+    if [ -e "$1" ]; then fail "a refused event left a temporary record: $1"; else ok "and leaves no temporary record"; fi
+  else
+    chmod 700 "$store/events"
+    echo "skip: a refused event (the mode does not deny access here)"
+  fi
   before=$(events_of planwright-updated | wc -l | tr -d ' ')
   chmod 500 "$runtime"
-  mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5075
-  chmod 700 "$runtime"
-  expect_rc "a record that cannot be written fails the check" 1
-  expect_err "naming the record" "cannot write the install record"
-  if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = "$before" ]; then
-    ok "and stores no event, so a retry cannot flood the store"
+  if hermetic_access_denied w "$runtime"; then
+    mc_run mc-panel.sh install --program alpha --root "$new_root" --now 5075
+    chmod 700 "$runtime"
+    expect_rc "a record that cannot be written fails the check" 1
+    expect_err "naming the record" "cannot write the install record"
+    if [ "$(events_of planwright-updated | wc -l | tr -d ' ')" = "$before" ]; then
+      ok "and stores no event, so a retry cannot flood the store"
+    else
+      fail "an unwritable record still stored an event"
+    fi
   else
-    fail "an unwritable record still stored an event"
+    chmod 700 "$runtime"
+    echo "skip: a record that cannot be written (the mode does not deny access here)"
   fi
 else
   echo "skip: the refused-write cases (root writes through any mode)"
@@ -814,9 +837,7 @@ sid_c=33333333-2222-3333-4444-555555555555
 sid_d=44444444-2222-3333-4444-555555555555
 act=$fleet/mission-control/_panel/active
 live_pid=$$
-sleep 0 &
-dead_pid=$!
-wait "$dead_pid"
+dead_pid=$(dead_owner_pid) || fail "no PID above the host's range to stand for a dead owner"
 
 # The session-start hook records which session this process carries.
 OUT=$(printf '{"session_id":"%s","hook_event_name":"SessionStart","source":"startup"}' "$sid_a" \

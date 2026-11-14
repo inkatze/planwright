@@ -23,6 +23,8 @@ repo_root=$(cd "$here/.." && pwd)
 SP="$repo_root/scripts/step-pool.sh"
 DEFAULTS="$repo_root/config/defaults.yml"
 TAB=$(printf '\t')
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 
@@ -518,7 +520,7 @@ poll_until --what 'the waiter reporting a full pool' -- grep -q 'is full' "$tmp/
 kill -TERM "$waiter"
 wait "$waiter"
 rc=$?
-[ "$rc" -eq 143 ] && [ "$(readlink "$pools/samepid/slot-1" 2>/dev/null)" = "$o-1000-999999999-$waiter-1" ]
+[ "$rc" -eq 143 ] && [ "$(readlink "$pools/samepid/slot-1" 2>/dev/null)" = "$o-1000-999999999-$waiter-1" ] # hermetic-exempt: compares the token the waiter minted under its own pid; nothing probes that pid as an owner
 verdict "a take stopped while waiting leaves a hold an earlier same-pid take minted" "same-pid hold: rc=$rc" "$tmp/err"
 
 # --- REQ-I1.1: released by its owner after a non-zero exit ----------------------
@@ -731,19 +733,19 @@ verdict "the hold mark is the only PLANWRIGHT_STEP_* variable the helper reads" 
 verdict "a PLANWRIGHT_STEP_-prefixed root is not honoured" "the take used the old override name"
 
 # --- REQ-I1.4: an unreadable holder file reads as an unknown holder, quietly ---
-if [ "$(id -u)" = 0 ]; then
-  ok "skipped: root reads a mode-000 holder file"
-else
-  reset
-  a=$(owner)
-  sp -- take sealed "$a" --step build >/dev/null
-  chmod 000 "$pools/sealed/holder-1"
+reset
+a=$(owner)
+sp -- take sealed "$a" --step build >/dev/null
+chmod 000 "$pools/sealed/holder-1"
+if hermetic_access_denied r "$pools/sealed/holder-1"; then
   out=$(sp -- report sealed 2>"$tmp/err")
-  chmod 600 "$pools/sealed/holder-1"
   [ "$out" = "holder${TAB}1${TAB}$a${TAB}?${TAB}?" ] && [ ! -s "$tmp/err" ]
   verdict "an unreadable holder file reports an unknown holder with nothing on stderr" "sealed: '$out'" "$tmp/err"
-  sp -- release sealed "$a" >/dev/null
+else
+  printf '%s\n' "skip: unreadable holder file: the running user still reads $pools/sealed/holder-1 under mode 000"
 fi
+chmod 600 "$pools/sealed/holder-1"
+sp -- release sealed "$a" >/dev/null
 
 # --- REQ-I1.2: a pool another user could write to runs unpooled ----------------
 reset
@@ -793,21 +795,19 @@ mkdir -p "$pools"
 out=$(sp -- take plainfile "$a" 2>"$tmp/err")
 [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$pools/plainfile exists and is not a directory" "$tmp/err"
 verdict "an existing non-directory is named as one" "non-directory: '$out'" "$tmp/err"
-if [ "$(id -u)" = 0 ]; then
-  ok "skipped: a directory root cannot create needs a non-root user"
-else
-  mkdir -p "$tmp/ro"
-  chmod 500 "$tmp/ro"
+mkdir -p "$tmp/ro"
+chmod 500 "$tmp/ro"
+if hermetic_access_denied w "$tmp/ro"; then
   out=$(pool_in "$repo" "$tmp/ro/pools" take nocreate "$a" 2>"$tmp/err")
-  chmod 700 "$tmp/ro"
   [ "$out" = "unpooled${TAB}-${TAB}0" ] && grep -qF "$tmp/ro/pools could not be created" "$tmp/err"
   verdict "a directory that cannot be created is named as such" "no create: '$out'" "$tmp/err"
-fi
-if [ "$(id -u)" = 0 ]; then
-  ok "skipped: a pool directory root cannot list needs a non-root user"
 else
-  sp -- take unlisted "$a" >/dev/null 2>&1
-  chmod 300 "$pools/unlisted"
+  printf '%s\n' "skip: pool directory that cannot be created: the running user still writes $tmp/ro under mode 500"
+fi
+chmod 700 "$tmp/ro"
+sp -- take unlisted "$a" >/dev/null 2>&1
+chmod 300 "$pools/unlisted"
+if hermetic_access_denied r "$pools/unlisted"; then
   out=$(sp -- release unlisted "$a" 2>"$tmp/err")
   rout=$(sp -- report unlisted 2>>"$tmp/err")
   chmod 700 "$pools/unlisted"
@@ -815,8 +815,11 @@ else
     && [ "$(grep -cF "$pools/unlisted cannot be listed" "$tmp/err")" -eq 2 ]
   verdict "a pool directory that cannot be listed is named as such, its slot never released as none" \
     "unlisted: out='$out' report='$rout'" "$tmp/err"
-  sp -- release unlisted "$a" >/dev/null
+else
+  printf '%s\n' "skip: pool directory that cannot be listed: the running user still reads $pools/unlisted under mode 300"
 fi
+chmod 700 "$pools/unlisted"
+sp -- release unlisted "$a" >/dev/null
 stub8="$tmp/stub8"
 mkdir -p "$stub8"
 printf '#!/bin/sh\nexit 1\n' >"$stub8/id"

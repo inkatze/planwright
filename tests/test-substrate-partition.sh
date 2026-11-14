@@ -16,6 +16,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 REPO_ROOT=$(cd "$here/.." && pwd)
 SP="$REPO_ROOT/scripts/substrate-partition.sh"
 
@@ -418,14 +420,17 @@ printf '{}\n' >"$tmp/fx6/hooks/hooks.json"
 rc=0
 run_sp "$tmp/fx6" >/dev/null || rc=$?
 [ "$rc" = 5 ] || fail "p7: a hook registration with no command exited $rc, want 5"
-if [ "$(id -u)" != 0 ]; then
-  cp -R "$fx" "$tmp/fx7" || fail "fixture copy failed"
-  chmod 000 "$tmp/fx7/skills/demo/SKILL.md"
+cp -R "$fx" "$tmp/fx7" || fail "fixture copy failed"
+chmod 000 "$tmp/fx7/skills/demo/SKILL.md"
+if hermetic_access_denied r "$tmp/fx7/skills/demo/SKILL.md"; then
   rc=0
   run_sp "$tmp/fx7" >/dev/null || rc=$?
   chmod 644 "$tmp/fx7/skills/demo/SKILL.md"
   [ "$rc" = 5 ] || fail "p7: an unreadable skill body exited $rc, want 5"
+else
+  echo "skip: p7 unreadable skill body: the running user still reads $tmp/fx7/skills/demo/SKILL.md under mode 000"
 fi
+chmod 644 "$tmp/fx7/skills/demo/SKILL.md"
 rc=0
 /bin/sh "$SP" --repo-root "" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "p7: an empty --repo-root exited $rc, want 2"
