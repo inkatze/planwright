@@ -26,6 +26,9 @@ done
 
 FORMAT=1
 FIELDS="id text subject source date scope supersedes withdrawn"
+# Optional, after the required fields: an entry written before it existed
+# lacks it and reads as unknown.
+OPTIONAL="enforcement"
 MAX_TEXT=2000
 MAX_SHORT=200
 
@@ -88,14 +91,25 @@ nor a withdrawal; list keeps them all.
            component of one of the program's repositories; default
            program. A scope some entry already carries is accepted as is,
            so a recorded reversal survives a configuration change
+  enforcement  how the rule is kept, optional: script:<name>, knob:<name>,
+           hook:<name>, duty:<name> or default:<name> (the kind and the
+           thing it names), fix:<pr-or-observation> (an open fix that will
+           enforce it: #<n> or <owner/name>#<n> for a pull request, else
+           an observation fragment name), or prose:<one-line reason>. The
+           value is matched against that closed grammar and stored as
+           data, never evaluated; an entry without it reads as unknown,
+           and every reader treats unknown like any other value. It
+           changes no rule text and no render digest; mc-config.sh doctor
+           lists the rules it finds prose, unknown or closed
 
 Usage:
   mc-rules.sh add <program> --text <t> --subject <s> --source <s>
-      --date <d> [--scope <scope>]
+      --date <d> [--scope <scope>] [--enforcement <e>]
   mc-rules.sh supersede <program> <id>
-      (--text <t> [--subject <s>] [--scope <scope>] | --withdraw)
+      (--text <t> [--subject <s>] [--scope <scope>] [--enforcement <e>] | --withdraw)
       --source <s> --date <d>
-      a replacement inherits the old entry's subject and scope unless given
+      a replacement inherits the old entry's subject and scope,
+      and its enforcement, unless given
   mc-rules.sh list <program>       every entry, oldest first
   mc-rules.sh active <program>     the active set, in the same shape
   mc-rules.sh render <program> [--scope <scope>]...
@@ -122,8 +136,9 @@ Output, tab separated:
                    name, run as the installed planwright's scripts/
                    mc-rules.sh
   list, active     <id> <status> <date> <scope> <subject> <text> <source>
-                   <supersedes>; status active, superseded or withdrawal,
-                   and `-` for a withdrawal's text or no supersedes
+                   <supersedes> <enforcement>; status active, superseded or
+                   withdrawal, `-` for a withdrawal's text or no supersedes,
+                   and unknown for an entry with no enforcement field
   conflicts        shared <subject key> <id>,<id>[,...] per key that more
                    than one active entry carries
   render, load     the begin marker names the program, the format, the
@@ -140,8 +155,10 @@ Output, tab separated:
 The store opens with its format field; a store whose format is missing or
 unknown is refused with the field named, as is any line outside the
 grammar this script writes, an absent field included; blank lines and
-lines opening with # are skipped wherever they fall. The field set is
-fixed at format 1: a new field is a new format and its migration. Writes
+lines opening with # are skipped wherever they fall. The required
+field set is fixed at format 1, and enforcement is its one optional field
+(a store without it is still format 1); any other new field is a new format
+and its migration. Writes
 take the store's lock (scripts/lock-lib.sh) and replace the file by
 rename, so readers take no lock and never see a torn store; a reader reads
 the file once and checks and parses that one copy.
@@ -354,7 +371,7 @@ snap_store() {
 # order and tab separated, with every value unescaped.
 parse_store() {
   [ "$STORE_PRESENT" -eq 1 ] || return 0
-  printf '%s' "$STORE_TEXT" | FILE=$(sanitize_printable "$STORE") WANT=$FORMAT FIELDS=$FIELDS awk '
+  printf '%s' "$STORE_TEXT" | FILE=$(sanitize_printable "$STORE") WANT=$FORMAT FIELDS=$FIELDS OPTIONAL=$OPTIONAL awk '
     function bad(msg) {
       printf "mc-rules: %s:%d: %s\n", ENVIRON["FILE"], NR, msg > "/dev/stderr"
       failed = 1
@@ -379,6 +396,15 @@ parse_store() {
       }
       return out
     }
+    function enforcement_ok(v,   k, r) {
+      k = v; sub(/:.*/, "", k)
+      r = substr(v, length(k) + 2)
+      if (length(v) > 200 || r == "") return 0
+      if (k == "prose") return (r !~ /\$[({]|`/)
+      if (k == "fix") return (r ~ /^([A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)?#[0-9]+$/ || r ~ /^[a-z0-9][a-z0-9-]*$/)
+      if (k == "script" || k == "knob" || k == "hook" || k == "duty" || k == "default") return (r ~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/ && r !~ /\.\./)
+      return 0
+    }
     function flush(   i, k) {
       if (!open) return
       for (i = 1; i <= nf; i++)
@@ -398,6 +424,7 @@ parse_store() {
       ids[cur["id"]] = 1
       row = cur[F[1]]
       for (i = 2; i <= nf; i++) row = row "\t" cur[F[i]]
+      for (i = 1; i <= no; i++) row = row "\t" ((O[i] in cur) ? cur[O[i]] : "unknown")
       print row
       for (k in cur) delete cur[k]
       open = 0
@@ -405,6 +432,8 @@ parse_store() {
     BEGIN {
       nf = split(ENVIRON["FIELDS"], F, " ")
       for (i = 1; i <= nf; i++) known[F[i]] = 1
+      no = split(ENVIRON["OPTIONAL"], O, " ")
+      for (i = 1; i <= no; i++) known[O[i]] = 1
     }
     /[\001-\037\177]|\302[\200-\237]/ { bad("a control character") }
     /^#/ || /^[ ]*$/ { next }
@@ -446,6 +475,9 @@ parse_store() {
         if (v != "program" && v !~ /^duty:[a-z0-9][a-z0-9-]*$/ && v !~ /^repo:[A-Za-z0-9][A-Za-z0-9._-]*$/) bad("\"" v "\" is not a scope")
       } else if (key == "withdrawn") {
         if (v != "true" && v != "false") bad("withdrawn is \"" v "\", not true or false")
+      } else if (key == "enforcement") {
+        v = unq(v)
+        if (!enforcement_ok(v)) bad("\"" v "\" is not an enforcement")
       }
       cur[key] = v
     }
@@ -473,7 +505,7 @@ rows() {
         split(e[i], f, "\t")
         st = wd[i] == "true" ? "withdrawal" : (id[i] in gone ? "superseded" : "active")
         text = wd[i] == "true" ? "-" : f[2]
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", f[1], st, f[5], f[6], f[3], text, f[4], f[7]
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", f[1], st, f[5], f[6], f[3], text, f[4], f[7], (f[9] == "" ? "unknown" : f[9])
       }
     }'
 }
@@ -490,7 +522,7 @@ in_scope() {
 render() { # render <program> <scopes> <scope label>
   rd_entries=$(read_store) || exit 1
   rd_rows=$(active_rows "$rd_entries" | in_scope "$2")
-  rd_digest=$(digest_of "$rd_rows") || exit 1
+  rd_digest=$(digest_of "$(printf '%s\n' "$rd_rows" | cut -f 1-8)") || exit 1
   printf '%s\n' "<!-- mc-rules begin: program $1, format $FORMAT, scope $3, digest $rd_digest -->"
   printf '%s\n' "## Standing rules" ""
   if [ -z "$rd_rows" ]; then
@@ -502,7 +534,7 @@ render() { # render <program> <scopes> <scope label>
 }
 
 # append <precheck> <text> <subject> <source> <date> <scope> <supersedes>
-# <withdrawn>: under the store's lock, re-read the store, run the precheck
+# <withdrawn> [<enforcement>]: under the store's lock, re-read the store, run the precheck
 # function against its entries, then write the store with the entry
 # appended under the next free id, set in NEW_ID. The precheck may refine
 # the entry through ENTRY_SUBJECT and ENTRY_SCOPE. Called in this shell,
@@ -513,6 +545,7 @@ append() {
   ap_precheck=$1
   ENTRY_SUBJECT=$3
   ENTRY_SCOPE=$6
+  ENTRY_ENFORCEMENT=${9:-}
   if [ ! -d "$HOME_DIR" ]; then
     (umask 077 && mkdir -p "$HOME_DIR") || die 1 "cannot create the program home $HOME_DIR"
   fi
@@ -550,7 +583,8 @@ append() {
       "    date: $5" \
       "    scope: $ENTRY_SCOPE" \
       "    supersedes: $7" \
-      "    withdrawn: $8"
+      "    withdrawn: $8" \
+      ${ENTRY_ENFORCEMENT:+"    enforcement: $(store_quote "$ENTRY_ENFORCEMENT")"}
   } >"$scratch" || die 1 "cannot write $scratch"
   chmod 600 "$scratch" || die 1 "cannot set the mode of $scratch"
   mv -f "$scratch" "$STORE" || die 1 "cannot replace $STORE"
@@ -569,23 +603,26 @@ no_check() { :; }
 check_target() {
   ct_line=$(rows "$1" | awk -F '\t' -v id="$TARGET" '$1 == id')
   [ -n "$ct_line" ] || die 1 "no entry $TARGET in the store"
-  IFS='	' read -r _ ct_status _ OLD_SCOPE OLD_SUBJECT OLD_TEXT _ _ <<EOF
+  IFS='	' read -r _ ct_status _ OLD_SCOPE OLD_SUBJECT OLD_TEXT _ _ OLD_ENF <<EOF
 $ct_line
 EOF
   [ "$ct_status" = active ] || die 1 "entry $TARGET is $ct_status, not active, so it cannot be superseded"
   ENTRY_SUBJECT=${SUBJECT:-$OLD_SUBJECT}
   ENTRY_SCOPE=${SCOPE:-$OLD_SCOPE}
+  [ "$OLD_ENF" != unknown ] || OLD_ENF=""
+  ENTRY_ENFORCEMENT=
+  [ "$WITHDRAW" -eq 1 ] || ENTRY_ENFORCEMENT=${ENFORCEMENT:-$OLD_ENF}
 }
 
 undo_line() { # undo_line <act> <reversal>
   printf 'undo\t%s\t%s\t%s\t%s\t%s\n' "$1" "$ENTRY_SUBJECT" "$NEW_ID" "$SOURCE" "$2"
 }
 
-TEXT="" SUBJECT="" SOURCE="" DATE_ARG="" SCOPE="" WITHDRAW=0
+TEXT="" SUBJECT="" SOURCE="" DATE_ARG="" SCOPE="" ENFORCEMENT="" WITHDRAW=0
 parse_opts() {
   while [ $# -gt 0 ]; do
     case $1 in
-      --text | --subject | --source | --date | --scope)
+      --text | --subject | --source | --date | --scope | --enforcement)
         [ $# -ge 2 ] || usage
         case $1 in
           --text) TEXT=$2 ;;
@@ -593,6 +630,7 @@ parse_opts() {
           --source) SOURCE=$2 ;;
           --date) DATE_ARG=$2 ;;
           --scope) SCOPE=$2 ;;
+          --enforcement) ENFORCEMENT=$2 ;;
         esac
         shift 2
         ;;
@@ -610,6 +648,37 @@ parse_opts() {
 
 need() { # need <field> <value>
   [ -n "$2" ] || die 2 "--$1 is required"
+}
+
+# check_enforcement <value>: one of the closed grammar, never evaluated.
+check_enforcement() {
+  check_value enforcement "$1" "$MAX_SHORT"
+  case $1 in
+    script:* | knob:* | hook:* | duty:* | default:* | fix:* | prose:*) ;;
+    *) die 2 "--enforcement is not script:, knob:, hook:, duty:, default:, fix: or prose: followed by its value" ;;
+  esac
+  case $1 in
+    prose:*)
+      [ -n "${1#prose:}" ] || die 2 "--enforcement prose: needs its one-line reason"
+      # shellcheck disable=SC2016 # the literals are patterns, never expanded
+      case $1 in
+        *'$('* | *'${'* | *'`'*) die 2 "--enforcement carries a shell substitution" ;;
+      esac
+      ;;
+    *)
+      ce_kind=${1%%:*}
+      ce_rest=${1#*:}
+      case $ce_kind in
+        fix)
+          printf '%s\n' "$ce_rest" | grep -Eq '^(([A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)?#[0-9]+|[a-z0-9][a-z0-9-]*)$' || die 2 "--enforcement fix: takes a pull request (#<n> or <owner/name>#<n>) or an observation fragment name"
+          ;;
+        *)
+          printf '%s\n' "$ce_rest" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$' || die 2 "--enforcement $ce_kind: takes a name of letters, digits, . _ and -"
+          case $ce_rest in *..*) die 2 "--enforcement names a path, not a name" ;; esac
+          ;;
+      esac
+      ;;
+  esac
 }
 
 [ $# -ge 1 ] || usage
@@ -647,13 +716,14 @@ case $verb in
     need date "$DATE_ARG"
     check_value text "$TEXT" "$MAX_TEXT"
     check_value subject "$SUBJECT" "$MAX_SHORT"
+    [ -z "$ENFORCEMENT" ] || check_enforcement "$ENFORCEMENT"
     check_value source "$SOURCE" "$MAX_SHORT"
     resolve_date "$DATE_ARG"
     SCOPE=${SCOPE:-program}
     check_scope "$SCOPE"
     resolve_home "$program"
     scope_known "$program" "$SCOPE"
-    append no_check "$TEXT" "$SUBJECT" "$SOURCE" "$DATE" "$SCOPE" - false
+    append no_check "$TEXT" "$SUBJECT" "$SOURCE" "$DATE" "$SCOPE" - false "$ENFORCEMENT"
     printf '%s\n' "rule $NEW_ID added ($ENTRY_SCOPE): $ENTRY_SUBJECT: $TEXT"
     undo_line rule-add "mc-rules.sh supersede $program $NEW_ID --withdraw --source $(shell_quote "undo of $NEW_ID") --date today"
     release_store
@@ -665,13 +735,14 @@ case $verb in
     check_id "$TARGET"
     parse_opts "$@"
     if [ "$WITHDRAW" -eq 1 ]; then
-      [ -z "$TEXT" ] && [ -z "$SUBJECT" ] && [ -z "$SCOPE" ] || die 2 "--withdraw takes no --text, --subject or --scope"
+      [ -z "$TEXT" ] && [ -z "$SUBJECT" ] && [ -z "$SCOPE" ] && [ -z "$ENFORCEMENT" ] || die 2 "--withdraw takes no --text, --subject, --scope or --enforcement"
     else
       need text "$TEXT"
       check_value text "$TEXT" "$MAX_TEXT"
     fi
     [ -z "$SUBJECT" ] || check_value subject "$SUBJECT" "$MAX_SHORT"
     [ -z "$SCOPE" ] || check_scope "$SCOPE"
+    [ -z "$ENFORCEMENT" ] || check_enforcement "$ENFORCEMENT"
     need source "$SOURCE"
     need date "$DATE_ARG"
     check_value source "$SOURCE" "$MAX_SHORT"
@@ -681,11 +752,11 @@ case $verb in
     if [ "$WITHDRAW" -eq 1 ]; then
       append check_target "" "" "$SOURCE" "$DATE" "" "$TARGET" true
       printf '%s\n' "rule $NEW_ID withdraws $TARGET: $ENTRY_SUBJECT"
-      undo_line rule-withdraw "mc-rules.sh add $program --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE --source $(shell_quote "undo of $NEW_ID") --date today"
+      undo_line rule-withdraw "mc-rules.sh add $program --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE${OLD_ENF:+ --enforcement $(shell_quote "$OLD_ENF")} --source $(shell_quote "undo of $NEW_ID") --date today"
     else
-      append check_target "$TEXT" "" "$SOURCE" "$DATE" "" "$TARGET" false
+      append check_target "$TEXT" "" "$SOURCE" "$DATE" "" "$TARGET" false "$ENFORCEMENT"
       printf '%s\n' "rule $NEW_ID supersedes $TARGET ($ENTRY_SCOPE): $ENTRY_SUBJECT: $TEXT"
-      undo_line rule-supersede "mc-rules.sh supersede $program $NEW_ID --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE --source $(shell_quote "undo of $NEW_ID") --date today"
+      undo_line rule-supersede "mc-rules.sh supersede $program $NEW_ID --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE${OLD_ENF:+ --enforcement $(shell_quote "$OLD_ENF")} --source $(shell_quote "undo of $NEW_ID") --date today"
     fi
     release_store
     ;;
@@ -752,7 +823,7 @@ case $verb in
       item rules "the rule store of program $program cannot be read" "repair the rule store, then reload the rules"
       exit 1
     fi
-    store_digest=$(digest_of "$(active_rows "$entries")") || exit 1
+    store_digest=$(digest_of "$(active_rows "$entries" | cut -f 1-8)") || exit 1
     failed=0
     if [ "$digest" != "$store_digest" ]; then
       item rules "the loaded rules (digest $digest) are not the active set (digest $store_digest)" "reload the rules"

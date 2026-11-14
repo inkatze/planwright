@@ -474,6 +474,113 @@ cfg knob mission_control_tick_cadence 7m
 expect_rc "a marker past the header is no marker; the write lands" 0
 cfg restore mission_control_tick_cadence
 
+# ---------------------------------------------------------------------------
+# REQ-A1.10: doctor lists the rules that are prose, unknown or name a closed
+# fix, one plain line each, and edits nothing. Fixtures only: a rule store, a
+# forge snapshot, observation fragments and a fake gh.
+# ---------------------------------------------------------------------------
+reset_mc_fixture
+ehome="$tmp/enf-home"
+printf 'mission_control_programs: [enf]\nprogram_enf_repositories: [%s]\nprogram_enf_spec_root: %s/specs\nprogram_enf_home: %s\n' "$repo" "$repo" "$ehome" >"$tracked"
+rule() { # rule <enforcement or ->: add a rule, enforcement optional
+  if [ "$1" = - ]; then
+    mc_run mc-rules.sh add enf --text "Rule text $2" --subject "enf-$2" --source "operator, fixture" --date 2026-11-10
+  else
+    mc_run mc-rules.sh add enf --text "Rule text $2" --subject "enf-$2" --source "operator, fixture" --date 2026-11-10 --enforcement "$1"
+  fi
+}
+rule 'prose:a tone, never mechanical' 1
+rule - 2
+rule 'fix:#11' 3
+rule 'fix:#12' 4
+rule 'fix:acme/widgets#13' 5
+rule 'fix:#99' 6
+rule script:mc-rules.sh 7
+rule knob:mission_control_stall_window 8
+rule hook:ready-guard 9
+rule duty:inbox 10
+rule default:fleet_max_parallel_units 11
+rule fix:obs-consumed-aaaa1111 12
+rule fix:obs-open-bbbb2222 13
+rule 'prose:replaced later' 14
+mc_run mc-rules.sh supersede enf r-14 --text "Rule text 14 again" --source "operator, fixture" --date 2026-11-10 --enforcement knob:mission_control_stall_window
+obs="$repo/specs/_observations"
+mkdir -p "$obs/entries" "$obs/archive"
+printf -- '- 2026-11-10 [planwright] consumed\nConsumed-by: spec x\n' >"$obs/archive/obs-consumed-aaaa1111.md"
+printf -- '- 2026-11-10 [planwright] open\n' >"$obs/entries/obs-open-bbbb2222.md"
+snapdir="$fleet/mission-control/enf/snapshots"
+mkdir -p "$snapdir"
+{
+  printf 'format\t1\nsource\tforge\ntaken\t%s\n' "$(date +%s)"
+  printf 'pr\tacme/widgets\t11\tabc123\tfalse\tMERGEABLE\tNONE\t0\tNONE\t0\t0\tnone\tmain\tfeat\n'
+} >"$snapdir/forge"
+mkdir -p "$tmp/ghbin"
+cat >"$tmp/ghbin/gh" <<'EOF'
+#!/bin/sh
+# Fake gh: pr view <n> answers from $GH_FIXTURE ("<n> <STATE>"), else fails.
+echo "$*" >>"$GH_LOG"
+[ "$1" = pr ] && [ "$2" = view ] || exit 2
+n=$3
+state=$(awk -v n="$n" '$1 == n { print $2 }' "$GH_FIXTURE")
+[ -n "$state" ] || exit 1
+echo "$state"
+EOF
+chmod +x "$tmp/ghbin/gh"
+printf '12 MERGED\n13 CLOSED\n' >"$tmp/gh.fixture"
+: >"$tmp/gh.log"
+saved_path=$PATH
+PATH="$tmp/ghbin:$PATH"
+GH_FIXTURE="$tmp/gh.fixture"
+GH_LOG="$tmp/gh.log"
+export PATH GH_FIXTURE GH_LOG
+
+rules_before=$(cksum <"$ehome/rules.yaml")
+layer_before=$(cksum <"$tracked")
+cfg doctor --program enf
+expect_rc "REQ-A1.10: doctor with rules to list still exits 0" 0
+expect_out "REQ-A1.10: a prose rule is a line saying what to do" "rule-enforcement${tab}r-1${tab}prose${tab}"
+expect_out "REQ-A1.10: the prose line names what to do in plain words" "keep it as prose"
+expect_out "REQ-A1.10: a rule with no enforcement is a line" "rule-enforcement${tab}r-2${tab}unknown${tab}"
+expect_no_out "REQ-A1.10: a rule naming an open pull request is no line" "rule-enforcement${tab}r-3${tab}"
+expect_out "REQ-A1.10: a rule naming a merged pull request is a line" "rule-enforcement${tab}r-4${tab}closed-fix${tab}"
+expect_out "REQ-A1.10: a rule naming a closed pull request of a named repository is a line" "rule-enforcement${tab}r-5${tab}closed-fix${tab}"
+expect_out "REQ-A1.10: a closed-fix lookup that fails lists the rule as unknown" "rule-enforcement${tab}r-6${tab}unknown${tab}"
+for r in 7 8 9 10 11; do
+  expect_no_out "REQ-A1.10: a rule naming a script, knob, hook, duty or default is no line (r-$r)" "rule-enforcement${tab}r-$r${tab}"
+done
+expect_out "REQ-A1.10: a rule naming a consumed observation is a line" "rule-enforcement${tab}r-12${tab}closed-fix${tab}"
+expect_no_out "REQ-A1.10: a rule naming an unconsumed observation is no line" "rule-enforcement${tab}r-13${tab}"
+expect_no_out "REQ-A1.10: a superseded rule is no line" "rule-enforcement${tab}r-14${tab}"
+expect_no_out "REQ-A1.10: its replacement, enforced by a knob, is no line" "rule-enforcement${tab}r-15${tab}"
+if grep -q ' 11' "$tmp/gh.log"; then
+  fail "REQ-A1.10: a pull request the snapshot holds open was looked up anyway"
+else
+  ok "REQ-A1.10: a pull request the snapshot holds open needs no lookup"
+fi
+if [ "$rules_before" = "$(cksum <"$ehome/rules.yaml")" ] && [ "$layer_before" = "$(cksum <"$tracked")" ]; then
+  ok "REQ-A1.10: no rule or layer file changes"
+else
+  fail "REQ-A1.10: doctor changed a rule or layer file"
+fi
+
+# The rule-versus-knob flag and this listing are separate sections, so the
+# knob disagreement still reports beside them.
+rule - 16
+mc_run mc-rules.sh add enf --text "Set mission_control_stall_window to 30m." --subject stall --source "operator, fixture" --date 2026-11-10 --enforcement knob:mission_control_stall_window
+cfg doctor --program enf
+expect_out "REQ-A1.10: a rule disagreeing with its knob is still flagged" "rule-knob${tab}r-17${tab}mission_control_stall_window"
+expect_out "REQ-A1.10: the enforcement listing still lists beside it" "rule-enforcement${tab}r-16${tab}unknown${tab}"
+
+# A bare #n names no repository, so with two repositories it is read as
+# unknown, never as the open pull request of the same number elsewhere.
+mkdir -p "$tmp/second"
+printf 'mission_control_programs: [enf]\nprogram_enf_repositories: [%s, %s]\nprogram_enf_spec_root: %s/specs\nprogram_enf_home: %s\n' "$repo" "$tmp/second" "$repo" "$ehome" >"$tracked"
+cfg doctor --program enf
+expect_out "REQ-A1.10: a bare pull request number in a two-repository program is unknown" "rule-enforcement${tab}r-3${tab}unknown${tab}"
+expect_out "REQ-A1.10: a pull request named with its repository is still read there" "rule-enforcement${tab}r-5${tab}closed-fix${tab}"
+PATH=$saved_path
+export PATH
+
 [ "$failures" -eq 0 ] || {
   printf '%s\n' "$failures failure(s)" >&2
   exit 1
