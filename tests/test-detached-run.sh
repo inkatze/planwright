@@ -327,8 +327,12 @@ fi
 # SIGINT and SIGQUIT too: a background job started without job control would
 # have them ignored.
 if command -v bash >/dev/null 2>&1; then
+  # The wrapper traps INT: bash 3.2 (macOS sh) otherwise kills itself when its
+  # foreground child dies of SIGINT, so the status line would never print. A
+  # trap on a signal ignored at entry has no effect, so an ignored INT still
+  # reaches the child and fails the test.
   # shellcheck disable=SC2016 # $$ and $? belong to the detached shells
-  launch int "$p1" sh -c 'sh -c "kill -INT \$\$; exit 0"; echo "child=$?"'
+  launch int "$p1" sh -c 'trap : INT; sh -c "kill -INT \$\$; exit 0"; echo "child=$?"'
   int_run=$(field run "$tmp/int.out")
   poll_until --what 'SIGINT run finished' status_is "$int_run" 'finished 0' || :
   if grep -qx 'child=130' "$int_run/log" 2>/dev/null; then
