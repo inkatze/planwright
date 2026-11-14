@@ -98,7 +98,8 @@ fi
 # Everything else is exactly the shipped profile: same order, same entries.
 want=$(jq -c '
   del(.permissions.deny)
-  | del(._about)' "$PROFILE")
+  | del(._about)
+  | .hooks.PreToolUse |= map(select(.matcher != "Edit|Write|MultiEdit|NotebookEdit"))' "$PROFILE")
 got=$(jq -c '
   del(.permissions.deny)
   | del(._about)
@@ -106,6 +107,10 @@ got=$(jq -c '
 [ "$(jq '[.hooks.PreToolUse[] | select(.matcher == "Edit|Write|MultiEdit|NotebookEdit")] | length' "$OUT")" = 1 ] \
   && ok "the generated profile carries exactly one file-tool guard hook" \
   || fail "the generated profile must carry exactly one file-tool guard hook"
+[ "$(jq -r '[.hooks.PreToolUse[] | select(.matcher == "Edit|Write|MultiEdit|NotebookEdit") | .hooks[].command] | map(select(test("worker-hooks-edit-guard.sh$"))) | length' "$OUT")" = 1 ] \
+  && [ "$(jq -r '[.hooks.PreToolUse[] | select(.matcher == "Edit|Write|MultiEdit|NotebookEdit") | .hooks[].command] | map(select(test("worker-mise-edit-guard.sh "))) | length' "$OUT")" = 1 ] \
+  && ok "the file-tool entry carries both the hooks-directory guard and the worktree mise guard" \
+  || fail "the file-tool entry must carry the hooks-directory guard and the worktree mise guard"
 [ "$want" = "$got" ] && ok "allow list, hooks and every other key are the shipped ones" || fail "a non-deny key differs from the shipped profile"
 rest=$(jq -c '[.permissions.deny[] | select(
   . != "Edit(//**/mise.toml)" and . != "Edit(//**/.mise.toml)"

@@ -105,9 +105,11 @@ if ! jq --argjson b "$broad" --arg dirs "$dirs" --arg wt "$wt" --arg hook "\"\$C
       + [ $anc[] as $a | ("mise.toml", ".mise.toml", "mise-tasks/**", ".mise-tasks/**") as $n
           | "Edit(/" + $a + "/" + $n + ")" ]
     )
-  | .hooks.PreToolUse += [{matcher: "Edit|Write|MultiEdit|NotebookEdit",
-      hooks: [{type: "command",
-        command: ($hook + " '"'"'" + $wt + "'"'"'")}]}]' "$profile" >"$tmp" 2>/dev/null; then
+  | ({type: "command", command: ($hook + " '"'"'" + $wt + "'"'"'")}) as $h
+  | if ([(.hooks.PreToolUse // [])[] | select(.matcher == "Edit|Write|MultiEdit|NotebookEdit")] | length) > 0
+    then .hooks.PreToolUse |= map(if .matcher == "Edit|Write|MultiEdit|NotebookEdit" then .hooks += [$h] else . end)
+    else .hooks.PreToolUse += [{matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [$h]}]
+    end' "$profile" >"$tmp" 2>/dev/null; then
   rm -f -- "$tmp"
   die "cannot generate the profile"
 fi

@@ -34,8 +34,10 @@
 #      `residual` (honest documentation of a current allow the glob layer does
 #      not reach; the githooks/ backstop or an accepted residual covers it), or
 #      `overblock` (a benign command this deny list denies anyway — an accepted,
-#      fail-safe cost). Class and expectation are cross-checked, so a mislabeled
-#      row fails.
+#      fail-safe cost), or, for a file-tool path row only, `guard` (a path the
+#      profile's rules leave open and a PreToolUse hook refuses instead, the
+#      row naming the hook). Class and expectation are cross-checked, so a
+#      mislabeled row fails.
 #   C. Fail-closed — an empty deny set and an unparseable config must both
 #      error, never read as a vacuously green table (REQ-H1.3).
 #   D. No dead rules — every deny rule must be exercised by at least one
@@ -1071,6 +1073,49 @@ expect_path no-match deny '*.ts' "$PM_CWD/src/app.js"
 expect_path match deny 'src/*.ts' "$PM_CWD/src/app.ts"
 expect_path no-match deny 'src/*.ts' "$PM_CWD/src/x/app.ts"
 
+# The hooks-directory probe (worker-permission-ergonomics REQ-F1.7): whether any
+# spelling of a path rule matches the worktree root's githooks/ and .githooks/
+# and not a deeper directory of that name. PROBE_STAMP is the Claude Code CLI
+# version the probe was last read against; it must equal the version the doc
+# models and the doc must pin the probe's outcome under it, so a version bump
+# forces the probe to be re-read rather than assumed.
+PROBE_STAMP=2.1.314
+if grep -q "^| Claude Code CLI | \*\*$PROBE_STAMP\*\*" "$MODEL_DOC" \
+  && grep -q "Hooks-directory probe (CLI $PROBE_STAMP)" "$MODEL_DOC"; then
+  ok "the hooks-directory probe is pinned in the model doc under the modeled CLI version $PROBE_STAMP"
+else
+  fail "the hooks-directory probe stamp $PROBE_STAMP does not match the modeled CLI version or is not pinned in docs/permission-matcher-model.md"
+fi
+for dir in githooks .githooks; do
+  for spelling in "$dir/**" "./$dir/**" "$dir/**/*" "./$dir/**/*" "$dir/*" "/$dir/**"; do
+    root_hit=n
+    pm_path_matches deny "$spelling" "$PM_CWD/$dir/x" && root_hit=y
+    deep_hit=n
+    pm_path_matches deny "$spelling" "$PM_CWD/test/$dir/x" && deep_hit=y
+    nested_hit=n
+    pm_path_matches deny "$spelling" "$PM_CWD/$dir/sub/x" && nested_hit=y
+    case "$spelling" in
+      "$dir/**" | "./$dir/**")
+        want="y y y"
+        ;; # a single directory segment before /** matches at any depth (M10)
+      "$dir/**/*" | "./$dir/**/*")
+        want="y n y"
+        ;; # anchored at the working directory: the shipped spelling
+      "$dir/*")
+        want="y n n"
+        ;;
+      *)
+        want="n n n"
+        ;; # settings-anchored: never the worktree
+    esac
+    if [ "$root_hit $deep_hit $nested_hit" = "$want" ]; then
+      ok "probe: deny $spelling matches (root, deeper-dir, below-root) = $want"
+    else
+      fail "probe: deny $spelling matched '$root_hit $deep_hit $nested_hit', expected '$want'"
+    fi
+  done
+done
+
 # path_fixture_rows: expected|class|tool|path|note, under the cwd above (a
 # worker's worktree beneath its primary checkout's .claude/worktrees/).
 path_fixture_rows() {
@@ -1089,7 +1134,7 @@ deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/mise.local.toml|machine-l
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.mise/tasks/check|a mise task directory (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/lefthook.yml|lefthook config runs commands (REQ-F1.6)
 deny|load-bearing|Write|/work/repo/mise.local.toml|the primary checkout's mise config, which mise reads from a worktree beneath it (REQ-F1.6)
-deny|load-bearing|Edit|/work/repo/githooks/pre-commit|the primary checkout's hooks directory (REQ-F1.6)
+allow|guard|Edit|/work/repo/githooks/pre-commit|the primary checkout's hooks directory: the anchored rows cover only the worktree root, and scripts/worker-hooks-edit-guard.sh refuses this path (tests/test-worker-hooks-edit-guard.sh asserts it) (REQ-F1.7)
 deny|load-bearing|Edit|/work/repo/mise.toml|the primary checkout's mise config (REQ-F1.6)
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.envrc|direnv config runs commands (REQ-F1.6, as the guard names it)
 deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.tool-versions|tool-version config selects what mise runs (REQ-F1.6, as the guard names it)
@@ -1134,7 +1179,10 @@ deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/overla
 deny|load-bearing|Read|/proc/1234/environ|another process's environment (REQ-E1.6)
 deny|load-bearing|Read|/proc/1234/task/1235/environ|a thread's environment (REQ-E1.6)
 deny|load-bearing|Edit|/proc/1234/environ|a Read deny blocks the edit tools on the same path too
-deny|overblock|Edit|/work/repo/.claude/worktrees/w1/tests/fixtures/entry-points/githooks/pre-push/args|the root-anchored //**/ prefix matches the directory at any depth (M10), so a nested githooks/ fixture is refused to the file tools too; fail-safe
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/tests/fixtures/entry-points/githooks/pre-push/args|a nested githooks/ fixture directory stays editable: the profile rows anchor at the worktree root (REQ-F1.7)
+allow|legit|Write|/work/repo/.claude/worktrees/w1/src/githooks/x|a deeper githooks/ directory is not the hooks directory (REQ-F1.7)
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/test/githooks/x|a test fixture directory named githooks (REQ-F1.7)
+allow|guard|Write|/work/repo/.claude/worktrees/w1/hookdir/x|a core.hooksPath directory with another name: no path row can name it, so scripts/worker-hooks-edit-guard.sh refuses it (REQ-F1.7)
 deny|overblock|Read|/proc/self/environ|the worker's own environment is denied to the Read tool too; env and printenv still print it
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/scripts/x.sh|editing a repo script stays allowed (REQ-F1.6 trusted-checkout residual)
 allow|legit|Write|/work/repo/.claude/worktrees/w1/tests/test-x.sh|writing a repo test stays allowed
@@ -1155,7 +1203,7 @@ while IFS='|' read -r expected class tool path note; do
   [ -n "${expected:-}" ] || continue
   path_rows=$((path_rows + 1))
   case "$class:$expected" in
-    load-bearing:deny | overblock:deny | legit:allow) ;;
+    load-bearing:deny | overblock:deny | legit:allow | guard:allow) ;;
     *) fail "path row class '$class' does not fit expected=$expected: $tool $path" ;;
   esac
   got="$(pm_decide_path "$tool" "$path")"
