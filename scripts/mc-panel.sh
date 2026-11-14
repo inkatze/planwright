@@ -579,7 +579,7 @@ case $verb in
     [ -z "$session$pid$wait_s" ] || usage
     ;;
   activate) only "program target now session pid" ;;
-  text) only "program target" ;;
+  text) only "program target now" ;;
   await) only "program session wait" ;;
   lookup) only "session" ;;
   # --exit is the releasing session's own act, so it names no other session.
@@ -1355,6 +1355,43 @@ measures() {
   fi
 }
 
+# Each session's context reading, as the runner recorded it
+# (scripts/mc-context.sh record): one
+# `context<TAB><session><TAB><percent|unknown><TAB><source|->` line each.
+# The panel parses no transcript; a record that is a link, does not parse
+# or is older than the runner's cadence allows reads unknown.
+contexts() {
+  cx_dir=$runtime/readings
+  [ -d "$cx_dir" ] && [ ! -L "$cx_dir" ] || return 0
+  set +f
+  for cx_f in "$cx_dir"/*; do
+    [ -f "$cx_f" ] && [ ! -L "$cx_f" ] || continue
+    cx_n=${cx_f##*/}
+    [ "${#cx_n}" -le 64 ] || continue
+    case $cx_n in
+      *[!a-z0-9-]* | -*) continue ;;
+    esac
+    cx_p=unknown
+    cx_s=-
+    if mc_format_ok "$cx_f"; then
+      cx_w=$(mc_kv "$cx_f" written)
+      cx_v=$(mc_kv "$cx_f" percent)
+      cx_src=$(mc_kv "$cx_f" source)
+      if mc_valid_uint "$cx_w" && [ "$cx_w" -le $((NOW + 60)) ] && [ "$(age_of "$cx_w")" -le 3600 ] \
+        && mc_valid_uint "$cx_v" && [ "$cx_v" -le 100 ]; then
+        case $cx_src in
+          host | transcript)
+            cx_p=$cx_v
+            cx_s=$cx_src
+            ;;
+        esac
+      fi
+    fi
+    printf 'context\t%s\t%s\t%s\n' "$cx_n" "$cx_p" "$cx_s"
+  done
+  set -f
+}
+
 # The reviews snapshot scripts/mc-reviews.sh writes, its ages taken from
 # now; anything but a well-formed snapshot is unavailable, with the reason.
 reviews() {
@@ -1910,7 +1947,9 @@ text_panel() {
     budget
     program_home
     health
+    contexts
   } | P=$program awk -F '\t' '
+    $1 == "context" { x[++nx] = $2 " " ($3 == "unknown" ? "unknown" : $3 "% (" $4 ")") }
     $1 == "flight" { f[++n] = "  " $2 "  " $3 "  (" $4 ")" }
     $1 == "waiting" { w = ($2 == "-" ? "shown by the host" : $2) }
     $1 == "merge-ready" && $3 == "all" { m = $2 + 0 }
@@ -1941,6 +1980,7 @@ text_panel() {
       if (p != "") print "pending wakes: " p
       print "rung: " (r == "" ? "unknown" : r)
       if (h != "") print "health: " h
+      for (i = 1; i <= nx; i++) print "context: " x[i]
     }' | mc_clean_text
 }
 
@@ -2053,6 +2093,7 @@ digest() {
   handover
   holder
   health
+  contexts
   printf 'line\t%s\n' "$(the_line)"
 }
 

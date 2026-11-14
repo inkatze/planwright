@@ -72,7 +72,9 @@ Usage:
       record): the compaction ceiling first, then measured context where
       there is a reading, the completed-wake count otherwise; a knob that
       does not read skips its rule, warned. Prints due<TAB><reason> or
-      not-due
+      not-due. With --session and --context -, the reading is the one the
+      runner recorded for that session (scripts/mc-context.sh record),
+      `unknown` or none leaving the wake count in force.
   mc-handover.sh holder --program <p> [--now <epoch>]
       holder<TAB><handle><TAB><kind><TAB><since><TAB><generation>
       <TAB>live|stale, or holder<TAB>- with no holder
@@ -861,6 +863,12 @@ case $verb in
     mc_valid_uint "$compactions" || mc_usage_fail "--compactions takes a count"
     if [ "$context" != - ] && { ! mc_valid_uint "$context" || [ "$context" -gt 100 ]; }; then
       mc_usage_fail "--context takes a percent from 0 to 100, or -"
+    fi
+    # With no reading given, the runner's recorded one for the session
+    # stands in; none, or `unknown`, leaves the wake count in force.
+    if [ "$context" = - ] && [ -n "$session" ]; then
+      rec=$(/bin/bash "$script_dir/mc-context.sh" recorded --program "$program" --session "$session" --now "$NOW") || rec=unknown
+      ! mc_valid_uint "$rec" || context=$rec
     fi
     if k=$(mc_knob mission_control_handover_compactions mc_parse_count) && [ "$compactions" -ge "$k" ]; then
       printf 'due\t%s compactions\n' "$compactions"
