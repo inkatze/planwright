@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -304,6 +304,7 @@ living source.)*
 *(Amended at sign-off lens pass 2026-10-24: monthly log segments, since a
 long-lived session's append-only logs had no bound; the dead-holder lock
 rule, since a judgment session can die mid-write.)*
+*(Amended at Amendment 13, 2026-11-14: a `briefs` directory that belongs to no duty, written through one keeping verb, D-108.)*
 
 ### D-10: One launcher for every session kind  (N)
 
@@ -335,6 +336,7 @@ denies every flip.)*
 `mission-control` and `kickoff` (D-36); repository-changing kinds start in
 their own worktree (D-34); an `adopt` verb registers sessions the launcher
 did not start (D-35).)*
+*(Amended at Amendment 13, 2026-11-14: the launcher keeps the brief it is given in the program home before it spawns anything, and writes the branch-owner record for a repository-changing launch, D-108, D-110.)*
 
 ### D-11: Liveness and stall states for every session kind  (N)
 
@@ -694,6 +696,7 @@ and merge-recommendation moments D-31 names as well as before a human
 gate.)*
 *(Amended at Amendment 6, 2026-11-09: the readiness check also refuses an operator-visible change with no recorded real-render approval, D-50.)*
 *(Amended at Amendment 7, 2026-11-10: a reviewer that reviews only once the pull request is ready is asked to review the draft first and waited for after the flip only as the fallback, D-55.)*
+*(Amended at Amendment 13, 2026-11-14: "CI including individual contexts" means the checks the base branch requires plus any check still running; a finished check that is not required is reported and does not refuse, D-112.)*
 
 ### D-26: Gate conditions as configurable data, inside the floors  (S)
 
@@ -740,6 +743,7 @@ fifth follow-on.)*
 
 *(Amended at sign-off lens pass 2026-10-24: deadline-watch's day-one sources
 stated, since no calendar adapter ships and `cited` forbids polling.)*
+*(Amended at Amendment 13, 2026-11-14: the conflict radar skips pairs in lineage, raises an unchanged pair once, and raises a pair only to the programs owning its branches, D-109, D-110.)*
 
 ### D-28: Decision-domain walk  (N)
 
@@ -1053,6 +1057,7 @@ denying, the hook also requires the call to name the installed root it runs
 from. Task 38 builds it.)*
 *(Amended at Amendment 6, 2026-11-09: the prompt's wake is the notifier's delivery, D-49; a direct unit's prompts go to its launching mission control, D-48; who may answer is unchanged.)*
 *(Amended at Amendment 7, 2026-11-10: adoption's registry row can be moved to another program, D-54; the move changes only where the events go.)*
+*(Amended at Amendment 13, 2026-11-14: a recover keeps the worker's row and recorded owner, and a worker no program can place is raised once as unowned, D-113.)*
 
 ### D-36: A kickoff permission profile for relayed kickoffs  (S)
 
@@ -1975,6 +1980,326 @@ counts misses caught by the operator against those the system raised first.
 
 **Chosen because:** every core failure so far was found by the operator;
 the system should find the next one first, and learn from each it did not.
+
+### D-104: Altitude of the reliability fixes: the script that owns a record makes it true  (N; C, D-1, D-20)
+
+**Decision:** Each failure Amendment 13 closes is fixed as a mechanism in
+the script that writes or routes the record, with every threshold a
+documented knob (D-20) and every per-step value a catalog field. None is
+fixed as a rule in a brief, a skill's prose or a session's memory, and none
+adds a session that reads records to judge them. The seed's claim, that
+vetting catches overstated records by hand and the check makes it
+mechanical, is the altitude call for the whole amendment: a refusal a
+script makes cannot be skipped by a tired reader, and a prose rule can.
+Where the script belongs to another bundle (step records, the `limited`
+outcome, worker recovery), that bundle's own amendment carries the edit
+(D-22) and this bundle states what mission control needs from it.
+
+**Alternatives considered:**
+- A standing rule telling every worker how to fill a step record, and
+  mission control to check it. Rejected because: that is today's state; the
+  rule sits in every brief and the records are still wrong.
+- A doctrine paragraph on truthful records. Rejected because: doctrine
+  names the intent already (the record names the backend the step actually
+  ran on); the gap is that nothing refuses.
+- An audit session that reviews records after the fact. Rejected because:
+  REQ-C1.5 keeps mechanics deterministic, and a wrong record caught later
+  has already been read by the readiness check.
+
+**Chosen because:** the autopilot reflex prefers a mechanical tool wherever
+no judgment is needed, and every failure it closes was a record or a route
+nobody had to judge, only to get right.
+
+### D-105: The step-record truth check lives in the write, and only refuses  (N; C, D-33)
+
+**Decision:** The step-record truth check is one named set of refusals
+inside `scripts/step-record.sh write`, run after the existing grammar
+checks and before the record is claimed. It refuses and explains; it never
+rewrites a value, since a corrected record would be the script's guess in
+the session's name. Its rules are scoped by what a session can get wrong: a
+session step (kind `skill` or `prompt`) writes its own start and outcome,
+so the start rules and the outcome-against-heads rule apply to it, while a
+command step's start is stamped and its outcome mapped from an exit code by
+the step runner, which those rules leave alone. The hosting rule applies to
+every record, and `step-run.sh begin` applies it too, so a session-hosted
+command step is refused before it runs and not after. A start is judged
+made up by three cheap signs (the clock at writing, a whole number of
+minutes before the clock or the end, seconds of `:00`) and any of them is
+lifted by naming the start's source (D-106). The signs misfire on about one
+honest start in twenty; the cost of a misfire is naming the source, which
+is the behaviour wanted anyway. Amendment 16's vet admits a step-record
+write only through this check: it allows or denies the call, and the record's
+truth is the script's to refuse.
+
+**Alternatives considered:**
+- Require a start source on every session-step record. Rejected because:
+  every existing caller breaks on the day it ships, including the honest
+  ones; the signs catch the observed inventions and a later amendment can
+  tighten to always once callers pass sources.
+- Check records afterwards in the cadence audit only. Rejected because: the
+  audit runs at readiness, hours after the write, when the session that
+  knew the true values may be gone; a refusal at the write is answered by
+  the session that has them.
+- Correct an obviously wrong value (set `applied` when the head moved).
+  Rejected because: the outcome is the session's report of its handoff, and
+  a script that edits it hides the disagreement the refusal exposes.
+- Leave it to mission control's reading of each prompt. Rejected because:
+  D-104.
+
+**Chosen because:** the write is the one place every record passes, the
+session holding the true values is still there to answer, and a refusal
+with the passing value named is cheaper than any later repair.
+
+### D-106: A start names its source, verified where the source can be read  (N; C, D-33)
+
+**Decision:** `--start-source` takes one token in a fixed grammar naming
+the object the start was read from: a forge object of the unit's pull
+request (a comment, a review, a check run), a git commit, or a begin stamp.
+The begin stamp is new: `step-record.sh stamp` takes the clock itself, at
+the moment a session is about to start a step, and keeps it in the run's
+directory for that point and step, so an in-session skill has a true start
+without a forge or git object and without typing a time. The source is
+stored in the record as a new field. Verification happens where the object
+is readable without a new dependency: the write verifies a stamp and a
+commit, both local; the cadence audit the readiness check already runs
+verifies a forge source, since readiness reads the forge for that pull
+request anyway. An unreadable forge is reported as unverified and is not a
+gap, the same standing the audit gives any evidence it could not reach.
+
+**Alternatives considered:**
+- Verify a forge source at the write. Rejected because: it puts a network
+  call and a rate limit inside a local write, and an offline or throttled
+  forge would refuse true records.
+- Record the source and verify nothing. Rejected because: an unchecked
+  token is a speed bump; the session that invented a time can invent an id.
+- Take every start from the session's own event stream. Rejected because:
+  only one backend keeps such a stream, and a tmux or attended session
+  would have no source at all.
+
+**Chosen because:** each kind of source is checked by the cheapest reader
+that already has it, and the stamp removes the reason an honest session
+ever typed a time.
+
+### D-107: A skill's run is shown by its handoff file, not by what the excerpt says  (N; C, D-56)
+
+**Decision:** Two rules cover a `skill` record reporting `passed` or
+`applied`. A window floor, a knob shipped at one minute, refuses a run too
+short to have been the skill: the measurement in the overstated-records
+report (Sources) puts the share of polish records under it close to the
+share of made-up starts, and the typical polish at several minutes. And a catalog entry may name the handoff
+file its skill writes (polish's audit file is the shipped case); for such a
+step the write requires the file to exist and to have been written inside
+the window, and reads the excerpt from it. Evidence is therefore positive:
+what the skill itself left behind. The write does not read an excerpt for
+words such as "tests" or "reviewed by hand" to decide the skill did not
+run. A step whose entry names no handoff file gets the floor only. The
+check stops a careless overstatement; a session that forges the file is
+the cadence audit's and the reviewer's to catch, not this rule's.
+
+**Alternatives considered:**
+- Refuse an excerpt that names only check runs or a hand review, by a word
+  list. Rejected because: D-56 already records that detecting intent in
+  free text is unreliable, and a record need not carry an excerpt at
+  all.
+- A floor per step in the catalog. Rejected because: one knob covers the
+  observed cases; a per-step field can follow when a step's honest runs
+  need it.
+- No floor, the handoff file alone. Rejected because: steps without a
+  handoff file (a nested review skill that returns its record to its
+  caller) would have no check.
+
+**Chosen because:** a file the skill writes cannot be produced by running
+linters, and requiring it turns "did the skill run" from a reading of prose
+into a stat.
+
+### D-108: Briefs and steer messages are kept in the program home by one writer  (N; C, D-8, D-9, D-10)
+
+**Decision:** The knowledge base gains a `briefs` directory that belongs to
+no duty and is created at bring-up. One verb in `scripts/mc-kb.sh` keeps a
+file there (owner-only, named by the launch and, for a steer, an ordinal)
+and prints the kept path; the launcher calls it for a launch's brief before
+anything is spawned, the usage queue calls it when a launch is queued, and
+`fleet-streamjson.sh steer` calls it for a session a launcher row names. A
+brief already under `briefs` is used in place, which is how a session that
+writes its briefs there directly keeps working. The composed brief (the
+kept text plus the cadence, the rules and the launch line) stays runtime
+state under the fleet home as today: it is rebuilt from the kept brief at
+each launch, so rules re-render current. Durable records name the kept
+path; handover verify fails and the doctor flags a path that is missing or
+outside the home. The launcher's own copies are pruned a retention period
+after their launch retires; a file a session wrote in place is the
+session's and stays.
+
+**Alternatives considered:**
+- Refuse a brief that lies under a scratch directory. Rejected because: it
+  hands the session a chore the launcher can do in one copy, and a refusal
+  after the brief is written loses time for nothing.
+- Keep briefs under the fleet home beside the composed copy. Rejected
+  because: that directory is removed when the launch retires, which is the
+  moment a relaunch or a successor needs the brief.
+- Inline every brief into the handover file. Rejected because: the
+  handover file would carry every queued unit's full text, and the queue's
+  entries would still point at scratch.
+
+**Chosen because:** the program home is the one place that outlives every
+session of a program (D-8), and a single keeping verb gives `briefs` the
+one writer REQ-K1.5 asks of every knowledge-base file.
+
+### D-109: The radar compares only branches that have diverged, and remembers what it raised  (N; C, D-27)
+
+**Decision:** Before comparing a pair the radar asks git whether either tip
+is an ancestor of the other, and skips the pair when one is: every change
+on the contained branch is already on the other, so their overlap is the
+same change seen twice and no merge can conflict on it. This covers a
+stacked pull request against its base, a worker branch that merged an open
+pull request's head in, and a branch another has absorbed. Skipped pairs
+are counted in the pass's output as lineage. Separately, the record of
+raised pairs is keyed by repository, both branch names and both tip
+commits, survives a runner restart, and suppresses a pair until a tip
+moves; it is pruned only to pairs whose tips are still current, and not at
+all on a pass where a repository could not be read.
+
+**Alternatives considered:**
+- Compare each pair against the two branches' own merge base, so carried
+  content cancels. Rejected because: it changes what every pair means for
+  one case the ancestry test settles in a single git call.
+- Skip only pairs involving an open pull request's head. Rejected because:
+  the reasoning holds for any two branches in lineage, and a narrower rule
+  needs the snapshot to decide what the commit graph already says.
+- Raise the pair at a lower class. Rejected because: an event nobody can
+  act on is still an event the holder reads.
+
+**Chosen because:** ancestry is an exact, cheap answer to "is this the same
+work", and a raise record keyed on tips makes a second raise carry news.
+
+### D-110: A conflict pair goes to the programs that own its branches  (N; C, D-35, D-54)
+
+**Decision:** The launcher writes a branch-owner record under the fleet
+home when a repository-changing launch gets its worktree: repository,
+branch, program. The record outlives the session (a pull request is still
+open long after its worker retires), is rewritten by a reparent, and is
+pruned when the branch is gone from the remote. Each program's radar
+computes pairs as before and raises only those in which it owns a branch,
+into its own event store, so a pair between two programs reaches both and
+a program owning neither stays silent, with no forwarding between stores.
+A pair with no recorded owner on either side (two human branches, branches
+older than the record) is raised once: to the escalation hub program where
+that knob names one, otherwise to whichever program's pass claims it first
+through an exclusive claim file.
+
+**Alternatives considered:**
+- Read the owner from the branch name. Rejected because: a program's name
+  may contain the separator the launch name uses, so the parse is
+  ambiguous, and a human's branch carries no name at all.
+- Read the owner from the launcher's registry row. Rejected because: the
+  row goes when the session retires, and most conflicts are between pull
+  requests whose workers are long gone.
+- One host-wide radar that forwards each pair to its owners. Rejected
+  because: it adds a second routing path beside each program's own store,
+  and a filter at the raise needs none.
+
+**Chosen because:** ownership is known at exactly one moment, the launch,
+and writing it down then is cheaper than inferring it at every pass.
+
+### D-111: One shipped stand-in: a PR-Agent pass retires a refused cubic record  (N; C, D-33, D-55)
+
+**Decision:** The core step catalog ships `pr-agent-pr`, the
+automated-review skill run with the PR-Agent reviewer, and the
+limited-record rule gains one substitution: a `pr-agent-pr` record that
+passed or applied (or a resume skip standing on one) on the same head, in
+a later run, retires a `limited` record of `cubic-pr`. The rule is in the
+one place both the flip's predicate and the status read, so both stop
+holding together; the cadence audit counts the refused step as covered on
+that head, and readiness prints the substitution so the operator sees
+which reviewer actually reviewed. Nothing else changes: the stand-in
+retires no other step, a failed stand-in retires nothing, and a program
+that lists neither step is unaffected. Which reviewer stands in for which
+is fixed at this one pair.
+
+**Alternatives considered:**
+- A catalog field naming the step an entry stands in for, so any adopter
+  can declare a substitution. Rejected for now because: one pair has been
+  observed, and the customization boundary asks for evidence that a
+  capability generalizes before it becomes a field; the pair is
+  default-preserving for everyone who lists neither step. A second pair is
+  the evidence that graduates it.
+- Record the refused step as skipped. Rejected because: a skip says the
+  step was not needed; the truth is that it was refused and another
+  reviewer covered the head.
+- Keep editing the point's step list when a reviewer runs out of quota.
+  Rejected because: that is a hand edit on every refusal, and it removes
+  the reviewer for pull requests it would still review.
+
+**Chosen because:** the operator has ruled the substitution more than once,
+and a rule a script applies does not need ruling again.
+
+### D-112: Readiness reads which checks are required; with no such set it judges all  (N; C, D-25, D-26)
+
+**Decision:** The evidence collection reads, with the checks, which of them
+the base branch requires: the forge's per-check required flag for that
+pull request, which covers rulesets and classic protection alike, and the
+branch's required contexts by name, which is what reveals a required check
+that never ran. The walk then refuses on a required check that failed or
+is absent, on any check still queued or running (the operator's rule that
+a pull request is marked ready only when every check has finished), and on
+a check a gate condition names. A finished check that is not required is
+reported and does not refuse. When the required set is empty or
+unreadable the walk judges every check exactly as before, and says so:
+"only the required checks" on a repository that requires none would
+otherwise pass a red suite. The existing base-state knob keeps its
+meaning, a check red for reasons of the base that the operator bypasses at
+merge, and such a check is named as a bypass whether or not it is
+required. The watcher and the merge-ready filter call the same judgment in
+place of the forge's aggregate state, which counts every check and so
+stayed red on pull requests the walk passed.
+
+**Alternatives considered:**
+- Keep listing exempt checks by name in the base-state knob. Rejected
+  because: the ruleset already says which checks a merge needs, and a
+  second list drifts from it; the knob stays for the one thing the ruleset
+  cannot say, that a required check will be bypassed.
+- Trust the forge's merge-state field. Rejected because: it folds reviews,
+  conflicts and checks into one word and names nothing.
+- Let a non-required check that is still running pass. Rejected because:
+  the operator ruled that a flip waits for every check to finish, and a
+  run that then goes red on a ready pull request is the confusion that
+  ruling removes.
+- Judge only required checks even when none are required. Rejected
+  because: it turns the check off for every repository without a ruleset.
+
+**Chosen because:** readiness should refuse what the forge would refuse to
+merge and report the rest, and the forge states that set itself.
+
+### D-113: A recover restores the worker's row and keeps its recorded owner  (N; C, D-35, D-54)
+
+**Decision:** Every launch keeps an owner-only copy of its registry row in
+the worker's runtime directory, refreshed whenever the row is rewritten (a
+reparent, a wait) and removed at retire. A recover of a worker whose
+dispatch record names a mission control as owner first makes sure the row
+exists, restoring it from the copy when it is gone, and refuses before
+relaunching when it has neither. The relaunch then registers the dispatch
+with the owner the record already holds, never with the identity of
+whoever ran the recover, so a recover run by hand, by a tower or by
+another program's mission control changes no owner. Routing follows the
+same order everywhere: the row's program, else the dispatch record's, and
+a worker with neither is raised once as unowned to the escalation hub
+program (or, without one, to the first keeper to claim it). The previous
+fallback, every keeper announcing a worker it could not place, is removed.
+
+**Alternatives considered:**
+- Rebuild the row from the launch name. Rejected because: the name does
+  not parse back to a program unambiguously (D-110).
+- Let each keeper go on announcing workers it cannot place, since hearing
+  twice beats never. Rejected because: it reached mission controls that
+  could not answer, and the prompts sat unanswered in the one that could
+  not see them; a single raise to the hub is heard once by the session
+  that can route it.
+- Have recover take the owner from its caller when the caller is a mission
+  control. Rejected because: a recover is a repair, not a reparent; moving
+  a session is REQ-D1.16's verb with its own authority.
+
+**Chosen because:** a worker's owner is a fact recorded at launch, and a
+repair that rewrites it is the bug.
 
 ## Cross-cutting concerns
 

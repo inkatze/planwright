@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -332,7 +332,9 @@ check under a green rollup, an open thread, an unanswered finding or an
 error-state screenshot, and passes a complete one; a session report alone
 never passes. A reviewer that only reviews once the pull request is ready
 is not a missing pass at the flip, and the merge-ready report waits for it
-(the REQ-D1.17 entry).
+(the REQ-D1.17 entry). Which red check refuses is pinned by the REQ-U1.14
+to REQ-U1.16 entries: a required one, or any one when no required set was
+read.
 
 ### REQ-D1.17 — Readiness waits for reviewers that review only when ready [test]
 
@@ -1297,3 +1299,196 @@ without fix evidence is refused; with both it closes; no verb removes a row.
 
 `tests/test-mc-followups.sh` (Task 83): a fixture period with operator-caught
 and system-raised problems reports both counts and names the open misses.
+
+## REQ-U — Records and routing that hold up
+
+### REQ-U1.1 — Every step record passes the truth check [test]
+
+`tests/test-step-record.sh` (Task 134): each refusal of REQ-U1.2 to REQ-U1.5
+exits non-zero, names the flag, the rule and a passing value, and leaves the
+run directory with no new record; a record that breaks none is stored
+unchanged, byte for byte what the flags gave; the step runner's own writes
+(a command step through `command`, and through `begin` and `end`) pass with
+no new flag.
+
+### REQ-U1.2 — A made-up start is refused without a source [test]
+
+`tests/test-step-record.sh` (Task 134), with the clock faked: a `skill` and a
+`prompt` record with no source are each refused for a start equal to the
+clock, a start inside the now tolerance, a start a whole number of minutes
+before the clock, one a whole number of minutes before `--end`, and a start
+on seconds `:00`; the same starts pass once a valid source is given; a start
+that shows none of the signs passes with no source; a `skipped` record and
+a `command` record are never judged by this rule; the tolerance follows the
+knob.
+
+### REQ-U1.3 — A start source is stored and verified [test]
+
+`tests/test-step-record.sh` (Task 134): a token outside the grammar is
+refused; `stamp` writes a begin stamp for a run, point and step from the
+faked clock, and a write naming the stamp takes that time, refuses a
+`--start` that differs and refuses when no stamp exists; a commit source
+passes when the commit's committer time is the start and is refused for an
+unknown commit or another time; the stored record carries the source.
+`tests/test-step-run-audit.sh` and `tests/test-mc-readiness.sh` (Task 136),
+with the forge faked: a forge source whose object is missing, sits on
+another pull request, or carries another time is a gap naming the record;
+a matching one is covered; an unreadable forge yields an unverified note
+and no gap.
+
+### REQ-U1.4 — Outcome agrees with the heads, hosting with the backend [test]
+
+`tests/test-step-record.sh` and `tests/test-step-run.sh` (Task 134): a
+session step recorded `passed` over a moved head and one recorded `applied`
+over an unmoved head are each refused, including when the write filled the
+heads in from the worktree; the same outcomes with agreeing heads pass; a
+`command` record that passed over a moved head passes; any record with
+`in-session` hosting and another backend is refused and with the
+`in-session` backend passes; `begin` refuses the same pair before the step
+runs.
+
+### REQ-U1.5 — A skill record meets the floor and shows its handoff file [test]
+
+`tests/test-step-record.sh` and the catalog check's suite (Task 135): a
+`skill` record that passed or applied with a window under the floor is
+refused and at the floor passes; a floor of zero refuses none; a `halted`
+or `failed` skill record is not floored; for an entry naming a handoff
+file, a missing file, and a file last written before the start, are each
+refused, a file written inside the window passes and its tail is the stored
+excerpt whatever `--excerpt-file` named; an entry with no handoff field is
+judged by the floor alone; a handoff path leaving the worktree fails the
+catalog check.
+
+### REQ-U1.6 — A launch keeps its brief in the program home [test]
+
+`tests/test-mission-control-launch.sh`, `tests/test-mc-kb.sh` and
+`tests/test-mc-usage.sh` (Task 137), in fixtures: a launch given a brief in
+a scratch directory leaves an owner-only copy under `kb/briefs/` named for
+the launch, and the registry row names that copy; deleting the given file
+after the call changes nothing a relaunch reads; a brief already under
+`kb/briefs/` is used in place with no second copy; a queued launch stores
+the kept path and fires after its scratch directory is removed; an
+unwritable home refuses the launch before anything is spawned; a path
+that would leave the knowledge base is refused by the keeping verb.
+
+### REQ-U1.7 — A steer message is kept before it is delivered [test]
+
+`tests/test-fleet-streamjson-steer.sh` (Task 138): a steer to a worker with
+a launcher row leaves an owner-only copy under that program's `kb/briefs/`
+named for the worker and an ordinal, the steer record names the copy, and
+a second steer takes the next ordinal; a steer to a worker with no row is
+delivered and keeps nothing; a steer whose copy cannot be kept is refused
+undelivered.
+
+### REQ-U1.8 — A dangling brief path is refused, and kept copies are pruned [test]
+
+`tests/test-mc-handover.sh`, `tests/test-mc-config-doctor.sh` and
+`tests/test-mc-kb.sh` (Task 138): a handover file naming a brief that does
+not exist, and one naming a path outside the program home, each fail
+`verify` naming the path, and the doctor lists the same; a handover naming
+kept paths passes; a launcher copy whose launch retired longer ago than the
+retention period is pruned, one inside the period and one whose launch is
+live are kept, and a file a session wrote in place survives every prune.
+
+### REQ-U1.9 — Pairs in lineage are skipped [test]
+
+`tests/test-mc-radar.sh` (Task 139), in a fixture repository: a stacked
+branch and its base, a branch that merged another's tip in, and two
+identical tips each produce no `conflict-predicted` event and one lineage
+line; two diverged branches overlapping on a line are raised as before; a
+branch that merged an older commit of a pull request branch which has since
+moved on is compared normally.
+
+### REQ-U1.10 — An unchanged pair is raised once [test]
+
+`tests/test-mc-radar.sh` (Task 139): a pair raised on one pass is not
+raised on the next, nor after the runner's state is reloaded; moving
+either tip with the overlap still present raises it once more; a pass in
+which a repository read fails prunes nothing.
+
+### REQ-U1.11 — A pair reaches only the programs that own its branches [test]
+
+`tests/test-mc-radar.sh`, `tests/test-mission-control-launch.sh` and
+`tests/test-mission-control-launch-host.sh` (Task 140), with three fixture
+programs watching one repository: a pair between a branch of the first and
+a branch of the second is raised in those two stores and not the third; a
+pair with one recorded owner is raised to that owner alone; a pair with no
+recorded owner is raised once, in the hub program's store when the knob
+names one and otherwise in exactly one store across repeated passes of all
+three; a launch writes the record, a reparent moves it, a retire keeps it,
+and a branch gone from the remote is pruned.
+
+### REQ-U1.12 — A PR-Agent pass retires a refused cubic record [test]
+
+`tests/test-step-record.sh` and `tests/test-ready-flip.sh` (Task 142): a
+`limited` record of `cubic-pr` on a head is open; a later run's
+`pr-agent-pr` record that passed, one that applied, and a resume skip
+standing on one, each ending on that head, retire it for `status` and
+`lookup limited` and the flip's predicate passes; a `pr-agent-pr` record
+that failed, that halted, that ends on another head, or that comes from an
+earlier run retires nothing; a `limited` record of any other step is not
+retired by it; the shipped catalog resolves `pr-agent-pr`.
+
+### REQ-U1.13 — A retired refusal holds nothing and is named [test]
+
+`tests/test-step-run-audit.sh` and `tests/test-mc-readiness.sh` (Task 142):
+with `cubic-pr` in the point's list, a retired `limited` record is covered
+at that head and an unretired one is a gap; the readiness output names the
+step refused, the step that stood in and the head; no operator item is
+written for the retired case in a fixture inbox.
+
+### REQ-U1.14 — The walk refuses on required, running or named checks only [test]
+
+`tests/test-mc-readiness.sh` (Task 143), with evidence fixtures: a failed
+required check, and a required context with no run at the head, each
+refuse; a failed check that is not required does not; a queued and a
+running check each refuse whether or not required; the macOS condition
+refuses as before when the gate data sets it, on a check that is not
+required; all required checks passing with nothing running is ready.
+
+### REQ-U1.15 — Checks that did not refuse are named [test]
+
+`tests/test-mc-readiness.sh` and `tests/test-mc-merge-ready.sh` (Tasks 143
+and 144): a ready walk over a failed non-required check prints its name,
+its state and that it is not required; a red base-state check prints as a
+bypass, required or not; the ready report and the merge recommendation
+built from that walk carry both lines; a walk with none prints none.
+
+### REQ-U1.16 — With no required set, every check is judged [test]
+
+`tests/test-mc-readiness.sh` (Task 143): evidence recording an empty
+required set, and evidence recording that the set could not be read, each
+make a failed check refuse as before this amendment, and the output says
+which reading was used; the same evidence with a non-empty set says the
+required reading was used.
+
+### REQ-U1.17 — The watcher and the merge-ready filter follow the walk [test]
+
+`tests/test-mc-readiness.sh` and `tests/test-mc-merge-ready.sh` (Task 144):
+a snapshot row whose aggregate state is failing only because of a
+non-required or base-state check raises `readiness-due` and is a
+merge-ready candidate; a row with a failed required check raises neither;
+the row the aggregate called passing behaves as before.
+
+### REQ-U1.18 — A recover keeps the row and the owner [test]
+
+`tests/test-fleet-streamjson.sh` and `tests/test-mission-control-launch.sh`
+(Task 146): a launch keeps an owner-only copy of its row, which follows a
+reparent and a wait and goes at retire; a recover with the row present
+leaves it untouched; with the row gone it is restored from the copy; with
+neither, for a worker whose dispatch record names a mission control, the
+recover refuses before any spawn and writes no row; a recover run with
+another tower identity in its environment, and one run with none, each
+leave the dispatch record naming the launching program's mission control;
+a worker no launcher launched recovers with no row invented.
+
+### REQ-U1.19 — A worker is announced by its program, or once as unowned [test]
+
+`tests/test-mc-keeper.sh` (Task 146), with several fixture programs: a
+pending prompt and an arrival of a worker with a row are announced by that
+program's keeper alone; with no row but a dispatch record naming a
+configured program, by that program's keeper alone; with neither, or with a
+record naming a program no longer configured, one unowned event is raised
+in the hub program's store when the knob names one and otherwise in exactly
+one store across repeated passes of every keeper; an unreadable launcher
+list never makes every keeper announce.
