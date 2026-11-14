@@ -84,7 +84,7 @@ mb=$(g merge-base "$base_sha" "$head_sha" 2>/dev/null) || die "the base and the 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/spec-drift-check.XXXXXX") || die "cannot create a scratch directory"
 trap 'rm -rf "$tmp"' EXIT
 
-g diff --name-only "$mb" "$head_sha" >"$tmp/changed" 2>/dev/null || die "cannot list the changed files"
+g diff --no-renames --name-only "$mb" "$head_sha" >"$tmp/changed" 2>/dev/null || die "cannot list the changed files"
 [ -s "$tmp/changed" ] || exit 0
 
 # Tasks the pull request's own commits name.

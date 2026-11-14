@@ -147,6 +147,14 @@ pr "feat: prose" scripts/prose.sh
 run ""
 expect_rc "a deliverable path given in prose without backticks is not a listed file" 0
 
+# A listed file moved away is still a change to it.
+gitc checkout -q -B pr main
+gitc mv scripts/a.sh scripts/moved.sh
+gitc commit -q -m "feat: move a"
+run ""
+expect_rc "a listed deliverable moved away is flagged" 4
+expect_out "under its old path" "flagged${tab}scripts/a.sh${tab}demo/1"
+
 # Two listed files, one excused.
 pr "feat: two" scripts/a.sh src/b.c lib/c.sh
 run "Not covered: scripts/a.sh — reason"

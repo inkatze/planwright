@@ -325,7 +325,7 @@ $1 == "scope" && $2 == "spec-only" { speconly_head = $3 }
 $1 == "signoff" && $3 != "signed" { fail("signoff", $2 ": " ($4 == "" ? "not signed off" : $4)) }
 $1 == "drift" {
   if ($2 == "*") fail("drift", "the spec-drift check could not run: " $3)
-  else fail("drift", $2 " is a deliverable of " $3 " and neither a spec edit nor a Not covered reason covers it")
+  else fail("drift", $2 " is a deliverable of " $3 " and no spec edit, Not covered reason or task trailer covers it")
 }
 $1 == "evidence" { ev[++ne] = $2 "\t" $3 "\t" $4 "\t" $5 }
 $1 == "bodyline" { body = body substr($0, 10) "\n" }
@@ -481,6 +481,8 @@ drift_scope() {
     }' "$5" >"$6/touched" || return 0
   if mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
     while IFS= read -r b; do
+      # A bundle the pull request removes or moves has no sign-off to read.
+      [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]] && [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b" 2>/dev/null)" != tree ] && continue
       why=$(bundle_signoff "$repo" "$3" "$rel" "$b" "$6/touched-$b") || exit
       if [ -n "$why" ]; then
         printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"

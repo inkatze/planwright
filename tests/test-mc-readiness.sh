@@ -679,6 +679,7 @@ has "REQ-D1.13: a changed listed deliverable with no spec edit is collected as d
 expect_rc "the walk refuses it" 4
 expect_out "naming the file and the task" "fail${tab}drift${tab}app/run.sh is a deliverable of demo/1"
 dr_pr "$dr_a" "Not covered: app/run.sh — a comment fix" main app/run.sh
+has "the collection ran at the head" "head${tab}$dr_a"
 hasnt "a Not covered line naming the file clears the drift row" "drift${tab}"
 expect_no_out "and the walk raises no drift failure" "fail${tab}drift"
 dr_pr "$dr_a" "Not covered: src/other.c — a comment fix" main app/run.sh
@@ -693,9 +694,13 @@ printf 'prose change\n' >>"$repo/app/prose.sh"
 printf 'x\n' >>"$repo/src/other.c"
 dr_u=$(dr_commit "feat: unlisted")
 dr_pr "$dr_u" "## Summary" main src/other.c app/prose.sh
+has "the collection ran at the head" "head${tab}$dr_u"
 hasnt "a change touching no listed deliverable (prose path included) passes untouched" "drift${tab}"
 hasnt "and edits no bundle, so reads no sign-off" "signoff${tab}"
 expect_no_out "the walk raises no drift or sign-off failure" "fail${tab}drift"
+dr_pr "$dr_base" "## Summary" main src/other.c specs/gone/design.md
+has "the collection ran at the head" "head${tab}$dr_base"
+hasnt "a bundle absent at the head (removed or moved) has no sign-off to read" "signoff${tab}gone"
 
 # A spec edit with its anchor re-signed covers the change; a stale anchor does not.
 git -C "$repo" reset -q --hard "$dr_base"
@@ -703,6 +708,7 @@ printf 'changed\n' >>"$repo/app/run.sh"
 printf 'An amendment.\n' >>"$repo/specs/demo/design.md"
 dr_stale=$(dr_commit "feat: the file and an unsigned spec edit")
 dr_pr "$dr_stale" "## Summary" main app/run.sh specs/demo/design.md
+has "the collection ran at the head" "head${tab}$dr_stale"
 hasnt "a changed anchored spec covers the file" "drift${tab}"
 has "REQ-D1.13: but its edit is read against the sign-off, which no longer matches" "signoff${tab}demo${tab}unsigned${tab}its content at the head is not what the kickoff signed off"
 expect_out "the walk refuses the unsigned edit on a code pull request" "fail${tab}signoff${tab}demo: its content at the head is not what the kickoff signed off"
