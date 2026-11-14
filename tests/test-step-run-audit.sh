@@ -404,8 +404,21 @@ done_at "$r2" convergence
 f=$(ls "$wt/.claude/steps/$r2"/*-step-convergence.rec)
 awk -F '\t' '$1 != "end-head"' "$f" >"$f.new" && mv "$f.new" "$f"
 audit --through convergence
-! grep -q unrun "$tmp/audit"
-verdict $? "a record without an end head and a later end is not unrun" "$(cat "$tmp/audit")"
+[ "$RC" -eq 1 ] && ! grep -q unrun "$tmp/audit" \
+  && grep -qx "gap${TAB}convergence${TAB}failed${TAB}review:applied" "$tmp/audit"
+verdict $? "a record without an end head and a later end is not unrun (still no end head to count)" "rc $RC: $(cat "$tmp/audit")"
+
+fresh
+catalog "$REVIEW"
+config 'steps_convergence: [review]'
+r=$(sr new-run)
+krec "$r" convergence review command failed "$T0" "$T1"
+done_at "$r" convergence
+f=$(ls "$wt/.claude/steps/$r"/*-step-convergence.rec)
+awk -F '\t' 'BEGIN { OFS = FS } $1 == "outcome" { $2 = "unrun" } { print }' "$f" >"$f.new" && mv "$f.new" "$f"
+audit --through convergence
+[ "$RC" -eq 1 ] && ! grep -q "unrun${TAB}review" "$tmp/audit"
+verdict $? "a hand-written outcome of unrun cannot pose as the unrun gap" "rc $RC: $(cat "$tmp/audit")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

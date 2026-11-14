@@ -991,8 +991,9 @@ cmd_audit() {
       # A model-session step cannot run in zero seconds without moving the head.
       if ((o == "passed" || o == "applied") && (F["kind"] == "skill" || F["kind"] == "prompt") \
           && F["start"] != "" && F["start"] == F["end"] && (F["end-head"] == "" || F["end-head"] == F["head"])) {
-        ok = 0; o = "unrun"
+        ok = 0; o = "!unrun"
       }
+      if (!ok && o == "ok") o = "malformed"
       st[R, K, F["step"]] = ok ? "ok" : o
       seen_any[K, F["step"]] = 1
       if (ok) ever[K, F["step"]] = 1
@@ -1005,7 +1006,7 @@ cmd_audit() {
         if (r != "") s = ((r, p, id) in st) ? st[r, p, id] : ""
         else s = ever[p, id] ? "ok" : (((p, id) in seen_any) ? lastbad[p, id] : "")
         if (s == "ok") continue
-        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : (s == "unrun" ? "unrun:" id : "failed:" id ":" s))
+        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : (s == "!unrun" ? "unrun:" id : "failed:" id ":" s))
       }
       return out == "" ? "-" : out
     }
