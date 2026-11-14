@@ -103,8 +103,10 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$program" ] || usage
 if [ -n "$session" ]; then
-  [ "${#session}" -le 64 ] && case $session in *[!a-z0-9-]* | -* | "") false ;; esac \
-    || mc_usage_fail "--session takes a session name"
+  [ "${#session}" -le 64 ] || mc_usage_fail "--session takes a session name"
+  case $session in
+    *[!a-z0-9-]* | -*) mc_usage_fail "--session takes a session name" ;;
+  esac
 fi
 [ "$verb" != recorded ] || [ -n "$session" ] || usage
 [ "$verb" != record ] || [ -z "$session" ] || usage

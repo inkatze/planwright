@@ -182,6 +182,7 @@ expect_eq "only the tail is read (the head's window is out of it)" "context${tab
 # --- Hostile text is data -------------------------------------------------
 sentinel="$tmp/sentinel"
 {
+  # shellcheck disable=SC2016 # the sentinel commands must stay literal
   printf '{"type":"assistant","message":{"id":"$(touch %s)","model":"`touch %s`;touch %s","usage":{"input_tokens":10000,"cache_read_input_tokens":"$(touch %s)","cache_creation_input_tokens":0}}}\n' "$sentinel" "$sentinel" "$sentinel" "$sentinel"
   printf '{"type":"assistant","message":{"id":"\\u001b]0;x\\u0007\\u0000z","usage":{"input_tokens":20000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n'
   win 200000

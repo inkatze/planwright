@@ -166,6 +166,11 @@ export function parseDigest(text: string): PanelDigest | null {
       case 'holder':
         d.holder = f[1] === 'registry' || f[1] === 'attended' ? f[1] : null
         break
+      case 'context': {
+        const p = f[2] === 'unknown' ? null : int(f[2])
+        if (f[1] && isHandle(f[1]) && (p === null || (p >= 0 && p <= 100))) (d.contexts ??= []).push({ session: f[1], percent: p, source: f[3] === 'host' || f[3] === 'transcript' ? f[3] : '-' })
+        break
+      }
       case 'unreadable':
         if (f[1]) d.unreadable.push(f[1])
         break

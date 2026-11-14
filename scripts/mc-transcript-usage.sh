@@ -33,6 +33,7 @@ case $tail_bytes in
 esac
 [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || exit 1
 
+# shellcheck disable=SC2016 # a jq program
 filter='
 def n: if type == "number" then . else 0 end;
 def id: (. // "-") | tostring | explode | map(select(. > 31 and . != 127)) | implode;
