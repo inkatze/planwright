@@ -177,7 +177,7 @@ done
 # shellcheck disable=SC2016 # the backticks are the row's markdown
 for class in release dependency test-only observation-carry bookkeeping docs-only regeneration; do
   class_row=$(printf '%s\n' "$policy_rows" | grep -F "class \`$class\`")
-  if [ -n "$class_row" ] && case "$(field "$class_row" 4)" in '`auto_merge_classes`, default empty'*) true ;; *) false ;; esac; then
+  if [ -n "$class_row" ] && case "$(field "$class_row" 4)" in '`auto_merge_classes`, default empty'*) true ;; *) false ;; esac then
     ok "the $class class is a policy row opening with auto_merge_classes and its empty default"
   else
     fail "no policy row for the $class class opening with auto_merge_classes and its empty default"
@@ -186,7 +186,7 @@ done
 # shellcheck disable=SC2016 # the backticks are the row's markdown
 halt_row=$(printf '%s\n' "$policy_rows" | grep -F '`auto_merge_halt`')
 # shellcheck disable=SC2016 # the backticks are the row's markdown
-if [ -n "$halt_row" ] && case "$(field "$halt_row" 4)" in '`auto_merge_halt`, default `false`'*) true ;; *) false ;; esac; then
+if [ -n "$halt_row" ] && case "$(field "$halt_row" 4)" in '`auto_merge_halt`, default `false`'*) true ;; *) false ;; esac then
   ok "the kill switch is a policy row with its knob and default"
 else
   fail "no policy row opens with auto_merge_halt and its default"
