@@ -321,7 +321,7 @@ jobs:
   # report at once: the gate needs one row per test file, which only the union
   # holds, and its budgets are the Ubuntu runner's.
   check:
-    needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite]
+    needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite, alpine-smoke]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -334,10 +334,11 @@ jobs:
           MACOS_RESULT: ${{ needs.macos-suite.result }}
           MACOS_SMOKE_RESULT: ${{ needs.macos-smoke.result }}
           ALPINE_RESULT: ${{ needs.alpine-suite.result }}
+          ALPINE_SMOKE_RESULT: ${{ needs.alpine-smoke.result }}
         run: |
           echo "lint: $LINT_RESULT; plan: $PLAN_RESULT; test: $TEST_RESULT"
           echo "mac_run: $MAC_RUN; macos-suite: $MACOS_RESULT; macos-smoke: $MACOS_SMOKE_RESULT"
-          echo "alpine-suite: $ALPINE_RESULT"
+          echo "alpine-suite: $ALPINE_RESULT; alpine-smoke: $ALPINE_SMOKE_RESULT"
           # A macOS job is skipped only on a draft run that planned no macOS;
           # the ready-flip readiness check still wants them green on the head.
           if [ "$MAC_RUN" = false ] && [ "$MACOS_RESULT" = skipped ] \
@@ -347,7 +348,8 @@ jobs:
           fi
           [ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ] \
             && [ "$TEST_RESULT" = success ] && [ "$MACOS_RESULT" = success ] \
-            && [ "$MACOS_SMOKE_RESULT" = success ] && [ "$ALPINE_RESULT" = success ]
+            && [ "$MACOS_SMOKE_RESULT" = success ] && [ "$ALPINE_RESULT" = success ] \
+            && [ "$ALPINE_SMOKE_RESULT" = success ]
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
@@ -468,19 +470,19 @@ jobs:
   # The suite runs as an unprivileged user, since root passes the permission
   # checks several tests rely on failing.
   #
-  # The job's scope is the shell suite, the install smoke, and (once it exists)
-  # the bake-off harness, each a step of that name; other steps are `setup:
-  # <what>`. Those need a tool without a musl build, Docker, or the Claude
-  # CLI's plugin schema check, so they run on Ubuntu only, in the lint job:
+  # The Alpine jobs' scope is the shell suite, the install smoke, and (once it
+  # exists) the bake-off harness, each a step of that name in exactly one Alpine
+  # job; other steps are `setup: <what>`. The checks outside that scope need a
+  # tool without a musl build, Docker, or the Claude CLI's plugin schema check,
+  # so they run on Ubuntu only, in the lint job:
   # `mise run check:non-test`, the bash 3.2 parse step, the PR-range commit
   # lint, and the purged-identifier screen; the timing gate runs in the check
-  # job. The install smoke's marketplace mode needs the Claude CLI, added after
-  # the suite runs.
+  # job. The install smoke has a job of its own, alpine-smoke below.
   #
   # The suite runs in the planned shards, since this runner type is the one
-  # the plan job measures. Every shard also runs the install smoke: the
-  # posture guard holds the Alpine scope to a single job (universal-binary
-  # REQ-B1.4), so the smoke cannot move to a job of its own as on macOS.
+  # the plan job measures. The install smoke runs once per workflow run in
+  # alpine-smoke, as on macOS; the posture guard keeps a job carrying it or the
+  # bake-off harness out of any `strategy.matrix`.
   alpine-suite:
     name: alpine-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     needs: plan
@@ -563,9 +565,32 @@ jobs:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
         run: su suite -c "mise run test -- --shard $SHARD/$SHARDS"
+
+  # The Alpine install smoke, once per workflow run on the suite's pinned
+  # image: it needs the Claude CLI and none of the suite's toolchain, so it
+  # carries only its own setup and the suite shards no longer repeat it.
+  alpine-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+      options: --init
+    steps:
+      - name: "setup: packages"
+        run: apk add --no-cache bash git dash-binsh nodejs npm libgcc libstdc++
+      - name: "setup: checkout"
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+      - name: "setup: platform and the smoke user"
+        run: |
+          test "$(readlink -f /bin/sh)" = /usr/bin/dash
+          test "$(readlink -f "$(command -v awk)")" = /bin/busybox
+          test "$(readlink -f "$(command -v sed)")" = /bin/busybox
+          adduser -D suite
+          chown -R suite "$GITHUB_WORKSPACE"
       - name: "setup: the Claude CLI"
         run: |
-          apk add --no-cache libgcc libstdc++
           npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
           claude --version
       - name: install smoke

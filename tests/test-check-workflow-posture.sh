@@ -1741,7 +1741,7 @@ out="$(cd "$TMP" && "$GUARD" 2>&1)"
 assert_exit "the default workflows dir resolves to the repo's" 0 $?
 
 # ---------------------------------------------------------------------------
-# The platform matrix (--matrix; universal-binary REQ-B1.4). Each case is the
+# The platform matrix (--matrix; universal-binary REQ-B1.6). Each case is the
 # passing matrix below with one edit, so each failure is pinned to that edit.
 # ---------------------------------------------------------------------------
 
@@ -1903,13 +1903,73 @@ matrix_case "matrix: a second Alpine bake-off harness fails" 1 "2 \`bake-off har
         run: mise run substrate:bakeoff
       - name: bake-off harness
         run: mise run substrate:bakeoff"
-matrix_case "matrix: a second Alpine job fails" 1 "more than one Alpine job" \
+matrix_case "matrix: a second Alpine job carrying a second shell suite fails" 1 "2 \`shell suite\`" \
   "M_LINT_STEP=  alpine-two:
     runs-on: ubuntu-latest
     container: alpine:3.24.2
     steps:
       - name: shell suite
         run: true"
+
+# REQ-B1.6: the Alpine scope may span several jobs, each scope step in exactly
+# one, and no Alpine job carrying the smoke or the harness is sharded.
+SMOKE_JOB="  alpine-smoke:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:3.24.2@sha256:0000
+      options: --init
+    steps:
+      - name: \"setup: packages\"
+        run: apk add bash
+      - name: install smoke
+        run: su suite -c '/bin/sh scripts/install-smoke.sh'"
+SHARDED="    strategy:
+      matrix:
+        shard: [1, 2]"
+matrix_case "matrix: the install smoke in its own Alpine job passes" 0 \
+  "holds the platform matrix" DROP_ALPINE_SMOKE=1 "M_LINT_STEP=$SMOKE_JOB"
+matrix_case "matrix: a sharded suite job beside an unsharded smoke job passes" 0 \
+  "holds the platform matrix" DROP_ALPINE_SMOKE=1 "M_ALP_JOB=$SHARDED" "M_LINT_STEP=$SMOKE_JOB"
+matrix_case "matrix: the install smoke in two Alpine jobs fails" 1 "2 \`install smoke\`" \
+  "M_LINT_STEP=$SMOKE_JOB"
+matrix_case "matrix: the install smoke in a sharded Alpine job fails" 1 "strategy.matrix" \
+  "M_ALP_JOB=$SHARDED"
+matrix_case "matrix: a whole-strategy expression on the smoke job fails closed" 1 "strategy.matrix" \
+  "M_ALP_JOB=    strategy: \$\{\{ fromJSON(needs.plan.outputs.shards) \}\}"
+matrix_case "matrix: a flow mapping under strategy on the smoke job fails closed" 1 "strategy.matrix" \
+  "M_ALP_JOB=    strategy:
+      { matrix: { shard: [1, 2] } }"
+matrix_case "matrix: a strategy key with a trailing comment and no matrix passes" 0 "holds the platform matrix" \
+  "M_ALP_JOB=    strategy:  # note
+      fail-fast: false"
+matrix_case "matrix: a strategy without a matrix on the smoke job passes" 0 "holds the platform matrix" \
+  "M_ALP_JOB=    strategy:
+      fail-fast: false"
+matrix_case "matrix: a sharded Alpine job of its own carrying the smoke fails" 1 "strategy.matrix" \
+  DROP_ALPINE_SMOKE=1 "M_LINT_STEP=$SMOKE_JOB
+$SHARDED"
+matrix_case "matrix: the bake-off harness in a sharded Alpine job fails" 1 "strategy.matrix" \
+  "M_ALP_JOB=$SHARDED" DROP_ALPINE_SMOKE=1 "M_ALP_STEP=      - name: bake-off harness
+        run: mise run substrate:bakeoff" "M_LINT_STEP=$SMOKE_JOB"
+matrix_case "matrix: the bake-off harness in its own unsharded Alpine job passes" 0 \
+  "holds the platform matrix" "M_LINT_STEP=  alpine-harness:
+    runs-on: ubuntu-latest
+    container: alpine:3.24.2
+    steps:
+      - name: bake-off harness
+        run: mise run substrate:bakeoff"
+matrix_case "matrix: the bake-off harness in two Alpine jobs fails" 1 "2 \`bake-off harness\`" \
+  "M_ALP_STEP=      - name: bake-off harness
+        run: mise run substrate:bakeoff" "M_LINT_STEP=  alpine-harness:
+    runs-on: ubuntu-latest
+    container: alpine:3.24.2
+    steps:
+      - name: bake-off harness
+        run: mise run substrate:bakeoff"
+matrix_case "matrix: an unscoped step name in the smoke job fails" 1 "outside the Alpine scope" \
+  DROP_ALPINE_SMOKE=1 "M_LINT_STEP=$SMOKE_JOB
+      - name: markdownlint
+        run: mise run lint:md"
 
 matrix_case "matrix: || true inside a quoted command fails" 1 "swallows a failure" \
   "M_MAC_RUN=          su suite -c 'mise run test || true'"
@@ -1957,7 +2017,7 @@ matrix_case "matrix: indentless steps are read" 1 "naming a platform" \
 matrix_case "matrix: a # inside a quoted step name is content" 1 "outside the Alpine scope" \
   "M_ALP_STEP=      - name: \"shell suite # and markdownlint\"
         run: true"
-matrix_case "matrix: a registry-qualified Alpine image counts as Alpine" 1 "more than one Alpine job" \
+matrix_case "matrix: a registry-qualified Alpine image counts as Alpine" 1 "2 \`shell suite\`" \
   "M_LINT_STEP=  alpine-two:
     runs-on: ubuntu-latest
     container: docker.io/library/alpine:3.24
