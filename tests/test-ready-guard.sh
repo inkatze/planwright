@@ -1116,10 +1116,10 @@ reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "checks (default): a current PR defers as before"
-if grep -q 'statusCheckRollup' "$STATE/argv.log"; then
-  fail "checks (default): a current PR paid for a check read"
+if [ "$(grep -c 'statusCheckRollup' "$STATE/argv.log")" = 1 ]; then
+  pass "checks (default): a current PR reads its checks once, only to confirm they finished"
 else
-  pass "checks (default): a current PR makes no check read"
+  fail "checks (default): a current PR should read its checks exactly once: $(cat "$STATE/argv.log")"
 fi
 
 reset_stub_env
@@ -1369,6 +1369,86 @@ else
     fail "the ready-guard wiring does not use \${CLAUDE_PLUGIN_ROOT}"
   fi
 fi
+
+echo "### unfinished checks — a flip waits for every check on the current head to finish"
+
+# A draft whose head is current and MERGEABLE still may not flip while a check
+# is queued, in progress or pending, or while a draft-gated macOS check was
+# skipped. A finished head passes whatever its colour: a red window-lock is the
+# operator's to bypass, never a reason to hold the flip. Pins both directions.
+uf_rollup() { # <runs> — a check read at the conforming head
+  printf '{"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":[%s]}' "$1"
+}
+UF_OK='{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-13T10:00:00Z"}'
+UF_QUEUED='{"__typename":"CheckRun","name":"macos-suite 3","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"2026-11-13T10:00:00Z"}'
+UF_RUNNING='{"__typename":"CheckRun","name":"lint","workflowName":"ci","status":"IN_PROGRESS","conclusion":"","startedAt":"2026-11-13T10:00:00Z"}'
+UF_STATUS_PENDING='{"__typename":"StatusContext","context":"deploy/preview","state":"PENDING"}'
+UF_MAC_SKIPPED='{"__typename":"CheckRun","name":"macos-suite","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-13T10:00:00Z"}'
+UF_WINDOW_RED='{"__typename":"CheckRun","name":"window-lock","workflowName":"window","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-13T10:00:00Z"}'
+UF_OWN_STATUS='{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"PENDING"}'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK,$UF_QUEUED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a queued check denies the flip" 'macos-suite 3'
+assert_reason_matches "the queued-check denial says it is unfinished" 'unfinished|not finished'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK,$UF_RUNNING")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "an in-progress check denies the flip" 'lint'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK,$UF_STATUS_PENDING")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a pending status context denies the flip" 'deploy/preview'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK,$UF_QUEUED,$UF_RUNNING")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_reason_matches "every unfinished check is named, the second" 'lint'
+assert_reason_matches "every unfinished check is named, the first" 'macos-suite 3'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK,$UF_MAC_SKIPPED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a draft-gated macOS check that was skipped denies the flip" 'macos-suite'
+assert_reason_matches "the skipped-macOS denial says to add the ci-macos label" 'ci-macos'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "every check finished green: the flip defers"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK,$UF_WINDOW_RED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "every check finished with only window-lock red: the flip defers (the operator bypasses it)"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK,$UF_OWN_STATUS")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "the flip's own pending status never counts as an unfinished check"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK,$UF_QUEUED")
+RG_SURFACE=mcp run_hook "$(mcp_payload acme widgets 42 false)"
+assert_deny_because "the MCP surface denies a flip with a queued check too" 'macos-suite 3'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_RC=1
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny "a failing check read denies (fail closed)"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=''
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny "an empty check read denies (fail closed)"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup "$UF_OK" | sed 's/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/ffffffffffffffffffffffffffffffffffffffff/')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny "a check read about another head denies (the head moved)"
 
 echo
 echo "passes: $passes  failures: $failures"

@@ -41,7 +41,11 @@
 #   STUB_COMPARE_OUT / STUB_COMPARE_RC the compare endpoint's behind_by / exit
 #   STUB_CHECKS_JSON / STUB_CHECKS_RC  the answer / exit of a `pr view` asking
 #                                      for statusCheckRollup (the check read a
-#                                      behind PR takes); empty is unreadable
+#                                      behind PR takes, and the unfinished-check
+#                                      gate every other flip takes); empty is
+#                                      unreadable; `@green`, the reset default,
+#                                      answers one finished green check at the
+#                                      view's own head
 #   STUB_CHECKS_SLEEP                  seconds that check read sleeps first
 #   RG_SURFACE                         which matcher fired: bash (default) | mcp
 #                                      (not reset by reset_stub_env)
@@ -122,6 +126,12 @@ case "${1:-}" in
         [ -z "${STUB_CHECKS_SLEEP:-}" ] || sleep "$STUB_CHECKS_SLEEP"
         rc=${STUB_CHECKS_RC:-0}
         [ "$rc" = 0 ] || exit "$rc"
+        if [ "${STUB_CHECKS_JSON:-}" = '@green' ]; then
+          if [ -f "$PWD/view.json" ]; then src=$(cat "$PWD/view.json"); else src=${STUB_VIEW_JSON2:-${STUB_VIEW_JSON:-}}; fi
+          h=$(printf '%s' "$src" | sed -n 's/.*"headRefOid":"\([0-9a-f]*\)".*/\1/p')
+          printf '{"headRefOid":"%s","statusCheckRollup":[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:34:10Z"}]}' "$h"
+          exit 0
+        fi
         printf '%s' "${STUB_CHECKS_JSON:-}"
         exit 0
         ;;
@@ -378,7 +388,7 @@ reset_stub_env() {
   STUB_VIEW_RC2=''
   STUB_COMPARE_OUT=0
   STUB_COMPARE_RC=0
-  STUB_CHECKS_JSON=''
+  STUB_CHECKS_JSON='@green'
   STUB_CHECKS_RC=0
   STUB_CHECKS_SLEEP=''
   RG_ADOPTER_OVERLAY=''

@@ -1015,19 +1015,25 @@ evaluate_predicate() {
   valid_count "$behind" \
     || emit_deny "GitHub's compare endpoint returned no readable \`behind_by\` for this pull request, so its currency with its base branch could not be confirmed - refusing (fail closed). Wait and retry."
 
+  local judged=0
   if [ "$behind" != 0 ]; then
     case $(behind_base_policy) in
       conflict-only) ;;
-      checks) behind_checks "$cwd" "$head_oid" "$behind" "$base" ;;
+      checks)
+        behind_checks "$cwd" "$head_oid" "$behind" "$base"
+        judged=1 # it already refused a check that is not finished and passed
+        ;;
       *)
         emit_deny "this pull request is $behind commit(s) behind its base branch $(sanitize_printable "$base" 'its base'), so it has NOT been verified on a current head - refusing the draft->ready flip. Merge the base branch into it ('git fetch origin && git merge FETCH_HEAD'), let CI and review re-run, then retry."
         ;;
     esac
   fi
 
-  # mergeable == MERGEABLE and either behind_by == 0, conflict-only, or
-  # checks with every latest check run passed: emit nothing and let the flip
-  # proceed.
+  [ "$judged" = 1 ] || unfinished_checks "$cwd" "$head_oid"
+
+  # mergeable == MERGEABLE, no check unfinished, and either behind_by == 0,
+  # conflict-only, or checks with every latest check run passed: emit nothing
+  # and let the flip proceed.
   return 0
 }
 
@@ -1098,6 +1104,76 @@ $CHECKS_JQ" 2>/dev/null) || verdict=''
     truncated) emit_deny "this pull request's check list came back at its cap of 100, so a check past it is unread, and $why - refusing (fail closed)." ;;
     '') emit_deny "this pull request's checks could not be read, and $why - refusing (fail closed). Wait and retry." ;;
     *) emit_deny "this pull request's check $(sanitize_printable "$verdict" 'unprintable'), and $why - refusing the draft->ready flip. Let CI finish green on the head (or merge the base branch into it and let CI re-run), then retry." ;;
+  esac
+}
+
+# The latest run of each check context that has not finished, one
+# `<name> (<state>)` per line; a skipped macOS job is listed as `<name>
+# (skipped)` since a draft skips it and a skip is no result. Prints
+# `truncated` for a list at the read's cap of 100. A failed run is finished and
+# listed nowhere: whether it holds the flip is the review's call, and a red
+# window-lock is the operator's to bypass.
+# shellcheck disable=SC2016 # a jq program
+readonly UNFINISHED_JQ='
+  def state: if .context != null then (.state // "PENDING")
+    elif (.status // "COMPLETED") != "COMPLETED" then (.status | tostring)
+    elif (.conclusion // "") == "" then "PENDING" else .conclusion end;
+  def unfinished: if .context != null then (state == "PENDING" or state == "EXPECTED")
+    else ((.status // "COMPLETED") != "COMPLETED" or (.conclusion // "") == ""
+      or ((.conclusion == "SKIPPED") and ((.name // "") | startswith("macos-")))) end;
+  if ((.statusCheckRollup // []) | type) != "array" then empty
+  elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
+  ((.statusCheckRollup // [])
+    | map(select((.context // "") as $c | any($ex[]; . == $c) | not))
+    | latest_check_runs[] | select(unfinished)
+    | "\((.name // .context // "-") | tostring) (\(if .conclusion == "SKIPPED" then "skipped" else (state | ascii_downcase) end))") end'
+
+# unfinished_checks <cwd> <head> — refuses the flip while any check on the
+# PR's current head is queued, pending or in progress, or a draft-gated macOS
+# job was skipped, naming each. Any doubt denies: a failed or timed-out read,
+# an answer about another head, or a list that may have been cut.
+unfinished_checks() {
+  local cwd=$1 head=$2 oid verdict runs_jq base_state names
+  gh_pr_view "$cwd" headRefOid,statusCheckRollup
+  if [ "$GH_VIEW_RC" = 124 ] || [ "$GH_VIEW_RC" = 143 ]; then
+    emit_deny "this pull request's checks could not be read within ${RG_GH_T}s, so it could not be confirmed that they have finished - refusing (fail closed). Wait and retry."
+  fi
+  [ "$GH_VIEW_RC" = 0 ] && [ -n "$GH_VIEW_OUT" ] \
+    || emit_deny "this pull request's checks could not be read, so it could not be confirmed that they have finished - refusing (fail closed). Wait and retry."
+  oid=$(printf '%s' "$GH_VIEW_OUT" | jq -r '.headRefOid // ""' 2>/dev/null) || oid=''
+  [ "$oid" = "$head" ] \
+    || emit_deny "this pull request's head moved while the guard read its checks, so it could not be confirmed that they have finished - refusing (fail closed). Retry."
+  runs_jq=''
+  [ -z "$GUARD_DIR" ] || runs_jq=$(cat -- "$GUARD_DIR/check-runs.jq" 2>/dev/null) || runs_jq=''
+  base_state='[]'
+  if [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/base-state-checks.sh" ]; then
+    base_state=$("$RG_TIMEOUT_BIN" -k 2 "$RG_GH_T" /bin/sh "$GUARD_DIR/base-state-checks.sh" 2>/dev/null </dev/null) || base_state='[]'
+  fi
+  case $base_state in '[]' | '['*']') ;; *) base_state='[]' ;; esac
+  if [ -z "$runs_jq" ]; then
+    emit_deny "the check-selection module beside this guard is missing, so it could not be confirmed that this pull request's checks have finished - refusing (fail closed). Reinstall planwright."
+  fi
+  verdict=$(printf '%s' "$GH_VIEW_OUT" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" --argjson base_state "$base_state" "$runs_jq
+$UNFINISHED_JQ" 2>/dev/null) || {
+    emit_deny "this pull request's checks could not be read, so it could not be confirmed that they have finished - refusing (fail closed). Wait and retry."
+  }
+  [ -n "$verdict" ] || {
+    # No unfinished line: finished, unless the list was not an array at all.
+    printf '%s' "$GH_VIEW_OUT" | jq -e '(.statusCheckRollup // []) | type == "array"' >/dev/null 2>&1 \
+      || emit_deny "this pull request's checks could not be read, so it could not be confirmed that they have finished - refusing (fail closed). Wait and retry."
+    return 0
+  }
+  if [ "$verdict" = truncated ]; then
+    emit_deny "this pull request's check list came back at its cap of 100, so a check past it is unread and it could not be confirmed that they have finished - refusing (fail closed)."
+  fi
+  names=$(printf '%s\n' "$verdict" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+  case $verdict in
+    *'(skipped)'*)
+      emit_deny "this pull request's checks are not finished: $(sanitize_printable "$names" 'unprintable'). A macOS job is skipped while the pull request is a draft, so its skip is no result - add the ci-macos label so it runs on the draft, wait for every check to finish, then retry the draft->ready flip."
+      ;;
+    *)
+      emit_deny "this pull request's checks are not finished: $(sanitize_printable "$names" 'unprintable'). Wait for every check on the head to finish (macOS shards included), then retry the draft->ready flip."
+      ;;
   esac
 }
 

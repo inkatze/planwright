@@ -735,6 +735,36 @@ complete >"$tmp/ev"
 mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
 expect_rc "a notice passes with every check green" 0
 
+# ---------------------------------------------------------------------------
+# A ready pull request must have no unfinished check. The unfinished verdict
+# names each check still queued, pending or in progress at the head; a finished
+# head passes whatever its colour (a red window-lock is the operator's to
+# bypass).
+# ---------------------------------------------------------------------------
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tPENDING/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "a pending check is unfinished" 4
+expect_out "the head is reported" "unfinished${tab}$H"
+expect_out "the pending check is named" "fail${tab}check${tab}lint is PENDING"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tQUEUED/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "a queued check is unfinished" 4
+expect_out "the queued check is named" "fail${tab}check${tab}lint is QUEUED"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tIN_PROGRESS/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "an in-progress check is unfinished" 4
+expect_out "the in-progress check is named" "fail${tab}check${tab}lint is IN_PROGRESS"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tFAILURE/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "a finished red check is no unfinished check" 0
+expect_eq "a finished head is reported finished" "finished${tab}$H"
+complete >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "a head with every check finished passes" 0
+printf 'not an evidence file\n' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "an evidence file without the format line is refused" 4
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-readiness: $failures failure(s)" >&2
   exit 1

@@ -142,6 +142,13 @@ Usage:
       red<TAB><head>, then fail<TAB>check<TAB><name> is <state> and
       diagnose<TAB><name> per red check (exit 4). The ready flip never uses it:
       walk refuses a pending or red check
+  mc-readiness.sh unfinished --evidence <file>
+      the finished-checks verdict over a collected evidence file, for a pull
+      request already marked ready: finished<TAB><head> (exit 0) when no check
+      is queued, pending or in progress; otherwise unfinished<TAB><head>, then
+      fail<TAB>check<TAB><name> is <state> per unfinished check (exit 4). A
+      check that finished red is not unfinished here: a red window-lock is the
+      operator's to bypass
   mc-readiness.sh check --program <p> --repo <owner/name> --pr <n>
                         [--worktree <dir>]
       collect, then walk, printing the walk
@@ -175,7 +182,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-readiness.sh walk|not-red|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
+  mc_usage_fail "usage: mc-readiness.sh walk|not-red|unfinished|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
 }
 
 case ${1:-} in
@@ -266,6 +273,24 @@ END {
     print "fail\tcheck\t" r[1] " is " r[2]
     print "diagnose\t" r[1]
   }
+  exit 4
+}' "$1"
+}
+
+# unfinished_awk <evidence>: the finished-checks verdict. Only a check still
+# queued, pending or running holds; one that finished red does not.
+unfinished_awk() {
+  awk -F '\t' '
+function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
+FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit 4 } ; next }
+$1 == "head" { head = $2 }
+$1 == "check" && pending_check($3) { open[++no] = $2 " is " $3 }
+END {
+  if (badfmt) { print "unfinished\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
+  if (head == "") { print "unfinished\t-"; print "fail\thead\tno evidence at a head was collected"; exit 4 }
+  if (!no) { print "finished\t" head; exit 0 }
+  print "unfinished\t" head
+  for (i = 1; i <= no; i++) print "fail\tcheck\t" open[i]
   exit 4
 }' "$1"
 }
@@ -745,6 +770,11 @@ case $verb in
     [ -n "$evidence" ] || usage
     [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
     not_red_awk "$evidence"
+    ;;
+  unfinished)
+    [ -n "$evidence" ] || usage
+    [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
+    unfinished_awk "$evidence"
     ;;
   collect | check)
     [ -n "$program" ] || usage

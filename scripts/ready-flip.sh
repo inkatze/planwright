@@ -677,6 +677,18 @@ set_pred() { # <name> <pass|fail|skip> <evidence>
   P_RES[i]=$2
   P_EVD[i]=$3
 }
+# The evidence of a failed ci-rollup, which names the checks still unfinished.
+ci_evidence() {
+  local i=0
+  while [ "$i" -lt "${#P_NAME[@]}" ]; do
+    if [ "${P_NAME[$i]}" = ci-rollup ] && [ "${P_RES[$i]}" = fail ]; then
+      sanitize_printable "${P_EVD[$i]}" 'unprintable'
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
 failed_preds() {
   local i=0 out=''
   while [ "$i" -lt "${#P_NAME[@]}" ]; do
@@ -826,15 +838,22 @@ ROLLUP_JQ='
   elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | latest_check_runs[]
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
+    | (.name // .context // "-" | tostring) as $n
     | if .__typename == "StatusContext" then
-        (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
+        (if .state == "SUCCESS" then {k: "green"}
+         elif (.state == "PENDING" or .state == "EXPECTED") then {k: "pending", n: "\($n) (\(.state | ascii_downcase))"}
+         else {k: "failing"} end)
       else
-        (if .status != "COMPLETED" then "pending" elif .conclusion == "SUCCESS" then "green"
-         elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "neutral" else "failing" end)
+        (if .status != "COMPLETED" then {k: "pending", n: "\($n) (\(.status | ascii_downcase))"}
+         elif .conclusion == "SUCCESS" then {k: "green"}
+         elif (.conclusion == "SKIPPED" and ($n | startswith("macos-"))) then {k: "macos", n: $n}
+         elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then {k: "neutral"}
+         else {k: "failing"} end)
       end ] as $v
-  | if any($v[]; . == "failing") then "failing"
-    elif any($v[]; . == "pending") then "pending"
-    elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)"
+  | if any($v[]; .k == "failing") then "failing"
+    elif any($v[]; .k == "pending") then "pending \([$v[] | select(.k == "pending") | .n] | join(", "))"
+    elif any($v[]; .k == "macos") then "macos \([$v[] | select(.k == "macos") | .n] | join(", "))"
+    elif any($v[]; .k == "green") then "green \([$v[] | select(.k == "green")] | length)"
     else "none" end end'
 
 # Set when the host keeps reporting another head: someone else moved the
@@ -887,7 +906,11 @@ $ROLLUP_JQ" 2>/dev/null) || verdict=''
           return
           ;;
         moved) ;;
-        pending) last='checks still pending' ;;
+        pending\ *) last="checks still pending: ${verdict#pending }" ;;
+        macos\ *)
+          set_pred ci-rollup fail "${verdict#macos } skipped on ${HEAD_SHA:0:12}: a macOS job is skipped while the pull request is a draft, so add the ci-macos label and let it finish"
+          return
+          ;;
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
       esac
@@ -1023,6 +1046,7 @@ park_and_exit() { # <predicates>
   fi
   if park "$1"; then
     say "not flipped: $1 failed on ${HEAD_SHA:0:12}; parked under ## Awaiting input in $TASKS"
+    if ci_ev=$(ci_evidence); then say "ci-rollup: $ci_ev"; fi
     [ -z "$GUARD_REASON" ] || say "ready-guard: $(sanitize_printable "$GUARD_REASON")"
     exit 4
   fi
