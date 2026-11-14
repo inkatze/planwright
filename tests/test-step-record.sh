@@ -1893,6 +1893,27 @@ xrefuse "an end earlier than the start" --end --point pre-pr --step s --outcome 
 xrefuse "a re-fire record with no fingerprint" --fingerprint --point post-pr --step s \
   --outcome passed --refire-of pre-pr
 
+# Pool, paths, and re-fire fields round-trip and render table-safe.
+holder="pid 4242 step suite-long | @someone #12"
+# shellcheck disable=SC2086
+rec=$(srx write --run "$rx" --point pre-pr --step pooled $xbase --outcome passed \
+  --pool suite --wait 37 --holder "$holder" --holder "pid 7 (full-suite)" --unpooled \
+  --fingerprint "$FP_1" --args-digest "$DIG_ABC")
+for pair in "pool${TAB}suite" "wait${TAB}37" "holder${TAB}$holder" "holder${TAB}pid 7 (full-suite)" \
+  "unpooled${TAB}yes" "fingerprint${TAB}$FP_1" "args-digest${TAB}$DIG_ABC" "refire-of${TAB}"; do
+  grep -Fxq "$pair" "$rec"
+  verdict "a pooled paths record round-trips '$pair'" "record lacks '$pair'"
+done
+# shellcheck disable=SC2086
+rec=$(srx write --run "$rx" --point pre-pr --step nofp $xbase --outcome passed \
+  --fingerprint none --args-digest "$DIG_ABC")
+grep -Fxq "fingerprint${TAB}none" "$rec" && grep -Fxq "pool${TAB}" "$rec" && grep -Fxq "unpooled${TAB}" "$rec"
+verdict "a record round-trips an absent fingerprint, unpooled" "absent fingerprint misstored"
+tbl=$(srx render --run "$rx" --point pre-pr)
+printf '%s\n' "$tbl" | grep -Fq -- "- Row 5: pool \`suite\`; waited 37 s; holders: pid 4242 step suite-long \\| @&#8203;someone #&#8203;12 / pid 7 \\(full-suite\\); ran unpooled; fingerprint \`666666666666\`; args digest \`ba7816bf8f01\`"
+verdict_of $? "the pool and paths fields render table-safe below the table" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 5')"
+printf '%s\n' "$tbl" | grep -Fq -- "- Row 6: fingerprint none; args digest \`ba7816bf8f01\`"
+verdict_of $? "an absent fingerprint renders as none" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 6')"
 # Awaiting-operator spans round-trip, render table-safe, and are refused
 # outside the step's window or with an end before the start.
 # shellcheck disable=SC2086
@@ -1929,30 +1950,9 @@ xrefuse "a span with a malformed time" --awaiting-operator --point pre-pr --step
 xrefuse "a span naming nothing awaited" --awaiting-operator --point pre-pr --step s --outcome passed \
   --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,"
 xrefuse "an empty span" --awaiting-operator --point pre-pr --step s --outcome passed --awaiting-operator ""
-xrefuse "a span on a completion" --completion --point pre-pr --awaiting-operator \
-  "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,x"
+xrefuse "a span on a completion" --awaiting-operator --completion --point pre-pr \
+  --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,x"
 
-# Pool, paths, and re-fire fields round-trip and render table-safe.
-holder="pid 4242 step suite-long | @someone #12"
-# shellcheck disable=SC2086
-rec=$(srx write --run "$rx" --point pre-pr --step pooled $xbase --outcome passed \
-  --pool suite --wait 37 --holder "$holder" --holder "pid 7 (full-suite)" --unpooled \
-  --fingerprint "$FP_1" --args-digest "$DIG_ABC")
-for pair in "pool${TAB}suite" "wait${TAB}37" "holder${TAB}$holder" "holder${TAB}pid 7 (full-suite)" \
-  "unpooled${TAB}yes" "fingerprint${TAB}$FP_1" "args-digest${TAB}$DIG_ABC" "refire-of${TAB}"; do
-  grep -Fxq "$pair" "$rec"
-  verdict "a pooled paths record round-trips '$pair'" "record lacks '$pair'"
-done
-# shellcheck disable=SC2086
-rec=$(srx write --run "$rx" --point pre-pr --step nofp $xbase --outcome passed \
-  --fingerprint none --args-digest "$DIG_ABC")
-grep -Fxq "fingerprint${TAB}none" "$rec" && grep -Fxq "pool${TAB}" "$rec" && grep -Fxq "unpooled${TAB}" "$rec"
-verdict "a record round-trips an absent fingerprint, unpooled" "absent fingerprint misstored"
-tbl=$(srx render --run "$rx" --point pre-pr)
-printf '%s\n' "$tbl" | grep -Fq -- "- Row 5: pool \`suite\`; waited 37 s; holders: pid 4242 step suite-long \\| @&#8203;someone #&#8203;12 / pid 7 \\(full-suite\\); ran unpooled; fingerprint \`666666666666\`; args digest \`ba7816bf8f01\`"
-verdict_of $? "the pool and paths fields render table-safe below the table" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 5')"
-printf '%s\n' "$tbl" | grep -Fq -- "- Row 6: fingerprint none; args digest \`ba7816bf8f01\`"
-verdict_of $? "an absent fingerprint renders as none" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 6')"
 xrefuse "a malformed pool" --pool --point pre-pr --step s --outcome passed --pool "EVIL pool" --wait 1
 xrefuse "a pool with no wait" --wait --point pre-pr --step s --outcome passed --pool suite
 xrefuse "a wait with no pool" --pool --point pre-pr --step s --outcome passed --wait 3

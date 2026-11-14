@@ -249,6 +249,38 @@ expect_out "the cut is reckoned from the real clock, so a --now pass reads a rec
 touch "$oldrec"
 
 # ---------------------------------------------------------------------------
+# Operator wait: a step that parked on a person carries awaiting spans,
+# reported on their own line and taken out of its step time.
+# ---------------------------------------------------------------------------
+mkdir -p "$steps/000003"
+awrec() { # awrec <file> <step> <start> <end> <seq> [<awaiting value>]...
+  _f=$1 _s=$2 _a=$3 _b=$4 _q=$5
+  shift 5
+  rec "$_f" "$_s" "$_a" "$_b" passed 000003 "$_q"
+  for _v in "$@"; do printf 'awaiting\t%s\n' "$_v" >>"$_f"; done
+}
+awrec "$steps/000003/002-step-convergence.rec" bot-review 2026-11-01T11:00:00Z 2026-11-01T11:50:00Z 002 \
+  "2026-11-01T11:05:00Z 2026-11-01T11:25:00Z sign-off on decline A" \
+  "2026-11-01T11:30:00Z 2026-11-01T11:45:00Z sign-off on decline B"
+# A span outside the step's window, or one ending before it starts, is read
+# as no recorded wait: the step keeps its whole time.
+awrec "$steps/000003/003-step-convergence.rec" stray-span 2026-11-01T11:00:00Z 2026-11-01T11:10:00Z 003 \
+  "2026-11-01T10:00:00Z 2026-11-01T10:30:00Z outside the step"
+awrec "$steps/000003/004-step-convergence.rec" backwards-span 2026-11-01T11:00:00Z 2026-11-01T11:10:00Z 004 \
+  "2026-11-01T11:08:00Z 2026-11-01T11:02:00Z ends before it starts"
+awrec "$steps/000003/005-step-convergence.rec" plain-step 2026-11-01T11:00:00Z 2026-11-01T11:10:00Z 005
+mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+expect_rc "measure with operator spans" 0
+expect_out "a step with spans reports its step time less the spans" "step${tab}bot-review${tab}1${tab}900${tab}900${tab}900${tab}feature"
+expect_out "the spans are their own line, per step, counted by span" "operator-wait${tab}bot-review${tab}2${tab}1050${tab}2100${tab}1200${tab}feature"
+expect_out "a span outside the step is no wait: the step keeps its time" "step${tab}stray-span${tab}1${tab}600${tab}600${tab}600${tab}feature"
+expect_out "a span ending before it starts is no wait either" "step${tab}backwards-span${tab}1${tab}600${tab}600${tab}600${tab}feature"
+expect_out "a record with no span reads as before" "step${tab}plain-step${tab}1${tab}600${tab}600${tab}600${tab}feature"
+expect_no_out "a step with no recorded wait has no operator line" "operator-wait${tab}plain-step"
+expect_no_out "nor does a refused span" "operator-wait${tab}stray-span"
+expect_out "an unchanged step keeps its line exactly" "step${tab}polish${tab}2${tab}2400${tab}4800${tab}3000${tab}feature"
+
+# ---------------------------------------------------------------------------
 # The top bottleneck: of those over their threshold, the most time in all.
 # ---------------------------------------------------------------------------
 mc_run mc-throughput.sh top --program alpha --now "$NOW"
@@ -258,6 +290,9 @@ rm -f "$stall/mc-alpha-worker-0000000001"
 mc_run mc-throughput.sh top --program alpha --now "$NOW"
 expect_out "with the stall gone, the slow step leads" "top${tab}step:polish${tab}4800${tab}"
 expect_out "its text carries the numbers" "Slow cadence step polish: median 40m over 2 runs, 1h20m in all, slowest 50m on feature (threshold 20m)"
+expect_no_out "the step-time bottleneck is computed with the spans subtracted: a 50m step with 35m awaited is no slow step" "step:bot-review"
+expect_out "the bottleneck summary carries operator wait on its own line, apart from step time" \
+  "operator-wait-total${tab}2100${tab}Operator wait, kept apart from step time: 35m over 2 spans, longest 20m on feature (bot-review)"
 printf 'mission_control_throughput_thresholds: {ci-queue: 5m, approval-wait: 1m, stall: 30m, step: 1h}\n' >>"$tracked"
 mc_run mc-throughput.sh top --program alpha --now "$NOW"
 expect_out "a step under a raised threshold is no bottleneck; the CI queue leads" "top${tab}ci:ci / macos-suite${tab}3000${tab}Top bottleneck over the last 1d: CI runner queue, ci / macos-suite: median wait 25m over 2 jobs"
