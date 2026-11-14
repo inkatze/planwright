@@ -90,6 +90,19 @@ busy-unchanged emits one event, kind stall-<state>, subject the session name
 (scripts/mc-event.sh); a state held across passes emits no second one, and a
 relaunch under the same name starts a fresh sample.
 
+A tmux server that is replaced (a crash, a restart) takes every window with
+it, and a window id names its window only for its server's lifetime. The
+launcher records the server's identity (#{pid}:#{start_time}) beside the
+window. When the running server's identity differs from the one tmux rows
+recorded, and the window of every such row is gone (absent, or its id now
+naming another window), the pass emits one tmux-server-lost event, subject
+tmux-server, naming those sessions and asking for their relaunch; each reads
+dead with no event of its own, and the loss is raised once per server. A
+session of the replaced server whose window still carries its name proves
+no loss, so every session keeps its own classification; a session launched on
+the running server, or a row with no recorded server, is classified as
+always.
+
 Output, one line per session, tab separated:
   <name> <kind> <state> <reason> <event id or ->
 
@@ -130,11 +143,24 @@ valid_window() {
   [ "${#1}" -le 12 ]
 }
 
+# valid_server <id>: a tmux server identity, #{pid}:#{start_time}, as the
+# launcher records it.
+valid_server() {
+  case $1 in
+    [0-9]*:[0-9]*) ;;
+    *) return 1 ;;
+  esac
+  case $1 in
+    *[!0-9:]* | *:*:*) return 1 ;;
+  esac
+  [ "${#1}" -le 41 ]
+}
+
 # read_row <row>: set R_<field> from one read of a registry row.
 read_row() {
-  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_launched='' R_token=''
+  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_launched='' R_token='' R_tmux_server=''
   rr_out=$(awk -F '\t' '
-    $1 ~ /^(format|name|state|program|kind|backend|handle|launched|token)$/ && !($1 in seen) {
+    $1 ~ /^(format|name|state|program|kind|backend|handle|tmux_server|launched|token)$/ && !($1 in seen) {
       seen[$1] = 1; v = substr($0, length($1) + 2); gsub(/[^[:print:]]/, "", v); print $1 "\t" v
     }' "$1" 2>/dev/null) || return 1
   while IFS='	' read -r rr_k rr_v; do
@@ -146,6 +172,7 @@ read_row() {
       kind) R_kind=$rr_v ;;
       backend) R_backend=$rr_v ;;
       handle) R_handle=$rr_v ;;
+      tmux_server) R_tmux_server=$rr_v ;;
       launched) R_launched=$rr_v ;;
       token) R_token=$rr_v ;;
     esac
@@ -285,6 +312,85 @@ question_above_input() {
     }'
 }
 
+# server_lost: set LOST_NAMES (one session per line), LOST_NOW and LOST_EVENT
+# when the running tmux server replaced the one the program's tmux rows
+# recorded and every window recorded under a replaced server is gone, emitting
+# the tmux-server-lost event once per server for the sessions it has not yet
+# named. Anything unproven (no server, an unreadable window) leaves LOST_NAMES
+# empty. Returns 1, LOST_NAMES empty, when the event could not be emitted or
+# kept, so each session's own death is raised instead.
+server_lost() {
+  LOST_NAMES='' LOST_NOW='' LOST_EVENT=-
+  [ -d "$REG" ] || return 0
+  sl_now=$(bounded tmux list-sessions -F '#{pid}:#{start_time}' 2>/dev/null </dev/null | head -n 1)
+  valid_server "$sl_now" || return 0
+  sl_names=''
+  set +f
+  set -- "$REG"/mc-*
+  set -f
+  for sl_row in "$@"; do
+    case ${sl_row##*/} in *.tmp.*) continue ;; esac
+    valid_name "${sl_row##*/}" || continue
+    row_ok "$sl_row" || continue
+    [ "$R_state" = launched ] && [ "$R_backend" = tmux ] && [ "$R_name" = "${sl_row##*/}" ] || continue
+    if ! valid_window "$R_handle" || ! valid_server "$R_tmux_server"; then continue; fi
+    [ "$R_tmux_server" != "$sl_now" ] || continue
+    case $(death tmux-window "$PROGRAM" "$R_handle") in
+      dead) ;;
+      alive)
+        # The id may name a window of the new server; only one still carrying
+        # the session's name survived.
+        sl_line=$(bounded tmux display-message -p -t "$R_handle" '#{window_name}	#{pane_pid}' 2>/dev/null </dev/null) || return 0
+        [ "${sl_line%%	*}" != "$R_name" ] || return 0
+        ;;
+      *) return 0 ;;
+    esac
+    sl_names="$sl_names$R_name
+"
+  done
+  [ -n "$sl_names" ] || return 0
+
+  sl_lock="$STALL_DIR/.lock.tmux-server"
+  sl_file="$STALL_DIR/.tmux-server-lost"
+  pw_lock_acquire "$sl_lock" || {
+    printf '%s\n' "$prog: cannot take the tmux-server lock" >&2
+    return 1
+  }
+  sl_seen=''
+  if [ -f "$sl_file" ] && [ ! -L "$sl_file" ] && [ "$(head -n 1 "$sl_file" 2>/dev/null)" = "$sl_now" ]; then
+    sl_seen=$(tail -n +2 "$sl_file" 2>/dev/null) || sl_seen=''
+  fi
+  sl_new=$(printf '%s' "$sl_names" | S=$sl_seen awk 'BEGIN { n = split(ENVIRON["S"], s, "\n"); for (i = 1; i <= n; i++) seen[s[i]] = 1 } NF && !($0 in seen)')
+  if [ -n "$sl_new" ]; then
+    [ -n "$NOW_RAW" ] || NOW=$(mc_now)
+    sl_list=$(printf '%s' "$sl_names" | awk 'NF { printf "%s%s", (n++ ? ", " : ""), $0 }')
+    sl_text="the tmux server was replaced (now $sl_now) and took down the windows of $sl_list; relaunch them"
+    if [ "${#sl_text}" -gt 512 ]; then
+      sl_text="$(printf '%s' "$sl_text" | cut -c 1-440)... (the rest: mc-stall.sh scan --program $PROGRAM); relaunch them"
+    fi
+    LOST_EVENT=$(mc_event emit --program "$PROGRAM" --now "$NOW" -- tmux-server-lost tmux-server "$sl_text") || {
+      pw_lock_release "$sl_lock" || :
+      LOST_EVENT=-
+      printf '%s\n' "$prog: the tmux-server-lost event was not emitted" >&2
+      return 1
+    }
+    if ! printf '%s\n%s%s\n' "$sl_now" "${sl_seen:+$sl_seen
+}" "$sl_new" | mc_write "$sl_file"; then
+      pw_lock_release "$sl_lock" || :
+      printf '%s\n' "$prog: cannot keep the tmux-server-lost record" >&2
+      # The event is out, so no session raises its own death beside it.
+      LOST_NAMES=$sl_names LOST_NOW=$sl_now
+      return 1
+    fi
+  fi
+  pw_lock_release "$sl_lock"
+  if [ "$?" = 2 ]; then
+    printf '%s\n' "$prog: cannot release the tmux-server lock" >&2
+    return 1
+  fi
+  LOST_NAMES=$sl_names LOST_NOW=$sl_now
+}
+
 # classify_one <row-file>: print the session's line, keep its sample, emit
 # an event on entering a stall state. Returns 1 on a store failure.
 classify_one() {
@@ -303,6 +409,13 @@ classify_one() {
   fi
   c_kind=$R_kind
   mc_valid_kebab "$c_kind" || c_kind=-
+  c_lost=0
+  case "
+$LOST_NAMES" in
+    *"
+$c_name
+"*) c_lost=1 ;;
+  esac
   c_launch="${R_launched:--}:${R_token:--}"
   case $c_launch in
     *[!A-Za-z0-9:.-]*) c_launch=- ;;
@@ -326,7 +439,7 @@ classify_one() {
       return 1
     }
     c_have_pane=1
-  elif c_cap=$(capture "$R_backend" "$R_handle"); then
+  elif [ "$c_lost" = 0 ] && c_cap=$(capture "$R_backend" "$R_handle"); then
     c_pane=$(printf '%s\n' "$c_cap" | trim_pane)
     c_have_pane=1
   fi
@@ -349,7 +462,11 @@ classify_one() {
     [ "$c_hash" != "$c_prev_hash" ] || c_since=$c_prev_since
   fi
 
-  liveness "$c_name" "$R_backend" "$R_handle"
+  if [ "$c_lost" = 1 ]; then
+    L_STATE=dead L_REASON="tmux server lost: window $R_handle went with server $R_tmux_server (now $LOST_NOW)"
+  else
+    liveness "$c_name" "$R_backend" "$R_handle"
+  fi
 
   c_footer=$(printf '%s\n' "$c_pane" | tail -n "$FOOTER_LINES")
   c_footer_lc=$(printf '%s' "$c_footer" | tr '[:upper:]' '[:lower:]')
@@ -410,7 +527,9 @@ classify_one() {
   case $c_state in
     working | idle | live | operator-question) ;;
     *)
-      if [ "$c_state" != "$c_prev_state" ]; then
+      if [ "$c_lost" = 1 ]; then
+        c_event=$LOST_EVENT
+      elif [ "$c_state" != "$c_prev_state" ]; then
         c_event=$(mc_event emit --program "$PROGRAM" --now "$NOW" -- "stall-$c_state" "$c_name" "$c_kind: $c_reason") || {
           pw_lock_release "$c_lock" || :
           printf '%s\n' "$prog: the stall-$c_state event for $c_name was not emitted" >&2
@@ -442,7 +561,7 @@ row_ok() {
   [ "$R_program" = "$PROGRAM" ] || return 3
 }
 
-PROGRAM='' NOW_RAW='' PANE_FILE='' NAME=''
+PROGRAM='' NOW_RAW='' PANE_FILE='' NAME='' LOST_NAMES='' LOST_NOW='' LOST_EVENT=-
 [ $# -ge 1 ] || usage
 verb=$1
 shift
@@ -509,8 +628,12 @@ case $verb in
       printf '%s\n' "$prog: $NAME is not launched (its row reads $(sanitize_printable "${R_state:-no state}"))" >&2
       exit 3
     fi
+    lost_rc=0
+    server_lost || lost_rc=1
     classify_one "$row"
-    exit $?
+    rc=$?
+    [ "$rc" != 0 ] || rc=$lost_rc
+    exit "$rc"
     ;;
   scan)
     if [ ! -e "$REG" ]; then
@@ -518,6 +641,7 @@ case $verb in
     fi
     [ -d "$REG" ] && [ -r "$REG" ] && [ -x "$REG" ] || mc_fail "cannot read the registry $(sanitize_printable "$REG")"
     failed=0
+    server_lost || failed=1
     set +f
     set -- "$REG"/mc-*
     set -f

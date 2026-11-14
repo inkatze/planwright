@@ -41,6 +41,15 @@ pane_name=$(field name)
 pane_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
 grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux/argv-$pane_handle" && fail "a tmux ad-hoc session was handed a mission-control token" \
   || ok "a tmux session of another kind holds no mission-control token"
+# The row records the server the window was opened on, so the stall pass can
+# tell a lost server from windows closed one by one.
+pane_server=$(awk -F "$TAB" '$1 == "tmux_server" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
+[ "$pane_server" = 4242:1700000000 ] && ok "a tmux launch records its server's pid and start time in the row" \
+  || fail "the tmux row records tmux_server '$pane_server', not the stub server's 4242:1700000000"
+TMUX_SERVER_ID='not an identity' ml launch --program alpha --kind ad-hoc --scope server-garbled --brief "$tmp/brief.md" --backend tmux
+garbled_server=$(awk -F "$TAB" '$1 == "tmux_server" { print $2; exit }' "$fleet/mission-control/sessions/$(field name)")
+[ "$RC" = 0 ] && [ "$garbled_server" = - ] && ok "an unreadable server identity is recorded as none and the launch stands" \
+  || fail "a garbled server identity: exit $RC, tmux_server '$garbled_server': $ERR"
 ml launch --program alpha --kind mission-control --scope tmux-token --brief "$tmp/brief.md" --backend tmux
 [ "$RC" = 0 ] || fail "the tmux mission-control launch exited $RC: $ERR"
 mt_warns=$(printf '%s\n' "$ERR" | grep -c 'overrides mission_control_launch_backend')

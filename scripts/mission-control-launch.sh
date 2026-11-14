@@ -427,6 +427,7 @@ row_write() {
     printf 'scope\t%s\n' "$scope"
     printf 'backend\t%s\n' "$backend"
     printf 'handle\t%s\n' "$handle"
+    printf 'tmux_server\t%s\n' "${tmux_server:--}"
     printf 'profile\t%s\n' "$profile"
     printf 'tier\t%s\n' "$tier"
     printf 'reserved\t%s\n' "$([ "${ovr_reserved:-0}" = 1 ] && echo yes || echo -)"
@@ -1017,6 +1018,7 @@ cmd_launch() {
   # the rung reports.
   handle=-
   [ "$backend" != stream-json ] || handle=$name
+  tmux_server=-
   token=$(new_token)
 
   # The reservation: a complete row linked into place only where none
@@ -1240,6 +1242,14 @@ cmd_launch() {
       esac
       handle=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "handle" { print $2; exit }')
       valid_window "$handle" || refuse "the tmux rung reported no usable window for $name" 1
+      # A window id names its window only for its server's lifetime, so the
+      # stall pass needs the server's identity to tell a crashed server from
+      # windows closed one by one (scripts/mc-stall.sh).
+      tmux_server=$(tmux display-message -p -t "$handle" '#{pid}:#{start_time}' 2>/dev/null </dev/null) || tmux_server=-
+      case $tmux_server in
+        [0-9]*:[0-9]*) case $tmux_server in *[!0-9:]* | *:*:*) tmux_server=- ;; esac ;;
+        *) tmux_server=- ;;
+      esac
       tier=rung
       ;;
   esac

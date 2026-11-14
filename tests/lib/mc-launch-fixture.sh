@@ -143,7 +143,12 @@ case $1 in
       shift
     done
     [ -e "$TMUX_STUB/$t" ] || exit 1
-    case $all in *session_name*) echo stub ;; *) echo "$t" ;; esac
+    # TMUX_SERVER_ID: the server's #{pid}:#{start_time}.
+    case $all in
+      *session_name*) echo stub ;;
+      *'#{pid}:#{start_time}'*) echo "${TMUX_SERVER_ID:-4242:1700000000}" ;;
+      *) echo "$t" ;;
+    esac
     ;;
   kill-window)
     [ "${TMUX_KILL_FAIL:-0}" = 1 ] && exit 1
@@ -174,7 +179,7 @@ ml() {
     TMUX_PANE="${ML_TMUX_PANE:-}" ${ML_TMUX:+TMUX="$ML_TMUX"} ${ML_MC_TOKEN:+PLANWRIGHT_MC_TOKEN="$ML_MC_TOKEN"} \
     SHIM_RECORD_DIR="${SHIM_RECORD_DIR:-$tmp}" TMUX_STUB="$tmp/tmux" TMUX_KILL_FAIL="${TMUX_KILL_FAIL:-0}" \
     TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" TMUX_NO_SERVER="${TMUX_NO_SERVER:-0}" TMUX_BAD_ID="${TMUX_BAD_ID:-0}" \
-    /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")
+    TMUX_SERVER_ID="${TMUX_SERVER_ID:-4242:1700000000}" /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
 }
