@@ -20,7 +20,7 @@ export LC_ALL
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GUARD="$REPO_ROOT/scripts/worker-hooks-edit-guard.sh"
+GUARD="${WORKER_HOOKS_GUARD:-$REPO_ROOT/scripts/worker-hooks-edit-guard.sh}"
 SETTINGS="$REPO_ROOT/config/worker-settings.json"
 
 failures=0
@@ -148,7 +148,12 @@ expect denied "Write githooks/x on a relative path from a subdirectory cwd" "$(p
 expect denied "Write through a dot-dot spelling" "$(payload Write "$T/plain-wt/src/../githooks/x" "$T/plain-wt")"
 ln -s "$T/plain-wt/githooks" "$T/plain-wt/hooklink"
 expect denied "Write through a symlink to githooks" "$(payload Write "$T/plain-wt/hooklink/x" "$T/plain-wt")"
-expect denied "the primary checkout's githooks/x" "$(payload Write "$T/plain/githooks/x" "$T/plain-wt")"
+mkdir -p "$T/plain-wt/githooks/sub"
+ln -s "$T/plain-wt/githooks/sub" "$T/plain-wt/src/lnk2"
+expect denied "Write through symlink-then-dot-dot (the kernel resolves .. after the link)" "$(payload Write "$T/plain-wt/src/lnk2/../pre-commit" "$T/plain-wt")"
+expect denied "Write through a relative symlink-then-dot-dot spelling" "$(payload Write src/lnk2/../pre-commit "$T/plain-wt")"
+expect deferred "a harmless dot-dot spelling to a new file" "$(payload Write "$T/plain-wt/src/../README.md" "$T/plain-wt")"
+expect denied "the primary checkout's githooks/x""$(payload Write "$T/plain/githooks/x" "$T/plain-wt")"
 expect denied "Edit of the primary checkout's githooks/pre-commit" "$(payload Edit "$T/plain/githooks/pre-commit" "$T/plain-wt")"
 
 # --- the guard: other paths pass ---------------------------------------------
@@ -169,20 +174,16 @@ expect denied "a payload that names no file path" '{"tool_name":"Write","tool_in
 
 # A hook that crashes: stub tools that fail, found first on PATH.
 stub="$T/stub"
-mkdir -p "$stub/git-dead" "$stub/jq-dead"
-printf '#!/bin/sh\nexit 3\n' >"$stub/git-dead/git"
-printf '#!/bin/sh\nexit 3\n' >"$stub/jq-dead/jq"
-chmod +x "$stub/git-dead/git" "$stub/jq-dead/jq"
-got=$(printf '%s' "$good" | PATH="$stub/git-dead:$PATH" "$GUARD" 2>&1) || :
-case $got in
-  *'"permissionDecision":"deny"'*) ok "a crashing git still refuses the protected directory" ;;
-  *) fail "a crashing git let githooks/x through: $got" ;;
-esac
-got=$(printf '%s' "$good" | PATH="$stub/jq-dead:$PATH" "$GUARD" 2>&1) || :
-case $got in
-  *'"permissionDecision":"deny"'*) ok "a crashing jq still refuses the protected directory" ;;
-  *) fail "a crashing jq let githooks/x through: $got" ;;
-esac
+for tool in git jq tr readlink cat; do
+  mkdir -p "$stub/$tool-dead"
+  printf '#!/bin/sh\nexit 3\n' >"$stub/$tool-dead/$tool"
+  chmod +x "$stub/$tool-dead/$tool"
+  got=$(printf '%s' "$good" | PATH="$stub/$tool-dead:$PATH" "$GUARD" 2>&1) || :
+  case $got in
+    *'"permissionDecision":"deny"'*) ok "a crashing $tool still refuses the protected directory" ;;
+    *) fail "a crashing $tool let githooks/x through: $got" ;;
+  esac
+done
 # A working directory that is no repository: the hooks directory cannot be named.
 mkdir -p "$T/norepo"
 expect denied "a cwd outside any repository" "$(payload Write "$T/norepo/githooks/x" "$T/norepo")"

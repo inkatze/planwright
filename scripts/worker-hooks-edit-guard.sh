@@ -55,30 +55,33 @@ norm() {
   printf '%s\n' "${out:-/}"
 }
 
-# phys <normalized absolute path>: where the path resolves, symlinked
-# directories and a symlinked leaf followed; the part that does not exist yet
-# is appended as spelled. Non-zero past the symlink bound or an unreadable
-# folder.
+# phys <absolute path>: where the path resolves, symlinked directories and a
+# symlinked leaf followed; the part that does not exist yet is appended as
+# spelled. A `..` is resolved by the kernel after the symlinks before it, so
+# it is never folded lexically here: the existing prefix goes through cd -P.
+# Non-zero past the symlink bound, an unreadable folder, or a `.` or `..`
+# component in the part that does not exist.
 phys() {
-  local p=$1 n=0 rest cur t par d base
+  local p=$1 n=0 rest cur t d base comp
   while :; do
     n=$((n + 1))
     [ "$n" -le 40 ] || return 1
     rest=''
     cur=$p
     while [ ! -e "$cur" ] && [ ! -L "$cur" ] && [ "$cur" != / ]; do
-      rest="/${cur##*/}$rest"
+      comp=${cur##*/}
+      case $comp in
+        . | ..) return 1 ;;
+      esac
+      rest="/$comp$rest"
       cur=${cur%/*}
       [ -n "$cur" ] || cur=/
     done
     if [ -L "$cur" ]; then
       t=$(readlink -- "$cur") || return 1
       case $t in
-        /*) p=$(norm "$t$rest") ;;
-        *)
-          par=$(cd -P -- "${cur%/*}/" 2>/dev/null && pwd -P) || return 1
-          p=$(norm "$par/$t$rest")
-          ;;
+        /*) p=$t$rest ;;
+        *) p=${cur%/*}/$t$rest ;;
       esac
       continue
     fi
@@ -86,7 +89,7 @@ phys() {
       d=$(cd -P -- "$cur" 2>/dev/null && pwd -P) || return 1
       base=''
     else
-      d=$(cd -P -- "${cur%/*}" 2>/dev/null && pwd -P) || return 1
+      d=$(cd -P -- "${cur%/*}/" 2>/dev/null && pwd -P) || return 1
       base="/${cur##*/}"
     fi
     [ "$d" != / ] || d=''
@@ -142,7 +145,7 @@ main() {
     *) emit_deny "$DENY_UNREAD" ;;
   esac
   lex=$(norm "$abs")
-  real=$(phys "$lex") || emit_deny "$DENY_UNREAD"
+  real=$(phys "$abs") || emit_deny "$DENY_UNREAD"
   [ -n "$real" ] || emit_deny "$DENY_UNREAD"
 
   [ -d "$cwd" ] || emit_deny "$DENY_UNREAD"
@@ -167,12 +170,14 @@ EOF
     .git) dirs+=("${common%/*}/githooks" "${common%/*}/.githooks") ;;
   esac
   local lexl reall
-  lexl=$(lower "$lex")
-  reall=$(lower "$real")
+  lexl=$(lower "$lex") || emit_deny "$DENY_UNREAD"
+  reall=$(lower "$real") || emit_deny "$DENY_UNREAD"
+  [ -n "$lexl" ] && [ -n "$reall" ] || emit_deny "$DENY_UNREAD"
   for c in "${dirs[@]}"; do
     d=$(phys "$(norm "$c")") || emit_deny "$DENY_UNREAD"
-    d=$(lower "$d")
-    cl=$(lower "$(norm "$c")")
+    d=$(lower "$d") || emit_deny "$DENY_UNREAD"
+    cl=$(lower "$(norm "$c")") || emit_deny "$DENY_UNREAD"
+    [ -n "$d" ] && [ -n "$cl" ] || emit_deny "$DENY_UNREAD"
     if under "$reall" "$d" || under "$lexl" "$d" || under "$reall" "$cl" || under "$lexl" "$cl"; then
       emit_deny "$DENY_HOOKS"
     fi
