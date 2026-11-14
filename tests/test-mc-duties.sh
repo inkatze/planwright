@@ -54,6 +54,14 @@ for id in $default_ids; do
 done
 mc_run mc-duties.sh validate
 expect_rc "REQ-C1.1: every shipped entry validates" 0
+# REQ-N1.3: the goal-check duty runs the goal watcher, which re-checks done
+# command goals daily and at bring-up and runs a goal's check on its work's merge.
+mc_run mc-duties.sh get goal-check watchers
+expect_out "REQ-N1.3: goal-check's watcher is the goal script" "scripts/mc-goals.sh@"
+mc_run mc-duties.sh get goal-check lifecycle
+expect_eq "REQ-N1.3: goal-check is live" "live"
+mc_run mc-duties.sh get goal-check kinds
+expect_out "REQ-N1.3: goal-check may raise a blocker item" "blocker"
 core=$shipped_core
 
 # ---------------------------------------------------------------------------
