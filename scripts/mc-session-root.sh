@@ -12,8 +12,8 @@
 #     or `unknown <why>` for no recorded root ("-" or empty, a row from
 #     before the field) or a version that cannot be read, never `current`.
 #
-# A root's version is its directory name under the plugin cache, else the
-# version of its .claude-plugin/plugin.json; the installed version is that of
+# A root's version is that of its .claude-plugin/plugin.json, else its
+# directory name under the plugin cache; the installed version is that of
 # the first root resolve-installed-roots.sh --current names.
 # Exit: 0 for verdict; 2 usage.
 set -u
@@ -30,13 +30,22 @@ usage() {
 
 # version_of <root>: print the root's version, or nothing.
 version_of() {
+  if [ -r "$1/.claude-plugin/plugin.json" ]; then
+    vo_v=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+      "$1/.claude-plugin/plugin.json" | head -n 1)
+    [ -z "$vo_v" ] || {
+      printf '%s\n' "$vo_v"
+      return 0
+    }
+  fi
   vo_base=${1##*/}
-  case $vo_base in
-    [0-9]*.[0-9]*) printf '%s\n' "$vo_base" && return 0 ;;
+  case $1 in
+    */plugins/cache/*/planwright/*)
+      case $vo_base in
+        [0-9]*.[0-9]*) printf '%s\n' "$vo_base" ;;
+      esac
+      ;;
   esac
-  [ -r "$1/.claude-plugin/plugin.json" ] || return 0
-  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    "$1/.claude-plugin/plugin.json" | head -n 1
 }
 
 # older <a> <b>: 0 when version a is strictly older than version b, comparing

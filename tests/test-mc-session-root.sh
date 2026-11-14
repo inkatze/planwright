@@ -33,7 +33,7 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 cache="$tmp/claude/plugins/cache/mkt/planwright"
-mkdir -p "$cache/0.62.0" "$cache/0.75.2" "$cache/0.75.10" "$cache/0.80.0" "$tmp/checkout/.claude-plugin" "$tmp/bare"
+mkdir -p "$tmp/9.9-hotfix" "$cache/0.62.0" "$cache/0.75.2" "$cache/0.75.10" "$cache/0.80.0" "$tmp/checkout/.claude-plugin" "$tmp/bare"
 printf '{"name":"planwright","version":"0.70.0"}\n' >"$tmp/checkout/.claude-plugin/plugin.json"
 jq -n --arg p "$cache/0.75.2" '{version: 2, plugins: {"planwright@planwright": [{scope: "user", installPath: $p, version: "0.75.2"}]}}' \
   >"$tmp/claude/plugins/installed_plugins.json"
@@ -53,6 +53,8 @@ expect "a checkout's version is read from its plugin.json" "$tmp/checkout" "stal
 expect "no recorded root (a row from before the field) is unknown" "-" "unknown${tab}no plugin root recorded at launch"
 expect "an empty recorded root is unknown" "" "unknown${tab}no plugin root recorded at launch"
 expect "a root naming no version is unknown, not current" "$tmp/bare" "unknown${tab}the recorded root names no readable version"
+
+expect "a directory merely named like a version outside the cache is unknown" "$tmp/9.9-hotfix" "unknown${tab}the recorded root names no readable version"
 
 rm -f "$tmp/claude/plugins/installed_plugins.json"
 expect "an unreadable installed record is unknown, not current" "$cache/0.62.0" "unknown${tab}the installed version could not be read"

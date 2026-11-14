@@ -419,11 +419,16 @@ new_token() {
 session_root_for() {
   case $1 in
     stream-json)
-      /bin/sh "$script_dir/fleet-dispatch-env.sh" --print </dev/null 2>/dev/null \
-        | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1
+      sr_root=$(/bin/sh "$script_dir/fleet-dispatch-env.sh" --print </dev/null 2>/dev/null \
+        | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
       ;;
-    *) /bin/sh "$script_dir/mc-session-root.sh" current-root </dev/null 2>/dev/null ;;
+    *) sr_root=$(/bin/sh "$script_dir/mc-session-root.sh" current-root </dev/null 2>/dev/null) ;;
   esac
+  # A control character would forge a field of the row.
+  case $sr_root in
+    *[[:cntrl:]]*) sr_root='' ;;
+  esac
+  printf '%s\n' "$sr_root"
 }
 
 # row_write <row> <token> <state> — write the row from the launch variables,
