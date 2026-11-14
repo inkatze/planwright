@@ -327,6 +327,76 @@ mc_event_wakes() {
     NF && (($3 in r) == ENVIRON["MEW_ROUTINE"] + 0)'
 }
 
+# mc_event_gone <program>: the ids of the event rows on stdin (`mc-event.sh
+# list` lines) whose subject no longer exists, one per line: a session that
+# is neither in the launcher's list nor live in the fleet registry
+# (pending-prompt, pending-prompt-overdue), a handover or announce naming a session that is
+# not the program's holder, a pull request that is merged or closed (named
+# <owner>:<name>:<n>). Every read that fails, and every subject it cannot
+# resolve, keeps its event: a wrong keep costs a turn, a wrong drop hides a
+# live alert.
+mc_event_gone() {
+  meg_prog=$1
+  meg_rows=$(cat)
+  [ -n "$meg_rows" ] || return 0
+  meg_sess_state=0 meg_sess=""
+  meg_hold_state=0 meg_hold=""
+  meg_prs=""
+  while IFS='	' read -r meg_id _ meg_kind meg_subject _; do
+    [ -n "$meg_id" ] || continue
+    case $meg_kind in
+      pending-prompt | pending-prompt-overdue)
+        if [ "$meg_sess_state" -eq 0 ]; then
+          meg_sess_state=2
+          if meg_l=$(/bin/sh "$script_dir/mission-control-launch.sh" list 2>/dev/null </dev/null) \
+            && meg_r=$(/bin/sh "$script_dir/fleet-state.sh" registry 2>/dev/null </dev/null); then
+            meg_sess=$(
+              {
+                printf '%s\n' "$meg_l" | awk -F '\t' 'NF { print $1 }'
+                printf '%s\n' "$meg_r" | awk -F '\t' 'NF && !(NF == 8 && $8 == "closed") { print $2 }'
+              } | awk 'NF { printf " %s", $0 } END { print " " }'
+            )
+            meg_sess_state=1
+          fi
+        fi
+        [ "$meg_sess_state" -eq 1 ] || continue
+        case $meg_sess in *" $meg_subject "*) ;; *) printf '%s\n' "$meg_id" ;; esac
+        ;;
+      handover-requested | mission-control-announce)
+        if [ "$meg_hold_state" -eq 0 ]; then
+          meg_hold_state=2
+          if meg_h=$(/bin/bash "$script_dir/mc-handover.sh" holder --program "$meg_prog" 2>/dev/null </dev/null); then
+            meg_hold=$(printf '%s\n' "$meg_h" | awk -F '\t' '$1 == "holder" { print $2; exit }')
+            [ -z "$meg_hold" ] || meg_hold_state=1
+          fi
+        fi
+        [ "$meg_hold_state" -eq 1 ] || continue
+        [ "$meg_hold" = "$meg_subject" ] || printf '%s\n' "$meg_id"
+        ;;
+      merge-ready | readiness-due | ready-to-merge | ready-offer | pr-merged)
+        meg_num=${meg_subject##*:}
+        meg_rest=${meg_subject%:*}
+        meg_owner=${meg_rest%%:*}
+        meg_name=${meg_rest#*:}
+        case $meg_subject in *:*:*) ;; *) continue ;; esac
+        case $meg_num in '' | *[!0-9]*) continue ;; esac
+        case $meg_name in '' | *:*) continue ;; esac
+        [ -n "$meg_owner" ] || continue
+        meg_state=$(printf '%s' "$meg_prs" | S=$meg_subject awk -F '\t' '$1 == ENVIRON["S"] { print $2; exit }')
+        if [ -z "$meg_state" ]; then
+          meg_state=$(gh pr view "$meg_num" --repo "$meg_owner/$meg_name" --json state --jq .state 2>/dev/null </dev/null) || meg_state=unknown
+          [ -n "$meg_state" ] || meg_state=unknown
+          meg_prs="$meg_prs$meg_subject	$meg_state
+"
+        fi
+        case $meg_state in MERGED | CLOSED) printf '%s\n' "$meg_id" ;; esac
+        ;;
+    esac
+  done <<EOF
+$meg_rows
+EOF
+}
+
 mc_kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
 
 # mc_sha256: the SHA-256 of stdin in hex; fails with no SHA-256 tool.
