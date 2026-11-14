@@ -974,6 +974,39 @@ for kind in tower mission-control; do
   [ $? -eq 2 ] || fail "c9m: --mise-task-edit with the $kind profile must be refused (exit 2)"
   [ ! -s "$rec/argv" ] || fail "c9m: the refused $kind opt-in must never spawn the worker"
 done
+# c9n (spec-branch launch record): --spec-branch reaches the session record
+#    and the worker's state folder, a recover reads it back, a plain launch
+#    carries none, and a unit branch, a malformed name or a non-worker profile
+#    is refused before the worker spawns.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9n1 execution-backends:4 --prompt-file "$tmp/prompt9" --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground \
+  || fail "c9n: a launch with --spec-branch exited non-zero"
+[ "$(cat "$home/streamjson/sjw9n1/spec-branch" 2>/dev/null)" = planwright/demo/amendment-1 ] \
+  || fail "c9n: the launch must record the spec branch for its recover"
+grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || fail "c9n: the session record must carry spec_branch"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9n1 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || fail "c9n: a recover must rewrite the session record with the spec branch"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9n2 execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/mwt" --foreground \
+  || fail "c9n: a plain launch exited non-zero"
+{ [ ! -e "$home/streamjson/sjw9n2/spec-branch" ] && ! grep -q '^spec_branch=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
+  || fail "c9n: a plain launch must carry no spec branch"
+for bad in main planwright/flight/x-0123abcd planwright/demo/task-2 planwright/demo/../x; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch sjw9n3 execution-backends:4 --prompt-file "$tmp/prompt9" --spec-branch "$bad" --foreground >/dev/null 2>&1
+  [ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9n: --spec-branch $bad must be refused before the worker spawns"
+done
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9n4 mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --spec-branch planwright/demo/amendment-1 --foreground >/dev/null 2>&1
+[ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9n: --spec-branch with the tower profile must be refused"
 # A worktree path the literal denies cannot name safely refuses the launch.
 mkdir -p "$tmp/we*ird"
 git init -q "$tmp/we*ird"
