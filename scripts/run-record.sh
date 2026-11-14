@@ -264,7 +264,7 @@ cmd_compare() {
 
   case $var in
     candidate) allowed='candidate_diff_hash changed_knobs' ;;
-    known_bad_set_hash) allowed='' ;;
+    known_bad_set_hash) die "compare refused: known_bad_set_hash is never a comparable variable" 1 ;;
     *)
       ok=0
       for k in $ID_KEYS; do [ "$k" != "$var" ] || ok=1; done

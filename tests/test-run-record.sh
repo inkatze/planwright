@@ -359,6 +359,9 @@ rec "$tmp/cx" "$tmp/cx.json"
 rc=0
 "$RR" compare "$tmp/ca.json" "$tmp/cx.json" --variable permission_arm 2>"$tmp/c.err" || rc=$?
 [ "$rc" -ne 0 ] || fail "d5: a candidate difference is not the permission arm"
+rc=0
+"$RR" compare "$tmp/ca.json" "$tmp/ca.json" --variable known_bad_set_hash >"$tmp/c.out" 2>"$tmp/c.err" || rc=$?
+[ "$rc" -ne 0 ] || fail "d5: known_bad_set_hash is never a comparable variable, even for identical records"
 "$RR" compare "$tmp/ca.json" "$tmp/ca.json" --variable model_map >"$tmp/c.out" || fail "d5: identical records compare"
 if grep -q "differ only in" "$tmp/c.out"; then fail "d5: identical records must not be reported as differing"; fi
 
