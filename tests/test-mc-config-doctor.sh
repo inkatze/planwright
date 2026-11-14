@@ -321,21 +321,21 @@ rm -f "$mlocal"
 cfg doctor --program drift
 expect_eq "REQ-A1.9: drift: no rules and no local layer is clean" "clean"
 
-mc_run mc-rules.sh add drift --text "Mission control hands over to a fresh successor every time its context passes 40%." --subject handover --source "operator, fixture" --date 2026-01-01
+mc_run mc-rules.sh add drift --text "Mission control hands over to a fresh successor every time its context passes 50%." --subject handover --source "operator, fixture" --date 2026-01-01
 mc_run mc-rules.sh add drift --text "Keep mission_control_stall_window at 10m." --subject stall --source "operator, fixture" --date 2026-01-01
 mc_run mc-rules.sh add drift --text "Hand over the program notes at the end of each week, with 3 sections." --subject notes --source "operator, fixture" --date 2026-01-01
 cfg doctor --program drift
 expect_rc "REQ-A1.9: drift: doctor with rules reports findings as data" 0
-expect_out "REQ-A1.9: drift: a rule naming 40% for the handover knob, left at the shipped 70, is a finding with rule, knob and effective value" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}70${tab}core"
-expect_out "REQ-A1.9: drift: the finding says it in plain words" "says 40 but mission_control_handover_context is 70"
+expect_out "REQ-A1.9: drift: a rule naming 50% for the handover knob, left at the shipped 40, is a finding with rule, knob and effective value" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}50${tab}40${tab}core"
+expect_out "REQ-A1.9: drift: the finding says it in plain words" "says 50 but mission_control_handover_context is 40"
 expect_no_out "REQ-A1.9: drift: a rule naming the knob's own shipped value is no finding" "rule-knob${tab}r-2"
 expect_no_out "REQ-A1.9: drift: a rule that merely says hand over, with no context or percent, is no finding" "rule-knob${tab}r-3"
-printf 'mission_control_handover_context: 40\n' >"$adopter/planwright.yml"
+printf 'mission_control_handover_context: 50\n' >"$adopter/planwright.yml"
 cfg doctor --program drift
 expect_no_out "REQ-A1.9: drift: once the knob matches the rule the finding is gone" "rule-knob${tab}r-1"
 printf 'mission_control_handover_context: 55\n' >"$adopter/planwright.yml"
 cfg doctor --program drift
-expect_out "REQ-A1.9: drift: a knob moved to another value is named with its layer" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}55${tab}adopter"
+expect_out "REQ-A1.9: drift: a knob moved to another value is named with its layer" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}50${tab}55${tab}adopter"
 expect_out "REQ-A1.9: drift: a rule-knob finding names the file that sets the knob, not only the layer" "(set in adopter, file $adopter/planwright.yml)"
 rm -f "$adopter/planwright.yml"
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m." --subject stall --source "operator, fixture" --date 2026-01-01
