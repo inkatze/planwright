@@ -6,17 +6,11 @@
 #   spec-drift-check.sh --repo <dir> --base <ref> --head <ref>
 #                       --body-file <file> [--spec-root <path>]
 #
-# The listed files are the backticked tokens of each task's Deliverables, as
-# scripts/spec-model.sh emits them (a path in prose, with no backticks, is not
-# a listed file). A changed listed file is flagged unless
-#   - a spec listing it changed its anchored content (scripts/spec-anchor.sh
-#     over the bundle at the merge base against the head, so a status
-#     annotation alone is no edit),
-#   - a `Not covered: <path> — <reason>` line of the pull request body names
-#     it with a reason, or
-#   - a commit of the pull request carries a `Planwright-Task: <spec>/<id>`
-#     trailer naming a task that lists it (that task's own work).
-# A body with no such line covers nothing.
+# A changed file listed (backticked) in a task's Deliverables is flagged unless
+# a spec listing it changed its anchored content (merge base against head, so a
+# status annotation is no edit), a `Not covered: <path> — <reason>` body line
+# names it, or a commit trailer `Planwright-Task: <spec>/<id>` names a task
+# listing it. A body with no such line covers nothing.
 #
 # Output, one line each, tab-separated:
 #   flagged<TAB><path><TAB><spec>/<task>[ <spec>/<task>...]
