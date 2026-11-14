@@ -638,7 +638,7 @@ lint_block="$(job_block lint)"
 # shellcheck disable=SC2016
 {
   assert_contains "ci.yml has an aggregate check job needing lint, plan, test, and every platform job" "$check_block" \
-    "needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite]"
+    "needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite, alpine-smoke]"
   assert_contains "the check job runs whatever its needs did" "$check_block" 'if: ${{ always() }}'
   assert_contains "the check job fails unless lint and the plan passed" "$check_block" \
     '[ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ]'
@@ -669,11 +669,14 @@ lint_block="$(job_block lint)"
 macos_block="$(job_block macos-suite)"
 smoke_block="$(job_block macos-smoke)"
 alpine_block="$(job_block alpine-suite)"
+alpine_smoke_block="$(job_block alpine-smoke)"
 # shellcheck disable=SC2016
 {
   assert_contains "the check job reads the macOS suite's result" "$check_block" 'MACOS_RESULT: ${{ needs.macos-suite.result }}'
   assert_contains "the check job reads the macOS smoke's result" "$check_block" 'MACOS_SMOKE_RESULT: ${{ needs.macos-smoke.result }}'
   assert_contains "the check job reads the Alpine suite's result" "$check_block" 'ALPINE_RESULT: ${{ needs.alpine-suite.result }}'
+  assert_contains "the check job reads the Alpine smoke's result" "$check_block" 'ALPINE_SMOKE_RESULT: ${{ needs.alpine-smoke.result }}'
+  assert_contains "the check job fails unless the Alpine smoke passed" "$check_block" '&& [ "$ALPINE_SMOKE_RESULT" = success ]'
   assert_contains "the check job fails unless the macOS suite passed" "$check_block" \
     '&& [ "$MACOS_RESULT" = success ]'
   assert_contains "the check job fails unless the macOS smoke and the Alpine suite passed" "$check_block" \
@@ -703,6 +706,15 @@ alpine_block="$(job_block alpine-suite)"
   assert_contains "the Alpine shard count comes from the matrix" "$alpine_block" 'SHARDS: ${{ strategy.job-total }}'
   assert_contains "each Alpine job runs one shard as the suite user" "$alpine_block" \
     "su suite -c \"mise run test -- --shard \$SHARD/\$SHARDS\""
+  assert_not_contains "no Alpine shard runs the install smoke" "$alpine_block" "install-smoke.sh"
+  assert_contains "the Alpine smoke runs once, in its own job, as the unprivileged user" "$alpine_smoke_block" \
+    "su suite -c '/bin/sh scripts/install-smoke.sh'"
+  assert_not_contains "the Alpine smoke job is not sharded" "$alpine_smoke_block" "matrix:"
+  assert_contains "the Alpine smoke runs on the suite's pinned image" "$alpine_smoke_block" \
+    "$(printf '%s\n' "$alpine_block" | grep -m1 'image: alpine')"
+  assert_contains "the Alpine smoke asserts dash is /bin/sh" "$alpine_smoke_block" 'test "$(readlink -f /bin/sh)" = /usr/bin/dash'
+  assert_contains "the Alpine smoke asserts awk is busybox" "$alpine_smoke_block" 'command -v awk'
+  assert_contains "the Alpine smoke asserts sed is busybox" "$alpine_smoke_block" 'command -v sed'
 }
 
 # scripts/refresh-test-durations-ci.sh picks the Linux shard jobs by the
