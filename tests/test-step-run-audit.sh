@@ -79,6 +79,15 @@ audit --through post-pr
 verdict $? "every configured step recorded, every point completed at the head: complete, exit 0" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
+# --- work after the last point is unreviewed ------------------------------------
+old=$(head_of)
+commit after-post-pr
+audit --through post-pr
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}post-pr${TAB}stale${TAB}$old" "$tmp/audit" \
+  && grep -qx "covered${TAB}convergence" "$tmp/audit"
+verdict $? "a commit after the last point's completion is stale there; an earlier point on an ancestor stands" \
+  "rc $RC: $(cat "$tmp/audit")"
+
 # --- a step that parked on the operator twice is still a recorded step ---------
 fresh
 catalog "$SHOW"
@@ -95,15 +104,6 @@ audit --through convergence
 [ "$RC" -eq 0 ] && grep -qx "covered${TAB}convergence" "$tmp/audit"
 verdict $? "a record carrying two awaiting-operator spans counts toward the cadence" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
-
-# --- work after the last point is unreviewed ------------------------------------
-old=$(head_of)
-commit after-post-pr
-audit --through post-pr
-[ "$RC" -eq 1 ] && grep -qx "gap${TAB}post-pr${TAB}stale${TAB}$old" "$tmp/audit" \
-  && grep -qx "covered${TAB}convergence" "$tmp/audit"
-verdict $? "a commit after the last point's completion is stale there; an earlier point on an ancestor stands" \
-  "rc $RC: $(cat "$tmp/audit")"
 
 # --- a merge of the base alone keeps the record fresh; any other merge does not --
 fresh
