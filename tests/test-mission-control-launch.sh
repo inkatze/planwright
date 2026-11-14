@@ -32,6 +32,8 @@ repo_root=$(cd "$here/.." && pwd -P)
 LAUNCH="$repo_root/scripts/mission-control-launch.sh"
 # shellcheck source=tests/lib/mc-launch-fixture.sh
 . "$here/lib/mc-launch-fixture.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 
 # ---------------------------------------------------------------------------
 # REQ-D1.1, REQ-G1.1, REQ-M1.7, REQ-B1.4: every kind launches with its brief,
@@ -270,9 +272,10 @@ sleep 600 &
 adopt_live=$!
 sleep 600 &
 adopt_live2=$!
-sh -c 'exit 0' &
-adopt_dead=$!
-wait "$adopt_dead"
+adopt_dead=$(dead_owner_pid) || {
+  echo "FAIL: no PID is guaranteed dead on this host" >&2
+  exit 1
+}
 areg="$fleet/mission-control/sessions"
 mksj() { # mksj <worker> <pid>: a stream-json state directory holding the pid
   mkdir -p "$fleet/streamjson/$1"
