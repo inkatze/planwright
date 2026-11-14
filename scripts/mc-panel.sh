@@ -182,6 +182,13 @@ Usage:
                                              a registry holder (a session
                                              mission control launched) hands
                                              over; `-` with no readable record
+        context<TAB><session><TAB><percent|unknown><TAB><host|transcript|->
+                                             one per session the runner
+                                             recorded a reading for
+                                             (scripts/mc-context.sh), with
+                                             where it came from; `unknown`
+                                             for one it could not read or
+                                             that is over an hour old
         unreadable<TAB><store>               a store that could not be read
         health<TAB><check><TAB><n|?><TAB><worst|-><TAB><text>
                                              a health check out of its
@@ -243,7 +250,7 @@ Usage:
       the entry as plain printable ASCII, its links dropped; exit 1 with
       no readable changelog
 
-  mc-panel.sh text --program <p> [--target <t>]
+  mc-panel.sh text --program <p> [--target <t>] [--now <epoch>]
       the text panel, for a session where nothing draws the pane:
         mission control <p>
         in flight: <n>               then one indented line per flight
@@ -256,6 +263,8 @@ Usage:
         rung: <rung> (<reason>)
         health: <text>; <text>       only when a check is out of bounds
                                      or unknown
+        context: <session> <n>% (<source>)   one per recorded reading,
+                                     `unknown` where none could be read
       a store that cannot be read is said as unknown, with why
   mc-panel.sh activate --program <p> [--target <t>] [--session <id>]
                        [--pid <pid>] [--now <epoch>]
