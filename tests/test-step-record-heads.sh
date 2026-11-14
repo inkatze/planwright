@@ -107,6 +107,15 @@ w "$r" show command applied
 verdict $? "the begin record's head is the start head and HEAD the end when --head is omitted" \
   "rc $WRC err: $(cat "$tmp/err") head: $(field "$r" head) end: $(field "$r" end-head) want $hb $hm"
 
+# A branch named like an abbreviation is not mistaken for the commit id.
+fresh
+commit one
+git -C "$wt" branch deadbee "$(git -C "$wt" rev-parse HEAD~1)"
+r=$(sr new-run)
+w "$r" skill-a skill passed --head deadbee
+[ "$WRC" -eq 2 ] && grep -q deadbee "$tmp/err"
+verdict $? "a hex-looking ref name is refused rather than read as an abbreviation" "rc $WRC err: $(cat "$tmp/err")"
+
 # A command step that rewrites history still records: the runner's own start head is exempt from reachability.
 fresh
 catalog "amend|kind: command|target: $bin/amend.sh"

@@ -522,6 +522,7 @@ norm_head() {
   fi
   NORM=$(git_wt rev-parse --verify --quiet "$nh_v^{commit}") \
     || bad "$1" "$nh_v is not a commit here, or an abbreviation that names more than one"
+  case $NORM in "$nh_v"*) ;; *) bad "$1" "$nh_v names a ref, not a commit id" ;; esac
   [ "$NORM" != "${3:-}" ] && [ "$NORM" != "${PLANWRIGHT_RUNNER_HEAD:-}" ] || return 0
   git_wt merge-base --is-ancestor "$NORM" HEAD \
     || bad "$1" "$nh_v is not a commit on the current branch (not reachable from HEAD)"
