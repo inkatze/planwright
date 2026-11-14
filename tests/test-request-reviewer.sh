@@ -8,8 +8,10 @@
 # unit clone; the stub gh below replaces its stub and answers from files.
 # Nothing reaches a real host.
 # shellcheck disable=SC2119 # no case here needs mp_fixture's base parks
-unset CDPATH PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
+unset CDPATH
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 export PLANWRIGHT_CONFIG_DEFAULTS="$REPO_ROOT/config/defaults.yml"
 HELPER="$REPO_ROOT/scripts/request-reviewer.sh"
 

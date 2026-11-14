@@ -19,6 +19,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECKER="$REPO_ROOT/scripts/check-memory-links.sh"
 
 failures=0
@@ -124,14 +126,16 @@ assert "non-existent bundle path is a usage error" 2 $?
 #    the guard cannot scan must not be reported as free of memory links
 #    (fail-closed parity with check-doc-links.sh). Skipped under root, where
 #    mode 000 is still readable.
-if [ "$(id -u)" -ne 0 ]; then
-  mkbundle "$tmp/unreadable" "Draft"
-  printf '# T\n\n**Status:** Draft\n\nSee [[hidden]].\n' >"$tmp/unreadable/tasks.md"
-  chmod 000 "$tmp/unreadable/tasks.md"
+mkbundle "$tmp/unreadable" "Draft"
+printf '# T\n\n**Status:** Draft\n\nSee [[hidden]].\n' >"$tmp/unreadable/tasks.md"
+chmod 000 "$tmp/unreadable/tasks.md"
+if hermetic_access_denied r "$tmp/unreadable/tasks.md"; then
   /bin/bash "$CHECKER" "$tmp/unreadable" >/dev/null 2>&1
   assert "unreadable spec file is a usage error (fail-closed)" 2 $?
-  chmod 644 "$tmp/unreadable/tasks.md"
+else
+  echo "skip: unreadable spec file: the running user still reads $tmp/unreadable/tasks.md under mode 000"
 fi
+chmod 644 "$tmp/unreadable/tasks.md"
 
 # 10. A bare token sharing a line with an inline code span is still caught: the
 #     code span is stripped, the bare token remains.

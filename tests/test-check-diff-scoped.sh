@@ -8,6 +8,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OB
   GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECK="$REPO_ROOT/scripts/check-diff-scoped.sh"
 
 failures=0
@@ -244,6 +246,45 @@ for v in CLAUDE_PLUGIN_DATA CLAUDE_DIR; do
 done
 rm "$R2/tests/test-writes-fleet.sh"
 
+# Every variable the library clears reaches a selected test unset, whatever
+# the caller exported.
+{
+  printf '#!/bin/bash\n# scripts/one.sh\n'
+  for v in $hermetic_env_cleared; do
+    # shellcheck disable=SC2016 # the expansion is for the generated test
+    printf '[ -z "${%s+set}" ] || exit 1\n' "$v"
+  done
+} >"$R2/tests/test-sees-cleared.sh"
+decoys=""
+for v in $hermetic_env_cleared; do decoys="$decoys $v=$T/decoy"; done
+# shellcheck disable=SC2086 # one NAME=value word per listed variable
+out=$(cd "$R2" && env $decoys "$CHECK" tests/test-sees-cleared.sh 2>&1 </dev/null)
+assert_exit "every cleared variable reaches a selected test unset" 0 $?
+rm "$R2/tests/test-sees-cleared.sh"
+
+# The library is found from the script's own location, so a relative
+# invocation from below the top level still loads it.
+R3=$T/repo3
+mkdir -p "$R3/scripts" "$R3/tests/lib"
+cp "$CHECK" "$R3/scripts/check-diff-scoped.sh"
+cp "$REPO_ROOT/tests/lib/hermetic-env.sh" "$R3/tests/lib/hermetic-env.sh"
+printf '#!/bin/bash\nexit 0\n' >"$R3/tests/test-r3.sh"
+git init -q "$R3"
+out=$(cd "$R3/tests" && /bin/sh ../scripts/check-diff-scoped.sh --runner /bin/bash tests/test-r3.sh 2>&1 </dev/null)
+assert_exit "a relative invocation from a subdirectory runs the selected test" 0 $?
+assert_contains "the relative invocation ran the test" "pass	test	tests/test-r3.sh" "$out"
+
+# A list the check cannot pin runs nothing, and the refusal is not blamed on
+# the test as a fleet-home write.
+# shellcheck disable=SC2016 # the line is for the copied library
+printf '%s\n' 'hermetic_env_pinned="NO_ARM_VAR $hermetic_env_pinned"' >>"$R3/tests/lib/hermetic-env.sh"
+printf '#!/bin/bash\ntouch "%s/r3-ran"\n' "$T" >"$R3/tests/test-r3.sh"
+out=$(cd "$R3" && /bin/sh scripts/check-diff-scoped.sh --runner /bin/bash tests/test-r3.sh 2>&1 </dev/null)
+assert_exit "an unpinnable list fails the selected test" 1 $?
+assert_contains "the unpinnable list is named" "could not pin the fleet home" "$out"
+assert_lacks "the refusal is not blamed on the test" "wrote into the fleet home" "$out"
+if [ -e "$T/r3-ran" ]; then fail "a test ran on a list the check could not pin"; else ok "a test never runs on a list the check could not pin"; fi
+
 # Each test gets the suite's load headroom for spec-graph's dot watchdog.
 # shellcheck disable=SC2016 # the fixture's variable is for the fixture's shell
 printf '#!/bin/bash\n[ "$SPEC_WALKTHROUGH_DOT_TIMEOUT" = "${WANT:-60}" ]\n' >"$R2/tests/test-dot-headroom.sh"
@@ -289,11 +330,15 @@ out=$(cd "$R" && GIT_LITERAL_PATHSPECS=1 "$CHECK" --list scripts/alpha.sh 2>&1)
 assert_contains "an inherited literal-pathspec setting still selects tests" "test	tests/test-alpha.sh" "$out"
 printf '# edit\n' >>"$R/docs/README.md"
 chmod 000 "$R/.git/index"
-out=$(ck --list --base HEAD 2>&1)
-rc=$?
+if hermetic_access_denied r "$R/.git/index"; then
+  out=$(ck --list --base HEAD 2>&1)
+  rc=$?
+  assert_exit "a git failure listing the changes is an error, not an empty change set" 2 "$rc"
+  assert_lacks "a git failure does not read as nothing changed" "nothing changed" "$out"
+else
+  echo "skip: git failure listing the changes: the running user still reads $R/.git/index under mode 000"
+fi
 chmod 644 "$R/.git/index"
-assert_exit "a git failure listing the changes is an error, not an empty change set" 2 "$rc"
-assert_lacks "a git failure does not read as nothing changed" "nothing changed" "$out"
 g checkout -q -- docs/README.md
 # An inherited repository selector never points the check at another repository.
 printf '# edit\n' >>"$R/docs/README.md"
