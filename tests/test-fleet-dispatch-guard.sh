@@ -38,6 +38,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FDG="$here/../scripts/fleet-dispatch-guard.sh"
 
 fail() {
@@ -208,13 +210,16 @@ echo "ok: a trailing auto source always refuses"
 printf '{"permissions": {"allow": []}}\n' >"$claude_dir/settings.json"
 CLAUDE_DIR="$claude_dir" run check-inherited >/dev/null 2>&1 \
   || fail "a settings file with no defaultMode must pass"
-if [ "$(id -u)" != 0 ]; then
-  chmod 000 "$claude_dir/settings.json"
+chmod 000 "$claude_dir/settings.json"
+rc=skip
+if hermetic_access_denied r "$claude_dir/settings.json"; then
   rc=0
   CLAUDE_DIR="$claude_dir" run check-inherited >/dev/null 2>&1 || rc=$?
-  chmod 644 "$claude_dir/settings.json"
-  [ "$rc" = 1 ] || fail "an unreadable settings file: exit $rc, expected 1 (fail closed)"
+else
+  echo "skip: unreadable settings file (check-inherited): the running user still reads $claude_dir/settings.json under mode 000"
 fi
+chmod 644 "$claude_dir/settings.json"
+[ "$rc" = skip ] || [ "$rc" = 1 ] || fail "an unreadable settings file: exit $rc, expected 1 (fail closed)"
 rm -f "$claude_dir/settings.json"
 echo "ok: no-pin passes, unreadable fails closed (check-inherited)"
 

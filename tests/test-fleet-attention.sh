@@ -39,6 +39,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FA="$here/../scripts/fleet-attention.sh"
 FS="$here/../scripts/fleet-state.sh"
 
@@ -929,13 +931,13 @@ echo "ok: --unless-awaiting fails safe under multi-row corruption (queued decisi
 # 25. The --unless-awaiting guard FAILS CLOSED when it cannot READ the store to
 #     check for a queued decision (REQ-A1.3): an unreadable store must exit 2,
 #     never fall through and let a downgrade heartbeat clobber an awaiting-input
-#     row. Skipped under root, which reads through chmod 000 (repo convention).
+#     row. Skipped where the running user reads through chmod 000.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" -ne 0 ]; then
-  home25="$tmp/guard-failclosed"
-  aenv "$home25" decide "worker=fc" "spec-fc:1" "stuck?" "park" "park|retry" high \
-    || fail "failclosed setup: decide failed"
-  chmod 000 "$home25/attention/state" || fail "failclosed setup: chmod failed"
+home25="$tmp/guard-failclosed"
+aenv "$home25" decide "worker=fc" "spec-fc:1" "stuck?" "park" "park|retry" high \
+  || fail "failclosed setup: decide failed"
+chmod 000 "$home25/attention/state" || fail "failclosed setup: chmod failed"
+if hermetic_access_denied r "$home25/attention/state"; then
   rc=0
   err=$(aenv "$home25" heartbeat "worker=fc" "spec-fc:1" idle --unless-awaiting 2>&1 >/dev/null) || rc=$?
   chmod 644 "$home25/attention/state"
@@ -951,7 +953,8 @@ if [ "$(id -u)" -ne 0 ]; then
     || fail "fail-closed guard let a downgrade clobber the queued decision"
   echo "ok: --unless-awaiting fails closed on an unreadable store (never clobbers a queued decision)"
 else
-  echo "skip: --unless-awaiting fail-closed test (running as root reads through chmod 000)"
+  echo "skip: --unless-awaiting fail-closed: the running user still reads $home25/attention/state under mode 000"
 fi
+chmod 644 "$home25/attention/state"
 
 echo "ALL PASS: fleet-attention.sh"

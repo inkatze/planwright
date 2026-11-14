@@ -17,6 +17,10 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd -P)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 
 failures=0
 fail() {
@@ -58,9 +62,10 @@ EOF
 # A live pid the fixtures can point at, and one that has exited.
 sleep 600 &
 live_pid=$!
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid"
+dead_pid=$(dead_owner_pid) || {
+  echo "FAIL: no PID is guaranteed dead on this host" >&2
+  exit 1
+}
 
 # The tmux stub: window @N exists while $TMUX_STUB/N.name holds its name;
 # its pane pid is in N.pid and its pane text in N.pane.
@@ -521,9 +526,14 @@ expect_err "the refusal names the format field" "format"
 stall classify --program gamma --now 1000 mc-alpha-worker-dead
 expect_rc "an unconfigured program is refused" 3
 chmod 300 "$reg"
-stall scan --program alpha --now 3000
-chmod 700 "$reg"
-expect_rc "an unreadable registry fails the scan rather than reading as empty" 1
+if hermetic_access_denied r "$reg"; then
+  stall scan --program alpha --now 3000
+  chmod 700 "$reg"
+  expect_rc "an unreadable registry fails the scan rather than reading as empty" 1
+else
+  chmod 700 "$reg"
+  echo "skip: the unreadable registry case (the mode does not deny reading here)"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
