@@ -2516,6 +2516,73 @@ cmd_launch() {
   return 2
 }
 
+# registry_field <row-file> <field> — the value of a launcher registry row's
+# field, empty when the row or the field is absent.
+registry_field() {
+  awk -F '\t' -v f="$2" '$1 == f { print $2; exit }' "$1" 2>/dev/null || :
+}
+
+# answer_owner_check <worker> <request-short> — refuse an answer from a
+# mission-control session (a caller holding PLANWRIGHT_MC_TOKEN) to a worker
+# its program does not own. The program comes from the registry row whose
+# token the caller holds, never from a claim in the environment. A caller with
+# no token (the operator's shell, a tower) is not a mission-control session and
+# is not checked. Prints the refusal itself; returns 0 to proceed.
+answer_owner_check() {
+  [ -n "${PLANWRIGHT_MC_TOKEN:-}" ] || return 0
+  ao_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null) || ao_root=''
+  ao_rows="$ao_root/mission-control/sessions"
+  ao_wrow="$ao_rows/$1"
+  ao_owner=$(registry_field "$ao_wrow" owner)
+  ao_wprog=$(registry_field "$ao_wrow" program)
+  ao_why=''
+  ao_cprog=''
+  case $PLANWRIGHT_MC_TOKEN in
+    '' | *[!A-Za-z0-9._-]*) ao_why="this session's mission-control token is malformed" ;;
+    *)
+      if [ -n "$ao_root" ] && [ -d "$ao_rows" ]; then
+        for ao_f in "$ao_rows"/*; do
+          [ -f "$ao_f" ] || continue
+          [ "$(registry_field "$ao_f" token)" = "$PLANWRIGHT_MC_TOKEN" ] || continue
+          [ "$(registry_field "$ao_f" kind)" = mission-control ] || continue
+          ao_cprog=$(registry_field "$ao_f" program)
+          break
+        done
+      fi
+      [ -n "$ao_cprog" ] || ao_why="this session's mission-control token matches no registered mission-control session"
+      ;;
+  esac
+  if [ -z "$ao_why" ]; then
+    if [ -z "$ao_wprog" ]; then
+      ao_why="worker $1 has no recorded owner, so no mission-control session may answer it"
+    elif [ "$ao_wprog" != "$ao_cprog" ]; then
+      ao_why="this session is mission-control for $(sanitize_printable "$ao_cprog" '?'), not the owner"
+    else
+      return 0
+    fi
+  fi
+  ao_owner=$(sanitize_printable "$ao_owner" 'no recorded owner' | cut -c1-96)
+  printf '%s\n' "$me: answer refused, nothing written to worker $1: it is owned by $ao_owner; $ao_why (request $2 stays pending)" >&2
+  return 1
+}
+
+# answer_echo <worker> <dir> <request-id> — say on stderr, before acting, which
+# worker and program the answer is for and the first line of the command it
+# approves, so the answering call reads on its own. One sanitized, bounded line.
+answer_echo() {
+  ae_obj=$(json_input_object "$2/req-$3.json" 2>/dev/null) || ae_obj=''
+  ae_cmd=$(json_field "$ae_obj" command)
+  if [ -z "$ae_cmd" ]; then
+    ae_cmd=$(json_field "$(head -c 4096 "$2/req-$3.json" 2>/dev/null)" tool_name)
+    ae_cmd="(tool: ${ae_cmd:-unknown})"
+  fi
+  ae_cmd=$(printf '%s\n' "$ae_cmd" | awk '{ i = index($0, "\\n"); print (i ? substr($0, 1, i - 1) : $0); exit }')
+  ae_cmd=$(sanitize_printable "$ae_cmd" '(no command)' | cut -c1-200)
+  ae_prog=$(registry_field "$(/bin/sh "$FS" root 2>/dev/null </dev/null)/mission-control/sessions/$1" program)
+  ae_prog=$(sanitize_printable "$ae_prog" 'no recorded program' | cut -c1-64)
+  printf '%s\n' "$me: answering worker $1 (program $ae_prog), request $(printf '%s' "$3" | cut -c1-8): $ae_cmd" >&2
+}
+
 cmd_answer() {
   [ $# -ge 2 ] || usage
   worker=$1
@@ -2594,6 +2661,8 @@ cmd_answer() {
     printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
+  answer_owner_check "$worker" "$(printf '%s' "$req" | cut -c1-8)" || exit 2
+  answer_echo "$worker" "$dir" "$req"
   if [ "$mode" = 'file' ]; then
     # The body must be one object on its own, not merely yield a valid frame
     # once spliced in: `{...},"k":{...}` would close the response early and
