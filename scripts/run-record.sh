@@ -2,7 +2,7 @@
 # run-record.sh — the harness-rebaseline measurement kit: turn one worker run
 # into one machine-readable record from the fleet's shipped logs, compare two
 # records, and write the report every experiment shares.
-#
+
 # Usage:
 #   run-record.sh record --events <events.jsonl> --audit <allow-audit.log>
 #                        --gate <gate-output> --result <result-row>
@@ -10,7 +10,7 @@
 #                        [--token-env <VAR>]
 #   run-record.sh compare <record-a> <record-b> --variable <field>
 #   run-record.sh report --title <text> [--note <text>]... <record>...
-#
+
 # record reads only what the fleet writes, never a worker's account of itself:
 #   --events    the stream-json event capture (streamjson/<worker>/events.jsonl)
 #   --audit     the guard's allow-audit log (one line per approval)
@@ -25,7 +25,7 @@
 # A source that is absent or unreadable is named on stderr and nothing is
 # written (exit 3), never zeros. --out defaults to stdout. The OAuth token's
 # value (named by --token-env) and any token-shaped value are scrubbed.
-#
+
 # Counting rules: tool calls are the distinct tool_use ids, subagents included;
 # tokens sum the usage of every assistant message once by message id, so a
 # message split across frames counts once and subagent turns count in the
@@ -33,15 +33,15 @@
 # AskUserQuestion; denials are error tool results reporting a denial; polish
 # rounds are self-review Skill calls; lens agents are Agent or Task calls whose
 # description or type names a lens.
-#
+
 # compare refuses a pair that differs in more than --variable, and any pair
 # whose known_bad_set_hash differs (never a comparable variable). --variable is
 # a harness field, or `candidate` for the diff hash and the knobs together.
-#
+
 # report writes markdown of counts and harness identities, never a recorded
 # command, absolute home path or token; text that would carry one is refused
 # and nothing is written.
-#
+
 # Exit: 0 ok, 1 refused (compare, report), 2 usage, 3 missing source.
 set -u
 LC_ALL=C
