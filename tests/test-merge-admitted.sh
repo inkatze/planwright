@@ -55,7 +55,9 @@ admit() { # [<extra policy lines>...]
   mp_policy 'merge_policy: policy-class' 'merge_class_max_lines: 100' 'ready_flip_ci_wait: 30s' "$@"
 }
 run() { mp_run "$HELPER" --spec specs/demo --task 1 "$@"; }
-rollups() { mp_calls 'pr view 42 --json headRefOid,statusCheckRollup'; }
+# The helpers' own rollup reads: the ready-guard each runs reads the rollup once
+# per currency compare (its unfinished-check gate), so those are left out.
+rollups() { echo $(($(mp_calls 'pr view 42 --json headRefOid,statusCheckRollup') - $(mp_calls 'api repos'))); }
 merge_line() { grep '^CALL pr merge' "$GHS/log"; }
 
 # on_comment <n> <branch> <file> <content> — after the nth PR comment, a
@@ -192,7 +194,7 @@ check "the park is said on the PR" grep -qi 'awaiting' "$GHS/comment.2"
 
 echo "# the flip takes the class's precondition record: one CI wait in total"
 admit
-printf 'green\npending\ngreen\n' >"$GHS/ci_seq"
+printf 'green\ngreen\npending\ngreen\n' >"$GHS/ci_seq"
 run
 check "the flip reads the rollup once without waiting, so a check turning pending stops it (exit 4)" [ "$CODE" = 4 ]
 check "no merge after a flip that did not go through" [ "$(mp_calls 'pr merge')" = 0 ]
