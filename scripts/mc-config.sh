@@ -148,6 +148,16 @@ Usage:
             which governs mission_control_handover_context. A rule with no
             unit is compared with the number alone. The operator decides
             whether the rule or the knob is right; doctor changes neither
+        rule-enforcement<TAB><rule id><TAB><prose|unknown|closed-fix><TAB><note>
+            an active standing rule whose enforcement field (scripts/mc-rules.sh)
+            is prose, is missing (unknown), or names a fix (a pull request or an
+            observation) that has since closed: a pull request merged or
+            closed, an observation consumed. A pull request the forge
+            snapshot holds is open; one it lacks is read once, read-only, and
+            a fix whose state cannot be read is listed as unknown, never as
+            clear. The note says what to do: name what enforces the rule now,
+            keep it as prose with a reason, or retire it. A separate section
+            from rule-knob; doctor edits no rule
         temporary<TAB><file><TAB><knob><TAB><reason><TAB><comment><TAB><effective value><TAB><note>
             an adopter or machine-local setting whose comment
             (above it, or after its value) carries a date already past, or
@@ -1090,6 +1100,97 @@ doctor_temporary() {
   done
 }
 
+# doctor_pr_state <owner/name or empty> <number> <snapshot rows> <program>:
+# open, closed or unknown for a pull request a rule names as its open fix.
+# The forge snapshot holds the open ones, so a pull request in it is open;
+# one it lacks is read once, read-only, from the forge, and a read that
+# fails is unknown, never clear.
+doctor_pr_state() {
+  if printf '%s\n' "$3" | S=$1 N=$2 awk -F '\t' '$1 == "pr" && $3 == ENVIRON["N"] && (ENVIRON["S"] == "" || $2 == ENVIRON["S"]) { f = 1 } END { exit !f }'; then
+    printf 'open\n'
+    return 0
+  fi
+  dp_state=''
+  if [ -n "$1" ]; then
+    dp_state=$(/bin/sh "$script_dir/bounded-run.sh" 20 gh pr view "$2" --repo "$1" --json state --jq .state 2>/dev/null) || dp_state=''
+  else
+    dp_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$4" repositories 2>/dev/null) || dp_repos=''
+    while IFS= read -r dp_repo; do
+      [ -n "$dp_repo" ] || continue
+      if dp_state=$(cd "$dp_repo" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" 20 gh pr view "$2" --json state --jq .state 2>/dev/null); then
+        [ -z "$dp_state" ] || break
+      fi
+      dp_state=''
+    done <<EOF
+$dp_repos
+EOF
+  fi
+  case $dp_state in
+    OPEN) printf 'open\n' ;;
+    MERGED | CLOSED) printf 'closed\n' ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
+
+# doctor_obs_state <spec root> <fragment name>: open, consumed or unknown.
+# A fragment moved to the archive, or still in entries with a Consumed-by
+# line, is consumed.
+doctor_obs_state() {
+  if [ -f "$1/_observations/archive/$2.md" ]; then
+    printf 'consumed\n'
+  elif [ -f "$1/_observations/entries/$2.md" ]; then
+    if grep -q '^Consumed-by: .*[^[:space:]]' "$1/_observations/entries/$2.md"; then
+      printf 'consumed\n'
+    else
+      printf 'open\n'
+    fi
+  else
+    printf 'unknown\n'
+  fi
+}
+
+# Every active rule whose enforcement is prose, unknown, or an open fix that
+# has since closed, one plain line each. Nothing is edited; a fix whose state
+# cannot be read counts as unknown.
+doctor_enforcement() {
+  de_rules=$(/bin/bash "$script_dir/mc-rules.sh" active "$1" 2>/dev/null) || {
+    printf 'unknown\trules\tthe rule store could not be read, so no rule is checked for how it is enforced\n'
+    return 0
+  }
+  [ -n "$de_rules" ] || return 0
+  de_snap=$(/bin/bash "$script_dir/mc-snapshot.sh" read --program "$1" forge 2>/dev/null) || de_snap=''
+  de_root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || de_root=''
+  de_do='name what enforces it now, keep it as prose with a reason, or retire it'
+  printf '%s\n' "$de_rules" | awk -F '\t' '{ print $1 "\t" $9 }' | while IFS="$tab" read -r de_id de_enf; do
+    case $de_enf in
+      prose:*)
+        printf 'rule-enforcement\t%s\tprose\trule %s is kept only as prose (%s); %s\n' "$de_id" "$de_id" "${de_enf#prose:}" "$de_do"
+        ;;
+      unknown)
+        printf 'rule-enforcement\t%s\tunknown\trule %s says nothing about how it is enforced; %s\n' "$de_id" "$de_id" "$de_do"
+        ;;
+      fix:*)
+        de_fix=${de_enf#fix:}
+        case $de_fix in
+          *'#'*) de_st=$(doctor_pr_state "${de_fix%%#*}" "${de_fix#*#}" "$de_snap" "$1") ;;
+          *)
+            if [ -n "$de_root" ]; then de_st=$(doctor_obs_state "$de_root" "$de_fix"); else de_st=unknown; fi
+            ;;
+        esac
+        case $de_st in
+          open) ;;
+          unknown)
+            printf 'rule-enforcement\t%s\tunknown\trule %s names the fix %s, whose state could not be read, so it is not counted as enforced; check it by hand, then %s\n' "$de_id" "$de_id" "$de_fix" "$de_do"
+            ;;
+          *)
+            printf 'rule-enforcement\t%s\tclosed-fix\trule %s names the fix %s, which is closed; %s\n' "$de_id" "$de_id" "$de_fix" "$de_do"
+            ;;
+        esac
+        ;;
+    esac
+  done
+}
+
 v_doctor() {
   [ $# -eq 2 ] && [ "$1" = --program ] || usage
   mc_require_program "$2"
@@ -1099,6 +1200,7 @@ v_doctor() {
     doctor_launches "$2"
     doctor_cron "$2"
     doctor_rules "$2"
+    doctor_enforcement "$2"
     doctor_temporary
   )
   if [ -n "$dr_out" ]; then

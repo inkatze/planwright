@@ -632,6 +632,154 @@ expect_rc "a repository name two repositories end in is refused" 2
 expect_err "the refusal says the name is ambiguous" "is ambiguous"
 cp "$tmp/tracked.bak" "$tracked"
 
+# ---------------------------------------------------------------------------
+# REQ-B1.8: a rule's enforcement field, in stores of their own.
+# ---------------------------------------------------------------------------
+ehome="$tmp/mc-home/enf"
+estore="$ehome/rules.yaml"
+ohome="$tmp/mc-home/enfold"
+mkdir -p "$ohome"
+cat >"$tracked" <<EOF
+mission_control_programs: [alpha, enf, enfold]
+program_alpha_repositories: [$repo]
+program_alpha_spec_root: $repo/specs
+program_alpha_home: $home
+program_enf_repositories: [$repo]
+program_enf_spec_root: $repo/specs
+program_enf_home: $ehome
+program_enfold_repositories: [$repo]
+program_enfold_spec_root: $repo/specs
+program_enfold_home: $ohome
+EOF
+
+# enf_of <id>: the ninth column of the line the last list or active printed.
+enf_of() { printf '%s\n' "$OUT" | awk -F '\t' -v id="$1" '$1 == id { print $9 }'; }
+expect_enf() { # expect_enf <label> <id> <want>
+  got=$(enf_of "$2")
+  if [ "$got" = "$3" ]; then ok "$1"; else fail "$1: got '$got', want '$3'"; fi
+}
+
+n=0
+for kind in script:mc-rules.sh knob:mission_control_launch_backend hook:ready-guard duty:inbox default:fleet_max_parallel_units '#940' inkatze/planwright#940 2026-07-12-templates-md-lint-gap-3b28dbe4 'prose:a tone, never mechanical'; do
+  n=$((n + 1))
+  case $kind in
+    *:*) value=$kind ;;
+    *) value=fix:$kind ;;
+  esac
+  rules add enf --text "Rule $n" --subject "enf-$n" --source op --date 2026-11-10 --enforcement "$value"
+  expect_rc "REQ-B1.8: add takes enforcement $value" 0
+  rules list enf
+  expect_enf "REQ-B1.8: list shows the stored enforcement $value" "r-$n" "$value"
+done
+
+rules supersede enf r-1 --text "Rule 1 again" --source op --date 2026-11-10 --enforcement knob:mission_control_stall_window
+expect_rc "REQ-B1.8: supersede takes enforcement" 0
+rules active enf
+expect_enf "REQ-B1.8: the replacement carries the new enforcement" "r-$((n + 1))" "knob:mission_control_stall_window"
+
+before=$(cksum <"$estore")
+# shellcheck disable=SC2016 # each value is a literal the script must refuse unexpanded
+for bad in 'bogus:x' 'script' 'script:' 'script:a b' 'knob:$(id)' 'hook:`id`' 'duty:a;b' 'fix:' 'fix:#' 'fix:Bad#1x' 'prose:' 'prose:$(id)' 'prose:`id`' 'prose:two
+lines' 'script:../x'; do
+  rules add enf --text "Refused" --subject refused --source op --date 2026-11-10 --enforcement "$bad"
+  expect_rc "REQ-B1.8: add refuses a value outside the grammar" 2
+  rules supersede enf r-3 --text "Refused" --source op --date 2026-11-10 --enforcement "$bad"
+  expect_rc "REQ-B1.8: supersede refuses a value outside the grammar" 2
+done
+if [ "$before" = "$(cksum <"$estore")" ]; then
+  ok "REQ-B1.8: a refused value is stored nowhere"
+else
+  fail "REQ-B1.8: a refused value changed the store"
+fi
+
+rules supersede enf r-3 --withdraw --source op --date 2026-11-10 --enforcement prose:x
+expect_rc "REQ-B1.8: a withdrawal takes no enforcement" 2
+
+# An entry written before the field existed reads as unknown, loads, renders
+# and re-injects.
+cat >"$ohome/rules.yaml" <<'EOF'
+format: 1
+rules:
+  - id: r-1
+    text: "Old rule one"
+    subject: "old-one"
+    source: "op"
+    date: 2026-01-01
+    scope: program
+    supersedes: -
+    withdrawn: false
+  - id: r-2
+    text: "Old rule two"
+    subject: "old-two"
+    source: "op"
+    date: 2026-01-02
+    scope: program
+    supersedes: -
+    withdrawn: false
+EOF
+rules list enfold
+expect_rc "REQ-B1.8: a store with no enforcement field lists" 0
+expect_enf "REQ-B1.8: an entry without the field lists as unknown" r-1 unknown
+rules active enfold
+expect_enf "REQ-B1.8: the active set reads it as unknown too" r-2 unknown
+rules load enfold
+expect_rc "REQ-B1.8: a store of old entries loads" 0
+old_load=$OUT
+old_digest=$(load_digest)
+: >"$tmp/enf-held"
+: >"$tmp/enf-durable"
+rules selfcheck enfold --digest "$old_digest" --held "$tmp/enf-held" --durable "$tmp/enf-durable"
+expect_rc "REQ-B1.8: a store of old entries re-injects against its digest" 0
+rules render enfold --scope program
+expect_rc "REQ-B1.8: a store of old entries renders" 0
+
+# The field changes no rule text: the same rules written with a field load
+# with the same text and the same digest.
+cat >"$ohome/rules.yaml" <<'EOF'
+format: 1
+rules:
+  - id: r-1
+    text: "Old rule one"
+    subject: "old-one"
+    source: "op"
+    date: 2026-01-01
+    scope: program
+    supersedes: -
+    withdrawn: false
+    enforcement: "prose:a tone"
+  - id: r-2
+    text: "Old rule two"
+    subject: "old-two"
+    source: "op"
+    date: 2026-01-02
+    scope: program
+    supersedes: -
+    withdrawn: false
+    enforcement: "knob:fleet_max_parallel_units"
+EOF
+rules load enfold
+expect_rc "REQ-B1.8: a store with the field loads" 0
+expect_eq "REQ-B1.8: the field changes no rule text and no digest" "$old_load"
+rules list enfold
+expect_enf "REQ-B1.8: a stored field reads back" r-2 knob:fleet_max_parallel_units
+
+# A hand-edited value outside the grammar is refused like any bad line.
+cat >"$ohome/rules.yaml" <<'EOF'
+format: 1
+rules:
+  - id: r-1
+    text: "Old rule one"
+    subject: "old-one"
+    source: "op"
+    date: 2026-01-01
+    scope: program
+    supersedes: -
+    withdrawn: false
+    enforcement: "bogus:x"
+EOF
+rules list enfold
+expect_rc "REQ-B1.8: a stored value outside the grammar is refused" 1
+
 rules bogus alpha
 expect_rc "an unknown verb is a usage error" 2
 
