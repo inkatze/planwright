@@ -440,6 +440,7 @@ watch "$now"
 expect_out "a hold starts at 95% under the shipped threshold" "event${tab}usage-held${tab}weekly${tab}"
 mc_run mc-usage.sh enqueue --program alpha --kind tower --scope knob-one --brief "$tmp/brief.md" --backend stream-json
 expect_rc "a unit queued under the hold" 0
+lr_before=$(cat "$fleet/mission-control/alpha/usage/last-reset" 2>/dev/null || true)
 write_tracked "mission_control_usage_hold: off"
 watch "$((now + 60))"
 expect_rc "the watch after the hold was turned off" 0
@@ -451,8 +452,12 @@ expect_out "the release names the window's real reset time" "resets $(date -u -d
 expect_no_out "turning the hold off is no reset" "usage-reset"
 mc_run mc-usage.sh held --program alpha --now "$((now + 60))"
 expect_rc "launches are no longer held after the release" 1
-mc_run mc-usage.sh report --program alpha
-expect_no_out "a knob release is no reset to report" "usage-released"
+lr_after=$(cat "$fleet/mission-control/alpha/usage/last-reset" 2>/dev/null || true)
+if [ "$lr_before" = "$lr_after" ]; then
+  ok "a knob release writes no reset record"
+else
+  fail "a knob release changed the reset record"
+fi
 
 write_tracked
 watch "$((now + 120))"
@@ -465,6 +470,27 @@ expect_no_out "raising the threshold is no reset" "usage-reset"
 write_tracked
 mc_run mc-usage.sh held --program alpha --now "$((now + 190))"
 expect_rc "the raised-threshold release left no hold" 1
+
+# The same two cases that are real resets stay usage-reset: the threshold off
+# is no reason to call a passed reset epoch a release, and a reading that
+# fell on the same epoch is no knob change either.
+write_tracked
+write_mirror 40 95
+watch "$((now + 240))"
+expect_out "a hold starts for the passed-reset case" "event${tab}usage-held${tab}weekly${tab}"
+write_tracked "mission_control_usage_hold: off"
+touch -t 202001010000 "$mirror"
+watch "$((week_at + 1))"
+expect_out "a passed reset with the threshold off is still a usage-reset" "event${tab}usage-reset${tab}weekly${tab}"
+expect_no_out "a passed reset is no knob release" "usage-released"
+write_tracked
+write_mirror 40 95
+watch "$((now + 300))"
+expect_out "a hold starts for the fallen-reading case" "event${tab}usage-held${tab}weekly${tab}"
+write_mirror 40 85
+watch "$((now + 360))"
+expect_out "a reading that fell on the same reset is a usage-reset" "event${tab}usage-reset${tab}weekly${tab}"
+expect_no_out "a fallen reading is no knob release" "usage-released"
 
 # ---------------------------------------------------------------------------
 # The threshold knob.

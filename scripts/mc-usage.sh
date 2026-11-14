@@ -101,7 +101,8 @@ Usage:
       the duty's watcher (what a run with no verb does under the runner,
       the program from PLANWRIGHT_MC_PROGRAM): read the windows, update the
       hold, and at the reset release the claude quota, drain the queue and
-      write the reset record; one line per act:
+      write the reset record; a hold the threshold knob ended is no reset (it
+      emits usage-released, a routine event that wakes no turn); one line per act:
         held<TAB><window><TAB><percent|-><TAB><reset epoch|->
         probe<TAB><session>                               resumed alone
         released-quota<TAB>claude
@@ -701,8 +702,9 @@ knob_released() {
     part == 1 { pct[$1] = $2; rst[$1] = $3; next }
     $1 == "quota" { ok = 0; next }
     $3 != "-" && now >= $3 + 0 { ok = 0; next }
+    ($1 in pct) && (rst[$1] != $3 || pct[$1] + 0 < $2 + 0) { ok = 0; next }
     thr == "off" { next }
-    $3 == "-" || !($1 in pct) || rst[$1] != $3 || pct[$1] + 0 >= thr + 0 { ok = 0 }
+    $3 == "-" || !($1 in pct) || pct[$1] + 0 >= thr + 0 { ok = 0 }
     END { exit !ok }'
 }
 
@@ -718,23 +720,15 @@ release_text() {
     $0 == "--" { part++; next }
     NF == 0 { next }
     part == 0 { pct[$1] = $2; rst[$1] = $3; next }
-    { w = $1; p = (w in pct) ? pct[w] : $2; r = (w in rst) ? rst[w] : $3
-      printf "%s%s|%s|%s", s, w, p, r; s = ";" }')
+    { print $1, ($1 in pct) ? pct[$1] : $2, ($1 in rst) ? rst[$1] : $3 }')
   rt_out=""
-  rt_oldifs=$IFS
-  IFS=';'
-  # shellcheck disable=SC2086 # the window entries, split on ;
-  set -- $rt_each
-  IFS=$rt_oldifs
-  for rt_e in "$@"; do
-    rt_w=${rt_e%%|*}
-    rt_rest=${rt_e#*|}
-    rt_p=${rt_rest%%|*}
-    rt_r=${rt_rest#*|}
+  while read -r rt_w rt_p rt_r; do
     rt_part="the $rt_w usage window is still at ${rt_p}%"
     mc_valid_uint "$rt_r" && rt_part="$rt_part, resets $(mc_iso "$rt_r")"
     rt_out="${rt_out:+$rt_out; }$rt_part"
-  done
+  done <<EOT
+$rt_each
+EOT
   printf 'usage hold released: %s; %s' "$rt_why" "$rt_out"
 }
 
@@ -744,6 +738,7 @@ watch() {
   thr=$(mc_knob mission_control_usage_hold parse_hold) || exit 1
   PREV=$(held_rows) || mc_fail "cannot read the usage hold"
   since=""
+  released=""
   [ -z "$PREV" ] || since=$(field "$holdf" since)
   quota || mc_fail "cannot read the claude quota hold"
   cleared
@@ -757,7 +752,8 @@ watch() {
   if [ -z "$CUR" ] && [ "$QUOTA" != held ] && [ -n "$PREV" ] && knob_released "$thr"; then
     # The window is still where it was: only the threshold moved. The hold
     # ends and the queue drains below as with any hold-free watch, but no
-    # reset is announced and no reset record is written.
+    # reset is announced and no reset record is written or extended.
+    released=1
     rm -f "$holdf" "$probef" || mc_fail "cannot clear the usage hold"
     printf 'event\tusage-released\t%s\t%s\n' "$(printf '%s\n' "$PREV" | awk 'NF { printf "%s%s", s, $1; s = "." }')" \
       "$(release_text "$thr")"
@@ -806,7 +802,7 @@ watch() {
   if [ -n "$(queue_ids)" ]; then
     drain ""
     if [ -n "$OUTCOMES" ]; then
-      if [ -f "$lastf" ]; then
+      if [ -f "$lastf" ] && [ -z "$released" ]; then
         printf '%s' "$OUTCOMES" | awk 'NF { print "outcome\t" $0 }' >>"$lastf" || mc_fail "cannot extend the reset record"
       fi
       printf 'event\tusage-drained\t%s\t%s\n' "$program" "$(summary "the usage queue drained")"
