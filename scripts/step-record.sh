@@ -15,7 +15,7 @@
 #   step-record.sh [--worktree <dir>] write --run <id> --point <point>
 #       --step <id> --kind <kind> --target <target> --hosting <hosting>
 #       --backend <name> [--head <sha>] [--end-head <sha>] --start <ts>
-#       [--end <ts>] --outcome <outcome> [--session <id>]
+#       [--end <ts>] [--start-source <source>] --outcome <outcome> [--session <id>]
 #       [--excerpt-file <file>] [--output <path>] [--skip-code <code>]
 #       [--skip-reason <text>] [--degraded <reason>]
 #       [--stands-on <run>:<point>:<seq>]
@@ -39,6 +39,7 @@
 #       --point <point> [--head <sha>]
 #   step-record.sh [--worktree <dir>] lookup limited --head <sha>
 #   step-record.sh [--worktree <dir>] heads --run <id> --point <point>
+#   step-record.sh [--worktree <dir>] untrue
 #   step-record.sh args-digest <args>
 #   step-record.sh excerpt <file>
 #
@@ -181,6 +182,10 @@
 #                 carries its record's), read as lookup reads records, or
 #                 exit 3 when none moved the head: the PLANWRIGHT_STEP_PREV_HEAD
 #                 and PLANWRIGHT_STEP_NEW_HEAD values.
+#   untrue        print `<run>:<point>:<seq><TAB><step><TAB><flag><TAB><rule>`
+#                 for each stored step record the step-record truth check
+#                 would refuse (the audit and readiness report its cadence
+#                 as unaudited); nothing printed when every record passes.
 #   args-digest   print the SHA-256 of <args> exactly as given (no newline
 #                 added), the --args-digest value; no worktree is read; a
 #                 failed print exits 1.
@@ -215,6 +220,27 @@
 #   --start/--end  YYYY-MM-DDTHH:MM:SSZ; an omitted write --end is the UTC
 #                  time the record is written; --end is refused if earlier
 #                  than --start
+#   --start-source commit:<commit id> (verified at the write: the commit is in
+#                  the worktree's repository and its committer time is
+#                  --start), or comment:<id>, review:<id>, or check:<id> of
+#                  the unit's pull request (stored as given); stored in the
+#                  record. It lifts the made-up-start rules below.
+#   The step-record truth check: write refuses (exit 2, naming the flag, the
+#                  rule and what would pass; nothing stored) a skill or prompt
+#                  record, outcome not skipped, that breaks a rule. Rules:
+#                  hosting-backend (--hosting in-session with a --backend other
+#                  than in-session, refused whatever --degraded says: the step
+#                  ran in the session; name an unspawnable backend in
+#                  --degraded); then, for outcome passed or applied only,
+#                  window-floor (a skill over a window under 30 seconds);
+#                  start-from-clock, start-round-minutes, window-round-minutes
+#                  and start-round-minute (no --start-source, and --start is
+#                  the clock at writing, a whole number of minutes (within an
+#                  hour) before the clock, --end a whole number of minutes after --start, or
+#                  --start on seconds :00; a stored record is judged by the
+#                  last two together only); outcome-heads (passed over a moved
+#                  head, applied over an unmoved one, --head being the head the
+#                  step began on). `untrue` also reports malformed-times.
 #   --outcome      passed | applied | halted | failed | skipped | limited
 #   --skip-code    missing | reuse | resume | answered; a skipped record
 #                  carries exactly one, and only a skipped record carries one
@@ -396,6 +422,9 @@ LF='
 EXCERPT_LINES=20
 EXCERPT_BYTES=2000
 TEXT_MAX=1024
+# The step-record truth check's skill window floor and its now tolerance, seconds.
+TRUTH_FLOOR=30
+TRUTH_NOW_TOL=5
 
 # The byte sequences of the C1 controls, then the invisible and bidi-control
 # code points, deleted bytewise; the second list is flight-text.sh's.
@@ -904,6 +933,42 @@ check_end() {
   bad --end "earlier than --start"
 }
 
+# check_start_source: --start-source names the object the start was read from:
+# commit:<commit id> (verified here: the commit resolves in the worktree and its
+# committer time is --start) or comment:<id>, review:<id>, or check:<id> of the
+# unit's pull request (stored; a forge object is not read at the write).
+check_start_source() {
+  [ -n "$start_source" ] || return 0
+  case $start_source in
+    comment:[0-9]* | review:[0-9]* | check:[0-9]*)
+      case ${start_source#*:} in *[!0-9]*) bad --start-source "not commit:<commit>, comment:<id>, review:<id>, or check:<id>" ;; esac
+      ;;
+    commit:*)
+      _c=${start_source#commit:}
+      is_oid "$_c" || bad --start-source "not commit:<full commit id>"
+      _ct=$(git_wt log -1 --format=%ct "$_c" 2>/dev/null) \
+        || bad --start-source "names no commit of the worktree's repository"
+      _se=$(awk -v TAB="$TAB" "$AWK_TRUTH"' BEGIN { print epoch(ARGV[1]); exit }' "$start") \
+        || die 1 "cannot read --start"
+      [ "$_ct" = "$_se" ] || bad --start-source "the commit's committer time is not --start"
+      ;;
+    *) bad --start-source "not commit:<commit>, comment:<id>, review:<id>, or check:<id>" ;;
+  esac
+}
+
+# truth_check: the step-record truth check (AWK_TRUTH) on the flags a write was
+# given; a record that breaks a rule is refused with nothing stored, naming the
+# flag, the rule, and what would pass. It never corrects a value.
+truth_check() {
+  case $kind:$outcome in command:* | *:skipped) return 0 ;; esac
+  _now=$(date -u +%s) || die 1 "cannot read the clock"
+  _t=$(awk -v TAB="$TAB" -v FLOOR="$TRUTH_FLOOR" -v TOL="$TRUTH_NOW_TOL" -v NOW="$_now" "$AWK_TRUTH"'
+    BEGIN { print truth("write", ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6], ARGV[7], ARGV[8], ARGV[9]); exit }' \
+    "$kind" "$outcome" "$hosting" "$backend" "$start" "$end" "$head" "$end_head" "$start_source") \
+    || die 1 "cannot run the step-record truth check"
+  [ -z "$_t" ] || bad "${_t%%"$TAB"*}" "step-record truth check, rule ${_t#*"$TAB"}"
+}
+
 # check_pool_fields: --pool with its --wait, and the other pool fields only
 # beside a pool.
 check_pool_fields() {
@@ -945,7 +1010,7 @@ cmd_write() {
   backend='' session='' head='' end_head='' start='' end='' outcome='' excerpt_file=''
   output='' skip_reason='' degraded='' skip_code='' skip_codes=0 stands_on='' pool='' wait=''
   holders='' unpooled=0 fingerprint='' args_digest='' refire_of='' wait_outcome=''
-  warnings='' head_given=0 end_head_given=0 end_given=0 pool_given=0 wait_given=0
+  warnings='' head_given=0 end_head_given=0 end_given=0 pool_given=0 wait_given=0 start_source=''
   while [ $# -gt 0 ]; do
     case $1 in
       --completion | --full-suite | --unpooled)
@@ -961,7 +1026,7 @@ cmd_write() {
         --session | --head | --end-head | --start | --end | --outcome | \
         --excerpt-file | --output | --skip-reason | --degraded | --skip-code | --stands-on | \
         --pool | --wait | --holder | --fingerprint | --args-digest | --refire-of | \
-        --wait-outcome | --warning)
+        --wait-outcome | --warning | --start-source)
         [ $# -ge 2 ] || usage
         ;;
       *) usage ;;
@@ -970,7 +1035,7 @@ cmd_write() {
     # more likely than an absent field, so it is refused, never read as absent.
     case $1 in
       --degraded | --skip-code | --stands-on | --pool | --wait | --fingerprint | --args-digest | \
-        --refire-of | --wait-outcome) [ -n "$2" ] || bad "$1" "given empty" ;;
+        --refire-of | --wait-outcome | --start-source) [ -n "$2" ] || bad "$1" "given empty" ;;
     esac
     case $1 in
       --run) run=$2 ;;
@@ -990,6 +1055,7 @@ cmd_write() {
         end_head_given=1
         ;;
       --start) start=$2 ;;
+      --start-source) start_source=$2 ;;
       --end)
         end=$2
         end_given=1
@@ -1046,7 +1112,7 @@ cmd_write() {
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
       "$start" "$end" "$outcome" "$excerpt_file" "$output" "$skip_reason" \
       "$degraded" "$skip_code" "$stands_on" "$pool" "$wait" "$holders" "$fingerprint" \
-      "$args_digest" "$refire_of"; do
+      "$args_digest" "$refire_of" "$start_source"; do
       [ -z "$f" ] || bad --completion "takes only --run, --point, --head, and --warning"
     done
     [ "$end_head_given" -eq 0 ] && [ "$unpooled" -eq 0 ] && [ "$pool_given" -eq 0 ] \
@@ -1118,6 +1184,8 @@ cmd_write() {
     *) [ -z "$stands_on" ] || bad --stands-on "only a reuse or resume skip stands on a record" ;;
   esac
   check_pool_fields
+  check_start_source
+  truth_check
   if [ -n "$fingerprint" ] || [ -n "$args_digest" ]; then
     [ -n "$args_digest" ] || bad --args-digest "required with --fingerprint"
     [ -n "$fingerprint" ] || bad --fingerprint "required with --args-digest"
@@ -1204,6 +1272,7 @@ cmd_write() {
     put end-head "$end_head"
     put start "$start"
     put end "$end"
+    put start-source "$start_source"
     put outcome "$outcome"
     put output "$s_output"
     put skip-code "$skip_code"
@@ -1364,6 +1433,54 @@ function ok_step() {
 function ref() {
   return "record" TAB R_RUN ":" R_POINT ":" R_SEQ TAB F["step"] TAB F["head"] TAB F["end-head"] \
     TAB F["hosting"] TAB F["session"] TAB ".claude/steps/" R_RUN "/" R_SEQ "-step-" R_POINT ".rec"
+}
+'
+
+# AWK_TRUTH: the step-record truth check, the one rule set write applies to the
+# flags it is given (mode w, with NOW the clock in epoch seconds) and the
+# untrue verb applies to a stored record (mode a). truth() returns "" for a
+# record that passes, else `<flag><TAB><rule id><TAB><what would pass>`. It
+# judges a session step (skill or prompt) that claims work done, outcome never
+# skipped; it never corrects a value. Floor and tolerance are in seconds.
+AWK_TRUTH='
+function epoch(ts,    y, m, d, era, yoe, doy, doe) {
+  y = substr(ts, 1, 4) + 0; m = substr(ts, 6, 2) + 0; d = substr(ts, 9, 2) + 0
+  if (m <= 2) y--
+  era = int(y / 400); yoe = y - era * 400
+  doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+  doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+  return (era * 146097 + doe - 719468) * 86400 + substr(ts, 12, 2) * 3600 + substr(ts, 15, 2) * 60 + substr(ts, 18, 2)
+}
+function truth(mode, kind, outcome, hosting, backend, start, end, head, endhead, source,    s, e, w, work) {
+  if ((kind != "skill" && kind != "prompt") || outcome == "skipped") return ""
+  if (start !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ || end !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/)
+    return "--start" TAB "malformed-times" TAB "--start and --end are not UTC timestamps"
+  if (hosting == "in-session" && backend != "in-session")
+    return "--backend" TAB "hosting-backend" TAB "an in-session step ran no backend, whatever --degraded says; record --backend in-session, or the real hosting and backend"
+  work = (outcome == "passed" || outcome == "applied")
+  if (!work) return ""
+  s = epoch(start); e = epoch(end); w = e - s
+  if (kind == "skill" && w < FLOOR)
+    return "--start" TAB "window-floor" TAB "a skill step that ran is under " FLOOR " seconds from --start to --end; give the run real start and end times"
+  if (source == "") {
+    if (mode == "write" && (NOW - s <= TOL && s - NOW <= TOL))
+      return "--start" TAB "start-from-clock" TAB "--start is the clock at writing; give the time the step began, or --start-source commit:<commit>"
+    if (mode == "write" && NOW > s && NOW - s <= 3600 && (NOW - s) % 60 == 0)
+      return "--start" TAB "start-round-minutes" TAB "--start lies a whole number of minutes before the clock; give the time the step began, or --start-source commit:<commit>"
+    if (mode == "write" && w % 60 == 0)
+      return "--start" TAB "window-round-minutes" TAB "--end lies a whole number of minutes after --start; give the times the step really began and ended, or --start-source commit:<commit>"
+    if (mode == "write" && substr(start, 18, 2) == "00")
+      return "--start" TAB "start-round-minute" TAB "--start is on seconds :00; give the time the step began, or --start-source commit:<commit>"
+    # A stored record is judged on the coincidence of both, which an honest
+    # record shows about once in thousands.
+    if (mode == "audit" && w % 60 == 0 && substr(start, 18, 2) == "00")
+      return "--start" TAB "window-round-minutes" TAB "start on seconds :00 and a window of whole minutes, with no start source"
+  }
+  if (outcome == "passed" && head != endhead)
+    return "--outcome" TAB "outcome-heads" TAB "the head moved over the step; record applied, not passed (--head is the head the step began on)"
+  if (outcome == "applied" && head == endhead)
+    return "--outcome" TAB "outcome-heads" TAB "the head did not move over the step; record passed, not applied (--head is the head the step began on)"
+  return ""
 }
 '
 
@@ -2053,6 +2170,23 @@ cmd_heads() {
   lookup_print $? "$out"
 }
 
+# --- untrue ----------------------------------------------------------------------
+# cmd_untrue: the step-record truth check on every stored step record, so the
+# cadence audit can name a record whose values the check would have refused.
+cmd_untrue() {
+  [ $# -eq 0 ] || usage
+  all_records
+  CACHE_DIR=$cache awk -v TAB="$TAB" -v FLOOR="$TRUTH_FLOOR" -v TOL="$TRUTH_NOW_TOL" "$AWK_RECORD$AWK_TRUTH"'
+    {
+      if (!load($0) || R_KIND != "step") next
+      t = truth("audit", F["kind"], F["outcome"], F["hosting"], F["backend"], F["start"], F["end"], F["head"], F["end-head"], F["start-source"])
+      if (t == "") next
+      split(t, p, TAB)
+      print R_RUN ":" R_POINT ":" R_SEQ TAB F["step"] TAB p[1] TAB p[2]
+    }
+    END { if (err) exit 2 }' "$work/records" || die 1 "a record cannot be read"
+}
+
 command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
 check_dir "$worktree/.claude"
 check_dir "$cache"
@@ -2084,5 +2218,6 @@ case $verb in
   fingerprint) cmd_fingerprint "$@" ;;
   lookup) cmd_lookup "$@" ;;
   heads) cmd_heads "$@" ;;
+  untrue) cmd_untrue "$@" ;;
   *) usage ;;
 esac

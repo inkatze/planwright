@@ -304,6 +304,24 @@ RC=$?
 [ "$RC" -eq 1 ] && ! grep -q 'broken install' "$tmp/audit.err"
 verdict $? "a sibling that exits 5 on --check-env is not reported as a bad name" "rc $RC: $(cat "$tmp/audit.err")"
 
+# --- a record the step-record truth check refuses is unaudited, not done ---------
+fresh
+catalog "$SHOW"
+config 'steps_convergence: [show]'
+r=$(sr new-run)
+rec "$r" convergence show applied
+done_at "$r" convergence
+f=$(find "$wt/.claude/steps/$r" -name '*-step-convergence.rec')
+# The shape of a fabricated record: a skill said to be hosted in-session with a
+# backend, over a window of seconds.
+sed -e "s/^kind${TAB}command/kind${TAB}skill/" -e "s/^hosting${TAB}.*/hosting${TAB}in-session/" \
+  -e "s/^end${TAB}.*/end${TAB}2026-11-04T00:00:21Z/" "$f" >"$f.new" && mv "$f.new" "$f"
+audit --through convergence
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}unaudited${TAB}show" "$tmp/audit" \
+  && ! grep -q "covered${TAB}convergence" "$tmp/audit" && grep -qx "audit${TAB}gaps${TAB}$(head_of)" "$tmp/audit"
+verdict $? "a stored record the step-record truth check refuses leaves its step unaudited, exit 1" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1
