@@ -110,7 +110,9 @@
 #           in commit-id form only). Per point with a required step:
 #           `gap<TAB><point><TAB>incomplete<TAB>-` with no counted
 #           completion in any run, then `...missing<TAB><step>` or
-#           `...failed<TAB><step>:<outcome>` over all runs;
+#           `...failed<TAB><step>:<outcome>` over all runs, or
+#           `...unaudited<TAB><step>` for a record the step-record truth
+#           check (step-record.sh untrue) would refuse;
 #           `...stale<TAB><head>` naming the newest completion when none
 #           counts, then that run's step gaps; the judged run's step gaps;
 #           else `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB>
@@ -964,6 +966,7 @@ cmd_audit() {
     die 4 "the configured cadence did not resolve (resolve-steps exit $rc)"
   fi
   /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
+  /bin/sh "$SR" --worktree "$worktree" untrue >"$work/untrue" || die 4 "cannot read the step records"
   # Records are untrusted: run, kind and point come from the path and must
   # agree with the stored fields, and a head counts only in commit-id form.
   # Per point: `point`, then one `cand` per run holding its completion (newest
@@ -983,6 +986,9 @@ cmd_audit() {
       o = F["outcome"]
       if (o !~ /^[a-z]+$/) o = "malformed"
       ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
+      # A record the step-record truth check would refuse covers nothing: the
+      # step is reported unaudited, not done.
+      if (ok && ((R ":" K ":" F["seq"], F["step"]) in untrue)) { ok = 0; o = "unaudited" }
       st[R, K, F["step"]] = ok ? "ok" : o
       seen_any[K, F["step"]] = 1
       if (ok) ever[K, F["step"]] = 1
@@ -995,7 +1001,7 @@ cmd_audit() {
         if (r != "") s = ((r, p, id) in st) ? st[r, p, id] : ""
         else s = ever[p, id] ? "ok" : (((p, id) in seen_any) ? lastbad[p, id] : "")
         if (s == "ok") continue
-        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : "failed:" id ":" s)
+        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : s == "unaudited" ? "unaudited:" id : "failed:" id ":" s)
       }
       return out == "" ? "-" : out
     }
@@ -1003,6 +1009,7 @@ cmd_audit() {
       if ($1 != "skip" && $2 != "" && !(($3, $2) in want)) { want[$3, $2] = 1; req[$3, ++nr[$3]] = $2 }
       next
     }
+    FILENAME == ARGV[2] { untrue[$1, $2] = 1; next }
     $1 == "record" {
       flush(); inrec = 1; bad = 0; split("", F)
       n = split($2, part, "/"); b = part[n]; R = part[n - 1]; T = ""; K = ""
@@ -1023,7 +1030,7 @@ cmd_audit() {
         for (r = nruns; r >= 1; r--) if ((runs[r], p) in done) { print "cand\t" p "\t" done[runs[r], p] "\t" gaps_of(p, runs[r]); c++ }
         if (!c) print "none\t" p "\t-\t" gaps_of(p, "")
       }
-    }' "$work/rows" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
+    }' "$work/rows" "$work/untrue" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
   while IFS=$TAB read -r kind pt hd gaps; do
     [ "$kind" != point ] || last=$pt
   done <"$work/plan"
@@ -1035,6 +1042,7 @@ cmd_audit() {
       case $w in
         missing:*) printf 'gap\t%s\tmissing\t%s\n' "$1" "${w#missing:}" ;;
         failed:*) printf 'gap\t%s\tfailed\t%s\n' "$1" "${w#failed:}" ;;
+        unaudited:*) printf 'gap\t%s\tunaudited\t%s\n' "$1" "${w#unaudited:}" ;;
       esac
     done
   }

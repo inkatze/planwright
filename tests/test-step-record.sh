@@ -99,7 +99,7 @@ printf 'line one\nline two\n' >"$tmp/out1.txt"
 cp "$tmp/out1.txt" "$wt/.claude/steps/$run1/polish.out"
 rec=$(sr write --run "$run1" --point convergence --step polish --kind skill \
   --target planwright:polish --hosting isolated --backend terminal --session sess-42 \
-  --head "$HEAD_SHA" --start 2026-09-28T10:00:00Z --end 2026-09-28T10:05:00Z \
+  --head "$HEAD_SHA" --end-head 2222222222222222222222222222222222222222 --start 2026-09-28T10:00:07Z --end 2026-09-28T10:05:19Z \
   --outcome applied --excerpt-file "$tmp/out1.txt" \
   --output "$wt/.claude/steps/$run1/polish.out")
 rc=$?
@@ -110,8 +110,8 @@ listing=$(sr list --run "$run1")
 for pair in "type${TAB}step" "run${TAB}$run1" "point${TAB}convergence" \
   "step${TAB}polish" "kind${TAB}skill" "target${TAB}planwright:polish" \
   "hosting${TAB}isolated" "backend${TAB}terminal" "session${TAB}sess-42" \
-  "head${TAB}$HEAD_SHA" "start${TAB}2026-09-28T10:00:00Z" \
-  "end${TAB}2026-09-28T10:05:00Z" "outcome${TAB}applied" \
+  "head${TAB}$HEAD_SHA" "start${TAB}2026-09-28T10:00:07Z" \
+  "end${TAB}2026-09-28T10:05:19Z" "outcome${TAB}applied" \
   "output${TAB}.claude/steps/$run1/polish.out" \
   "excerpt${TAB}line one" "excerpt${TAB}line two" "seq${TAB}001" \
   "skip-reason${TAB}"; do
@@ -134,7 +134,7 @@ printf '%s\n' "$table" | grep -Fq "## Steps at \`convergence\` (run \`$run1\`)"
 verdict "render heads the table with the point and run id" "render heading missing"
 row=$(printf '%s\n' "$table" | grep '^| 1 |')
 h12=$(printf '%s' "$HEAD_SHA" | cut -c1-12)
-want="| 1 | polish | skill | planwright:polish | isolated | terminal | sess-42 | $h12 | 2026-09-28T10:00:00Z | 2026-09-28T10:05:00Z | applied | line one / line two | .claude/steps/$run1/polish.out |"
+want="| 1 | polish | skill | planwright:polish | isolated | terminal | sess-42 | $h12 to 222222222222 | 2026-09-28T10:00:07Z | 2026-09-28T10:05:19Z | applied | line one / line two | .claude/steps/$run1/polish.out |"
 [ "$row" = "$want" ]
 verdict "the rendered row carries every field in column order" "row: $row"
 printf '%s\n' "$table" | grep -Fq "Ended on \`$(printf '%s' "$HEAD_SHA" | cut -c1-12)\`"
@@ -160,7 +160,7 @@ verdict "a token-shaped excerpt renders withheld" "token excerpt not withheld"
 
 recp=$(sr write --run "$run2" --point pre-ci --step prompted --kind prompt \
   --target "review with $tok" --hosting isolated --backend runner --head "$HEAD_SHA" \
-  --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:01Z --outcome passed)
+  --start 2026-09-28T11:00:07Z --end 2026-09-28T11:00:19Z --outcome passed)
 if [ ! -f "$recp" ] || grep -rFq "$tok" "$wt/.claude/steps/$run2"; then
   fail "a token in a target reached the stored record"
 else
@@ -2713,9 +2713,9 @@ verdict "/execute-task records a missing-matrix skip with code missing" "the ski
 # --- a degraded isolated step records its reason (custom-steps REQ-D1) ---------------
 rund=$(sr new-run)
 sr write --run "$rund" --point convergence --step polish --kind skill \
-  --target planwright:polish --hosting in-session --backend claude-code \
+  --target planwright:polish --hosting in-session --backend in-session \
   --degraded 'no session-grade backend "claude-code" can spawn a fresh session' \
-  --head "$HEAD_SHA" --start 2026-09-28T12:00:00Z --end 2026-09-28T12:01:00Z \
+  --head "$HEAD_SHA" --end-head 2222222222222222222222222222222222222222 --start 2026-09-28T12:00:07Z --end 2026-09-28T12:01:19Z \
   --outcome applied >/dev/null
 verdict "write --degraded records an in-session step with its reason" "write --degraded failed"
 listing=$(sr list --run "$rund")
@@ -2726,8 +2726,8 @@ verdict "render shows the degradation with its reason" "render omits the degrada
 rc=0
 sr write --run "$rund" --point convergence --step polish --kind skill \
   --target planwright:polish --hosting isolated --backend claude-code \
-  --degraded 'reason' --head "$HEAD_SHA" --start 2026-09-28T12:00:00Z \
-  --end 2026-09-28T12:01:00Z --outcome applied >/dev/null 2>&1 || rc=$?
+  --degraded 'reason' --head "$HEAD_SHA" --start 2026-09-28T12:00:07Z \
+  --end 2026-09-28T12:01:19Z --outcome applied >/dev/null 2>&1 || rc=$?
 [ "$rc" -ne 0 ]
 verdict "--degraded on an isolated step is refused" "--degraded on isolated was accepted"
 
@@ -2741,7 +2741,7 @@ for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_B
   bad=${pair%%:*} want=${pair#*:}
   env "PLANWRIGHT_STEP_$bad=1" "$SR" --worktree "$wt" write --run "$runbad" --point convergence --step polish \
     --kind skill --target planwright:polish --hosting isolated --backend terminal \
-    --head "$HEAD_SHA" --start 2026-09-28T10:00:00Z --end 2026-09-28T10:05:00Z --outcome applied \
+    --head "$HEAD_SHA" --end-head 2222222222222222222222222222222222222222 --start 2026-09-28T10:00:07Z --end 2026-09-28T10:05:19Z --outcome applied \
     >"$tmp/bad.out" 2>"$tmp/bad.err"
   rc=$?
   [ "$rc" -eq 2 ] && grep -q "PLANWRIGHT_STEP_$bad" "$tmp/bad.err" && grep -q "PLANWRIGHT_STEP_$want" "$tmp/bad.err"
