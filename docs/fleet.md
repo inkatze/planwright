@@ -1159,8 +1159,12 @@ in that directory at the allocation key and unit the launch recorded
 (mission control's launcher records its kind's key), or at
 `orchestrate_dispatch` under the worker's handle for a launch that recorded
 none, and the resumed session gets `--model` and `--effort` for each dimension
-that does not resolve to `inherit`. Any other extra argument the original
-launch passed after `--` is not carried over. (`recover --cwd <dir>` is
+that does not resolve to `inherit`; a tier model, effort or reservation the
+launch recorded is handed back to that plan as an override. A launch's
+`--mise-task-edit` opt-in is kept too: the relaunch regenerates the worker's
+per-launch settings profile, and a profile it cannot generate is exit `7`.
+Any other extra argument the original launch passed after `--` is not carried
+over. (`recover --cwd <dir>` is
 available on its own; without it a recover
 resumes in the caller's directory, and a session resumes only from the one it
 started in.) One relaunch runs per worker at a time. Everything the resume
@@ -2676,7 +2680,17 @@ settings files it parses). The mission-control launcher
 seams: `fleet-streamjson.sh launch --profile <kind>` and
 `offload-dispatch.sh dispatch tmux --profile <kind>` pin the tower or
 mission-control profile by kind, never by path, and a session under either
-carries no worker identity. A worker, reviewer or ad-hoc launch never starts
+carries no worker identity. A stream-json worker launch (`fleet-streamjson.sh
+launch`, or `mission-control-launch.sh launch` on the stream-json rung) can
+opt in to editing its own worktree's mise task files with `--mise-task-edit`:
+off by default, worker profile only, recorded so a recover keeps it, and never
+read from config, the checkout or the environment. The launch then passes a
+settings file generated for that worker from `config/worker-settings.json`
+(`scripts/worker-settings-generate.sh`) and the session record carries
+`mise_task_edit=1`; a launch without the flag passes the shipped profile
+unchanged. What it opens and the residual risk are in
+[the permission-matcher model](permission-matcher-model.md#the-mise-task-file-opt-in).
+A worker, reviewer or ad-hoc launch never starts
 in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
 --no-attach` create its worktree, or reuses the one holding its branch when
 no live session runs there (`--help` has the rules). Each launch also names
