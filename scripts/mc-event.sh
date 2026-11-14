@@ -25,7 +25,7 @@ done
 . "$script_dir/lock-lib.sh" || exit 2
 
 usage() {
-  mc_usage_fail "usage: mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>] | list --program <p> [--target <t> [--pending]] [--limit <n>] [<id>...] | mark --program <p> --target <t> submitted|staged <id>... | prune --program <p> [--now <epoch>] [--kind <k>] [--older-than <dur>] [--target <t> --submitted] [--dry-run]"
+  mc_usage_fail "usage: mc-event.sh emit --program <p> [--now <epoch>] [--] <kind> <subject> [<text>] | list --program <p> [--target <t> [--pending]] [--limit <n>] [<id>...] | mark --program <p> --target <t> submitted|staged <id>... | prune --program <p> [--now <epoch>] [--kind <k>] [--older-than <dur>] [--target <t> --submitted] [--gone] [--dry-run]"
 }
 
 # valid_id <id>: e<epoch>.<hex>, the epoch a whole number and the suffix a
@@ -85,11 +85,15 @@ Usage:
       drop events, and their marks, older than
       mission_control_event_retention; prints `pruned<TAB><n>`.
   mc-event.sh prune --program <p> [--kind <k>] [--older-than <dur>]
-      [--target <t> --submitted] [--dry-run] [--now <epoch>]
+      [--target <t> --submitted] [--gone] [--dry-run] [--now <epoch>]
       drop the events matching every filter given (their kind, older than a
       duration such as 1h, or submitted by the target and by every target
       that holds marks for the store, so no target loses an event it has not
-      received), and their marks;
+      received, or whose subject is gone: a session neither listed by the
+      launcher nor live in the fleet registry (pending-prompt, pending-prompt-overdue), a
+      handover or announce naming a session that is not the program's
+      holder, a pull request that is merged or closed; a read that fails or
+      a subject that cannot be resolved keeps the event), and their marks;
       prints `pruned<TAB><n>`, or `would-prune<TAB><n>` with --dry-run,
       which removes nothing. A filter is required with --dry-run.
 
@@ -119,6 +123,7 @@ have_kind=0
 older=""
 have_older=0
 submitted_only=0
+gone_only=0
 dry=0
 args=()
 while [ $# -gt 0 ]; do
@@ -147,6 +152,10 @@ while [ $# -gt 0 ]; do
       ;;
     --submitted)
       submitted_only=1
+      shift
+      ;;
+    --gone)
+      gone_only=1
       shift
       ;;
     --dry-run)
@@ -312,7 +321,7 @@ case $verb in
     ;;
   prune)
     [ "${#args[@]}" -eq 0 ] || usage
-    if [ "$have_kind" -eq 1 ] || [ "$have_older" -eq 1 ] || [ "$submitted_only" -eq 1 ]; then
+    if [ "$have_kind" -eq 1 ] || [ "$have_older" -eq 1 ] || [ "$submitted_only" -eq 1 ] || [ "$gone_only" -eq 1 ]; then
       # A filtered prune: the events matching every filter given, and their
       # marks. --dry-run counts them and removes nothing.
       [ "$have_kind" -eq 0 ] || { [ -n "$kind" ] && mc_valid_kebab "$kind"; } || mc_usage_fail "invalid event kind '$(sanitize_printable "$kind")'"
@@ -321,6 +330,19 @@ case $verb in
       if [ "$have_older" -eq 1 ]; then
         older_secs=$(mc_seconds "$older") || mc_usage_fail "--older-than takes a duration such as 30m or 7d"
         cutoff=$((NOW - older_secs))
+      fi
+      # The gone ids are kept as one empty file each in a scratch directory,
+      # so the per-event test is a lookup, not a scan of one long string.
+      gone_dir=""
+      if [ "$gone_only" -eq 1 ]; then
+        gone_rows=$(mc_event list --program "$program" --limit 1000000 2>/dev/null) || mc_fail "cannot list the events of '$program'"
+        gone_dir=$(mktemp -d "${TMPDIR:-/tmp}/mc-event-gone.XXXXXX") || mc_fail "cannot make a scratch directory"
+        trap 'rm -rf "$gone_dir"' EXIT
+        while IFS= read -r gone_id; do
+          valid_id "$gone_id" && : >"$gone_dir/$gone_id"
+        done <<EOF
+$(printf '%s\n' "$gone_rows" | mc_event_gone "$program")
+EOF
       fi
       n=0
       set +f
@@ -331,6 +353,7 @@ case $verb in
         at=${id#e}
         at=${at%%.*}
         mc_valid_uint "$at" || continue
+        [ "$gone_only" -eq 0 ] || [ -e "$gone_dir/$id" ] || continue
         [ -z "$cutoff" ] || [ "$at" -lt "$cutoff" ] || continue
         if [ -n "$kind" ]; then
           IFS="	" read -r ev_at ev_kind _ <"$f" || continue
@@ -373,7 +396,7 @@ case $verb in
       fi
       exit 0
     fi
-    [ "$dry" -eq 0 ] || mc_usage_fail "--dry-run takes a filter (--kind, --older-than or --submitted)"
+    [ "$dry" -eq 0 ] || mc_usage_fail "--dry-run takes a filter (--kind, --older-than, --submitted or --gone)"
     retention=$(mc_knob mission_control_event_retention mc_parse_cadence) || exit 1
     cutoff=$((NOW - $(mc_seconds "$retention")))
     n=0
