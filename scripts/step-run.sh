@@ -1018,8 +1018,8 @@ cmd_audit() {
   if awk -F '\t' '$1 != "skip" && $2 == "polish" && $3 == "convergence" { f = 1 } END { exit !f }' "$work/rows" \
     && spec_signoff_exempt "$head" "$base"; then
     awk -F '\t' '!($1 != "skip" && $2 == "polish" && $3 == "convergence")' "$work/rows" >"$work/rows.kept" \
-      || die 4 "cannot read the cadence rows"
-    mv "$work/rows.kept" "$work/rows" || die 4 "cannot read the cadence rows"
+      || die 4 "cannot rewrite the cadence rows"
+    mv "$work/rows.kept" "$work/rows" || die 4 "cannot rewrite the cadence rows"
     printf 'exempt\tconvergence\tpolish\tthe branch is a kickoff spec branch signed off at its head: the sign-off'"'"'s lens pass is its review\n'
   fi
   /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
