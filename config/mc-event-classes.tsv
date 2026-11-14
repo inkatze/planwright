@@ -59,3 +59,5 @@ usage-bypass	routine
 session-reparented	routine
 worker-handover-due	routine
 worker-retired-idle	routine
+goal-reopened	failure
+goal-verify-due	act

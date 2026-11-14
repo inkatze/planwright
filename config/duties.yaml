@@ -158,3 +158,13 @@ duties:
     files: usage-window
     lifecycle: live
     never-propose: false
+  - id: goal-check
+    summary: "Runs a goal's confirmed check when its work merges, and re-checks done goals daily"
+    triggers: [goal-reopened, goal-verify-due]
+    watchers: [scripts/mc-goals.sh@15m/low]
+    wake: goal-reopened
+    rules: [goals]
+    kinds: [blocker]
+    files: goal-check
+    lifecycle: live
+    never-propose: false

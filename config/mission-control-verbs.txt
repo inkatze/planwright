@@ -24,6 +24,16 @@ mc-duties.sh get
 mc-duties.sh list
 mc-escalate.sh -
 mc-event.sh list
+mc-goals.sh -
+mc-goals.sh attach
+mc-goals.sh confirm
+mc-goals.sh evidence
+mc-goals.sh landed
+mc-goals.sh list
+mc-goals.sh run
+mc-goals.sh set
+mc-goals.sh show
+mc-goals.sh verify
 mc-handover.sh due
 mc-handover.sh launch
 mc-handover.sh offer
