@@ -374,7 +374,8 @@ cat >"$d8bspec/tasks.md" <<'EOF'
 - **Estimated effort:** 1 day
 EOF
 seal_base "$d8b"
-got=$(/bin/bash "$SEL" --ready "$d8bspec" | tr '\n' ' ') || fail "--ready: non-zero exit"
+ready_out=$(/bin/bash "$SEL" --ready "$d8bspec") || fail "--ready: non-zero exit"
+got=$(printf '%s\n' "$ready_out" | tr '\n' ' ')
 [ "$got" = "1 2 4 " ] || fail "--ready: listed [$got], expected [1 2 4 ]"
 first=$(/bin/bash "$SEL" "$d8bspec") || fail "default selection: non-zero exit"
 [ "$first" = 1 ] || fail "--ready: the default output is [$first], expected the list's first, 1"
