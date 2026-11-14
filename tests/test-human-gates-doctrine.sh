@@ -149,6 +149,56 @@ else
   fail "the spec-branch rewrite row changed or is missing"
 fi
 
+# REQ-A1.7, REQ-A1.8: the class test is the bar for every automatic merge
+# class, in its own section with four arms, the named-outward-effect clause,
+# and the standing-authorization rule with the gates no class changes.
+class_sec=$(awk '/^## / { on = ($0 == "## The class test"); next } on' "$DOC")
+if [ -n "$class_sec" ]; then
+  ok "the doc carries a class-test section"
+else
+  fail "the doc has no \"## The class test\" section"
+fi
+# shellcheck disable=SC2016 # the backticks are the doc's markdown
+for phrase in '**Mechanical membership.**' '**Verifiable on the current head.**' \
+  '**Undone by one revert PR.**' '**No harm outside the maintainers.**' \
+  'names the outward effect' 'standing authorization' \
+  'the merge of every PR outside an enabled class' 'a spec PR and every sign-off' \
+  'a push to a protected branch' 'every force push' \
+  'the deletion of a remote branch' 'every message to a person'; do
+  if printf '%s\n' "$class_sec" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$phrase"; then
+    ok "the class test names $phrase"
+  else
+    fail "the class test does not name $phrase"
+  fi
+done
+
+# A row per core class, each a policy opening with auto_merge_classes and its
+# empty default and naming its class; the kill switch row opens with its knob.
+for class in release dependency test-only observation-carry bookkeeping docs-only regeneration; do
+  class_row=$(printf '%s\n' "$policy_rows" | grep -F "class \`$class\`")
+  if [ -n "$class_row" ] && case "$(field "$class_row" 4)" in '`auto_merge_classes`, default empty'*) true ;; *) false ;; esac; then
+    ok "the $class class is a policy row opening with auto_merge_classes and its empty default"
+  else
+    fail "no policy row for the $class class opening with auto_merge_classes and its empty default"
+  fi
+done
+halt_row=$(printf '%s\n' "$policy_rows" | grep -F '`auto_merge_halt`')
+if [ -n "$halt_row" ] && case "$(field "$halt_row" 4)" in '`auto_merge_halt`, default `false`'*) true ;; *) false ;; esac; then
+  ok "the kill switch is a policy row with its knob and default"
+else
+  fail "no policy row opens with auto_merge_halt and its default"
+fi
+
+# The merge-execution row names the class route and the release exception
+# rather than stating a release merge is always a human act.
+exec_row=$(printf '%s\n' "$policy_rows" | grep -F '| Executing an authorized merge |')
+if printf '%s\n' "$exec_row" | grep -qF '`auto_merge_classes`' \
+  && ! printf '%s\n' "$exec_row" | grep -qF 'never a class admission'; then
+  ok "the merge-execution row names the automatic classes and drops the release-never rule"
+else
+  fail "the merge-execution row still states a release PR is never a class admission, or omits auto_merge_classes"
+fi
+
 if [ "$doc_only" -eq 1 ]; then
   if [ "$failures" -ne 0 ]; then
     echo "$failures failure(s)" >&2
@@ -170,6 +220,43 @@ else
   fail "the doc checks failed the fixture copy for another reason: $fx_out"
 fi
 rm -rf "$fx"
+
+# The class-test checks fail a fixture copy without the four arms.
+fx=$(mktemp -d "${TMPDIR:-/tmp}/human-gates.XXXXXX") || exit 1
+grep -vF -e '**Mechanical membership.**' -e '**Verifiable on the current head.**' \
+  -e '**Undone by one revert PR.**' -e '**No harm outside the maintainers.**' \
+  "$DOC" >"$fx/human-gates.md"
+if fx_out=$(HUMAN_GATES_DOC="$fx/human-gates.md" /bin/bash "$0" --doc-only 2>&1); then
+  fail "the doc checks passed a fixture copy without the class test's arms"
+elif printf '%s\n' "$fx_out" | grep -qF 'FAIL: the class test does not name **Mechanical membership.**'; then
+  ok "the doc checks fail a fixture copy without the class test's arms"
+else
+  fail "the doc checks failed the arms-less fixture for another reason: $fx_out"
+fi
+rm -rf "$fx"
+
+# REQ-D1.10: no passage describing the release approval states the merge is
+# always a human act without the class exception. Each passage names the
+# release class through auto_merge_classes, and none keeps the retired
+# "never a class admission" phrasing.
+for f in doctrine/release-tagging.md doctrine/guard-catalog.md docs/getting-started.md \
+  docs/options-reference.md templates/release-please/README.md \
+  templates/release-please/release-please.yml .github/workflows/release-please.yml; do
+  if grep -qF 'never a class admission' "$REPO_ROOT/$f"; then
+    fail "$f still states a release PR is never a class admission"
+  elif grep -qF 'auto_merge_classes' "$REPO_ROOT/$f"; then
+    ok "$f states the release class exception"
+  else
+    fail "$f describes the release approval without the auto_merge_classes exception"
+  fi
+done
+for f in doctrine/README.md; do
+  if grep -E '^\| \[(release-tagging|guard-catalog|human-gates)\.md\]' "$REPO_ROOT/$f" | grep -qF 'never a class admission'; then
+    fail "$f README rows still state a release PR is never a class admission"
+  else
+    ok "$f rows drop the release-never phrasing"
+  fi
+done
 
 # Approval is the approval act; the flip approves nothing.
 for f in "$DOC" "$REPO_ROOT/doctrine/gate-wiring.md" "$REPO_ROOT/doctrine/finding-categorization.md"; do
