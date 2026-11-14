@@ -441,6 +441,7 @@ printf '%s\n' "$tracked_save" >"$tracked"
 # Rule text and comments are matched as data: metacharacters run nothing, and
 # no layer or rule file changes.
 sentinel="$tmp/sentinel-ran"
+# shellcheck disable=SC2016 # the metacharacters are the fixture
 printf 'mission_control_stall_window: 20m # interim `touch %s` $(touch %s) ; touch %s\n' "$sentinel" "$sentinel" "$sentinel" >"$mlocal"
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m \`touch $sentinel\` \$(touch $sentinel); touch $sentinel" --subject stall --source "operator, fixture" --date 2026-01-01
 rules_file="$drift_home/rules.yaml"
