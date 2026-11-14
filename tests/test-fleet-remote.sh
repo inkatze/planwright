@@ -81,6 +81,14 @@ export FAKE_REMOTE_HOME="$rhome"
 export FAKE_REMOTE_SHELL=/bin/sh
 export PATH="$bin:$PATH"
 
+# A launch first checks this host's posture: a session under the shipped
+# floor, its guards under this checkout.
+mkdir -p "$tmp/lclaude" "$tmp/lproj"
+cp "$here/../config/mission-control-settings.json" "$tmp/lclaude/settings.json"
+unset PLANWRIGHT_MC_TOKEN
+CLAUDE_PLUGIN_ROOT=$(cd "$here/.." && pwd -P)
+export CLAUDE_CONFIG_DIR="$tmp/lclaude" CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR="$tmp/lproj"
+
 run() {
   OUT=$(/bin/sh "$script" "$@" 2>"$tmp/err")
   CODE=$?

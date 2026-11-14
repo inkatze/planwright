@@ -15,6 +15,7 @@ export LC_ALL
 unset CDPATH
 
 prog=fleet-remote
+here=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 ssh_opts='-T -o ConnectTimeout=15 -o BatchMode=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes'
 
 help_text() {
@@ -23,10 +24,22 @@ usage: fleet-remote.sh --host <alias> <verb> [<args>...]
 
 Verbs (each runs on the remote host, through its own planwright and tools):
   root                          print the remote planwright root
+  setup                         bring the remote's planwright current and
+                                report the posture a launch there would get:
+                                for a folder (directory) marketplace, fetch
+                                its checkout and fast-forward it to its
+                                upstream (refused with local changes, no
+                                upstream, or a diverged branch); then
+                                `claude plugin marketplace update`, then
+                                `claude plugin update`; then print the remote
+                                posture check's line. Idempotent; exits 0 when
+                                the posture passes, 1 when it fails
   launch <launch-args>...       mission-control-launch.sh launch on the remote,
                                 the brief read from this script's stdin into a
                                 remote temp file (--brief is supplied, never
-                                accepted)
+                                accepted), after this host's own posture check
+                                passes and after each --repo or --cwd clone
+                                named there is fetched (a failed fetch warns)
   pending [<worker>...]         fleet-streamjson.sh pending
   answer <worker> <request-id> (--allow | --deny [--message <text>])
   steer <worker>                fleet-streamjson.sh steer, the message read
@@ -74,10 +87,38 @@ the code can too.
 A compute run warns on stderr when its worktree's branch is behind its
 upstream, since the remote runs the worktree's own HEAD, not the upstream's.
 
+The guard posture a remote launch is held to. The remote launcher holds a
+launch to its caller's posture, and the caller is this host's session, so
+launch first runs this host's scripts/mc-posture.sh check and refuses on
+anything but a pass. On the remote, the launch's project layer is a scratch
+copy of the remote root's own config/mission-control-settings.json (with
+CLAUDE_PLUGIN_ROOT that root), standing in for that caller; the remote's
+user and managed layers are still read, so one that turns every hook off or
+keeps only managed rules still fails there. Nothing is written to the
+remote's settings: the profile is scoped to mission control, and in the
+remote user's settings its guards would bind every session there, its
+workers included. setup runs the same remote check.
+
+The environment compute, launch and setup give a command. mise trusts
+exactly the paths a run needs (MISE_TRUSTED_CONFIG_PATHS): for compute the
+run's own directory and the account's global mise config directory, in
+place of whatever the env file set; for a launch the global config
+directory and each --repo or --cwd directory, ahead of the env file's. The
+account's global config is named because a suite that resets HOME makes
+mise find it walking up from the run, no longer as the global config, and
+refuse it as untrusted; a `mise trust` record does not help, since it lives
+under the real HOME too. For the same reason each puts the account's mise
+tool directories (`mise bin-paths`, read under the real HOME) ahead of
+PATH, and compute and setup refuse with exit 3, naming the tool, when jq
+(and for setup git or claude) is still not found.
+
 Exit codes: 2 usage error or a refused argument; 3 the remote is not set up
-(no planwright root, an env file that fails, or for compute no clone, no
-perl, or no mise or /bin/bash for the chosen command); 4 compute could not
-ship HEAD (no clone there, or SSH failed); 255 SSH could not connect;
+(no planwright root, an env file that fails, a required tool not found, for
+setup a marketplace checkout it cannot fast-forward or an update that
+failed, or for compute no clone, no perl, or no mise or /bin/bash for the
+chosen command); 4 compute could not ship HEAD (no clone there, or SSH
+failed), or a launch this host's posture check refused; 255 SSH could not
+connect;
 otherwise the remote verb's own exit. compute exits with the command's own
 status, 143 when the timeout stopped it, 129 when the caller went away (this
 side was killed or the connection dropped) and the command was stopped, and says on stderr which happened; a
@@ -159,7 +200,7 @@ worker_ok() {
 }
 stdin_verb=0
 case $verb in
-  root | load)
+  root | load | setup)
     [ $# -eq 0 ] || usage
     ;;
   launch)
@@ -167,6 +208,15 @@ case $verb in
     for a in "$@"; do
       case $a in --brief | --brief=*) die "launch takes the brief on stdin, never --brief" ;; esac
     done
+    for a in "$@"; do
+      safe_arg "$a" || die "refusing an argument holding a backslash or a control character"
+    done
+    lp_out=$(/bin/bash "$here/mc-posture.sh" check </dev/null 2>&1)
+    case $? in
+      0) ;;
+      1) die "refusing to launch on $host: this host's posture check failed: $(printf '%s\n' "$lp_out" | awk -F '\t' '$2 == "fail" { print $3; exit }')" 4 ;;
+      *) die "refusing to launch on $host: this host's posture check did not run: $(printf '%s' "$lp_out" | tr -d '\000-\037\177')" 4 ;;
+    esac
     stdin_verb=1
     ;;
   pending)
@@ -311,6 +361,52 @@ fi
 root=$1
 verb=$2
 shift 2
+fr_fail() {
+  echo "fleet-remote: $1" >&2
+  exit 3
+}
+# The account's global mise config directory, plus MISE_GLOBAL_CONFIG_FILE
+# when set, as one MISE_TRUSTED_CONFIG_PATHS list.
+fr_mise_global() {
+  fr_g=${MISE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/mise}
+  printf '%s' "$fr_g${MISE_GLOBAL_CONFIG_FILE:+:$MISE_GLOBAL_CONFIG_FILE}"
+}
+# fr_tool_paths <dir>: the account's mise tool directories, as resolved from
+# <dir> under the real HOME, ahead of PATH.
+fr_tool_paths() {
+  command -v mise >/dev/null 2>&1 || return 0
+  fr_bp=$(cd "$1" && mise bin-paths </dev/null 2>/dev/null) || :
+  fr_add=''
+  fr_ifs=$IFS
+  IFS='
+'
+  set -f
+  for fr_b in $fr_bp; do
+    case $fr_b in /*:* | '') ;; /*) [ ! -d "$fr_b" ] || fr_add="$fr_add$fr_b:" ;; esac
+  done
+  set +f
+  IFS=$fr_ifs
+  PATH="$fr_add$PATH"
+  export PATH
+}
+fr_need() {
+  for fr_t in "$@"; do
+    command -v "$fr_t" >/dev/null 2>&1 \
+      || fr_fail "$verb needs $fr_t on this host: $fr_t not found on PATH, the account's mise tool paths included"
+  done
+}
+# fr_caller <dir>: the project layer a remote launch's posture check reads,
+# standing in for the caller this host checked: the remote root's shipped
+# mission-control profile, its guards under that root.
+fr_caller() {
+  fr_floor="$root/config/mission-control-settings.json"
+  [ -f "$fr_floor" ] || return 0
+  mkdir -p "$1/caller/.claude" && cp "$fr_floor" "$1/caller/.claude/settings.json" || return 1
+  CLAUDE_PROJECT_DIR="$1/caller"
+  CLAUDE_PLUGIN_ROOT=$root
+  export CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT
+  unset PLANWRIGHT_MC_TOKEN
+}
 if [ "$verb" = compute ]; then
   sha=$2
   secs=$3
@@ -361,8 +457,10 @@ if [ "$verb" = compute ]; then
   mkdir "$run/tmp" || exit 3
   TMPDIR="$run/tmp"
   export TMPDIR
-  MISE_TRUSTED_CONFIG_PATHS="$base${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
+  MISE_TRUSTED_CONFIG_PATHS="$run:$(fr_mise_global)"
   export MISE_TRUSTED_CONFIG_PATHS
+  fr_tool_paths "$run/wt"
+  fr_need jq
   unset PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
   umask 022
   PLANWRIGHT_TEST_JOBS=$fr_jobs
@@ -439,37 +537,125 @@ if [ "$verb" = load ]; then
   printf '%s %s\n' "$fr_load" "$fr_cores"
   exit 0
 fi
-if [ -z "$root" ]; then
+case $verb in
+  setup | launch) fr_tool_paths "$HOME" ;;
+esac
+[ "$verb" != setup ] || fr_need jq git claude
+# fr_root: the first root the installed-plugin record names, unless given.
+fr_root() {
   for r in "$HOME"/.claude/plugins/cache/*/planwright/*/scripts/resolve-installed-roots.sh; do
     [ -f "$r" ] || continue
     root=$(cd "$HOME" && /bin/sh "$r" --current | sed -n 1p)
     [ -z "$root" ] || break
   done
-fi
+}
+[ -n "$root" ] || fr_root
 if [ -z "$root" ] || [ ! -d "$root/scripts" ]; then
   echo "fleet-remote: no planwright root on this host: install planwright there (its record needs jq)" >&2
   exit 3
 fi
 sj="$root/scripts/fleet-streamjson.sh"
 mcl="$root/scripts/mission-control-launch.sh"
+fr_d=''
+case $verb in
+  launch | steer | setup)
+    fr_d=$(mktemp -d "${TMPDIR:-/tmp}/fleet-remote.XXXXXX") || exit 3
+    trap "rm -rf \"\$fr_d\"" EXIT
+    trap "exit 129" HUP
+    trap "exit 130" INT
+    trap "exit 141" PIPE
+    trap "exit 143" TERM
+    ;;
+esac
 case $verb in
   root) printf "%s\n" "$root" ;;
   pending | answer | status) exec /bin/sh "$sj" "$verb" "$@" ;;
   retire) exec /bin/sh "$mcl" retire "$@" ;;
   launch | steer)
-    f=$(mktemp "${TMPDIR:-/tmp}/fleet-remote.XXXXXX") || exit 3
-    trap "rm -f \"\$f\"" EXIT
-    trap "exit 129" HUP
-    trap "exit 130" INT
-    trap "exit 141" PIPE
-    trap "exit 143" TERM
+    f="$fr_d/stdin"
     cat >"$f" || exit 3
     [ -s "$f" ] || { echo "fleet-remote: empty stdin: nothing to send" >&2; exit 2; }
-    if [ "$verb" = launch ]; then
-      /bin/sh "$mcl" launch "$@" --brief "$f"
-    else
+    if [ "$verb" = steer ]; then
       /bin/sh "$sj" steer "$@" --message-file "$f"
+      exit
     fi
+    fr_trust=$(fr_mise_global)
+    fr_prev=''
+    for fr_a in "$@"; do
+      case $fr_prev in
+        --repo | --cwd)
+          case $fr_a in /*:* | :*) ;; /*) fr_trust="$fr_trust:$fr_a" ;; esac
+          if git -C "$fr_a" rev-parse --git-dir >/dev/null 2>&1; then
+            GIT_TERMINAL_PROMPT=0 git -C "$fr_a" -c core.hooksPath=/dev/null fetch --quiet </dev/null \
+              || echo "fleet-remote: warning: could not fetch $fr_a; launching on its current refs" >&2
+          fi
+          ;;
+      esac
+      fr_prev=$fr_a
+    done
+    MISE_TRUSTED_CONFIG_PATHS="$fr_trust${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
+    export MISE_TRUSTED_CONFIG_PATHS
+    fr_caller "$fr_d" || exit 3
+    /bin/sh "$mcl" launch "$@" --brief "$f"
+    ;;
+  setup)
+    fr_rec="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
+    fr_id=$(jq -r '.plugins // {} | keys[] | select(startswith("planwright@"))' "$fr_rec" 2>/dev/null | sed -n 1p)
+    [ -n "$fr_id" ] || fr_fail "no planwright install is recorded in $fr_rec"
+    fr_mkt=${fr_id#planwright@}
+    fr_scope=$(jq -r --arg id "$fr_id" '.plugins[$id][0].scope // "user"' "$fr_rec")
+    fr_entry=$(claude plugin marketplace list --json </dev/null | jq -c --arg m "$fr_mkt" '[.[] | select(.name == $m)][0] // empty') \
+      || fr_fail "claude plugin marketplace list failed"
+    [ -n "$fr_entry" ] || fr_fail "no marketplace named $fr_mkt is configured"
+    fr_src=$(printf '%s\n' "$fr_entry" | jq -r '.source // ""')
+    if [ "$fr_src" = directory ]; then
+      fr_dir=$(printf '%s\n' "$fr_entry" | jq -r '.path // ""')
+      [ -d "$fr_dir" ] || fr_fail "the folder marketplace $fr_mkt names $fr_dir, which is not a directory"
+      if git -C "$fr_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        fr_git() { GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 git -C "$fr_dir" -c core.hooksPath=/dev/null "$@"; }
+        [ -z "$(fr_git status --porcelain --untracked-files=no)" ] \
+          || fr_fail "the folder marketplace checkout $fr_dir has local changes: commit or discard them there, then run setup again"
+        fr_up=$(fr_git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) \
+          || fr_fail "the folder marketplace checkout $fr_dir is not on a branch with an upstream"
+        fr_git fetch --quiet </dev/null || fr_fail "could not fetch the folder marketplace checkout $fr_dir"
+        fr_old=$(fr_git rev-parse HEAD)
+        fr_new=$(fr_git rev-parse '@{upstream}')
+        if [ "$fr_old" = "$fr_new" ]; then
+          printf 'marketplace %s directory %s current at %s\n' "$fr_mkt" "$fr_dir" "$fr_old"
+        elif fr_git merge-base --is-ancestor HEAD '@{upstream}'; then
+          fr_git merge --quiet --ff-only '@{upstream}' </dev/null || fr_fail "could not fast-forward $fr_dir to $fr_up"
+          printf 'marketplace %s directory %s fast-forwarded %s..%s\n' "$fr_mkt" "$fr_dir" "$fr_old" "$fr_new"
+        else
+          fr_fail "the folder marketplace checkout $fr_dir has diverged from $fr_up: reconcile it there, then run setup again"
+        fi
+      else
+        printf 'marketplace %s directory %s (not a git checkout: read as it is)\n' "$fr_mkt" "$fr_dir"
+      fi
+    else
+      printf 'marketplace %s %s\n' "$fr_mkt" "$fr_src"
+    fi
+    claude plugin marketplace update "$fr_mkt" </dev/null >"$fr_d/out" 2>&1 \
+      || fr_fail "claude plugin marketplace update $fr_mkt failed: $(tail -n 1 "$fr_d/out")"
+    claude plugin update "$fr_id" --scope "$fr_scope" --json </dev/null >"$fr_d/out" 2>"$fr_d/err" \
+      || fr_fail "claude plugin update $fr_id failed: $(tail -n 1 "$fr_d/err")"
+    fr_res=$(tail -n 1 "$fr_d/out")
+    fr_v=$(printf '%s\n' "$fr_res" | jq -r '[.updateOutcome // "", .oldVersion // "?", .newVersion // "?"] | join(" ")' 2>/dev/null) \
+      || fr_fail "claude plugin update $fr_id printed no result line"
+    case $fr_v in
+      'up_to_date '*) printf 'plugin %s %s up to date\n' "$fr_id" "${fr_v##* }" ;;
+      *) printf 'plugin %s %s -> %s\n' "$fr_id" "$(printf '%s' "$fr_v" | cut -d' ' -f2)" "${fr_v##* }" ;;
+    esac
+    # The update may have moved the installed root.
+    root=''
+    fr_root
+    [ -n "$root" ] && [ -f "$root/scripts/mc-posture.sh" ] || fr_fail "no planwright posture check under the installed root ${root:-(none)}"
+    fr_caller "$fr_d" || exit 3
+    /bin/bash "$root/scripts/mc-posture.sh" check </dev/null
+    case $? in
+      0) exit 0 ;;
+      1) exit 1 ;;
+      *) exit 3 ;;
+    esac
     ;;
 esac
 EOF
