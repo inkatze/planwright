@@ -363,7 +363,9 @@ case $OUT in
 esac
 
 # The runner starts the duty with no arguments and the program in the environment.
-PLANWRIGHT_MC_PROGRAM=alpha mc_run mc-idle.sh
+OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-idle.sh" 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
 if [ "$RC" -eq 0 ]; then ok "started bare with PLANWRIGHT_MC_PROGRAM, the duty watches that program"; else fail "the bare runner entry failed: rc=$RC $ERR"; fi
 mc_run mc-idle.sh
 if [ "$RC" -ne 0 ]; then ok "started bare without a program, the duty refuses"; else fail "the bare entry without a program exited 0"; fi
