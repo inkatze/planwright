@@ -1436,12 +1436,13 @@ t1=$(date +%s)
 [ $((t1 - t0)) -lt 30 ] || fail "oracle TERM-resistant: took $((t1 - t0))s, expected KILL escalation to bound it"
 # the TERM-COMPLIANT timeout path resolves promptly: the supervisor's trap
 # publishes the done flag after reaping, so the parent skips the KILL grace
-# ladder entirely. Measured as behaviour, not wall clock: the parent's wait
-# loops count `sleep 0.1` iterations, so a loaded host stretches elapsed time
-# without changing the iteration count. A counting `sleep` shim on PATH records
-# each poll; the timeout wait is 10 iterations per second of bound (20 here),
-# and a skipped ladder adds only the few polls until the flag lands, while the
-# broken shape burns the 20-iteration TERM grace on top (>= 40).
+# ladder. Count the parent's `sleep 0.1` polls rather than wall seconds: host
+# load stretches elapsed time but not the poll count. The bounds mirror the
+# loop limits in oracle_fetch: the timeout wait, then one TERM grace window
+# that a skipped ladder never exhausts.
+oracle_timeout_s=2
+wait_polls=$((oracle_timeout_s * 10))
+grace_polls=20
 sleepdir="$odir/sleepbin"
 mkdir -p "$sleepdir"
 real_sleep=$(command -v sleep)
@@ -1453,15 +1454,15 @@ real_sleep=$(command -v sleep)
 chmod +x "$sleepdir/sleep"
 : >"$odir/sleep-polls"
 rc=0
-env PATH="$sleepdir:$PATH" PLANWRIGHT_ORACLE_TIMEOUT=2 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
+env PATH="$sleepdir:$PATH" PLANWRIGHT_ORACLE_TIMEOUT="$oracle_timeout_s" PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
   PLANWRIGHT_ORACLE_CLAUDE="$slowshim" \
   /bin/sh "$FL" oracle --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
 polls=$(wc -l <"$odir/sleep-polls" | tr -d ' ')
 [ "$rc" = 1 ] || fail "oracle TERM-compliant timeout: exit $rc, expected 1 (unavailable)"
-[ "$polls" -ge 20 ] || fail "oracle TERM-compliant timeout: only $polls polls, expected the full 20-poll timeout wait (counting shim not in effect?)"
-[ "$polls" -lt 40 ] \
+[ "$polls" -ge "$wait_polls" ] || fail "oracle TERM-compliant timeout: only $polls polls, expected the full $wait_polls-poll timeout wait (counting shim not in effect, or the probe ended early?)"
+[ "$polls" -lt $((wait_polls + grace_polls)) ] \
   || fail "oracle TERM-compliant timeout: $polls polls, expected the done-flag publish to skip the KILL grace ladder"
 # a malformed / zero timeout override falls back to the default, never a
 # kill-everything zero bound
