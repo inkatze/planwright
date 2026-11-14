@@ -332,8 +332,8 @@ mc_event_wakes() {
 # is neither in the launcher's list nor live in the fleet registry
 # (pending-prompt, pending-prompt-overdue), a handover or announce naming a session that is
 # not the program's holder, a pull request that is merged or closed (named
-# <owner>:<name>:<n>). Every read that fails, and every subject it cannot
-# resolve, keeps its event: a wrong keep costs a turn, a wrong drop hides a
+# <owner>:<name>:<n>). Every read that fails or comes back empty (no holder,
+# no session), and every subject it cannot resolve, keeps its event: a wrong keep costs a turn, a wrong drop hides a
 # live alert.
 mc_event_gone() {
   meg_prog=$1
@@ -353,10 +353,11 @@ mc_event_gone() {
             meg_sess=$(
               {
                 printf '%s\n' "$meg_l" | awk -F '\t' 'NF { print $1 }'
-                printf '%s\n' "$meg_r" | awk -F '\t' 'NF && !(NF == 8 && $8 == "closed") { print $2 }'
-              } | awk 'NF { printf " %s", $0 } END { print " " }'
+                printf '%s\n' "$meg_r" | awk -F '\t' 'NF { closed[$2] = (NF == 8 && $8 == "closed") } END { for (w in closed) if (!closed[w]) print w }'
+              } | awk 'NF { printf " %s", $0; n++ } END { print n ? " " : "" }'
             )
-            meg_sess_state=1
+            # No session at all reads as a registry that could not be read.
+            [ -z "$meg_sess" ] || meg_sess_state=1
           fi
         fi
         [ "$meg_sess_state" -eq 1 ] || continue
@@ -367,13 +368,13 @@ mc_event_gone() {
           meg_hold_state=2
           if meg_h=$(/bin/bash "$script_dir/mc-handover.sh" holder --program "$meg_prog" 2>/dev/null </dev/null); then
             meg_hold=$(printf '%s\n' "$meg_h" | awk -F '\t' '$1 == "holder" { print $2; exit }')
-            [ -z "$meg_hold" ] || meg_hold_state=1
+            case $meg_hold in '' | -) ;; *) meg_hold_state=1 ;; esac
           fi
         fi
         [ "$meg_hold_state" -eq 1 ] || continue
         [ "$meg_hold" = "$meg_subject" ] || printf '%s\n' "$meg_id"
         ;;
-      merge-ready | readiness-due | ready-to-merge | ready-offer | pr-merged)
+      merge-ready | readiness-due | ready-to-merge | ready-offer)
         meg_num=${meg_subject##*:}
         meg_rest=${meg_subject%:*}
         meg_owner=${meg_rest%%:*}
@@ -384,7 +385,7 @@ mc_event_gone() {
         [ -n "$meg_owner" ] || continue
         meg_state=$(printf '%s' "$meg_prs" | S=$meg_subject awk -F '\t' '$1 == ENVIRON["S"] { print $2; exit }')
         if [ -z "$meg_state" ]; then
-          meg_state=$(gh pr view "$meg_num" --repo "$meg_owner/$meg_name" --json state --jq .state 2>/dev/null </dev/null) || meg_state=unknown
+          meg_state=$(/bin/sh "$script_dir/bounded-run.sh" 30 gh pr view "$meg_num" --repo "$meg_owner/$meg_name" --json state --jq .state 2>/dev/null </dev/null) || meg_state=unknown
           [ -n "$meg_state" ] || meg_state=unknown
           meg_prs="$meg_prs$meg_subject	$meg_state
 "

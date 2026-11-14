@@ -39,6 +39,7 @@ cat >"$tmp/fakebin/gh" <<'GHEOF'
 #!/bin/sh
 # gh pr view <n> --repo <slug> --json state --jq .state
 [ "$1 $2" = "pr view" ] || exit 2
+[ "$4 $5" = "--repo acme/widgets" ] || exit 1
 [ ! -f "$GH_FAIL" ] || exit 1
 awk -v n="$3" '$1 == n { print $2; f = 1 } END { exit !f }' "$GH_STATES"
 GHEOF
@@ -61,6 +62,8 @@ EOF
   mkdir -p "$sess"
   printf 'format\t1\nprogram\talpha\nkind\tworker\nscope\ts\nbackend\tstream-json\nlaunched\t1\n' >"$sess/mc-live-1"
   mc_run fleet-state.sh register regw mission-control:alpha --backend stream-json
+  mc_run fleet-state.sh register retw mission-control:alpha --backend stream-json
+  mc_run fleet-state.sh retire retw mission-control:alpha --backend stream-json
   mkdir -p "$fleet/mission-control/alpha"
   printf 'format\t1\nsession\tmc-holder-2\nkind\tattended\nsince\t1\ngeneration\t2\n' >"$fleet/mission-control/alpha/holder"
   chmod 600 "$fleet/mission-control/alpha/holder"
@@ -93,8 +96,12 @@ backlog() {
   live_f=$OUT
   emit decision-queued some-item "a kind the filter does not read"
   live_g=$OUT
-  live_ids="$live_a $live_b $live_c $live_d $live_e $live_f $live_g"
-  gone_ids="$gone_a $gone_b $gone_c $gone_d"
+  emit pr-merged acme:widgets:12 "the landing notice itself"
+  live_h=$OUT
+  emit pending-prompt retw "a retired registry worker"
+  gone_e=$OUT
+  live_ids="$live_a $live_b $live_c $live_d $live_e $live_f $live_g $live_h"
+  gone_ids="$gone_a $gone_b $gone_c $gone_d $gone_e"
 }
 
 count_events() {
@@ -107,8 +114,8 @@ setup
 backlog
 mc_run mc-wake.sh compose --program alpha tw
 case $OUT in
-  "wake${tab}7${tab}"*) ok "the wake carries the live events only" ;;
-  *) fail "expected a wake of 7 events, got: $OUT" ;;
+  "wake${tab}8${tab}"*) ok "the wake carries the live events only" ;;
+  *) fail "expected a wake of 8 events, got: $OUT" ;;
 esac
 for id in $live_ids; do
   case $OUT in *"$id"*) ;; *) fail "live event $id missing from the wake" ;; esac
@@ -121,16 +128,16 @@ for id in $gone_ids; do
   case $OUT in *"$id"*) fail "gone event $id is still pending" ;; esac
 done
 ok "the gone events left the pending set"
-if [ "$(count_events)" -eq 11 ]; then ok "and stay listable"; else fail "the wake deleted events"; fi
+if [ "$(count_events)" -eq 13 ]; then ok "and stay listable"; else fail "the wake deleted events"; fi
 
 # The prune mode removes only the gone-subject events.
 setup
 backlog
 mc_run mc-event.sh prune --program alpha --gone --dry-run
-case $OUT in "would-prune${tab}4") ok "--gone --dry-run counts the gone events" ;; *) fail "dry run said '$OUT'" ;; esac
-if [ "$(count_events)" -eq 11 ]; then ok "a dry run removes nothing"; else fail "a dry run removed events"; fi
+case $OUT in "would-prune${tab}5") ok "--gone --dry-run counts the gone events" ;; *) fail "dry run said '$OUT'" ;; esac
+if [ "$(count_events)" -eq 13 ]; then ok "a dry run removes nothing"; else fail "a dry run removed events"; fi
 mc_run mc-event.sh prune --program alpha --gone
-case $OUT in "pruned${tab}4") ok "--gone prunes the gone events" ;; *) fail "prune said '$OUT'" ;; esac
+case $OUT in "pruned${tab}5") ok "--gone prunes the gone events" ;; *) fail "prune said '$OUT'" ;; esac
 mc_run mc-event.sh list --program alpha
 for id in $gone_ids; do
   case $OUT in *"$id"*) fail "gone event $id survived the prune" ;; esac
@@ -145,21 +152,33 @@ setup
 backlog
 : >"$GH_FAIL"
 mc_run mc-event.sh prune --program alpha --gone --dry-run
-case $OUT in "would-prune${tab}2") ok "a failing forge keeps every pull request event" ;; *) fail "prune with a failing forge said '$OUT'" ;; esac
+case $OUT in "would-prune${tab}3") ok "a failing forge keeps every pull request event" ;; *) fail "prune with a failing forge said '$OUT'" ;; esac
 mc_run mc-wake.sh compose --program alpha tw
 case $OUT in
   *"$gone_b"*"$gone_c"* | *"$gone_c"*"$gone_b"*) ok "the unjudged pull request events still wake" ;;
   *) fail "a pull request event was dropped on a failed forge read: $OUT" ;;
 esac
 
-# An unreadable session list keeps the session events.
+# No holder record keeps the handover and announce events.
 setup
 backlog
-chmod 000 "$sess"
+rm -f "$fleet/mission-control/alpha/holder"
 mc_run mc-event.sh prune --program alpha --gone
-mc_run mc-event.sh list --program alpha
-case $OUT in *"$gone_a"*) ok "a session event is kept while the session list cannot be read" ;; *) fail "a session event was dropped" ;; esac
-chmod 755 "$sess"
+case $OUT in "pruned${tab}4") ok "with no holder the handover and announce events are kept" ;; *) fail "prune with no holder said '$OUT'" ;; esac
+mc_run mc-wake.sh compose --program alpha tw
+case $OUT in *"$gone_d"*) ok "and still wake" ;; *) fail "an announce event was dropped with no holder" ;; esac
+
+# An unreadable session list keeps the session events (a root user reads
+# any directory, so the case is skipped there).
+if [ "$(id -u)" -ne 0 ]; then
+  setup
+  backlog
+  chmod 000 "$sess"
+  mc_run mc-event.sh prune --program alpha --gone
+  mc_run mc-event.sh list --program alpha
+  case $OUT in *"$gone_a"*) ok "a session event is kept while the session list cannot be read" ;; *) fail "a session event was dropped" ;; esac
+  chmod 755 "$sess"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-event-gone: $failures failure(s)" >&2
