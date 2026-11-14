@@ -3,7 +3,7 @@
 # run is cancelled: a TERM, INT or HUP to the runner, even one started with
 # INT and QUIT inherited ignored (as a job started asynchronously by a shell
 # without job control, such as a CI runner's, gets them), leaves no test file
-# or anything it started running.
+# or child of one running.
 set -u
 unset CDPATH
 
@@ -32,20 +32,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# started_count <dir> — stub files that have recorded themselves.
+# started_count <dir> <file|child> — stub pids recorded so far.
 started_count() {
-  find "$1" -name 'file-*' 2>/dev/null | wc -l | tr -d ' '
+  find "$1" -name "$2-*" 2>/dev/null | wc -l | tr -d ' '
 }
-enough_started() { [ "$(started_count "$1")" -ge "$2" ]; }
+enough_started() {
+  [ "$(started_count "$1" file)" -ge "$2" ] && [ "$(started_count "$1" child)" -ge "$2" ]
+}
 # stub_pids <dir> — every recorded pid, file and child alike.
 stub_pids() {
   cat "$1"/file-* "$1"/child-* 2>/dev/null
-}
-none_running() {
-  for np_pid in "$@"; do
-    kill -0 "$np_pid" 2>/dev/null && return 1
-  done
-  return 0
 }
 
 # cancel_case <label> <dir> <signal> [VAR=value...] — run the runner on two
@@ -69,7 +65,7 @@ wait
 EOF
   done
   # shellcheck disable=SC2016 # the inner shell expands its own arguments
-  env "$@" PLANWRIGHT_TEST_JOBS=2 PLANWRIGHT_TEST_TIMING_REPORT="$cc_dir/r.tsv" \
+  env "$@" PLANWRIGHT_TEST_JOBS=2 PLANWRIGHT_TEST_SLOT_DIR="$cc_dir/slots" PLANWRIGHT_TEST_SLOTS=4 PLANWRIGHT_TEST_TIMING_REPORT="$cc_dir/r.tsv" \
     sh -c 'trap "" INT QUIT; exec /bin/bash "$0" "$1"' "$RUNNER" "$cc_dir/suite" \
     >"$cc_dir/out" 2>&1 </dev/null &
   cc_run=$!
@@ -84,13 +80,13 @@ EOF
   # shellcheck disable=SC2086
   all_pids="$all_pids $cc_stubs"
   kill -s "$cc_sig" "$cc_run"
-  if poll_until --deadline 30 --what "$cc_label: the runner ends" -- none_running "$cc_run"; then
+  if poll_until --deadline 30 --what "$cc_label: the runner ends" -- pid_gone "$cc_run"; then
     pass "$cc_label: the runner ends"
   else
     fail "$cc_label: the runner ends"
   fi
   # shellcheck disable=SC2086 # a list of pids
-  if poll_until --deadline 30 --what "$cc_label: no stub outlives it" -- none_running $cc_stubs; then
+  if poll_until --deadline 30 --what "$cc_label: no stub outlives it" -- pid_gone $cc_stubs; then
     pass "$cc_label: no stub outlives it"
   else
     fail "$cc_label: no stub outlives it"
