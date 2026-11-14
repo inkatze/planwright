@@ -677,6 +677,28 @@ expect_rc "REQ-B1.8: supersede takes enforcement" 0
 rules active enf
 expect_enf "REQ-B1.8: the replacement carries the new enforcement" "r-$((n + 1))" "knob:mission_control_stall_window"
 
+# A replacement keeps the old enforcement unless given one, and the undo
+# entries restore it.
+rules supersede enf r-2 --text "Rule 2 again" --source op --date 2026-11-10
+expect_rc "REQ-B1.8: supersede without enforcement succeeds" 0
+sup_undo=$(printf '%s\n' "$OUT" | sed -n 2p)
+rules active enf
+expect_enf "REQ-B1.8: a replacement inherits the old enforcement" "r-$((n + 2))" "knob:mission_control_launch_backend"
+rules supersede enf "r-$((n + 2))" --withdraw --source op --date 2026-11-10
+wd_undo=$(printf '%s\n' "$OUT" | sed -n 2p)
+case $wd_undo in
+  *"--enforcement 'knob:mission_control_launch_backend'"*) ok "REQ-B1.8: the withdrawal's undo restores the enforcement" ;;
+  *) fail "REQ-B1.8: the withdrawal's undo drops the enforcement: $wd_undo" ;;
+esac
+case $sup_undo in
+  *"--enforcement 'knob:mission_control_launch_backend'"*) ok "REQ-B1.8: the supersession's undo restores the enforcement" ;;
+  *) fail "REQ-B1.8: the supersession's undo drops the enforcement: $sup_undo" ;;
+esac
+run_reversal "$wd_undo"
+expect_rc "REQ-B1.8: the withdrawal's undo runs" 0
+rules active enf
+expect_enf "REQ-B1.8: the restored rule carries its enforcement" "r-$((n + 4))" "knob:mission_control_launch_backend"
+
 before=$(cksum <"$estore")
 # shellcheck disable=SC2016 # each value is a literal the script must refuse unexpanded
 for bad in 'bogus:x' 'script' 'script:' 'script:a b' 'knob:$(id)' 'hook:`id`' 'duty:a;b' 'fix:' 'fix:#' 'fix:Bad#1x' 'prose:' 'prose:$(id)' 'prose:`id`' 'prose:two

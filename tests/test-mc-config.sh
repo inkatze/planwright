@@ -570,6 +570,14 @@ mc_run mc-rules.sh add enf --text "Set mission_control_stall_window to 30m." --s
 cfg doctor --program enf
 expect_out "REQ-A1.10: a rule disagreeing with its knob is still flagged" "rule-knob${tab}r-17${tab}mission_control_stall_window"
 expect_out "REQ-A1.10: the enforcement listing still lists beside it" "rule-enforcement${tab}r-16${tab}unknown${tab}"
+
+# A bare #n names no repository, so with two repositories it is read as
+# unknown, never as the open pull request of the same number elsewhere.
+mkdir -p "$tmp/second"
+printf 'mission_control_programs: [enf]\nprogram_enf_repositories: [%s, %s]\nprogram_enf_spec_root: %s/specs\nprogram_enf_home: %s\n' "$repo" "$tmp/second" "$repo" "$ehome" >"$tracked"
+cfg doctor --program enf
+expect_out "REQ-A1.10: a bare pull request number in a two-repository program is unknown" "rule-enforcement${tab}r-3${tab}unknown${tab}"
+expect_out "REQ-A1.10: a pull request named with its repository is still read there" "rule-enforcement${tab}r-5${tab}closed-fix${tab}"
 PATH=$saved_path
 export PATH
 

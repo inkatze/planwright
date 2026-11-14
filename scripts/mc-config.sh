@@ -1104,8 +1104,15 @@ doctor_temporary() {
 # open, closed or unknown for a pull request a rule names as its open fix.
 # The forge snapshot holds the open ones, so a pull request in it is open;
 # one it lacks is read once, read-only, from the forge, and a read that
-# fails is unknown, never clear.
+# fails is unknown, never clear. A bare #n is read only when the program
+# has one repository; with several it is unknown, so name it owner/name#n.
 doctor_pr_state() {
+  dp_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$4" repositories 2>/dev/null) || dp_repos=''
+  # A bare #n names no repository: with several, it could be any of them.
+  if [ -z "$1" ] && [ "$(printf '%s\n' "$dp_repos" | awk 'NF' | wc -l | tr -d ' ')" != 1 ]; then
+    printf 'unknown\n'
+    return 0
+  fi
   if printf '%s\n' "$3" | S=$1 N=$2 awk -F '\t' '$1 == "pr" && $3 == ENVIRON["N"] && (ENVIRON["S"] == "" || $2 == ENVIRON["S"]) { f = 1 } END { exit !f }'; then
     printf 'open\n'
     return 0
@@ -1114,7 +1121,6 @@ doctor_pr_state() {
   if [ -n "$1" ]; then
     dp_state=$(/bin/sh "$script_dir/bounded-run.sh" 20 gh pr view "$2" --repo "$1" --json state --jq .state 2>/dev/null) || dp_state=''
   else
-    dp_repos=$(/bin/bash "$script_dir/mc-program.sh" get "$4" repositories 2>/dev/null) || dp_repos=''
     while IFS= read -r dp_repo; do
       [ -n "$dp_repo" ] || continue
       if dp_state=$(cd "$dp_repo" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" 20 gh pr view "$2" --json state --jq .state 2>/dev/null); then

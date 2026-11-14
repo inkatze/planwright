@@ -108,7 +108,8 @@ Usage:
   mc-rules.sh supersede <program> <id>
       (--text <t> [--subject <s>] [--scope <scope>] [--enforcement <e>] | --withdraw)
       --source <s> --date <d>
-      a replacement inherits the old entry's subject and scope unless given
+      a replacement inherits the old entry's subject and scope,
+      and its enforcement, unless given
   mc-rules.sh list <program>       every entry, oldest first
   mc-rules.sh active <program>     the active set, in the same shape
   mc-rules.sh render <program> [--scope <scope>]...
@@ -544,6 +545,7 @@ append() {
   ap_precheck=$1
   ENTRY_SUBJECT=$3
   ENTRY_SCOPE=$6
+  ENTRY_ENFORCEMENT=${9:-}
   if [ ! -d "$HOME_DIR" ]; then
     (umask 077 && mkdir -p "$HOME_DIR") || die 1 "cannot create the program home $HOME_DIR"
   fi
@@ -582,7 +584,7 @@ append() {
       "    scope: $ENTRY_SCOPE" \
       "    supersedes: $7" \
       "    withdrawn: $8" \
-      ${9:+"    enforcement: $(store_quote "$9")"}
+      ${ENTRY_ENFORCEMENT:+"    enforcement: $(store_quote "$ENTRY_ENFORCEMENT")"}
   } >"$scratch" || die 1 "cannot write $scratch"
   chmod 600 "$scratch" || die 1 "cannot set the mode of $scratch"
   mv -f "$scratch" "$STORE" || die 1 "cannot replace $STORE"
@@ -601,12 +603,15 @@ no_check() { :; }
 check_target() {
   ct_line=$(rows "$1" | awk -F '\t' -v id="$TARGET" '$1 == id')
   [ -n "$ct_line" ] || die 1 "no entry $TARGET in the store"
-  IFS='	' read -r _ ct_status _ OLD_SCOPE OLD_SUBJECT OLD_TEXT _ _ <<EOF
+  IFS='	' read -r _ ct_status _ OLD_SCOPE OLD_SUBJECT OLD_TEXT _ _ OLD_ENF <<EOF
 $ct_line
 EOF
   [ "$ct_status" = active ] || die 1 "entry $TARGET is $ct_status, not active, so it cannot be superseded"
   ENTRY_SUBJECT=${SUBJECT:-$OLD_SUBJECT}
   ENTRY_SCOPE=${SCOPE:-$OLD_SCOPE}
+  [ "$OLD_ENF" != unknown ] || OLD_ENF=""
+  ENTRY_ENFORCEMENT=
+  [ "$WITHDRAW" -eq 1 ] || ENTRY_ENFORCEMENT=${ENFORCEMENT:-$OLD_ENF}
 }
 
 undo_line() { # undo_line <act> <reversal>
@@ -747,11 +752,11 @@ case $verb in
     if [ "$WITHDRAW" -eq 1 ]; then
       append check_target "" "" "$SOURCE" "$DATE" "" "$TARGET" true
       printf '%s\n' "rule $NEW_ID withdraws $TARGET: $ENTRY_SUBJECT"
-      undo_line rule-withdraw "mc-rules.sh add $program --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE --source $(shell_quote "undo of $NEW_ID") --date today"
+      undo_line rule-withdraw "mc-rules.sh add $program --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE${OLD_ENF:+ --enforcement $(shell_quote "$OLD_ENF")} --source $(shell_quote "undo of $NEW_ID") --date today"
     else
       append check_target "$TEXT" "" "$SOURCE" "$DATE" "" "$TARGET" false "$ENFORCEMENT"
       printf '%s\n' "rule $NEW_ID supersedes $TARGET ($ENTRY_SCOPE): $ENTRY_SUBJECT: $TEXT"
-      undo_line rule-supersede "mc-rules.sh supersede $program $NEW_ID --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE --source $(shell_quote "undo of $NEW_ID") --date today"
+      undo_line rule-supersede "mc-rules.sh supersede $program $NEW_ID --text $(shell_quote "$OLD_TEXT") --subject $(shell_quote "$OLD_SUBJECT") --scope $OLD_SCOPE${OLD_ENF:+ --enforcement $(shell_quote "$OLD_ENF")} --source $(shell_quote "undo of $NEW_ID") --date today"
     fi
     release_store
     ;;
