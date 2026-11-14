@@ -523,6 +523,87 @@ mc_parse_count() { # a count of at least one
   printf '%s\n' "$1"
 }
 
+# mc_step_timeout <id>: the seconds a watcher run (id: its duty) or the
+# snapshot refresh (id: snapshot) may take, the id's entry in
+# mission_control_step_timeout_overrides else mission_control_step_timeout.
+# An override that is no count of seconds is warned about and ignored.
+mc_step_timeout() {
+  mst_default=$(mc_knob mission_control_step_timeout mc_parse_count) || return 1
+  mst_map=$(mc_knob mission_control_step_timeout_overrides mc_map) || return 1
+  mst_v=$(printf '%s\n' "$mst_map" | I=$1 awk -F '\t' '$1 == ENVIRON["I"] { print $2; exit }')
+  if [ -z "$mst_v" ]; then
+    printf '%s\n' "$mst_default"
+  elif mc_valid_uint "$mst_v" && [ "$mst_v" -gt 0 ]; then
+    printf '%s\n' "$mst_v"
+  else
+    printf '%s\n' "${prog:-mc}: mission_control_step_timeout_overrides: '$(sanitize_printable "$1")' is not a count of seconds; using the default" >&2
+    printf '%s\n' "$mst_default"
+  fi
+}
+
+# mrb_tree <pid>: every descendant of the process, one pid per line; a shell
+# waiting on a command substitution takes no TERM until the substitution
+# ends, so a stop has to reach what the command started too.
+mrb_tree() {
+  ps -A -o pid= -o ppid= 2>/dev/null | P=$1 awk '
+    { pid[NR] = $1; ppid[NR] = $2 }
+    END {
+      seen[ENVIRON["P"]] = 1
+      do {
+        grew = 0
+        for (i = 1; i <= NR; i++)
+          if (!(pid[i] in seen) && (ppid[i] in seen)) { seen[pid[i]] = 1; print pid[i]; grew = 1 }
+      } while (grew)
+    }'
+}
+
+# mc_run_bounded <seconds> <out> <command...>: run the command with its
+# stdout in <out>, stopped when it outlives <seconds> (it and everything it
+# started get a TERM, and a KILL two seconds later if it ignored that). Sets
+# MRB_RC to its status and MRB_EXPIRED to 1 when it was stopped; MRB_PID is
+# the command while it runs, for a caller's own signal handler.
+MRB_PID=''
+MRB_DOG=''
+MRB_RC=0
+MRB_EXPIRED=0
+mc_run_bounded() {
+  mrb_secs=$1
+  mrb_out=$2
+  shift 2
+  MRB_EXPIRED=0
+  mrb_flag="$mrb_out.expired"
+  rm -f "$mrb_flag"
+  "$@" </dev/null >"$mrb_out" &
+  MRB_PID=$!
+  (
+    mrb_sp=''
+    trap 'kill "$mrb_sp" 2>/dev/null; exit 0' TERM
+    sleep "$mrb_secs" &
+    mrb_sp=$!
+    wait "$mrb_sp"
+    : >"$mrb_flag"
+    # shellcheck disable=SC2046 # one pid per word
+    kill -TERM $(mrb_tree "$MRB_PID") "$MRB_PID" 2>/dev/null
+    sleep 2 &
+    mrb_sp=$!
+    wait "$mrb_sp"
+    # shellcheck disable=SC2046 # one pid per word
+    kill -KILL $(mrb_tree "$MRB_PID") "$MRB_PID" 2>/dev/null
+  ) </dev/null >/dev/null 2>&1 &
+  MRB_DOG=$!
+  wait "$MRB_PID"
+  MRB_RC=$?
+  kill "$MRB_DOG" 2>/dev/null
+  wait "$MRB_DOG" 2>/dev/null
+  MRB_PID=''
+  MRB_DOG=''
+  if [ -f "$mrb_flag" ]; then
+    MRB_EXPIRED=1
+    rm -f "$mrb_flag"
+  fi
+  return 0
+}
+
 # mc_valid_entry_id <log> <id>: <log>-<YYYYMM>-<n>, as scripts/mc-kb.sh
 # numbers entries.
 mc_valid_entry_id() {
