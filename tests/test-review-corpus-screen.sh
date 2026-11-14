@@ -8,6 +8,8 @@ unset CDPATH
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCREEN="$REPO_ROOT/scripts/review-corpus-screen.sh"
 CORPUS_ROOT="$REPO_ROOT/tests/fixtures/review-backtest"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 
 failures=0
 ok() { echo "ok: $1"; }
@@ -158,7 +160,7 @@ mkdir -p "$T/frag/locked"
 printf -- 'AcmeReview flagged the loop\n' >"$T/frag/locked/2026-01-05-hidden-0000eeee.md"
 chmod 000 "$T/frag/locked"
 # As root the directory stays listable and the case would assert nothing.
-if ls "$T/frag/locked" >/dev/null 2>&1; then
+if ! hermetic_access_denied r "$T/frag/locked"; then
   echo "skip: chmod 000 left the directory listable, so the unreadable-subdirectory case did not run" >&2
 else
   "$SCREEN" --text --names "$names" "$T/frag" >/dev/null 2>&1
@@ -168,7 +170,7 @@ chmod 755 "$T/frag/locked"
 rm -r "$T/frag/locked"
 printf -- 'AcmeReview flagged the loop\n' >"$T/frag/entries/2026-01-05-sealed-0000eeee.md"
 chmod 000 "$T/frag/entries/2026-01-05-sealed-0000eeee.md"
-if cat "$T/frag/entries/2026-01-05-sealed-0000eeee.md" >/dev/null 2>&1; then
+if ! hermetic_access_denied r "$T/frag/entries/2026-01-05-sealed-0000eeee.md"; then
   echo "skip: chmod 000 left the file readable, so the unreadable-file case did not run" >&2
 else
   "$SCREEN" --text --names "$names" "$T/frag" >/dev/null 2>&1

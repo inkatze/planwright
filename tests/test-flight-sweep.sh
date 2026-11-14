@@ -44,12 +44,12 @@ export LC_ALL
 unset CDPATH
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
-unset CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT PLANWRIGHT_ROOT PLANWRIGHT_ADOPTER_OVERLAY \
-  PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_SKILLS_ROOT \
-  PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_TOWER_ID CLAUDE_PROJECT_DIR \
+unset CLAUDE_PLUGIN_DATA PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_TOWER_ID \
   PLANWRIGHT_FLIGHT_SWEEP_HOOK_BUDGET PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT PLANWRIGHT_FLIGHT_SWEEP_FORGE_BUDGET
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 ROOT=$(cd "$here/.." && pwd -P)
 SCRIPT="$ROOT/scripts/flight-sweep.sh"
 STATE="$ROOT/scripts/fleet-state.sh"
@@ -381,16 +381,30 @@ grep '^pr list' "$c/gh.log" | head -n 1 | grep -q -- '--repo github.com/acme/wid
 [ "$(sort -u "$c/timeout.log")" = 20 ] || fail "outside the hook each PR read is bounded to the default 20s"
 
 # --- 5b. The queue, --no-write, and an unwritable index -------------------
-if [ "$(id -u)" -ne 0 ]; then
-  chmod 000 "$c/fleet/attention/state"
+chmod 000 "$c/fleet/attention/state"
+denied=0
+if hermetic_access_denied r "$c/fleet/attention/state"; then
+  denied=1
   out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
-  chmod 600 "$c/fleet/attention/state"
+else
+  echo "skip: unreadable queue: the running user still reads $c/fleet/attention/state under mode 000"
+fi
+chmod 600 "$c/fleet/attention/state"
+if [ "$denied" = 1 ]; then
   printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "an unreadable queue is reported unavailable"
   r=$(row "$out" "$AIR")
   [ "$(field "$r" 3)" = unknown ] || fail "an unread queue leaves a worktree flight unknown (got: $r)"
-  chmod 000 "$c/fleet/registry"
+fi
+chmod 000 "$c/fleet/registry"
+denied=0
+if hermetic_access_denied r "$c/fleet/registry"; then
+  denied=1
   out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
-  chmod 600 "$c/fleet/registry"
+else
+  echo "skip: unreadable registry: the running user still reads $c/fleet/registry under mode 000"
+fi
+chmod 600 "$c/fleet/registry"
+if [ "$denied" = 1 ]; then
   printf '%s\n' "$out" | grep -q "^registry${TAB}unavailable$" || fail "an unreadable registry is reported unavailable"
   r=$(row "$out" "$AIR")
   [ "$(field "$r" 3)" = unknown ] || fail "an unread registry leaves a worktree flight unknown (got: $r)"
@@ -424,10 +438,16 @@ mv "$c/state.real" "$c/fleet/attention/state"
 printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "a symlinked queue store is not read"
 # An attention directory that cannot be searched is an unread queue, not an
 # empty one.
-if [ "$(id -u)" -ne 0 ]; then
-  chmod 000 "$c/fleet/attention"
+chmod 000 "$c/fleet/attention"
+denied=0
+if hermetic_access_denied r "$c/fleet/attention"; then
+  denied=1
   out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
-  chmod 700 "$c/fleet/attention"
+else
+  echo "skip: unsearchable attention directory: the running user still reads $c/fleet/attention under mode 000"
+fi
+chmod 700 "$c/fleet/attention"
+if [ "$denied" = 1 ]; then
   printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "an unsearchable attention directory leaves the queue unread"
   r=$(row "$out" "$QUEUED")
   [ "$(field "$r" 3)" = unknown ] || fail "an unread attention directory leaves a waiting flight unknown (got: $r)"
@@ -631,11 +651,16 @@ rc=$?
 rm -f "$nl_entry"
 [ "$rc" -eq 4 ] || fail "prune refuses an entry with a newline in its name (got exit $rc)"
 [ -f "$v_idx" ] || fail "a refused prune removes nothing"
-if [ "$(id -u)" -ne 0 ]; then
-  chmod 500 "$c/fleet/flight-index"
+chmod 500 "$c/fleet/flight-index"
+rc=skip
+if hermetic_access_denied w "$c/fleet/flight-index"; then
   err=$("$SCRIPT" prune 2>&1 >/dev/null)
   rc=$?
-  chmod 700 "$c/fleet/flight-index"
+else
+  echo "skip: failed prune removal: the running user still writes $c/fleet/flight-index under mode 500"
+fi
+chmod 700 "$c/fleet/flight-index"
+if [ "$rc" != skip ]; then
   [ "$rc" -eq 4 ] || fail "a failed prune removal exits 4 (got $rc)"
   printf '%s\n' "$err" | grep -q 'could not remove the index of vanished checkout' \
     || fail "a failed prune removal is named (got: $err)"

@@ -15,6 +15,8 @@ done
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 FS="$REPO_ROOT/scripts/fleet-scratch.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 
 failures=0
 passes=0
@@ -190,11 +192,16 @@ else
 fi
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$HOME_F/scratch/$WK.tmpdir"
-  run make "$HOME_F" "$WK" --fresh
-  if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ] && [ "$(cat "$HOME_F/scratch/$WK.tmpdir")" = "$root" ]; then
-    pass "--fresh: a record that cannot be read is replaced"
+  if hermetic_access_denied r "$HOME_F/scratch/$WK.tmpdir"; then
+    run make "$HOME_F" "$WK" --fresh
+    if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ] && [ "$(cat "$HOME_F/scratch/$WK.tmpdir")" = "$root" ]; then
+      pass "--fresh: a record that cannot be read is replaced"
+    else
+      fail "--fresh: an unreadable record (rc=$RC, $(cat "$T/err"))"
+    fi
   else
-    fail "--fresh: an unreadable record (rc=$RC, $(cat "$T/err"))"
+    echo "skip: --fresh with an unreadable record (the mode does not deny reading here)"
+    chmod 600 "$HOME_F/scratch/$WK.tmpdir"
   fi
 fi
 WK3=$(hex40 d)
@@ -244,21 +251,31 @@ else
   WK4=$(hex40 f)
   before=$(ls -A "$BASE")
   chmod 500 "$HOME_F/scratch"
-  run make "$HOME_F" "$WK4"
-  chmod 700 "$HOME_F/scratch"
-  if [ "$RC" -eq 1 ] && [ "$(wc -l <"$T/err")" -eq 1 ] && grep -q 'cannot record the root' "$T/err" \
-    && [ "$(ls -A "$BASE")" = "$before" ]; then
-    pass "make: a root whose record cannot be written is removed, the one reason printed"
+  if hermetic_access_denied w "$HOME_F/scratch"; then
+    run make "$HOME_F" "$WK4"
+    chmod 700 "$HOME_F/scratch"
+    if [ "$RC" -eq 1 ] && [ "$(wc -l <"$T/err")" -eq 1 ] && grep -q 'cannot record the root' "$T/err" \
+      && [ "$(ls -A "$BASE")" = "$before" ]; then
+      pass "make: a root whose record cannot be written is removed, the one reason printed"
+    else
+      fail "make: unrecordable root (rc=$RC, $(cat "$T/err"), $(ls -A "$BASE"))"
+    fi
   else
-    fail "make: unrecordable root (rc=$RC, $(cat "$T/err"), $(ls -A "$BASE"))"
+    chmod 700 "$HOME_F/scratch"
+    echo "skip: make with an unwritable record directory (the mode does not deny writing here)"
   fi
   chmod 000 "$HOME_F/scratch/$WK.tmpdir"
-  run make "$HOME_F" "$WK"
-  chmod 600 "$HOME_F/scratch/$WK.tmpdir"
-  if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ] && [ ! -s "$T/err" ]; then
-    pass "make: an unreadable record prints nothing beside the root"
+  if hermetic_access_denied r "$HOME_F/scratch/$WK.tmpdir"; then
+    run make "$HOME_F" "$WK"
+    chmod 600 "$HOME_F/scratch/$WK.tmpdir"
+    if [ "$RC" -eq 0 ] && [ "$OUT" = "$root" ] && [ ! -s "$T/err" ]; then
+      pass "make: an unreadable record prints nothing beside the root"
+    else
+      fail "make: an unreadable record (rc=$RC, '$OUT', $(cat "$T/err"))"
+    fi
   else
-    fail "make: an unreadable record (rc=$RC, '$OUT', $(cat "$T/err"))"
+    chmod 600 "$HOME_F/scratch/$WK.tmpdir"
+    echo "skip: make with an unreadable record (the mode does not deny reading here)"
   fi
 fi
 
@@ -274,9 +291,14 @@ else
 fi
 mkdir -p "$sroot/ro/deep"
 chmod 500 "$sroot/ro"
+hermetic_access_denied w "$sroot/ro" && ro_denied=1 || ro_denied=0
 run release "$HOME_F" "$sroot"
 if [ "$RC" -eq 0 ] && [ ! -e "$sroot" ] && [ ! -e "$HOME_F/scratch/$SK.tmpdir" ] && [ -d "$root" ]; then
-  pass "release: a recorded root holding a read-only directory goes with its record, its sibling stays"
+  if [ "$ro_denied" -eq 1 ]; then
+    pass "release: a recorded root holding a read-only directory goes with its record, its sibling stays"
+  else
+    echo "skip: release of a read-only directory (the mode does not deny writing here)"
+  fi
 else
   fail "release: rc=$RC"
 fi

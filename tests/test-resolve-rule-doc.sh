@@ -6,6 +6,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 RESOLVER="$REPO_ROOT/scripts/resolve-rule-doc.sh"
 
 failures=0
@@ -44,7 +46,7 @@ trap 'rm -rf "$tmp"' EXIT
 # adopter/plugin-data arms. The overlay-specific tests further down set these
 # env vars per-invocation, so the isolation here only affects the pre-existing core tests (REQ-D1.2 no-regression / R4).
 export PLANWRIGHT_REPO_ROOT=none
-unset PLANWRIGHT_ADOPTER_OVERLAY CLAUDE_PLUGIN_DATA
+unset CLAUDE_PLUGIN_DATA
 
 # Fixture: a fake plugin root and a fake writer-mode claude dir.
 mkdir -p "$tmp/plugin/doctrine" "$tmp/claude/planwright/doctrine" "$tmp/override/doctrine"
@@ -363,29 +365,31 @@ rmdir "$ovrepo/.claude/doctrine.local/malf.md"
 
 # 18a'. The unreadable-regular-file shape (mode 000) exercises the `-r` arm of
 #       the malformed check, which the directory fixtures above never reach.
-#       Skipped under root, where mode 000 is still readable and the file would
-#       resolve as a normal doc rather than degrade.
-if [ "$(id -u 2>/dev/null)" != "0" ]; then
-  printf 'CORE FALLBACK 2\n' >"$ovcore/doctrine/unread.md"
-  printf 'unreadable\n' >"$ovadopter/doctrine/unread.md"
-  chmod 000 "$ovadopter/doctrine/unread.md"
+printf 'CORE FALLBACK 2\n' >"$ovcore/doctrine/unread.md"
+printf 'unreadable\n' >"$ovadopter/doctrine/unread.md"
+chmod 000 "$ovadopter/doctrine/unread.md"
+if hermetic_access_denied r "$ovadopter/doctrine/unread.md"; then
   out="$(ov unread 2>/dev/null)"
   assert "unreadable adopter file: degrades, zero exit" 0 $?
   assert_eq "unreadable adopter file: lands on core" "CORE FALLBACK 2" "$(cat "$out" 2>/dev/null)"
   warns_malformed "$(ov unread 2>&1 >/dev/null)" adopter
-  chmod 644 "$ovadopter/doctrine/unread.md"
-  rm "$ovadopter/doctrine/unread.md"
+else
+  echo "skip: unreadable adopter file: the running user still reads $ovadopter/doctrine/unread.md under mode 000"
+fi
+chmod 644 "$ovadopter/doctrine/unread.md"
+rm "$ovadopter/doctrine/unread.md"
 
-  # And the repo-tracked unreadable file hard-fails, like the directory shape.
-  printf 'unreadable\n' >"$ovrepo/.claude/doctrine/unread2.md"
-  chmod 000 "$ovrepo/.claude/doctrine/unread2.md"
+# And the repo-tracked unreadable file hard-fails, like the directory shape.
+printf 'unreadable\n' >"$ovrepo/.claude/doctrine/unread2.md"
+chmod 000 "$ovrepo/.claude/doctrine/unread2.md"
+if hermetic_access_denied r "$ovrepo/.claude/doctrine/unread2.md"; then
   ov unread2 >/dev/null 2>&1
   assert "unreadable repo-tracked file hard-fails (exit 3)" 3 $?
-  chmod 644 "$ovrepo/.claude/doctrine/unread2.md"
-  rm "$ovrepo/.claude/doctrine/unread2.md"
 else
-  echo "ok: unreadable-file malformed cases skipped under root (mode 000 is readable)"
+  echo "skip: unreadable repo-tracked file: the running user still reads $ovrepo/.claude/doctrine/unread2.md under mode 000"
 fi
+chmod 644 "$ovrepo/.claude/doctrine/unread2.md"
+rm "$ovrepo/.claude/doctrine/unread2.md"
 
 # 18c. Malformed repo-tracked overlay hard-fails with exit 3 (a broken
 #      team-shared overlay must not silently degrade).
@@ -502,14 +506,12 @@ esac
 #     install that the `-x` guard (not `-f`) must catch — warn and resolve core
 #     only rather than silently dropping every overlay. The adopter/mlocal/repo
 #     fixtures would win if the helper ran, proving the fallback skips them.
-#     Skipped as root, which bypasses the execute-permission check (mirrors the
-#     unreadable-file tests above).
-if [ "$(id -u 2>/dev/null)" != "0" ]; then
-  nox_dir="$ovbase/nox-helper"
-  mkdir -p "$nox_dir"
-  cp "$RESOLVER" "$nox_dir/resolve-rule-doc.sh"
-  cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$nox_dir/"
-  chmod 000 "$nox_dir/resolve-overlay-root.sh"
+nox_dir="$ovbase/nox-helper"
+mkdir -p "$nox_dir"
+cp "$RESOLVER" "$nox_dir/resolve-rule-doc.sh"
+cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$nox_dir/"
+chmod 000 "$nox_dir/resolve-overlay-root.sh"
+if hermetic_access_denied r "$nox_dir/resolve-overlay-root.sh"; then
   out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
     PLANWRIGHT_ADOPTER_OVERLAY="$ovadopter" PLANWRIGHT_REPO_ROOT="$ovrepo" \
     /bin/bash "$nox_dir/resolve-rule-doc.sh" provdoc 2>/dev/null)"
@@ -525,10 +527,10 @@ if [ "$(id -u 2>/dev/null)" != "0" ]; then
       failures=$((failures + 1))
       ;;
   esac
-  chmod 644 "$nox_dir/resolve-overlay-root.sh"
 else
-  echo "skip: non-executable helper test (running as root bypasses -x)"
+  echo "skip: non-executable helper: the running user still reads $nox_dir/resolve-overlay-root.sh under mode 000"
 fi
+chmod 644 "$nox_dir/resolve-overlay-root.sh"
 
 # 22b. A root helper that lost its execute bit still resolves core doctrine: it
 #      runs through /bin/sh, as an archive or sync tool may drop the bit.
