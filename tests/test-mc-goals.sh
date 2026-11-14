@@ -353,6 +353,27 @@ expect_rc "REQ-N1.4: a store with an unknown format is refused" 1
 expect_no_out "REQ-N1.4: nothing is reported done from an unknown format" "done"
 cp "$tmp/store.good" "$store"
 
+# A check whose output file cannot be created leaves no check file behind.
+real_mktemp=$(command -v mktemp)
+mkdir -p "$tmp/failbin"
+cat >"$tmp/failbin/mktemp" <<EOF
+#!/bin/sh
+case "\$1" in *goal-check-out.*) exit 1 ;; esac
+made=\$("$real_mktemp" "\$@") || exit 1
+case "\$1" in *goal-check.*) printf '%s\n' "\$made" >"$tmp/made-check" ;; esac
+printf '%s\n' "\$made"
+EOF
+chmod +x "$tmp/failbin/mktemp"
+goals confirm "$g1" --command "true"
+OUT=$(PATH="$tmp/failbin:$tmp/bin:$PATH" FAKE_FORGE="$tmp/forge" mc_env /bin/bash "$repo_root/scripts/mc-goals.sh" run "$g1" --program alpha 2>"$tmp/stderr")
+RC=$?
+expect_rc "a check output file that cannot be created is refused" 1
+if [ -s "$tmp/made-check" ] && [ ! -e "$(cat "$tmp/made-check")" ]; then
+  ok "a refused check leaves no check file"
+else
+  fail "a refused check left its check file behind (or never created one)"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

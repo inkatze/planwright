@@ -313,8 +313,14 @@ run_check() {
   RUN_STALE=0
   rc_dir=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory"
   rc_script=$(mktemp "$rc_dir/goal-check.XXXXXX") || mc_fail "cannot create the check file"
-  rc_out=$(mktemp "$rc_dir/goal-check-out.XXXXXX") || mc_fail "cannot create the check output file"
-  printf '%s' "$1" >"$rc_script" || mc_fail "cannot write the check file"
+  rc_out=$(mktemp "$rc_dir/goal-check-out.XXXXXX") || {
+    rm -f "$rc_script"
+    mc_fail "cannot create the check output file"
+  }
+  printf '%s' "$1" >"$rc_script" || {
+    rm -f "$rc_script" "$rc_out"
+    mc_fail "cannot write the check file"
+  }
   (cd "$home" && /bin/sh "$script_dir/bounded-run.sh" -k 5 "$timeout" /bin/bash "$rc_script" </dev/null >"$rc_out" 2>&1)
   RUN_RC=$?
   RUN_OUT=$(head -c "$EVIDENCE_MAX" "$rc_out" | tr '\t\n\r' '   ' | mc_clean_text)
