@@ -10,6 +10,7 @@
 #       parked and names the wait; clearing the wait reads completed again.
 #   k3: a turn whose final text ends in a question reads parked, trailing
 #       whitespace and escapes included; a question mid-text does not count.
+#   k6: a wait value outside the three never parks.
 #   k4: an is_error result is ended, never parked, and a live worker with an
 #       event after the result is running, never parked.
 #
@@ -79,6 +80,10 @@ turn sjk4 'Done.' true
 printf 'waiting\toperator\n' >>"$home/mission-control/sessions/sjk4"
 got=$(st sjk4) || fail "k4: status exited non-zero"
 case $got in "status sjk4 ended "*) echo "ok: k4 an is_error result is ended, never parked" ;; *) fail "k4: got '$got'" ;; esac
+
+turn sjk6 'Done.'
+printf 'waiting\tbogus\n' >>"$home/mission-control/sessions/sjk6"
+expect sjk6 "status sjk6 completed result=success" "k6 a wait value outside operator, ci and ready-flip does not park"
 
 turn sjk5 'Should I take the narrower one?'
 printf 'waiting\toperator\n' >>"$home/mission-control/sessions/sjk5"

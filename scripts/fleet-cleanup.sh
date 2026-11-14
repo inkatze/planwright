@@ -833,7 +833,7 @@ EOF
     # A session parked on the operator, CI or a ready flip is not finished work
     # whatever its last turn looked like: its registry row says so.
     pk_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) || pk_root=""
-    if [ -n "$pk_root" ] && [ -f "$pk_root/mission-control/sessions/$worker" ]; then
+    if [ -n "$pk_root" ] && [ -f "$pk_root/mission-control/sessions/$worker" ] && [ ! -L "$pk_root/mission-control/sessions/$worker" ]; then
       pk_why=$(awk -F "$TAB" '$1 == "waiting" { print $2; exit }' "$pk_root/mission-control/sessions/$worker" 2>/dev/null) || pk_why=""
       if [ -n "$pk_why" ]; then
         warn "refusing '$worker': it is parked, waiting on $(sanitize_printable "$pk_why" "-"); a parked session is never reaped"

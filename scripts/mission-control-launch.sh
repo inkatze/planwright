@@ -219,8 +219,8 @@ is in flight, a live session uses its worktree, another launch is placing
 its branch, or a dispatch holds it or cannot say (launch), or there is
 neither a row nor a stream-json worker of that name, a launch, recover,
 relaunch or another retire of it is in flight, or the caller runs inside
-its window (retire); 4 a retire refused because the session holds a live
-wait and --force-parked was not given, or a launch refused before it started: a posture check
+its window (retire); 4 a retire of a session holding a live wait without
+--force-parked, or a launch refused before it started: a posture check
 (scripts/mc-posture.sh) that failed or did not run, no readable profile, an
 unresolvable rung knob with no --backend, no resolvable tier (an
 unreachable allocation store or a malformed tier knob), the admission gate

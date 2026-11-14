@@ -578,6 +578,11 @@ awk -F '\t' '$1 != "waiting"' "$sessions/mc-alpha-worker-sjci" >"$sessions/mc-al
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
 expect_out "clearing the wait restores the retire" "retire${tab}mc-alpha-worker-sjci${tab}${t1}${tab}completed result=success"
 rm -f "$sessions/mc-alpha-worker-sjci" && rm -rf "$fleet/streamjson/mc-alpha-worker-sjci"
+bound_row mc-alpha-worker-tmuxfree worker 35 "$t1" "$tmp/idle.pane"
+printf '%s:t\th\t%s\tidle\n' "$t1" "$t1" >"$fleet/mission-control/alpha/stall/mc-alpha-worker-tmuxfree"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
+expect_out "an idle tmux session with no wait retires, so the parked one's stay is the wait's doing" "retire${tab}mc-alpha-worker-tmuxfree${tab}${t1}${tab}idle"
+rm -f "$sessions/mc-alpha-worker-tmuxfree" "$tmp/tmux/35.name"
 for s in mc-alpha-worker-sjunread mc-alpha-worker-sjrunning mc-alpha-worker-tmuxgrace; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
 
 # The bounds are knobs.

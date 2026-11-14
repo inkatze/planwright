@@ -3669,7 +3669,7 @@ status_awaiting() {
 # records a live wait, or `question` when its last turn's final text ends in a
 # question; nothing otherwise.
 parked_why() {
-  pk_root=$(/bin/sh "$FS" root 2>/dev/null) || pk_root=''
+  pk_root=${2%/streamjson/*}
   pk_row="$pk_root/mission-control/sessions/$1"
   if [ -n "$pk_root" ] && [ -f "$pk_row" ] && [ ! -L "$pk_row" ]; then
     pk_w=$(awk -F '\t' '$1 == "waiting" { print $2; exit }' "$pk_row" 2>/dev/null) || pk_w=''

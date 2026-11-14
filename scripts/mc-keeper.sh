@@ -293,7 +293,8 @@ EOF
         continue
       fi
       say landed "$sw_s" "$sw_state"
-      sw_out=$(launcher retire "$sw_s" 2>&1)
+      # A landed unit ends any wait its session held, so the wait never holds it.
+      sw_out=$(launcher retire "$sw_s" --force-parked 2>&1)
       sw_retire=$?
       case $sw_retire in
         0) ;;
@@ -608,7 +609,11 @@ idle_since_streamjson() {
 # registry row records, else nothing. A session with a live wait is parked on
 # someone, so no bound retires it, whatever its last turn looked like.
 parked_on() {
-  pn_row="$(mc_fleet_home)/mission-control/sessions/$1"
+  pn_home=$(mc_fleet_home) || {
+    printf 'unknown'
+    return 0
+  }
+  pn_row="$pn_home/mission-control/sessions/$1"
   [ -f "$pn_row" ] && [ ! -L "$pn_row" ] || return 0
   mc_kv "$pn_row" waiting 2>/dev/null || :
 }
