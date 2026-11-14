@@ -2592,10 +2592,11 @@ cmd_answer() {
       exit 2
     fi
     # A deny body with no message makes an error tool_result with empty
-    # content, which the API rejects and which kills the worker; refused
-    # whole, since the body is the caller's JSON and is not rewritten here.
+    # content, which the API rejects and which kills the worker. A text check,
+    # not a parse (no jq here): it looks for a message holding something
+    # besides whitespace and \n, \t, \r escapes, and refuses the body whole.
     if printf '%s' "$body" | grep -Eq '"behavior"[[:space:]]*:[[:space:]]*"deny"' \
-      && ! printf '%s' "$body" | grep -Eq '"message"[[:space:]]*:[[:space:]]*"[[:space:]]*[^"\\[:space:]]'; then
+      && ! printf '%s' "$body" | grep -Eq '"message"[[:space:]]*:[[:space:]]*"(\\[ntr]|[[:space:]])*([^"\\[:space:]]|\\[^ntr])'; then
       printf '%s\n' "$me: --response-file deny body needs a non-empty message (an empty deny kills the worker)" >&2
       exit 2
     fi
@@ -2664,11 +2665,13 @@ cmd_answer() {
     deny)
       # The API rejects an error tool_result with empty content (400) and the
       # worker dies, so a deny never carries a blank message: whitespace and
-      # control bytes (which json_escape strips) count as blank.
+      # control bytes (which json_escape strips) count as blank, judged after
+      # the cut so a long blank prefix cannot leave an empty remainder.
+      deny_msg=$(printf '%s' "$deny_msg" | head -c 512)
       if [ -z "$(printf '%s' "$deny_msg" | tr -d '[:space:]\000-\037\177')" ]; then
         deny_msg='Denied by the supervisor; no reason given.'
       fi
-      deny_esc=$(printf '%s' "$deny_msg" | head -c 512 | json_escape)
+      deny_esc=$(printf '%s' "$deny_msg" | json_escape)
       body=$(printf '{"behavior":"deny","message":"%s"}' "$deny_esc")
       ;;
   esac

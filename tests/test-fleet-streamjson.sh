@@ -1570,7 +1570,7 @@ echo "ok: c17 a deny message with control characters delivers well-formed JSON (
 #     --deny, an empty --message, and a whitespace-only or control-only
 #     --message each deliver a default; a given message is delivered unchanged.
 # ---------------------------------------------------------------------------
-for c17b in bare empty blank ctrl given; do
+for c17b in bare empty blank ctrl long given; do
   home="$tmp/h17b$c17b"
   rec="$tmp/r17b$c17b"
   mkdir -p "$rec"
@@ -1588,6 +1588,7 @@ for c17b in bare empty blank ctrl given; do
     empty) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message '' >/dev/null ;;
     blank) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message "$(printf '  \t \n ')" >/dev/null ;;
     ctrl) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message "$(printf '\001\002')" >/dev/null ;;
+    long) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message "$(printf '%700s' '')x" >/dev/null ;;
     given) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message 'use the other path' >/dev/null ;;
   esac || fail "c17b-$c17b: deny answer exited non-zero"
   wait "$launch17b" || fail "c17b-$c17b: the worker run did not end cleanly"
@@ -1624,9 +1625,9 @@ for body17c in '{"behavior":"deny"}' '{"behavior":"deny","message":""}' '{"behav
 done
 [ ! -s "$rec/stdin" ] || ! grep -q control_response "$rec/stdin" \
   || fail "c17c: a refused deny body must write nothing to the worker"
-printf '%s\n' '{"behavior":"deny","message":"no thanks"}' >"$tmp/c17c.resp"
+printf '%s\n' '{"behavior":"deny","message":"\"quoted\" reason"}' >"$tmp/c17c.resp"
 senv "$home" "$rec" -- answer sjw17c "$req_perm" --response-file "$tmp/c17c.resp" >/dev/null \
-  || fail "c17c: a deny body with a message must be delivered"
+  || fail "c17c: a deny body whose message starts with an escape must be delivered"
 wait "$launch17c" || fail "c17c: the worker run did not end cleanly"
 echo "ok: c17c a response-file deny without a message is refused"
 
