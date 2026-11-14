@@ -96,4 +96,3 @@ bundle_signoff() {
     printf 'its content at the head is not what the kickoff signed off (the anchor differs)'
   fi
 }
-
