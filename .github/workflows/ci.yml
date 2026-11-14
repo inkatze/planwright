@@ -217,8 +217,8 @@ jobs:
       # pull request above all, gets GitHub's hosted macOS, the reason in the
       # run summary. The workflow cannot stop a fork's edited copy of itself
       # from naming the runner's labels; the runner's job-started hook is what
-      # refuses that. The runner takes one job at a time, so its path runs the
-      # suite as a single shard; the hosted path keeps four.
+      # refuses that. Both paths run four shards, so no one job has to fit
+      # the whole suite inside its timeout.
       #
       # Whether they run at all is decided first (macOS runners are scarce, and
       # draft pushes queued behind each other and main): a push to main, and a
@@ -253,7 +253,7 @@ jobs:
           else
             reason="a $EVENT from '$HEAD_REPO', not $GITHUB_REPOSITORY, stays on hosted macOS"
           fi
-          if [ "$runner" = self-hosted ]; then shards='[1]'; else shards='[1, 2, 3, 4]'; fi
+          shards='[1, 2, 3, 4]'
           if [ "$run" = true ]; then
             msg="macOS jobs: $runner runner, $shards shards ($reason)"
           else
@@ -386,10 +386,9 @@ jobs:
   # instead of skipping green.
   macos-suite:
     name: macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
-    # The runner and shard count are the plan job's `mac` step's choice: the
-    # offload Mac's runner (label offload-mac-ci) takes one shard, since it
-    # runs one job at a time; GitHub's scarce hosted Macs take a small fixed
-    # count. check:workflow-posture accepts exactly this runs-on shape as a
+    # The runner is the plan job's `mac` step's choice (the offload Mac's
+    # runners carry the label offload-mac-ci); both kinds run four shards.
+    # check:workflow-posture accepts exactly this runs-on shape as a
     # macOS job; keep it identical in macos-smoke.
     needs: plan
     if: ${{ needs.plan.outputs.mac_run == 'true' }}
