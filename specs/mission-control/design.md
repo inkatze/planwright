@@ -2009,7 +2009,9 @@ allow above, the default; or (b) if only a settings `allow` entry skips the
 classifier, that entry for the exact answer shape paired with a deny-or-ask
 hook that refuses every call the vet does not clear, so an out-of-scope
 answer stops at the prompt instead of passing on the allow. The kickoff
-settles which, with Task 86's result in hand; the vet, the owner rule and
+rule is that form (a) is used unless Task 86's fixture shows that only a
+settings `allow` entry skips the classifier, in which case form (b) is used,
+Task 86's result picking the form with no further kickoff; the vet, the owner rule and
 the record do not change between them. The existing shape-only hook stays
 for answers the standing-decision record or the operator authorizes.
 

@@ -2237,6 +2237,11 @@ Walked inline over the Amendment 16 delta; scripts, tests and the
 | Documentation and glossary drift | 0 | None |
 | Rendered-content safety and data hygiene | 0 | None |
 
+Post-sign-off polish pass: 2 findings, both applied on the operator's
+"All recommended (Recommended)": REQ-Q1.1 now names `[--message <text>]` on
+`--deny`, matching D-70 and its test entry; D-70 and Task 86 now say Task
+86's result picks the form under the kickoff's rule, with no further kickoff.
+
 Altitude check: not applicable (no altitude seed claim). Ship-gate check:
 every change is a task. Enumeration cross-check: no requirement states a
 count.
@@ -2252,5 +2257,5 @@ register above.
 
 Class: meaning
 Lens-pass: Amendment 16, delta-scoped lens review above (spec lens set; every finding dispositioned)
-Anchor: `57fe5113227885b31ac02caf274d2f8c17476fe2` — computed as
+Anchor: `388009ae0cc5788e95c95708d889c02c20010f87` — computed as
 `scripts/spec-anchor.sh specs/mission-control`

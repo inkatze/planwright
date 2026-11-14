@@ -1436,7 +1436,8 @@ with the operator.
 
 - **REQ-Q1.1** A mission control SHALL answer a permission prompt of a worker
   it launched and owns, the owner being the launcher's registry owner, through
-  `fleet-streamjson.sh answer <worker> <request-id> --allow` or `--deny`,
+  `fleet-streamjson.sh answer <worker> <request-id> --allow` or `--deny
+  [--message <text>]`,
   admitted by its settings profile and its verbs list, so that the auto-mode
   classifier does not judge each answer. The admission SHALL be an
   argument-aware hook approval of exactly that shape for a request the vet

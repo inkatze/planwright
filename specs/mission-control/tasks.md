@@ -1465,8 +1465,9 @@ fixed-string check.)*
 - **Deliverables:** first, a fixture on the installed CLI that shows which
   mechanism keeps the classifier from judging an `answer` call (D-70: a hook
   allow, which `scripts/mc-approve-hook.sh` already gives by shape, or a
-  settings `allow` entry), recorded in the task's report so the kickoff
-  settles the form; then the argument-aware arm in the mission-control mode of
+  settings `allow` entry), recorded in the task's report, the result picking
+  the form under D-70's rule (the hook allow unless only a settings `allow`
+  entry skips the classifier); then the argument-aware arm in the mission-control mode of
   `scripts/tower-command-guard.sh` (replacing the blanket `answer` refusal in
   `script_in_mode` with the vet-gated shape of D-70 and D-72); the verbs
   list header and `scripts/check-mc-verbs.sh` stating that the arm carries
