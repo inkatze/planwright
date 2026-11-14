@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -825,7 +825,9 @@ the behaviour the REQ-H1.4 entry above pins, which carries over unchanged.
 ### REQ-I1.1 — Never merge [design-level + test]
 
 The posture denies every merge spelling; the guard fixture table covers
-them under the `mission-control` tier (Task 3).
+them under the `mission-control` tier (Task 3). The one exception is the
+`auto_merge` helper path (REQ-R1.5, Task 93); the `human-gates` doctrine
+names the same single case (D-79, Task 94).
 
 ### REQ-I1.2 — Flip inside the policy only [design-level + test]
 
@@ -861,7 +863,9 @@ scan over the committed seeds and docs is clean.
 ### REQ-I1.7 — Gate conditions inside the floors [test]
 
 A gate-condition fixture that would authorize a merge or a flip below the
-policy is refused at load; a per-repository condition evaluates as data.
+policy is refused at load; a per-repository condition evaluates as data; a
+condition never authorizes a merge, the `auto_merge` setting (REQ-R1.1)
+being the only authorization.
 
 ### REQ-I1.8 — A relayed kickoff publishes its own spec branch [test]
 
@@ -1297,3 +1301,55 @@ without fix evidence is refused; with both it closes; no verb removes a row.
 
 `tests/test-mc-followups.sh` (Task 83): a fixture period with operator-caught
 and system-raised problems reports both counts and names the open misses.
+
+## REQ-R — Opt-in automatic merge and release
+
+### REQ-R1.1 — The setting and its layers [test]
+
+`tests/test-mc-config.sh` (Task 90): unset resolves to `off`; each of the three
+values resolves from the shipped and adopter layers; the same value written
+in a worktree-local or session-writable layer is ignored.
+
+### REQ-R1.2 — Solo repositories only [test]
+
+`tests/test-mc-config.sh` (Task 90): a solo repository fixture honors the value;
+collaborative, work and unknown-kind fixtures resolve to `off` whatever the
+layers say.
+
+### REQ-R1.3 — Merge conditions, re-read at the act [test]
+
+`tests/test-auto-merge.sh` and `tests/test-mc-readiness.sh` (Tasks 91, 92):
+a PR meeting every condition merges its head; each of a failing readiness
+check, a queued or running check, a non-mergeable state, an open
+render-gate item, an open decision, an unresolved human thread and an
+unreadable source refuses it with the failed condition named; a head that
+moves between the decision and the act is not merged; a window lock or a
+needed bypass is never bypassed.
+
+### REQ-R1.4 — Never automatic: spec PRs and sign-off items [test]
+
+`tests/test-auto-merge.sh` (Task 92): a spec PR, a PR carrying a sign-off
+item and a bypass-only PR are refused under every value.
+
+### REQ-R1.5 — One worker, one helper, the guard's denies kept [test]
+
+`tests/test-auto-merge.sh`, the guard fixtures and `tests/test-mc-duties.sh`
+(Tasks 92, 93, 96): the helper is admitted to the merge worker under `merge`
+and `merge-and-publish` in a solo repository and refused under `off`,
+outside a solo repository and to mission control; every other merge
+spelling is denied in every tier; the duty launches one worker per merge and
+retires it.
+
+### REQ-R1.6 — Release merge and publish by value [test]
+
+`tests/test-auto-merge.sh` and `tests/test-release-publish.sh` (Task 95):
+under `merge-and-publish` a release PR is merged and published once the
+window check and checklist pass and is refused when either fails; under
+`merge` and `off` neither runs.
+
+### REQ-R1.7 — Recorded, reported, stoppable [test]
+
+`tests/test-auto-merge.sh` and `tests/test-mc-duties.sh` (Tasks 92, 96): the
+record comment carries the value, the head and each condition's evidence;
+the landing is reported once; flipping the value to `off` between the
+decision and the act stops the merge.

@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -106,6 +106,9 @@ later planwright bundles implement, D-12).
 - Any merge an agent authorizes, under any `merge_policy` value;
   authorizing a merge stays the human gate `human-gates` states, and
   executing one follows that policy.
+  *(Amended at Amendment 17: the operator's standing `auto_merge` setting
+  (REQ-R1.1) is the one authorization an agent may act on, never a spec
+  PR's merge and never in a repository that is not solo.)*
 - Any message to a person without the operator's yes on the exact text and
   recipient; standing exceptions exist only as named configuration.
 - Replacing CI or the automated reviewers.
@@ -984,8 +987,12 @@ later planwright bundles implement, D-12).
 
 ## REQ-I — Invariants
 
-- **REQ-I1.1** Mission control SHALL never merge.
-  *(Cites: human-gates (Sources).)*
+- **REQ-I1.1** Mission control SHALL never merge, except through the
+  `auto_merge` setting the operator turned on in the repository (REQ-R1.1
+  to REQ-R1.7), and never a spec PR.
+  *(Cites: human-gates (Sources); D-74.)*
+  *(Amended at Amendment 17: the flat prohibition gains the operator's opt-in
+  exception; the posture still denies every other merge spelling.)*
 - **REQ-I1.2** Mission control SHALL never flip a PR ready outside the
   configured policy, and in a repository the operator does not own (an
   employer's or another organization's) only on the operator's request.
@@ -1023,6 +1030,9 @@ later planwright bundles implement, D-12).
   never place a flip or a merge below the floors `human-gates` states.
   *(Cites: D-26; drafting-session decision (2026-10-22); the hub record
   (Sources).)*
+  *(Amended at Amendment 17: the conditions still only narrow; the
+  operator's `auto_merge` setting, REQ-R1.1, is the one authorization to
+  merge, and D-75's conditions bound it.)*
 - **REQ-I1.8** A kickoff or amendment mission control relays (REQ-I1.5)
   SHALL be able to publish its own result under a kickoff permission
   profile the launcher delivers: a plain push of the one spec branch its
@@ -1424,6 +1434,60 @@ the runner works, never a list that grows and is forgotten.
   *(Cites: D-69; REQ-P1.13; the outcome-audit report (2026-11-13,
   Sources).)*
 
+## REQ-R — Opt-in automatic merge and release
+
+- **REQ-R1.1** A per-repository setting `auto_merge` SHALL take the values
+  `off`, `merge` and `merge-and-publish`, default `off`, and SHALL be read
+  only from the shipped and adopter configuration layers, never from a
+  worktree or session-writable one. planwright's own adopter configuration
+  sets `merge-and-publish`.
+  *(Cites: D-74; the auto-merge ruling (Sources).)*
+- **REQ-R1.2** `auto_merge` SHALL take effect only in a solo repository (one
+  the operator owns and no other person works in, judged by the ready-flip
+  rule's ownership test); in a collaborative or work repository, or one
+  whose kind cannot be told, the value SHALL be ignored and mission control
+  SHALL NOT merge.
+  *(Cites: D-74; REQ-I1.2; the auto-merge ruling (Sources).)*
+- **REQ-R1.3** Under `merge` or `merge-and-publish`, a PR SHALL be merged
+  only when, immediately before the merge and on its current head: the
+  readiness check passes (REQ-D1.14), every check on the head has finished
+  green and GitHub reports it mergeable, and no item is open for the
+  operator on it (an item mission control holds for the operator that names
+  the PR, such as a render-gate screenshot, a pending decision or a sign-off
+  item, or an unresolved human review thread read from the forge). A
+  condition that cannot be confirmed counts as unmet. The merge SHALL be of
+  that head only and SHALL never bypass a failing, queued or running check
+  or a window lock.
+  *(Cites: D-75; REQ-D1.14; D-26; the auto-merge ruling (Sources).)*
+- **REQ-R1.4** Mission control SHALL NOT merge a spec PR, a PR carrying a
+  sign-off item, or a PR that can merge only if the operator overrides a
+  required check or a window lock (the bypass cases), under any value of
+  `auto_merge`; each stays the operator's merge.
+  *(Cites: D-77; human-gates (Sources); the auto-merge ruling (Sources).)*
+- **REQ-R1.5** Each automatic merge SHALL be performed by a short-lived
+  worker launched for that one merge, running one sanctioned helper that
+  repeats the REQ-R1.3 checks as its last step; the policy guard SHALL admit
+  the merge only to that helper under that value, and mission control's own
+  merge denies SHALL stay in force.
+  *(Cites: D-76; REQ-I1.1; the auto-merge ruling (Sources).)*
+- **REQ-R1.6** Under `merge-and-publish` only, mission control SHALL also
+  merge a release PR, which must meet REQ-R1.3 like any PR, and publish its
+  release, the release window check and checklist passing first in
+  addition; under `merge` and `off`, a release PR's merge and the publish
+  stay the operator's. A publish that fails after the merge landed SHALL be
+  reported to the operator as a failure and SHALL NOT be retried
+  automatically.
+  *(Cites: D-77; the auto-merge ruling (Sources).)*
+- **REQ-R1.7** Each automatic merge SHALL leave a record on the PR (the
+  setting's value, the head, and each condition's evidence) and SHALL be
+  reported to the operator as a landing; setting `auto_merge` to `off` SHALL
+  stop further automatic merges at once, and a merge in flight SHALL re-read
+  it before acting. At most one automatic merge SHALL run per repository at
+  a time, and a later one SHALL re-evaluate REQ-R1.3 after the earlier
+  lands. Mission control SHALL NOT revert a merged PR; a revert stays the
+  operator's.
+  *(Cites: D-78; the auto-merge ruling (Sources).)*
+
 ## Changelog
 
 - 2026-10-22 — Drafted (`/spec-draft`): the requirement groups and
@@ -1640,6 +1704,13 @@ the runner works, never a list that grows and is forgotten.
   with a miss ledger and a caught-by report (REQ-P1.11 to REQ-P1.14, D-69,
   Tasks 82 and 83), the unrelayed-question case as the audit's first
   fixture.
+
+- 2026-11-14 — Amendment 17 (meaning-class, operator-declared, signed off at
+  the amendment kickoff): an opt-in `auto_merge` setting, off by default and
+  on for planwright (REQ-R1.1 to REQ-R1.7, D-74 to D-79, Tasks 90 to 97);
+  REQ-I1.1 gains the exception, with an amendment note on the Out of scope
+  merge line, REQ-I1.7 and D-26; spec PRs, collaborative and work repositories stay
+  the operator's merge.
 
 ## Sources
 
@@ -1877,3 +1948,4 @@ the runner works, never a list that grows and is forgotten.
 - **The duty-ledger report (2026-11-13)** — relayed through the hub, the operator's top priority: "I myself trusted too much you would do that and ended up wasting an entire week at work." Their definition: a duty is something that has to be monitored and fulfilled until completed, whose moment may not be known in advance, so a program must be ready; items may be re-validated recurrently, and the ledger must not be a list that grows and is forgotten. One program's ledger held about twenty open items, mostly past their dates and never re-checked; another had event triggers no script emits. Framed REQ-F1.25, REQ-P1.1 to REQ-P1.6, D-65 to D-67. A pinned altitude claim: the duty ledger is a core, default-on planwright duty, not a per-machine habit.
 - **The crossed-decisions report (2026-11-13)** — relayed through the hub, the operator: "How do you keep crossing decisions? That's been another huge core miss." A handover brief handed the operator a publish step long ruled the hub's, and a settled PR-Agent ruling was re-asked. Framed REQ-P1.7 to REQ-P1.10, D-68.
 - **The outcome-audit report (2026-11-13)** — relayed through the hub, the operator: "Also I have always identified core issues for you; which is a core issue itself." Nothing audits outcomes or learns from a miss the operator caught; a kickoff session's question sat unrelayed about 25 minutes. Framed REQ-P1.11 to REQ-P1.14, D-69.
+- **The auto-merge ruling (2026-11-11, 2026-11-13, 2026-11-14)** — relayed through the hub, the operator: chose an opt-in knob in planwright, walked after 0.75.2; then, at the kickoff: spec PRs stay theirs, a release is merged and published automatically and the reach is configurable, the setting takes effect in solo repositories only, and each merge is done by a worker running one sanctioned helper. Framed REQ-R1.1 to REQ-R1.7, D-74 to D-79. The merge line in the operator's own CLAUDE.md is theirs to change once signed off.
