@@ -136,17 +136,20 @@ line_perm='{"type":"control_request","request_id":"'$req'","request":{"subtype":
 req2='aaaa1111-bbbb-cccc-dddd-eeee00000002'
 req3='aaaa1111-bbbb-cccc-dddd-eeee00000003'
 req4='aaaa1111-bbbb-cccc-dddd-eeee00000004'
+req5='aaaa1111-bbbb-cccc-dddd-eeee00000005'
 del=$(printf '\177')
 line_q='{"type":"control_request","request_id":"'$req2'","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[]},"tool_use_id":"t2"}}'
 line_b='{"type":"control_request","request_id":"'$req3'","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls -la","description":"d"},"tool_use_id":"t3"}}'
 line_d='{"type":"control_request","request_id":"'$req4'","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo A'"$del"'B","description":"d"},"tool_use_id":"t4"}}'
-printf '%s\n%s\n%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_q" "$line_b" "$line_d" >"$tmp/ev-perm"
+# An escaped backslash before an n is not a line break: what follows it is on the same line.
+line_e='{"type":"control_request","request_id":"'$req5'","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"printf x\\ny; rm TAILPART\nsecond","description":"d"},"tool_use_id":"t5"}}'
+printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_q" "$line_b" "$line_d" "$line_e" >"$tmp/ev-perm"
 
 home="$tmp/h1"
 rec="$tmp/r1"
 start_worker "$home" "$rec" mc-acme-worker-a SHIM_EVENTS="$tmp/ev-perm"
 wdir="$home/streamjson/mc-acme-worker-a"
-for jr in "$req" "$req2" "$req3" "$req4"; do
+for jr in "$req" "$req2" "$req3" "$req4" "$req5"; do
   poll_until --what 'the journal row' -- grep -q "^$jr" "$wdir/journal" || fail "setup: the pending journal row $jr never appeared"
 done
 session_row "$home" mc-acme-worker-a acme worker -
@@ -218,6 +221,9 @@ case $echo_line in *'git status --short\u001b[31m'*) : ;; *) fail "a6: the echo 
 out=$(senv "$home" "$rec" PLANWRIGHT_MC_TOKEN=tok-acme -- answer mc-acme-worker-a "$req4" --allow 2>"$tmp/a6.err") || fail "a6: the owner's answer to a command with a raw DEL failed: $out $(cat "$tmp/a6.err")"
 grep -q 'echo A' "$tmp/a6.err" || fail "a6: no echo of the command with a raw DEL: $(cat "$tmp/a6.err")"
 grep -q "$del" "$tmp/a6.err" && fail "a6: a raw control byte from the command reached the echo"
+out=$(senv "$home" "$rec" PLANWRIGHT_MC_TOKEN=tok-acme -- answer mc-acme-worker-a "$req5" --allow 2>"$tmp/a6e.err") || fail "a6: the owner's answer failed: $out $(cat "$tmp/a6e.err")"
+grep -q 'rm TAILPART' "$tmp/a6e.err" || fail "a6: an escaped backslash before n must not end the echoed line: $(cat "$tmp/a6e.err")"
+grep -q 'second' "$tmp/a6e.err" && fail "a6: the second line of the command was echoed"
 # The owner's --deny and --response-file answers pass too, the second for a tool with no command.
 out=$(senv "$home" "$rec" PLANWRIGHT_MC_TOKEN=tok-acme -- answer mc-acme-worker-a "$req3" --deny --message "no" 2>"$tmp/a8.err") || fail "a8: the owner's --deny failed: $out $(cat "$tmp/a8.err")"
 grep -q 'ls -la' "$tmp/a8.err" || fail "a8: the --deny echo must carry the command: $(cat "$tmp/a8.err")"

@@ -2585,7 +2585,21 @@ answer_echo() {
     ae_cmd=$(json_field "$(head -c 4096 "$2/req-$3.json" 2>/dev/null)" tool_name)
     ae_cmd="(tool: ${ae_cmd:-unknown})"
   fi
-  ae_cmd=$(printf '%s\n' "$ae_cmd" | awk '{ i = index($0, "\\n"); print (i ? substr($0, 1, i - 1) : $0); exit }')
+  ae_cmd=$(printf '%s\n' "$ae_cmd" | awk '{
+    out = ""
+    for (i = 1; i <= length($0); i++) {
+      c = substr($0, i, 1)
+      if (c == "\\") {
+        if (substr($0, i + 1, 1) == "n") break
+        out = out c substr($0, i + 1, 1)
+        i++
+        continue
+      }
+      out = out c
+    }
+    print out
+    exit
+  }')
   ae_cmd=$(sanitize_printable "$ae_cmd" '(no command)' | cut -c1-200)
   ae_prog=$(registry_field "$(/bin/sh "$FS" root 2>/dev/null </dev/null)/mission-control/sessions/$1" program)
   ae_prog=$(sanitize_printable "$ae_prog" 'no recorded program' | cut -c1-64)
