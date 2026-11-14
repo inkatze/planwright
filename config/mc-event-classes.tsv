@@ -53,6 +53,7 @@ planwright-recorded	act
 planwright-updated	act
 usage-held	act
 usage-reset	act
+usage-released	routine
 watcher-stopped	routine
 usage-drained	routine
 usage-bypass	routine

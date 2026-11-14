@@ -71,6 +71,10 @@ one with --operator-asked, which it records as a usage-bypass event), the
 budget reads hold-dispatch
 (scripts/mc-budget.sh), and the next units go to the queue instead. It is
 kept in <runtime>/usage/hold, the probe in <runtime>/usage/probe.
+A hold that ends because the threshold changed (turned off, or raised above
+the usage), its window still inside its reset, is no reset: it emits
+usage-released naming the real usage and reset, writes no reset record, and
+the queue drains at once as at any hold-free watch.
 
 THE QUEUE is <runtime>/usage/queue/<id>/, one directory per entry holding
 its `entry` record and a copy of its brief, so it survives every session.
@@ -108,6 +112,9 @@ Usage:
         event<TAB>usage-held<TAB><window><TAB><text>      entering a hold
         event<TAB>usage-probe<TAB>quota<TAB><text>         nothing to probe
         event<TAB>usage-reset<TAB><window>[.<window>]<TAB><text>
+        event<TAB>usage-released<TAB><window>[.<window>]<TAB><text>
+                                          the threshold knob ended the hold
+                                          (no reset: the window stands)
         event<TAB>usage-drained<TAB><program><TAB><text>  a later drain
                                                           that acted
       or `busy` while another watch or drain holds the duty's lock, and
@@ -681,6 +688,56 @@ take_lock() {
   esac
 }
 
+# knob_released <threshold>: success when every window of the hold so far
+# is still inside its own reset and ended only because the threshold moved:
+# usage within a window never falls, so a reading under the new threshold on
+# the same reset epoch is the knob, never a reset. A window with no stated
+# reset counts only when the threshold is off.
+knob_released() {
+  printf '%s\n--\n%s\n' "$WIN" "$PREV" | N=$NOW T=$1 awk '
+    BEGIN { now = ENVIRON["N"] + 0; thr = ENVIRON["T"]; part = 1; ok = 1 }
+    $0 == "--" { part++; next }
+    NF == 0 { next }
+    part == 1 { pct[$1] = $2; rst[$1] = $3; next }
+    $1 == "quota" { ok = 0; next }
+    $3 != "-" && now >= $3 + 0 { ok = 0; next }
+    thr == "off" { next }
+    $3 == "-" || !($1 in pct) || rst[$1] != $3 || pct[$1] + 0 >= thr + 0 { ok = 0 }
+    END { exit !ok }'
+}
+
+# release_text <threshold>: the plain statement of a knob release, each held
+# window with the usage and reset it really has.
+release_text() {
+  if [ "$1" = off ]; then
+    rt_why="the hold threshold is off"
+  else
+    rt_why="the hold threshold is raised to $1"
+  fi
+  rt_each=$(printf '%s\n--\n%s\n' "$WIN" "$PREV" | awk '
+    $0 == "--" { part++; next }
+    NF == 0 { next }
+    part == 0 { pct[$1] = $2; rst[$1] = $3; next }
+    { w = $1; p = (w in pct) ? pct[w] : $2; r = (w in rst) ? rst[w] : $3
+      printf "%s%s|%s|%s", s, w, p, r; s = ";" }')
+  rt_out=""
+  rt_oldifs=$IFS
+  IFS=';'
+  # shellcheck disable=SC2086 # the window entries, split on ;
+  set -- $rt_each
+  IFS=$rt_oldifs
+  for rt_e in "$@"; do
+    rt_w=${rt_e%%|*}
+    rt_rest=${rt_e#*|}
+    rt_p=${rt_rest%%|*}
+    rt_r=${rt_rest#*|}
+    rt_part="the $rt_w usage window is still at ${rt_p}%"
+    mc_valid_uint "$rt_r" && rt_part="$rt_part, resets $(mc_iso "$rt_r")"
+    rt_out="${rt_out:+$rt_out; }$rt_part"
+  done
+  printf 'usage hold released: %s; %s' "$rt_why" "$rt_out"
+}
+
 watch() {
   mc_gate_or_exit mc-usage
   take_lock
@@ -697,7 +754,14 @@ watch() {
   # A held quota that has cleared is a reset even with no hold recorded: its
   # clearing reading can arrive before any watch sees it held (a paused
   # fleet, the doubled cadence), and nothing else releases it.
-  if [ -z "$CUR" ] && { [ -n "$PREV" ] || [ "$QUOTA" = held ]; }; then
+  if [ -z "$CUR" ] && [ "$QUOTA" != held ] && [ -n "$PREV" ] && knob_released "$thr"; then
+    # The window is still where it was: only the threshold moved. The hold
+    # ends and the queue drains below as with any hold-free watch, but no
+    # reset is announced and no reset record is written.
+    rm -f "$holdf" "$probef" || mc_fail "cannot clear the usage hold"
+    printf 'event\tusage-released\t%s\t%s\n' "$(printf '%s\n' "$PREV" | awk 'NF { printf "%s%s", s, $1; s = "." }')" \
+      "$(release_text "$thr")"
+  elif [ -z "$CUR" ] && { [ -n "$PREV" ] || [ "$QUOTA" = held ]; }; then
     gone=$(printf '%s\n' "$PREV" | awk 'NF { printf "%s%s", s, $1; s = "." }')
     [ -n "$gone" ] || gone=quota
     [ -n "$since" ] || since=$QUOTA_SINCE
