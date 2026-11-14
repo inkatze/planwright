@@ -310,6 +310,7 @@ show_line() {
 # under the timeout; RUN_RC, RUN_EVIDENCE.
 run_check() {
   RUN_CMD=$1
+  RUN_STALE=0
   rc_dir=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory"
   rc_script=$(mktemp "$rc_dir/goal-check.XXXXXX") || mc_fail "cannot create the check file"
   rc_out=$(mktemp "$rc_dir/goal-check-out.XXXXXX") || mc_fail "cannot create the check output file"
@@ -330,7 +331,11 @@ run_check() {
 
 apply_run() {
   # The check was confirmed again while it ran: its result is for the old command.
-  [ "$G_command" = "$RUN_CMD" ] || return 0
+  RUN_STALE=0
+  [ "$G_command" = "$RUN_CMD" ] || {
+    RUN_STALE=1
+    return 0
+  }
   G_ran=$NOW
   G_evidence=$RUN_EVIDENCE
   if [ "$RUN_RC" -eq 0 ]; then
@@ -382,7 +387,16 @@ case $verb in
     ;;
   confirm)
     do_confirm() {
-      [ -z "$statement" ] || G_statement=$(fld "$statement") || exit 1
+      if [ -n "$statement" ]; then
+        dc_old=$G_statement
+        G_statement=$(fld "$statement") || exit 1
+        # With no command the statement is the check, so a new one is a new check.
+        if [ "$G_command" = - ] && [ "$G_state" != unconfirmed ] && [ "$dc_old" != "$G_statement" ]; then
+          G_state=unrun
+          G_evidence=-
+          reset_flags
+        fi
+      fi
       if [ "$no_command" -eq 1 ]; then
         [ "$G_command" = - ] || {
           G_command=-
@@ -411,6 +425,7 @@ case $verb in
     cmd=$G_command
     run_check "$cmd"
     mutate "$id" apply_run
+    [ "$RUN_STALE" -eq 0 ] || mc_fail "the check of $id was confirmed again while it ran; run the new one"
     if [ "$RUN_RC" -eq 0 ]; then res=passing; else res=failing; fi
     printf '%s\t%s\t%s\n' "$res" "$id" "$RUN_EVIDENCE"
     ;;
@@ -542,11 +557,12 @@ case $verb in
       run_check "$cmd"
       if [ "$RUN_RC" -eq 0 ]; then res=passing; else res=failing; fi
       if [ "$res" = passing ] && [ "$was" = passing ]; then
-        do_quiet() { G_ran=$NOW; }
+        do_quiet() { [ "$G_command" != "$RUN_CMD" ] || G_ran=$NOW; }
         mutate "$gid" do_quiet
         continue
       fi
       mutate "$gid" apply_run
+      [ "$RUN_STALE" -eq 0 ] || continue
       printf 'checked\t%s\t%s\t%s\n' "$gid" "$res" "$RUN_EVIDENCE"
       [ "$res" = failing ] || continue
       load "$gid"

@@ -252,6 +252,8 @@ goals watch --now $((now + 10 * day)) --bring-up
 expect_status "REQ-N1.3: a done session goal is not re-run on its own" "$g6" "done"
 launches=$(event_count goal-verify-due)
 [ "$launches" = 1 ] && ok "REQ-N1.3: no verification is requested for a done session goal" || fail "REQ-N1.3: re-requested a done session goal"
+goals confirm "$g6" --statement "look at the host again, stricter"
+expect_status "a corrected statement on a goal with no command is a new, unconfirmed-by-evidence check" "$g6" merged-not-done
 
 # attach and landed: a flight ref is tracked, and merged only when recorded.
 goals set --outcome "Flight work" --statement "f" --command "true" --work "flight:mc-example-1"
