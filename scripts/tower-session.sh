@@ -317,7 +317,7 @@ session_kind() {
 # command kind that marked it, tower or orchestrate, and tower is sticky: an
 # orchestrate marking never loosens a mark that reads tower.
 write_mark() {
-  local tmp now kind=${3:-tower} leaf=$1 ckind=${4:-}
+  local tmp now kind=${3:-tower} leaf=$1 ckind=${4:-} tab=$'\t'
   [ "$kind" = tower ] || leaf=$1.$kind
   MY_UID=$(id -u 2>/dev/null) || return 1
   umask 077
@@ -336,7 +336,7 @@ write_mark() {
   fi
   now=$(date +%s 2>/dev/null) || return 1
   tmp=$(mktemp "$STORE/.$1.XXXXXX" 2>/dev/null) || return 1
-  if ! printf '%s\t%s\t%s%s\n' "$kind" "$now" "$2" "${ckind:+$'\t'$ckind}" >"$tmp" 2>/dev/null || ! mv -f -- "$tmp" "$STORE/$leaf" 2>/dev/null; then
+  if ! printf '%s\t%s\t%s%s\n' "$kind" "$now" "$2" "${ckind:+$tab$ckind}" >"$tmp" 2>/dev/null || ! mv -f -- "$tmp" "$STORE/$leaf" 2>/dev/null; then
     rm -f -- "$tmp" 2>/dev/null
     return 1
   fi
