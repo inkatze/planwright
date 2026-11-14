@@ -1,30 +1,13 @@
 #!/bin/bash
-# Structural guard over the /orchestrate skill's placement and posture
-# bring-up (tower-placement Task 6; D-1, D-4, D-6, D-8; REQ-A1.1, REQ-B1.1,
-# REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-C1.8, REQ-C1.9).
-#
-# The skill is procedure the agent reads, so the bring-up's verification is a
-# structural guard over skills/orchestrate/SKILL.md, the same shape as
-# tests/test-tower-skill.sh's bring-up section. The live behavior (each knob
-# value, the isolation probe, the plugin hook wired, absent, and unresolved)
-# is the PR checklist's [manual] runs, not covered here.
-#
-# Asserted properties, each over the skill's own bring-up section:
-#   - the classifier call, `none` counted as a main tree, and the response per
-#     tower_placement value (warn once, refuse holds, allow silent);
-#   - refuse holds dispatch, relay, and the bookkeeping push and PR while a
-#     status read completes, and an unattended run notifies and parks in
-#     Awaiting input;
-#   - the bring-up runs once per invocation, never per --watch step;
-#   - the isolation probe warns once and never blocks;
-#   - the activation handshake re-marks the session at bring-up and on each
-#     posture check, and counts enforcement active only on its ACTIVE refusal;
-#   - the fallback when enforcement is missing or broken, and every layer read
-#     named, the plugin hooks file included.
+# Structural guard over the /orchestrate skill's bring-up section: the
+# classifier call and its response per tower_placement value, the refuse hold
+# and unattended parking, once per invocation, the isolation probe, the
+# activation handshake, the fallback, and the layers named. The live behavior
+# (each knob value, the plugin hook wired, absent, unresolved) is the PR
+# checklist's manual runs, not covered here.
 #
 # Runs standalone: ./tests/test-orchestrate-bringup.sh
-# The patterns name backticked tokens literally; nothing here is a command
-# substitution.
+# The patterns name backticked tokens literally, not command substitutions.
 # shellcheck disable=SC2016
 set -u
 LC_ALL=C
