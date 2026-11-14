@@ -152,7 +152,7 @@ path=$(wr --hosting in-session --backend in-session --head "$H1" --end-head "$H1
   --start 2026-11-01T10:03:00Z --end 2026-11-01T10:08:00Z --start-source comment:4242 --outcome passed) \
   && grep -qx "start-source${TAB}comment:4242" "$path"
 verdict "a forge source lifts the made-up-start rules and is stored" "the forge source was refused or not stored"
-for bad in comment:12x commit:abc review: stamp; do
+for bad in comment:12x commit:abc review: stamp comment: check:; do
   err=$(wr --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
     --start "$START" --end "$END" --start-source "$bad" --outcome passed 2>&1 >/dev/null)
   [ $? -eq 2 ] && printf '%s' "$err" | grep -q -- '--start-source'
