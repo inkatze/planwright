@@ -2698,7 +2698,6 @@ lrec "$u" post-pr cubic-pr limited "$HX_A"
 v=$(srl new-run)
 lrec "$v" post-pr pr-agent-pr passed "$HX_B"
 srl lookup limited --head "$HX_A" >/dev/null
-[ $? -eq 0 ]
 verdict "a pr-agent-pr pass on a different head does not retire the limited cubic-pr" "retired"
 
 lim_wt
@@ -2707,7 +2706,6 @@ lrec "$u0" post-pr pr-agent-pr passed "$HX_A"
 u=$(srl new-run)
 lrec "$u" post-pr cubic-pr limited "$HX_A"
 srl lookup limited --head "$HX_A" >/dev/null
-[ $? -eq 0 ]
 verdict "a pr-agent-pr pass from an earlier run does not retire a later limited cubic-pr" "retired"
 
 lim_wt
@@ -2716,7 +2714,6 @@ lrec "$u" post-pr review limited "$HX_A"
 v=$(srl new-run)
 lrec "$v" post-pr pr-agent-pr passed "$HX_A"
 srl lookup limited --head "$HX_A" >/dev/null
-[ $? -eq 0 ]
 verdict "a pr-agent-pr pass retires only cubic-pr, never another limited step" "retired"
 
 lim_wt
@@ -2725,7 +2722,6 @@ lrec "$u" post-pr cubic-pr limited "$HX_A"
 v=$(srl new-run)
 lrec "$v" post-pr pr-agent-pr failed "$HX_A"
 srl lookup limited --head "$HX_A" >/dev/null
-[ $? -eq 0 ]
 verdict "a failed pr-agent-pr leaves the limited cubic-pr unretired" "retired"
 
 # --- heads: the latest head move at a point of a run (REQ-A1.6, REQ-D1.12) -------------
