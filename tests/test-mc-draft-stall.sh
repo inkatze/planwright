@@ -91,7 +91,7 @@ snapshot() { # snapshot <taken> then rows on stdin
 }
 put() { cat >"$tmp/rows"; snapshot "$1" <"$tmp/rows" >"$snapdir/forge"; }
 run() { # run <now>: the snapshot is retaken each pass, as the runner keeps it fresh
-  [ ! -f "$snapdir/forge" ] || snapshot "$1" <"$tmp/rows" >"$snapdir/forge"
+  [ -n "${STALE:-}" ] || [ ! -f "$snapdir/forge" ] || snapshot "$1" <"$tmp/rows" >"$snapdir/forge"
   OUT=$(mc_env env PATH="$tmp/bin:$PATH" /bin/bash "$repo_root/scripts/mc-draft-stall.sh" watch --program alpha --now "$1" 2>"$tmp/stderr")
   RC=$?
   ERR=$(cat "$tmp/stderr")
@@ -210,7 +210,70 @@ expect_out "and is raised once it reads" "raised${tab}draft-stalled${tab}1"
 # --- a draft gone ready or away is forgotten ---------------------------------
 { printf 'pr\tacme/web\t9\t%s\tfalse\tMERGEABLE\tNONE\t0\tFAILURE\t0\t0\tp9\n' "$H"; } | put $((T + HOUR))
 run $((T + HOUR))
-if ! grep -q "acme/web#9" "$runtime/draft-stall.tsv"; then ok "a pull request no longer a draft is dropped from the record"; else fail "kept a non-draft"; fi
+if [ -f "$runtime/draft-stall.tsv" ] && ! grep -q "acme/web#9" "$runtime/draft-stall.tsv"; then ok "a pull request no longer a draft is dropped from the record"; else fail "kept a non-draft"; fi
+
+# --- a raised head is not raised twice, whatever the checks do between ------
+rm -f "$runtime"/draft-stall.tsv
+pr 7 "$H" "Plain." '[]' "$(cancelled "$T")"
+row 7 "$H" FAILURE | put "$T"
+run "$T"
+expect_out "raised once" "raised${tab}draft-stalled${tab}1"
+before=$(nevents)
+row 7 "$H" SUCCESS | put $((T + 15 * MIN))
+run $((T + 15 * MIN))
+row 7 "$H" FAILURE | put $((T + 30 * MIN))
+run $((T + 30 * MIN))
+expect_eq "green for a pass, then cancelled again at the same head, is not raised again" ""
+if [ "$(nevents)" = "$before" ]; then ok "no second event for the head"; else fail "raised twice for one head"; fi
+
+# --- a snapshot a cadence old names an older head than the forge's ----------
+rm -f "$runtime"/draft-stall.tsv
+pr 7 "$H2" "Plain." '[]' "$(cancelled "$T")"
+row 7 "$H" FAILURE | put "$T"
+run "$T"
+expect_out "judged at the live head" "raised${tab}draft-stalled${tab}1"
+run $((T + 15 * MIN))
+expect_eq "the live head is remembered, so the next pass is quiet" ""
+
+# --- a snapshot past twice its cadence raises nothing ----------------------
+rm -f "$runtime"/draft-stall.tsv
+pr 7 "$H" "Plain." '[]' "$(cancelled "$T")"
+row 7 "$H" FAILURE | put "$T"
+STALE=1 run $((T + 10 * HOUR))
+expect_eq "an old snapshot raises nothing" ""
+
+# --- a run with no start time is aged from the first pass that saw it -------
+rm -f "$runtime"/draft-stall.tsv
+printf '[{"__typename":"CheckRun","name":"build","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z","completedAt":"0001-01-01T00:00:00Z"}]' >"$tmp/queued.json"
+pr 8 "$H" "Plain." '[]' "$(cat "$tmp/queued.json")"
+row 8 "$H" PENDING | put "$T"
+run "$T"
+expect_eq "a queued run is not raised at first sight" ""
+run $((T + 3 * HOUR - MIN))
+expect_eq "nor just under the threshold from first sight" ""
+run $((T + 3 * HOUR))
+expect_out "but at the threshold from first sight" "raised${tab}draft-stalled${tab}1"
+
+# --- hold words are words: stakeholder is no hold ---------------------------
+rm -f "$runtime"/draft-stall.tsv
+pr 7 "$H" "Holding pattern, nothing is blocked." '[{"name":"stakeholder-review"}]' "$(cancelled "$T")"
+row 7 "$H" FAILURE | put "$T"
+run "$T"
+expect_out "a label or line that only contains hold is no hold" "raised${tab}draft-stalled${tab}1"
+
+# --- twenty stalled drafts fit the event cap, the rest wait a pass ----------
+rm -f "$runtime"/draft-stall.tsv
+for n in $(seq 200 219); do pr "$n" "$H" "Plain." '[]' "$(cancelled "$T")"; done
+for n in $(seq 200 219); do row "$n" "$H" FAILURE; done | put "$T"
+before=$(nevents)
+run "$T"
+run $((T + 15 * MIN))
+run $((T + 30 * MIN))
+named=$(events | awk -F '\t' '{ print $5 }' | grep -o 'acme/web#2[0-9][0-9]' | sort -u | wc -l | tr -d ' ')
+if [ "$named" = 20 ]; then ok "every draft is named by some event"; else fail "named $named of 20 drafts"; fi
+if [ "$(events | awk -F '\t' '{ if (length($5) > 500) bad = 1 } END { print bad + 0 }')" = 0 ]; then ok "no event passes the byte cap"; else fail "an event is over 500 bytes"; fi
+run $((T + 45 * MIN))
+expect_eq "once all are raised, nothing more" ""
 
 # --- the event class wakes the owner ----------------------------------------
 if awk -F '\t' '$1 == "draft-stalled" && $2 != "routine" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv"; then

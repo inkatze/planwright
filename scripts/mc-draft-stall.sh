@@ -49,13 +49,15 @@ lock) is never the cancelled run. An unfinished run's age runs from its start;
 a run with no start time runs from the first pass that saw it at this head.
 
 THE HOLDS a pull request states, none of them guessed:
-  a label naming "hold"   applies while the label is on it
+  a label naming "hold" as a word (hold, on-hold, hold:x; not stakeholder)
+                          applies while the label is on it
   a body line opening with hold, held, blocked, waiting, waits or depends on,
     in which
       #<n> or <owner/name>#<n>   applies while that pull request or issue
                                  is open, and is cleared once it is closed
                                  or merged
-      "release window"           applies while the window-lock check on the
+      "release window" (or "untagged window")
+                                 applies while the window-lock check on the
                                  base branch is not green, and is cleared
                                  once it is
     and a hold line naming neither applies, a person having to clear it.
@@ -159,7 +161,7 @@ JQ_PROG="${base_json:-[]} as \$base_state | $jq_runs"'
       then "run\tunfinished\t" + ((.startedAt // .createdAt) | epoch | tostring)
       elif (.conclusion // "") == "CANCELLED" then "run\tcancelled\t0"
       else empty end),
-  ((.body // "") | split("\n")[] | select(test("^[^A-Za-z0-9]*(hold|held|blocked|waiting|waits|depends on)"; "i")) | "holdline\t" + (gsub("[\t\r]"; " ")))'
+  ((.body // "") | split("\n")[] | select(test("^[^A-Za-z0-9]*(hold|held|blocked|waiting|waits|depends on)\\b"; "i")) | "holdline\t" + (gsub("[\t\r]"; " ")))'
 
 # hold_state <slug> <pr file> <own number>: `none` when the pull request states
 # no hold, `applies <why>` when one still does, else `cleared <why>`.
@@ -170,7 +172,7 @@ hold_state() {
   hs_base=$(awk -F '\t' '$1 == "base" { print $2; exit }' "$hs_file")
   hs_stated=0
   hs_why=""
-  if awk -F '\t' '$1 == "label" && tolower($2) ~ /hold/ { f = 1 } END { exit !f }' "$hs_file"; then
+  if awk -F '\t' '$1 == "label" && tolower($2) ~ /(^|[^a-z0-9])hold($|[^a-z0-9])/ { f = 1 } END { exit !f }' "$hs_file"; then
     printf 'applies a hold label is on it\n'
     return 0
   fi
@@ -232,6 +234,7 @@ events=""
 count=0
 read_n=0
 skipped=0
+deferred=0
 while IFS='	' read -r c_slug c_n c_head; do
   [ -n "$c_slug" ] || continue
   key="$c_slug#$c_n"
@@ -281,7 +284,13 @@ while IFS='	' read -r c_slug c_n c_head; do
     applies*) continue ;;
     cleared*) why="$why, its hold cleared (${hold#cleared })" ;;
   esac
-  events="${events}${key}: ${why}; "
+  entry="${key}: ${why}; "
+  # The event holds 500 bytes: what does not fit waits for the next pass, unrecorded.
+  if [ $((${#events} + ${#entry})) -gt 440 ]; then
+    deferred=$((deferred + 1))
+    continue
+  fi
+  events="${events}${entry}"
   count=$((count + 1))
   new_raised="${new_raised}${key}	${head}
 "
@@ -291,9 +300,19 @@ EOF
 
 # Forget a draft that is gone or on a new head: its row survives only while the
 # draft it names is still a draft at that head.
-keep() { # keep <rows>: rows whose first two fields name a current draft at its head
-  printf '%s' "$1" | D=$alldrafts awk -F '\t' 'BEGIN { n = split(ENVIRON["D"], d, "\n"); for (i = 1; i <= n; i++) { split(d[i], f, "\t"); cur[f[1] "\t" f[2]] = 1 } } ($1 "\t" $2) in cur'
+keep() { # keep <rows>: rows whose first field names a draft the snapshot still lists
+  printf '%s' "$1" | D=$alldrafts awk -F '\t' 'BEGIN { n = split(ENVIRON["D"], d, "\n"); for (i = 1; i <= n; i++) { split(d[i], f, "\t"); cur[f[1]] = 1 } } $1 in cur'
 }
+
+# A draft that is no candidate this pass (its checks went green, say) keeps its
+# raised row while the snapshot still shows it at that head, so a later failure
+# at the same head is not raised twice. A candidate's row is set in the loop.
+carried=$(printf '%s\n' "$prev_raised" | K=$cands D=$alldrafts awk -F '\t' '
+  BEGIN { n = split(ENVIRON["K"], c, "\n"); for (i = 1; i <= n; i++) { split(c[i], f, "\t"); cand[f[1] "#" f[2]] = 1 }
+          n = split(ENVIRON["D"], d, "\n"); for (i = 1; i <= n; i++) { split(d[i], f, "\t"); head[f[1]] = f[2] } }
+  NF >= 2 && !($1 in cand) && head[$1] == $2 { print }')
+[ -z "$carried" ] || new_raised="${new_raised}${carried}
+"
 
 save() {
   {
@@ -311,6 +330,7 @@ noun=drafts
 [ "$count" -ne 1 ] || noun=draft
 text="$count stalled $noun: $events"
 [ "$skipped" -eq 0 ] || text="${text}+$skipped more unread; "
+[ "$deferred" -eq 0 ] || text="${text}+$deferred more next pass; "
 text=$(printf '%s' "$text" | sed 's/; $//' | tr '\t\n\r' '   ' | mc_clean_text | cut -c1-500)
 # A refused event leaves the drafts unrecorded, so the next pass raises them.
 if ! mc_event emit --program "$program" --now "$NOW" -- draft-stalled draft-stalled "$text" >/dev/null; then
