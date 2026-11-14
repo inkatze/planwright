@@ -413,7 +413,7 @@ jobs:
       # concurrent global installs race (ENOTEMPTY). Reuse an installed
       # pinned claude, else install into a prefix of this job's own.
       - run: |
-          if claude --version 2>&1 | grep -qF "$CLAUDE_CODE_VERSION"; then
+          if claude --version 2>&1 | grep -qF "$CLAUDE_CODE_VERSION (Claude Code)"; then
             echo "claude $CLAUDE_CODE_VERSION already installed"
           else
             prefix="$RUNNER_TEMP/npm-prefix"
@@ -459,7 +459,7 @@ jobs:
       # concurrent global installs race (ENOTEMPTY). Reuse an installed
       # pinned claude, else install into a prefix of this job's own.
       - run: |
-          if claude --version 2>&1 | grep -qF "$CLAUDE_CODE_VERSION"; then
+          if claude --version 2>&1 | grep -qF "$CLAUDE_CODE_VERSION (Claude Code)"; then
             echo "claude $CLAUDE_CODE_VERSION already installed"
           else
             prefix="$RUNNER_TEMP/npm-prefix"
