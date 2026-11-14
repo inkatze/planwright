@@ -139,6 +139,24 @@
 # input is data; no eval. Pathname expansion is disabled (set -f).
 set -uf
 
+# LC_ALL=C below is for this script's own parsing only: git hooks run under the
+# caller's locale (C.UTF-8 when it sets none), since a C locale breaks UTF-8
+# file names in the hooked tools.
+if [ -n "${LC_ALL:-}" ]; then
+  hook_lc_all=$LC_ALL
+elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
+  hook_lc_all=
+else
+  hook_lc_all=C.UTF-8
+fi
+# LANGUAGE=C keeps git's messages untranslated: the gc push below matches one.
+hook_git() {
+  if [ -n "$hook_lc_all" ]; then
+    env LC_ALL="$hook_lc_all" LANGUAGE=C git "$@"
+  else
+    env -u LC_ALL LANGUAGE=C git "$@"
+  fi
+}
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -597,12 +615,18 @@ gc_refs() {
     err "cannot create a temp file for the push transcript — failing closed"
     return 4
   }
-  git -C "$checkout" push --porcelain --atomic "$@" >"$push_out" 2>&1
+  hook_git -C "$checkout" push --porcelain --atomic "$@" >"$push_out" 2>&1
   gr_rc=$?
   if [ "$gr_rc" != 0 ]; then
     # The one benign failure: the ref vanished between the read above and the
     # push (a peer GC'd the same terminal fence). Anything else is transient.
-    if grep -q 'remote ref does not exist' "$push_out"; then
+    # The message is matched in English, which a caller's LC_ALL can defeat
+    # (it outranks LANGUAGE), so every ref being gone on origin counts too.
+    gr_gone=1
+    for gr_r in $gr_todo; do
+      gr_left=$(ls_remote_fences "$gr_r") && [ -z "$gr_left" ] || gr_gone=0
+    done
+    if grep -q 'remote ref does not exist' "$push_out" || [ "$gr_gone" = 1 ]; then
       gr_rc=0
     else
       err "transient origin failure deleting a terminal fence — surfaced, retried next pass (REQ-C1.5): $(sanitize_printable "$(tr '\n' ' ' <"$push_out")" "(unprintable)")"
@@ -1099,7 +1123,7 @@ push_out=$(mktemp "${TMPDIR:-/tmp}/fleet-fence-push.XXXXXX") || {
   err "cannot create a temp file for the push transcript — failing closed"
   exit 4
 }
-git -C "$checkout" push --porcelain --atomic "$@" >"$push_out" 2>&1
+hook_git -C "$checkout" push --porcelain --atomic "$@" >"$push_out" 2>&1
 push_rc=$?
 
 won=""
@@ -1143,7 +1167,7 @@ if [ -n "$taken$transient" ]; then
     for r in $won; do
       set -- "$@" ":$r"
     done
-    if ! git -C "$checkout" push --porcelain --atomic "$@" >/dev/null 2>&1; then
+    if ! hook_git -C "$checkout" push --porcelain --atomic "$@" >/dev/null 2>&1; then
       err "backed off the bundle but could not delete the member fence(s) this push created ($(sanitize_printable "$won" "(unprintable)")) — surfaced; the discovery sweep will classify them (REQ-C1.5)"
     fi
   fi

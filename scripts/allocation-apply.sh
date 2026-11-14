@@ -43,8 +43,12 @@
 #
 # Usage:
 #   allocation-apply.sh plan --key <selection-key> --backend <backend>
-#       --unit <unit> [--step <step>] [--attempt <n>]
+#       --unit <unit> [--step <step>] [--attempt <n>] [--model <alias>]
+#       [--effort <level>] [--reserved]
 #     Print the launch plan as TAB-separated `key<TAB>value` lines:
+#     (--model and --effort replace the key's starting tier for this one plan,
+#     a per-launch override with no knob written, and --reserved exempts the
+#     unit from the usage clamps; allocation-adapt.sh owns both.)
 #       key             the selection key that was resolved
 #       backend         the backend the plan was built for
 #       admit           yes | withheld — the admission gate's answer, carried
@@ -60,6 +64,10 @@
 #                       nothing established.)
 #       model / effort  the value to APPLY, or `inherit` to apply nothing and
 #                       let the launch keep its ambient value
+#       (on an admitted plan)
+#       proposed_model / proposed_effort   the tier before the clamps, so a
+#                       caller can tell a lowered launch from an unlowered one
+#       rung / reserved the restriction rung and whether the unit was exempt
 #       model_source    applied | inherit-config | inherit-capability |
 #       effort_source   inherit-probe-error | withheld — why each dimension
 #                       came out that way, so a reader never has to infer it
@@ -122,7 +130,7 @@ run_helper() {
 }
 
 usage() {
-  printf '%s\n' "usage: $me plan --key <selection-key> --backend <backend> --unit <unit> [--step <step>] [--attempt <n>]" >&2
+  printf '%s\n' "usage: $me plan --key <selection-key> --backend <backend> --unit <unit> [--step <step>] [--attempt <n>] [--model <alias>] [--effort <level>] [--reserved]" >&2
 }
 
 # A selection key: the anchored lowercase identifier grammar the resolver's key
@@ -196,6 +204,9 @@ BACKEND=''
 UNIT=''
 STEP='-'
 ATTEMPT='1'
+OVR_MODEL=''
+OVR_EFFORT=''
+RESERVED=''
 
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -238,6 +249,19 @@ while [ "$#" -gt 0 ]; do
       }
       ATTEMPT=$2
       shift 2
+      ;;
+    --model | --effort)
+      [ "$#" -ge 2 ] || {
+        usage
+        exit 2
+      }
+      # Checked by the engine against the closed rosters; handed on as data.
+      if [ "$1" = --model ]; then OVR_MODEL=$2; else OVR_EFFORT=$2; fi
+      shift 2
+      ;;
+    --reserved)
+      RESERVED=1
+      shift
       ;;
     *)
       printf '%s\n' "$me: unexpected argument: $(sanitize_printable "$1" "(unprintable argument)")" >&2
@@ -307,7 +331,13 @@ if [ -z "$alloc_store" ] \
   exit 6
 fi
 
-adapt_out=$(run_helper "$ADAPT" resolve "$UNIT" --key "$KEY" --step "$STEP" --attempt "$ATTEMPT")
+# A per-launch override reaches the engine as discrete argv elements, so its
+# value is never interpolated into a command string.
+set -- --key "$KEY" --step "$STEP" --attempt "$ATTEMPT"
+[ -z "$OVR_MODEL" ] || set -- "$@" --model "$OVR_MODEL"
+[ -z "$OVR_EFFORT" ] || set -- "$@" --effort "$OVR_EFFORT"
+[ -z "$RESERVED" ] || set -- "$@" --reserved
+adapt_out=$(run_helper "$ADAPT" resolve "$UNIT" "$@")
 adapt_rc=$?
 if [ "$adapt_rc" -ne 0 ]; then
   exit "$adapt_rc"
@@ -505,5 +535,9 @@ printf 'model\t%s\n' "$APPLY_MODEL"
 printf 'effort\t%s\n' "$APPLY_EFFORT"
 printf 'model_source\t%s\n' "$MODEL_SOURCE"
 printf 'effort_source\t%s\n' "$EFFORT_SOURCE"
+printf 'proposed_model\t%s\n' "$PROP_MODEL"
+printf 'proposed_effort\t%s\n' "$PROP_EFFORT"
+printf 'rung\t%s\n' "$(tier_field rung)"
+printf 'reserved\t%s\n' "$(tier_field reserved)"
 
 exit 0

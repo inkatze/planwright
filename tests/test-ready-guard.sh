@@ -1015,6 +1015,13 @@ run_checks() { # run_checks <label> <defer|deny> <entries> [reason]
 }
 run_checks "checks (default): only skipped and neutral checks are not a pass" deny \
   '{"name":"a","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"b","workflowName":"ci","status":"COMPLETED","conclusion":"NEUTRAL","startedAt":"2026-11-05T19:00:00Z"}' 'no passed check'
+run_checks "checks (default): a skipped macOS job (a draft run) is not a pass" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard 1/4)","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"}' 'macos-suite .shard 1/4. is SKIPPED'
+# shellcheck disable=SC2016 # the matrix expression is the literal check name
+run_checks "checks (default): a stale skipped macOS shard beside green shards of the same job passes" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard 1/4)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:10:00Z"}'
+run_checks "checks (default): a skipped non-macOS job still passes" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"docs","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"}'
 run_checks "checks (default): a queued re-run, its start the zero time gh reports, is the latest" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"test","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z","completedAt":"0001-01-01T00:00:00Z"}' 'test is PENDING'
 run_checks "checks (default): the same check name in another workflow is its own context" deny \
@@ -1027,6 +1034,26 @@ run_checks "checks (default): the flip's own failing status does not judge it" d
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}'
 run_checks "checks (default): a check run named like the flip's status still judges it" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"planwright/pre-ready-flip","workflowName":"x","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'pre-ready-flip is FAILURE'
+WL_OK='{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}'
+WL_RED='{"name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}'
+run_checks "checks (default): a red window-lock beside passing checks defers" defer "$WL_OK,$WL_RED"
+run_checks "checks (default): a red window-lock beside another red check denies" deny \
+  "$WL_RED"',{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
+run_checks "checks (default): a red window-lock alone is no passed check" deny "$WL_RED" 'no passed check'
+run_checks "checks (default): a window-lock from another workflow still counts" deny \
+  "$WL_OK"',{"name":"window-lock","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'window-lock is FAILURE'
+run_checks "checks (default): a status context named like the lock still counts" deny \
+  "$WL_OK"',{"__typename":"StatusContext","context":"release-window/window-lock","state":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'release-window/window-lock is FAILURE'
+run_checks "checks (default): a window-lock naming no workflow still counts" deny \
+  "$WL_OK"',{"name":"window-lock","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}' 'window-lock is FAILURE'
+WL_ADOPTER="$SANDBOX/adopter-wl"
+mkdir -p "$WL_ADOPTER"
+printf 'ready_base_state_checks: other-lock\n' >"$WL_ADOPTER/planwright.yml"
+reset_stub_env
+RG_ADOPTER_OVERLAY=$WL_ADOPTER
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$(checks_read "$WL_OK,$WL_RED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "checks (configured list): a list without window-lock judges it again" 'window-lock is FAILURE'
 run_checks "checks (default): a newer failure listed before the older success it follows denies" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a newer success listed before the failure it supersedes passes" defer \

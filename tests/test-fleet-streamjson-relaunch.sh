@@ -328,6 +328,20 @@ unit_rows=$(find "$home/allocation" -name 'mission-control*' 2>/dev/null)
 [ -n "$unit_rows" ] || fail "r5: the plan was not resolved under the recorded unit"
 echo "ok: r5 a relaunch re-resolves the tier from current allocation config at the recorded or default key and passes it to the resume (REQ-G1.3)"
 
+# r5b: a per-launch tier recorded by the launch survives the relaunch, over the
+# key's own knob.
+printf 'fable\n' >"$wdir/tier_model"
+printf 'high\n' >"$wdir/tier_effort"
+printf 'yes\n' >"$wdir/tier_reserved"
+out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r5b: the relaunch exited non-zero: $(cat "$tmp/err")"
+last=$(tail -n 1 "$rec/argv")
+case " $last " in
+  *" --model fable --effort high "*) ;;
+  *) fail "r5b: the resume does not carry the recorded per-launch tier (--model fable --effort high): $last" ;;
+esac
+rm -f "$wdir/tier_model" "$wdir/tier_effort" "$wdir/tier_reserved"
+echo "ok: r5b a relaunch keeps the per-launch tier its launch recorded"
+
 # ---------------------------------------------------------------------------
 # r6: a fresh launch that cannot record its directory drops the one a previous
 # launch of the handle left, so the relaunch refuses rather than resume there.

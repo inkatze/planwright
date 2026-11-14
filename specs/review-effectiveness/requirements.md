@@ -1,7 +1,7 @@
 # Review effectiveness — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-10-21
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -710,6 +710,13 @@ scripts are the mechanisms filling them (D-1, the altitude record).
   REQ-J1.4's hash and name screen; Task 11.1 split into 11.1 and 11.2;
   Task 3.1 and Task 1.1 sequenced on the second corpus version; paired
   test-spec entries.
+- 2026-11-13 — Amendment walk (operator, hub picklist), class pending the
+  operator's sign-off: the
+  word-count clause on the discovery, validation and loop doctrine docs
+  (Tasks 3, 3.1 and 4 Done-when) relaxes from "no larger than before" to
+  at most 150 words above each doc's pre-amendment count, shared by Tasks 3
+  and 3.1 for `discovery-rigor.md` and `artifact-lenses.md`. Skill
+  start-loads stay unchanged (REQ-G1.3, D-12); no REQ or D-ID changes.
 
 ## Sources
 

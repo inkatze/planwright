@@ -134,6 +134,43 @@ expect_rc "a pending check is refused" 4
 walk_with "no checks" '/^check/d'
 expect_rc "no check context at all is refused" 4
 
+# macOS CI runs only once a pull request is ready (or carries the ci-macos
+# label), so a draft head's macOS jobs are skipped or absent. Where the
+# repository's CI has those jobs the evidence says so (`require macos`), and
+# the walk then wants both green at the head: a skip is no pass.
+mac_green="check${tab}macos-suite (shard 1/4)${tab}SUCCESS
+check${tab}macos-suite (shard 2/4)${tab}SUCCESS
+check${tab}macos-smoke${tab}SUCCESS"
+walk_with "macos green" '-' "require${tab}macos
+$mac_green"
+expect_rc "macOS required and both macOS jobs green: ready" 0
+walk_with "macos stale skip" '-' "require${tab}macos
+check${tab}macos-suite (shard \${{ matrix.shard }}/\${{ strategy.job-total }})${tab}SKIPPED
+$mac_green"
+expect_rc "a stale skipped shard of a job whose shards later ran green is not a block" 0
+walk_with "macos skipped" '-' "require${tab}macos
+check${tab}macos-suite${tab}SKIPPED
+check${tab}macos-smoke${tab}SKIPPED"
+expect_rc "macOS required and its jobs skipped (a draft run): not ready" 4
+expect_out "the skip is named with the label that starts it" "fail${tab}macos${tab}macos-suite was skipped at 111111111111; add the ci-macos label (or mark the pull request ready) so CI runs it"
+walk_with "macos never ran" '-' "require${tab}macos"
+expect_rc "macOS required and no macOS job at the head: not ready" 4
+expect_out "never ran is named" "fail${tab}macos${tab}macos-suite never ran at 111111111111; add the ci-macos label (or mark the pull request ready) so CI runs it"
+walk_with "macos smoke missing" '-' "require${tab}macos
+check${tab}macos-suite${tab}SUCCESS"
+expect_out "one macOS job missing is named on its own" "fail${tab}macos${tab}macos-smoke never ran at 111111111111"
+walk_with "macos failed" '-' "require${tab}macos
+check${tab}macos-suite (shard 1/4)${tab}FAILURE
+check${tab}macos-smoke${tab}SUCCESS"
+expect_rc "macOS required and a macOS shard failed: not ready" 4
+expect_out "the failure is named" "fail${tab}check${tab}macos-suite (shard 1/4) is FAILURE"
+walk_with "macos neutral" '-' "require${tab}macos
+check${tab}macos-suite${tab}NEUTRAL
+check${tab}macos-smoke${tab}SUCCESS"
+expect_rc "a neutral macOS job is no green" 4
+walk_with "macos not required" '-' "check${tab}macos-suite${tab}SKIPPED"
+expect_rc "without the requirement a skipped macos-named job still passes (a repository with no such CI)" 0
+
 # A spec-only pull request (every path under the spec root) is held for its
 # bundles' kickoff sign-off instead of the code cadence and the gate-data
 # steps; checks, threads, findings, guards, evidence and body still bind.
@@ -148,6 +185,10 @@ spec_only -
 expect_rc "a signed-off spec-only pull request needs no code cadence step" 0
 spec_only - "cadence${tab}gap${tab}convergence${tab}missing${tab}polish"
 expect_rc "an audit gap does not hold a spec-only pull request" 0
+spec_only - "require${tab}macos
+check${tab}macos-suite${tab}SKIPPED
+check${tab}macos-smoke${tab}SKIPPED"
+expect_rc "skipped macOS jobs do not hold a spec-only pull request (no code to run them on)" 0
 spec_only - "cadence${tab}unaudited${tab}no worktree holds the branch"
 expect_rc "nor does a cadence that could not be audited" 0
 spec_only 's/^signoff.*/signoff\tdemo\tunsigned\tits status is Draft/'
@@ -251,6 +292,8 @@ cat >"$tmp/pr.json" <<EOF
    {"__typename": "CheckRun", "name": "title", "workflowName": "other-lint", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "conclusion": "SUCCESS", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "status": "QUEUED", "conclusion": "", "startedAt": "0001-01-01T00:00:00Z"},
+   {"__typename": "CheckRun", "name": "window-lock", "workflowName": "release-window", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
+   {"__typename": "CheckRun", "name": "window-lock", "workflowName": "pr-checks", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"context": "deploy", "state": "PENDING", "conclusion": ""}]}
 EOF
 cat >"$tmp/threads.json" <<'EOF'
@@ -304,6 +347,8 @@ has "the evidence carries its format" "# format: 1"
 has "REQ-D1.8: the head is the forge's" "head${tab}$head"
 has "REQ-D1.8: each check context is read on its own" "check${tab}build${tab}SUCCESS"
 has "an empty conclusion reads its state" "check${tab}deploy${tab}PENDING"
+n_wl=$(printf '%s\n' "$c" | grep -c "^check${tab}window-lock${tab}FAILURE$")
+if [ "$n_wl" -eq 1 ]; then ok "only the release-window lock is left out: a window-lock from another workflow still counts"; else fail "expected one window-lock context, got $n_wl"; fi
 has "only the latest run of a check counts" "check${tab}title${tab}SUCCESS"
 n_title=$(printf '%s\n' "$c" | grep -c "^check${tab}title${tab}")
 if [ "$n_title" -eq 2 ]; then ok "one line per check context: the same name in another workflow is its own context"; else fail "expected two title contexts, got $n_title"; fi
@@ -340,6 +385,15 @@ has "D-25: the ready-flip guard is composed" "guard${tab}ready-guard${tab}"
 hasnt "and it ran, its own verdict collected" "the guard did not run"
 has "the repository is named for the conditions" "repo${tab}acme/web"
 if grep -q 'pr ready' "$tmp/gh.calls" 2>/dev/null; then fail "a flip was attempted"; else ok "nothing flips a pull request"; fi
+hasnt "a worktree whose CI has no macOS jobs states no macOS requirement" "require${tab}macos"
+mkdir -p "$repo/.github/workflows"
+printf 'jobs:\n  macos-suite:\n    needs: plan\n  macos-smoke:\n    needs: plan\n' >"$repo/.github/workflows/ci.yml"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-mac"
+expect_rc "collect over a worktree whose CI has the macOS jobs" 0
+c=$(cat "$tmp/collected-mac" 2>/dev/null)
+has "a worktree whose CI has the macOS jobs requires them green" "require${tab}macos"
+rm -f "$repo/.github/workflows/ci.yml"
+c=$(cat "$tmp/collected" 2>/dev/null)
 # The stub cannot satisfy the guard's own reads, so it fails closed, and the
 # walk over the collection refuses on it.
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7 --worktree "$repo"

@@ -3,6 +3,7 @@
 # judge readiness by. Each prepends this file to its own program, so a fix here
 # reaches all three.
 #
+# A check run listed in $base_state as <workflow>/<name> is left out first.
 # Only the latest run of each check context counts: a re-run supersedes the
 # runs before it, and a run not yet completed is the newest (gh reports an
 # unset time as 0001-01-01). Two runs of one context started in the same
@@ -14,14 +15,31 @@ def check_context: if .context != null then ["status", .context] else ["run", .w
 def check_started: if (.status // "COMPLETED") != "COMPLETED" then "~"
   else first(([.startedAt, .createdAt, .completedAt][] | select(. != null and (tostring | startswith("0001-") | not))), "") end | tostring;
 
+# A macOS job (macos-suite, macos-smoke) is skipped on a draft pull request, so
+# its skip is no pass: only SUCCESS or NEUTRAL counts for a `macos-` check.
 def check_passed: if .context != null then .state == "SUCCESS"
-  else (.status // "COMPLETED") == "COMPLETED" and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED") end;
+  else (.status // "COMPLETED") == "COMPLETED"
+    and ((.conclusion // "") as $c
+      | $c == "SUCCESS" or $c == "NEUTRAL"
+        or ($c == "SKIPPED" and ((.name // "") | startswith("macos-") | not))) end;
+
+# A skipped matrix job is reported under its unexpanded name, which a later
+# run's expanded shard names never supersede; so a skipped macOS entry is
+# dropped when a shard of the same job (the name up to the first space) passed.
+def mac_family: (.name // "") | split(" ")[0];
+
+# A check run whose "<workflow>/<name>" is in $base_state (scripts/base-state-checks.sh) describes the
+# base branch, not the pull request, so it is no flip condition. The caller
+# passes the array with --argjson base_state; a status context is never one.
+def base_state_check: .context == null and (((.workflowName // "") + "/" + (.name // "")) as $id | any($base_state[]; . == $id));
 
 # An array of rollup entries in, the latest run of each context out, in the
 # order the rollup listed them. A check run naming no workflow (one an app
 # posts) is its own context: two such checks sharing a name may come from
 # different apps, so neither may supersede the other.
-def latest_check_runs: to_entries
+def latest_check_runs: map(select(base_state_check | not)) | to_entries
   | group_by(if .value.context == null and (.value.workflowName // "") == "" then ["solo", .key] else (.value | check_context) end)
   | map(max_by([(.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
-  | sort_by(.key) | map(.value);
+  | sort_by(.key) | map(.value)
+  | (map(select((.conclusion // "") == "SUCCESS" and ((.name // "") | startswith("macos-"))) | mac_family)) as $ok
+  | map(select((((.conclusion // "") == "SKIPPED" and ((.name // "") | startswith("macos-")) and (mac_family as $f | $ok | index($f) != null))) | not));

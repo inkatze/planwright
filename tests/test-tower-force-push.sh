@@ -68,6 +68,7 @@ g push -q -u origin "$BR"
 TIP=$(g rev-parse HEAD)
 
 fp() { (cd "$W" && "$FP" "$@"); }
+fp_utf8() { (cd "$W" && env -u LC_ALL -u LC_CTYPE LANG=C.UTF-8 "$FP" "$@"); }
 rc_of() {
   _rc=0
   "$@" >"$tmp/out" 2>"$tmp/err" || _rc=$?
@@ -443,6 +444,20 @@ else
 fi
 g config --unset remote.origin.pushurl
 rm -rf "$tmp/pushdst.git"
+rm -f "$W/.git/hooks/pre-push"
+git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
+
+# The adopter's pre-push hook runs under the caller's locale, not the helper's
+# LC_ALL=C (a C locale breaks UTF-8 file names in the hooked tools).
+# shellcheck disable=SC2016 # literal hook source, expanded by the hook
+printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' >"$W/.git/hooks/pre-push"
+chmod +x "$W/.git/hooks/pre-push"
+rc=$(rc_of fp_utf8 push --branch "$BR" --to "$NEW" --lease "$TIP")
+if [ "$rc" = 0 ] && [ "$(head -1 "$tmp/out" | cut -f1)" = pushed ]; then
+  ok "push runs the adopter's pre-push hook under the caller's UTF-8 locale"
+else
+  fail "the pre-push hook did not see the caller's UTF-8 locale (exit $rc: $(cat "$tmp/out" "$tmp/err"))"
+fi
 rm -f "$W/.git/hooks/pre-push"
 git -C "$tmp/origin.git" update-ref "refs/heads/$BR" "$TIP"
 

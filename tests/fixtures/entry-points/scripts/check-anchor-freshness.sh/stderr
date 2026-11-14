@@ -1,1 +1,1 @@
-match ^usage: check-anchor-freshness\.sh \[--baseline <ref>\] \[<specs-root>\]$
+match ^usage: check-anchor-freshness\.sh \[--baseline <ref>\] \[--mismatches\] \[<specs-root-or-bundle>\]$
