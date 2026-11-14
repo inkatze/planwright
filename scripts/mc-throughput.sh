@@ -838,7 +838,7 @@ operator_line() {
       h = int(s / 3600); m = int((s % 3600) / 60)
       return (m ? h "h" m "m" : h "h")
     }
-    $1 == "operator-wait" { n += $3; t += $5; if ($6 + 0 > mx) { mx = $6 + 0; ms = $2; mb = $7 } }
+    $1 == "operator-wait" { n += $3; t += $5; if (!seen || $6 + 0 > mx) { seen = 1; mx = $6 + 0; ms = $2; mb = $7 } }
     END { if (n) print t "\tOperator wait, kept apart from step time: " d(t) " over " n " spans, longest " d(mx) " on " mb " (" ms ")" }')
   [ -z "$ol" ] || {
     OP_TOTAL=$(printf '%s\n' "$ol" | cut -f1)
