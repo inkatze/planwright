@@ -397,7 +397,8 @@ f=$(ls "$wt/.claude/steps/$r"/*-step-convergence.rec)
 awk -F '\t' '$1 != "end-head"' "$f" >"$f.new" && mv "$f.new" "$f"
 audit --through convergence
 [ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}unrun${TAB}review" "$tmp/audit"
-verdict $? "a record without an end head is judged by its times: equal is unrun" "rc $RC: $(cat "$tmp/audit")"
+verdict $? "a record without an end head is judged by its times: equal is unrun" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err") records: $(sr list --run "$r" 2>&1 | tr '\t\n' ' >')"
 r2=$(sr new-run)
 krec "$r2" convergence review skill applied "$T0" "$T1"
 done_at "$r2" convergence
