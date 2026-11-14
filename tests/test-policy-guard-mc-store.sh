@@ -49,6 +49,14 @@ EOS
 chmod +x "$S/mc-program.sh"
 : >"$MCLOG"
 
+# pg_file <tier> <tool> <path> — run the guard on a file-tool payload.
+pg_file() {
+  local payload
+  payload=$(jq -n --arg t "$2" --arg p "$3" --arg w "$UNIT" \
+    '{tool_name:$t, tool_input:{file_path:$p, content:"x"}, cwd:$w}')
+  pg_payload "$1" file "$payload"
+}
+
 allow() { # <command> — defers at the mission-control tier
   pg mission-control "$1"
   expect defer "[mission-control] passes: ${1//$'\n'/ | }"
@@ -72,7 +80,7 @@ EOF"
 allow "cat >> $H/kb/brief.md <<'EOF'
 planwright.yml
 EOF
-git status"
+tail -1 $H/kb/brief.md"
 allow "echo hi >> $H/kb/log.md"
 allow "echo hi > $H/handover.md"
 
@@ -151,7 +159,6 @@ done
 refuse "cp /dev/null $H/kb/link-settings.md"
 refuse "echo x >> $H/kb/sub/../../../.claude/settings.json"
 refuse "echo x >> $H/\$NAME"
-refuse "echo x >> $H/\$NAME"
 
 echo "# a path no home resolves to earns nothing"
 mkdir -p "$OUTSIDE/stray"
@@ -162,6 +169,50 @@ refuse "W=\$(cat $OUTSIDE/stray/.claude/x); echo \$W"
 refuse "cat >> $H/kb/brief.md <<EOF
 settings.json \$(id)
 EOF"
+
+echo "# a stored or piped body is never run: the screen keeps the body in view"
+EXEC="cat <<'EOF'
+echo x > $FIXHOME/.claude/settings.json
+EOF"
+refuse "$EXEC | ash"
+refuse "$EXEC | tclsh"
+refuse "$EXEC | make -f -"
+refuse "cat >> $H/kb/x.md <<'EOF'
+echo x > $FIXHOME/.claude/settings.json
+EOF
+. $H/kb/x.md"
+refuse "cat >> $H/kb/x.md <<'EOF'
+echo x > $FIXHOME/.claude/settings.json
+EOF
+ash $H/kb/x.md"
+refuse "cat >> $H/kb/x.md <<'EOF'
+echo x > $FIXHOME/.claude/settings.json
+EOF
+echo \$(. $H/kb/x.md)"
+refuse "cat >> $H/kb/x.md <<'EOF'
+echo x > $FIXHOME/.claude/settings.json
+EOF
+cat $H/kb/x.md | ash"
+refuse "cat >> $H/kb/x.md <<'EOF'
+echo x > $FIXHOME/.claude/settings.json
+EOF
+BASH_ENV=$H/kb/x.md ls"
+refuse "cat >> $H/kb/x.md <<'EOF'
+settings.json
+EOF
+cat >| $H/kb/link-settings.md <<'EOF'
+settings.json
+EOF"
+refuse "echo x >| $H/kb/link-settings.md"
+
+echo "# instruction files: the file tools and a name inside a home"
+pg_file mission-control Write "$UNIT/CLAUDE.md"
+expect deny "[mission-control] the file tool refuses CLAUDE.md"
+pg_file mission-control Edit "$FIXHOME/.claude/CLAUDE.local.md"
+expect deny "[mission-control] the file tool refuses CLAUDE.local.md"
+refuse "echo x >> $H/kb/CLAUDE.md"
+allow "cat $UNIT/CLAUDE.md"
+allow "echo \$(cat $H/kb/settings-notes.md)"
 
 echo "# no other tier gains an allowance"
 : >"$MCLOG"
@@ -181,7 +232,7 @@ fi
 
 echo "# an unreadable program reader leaves no allowance"
 rm -f "$S/mc-program.sh"
-refuse "W=\$(cat $H/streamjson/w/cwd); git -C \"\$W\" status; echo $FIXHOME/.claude"
+refuse "echo \$(cat $H/kb/settings-notes.md)"
 refuse "cat >> $H/kb/brief.md <<'EOF'
 settings.json
 EOF"

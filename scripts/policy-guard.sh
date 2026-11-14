@@ -5065,7 +5065,7 @@ mc_store_path() {
   local w=${1//[\"\'\\]/} r rest phys
   case $w in /*) ;; *) return 1 ;; esac
   mc_store_load
-  for r in "${MC_STORE_ROOTS[@]}"; do
+  for r in ${MC_STORE_ROOTS[@]+"${MC_STORE_ROOTS[@]}"}; do
     case $w in "$r" | "$r"/*) ;; *) continue ;; esac
     rest=${w#"$r"}
     mc_posture_word "$w" && return 2
@@ -5105,7 +5105,7 @@ mc_write_via_link() {
 # bodies dropped and returns 0; anything else (a shell run, an unquoted
 # delimiter, a redirect elsewhere) returns 1 and the whole text is screened.
 mc_store_doc_strip() {
-  local t=$1 line out='' delim='' tabs=0 any=0 d m w q
+  local t=$1 line out='' chk='' delim='' tabs=0 any=0 d m w q hdr
   local re_open="(^|[^[:alnum:]_.-])cat([[:space:]][^<;&|()\`\$]*)?<<(-?)[[:space:]]*(['\"])([A-Za-z_][A-Za-z0-9_]*)\\4"
   case $t in *'<<'*) ;; *) return 1 ;; esac
   while IFS= read -r line || [ -n "$line" ]; do
@@ -5127,8 +5127,14 @@ mc_store_doc_strip() {
       tabs=0
       [ -z "${BASH_REMATCH[3]}" ] || tabs=1
       any=1
+      # The line without its document operator, for the command check.
+      hdr=${line#*<<}
+      hdr=${hdr#*"$delim"}
+      chk="$chk${line%%<<*}${hdr#?}$NL"
     elif [[ $line == *'<<'* ]]; then
       return 1
+    else
+      chk="$chk$line$NL"
     fi
   done <<XEOF2
 $t
@@ -5140,6 +5146,8 @@ XEOF2
   d=${d//[0-9]>\/dev\/null/}
   d=${d//>\/dev\/null/}
   d=${d//[0-9]>&[0-9]/}
+  d=${d//>|/>}
+  mc_doc_rest_safe "$chk" || return 1
   MC_CMD=$t
   while [[ $d =~ \>+[[:space:]]*([^[:space:]\;\|\&\<\>]+) ]]; do
     m=${BASH_REMATCH[0]}
@@ -5150,6 +5158,53 @@ XEOF2
     d=${d#*"$m"}
   done
   MC_DOC_T=${out%"$NL"}
+  return 0
+}
+
+# mc_doc_rest_safe <text> — 0 when every command of the text, apart from the
+# dropped document bodies, is a plain reader or printer, so nothing can run
+# what a body wrote: no shell, no source, no substitution (bar the scratch
+# directory's mktemp -d), no pipe into anything but a reader. A word the check
+# cannot place counts as unsafe.
+mc_doc_rest_safe() {
+  # shellcheck disable=SC2016 # literal patterns
+  local t=${1//'$(mktemp -d)'/MKTEMPD} piece w first rest sep='[;&|(){}]'
+  # shellcheck disable=SC2016 # literal patterns
+  case $t in *'$('* | *'`'* | *'<('* | *'>('*) return 1 ;; esac
+  t=${t//$sep/$NL}
+  while IFS= read -r piece || [ -n "$piece" ]; do
+    piece=${piece#"${piece%%[![:space:]]*}"}
+    # Leading redirects (a group's target) belong to no command of their own.
+    while [[ $piece =~ ^[0-9]*\>+[[:space:]]*[^[:space:]]+[[:space:]]*(.*)$ ]]; do
+      piece=${BASH_REMATCH[1]}
+    done
+    [ -n "$piece" ] || continue
+    first=${piece%%[[:space:]]*}
+    rest=${piece#"$first"}
+    # A plain assignment, never of a name a shell or loader reads.
+    if [[ $first =~ ^([A-Za-z_][A-Za-z0-9_]*)=([A-Za-z0-9_./+:@%,=-]*)$ ]]; then
+      case ${BASH_REMATCH[1]} in
+        BASH_ENV | ENV | PATH | IFS | CDPATH | SHELLOPTS | BASHOPTS | PROMPT_COMMAND | PS[0-9] | FPATH | LD_* | DYLD_* | HOME | TMPDIR) return 1 ;;
+      esac
+      [ -z "${rest//[[:space:]]/}" ] || return 1
+      continue
+    fi
+    lc "${first##*/}"
+    [ "$first" = "$LC" ] || return 1
+    case $LC in
+      cat | head | tail | grep | egrep | fgrep | wc | ls | stat | diff | cmp | cut | tr | nl | tac | rev | sort | uniq | echo | printf | true | ':') ;;
+      sed)
+        # Only printing line ranges.
+        [[ $rest =~ ^[[:space:]]+-n[[:space:]]+[0-9,\$]+p([[:space:]]|$) ]] || return 1
+        ;;
+      *) return 1 ;;
+    esac
+    for w in $rest; do
+      case $w in -e | -f | --expression | --file | -i | --in-place) return 1 ;; esac
+    done
+  done <<XEOF3
+$t
+XEOF3
   return 0
 }
 
@@ -5182,7 +5237,7 @@ mc_strip_safe_fragments() {
       ;;
   esac
   mc_store_load
-  for r in "${MC_STORE_ROOTS[@]}"; do
+  for r in ${MC_STORE_ROOTS[@]+"${MC_STORE_ROOTS[@]}"}; do
     re='(^|[^[:alnum:]_.@%+,=/*~$-])('"${r//[^A-Za-z0-9_\/-]/.}"$RE_MC_STORE_TAIL')($|[[:space:]"'"'"';&|)<>])'
     while [[ $nr =~ $re ]]; do
       m=${BASH_REMATCH[0]}
@@ -5201,7 +5256,7 @@ mc_under_store_root() {
   local w=${1//[\"\'\\]/} r
   case $w in /*) ;; *) return 1 ;; esac
   mc_store_load
-  for r in "${MC_STORE_ROOTS[@]}"; do
+  for r in ${MC_STORE_ROOTS[@]+"${MC_STORE_ROOTS[@]}"}; do
     case $w in "$r" | "$r"/*) return 0 ;; esac
   done
   return 1
@@ -5309,6 +5364,7 @@ mc_settings_screen() {
   r=${r//[0-9]>\/dev\/null/}
   r=${r//>\/dev\/null/}
   r=${r//[0-9]>&[0-9]/}
+  r=${r//>|/>}
   # Quoted text is no redirect unless a shell is handed it to run or the quote
   # is itself the redirect's target.
   # A backslash can desync the quote pairing, so such text is scanned whole.
