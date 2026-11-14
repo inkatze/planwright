@@ -830,6 +830,16 @@ EOF
       warn "no dispatch record for '$worker' (registry: $(sanitize_printable "$registry" "-")) — nothing says what it is or who owns it, refusing"
       exit 5
     fi
+    # A session parked on the operator, CI or a ready flip is not finished work
+    # whatever its last turn looked like: its registry row says so.
+    pk_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) || pk_root=""
+    if [ -n "$pk_root" ] && [ -f "$pk_root/mission-control/sessions/$worker" ] && [ ! -L "$pk_root/mission-control/sessions/$worker" ]; then
+      pk_why=$(awk -F "$TAB" '$1 == "waiting" { print $2; exit }' "$pk_root/mission-control/sessions/$worker" 2>/dev/null) || pk_why=""
+      if [ -n "$pk_why" ]; then
+        warn "refusing '$worker': it is parked, waiting on $(sanitize_printable "$pk_why" "-"); a parked session is never reaped"
+        exit 5
+      fi
+    fi
     if [ "$backend" = print ]; then
       warn "refusing '$worker': a print-backend unit spawned no process, so there is nothing to reap (it stays registered)"
       exit 8

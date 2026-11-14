@@ -325,8 +325,8 @@
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
 #       records its would-have close from this.
 #   fleet-streamjson.sh status <worker>
-#       Print `status <worker> <running|awaiting-input|completed|ended|limited|
-#       dead|unknown> <detail>` from the recorded pids, the receipt journal and
+#       Print `status <worker> <running|awaiting-input|parked|completed|ended|
+#       limited|dead|unknown> <detail>` from the recorded pids, the receipt journal and
 #       the captured event stream; an `ended` or `limited` detail names the
 #       recorded cause. `awaiting-input` is a live worker with a pending
 #       control_request: the detail carries `pending=<n> oldest=<age>s
@@ -335,7 +335,12 @@
 #       that cannot proceed never reads as a healthy `running`. It outranks a
 #       recorded `result`, which a persistent worker writes at the end of every
 #       turn and outlives, so an earlier turn's `completed` never hides a later
-#       request.
+#       request. `parked` is a turn that ended without the session being done:
+#       its registry row records a live operator, ci or ready-flip wait
+#       (`parked wait=<why> result=<subtype>`), or the turn's final text ends
+#       in a question to the operator (`parked question result=<subtype>`,
+#       read from the event log's last line, so it needs that line to be the
+#       result). A reaper keyed on `completed` therefore never closes it.
 #   fleet-streamjson.sh pending [<worker>...]
 #       Read-only view of the journaled requests `status` counts (a spooled
 #       receipt is counted there but listed here only once it is journaled,
@@ -3660,6 +3665,35 @@ status_awaiting() {
     "$1" "$sa_pend" "$sa_age" "$3" "$4"
 }
 
+# parked_why <worker> <dir> — print `wait=<why>` when the worker's registry row
+# records a live wait, or `question` when its last turn's final text ends in a
+# question; nothing otherwise.
+parked_why() {
+  pk_root=${2%/streamjson/*}
+  pk_row="$pk_root/mission-control/sessions/$1"
+  if [ -n "$pk_root" ] && [ -f "$pk_row" ] && [ ! -L "$pk_row" ]; then
+    pk_w=$(awk -F '\t' '$1 == "waiting" { print $2; exit }' "$pk_row" 2>/dev/null) || pk_w=''
+    case $pk_w in
+      operator | ci | ready-flip)
+        printf 'wait=%s' "$pk_w"
+        return 0
+        ;;
+    esac
+  fi
+  pk_ev=$(tail -n 1 "$2/events.jsonl" 2>/dev/null) || return 0
+  case $pk_ev in *'"type":"result"'*) ;; *) return 0 ;; esac
+  pk_t=$(json_field "$pk_ev" result)
+  while :; do
+    case $pk_t in
+      *'\n' | *'\t' | *'\r') pk_t=${pk_t%??} ;;
+      *' ') pk_t=${pk_t% } ;;
+      *) break ;;
+    esac
+  done
+  case $pk_t in *'?') printf 'question' ;; esac
+  return 0
+}
+
 cmd_status() {
   [ $# -eq 1 ] || usage
   worker=$1
@@ -3737,7 +3771,12 @@ cmd_status() {
     elif { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
       printf 'status %s ended %s\n' "$worker" "$detail"
     else
-      printf 'status %s completed %s\n' "$worker" "$detail"
+      st_park=$(parked_why "$worker" "$dir")
+      if [ -n "$st_park" ]; then
+        printf 'status %s parked %s %s\n' "$worker" "$st_park" "$detail"
+      else
+        printf 'status %s completed %s\n' "$worker" "$detail"
+      fi
     fi
     return 0
   fi

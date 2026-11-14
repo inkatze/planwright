@@ -32,7 +32,8 @@ Verbs (each runs on the remote host, through its own planwright and tools):
   steer <worker>                fleet-streamjson.sh steer, the message read
                                 from stdin
   status <worker>               fleet-streamjson.sh status
-  retire <name-or-worker>       mission-control-launch.sh retire
+  retire <name-or-worker> [--force-parked]
+                                mission-control-launch.sh retire
   load                          print the remote's one-minute load average
                                 and core count, one line, for a placement check
   compute [--worktree <abs-dir>] (--check | --task <name> | --test <tests/test-x.sh>)

@@ -102,7 +102,8 @@ Usage:
       session whose last line is a question (a tmux pane the stall scan reads idle-question, a stream-json turn whose
       final text ends in `?`) is parked on the operator and never retired
       here (without jq a stream-json one cannot be told apart, so none is
-      retired), and a kickoff relay (scope kickoff-<spec>) is never bound
+      retired), nor is a session whose registry row records a live wait
+      (operator, ci or ready-flip: parked, never idle), and a kickoff relay (scope kickoff-<spec>) is never bound
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
@@ -292,7 +293,8 @@ EOF
         continue
       fi
       say landed "$sw_s" "$sw_state"
-      sw_out=$(launcher retire "$sw_s" 2>&1)
+      # A landed unit ends any wait its session held, so the wait never holds it.
+      sw_out=$(launcher retire "$sw_s" --force-parked 2>&1)
       sw_retire=$?
       case $sw_retire in
         0) ;;
@@ -603,6 +605,19 @@ idle_since_streamjson() {
   printf '%s\n' "$is_at"
 }
 
+# parked_on <session>: the wait (operator, ci or ready-flip) the session's
+# registry row records, else nothing. A session with a live wait is parked on
+# someone, so no bound retires it, whatever its last turn looked like.
+parked_on() {
+  pn_home=$(mc_fleet_home) || {
+    printf 'unknown'
+    return 0
+  }
+  pn_row="$pn_home/mission-control/sessions/$1"
+  [ -f "$pn_row" ] && [ ! -L "$pn_row" ] || return 0
+  mc_kv "$pn_row" waiting 2>/dev/null || :
+}
+
 # last_result <session>: the subtype of the session's last recorded result
 # (the second field of the rung's result record), sanitised for a line.
 last_result() {
@@ -642,6 +657,7 @@ bounds() {
       stream-json) bd_since=$(idle_since_streamjson "$bd_s" "$bd_l" "$bd_gcut") ;;
       *) bd_since="" ;;
     esac
+    [ -z "$bd_since" ] || [ -z "$(parked_on "$bd_s")" ] || bd_since=""
     if [ -n "$bd_since" ] && [ "$bd_b" = stream-json ]; then
       printf 'retire\t%s\t%s\tcompleted result=%s %ss ago, grace %ss\n' "$bd_s" "$bd_l" "$(last_result "$bd_s")" $((bd_now - bd_since)) "$bd_grace"
     elif [ -n "$bd_since" ]; then
@@ -672,6 +688,7 @@ still_due() {
   sd_row="$(mc_fleet_home)/mission-control/sessions/$1"
   [ -f "$sd_row" ] && [ ! -L "$sd_row" ] || return 1
   [ "$(mc_kv "$sd_row" launched)" = "$2" ] || return 1
+  [ -z "$(parked_on "$1")" ] || return 1
   case $3 in
     tmux)
       /bin/bash "$script_dir/mc-stall.sh" classify --program "$program" ${now:+--now "$now"} "$1" >/dev/null 2>&1 || return 1
@@ -761,6 +778,11 @@ EOF
         still_due "$ab_s" "$ab_l" "$ab_b" "$ab_cut" "$ab_gcut" || continue
         ab_r=$(launcher retire "$ab_s" 2>&1)
         case $? in
+          4)
+            # Parked since the check: the launcher refuses, and the session is
+            # left alone. Not a failure.
+            continue
+            ;;
           0)
             retired_event "$ab_s" "$ab_why" && continue
             printf '%s\t%s\n' "$ab_s" "$ab_why" >>"$ab_owed" \

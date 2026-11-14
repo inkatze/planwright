@@ -378,6 +378,55 @@ else
   fail "list with no registry: $empty_out"
 fi
 
+# ---------------------------------------------------------------------------
+# A parked session (a live operator, ci or ready-flip wait) is never retired
+# by accident: the refusal names the wait, --force-parked overrides it, and
+# clearing the wait restores the plain retire.
+# ---------------------------------------------------------------------------
+rec="$tmp/rec-retire-parked"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind ad-hoc --scope parked-kickoff --brief "$tmp/brief.md"
+[ "$RC" = 0 ] || fail "fixture: the parked session did not launch: $ERR"
+parked=$(field name)
+wait_done "$parked"
+for why in operator ci ready-flip; do
+  ml wait "$parked" --on "$why"
+  [ "$RC" = 0 ] || fail "fixture: wait --on $why exited $RC: $ERR"
+  ml retire "$parked"
+  if [ "$RC" = 4 ] && case $ERR in *"waiting on $why"*) true ;; *) false ;; esac \
+    && [ -f "$fleet/mission-control/sessions/$parked" ]; then
+    ok "retire refuses a session with a live $why wait, names it and leaves the row"
+  else
+    fail "retire of a session waiting on $why: exit $RC, out $OUT, err $ERR"
+  fi
+done
+ml retire "$parked" --force-parked --bogus
+[ "$RC" = 2 ] && ok "retire still refuses an unknown flag" || fail "retire with an unknown flag exited $RC"
+ml unwait "$parked"
+ml retire "$parked"
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^retire	$parked	released	" \
+  && [ ! -e "$fleet/mission-control/sessions/$parked" ]; then
+  ok "clearing the wait restores the plain retire"
+else
+  fail "retire after unwait: exit $RC, $OUT $ERR"
+fi
+rec="$tmp/rec-retire-forced"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind ad-hoc --scope forced-kickoff --brief "$tmp/brief.md"
+[ "$RC" = 0 ] || fail "fixture: the second parked session did not launch: $ERR"
+forced=$(field name)
+wait_done "$forced"
+ml wait "$forced" --on operator
+ml retire "$forced" --force-parked
+if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -q "^retire	$forced	released	" \
+  && [ ! -e "$fleet/mission-control/sessions/$forced" ]; then
+  ok "--force-parked retires a parked session"
+else
+  fail "retire --force-parked: exit $RC, $OUT $ERR"
+fi
+ml retire "$n1" --force-parked
+[ "$RC" = 0 ] && ok "--force-parked on a row-less worker retires it as plainly" || fail "force on a row-less worker exited $RC: $ERR"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

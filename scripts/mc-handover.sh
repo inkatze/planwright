@@ -615,7 +615,7 @@ retire_row() {
     RS_STATE=attended
   elif ! row_exists "$1"; then
     RS_STATE=gone
-  elif /bin/sh "$script_dir/mission-control-launch.sh" retire "$1" >/dev/null 2>&1 </dev/null; then
+  elif /bin/sh "$script_dir/mission-control-launch.sh" retire "$1" --force-parked >/dev/null 2>&1 </dev/null; then
     RS_STATE=released
   elif ! row_exists "$1"; then
     RS_STATE=gone

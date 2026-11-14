@@ -2715,6 +2715,13 @@ record and attention row, printing the same `retire` line over the classes
 stream-json runtime directory is exit 3, and the refusal names the headless
 rung's `stop` and `tmux kill-window` as the closes that apply.
 
+A session with a live `operator`, `ci` or `ready-flip` wait (set with
+`wait <name> --on <why>`) is parked, not finished: `retire` refuses it with
+exit 4 naming the wait, `fleet-streamjson.sh status` prints `parked` for it
+(or for a turn that ended on a question) rather than `completed`, and no
+idle bound, completed-grace retire or process reap touches it. `unwait`
+restores the plain retire; `retire <name> --force-parked` retires it anyway.
+
 The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's
 `mktemp` files and their removal) and the deny entries added with them are
