@@ -46,7 +46,8 @@ mkdir -p "$mchome"
 # collect writes the evidence at the head in $tmp/head.<n> with the labels
 # in $tmp/labels.<n>, or fails when $tmp/verdict.<n> says broken; walk
 # answers from $tmp/verdict.<n> (ready, not-ready, or walkfail). Each
-# collect is logged.
+# collect is logged, except the finished-checks read of a pull request already
+# ready, which writes to a file ending in .unf.
 pw="$tmp/pw"
 mkdir -p "$pw"
 cp -R "$repo_root/scripts" "$pw/scripts"
@@ -61,7 +62,7 @@ while [ \$# -gt 0 ]; do
 done
 case \$verb in
   collect)
-    printf 'collect --pr %s\n' "\$n" >>"$tmp/check.calls"
+    case \$out in *.unf) ;; *) printf 'collect --pr %s\n' "\$n" >>"$tmp/check.calls" ;; esac
     if [ "\$(cat "$tmp/verdict.\$n")" = broken ]; then printf 'gh: not logged in\n' >&2; exit 1; fi
     {
       printf '# format: 1\nhead\t%s\n' "\$(cat "$tmp/head.\$n")"
@@ -79,6 +80,17 @@ case \$verb in
     printf 'walk broke\n' >&2
     exit 1
     ;;
+  unfinished)
+    n=\$(awk -F '\t' '\$1 == "stubpr" { print \$2 }' "\$ev")
+    printf 'unfinished --pr %s\n' "\$n" >>"$tmp/unfinished.calls"
+    h=\$(awk -F '\t' '\$1 == "head" { print \$2 }' "\$ev")
+    if [ "\$(cat "$tmp/unfinished.\$n" 2>/dev/null)" = yes ]; then
+      printf 'unfinished\t%s\nfail\tcheck\tmacos-suite 3 is QUEUED\n' "\$h"
+      exit 4
+    fi
+    printf 'finished\t%s\n' "\$h"
+    exit 0
+    ;;
 esac
 exit 2
 EOF
@@ -95,6 +107,7 @@ EOF
 chmod +x "$tmp/bin/gh"
 printf 'SQUASH\n' >"$tmp/method"
 : >"$tmp/check.calls"
+: >"$tmp/unfinished.calls"
 : >"$tmp/gh.calls"
 
 run() { # run <args...>: the copy's mc-merge-ready.sh against the fixture
@@ -491,6 +504,49 @@ before=$(calls)
 run list --program alpha --now "$T"
 expect_eq "a fresh snapshot again" "$(ready7 "$J")"
 if checked_since "$before"; then fail "a stale spell threw the verdicts away"; else ok "and the kept verdict stands, unwalked"; fi
+
+# ---------------------------------------------------------------------------
+# A pull request already marked ready whose head still has an unfinished check
+# is said, so a flip that slipped through is seen on the next pass; one with
+# every check finished (red or not), or still a draft, is not.
+# ---------------------------------------------------------------------------
+{
+  taken
+  row 7 "$J" false MERGEABLE 0 SUCCESS
+  row 20 "$H" false MERGEABLE 0 PENDING
+  row 21 "$H" false MERGEABLE 0 FAILURE
+  row 22 "$H" true MERGEABLE 0 PENDING
+  row 23 "$H" false MERGEABLE 0 PENDING
+} >"$snapdir/forge"
+for n in 20 21 22 23; do
+  printf '%s\n' "$H" >"$tmp/head.$n"
+  printf 'not-ready\n' >"$tmp/verdict.$n"
+done
+printf 'yes\n' >"$tmp/unfinished.20"
+printf 'no\n' >"$tmp/unfinished.21"
+printf 'yes\n' >"$tmp/unfinished.22"
+printf 'no\n' >"$tmp/unfinished.23"
+: >"$tmp/unfinished.calls"
+run list --program alpha --now "$T"
+expect_rc "an unfinished check on a ready pull request is no failure of the read" 0
+expect_eq "a ready pull request with a queued check is named with the check, one that finished is not" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}macos-suite 3 is QUEUED"
+checked=$(awk '{ print $NF }' "$tmp/unfinished.calls" | sort -n | tr '\n' ' ')
+if [ "$checked" = "20 21 23 " ]; then
+  ok "only a ready pull request whose checks are not all green is read: not a draft, not an all-green one"
+else
+  fail "unfinished read for: $checked"
+fi
+run list --program alpha --now "$T" --as-status
+expect_out "the status form says it as a decision" "decision${tab}Marked ready with unfinished checks: acme/web#20 at $(printf '%s' "$H" | cut -c1-12): macos-suite 3 is QUEUED"
+printf 'no\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "once its checks finish it is quiet" "$(ready7 "$J")"
+printf 'broken\n' >"$tmp/verdict.20"
+printf 'yes\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_rc "a pull request whose evidence cannot be collected is skipped, not a failure of the read" 0
+expect_eq "and no unfinished line is made up for it" "$(ready7 "$J")"
 
 printf 'format\t1\nsource\tforge\ntaken\tsoon\n' >"$snapdir/forge"
 run list --program alpha --now "$T"

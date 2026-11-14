@@ -56,6 +56,14 @@ Usage:
       one line per candidate that is ready or could not be judged:
         ready<TAB><owner/name>#<n><TAB><head><TAB><merge command>
         unknown<TAB><owner/name>#<n><TAB><why>
+        unfinished<TAB><owner/name>#<n><TAB><head><TAB><checks>
+                                         a pull request already marked ready
+                                         (not a draft, its checks not all
+                                         SUCCESS) whose head still has a
+                                         check queued, pending or in
+                                         progress, named; a failed read of
+                                         one is skipped, and a check that
+                                         finished red is not unfinished
         unknown<TAB>-<TAB><why>          the snapshot or the store: the
                                          source map unresolved, no
                                          snapshot taken yet, one
@@ -64,6 +72,7 @@ Usage:
                                          or the store not written
       with --as-status, each line as a scripts/mc-inbox.sh status line:
         decision<TAB>Ready to merge: <owner/name>#<n> at <head:12>, run: <command>
+        decision<TAB>Marked ready with unfinished checks: <owner/name>#<n> at <head:12>: <checks>
         decision<TAB>Could not tell whether <owner/name>#<n> is ready to merge: <why>
         decision<TAB>Could not tell which pull requests are ready to merge: <why>
       A program with no code-state snapshot source lists nothing. --now
@@ -424,6 +433,24 @@ EOF
   done <<EOF
 $candidates
 EOF
+  # A pull request already marked ready whose head still has a check queued,
+  # pending or running slipped through a flip that waits for every check to
+  # finish; say so each read, with the checks. Advisory: a read that fails
+  # here is skipped, never a failure of the scan.
+  if [ "$held" -eq 0 ]; then
+    unfinished_rows=$(printf '%s\n' "$MC_CS_ROWS" | awk -F '\t' '$1 == "pr" && $5 == "false" && $9 != "SUCCESS" { print $2 "\t" $3 "\t" $4 }')
+    while IFS='	' read -r u_slug u_n u_head; do
+      [ -n "$u_slug" ] || continue
+      if ! { mc_valid_slug "$u_slug" && mc_valid_uint "$u_n" && mc_valid_sha "$u_head"; }; then continue; fi
+      /bin/bash "$script_dir/mc-readiness.sh" collect --program "$program" --repo "$u_slug" --pr "$u_n" --out "$uevf" >/dev/null 2>"$errf" || continue
+      [ "$(awk -F '\t' '$1 == "head" { print $2; exit }' "$uevf")" = "$u_head" ] || continue
+      u_out=$(/bin/bash "$script_dir/mc-readiness.sh" unfinished --evidence "$uevf" 2>"$errf") && continue
+      u_names=$(printf '%s\n' "$u_out" | awk -F '\t' '$1 == "fail" && $2 == "check" { printf "%s%s", (n++ ? ", " : ""), $3 }')
+      [ -z "$u_names" ] || printf 'unfinished\t%s#%s\t%s\t%s\n' "$u_slug" "$u_n" "$u_head" "$u_names"
+    done <<EOF
+$unfinished_rows
+EOF
+  fi
   # A malformed row has no verdict to keep, so the state marks the count partial.
   state=ok
   [ "$malformed" -eq 0 ] || state=malformed
@@ -437,8 +464,10 @@ EOF
 out=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || mc_fail "cannot create a temporary file"
 errf=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || errf=""
 evf=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || evf=""
-trap 'rm -f "$out" "$errf" "$evf"' EXIT
-[ -n "$errf" ] && [ -n "$evf" ] || mc_fail "cannot create a temporary file"
+uevd=$(mktemp -d "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || uevd=""
+uevf="$uevd/evidence.unf"
+trap 'rm -f "$out" "$errf" "$evf"; [ -z "$uevd" ] || rm -rf "$uevd"' EXIT
+[ -n "$errf" ] && [ -n "$evf" ] && [ -n "$uevd" ] || mc_fail "cannot create a temporary file"
 scan >"$out"
 
 case $verb in
@@ -446,6 +475,7 @@ case $verb in
     if [ "$as_status" -eq 1 ]; then
       awk -F '\t' '
         $1 == "ready" { print "decision\tReady to merge: " $2 " at " substr($3, 1, 12) ", run: " $4 }
+        $1 == "unfinished" { print "decision\tMarked ready with unfinished checks: " $2 " at " substr($3, 1, 12) ": " $4 }
         $1 == "unknown" && $2 == "-" { print "decision\tCould not tell which pull requests are ready to merge: " $3 }
         $1 == "unknown" && $2 != "-" { print "decision\tCould not tell whether " $2 " is ready to merge: " $3 }' "$out"
     else
