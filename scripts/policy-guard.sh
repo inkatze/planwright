@@ -2101,7 +2101,7 @@ kickoff_segment() {
     b=$(current_branch "$dir")
     if [ -n "$KAS_N" ]; then
       if [ "$b" = "planwright/$spec/amendment-$KAS_N" ]; then
-        kickoff_scope_shared "$spec" "$dir" || return 0
+        kickoff_scope_unshared "$spec" "$dir" && return 0
         deny_now "the launch scope ${PLANWRIGHT_WORKER_SCOPE} reads as amendment $KAS_N's kickoff for $spec, but $KSS_WHY - refusing (fail closed). $KSS_FIX"
         return 0
       fi
@@ -2170,23 +2170,23 @@ kickoff_amendment_scope() {
   KAS_N=$n
 }
 
-# kickoff_scope_shared <spec> <dir> — 0, with KSS_WHY set, when the amendment
-# reading of the session's scope (KAS_N set for <spec>) may instead be another
-# spec's kickoff: a bundle named for the scope's whole tail (that spec's own
-# kickoff scope) or <spec>-a<n> (when the rest of the scope reads as one of
-# its amendment kickoffs) lies under the spec root, in the worktree's view or
-# the primary checkout's, or a root cannot be resolved. KSS_FIX is the remedy
-# for that cause. 1 when no other spec can share it.
+# kickoff_scope_unshared <spec> <dir> — 0 when no other spec's kickoff can share
+# the amendment reading of the session's scope (KAS_N set for <spec>). 1, with
+# KSS_WHY set, when it may: a bundle named for the scope's whole tail (that
+# spec's own kickoff scope) or <spec>-a<n> (when the rest of the scope reads as
+# one of its amendment kickoffs) lies under the spec root, in the worktree's
+# view or the primary checkout's, or a root cannot be resolved. KSS_FIX is the
+# remedy for that cause.
 KSS_WHY=''
 KSS_FIX=''
-kickoff_scope_shared() {
+kickoff_scope_unshared() {
   local spec=$1 dir=$2 root rc view n=$KAS_N x tail=${PLANWRIGHT_WORKER_SCOPE#kickoff-} sub_n
   KSS_WHY=''
   KSS_FIX=''
   [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-root.sh" ] || {
     KSS_WHY='the spec-root resolver is missing beside this guard, so it cannot tell that scope from another spec'"'"'s kickoff'
     KSS_FIX='Reinstall planwright.'
-    return 0
+    return 1
   }
   kickoff_amendment_scope "$spec-a$n"
   sub_n=$KAS_N
@@ -2200,7 +2200,7 @@ kickoff_scope_shared() {
       124 | 143)
         KSS_WHY="reading the spec root did not finish within ${KNOB_B}s, so the guard cannot tell that scope from another spec's kickoff"
         KSS_FIX='This is a timeout, not a policy decision: retry.'
-        return 0
+        return 1
         ;;
     esac
     case $root in
@@ -2210,19 +2210,19 @@ kickoff_scope_shared() {
     if [ "$rc" != 0 ]; then
       KSS_WHY="the spec root could not be resolved (resolver exit $rc), so the guard cannot tell that scope from another spec's kickoff"
       KSS_FIX='Repair spec_root, then retry.'
-      return 0
+      return 1
     fi
     KSS_FIX='Relaunch the kickoff with a scope no other spec'"'"'s kickoff can share.'
     if [ -d "$root/$tail" ]; then
       KSS_WHY="a spec named $tail exists, whose own kickoff that scope is"
-      return 0
+      return 1
     fi
     if [ -n "$sub_n" ] && [ -d "$root/$spec-a$n" ]; then
       KSS_WHY="a spec named $spec-a$n exists, whose amendment $sub_n kickoff that scope is"
-      return 0
+      return 1
     fi
   done
-  return 1
+  return 0
 }
 
 # kickoff_head_moves — 0 when the segment runs git in a way that may change
@@ -2370,6 +2370,8 @@ classify_segments() {
       si=$((si + 1))
       continue
     fi
+    # A HEAD move matters only to a later kickoff push, so the scan is skipped
+    # for a command that never names one and would otherwise refuse nothing.
     case $P_CMD in
       *[Kk][Ii][Cc][Kk][Oo][Ff][Ff]*) ! kickoff_head_moves || KICK_HEAD_MOVED=1 ;;
     esac

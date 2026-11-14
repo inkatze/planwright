@@ -3,13 +3,11 @@
 #
 # Usage: kickoff-spec-push.sh <spec>
 #
-# The one push a kickoff session may make. The policy guard admits it only to
-# the worker launched as that spec's kickoff: on that spec's branch or one of
-# its amendment branches (planwright/<spec>/amendment-<n>, digits only), or,
-# for an amendment kickoff, on its own amendment branch alone. This script
-# checks the branch and runs one plain `git push -u origin` of that branch to
-# the same name. It never forces, deletes, or pushes another ref, and git
-# refuses a non-fast-forward.
+# The one push a kickoff session may make, which the policy guard admits only
+# for that spec's kickoff worker. It checks the branch (planwright/<spec>/spec
+# or an amendment branch, an amendment kickoff's own alone) and the launch
+# scope, then runs one plain `git push -u origin` of that branch: never a
+# force, a delete or another ref, and git refuses a non-fast-forward.
 #
 # Exit: 0 pushed; 1 refused here; otherwise git's own push status.
 set -u
