@@ -310,6 +310,7 @@ $1 == "cadence" && $2 == "gap" {
   d = $5 " is " $4
   if ($4 == "incomplete") d = "no completion record"
   else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
+  else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
   cad[++ncad] = $3 ": " d
 }

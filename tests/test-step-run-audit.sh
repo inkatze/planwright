@@ -257,6 +257,29 @@ audit --through post-pr
 verdict $? "a genuine record (heads on the branch, in order, outcome matching) passes" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
+# a resume skip stands on a step that moved the head: its two heads differ
+mismatch_setup
+commit resumed-work
+moved=$(head_of)
+r=$(sr new-run)
+recx "$r" convergence show skipped "$base_head" "$moved"
+forge_field "$wt/.claude/steps/$r/001-step-convergence.rec" skip-code resume
+done_at "$r" convergence "$moved"
+audit --through post-pr
+[ "$RC" -eq 0 ] && grep -qx "covered${TAB}convergence" "$tmp/audit" && ! grep -q mismatch "$tmp/audit"
+verdict $? "a resume skip whose heads differ is not a mismatch" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# only a step's latest record is judged: a superseded attempt on a lost head is not
+mismatch_setup
+r=$(sr new-run)
+recx "$r" convergence show failed "$base_head" "$other"
+recx "$r" convergence show passed "$base_head" "$base_head"
+done_at "$r" convergence
+audit --through post-pr
+[ "$RC" -eq 0 ] && grep -qx "covered${TAB}convergence" "$tmp/audit" && ! grep -q mismatch "$tmp/audit"
+verdict $? "a superseded attempt on another branch's commit does not refuse a sound latest record" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 # head: an end-head that is a real commit, but on another branch
 mismatch_setup
 r=$(sr new-run)
