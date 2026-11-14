@@ -6,6 +6,7 @@
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 
+# shellcheck disable=SC2015 # ok only prints, so a fail arm never follows a passing check
 set -u
 LC_ALL=C
 export LC_ALL

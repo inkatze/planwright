@@ -194,8 +194,8 @@ rr_cache="$tmp/claude/plugins/cache/mkt/planwright"
 mkdir -p "$rr_cache/0.62.0" "$rr_cache/9.9.9"
 jq -n --arg p "$rr_cache/9.9.9" '{version: 2, plugins: {"planwright@planwright": [{scope: "user", installPath: $p, version: "9.9.9"}]}}' \
   >"$tmp/claude/plugins/installed_plugins.json"
-rr_name=$(ls "$fleet/mission-control/sessions" | grep -v '\.tmp\.' | head -n 1)
-rr_row="$fleet/mission-control/sessions/$rr_name"
+rr_row=$(find "$fleet/mission-control/sessions" -type f -name 'mc-*' ! -name '*.tmp.*' | sort | head -n 1)
+rr_name=${rr_row##*/}
 rr_recorded=$(awk -F '\t' '$1 == "root" { print $2 }' "$rr_row")
 [ -n "$rr_recorded" ] && [ "$rr_recorded" != - ] && ok "a launched row records the plugin root the session loaded" \
   || fail "the launched row records no plugin root: $(cat "$rr_row")"

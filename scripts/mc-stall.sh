@@ -90,6 +90,11 @@ busy-unchanged emits one event, kind stall-<state>, subject the session name
 (scripts/mc-event.sh); a state held across passes emits no second one, and a
 relaunch under the same name starts a fresh sample.
 
+A session not dead whose row records a plugin root older than the installed
+version (scripts/mc-session-root.sh) emits one stale-plugin-root event, subject
+the session name, per launch, whatever its state; a row with no recorded root
+is unknown and raises none.
+
 Output, one line per session, tab separated:
   <name> <kind> <state> <reason> <event id or ->
 
