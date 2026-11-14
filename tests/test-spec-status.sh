@@ -569,6 +569,23 @@ assert_has "$out" "malformed Dependencies" "C1.9 malformed-deps record renders a
 assert_has "$out" "note: refused" "C1.9 refused-trailer record renders as a note"
 echo "ok: REQ-C1.9 escape bytes in bullet text and stream fields are stripped"
 
+# A `Task <id>` dependency item is its bare id: no malformed note; a non-task
+# word still earns one.
+repo9b="$tmp/depprefix"
+spec9b="$repo9b/specs/demo"
+mkdir -p "$repo9b"
+gitc_init "$repo9b"
+write_v2_spec "$spec9b" Ready
+sed 's/^- \*\*Dependencies:\*\* 4$/- **Dependencies:** Task 4/' "$spec9b/tasks.md" \
+  >"$spec9b/tasks.md.new" && mv "$spec9b/tasks.md.new" "$spec9b/tasks.md"
+gitc "$repo9b" add -A
+gitc "$repo9b" commit -q -m "base"
+out=$("$RENDER" "$spec9b" 2>&1) || fail "dep-prefix: render exited non-zero"
+case "$out" in
+  *"malformed Dependencies"*) fail "dep-prefix: 'Task 4' was flagged as malformed" ;;
+esac
+echo "ok: a 'Task <id>' Dependencies item raises no malformed note"
+
 repo10="$tmp/hostilehdr"
 spec10="$repo10/specs/demo"
 mkdir -p "$repo10"
