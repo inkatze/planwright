@@ -38,6 +38,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 FDE="$here/../scripts/fleet-death-evidence.sh"
 
 fail() {
@@ -136,9 +138,7 @@ echo "ok: an existing but unsignalable process reports alive (EPERM arm)"
 
 # 5. process: an exited, reaped process is dead (exit 0) — positive evidence
 #    (the pid is queried directly, never a scraped process listing).
-/bin/sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null || true
+dead_pid=$(dead_owner_pid)
 verdict dead 0 process "$dead_pid"
 echo "ok: an exited process reports dead (exit 0)"
 

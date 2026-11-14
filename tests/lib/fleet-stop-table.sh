@@ -56,6 +56,8 @@ LIB="$here/../scripts/fleet-stop-lib.sh"
 FA="$here/../scripts/fleet-attention.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "${BASH_SOURCE[0]%/*}/hermetic-env.sh"
 
 fail() {
   printf '%s\n' "FAIL: [${rung:-}] $1" >&2
@@ -933,10 +935,6 @@ NPS
 
 # ---------------------------------------------------------------------------
 c23() {
-  if [ "$(id -u)" = 0 ]; then
-    printf '%s\n' "skip: [$rung] c23 partial-close injection needs a non-root user (running as root)"
-    return 0
-  fi
   case_dirs 23
   w=$(w_name 23)
   d=$(w_dir "$home" "$w")
@@ -945,9 +943,17 @@ c23() {
   w_occupy_attention "$home" "$w" || fail "c23: no attention record to withhold"
   # An unwritable attention store: `clear` fails, the row stays held.
   chmod 500 "$home/attention" || fail "c23: cannot make the attention store unwritable"
-  out=$(renv "$home" "$rec" -- stop "$w" --grace 2 2>/dev/null)
-  rc=$?
+  denied=0
+  if hermetic_access_denied w "$home/attention"; then
+    denied=1
+    out=$(renv "$home" "$rec" -- stop "$w" --grace 2 2>/dev/null)
+    rc=$?
+  fi
   chmod 700 "$home/attention" || fail "c23: cannot restore the attention store"
+  if [ "$denied" = 0 ]; then
+    printf '%s\n' "skip: [$rung] c23 partial-close injection: the running user still writes $home/attention under mode 500"
+    return 0
+  fi
   [ "$rc" = 6 ] || fail "c23: a partial close must report the partial exit code, got rc=$rc ($out)"
   [ "$out" = "stop $w partial released=$(w_partial_released) held=attention" ] \
     || fail "c23: expected the released and held sets named exactly, got: $out"
