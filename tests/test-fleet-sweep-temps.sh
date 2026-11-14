@@ -153,15 +153,21 @@ parked_sweep() {
   poll_until --what 'the parking site' -- test -e "$reached" || fail "$5 ($ps_sig): the sweep never reached the site: $(cat "$tmp/err")"
   kill -"$ps_sig" -- "-$ps_pid"
   # A sweep that survives the signal would hold the wait forever; a zombie
-  # still answers kill -0, so a watchdog ends it instead of a poll.
-  rm -f "$reached.outlived"
-  set -m
-  (sleep 60 && : >"$reached.outlived" && kill -9 -- "-$ps_pid") &
-  ps_dog=$!
-  set +m
+  # still answers kill -0, so a watchdog ends it instead of a poll. The
+  # watchdog stops itself once the marker appears, never by a signal, so no
+  # shell reports a killed job.
+  rm -f "$reached.done" "$reached.outlived"
+  (
+    ps_i=0
+    while [ "$ps_i" -lt 60 ] && [ ! -e "$reached.done" ]; do
+      sleep 1
+      ps_i=$((ps_i + 1))
+    done
+    [ -e "$reached.done" ] || { : >"$reached.outlived"; kill -9 -- "-$ps_pid"; }
+  ) &
   ps_rc=0
   wait "$ps_pid" || ps_rc=$?
-  kill -- "-$ps_dog" || :
+  : >"$reached.done"
   [ ! -e "$reached.outlived" ] || fail "$5 ($ps_sig): the sweep outlived the signal"
   [ "$ps_rc" != 0 ] || fail "$5 ($ps_sig): a sweep stopped by a signal exited 0"
   # A site several processes below the sweep runs its trap after the sweep
