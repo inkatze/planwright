@@ -104,7 +104,16 @@ for scope in kickoff-demo-a2 kickoff-demo-a2-delta; do
   expect deny "[worker, $scope] a raw push of the amendment onto the spec branch denies"
   reason_has 'protected branch' "[worker, $scope] the raw spec-branch refusal keeps today's text"
 done
-for scope in kickoff-demo-a3 kickoff-demo-a3-delta kickoff-demo-a22 kickoff-demo-a kickoff-demo-a2- \
+for scope in kickoff-demo-a3 kickoff-demo-a3-delta kickoff-demo-a22; do
+  n=${scope#kickoff-demo-a}
+  n=${n%%[!0-9]*}
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, $scope] another amendment's kickoff denies on amendment-2"
+  reason_has "amendment $n's kickoff for demo pushes only planwright/demo/amendment-$n," "[worker, $scope] the refusal names the one branch that kickoff pushes"
+  reason_has 'planwright/demo/amendment-2 checked out' "[worker, $scope] the refusal names the branch checked out"
+  reason_has 'CLAUDE_PLUGIN_ROOT.?/scripts/kickoff-spec-push[.]sh <spec>' "[worker, $scope] the wrong-branch refusal names the accepted form"
+done
+for scope in kickoff-demo-a kickoff-demo-a2- \
   kickoff-demo-a2-Delta kickoff-demo-a2-x-y kickoff-demo-a2bc kickoff-demo-x kickoff-demox-a2 \
   kickoff-demo-2 kickoff-other-a2 kickoff-push-target xkickoff-demo-a2 kickoff-demo-a2_x task-1; do
   PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
@@ -129,6 +138,7 @@ done
 for d in "$UNIT" "$AMEND_OTHER"; do
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$KICKOFF_PUSH" "$d" "$d"
   expect deny "[worker, kickoff-demo-a2] an amendment kickoff off its amendment branch denies (${d##*/})"
+  reason_has "amendment 2's kickoff for demo pushes only planwright/demo/amendment-2," "[worker, kickoff-demo-a2] the off-branch refusal names the one branch it pushes (${d##*/})"
 done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "false && cd \"$AMEND_UP\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"
 expect deny "[worker, kickoff-demo-a2] an amendment kickoff push the guard cannot place denies"
@@ -176,6 +186,7 @@ reads none "[worker, kickoff-mission-control-a16-delta] #1021 case: the admitted
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A17" "$MC_A17"
 expect deny "[worker, kickoff-mission-control-a16-delta] #1021 case: the a16 scope on amendment-17 denies"
 reason_has 'planwright/mission-control/amendment-17 checked out' "[worker, kickoff-mission-control-a16-delta] #1021 case: the amendment-17 refusal names the branch checked out"
+reason_has "amendment 16's kickoff for mission-control pushes only planwright/mission-control/amendment-16," "[worker, kickoff-mission-control-a16-delta] #1021 case: the amendment-17 refusal names the one branch amendment 16's kickoff pushes"
 for scope in kickoff-mission-control-a1 kickoff-mission-control-a160; do
   PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
   expect deny "[worker, $scope] another amendment number's scope denies on amendment-16"

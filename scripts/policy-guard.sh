@@ -2122,6 +2122,10 @@ kickoff_segment() {
     deny_now "this git push targets a protected branch (planwright/$spec/spec); the spec branch is never written by an agent session at any tier. Work on your own unit branch."
     return 0
   fi
+  if [ "$TIER" = worker ] && [ -n "$KAS_N" ]; then
+    deny_now "amendment $KAS_N's kickoff for $spec pushes only planwright/$spec/amendment-$KAS_N, and this checkout has ${b:-no branch} checked out - refusing. Check out planwright/$spec/amendment-$KAS_N in your worktree and run $KICK_FORM."
+    return 0
+  fi
   local scope_seen=${PLANWRIGHT_WORKER_SCOPE:-}
   scope_seen=$(sanitize_printable "${scope_seen:0:128}" 'none')
   if [ "$dir_ok" = 1 ]; then
