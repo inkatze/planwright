@@ -159,7 +159,7 @@ duties:
     lifecycle: live
     never-propose: false
   - id: goal-check
-    summary: "Runs each program goal's confirmed check when its work merges, and re-checks done goals daily"
+    summary: "Runs a goal's confirmed check when its work merges, and re-checks done goals daily"
     triggers: [goal-reopened, goal-verify-due]
     watchers: [scripts/mc-goals.sh@15m/low]
     wake: goal-reopened
