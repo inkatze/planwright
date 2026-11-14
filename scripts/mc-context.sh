@@ -19,6 +19,7 @@ TAIL_BYTES=262144
 # A host percent (the panel mod's reading) older than this is a mod that
 # stopped; a recorded reading older than this is a runner that stopped.
 HOST_FRESH=300
+# scripts/mc-panel.sh contexts() holds the same hour; change both together.
 RECORD_FRESH=3600
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 for lib in echo-safety.sh mc-lib.sh mc-transcript-usage.sh; do

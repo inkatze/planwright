@@ -867,7 +867,7 @@ case $verb in
     # With no reading given, the runner's recorded one for the session
     # stands in; none, or `unknown`, leaves the wake count in force.
     if [ "$context" = - ] && [ -n "$session" ]; then
-      rec=$(/bin/bash "$script_dir/mc-context.sh" recorded --program "$program" --session "$session" --now "$NOW" 2>&-) || rec=unknown
+      rec=$(/bin/bash "$script_dir/mc-context.sh" recorded --program "$program" --session "$session" --now "$NOW" 2>/dev/null) || rec=unknown
       ! mc_valid_uint "$rec" || context=$rec
     fi
     if k=$(mc_knob mission_control_handover_compactions mc_parse_count) && [ "$compactions" -ge "$k" ]; then
