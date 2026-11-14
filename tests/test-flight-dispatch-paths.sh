@@ -561,6 +561,36 @@ primary_phys=$(cd "$c/primary" && pwd -P)
   || fail "a worktree dispatch placed the flight at '$(field "$OUT" worktree)', not under the primary"
 echo "ok: a flight dispatched from a linked worktree reads the primary's config and lands beside it"
 
+# --- 11b. the primary checkout is no flight; worktree lists are NUL-safe ------
+# A flight branch checked out in the primary checkout holds no slot and its
+# brief is not retired, and a worktree path carrying a newline cannot forge a
+# `worktree` line that counts as a live flight.
+new_case
+printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml" 2>/dev/null \
+  || { mkdir -p "$c/primary/.claude" && printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"; }
+gitc "$c/primary" checkout -q -b planwright/flight/pri-0123abcd
+primary_phys=$(cd "$c/primary" && pwd -P)
+mkdir -p "$c/fleet/flights/pri-0123abcd"
+printf '%s\n' "$primary_phys" >"$c/fleet/flights/pri-0123abcd/checkout"
+age "$c/fleet/flights/pri-0123abcd"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "REQ-E1.2: retire exited $RC: $ERR"
+[ -d "$c/fleet/flights/pri-0123abcd" ] \
+  || fail "REQ-E1.2: retire removed the brief of a flight branch checked out in the primary checkout"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "REQ-E1.2: a flight branch in the primary checkout held a slot (rc $RC: $OUT $ERR)"
+gitc "$c/primary" checkout -q main
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"
+nlpath="$c/primary/.claude/worktrees/a
+worktree $c/forged/.claude/worktrees/flight-forged-0123abcd
+b"
+gitc "$c/primary" worktree add -q --detach "$nlpath"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "REQ-E1.2: a newline in a worktree path forged a live flight (rc $RC: $OUT $ERR)"
+echo "ok: the primary checkout holds no flight slot and keeps its brief; a newline path forges nothing"
+
 # --- 12. a spec root outside the checkout --------------------------------------
 # A file-home record is committed on the flight's branch, so it cannot live in
 # a spec root outside the checkout. When the PR home is unavailable too, the

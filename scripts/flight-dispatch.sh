@@ -443,17 +443,34 @@ declare_home() {
   HOME_DECL='pr'
 }
 
+# read_worktrees — set `_wl` to the repository's worktree list as one field per
+# line, read NUL-delimited (`git worktree list --porcelain -z`): a newline
+# inside a path becomes \001 rather than a line break, so no path can forge a
+# `worktree` or `branch` line. An empty line still ends a block. Returns 1 when
+# the list cannot be read: a failed git leaves a final `failed` line, which no
+# real field is, since a pipeline's status would be lost to the `tr`.
+_wl=''
+read_worktrees() {
+  _wl=$({ git -C "$repo_root" worktree list --porcelain -z 2>/dev/null </dev/null \
+    || printf 'failed\000'; } | tr '\012\000' '\001\012') || return 1
+  case $_wl in
+    failed | *"$LF"failed) return 1 ;;
+  esac
+}
+
 # LIVE_AWK — for each registered, non-prunable flight worktree in a
-# `git worktree list --porcelain` stream, print the flight ids it holds: the
+# `worktree_stream`, print the flight ids it holds: the
 # one its path names (`.claude/worktrees/flight-<id>`, so a detached or
 # mid-rebase flight still counts) and the one its branch names, when they
-# differ. With `-v count=1` it prints only the number of such worktrees.
-# The offsets are the lengths of `/.claude/worktrees/flight-` (26) and
+# differ. With `-v count=1` it prints only the number of such worktrees. The
+# first block is the primary checkout, which holds no flight: it is skipped,
+# or with `-v primary=1` the only block read, for the ids it merely has checked
+# out. The offsets are the lengths of `/.claude/worktrees/flight-` (26) and
 # `branch refs/heads/planwright/flight/` (36), plus one.
 # shellcheck disable=SC2016 # awk program text, not shell
 LIVE_AWK='
   function close_block() {
-    if ((pid != "" || bid != "") && !prunable) {
+    if ((pid != "" || bid != "") && !prunable && ((blk == 1) == (primary == 1))) {
       n++
       if (!count) {
         if (pid != "") print pid
@@ -464,7 +481,8 @@ LIVE_AWK='
   }
   /^worktree / {
     close_block()
-    if (match($0, /\/\.claude\/worktrees\/flight-[^\/]+$/)) pid = substr($0, RSTART + 26)
+    blk++
+    if (index($0, "\001") == 0 && match($0, /\/\.claude\/worktrees\/flight-[^\/]+$/)) pid = substr($0, RSTART + 26)
   }
   index($0, "branch refs/heads/planwright/flight/") == 1 { bid = substr($0, 37) }
   /^prunable/ { prunable = 1 }
@@ -475,9 +493,8 @@ LIVE_AWK='
 # reading as an empty count.
 live=''
 count_live() {
-  _list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null) \
-    || die 4 "cannot list worktrees to count live flights; nothing was placed"
-  live=$(printf '%s\n' "$_list" | awk -v count=1 "$LIVE_AWK") \
+  read_worktrees || die 4 "cannot list worktrees to count live flights; nothing was placed"
+  live=$(printf '%s\n' "$_wl" | awk -v count=1 "$LIVE_AWK") \
     || die 4 "cannot count live flights; nothing was placed"
   case $live in
     '' | *[!0-9]*) die 4 "cannot count live flights; nothing was placed" ;;
@@ -639,7 +656,9 @@ placing_live() {
 BRIEF_GRACE_MIN=15
 
 # sweep_briefs — remove the brief directory of every retired flight of this
-# checkout (no registered, non-prunable worktree is that flight's), printing
+# checkout (no registered, non-prunable worktree is that flight's; a flight
+# branch merely checked out in the primary checkout is neither live nor
+# retired, so its brief stays), printing
 # `retired<TAB><id>` for each. Each brief directory records its checkout, since
 # the fleet home is shared; one naming another checkout, or none, stays, and
 # so does one younger than BRIEF_GRACE_MIN, and one whose `placing` marker
@@ -658,9 +677,10 @@ sweep_briefs() {
   [ ! -L "$_sb_flights" ] || die 4 "refusing to sweep: $_sb_flights is a symlink; nothing was removed"
   private_dir "$_sb_flights" \
     || die 4 "refusing to sweep: $_sb_flights is not a directory owned by you that only you can write (chmod go-w it); nothing was removed"
-  _sb_list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null </dev/null) \
-    || die 4 "cannot list worktrees to find retired flights; nothing was removed"
-  _sb_live=$(printf '%s\n' "$_sb_list" | awk "$LIVE_AWK") \
+  read_worktrees || die 4 "cannot list worktrees to find retired flights; nothing was removed"
+  _sb_live=$(printf '%s\n' "$_wl" | awk "$LIVE_AWK") \
+    || die 4 "cannot read the worktree list to find retired flights; nothing was removed"
+  _sb_held=$(printf '%s\n' "$_wl" | awk -v primary=1 "$LIVE_AWK") \
     || die 4 "cannot read the worktree list to find retired flights; nothing was removed"
   _sb_entries=$(find "$_sb_flights" -mindepth 1 -maxdepth 1 2>/dev/null </dev/null) \
     || die 4 "cannot list $_sb_flights to find retired flights; nothing was removed"
@@ -683,6 +703,7 @@ sweep_briefs() {
     [ -f "$_sb_dir/checkout" ] && [ ! -L "$_sb_dir/checkout" ] || continue
     [ "$(cat <"$_sb_dir/checkout")" = "$repo_root" ] || continue
     ! printf '%s\n' "$_sb_live" | grep -Fqx -e "$_sb_id" || continue
+    ! printf '%s\n' "$_sb_held" | grep -Fqx -e "$_sb_id" || continue
     ! placing_live "$_sb_dir" || continue
     # A failed age check keeps the brief: "cannot tell" is never "old".
     _sb_young=$(find "$_sb_dir" -maxdepth 0 -mmin "-$BRIEF_GRACE_MIN" 2>/dev/null </dev/null) || continue
@@ -1138,8 +1159,8 @@ record naming what the line printed."
 # empty when none does; fails when the worktree list cannot be read, which is
 # not the same as no worktree.
 placed_at() {
-  _pa_list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null) || return 1
-  printf '%s\n' "$_pa_list" | awk -v want="branch refs/heads/$branch" '
+  read_worktrees || return 1
+  printf '%s\n' "$_wl" | awk -v want="branch refs/heads/$branch" '
     index($0, "worktree ") == 1 { p = substr($0, 10) }
     $0 == want { print p; exit }'
 }

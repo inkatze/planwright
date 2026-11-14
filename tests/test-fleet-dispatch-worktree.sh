@@ -1590,7 +1590,30 @@ EOF
   esac
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34 c35; do
+# c36 — a tower running in a linked worktree dispatches a unit worktree under
+# the PRIMARY checkout's .claude/worktrees, never nested under its own tree
+# (tower-placement REQ-E1.1).
+c36() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c36.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  gitc "$tmp/primary" worktree add -q -b tower-branch "$tmp/tower-tree" 2>/dev/null \
+    || fail "c36: fixture: could not add the tower's linked worktree"
+  OUT=$(cd "$tmp/tower-tree" && "$PRIM" dispatch demo 60 --no-attach </dev/null 2>/dev/null)
+  RC=$?
+  [ "$RC" -eq 0 ] || {
+    fail "c36: a dispatch from a linked-worktree tower exited $RC"
+    return
+  }
+  _phys=$(cd "$tmp/primary" && pwd -P)
+  [ "$(dfield "$OUT" worktree)" = "$_phys/.claude/worktrees/demo-task-60" ] \
+    || fail "c36: the unit worktree is at '$(dfield "$OUT" worktree)', not under the primary"
+  [ ! -e "$tmp/tower-tree/.claude/worktrees" ] \
+    || fail "c36: a worktree was nested under the tower's own tree"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34 c35 c36; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
