@@ -164,6 +164,7 @@ pass "[amendment] the push takes no account of spec status: a Ready spec's amend
 g -C "$clone" switch -q planwright/demo/spec
 
 skill="$here/../skills/spec-kickoff/SKILL.md"
+# shellcheck disable=SC2016 # the backticks are literal text under test
 grep -qF 'or `planwright/<spec>/amendment-<n>` for an amendment' "$skill" || fail "[doc] /spec-kickoff does not name the amendment branch"
 pass "[doc] /spec-kickoff names the amendment branch"
 
