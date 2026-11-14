@@ -37,12 +37,12 @@ tmp=$(cd "$tmp" && pwd -P) || exit 1
 . "$here/lib/mc-watch-fixture.sh"
 
 # A watcher that never returns, recording when it started and the pid of the
-# child it hangs on.
+# child it hangs on, a child that ignores TERM.
 cat >"$core/scripts/hang-watch.sh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$(date +%s)" >>"$WATCH_RUNS/hang-start"
 printf 'run\n' >>"$WATCH_RUNS/hang-watch"
-sleep 60 &
+(trap '' TERM; exec sleep 60) &
 printf '%s\n' "$!" >>"$WATCH_RUNS/hang-child"
 wait
 EOF
@@ -89,7 +89,7 @@ else
 fi
 check "REQ-E1.6: the stopped run did not exit cleanly" test "$last_rc" != 0
 hang_child=$(head -n 1 "$WATCH_RUNS/hang-child")
-check "REQ-E1.6: the hung run's own child is stopped too" poll_until --deadline 10 --what "the hung child's exit" -- pid_gone "$hang_child"
+check "REQ-E1.6: the hung run's own child, which ignored the TERM, is killed" poll_until --deadline 10 --what "the hung child's exit" -- pid_gone "$hang_child"
 mc_run mc-event.sh list --program alpha
 expect_out "REQ-E1.5: the expiry is an event naming the duty" "watcher-timeout${tab}hang-duty${tab}scripts/hang-watch.sh ran past 2s and was stopped"
 check "REQ-E1.6: the pass's other watcher still runs" poll_until --what "the fast watcher's run" -- ran fast-watch 2
@@ -106,6 +106,15 @@ check "an override's run is stopped although the default is 300s" poll_until --w
 mc_run mc-event.sh list --program alpha
 expect_out "the override's expiry is an event" "watcher-timeout${tab}hang-duty${tab}scripts/hang-watch.sh ran past 2s and was stopped"
 
+# An override that is no count of seconds is ignored: the default applies.
+setup_hang 'mission_control_step_timeout: 2
+mission_control_step_timeout_overrides: {hang-duty: soon, snapshot: 120}'
+mc_run mc-watch.sh pass --program alpha
+hang_slot=$(slot_for hang-watch.sh)
+check "a watcher with an invalid override is stopped at the default" poll_until --what "the stopped run's record" -- test -s "$wdir/$hang_slot.last"
+mc_run mc-event.sh list --program alpha
+expect_out "and the expiry names the default" "watcher-timeout${tab}hang-duty${tab}scripts/hang-watch.sh ran past 2s and was stopped"
+
 # A default that is no count of seconds fails the read, named.
 setup_hang 'mission_control_step_timeout: soon'
 mc_run mc-watch.sh pass --program alpha
@@ -117,7 +126,7 @@ expect_err "and names the knob" "mission_control_step_timeout"
 # on, and the next pass refreshes.
 # ---------------------------------------------------------------------------
 setup '[beta-duty]' '' '{work-items: tracker:snapshot}'
-printf '%s\n' 'mission_control_step_timeout_overrides: {snapshot: 2}' >>"$tracked"
+printf '%s\n' 'mission_control_step_timeout_overrides: {snapshot: 8}' >>"$tracked"
 cat >"$repo/scripts/tracker-adapter.sh" <<'EOF'
 #!/bin/sh
 trap 'date +%s >"$WATCH_RUNS/adapter-term"; exit 143' TERM
@@ -130,19 +139,22 @@ mc_run mc-wake.sh target add --program alpha ghost
 mc_run mc-event.sh emit --program alpha pr-ready pr-1
 mc_run mc-watch.sh pass --program alpha
 expect_rc "REQ-E1.6: a pass with a hung refresh fails" 1
-expect_out "the stopped refresh is reported" "snapshot${tab}timeout${tab}2"
+expect_out "the stopped refresh is reported" "snapshot${tab}timeout${tab}8"
 adapter_started=$(cat "$WATCH_RUNS/adapter-start")
-adapter_stopped=$(cat "$WATCH_RUNS/adapter-term")
-if [ $((adapter_stopped - adapter_started)) -le 3 ]; then
-  ok "REQ-E1.6: the refresh was stopped within a second of the 2s knob"
+adapter_stopped=""
+[ ! -s "$WATCH_RUNS/adapter-term" ] || adapter_stopped=$(cat "$WATCH_RUNS/adapter-term")
+if [ -z "$adapter_stopped" ]; then
+  fail "REQ-E1.6: the refresh recorded no TERM"
+elif [ $((adapter_stopped - adapter_started)) -le 9 ]; then
+  ok "REQ-E1.6: the refresh was stopped within a second of the 8s knob"
 else
-  fail "REQ-E1.6: the refresh was stopped $((adapter_stopped - adapter_started))s after it started, past the 2s knob"
+  fail "REQ-E1.6: the refresh was stopped $((adapter_stopped - adapter_started))s after it started, past the 8s knob"
 fi
 expect_out "REQ-E1.6: the rest of the pass still runs" "wake${tab}unreachable${tab}ghost"
 adapter_child=$(head -n 1 "$WATCH_RUNS/adapter-child")
 check "the hung adapter's child is stopped" poll_until --deadline 10 --what "the adapter child's exit" -- pid_gone "$adapter_child"
 mc_run mc-event.sh list --program alpha
-expect_out "REQ-E1.5: the refresh expiry is an event" "snapshot-timeout${tab}snapshot${tab}the snapshot refresh ran past 2s and was stopped"
+expect_out "REQ-E1.5: the refresh expiry is an event" "snapshot-timeout${tab}snapshot${tab}the snapshot refresh ran past 8s and was stopped"
 grep -v '^mission_control_step_timeout_overrides:' "$tracked" >"$tmp/tracked.next" && mv "$tmp/tracked.next" "$tracked"
 cat >"$repo/scripts/tracker-adapter.sh" <<'EOF'
 #!/bin/sh

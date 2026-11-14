@@ -1006,14 +1006,14 @@ EOF
         n = split(ENVIRON["H"], h, "\n"); for (i = 1; i <= n; i++) if (h[i] != "") H[h[i]] = 1
         nr = split(ENVIRON["R"], rl, "\n")
       }
-      $1 == "task" && $3 == "in-progress" { print "waiting\t" ENVIRON["N"] ":task-" $2 "\tin-progress" }
+      $1 == "task" && $3 == "in-progress" { inprog[$2] = 1; print "waiting\t" ENVIRON["N"] ":task-" $2 "\tin-progress" }
       $1 == "task" && $3 == "ready" { isready[$2] = 1 }
       $1 == "withheld" && $3 == "own" { wh[++nw] = $2 }
       END {
         for (i = 1; i <= nw; i++)
           if (wh[i] in isready) print "held\t" ENVIRON["N"] ":task-" wh[i] "\tits repository'"'"'s evidence is withheld"
         for (i = 1; i <= nr; i++) {
-          if (rl[i] == "") continue
+          if (rl[i] == "" || rl[i] in inprog) continue
           u = ENVIRON["N"] ":task-" rl[i]
           if (u in H) print "held\t" u "\ta launched session holds it"
           else if (ENVIRON["Q"] != "") print "held\t" u "\tthe budget holds dispatch: " ENVIRON["Q"]

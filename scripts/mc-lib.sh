@@ -541,10 +541,10 @@ mc_step_timeout() {
   fi
 }
 
-# mrb_tree <pid>: every descendant of the process, one pid per line; a shell
-# waiting on a command substitution takes no TERM until the substitution
-# ends, so a stop has to reach what the command started too.
-mrb_tree() {
+# mc_proc_tree <pid>: every descendant of the process, one pid per line; a
+# shell waiting on a command substitution takes no TERM until the
+# substitution ends, so a stop has to reach what the command started too.
+mc_proc_tree() {
   ps -A -o pid= -o ppid= 2>/dev/null | P=$1 awk '
     { pid[NR] = $1; ppid[NR] = $2 }
     END {
@@ -558,10 +558,11 @@ mrb_tree() {
 }
 
 # mc_run_bounded <seconds> <out> <command...>: run the command with its
-# stdout in <out>, stopped when it outlives <seconds> (it and everything it
-# started get a TERM, and a KILL two seconds later if it ignored that). Sets
-# MRB_RC to its status and MRB_EXPIRED to 1 when it was stopped; MRB_PID is
-# the command while it runs, for a caller's own signal handler.
+# stdout in <out>, stopped when it outlives <seconds>: it and everything it
+# started get a TERM, and those that ignored it a KILL two seconds later.
+# Sets MRB_RC to its status and MRB_EXPIRED to 1 when it was stopped (a
+# command that ended by itself at the deadline is not); MRB_PID is the
+# command while it runs, for a caller's own signal handler.
 MRB_PID=''
 MRB_DOG=''
 MRB_RC=0
@@ -577,30 +578,35 @@ mc_run_bounded() {
   MRB_PID=$!
   (
     mrb_sp=''
-    trap 'kill "$mrb_sp" 2>/dev/null; exit 0' TERM
+    trap '[ -z "$mrb_sp" ] || kill "$mrb_sp" 2>/dev/null; exit 0' TERM
     sleep "$mrb_secs" &
     mrb_sp=$!
     wait "$mrb_sp"
     : >"$mrb_flag"
-    # shellcheck disable=SC2046 # one pid per word
-    kill -TERM $(mrb_tree "$MRB_PID") "$MRB_PID" 2>/dev/null
+    # The tree is read before the TERM: once the command is gone what it
+    # started is reparented and no longer found under it.
+    mrb_victims=$(mc_proc_tree "$MRB_PID")
+    # shellcheck disable=SC2086 # one pid per word
+    kill -TERM $mrb_victims "$MRB_PID" 2>/dev/null
     sleep 2 &
     mrb_sp=$!
     wait "$mrb_sp"
-    # shellcheck disable=SC2046 # one pid per word
-    kill -KILL $(mrb_tree "$MRB_PID") "$MRB_PID" 2>/dev/null
+    # shellcheck disable=SC2086 # one pid per word
+    kill -KILL $mrb_victims "$MRB_PID" 2>/dev/null
   ) </dev/null >/dev/null 2>&1 &
   MRB_DOG=$!
   wait "$MRB_PID"
   MRB_RC=$?
-  kill "$MRB_DOG" 2>/dev/null
-  wait "$MRB_DOG" 2>/dev/null
+  if [ -f "$mrb_flag" ] && [ "$MRB_RC" -ge 128 ]; then
+    # The watchdog stays to deliver the KILL to what ignored the TERM.
+    MRB_EXPIRED=1
+  else
+    kill "$MRB_DOG" 2>/dev/null
+    wait "$MRB_DOG" 2>/dev/null
+  fi
+  rm -f "$mrb_flag"
   MRB_PID=''
   MRB_DOG=''
-  if [ -f "$mrb_flag" ]; then
-    MRB_EXPIRED=1
-    rm -f "$mrb_flag"
-  fi
   return 0
 }
 

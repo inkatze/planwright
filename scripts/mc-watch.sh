@@ -449,8 +449,9 @@ runner_sleeping=0
 # closed terminal, timeout(1), a service manager) also reaches the pass,
 # which stops where it is: its subshell cannot ignore the signal, since the
 # watcher loops it starts would inherit that and could then never be
-# stopped. A pass has no deadline of its own, so one stuck in a hung adapter
-# needs a KILL, which leaves that pass running without the lock.
+# stopped. Only the snapshot refresh has a deadline of its own, so a pass
+# stuck anywhere else (a hung relay, say) needs a KILL, which leaves that pass
+# running without the lock.
 runner_exit() {
   # A second signal must not cut the wait short.
   trap '' TERM INT HUP
@@ -508,7 +509,10 @@ loop() {
   trap 'trap - TERM INT HUP; [ -z "$out" ] || rm -f "$out" "$out.expired"; [ -z "$child" ] || kill "$child" 2>/dev/null; [ -z "$MRB_PID" ] || kill "$MRB_PID" "$MRB_DOG" 2>/dev/null; kill -TERM -- -$$ 2>/dev/null; exit 0' TERM INT HUP
   while :; do
     [ "$(record_pid "$slot")" = "$$" ] || exit 0
-    if mc_gate mc-watch && tmo=$(mc_step_timeout "$duty"); then
+    if mc_gate mc-watch; then
+      # A knob that cannot be read is named in the log and never idles the
+      # watcher: its run goes on under the shipped default.
+      tmo=$(mc_step_timeout "$duty") || tmo=300
       out=$(mktemp "$wdir/.$slot.out.XXXXXX") || exit 1
       mc_usable_tmpdir
       # Run in the background and waited for, so a TERM stops this run too;

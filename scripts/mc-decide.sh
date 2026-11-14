@@ -2,7 +2,8 @@
 # mc-decide.sh — a mission-control program's decisions: the
 # decided-by-mission-control record and its reasons grammar, the calibration
 # ledger over it, the operator's repeats noted for scripts/mc-proposals.sh,
-# and the interruption and settled-share measures. Every entry lands in the
+# and the interruption and settled-share measures (the panel's measures file
+# included). Every entry lands in the
 # knowledge base's decisions log (scripts/mc-kb.sh).
 #
 # `mc-decide.sh --help` prints the contract: verbs, outputs, exit codes.
