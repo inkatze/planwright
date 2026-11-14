@@ -64,6 +64,12 @@ chmod +x "$bin/ssh"
 for s in fleet-streamjson mission-control-launch; do
   cat >"$rroot/scripts/$s.sh" <<EOF
 #!/bin/sh
+# A bare call (the supervisor) or --help (the launcher) lists the verbs the
+# fixture's remote offers, one usage line each, as the real scripts do.
+if [ -f "$rroot/verbs-$s" ] && { [ \$# -eq 0 ] || [ "\$*" = --help ]; }; then
+  while read -r v; do echo "usage: $s.sh \$v <arg>"; done <"$rroot/verbs-$s" >&2
+  exit 2
+fi
 echo "$s"
 f=''
 prev=''
@@ -121,6 +127,28 @@ run --host mac --root /x root
 assert_eq "no caller can choose the remote root" 2 "$CODE"
 run --host mac frobnicate
 assert_eq "an unknown verb is a usage error" 2 "$CODE"
+run --host mac version extra
+assert_eq "version takes no arguments" 2 "$CODE"
+run --host mac capacity extra
+assert_eq "capacity takes no arguments" 2 "$CODE"
+run --host mac stop
+assert_eq "stop needs a worker" 2 "$CODE"
+run --host mac stop 'w;x'
+assert_eq "stop refuses a worker name outside the grammar" 2 "$CODE"
+run --host mac stop w1 --grace 'a;b'
+assert_eq "stop refuses a non-numeric grace" 2 "$CODE"
+run --host mac stop w1 --grace
+assert_eq "stop refuses a grace with no value" 2 "$CODE"
+run --host mac stop w1 --final
+assert_eq "stop refuses an option it does not offer" 2 "$CODE"
+run --host mac stop w1 --grace 5 extra
+assert_eq "stop refuses trailing arguments" 2 "$CODE"
+run --host -x version
+assert_eq "version with a leading-dash alias is refused" 2 "$CODE"
+run --host 'a\b' capacity
+assert_eq "capacity with a backslash alias is refused" 2 "$CODE"
+run --host "$(printf 'a\nb')" stop w1
+assert_eq "stop with a control-character alias is refused" 2 "$CODE"
 assert_eq "no refusal reached ssh" "" "$(cat "$FAKE_SSH_LOG")"
 
 # --- root resolution -----------------------------------------------------------
@@ -153,6 +181,10 @@ assert_eq "an unreachable host passes ssh's 255 through" 255 "$CODE"
 
 # --- verbs, under every shell present as the remote login shell -----------------
 set_env_root "$rroot"
+mkdir -p "$rroot/.claude-plugin"
+printf '{\n  "name": "planwright",\n  "version": "9.9.9",\n  "description": "x"\n}\n' >"$rroot/.claude-plugin/plugin.json"
+printf 'launch\nanswer\nsteer\nrecover\nstop\nstatus\npending\n' >"$rroot/verbs-fleet-streamjson"
+printf 'launch\nname\nretire\nlist\n' >"$rroot/verbs-mission-control-launch"
 hostile="it's \$(touch $tmp/pwned) \`touch $tmp/pwned\`; & | > \"q\" * ~"
 for sh in /bin/sh bash zsh fish; do
   shpath=$(command -v "$sh" 2>/dev/null) || {
@@ -176,6 +208,22 @@ for sh in /bin/sh bash zsh fish; do
   run --host mac retire mc-x-1
   assert_eq "[$sh] retire goes to the launcher" "$(printf 'mission-control-launch\n[retire]\n[mc-x-1]')" "$OUT"
 
+  run --host mac stop w1
+  assert_eq "[$sh] stop forwards to the supervisor" "$(printf 'fleet-streamjson\n[stop]\n[w1]')" "$OUT"
+  run --host mac stop w.1 --grace 5
+  assert_eq "[$sh] stop forwards its grace" "$(printf 'fleet-streamjson\n[stop]\n[w.1]\n[--grace]\n[5]')" "$OUT"
+
+  run --host mac version
+  assert_eq "[$sh] version reports the remote version and the verbs it offers" \
+    "$(printf 'version 9.9.9\nverbs answer launch pending retire status steer stop')" "$OUT"
+
+  run --host mac capacity
+  assert_eq "[$sh] capacity exits 0" 0 "$CODE"
+  case $OUT in
+    "load="*" cores="*" mem_free_mb="*" idle_secs="*) ok "[$sh] capacity prints one key=value line" ;;
+    *) fail "[$sh] capacity prints one key=value line ($OUT)" ;;
+  esac
+
   OUT=$(printf 'line one\n%s\n' "$hostile" | /bin/sh "$script" --host mac steer w1 2>"$tmp/err")
   CODE=$?
   f=$(printf '%s\n' "$OUT" | sed -n 's/^file://p')
@@ -192,6 +240,102 @@ for sh in /bin/sh bash zsh fish; do
   CODE=$?
   assert_eq "[$sh] steer with empty stdin is refused remotely" 2 "$CODE"
 done
+
+# --- version: what an older or partial remote reports ---------------------------
+FAKE_REMOTE_SHELL=/bin/sh
+export FAKE_REMOTE_SHELL
+printf 'launch\nanswer\nsteer\nstatus\npending\n' >"$rroot/verbs-fleet-streamjson"
+run --host mac version
+assert_eq "version omits a verb the remote supervisor lacks" "$(printf 'version 9.9.9\nverbs answer launch pending retire status steer')" "$OUT"
+printf 'launch\nname\nlist\n' >"$rroot/verbs-mission-control-launch"
+run --host mac version
+assert_eq "version omits a verb the remote launcher lacks" "$(printf 'version 9.9.9\nverbs answer launch pending status steer')" "$OUT"
+rm -f "$rroot/verbs-fleet-streamjson" "$rroot/verbs-mission-control-launch" "$rroot/.claude-plugin/plugin.json"
+run --host mac version
+assert_eq "version exits 0 for a remote it cannot read" 0 "$CODE"
+assert_eq "an unreadable version and verb list are named, not guessed" "$(printf 'version unavailable\nverbs none')" "$OUT"
+rm -rf "$rhome/.claude" "$rhome/.config/planwright/remote-env.sh"
+run --host mac version
+assert_eq "version with no remote root exits 3" 3 "$CODE"
+set_env_root "$rroot"
+
+# --- capacity: macOS and Linux remotes; what a platform cannot report is named ---
+fld() { printf '%s\n' "$OUT" | tr ' ' '\n' | sed -n "s/^$1=//p"; }
+mac="$tmp/os-mac"
+lin="$tmp/os-linux"
+mkdir -p "$mac" "$lin"
+printf '#!/bin/sh\necho Darwin\n' >"$mac/uname"
+printf '#!/bin/sh\necho Linux\n' >"$lin/uname"
+cat >"$mac/sysctl" <<'EOF'
+#!/bin/sh
+case $* in
+  '-n vm.loadavg') echo '{ 2.50 2.00 1.80 }' ;;
+  '-n hw.ncpu') echo 8 ;;
+  *) exit 1 ;;
+esac
+EOF
+cat >"$mac/vm_stat" <<'EOF'
+#!/bin/sh
+cat <<'OUT'
+Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                               4096.
+Pages active:                            50000.
+Pages inactive:                           8192.
+Pages speculative:                        4096.
+Pages wired down:                        20000.
+OUT
+EOF
+cat >"$mac/ioreg" <<'EOF'
+#!/bin/sh
+cat <<'OUT'
++-o IOHIDSystem  <class IOHIDSystem, id 0x1, registered, matched, active>
+    {
+      "HIDIdleTime" = 42000000000
+    }
+OUT
+EOF
+chmod +x "$mac"/* "$lin/uname"
+FAKE_REMOTE_PATH="$mac:$PATH"
+export FAKE_REMOTE_PATH
+run --host mac capacity
+assert_eq "a macOS remote's capacity parses" "load=2.50 cores=8 mem_free_mb=256 idle_secs=42" "$OUT"
+assert_eq "capacity writes nothing to stderr" "" "$ERR"
+
+printf '#!/bin/sh\ncat <<'"'"'OUT'"'"'\n    "HIDIdleTime" = 0\nOUT\n' >"$mac/ioreg"
+run --host mac capacity
+assert_eq "an idle time of zero is a reading, reported as zero" 0 "$(fld idle_secs)"
+
+# Every probe failing: each field is named unavailable, never zero.
+printf '#!/bin/sh\ncase $* in "-n hw.ncpu") echo 8 ;; *) exit 1 ;; esac\n' >"$mac/sysctl"
+printf '#!/bin/sh\nexit 1\n' >"$mac/vm_stat"
+printf '#!/bin/sh\nexit 1\n' >"$mac/ioreg"
+run --host mac capacity
+assert_eq "a macOS remote that reports nothing prints unavailable, not zero" \
+  "load=unavailable cores=8 mem_free_mb=unavailable idle_secs=unavailable" "$OUT"
+assert_eq "capacity still exits 0 when fields are unavailable" 0 "$CODE"
+
+# Unparseable probe output is unavailable too.
+printf '#!/bin/sh\necho garbage\n' >"$mac/vm_stat"
+printf '#!/bin/sh\necho garbage\n' >"$mac/ioreg"
+run --host mac capacity
+assert_eq "unparseable memory and idle output is unavailable" "unavailable unavailable" "$(fld mem_free_mb) $(fld idle_secs)"
+
+FAKE_REMOTE_PATH="$lin:$PATH"
+export FAKE_REMOTE_PATH
+run --host mac capacity
+assert_eq "a Linux remote's capacity exits 0" 0 "$CODE"
+assert_eq "a Linux remote reports no input idle time" unavailable "$(fld idle_secs)"
+for f in load cores mem_free_mb; do
+  v=$(fld $f)
+  case $f:$v in
+    *:unavailable)
+      if [ -r /proc/meminfo ]; then fail "Linux $f is unavailable on a host with /proc"; else ok "Linux $f unavailable only where /proc is"; fi
+      ;;
+    *:'' | *:*[!0-9.]*) fail "Linux $f is a number ($v)" ;;
+    *) ok "Linux $f is a number" ;;
+  esac
+done
+unset FAKE_REMOTE_PATH
 
 # --- compute: ship HEAD, run one command, stream back, clean up ---------------
 FAKE_REMOTE_SHELL=/bin/sh
