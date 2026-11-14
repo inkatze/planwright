@@ -451,10 +451,14 @@ declare_home() {
 # real field is, since a pipeline's status would be lost to the `tr`.
 _wl=''
 read_worktrees() {
+  # git before 2.36 has no `-z` here: its plain listing stands in, newline
+  # paths unguarded there, rather than failing every dispatch closed.
   _wl=$({ git -C "$repo_root" worktree list --porcelain -z 2>/dev/null </dev/null \
     || printf 'failed\000'; } | tr '\012\000' '\001\012') || return 1
   case $_wl in
-    failed | *"$LF"failed) return 1 ;;
+    failed | *"$LF"failed)
+      _wl=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null </dev/null) || return 1
+      ;;
   esac
 }
 
