@@ -111,6 +111,9 @@ cat >"$spec/tasks.md" <<'EOF'
 
 ### Task 12 — a control byte before the key names it
 - **Dependencies:** none
+
+### Task 13 — trailing whitespace control bytes follow its value
+- **Dependencies:** none
 EOF
 gitc "$repo" add -A
 gitc "$repo" commit -q -m "base"
@@ -133,6 +136,7 @@ rows="$tmp/rows.tsv"
   printf '51\tMERGED\tfalse\tmain\tAdd the line:\\nPlanwright-Task: <spec>/<id>\n'
   printf '52\tMERGED\tfalse\tmain\t\013Planwright-Task: demo/12\\nPlanwright-Task: demo/7\033[31m\n'
   printf '53\tMERGED\tfalse\tmain\tPlanwright-Task: demo/%s3\n' "$(printf '\013')"
+  printf '54\tMERGED\tfalse\tmain\tPlanwright-Task: demo/13%s\n' "$(printf '\013\014')"
 } >"$rows"
 
 make_stub "$tmp/bin-ok" "$rows"
@@ -150,6 +154,7 @@ assert_task "$out" 9 ready "" "an open PR's body completes nothing"
 assert_task "$out" 10 ready "" "a closed, unmerged PR's body completes nothing"
 assert_task "$out" 11 ready "" "a fork's merged PR body completes nothing"
 assert_task "$out" 12 ready "" "a control byte before the key is not column 0"
+assert_task "$out" 13 completed pr-body "trailing whitespace controls trim, as in commits"
 printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7;rm -rf /" \
   || fail "a malformed body value is not surfaced as refused"
 printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7 forged" \
