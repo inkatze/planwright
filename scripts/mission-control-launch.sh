@@ -69,6 +69,7 @@ usage:
       (--authority <decisions-log id> | --undo)
   mission-control-launch.sh wait <name> --on operator|ci|ready-flip
   mission-control-launch.sh unwait <name>
+  mission-control-launch.sh restore <name>
   mission-control-launch.sh bound
   mission-control-launch.sh list
   mission-control-launch.sh kinds
@@ -189,9 +190,17 @@ Output, tab separated:
            over the classes process, pane, registry, attention and row
   wait     wait <name> waiting <reason> (unwait: wait <name> working)
   bound    bound <limit or off> <working count> <waiting count>
+  restore  present|restored <program> <owner>
   list     <name> <program> <kind> <scope> <backend> <launched epoch>
            <tier> <reserved|->
   kinds    <kind> <profile> <allocation key>
+
+restore makes sure a stream-json session's registry row exists: one already
+there is left alone (present); a missing one is rebuilt from the provenance
+line its launch directory's brief carries, with the working directory its
+supervisor kept (restored), under a fresh token; with no launch directory it
+exits 4 and writes nothing. fleet-streamjson.sh recover runs it so a recovered
+worker keeps its program and owner.
 
 A launch reserves the name with a complete row (backend, launcher pid and a
 token) before it starts anything, and a session that started but could not
@@ -1753,6 +1762,69 @@ cmd_list() {
   done
 }
 
+# cmd_restore <name> — leave the registry row of a stream-json session as it
+# is, or rebuild a missing one from its launch directory.
+cmd_restore() {
+  [ "$#" -eq 1 ] || usage
+  name=$1
+  valid_name "$name" || die "refusing the session name '$(sanitize_printable "$name")'"
+  fleet_home
+  row="$REG/$name"
+  [ ! -L "$row" ] || die "refusing the registry row for $name: a symbolic link"
+  if [ -f "$row" ]; then
+    row_check "$row"
+    printf 'present\t%s\t%s\n' "$(row_get "$row" program)" "$(row_get "$row" owner)"
+    return 0
+  fi
+  [ ! -e "$row" ] || die "the registry row for $name is not a regular file" 2
+  composed="$LAUNCHES/$name/brief.md"
+  [ -f "$composed" ] && [ ! -L "$composed" ] && [ ! -L "$LAUNCHES/$name" ] \
+    || die "no registry row for $name and no launch directory to rebuild it from" 4
+  rs_line=$(sed -n 's/^<!-- mission-control launch: \([^ ]*\) (kind \([^,]*\), scope \([^,]*\), program \([^)]*\)) -->$/\1 \2 \3 \4/p' "$composed" | tail -n 1)
+  [ -n "$rs_line" ] || die "the launch directory of $name carries no provenance line" 4
+  # shellcheck disable=SC2086 # four space-free words by the pattern above
+  set -- $rs_line
+  [ "$1" = "$name" ] || die "the launch directory of $name names another session" 4
+  kind=$2
+  scope=$3
+  program=$4
+  valid_program "$program" || die "the launch directory of $name names no usable program" 4
+  kind_row "$kind" || die "the launch directory of $name names an unknown kind" 4
+  valid_scope "$scope" || die "the launch directory of $name names no usable scope" 4
+  owner="mission-control:$program"
+  profile=$K_PROFILE
+  backend=stream-json
+  handle=$name
+  tier=-
+  ovr_reserved=0
+  cwd=$(cat "$FH/streamjson/$name/cwd" 2>/dev/null) || cwd=''
+  case $cwd in /*) ;; *) cwd=- ;; esac
+  launched=$(date +%s)
+  token=$(new_token)
+  private_dir "$REG"
+  name_lock "$name"
+  if [ -e "$row" ] || [ -L "$row" ]; then
+    name_unlock
+    printf 'present\t%s\t%s\n' "$(row_get "$row" program)" "$(row_get "$row" owner)"
+    return 0
+  fi
+  rtmp=$(mktemp "$REG/.restore.XXXXXX") || die "cannot write the registry row for $name"
+  # Written as the launcher writes a reservation (a create, never a rewrite of
+  # a row that is there), then marked launched in place: the supervisor is up.
+  if ! row_write "$rtmp" "$token" launching; then
+    rm -f "$rtmp"
+    die "cannot write the registry row for $name"
+  fi
+  if ! ln "$rtmp" "$row" 2>/dev/null; then
+    rm -f "$rtmp"
+    die "cannot restore the registry row for $name"
+  fi
+  rm -f "$rtmp"
+  row_write "$row" "$token" launched || die "cannot mark the restored registry row for $name launched"
+  name_unlock
+  printf 'restored\t%s\t%s\n' "$program" "$owner"
+}
+
 cmd_kinds() {
   [ "$#" -eq 0 ] || usage
   for k in $KINDS; do
@@ -1774,6 +1846,7 @@ case $verb in
   unwait) cmd_unwait "$@" ;;
   bound) cmd_bound "$@" ;;
   list) cmd_list "$@" ;;
+  restore) cmd_restore "$@" ;;
   kinds) cmd_kinds "$@" ;;
   *) usage ;;
 esac

@@ -2881,6 +2881,55 @@ cmd__frame_check() {
   fi
 }
 
+# recover_owner <worker> <dir> — keep a mission control worker's owner across a
+# recover. The relaunch registers the dispatch under PLANWRIGHT_TOWER_ID, so a
+# recover run by anyone else (a shell, a tower, another program's mission
+# control) would otherwise record that identity, or none, and leave the worker
+# with no program for its prompts to be routed to. The owner is the launcher's
+# registry row (rebuilt from the launch directory when it is gone), else the
+# one the dispatch record already holds; a worker neither places is raised once
+# to the hub as unowned. Only a mission-control launch (an `mc-` name) has a
+# row, so any other worker recovers as it always did.
+recover_owner() {
+  case $1 in
+    mc-*) ;;
+    *) return 0 ;;
+  esac
+  ro_tab=$(printf '\t')
+  ro_owner=''
+  ro_out=$(/bin/sh "$script_dir/mission-control-launch.sh" restore "$1" </dev/null 2>&1)
+  case $ro_out in
+    present"$ro_tab"* | restored"$ro_tab"*)
+      ro_owner=${ro_out##*"$ro_tab"}
+      ;;
+    *) printf '%s\n' "$me: $ro_out" >&2 ;;
+  esac
+  if [ -z "$ro_owner" ]; then
+    ro_owner=$(/bin/sh "$FS" registry 2>/dev/null </dev/null | awk -F '\t' -v h="$1" '$2 == h { o = $4 } END { print o }')
+  fi
+  case $ro_owner in
+    '' | - | unknown-owner | *[!A-Za-z0-9._:-]*) ro_owner='' ;;
+  esac
+  if [ -n "$ro_owner" ]; then
+    PLANWRIGHT_TOWER_ID=$ro_owner
+    export PLANWRIGHT_TOWER_ID
+    return 0
+  fi
+  [ ! -e "$2/unowned-raised" ] || return 0
+  ro_hub=$(/bin/sh "$script_dir/config-get.sh" mission_control_escalation_hub 2>/dev/null </dev/null) || ro_hub=''
+  case $ro_hub in
+    '' | none) return 0 ;;
+  esac
+  if /bin/bash "$script_dir/mc-event.sh" emit --program "$ro_hub" -- mission-control-escalated "$1" \
+    "worker $1 was recovered and no program can place it (no registry row, no launch directory and no owner on its dispatch record); it is unowned" \
+    >/dev/null </dev/null; then
+    : >"$2/unowned-raised"
+  else
+    printf '%s\n' "$me: could not raise the unowned worker $1 to the hub program $ro_hub" >&2
+  fi
+  return 0
+}
+
 cmd_recover() {
   [ $# -ge 1 ] || usage
   worker=$1
@@ -2976,6 +3025,8 @@ cmd_recover() {
     printf '%s\n' "$me: no usable session_id for $worker; halt (REQ-E1.5)" >&2
     exit 4
   fi
+
+  recover_owner "$worker" "$dir"
 
   rm -f "$dir/result"
   if [ $# -gt 0 ]; then
