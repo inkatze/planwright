@@ -2249,5 +2249,5 @@ amends REQ-I1.1, so it is meaning-class.
 
 Class: meaning
 Lens-pass: Amendment 17, delta-scoped lens review above (spec lens set; every finding dispositioned)
-Anchor: `6fd284f9aca1bb7c9953e8bb4345af6b24cc44b0` — computed as
+Anchor: `5478480f1980ef8a402bb47b34279fa53e7c5407` — computed as
 `scripts/spec-anchor.sh specs/mission-control`

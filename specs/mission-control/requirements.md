@@ -1709,7 +1709,7 @@ the runner works, never a list that grows and is forgotten.
   the amendment kickoff): an opt-in `auto_merge` setting, off by default and
   on for planwright (REQ-R1.1 to REQ-R1.7, D-74 to D-79, Tasks 90 to 97);
   REQ-I1.1 gains the exception, with an amendment note on the Out of scope
-  merge line; spec PRs, collaborative and work repositories stay
+  merge line, REQ-I1.7 and D-26; spec PRs, collaborative and work repositories stay
   the operator's merge.
 
 ## Sources
