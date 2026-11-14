@@ -30,3 +30,7 @@ steps:
     kind: skill
     target: self-review
     args: --nested
+  - id: pr-agent-pr
+    kind: skill
+    target: bot-review
+    args: --reviewer pr-agent --nested

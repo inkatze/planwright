@@ -108,7 +108,8 @@
 #                 end head is --head, retired once a higher run holds a
 #                 passed, applied, or `resume`-skipped record of the same
 #                 step id ending there (a skip only when the record it names
-#                 would qualify for lookup resume). Records are read as lookup reads
+#                 would qualify for lookup resume; a pr-agent-pr one also
+#                 retires a limited cubic-pr). Records are read as lookup reads
 #                 them, a run's order taken from its directory: a malformed
 #                 record retires nothing and, recording limited (or, in the
 #                 attempt, anything; or any outcome but passed, applied,
@@ -1373,7 +1374,10 @@ function ref() {
 # limit_open(i) holds for each of the NL limited records still unretired, LK[i]
 # naming it. A malformed limited record counts and retires nothing.
 AWK_LIMIT='
-function retire(s, r) { if (!(s in last) || r > last[s]) last[s] = r }
+function retire1(s, r) { if (!(s in last) || r > last[s]) last[s] = r }
+# A pr-agent-pr pass also retires cubic-pr: PR-Agent is the bot review when
+# cubic refuses, so its pass settles what a limited cubic-pr left open.
+function retire(s, r) { retire1(s, r); if (s == "pr-agent-pr") retire1("cubic-pr", r) }
 function limit_scan(    s, r, q) {
   if (R_KIND != "step" || F["end-head"] != H) return
   if (F["outcome"] == "limited") {
