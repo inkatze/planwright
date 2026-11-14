@@ -2697,32 +2697,44 @@ u=$(srl new-run)
 lrec "$u" post-pr cubic-pr limited "$HX_A"
 v=$(srl new-run)
 lrec "$v" post-pr pr-agent-pr passed "$HX_B"
-srl lookup limited --head "$HX_A" >/dev/null
-verdict "a pr-agent-pr pass on a different head does not retire the limited cubic-pr" "retired"
+if srl lookup limited --head "$HX_A" >/dev/null; then
+  ok "a pr-agent-pr pass on a different head does not retire the limited cubic-pr"
+else
+  fail "a pr-agent-pr pass on a different head does not retire the limited cubic-pr: the limited record was retired"
+fi
 
 lim_wt
 u0=$(srl new-run)
 lrec "$u0" post-pr pr-agent-pr passed "$HX_A"
 u=$(srl new-run)
 lrec "$u" post-pr cubic-pr limited "$HX_A"
-srl lookup limited --head "$HX_A" >/dev/null
-verdict "a pr-agent-pr pass from an earlier run does not retire a later limited cubic-pr" "retired"
+if srl lookup limited --head "$HX_A" >/dev/null; then
+  ok "a pr-agent-pr pass from an earlier run does not retire a later limited cubic-pr"
+else
+  fail "a pr-agent-pr pass from an earlier run does not retire a later limited cubic-pr: the limited record was retired"
+fi
 
 lim_wt
 u=$(srl new-run)
 lrec "$u" post-pr review limited "$HX_A"
 v=$(srl new-run)
 lrec "$v" post-pr pr-agent-pr passed "$HX_A"
-srl lookup limited --head "$HX_A" >/dev/null
-verdict "a pr-agent-pr pass retires only cubic-pr, never another limited step" "retired"
+if srl lookup limited --head "$HX_A" >/dev/null; then
+  ok "a pr-agent-pr pass retires only cubic-pr, never another limited step"
+else
+  fail "a pr-agent-pr pass retires only cubic-pr, never another limited step: the limited record was retired"
+fi
 
 lim_wt
 u=$(srl new-run)
 lrec "$u" post-pr cubic-pr limited "$HX_A"
 v=$(srl new-run)
 lrec "$v" post-pr pr-agent-pr failed "$HX_A"
-srl lookup limited --head "$HX_A" >/dev/null
-verdict "a failed pr-agent-pr leaves the limited cubic-pr unretired" "retired"
+if srl lookup limited --head "$HX_A" >/dev/null; then
+  ok "a failed pr-agent-pr leaves the limited cubic-pr unretired"
+else
+  fail "a failed pr-agent-pr leaves the limited cubic-pr unretired: the limited record was retired"
+fi
 
 # --- heads: the latest head move at a point of a run (REQ-A1.6, REQ-D1.12) -------------
 lim_wt
