@@ -1,0 +1,1 @@
+match ^mc-goals: usage: mc-goals\.sh set\|attach\|landed\|confirm\|run\|evidence\|verify\|show\|list\|watch --program <p> \.\.\. \(mc-goals\.sh --help\)$
