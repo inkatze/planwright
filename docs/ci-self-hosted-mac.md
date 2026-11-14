@@ -128,11 +128,12 @@ fork.
 
 ## One job at a time, and the shard count
 
-A runner takes one job at a time, so the self-hosted path runs the suite as a
-single shard (`[1]`) instead of the hosted path's four. Four shards on one
-runner would run one after another and repeat the setup each time. One shard
-already uses every core, because `scripts/run-tests.sh` runs as many test
-files at once as the machine has cores.
+The self-hosted path runs the same four shards (`[1, 2, 3, 4]`) as the hosted
+path, so the four Mac runners take one shard each and no single job has to fit
+the whole suite inside its timeout (one shard on one runner needed about 90
+minutes). `scripts/run-tests.sh` runs as many test files at once as the
+machine has cores, so a runner that holds several shards at once splits its
+cores between them; each shard's job timeout leaves room for that.
 
 Estimate, from the last green `ci` run before this change (no queueing): the
 four hosted shards took 18, 24, 9 and 22 minutes on 3-core hosted Macs, about
@@ -146,8 +147,7 @@ Macs. This is an estimate; the first self-hosted runs measure it.
 More runner instances on the Mac do not add compute. Every instance runs as
 `gharunner`, and the suite's parallel ticket pool is per user, so the
 instances share one pool of 16. A second instance would only stop two pull
-requests' runs from waiting on each other. If it is added, raise the
-self-hosted shard count in the `mac` step to match. The Mac's other work (the
+requests' runs from waiting on each other. The Mac's other work (the
 fleet account's workers) competes with CI for the same cores.
 
 The runner app is persistent, not ephemeral: an ephemeral runner needs a
