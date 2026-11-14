@@ -333,7 +333,9 @@ runnable instance of the capability-vs-style boundary.
 
 Core ships behavior-identical: `steps_convergence: [polish]` (a single
 `/polish --nested` pass) and every other point's list empty. The core
-catalog (`config/steps.yaml`) seeds the `polish` and `self-review` steps.
+catalog (`config/steps.yaml`) seeds the `polish`, `self-review` and `pr-agent-pr` steps. The last runs
+`/bot-review --reviewer pr-agent --nested` and retires a `limited` `cubic-pr`
+record on the same head.
 
 A step is a skill or user command, a shell command, or a prompt. Declare a
 step once in a catalog, then name it in any layer's list. Here a per-user

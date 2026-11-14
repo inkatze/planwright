@@ -113,7 +113,9 @@ backend gives a fresh session. Every step runs in the unit's worktree.
 **Point lists (REQ-B1.3).** One flat key per point, `steps_<point>` with
 hyphens as underscores (the unwired points included), holds an inline flow
 list of step ids. `[]` resolves to no steps and is not malformed. Core ships
-`steps_convergence: [polish]` and every other key empty. Steps run serially
+`steps_convergence: [polish]` and every other key empty; its catalog seeds
+`polish`, `self-review` and `pr-agent-pr` (`/bot-review --reviewer pr-agent
+--nested`, the bot review that stands in for a refused `cubic-pr`). Steps run serially
 in list order (D-18); a list naming an id twice is malformed, as is
 `hosting: continue` at the first position or immediately after a command
 step hosted `isolated` (a runner subprocess records no session to attach to)
@@ -493,7 +495,10 @@ a `halted` or `failed` step. Either flip point also refuses on an
 **unretired `limited` record** ending on that head, from any run in the
 flipping worktree's cache, earlier flip attempts included; it retires once a
 later run holds a `passed`, `applied`, or `resume`-skipped record of the
-same step id ending there. **The flip targets the head the list ends on**,
+same step id ending there. One substitution holds: a `pr-agent-pr` record
+of those outcomes in a later run, ending on that head, also retires a
+`cubic-pr` `limited` record, since PR-Agent's review is the bot review when
+cubic refuses; a record ending on another head retires nothing. **The flip targets the head the list ends on**,
 and the flip's own checks (the ready-guard's currency check for a unit PR,
 the CI gate for the spec PR) check that head. This doctrine authorizes no
 flip.

@@ -2672,6 +2672,62 @@ srl lookup limited --head nothex >/dev/null 2>&1
 [ $? -eq 2 ]
 verdict "lookup limited refuses a malformed head" "not exit 2"
 
+# --- a PR-Agent pass retires a limited cubic-pr on the same head ------------------------
+lim_wt
+u=$(srl new-run)
+lrec "$u" post-pr cubic-pr limited "$HX_A"
+out=$(srl lookup limited --head "$HX_A") && printf '%s\n' "$out" | grep -q "${TAB}cubic-pr$"
+verdict "a limited cubic-pr blocks the head" "out=$out"
+flip "$HX_A"
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && grep -Eq "^state=failure$" "$GH_STUB_LOG"
+verdict "a limited cubic-pr fails the flip status" "rc=$ST_RC"
+v=$(srl new-run)
+lrec "$v" post-pr pr-agent-pr passed "$HX_A"
+srl lookup limited --head "$HX_A" >/dev/null
+[ $? -eq 3 ]
+verdict "a later pr-agent-pr pass on the same head retires the limited cubic-pr" "not exit 3"
+flip "$HX_A"
+lstate "$HX_A"
+[ "$ST_RC" -eq 0 ] && grep -Eq "^state=success$" "$GH_STUB_LOG"
+verdict "the flip status turns to success once pr-agent-pr passed" "rc=$ST_RC $(cat "$GH_STUB_LOG")"
+
+lim_wt
+u=$(srl new-run)
+lrec "$u" post-pr cubic-pr limited "$HX_A"
+v=$(srl new-run)
+lrec "$v" post-pr pr-agent-pr passed "$HX_B"
+srl lookup limited --head "$HX_A" >/dev/null
+[ $? -eq 0 ]
+verdict "a pr-agent-pr pass on a different head does not retire the limited cubic-pr" "retired"
+
+lim_wt
+u0=$(srl new-run)
+lrec "$u0" post-pr pr-agent-pr passed "$HX_A"
+u=$(srl new-run)
+lrec "$u" post-pr cubic-pr limited "$HX_A"
+srl lookup limited --head "$HX_A" >/dev/null
+[ $? -eq 0 ]
+verdict "a pr-agent-pr pass from an earlier run does not retire a later limited cubic-pr" "retired"
+
+lim_wt
+u=$(srl new-run)
+lrec "$u" post-pr review limited "$HX_A"
+v=$(srl new-run)
+lrec "$v" post-pr pr-agent-pr passed "$HX_A"
+srl lookup limited --head "$HX_A" >/dev/null
+[ $? -eq 0 ]
+verdict "a pr-agent-pr pass retires only cubic-pr, never another limited step" "retired"
+
+lim_wt
+u=$(srl new-run)
+lrec "$u" post-pr cubic-pr limited "$HX_A"
+v=$(srl new-run)
+lrec "$v" post-pr pr-agent-pr failed "$HX_A"
+srl lookup limited --head "$HX_A" >/dev/null
+[ $? -eq 0 ]
+verdict "a failed pr-agent-pr leaves the limited cubic-pr unretired" "retired"
+
 # --- heads: the latest head move at a point of a run (REQ-A1.6, REQ-D1.12) -------------
 lim_wt
 h=$(srl new-run)
