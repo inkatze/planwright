@@ -1,7 +1,7 @@
 # Guard Coverage — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-11-13
+**Status:** Ready
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -463,7 +463,7 @@ key). A file whose measured execution time is at or over
 `per_file_seconds` times `warn_percent` over 100, and under
 `per_file_seconds`, prints one warning line naming the file, its time and
 the budget. The line is printed in CI and local modes alike and never
-changes the exit status; in CI it is also emitted as a GitHub Actions
+changes the exit status; when `GITHUB_ACTIONS=true` it is also emitted as a GitHub Actions
 `::warning::` annotation so it surfaces on the run summary, not only in the
 job log. A file at or over the budget is reported only by the existing
 verdict. The ranked table marks banded files. The band applies to the
