@@ -132,6 +132,7 @@ rows="$tmp/rows.tsv"
   printf '50\tMERGED\ttrue\tmain\tPlanwright-Task: demo/11\n'
   printf '51\tMERGED\tfalse\tmain\tAdd the line:\\nPlanwright-Task: <spec>/<id>\n'
   printf '52\tMERGED\tfalse\tmain\t\013Planwright-Task: demo/12\\nPlanwright-Task: demo/7\033[31m\n'
+  printf '53\tMERGED\tfalse\tmain\tPlanwright-Task: demo/%s3\n' "$(printf '\013')"
 } >"$rows"
 
 make_stub "$tmp/bin-ok" "$rows"
@@ -153,10 +154,12 @@ printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7;rm -r
   || fail "a malformed body value is not surfaced as refused"
 printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7 forged" \
   || fail "a tab in a body value reached the output as a field break"
-printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7[31m" \
+printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/7?[31m" \
   || fail "a control byte in a body value reached the output"
+printf '%s\n' "$out" | grep -qxF "refused${TAB}Planwright-Task${TAB}demo/?3" \
+  || fail "a control byte inside a value repaired it into a valid one"
 refusals=$(printf '%s\n' "$out" | awk -F"$TAB" '$1 == "refused"' | awk 'END { print NR }')
-[ "$refusals" = 3 ] || fail "another spec's or a placeholder's line was refused ($refusals refusals)"
+[ "$refusals" = 4 ] || fail "another spec's or a placeholder's line was refused ($refusals refusals)"
 echo "ok: a merged PR's body trailer completes its task, anchored and grammar-checked"
 
 out2=$(PATH="$tmp/bin-ok:$PATH" "$STATE" "$spec") || fail "second run exited non-zero"

@@ -569,7 +569,9 @@ base_branch_name() {
 # its author can edit the body after the merge without write access here.
 # An indented line, a mid-line mention and a line inside a fenced block are
 # not declarations. The key matches case-insensitively, as the commit scan's.
-# A tab or control byte never reaches the output, which is a TSV stream.
+# A tab or control byte never reaches the output, which is a TSV stream: one
+# inside a value becomes `?`, so the value is refused as the commit scan would
+# refuse it, never repaired into a valid one.
 pr_body_values() {
   awk -F"$TAB" -v b="$1" '
     function decode(l,  p) {
@@ -589,7 +591,7 @@ pr_body_values() {
         if (l ~ /^ *(```|~~~)/) { fence = !fence; continue }
         if (fence || tolower(l) !~ /^planwright-task:/) continue
         sub(/^[^:]*:[[:space:]]*/, "", l)
-        gsub(/[[:cntrl:]]/, "", l)
+        gsub(/[[:cntrl:]]/, "?", l)
         print l
       }
     }'

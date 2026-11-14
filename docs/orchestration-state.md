@@ -89,8 +89,8 @@ the engine applies them, are:
    `pr-body`): a PR merged into the base from a branch of this repository, not
    a fork, whose body has the line at column 0 outside a fenced block. This
    covers a squash whose message dropped the trailer. A failed body search
-   degrades like a failed PR query, and so does one that returns its full
-   page of 1000 PRs, since older declarations would be cut off unseen.
+   degrades like a failed PR query, and so does one that returns a full page
+   (the search's `--limit`), since older declarations would be cut off unseen.
 
 If none of those marks the task done, the in-progress signals are, in order: a
 **branch carrying commits**, an **open PR** (via `gh`), a **fresh runtime
