@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -44,6 +44,11 @@ The altitude call is D-1: capability plus doctrine, consuming planwright's
 seams rather than minting beside them, with the duty catalog as the one new
 operator-facing extension point (the snapshot adapter contract is a seam
 later planwright bundles implement, D-12).
+
+What mission control records about its own work is checked where it is
+written: a step record, a brief's path, a conflict pair's owner, a check's
+standing and a worker's owner are each made true by the script that owns
+them, never by a session catching the error on a read (D-104).
 
 ## Scope
 
@@ -100,6 +105,11 @@ later planwright bundles implement, D-12).
   carries that spec's edit and the operator's sign-off before it is ready.
 - Program goals reported done only when their own check passes, never
   because their pull requests merged.
+- Records and routing that hold up: step records checked for truth at the
+  write, briefs kept in the program home, conflict pairs raised once to
+  their owners, a refused reviewer's record retired by its stand-in,
+  readiness judging the checks a merge needs, and a recovered worker
+  keeping its owner.
 
 ### Out of scope
 
@@ -457,6 +467,7 @@ later planwright bundles implement, D-12).
   *(Cites: D-25; the invocation seed (Sources), failure mode 8;
   obs:921b93c9, obs:3739da3e, obs:3d66ac61, obs:f63d8644, obs:f2c2c3ae.)*
   *(Amended at Amendment 7, 2026-11-10: a reviewer that only reviews once the pull request is ready is first asked to review while the pull request is a draft; the flip's own conditions are unchanged, and a reviewer that cannot or does not review the draft falls back to a merge-ready report that waits for its pass, REQ-D1.17.)*
+  *(Amended at Amendment 13, 2026-11-14: the CI evidence is the checks the base branch requires plus any check still running; a finished check that is not required does not refuse and is named, REQ-U1.14 to REQ-U1.16.)*
 - **REQ-D1.9** The readiness check SHALL audit the configured cadence
   (every step the configuration requires at the in-run points through
   `post-pr`) at the pull request's head as the forge reports it, and SHALL
@@ -1424,6 +1435,189 @@ the runner works, never a list that grows and is forgotten.
   *(Cites: D-69; REQ-P1.13; the outcome-audit report (2026-11-13,
   Sources).)*
 
+## REQ-U — Records and routing that hold up
+
+Each requirement here closes a failure seen on 2026-11-13 or 2026-11-14 in
+which one of mission control's own records, or the route an event took,
+said something that was not so. Each is checked by the script that owns the
+record, never by a session reading it (D-104).
+
+### Step records say what happened
+
+- **REQ-U1.1** `scripts/step-record.sh write` SHALL run the **step-record
+  truth check** on every step record before it stores one. The truth check
+  is exactly the rules REQ-U1.2 to REQ-U1.5 state. A record that breaks one
+  SHALL be refused with nothing stored, the message naming the flag, the
+  rule and what would pass, and the check SHALL never correct a value
+  itself. Every step record passes through it, so a session vetting another
+  session's `step-record.sh write` call has nothing in the record's times,
+  heads, hosting or evidence left to judge by reading them.
+  *(Cites: D-104, D-105; the reliability scope (2026-11-14, Sources); the
+  overstated-records report (2026-11-14, Sources).)*
+- **REQ-U1.2** For a session step's record (kind `skill` or `prompt`, any
+  outcome but `skipped`), the truth check SHALL refuse a `--start` that
+  carries no `--start-source` and reads as made up: it equals the clock at
+  the moment of writing within the now tolerance (a knob), it lies a whole
+  number of minutes before that clock or before the record's end, or its
+  seconds are `:00`. A command step's record, whose start the step runner
+  stamps itself, is outside this rule.
+  *(Cites: D-105; the overstated-records report (2026-11-14, Sources).)*
+- **REQ-U1.3** `--start-source` SHALL name, in a fixed grammar, the one
+  object the start was read from: a forge object of the unit's pull request
+  (a comment, a review or a check run, by its id), a git commit, or the
+  begin stamp `step-record.sh stamp` took for that step in that run. The
+  source SHALL be stored in the record. A commit and a stamp SHALL be
+  verified at the write (the commit resolves in the worktree's repository
+  and its committer time is the start; the stamp exists for that run, point
+  and step and its time is the start) and a mismatch refused. A forge
+  source SHALL be verified by the cadence audit the readiness check runs
+  (REQ-D1.14): an object that is missing, belongs to another pull request
+  or carries another time is a gap, and a forge that cannot be read is
+  reported as unverified and is not a gap.
+  *(Cites: D-106; REQ-D1.14; the overstated-records report (2026-11-14,
+  Sources).)*
+- **REQ-U1.4** The truth check SHALL refuse a session step's record whose
+  outcome is `passed` while its end head differs from its start head, and
+  one whose outcome is `applied` while the two are equal, a head the write
+  filled in from the worktree counting as given. It SHALL refuse any record
+  whose `--hosting` is `in-session` and whose `--backend` is anything but
+  `in-session`.
+  *(Cites: D-105; the overstated-records report (2026-11-14, Sources).)*
+- **REQ-U1.5** For a `skill` record with outcome `passed` or `applied`, the
+  truth check SHALL refuse a window (end minus start) shorter than the
+  skill window floor (a knob). Where the step's catalog entry names a
+  handoff file, it SHALL also refuse the record unless that file exists in
+  the worktree and was last written inside the window, and SHALL take the
+  record's excerpt from that file and no other. An excerpt that only
+  describes check runs, or a review done by hand, is thereby never the
+  evidence that a skill ran.
+  *(Cites: D-107; the overstated-records report (2026-11-14, Sources).)*
+
+### Briefs outlive the session that wrote them
+
+- **REQ-U1.6** A mission-control launch SHALL keep its brief in the
+  launching program's home before anything is spawned: the brief as given
+  is copied to `kb/briefs/` under the launch's name, readable by its owner
+  only, unless it already lies under that directory, where it is used in
+  place. Every record that names the brief (the launcher's registry row, a
+  launch queued for a later slot or a usage reset, a handover file's list
+  of launches) SHALL name the kept path and never a path under a session's
+  scratch directory. A launch whose brief cannot be kept SHALL be refused,
+  naming the path.
+  *(Cites: D-108; REQ-D1.1, REQ-K1.1; the scratch-brief report (2026-11-13,
+  Sources); obs:53a1587a.)*
+- **REQ-U1.7** A steer message sent to a session a mission control launched
+  SHALL be kept the same way before it is delivered, under the session's
+  name and an ordinal, and the session's steer record SHALL name the kept
+  path. A steer to a session no launcher row names is delivered as before
+  and keeps nothing.
+  *(Cites: D-108; the scratch-brief report (2026-11-13, Sources).)*
+- **REQ-U1.8** Handover verify (`mc-handover.sh verify`) SHALL fail, and
+  the doctor (`mc-config.sh doctor`) SHALL flag, naming it, a brief or
+  steer path held in a durable record that does not exist or lies outside
+  the program home. A launcher's kept copy SHALL be pruned once its launch
+  has been retired for the brief retention period (a knob); a brief a
+  session wrote in place is never pruned.
+  *(Cites: D-108; REQ-P1.8; the scratch-brief report (2026-11-13,
+  Sources).)*
+
+### The conflict radar flags real conflicts, once, to their owners
+
+- **REQ-U1.9** The conflict radar SHALL raise no pair in which one
+  branch's tip is an ancestor of the other's: a stacked pull request and
+  its base, a worker branch that merged in an open pull request's head, a
+  branch another already contains. Such a pair SHALL be counted in the
+  pass's output as lineage and never raised as `conflict-predicted`.
+  *(Cites: D-109; the radar report (2026-11-13, Sources).)*
+- **REQ-U1.10** A pair whose two branch tips are both unchanged since it
+  was last raised SHALL NOT be raised again, on a later pass or after the
+  runner restarts; it is raised again only when a tip has moved and the
+  overlap still holds.
+  *(Cites: D-109; REQ-M1.3; the radar report (2026-11-13, Sources).)*
+- **REQ-U1.11** Each pair SHALL be raised only to the programs that own one
+  of its two branches. The launcher SHALL record, per repository, the
+  branch a repository-changing launch works on and the program that
+  launched it, kept after the session retires for as long as the branch
+  exists on the remote and moved by a reparent (REQ-D1.16); the radar reads
+  that record. A program that owns neither branch SHALL raise nothing for
+  the pair. A pair neither of whose branches has a recorded owner SHALL be
+  raised once, to the escalation hub program where one is configured and
+  otherwise to the one program whose pass claims it first, never to every
+  program that watches the repository.
+  *(Cites: D-110; REQ-D1.10, REQ-D1.16; the radar report (2026-11-13,
+  Sources).)*
+
+### A refused reviewer's record is retired by its stand-in
+
+- **REQ-U1.12** The shipped step catalog SHALL hold a `pr-agent-pr` step
+  that runs the automated-review skill with the PR-Agent reviewer, nested.
+  A `pr-agent-pr` record with outcome `passed` or `applied`, or a `resume`
+  skip standing on one, that ends on a head SHALL retire a `limited` record
+  of `cubic-pr` ending on the same head when it comes from a later run. It
+  SHALL retire no other step's record, and a `pr-agent-pr` record that
+  failed, halted, ends on another head or comes from an earlier run SHALL
+  retire nothing.
+  *(Cites: D-111; the refused-reviewer report (2026-11-13, Sources).)*
+- **REQ-U1.13** A `limited` record so retired SHALL hold nothing: the ready
+  flip's limited-record predicate passes, the cadence audit counts
+  `cubic-pr` as covered at that head where the point's list names it
+  (REQ-D1.14), and the readiness output names the substitution (the step
+  refused, the step that stood in, the head). No operator item SHALL be
+  raised for a reviewer refusal a stand-in has retired.
+  *(Cites: D-111; REQ-D1.14, REQ-F1.15; the refused-reviewer report
+  (2026-11-13, Sources).)*
+
+### Readiness judges the checks a merge needs
+
+- **REQ-U1.14** The readiness walk (`mc-readiness.sh walk`) SHALL refuse on
+  a check only when a check the base branch's ruleset or protection
+  requires is outside SUCCESS, NEUTRAL and SKIPPED or has no run at the
+  head; when any check, required or not, is still queued or running; or
+  when a condition in the program's gate data names the check. A finished
+  check that is not required and is outside the passing set SHALL NOT
+  refuse the walk.
+  *(Cites: D-112; REQ-D1.8, REQ-I1.7; the required-checks report
+  (2026-11-13, Sources); research: GitHub's required-check surfaces
+  (Sources).)*
+- **REQ-U1.15** Every finished check outside the passing set that did not
+  refuse the walk (one the ruleset does not require, or a base-state check
+  the operator bypasses at merge) SHALL be named with its state in the
+  walk's output and in the ready report the operator reads. A ready result
+  that leaves one out is a defect.
+  *(Cites: D-112; REQ-F1.15; the required-checks report (2026-11-13,
+  Sources).)*
+- **REQ-U1.16** Where the required set is empty or cannot be read from the
+  forge, the walk SHALL judge every check, as it did before this
+  amendment, and SHALL say in its output which of the two readings it
+  used.
+  *(Cites: D-112; the required-checks report (2026-11-13, Sources).)*
+- **REQ-U1.17** The readiness watcher and the merge-ready candidate filter
+  SHALL apply the walk's per-check judgment and never the forge's aggregate
+  check state, so a pull request the walk would pass is announced.
+  *(Cites: D-112; REQ-D1.17; the required-checks report (2026-11-13,
+  Sources).)*
+
+### A recovered worker keeps its owner
+
+- **REQ-U1.18** `fleet-streamjson.sh recover` SHALL leave a worker a
+  mission control launched registered to the program that launched it,
+  whatever session or shell runs the recover: its launcher registry row
+  exists afterwards (left alone when present, restored from the copy its
+  launch kept when missing) and its dispatch record still names that
+  program's mission control as owner. A recover that can do neither SHALL
+  refuse before relaunching, naming the worker. A worker no mission control
+  launched recovers as before, with no row invented.
+  *(Cites: D-113; REQ-D1.1, REQ-G1.6; the recovered-worker report
+  (2026-11-13, Sources).)*
+- **REQ-U1.19** A worker's prompt and arrival events SHALL be announced by
+  the keeper of the program its row names or, failing a row, the program
+  its dispatch record names. A worker neither names SHALL be raised once as
+  unowned, to the escalation hub program where one is configured and
+  otherwise to the one program whose keeper claims it first, never by every
+  program's keeper.
+  *(Cites: D-113; REQ-G1.6, REQ-D1.16; the recovered-worker report
+  (2026-11-13, Sources).)*
+
 ## Changelog
 
 - 2026-10-22 — Drafted (`/spec-draft`): the requirement groups and
@@ -1640,6 +1834,31 @@ the runner works, never a list that grows and is forgotten.
   with a miss ledger and a caught-by report (REQ-P1.11 to REQ-P1.14, D-69,
   Tasks 82 and 83), the unrelayed-question case as the audit's first
   fixture.
+- 2026-11-14 — Amendment 13, reliability (meaning-class, Draft on the
+  Active bundle, drafted in the mc-fixes program; not yet walked or signed
+  off): records and routing that hold up (REQ-U1.1 to REQ-U1.19, D-104 to
+  D-113, Tasks 133 to 147). The **step-record truth check** (REQ-U1.1,
+  decision D-105, in `scripts/step-record.sh` under the `write` verb) is
+  the mechanical check Amendment 16 defers step-record writes to: it
+  refuses a made-up start with no source, an outcome that contradicts the
+  record's heads, in-session hosting on another backend, and a skill record
+  too short or without its handoff file (REQ-U1.2 to REQ-U1.5, D-106,
+  D-107). Also: launch briefs and steer messages kept in the program home
+  (REQ-U1.6 to REQ-U1.8, D-108); a conflict radar that skips lineage pairs,
+  raises an unchanged pair once and only to the programs owning its
+  branches (REQ-U1.9 to REQ-U1.11, D-109, D-110); a PR-Agent pass retiring
+  a refused reviewer's `limited` record (REQ-U1.12, REQ-U1.13, D-111);
+  readiness judging the checks the ruleset requires and naming the rest
+  (REQ-U1.14 to REQ-U1.17, D-112); a recovered worker keeping its owner
+  (REQ-U1.18, REQ-U1.19, D-113). D-104 records the altitude. One Goal
+  paragraph and one In scope bullet; notes on REQ-D1.8 (and a pointer in
+  its test entry), D-9, D-10, D-25, D-27 and D-35. Tasks 133, 141 and 145 route the matching edits to the
+  bundles that own step records, the `limited` outcome and worker recovery.
+  Numbering: group U, D-104 onward and Task 133 onward are the range agreed
+  with the other open amendments' drafters on 2026-11-14; the reconcile
+  note in the 2026-11-13 Amendment 15 entry about Amendment 13's numbers is
+  superseded by that agreement. No observation fragment is consumed:
+  obs:53a1587a is cited and left live for the kickoff to confirm.
 
 ## Sources
 
@@ -1877,3 +2096,58 @@ the runner works, never a list that grows and is forgotten.
 - **The duty-ledger report (2026-11-13)** — relayed through the hub, the operator's top priority: "I myself trusted too much you would do that and ended up wasting an entire week at work." Their definition: a duty is something that has to be monitored and fulfilled until completed, whose moment may not be known in advance, so a program must be ready; items may be re-validated recurrently, and the ledger must not be a list that grows and is forgotten. One program's ledger held about twenty open items, mostly past their dates and never re-checked; another had event triggers no script emits. Framed REQ-F1.25, REQ-P1.1 to REQ-P1.6, D-65 to D-67. A pinned altitude claim: the duty ledger is a core, default-on planwright duty, not a per-machine habit.
 - **The crossed-decisions report (2026-11-13)** — relayed through the hub, the operator: "How do you keep crossing decisions? That's been another huge core miss." A handover brief handed the operator a publish step long ruled the hub's, and a settled PR-Agent ruling was re-asked. Framed REQ-P1.7 to REQ-P1.10, D-68.
 - **The outcome-audit report (2026-11-13)** — relayed through the hub, the operator: "Also I have always identified core issues for you; which is a core issue itself." Nothing audits outcomes or learns from a miss the operator caught; a kickoff session's question sat unrelayed about 25 minutes. Framed REQ-P1.11 to REQ-P1.14, D-69.
+- **The reliability scope (2026-11-14)** — the launch brief for Amendment
+  13, approved by the hub: failures seen on 2026-11-13 and 2026-11-14, each
+  to be closed in the script that owns the record or the route. A
+  pinned altitude claim: mission control's prompt vetting catches
+  overstated step records by hand today, and the check makes it mechanical.
+- **The overstated-records report (2026-11-14)** — from this program's
+  mission control: workers writing their own session-step records passed a
+  start taken from the clock at the moment of writing, the clock minus a
+  fixed number of minutes, or a round minute; recorded `passed` over a head
+  that moved; named a backend other than `in-session` for an in-session
+  run; and recorded a polish whose window was seconds long or whose
+  evidence was a list of check runs and a review done by hand. Each was
+  caught, when it was caught, by mission control reading the prompt. A
+  measurement of the step-record caches on the drafting host (2026-11-14,
+  the session-step records with a ran outcome): about one start in seven
+  fell on a round minute and about one in five shared its seconds with its
+  end, against one in sixty by chance; about one polish in eight recorded
+  as passed or applied ran under a minute; all but a handful of the
+  in-session records naming another backend were session steps. Framed
+  REQ-U1.1 to REQ-U1.5, D-105 to D-107.
+- **The scratch-brief report (2026-11-13)** — a hub ruling relayed to this
+  program: launch briefs written under a session's scratch directory die
+  with the session, so a queued launch and a handover's launch list pointed
+  at files that were gone. Framed REQ-U1.6 to REQ-U1.8, D-108.
+- **The radar report (2026-11-13)** — relayed from another program's
+  mission control: the conflict radar flagged a worker branch against the
+  open pull request whose content it had merged in, and raised the same
+  unchanged pairs on every pass in every program watching the repository,
+  including programs owning neither branch. Framed REQ-U1.9 to REQ-U1.11,
+  D-109, D-110.
+- **The refused-reviewer report (2026-11-13)** — an operator ruling given
+  more than once: when the hosted reviewer refuses a pull request on quota,
+  PR-Agent's review is the bot review, and nobody asks again. A refusal
+  left a `limited` record that no step could retire, so the flip held until
+  the point's step list was edited by hand. Framed REQ-U1.12, REQ-U1.13,
+  D-111.
+- **The required-checks report (2026-11-13)** — a release-window check that
+  the ruleset does not require was red while a release was skipped, and the
+  readiness walk refused pull requests the ruleset would merge; the
+  operator's ruling is that a pull request is marked ready once every check
+  has finished and it can merge, or only a check they must bypass holds it,
+  named in the report. The watcher and the merge-ready filter read the
+  forge's aggregate state and stayed silent on the same pull requests.
+  Framed REQ-U1.14 to REQ-U1.17, D-112.
+- **The recovered-worker report (2026-11-13)** — relayed through the hub:
+  recovered workers whose launcher rows were gone were registered with no
+  owner, so their prompt events reached another program's mission control
+  and went unanswered there. Framed REQ-U1.18, REQ-U1.19, D-113.
+- **research: GitHub's required-check surfaces** — verified on 2026-11-14
+  with read-only queries against this repository: the per-check required
+  flag on a pull request's check rollup (the field `gh pr checks
+  --required` filters on) covers rulesets and classic protection, and the
+  branch rules endpoint lists the required contexts by name, which is what
+  shows a required check with no run at the head. Both read with ordinary
+  read access.

@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1421,6 +1421,274 @@ fixed-string check.)*
   pass.
 - **Dependencies:** 76, 82
 - **Citations:** D-69 · REQ-P1.13, REQ-P1.14
+- **Estimated effort:** 1 day
+
+### Task 133 — Custom-steps amendment: the truth check, the start source and the handoff field (routed)
+
+- **Deliverables:** A routed amendment of the `custom-steps` bundle, through
+  its own kickoff, stating what `step-record.sh write` refuses under the
+  step-record truth check (D-105), the `--start-source` grammar, the
+  `stamp` verb and the record's stored source (D-106), the catalog entry's
+  optional handoff-file field and the skill window floor (D-107); the
+  matching text in `doctrine/custom-steps.md`.
+- **Done when:** The `custom-steps` amendment is signed off and merged, and
+  `doctrine/custom-steps.md` names the truth check, the start source and
+  the handoff field.
+- **Dependencies:** none
+- **Citations:** D-105, D-106, D-107, D-22 · REQ-U1.1, REQ-U1.3, REQ-U1.5
+- **Estimated effort:** half day
+
+### Task 134 — The step-record truth check: starts, heads and hosting
+
+- **Deliverables:** in `scripts/step-record.sh`, the truth check inside
+  `write`, run after the grammar checks and before the record is claimed:
+  the three made-up-start signs for a session step with no source, the
+  outcome-against-heads rule for a session step, the hosting-against-backend
+  rule for every record, each refusal naming the flag, the rule and what
+  would pass; the `--start-source` flag with its grammar and the stored
+  field; the `stamp` verb keeping a begin stamp in the run's directory, and
+  the write-time verification of a stamp and of a commit source;
+  `scripts/step-run.sh begin` applying the hosting rule before the step
+  runs; the now-tolerance knob in `config/defaults.yml` with its
+  options-reference row; the skills that have a session write its own step
+  record naming the stamp and the source, inside the instruction budget;
+  tests in `tests/test-step-record.sh` and `tests/test-step-run.sh`.
+- **Done when:** The REQ-U1.1, REQ-U1.2 and REQ-U1.4 test-spec entries'
+  fixtures pass, and the write-time half of REQ-U1.3's; every refusal
+  fixture stores no record; the step runner's own writes pass unchanged; the
+  instruction-budget and options-reference checks pass.
+- **Dependencies:** 133
+- **Citations:** D-105, D-106 · REQ-U1.1, REQ-U1.2, REQ-U1.3, REQ-U1.4
+- **Estimated effort:** 2 days
+
+### Task 135 — The skill window floor and the handoff file
+
+- **Deliverables:** the optional handoff-file field in the step catalog's
+  entry grammar (`scripts/resolve-steps.sh`, `scripts/check-steps.sh`), a
+  worktree-relative path refused when it escapes the worktree; the shipped
+  polish entry naming its audit file; in `scripts/step-record.sh write`, the
+  floor for a `skill` record that passed or applied, and for a step whose
+  entry names a handoff file the existence and written-inside-the-window
+  check and the excerpt read from that file; the floor knob in
+  `config/defaults.yml` with its options-reference row; tests in
+  `tests/test-step-record.sh` and the catalog check's suite.
+- **Done when:** The REQ-U1.5 test-spec entry's fixtures pass; a step with
+  no handoff field gets the floor only; a floor of zero disables the floor
+  and nothing else; the options-reference check passes.
+- **Dependencies:** 133, 134
+- **Citations:** D-107 · REQ-U1.5
+- **Estimated effort:** 1 day
+
+### Task 136 — Forge start sources are verified at the cadence audit
+
+- **Deliverables:** in the cadence audit `scripts/mc-readiness.sh collect`
+  runs (`scripts/step-run.sh audit`, fed the forge read readiness already
+  makes), the check of each judged record's forge start source against the
+  named object: missing, on another pull request or carrying another time
+  is a gap naming the record; an unreadable forge is an unverified note and
+  no gap; the gap shown in the readiness output; tests in
+  `tests/test-step-run-audit.sh` and `tests/test-mc-readiness.sh`.
+- **Done when:** The audit half of the REQ-U1.3 test-spec entry's fixtures
+  pass, with the forge faked in every fixture and no network call in the
+  suite.
+- **Dependencies:** 134
+- **Citations:** D-106 · REQ-U1.3, REQ-D1.14
+- **Estimated effort:** 1 day
+
+### Task 137 — Launch briefs are kept in the program home
+
+- **Deliverables:** in `scripts/mc-kb.sh`, the `briefs` directory created
+  at `init` and kept whatever duties are armed, and a keeping verb that
+  copies a file there owner-only under a given name (or accepts one already
+  there) and prints the kept path, under the knowledge base's containment
+  and lock rules; `scripts/mission-control-launch.sh launch` calling it
+  before anything is spawned, composing from the kept brief, recording the
+  kept path in the registry row and refusing when the brief cannot be kept;
+  `scripts/mc-usage.sh enqueue` keeping the brief when it queues a launch
+  and storing the kept path; tests in `tests/test-mc-kb.sh`,
+  `tests/test-mission-control-launch.sh` and `tests/test-mc-usage.sh`.
+- **Done when:** The REQ-U1.6 test-spec entry's fixtures pass, including a
+  launch whose given brief is deleted right after the call and a queued
+  launch that fires after its scratch directory is gone.
+- **Dependencies:** none
+- **Citations:** D-108 · REQ-U1.6, REQ-K1.5
+- **Estimated effort:** 1.5 days
+
+### Task 138 — Steer messages are kept, and a dangling brief path is refused
+
+- **Deliverables:** `scripts/fleet-streamjson.sh steer` keeping the message
+  through the keeping verb for a session a launcher row names, before
+  delivery, and writing the kept path in the steer record, with a session
+  no row names steered as before; `scripts/mc-handover.sh verify` failing on
+  a brief or steer path in the handover file that is missing or outside the
+  program home; the same listing in `scripts/mc-config.sh doctor`; the
+  pruning of the launcher's kept copies a retention period after their
+  launch retires, with the retention knob in `config/defaults.yml` and
+  `config/mission-control-knobs.tsv`; tests in
+  `tests/test-fleet-streamjson-steer.sh`, `tests/test-mc-handover.sh`,
+  `tests/test-mc-config-doctor.sh` and `tests/test-mc-kb.sh`.
+- **Done when:** The REQ-U1.7 and REQ-U1.8 test-spec entries' fixtures
+  pass; a file a session wrote in place survives every prune; the knob and
+  verbs checks pass.
+- **Dependencies:** 137
+- **Citations:** D-108 · REQ-U1.7, REQ-U1.8, REQ-P1.8
+- **Estimated effort:** 1 day
+
+### Task 139 — The radar skips lineage pairs and raises an unchanged pair once
+
+- **Deliverables:** in `scripts/mc-radar.sh`, the ancestry test before a
+  pair is compared, with skipped pairs printed as lineage lines in
+  `overlap` and counted in `watch`; the raised-pair record keyed on
+  repository, branch names and both tips, kept across a runner restart,
+  pruned only to current tips and not on a pass with a failed repository
+  read; tests in `tests/test-mc-radar.sh`.
+- **Done when:** The REQ-U1.9 and REQ-U1.10 test-spec entries' fixtures
+  pass, the stacked pair and the merged-in pair among them.
+- **Dependencies:** none
+- **Citations:** D-109 · REQ-U1.9, REQ-U1.10, REQ-M1.3
+- **Estimated effort:** 1 day
+
+### Task 140 — The branch-owner record, and pairs raised only to owners
+
+- **Deliverables:** in `scripts/mission-control-launch.sh`, the
+  branch-owner record under the fleet home (repository, branch, program),
+  written under the registry lock when a repository-changing launch gets
+  its worktree, rewritten by `reparent`, kept after `retire` and pruned
+  when the branch is gone from the remote; in `scripts/mc-radar.sh watch`,
+  raising only pairs in which the running program owns a branch, and the
+  once-only raise of a pair with no recorded owner to the escalation hub
+  program or, with none configured, through an exclusive claim; tests in
+  `tests/test-mc-radar.sh`, `tests/test-mission-control-launch.sh` and
+  `tests/test-mission-control-launch-host.sh`.
+- **Done when:** The REQ-U1.11 test-spec entry's fixtures pass with three
+  fixture programs watching one repository.
+- **Dependencies:** 139
+- **Citations:** D-110 · REQ-U1.11, REQ-D1.10, REQ-D1.16
+- **Estimated effort:** 1.5 days
+
+### Task 141 — Quota-handling amendment: a stand-in step retires a limited record (routed)
+
+- **Deliverables:** A routed amendment of the `quota-handling` bundle,
+  through its own kickoff, stating that a `pr-agent-pr` pass on the same
+  head in a later run retires a `limited` record of `cubic-pr` and nothing
+  else (D-111), with the matching sentence where the flip points' evidence
+  is described in `doctrine/custom-steps.md`.
+- **Done when:** The `quota-handling` amendment is signed off and merged,
+  and the doctrine names the one substitution.
+- **Dependencies:** none
+- **Citations:** D-111, D-22 · REQ-U1.12
+- **Estimated effort:** half day
+
+### Task 142 — A PR-Agent pass retires a refused cubic record
+
+- **Deliverables:** the `pr-agent-pr` entry in `config/steps.yaml` with
+  its catalog documentation; in `scripts/step-record.sh`, the one
+  substitution in the limited-record rule that `status` and `lookup
+  limited` share; in `scripts/step-run.sh audit`, counting `cubic-pr`
+  covered at a head where its `limited` record is so retired; in
+  `scripts/mc-readiness.sh`, the substitution named in the output; tests in
+  `tests/test-step-record.sh`, `tests/test-ready-flip.sh`,
+  `tests/test-step-run-audit.sh` and `tests/test-mc-readiness.sh`. The
+  catalog entry and the limited-record rule may already have landed as a
+  flight when this task is picked up; the task then verifies them against
+  REQ-U1.12 and delivers the rest.
+- **Done when:** The REQ-U1.12 and REQ-U1.13 test-spec entries' fixtures
+  pass, whichever change landed each part.
+- **Dependencies:** 141
+- **Citations:** D-111 · REQ-U1.12, REQ-U1.13, REQ-D1.14
+- **Estimated effort:** 1 day
+
+### Task 143 — Readiness reads the required set and judges by it
+
+- **Deliverables:** in `scripts/mc-readiness.sh collect`, the read of which
+  checks the base branch requires (the forge's per-check required flag for
+  the pull request and the branch's required contexts by name), written to
+  the evidence file with each check and as a line saying whether a
+  required set was read, was empty or could not be read; in `walk`, the
+  judgment of D-112 (a required check failed or absent, any check queued
+  or running, a check a gate condition names) with every-check judgment
+  when no set was read, and output lines naming each finished check that
+  did not refuse with its state and whether it is not required or a
+  bypass; `not-red` unchanged in meaning; tests in
+  `tests/test-mc-readiness.sh`.
+- **Done when:** The REQ-U1.14, REQ-U1.15 and REQ-U1.16 test-spec entries'
+  fixtures pass, the empty-set and unreadable-set fixtures among them, with
+  the forge faked and no network call in the suite.
+- **Dependencies:** none
+- **Citations:** D-112 · REQ-U1.14, REQ-U1.15, REQ-U1.16, REQ-D1.8
+- **Estimated effort:** 1.5 days
+
+### Task 144 — The watcher, the merge-ready filter and the ready report use the walk's judgment
+
+- **Deliverables:** `scripts/mc-readiness.sh watch` and the candidate
+  filter of `scripts/mc-merge-ready.sh` calling the walk's per-check
+  judgment in place of the snapshot's aggregate check state, with whatever
+  per-check columns `scripts/mc-adapter-forge.sh` must add to the snapshot
+  for that; the ready report and the merge recommendation (REQ-F1.15)
+  naming each check the walk reported and did not refuse on; tests in
+  `tests/test-mc-readiness.sh` and `tests/test-mc-merge-ready.sh`.
+- **Done when:** The REQ-U1.17 test-spec entry's fixtures pass, and the
+  REQ-U1.15 entry's report fixture.
+- **Dependencies:** 143
+- **Citations:** D-112 · REQ-U1.15, REQ-U1.17, REQ-F1.15
+- **Estimated effort:** 1 day
+
+### Task 145 — Execution-backends amendment: a recover keeps the row and the owner (routed)
+
+- **Deliverables:** A routed amendment of the `execution-backends` bundle,
+  through its own kickoff, stating that worker recovery leaves the
+  launcher's registry row and the dispatch record's owner as the launch
+  wrote them, and refuses when it can restore neither (D-113); the matching
+  text in `docs/fleet.md`.
+- **Done when:** The `execution-backends` amendment is signed off and
+  merged, and `docs/fleet.md` states the recover's owner rule.
+- **Dependencies:** none
+- **Citations:** D-113, D-22 · REQ-U1.18
+- **Estimated effort:** half day
+
+### Task 146 — A recover keeps the row and the owner; a worker nobody can place is raised once
+
+- **Deliverables:** in `scripts/mission-control-launch.sh`, the owner-only
+  copy of the registry row kept in the worker's runtime directory,
+  refreshed on every rewrite of the row and removed at `retire`; in
+  `scripts/fleet-streamjson.sh recover`, the row check and restore before
+  the relaunch, the refusal when a mission-control-owned worker has neither
+  row nor copy, and the relaunch registering the dispatch with the owner
+  already recorded and never the caller's identity; in
+  `scripts/mc-keeper.sh`, routing by the row's program, else the dispatch
+  record's, and the once-only unowned raise to the escalation hub program
+  or a claimed program, with the every-keeper fallback removed; the
+  unowned event class row in `config/mc-event-classes.tsv` and the duty's
+  trigger list; tests in `tests/test-fleet-streamjson.sh`,
+  `tests/test-mc-keeper.sh` and `tests/test-mission-control-launch.sh`.
+  Parts of this may already have landed as a flight when the task is
+  picked up; the task then verifies them against REQ-U1.18 and REQ-U1.19
+  and delivers the rest, the owner kept across a recover run with another
+  identity among it.
+- **Done when:** The REQ-U1.18 and REQ-U1.19 test-spec entries' fixtures
+  pass, whichever change landed each part; the event registry check passes.
+- **Dependencies:** 145
+- **Citations:** D-113 · REQ-U1.18, REQ-U1.19, REQ-G1.6
+- **Estimated effort:** 1.5 days
+
+### Task 147 — Skill, guide and doctrine for the reliability amendment
+
+- **Deliverables:** The skill's prose, inside the instruction budget
+  (D-21): a step-record write is allowed or denied as a call and its values
+  are not vetted by reading, briefs and steer messages go through the
+  launcher and are named by their kept path, a refused reviewer is covered
+  by its stand-in without an operator item; the operator guide's sections
+  on what the ready report's not-required and bypass lines mean and on
+  where briefs are kept; `doctrine/mission-control.md` and its README row
+  updated for D-104 to D-113; the launch-brief cadence section naming the
+  stamp and the start source for the steps a worker records itself.
+- **Done when:** The instruction-budget check passes; the guide names no
+  duty, knob or verb the catalog, options reference or verbs list lacks;
+  the jargon check passes over the new skill and guide text; the doctrine
+  index check passes.
+- **Dependencies:** 134, 135, 138, 140, 142, 144, 146
+- **Citations:** D-21, D-104, D-105, D-108, D-111, D-112, D-113 · REQ-U1.1,
+  REQ-U1.6, REQ-U1.13, REQ-U1.15
 - **Estimated effort:** 1 day
 
 ## Awaiting input
