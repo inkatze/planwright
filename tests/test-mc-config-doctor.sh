@@ -443,7 +443,10 @@ printf '%s\n' "$tracked_save" >"$tracked"
 sentinel="$tmp/sentinel-ran"
 # shellcheck disable=SC2016 # the metacharacters are the fixture
 printf 'mission_control_stall_window: 20m # interim `touch %s` $(touch %s) ; touch %s\n' "$sentinel" "$sentinel" "$sentinel" >"$mlocal"
+# shellcheck disable=SC2016 # the metacharacters are the fixture
+printf '# adopter note `touch %s` $(touch %s) ; touch %s\nmission_control_handover_context: 55\n' "$sentinel" "$sentinel" "$sentinel" >"$adopter/planwright.yml"
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m \`touch $sentinel\` \$(touch $sentinel); touch $sentinel" --subject stall --source "operator, fixture" --date 2026-01-01
+expect_rc "REQ-A1.9: drift: a rule carrying metacharacters is stored" 0
 rules_file="$drift_home/rules.yaml"
 rules_before=$(sum "$rules_file")
 layer_before=$(sum "$adopter/planwright.yml")
@@ -451,12 +454,12 @@ local_before=$(sum "$mlocal")
 cfg doctor --program drift
 expect_rc "REQ-A1.9: drift: metacharacters in a rule and a comment still audit" 0
 expect_out "REQ-A1.9: drift: a comment with metacharacters is still a finding" "marker interim"
-expect_out "REQ-A1.9: drift: a rule with metacharacters is still a finding" "rule-knob${tab}"
+expect_out "REQ-A1.9: drift: a rule with metacharacters is still a finding" "rule-knob${tab}r-10${tab}mission_control_stall_window${tab}30m${tab}20m"
 if [ ! -e "$sentinel" ]; then ok "REQ-A1.9: drift: rule text and comments run nothing"; else fail "drift: the audit executed rule or comment text"; fi
-if [ -e "$rules_file" ] && [ "$(sum "$rules_file")" = "$rules_before" ] && [ "$(sum "$adopter/planwright.yml")" = "$layer_before" ] && [ "$(sum "$mlocal")" = "$local_before" ]; then
+if [ "$rules_before" != absent ] && [ "$layer_before" != absent ] && [ "$(sum "$rules_file")" = "$rules_before" ] && [ "$(sum "$adopter/planwright.yml")" = "$layer_before" ] && [ "$(sum "$mlocal")" = "$local_before" ]; then
   ok "REQ-A1.9: drift: the rule file and every layer are unchanged after the audit"
 else fail "drift: the audit changed a rule file or a layer"; fi
-rm -f "$mlocal"
+rm -f "$mlocal" "$adopter/planwright.yml"
 
 cfg doctor --program gamma
 expect_rc "doctor on a program that is not configured" 3
