@@ -153,7 +153,18 @@ case $refusal in
   *) fail "[refusal] the wrong-branch text does not name the accepted form: $refusal" ;;
 esac
 pass "[refusal] the wrong-branch text names the accepted form"
+g -C "$clone" switch -q planwright/demo/amendment-3
+mkdir -p "$clone/specs/demo"
+printf '# Requirements\n\nStatus: Ready\n' >"$clone/specs/demo/requirements.md"
+g -C "$clone" add specs/demo/requirements.md
+g -C "$clone" commit -q -m "mark demo Ready"
+(cd "$clone" && "$SCRIPT" demo) >/dev/null 2>&1 || fail "[amendment] a Ready spec's amendment branch refused to push"
+pass "[amendment] a Ready spec's amendment branch pushes, as an Active one does"
 g -C "$clone" switch -q planwright/demo/spec
+
+skill="$here/../skills/spec-kickoff/SKILL.md"
+grep -q 'planwright/<spec>/amendment-<n>' "$skill" || fail "[doc] /spec-kickoff does not name the amendment branch"
+pass "[doc] /spec-kickoff names the amendment branch"
 
 # --- the adopter's pre-push hook runs under the caller's locale ----------------
 # The script parses under LC_ALL=C, but the hook is the adopter's: a C locale
