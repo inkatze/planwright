@@ -8,6 +8,8 @@ unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 RESOLVER="$REPO_ROOT/scripts/resolve-root.sh"
 SH=$(command -v dash || echo /bin/sh)
 TAB=$(printf '\t')
@@ -446,16 +448,18 @@ assert_eq "init: a refused ignore file leaves no marker" absent \
 # A root --init cannot create a temp file in is refused and left unmarked.
 # The publish race (a marker appearing between the check and the link) is
 # accepted by design and not staged here: it needs a second writer mid-run.
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$repo/readonly"
-  chmod a-w "$repo/readonly"
+mkdir -p "$repo/readonly"
+chmod a-w "$repo/readonly"
+if hermetic_access_denied w "$repo/readonly"; then
   set_layer "$local_cfg" "readonly"
   run spec "$repo" --init
   assert_eq "init: a read-only root is refused" 5 "$rc"
   assert_eq "init: a read-only root gains no marker" absent \
     "$(test -e "$repo/readonly/planwright-spec-root.yml" && echo present || echo absent)"
-  chmod u+w "$repo/readonly"
+else
+  echo "skip: init read-only root: the running user still writes $repo/readonly under a-w"
 fi
+chmod u+w "$repo/readonly"
 
 # The marker's fields are validated, not just its existence.
 mkdir -p "$repo/checked"
