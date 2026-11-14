@@ -1,7 +1,7 @@
 # Model Allocation — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-08-25
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -48,6 +48,15 @@ Out-of-enum model, effort, and command values, malformed numeric knob values
 by-layer policy exactly as the existing resolver tests
 (`tests/test-fleet-resource-select.sh`, fixture style reused) specify; the command
 enum's closed set is asserted so review-sequence disjointness keeps its carrier.
+
+### REQ-A1.5 — review steps ship Sonnet [test]
+
+`tests/test-review-step-sonnet-default.sh` reads the shipped defaults and asserts the
+two review-step model keys are `sonnet` and every other per-step key, including the two
+review effort keys, is `inherit`; it fails when a value is changed (mutation checked
+once). A resolver fixture with defaults only asserts the review step resolves to
+inheritance, with a ledger row, while `execute_step` ships `inherit`. The Task 5
+more-expensive and cheaper step fixtures keep passing.
 
 ## REQ-B — Launch-point coverage
 
@@ -218,6 +227,12 @@ behavior (joint coverage with REQ-A1.2's golden baseline).
 
 `check-options-reference` passes with every introduced knob present; the guard run in
 CI is the enforcement.
+
+### REQ-E1.3 — docs state the review-step posture [test]
+
+The docs check asserts `docs/allocation.md` names both review keys as shipping
+`sonnet`, the `execute_step` gate, and that quality is unmeasured and the saving an
+estimate; the shipped-posture list matches `config/defaults.yml`.
 
 ## REQ-F — Observability and feedback
 
