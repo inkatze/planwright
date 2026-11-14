@@ -30,6 +30,13 @@ the mission-control readiness check treats a skipped or absent macOS job as
 unmet. To get macOS green on a draft before the ready flip, add the
 `ci-macos` label first, wait for green, then mark the pull request ready.
 
+The ready flip's own run then skips the suite jobs, macOS included, when an
+earlier run already passed every one of them on the same head, base and
+`ci.yml` (`scripts/ci-reuse.sh`, called by the `plan` job); `check` names the
+run it stands on. A base that moved since, or anything short of that full
+match, runs every job again. A skipped macOS job never hides a pass or a
+failure of the same job at that head from the readiness check.
+
 ## How a run picks its runner
 
 The `plan` job's `mac` step decides, and prints its reason in the run

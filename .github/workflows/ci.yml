@@ -197,11 +197,18 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # actions: read lets the reuse lookup list this workflow's runs, their
+    # jobs and their artifacts.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
       mac_run: ${{ steps.mac.outputs.run }}
       mac_runner: ${{ steps.mac.outputs.runner }}
       mac_shards: ${{ steps.mac.outputs.shards }}
+      reuse_run: ${{ steps.reuse.outputs.run_id }}
+      suite_run: ${{ steps.reuse.outputs.suite_run }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
@@ -209,6 +216,47 @@ jobs:
         run: |
           shards=$(/bin/bash scripts/run-tests.sh --plan-shards)
           echo "shards=$shards" >>"$GITHUB_OUTPUT"
+
+      # A ready flip reuses the suite jobs (test, alpine-suite, macos-suite,
+      # macos-smoke) of a prior run that tested the same head, base and
+      # workflow file with every one of them green, instead of running them
+      # all again (scripts/ci-reuse.sh). Each pull_request run names what it
+      # tests in an artifact, read off the merge commit the checkout holds;
+      # the lookup matches that name exactly, and anything short of a full
+      # match, a failed or slow lookup included, runs every job. lint always
+      # runs, and the check job names the reused run.
+      - id: evidence
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if name=$(/bin/sh scripts/ci-reuse.sh evidence --head "$HEAD_SHA"); then
+            printf '%s\n' "$name" >"$RUNNER_TEMP/ci-evidence.txt"
+            echo "name=$name" >>"$GITHUB_OUTPUT"
+          else
+            echo "::warning::this run names no evidence, so a ready flip after it runs every job"
+          fi
+
+      - if: steps.evidence.outputs.name != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: ${{ steps.evidence.outputs.name }}
+          path: ${{ runner.temp }}/ci-evidence.txt
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+      - id: reuse
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          EVIDENCE: ${{ steps.evidence.outputs.name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          /bin/sh scripts/ci-reuse.sh lookup --repo "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --event "$EVENT" --action "$ACTION" \
+            --evidence "$EVIDENCE" --matrix-job test --matrix-job alpine-suite \
+            --matrix-job macos-suite --job macos-smoke >>"$GITHUB_OUTPUT"
 
       # Where the macOS jobs run (docs/ci-self-hosted-mac.md). The offload
       # Mac's self-hosted runner takes them only when the repository variable
@@ -225,7 +273,8 @@ jobs:
       # pull request that is not a draft, run them; a draft runs them only
       # while it carries the `ci-macos` label, the label the ready-flip
       # readiness check names when a head's macOS jobs were skipped. The Linux
-      # jobs run on every push regardless. Both macOS jobs carry
+      # jobs run on every push regardless, bar a ready flip the reuse step
+      # above found already proven, which runs none of them. Both macOS jobs carry
       # `if: needs.plan.outputs.mac_run == 'true'`, the one job-level condition
       # check:workflow-posture accepts on them, and the check job below
       # accepts their skip only when that output is not true.
@@ -236,9 +285,13 @@ jobs:
           LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'ci-macos') }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           SWITCH: ${{ vars.PLANWRIGHT_MAC_RUNNER }}
+          REUSE_RUN: ${{ steps.reuse.outputs.run_id }}
         run: |
           run=true
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ] && [ "$LABELLED" != true ]; then
+            run=false
+          fi
+          if [ -n "$REUSE_RUN" ]; then
             run=false
           fi
           runner=hosted
@@ -254,7 +307,9 @@ jobs:
             reason="a $EVENT from '$HEAD_REPO', not $GITHUB_REPOSITORY, stays on hosted macOS"
           fi
           shards='[1, 2, 3, 4]'
-          if [ "$run" = true ]; then
+          if [ -n "$REUSE_RUN" ]; then
+            msg="macOS jobs: skipped; run $REUSE_RUN passed them on this head, base and workflow"
+          elif [ "$run" = true ]; then
             msg="macOS jobs: $runner runner, $shards shards ($reason)"
           else
             msg="macOS jobs: skipped on a draft; label it ci-macos or mark it ready"
@@ -271,6 +326,7 @@ jobs:
   test:
     name: test (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     needs: plan
+    if: ${{ needs.plan.outputs.suite_run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -319,25 +375,44 @@ jobs:
   # skips every planned shard, which fails it too. Then it runs the timing
   # gate (`check:test-time` in `mise run check`) over every Linux shard's
   # report at once: the gate needs one row per test file, which only the union
-  # holds, and its budgets are the Ubuntu runner's.
+  # holds, and its budgets are the Ubuntu runner's. On a ready flip that
+  # reuses a prior run (the plan job's reuse step), the suite jobs are
+  # skipped, the gate stands on that run's evidence and names it, and the
+  # timing gate, which that run's own check job passed, does not run again.
   check:
     needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - env:
+      - id: gate
+        env:
           LINT_RESULT: ${{ needs.lint.result }}
           PLAN_RESULT: ${{ needs.plan.result }}
           TEST_RESULT: ${{ needs.test.result }}
           MAC_RUN: ${{ needs.plan.outputs.mac_run }}
+          REUSE_RUN: ${{ needs.plan.outputs.reuse_run }}
           MACOS_RESULT: ${{ needs.macos-suite.result }}
           MACOS_SMOKE_RESULT: ${{ needs.macos-smoke.result }}
           ALPINE_RESULT: ${{ needs.alpine-suite.result }}
         run: |
           echo "lint: $LINT_RESULT; plan: $PLAN_RESULT; test: $TEST_RESULT"
           echo "mac_run: $MAC_RUN; macos-suite: $MACOS_RESULT; macos-smoke: $MACOS_SMOKE_RESULT"
-          echo "alpine-suite: $ALPINE_RESULT"
+          echo "alpine-suite: $ALPINE_RESULT; reuse_run: ${REUSE_RUN:-none}"
+          # Only every suite job skipped stands on the reused run; one that
+          # ran is judged on its own result.
+          if [ -n "$REUSE_RUN" ] && [ "$TEST_RESULT" = skipped ] \
+            && [ "$ALPINE_RESULT" = skipped ] && [ "$MACOS_RESULT" = skipped ] \
+            && [ "$MACOS_SMOKE_RESULT" = skipped ]; then
+            url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN"
+            msg="suite jobs: reused from run $REUSE_RUN (same head, base and workflow): $url"
+            echo "$msg"
+            echo "$msg" >>"$GITHUB_STEP_SUMMARY"
+            TEST_RESULT=success
+            ALPINE_RESULT=success
+            MACOS_RESULT=success
+            MACOS_SMOKE_RESULT=success
+          fi
           # A macOS job is skipped only on a draft run that planned no macOS;
           # the ready-flip readiness check still wants them green on the head.
           if [ "$MAC_RUN" = false ] && [ "$MACOS_RESULT" = skipped ] \
@@ -349,14 +424,17 @@ jobs:
             && [ "$TEST_RESULT" = success ] && [ "$MACOS_RESULT" = success ] \
             && [ "$MACOS_SMOKE_RESULT" = success ] && [ "$ALPINE_RESULT" = success ]
 
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - if: ${{ needs.plan.outputs.reuse_run == '' }}
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+      - if: ${{ needs.plan.outputs.reuse_run == '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           pattern: timing-report-*
           path: ${{ runner.temp }}/timing
 
-      - run: |
+      - if: ${{ needs.plan.outputs.reuse_run == '' }}
+        run: |
           set --
           for r in "$RUNNER_TEMP"/timing/timing-report-*/timing-report.tsv; do
             set -- "$@" --report "$r"
@@ -483,6 +561,9 @@ jobs:
   alpine-suite:
     name: alpine-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     needs: plan
+    # The one job-level `if:` check:workflow-posture accepts here: the plan
+    # job's verdict, false only on a ready flip reusing a prior run.
+    if: ${{ needs.plan.outputs.suite_run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
