@@ -1545,8 +1545,10 @@ meta-tower session that runs each chosen spec's single-spec step itself,
 under that spec's lock (the `--meta` mode, which `--fleet` wraps with the
 watch loop and the default attention surface).
 Fleet-wide load is capped by
-`fleet_max_parallel_units` (in-flight units summed across every spec), enforced
-against the live cross-spec derivation so the bound survives any crash;
+`fleet_max_parallel_units`, the host-wide ceiling on in-flight units and launch
+reservations summed across every spec and every program on the machine (the
+meta-tower enforces it against the live cross-spec derivation so the bound
+survives any crash; mission control's launch admission holds against it too);
 `max_parallel_units` still caps each spec individually.
 
 Concurrent towers and workers stay safe by a strict
@@ -2851,7 +2853,7 @@ are in the [options reference](options-reference.md).
 | `dispatch_isolation` | Per-step session isolation in `/execute-task` | Isolation mode for this machine | `per-step` — bounded context and uncontaminated reviews by construction |
 | `context_budget_threshold` | Step-count monitor + continue-as-new handover | How long your towers run before handing over | `50` — hands over early; the handover is cheap and lossless, so early is the safe direction |
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |
-| `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
+| `fleet_max_parallel_units` | Host-wide ceiling on in-flight units and launch reservations across all specs and programs | Your total host load | `3` — enabling the meta-tower never multiplies load until you raise it |
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline` / `push`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
 | `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |

@@ -77,8 +77,12 @@ Usage:
         rung<TAB><rung><TAB><reason>
         dimension<TAB><name><TAB><used><TAB><limit><TAB><headroom><TAB><pct>
         admission<TAB><axis|open><TAB><why>   the axis `reserve` would hold a
-                                              launch on (a failure to read
-                                              it prints `unknown`)
+                                              launch on: paused, account,
+                                              load, memory, ceiling or
+                                              sessions, `store` for a
+                                              reservation store it cannot
+                                              read, `unknown` when the
+                                              state cannot be computed
         spend<TAB>ceiling<TAB><class>
         spend<TAB><duty><TAB><class>     one per duty with its own class
   mc-budget.sh rung --program <p> [--now <epoch>] [--load <pct>]
@@ -106,7 +110,7 @@ Usage:
                   at fleet_max_parallel_units
         sessions  the program's own live sessions plus reservations at its
                   budget's sessions limit
-      Load and memory count each reservation and each registered session
+      Load and memory are read again once the lock is held, and count each reservation and each registered session
       younger than the warm-up (mission_control_admit_warmup) at its share,
       so a lagging reading never admits a burst. Every program's registry
       rows are recounted under the lock; a waiting session holds no slot.
@@ -381,7 +385,16 @@ registry_scan() {
       [ -f "$rs_f" ] && [ ! -L "$rs_f" ] || continue
       case ${rs_f##*/} in *.tmp.*) continue ;; esac
       [ -r "$rs_f" ] || mc_fail "cannot read the registry row $(sanitize_printable "${rs_f##*/}")"
-      [ "$(mc_kv "$rs_f" format)" = "$ROW_FORMAT" ] || continue
+      # A row of a format this script does not know still holds a session, so
+      # it counts toward the host's total (under no program) rather than
+      # letting a format change empty the count.
+      if [ "$(mc_kv "$rs_f" format)" != "$ROW_FORMAT" ]; then
+        R_NAMES="$R_NAMES${rs_f##*/}
+"
+        rs_rows="$rs_rows?	-
+"
+        continue
+      fi
       [ "$(mc_kv "$rs_f" kind)" != mission-control ] || continue
       rs_p=$(mc_kv "$rs_f" program)
       [ -n "$rs_p" ] || continue
@@ -421,15 +434,18 @@ store_read() {
   }
   while IFS='	' read -r sr_k sr_id sr_p sr_pid sr_at sr_name; do
     [ -n "$sr_k" ] || continue
-    if [ "$sr_k" != reservation ] || ! mc_valid_uint "$sr_pid" || ! mc_valid_uint "$sr_at"; then
+    if [ "$sr_k" != reservation ] || ! mc_valid_uint "$sr_pid" || [ "$sr_pid" -le 0 ] || ! mc_valid_uint "$sr_at" \
+      || ! mc_valid_handle "$sr_id" || ! mc_valid_program "$sr_p" || { [ "$sr_name" != - ] && ! mc_valid_handle "$sr_name"; }; then
       STORE_ERR="reservation store: a line outside the grammar"
       return 1
     fi
     sr_line="$sr_k	$sr_id	$sr_p	$sr_pid	$sr_at	$sr_name"
-    if ! kill -0 "$sr_pid" 2>/dev/null; then
+    # kill -0 fails for a live process of another user, so ps is the second
+    # opinion before a holder is called dead.
+    if ! kill -0 "$sr_pid" 2>/dev/null && ! ps -p "$sr_pid" >/dev/null 2>&1; then
       RECLAIMED="$RECLAIMED$sr_id	dead
 "
-    elif [ $((NOW - sr_at)) -gt "$1" ]; then
+    elif [ $((NOW - sr_at)) -gt "$1" ] || [ $((sr_at - NOW)) -gt "$1" ]; then
       RECLAIMED="$RECLAIMED$sr_id	timeout
 "
     elif [ "$sr_name" != - ] && printf '%s' "$R_NAMES" | N=$sr_name awk '$0 == ENVIRON["N"] { f = 1 } END { exit !f }'; then
@@ -467,16 +483,6 @@ admission_verdict() {
   av_n=$((R_WARM + $(printf '%s' "$RES" | awk 'NF { n++ } END { print n + 0 }')))
   av_res_all=$(printf '%s' "$RES" | awk 'NF { n++ } END { print n + 0 }')
   av_res_own=$(printf '%s' "$RES" | P=$program awk -F '\t' '$3 == ENVIRON["P"] { n++ } END { print n + 0 }')
-  if [ $((R_ALL + av_res_all)) -ge "$ADM_CEILING" ]; then
-    AXIS=ceiling
-    WHY="$((R_ALL + av_res_all)) sessions and reservations on this host, at the host-wide limit of $ADM_CEILING"
-    return 0
-  fi
-  if [ $((R_OWN + av_res_own)) -ge "$(mc_lookup sessions "$LIMITS")" ]; then
-    AXIS=sessions
-    WHY="program $program holds $((R_OWN + av_res_own)), at its sessions limit $(mc_lookup sessions "$LIMITS")"
-    return 0
-  fi
   av_load=$((ADM_PCT + av_n * ADM_WARM_LOAD))
   if [ "$av_load" -ge "$ADM_LOAD" ]; then
     AXIS=load
@@ -487,6 +493,16 @@ admission_verdict() {
   if [ "$av_mem" -lt "$ADM_MEM" ]; then
     AXIS=memory
     WHY="available memory at $ADM_AVAIL% ($av_mem% counting $av_n launches still warming up), under the $ADM_MEM% floor"
+    return 0
+  fi
+  if [ $((R_ALL + av_res_all)) -ge "$ADM_CEILING" ]; then
+    AXIS=ceiling
+    WHY="$((R_ALL + av_res_all)) sessions and reservations on this host, at the host-wide limit of $ADM_CEILING"
+    return 0
+  fi
+  if [ $((R_OWN + av_res_own)) -ge "$(mc_lookup sessions "$LIMITS")" ]; then
+    AXIS=sessions
+    WHY="program $program holds $((R_OWN + av_res_own)), at its sessions limit $(mc_lookup sessions "$LIMITS")"
   fi
   return 0
 }
@@ -688,6 +704,9 @@ case $verb in
     mkdir -p "$FH/mission-control" || mc_fail "cannot create the admission store's directory"
     mc_lock || held lock "the fleet lock was not taken in time"
     trap 'mc_unlock' EXIT
+    # The wait for the lock may have been long; judge on a fresh reading.
+    measure
+    [ -n "$ADM_AVAIL" ] || held memory "available memory cannot be read"
     registry_scan "$ADM_WARM_S"
     store_read "$ADM_TIMEOUT" || mc_fail "$STORE_ERR"
     if [ -n "$RECLAIMED" ]; then

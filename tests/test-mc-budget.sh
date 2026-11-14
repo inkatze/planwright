@@ -473,6 +473,80 @@ expect_out "REQ-L1.7: the lock hold is named" "queued${tab}lock"
 kill "$holder" 2>/dev/null
 wait "$holder" 2>/dev/null
 
+# The concurrent losers held on the ceiling, and the store holds two rows.
+two_programs 2
+rm -f "$tmp"/conc/*
+ci=0
+for p in alpha beta alpha beta; do
+  ci=$((ci + 1))
+  (mc_env /bin/bash "$repo_root/scripts/mc-budget.sh" reserve --program "$p" --now "$anow" --holder "$$" --load 10 --mem 80 >"$tmp/conc/$ci" 2>&1) &
+done
+wait
+if [ "$(cat "$tmp"/conc/* | grep -c "^queued${tab}ceiling")" -eq 2 ] && [ "$(grep -c "^reservation" "$store")" -eq 2 ]; then
+  ok "REQ-L1.7: the two losers held on the ceiling and the store holds two reservations"
+else
+  fail "REQ-L1.7: the concurrent losers did not hold on the ceiling, or the store lacks two rows"
+  cat "$tmp"/conc/* >&2
+fi
+
+# Axis order: load is named before the ceiling, in reserve and in the budget.
+two_programs 1
+registry_row mc-fix-1 beta "$old"
+reserve alpha --load 95 --mem 80
+expect_out "REQ-L1.7: load is named ahead of a full ceiling" "queued${tab}load"
+mc_run mc-budget.sh report --program alpha --now "$anow" --load 95 --mem 80
+expect_out "REQ-L1.4: the budget names the same axis reserve does" "admission${tab}load${tab}"
+
+# The fleet daemon pause holds the launch.
+two_programs 5
+printf '%s\n' "fleet_daemon_pause: true" >>"$tracked"
+reserve alpha --load 10 --mem 80
+expect_rc "REQ-L1.7: the fleet daemon pause holds the launch" 1
+expect_out "REQ-L1.7: the pause is named" "queued${tab}paused"
+
+# A registry row of an unknown format still counts as a session.
+two_programs 1
+mkdir -p "$fleet/mission-control/sessions"
+printf 'format\t9\nname\tmc-fix-9\nprogram\talpha\nkind\tworker\n' >"$fleet/mission-control/sessions/mc-fix-9"
+reserve alpha --load 10 --mem 80
+expect_rc "REQ-L1.7: a session row of an unknown format still counts toward the ceiling" 1
+expect_out "REQ-L1.7: and the hold names the ceiling" "queued${tab}ceiling"
+
+# release: one row among several, and an id that is not stored.
+two_programs 5
+reserve alpha --load 10 --mem 80
+r1=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "reserved" { print $2 }')
+reserve beta --load 10 --mem 80
+r2=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "reserved" { print $2 }')
+mc_run mc-budget.sh release --program alpha "$r1"
+if grep -q "$r2" "$store" && ! grep -q "$r1" "$store"; then
+  ok "D-41: releasing one reservation leaves the others"
+else
+  fail "D-41: release dropped the wrong reservation"
+fi
+mc_run mc-budget.sh release --program alpha "$r1"
+expect_rc "D-41: releasing a reservation twice is no error" 0
+expect_out "D-41: the second release says it is absent" "absent${tab}$r1"
+mc_run mc-budget.sh release --program alpha "r1;x"
+expect_rc "D-41: an id outside the grammar is refused" 2
+
+# A reservation line outside the grammar (a holder of 0, which signals a whole
+# process group) is refused, and one dated in the future is reclaimed.
+two_programs 5
+printf 'format\t1\nreservation\tr1.1\tbeta\t0\t%s\t-\n' "$anow" >"$store"
+reserve alpha --load 10 --mem 80
+expect_rc "D-41: a reservation held by process 0 is refused as outside the grammar" 1
+two_programs 5
+printf 'format\t1\nreservation\tr1.1\tbeta\t%s\t%s\t-\n' "$$" "$((anow + 100000))" >"$store"
+reserve alpha --load 10 --mem 80
+expect_out "D-41: a reservation dated far in the future is reclaimed" "reclaimed${tab}r1.1${tab}timeout"
+# A registered session's reservation is dropped and logged.
+two_programs 5
+printf 'format\t1\nreservation\tr1.1\tbeta\t%s\t%s\tmc-fix-1\n' "$$" "$((anow - 30))" >"$store"
+registry_row mc-fix-1 beta "$old"
+reserve alpha --load 10 --mem 80
+expect_out "D-41: a registered session's reservation is dropped and logged" "reclaimed${tab}r1.1${tab}registered"
+
 # A store of an unknown format is refused.
 two_programs 5
 mkdir -p "$fleet/mission-control"

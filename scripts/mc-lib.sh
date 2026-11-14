@@ -416,7 +416,8 @@ mc_upsert() {
 }
 
 # mc_lock / mc_unlock: the fleet's named lock, held for this shell, waited
-# for up to about ten seconds.
+# for up to about ten seconds; MC_LOCK_TRIES (a count of 0.1 s tries) shortens
+# the wait, for a test that holds the lock.
 MC_LOCK_TOKEN=""
 mc_lock() {
   ml_try=0
