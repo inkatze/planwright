@@ -29,7 +29,7 @@ close the gap without crossing a human gate.
 
 2. **Approval is the human merge of the release PR.** Merging the release PR is
    the release approval, and it stays a human act in GitHub's UI (`D-5`)
-   except for one exception: the operator's standing authorization, the
+   with one exception, the operator's standing authorization: the
    `release` class in `auto_merge_classes` (default empty), which
    [Human Gates](human-gates.md) states with the class test it passes. The
    policy class admits only task branches from the base repository, so with the
