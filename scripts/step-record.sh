@@ -235,8 +235,8 @@
 #                  window-floor (a skill over a window under 30 seconds);
 #                  start-from-clock, start-round-minutes, window-round-minutes
 #                  and start-round-minute (no --start-source, and --start is
-#                  the clock at writing, a whole number of minutes before the
-#                  clock, --end a whole number of minutes after --start, or
+#                  the clock at writing, a whole number of minutes (within an
+#                  hour) before the clock, --end a whole number of minutes after --start, or
 #                  --start on seconds :00; a stored record is judged by the
 #                  last two together only); outcome-heads (passed over a moved
 #                  head, applied over an unmoved one, --head being the head the
@@ -1465,7 +1465,7 @@ function truth(mode, kind, outcome, hosting, backend, start, end, head, endhead,
   if (source == "") {
     if (mode == "write" && (NOW - s <= TOL && s - NOW <= TOL))
       return "--start" TAB "start-from-clock" TAB "--start is the clock at writing; give the time the step began, or --start-source commit:<commit>"
-    if (mode == "write" && NOW > s && (NOW - s) % 60 == 0)
+    if (mode == "write" && NOW > s && NOW - s <= 3600 && (NOW - s) % 60 == 0)
       return "--start" TAB "start-round-minutes" TAB "--start lies a whole number of minutes before the clock; give the time the step began, or --start-source commit:<commit>"
     if (mode == "write" && w % 60 == 0)
       return "--start" TAB "window-round-minutes" TAB "--end lies a whole number of minutes after --start; give the times the step really began and ended, or --start-source commit:<commit>"

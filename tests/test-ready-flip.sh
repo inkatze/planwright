@@ -524,7 +524,7 @@ set_policy unit-owner
 run=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run" --point convergence --step polish \
   --kind skill --target polish --hosting in-session --backend in-session --head "$(gitf rev-parse HEAD)" \
-  --start 2026-11-14T10:03:17Z --end 2026-11-14T10:09:41Z --outcome failed >/dev/null
+  --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome failed >/dev/null
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --completion --run "$run" --point convergence \
   --head "$(gitf rev-parse HEAD)" >/dev/null
 run_helper flip --spec specs/demo --task 1
@@ -537,7 +537,7 @@ set_policy unit-owner
 run=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run" --point post-pr --step cubic \
   --kind skill --target bot-review --hosting in-session --backend in-session --head "$(gitf rev-parse HEAD)" \
-  --start 2026-11-14T10:03:17Z --end 2026-11-14T10:09:41Z --outcome limited >/dev/null
+  --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome limited >/dev/null
 run_helper flip --spec specs/demo --task 1
 check "a limited post-pr record on the head parks (exit 4)" [ "$CODE" = 4 ]
 check "the park names review-converged" grep -q 'review-converged' <<<"$(bullet)"
@@ -548,7 +548,7 @@ run=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run" --point post-pr --step cubic \
   --kind skill --target bot-review --hosting in-session --backend in-session \
   --head 1111111111111111111111111111111111111111 --end-head 1111111111111111111111111111111111111111 \
-  --start 2026-11-14T10:03:17Z --end 2026-11-14T10:09:41Z --outcome limited >/dev/null
+  --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome limited >/dev/null
 run_helper flip --spec specs/demo --task 1
 check "a limited record ending on another head does not block (exit 0)" [ "$CODE" = 0 ]
 
