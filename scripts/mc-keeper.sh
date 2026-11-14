@@ -72,15 +72,19 @@ Usage:
         settled<TAB><handle><TAB>MERGED|CLOSED
         park-unknown<TAB><handle><TAB><why>  not read; kept
   mc-keeper.sh next --program <p> --spec <dir> [--now <epoch>]
-      the units of the spec bundle at <dir> (scripts/orchestrate-state.sh,
-      run from the directory's repository) that can start now:
+      the units of the spec bundle at <dir> that can start now, the ready
+      ones taken from the orchestrator's own selection
+      (scripts/orchestrate-select.sh --ready, run from the directory's
+      repository), so a task the selection withholds is never suggested:
         dispatch<TAB><spec>:task-<id>        ready and held by no session
         waiting<TAB><spec>:task-<id><TAB>in-progress
         held<TAB><spec>:task-<id><TAB><why>  ready, but a launched session
                                              holds its scope, or the budget
                                              does not admit a session
                                              (scripts/mc-budget.sh admit,
-                                             its reason after a colon)
+                                             its reason after a colon),
+                                             or its own repository's
+                                             evidence is withheld
       a unit in progress never holds back a ready one; a session holds a
       unit when the launcher lists the scope <spec>:task-<id> for this
       program, or for another program whose repositories include the
@@ -988,16 +992,33 @@ EOF
         [ -n "$hold" ] || hold="the budget cannot be read"
         ;;
     esac
-    printf '%s\n' "$state" | N=$name H=$held Q=$hold awk -F '\t' '
-      BEGIN { n = split(ENVIRON["H"], h, "\n"); for (i = 1; i <= n; i++) if (h[i] != "") H[h[i]] = 1 }
-      $1 != "task" { next }
-      {
-        u = ENVIRON["N"] ":task-" $2
-        if ($3 == "in-progress") print "waiting\t" u "\tin-progress"
-        else if ($3 != "ready") next
-        else if (u in H) print "held\t" u "\ta launched session holds it"
-        else if (ENVIRON["Q"] != "") print "held\t" u "\tthe budget holds dispatch: " ENVIRON["Q"]
-        else print "dispatch\t" u
+    # The units that can start are the orchestrator's own selection, so the
+    # candidacy rules (parked, withheld behind a failed repository, an
+    # unresolved repository) are never restated here. Exit 1 and 3 are an
+    # empty frontier, the second with work withheld.
+    ready=$(cd "$top" && /bin/sh "$script_dir/orchestrate-select.sh" --ready "$rel" 2>/dev/null)
+    case $? in
+      0 | 1 | 3) ;;
+      *) mc_fail "the ready units of $name cannot be selected" ;;
+    esac
+    printf '%s\n' "$state" | N=$name H=$held Q=$hold R=$ready awk -F '\t' '
+      BEGIN {
+        n = split(ENVIRON["H"], h, "\n"); for (i = 1; i <= n; i++) if (h[i] != "") H[h[i]] = 1
+        nr = split(ENVIRON["R"], rl, "\n")
+      }
+      $1 == "task" && $3 == "in-progress" { print "waiting\t" ENVIRON["N"] ":task-" $2 "\tin-progress" }
+      $1 == "task" && $3 == "ready" { isready[$2] = 1 }
+      $1 == "withheld" && $3 == "own" { wh[++nw] = $2 }
+      END {
+        for (i = 1; i <= nw; i++)
+          if (wh[i] in isready) print "held\t" ENVIRON["N"] ":task-" wh[i] "\tits repository'"'"'s evidence is withheld"
+        for (i = 1; i <= nr; i++) {
+          if (rl[i] == "") continue
+          u = ENVIRON["N"] ":task-" rl[i]
+          if (u in H) print "held\t" u "\ta launched session holds it"
+          else if (ENVIRON["Q"] != "") print "held\t" u "\tthe budget holds dispatch: " ENVIRON["Q"]
+          else print "dispatch\t" u
+        }
       }'
     ;;
   *) usage ;;
