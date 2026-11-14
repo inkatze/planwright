@@ -2541,6 +2541,7 @@ answer_owner_check() {
     '' | *[!A-Za-z0-9._-]*) ao_why="this session's mission-control token is malformed" ;;
     *)
       if [ -n "$ao_root" ] && [ -d "$ao_rows" ]; then
+        set +f
         for ao_f in "$ao_rows"/*; do
           [ -f "$ao_f" ] || continue
           [ "$(registry_field "$ao_f" token)" = "$PLANWRIGHT_MC_TOKEN" ] || continue
@@ -2548,6 +2549,7 @@ answer_owner_check() {
           ao_cprog=$(registry_field "$ao_f" program)
           break
         done
+        set -f
       fi
       [ -n "$ao_cprog" ] || ao_why="this session's mission-control token matches no registered mission-control session"
       ;;

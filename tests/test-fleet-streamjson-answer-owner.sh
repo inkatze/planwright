@@ -145,7 +145,7 @@ before=$(lines_of "$rec/stdin")
 out=$(senv "$home" "$rec" PLANWRIGHT_MC_TOKEN=tok-p2 -- answer mc-p1-worker-a "$req" --allow 2>&1)
 rc=$?
 [ "$rc" = 2 ] || fail "a3: another program's answer must be refused with exit 2, got $rc: $out"
-case $out in *"owned by mission-control:p1"*) : ;; *) fail "a3: the refusal must name the owner: $out" ;; esac
+case $out in *"owned by mission-control:p1"*"mission-control for p2, not the owner"*) : ;; *) fail "a3: the refusal must name the owner and the caller's program: $out" ;; esac
 case $out in *"mc-p1-worker-a"*) : ;; *) fail "a3: the refusal must name the worker: $out" ;; esac
 [ "$(lines_of "$rec/stdin")" = "$before" ] || fail "a3: a refused answer reached the worker"
 grep -q pending "$wdir/journal" || fail "a3: a refused answer must leave the request pending"
@@ -155,7 +155,7 @@ echo "ok: a3 an answer to another program's worker is refused, naming the owner,
 out=$(senv "$home" "$rec" PLANWRIGHT_MC_TOKEN=tok-nobody -- answer mc-p1-worker-a "$req" --allow 2>&1)
 rc=$?
 [ "$rc" = 2 ] || fail "a4: a token matching no row must be refused with exit 2, got $rc: $out"
-case $out in *"owned by mission-control:p1"*) : ;; *) fail "a4: the refusal must still name the owner: $out" ;; esac
+case $out in *"owned by mission-control:p1"*"matches no registered mission-control session"*) : ;; *) fail "a4: the refusal must name the owner and the unmatched token: $out" ;; esac
 [ "$(lines_of "$rec/stdin")" = "$before" ] || fail "a4: a refused answer reached the worker"
 home4="$tmp/h4"
 rec4="$tmp/r4"
@@ -165,7 +165,7 @@ session_row "$home4" mc-p1-mission-control p1 mission-control tok-p1
 out=$(senv "$home4" "$rec4" PLANWRIGHT_MC_TOKEN=tok-p1 -- answer sj-orphan "$req" --allow 2>&1)
 rc=$?
 [ "$rc" = 2 ] || fail "a4: a worker with no recorded owner must be refused with exit 2, got $rc: $out"
-case $out in *"no recorded owner"*) : ;; *) fail "a4: the refusal must say no owner is recorded: $out" ;; esac
+case $out in *"has no recorded owner, so no mission-control session may answer it"*) : ;; *) fail "a4: the refusal must say the worker has no recorded owner: $out" ;; esac
 [ "$(lines_of "$rec4/stdin")" = 1 ] || fail "a4: a refused answer reached the unowned worker"
 echo "ok: a4 an unknown token and an unowned worker are refused"
 
