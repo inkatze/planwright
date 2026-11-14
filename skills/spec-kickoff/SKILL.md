@@ -170,7 +170,8 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    `kickoff_ready_ci_wait` bounds its CI wait (sign-off step 8).
 5. **Resolve the working location** (D-44, graceful in every starting state).
    The spec branch is `planwright/<spec>/spec` (the namespace `tasks-pr-sync`
-   no-ops on); the spec worktree is `<repo>/.claude/worktrees/<spec>-spec` (D-37).
+   no-ops on), or `planwright/<spec>/amendment-<n>` for an amendment (Ready
+   or Active spec); the spec worktree is `<repo>/.claude/worktrees/<spec>-spec` (D-37).
    - **Already in the spec worktree:** proceed; on dirty/diverged state, surface
      it and ask first — never auto-stash, auto-commit, or clean.
    - **In the main checkout or an unrelated worktree:** if the spec worktree
@@ -368,8 +369,8 @@ most recent anchor entry never describes spec content that was not walked.
    **Terminal re-anchor (REQ-C1.4, D-5):** anchored content edited after the
    sign-off record was written takes `spec-format`'s recompute-and-re-record
    ritual as the final pre-push step. Then push:
-   `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>` (a kickoff's only push, from the spec
-   or amendment branch; raw spec-branch pushes are refused). Then the PR: if one exists for the branch,
+   `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>` (a kickoff's only push; raw spec-branch
+   pushes are refused). Then the PR: if one exists for the branch,
    update its body; otherwise `gh pr create --draft` with `--title`
    and `--body`. The title must pass the conventional PR-title lint
    (`scripts/check-commit-msgs.sh`, enforced in CI at 100 chars):
