@@ -1423,6 +1423,120 @@ fixed-string check.)*
 - **Citations:** D-69 · REQ-P1.13, REQ-P1.14
 - **Estimated effort:** 1 day
 
+### Task 84 — A classify entry on the worker guards
+
+- **Deliverables:** a data-in, data-out classify mode on
+  `scripts/worker-command-guard.sh` and on the worker tier of
+  `scripts/policy-guard.sh`: given a command or a tool input and a session
+  record, each prints its verdict without reading a hook payload from a
+  live session, running nothing and writing nothing; the hook paths call the
+  same function, so the two readings cannot drift; tests added to
+  `tests/test-worker-command-guard-parity.sh` and
+  `tests/test-policy-guard.sh`.
+- **Done when:** The REQ-Q1.2 test-spec entry's classify fixtures pass; a
+  command the hook allows is allowed by the classify mode in the same
+  recorded context and one the hook defers or denies is not, over the
+  existing shape fixtures; the existing guard suites are unchanged.
+- **Dependencies:** none
+- **Citations:** D-71 · REQ-Q1.2
+- **Estimated effort:** 1.5 days
+
+### Task 85 — The vet
+
+- **Deliverables:** `scripts/mc-answer-vet.sh`, read-only: it resolves the
+  worker's registry owner and the caller's identity (the owner source PR
+  #967 adds, landed first or carried with this task), reads the journaled
+  request envelope and the launcher's session record, classifies through
+  Task 84's entry, and prints `within-scope` or `escalate <reason>` with the
+  reasons named in REQ-Q1.3; counts each verdict by reason in the audit
+  log; refuses and escalates on any read failure; `tests/test-mc-answer-vet.sh`.
+- **Done when:** The REQ-Q1.2, REQ-Q1.3 and REQ-Q1.5 (count) test-spec
+  entries' fixtures pass: an in-worktree read, an in-scope edit and a repo
+  test command are within scope; a push, a comment post, an outside write, a
+  question request, a step-record write, a request with no recorded context
+  and an unreadable envelope each escalate with their reason, and the vet
+  changes nothing in any of them.
+- **Dependencies:** 84
+- **Citations:** D-71, D-72 · REQ-Q1.2, REQ-Q1.3, REQ-Q1.4, REQ-Q1.5
+- **Estimated effort:** 2 days
+
+### Task 86 — The admission arm, the verbs list and the posture check
+
+- **Deliverables:** first, a fixture on the installed CLI that shows which
+  mechanism keeps the classifier from judging an `answer` call (D-70: a hook
+  allow, which `scripts/mc-approve-hook.sh` already gives by shape, or a
+  settings `allow` entry), recorded in the task's report, the result picking
+  the form under D-70's rule (the hook allow unless only a settings `allow`
+  entry skips the classifier); then the argument-aware arm in the mission-control mode of
+  `scripts/tower-command-guard.sh` (replacing the blanket `answer` refusal in
+  `script_in_mode` with the vet-gated shape of D-70 and D-72); the verbs
+  list header and `scripts/check-mc-verbs.sh` stating that the arm carries
+  the verb, with the check still failing on a bare `answer` line; the
+  `_about` text of `config/mission-control-settings.json`; the posture check
+  (REQ-G1.5) failing when the vet or the arm is absent; the amendment notes
+  to REQ-G1.5 and REQ-G1.6 carried into the skill text that quotes them
+  (within the instruction budget, D-21); tests in
+  `tests/test-tower-command-guard.sh` and
+  `tests/test-mission-control-profile.sh`.
+- **Done when:** The REQ-Q1.1 and REQ-Q1.4 test-spec entries' fixtures pass:
+  the exact shape for an owned worker and an in-scope request is approved;
+  a non-owner, an ownerless worker, no identity, `--takeover`,
+  `--response-file`, an extra argument, a compound and an escalated request
+  each defer; a bare `answer` line in the verbs list fails the verbs check;
+  the posture check fails with the vet removed.
+- **Dependencies:** 85
+- **Citations:** D-70, D-72 · REQ-Q1.1, REQ-Q1.4, REQ-Q1.5, REQ-G1.5,
+  REQ-G1.6
+- **Estimated effort:** 2 days
+
+### Task 87 — The answer record and the yield report
+
+- **Deliverables:** the undo-ledger entry an admitted answer writes (worker,
+  request, digest of the asked command, verdict), written by the answering
+  path and never by the vet; the per-reason verdict counts shown in the
+  doctor's output so the share answered is read, not assumed; tests in
+  `tests/test-mc-kb.sh` and `tests/test-mc-config-doctor.sh`.
+- **Done when:** The REQ-Q1.5 test-spec entry's fixtures pass: an admitted
+  answer leaves one ledger entry naming the four fields, an escalated
+  request leaves none, and the doctor prints the counts by reason from a
+  fixture audit log.
+- **Dependencies:** 85, 86
+- **Citations:** D-70, D-71 · REQ-Q1.5, REQ-G1.5
+- **Estimated effort:** 1 day
+
+### Task 88 — The thread-resolve verb
+
+- **Deliverables:** `scripts/mc-thread-resolve.sh` per D-73: it reads the
+  thread's comments and authors, the program's recorded pull requests and
+  the session's recorded replies, applies the four checks, performs the one
+  resolve write only when all pass, and refuses with its reason otherwise;
+  the reply record that stores each reply's comment id when mission control
+  posts one; the bot test shared with the bot-review reviewer reader, not
+  copied; `tests/test-mc-thread-resolve.sh` with fake `gh` responses.
+- **Done when:** The REQ-Q1.6 test-spec entry's fixtures pass: an all-bot
+  thread with a recorded reply on the program's own pull request resolves;
+  a thread with a human comment, an unrecorded reply, a pull request the
+  program did not open, a thread whose reply is not yet posted and a read
+  failure each refuse and write nothing.
+- **Dependencies:** none
+- **Citations:** D-73 · REQ-Q1.6
+- **Estimated effort:** 1.5 days
+
+### Task 89 — Admit the thread verb and say so in the skill
+
+- **Deliverables:** the verbs list line for `mc-thread-resolve.sh` and the
+  skill's one-line invocation that makes the verbs check derive it, within
+  the instruction budget (D-21); the mission-control policy-guard fixture
+  showing that a bare `gh api graphql` stays refused while the verb passes;
+  tests in `tests/test-policy-guard-mission-control.sh` and
+  `tests/test-mission-control-profile.sh`.
+- **Done when:** The REQ-Q1.6 admission fixtures pass: the verb is approved
+  by the guard under the mission-control tier, a bare GraphQL write is still
+  refused, and the verbs check passes with the verb derived from the skill.
+- **Dependencies:** 86, 88
+- **Citations:** D-73 · REQ-Q1.6, REQ-G1.5
+- **Estimated effort:** 0.5 day
+
 ## Awaiting input
 
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.
