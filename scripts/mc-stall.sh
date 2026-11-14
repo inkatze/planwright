@@ -90,8 +90,15 @@ busy-unchanged emits one event, kind stall-<state>, subject the session name
 (scripts/mc-event.sh); a state held across passes emits no second one, and a
 relaunch under the same name starts a fresh sample.
 
+A session not dead whose row records a plugin root older than the installed
+version (scripts/mc-session-root.sh) emits one stale-plugin-root event, subject
+the session name, per launch, whatever its state; a row with no recorded root
+is unknown and raises none.
+
 Output, one line per session, tab separated:
   <name> <kind> <state> <reason> <event id or ->
+The event id is the stall event's; a stale-plugin-root event raised in the same
+pass is not named in the line.
 
 Exit codes: 0 classified; 1 the registry, a sample or a lock could not be
 read or written, an event could not be emitted, the stall-window knob or the
@@ -132,9 +139,9 @@ valid_window() {
 
 # read_row <row>: set R_<field> from one read of a registry row.
 read_row() {
-  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_launched='' R_token=''
+  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_launched='' R_token='' R_root=''
   rr_out=$(awk -F '\t' '
-    $1 ~ /^(format|name|state|program|kind|backend|handle|launched|token)$/ && !($1 in seen) {
+    $1 ~ /^(format|name|state|program|kind|backend|handle|launched|token|root)$/ && !($1 in seen) {
       seen[$1] = 1; v = substr($0, length($1) + 2); gsub(/[^[:print:]]/, "", v); print $1 "\t" v
     }' "$1" 2>/dev/null) || return 1
   while IFS='	' read -r rr_k rr_v; do
@@ -148,6 +155,7 @@ read_row() {
       handle) R_handle=$rr_v ;;
       launched) R_launched=$rr_v ;;
       token) R_token=$rr_v ;;
+      root) R_root=$rr_v ;;
     esac
   done <<EOF
 $rr_out
@@ -419,6 +427,24 @@ classify_one() {
       fi
       ;;
   esac
+
+  # A session on a plugin root older than the installed version runs the
+  # older copy's hooks: one event per launch, a dead session's excepted.
+  if [ "$c_state" != dead ]; then
+    c_root_v=$(/bin/sh "$script_dir/mc-session-root.sh" verdict "${R_root:--}" 2>/dev/null </dev/null)
+    c_root_marker="$STALL_DIR/$c_name.stale-root"
+    c_tab=$(printf '\t')
+    if [ "${c_root_v%%"$c_tab"*}" = stale ] && [ "$(cat "$c_root_marker" 2>/dev/null)" != "$c_launch" ]; then
+      c_root_rest=${c_root_v#*"$c_tab"}
+      if ! mc_event emit --program "$PROGRAM" --now "$NOW" -- stale-plugin-root "$c_name" \
+        "$c_kind: loaded plugin ${c_root_rest%%"$c_tab"*}, installed ${c_root_rest#*"$c_tab"}; relaunch it" >/dev/null \
+        || ! printf '%s\n' "$c_launch" | mc_write "$c_root_marker"; then
+        pw_lock_release "$c_lock" || :
+        printf '%s\n' "$prog: the stale-plugin-root event for $c_name was not raised" >&2
+        return 1
+      fi
+    fi
+  fi
 
   if ! printf '%s\t%s\t%s\t%s\t%s\n' "$c_launch" "$c_hash" "$c_since" "$c_state" "$NOW" | mc_write "$c_sample"; then
     pw_lock_release "$c_lock" || :

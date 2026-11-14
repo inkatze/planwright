@@ -45,6 +45,7 @@ stall-turn-ended-background	act
 stall-idle-question	act
 stall-busy-unchanged	act
 stall-unknown	act
+stale-plugin-root	act
 handover-act	act
 handover-due	act
 handover-requested	act

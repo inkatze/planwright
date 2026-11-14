@@ -138,6 +138,13 @@ Usage:
                                              checked merge command
         queued<TAB><worker><TAB><question>   one per operator item in the queue,
                                              the question the row asks
+        relaunch<TAB><session><TAB><recorded><TAB><installed>
+                                             one per session of the program
+                                             whose recorded plugin root is
+                                             older than the installed
+                                             version (mc-session-root.sh):
+                                             its hooks are the older copy's,
+                                             so relaunch it
         approvals<TAB><n>                    the queue's worker permission
                                              prompts, which mission control
                                              answers (with a number waiting)
@@ -1192,6 +1199,17 @@ merge_ready() {
   fi
 }
 
+# stale_roots: one relaunch row per session of the program that loaded a
+# plugin root older than the installed version, so its hooks are the older
+# copy's.
+stale_roots() {
+  if ! sr_rows=$(/bin/sh "$script_dir/mission-control-launch.sh" list 2>/dev/null </dev/null); then
+    printf 'unreadable\tlaunch registry\n'
+    return 0
+  fi
+  printf '%s\n' "$sr_rows" | awk -F '\t' -v p="$program" '$2 == p && $10 ~ /^stale / { split($10, v, " "); print "relaunch\t" $1 "\t" v[2] "\t" v[3] }'
+}
+
 pending() {
   [ -n "$target" ] || return 0
   if pd_rows=$(/bin/bash "$script_dir/mc-event.sh" list --program "$program" --target "$target" --pending 2>/dev/null); then
@@ -1906,6 +1924,7 @@ text_panel() {
     flights
     waiting
     merge_ready
+    stale_roots
     pending
     budget
     program_home
@@ -1917,6 +1936,7 @@ text_panel() {
     $1 == "merge-ready" && $3 == "partial" { m = ($2 > 0 ? $2 " or more" : "unknown") " (some could not be judged)" }
     $1 == "unreadable" && $2 == "merge-ready store" { m = "unknown (the merge-ready store cannot be read)" }
     $1 == "approvals" { a = $2 }
+    $1 == "relaunch" { rl = rl (rl == "" ? "" : ", ") $2 " (plugin " $3 ", installed " $4 ")" }
     $1 == "pending" { p = $2 }
     $1 == "unreadable" && $2 == "events" { p = "unknown (the events cannot be read)" }
     $1 == "rung" { r = $2 (($3 == "" || $3 == "-") ? "" : " (" $3 ")") }
@@ -1938,6 +1958,7 @@ text_panel() {
       print "waiting on you: " (w == "" ? "unknown" : w)
       if (m != "" && m != 0) print "ready to merge: " m
       if (a + 0 > 0) print "approvals mission control is handling: " a
+      if (rl != "") print "relaunch, older plugin: " rl
       if (p != "") print "pending wakes: " p
       print "rung: " (r == "" ? "unknown" : r)
       if (h != "") print "health: " h
@@ -2040,6 +2061,7 @@ digest() {
   flights
   waiting
   merge_ready
+  stale_roots
   pending
   program_home
   decisions

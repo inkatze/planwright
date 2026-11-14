@@ -190,7 +190,10 @@ Output, tab separated:
   wait     wait <name> waiting <reason> (unwait: wait <name> working)
   bound    bound <limit or off> <working count> <waiting count>
   list     <name> <program> <kind> <scope> <backend> <launched epoch>
-           <tier> <reserved|->
+           <tier> <reserved|-> <plugin root|-> <root state>
+           (the root the session loaded at launch, and current, stale <root
+           version> <installed version>, or unknown <why>, from
+           mc-session-root.sh; a row from before the field is unknown)
   kinds    <kind> <profile> <allocation key>
 
 A launch reserves the name with a complete row (backend, launcher pid and a
@@ -410,6 +413,24 @@ new_token() {
   printf '%s-%s\n' "$$" "$nt"
 }
 
+# session_root_for <backend> — the plugin root a session started on that rung
+# loads: tmux pins this install's, stream-json the dispatch-env wrapper's.
+# Empty when it cannot be resolved, which the row records as absent.
+session_root_for() {
+  case $1 in
+    stream-json)
+      sr_root=$(/bin/sh "$script_dir/fleet-dispatch-env.sh" --print </dev/null 2>/dev/null \
+        | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+      ;;
+    *) sr_root=$(/bin/sh "$script_dir/mc-session-root.sh" current-root </dev/null 2>/dev/null) ;;
+  esac
+  # A control character would forge a field of the row.
+  case $sr_root in
+    *[[:cntrl:]]*) sr_root='' ;;
+  esac
+  printf '%s\n' "$sr_root"
+}
+
 # row_write <row> <token> <state> — write the row from the launch variables,
 # into a temporary file renamed over the row only while the row on disk is
 # still this launch's (it carries <token>).
@@ -435,6 +456,7 @@ row_write() {
     printf 'task\t%s\n' "${task:--}"
     printf 'primary\t%s\n' "${placed_primary:--}"
     printf 'marker\t%s\n' "${PLACED_MARKER:--}"
+    printf 'root\t%s\n' "${session_plugin_root:--}"
     printf 'launched\t%s\n' "$launched"
   } >"$rw_tmp"); then
     rm -f "$rw_tmp"
@@ -1011,6 +1033,7 @@ cmd_launch() {
   owner="mission-control:$program"
   composed="$ldir/brief.md"
   launched=$(date +%s)
+  session_plugin_root=$(session_root_for "$backend")
   tier=-
   tier_note=''
   # A stream-json session is found by its name; a tmux one by the window id
@@ -1747,9 +1770,11 @@ cmd_list() {
     fi
     l_tier=$(row_get "$f" tier)
     l_reserved=$(row_get "$f" reserved)
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${f##*/}" "$(row_get "$f" program)" "$(row_get "$f" kind)" \
+    l_root=$(row_get "$f" root)
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${f##*/}" "$(row_get "$f" program)" "$(row_get "$f" kind)" \
       "$(row_get "$f" scope)" "$(row_get "$f" backend)" "$(row_get "$f" launched)" \
-      "${l_tier:--}" "${l_reserved:--}"
+      "${l_tier:--}" "${l_reserved:--}" "${l_root:--}" \
+      "$(/bin/sh "$script_dir/mc-session-root.sh" verdict "${l_root:--}" </dev/null 2>/dev/null | tr '\t' ' ' || :)"
   done
 }
 

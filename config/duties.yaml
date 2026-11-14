@@ -47,9 +47,9 @@ duties:
     summary: "Drives each session to done, retires it on landing or idle, reclaims its worktree"
     triggers: [stall-dead, stall-open-selector, stall-unsubmitted-prompt,
                stall-turn-ended-background, stall-idle-question, stall-busy-unchanged,
-               stall-unknown, session-landed, pending-prompt, pending-prompt-overdue,
-               stream-json-worker-dead, keeper-sweep-failed, worker-handover-due,
-               worker-retired-idle, mission-control-escalated]
+               stall-unknown, stale-plugin-root, session-landed, pending-prompt,
+               pending-prompt-overdue, stream-json-worker-dead, keeper-sweep-failed,
+               worker-handover-due, worker-retired-idle, mission-control-escalated]
     watchers: [scripts/mc-keeper.sh@2m/low, scripts/mc-escalate.sh@1m/low]
     wake: session-landed
     rules: [session-lifecycle]

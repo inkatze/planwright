@@ -240,6 +240,31 @@ mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
 expect_eq "the line names the pull requests ready to merge" "mission control alpha: 7 in flight, 1 waiting, 2 ready to merge, 1 pending, rung normal, tracker snapshot 30s old"
 mc_run mc-panel.sh text --program alpha
 expect_out "and so does the text panel" "ready to merge: 2"
+# A session on a plugin root older than the installed version is a relaunch
+# item in the digest and the text panel; a current one, a row with no
+# recorded root, and another program's session are not.
+pr_cache="$tmp/claude/plugins/cache/mkt/planwright"
+mkdir -p "$pr_cache/0.62.0" "$pr_cache/9.9.9" "$fleet/mission-control/sessions"
+jq -n --arg p "$pr_cache/9.9.9" '{version: 2, plugins: {"planwright@planwright": [{scope: "user", installPath: $p, version: "9.9.9"}]}}' \
+  >"$tmp/claude/plugins/installed_plugins.json"
+pr_row() { # pr_row <name> <program> [<root>]
+  printf 'format\t1\nname\t%s\nprogram\t%s\nkind\tworker\nscope\tx\nbackend\tstream-json\nlaunched\t1\n' "$1" "$2" >"$fleet/mission-control/sessions/$1"
+  [ -z "${3:-}" ] || printf 'root\t%s\n' "$3" >>"$fleet/mission-control/sessions/$1"
+}
+mc_run mc-panel.sh digest --program alpha --now 1030
+expect_no_out "no session recorded yet, no relaunch item" "relaunch${tab}"
+pr_row mc-alpha-worker-old alpha "$pr_cache/0.62.0"
+pr_row mc-alpha-worker-new alpha "$pr_cache/9.9.9"
+pr_row mc-alpha-worker-legacy alpha
+pr_row mc-beta-worker-old beta "$pr_cache/0.62.0"
+mc_run mc-panel.sh digest --program alpha --now 1030
+record "a session on an older plugin root is a relaunch item" relaunch mc-alpha-worker-old 0.62.0 9.9.9
+expect_no_out "a session on the installed root is no relaunch item" "relaunch${tab}mc-alpha-worker-new"
+expect_no_out "a row with no recorded root is no relaunch item, since its age is unknown" "relaunch${tab}mc-alpha-worker-legacy"
+expect_no_out "another program's stale session is not this program's item" "relaunch${tab}mc-beta-worker-old"
+mc_run mc-panel.sh text --program alpha
+expect_out "the text panel names the session to relaunch" "relaunch, older plugin: mc-alpha-worker-old (plugin 0.62.0, installed 9.9.9)"
+rm -f "$fleet"/mission-control/sessions/mc-*-worker-* "$tmp/claude/plugins/installed_plugins.json"
 # Each ready one carries its checked merge command in the digest, built from
 # the head the verdict was judged at; a row without a well-formed head or
 # method carries none.

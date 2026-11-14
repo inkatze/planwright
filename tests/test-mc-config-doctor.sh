@@ -72,13 +72,20 @@ expect_eq "a program on the shipped defaults with no crontab is clean" "clean"
 
 sessions="$fleet/mission-control/sessions"
 mkdir -p "$sessions"
-session_row() { # session_row <name> <program> <backend>: a launch registry row
+root_cache="$tmp/claude/plugins/cache/mkt/planwright"
+mkdir -p "$root_cache/0.62.0" "$root_cache/9.9.9"
+jq -n --arg p "$root_cache/9.9.9" '{version: 2, plugins: {"planwright@planwright": [{scope: "user", installPath: $p, version: "9.9.9"}]}}' \
+  >"$tmp/claude/plugins/installed_plugins.json"
+session_row() { # session_row <name> <program> <backend> [<root>]: a launch registry row; no root is a row from before the field
   printf 'format\t1\nname\t%s\nprogram\t%s\nkind\tworker\nscope\tx\nbackend\t%s\nlaunched\t1\n' "$1" "$2" "$3" >"$sessions/$1"
+  [ -z "${4:-}" ] || printf 'root\t%s\n' "$4" >>"$sessions/$1"
 }
-session_row mc-alpha-worker-1111111111 alpha tmux
-session_row mc-alpha-worker-2222222222 alpha stream-json
-session_row mc-beta-worker-3333333333 beta tmux
+session_row mc-alpha-worker-1111111111 alpha tmux "$root_cache/9.9.9"
+session_row mc-alpha-worker-2222222222 alpha stream-json "$root_cache/9.9.9"
+session_row mc-beta-worker-3333333333 beta tmux "$root_cache/0.62.0"
 session_row mc-alpha-worker-4444444444 alpha ''
+session_row mc-alpha-worker-5555555555 alpha stream-json "$root_cache/0.62.0"
+session_row mc-alpha-worker-6666666666 alpha stream-json
 # Shell forms no redaction could model, and schedules short, named or with
 # an unknown keyword, each a crontab line, then " ==> "
 # and the command word and match the report must read as (a blank standing
@@ -163,6 +170,11 @@ expect_no_out "an enabled duty is not named" "duty-off${tab}inbox"
 expect_out "a session launched on another rung than the knob is named" "launch-backend${tab}mc-alpha-worker-1111111111${tab}tmux${tab}stream-json"
 expect_no_out "a session on the knob's rung is not named" "mc-alpha-worker-2222222222"
 expect_no_out "another program's session is not named" "mc-beta-worker-3333333333"
+expect_out "a session recorded on an older plugin root is flagged stale with both versions" "stale-root${tab}mc-alpha-worker-5555555555${tab}0.62.0${tab}9.9.9"
+expect_no_out "a session on the installed plugin root is not flagged" "stale-root${tab}mc-alpha-worker-2222222222"
+expect_no_out "another program's stale session is not flagged" "stale-root${tab}mc-beta-worker-3333333333"
+expect_out "a row with no recorded root is unknown, never current" "unknown${tab}launches${tab}mc-alpha-worker-6666666666 plugin root: no plugin root recorded at launch"
+expect_no_out "a session on the installed root is not unknown either" "mc-alpha-worker-2222222222 plugin root"
 expect_out "a session whose row names no rung is an unknown launches check" "unknown${tab}launches${tab}mc-alpha-worker-4444444444 names no rung"
 expect_no_out "a session whose row names no rung is not read as another rung" "launch-backend${tab}mc-alpha-worker-4444444444"
 cron_line() { # cron_line <label> <word> <match>: one report line reads exactly so

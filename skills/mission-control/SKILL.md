@@ -125,7 +125,10 @@ inside tmux: `scripts/mission-control-launch.sh`'s `launch`: `<p>`, kind
    launch outside the launcher, a loop beside the runner, a tracker beside
    the knowledge base), becomes an operator item. That includes a
    `rule-knob` line (a standing rule names a number its knob does not hold)
-   and a `temporary` line (a local override whose date has passed or that
+   and a `stale-root` line (a session on a plugin root older than the
+   installed version, so its hooks are the older copy's: relaunch it; a
+   session launched before the root was recorded reads as unknown) and a
+   `temporary` line (a local override whose date has passed or that
    says interim, temporary or until): the operator decides, and nothing edits
    the layer or the rule for them. `mc-handover.sh verify` and `resume` print both too.
 3. **The panel (REQ-F1.16).** Run `scripts/mc-panel.sh`'s `activate
