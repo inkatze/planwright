@@ -4462,10 +4462,95 @@ base_merge_allowed() { # <dir> <what> [<remedy for a branch refusal>]
   base_of "$1"
 }
 
+# record_spec_branch — set SPEC_BRANCH to the spec PR branch the launch named,
+# or empty. The only carrier is spec_branch= in the worker's session record
+# (PLANWRIGHT_WORKER_SESSION_RECORD, written by the launcher outside the
+# worktree), never the command text. A record that is not this user's own
+# regular file, a symlink, oversized or inside the worktree, a field given
+# twice, or a value outside planwright/<spec>/<name> (a task or flight branch,
+# or a protected one) names nothing.
+SPEC_BRANCH=''
+record_spec_branch() { # <worktree top>
+  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line n=0 v='' size
+  local re='^planwright/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9.-]*$'
+  SPEC_BRANCH=''
+  [ "$TIER" = worker ] || return 0
+  case $p in /?*) ;; *) return 0 ;; esac
+  [ -f "$p" ] && [ ! -L "$p" ] && [ -r "$p" ] && [ -O "$p" ] || return 0
+  case $p in "${1:-$UNIT_TOP}"/*) return 0 ;; esac
+  size=$(wc -c <"$p" 2>/dev/null) || return 0
+  [ "${size// /}" -le 4096 ] 2>/dev/null || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      spec_branch=*)
+        n=$((n + 1))
+        v=${line#spec_branch=}
+        ;;
+    esac
+  done <"$p"
+  [ "$n" = 1 ] || return 0
+  [[ $v =~ $re ]] || return 0
+  valid_branch "$v" || return 0
+  is_unit_branch "$v" && return 0
+  SPEC_BRANCH=$v
+}
+
+# is_spec_branch_ref <dir> <name> — 0 when the merge source is the launch's
+# spec PR branch as the base remote's remote-tracking ref, by name and by what
+# git resolves the name to (a local branch or tag of that name at another
+# commit fails closed, as for the own remote branch).
+is_spec_branch_ref() {
+  local d=$1 r=$2 want oid
+  [ -n "$SPEC_BRANCH" ] || return 1
+  case $r in
+    "$BASE_REMOTE/$SPEC_BRANCH" | "refs/remotes/$BASE_REMOTE/$SPEC_BRANCH" | "remotes/$BASE_REMOTE/$SPEC_BRANCH") ;;
+    *) return 1 ;;
+  esac
+  want=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$BASE_REMOTE/$SPEC_BRANCH^{commit}") || return 1
+  oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
+  [ -n "$want" ] && [ "$oid" = "$want" ] || return 1
+  check_unprotected "$d" 'this git merge of the launch-named spec branch' "$SPEC_BRANCH"
+}
+
+# spec_branch_checkout <dir> — 0 when the session's project directory is a
+# linked worktree with the launch-named spec branch checked out and <dir> is
+# that same checkout; sets SPEC_BRANCH. Any other state, a unit branch
+# included, is 1 and leaves the ordinary rules to decide.
+spec_branch_checkout() {
+  local d=$1 pdir=${CLAUDE_PROJECT_DIR:-} b top gd
+  [ "$TIER" = worker ] && [ -n "$pdir" ] && [ -d "$pdir" ] || return 1
+  b=$(current_branch "$pdir")
+  [ -n "$b" ] && ! is_unit_branch "$b" || return 1
+  checkout_of "$pdir" && [ "$CO_LINKED" = 1 ] || return 1
+  top=$CO_TOP gd=$CO_GD
+  record_spec_branch "$top"
+  [ -n "$SPEC_BRANCH" ] && [ "$b" = "$SPEC_BRANCH" ] || return 1
+  [ "$(current_branch "$d")" = "$b" ] || return 1
+  checkout_of "$d" && [ "$CO_TOP" = "$top" ] && [ "$CO_GD" = "$gd" ] || return 1
+  check_unprotected "$d" 'this git merge' "$b"
+}
+
 eval_merge() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s
-  [ "${rest%%"$TAB"*}" != 1 ] || remedy=$FF_REMEDY
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s ff=0
+  [ "${rest%%"$TAB"*}" != 1 ] || { remedy=$FF_REMEDY ff=1; }
   srcs=${rest#*"$TAB"}
+  if spec_branch_checkout "$dir"; then
+    # The launch-named spec branch, checked out in the session's own linked
+    # worktree, takes the PR base and nothing else; nothing is cached, so no
+    # later act of the command inherits the branch as a unit branch.
+    read_knob worker_base_merge "$dir" allow deny
+    [ "$KNOB_VAL" = allow ] \
+      || emit_deny "worker_base_merge is deny, so this git merge is refused; the operator syncs this branch with its base."
+    need_timeout
+    CUR_BRANCH=$SPEC_BRANCH
+    base_of "$dir"
+    [ -n "$srcs" ] || emit_deny "this git merge names no source, and the launch-named spec branch takes only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) - refusing. Name it: git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+    for s in $srcs; do
+      is_base_ref "$dir" "$s" \
+        || emit_deny "this session's launch names $(sanitize_printable "$SPEC_BRANCH" 'a spec branch') as the branch it syncs, which takes only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')), and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+    done
+    return 0
+  fi
   base_merge_allowed "$dir" 'this git merge' "$remedy"
   if [ -z "$srcs" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
@@ -4476,6 +4561,10 @@ eval_merge() {
   local rc
   for s in $srcs; do
     is_base_ref "$dir" "$s" && continue
+    if [ "$ff" = 1 ] && [ "$srcs" = "$s" ]; then
+      record_spec_branch "$UNIT_TOP"
+      ! is_spec_branch_ref "$dir" "$s" || continue
+    fi
     rc=0
     is_own_remote_ref "$dir" "$s" || rc=$?
     [ "$rc" != 0 ] || continue

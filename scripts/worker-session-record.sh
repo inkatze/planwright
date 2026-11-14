@@ -3,7 +3,7 @@
 # launch-time inputs its command guard trusts.
 #
 # Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>]
-#          [--scratch | --fresh-scratch] [--mise-task-edit]
+#          [--scratch | --fresh-scratch] [--mise-task-edit] [--spec-branch <branch>]
 #
 # Resolves, once, from the worktree the worker will run in:
 #   policy             worker_self_approval through the overlay layers,
@@ -49,6 +49,11 @@
 #                      the checkout or the environment; omitted otherwise, and a
 #                      fresh launch without the flag drops it, a recover or
 #                      relaunch keeps what its launch recorded
+#   spec_branch        the spec PR branch (planwright/<spec>/<name>) a launch given
+#                      --spec-branch names, omitted otherwise: the policy guard
+#                      lets that session fast-forward its flight branch to it and
+#                      sync the checked-out branch with the PR base, and nothing
+#                      else. Never read from config, the checkout or the command
 #   hook_exclude       worker_hook_exclude as a comma-joined list, omitted
 #                      when unset or when any member falls outside
 #                      [A-Za-z0-9_-]; the launcher exports it as
@@ -94,7 +99,7 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch] [--mise-task-edit]"
+usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch] [--mise-task-edit] [--spec-branch <branch>]"
 [ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
 wt_arg=$2
 shift 2
@@ -103,6 +108,7 @@ have_id=0
 session=''
 want_scratch=0
 mise_task_edit=0
+spec_branch=
 while [ "$#" -gt 0 ]; do
   case $1 in
     --scratch | --fresh-scratch)
@@ -115,6 +121,19 @@ while [ "$#" -gt 0 ]; do
       [ "$mise_task_edit" = 0 ] || die "$usage" 2
       mise_task_edit=1
       shift
+      ;;
+    --spec-branch)
+      [ "$#" -ge 2 ] && [ -z "$spec_branch" ] || die "$usage" 2
+      case $2 in
+        planwright/flight/* | planwright/*/task-*) die "--spec-branch names a spec PR branch, never a unit branch" 2 ;;
+        planwright/[a-z0-9]*/[a-z0-9]*) ;;
+        *) die "--spec-branch must be planwright/<spec>/<name>" 2 ;;
+      esac
+      case $2 in
+        *[!a-z0-9/.-]* | */ | *//* | *..* | *.lock) die "--spec-branch is outside the branch grammar (lowercase letters, digits, . - and one / between segments)" 2 ;;
+      esac
+      spec_branch=$2
+      shift 2
       ;;
     --session)
       [ "$#" -ge 2 ] && [ -z "$session" ] && [ "$have_id" = 0 ] || die "$usage" 2
@@ -351,6 +370,7 @@ if ! {
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
   [ -z "$hook_exclude" ] || printf 'hook_exclude=%s\n' "$hook_exclude"
   [ "$mise_task_edit" = 0 ] || printf 'mise_task_edit=1\n'
+  [ -z "$spec_branch" ] || printf 'spec_branch=%s\n' "$spec_branch"
   case ${PLANWRIGHT_LAUNCH_BACKEND:-} in
     stream-json | headless-oneshot) printf 'launch_backend=%s\n' "$PLANWRIGHT_LAUNCH_BACKEND" ;;
   esac
