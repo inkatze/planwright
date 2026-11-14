@@ -62,7 +62,7 @@ usage:
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
       [--remote-control <name>] [--model <alias>] [--effort <level>]
-      [--reserved] [--keep-config-env]
+      [--reserved] [--keep-config-env] [--mise-task-edit]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker>
   mission-control-launch.sh reparent <name> --program <dest>
@@ -83,6 +83,10 @@ stderr naming the knob. A mission-control launch with no --brief opens on
 one, in a tmux window. `--remote-control <name>` (mission-control only)
 starts that window with Remote Control under the name; the stream-json
 rung has no terminal to attach it to, so it drops the flag with a warning.
+`--mise-task-edit` (a worker-profile session on the stream-json rung only,
+refused otherwise) opts the session in to editing the mise task files inside
+its own worktree, under a per-launch settings profile; docs/permission-matcher-model.md
+states what that opens.
 A stream-json mission-control launch also records the session as a wake
 target (scripts/mc-wake.sh target add) and retire removes it, so the
 runner's wakes reach a session that loads no mod.
@@ -834,7 +838,7 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
-  remote_control='' rc_given=0 ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=0
+  remote_control='' rc_given=0 mise_edit=0 ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -865,6 +869,10 @@ cmd_launch() {
         ;;
       --operator-asked)
         operator_asked=1
+        shift
+        ;;
+      --mise-task-edit)
+        mise_edit=1
         shift
         ;;
       --reserved)
@@ -990,6 +998,10 @@ cmd_launch() {
   fi
 
   resolve_backend
+  if [ "$mise_edit" = 1 ]; then
+    [ "$K_PROFILE" = worker ] || die "--mise-task-edit applies to a worker-profile session only"
+    [ "$backend" = stream-json ] || die "--mise-task-edit needs the stream-json rung: the per-launch settings profile is not passed by the tmux rung"
+  fi
   if [ "$backend" = tmux ] && { [ -n "$ovr_model" ] || [ -n "$ovr_effort" ] || [ "$ovr_reserved" = 1 ]; }; then
     die "refusing to launch $name: --model, --effort and --reserved apply to the stream-json rung only; the tmux rung resolves its tier in offload-dispatch" 2
   fi
@@ -1187,6 +1199,7 @@ cmd_launch() {
       [ -z "$ovr_effort" ] || set -- "$@" --tier-effort "$ovr_effort"
       [ "$ovr_reserved" != 1 ] || set -- "$@" --tier-reserved
       [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
+      [ "$mise_edit" = 0 ] || set -- "$@" --mise-task-edit
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
