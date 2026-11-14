@@ -1949,6 +1949,14 @@ xrefuse "a span with a malformed time" --awaiting-operator --point pre-pr --step
   --awaiting-operator "EVIL,2026-10-06T10:00:01Z,x"
 xrefuse "a span naming nothing awaited" --awaiting-operator --point pre-pr --step s --outcome passed \
   --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z,"
+# A flagged text is withheld alone: the span keeps its times.
+# shellcheck disable=SC2086
+rec=$(srx write --run "$rx" --point pre-pr --step leaky $xbase --outcome passed \
+  --start 2026-10-06T10:00:00Z --end 2026-10-06T12:00:00Z \
+  --awaiting-operator "2026-10-06T10:10:00Z,2026-10-06T10:40:00Z,approve with $tok")
+grep -Fxq "awaiting${TAB}2026-10-06T10:10:00Z 2026-10-06T10:40:00Z [withheld: the secret screen flagged this value]" "$rec" \
+  && ! grep -Fq "$tok" "$rec"
+verdict "a flagged awaiting text is withheld, its span's times kept" "record: $(cat "$rec")"
 xrefuse "a span with a start and end but no second comma" --awaiting-operator --point pre-pr --step s --outcome passed \
   --awaiting-operator "2026-10-06T10:00:00Z,2026-10-06T10:00:01Z"
 xrefuse "overlapping spans" --awaiting-operator --point pre-pr --step s --outcome passed \

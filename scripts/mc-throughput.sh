@@ -653,19 +653,22 @@ step_rows() {
           # the end not before the start, both inside the step. Any other is
           # no recorded wait. Spans are taken out of the step time and
           # reported apart as @<step> rows.
-          wt = 0; wi = 0
+          wt = 0; wi = 0; nk = 0
           for (j = 1; j <= na; j++) {
             split(A[j], q, " ")
             as = iso(q[1]); ae = iso(q[2])
             if (as < s || ae > e || ae < as) continue
+            # A span overlapping one already taken is no wait, so the waits
+            # never sum past the step.
+            dup = 0
+            for (m = 1; m <= nk; m++) if (as < KE[m] && ae > KS[m]) dup = 1
+            if (dup) continue
+            KS[++nk] = as; KE[nk] = ae
             ov = ae - (as > lo ? as : lo)
             if (ov < 0) ov = 0
             wt += ae - as; wi += ov
             print "@" v["step"] "\t" (ae - as) "\t" b "\t" ov "\t" v["run"] ":" v["seq"] ":" v["point"] ":" q[1] ":" q[2]
           }
-          # Overlapping spans cannot take a step below nothing.
-          if (wt > e - s) wt = e - s
-          if (wi > e - lo) wi = e - lo
           print v["step"] "\t" (e - s - wt) "\t" b "\t" (e - lo - wi) "\t" v["run"] ":" v["seq"] ":" v["point"] ":" v["start"] ":" v["end"]
         }
       }

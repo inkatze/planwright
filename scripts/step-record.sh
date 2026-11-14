@@ -1239,9 +1239,19 @@ cmd_write() {
 
   : >"$work/awaiting" || die 1 "cannot write a temporary file"
   if [ -n "$AWAITING_CLEAN" ]; then
+    # Only the text is screened: a withheld text keeps its span's times.
+    _whats=''
+    for _l in $AWAITING_CLEAN; do
+      _w=${_l#* }
+      _whats="$_whats${_w#* }$LF"
+    done
     # shellcheck disable=SC2086 # split on newlines by design (IFS)
-    screen_values value $AWAITING_CLEAN
-    mv "$work/screened" "$work/awaiting" || die 1 "cannot write a temporary file"
+    screen_values value $_whats
+    for _l in $AWAITING_CLEAN; do
+      IFS= read -r _w <&3 || die 1 "cannot read a temporary file"
+      _t=${_l#* }
+      printf '%s %s %s\n' "${_l%% *}" "${_t%% *}" "$_w" >>"$work/awaiting" || die 1 "cannot write a temporary file"
+    done 3<"$work/screened"
   fi
 
   : >"$work/excerpt"
