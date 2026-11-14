@@ -35,19 +35,29 @@ trap 'rm -rf "$tmp"' EXIT
 #   M <job>                      a job whose runs-on names a Mac
 #   A <job> <line>               the job's mise-action step
 #   S <job> <line> <from> <to>   the setup step and its run: body's lines
-#   V <job> <line>               a line outside comments naming a mise
-#                                directory variable or the mise_dir input
+#   V <job> <line>               a line outside comments and the setup
+#                                step's body naming a mise directory
+#                                variable or the mise_dir input
+#   X <job> <key>                a key on the setup step that would make it
+#                                run otherwise than tested (if, shell, env,
+#                                continue-on-error)
 read -r -d '' facts_awk <<'AWK' || true
-function close_step() {
+function names_dir(s) { return s ~ /(MISE_DATA_DIR|MISE_CACHE_DIR|MISE_STATE_DIR|mise_dir)/ }
+function close_step(  i, n, k) {
   if (step_is_setup && body_from) printf "S\t%s\t%d\t%d\t%d\n", job, step_line, body_from, body_to
-  step_is_setup = 0; body_from = 0; body_to = 0; in_body = 0
+  if (step_is_setup) { n = split(step_keys, k, " "); for (i = 1; i <= n; i++) printf "X\t%s\t%s\n", job, k[i] }
+  step_is_setup = 0; body_from = 0; body_to = 0; in_body = 0; step_keys = ""
 }
 {
   line = $0
   match(line, /^ */); indent = RLENGTH
   rest = substr(line, indent + 1)
   if (in_body) {
-    if (rest == "" || indent > step_indent + 2) { if (rest != "") body_to = NR; next }
+    if (rest == "" || indent > step_indent + 2) {
+      if (rest != "") body_to = NR
+      if (!step_is_setup && rest !~ /^#/ && names_dir(rest)) printf "V\t%s\t%d\n", job, NR
+      next
+    }
     in_body = 0
   }
   if (rest == "" || rest ~ /^#/) next
@@ -55,11 +65,12 @@ function close_step() {
   if (in_jobs && indent == 2 && rest ~ /^[A-Za-z0-9_-]+:[ \t]*$/) {
     close_step(); job = rest; sub(/:.*/, "", job); next
   }
-  if (rest ~ /(MISE_DATA_DIR|MISE_CACHE_DIR|MISE_STATE_DIR|mise_dir)/)
-    printf "V\t%s\t%d\n", job, NR
+  if (names_dir(rest)) printf "V\t%s\t%d\n", job, NR
   if (job == "") next
   if (indent == 4 && rest ~ /^runs-on:/ && tolower(rest) ~ /macos/) printf "M\t%s\n", job
-  if (rest ~ /^- /) { close_step(); step_line = NR; step_indent = indent; rest = substr(rest, 3) }
+  stepkey = (step_line && indent == step_indent + 2)
+  if (rest ~ /^- /) { close_step(); step_line = NR; step_indent = indent; rest = substr(rest, 3); stepkey = 1 }
+  if (stepkey && match(rest, /^(if|shell|env|continue-on-error):/)) step_keys = step_keys " " substr(rest, 1, RLENGTH - 1)
   if (rest ~ /^uses:[ \t]*jdx\/mise-action@/) printf "A\t%s\t%d\n", job, NR
   if (rest ~ /^name:/) {
     n = rest; sub(/^name:[ \t]*/, "", n); gsub(/^["']|["']$/, "", n)
@@ -116,9 +127,8 @@ check() {
     if [ "$sline" -gt "$action" ]; then
       echo "$j: '$SETUP_NAME' runs after mise-action, which has already installed into the shared directory"
     fi
-    # The run: body's own lines are skipped by the parser, so every V fact
-    # in the job is outside the setup step.
     awk -F'\t' -v j="$j" '$1 == "V" && $2 == j { print j ": line " $3 " sets a mise directory outside the setup step" }' "$facts"
+    awk -F'\t' -v j="$j" -v n="$SETUP_NAME" '$1 == "X" && $2 == j { print j ": the " n " step carries `" $3 ":`, so it can run otherwise than this test runs it" }' "$facts"
     body="$tmp/body.$j.sh"
     sed -n "${from},${to}p" "$wf" | awk 'NR == 1 { match($0, /^ */); n = RLENGTH } { print substr($0, n + 1) }' >"$body"
     run_body a self-hosted inkatze-planwright-1 || echo "$j: the setup step failed for a named runner: $(cat "$tmp/out.a")"
@@ -186,6 +196,22 @@ awk -v name="$SETUP_NAME" '
   { print }
 ' "$WORKFLOW" >"$tmp/late.yml"
 expect_caught "a setup step after mise-action is caught" "$tmp/late.yml" "runs after mise-action"
+
+# Inserts, as the step after each mise-action, one that resets the data dir.
+# shellcheck disable=SC2016 # the inserted lines are workflow text
+awk '
+  after && /^      - / {
+    print "      - run: |"
+    print "          echo \"MISE_DATA_DIR=$HOME/.local/share/mise\" >>\"$GITHUB_ENV\""
+    after = 0
+  }
+  { print }
+  /jdx\/mise-action@/ { after = 1 }
+' "$WORKFLOW" >"$tmp/override.yml"
+expect_caught "a later step resetting MISE_DATA_DIR is caught" "$tmp/override.yml" "sets a mise directory outside the setup step"
+
+awk -v name="$SETUP_NAME" '{ print } index($0, name) { print "        if: false" }' "$WORKFLOW" >"$tmp/gated.yml"
+expect_caught "an if: on the setup step is caught" "$tmp/gated.yml" "carries \`if:\`"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
