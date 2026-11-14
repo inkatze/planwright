@@ -396,6 +396,8 @@ fi
 # hundreds of days-old events, stale prompts among them, for hours.
 tmux_target
 printf '%s\n' "$idle_pane" >"$tmp/tmux/pane"
+mc_run fleet-state.sh register live-worker mission-control:alpha --backend stream-json
+expect_rc "the prompting worker is a live registered session" 0
 backlog() { # backlog <epoch> <copies> <kind> <subject>: one event and its copies
   mc_run mc-event.sh emit --program alpha --now "$1" "$3" "$4"
   bl_src=$(find "$fleet/attention" -type f -name "$OUT" | head -n 1)

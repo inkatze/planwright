@@ -66,9 +66,10 @@ and mark it submitted for the target (compose's one mark), since the
 script that emitted it already acted and nothing in it is for the
 operator; it stays listable. With the table unreadable every event wakes,
 said on stderr.
-One wake per target carries 20 of its pending events, oldest first and,
-in the tick, never-sent ones ahead of staged ones (the rest wait for a
-later wake), naming each one's kind and subject, re-checked against
+One wake per target carries 20 of its pending events: pending-prompt and
+pending-prompt-overdue events first, newest first, then the rest oldest
+first, never-sent ones ahead of staged ones in the tick (the rest wait for
+a later wake), naming each one's kind and subject, re-checked against
 their grammar, never its free text, which the session reads through the
 `mc-event.sh list --program <p> <id>...` command the wake prints. A wake
 carrying a usage-reset event also names the `mc-usage.sh report` command
@@ -199,6 +200,21 @@ select_events() {
   else
     SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' '$NF == "-"')
   fi
+  # A pending prompt leads, newest first, since a worker is stopped on it now.
+  # A successor inherits its program's whole history unmarked, so oldest
+  # first held a fresh prompt behind every older event, stale prompts
+  # included, for as many wakes as that backlog filled.
+  SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' '
+    NF && ($3 == "pending-prompt" || $3 == "pending-prompt-overdue") {
+      if ($NF == "-") p[++np] = $0; else ps[++nps] = $0
+      next
+    }
+    NF { o[++no] = $0 }
+    END {
+      for (i = np; i >= 1; i--) print p[i]
+      for (i = nps; i >= 1; i--) print ps[i]
+      for (i = 1; i <= no; i++) print o[i]
+    }')
   SEL_TOTAL=$(printf '%s' "$SEL_ROWS" | awk 'NF { n++ } END { print n + 0 }')
   # One wake carries the first LISTED_MAX; the rest wait for a later wake.
   SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | M=$LISTED_MAX awk 'NF && ++n <= ENVIRON["M"] + 0')
