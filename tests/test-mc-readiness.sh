@@ -622,6 +622,117 @@ has "a head the repository does not hold is a spec-only scope" "scope${tab}spec-
 has "held by one unsigned sign-off naming the fetch" "signoff${tab}*${tab}unsigned${tab}the head is not in"
 spec_pr "$sh_ready" 'specs/Bad Name/requirements.md'
 has "a bundle directory outside the spec identifier grammar is refused" "signoff${tab}Bad Name${tab}unsigned${tab}not a spec identifier"
+# ---------------------------------------------------------------------------
+# REQ-D1.13: a pull request that is not spec-only is checked for spec drift,
+# and its edited bundles' sign-offs are read as a spec-only one's are.
+# ---------------------------------------------------------------------------
+bundle demo Ready signed
+cat >"$repo/specs/demo/tasks.md" <<'EOF'
+# Tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — One
+
+- **Deliverables:** `app/run.sh`, and prose app/prose.sh.
+- **Done when:** ok.
+- **Dependencies:** none
+- **Citations:** D-1
+- **Estimated effort:** 1 day
+EOF
+resign() { # resign: re-sign the demo bundle at its current content
+  # shellcheck disable=SC2016 # the brief's backticks are literal
+  printf '# Brief\n\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/demo`\n' \
+    "$(/bin/sh "$repo_root/scripts/spec-anchor.sh" "$repo/specs/demo")" >"$repo/specs/demo/kickoff-brief.md"
+}
+resign
+mkdir -p "$repo/app" "$repo/src"
+printf 'run\n' >"$repo/app/run.sh"
+printf 'prose\n' >"$repo/app/prose.sh"
+dr_commit() { # dr_commit <message>: commit the spec and code paths (never the fixture config), print the head
+  git -C "$repo" add specs app src >/dev/null
+  git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m "$1"
+  git -C "$repo" rev-parse HEAD
+}
+printf 'other\n' >"$repo/src/other.c"
+dr_base=$(dr_commit "base with code and a signed spec")
+git -C "$repo" update-ref refs/remotes/origin/main "$dr_base"
+dr_pr() { # dr_pr <head> <body> <base branch> <path>...: collect and check over the forge's view
+  dr_h=$1 dr_body=$2 dr_bb=$3
+  shift 3
+  jq -n --arg h "$dr_h" --arg body "$dr_body" --arg bb "$dr_bb" --args '
+    {headRefOid: $h, headRefName: "feature", baseRefName: $bb, labels: [], body: $body,
+     files: ($ARGS.positional | map({path: ., changeType: "MODIFIED"})),
+     statusCheckRollup: [{name: "build", conclusion: "SUCCESS"}]}' "$@" >"$tmp/pr.json"
+  printf '%s\n' "$dr_h" >"$tmp/headnow"
+  rm -f "$tmp/collected"
+  PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+  c=$(cat "$tmp/collected" 2>/dev/null)
+  PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7
+}
+printf 'changed\n' >>"$repo/app/run.sh"
+dr_a=$(dr_commit "feat: change the listed file")
+dr_pr "$dr_a" "## Summary" main app/run.sh
+has "REQ-D1.13: a changed listed deliverable with no spec edit is collected as drift" "drift${tab}app/run.sh${tab}demo/1"
+expect_rc "the walk refuses it" 4
+expect_out "naming the file and the task" "fail${tab}drift${tab}app/run.sh is a deliverable of demo/1"
+dr_pr "$dr_a" "Not covered: app/run.sh — a comment fix" main app/run.sh
+has "the collection ran at the head" "head${tab}$dr_a"
+hasnt "a Not covered line naming the file clears the drift row" "drift${tab}"
+expect_no_out "and the walk raises no drift failure" "fail${tab}drift"
+dr_pr "$dr_a" "Not covered: src/other.c — a comment fix" main app/run.sh
+has "a Not covered line naming another path does not excuse it" "drift${tab}app/run.sh${tab}demo/1"
+dr_pr "$dr_a" "## Summary" nosuchbase app/run.sh
+has "REQ-D1.13: a drift check that cannot run is a row with its reason" "drift${tab}*${tab}the base refs/remotes/origin/nosuchbase is not a commit"
+expect_out "and the walk refuses with it" "fail${tab}drift${tab}the spec-drift check could not run: the base refs/remotes/origin/nosuchbase is not a commit"
+dr_pr "$dr_a" "## Summary" "" app/run.sh
+has "a pull request naming no base branch cannot be checked" "drift${tab}*${tab}the pull request names no base branch"
+git -C "$repo" reset -q --hard "$dr_base"
+printf 'prose change\n' >>"$repo/app/prose.sh"
+printf 'x\n' >>"$repo/src/other.c"
+dr_u=$(dr_commit "feat: unlisted")
+dr_pr "$dr_u" "## Summary" main src/other.c app/prose.sh
+has "the collection ran at the head" "head${tab}$dr_u"
+hasnt "a change touching no listed deliverable (prose path included) passes untouched" "drift${tab}"
+hasnt "and edits no bundle, so reads no sign-off" "signoff${tab}"
+expect_no_out "the walk raises no drift or sign-off failure" "fail${tab}drift"
+dr_pr "$dr_base" "## Summary" main src/other.c specs/gone/design.md
+has "the collection ran at the head" "head${tab}$dr_base"
+hasnt "a bundle absent at the head (removed or moved) has no sign-off to read" "signoff${tab}gone"
+
+# A spec edit with its anchor re-signed covers the change; a stale anchor does not.
+git -C "$repo" reset -q --hard "$dr_base"
+printf 'changed\n' >>"$repo/app/run.sh"
+printf 'An amendment.\n' >>"$repo/specs/demo/design.md"
+dr_stale=$(dr_commit "feat: the file and an unsigned spec edit")
+dr_pr "$dr_stale" "## Summary" main app/run.sh specs/demo/design.md
+has "the collection ran at the head" "head${tab}$dr_stale"
+hasnt "a changed anchored spec covers the file" "drift${tab}"
+has "REQ-D1.13: but its edit is read against the sign-off, which no longer matches" "signoff${tab}demo${tab}unsigned${tab}its content at the head is not what the kickoff signed off"
+expect_out "the walk refuses the unsigned edit on a code pull request" "fail${tab}signoff${tab}demo: its content at the head is not what the kickoff signed off"
+resign
+dr_signed=$(dr_commit "feat: the file and the re-signed spec edit")
+dr_pr "$dr_signed" "## Summary" main app/run.sh specs/demo/design.md specs/demo/kickoff-brief.md
+hasnt "a re-signed spec edit leaves no drift row" "drift${tab}"
+has "and its sign-off is read as signed" "signoff${tab}demo${tab}signed${tab}-"
+expect_no_out "the walk raises no drift or sign-off failure for it" "fail${tab}drift"
+expect_no_out "nor a sign-off one" "fail${tab}signoff"
+
+# A status annotation alone is no spec edit.
+git -C "$repo" reset -q --hard "$dr_base"
+printf 'changed\n' >>"$repo/app/run.sh"
+sed 's/\*\*Status:\*\* Ready/**Status:** Active/' "$repo/specs/demo/requirements.md" >"$tmp/req" && cat "$tmp/req" >"$repo/specs/demo/requirements.md"
+dr_status=$(dr_commit "feat: the file and a status flip")
+dr_pr "$dr_status" "## Summary" main app/run.sh specs/demo/requirements.md
+has "REQ-D1.13: a status annotation alone does not cover the file" "drift${tab}app/run.sh${tab}demo/1"
+git -C "$repo" reset -q --hard "$dr_base"
+walk_with "drift row" '-' "drift${tab}app/run.sh${tab}demo/1"
+expect_rc "a drift row refuses the walk" 4
+walk_with "unsigned edit" '-' "signoff${tab}demo${tab}unsigned${tab}its status at the head is Draft"
+expect_out "an unsigned sign-off row binds a pull request that is not spec-only" "fail${tab}signoff${tab}demo: its status at the head is Draft"
+
 sed -i.bak "s|^program_alpha_spec_root: .*|program_alpha_spec_root: $repo|" "$tracked"
 spec_pr "$sh_ready" specs/demo/requirements.md
 hasnt "a spec root that is the repository root exempts nothing" "scope${tab}"
