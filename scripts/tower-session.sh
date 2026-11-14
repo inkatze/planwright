@@ -19,10 +19,22 @@
 #                                  <session id>.mission-control mark instead.
 # And as a tower's bring-up runs it, the activation handshake:
 #   tower-session.sh activate      In a session where the guard hook is live,
-#                                  the hook marks the session and refuses this
-#                                  command with a reason opening with ACTIVE,
-#                                  so its body never runs. If it runs, no hook
-#                                  stopped it: it says so and exits 3.
+#   tower-session.sh activate tower  the hook marks the session and refuses
+#                                  the command with a reason opening with
+#                                  ACTIVE, so its body never runs. If it runs,
+#                                  no hook stopped it: it says so and exits 3.
+#                                  The two spellings are the two kinds of mark:
+#                                  bare is `orchestrate`, `activate tower` is
+#                                  `tower`; only a command equal to one of them
+#                                  is a handshake.
+#   tower-session.sh kind <sid>    Print the session's mark kind: none,
+#                                  orchestrate, or tower. A mark written
+#                                  before kinds existed carries none and reads
+#                                  as orchestrate until a /tower bring-up or
+#                                  posture check re-marks it; a store, mark,
+#                                  or kind the bar cannot vouch for reads as
+#                                  tower. A mark `/tower` made stays tower
+#                                  whatever later marks it.
 #
 # DENY-ONLY. A mark only restricts the session carrying it: this path denies
 # or defers and never allows, and tower-command-guard.sh's auto-allows stay
@@ -259,15 +271,53 @@ check_mark() { # <path> [kind: tower|mission-control]
   [ "$LS_UID" = "$MY_UID" ] || return 1
   content=$(head -c 129 -- "$1" 2>/dev/null) || return 1
   [ "${#content}" -le 128 ] || return 1
-  [[ $content =~ ^"$kind""$tab"[0-9]{1,12}"$tab"(prompt|activate)$ ]]
+  [[ $content =~ ^"$kind""$tab"[0-9]{1,12}"$tab"(prompt|activate)("$tab"[a-z]{1,16})?$ ]]
 }
 
-# write_mark <sid> <source> [kind] — create or refresh the mark by temp file
-# and rename, then prune; 0 only when the mark passes the bar afterwards. A
-# mission-control mark is a sibling file, <sid>.mission-control, so the tower
-# guard's lookup of <sid> never sees it.
+# mark_kind_of <sid> — set KIND to none (no mark), orchestrate, or tower, for a
+# home and store that already passed the bar. A mark that fails the check or
+# carries an unknown kind is tower; a mark with no kind field, written before
+# the kind existed, is orchestrate.
+mark_kind_of() {
+  local content tab=$'\t'
+  KIND=none
+  [ -e "$STORE/$1" ] || [ -L "$STORE/$1" ] || return 0
+  KIND=tower
+  check_mark "$STORE/$1" || return 0
+  content=$(head -c 129 -- "$STORE/$1" 2>/dev/null) || return 0
+  case $content in
+    *"$tab"*"$tab"*"$tab"*) [ "${content##*"$tab"}" != orchestrate ] || KIND=orchestrate ;;
+    *) KIND=orchestrate ;;
+  esac
+}
+
+# session_kind <sid> — set KIND to none, orchestrate, or tower. Anything the
+# store's bar cannot vouch for reads as tower, the stricter kind.
+session_kind() {
+  KIND=none
+  is_uuid "$1" || return 0
+  fleet_home || return 0
+  STORE="$FH/$STORE_LEAF"
+  if { [ -e "$FH" ] || [ -L "$FH" ]; } && { [ ! -d "$FH" ] || [ ! -x "$FH" ]; }; then
+    KIND=tower
+    return 0
+  fi
+  [ -e "$STORE" ] || [ -L "$STORE" ] || return 0
+  KIND=tower
+  [ -d "$STORE" ] && [ -x "$STORE" ] || return 0
+  MY_UID=$(id -u 2>/dev/null) || return 0
+  { check_home && check_store; } || return 0
+  mark_kind_of "$1"
+}
+
+# write_mark <sid> <source> [kind] [command kind] — create or refresh the mark
+# by temp file and rename, then prune; 0 only when the mark passes the bar
+# afterwards. A mission-control mark is a sibling file, <sid>.mission-control,
+# so the tower guard's lookup of <sid> never sees it. A tower mark records the
+# command kind that marked it, tower or orchestrate, and tower is sticky: an
+# orchestrate marking never loosens a mark that reads tower.
 write_mark() {
-  local tmp now kind=${3:-tower} leaf=$1
+  local tmp now kind=${3:-tower} leaf=$1 ckind=${4:-}
   [ "$kind" = tower ] || leaf=$1.$kind
   MY_UID=$(id -u 2>/dev/null) || return 1
   umask 077
@@ -280,9 +330,13 @@ write_mark() {
     mkdir -- "$STORE" 2>/dev/null || [ -d "$STORE" ] || return 1
   fi
   check_store || return 1
+  if [ "$ckind" = orchestrate ]; then
+    mark_kind_of "$1"
+    [ "$KIND" != tower ] || ckind=tower
+  fi
   now=$(date +%s 2>/dev/null) || return 1
   tmp=$(mktemp "$STORE/.$1.XXXXXX" 2>/dev/null) || return 1
-  if ! printf '%s\t%s\t%s\n' "$kind" "$now" "$2" >"$tmp" 2>/dev/null || ! mv -f -- "$tmp" "$STORE/$leaf" 2>/dev/null; then
+  if ! printf '%s\t%s\t%s%s\n' "$kind" "$now" "$2" "${ckind:+$'\t'$ckind}" >"$tmp" 2>/dev/null || ! mv -f -- "$tmp" "$STORE/$leaf" 2>/dev/null; then
     rm -f -- "$tmp" 2>/dev/null
     return 1
   fi
@@ -339,12 +393,18 @@ prefilter() {
 }
 
 # is_activation <command> — the activation handshake: a path ending in
-# scripts/tower-session.sh, quoted or not, then `activate`, and nothing else.
+# scripts/tower-session.sh, quoted or not, then `activate` (the orchestrate
+# spelling) or `activate tower` (the tower spelling), and nothing else. Sets
+# ACT_KIND to the spelling's kind.
+ACT_KIND=orchestrate
 is_activation() {
   local p re
   p='([^'"'"'"[:space:]$`\\;&|<>()]*/)?scripts/tower-session\.sh'
-  re="^[[:space:]]*($p|'$p'|\"$p\")[[:space:]]+activate[[:space:]]*\$"
-  [[ $1 =~ $re ]]
+  re="^[[:space:]]*($p|'$p'|\"$p\")[[:space:]]+activate([[:space:]]+tower)?[[:space:]]*\$"
+  [[ $1 =~ $re ]] || return 1
+  ACT_KIND=orchestrate
+  re='[[:space:]]tower[[:space:]]*$'
+  ! [[ $1 =~ $re ]] || ACT_KIND=tower
 }
 
 is_deny() { # <json>
@@ -375,7 +435,7 @@ pause_for_test() {
 }
 
 activate_session() { # <sid>
-  write_mark "$1" activate || deny_inactive 'this session could not be marked (the fleet home or its tower-sessions store is missing, unwritable, a symlink, or not owner-only)'
+  write_mark "$1" activate tower "$ACT_KIND" || deny_inactive 'this session could not be marked (the fleet home or its tower-sessions store is missing, unwritable, a symlink, or not owner-only)'
   self_test || deny_inactive 'the policy guard beside this hook did not refuse its self-test'
   emit_deny "$ACTIVE_PHRASE. This command is the activation handshake and never runs here; every Bash call and the GitHub MCP write tools run the policy guard at the tower tier."
 }
@@ -444,7 +504,7 @@ guard() {
 # The prompt hook.
 
 prompt_hook() {
-  local fields sid prompt re cap=$MAX_PROMPT_BYTES
+  local fields sid prompt re ckind cap=$MAX_PROMPT_BYTES
   trap 'exit 0' HUP INT TERM PIPE
   read_payload "$cap"
   # Only a prompt that opens with the command earns the full read.
@@ -467,14 +527,14 @@ prompt_hook() {
   is_uuid "$sid" || exit 0
   re='^[[:space:]]*/(planwright:)?(tower|orchestrate)([[:space:]]|$)'
   if [[ $prompt =~ $re ]]; then
-    :
+    ckind=${BASH_REMATCH[2]}
   else
     re='^[[:space:]]*/(planwright:)?mission-control([[:space:]]|$)'
     [[ $prompt =~ $re ]] || exit 0
     write_mark "$sid" prompt mission-control || warn 'this mission-control session could not be marked; its prompt-answer calls stay unapproved by the plugin hook'
     exit 0
   fi
-  write_mark "$sid" prompt || warn 'this tower session could not be marked; its bring-up handshake reports the floor as not active'
+  write_mark "$sid" prompt tower "$ckind" || warn 'this tower session could not be marked; its bring-up handshake reports the floor as not active'
   exit 0
 }
 
@@ -484,11 +544,22 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     guard) guard "${2:-}" ;;
     prompt-hook) prompt_hook ;;
     activate)
+      case ${2:-} in
+        '' | tower) ;;
+        *)
+          printf '%s\n' 'usage: tower-session.sh activate [tower]' >&2
+          exit 2
+          ;;
+      esac
       printf '%s\n' "${PREFIX}NOT ACTIVE: this command ran, so no planwright hook intercepted it and the tower deny floor is not enforced from the plugin for this session."
       exit 3
       ;;
+    kind)
+      session_kind "${2:-}"
+      printf '%s\n' "$KIND"
+      ;;
     *)
-      printf '%s\n' 'usage: tower-session.sh guard bash|mcp | prompt-hook | activate' >&2
+      printf '%s\n' 'usage: tower-session.sh guard bash|mcp | prompt-hook | activate [tower] | kind <session id>' >&2
       exit 2
       ;;
   esac

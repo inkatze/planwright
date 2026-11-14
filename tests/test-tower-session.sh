@@ -203,7 +203,10 @@ kmark() { # <sid> <field line> — a hand-written mark, owner-only
 }
 now=$(date +%s)
 k=0
-newsid() { k=$((k + 1)); SID=$(printf 'cccccccc-0000-4000-8000-%012d' "$k"); }
+newsid() {
+  k=$((k + 1))
+  SID=$(printf 'cccccccc-0000-4000-8000-%012d' "$k")
+}
 for case_ in '/tower|tower' '/planwright:tower open?|tower' '/orchestrate x|orchestrate' '/planwright:orchestrate --watch|orchestrate'; do
   newsid
   prompt "$SID" "${case_%|*}"

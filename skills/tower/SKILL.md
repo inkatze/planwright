@@ -74,9 +74,10 @@ is the one sweep output read.
    continue. Check that `scripts/tower-command-guard.sh` is wired as a
    PreToolUse hook whose hook path resolves; if not, say so once, naming the
    file to merge, and continue. On "wired", re-run this check before lifting
-   the block. The posture allows Edit and Write; not authoring is this skill's
-   own rule. Never edit a settings file from the tower: it cannot
-   grant itself permissions.
+   the block. Here and at each on-request posture check, run
+   `scripts/tower-session.sh activate tower`.
+   The posture allows Edit and Write; not authoring is this skill's
+   own rule.
 2. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
    flight through the shared flight sweep: the index at
    `scripts/flight-sweep.sh path` when newer than this session's start (the
