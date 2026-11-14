@@ -9,7 +9,7 @@
 # tier in exactly the sessions marked as towers and defers everywhere else.
 # The profile launch stays a second, additional layer; both only deny.
 #
-# Usage, as hooks/hooks.json wires it:
+# Usage (as hooks/hooks.json wires it):
 #   tower-session.sh guard bash    PreToolUse on Bash.
 #   tower-session.sh guard mcp     PreToolUse on the GitHub MCP write tools.
 #   tower-session.sh prompt-hook   UserPromptSubmit: mark the session when the
