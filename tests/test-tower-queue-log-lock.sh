@@ -25,6 +25,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TQ="$here/../scripts/tower-queue.sh"
 FS="$here/../scripts/fleet-state.sh"
 
@@ -291,14 +293,19 @@ echo "ok: an absent or malformed counter is repaired from the log, not restarted
 rm -f "$log_file" "$seq_file"
 run log born --now 7800 item=one >/dev/null || fail "first write: exit"
 chmod 0400 "$log_file"
-rc=0
-run log born --now 7810 item=two >/dev/null 2>&1 || rc=$?
+if hermetic_access_denied w "$log_file"; then
+  rc=0
+  run log born --now 7810 item=two >/dev/null 2>&1 || rc=$?
+  chmod 0600 "$log_file"
+  [ "$rc" = 6 ] || fail "a refused append: exit $rc, expected 6"
+  [ "$(cat "$seq_file")" = 1 ] || fail "a failed append burned a sequence number (counter is $(cat "$seq_file"), expected 1)"
+  run log born --now 7820 item=three >/dev/null || fail "write after the refused append: exit"
+  grep -q '"seq":2,' "$log_file" || fail "the sequence did not continue after a refused append: $(last_line)"
+  echo "ok: a failed append leaves the sequence where it was"
+else
+  echo "skip: refused log append: the running user still writes $log_file under mode 0400"
+fi
 chmod 0600 "$log_file"
-[ "$rc" = 6 ] || fail "a refused append: exit $rc, expected 6"
-[ "$(cat "$seq_file")" = 1 ] || fail "a failed append burned a sequence number (counter is $(cat "$seq_file"), expected 1)"
-run log born --now 7820 item=three >/dev/null || fail "write after the refused append: exit"
-grep -q '"seq":2,' "$log_file" || fail "the sequence did not continue after a refused append: $(last_line)"
-echo "ok: a failed append leaves the sequence where it was"
 
 # --- a torn last line costs one event, not two --------------------------------
 
@@ -392,17 +399,22 @@ rm -rf "$log_dir"
 run log born --now 9100 item=seed >/dev/null || fail "seed write before the read-only surface: exit"
 rm -f "$log_file"
 chmod 0500 "$log_dir"
-rc=0
-run log born --now 9101 item=nowhere >"$tmp/out" 2>"$tmp/err" || rc=$?
+if hermetic_access_denied w "$log_dir"; then
+  rc=0
+  run log born --now 9101 item=nowhere >"$tmp/out" 2>"$tmp/err" || rc=$?
+  chmod 0700 "$log_dir"
+  [ "$rc" = 6 ] || fail "a surface that cannot be written: exit $rc, expected 6 (infrastructure, not usage)"
+  while IFS= read -r l; do
+    case "$l" in
+      'tower-queue: '*) ;;
+      *) fail "a raw shell or mktemp diagnostic reached stderr: $l" ;;
+    esac
+  done <"$tmp/err"
+  echo "ok: a surface that will not take a write exits 6 and says so in this script's own voice"
+else
+  echo "skip: read-only log surface: the running user still writes $log_dir under mode 0500"
+fi
 chmod 0700 "$log_dir"
-[ "$rc" = 6 ] || fail "a surface that cannot be written: exit $rc, expected 6 (infrastructure, not usage)"
-while IFS= read -r l; do
-  case "$l" in
-    'tower-queue: '*) ;;
-    *) fail "a raw shell or mktemp diagnostic reached stderr: $l" ;;
-  esac
-done <"$tmp/err"
-echo "ok: a surface that will not take a write exits 6 and says so in this script's own voice"
 
 # A missing sourced dependency is the documented broken install, not the
 # shell's own status for a failed `.`.
