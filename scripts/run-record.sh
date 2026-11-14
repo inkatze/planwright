@@ -22,7 +22,7 @@
 #                    permission_arm, known_bad_set_hash, candidate_diff_hash,
 #                    changed_knobs. Values are plain tokens (letters, digits
 #                    and . _ : = , @ + -), so a command or path never rides in.
-# A source that is absent or unreadable is named on stderr and nothing is
+# A source that is absent, unreadable or an empty event log is named on stderr and nothing is
 # written (exit 3), never zeros. --out defaults to stdout. The OAuth token's
 # value (named by --token-env) and any token-shaped value are scrubbed.
 
@@ -181,6 +181,7 @@ cmd_record() {
     --argjson gexit "$gate_exit" --argjson approvals "$approvals" '
     def text: if type == "array" then map(.text? // "") | join(" ") else (. // "") end;
     [inputs | fromjson?] as $ev
+    | if ($ev | length) == 0 then error("no frames") else . end
     | [$ev[] | select(.type == "assistant") | .message | select(. != null)] as $msgs
     | [$msgs[] | .content[]? | select(.type == "tool_use")] as $uses
     | ($msgs | map(select(.id != null)) | group_by(.id) | map(last | .usage // {})) as $usage
@@ -193,7 +194,7 @@ cmd_record() {
           and .request.tool_name != "AskUserQuestion")] | unique_by(.request_id) | length),
       denials: ([$ev[] | select(.type == "user") | .message.content[]?
           | select(.type == "tool_result" and .is_error == true
-            and ((.content | text) | test("denied|doesn.t want to proceed|was blocked"; "i")))]
+            and ((.content | text) | test("has been denied|denied by|doesn.t want to proceed|blocked by"; "i")))]
           | length),
       audited_approvals: $approvals,
       tokens: {
@@ -224,7 +225,7 @@ cmd_record() {
         else . end)') || die "scrub failed" 2
 
   if [ -n "$out" ]; then
-    printf '%s\n' "$rec" >"$out" || die "cannot write the record" 2
+    (umask 077 && printf '%s\n' "$rec" >"$out") || die "cannot write the record" 2
   else
     printf '%s\n' "$rec"
   fi
@@ -331,6 +332,7 @@ $1"
 
   unsafe_text "$title" && die "report refused: the title carries a command, home path or token" 1
   oldifs=$IFS
+  set -f
   IFS='
 '
   for n in $notes; do

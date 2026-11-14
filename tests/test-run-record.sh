@@ -138,6 +138,21 @@ for f in planwright_commit plugin_build claude_cli_version model_map \
 done
 pass "a1: a fixture run yields a record with every field"
 
+# A tool's own OS error is not a permission denial from the harness.
+mk_run "$tmp/d" today
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tx","is_error":true,"content":"cat: x: Permission denied"}]}}' >>"$tmp/d/events.jsonl"
+rec "$tmp/d" "$tmp/d.json" || fail "a1: record with an OS error result must be written"
+[ "$(jq -r .denials "$tmp/d.json")" = 1 ] || fail "a1: an OS 'Permission denied' must not count as a denial"
+
+# An empty event log is a missing source, never a record of zeros.
+mk_run "$tmp/e" today
+: >"$tmp/e/events.jsonl"
+rc=0
+rec "$tmp/e" "$tmp/e.json" 2>"$tmp/e.err" || rc=$?
+[ "$rc" -eq 3 ] || fail "a3: an empty event log must fail as a missing source, got $rc"
+[ ! -s "$tmp/e.json" ] || fail "a3: no record may be written for an empty event log"
+grep -qi "events" "$tmp/e.err" || fail "a3: the error must name the events source"
+
 # ---- a2: outcome mapping ---------------------------------------------------
 
 o_case() { # <result row> <want>
@@ -258,6 +273,13 @@ rc=0
 rc=0
 "$RR" report --title T --note "run \$(whoami) now" "$tmp/ca.json" >"$tmp/rep4.md" 2>"$tmp/rep4.err" || rc=$?
 [ "$rc" -ne 0 ] || fail "c1: a note carrying command syntax must be refused"
+# A glob in a note stays literal text and never expands to file names.
+mkdir -p "$tmp/g"
+: >"$tmp/g/zz-marker"
+(cd "$tmp/g" && "$RR" report --title T --note '*' "$tmp/ca.json") >"$tmp/rep6.md" \
+  || fail "c1: a report with a glob note must be written"
+if grep -q "zz-marker" "$tmp/rep6.md"; then fail "c1: a glob in a note must not expand"; fi
+grep -qxF '*' "$tmp/rep6.md" || fail "c1: the glob note must appear literally"
 # A hand-made record with a command in an identity field is refused too.
 jq '.harness.changed_knobs = "rm -rf /home/someone"' "$tmp/ca.json" >"$tmp/bad.json"
 rc=0
