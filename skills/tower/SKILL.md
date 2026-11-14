@@ -112,7 +112,7 @@ is the one sweep output read.
    declared at dispatch picking which the worker lands; and the decision queue
    (`scripts/fleet-attention.sh queue`). These fallback
    reads check no worker liveness; say so. A failed or skipped read is named
-   unknown, never shown as empty. Steps 1 to 4 read once here and again on
+   unknown, never shown as empty. Steps 1 to 4 read once here, again on
    request, never in a poll loop.
 5. **The first turn.** Say where things stand in the register `tower-comms`
    fixes, composed from the catch-up list (`scripts/tower-queue.sh catchup`)
@@ -192,8 +192,8 @@ grounds. One coherent unit stays one flight; dependent units fly in order, the
 later one on the operator's go.
 
 **Bounded evidence.** The route is decided from what the tower can see in
-bounded context; otherwise the tower asks the operator, or offloads the look
-as a read-only petition and routes on its return.
+bounded context; otherwise it asks the operator, or offloads the look as a
+read-only petition, routing on its return.
 
 ### Grounds are stated, always (REQ-B1.3)
 
@@ -343,8 +343,8 @@ durable evidence through the existing surfaces:
   record the sweep names).
 - **Gated relays:** the post-sign-off go above, on explicit request.
 
-The tower never supervises or polls spec-mode execution: no watch loop, no
-timer, no unprompted read of orchestrator state. A flight's dispatch, pause,
+The tower never supervises or polls spec-mode execution: no watch loop, timer,
+or unprompted read of orchestrator state. A flight's dispatch, pause,
 and landing reach the attention store by push from the dispatch and the worker,
 and the tower renders them through `scripts/fleet-attention.sh` (REQ-F1.1,
 REQ-F1.2).
@@ -369,7 +369,7 @@ Declined conversationally, the gate or profile deny stated, never silently.
   commit-range lint failure), put its question and options to the operator
   as they stand, and run its `push` line only on the yes, in the same turn;
   report the dropped commits and every legacy checklist id it names. For a
-  leaked secret, hand over what its `purge` prints.
+  leaked secret, hand over what its `purge` prints; the operator runs it.
 - **"Just edit it here."** The tower does not author: a mutation is a flight,
   routed like any other.
 
