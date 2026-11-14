@@ -492,19 +492,25 @@ load_repo() {
     # The batch also carries `number` and `mergedAt` so the completion-annotation
     # stamp (output-hygiene Task 7, D-5, REQ-E1.2) reuses this one query — no new
     # per-task lookup. Columns: headRefName<TAB>state<TAB>number<TAB>mergedAt<TAB>
-    # trailers. The last is the space-joined values of the `Planwright-Task`
-    # lines in a MERGED PR's body (empty otherwise): a squash merge keeps the PR
-    # body, not the task's commits, so work shipped through a PR whose head
-    # branch is not the task branch still names its task there. Only the matching
-    # lines leave jq, so a large body never reaches the shell.
+    # trailers<TAB>baseRefName. `trailers` is the `|`-joined values of the
+    # `Planwright-Task` lines in a MERGED PR's body (empty otherwise; `|` cannot
+    # occur in a valid value, so each line is validated whole): a squash merge
+    # keeps the PR body, not the task's commits, so work shipped through a PR
+    # whose head branch is not the task branch still names its task there. Only
+    # the matching lines leave jq, so a large body never reaches the shell.
     if gh_out=$(cd "$repo_root" && gh pr list --state all --limit 1000 \
-      --json state,headRefName,number,mergedAt,body \
+      --json state,headRefName,number,mergedAt,body,baseRefName \
       --jq '.[] | [.headRefName, .state, (.number|tostring), (.mergedAt // ""),
-        (if .state == "MERGED" then [(.body // "") | split("\n")[] | select(test("^planwright-task:";"i")) | sub("^[^:]*:\\s*";"") | gsub("\\s+$";"")] | join(" ") else "" end)] | @tsv' 2>/dev/null); then
+        (if .state == "MERGED" then [(.body // "") | split("\n")[] | select(test("^planwright-task:";"i")) | sub("^[^:]*:\\s*";"") | gsub("\\s+$";"")] | join("|") else "" end), .baseRefName] | @tsv' 2>/dev/null); then
       gh_lines=$gh_out
       # A forge that cannot be read adds nothing here (the else arm returns 3),
-      # so an unreachable forge never counts a task complete.
-      ingest_trailers "$(printf '%s\n' "$gh_lines" | awk -F"$TAB" '$2=="MERGED" && $5!="" {n=split($5, v, " "); for (i=1;i<=n;i++) print v[i]}')"
+      # so an unreachable forge never counts a task complete. Only a PR merged
+      # into the base branch counts: work merged into another branch never
+      # reached base. A detached HEAD base names no branch, so it filters none.
+      pr_base=${base#origin/}
+      [ "$pr_base" != HEAD ] || pr_base=""
+      ingest_trailers "$(printf '%s\n' "$gh_lines" | awk -F"$TAB" -v b="$pr_base" \
+        '$2=="MERGED" && $5!="" && (b=="" || $6==b) {n=split($5, v, "|"); for (i=1;i<=n;i++) print v[i]}')"
     else
       return 3
     fi
