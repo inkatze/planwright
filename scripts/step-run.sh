@@ -933,6 +933,7 @@ spec_signoff_exempt() {
   for lib in echo-safety.sh mc-lib.sh spec-parse.sh spec-signoff.sh; do
     [ -r "$script_dir/$lib" ] || return 1
   done
+  # shellcheck disable=SC2034 # read by the sourced mc-lib.sh
   prog=step-run
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh" || return 1
@@ -1017,7 +1018,8 @@ cmd_audit() {
   if awk -F '\t' '$1 != "skip" && $2 == "polish" && $3 == "convergence" { f = 1 } END { exit !f }' "$work/rows" \
     && spec_signoff_exempt "$head" "$base"; then
     awk -F '\t' '!($1 != "skip" && $2 == "polish" && $3 == "convergence")' "$work/rows" >"$work/rows.kept" \
-      && mv "$work/rows.kept" "$work/rows" || die 4 "cannot read the cadence rows"
+      || die 4 "cannot read the cadence rows"
+    mv "$work/rows.kept" "$work/rows" || die 4 "cannot read the cadence rows"
     printf 'exempt\tconvergence\tpolish\tthe branch is a kickoff spec branch signed off at its head: the sign-off'"'"'s lens pass is its review\n'
   fi
   /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
