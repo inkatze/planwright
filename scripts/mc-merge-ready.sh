@@ -464,9 +464,10 @@ EOF
 out=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || mc_fail "cannot create a temporary file"
 errf=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || errf=""
 evf=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || evf=""
-uevf="$evf.unf"
-trap 'rm -f "$out" "$errf" "$evf" "$uevf"' EXIT
-[ -n "$errf" ] && [ -n "$evf" ] || mc_fail "cannot create a temporary file"
+uevd=$(mktemp -d "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || uevd=""
+uevf="$uevd/evidence.unf"
+trap 'rm -f "$out" "$errf" "$evf"; [ -z "$uevd" ] || rm -rf "$uevd"' EXIT
+[ -n "$errf" ] && [ -n "$evf" ] && [ -n "$uevd" ] || mc_fail "cannot create a temporary file"
 scan >"$out"
 
 case $verb in

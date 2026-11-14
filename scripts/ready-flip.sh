@@ -85,12 +85,15 @@
 #                     completion there names a head every later commit of
 #                     which touches only the Awaiting-input section of tasks.md
 #   ci-rollup         the PR head's check rollup is a positive green (at least
-#                     one success, nothing failing or pending) within
-#                     ready_flip_ci_wait, the planwright/pre-ready-flip and
+#                     one success, nothing failing or pending, no draft-skipped
+#                     macOS job) within ready_flip_ci_wait, the
+#                     planwright/pre-ready-flip and
 #                     planwright/pre-spec-ready-flip statuses excluded; a host
-#                     read that fails is retried within the same bound
+#                     read that fails is retried within the same bound, and a
+#                     refusal prints the unfinished checks by name
 #   ready-guard       scripts/ready-guard.sh defers `gh pr ready <n>`: the
-#                     shipped currency and mergeability floor, called directly
+#                     shipped currency, mergeability and finished-checks floor,
+#                     called directly
 #                     because the flip runs below any hook
 # The local predicates run first; when one fails the host ones are skipped,
 # so a known park costs no CI wait.
@@ -844,7 +847,7 @@ ROLLUP_JQ='
          elif (.state == "PENDING" or .state == "EXPECTED") then {k: "pending", n: "\($n) (\(.state | ascii_downcase))"}
          else {k: "failing"} end)
       else
-        (if .status != "COMPLETED" then {k: "pending", n: "\($n) (\(.status | ascii_downcase))"}
+        (if (.status // "COMPLETED") != "COMPLETED" then {k: "pending", n: "\($n) (\(.status | ascii_downcase))"}
          elif .conclusion == "SUCCESS" then {k: "green"}
          elif (.conclusion == "SKIPPED" and ($n | startswith("macos-"))) then {k: "macos", n: $n}
          elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then {k: "neutral"}
@@ -906,11 +909,8 @@ $ROLLUP_JQ" 2>/dev/null) || verdict=''
           return
           ;;
         moved) ;;
-        pending\ *) last="checks still pending: ${verdict#pending }" ;;
-        macos\ *)
-          set_pred ci-rollup fail "${verdict#macos } skipped on ${HEAD_SHA:0:12}: a macOS job is skipped while the pull request is a draft, so add the ci-macos label and let it finish"
-          return
-          ;;
+        pending\ *) last="checks still pending: $(sanitize_printable "${verdict#pending }" 'unprintable')" ;;
+        macos\ *) last="$(sanitize_printable "${verdict#macos }" 'unprintable') skipped on ${HEAD_SHA:0:12}: a macOS job is skipped while the pull request is a draft, so add the ci-macos label and let it finish" ;;
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
       esac

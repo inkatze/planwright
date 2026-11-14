@@ -1450,6 +1450,69 @@ STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup 
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_deny "a check read about another head denies (the head moved)"
 
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup '{"__typename":"StatusContext","context":"required/ci","state":"EXPECTED"}')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "an expected-but-unreported status denies the flip" 'required/ci'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup '{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"PENDING"}')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "the spec flip's own pending status never counts either"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup '{"__typename":"CheckRun","name":"docs","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-13T10:00:00Z"}')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "a skipped check that is not a macOS job is finished"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON=$(uf_rollup '{"__typename":"CheckRun","name":"build (skipped)","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"2026-11-13T10:00:00Z"}')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a queued check named like the skipped marker denies" 'build \(skipped\) \(queued\)'
+assert_reason_lacks "a check's name never steers the ci-macos advice" 'ci-macos'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(
+  i=0
+  printf '{"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":['
+  while [ $i -lt 100 ]; do
+    [ $i = 0 ] || printf ','
+    printf '{"__typename":"CheckRun","name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-13T10:00:00Z"}' "$i"
+    i=$((i + 1))
+  done
+  printf ']}'
+)
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a check list at the read's cap of 100 denies (a check past it is unread)" 'cap of 100'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_JSON='{"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":{"x":{"name":"test","status":"QUEUED"}}}'
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a rollup that is not a list denies (fail closed)" 'could not be read'
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$(printf '%s' "$(uf_rollup "$UF_OK,$UF_QUEUED")" | sed 's/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "conflict-only: a behind PR passes the currency check but a queued check still denies" 'macos-suite 3'
+
+reset_stub_env
+knob_adopter conflict-only
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$(printf '%s' "$(uf_rollup "$UF_OK")" | sed 's/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/')
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "conflict-only: a behind PR whose checks all finished defers"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_RC=124
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a timed-out check read denies" 'within'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_RC=1
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a failing check read names the unconfirmed finish" 'could not be confirmed'
+
 echo
 echo "passes: $passes  failures: $failures"
 [ "$failures" = 0 ]

@@ -284,7 +284,7 @@ unfinished_awk() {
 function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit 4 } ; next }
 $1 == "head" { head = $2 }
-$1 == "check" && pending_check($3) { open[++no] = $2 " is " $3 }
+$1 == "check" && pending_check($3) && $2 != "planwright/pre-ready-flip" && $2 != "planwright/pre-spec-ready-flip" { open[++no] = $2 " is " $3 }
 END {
   if (badfmt) { print "unfinished\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "unfinished\t-"; print "fail\thead\tno evidence at a head was collected"; exit 4 }

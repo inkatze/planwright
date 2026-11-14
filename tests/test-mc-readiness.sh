@@ -758,12 +758,21 @@ complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tFAILURE/' >"$tmp/ev"
 mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
 expect_rc "a finished red check is no unfinished check" 0
 expect_eq "a finished head is reported finished" "finished${tab}$H"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tPENDING\ncheck\tbuild\tQUEUED/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "two unfinished checks hold" 4
+expect_out "the first is named" "fail${tab}check${tab}lint is PENDING"
+expect_out "and the second" "fail${tab}check${tab}build is QUEUED"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tplanwright\/pre-ready-flip\tPENDING/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "the flip's own pending status is no unfinished check" 0
 complete >"$tmp/ev"
 mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
 expect_rc "a head with every check finished passes" 0
 printf 'not an evidence file\n' >"$tmp/ev"
 mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
 expect_rc "an evidence file without the format line is refused" 4
+expect_out "and says why" "fail${tab}format${tab}the evidence file lacks \"# format: 1\""
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-readiness: $failures failure(s)" >&2

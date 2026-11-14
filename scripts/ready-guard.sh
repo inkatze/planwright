@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # ready-guard.sh — deterministic, DENY-EMITTING PreToolUse hook that refuses a
-# draft->ready pull-request transition unless the PR is provably mergeable
-# and either current with its base branch or, under the shipped
+# draft->ready pull-request transition unless the PR is provably mergeable,
+# either current with its base branch or, under the shipped
 # `ready_guard_behind_base: checks`, green on the latest run of every check
-# at its head (merge-currency-guard Tasks 2 and 5; REQ-A1.5, REQ-C1.11,
+# at its head, and with no check on that head still queued, pending or in
+# progress (a draft-skipped macOS job counts as unfinished)
+# (merge-currency-guard Tasks 2 and 5; REQ-A1.5, REQ-C1.11,
 # REQ-C1.2, REQ-C1.3, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-C1.8, REQ-C1.9,
 # REQ-C1.10, REQ-C1.12, REQ-C1.13, REQ-K1.1, REQ-K1.3; D-2, D-3, D-5, D-7, D-8,
 # D-10, D-11).
@@ -43,8 +45,9 @@
 # Security contract:
 #   * No LLM and no model/API call in the decision path (REQ-C1.2, REQ-D1.4);
 #     purely deterministic shell over two GitHub reads, plus, for a PR behind
-#     its base, one bounded local config read (behind_base_policy) and, under
-#     `checks`, a third read of its head's checks (behind_checks).
+#     its base, one bounded local config read (behind_base_policy), and one
+#     read of its head's checks (behind_checks under `checks`, otherwise
+#     unfinished_checks).
 #   * The intercepted command / tool payload is strictly INERT DATA (REQ-C1.5):
 #     never eval-ed, re-expanded, glob-expanded, or executed. Selectors are
 #     grammar-validated and passed to gh as separate argv arguments, never
@@ -66,7 +69,9 @@
 # `behind_by`. DEFER only when `mergeable == MERGEABLE` AND either
 # `behind_by == 0` or the behind-base policy lets it through: under the shipped
 # `checks`, when the latest run of every check on the head passed; under
-# `conflict-only`, always; under `refuse`, never (see behind_base_policy).
+# `conflict-only`, always; under `refuse`, never (see behind_base_policy). Then,
+# under every policy, no check on the head may be unfinished
+# (unfinished_checks).
 # Currency is deliberately NOT keyed on `mergeStateStatus`, which reports
 # `BEHIND` only under the base's "require up to date" branch protection — on an
 # unprotected base (planwright's own `main`) a stale PR reads `CLEAN`, which is
@@ -1107,9 +1112,10 @@ $CHECKS_JQ" 2>/dev/null) || verdict=''
   esac
 }
 
-# The latest run of each check context that has not finished, one
-# `<name> (<state>)` per line; a skipped macOS job is listed as `<name>
-# (skipped)` since a draft skips it and a skip is no result. Prints
+# One line when a latest check run has not finished: `O` or, when one of them
+# is a macOS job a draft skipped (whose skip is no result), `S`, a tab, then
+# `<name> (<state>)` for each, comma separated. The letter, never a name,
+# decides the advice a denial gives. Prints
 # `truncated` for a list at the read's cap of 100. A failed run is finished and
 # listed nowhere: whether it holds the flip is the review's call, and a red
 # window-lock is the operator's to bypass.
@@ -1123,10 +1129,13 @@ readonly UNFINISHED_JQ='
       or ((.conclusion == "SKIPPED") and ((.name // "") | startswith("macos-")))) end;
   if ((.statusCheckRollup // []) | type) != "array" then empty
   elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
-  ((.statusCheckRollup // [])
+  ([ (.statusCheckRollup // [])
     | map(select((.context // "") as $c | any($ex[]; . == $c) | not))
     | latest_check_runs[] | select(unfinished)
-    | "\((.name // .context // "-") | tostring) (\(if .conclusion == "SKIPPED" then "skipped" else (state | ascii_downcase) end))") end'
+    | ((.name // .context // "-") | tostring | gsub("[\u0000-\u001f\u007f]"; " ")) as $n
+    | {skip: (.conclusion == "SKIPPED"), text: (if .conclusion == "SKIPPED" then "\($n) (skipped)" else "\($n) (\(state | ascii_downcase))" end)} ]
+    | if length == 0 then empty
+      else "\(if any(.[]; .skip) then "S" else "O" end)\t\([.[].text] | join(", ") | .[0:400])" end) end'
 
 # unfinished_checks <cwd> <head> — refuses the flip while any check on the
 # PR's current head is queued, pending or in progress, or a draft-gated macOS
@@ -1166,9 +1175,9 @@ $UNFINISHED_JQ" 2>/dev/null) || {
   if [ "$verdict" = truncated ]; then
     emit_deny "this pull request's check list came back at its cap of 100, so a check past it is unread and it could not be confirmed that they have finished - refusing (fail closed)."
   fi
-  names=$(printf '%s\n' "$verdict" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+  names=${verdict#*$'\t'}
   case $verdict in
-    *'(skipped)'*)
+    S$'\t'*)
       emit_deny "this pull request's checks are not finished: $(sanitize_printable "$names" 'unprintable'). A macOS job is skipped while the pull request is a draft, so its skip is no result - add the ci-macos label so it runs on the draft, wait for every check to finish, then retry the draft->ready flip."
       ;;
     *)

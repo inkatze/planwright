@@ -577,12 +577,14 @@ echo queued-named >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a queued check parks (exit 4)" [ "$CODE" = 4 ]
 check "the queued refusal names the queued check" grep -q 'macos-suite 3 (queued)' <<<"$OUT"
+check "the refusal prints the ci-rollup evidence on its own line" grep -q '^ready-flip: ci-rollup: checks still pending: macos-suite 3 (queued)' <<<"$OUT"
 check "a queued check never flips" [ "$(calls 'pr ready')" = 0 ]
 fixture
 set_policy unit-owner
 echo macos-skipped >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a skipped draft-gated macOS check parks (exit 4)" [ "$CODE" = 4 ]
+check "the skipped macOS check is waited on within the bound, since the label may be added meanwhile" [ "$(rollups)" = 3 ]
 check "the skipped macOS refusal says to add the ci-macos label" grep -q 'ci-macos' <<<"$OUT"
 check "a skipped macOS check never flips" [ "$(calls 'pr ready')" = 0 ]
 fixture

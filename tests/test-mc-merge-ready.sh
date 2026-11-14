@@ -543,8 +543,10 @@ printf 'no\n' >"$tmp/unfinished.20"
 run list --program alpha --now "$T"
 expect_eq "once its checks finish it is quiet" "$(ready7 "$J")"
 printf 'broken\n' >"$tmp/verdict.20"
+printf 'yes\n' >"$tmp/unfinished.20"
 run list --program alpha --now "$T"
 expect_rc "a pull request whose evidence cannot be collected is skipped, not a failure of the read" 0
+expect_eq "and no unfinished line is made up for it" "$(ready7 "$J")"
 
 printf 'format\t1\nsource\tforge\ntaken\tsoon\n' >"$snapdir/forge"
 run list --program alpha --now "$T"
