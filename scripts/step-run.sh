@@ -934,7 +934,7 @@ spec_signoff_exempt() {
     [ -r "$script_dir/$lib" ] || return 1
   done
   # shellcheck disable=SC2034 # read by the sourced mc-lib.sh
-  prog=step-run
+  prog='step-run'
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh" || return 1
   # shellcheck source=scripts/mc-lib.sh
