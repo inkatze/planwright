@@ -8,6 +8,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 RESOLVER="$REPO_ROOT/scripts/resolve-overlay-root.sh"
 
 failures=0
@@ -488,20 +490,19 @@ assert "--contain nonexistent root errors" 2 $?
 # ---------------------------------------------------------------------------
 # An existing-but-unsearchable candidate (e.g. chmod 000) must not be treated as
 # the resolved core root: the loop falls through to the next usable candidate
-# rather than degrading core to absent (F1). Skipped as root, whose access is
-# not bound by the search bit.
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$tmp/core-noexec" "$tmp/core-fallback/config" "$tmp/core-fallback/scripts"
-  chmod 000 "$tmp/core-noexec"
+# rather than degrading core to absent (F1).
+mkdir -p "$tmp/core-noexec" "$tmp/core-fallback/config" "$tmp/core-fallback/scripts"
+chmod 000 "$tmp/core-noexec"
+if hermetic_access_denied r "$tmp/core-noexec"; then
   out="$(base PLANWRIGHT_ROOT="$tmp/core-noexec" CLAUDE_PLUGIN_ROOT="$tmp/core-fallback" \
     /bin/bash "$RESOLVER" core 2>/dev/null)"
   rc=$?
-  chmod 755 "$tmp/core-noexec"
   assert "core skips an unsearchable candidate (zero exit)" 0 "$rc"
   assert_eq "core falls through past an unsearchable dir" "$tmp/core-fallback" "$out"
 else
-  echo "skip: core unsearchable-candidate case (running as root)"
+  echo "skip: core unsearchable candidate: the running user still reads $tmp/core-noexec under mode 000"
 fi
+chmod 755 "$tmp/core-noexec"
 
 # ---------------------------------------------------------------------------
 # --contain: a candidate beginning with '-' is handled lexically

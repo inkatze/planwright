@@ -30,6 +30,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 SJ="$here/../scripts/fleet-streamjson.sh"
 
 fail() {
@@ -266,21 +268,21 @@ mkreq "$home/streamjson/sjp9a" "$id1" pending Bash '{"command":"true"}'
 mkreq "$home/streamjson/sjp9b" "$id2" pending Bash '{"command":"true"}'
 mkreq "$home/streamjson/sjp9c" "$id3" pending Bash '{"command":"true"}'
 chmod 000 "$home/streamjson/sjp9b/journal"
-if [ -r "$home/streamjson/sjp9b/journal" ]; then
-  echo "ok: p9 skipped (this user reads a mode-000 file)"
+if ! hermetic_access_denied r "$home/streamjson/sjp9b/journal"; then
+  echo "skip: p9 unreadable journal or worker dir: the running user still reads $home/streamjson/sjp9b/journal under mode 000"
 else
   penv "$home" sjp9b >"$tmp/p9.out" 2>"$tmp/p9.err"
   [ $? -eq 2 ] || fail "p9: an unreadable journal must be exit 2"
   grep -q sjp9b "$tmp/p9.err" || fail "p9: the refusal must name the worker"
   chmod 755 "$home/streamjson/sjp9b/journal"
-  chmod 000 "$home/streamjson/sjp9c"
+  chmod 000 "$home/streamjson/sjp9c" # hermetic-exempt: runs only inside the journal's denial probe above, same user and mode
   penv "$home" >"$tmp/p9.out" 2>"$tmp/p9.err"
   rc=$?
   chmod 755 "$home/streamjson/sjp9c"
   [ "$rc" -eq 2 ] || fail "p9: an unreadable worker dir must be exit 2, got $rc"
   grep -q sjp9c "$tmp/p9.err" || fail "p9: the refusal must name the worker dir"
   grep -q "^== sjp9a $id1" "$tmp/p9.out" || fail "p9: the readable workers must still be listed"
-  chmod 000 "$home/streamjson"
+  chmod 000 "$home/streamjson" # hermetic-exempt: runs only inside the journal's denial probe above, same user and mode
   penv "$home" >/dev/null 2>&1
   rc=$?
   chmod 755 "$home/streamjson"

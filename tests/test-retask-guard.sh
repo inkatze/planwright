@@ -15,6 +15,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 GUARD="$here/../scripts/retask-guard.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -130,10 +132,15 @@ rc=$?
 # A read-only file stops only a non-root writer.
 if [ "$(id -u)" != 0 ]; then
   chmod 444 "$log"
-  /bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "would log" 2>/dev/null
-  rc=$?
-  chmod 644 "$log"
-  [ "$rc" = 2 ] && ok "and fails when the row could not be appended" || fail "log --check passed on an unwritable log"
+  if hermetic_access_denied w "$log"; then
+    /bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "would log" 2>/dev/null
+    rc=$?
+    chmod 644 "$log"
+    [ "$rc" = 2 ] && ok "and fails when the row could not be appended" || fail "log --check passed on an unwritable log"
+  else
+    chmod 644 "$log"
+    echo "skip: the unwritable log case (the mode does not deny writing here)"
+  fi
 fi
 mkdir -p "$tmp/fresh/mission-control"
 PLANWRIGHT_FLEET_STATE_DIR="$tmp/fresh" /bin/sh "$GUARD" log --check --via steer --to mc-p-worker-a --reason "would log" 2>/dev/null
@@ -256,9 +263,14 @@ silent && grep -q "${tab}indented reason\$" "$log" && ok "an indented override t
   || fail "an indented override: out '$OUT', log $(cat "$log")"
 if [ "$(id -u)" != 0 ]; then
   chmod 444 "$log"
-  hook SendMessage mc-p-worker-live "$tmp/override" 2>/dev/null
-  chmod 644 "$log"
-  denied && ok "an override that cannot be logged is denied" || fail "an unlogged override passed: $OUT"
+  if hermetic_access_denied w "$log"; then
+    hook SendMessage mc-p-worker-live "$tmp/override" 2>/dev/null
+    chmod 644 "$log"
+    denied && ok "an override that cannot be logged is denied" || fail "an unlogged override passed: $OUT"
+  else
+    chmod 644 "$log"
+    echo "skip: the unloggable override case (the mode does not deny writing here)"
+  fi
 fi
 
 if jq -e '[.hooks.PreToolUse[] | select(.matcher == "SendMessage")] | length == 1 and (.[0].hooks | length == 1)
