@@ -28,15 +28,18 @@ close the gap without crossing a human gate.
    standing artifact, never a ritual recalled unprompted.
 
 2. **Approval is the human merge of the release PR.** Merging the release PR is
-   the release approval, and it stays a human act in GitHub's UI (`D-5`). The
-   policy class admits only task branches from the base repository, so a
-   release PR is never a class admission: its merge is a human approval act
-   (the merge, or enabling auto-merge) under every `merge_policy` value
-   [Human Gates](human-gates.md) states. This is reflex step 1: merge
+   the release approval, and it stays a human act in GitHub's UI (`D-5`)
+   with one exception, the operator's standing authorization (REQ-D1.10): a
+   release PR merges only through the `release` class in `auto_merge_classes`,
+   otherwise only by a human. The class is empty by default, and
+   [Human Gates](human-gates.md) states it with the class test it passes. The
+   policy class admits only task branches from the base repository, so with the
+   class off the merge is a human approval act (the merge, or enabling
+   auto-merge) under every `merge_policy` value. This is reflex step 1: merge
    is a named, conscious, reserved gate, and reusing the merge the human already
    exercises everywhere else keeps the gate bright-line and its enforcement
    trivially checkable (the one agent merge call site,
-   `scripts/merge-admitted.sh`, refuses every non-task head).
+   `scripts/merge-admitted.sh`, admits only a task branch or an enabled class).
 
 3. **Publish is human-gated and signed per repo policy.** Tagging and creating
    the GitHub Release happen only through the publish step, run consciously by
@@ -58,8 +61,9 @@ close the gap without crossing a human gate.
    two irreversible, externally-visible acts, approving the release (merge) and
    cutting the signed tag and Release (publish), are conscious human acts: the
    merge authorized under the merge policy [Human Gates](human-gates.md) states,
-   a per-PR human act under every value since a release PR is never a class
-   admission, and the publish a human gate with no knob. planwright automates everything up to them and
+   a per-PR human act under every value, since a release PR merges only through
+   the `release` class in `auto_merge_classes`, otherwise only by a human, and
+   the publish a human gate with no knob. planwright automates everything up to them and
    nothing through them: no merge outside a configured policy, no background
    auto-sign, no timeout-approval, no bypass flag. This is the reflex step 1
    and 2 bright line.
