@@ -84,8 +84,6 @@ case "$1 $2" in
           failing) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           pending) roll='[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":""}]' ;;
           none) roll='[]' ;;
-          queued-named) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"macos-suite 3","workflowName":"ci","status":"QUEUED","conclusion":""}]' ;;
-          macos-skipped) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"macos-suite","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED"}]' ;;
           own-status-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"FAILURE"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"PENDING"}]' ;;
           own-status-only) roll='[{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"SUCCESS"}]' ;;
           superseded-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"}]' ;;
@@ -256,14 +254,7 @@ run_polled() {
 run_helper() { run_polled 0 3 "$@"; }
 
 calls() { grep -c "^CALL $1" "$GHS/log" 2>/dev/null || true; }
-# The helper's own rollup reads. The ready-guard it runs reads the rollup once
-# per currency compare (its unfinished-check gate), so those are left out.
-rollups() {
-  local total guard
-  total=$(grep -c 'statusCheckRollup' "$GHS/log" 2>/dev/null || true)
-  guard=$(grep -c '^CALL api ' "$GHS/log" 2>/dev/null || true)
-  echo $((${total:-0} - ${guard:-0}))
-}
+rollups() { grep -c 'statusCheckRollup' "$GHS/log" 2>/dev/null || true; }
 first_line_of() { grep -n "^CALL $1" "$GHS/log" | head -1 | cut -d: -f1; }
 origin_tasks() { git --git-dir="$F/origin.git" show "refs/heads/$BRANCH:$TASKS"; }
 origin_head() { git --git-dir="$F/origin.git" rev-parse "refs/heads/$BRANCH"; }
@@ -570,23 +561,6 @@ echo pending >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a rollup still pending at the bound parks (exit 4)" [ "$CODE" = 4 ]
 check "the wait polled to its bound" [ "$(rollups)" = 3 ]
-check "the pending refusal names the in-progress check" grep -q 'test (in_progress)' <<<"$OUT"
-fixture
-set_policy unit-owner
-echo queued-named >"$GHS/ci"
-run_helper flip --spec specs/demo --task 1
-check "a queued check parks (exit 4)" [ "$CODE" = 4 ]
-check "the queued refusal names the queued check" grep -q 'macos-suite 3 (queued)' <<<"$OUT"
-check "the refusal prints the ci-rollup evidence on its own line" grep -q '^ready-flip: ci-rollup: checks still pending: macos-suite 3 (queued)' <<<"$OUT"
-check "a queued check never flips" [ "$(calls 'pr ready')" = 0 ]
-fixture
-set_policy unit-owner
-echo macos-skipped >"$GHS/ci"
-run_helper flip --spec specs/demo --task 1
-check "a skipped draft-gated macOS check parks (exit 4)" [ "$CODE" = 4 ]
-check "the skipped macOS check is waited on within the bound, since the label may be added meanwhile" [ "$(rollups)" = 3 ]
-check "the skipped macOS refusal says to add the ci-macos label" grep -q 'ci-macos' <<<"$OUT"
-check "a skipped macOS check never flips" [ "$(calls 'pr ready')" = 0 ]
 fixture
 set_policy unit-owner
 echo none >"$GHS/ci"

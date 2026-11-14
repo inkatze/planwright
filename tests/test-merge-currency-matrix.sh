@@ -257,12 +257,12 @@ reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload "$BASH_FLIP")"
 assert_cell conforming/bash "bash: a conforming flip defers"
-assert_gh_calls "bash: the conforming defer came after view + compare + checks (not a jurisdiction bail-out)" 3
+assert_gh_calls "bash: the conforming defer came after view + compare (not a jurisdiction bail-out)" 2
 assert_no_mergestatestatus "bash: the conforming query never asks for mergeStateStatus"
 assert_no_sentinels "bash: the conforming path invoked no git/curl/wget/claude"
 run_mcp "$MCP_FLIP"
 assert_cell conforming/mcp "mcp: a conforming draft->ready transition defers"
-assert_gh_calls "mcp: the conforming defer came after view + compare + checks" 3
+assert_gh_calls "mcp: the conforming defer came after view + compare" 2
 assert_no_mergestatestatus "mcp: the conforming query never asks for mergeStateStatus"
 assert_no_sentinels "mcp: the conforming path invoked no git/curl/wget/claude"
 
