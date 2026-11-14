@@ -1,7 +1,7 @@
 # Model Allocation — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-08-25
+**Status:** Draft
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -72,6 +72,19 @@ default-preserving configuration — shipped defaults change no behavior at any 
   SHALL be measured against a captured golden baseline of the current shipped table,
   never against the new implementation's own output.
   *(Cites: D-3, D-5, D-13; the customization-boundary doctrine (Sources).)*
+  **Superseded-by: REQ-A1.5** (2026-11-13), in part: for the review-step model
+  only; every other shipped default stays as this requirement states.
+- **REQ-A1.5** (supersedes REQ-A1.2, in part) The shipped defaults for
+  `allocation_model_step_polish` and `allocation_model_step_self_review` SHALL be
+  `sonnet`, and their effort knobs and every other per-step knob SHALL stay
+  `inherit`. Every other shipped default keeps REQ-A1.2's no-change meaning. The
+  shipped review-step values SHALL be pinned by a test that fails if either drifts.
+  Because the per-step application is one-directional and gated by its surface's own
+  tier, the review-step model takes effect at run time only while the
+  `allocation_model_execute_step` surface carries a tier; at its shipped `inherit`
+  the resolver applies nothing and records the inheritance.
+  *(Cites: D-14, D-13; Sources: the seed note, the token-spend research note, the
+  operator's 2026-11-09 call.)*
 - **REQ-A1.3** New policy knobs SHALL live in a general, surface-agnostic
   `allocation_*` knob family covering all three selection columns (model, effort,
   command) plus the adaptation controls; where a general knob is unset the resolver
@@ -190,6 +203,11 @@ default-preserving configuration — shipped defaults change no behavior at any 
 - **REQ-E1.2** Every knob this spec introduces SHALL carry a row in the canonical
   options reference, enforced by the existing options-reference guard.
   *(Cites: D-5; bootstrap D-43 (Sources).)*
+- **REQ-E1.3** `docs/allocation.md` SHALL state the shipped review-step posture: the
+  two review steps ship `sonnet`, the per-step model applies only once the
+  `execute_step` surface carries a tier, review quality on Sonnet is not measured
+  here, and the saving is the research note's estimate rather than a measurement.
+  *(Cites: D-14, REQ-A1.5.)*
 
 ## REQ-F — Observability and feedback
 
@@ -216,6 +234,13 @@ default-preserving configuration — shipped defaults change no behavior at any 
 
 ## Changelog
 
+- 2026-11-13 — Amendment, extend mode (reopens the bundle to Draft): REQ-A1.5
+  (supersedes REQ-A1.2 in part, the two review-step models ship `sonnet`) and
+  REQ-E1.3 minted, D-14 (supersedes D-13 in part), Tasks 8 and 9 appended. The
+  shipped values and docs landed earlier in PR #913; this records them and adds the
+  pinning test. The review-step model is inert at run time until the
+  `execute_step` surface carries a tier: an open operator decision, listed under
+  Awaiting input. Review quality on Sonnet is not measured; the saving is an estimate.
 - 2026-09-05 — Expression-only, during Task 6 review: the enumeration below is
   corrected in place — the count reconciled with the three paths it lists, the
   `/orchestrate` pointer moved to the step that actually carries the resolution,
@@ -251,6 +276,16 @@ default-preserving configuration — shipped defaults change no behavior at any 
   across all four files.
 
 ## Sources
+
+- **The review-step Sonnet seed note** (`specs/_pending/model-allocation-review-sonnet-amendment.md`,
+  2026-11-09) and **the operator's call**, "Sonnet + amend both (Recommended)",
+  2026-11-09: the seed for REQ-A1.5, REQ-E1.3 and D-14. The defaults and the
+  `docs/allocation.md` text already shipped in planwright PR #913 (commit
+  `a3c70779`) ahead of this amendment; the amendment records them.
+- **The token-spend research note** (`docs/research/token-spend-2026-11.md`,
+  option A): the saving estimate (about $290 in the 2026-11-05 to 2026-11-08 era,
+  about $800 over the full history), derived from rates, not measured. Review
+  quality on Sonnet is not measured.
 
 - **The operator invocation (2026-08-24)** — the seed ask: evaluate effort at any point
   a task runs, configurable, best model per estimated effort within budget and usage

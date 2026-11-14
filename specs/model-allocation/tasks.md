@@ -1,7 +1,7 @@
 # Model Allocation — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-08-25
+**Status:** Draft
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -170,9 +170,42 @@
 - **Citations:** D-5, D-8, D-11, D-13 · REQ-E1.2, REQ-F1.1, REQ-B1.3, REQ-C1.7
 - **Estimated effort:** 1 day
 
+### Task 8 — Pin the shipped review-step defaults
+
+- **Deliverables:** `tests/test-review-step-sonnet-default.sh` asserting the shipped
+  `config/defaults.yml` values: `allocation_model_step_polish` and
+  `allocation_model_step_self_review` are `sonnet`; their effort knobs and every other
+  per-step key are `inherit`; wired into the repository's test run. The existing
+  golden-baseline fixtures are checked for the review-step rows and corrected if they
+  still assert `inherit` there.
+- **Done when:** the test passes on the shipped defaults and fails when either review
+  model key is set back to `inherit` or any other per-step key leaves `inherit`
+  (checked once by hand-mutating the value); the allocation suites still pass.
+- **Dependencies:** none
+- **Citations:** D-14 · REQ-A1.5
+- **Estimated effort:** 0.5 day
+
+### Task 9 — Review-step posture in the operator docs
+
+- **Deliverables:** `docs/allocation.md` states that the review steps ship `sonnet`,
+  that the per-step model takes effect only once `execute_step` carries a tier, that
+  review quality on Sonnet is unmeasured, and that the saving is an estimate; the
+  shipped-posture list and the example block match `config/defaults.yml`; the docs
+  check pins the statement.
+- **Done when:** the docs answer, without reading source, why the review model is
+  `sonnet` yet no review runs on it by default, and what to set to apply it;
+  `tests/test-allocation-docs.sh` (or its successor) fails if the statement is removed.
+- **Dependencies:** 8
+- **Citations:** D-14 · REQ-E1.3, REQ-A1.5
+- **Estimated effort:** 0.5 day
+
 ## Awaiting input
 
-(none yet)
+- **Task 8** Blocking question: should `allocation_model_execute_step` ship
+  a tier so the review-step model applies at run time, and which one? At its shipped
+  `inherit` the review-step `sonnet` is inert. A tier there also sets the model of
+  every per-step session at that surface, not only review. Raised at the kickoff of
+  this amendment. Citations: D-14, REQ-A1.5.
 
 ## Deferred
 
