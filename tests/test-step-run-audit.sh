@@ -304,6 +304,109 @@ RC=$?
 [ "$RC" -eq 1 ] && ! grep -q 'broken install' "$tmp/audit.err"
 verdict $? "a sibling that exits 5 on --check-env is not reported as a bad name" "rc $RC: $(cat "$tmp/audit.err")"
 
+# --- a round that never ran: a zero-duration, no-move skill or prompt record ----------
+REVIEW="review|kind: command|target: $bin/show.sh"
+# krec <run> <point> <step> <kind> <outcome> <start> <end> [<head> [<end-head>]]:
+# one record of any kind with explicit times and heads.
+krec() {
+  _hd=${8:-$(head_of)}
+  sr write --run "$1" --point "$2" --step "$3" --kind "$4" --target "$bin/show.sh" \
+    --hosting isolated --backend runner --head "$_hd" --end-head "${9:-$_hd}" \
+    --start "$6" --end "$7" --outcome "$5" >/dev/null || fail "fixture: the $3 record at $2"
+}
+T0=2026-11-04T00:00:00Z
+T1=2026-11-04T00:05:00Z
+
+fresh
+catalog "$REVIEW"
+config 'steps_convergence: [review]'
+r=$(sr new-run)
+krec "$r" convergence review skill applied "$T0" "$T0"
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}unrun${TAB}review" "$tmp/audit" \
+  && grep -qx "audit${TAB}gaps${TAB}$(head_of)" "$tmp/audit" && grep -q "skipped" "$tmp/audit.err" \
+  && grep -q "missing" "$tmp/audit.err"
+verdict $? "a zero-duration, no-move skill record is an unrun gap, with the remedy" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+fresh
+catalog "$REVIEW"
+config 'steps_convergence: [review]'
+r=$(sr new-run)
+krec "$r" convergence review prompt passed "$T0" "$T0"
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}unrun${TAB}review" "$tmp/audit"
+verdict $? "the same holds for a prompt record outcome passed" "rc $RC: $(cat "$tmp/audit")"
+
+fresh
+catalog "$REVIEW"
+config 'steps_convergence: [review]'
+r=$(sr new-run)
+krec "$r" convergence review command applied "$T0" "$T0"
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && ! grep -q unrun "$tmp/audit"
+verdict $? "a zero-duration command record is exempt" "rc $RC: $(cat "$tmp/audit")"
+
+fresh
+catalog "$REVIEW"
+config 'steps_convergence: [review]'
+r=$(sr new-run)
+krec "$r" convergence review skill applied "$T0" "$T1"
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && ! grep -q unrun "$tmp/audit"
+verdict $? "an end later than the start is evidence" "rc $RC: $(cat "$tmp/audit")"
+
+fresh
+catalog "$REVIEW"
+config 'steps_convergence: [review]'
+r=$(sr new-run)
+h0=$(head_of)
+commit moved
+krec "$r" convergence review skill applied "$T0" "$T0" "$h0" "$(head_of)"
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && ! grep -q unrun "$tmp/audit"
+verdict $? "a record whose head moved is evidence" "rc $RC: $(cat "$tmp/audit")"
+
+fresh
+catalog "$REVIEW"
+config 'steps_convergence: [review]'
+r=$(sr new-run)
+krec "$r" convergence review skill applied "$T0" "$T0"
+done_at "$r" convergence
+r2=$(sr new-run)
+sr write --run "$r2" --point convergence --step review --kind skill --target "$bin/show.sh" \
+  --hosting isolated --backend runner --head "$(head_of)" --end-head "$(head_of)" \
+  --start "$T0" --end "$T0" --outcome skipped --skip-code missing --skip-reason "round did not run" >/dev/null \
+  || fail "fixture: the skipped record"
+done_at "$r2" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && ! grep -q unrun "$tmp/audit"
+verdict $? "a fresh run recording the step skipped with reason missing clears the gap" "rc $RC: $(cat "$tmp/audit")"
+
+fresh
+catalog "$REVIEW"
+config 'steps_convergence: [review]'
+r=$(sr new-run)
+krec "$r" convergence review skill applied "$T0" "$T0"
+done_at "$r" convergence
+f=$(ls "$wt/.claude/steps/$r"/*-step-convergence.rec)
+awk -F '\t' '$1 != "end-head"' "$f" >"$f.new" && mv "$f.new" "$f"
+audit --through convergence
+[ "$RC" -eq 1 ] && grep -qx "gap${TAB}convergence${TAB}unrun${TAB}review" "$tmp/audit"
+verdict $? "a record without an end head is judged by its times: equal is unrun" "rc $RC: $(cat "$tmp/audit")"
+r2=$(sr new-run)
+krec "$r2" convergence review skill applied "$T0" "$T1"
+done_at "$r2" convergence
+f=$(ls "$wt/.claude/steps/$r2"/*-step-convergence.rec)
+awk -F '\t' '$1 != "end-head"' "$f" >"$f.new" && mv "$f.new" "$f"
+audit --through convergence
+! grep -q unrun "$tmp/audit"
+verdict $? "a record without an end head and a later end is not unrun" "$(cat "$tmp/audit")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1
