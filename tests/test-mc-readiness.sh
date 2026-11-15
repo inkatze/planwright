@@ -487,6 +487,7 @@ has "a worktree ahead of the forge's head is audited at the forge's head" "caden
 hasnt "and is not refused for being ahead" "cadence${tab}unaudited"
 hasnt "its records at the forge's head count" "cadence${tab}gap${tab}convergence"
 has "and the covered point is carried for the packet" "cadence${tab}covered${tab}convergence"
+hasnt "while the gap point is not carried as covered" "cadence${tab}covered${tab}pre-ci"
 has "while a point its records do not complete is still a gap" "cadence${tab}gap${tab}pre-ci"
 has "and the step records the worktree holds at the forge's head are collected" "step${tab}polish${tab}applied${tab}$head"
 # A worktree ahead with the head's records incomplete still fails readiness.

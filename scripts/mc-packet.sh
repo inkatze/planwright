@@ -154,7 +154,7 @@ section() { # section <title> <file|"">
 cadence_lines() {
   cl_rc=0
   H=$1 awk -F '\t' '
-    $1 == "scope" && $2 == "spec-only" { speconly = 1 }
+    $1 == "scope" && $2 == "spec-only" && $3 == ENVIRON["H"] { speconly = 1 }
     $1 != "cadence" { next }
     $2 == "audited" { audited = $3 }
     $2 == "unaudited" { why = $3 }

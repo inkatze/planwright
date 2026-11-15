@@ -88,8 +88,11 @@ printf '# format: 1\nscope\tspec-only\t%s\n' "$head" >"$tmp/speconly"
 packet "$tmp/speconly" ready-flip --level guided
 case $(section_first) in "Cadence: not required"*) ok "a spec-only pull request says the cadence is not required" ;; *) fail "a spec-only pull request reads '$(section_first)'" ;; esac
 expect_no_out "and carries no lesson" "Why it matters:"
-
 other=$(printf 'b%.0s' $(seq 1 40))
+printf '# format: 1\nscope\tspec-only\t%s\n' "$other" >"$tmp/speconlystale"
+packet "$tmp/speconlystale" ready-flip --level guided
+case $(section_first) in "Cadence: not audited"*) ok "a spec-only row for another head is not taken as spec-only" ;; *) fail "a stale spec-only row reads '$(section_first)'" ;; esac
+
 printf '# format: 1\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\n' "$other" >"$tmp/otherhead"
 packet "$tmp/otherhead" ready-flip --level guided
 case $(section_first) in "Cadence: not audited"*) ok "an audit at another head than the walk's is not audited" ;; *) fail "an audit at another head reads '$(section_first)'" ;; esac
@@ -130,7 +133,7 @@ expect_no_out "a body line shaped like a gap row carries no lesson" "Why it matt
 printf 'merge-intent\tguided\tlesson\tonly this\n' >"$tmp/lessons"
 packet "$tmp/gap" ready-flip --level guided --lessons "$tmp/lessons"
 expect_rc "a moment and level with no text still assembles" 0
-case $(section_first) in *convergence*) ok "and still prints the line" ;; *) fail "the line is missing with no lesson text" ;; esac
+if [ "$(section_first)" = "$gapline" ]; then ok "and still prints the line"; else fail "the line is missing with no lesson text"; fi
 expect_no_out "and prints no text" "Why it matters:"
 packet "$tmp/gap" ready-flip --level standard --lessons "$tmp/lessons"
 expect_rc "a level with no row at all still assembles" 0
@@ -158,6 +161,7 @@ mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/read
 if [ "$(section_first)" = "ready${tab}$head" ]; then ok "no moment, no cadence line"; else fail "a packet with no moment changed"; fi
 
 # The rule appears once in the skill.
+# Joined into one line first, so a mention wrapped across lines still counts.
 n=$(tr '\n' ' ' <"$repo_root/skills/mission-control/SKILL.md" | tr -s ' ' | grep -o -F 'cadence result' | wc -l | tr -d ' ')
 if [ "$n" -eq 1 ]; then ok "REQ-F1.15: the skill names the rule once"; else fail "the skill names the rule $n times"; fi
 
