@@ -104,45 +104,48 @@ jobs:
           # gh reads GH_TOKEN; the container gets GITHUB_TOKEN.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # PR-Agent's settings, spelled SECTION__KEY, which its loader reads
+          # as section.key. Keep them out of the dotted spelling: that is no
+          # shell name, so the runner's bash drops it before docker sees it.
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
-          CONFIG.MODEL: ${{ vars.PR_AGENT_MODEL || 'openrouter/moonshotai/kimi-k2.7-code' }}
+          CONFIG__MODEL: ${{ vars.PR_AGENT_MODEL || 'openrouter/moonshotai/kimi-k2.7-code' }}
           # Tried in order; a second vendor family keeps one provider's outage
           # from failing the review.
-          CONFIG.FALLBACK_MODELS: >-
+          CONFIG__FALLBACK_MODELS: >-
             ${{ vars.PR_AGENT_FALLBACK_MODELS
             || '["openrouter/deepseek/deepseek-v4-pro-0813", "openrouter/google/gemini-3.8-flash"]' }}
           # OpenRouter models litellm does not know need a context size; this
           # is the smaller default's window. MAX_MODEL_TOKENS is the real cost
           # cap: a diff over it is clipped, never billed in full.
-          CONFIG.CUSTOM_MODEL_MAX_TOKENS: "262144"
-          CONFIG.MAX_MODEL_TOKENS: "64000"
-          CONFIG.LARGE_PATCH_POLICY: clip
-          OPENROUTER.MAX_TOKENS: "16000"
+          CONFIG__CUSTOM_MODEL_MAX_TOKENS: "262144"
+          CONFIG__MAX_MODEL_TOKENS: "64000"
+          CONFIG__LARGE_PATCH_POLICY: clip
+          OPENROUTER__MAX_TOKENS: "16000"
           # No replay on the model that just missed the limit: a replay lets
           # the primary and fallback models spend several times the per-call
           # limit.
-          CONFIG.AI_TIMEOUT: "90"
-          CONFIG.RETRY_SAME_MODEL_ON_TIMEOUT: "false"
-          CONFIG.LOG_LEVEL: INFO
-          CONFIG.REPO_CONTEXT_FILES: '[["AGENTS.md", "CLAUDE.md"]]'
+          CONFIG__AI_TIMEOUT: "90"
+          CONFIG__RETRY_SAME_MODEL_ON_TIMEOUT: "false"
+          CONFIG__LOG_LEVEL: INFO
+          CONFIG__REPO_CONTEXT_FILES: '[["AGENTS.md", "CLAUDE.md"]]'
 
-          GITHUB_ACTION_CONFIG.AUTO_REVIEW: "true"
-          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "false"
-          GITHUB_ACTION_CONFIG.AUTO_IMPROVE: "false"
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
           # The wrapper forwards no GITHUB_OUTPUT into the container.
-          GITHUB_ACTION_CONFIG.ENABLE_OUTPUT: "false"
+          GITHUB_ACTION_CONFIG__ENABLE_OUTPUT: "false"
           # The action's default leaves out synchronize, so it would skip every
           # push after the PR opens. Keep this list equal to the trigger types
           # above; scripts/check-workflow-posture.sh enforces it.
-          GITHUB_ACTION_CONFIG.PR_ACTIONS: '["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
-          GITHUB_ACTION_CONFIG.HANDLE_PUSH_TRIGGER: "true"
-          GITHUB_ACTION_CONFIG.PUSH_COMMANDS: '["/review -i"]'
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
+          GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "true"
+          GITHUB_ACTION_CONFIG__PUSH_COMMANDS: '["/review -i"]'
 
-          PR_REVIEWER.INLINE_KEY_ISSUES: "true"
-          PR_REVIEWER.NUM_MAX_FINDINGS: ${{ vars.PR_AGENT_MAX_FINDINGS || '10' }}
-          PR_REVIEWER.ENABLE_REVIEW_LABELS_SECURITY: "false"
-          PR_REVIEWER.ENABLE_REVIEW_LABELS_EFFORT: "false"
+          PR_REVIEWER__INLINE_KEY_ISSUES: "true"
+          PR_REVIEWER__NUM_MAX_FINDINGS: ${{ vars.PR_AGENT_MAX_FINDINGS || '10' }}
+          PR_REVIEWER__ENABLE_REVIEW_LABELS_SECURITY: "false"
+          PR_REVIEWER__ENABLE_REVIEW_LABELS_EFFORT: "false"
 
       # One comment per PR, edited in place on every run, for /bot-review:
       # PR-Agent names the reviewed commit only when a full review edits its

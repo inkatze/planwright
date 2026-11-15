@@ -11,8 +11,9 @@
 # Usage: pr-agent-review.sh --image <ref> --pr <n> [--head <sha>]
 #          [--retries <n>] [--try-seconds <n>] [--deadline-seconds <n>]
 #   Needs docker, gh signed in, GITHUB_REPOSITORY, GITHUB_EVENT_PATH and the
-#   container's GITHUB_TOKEN. PR-Agent settings (CONFIG.*, OPENROUTER.*,
-#   GITHUB_ACTION_CONFIG.*, PR_REVIEWER.*) pass through from the environment.
+#   container's GITHUB_TOKEN. PR-Agent settings, spelled SECTION__KEY
+#   (CONFIG__*, OPENROUTER__*, GITHUB_ACTION_CONFIG__*, PR_REVIEWER__*), pass
+#   through from the environment.
 #   --head: the full commit; without it no retry runs.
 #   --retries: retries of a model-output failure (default 2, at most 99).
 #   --try-seconds: one try's bound (default 600). --deadline-seconds: no retry
@@ -150,10 +151,10 @@ release_traps() {
 trap cleanup EXIT
 arm_traps
 
-# docker -e NAME copies NAME from this process's environment; the dotted
-# PR-Agent names are not shell variables, so only env(1) can list them.
+# docker -e NAME copies NAME from this process's environment, so no setting's
+# value, the OpenRouter key among them, appears in docker's argv.
 docker_env=(-e GITHUB_EVENT_PATH=/github/workflow/event.json)
-for name in $(env | sed -En 's/^((CONFIG|OPENROUTER|GITHUB_ACTION_CONFIG|PR_REVIEWER)\.[A-Za-z0-9_]+)=.*/\1/p' | sort -u); do
+for name in $(env | sed -En 's/^((CONFIG|OPENROUTER|GITHUB_ACTION_CONFIG|PR_REVIEWER)__[A-Za-z0-9_]+)=.*/\1/p' | sort -u); do
   docker_env+=(-e "$name")
 done
 # The runner variables PR-Agent's action entrypoint and gh client read.

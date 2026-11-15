@@ -289,7 +289,7 @@ run() {
   shift 3
   RC=0
   OUT=$(env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r RUNNER_TEMP="$T/scratch" \
-    GITHUB_EVENT_PATH="$tmp/event.json" "CONFIG.MODEL=m" \
+    GITHUB_EVENT_PATH="$tmp/event.json" "CONFIG__MODEL=m" \
     "$SCRIPT" --image img@sha256:0 --pr 7 "$@" 2>&1) || RC=$?
 }
 
@@ -609,12 +609,12 @@ name="PR-Agent's settings, the token and the event reach the container by name"
 new_case "good" "$HEAD_SHA"
 RC=0
 OUT=$(env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
-  "CONFIG.MODEL=m" "OPENROUTER.KEY=sekrit" "GITHUB_ACTION_CONFIG.PR_ACTIONS=x" "PR_REVIEWER.NUM_MAX_FINDINGS=3" \
+  "CONFIG__MODEL=m" "OPENROUTER__KEY=sekrit" "GITHUB_ACTION_CONFIG__PR_ACTIONS=x" "PR_REVIEWER__NUM_MAX_FINDINGS=3" \
   GITHUB_TOKEN=tok-value-9z "$SCRIPT" --image img@sha256:0 --pr 7 2>&1) || RC=$?
 args=$(cat "$T/docker-run.log")
 missing=""
-for want in "-e CONFIG.MODEL" "-e OPENROUTER.KEY" "-e GITHUB_ACTION_CONFIG.PR_ACTIONS" \
-  "-e PR_REVIEWER.NUM_MAX_FINDINGS" "-e GITHUB_TOKEN" "-e GITHUB_EVENT_PATH=/github/workflow/event.json" \
+for want in "-e CONFIG__MODEL" "-e OPENROUTER__KEY" "-e GITHUB_ACTION_CONFIG__PR_ACTIONS" \
+  "-e PR_REVIEWER__NUM_MAX_FINDINGS" "-e GITHUB_TOKEN" "-e GITHUB_EVENT_PATH=/github/workflow/event.json" \
   "-v $tmp/event.json:/github/workflow/event.json:ro img@sha256:0"; do
   case "$args" in *"$want"*) ;; *) missing="$missing [$want]" ;; esac
 done
@@ -783,10 +783,18 @@ for want in 'scripts/pr-agent-review.sh --image "$PR_AGENT_IMAGE"' '--pr "$PR"' 
   '--retries "$PR_AGENT_REVIEW_RETRIES"' 'GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}' \
   'PR_AGENT_IMAGE: pragent/pr-agent@sha256:' 'PR: ${{ github.event.pull_request.number }}' \
   'HEAD_SHA: ${{ steps.head.outputs.sha }}' "PR_AGENT_REVIEW_RETRIES: \${{ vars.PR_AGENT_REVIEW_RETRIES || '2' }}" \
-  'GITHUB_ACTION_CONFIG.ENABLE_OUTPUT: "false"'; do
+  'GITHUB_ACTION_CONFIG__ENABLE_OUTPUT: "false"'; do
   case "$review" in *"$want"*) ;; *) missing="$missing [$want]" ;; esac
 done
 grep -q '^          sparse-checkout: scripts$' "$WORKFLOW" || missing="$missing [sparse-checkout: scripts]"
+# A dotted setting never reaches the container: the runner's bash drops a
+# name that is not a shell identifier.
+if printf '%s\n' "$review" | grep -Eq '^          (CONFIG|OPENROUTER|GITHUB_ACTION_CONFIG|PR_REVIEWER)\.'; then
+  missing="$missing [no dotted PR-Agent setting]"
+fi
+# shellcheck disable=SC2016 # the workflow's literal text
+printf '%s\n' "$review" | grep -q '^          OPENROUTER__KEY: \${{ secrets.OPENROUTER_API_KEY }}$' \
+  || missing="$missing [OPENROUTER__KEY from the secret]"
 marker=$(awk '/^      - name: / { on = ($0 == "      - name: Record the run for /bot-review") } on' "$WORKFLOW")
 # shellcheck disable=SC2016 # the workflow's literal text
 for want in "STATUS: \${{ steps.review.outcome == 'skipped' && 'failure' || steps.review.outcome }}" \
