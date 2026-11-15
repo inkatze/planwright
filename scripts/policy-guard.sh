@@ -1423,6 +1423,7 @@ segment_words() {
   SWL=()
   SW_WRAPPED=0
   SW_GITENV=0
+  SW_ASSIGN=0
   while [ "$k" -lt "$e" ]; do
     w=${W[$k]}
     case $w in
@@ -1452,6 +1453,7 @@ segment_words() {
           *[!A-Za-z0-9_+]*) ;;
           *)
             case ${w%%=*} in GIT_*) SW_GITENV=1 ;; esac
+            SW_ASSIGN=1
             k=$((k + 1))
             continue
             ;;
@@ -1708,6 +1710,7 @@ KICK_VAR=0
 KICK_DIR=''
 KICK_DIR_OK=0
 KICK_HEAD_MOVED=0
+KICK_BESIDE=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
@@ -2066,6 +2069,7 @@ kickoff_segment() {
   fi
   [ "$named" = 1 ] || return 1
   KICK_SEEN=$((KICK_SEEN + 1))
+  [ "$SW_ASSIGN" = 0 ] || KICK_BESIDE=1
   [ "$GIT_ENV_SET" = 1 ] || [ "$SW_GITENV" = 1 ] \
     && deny_now 'this kickoff push runs with a GIT_ variable set, which could point it at another repository - refusing (fail closed). Run it with no GIT_ variable.' \
     && return 0
@@ -2296,6 +2300,34 @@ kickoff_text_check() {
   kick_count "$P_CMD"
   [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
     || deny_now "this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
+  [ "$KICK_SEEN" = 0 ] || [ "$KICK_BESIDE" = 0 ] \
+    || deny_now "this kickoff push runs beside a command that is neither a cd nor a read, or with a variable assigned, which could change the branch it pushes or the launch scope the helper checks after the guard has read them - refusing (fail closed). Run the kickoff push on its own, or after cd only."
+}
+
+# kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
+# push, with no variable assigned: a cd, a command kickoff_cmd_reads takes as
+# only reading, staging or printing (printf -v assigns, so not it), or a git
+# read mc_git_reads accepts.
+kickoff_beside_ok() {
+  [ "$SW_ASSIGN" = 0 ] || return 1
+  [ "${SW[0]}" = cd ] && [ "${SWL[0]}" = 1 ] && return 0
+  [ "${SW[0]}" != printf ] || [ "${SW[1]:-}" != -v ] || return 1
+  kickoff_cmd_reads "$1" && return 0
+  [ "${SW[0]}" = git ] && [ "${SWL[0]}" = 1 ] || return 1
+  [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
+  local k=1 n=${#SW[@]}
+  while [ "$k" -lt "$n" ]; do
+    case ${SW[$k]} in
+      -C) k=$((k + 2)) ;;
+      -P | --no-pager | --no-optional-locks) k=$((k + 1)) ;;
+      --exec-path | --html-path | --man-path | --info-path | --version | --help | -v | -h) return 0 ;;
+      *) break ;;
+    esac
+  done
+  [ "$k" -lt "$n" ] && [ "${SWL[$k]}" = 1 ] || return 1
+  lc "${SW[$k]}"
+  case " $GIT_BUILTINS " in *" $LC "*) ;; *) return 1 ;; esac
+  mc_git_reads "$LC" "$((k + 1))"
 }
 
 classify_segments() {
@@ -2306,6 +2338,7 @@ classify_segments() {
   KICK_PIPED=0
   KICK_VAR=0
   KICK_HEAD_MOVED=0
+  KICK_BESIDE=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0
@@ -2345,6 +2378,7 @@ classify_segments() {
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      KICK_BESIDE=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
         || deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run it as $KICK_FORM."
       KICK_PIPED=0
@@ -2381,6 +2415,7 @@ classify_segments() {
       si=$((si + 1))
       continue
     fi
+    [ "$KICK_BESIDE" = 1 ] || kickoff_beside_ok "$si" || KICK_BESIDE=1
     # A HEAD move matters only to a later kickoff push, so the scan is skipped
     # for a command that never names one and would otherwise refuse nothing.
     case $P_CMD in

@@ -177,7 +177,38 @@ for pre in 'git status &&' 'git log -1 ;' 'git branch --show-current &&' 'git di
   expect defer "[worker, kickoff-demo-a2] a kickoff push after a git read still defers: $pre"
 done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$KICKOFF_PUSH && git switch planwright/demo/spec" "$AMEND_UP" "$AMEND_UP"
-expect defer "[worker, kickoff-demo-a2] a HEAD move after the kickoff push does not move its decision"
+expect deny "[worker, kickoff-demo-a2] a HEAD move after the kickoff push denies, as anything but cd or a read beside it does"
+reason_has 'on its own, or after cd only' "[worker, kickoff-demo-a2] the trailing-move refusal says how to run it"
+# The helper reads the launch scope and the branch when it runs, so anything
+# beside the push but a cd or a read could change either after the guard's
+# read: a scope rewrite, a move the guard cannot see, or a loop back edge.
+for c in "PLANWRIGHT_WORKER_SCOPE=kickoff-demo $KICKOFF_PUSH" \
+  "export PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" \
+  "unset PLANWRIGHT_WORKER_SCOPE; $KICKOFF_PUSH" \
+  "PLANWRIGHT_WORKER_SCOPE= $KICKOFF_PUSH" \
+  "PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" \
+  "declare -x PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" \
+  "printf -v PLANWRIGHT_WORKER_SCOPE kickoff-demo; $KICKOFF_PUSH" \
+  "X=1 $KICKOFF_PUSH" \
+  "sh -c 'git symbolic-ref HEAD refs/heads/planwright/demo/spec'; export PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" \
+  "true && $KICKOFF_PUSH" \
+  "$KICKOFF_PUSH; git checkout planwright/demo/spec" \
+  "for i in 1 2; do $KICKOFF_PUSH; git checkout planwright/demo/spec; done"; do
+  for scope in kickoff-demo-a2 kickoff-demo; do
+    PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$c" "$AMEND_UP" "$AMEND_UP"
+    expect deny "[worker, $scope] a kickoff push beside a command that is neither cd nor a read denies: $c"
+    reason_has 'on its own, or after cd only' "[worker, $scope] the refusal says how to run it: $c"
+  done
+done
+for scope in kickoff-demo-a2 kickoff-demo-a2-delta kickoff-demo; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "cd \"$AMEND_UP\" && $KICKOFF_PUSH" "$UNIT" "$UNIT"
+  expect defer "[worker, $scope] the kickoff push after cd alone defers"
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH && git status" "$AMEND_UP" "$AMEND_UP"
+  expect defer "[worker, $scope] the kickoff push followed by a read defers"
+done
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "export PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, task-1] a non-kickoff session rewriting its scope stays refused"
+reason_has 'not the kickoff for demo' "[worker, task-1] the scope-rewrite refusal for a non-kickoff session says it is not the kickoff"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
 expect defer "[worker, kickoff-demo-a2-delta] a stale local spec branch beside the amendment does not move the decision"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
