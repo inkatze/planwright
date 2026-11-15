@@ -192,4 +192,98 @@ assert_defer "cd with no operand" "cd; ls" Bash "$WT"
 assert_defer "cd outside in a subshell" "(cd $OUTD; ls)" Bash "$WT"
 assert_defer "cd outside after a pipe" "ls | cd $OUTD" Bash "$WT"
 
+echo "### a read line that starts cd <own worktree>; : read verbs on allowed paths only"
+# The scratch layout a launch makes: sibling session roots under one parent.
+TROOT=$(cd -P "$SANDBOX" && pwd -P)/planwright-uid
+OWN_TMP=$TROOT/own-id
+OTHER_TMP=$TROOT/other-id
+mkdir -p "$OWN_TMP" "$OTHER_TMP"
+printf 'x\n' >"$OWN_TMP/diff.patch"
+printf 'x\n' >"$OTHER_TMP/diff.patch"
+ln -sfn "$OTHER_TMP" "$WT/sibling-link"
+SR=$STATE/scoped.record
+mkdir -p "$SR.audit"
+printf '%s\n' "policy=own-branch scratch" "unit_branch=$CORPUS_UNIT_BRANCH" "worktree_root=$WT" \
+  "pr_base=origin/main" "scratch_root=$OWN_TMP" "worker_base_merge=allow" \
+  "audit_log_home=$(cd -P "$SR.audit" && pwd -P)" >"$SR"
+SRO=$STATE/scoped-readonly.record
+sed 's/^policy=.*/policy=/' "$SR" >"$SRO"
+SCOPED_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_ROOT=$IR")
+HOOK_ENV=("${SCOPED_ENV[@]}" "TMPDIR=$OWN_TMP" "PLANWRIGHT_WORKER_SESSION_RECORD=$SR")
+assert_allow "scoped: cd; cat own TMPDIR; grep scripts" "cd $WT; cat $OWN_TMP/diff.patch; grep -n x scripts/ok.sh" Bash "$WT"
+assert_allow "scoped: cd; cat \$TMPDIR" "cd $WT; cat \$TMPDIR/diff.patch; grep -n x f" Bash "$WT"
+assert_allow "scoped: cd; sed -n, head, tail, wc, ls" "cd $WT; sed -n 1,2p f; head -n 1 f; tail -n 1 f; wc -l f; ls sub" Bash "$WT"
+assert_allow "scoped: cd; git log, diff, show" "cd $WT; git log --oneline -1; git diff main -- f | head -n 5; git show --stat HEAD | grep -n x" Bash "$WT"
+assert_allow "scoped: cd; git -C the worktree" "cd $WT; git -C $WT log --oneline -1" Bash "$WT"
+assert_allow "scoped: cd; reads joined by ||" "cd $WT; grep -n x f || grep -n y g" Bash "$WT"
+assert_allow "scoped: cd; a read pipeline" "cd $WT; cat $OWN_TMP/diff.patch | grep -n x | wc -l" Bash "$WT"
+assert_allow "scoped: cd; grep -rn a directory" "cd $WT; grep -rn x sub" Bash "$WT"
+assert_allow "scoped: cd; a glob in the worktree" "cd $WT; grep -n x scripts/*.sh" Bash "$WT"
+assert_allow "scoped: cd; a read under the install root" "cd $WT; grep -n x $IR/doctrine/rule.md" Bash "$WT"
+assert_allow "scoped: cd to a directory of the worktree" "cd $WT/sub; grep -n x g" Bash "$WT"
+assert_allow "scoped: cd && read, then ; read" "cd $WT && cat $OWN_TMP/diff.patch; grep -n x f" Bash "$WT"
+HOOK_ENV=("${SCOPED_ENV[@]}" "TMPDIR=$OWN_TMP" "PLANWRIGHT_WORKER_SESSION_RECORD=$SRO")
+assert_allow "scoped, read-only policy: cd; cat own TMPDIR" "cd $WT; cat $OWN_TMP/diff.patch; grep -n x f" Bash "$WT"
+HOOK_ENV=("${SCOPED_ENV[@]}" "TMPDIR=$OWN_TMP" "PLANWRIGHT_WORKER_SESSION_RECORD=$SR")
+# Near misses: each newly allowed class beside the shape that must still defer.
+assert_defer "scoped: another session's TMPDIR" "cd $WT; cat $OTHER_TMP/diff.patch" Bash "$WT"
+assert_defer "scoped: a sibling TMPDIR through .." "cd $WT; cat $OWN_TMP/../other-id/diff.patch" Bash "$WT"
+assert_defer "scoped: a sibling TMPDIR through a glob" "cd $WT; cat $TROOT/*/diff.patch" Bash "$WT"
+assert_defer "scoped: a sibling TMPDIR through a worktree symlink" "cd $WT; cat sibling-link/diff.patch" Bash "$WT"
+assert_defer "scoped: a sibling TMPDIR on stdin" "cd $WT; grep -n x < $OTHER_TMP/diff.patch" Bash "$WT"
+assert_defer "scoped: a glob through a worktree symlink" "cd $WT; cat sib*/diff.patch" Bash "$WT"
+assert_defer "scoped: a final glob in a directory holding a symlink" "cd $WT; grep -rn x sib*" Bash "$WT"
+assert_defer "scoped: a path outside every root""cd $WT; cat $CORPUS_OUTSIDE/x" Bash "$WT"
+assert_defer "scoped: a tilde path" "cd $WT; cat ~/x" Bash "$WT"
+assert_defer "scoped: a brace expansion" "cd $WT; cat {f,$OTHER_TMP/diff.patch}" Bash "$WT"
+assert_defer "scoped: grep -f reads a pattern file" "cd $WT; grep -f $OTHER_TMP/diff.patch f" Bash "$WT"
+assert_defer "scoped: grep -R follows links" "cd $WT; grep -Rn x ." Bash "$WT"
+assert_defer "scoped: a redirect to /dev/null" "cd $WT; cat f 2>/dev/null" Bash "$WT"
+assert_defer "scoped: an fd duplication" "cd $WT; grep -n x f 2>&1" Bash "$WT"
+assert_defer "scoped: a > redirect""cd $WT; cat f > out" Bash "$WT"
+assert_defer "scoped: a >> redirect" "cd $WT; grep -n x f >> out" Bash "$WT"
+assert_defer "scoped: a redirect into the scratch root" "cd $WT; cat f > $OWN_TMP/out" Bash "$WT"
+assert_defer "scoped: tee" "cd $WT; cat f | tee out" Bash "$WT"
+assert_defer "scoped: a heredoc into a file" "cd $WT; cat > out <<EOF"$'\n'"x"$'\n'"EOF" Bash "$WT"
+assert_defer "scoped: a write in the && chain before the ;" "cd $WT && cat f > out; grep -n x f" Bash "$WT"
+assert_defer "scoped: a write after the reads" "cd $WT; grep -n x f; touch z" Bash "$WT"
+assert_defer "scoped: sed without -n" "cd $WT; sed 1,2p f" Bash "$WT"
+assert_defer "scoped: sed -n -i" "cd $WT; sed -n -i 1p f" Bash "$WT"
+assert_defer "scoped: sed -i -n" "cd $WT; sed -i -n 1p f" Bash "$WT"
+assert_defer "scoped: sed -n with a w command" "cd $WT; sed -n '1w out' f" Bash "$WT"
+assert_defer "scoped: sed -n with an e command" "cd $WT; sed -n 1e f" Bash "$WT"
+assert_defer "scoped: sed -n with a w flag" "cd $WT; sed -n 's/a/b/w out' f" Bash "$WT"
+assert_defer "scoped: sed -n with an e flag" "cd $WT; sed -n 's/a/b/e' f" Bash "$WT"
+assert_defer "scoped: a command substitution" "cd $WT; cat \$(echo f)" Bash "$WT"
+assert_defer "scoped: a substitution in a grep operand" "cd $WT; grep -n x \$(ls)" Bash "$WT"
+assert_defer "scoped: a backtick substitution" "cd $WT; cat \`echo f\`" Bash "$WT"
+assert_defer "scoped: a process substitution" "cd $WT; cat <(echo f)" Bash "$WT"
+assert_defer "scoped: git -c" "cd $WT; git -c core.pager=cat log -1" Bash "$WT"
+assert_defer "scoped: git -c diff.external" "cd $WT; git -c diff.external=x diff" Bash "$WT"
+assert_defer "scoped: git diff --output" "cd $WT; git diff --output=out main" Bash "$WT"
+assert_defer "scoped: git diff --output as two words" "cd $WT; git diff --output out main" Bash "$WT"
+assert_defer "scoped: git -C outside the worktree" "cd $WT; git -C $CORPUS_OUTSIDE log -1" Bash "$WT"
+assert_defer "scoped: git -C /etc" "cd $WT; git -C /etc log -1" Bash "$WT"
+assert_defer "scoped: git diff --ext-diff" "cd $WT; git diff --ext-diff main" Bash "$WT"
+assert_defer "scoped: git log --textconv" "cd $WT; git log -p --textconv -1" Bash "$WT"
+assert_defer "scoped: git show --textconv" "cd $WT; git show --textconv HEAD" Bash "$WT"
+assert_defer "scoped: git diff --no-index on a sibling TMPDIR" "cd $WT; git diff --no-index $OTHER_TMP/diff.patch f" Bash "$WT"
+assert_defer "scoped: git with an unresolved word" "cd $WT; git log \$X" Bash "$WT"
+assert_defer "scoped: git with a glob" "cd $WT; git diff main -- *" Bash "$WT"
+assert_defer "scoped: git outside show/diff/log""cd $WT; git status" Bash "$WT"
+assert_defer "scoped: a verb off the list" "cd $WT; rm f" Bash "$WT"
+assert_defer "scoped: a trusted repo script" "cd $WT; bash scripts/ok.sh" Bash "$WT"
+assert_defer "scoped: a relative cd keeps the && rule" "cd sub; grep -n x g" Bash "$WT"
+assert_defer "scoped: a relative cd && chain keeps the && rule" "cd sub && grep -n x g; wc -l g" Bash "$WT"
+assert_defer "scoped: a second cd""cd $WT; cd sub; cat g" Bash "$WT"
+assert_defer "scoped: cd outside the worktree, then git" "cd $CORPUS_OUTSIDE; git log -1" Bash "$WT"
+# Had the cd failed, the line would run where it started, so that directory
+# must be the worktree's and its repository's too.
+assert_defer "scoped: starting outside the worktree" "cd $WT; cat f" Bash "$CORPUS_OUTSIDE"
+corpus_git_env init -q "$WT/nested" >"$STATE/nested.log" 2>&1
+assert_defer "scoped: starting in a repository nested in the worktree" "cd $WT; git log -1" Bash "$WT/nested"
+HOOK_ENV=("${SCOPED_ENV[@]}" "TMPDIR=$OTHER_TMP" "PLANWRIGHT_WORKER_SESSION_RECORD=$SR")
+assert_defer "scoped: a TMPDIR the record does not name is no root" "cd $WT; cat $OTHER_TMP/diff.patch" Bash "$WT"
+assert_defer "scoped: the recorded root, TMPDIR disagreeing" "cd $WT; cat $OWN_TMP/diff.patch" Bash "$WT"
+
 finish_suite "worker-command-guard readonly"
