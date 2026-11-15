@@ -98,29 +98,43 @@ fi
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || fail "could not resolve the script directory"
 work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pr-agent.XXXXXX") || fail "could not create a scratch directory"
-container="" job="" teller=""
+# The exit trap's state: the try's container, the current background job (the
+# docker client's bounded-run.sh, or a backoff sleep), the tee copying the
+# try's log, and a signal held while a job starts.
+container="" job="" tee_job="" held=""
+
+bounded() { /bin/sh "$script_dir/bounded-run.sh" -k "$KILL_GRACE" "$@"; }
+
 # A cancel or the step limit kills this shell, not the container, which would
-# go on calling the model and could post after the run reported its end. The
-# container goes first, before the runner's KILL can land: docker run passes a
-# TERM to the container, whose PID 1 may ignore it, so ending the client alone
-# can take the whole kill grace. A second removal after the client ends
-# catches a container it was still creating.
+# go on calling the model and could post after the run reported its end.
+# docker run passes a TERM on to the container, whose PID 1 may ignore it, so
+# the container is removed without waiting for the client, and again each
+# second while the client lives, in case it was still creating it.
 cleanup() {
-  trap '' TERM INT HUP
+  # A no-op handler, not an ignore: an ignored signal is inherited, and the
+  # bounded docker rm below could then not be ended by its bound.
+  trap : TERM INT HUP
   [ -z "$job" ] || kill "$job" 2>/dev/null
-  [ -z "$container" ] || bounded 60 docker rm -f "$container" >/dev/null 2>&1
+  if [ -n "$container" ]; then
+    bounded 60 docker rm -f "$container" >/dev/null 2>&1
+    while [ -n "$job" ] && kill -0 "$job" 2>/dev/null; do
+      sleep 1
+      bounded 60 docker rm -f "$container" >/dev/null 2>&1
+    done
+  fi
   [ -z "$job" ] || wait "$job" 2>/dev/null
-  [ -z "$container" ] || bounded 60 docker rm -f "$container" >/dev/null 2>&1
-  [ -z "$teller" ] || wait "$teller" 2>/dev/null
+  # A job killed before it opened the FIFO leaves tee blocked on it forever.
+  [ -z "$tee_job" ] || kill "$tee_job" 2>/dev/null
+  [ -z "$tee_job" ] || wait "$tee_job" 2>/dev/null
   rm -rf "$work"
 }
 arm_traps() {
-  trap 'trap "" TERM INT HUP; exit 143' TERM
-  trap 'trap "" TERM INT HUP; exit 130' INT
-  trap 'trap "" TERM INT HUP; exit 129' HUP
+  trap 'exit 143' TERM
+  trap 'exit 130' INT
+  trap 'exit 129' HUP
 }
-# hold_traps: note a signal instead of acting on it, while a job starts and
-# before its pid is known; arm_traps then acts on it.
+# hold_traps and release_traps bracket a job's start: a signal before its pid
+# is known is noted, then acted on once cleanup can reach the job.
 hold_traps() {
   held=""
   trap 'held=143' TERM
@@ -146,8 +160,6 @@ for name in GITHUB_TOKEN GITHUB_EVENT_NAME GITHUB_REPOSITORY GITHUB_API_URL GITH
   GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_ACTIONS CI; do
   docker_env+=(-e "$name")
 done
-
-bounded() { /bin/sh "$script_dir/bounded-run.sh" -k "$KILL_GRACE" "$@"; }
 
 # reviews <file>: write one "<id> <updated_at>" line per PR-Agent review
 # comment. A full review edits one persistent comment and an incremental one
@@ -176,10 +188,9 @@ review_posted() {
 }
 
 # try <n>: one PR-Agent run; sets verdict to posted, timeout, exited:<status>,
-# rate_limited, bad_output, errored or quiet. container and job name the run
-# for the exit trap while it lasts.
+# rate_limited, bad_output, errored or quiet.
 try() {
-  local log="$work/try-$1.log" pipe="$work/try-$1.pipe" status
+  local log="$work/try-$1.log" pipe="$work/try-$1.pipe" status tee_status
   # In the background, so a signal interrupts the wait at once (bash holds a
   # trap until a foreground job ends), and through a FIFO rather than a pipe,
   # so the job's pid is bounded-run.sh itself: the process that passes a TERM
@@ -188,7 +199,7 @@ try() {
   hold_traps
   container="pr-agent-$$-$1"
   tee "$log" <"$pipe" &
-  teller=$!
+  tee_job=$!
   /bin/sh "$script_dir/bounded-run.sh" -k "$KILL_GRACE" "$try_seconds" \
     docker run --rm --name "$container" "${docker_env[@]}" \
     -v "$GITHUB_EVENT_PATH:/github/workflow/event.json:ro" "$image" >"$pipe" 2>&1 &
@@ -197,11 +208,16 @@ try() {
   wait "$job"
   status=$?
   job=""
-  wait "$teller"
-  teller=""
+  wait "$tee_job"
+  tee_status=$?
+  tee_job=""
   # A killed or failed docker client can leave its container running.
   [ "$status" = 0 ] || bounded 60 docker rm -f "$container" >/dev/null 2>&1
   container=""
+  # The verdicts below read the log; without all of it a failed try could
+  # pass as PR-Agent's own skip.
+  [ "$tee_status" = 0 ] && [ -f "$log" ] \
+    || fail "could not keep the log of try $1, so its outcome is unknown"
   if review_posted; then
     verdict=posted
   elif [ "$status" = 124 ]; then
@@ -284,6 +300,8 @@ while :; do
   release_traps
   wait "$job"
   job=""
+  # The head first: a review that lands after the head moved may be the new
+  # head's run's, and must not pass for this one.
   same_head
   # The comment list can lag the post, so a try judged empty may have landed.
   if review_posted; then

@@ -55,6 +55,7 @@ MOVED_SHA=2222222222222222222222222222222222222222
 #   slowstart      creates nothing until $T/go appears (never, in its test)
 #   stubborn       creates its container and ignores TERM
 #   creating       is still creating its container when TERM arrives
+#   latestart      ignores TERM and creates its container a second later
 # The failure scenarios post nothing. The gh stub runs the script's own --jq
 # programs over $T/comments.json and a pull request built from $T/heads.
 cat >"$stub/docker" <<'EOF'
@@ -130,8 +131,8 @@ case "$step" in
   exit1empty) printf '%s\n' "$empty"; exit 1 ;;
   exit*) exit "${step#exit}" ;;
   hang)
-    printf '%s\n' "$$" >"$T/run.pid"
     : >"$T/created"
+    printf '%s\n' "$$" >"$T/run.pid"
     exec /bin/sleep 300
     ;;
   slowstart)
@@ -140,10 +141,17 @@ case "$step" in
     : >"$T/created"
     exec /bin/sleep 300
     ;;
-  stubborn)
+  latestart)
     trap '' TERM
     printf '%s\n' "$$" >"$T/run.pid"
+    /bin/sleep 1
     : >"$T/created"
+    while :; do /bin/sleep 0.1; done
+    ;;
+  stubborn)
+    trap '' TERM
+    : >"$T/created"
+    printf '%s\n' "$$" >"$T/run.pid"
     while :; do /bin/sleep 0.1; done
     ;;
   creating)
@@ -214,7 +222,11 @@ printf '%s %s %s\n' "$1" "$2" "$3" >>"$T/bound.log"
 shift 3
 exec "$@"
 EOF
-chmod +x "$stub/docker" "$stub/gh" "$stub/sleep"
+# tee runs as itself, unless TEE_FAIL=1 makes it die before copying anything.
+real_tee=$(command -v tee)
+# shellcheck disable=SC2016 # the stub's own text
+printf '%s\n' '#!/bin/sh' '[ "${TEE_FAIL:-0}" = 1 ] && exit 1' "exec '$real_tee' \"\$@\"" >"$stub/tee"
+chmod +x "$stub/docker" "$stub/gh" "$stub/sleep" "$stub/tee"
 # The real helper's watcher needs the real sleep.
 mkdir -p "$tmp/realbin"
 cp "$stub/docker" "$stub/gh" "$tmp/realbin/"
@@ -459,6 +471,13 @@ else
   failed "$name: rm $(cat "$T/docker-rm.log")"
 fi
 
+name="a try whose log was lost fails, never passing as a skip"
+TEE_FAIL=1
+export TEE_FAIL
+run "quiet good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+unset TEE_FAIL
+expect "$name" 1 1 0 "" && has "$name" "could not keep the log of try 1" && ok "$name"
+
 name="a non-zero exit outranks a model-output failure in its log"
 run "exit1empty good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 1 1 0 "" && has "$name" "exited 1" && ok "$name"
@@ -555,10 +574,12 @@ else
 fi
 
 # A runner cancel can signal the wrapper's shell alone, at any moment of a try.
+
 # cancel_case <scenario>: start a try, TERM the wrapper once the stub client
 # runs, and set RC, OUT and CANCEL_CONTAINER; returns 1 when the wrapper
-# outlived the TERM or the try never started. The stub client is reaped either
-# way, so a failing case leaves no sleeper behind.
+# outlived the TERM or the try never started. A stuck wrapper and the stub
+# client are killed either way, so a failing case neither hangs the suite nor
+# leaves a sleeper behind.
 cancel_case() {
   new_case "$1" "$HEAD_SHA"
   env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
@@ -566,13 +587,13 @@ cancel_case() {
   cc_pid=$!
   CANCEL_CONTAINER="pr-agent-$cc_pid-1"
   cc_rc=0
-  if poll_until --what "the $1 try to start" -- test -s "$T/run.pid"; then
-    kill -TERM "$cc_pid"
+  poll_until --what "the $1 try to start" -- test -s "$T/run.pid" || cc_rc=1
+  kill -TERM "$cc_pid"
+  if [ "$cc_rc" = 0 ]; then
     poll_until --what "the wrapper to exit on TERM" -- pid_gone "$cc_pid" || cc_rc=1
-  else
-    kill -TERM "$cc_pid"
-    cc_rc=1
   fi
+  [ "$cc_rc" = 0 ] || kill -9 "$cc_pid" 2>/dev/null || :
+  # run.pid may not exist when the try never started.
   kill -9 "$(cat "$T/run.pid" 2>/dev/null)" 2>/dev/null || :
   RC=0
   wait "$cc_pid" || RC=$?
@@ -605,6 +626,13 @@ if cancel_case stubborn && [ "$RC" = 143 ] && grep -qx "rm -f $CANCEL_CONTAINER 
   ok "$name"
 else
   failed "$name: want a prompt exit 143 and the container removed; rm: $(cat "$T/docker-rm.log")"
+fi
+
+name="a container created after the first removal is removed while its client lives"
+if cancel_case latestart && [ "$RC" = 143 ] && grep -qx "rm -f $CANCEL_CONTAINER created" "$T/docker-rm.log"; then
+  ok "$name"
+else
+  failed "$name: want a prompt exit 143 and a removal after the creation; rm: $(cat "$T/docker-rm.log")"
 fi
 
 name="a TERM mid-creation removes the container once the client ends"
@@ -668,9 +696,12 @@ grep -q '^          sparse-checkout: scripts$' "$WORKFLOW" || missing="$missing 
 marker=$(awk '/^      - name: / { on = ($0 == "      - name: Record the run for /bot-review") } on' "$WORKFLOW")
 # shellcheck disable=SC2016 # the workflow's literal text
 for want in "STATUS: \${{ steps.review.outcome == 'skipped' && 'failure' || steps.review.outcome }}" \
-  'PR: ${{ github.event.pull_request.number }}' 'HEAD_SHA: ${{ steps.head.outputs.sha }}'; do
+  'PR: ${{ github.event.pull_request.number }}' 'HEAD_SHA: ${{ steps.head.outputs.sha }}' \
+  "if: \${{ !cancelled() && env.HAS_KEY == 'true' && steps.head.outputs.sha != '' }}"; do
   case "$marker" in *"$want"*) ;; *) missing="$missing [marker step: $want]" ;; esac
 done
+printf '%s\n' "$review" | grep -qx '        id: review' || missing="$missing [the Review step's id]"
+grep -qx '        id: head' "$WORKFLOW" || missing="$missing [the head step's id]"
 if [ -z "$missing" ] && [ -n "$step_min" ] && [ -n "$job_min" ] && [ -n "$deadline" ] \
   && [ $((step_min * 60)) -ge $((deadline + 120)) ] && [ "$step_min" -lt "$job_min" ]; then
   ok "$name"
