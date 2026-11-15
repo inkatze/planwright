@@ -162,6 +162,13 @@ row	run-order	defer	defer	defer	defer	cd outlink && ls
 row	run-order	defer	defer	defer	defer	cd missing && ls
 row	run-order	defer	defer	defer	defer	cd && ls
 row	run-order	defer	defer	defer	defer	timeout 5 cd sub && ls
+# a read line led by an absolute cd into the worktree and `;`: scoped reads only
+row	run-order	allow	allow	allow	allow	cd @@WORKTREE@@; cat f; grep -n x g
+row	run-order	allow	allow	allow	allow	cd @@WORKTREE@@; cat @@SCRATCH@@/a; git log -1
+row	run-order	defer	defer	defer	defer	cd @@WORKTREE@@; cat @@OUTSIDE@@/x
+row	run-order	defer	defer	defer	defer	cd @@WORKTREE@@; cat f > out
+row	run-order	defer	defer	defer	defer	cd @@WORKTREE@@; sed 1p f
+row	run-order	defer	defer	defer	defer	cd @@WORKTREE@@; git status
 # plain assignments carry across && as their literal value
 row	run-order	allow	allow	allow	allow	f=notes.md && grep -n x $f
 row	run-order	allow	allow	allow	allow	S=specs/demo && grep -n REQ $S/test-spec.md | head
