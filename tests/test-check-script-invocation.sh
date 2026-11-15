@@ -16,6 +16,8 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECKER="$REPO_ROOT/scripts/check-script-invocation.sh"
 FIXTURES="$REPO_ROOT/tests/fixtures/script-invocation"
 
@@ -288,17 +290,23 @@ else
   echo "ok: no 8-bit CSI reaches the output (skipped: this file system refuses the byte in a name)"
 fi
 
-if [ "$(id -u)" -ne 0 ]; then
-  cp -R "$FIXTURES/clean" "$tmp/unreadable" || exit 1
-  chmod 000 "$tmp/unreadable/doctrine/demo.md" || exit 1
+cp -R "$FIXTURES/clean" "$tmp/unreadable" || exit 1
+chmod 000 "$tmp/unreadable/doctrine/demo.md" || exit 1
+if hermetic_access_denied r "$tmp/unreadable/doctrine/demo.md"; then
   "$CHECKER" --repo-root "$tmp/unreadable" >/dev/null 2>&1
   assert "an unreadable instruction file fails closed" 2 $?
-  chmod 644 "$tmp/unreadable/doctrine/demo.md"
-  chmod 000 "$tmp/unreadable/scripts/bash-tool.sh" || exit 1
+else
+  echo "skip: unreadable instruction file: the running user still reads $tmp/unreadable/doctrine/demo.md under mode 000"
+fi
+chmod 644 "$tmp/unreadable/doctrine/demo.md"
+chmod 000 "$tmp/unreadable/scripts/bash-tool.sh" || exit 1
+if hermetic_access_denied r "$tmp/unreadable/scripts/bash-tool.sh"; then
   "$CHECKER" --repo-root "$tmp/unreadable" >/dev/null 2>&1
   assert "an unreadable script fails closed" 2 $?
-  chmod 755 "$tmp/unreadable/scripts/bash-tool.sh"
+else
+  echo "skip: unreadable script: the running user still reads $tmp/unreadable/scripts/bash-tool.sh under mode 000"
 fi
+chmod 755 "$tmp/unreadable/scripts/bash-tool.sh"
 
 cp -R "$FIXTURES/clean" "$tmp/noskills" || exit 1
 rm -rf "$tmp/noskills/skills" "$tmp/noskills/doctrine"

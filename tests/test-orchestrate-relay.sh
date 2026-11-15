@@ -36,6 +36,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 RELAY="$here/../scripts/orchestrate-relay.sh"
 
 fail() {
@@ -295,8 +297,12 @@ esc=$(printf '\033')
 unreadable="$tmp/unreadable-msg.txt"
 printf 'body\n' >"$unreadable"
 chmod 000 "$unreadable"
-rc_of 2 "relay-command tmux must reject an unreadable message file" -- \
-  "$RELAY" relay-command tmux "@3" "$unreadable"
+if hermetic_access_denied r "$unreadable"; then
+  rc_of 2 "relay-command tmux must reject an unreadable message file" -- \
+    "$RELAY" relay-command tmux "@3" "$unreadable"
+else
+  echo "skip: 12a unreadable message file: the running user still reads $unreadable under mode 000"
+fi
 chmod 644 "$unreadable"
 
 # 12b. valid_msgfile hardening: an EXISTING message file whose PATH carries a
@@ -485,10 +491,15 @@ rm -f "$tmp/relay-fleet/mission-control/sessions/mc-p-tower-1"
 # A read-only file stops only a non-root writer.
 if [ "$(id -u)" != 0 ]; then
   chmod 444 "$tmp/relay-fleet/mission-control/retasks.log"
-  PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-unlogged "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
-  chmod 644 "$tmp/relay-fleet/mission-control/retasks.log"
-  rc_is retask-unlogged 2 "an override deliver whose override could not be logged"
-  pasted_nothing retask-unlogged "an override that could not be logged"
+  if hermetic_access_denied w "$tmp/relay-fleet/mission-control/retasks.log"; then
+    PLANWRIGHT_FLEET_STATE_DIR="$tmp/relay-fleet" fake_deliver retask-unlogged "$idle_pane" "@3" "$unit_msg" --retask "operator asked"
+    chmod 644 "$tmp/relay-fleet/mission-control/retasks.log"
+    rc_is retask-unlogged 2 "an override deliver whose override could not be logged"
+    pasted_nothing retask-unlogged "an override that could not be logged"
+  else
+    chmod 644 "$tmp/relay-fleet/mission-control/retasks.log"
+    echo "skip: an unloggable override: the read-only log is still writable here"
+  fi
 fi
 echo "ok: deliver passes a registered tower and refuses an override it could not log, pasting nothing"
 

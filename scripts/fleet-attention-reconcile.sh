@@ -314,7 +314,13 @@ evidence() {
   if [ "$ev_class" = process ]; then
     "$DEATH" process "$ev_rest" >/dev/null 2>&1 || ev_rc=$?
   else
-    "$DEATH" tmux-window "${ev_rest%% *}" "${ev_rest#* }" >/dev/null 2>&1 || ev_rc=$?
+    # A pinned handle carries the issuing server and window name too.
+    # shellcheck disable=SC2086 # the handle's tokens, split (globbing is off)
+    set -- $ev_rest
+    case $# in
+      2 | 4) "$DEATH" tmux-window "$@" >/dev/null 2>&1 || ev_rc=$? ;;
+      *) ev_rc=2 ;;
+    esac
   fi
   case $ev_rc in
     0)

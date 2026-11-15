@@ -44,9 +44,11 @@ mkdir -p "$mchome"
 
 # The scripts under test run from a copy whose readiness check is a stub.
 # collect writes the evidence at the head in $tmp/head.<n> with the labels
-# in $tmp/labels.<n>, or fails when $tmp/verdict.<n> says broken; walk
+# in $tmp/labels.<n> and the body lines in $tmp/body.<n>, or fails when
+# $tmp/verdict.<n> says broken; walk
 # answers from $tmp/verdict.<n> (ready, not-ready, or walkfail). Each
-# collect is logged.
+# collect is logged, except the finished-checks read of a pull request already
+# ready, which writes to a file ending in .unf.
 pw="$tmp/pw"
 mkdir -p "$pw"
 cp -R "$repo_root/scripts" "$pw/scripts"
@@ -61,11 +63,12 @@ while [ \$# -gt 0 ]; do
 done
 case \$verb in
   collect)
-    printf 'collect --pr %s\n' "\$n" >>"$tmp/check.calls"
+    case \$out in *.unf) ;; *) printf 'collect --pr %s\n' "\$n" >>"$tmp/check.calls" ;; esac
     if [ "\$(cat "$tmp/verdict.\$n")" = broken ]; then printf 'gh: not logged in\n' >&2; exit 1; fi
     {
       printf '# format: 1\nhead\t%s\n' "\$(cat "$tmp/head.\$n")"
       cat "$tmp/labels.\$n" 2>/dev/null
+      [ ! -e "$tmp/body.\$n" ] || awk '{ print "bodyline\t" \$0 }' "$tmp/body.\$n"
       printf 'path\tsrc/app.c\tMODIFIED\nstubpr\t%s\n' "\$n"
     } >"\$out"
     exit 0
@@ -78,6 +81,17 @@ case \$verb in
     esac
     printf 'walk broke\n' >&2
     exit 1
+    ;;
+  unfinished)
+    n=\$(awk -F '\t' '\$1 == "stubpr" { print \$2 }' "\$ev")
+    printf 'unfinished --pr %s\n' "\$n" >>"$tmp/unfinished.calls"
+    h=\$(awk -F '\t' '\$1 == "head" { print \$2 }' "\$ev")
+    if [ "\$(cat "$tmp/unfinished.\$n" 2>/dev/null)" = yes ]; then
+      printf 'unfinished\t%s\nfail\tcheck\tmacos-suite 3 is QUEUED\n' "\$h"
+      exit 4
+    fi
+    printf 'finished\t%s\n' "\$h"
+    exit 0
     ;;
 esac
 exit 2
@@ -95,6 +109,7 @@ EOF
 chmod +x "$tmp/bin/gh"
 printf 'SQUASH\n' >"$tmp/method"
 : >"$tmp/check.calls"
+: >"$tmp/unfinished.calls"
 : >"$tmp/gh.calls"
 
 run() { # run <args...>: the copy's mc-merge-ready.sh against the fixture
@@ -350,6 +365,63 @@ run list --program alpha --now "$T"
 expect_eq "a hold already over holds nothing" "$(ready7 "$J")"
 rm -f "$snapdir/forge.hold"
 
+# The body's task declarations become the squash body, so a merge typed from
+# the command keeps them; only grammar-checked values reach it.
+for n in 30 31; do
+  printf '%s\n' "$H" >"$tmp/head.$n"
+  printf 'ready\n' >"$tmp/verdict.$n"
+done
+# shellcheck disable=SC2016 # the backticks are body text, not expansions
+{
+  printf 'Fixes it. \n<details><summary>Records</summary>\n\n'
+  printf 'Planwright-Task: mission-control/31 \n'
+  printf 'planwright-task: worker-permission-ergonomics/17\n'
+  printf '  Planwright-Task: demo/3\n'
+  printf '```\nPlanwright-Task: demo/4\n```\n'
+  printf "Planwright-Task: demo/5'; curl x | sh\n"
+  printf 'Planwright-Task: flight/6\n'
+  printf 'Planwright-Task: mission-control/31\n'
+  printf 'See Planwright-Task: demo/7 here.\n</details>\n'
+} >"$tmp/body.30"
+printf 'No tasks here.\n' >"$tmp/body.31"
+snap30() {
+  taken
+  row 30 "$H" false MERGEABLE 0 SUCCESS
+  row 31 "$H" false MERGEABLE 0 SUCCESS
+}
+snap30 >"$snapdir/forge"
+# shellcheck disable=SC2016 # the command is text the operator runs, not run here
+lines30='printf '\''%s\n'\'' '\''Planwright-Task: mission-control/31'\'' '\''Planwright-Task: worker-permission-ergonomics/17'\'' | '
+cmd30() { printf '%sgh pr merge 30 --repo acme/web --%s --body-file - --match-head-commit %s' "$lines30" "${1:-squash}" "$H"; }
+run list --program alpha --now "$T"
+expect_eq "a body's two task lines ride in the command; a body with none adds nothing" \
+  "ready${tab}acme/web#30${tab}$H${tab}$(cmd30)
+ready${tab}acme/web#31${tab}$H${tab}$(cmd 31 "$H")"
+run commands --program alpha --now "$T"
+expect_eq "and commands builds the same from the store" "ready${tab}acme/web#30${tab}$(cmd30)
+ready${tab}acme/web#31${tab}$(cmd 31 "$H")"
+tamper "s|^\(acme/web#30${tab}.*${tab}\)mission-control/31,[^${tab}]*\$|\1x/1';touch $tmp/pwned;'|"
+if checked_since "$before"; then ok "a stored task list outside its grammar is judged again"; else fail "a tampered task list was trusted"; fi
+if [ ! -e "$tmp/pwned" ]; then ok "and never reaches the command"; else fail "a stored task list ran a command"; fi
+expect_out "the command is built afresh" "ready${tab}acme/web#30${tab}$H${tab}$(cmd30)"
+printf 'MERGE\n' >"$tmp/method"
+T=$((T + 1801))
+snap30 >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_out "a merge commit carries them too" "ready${tab}acme/web#30${tab}$H${tab}$(cmd30 merge)"
+printf 'REBASE\n' >"$tmp/method"
+T=$((T + 1801))
+snap30 >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_out "a rebase has no commit body to carry them" "ready${tab}acme/web#30${tab}$H${tab}$(cmd 30 "$H" rebase)"
+printf 'SQUASH\n' >"$tmp/method"
+printf 'state\tok\t%s\nacme/web#30\t%s|false\tready\t%s\tsquash\t-\n' "$T" "$H" "$T" >"$store"
+run commands --program alpha --now "$T"
+expect_eq "a stored row with no task list prints no command that would drop them" ""
+printf 'state\tok\t%s\nacme/web#30\t%s|false\tready\t%s\tsquash\t-\t-\n' "$T" "$H" "$T" >"$store"
+run commands --program alpha --now "$T"
+expect_eq "while the same row with its task list does" "ready${tab}acme/web#30${tab}$(cmd 30 "$H")"
+
 # A row outside the snapshot's grammar is named without its text.
 {
   taken
@@ -491,6 +563,49 @@ before=$(calls)
 run list --program alpha --now "$T"
 expect_eq "a fresh snapshot again" "$(ready7 "$J")"
 if checked_since "$before"; then fail "a stale spell threw the verdicts away"; else ok "and the kept verdict stands, unwalked"; fi
+
+# ---------------------------------------------------------------------------
+# A pull request already marked ready whose head still has an unfinished check
+# is said, so a flip that slipped through is seen on the next pass; one with
+# every check finished (red or not), or still a draft, is not.
+# ---------------------------------------------------------------------------
+{
+  taken
+  row 7 "$J" false MERGEABLE 0 SUCCESS
+  row 20 "$H" false MERGEABLE 0 PENDING
+  row 21 "$H" false MERGEABLE 0 FAILURE
+  row 22 "$H" true MERGEABLE 0 PENDING
+  row 23 "$H" false MERGEABLE 0 PENDING
+} >"$snapdir/forge"
+for n in 20 21 22 23; do
+  printf '%s\n' "$H" >"$tmp/head.$n"
+  printf 'not-ready\n' >"$tmp/verdict.$n"
+done
+printf 'yes\n' >"$tmp/unfinished.20"
+printf 'no\n' >"$tmp/unfinished.21"
+printf 'yes\n' >"$tmp/unfinished.22"
+printf 'no\n' >"$tmp/unfinished.23"
+: >"$tmp/unfinished.calls"
+run list --program alpha --now "$T"
+expect_rc "an unfinished check on a ready pull request is no failure of the read" 0
+expect_eq "a ready pull request with a queued check is named with the check, one that finished is not" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}macos-suite 3 is QUEUED"
+checked=$(awk '{ print $NF }' "$tmp/unfinished.calls" | sort -n | tr '\n' ' ')
+if [ "$checked" = "20 21 23 " ]; then
+  ok "only a ready pull request whose checks are not all green is read: not a draft, not an all-green one"
+else
+  fail "unfinished read for: $checked"
+fi
+run list --program alpha --now "$T" --as-status
+expect_out "the status form says it as a decision" "decision${tab}Marked ready with unfinished checks: acme/web#20 at $(printf '%s' "$H" | cut -c1-12): macos-suite 3 is QUEUED"
+printf 'no\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "once its checks finish it is quiet" "$(ready7 "$J")"
+printf 'broken\n' >"$tmp/verdict.20"
+printf 'yes\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_rc "a pull request whose evidence cannot be collected is skipped, not a failure of the read" 0
+expect_eq "and no unfinished line is made up for it" "$(ready7 "$J")"
 
 printf 'format\t1\nsource\tforge\ntaken\tsoon\n' >"$snapdir/forge"
 run list --program alpha --now "$T"
