@@ -3,22 +3,6 @@
 # review the model left empty or unparseable. Stubs stand in for docker, gh,
 # sleep and the per-try bound; no model API is ever called.
 #
-# The docker stub plays one scripted try per `run`, popping the next word of
-# the case's scenario:
-#   good     edits the persistent review comment (a findings review)
-#   clean    the same edit with a clean log (a "no issues" review)
-#   inc      posts a new incremental review comment
-#   warned   posts a review although a fallback model logged empty output
-#   lagged   posts a review the comment list shows only from its next read
-#   empty / parse / transport   log a model-output failure, post nothing
-#   rate / rate429 / toomany    log a rate limit, post nothing
-#   ratempty logs a rate limit and an empty output
-#   noise    a human and the run marker edit comments; the log shows empty output
-#   quiet    logs nothing, posts nothing (PR-Agent's own silent skip)
-#   exitN    exits N; exit1empty logs empty output, then exits 1
-#   hang     sleeps past any bound
-# The gh stub runs the script's own --jq program over $T/comments.json.
-#
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
 LC_ALL=C
@@ -52,6 +36,21 @@ cp "$REAL" "$here/../scripts/bounded-run.sh" "$tmp/real/scripts/"
 HEAD_SHA=1111111111111111111111111111111111111111
 MOVED_SHA=2222222222222222222222222222222222222222
 
+# The docker stub plays one try per `run`, popping the case's next scenario:
+#   good / clean   edit the persistent review comment (findings / no issues)
+#   inc            posts a new incremental review comment
+#   warned         posts a review although a fallback model logged empty output
+#   lagged         posts a review the comment list shows only from its next read
+#   empty parse transport yaml schema nomodel   a model-output failure
+#   rate rate429 toomany ratelib rateword       a rate limit
+#   ratempty       a rate limit and an empty output in one log
+#   errored        a coloured ERROR-level line
+#   noise          a human and the run marker edit comments; empty output logged
+#   quiet          nothing at all (PR-Agent's own silent skip)
+#   exitN          exits N; exit1empty logs empty output, then exits 1
+#   hang           sleeps past any bound
+# The failure scenarios post nothing. The gh stub runs the script's own --jq
+# programs over $T/comments.json and a pull request built from $T/heads.
 cat >"$stub/docker" <<'EOF'
 #!/bin/sh
 case "$1" in
@@ -59,7 +58,7 @@ case "$1" in
     [ "${PULL_FAIL:-0}" = 1 ] && { printf 'Error response from daemon: manifest unknown\n'; exit 1; }
     exit 0
     ;;
-  rm) printf 'rm\n' >>"$T/docker-rm.log"; exit 0 ;;
+  rm) printf '%s\n' "$*" >>"$T/docker-rm.log"; exit 0 ;;
   run) ;;
   *) exit 64 ;;
 esac
@@ -97,7 +96,13 @@ case "$step" in
       "$w.tools.pr_reviewer:_validate_review_schema:1290 - Review output failed schema validation"
     ;;
   transport) printf '%s\n' "$w.ai_handlers.litellm_ai_handler:_chat_completion_with_retry:3259 - Error during LLM inference: litellm.APIConnectionError: APIConnectionError: OpenrouterException - Response payload is not completed" ;;
+  yaml) printf '%s\n' "$w.utils:load_yaml:1021 - Initial failure to parse AI prediction: expected '<document start>'" ;;
+  schema) printf '%s\n' "$w.tools.pr_reviewer:_validate_review_schema:1290 - Review output failed schema validation" ;;
+  nomodel) printf '%s\n' "$w.pr_processing:retry_with_fallback_models:878 - Failed to generate prediction with openrouter/x/y" ;;
   rate) printf '%s\n' "$rate" ;;
+  ratelib) printf '%s\n' "$w.ai_handlers.litellm_ai_handler:_chat_completion_with_retry:3259 - Error during LLM inference: litellm.RateLimitError" ;;
+  rateword) printf '%s\n' "$w.ai_handlers.litellm_ai_handler:_chat_completion_with_retry:3259 - Error during LLM inference: OpenrouterException - rate limit exceeded" ;;
+  errored) printf '\033[32m2026-11-14 00:00:00.000\033[0m | \033[31m\033[1mERROR   \033[0m | pr_agent.tools.pr_reviewer:run:907 - Failed to review PR: boom\n' ;;
   rate429) printf '%s\n' "$w.ai_handlers.litellm_ai_handler:_chat_completion_with_retry:3259 - Error during LLM inference: OpenrouterException - {\"error\": {\"code\": 429}}" ;;
   toomany) printf '%s\n' "$w.ai_handlers.litellm_ai_handler:_chat_completion_with_retry:3259 - Error during LLM inference: 429 Too Many Requests" ;;
   ratempty) printf '%s\n' "$rate" "$empty" ;;
@@ -122,14 +127,21 @@ printf '%s\n' "$*" >>"$T/gh.log"
 case "$*" in
   *"/pulls/"*)
     [ "${GH_HEAD_FAIL:-0}" = 1 ] && exit 1
-    sed -n 1p "$T/heads"
+    sha=$(sed -n 1p "$T/heads")
     [ "$(wc -l <"$T/heads")" -gt 1 ] && { sed 1d "$T/heads" >"$T/heads.next" && mv "$T/heads.next" "$T/heads"; }
+    while [ "$#" -gt 0 ]; do
+      [ "$1" = --jq ] && { jq -nr --arg s "$sha" '{number: 7, head: {sha: $s, ref: "b"}}' | jq -r "$2" || exit 1; }
+      shift
+    done
     exit 0
     ;;
   *"/comments"*)
     printf 'read\n' >>"$T/reads"
     [ "$(wc -l <"$T/reads")" -ge "${GH_COMMENTS_FAIL_FROM:-999}" ] && exit 1
-    [ "${GH_COMMENTS_BAD:-0}" = 1 ] && { printf '{"message": "Bad credentials"}\n'; exit 0; }
+    [ "${GH_COMMENTS_NULL:-0}" = 1 ] && {
+      jq '. + [{"id": 5, "user": {"login": "github-actions[bot]"}, "body": "<!-- pr-agent:review:full -->", "updated_at": null}]' \
+        "$T/comments.json" >"$T/comments.next" && mv "$T/comments.next" "$T/comments.json"
+    }
     while [ "$#" -gt 0 ]; do
       [ "$1" = --jq ] && { jq -r "$2" "$T/comments.json" || exit 1; }
       shift
@@ -261,6 +273,12 @@ name="a truncated model payload counts as unparseable output"
 run "transport good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 0 2 1 "30 " && ok "$name"
 
+for sig in yaml schema nomodel; do
+  name="the $sig signature alone counts as unparseable output"
+  run "$sig good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+  expect "$name" 0 2 1 "30 " && ok "$name"
+done
+
 name="good output first time: no retry"
 run "good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 0 1 1 "" && lacks "$name" "retry" && ok "$name"
@@ -314,10 +332,14 @@ expect "$name" 0 2 1 "120 " && ok "$name"
 
 name="rate limits are bounded on their own"
 run "rate rate rate" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
-expect "$name" 1 3 0 "120 240 " && has "$name" "rate limited 3 times" && ok "$name"
+expect "$name" 1 3 0 "120 240 " && has "$name" "past its 2 rate-limit retries" && ok "$name"
 
 name="a 429 code and Too Many Requests read as rate limits"
 run "rate429 toomany good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 0
+expect "$name" 0 3 1 "120 240 " && ok "$name"
+
+name="RateLimitError and rate limit exceeded each read as rate limits"
+run "ratelib rateword good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 0
 expect "$name" 0 3 1 "120 240 " && ok "$name"
 
 name="a rate limit outranks an empty output in the same try"
@@ -331,15 +353,28 @@ expect "$name" 1 1 0 "" && has "$name" "PR-Agent returned no parseable review af
 
 name="no head given: a rate limit is not retried either"
 run "rate good" "$HEAD_SHA" -- --retries 2
-expect "$name" 1 1 0 "" && has "$name" "rate limited 1 times" && ok "$name"
+expect "$name" 1 1 0 "" && has "$name" "past its 0 rate-limit retries" && ok "$name"
 
 name="no review and no logged failure is PR-Agent's own skip"
 run "quiet good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 0 1 0 "" && has "$name" "its own skip" && ok "$name"
 
+name="a retry that posts nothing and logs nothing is a failure, never a skip"
+run "empty quiet good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+expect "$name" 1 2 0 "30 " && has "$name" "a retry after a failed try, posted no review" && ok "$name"
+
+name="an ERROR-level log line with no review fails without a retry"
+run "errored good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+expect "$name" 1 1 0 "" && has "$name" "logged an error on try 1" && ok "$name"
+
 name="a non-zero PR-Agent exit fails without a retry"
 run "exit3 good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 1 1 0 "" && has "$name" "exited 3" && ok "$name"
+if [ "$(cat "$T/docker-rm.log")" = "rm -f $(sed -n 's/.*--name \([^ ]*\) .*/\1/p' "$T/docker-run.log")" ]; then
+  ok "a failed docker client's container is removed by name"
+else
+  failed "a failed docker client's container is removed by name: rm $(cat "$T/docker-rm.log")"
+fi
 
 name="a non-zero exit outranks a model-output failure in its log"
 run "exit1empty good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
@@ -366,8 +401,8 @@ else
 fi
 
 name="no retry starts that could end past the deadline"
-run "empty empty good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2 --deadline-seconds 680
-expect "$name" 1 2 0 "30 " && has "$name" "680s deadline" && ok "$name"
+run "empty empty good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2 --deadline-seconds 740
+expect "$name" 1 2 0 "30 " && has "$name" "740s deadline" && ok "$name"
 
 name="an image that will not pull fails before any try"
 PULL_FAIL=1
@@ -390,11 +425,11 @@ run "good" "$HEAD_SHA" -- --head "$HEAD_SHA"
 unset GH_COMMENTS_FAIL_FROM
 expect "$name" 1 0 0 "5 5 " && has "$name" "could not read the PR's comments" && ok "$name"
 
-name="a comment list in an unknown shape is a failure, never a pass"
-GH_COMMENTS_BAD=1
-export GH_COMMENTS_BAD
+name="a review comment with no updated_at is a failure, never a pass"
+GH_COMMENTS_NULL=1
+export GH_COMMENTS_NULL
 run "good" "$HEAD_SHA" -- --head "$HEAD_SHA"
-unset GH_COMMENTS_BAD
+unset GH_COMMENTS_NULL
 expect "$name" 1 0 0 "" && has "$name" "shape" && ok "$name"
 
 name="the comment read pages through every comment"
@@ -439,7 +474,8 @@ fi
 for bad in "--retries x|--retries must be" "--retries|--retries needs a value" "--retries 100|up to 99" \
   "--pr 0|--pr must be" "--pr 07|--pr must be" "--pr abc|--pr must be" "--pr|--pr needs a value" \
   "--try-seconds 0|--try-seconds must be" "--try-seconds 1000000|--try-seconds must be" \
-  "--deadline-seconds x|--deadline-seconds must be" "--bogus|unknown argument: --bogus"; do
+  "--deadline-seconds x|--deadline-seconds must be" "--head abc123|--head must be a full" \
+  "--head ABCDEF1111111111111111111111111111111111|--head must be a full" "--bogus|unknown argument: --bogus"; do
   flags=${bad%%|*}
   want=${bad#*|}
   name="usage error: $flags"
@@ -465,11 +501,13 @@ RC=0
 OUT=$(env PATH="$stub:$PATH" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/no-such.json" "$SCRIPT" --image i --pr 7 2>&1) || RC=$?
 if [ "$RC" = 2 ]; then has "$name" "GITHUB_EVENT_PATH is not a readable file" && ok "$name"; else failed "$name: want exit 2"; fi
 
-# The workflow hands the wrapper its values and outlasts the wrapper's own
-# deadline, so the wrapper's named failure fires before the step limit.
+# The workflow hands the wrapper its values, and its step limit sits between
+# the wrapper's deadline and the job's limit, so the wrapper's named failure
+# fires first and the run marker still posts.
 name="the workflow's Review step wires the wrapper and outlasts its deadline"
-review=$(awk '/^      - name: Review$/ { on = 1 } on && /^      - name: / && !/Review$/ { on = 0 } on' "$WORKFLOW")
-step_min=$(printf '%s\n' "$review" | sed -n 's/^ *timeout-minutes: *\([0-9][0-9]*\)$/\1/p')
+review=$(awk '/^      - name: / { on = ($0 == "      - name: Review") } on' "$WORKFLOW")
+step_min=$(printf '%s\n' "$review" | sed -n 's/^        timeout-minutes: *\([0-9][0-9]*\)$/\1/p')
+job_min=$(sed -n 's/^    timeout-minutes: *\([0-9][0-9]*\)$/\1/p' "$WORKFLOW")
 deadline=$(printf '%s\n' "$review" | sed -n 's/.*--deadline-seconds \([0-9][0-9]*\).*/\1/p')
 missing=""
 # shellcheck disable=SC2016 # the workflow's literal text
@@ -479,10 +517,11 @@ for want in 'scripts/pr-agent-review.sh --image "$PR_AGENT_IMAGE"' '--pr "$PR"' 
   case "$review" in *"$want"*) ;; *) missing="$missing [$want]" ;; esac
 done
 grep -q '^          sparse-checkout: scripts$' "$WORKFLOW" || missing="$missing [sparse-checkout: scripts]"
-if [ -z "$missing" ] && [ -n "$step_min" ] && [ -n "$deadline" ] && [ $((step_min * 60)) -ge $((deadline + 120)) ]; then
+if [ -z "$missing" ] && [ -n "$step_min" ] && [ -n "$job_min" ] && [ -n "$deadline" ] \
+  && [ $((step_min * 60)) -ge $((deadline + 120)) ] && [ "$step_min" -lt "$job_min" ]; then
   ok "$name"
 else
-  failed "$name: missing$missing; step ${step_min:-?} min, deadline ${deadline:-?}s"
+  failed "$name: missing$missing; step ${step_min:-?} min, job ${job_min:-?} min, deadline ${deadline:-?}s"
 fi
 
 if [ "$failures" -ne 0 ]; then

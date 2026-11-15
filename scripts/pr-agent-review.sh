@@ -9,14 +9,16 @@
 #
 # Usage: pr-agent-review.sh --image <ref> --pr <n> [--head <sha>]
 #          [--retries <n>] [--try-seconds <n>] [--deadline-seconds <n>]
-#   Needs GITHUB_REPOSITORY and GITHUB_EVENT_PATH, and gh signed in. PR-Agent
-#   settings (CONFIG.*, OPENROUTER.*, GITHUB_ACTION_CONFIG.*, PR_REVIEWER.*)
-#   pass through from the environment. Without --head no retry runs.
+#   Needs docker, gh signed in, GITHUB_REPOSITORY, GITHUB_EVENT_PATH and the
+#   container's GITHUB_TOKEN. PR-Agent settings (CONFIG.*, OPENROUTER.*,
+#   GITHUB_ACTION_CONFIG.*, PR_REVIEWER.*) pass through from the environment.
+#   --head: the full commit; without it no retry runs.
 #   --retries: retries of a model-output failure (default 2, at most 99).
 #   --try-seconds: one try's bound (default 600). --deadline-seconds: no retry
 #   starts that could end past this many seconds from the start (default 2100).
-# Exit: 0 a review was posted, or PR-Agent posted none and logged no failure
-#   (its own skips are silent); 1 no review, the cause named; 2 usage.
+# Exit: 0 a review was posted, or PR-Agent posted none and logged neither a
+#   failure nor an error (its own skips are silent); 1 no review, the cause
+#   named; 2 usage.
 
 set -u
 LC_ALL=C
@@ -25,11 +27,17 @@ unset CDPATH
 
 OUTPUT_BACKOFF=30
 RATE_BACKOFF=120
+RATE_RETRIES=2
 KILL_GRACE=30
 READ_TRIES=3
+READ_BOUND=60
+# Time the post-try and post-backoff comment and head reads may take.
+READ_SLACK=60
 REVIEW_MARK='<!-- pr-agent:review:'
 OUTPUT_FAILURE='Empty content in model response|failure to parse AI prediction|failed schema validation|Failed to generate prediction|APIConnectionError'
 RATE_LIMIT='RateLimitError|rate limit exceeded|too many requests|"code": ?429'
+# loguru's level field, the second |-separated one, colour codes and all.
+LOGGED_ERROR='^[^|]*\|[^|]*(ERROR|CRITICAL)[^|]*\|'
 
 die_usage() {
   printf 'pr-agent-review: %s\n' "$1" >&2
@@ -42,8 +50,8 @@ fail() {
   exit 1
 }
 
-# count <value> <max digits>: a whole number without a leading zero.
-count() {
+# whole_number <value> <max digits>: no sign, no leading zero.
+whole_number() {
   case "$1" in '' | *[!0-9]* | 0?*) return 1 ;; esac
   [ "${#1}" -le "$2" ]
 }
@@ -68,14 +76,15 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$image" ] || die_usage "--image is required"
-count "$pr" 9 && [ "$pr" != 0 ] || die_usage "--pr must be a pull request number"
-count "$retries" 2 || die_usage "--retries must be a whole number up to 99"
+whole_number "$pr" 9 && [ "$pr" != 0 ] || die_usage "--pr must be a pull request number"
+[ -z "$head" ] || [[ "$head" =~ ^[0-9a-f]{40}$ ]] || die_usage "--head must be a full lowercase commit id"
+whole_number "$retries" 2 || die_usage "--retries must be a whole number up to 99"
 # bounded-run.sh takes at most six digits.
-count "$try_seconds" 6 && [ "$try_seconds" != 0 ] || die_usage "--try-seconds must be a positive whole number"
-count "$deadline" 6 || die_usage "--deadline-seconds must be a whole number"
+whole_number "$try_seconds" 6 && [ "$try_seconds" != 0 ] || die_usage "--try-seconds must be a positive whole number"
+whole_number "$deadline" 6 || die_usage "--deadline-seconds must be a whole number"
 [ -n "${GITHUB_REPOSITORY:-}" ] || die_usage "GITHUB_REPOSITORY is not set"
 [ -r "${GITHUB_EVENT_PATH:-}" ] || die_usage "GITHUB_EVENT_PATH is not a readable file"
-rate_retries=2
+rate_retries=$RATE_RETRIES
 if [ -z "$head" ]; then
   printf '::warning title=PR-Agent retries off::The PR head is unknown, so no retry can be held to it; one try only.\n'
   retries=0 rate_retries=0
@@ -117,7 +126,7 @@ reviews() {
   local n=0
   while [ "$n" -lt "$READ_TRIES" ]; do
     n=$((n + 1))
-    if gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr/comments?per_page=100" --jq "$filter" >"$1"; then
+    if bounded "$READ_BOUND" gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr/comments?per_page=100" --jq "$filter" >"$1"; then
       if grep -Evq '^[0-9]+ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' "$1"; then
         fail "the PR's comment list came back in a shape this script cannot read"
       fi
@@ -128,34 +137,37 @@ reviews() {
   fail "could not read the PR's comments, so whether a review was posted is unknown"
 }
 
-# posted: a review comment exists that the baseline did not hold.
-posted() {
+# review_posted: a review comment exists that the baseline did not hold.
+review_posted() {
   reviews "$work/now"
   awk 'FILENAME == ARGV[1] { seen[$0] = 1; next } !($0 in seen) { found = 1 } END { exit !found }' \
     "$work/baseline" "$work/now"
 }
 
 # try <n>: one PR-Agent run; sets verdict to posted, timeout, exited:<status>,
-# rate, output or quiet.
+# rate_limited, bad_output, errored or quiet.
 try() {
   local log="$work/try-$1.log" status
   container="pr-agent-$$-$1"
   bounded "$try_seconds" docker run --rm --name "$container" "${docker_env[@]}" \
     -v "$GITHUB_EVENT_PATH:/github/workflow/event.json:ro" "$image" 2>&1 | tee "$log"
   status=${PIPESTATUS[0]}
-  # bounded-run.sh ends the docker client; the container can outlive it.
-  [ "$status" = 124 ] && docker rm -f "$container" >/dev/null 2>&1
+  # A killed or failed docker client can leave its container running.
+  [ "$status" = 0 ] || docker rm -f "$container" >/dev/null 2>&1
   container=""
-  if posted; then
+  if review_posted; then
     verdict=posted
   elif [ "$status" = 124 ]; then
     verdict=timeout
   elif [ "$status" != 0 ]; then
     verdict="exited:$status"
+  # A rate-limited fallback chain also logs empty output; it needs the longer wait.
   elif grep -Eiq "$RATE_LIMIT" "$log"; then
-    verdict=rate
+    verdict=rate_limited
   elif grep -Eq "$OUTPUT_FAILURE" "$log"; then
-    verdict=output
+    verdict=bad_output
+  elif grep -Eq "$LOGGED_ERROR" "$log"; then
+    verdict=errored
   else
     verdict=quiet
   fi
@@ -164,7 +176,7 @@ try() {
 # same_head: stop unless the PR's head is still the one this run reviews.
 same_head() {
   local now
-  now=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha) || now=""
+  now=$(bounded "$READ_BOUND" gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha) || now=""
   [[ "$now" =~ ^[0-9a-f]{40}$ ]] || fail "could not confirm the PR head before a retry, so none ran"
   [ "$now" = "$head" ] \
     || fail "the PR head moved from ${head:0:12} to ${now:0:12} between tries; a review of the new head is that head's own run"
@@ -186,20 +198,24 @@ while :; do
       exit 0
       ;;
     quiet)
-      printf '::notice title=PR-Agent posted no review::PR-Agent logged no model failure, so this is its own skip (see its log above).\n'
+      # PR-Agent's own skip would have shown on the first try.
+      [ "$tries" = 1 ] \
+        || fail "try $tries, a retry after a failed try, posted no review and logged no cause"
+      printf '::notice title=PR-Agent posted no review::PR-Agent logged no failure or error, so this is its own skip (see its log above).\n'
       exit 0
       ;;
     timeout) fail "PR-Agent try $tries timed out after ${try_seconds}s; a timeout is not retried" ;;
     exited:*) fail "PR-Agent exited ${verdict#exited:} on try $tries without posting a review" ;;
-    rate)
+    errored) fail "PR-Agent logged an error on try $tries and posted no review; see its log above" ;;
+    rate_limited)
       rate_hits=$((rate_hits + 1))
       [ "$rate_hits" -le "$rate_retries" ] \
-        || fail "PR-Agent was rate limited $rate_hits times, past its $rate_retries rate-limit retries; no review was posted"
+        || fail "PR-Agent was rate limited past its $rate_retries rate-limit retries; no review was posted"
       wait_s=$((RATE_BACKOFF * rate_hits))
       printf '::warning title=PR-Agent rate limited::Try %s was rate limited; backing off %ss (not counted against the %s model-output retries).\n' \
         "$tries" "$wait_s" "$retries"
       ;;
-    output)
+    bad_output)
       output_fails=$((output_fails + 1))
       if [ "$output_fails" -gt "$retries" ]; then
         word=tries
@@ -211,13 +227,14 @@ while :; do
         "$tries" "$wait_s"
       ;;
   esac
-  [ $(($(date +%s) - started + wait_s + try_seconds + KILL_GRACE)) -le "$deadline" ] \
+  # Start a retry only if it could finish, its kill grace and reads included.
+  [ $(($(date +%s) - started + wait_s + try_seconds + KILL_GRACE + READ_SLACK)) -le "$deadline" ] \
     || fail "no review after try $tries, and another try would run past the ${deadline}s deadline"
   sleep "$wait_s"
+  same_head
   # The comment list can lag the post, so a try judged empty may have landed.
-  if posted; then
+  if review_posted; then
     printf 'The review from try %s appeared after its check.\n' "$tries"
     exit 0
   fi
-  same_head
 done
