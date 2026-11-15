@@ -35,8 +35,8 @@ and opens the spec's draft PR). It is not a task branch: the `tasks-pr-sync`
 hook no-ops on it by name.
 
 An amendment kickoff runs on `planwright/<spec>/amendment-<n>`, `<n>` digits
-only; the kickoff push script and the policy guard accept that form and no
-other suffix.
+only, on a Ready or an Active spec; the kickoff push script and the policy guard accept that
+form and no other suffix.
 
 ### Flight branches (tower-front-door D-11)
 
