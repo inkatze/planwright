@@ -618,6 +618,13 @@ for want in "-e CONFIG.MODEL" "-e OPENROUTER.KEY" "-e GITHUB_ACTION_CONFIG.PR_AC
   "-v $tmp/event.json:/github/workflow/event.json:ro img@sha256:0"; do
   case "$args" in *"$want"*) ;; *) missing="$missing [$want]" ;; esac
 done
+# PR-Agent's action entrypoint reads these; without GITHUB_EVENT_NAME, say,
+# it would skip silently, and a quiet first try passes.
+for runner_var in GITHUB_TOKEN GITHUB_EVENT_NAME GITHUB_REPOSITORY GITHUB_API_URL GITHUB_SERVER_URL \
+  GITHUB_GRAPHQL_URL GITHUB_SHA GITHUB_REF GITHUB_HEAD_REF GITHUB_BASE_REF GITHUB_ACTOR \
+  GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_ACTIONS CI; do
+  case "$args " in *"-e $runner_var "*) ;; *) missing="$missing [-e $runner_var]" ;; esac
+done
 case "$args" in *sekrit* | *tok-value-9z*) missing="$missing [a value in argv]" ;; esac
 if [ "$RC" = 0 ] && [ -z "$missing" ]; then ok "$name"; else failed "$name: missing$missing in: $args"; fi
 
