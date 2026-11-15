@@ -4,9 +4,9 @@
 # parse, or arrived truncated. The action exits 0 either way, so whether a
 # review landed is read from GitHub (a PR-Agent review comment that is new, or
 # whose updated_at moved, against a snapshot taken before the first try), and
-# the cause from the try's log. Rate limits
-# back off longer on a budget of their own. Every retry first confirms the PR
-# head is still the one under review.
+# the cause from the try's log. Rate limits back off longer on a budget of
+# their own. Every retry first confirms the PR head is still the one under
+# review.
 #
 # Usage: pr-agent-review.sh --image <ref> --pr <n> [--head <sha>]
 #          [--retries <n>] [--try-seconds <n>] [--deadline-seconds <n>]
@@ -32,15 +32,18 @@ RATE_RETRIES=2
 KILL_GRACE=30
 READ_TRIES=3
 READ_BOUND=60
-# Time the post-try and post-backoff comment and head reads may take.
+# One quick comment and head read after a try and its backoff; a degraded API
+# that spends every read's bound runs into the step limit's margin instead.
 READ_SLACK=60
 REVIEW_MARK='<!-- pr-agent:review:'
 OUTPUT_FAILURE='Empty content in model response|failure to parse AI prediction|failed schema validation|Failed to generate prediction|APIConnectionError'
 RATE_LIMIT='RateLimitError|rate limit exceeded|too many requests|"code": ?429'
 # A loguru line's level field, colour codes and all; anchored on the line's
 # timestamp so an echoed table row or a continuation line never matches.
-ansi="($(printf '\033')\\[[0-9;]*m)*"
-LOGGED_ERROR="^${ansi}[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+${ansi} \\| ${ansi}(ERROR|CRITICAL) "
+# loguru pads the level inside its colour codes, so a coloured CRITICAL meets
+# its reset code with no space.
+ANSI="($(printf '\033')\\[[0-9;]*m)*"
+LOGGED_ERROR="^${ANSI}[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+${ANSI} \\| ${ANSI}(ERROR|CRITICAL) *${ANSI} \\|"
 
 die_usage() {
   printf 'pr-agent-review: %s\n' "$1" >&2
@@ -95,27 +98,41 @@ fi
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || fail "could not resolve the script directory"
 work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pr-agent.XXXXXX") || fail "could not create a scratch directory"
-container="" job=""
+container="" job="" teller=""
 # A cancel or the step limit kills this shell, not the container, which would
 # go on calling the model and could post after the run reported its end. The
-# docker client is ended first, so a container it was still creating cannot
-# appear after the removal; a second signal must not cut this short.
+# container goes first, before the runner's KILL can land: docker run passes a
+# TERM to the container, whose PID 1 may ignore it, so ending the client alone
+# can take the whole kill grace. A second removal after the client ends
+# catches a container it was still creating.
 cleanup() {
-  trap '' TERM INT
-  if [ -n "$job" ]; then
-    if [ -s "$work/client.pid" ]; then
-      kill "$(cat "$work/client.pid")" 2>/dev/null
-    else
-      kill "$job" 2>/dev/null
-    fi
-    wait "$job" 2>/dev/null
-  fi
-  [ -z "$container" ] || docker rm -f "$container" >/dev/null 2>&1
+  trap '' TERM INT HUP
+  [ -z "$job" ] || kill "$job" 2>/dev/null
+  [ -z "$container" ] || bounded 60 docker rm -f "$container" >/dev/null 2>&1
+  [ -z "$job" ] || wait "$job" 2>/dev/null
+  [ -z "$container" ] || bounded 60 docker rm -f "$container" >/dev/null 2>&1
+  [ -z "$teller" ] || wait "$teller" 2>/dev/null
   rm -rf "$work"
 }
+arm_traps() {
+  trap 'trap "" TERM INT HUP; exit 143' TERM
+  trap 'trap "" TERM INT HUP; exit 130' INT
+  trap 'trap "" TERM INT HUP; exit 129' HUP
+}
+# hold_traps: note a signal instead of acting on it, while a job starts and
+# before its pid is known; arm_traps then acts on it.
+hold_traps() {
+  held=""
+  trap 'held=143' TERM
+  trap 'held=130' INT
+  trap 'held=129' HUP
+}
+release_traps() {
+  arm_traps
+  [ -z "$held" ] || exit "$held"
+}
 trap cleanup EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
+arm_traps
 
 # docker -e NAME copies NAME from this process's environment; the dotted
 # PR-Agent names are not shell variables, so only env(1) can list them.
@@ -162,29 +179,28 @@ review_posted() {
 # rate_limited, bad_output, errored or quiet. container and job name the run
 # for the exit trap while it lasts.
 try() {
-  local log="$work/try-$1.log" status
+  local log="$work/try-$1.log" pipe="$work/try-$1.pipe" status
+  # In the background, so a signal interrupts the wait at once (bash holds a
+  # trap until a foreground job ends), and through a FIFO rather than a pipe,
+  # so the job's pid is bounded-run.sh itself: the process that passes a TERM
+  # on to docker, and whose wait gives the client's status.
+  mkfifo "$pipe" || fail "could not create the log FIFO for try $1"
+  hold_traps
   container="pr-agent-$$-$1"
-  # In the background, so a TERM or INT interrupts the wait at once: bash
-  # holds a trap until a foreground job ends. The wait yields tee's status,
-  # so the client's travels in a file, and the client's pid in another for
-  # the exit trap. bounded-run.sh is started itself, not through the bounded
-  # function, so that pid is the process that passes a TERM to docker.
-  {
-    /bin/sh "$script_dir/bounded-run.sh" -k "$KILL_GRACE" "$try_seconds" \
-      docker run --rm --name "$container" "${docker_env[@]}" \
-      -v "$GITHUB_EVENT_PATH:/github/workflow/event.json:ro" "$image" &
-    printf '%s\n' "$!" >"$work/client.pid"
-    wait "$!"
-    printf '%s\n' "$?" >"$work/status-$1"
-  } 2>&1 | tee "$log" &
+  tee "$log" <"$pipe" &
+  teller=$!
+  /bin/sh "$script_dir/bounded-run.sh" -k "$KILL_GRACE" "$try_seconds" \
+    docker run --rm --name "$container" "${docker_env[@]}" \
+    -v "$GITHUB_EVENT_PATH:/github/workflow/event.json:ro" "$image" >"$pipe" 2>&1 &
   job=$!
+  release_traps
   wait "$job"
+  status=$?
   job=""
-  rm -f "$work/client.pid"
-  status=$(cat "$work/status-$1" 2>/dev/null) || status=""
-  [ -n "$status" ] || fail "PR-Agent try $1 ended without recording its exit status; see its log above"
+  wait "$teller"
+  teller=""
   # A killed or failed docker client can leave its container running.
-  [ "$status" = 0 ] || docker rm -f "$container" >/dev/null 2>&1
+  [ "$status" = 0 ] || bounded 60 docker rm -f "$container" >/dev/null 2>&1
   container=""
   if review_posted; then
     verdict=posted
@@ -262,8 +278,10 @@ while :; do
   # Start a retry only if it could finish, its kill grace and reads included.
   [ $(($(date +%s) - started + wait_s + try_seconds + KILL_GRACE + READ_SLACK)) -le "$deadline" ] \
     || fail "no review after try $tries, and another try would run past the ${deadline}s deadline"
+  hold_traps
   sleep "$wait_s" &
   job=$!
+  release_traps
   wait "$job"
   job=""
   same_head

@@ -46,12 +46,15 @@ MOVED_SHA=2222222222222222222222222222222222222222
 #   empty parse transport yaml schema nomodel   a model-output failure
 #   rate rate429 toomany ratelib rateword       a rate limit
 #   ratempty       a rate limit and an empty output in one log
-#   errored critical   an ERROR-level (coloured) or CRITICAL-level line
+#   errored critical colourcritical   an ERROR- or CRITICAL-level line
 #   warnword       "ERROR" outside a level field; emptyerror both kinds of line
 #   noise          a human and the run marker edit comments; empty output logged
 #   quiet          nothing at all (PR-Agent's own silent skip)
 #   exitN          exits N; exit1empty logs empty output, then exits 1
-#   hang           sleeps past any bound; slowstart first takes 3s to create
+#   hang           creates its container, then sleeps past any bound
+#   slowstart      creates nothing until $T/go appears (never, in its test)
+#   stubborn       creates its container and ignores TERM
+#   creating       is still creating its container when TERM arrives
 # The failure scenarios post nothing. The gh stub runs the script's own --jq
 # programs over $T/comments.json and a pull request built from $T/heads.
 cat >"$stub/docker" <<'EOF'
@@ -62,9 +65,14 @@ case "$1" in
     exit 0
     ;;
   rm)
-    printf '%s\n' "$*" >>"$T/docker-rm.log"
-    # Removing a container that exists ends its docker client, as the daemon does.
-    [ -f "$T/created" ] && kill "$(cat "$T/run.pid")" 2>/dev/null
+    # Removing a container that exists ends its docker client, even one that
+    # ignores TERM, as the daemon does.
+    if [ -f "$T/created" ]; then
+      printf '%s created\n' "$*" >>"$T/docker-rm.log"
+      kill -9 "$(cat "$T/run.pid")" 2>/dev/null
+    else
+      printf '%s\n' "$*" >>"$T/docker-rm.log"
+    fi
     exit 0
     ;;
   run) ;;
@@ -128,11 +136,23 @@ case "$step" in
     ;;
   slowstart)
     printf '%s\n' "$$" >"$T/run.pid"
-    /bin/sleep 3
+    while [ ! -f "$T/go" ]; do /bin/sleep 0.1; done
     : >"$T/created"
-    /bin/sleep 300
+    exec /bin/sleep 300
+    ;;
+  stubborn)
+    trap '' TERM
+    printf '%s\n' "$$" >"$T/run.pid"
+    : >"$T/created"
+    while :; do /bin/sleep 0.1; done
+    ;;
+  creating)
+    trap '/bin/sleep 1; : >"$T/created"; exit 143' TERM
+    printf '%s\n' "$$" >"$T/run.pid"
+    while :; do /bin/sleep 0.1; done
     ;;
   critical) printf '%s\n' '2026-11-14 00:00:00.000 | CRITICAL | pr_agent.tools.pr_reviewer:run:900 - boom' ;;
+  colourcritical) printf '\033[32m2026-11-14 00:00:00.000\033[0m | \033[41m\033[1mCRITICAL\033[0m | pr_agent.tools.pr_reviewer:run:900 - boom\n' ;;
   warnword)
     printf '%s\n' "$w.git_providers.github_provider:publish:1 - retrying after ERROR 502 from the API" \
       '| ERROR | handled |' 'foo | ERROR | bar'
@@ -191,8 +211,6 @@ cat >"$tmp/scripts/bounded-run.sh" <<'EOF'
 #!/bin/sh
 printf '%s %s %s\n' "$1" "$2" "$3" >>"$T/bound.log"
 [ "${BOUND_FIRES:-0}" = 1 ] && [ "$4" = docker ] && [ "$5" = run ] && exit 124
-# STATUS_LOST=1 kills the try's subshell before it can record the status.
-[ "${STATUS_LOST:-0}" = 1 ] && [ "$4" = docker ] && [ "$5" = run ] && { kill -9 "$PPID"; exit 0; }
 shift 3
 exec "$@"
 EOF
@@ -415,9 +433,11 @@ name="an ERROR-level log line with no review fails without a retry"
 run "errored good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 1 1 0 "" && has "$name" "logged an error on try 1" && ok "$name"
 
-name="a CRITICAL-level log line with no review fails without a retry"
-run "critical good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
-expect "$name" 1 1 0 "" && has "$name" "logged an error on try 1" && ok "$name"
+for crit in critical colourcritical; do
+  name="a $crit log line with no review fails without a retry"
+  run "$crit good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+  expect "$name" 1 1 0 "" && has "$name" "logged an error on try 1" && ok "$name"
+done
 
 name="ERROR outside a log line's level field is not an error"
 run "warnword good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
@@ -430,7 +450,8 @@ expect "$name" 0 2 1 "30 " && ok "$name"
 name="a non-zero PR-Agent exit fails without a retry"
 run "exit3 good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 1 1 0 "" && has "$name" "exited 3" && ok "$name"
-# Reads the case above.
+# Reads docker-rm.log and docker-run.log left by the exit3 case above; keep
+# the two adjacent.
 name="a failed docker client's container is removed by name"
 if [ "$(cat "$T/docker-rm.log")" = "rm -f $(sed -n 's/.*--name \([^ ]*\) .*/\1/p' "$T/docker-run.log")" ]; then
   ok "$name"
@@ -453,13 +474,6 @@ if [ "$RC" = 1 ] && [ "$(lines "$T/docker-rm.log")" = 1 ] && [ "$(lines "$T/post
 else
   failed "$name: want exit 1, one container removal, nothing posted, the bound passed"
 fi
-
-name="a try that never records its exit status fails by name"
-STATUS_LOST=1
-export STATUS_LOST
-run "good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
-unset STATUS_LOST
-expect "$name" 1 0 0 "" && has "$name" "ended without recording its exit status" && ok "$name"
 
 name="each try is bounded at 600s by default and the pull at 300s"
 run "good" "$HEAD_SHA" -- --head "$HEAD_SHA"
@@ -540,69 +554,65 @@ else
   failed "$name: the good try"
 fi
 
-# A runner cancel can signal the wrapper's shell alone; bash defers a trap
-# until a foreground job ends, which would leave the container running.
-name="a TERM to the wrapper alone removes the running container at once"
-new_case "hang" "$HEAD_SHA"
-env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
-  "$SCRIPT" --image img --pr 7 >"$T/out" 2>&1 &
-spid=$!
-container="pr-agent-$spid-1"
-if poll_until --what "the try to start" -- test -s "$T/run.pid"; then
-  kill -TERM "$spid"
-  if poll_until --what "the wrapper to exit on TERM" -- pid_gone "$spid"; then
-    RC=0
-    wait "$spid" || RC=$?
-    OUT=$(cat "$T/out")
-    if [ "$RC" = 143 ] && grep -qx "rm -f $container" "$T/docker-rm.log"; then
-      ok "$name"
-    else
-      failed "$name: want exit 143 and the container removed; rm: $(cat "$T/docker-rm.log")"
-    fi
+# A runner cancel can signal the wrapper's shell alone, at any moment of a try.
+# cancel_case <scenario>: start a try, TERM the wrapper once the stub client
+# runs, and set RC, OUT and CANCEL_CONTAINER; returns 1 when the wrapper
+# outlived the TERM or the try never started. The stub client is reaped either
+# way, so a failing case leaves no sleeper behind.
+cancel_case() {
+  new_case "$1" "$HEAD_SHA"
+  env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
+    "$SCRIPT" --image img --pr 7 >"$T/out" 2>&1 &
+  cc_pid=$!
+  CANCEL_CONTAINER="pr-agent-$cc_pid-1"
+  cc_rc=0
+  if poll_until --what "the $1 try to start" -- test -s "$T/run.pid"; then
+    kill -TERM "$cc_pid"
+    poll_until --what "the wrapper to exit on TERM" -- pid_gone "$cc_pid" || cc_rc=1
   else
-    kill "$(cat "$T/run.pid")"
-    RC=0
-    wait "$spid" || RC=$?
-    OUT=$(cat "$T/out")
-    failed "$name: the wrapper outlived TERM while its try ran"
+    kill -TERM "$cc_pid"
+    cc_rc=1
   fi
-else
-  kill -TERM "$spid"
+  kill -9 "$(cat "$T/run.pid" 2>/dev/null)" 2>/dev/null || :
   RC=0
-  wait "$spid" || RC=$?
+  wait "$cc_pid" || RC=$?
   OUT=$(cat "$T/out")
-  failed "$name: the try never started"
-fi
-kill "$(cat "$T/run.pid")" 2>/dev/null || :
+  return "$cc_rc"
+}
 
-# A cancel before docker has created the container: removing it then finds
-# nothing, so the docker client itself must end before the wrapper does.
-name="a TERM before the container exists ends the docker client too"
-new_case "slowstart" "$HEAD_SHA"
-env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
-  "$SCRIPT" --image img --pr 7 >"$T/out" 2>&1 &
-spid=$!
-if poll_until --what "the try to start" -- test -s "$T/run.pid"; then
-  kill -TERM "$spid"
-  if poll_until --what "the wrapper to exit on TERM" -- pid_gone "$spid"; then
-    RC=0
-    wait "$spid" || RC=$?
-    OUT=$(cat "$T/out")
-    if [ "$RC" = 143 ] && ! kill -0 "$(cat "$T/run.pid")" 2>/dev/null; then
-      ok "$name"
-    else
-      failed "$name: want exit 143 with the docker client gone"
-    fi
+name="a TERM while the container runs removes it at once"
+if cancel_case hang; then
+  if [ "$RC" = 143 ] && grep -qx "rm -f $CANCEL_CONTAINER created" "$T/docker-rm.log"; then
+    ok "$name"
   else
-    RC=0
-    failed "$name: the wrapper outlived TERM"
+    failed "$name: want exit 143 and the container removed; rm: $(cat "$T/docker-rm.log")"
   fi
 else
-  kill -TERM "$spid"
-  RC=0
-  failed "$name: the try never started"
+  failed "$name: the wrapper outlived TERM, or the try never started"
 fi
-kill "$(cat "$T/run.pid")" 2>/dev/null || :
+
+name="a TERM before the container exists ends the docker client too"
+if cancel_case slowstart && [ "$RC" = 143 ]; then
+  ok "$name"
+else
+  failed "$name: want a prompt exit 143 with the client ended"
+fi
+
+# docker run passes the TERM to a container whose PID 1 may ignore it; the
+# removal must not wait for the client.
+name="a TERM removes a container whose client ignores the TERM"
+if cancel_case stubborn && [ "$RC" = 143 ] && grep -qx "rm -f $CANCEL_CONTAINER created" "$T/docker-rm.log"; then
+  ok "$name"
+else
+  failed "$name: want a prompt exit 143 and the container removed; rm: $(cat "$T/docker-rm.log")"
+fi
+
+name="a TERM mid-creation removes the container once the client ends"
+if cancel_case creating && [ "$RC" = 143 ] && [ "$(tail -n 1 "$T/docker-rm.log")" = "rm -f $CANCEL_CONTAINER created" ]; then
+  ok "$name"
+else
+  failed "$name: want exit 143 and a removal after the creation; rm: $(cat "$T/docker-rm.log")"
+fi
 
 for bad in "--retries x|--retries must be" "--retries|--retries needs a value" "--retries 100|up to 99" \
   "--pr 0|--pr must be" "--pr 07|--pr must be" "--pr abc|--pr must be" "--pr|--pr needs a value" \
@@ -655,9 +665,12 @@ for want in 'scripts/pr-agent-review.sh --image "$PR_AGENT_IMAGE"' '--pr "$PR"' 
   case "$review" in *"$want"*) ;; *) missing="$missing [$want]" ;; esac
 done
 grep -q '^          sparse-checkout: scripts$' "$WORKFLOW" || missing="$missing [sparse-checkout: scripts]"
+marker=$(awk '/^      - name: / { on = ($0 == "      - name: Record the run for /bot-review") } on' "$WORKFLOW")
 # shellcheck disable=SC2016 # the workflow's literal text
-grep -qF "STATUS: \${{ steps.review.outcome == 'skipped' && 'failure' || steps.review.outcome }}" "$WORKFLOW" \
-  || missing="$missing [the marker's skipped-to-failure status]"
+for want in "STATUS: \${{ steps.review.outcome == 'skipped' && 'failure' || steps.review.outcome }}" \
+  'PR: ${{ github.event.pull_request.number }}' 'HEAD_SHA: ${{ steps.head.outputs.sha }}'; do
+  case "$marker" in *"$want"*) ;; *) missing="$missing [marker step: $want]" ;; esac
+done
 if [ -z "$missing" ] && [ -n "$step_min" ] && [ -n "$job_min" ] && [ -n "$deadline" ] \
   && [ $((step_min * 60)) -ge $((deadline + 120)) ] && [ "$step_min" -lt "$job_min" ]; then
   ok "$name"
