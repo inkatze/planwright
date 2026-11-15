@@ -39,6 +39,7 @@ READ_SLACK=60
 REVIEW_MARK='<!-- pr-agent:review:'
 OUTPUT_FAILURE='Empty content in model response|failure to parse AI prediction|failed schema validation|Failed to generate prediction|APIConnectionError'
 RATE_LIMIT='RateLimitError|rate limit exceeded|too many requests|"code": ?429'
+AUTH_FAILURE='AuthenticationError|No auth credentials found|Incorrect API key'
 # A loguru line's level field, colour codes and all; anchored on the line's
 # timestamp so an echoed table row or a continuation line never matches.
 # loguru pads the level inside its colour codes, so a coloured CRITICAL meets
@@ -190,8 +191,8 @@ review_posted() {
     "$work/baseline" "$work/now"
 }
 
-# try <n>: one PR-Agent run; sets verdict to posted, timeout, exited:<status>,
-# rate_limited, bad_output, errored or quiet.
+# try <n>: one PR-Agent run; sets verdict to posted, timeout, auth_failed,
+# rate_limited, bad_output, exited:<status>, errored or quiet.
 try() {
   local log="$work/try-$1.log" pipe="$work/try-$1.pipe" status tee_status
   # In the background, so a signal interrupts the wait at once (bash holds a
@@ -227,13 +228,17 @@ try() {
     verdict=posted
   elif [ "$status" = 124 ]; then
     verdict=timeout
-  elif [ "$status" != 0 ]; then
-    verdict="exited:$status"
+  # The log outranks the exit status: PR-Agent exits 1 when it records a
+  # model failure, which a retry can mend, and a refused key it cannot.
+  elif grep -Eq "$AUTH_FAILURE" "$log"; then
+    verdict=auth_failed
   # A rate-limited fallback chain also logs empty output; it needs the longer wait.
   elif grep -Eiq "$RATE_LIMIT" "$log"; then
     verdict=rate_limited
   elif grep -Eq "$OUTPUT_FAILURE" "$log"; then
     verdict=bad_output
+  elif [ "$status" != 0 ]; then
+    verdict="exited:$status"
   elif grep -Eq "$LOGGED_ERROR" "$log"; then
     verdict=errored
   else
@@ -276,6 +281,7 @@ while :; do
     timeout) fail "PR-Agent try $tries timed out after ${try_seconds}s; a timeout is not retried" ;;
     exited:*) fail "PR-Agent exited ${verdict#exited:} on try $tries without posting a review" ;;
     errored) fail "PR-Agent logged an error on try $tries and posted no review; see its log above" ;;
+    auth_failed) fail "the model provider refused PR-Agent's credentials on try $tries; a retry cannot mend that" ;;
     rate_limited)
       rate_hits=$((rate_hits + 1))
       [ "$rate_hits" -le "$rate_retries" ] \

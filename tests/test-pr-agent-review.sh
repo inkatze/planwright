@@ -53,11 +53,10 @@ MOVED_SHA=2222222222222222222222222222222222222222
 #   noise          a human and the run marker edit comments; empty output logged
 #   quiet          nothing at all (PR-Agent's own silent skip)
 #   exitN          exits N; exit1empty logs empty output, then exits 1
-#   hang           creates its container, then sleeps past any bound
-#   slowstart      creates nothing until $T/go appears (never, in its test)
-#   stubborn       creates its container and ignores TERM
-#   creating       is still creating its container when TERM arrives
-#   latestart      ignores TERM and creates its container a second later
+#   recorded       a model failure PR-Agent records, then exits 1 (its
+#                  _fail_on_recorded_tool_error path, seen live)
+#   authfail       the provider refuses the key, then exits 1
+#   hang slowstart stubborn creating latestart   cancel cases (see cancel_case)
 # The failure scenarios post nothing. The gh stub runs the script's own --jq
 # programs over $T/comments.json and a pull request built from $T/heads.
 cat >"$stub/docker" <<'EOF'
@@ -136,6 +135,18 @@ case "$step" in
     ;;
   quiet) ;;
   exit1empty) printf '%s\n' "$empty"; exit 1 ;;
+  recorded)
+    printf '%s\n' "$w.ai_handlers.litellm_ai_handler:_chat_completion_with_retry:3259 - Error during LLM inference: Empty content in model response (finish_reason: length)" \
+      "$w.pr_processing:retry_with_fallback_models:878 - Failed to generate prediction with openrouter/x/y"
+    printf '\033[32m2026-11-15 05:48:54.118\033[0m | \033[31m\033[1mERROR   \033[0m | pr_agent.tools.pr_reviewer:run:502 - Failed to review PR: Failed to generate prediction with any model of [x, y]\n'
+    printf '%s\n' '2026-11-15 05:48:54.118 | WARNING  | __main__:_fail_on_recorded_tool_error:113 - Tool reported success but recorded a failure; failing the action'
+    exit 1
+    ;;
+  authfail)
+    printf '%s\n' "$w.ai_handlers.litellm_ai_handler:_chat_completion_with_retry:3259 - Error during LLM inference: litellm.AuthenticationError: AuthenticationError: OpenrouterException - No auth credentials found" \
+      "$w.pr_processing:retry_with_fallback_models:878 - Failed to generate prediction with openrouter/x/y"
+    exit 1
+    ;;
   exit*) exit "${step#exit}" ;;
   hang)
     : >"$T/created"
@@ -541,9 +552,23 @@ for when in early late; do
   expect "$name" 1 1 0 "" && has "$name" "could not keep the log of try 1" && ok "$name"
 done
 
-name="a non-zero exit outranks a model-output failure in its log"
+# PR-Agent exits 1 when it records a model failure, so the exit alone does
+# not say whether a retry can help; the log does.
+name="a non-zero exit with a model-output failure in its log is retried"
 run "exit1empty good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
-expect "$name" 1 1 0 "" && has "$name" "exited 1" && ok "$name"
+expect "$name" 0 2 1 "30 " && ok "$name"
+
+name="PR-Agent's recorded-failure exit after an empty chain is retried"
+run "recorded good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+expect "$name" 0 2 1 "30 " && has "$name" "returned no parseable review" && ok "$name"
+
+name="PR-Agent's recorded-failure exit every time fails by name after the retries"
+run "recorded recorded recorded" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+expect "$name" 1 3 0 "30 60 " && has "$name" "PR-Agent returned no parseable review after 3 tries" && ok "$name"
+
+name="a refused provider key fails at once, never retried"
+run "authfail good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+expect "$name" 1 1 0 "" && has "$name" "model provider refused" && ok "$name"
 
 name="a try past its bound fails without a retry and removes the container"
 BOUND_FIRES=1
@@ -644,6 +669,13 @@ else
 fi
 
 # A runner cancel can signal the wrapper's shell alone, at any moment of a try.
+# The docker stub's cancel scenarios:
+#   hang           creates its container, then sleeps past any bound
+#   slowstart      creates nothing until $T/go appears (never, in its test)
+#   stubborn       creates its container and ignores TERM
+#   creating       is still creating its container when TERM arrives
+#   latestart      ignores TERM and creates its container a second later
+
 # cancel_case <scenario> [<script arg>...]: start a try, TERM the wrapper once
 # the stub client runs, and set RC, OUT and CANCEL_CONTAINER; returns 1 when
 # the wrapper outlived the TERM or the try never started. A stuck wrapper and
