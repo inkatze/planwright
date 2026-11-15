@@ -83,20 +83,24 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 n=${w#@}
+srv=$(cat "$TMUX_STUB/server" 2>/dev/null || echo 4242.1700000000)
 case $verb in
   ls) [ ! -e "$TMUX_STUB/down" ] ;;
   list-windows)
     for f in "$TMUX_STUB"/*.name; do
       [ -f "$f" ] || continue
       id=${f##*/}
-      printf '@%s\t%s\n' "${id%.name}" "$(cat "$f")"
+      printf '@%s %s\n' "${id%.name}" "$(cat "$f")"
     done
     exit 0
     ;;
   display-message)
+    [ -n "$w" ] || { printf '%s\n' "$srv"; exit 0; }
     [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
+    pin="$srv/$w/$(cat "$TMUX_STUB/$n.name")"
     case $fmt in
-      *window_name*) printf '%s\t%s\n' "$(cat "$TMUX_STUB/$n.name")" "$(cat "$TMUX_STUB/$n.pid")" ;;
+      '#{pane_pid} '*) printf '%s %s\n' "$(cat "$TMUX_STUB/$n.pid")" "$pin" ;;
+      *window_name*) printf '%s\n' "$pin" ;;
       *) cat "$TMUX_STUB/$n.pid" ;;
     esac
     ;;
@@ -115,10 +119,12 @@ export PATH TMUX_STUB
 reg="$fleet/mission-control/sessions"
 mkdir -p "$reg"
 # row <name> <kind> <backend> <handle> [<state> [<token>]]: a registry row as
-# the launcher writes it; a tmux row names its window after the session.
+# the launcher writes it; a tmux row names its window after the session. A
+# seventh argument is the tmux server the launch recorded with the window.
 row() {
   printf 'format\t1\nname\t%s\nstate\t%s\ntoken\t%s\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts\nbackend\t%s\nhandle\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
     "$1" "${5:-launched}" "${6:-t}" "$2" "$3" "$4" >"$reg/$1"
+  [ -z "${7:-}" ] || printf 'server\t%s\n' "$7" >>"$reg/$1"
   [ "$3" != tmux ] || printf '%s\n' "$1" >"$tmp/tmux/${4#@}.name"
 }
 # window <n> <pid> <pane file>: the stub's window @n's pane.
@@ -280,6 +286,25 @@ printf 'someone-else\n' >"$tmp/tmux/10.name"
 stall classify --program alpha --now 1000 mc-alpha-worker-reused
 expect_state "a window id now naming another window reads unknown" mc-alpha-worker-reused unknown
 
+# A window recorded with the tmux server that issued its id: gone once that
+# server, the id's name or the id itself no longer hold, never live.
+row mc-alpha-worker-pinned worker tmux @20 launched t 4242.1700000000
+window 20 "$live_pid" "$tmp/idle.pane"
+stall classify --program alpha --now 1000 mc-alpha-worker-pinned
+case $(state_of mc-alpha-worker-pinned) in
+  dead | unknown | '') fail "a pinned window whose server, id and name hold read $(state_of mc-alpha-worker-pinned): $OUT" ;;
+  *) ok "a pinned window whose server, id and name hold reads alive ($(state_of mc-alpha-worker-pinned))" ;;
+esac
+row mc-alpha-worker-oldserver worker tmux @21 launched t 4242.1600000000
+window 21 "$live_pid" "$tmp/idle.pane"
+stall classify --program alpha --now 1000 mc-alpha-worker-oldserver
+expect_state "a window id an earlier tmux server issued reads dead, though the id is live now" mc-alpha-worker-oldserver dead
+row mc-alpha-worker-pinrenamed worker tmux @22 launched t 4242.1700000000
+window 22 "$live_pid" "$tmp/idle.pane"
+printf 'someone-else\n' >"$tmp/tmux/22.name"
+stall classify --program alpha --now 1000 mc-alpha-worker-pinrenamed
+expect_state "a pinned window id now naming another window reads dead" mc-alpha-worker-pinrenamed dead
+
 row mc-alpha-reviewer-nopid reviewer stream-json mc-alpha-reviewer-nopid
 sj mc-alpha-reviewer-nopid none
 busy_pane "$tmp/b1.pane" 3 "Reading the diff."
@@ -295,6 +320,21 @@ sj mc-alpha-tower-live "$live_pid"
 stall classify --program alpha --now 1000 mc-alpha-tower-live
 stall classify --program alpha --now 999999 mc-alpha-tower-live
 expect_state "a live pid with no pane and long silence reads live, never stalled" mc-alpha-tower-live live
+
+# A recorded pid the host reissued to another process reads dead; one whose
+# recorded start still matches reads live; one with no start record keeps the
+# pid-only answer (above).
+live_tok=$(/bin/sh "$repo_root/scripts/fleet-death-evidence.sh" start "$live_pid")
+row mc-alpha-worker-reused worker stream-json mc-alpha-worker-reused
+sj mc-alpha-worker-reused "$live_pid"
+printf '%s\n' "${live_tok}9" >"$fleet/streamjson/mc-alpha-worker-reused/worker.start"
+stall classify --program alpha --now 1000 mc-alpha-worker-reused
+expect_state "a recorded pid now owned by another process reads dead" mc-alpha-worker-reused dead
+row mc-alpha-worker-same worker stream-json mc-alpha-worker-same
+sj mc-alpha-worker-same "$live_pid"
+printf '%s\n' "$live_tok" >"$fleet/streamjson/mc-alpha-worker-same/worker.start"
+stall classify --program alpha --now 1000 mc-alpha-worker-same
+expect_state "a recorded pid whose start still matches reads live" mc-alpha-worker-same live
 
 # --- stall states, every kind (REQ-D1.3) -----------------------------------
 

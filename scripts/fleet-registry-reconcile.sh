@@ -20,7 +20,12 @@
 #   stays readable) and then removes the marker while it still names that
 #   record. The evidence is the record's death handle through
 #   scripts/fleet-death-evidence.sh; a `print` unit has none, so its worktree's
-#   removal stands in, and only where the record names one. Alive, unknown,
+#   removal stands in, and only where the record names one. A tmux window id
+#   names a window only for its server's life, so a handle pinned to a server
+#   other than the running one, or a handle written before the pin and
+#   registered before the running server started, is retired as
+#   tmux-server-changed; an unpinned handle otherwise counts as live only in
+#   its recorded session. Alive, unknown,
 #   errored, or no evidence at all keeps the record live. Retiring a record
 #   kills nothing, so the owning tower's liveness does not enter into it. A
 #   record that disagrees with its marker (a superseding write that failed)
@@ -45,7 +50,7 @@
 # Output (stdout, tab-separated):
 #   heal    <handle> <backend>
 #   retire  <handle> <evidence>     process-dead | tmux-window-dead |
-#                                   worktree-removed
+#                                   tmux-server-changed | worktree-removed
 #   keep    <handle> <why>          evidence-unknown | evidence-errored |
 #                                   worktree-unknown | marker-diverged: a
 #                                   record a verdict could not settle, kept
@@ -83,6 +88,12 @@ if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" 
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+if [ ! -r "$script_dir/tmux-identity-lib.sh" ]; then
+  printf '%s\n' "fleet-registry-reconcile.sh: tmux-identity-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh"
 
 FS="$script_dir/fleet-state.sh"
 REGISTER="$script_dir/fleet-register.sh"
@@ -171,21 +182,60 @@ quarantine() {
   fi
 }
 
-# evidence <backend> <state-dir> <death-handle> — print the retirement
-# evidence and return 0 when the worker is positively gone; print why it is
-# kept and return 1 when no verdict settled it; return 2 when it is alive,
-# and 5 when the record carries nothing a verdict could be asked of.
+# evidence <backend> <state-dir> <death-handle> <registered epoch> — print
+# the retirement evidence and return 0 when the worker is positively gone;
+# print why it is kept and return 1 when no verdict settled it; return 2 when
+# it is alive, and 5 when the record carries nothing a verdict could be asked
+# of.
 evidence() {
   case $3 in
-    "process "* | "tmux-window "*)
+    "tmux-window "*)
+      if ! tmux_handle_parse "${3#tmux-window }"; then
+        printf 'evidence-errored'
+        return 1
+      fi
+      ev_rc=0
+      if [ -n "$TH_SERVER" ]; then
+        if [ -n "$PASS_SERVER" ] && [ "$PASS_SERVER" != "$TH_SERVER" ] \
+          && ev_now=$(tmux_server_id) && [ "$ev_now" != "$TH_SERVER" ]; then
+          printf 'tmux-server-changed'
+          return 0
+        fi
+        "$DEATH" tmux-window "$TH_SESSION" "$TH_WINDOW" "$TH_SERVER" "$TH_NAME" >/dev/null 2>&1 || ev_rc=$?
+      else
+        case $4 in
+          '' | *[!0-9]*) ;;
+          *)
+            if [ -n "$PASS_SERVER" ] && [ "$4" -lt "${PASS_SERVER#*.}" ] \
+              && ev_now=$(tmux_server_id) && [ "$4" -lt "${ev_now#*.}" ]; then
+              printf 'tmux-server-changed'
+              return 0
+            fi
+            ;;
+        esac
+        "$DEATH" tmux-window --in-session "$TH_SESSION" "$TH_WINDOW" >/dev/null 2>&1 || ev_rc=$?
+      fi
+      case $ev_rc in
+        0)
+          printf 'tmux-window-dead'
+          return 0
+          ;;
+        1) return 2 ;;
+        3)
+          printf 'evidence-unknown'
+          return 1
+          ;;
+        *)
+          printf 'evidence-errored'
+          return 1
+          ;;
+      esac
+      ;;
+    "process "*)
       ev_class=${3%% *}
       ev_rest=${3#* }
       ev_rc=0
-      if [ "$ev_class" = process ]; then
-        "$DEATH" process "$ev_rest" >/dev/null 2>&1 || ev_rc=$?
-      else
-        "$DEATH" tmux-window "${ev_rest%% *}" "${ev_rest#* }" >/dev/null 2>&1 || ev_rc=$?
-      fi
+      "$DEATH" process "$ev_rest" >/dev/null 2>&1 || ev_rc=$?
       case $ev_rc in
         0)
           printf '%s-dead' "$ev_class"
@@ -280,6 +330,11 @@ latest() {
   printf '%s\n' "$lastmap" | LW=$1 awk -F'\t' '($1 "") == ENVIRON["LW"] { sub(/^[^\t]*\t/, ""); print; exit }'
 }
 
+# The running tmux server, read once for the pass; a verdict it would
+# retire on is read again first, so a server restarted mid-pass never
+# retires a record the new server issued.
+PASS_SERVER=$(tmux_server_id) || PASS_SERVER=''
+
 set +f
 for path in "$dir"/*; do
   set -f
@@ -346,7 +401,7 @@ for path in "$dir"/*; do
 $fields
 EOF
   ev_rc=0
-  ev=$(evidence "$r_b" "$r_sd" "$r_dh") || ev_rc=$?
+  ev=$(evidence "$r_b" "$r_sd" "$r_dh" "$(printf '%s\n' "$row" | cut -f1)") || ev_rc=$?
   case $ev_rc in
     0)
       r_rc=0
