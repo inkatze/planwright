@@ -56,6 +56,8 @@ export GIT_TERMINAL_PROMPT=0
 
 here=$(cd "$(dirname "$0")" && pwd)
 MC="$here/../scripts/main-currency.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -957,10 +959,16 @@ if [ "$(id -u)" != 0 ]; then
   ff_case 33 ffp-unwritable
   mkdir -p "$root/tower/.git/planwright"
   chmod a-w "$root/tower/.git/planwright"
+  denied33=0
+  if hermetic_access_denied w "$root/tower/.git/planwright"; then denied33=1; fi
   ffp "$root/tower"
   chmod u+w "$root/tower/.git/planwright"
-  [ "$rc" -eq 7 ] || fail "33: an unwritable record must refuse with exit 7, got $rc: $out"
-  ff_refused 33 "$root/tower" main "$before"
+  if [ "$denied33" -eq 1 ]; then
+    [ "$rc" -eq 7 ] || fail "33: an unwritable record must refuse with exit 7, got $rc: $out"
+    ff_refused 33 "$root/tower" main "$before"
+  else
+    echo "skip: 33: the running user still writes $root/tower/.git/planwright under a-w"
+  fi
 fi
 
 # 34. Refused: an untracked file the incoming commit would overwrite.
@@ -1054,10 +1062,16 @@ if [ "$(id -u)" != 0 ]; then
   mkdir -p "$root/tower/.git/planwright"
   : >"$root/tower/.git/planwright/main-currency.log"
   chmod a-w "$root/tower/.git/planwright/main-currency.log"
+  denied42=0
+  if hermetic_access_denied w "$root/tower/.git/planwright/main-currency.log"; then denied42=1; fi
   ffp "$root/tower"
-  [ "$rc" -eq 7 ] || fail "42: an unwritable record file must refuse with exit 7, got $rc: $out"
-  [ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "42: main moved"
-  [ ! -s "$root/tower/.git/planwright/main-currency.log" ] || fail "42: the record was written"
+  if [ "$denied42" -eq 1 ]; then
+    [ "$rc" -eq 7 ] || fail "42: an unwritable record file must refuse with exit 7, got $rc: $out"
+    [ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] || fail "42: main moved"
+    [ ! -s "$root/tower/.git/planwright/main-currency.log" ] || fail "42: the record was written"
+  else
+    echo "skip: 42: the running user still writes the record file under a-w"
+  fi
 fi
 
 # 43. Usage: --checkout naming no directory, or no value.

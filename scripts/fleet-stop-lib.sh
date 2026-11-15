@@ -273,6 +273,14 @@ stop_seeds() {
     [ -f "$1/$ss_f" ] || continue
     ss_p=$(cat "$1/$ss_f" 2>/dev/null) || ss_p=''
     if stop_posnum "${ss_p:-}"; then
+      # A start recorded beside the pid that the live process no longer has
+      # means the host reissued the pid: it is no longer the worker's, and a
+      # close must not signal it.
+      ss_s=$(head -n 1 "$1/${ss_f%.pid}.start" 2>/dev/null) || ss_s=''
+      if [ -n "$ss_s" ] && [ -n "${script_dir:-}" ] \
+        && [ "$(/bin/sh "$script_dir/fleet-death-evidence.sh" process "$ss_p" "$ss_s" 2>/dev/null)" = dead ]; then
+        continue
+      fi
       ss_out="$ss_out $ss_p"
     fi
   done

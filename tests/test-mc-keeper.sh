@@ -16,6 +16,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY G
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -147,23 +149,33 @@ expect_out "a worktree under a dangling link is held" "held${tab}mc-alpha-worker
 mkdir -p "$tmp/locked/wt"
 mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-seven --repo acme/web --pr 7 --worktree "$tmp/locked/wt"
 chmod 000 "$tmp/locked"
-PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
-chmod 700 "$tmp/locked"
-expect_out "an unreadable worktree is held, not dropped" "held${tab}mc-alpha-worker-seven${tab}worktree"
-if grep -q "^mc-alpha-worker-seven${tab}" "$ledger"; then ok "and its line stays"; else fail "the unreadable worktree's line was dropped"; fi
+if hermetic_access_denied r "$tmp/locked"; then
+  PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
+  chmod 700 "$tmp/locked"
+  expect_out "an unreadable worktree is held, not dropped" "held${tab}mc-alpha-worker-seven${tab}worktree"
+  if grep -q "^mc-alpha-worker-seven${tab}" "$ledger"; then ok "and its line stays"; else fail "the unreadable worktree's line was dropped"; fi
+else
+  chmod 700 "$tmp/locked"
+  echo "skip: the unreadable worktree case (the mode does not deny reading here)"
+fi
 
 # A refused landing event keeps the line, so the next run raises it.
 mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-five --repo acme/web --pr 7
 events_dir="$fleet/attention/mission-control/alpha/events"
 chmod 500 "$events_dir"
-OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
-RC=$?
-chmod 700 "$events_dir"
-expect_rc "a refused landing event fails the run" 1
-if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then ok "and keeps the line"; else fail "the line went with the event refused"; fi
-OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
-expect_out "the next run raises it" "announced${tab}session-landed${tab}mc-alpha-worker-five"
-if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then fail "the landed line stayed once its event was stored"; else ok "and then drops the line"; fi
+if hermetic_access_denied w "$events_dir"; then
+  OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
+  RC=$?
+  chmod 700 "$events_dir"
+  expect_rc "a refused landing event fails the run" 1
+  if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then ok "and keeps the line"; else fail "the line went with the event refused"; fi
+  OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-keeper.sh" 2>/dev/null)
+  expect_out "the next run raises it" "announced${tab}session-landed${tab}mc-alpha-worker-five"
+  if grep -q "^mc-alpha-worker-five${tab}" "$ledger"; then fail "the landed line stayed once its event was stored"; else ok "and then drops the line"; fi
+else
+  chmod 700 "$events_dir"
+  echo "skip: the refused landing event case (the mode does not deny writing here)"
+fi
 
 # ---------------------------------------------------------------------------
 # REQ-M1.4: the next ready unit dispatches while another waits on CI.
@@ -473,6 +485,17 @@ cat >"$tmp/bin/tmux" <<'STUB'
 #!/bin/sh
 verb=$1
 shift
+# The server's identity is $TMUX_STUB/server. if-shell -F -t <window>
+# <condition> <command> runs its command only when the window's server, id
+# and name match the pin the condition carries.
+srv=$(cat "$TMUX_STUB/server" 2>/dev/null || echo 4242.1700000000)
+if [ "$verb" = if-shell ]; then
+  t=$3 want=${4##*,}
+  want=${want%\}}
+  [ -f "$TMUX_STUB/${t#@}.name" ] && [ "$want" = "$srv/$t/$(cat "$TMUX_STUB/${t#@}.name")" ] || exit 0
+  # shellcheck disable=SC2086 # the command's words
+  exec "$0" $5
+fi
 w='' fmt=''
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -488,13 +511,19 @@ case $verb in
     for f in "$TMUX_STUB"/*.name; do
       [ -f "$f" ] || continue
       id=${f##*/}
-      printf '@%s\t%s\n' "${id%.name}" "$(cat "$f")"
+      case $fmt in
+        '#{pid}.#{start_time} '*) printf '%s @%s %s\n' "$srv" "${id%.name}" "$(cat "$f")" ;;
+        *) printf '@%s %s\n' "${id%.name}" "$(cat "$f")" ;;
+      esac
     done
     ;;
   display-message)
+    [ -n "$w" ] || { printf '%s\n' "$srv"; exit 0; }
     [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
+    pin="$srv/$w/$(cat "$TMUX_STUB/$n.name")"
     case $fmt in
-      *window_name*) printf '%s\t%s\n' "$(cat "$TMUX_STUB/$n.name")" "$(cat "$TMUX_STUB/$n.pid")" ;;
+      '#{pane_pid} '*) printf '%s %s\n' "$(cat "$TMUX_STUB/$n.pid")" "$pin" ;;
+      *window_name*) printf '%s\n' "$pin" ;;
       *) cat "$TMUX_STUB/$n.pid" ;;
     esac
     ;;
@@ -627,6 +656,8 @@ expect_no_out "a completed stream-json session inside the grace stays" "mc-alpha
 sj_row mc-alpha-worker-sjgrace "$t1" "$t1" "Done: the pull request is open."
 sj_row mc-alpha-worker-sjunread "$t1" "$t1" "Done."
 chmod 000 "$fleet/streamjson/mc-alpha-worker-sjunread/result"
+sj_unread_denied=0
+if hermetic_access_denied r "$fleet/streamjson/mc-alpha-worker-sjunread/result"; then sj_unread_denied=1; fi
 sj_row mc-alpha-worker-sjrunning "$t1" "$t1" "Done."
 printf '{"type":"assistant","message":"next turn"}\n' >>"$fleet/streamjson/mc-alpha-worker-sjrunning/events.jsonl"
 bound_row mc-alpha-worker-tmuxgrace worker 33 "$t1" "$tmp/busy.pane"
@@ -634,7 +665,11 @@ mkdir -p "$fleet/streamjson/mc-alpha-worker-tmuxgrace"
 printf 'result\tsuccess\t%s\tfalse\n' "$t1" >"$fleet/streamjson/mc-alpha-worker-tmuxgrace/result"
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now $((t1 + 400)) 2>"$tmp/stderr")
 expect_out "a completed stream-json worker retires after the grace, far inside the idle bound" "retire${tab}mc-alpha-worker-sjgrace${tab}${t1}${tab}completed result=success 400s ago, grace 300s"
-expect_no_out "a stream-json worker whose status cannot be read counts as live" "mc-alpha-worker-sjunread"
+if [ "$sj_unread_denied" -eq 1 ]; then
+  expect_no_out "a stream-json worker whose status cannot be read counts as live" "mc-alpha-worker-sjunread"
+else
+  echo "skip: a stream-json worker whose status cannot be read: the file is still readable here"
+fi
 expect_no_out "a running stream-json worker is untouched" "mc-alpha-worker-sjrunning"
 expect_no_out "a tmux worker is untouched by the completed rule" "mc-alpha-worker-tmuxgrace"
 chmod 600 "$fleet/streamjson/mc-alpha-worker-sjunread/result"
