@@ -36,8 +36,8 @@ tmp=$(mktemp -d)
 sleeper=''
 reader=''
 cleanup() {
-  [ -z "$sleeper" ] || kill "$sleeper" 2>&1
-  [ -z "$reader" ] || kill "$reader" 2>&1
+  [ -z "$sleeper" ] || kill "$sleeper" 2>/dev/null
+  [ -z "$reader" ] || kill "$reader" 2>/dev/null
   rm -rf "$tmp"
 }
 trap cleanup EXIT
