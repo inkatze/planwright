@@ -35,6 +35,9 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 SJ="$here/../scripts/fleet-streamjson.sh"
 RELAY="$here/../scripts/orchestrate-relay.sh"
+# Nearly every wait here is on a detached supervisor's record, and a loaded
+# macOS runner has taken past the helper's 60s default to reach one.
+POLL_UNTIL_DEFAULT_DEADLINE=${POLL_UNTIL_DEFAULT_DEADLINE:-300}
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
 # shellcheck source=tests/lib/hermetic-env.sh

@@ -54,8 +54,12 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lib/dead-owner.sh"
 SJ="$here/../scripts/fleet-streamjson.sh"
 FA="$here/../scripts/fleet-attention.sh"
+# Nearly every wait here is on a detached supervisor's record, and a loaded
+# macOS runner has taken past the helper's 60s default to reach one.
+POLL_UNTIL_DEFAULT_DEADLINE=${POLL_UNTIL_DEFAULT_DEADLINE:-300}
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
+supervisor_deadline=$POLL_UNTIL_DEFAULT_DEADLINE
 
 fail() {
   echo "FAIL: $1" >&2
@@ -126,6 +130,7 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #   SHIM_RECORD_DIR   records argv + stdin lines (required)
 #   SHIM_EVENTS       file of event lines emitted on stdout
 #   SHIM_READ_FIRST   stdin lines to read+record before emitting (default 1)
+#   SHIM_DELAY        sleep before emitting (a slow host's worker)
 #   SHIM_WAIT_RESPONSE=1  after emitting, read+record stdin until a
 #                     control_response arrives, then emit SHIM_RESULT_LINE
 #   SHIM_WATCHDOG     seconds before self-kill while waiting (no-auto-answer)
@@ -154,6 +159,9 @@ while [ "$i" -lt "$n" ]; do
   printf '%s\n' "$line" >>"$SHIM_RECORD_DIR/stdin"
   i=$((i + 1))
 done
+if [ -n "${SHIM_DELAY:-}" ]; then
+  sleep "$SHIM_DELAY"
+fi
 if [ -n "${SHIM_EVENTS:-}" ]; then
   cat "$SHIM_EVENTS"
 fi
@@ -1450,6 +1458,9 @@ echo "ok: c14 a non-zero worker exit is reported ended, not completed"
 #     the real failure surface is a bad --cwd, which fails BEFORE the detached
 #     spawn. Here we assert the happy path returns `launched` only after
 #     supervisor.pid exists, and that a broken re-exec surfaces non-zero.
+#     The worker reaches its result only after the poll helper's default
+#     deadline, shrunk here, as a loaded host makes it: the wait for the
+#     result is bounded by the supervisor staying alive, never by that default.
 # ---------------------------------------------------------------------------
 home="$tmp/h15"
 rec="$tmp/r15"
@@ -1457,17 +1468,25 @@ mkdir -p "$rec"
 ev="$tmp/ev15"
 printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
 printf 'detach me\n' >"$tmp/prompt15"
-out=$(senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+POLL_UNTIL_DEFAULT_DEADLINE=1
+out=$(senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_DELAY=3 -- \
   launch sjw15 execution-backends:4 --prompt-file "$tmp/prompt15") \
   || fail "c15: detached launch exited non-zero"
 case $out in
   "launched sjw15 dir "*) : ;;
   *) fail "c15: detached launch should report launched, got: $out" ;;
 esac
-# `launched` was printed only after supervisor.pid appeared: it exists now.
+# `launched` was printed only after supervisor.pid appeared. The supervisor
+# removes it once its worker exits, so on a host slow enough to get here only
+# after that the result is already written and there is nothing to watch.
 wdir15="$home/streamjson/sjw15"
-poll_until --what 'the result' -- test -f "$wdir15/result" \
-  || fail "c15: the detached supervisor never ran to a result"
+sup15=$(cat "$wdir15/supervisor.pid" 2>/dev/null) || sup15=''
+c15_alive=()
+[ -z "$sup15" ] || c15_alive=(--while-alive "$sup15")
+poll_until --deadline "$supervisor_deadline" ${c15_alive[@]+"${c15_alive[@]}"} \
+  --what 'the detached supervisor to record its result' -- test -f "$wdir15/result" \
+  || fail "c15: the detached supervisor never ran to a result (waited ${POLL_UNTIL_ELAPSED}s of ${supervisor_deadline}s)"
+POLL_UNTIL_DEFAULT_DEADLINE=$supervisor_deadline
 # The detached launch drops the tower identity too, and under bash (macOS
 # /bin/sh) still returns while the session runs: no process it leaves behind
 # holds the caller's output open.
