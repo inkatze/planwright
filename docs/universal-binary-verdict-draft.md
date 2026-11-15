@@ -200,17 +200,20 @@ cross-compiled macOS artifact, both weigh against Rust more than Go.
     the tier carried the layer's whole fix-typed rate of 20 a month
     (September and October) and fixes fell in the same share, that rate
     would fall to no less than about 14.3 a month.
-  - **Eliminated versus relocated:** eliminated: echo-sanitization (no shell
-    `echo`), perf-spawn-cost inside every ported call (the call itself
-    becomes one spawn where a caller ran a sourced function), and the
-    BSD-versus-GNU and bash-version side of portability. Relocated: platform
-    divergence moves into the program (the prototypes read procfs on Linux
-    only and fall back to the pid elsewhere) and into the build;
-    lock-concurrency and parser-fragility move into typed code over the same
-    filesystem and grammar; lint-gap moves to Go's lint stack under the
-    check aggregate; plugin-delivery grows (fetched artifacts, attestation,
-    execute bits); auditability moves to the D-16 criteria.
-    Instruction-headroom is untouched.
+  - **Eliminated versus relocated:** eliminated, in the ported logic:
+    echo-sanitization (no shell `echo`), perf-spawn-cost inside every
+    ported call (the call itself becomes one spawn where a caller ran a
+    sourced function), and the BSD-versus-GNU and bash-version side of
+    portability. The thin shell layer that stays keeps the printf lint and
+    the shell lint stack, so those classes shrink to its size rather than
+    vanish. Relocated: platform divergence moves into the program (the
+    prototypes read procfs on Linux only and fall back to the pid
+    elsewhere) and into the build; lock-concurrency and parser-fragility
+    move into typed code over the same filesystem and grammar; lint-gap
+    moves to Go's lint stack under the check aggregate for the program;
+    plugin-delivery grows (fetched artifacts, attestation, execute bits);
+    auditability moves to the D-16 criteria. Instruction-headroom is
+    untouched.
   - **Restructured-shell share of the gain:** unmeasured. The shell
     candidate is already the restructured form and no unrestructured
     candidate was run, so the bake-off cannot split the gain between
