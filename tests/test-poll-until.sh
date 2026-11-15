@@ -13,8 +13,10 @@
 #       timeout into a success.
 #   p7: pid_gone holds only once every named process has exited.
 #   p8: --while-alive keeps waiting while the named process lives, counts an
-#       event it records just before exiting, and gives up soon after it exits
-#       without one, the message saying the process exited first.
+#       event it records just before exiting, gives up soon after it exits
+#       (or at once when it is already gone) without one, the message saying
+#       the process exited first, and still gives up at the deadline while it
+#       lives.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -169,5 +171,18 @@ case $(cat "$tmp/p8c.err") in
   *"the missing event"*"process $quiet exited first"*"deadline 60s"*) ;;
   *) fail "p8: the message must name the label, the exited process and the deadline, got: $(cat "$tmp/p8c.err")" ;;
 esac
+rc=0
+poll_until --deadline 60 --while-alive "$dead" --what 'the gone event' -- test -e "$tmp/p8-never" 2>"$tmp/p8d.err" || rc=$?
+[ "$rc" = 1 ] || fail "p8: a process gone before the wait must fail it, got $rc"
+[ "$POLL_UNTIL_ELAPSED" -lt 30 ] || fail "p8: a process gone before the wait must end it at once, took ${POLL_UNTIL_ELAPSED}s"
+grep -q "process $dead exited first" "$tmp/p8d.err" || fail "p8: the early end must say the process exited, got: $(cat "$tmp/p8d.err")"
+# A live process that never brings the event about still meets the deadline.
+stuck=$(sh -c 'sleep 30 >/dev/null 2>&1 & echo $!')
+rc=0
+poll_until --deadline 1 --while-alive "$stuck" --what 'the stuck event' -- test -e "$tmp/p8-never" 2>"$tmp/p8e.err" || rc=$?
+kill "$stuck" 2>/dev/null
+[ "$rc" = 1 ] || fail "p8: a live process past the deadline must fail the wait, got $rc"
+grep -q "the stuck event did not hold within 1s" "$tmp/p8e.err" \
+  || fail "p8: a deadline reached while the process lives must say so, got: $(cat "$tmp/p8e.err")"
 
 echo "PASS: poll-until"

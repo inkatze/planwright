@@ -1458,9 +1458,9 @@ echo "ok: c14 a non-zero worker exit is reported ended, not completed"
 #     the real failure surface is a bad --cwd, which fails BEFORE the detached
 #     spawn. Here we assert the happy path returns `launched` only after
 #     supervisor.pid exists, and that a broken re-exec surfaces non-zero.
-#     The worker reaches its result only after the poll helper's default
-#     deadline, shrunk here, as a loaded host makes it: the wait for the
-#     result is bounded by the supervisor staying alive, never by that default.
+#     The poll helper's default deadline is shrunk to 1s and the worker
+#     emits its result 3s late, as a loaded host makes it. The wait for the
+#     result lasts while the supervisor lives, so the default never bounds it.
 # ---------------------------------------------------------------------------
 home="$tmp/h15"
 rec="$tmp/r15"
@@ -1477,15 +1477,17 @@ case $out in
   *) fail "c15: detached launch should report launched, got: $out" ;;
 esac
 # `launched` was printed only after supervisor.pid appeared. The supervisor
-# removes it once its worker exits, so on a host slow enough to get here only
-# after that the result is already written and there is nothing to watch.
+# records this worker's result event before it removes supervisor.pid, so a
+# host slow enough to find the file gone already holds the result.
 wdir15="$home/streamjson/sjw15"
 sup15=$(cat "$wdir15/supervisor.pid" 2>/dev/null) || sup15=''
-c15_alive=()
-[ -z "$sup15" ] || c15_alive=(--while-alive "$sup15")
-poll_until --deadline "$supervisor_deadline" ${c15_alive[@]+"${c15_alive[@]}"} \
-  --what 'the detached supervisor to record its result' -- test -f "$wdir15/result" \
-  || fail "c15: the detached supervisor never ran to a result (waited ${POLL_UNTIL_ELAPSED}s of ${supervisor_deadline}s)"
+if [ -n "$sup15" ]; then
+  poll_until --deadline "$supervisor_deadline" --while-alive "$sup15" \
+    --what 'the detached supervisor to record its result' -- test -f "$wdir15/result" \
+    || fail "c15: the detached supervisor never ran to a result (gave up after ${POLL_UNTIL_ELAPSED}s)"
+else
+  test -f "$wdir15/result" || fail "c15: the detached supervisor removed supervisor.pid without a result"
+fi
 POLL_UNTIL_DEFAULT_DEADLINE=$supervisor_deadline
 # The detached launch drops the tower identity too, and under bash (macOS
 # /bin/sh) still returns while the session runs: no process it leaves behind
