@@ -47,6 +47,12 @@ fi
 }
 # shellcheck source=scripts/lock-lib.sh
 . "$script_dir/lock-lib.sh"
+[ -r "$script_dir/tmux-identity-lib.sh" ] || {
+  printf '%s\n' "$me: tmux-identity-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+}
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh"
 NL='
 '
 
@@ -427,6 +433,7 @@ row_write() {
     printf 'scope\t%s\n' "$scope"
     printf 'backend\t%s\n' "$backend"
     printf 'handle\t%s\n' "$handle"
+    printf 'server\t%s\n' "${tmux_server:--}"
     printf 'profile\t%s\n' "$profile"
     printf 'tier\t%s\n' "$tier"
     printf 'reserved\t%s\n' "$([ "${ovr_reserved:-0}" = 1 ] && echo yes || echo -)"
@@ -471,7 +478,7 @@ stop_session() {
       return 1
       ;;
     tmux)
-      release_pane "$name" "$2"
+      release_pane "$name" "$2" "${tmux_server:--}"
       return
       ;;
   esac
@@ -1016,6 +1023,7 @@ cmd_launch() {
   # A stream-json session is found by its name; a tmux one by the window id
   # the rung reports.
   handle=-
+  tmux_server=-
   [ "$backend" != stream-json ] || handle=$name
   token=$(new_token)
 
@@ -1240,6 +1248,10 @@ cmd_launch() {
       esac
       handle=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "handle" { print $2; exit }')
       valid_window "$handle" || refuse "the tmux rung reported no usable window for $name" 1
+      # The server that issued the window id: without it a later retire
+      # never closes the window by its id.
+      tmux_server=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "server" { print $2; exit }')
+      tmux_valid_server "$tmux_server" || tmux_server=-
       tier=rung
       ;;
   esac
@@ -1295,58 +1307,67 @@ cmd_name() {
   session_name "$program" "$kind" "$scope"
 }
 
-# windows_named <name> — print the ids of the tmux windows named <name>, or
-# return 1 when tmux cannot list them.
+# windows_named <name> — print `<server> <id>` for each tmux window named
+# <name>, the server being the one that listed it, or return 1 when tmux
+# cannot list them. No tab in the format: tmux prints one as `_` under
+# LC_ALL=C.
 windows_named() {
-  if ! wn_list=$(tmux list-windows -a -F '#{window_id} #{window_name}' 2>&1); then
+  if ! wn_list=$(tmux list-windows -a -F "$TMUX_SERVER_FORMAT #{window_id} #{window_name}" 2>&1); then
     # No server means no window: positive evidence, unlike other errors.
     case $wn_list in
       *'no server running'* | *'error connecting to'*'No such file or directory'*) return 0 ;;
     esac
     return 1
   fi
-  printf '%s\n' "$wn_list" | awk -v n="$1" '$2 == n && $1 ~ /^@[0-9]+$/ { print $1 }'
+  printf '%s\n' "$wn_list" | N=$1 awk '
+    { s = $1; i = $2; sub(/^[^ ]* [^ ]* /, "") }
+    $0 == ENVIRON["N"] && i ~ /^@[0-9]+$/ && s ~ /^[0-9]+[.][0-9]+$/ { print s " " i }'
 }
 
-# window_ids — print every live window id, or return 1 when tmux cannot list
-# them (no server: none).
-window_ids() {
-  if ! wi_list=$(tmux list-windows -a -F '#{window_id}' 2>&1); then
-    case $wi_list in
-      *'no server running'* | *'error connecting to'*'No such file or directory'*) return 0 ;;
-    esac
-    return 1
-  fi
-  printf '%s\n' "$wi_list"
-}
-
-# release_pane <name> <window-id or -> — close the session's window, setting
-# RP_IDS to the ids it closed. Released only on positive evidence that it is
-# gone: a listing that succeeds (or no server at all) and carries no window
-# of that id and name. A recorded id live under another name is held.
+# release_pane <name> <window-id or -> [<server or ->] — close the session's
+# window, setting RP_IDS to the ids it released. A window recorded with the
+# server that issued its id is closed only through that pin
+# (tmux_pin_close): one whose server, id or name no longer match is gone,
+# and nothing is done to tmux. One recorded without its server is never
+# closed by the recorded id, which a restarted server may have reissued to
+# another window: only the windows named <name> in a fresh listing are,
+# each pinned to the server that listed it. Released only once none is left.
 release_pane() {
-  rp_ids=$(windows_named "$1") || return 1
-  if [ "$2" != - ]; then
-    case "$NL$rp_ids$NL" in
-      *"$NL$2$NL"*) rp_ids=$2 ;;
-      *)
-        # Live under another name: renamed, or reused by another server.
-        # Either way it is not proven gone, and it is not killed.
-        rp_all=$(window_ids) || return 1
-        case "$NL$rp_all$NL" in *"$NL$2$NL"*) return 1 ;; esac
-        rp_ids=''
+  RP_IDS=''
+  if [ "$2" != - ] && tmux_valid_server "${3:--}"; then
+    rp_rc=0
+    tmux_pin_close window "$2" "$3" "$1" || rp_rc=$?
+    case $rp_rc in
+      0 | 3)
+        RP_IDS=$2
+        return 0
+        ;;
+      1)
+        printf '%s\n' "$me: $TP_WHY" >&2
+        RP_IDS=$2
+        return 0
         ;;
     esac
+    printf '%s\n' "$me: $TP_WHY" >&2
+    return 1
   fi
-  RP_IDS=$rp_ids
-  for rp_id in $rp_ids; do
-    tmux kill-window -t "$rp_id" >/dev/null 2>&1 || :
-  done
+  [ "$2" = - ] || printf '%s\n' "$me: not closing $2 by id: it was recorded without its tmux server; only windows named $1 are closed" >&2
+  rp_list=$(windows_named "$1") || return 1
+  rp_ids=''
+  while read -r rp_srv rp_id; do
+    [ -n "$rp_id" ] || continue
+    rp_rc=0
+    tmux_pin_close window "$rp_id" "$rp_srv" "$1" || rp_rc=$?
+    case $rp_rc in
+      0 | 3) rp_ids="$rp_ids $rp_id" ;;
+      *) return 1 ;;
+    esac
+  done <<EOF
+$rp_list
+EOF
+  RP_IDS=${rp_ids# }
   rp_left=$(windows_named "$1") || return 1
-  for rp_id in $rp_ids; do
-    case "$NL$rp_left$NL" in *"$NL$rp_id$NL"*) return 1 ;; esac
-  done
-  return 0
+  [ -z "$rp_left" ]
 }
 
 # retire_unregistered <name> — retire a session this launcher holds no row
@@ -1417,6 +1438,7 @@ cmd_retire() {
   state=$(row_get "$row" state)
   backend=$(row_get "$row" backend)
   handle=$(row_get "$row" handle)
+  tmux_server=$(row_get "$row" server)
   released='' held=''
   add_released() { released="$released,$1"; }
   add_held() { held="$held,$1"; }
@@ -1442,7 +1464,7 @@ cmd_retire() {
         self=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}' 2>/dev/null) || self=''
         [ "$self" != "$handle" ] || die "refusing to retire $name from inside its own window" 3
       fi
-      if release_pane "$name" "$handle"; then add_released pane; else add_held pane; fi
+      if release_pane "$name" "$handle" "${tmux_server:--}"; then add_released pane; else add_held pane; fi
       ;;
     *) die "the registry row for $name names an unknown backend" 2 ;;
   esac

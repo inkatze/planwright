@@ -364,7 +364,14 @@ subagent rungs. A record carries what closing a worker needs when the tower that
 launched it is gone: the handle, the **owner token** (which tower dispatched
 it), the backend, the state directory where the rung keeps one, and the death
 handle (`process <pid>`, `tmux-window <session> <window>`, or `none` for a rung
-that spawns no process).
+that spawns no process). A tmux window id names a window only for the life of
+the server that issued it, since a restarted server numbers from `@0` again, so
+the dispatch seams pin it: `tmux-window <session> <window> <server> <name>`,
+the server being `<pid>.<start time>` and the name the one the window was
+given. A pinned window is live only while all three still hold, and nothing
+closes it by id otherwise. A handle written before the pin is never closed by
+its id, and counts as live only in its recorded session and only when it was
+registered after the running server started.
 
 A column with nothing to put in it is written `-` and reads as the gap it is. An
 unowned record renders `unknown-owner` rather than being attributed to anyone,

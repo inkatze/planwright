@@ -120,7 +120,9 @@
 # attributable without inference.
 #
 # `death-handle` is the presence surface's own grammar — `process <pid>` or
-# `tmux-window <session> <window>` — plus the literal `none` for a rung that
+# `tmux-window <session> <window>`, the latter followed by the issuing tmux
+# server and the window's name where the writer pinned them
+# (scripts/tmux-identity-lib.sh) — plus the literal `none` for a rung that
 # spawns no process (the `print` rung: REQ-D1.8 exempts it from reaping, and
 # recording that fact is not the same as leaving the column blank). TWO READER
 # OBLIGATIONS come with it. `none` is NOT an evidence class:
@@ -368,12 +370,26 @@ valid_death_handle() {
       [ "${#vdh_pid}" -le 10 ]
       ;;
     "tmux-window "*)
+      # <session> <window>, then the issuing server (`<pid>.<start time>`)
+      # and window name where the writer pinned them
+      # (scripts/tmux-identity-lib.sh, not sourced here: every fixture
+      # install of this store would need it).
       vdh_rest=${vdh_v#tmux-window }
-      case $vdh_rest in
-        *" "*) ;;
+      # shellcheck disable=SC2086 # the handle's tokens, split (globbing is off)
+      set -- $vdh_rest
+      case $# in
+        2) ;;
+        4)
+          case $3 in
+            *.*.* | .* | *. | *[!0-9.]*) return 1 ;;
+            *.*) ;;
+            *) return 1 ;;
+          esac
+          valid_tmux_token "$4" || return 1
+          ;;
         *) return 1 ;;
       esac
-      valid_tmux_token "${vdh_rest%% *}" && valid_tmux_token "${vdh_rest#* }"
+      [ "$vdh_rest" = "$*" ] && valid_tmux_token "$1" && valid_tmux_token "$2"
       ;;
     *) return 1 ;;
   esac

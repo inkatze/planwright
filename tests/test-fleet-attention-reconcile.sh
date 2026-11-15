@@ -144,9 +144,9 @@ case \$1 in
   list-windows)
     if [ "\$2" = -a ]; then
       [ -f "$tmp/race" ] && /bin/sh "$tmp/race"
-      awk '{ printf "%s\tname\n", \$2 }' "$tmp/tmux-windows"
+      awk '{ printf "%s name\n", \$2 }' "$tmp/tmux-windows"
     else
-      awk -v s="\${3#=}" '\$1 == s { printf "%s\tname\n", \$2 }' "$tmp/tmux-windows"
+      awk -v s="\${3#=}" '\$1 == s { printf "%s name\n", \$2 }' "$tmp/tmux-windows"
     fi
     ;;
 esac

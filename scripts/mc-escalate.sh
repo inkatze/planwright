@@ -383,7 +383,7 @@ elif PS_TABLE=$(bounded /bin/sh -c "$MSP_PS_CMD" 2>/dev/null); then
   case $S_PID in
     absent | ambiguous) S_STATE=$S_PID ;;
     *)
-      if PANES=$(bounded tmux list-panes -a -F '#{pane_id}	#{pane_pid}' 2>/dev/null) \
+      if PANES=$(bounded tmux list-panes -a -F '#{pane_id} #{pane_pid}' 2>/dev/null) \
         && S_PANE=$(msp_pane_of "$S_PID" "$PS_TABLE" "$PANES") \
         && S_TEXT=$(bounded tmux capture-pane -p -t "$S_PANE" 2>/dev/null); then
         have_pane=1

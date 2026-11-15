@@ -182,6 +182,12 @@ for helper in echo-safety.sh fleet-pane-vocabulary.sh; do
 done
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+if [ ! -r "$script_dir/tmux-identity-lib.sh" ]; then
+  printf '%s\n' "${0##*/}: tmux-identity-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh"
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
 . "$script_dir/fleet-pane-vocabulary.sh"
 
@@ -271,7 +277,8 @@ valid_pid() {
 }
 
 # The registry's death-handle grammar (fleet-state.sh valid_death_handle):
-# `none`, `process <pid>`, or `tmux-window <session> <window>`. A
+# `none`, `process <pid>`, or `tmux-window <session> <window>` with the
+# optional server pin (`<server> <name>`, scripts/tmux-identity-lib.sh). A
 # pseudo-evidence class (`timeout 30`) fails here, so it can never reach the
 # predicate — which would refuse it anyway (REQ-A1.7).
 valid_death_handle() {
@@ -279,12 +286,10 @@ valid_death_handle() {
     none) return 0 ;;
     "process "*) valid_pid "${1#process }" ;;
     "tmux-window "*)
-      vdh_rest=${1#tmux-window }
-      case $vdh_rest in
-        *" "*) ;;
-        *) return 1 ;;
-      esac
-      valid_tmux_token "${vdh_rest%% *}" && valid_tmux_token "${vdh_rest#* }"
+      # <session> <window>, then the issuing server and window name where
+      # the writer pinned them (tmux-identity-lib.sh).
+      tmux_handle_parse "${1#tmux-window }" || return 1
+      valid_tmux_token "$TH_SESSION" && valid_tmux_token "$TH_WINDOW"
       ;;
     *) return 1 ;;
   esac

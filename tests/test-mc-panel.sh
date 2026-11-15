@@ -107,7 +107,12 @@ mc_run fleet-state.sh register w-done flight:landed --backend stream-json --deat
 mc_run fleet-state.sh register w-win flight:named-window --backend tmux --death-handle "tmux-window other w7"
 mc_run fleet-state.sh register w-idname flight:id-like-name --backend tmux --death-handle "tmux-window named @9"
 mc_run fleet-state.sh register w-print flight:once --backend print --death-handle none
-mc_run fleet-state.sh register w-tmux flight:tmux --backend tmux --death-handle "tmux-window mc @5"
+mc_run fleet-state.sh register w-tmux flight:tmux --backend tmux --death-handle "tmux-window mc @5 4242.1700000000 w5"
+# Recorded without its server, its id live in another session: a restarted
+# server may have reissued it, so it is not counted.
+mc_run fleet-state.sh register w-tmux-reused flight:tmux-reused --backend tmux --death-handle "tmux-window mc @7"
+# Pinned to an earlier server: whatever runs under @7 now is not it.
+mc_run fleet-state.sh register w-tmux-oldserver flight:tmux-oldserver --backend tmux --death-handle "tmux-window other @7 4242.1600000000 w7"
 mc_run fleet-state.sh register w-tmux-gone flight:tmux-old --backend tmux --death-handle "tmux-window mc @9"
 mc_run fleet-state.sh register w-gone mission-control:alpha --backend tmux --death-handle "tmux-window mc 4"
 mc_run fleet-state.sh retire w-gone mission-control:alpha --backend tmux --death-handle "tmux-window mc 4"
@@ -132,7 +137,7 @@ mkdir -p "$fleet/attention"
 # The tmux server lists window @5, its session since renamed, and not @9.
 # The other two stand for a server that does not answer and one not running.
 mkdir -p "$tmp/bin" "$tmp/bin-down" "$tmp/bin-none"
-printf '#!/bin/sh\ncase "$*" in *list-windows*) printf "renamed\\t@5\\tw5\\nother\\t@7\\tw7\\nnamed\\t@3\\t@9\\n" ;; *) exit 1 ;; esac\n' >"$tmp/bin/tmux"
+printf '#!/bin/sh\ncase "$*" in *list-windows*) printf "@5 4242.1700000000 renamed:w5\\n@7 4242.1700000000 other:w7\\n@3 4242.1700000000 named:@9\\n" ;; *) exit 1 ;; esac\n' >"$tmp/bin/tmux"
 printf '#!/bin/sh\necho "server exited unexpectedly" >&2\nexit 1\n' >"$tmp/bin-down/tmux"
 printf '#!/bin/sh\necho "no server running on /tmp/tmux-0/default" >&2\nexit 1\n' >"$tmp/bin-none/tmux"
 chmod +x "$tmp/bin/tmux" "$tmp/bin-down/tmux" "$tmp/bin-none/tmux"
@@ -181,9 +186,11 @@ else
   ok "a session whose process is gone is not in flight"
 fi
 expect_no_out "a tmux window the server does not list is not in flight" "w-tmux-gone"
+expect_no_out "an id recorded without its server and live only in another session is not in flight" "w-tmux-reused"
+expect_no_out "an id pinned to an earlier tmux server is not in flight" "w-tmux-oldserver"
 expect_no_out "a record with no process to watch is not in flight" "w-print"
 expect_no_out "a legacy three-field record is not in flight" "w-legacy"
-record "the rest are finished, not cleaned up" finished 7
+record "the rest are finished, not cleaned up" finished 9
 expect_no_out "a tmux server that answers is readable" "tmux windows"
 record "REQ-F1.5: only a live session's question waits on the operator; a dead session's stale row does not" waiting 1
 record "REQ-E1.3: the target's pending events" pending 1
@@ -306,7 +313,7 @@ expect_out "the text panel says the count may be more" "in flight: 4 or more (tm
 PATH="$tmp/bin-none:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "a tmux server not running is no fault" "tmux windows"
-record "and its windows are finished" finished 10
+record "and its windows are finished" finished 12
 PATH="$tmp/bin:$host_path"
 mv "$fleet/attention/state" "$fleet/attention/state.real"
 ln -s "$fleet/attention/state.real" "$fleet/attention/state"
@@ -326,7 +333,7 @@ mv "$fleet/attention/state.real" "$fleet/attention/state"
 # With every tmux row's work ended, a server that does not answer leaves
 # nothing unknown: no fault, and an exact count the panel draws the same.
 cp "$fleet/attention/state" "$tmp/attention.saved"
-for w in w-win w-idname w-tmux w-tmux-gone; do printf '%s\tflight:x\tdone\t900\n' "$w" >>"$fleet/attention/state"; done
+for w in w-win w-idname w-tmux w-tmux-gone w-tmux-reused w-tmux-oldserver; do printf '%s\tflight:x\tdone\t900\n' "$w" >>"$fleet/attention/state"; done
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "a silent tmux server no row depends on is no fault" "tmux windows"

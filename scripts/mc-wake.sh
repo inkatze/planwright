@@ -247,15 +247,28 @@ send() {
     tmux)
       sd_mark=staged
       sd_handle=$(printf '%s' "$sd_row" | cut -f7)
+      sd_pin=''
       case $sd_handle in
         "tmux-window "*" "*)
-          sd_handle=${sd_handle#tmux-window }
-          sd_handle="${sd_handle%% *}:${sd_handle#* }"
+          read -r sd_s sd_win sd_srv sd_nm sd_more <<<"${sd_handle#tmux-window }"
+          sd_handle="$sd_s:$sd_win"
+          if [ -n "$sd_more" ] || { [ -n "$sd_srv" ] && [ -z "$sd_nm" ]; }; then
+            sd_handle=""
+          elif [ -n "$sd_srv" ]; then
+            sd_pin=1
+          fi
           ;;
         *) sd_handle="" ;;
       esac
       if [ -z "$sd_handle" ] || ! /bin/sh "$script_dir/orchestrate-relay.sh" validate-handle tmux "$sd_handle" 2>/dev/null; then
         printf 'unreachable\t%s\tno valid tmux window recorded\n' "$sd_w"
+        return 0
+      fi
+      # A pinned window is typed into only while the server that issued its
+      # id still runs it under the name it was given: a restarted server
+      # reissues ids, and the window under one now may be another session's.
+      if [ -n "$sd_pin" ] && [ "$(/bin/sh "$script_dir/fleet-death-evidence.sh" tmux-window "$sd_s" "$sd_win" "$sd_srv" "$sd_nm" 2>/dev/null </dev/null)" != alive ]; then
+        printf 'unreachable\t%s\tthe recorded tmux window is not the one its server issued\n' "$sd_w"
         return 0
       fi
       ;;
