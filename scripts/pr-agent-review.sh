@@ -280,8 +280,7 @@ while :; do
       [ "$rate_hits" -le "$rate_retries" ] \
         || fail "PR-Agent was rate limited past its $rate_retries rate-limit retries; no review was posted"
       wait_s=$((RATE_BACKOFF * rate_hits))
-      printf '::warning title=PR-Agent rate limited::Try %s was rate limited; backing off %ss (not counted against the %s model-output retries).\n' \
-        "$tries" "$wait_s" "$retries"
+      note="PR-Agent rate limited::Try $tries was rate limited; backing off ${wait_s}s (not counted against the $retries model-output retries)."
       ;;
     bad_output)
       output_fails=$((output_fails + 1))
@@ -291,13 +290,13 @@ while :; do
         fail "PR-Agent returned no parseable review after $tries $word (empty or unparseable model output)"
       fi
       wait_s=$((OUTPUT_BACKOFF * output_fails))
-      printf '::warning title=PR-Agent retry::Try %s returned no parseable review (empty or unparseable model output); retrying in %ss.\n' \
-        "$tries" "$wait_s"
+      note="PR-Agent retry::Try $tries returned no parseable review (empty or unparseable model output); retrying in ${wait_s}s."
       ;;
   esac
   # Start a retry only if it could finish, its kill grace and reads included.
   [ $(($(date +%s) - started + wait_s + try_seconds + KILL_GRACE + READ_SLACK)) -le "$deadline" ] \
     || fail "no review after try $tries, and another try would run past the ${deadline}s deadline"
+  printf '::warning title=%s\n' "$note"
   hold_traps
   sleep "$wait_s" &
   job=$!

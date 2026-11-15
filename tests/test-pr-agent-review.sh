@@ -41,6 +41,7 @@ MOVED_SHA=2222222222222222222222222222222222222222
 # The docker stub plays one try per `run`, popping the case's next scenario:
 #   good / clean   edit the persistent review comment (findings / no issues)
 #   inc            posts a new incremental review comment
+#   postexit3      posts a review, then exits 3
 #   warned         posts a review although a fallback model logged empty output
 #   lagged         posts a review the comment list shows only from its next read
 #   empty parse transport yaml schema nomodel   a model-output failure
@@ -98,8 +99,13 @@ case "$step" in
     [ "$step" = warned ] && printf '%s\n' "$empty"
     [ "$step" = good ] && printf '%s\n' '2026-11-14 00:00:00.000 | INFO     | pr_agent.tools.pr_reviewer:_publish_key_issues_as_inline_comments:1600 - Published 2 review finding(s) as inline comments'
     ;;
+  postexit3)
+    edit "$persist"
+    printf 'post\n' >>"$T/posted"
+    exit 3
+    ;;
   inc)
-    edit '. + [{"id": 900, "user": {"login": "github-actions[bot]"}, "body": "## Incremental PR Reviewer Guide\n<!-- pr-agent:review:incremental -->", "updated_at": "2026-11-14T00:00:00Z"}]'
+    edit '. +[{"id": 900, "user": {"login": "github-actions[bot]"}, "body": "## Incremental PR Reviewer Guide\n<!-- pr-agent:review:incremental -->", "updated_at": "2026-11-14T00:00:00Z"}]'
     printf 'post\n' >>"$T/posted"
     ;;
   lagged)
@@ -209,21 +215,31 @@ exit 64
 EOF
 
 # Backoffs only log; the exit trap's one-second removal cadence waits a little,
-# so a cancel case does not spin while its stub client lives.
+# so a cancel case does not spin while its stub client lives. SLEEP_REAL=1
+# makes a backoff really wait, as the client of a cancel case.
 cat >"$stub/sleep" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$1" >>"$T/sleep.log"
 [ "$1" = 1 ] && exec /bin/sleep 0.05
+if [ "${SLEEP_REAL:-0}" = 1 ] && [ "$1" -ge 30 ]; then
+  printf '%s\n' "$$" >"$T/run.pid"
+  exec /bin/sleep "$1"
+fi
 exit 0
 EOF
 
 # bounded-run.sh -k <grace> <seconds> <cmd>...: logs the bound, then runs the
-# command unbounded, or stands in for the bound firing when BOUND_FIRES=1.
+# command unbounded, or stands in for the bound firing: BOUND_FIRES=1 before
+# the command runs, BOUND_FIRES=post after it has.
 cat >"$tmp/scripts/bounded-run.sh" <<'EOF'
 #!/bin/sh
 printf '%s %s %s\n' "$1" "$2" "$3" >>"$T/bound.log"
 [ "${BOUND_FIRES:-0}" = 1 ] && [ "$4" = docker ] && [ "$5" = run ] && exit 124
 shift 3
+if [ "${BOUND_FIRES:-0}" = post ] && [ "$1" = docker ] && [ "$2" = run ]; then
+  "$@"
+  exit 124
+fi
 exec "$@"
 EOF
 
@@ -391,6 +407,21 @@ if grep -qx -- 'api repos/o/r/pulls/7 --jq .head.sha' "$T/gh.log"; then
 else
   failed "the head is read from this PR: gh.log: $(cat "$T/gh.log")"
 fi
+
+name="a late review that shows only after the head moved does not pass for this run"
+run "lagged good" "$MOVED_SHA" -- --head "$HEAD_SHA" --retries 2
+expect "$name" 1 1 1 "30 " && has "$name" "head moved" && lacks "$name" "appeared after its check" && ok "$name"
+
+name="a posted review outranks the try's non-zero exit"
+run "postexit3 empty" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+expect "$name" 0 1 1 "" && ok "$name"
+
+name="a posted review outranks the try's bound firing after it"
+BOUND_FIRES=post
+export BOUND_FIRES
+run "good empty" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+unset BOUND_FIRES
+expect "$name" 0 1 1 "" && ok "$name"
 
 name="the head moving before the second retry stops too"
 run "empty empty good" "$HEAD_SHA $MOVED_SHA" -- --head "$HEAD_SHA" --retries 2
@@ -583,19 +614,21 @@ else
 fi
 
 # A runner cancel can signal the wrapper's shell alone, at any moment of a try.
-# cancel_case <scenario>: start a try, TERM the wrapper once the stub client
+# cancel_case <scenario> [<script arg>...]: start a try, TERM the wrapper once the stub client
 # runs, and set RC, OUT and CANCEL_CONTAINER; returns 1 when the wrapper
 # outlived the TERM or the try never started. A stuck wrapper and the stub
 # client are killed either way, so a failing case neither hangs the suite nor
 # leaves a sleeper behind.
 cancel_case() {
   new_case "$1" "$HEAD_SHA"
+  cc_what=$1
+  shift
   env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
-    "$SCRIPT" --image img --pr 7 >"$T/out" 2>&1 &
+    "$SCRIPT" --image img --pr 7 "$@" >"$T/out" 2>&1 &
   cc_pid=$!
   CANCEL_CONTAINER="pr-agent-$cc_pid-1"
   cc_rc=0
-  poll_until --what "the $1 try to start" -- test -s "$T/run.pid" || cc_rc=1
+  poll_until --what "the $cc_what try to start" -- test -s "$T/run.pid" || cc_rc=1
   kill -TERM "$cc_pid"
   if [ "$cc_rc" = 0 ]; then
     poll_until --what "the wrapper to exit on TERM" -- pid_gone "$cc_pid" || cc_rc=1
@@ -642,6 +675,17 @@ if cancel_case latestart && [ "$RC" = 143 ] && grep -qx "rm -f $CANCEL_CONTAINER
 else
   failed "$name: want a prompt exit 143 and a removal after the creation; rm: $(cat "$T/docker-rm.log")"
 fi
+
+# A rate-limit backoff is 120s: a TERM must not wait it out.
+name="a TERM during a backoff exits at once"
+SLEEP_REAL=1
+export SLEEP_REAL
+if cancel_case rate --head "$HEAD_SHA" && [ "$RC" = 143 ]; then
+  ok "$name"
+else
+  failed "$name: want a prompt exit 143"
+fi
+unset SLEEP_REAL
 
 name="a TERM mid-creation removes the container once the client ends"
 if cancel_case creating && [ "$RC" = 143 ] && [ "$(tail -n 1 "$T/docker-rm.log")" = "rm -f $CANCEL_CONTAINER created" ]; then
