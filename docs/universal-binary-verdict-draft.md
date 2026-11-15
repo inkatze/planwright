@@ -35,10 +35,10 @@ items*.
 4. **The skill-called tier's second bake-off ground.** The breadth rule
    (REQ-C1.3) also grants a tier its own bake-off when its pain-matrix row
    carries a defect class no earlier bake-off exercised. The skill-called
-   row leads with instruction-headroom and test-flakiness, which bake-off A
-   did not exercise. D-5 paired the two tiers at kickoff; whether that
-   pairing still holds against the second ground is the kickoff's call
-   (D-20 assumes it does).
+   row leads with instruction-headroom and carries plugin-delivery and
+   test-flakiness high, none of which bake-off A exercised. D-5 paired the
+   two tiers at kickoff; whether that pairing still holds against the
+   second ground is the kickoff's call (D-20 assumes it does).
 5. **A stale Awaiting-input entry.** `tasks.md`'s Task 6 entry still says
    the macOS and musl reports need a CI job; macOS is now measured. The
    spec is signed, so the entry waits for this amendment.
@@ -63,10 +63,10 @@ Task 14 needs whichever way the dev-check question goes.
 - The [cost baseline](substrate/cost-baseline-2026-10-18.md), the
   [pain matrix](substrate/pain-matrix-2026-10-18.md) and the
   [constraint profiles](substrate/constraint-profiles-2026-10-18.md).
-- The tiers' shell source sizes, read from `mise run substrate:partition`
-  at `e5465b3832f154d77025355658a60564e9472d56`: every script of the tier
-  without the no-live-caller flag (scripts nothing live reaches), sized in
-  bytes.
+- The tiers' shell source sizes: the paths `mise run substrate:partition`
+  puts in the tier at `e5465b3832f154d77025355658a60564e9472d56`, less those
+  with the no-live-caller flag (scripts nothing live reaches), their bytes
+  summed with `wc -c`.
 
 **musl is unmeasured.** The platform matrix (D-13) includes musl, and this
 draft has no musl report. This host has no Docker to run the Alpine image,
@@ -110,9 +110,13 @@ dev-check verdict decision for Task 14 to quote, which is not drafted here.
 
 **Decision:** The library tier moves from shell to Go behind its frozen
 entry points (D-10), built in CI from source in the repository and shipped
-through the delivery pipeline of D-9 and Task 10. Clearing the partition's
-shell-mutation flag on `config-get.sh` is a precondition of moving it
-(risk R4, Task 11).
+through the delivery pipeline of D-9 and Task 10, in both delivery modes.
+A library is sourced into its caller, not executed, and some of its verbs
+keep state in the calling shell (the lock library's exit trap and its
+record of the locks this shell holds), so its sourced functions stay as a
+thin shell layer that keeps that state and hands the work to the binary.
+Clearing the partition's shell-mutation flag on `config-get.sh` is a
+precondition of moving it (risk R4, Task 11).
 
 **Report:** `docs/substrate/bakeoff-a/2026-11-03-linux-x86_64/report.tsv`,
 `docs/substrate/bakeoff-a/2026-11-15-darwin-arm64/report.tsv`
@@ -163,8 +167,12 @@ shell-mutation flag on `config-get.sh` is a precondition of moving it
     `etime`.
 
 **Chosen because:** both compiled candidates passed every fixture on both
-platforms, forked nothing at the call site and met the hook budget, while
-the restructured shell forked on every call and was slowest on both. Between
+platforms, forked nothing at the measured call site and met the hook
+budget, while the restructured shell forked on every call and was slowest
+on both. That call site is the prototype invoked directly; the shipped
+shape adds the shell layer above, a version check per call (D-9), and a
+spawn where a caller used to run a sourced function, none of which was
+timed. Between
 the two, Go wrote less source, carries fewer runtime dependencies, ported
 faster per KiB with a review load close to Rust's, and its delivery path
 (cross-compiling and ad-hoc signing for Apple silicon from a Linux runner,
@@ -183,16 +191,18 @@ cross-compiled macOS artifact, both weigh against Rust more than Go.
     pipeline (Task 10) is extra and has no logged rate.
   - **Ongoing cost delta:** the baseline splits neither fix-typed commits
     nor observations by tier, and only its mined set carries classes, so
-    every projection here is a ceiling. The library row of the pain matrix
-    holds at most 33 of its 125 class cells in the classes a compiled
-    substrate removes (echo-sanitization, perf-spawn-cost, and portability,
-    the whole column counted though only its shell-tool side goes). If the
-    tier carried the layer's whole fix-typed rate of 20 a month (September
-    and October), removing those cells would leave about 14.7 a month; the
-    tier's mined inflow, 116 items over the four mined months, would fall to
-    no less than about 20.75 a month.
+    every projection here is a bound. The library row of the pain matrix
+    holds at most 33 class cells in the classes a compiled substrate
+    removes (echo-sanitization, perf-spawn-cost, and portability, the whole
+    column counted though only its shell-tool side goes), so at most 33 of
+    its 116 mined items go. The tier's mined inflow, 116 items over the
+    four mined months, would fall to no less than about 20.75 a month. If
+    the tier carried the layer's whole fix-typed rate of 20 a month
+    (September and October) and fixes fell in the same share, that rate
+    would fall to no less than about 14.3 a month.
   - **Eliminated versus relocated:** eliminated: echo-sanitization (no shell
-    `echo`), perf-spawn-cost at every ported call site, and the
+    `echo`), perf-spawn-cost inside every ported call (the call itself
+    becomes one spawn where a caller ran a sourced function), and the
     BSD-versus-GNU and bash-version side of portability. Relocated: platform
     divergence moves into the program (the prototypes read procfs on Linux
     only and fall back to the pid elsewhere) and into the build;
@@ -221,15 +231,16 @@ cross-compiled macOS artifact, both weigh against Rust more than Go.
     is reduced by batching but every call still forks, and portability stays
     live, as the macOS run's extra forks show. Delivery and auditability
     stay as they are.
-  - **Break-even:** the compiled verdict pays while the classes it can grow,
-    plugin-delivery and auditability, grow by less than the eliminated
-    classes shrink. On the baseline's observation-inflow table, layer-wide
-    because it has no tier split, those two columns held 74 class cells over
-    June to September (about 18.5 a month) and the eliminated classes at
-    most 59 (about 14.75 a month), so the threshold is a combined
-    plugin-delivery and auditability inflow under about 33.25 a month after
-    the compiled delivery ships. Above it, staying in shell is the cheaper
-    option.
+  - **Break-even:** the compiled verdict can only pay while the classes it
+    can grow, plugin-delivery and auditability, grow by less than the
+    eliminated classes shrink. On the baseline's observation-inflow table,
+    layer-wide because it has no tier split, those two columns held 74
+    class cells over June to September (about 18.5 a month) and the
+    eliminated classes at most 59 (about 14.75 a month). The threshold is a
+    combined plugin-delivery and auditability inflow of at most about 33.25
+    a month after the compiled delivery ships; above it, staying in shell
+    is the cheaper option. The true threshold is lower, since 59 is a
+    ceiling, and the one-off migration effort is not netted in.
 
 ### D-20: The skill-called tier inherits the library tier's verdict  (N)
 
@@ -251,7 +262,11 @@ shell-mutation flag on `inception-validate.sh`, `mc-rules.sh` and
 - Stay in shell. Rejected because: as for D-19, whose cost-benefit line
   this one follows.
 
-**Measurements:** the inherited ones, D-19's, from the same reports.
+**Measurements:** D-19's, inherited from the same reports; on the Linux
+report Go passed 51 (`go.tests_passed`) of 51 (`go.fixture_set_count`)
+fixtures with a call-site median of 8.195 ms (`go.latency_median_ms`) and
+0 (`go.spawns_per_invocation`) spawns per call, at a porting rate of
+0.151 min/KiB (`go.porting_rate_min_per_kib`).
 
 **Chosen because:** the constraint profiles give skill-called and library
 the same hard axes: adopter-runtime audience, no per-call latency budget of
@@ -265,11 +280,12 @@ unchanged.
     Rust's 0.178 min/KiB (`rust.porting_rate_min_per_kib`), about 536. The
     figure includes the three flagged entry points; the same understatement
     as D-19 applies.
-  - **Ongoing cost delta:** a ceiling, as in D-19: at most 31 of the
-    skill-called row's 192 class cells fall in the eliminated classes, so
-    if the tier carried the layer's whole fix-typed rate of 20 a month it
-    would fall to about 16.8, and its mined inflow, 182 items over the four
-    mined months, to no less than about 37.75 a month.
+  - **Ongoing cost delta:** a bound, as in D-19: at most 31 of the
+    skill-called row's class cells fall in the eliminated classes, so at
+    most 31 of its 182 mined items go. Its mined inflow, 182 items over the
+    four mined months, would fall to no less than about 37.75 a month, and
+    the layer's fix-typed rate of 20 a month, on D-19's assumptions, to no
+    less than about 16.6.
   - **Eliminated versus relocated:** as D-19. The tier's leading class,
     instruction-headroom, is untouched by any substrate.
   - **Restructured-shell share of the gain:** unmeasured, as in D-19.
@@ -305,3 +321,7 @@ d=$(mktemp -d) && cp specs/universal-binary/*.md "$d/" &&
   scripts/check-number-copy.sh --bundle "$d"
 rm -rf "$d"
 ```
+
+The guards check cited figures and the porting-rate citation only; the
+derived cost-benefit arithmetic (sizes, minutes, cell shares, the
+break-even) is checked by hand against the sources the page names.
