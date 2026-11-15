@@ -24,14 +24,9 @@ tid_tmux() {
 
 # tmux_valid_server <token>: a server identity as TMUX_SERVER_FORMAT prints it.
 tmux_valid_server() {
-  case $1 in
-    *.*) ;;
-    *) return 1 ;;
-  esac
-  case ${1%%.*}/${1#*.} in
-    /* | */ | *[!0-9/]*) return 1 ;;
-  esac
-  [ "${#1}" -le 40 ]
+  case ${1%%.*} in '' | *[!0-9]*) return 1 ;; esac
+  case ${1#*.} in '' | *[!0-9]*) return 1 ;; esac
+  [ "${1%%.*}" != "$1" ] && [ "${#1}" -le 40 ]
 }
 
 # tmux_valid_name <name>: a window name a pin can carry. The death-handle
@@ -73,15 +68,16 @@ tmux_handle_parse() {
 }
 
 # tmux_pin_read <window|pane> <target>: set TP_NOW to
-# <server>/<id>/<window name> as the server sees the target now. 0 found; 1
-# gone (no server, or the id names nothing); 2 tmux did not answer.
+# <server>/<id>/<window name> as the server sees the target now, and
+# TP_SERVER and TP_NAME to its first and last parts. 0 found; 1 gone (no
+# server, or the id names nothing); 2 tmux did not answer.
 tmux_pin_read() {
   case $1 in
     window) tpr_f='#{window_id}' ;;
     pane) tpr_f='#{pane_id}' ;;
     *) return 2 ;;
   esac
-  TP_NOW=''
+  TP_NOW='' TP_SERVER='' TP_NAME=''
   if ! tpr_out=$(tid_tmux display-message -p -t "$2" "$TMUX_SERVER_FORMAT/$tpr_f/#{window_name}" 2>&1 </dev/null); then
     case $tpr_out in
       *'no server running'* | *'error connecting to'*'No such file or directory'* | *"can't find"*) return 1 ;;
@@ -93,6 +89,8 @@ tmux_pin_read() {
   [ "${tpr_rest%%/*}" = "$2" ] || return 1
   tmux_valid_server "${tpr_out%%/*}" || return 2
   TP_NOW=$tpr_out
+  TP_SERVER=${tpr_out%%/*}
+  TP_NAME=${tpr_rest#*/}
 }
 
 # tmux_pin_close <window|pane> <target> <server> <name>: close the target
@@ -103,8 +101,12 @@ tmux_pin_read() {
 # nothing was done to tmux; 2 unknown, left as it is; 3 already gone.
 tmux_pin_close() {
   TP_WHY=''
-  if ! tmux_valid_server "$3" || ! tmux_valid_name "$4"; then
+  if ! tmux_valid_server "$3"; then
     TP_WHY="not closing $2: it was recorded without its tmux server, so its id may name another window now"
+    return 1
+  fi
+  if ! tmux_valid_name "$4"; then
+    TP_WHY="not closing $2: it was recorded without a window name its pin can check"
     return 1
   fi
   case $1 in
@@ -121,13 +123,11 @@ tmux_pin_close() {
       return 2
       ;;
   esac
-  tpc_name=${TP_NOW#*/}
-  tpc_name=${tpc_name#*/}
-  if [ "${TP_NOW%%/*}" != "$3" ]; then
+  if [ "$TP_SERVER" != "$3" ]; then
     TP_WHY="not closing $2: that id now belongs to a tmux server started after it was recorded"
     return 1
   fi
-  if [ "$tpc_name" != "$4" ]; then
+  if [ "$TP_NAME" != "$4" ]; then
     TP_WHY="not closing $2: its window is no longer named $4"
     return 1
   fi

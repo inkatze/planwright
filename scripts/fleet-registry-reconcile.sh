@@ -194,10 +194,10 @@ evidence() {
         printf 'evidence-errored'
         return 1
       fi
-      ev_now=$(tmux_server_id) || ev_now=''
       ev_rc=0
       if [ -n "$TH_SERVER" ]; then
-        if [ -n "$ev_now" ] && [ "$ev_now" != "$TH_SERVER" ]; then
+        if [ -n "$PASS_SERVER" ] && [ "$PASS_SERVER" != "$TH_SERVER" ] \
+          && ev_now=$(tmux_server_id) && [ "$ev_now" != "$TH_SERVER" ]; then
           printf 'tmux-server-changed'
           return 0
         fi
@@ -206,7 +206,8 @@ evidence() {
         case $4 in
           '' | *[!0-9]*) ;;
           *)
-            if [ -n "$ev_now" ] && [ "$4" -lt "${ev_now#*.}" ]; then
+            if [ -n "$PASS_SERVER" ] && [ "$4" -lt "${PASS_SERVER#*.}" ] \
+              && ev_now=$(tmux_server_id) && [ "$4" -lt "${ev_now#*.}" ]; then
               printf 'tmux-server-changed'
               return 0
             fi
@@ -328,6 +329,11 @@ fi
 latest() {
   printf '%s\n' "$lastmap" | LW=$1 awk -F'\t' '($1 "") == ENVIRON["LW"] { sub(/^[^\t]*\t/, ""); print; exit }'
 }
+
+# The running tmux server, read once for the pass; a verdict it would
+# retire on is read again first, so a server restarted mid-pass never
+# retires a record the new server issued.
+PASS_SERVER=$(tmux_server_id) || PASS_SERVER=''
 
 set +f
 for path in "$dir"/*; do

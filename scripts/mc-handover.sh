@@ -366,11 +366,8 @@ pane_pin() {
   pp_rc=0
   tmux_pin_read pane "$1" || pp_rc=$?
   TID_SOCK=''
-  [ "$pp_rc" = 0 ] || return 0
-  pp_name=${TP_NOW#*/}
-  pp_name=${pp_name#*/}
-  tmux_valid_name "$pp_name" || return 0
-  printf '%s %s\n' "${TP_NOW%%/*}" "$pp_name"
+  [ "$pp_rc" = 0 ] && tmux_valid_name "$TP_NAME" || return 0
+  printf '%s %s\n' "$TP_SERVER" "$TP_NAME"
 }
 
 session_live() {

@@ -373,7 +373,8 @@ valid_death_handle() {
       # <session> <window>, then the issuing server (`<pid>.<start time>`)
       # and window name where the writer pinned them
       # (scripts/tmux-identity-lib.sh, not sourced here: every fixture
-      # install of this store would need it).
+      # install of this store would need it; keep this in step with its
+      # tmux_valid_server and tmux_valid_name).
       vdh_rest=${vdh_v#tmux-window }
       # shellcheck disable=SC2086 # the handle's tokens, split (globbing is off)
       set -- $vdh_rest
@@ -385,7 +386,7 @@ valid_death_handle() {
             *.*) ;;
             *) return 1 ;;
           esac
-          valid_tmux_token "$4" || return 1
+          [ "${#3}" -le 40 ] && valid_tmux_token "$4" || return 1
           ;;
         *) return 1 ;;
       esac

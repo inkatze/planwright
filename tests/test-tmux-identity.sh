@@ -14,6 +14,7 @@
 # format as `_`.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
+# shellcheck disable=SC2015,SC2016 # ok only prints, so a fail arm never follows a passing check; single-quoted $ text is format text the scripts spell, or a child script's own positionals
 set -u
 LC_ALL=C
 export LC_ALL
@@ -177,6 +178,49 @@ got=$(E /bin/bash -c '
 [ "$got" = "$work_pane" ] && ok "the pane listing finds a session's pane by its pid" \
   || fail "msp_pane_of read '$got', not $work_pane"
 
+# --- Every fixed format, as its script spells it, read from the fixture
+# server under LC_ALL=C: the id, the server and the name come back whole,
+# a window name with a space included.
+fidelity() { # <label> <script> <format as the script spells it> <output> <expected>
+  if ! grep -qF -- "$3" "$repo_root/scripts/$2"; then
+    fail "$1: scripts/$2 no longer uses the format this case checks: $3"
+  elif [ "$4" = "$5" ]; then
+    ok "$1 reads under LC_ALL=C as '$5'"
+  else
+    fail "$1: '$4', not '$5'"
+  fi
+}
+spaced=$("$T" new-window -d -P -F '#{window_id}' -t hub: -n 'my work' 'sleep 600')
+spaced_pid=$("$T" display-message -p -t "$spaced" '#{pane_pid}')
+fidelity "the panel's window listing" mc-panel.sh "'#{window_id} #{pid}.#{start_time} #{session_name}:#{window_name}'" \
+  "$(E tmux list-windows -a -F '#{window_id} #{pid}.#{start_time} #{session_name}:#{window_name}' | grep "^$spaced ")" \
+  "$spaced $srv hub:my work"
+fidelity "the stall probe" mc-stall.sh '"#{pane_pid} $TMUX_SERVER_FORMAT/#{window_id}/#{window_name}"' \
+  "$(E tmux display-message -p -t "$spaced" '#{pane_pid} #{pid}.#{start_time}/#{window_id}/#{window_name}')" \
+  "$spaced_pid $srv/$spaced/my work"
+fidelity "the cleanup's self lookup" fleet-cleanup.sh '"#{window_id} #{window_index} #{session_name}:#{window_name}"' \
+  "$(E tmux display-message -p -t "$spaced" '#{window_id} #{window_index} #{session_name}:#{window_name}')" \
+  "$spaced $("$T" display-message -p -t "$spaced" '#{window_index}') hub:my work"
+fidelity "the launcher's by-name listing" mission-control-launch.sh '"$TMUX_SERVER_FORMAT #{window_id} #{window_name}"' \
+  "$(E tmux list-windows -a -F '#{pid}.#{start_time} #{window_id} #{window_name}' | grep " $spaced ")" \
+  "$srv $spaced my work"
+fidelity "the death predicate's listing" fleet-death-evidence.sh "'#{window_id} #{window_name}'" \
+  "$(E tmux list-windows -a -F '#{window_id} #{window_name}' | grep "^$spaced ")" "$spaced my work"
+fidelity "the pane listing (mc-pane-answer)" mc-pane-answer.sh "'#{pane_id} #{pane_pid}'" \
+  "$(E tmux list-panes -a -F '#{pane_id} #{pane_pid}' | grep " $spaced_pid\$")" \
+  "$("$T" display-message -p -t "$spaced" '#{pane_id}') $spaced_pid"
+fidelity "the pane listing (mc-escalate)" mc-escalate.sh "'#{pane_id} #{pane_pid}'" \
+  "$(E tmux list-panes -a -F '#{pane_id} #{pane_pid}' | grep " $spaced_pid\$")" \
+  "$("$T" display-message -p -t "$spaced" '#{pane_id}') $spaced_pid"
+od_out=$(E tmux new-window -d -P -F '#{window_id} #{pid}.#{start_time} #{window_name}' -t hub: -n od-win 'sleep 600')
+fidelity "the offload rung's creation line" offload-dispatch.sh '"#{window_id} $TMUX_SERVER_FORMAT #{window_name}"' \
+  "${od_out#@* }" "$srv od-win"
+fdw_out=$(E tmux new-session -d -s fdw-sess -P -F '#{window_id} #{pid}.#{start_time} #{session_name}:#{window_name}' -n fdw-sess 'sleep 600')
+fidelity "the worktree seam's creation line" fleet-dispatch-worktree.sh '"#{window_id} $TMUX_SERVER_FORMAT #{session_name}:#{window_name}"' \
+  "${fdw_out#@* }" "$srv fdw-sess:fdw-sess"
+[ "$(E tmux show-window-options -t fdw-sess: automatic-rename)" = "automatic-rename off" ] \
+  && ok "a window named at creation keeps its name: automatic-rename is off" || fail "automatic-rename stays on for a named window"
+
 # --- The launcher's retire, against registry rows written as a launch
 # writes them.
 FH=$(E /bin/sh "$repo_root/scripts/fleet-state.sh" root) || fail "fixture: no fleet home"
@@ -203,7 +247,7 @@ ml retire mc-alpha-worker-stale
 case $ERR in *"not closing $hub"*) ok "and says so in one plain line" ;; *) fail "the stale retire said nothing: $ERR" ;; esac
 launch_row mc-alpha-worker-legacy "$hub"
 ml retire mc-alpha-worker-legacy
-[ "$RC" = 0 ] && alive "$hub" && ok "a row recorded without its server is never killed by its id" \
+[ "$RC" = 0 ] && alive "$hub" && [ ! -e "$reg/mc-alpha-worker-legacy" ] && ok "a row recorded without its server is never killed by its id, and its row is released" \
   || fail "the legacy retire: rc $RC, $OUT, $ERR"
 case $ERR in *"not closing $hub by id"*) ok "and says it closes only windows carrying the session's name" ;; *) fail "the legacy retire said nothing: $ERR" ;; esac
 mine=$("$T" new-window -d -P -F '#{window_id}' -t hub: -n mc-alpha-worker-live 'sleep 600')
@@ -227,6 +271,7 @@ register stale-pinned "tmux-window hub $hub $old_srv hub-window" || fail "fixtur
 register live-pinned "tmux-window hub $keep $srv keep-me" || fail "fixture: live-pinned not registered"
 register legacy-reused "tmux-window gone-session $hub" || fail "fixture: legacy-reused not registered"
 register legacy-old "tmux-window hub $hub" || fail "fixture: legacy-old not registered"
+register legacy-live "tmux-window hub $keep" || fail "fixture: legacy-live not registered"
 # legacy-old was registered before the server started: its registry row
 # carries an epoch from then.
 awk -F '\t' -v OFS='\t' '$2 == "legacy-old" { $1 = 1000 } { print }' "$FH/registry" >"$tmp/registry" \
@@ -241,6 +286,9 @@ printf '%s\n' "$sweep" | grep -qx "retire${TAB}legacy-old${TAB}tmux-server-chang
   && ok "the sweep drops an unpinned marker registered before the server started" || fail "legacy-old: $sweep"
 [ -e "$md/live-pinned" ] && ! printf '%s\n' "$sweep" | grep -q "live-pinned" \
   && ok "the sweep keeps a marker whose pin holds" || fail "live-pinned: $sweep"
+[ -e "$md/legacy-live" ] && ! printf '%s\n' "$sweep" | grep -q "legacy-live" \
+  && ok "the sweep keeps an unpinned marker live in its own session, registered since the server started" \
+  || fail "legacy-live: $sweep"
 alive "$hub" && alive "$keep" && ok "the sweep killed no window" || fail "a window died in the sweep"
 grep -q 'tmux-server-changed' "$FH/audit/"* 2>/dev/null && ok "each drop is in the audit trail" \
   || fail "no audit record of the drops under $FH/audit"

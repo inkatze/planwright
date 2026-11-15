@@ -479,7 +479,7 @@ if [ "$cmd" = classify ]; then
     exit 2
   fi
   if [ -n "$death_handle" ] && ! valid_death_handle "$death_handle"; then
-    err "refusing malformed --death-handle (none | process <pid> | tmux-window <session> <window>; a timeout or heartbeat age is not evidence, REQ-A1.7)"
+    err "refusing malformed --death-handle (none | process <pid> | tmux-window <session> <window> [<server> <name>]; a timeout or heartbeat age is not evidence, REQ-A1.7)"
     exit 2
   fi
   if [ -n "$worktree" ] && ! valid_abs_dir "$worktree"; then
