@@ -385,7 +385,7 @@ cat >"$stub_w/tmux" <<EOF
 case "\$1" in
   new-session)
     while [ \$# -gt 0 ]; do
-      [ "\$1" = -s ] && { printf '%s\t@42\n' "\$2"; exit 0; }
+      [ "\$1" = -s ] && { printf '@42 4242.1700000000 %s:%s\n' "\$2" "\$2"; exit 0; }
       shift
     done
     ;;

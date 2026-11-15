@@ -234,7 +234,7 @@ case "$class" in
         verdict unknown
       }
       if [ "$now" != "$server" ]; then
-        echo "fleet-death-evidence: $window was issued by an earlier tmux server" >&2
+        printf '%s\n' "fleet-death-evidence: $window was issued by an earlier tmux server" >&2
         verdict dead
       fi
       pr_rc=0
@@ -244,7 +244,7 @@ case "$class" in
           if [ "$TP_NOW" = "$server/$window/$wname" ]; then
             verdict alive
           fi
-          echo "fleet-death-evidence: $window no longer carries the server and name it was recorded with" >&2
+          printf '%s\n' "fleet-death-evidence: $window no longer carries the server and name it was recorded with" >&2
           verdict dead
           ;;
         1)
@@ -253,7 +253,7 @@ case "$class" in
           fi
           ;;
       esac
-      echo "fleet-death-evidence: tmux did not answer for $window — refusing to report death" >&2
+      printf '%s\n' "fleet-death-evidence: tmux did not answer for $window — refusing to report death" >&2
       verdict unknown
     fi
     # A window id (`@<n>`) names one window for the server's lifetime, wherever
