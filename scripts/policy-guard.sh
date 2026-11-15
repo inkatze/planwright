@@ -2332,7 +2332,8 @@ kickoff_beside_ok() {
 
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
-  local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0
+  local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0 kick_text=${P_CMD//\\"$NL"/}
+  kick_text=${kick_text//[\"\'\\]/}
   KICK_SEEN=0
   KICK_PASSED=0
   KICK_PIPED=0
@@ -2417,8 +2418,9 @@ classify_segments() {
     fi
     [ "$KICK_BESIDE" = 1 ] || kickoff_beside_ok "$si" || KICK_BESIDE=1
     # A HEAD move matters only to a later kickoff push, so the scan is skipped
-    # for a command that never names one and would otherwise refuse nothing.
-    case $P_CMD in
+    # for a command that never names one and would otherwise refuse nothing,
+    # read as kick_count reads it (quotes and line splices dropped).
+    case $kick_text in
       *[Kk][Ii][Cc][Kk][Oo][Ff][Ff]*) ! kickoff_head_moves || KICK_HEAD_MOVED=1 ;;
     esac
     if [ "${SWL[0]}" != 1 ]; then

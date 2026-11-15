@@ -166,6 +166,13 @@ for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwrig
   expect deny "[worker, task-1] a non-kickoff push after a git command that may move HEAD denies: $pre"
   reason_has 'not the kickoff for demo' "[worker, task-1] the non-kickoff refusal after a HEAD move says so: $pre"
 done
+# The shell drops the quotes and backslashes that split the name, so the
+# HEAD-move scan reads the command the way the shell will.
+for kp in '"$CLAUDE_PLUGIN_ROOT"/scripts/kick""off-spec-push.sh demo' '"$CLAUDE_PLUGIN_ROOT"/scripts/kick\off-spec-push.sh demo'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git switch planwright/demo/spec; $kp" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, kickoff-demo-a2] a split spelling of the push after a HEAD move denies: $kp"
+  reason_has 'cannot place it' "[worker, kickoff-demo-a2] the split-spelling refusal after a HEAD move names why: $kp"
+done
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git \$SUB planwright/demo/spec && $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
 expect deny "[worker, kickoff-demo-a2] a kickoff push after a git subcommand the guard cannot read denies"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git symbolic-ref HEAD && $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
