@@ -278,7 +278,7 @@ liveness() {
   set -- $1
   case ${1:-} in
     process) [ $# -eq 2 ] || return 0 ;;
-    tmux-window) [ $# -eq 3 ] || return 0 ;;
+    tmux-window) [ $# -eq 3 ] || [ $# -eq 5 ] || return 0 ;;
     *) return 0 ;;
   esac
   /bin/sh "$FDE" "$@" >/dev/null 2>&1 </dev/null
