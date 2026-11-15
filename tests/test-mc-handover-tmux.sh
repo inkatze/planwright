@@ -50,17 +50,39 @@ mkdir -p "$fleet/mission-control/alpha/leases"
 cat >"$tmp/bin/tmux" <<'FAKE'
 #!/bin/sh
 d=${FAKE_TMUX_DIR:?}
+sock=''
 if [ "$1" = -S ]; then
   sock=$2
   shift 2
   printf 'sock %s: ' "$sock" >>"$d/tmux.log"
 fi
-printf '%s\n' "$*" >>"$d/tmux.log"
+# The server's identity is tmux.server; every pane's window is op-window.
+srv=$(cat "$d/tmux.server" 2>/dev/null || echo 4242.1700000000)
+case $1 in
+  if-shell) printf '%s\n' "if-shell $4" >>"$d/tmux.log" ;;
+  *) printf '%s\n' "$*" >>"$d/tmux.log" ;;
+esac
 mkdir -p "$d/tmuxw"
 case $1 in
+  if-shell)
+    # if-shell -F -t <target> <condition> <command>: the command runs only
+    # when the target's server, id and window name match the condition's pin.
+    want=${5##*,}
+    want=${want%\}}
+    grep -qx -- "$4" "$d/tmux.panes" && [ "$want" = "$srv/$4/op-window" ] || exit 0
+    # shellcheck disable=SC2086 # the command's words
+    exec "$0" ${sock:+-S "$sock"} $6
+    ;;
   display-message)
     t=''
     for a in "$@"; do [ "$prev" = -t ] && t=$a; prev=$a; done
+    case $*:$t in
+      *'#{pid}.#{start_time}/#{pane_id}/#{window_name}'*:%*)
+        grep -qx -- "$t" "$d/tmux.panes" || { echo "can't find pane: $t" >&2; exit 1; }
+        printf '%s/%s/op-window\n' "$srv" "$t"
+        exit 0
+        ;;
+    esac
     case $t in
       %*) grep -qx -- "$t" "$d/tmux.panes" && printf '%s\n' "$t" && exit 0 ;;
       @*) if [ -e "$d/tmuxw/$t" ]; then
@@ -141,6 +163,10 @@ nf=$(col successor 2)
 grep -qx "predecessor-pane${tab}%7" "$fleet/mission-control/alpha/successor" \
   && grep -qx "predecessor-tmux${tab}$tmp/tmux.sock" "$fleet/mission-control/alpha/successor" \
   && ok "the predecessor's pane id and tmux socket are recorded" || fail "no recorded pane: $(cat "$fleet/mission-control/alpha/successor")"
+grep -qx "predecessor-tmux-server${tab}4242.1700000000" "$fleet/mission-control/alpha/successor" \
+  && grep -qx "predecessor-window${tab}op-window" "$fleet/mission-control/alpha/successor" \
+  && ok "and so are the tmux server that issued the pane id and its window's name" \
+  || fail "no recorded pane pin: $(cat "$fleet/mission-control/alpha/successor")"
 
 RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wait 1s
 [ "$RC" != 0 ] && ! grep -q kill-pane "$tmp/tmux.log" \
@@ -162,6 +188,36 @@ RUN_TMUX_PANE='%9' ho take --program alpha --session "$nf" --window 1s --exit-wa
   && grep -qx '%9' "$tmp/tmux.panes" && grep -qx '%3' "$tmp/tmux.panes" \
   && ok "exactly the recorded pane was killed, no other" || fail "tmux log: $(cat "$tmp/tmux.log")"
 holder_is "the name moved to the pane successor" "$nf"
+
+# A predecessor pane recorded under a tmux server that has since restarted:
+# its id now names whatever the new server put there, so the take leaves it
+# and says so in one line.
+fake_session
+self_g=$FAKE
+ho resume --program alpha --session op-g --pid "$self_g" --picture "$tmp/picture" --digest "$digest" --durable "$tmp/picture" --window 1s --exit-wait 2s
+[ "$RC" = 0 ] || fail "fixture: the second attended resume exited $RC: $OUT $ERR"
+printf "%s\n" "$(date +%s)" >"$fleet/mission-control/alpha/leases/op-g"
+ho write --program alpha --session op-g --picture "$tmp/picture" --digest "$digest"
+[ "$RC" = 0 ] || fail "fixture: the second handover file was not written: $OUT $ERR"
+led_g=$(col handover 3)
+RUN_TMUX_PANE='%3' ho launch --program alpha --brief "$tmp/brief.md" --handover
+[ "$RC" = 0 ] || fail "fixture: the second pane handover launch exited $RC: $OUT $ERR"
+ng=$(col successor 2)
+ho verify --program alpha --session "$ng" --picture "$tmp/picture" --digest "$digest" --ledger "$led_g"
+[ "$RC" = 0 ] || fail "fixture: the second successor's verify exited $RC: $OUT $ERR"
+kill "$self_g" 2>/dev/null
+printf '4242.1800000000\n' >"$tmp/tmux.server"
+: >"$tmp/tmux.log"
+RUN_TMUX_PANE='%9' ho take --program alpha --session "$ng" --window 1s --exit-wait 5s
+rm -f "$tmp/tmux.server"
+[ "$RC" = 0 ] && [ "$(col pane 2)" = '%3' ] && [ "$(col pane 3)" = left ] \
+  && ok "a take whose recorded pane id a restarted tmux server reissued reports it left" || fail "the stale-server take: $RC $OUT $ERR"
+case $(col pane 4) in *"tmux server started after it was recorded"*) ok "and says why in one line" ;; *) fail "the left pane gives no reason: $OUT" ;; esac
+! grep -q kill-pane "$tmp/tmux.log" && grep -qx '%3' "$tmp/tmux.panes" \
+  && ok "and kills nothing: the pane under that id survives" || fail "the stale-server take killed: $(cat "$tmp/tmux.log")"
+holder_is "the name still moved to that successor" "$ng"
+# The registry holder the cases below start from.
+nf=$ng
 
 # ---------------------------------------------------------------------------
 # Remote Control: a tmux successor starts Remote Control when its predecessor

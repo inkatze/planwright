@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.76.0](https://github.com/inkatze/planwright/compare/v0.75.2...v0.76.0) (2026-11-14)
+
+
+### Features
+
+* **fleet:** version, capacity and stop verbs for the remote channel ([#968](https://github.com/inkatze/planwright/issues/968)) ([33337f2](https://github.com/inkatze/planwright/commit/33337f214612710bf58690396d39bd77b19a0a99))
+* let an opted-in worker edit its own worktree's mise task files ([#940](https://github.com/inkatze/planwright/issues/940)) ([0707378](https://github.com/inkatze/planwright/commit/070737854b1c130010287bbdb8cd1770c460a75a))
+* **mission-control:** the ledger records a done-condition and checks its triggers ([#997](https://github.com/inkatze/planwright/issues/997)) ([662b1e5](https://github.com/inkatze/planwright/commit/662b1e5cfc32f863a7eb671ed0325042da9153ee))
+* raise an alarm when a program's draft PRs sit with no ready flip ([#992](https://github.com/inkatze/planwright/issues/992)) ([aa59f35](https://github.com/inkatze/planwright/commit/aa59f35740311d0d390e784cc75f0c68ab3cc84b))
+* **remote-worker-rung:** machine-local host registry ([#969](https://github.com/inkatze/planwright/issues/969)) ([c68b883](https://github.com/inkatze/planwright/commit/c68b8832a800b583a9f8340a8373aef7b1e013aa))
+
+
+### Bug Fixes
+
+* **guard:** approve read-only gh, install-root reads and in-worktree edits in worker sessions ([#948](https://github.com/inkatze/planwright/issues/948)) ([c7c4e07](https://github.com/inkatze/planwright/commit/c7c4e079e494e9969c6b4c5e8dfdbe9fdf10e7ee))
+* **spec-status:** count a task whose squash dropped its trailer, and keep trailers on merge ([#1060](https://github.com/inkatze/planwright/issues/1060)) ([4158d83](https://github.com/inkatze/planwright/commit/4158d83651d388dbf3788515082fe2bab4392466))
+* word walk-time changelog lines so they stay true after sign-off ([#993](https://github.com/inkatze/planwright/issues/993)) ([09c7b2a](https://github.com/inkatze/planwright/commit/09c7b2a2c79fa707895ec185a3604abf63e4c730))
+
 ## [0.75.2](https://github.com/inkatze/planwright/compare/v0.75.0...v0.75.2) (2026-11-13)
 
 

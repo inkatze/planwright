@@ -116,6 +116,11 @@ ml retire "../x"
 
 win=$(awk -F '\t' '$1 == "handle" { print $2 }' "$fleet/mission-control/sessions/$pane_name")
 [ -e "$tmp/tmux/$win" ] && ok "the tmux session has a live window ($win) before retire" || fail "the tmux launch left no window"
+grep -qx "server${TAB}4242.1700000000" "$fleet/mission-control/sessions/$pane_name" \
+  && ok "the tmux launch records the server that issued its window id" \
+  || fail "the tmux row records no server: $(cat "$fleet/mission-control/sessions/$pane_name")"
+grep -q "tmux-window stub $win 4242.1700000000 $pane_name" "$fleet/dispatch-markers/$win" \
+  && ok "the fleet marker pins the window to its server and name" || fail "the marker is unpinned: $(cat "$fleet/dispatch-markers/$win")"
 ro=$(reg_owner "$win")
 [ "$ro" = mission-control:alpha ] && ok "the fleet registry attributes the tmux session to mission-control:alpha" \
   || fail "the tmux session's fleet record owner is '$ro', not mission-control:alpha"
@@ -152,20 +157,33 @@ ml retire "$pane_name"
 [ ! -e "$tmp/tmux/$win" ] && ok "the retired session has no pane" || fail "the pane survived retire"
 [ ! -e "$fleet/mission-control/sessions/$pane_name" ] && ok "the retired tmux session has no row" || fail "the tmux row survived retire"
 
-# A row whose window id is live under another name (renamed, or reused by
-# another server): neither killed nor read as gone.
+# A row recorded without its tmux server whose window id is live under
+# another name (renamed, or reissued by a restarted server): never killed by
+# that id, and not the session's window, so its row is released.
 reuse_row="$fleet/mission-control/sessions/mc-alpha-ad-hoc-1111111111"
 printf 'other-session\n' >"$tmp/tmux/@99"
 printf 'format\t1\nname\tmc-alpha-ad-hoc-1111111111\nstate\tlaunched\nbackend\ttmux\nhandle\t@99\n' >"$reuse_row"
 : >"$tmp/tmux/calls"
 ml retire mc-alpha-ad-hoc-1111111111
-if [ "$RC" = 1 ] && [ -e "$tmp/tmux/@99" ] && ! grep -q '^kill-window' "$tmp/tmux/calls" \
-  && printf '%s\n' "$OUT" | grep -q 'held=pane'; then
-  ok "a window id live under another name is held and not killed"
+if [ "$RC" = 0 ] && [ -e "$tmp/tmux/@99" ] && ! grep -q 'kill-window' "$tmp/tmux/calls"; then
+  ok "a window id recorded without its server and live under another name is not killed"
 else
   fail "a window id under another name: exit $RC, $OUT"
 fi
+case $ERR in *"not closing @99 by id"*) ok "and the retire says it did not close it" ;; *) fail "the retire said nothing of @99: $ERR" ;; esac
+# A row pinned to an earlier tmux server, its id reissued to another window:
+# that window is not killed, and the row is released.
+printf 'format\t1\nname\tmc-alpha-ad-hoc-1111111111\nstate\tlaunched\nbackend\ttmux\nhandle\t@99\nserver\t4242.1600000000\n' >"$reuse_row"
+: >"$tmp/tmux/calls"
+ml retire mc-alpha-ad-hoc-1111111111
+if [ "$RC" = 0 ] && [ -e "$tmp/tmux/@99" ] && ! grep -q 'kill-window' "$tmp/tmux/calls" && [ ! -e "$reuse_row" ]; then
+  ok "a window id pinned to an earlier server is not killed, and its row is released"
+else
+  fail "a window id from an earlier server: exit $RC, $OUT, $ERR"
+fi
+case $ERR in *"not closing @99: that id now belongs to a tmux server started after it was recorded"*) ok "and the retire says why in one line" ;; *) fail "the pinned retire said nothing: $ERR" ;; esac
 rm -f "$tmp/tmux/@99"
+printf 'format\t1\nname\tmc-alpha-ad-hoc-1111111111\nstate\tlaunched\nbackend\ttmux\nhandle\t@99\n' >"$reuse_row"
 TMUX_NO_SERVER=1 ml retire mc-alpha-ad-hoc-1111111111
 [ "$RC" = 0 ] && [ ! -e "$reuse_row" ] && ok "with no tmux server the window is gone and retire completes" \
   || fail "a retire with no tmux server: exit $RC, $OUT"
