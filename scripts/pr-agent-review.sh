@@ -2,8 +2,9 @@
 # pr-agent-review.sh — run the PR-Agent image on one pull request, retrying a
 # try that ends with no review because the model's output was empty, did not
 # parse, or arrived truncated. The action exits 0 either way, so whether a
-# review landed is read from GitHub (a PR-Agent review comment created or
-# edited since the run began), and the cause from the try's log. Rate limits
+# review landed is read from GitHub (a PR-Agent review comment that is new, or
+# whose updated_at moved, against a snapshot taken before the first try), and
+# the cause from the try's log. Rate limits
 # back off longer on a budget of their own. Every retry first confirms the PR
 # head is still the one under review.
 #
@@ -16,9 +17,9 @@
 #   --retries: retries of a model-output failure (default 2, at most 99).
 #   --try-seconds: one try's bound (default 600). --deadline-seconds: no retry
 #   starts that could end past this many seconds from the start (default 2100).
-# Exit: 0 a review was posted, or PR-Agent posted none and logged neither a
-#   failure nor an error (its own skips are silent); 1 no review, the cause
-#   named; 2 usage.
+# Exit: 0 a review was posted, or the first try posted none and logged neither
+#   a failure nor an error (PR-Agent's own skips are silent); 1 no review, the
+#   cause named; 2 usage.
 
 set -u
 LC_ALL=C
@@ -36,8 +37,10 @@ READ_SLACK=60
 REVIEW_MARK='<!-- pr-agent:review:'
 OUTPUT_FAILURE='Empty content in model response|failure to parse AI prediction|failed schema validation|Failed to generate prediction|APIConnectionError'
 RATE_LIMIT='RateLimitError|rate limit exceeded|too many requests|"code": ?429'
-# loguru's level field, the second |-separated one, colour codes and all.
-LOGGED_ERROR='^[^|]*\|[^|]*(ERROR|CRITICAL)[^|]*\|'
+# A loguru line's level field, colour codes and all; anchored on the line's
+# timestamp so an echoed table row or a continuation line never matches.
+ansi="($(printf '\033')\\[[0-9;]*m)*"
+LOGGED_ERROR="^${ansi}[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+${ansi} \\| ${ansi}(ERROR|CRITICAL) "
 
 die_usage() {
   printf 'pr-agent-review: %s\n' "$1" >&2
@@ -92,10 +95,21 @@ fi
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || fail "could not resolve the script directory"
 work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pr-agent.XXXXXX") || fail "could not create a scratch directory"
-container=""
+container="" job=""
 # A cancel or the step limit kills this shell, not the container, which would
-# go on calling the model and could post after the run reported its end.
+# go on calling the model and could post after the run reported its end. The
+# docker client is ended first, so a container it was still creating cannot
+# appear after the removal; a second signal must not cut this short.
 cleanup() {
+  trap '' TERM INT
+  if [ -n "$job" ]; then
+    if [ -s "$work/client.pid" ]; then
+      kill "$(cat "$work/client.pid")" 2>/dev/null
+    else
+      kill "$job" 2>/dev/null
+    fi
+    wait "$job" 2>/dev/null
+  fi
   [ -z "$container" ] || docker rm -f "$container" >/dev/null 2>&1
   rm -rf "$work"
 }
@@ -145,19 +159,30 @@ review_posted() {
 }
 
 # try <n>: one PR-Agent run; sets verdict to posted, timeout, exited:<status>,
-# rate_limited, bad_output, errored or quiet.
+# rate_limited, bad_output, errored or quiet. container and job name the run
+# for the exit trap while it lasts.
 try() {
   local log="$work/try-$1.log" status
   container="pr-agent-$$-$1"
   # In the background, so a TERM or INT interrupts the wait at once: bash
-  # holds a trap until a foreground job ends.
+  # holds a trap until a foreground job ends. The wait yields tee's status,
+  # so the client's travels in a file, and the client's pid in another for
+  # the exit trap. bounded-run.sh is started itself, not through the bounded
+  # function, so that pid is the process that passes a TERM to docker.
   {
-    bounded "$try_seconds" docker run --rm --name "$container" "${docker_env[@]}" \
-      -v "$GITHUB_EVENT_PATH:/github/workflow/event.json:ro" "$image"
+    /bin/sh "$script_dir/bounded-run.sh" -k "$KILL_GRACE" "$try_seconds" \
+      docker run --rm --name "$container" "${docker_env[@]}" \
+      -v "$GITHUB_EVENT_PATH:/github/workflow/event.json:ro" "$image" &
+    printf '%s\n' "$!" >"$work/client.pid"
+    wait "$!"
     printf '%s\n' "$?" >"$work/status-$1"
   } 2>&1 | tee "$log" &
-  wait "$!"
-  status=$(cat "$work/status-$1")
+  job=$!
+  wait "$job"
+  job=""
+  rm -f "$work/client.pid"
+  status=$(cat "$work/status-$1" 2>/dev/null) || status=""
+  [ -n "$status" ] || fail "PR-Agent try $1 ended without recording its exit status; see its log above"
   # A killed or failed docker client can leave its container running.
   [ "$status" = 0 ] || docker rm -f "$container" >/dev/null 2>&1
   container=""
@@ -204,7 +229,8 @@ while :; do
       exit 0
       ;;
     quiet)
-      # PR-Agent's own skip would have shown on the first try.
+      # A skip depends on the event alone, so it shows on the first try; a
+      # quiet retry is a failure nobody logged.
       [ "$tries" = 1 ] \
         || fail "try $tries, a retry after a failed try, posted no review and logged no cause"
       printf '::notice title=PR-Agent posted no review::PR-Agent logged no failure or error, so this is its own skip (see its log above).\n'
@@ -237,7 +263,9 @@ while :; do
   [ $(($(date +%s) - started + wait_s + try_seconds + KILL_GRACE + READ_SLACK)) -le "$deadline" ] \
     || fail "no review after try $tries, and another try would run past the ${deadline}s deadline"
   sleep "$wait_s" &
-  wait "$!"
+  job=$!
+  wait "$job"
+  job=""
   same_head
   # The comment list can lag the post, so a try judged empty may have landed.
   if review_posted; then

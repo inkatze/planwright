@@ -78,7 +78,8 @@ jobs:
       # The wrapper retries a try whose model output came back empty or
       # unparseable (the action exits 0 then, with no review posted) up to
       # PR_AGENT_REVIEW_RETRIES times, rate limits on a budget of their own,
-      # and fails the step by name when no review lands.
+      # and fails the step by name when no review lands, unless the first try
+      # was PR-Agent's own silent skip.
       # AI_TIMEOUT below is a per-read inactivity limit, not a total
       # deadline, so each try has its own bound inside the wrapper. Keep the
       # step limit above the wrapper's deadline and below the job's: the
