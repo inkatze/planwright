@@ -27,6 +27,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TQ="$here/../scripts/tower-queue.sh"
 
 fail() {
@@ -420,16 +422,18 @@ run counts --now 15300 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "counts read a directory at the attention store's name as an absent store (exit $rc)"
 rmdir "$attn_store"
 mv "$tmp/attn.aside" "$attn_store"
-if [ "$(id -u)" != 0 ]; then
-  chmod 0000 "$attn_store"
+chmod 0000 "$attn_store"
+if hermetic_access_denied r "$attn_store"; then
   rc=0
   out=$(run knock --now 15400 2>/dev/null) || rc=$?
   [ "$rc" = 6 ] || fail "knock over an unreadable attention store did not fail the read (exit $rc, output '$out')"
   rc=0
   out=$(run counts --now 15400 2>/dev/null) || rc=$?
   [ "$rc" = 6 ] || fail "counts over an unreadable attention store did not fail the read (exit $rc, output '$out')"
-  chmod 0600 "$attn_store"
+else
+  echo "skip: unreadable attention store: the running user still reads $attn_store under mode 0000"
 fi
+chmod 0600 "$attn_store"
 [ "$(run knock --now 15500 | cut -f 4)" = 1 ] || fail "knock is wrong once the attention store is back: '$(run knock --now 15500)'"
 echo "ok: knock and counts refuse a redirected attention store and fail an unreadable one"
 

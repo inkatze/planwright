@@ -80,6 +80,13 @@
 #                    where `relaunch` resumes it
 #   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
 #                    and --tier-unit named, which `relaunch` resolves at
+#   spec-branch      the --spec-branch a launch named, which a recover reads
+#                    back; absent otherwise
+#   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
+#                    recover and a relaunch read back; absent otherwise
+#   worker-settings.json  the per-launch settings profile of an opted-in
+#                    worker (scripts/worker-settings-generate.sh), rewritten
+#                    by every launch, recover and relaunch of it
 #   tier_model / tier_effort / tier_reserved  a launch's per-launch tier
 #                    choice, which `relaunch` hands back as an override
 #   relaunch.lock    a relaunch's election, outside the release set
@@ -191,9 +198,18 @@
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
 #       [--tier-key <key>] [--tier-unit <unit>]
 #       [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved]
-#       [--cwd <dir>] [--foreground] [-- <extra claude args>...]
+#       [--cwd <dir>] [--mise-task-edit] [--spec-branch <branch>] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
-#       --profile (default worker). --tier-key and --tier-unit record the
+#       --profile (default worker). --mise-task-edit (worker profile only,
+#       off by default, recorded for a recover) opts the worker in to editing
+#       the mise task files inside its own worktree: the launch passes a
+#       profile generated for it (scripts/worker-settings-generate.sh) and the
+#       session record carries mise_task_edit=1 for the command guard
+#       (docs/permission-matcher-model.md, "The mise task-file opt-in").
+#       --spec-branch (worker profile only, recorded for a recover) names the
+#       spec PR branch the session record carries as spec_branch for the policy
+#       guard (docs/permission-matcher-model.md, "The spec-branch launch
+#       record"). --tier-key and --tier-unit record the
 #       allocation key and unit the caller resolved the tier in the extra
 #       args at, for `relaunch` to re-resolve it; --tier-model, --tier-effort and
 #       --tier-reserved record a per-launch tier choice and reservation the
@@ -482,7 +498,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--spec-branch <branch>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
@@ -2094,11 +2110,36 @@ cmd_launch() {
   mc_token_arg=''
   tier_key=''
   tier_unit=''
+  mise_edit=0
+  spec_branch=''
   tier_model=''
   tier_effort=''
   tier_reserved=''
   while [ $# -gt 0 ]; do
     case $1 in
+      --spec-branch)
+        # A launch argument and nothing else, like --mise-task-edit; the
+        # record writer holds the grammar and a refused one refuses the launch.
+        [ $# -ge 2 ] && [ -z "$spec_branch" ] || usage
+        case $2 in
+          planwright/flight/* | planwright/*/task-*) usage ;;
+          planwright/[a-z0-9]*/[a-z0-9]*) ;;
+          *) usage ;;
+        esac
+        case $2 in
+          *[!a-z0-9/.-]* | */ | *//* | *..* | *.lock) usage ;;
+        esac
+        spec_branch=$2
+        shift 2
+        ;;
+      --mise-task-edit)
+        # The opt-in is a launch argument and nothing else (never config, the
+        # checkout or the environment); a recover reads back what its launch
+        # recorded.
+        [ "$mise_edit" = 0 ] || usage
+        mise_edit=1
+        shift
+        ;;
       --tier-model | --tier-effort)
         [ $# -ge 2 ] || usage
         # The closed enums allocation-select.sh keeps; allocation-adapt.sh
@@ -2221,6 +2262,20 @@ cmd_launch() {
     profile=$(recorded_profile "$pf_dir" "$worker" recover) || exit 7
   fi
   [ -n "$profile" ] || profile=worker
+  if [ "$mise_edit" = 1 ] && [ "$profile" != worker ]; then
+    printf '%s\n' "$me: --mise-task-edit applies to the worker profile only" >&2
+    exit 2
+  fi
+  # A recover relaunches under the opt-in its launch recorded.
+  if [ -n "$resume_sid" ] && [ "$profile" = worker ]; then
+    pf_dir=$(worker_dir "$worker") || exit 2
+    [ "$(cat "$pf_dir/mise-task-edit" 2>/dev/null)" != 1 ] || mise_edit=1
+    [ -n "$spec_branch" ] || spec_branch=$(cat "$pf_dir/spec-branch" 2>/dev/null) || spec_branch=''
+  fi
+  if [ -n "$spec_branch" ] && [ "$profile" != worker ]; then
+    printf '%s\n' "$me: --spec-branch applies to the worker profile only" >&2
+    exit 2
+  fi
   launch_settings=$(profile_settings_path "$profile") || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
   # The preflight proves the worker command guard, the hook only the worker
@@ -2365,6 +2420,34 @@ cmd_launch() {
     }
   fi
 
+  # An opted-in worker passes a profile generated for this launch from the
+  # shipped one (scripts/worker-settings-generate.sh), written into its own
+  # state folder, so every launch and recover of it reads the same shape; any
+  # other launch passes the shipped profile itself. A profile the generator
+  # cannot produce refuses the launch rather than falling back.
+  if [ "$mise_edit" = 1 ]; then
+    if ! gen_out=$(/bin/sh "$script_dir/worker-settings-generate.sh" "$launch_settings" "${run_cwd:-$PWD}" "$dir/worker-settings.json" </dev/null); then
+      rm -f "$init_msg"
+      printf '%s\n' "$me: refusing to launch $worker: cannot generate its per-launch settings profile for --mise-task-edit" >&2
+      exit 7
+    fi
+    launch_settings=$gen_out
+  fi
+  # Recorded only once the launch can no longer be refused, so a refused fresh
+  # launch leaves a recover of the earlier session its own opt-in.
+  if [ -z "$resume_sid" ]; then
+    if [ "$mise_edit" = 1 ]; then
+      printf '1\n' >"$dir/mise-task-edit.tmp" && mv -f "$dir/mise-task-edit.tmp" "$dir/mise-task-edit" || exit 2
+    else
+      rm -f "$dir/mise-task-edit"
+    fi
+    if [ -n "$spec_branch" ]; then
+      printf '%s\n' "$spec_branch" >"$dir/spec-branch.tmp" && mv -f "$dir/spec-branch.tmp" "$dir/spec-branch" || exit 2
+    else
+      rm -f "$dir/spec-branch"
+    fi
+  fi
+
   # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
   # environment-hardening wrapper in front (it execs the rest, so the fifos
   # below still attach to the CLI), then -p with stream-json both ways,
@@ -2431,7 +2514,9 @@ cmd_launch() {
   # control launches from one checkout shares that worktree, and a final close
   # removes the root it recorded.
   unset PLANWRIGHT_WORKER_SESSION_RECORD
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch 2>/dev/null </dev/null) || session_record=''
+  mt_flag=''
+  [ "$mise_edit" = 0 ] || mt_flag=--mise-task-edit
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} ${spec_branch:+--spec-branch "$spec_branch"} 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
@@ -3095,6 +3180,13 @@ cmd_relaunch() {
   run_cwd=$rx_cwd
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
+  if [ "$rx_profile" = worker ] && [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" = 1 ]; then
+    rx_shipped=$(profile_settings_path worker) || exit 7
+    /bin/sh "$script_dir/worker-settings-generate.sh" "$rx_shipped" "$rx_cwd" "$dir/worker-settings.json" >/dev/null </dev/null || {
+      printf '%s\n' "$me: relaunch refused for $worker: its per-launch settings profile cannot be generated now" >&2
+      exit 7
+    }
+  fi
   rx_gp=0
   [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" || rx_gp=$?
   [ "$rx_gp" -eq 0 ] || exit "$rx_gp"

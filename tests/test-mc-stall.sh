@@ -17,6 +17,10 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd -P)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 
 failures=0
 fail() {
@@ -58,9 +62,10 @@ EOF
 # A live pid the fixtures can point at, and one that has exited.
 sleep 600 &
 live_pid=$!
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid"
+dead_pid=$(dead_owner_pid) || {
+  echo "FAIL: no PID is guaranteed dead on this host" >&2
+  exit 1
+}
 
 # The tmux stub: window @N exists while $TMUX_STUB/N.name holds its name;
 # its pane pid is in N.pid and its pane text in N.pane.
@@ -78,20 +83,24 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 n=${w#@}
+srv=$(cat "$TMUX_STUB/server" 2>/dev/null || echo 4242.1700000000)
 case $verb in
   ls) [ ! -e "$TMUX_STUB/down" ] ;;
   list-windows)
     for f in "$TMUX_STUB"/*.name; do
       [ -f "$f" ] || continue
       id=${f##*/}
-      printf '@%s\t%s\n' "${id%.name}" "$(cat "$f")"
+      printf '@%s %s\n' "${id%.name}" "$(cat "$f")"
     done
     exit 0
     ;;
   display-message)
+    [ -n "$w" ] || { printf '%s\n' "$srv"; exit 0; }
     [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
+    pin="$srv/$w/$(cat "$TMUX_STUB/$n.name")"
     case $fmt in
-      *window_name*) printf '%s\t%s\n' "$(cat "$TMUX_STUB/$n.name")" "$(cat "$TMUX_STUB/$n.pid")" ;;
+      '#{pane_pid} '*) printf '%s %s\n' "$(cat "$TMUX_STUB/$n.pid")" "$pin" ;;
+      *window_name*) printf '%s\n' "$pin" ;;
       *) cat "$TMUX_STUB/$n.pid" ;;
     esac
     ;;
@@ -110,10 +119,12 @@ export PATH TMUX_STUB
 reg="$fleet/mission-control/sessions"
 mkdir -p "$reg"
 # row <name> <kind> <backend> <handle> [<state> [<token>]]: a registry row as
-# the launcher writes it; a tmux row names its window after the session.
+# the launcher writes it; a tmux row names its window after the session. A
+# seventh argument is the tmux server the launch recorded with the window.
 row() {
   printf 'format\t1\nname\t%s\nstate\t%s\ntoken\t%s\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts\nbackend\t%s\nhandle\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
     "$1" "${5:-launched}" "${6:-t}" "$2" "$3" "$4" >"$reg/$1"
+  [ -z "${7:-}" ] || printf 'server\t%s\n' "$7" >>"$reg/$1"
   [ "$3" != tmux ] || printf '%s\n' "$1" >"$tmp/tmux/${4#@}.name"
 }
 # window <n> <pid> <pane file>: the stub's window @n's pane.
@@ -274,6 +285,25 @@ window 10 "$live_pid" "$tmp/idle.pane"
 printf 'someone-else\n' >"$tmp/tmux/10.name"
 stall classify --program alpha --now 1000 mc-alpha-worker-reused
 expect_state "a window id now naming another window reads unknown" mc-alpha-worker-reused unknown
+
+# A window recorded with the tmux server that issued its id: gone once that
+# server, the id's name or the id itself no longer hold, never live.
+row mc-alpha-worker-pinned worker tmux @20 launched t 4242.1700000000
+window 20 "$live_pid" "$tmp/idle.pane"
+stall classify --program alpha --now 1000 mc-alpha-worker-pinned
+case $(state_of mc-alpha-worker-pinned) in
+  dead | unknown | '') fail "a pinned window whose server, id and name hold read $(state_of mc-alpha-worker-pinned): $OUT" ;;
+  *) ok "a pinned window whose server, id and name hold reads alive ($(state_of mc-alpha-worker-pinned))" ;;
+esac
+row mc-alpha-worker-oldserver worker tmux @21 launched t 4242.1600000000
+window 21 "$live_pid" "$tmp/idle.pane"
+stall classify --program alpha --now 1000 mc-alpha-worker-oldserver
+expect_state "a window id an earlier tmux server issued reads dead, though the id is live now" mc-alpha-worker-oldserver dead
+row mc-alpha-worker-pinrenamed worker tmux @22 launched t 4242.1700000000
+window 22 "$live_pid" "$tmp/idle.pane"
+printf 'someone-else\n' >"$tmp/tmux/22.name"
+stall classify --program alpha --now 1000 mc-alpha-worker-pinrenamed
+expect_state "a pinned window id now naming another window reads dead" mc-alpha-worker-pinrenamed dead
 
 row mc-alpha-reviewer-nopid reviewer stream-json mc-alpha-reviewer-nopid
 sj mc-alpha-reviewer-nopid none
@@ -536,9 +566,14 @@ expect_err "the refusal names the format field" "format"
 stall classify --program gamma --now 1000 mc-alpha-worker-dead
 expect_rc "an unconfigured program is refused" 3
 chmod 300 "$reg"
-stall scan --program alpha --now 3000
-chmod 700 "$reg"
-expect_rc "an unreadable registry fails the scan rather than reading as empty" 1
+if hermetic_access_denied r "$reg"; then
+  stall scan --program alpha --now 3000
+  chmod 700 "$reg"
+  expect_rc "an unreadable registry fails the scan rather than reading as empty" 1
+else
+  chmod 700 "$reg"
+  echo "skip: the unreadable registry case (the mode does not deny reading here)"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

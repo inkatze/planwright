@@ -37,6 +37,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FF="$here/../scripts/fleet-fence.sh"
 TAB_=$(printf '\t')
 

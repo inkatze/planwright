@@ -40,6 +40,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 AD="$here/../scripts/allocation-adapt.sh"
 LEDGER="$here/../scripts/allocation-ledger.sh"
 FAL="$here/../scripts/fleet-allocate.sh"
@@ -421,15 +423,17 @@ run resolve wr:unit --key drain --step s1 --attempt 1 >/dev/null || fail "11i: s
 wr_file=$(run_led path wr:unit)
 chmod 444 "$wr_file"
 wr_err="$tmp/wr.err"
-if [ "$(id -u)" != 0 ]; then
+if hermetic_access_denied w "$wr_file"; then
   out=$(run resolve wr:unit --key drain --step s2 --attempt 1 2>"$wr_err") \
     || fail "11i: a failed append must not block the launch"
   [ -n "$(printf '%s\n' "$out" | field model)" ] || fail "11j: no allocation was emitted"
   [ -s "$wr_err" ] || fail "11k: a failed ledger append was silent — the one outcome REQ-F1.1 forbids"
   grep -q "ledger" "$wr_err" || fail "11k: the surfaced failure does not name the ledger"
+  echo "ok: a failed ledger append still resolves the launch and is surfaced, never silent"
+else
+  echo "skip: 11i failed ledger append: the running user still writes $wr_file under mode 444"
 fi
 chmod 644 "$wr_file"
-echo "ok: a failed ledger append still resolves the launch and is surfaced, never silent"
 
 # --- 12. the sparse governance mirror into fleet-audit (REQ-F1.1) ---------
 
