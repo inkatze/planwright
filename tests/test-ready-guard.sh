@@ -1022,6 +1022,12 @@ run_checks "checks (default): a skipped macOS job (a draft run) is not a pass" d
 # shellcheck disable=SC2016 # the matrix expression is the literal check name
 run_checks "checks (default): a stale skipped macOS shard beside green shards of the same job passes" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard 1/4)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:10:00Z"}'
+run_checks "checks (default): a macOS skip after a pass of the same job at the head passes" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:30:00Z"}'
+run_checks "checks (default): a macOS skip after a failure of the same job at the head denies" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:30:00Z"}' 'macos-smoke is FAILURE'
+run_checks "checks (default): a macOS pass after a skip of the same job passes" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}'
 run_checks "checks (default): a skipped non-macOS job still passes" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"docs","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"}'
 run_checks "checks (default): a queued re-run, its start the zero time gh reports, is the latest" deny \

@@ -406,6 +406,17 @@ cat >"$tmp/bin/tmux" <<'STUB'
 #!/bin/sh
 verb=$1
 shift
+# The server's identity is $TMUX_STUB/server. if-shell -F -t <window>
+# <condition> <command> runs its command only when the window's server, id
+# and name match the pin the condition carries.
+srv=$(cat "$TMUX_STUB/server" 2>/dev/null || echo 4242.1700000000)
+if [ "$verb" = if-shell ]; then
+  t=$3 want=${4##*,}
+  want=${want%\}}
+  [ -f "$TMUX_STUB/${t#@}.name" ] && [ "$want" = "$srv/$t/$(cat "$TMUX_STUB/${t#@}.name")" ] || exit 0
+  # shellcheck disable=SC2086 # the command's words
+  exec "$0" $5
+fi
 w='' fmt=''
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -421,13 +432,19 @@ case $verb in
     for f in "$TMUX_STUB"/*.name; do
       [ -f "$f" ] || continue
       id=${f##*/}
-      printf '@%s\t%s\n' "${id%.name}" "$(cat "$f")"
+      case $fmt in
+        '#{pid}.#{start_time} '*) printf '%s @%s %s\n' "$srv" "${id%.name}" "$(cat "$f")" ;;
+        *) printf '@%s %s\n' "${id%.name}" "$(cat "$f")" ;;
+      esac
     done
     ;;
   display-message)
+    [ -n "$w" ] || { printf '%s\n' "$srv"; exit 0; }
     [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
+    pin="$srv/$w/$(cat "$TMUX_STUB/$n.name")"
     case $fmt in
-      *window_name*) printf '%s\t%s\n' "$(cat "$TMUX_STUB/$n.name")" "$(cat "$TMUX_STUB/$n.pid")" ;;
+      '#{pane_pid} '*) printf '%s %s\n' "$(cat "$TMUX_STUB/$n.pid")" "$pin" ;;
+      *window_name*) printf '%s\n' "$pin" ;;
       *) cat "$TMUX_STUB/$n.pid" ;;
     esac
     ;;

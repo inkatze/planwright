@@ -92,8 +92,9 @@ THE WALK refuses, each failure one line:
     has none), or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
   - where macOS is required, a macos-suite or macos-smoke check that never
-    ran, was skipped (a draft head) or is not SUCCESS, named with the
-    ci-macos label that starts it, so the flip never rests on a draft run;
+    ran, was skipped with no run of it at that head (a draft head) or is
+    not SUCCESS, named with the ci-macos label that starts it, so the flip
+    never rests on a draft run;
   - an open thread, an unanswered finding, a failed guard, a truncated
     read;
   - any screenshot whose judgment is not ok, or recorded at another head;
