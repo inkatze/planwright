@@ -13,7 +13,7 @@ unset CDPATH
 
 prog=mc-wake
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh tmux-identity-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -23,6 +23,8 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh" || exit 2
 
 LISTED_MAX=20
 # The panel mod restamps its target's lease every minute; a `mod` target
@@ -247,15 +249,12 @@ send() {
     tmux)
       sd_mark=staged
       sd_handle=$(printf '%s' "$sd_row" | cut -f7)
-      sd_pin=''
       case $sd_handle in
         "tmux-window "*" "*)
-          read -r sd_s sd_win sd_srv sd_nm sd_more <<<"${sd_handle#tmux-window }"
-          sd_handle="$sd_s:$sd_win"
-          if [ -n "$sd_more" ] || { [ -n "$sd_srv" ] && [ -z "$sd_nm" ]; }; then
+          if tmux_handle_parse "${sd_handle#tmux-window }"; then
+            sd_handle="$TH_SESSION:$TH_WINDOW"
+          else
             sd_handle=""
-          elif [ -n "$sd_srv" ]; then
-            sd_pin=1
           fi
           ;;
         *) sd_handle="" ;;
@@ -264,13 +263,27 @@ send() {
         printf 'unreachable\t%s\tno valid tmux window recorded\n' "$sd_w"
         return 0
       fi
-      # A pinned window is typed into only while the server that issued its
-      # id still runs it under the name it was given: a restarted server
-      # reissues ids, and the window under one now may be another session's.
-      if [ -n "$sd_pin" ] && [ "$(/bin/sh "$script_dir/fleet-death-evidence.sh" tmux-window "$sd_s" "$sd_win" "$sd_srv" "$sd_nm" 2>/dev/null </dev/null)" != alive ]; then
-        printf 'unreachable\t%s\tthe recorded tmux window is not the one its server issued\n' "$sd_w"
-        return 0
+      # Typed into only while the window is still the recorded one: a
+      # restarted server reissues ids, and the window under one now may be
+      # another session's, mission control's own included. A pinned window
+      # must still come from its server under its name; one recorded before
+      # the pin must still sit in its recorded session.
+      if [ -n "$TH_SERVER" ]; then
+        sd_ev=$(/bin/sh "$script_dir/bounded-run.sh" 10 /bin/sh "$script_dir/fleet-death-evidence.sh" tmux-window "$TH_SESSION" "$TH_WINDOW" "$TH_SERVER" "$TH_NAME" 2>/dev/null </dev/null)
+      else
+        sd_ev=$(/bin/sh "$script_dir/bounded-run.sh" 10 /bin/sh "$script_dir/fleet-death-evidence.sh" tmux-window --in-session "$TH_SESSION" "$TH_WINDOW" 2>/dev/null </dev/null)
       fi
+      case $sd_ev in
+        alive) ;;
+        dead)
+          printf 'unreachable\t%s\tthe recorded tmux window is gone, or is no longer the one recorded\n' "$sd_w"
+          return 0
+          ;;
+        *)
+          printf 'unreachable\t%s\ttmux could not say whether the recorded window is still the one recorded\n' "$sd_w"
+          return 0
+          ;;
+      esac
       ;;
     *)
       printf 'unreachable\t%s\tbackend %s has no session relay\n' "$sd_w" "$(sanitize_printable "$sd_backend" -)"
