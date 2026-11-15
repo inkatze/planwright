@@ -224,6 +224,7 @@ if command -v make >/dev/null 2>&1; then
   bound_refusal "a HEAD move through make"
   bind_reset
 fi
+# shellcheck disable=SC2043 # a one-pass loop is the HEAD-move form under test
 (cd "$bind" && for b in planwright/demo/spec; do git switch -q "$b"; done)
 bound_refusal "a HEAD move in a loop"
 bind_reset
