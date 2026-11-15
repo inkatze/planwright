@@ -1141,7 +1141,7 @@ assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
 loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok \
 opens_operands opener_word_risky environ_word_risky environ_words_ok environ_redirect_ok \
 canon_dir_cached secret_lexical secret_glob secret_glob_word secret_home_glob lexical_path glob_any_risky secret_word_risky secret_path_risky \
-broad_dir broad_path_risky"
+broad_dir broad_canon broad_path_risky"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.

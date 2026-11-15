@@ -302,6 +302,34 @@ assert_defer "secrets: gh api --hostname" "gh api repos/o/r --hostname other.exa
 assert_defer "secrets: gh api --hostname=" "gh api repos/o/r --hostname=other.example.com"
 assert_defer "secrets: gh api --hostname before the endpoint" "gh api --hostname other.example.com repos/o/r"
 
+echo "### A cd outside the worktree: the target and the reads after it are screened"
+# The sandbox's install checkout is the worktree here, so the home, the notes
+# and the other directories below all lie outside it. cd takes canonical paths.
+SBXP=$(cd -P "$SANDBOX" && pwd -P)
+OWT=$SBXP/install/checkout
+HC=$SBXP/no-home
+TMPC=$(cd -P /tmp && pwd -P)
+mkdir -p "$SBXP/notes2" "$SBXP/outside2"
+: >"$SBXP/install/outside/f"
+ln -s "$HC/.ssh" "$SBXP/outside2/keys"
+assert_defer "secrets: cd into ~/.ssh, then cat a key" "cd $HC/.ssh; cat id_rsa" Bash "$OWT"
+assert_defer "secrets: cd into ~/.ssh, then ls" "cd $HC/.ssh; ls" Bash "$OWT"
+assert_defer "secrets: cd home, then ls .ssh" "cd $HC; ls .ssh" Bash "$OWT"
+assert_defer "secrets: cd home, then grep -r ." "cd $HC; grep -r BEGIN ." Bash "$OWT"
+assert_defer "secrets: cd outside, then ls \$HOME/.ssh" "cd $SBXP/notes; ls \$HOME/.ssh" Bash "$OWT"
+assert_defer "secrets: cd outside, then grep -r \$HOME" "cd $SBXP/notes; grep -r BEGIN \$HOME" Bash "$OWT"
+assert_defer "secrets: cd outside, then grep -r the home by path" "cd $SBXP/notes; grep -r BEGIN $HC" Bash "$OWT"
+assert_defer "secrets: cd /, then ls another home's .ssh" "cd /; ls home/someone/.ssh" Bash "$OWT"
+assert_defer "secrets: cd outside, then ls a link to .ssh there" "cd $SBXP/outside2; ls keys" Bash "$OWT"
+assert_defer "secrets: cd outside, then cat a key through a link there" "cd $SBXP/outside2; cat keys/id_rsa" Bash "$OWT"
+assert_defer "secrets: cd outside, then grep -R following a link there" "cd $SBXP/outside2; grep -R BEGIN ." Bash "$OWT"
+assert_defer "secrets: cd outside, then cd home, then ls" "cd $SBXP/notes; cd $HC; ls" Bash "$OWT"
+assert_allow "secrets: cd outside, then cat a plain note" "cd $SBXP/notes; cat plain.txt" Bash "$OWT"
+assert_allow "secrets: cd outside, then ls" "cd $SBXP/notes; ls" Bash "$OWT"
+assert_allow "secrets: cd outside, then cat and ls" "cd $SBXP/install/outside; cat f; ls" Bash "$OWT"
+assert_allow "secrets: cd to another outside directory, then ls" "cd $SBXP/notes2; ls" Bash "$OWT"
+assert_allow "secrets: cd /tmp, then ls" "cd $TMPC; ls" Bash "$OWT"
+
 echo "### What the worker workflow needs stays allowed"
 assert_allow "secrets: a read in the worktree" "cat scripts/ok.sh"
 assert_allow "secrets: a plain note by absolute path" "cat $SANDBOX/notes/plain.txt"

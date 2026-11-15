@@ -2448,6 +2448,19 @@ broad_dir() {
   secret_lexical "$x"
 }
 
+# broad_canon <canonical-dir>: broad_dir, or the account's own home as its
+# canonical path (macOS's /tmp is /private/tmp).
+broad_canon() {
+  broad_dir "$1" && return 0
+  canon_dir_cached "$HOME"
+  if [ -n "$CANON" ]; then
+    case $1 in
+      "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
+    esac
+  fi
+  return 1
+}
+
 broad_path_risky() {
   local p=$1 abs out root
   while [ "${p#*//}" != "$p" ]; do
@@ -2487,16 +2500,9 @@ broad_path_risky() {
   canon_dir_cached "$out"
   out=$CANON
   [ -n "$out" ] || return 1
-  broad_dir "$out" && return 0
-  # The account's own home as its canonical path (macOS's /tmp is /private/tmp).
-  canon_dir_cached "$HOME"
-  if [ -n "$CANON" ]; then
-    case $out in
-      "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
-    esac
-  fi
+  broad_canon "$out" && return 0
   # A parent of the worktree holds its siblings and, further up, the home.
-  root=$(repo_root_of "$HOOK_CWD") || return 0
+  root=$(repo_root_of "${HOOK_PAYLOAD_CWD:-$HOOK_CWD}") || return 0
   [ "$out" != "$root" ] || return 1
   case $root/ in
     "$out"/*) return 0 ;;

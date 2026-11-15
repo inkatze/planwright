@@ -4779,6 +4779,19 @@ broad_dir() {
   secret_lexical "$x"
 }
 
+# broad_canon <canonical-dir>: broad_dir, or the account's own home as its
+# canonical path (macOS's /tmp is /private/tmp).
+broad_canon() {
+  broad_dir "$1" && return 0
+  canon_dir_cached "$HOME"
+  if [ -n "$CANON" ]; then
+    case $1 in
+      "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
+    esac
+  fi
+  return 1
+}
+
 # broad_path_risky <word>: the operand names a directory broad_dir flags,
 # written as is, through `~` or `$HOME`, with dot components, or through a
 # symlink.
@@ -4821,16 +4834,10 @@ broad_path_risky() {
   canon_dir_cached "$out"
   out=$CANON
   [ -n "$out" ] || return 1
-  broad_dir "$out" && return 0
-  # The account's own home as its canonical path (macOS's /tmp is /private/tmp).
-  canon_dir_cached "$HOME"
-  if [ -n "$CANON" ]; then
-    case $out in
-      "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
-    esac
-  fi
+  broad_canon "$out" && return 0
   # A parent of the worktree holds its siblings and, further up, the home.
-  root=$(repo_root_of "$HOOK_CWD") || return 0
+  # The payload's cwd names the worktree while HOOK_CWD follows a cd out of it.
+  root=$(repo_root_of "${HOOK_PAYLOAD_CWD:-$HOOK_CWD}") || return 0
   [ "$out" != "$root" ] || return 1
   case $root/ in
     "$out"/*) return 0 ;;
@@ -6146,6 +6153,7 @@ cd_target_ok() {
   fi
   cd_outside_ok 1 || return 1
   PENDING_OUT=1
+  PENDING_OUT_DIR=$OUT_DIR
   return 0
 }
 
@@ -6155,7 +6163,9 @@ cd_target_ok() {
 # held to the pure-read verbs (outside_cwd_verb) and to no file redirect: a
 # relative path in a write, a trusted script or a git command would otherwise
 # be judged against a directory the command is no longer in. Top level only,
-# an absolute canonical operand, never under /proc, /sys or /dev.
+# an absolute canonical operand, never under /proc, /sys or /dev, and never a
+# secret or broad directory, since any read there may reach a key. The
+# directory is left in OUT_DIR.
 cd_outside_ok() {
   local n=$1 t=${cw[$1]-} canon
   [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] && [ "${ctl_depth:-1}" -eq 0 ] || return 1
@@ -6176,6 +6186,9 @@ cd_outside_ok() {
   case $canon in
     /proc | /proc/* | /sys | /sys/* | /dev | /dev/*) return 1 ;;
   esac
+  secret_path_risky "$canon" 0 && return 1
+  broad_canon "$canon" && return 1
+  OUT_DIR=$canon
   return 0
 }
 
@@ -6583,9 +6596,26 @@ version_tool() {
   return 1
 }
 
+# read_screens_ok: the current simple command's operands, read from HOOK_CWD,
+# reach no environ file, secret or broad directory.
+read_screens_ok() {
+  if opens_operands "${cw[0]}"; then
+    environ_words_ok || return 1
+  elif lists_operands "${cw[0]}"; then
+    secret_words_ok || return 1
+  fi
+  if recursive_reader; then
+    broad_words_ok || return 1
+  fi
+  if link_follower; then
+    follow_links_ok || return 1
+  fi
+  return 0
+}
+
 # verify_known_simple: the enumerated known-safe rules for one simple command.
 verify_known_simple() {
-  local i verb si sc_ok=0
+  local i verb si sc_ok=0 here rc=0
   # The scoped read mode takes no substitution and no redirect at all; a
   # lead cd's chain still in the running notes whether this segment would
   # pass it.
@@ -6690,21 +6720,17 @@ verify_known_simple() {
   fi
   if [ "$OUTSIDE_CD" = 1 ]; then
     [ "$cwn" -ge 1 ] && outside_cwd_verb "$verb" || return 1
-    opens_operands "$verb" && { environ_words_ok || return 1; }
+    [ -n "$OUTSIDE_DIR" ] || return 1
+    # Relative operands name paths under the directory the cd landed in.
+    here=$HOOK_CWD
+    HOOK_CWD=$OUTSIDE_DIR
+    read_screens_ok || rc=1
+    HOOK_CWD=$here
+    [ "$rc" = 0 ] || return 1
     subst_words_ok || return 1
     return 0
   fi
-  if opens_operands "$verb"; then
-    environ_words_ok || return 1
-  elif lists_operands "$verb"; then
-    secret_words_ok || return 1
-  fi
-  if recursive_reader; then
-    broad_words_ok || return 1
-  fi
-  if link_follower; then
-    follow_links_ok || return 1
-  fi
+  read_screens_ok || return 1
   subst_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
   case $verb in
@@ -6794,6 +6820,7 @@ verify_tokens() {
     PENDING_ASSIGN_S=0
     PENDING_CD=''
     PENDING_OUT=0
+    PENDING_OUT_DIR=''
     SEG_SCOPED=0
     verify_simple || return 1
     [ "$SEG_SCOPED" = 1 ] || SCOPED_CHAIN=0
@@ -6802,7 +6829,10 @@ verify_tokens() {
     if [ "$PENDING_OUT" = 1 ]; then
       [ "$ctl_depth" -eq 0 ] || return 1
       case $seg_open:$close in
-        ':;' | ';:;') OUTSIDE_CD=1 ;;
+        ':;' | ';:;')
+          OUTSIDE_CD=1
+          OUTSIDE_DIR=$PENDING_OUT_DIR
+          ;;
         *) return 1 ;;
       esac
     fi
@@ -7082,7 +7112,8 @@ analyze_command() {
   local VAR_C=0 LW_N=0
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_ASSIGN_S=0 PENDING_CD='' PREFIXED=0
-  local OUTSIDE_CD=${OUTSIDE_CD:-0} PENDING_OUT=0
+  local OUTSIDE_CD=${OUTSIDE_CD:-0} PENDING_OUT=0 PENDING_OUT_DIR='' OUT_DIR=''
+  local OUTSIDE_DIR=${OUTSIDE_DIR-}
   local SCOPED_RD=${SCOPED_RD:-0} SCOPED_ALT=${SCOPED_ALT:-}
   # Under the scratch arm, `$TMPDIR` is the recorded scratch root: the
   # launcher exported it, and assign_name_ok refuses re-pointing it. A
