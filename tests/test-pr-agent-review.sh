@@ -28,7 +28,11 @@ command -v jq >/dev/null 2>&1 || {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 stub="$tmp/bin"
-mkdir -p "$stub" "$tmp/scripts" "$tmp/real/scripts"
+mkdir -p "$stub" "$tmp/scripts" "$tmp/real/scripts" "$tmp/runner-temp"
+# The wrapper makes its scratch under RUNNER_TEMP, which a CI job sets to a
+# directory this test may not write; every case gets one it owns.
+RUNNER_TEMP="$tmp/runner-temp"
+export RUNNER_TEMP
 # One copy beside a stub bounded-run.sh, whose bound fires on request, and
 # one beside the real helper.
 SCRIPT="$tmp/scripts/pr-agent-review.sh"
@@ -636,7 +640,7 @@ RC=0
 OUT=$(env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
   "CONFIG__MODEL=m" "OPENROUTER__KEY=sekrit" "GITHUB_ACTION_CONFIG__PR_ACTIONS=x" "PR_REVIEWER__NUM_MAX_FINDINGS=3" \
   GITHUB_TOKEN=tok-value-9z "$SCRIPT" --image img@sha256:0 --pr 7 2>&1) || RC=$?
-args=$(cat "$T/docker-run.log")
+if [ -f "$T/docker-run.log" ]; then args=$(cat "$T/docker-run.log"); else args="(docker run never ran)"; fi
 missing=""
 for want in "-e CONFIG__MODEL" "-e OPENROUTER__KEY" "-e GITHUB_ACTION_CONFIG__PR_ACTIONS" \
   "-e PR_REVIEWER__NUM_MAX_FINDINGS" "-e GITHUB_TOKEN" "-e GITHUB_EVENT_PATH=/github/workflow/event.json" \
