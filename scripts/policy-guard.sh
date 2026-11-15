@@ -2172,15 +2172,15 @@ kickoff_amendment_scope() {
 
 # kickoff_scope_unshared <spec> <dir> — 0 when no other spec's kickoff can share
 # the amendment reading of the session's scope (KAS_N set for <spec>). 1, with
-# KSS_WHY set, when it may: a bundle named for the scope's whole tail (that
-# spec's own kickoff scope) or <spec>-a<n> (when the rest of the scope reads as
-# one of its amendment kickoffs) lies under the spec root, in the worktree's
-# view or the primary checkout's, or a root cannot be resolved. KSS_FIX is the
-# remedy for that cause.
+# KSS_WHY set, when it may: a bundle lies under the spec root, in the
+# worktree's view or the primary checkout's, named for the scope's whole tail
+# (that spec's own kickoff scope), for <spec>-a<n> or for a shorter spec <spec>
+# extends with hyphens (when the scope also reads as one of that spec's
+# amendment kickoffs); or a root cannot be resolved. KSS_FIX is the remedy.
 KSS_WHY=''
 KSS_FIX=''
 kickoff_scope_unshared() {
-  local spec=$1 dir=$2 root rc view n=$KAS_N x tail=${PLANWRIGHT_WORKER_SCOPE#kickoff-} sub_n
+  local spec=$1 dir=$2 root rc view n=$KAS_N tail=${PLANWRIGHT_WORKER_SCOPE#kickoff-} sub_n pre=$1 shorter='' p
   KSS_WHY=''
   KSS_FIX=''
   [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-root.sh" ] || {
@@ -2190,6 +2190,11 @@ kickoff_scope_unshared() {
   }
   kickoff_amendment_scope "$spec-a$n"
   sub_n=$KAS_N
+  while [ "${pre#*-}" != "$pre" ]; do
+    pre=${pre%-*}
+    kickoff_amendment_scope "$pre"
+    [ -z "$KAS_N" ] || shorter="$shorter $pre:$KAS_N"
+  done
   KAS_N=$n
   policy_root "$dir"
   for view in '' --primary; do
@@ -2221,6 +2226,12 @@ kickoff_scope_unshared() {
       KSS_WHY="a spec named $spec-a$n exists, whose amendment $sub_n kickoff that scope is"
       return 1
     fi
+    for p in $shorter; do
+      if [ -d "$root/${p%%:*}" ]; then
+        KSS_WHY="a spec named ${p%%:*} exists, whose amendment ${p#*:} kickoff that scope is"
+        return 1
+      fi
+    done
   done
   return 0
 }

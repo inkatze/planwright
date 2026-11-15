@@ -252,6 +252,26 @@ for scope in kickoff-demo-a2 kickoff-demo-a2-a3 kickoff-demo-a2b; do
   reason_has "reads as amendment 2's kickoff for demo, but a spec named demo-a2b? exists" "[worker, $scope] the collision refusal names the other spec"
   reason_has 'Relaunch the kickoff with a scope no other spec' "[worker, $scope] the collision refusal's remedy is a fresh scope"
 done
+# A scope that also reads as an amendment kickoff of a shorter spec: demo's
+# amendment 1 with the word a2 is also demo-a1's amendment 2.
+AMEND_PRE="$SANDBOX/amend-pre"
+gitq clone "$ORIGIN" "$AMEND_PRE"
+gitq -C "$AMEND_PRE" switch -c planwright/demo-a1/amendment-2 main
+mkdir -p "$AMEND_PRE/specs/demo-a1"
+KICK_PRE='"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo-a1'
+for scope in kickoff-demo-a1-a2 kickoff-demo-a1-a2b; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICK_PRE" "$AMEND_PRE" "$AMEND_PRE"
+  expect defer "[worker, $scope] with no shorter spec it could belong to, the amendment kickoff push defers"
+done
+mkdir -p "$AMEND_PRE/specs/demo"
+for scope in kickoff-demo-a1-a2 kickoff-demo-a1-a2b; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICK_PRE" "$AMEND_PRE" "$AMEND_PRE"
+  expect deny "[worker, $scope] a scope a shorter spec's amendment kickoff can share denies"
+  reason_has "reads as amendment 2's kickoff for demo-a1, but a spec named demo exists, whose amendment 1 kickoff that scope is" "[worker, $scope] the shorter-spec collision names that spec and its amendment"
+  reason_has 'Relaunch the kickoff with a scope no other spec' "[worker, $scope] the shorter-spec collision's remedy is a fresh scope"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a1-a2-x pg worker "$KICK_PRE" "$AMEND_PRE" "$AMEND_PRE"
+expect defer "[worker, kickoff-demo-a1-a2-x] a scope outside the shorter spec's amendment grammar still defers"
 # A colliding bundle the worktree does not hold but the primary checkout does.
 mkdir -p "$MC_PRIMARY/specs/mission-control-a16-delta"
 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
