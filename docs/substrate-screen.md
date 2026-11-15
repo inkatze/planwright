@@ -192,13 +192,13 @@ profiles record them:
 | Per-call latency budget | none | none of its own (a library inherits its caller's) | no regression against shell |
 | Auditability weight | low | medium | high |
 
-- **Decided tiers.** The library and skill-called pair's bake-off has a
-  committed report for glibc Linux only; its macOS and musl reports are
+- **Decided tiers.** The library and skill-called pair's bake-off has
+  committed reports for glibc Linux and macOS; its musl report is
   outstanding (the bake-off's entry under `## Awaiting input`), and this
   page counts a platform with no committed report as not measured yet. The
-  hook tier's bake-off, which comes before this screen in task order, is
-  in the same state: its glibc Linux report is committed and its macOS and
-  musl reports are outstanding. Neither tier is
+  hook tier's bake-off, which comes before this screen in task order, has
+  its glibc Linux report committed and its macOS and musl reports
+  outstanding. Neither tier is
   therefore fully decided, and the comparison below does not depend on
   it: against the pair dev-check differs on two hard axes, against hook
   on all three, and with no tier decided at all the rule's "differs from
