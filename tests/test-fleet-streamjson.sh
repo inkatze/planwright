@@ -48,6 +48,10 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 SJ="$here/../scripts/fleet-streamjson.sh"
 FA="$here/../scripts/fleet-attention.sh"
 # shellcheck source=tests/lib/fixture-procs.sh
@@ -607,11 +611,15 @@ rm -f "$wdir7/recover.lock"
 sleep 60 &
 alive_pid=$!
 printf '%s\n' "$alive_pid" >"$wdir7/worker.pid"
+# The crashed worker's start record is for another process: the planted live
+# one gets its own, or its pid would read as a reissued number.
+/bin/sh "$here/../scripts/fleet-death-evidence.sh" start "$alive_pid" >"$wdir7/worker.start" \
+  || fail "c7: the planted worker's start must be readable"
 senv "$home" "$rec" -- recover sjw7 --foreground >/dev/null 2>&1
 [ $? -eq 3 ] || fail "c7: recovery over a live worker must be refused (exit 3)"
 kill -9 "$alive_pid" 2>/dev/null
 wait "$alive_pid" 2>/dev/null
-rm -f "$wdir7/worker.pid"
+rm -f "$wdir7/worker.pid" "$wdir7/worker.start"
 # The real recovery: the relaunch argv carries --resume <sid>; the re-issued
 # duplicate request dedups across the boundary; the alarm re-arms.
 ev_resume="$tmp/ev7r"
@@ -974,6 +982,39 @@ for kind in tower mission-control; do
   [ $? -eq 2 ] || fail "c9m: --mise-task-edit with the $kind profile must be refused (exit 2)"
   [ ! -s "$rec/argv" ] || fail "c9m: the refused $kind opt-in must never spawn the worker"
 done
+# c9n (spec-branch launch record): --spec-branch reaches the session record
+#    and the worker's state folder, a recover reads it back, a plain launch
+#    carries none, and a unit branch, a malformed name or a non-worker profile
+#    is refused before the worker spawns.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9n1 execution-backends:4 --prompt-file "$tmp/prompt9" --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground \
+  || fail "c9n: a launch with --spec-branch exited non-zero"
+[ "$(cat "$home/streamjson/sjw9n1/spec-branch" 2>/dev/null)" = planwright/demo/amendment-1 ] \
+  || fail "c9n: the launch must record the spec branch for its recover"
+grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || fail "c9n: the session record must carry spec_branch"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9n1 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || fail "c9n: a recover must rewrite the session record with the spec branch"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9n2 execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/mwt" --foreground \
+  || fail "c9n: a plain launch exited non-zero"
+{ [ ! -e "$home/streamjson/sjw9n2/spec-branch" ] && ! grep -q '^spec_branch=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
+  || fail "c9n: a plain launch must carry no spec branch"
+for bad in main planwright/flight/x-0123abcd planwright/demo/task-2 planwright/demo/../x; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch sjw9n3 execution-backends:4 --prompt-file "$tmp/prompt9" --spec-branch "$bad" --foreground >/dev/null 2>&1
+  [ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9n: --spec-branch $bad must be refused before the worker spawns"
+done
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9n4 mission-control:3 --prompt-file "$tmp/prompt9" --profile tower --spec-branch planwright/demo/amendment-1 --foreground >/dev/null 2>&1
+[ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9n: --spec-branch with the tower profile must be refused"
 # A worktree path the literal denies cannot name safely refuses the launch.
 mkdir -p "$tmp/we*ird"
 git init -q "$tmp/we*ird"
@@ -1139,6 +1180,8 @@ echo "ok: c39 the worker's TMPDIR is its own short scratch root outside .claude,
 h39r=$(cd "$tmp/h39" && pwd -P)
 mkdir -p "$tmp/u39" "$tmp/out39/keep" "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro/deep"
 chmod 500 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"
+ro39a=0
+if hermetic_access_denied w "$h39r/scratch/$(printf 'a%.0s' $(seq 40))/ro"; then ro39a=1; fi
 ln -s "$tmp/out39" "$h39r/scratch/$(printf 'b%.0s' $(seq 40))"
 release39() {
   printf '%s\n' "$1" >"$tmp/u39/scratch-root"
@@ -1157,9 +1200,13 @@ make39() {
 new39=$(make39 "$(printf 'a%.0s' $(seq 40))") || fail "c39: no recorded root to release"
 mkdir -p "$new39/ro/deep" "$base39/0123456789abcdef/keep"
 chmod 500 "$new39/ro"
+ro39b=0
+if hermetic_access_denied w "$new39/ro"; then ro39b=1; fi
 ! release39 "$base39/0123456789abcdef" && [ -d "$base39/0123456789abcdef/keep" ] \
   || fail "c39: the final close removed a root the fleet home does not record"
-if ! release39 "$new39" || [ -e "$new39" ] || [ -e "$tmp/u39/scratch-root" ] \
+if [ "$ro39b" -eq 0 ]; then
+  echo "skip: c39: the running user still writes $new39/ro under mode 500, so no read-only directory is held"
+elif ! release39 "$new39" || [ -e "$new39" ] || [ -e "$tmp/u39/scratch-root" ] \
   || grep -rqxF "$new39" "$h39r/scratch"; then
   fail "c39: the final close did not remove a recorded root holding a read-only directory, and its record"
 fi
@@ -1172,9 +1219,13 @@ done
   || fail "c39: a refused pointer removed something"
 release39 "$h39r/scratch/$(printf 'b%.0s' $(seq 40))" >/dev/null 2>&1
 [ -d "$tmp/out39/keep" ] || fail "c39: the final close followed a symlinked root out of the fleet home"
-release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
-  && [ ! -e "$tmp/u39/scratch-root" ] \
-  || fail "c39: the final close did not remove a root holding a read-only directory"
+if [ "$ro39a" -eq 0 ]; then
+  echo "skip: c39: the running user still writes the scratch root's ro directory under mode 500, so no read-only directory is held"
+else
+  release39 "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" && [ ! -e "$h39r/scratch/$(printf 'a%.0s' $(seq 40))" ] \
+    && [ ! -e "$tmp/u39/scratch-root" ] \
+    || fail "c39: the final close did not remove a root holding a read-only directory"
+fi
 sess39="$h39r/scratch/$(printf 'c%.0s' $(seq 40))"
 mkdir -p "$sess39/$(printf 'd%.0s' $(seq 40))/f" "$sess39/$(printf 'e%.0s' $(seq 40))/f"
 release39 "$sess39/$(printf 'd%.0s' $(seq 40))" && [ ! -e "$sess39/$(printf 'd%.0s' $(seq 40))" ] \
@@ -1938,21 +1989,19 @@ echo "ok: c28 launch refuses a symlinked state directory (REQ-B1.3)"
 #     from "could not read" by awk's exit code, and busybox awk does not
 #     separate those, so readability has to be checked rather than assumed.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: c29 unreadable-journal injection needs a non-root user (running as root)"
-else
-  home="$tmp/h29"
-  rec="$tmp/r29"
-  mkdir -p "$rec"
-  ev29="$tmp/ev29"
-  printf '%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_result" >"$ev29"
-  printf 'unreadable journal\n' >"$tmp/prompt29"
-  senv "$home" "$rec" SHIM_EVENTS="$ev29" -- \
-    launch sjw29 execution-backends:4 --prompt-file "$tmp/prompt29" --foreground \
-    || fail "c29: foreground launch exited non-zero"
-  wdir29="$home/streamjson/sjw29"
-  [ -f "$wdir29/journal" ] || fail "c29: no journal to make unreadable"
-  chmod 000 "$wdir29/journal" || fail "c29: cannot make the journal unreadable"
+home="$tmp/h29"
+rec="$tmp/r29"
+mkdir -p "$rec"
+ev29="$tmp/ev29"
+printf '%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_result" >"$ev29"
+printf 'unreadable journal\n' >"$tmp/prompt29"
+senv "$home" "$rec" SHIM_EVENTS="$ev29" -- \
+  launch sjw29 execution-backends:4 --prompt-file "$tmp/prompt29" --foreground \
+  || fail "c29: foreground launch exited non-zero"
+wdir29="$home/streamjson/sjw29"
+[ -f "$wdir29/journal" ] || fail "c29: no journal to make unreadable"
+chmod 000 "$wdir29/journal" || fail "c29: cannot make the journal unreadable"
+if hermetic_access_denied r "$wdir29/journal"; then
   #   The hazard is BUSYBOX awk, which exits 1 for an unreadable operand where
   #   gnu/mawk exit 2. On a host with the latter the pre-existing exit-code
   #   arm already covers this, so a test run against the host's own awk passes
@@ -1972,7 +2021,7 @@ exec $real_awk "\$@"
 AWKSHIM
   chmod +x "$tmp/bin29/awk"
   printf 'x\n' >"$tmp/probe29"
-  chmod 000 "$tmp/probe29"
+  chmod 000 "$tmp/probe29" # hermetic-exempt: runs only inside the journal's denial probe above, same user and mode
   PATH="$tmp/bin29:$PATH" awk '{ print }' "$tmp/probe29" >/dev/null 2>&1
   [ "$?" = 1 ] || fail "c29: the awk shim does not reproduce busybox's exit 1 — this case would prove nothing"
   chmod 644 "$tmp/probe29"
@@ -1990,6 +2039,9 @@ AWKSHIM
     *"held="*attention*) fail "c29 control: attention stayed held with a readable journal: $out" ;;
   esac
   echo "ok: c29 an unreadable receipt journal leaves the attention class held (REQ-E1.5)"
+else
+  chmod 644 "$wdir29/journal"
+  echo "skip: c29 unreadable-journal injection: the running user still reads $wdir29/journal under mode 000"
 fi
 
 # ---------------------------------------------------------------------------
@@ -2055,20 +2107,20 @@ fi
 #     second session over it. Its sibling supervisor.pid write is already
 #     fatal; this one was not.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: c31 needs a non-root user (root writes into a mode-500 directory)"
+home="$tmp/h31"
+wdir31="$home/streamjson/sjw31"
+mkdir -p "$wdir31" "$tmp/r31"
+#   Block only the worker.pid publish: a directory the publish cannot rename
+#   into. supervisor.pid is written before this and still succeeds, so the
+#   case exercises the second write and not a broken state directory.
+mkdir -m 500 "$wdir31/worker.pid"
+if ! hermetic_access_denied w "$wdir31/worker.pid"; then
+  echo "skip: c31: the running user writes into a mode-500 directory"
 else
-  home="$tmp/h31"
-  wdir31="$home/streamjson/sjw31"
-  mkdir -p "$wdir31" "$tmp/r31"
   ev="$tmp/ev31"
   printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
   mkdir -p "$tmp/c31"
   printf 'p\n' >"$tmp/c31/prompt"
-  #   Block only the worker.pid publish: a directory the publish cannot rename
-  #   into. supervisor.pid is written before this and still succeeds, so the
-  #   case exercises the second write and not a broken state directory.
-  mkdir -m 500 "$wdir31/worker.pid"
   #   Into a file, not a capture: a worker the failure left running would hold
   #   a capture pipe open and hang the case before the check below could name it.
   senv "$home" "$tmp/r31" SHIM_EVENTS="$ev" -- \
@@ -2312,9 +2364,7 @@ case $out in
   "status sjw35 awaiting-input pending=2 oldest="[0-9]*"s supervisor=$$ worker=$$") : ;;
   *) fail "c35: the count covers every pending row and the age the readable ones, got: $out" ;;
 esac
-sh -c ':' &
-dead35=$!
-wait "$dead35"
+dead35=$(dead_owner_pid) || fail "c35: no PID is free to stand for a dead supervisor"
 printf '%s\n' "$dead35" >"$w35/supervisor.pid"
 out=$(senv "$home" "$tmp/r35" -- status sjw35) || :
 case $out in
@@ -2488,18 +2538,16 @@ echo "ok: c38 a spooled re-ask of a settled request is re-opened, not dropped"
 #     re-reported every beat; status still counts it, and a close removes it.
 #     A read-only journal makes the append fail; root writes through that, so
 #     the leg is skipped there.
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: c38f a set-aside spool (running as root, a read-only journal still takes the write)"
-else
-  home="$tmp/h38f"
-  wdir38f="$home/streamjson/sjw38f"
-  senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=300 -- \
-    launch sjw38f execution-backends:4 --prompt-file "$tmp/prompt38" &
-  poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38f/journal" \
-    || fail "c38f: the receipt was never journaled"
-  senv "$home" "$rec" -- answer sjw38f "$req_perm" --allow >/dev/null \
-    || fail "c38f: answer exited non-zero"
-  chmod 444 "$wdir38f/journal"
+home="$tmp/h38f"
+wdir38f="$home/streamjson/sjw38f"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_SLEEP=300 -- \
+  launch sjw38f execution-backends:4 --prompt-file "$tmp/prompt38" &
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$wdir38f/journal" \
+  || fail "c38f: the receipt was never journaled"
+senv "$home" "$rec" -- answer sjw38f "$req_perm" --allow >/dev/null \
+  || fail "c38f: answer exited non-zero"
+chmod 444 "$wdir38f/journal"
+if hermetic_access_denied w "$wdir38f/journal"; then
   printf '%s\n%s\n' "$(date +%s)" "$line_q" >"$wdir38f/deferred-$req_q"
   poll_until --what 'the set-aside spool' -- test -f "$wdir38f/undrained-$req_q" \
     || fail "c38f: a spool whose journal write failed was not set aside"
@@ -2522,6 +2570,10 @@ else
   senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
   [ ! -e "$wdir38f/undrained-$req_q" ] || fail "c38f: a close left the set-aside receipt behind"
   echo "ok: c38 a spool that cannot land is set aside once, counted, and removed by a close"
+else
+  chmod 644 "$wdir38f/journal"
+  senv "$home" "$rec" -- stop sjw38f --grace 2 >/dev/null || fail "c38f: stop exited non-zero"
+  echo "skip: c38f set-aside spool: the running user still writes $wdir38f/journal under mode 444"
 fi
 # ---------------------------------------------------------------------------
 # c39: a turn result does not hide a later request. A persistent worker writes
@@ -2551,9 +2603,7 @@ esac
 age39=${out#*oldest=}
 age39=${age39%%s *}
 [ "$age39" -ge 120 ] || fail "c39: oldest must be the request's age, got: $out"
-sh -c ':' &
-dead39=$!
-wait "$dead39"
+dead39=$(dead_owner_pid) || fail "c39: no PID is free to stand for a dead supervisor"
 printf '%s\n' "$dead39" >"$w39/supervisor.pid"
 out=$(senv "$home" "$tmp/r39" -- status sjw39) || fail "c39: status exited non-zero"
 case $out in

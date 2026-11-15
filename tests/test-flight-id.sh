@@ -34,6 +34,8 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 SCRIPT="$here/../scripts/flight-id.sh"
 
 fail() {
@@ -243,19 +245,19 @@ esac
 
 # 3e0. A directory the probe cannot search is never read as "no evidence".
 chmod 000 "$repo/.claude/worktrees"
-if [ -x "$repo/.claude/worktrees" ]; then
-  echo "skip: an unsearchable directory stays searchable here (root?)" >&2
-else
+if hermetic_access_denied r "$repo/.claude/worktrees"; then
   run 5 taken demo-fedcba98 --repo-root "$repo"
   [ -z "$OUT" ] || fail "an unsearchable worktree directory still printed evidence: [$OUT]"
+else
+  echo "skip: unsearchable worktree directory: the running user still reads $repo/.claude/worktrees under mode 000"
 fi
 chmod 755 "$repo/.claude/worktrees"
 chmod 000 "$repo/specs/_flights"
-if [ -x "$repo/specs/_flights" ]; then
-  echo "skip: an unsearchable directory stays searchable here (root?)" >&2
-else
+if hermetic_access_denied r "$repo/specs/_flights"; then
   run 5 taken demo-89abcdef --repo-root "$repo"
   [ -z "$OUT" ] || fail "an unsearchable record directory still printed evidence: [$OUT]"
+else
+  echo "skip: unsearchable record directory: the running user still reads $repo/specs/_flights under mode 000"
 fi
 chmod 755 "$repo/specs/_flights"
 

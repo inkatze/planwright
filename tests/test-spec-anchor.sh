@@ -44,6 +44,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 anchor="$here/../scripts/spec-anchor.sh"
 
 fail() {
@@ -325,21 +327,24 @@ EOF
 
 # --- Unreadable tasks.md fails closed ---
 # An awk open failure inside the extraction must not degrade into a
-# successful exit with an anchor over an empty task stream. Skipped under
-# uid 0: the kernel lets root read mode-000 files, so the case cannot be
-# exercised there.
-if [ "$(id -u)" -ne 0 ]; then
-  chmod 000 "$spec/tasks.md"
+# successful exit with an anchor over an empty task stream.
+chmod 000 "$spec/tasks.md"
+if hermetic_access_denied r "$spec/tasks.md"; then
   if err=$("$anchor" "$spec" 2>&1 >/dev/null); then
     chmod 644 "$spec/tasks.md"
     fail "unreadable tasks.md did not fail"
   fi
-  chmod 644 "$spec/tasks.md"
   case $err in
     *"missing or unreadable"*) ;;
-    *) fail "unreadable-file failure lacks a clear message: $err" ;;
+    *)
+      chmod 644 "$spec/tasks.md"
+      fail "unreadable-file failure lacks a clear message: $err"
+      ;;
   esac
+else
+  printf '%s\n' "skip: unreadable tasks.md: the running user still reads $spec/tasks.md under mode 000"
 fi
+chmod 644 "$spec/tasks.md"
 
 # --- 7. Fenced illustration does not move the anchor (REQ-C1.2) ---
 # A bundle that documents the task-block format in a fence is anchoring on its

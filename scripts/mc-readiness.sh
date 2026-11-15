@@ -87,8 +87,9 @@ THE WALK refuses, each failure one line:
     has none), or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
   - where macOS is required, a macos-suite or macos-smoke check that never
-    ran, was skipped (a draft head) or is not SUCCESS, named with the
-    ci-macos label that starts it, so the flip never rests on a draft run;
+    ran, was skipped with no run of it at that head (a draft head) or is
+    not SUCCESS, named with the ci-macos label that starts it, so the flip
+    never rests on a draft run;
   - an open thread, an unanswered finding, a failed guard, a truncated
     read;
   - any screenshot whose judgment is not ok, or recorded at another head;
@@ -130,7 +131,9 @@ Usage:
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
-      out (neither read for a spec-only pull request), the recorded
+      out (neither read for a spec-only pull request; a worktree ahead of
+      the pull request's head is audited at that head, one behind or beside
+      it is unaudited), the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
       program's first repository, then the head read once more, a head that
@@ -646,10 +649,15 @@ collect() {
   fi
   cl_ciwt=$cl_wt
   if [ -n "$cl_wt" ]; then
-    # Records speak for the worktree's own head, so it must be the forge's.
+    # The audit judges the forge's head, never the worktree's: records carry
+    # their own heads, and the audit counts one only when its completion is
+    # at or behind that head. A worktree ahead of the head (a session still
+    # at work past what was pushed) holds the head, so it is audited at the
+    # head; one behind or off to the side cannot speak for it.
     cl_wthead=$(mc_untrusted_git -C "$cl_wt" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) || cl_wthead=''
-    if [ "$cl_wthead" != "$cl_head" ]; then
-      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head"
+    if [ "$cl_wthead" != "$cl_head" ] \
+      && { [ -z "$cl_wthead" ] || ! mc_untrusted_git -C "$cl_wt" merge-base --is-ancestor "$cl_head" "$cl_wthead" 2>/dev/null; }; then
+      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head and not ahead of it; the session using it may be mid-change, so retry once it has pushed or finished"
       cl_wt=''
     fi
   fi

