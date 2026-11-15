@@ -48,7 +48,8 @@ MOVED_SHA=2222222222222222222222222222222222222222
 #   rate rate429 toomany ratelib rateword       a rate limit
 #   ratempty       a rate limit and an empty output in one log
 #   errored critical colourcritical   an ERROR- or CRITICAL-level line
-#   warnword       "ERROR" outside a level field; emptyerror both kinds of line
+#   warnword       "ERROR" outside a level field; emptyerror and rateerror an
+#                  ERROR line beside an empty output or a rate limit
 #   noise          a human and the run marker edit comments; empty output logged
 #   quiet          nothing at all (PR-Agent's own silent skip)
 #   exitN          exits N; exit1empty logs empty output, then exits 1
@@ -171,6 +172,10 @@ case "$step" in
     printf '%s\n' "$w.git_providers.github_provider:publish:1 - retrying after ERROR 502 from the API" \
       '| ERROR | handled |' 'foo | ERROR | bar'
     ;;
+  rateerror)
+    printf '%s\n' "$rate"
+    printf '\033[32m2026-11-14 00:00:00.000\033[0m | \033[31m\033[1mERROR   \033[0m | pr_agent.tools.pr_reviewer:run:907 - Failed to review PR: 429\n'
+    ;;
   emptyerror)
     printf '%s\n' "$empty"
     printf '\033[32m2026-11-14 00:00:00.000\033[0m | \033[31m\033[1mERROR   \033[0m | pr_agent.tools.pr_reviewer:run:907 - Failed to review PR: empty\n'
@@ -264,6 +269,7 @@ new_case() {
   # shellcheck disable=SC2086
   printf '%s\n' $2 >"$T/heads"
   : >"$T/posted"
+  mkdir "$T/scratch"
   cat >"$T/comments.json" <<'EOF'
 [
   {"id": 1, "user": {"login": "someone"}, "body": "quoting <!-- pr-agent:review:full -->", "updated_at": "2026-11-14T00:00:00Z"},
@@ -282,9 +288,14 @@ run() {
   new_case "$1" "$2"
   shift 3
   RC=0
-  OUT=$(env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r \
+  OUT=$(env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r RUNNER_TEMP="$T/scratch" \
     GITHUB_EVENT_PATH="$tmp/event.json" "CONFIG.MODEL=m" \
     "$SCRIPT" --image img@sha256:0 --pr 7 "$@" 2>&1) || RC=$?
+}
+
+# scratch_gone <name>: the run left nothing in its scratch directory.
+scratch_gone() {
+  if [ -z "$(ls -A "$T/scratch")" ]; then ok "$1"; else failed "$1: left $(ls -A "$T/scratch")"; fi
 }
 
 lines() {
@@ -497,6 +508,18 @@ name="an empty output beside an ERROR line is retried as model output"
 run "emptyerror good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 0 2 1 "30 " && ok "$name"
 
+name="a rate limit beside an ERROR line backs off as a rate limit"
+run "rateerror good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 0
+expect "$name" 0 2 1 "120 " && ok "$name"
+
+name="a run that posts leaves no scratch behind"
+run "good" "$HEAD_SHA" -- --head "$HEAD_SHA"
+scratch_gone "$name"
+
+name="a run that fails leaves no scratch behind"
+run "parse parse parse" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+scratch_gone "$name"
+
 name="a non-zero PR-Agent exit fails without a retry"
 run "exit3 good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
 expect "$name" 1 1 0 "" && has "$name" "exited 3" && ok "$name"
@@ -614,17 +637,18 @@ else
 fi
 
 # A runner cancel can signal the wrapper's shell alone, at any moment of a try.
-# cancel_case <scenario> [<script arg>...]: start a try, TERM the wrapper once the stub client
-# runs, and set RC, OUT and CANCEL_CONTAINER; returns 1 when the wrapper
-# outlived the TERM or the try never started. A stuck wrapper and the stub
-# client are killed either way, so a failing case neither hangs the suite nor
-# leaves a sleeper behind.
+# cancel_case <scenario> [<script arg>...]: start a try, TERM the wrapper once
+# the stub client runs, and set RC, OUT and CANCEL_CONTAINER; returns 1 when
+# the wrapper outlived the TERM or the try never started. A stuck wrapper and
+# the stub client are killed either way, so a failing case neither hangs the
+# suite nor leaves a sleeper behind. CC_BIN and CC_SCRIPT swap in the real
+# bounded-run.sh copy.
 cancel_case() {
   new_case "$1" "$HEAD_SHA"
   cc_what=$1
   shift
-  env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
-    "$SCRIPT" --image img --pr 7 "$@" >"$T/out" 2>&1 &
+  env PATH="${CC_BIN:-$stub}:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
+    RUNNER_TEMP="$T/scratch" "${CC_SCRIPT:-$SCRIPT}" --image img --pr 7 "$@" >"$T/out" 2>&1 &
   cc_pid=$!
   CANCEL_CONTAINER="pr-agent-$cc_pid-1"
   cc_rc=0
@@ -668,6 +692,16 @@ if cancel_case stubborn && [ "$RC" = 143 ] && grep -qx "rm -f $CANCEL_CONTAINER 
 else
   failed "$name: want a prompt exit 143 and the container removed; rm: $(cat "$T/docker-rm.log")"
 fi
+scratch_gone "a cancel leaves no scratch behind"
+
+name="through the real bounded-run.sh, a TERM removes a container whose client ignores it"
+CC_BIN="$tmp/realbin" CC_SCRIPT="$tmp/real/scripts/pr-agent-review.sh"
+if cancel_case stubborn && [ "$RC" = 143 ] && grep -qx "rm -f $CANCEL_CONTAINER created" "$T/docker-rm.log"; then
+  ok "$name"
+else
+  failed "$name: want a prompt exit 143 and the container removed; rm: $(cat "$T/docker-rm.log")"
+fi
+unset CC_BIN CC_SCRIPT
 
 name="a container created after the first removal is removed while its client lives"
 if cancel_case latestart && [ "$RC" = 143 ] && grep -qx "rm -f $CANCEL_CONTAINER created" "$T/docker-rm.log"; then
@@ -697,7 +731,8 @@ fi
 for bad in "--retries x|--retries must be" "--retries|--retries needs a value" "--retries 100|up to 99" \
   "--pr 0|--pr must be" "--pr 07|--pr must be" "--pr abc|--pr must be" "--pr|--pr needs a value" \
   "--try-seconds 0|--try-seconds must be" "--try-seconds 1000000|--try-seconds must be" \
-  "--deadline-seconds x|--deadline-seconds must be" "--head abc123|--head must be a full" \
+  "--deadline-seconds x|--deadline-seconds must be" "--deadline-seconds 1000000|--deadline-seconds must be" \
+  "--pr 1000000000|--pr must be" "--head abc123|--head must be a full" \
   "--head ABCDEF1111111111111111111111111111111111|--head must be a full" \
   "--head 111111111111111111111111111111111111111|--head must be a full" \
   "--head 11111111111111111111111111111111111111111|--head must be a full" \
