@@ -60,7 +60,10 @@ registry records for the worker, and it never types into a session:
             stdin, so the wake is SUBMITTED and its events marked so
   tmux      scripts/orchestrate-relay.sh deliver tmux: a buffer paste with
             no newline, so the wake is STAGED and its events marked staged
-            until the session acknowledges them (below)
+            until the session acknowledges them (below); a recorded window
+            that is no longer the one recorded (pinned to another tmux
+            server or name, or, recorded without its server, gone from its
+            session) is unreachable, nothing sent
   any other backend, or a retired worker: unreachable, nothing sent
 A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
 `routine`) never wakes: relay, tick and compose leave it out of the wake
