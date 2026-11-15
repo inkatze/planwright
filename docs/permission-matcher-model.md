@@ -417,14 +417,47 @@ deny:
 
 - **Execution-bearing paths** (worker-permission-ergonomics REQ-F1.6): `.git`
   wherever it sits (the worktree's `.git` entry and the common git directory,
-  default hooks included), the repo-tracked hooks directories `githooks/` and
-  `.githooks/`, the worktree's `.claude/`, and the mise, lefthook, direnv, and
-  tool-version config names the guard refuses (`scripts/worker-command-guard.sh`,
-  `ob_excluded_name` and `ob_excluded_mise_child`, owns the list; a launch given
-  `--mise-task-edit` opens four of those names inside its worktree, see "The
-  mise task-file opt-in" below). An adopter
-  whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
-  of its own.
+  default hooks included), the worktree root's `githooks/` and `.githooks/`
+  (anchored rows, below), the worktree's `.claude/`, and the mise, lefthook,
+  direnv, and tool-version config names the guard refuses
+  (`scripts/worker-command-guard.sh`, `ob_excluded_name` and
+  `ob_excluded_mise_child`, owns the list; a launch given `--mise-task-edit`
+  opens four of those names inside its worktree, see "The mise task-file
+  opt-in" below).
+- **The hooks directories** (REQ-F1.7, REQ-A1.15, REQ-B1.3): the worker
+  profile's `PreToolUse` hook on the `Edit|Write|MultiEdit|NotebookEdit`
+  matcher runs `scripts/worker-hooks-edit-guard.sh`, which refuses a path inside
+  the directory git runs hooks from (`core.hooksPath`, relative or absolute, or
+  the default one), the worktree root's `githooks/` and `.githooks/`, and the
+  primary checkout's, judged by spelling and by where the path resolves. It
+  fails closed: a payload it cannot read, a missing `jq` or `git`, a working
+  directory git cannot place, a crash or a signal all refuse. A path rule cannot
+  name a `core.hooksPath` directory, which the repository's config chooses, so
+  the hook is the only cover for it. The profile's own rows are the two
+  anchored spellings `Edit(githooks/**/*)` and `Edit(.githooks/**/*)`; the
+  older any-depth rows also refused `test/githooks/x` and `src/githooks/x`.
+
+  **Hooks-directory probe (CLI 2.1.314).** Which spelling of a deny path rule
+  matches the worktree root's hooks directory and not a deeper directory of the
+  same name, as the model reads it (`tests/test-permission-matcher.sh` replays
+  it, and fails when its stamp stops matching the version table above, so a
+  Claude Code upgrade re-reads it):
+
+  | Spelling | root `githooks/x` | `test/githooks/x` | `githooks/sub/x` |
+  | --- | --- | --- | --- |
+  | `githooks/**`, `./githooks/**` | match | **match** | match |
+  | `githooks/**/*`, `./githooks/**/*` | match | no match | match |
+  | `githooks/*` | match | no match | no match |
+  | `/githooks/**` | no match | no match | no match |
+
+  A single directory segment before `/**` matches at any depth in a deny rule
+  (M10), which is why the old spelling over-blocked; ending in `/**/*` keeps
+  the pattern anchored at the working directory, the worktree root. The
+  settings-anchored `/githooks/**` anchors at the profile's own directory,
+  never the worktree. The model is a snapshot, not the matcher (see "Modeling boundaries"), which is
+  why the guard covers the same paths and an anchored row that a Claude Code
+  release stops matching leaves the guard as the cover rather than opening
+  anything.
 - **The guard's trust inputs** (REQ-G1.8): the launcher's session records
   (`session-records/*.record` under any fleet home) and the overlay config
   files the policy resolves through (`planwright.yml` and
@@ -444,8 +477,8 @@ usually sits under its primary checkout's `.claude/worktrees/`, and a
 root-anchored `.claude` rule would refuse every file the worker edits. The
 same holds for the root-anchored directory rules: a worktree checked out
 beneath a directory named `.config`, `.mise`, `mise-tasks`, `.mise-tasks`,
-`mise/conf.d`, `mise/tasks`, one of mise's own directories below, a hooks
-directory, or a lefthook directory (a dotfiles checkout under `~/.config`,
+`mise/conf.d`, `mise/tasks`, one of mise's own directories below, or a
+lefthook directory (a dotfiles checkout under `~/.config`,
 say) is refused every file-tool write, so such a repository is checked out
 elsewhere for workers.
 
