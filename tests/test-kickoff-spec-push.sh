@@ -13,6 +13,8 @@ export LC_ALL
 unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE GIT_PREFIX
+# Rows run as an attended run (no launch scope) unless they set one.
+unset PLANWRIGHT_WORKER_SCOPE
 
 here=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$here/../scripts/kickoff-spec-push.sh"
@@ -112,6 +114,249 @@ if (cd "$clone" && "$SCRIPT") >/dev/null 2>&1; then
   fail "a run with no spec was accepted"
 fi
 pass "a missing or extra argument is refused"
+
+# --- the spec's own amendment branch -------------------------------------------
+
+g -C "$clone" switch -q -c planwright/demo/amendment-3
+g -C "$clone" commit -q --allow-empty -m "amendment sign-off"
+amend_head=$(g -C "$clone" rev-parse HEAD)
+(cd "$clone" && "$SCRIPT" demo) >/dev/null 2>&1 || fail "the push on the spec's own amendment branch did not succeed"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$amend_head" ] || fail "the amendment branch on origin is not the local head after the push"
+upstream=$(g -C "$clone" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || upstream=''
+[ "$upstream" = origin/planwright/demo/amendment-3 ] || fail "the amendment push did not set the upstream (got '$upstream')"
+pass "[amendment] the spec's own amendment branch pushes and sets its upstream"
+
+# Ahead of its origin branch, beside a stale local spec branch, and under a
+# push mapping that would carry a short-name push onto the spec branch: the
+# push still lands on the amendment branch and leaves the spec branch alone.
+amend_up="$tmp/amend-up"
+g clone -q "$origin" "$amend_up"
+g -C "$amend_up" branch -q planwright/demo/spec main
+g -C "$amend_up" switch -q planwright/demo/amendment-3
+g -C "$amend_up" commit -q --allow-empty -m "delta 1"
+g -C "$amend_up" commit -q --allow-empty -m "delta 2"
+g -C "$amend_up" config remote.origin.push 'refs/heads/planwright/demo/amendment-3:refs/heads/planwright/demo/spec'
+amend_up_head=$(g -C "$amend_up" rev-parse HEAD)
+spec_before=$(g -C "$origin" rev-parse planwright/demo/spec)
+(cd "$amend_up" && "$SCRIPT" demo) >/dev/null 2>&1 || fail "the push of an amendment branch ahead of its origin branch did not succeed"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$amend_up_head" ] || fail "the amendment branch on origin is not the local head after the push"
+[ "$(g -C "$origin" rev-parse planwright/demo/spec)" = "$spec_before" ] || fail "the amendment push moved origin's spec branch"
+upstream=$(g -C "$amend_up" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || upstream=''
+[ "$upstream" = origin/planwright/demo/amendment-3 ] || fail "the amendment push did not keep its upstream (got '$upstream')"
+pass "[amendment] an amendment branch ahead of origin pushes to itself, never the spec branch, whatever the push mapping"
+
+# A relayed amendment kickoff: amendment-16 checked out directly in a linked worktree,
+# tracking its origin branch and ahead of it, with no spec branch anywhere.
+mc_primary="$tmp/mc-primary"
+g clone -q "$origin" "$mc_primary"
+g -C "$mc_primary" switch -q -c planwright/mission-control/amendment-16 main
+g -C "$mc_primary" commit -q --allow-empty -m "amendment 16 sign-off"
+g -C "$mc_primary" push -q -u origin planwright/mission-control/amendment-16
+g -C "$mc_primary" switch -q main
+mc_a16="$tmp/mc-a16"
+g -C "$mc_primary" worktree add -q "$mc_a16" planwright/mission-control/amendment-16
+g -C "$mc_a16" commit -q --allow-empty -m "delta 1"
+g -C "$mc_a16" commit -q --allow-empty -m "delta 2"
+mc_head=$(g -C "$mc_a16" rev-parse HEAD)
+(cd "$mc_a16" && PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta "$SCRIPT" mission-control) >/dev/null 2>&1 \
+  || fail "relayed amendment case: the amendment-16 push from a linked worktree did not succeed"
+[ "$(g -C "$origin" rev-parse refs/heads/planwright/mission-control/amendment-16)" = "$mc_head" ] \
+  || fail "relayed amendment case: refs/heads/planwright/mission-control/amendment-16 on origin is not the worktree head"
+if g -C "$origin" rev-parse --verify -q refs/heads/planwright/mission-control/spec >/dev/null; then
+  fail "relayed amendment case: the amendment-16 push created planwright/mission-control/spec on origin"
+fi
+pass "[amendment] relayed amendment case: amendment-16 from a linked worktree lands on refs/heads/planwright/mission-control/amendment-16 alone"
+
+# --- the launch scope binds the push at run time ---------------------------------
+# The guard reads the branch before a command runs; whatever moves HEAD after
+# that (a shell string, a script, a loop, a direct HEAD write, a rebase), the
+# script itself refuses a push its session's scope does not cover.
+
+bind="$tmp/bind"
+g clone -q "$origin" "$bind"
+g -C "$bind" branch -q planwright/demo/spec origin/planwright/demo/spec
+g -C "$bind" switch -q planwright/demo/amendment-3
+g -C "$bind" commit -q --allow-empty -m "amendment 3 delta"
+printf '%s\n' 'git switch -q planwright/demo/spec' >"$tmp/sw.sh"
+printf 'sw:\n\tgit switch -q planwright/demo/spec\n' >"$tmp/sw.mk"
+spec_ref=$(g -C "$origin" rev-parse planwright/demo/spec)
+amend3_ref=$(g -C "$origin" rev-parse planwright/demo/amendment-3)
+
+# bound_refusal <label> — the a3 kickoff's push from the moved HEAD refuses and
+# moves nothing on origin.
+bound_refusal() {
+  out=$(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a3 "$SCRIPT" demo 2>&1) \
+    && fail "[bind] after $1, amendment 3's kickoff pushed from $(g -C "$bind" symbolic-ref --short HEAD 2>&1)"
+  case $out in
+    *"amendment 3's kickoff"*) ;;
+    *) fail "[bind] after $1, the refusal does not name amendment 3's kickoff: $out" ;;
+  esac
+  [ "$(g -C "$origin" rev-parse planwright/demo/spec)" = "$spec_ref" ] || fail "[bind] after $1, origin's spec branch moved"
+  if g -C "$origin" rev-parse --verify -q planwright/demo/amendment-9 >/dev/null; then
+    fail "[bind] after $1, planwright/demo/amendment-9 reached origin"
+  fi
+  pass "[bind] after $1, amendment 3's kickoff refuses to push and moves nothing"
+}
+bind_reset() {
+  g -C "$bind" bisect reset >/dev/null 2>&1 || :
+  g -C "$bind" switch -q -f planwright/demo/amendment-3
+  g -C "$bind" branch -q -D planwright/demo/amendment-9 >/dev/null 2>&1 || :
+  rm -f "$bind/stashed"
+}
+
+(cd "$bind" && sh -c 'git switch -q planwright/demo/spec')
+bound_refusal "a HEAD move in sh -c"
+bind_reset
+(cd "$bind" && eval 'git switch -q planwright/demo/spec')
+bound_refusal "a HEAD move through eval"
+bind_reset
+(cd "$bind" && sh "$tmp/sw.sh")
+bound_refusal "a HEAD move in a script"
+bind_reset
+(cd "$bind" && printf '%s\n' planwright/demo/spec | xargs git switch -q)
+bound_refusal "a HEAD move through xargs"
+bind_reset
+(cd "$bind" && find . -maxdepth 0 -exec git switch -q planwright/demo/spec \;)
+bound_refusal "a HEAD move through find -exec"
+bind_reset
+if command -v make >/dev/null 2>&1; then
+  (cd "$bind" && make -s -f "$tmp/sw.mk" sw)
+  bound_refusal "a HEAD move through make"
+  bind_reset
+fi
+# shellcheck disable=SC2043 # a one-pass loop is the HEAD-move form under test
+(cd "$bind" && for b in planwright/demo/spec; do git switch -q "$b"; done)
+bound_refusal "a HEAD move in a loop"
+bind_reset
+printf '%s\n' 'ref: refs/heads/planwright/demo/spec' >"$bind/.git/HEAD"
+bound_refusal "a direct write to .git/HEAD"
+bind_reset
+g -C "$bind" rebase -q main planwright/demo/spec >/dev/null 2>&1 || :
+bound_refusal "a two-argument rebase"
+bind_reset
+g -C "$bind" branch -q -f planwright/demo/spec origin/planwright/demo/spec
+(cd "$bind" && git bisect start >/dev/null 2>&1 && git bisect reset planwright/demo/spec >/dev/null 2>&1)
+bound_refusal "a bisect reset onto the spec branch"
+bind_reset
+printf x >"$bind/stashed"
+g -C "$bind" add stashed && g -C "$bind" stash -q && g -C "$bind" stash branch planwright/demo/amendment-9 >/dev/null 2>&1
+bound_refusal "a stash branch onto a new amendment branch"
+bind_reset
+if (cd "$bind" && printf '%s\n' 'symref-update HEAD refs/heads/planwright/demo/spec' | git update-ref --no-deref --stdin) >/dev/null 2>&1; then
+  bound_refusal "a symref update of HEAD through update-ref --stdin"
+else
+  pass "[bind] skipped the update-ref --stdin row: this git has no symref-update"
+fi
+bind_reset
+
+out=$(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a4 "$SCRIPT" demo 2>&1) && fail "[bind] amendment 4's kickoff pushed amendment-3"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$amend3_ref" ] || fail "[bind] amendment 4's kickoff moved origin's amendment-3"
+pass "[bind] another amendment's kickoff refuses on amendment-3"
+for scope in task-1 kickoff-other kickoff-other-a3 kickoff-demox; do
+  for b in planwright/demo/amendment-3 planwright/demo/spec; do
+    g -C "$bind" switch -q "$b"
+    out=$(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=$scope "$SCRIPT" demo 2>&1) && fail "[bind] scope $scope pushed $b"
+    case $out in
+      *"not the kickoff for demo"*) ;;
+      *) fail "[bind] scope $scope on $b: the refusal does not say it is not the kickoff: $out" ;;
+    esac
+  done
+  bind_reset
+  [ "$(g -C "$origin" rev-parse planwright/demo/spec)" = "$spec_ref" ] || fail "[bind] scope $scope moved origin's spec branch"
+  [ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$amend3_ref" ] || fail "[bind] scope $scope moved origin's amendment-3"
+  pass "[bind] a session scoped $scope, not demo's kickoff, pushes nothing"
+done
+bind_head=$(g -C "$bind" rev-parse HEAD)
+out=$(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a3 "$SCRIPT" demo 2>&1) || fail "[bind] amendment 3's kickoff did not push its own branch: $out"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$bind_head" ] || fail "[bind] amendment 3's push did not land"
+pass "[bind] amendment 3's kickoff pushes planwright/demo/amendment-3"
+g -C "$bind" commit -q --allow-empty -m "amendment 3 second delta"
+bind_head=$(g -C "$bind" rev-parse HEAD)
+(cd "$bind" && PLANWRIGHT_WORKER_SCOPE=kickoff-demo "$SCRIPT" demo) >/dev/null 2>&1 || fail "[bind] the spec's own kickoff did not push its amendment branch"
+[ "$(g -C "$origin" rev-parse planwright/demo/amendment-3)" = "$bind_head" ] || fail "[bind] the spec kickoff's push did not land"
+pass "[bind] the spec's own kickoff (kickoff-demo) pushes an amendment branch"
+
+if (cd "$clone" && "$SCRIPT" other) >/dev/null 2>&1; then
+  fail "another spec's name pushed from demo's amendment branch"
+fi
+pass "[amendment] another spec's name refuses from this amendment branch"
+
+for bad in amendment-3b amendment- amendment amendment-3-1 amendment-x; do
+  g -C "$clone" switch -q -c "planwright/demo/$bad"
+  if (cd "$clone" && "$SCRIPT" demo) >/dev/null 2>&1; then
+    fail "a non-digit amendment suffix pushed ($bad)"
+  fi
+  if g -C "$origin" rev-parse --verify -q "planwright/demo/$bad" >/dev/null; then
+    fail "a refused amendment suffix reached origin ($bad)"
+  fi
+  g -C "$clone" switch -q planwright/demo/amendment-3
+done
+pass "[amendment] a non-digit or empty amendment suffix refuses and pushes nothing"
+
+g -C "$clone" switch -q -c planwright/other/amendment-1
+if (cd "$clone" && "$SCRIPT" demo) >/dev/null 2>&1; then
+  fail "another spec's amendment branch pushed under demo"
+fi
+pass "[amendment] another spec's amendment branch refuses"
+refusal=$(cd "$clone" && "$SCRIPT" demo 2>&1) && fail "the wrong-branch run succeeded"
+# shellcheck disable=SC2016 # the unexpanded variable is the text under test
+case $refusal in
+  *'${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>'*) ;;
+  *) fail "[refusal] the wrong-branch text does not name the accepted form: $refusal" ;;
+esac
+pass "[refusal] the wrong-branch text names the accepted form"
+g -C "$clone" switch -q planwright/demo/spec
+
+# --- the adopter's pre-push hook runs under the caller's locale ----------------
+# The script parses under LC_ALL=C, but the hook is the adopter's: a C locale
+# there broke UTF-8 file names (Elixir fell back to latin1).
+
+loc="$tmp/loc"
+g clone -q "$origin" "$loc"
+g -C "$loc" switch -q -c planwright/loc/spec
+hooklog="$tmp/hook-locale"
+cat >"$loc/.git/hooks/pre-push" <<HOOK
+#!/bin/sh
+l=\${LC_ALL:-\${LC_CTYPE:-\${LANG:-C}}}
+printf '%s\n' "\$l" >"$hooklog"
+case \$l in
+  *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) exit 0 ;;
+  *) echo "pre-push: non-UTF-8 locale: \$l" >&2; exit 1 ;;
+esac
+HOOK
+chmod +x "$loc/.git/hooks/pre-push"
+
+loc_push() {
+  g -C "$loc" commit -q --allow-empty -m "loc commit"
+  rm -f "$hooklog"
+  (cd "$loc" && env "$@" "$SCRIPT" loc) >"$tmp/loc.out" 2>&1
+}
+
+loc_push -u LC_ALL -u LC_CTYPE LANG=C.UTF-8 \
+  || fail "a UTF-8 LANG from the caller did not reach the pre-push hook: $(cat "$tmp/loc.out")"
+[ "$(cat "$hooklog")" = C.UTF-8 ] || fail "the hook saw '$(cat "$hooklog")', not the caller's LANG"
+pass "a caller with only LANG set gives the pre-push hook its own locale, not C"
+
+loc_push -u LANG -u LC_CTYPE LC_ALL=de_DE.UTF-8 \
+  || fail "a UTF-8 LC_ALL from the caller did not reach the pre-push hook: $(cat "$tmp/loc.out")"
+[ "$(cat "$hooklog")" = de_DE.UTF-8 ] || fail "the hook saw '$(cat "$hooklog")', not the caller's LC_ALL"
+pass "a caller's LC_ALL is what the pre-push hook sees"
+
+loc_push -u LC_ALL -u LANG -u LC_CTYPE \
+  || fail "a caller with no locale got a non-UTF-8 pre-push hook: $(cat "$tmp/loc.out")"
+[ "$(cat "$hooklog")" = C.UTF-8 ] || fail "the hook saw '$(cat "$hooklog")', not the C.UTF-8 default"
+pass "a caller with no locale gives the pre-push hook C.UTF-8"
+
+# Near miss: the script's own parsing stays byte-strict under a non-C caller.
+for spec in '' 'Demo' 'démo' '../demo' 'demo/x' '-f' 'de mo' flight; do
+  if (cd "$loc" && env LC_ALL=en_US.UTF-8 "$SCRIPT" "$spec") >/dev/null 2>&1; then
+    fail "a spec name outside the grammar ran under a UTF-8 caller (\"$spec\")"
+  fi
+done
+if (cd "$clone" && env LC_ALL=en_US.UTF-8 "$SCRIPT" demo) >/dev/null 2>&1; then
+  fail "a run from the wrong branch succeeded under a UTF-8 caller"
+fi
+pass "spec-name and branch checks refuse the same under a non-C caller locale"
 
 # --- the script never names a force --------------------------------------------
 

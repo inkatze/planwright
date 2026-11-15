@@ -34,6 +34,10 @@ carries spec authoring (`/spec-draft` creates it; `/spec-kickoff` pushes it
 and opens the spec's draft PR). It is not a task branch: the `tasks-pr-sync`
 hook no-ops on it by name.
 
+An amendment kickoff runs on `planwright/<spec>/amendment-<n>`, `<n>` digits
+only; the kickoff push script and the policy guard accept that form and no
+other suffix.
+
 ### Flight branches (tower-front-door D-11)
 
 ```text
@@ -74,7 +78,7 @@ derived state:
 
 | Derived state | Target section |
 | --- | --- |
-| `completed` (merged PR, merge-reachable branch, or a `Planwright-Task` trailer) | `## Completed` |
+| `completed` (merged PR, merge-reachable branch, a `Planwright-Task` trailer, or that line in a merged PR's body) | `## Completed` |
 | `in-progress` (open PR, unmerged branch with commits locally or on its `origin` remote-tracking ref, or a fresh dispatch marker) | `## In progress` |
 | `ready` / `blocked` (by dependency state) | `## Forward plan` |
 

@@ -126,7 +126,8 @@
 # ignored. The baseline for stable-ID and
 # terminal-state checks defaults to origin/main when it resolves (it is
 # skipped quietly otherwise: a brand-new repo with no remote degrades
-# gracefully per REQ-K1.7); --baseline makes it explicit and fatal when
+# gracefully per REQ-K1.7); IDs are compared against the merge base of HEAD
+# and the baseline, and no merge base is fatal; --baseline makes it explicit and fatal when
 # unresolvable. --check-id validates a proposed spec identifier string,
 # full-string, for skills to call before any path or command is formed
 # (REQ-A1.8); the hostile input is never echoed back.
@@ -1096,10 +1097,20 @@ baseline_checks() {
     return 0
   fi
 
-  old_req=$(git -C "$bdir" show "$baseline:./requirements.md" 2>/dev/null) || old_req=
-  old_des=$(git -C "$bdir" show "$baseline:./design.md" 2>/dev/null) || old_des=
-  old_tsk=$(git -C "$bdir" show "$baseline:./tasks.md" 2>/dev/null) || old_tsk=
-  old_ts=$(git -C "$bdir" show "$baseline:./test-spec.md" 2>/dev/null) || old_ts=
+  # The comparison point is the merge base of HEAD and the baseline, not the
+  # baseline's tip: an ID the baseline gained after this branch was cut is
+  # not this branch's removal. No merge base fails closed (unrelated or
+  # truncated history cannot show what the branch removed).
+  if ! bbase=$(git -C "$bdir" merge-base HEAD "$baseline" 2>/dev/null) \
+    || [ -z "$bbase" ]; then
+    printf '%s\n' "spec-validate: no merge base between HEAD and $baseline (unrelated or shallow history); cannot tell what this branch removed" >&2
+    exit 2
+  fi
+
+  old_req=$(git -C "$bdir" show "$bbase:./requirements.md" 2>/dev/null) || old_req=
+  old_des=$(git -C "$bdir" show "$bbase:./design.md" 2>/dev/null) || old_des=
+  old_tsk=$(git -C "$bdir" show "$bbase:./tasks.md" 2>/dev/null) || old_tsk=
+  old_ts=$(git -C "$bdir" show "$bbase:./test-spec.md" 2>/dev/null) || old_ts=
   old_req_def=
 
   # The current bundle's `## Changelog` body, loaded once for both escapes that
@@ -1261,6 +1272,29 @@ lexical_parent() {
       ;;
     *) printf '.\n' ;;
   esac
+}
+
+# anchor_findings <dir> — a stale recorded anchor (the anchor-freshness
+# guard's recompute arm) as a `gap` finding: an error on a signed-off bundle.
+# The recompute is the guard's own, reached through its --mismatches mode, so
+# the recorded and recomputed values are the ones `mise run check` prints. A
+# Draft, a terminal bundle, a parked one and a bundle with no recorded anchor
+# print nothing there, so they stay as they were.
+anchor_findings() {
+  afdir=$1
+  [ -f "$script_dir/check-anchor-freshness.sh" ] || return 0
+  afrc=0
+  afout=$(/bin/sh "$script_dir/check-anchor-freshness.sh" --mismatches "$afdir" 2>"$gtmp/anchor.err") || afrc=$?
+  if [ "$afrc" -ne 0 ]; then
+    printf 'hard\tthe anchor-freshness recompute could not run (exit %s), so whether the recorded anchor is stale is unknown (fail closed): %s\n' \
+      "$afrc" "$(sanitize_printable "$(cat "$gtmp/anchor.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
+    return 0
+  fi
+  [ -n "$afout" ] || return 0
+  afrec=${afout%%	*}
+  afgot=${afout#*	}
+  printf 'gap\tanchor mismatch: recorded %s, recomputed %s (the kickoff brief'"'"'s anchor no longer matches the bundle: re-anchor per /spec-kickoff, or restore the anchored content)\n' \
+    "$afrec" "$afgot" >>"$fnd"
 }
 
 # validate_bundle <dir> <name> — run every bundle check, print the
@@ -1577,6 +1611,7 @@ validate_bundle() {
 
   [ "$range_ok" -eq 0 ] || citation_range_findings "$bdir" "$bname"
   baseline_checks "$bdir"
+  anchor_findings "$bdir"
 
   # Severity mapping (D-25): warnings on Draft and on the frozen terminal
   # records; errors on the signed-off live statuses (Ready, Active, Done —

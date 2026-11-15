@@ -2864,6 +2864,106 @@ has "marker check could not run"
 lacks "no valid planwright-spec-root.yml marker"
 rm -rf "$broken_scripts"
 
+# --- 38. Stale recorded anchor: the anchor-freshness recompute, locally ---
+# A signed bundle whose kickoff brief records an anchor that no longer
+# recomputes fails the validator naming both values, as the guard prints them.
+# A matching anchor passes, a Draft with no anchor entry is untouched, and a
+# parked stale anchor stays the guard's known-parked notice, not an error.
+anchor_tool="$here/../scripts/spec-anchor.sh"
+anchor_root="$tmp/anchor/specs"
+mkdir -p "$anchor_root"
+write_brief() {
+  cat >"$anchor_root/fixture/kickoff-brief.md" <<EOF
+# fixture — Kickoff Brief
+
+Class: expression-only
+Anchor: \`$1\` — computed as
+\`scripts/spec-anchor.sh specs/fixture\`
+EOF
+}
+write_bundle "$anchor_root/fixture" Ready
+good_anchor=$("$anchor_tool" "$anchor_root/fixture")
+write_brief "$good_anchor"
+run_v 0 "$anchor_root/fixture"
+has "0 error(s), 0 warning(s)"
+lacks "anchor mismatch"
+
+stale_anchor=0000000000000000000000000000000000000000
+write_brief "$stale_anchor"
+run_v 1 "$anchor_root/fixture"
+has "ERROR fixture: anchor mismatch: recorded $stale_anchor, recomputed $good_anchor"
+# The same finding through a specs-root walk.
+run_v 1 "$anchor_root"
+has "recorded $stale_anchor, recomputed $good_anchor"
+
+# Draft: skipped by the guard, so a stale or absent anchor changes nothing.
+write_bundle "$anchor_root/fixture" Draft
+run_v 0 "$anchor_root/fixture"
+lacks "anchor mismatch"
+rm "$anchor_root/fixture/kickoff-brief.md"
+run_v 0 "$anchor_root/fixture"
+has "0 error(s), 0 warning(s)"
+
+# Parked: the live re-review marker keeps a stale anchor off the error list.
+write_bundle "$anchor_root/fixture" Ready
+write_brief "$stale_anchor"
+awk '
+  /^## Awaiting input/ { print; print ""; print "- **anchor re-review pending** — routed to its re-review ritual."; skip = 1; next }
+  skip && /^\(none yet\)$/ { skip = 0; next }
+  { print }
+' "$anchor_root/fixture/tasks.md" >"$anchor_root/tasks.new"
+mv "$anchor_root/tasks.new" "$anchor_root/fixture/tasks.md"
+run_v 0 "$anchor_root/fixture"
+lacks "anchor mismatch"
+
+# --- stable-ID baseline is the merge base, not origin/main's tip ---
+# A branch cut before main gained an ID must not read that ID as its own
+# removal; a real removal or renumbering still fails; no merge base fails
+# closed.
+mbg() { git -C "$mb" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
+mb="$tmp/mergebase"
+mkdir -p "$mb"
+git -C "$mb" init -q -b main
+write_bundle "$mb/specs/myspec" Active
+mbg add -A
+mbg commit -qm base
+mbg checkout -q -b feat
+mbg checkout -q main
+printf '%s\n' '- **REQ-X1.3** Main added this after the branch point.' \
+  '  *(Cites: D-1.)*' >"$tmp/mb-extra"
+extra="$(cat "$tmp/mb-extra")" awk '{ print } /^- \*\*REQ-X1\.2\*\*/ { getline; print; print ENVIRON["extra"] }' \
+  "$mb/specs/myspec/requirements.md" >"$tmp/mb-req"
+cp "$tmp/mb-req" "$mb/specs/myspec/requirements.md"
+mbg commit -qam "main adds an ID"
+git -C "$mb" update-ref refs/remotes/origin/main main
+mbg checkout -q feat
+run_v 0 "$mb/specs"
+lacks "renumbered or removed"
+
+# The branch's own removal of an ID the merge base had still fails.
+edit "$mb/specs/myspec/requirements.md" '/REQ-X1\.2/{N;d;}'
+edit "$mb/specs/myspec/test-spec.md" 's/REQ-X1\.2/REQ-X1.1/g'
+run_v 1 "$mb/specs"
+has "REQ-X1.2 renumbered or removed"
+mbg checkout -q -- .
+
+# So does the branch's own renumbering.
+edit "$mb/specs/myspec/requirements.md" 's/REQ-X1\.2/REQ-X1.9/g'
+edit "$mb/specs/myspec/test-spec.md" 's/REQ-X1\.2/REQ-X1.9/g'
+run_v 1 "$mb/specs"
+has "REQ-X1.2 renumbered or removed"
+mbg checkout -q -- .
+
+# No merge base (unrelated history): fail closed with a clear message.
+mbg checkout -q --orphan unrelated
+mbg rm -rqf --cached .
+write_bundle "$mb/specs/myspec" Active
+mbg add -A
+mbg commit -qm unrelated
+git -C "$mb" update-ref refs/remotes/origin/main main
+run_v 2 "$mb/specs"
+has "no merge base"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"

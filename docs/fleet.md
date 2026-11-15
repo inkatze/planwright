@@ -364,7 +364,14 @@ subagent rungs. A record carries what closing a worker needs when the tower that
 launched it is gone: the handle, the **owner token** (which tower dispatched
 it), the backend, the state directory where the rung keeps one, and the death
 handle (`process <pid>`, `tmux-window <session> <window>`, or `none` for a rung
-that spawns no process).
+that spawns no process). A tmux window id names a window only for the life of
+the server that issued it, since a restarted server numbers from `@0` again, so
+the dispatch seams pin it: `tmux-window <session> <window> <server> <name>`,
+the server being `<pid>.<start time>` and the name the one the window was
+given. A pinned window is live only while all three still hold, and nothing
+closes it by id otherwise. A handle written before the pin is never closed by
+its id, and counts as live only in its recorded session and only when it was
+registered after the running server started.
 
 A column with nothing to put in it is written `-` and reads as the gap it is. An
 unowned record renders `unknown-owner` rather than being attributed to anyone,
@@ -1159,8 +1166,12 @@ in that directory at the allocation key and unit the launch recorded
 (mission control's launcher records its kind's key), or at
 `orchestrate_dispatch` under the worker's handle for a launch that recorded
 none, and the resumed session gets `--model` and `--effort` for each dimension
-that does not resolve to `inherit`. Any other extra argument the original
-launch passed after `--` is not carried over. (`recover --cwd <dir>` is
+that does not resolve to `inherit`; a tier model, effort or reservation the
+launch recorded is handed back to that plan as an override. A launch's
+`--mise-task-edit` opt-in is kept too: the relaunch regenerates the worker's
+per-launch settings profile, and a profile it cannot generate is exit `7`.
+Any other extra argument the original launch passed after `--` is not carried
+over. (`recover --cwd <dir>` is
 available on its own; without it a recover
 resumes in the caller's directory, and a session resumes only from the one it
 started in.) One relaunch runs per worker at a time. Everything the resume
@@ -2676,7 +2687,17 @@ settings files it parses). The mission-control launcher
 seams: `fleet-streamjson.sh launch --profile <kind>` and
 `offload-dispatch.sh dispatch tmux --profile <kind>` pin the tower or
 mission-control profile by kind, never by path, and a session under either
-carries no worker identity. A worker, reviewer or ad-hoc launch never starts
+carries no worker identity. A stream-json worker launch (`fleet-streamjson.sh
+launch`, or `mission-control-launch.sh launch` on the stream-json rung) can
+opt in to editing its own worktree's mise task files with `--mise-task-edit`:
+off by default, worker profile only, recorded so a recover keeps it, and never
+read from config, the checkout or the environment. The launch then passes a
+settings file generated for that worker from `config/worker-settings.json`
+(`scripts/worker-settings-generate.sh`) and the session record carries
+`mise_task_edit=1`; a launch without the flag passes the shipped profile
+unchanged. What it opens and the residual risk are in
+[the permission-matcher model](permission-matcher-model.md#the-mise-task-file-opt-in).
+A worker, reviewer or ad-hoc launch never starts
 in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
 --no-attach` create its worktree, or reuses the one holding its branch when
 no live session runs there (`--help` has the rules). Each launch also names
@@ -2822,6 +2843,65 @@ answers one on its own judgment, and mentioning a prompt in passing is not
 you deciding it. Command text shown to you for approval is plain ASCII; any
 other byte is shown as an escape with a warning, so you never approve text
 that renders as something else.
+
+## Another host over SSH: the channel and the remote's setup
+
+`scripts/fleet-remote.sh --host <alias> <verb>` is the one near-side path to
+another computer you reach by SSH (a LAN machine, a cloud workspace). The alias
+is whatever your `~/.ssh/config` resolves; the script runs a fixed set of verbs
+through the remote's own installed planwright and never runs a command you
+supply. `--help` prints the verb list and exit codes. Beyond the worker verbs
+(`launch`, `pending`, `answer`, `steer`, `status`, `retire`) and `compute`,
+`version` and `capacity` are read-only probes that tell a placement or a
+dispatch what the remote offers and can take, and `stop` closes a worker:
+
+| Verb | Prints |
+| --- | --- |
+| `version` | `version <remote planwright version>`, then `verbs <the channel's verbs the remote's supervisor and launcher offer>`; `unavailable` or `none` where the remote cannot say. A host with no planwright root exits 3 instead, as for any verb that needs the root |
+| `capacity` | one line, `load=<1-minute load> cores=<n> mem_free_mb=<n> idle_secs=<n>` |
+| `stop <worker> [--grace <secs>]` | the remote supervisor's own close of that worker; `--grace` takes a whole number of seconds, at most four digits |
+
+`capacity` reports only what the remote's platform offers. A field it cannot
+read prints `unavailable`, never `0`, so a consumer cannot mistake a missing
+reading for an idle or empty host. Free memory is Linux's available memory, or
+macOS's free, inactive and speculative pages. Input idle time is read from
+macOS's HID idle counter and is `unavailable` on Linux, where there is no
+portable equivalent.
+
+### Setting up the remote host
+
+The channel installs nothing there; you set the host up once:
+
+1. **Key-only SSH.** The alias must connect without a prompt: the channel runs
+   SSH in batch mode with agent, X11 and port forwarding off, so a host that
+   would ask for a password or a host key fails at once (exit 255).
+2. **Planwright and `jq`.** Install planwright on the remote through its own
+   plugin install. The channel finds the root from that host's installed-plugin
+   record (which needs `jq` there); no option and no environment variable picks
+   another copy. With no record, a verb that needs the root exits 3 and names
+   the fix (`capacity`, `load` and `compute` never need it).
+3. **The remote's own logins.** The Claude login (and, if the host should push
+   its own branches, the hosting-remote login) is made on that host. The channel
+   never carries a credential. On macOS an SSH session may find the keychain
+   locked; the fallback is a long-lived token from `claude setup-token` in an
+   owner-only file the environment file below loads, never in a tracked file.
+   That file's contents are then readable by the code `compute` runs, so use
+   the fallback only if you accept that (see step 4).
+4. **The environment file (optional).** `~/.config/planwright/remote-env.sh` on
+   the remote is sourced before every verb. It is the place for `PATH` (mise
+   shims, Homebrew, the `claude` binary) and `CLAUDE_PLUGIN_DATA` (the remote's
+   fleet home), because SSH runs a non-login shell that loads neither. A file
+   whose sourcing returns nonzero fails the verb with exit 3; one that calls
+   `exit` itself ends the verb with that status instead. Keep secrets out of it unless
+   you accept that compute runs (below) can read them: it is sourced into the
+   same shell that runs the shipped commit's code.
+5. **A clone per repository (for `compute`).** The repository must be cloned at
+   `~/dev/<origin repository name>` on the remote, with `git`, `perl` and `mise`
+   (or `/bin/bash` for a single test file) installed.
+
+`compute` runs the caller's committed code as the remote account, so whatever
+that account can read, the code can too. Prefer an account with no hosting-remote
+or model login for it, or accept that exposure deliberately.
 
 ## The knobs: capability in core, value in overlay
 

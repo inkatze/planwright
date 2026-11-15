@@ -420,7 +420,9 @@ deny:
   default hooks included), the repo-tracked hooks directories `githooks/` and
   `.githooks/`, the worktree's `.claude/`, and the mise, lefthook, direnv, and
   tool-version config names the guard refuses (`scripts/worker-command-guard.sh`,
-  `ob_excluded_name` and `ob_excluded_mise_child`, owns the list). An adopter
+  `ob_excluded_name` and `ob_excluded_mise_child`, owns the list; a launch given
+  `--mise-task-edit` opens four of those names inside its worktree, see "The
+  mise task-file opt-in" below). An adopter
   whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
   of its own.
 - **The guard's trust inputs** (REQ-G1.8): the launcher's session records
@@ -491,6 +493,109 @@ those paths keep their rules. The mise config, task directories, and
 lockfiles, the hooks directories, the
 local and non-YAML lefthook config, the session records, and repo-side
 overlays are not protected at all.
+
+## The mise task-file opt-in
+
+The shipped profile denies the file tools every mise task-file name
+(`mise.toml`, `.mise.toml`, `mise-tasks/`, `.mise-tasks/`) at any depth, and a
+path rule cannot be narrowed to "inside this worktree". A worker whose unit
+must edit the repository's own task files is therefore launched with
+`--mise-task-edit` (`scripts/fleet-streamjson.sh launch`, or
+`scripts/mission-control-launch.sh launch --mise-task-edit` on the stream-json
+rung; worker profile only, off by default). The opt-in is a launch argument and
+nothing else: it is recorded as `mise_task_edit=1` in the session record the
+launcher writes outside the worktree (`scripts/worker-session-record.sh`) and
+beside the worker's state for a recover, and is never read from live config,
+the checkout or the environment. A fresh launch without the flag drops it; a
+recover or relaunch keeps what its launch recorded.
+
+An opted-in launch gets three things, and a launch without the flag gets
+neither (it passes the shipped profile itself, byte for byte):
+
+- **A generated profile** (`scripts/worker-settings-generate.sh`): the four
+  broad task-file denies are replaced by literal denies of the same four names
+  in every ancestor folder of the worktree, the root included, and in the
+  primary checkout's top folder when the worktree lies outside it (a primary
+  whose git directory is not `<checkout>/.git` cannot be named, which refuses
+  the launch). Every other rule is the
+  shipped one, in order: mise's local files (`mise.local.toml`,
+  `mise.*.toml`, `.mise.*.toml`), `mise/config*.toml`, `conf.d` and miserc
+  files, the trust, data, state and cache folders, the temporary `mise/`
+  folders, and the lockfiles. A worktree path holding a character a path rule
+  would read as a pattern (`* ? [ ] \ ( )`), a single quote, a control character, or a
+  component ending in a space refuses the launch.
+- **A file-tool hook** (`scripts/worker-mise-edit-guard.sh`, added to the
+  generated profile's `PreToolUse` list for `Edit|Write|MultiEdit|NotebookEdit`,
+  with the worktree as its argument): a deny rule cannot be narrowed to "inside
+  this worktree" and beats every allow, so the hook refuses any task-file path
+  that lies outside the worktree, whatever the spelling: another worktree or
+  repository, a `..` escape, or a symlinked directory or file that resolves
+  out. A hook that cannot read its input refuses every file-tool call, task path or not.
+- **The guard's own-branch arm** admits writes to those four names inside the
+  worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
+  recursive-act screen `ob_tree_clean`), only when the record carries exactly
+  one `mise_task_edit=1`. The scratch zone, anything outside the worktree, and
+  every other excluded name stay closed.
+
+The generated profile and its opt-in marker sit in the worker's fleet state
+folder (`streamjson/<worker>/`), which the profile's path denies refuse to the
+file tools (`mise-task-edit`, `worker-settings.json`), as they do the session
+records, so a worker cannot opt itself in for its next recover.
+
+Residual risk: the hook compares paths case-sensitively and works from the
+payload's own spelling and the filesystem, so it is a fail-closed second layer
+rather than a proof; the worker's scratch root holds no task files the hook
+admits. The ancestor folder names are matched case-sensitively (MA-2), where
+the broad rule they replace matched any casing of the folders above the file.
+`tests/test-permission-matcher.sh` (pass I) runs the generated rules through
+the model: the worktree's task files open, each local file, trust, cache and
+lockfile row and each ancestor's task files, the primary checkout's included,
+stay denied, and each literal ancestor deny is the only rule blocking at least
+one row. `tests/test-worker-command-guard-mise-tasks.sh` pins the guard half,
+`tests/test-worker-settings-generate.sh` the generator, and
+`tests/test-fleet-streamjson.sh` (c9m) the launcher.
+
+## The spec-branch launch record
+
+A spec PR that falls behind `main` needs its branch
+(`planwright/<spec>/<name>`, an amendment branch for one) brought into a
+worktree to sync or walk it, and the policy guard otherwise refuses both
+halves: a worker's flight branch merges only the PR base or its own remote
+branch, and a worktree holding the spec branch is not the session's own unit
+branch. A launch given `--spec-branch planwright/<spec>/<name>` (a
+worker-profile session on the stream-json rung only; the launcher checks with
+`gh` that the branch is the head of an open pull request, and refuses
+otherwise) writes that one branch into the session record as `spec_branch`
+(`scripts/worker-session-record.sh`), which a recover rewrites from the
+launch's own state. The guard reads it only from that record, outside the
+worktree, never from the command text, the checkout, config or the
+environment. A record that is a symlink, is not this user's own regular file,
+sits inside the worktree, names the field twice, or names anything outside
+`planwright/<spec>/<name>` (a task or flight branch, a branch in the protected
+set) names no branch. Only the worker tier reads it. Two acts open, and
+nothing else:
+
+- **Bring the branch in.** On the session's own flight branch,
+  `git merge --ff-only origin/<spec branch>` (also spelled
+  `refs/remotes/origin/<spec branch>`) is admitted as the single source. A
+  merge without `--ff-only`, a `--no-ff` one, a second source, a pull, a bare
+  local name, a SHA, a tag, or any other branch (another spec branch, another
+  worker's flight branch) keeps today's refusal, and so does a local branch or
+  tag of the same name at another commit. Merging `origin/main` afterwards is
+  the ordinary base merge, and the push of the result to the spec branch is an
+  ordinary push by explicit refspec (`git push origin HEAD:refs/heads/<spec
+  branch>`) that the guard never refused: the spec branch is outside the
+  protected set, and the profile's force and `+` denies still refuse a force.
+- **Sync it with its base.** In a linked worktree that is the session's
+  project directory with the named spec branch checked out, `git merge
+  origin/main` (the PR base alone, by name and by what git resolves it to) is
+  admitted. Any other source, a pull, a spec branch the record does not name,
+  and every other act on that branch (commit, amend, rebase, reset) keep the
+  unit-branch refusal; the merge caches nothing, so a later act in the same
+  command does not inherit the branch as a unit branch. `worker_base_merge:
+  deny` refuses it as it does for a unit branch.
+
+No force, reset or rebase is admitted by either act.
 
 ## Changing any of this
 

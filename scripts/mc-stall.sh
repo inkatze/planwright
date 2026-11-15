@@ -11,7 +11,7 @@ unset CDPATH
 
 prog=mc-stall
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh fleet-pane-vocabulary.sh lock-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh fleet-pane-vocabulary.sh lock-lib.sh tmux-identity-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -25,6 +25,8 @@ done
 . "$script_dir/fleet-pane-vocabulary.sh" || exit 2
 # shellcheck source=scripts/lock-lib.sh
 . "$script_dir/lock-lib.sh" || exit 2
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh" || exit 2
 
 ROW_FORMAT=1
 PANE_LINES=20
@@ -47,18 +49,22 @@ Usage:
 Liveness is positive evidence from the session's rung, through
 scripts/fleet-death-evidence.sh, never pane text or elapsed time:
   tmux         the window the launch recorded, which must still carry the
-               session's name, then the process in its pane
+               session's name and, where the launch recorded it, come from
+               the same tmux server, then the process in its pane
   stream-json  the worker's pid the supervisor records (worker.pid, else
                supervisor.pid); a state directory holding neither pidfile
                is a supervisor that has exited, since it removes both
 The states, first match wins:
   dead                   the predicate reports the window or process gone,
-                         or a stream-json state directory holds neither
+                         a window recorded with its tmux server now comes
+                         from another server or carries another name, or
+                         a stream-json state directory holds neither
                          pidfile
   unknown                no liveness evidence either way (no state
                          directory, an unreadable pidfile, an unreachable
-                         or unresponsive tmux server, a window id now naming
-                         another window); the reason says whether the pane
+                         or unresponsive tmux server, a window recorded
+                         without its server whose id now names another
+                         window); the reason says whether the pane
                          is absent, on its first sample, changing or stable
   open-selector          a dialog or select menu is open in the pane; the
                          reason names a permission prompt as one
@@ -132,9 +138,9 @@ valid_window() {
 
 # read_row <row>: set R_<field> from one read of a registry row.
 read_row() {
-  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_launched='' R_token=''
+  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_server='' R_launched='' R_token=''
   rr_out=$(awk -F '\t' '
-    $1 ~ /^(format|name|state|program|kind|backend|handle|launched|token)$/ && !($1 in seen) {
+    $1 ~ /^(format|name|state|program|kind|backend|handle|server|launched|token)$/ && !($1 in seen) {
       seen[$1] = 1; v = substr($0, length($1) + 2); gsub(/[^[:print:]]/, "", v); print $1 "\t" v
     }' "$1" 2>/dev/null) || return 1
   while IFS='	' read -r rr_k rr_v; do
@@ -146,6 +152,7 @@ read_row() {
       kind) R_kind=$rr_v ;;
       backend) R_backend=$rr_v ;;
       handle) R_handle=$rr_v ;;
+      server) R_server=$rr_v ;;
       launched) R_launched=$rr_v ;;
       token) R_token=$rr_v ;;
     esac
@@ -167,8 +174,11 @@ death() {
   esac
 }
 
-# liveness <name> <backend> <handle>: set L_STATE (dead, alive or unknown)
-# and L_REASON.
+# liveness <name> <backend> <handle> [<server>]: set L_STATE (dead, alive
+# or unknown) and L_REASON. A window recorded with the tmux server that
+# issued it is gone once that server, its id or its name differ; one
+# recorded without its server is live only while it still carries the
+# session's name.
 liveness() {
   L_STATE=unknown L_REASON='no liveness evidence'
   case $2 in
@@ -177,9 +187,17 @@ liveness() {
         L_REASON='no window recorded'
         return 0
       }
-      case $(death tmux-window "$PROGRAM" "$3") in
+      lv_pin=''
+      if tmux_valid_server "${4:-}" && tmux_valid_name "$1"; then
+        lv_pin="$4/$3/$1"
+        lv_death=$(death tmux-window "$PROGRAM" "$3" "$4" "$1")
+      else
+        lv_death=$(death tmux-window "$PROGRAM" "$3")
+      fi
+      case $lv_death in
         dead)
           L_STATE=dead L_REASON="window $3 gone"
+          [ -z "$lv_pin" ] || L_REASON="window $3 gone, or no longer the one its tmux server issued for $1"
           return 0
           ;;
         unknown)
@@ -187,15 +205,29 @@ liveness() {
           return 0
           ;;
       esac
-      lv_line=$(bounded tmux display-message -p -t "$3" '#{window_name}	#{pane_pid}' 2>/dev/null) || {
+      # The pane pid first and the window name last: no tab, which tmux
+      # prints as `_` under LC_ALL=C, and a name may hold anything.
+      lv_line=$(bounded tmux display-message -p -t "$3" "#{pane_pid} $TMUX_SERVER_FORMAT/#{window_id}/#{window_name}" 2>/dev/null) || {
         L_REASON="window $3 unreadable"
         return 0
       }
-      if [ "${lv_line%%	*}" != "$1" ]; then
+      lv_pid=${lv_line%% *}
+      lv_now=${lv_line#* }
+      lv_id=${lv_now#*/}
+      lv_name=${lv_id#*/}
+      lv_id=${lv_id%%/*}
+      if [ "$lv_id" != "$3" ]; then
+        L_REASON="window $3 unreadable"
+        return 0
+      fi
+      if [ -n "$lv_pin" ] && [ "$lv_now" != "$lv_pin" ]; then
+        L_STATE=dead L_REASON="window $3 is no longer the one its tmux server issued for $1"
+        return 0
+      fi
+      if [ "$lv_name" != "$1" ]; then
         L_REASON="window $3 names another window"
         return 0
       fi
-      lv_pid=${lv_line#*	}
       ;;
     stream-json)
       mc_valid_handle "$3" || {
@@ -349,7 +381,7 @@ classify_one() {
     [ "$c_hash" != "$c_prev_hash" ] || c_since=$c_prev_since
   fi
 
-  liveness "$c_name" "$R_backend" "$R_handle"
+  liveness "$c_name" "$R_backend" "$R_handle" "$R_server"
 
   c_footer=$(printf '%s\n' "$c_pane" | tail -n "$FOOTER_LINES")
   c_footer_lc=$(printf '%s' "$c_footer" | tr '[:upper:]' '[:lower:]')

@@ -74,6 +74,23 @@
 # Portable POSIX sh + git + gh (bash 3.2 / BSD compatible, no eval; all external
 # input is treated as data). Pathname expansion is disabled (set -f).
 set -uf
+# LC_ALL=C below is for this script's own parsing only: git hooks run under the
+# caller's locale (C.UTF-8 when it sets none), since a C locale breaks UTF-8
+# file names in the hooked tools.
+if [ -n "${LC_ALL:-}" ]; then
+  hook_lc_all=$LC_ALL
+elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
+  hook_lc_all=
+else
+  hook_lc_all=C.UTF-8
+fi
+hook_git() {
+  if [ -n "$hook_lc_all" ]; then
+    env LC_ALL="$hook_lc_all" git "$@"
+  else
+    env -u LC_ALL git "$@"
+  fi
+}
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -622,7 +639,7 @@ fi
 # --- Push the carry commit straight to the chore branch ref -------------------
 # New commit only, fast-forward (parent is the branch tip or origin/main). No
 # local branch is created and local `main` is never touched.
-if ! g push origin "$commit:refs/heads/$branch" --quiet >/dev/null 2>&1; then
+if ! hook_git -C "$repo_root" push origin "$commit:refs/heads/$branch" --quiet >/dev/null 2>&1; then
   release_lock
   degrade "the chore branch push was rejected"
 fi
