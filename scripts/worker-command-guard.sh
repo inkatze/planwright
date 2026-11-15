@@ -2405,7 +2405,8 @@ sed_script_safe() {
 # `-i`/`--in-place`, `-f`/`--file` (an unverifiable external script file), any
 # bundled short-flag token, and any unrecognized flag all defer; only the
 # enumerated safe standalone flags pass, and every inline script (a bare
-# operand, a `-e` value, or a `--expression=` value) must be read-only.
+# operand, or a `-e`, `--expression` or `--expression=` value) must be
+# read-only.
 guard_sed() {
   local i a expect_e=0 script_taken=0
   for ((i = 1; i < cwn; i++)); do
@@ -2417,7 +2418,7 @@ guard_sed() {
       continue
     fi
     case $a in
-      -e) expect_e=1 ;;
+      -e | --expression) expect_e=1 ;;
       --expression=*)
         zsh_opt_word_ok "$i" && sed_script_safe "${a#--expression=}" || return 1
         script_taken=1
@@ -2466,6 +2467,9 @@ guard_sed_inplace() {
     case $a in
       -e) expect_e=1 ;;
       --expression=*) script_taken=1 ;;
+      # guard_sed accepts this form; the in-place arm defers it rather than
+      # count its value as a file.
+      --expression) return 1 ;;
       -*) ;;
       *)
         if [ "$script_taken" = 0 ]; then
@@ -6453,7 +6457,7 @@ scoped_read_ok() {
     w=${cw[i]}
     [ "$w" = -- ] && break
     case $verb:$w in
-      grep:--regexp | grep:--regexp=* | sed:-e | sed:--expression=*) given=1 ;;
+      grep:--regexp | grep:--regexp=* | sed:-e | sed:--expression | sed:--expression=*) given=1 ;;
       grep:--*) ;;
       grep:-*e*) given=1 ;;
     esac
@@ -6487,7 +6491,7 @@ scoped_read_ok() {
           case $verb:$w in
             grep:*) scoped_grep_opt "$i" || return 1 ;;
             sed:-n | sed:--quiet | sed:--silent) quiet=1 ;;
-            sed:-e) SC_TAKE=pat ;;
+            sed:-e | sed:--expression) SC_TAKE=pat ;;
             wc:--lines | wc:--words | wc:--bytes | wc:--chars | wc:--max-line-length | wc:--total=*) ;;
             wc:--* | wc:-*[!lwcmL]*) return 1 ;;
             ls:--de* | tail:--f* | tail:--r*) return 1 ;;
