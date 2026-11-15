@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.76.1](https://github.com/inkatze/planwright/compare/v0.76.0...v0.76.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* a reissued process id no longer makes a dead worker look alive ([#1005](https://github.com/inkatze/planwright/issues/1005)) ([60cfce4](https://github.com/inkatze/planwright/commit/60cfce4320cd2dee312f6e225e6b53c219320014))
+* **ci:** retry a PR-Agent review the model left empty or unparseable ([#1067](https://github.com/inkatze/planwright/issues/1067)) ([bcf3ca3](https://github.com/inkatze/planwright/commit/bcf3ca30aa73a15580cbd66dc00a4713beeee432))
+* compare spec stable IDs against the merge base ([#1001](https://github.com/inkatze/planwright/issues/1001)) ([d42cee4](https://github.com/inkatze/planwright/commit/d42cee44400c13bc89a89252aa2a3b8de622a4e7))
+* **guard:** approve a worker's read line that starts with cd into its own worktree ([#1069](https://github.com/inkatze/planwright/issues/1069)) ([bfee4af](https://github.com/inkatze/planwright/commit/bfee4af2996b4a5cf2d81f75f30c1b4288346913))
+* measure the oracle TERM-compliant timeout by poll count, not wall clock ([#1019](https://github.com/inkatze/planwright/issues/1019)) ([6f1ef28](https://github.com/inkatze/planwright/commit/6f1ef28d6c7a98480c0d8b3bc373a9d231155f2c))
+* pin recorded tmux ids to their server and window name, and drop tab-separated tmux formats ([#1066](https://github.com/inkatze/planwright/issues/1066)) ([cae54f1](https://github.com/inkatze/planwright/commit/cae54f107401ab8ad4f025e5908fc612a9a8bcd4))
+* **policy-guard:** admit an amendment kickoff's own push and name the real refusal ([#1065](https://github.com/inkatze/planwright/issues/1065)) ([cf12fe5](https://github.com/inkatze/planwright/commit/cf12fe59a9b76b633ec3995d258b9b092f7aa189))
+* **readiness:** audit the PR head when the worktree is ahead of it ([#966](https://github.com/inkatze/planwright/issues/966)) ([8f82903](https://github.com/inkatze/planwright/commit/8f82903c3888aadc60f2012385eb24c15a37056a))
+* refuse a ready flip while any check on the head is still running ([#999](https://github.com/inkatze/planwright/issues/999)) ([647f14e](https://github.com/inkatze/planwright/commit/647f14e043ada46f1a16d84b224e5c800ddcacdf))
+
 ## [0.76.0](https://github.com/inkatze/planwright/compare/v0.75.2...v0.76.0) (2026-11-14)
 
 
