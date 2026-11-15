@@ -317,7 +317,7 @@ assert_defer "scoped: git -C a relative directory" "cd $WT; git -C sub log -1" B
 assert_defer "scoped: a git global option" "cd $WT; git --no-pager log -1" Bash "$WT"
 ln -sfn "$OTHER_TMP/diff.patch" "$WT/file-link"
 assert_defer "scoped: a symlinked file" "cd $WT; cat file-link" Bash "$WT"
-assert_defer "scoped: a dot-led glob" "cd $WT; cat .*" Bash "$WT"
+assert_defer "scoped: a dot-led glob" "cd $WT; cat sub/.*" Bash "$WT"
 mkdir -p "$WT/dash"
 : >"$WT/dash/-i"
 : >"$WT/dash/a"
@@ -326,7 +326,7 @@ assert_defer "scoped: a .. operand" "cd $WT; cat sub/../f" Bash "$WT"
 assert_defer "scoped: a loop" "cd $WT; for x in f; do cat \$x; done" Bash "$WT"
 assert_defer "scoped: an if" "cd $WT; if true; then cat f; fi" Bash "$WT"
 HOOK_ENV=("${SCOPED_ENV[@]}" "TMPDIR=$OTHER_TMP" "PLANWRIGHT_WORKER_SESSION_RECORD=$SR")
-assert_defer "scoped: a TMPDIR the record does not name is no root""cd $WT; cat $OTHER_TMP/diff.patch" Bash "$WT"
+assert_defer "scoped: a TMPDIR the record does not name is no root" "cd $WT; cat $OTHER_TMP/diff.patch" Bash "$WT"
 assert_defer "scoped: the recorded root, TMPDIR disagreeing" "cd $WT; cat $OWN_TMP/diff.patch" Bash "$WT"
 
 finish_suite "worker-command-guard readonly"
