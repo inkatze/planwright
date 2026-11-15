@@ -204,8 +204,12 @@ token) before it starts anything, and a session that started but could not
 be recorded is stopped. A mission-control session starts holding that token
 as PLANWRIGHT_MC_TOKEN, which no other kind is handed. A retire refuses a launch still in flight, closes the
 process or window first, and releases the fleet record, the attention row
-and the row only once it is gone; a window counts as closed only when tmux
-lists the windows and that one is not among them. A session with no row
+and the row only once it is gone. A window is closed only while the tmux
+server that issued its id still runs it under the session's name, and counts
+as gone once tmux no longer has it or it is no longer that window (another
+server, or another name: nothing is done to tmux then, and stderr says so in
+one line); one recorded without its server is never closed by its id, only
+the windows carrying the session's name are. A session with no row
 (one an older planwright or /orchestrate launched, named by its worker
 handle) is retired through its stream-json runtime directory: the rung's
 final close, then its fleet record and attention row, over the classes
