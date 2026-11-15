@@ -1,8 +1,7 @@
-# format: 1
-# moment<TAB>level<TAB>kind<TAB>text. Core data for scripts/mc-packet.sh, keyed by
-# a closed set of moments (merge-recommendation, ready-flip, merge-intent) and
-# by level (guided, standard); kind is lesson or recommend. Printed only when
-# the cadence audit named a gap. Not an overlay catalog.
+# moment<TAB>level<TAB>kind<TAB>text: the lesson and recommendation
+# scripts/mc-packet.sh prints when the cadence audit named a gap; its usage
+# names the moments and levels. kind is lesson or recommend; expert has no
+# rows because it prints neither. Core data, not an overlay catalog.
 merge-recommendation	guided	lesson	A cadence step with no record means that review or check never ran on this exact change, so a problem it would catch can reach main unseen.
 merge-recommendation	guided	recommend	Close the gap before merging: run the missing step, record it, and re-check.
 merge-recommendation	standard	recommend	Close the gap before merging.

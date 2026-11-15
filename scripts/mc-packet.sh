@@ -39,9 +39,11 @@ Usage:
   mc-packet.sh assemble --program <p> --unit <unit> --readiness <file>
                         [--focus <file>] [--checkout <dir> --head <sha>]
                         [--risks <file>] [--order <file>]
-                        [--moment <m> --evidence <file> [--level <l>]]
+                        [--moment <m> --evidence <file> [--level <l>]
+                         [--lessons <file>]]
       the packet, its sections always in this order:
-        Readiness             the walk (scripts/mc-readiness.sh walk), whole
+        Readiness             with --moment, the cadence line below; then
+                              the walk (scripts/mc-readiness.sh walk), whole
         What to look at       --focus's lines
         Changed since you last looked
                               the commits between the recorded look and
@@ -57,8 +59,9 @@ Usage:
         Order                 --order's lines (scripts/mc-radar.sh order)
       with --moment (merge-recommendation, ready-flip or merge-intent) and
       --evidence (the readiness evidence file) the Readiness section opens
-      with one line, the cadence audit's result: the points covered and
-      the gaps, or that it could not run and why. --level (guided, standard
+      with one line, the cadence audit's result at the walk's head: the
+      points it found complete and the gaps, that a spec-only pull request
+      needs none, or that it could not run and why. --level (guided, standard
       or expert; guided when absent) adds, only when a gap is named, a lesson
       and a recommendation (guided) or the recommendation (standard), from
       config/mc-cadence-lessons.tsv (--lessons names another file); no level
@@ -75,7 +78,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-packet.sh look --program <p> --unit <unit> --head <sha> | assemble --program <p> --unit <unit> --readiness <file> [--focus <file>] [--checkout <dir> --head <sha>] [--risks <file>] [--order <file>]"
+  mc_usage_fail "usage: mc-packet.sh look --program <p> --unit <unit> --head <sha> | assemble --program <p> --unit <unit> --readiness <file> [--focus <file>] [--checkout <dir> --head <sha>] [--risks <file>] [--order <file>] [--moment <m> --evidence <file> [--level <l>] [--lessons <file>]]"
 }
 
 case ${1:-} in
@@ -142,32 +145,43 @@ section() { # section <title> <file|"">
   fi
 }
 
-# cadence_lines: the cadence audit's one line from --evidence's cadence rows,
-# then, only when a gap was named, the lesson and recommendation --level
+# cadence_lines <walked head>: the cadence audit's one line from --evidence's
+# rows, then, only when a gap was named, the lesson and recommendation --level
 # picks from the lessons data for --moment. The level shapes nothing else.
+# The awk exits 3 when it printed a gap. Covered points come from the audit's
+# own rows: it names only points with a configured step, so a point it never
+# named was never checked. Gap wording follows scripts/mc-readiness.sh's walk.
 cadence_lines() {
   cl_rc=0
-  awk -F '\t' '
-    $1 == "cadence" && $2 == "audited" { audited = 1 }
-    $1 == "cadence" && $2 == "unaudited" { why = $3 }
-    $1 == "cadence" && $2 == "gap" {
-      gaps = gaps (gaps == "" ? "" : "; ") $3 " (" ($4 == "incomplete" ? "no completion record" : $4) ")"
-      isgap[$3] = 1
+  H=$1 awk -F '\t' '
+    $1 == "scope" && $2 == "spec-only" { speconly = 1 }
+    $1 != "cadence" { next }
+    $2 == "audited" { audited = $3 }
+    $2 == "unaudited" { why = $3 }
+    $2 == "covered" { cov = cov (cov == "" ? "" : ", ") $3 }
+    $2 == "gap" {
+      d = $5 " is " $4
+      if ($4 == "incomplete") d = "no completion record"
+      else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
+      else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
+      gaps = gaps (gaps == "" ? "" : "; ") $3 " (" d ")"
     }
     END {
       if (why != "") { print "Cadence: not audited: " why; exit }
-      if (!audited) { print "Cadence: not audited: no audit result was collected"; exit }
-      n = split("pre-implementation pre-ci convergence pre-pr post-pr", pts, " ")
-      for (i = 1; i <= n; i++) if (!isgap[pts[i]]) cov = cov (cov == "" ? "" : ", ") pts[i]
-      if (gaps == "") print "Cadence: all covered (" cov ")"
+      if (speconly && audited == "") { print "Cadence: not required: a spec-only pull request is held for its sign-off"; exit }
+      if (audited == "") { print "Cadence: not audited: no audit result was collected"; exit }
+      if (audited != ENVIRON["H"]) { print "Cadence: not audited: the audit ran at " substr(audited, 1, 12) ", not the walked head " substr(ENVIRON["H"], 1, 12); exit }
+      if (gaps == "") print "Cadence: all covered (" (cov == "" ? "no point has a configured step" : cov) ")"
       else { print "Cadence: covered " (cov == "" ? "none" : cov) "; gap " gaps; exit 3 }
-    }' "$evidence" || cl_rc=$?
+    }' <"$evidence" || cl_rc=$?
   [ "$cl_rc" -eq 0 ] || [ "$cl_rc" -eq 3 ] || mc_fail "the cadence evidence cannot be read: $(sanitize_printable "$evidence")"
   [ "$cl_rc" -eq 3 ] || return 0
   case $level in standard) kinds="recommend" ;; guided) kinds="lesson recommend" ;; *) kinds="" ;; esac
   for k in $kinds; do
-    text=$(M=$moment L=$level K=$k awk -F '\t' '$1 == ENVIRON["M"] && $2 == ENVIRON["L"] && $3 == ENVIRON["K"] { print $4; exit }' "$lessons")
-    [ -z "$text" ] || printf '%s %s\n' "$([ "$k" = lesson ] && echo 'Why it matters:' || echo 'Recommend:')" "$text"
+    text=$(M=$moment L=$level K=$k awk -F '\t' '$1 == ENVIRON["M"] && $2 == ENVIRON["L"] && $3 == ENVIRON["K"] { print $4; exit }' <"$lessons") \
+      || mc_fail "the lesson data cannot be read: $(sanitize_printable "$lessons")"
+    [ -n "$text" ] || continue
+    if [ "$k" = lesson ]; then printf 'Why it matters: %s\n' "$text"; else printf 'Recommend: %s\n' "$text"; fi
   done
 }
 
@@ -192,6 +206,11 @@ case $verb in
   assemble)
     [ -n "$readiness" ] || usage
     [ -r "$readiness" ] || mc_fail "the readiness result is unreadable: $(sanitize_printable "$readiness")"
+    scratch=$(mktemp -d "${TMPDIR:-/tmp}/mc-packet.XXXXXX") || mc_fail "cannot create a scratch directory"
+    trap 'rm -rf "$scratch"' EXIT
+    # One read of the walk, so the result checked is the result printed.
+    cp "$readiness" "$scratch/readiness" || mc_fail "the readiness result is unreadable: $(sanitize_printable "$readiness")"
+    readiness=$scratch/readiness
     case $(head -n 1 "$readiness" | cut -f1) in
       ready | not-ready) ;;
       *) mc_fail "the readiness result does not open with ready or not-ready; no packet without it" ;;
@@ -203,8 +222,6 @@ case $verb in
       [ -n "$checkout" ] && [ -d "$checkout" ] || mc_usage_fail "--head takes --checkout, a directory"
       mc_valid_sha "$head" || mc_usage_fail "--head takes a full 40-hex sha"
     fi
-    scratch=$(mktemp -d "${TMPDIR:-/tmp}/mc-packet.XXXXXX") || mc_fail "cannot create a scratch directory"
-    trap 'rm -rf "$scratch"' EXIT
     changed=$scratch/changed
     if [ -n "$head" ]; then
       last=""
@@ -234,7 +251,7 @@ case $verb in
       [ -n "$evidence" ] && [ -f "$evidence" ] && [ -r "$evidence" ] || mc_usage_fail "--moment takes --evidence, a readable file"
       lessons=${lessons:-$script_dir/../config/mc-cadence-lessons.tsv}
       [ -f "$lessons" ] && [ -r "$lessons" ] || mc_fail "the lesson data is unreadable: $(sanitize_printable "$lessons")"
-      cadence_lines >"$cadence"
+      cadence_lines "$(head -n 1 "$readiness" | cut -f2)" >"$cadence"
     fi
     printf 'Packet: %s\n' "$unit" | mc_clean_text
     printf '\nReadiness\n'

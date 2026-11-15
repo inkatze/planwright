@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for the cadence result at consequential moments in
-# scripts/mc-packet.sh (mission-control REQ-F1.15; D-31).
+# scripts/mc-packet.sh (mission-control REQ-F1.15).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-mc-packet.sh
@@ -38,9 +38,10 @@ EOF
 
 head=$(printf 'a%.0s' $(seq 1 40))
 printf 'ready\t%s\n' "$head" >"$tmp/readiness"
-# One step covered, convergence a gap (the other points covered too).
-printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tgap\tconvergence\tincomplete\tno completion\n' "$head" "$head" >"$tmp/gap"
-printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\n' "$head" "$head" >"$tmp/clean"
+# One step covered, convergence a gap; the audit names only configured points.
+printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tconvergence\tincomplete\t-\n' "$head" "$head" >"$tmp/gap"
+printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-ci\n' "$head" "$head" >"$tmp/clean"
+gapline="Cadence: covered pre-pr; gap convergence (no completion record)"
 printf '# format: 1\nhead\t%s\ncadence\tunaudited\tnot planwright-run\n' "$head" >"$tmp/unaud"
 
 packet() { # packet <evidence> <moment> [extra...]
@@ -56,24 +57,42 @@ for moment in merge-recommendation ready-flip merge-intent; do
   packet "$tmp/gap" "$moment" --level guided
   expect_rc "REQ-F1.15: $moment assembles" 0
   first=$(section_first)
-  case $first in
-    *convergence*pre-pr* | *pre-pr*convergence*) ok "REQ-F1.15: $moment: the first line names the covered step and the gap" ;;
-    *) fail "REQ-F1.15: $moment: first line is '$first'" ;;
-  esac
+  if [ "$first" = "$gapline" ]; then ok "REQ-F1.15: $moment: the first line names the covered step and the gap"; else fail "REQ-F1.15: $moment: first line is '$first'"; fi
   expect_out "REQ-F1.15: $moment: guided carries the lesson" "Why it matters:"
   expect_out "REQ-F1.15: $moment: guided carries the recommendation" "Recommend:"
   packet "$tmp/gap" "$moment" --level standard
   expect_no_out "REQ-F1.15: $moment: standard has no lesson" "Why it matters:"
   expect_out "REQ-F1.15: $moment: standard has the recommendation" "Recommend:"
-  case $(section_first) in *convergence*pre-pr* | *pre-pr*convergence*) ok "REQ-F1.15: $moment: standard still has the line" ;; *) fail "REQ-F1.15: $moment: standard lost the line" ;; esac
+  if [ "$(section_first)" = "$gapline" ]; then ok "REQ-F1.15: $moment: standard still has the line"; else fail "REQ-F1.15: $moment: standard lost the line"; fi
   packet "$tmp/gap" "$moment" --level expert
   expect_no_out "REQ-F1.15: $moment: expert has no lesson" "Why it matters:"
   expect_no_out "REQ-F1.15: $moment: expert has no recommendation" "Recommend:"
-  case $(section_first) in *convergence*) ok "REQ-F1.15: $moment: expert still has the line" ;; *) fail "REQ-F1.15: $moment: expert lost the line" ;; esac
+  if [ "$(section_first)" = "$gapline" ]; then ok "REQ-F1.15: $moment: expert still has the line"; else fail "REQ-F1.15: $moment: expert lost the line"; fi
 done
 
 packet "$tmp/gap" ready-flip
+expect_rc "REQ-F1.13: no level assembles" 0
 expect_out "REQ-F1.13: no level means guided" "Why it matters:"
+expect_out "REQ-F1.13: and carries guided's recommendation" "Recommend:"
+if [ "$(section_first)" = "$gapline" ]; then ok "REQ-F1.13: and opens with the line"; else fail "REQ-F1.13: no level lost the line"; fi
+
+# Each gap kind the audit prints is said with its step or head.
+printf '# format: 1\ncadence\taudited\t%s\ncadence\tgap\tpre-ci\tmissing\tlint\ncadence\tgap\tpre-ci\tfailed\ttest:failed\ncadence\tgap\tpost-pr\tstale\t%s\n' "$head" "$head" >"$tmp/kinds"
+packet "$tmp/kinds" ready-flip --level expert
+want="Cadence: covered none; gap pre-ci (lint is missing); pre-ci (test recorded failed); post-pr (completed only at $(printf '%.12s' "$head"))"
+if [ "$(section_first)" = "$want" ]; then ok "each gap names its step or head"; else fail "the gap kinds read '$(section_first)'"; fi
+packet "$tmp/clean" ready-flip --level expert
+if [ "$(section_first)" = "Cadence: all covered (pre-ci)" ]; then ok "only the points the audit names are covered"; else fail "a clean audit reads '$(section_first)'"; fi
+
+printf '# format: 1\nscope\tspec-only\t%s\n' "$head" >"$tmp/speconly"
+packet "$tmp/speconly" ready-flip --level guided
+case $(section_first) in "Cadence: not required"*) ok "a spec-only pull request says the cadence is not required" ;; *) fail "a spec-only pull request reads '$(section_first)'" ;; esac
+expect_no_out "and carries no lesson" "Why it matters:"
+
+other=$(printf 'b%.0s' $(seq 1 40))
+printf '# format: 1\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\n' "$other" >"$tmp/otherhead"
+packet "$tmp/otherhead" ready-flip --level guided
+case $(section_first) in "Cadence: not audited"*) ok "an audit at another head than the walk's is not audited" ;; *) fail "an audit at another head reads '$(section_first)'" ;; esac
 packet "$tmp/gap" ready-flip --level bold
 expect_rc "an unknown level is refused" 2
 packet "$tmp/gap" no-such-moment --level guided
@@ -90,10 +109,12 @@ for opt in --moment --evidence --level --lessons; do
   [ "$opt" = --moment ] || expect_rc "assemble refuses $opt without --moment" 2
 done
 
-packet "$tmp/unaud" ready-flip --level guided
-expect_out "an unaudited result names its reason" "not planwright-run"
-expect_no_out "and carries no lesson" "Why it matters:"
-expect_no_out "and no recommendation" "Recommend:"
+for lv in guided standard; do
+  packet "$tmp/unaud" ready-flip --level "$lv"
+  if [ "$(section_first)" = "Cadence: not audited: not planwright-run" ]; then ok "$lv: an unaudited result names its reason"; else fail "$lv: unaudited reads '$(section_first)'"; fi
+  expect_no_out "$lv: and carries no lesson" "Why it matters:"
+  expect_no_out "$lv: and no recommendation" "Recommend:"
+done
 printf '# format: 1\ncadence\tunaudited\tcheckout missing\ncadence\tgap\tpre-ci\tincomplete\tx\n' >"$tmp/unaudgap"
 packet "$tmp/unaudgap" ready-flip --level guided
 expect_no_out "an unaudited result with a stray gap row carries no lesson" "Why it matters:"
@@ -111,24 +132,33 @@ packet "$tmp/gap" ready-flip --level guided --lessons "$tmp/lessons"
 expect_rc "a moment and level with no text still assembles" 0
 case $(section_first) in *convergence*) ok "and still prints the line" ;; *) fail "the line is missing with no lesson text" ;; esac
 expect_no_out "and prints no text" "Why it matters:"
+packet "$tmp/gap" ready-flip --level standard --lessons "$tmp/lessons"
+expect_rc "a level with no row at all still assembles" 0
+if [ "$(section_first)" = "$gapline" ]; then ok "and still prints the line"; else fail "the line is missing for a level with no row"; fi
+expect_no_out "and prints no recommendation" "Recommend:"
 
-# The gate result is identical at every level; no option is marked.
-gate() { printf '%s\n' "$OUT" | grep -E "^(ready|not-ready)""$tab" | head -n 1; }
-packet "$tmp/gap" ready-flip --level guided
-g1=$(gate)
-packet "$tmp/gap" ready-flip --level expert
-g2=$(gate)
-if [ "$g1" = "ready${tab}$head" ] && [ "$g1" = "$g2" ]; then ok "REQ-F1.15: the gate result is identical at every level"; else fail "the gate line differs: '$g1' vs '$g2'"; fi
-packet "$tmp/gap" ready-flip --level guided
-expect_no_out "no option carries a default marker" "default"
-expect_no_out "no option is pre-selected" "(Recommended)"
+# The gate result and every other line are identical at every level; no
+# option is marked.
+printf 'not-ready\t%s\nfail\tcadence\tconvergence: no completion record\n' "$head" >"$tmp/notready"
+for rd in readiness notready; do
+  base=""
+  for lv in guided standard expert; do
+    mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/$rd" \
+      --evidence "$tmp/gap" --moment ready-flip --level "$lv"
+    rest=$(printf '%s\n' "$OUT" | grep -v -e '^Why it matters: ' -e '^Recommend: ')
+    if [ -z "$base" ]; then base=$rest; elif [ "$rest" != "$base" ]; then fail "REQ-F1.15: $rd: $lv changes more than the lesson and recommendation"; fi
+    expect_no_out "$rd: $lv: no option carries a default marker" "default"
+    expect_no_out "$rd: $lv: no option is pre-selected" "(Recommended)"
+  done
+  case $base in *"$(cat "$tmp/$rd")"*) ok "REQ-F1.15: $rd: the gate result is identical at every level" ;; *) fail "REQ-F1.15: $rd: the walk is not carried whole" ;; esac
+done
 
 # Without a moment the packet is unchanged: the walk is the first line.
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/readiness"
 if [ "$(section_first)" = "ready${tab}$head" ]; then ok "no moment, no cadence line"; else fail "a packet with no moment changed"; fi
 
 # The rule appears once in the skill.
-n=$(grep -c -F 'cadence result' "$repo_root/skills/mission-control/SKILL.md")
+n=$(tr '\n' ' ' <"$repo_root/skills/mission-control/SKILL.md" | tr -s ' ' | grep -o -F 'cadence result' | wc -l | tr -d ' ')
 if [ "$n" -eq 1 ]; then ok "REQ-F1.15: the skill names the rule once"; else fail "the skill names the rule $n times"; fi
 
 if [ "$failures" -ne 0 ]; then
