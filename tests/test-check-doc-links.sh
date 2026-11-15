@@ -7,6 +7,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECKER="$REPO_ROOT/scripts/check-doc-links.sh"
 
 failures=0
@@ -220,15 +222,17 @@ assert "missing input file is a usage error" 2 $?
 # 8b. An unreadable input file is also a usage error: a file the checker
 #     could not scan must not be reported as "all targets resolve".
 #     (Skipped under root, where mode 000 is still readable.)
-if [ "$(id -u)" -ne 0 ]; then
-  cat >"$tmp/unreadable.md" <<'EOF'
+cat >"$tmp/unreadable.md" <<'EOF'
 [link](target.md)
 EOF
-  chmod 000 "$tmp/unreadable.md"
+chmod 000 "$tmp/unreadable.md"
+if hermetic_access_denied r "$tmp/unreadable.md"; then
   /bin/bash "$CHECKER" "$tmp/unreadable.md" >/dev/null 2>&1
   assert "unreadable input file is a usage error" 2 $?
-  chmod 644 "$tmp/unreadable.md"
+else
+  echo "skip: unreadable input file: the running user still reads $tmp/unreadable.md under mode 000"
 fi
+chmod 644 "$tmp/unreadable.md"
 
 # 9. A hostile CDPATH must not corrupt the default-set repo-root derivation
 #    (mirrors the options-reference checker's guard).

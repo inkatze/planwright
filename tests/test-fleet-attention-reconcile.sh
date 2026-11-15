@@ -56,9 +56,13 @@ unset CDPATH
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
-unset PLANWRIGHT_BASE_REF PLANWRIGHT_ORCH_STATE_DIR PLANWRIGHT_LOCAL_CONFIG
+unset PLANWRIGHT_BASE_REF
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 S="$here/../scripts"
 REC="$S/fleet-attention-reconcile.sh"
 FA="$S/fleet-attention.sh"
@@ -152,9 +156,10 @@ chmod +x "$fakebin/tmux"
 printf 'up\n' >"$tmp/tmux-mode"
 
 # A pid that is gone.
-sleep 0 &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null
+dead_pid=$(dead_owner_pid) || {
+  echo "FAIL: no dead owner pid available" >&2
+  exit 1
+}
 
 n=0
 # fresh — a new fleet home for one case.
@@ -329,11 +334,16 @@ fresh
 seed @145 demo:task-1 working
 reg tmux-demo-task-1 demo:task-1 tmux "$other/wt" "tmux-window sess-a @1"
 chmod 000 "$home/registry"
-reconcile e3
+if hermetic_access_denied r "$home/registry"; then
+  reconcile e3
+  chmod 600 "$home/registry"
+  has_row @145 || fail "e3: an unreadable registry let a row be judged without its worker evidence"
+  says e3 keep @145 evidence-unknown
+  printf '%s\n' "$out" | grep -q "status=degraded$" || fail "e3: an unreadable registry did not degrade the pass: $out"
+else
+  echo "skip: e3 unreadable registry: the running user still reads $home/registry under mode 000"
+fi
 chmod 600 "$home/registry"
-has_row @145 || fail "e3: an unreadable registry let a row be judged without its worker evidence"
-says e3 keep @145 evidence-unknown
-printf '%s\n' "$out" | grep -q "status=degraded$" || fail "e3: an unreadable registry did not degrade the pass: $out"
 fresh
 seed wtrunc demo:task-1 working
 printf '1700000000\twtrunc\tdemo:task-1\n' >"$home/registry"
@@ -370,11 +380,16 @@ printf '%s\n' "$out" | grep -q "status=degraded$" || fail "m2: a duplicated hand
 fresh
 seed @145 demo:task-1 working
 chmod 555 "$home/attention"
-reconcile m3
+if hermetic_access_denied w "$home/attention"; then
+  reconcile m3
+  chmod 755 "$home/attention"
+  has_row @145 || fail "m3: a failed clear removed the row"
+  says m3 keep @145 clear-failed
+  printf '%s\n' "$out" | grep -q "status=degraded$" || fail "m3: a failed clear did not degrade the pass: $out"
+else
+  echo "skip: m3 failed clear: the running user still writes $home/attention under mode 555"
+fi
 chmod 755 "$home/attention"
-has_row @145 || fail "m3: a failed clear removed the row"
-says m3 keep @145 clear-failed
-printf '%s\n' "$out" | grep -q "status=degraded$" || fail "m3: a failed clear did not degrade the pass: $out"
 fresh
 mkdir -p "$repo/specs/broken"
 printf '# Broken — Tasks\n' >"$repo/specs/broken/tasks.md"
