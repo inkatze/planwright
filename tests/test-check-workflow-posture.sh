@@ -1736,6 +1736,10 @@ grep -qF 'MAC_RUN: ${{ needs.plan.outputs.mac_run }}' "$CI_YML"
 assert_exit "the aggregate check job reads the mac_run verdict" 0 $?
 grep -qE 'MACOS_RESULT" = skipped' "$CI_YML"
 assert_exit "the aggregate check job accepts a macOS skip only by that verdict" 0 $?
+n_suite="$(grep -cF "if: \${{ needs.plan.outputs.suite_run == 'true' }}" "$CI_YML")"
+suite_rc=1
+[ "$n_suite" = 2 ] && suite_rc=0
+assert_exit "ci.yml gates exactly the test and Alpine jobs on the plan job's suite_run" 0 "$suite_rc"
 
 # The default argument resolves to the repo's workflow directory, so a bare
 # invocation from anywhere gives the same verdict as the explicit one.
@@ -1853,6 +1857,29 @@ matrix_case "matrix: a branch filter on the macOS job fails" 1 "carries a job-le
 # shellcheck disable=SC2016 # a literal GitHub expression
 matrix_case "matrix: any job-level if on the Alpine job fails" 1 "carries a job-level" \
   'M_ALP_JOB=    if: ${{ !cancelled() }}'
+# The one job-level if the Alpine job may carry: the plan job's verdict that
+# the suite runs, false only on a ready flip reusing a prior run's evidence.
+# shellcheck disable=SC2016 # literal GitHub expressions
+{
+  matrix_case "matrix: the plan job's suite_run gate on the Alpine job passes" 0 \
+    "holds the platform matrix" \
+    "M_ALP_JOB=    if: \${{ needs.plan.outputs.suite_run == 'true' }}"
+  matrix_case "matrix: the bare suite_run gate on the Alpine job passes" 0 \
+    "holds the platform matrix" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+  matrix_case "matrix: suite_run joined to another condition on the Alpine job fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run == 'true' && github.head_ref == 'planwright/x'"
+  matrix_case "matrix: a suite_run gate spread over two lines with another condition fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: >-
+      needs.plan.outputs.suite_run == 'true'
+      || github.event_name == 'push'"
+  matrix_case "matrix: suite_run compared to anything but 'true' fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run != 'true'"
+  matrix_case "matrix: the suite_run gate on the macOS job fails" 1 "carries a job-level" \
+    "M_MAC_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+  matrix_case "matrix: the suite_run gate on the Ubuntu job leaves its install smoke gated" 1 "install smoke" \
+    "M_LINT_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+}
 matrix_case "matrix: a job-level if naming a platform fails" 1 "naming a platform" \
   "M_LINT_JOB=    if: runner.os == 'Linux'"
 matrix_case "matrix: a block-scalar job-level if naming a platform fails" 1 "naming a platform" \

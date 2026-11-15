@@ -82,6 +82,8 @@
 #   status    dispatched | prepared | reported | failed
 #   backend   <name>
 #   handle    <handle>  (or the no-process fact for `print`)
+#   server    <pid>.<start time> of the tmux server that issued the window
+#             id (tmux dispatch only, when tmux reported it)
 #   observe   <read command, or the no-observe-surface fact>
 #   attach    <attach hint, or the not-attachable fact>
 #   launch    <exact command>            (print only)
@@ -145,6 +147,13 @@ if [ ! -r "$ladder" ]; then
 fi
 # shellcheck source=scripts/allocation-ladder.sh
 . "$ladder"
+tmux_identity="$script_dir/tmux-identity-lib.sh"
+if [ ! -r "$tmux_identity" ]; then
+  printf '%s\n' "$me: required helper $tmux_identity missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$tmux_identity"
 
 # od_in_roster <value> <space-separated roster>: 0 when the value is a member,
 # or the `inherit` sentinel — which is not a tier but a legal plan row meaning
@@ -603,10 +612,27 @@ cmd_dispatch() {
   # shellcheck disable=SC2016 # single quotes are deliberate: $1/$@ expand in
   # the SPAWNED shell (argv-passed prompt path and launch words), never here —
   # no content splicing.
-  handle=$(tmux new-window -d -P -F '#{window_id}' -n "$win_name" -c "$cwd" \
+  # The id comes back with the server that issued it and the name the window
+  # got, so every record of it is pinned to both: a restarted tmux server
+  # reissues ids from @0.
+  created=$(tmux new-window -d -P -F "#{window_id} $TMUX_SERVER_FORMAT #{window_name}" -n "$win_name" -c "$cwd" \
     /bin/sh -c 'p=$(cat -- "$1") || exit 1; shift; exec "$@" -- "$p"' \
     "$@" 2>"$tmux_err")
   rc=$?
+  # Anything but `<id> <server> <name>` is taken whole, so an unusable
+  # reply still fails the id check below.
+  handle=$created server='' tname=''
+  case $created in
+    *' '*' '*)
+      c_rest=${created#* }
+      if tmux_valid_server "${c_rest%% *}"; then
+        handle=${created%% *}
+        if [ "${c_rest#* }" = "$win_name" ] && tmux_valid_name "$win_name"; then
+          server=${c_rest%% *} tname=$win_name
+        fi
+      fi
+      ;;
+  esac
   err_text=$(cat "$tmux_err" 2>/dev/null)
   rm -f "$tmux_err"
   if [ "$rc" -ne 0 ]; then
@@ -650,10 +676,12 @@ cmd_dispatch() {
     }
   done
   [ -n "$sess" ] && death="tmux-window $sess $handle"
+  [ -z "$death" ] || [ -z "$server" ] || death="$death $server $tname"
   register_dispatch "$handle" tmux "$death"
   printf 'status\tdispatched\n'
   printf 'backend\ttmux\n'
   printf 'handle\t%s\n' "$handle"
+  [ -z "$server" ] || printf 'server\t%s\n' "$server"
   emit_hints tmux "$handle"
 }
 

@@ -23,6 +23,11 @@ def check_passed: if .context != null then .state == "SUCCESS"
       | $c == "SUCCESS" or $c == "NEUTRAL"
         or ($c == "SKIPPED" and ((.name // "") | startswith("macos-") | not))) end;
 
+# A skip ran nothing, so a skipped macOS run never supersedes a run of its
+# context that did run: a ready flip reusing a prior run's evidence skips the
+# macOS jobs at a head where they already passed (or failed).
+def mac_skip: .context == null and (.conclusion // "") == "SKIPPED" and ((.name // "") | startswith("macos-"));
+
 # A skipped matrix job is reported under its unexpanded name, which a later
 # run's expanded shard names never supersede; so a skipped macOS entry is
 # dropped when a shard of the same job (the name up to the first space) passed.
@@ -39,7 +44,7 @@ def base_state_check: .context == null and (((.workflowName // "") + "/" + (.nam
 # different apps, so neither may supersede the other.
 def latest_check_runs: map(select(base_state_check | not)) | to_entries
   | group_by(if .value.context == null and (.value.workflowName // "") == "" then ["solo", .key] else (.value | check_context) end)
-  | map(max_by([(.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
+  | map(max_by([(if .value | mac_skip then 0 else 1 end), (.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
   | sort_by(.key) | map(.value)
   | (map(select((.conclusion // "") == "SUCCESS" and ((.name // "") | startswith("macos-"))) | mac_family)) as $ok
   | map(select((((.conclusion // "") == "SKIPPED" and ((.name // "") | startswith("macos-")) and (mac_family as $f | $ok | index($f) != null))) | not));

@@ -193,9 +193,9 @@ case "\$cmd" in
     ;;
   list-windows)
     case "\$mode" in
-      window-present | session-renamed) printf '@1\tworker-3\n@2\tother\n' ;;
-      named-like-id) printf '@3\t@7\n' ;;
-      window-absent) printf '@2\tother\n' ;;
+      window-present | session-renamed) printf '@1 worker-3\n@2 other\n' ;;
+      named-like-id) printf '@3 @7\n' ;;
+      window-absent) printf '@2 other\n' ;;
       listing-fails)
         echo "server exited unexpectedly" >&2
         exit 1
