@@ -86,6 +86,8 @@ expect_no_out "and assembles no packet" "Packet:"
 for opt in --moment --evidence --level --lessons; do
   mc_run mc-packet.sh look --program alpha --unit web#7 --head "$head" "$opt" x
   expect_rc "look refuses $opt" 2
+  mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/readiness" "$opt" "$tmp/gap"
+  [ "$opt" = --moment ] || expect_rc "assemble refuses $opt without --moment" 2
 done
 
 packet "$tmp/unaud" ready-flip --level guided

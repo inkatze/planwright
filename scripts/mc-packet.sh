@@ -226,6 +226,7 @@ case $verb in
     fi
     cadence=$scratch/cadence
     : >"$cadence"
+    [ -n "$moment" ] || [ -z "$evidence$level$lessons" ] || mc_usage_fail "--evidence, --level and --lessons go with --moment"
     if [ -n "$moment" ]; then
       case $moment in merge-recommendation | ready-flip | merge-intent) ;; *) mc_usage_fail "--moment is merge-recommendation, ready-flip or merge-intent" ;; esac
       level=${level:-guided}
