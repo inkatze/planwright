@@ -76,7 +76,7 @@ jobs:
           sparse-checkout: scripts
 
       # The wrapper retries a try whose model output came back empty or
-      # unparseable (the action exits 0 then, with no review posted) up to
+      # unparseable (whether the action then exits 0 or 1) up to
       # PR_AGENT_REVIEW_RETRIES times, rate limits on a budget of their own,
       # and fails the step by name when no review lands, unless the first try
       # was PR-Agent's own silent skip.
@@ -106,7 +106,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # PR-Agent's settings, spelled SECTION__KEY, which its loader reads
           # as section.key. Keep them out of the dotted spelling: that is no
-          # shell name, so the runner's bash drops it before docker sees it.
+          # shell name, so the /bin/sh (dash) that starts docker drops it.
           OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
           CONFIG__MODEL: ${{ vars.PR_AGENT_MODEL || 'openrouter/moonshotai/kimi-k2.7-code' }}

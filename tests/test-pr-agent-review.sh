@@ -823,8 +823,8 @@ for want in 'scripts/pr-agent-review.sh --image "$PR_AGENT_IMAGE"' '--pr "$PR"' 
   case "$review" in *"$want"*) ;; *) missing="$missing [$want]" ;; esac
 done
 grep -q '^          sparse-checkout: scripts$' "$WORKFLOW" || missing="$missing [sparse-checkout: scripts]"
-# A dotted setting never reaches the container: the runner's bash drops a
-# name that is not a shell identifier.
+# A dotted setting never reaches the container: the /bin/sh (dash) that runs
+# bounded-run.sh drops a name that is not a shell identifier.
 if printf '%s\n' "$review" | grep -Eq '^          (CONFIG|OPENROUTER|GITHUB_ACTION_CONFIG|PR_REVIEWER)\.'; then
   missing="$missing [no dotted PR-Agent setting]"
 fi

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # pr-agent-review.sh — run the PR-Agent image on one pull request, retrying a
 # try that ends with no review because the model's output was empty, did not
-# parse, or arrived truncated. The action exits 0 either way, so whether a
+# parse, or arrived truncated. The action's exit status does not tell (it can
+# exit 0 with no review, or 1 after a model failure it recorded), so whether a
 # review landed is read from GitHub (a PR-Agent review comment that is new, or
 # whose updated_at moved, against a snapshot taken before the first try), and
 # the cause from the try's log. Rate limits back off longer on a budget of
