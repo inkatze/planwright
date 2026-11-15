@@ -275,7 +275,9 @@ Launch, message, answer, retire; never hand the operator a per-session step.
   at bring-up and on every `merge-ready` event, goes to the operator at once
   with a push notification and its merge command, again at every bring-up
   until it merges, with its packet (`scripts/mc-packet.sh`'s `assemble`);
-  an `unknown` line is said as unknown, never as none.
+  an `unknown` line is said as unknown, never as none, and an `unfinished`
+  line (a PR marked ready with a check still running) goes to the operator as
+  a ready flip made too early, never as ready to merge.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; a
   stream-json one by `scripts/fleet-streamjson.sh`'s `steer` (its state by
   `status`); only an unreachable one takes the pane relay, as the tower's
