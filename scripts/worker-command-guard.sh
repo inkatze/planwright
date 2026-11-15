@@ -67,7 +67,8 @@
 # ANSI-C quoting, shell comments, named-fd redirects — all of which defer
 # (REQ-A1.9). The segments are read in run order, so the state one sets applies to those after it: a `cd` into the
 # session's own worktree moves the working directory later segments are
-# checked against (see cd_target_ok), and the time/timeout prefixes are looked
+# checked against (see cd_target_ok; a read line led by `cd <dir>;` is held to
+# the scoped read mode instead, see scoped_read_ok), and the time/timeout prefixes are looked
 # through to the command they wrap (see strip_prefixes); fin decides where
 # state may carry. The expansions the analyzer resolves itself are a variable
 # the same command assigned a plain literal (`f=a.md && grep x $f`; see
@@ -5451,18 +5452,30 @@ outside_cwd_verb() {
 # worktree, the session's own scratch root (the record's, and only while the
 # TMPDIR the hook inherited names it), or an installed planwright root, from
 # both directories. A sibling session's scratch root is in none of them.
+# The mode is stricter than the plain read rules: a segment it does not admit
+# defers the whole line rather than falling back to them.
+
+# is_abs <word>: the word is an absolute path.
+is_abs() {
+  case $1 in
+    /*) return 0 ;;
+  esac
+  return 1
+}
 
 # scoped_alt_ok <dir>: the directory is inside the worktree and its
 # repository; its canonical form is left in SCOPED_ALT.
 scoped_alt_ok() {
   local c
   [ -n "$REC_WT" ] && [ -n "$HOOK_WT_ROOT" ] || return 1
-  c=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  canon_dir_cached "$1"
+  c=$CANON
+  [ -n "$c" ] || return 1
   case $c/ in
     "$REC_WT"/*) ;;
     *) return 1 ;;
   esac
-  cd_same_repo "$c" || return 1
+  [ "$c" = "$HOOK_WT_ROOT" ] || cd_same_repo "$c" || return 1
   SCOPED_ALT=$c
 }
 
@@ -5491,7 +5504,8 @@ EOF
 }
 
 # scoped_under <absolute-path>: the path, its directory canonicalized and its
-# last component no symlink, lies in a root.
+# last component no symlink, lies in a root. canon_under's check against
+# several roots, through the per-call directory cache.
 scoped_under() {
   local d=${1%/*} b=${1##*/} full
   [ -n "$d" ] || d=/
@@ -5506,13 +5520,16 @@ scoped_under() {
 }
 
 # scoped_word_plain <index> [glob]: the word's value is its text: nothing
-# left unresolved, no zsh pattern character, and no glob unless `glob` is
-# given, then only an unquoted `*` or `?` (never a brace, a bracket, a
-# tilde, or a backslash).
+# left unresolved, no zsh pattern character, no leading `=` zsh would expand
+# to a command's path, and no glob unless `glob` is given, then only an
+# unquoted `*` or `?` (never a brace, a bracket, a tilde, or a backslash).
 scoped_word_plain() {
   local i=$1 w=${cw[$1]}
   [ "${cz[i]-0}" = 0 ] || return 1
   word_unresolved "$w" "${cdyn[i]}" 0 "${cx[i]}" && return 1
+  case $w in
+    =*) [ "${cqp[i]}" = 0 ] || return 1 ;;
+  esac
   [ "${cglob[i]}" = 0 ] && return 0
   [ "${2-}" = glob ] && [ "${cqp[i]}" -lt 0 ] || return 1
   case $w in
@@ -5524,14 +5541,13 @@ scoped_word_plain() {
 # scoped_opt_word_ok <index>: an option word; a glob may only follow its `=`
 # (`--include=*.sh`), so whatever it matches is still that option.
 scoped_opt_word_ok() {
-  local i=$1 w=${cw[$1]} head
-  [ "${cglob[i]}" = 0 ] && {
+  local i=$1 w=${cw[$1]}
+  if [ "${cglob[i]}" = 0 ]; then
     scoped_word_plain "$i"
     return
-  }
+  fi
   scoped_word_plain "$i" glob || return 1
-  head=${w%%[*?]*}
-  case $head in
+  case ${w%%[*?]*} in
     --*=*) return 0 ;;
   esac
   return 1
@@ -5539,7 +5555,8 @@ scoped_opt_word_ok() {
 
 # scoped_path_ok <index>: the operand names a path inside a root from every
 # directory the line may run in. A glob only in the last component, never
-# dot-led, in a directory holding no symlink a match could follow.
+# dot-led, in a directory holding no symlink a match could follow and no
+# name a match would turn into an option.
 scoped_path_ok() {
   local i=$1 w=${cw[$1]} p rest e
   scoped_word_plain "$i" glob || return 1
@@ -5558,13 +5575,12 @@ scoped_path_ok() {
     p=${w%"$rest"}
     [ -n "$p" ] || p=.
   fi
-  case $p in
-    /*) set -- "$p" ;;
-    *)
-      set -- "$HOOK_CWD/$p"
-      [ -z "$SCOPED_ALT" ] || set -- "$1" "$SCOPED_ALT/$p"
-      ;;
-  esac
+  if is_abs "$p"; then
+    set -- "$p"
+  else
+    set -- "$HOOK_CWD/$p"
+    [ -z "$SCOPED_ALT" ] || [ "$SCOPED_ALT" = "$HOOK_CWD" ] || set -- "$1" "$SCOPED_ALT/$p"
+  fi
   for e in "$@"; do
     scoped_under "$e" || return 1
   done
@@ -5572,22 +5588,23 @@ scoped_path_ok() {
   for p in "$@"; do
     for e in "$p"/* "$p"/.[!.]* "$p"/..?*; do
       [ -L "$e" ] && return 1
+      case ${e##*/} in
+        -*) return 1 ;;
+      esac
     done
   done
   return 0
 }
 
 # scoped_git_ok: `git show`, `git diff` or `git log`, the only global option
-# an absolute `-C` into the worktree, every word plain, no `--no-index`
-# (which reads paths outside the repository) or orderfile, and guard_git's
-# own screen on top.
+# an absolute `-C` into the worktree, every word plain, no `--no-index` or
+# orderfile, an absolute word only on an allowed path and no `..` component
+# (git diff reads two paths outside the repository as `--no-index`), and
+# guard_git's own screen on top.
 scoped_git_ok() {
   local i s=1
   if [ "${cw[1]-}" = -C ]; then
-    case ${cw[2]-} in
-      /*) ;;
-      *) return 1 ;;
-    esac
+    is_abs "${cw[2]-}" || return 1
     s=3
   fi
   case ${cw[s]-} in
@@ -5598,6 +5615,10 @@ scoped_git_ok() {
     scoped_word_plain "$i" || return 1
     case ${cw[i]} in
       --no-index | --orderfile | --orderfile=*) return 1 ;;
+      /*) scoped_path_ok "$i" || return 1 ;;
+    esac
+    case /${cw[i]}/ in
+      */../*) return 1 ;;
     esac
   done
   guard_git
@@ -5605,27 +5626,21 @@ scoped_git_ok() {
 
 # scoped_grep_opt <index>: one grep option word, from an allowlist (GNU grep
 # takes any unique prefix of a long option, so only whole names pass). Sets
-# SC_TAKE to `pat` or `num` when the next word is that option's value, and
-# SC_GIVEN when the option supplies the pattern. `-f`, `-R`, `-d` and `-D`
-# are refused: a pattern file is a path read out of sight, and the others
-# follow links or devices.
+# SC_TAKE to `pat` or `num` when the next word is that option's value. `-f`,
+# `-R`, `-d` and `-D` are refused: a pattern file is a path read out of
+# sight, and the others follow links or devices.
 scoped_grep_opt() {
   local w=${cw[$1]} c rest
   case $w in
     --regexp)
       SC_TAKE=pat
-      SC_GIVEN=1
-      return 0
-      ;;
-    --regexp=*)
-      SC_GIVEN=1
       return 0
       ;;
     --max-count | --context | --after-context | --before-context)
       SC_TAKE=num
       return 0
       ;;
-    --max-count=* | --context=* | --after-context=* | --before-context=* | --include=* | --exclude=* | --exclude-dir=* | --binary-files=* | --color=* | --colour=*) return 0 ;;
+    --regexp=* | --max-count=* | --context=* | --after-context=* | --before-context=* | --include=* | --exclude=* | --exclude-dir=* | --binary-files=* | --color=* | --colour=*) return 0 ;;
     --line-number | --recursive | --ignore-case | --no-ignore-case | --count | --files-with-matches | --files-without-match | --only-matching | --no-filename | --with-filename | --word-regexp | --line-regexp | --invert-match | --extended-regexp | --fixed-strings | --perl-regexp | --basic-regexp | --quiet | --silent | --null | --null-data | --text | --byte-offset | --initial-tab | --no-messages | --color | --colour) return 0 ;;
     --*) return 1 ;;
   esac
@@ -5635,7 +5650,6 @@ scoped_grep_opt() {
     rest=${rest#?}
     case $c in
       e)
-        SC_GIVEN=1
         [ -n "$rest" ] || SC_TAKE=pat
         return 0
         ;;
@@ -5657,13 +5671,14 @@ scoped_grep_opt() {
 }
 
 # scoped_read_ok: the current simple command is one of the scoped read
-# verbs with every operand on an allowed path (see scoped_path_ok). grep's
+# verbs with every operand on an allowed path (see scoped_path_ok); the
+# caller has already refused its redirects and substitutions. grep's
 # pattern and sed's script are no path: the first operand unless an option
 # supplies one (both permute their arguments, so any option anywhere
-# counts). sed must run with `-n`.
+# counts). sed must run with `-n`; tail may not follow, which never ends.
 scoped_read_ok() {
-  local verb=${cw[0]} i w opts=1 first=1 quiet=0
-  local SC_TAKE='' SC_GIVEN=0
+  local verb=${cw[0]} i w opts=1 first=1 quiet=0 given=0
+  local SC_TAKE=''
   case $verb in
     cat | head | tail | wc | ls | grep) ;;
     sed) guard_sed || return 1 ;;
@@ -5677,12 +5692,13 @@ scoped_read_ok() {
     w=${cw[i]}
     [ "$w" = -- ] && break
     case $verb:$w in
-      grep:--regexp | grep:--regexp=* | grep:-[!-]*e* | sed:-e | sed:--expression=*) SC_GIVEN=1 ;;
+      grep:--regexp | grep:--regexp=* | sed:-e | sed:--expression=*) given=1 ;;
+      grep:--*) ;;
+      grep:-*e*) given=1 ;;
     esac
   done
-  [ "$SC_GIVEN" = 0 ] || first=0
+  [ "$given" = 0 ] || first=0
   [ "$verb" = grep ] || [ "$verb" = sed ] || first=0
-  SC_GIVEN=0
   for ((i = 1; i < cwn; i++)); do
     w=${cw[i]}
     case $SC_TAKE in
@@ -5707,24 +5723,15 @@ scoped_read_ok() {
           ;;
         -?*)
           scoped_opt_word_ok "$i" || return 1
-          case $verb in
-            grep) scoped_grep_opt "$i" || return 1 ;;
-            sed)
-              case $w in
-                -n | --quiet | --silent) quiet=1 ;;
-                -e) SC_TAKE=pat ;;
-              esac
-              ;;
-            wc)
-              case $w in
-                --files0* | --file*) return 1 ;;
-              esac
-              ;;
-            ls)
-              case $w in
-                --dereference* | --deref* | -[!-]*L*) return 1 ;;
-              esac
-              ;;
+          case $verb:$w in
+            grep:*) scoped_grep_opt "$i" || return 1 ;;
+            sed:-n | sed:--quiet | sed:--silent) quiet=1 ;;
+            sed:-e) SC_TAKE=pat ;;
+            wc:--lines | wc:--words | wc:--bytes | wc:--chars | wc:--max-line-length | wc:--total=*) ;;
+            wc:--* | wc:-*[!lwcmL]*) return 1 ;;
+            ls:--de* | tail:--f* | tail:--r*) return 1 ;;
+            ls:--* | tail:--*) ;;
+            ls:-*L* | tail:-*[fF]*) return 1 ;;
           esac
           continue
           ;;
@@ -6017,7 +6024,11 @@ verify_tokens() {
   # so it must close with `&&` or end the command, and once one is carried,
   # every later top-level operator must keep the walk inside its `&&` chain
   # (`&&`, or `|`, which binds tighter), since after `;`, `||`, or `&` the
-  # directory is no longer known.
+  # directory is no longer known. The one exception is the scoped read mode
+  # (see scoped_read_ok): a first-segment `cd` to an absolute directory of the
+  # worktree closed by `;`, or such a cd's `&&` chain of scoped reads closed
+  # by `;` or `||`, enters it, and every later segment is checked from both
+  # directories the line may then be in.
   fin() {
     local close=$1 placed=0
     PENDING_ASSIGN_N=''
@@ -6050,11 +6061,10 @@ verify_tokens() {
         *) return 1 ;;
       esac
     fi
-    # The scoped read mode's own entry: the command's first segment is a
-    # `cd` to an absolute directory of the worktree closed by `;`. A
-    # relative one keeps the `&&`-only rule above.
+    # The scoped read mode's own entry. A relative cd keeps the `&&`-only
+    # rule, and the cd itself may carry no redirect.
     if [ -n "$PENDING_CD" ] && [ "$ctl_depth" -eq 0 ] && [ -z "$seg_open" ] && [ "$close" = ';' ] \
-      && [ "${cw[1]-}" != "${cw[1]#/}" ]; then
+      && [ "$rn" -eq 0 ] && is_abs "${cw[1]-}"; then
       scoped_alt_ok "$HOOK_CWD" || return 1
       SCOPED_RD=1
       HOOK_CWD=$PENDING_CD
@@ -6080,7 +6090,7 @@ verify_tokens() {
       fi
       [ "$placed" = 1 ] || return 1
       if [ -n "$PENDING_CD" ]; then
-        if [ -z "$seg_open" ] && [ "$SCOPED_RD" = 0 ] && [ "${cw[1]-}" != "${cw[1]#/}" ]; then
+        if [ -z "$seg_open" ] && [ "$SCOPED_RD" = 0 ] && [ "$rn" -eq 0 ] && is_abs "${cw[1]-}"; then
           SCOPED_CHAIN=1
           cd_pre=$HOOK_CWD
         fi
