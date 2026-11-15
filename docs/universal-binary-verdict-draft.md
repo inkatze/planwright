@@ -252,7 +252,9 @@ cross-compiled macOS artifact, both weigh against Rust more than Go.
 breadth rule (D-5, REQ-C1.3), with the profile comparison below, and moves
 behind its frozen entry points like the library tier. Clearing the
 shell-mutation flag on `inception-validate.sh`, `mc-rules.sh` and
-`resolve-steps.sh` is a precondition of moving the tier (risk R4, Task 11).
+`resolve-steps.sh` is a precondition of moving the tier (risk R4, Task 11);
+the constraint profiles name only the first and last, and the partition
+has flagged `mc-rules.sh` since.
 
 **Report:** `docs/substrate/bakeoff-a/2026-11-03-linux-x86_64/report.tsv`,
 `docs/substrate/bakeoff-a/2026-11-15-darwin-arm64/report.tsv`
