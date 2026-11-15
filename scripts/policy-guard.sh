@@ -2305,13 +2305,18 @@ kickoff_text_check() {
 }
 
 # kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
-# push, with no variable assigned: a cd, a command kickoff_cmd_reads takes as
-# only reading, staging or printing (printf -v assigns, so not it), or a git
-# read mc_git_reads accepts.
+# push, with no variable assigned and no word holding $ or a backtick: a cd, a
+# command kickoff_cmd_reads takes as only reading, staging or printing, or a
+# git read mc_git_reads accepts. printf, test and [ never do: printf -v
+# assigns, and test -v evaluates an expansion in a subscript.
 kickoff_beside_ok() {
+  local w
   [ "$SW_ASSIGN" = 0 ] || return 1
+  for w in "${SW[@]}"; do
+    case $w in *'$'* | *'`'*) return 1 ;; esac
+  done
   [ "${SW[0]}" = cd ] && [ "${SWL[0]}" = 1 ] && return 0
-  [ "${SW[0]}" != printf ] || [ "${SW[1]:-}" != -v ] || return 1
+  case ${SW[0]} in printf | test | '[') return 1 ;; esac
   kickoff_cmd_reads "$1" && return 0
   [ "${SW[0]}" = git ] && [ "${SWL[0]}" = 1 ] || return 1
   [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1

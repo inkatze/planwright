@@ -207,6 +207,29 @@ for c in "PLANWRIGHT_WORKER_SCOPE=kickoff-demo $KICKOFF_PUSH" \
     reason_has 'on its own, or after cd only' "[worker, $scope] the refusal says how to run it: $c"
   done
 done
+# printf, test and [ never stand beside the push (printf -v assigns, and test
+# -v evaluates an expansion in a subscript), nor does any word holding $ or a
+# backtick, quoted or not.
+for c in "printf -vPLANWRIGHT_WORKER_SCOPE %s kickoff-demo; $KICKOFF_PUSH" \
+  "printf -bvX %s y; $KICKOFF_PUSH" \
+  "printf '%s\\n' ok; $KICKOFF_PUSH" \
+  "[ -v 'a[\$(git switch planwright/demo/spec)]' ]; $KICKOFF_PUSH" \
+  "test -v 'a[\$(git switch planwright/demo/spec)]'; $KICKOFF_PUSH" \
+  "test -v 'a[\`git switch planwright/demo/spec\`]'; $KICKOFF_PUSH" \
+  "test -f README.md && $KICKOFF_PUSH" \
+  "[ -d . ] && $KICKOFF_PUSH" \
+  "echo 'a\$(git switch planwright/demo/spec)'; $KICKOFF_PUSH" \
+  "git log --format='\$(x)' -1; $KICKOFF_PUSH" \
+  "sh -c 'git switch planwright/demo/spec'; $KICKOFF_PUSH" \
+  "[ -v 'a[\$(git switch planwright/demo/spec)]' ]; printf -vPLANWRIGHT_WORKER_SCOPE %s kickoff-demo; $KICKOFF_PUSH"; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$c" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, kickoff-demo-a2] a kickoff push beside printf, test, [ or a word holding \$ or a backtick denies: $c"
+  reason_has 'on its own, or after cd only' "[worker, kickoff-demo-a2] the refusal says how to run it: $c"
+done
+for pre in 'echo ok;' 'git log --format=%H -1 &&'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect defer "[worker, kickoff-demo-a2] a kickoff push after a plain read defers: $pre"
+done
 for scope in kickoff-demo-a2 kickoff-demo-a2-delta kickoff-demo; do
   PLANWRIGHT_WORKER_SCOPE=$scope pg worker "cd \"$AMEND_UP\" && $KICKOFF_PUSH" "$UNIT" "$UNIT"
   expect defer "[worker, $scope] the kickoff push after cd alone defers"
