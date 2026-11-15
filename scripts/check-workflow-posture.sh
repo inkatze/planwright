@@ -51,9 +51,10 @@
 #      privileged job fires and whose CI verdict it acts on.
 #
 # A separate consistency check, not a posture assertion: a workflow running the
-# PR-Agent image must set GITHUB_ACTION_CONFIG.PR_ACTIONS to the same set as its
-# first flow-style `types: [..]` list, because the action's default list omits
-# `synchronize` and it silently skips any action its list leaves out.
+# PR-Agent image must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or the dotted
+# spelling) to the same set as its first flow-style `types: [..]` list,
+# because the action's default list omits `synchronize` and it silently skips
+# any action its list leaves out.
 #
 # Cache and artifact posture beyond assertion 4 carries no standing check: an
 # accepted residual recorded in D-6, covered by the REQ-C1.1 audit only.
@@ -1092,13 +1093,13 @@ fi
 # other shape fails closed.
 for ((i = 0; i < nfiles; i++)); do
   file="${files[i]}"
-  grep -Eqi '^[[:space:]]*[^#[:space:]].*(pragent/pr-agent|GITHUB_ACTION_CONFIG\.PR_ACTIONS)' "$file" || continue
+  grep -Eqi '^[[:space:]]*[^#[:space:]].*(pragent/pr-agent|GITHUB_ACTION_CONFIG(\.|__)PR_ACTIONS)' "$file" || continue
   trig="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
-  acts="$(sed -n "s/^[[:space:]]*GITHUB_ACTION_CONFIG\\.PR_ACTIONS:[[:space:]]*['\"]*\\[\\(.*\\)\\]['\"]*[[:space:]]*\$/\\1/p" "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
+  acts="$(sed -En "s/^[[:space:]]*GITHUB_ACTION_CONFIG(\\.|__)PR_ACTIONS:[[:space:]]*['\"]*\\[(.*)\\]['\"]*[[:space:]]*\$/\\2/p" "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
   if [ -z "$trig" ]; then
     fail "$file: a PR-Agent workflow needs a flow-style pull_request 'types: [..]' list the guard can read"
   elif [ -z "$acts" ]; then
-    fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG.PR_ACTIONS as a JSON list; the default omits synchronize, so pushes after the PR opens are skipped"
+    fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or GITHUB_ACTION_CONFIG.PR_ACTIONS) as a JSON list; the default omits synchronize, so pushes after the PR opens are skipped"
   else
     while IFS= read -r a; do
       printf '%s\n' "$acts" | grep -qx -- "$a" || fail "$file: PR_ACTIONS omits '$a', which the workflow triggers on, so PR-Agent skips it"

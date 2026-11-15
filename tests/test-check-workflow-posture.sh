@@ -2078,7 +2078,9 @@ assert_exit "matrix: the repo's own ci.yml holds the platform matrix" 0 $?
 # workflow's trigger types and the action's pr_actions must name the same set.
 # ---------------------------------------------------------------------------
 
-# pa_case <name> <types-flow-list> <pr_actions-line-or-empty>
+# pa_case <name> <types-flow-list> <pr_actions-line-or-empty> [<separator>]
+# The separator joins GITHUB_ACTION_CONFIG and PR_ACTIONS: "." by default, or
+# PR-Agent's other spelling, "__".
 pa_case() {
   d="$(mkdir_case "$1")"
   {
@@ -2087,7 +2089,7 @@ pa_case() {
       '    runs-on: ubuntu-latest' '    steps:' '      - name: Review' \
       '        uses: docker://pragent/pr-agent@sha256:0000' '        env:' \
       '          CONFIG.LOG_LEVEL: INFO'
-    [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG.PR_ACTIONS: '$3'"
+    [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG${4:-.}PR_ACTIONS: '$3'"
   } >"$d/pr-agent.yml"
 }
 PA_ALL='opened, synchronize, reopened, ready_for_review, review_requested'
@@ -2110,6 +2112,19 @@ pa_case pa-extra-action "[opened, synchronize, reopened]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
 assert_contains "pr-agent: the undelivered action is named" "ready_for_review" "$out"
+
+pa_case pa-dunder-agree "[$PA_ALL]" "$PA_ALL_JSON" __
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: the SECTION__KEY spelling of pr_actions is read" 0 $?
+
+pa_case pa-dunder-missing-sync "[$PA_ALL]" '["opened", "reopened", "ready_for_review", "review_requested"]' __
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a SECTION__KEY pr_actions without synchronize fails" 1 $?
+assert_contains "pr-agent: the missing SECTION__KEY action is named" "synchronize" "$out"
+
+pa_case pa-one-underscore "[$PA_ALL]" "$PA_ALL_JSON" _
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a single-underscore pr_actions, which PR-Agent ignores, fails" 1 $?
 
 pa_case pa-trailing-comment "[$PA_ALL] # see [docs]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"
