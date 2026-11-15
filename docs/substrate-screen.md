@@ -194,7 +194,8 @@ profiles record them:
 
 - **Decided tiers.** The library and skill-called pair's bake-off has
   committed reports for glibc Linux and macOS; its musl report is
-  outstanding (the bake-off's entry under `## Awaiting input`), and this
+  outstanding (the bake-off's entry under `## Awaiting input` still names
+  macOS beside musl), and this
   page counts a platform with no committed report as not measured yet. The
   hook tier's bake-off, which comes before this screen in task order, has
   its glibc Linux report committed and its macOS and musl reports
