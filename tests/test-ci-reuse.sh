@@ -80,17 +80,17 @@ OTHER=4444444444444444444444444444444444444444
 EVIDENCE="ci-evidence-$BASE_SHA-$HEAD_SHA-$BLOB_SHA"
 SELF=5000
 
-# run_json <id> <head> <conclusion> [created]: one run-list entry.
+# run_json <id> <head> <conclusion> [created] [path]: one run-list entry.
 run_json() {
-  printf '{"id":%s,"event":"pull_request","status":"completed","conclusion":"%s","head_sha":"%s","path":".github/workflows/ci.yml","created_at":"%s"}' \
-    "$1" "$3" "$2" "${4:-2026-11-14T10:00:00Z}"
+  printf '{"id":%s,"event":"pull_request","status":"completed","conclusion":"%s","head_sha":"%s","path":"%s","created_at":"%s"}' \
+    "$1" "$3" "$2" "${5:-.github/workflows/ci.yml}" "${4:-2026-11-14T10:00:00Z}"
 }
-runs() { # runs <entry>...: the run list
+write_runs() { # write_runs <entry>...: the run list
   _r=""
   for _e in "$@"; do _r="${_r:+$_r,}$_e"; done
   printf '{"total_count":%s,"workflow_runs":[%s]}' "$#" "$_r" >"$STUB_DIR/runs.json"
 }
-artifacts() { # artifacts <id> <name>...: that run's artifact list
+write_artifacts() { # write_artifacts <id> <name>...: that run's artifact list
   _id=$1
   shift
   _a=""
@@ -98,15 +98,34 @@ artifacts() { # artifacts <id> <name>...: that run's artifact list
   printf '{"total_count":%s,"artifacts":[%s]}' "$#" "$_a" >"$STUB_DIR/artifacts-$_id.json"
 }
 job() { printf '{"name":"%s","status":"completed","conclusion":"%s"}' "$1" "$2"; }
-# green_jobs: every job of a full run, each succeeded (three Linux shards,
-# four macOS shards, and the jobs outside the suite).
-green_jobs() {
-  _j="$(job lint success),$(job plan success)"
-  for _i in 1 2 3; do _j="$_j,$(job "test (shard $_i/3)" success),$(job "alpine-suite (shard $_i/3)" success)"; done
-  for _i in 1 2 3 4; do _j="$_j,$(job "macos-suite (shard $_i/4)" success)"; done
-  printf '%s' "$_j,$(job macos-smoke success),$(job check success)"
+# jobs_with [<name>=<conclusion>|<name>=-]...: every job of a full run, each
+# succeeded unless an argument gives its name another conclusion or drops it.
+jobs_with() {
+  _names="lint plan"
+  for _i in 1 2 3; do _names="$_names|test (shard $_i/3)|alpine-suite (shard $_i/3)"; done
+  for _i in 1 2 3 4; do _names="$_names|macos-suite (shard $_i/4)"; done
+  _names="$_names|macos-smoke|check"
+  _j=""
+  _ifs=$IFS
+  IFS='|'
+  for _n in $_names; do
+    IFS=$_ifs
+    _c=success
+    for _o in "$@"; do
+      [ "${_o%=*}" = "$_n" ] && _c=${_o##*=}
+    done
+    [ "$_c" = - ] || _j="${_j:+$_j,}$(job "$_n" "$_c")"
+    IFS='|'
+  done
+  IFS=$_ifs
+  for _o in "$@"; do
+    case $_o in
+      +*) _j="$_j,$(job "${_o#+}" skipped)" ;;
+    esac
+  done
+  printf '%s' "$_j"
 }
-jobs() { # jobs <id> <entries>: that run's job list
+write_jobs() { # write_jobs <id> <entries>: that run's job list
   printf '{"total_count":%s,"jobs":[%s]}' "$(printf '[%s]' "$2" | jq length)" "$2" >"$STUB_DIR/jobs-$1.json"
 }
 
@@ -119,7 +138,8 @@ new_case() {
 
 # --- reading the real workflow's steps -------------------------------------
 # step_body <id>: the `run: |` body of the step whose first line is
-# `      - id: <id>`, dedented, as GitHub hands it to the shell.
+# `      - id: <id>`, dedented, as GitHub hands it to the shell. The indents
+# are ci.yml's own; a re-indent empties the body, which fails below.
 step_body() {
   awk -v id="$1" '
     $0 == "      - id: " id { in_step = 1; next }
@@ -140,9 +160,10 @@ for s in reuse mac gate; do
   }
 done
 
-# lookup <event> <action> [evidence]: run the plan job's lookup step from the
-# repository root, as the checkout leaves it; its outputs land in $out_file.
-lookup() {
+# run_lookup <event> <action> [evidence]: run the plan job's reuse step from
+# the repository root, as the checkout leaves it; its outputs land in
+# $out_file.
+run_lookup() {
   out_file="$STUB_DIR/output"
   : >"$out_file"
   (
@@ -155,10 +176,11 @@ lookup() {
 }
 output() { sed -n "s/^$1=//p" "$out_file"; }
 
-# mac_step [REUSE_RUN]: the plan job's mac step for a ready pull request.
+# mac_step [REUSE_RUN] [DRAFT]: the plan job's mac step, by default for a
+# ready pull request.
 mac_step() {
   : >"$STUB_DIR/mac-output"
-  EVENT=pull_request DRAFT=false LABELLED=false HEAD_REPO=acme/widgets \
+  EVENT=pull_request DRAFT="${2:-false}" LABELLED=false HEAD_REPO=acme/widgets \
     SWITCH=self-hosted REUSE_RUN="${1:-}" GITHUB_REPOSITORY=acme/widgets \
     GITHUB_OUTPUT="$STUB_DIR/mac-output" GITHUB_STEP_SUMMARY="$STUB_DIR/summary" \
     bash -e "$tmp/step-mac.sh" >"$STUB_DIR/mac-log" 2>&1
@@ -178,9 +200,9 @@ gate() {
 
 # A fully green prior run with this run's evidence.
 green_prior() {
-  runs "$(run_json 900 "$HEAD_SHA" success)"
-  artifacts 900 timing-report-1 "$EVIDENCE"
-  jobs 900 "$(green_jobs)"
+  write_runs "$(run_json 900 "$HEAD_SHA" success)"
+  write_artifacts 900 timing-report-1 "$EVIDENCE"
+  write_jobs 900 "$(jobs_with)"
 }
 
 # ---------------------------------------------------------------------------
@@ -189,11 +211,11 @@ green_prior() {
 # ---------------------------------------------------------------------------
 new_case skip
 green_prior
-lookup pull_request ready_for_review
+run_lookup pull_request ready_for_review
 assert_eq "skip: the lookup step succeeds" 0 "$lookup_rc"
-assert_eq "skip: the lookup names the prior run" 900 "$(output run_id)"
+assert_eq "skip: the lookup names the prior run" 900 "$(output reuse_run)"
 assert_eq "skip: the suite jobs do not run" false "$(output suite_run)"
-mac_step "$(output run_id)"
+mac_step "$(output reuse_run)"
 assert_eq "skip: the mac step succeeds" 0 "$mac_rc"
 assert_contains "skip: the macOS jobs do not run" "run=false" "$(cat "$STUB_DIR/mac-output")"
 assert_contains "skip: the mac step names the reused run" 900 "$(cat "$STUB_DIR/mac-log")"
@@ -202,12 +224,21 @@ assert_eq "skip: the gate passes on the reused evidence" 0 "$gate_rc"
 assert_contains "skip: the gate names the reused run" "actions/runs/900" "$(cat "$STUB_DIR/gate-log")"
 assert_contains "skip: the gate's summary names the reused run" "actions/runs/900" "$(cat "$STUB_DIR/gate-summary" 2>/dev/null)"
 
-# A reused run never covers a suite job that ran and failed.
+# A reused run never covers a suite job that ran, and stands only on every
+# suite job skipped.
 gate 900 false failure skipped skipped skipped
-assert_eq "skip: a failed suite job still fails the gate" 1 "$gate_rc"
+assert_eq "skip: a failed test job still fails the gate" 1 "$gate_rc"
+gate 900 false skipped failure skipped skipped
+assert_eq "skip: a failed Alpine job still fails the gate" 1 "$gate_rc"
+gate 900 false skipped skipped failure skipped
+assert_eq "skip: a failed macOS suite still fails the gate" 1 "$gate_rc"
 gate 900 false skipped skipped skipped failure
 assert_eq "skip: a failed macOS smoke still fails the gate" 1 "$gate_rc"
+gate 900 false skipped skipped success success
+assert_eq "skip: a partial skip does not stand on the reused run" 1 "$gate_rc"
 # Without a reused run, a skipped Linux or Alpine suite job fails the gate.
+gate "" false skipped skipped skipped skipped
+assert_eq "no reuse: every suite job skipped fails the gate" 1 "$gate_rc"
 gate "" false skipped success skipped skipped
 assert_eq "no reuse: a skipped test job fails the gate" 1 "$gate_rc"
 gate "" false success skipped skipped skipped
@@ -217,139 +248,210 @@ assert_eq "no reuse: a skipped macOS job the plan meant to run fails the gate" 1
 gate "" true success success success success
 assert_eq "no reuse: every job green passes the gate" 0 "$gate_rc"
 assert_lacks "no reuse: the gate names no reused run" "actions/runs/" "$(cat "$STUB_DIR/gate-log")"
+gate "" false success success skipped skipped
+assert_eq "no reuse: a draft's macOS skip still passes the gate" 0 "$gate_rc"
 
 # The newest qualifying run wins; one that does not qualify is passed over.
 new_case newest
-runs "$(run_json 902 "$HEAD_SHA" success 2026-11-14T12:00:00Z)" "$(run_json 901 "$HEAD_SHA" success 2026-11-14T11:00:00Z)"
-artifacts 902 "ci-evidence-$OTHER-$HEAD_SHA-$BLOB_SHA"
-jobs 902 "$(green_jobs)"
-artifacts 901 "$EVIDENCE"
-jobs 901 "$(green_jobs)"
-lookup pull_request ready_for_review
-assert_eq "newest: a run on another base is passed over for an older match" 901 "$(output run_id)"
+write_runs "$(run_json 902 "$HEAD_SHA" success 2026-11-14T12:00:00Z)" "$(run_json 901 "$HEAD_SHA" success 2026-11-14T11:00:00Z)"
+write_artifacts 902 "ci-evidence-$OTHER-$HEAD_SHA-$BLOB_SHA"
+write_jobs 902 "$(jobs_with)"
+write_artifacts 901 "$EVIDENCE"
+write_jobs 901 "$(jobs_with)"
+run_lookup pull_request ready_for_review
+assert_eq "newest: a run on another base is passed over for an older match" 901 "$(output reuse_run)"
+
+new_case artifacts-failed-then-match
+write_runs "$(run_json 902 "$HEAD_SHA" success 2026-11-14T12:00:00Z)" "$(run_json 901 "$HEAD_SHA" success 2026-11-14T11:00:00Z)"
+write_artifacts 901 "$EVIDENCE"
+write_jobs 901 "$(jobs_with)"
+run_lookup pull_request ready_for_review
+assert_eq "a run whose artifact read fails is passed over for an older match" 901 "$(output reuse_run)"
+
+# However many newer runs fail to qualify (each skipped run re-reads its
+# head), the match behind them is still found.
+new_case many
+entries=""
+for i in 1 2 3 4 5 6 7; do
+  entries="$entries $(run_json "91$i" "$HEAD_SHA" success "2026-11-14T1$i:00:00Z")"
+  write_artifacts "91$i" "$EVIDENCE"
+  write_jobs "91$i" "$(jobs_with "macos-smoke=skipped")"
+done
+write_jobs 911 "$(jobs_with)"
+# shellcheck disable=SC2086 # one run-list entry per word
+write_runs $entries
+run_lookup pull_request ready_for_review
+assert_eq "many: the oldest run is reached past six that do not qualify" 911 "$(output reuse_run)"
+
+new_case bad-budget
+green_prior
+PLANWRIGHT_CI_REUSE_BUDGET=1m run_lookup pull_request ready_for_review
+assert_eq "a malformed budget leaves the lookup step green" 0 "$lookup_rc"
+assert_eq "a malformed budget falls back to the default and still reuses" 900 "$(output reuse_run)"
 
 # ---------------------------------------------------------------------------
-# Every other shape runs everything: run_id empty, suite_run true.
+# Every other shape runs everything: reuse_run empty, suite_run true.
 # ---------------------------------------------------------------------------
-runs_all() { # runs_all <label>
+assert_no_reuse() { # assert_no_reuse <label>: the outputs, then the mac step on them
   assert_eq "$1: the lookup step succeeds" 0 "$lookup_rc"
-  assert_eq "$1: no run is reused" "" "$(output run_id)"
+  assert_eq "$1: no run is reused" "" "$(output reuse_run)"
   assert_eq "$1: the suite jobs run" true "$(output suite_run)"
-  mac_step "$(output run_id)"
+  mac_step "$(output reuse_run)"
   assert_contains "$1: the macOS jobs run" "run=true" "$(cat "$STUB_DIR/mac-output")"
 }
 
 new_case other-head
-runs "$(run_json 900 "$OTHER" success)"
-artifacts 900 "ci-evidence-$BASE_SHA-$OTHER-$BLOB_SHA"
-jobs 900 "$(green_jobs)"
-lookup pull_request ready_for_review
-runs_all "a different head"
+write_runs "$(run_json 900 "$OTHER" success)"
+write_artifacts 900 "ci-evidence-$BASE_SHA-$OTHER-$BLOB_SHA"
+write_jobs 900 "$(jobs_with)"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a different head"
+
+new_case other-head-same-name
+green_prior
+write_runs "$(run_json 900 "$OTHER" success)"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a run at another head carrying this run's evidence name"
+
+new_case other-workflow
+green_prior
+write_runs "$(run_json 900 "$HEAD_SHA" success 2026-11-14T10:00:00Z .github/workflows/other.yml)"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a run of another workflow file"
 
 new_case moved-base
 green_prior
-artifacts 900 timing-report-1 "ci-evidence-$OTHER-$HEAD_SHA-$BLOB_SHA"
-lookup pull_request ready_for_review
-runs_all "a moved base"
+write_artifacts 900 timing-report-1 "ci-evidence-$OTHER-$HEAD_SHA-$BLOB_SHA"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a moved base"
 
 new_case changed-workflow
 green_prior
-artifacts 900 "ci-evidence-$BASE_SHA-$HEAD_SHA-$OTHER"
-lookup pull_request ready_for_review
-runs_all "a changed workflow"
+write_artifacts 900 "ci-evidence-$BASE_SHA-$HEAD_SHA-$OTHER"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a changed workflow"
 
 new_case no-evidence
 green_prior
-artifacts 900 timing-report-1
-lookup pull_request ready_for_review
-runs_all "a prior run with no evidence artifact"
+write_artifacts 900 timing-report-1
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with no evidence artifact"
 
+new_case artifacts-truncated
+green_prior
+printf '{"total_count":120,"artifacts":[{"name":"%s","expired":false}]}' "$EVIDENCE" >"$STUB_DIR/artifacts-900.json"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a truncated artifact list"
+
+# shellcheck disable=SC2016 # the literal name GitHub reports for a skipped matrix job
+unexpanded='macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
 new_case mac-skipped
 green_prior
-# shellcheck disable=SC2016 # a skipped matrix job keeps its unexpanded name
-mac_skipped="$(job lint success),$(job plan success)"
-for i in 1 2 3; do mac_skipped="$mac_skipped,$(job "test (shard $i/3)" success),$(job "alpine-suite (shard $i/3)" success)"; done
-# shellcheck disable=SC2016 # the literal name GitHub reports for a skipped matrix job
-mac_skipped="$mac_skipped,$(job 'macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})' skipped),$(job macos-smoke skipped),$(job check success)"
-jobs 900 "$mac_skipped"
-lookup pull_request ready_for_review
-runs_all "a prior run with macOS skipped"
+write_jobs 900 "$(jobs_with "macos-suite (shard 1/4)=-" "macos-suite (shard 2/4)=-" \
+  "macos-suite (shard 3/4)=-" "macos-suite (shard 4/4)=-" "macos-smoke=skipped" "+$unexpanded")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with macOS skipped"
+
+new_case mac-suite-skipped-smoke-green
+green_prior
+write_jobs 900 "$(jobs_with "macos-suite (shard 1/4)=-" "macos-suite (shard 2/4)=-" \
+  "macos-suite (shard 3/4)=-" "macos-suite (shard 4/4)=-" "+$unexpanded")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with the macOS shards skipped and the smoke green"
+
+new_case mac-shard-red
+green_prior
+write_jobs 900 "$(jobs_with "macos-suite (shard 2/4)=failure")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with a failed macOS shard"
+
+new_case mac-shard-missing
+green_prior
+write_jobs 900 "$(jobs_with "macos-suite (shard 4/4)=-")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run missing a macOS shard"
 
 new_case smoke-skipped
 green_prior
-jobs 900 "$(green_jobs | sed 's/"macos-smoke","status":"completed","conclusion":"success"/"macos-smoke","status":"completed","conclusion":"skipped"/')"
-lookup pull_request ready_for_review
-runs_all "a prior run with only the macOS smoke skipped"
+write_jobs 900 "$(jobs_with "macos-smoke=skipped")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with only the macOS smoke skipped"
 
 new_case missing-shard
 green_prior
-jobs 900 "$(green_jobs | sed 's/{"name":"test (shard 2\/3)","status":"completed","conclusion":"success"},//')"
-lookup pull_request ready_for_review
-runs_all "a prior run missing a test shard"
+write_jobs 900 "$(jobs_with "test (shard 2/3)=-")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run missing a test shard"
+
+new_case shard-counts
+green_prior
+write_jobs 900 "$(jobs_with "test (shard 3/3)=-"),$(job "test (shard 3/4)" success)"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run whose test shards disagree on their count"
 
 new_case alpine-red
 green_prior
-jobs 900 "$(green_jobs | sed 's/"alpine-suite (shard 3\/3)","status":"completed","conclusion":"success"/"alpine-suite (shard 3\/3)","status":"completed","conclusion":"failure"/')"
-lookup pull_request ready_for_review
-runs_all "a prior run with a failed Alpine shard"
+write_jobs 900 "$(jobs_with "alpine-suite (shard 3/3)=failure")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with a failed Alpine shard"
 
 new_case red
 green_prior
-runs "$(run_json 900 "$HEAD_SHA" failure)"
-lookup pull_request ready_for_review
-runs_all "a prior red run"
+write_runs "$(run_json 900 "$HEAD_SHA" failure)"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior red run"
 
 new_case cancelled
 green_prior
-runs "$(run_json 900 "$HEAD_SHA" cancelled)"
-lookup pull_request ready_for_review
-runs_all "a prior cancelled run"
+write_runs "$(run_json 900 "$HEAD_SHA" cancelled)"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior cancelled run"
 
 new_case self
 green_prior
-runs "$(run_json $SELF "$HEAD_SHA" success)"
-artifacts $SELF "$EVIDENCE"
-jobs $SELF "$(green_jobs)"
-lookup pull_request ready_for_review
-runs_all "the current run itself"
+write_runs "$(run_json $SELF "$HEAD_SHA" success)"
+write_artifacts $SELF "$EVIDENCE"
+write_jobs $SELF "$(jobs_with)"
+run_lookup pull_request ready_for_review
+assert_no_reuse "the current run itself"
 
 new_case lookup-failed
 green_prior
-STUB_FAIL=1 lookup pull_request ready_for_review
-runs_all "a failed run lookup"
+STUB_FAIL=1 run_lookup pull_request ready_for_review
+assert_no_reuse "a failed run lookup"
 
 new_case jobs-failed
 green_prior
 rm -f "$STUB_DIR/jobs-900.json"
-lookup pull_request ready_for_review
-runs_all "a failed job lookup"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a failed job lookup"
 
 new_case garbled
 green_prior
 printf 'not json' >"$STUB_DIR/runs.json"
-lookup pull_request ready_for_review
-runs_all "an unreadable run list"
+run_lookup pull_request ready_for_review
+assert_no_reuse "an unreadable run list"
 
 new_case truncated
 green_prior
-printf '{"total_count":120,"jobs":[%s]}' "$(green_jobs)" >"$STUB_DIR/jobs-900.json"
-lookup pull_request ready_for_review
-runs_all "a truncated job list"
+printf '{"total_count":120,"jobs":[%s]}' "$(jobs_with)" >"$STUB_DIR/jobs-900.json"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a truncated job list"
 
 new_case timeout
 green_prior
 SECONDS=0
-STUB_SLEEP=20 PLANWRIGHT_CI_REUSE_BUDGET=1 lookup pull_request ready_for_review
+STUB_SLEEP=20 PLANWRIGHT_CI_REUSE_BUDGET=1 run_lookup pull_request ready_for_review
 elapsed=$SECONDS
-runs_all "a lookup past its time budget"
+assert_no_reuse "a lookup past its time budget"
 timeout_rc=1
 [ "$elapsed" -lt 15 ] && timeout_rc=0
 assert_eq "a lookup past its time budget is cut short (${elapsed}s)" 0 "$timeout_rc"
 
 new_case empty-evidence
 green_prior
-lookup pull_request ready_for_review ""
-runs_all "a run with no evidence of its own"
+run_lookup pull_request ready_for_review ""
+assert_no_reuse "a run with no evidence of its own"
 assert_eq "a run with no evidence of its own reads nothing" "" "$(cat "$STUB_DIR/calls")"
 
 # A non-ready_for_review event is unchanged: no lookup, every job runs.
@@ -357,39 +459,55 @@ for ev in "pull_request synchronize" "pull_request opened" "pull_request labeled
   new_case "event-${ev% *}-${ev#* }"
   green_prior
   # shellcheck disable=SC2086 # the event and its action, word-split on purpose
-  lookup ${ev% *} "${ev#* }"
-  runs_all "a ${ev% *} ${ev#* } event"
+  run_lookup ${ev% *} "${ev#* }"
+  assert_no_reuse "a ${ev% *} ${ev#* } event"
   assert_eq "a ${ev% *} ${ev#* } event reads nothing" "" "$(cat "$STUB_DIR/calls")"
 done
 new_case draft
-EVENT=pull_request DRAFT=true LABELLED=false HEAD_REPO=acme/widgets SWITCH=self-hosted \
-  REUSE_RUN="" GITHUB_REPOSITORY=acme/widgets GITHUB_OUTPUT="$STUB_DIR/mac-output" \
-  GITHUB_STEP_SUMMARY="$STUB_DIR/summary" bash -e "$tmp/step-mac.sh" >/dev/null 2>&1
+mac_step "" true
 assert_contains "a draft without the label still skips macOS" "run=false" "$(cat "$STUB_DIR/mac-output")"
 
 # ---------------------------------------------------------------------------
 # The workflow's own wiring around those steps.
 # ---------------------------------------------------------------------------
+# The jobs the reuse step names are exactly the jobs the plan's suite_run or
+# mac_run verdict can skip, so a suite job added later cannot be skipped
+# without the lookup requiring it green.
+gated=$(awk '
+  /^  [a-z][a-z0-9-]*:$/ { j = substr($0, 3, length($0) - 3) }
+  /^    if: \$\{\{ needs\.plan\.outputs\.(suite_run|mac_run) == .true. \}\}$/ { print j }
+' "$CI_YML" | sort | tr '\n' ' ')
+named=$(tr ' ' '\n' <"$tmp/step-reuse.sh" | awk 'f { print; f = 0 } /^--(matrix-)?job$/ { f = 1 }' | sort | tr '\n' ' ')
+assert_eq "the reuse step names every job the plan can skip" "alpine-suite macos-smoke macos-suite test " "$gated"
+assert_eq "the reuse step requires exactly those jobs" "$gated" "$named"
 # shellcheck disable=SC2016 # literal GitHub expressions
 {
-  n=$(grep -cF "if: \${{ needs.plan.outputs.suite_run == 'true' }}" "$CI_YML")
-  assert_eq "ci.yml gates the test and Alpine jobs on the plan's suite_run" 2 "$n"
-  grep -qF 'reuse_run: ${{ steps.reuse.outputs.run_id }}' "$CI_YML"
+  grep -qF 'reuse_run: ${{ steps.reuse.outputs.reuse_run }}' "$CI_YML"
   assert_eq "the plan job exports the reused run" 0 $?
   grep -qF 'suite_run: ${{ steps.reuse.outputs.suite_run }}' "$CI_YML"
   assert_eq "the plan job exports the suite verdict" 0 $?
+  grep -qF 'evidence: ${{ steps.evidence.outputs.name }}' "$CI_YML"
+  assert_eq "the plan job exports its evidence name" 0 $?
   grep -qF 'REUSE_RUN: ${{ needs.plan.outputs.reuse_run }}' "$CI_YML"
   assert_eq "the check job reads the reused run" 0 $?
-  grep -qF 'REUSE_RUN: ${{ steps.reuse.outputs.run_id }}' "$CI_YML"
+  grep -qF 'REUSE_RUN: ${{ steps.reuse.outputs.reuse_run }}' "$CI_YML"
   assert_eq "the mac step reads the reused run" 0 $?
-  n=$(grep -cF "if: \${{ needs.plan.outputs.reuse_run == '' }}" "$CI_YML")
-  assert_eq "the check job's timing steps run only without a reused run" 3 "$n"
-  grep -qF 'name: ${{ steps.evidence.outputs.name }}' "$CI_YML"
-  assert_eq "the plan job uploads its evidence under the evidence name" 0 $?
+  grep -qF 'name: ${{ needs.plan.outputs.evidence }}' "$CI_YML"
+  assert_eq "the evidence job uploads under the evidence name" 0 $?
 }
+# Every step of the check job after the gate (the timing gate's checkout,
+# download and run) runs only without a reused run.
+check_steps=$(awk '
+  /^  check:$/ { in_job = 1; next }
+  in_job && /^  [a-z]/ { exit }
+  in_job && /^      - / { n++; first = 1 }
+  in_job && n > 1 && first { first = 0; total++; if ($0 ~ /needs\.plan\.outputs\.reuse_run == .. /) gated++ }
+  END { printf "%d/%d", gated, total }
+' "$CI_YML")
+assert_eq "the check job's steps after the gate skip on a reused run" "3/3" "$check_steps"
 
 # ---------------------------------------------------------------------------
-# The evidence verb, on a real merge commit.
+# The evidence verb, on a real merge commit and a shallow clone of it.
 # ---------------------------------------------------------------------------
 repo="$tmp/repo"
 g() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$repo" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "$@"; }
@@ -408,6 +526,9 @@ g merge -q --no-ff --no-edit topic
 blob=$(g rev-parse HEAD:.github/workflows/ci.yml)
 out=$(cd "$repo" && /bin/sh "$SCRIPT" evidence --head "$head" 2>&1)
 assert_eq "evidence: the merge commit's base, head and workflow blob" "ci-evidence-$base-$head-$blob" "$out"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git clone -q --depth 1 "file://$repo" "$tmp/shallow"
+out=$(cd "$tmp/shallow" && /bin/sh "$SCRIPT" evidence --head "$head" 2>&1)
+assert_eq "evidence: a depth-1 clone, as actions/checkout leaves it, names the same" "ci-evidence-$base-$head-$blob" "$out"
 (cd "$repo" && /bin/sh "$SCRIPT" evidence --head "$base" >/dev/null 2>&1)
 assert_eq "evidence: a head that is not the merge's second parent is refused" 1 $?
 g checkout -q topic

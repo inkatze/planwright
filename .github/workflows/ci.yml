@@ -23,7 +23,8 @@ name: ci
 
 "on":
   # `ready_for_review` and `labeled` start the macOS jobs on a head a draft
-  # push skipped them for (see the plan job's mac step).
+  # push skipped them for (see the plan job's mac step), unless a ready flip
+  # finds that head already proven (the plan job's reuse step).
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review, labeled]
   push:
@@ -207,7 +208,8 @@ jobs:
       mac_run: ${{ steps.mac.outputs.run }}
       mac_runner: ${{ steps.mac.outputs.runner }}
       mac_shards: ${{ steps.mac.outputs.shards }}
-      reuse_run: ${{ steps.reuse.outputs.run_id }}
+      evidence: ${{ steps.evidence.outputs.name }}
+      reuse_run: ${{ steps.reuse.outputs.reuse_run }}
       suite_run: ${{ steps.reuse.outputs.suite_run }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -217,34 +219,24 @@ jobs:
           shards=$(/bin/bash scripts/run-tests.sh --plan-shards)
           echo "shards=$shards" >>"$GITHUB_OUTPUT"
 
-      # A ready flip reuses the suite jobs (test, alpine-suite, macos-suite,
-      # macos-smoke) of a prior run that tested the same head, base and
-      # workflow file with every one of them green, instead of running them
-      # all again (scripts/ci-reuse.sh). Each pull_request run names what it
-      # tests in an artifact, read off the merge commit the checkout holds;
-      # the lookup matches that name exactly, and anything short of a full
-      # match, a failed or slow lookup included, runs every job. lint always
-      # runs, and the check job names the reused run.
+      # A ready flip reuses the suite jobs of a prior run that tested the same
+      # head, base and workflow file with every one of them green, instead of
+      # running them all again (scripts/ci-reuse.sh; the jobs are the ones
+      # the reuse step names). Each pull_request run names what it tests,
+      # read off the merge commit the checkout holds, and the evidence job
+      # uploads an artifact under that name; the lookup matches it exactly,
+      # and anything short of a full match, a failed or slow lookup included,
+      # runs every job. lint always runs, and the check job names the run.
       - id: evidence
         if: github.event_name == 'pull_request'
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if name=$(/bin/sh scripts/ci-reuse.sh evidence --head "$HEAD_SHA"); then
-            printf '%s\n' "$name" >"$RUNNER_TEMP/ci-evidence.txt"
             echo "name=$name" >>"$GITHUB_OUTPUT"
           else
             echo "::warning::this run names no evidence, so a ready flip after it runs every job"
           fi
-
-      - if: steps.evidence.outputs.name != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: ${{ steps.evidence.outputs.name }}
-          path: ${{ runner.temp }}/ci-evidence.txt
-          if-no-files-found: error
-          retention-days: 30
-          overwrite: true
 
       - id: reuse
         env:
@@ -274,7 +266,7 @@ jobs:
       # while it carries the `ci-macos` label, the label the ready-flip
       # readiness check names when a head's macOS jobs were skipped. The Linux
       # jobs run on every push regardless, bar a ready flip the reuse step
-      # above found already proven, which runs none of them. Both macOS jobs carry
+      # found already proven, which runs no suite job. Both macOS jobs carry
       # `if: needs.plan.outputs.mac_run == 'true'`, the one job-level condition
       # check:workflow-posture accepts on them, and the check job below
       # accepts their skip only when that output is not true.
@@ -285,7 +277,7 @@ jobs:
           LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'ci-macos') }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           SWITCH: ${{ vars.PLANWRIGHT_MAC_RUNNER }}
-          REUSE_RUN: ${{ steps.reuse.outputs.run_id }}
+          REUSE_RUN: ${{ steps.reuse.outputs.reuse_run }}
         run: |
           run=true
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ] && [ "$LABELLED" != true ]; then
@@ -317,6 +309,26 @@ jobs:
           echo "$msg"
           echo "$msg" >>"$GITHUB_STEP_SUMMARY"
           { echo "run=$run"; echo "runner=$runner"; echo "shards=$shards"; } >>"$GITHUB_OUTPUT"
+
+  # This run's evidence name as an artifact, for a later ready flip's reuse
+  # lookup. Off the shards' path, since only that later run reads it; a run
+  # it fails for is red, and so never reused.
+  evidence:
+    needs: plan
+    if: ${{ needs.plan.outputs.evidence != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          EVIDENCE: ${{ needs.plan.outputs.evidence }}
+        run: printf '%s\n' "$EVIDENCE" >"$RUNNER_TEMP/ci-evidence.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: ${{ needs.plan.outputs.evidence }}
+          path: ${{ runner.temp }}/ci-evidence.txt
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
 
   # The suite in the planned shards (scripts/run-tests.sh --shard), split by
   # the same table so each runs about an equal share of the suite's time.

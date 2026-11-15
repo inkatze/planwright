@@ -1,38 +1,27 @@
 #!/bin/sh
 # ci-reuse.sh — let a ready flip reuse a prior CI run's suite jobs instead of
-# running them again. ci.yml's plan job calls it; the check job then accepts
-# the skipped suite jobs on the reused run's evidence and names that run.
-#
-# A pull_request run tests the merge of its head into its base, under the
-# workflow file that merge carries. Two runs hold the same evidence only when
-# all three match, so `evidence` names them and the plan job uploads an
-# artifact under that name; `lookup` reuses a prior run only when it carries
-# an artifact of exactly this run's name and every suite job it names
-# succeeded there (skipped is not success). Anything else (another head, a
-# moved base, a changed workflow, a red, cancelled, partial or macOS-skipped
-# run, an unreadable answer, a call that fails or runs past the time budget)
-# reuses nothing, so every job runs.
+# running them again (ci.yml's plan job calls it). A pull_request run tests
+# its head merged into its base under the ci.yml that merge carries, so two
+# runs hold the same evidence only when all three match. Anything short of a
+# prior run with exactly this evidence and every named job succeeded (skipped
+# is not success), a failed or slow lookup included, reuses nothing.
 #
 # Usage:
 #   ci-reuse.sh evidence --head <sha> [--workflow <path>]
-#       In a checkout of a pull request's merge commit, print
-#       ci-evidence-<base>-<head>-<workflow blob>, the base being the merge's
-#       first parent. Exit 1 when HEAD is no two-parent merge whose second
-#       parent is <sha>, or holds no <path> (default .github/workflows/ci.yml).
-#   ci-reuse.sh lookup --repo <owner/name> --run-id <id> --event <name>
-#       --action <name> --evidence <name> [--workflow <path>]
+#       In a checkout of a pull request's merge commit, print the evidence
+#       name ci-evidence-<first parent>-<head>-<workflow blob>; exit 1 when
+#       HEAD is no merge whose second parent is <sha>, or lacks <path>.
+#   ci-reuse.sh lookup --repo <owner/name> --run-id <current run>
+#       --event <name> --action <name> --evidence <name> [--workflow <path>]
 #       (--matrix-job <name> | --job <name>)...
-#       Print `run_id=<id>` and `suite_run=false` for the newest prior run of
-#       <path> on this evidence whose every --matrix-job ran each of its
-#       `<name> (shard i/N)` shards once and every --job ran once, all
-#       succeeded; else `run_id=` and `suite_run=true`. Only a
-#       pull_request ready_for_review event looks; the reason goes to stderr.
-#       GH_TOKEN must allow reading Actions.
-#
-# PLANWRIGHT_CI_REUSE_BUDGET is the lookup's whole time budget in seconds
-# (default 60), shared by every gh call it makes.
-#
-# Exit: 0 on a verdict, reuse or not; 1 `evidence` could not name one; 2 usage.
+#       On a pull_request ready_for_review only, print `reuse_run=<id>` and
+#       `suite_run=false` for the newest prior run carrying an artifact of that
+#       name whose every --matrix-job ran each `<name> (shard i/N)` once and
+#       every --job once, all succeeded; else `reuse_run=` and
+#       `suite_run=true`. Reasons go to stderr; GH_TOKEN must read Actions.
+#       PLANWRIGHT_CI_REUSE_BUDGET: whole seconds for every gh call together
+#       (default 60, at most 240).
+# Exit: 0 on a verdict, reuse or not; 1 `evidence` named none; 2 usage.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -40,6 +29,8 @@ unset CDPATH
 
 prog=ci-reuse
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+default_workflow=.github/workflows/ci.yml
+prefix=ci-evidence-
 
 usage() {
   printf '%s\n' "usage: $prog evidence --head <sha> [--workflow <path>]" \
@@ -48,6 +39,11 @@ usage() {
   exit 2
 }
 need() { [ "$1" -ge 2 ] || usage; }
+warn() { printf '%s\n' "$prog: $*" >&2; }
+die() {
+  warn "$@"
+  exit 1
+}
 
 is_sha() {
   case $1 in
@@ -58,7 +54,7 @@ is_sha() {
 
 evidence() {
   head=""
-  workflow=.github/workflows/ci.yml
+  workflow=$default_workflow
   while [ $# -gt 0 ]; do
     case $1 in
       --head) need $# && head=$2 && shift 2 ;;
@@ -67,34 +63,22 @@ evidence() {
     esac
   done
   is_sha "$head" || usage
-  raw=$(git cat-file commit HEAD) || {
-    printf '%s\n' "$prog: HEAD is no readable commit" >&2
-    exit 1
-  }
-  # The header ends at the first empty line; only its parent lines count.
+  # The raw object keeps its parent lines even in a shallow clone.
+  raw=$(git cat-file commit HEAD) || die "HEAD is no readable commit"
   parents=$(printf '%s\n' "$raw" | sed -n -e '/^$/q' -e 's/^parent //p')
   # shellcheck disable=SC2086 # split into the parent ids on purpose
   set -- $parents
-  if [ $# -ne 2 ]; then
-    printf '%s\n' "$prog: HEAD has $# parent(s), not the two of a pull request's merge commit" >&2
-    exit 1
-  fi
-  if [ "$2" != "$head" ]; then
-    printf '%s\n' "$prog: the merge's second parent $2 is not the head $head" >&2
-    exit 1
-  fi
-  blob=$(git rev-parse --verify -q "HEAD:$workflow") || {
-    printf '%s\n' "$prog: HEAD holds no $workflow" >&2
-    exit 1
-  }
-  printf 'ci-evidence-%s-%s-%s\n' "$1" "$2" "$blob"
+  [ $# -eq 2 ] || die "HEAD has $# parent(s), not the two of a pull request's merge commit"
+  [ "$2" = "$head" ] || die "the merge's second parent $2 is not the head $head"
+  blob=$(git rev-parse --verify -q "HEAD:$workflow") || die "HEAD holds no $workflow"
+  printf '%s%s-%s-%s\n' "$prefix" "$1" "$2" "$blob"
 }
 
 # --- lookup ------------------------------------------------------------------
 
 no_reuse() {
-  printf '%s\n' "$prog: $1; every job runs" >&2
-  printf 'run_id=\nsuite_run=true\n'
+  warn "$1; every job runs"
+  printf 'reuse_run=\nsuite_run=true\n'
   exit 0
 }
 
@@ -114,14 +98,15 @@ jq_runs='
   | map(select(.event == "pull_request" and .status == "completed"
       and .conclusion == "success" and .head_sha == $head
       and .path == $path and (.id | tostring) != $self))
-  | sort_by(.created_at) | reverse | .[:5][] | .id | tostring'
+  | sort_by(.created_at) | reverse | .[] | .id | tostring'
 
-# "yes" when the run carries an artifact of exactly this evidence's name.
+# "ok" when the run carries an artifact of exactly this evidence's name.
 # shellcheck disable=SC2016 # jq program text
 jq_artifacts='
   if (.artifacts | type) != "array" then error("no artifact list")
-  elif (.total_count // 0) > (.artifacts | length) then "truncated"
-  elif any(.artifacts[]; .name == $name) then "yes" else "no" end'
+  elif (.total_count // 0) > (.artifacts | length) then "its artifact list is truncated"
+  elif any(.artifacts[]; .name == $name) then "ok"
+  else "no artifact names this head, base and workflow" end'
 
 # "ok", or the first reason the run's suite jobs are no evidence.
 # shellcheck disable=SC2016 # jq program text
@@ -157,8 +142,28 @@ json_list() { # json_list <word>...: a JSON array of the words
   printf '%s]' "$out"
 }
 
+# run_verdict <id>: "ok" when the prior run is this run's evidence, else why not.
+run_verdict() {
+  json=$(gh_read "repos/$repo/actions/runs/$1/artifacts?per_page=100") || {
+    echo "its artifact lookup failed or ran out of time"
+    return
+  }
+  v=$(printf '%s' "$json" | jq -r --arg name "$evidence_name" "$jq_artifacts") || v="its artifact list did not read as one"
+  [ "$v" = ok ] || {
+    printf '%s\n' "$v"
+    return
+  }
+  json=$(gh_read "repos/$repo/actions/runs/$1/jobs?filter=latest&per_page=100") || {
+    echo "its job lookup failed or ran out of time"
+    return
+  }
+  v=$(printf '%s' "$json" | jq -r --argjson matrix "$matrix_json" --argjson single "$single_json" "$jq_jobs") \
+    || v="its job list did not read as one"
+  printf '%s\n' "$v"
+}
+
 lookup() {
-  repo="" run_id="" event="" action="" evidence_name="" workflow=.github/workflows/ci.yml
+  repo="" run_id="" event="" action="" evidence_name="" workflow=$default_workflow
   have_event="" have_action="" have_evidence=""
   matrix="" single=""
   while [ $# -gt 0 ]; do
@@ -198,10 +203,10 @@ lookup() {
   [ "$event" = pull_request ] && [ "$action" = ready_for_review ] \
     || no_reuse "a ${event:-?} ${action:-?} event reuses nothing"
   case $evidence_name in
-    ci-evidence-*-*-*) ;;
+    "$prefix"*-*-*) ;;
     *) no_reuse "this run has no evidence of its own to match" ;;
   esac
-  rest=${evidence_name#ci-evidence-}
+  rest=${evidence_name#"$prefix"}
   base=${rest%%-*}
   rest=${rest#*-}
   head=${rest%%-*}
@@ -210,10 +215,13 @@ lookup() {
     no_reuse "the evidence name '$evidence_name' is not base-head-blob"
   fi
 
+  # A malformed budget must not turn the run red, and none may outlast the
+  # plan job's own timeout.
   budget=${PLANWRIGHT_CI_REUSE_BUDGET:-60}
   case $budget in
-    '' | 0 | *[!0-9]* | 0*) usage ;;
+    '' | 0 | *[!0-9]* | 0*) budget=60 ;;
   esac
+  if [ "${#budget}" -gt 3 ] || [ "$budget" -gt 240 ]; then budget=240; fi
   deadline=$(($(date +%s) + budget))
   # shellcheck disable=SC2086 # the job names, validated words, split on purpose
   matrix_json=$(json_list $matrix) && single_json=$(json_list $single)
@@ -224,28 +232,13 @@ lookup() {
     || no_reuse "the run list did not read as one"
   [ -n "$ids" ] || no_reuse "no prior run succeeded at $head"
   for id in $ids; do
-    arts=$(gh_read "repos/$repo/actions/runs/$id/artifacts?per_page=100") || {
-      printf '%s\n' "$prog: run $id: its artifact lookup failed or ran out of time" >&2
-      continue
-    }
-    has=$(printf '%s' "$arts" | jq -r --arg name "$evidence_name" "$jq_artifacts") || has=unreadable
-    if [ "$has" != yes ]; then
-      printf '%s\n' "$prog: run $id: no artifact names this run's head, base and workflow ($has)" >&2
-      continue
+    verdict=$(run_verdict "$id")
+    if [ "$verdict" = ok ]; then
+      warn "run $id tested this head, base and workflow with every suite job green; reusing it"
+      printf 'reuse_run=%s\nsuite_run=false\n' "$id"
+      exit 0
     fi
-    jobs=$(gh_read "repos/$repo/actions/runs/$id/jobs?filter=latest&per_page=100") || {
-      printf '%s\n' "$prog: run $id: its job lookup failed or ran out of time" >&2
-      continue
-    }
-    verdict=$(printf '%s' "$jobs" | jq -r --argjson matrix "$matrix_json" --argjson single "$single_json" "$jq_jobs") \
-      || verdict="its job list did not read as one"
-    if [ "$verdict" != ok ]; then
-      printf '%s\n' "$prog: run $id: $verdict" >&2
-      continue
-    fi
-    printf '%s\n' "$prog: run $id tested this head, base and workflow with every suite job green; reusing it" >&2
-    printf 'run_id=%s\nsuite_run=false\n' "$id"
-    exit 0
+    warn "run $id: $verdict"
   done
   no_reuse "no prior run tested this head, base and workflow with every suite job green"
 }
