@@ -124,12 +124,13 @@ precondition of moving it (risk R4, Task 11).
 **Alternatives considered:**
 - Rust. Rejected because: it was faster than Go on both reports, by a wide
   margin on Linux and a narrow one on macOS, but this tier has no per-call
-  budget of its own and Go stays within the hook budget wherever a hook
-  reaches it. Against that, Rust wrote more source and ported slower per
-  KiB in this bake-off, links glibc statically on glibc Linux unless built
-  for the unmeasured musl target, and under D-9's CI cross-compile its macOS
-  artifact needs the Apple SDK risk R7 names, which this run did not
-  exercise because it built natively. Bake-off B, the hook tier's own,
+  budget of its own and Go met the hook budget at the measured call site
+  (the shipped shape's added cost is untimed). Against that, Rust wrote
+  more source and ported slower per KiB in this bake-off, links glibc
+  statically on glibc Linux unless built for the unmeasured musl target,
+  and under D-9's CI cross-compile its macOS artifact needs the Apple SDK
+  risk R7 names, which this run did not exercise because it built
+  natively. Bake-off B, the hook tier's own,
   favours Rust more strongly; that belongs to the hook verdict.
 - Stay in shell, hardened and restructured. Rejected because: the
   restructured shell candidate still forks external commands on every call
@@ -177,7 +178,7 @@ the two, Go wrote less source, carries fewer runtime dependencies, ported
 faster per KiB with a review load close to Rust's, and its delivery path
 (cross-compiling and ad-hoc signing for Apple silicon from a Linux runner,
 D-6) is the one D-9 assumes. Rust's lead is latency, which this tier does
-not budget for and which Go never lets breach the hook budget; the two
+not budget for, and Go met the hook budget at the measured call site; the two
 platforms the matrix still leaves unmeasured for this verdict, musl and the
 cross-compiled macOS artifact, both weigh against Rust more than Go.
 
@@ -204,9 +205,9 @@ cross-compiled macOS artifact, both weigh against Rust more than Go.
     echo-sanitization (no shell `echo`), perf-spawn-cost inside every
     ported call (the call itself becomes one spawn where a caller ran a
     sourced function), and the BSD-versus-GNU and bash-version side of
-    portability. The thin shell layer that stays keeps the printf lint and
-    the shell lint stack, so those classes shrink to its size rather than
-    vanish. Relocated: platform divergence moves into the program (the
+    portability. In the thin shell layer that stays, all three stay live at
+    that layer's size (the printf lint still covers its `echo`), and the
+    shell lint stack still covers it. Relocated: platform divergence moves into the program (the
     prototypes read procfs on Linux only and fall back to the pid
     elsewhere) and into the build; lock-concurrency and parser-fragility
     move into typed code over the same filesystem and grammar; lint-gap
@@ -294,8 +295,8 @@ unchanged.
   - **Restructured-shell share of the gain:** unmeasured, as in D-19.
   - **Differential suite:** unmeasured, as in D-19.
   - **Stay in shell, at equal weight:** at the shell rate,
-    1.071 min/KiB (`shell.porting_rate_min_per_kib`), about 3227 minutes, with the same
-    caveats and the same open classes as D-19.
+    1.071 min/KiB (`shell.porting_rate_min_per_kib`), about 3227 minutes,
+    with the same caveats and the same open classes as D-19.
   - **Break-even:** D-19's threshold, shared, since the baseline does not
     split inflow by tier.
 
