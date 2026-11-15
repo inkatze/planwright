@@ -116,13 +116,15 @@ cleanup() {
   trap : TERM INT HUP
   [ -z "$job" ] || kill "$job" 2>/dev/null
   if [ -n "$container" ]; then
-    bounded 60 docker rm -f "$container" >/dev/null 2>&1
+    bounded 10 docker rm -f "$container" >/dev/null 2>&1
     while [ -n "$job" ] && kill -0 "$job" 2>/dev/null; do
       sleep 1
-      bounded 60 docker rm -f "$container" >/dev/null 2>&1
+      bounded 10 docker rm -f "$container" >/dev/null 2>&1
     done
   fi
   [ -z "$job" ] || wait "$job" 2>/dev/null
+  # The daemon can still finish a create the client asked for before it died.
+  [ -z "$container" ] || bounded 10 docker rm -f "$container" >/dev/null 2>&1
   # A job killed before it opened the FIFO leaves tee blocked on it forever.
   [ -z "$tee_job" ] || kill "$tee_job" 2>/dev/null
   [ -z "$tee_job" ] || wait "$tee_job" 2>/dev/null
@@ -194,7 +196,8 @@ try() {
   # In the background, so a signal interrupts the wait at once (bash holds a
   # trap until a foreground job ends), and through a FIFO rather than a pipe,
   # so the job's pid is bounded-run.sh itself: the process that passes a TERM
-  # on to docker, and whose wait gives the client's status.
+  # on to docker, and whose wait gives the client's status. The bounded
+  # function cannot start it: backgrounding a function gives a subshell's pid.
   mkfifo "$pipe" || fail "could not create the log FIFO for try $1"
   hold_traps
   container="pr-agent-$$-$1"
@@ -211,7 +214,8 @@ try() {
   wait "$tee_job"
   tee_status=$?
   tee_job=""
-  # A killed or failed docker client can leave its container running.
+  # A killed or failed docker client can leave its container running; a clean
+  # exit's container went with --rm.
   [ "$status" = 0 ] || bounded 60 docker rm -f "$container" >/dev/null 2>&1
   container=""
   # The verdicts below read the log; without all of it a failed try could

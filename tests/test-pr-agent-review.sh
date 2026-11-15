@@ -208,9 +208,13 @@ esac
 exit 64
 EOF
 
+# Backoffs only log; the exit trap's one-second removal cadence waits a little,
+# so a cancel case does not spin while its stub client lives.
 cat >"$stub/sleep" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$1" >>"$T/sleep.log"
+[ "$1" = 1 ] && exec /bin/sleep 0.05
+exit 0
 EOF
 
 # bounded-run.sh -k <grace> <seconds> <cmd>...: logs the bound, then runs the
@@ -222,10 +226,13 @@ printf '%s %s %s\n' "$1" "$2" "$3" >>"$T/bound.log"
 shift 3
 exec "$@"
 EOF
-# tee runs as itself, unless TEE_FAIL=1 makes it die before copying anything.
+
+# tee runs as itself, unless TEE_FAIL=early makes it die before copying
+# anything or TEE_FAIL=late after creating the log.
 real_tee=$(command -v tee)
 # shellcheck disable=SC2016 # the stub's own text
-printf '%s\n' '#!/bin/sh' '[ "${TEE_FAIL:-0}" = 1 ] && exit 1' "exec '$real_tee' \"\$@\"" >"$stub/tee"
+printf '%s\n' '#!/bin/sh' '[ "${TEE_FAIL:-}" = early ] && exit 1' \
+  '[ "${TEE_FAIL:-}" = late ] && { : >"$1"; exit 1; }' "exec '$real_tee' \"\$@\"" >"$stub/tee"
 chmod +x "$stub/docker" "$stub/gh" "$stub/sleep" "$stub/tee"
 # The real helper's watcher needs the real sleep.
 mkdir -p "$tmp/realbin"
@@ -471,12 +478,14 @@ else
   failed "$name: rm $(cat "$T/docker-rm.log")"
 fi
 
-name="a try whose log was lost fails, never passing as a skip"
-TEE_FAIL=1
-export TEE_FAIL
-run "quiet good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
-unset TEE_FAIL
-expect "$name" 1 1 0 "" && has "$name" "could not keep the log of try 1" && ok "$name"
+for when in early late; do
+  name="a try whose log tee lost ($when) fails, never passing as a skip"
+  TEE_FAIL=$when
+  export TEE_FAIL
+  run "quiet good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
+  unset TEE_FAIL
+  expect "$name" 1 1 0 "" && has "$name" "could not keep the log of try 1" && ok "$name"
+done
 
 name="a non-zero exit outranks a model-output failure in its log"
 run "exit1empty good" "$HEAD_SHA" -- --head "$HEAD_SHA" --retries 2
@@ -574,7 +583,6 @@ else
 fi
 
 # A runner cancel can signal the wrapper's shell alone, at any moment of a try.
-
 # cancel_case <scenario>: start a try, TERM the wrapper once the stub client
 # runs, and set RC, OUT and CANCEL_CONTAINER; returns 1 when the wrapper
 # outlived the TERM or the try never started. A stuck wrapper and the stub
