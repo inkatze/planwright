@@ -116,7 +116,13 @@ case "$sub" in
     ;;
   display-message)
     [ -n "${FAKE_SELF:-}" ] || exit 1
-    printf '%s\n' "$FAKE_SELF"
+    # Printed as the caller's format asks: id, index, then session:name.
+    set -f
+    old_ifs=$IFS
+    IFS='	'
+    set -- $FAKE_SELF
+    IFS=$old_ifs
+    printf '%s %s %s:%s\n' "$2" "${4:-0}" "$1" "$3"
     ;;
   list-panes)
     # A downed server fails the query; otherwise emit FAKE_PANES (or fail when
