@@ -18,6 +18,8 @@ failures=0
   echo "FAIL: scripts/pr-agent-review.sh missing or not executable" >&2
   exit 1
 }
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 command -v jq >/dev/null 2>&1 || {
   echo "FAIL: jq is required to run the script's jq program" >&2
   exit 1
@@ -58,7 +60,12 @@ case "$1" in
     [ "${PULL_FAIL:-0}" = 1 ] && { printf 'Error response from daemon: manifest unknown\n'; exit 1; }
     exit 0
     ;;
-  rm) printf '%s\n' "$*" >>"$T/docker-rm.log"; exit 0 ;;
+  rm)
+    printf '%s\n' "$*" >>"$T/docker-rm.log"
+    # Removing a container ends its docker client, as the daemon does.
+    [ -f "$T/run.pid" ] && kill "$(cat "$T/run.pid")" 2>/dev/null
+    exit 0
+    ;;
   run) ;;
   *) exit 64 ;;
 esac
@@ -113,7 +120,10 @@ case "$step" in
   quiet) ;;
   exit1empty) printf '%s\n' "$empty"; exit 1 ;;
   exit*) exit "${step#exit}" ;;
-  hang) exec /bin/sleep 20 ;;
+  hang)
+    printf '%s\n' "$$" >"$T/run.pid"
+    exec /bin/sleep 300
+    ;;
   *) printf 'stub docker: no scenario left\n' >&2; exit 70 ;;
 esac
 EOF
@@ -469,6 +479,40 @@ if [ "$RC" = 0 ]; then
   if [ "$RC" = 1 ]; then has "$name" "timed out after 1s" && ok "$name"; else failed "$name: the hang"; fi
 else
   failed "$name: the good try"
+fi
+
+# A runner cancel can signal the wrapper's shell alone; bash defers a trap
+# until a foreground job ends, which would leave the container running.
+name="a TERM to the wrapper alone removes the running container at once"
+new_case "hang" "$HEAD_SHA"
+env PATH="$stub:$PATH" T="$T" GITHUB_REPOSITORY=o/r GITHUB_EVENT_PATH="$tmp/event.json" \
+  "$SCRIPT" --image img --pr 7 >"$T/out" 2>&1 &
+spid=$!
+container="pr-agent-$spid-1"
+if poll_until --what "the try to start" -- test -s "$T/run.pid"; then
+  kill -TERM "$spid"
+  if poll_until --what "the wrapper to exit on TERM" -- pid_gone "$spid"; then
+    RC=0
+    wait "$spid" || RC=$?
+    OUT=$(cat "$T/out")
+    if [ "$RC" = 143 ] && grep -qx "rm -f $container" "$T/docker-rm.log"; then
+      ok "$name"
+    else
+      failed "$name: want exit 143 and the container removed; rm: $(cat "$T/docker-rm.log")"
+    fi
+  else
+    kill "$(cat "$T/run.pid")"
+    RC=0
+    wait "$spid" || RC=$?
+    OUT=$(cat "$T/out")
+    failed "$name: the wrapper outlived TERM while its try ran"
+  fi
+else
+  kill -TERM "$spid"
+  RC=0
+  wait "$spid" || RC=$?
+  OUT=$(cat "$T/out")
+  failed "$name: the try never started"
 fi
 
 for bad in "--retries x|--retries must be" "--retries|--retries needs a value" "--retries 100|up to 99" \

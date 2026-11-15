@@ -149,9 +149,15 @@ review_posted() {
 try() {
   local log="$work/try-$1.log" status
   container="pr-agent-$$-$1"
-  bounded "$try_seconds" docker run --rm --name "$container" "${docker_env[@]}" \
-    -v "$GITHUB_EVENT_PATH:/github/workflow/event.json:ro" "$image" 2>&1 | tee "$log"
-  status=${PIPESTATUS[0]}
+  # In the background, so a TERM or INT interrupts the wait at once: bash
+  # holds a trap until a foreground job ends.
+  {
+    bounded "$try_seconds" docker run --rm --name "$container" "${docker_env[@]}" \
+      -v "$GITHUB_EVENT_PATH:/github/workflow/event.json:ro" "$image"
+    printf '%s\n' "$?" >"$work/status-$1"
+  } 2>&1 | tee "$log" &
+  wait "$!"
+  status=$(cat "$work/status-$1")
   # A killed or failed docker client can leave its container running.
   [ "$status" = 0 ] || docker rm -f "$container" >/dev/null 2>&1
   container=""
@@ -230,7 +236,8 @@ while :; do
   # Start a retry only if it could finish, its kill grace and reads included.
   [ $(($(date +%s) - started + wait_s + try_seconds + KILL_GRACE + READ_SLACK)) -le "$deadline" ] \
     || fail "no review after try $tries, and another try would run past the ${deadline}s deadline"
-  sleep "$wait_s"
+  sleep "$wait_s" &
+  wait "$!"
   same_head
   # The comment list can lag the post, so a try judged empty may have landed.
   if review_posted; then
