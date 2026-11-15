@@ -10,10 +10,10 @@ name: PR-Agent
 # exception), so a fork PR never reaches the key. Never switch the trigger to
 # pull_request_target.
 #
-# Set the repository secret OPENROUTER_API_KEY to turn it on. Swap the model
-# with the repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS and
-# PR_AGENT_MAX_FINDINGS, no code change needed. A new PR-Agent release is a
-# manual bump of the image digest below.
+# Set the repository secret OPENROUTER_API_KEY to turn it on. Tune it with the
+# repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS,
+# PR_AGENT_MAX_FINDINGS and PR_AGENT_REVIEW_RETRIES, no code change needed. A
+# new PR-Agent release is a manual bump of the image digest below.
 
 # The pinned digest and the shell commands run long; keep them whole.
 # yamllint disable rule:line-length
@@ -79,10 +79,9 @@ jobs:
       # unparseable (the action exits 0 then, with no review posted) and fails
       # the step by name once PR_AGENT_REVIEW_RETRIES retries are spent.
       # AI_TIMEOUT below is a per-read inactivity limit, not a total
-      # deadline, so each try has its own bound inside the wrapper; this step
-      # limit caps every try and backoff together, failing the step (the run
-      # marker still posts, with the failure status) before the job limit
-      # would report "cancelled" with nothing posted.
+      # deadline, so each try has its own bound inside the wrapper. Keep the
+      # step limit above the wrapper's deadline and below the job's: the
+      # wrapper then names its own failure, and the run marker still posts.
       - name: Review
         id: review
         if: env.HAS_KEY == 'true'
@@ -90,6 +89,7 @@ jobs:
         run: >-
           /bin/bash scripts/pr-agent-review.sh --image "$PR_AGENT_IMAGE"
           --pr "$PR" --head "$HEAD_SHA" --retries "$PR_AGENT_REVIEW_RETRIES"
+          --deadline-seconds 2100
         env:
           # The action's runtime image, pinned by digest: pragent/pr-agent:0.49.0-github_action.
           # Dependabot does not update image digests; bump this by hand.
@@ -99,6 +99,7 @@ jobs:
           # A repository variable, like the model knobs: a pull_request run
           # takes no inputs. Each retry re-runs the whole fallback chain.
           PR_AGENT_REVIEW_RETRIES: ${{ vars.PR_AGENT_REVIEW_RETRIES || '2' }}
+          # gh reads GH_TOKEN; the container gets GITHUB_TOKEN.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -151,7 +152,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ steps.head.outputs.sha }}
-          STATUS: ${{ steps.review.outcome }}
+          # With the key set, a skipped review means an earlier step failed.
+          STATUS: ${{ steps.review.outcome == 'skipped' && 'failure' || steps.review.outcome }}
         run: |
           marker="<!-- pr-agent-run: id=$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT head=$HEAD_SHA status=$STATUS -->"
           body="$marker"$'\n'"PR-Agent run $GITHUB_RUN_ID reviewed \`${HEAD_SHA:0:12}\`: $STATUS."
