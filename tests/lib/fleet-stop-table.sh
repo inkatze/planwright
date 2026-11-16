@@ -23,6 +23,8 @@
 #       malformed or unknown handle and an out-of-range grace.
 #   c22b (REQ-B1.2): a SIGTERM-surviving grandchild reparented away from the
 #       tree is still closed.
+#   c24 (REQ-B1.2): a child the worker forks while the close runs is still
+#       closed.
 #   c22d-h (REQ-B1.3): a close from inside the worker's own tree is refused; a
 #       recycled pid in the closer's ancestry is not mistaken for one; a
 #       truncated-argv host fails closed; an unreadable process table refuses;
@@ -103,6 +105,15 @@ cleanup() {
       'sleep 120') kill "$p" 2>/dev/null ;;
     esac
   done
+  # c24's forked children name nothing in the tree either.
+  for pf in "$tmp"/*/r24/forks; do
+    [ -f "$pf" ] || continue
+    while read -r p; do
+      case $(pid_args "$p") in
+        'sleep 137') kill "$p" 2>/dev/null ;;
+      esac
+    done <"$pf"
+  done
   # A headless pid file names only the runner, so a failed cell would orphan
   # its worker, and a TERM-ignoring one never exits. Everything the fixtures
   # start carries this run's scratch path in its argv, and a still-unreaped job
@@ -140,6 +151,8 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #   SHIM_READ_FIRST   stdin lines to read+record before emitting (default 1)
 #   SHIM_SLEEP        sleep after emitting (hold open)
 #   SHIM_STUBBORN_CHILD  path a SIGTERM-surviving grandchild records its pid in
+#   SHIM_FORKER       path the shim records the pid of each `sleep 137` child
+#                     it keeps forking in
 #   SHIM_IGNORE_TERM=1   survive SIGTERM, recording each one in <record>/signals
 #   SHIM_HOLDING      with SHIM_IGNORE_TERM, a path the shim writes its pid to
 #                     once its TERM handler is in place
@@ -163,6 +176,18 @@ if [ -n "${SHIM_STUBBORN_CHILD:-}" ]; then
   # assertion against it would only re-test that the worker died.
   sh -c 'trap "" TERM; printf "%s\n" "$$" >"$1"; while :; do sleep 1; done' \
     _ "$SHIM_STUBBORN_CHILD" &
+fi
+if [ -n "${SHIM_FORKER:-}" ]; then
+  # Forks a long child every few milliseconds, recording each pid, so some
+  # fork always lands between a close's process-table read and its signal.
+  # Bounded, so a cell that fails cannot leave it forking past the run.
+  fk_i=0
+  while [ "$fk_i" -lt 2000 ]; do
+    sleep 137 &
+    printf '%s\n' "$!" >>"$SHIM_FORKER"
+    sleep 0.01
+    fk_i=$((fk_i + 1))
+  done
 fi
 if [ "${SHIM_IGNORE_TERM:-0}" = 1 ]; then
   trap 'printf "term\n" >>"$SHIM_RECORD_DIR/signals"' TERM
@@ -772,6 +797,47 @@ c22b() {
 }
 
 # ---------------------------------------------------------------------------
+# forks_live_none <file> — the recorded forks still running as `sleep 137`, left in
+# `fk_live`; true when there are none.
+forks_live_none() {
+  fk_live=''
+  while read -r fl_p; do
+    case $(pid_args "$fl_p") in
+      'sleep 137') fk_live="$fk_live $fl_p" ;;
+    esac
+  done <"$1"
+  [ -z "$fk_live" ]
+}
+
+# c24: a worker that keeps forking while it is closed. A child forked after the
+# close read the process table, by a parent the signal then kills, is
+# reparented out of the tree before any later read can reach it; the close must
+# still end it.
+c24() {
+  case_dirs 24
+  w=$(w_name 24)
+  d=$(w_dir "$home" "$w")
+  printf 'forking worker\n' >"$tmp/$rung/prompt24"
+  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt24" "$wt" \
+    SHIM_EVENTS="$ev_hold" SHIM_FORKER="$rec/forks" || fail "c24: detached launch exited non-zero"
+  poll_until --what 'the worker up' -- w_up "$d" || fail "c24: the worker never came up"
+  poll_until --what 'the first forks' -- test -s "$rec/forks" || fail "c24: the worker never forked"
+  out=$(renv "$home" "$rec" -- stop "$w" --grace 2)
+  rc=$?
+  [ "$rc" = 0 ] || fail "c24: stop should close the forking tree, got rc=$rc ($out)"
+  case $out in
+    "stop $w stopped released="*) : ;;
+    *) fail "c24: expected a stopped result, got: $out" ;;
+  esac
+  # Bounded well under the children's own lifetime, so only the close can have
+  # ended them; the wait covers a signalled child not yet reaped.
+  fk_live=''
+  poll_until --deadline 20 --what 'the forked children gone' -- forks_live_none "$rec/forks" \
+    || fail "c24: children forked during the close outlived a close that reported success:$fk_live"
+  printf '%s\n' "ok: [$rung] c24 a child forked while the close runs is still closed (REQ-B1.2)"
+}
+
+# ---------------------------------------------------------------------------
 c22d() {
   case_dirs 22d
   w=$(w_name 224)
@@ -1261,7 +1327,7 @@ run_table() {
   if [ -n "${STOP_CELLS:-}" ]; then
     printf '%s\n' "skip: [$rung] every cell but '$STOP_CELLS' (narrowed by STOP_CELLS)"
   fi
-  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c32 c40 c41 c42 c43}; do
+  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c24 c22d c22efg c23 c32 c40 c41 c42 c43}; do
     "$cell"
   done
 }

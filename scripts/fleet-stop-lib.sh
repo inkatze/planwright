@@ -533,10 +533,47 @@ stop_live() {
   printf '%s' "${sl_out# }"
 }
 
-# release_processes <dir> <match> <pidfiles> <grace> — SIGTERM the worker's
-# process tree, then SIGKILL whatever is still there after <grace> seconds.
-# Children do not reliably die with a parent SIGTERM, so the escalation is not
-# optional.
+# stop_freeze <dir> <match> <pidfiles> — SIGSTOP every process in
+# `stop_tracked`, re-read the tree, and repeat until a read finds no member not
+# already stopped. A signal sent to a snapshot misses a child forked after the
+# read by a parent the signal then kills: it is reparented out of the tree
+# before any later read can reach it, and runs on. A stopped process cannot
+# fork, so once a read adds nothing, every child of the tree is in the set.
+# Bounded, since a tree that will not settle is still better signalled than
+# not; non-zero only when the process table cannot be read.
+stop_freeze() {
+  sf_stopped=' '
+  sf_round=0
+  while :; do
+    sf_new=0
+    for sf_p in $stop_tracked; do
+      case $sf_stopped in *" $sf_p "*) continue ;; esac
+      kill -STOP "$sf_p" 2>/dev/null || :
+      sf_stopped="$sf_stopped$sf_p "
+      sf_new=1
+    done
+    [ "$sf_new" = 1 ] && [ "$sf_round" -lt 20 ] || return 0
+    sf_round=$((sf_round + 1))
+    sf_found=$(stop_candidates "$1" "$2" "$3") || return 1
+    stop_tracked=$(stop_live "$stop_tracked $sf_found")
+  done
+}
+
+# stop_thaw — SIGCONT every process in `stop_tracked`. A stopped process
+# handles a pending SIGTERM only once continued, and one left stopped by a
+# close that gave up would hang for good.
+stop_thaw() {
+  for st_p in $stop_tracked; do
+    kill -CONT "$st_p" 2>/dev/null || :
+  done
+}
+
+# release_processes <dir> <match> <pidfiles> <grace> — freeze the worker's
+# process tree, SIGTERM it, then SIGKILL whatever is still there after <grace>
+# seconds. Children do not reliably die with a parent SIGTERM, so the
+# escalation is not optional. The SIGTERM is sent before the SIGCONT, so a
+# frozen member is continued with the signal already pending and forks nothing
+# first.
 #
 # The target set accumulates in `stop_tracked` rather than being recomputed
 # from scratch each round. A child that ignores SIGTERM is reparented to pid 1
@@ -563,10 +600,15 @@ release_processes() {
   # What `stop_process_closed` reads to tell a tree this close terminated from
   # one that was already gone.
   stop_signalled=1
+  stop_freeze "$1" "$2" "$3" || {
+    stop_thaw
+    return 1
+  }
   for rp_sig in TERM KILL; do
     for rp_p in $stop_tracked; do
       kill "-$rp_sig" "$rp_p" 2>/dev/null || :
     done
+    [ "$rp_sig" = KILL ] || stop_thaw
     case $rp_sig in
       TERM) rp_wait=$4 ;;
       *) rp_wait=$kill_settle ;;
