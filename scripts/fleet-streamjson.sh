@@ -2695,9 +2695,14 @@ cmd_answer() {
     # A deny body with no message makes an error tool_result with empty
     # content, which the API rejects and which kills the worker. A text check,
     # not a parse (no jq here): it looks for a message holding something
-    # besides whitespace and \n, \t, \r escapes, and refuses the body whole.
+    # besides whitespace and the escapes that decode to whitespace or a
+    # control byte (\n \t \r \f \b, and a \u escape of 0000 through 0020 or
+    # 007f), the same bytes the --deny path counts as blank, and refuses the
+    # body whole.
+    blank_esc='\\[ntrfb]|\\u00[01][0-9a-fA-F]|\\u0020|\\u007[fF]'
+    real_esc='\\["\\/]|\\u([1-9a-fA-F][0-9a-fA-F]{3}|0[1-9a-fA-F][0-9a-fA-F]{2}|002[1-9a-fA-F]|00[3-689a-fA-F][0-9a-fA-F]|007[0-9a-eA-E])'
     if printf '%s' "$body" | grep -Eq '"behavior"[[:space:]]*:[[:space:]]*"deny"' \
-      && ! printf '%s' "$body" | grep -Eq '"message"[[:space:]]*:[[:space:]]*"(\\[ntr]|[[:space:]])*([^"\\[:space:]]|\\[^ntr])'; then
+      && ! printf '%s' "$body" | grep -Eq "\"message\"[[:space:]]*:[[:space:]]*\"($blank_esc|[[:space:]])*([^\"\\\\[:space:]]|$real_esc)"; then
       printf '%s\n' "$me: --response-file deny body needs a non-empty message (an empty deny kills the worker)" >&2
       exit 2
     fi
