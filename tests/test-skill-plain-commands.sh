@@ -91,7 +91,8 @@ else
     'No chains' \
     'No display pipes' \
     'Exit status from the result' \
-    'exactly as the resolver prints it'; do
+    'exactly as the resolver prints it' \
+    'get these rules through its lens brief'; do
     if printf '%s' "$flat" | grep -qF "$phrase"; then
       ok "doctrine doc states: $phrase"
     else
@@ -126,9 +127,10 @@ done
 sr="$REPO_ROOT/skills/self-review/SKILL.md"
 fanout=''
 [ -f "$sr" ] && fanout="$(awk '
-  /^## / { ind = ($0 == "## Discovery") }
-  ind && /^- \*\*/ { inb = /^- \*\*Fan out by default\.\*\*/ }
-  ind && inb' "$sr" | tr -s '[:space:]' ' ')"
+  /^## / { ind = ($0 == "## Discovery"); inb = 0; next }
+  ind && /^- \*\*Fan out by default\.\*\*/ { inb = 1; print; next }
+  inb && /^  / { print; next }
+  { inb = 0 }' "$sr" | tr -s '[:space:]' ' ')"
 if [ -z "$fanout" ]; then
   fail "self-review: no Fan out by default bullet under ## Discovery"
 else
@@ -137,11 +139,14 @@ else
   for phrase in \
     'the brief carries the command shape' \
     'file-reading tool' \
+    'one plain `grep` where the session has none' \
     'one plain command per Bash call' \
     'no `cd`' \
     'starts in the worktree' \
     'no chains, pipes, assignments or substitutions' \
+    'one POSIX sh script' \
     '`mktemp -d` directory and run as `sh <path>`' \
+    'the one shape that still waits on a prompt' \
     'resolved literal path of `compute-route.sh -- <command>`' \
     'never re-running the project'"'"'s suites'; do
     if printf '%s' "$fanout" | grep -qF "$phrase"; then
