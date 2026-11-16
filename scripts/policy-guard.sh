@@ -5694,6 +5694,38 @@ mc_reader_segment() {
   esac
 }
 
+# mc_blank_quotes <text> <all|messages> — MC_BLANKED is the text with quoted
+# spans turned to Q: each span that is no redirect's target (all), or only the
+# quoted value of a message flag (messages). Text whose quoting a scan cannot
+# follow as bash does (a backslash, a # outside a quote, a quote left open)
+# keeps every span, so a redirect a stray quote would pair away stays in view.
+mc_blank_quotes() {
+  local s=$1 out='' plain c span
+  MC_BLANKED=$1
+  case $s in *\\*) return 0 ;; esac
+  while [ -n "$s" ]; do
+    plain=${s%%[\"\'#]*}
+    out+=$plain
+    s=${s#"$plain"}
+    c=${s:0:1}
+    case $c in
+      '') break ;;
+      '#') return 0 ;;
+    esac
+    s=${s:1}
+    case $s in *"$c"*) ;; *) return 0 ;; esac
+    span=$c${s%%"$c"*}$c
+    s=${s#*"$c"}
+    if [ "$2" = messages ]; then
+      [[ $out =~ (^|[[:space:]])--(text|act|message|body|note|reason|title)(=|[[:space:]]+)$ ]] && span=Q
+    else
+      [[ $out =~ \>[[:space:]]*$ ]] || span=Q
+    fi
+    out+=$span
+  done
+  MC_BLANKED=$out
+}
+
 # mc_settings_screen <command> — refuse a command that writes a posture file:
 # one that names such a file in a form that is not a plain read (apart from
 # the text of a message flag), redirects to a posture path or to a target the
@@ -5720,20 +5752,15 @@ mc_settings_screen() {
   r=${r//>|/>}
   # Quoted text is no redirect unless a shell is handed it to run or the quote
   # is itself the redirect's target.
-  # A backslash can desync the quote pairing, so such text is scanned whole.
-  if ! [[ $r =~ $RE_MC_INTERPRETER || $r == *\\* ]]; then
-    local q=$r out=''
-    while [[ $q =~ (\>[[:space:]]*)?(\"[^\"]*\"|\'[^\']*\') ]]; do
-      m=${BASH_REMATCH[0]}
-      out="$out${q%%"$m"*}"
-      if [ -n "${BASH_REMATCH[1]}" ]; then out="$out$m"; else out="${out}Q"; fi
-      q=${q#*"$m"}
-    done
-    r=$out$q
-  fi
-  # Text that names a posture file next to a redirect still refuses; a quote
-  # that is no redirect's target was blanked above and is data.
-  [ "$named" = 0 ] || case $r in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
+  MC_BLANKED=$r
+  [[ $r =~ $RE_MC_INTERPRETER ]] || mc_blank_quotes "$r" messages
+  # Text that names a posture file next to a redirect refuses, unless the only
+  # redirect sign sits in a message flag's own quoted value.
+  [ "$named" = 0 ] || case $MC_BLANKED in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
+  [[ $r =~ $RE_MC_INTERPRETER ]] || {
+    mc_blank_quotes "$r" all
+    r=$MC_BLANKED
+  }
   while [[ $r =~ \>+[[:space:]]*([^[:space:]\;\|\&\<\>]+) ]]; do
     m=${BASH_REMATCH[0]}
     w=${BASH_REMATCH[1]}

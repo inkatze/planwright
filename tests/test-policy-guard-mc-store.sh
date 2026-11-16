@@ -111,6 +111,18 @@ allow "grep -c foo $UNIT/.claude/worktrees/flight-x/specs/a.md; echo \$(cat $FLE
 # shellcheck disable=SC2016 # the loop is the command under test
 allow 'for p in /proc/[0-9]*; do c=$(readlink "$p/cwd"); case "$c" in *"/.claude/worktrees/flight-x"*) echo "$p $c" ;; esac; done'
 
+echo "# only a message flag's own quoted value is data"
+refuse "cat /dev/null # don't
+cat /dev/null > $FIXHOME/.claude/settings.json # it's"
+refuse "echo don't; cat /dev/null > $FIXHOME/.claude/settings.json; echo it's"
+refuse "echo \"--message \"x > $FIXHOME/.claude/settings.json\" \""
+refuse "echo \"a\" > $FIXHOME/.claude/settings.json \"b\""
+refuse "mc-kb.sh append --text 'a' > $FIXHOME/.claude/settings.json"
+refuse "printf x # a 'b
+> $FIXHOME/.claude/settings.json'"
+refuse "cat x # don't
+cat x > $H/kb/link-settings.md # it's"
+
 echo "# quoted text is data, not a write"
 allow 'fleet-streamjson.sh answer --name w --deny --message "do not run echo x >> CLAUDE.md or cat >> settings.json; hand it to the operator"'
 allow 'mc-kb.sh append --text "never append >> CLAUDE.md or planwright.local.yml"'
