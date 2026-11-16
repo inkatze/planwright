@@ -786,6 +786,18 @@ printf '%s:t\th\t%s\tidle\n' "$t1" "$t1" >"$fleet/mission-control/alpha/stall/mc
 OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
 expect_out "an idle tmux session with no wait retires, so the parked one's stay is the wait's doing" "retire${tab}mc-alpha-worker-tmuxfree${tab}${t1}${tab}idle"
 rm -f "$sessions/mc-alpha-worker-tmuxfree" "$tmp/tmux/35.name"
+
+# A landed unit ends its session's wait: the landing sweep retires a session
+# whose row still records a ci wait, rather than holding it as parked.
+sj_row mc-alpha-worker-sjlanded "$t1" "$t1" "Waiting on CI."
+printf 'waiting\tci\n' >>"$sessions/mc-alpha-worker-sjlanded"
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-sjlanded --repo acme/web --pr 7
+echo MERGED >"$tmp/state7"
+PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
+expect_out "a landed session with a stale wait is retired by the landing sweep" "retired${tab}mc-alpha-worker-sjlanded"
+expect_no_out "and is not held as parked" "held${tab}mc-alpha-worker-sjlanded"
+if [ ! -e "$sessions/mc-alpha-worker-sjlanded" ]; then ok "and its row released"; else fail "the landed parked session's row stayed: $OUT $ERR"; fi
+rm -rf "$fleet/streamjson/mc-alpha-worker-sjlanded"
 for s in mc-alpha-worker-sjunread mc-alpha-worker-sjrunning mc-alpha-worker-tmuxgrace; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
 
 # The bounds are knobs.
