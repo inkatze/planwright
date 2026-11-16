@@ -5749,12 +5749,15 @@ mc_blank_quotes() {
 # makes; a write in a subshell to an instruction file; a quoted writer (an awk
 # program) naming one; and a >&file target.
 mc_settings_screen() {
-  local t=$1 r si=0 k named=0 w m verb sedscript inplace
+  local t=$1 r si=0 k named=0 w m verb sedscript inplace stripped=0 scan
   MC_DOC_T=''
   # The bound holds for the text as written: a strip must never bring an
   # over-length command under it.
   case $t in *'<<'*) [ "${#t}" -le "$MAX_CMD_LEN" ] || emit_deny "$MC_SETTINGS_DENY" ;; esac
-  if mc_store_doc_strip "$t"; then t=$MC_DOC_T; fi
+  if mc_store_doc_strip "$t"; then
+    t=$MC_DOC_T
+    stripped=1
+  fi
   MC_CMD=$t
   mc_settings_named "$t" && named=1
   # shellcheck disable=SC2016 # literal patterns
@@ -5770,15 +5773,20 @@ mc_settings_screen() {
   r=${r//>|/>}
   # Quoted text is no redirect unless a shell is handed it to run or the quote
   # is itself the redirect's target.
+  # A here-document body the strip left in place is quote-free to bash, so a
+  # scan would pair a quote in it with one in a later body.
+  scan=1
+  [[ $r =~ $RE_MC_INTERPRETER ]] && scan=0
+  case $r in *'<<'*) [ "$stripped" = 1 ] || scan=0 ;; esac
   MC_BLANKED=$r
-  [[ $r =~ $RE_MC_INTERPRETER ]] || mc_blank_quotes "$r" messages
+  [ "$scan" = 0 ] || mc_blank_quotes "$r" messages
   # Text that names a posture file next to a redirect refuses, unless the only
   # redirect sign sits in a message flag's own quoted value.
   [ "$named" = 0 ] || case $MC_BLANKED in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
-  [[ $r =~ $RE_MC_INTERPRETER ]] || {
+  if [ "$scan" = 1 ]; then
     mc_blank_quotes "$r" all
     r=$MC_BLANKED
-  }
+  fi
   while [[ $r =~ \>+[[:space:]]*([^[:space:]\;\|\&\<\>]+) ]]; do
     m=${BASH_REMATCH[0]}
     w=${BASH_REMATCH[1]}

@@ -122,6 +122,19 @@ refuse "printf x # a 'b
 > $FIXHOME/.claude/settings.json'"
 refuse "cat x # don't
 cat x > $H/kb/link-settings.md # it's"
+refuse "printf x # a 'b
+> $FIXHOME/.claude/settings.json # '"
+# A body bash reads quote-free must not pair its quote with another body's.
+for f in '--message ' ''; do
+  for tgt in "$FIXHOME/.claude/settings.json" "$FIXHOME/.claude/settings.jso?" "$H/kb/link-settings.md"; do
+    refuse "cat <<EOF
+$f\"
+EOF
+cat /dev/null > $tgt; cat <<EOF
+\"
+EOF"
+  done
+done
 
 echo "# quoted text is data, not a write"
 allow 'fleet-streamjson.sh answer --name w --deny --message "do not run echo x >> CLAUDE.md or cat >> settings.json; hand it to the operator"'
@@ -270,6 +283,10 @@ refuse "cat <<'EOF'\"x\" > $H/kb/a.md
 EOF
 echo x > $FIXHOME/.claude/settings.json
 EOFx"
+refuse "cat <<'EOF'\"x\" > $H/kb/a.md
+EOFx
+echo x > $FIXHOME/.claude/settings.json
+EOF"
 refuse "cat <<x; cat <<'EOF' > $H/kb/a.md
 EOF
 echo x > $FIXHOME/.claude/settings.json
