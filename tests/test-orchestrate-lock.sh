@@ -23,6 +23,10 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 LOCK="$here/../scripts/orchestrate-lock.sh"
 
 fail() {
@@ -157,14 +161,15 @@ rospec="$rorepo/specs/demo"
 git_repo "$rorepo"
 mkdir -p "$rospec"
 chmod u-w "$rospec"
-rc=0
-err=$(/bin/bash "$LOCK" acquire "$rospec" 2>&1 >/dev/null) || rc=$?
-chmod u+w "$rospec" # restore so the trap cleanup can remove it
-if [ "$rc" = 0 ]; then
-  # Running as root bypasses the directory-write check; the failure mode is
-  # unobservable, so skip rather than assert a false negative.
-  echo "skip: unwritable-dir case (create succeeded — likely running as root)"
+rc=skip
+if hermetic_access_denied w "$rospec"; then
+  rc=0
+  err=$(/bin/bash "$LOCK" acquire "$rospec" 2>&1 >/dev/null) || rc=$?
 else
+  echo "skip: unwritable-dir case: the running user still writes $rospec under u-w"
+fi
+chmod u+w "$rospec" # restore so the trap cleanup can remove it
+if [ "$rc" != skip ]; then
   [ "$rc" = 2 ] || fail "unwritable spec dir: exit $rc, expected 2 (real error, not busy)"
   case $err in
     *"cannot create"*) ;;
@@ -614,9 +619,7 @@ echo "ok: sweep clears only the token its verdict was about"
 
 # 19. A release that names an owner refuses a different owner only while that
 #     owner runs: one that is gone is cleared, as a release naming nobody would.
-sh -c 'exit 0' &
-gone2=$!
-wait "$gone2" 2>/dev/null || true
+gone2=$(dead_owner_pid) || fail "no PID is free to stand for a gone owner"
 ln -s "$gone2-0-0-$gone2-1" "$relspec/.orchestrate.lock"
 /bin/bash "$LOCK" release "$relspec" --owner-pid "$$" \
   || fail "release naming an owner refused a different owner that is gone"

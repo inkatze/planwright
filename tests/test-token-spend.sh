@@ -10,8 +10,8 @@ export LC_ALL
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPEND="$REPO_ROOT/scripts/token-spend.sh"
 RECORD="$REPO_ROOT/scripts/spend-record.sh"
-# shellcheck source=tests/lib/fleet-home.sh
-. "$REPO_ROOT/tests/lib/fleet-home.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 
 failures=0
 ok() { echo "ok: $1"; }
@@ -286,8 +286,12 @@ cp "$proj/s-a/subagents/agent-ag1.jsonl" "$proj/s-locked/subagents/"
 # Root reads a mode-000 file, so the unreadable case only holds for others.
 if [ "$(id -u)" -ne 0 ]; then
   chmod 000 "$proj/s-locked.jsonl"
-  "$RECORD" record --program "$pn" --session s-locked --prices "$prices" >/dev/null 2>&1
-  assert_exit "record: a transcript that cannot be read exits 1" 1 $?
+  if hermetic_access_denied r "$proj/s-locked.jsonl"; then
+    "$RECORD" record --program "$pn" --session s-locked --prices "$prices" >/dev/null 2>&1
+    assert_exit "record: a transcript that cannot be read exits 1" 1 $?
+  else
+    echo "skip: the unreadable transcript case (the mode does not deny reading here)"
+  fi
   chmod 600 "$proj/s-locked.jsonl"
 fi
 assert_eq "record: a failed record appends nothing" "$before" "$(wc -l <"$store")"

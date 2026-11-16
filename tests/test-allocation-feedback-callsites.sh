@@ -55,6 +55,8 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 REAL_DEFAULTS="$here/../config/defaults.yml"
 TAB=$(printf '\t')
 
@@ -465,20 +467,25 @@ pw "$FLV" crash-record "$worker" "$wscope" --now 1000 >/dev/null \
 pw "$FLV" crash-record "$worker" "$wscope" --now 1100 >/dev/null \
   || fail "A6b: crash 2 failed"
 chmod 400 "$led_file"
-err="$tmp/a6b.err"
-out=$(pw "$FLV" crash-record "$worker" "$wscope" --now 1200 \
-  --alloc-unit "$unit" --alloc-key execution \
-  --obs-scope planwright --obs-dir "$obsdir" 2>"$err") \
-  || fail "A6b1: a mark failure failed the disable itself"
-chmod 600 "$led_file"
-[ "$out" = "disabled 3" ] || fail "A6b2: expected 'disabled 3', got '$out'"
-if grep -q 'observation is LOST' "$err"; then
-  fail "A6b3: a published fragment was reported as a lost observation: $(cat "$err")"
+if hermetic_access_denied w "$led_file"; then
+  err="$tmp/a6b.err"
+  out=$(pw "$FLV" crash-record "$worker" "$wscope" --now 1200 \
+    --alloc-unit "$unit" --alloc-key execution \
+    --obs-scope planwright --obs-dir "$obsdir" 2>"$err") \
+    || fail "A6b1: a mark failure failed the disable itself"
+  chmod 600 "$led_file"
+  [ "$out" = "disabled 3" ] || fail "A6b2: expected 'disabled 3', got '$out'"
+  if grep -q 'observation is LOST' "$err"; then
+    fail "A6b3: a published fragment was reported as a lost observation: $(cat "$err")"
+  fi
+  grep -q 'RECORDED' "$err" \
+    || fail "A6b4: the published-but-unmarked state was not surfaced: $(cat "$err")"
+  [ "$(frag_count "$obsdir")" = 1 ] \
+    || fail "A6b5: expected the fragment to be published, got $(frag_count "$obsdir")"
+else
+  echo "skip: A6b unwritable ledger mark: the running user still writes $led_file under mode 400"
 fi
-grep -q 'RECORDED' "$err" \
-  || fail "A6b4: the published-but-unmarked state was not surfaced: $(cat "$err")"
-[ "$(frag_count "$obsdir")" = 1 ] \
-  || fail "A6b5: expected the fragment to be published, got $(frag_count "$obsdir")"
+chmod 600 "$led_file"
 
 # --- A7. an `inherit` selection key is never evaluated ---------------------
 reset_liveness

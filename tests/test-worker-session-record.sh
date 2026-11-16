@@ -15,6 +15,8 @@ for v in $(compgen -e); do
 done
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 WRITER="$REPO_ROOT/scripts/worker-session-record.sh"
 GUARD="$REPO_ROOT/scripts/worker-command-guard.sh"
 ENVWRAP="$REPO_ROOT/scripts/fleet-dispatch-env.sh"
@@ -309,8 +311,12 @@ else
 fi
 mkdir -p "$root/old/ro" "$FLEET/scratch/$wt_key/old"
 chmod 500 "$root/old/ro"
+ro_old=0
+if hermetic_access_denied w "$root/old/ro"; then ro_old=1; fi
 REC=$(/bin/sh "$WRITER" write "$WT" "$id" --fresh-scratch 2>/dev/null)
-if [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ] \
+if [ "$ro_old" -eq 0 ]; then
+  echo "skip: G1.2: --fresh-scratch over a read-only directory: the running user still writes $root/old/ro under mode 500"
+elif [ "$(field scratch_root)" = "$root" ] && [ -d "$root" ] && [ -z "$(ls -A "$root")" ] \
   && [ ! -e "$FLEET/scratch/$wt_key" ]; then
   pass "G1.2: --fresh-scratch empties a root an earlier worktree at the path left, the earlier layout's too"
 else
@@ -586,6 +592,48 @@ else
 fi
 rm -f "$AH"
 
+echo "### the mise task-file opt-in is a launch-time field"
+write "$WT"
+if [ "$RC" -eq 0 ] && ! grep -q '^mise_task_edit=' "$REC"; then
+  pass "mise opt-in: a launch without the flag writes no field"
+else
+  fail "mise opt-in: the field appeared without the flag"
+fi
+set_layer machine-local 'mise_task_edit: true'
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^mise_task_edit=' "$REC"; then
+  pass "mise opt-in: config never sets it"
+else
+  fail "mise opt-in: a config line reached the record"
+fi
+set_layer machine-local ''
+REC=$(/bin/sh "$WRITER" write "$WT" --mise-task-edit 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field mise_task_edit)" = 1 ] && [ "$(grep -c '^mise_task_edit=' "$REC")" -eq 1 ]; then
+  pass "mise opt-in: the flag writes mise_task_edit=1 once"
+else
+  fail "mise opt-in: the flag wrote '$(field mise_task_edit)' (rc=$RC)"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session demo-1 --scratch --mise-task-edit 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field mise_task_edit)" = 1 ]; then
+  pass "mise opt-in: it combines with a session and the scratch root"
+else
+  fail "mise opt-in: the combined form failed (rc=$RC, $(cat "$T/err"))"
+fi
+/bin/sh "$WRITER" write "$WT" --mise-task-edit --mise-task-edit >/dev/null 2>&1
+if [ "$?" -eq 2 ]; then
+  pass "mise opt-in: a repeated flag is a usage error"
+else
+  fail "mise opt-in: a repeated flag was accepted"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^mise_task_edit=' "$REC"; then
+  pass "mise opt-in: a relaunch without the flag drops the field"
+else
+  fail "mise opt-in: the field outlived its launch"
+fi
+
 echo "### launch backend: a headless launch is recorded for the dispatcher to read"
 write "$WT"
 if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
@@ -613,6 +661,43 @@ if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
   pass "launch_backend: a value that is not a headless backend is not recorded"
 else
   fail "launch_backend: an unknown value was recorded (rc=$RC)"
+fi
+
+SB=planwright/demo/amendment-1
+REC=$(/bin/sh "$WRITER" write "$WT" --spec-branch "$SB" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field spec_branch)" = "$SB" ] && [ "$(grep -c '^spec_branch=' "$REC")" -eq 1 ]; then
+  pass "spec branch: the flag writes spec_branch once"
+else
+  fail "spec branch: the flag wrote '$(field spec_branch)' (rc=$RC)"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session demo-1 --scratch --mise-task-edit --spec-branch "$SB" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field spec_branch)" = "$SB" ] && [ "$(field mise_task_edit)" = 1 ]; then
+  pass "spec branch: it combines with a session, the scratch root and the mise opt-in"
+else
+  fail "spec branch: the combined form failed (rc=$RC, $(cat "$T/err"))"
+fi
+for bad in main planwright/flight/x-0123abcd planwright/demo/task-2 planwright/demo/ planwright/demo/../x \
+  refs/heads/planwright/demo/a 'planwright/demo/A b' planwright/demo/x.lock; do
+  /bin/sh "$WRITER" write "$WT" --spec-branch "$bad" >/dev/null 2>&1
+  if [ "$?" -eq 2 ]; then
+    pass "spec branch: '$bad' is a usage error"
+  else
+    fail "spec branch: '$bad' was accepted"
+  fi
+done
+/bin/sh "$WRITER" write "$WT" --spec-branch "$SB" --spec-branch "$SB" >/dev/null 2>&1
+if [ "$?" -eq 2 ]; then
+  pass "spec branch: a repeated flag is a usage error"
+else
+  fail "spec branch: a repeated flag was accepted"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^spec_branch=' "$REC"; then
+  pass "spec branch: a launch without the flag carries none"
+else
+  fail "spec branch: the field outlived its launch"
 fi
 
 echo

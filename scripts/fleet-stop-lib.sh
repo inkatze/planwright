@@ -37,6 +37,12 @@
 #                        for a rung whose re-exec's argv finds everything the
 #                        seed would (see stop_candidates)
 #
+# WHAT THE RUNG MUST NOT HOLD. While it signals a tree the close owns the INT,
+# TERM and HUP traps (stop_trap_arm), so a rung keeps no handler of its own on
+# them across a close. The one it may have armed is the lock library's
+# (`pw_lock_trap_install`, which sets `PW_LOCK_TRAP_ARMED`), and only with that
+# library already sourced: the close re-arms it afterwards.
+#
 # THE MATCH. A process belongs to the worker when its argv carries the rung's
 # own re-exec marker for the worker's state directory (<match>), when a pid file
 # in that directory records it (<pidfiles>), or when it descends from either.
@@ -59,6 +65,10 @@ grace_max=300
 
 # The SIGTERM-to-SIGKILL grace a caller gets without asking.
 grace_default=5
+
+# The most process-table re-reads a freeze takes before it signals a tree that
+# will not settle anyway.
+freeze_rounds_max=20
 
 stop_lf='
 '
@@ -273,6 +283,14 @@ stop_seeds() {
     [ -f "$1/$ss_f" ] || continue
     ss_p=$(cat "$1/$ss_f" 2>/dev/null) || ss_p=''
     if stop_posnum "${ss_p:-}"; then
+      # A start recorded beside the pid that the live process no longer has
+      # means the host reissued the pid: it is no longer the worker's, and a
+      # close must not signal it.
+      ss_s=$(head -n 1 "$1/${ss_f%.pid}.start" 2>/dev/null) || ss_s=''
+      if [ -n "$ss_s" ] && [ -n "${script_dir:-}" ] \
+        && [ "$(/bin/sh "$script_dir/fleet-death-evidence.sh" process "$ss_p" "$ss_s" 2>/dev/null)" = dead ]; then
+        continue
+      fi
       ss_out="$ss_out $ss_p"
     fi
   done
@@ -525,10 +543,74 @@ stop_live() {
   printf '%s' "${sl_out# }"
 }
 
-# release_processes <dir> <match> <pidfiles> <grace> — SIGTERM the worker's
-# process tree, then SIGKILL whatever is still there after <grace> seconds.
-# Children do not reliably die with a parent SIGTERM, so the escalation is not
-# optional.
+# stop_freeze <dir> <match> <pidfiles> — SIGSTOP every process in
+# `stop_tracked`, re-read the tree, and repeat until a read adds no member. A
+# signal sent to a snapshot misses a child forked after the read by a parent
+# the signal then kills: reparented out of the tree, it is out of reach of any
+# later read, and runs on. A stopped process cannot fork, and a child forked
+# just before its parent stopped is found by the next read while that parent
+# is held; only a member that exits on its own between two reads can still
+# leave a child behind. Non-zero only when the process table cannot be read.
+stop_freeze() {
+  sf_round=0
+  while :; do
+    # Every member every round, not only the new ones: a second close of the
+    # same worker may have continued what this one already stopped.
+    for sf_p in $stop_tracked; do
+      kill -STOP "$sf_p" 2>/dev/null || :
+    done
+    [ "$sf_round" -lt "$freeze_rounds_max" ] || return 0
+    sf_round=$((sf_round + 1))
+    sf_before=" $stop_tracked "
+    sf_found=$(stop_candidates "$1" "$2" "$3") || return 1
+    stop_tracked=$(stop_live "$stop_tracked $sf_found")
+    sf_added=0
+    for sf_p in $stop_tracked; do
+      case $sf_before in *" $sf_p "*) ;; *) sf_added=1 ;; esac
+    done
+    [ "$sf_added" = 1 ] || return 0
+  done
+}
+
+# stop_unreadable <consequence> — the one diagnostic a close prints when the
+# process table cannot be read.
+stop_unreadable() {
+  printf '%s\n' "$me: cannot read the process table; $1" >&2
+}
+
+# stop_thaw — SIGCONT every process in `stop_tracked`: one left stopped by a
+# close that gave up would hang for good.
+stop_thaw() {
+  for st_p in $stop_tracked; do
+    kill -CONT "$st_p" 2>/dev/null || :
+  done
+}
+
+# stop_trap_arm / stop_trap_disarm — while the close signals the tree, a closer
+# interrupted by INT, TERM or HUP thaws it before exiting. The exit still runs
+# the EXIT trap a rung armed through the lock library, which releases its
+# locks; disarming hands the three signals back to that library's handlers,
+# or to their defaults. A SIGKILL of the closer cannot be caught, and leaves
+# a frozen tree for the next close to find and signal.
+stop_trap_arm() {
+  trap 'stop_thaw; exit 130' INT
+  trap 'stop_thaw; exit 143' TERM
+  trap 'stop_thaw; exit 129' HUP
+}
+
+stop_trap_disarm() {
+  if [ -n "${PW_LOCK_TRAP_ARMED:-}" ]; then
+    PW_LOCK_TRAP_ARMED=''
+    pw_lock_trap_install
+  else
+    trap - INT TERM HUP
+  fi
+}
+
+# release_processes <dir> <match> <pidfiles> <grace> — freeze the worker's
+# process tree and SIGTERM it, then freeze and SIGKILL whatever is still there
+# after <grace> seconds. Children do not reliably die with a parent SIGTERM,
+# so the escalation is not optional.
 #
 # The target set accumulates in `stop_tracked` rather than being recomputed
 # from scratch each round. A child that ignores SIGTERM is reparented to pid 1
@@ -536,7 +618,9 @@ stop_live() {
 # set rebuilt from the walk alone would then find nothing and report the class
 # released while that child ran on, which is the exact leak this verb exists to
 # close. Candidates discovered during the wait are folded in, so a process the
-# worker forks mid-close is signalled too.
+# worker forks mid-close is signalled too, as long as its parent still lives
+# when the next read runs; a member that handles SIGTERM runs that handler
+# unfrozen, which is why the SIGKILL is preceded by a second freeze.
 #
 # The wait is bounded by wall clock rather than by a tick count: a poll costs a
 # full process-table scan, so on a busy host a tick is far longer than the
@@ -544,7 +628,7 @@ stop_live() {
 # operator asked for.
 release_processes() {
   rp_found=$(stop_candidates "$1" "$2" "$3") || {
-    printf '%s\n' "$me: cannot read the process table; the process class is left held" >&2
+    stop_unreadable 'the process class is left held'
     return 1
   }
   stop_tracked=$(stop_live "$stop_tracked $rp_found")
@@ -555,28 +639,54 @@ release_processes() {
   # What `stop_process_closed` reads to tell a tree this close terminated from
   # one that was already gone.
   stop_signalled=1
-  for rp_sig in TERM KILL; do
-    for rp_p in $stop_tracked; do
-      kill "-$rp_sig" "$rp_p" 2>/dev/null || :
+  stop_trap_arm
+  rp_rc=0
+  stop_signal_tree "$@" || rp_rc=$?
+  # A close that gives up past the SIGKILL may still hold a survivor it froze,
+  # one blocked in the kernel, say; continued, it dies of the pending kill.
+  [ "$rp_rc" = 0 ] || stop_thaw
+  stop_trap_disarm
+  return "$rp_rc"
+}
+
+# stop_signal_tree <dir> <match> <pidfiles> <grace> — the signalling half of
+# release_processes, run with the thaw trap armed.
+stop_signal_tree() {
+  for sg_sig in TERM KILL; do
+    # A table that cannot be re-read before the SIGTERM leaves the tree as it
+    # was found; before the SIGKILL, what is known is still killed.
+    if ! stop_freeze "$1" "$2" "$3"; then
+      if [ "$sg_sig" = TERM ]; then
+        stop_thaw
+        stop_unreadable 'the process class is left held'
+        return 1
+      fi
+      stop_unreadable 'killing the processes already found'
+    fi
+    for sg_p in $stop_tracked; do
+      kill "-$sg_sig" "$sg_p" 2>/dev/null || :
     done
-    case $rp_sig in
-      TERM) rp_wait=$4 ;;
-      *) rp_wait=$kill_settle ;;
+    # After the SIGTERM, never before it: a member continued first would run,
+    # and could fork, before handling the signal.
+    [ "$sg_sig" = KILL ] || stop_thaw
+    case $sg_sig in
+      TERM) sg_wait=$4 ;;
+      *) sg_wait=$kill_settle ;;
     esac
-    rp_now=$(stop_now) || return 1
-    rp_until=$((rp_now + rp_wait))
+    sg_now=$(stop_now) || return 1
+    sg_until=$((sg_now + sg_wait))
     while :; do
-      rp_found=$(stop_candidates "$1" "$2" "$3") || return 1
-      stop_tracked=$(stop_live "$stop_tracked $rp_found")
+      sg_found=$(stop_candidates "$1" "$2" "$3") || return 1
+      stop_tracked=$(stop_live "$stop_tracked $sg_found")
       if [ -z "$stop_tracked" ]; then
         stop_process_closed "$1"
         return
       fi
-      rp_now=$(stop_now) || return 1
+      sg_now=$(stop_now) || return 1
       # `-le`, so the deadline is a floor: `date +%s` truncates, so a TERM sent
       # at x.999 would otherwise reach a `-lt` deadline a millisecond later and
       # escalate having given the worker no grace at all.
-      [ "$rp_now" -le "$rp_until" ] || break
+      [ "$sg_now" -le "$sg_until" ] || break
       sleep 0.1
     done
   done
