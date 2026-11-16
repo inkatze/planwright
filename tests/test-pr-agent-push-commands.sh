@@ -34,14 +34,17 @@ cp "$REAL" "$here/../scripts/bounded-run.sh" "$tmp/scripts/"
 # The gh stub serves $T/comments.json for the PR's comment list and
 # $T/commits.json for its commit list, running the script's own --jq program;
 # FAIL_COMMENTS or FAIL_COMMITS makes that read fail as an API error does.
+# A fixture that is a list of lists is a paginated response: like gh, the stub
+# runs the program once per page with --paginate, and serves the first page
+# alone without it.
 cat >"$stub/gh" <<'EOF'
 #!/bin/sh
 [ "$1" = api ] || exit 64
 shift
-path="" filter=""
+path="" filter="" paginate=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --paginate) shift ;;
+    --paginate) paginate=1; shift ;;
     --jq) filter=$2; shift 2 ;;
     -*) exit 64 ;;
     *) path=$1; shift ;;
@@ -59,7 +62,15 @@ case "$path" in
     ;;
   *) exit 65 ;;
 esac
-exec jq -r "$filter" "$file"
+[ "$(jq -r 'if length > 0 and (.[0] | type) == "array" then "pages" else "one" end' "$file")" = pages ] \
+  || exec jq -r "$filter" "$file"
+pages=$(jq length "$file")
+[ "$paginate" = 1 ] || pages=1
+i=0
+while [ "$i" -lt "$pages" ]; do
+  jq -c ".[$i]" "$file" | jq -r "$filter" || exit 1
+  i=$((i + 1))
+done
 EOF
 chmod +x "$stub/gh"
 
@@ -67,6 +78,10 @@ ok() { printf 'ok   %s\n' "$1"; }
 failed() {
   printf 'FAIL %s\n' "$1" >&2
   failures=$((failures + 1))
+}
+# annotated <name> <title>: pass when the last run printed that annotation.
+annotated() {
+  if grep -q "^$2" <<<"$OUT"; then ok "$1"; else failed "$1: no '$2' annotation in: $OUT"; fi
 }
 
 # comment <id> <login> <created_at> <body>: one issue comment as JSON.
@@ -127,7 +142,7 @@ run_case "$name" incremental && ok "$name"
 name="a merge commit at the head gets a full review"
 new_case
 list "$(commit 1 2026-11-14T06:32:36Z)" "$(commit 2 2026-11-16T10:04:51Z)" >"$T/commits.json"
-run_case "$name" full && grep -q '^::notice title=PR-Agent full review::' <<<"$OUT" && ok "$name"
+run_case "$name" full && annotated "$name" '::notice title=PR-Agent full review::'
 
 # The shape that timed out live: a merge from main, then two ordinary commits,
 # all newer than the review, so the head itself is no merge.
@@ -202,16 +217,18 @@ name="with no review yet the push keeps the incremental command (PR-Agent review
 new_case
 list "$(comment 2 someone 2026-11-14T06:43:23Z hello)" >"$T/comments.json"
 list "$(commit 2 2026-11-16T10:04:51Z)" >"$T/commits.json"
-run_case "$name" incremental && [ "$(grep -c 'pulls/7/commits' "$T/gh.log")" = 0 ] && ok "$name"
+if run_case "$name" incremental; then
+  if grep -q 'pulls/7/commits' "$T/gh.log"; then failed "$name: read the commits anyway"; else ok "$name"; fi
+fi
 
 name="a failed comment read falls back to the full review, with a warning"
 new_case
-run_case "$name" full FAIL_COMMENTS=1 && grep -q '^::warning title=PR-Agent full review::' <<<"$OUT" && ok "$name"
+run_case "$name" full FAIL_COMMENTS=1 && annotated "$name" '::warning title=PR-Agent full review::'
 
 name="a failed commit read falls back to the full review, with a warning"
 new_case
 list "$(commit 1 2026-11-16T10:49:37Z)" >"$T/commits.json"
-run_case "$name" full FAIL_COMMITS=1 && grep -q '^::warning title=PR-Agent full review::' <<<"$OUT" && ok "$name"
+run_case "$name" full FAIL_COMMITS=1 && annotated "$name" '::warning title=PR-Agent full review::'
 
 name="a commit with no committer date is placed by its author date, as PR-Agent places it"
 new_case
@@ -222,12 +239,29 @@ run_case "$name" incremental && ok "$name"
 name="a commit list in a shape the script cannot read falls back to the full review"
 new_case
 printf '[{"parents": [], "commit": {"committer": {"date": "16 Nov 2026"}}}]\n' >"$T/commits.json"
-run_case "$name" full && grep -q '^::warning title=PR-Agent full review::' <<<"$OUT" && ok "$name"
+run_case "$name" full && annotated "$name" '::warning title=PR-Agent full review::'
+
+name="an empty commit list beside a review falls back to the full review"
+new_case
+run_case "$name" full && annotated "$name" '::warning title=PR-Agent full review::'
 
 name="a comment list in a shape the script cannot read falls back to the full review"
 new_case
 list "$(comment 1 "$BOT" yesterday "$FULL_REVIEW")" >"$T/comments.json"
-run_case "$name" full && grep -q '^::warning title=PR-Agent full review::' <<<"$OUT" && ok "$name"
+run_case "$name" full && annotated "$name" '::warning title=PR-Agent full review::'
+
+name="the newest review comment is found across comment pages"
+new_case
+printf '[%s,%s]\n' "$(list "$(comment 1 "$BOT" 2026-11-14T06:43:23Z "$FULL_REVIEW")")" \
+  "$(list "$(comment 2 "$BOT" 2026-11-16T10:10:00Z "$INC_REVIEW")")" >"$T/comments.json"
+list "$(commit 2 2026-11-16T10:04:51Z)" "$(commit 1 2026-11-16T10:49:37Z)" >"$T/commits.json"
+run_case "$name" incremental && ok "$name"
+
+name="a merge on a later commit page is in range"
+new_case
+printf '[%s,%s]\n' "$(list "$(commit 1 2026-11-14T06:00:00Z)" "$(commit 1 2026-11-16T10:30:00Z)")" \
+  "$(list "$(commit 2 2026-11-16T10:40:00Z)" "$(commit 1 2026-11-16T10:49:37Z)")" >"$T/commits.json"
+run_case "$name" full && ok "$name"
 
 name="the choice is appended to the output file, never over it"
 new_case
@@ -244,12 +278,12 @@ RC=0
 OUT=$(env T="$T" PATH="$stub:$PATH" GITHUB_REPOSITORY=o/r "$SCRIPT" --pr 7 --output "$T/no-such-dir/out" 2>&1) || RC=$?
 if [ "$RC" = 1 ]; then ok "$name"; else failed "$name: exit $RC, want 1: $OUT"; fi
 
-for usage in "--output x" "--pr 7" "--pr 0 --output x" "--pr x7 --output x" "--pr 7 --output x --bogus"; do
+for usage in "--output x" "--pr 7" "--pr 0 --output x" "--pr x7 --output x" "--pr 07 --output x" "--pr 1234567890 --output x" "--pr 7 --output x --bogus"; do
   name="usage error: $usage"
   RC=0
   # shellcheck disable=SC2086 # the case's words split on purpose
-  OUT=$(env PATH="$stub:$PATH" GITHUB_REPOSITORY=o/r "$SCRIPT" $usage 2>&1) || RC=$?
-  if [ "$RC" = 2 ]; then ok "$name"; else failed "$name: exit $RC, want 2: $OUT"; fi
+  OUT=$(cd "$tmp" && env PATH="$stub:$PATH" GITHUB_REPOSITORY=o/r "$SCRIPT" $usage 2>&1) || RC=$?
+  if [ "$RC" = 2 ] && [ ! -e "$tmp/x" ]; then ok "$name"; else failed "$name: exit $RC, want 2, and no output: $OUT"; fi
 done
 
 name="usage error: no GITHUB_REPOSITORY"
