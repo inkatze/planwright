@@ -187,6 +187,24 @@ run ""
 expect_rc "an unreadable bundle at the head refuses" 2
 expect_err "naming the bundle" "bundle demo is unreadable"
 
+# The repository's own configuration runs nothing: a signed commit in the
+# range with log.showSignature set must not reach its gpg.program.
+pr "feat: change a" scripts/a.sh
+raw=$(gitc cat-file commit pr)
+signed=$(printf '%s\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n iQEz\n -----END PGP SIGNATURE-----\n\n%s\n' \
+  "$(printf '%s\n' "$raw" | sed '/^$/,$d')" "$(printf '%s\n' "$raw" | sed '1,/^$/d')" | gitc hash-object -t commit -w --stdin)
+gitc update-ref refs/heads/pr "$signed"
+printf '#!/bin/sh\ntouch "%s/gpg-ran"\nexit 1\n' "$tmp" >"$tmp/fake-gpg"
+chmod +x "$tmp/fake-gpg"
+gitc config log.showSignature true
+gitc config gpg.program "$tmp/fake-gpg"
+rm -f "$tmp/gpg-ran"
+run ""
+expect_rc "a signed commit under log.showSignature is still checked" 4
+if [ -e "$tmp/gpg-ran" ]; then fail "the repository's gpg.program ran"; else ok "the repository's gpg.program does not run"; fi
+gitc config --unset log.showSignature
+gitc config --unset gpg.program
+
 # A repository with no spec root has nothing listed.
 rm -rf "$tmp/plain"
 mkdir -p "$tmp/plain"
