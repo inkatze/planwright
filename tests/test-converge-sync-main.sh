@@ -39,11 +39,14 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # The sync reads the base-merge policy; an operator's adopter overlay must not
 # reach the fixtures, whose own checkouts carry no overlay.
 PLANWRIGHT_ADOPTER_OVERLAY=/nonexistent/planwright-adopter
 export PLANWRIGHT_ADOPTER_OVERLAY
-unset PLANWRIGHT_REPO_ROOT CLAUDE_PROJECT_DIR PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT
 # The shipped default merges only on a need (REQ-B1.8); the cases below that
 # assert a merge's mechanics run under `always`, through the machine-local layer
 # this file holds, and the on-need cases rewrite it.
@@ -56,7 +59,6 @@ set_knobs() {
 }
 set_knobs 'converge_sync_main: always'
 
-here=$(cd "$(dirname "$0")" && pwd)
 SYNC="$here/../scripts/converge-sync-main.sh"
 SKILL="$here/../skills/execute-task/SKILL.md"
 TAB=$(printf '\t')

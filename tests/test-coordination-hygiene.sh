@@ -38,6 +38,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 root=$(cd "$here/.." && pwd)
 GUARD="$root/scripts/check-coordination-hygiene.sh"
 FP="$root/scripts/fleet-presence.sh"
@@ -216,16 +218,21 @@ printf 'pw-presence-v1%s0123456789abcdef%s%s%s-%sdemo-spec%sdemo-spec/3%s100%s20
   >"$r5b/handover.tsv"
 commit_all "$r5b"
 chmod 000 "$r5b/handover.tsv"
-rc=0
-out5b=$("$GUARD" --repo "$r5b" 2>&1) || rc=$?
+if hermetic_access_denied r "$r5b/handover.tsv"; then
+  rc=0
+  out5b=$("$GUARD" --repo "$r5b" 2>&1) || rc=$?
+  chmod 644 "$r5b/handover.tsv"
+  [ "$rc" = 2 ] \
+    || fail "an unreadable candidate must exit 2, never pass as clean (exit $rc): $out5b"
+  printf '%s\n' "$out5b" | grep -qi "unscreened\|cannot read\|could not read" \
+    || fail "the unreadable refusal did not say the file went unscreened: $out5b"
+  printf '%s\n' "$out5b" | grep -qi "nothing to screen" \
+    && fail "an unreadable candidate was reported as nothing to screen"
+  echo "ok: a candidate the scan cannot read is refused, never passed as clean"
+else
+  echo "skip: unreadable candidate: the running user still reads $r5b/handover.tsv under mode 000"
+fi
 chmod 644 "$r5b/handover.tsv"
-[ "$rc" = 2 ] \
-  || fail "an unreadable candidate must exit 2, never pass as clean (exit $rc): $out5b"
-printf '%s\n' "$out5b" | grep -qi "unscreened\|cannot read\|could not read" \
-  || fail "the unreadable refusal did not say the file went unscreened: $out5b"
-printf '%s\n' "$out5b" | grep -qi "nothing to screen" \
-  && fail "an unreadable candidate was reported as nothing to screen"
-echo "ok: a candidate the scan cannot read is refused, never passed as clean"
 
 # ---------------------------------------------------------------------------
 # 5c. REQ-D1.4 — the STRAND SINK is one of the three surfaces this guard names,
@@ -326,16 +333,21 @@ printf 'pw-presence-v1%s0123456789abcdef%s%s%s/home/alice/dev/widgets%s-%sdemo-s
   >"$r5g/sub/handover.tsv"
 commit_all "$r5g"
 chmod 000 "$r5g/sub"
-rc=0
-out5g=$("$GUARD" --repo "$r5g" 2>&1) || rc=$?
+if hermetic_access_denied r "$r5g/sub"; then
+  rc=0
+  out5g=$("$GUARD" --repo "$r5g" 2>&1) || rc=$?
+  chmod 755 "$r5g/sub"
+  [ "$rc" = 2 ] \
+    || fail "an unenumerable tracked tree must exit 2, never certify a clean scan (exit $rc): $out5g"
+  printf '%s\n' "$out5g" | grep -qi "unscreened\|could not enumerate" \
+    || fail "the enumeration refusal did not say the tree went unscreened: $out5g"
+  printf '%s\n' "$out5g" | grep -qi "nothing to screen" \
+    && fail "a tree the scan could not enumerate was reported as nothing to screen"
+  echo "ok: a tracked tree the scan cannot fully enumerate is refused, never certified clean"
+else
+  echo "skip: unenumerable tracked tree: the running user still lists $r5g/sub under mode 000"
+fi
 chmod 755 "$r5g/sub"
-[ "$rc" = 2 ] \
-  || fail "an unenumerable tracked tree must exit 2, never certify a clean scan (exit $rc): $out5g"
-printf '%s\n' "$out5g" | grep -qi "unscreened\|could not enumerate" \
-  || fail "the enumeration refusal did not say the tree went unscreened: $out5g"
-printf '%s\n' "$out5g" | grep -qi "nothing to screen" \
-  && fail "a tree the scan could not enumerate was reported as nothing to screen"
-echo "ok: a tracked tree the scan cannot fully enumerate is refused, never certified clean"
 
 # A declared artifact carrying two leak classes, for the two fixtures below.
 art5="$tmp/declared-artifact.md"

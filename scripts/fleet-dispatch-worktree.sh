@@ -29,7 +29,8 @@
 #      already-placed worktree, in one tmux invocation that also turns
 #      remain-on-exit off for its window:
 #        tmux new-session -d -s <session> -c <physical worktree> \
-#          -P -F '#{session_name}<TAB>#{window_id}' -- fleet-dispatch-env.sh \
+#          -P -F '#{window_id} <server> #{session_name}:#{window_name}' \
+#          -n <session> -- fleet-dispatch-env.sh \
 #          <wrapper options> <absolute claude> --name <handle> \
 #          --settings <root>/config/worker-settings.json <launch args> \
 #          [-- <prompt>] ';' set-window-option -t '=<session>:' remain-on-exit off
@@ -320,6 +321,13 @@ else
   printf '%s\n' "fleet-dispatch-worktree: broken install: $(sanitize_printable "$script_dir")/spec-id-lib.sh is missing or not readable" >&2
   exit 2
 fi
+if [ -r "$script_dir/tmux-identity-lib.sh" ]; then
+  # shellcheck source=scripts/tmux-identity-lib.sh
+  . "$script_dir/tmux-identity-lib.sh"
+else
+  printf '%s\n' "fleet-dispatch-worktree: broken install: $(sanitize_printable "$script_dir")/tmux-identity-lib.sh is missing or not readable" >&2
+  exit 2
+fi
 
 FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
@@ -568,16 +576,26 @@ register_dispatch() {
 
 # parse_created <file> <session> — set CREATED_WINDOW to the window id
 # new-session printed for <session>, from the one line its -P -F format
-# writes. Fails on anything else: a wrong death handle aims a reaper at
-# someone else's window, so no handle beats a guessed one.
+# writes, and CREATED_PIN to the server and window name that pin it (empty
+# when tmux printed none). Fails on anything else: a wrong death handle aims
+# a reaper at someone else's window, so no handle beats a guessed one. The
+# format holds no tab, which tmux prints as `_` under LC_ALL=C; a session
+# name never holds the `:` that ends it.
 CREATED_WINDOW=''
+CREATED_PIN=''
 parse_created() {
   CREATED_WINDOW=''
+  CREATED_PIN=''
   [ -s "$1" ] || return 1
   [ "$(wc -l <"$1" | tr -d ' ')" = 1 ] || return 1
   IFS= read -r pc_line <"$1" || return 1
-  pc_name=${pc_line%%"$TAB"*}
-  pc_win=${pc_line#*"$TAB"}
+  pc_win=${pc_line%% *}
+  pc_rest=${pc_line#* }
+  [ "$pc_rest" != "$pc_line" ] || return 1
+  pc_server=${pc_rest%% *}
+  pc_rest=${pc_rest#* }
+  pc_name=${pc_rest%%:*}
+  pc_wname=${pc_rest#*:}
   [ "$pc_name" = "$2" ] || return 1
   case $pc_win in
     @*) ;;
@@ -588,6 +606,9 @@ parse_created() {
   esac
   [ "${#pc_win}" -le 128 ] || return 1
   CREATED_WINDOW=$pc_win
+  if tmux_valid_server "$pc_server" && [ "$pc_wname" = "$2" ] && tmux_valid_name "$pc_wname"; then
+    CREATED_PIN="$pc_server $pc_wname"
+  fi
 }
 
 # --- Token grammars (D-36), validated BEFORE any interpolation ---------------
@@ -1208,16 +1229,14 @@ tmux_launch() {
       return
       ;;
   esac
+  # The window is named after the session, which also turns automatic
+  # renaming off, so the name its death handle is pinned to stays put.
   set -- "$tl_tmux" new-session -d -s "$tl_session" -c "$tl_wt" \
-    -P -F "#{session_name}$TAB#{window_id}" -- "$ENVWRAP" "$@" \
+    -P -F "#{window_id} $TMUX_SERVER_FORMAT #{session_name}:#{window_name}" -n "$tl_session" -- "$ENVWRAP" "$@" \
     ';' set-window-option -t "=$tl_session:" remain-on-exit off
   case $tl_mode in
     plan)
-      # The format's tab is printed as `\t`: the plan is tab-separated.
       for tl_a in "$@"; do
-        case $tl_a in
-          "#{session_name}$TAB#{window_id}") tl_a='#{session_name}\t#{window_id}' ;;
-        esac
         printf '\t%s' "$(sanitize_printable "$tl_a")"
       done
       ;;
@@ -1918,7 +1937,7 @@ MERR
   # environment carries, so a record and a heartbeat agree by construction.
   _death=''
   if [ "$_death_parsed" -eq 1 ]; then
-    _death="tmux-window $_session $CREATED_WINDOW"
+    _death="tmux-window $_session $CREATED_WINDOW${CREATED_PIN:+ $CREATED_PIN}"
   else
     warn "new-session did not print $_session and one window id; registering no death handle"
   fi

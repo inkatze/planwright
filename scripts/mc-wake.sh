@@ -13,7 +13,7 @@ unset CDPATH
 
 prog=mc-wake
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh tmux-identity-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -23,6 +23,8 @@ done
 . "$script_dir/echo-safety.sh" || exit 2
 # shellcheck source=scripts/mc-lib.sh
 . "$script_dir/mc-lib.sh" || exit 2
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh" || exit 2
 
 LISTED_MAX=20
 # The panel mod restamps its target's lease every minute; a `mod` target
@@ -58,7 +60,10 @@ registry records for the worker, and it never types into a session:
             stdin, so the wake is SUBMITTED and its events marked so
   tmux      scripts/orchestrate-relay.sh deliver tmux: a buffer paste with
             no newline, so the wake is STAGED and its events marked staged
-            until the session acknowledges them (below)
+            until the session acknowledges them (below); a recorded window
+            that is no longer the one recorded (pinned to another tmux
+            server or name, or, recorded without its server, gone from its
+            session) is unreachable, nothing sent
   any other backend, or a retired worker: unreachable, nothing sent
 A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
 `routine`) never wakes: relay, tick and compose leave it out of the wake
@@ -249,8 +254,11 @@ send() {
       sd_handle=$(printf '%s' "$sd_row" | cut -f7)
       case $sd_handle in
         "tmux-window "*" "*)
-          sd_handle=${sd_handle#tmux-window }
-          sd_handle="${sd_handle%% *}:${sd_handle#* }"
+          if tmux_handle_parse "${sd_handle#tmux-window }"; then
+            sd_handle="$TH_SESSION:$TH_WINDOW"
+          else
+            sd_handle=""
+          fi
           ;;
         *) sd_handle="" ;;
       esac
@@ -258,6 +266,27 @@ send() {
         printf 'unreachable\t%s\tno valid tmux window recorded\n' "$sd_w"
         return 0
       fi
+      # Typed into only while the window is still the recorded one: a
+      # restarted server reissues ids, and the window under one now may be
+      # another session's, mission control's own included. A pinned window
+      # must still come from its server under its name; one recorded before
+      # the pin must still sit in its recorded session.
+      if [ -n "$TH_SERVER" ]; then
+        sd_ev=$(/bin/sh "$script_dir/bounded-run.sh" 10 /bin/sh "$script_dir/fleet-death-evidence.sh" tmux-window "$TH_SESSION" "$TH_WINDOW" "$TH_SERVER" "$TH_NAME" 2>/dev/null </dev/null)
+      else
+        sd_ev=$(/bin/sh "$script_dir/bounded-run.sh" 10 /bin/sh "$script_dir/fleet-death-evidence.sh" tmux-window --in-session "$TH_SESSION" "$TH_WINDOW" 2>/dev/null </dev/null)
+      fi
+      case $sd_ev in
+        alive) ;;
+        dead)
+          printf 'unreachable\t%s\tthe recorded tmux window is gone, or is no longer the one recorded\n' "$sd_w"
+          return 0
+          ;;
+        *)
+          printf 'unreachable\t%s\ttmux could not say whether the recorded window is still the one recorded\n' "$sd_w"
+          return 0
+          ;;
+      esac
       ;;
     *)
       printf 'unreachable\t%s\tbackend %s has no session relay\n' "$sd_w" "$(sanitize_printable "$sd_backend" -)"

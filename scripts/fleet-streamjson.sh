@@ -73,11 +73,15 @@
 #                    the terminator is what says the writer finished, so a row
 #                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
+#   supervisor.start / worker.start  when each recorded process began, so a
+#                    pid the host reissued to another process reads dead
 #   scope            the dispatch scope, when the launch supplied one
 #   cwd              the directory a fresh launch started the worker in,
 #                    where `relaunch` resumes it
 #   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
 #                    and --tier-unit named, which `relaunch` resolves at
+#   spec-branch      the --spec-branch a launch named, which a recover reads
+#                    back; absent otherwise
 #   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
 #                    recover and a relaunch read back; absent otherwise
 #   worker-settings.json  the per-launch settings profile of an opted-in
@@ -194,14 +198,18 @@
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
 #       [--tier-key <key>] [--tier-unit <unit>]
 #       [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved]
-#       [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra claude args>...]
+#       [--cwd <dir>] [--mise-task-edit] [--spec-branch <branch>] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
 #       --profile (default worker). --mise-task-edit (worker profile only,
 #       off by default, recorded for a recover) opts the worker in to editing
 #       the mise task files inside its own worktree: the launch passes a
 #       profile generated for it (scripts/worker-settings-generate.sh) and the
 #       session record carries mise_task_edit=1 for the command guard
-#       (docs/permission-matcher-model.md, "The mise task-file opt-in"). --tier-key and --tier-unit record the
+#       (docs/permission-matcher-model.md, "The mise task-file opt-in").
+#       --spec-branch (worker profile only, recorded for a recover) names the
+#       spec PR branch the session record carries as spec_branch for the policy
+#       guard (docs/permission-matcher-model.md, "The spec-branch launch
+#       record"). --tier-key and --tier-unit record the
 #       allocation key and unit the caller resolved the tier in the extra
 #       args at, for `relaunch` to re-resolve it; --tier-model, --tier-effort and
 #       --tier-reserved record a per-launch tier choice and reservation the
@@ -219,12 +227,18 @@
 #       dead supervisor, which wants `recover` rather than a second `launch`.
 #   fleet-streamjson.sh answer <worker> <request-id>
 #       (--response-file <file> | --allow | --deny [--message <text>])
+#       [--takeover]
 #       Deliver the recorded answer for a pending request. --allow composes
 #       behavior=allow with updatedInput sliced from the stored envelope;
 #       --deny composes behavior=deny (optional message); --response-file
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
-#       included, so escape them), 64 KiB at most.
+#       included, so escape them), 64 KiB at most. The worker's owner is the
+#       session its launch registered (`pending` shows it); an answer from a
+#       session whose $PLANWRIGHT_TOWER_ID differs is refused (exit 3, nothing
+#       written, the request stays pending) unless --takeover is passed. A
+#       caller with no identity, or a worker with no recorded owner, is not
+#       refused.
 #   fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
@@ -495,8 +509,8 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--foreground] [-- <extra args>...]"
-    echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--spec-branch <branch>] [--foreground] [-- <extra args>...]"
+    echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>]) [--takeover]"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh relaunch <worker> [--grace <secs>]"
@@ -639,11 +653,38 @@ pid_live() {
 worker_alive() {
   for wa_f in supervisor.pid worker.pid; do
     wa_p=$(cat "$1/$wa_f" 2>/dev/null) || wa_p=''
-    if valid_posnum "${wa_p:-}" && pid_live "$wa_p"; then
+    if valid_posnum "${wa_p:-}" && pidfile_live "$1" "$wa_f"; then
       return 0
     fi
   done
   return 1
+}
+
+# record_start <dir> <pidfile-name> <pid> — record when the process began,
+# beside its pid file (supervisor.pid -> supervisor.start). A pid names a
+# process only until the host reissues it; the start tells the two apart. No
+# readable start records nothing, and the pid is then read as it always was.
+record_start() {
+  rs_tok=$(/bin/sh "$FDE" start "$3" 2>/dev/null) || rs_tok=''
+  [ -n "$rs_tok" ] || return 0
+  write_pidfile "$1/${2%.pid}.start" "$rs_tok" || return 0
+}
+
+# pid_reused <dir> <pidfile-name> <pid> — true only when the start recorded
+# beside the pid file differs from the start of the process now holding that
+# pid, which makes the pid a stranger's: the recorded process is gone. No
+# record, or a start that cannot be read now, is not reuse.
+pid_reused() {
+  pr_rec=$(head -n 1 "$1/${2%.pid}.start" 2>/dev/null) || pr_rec=''
+  [ -n "$pr_rec" ] || return 1
+  [ "$(/bin/sh "$FDE" process "$3" "$pr_rec" 2>/dev/null)" = dead ]
+}
+
+# pidfile_live <dir> <pidfile-name> — the pid the file records names a live
+# process and not a stranger that reused its number.
+pidfile_live() {
+  pl_p=$(cat "$1/$2" 2>/dev/null) || pl_p=''
+  valid_posnum "${pl_p:-}" && pid_live "$pl_p" && ! pid_reused "$1" "$2" "$pl_p"
 }
 
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
@@ -918,8 +959,8 @@ frame_send() {
   frame_check "$2" || return 2
   fs_sup=$(cat "$1/supervisor.pid" 2>/dev/null) || fs_sup=''
   fs_wrk=$(cat "$1/worker.pid" 2>/dev/null) || fs_wrk=''
-  valid_posnum "$fs_sup" && pid_live "$fs_sup" || return 3
-  valid_posnum "$fs_wrk" && pid_live "$fs_wrk" || return 3
+  valid_posnum "$fs_sup" && pidfile_live "$1" supervisor.pid || return 3
+  valid_posnum "$fs_wrk" && pidfile_live "$1" worker.pid || return 3
   [ -p "$1/in.fifo" ] || return 3
   cat "$2" >>"$1/in.fifo" 2>/dev/null || return 1
 }
@@ -1406,9 +1447,13 @@ supervise() {
   shift 3
   rm -f "$sv_dir/in.fifo" "$sv_dir/out.fifo"
   mkfifo "$sv_dir/in.fifo" "$sv_dir/out.fifo" || return 2
+  # The start is recorded first: a reader that finds the pid file finds, or
+  # never finds, a start that was already there.
+  record_start "$sv_dir" supervisor.pid "$$"
   write_pidfile "$sv_dir/supervisor.pid" "$$" || return 2
   "$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
   sv_pid=$!
+  record_start "$sv_dir" worker.pid "$sv_pid"
   if ! write_pidfile "$sv_dir/worker.pid" "$sv_pid"; then
     # Fatal, like its sibling one line above, and for a sharper reason than
     # symmetry. `recover` decides a worker is orphaned by reading these pid
@@ -1492,7 +1537,7 @@ supervise() {
   exec 3>&-
   wait "$sv_pid"
   sv_ec=$?
-  rm -f "$sv_dir/worker.pid" "$sv_dir/supervisor.pid"
+  rm -f "$sv_dir/worker.pid" "$sv_dir/supervisor.pid" "$sv_dir/worker.start" "$sv_dir/supervisor.start"
   if [ ! -f "$sv_dir/result" ]; then
     # The read loop ended with no `result` event: the worker exited without
     # completing the protocol. This is an END record, not a completion —
@@ -1832,7 +1877,7 @@ stop_match() {
 # which is why the trailing `|| :` on that line does not make it non-fatal.
 stop_process_closed() {
   for spc_f in $stop_pidfiles; do
-    rm -rf -- "${1:?}/$spc_f" 2>/dev/null || :
+    rm -rf -- "${1:?}/$spc_f" "${1:?}/${spc_f%.pid}.start" 2>/dev/null || :
   done
 }
 
@@ -2077,11 +2122,27 @@ cmd_launch() {
   tier_key=''
   tier_unit=''
   mise_edit=0
+  spec_branch=''
   tier_model=''
   tier_effort=''
   tier_reserved=''
   while [ $# -gt 0 ]; do
     case $1 in
+      --spec-branch)
+        # A launch argument and nothing else, like --mise-task-edit; the
+        # record writer holds the grammar and a refused one refuses the launch.
+        [ $# -ge 2 ] && [ -z "$spec_branch" ] || usage
+        case $2 in
+          planwright/flight/* | planwright/*/task-*) usage ;;
+          planwright/[a-z0-9]*/[a-z0-9]*) ;;
+          *) usage ;;
+        esac
+        case $2 in
+          *[!a-z0-9/.-]* | */ | *//* | *..* | *.lock) usage ;;
+        esac
+        spec_branch=$2
+        shift 2
+        ;;
       --mise-task-edit)
         # The opt-in is a launch argument and nothing else (never config, the
         # checkout or the environment); a recover reads back what its launch
@@ -2220,6 +2281,11 @@ cmd_launch() {
   if [ -n "$resume_sid" ] && [ "$profile" = worker ]; then
     pf_dir=$(worker_dir "$worker") || exit 2
     [ "$(cat "$pf_dir/mise-task-edit" 2>/dev/null)" != 1 ] || mise_edit=1
+    [ -n "$spec_branch" ] || spec_branch=$(cat "$pf_dir/spec-branch" 2>/dev/null) || spec_branch=''
+  fi
+  if [ -n "$spec_branch" ] && [ "$profile" != worker ]; then
+    printf '%s\n' "$me: --spec-branch applies to the worker profile only" >&2
+    exit 2
   fi
   launch_settings=$(profile_settings_path "$profile") || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
@@ -2386,6 +2452,11 @@ cmd_launch() {
     else
       rm -f "$dir/mise-task-edit"
     fi
+    if [ -n "$spec_branch" ]; then
+      printf '%s\n' "$spec_branch" >"$dir/spec-branch.tmp" && mv -f "$dir/spec-branch.tmp" "$dir/spec-branch" || exit 2
+    else
+      rm -f "$dir/spec-branch"
+    fi
   fi
 
   # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
@@ -2456,7 +2527,7 @@ cmd_launch() {
   unset PLANWRIGHT_WORKER_SESSION_RECORD
   mt_flag=''
   [ "$mise_edit" = 0 ] || mt_flag=--mise-task-edit
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} 2>/dev/null </dev/null) || session_record=''
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} ${spec_branch:+--spec-branch "$spec_branch"} 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
@@ -2492,7 +2563,7 @@ cmd_launch() {
   # is the "did the supervisor start" signal. A launch that never produces it
   # is surfaced as a failure with a non-zero exit, never an optimistic
   # `launched` over a dead supervisor.
-  rm -f "$dir/supervisor.pid" "$dir/worker.pid" "$dir/result"
+  rm -f "$dir/supervisor.pid" "$dir/worker.pid" "$dir/supervisor.start" "$dir/worker.start" "$dir/result"
   # The drop runs before the `&`, never in an AND-list with it: bash would
   # background the whole list in a subshell that holds the caller's output
   # open for as long as the supervisor runs.
@@ -2521,6 +2592,31 @@ cmd_launch() {
   return 2
 }
 
+# worker_owner <worker> — print the session that launched the worker, read from
+# the registry record the launch wrote, or nothing when no record names one.
+worker_owner() {
+  wo_tok=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' -v w="$1" '($2 "") == (w "") { o = $4 } END { print o }') || return 0
+  case $wo_tok in
+    '' | - | unknown-owner | . | .. | *[!A-Za-z0-9._:-]*) return 0 ;;
+  esac
+  printf '%s\n' "$wo_tok"
+}
+
+# answer_owner_check <worker> — refuse (exit 3) an answer from a session that
+# is not the worker's recorded owner. A caller with no identity of its own, or
+# a worker with no recorded owner, is not refused: there is nobody to name.
+answer_owner_check() {
+  ao_owner=$(worker_owner "$1")
+  [ -n "$ao_owner" ] || return 0
+  ao_me=${PLANWRIGHT_TOWER_ID:-}
+  case $ao_me in
+    '' | *[!A-Za-z0-9._:-]*) return 0 ;;
+  esac
+  [ "$ao_me" != "$ao_owner" ] || return 0
+  printf '%s\n' "$me: answer refused, nothing written: worker $1 is owned by $ao_owner and this session is $ao_me (pass --takeover to answer it anyway)" >&2
+  exit 3
+}
+
 cmd_answer() {
   [ $# -ge 2 ] || usage
   worker=$1
@@ -2537,6 +2633,7 @@ cmd_answer() {
   mode=''
   resp_file=''
   deny_msg=''
+  takeover=0
   while [ $# -gt 0 ]; do
     case $1 in
       --response-file)
@@ -2557,6 +2654,10 @@ cmd_answer() {
         [ $# -ge 2 ] || usage
         deny_msg=$2
         shift 2
+        ;;
+      --takeover)
+        takeover=1
+        shift
         ;;
       *)
         usage
@@ -2599,6 +2700,7 @@ cmd_answer() {
     printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
+  [ "$takeover" = 1 ] || answer_owner_check "$worker"
   if [ "$mode" = 'file' ]; then
     # The body must be one object on its own, not merely yield a valid frame
     # once spliced in: `{...},"k":{...}` would close the response early and
@@ -2886,6 +2988,42 @@ cmd__frame_check() {
   fi
 }
 
+# recover_launcher_row <worker> <dir>: a mission-control launcher's worker
+# never runs without its registry row, since the row is what the keeper and
+# the escalate watcher key a program's workers on. A row that is there is left
+# alone; one that is gone is restored, never replaced, from the copy the launch
+# kept in the worker's directory (same file mode as the row, which carries the
+# launch token); a worker the launcher's dispatch record names but no copy
+# covers is refused, exit 3, since no row can be rebuilt without inventing a
+# token. A worker the launcher never launched has nothing to restore.
+recover_launcher_row() {
+  rl_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null) || return 0
+  rl_row="$rl_root/mission-control/sessions/$1"
+  if [ -e "$rl_row" ] || [ -L "$rl_row" ]; then
+    return 0
+  fi
+  rl_copy="$2/launcher-row"
+  if [ ! -f "$rl_copy" ] || [ -L "$rl_copy" ]; then
+    rl_owner=$(awk -F '\t' 'NR == 1 { print $3 }' "$rl_root/dispatch-markers/$1" 2>/dev/null) || rl_owner=''
+    case $rl_owner in
+      mission-control:*)
+        printf '%s\n' "$me: recovery refused for $1: it was launched by mission-control but has no launcher registry row and no copy of one to restore" >&2
+        exit 3
+        ;;
+    esac
+    return 0
+  fi
+  rl_tmp="$rl_row.tmp.$$"
+  if (umask 077 && mkdir -p "$rl_root/mission-control/sessions" && cp "$rl_copy" "$rl_tmp") 2>/dev/null \
+    && { ln "$rl_tmp" "$rl_row" 2>/dev/null || [ -f "$rl_row" ]; }; then
+    rm -f "$rl_tmp"
+    return 0
+  fi
+  rm -f "$rl_tmp"
+  printf '%s\n' "$me: recovery refused for $1: its launcher registry row is gone and could not be restored from its launch's copy" >&2
+  exit 3
+}
+
 cmd_recover() {
   [ $# -ge 1 ] || usage
   worker=$1
@@ -2968,7 +3106,7 @@ cmd_recover() {
   # supervisor is not orphaned; resuming over it would fork the session.
   for pidfile in worker.pid supervisor.pid; do
     pid=$(cat "$dir/$pidfile" 2>/dev/null) || pid=''
-    if valid_posnum "${pid:-}" && pid_live "$pid"; then
+    if valid_posnum "${pid:-}" && pidfile_live "$dir" "$pidfile"; then
       printf '%s\n' "$me: $pidfile ($pid) still alive for $worker - not orphaned, recovery refused" >&2
       exit 3
     fi
@@ -2981,6 +3119,8 @@ cmd_recover() {
     printf '%s\n' "$me: no usable session_id for $worker; halt (REQ-E1.5)" >&2
     exit 4
   fi
+
+  recover_launcher_row "$worker" "$dir"
 
   rm -f "$dir/result"
   if [ $# -gt 0 ]; then
@@ -3617,7 +3757,8 @@ worker_dead() {
     wd_pid=$(cat "$1/$wd_f" 2>/dev/null) || wd_pid=''
     valid_posnum "${wd_pid:-}" || return 1
     wd_checked=$((wd_checked + 1))
-    /bin/sh "$FDE" process "$wd_pid" >/dev/null 2>&1 || return 1
+    wd_start=$(head -n 1 "$1/${wd_f%.pid}.start" 2>/dev/null) || wd_start=''
+    /bin/sh "$FDE" process "$wd_pid" ${wd_start:+"$wd_start"} >/dev/null 2>&1 || return 1
   done
   [ "$wd_checked" -gt 0 ]
 }
@@ -3709,8 +3850,8 @@ cmd_status() {
   sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
   wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
   st_live=0
-  if valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" \
-    && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
+  if valid_posnum "${sup_pid:-}" && pidfile_live "$dir" supervisor.pid \
+    && valid_posnum "${wrk_pid:-}" && pidfile_live "$dir" worker.pid; then
     st_live=1
   fi
   # ONE read, with every field parsed from that single snapshot. The writer
@@ -3991,6 +4132,9 @@ pending_show() {
   ps_extra=${ps_out%%"$NL"*}
   ps_out=${ps_out#*"$NL"}
   printf '== %s %s %s\n' "$1" "$3" "${ps_tool:-unknown}"
+  if [ -n "${5:-}" ]; then
+    printf -- '-- owner %s: answer from that session, or pass --takeover to answer from another\n' "$5"
+  fi
   if [ "${4:-0}" = 1 ]; then
     printf -- '-- worker dead: its processes are gone, so nobody can answer this request; alarm-scan settles it\n'
   fi
@@ -4044,9 +4188,10 @@ pending_worker() {
   [ -n "$pw_ids" ] || return 0
   pw_dead=0
   ! worker_dead "$2" || pw_dead=1
+  pw_owner=$(worker_owner "$1")
   printf '%s\n' "$pw_ids" | while IFS= read -r pw_id; do
     valid_reqid "$pw_id" || continue
-    pending_show "$1" "$2" "$pw_id" "$pw_dead"
+    pending_show "$1" "$2" "$pw_id" "$pw_dead" "$pw_owner"
   done
 }
 

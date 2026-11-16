@@ -2916,6 +2916,54 @@ mv "$anchor_root/tasks.new" "$anchor_root/fixture/tasks.md"
 run_v 0 "$anchor_root/fixture"
 lacks "anchor mismatch"
 
+# --- stable-ID baseline is the merge base, not origin/main's tip ---
+# A branch cut before main gained an ID must not read that ID as its own
+# removal; a real removal or renumbering still fails; no merge base fails
+# closed.
+mbg() { git -C "$mb" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
+mb="$tmp/mergebase"
+mkdir -p "$mb"
+git -C "$mb" init -q -b main
+write_bundle "$mb/specs/myspec" Active
+mbg add -A
+mbg commit -qm base
+mbg checkout -q -b feat
+mbg checkout -q main
+printf '%s\n' '- **REQ-X1.3** Main added this after the branch point.' \
+  '  *(Cites: D-1.)*' >"$tmp/mb-extra"
+extra="$(cat "$tmp/mb-extra")" awk '{ print } /^- \*\*REQ-X1\.2\*\*/ { getline; print; print ENVIRON["extra"] }' \
+  "$mb/specs/myspec/requirements.md" >"$tmp/mb-req"
+cp "$tmp/mb-req" "$mb/specs/myspec/requirements.md"
+mbg commit -qam "main adds an ID"
+git -C "$mb" update-ref refs/remotes/origin/main main
+mbg checkout -q feat
+run_v 0 "$mb/specs"
+lacks "renumbered or removed"
+
+# The branch's own removal of an ID the merge base had still fails.
+edit "$mb/specs/myspec/requirements.md" '/REQ-X1\.2/{N;d;}'
+edit "$mb/specs/myspec/test-spec.md" 's/REQ-X1\.2/REQ-X1.1/g'
+run_v 1 "$mb/specs"
+has "REQ-X1.2 renumbered or removed"
+mbg checkout -q -- .
+
+# So does the branch's own renumbering.
+edit "$mb/specs/myspec/requirements.md" 's/REQ-X1\.2/REQ-X1.9/g'
+edit "$mb/specs/myspec/test-spec.md" 's/REQ-X1\.2/REQ-X1.9/g'
+run_v 1 "$mb/specs"
+has "REQ-X1.2 renumbered or removed"
+mbg checkout -q -- .
+
+# No merge base (unrelated history): fail closed with a clear message.
+mbg checkout -q --orphan unrelated
+mbg rm -rqf --cached .
+write_bundle "$mb/specs/myspec" Active
+mbg add -A
+mbg commit -qm unrelated
+git -C "$mb" update-ref refs/remotes/origin/main main
+run_v 2 "$mb/specs"
+has "no merge base"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"

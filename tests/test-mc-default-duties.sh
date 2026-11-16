@@ -63,7 +63,7 @@ done
 expect_out "throughput resolves from the catalog and is armed" "throughput${tab}"
 
 mc_run mc-duties.sh get session-keeper triggers
-expect_out "the shipped wrapped trigger list joins whole" "stall-dead, stall-open-selector, stall-unsubmitted-prompt, stall-turn-ended-background, stall-idle-question, stall-busy-unchanged, stall-unknown, session-landed, pending-prompt, pending-prompt-overdue, stream-json-worker-dead, keeper-sweep-failed, worker-handover-due, worker-retired-idle, mission-control-escalated]"
+expect_out "the shipped wrapped trigger list joins whole" "stall-dead, stall-open-selector, stall-unsubmitted-prompt, stall-turn-ended-background, stall-idle-question, stall-busy-unchanged, stall-unknown, session-landed, pending-prompt, pending-prompt-overdue, stream-json-worker-dead, stream-json-worker-unowned, keeper-sweep-failed, worker-handover-due, worker-retired-idle, mission-control-escalated]"
 
 mc_run mc-duties.sh watchers --program alpha
 expect_rc "the watchers resolve" 0

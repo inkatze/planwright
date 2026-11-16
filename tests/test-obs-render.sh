@@ -39,6 +39,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 EMITTER_LINT_ROOT=$(cd "$here/.." && pwd -P)
 REN="$here/../scripts/obs-render.sh"
 # shellcheck source=tests/lib/emitter-lint.sh
@@ -322,14 +324,21 @@ printf -- '- 2026-08-01 [planwright] readable stays\n' \
 printf -- '- 2026-08-02 [planwright] cannot be read\n' \
   >"$o8/entries/2026-08-02-noread-bbbbbbbb.md"
 chmod 000 "$o8/entries/2026-08-02-noread-bbbbbbbb.md"
-rc=0
-"$REN" --obs-dir "$o8" >"$tmp/out8" 2>"$tmp/err8" || rc=$?
+rc=skip
+if hermetic_access_denied r "$o8/entries/2026-08-02-noread-bbbbbbbb.md"; then
+  rc=0
+  "$REN" --obs-dir "$o8" >"$tmp/out8" 2>"$tmp/err8" || rc=$?
+else
+  printf '%s\n' "skip: 8 unreadable fragment: the running user still reads $o8/entries/2026-08-02-noread-bbbbbbbb.md under mode 000"
+fi
 chmod 644 "$o8/entries/2026-08-02-noread-bbbbbbbb.md"
-[ "$rc" -eq 0 ] || fail "8: an unreadable fragment must not abort the render (exit $rc)"
-grep -F '2026-08-01 [planwright] readable stays' "$tmp/out8" >/dev/null \
-  || fail "8: a readable fragment was lost when a sibling was unreadable"
-grep -F 'unreadable fragment' "$tmp/err8" >/dev/null \
-  || fail "8: an unreadable fragment was not skip-and-warned on stderr"
+if [ "$rc" != skip ]; then
+  [ "$rc" -eq 0 ] || fail "8: an unreadable fragment must not abort the render (exit $rc)"
+  grep -F '2026-08-01 [planwright] readable stays' "$tmp/out8" >/dev/null \
+    || fail "8: a readable fragment was lost when a sibling was unreadable"
+  grep -F 'unreadable fragment' "$tmp/err8" >/dev/null \
+    || fail "8: an unreadable fragment was not skip-and-warned on stderr"
+fi
 
 # An unreadable legacy file warns rather than silently vanishing from the view.
 o8b="$tmp/o8b"
@@ -338,24 +347,36 @@ printf -- '- 2026-08-03 [planwright] fragment still renders\n' \
   >"$o8b/entries/2026-08-03-good-cccccccc.md"
 printf -- '- 2026-08-01 [planwright] legacy line\n' >"$o8b/opportunities.md"
 chmod 000 "$o8b/opportunities.md"
-rc=0
-"$REN" --obs-dir "$o8b" >"$tmp/out8b" 2>"$tmp/err8b" || rc=$?
+rc=skip
+if hermetic_access_denied r "$o8b/opportunities.md"; then
+  rc=0
+  "$REN" --obs-dir "$o8b" >"$tmp/out8b" 2>"$tmp/err8b" || rc=$?
+else
+  printf '%s\n' "skip: 8 unreadable legacy file: the running user still reads $o8b/opportunities.md under mode 000"
+fi
 chmod 644 "$o8b/opportunities.md"
-[ "$rc" -eq 0 ] || fail "8: an unreadable legacy file must not abort the render (exit $rc)"
-grep -F '2026-08-03 [planwright] fragment still renders' "$tmp/out8b" >/dev/null \
-  || fail "8: the fragment was lost when the legacy file was unreadable"
-grep -F 'unreadable' "$tmp/err8b" >/dev/null \
-  || fail "8: an unreadable legacy file was silently dropped (no warning)"
+if [ "$rc" != skip ]; then
+  [ "$rc" -eq 0 ] || fail "8: an unreadable legacy file must not abort the render (exit $rc)"
+  grep -F '2026-08-03 [planwright] fragment still renders' "$tmp/out8b" >/dev/null \
+    || fail "8: the fragment was lost when the legacy file was unreadable"
+  grep -F 'unreadable' "$tmp/err8b" >/dev/null \
+    || fail "8: an unreadable legacy file was silently dropped (no warning)"
+fi
 
 # Lock the CI-shell portability regression directly: under dash (the Linux
 # /bin/sh) the pre-fix read-without-guard aborts the whole render; the guard
 # makes it a clean skip-and-warn with exit 0.
 if command -v dash >/dev/null 2>&1; then
   chmod 000 "$o8/entries/2026-08-02-noread-bbbbbbbb.md"
-  rc=0
-  dash "$REN" --obs-dir "$o8" >/dev/null 2>&1 || rc=$?
+  rc=skip
+  if hermetic_access_denied r "$o8/entries/2026-08-02-noread-bbbbbbbb.md"; then
+    rc=0
+    dash "$REN" --obs-dir "$o8" >/dev/null 2>&1 || rc=$?
+  else
+    printf '%s\n' "skip: 8 unreadable fragment under dash: the running user still reads $o8/entries/2026-08-02-noread-bbbbbbbb.md under mode 000"
+  fi
   chmod 644 "$o8/entries/2026-08-02-noread-bbbbbbbb.md"
-  [ "$rc" -eq 0 ] || fail "8: an unreadable fragment aborts the render under dash (exit $rc)"
+  [ "$rc" = skip ] || [ "$rc" -eq 0 ] || fail "8: an unreadable fragment aborts the render under dash (exit $rc)"
 fi
 echo "ok 8: unreadable files skip-and-warn, never abort or silently drop"
 

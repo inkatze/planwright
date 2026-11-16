@@ -16,7 +16,7 @@ unset CDPATH
 
 prog=mc-handover
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh lock-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh lock-lib.sh tmux-identity-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -28,6 +28,8 @@ done
 . "$script_dir/mc-lib.sh" || exit 2
 # shellcheck source=scripts/lock-lib.sh
 . "$script_dir/lock-lib.sh" || exit 2
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh" || exit 2
 
 # The age past which a mod's lease no longer proves its session live, the
 # bound scripts/mc-wake.sh puts on it.
@@ -146,8 +148,11 @@ Usage:
       the launcher (one that did not release is retired all the same),
       waits up to --exit-wait (default 30s) for the predecessor's process
       to exit, closes the predecessor's recorded tmux pane (that pane id
-      on that socket only, never found by name, printing pane<TAB><id><TAB>closed|held) once the name has moved, then announces
-      itself
+      on that socket only, never found by name, and only while the tmux
+      server there is the one that issued the id and the pane's window
+      keeps the recorded name; printing pane<TAB><id><TAB>closed|held, or
+      pane<TAB><id><TAB>left<TAB><why> for one it does not touch) once the
+      name has moved, then announces itself
   mc-handover.sh resume --program <p> --session <handle>
       [--kind attended|registry] --picture <file> --digest <hex>
       --durable <file> [--window <cadence>] [--pid <pid>]
@@ -329,10 +334,13 @@ holder_on_tmux() {
   [ "$(mc_kv "$SESSIONS/$H_SESSION" backend)" = tmux ]
 }
 
-# close_pred_pane <pane id or -> <tmux socket or ->: the successor closes the
-# predecessor's recorded tmux pane, on the server whose socket was recorded
-# with it (a pane id is unique only within one server), after the name
-# moved, that pane only.
+# close_pred_pane <pane id or -> <tmux socket or -> <server or -> <window
+# name or ->: the successor closes the predecessor's recorded tmux pane after
+# the name moved, that pane only, on the recorded socket and only while the
+# server listening there is the one that issued the id and the pane's window
+# still has the recorded name (tmux_pin_close): a socket path outlives its
+# server, and a restarted one reissues pane ids from %0. A pane recorded
+# without its server is never closed by id.
 close_pred_pane() {
   [ "$1" != - ] && [ "$2" != - ] || return 0
   case $2 in /*) ;; *) return 0 ;; esac
@@ -340,12 +348,26 @@ close_pred_pane() {
   case ${1#%} in *[!0-9]*) return 0 ;; esac
   [ "$1" != "${TMUX_PANE:-}" ] || return 0
   command -v tmux >/dev/null 2>&1 || return 0
-  [ "$(tmux -S "$2" display-message -p -t "$1" '#{pane_id}' 2>/dev/null </dev/null)" = "$1" ] || return 0
-  if tmux -S "$2" kill-pane -t "$1" >/dev/null 2>&1 </dev/null; then
-    printf 'pane\t%s\tclosed\n' "$1"
-  else
-    printf 'pane\t%s\theld\n' "$1"
-  fi
+  cp_rc=0
+  TID_SOCK=$2
+  tmux_pin_close pane "$1" "$3" "$4" || cp_rc=$?
+  TID_SOCK=''
+  case $cp_rc in
+    0) printf 'pane\t%s\tclosed\n' "$1" ;;
+    1) printf 'pane\t%s\tleft\t%s\n' "$1" "$TP_WHY" ;;
+    2) printf 'pane\t%s\theld\n' "$1" ;;
+  esac
+}
+
+# pane_pin <pane id> <tmux socket>: print `<server> <window name>` pinning
+# the pane, or nothing when tmux gives no name a pin can carry.
+pane_pin() {
+  TID_SOCK=$2
+  pp_rc=0
+  tmux_pin_read pane "$1" || pp_rc=$?
+  TID_SOCK=''
+  [ "$pp_rc" = 0 ] && tmux_valid_name "$TP_NAME" || return 0
+  printf '%s %s\n' "$TP_SERVER" "$TP_NAME"
 }
 
 session_live() {
@@ -403,10 +425,11 @@ record() {
 }
 
 # succ_record <session> <predecessor> <kind> <launched> <mode> <verified>
-# [<owner> [<predecessor pane> [<predecessor tmux socket>]]]: the owner is the launch that reserved it,
-# until it is verified.
+# [<owner> [<predecessor pane> [<predecessor tmux socket> [<note>
+# [<predecessor tmux server> [<predecessor window name>]]]]]]: the owner is
+# the launch that reserved it, until it is verified.
 succ_record() {
-  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}" predecessor-tmux "${9:--}" remote-control-note "${10:--}"
+  record "$SUCC" session "$1" predecessor "$2" predecessor-kind "$3" launched "$4" mode "$5" verified "$6" owner "${7:--}" predecessor-pane "${8:--}" predecessor-tmux "${9:--}" remote-control-note "${10:--}" predecessor-tmux-server "${11:--}" predecessor-window "${12:--}"
 }
 
 # require_successor <fail-function>: SUCC names $session; sets S_PRED and
@@ -422,6 +445,10 @@ require_successor() {
   [ -n "$S_PANE" ] || S_PANE=-
   S_TMUX=$(mc_kv "$SUCC" predecessor-tmux)
   [ -n "$S_TMUX" ] || S_TMUX=-
+  S_TSRV=$(mc_kv "$SUCC" predecessor-tmux-server)
+  [ -n "$S_TSRV" ] || S_TSRV=-
+  S_TWIN=$(mc_kv "$SUCC" predecessor-window)
+  [ -n "$S_TWIN" ] || S_TWIN=-
 }
 refuse() { mc_fail "$2"; }
 
@@ -942,7 +969,7 @@ case $verb in
         exit 3
       fi
     fi
-    pred=- pred_kind=- pred_pane='' pred_tmux=''
+    pred=- pred_kind=- pred_pane='' pred_tmux='' pred_tsrv='' pred_twin=''
     [ -z "$H_SESSION" ] || pred=$H_SESSION pred_kind=$H_KIND
     if [ "$H_LIVE" -eq 1 ]; then
       case $mode in
@@ -953,6 +980,10 @@ case $verb in
               [ -n "$backend" ] || backend=tmux
               if [ "$backend" = tmux ]; then
                 pred_pane=$TMUX_PANE pred_tmux=${TMUX%%,*}
+                pred_pin=$(pane_pin "$pred_pane" "$pred_tmux")
+                if [ -n "$pred_pin" ]; then
+                  pred_tsrv=${pred_pin%% *} pred_twin=${pred_pin#* }
+                fi
               fi
             else
               say "the holder $H_SESSION is the operator's own session, and no tmux pane is available to open its successor beside it; the handover is the operator act mc-handover.sh path names"
@@ -1025,7 +1056,7 @@ case $verb in
     [ -z "$rc_note" ] || say "remote control: $rc_note"
     # The record is reserved before the launch, so a second launch meets it
     # and the launcher's own lock on the name; a failed launch removes it.
-    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}" "${pred_tmux:--}" "${rc_note:--}"
+    succ_record "$name" "$pred" "$pred_kind" "$NOW" "${mode:-start}" - "$$" "${pred_pane:--}" "${pred_tmux:--}" "${rc_note:--}" "${pred_tsrv:--}" "${pred_twin:--}"
     unlock
     drop_reservation() {
       lock
@@ -1094,7 +1125,7 @@ case $verb in
     selfcheck "$digest" "$picture" "$scratch"
     lock
     require_successor refuse
-    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW" - "$S_PANE" "$S_TMUX" "$(mc_kv "$SUCC" remote-control-note)"
+    succ_record "$session" "$S_PRED" "$S_PRED_KIND" "$(mc_kv "$SUCC" launched)" "$(mc_kv "$SUCC" mode)" "$NOW" - "$S_PANE" "$S_TMUX" "$(mc_kv "$SUCC" remote-control-note)" "$S_TSRV" "$S_TWIN"
     unlock
     printf 'verified\t%s\t%s\n' "$session" "$(printf '%s\n' "$SC_OUT" | head -n 1 | mc_clean)"
     ;;
@@ -1136,7 +1167,7 @@ case $verb in
       raise handover-requested "$S_PRED" "$session passed its self-check for program $program; release the name"
     fi
     succeed "$session" registry "$S_PRED" "$S_PRED_KIND" "$expect" "$secs"
-    close_pred_pane "$S_PANE" "$S_TMUX"
+    close_pred_pane "$S_PANE" "$S_TMUX" "$S_TSRV" "$S_TWIN"
     announce "$session" "$S_PRED"
     [ -z "$take_note" ] || [ "$take_note" = - ] || printf 'line\tRemote Control: %s\n' "$(printf '%s\n' "$take_note" | mc_clean)"
     [ "$RETIRE_OK" -eq 1 ] || exit 1
