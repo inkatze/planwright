@@ -16,6 +16,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY G
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -164,6 +166,18 @@ check${tab}macos-suite (shard 1/4)${tab}FAILURE
 check${tab}macos-smoke${tab}SUCCESS"
 expect_rc "macOS required and a macOS shard failed: not ready" 4
 expect_out "the failure is named" "fail${tab}check${tab}macos-suite (shard 1/4) is FAILURE"
+walk_with "macos shard pending" '-' "require${tab}macos
+check${tab}macos-suite (shard 1/4)${tab}SUCCESS
+check${tab}macos-suite (shard 2/4)${tab}PENDING
+check${tab}macos-smoke${tab}SUCCESS"
+expect_rc "a macOS shard still pending: not ready" 4
+expect_out "the pending shard is named" "fail${tab}check${tab}macos-suite (shard 2/4) is PENDING"
+walk_with "bypass" '-' "bypass${tab}window-lock${tab}FAILURE"
+expect_rc "everything finished but a base-state check: ready" 0
+expect_out "the check the operator bypasses is named" "bypass${tab}window-lock${tab}FAILURE"
+walk_with "no bypass" -
+expect_out "an all-green head names no bypass" "ready${tab}$H"
+expect_no_out "an all-green head names no bypass check" "bypass"
 walk_with "macos neutral" '-' "require${tab}macos
 check${tab}macos-suite${tab}NEUTRAL
 check${tab}macos-smoke${tab}SUCCESS"
@@ -349,6 +363,9 @@ has "REQ-D1.8: each check context is read on its own" "check${tab}build${tab}SUC
 has "an empty conclusion reads its state" "check${tab}deploy${tab}PENDING"
 n_wl=$(printf '%s\n' "$c" | grep -c "^check${tab}window-lock${tab}FAILURE$")
 if [ "$n_wl" -eq 1 ]; then ok "only the release-window lock is left out: a window-lock from another workflow still counts"; else fail "expected one window-lock context, got $n_wl"; fi
+has "the red release-window lock is named for the operator to bypass" "bypass${tab}window-lock${tab}FAILURE"
+n_by=$(printf '%s\n' "$c" | grep -c "^bypass${tab}")
+if [ "$n_by" -eq 1 ]; then ok "only the left-out base-state check is named for bypass"; else fail "expected one bypass line, got $n_by"; fi
 has "only the latest run of a check counts" "check${tab}title${tab}SUCCESS"
 n_title=$(printf '%s\n' "$c" | grep -c "^check${tab}title${tab}")
 if [ "$n_title" -eq 2 ]; then ok "one line per check context: the same name in another workflow is its own context"; else fail "expected two title contexts, got $n_title"; fi
@@ -442,18 +459,60 @@ has "a repository listed twice still finds its one worktree" "cadence${tab}audit
 has "and its missing completion" "cadence${tab}gap${tab}convergence${tab}incomplete"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7
 expect_out "check refuses the skipped cadence" "fail${tab}cadence${tab}convergence: polish is missing"
-# A worktree that moved past the forge's head speaks for another head.
+# A worktree off to the side of the forge's head (here, on a sibling of it)
+# cannot speak for it.
+git -C "$tmp/feature-wt" checkout -q --orphan side && git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m sibling \
+  && git -C "$tmp/feature-wt" checkout -q -B feature side
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a worktree head that differs from the forge's and is not ahead of it is unaudited, naming both" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt is at"
+has "and says to retry once the session using it is done" "retry once it has pushed or finished"
+git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
+# A worktree one commit ahead of the forge's head (a session mid-change) still
+# holds the head: the audit judges the records against the pull request's head.
+(cd "$tmp/feature-wt" && PLANWRIGHT_ROOT="$core" /bin/bash "$repo_root/scripts/step-record.sh" new-run >/dev/null \
+  && /bin/bash "$repo_root/scripts/step-record.sh" write --run 000001 --point convergence --step polish --kind skill \
+    --target polish --hosting isolated --backend none --head "$head" --end-head "$head" \
+    --start 2026-10-28T00:00:00Z --end 2026-10-28T00:01:00Z --outcome applied >/dev/null \
+  && /bin/bash "$repo_root/scripts/step-record.sh" write --completion --run 000001 --point convergence --head "$head" >/dev/null) \
+  || fail "the fixture step record in the feature worktree"
+git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed
+# A configured pre-ci step with no record at the head is a gap beside the covered convergence.
+cp "$tracked" "$tmp/tracked.keep"
+printf 'steps_pre_ci: [polish]\n' >>"$tracked"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+expect_rc "a worktree ahead of the forge's head still collects" 0
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a worktree ahead of the forge's head is audited at the forge's head" "cadence${tab}audited${tab}$head"
+hasnt "and is not refused for being ahead" "cadence${tab}unaudited"
+hasnt "its records at the forge's head count" "cadence${tab}gap${tab}convergence"
+has "and the covered point is carried for the packet" "cadence${tab}covered${tab}convergence"
+hasnt "while the gap point is not carried as covered" "cadence${tab}covered${tab}pre-ci"
+has "while a point its records do not complete is still a gap" "cadence${tab}gap${tab}pre-ci"
+has "and the step records the worktree holds at the forge's head are collected" "step${tab}polish${tab}applied${tab}$head"
+# A worktree ahead with the head's records incomplete still fails readiness.
+git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
+rm -rf "$tmp/feature-wt/.claude/steps"
 git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 c=$(cat "$tmp/collected" 2>/dev/null)
-has "a worktree head that differs from the forge's is unaudited, naming both" "cadence${tab}unaudited${tab}the worktree $tmp/feature-wt is at"
+has "an ahead worktree whose records do not cover the head still has the gap" "cadence${tab}gap${tab}convergence${tab}incomplete"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/web --pr 7 --worktree "$tmp/feature-wt"
+expect_rc "and readiness refuses it" 4
+expect_out "naming the missing completion" "fail${tab}cadence${tab}convergence: no completion record"
+mv "$tmp/tracked.keep" "$tracked"
 git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
 # The audit itself failing is unaudited, with the resolver's reason.
 chmod 000 "$core/config/steps.yaml"
-PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
-chmod 644 "$core/config/steps.yaml"
-c=$(cat "$tmp/collected" 2>/dev/null)
-has "an audit that cannot resolve the cadence is unaudited, naming why" "cadence${tab}unaudited${tab}the audit in $tmp/feature-wt failed: step-run: the configured cadence did not resolve"
+if hermetic_access_denied r "$core/config/steps.yaml"; then
+  PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+  chmod 644 "$core/config/steps.yaml"
+  c=$(cat "$tmp/collected" 2>/dev/null)
+  has "an audit that cannot resolve the cadence is unaudited, naming why" "cadence${tab}unaudited${tab}the audit in $tmp/feature-wt failed: step-run: the configured cadence did not resolve"
+else
+  chmod 644 "$core/config/steps.yaml"
+  echo "skip: the unresolvable cadence case (the mode does not deny reading here)"
+fi
 # Another repository's worktree on the same branch name is never audited.
 git -C "$repo" remote set-url origin https://github.com/acme/api.git
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
@@ -781,12 +840,17 @@ expect_eq "a new head is announced again" "announced${tab}readiness-due${tab}acm
 snap 3333333333333333333333333333333333333333 >"$snapdir/forge"
 events_dir="$fleet/attention/mission-control/alpha/events"
 chmod 500 "$events_dir"
-mc_run mc-readiness.sh watch --program alpha
-chmod 700 "$events_dir"
-expect_rc "a refused event fails the run" 1
-mc_run mc-readiness.sh watch --program alpha
-expect_rc "the next run" 0
-expect_eq "raises it again, now stored" "announced${tab}readiness-due${tab}acme:web:7"
+if hermetic_access_denied w "$events_dir"; then
+  mc_run mc-readiness.sh watch --program alpha
+  chmod 700 "$events_dir"
+  expect_rc "a refused event fails the run" 1
+  mc_run mc-readiness.sh watch --program alpha
+  expect_rc "the next run" 0
+  expect_eq "raises it again, now stored" "announced${tab}readiness-due${tab}acme:web:7"
+else
+  chmod 700 "$events_dir"
+  echo "skip: the refused event case (the mode does not deny writing here)"
+fi
 
 # Between one and two cadences old a snapshot still counts (a budget rung
 # doubles the refresh); past twice its cadence it announces nothing.
@@ -845,6 +909,45 @@ fail${tab}format${tab}the evidence file lacks \"# format: 1\""
 complete >"$tmp/ev"
 mc_run mc-readiness.sh not-red --evidence "$tmp/ev"
 expect_rc "a notice passes with every check green" 0
+
+# ---------------------------------------------------------------------------
+# A ready pull request must have no unfinished check. The unfinished verdict
+# names each check still queued, pending or in progress at the head; a finished
+# head passes whatever its colour (a red window-lock is the operator's to
+# bypass).
+# ---------------------------------------------------------------------------
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tPENDING/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "a pending check is unfinished" 4
+expect_out "the head is reported" "unfinished${tab}$H"
+expect_out "the pending check is named" "fail${tab}check${tab}lint is PENDING"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tQUEUED/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "a queued check is unfinished" 4
+expect_out "the queued check is named" "fail${tab}check${tab}lint is QUEUED"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tIN_PROGRESS/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "an in-progress check is unfinished" 4
+expect_out "the in-progress check is named" "fail${tab}check${tab}lint is IN_PROGRESS"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tFAILURE/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "a finished red check is no unfinished check" 0
+expect_eq "a finished head is reported finished" "finished${tab}$H"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tlint\tPENDING\ncheck\tbuild\tQUEUED/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "two unfinished checks hold" 4
+expect_out "the first is named" "fail${tab}check${tab}lint is PENDING"
+expect_out "and the second" "fail${tab}check${tab}build is QUEUED"
+complete | sed 's/^check\tlint\tNEUTRAL/check\tplanwright\/pre-ready-flip\tPENDING/' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "the flip's own pending status is no unfinished check" 0
+complete >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "a head with every check finished passes" 0
+printf 'not an evidence file\n' >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "an evidence file without the format line is refused" 4
+expect_out "and says why" "fail${tab}format${tab}the evidence file lacks \"# format: 1\""
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-readiness: $failures failure(s)" >&2
