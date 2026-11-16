@@ -486,8 +486,9 @@ is caught whoever omitted it. A record that does not match the branch it
 claims is refused as a `mismatch` gap, never counted: a stored run or point
 that differs from its path, a step whose start and end heads are not commits
 of the completion's branch in order, or an outcome its own fields contradict
-(a skip with no code or a moved head, a code on a step that did not skip). The
-script's usage header states the freshness rule and the output.
+(a skip with no code or, short of a resume, a moved head, a code on a step
+that did not skip). The script's usage header states the freshness rule and
+the output.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
 
