@@ -459,7 +459,7 @@ mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m \`t
 expect_rc "REQ-A1.9: drift: a rule carrying metacharacters is stored" 0
 rules_file="$drift_home/rules.yaml"
 layer_sums() {
-  for f in "$rules_file" "$core/config/defaults.yml" "$adopter/planwright.yml" "$mlocal" "$tracked"; do
+  for f in "$rules_file" "$repo_root/config/defaults.yml" "$core/config/defaults.yml" "$adopter/planwright.yml" "$mlocal" "$tracked"; do
     printf '%s %s\n' "${f#"$tmp"/}" "$(sum "$f")"
   done
 }
