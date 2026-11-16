@@ -24,6 +24,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TLC="$here/../scripts/tower-loop-comms.sh"
 TQ="$here/../scripts/tower-queue.sh"
 FA="$here/../scripts/fleet-attention.sh"
@@ -383,7 +385,11 @@ chmod 0000 "$content/ask-6"
 i6=$(q add --kind request --root "$content" --pointer ask-6 --origin operator \
   --closes 'the operator decides' --now 5210) || fail "add ask-6"
 [ -n "$i6" ] || fail "the unreadable fixture item did not register"
-bad_case unreadable-home "$i6" unreadable 5220
+if hermetic_access_denied r "$content/ask-6"; then
+  bad_case unreadable-home "$i6" unreadable 5220
+else
+  echo "skip: unreadable-home: the running user still reads $content/ask-6 under mode 0000"
+fi
 chmod 0600 "$content/ask-6"
 q settle "$i6" --reason 'fixture done' --now 5260 >/dev/null || fail "settle ask-6"
 

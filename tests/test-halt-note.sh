@@ -10,6 +10,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
   GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 S="$REPO_ROOT/scripts"
 # shellcheck source=tests/lib/poll-until.sh
 . "$REPO_ROOT/tests/lib/poll-until.sh"
@@ -320,12 +322,18 @@ else
   fail "holder: a symlink (rc=$rc): $out"
 fi
 
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$z/locked"
-  tasks_v2 "$z/locked/tasks.md"
-  chmod 000 "$z/locked/tasks.md"
+mkdir -p "$z/locked"
+tasks_v2 "$z/locked/tasks.md"
+chmod 000 "$z/locked/tasks.md"
+denied=0
+if hermetic_access_denied r "$z/locked/tasks.md"; then
+  denied=1
   note "$w" locked 1 text
-  chmod 644 "$z/locked/tasks.md"
+else
+  echo "skip: holder unreadable tasks.md: the running user still reads $z/locked/tasks.md under mode 000"
+fi
+chmod 644 "$z/locked/tasks.md"
+if [ "$denied" = 1 ]; then
   case $rc:$out in
     4:*"cannot read"*) ok "holder: an unreadable tasks.md is refused as unreadable" ;;
     *) fail "holder: an unreadable tasks.md (rc=$rc): $out" ;;
