@@ -431,7 +431,14 @@ deny:
   `planwright.local.yml`, wherever they sit).
 - **Other processes' environments** (REQ-E1.6): `/proc/<pid>/environ` and
   `/proc/<pid>/task/<tid>/environ`. The Read tool cannot read the worker's own
-  `/proc/self/environ` either; `env` and `printenv` still print it.
+  `/proc/self/environ` either, and the command guard defers `/proc/self/environ`,
+  bare `env` and bare `printenv`.
+- **What these rules do not cover:** the other secret locations the command
+  guard defers (the home's credential files, `/etc/shadow`, `/dev/fd`). The
+  file tools and the static `ls`, `stat`, `git diff`, `git log` and `git show`
+  allow rules never reach the guard, so those reads run unprompted; Read denies
+  for them, and dropping those static rules so the guard decides, are a
+  recorded follow-up.
 
 Every rule but one is anchored at the filesystem root (`//`), never at the
 settings file, whose directory is the plugin's `config/` (M10). Root-anchoring
@@ -554,6 +561,48 @@ stay denied, and each literal ancestor deny is the only rule blocking at least
 one row. `tests/test-worker-command-guard-mise-tasks.sh` pins the guard half,
 `tests/test-worker-settings-generate.sh` the generator, and
 `tests/test-fleet-streamjson.sh` (c9m) the launcher.
+
+## The spec-branch launch record
+
+A spec PR that falls behind `main` needs its branch
+(`planwright/<spec>/<name>`, an amendment branch for one) brought into a
+worktree to sync or walk it, and the policy guard otherwise refuses both
+halves: a worker's flight branch merges only the PR base or its own remote
+branch, and a worktree holding the spec branch is not the session's own unit
+branch. A launch given `--spec-branch planwright/<spec>/<name>` (a
+worker-profile session on the stream-json rung only; the launcher checks with
+`gh` that the branch is the head of an open pull request, and refuses
+otherwise) writes that one branch into the session record as `spec_branch`
+(`scripts/worker-session-record.sh`), which a recover rewrites from the
+launch's own state. The guard reads it only from that record, outside the
+worktree, never from the command text, the checkout, config or the
+environment. A record that is a symlink, is not this user's own regular file,
+sits inside the worktree, names the field twice, or names anything outside
+`planwright/<spec>/<name>` (a task or flight branch, a branch in the protected
+set) names no branch. Only the worker tier reads it. Two acts open, and
+nothing else:
+
+- **Bring the branch in.** On the session's own flight branch,
+  `git merge --ff-only origin/<spec branch>` (also spelled
+  `refs/remotes/origin/<spec branch>`) is admitted as the single source. A
+  merge without `--ff-only`, a `--no-ff` one, a second source, a pull, a bare
+  local name, a SHA, a tag, or any other branch (another spec branch, another
+  worker's flight branch) keeps today's refusal, and so does a local branch or
+  tag of the same name at another commit. Merging `origin/main` afterwards is
+  the ordinary base merge, and the push of the result to the spec branch is an
+  ordinary push by explicit refspec (`git push origin HEAD:refs/heads/<spec
+  branch>`) that the guard never refused: the spec branch is outside the
+  protected set, and the profile's force and `+` denies still refuse a force.
+- **Sync it with its base.** In a linked worktree that is the session's
+  project directory with the named spec branch checked out, `git merge
+  origin/main` (the PR base alone, by name and by what git resolves it to) is
+  admitted. Any other source, a pull, a spec branch the record does not name,
+  and every other act on that branch (commit, amend, rebase, reset) keep the
+  unit-branch refusal; the merge caches nothing, so a later act in the same
+  command does not inherit the branch as a unit branch. `worker_base_merge:
+  deny` refuses it as it does for a unit branch.
+
+No force, reset or rebase is admitted by either act.
 
 ## Changing any of this
 

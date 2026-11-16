@@ -107,7 +107,12 @@ mc_run fleet-state.sh register w-done flight:landed --backend stream-json --deat
 mc_run fleet-state.sh register w-win flight:named-window --backend tmux --death-handle "tmux-window other w7"
 mc_run fleet-state.sh register w-idname flight:id-like-name --backend tmux --death-handle "tmux-window named @9"
 mc_run fleet-state.sh register w-print flight:once --backend print --death-handle none
-mc_run fleet-state.sh register w-tmux flight:tmux --backend tmux --death-handle "tmux-window mc @5"
+mc_run fleet-state.sh register w-tmux flight:tmux --backend tmux --death-handle "tmux-window mc @5 4242.1700000000 w5"
+# Recorded without its server, its id live in another session: a restarted
+# server may have reissued it, so it is not counted.
+mc_run fleet-state.sh register w-tmux-reused flight:tmux-reused --backend tmux --death-handle "tmux-window mc @7"
+# Pinned to an earlier server: whatever runs under @7 now is not it.
+mc_run fleet-state.sh register w-tmux-oldserver flight:tmux-oldserver --backend tmux --death-handle "tmux-window other @7 4242.1600000000 w7"
 mc_run fleet-state.sh register w-tmux-gone flight:tmux-old --backend tmux --death-handle "tmux-window mc @9"
 mc_run fleet-state.sh register w-gone mission-control:alpha --backend tmux --death-handle "tmux-window mc 4"
 mc_run fleet-state.sh retire w-gone mission-control:alpha --backend tmux --death-handle "tmux-window mc 4"
@@ -132,7 +137,7 @@ mkdir -p "$fleet/attention"
 # The tmux server lists window @5, its session since renamed, and not @9.
 # The other two stand for a server that does not answer and one not running.
 mkdir -p "$tmp/bin" "$tmp/bin-down" "$tmp/bin-none"
-printf '#!/bin/sh\ncase "$*" in *list-windows*) printf "renamed\\t@5\\tw5\\nother\\t@7\\tw7\\nnamed\\t@3\\t@9\\n" ;; *) exit 1 ;; esac\n' >"$tmp/bin/tmux"
+printf '#!/bin/sh\ncase "$*" in *list-windows*) printf "@5 4242.1700000000 renamed:w5\\n@7 4242.1700000000 other:w7\\n@3 4242.1700000000 named:@9\\n" ;; *) exit 1 ;; esac\n' >"$tmp/bin/tmux"
 printf '#!/bin/sh\necho "server exited unexpectedly" >&2\nexit 1\n' >"$tmp/bin-down/tmux"
 printf '#!/bin/sh\necho "no server running on /tmp/tmux-0/default" >&2\nexit 1\n' >"$tmp/bin-none/tmux"
 chmod +x "$tmp/bin/tmux" "$tmp/bin-down/tmux" "$tmp/bin-none/tmux"
@@ -181,9 +186,11 @@ else
   ok "a session whose process is gone is not in flight"
 fi
 expect_no_out "a tmux window the server does not list is not in flight" "w-tmux-gone"
+expect_no_out "an id recorded without its server and live only in another session is not in flight" "w-tmux-reused"
+expect_no_out "an id pinned to an earlier tmux server is not in flight" "w-tmux-oldserver"
 expect_no_out "a record with no process to watch is not in flight" "w-print"
 expect_no_out "a legacy three-field record is not in flight" "w-legacy"
-record "the rest are finished, not cleaned up" finished 7
+record "the rest are finished, not cleaned up" finished 9
 expect_no_out "a tmux server that answers is readable" "tmux windows"
 record "REQ-F1.5: only a live session's question waits on the operator; a dead session's stale row does not" waiting 1
 record "REQ-E1.3: the target's pending events" pending 1
@@ -238,7 +245,7 @@ expect_eq "REQ-F1.2: the line form, one line" "mission control alpha: 7 in fligh
 judged=$(date +%s)
 mr_rows() { # mr_rows <state>: a merge-ready store judged now
   printf 'state\t%s\t%s\n' "$1" "$judged"
-  printf 'acme/web#7\tk\tready\t1\tsquash\t-\nacme/web#8\tk\tnot-ready\t1\t-\t-\nacme/web#9\tk\tready\t1\tsquash\t-\n'
+  printf 'acme/web#7\tk\tready\t1\tsquash\t-\t-\nacme/web#8\tk\tnot-ready\t1\t-\t-\t-\nacme/web#9\tk\tready\t1\tsquash\t-\t-\n'
 }
 mr_rows ok >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh line --program alpha --target mc-alpha --now 1030
@@ -251,29 +258,32 @@ expect_out "and so does the text panel" "ready to merge: 2"
 head40=0123456789abcdef0123456789abcdef01234567
 {
   printf 'state\tok\t%s\n' "$judged"
-  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
-  printf 'acme/web#8\t%s|false|MERGEABLE\tnot-ready\t1\t-\tno\n' "$head40"
-  printf 'acme/web#9\tk\tready\t1\tsquash\t-\n'
-  printf 'acme/web#10\t%s|x\tready\t1\tvaporize\t-\n' "$head40"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\tdemo/1\n' "$head40"
+  printf 'acme/web#8\t%s|false|MERGEABLE\tnot-ready\t1\t-\tno\t-\n' "$head40"
+  printf 'acme/web#9\tk\tready\t1\tsquash\t-\t-\n'
+  printf 'acme/web#10\t%s|x\tready\t1\tvaporize\t-\t-\n' "$head40"
+  printf 'acme/web#11\t%s|x\tready\t1\tsquash\t-\n' "$head40"
 } >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh digest --program alpha --now "$judged"
-record "a ready pull request carries its checked merge command" merge-command acme/web 7 "gh pr merge 7 --repo acme/web --squash --match-head-commit $head40"
+# shellcheck disable=SC2016 # the command is text the operator runs, not run here
+record "a ready pull request carries its checked merge command, its task lines piped in" merge-command acme/web 7 \
+  "printf '%s\n' 'Planwright-Task: demo/1' | gh pr merge 7 --repo acme/web --squash --body-file - --match-head-commit $head40"
 if [ "$(printf '%s\n' "$OUT" | grep -c '^merge-command')" = 1 ]; then
   ok "and only the well-formed ready rows do"
 else
-  fail "a not-ready, headless or odd-method row carried a merge command"
+  fail "a not-ready, headless, odd-method or task-list-less row carried a merge command"
 fi
 # A store the last judgment did not write as ok, or an old one, is unconfirmed:
 # its verdicts carry no command.
 {
   printf 'state\tstale\t%s\n' "$judged"
-  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\t-\n' "$head40"
 } >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh digest --program alpha --now "$judged"
 if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "a stale store carried a merge command"; else ok "a stale store carries no merge command"; fi
 {
   printf 'state\tok\t%s\n' "$judged"
-  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\n' "$head40"
+  printf 'acme/web#7\t%s|false|MERGEABLE\tready\t1\tsquash\t-\t-\n' "$head40"
 } >"$runtime/merge-ready.tsv"
 mc_run mc-panel.sh digest --program alpha --now $((judged + 7200))
 if printf '%s\n' "$OUT" | grep -q '^merge-command'; then fail "an old store carried a merge command"; else ok "an old store carries no merge command"; fi
@@ -306,7 +316,7 @@ expect_out "the text panel says the count may be more" "in flight: 4 or more (tm
 PATH="$tmp/bin-none:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "a tmux server not running is no fault" "tmux windows"
-record "and its windows are finished" finished 10
+record "and its windows are finished" finished 12
 PATH="$tmp/bin:$host_path"
 mv "$fleet/attention/state" "$fleet/attention/state.real"
 ln -s "$fleet/attention/state.real" "$fleet/attention/state"
@@ -326,7 +336,7 @@ mv "$fleet/attention/state.real" "$fleet/attention/state"
 # With every tmux row's work ended, a server that does not answer leaves
 # nothing unknown: no fault, and an exact count the panel draws the same.
 cp "$fleet/attention/state" "$tmp/attention.saved"
-for w in w-win w-idname w-tmux w-tmux-gone; do printf '%s\tflight:x\tdone\t900\n' "$w" >>"$fleet/attention/state"; done
+for w in w-win w-idname w-tmux w-tmux-gone w-tmux-reused w-tmux-oldserver; do printf '%s\tflight:x\tdone\t900\n' "$w" >>"$fleet/attention/state"; done
 PATH="$tmp/bin-down:$host_path"
 mc_run mc-panel.sh digest --program alpha --now 1030
 expect_no_out "a silent tmux server no row depends on is no fault" "tmux windows"

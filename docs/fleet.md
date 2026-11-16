@@ -364,7 +364,14 @@ subagent rungs. A record carries what closing a worker needs when the tower that
 launched it is gone: the handle, the **owner token** (which tower dispatched
 it), the backend, the state directory where the rung keeps one, and the death
 handle (`process <pid>`, `tmux-window <session> <window>`, or `none` for a rung
-that spawns no process).
+that spawns no process). A tmux window id names a window only for the life of
+the server that issued it, since a restarted server numbers from `@0` again, so
+the dispatch seams pin it: `tmux-window <session> <window> <server> <name>`,
+the server being `<pid>.<start time>` and the name the one the window was
+given. A pinned window is live only while all three still hold, and nothing
+closes it by id otherwise. A handle written before the pin is never closed by
+its id, and counts as live only in its recorded session and only when it was
+registered after the running server started.
 
 A column with nothing to put in it is written `-` and reads as the gap it is. An
 unowned record renders `unknown-owner` rather than being attributed to anyone,
@@ -867,6 +874,12 @@ burst is one wake (a batch whose names outgrow one event's text spans a
 few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
+Each goes to the worker's own program (its launcher row's, else the owner its
+dispatch record keeps). A worker that neither names is raised once, whichever
+keeper sees it first, as a `stream-json-worker-unowned` event under the hub
+program (`mission_control_escalation_hub`), so the stuck prompt still reaches
+a mission control; with no hub program configured the event stays with the
+program whose keeper found it, and its text says so.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends
 non-zero is named on stderr and wakes it once as a `keeper-sweep-failed` event;
@@ -880,7 +893,9 @@ request row it raised (a failure item stays), and prints
 worker is in flight, the scan neither settles nor escalates it, leaving its
 requests to a later scan. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
-crashed worker's session via `--resume`; `status` surfaces completion and
+crashed worker's session via `--resume`, first restoring a mission-control
+launcher worker's registry row from the copy its launch kept (refusing, exit 3,
+where the row is gone and no copy covers it); `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
