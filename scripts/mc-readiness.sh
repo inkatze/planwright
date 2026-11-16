@@ -64,6 +64,7 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       audit --through post-pr)
   cadence<TAB>gap<TAB><point><TAB><kind><TAB><detail>
                                       one per gap that audit printed
+  cadence<TAB>covered<TAB><point>     one per point it found complete
   cadence<TAB>unaudited<TAB><why>     the audit could not run
   scope<TAB>spec-only<TAB><head>      every changed path lies under the
                                       program's spec root
@@ -692,6 +693,7 @@ collect() {
     case $? in
       0 | 1) awk -F '\t' -v H="$cl_head" '
           $1 == "gap" { print "cadence\tgap\t" $2 "\t" $3 "\t" $4 }
+          $1 == "covered" { print "cadence\tcovered\t" $2 }
           $1 == "audit" && $3 == H { print "cadence\taudited\t" H }' "$cl_tmp/audit" >"$cl_tmp/cadence" ;;
       *)
         cl_err=$(grep '^step-run: ' "$cl_tmp/err" | tail -n 1)

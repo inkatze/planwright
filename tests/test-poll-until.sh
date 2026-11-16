@@ -131,7 +131,10 @@ live=$!
 dead=$(dead_owner_pid) || fail "p7: dead_owner_pid found a process at its PID"
 pid_gone "$dead" || fail "p7: an exited process must count as gone"
 pid_gone "$dead" "$live" && fail "p7: a live process must keep pid_gone false"
-kill "$live"
+# KILL, not TERM: until the child has exec'd sleep it is a copy of this shell
+# holding the EXIT trap, and when bash runs the suite (the test runner does) a
+# TERM there runs that trap, removing $tmp under every later case.
+kill -KILL "$live"
 wait "$live" 2>/dev/null
 pid_gone "$live" || fail "p7: a killed process must count as gone" # hermetic-exempt: the case is the process it just killed; a PID reused in that instant fails loudly, never passes
 
