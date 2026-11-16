@@ -5426,6 +5426,23 @@ mc_write_via_link() {
   mc_posture_word "${MC_PHYS_DIR%/}$MC_PHYS_REST"
 }
 
+# mc_doc_quotes_close <text> — 0 when every quote the text opens closes within
+# it and no # stands outside one, so a line scan reads its quoting as bash does.
+mc_doc_quotes_close() {
+  local s=$1 c
+  while [ -n "$s" ]; do
+    s=${s#"${s%%[\"\'#]*}"}
+    c=${s:0:1}
+    case $c in
+      '') return 0 ;;
+      '#') return 1 ;;
+    esac
+    s=${s:1}
+    case $s in *"$c"*) s=${s#*"$c"} ;; *) return 1 ;; esac
+  done
+  return 0
+}
+
 # mc_store_doc_strip <command> — a command whose here-document bodies are data
 # for cat alone: each is a quoted-delimiter document handed to a plain cat, and
 # every output redirect of the rest of the text lands in a program home or a
@@ -5442,16 +5459,22 @@ mc_store_doc_strip() {
       [ "$tabs" = 0 ] || m=${m#"${m%%[!"$TAB"]*}"}
       if [ "$m" = "$delim" ]; then
         delim=''
-        out="$out$line$NL"
+        out+="$line$NL"
       fi
       continue
     fi
-    out="$out$line$NL"
+    out+="$line$NL"
     # The closing quote must be the opening one: ERE has no back-reference.
     if [[ $line =~ $re_open ]] && [ "${BASH_REMATCH[0]: -1}" = "${BASH_REMATCH[4]}" ]; then
-      # One document on the line, and nothing after it that opens another.
-      q=${line#*"${BASH_REMATCH[0]}"}
+      # The line's only document operator, outside any quote or comment, and
+      # a delimiter word that ends at its closing quote; bash reads anything
+      # else differently, so the body would not be the one dropped.
+      q=${line#*<<}
       case $q in *'<<'*) return 1 ;; esac
+      mc_doc_quotes_close "${line%%<<*}" || return 1
+      q=${line#*"${BASH_REMATCH[0]}"}
+      case ${q:0:1} in '' | ' ' | "$TAB" | ';' | '|' | '&' | '<' | '>' | ')') ;; *) return 1 ;; esac
+      mc_doc_quotes_close "$q" || return 1
       delim=${BASH_REMATCH[5]}
       tabs=0
       [ -z "${BASH_REMATCH[3]}" ] || tabs=1
@@ -5459,11 +5482,12 @@ mc_store_doc_strip() {
       # The line without its document operator, for the command check.
       hdr=${line#*<<}
       hdr=${hdr#*"$delim"}
-      chk="$chk${line%%<<*}${hdr#?}$NL"
+      chk+="${line%%<<*}${hdr#?}$NL"
     elif [[ $line == *'<<'* ]]; then
       return 1
     else
-      chk="$chk$line$NL"
+      mc_doc_quotes_close "$line" || return 1
+      chk+="$line$NL"
     fi
   done <<XEOF2
 $t

@@ -204,6 +204,40 @@ cat >| $H/kb/link-settings.md <<'EOF'
 settings.json
 EOF"
 refuse "echo x >| $H/kb/link-settings.md"
+for i in ash tclsh 'make -f -'; do
+  refuse "cat <<'EOF' | $i
+echo x > $FIXHOME/.claude/settings.json
+EOF"
+done
+
+echo "# an opener bash never reads as one keeps the whole text in view"
+refuse "echo \"cat <<'EOF'\"
+echo x > $FIXHOME/.claude/settings.json
+EOF"
+refuse "echo 'cat <<\"EOF\"'
+echo x > $FIXHOME/.claude/settings.json
+EOF"
+refuse "echo \"a
+cat <<'EOF' >> $H/kb/a.md\"
+echo x > $FIXHOME/.claude/settings.json
+EOF"
+refuse "cat /dev/null > $H/kb/a.md # <<'EOF'
+echo x > $FIXHOME/.claude/settings.json
+EOF"
+refuse "cat <<'E'OF > $H/kb/a.md
+EOF
+echo x > $FIXHOME/.claude/settings.json
+E"
+refuse "cat <<'EOF'\"x\" > $H/kb/a.md
+EOF
+echo x > $FIXHOME/.claude/settings.json
+EOFx"
+refuse "cat <<x; cat <<'EOF' > $H/kb/a.md
+EOF
+echo x > $FIXHOME/.claude/settings.json
+x
+y
+EOF"
 
 echo "# an expansion or a dot-dot that points a home path at posture stays refused"
 # Each target spells no posture name whole, so the refusal comes from the
