@@ -149,6 +149,29 @@ sg worker "git merge origin/$STACK_BR"
 expect deny "[worker] stacked: a local branch shadowing origin/<base> is refused"
 gitq -C "$STACK" branch -D "origin/$STACK_BR"
 
+echo "# guard: a record naming both a stacked base and a spec branch keeps each rule to its own"
+SPEC_BR=planwright/demo/amendment-1
+gitq -C "$SEED" switch -c "$SPEC_BR" main
+gitq -C "$SEED" commit --allow-empty -m "pushed on $SPEC_BR"
+gitq -C "$SEED" push origin "$SPEC_BR"
+gitq -C "$SEED" switch main
+gitq -C "$STACK" fetch origin
+REC_BOTH="$SANDBOX/rec/both.record"
+write_rec "$REC_BOTH" "origin/$STACK_BR"
+printf 'spec_branch=%s\n' "$SPEC_BR" >>"$REC_BOTH"
+sg worker "git merge --ff-only origin/$STACK_BR" "$REC_BOTH"
+expect defer "[worker] both fields: a fast-forward of the stacked base defers"
+sg worker "git merge --ff-only origin/$SPEC_BR" "$REC_BOTH"
+expect defer "[worker] both fields: a fast-forward to the named spec branch defers"
+sg worker "git merge origin/$OTHER_BR" "$REC_BOTH"
+expect deny "[worker] both fields: another feature branch is refused"
+SPECWT="$SANDBOX/stack-spec"
+gitq -C "$STACK" worktree add -b "$SPEC_BR" "$SPECWT" "origin/$SPEC_BR"
+PLANWRIGHT_WORKER_SESSION_RECORD=$REC_BOTH pg worker 'git merge origin/main' "$SPECWT" "$SPECWT"
+expect defer "[worker] both fields, in the spec branch's worktree: the PR base merges"
+PLANWRIGHT_WORKER_SESSION_RECORD=$REC_BOTH pg worker "git merge origin/$STACK_BR" "$SPECWT" "$SPECWT"
+expect deny "[worker] both fields, in the spec branch's worktree: the unit's stacked base is refused"
+
 echo "# record writer: stack_base"
 FLEET="$SANDBOX/fleet"
 mkdir -p "$FLEET"
@@ -179,6 +202,12 @@ if [ "$RC" = 0 ] && [ "$(field stack_base)" = "origin/$STACK_BR" ]; then
   pass "[writer] --base records stack_base as <remote>/<branch>"
 else
   fail "[writer] --base: rc=$RC stack_base='$(field stack_base)'"
+fi
+wr "$WT" --base "$STACK_BR" --spec-branch planwright/demo/amendment-1
+if [ "$RC" = 0 ] && [ "$(field stack_base)" = "origin/$STACK_BR" ] && [ "$(field spec_branch)" = planwright/demo/amendment-1 ]; then
+  pass "[writer] --base beside --spec-branch records both fields"
+else
+  fail "[writer] --base with --spec-branch: rc=$RC stack_base='$(field stack_base)' spec_branch='$(field spec_branch)'"
 fi
 wr "$WT" --base main
 if [ "$RC" = 0 ] && ! grep -q '^stack_base=' "$REC"; then
