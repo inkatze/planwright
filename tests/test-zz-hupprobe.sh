@@ -4,6 +4,19 @@
 # whose runner ends by a signal.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
+if [ -z "${PROBE_INNER:-}" ]; then
+  export PROBE_INNER=1
+  out=$(mktemp)
+  # A fresh session: the probe's group then has no member whose parent sits
+  # in another group of its session, as under a launchd-started CI runner.
+  perl -MPOSIX -e 'POSIX::setsid() or die "setsid: $!"; exec @ARGV or exit 127' -- \
+    /bin/bash "$0" "$@" >"$out" 2>&1 </dev/null &
+  p=$!
+  wait "$p"
+  echo "inner rc=$?"
+  cat "$out"
+  exit 0
+fi
 repo=$(cd "$here/.." && pwd)
 work=$(mktemp -d)
 mk_suite() {
@@ -21,23 +34,24 @@ round() {
     /bin/bash "$repo/scripts/run-tests.sh" "$work/r/tests" >"$work/round.out" 2>&1
 }
 echo "probe pid $$ pgid $(ps -o pgid= -p $$) sess-leader? $(ps -o sess= -p $$ 2>&1)"
-mode=${PROBE_MODE:-pid}
-case $mode in
-  pid) set -- test-fleet-streamjson-pid-identity.sh ;;
-  mix) set -- test-fleet-streamjson-pid-identity.sh test-detached-run.sh test-behavioral-eval-mission-control.sh ;;
-esac
-mk_suite "$@"
-runs=${PROBE_RUNS:-12}
-bad=0
-i=1
-while [ "$i" -le "$runs" ]; do
-  round
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    bad=$((bad + 1))
-    echo "round $i: runner rc=$rc"
-    tail -n 5 "$work/round.out"
-  fi
-  i=$((i + 1))
+for mode in pid mix; do
+  case $mode in
+    pid) set -- test-fleet-streamjson-pid-identity.sh ;;
+    mix) set -- test-fleet-streamjson-pid-identity.sh test-detached-run.sh test-behavioral-eval-mission-control.sh ;;
+  esac
+  mk_suite "$@"
+  runs=${PROBE_RUNS:-8}
+  bad=0
+  i=1
+  while [ "$i" -le "$runs" ]; do
+    round
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      bad=$((bad + 1))
+      echo "round $i: runner rc=$rc"
+      tail -n 5 "$work/round.out"
+    fi
+    i=$((i + 1))
+  done
+  echo "probe done: $bad of $runs rounds failed ($mode)"
 done
-echo "probe done: $bad of $runs rounds failed ($mode)"
