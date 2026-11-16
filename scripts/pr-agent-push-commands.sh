@@ -32,7 +32,13 @@ unset CDPATH
 READ_BOUND=60
 INCREMENTAL='["/review -i"]'
 FULL='["/review"]'
-REVIEW_MARK='<!-- pr-agent:review:'
+REVIEW_FILTER='.[] | select(.user.login == "github-actions[bot]") | (.body // "") as $b
+  | select(([$b | split("\n") | .[:5][] | gsub("^\\s+|\\s+$"; "")]
+      | any(. == "<!-- pr-agent:review:full -->" or . == "<!-- pr-agent:review:incremental -->"
+        or . == "[pr-agent:review:full]: https://github.com/The-PR-Agent/pr-agent"
+        or . == "[pr-agent:review:incremental]: https://github.com/The-PR-Agent/pr-agent"))
+    or ($b | startswith("## PR Reviewer Guide") or startswith("## Incremental PR Reviewer Guide")))
+  | .created_at'
 DATE='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
 
 die_usage() {
@@ -88,9 +94,11 @@ read_api() {
 }
 
 # The comment list comes in creation order, so its last review comment is the
-# newest, as PR-Agent's get_previous_review finds it.
-reviews=$(read_api "issues/$pr/comments?per_page=100" \
-  '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("'"$REVIEW_MARK"'"))) | .created_at') \
+# newest, as PR-Agent's get_previous_review finds it. A comment is a review as
+# comment_identity.comment_matches_identity decides: a marker, in either of
+# its stored forms, as a whole line among the first five, or a legacy header
+# the body starts with.
+reviews=$(read_api "issues/$pr/comments?per_page=100" "$REVIEW_FILTER") \
   || full_on "Could not read the PR's comments"
 if [ -n "$reviews" ] && printf '%s\n' "$reviews" | grep -Evq "^$DATE\$"; then
   full_on "The PR's comment list came back in a shape this script cannot read"

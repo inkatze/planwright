@@ -169,6 +169,35 @@ list "$(comment 1 "$BOT" 2026-11-14T06:43:23Z "$FULL_REVIEW")" \
 list "$(commit 2 2026-11-16T10:04:51Z)" "$(commit 1 2026-11-16T10:49:37Z)" >"$T/commits.json"
 run_case "$name" full && ok "$name"
 
+# PR-Agent anchors on a marker only as a whole line among a comment's first
+# five, in either stored form, or on a legacy header the comment starts with.
+name="a review comment anchors by any form PR-Agent matches, and only those"
+legacy_ok=1
+for body in '## PR Reviewer Guide 🔍
+no marker' '## Incremental PR Reviewer Guide
+no marker' '## Guide
+  <!-- pr-agent:review:incremental -->  ' '## Guide
+[pr-agent:review:full]: https://github.com/The-PR-Agent/pr-agent'; do
+  new_case
+  list "$(comment 1 "$BOT" 2026-11-14T06:43:23Z "$FULL_REVIEW")" \
+    "$(comment 2 "$BOT" 2026-11-16T10:10:00Z "$body")" >"$T/comments.json"
+  list "$(commit 2 2026-11-16T10:04:51Z)" "$(commit 1 2026-11-16T10:49:37Z)" >"$T/commits.json"
+  run_case "$name: [$body]" incremental || legacy_ok=0
+done
+for body in 'a
+b
+c
+d
+e
+<!-- pr-agent:review:incremental -->' 'see <!-- pr-agent:review:incremental --> here' '<!-- pr-agent:review:fullish -->'; do
+  new_case
+  list "$(comment 1 "$BOT" 2026-11-14T06:43:23Z "$FULL_REVIEW")" \
+    "$(comment 2 "$BOT" 2026-11-16T10:10:00Z "$body")" >"$T/comments.json"
+  list "$(commit 2 2026-11-16T10:04:51Z)" "$(commit 1 2026-11-16T10:49:37Z)" >"$T/commits.json"
+  run_case "$name: not [$body]" full || legacy_ok=0
+done
+[ "$legacy_ok" = 1 ] && ok "$name"
+
 name="with no review yet the push keeps the incremental command (PR-Agent reviews in full itself)"
 new_case
 list "$(comment 2 someone 2026-11-14T06:43:23Z hello)" >"$T/comments.json"
