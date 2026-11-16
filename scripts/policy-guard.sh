@@ -5740,6 +5740,9 @@ mc_blank_quotes() {
 mc_settings_screen() {
   local t=$1 r si=0 k named=0 w m verb sedscript inplace
   MC_DOC_T=''
+  # The bound holds for the text as written: a strip must never bring an
+  # over-length command under it.
+  case $t in *'<<'*) [ "${#t}" -le "$MAX_CMD_LEN" ] || emit_deny "$MC_SETTINGS_DENY" ;; esac
   if mc_store_doc_strip "$t"; then t=$MC_DOC_T; fi
   MC_CMD=$t
   mc_settings_named "$t" && named=1

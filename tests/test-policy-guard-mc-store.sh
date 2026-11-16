@@ -222,6 +222,20 @@ echo x > $FIXHOME/.claude/settings.json
 EOF"
 done
 
+echo "# a command past the screen's length bound is refused before any body is dropped"
+BIG=$(printf '%17000s' '')
+BIG=${BIG// /a}
+refuse "cat >> $H/kb/big.md <<'EOF'
+$BIG
+EOF"
+refuse "cat >> $H/kb/big.md <<'EOF'
+$BIG
+EOF
+echo x >> $FIXHOME/.claude/settings.json"
+allow "cat >> $H/kb/big.md <<'EOF'
+${BIG:0:8000}
+EOF"
+
 echo "# a stored body is never handed to sed as a script"
 SEDBODY="cat >> $H/kb/x.md <<'EOF'
 1w $FIXHOME/.claude/settings.json
