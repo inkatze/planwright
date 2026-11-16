@@ -370,7 +370,7 @@ echo "ok: a registry row that is a link or not a file is refused, never taken fo
 # resolved at all.
 printf 'format\t1\nname\tw1\nwaiting\toperator\n' >"$gate_home/mission-control/sessions/w1"
 chmod 000 "$gate_home/mission-control/sessions"
-if [ ! -x "$gate_home/mission-control/sessions" ]; then
+if [ ! -r "$gate_home/mission-control/sessions" ] && [ ! -x "$gate_home/mission-control/sessions" ]; then
   gate w1 trig why
   chmod 700 "$gate_home/mission-control/sessions"
   expect 5 "a session whose registry directory cannot be searched"
