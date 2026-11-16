@@ -112,7 +112,8 @@ Usage:
       starts in --cwd, else the first of the program's repositories on
       this machine (none refuses, exit 1), never the caller's directory,
       and keeps the caller's config overlays (the launcher's
-      --keep-config-env), where the program block may live. A tmux successor's
+      --keep-config-env, a relative path made absolute against the
+      caller's directory), where the program block may live. A tmux successor's
       Remote Control follows mission_control_successor_remote_control:
       off (the default) starts none; on names the successor as itself;
       inherit carries the live predecessor's --remote-control (read from
