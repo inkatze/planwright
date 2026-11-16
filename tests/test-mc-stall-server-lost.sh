@@ -99,6 +99,13 @@ case $verb in
       render '' "$fmt"
       exit 0
     fi
+    # N.rewrite: a source and a destination line; the first read of the
+    # window copies the one over the other, as a relaunch racing the read.
+    if [ -f "$TMUX_STUB/$n.rewrite" ]; then
+      { read -r rw_src; read -r rw_dst; } <"$TMUX_STUB/$n.rewrite"
+      cp "$rw_src" "$rw_dst"
+      rm -f "$TMUX_STUB/$n.rewrite"
+    fi
     # N.err: tmux fails for that window with this message.
     [ ! -f "$TMUX_STUB/$n.err" ] || { cat "$TMUX_STUB/$n.err" >&2; exit 1; }
     [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
@@ -145,7 +152,7 @@ server() { printf '%s\n' "$1" >"$tmp/tmux/server"; }
 # reset: an empty registry and window table, so each case scans only its own
 # sessions.
 reset() {
-  rm -f "$reg"/mc-* "$tmp/tmux"/*.name "$tmp/tmux"/*.pid "$tmp/tmux"/*.pane "$tmp/tmux"/*.err "$tmp/tmux/server"
+  rm -f "$reg"/mc-* "$tmp/tmux"/*.name "$tmp/tmux"/*.pid "$tmp/tmux"/*.pane "$tmp/tmux"/*.err "$tmp/tmux"/*.rewrite "$tmp/tmux/server"
 }
 
 stall() { mc_run mc-stall.sh "$@"; }
@@ -374,6 +381,16 @@ first_event=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "mc-alpha-worker-first" 
 [ "$first_event" = - ] && ok "the announced session's line carries no event of the later loss" \
   || fail "mc-alpha-worker-first's line carries event '$first_event'"
 
+# The record keeps every session announced under the server.
+stall scan --program alpha --now 5150
+events_on_lines=$(printf '%s\n' "$OUT" | awk -F '\t' '$5 != "-" { n++ } END { print n + 0 }')
+[ "$(count tmux-server-lost)" = $((before_lost + 2)) ] && [ "$events_on_lines" = 0 ] \
+  && ok "a rescan under the same server announces no session again" \
+  || {
+    fail "a rescan under the same server: $(($(count tmux-server-lost) - before_lost)) events, $events_on_lines lines with one"
+    dump
+  }
+
 # A second replacement is a new loss.
 server 600.9500
 stall scan --program alpha --now 5200
@@ -382,6 +399,10 @@ stall scan --program alpha --now 5200
     fail "a second replacement: $(($(count tmux-server-lost) - before_lost)) events"
     dump
   }
+case $(lost_text) in
+  *mc-alpha-worker-first*mc-alpha-worker-later* | *mc-alpha-worker-later*mc-alpha-worker-first*) ok "the second replacement's event names every session still lost" ;;
+  *) fail "the second replacement's event does not name both sessions: $(lost_text)" ;;
+esac
 
 # Sessions recorded under two earlier servers are one loss.
 reset
@@ -396,6 +417,12 @@ stall scan --program alpha --now 5300
     fail "sessions of two earlier servers"
     dump
   }
+case $(lost_text) in
+  *mc-alpha-worker-olda*mc-alpha-worker-oldb* | *mc-alpha-worker-oldb*mc-alpha-worker-olda*) ok "the event names the sessions of both earlier servers" ;;
+  *) fail "the event does not name both earlier servers' sessions: $(lost_text)" ;;
+esac
+[ "$(state_of mc-alpha-worker-olda)" = dead ] && [ "$(state_of mc-alpha-worker-oldb)" = dead ] \
+  && ok "both earlier servers' sessions read dead" || fail "olda reads '$(state_of mc-alpha-worker-olda)', oldb '$(state_of mc-alpha-worker-oldb)'"
 
 # Classifying one lost session first raises the loss for all of them.
 reset
@@ -413,6 +440,45 @@ case $(lost_text) in
   *mc-alpha-worker-cfa*mc-alpha-worker-cfb* | *mc-alpha-worker-cfb*mc-alpha-worker-cfa*) ok "classify's event names every lost session" ;;
   *) fail "classify's event does not name both sessions: $(lost_text)" ;;
 esac
+cfa_event=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "mc-alpha-worker-cfa" { print $5 }')
+[ -n "$cfa_event" ] && [ "$cfa_event" != - ] && ok "the classified session's line carries the loss event" \
+  || fail "mc-alpha-worker-cfa's line carries event '$cfa_event'"
+stall classify --program alpha --now 5410 mc-alpha-worker-cfb
+cfb_event=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "mc-alpha-worker-cfb" { print $5 }')
+[ "$RC" = 0 ] && [ "$(state_of mc-alpha-worker-cfb)" = dead ] && [ "$cfb_event" = - ] \
+  && [ "$(count tmux-server-lost)" = $((before_lost + 1)) ] && [ "$(count stall-dead mc-alpha-worker-cfb)" = 0 ] \
+  && ok "classifying the other lost session after it raises nothing more" \
+  || {
+    fail "classify of cfb after cfa: rc $RC, state '$(state_of mc-alpha-worker-cfb)', event '$cfb_event'"
+    dump
+  }
+
+# classify of a session on the running server, of a stream-json session, or
+# of a row with no usable recorded server raises no loss for the others.
+# Each case runs on its own server, so no earlier case's record already
+# holds the loss.
+fast_srv=850
+for fast in running stream-json no-server; do
+  reset
+  before_lost=$(count tmux-server-lost)
+  fast_srv=$((fast_srv + 1))
+  server "$fast_srv.9995"
+  row mc-alpha-worker-fastgone worker @25 800.9990
+  case $fast in
+    running)
+      row mc-alpha-worker-fastok worker @26 "$fast_srv.9995"
+      window 26 mc-alpha-worker-fastok
+      ;;
+    stream-json) ROW_BACKEND=stream-json row mc-alpha-worker-fastok worker @26 800.9990 ;;
+    no-server) row mc-alpha-worker-fastok worker @26 - ;;
+  esac
+  stall classify --program alpha --now 5450 mc-alpha-worker-fastok
+  [ "$(count tmux-server-lost)" = "$before_lost" ] && ok "classify of a $fast session raises no tmux-server-lost for another" \
+    || {
+      fail "classify of a $fast session raised tmux-server-lost: $(lost_text)"
+      dump
+    }
+done
 
 # --- rows that are not lost tmux windows -----------------------------------
 
@@ -422,26 +488,52 @@ server 900.9999
 row mc-alpha-worker-tmuxgone worker @20 800.9990
 ROW_STATE=retired row mc-alpha-worker-retired worker @21 800.9990
 ROW_BACKEND=stream-json row mc-alpha-worker-streamjson worker @22 800.9990
+P=$long_program row "mc-$long_program-worker-other" worker @24 800.9990
 stall scan --program alpha --now 5500
 case $(lost_text) in
-  *mc-alpha-worker-retired* | *mc-alpha-worker-streamjson*) fail "tmux-server-lost names a retired or stream-json row: $(lost_text)" ;;
+  *mc-alpha-worker-retired* | *mc-alpha-worker-streamjson* | *"mc-$long_program"*) fail "tmux-server-lost names a retired, stream-json or other program's row: $(lost_text)" ;;
   *mc-alpha-worker-tmuxgone*) ok "tmux-server-lost names only launched tmux rows" ;;
   *)
     fail "tmux-server-lost does not name mc-alpha-worker-tmuxgone: $(lost_text)"
     dump
     ;;
 esac
+[ "$(state_of mc-alpha-worker-streamjson)" != dead ] && ok "the stream-json row keeps its own classification" \
+  || fail "the stream-json row read dead beside the loss"
 
 # A window tmux fails to read, short of saying it is gone, proves nothing.
 reset
 before_lost=$(count tmux-server-lost)
 server 950.9999
 row mc-alpha-worker-flaky worker @23 900.9999
+row mc-alpha-worker-flakygone worker @27 900.9999
 printf '%s\n' 'server exited unexpectedly' >"$tmp/tmux/23.err"
 stall scan --program alpha --now 5600
-[ "$(count tmux-server-lost)" = "$before_lost" ] && ok "an unreadable window raises no tmux-server-lost" \
+[ "$RC" = 0 ] && [ "$(count tmux-server-lost)" = "$before_lost" ] \
+  && ok "an unreadable window beside a gone one raises no tmux-server-lost" \
   || {
-    fail "an unreadable window raised tmux-server-lost"
+    fail "an unreadable window: rc $RC, tmux-server-lost raised"
+    dump
+  }
+[ "$(count stall-dead mc-alpha-worker-flakygone)" = 1 ] && ok "the gone window beside it keeps its per-session death" \
+  || fail "mc-alpha-worker-flakygone raised no stall-dead"
+
+# A row relaunched on the running server while the pass proved the loss is
+# classified on its own: the stub rewrites its row as the probe reads it.
+reset
+before_lost=$(count tmux-server-lost)
+server 960.9999
+row mc-alpha-worker-relaunched worker @29 960.9999
+mv "$reg/mc-alpha-worker-relaunched" "$tmp/relaunched.row"
+row mc-alpha-worker-relaunched worker @28 900.9999
+window 29 mc-alpha-worker-relaunched
+printf '%s\n%s\n' "$tmp/relaunched.row" "$reg/mc-alpha-worker-relaunched" >"$tmp/tmux/28.rewrite"
+stall scan --program alpha --now 5650
+rl_event=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "mc-alpha-worker-relaunched" { print $5 }')
+[ "$(state_of mc-alpha-worker-relaunched)" = idle ] && [ "$rl_event" = - ] \
+  && ok "a row relaunched on the running server mid-pass is not read lost" \
+  || {
+    fail "the relaunched row reads '$(state_of mc-alpha-worker-relaunched)' with event '$rl_event'"
     dump
   }
 

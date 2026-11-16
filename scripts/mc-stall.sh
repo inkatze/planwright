@@ -427,8 +427,8 @@ server_lost() {
   fi
 }
 
-# in_lines <name> <lines>: 0 when <name> is one of the newline-separated
-# <lines>.
+# in_lines <name> <lines>: both sides are wrapped in newlines so a name
+# matches a whole line, never a prefix of a longer name.
 in_lines() {
   case "
 $2
@@ -576,7 +576,7 @@ classify_one() {
     working | idle | live | operator-question) ;;
     *)
       if [ "$c_lost" = 1 ]; then
-        ! in_lines "$c_name" "$LOST_NEW" || c_event=$LOST_EVENT
+        if in_lines "$c_name" "$LOST_NEW"; then c_event=$LOST_EVENT; fi
       elif [ "$c_state" != "$c_prev_state" ]; then
         c_event=$(mc_event emit --program "$PROGRAM" --now "$NOW" -- "stall-$c_state" "$c_name" "$c_kind: $c_reason") || {
           pw_lock_release "$c_lock" || :
