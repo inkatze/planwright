@@ -2737,7 +2737,8 @@ A session with a live `operator`, `ci` or `ready-flip` wait (set with
 `wait <name> --on <why>`) is parked, not finished: `retire` refuses it with
 exit 4 naming the wait, `fleet-streamjson.sh status` prints `parked` for it
 (or for a turn that ended on a question) rather than `completed`, and no
-idle bound, completed-grace retire or process reap touches it. `unwait`
+idle bound, completed-grace retire or process reap (`fleet-cleanup.sh
+process`, which also refuses a row whose wait it cannot read) touches it. `unwait`
 restores the plain retire; `retire <name> --force-parked` retires it anyway.
 
 The `/tower` front door runs under the same profile. The shapes its sessions

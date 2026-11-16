@@ -708,8 +708,9 @@ idle_since_streamjson() {
 }
 
 # parked_on <session>: the wait (operator, ci or ready-flip) the session's
-# registry row records, else nothing. A session with a live wait is parked on
-# someone, so no bound retires it, whatever its last turn looked like.
+# registry row records, else nothing; `unknown` when the fleet home cannot be
+# resolved, which callers read as parked. A session with a live wait is parked
+# on someone, so no bound retires it, whatever its last turn looked like.
 parked_on() {
   pn_home=$(mc_fleet_home) || {
     printf 'unknown'
