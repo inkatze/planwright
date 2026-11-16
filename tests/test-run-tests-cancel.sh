@@ -3,7 +3,7 @@
 # run is cancelled: a TERM, INT or HUP to the runner, even one started with
 # INT and QUIT inherited ignored (as a job started asynchronously by a shell
 # without job control, such as a CI runner's, gets them), leaves no test file
-# or child of one running.
+# or child of one running, and the run exits 128+signal.
 set -u
 unset CDPATH
 
@@ -34,9 +34,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# started_count <dir> <file|child> — stub pids recorded so far.
+# started_count <dir> <file|child> — stub pids recorded so far. The redirect
+# creates the file before the pid lands in it.
 started_count() {
-  find "$1" -name "$2-*" 2>/dev/null | wc -l | tr -d ' '
+  find "$1" -name "$2-*" -size +0 2>/dev/null | wc -l | tr -d ' '
 }
 enough_started() {
   [ "$(started_count "$1" file)" -ge "$2" ] && [ "$(started_count "$1" child)" -ge "$2" ]
@@ -87,6 +88,18 @@ EOF
   kill -s "$cc_sig" "$cc_run"
   if poll_until --deadline 30 --what "$cc_label: the runner ends" -- pid_gone "$cc_run"; then
     pass "$cc_label: the runner ends"
+    wait "$cc_run"
+    cc_rc=$?
+    case $cc_sig in
+      HUP) cc_want_rc=129 ;;
+      INT) cc_want_rc=130 ;;
+      *) cc_want_rc=143 ;;
+    esac
+    if [ "$cc_rc" -eq "$cc_want_rc" ]; then
+      pass "$cc_label: the run exits $cc_want_rc"
+    else
+      fail "$cc_label: the run exits $cc_want_rc (got $cc_rc)"
+    fi
   else
     fail "$cc_label: the runner ends"
   fi
