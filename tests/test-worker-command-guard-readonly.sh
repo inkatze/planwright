@@ -101,6 +101,27 @@ case $OSTYPE in
   *) assert_defer "sed -i a workflow file (BSD sed reads the path as a script)" "sed -i s/a/b/ .github/workflows/ci.yml" Bash "$WT" ;;
 esac
 assert_allow "perl -pi a tracked file" "perl -pi -e 's/a/b/' f" Bash "$WT"
+# The zsh screen reads each script word's own flags with the -i word set aside:
+# a zsh-unsafe script defers after -i exactly as it does without it.
+assert_allow "sed -i -e a tracked file" "sed -i -e s/a/b/ f" Bash "$WT"
+assert_allow "sed -i with two read-only -e scripts" "sed -i -e 1p -e s/a/b/ f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script (~)" "sed -i 1~2d f" Bash "$WT"
+assert_defer "sed -i -e a zsh-unsafe script (~)" "sed -i -e 1~2d f" Bash "$WT"
+assert_defer "sed -i --expression= a zsh-unsafe script" "sed -i --expression=1~2d f" Bash "$WT"
+assert_defer "sed --in-place a zsh-unsafe script" "sed --in-place 1~2d f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script (^)" "sed -i 1^2p f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script (#)" "sed -i s/a#/b/ f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe second -e script" "sed -i -e 1p -e 1~2d f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script, tracked-variable file" "X=f && sed -i 1~2d \$X" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script, unresolved variable file" "sed -i 1~2d \$X" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script, glob file" "sed -i 1~2d f*" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script, substituted file" "sed -i -e 1~2d \$(echo f)" Bash "$WT"
+assert_defer "sed -i a substituted file" "sed -i 1p \"\$(id)\"" Bash "$WT"
+assert_defer "sed -i a parameter-expanded file" "sed -i 1p \$HOME/x" Bash "$WT"
+assert_defer "sed -i a glob file" "sed -i 1p *" Bash "$WT"
+assert_defer "sed -i -e a substituted file" "sed -i -e 1p \$(echo f)" Bash "$WT"
+assert_defer "sed -i a substituted script" "sed -i -e \"\$(echo 1p)\" f" Bash "$WT"
+assert_defer "sed -i a file after a zsh-unsafe file" "sed -i 1p f~x g" Bash "$WT"
 assert_defer "sed -i a file in .git" "sed -i s/a/b/ .git/config" Bash "$WT"
 assert_defer "sed -i a hook" "sed -i s/a/b/ githooks/pre-commit" Bash "$WT"
 assert_defer "sed -i under .claude" "sed -i s/a/b/ .claude/settings.json" Bash "$WT"

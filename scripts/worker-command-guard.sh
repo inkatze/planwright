@@ -2443,8 +2443,8 @@ guard_sed() {
 # also read as a read-only script, since BSD sed takes the word after `-i` as
 # its suffix and so the first file as the script.
 guard_sed_inplace() {
-  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0
-  local -a words=() files=()
+  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0 nn=0
+  local -a words=() files=() nx=() nq=() nd=() ng=() nz=() nm=() ns=()
   ob_live || return 1
   for ((i = 0; i < cwn; i++)); do
     a=${cw[i]}
@@ -2456,7 +2456,17 @@ guard_sed_inplace() {
           ;;
       esac
     fi
-    words[${#words[@]}]=$a
+    # Every per-word flag array drops the `-i` word with `cw`, so a screen
+    # guard_sed runs by index reads the word it names, not its neighbour.
+    words[nn]=$a
+    nx[nn]=${cx[i]}
+    nq[nn]=${cqp[i]}
+    nd[nn]=${cdyn[i]}
+    ng[nn]=${cglob[i]}
+    nz[nn]=${cz[i]-0}
+    nm[nn]=${cqm[i]}
+    ns[nn]=${csub[i]-}
+    nn=$((nn + 1))
     [ "$i" -gt 0 ] || continue
     if [ "$expect_e" = 1 ]; then
       expect_e=0
@@ -2478,8 +2488,9 @@ guard_sed_inplace() {
     esac
   done
   [ "$inplace" = 1 ] && [ "$nfiles" -ge 1 ] || return 1
-  local -a cw=("${words[@]}")
-  local cwn=${#words[@]}
+  local -a cw=("${words[@]}") cx=("${nx[@]}") cqp=("${nq[@]}") cdyn=("${nd[@]}")
+  local -a cglob=("${ng[@]}") cz=("${nz[@]}") cqm=("${nm[@]}") csub=("${ns[@]}")
+  local cwn=$nn
   guard_sed || return 1
   for a in "${files[@]}"; do
     # Only a BSD sed reads the first word after a bare `-i` as its suffix, so
