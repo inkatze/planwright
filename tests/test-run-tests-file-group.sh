@@ -1,11 +1,6 @@
 #!/bin/bash
 # Tests that scripts/run-tests.sh gives every test file a process group of its
-# own on a host with no timeout(1) or gtimeout (macOS), as GNU timeout already
-# does elsewhere. A file sharing the runner's group can leave a stopped process
-# there (a close freezes a fixture worker tree with SIGSTOP); when that group
-# then has no member with a parent outside it in its session, as under a CI
-# runner a service manager started, the kernel's orphaned-group rule sends
-# SIGHUP to the whole group: the runner, its caller and every other file.
+# own on a host with no timeout(1) or gtimeout (macOS); why is in its header.
 #
 #   g1: with no bounder, a file leads its own process group.
 #   g2: a runner in a fresh session survives a file that orphans its own
@@ -35,6 +30,9 @@ fail() {
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-run-tests-file-group.XXXXXX")" || exit 2
 trap 'rm -rf "$tmp"' EXIT
+# A pool of its own: the machine-wide one is full while the outer suite runs,
+# and every run below would wait there for a ticket.
+export PLANWRIGHT_TEST_SLOT_DIR="$tmp/pool"
 
 # Every file reads its group from /proc where it exists, since busybox's ps
 # takes no -p; else from ps (macOS has no /proc).
