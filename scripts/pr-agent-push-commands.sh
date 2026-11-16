@@ -3,30 +3,26 @@
 # incremental (/review -i), or full (/review) when a merge commit is among the
 # commits the incremental review would take in.
 #
-# An incremental review takes every file each commit newer than PR-Agent's
-# newest review comment touched, diffed against the last commit before them.
-# A merge from the base among those commits carries all of the base's changes
-# since the branch last synced, so the review can run past its time bound.
-# PR-Agent skips only a merge whose message starts "Merge branch '<default>'";
-# a "Merge remote-tracking branch 'origin/main'" goes in whole. Any commit with
-# more than one parent counts here, the skipped kind included. A full review
-# reads the PR's own diff against its base, so a merge adds nothing to it.
+# An incremental review diffs every file the commits newer than PR-Agent's
+# newest review comment touched, so a merge from the base among them carries
+# all of the base's changes since the last sync and can outrun the time bound.
+# PR-Agent skips only a "Merge branch '<default>'" merge; here any commit with
+# more than one parent counts. A full review reads the PR's own diff against
+# its base, which a merge adds nothing to.
 #
-# The range mirrors PR-Agent 0.49.0's (github_provider.get_commit_range):
-# walking back from the head, the commits whose committer date (author date
-# when it has none) is later than the newest review comment's creation,
-# stopping at the first that is not. With no review comment PR-Agent reviews
-# in full itself, so the incremental command stands. A full review edits the
-# persistent review comment in place, which leaves its creation time where it
-# was, so once a merge is in range every later push on the PR gets the full
-# review too (PR-Agent's own default push command).
+# The range mirrors PR-Agent 0.49.0's github_provider.get_commit_range: from
+# the head back, the commits whose committer date (author date when it has
+# none) is later than the newest review comment's creation, stopping at the
+# first that is not. With no review comment PR-Agent reviews in full itself,
+# so the incremental command stands. A full review edits that comment in
+# place without moving its creation time, so once a merge is in range every
+# later push on the PR gets the full review too.
 #
 # Usage: pr-agent-push-commands.sh --pr <n> --output <file>
-#   Needs gh signed in and GITHUB_REPOSITORY. Appends one line,
-#   commands=<JSON list>, to <file> (the step's GITHUB_OUTPUT).
-# Exit: 0 a choice was written (a read that fails, or comes back in a shape
-#   this script cannot read, picks the full review and warns); 1 the output
-#   could not be written; 2 usage.
+#   Needs gh signed in and GITHUB_REPOSITORY; appends commands=<JSON list> to
+#   <file> (the step's GITHUB_OUTPUT).
+# Exit: 0 a choice was written (a failed or unreadable read picks the full
+#   review and warns); 1 the output could not be written; 2 usage.
 
 set -u
 LC_ALL=C
