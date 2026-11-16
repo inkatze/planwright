@@ -79,7 +79,8 @@
 # outside that group anchors it in its session, as under a CI runner a service
 # manager started, the kernel's orphaned-group rule sends SIGHUP to the whole
 # group: the runner, its caller and every other file. Its own group confines
-# that to the file. Without perl a file runs in the worker's group, as before.
+# that to the file. Without perl a file runs in the foreground, in the
+# worker's group.
 #
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
