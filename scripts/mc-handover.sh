@@ -152,7 +152,16 @@ Usage:
       server there is the one that issued the id and the pane's window
       keeps the recorded name; printing pane<TAB><id><TAB>closed|held, or
       pane<TAB><id><TAB>left<TAB><why> for one it does not touch) once the
-      name has moved, then announces itself
+      name has moved, then announces itself. Once the name moves, every
+      event raised before it is marked submitted (mc-event.sh mark) for the
+      taker and for the program-named target the mod wakes under, but for
+      the open items (`item <id>`) the handover file lists; with no handover
+      file nothing is marked, said on stderr. The retired predecessor, a
+      stranded successor and the program-named target stop being wake
+      targets (mc-wake.sh target remove), so none is woken again for the
+      program's events; a successor running the mod claims the
+      program-named target again when its panel activates, and an attended
+      resume (below) keeps it, its own mod's
   mc-handover.sh resume --program <p> --session <handle>
       [--kind attended|registry] --picture <file> --digest <hex>
       --durable <file> [--window <cadence>] [--pid <pid>]
@@ -161,7 +170,9 @@ Usage:
       operator's own session; registry needs the session's registry
       row): the self-check against --durable, a release request to a live
       holder (event handover-requested), the same wait, transfer,
-      retirement, exit wait and announcement, and what changed since the
+      retirement, exit wait, backlog marks, wake-target removal and
+      announcement (the open items kept are those of the handover file,
+      where one is left, and of --durable), and what changed since the
       operator's last turn
   --pid names the taking session's own process for the holder record, so
   the next take or resume can confirm it exited; it defaults to
@@ -652,17 +663,107 @@ retire_row() {
   fi
 }
 
-# succeed <to> <kind> <from|-> <from kind> <expected holder> <wait>: the name
-# moves to <to> once <from> has released to it or the window has closed,
-# only while the holder is still <expected holder> (empty for none); then
-# <from>, and any pending successor the move strands, are retired, and the
-# process <from>'s holder record names is waited for. RETIRE_OK is 0 when a
-# retirement was only partial or that process still runs.
+# open_items <file>...: the item ids each readable picture lists, one per
+# line.
+open_items() {
+  for oi_f in "$@"; do
+    [ -n "$oi_f" ] && [ -f "$oi_f" ] && [ -r "$oi_f" ] || continue
+    awk '$1 == "item" && NF == 2 { print $2 }' "$oi_f"
+  done
+}
+
+# mark_backlog <to>: every event S_BEFORE lists but the open items S_KEEP
+# lists is marked submitted for <to> and for the program-named target a
+# successor's mod wakes under, so the new holder is not woken again for a
+# backlog its predecessor handled. With no list of open items nothing is
+# marked, since an open item would then read as handled.
+mark_backlog() {
+  if [ "$S_KEEP_KNOWN" -eq 0 ]; then
+    say "no handover file names the open items, so the events raised before $1 took the name stay pending for it"
+    return 0
+  fi
+  if [ "$S_LISTED" -eq 0 ]; then
+    say "warning: the events could not be listed, so the backlog from before $1 took the name stays pending for it"
+    return 0
+  fi
+  mb_old=$(printf '%s\n' "$S_BEFORE" | K=$S_KEEP awk '
+    BEGIN { n = split(ENVIRON["K"], k, "\n"); for (i = 1; i <= n; i++) keep[k[i]] = 1 }
+    NF && !($1 in keep) { print $1 }')
+  [ -n "$mb_old" ] || return 0
+  mb_targets=$1
+  [ "$1" = "$program" ] || mb_targets="$1 $program"
+  for mb_t in $mb_targets; do
+    if ! mb_rows=$(mc_event list --program "$program" --target "$mb_t" --pending --limit 100000 2>/dev/null); then
+      say "warning: the events pending for $mb_t could not be listed, so its backlog stays pending"
+      continue
+    fi
+    # Batches of 200, so a large backlog never outgrows the argument list.
+    mb_batches=$(printf '%s\n' "$mb_rows" | O=$mb_old awk -F '\t' '
+      BEGIN { n = split(ENVIRON["O"], o, "\n"); for (i = 1; i <= n; i++) old[o[i]] = 1 }
+      NF && ($1 in old) { printf "%s%s", (c % 200 ? " " : (c ? "\n" : "")), $1; c++ }
+      END { if (c) print "" }')
+    [ -n "$mb_batches" ] || continue
+    mb_ok=1
+    while IFS= read -r mb_batch; do
+      # shellcheck disable=SC2086 # one event id per word
+      mc_event mark --program "$program" --target "$mb_t" submitted $mb_batch >/dev/null 2>&1
+      case $? in 0 | 3) ;; *) mb_ok=0 ;; esac
+    done <<EOF
+$mb_batches
+EOF
+    [ "$mb_ok" -eq 1 ] || say "warning: part of the backlog could not be marked for $mb_t, so it stays pending"
+  done
+}
+
+# drop_targets <to> <to kind> <handle|->...: each handle but <to>, and the
+# program-named target the predecessor's mod held, stops being a wake target:
+# a retired holder left there is woken for the program's events on every
+# pass. An attended taker keeps the program-named one, its own mod's; a
+# launched successor running the mod claims it again when its panel
+# activates.
+drop_targets() {
+  dt_to=$1
+  dt_prog=$program
+  [ "$2" != attended ] || dt_prog=-
+  shift 2
+  for dt_w in "$@" "$dt_prog"; do
+    [ -n "$dt_w" ] && [ "$dt_w" != - ] && [ "$dt_w" != "$dt_to" ] || continue
+    /bin/bash "$script_dir/mc-wake.sh" target remove --program "$program" "$dt_w" >/dev/null 2>&1 </dev/null \
+      || say "warning: $dt_w is still a wake target of program $program; remove it with mc-wake.sh target remove --program $program $dt_w"
+  done
+}
+
+# succeed <to> <kind> <from|-> <from kind> <expected holder> <wait>
+# [<picture>...]: the name moves to <to> once <from> has released to it or
+# the window has closed, only while the holder is still <expected holder>
+# (empty for none); then <from>, and any pending successor the move strands,
+# are retired, and the process <from>'s holder record names is waited for.
+# The events raised before the move are marked submitted for <to> but the
+# open items the handover file and each <picture> list, and no session but
+# <to> stays a wake target. RETIRE_OK is 0 when a retirement was only
+# partial or that process still runs.
 succeed() {
-  s_to=$1 s_kind=$2 s_from=$3 s_from_kind=$4 s_expect=$5
+  s_to=$1 s_kind=$2 s_from=$3 s_from_kind=$4 s_expect=$5 s_wait=$6
+  shift 6
   s_how=none
   if [ "$s_from" != - ]; then
-    if wait_release "$s_from" "$s_from_kind" "$s_to" "$6"; then s_how=released; else s_how=retired; fi
+    if wait_release "$s_from" "$s_from_kind" "$s_to" "$s_wait"; then s_how=released; else s_how=retired; fi
+  fi
+  # Read before the move consumes the handover file, and listed before it, so
+  # an event raised once the name has moved stays pending for the new holder.
+  S_KEEP_KNOWN=0
+  s_hf=''
+  if [ -f "$HANDOVER" ] && mc_format_ok "$HANDOVER"; then
+    s_hf=$HANDOVER
+    S_KEEP_KNOWN=1
+  fi
+  [ $# -eq 0 ] || S_KEEP_KNOWN=1
+  S_KEEP=$(open_items "$s_hf" "$@")
+  S_LISTED=1
+  if s_rows=$(mc_event list --program "$program" --limit 100000 2>/dev/null); then
+    S_BEFORE=$(printf '%s\n' "$s_rows" | awk -F '\t' 'NF { print $1 }')
+  else
+    S_BEFORE='' S_LISTED=0
   fi
   s_own_start=''
   if [ -n "$own_pid" ]; then
@@ -718,6 +819,8 @@ succeed() {
     printf 'retire\t%s\t%s\n' "$s_stranded" "$s_stranded_state"
     [ "$s_stranded_state" != partial ] || RETIRE_OK=0
   fi
+  drop_targets "$s_to" "$s_kind" "$s_from" "${s_stranded:--}"
+  mark_backlog "$s_to"
 }
 
 # announce <successor> <predecessor|->: one event every live session's wake
@@ -1204,7 +1307,7 @@ case $verb in
         raise handover-requested "$H_SESSION" "the operator resumed mission control for $program in $session; release the name"
       fi
     fi
-    succeed "$session" "$kind" "$from" "$from_kind" "$H_SESSION" "$secs"
+    succeed "$session" "$kind" "$from" "$from_kind" "$H_SESSION" "$secs" "$durable"
     own_request=''
     what_changed "${since:-0}"
     announce "$session" "$from"
