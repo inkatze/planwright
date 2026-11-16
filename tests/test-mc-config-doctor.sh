@@ -474,7 +474,8 @@ expect_out "REQ-A1.9: drift: an adopter comment with metacharacters is still a f
 expect_out "REQ-A1.9: drift: a rule with metacharacters is still a finding" "rule-knob${tab}r-10${tab}mission_control_stall_window${tab}30m${tab}20m"
 if [ ! -e "$sentinel" ]; then ok "REQ-A1.9: drift: rule text and comments run nothing"; else fail "drift: storing the rule or auditing it executed rule or comment text"; fi
 sums_after=$(layer_sums)
-if [ "$sums_after" = "$sums_before" ]; then ok "REQ-A1.9: drift: the rule file and every layer are unchanged after the audit"
+if [ "$sums_after" = "$sums_before" ]; then
+  ok "REQ-A1.9: drift: the rule file and every layer are unchanged after the audit"
 else fail "drift: the audit changed a layer or the rules file; before: $sums_before; after: $sums_after"; fi
 rm -f "$mlocal" "$adopter/planwright.yml"
 
