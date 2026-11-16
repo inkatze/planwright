@@ -566,6 +566,12 @@ stop_freeze() {
   done
 }
 
+# stop_unreadable <consequence> — the one diagnostic a close prints when the
+# process table cannot be read.
+stop_unreadable() {
+  printf '%s\n' "$me: cannot read the process table; $1" >&2
+}
+
 # stop_thaw — SIGCONT every process in `stop_tracked`: one left stopped by a
 # close that gave up would hang for good.
 stop_thaw() {
@@ -616,7 +622,7 @@ stop_trap_disarm() {
 # operator asked for.
 release_processes() {
   rp_found=$(stop_candidates "$1" "$2" "$3") || {
-    printf '%s\n' "$me: cannot read the process table; the process class is left held" >&2
+    stop_unreadable 'the process class is left held'
     return 1
   }
   stop_tracked=$(stop_live "$stop_tracked $rp_found")
@@ -640,10 +646,13 @@ stop_signal_tree() {
   for rp_sig in TERM KILL; do
     # A table that cannot be re-read before the SIGTERM leaves the tree as it
     # was found; before the SIGKILL, what is known is still killed.
-    if ! stop_freeze "$1" "$2" "$3" && [ "$rp_sig" = TERM ]; then
-      stop_thaw
-      printf '%s\n' "$me: cannot read the process table; the process class is left held" >&2
-      return 1
+    if ! stop_freeze "$1" "$2" "$3"; then
+      if [ "$rp_sig" = TERM ]; then
+        stop_thaw
+        stop_unreadable 'the process class is left held'
+        return 1
+      fi
+      stop_unreadable 'killing the processes already found'
     fi
     for rp_p in $stop_tracked; do
       kill "-$rp_sig" "$rp_p" 2>/dev/null || :
