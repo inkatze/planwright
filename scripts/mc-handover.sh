@@ -156,8 +156,9 @@ Usage:
       retired predecessor and a stranded successor stop being wake targets
       (mc-wake.sh target remove), so neither is woken again for the
       program's events, and every event raised in an earlier second than
-      the handover file's written time (or the take's own, when that is
-      earlier) is marked submitted (mc-event.sh
+      the handover file's written time (or the take's own, or the real
+      clock's when it began, when either is earlier) is marked submitted
+      (mc-event.sh
       mark) for the taker and for the program-named target every mod
       holder wakes under, but for the open items (`item <id>`) the file
       lists; with no handover file, or none with a readable written time,
@@ -750,9 +751,13 @@ drop_targets() {
 # that process still runs.
 succeed() {
   s_to=$1 s_kind=$2 s_from=$3 s_from_kind=$4 s_expect=$5 s_wait=$6 s_cutoff=$7
-  # The items this run raises are stamped NOW, so a later cutoff would mark
-  # them handled unseen.
-  [ "$s_cutoff" = - ] || [ "$s_cutoff" -le "$NOW" ] || s_cutoff=$NOW
+  # The items this run raises are stamped NOW, and nobody has seen an event
+  # raised since the run began, so a later cutoff would mark either handled
+  # unseen.
+  if [ "$s_cutoff" != - ]; then
+    [ "$s_cutoff" -le "$NOW" ] || s_cutoff=$NOW
+    [ "$s_cutoff" -le "$RUN_START" ] || s_cutoff=$RUN_START
+  fi
   s_how=none
   if [ "$s_from" != - ]; then
     if wait_release "$s_from" "$s_from_kind" "$s_to" "$s_wait"; then s_how=released; else s_how=retired; fi
@@ -954,6 +959,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$program" ] || usage
 mc_now_arg "$now"
+RUN_START=$(mc_now)
 [ -z "$session" ] || mc_valid_handle "$session" || mc_usage_fail "invalid session handle '$(sanitize_printable "$session")'"
 [ -z "$digest" ] || valid_sha256 "$digest" || mc_usage_fail "--digest takes a SHA-256 in lowercase hex"
 [ -z "$ledger" ] || [ "$ledger" = - ] || mc_valid_entry_id decisions "$ledger" || mc_usage_fail "--ledger takes a decisions-log entry id or -"

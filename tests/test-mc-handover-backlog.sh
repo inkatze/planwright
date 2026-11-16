@@ -100,22 +100,26 @@ run mission-control-launch.sh retire "$n1"
 run mc-wake.sh target add --program alpha "$n1"
 has "$(targets)" "$n1" || fail "fixture: the leftover target was not recorded: $(targets)"
 
-# The take runs on a clock behind the handover file's: what it raises in its
-# own second must not fall below the cutoff.
+# The take runs on a clock behind the handover file's, so the cutoff is the
+# take's own second: an item stamped then, as the take stamps what it raises,
+# and one between the two clocks, stay pending.
 emit handover-retire-failed take-second $((base + 8))
 own_second=$EV
+emit blocker between-clocks $((base + 9))
+between=$EV
 ho take --program alpha --session "$n2" --window 1s --now $((base + 8))
 [ "$RC" = 0 ] || fail "the take exited $RC: $OUT $ERR"
 holder_is "fixture: the successor holds the name" "$n2"
 after=$(pending_for "$n2")
-has "$after" "$own_second" && ok "an item raised in the take's own second stays pending, the cutoff held to the take's clock" \
-  || fail "the take marked an item of its own second: $after"
+has "$after" "$own_second" && ok "an item stamped in the take's own second stays pending" || fail "the take marked an item of its own second: $after"
+has "$after" "$between" && ok "and so does one after the take's clock, though before the handover file's" \
+  || fail "the take marked an event its clock had not reached: $after"
 ! has "$after" "$done1" && ! has "$after" "$done2" \
   && ok "the take marks the backlog its predecessor's picture accounts for submitted for the successor" \
   || fail "the handled backlog is still pending for $n2: $after"
 has "$after" "$open1" && ok "and keeps pending an open item the handover file names" || fail "the open item $open1 is not pending for $n2: $after"
 has "$after" "$unseen" && has "$after" "$same_second" \
-  && ok "and the events raised in the second the handover file was written and after" \
+  && ok "and the events raised from the second the handover file was written on" \
   || fail "an event the picture may not cover was marked for $n2: $after"
 prog_after=$(pending_for alpha)
 ! has "$prog_after" "$done1" && ! has "$prog_after" "$done2" && has "$prog_after" "$open1" \
@@ -142,7 +146,12 @@ printf '%s\n' "item $open3" >"$tmp/left"
 ho write --program alpha --session "$n2" --picture "$tmp/left" --digest "$digest"
 [ "$RC" = 0 ] || fail "fixture: the left-behind handover file was not written: $ERR"
 printf '%s\n' "item $open2" >"$tmp/durable"
-ho resume --program alpha --session operator-term --picture "$tmp/durable" --digest "$digest" --durable "$tmp/durable" --window 1s
+# The resume runs on a clock an hour ahead: an event stamped after the real
+# clock it began on is one nobody has seen, so it stays pending.
+real=$(date +%s)
+emit blocker after-real-start $((real + 60))
+ahead=$EV
+ho resume --program alpha --session operator-term --picture "$tmp/durable" --digest "$digest" --durable "$tmp/durable" --window 1s --now $((real + 3600))
 [ "$RC" = 0 ] || fail "the resume exited $RC: $OUT $ERR"
 holder_is "fixture: the operator's session holds the name" operator-term
 for t in operator-term alpha; do
@@ -151,6 +160,7 @@ for t in operator-term alpha; do
     && ok "the resume marks the backlog for $t" || fail "the resume left $t's handled backlog pending: $r_after"
   has "$r_after" "$open2" && has "$r_after" "$open3" \
     && ok "keeping the open items of --durable and of the handover file left behind" || fail "the resume marked an open item for $t: $r_after"
+  has "$r_after" "$ahead" && ok "and an event after the real clock the resume began on" || fail "the resume marked an event from after it began for $t: $r_after"
 done
 r_targets=$(targets)
 ! has "$r_targets" "$n2" && has "$r_targets" alpha \
