@@ -28,6 +28,7 @@ conflict	blocker
 handover-failed	failure
 handover-retire-failed	failure
 stall-dead	failure
+tmux-server-lost	failure
 stream-json-worker-dead	failure
 stream-json-worker-unowned	failure
 watcher-failing	failure
