@@ -809,6 +809,8 @@ for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
   'env scripts/*.sh' \
   'cp scripts/*.sh copy.sh' \
   'cp scripts/*.sh* copy.sh' \
+  'cp scripts/?.sh copy.sh' \
+  'env scripts/??.sh' \
   'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git diff scripts/other.sh' \
   'git config core.autocrlf false && git add scripts/kickoff-spec-push.sh' \
