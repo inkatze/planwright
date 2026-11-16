@@ -1834,7 +1834,10 @@ kickoff_git_reads() {
             --op* | --ou* | --ext | --ext-* | --textc*) return 1 ;;
             --no-ext-diff) noext=1 ;;
             --no-textconv) notext=1 ;;
-            --patch* | --unified* | --cc | --stat* | --numstat | --shortstat | --word-diff*) patchy=1 ;;
+            --patch* | --unified* | --binary | --remerge-diff | --dd | --cc | --stat* | --numstat | \
+              --shortstat | --word-diff*)
+              patchy=1
+              ;;
             --*) ;;
             -*O*) return 1 ;;
             # -L<range>:<file> prints a patch even beside a <rev>:<path>, and
