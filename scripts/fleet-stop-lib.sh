@@ -60,6 +60,10 @@ grace_max=300
 # The SIGTERM-to-SIGKILL grace a caller gets without asking.
 grace_default=5
 
+# The most process-table re-reads a freeze takes before it signals a tree that
+# will not settle anyway.
+freeze_rounds_max=20
+
 stop_lf='
 '
 
@@ -534,13 +538,13 @@ stop_live() {
 }
 
 # stop_freeze <dir> <match> <pidfiles> — SIGSTOP every process in
-# `stop_tracked`, re-read the tree, and repeat until a read finds no member not
-# already stopped. A signal sent to a snapshot misses a child forked after the
-# read by a parent the signal then kills: it is reparented out of the tree
-# before any later read can reach it, and runs on. A stopped process cannot
-# fork, so once a read adds nothing, every child of the tree is in the set.
-# Bounded, since a tree that will not settle is still better signalled than
-# not; non-zero only when the process table cannot be read.
+# `stop_tracked`, re-read the tree, and repeat until a read adds no member. A
+# signal sent to a snapshot misses a child forked after the read by a parent
+# the signal then kills: reparented out of the tree, it is out of reach of any
+# later read, and runs on. A stopped process cannot fork, and a child forked
+# just before its parent stopped is found by the next read while that parent
+# is held; only a member that exits on its own between two reads can still
+# leave a child behind. Non-zero only when the process table cannot be read.
 stop_freeze() {
   sf_stopped=' '
   sf_round=0
@@ -552,15 +556,14 @@ stop_freeze() {
       sf_stopped="$sf_stopped$sf_p "
       sf_new=1
     done
-    [ "$sf_new" = 1 ] && [ "$sf_round" -lt 20 ] || return 0
+    [ "$sf_new" = 1 ] && [ "$sf_round" -lt "$freeze_rounds_max" ] || return 0
     sf_round=$((sf_round + 1))
     sf_found=$(stop_candidates "$1" "$2" "$3") || return 1
     stop_tracked=$(stop_live "$stop_tracked $sf_found")
   done
 }
 
-# stop_thaw — SIGCONT every process in `stop_tracked`. A stopped process
-# handles a pending SIGTERM only once continued, and one left stopped by a
+# stop_thaw — SIGCONT every process in `stop_tracked`: one left stopped by a
 # close that gave up would hang for good.
 stop_thaw() {
   for st_p in $stop_tracked; do
@@ -568,12 +571,31 @@ stop_thaw() {
   done
 }
 
+# stop_trap_arm / stop_trap_disarm — while the close signals the tree, a closer
+# interrupted by INT, TERM or HUP thaws it before exiting. The exit still runs
+# the EXIT trap a rung armed through the lock library, which releases its
+# locks; disarming hands the three signals back to that library's handlers,
+# or to their defaults. A SIGKILL of the closer cannot be caught, and leaves
+# a frozen tree for the next close to find and signal.
+stop_trap_arm() {
+  trap 'stop_thaw; exit 130' INT
+  trap 'stop_thaw; exit 143' TERM
+  trap 'stop_thaw; exit 129' HUP
+}
+
+stop_trap_disarm() {
+  if [ -n "${PW_LOCK_TRAP_ARMED:-}" ]; then
+    PW_LOCK_TRAP_ARMED=''
+    pw_lock_trap_install
+  else
+    trap - INT TERM HUP
+  fi
+}
+
 # release_processes <dir> <match> <pidfiles> <grace> — freeze the worker's
-# process tree, SIGTERM it, then SIGKILL whatever is still there after <grace>
-# seconds. Children do not reliably die with a parent SIGTERM, so the
-# escalation is not optional. The SIGTERM is sent before the SIGCONT, so a
-# frozen member is continued with the signal already pending and forks nothing
-# first.
+# process tree and SIGTERM it, then freeze and SIGKILL whatever is still there
+# after <grace> seconds. Children do not reliably die with a parent SIGTERM,
+# so the escalation is not optional.
 #
 # The target set accumulates in `stop_tracked` rather than being recomputed
 # from scratch each round. A child that ignores SIGTERM is reparented to pid 1
@@ -581,7 +603,9 @@ stop_thaw() {
 # set rebuilt from the walk alone would then find nothing and report the class
 # released while that child ran on, which is the exact leak this verb exists to
 # close. Candidates discovered during the wait are folded in, so a process the
-# worker forks mid-close is signalled too.
+# worker forks mid-close is signalled too, as long as its parent still lives
+# when the next read runs; a member that handles SIGTERM runs that handler
+# unfrozen, which is why the SIGKILL is preceded by a second freeze.
 #
 # The wait is bounded by wall clock rather than by a tick count: a poll costs a
 # full process-table scan, so on a busy host a tick is far longer than the
@@ -600,14 +624,29 @@ release_processes() {
   # What `stop_process_closed` reads to tell a tree this close terminated from
   # one that was already gone.
   stop_signalled=1
-  stop_freeze "$1" "$2" "$3" || {
-    stop_thaw
-    return 1
-  }
+  stop_trap_arm
+  rp_rc=0
+  stop_signal_tree "$@" || rp_rc=$?
+  stop_trap_disarm
+  return "$rp_rc"
+}
+
+# stop_signal_tree <dir> <match> <pidfiles> <grace> — the signalling half of
+# release_processes, run with the thaw trap armed.
+stop_signal_tree() {
   for rp_sig in TERM KILL; do
+    # A table that cannot be re-read before the SIGTERM leaves the tree as it
+    # was found; before the SIGKILL, what is known is still killed.
+    if ! stop_freeze "$1" "$2" "$3" && [ "$rp_sig" = TERM ]; then
+      stop_thaw
+      printf '%s\n' "$me: cannot read the process table; the process class is left held" >&2
+      return 1
+    fi
     for rp_p in $stop_tracked; do
       kill "-$rp_sig" "$rp_p" 2>/dev/null || :
     done
+    # After the SIGTERM, never before it: a member continued first would run,
+    # and could fork, before handling the signal.
     [ "$rp_sig" = KILL ] || stop_thaw
     case $rp_sig in
       TERM) rp_wait=$4 ;;
