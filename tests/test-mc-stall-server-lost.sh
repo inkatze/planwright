@@ -42,11 +42,16 @@ tmp=$(cd "$tmp" && pwd -P) || exit 1
 . "$here/lib/mission-control-fixture.sh"
 reset_mc_fixture
 mkdir -p "$repo/specs"
+# A program name long enough that a truncated event text must budget for it.
+long_program=alphaprogramwithaverylongname
 cat >"$tracked" <<EOF
-mission_control_programs: [alpha]
+mission_control_programs: [alpha, $long_program]
 program_alpha_repositories: [$repo]
 program_alpha_spec_root: $repo/specs
 program_alpha_home: $tmp/mc-home/alpha
+program_${long_program}_repositories: [$repo]
+program_${long_program}_spec_root: $repo/specs
+program_${long_program}_home: $tmp/mc-home/$long_program
 mission_control_stall_window: 10m
 EOF
 
@@ -94,6 +99,8 @@ case $verb in
       render '' "$fmt"
       exit 0
     fi
+    # N.err: tmux fails for that window with this message.
+    [ ! -f "$TMUX_STUB/$n.err" ] || { cat "$TMUX_STUB/$n.err" >&2; exit 1; }
     [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
     render "$n" "$fmt"
     ;;
@@ -121,11 +128,12 @@ EOF
 reg="$fleet/mission-control/sessions"
 mkdir -p "$reg"
 # row <name> <kind> <window> <server identity | -> [<token>]: a launched tmux
-# registry row as the launcher writes it, recording the window and the server
-# it was opened on.
+# registry row of program $P (default alpha) as the launcher writes it,
+# recording the window and the server it was opened on. ROW_STATE and
+# ROW_BACKEND override its state and backend.
 row() {
-  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\t%s\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts\nbackend\ttmux\nhandle\t%s\nserver\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
-    "$1" "${5:-t}" "$2" "$3" "$4" >"$reg/$1"
+  printf 'format\t1\nname\t%s\nstate\t%s\ntoken\t%s\npid\t1\nprogram\t%s\nowner\tmission-control:%s\nkind\t%s\nscope\ts\nbackend\t%s\nhandle\t%s\nserver\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
+    "$1" "${ROW_STATE:-launched}" "${5:-t}" "${P:-alpha}" "${P:-alpha}" "$2" "${ROW_BACKEND:-tmux}" "$3" "$4" >"$reg/$1"
 }
 # window <n> <name>: the stub's window @n, alive, showing an idle pane.
 window() {
@@ -137,13 +145,13 @@ server() { printf '%s\n' "$1" >"$tmp/tmux/server"; }
 # reset: an empty registry and window table, so each case scans only its own
 # sessions.
 reset() {
-  rm -f "$reg"/mc-* "$tmp/tmux"/*.name "$tmp/tmux"/*.pid "$tmp/tmux"/*.pane "$tmp/tmux/server"
+  rm -f "$reg"/mc-* "$tmp/tmux"/*.name "$tmp/tmux"/*.pid "$tmp/tmux"/*.pane "$tmp/tmux"/*.err "$tmp/tmux/server"
 }
 
 stall() { mc_run mc-stall.sh "$@"; }
 state_of() { printf '%s\n' "$OUT" | awk -F '\t' -v n="$1" '$1 == n { print $3; exit }'; }
 reason_of() { printf '%s\n' "$OUT" | awk -F '\t' -v n="$1" '$1 == n { print $4; exit }'; }
-events() { (mc_env /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha 2>/dev/null); }
+events() { (mc_env /bin/bash "$repo_root/scripts/mc-event.sh" list --program "${P:-alpha}" 2>/dev/null); }
 count() { events | awk -F '\t' -v k="$1" -v s="${2:-}" '$3 == k && (s == "" || $4 == s) { n++ } END { print n + 0 }'; }
 lost_text() { events | awk -F '\t' '$3 == "tmux-server-lost" { t = $5 } END { print t }'; }
 dump() { printf '%s\n' "----- stdout -----" "$OUT" "----- stderr -----" "$ERR" "----- events -----" "$(events)" "------------------" >&2; }
@@ -342,6 +350,124 @@ stall scan --program alpha --now 4100
     fail "an unreachable server"
     dump
   }
+
+# --- once per server, newly lost sessions only ------------------------------
+
+reset
+before_lost=$(count tmux-server-lost)
+server 500.9000
+row mc-alpha-worker-first worker @14 400.8000
+stall scan --program alpha --now 5000
+row mc-alpha-worker-later worker @15 400.8000
+stall scan --program alpha --now 5100
+[ "$(count tmux-server-lost)" = $((before_lost + 2)) ] && ok "a session found lost later under the same server raises its own tmux-server-lost" \
+  || {
+    fail "expected two tmux-server-lost events, got $(($(count tmux-server-lost) - before_lost))"
+    dump
+  }
+case $(lost_text) in
+  *mc-alpha-worker-first*) fail "the later event names the session an earlier one announced: $(lost_text)" ;;
+  *mc-alpha-worker-later*) ok "the later event names only the newly lost session" ;;
+  *) fail "the later event does not name mc-alpha-worker-later: $(lost_text)" ;;
+esac
+first_event=$(printf '%s\n' "$OUT" | awk -F '\t' '$1 == "mc-alpha-worker-first" { print $5 }')
+[ "$first_event" = - ] && ok "the announced session's line carries no event of the later loss" \
+  || fail "mc-alpha-worker-first's line carries event '$first_event'"
+
+# A second replacement is a new loss.
+server 600.9500
+stall scan --program alpha --now 5200
+[ "$(count tmux-server-lost)" = $((before_lost + 3)) ] && ok "a second replacement of the server raises a new tmux-server-lost" \
+  || {
+    fail "a second replacement: $(($(count tmux-server-lost) - before_lost)) events"
+    dump
+  }
+
+# Sessions recorded under two earlier servers are one loss.
+reset
+before_lost=$(count tmux-server-lost)
+server 700.9900
+row mc-alpha-worker-olda worker @16 400.8000
+row mc-alpha-worker-oldb worker @17 500.9000
+stall scan --program alpha --now 5300
+[ "$(count tmux-server-lost)" = $((before_lost + 1)) ] && [ "$(count stall-dead mc-alpha-worker-olda)" = 0 ] \
+  && [ "$(count stall-dead mc-alpha-worker-oldb)" = 0 ] && ok "sessions of two earlier servers raise one tmux-server-lost" \
+  || {
+    fail "sessions of two earlier servers"
+    dump
+  }
+
+# Classifying one lost session first raises the loss for all of them.
+reset
+before_lost=$(count tmux-server-lost)
+server 800.9990
+row mc-alpha-worker-cfa worker @18 700.9900
+row mc-alpha-worker-cfb worker @19 700.9900
+stall classify --program alpha --now 5400 mc-alpha-worker-cfa
+[ "$RC" = 0 ] && [ "$(count tmux-server-lost)" = $((before_lost + 1)) ] && [ "$(count stall-dead mc-alpha-worker-cfa)" = 0 ] \
+  && ok "classify on a fresh loss raises one tmux-server-lost" || {
+  fail "classify on a fresh loss: rc $RC"
+  dump
+}
+case $(lost_text) in
+  *mc-alpha-worker-cfa*mc-alpha-worker-cfb* | *mc-alpha-worker-cfb*mc-alpha-worker-cfa*) ok "classify's event names every lost session" ;;
+  *) fail "classify's event does not name both sessions: $(lost_text)" ;;
+esac
+
+# --- rows that are not lost tmux windows -----------------------------------
+
+reset
+before_lost=$(count tmux-server-lost)
+server 900.9999
+row mc-alpha-worker-tmuxgone worker @20 800.9990
+ROW_STATE=retired row mc-alpha-worker-retired worker @21 800.9990
+ROW_BACKEND=stream-json row mc-alpha-worker-streamjson worker @22 800.9990
+stall scan --program alpha --now 5500
+case $(lost_text) in
+  *mc-alpha-worker-retired* | *mc-alpha-worker-streamjson*) fail "tmux-server-lost names a retired or stream-json row: $(lost_text)" ;;
+  *mc-alpha-worker-tmuxgone*) ok "tmux-server-lost names only launched tmux rows" ;;
+  *)
+    fail "tmux-server-lost does not name mc-alpha-worker-tmuxgone: $(lost_text)"
+    dump
+    ;;
+esac
+
+# A window tmux fails to read, short of saying it is gone, proves nothing.
+reset
+before_lost=$(count tmux-server-lost)
+server 950.9999
+row mc-alpha-worker-flaky worker @23 900.9999
+printf '%s\n' 'server exited unexpectedly' >"$tmp/tmux/23.err"
+stall scan --program alpha --now 5600
+[ "$(count tmux-server-lost)" = "$before_lost" ] && ok "an unreadable window raises no tmux-server-lost" \
+  || {
+    fail "an unreadable window raised tmux-server-lost"
+    dump
+  }
+
+# --- an event text over the store's limit ----------------------------------
+
+reset
+P=$long_program
+before_lost=$(count tmux-server-lost)
+server 990.9999
+i=30
+while [ "$i" -lt 60 ]; do
+  row "mc-$long_program-worker-window-number-$i" worker "@$i" 950.9999
+  i=$((i + 1))
+done
+stall scan --program "$long_program" --now 5700
+[ "$RC" = 0 ] && [ "$(count tmux-server-lost)" = $((before_lost + 1)) ] && [ "$(count stall-dead)" = 0 ] \
+  && ok "a loss too long to name in full still raises one tmux-server-lost and no per-session deaths" \
+  || {
+    fail "a long loss: rc $RC, $(count tmux-server-lost) server-lost, $(count stall-dead) stall-dead"
+    dump
+  }
+long_text=$(lost_text)
+[ "${#long_text}" -le 512 ] && case $long_text in *'relaunch them') true ;; *) false ;; esac \
+  && ok "the truncated text fits the store and still asks for the relaunch" \
+  || fail "the truncated text (${#long_text} bytes): $long_text"
+P=alpha
 
 # --- the event class -------------------------------------------------------
 
