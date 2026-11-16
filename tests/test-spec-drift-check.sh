@@ -195,8 +195,21 @@ expect_err "naming the bundle" "bundle demo is unreadable"
 gitc checkout -q -B pr main
 mkdir -p "$repo/specs/other"
 for f in requirements.md design.md test-spec.md; do cp "$repo/specs/demo/$f" "$repo/specs/other/$f"; done
-sed 's/`scripts\/a.sh` and prose scripts\/prose.sh, plus `src\/b.c`/`src\/other.c`/; s/`lib\/c.sh`/`lib\/d.sh`/' \
-  "$repo/specs/demo/tasks.md" >"$repo/specs/other/tasks.md"
+cat >"$repo/specs/other/tasks.md" <<'EOF'
+# Tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — One
+
+- **Deliverables:** `src/other.c`.
+- **Done when:** ok.
+- **Dependencies:** none
+- **Citations:** D-1
+- **Estimated effort:** 1 day
+EOF
 gitc add -A >/dev/null
 gitc commit -q -m "add a second bundle"
 gitc branch -f main2 pr
