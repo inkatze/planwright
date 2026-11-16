@@ -546,20 +546,23 @@ stop_live() {
 # is held; only a member that exits on its own between two reads can still
 # leave a child behind. Non-zero only when the process table cannot be read.
 stop_freeze() {
-  sf_stopped=' '
   sf_round=0
   while :; do
-    sf_new=0
+    # Every member every round, not only the new ones: a second close of the
+    # same worker may have continued what this one already stopped.
     for sf_p in $stop_tracked; do
-      case $sf_stopped in *" $sf_p "*) continue ;; esac
       kill -STOP "$sf_p" 2>/dev/null || :
-      sf_stopped="$sf_stopped$sf_p "
-      sf_new=1
     done
-    [ "$sf_new" = 1 ] && [ "$sf_round" -lt "$freeze_rounds_max" ] || return 0
+    [ "$sf_round" -lt "$freeze_rounds_max" ] || return 0
     sf_round=$((sf_round + 1))
+    sf_before=" $stop_tracked "
     sf_found=$(stop_candidates "$1" "$2" "$3") || return 1
     stop_tracked=$(stop_live "$stop_tracked $sf_found")
+    sf_added=0
+    for sf_p in $stop_tracked; do
+      case $sf_before in *" $sf_p "*) ;; *) sf_added=1 ;; esac
+    done
+    [ "$sf_added" = 1 ] || return 0
   done
 }
 
