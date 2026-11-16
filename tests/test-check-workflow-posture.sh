@@ -1741,6 +1741,14 @@ suite_rc=1
 [ "$n_suite" = 2 ] && suite_rc=0
 assert_exit "ci.yml gates exactly the test and Alpine jobs on the plan job's suite_run" 0 "$suite_rc"
 
+# A self-hosted Mac runner keeps its tool installs, and the cache save there
+# runs for minutes under load: both macOS jobs must turn mise-action's cache
+# off exactly when the plan job picked the self-hosted runner.
+n_cache="$(grep -cF "cache: \${{ needs.plan.outputs.mac_runner != 'self-hosted' }}" "$CI_YML")"
+cache_rc=1
+[ "$n_cache" = 2 ] && cache_rc=0
+assert_exit "ci.yml turns the tool cache off in both macOS jobs on the self-hosted runner" 0 "$cache_rc"
+
 # The default argument resolves to the repo's workflow directory, so a bare
 # invocation from anywhere gives the same verdict as the explicit one.
 out="$(cd "$TMP" && "$GUARD" 2>&1)"
