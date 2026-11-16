@@ -585,7 +585,7 @@ if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/d
   assert_exit "every tracked .sh file declares a dialect" 0 $?
   assert_contains "the lock library is covered" "$out" "sh${tab}scripts/lock-lib.sh"
   assert_contains "the spec parser library is covered" "$out" "sh${tab}scripts/spec-parse.sh"
-  assert_contains "a bash test library is covered" "$out" "bash${tab}tests/lib/fleet-home.sh"
+  assert_contains "a bash test library is covered" "$out" "bash${tab}tests/lib/hermetic-env.sh"
   assert_contains "the pre-commit hook is covered" "$out" "githooks/pre-commit"
   assert_contains "the commit-msg hook is covered" "$out" "githooks/commit-msg"
   assert_not_contains "the misparse fixtures are excluded" "$out" "tests/fixtures/bash32/"

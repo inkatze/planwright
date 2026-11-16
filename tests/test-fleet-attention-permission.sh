@@ -26,6 +26,8 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 FA="$here/../scripts/fleet-attention.sh"
 FL="$here/../scripts/fleet-liveness.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 errf=""
 
@@ -313,10 +315,15 @@ fa queue --tally --count >/dev/null 2>&1 && fail "queue --tally with --count mus
 if [ "$(id -u)" != 0 ]; then
   fa decide o1 spec.task-4 'Ship it?' yes 'yes|no' || fail "tally setup: decide for the unreadable store"
   chmod 000 "$store"
-  rc=0
-  fa queue --tally >/dev/null || rc=$?
-  chmod 600 "$store"
-  [ "$rc" = 2 ] || fail "queue --tally on an unreadable store must exit 2, not count zero (exit $rc)"
+  if hermetic_access_denied r "$store"; then
+    rc=0
+    fa queue --tally >/dev/null || rc=$?
+    chmod 600 "$store"
+    [ "$rc" = 2 ] || fail "queue --tally on an unreadable store must exit 2, not count zero (exit $rc)"
+  else
+    chmod 600 "$store"
+    echo "skip: the unreadable-store case: the store is still readable here"
+  fi
 else
   echo "skip: the unreadable-store case cannot run as root"
 fi
