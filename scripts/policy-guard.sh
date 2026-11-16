@@ -16,7 +16,7 @@
 # cannot be read denies at every surface.
 #
 # THE MISSION-CONTROL TIER is the tower tier with three differences, each
-# denying with no read. It runs no git mutation: a git subcommand outside a
+# denying with no knob read. It runs no git mutation: a git subcommand outside a
 # read-only set (the inspection commands and the listing forms of branch, tag,
 # stash, worktree, remote and config, an unknown option counting as a write),
 # a read flag that writes a file or runs a program (any abbreviation git
@@ -25,13 +25,18 @@
 # api branch write, and the gh commands that write a branch on the host or a
 # repository locally (pr checkout and update-branch, the repo and release
 # writes). It writes no posture file and no repository: a file-tool path that
-# names a settings, MCP or planwright configuration file or a shipped profile,
-# lies under a .claude hooks, plugins, agents, skills, commands or planwright
-# directory, or lies inside a work tree or bare repository denies; in Bash, a
-# command naming a posture file passes only as a plain read, and a word or
-# redirect target that could expand into one denies (the directories are the
-# file surface's alone: an installed planwright script runs from under
-# .claude/plugins). Its flip, for a PR of the repository it runs in or of a
+# names a settings, MCP or planwright configuration file, CLAUDE.md or
+# CLAUDE.local.md, or a shipped profile, lies under a .claude hooks, plugins,
+# agents, skills, commands or planwright directory, or lies inside a work tree
+# or bare repository denies; in Bash, a command naming a posture file passes
+# only as a plain read, as a message flag's quoted value, or inside a
+# quoted-delimiter heredoc body a plain cat writes to a program home, and a
+# word or redirect target that could expand into one, or a plain absolute one
+# that is or sits behind a link into one, denies (the directories are the file
+# surface's alone: an installed planwright script runs from under
+# .claude/plugins). The program homes come from scripts/mc-program.sh, the one
+# read this screen makes; a failed read leaves no home and so no allowance.
+# Its flip, for a PR of the repository it runs in or of a
 # program-listed one it names with --repo,
 # follows ready_flip_policy: unit-owner defers to the ready-guard's currency
 # check, human asks the operator; the MCP flip stays denied whole, as the
@@ -5148,7 +5153,7 @@ handle_mcp() {
 # planwright.local.yml, where ready_flip_policy lives). The bracketed letter
 # keeps the static no-model-client check from reading the name as a client.
 RE_MC_POSTURE_NAME='(^|[^[:alnum:]_.])(((managed-)?settings(\.local)?|\.c[l]aude|\.mcp)\.json|planwright(\.local)?\.yml)([^[:alnum:]_-]|$)'
-# A project instruction file: it loads as posture, so a write to it is refused
+# An instruction file, project or user: it loads as posture, so a write to it is refused
 # (a read of it is no write).
 RE_MC_INSTRUCTIONS_NAME='(^|/)CLAUDE(\.local)?\.md/?$'
 # Directories whose files load as posture, the planwright fleet home among
@@ -5330,8 +5335,8 @@ mc_data_target() {
 # no allowance (fail closed).
 MC_STORE_ROOTS=()
 MC_STORE_LOADED=0
-# One path component of a store: no leading dot, so no dot-dot and no
-# .claude or .mcp name.
+# The path below a store root, each component with no leading dot, so no
+# dot-dot and no .claude or .mcp name.
 RE_MC_STORE_TAIL='(/[A-Za-z0-9@%+,=_-][A-Za-z0-9._@%+,=-]*)*/?'
 
 mc_store_add_root() {
@@ -5446,7 +5451,7 @@ mc_doc_quotes_close() {
 # mc_store_doc_strip <command> — a command whose here-document bodies are data
 # for cat alone: each is a quoted-delimiter document handed to a plain cat, and
 # every output redirect of the rest of the text lands in a program home or a
-# scratch place of the session's own. Sets MC_DOC_T to the command with those
+# data place (mc_data_target). Sets MC_DOC_T to the command with those
 # bodies dropped and returns 0; anything else (a shell run, an unquoted
 # delimiter, a redirect elsewhere) returns 1 and the whole text is screened.
 mc_store_doc_strip() {
@@ -5501,6 +5506,7 @@ XEOF2
   d=${d//[0-9]>&[0-9]/}
   d=${d//>|/>}
   mc_doc_rest_safe "$chk" || return 1
+  # mc_data_target reads the scratch variable's assignment from MC_CMD.
   MC_CMD=$t
   while [[ $d =~ \>+[[:space:]]*([^[:space:]\;\|\&\<\>]+) ]]; do
     m=${BASH_REMATCH[0]}
@@ -5620,7 +5626,8 @@ mc_under_store_root() {
 }
 
 # mc_write_word_refused <word> — 0 when a word in a write position names a
-# posture file or directory, or could expand into one.
+# posture file or directory, could expand into one, or is a plain absolute
+# path a link leads into one.
 mc_write_word_refused() {
   local w=${1#of=}
   mc_posture_word "$w" && return 0
@@ -5731,12 +5738,16 @@ mc_blank_quotes() {
 }
 
 # mc_settings_screen <command> — refuse a command that writes a posture file:
-# one that names such a file in a form that is not a plain read (apart from
-# the text of a message flag), redirects to a posture path or to a target the
-# shell expands, or hands a posture path or an expanding word to cp, mv,
-# install, ln, tee, dd, rsync or sed -i. An expansion in a read position, or
-# under a data place, is no write. A relative name after a cd into a posture
-# directory is out of a text screen's sight.
+# one that names such a file in a form that is not a plain read (apart from a
+# message flag's quoted value and a store heredoc body mc_store_doc_strip
+# drops), redirects to a posture path, to a plain absolute path a link leads
+# into posture, or to a target the shell expands, or hands any of those to cp,
+# mv, install, ln, tee, dd, rsync or sed -i. An expansion in a read position,
+# or under a data place that is no program home, is no write. Out of a text
+# screen's sight: a relative name (after a cd, or against the session's cwd),
+# a link target spelled with //, /./ or /../, or a link the same command
+# makes; a write in a subshell to an instruction file; a quoted writer (an awk
+# program) naming one; and a >&file target.
 mc_settings_screen() {
   local t=$1 r si=0 k named=0 w m verb sedscript inplace
   MC_DOC_T=''
