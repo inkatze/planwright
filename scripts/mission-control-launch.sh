@@ -864,7 +864,7 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
-  remote_control='' rc_given=0 mise_edit=0 spec_branch='' ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=0
+  remote_control='' rc_given=0 mise_edit=0 spec_branch='' ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=''
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -911,7 +911,7 @@ cmd_launch() {
         shift
         ;;
       --keep-config-env)
-        keep_env=1
+        keep_env=--keep-config-env
         shift
         ;;
       --model | --effort)
@@ -1195,11 +1195,7 @@ cmd_launch() {
   # A tmux window starts from the tmux server's environment instead, so the
   # rung sets them on the window's command line when they are kept.
   scrub='-u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS'
-  keep_flag=''
-  if [ "$keep_env" = 1 ]; then
-    scrub=''
-    keep_flag=1
-  fi
+  [ -z "$keep_env" ] || scrub=''
   # The row's token goes into the session, so a decided-by-mission-control
   # item it adds is bound to this row rather than to a name any caller can
   # type (tower-comms REQ-A1.14). It is handed to the rung as an explicit
@@ -1283,7 +1279,7 @@ cmd_launch() {
     tmux)
       out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
         --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" \
-        ${keep_flag:+--keep-config-env} </dev/null)
+        ${keep_env:+"$keep_env"} </dev/null)
       dr=$?
       case $dr in
         0) ;;

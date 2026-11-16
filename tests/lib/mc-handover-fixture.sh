@@ -87,7 +87,8 @@ mkdir -p "$tmp/shim"
 
 # run <script> <args...>: against the fixture, the shim on PATH, as the
 # Claude session RUN_SESSION names (none when unset), from RUN_CWD (default
-# the fixture repository). Sets RC, OUT, ERR.
+# the fixture repository), with RUN_OVERLAY as the adopter overlay (default
+# the fixture's). Sets RC, OUT, ERR.
 run() {
   r_script=$1
   shift
@@ -99,7 +100,7 @@ run() {
     -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID ${RUN_SESSION:+"CLAUDE_CODE_SESSION_ID=$RUN_SESSION"} \
     ${RUN_TMUX_PANE:+"TMUX=$tmp/tmux.sock,1,0" "TMUX_PANE=$RUN_TMUX_PANE"} \
     PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="${RUN_OVERLAY:-$adopter}" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
     SHIM_RECORD_DIR="$tmp/shim" \
