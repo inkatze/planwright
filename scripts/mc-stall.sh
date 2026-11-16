@@ -59,9 +59,10 @@ scripts/fleet-death-evidence.sh, never pane text or elapsed time:
 The states, first match wins:
   dead                   the predicate reports the window or process gone,
                          a window recorded with its tmux server now comes
-                         from another server or carries another name, or
-                         a stream-json state directory holds neither
-                         pidfile
+                         from another server or carries another name, its
+                         tmux server was lost (below: one tmux-server-lost
+                         event, no stall-dead of its own), or a stream-json
+                         state directory holds neither pidfile
   unknown                no liveness evidence either way (no state
                          directory, an unreadable pidfile, an unreachable
                          or unresponsive tmux server, a window recorded
