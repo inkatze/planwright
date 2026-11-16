@@ -336,6 +336,27 @@ audit --through post-pr
 verdict $? "a record whose stored run differs from the run it sits in is refused as a run mismatch" \
   "rc $RC: $(cat "$tmp/audit")"
 
+# run: forged records beside a sound one withhold covered, named once per point
+mismatch_setup
+r=$(sr new-run)
+rec "$r" convergence show passed
+rec "$r" convergence show passed
+rec "$r" convergence show passed
+forge_field "$wt/.claude/steps/$r/002-step-convergence.rec" run 000099
+forge_field "$wt/.claude/steps/$r/003-step-convergence.rec" run 000098
+done_at "$r" convergence
+audit --through post-pr
+[ "$RC" -eq 1 ] && [ "$(grep -c "${TAB}mismatch${TAB}" "$tmp/audit")" -eq 1 ] && gap_mismatch "run" \
+  && ! grep -qx "covered${TAB}convergence" "$tmp/audit"
+verdict $? "forged records beside a sound one withhold covered and are named once" "rc $RC: $(cat "$tmp/audit")"
+forge_field "$wt/.claude/steps/$r/002-step-convergence.rec" run "$r"
+forge_field "$wt/.claude/steps/$r/003-step-convergence.rec" run "$r"
+forge_field "$wt/.claude/steps/$r/002-step-convergence.rec" point pre-ci
+audit --through post-pr
+[ "$RC" -eq 1 ] && gap_mismatch "run" && ! grep -qx "covered${TAB}convergence" "$tmp/audit"
+verdict $? "a record whose stored point differs from its path is refused as a run mismatch" \
+  "rc $RC: $(cat "$tmp/audit")"
+
 # outcome: skipped with no skip code, and a skip that moved the branch
 mismatch_setup
 r=$(sr new-run)

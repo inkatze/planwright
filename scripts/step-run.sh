@@ -990,7 +990,7 @@ cmd_audit() {
       if (!inrec) return
       inrec = 0
       if (bad) return
-      if (F["run"] != R || F["point"] != K) { print "run\t" R "\t" K >SIDE; return }
+      if (F["run"] != R || F["point"] != K) { if (!((R, K) in runbad)) { runbad[R, K] = 1; print "run\t" R "\t" K >SIDE }; return }
       if (T == "done" && F["type"] == "completion") {
         if (hex(F["head"])) { done[R, K] = F["head"]; if (!(R in hasrun)) { hasrun[R] = 1; runs[++nruns] = R } }
         return
