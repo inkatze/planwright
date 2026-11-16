@@ -16,7 +16,7 @@
 # Usage:
 #   offload-dispatch.sh dispatch <backend> <prompt-file> [--unit <id>]
 #       [--key <selection-key>] [--strict-tier] [--profile <kind>]
-#       [--name <name>] [--scope <scope>]
+#       [--name <name>] [--scope <scope>] [--keep-config-env]
 #       Dispatch the petition in <prompt-file> to <backend> and emit the
 #       report. Drivable rungs:
 #         tmux   — `tmux new-window -d` running an interactive `claude` worker
@@ -56,6 +56,12 @@
 #                    start the session with Remote Control under <name>, in the
 #                    stream-json-persistent handle grammar; any other profile
 #                    refuses it (exit 2)
+#         --keep-config-env  (tmux only) hand the window those of this
+#                    process's config overlays that are set
+#                    (PLANWRIGHT_LOCAL_CONFIG, PLANWRIGHT_CONFIG_DEFAULTS,
+#                    PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_CONFIG_STRICT_OVERLAYS),
+#                    on its command line, since a window starts from the tmux
+#                    server's environment
 #         --scope <scope>  (tmux only) the worker scope a worker-profile
 #                    session's identity carries beside --name (default
 #                    offload); the wrapper is pinned to this install's root
@@ -184,7 +190,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--mc-token <token>] [--name <name>] [--scope <scope>] | report <backend> <handle> | launch-backend>" >&2
+  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--mc-token <token>] [--name <name>] [--scope <scope>] [--keep-config-env] | report <backend> <handle> | launch-backend>" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -208,6 +214,7 @@ D_NAME=''
 D_REMOTE_CONTROL=''
 D_SCOPE=offload
 D_SCOPE_SET=0
+D_KEEP_ENV=0
 
 resolve_tier() {
   # $1 backend, $2 unit
@@ -498,8 +505,8 @@ cmd_dispatch() {
     exit 2
   fi
 
-  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ] || [ -n "$D_REMOTE_CONTROL" ]; }; then
-    printf '%s\n' "$me: dispatch: --profile, --name, --scope and --remote-control apply to the tmux rung only" >&2
+  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ] || [ -n "$D_REMOTE_CONTROL" ] || [ "$D_KEEP_ENV" = 1 ]; }; then
+    printf '%s\n' "$me: dispatch: --profile, --name, --scope, --remote-control and --keep-config-env apply to the tmux rung only" >&2
     exit 2
   fi
   if [ -n "$D_REMOTE_CONTROL" ] && [ "$D_PROFILE" != mission-control ]; then
@@ -584,6 +591,15 @@ cmd_dispatch() {
   win_name="offload-$$"
   [ -z "$D_NAME" ] || win_name=$D_NAME
   set -- offload-worker "$promptfile"
+  # The same four the launcher scrubs (mission-control-launch.sh); keep the
+  # two lists in step.
+  if [ "$D_KEEP_ENV" = 1 ]; then
+    set -- "$@" env
+    [ -z "${PLANWRIGHT_LOCAL_CONFIG+x}" ] || set -- "$@" "PLANWRIGHT_LOCAL_CONFIG=$PLANWRIGHT_LOCAL_CONFIG"
+    [ -z "${PLANWRIGHT_CONFIG_DEFAULTS+x}" ] || set -- "$@" "PLANWRIGHT_CONFIG_DEFAULTS=$PLANWRIGHT_CONFIG_DEFAULTS"
+    [ -z "${PLANWRIGHT_ADOPTER_OVERLAY+x}" ] || set -- "$@" "PLANWRIGHT_ADOPTER_OVERLAY=$PLANWRIGHT_ADOPTER_OVERLAY"
+    [ -z "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS+x}" ] || set -- "$@" "PLANWRIGHT_CONFIG_STRICT_OVERLAYS=$PLANWRIGHT_CONFIG_STRICT_OVERLAYS"
+  fi
   if [ -n "$launch_env" ]; then
     # The wrapper keeps an identity the tmux server's environment carries,
     # so a session that is no worker has it dropped here.
@@ -727,6 +743,10 @@ case "$sub" in
           ;;
         --strict-tier)
           D_STRICT=1
+          shift
+          ;;
+        --keep-config-env)
+          D_KEEP_ENV=1
           shift
           ;;
         --mc-token)

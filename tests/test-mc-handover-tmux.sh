@@ -157,9 +157,22 @@ grep -q '^predecessor-pane' "$fleet/mission-control/alpha/successor" && ! grep -
 run mission-control-launch.sh retire "$ns"
 rm -f "$fleet/mission-control/alpha/successor"
 
-RUN_TMUX_PANE='%7' ho launch --program alpha --brief "$tmp/brief.md" --handover
+mkdir -p "$tmp/worker-wt"
+RUN_CWD="$tmp/worker-wt" RUN_TMUX_PANE='%7' ho launch --program alpha --brief "$tmp/brief.md" --handover
 [ "$RC" = 0 ] && ok "a handover launch over an attended holder inside tmux is admitted, on the tmux rung" || fail "the pane handover launch exited $RC: $OUT $ERR"
 nf=$(col successor 2)
+# The window starts from the tmux server's environment, so the overlay rides
+# its argv; the caller here sits in a worker's worktree.
+nf_argv=''
+for w in "$tmp"/tmuxw/@*; do
+  [ "$(cat "$w")" = "$nf" ] && nf_argv="$tmp/tmuxw/argv-${w##*/}"
+done
+[ -n "$nf_argv" ] && grep -qxF "PLANWRIGHT_ADOPTER_OVERLAY=$adopter" "$nf_argv" \
+  && ok "the tmux successor is handed the caller's adopter overlay" \
+  || fail "the tmux successor's argv carries no adopter overlay: $(cat "$nf_argv" 2>&1)"
+[ -n "$nf_argv" ] && [ "$(awk -v r="$repo" 'p == "-c" && $0 == r { f = 1 } { p = $0 } END { print f + 0 }' "$nf_argv")" = 1 ] \
+  && ok "and its window opens in the program's repository" \
+  || fail "the tmux successor's window does not open in $repo: $(cat "$nf_argv" 2>&1)"
 grep -qx "predecessor-pane${tab}%7" "$fleet/mission-control/alpha/successor" \
   && grep -qx "predecessor-tmux${tab}$tmp/tmux.sock" "$fleet/mission-control/alpha/successor" \
   && ok "the predecessor's pane id and tmux socket are recorded" || fail "no recorded pane: $(cat "$fleet/mission-control/alpha/successor")"

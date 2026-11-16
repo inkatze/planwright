@@ -108,7 +108,12 @@ Usage:
       elsewhere (exit 4), where path names the operator act. A handover
       over a live registry holder whose row records the tmux rung
       defaults to the tmux rung too (no pane is recorded; retire closes
-      it). A stale holder is recorded as the predecessor. A tmux successor's
+      it). A stale holder is recorded as the predecessor. The successor
+      starts in --cwd, else the first of the program's repositories on
+      this machine (none refuses, exit 1), never the caller's directory,
+      and keeps the caller's config overlays (the launcher's
+      --keep-config-env, a relative path made absolute against the
+      caller's directory), where the program block may live. A tmux successor's
       Remote Control follows mission_control_successor_remote_control:
       off (the default) starts none; on names the successor as itself;
       inherit carries the live predecessor's --remote-control (read from
@@ -306,6 +311,42 @@ home_path() {
     *) mc_fail "the program home is not absolute" ;;
   esac
   HANDOVER=$HOME_DIR/handover.tsv
+}
+
+# program_checkout: the first of the program's repositories present on this
+# machine, where a successor starts by default.
+program_checkout() {
+  pc_list=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories)
+  pc_rc=$?
+  case $pc_rc in
+    0) ;;
+    2 | 3)
+      say "the repositories of program $program do not resolve (mc-program.sh exit $pc_rc)"
+      exit "$pc_rc"
+      ;;
+    *) mc_fail "the repositories of program $program do not resolve (mc-program.sh exit $pc_rc)" ;;
+  esac
+  PROGRAM_CHECKOUT=''
+  while IFS= read -r pc_r; do
+    if [ -n "$pc_r" ] && [ -d "$pc_r" ]; then
+      PROGRAM_CHECKOUT=$(cd "$pc_r" && pwd -P) && break
+      PROGRAM_CHECKOUT=''
+    fi
+  done <<EOF
+$pc_list
+EOF
+  [ -n "$PROGRAM_CHECKOUT" ] \
+    || mc_fail "no repository of program $program can be entered on this machine; pass --cwd to name where the successor starts"
+}
+
+# keep_overlays_absolute: the successor starts in another directory, where a
+# relative overlay path would name another file, so each path overlay the
+# successor keeps is made absolute against the caller's directory.
+keep_overlays_absolute() {
+  ko_here=$(pwd -P) || mc_fail "cannot resolve the current directory"
+  case ${PLANWRIGHT_LOCAL_CONFIG:-/} in /*) ;; *) PLANWRIGHT_LOCAL_CONFIG=$ko_here/$PLANWRIGHT_LOCAL_CONFIG ;; esac
+  case ${PLANWRIGHT_CONFIG_DEFAULTS:-/} in /*) ;; *) PLANWRIGHT_CONFIG_DEFAULTS=$ko_here/$PLANWRIGHT_CONFIG_DEFAULTS ;; esac
+  case ${PLANWRIGHT_ADOPTER_OVERLAY:-/} in /*) ;; *) PLANWRIGHT_ADOPTER_OVERLAY=$ko_here/$PLANWRIGHT_ADOPTER_OVERLAY ;; esac
 }
 
 row_exists() { [ -f "$SESSIONS/$1" ] && [ ! -L "$SESSIONS/$1" ]; }
@@ -1008,6 +1049,13 @@ case $verb in
           ;;
       esac
     fi
+    # The caller's own directory is often a worker's worktree, which is no
+    # place for the program's mission control to live.
+    if [ -z "$cwd" ]; then
+      program_checkout
+      cwd=$PROGRAM_CHECKOUT
+    fi
+    keep_overlays_absolute
     # A per-launch nonce keeps a relaunch from reusing the name of a successor
     # that died, which a release to it may still name.
     nonce=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
@@ -1071,9 +1119,11 @@ case $verb in
       drop_reservation
       mc_fail "cannot compose the successor's brief"
     }
-    set -- launch --program "$program" --kind mission-control --scope "$scope" --brief "$scratch"
+    # The program block may live only in the caller's config overlays
+    # (PLANWRIGHT_ADOPTER_OVERLAY and the rest), so the successor keeps them.
+    set -- launch --program "$program" --kind mission-control --scope "$scope" --brief "$scratch" \
+      --cwd "$cwd" --keep-config-env
     [ -z "$backend" ] || set -- "$@" --backend "$backend"
-    [ -z "$cwd" ] || set -- "$@" --cwd "$cwd"
     [ -z "$rc_name" ] || set -- "$@" --remote-control "$rc_name"
     lout=$(/bin/sh "$script_dir/mission-control-launch.sh" "$@" </dev/null)
     lrc=$?
