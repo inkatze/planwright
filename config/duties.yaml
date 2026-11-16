@@ -45,7 +45,7 @@
 duties:
   - id: session-keeper
     summary: "Drives each session to done, retires it on landing or idle, reclaims its worktree"
-    triggers: [stall-dead, stall-open-selector, stall-unsubmitted-prompt,
+    triggers: [stall-dead, tmux-server-lost, stall-open-selector, stall-unsubmitted-prompt,
                stall-turn-ended-background, stall-idle-question, stall-busy-unchanged,
                stall-unknown, session-landed, pending-prompt, pending-prompt-overdue,
                stream-json-worker-dead, stream-json-worker-unowned, keeper-sweep-failed,
