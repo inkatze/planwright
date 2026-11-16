@@ -139,6 +139,7 @@ else
   for phrase in \
     'the brief carries the command shape' \
     'file-reading tool' \
+    'searched with the search tool' \
     'one plain `grep` where the session has none' \
     'one plain command per Bash call' \
     'no `cd`' \
@@ -148,6 +149,7 @@ else
     '`mktemp -d` directory and run as `sh <path>`' \
     'the one shape that still waits on a prompt' \
     'resolved literal path of `compute-route.sh -- <command>`' \
+    'output taken as given' \
     'never re-running the project'"'"'s suites'; do
     if printf '%s' "$fanout" | grep -qF "$phrase"; then
       ok "self-review lens brief states: $phrase"
