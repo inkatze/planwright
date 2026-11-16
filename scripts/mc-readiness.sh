@@ -531,8 +531,18 @@ drift_scope() {
     --body-file "$6/body" --spec-root "$rel" >"$6/drift-out" 2>"$6/drift-err" || rc=$?
   case $rc in
     0) ;;
-    4) awk -F '\t' '$1 == "flagged" { print "drift\t" $2 "\t" $3 }' "$6/drift-out" ;;
-    *) printf 'drift\t*\t%s\n' "$(sed 's/^spec-drift-check: //' "$6/drift-err" | head -n 1)" ;;
+    4)
+      rows=$(awk -F '\t' '$1 == "flagged" { print "drift\t" $2 "\t" $3 }' "$6/drift-out")
+      if [ -n "$rows" ]; then
+        printf '%s\n' "$rows"
+      else
+        printf 'drift\t*\tthe check reported drift but named no file\n'
+      fi
+      ;;
+    *)
+      why=$(sed 's/^spec-drift-check: //' "$6/drift-err" | head -n 1)
+      printf 'drift\t*\t%s\n' "${why:-the check exited $rc with no reason given}"
+      ;;
   esac
 }
 
