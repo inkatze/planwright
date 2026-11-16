@@ -458,13 +458,15 @@ printf '# temporary adopter note `touch %s` $(touch %s) ; touch %s\nmission_cont
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m \`touch $sentinel\` \$(touch $sentinel); touch $sentinel" --subject stall --source "operator, fixture" --date 2026-01-01
 expect_rc "REQ-A1.9: drift: a rule carrying metacharacters is stored" 0
 rules_file="$drift_home/rules.yaml"
+# Both defaults files are layers: doctor reads the checkout's own, config-get
+# the fixture core's.
 layer_sums() {
   for f in "$rules_file" "$repo_root/config/defaults.yml" "$core/config/defaults.yml" "$adopter/planwright.yml" "$mlocal" "$tracked"; do
-    printf '%s %s\n' "${f#"$tmp"/}" "$(sum "$f")"
+    printf '%s %s\n' "$(sum "$f")" "${f#"$tmp"/}"
   done
 }
 sums_before=$(layer_sums)
-case $sums_before in *" absent"*) fail "drift: a layer or the rules file was missing before the audit, so its checksum proves nothing: $sums_before" ;; esac
+if printf '%s\n' "$sums_before" | grep -q '^absent '; then fail "drift: a layer or the rules file was missing before the audit, so its checksum proves nothing: $sums_before"; fi
 cfg doctor --program drift
 expect_rc "REQ-A1.9: drift: metacharacters in a rule and a comment still audit" 0
 expect_out "REQ-A1.9: drift: a local comment with metacharacters is still a finding" "temporary${tab}$mlocal${tab}mission_control_stall_window${tab}marker interim"
