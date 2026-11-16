@@ -218,8 +218,12 @@ case $verb in
     worker_ok "$1"
     stdin_verb=1
     ;;
-  status | retire)
+  status)
     [ $# -eq 1 ] || usage
+    worker_ok "$1"
+    ;;
+  retire)
+    [ $# -eq 1 ] || { [ $# -eq 2 ] && [ "$2" = --force-parked ]; } || usage
     worker_ok "$1"
     ;;
   compute)
