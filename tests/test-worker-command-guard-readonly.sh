@@ -132,8 +132,17 @@ assert_defer "sed -i an absolute outside file before -e" "sed -i /tmp/p -e 1p f"
 assert_defer "sed -i an outside file after -- -e" "sed -i 1p -- -e ../outside/x f" Bash "$WT"
 assert_defer "sed -i -e after a file" "sed -i 1p f -e 1p g" Bash "$WT"
 assert_defer "sed -i a flag after a file" "sed -i 1p f -n" Bash "$WT"
+assert_defer "sed -i --expression= after a file" "sed -i 1p f --expression=1p" Bash "$WT"
+assert_defer "sed -i -- after a file" "sed -i 1p f -- g" Bash "$WT"
+assert_defer "sed -i a second -i after a file" "sed -i 1p f -i" Bash "$WT"
+assert_defer "sed -i a -i after --" "sed -i -- -i 1p f" Bash "$WT"
+assert_allow "sed -n -i a tracked file" "sed -n -i 1p f" Bash "$WT"
+assert_allow "sed -i two tracked files" "sed -i s/a/b/ f g" Bash "$WT"
 case $OSTYPE in
-  linux*) assert_allow "sed -i -- a tracked file" "sed -i -- 1p f" Bash "$WT" ;;
+  linux*)
+    assert_allow "sed -i -- a tracked file" "sed -i -- 1p f" Bash "$WT"
+    assert_allow "sed -i -e then -- a tracked file" "sed -i -e 1p -- f" Bash "$WT"
+    ;;
 esac
 assert_defer "sed -i a file in .git" "sed -i s/a/b/ .git/config" Bash "$WT"
 assert_defer "sed -i a hook" "sed -i s/a/b/ githooks/pre-commit" Bash "$WT"
