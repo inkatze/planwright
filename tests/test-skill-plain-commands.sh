@@ -18,6 +18,10 @@
 #     its rules (no cd, no assignments, no chains, no display pipes, exit
 #     status from the call's own result);
 #   - each of the four skills states it and points at that doctrine doc;
+#   - /self-review's Discovery has each lens brief carry the command shape to
+#     its sub-agent: reads through the file tools, probes as plain commands
+#     with no `cd`, tests through the router, and the shared tooling output
+#     instead of re-running the project's suites;
 #   - no inline code span or fenced line in the four skills, or in
 #     doctrine/orchestration-modes.md (the meta step's command shapes), opens
 #     with a command and carries a compound marker: `$(`, `&&`, `||`, `; `,
@@ -115,6 +119,28 @@ for name in orchestrate execute-task polish self-review; do
     ok "$name: no compound command shape in its code"
   else
     fail "$name: compound command shape(s): $hits"
+  fi
+done
+
+# A lens sub-agent loads none of the skill's doctrine, so /self-review's lens
+# brief carries the command shape itself. Measured on long polish runs: lens
+# sub-agents read through `cd <worktree>; grep ... | head` lines, each a
+# deferred prompt, and re-ran the repository's sweeps the pass had already run.
+discovery="$(awk '/^## / { ind = ($0 == "## Discovery") } ind' "$REPO_ROOT/skills/self-review/SKILL.md" | tr '\n' ' ')"
+# The backticks are literal markdown, matched as fixed strings.
+# shellcheck disable=SC2016
+for phrase in \
+  'the brief carries the command shape' \
+  'file-reading and search tools' \
+  'one plain command per Bash call' \
+  'no `cd`' \
+  'starts in the worktree' \
+  'compute-route.sh' \
+  'never re-running the project'"'"'s suites'; do
+  if printf '%s' "$discovery" | grep -qF "$phrase"; then
+    ok "self-review lens brief states: $phrase"
+  else
+    fail "self-review lens brief missing: $phrase"
   fi
 done
 

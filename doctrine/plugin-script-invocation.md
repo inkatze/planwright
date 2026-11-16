@@ -7,7 +7,8 @@ invocation shape they use, so a dispatched worker does not flood on a permission
 prompt for every such call. Its sections *Invoke by the shebang*, *One plain
 command per Bash call* and *Test and lint runs go through the router* cover
 every command any skill issues inside a dispatched worker or a tower session,
-`/polish` and `/self-review` included.
+`/polish` and `/self-review` included, and the sub-agents a skill spawns,
+which load no doctrine, so the spawning brief carries the rules.
 
 Citations: REQ-D1.1, D-7; obs:344dd129, obs:885bc3c9 · custom-spec-location
 REQ-G1.4.

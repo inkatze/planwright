@@ -117,7 +117,15 @@ Apply the `discovery-rigor` doc against the diff:
 
 - **Fan out by default.** Spawn one read-only sub-agent per canonical lens
   for any non-trivial diff, each with the diff slice, the shared tooling
-  output, and a single-lens brief that forbids severity pruning. Walk the
+  output, and a single-lens brief that forbids severity pruning. A
+  sub-agent loads none of this skill's doctrine, so
+  the brief carries the command shape too: files read and searched with
+  the file-reading and search tools; a
+  probe run as one plain command per Bash call, with no `cd` (the
+  sub-agent starts in the worktree), a multi-step probe being a script
+  written into its own `mktemp -d` directory and run by its path, and a
+  test run through `compute-route.sh`; the shared tooling output taken as
+  given, never re-running the project's suites or sweeps. Walk the
   lenses inline only when the diff is small and narrow (a few files, mostly
   prose or config, a few hundred changed lines at most); inline walking
   waives no other invariant. Declare which path was taken.
