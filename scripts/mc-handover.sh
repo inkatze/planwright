@@ -155,11 +155,12 @@ Usage:
       name has moved, then announces itself. Once the name moves, the
       retired predecessor and a stranded successor stop being wake targets
       (mc-wake.sh target remove), so neither is woken again for the
-      program's events, and every event raised in a second before the
-      handover file was written is marked submitted (mc-event.sh mark) for
-      the taker and for the program-named target every mod holder wakes
-      under, but for the open items (`item <id>`) the file lists; with no
-      handover file nothing is marked, said on stderr
+      program's events, and every event raised in an earlier second than
+      the handover file's written time is marked submitted (mc-event.sh
+      mark) for the taker and for the program-named target every mod
+      holder wakes under, but for the open items (`item <id>`) the file
+      lists; with no handover file, or none with a readable written time,
+      nothing is marked, said on stderr
   mc-handover.sh resume --program <p> --session <handle>
       [--kind attended|registry] --picture <file> --digest <hex>
       --durable <file> [--window <cadence>] [--pid <pid>]
@@ -169,10 +170,10 @@ Usage:
       row): the self-check against --durable, a release request to a live
       holder (event handover-requested), the same wait, transfer,
       retirement, exit wait, wake-target removal, backlog marks and
-      announcement (the marks cover the events raised before the resume
-      began, the open items kept being those of --durable and of a
-      handover file left behind), and what changed since the operator's
-      last turn
+      announcement (the marks cover the events raised in an earlier second
+      than the resume began, the open items kept being those of --durable
+      and of a handover file left behind), and what changed since the
+      operator's last turn
   --pid names the taking session's own process for the holder record, so
   the next take or resume can confirm it exited; it defaults to
   CLAUDE_PID. A predecessor's process is the one its holder record names,
@@ -664,24 +665,27 @@ retire_row() {
   fi
 }
 
-# open_items <file>...: the item ids each readable picture lists, one per
-# line.
-open_items() {
-  for oi_f in "$@"; do
-    [ -n "$oi_f" ] && [ -f "$oi_f" ] && [ -r "$oi_f" ] || continue
-    awk '$1 == "item" && NF == 2 { print $2 }' "$oi_f"
+# stage_keep <picture>...: keep_file, the item ids the pictures list, one per
+# line. Staged before any release is asked for, so a failure here leaves the
+# name where it was. Read through redirects: awk takes a name=value operand
+# as an assignment, never a file.
+stage_keep() {
+  keep_file=$(mktemp "${TMPDIR:-/tmp}/mc-handover.XXXXXX") || mc_fail "cannot stage the open items"
+  for sk_f in "$@"; do
+    [ -n "$sk_f" ] && [ -f "$sk_f" ] && [ -r "$sk_f" ] || continue
+    awk '$1 == "item" && NF == 2 { print $2 }' <"$sk_f" >>"$keep_file" || mc_fail "cannot stage the open items"
   done
 }
 
-# mark_backlog <to> <cutoff epoch|-> <keep file>: every event raised in a
-# second before the cutoff, but for the ids the keep file lists, is marked
+# mark_backlog <to> <cutoff epoch|->: every event whose id's epoch second is
+# earlier than the cutoff, but for the ids keep_file lists, is marked
 # submitted for <to> and for the program-named target a mod wakes under, so
 # the new holder is not woken again for a backlog its predecessor's picture
 # accounts for. Without a cutoff nothing is marked, since nothing then says
 # which events are open.
 mark_backlog() {
   if [ "$2" = - ]; then
-    say "no handover file names the open items, so the events raised before $1 took the name stay pending for it"
+    say "no handover file with a readable written time names the open items, so the events raised before $1 took the name stay pending for it"
     return 0
   fi
   mb_targets=$1
@@ -694,14 +698,17 @@ mark_backlog() {
     # The ids reach awk through files, never the environment, whose per-string
     # bound a backlog of a few thousand ids outgrows. Batches of 200, so a
     # large backlog never outgrows the argument list either.
-    mb_batches=$(printf '%s\n' "$mb_rows" | C=$2 K=$3 awk -F '\t' '
-      FILENAME == ENVIRON["K"] { keep[$1] = 1; next }
+    mb_batches=$(printf '%s\n' "$mb_rows" | C=$2 K=$keep_file awk -F '\t' '
+      BEGIN {
+        while ((r = (getline id < ENVIRON["K"])) > 0) keep[id] = 1
+        if (r < 0) exit 1
+      }
       NF {
         at = substr($1, 2); sub(/\..*/, "", at)
         if (at + 0 >= ENVIRON["C"] + 0 || ($1 in keep)) next
         printf "%s%s", (c % 200 ? " " : (c ? "\n" : "")), $1; c++
       }
-      END { if (c) print "" }' "$3" -) || {
+      END { if (c) print "" }') || {
       say "warning: the backlog pending for $mb_t could not be read, so it stays pending"
       continue
     }
@@ -733,26 +740,19 @@ drop_targets() {
 }
 
 # succeed <to> <kind> <from|-> <from kind> <expected holder> <wait>
-# <cutoff epoch|-> [<picture>...]: the name moves to <to> once <from> has
-# released to it or the window has closed, only while the holder is still
-# <expected holder> (empty for none); then <from>, and any pending successor
-# the move strands, stop being wake targets and are retired, the events
-# raised before the cutoff are marked submitted for <to> but the open items
-# the handover file and each <picture> list (mark_backlog), and the process
-# <from>'s holder record names is waited for. RETIRE_OK is 0 when a
-# retirement was only partial or that process still runs.
+# <cutoff epoch|->: the name moves to <to> once <from> has released to it or
+# the window has closed, only while the holder is still <expected holder>
+# (empty for none); then <from>, and any pending successor the move strands,
+# stop being wake targets and are retired, the backlog before the cutoff is
+# marked for <to> (mark_backlog), and the process <from>'s holder record
+# names is waited for. RETIRE_OK is 0 when a retirement was only partial or
+# that process still runs.
 succeed() {
   s_to=$1 s_kind=$2 s_from=$3 s_from_kind=$4 s_expect=$5 s_wait=$6 s_cutoff=$7
-  shift 7
   s_how=none
   if [ "$s_from" != - ]; then
     if wait_release "$s_from" "$s_from_kind" "$s_to" "$s_wait"; then s_how=released; else s_how=retired; fi
   fi
-  # Read before the move consumes the handover file.
-  s_hf=''
-  if [ -f "$HANDOVER" ] && mc_format_ok "$HANDOVER"; then s_hf=$HANDOVER; fi
-  keep_file=$(mktemp "${TMPDIR:-/tmp}/mc-handover.XXXXXX") || mc_fail "cannot stage the open items"
-  open_items "$s_hf" "$@" >"$keep_file" || mc_fail "cannot stage the open items"
   s_own_start=''
   if [ -n "$own_pid" ]; then
     s_own_start=$(proc_start "$own_pid")
@@ -796,7 +796,7 @@ succeed() {
   fi
   # Ahead of the exit wait, so the runner's relay does not wake the new holder
   # for the old backlog while it lasts.
-  mark_backlog "$s_to" "$s_cutoff" "$keep_file"
+  mark_backlog "$s_to" "$s_cutoff"
   if [ -n "$s_from_state" ]; then
     if [ -n "$s_pid" ] && ! await_exit "$s_pid" "$s_start"; then
       printf 'retire\t%s\talive\t%s\n' "$s_from" "$s_pid"
@@ -1256,15 +1256,15 @@ case $verb in
     expect=''
     [ "$S_PRED" = - ] || expect=$S_PRED
     take_note=$(mc_kv "$SUCC" remote-control-note)
-    if [ "$S_PRED" != - ] && session_live "$S_PRED" "$S_PRED_KIND" && ! released_to "$S_PRED" "$session"; then
-      raise handover-requested "$S_PRED" "$session passed its self-check for program $program; release the name"
-    fi
     # The predecessor's picture accounts for the events raised before it wrote
     # the handover file; later ones may be unseen, so they stay pending.
     cutoff=-
     if [ -f "$HANDOVER" ] && mc_format_ok "$HANDOVER"; then
       cutoff=$(mc_kv "$HANDOVER" written)
-      mc_valid_uint "$cutoff" || cutoff=-
+      if mc_valid_uint "$cutoff"; then stage_keep "$HANDOVER"; else cutoff=-; fi
+    fi
+    if [ "$S_PRED" != - ] && session_live "$S_PRED" "$S_PRED_KIND" && ! released_to "$S_PRED" "$session"; then
+      raise handover-requested "$S_PRED" "$session passed its self-check for program $program; release the name"
     fi
     succeed "$session" registry "$S_PRED" "$S_PRED_KIND" "$expect" "$secs" "$cutoff"
     close_pred_pane "$S_PANE" "$S_TMUX" "$S_TSRV" "$S_TWIN"
@@ -1274,7 +1274,8 @@ case $verb in
     ;;
   resume)
     # The resuming session built its --durable picture from the stores just
-    # before this run, so it accounts for the events raised before it began.
+    # before this run; an event raised in between comes after the operator's
+    # last prompt, so the changed lines below still name it.
     resume_start=$(mc_now)
     need session "$session"
     need picture "$picture"
@@ -1292,6 +1293,9 @@ case $verb in
     home_path
     [ "$kind" = attended ] || row_exists "$session" || mc_fail "$session has no registry row, so it cannot resume as a registry session"
     selfcheck "$digest" "$picture" "$durable"
+    rs_hf=''
+    if [ -f "$HANDOVER" ] && mc_format_ok "$HANDOVER"; then rs_hf=$HANDOVER; fi
+    stage_keep "$rs_hf" "$durable"
     read_holder
     since=$H_SINCE
     if [ -f "$RUNTIME/presence" ] && mc_format_ok "$RUNTIME/presence"; then
@@ -1307,7 +1311,7 @@ case $verb in
         raise handover-requested "$H_SESSION" "the operator resumed mission control for $program in $session; release the name"
       fi
     fi
-    succeed "$session" "$kind" "$from" "$from_kind" "$H_SESSION" "$secs" "$resume_start" "$durable"
+    succeed "$session" "$kind" "$from" "$from_kind" "$H_SESSION" "$secs" "$resume_start"
     own_request=''
     what_changed "${since:-0}"
     announce "$session" "$from"

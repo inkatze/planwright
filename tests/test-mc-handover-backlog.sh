@@ -51,13 +51,20 @@ targets() {
   printf '%s\n' "$OUT" | awk -F '\t' 'NF { print $1 }'
 }
 
-# A first holder, then a backlog it handled and one item it leaves open.
+# A first start has no handover file, so nothing says which events are open:
+# its take leaves the backlog as it was rather than marking an open item
+# handled.
+emit blocker before-first-start "$base"
+unlisted=$EV
 ho launch --program alpha --brief "$tmp/brief.md"
 n1=$(col successor 2)
 wait_done "$n1"
 ho verify --program alpha --session "$n1" --picture "$tmp/empty" --digest "$digest" --ledger - --durable "$tmp/empty"
 ho take --program alpha --session "$n1" --window 1s
+case $ERR in *"no handover file"*) ok "a take with no handover file says it leaves the backlog" ;; *) fail "the fileless take did not say it left the backlog: $ERR" ;; esac
 holder_is "fixture: the first session holds the name" "$n1"
+has "$(pending_for "$n1")" "$unlisted" && has "$(pending_for alpha)" "$unlisted" \
+  && ok "and marks nothing" || fail "the fileless take marked $unlisted"
 emit session-landed handled-1 "$base"
 done1=$EV
 emit decision handled-2 "$base"
@@ -68,14 +75,20 @@ printf '%s\n' "item $open1" >"$tmp/picture"
 ho write --program alpha --session "$n1" --picture "$tmp/picture" --digest "$digest" --now $((base + 10))
 [ "$RC" = 0 ] || fail "fixture: the handover file was not written: $ERR"
 ledger=$(awk -F '\t' '$1 == "ledger" { print $2 }' "$home/handover.tsv")
-# Raised after the picture was written, so the predecessor may not have seen it.
+# Raised in the second the picture was written, and after it, so the
+# predecessor may not have seen either.
+emit blocker picture-second $((base + 10))
+same_second=$EV
 emit blocker after-picture $((base + 20))
 unseen=$EV
 
 # The predecessor's mod woke under the program-named target, and staged one
 # event there it never acknowledged.
 run mc-wake.sh target add --program alpha alpha
+[ "$RC" = 0 ] || fail "fixture: the program-named target was not added: $ERR"
 run mc-event.sh mark --program alpha --target alpha staged "$done1"
+[ "$RC" = 0 ] || fail "fixture: the event was not staged: $ERR"
+has "$(pending_for alpha)" "$done1" || fail "fixture: the staged event is not pending before the take"
 ho launch --program alpha --brief "$tmp/brief.md" --handover
 n2=$(col successor 2)
 wait_done "$n2"
@@ -95,7 +108,9 @@ after=$(pending_for "$n2")
   && ok "the take marks the backlog its predecessor's picture accounts for submitted for the successor" \
   || fail "the handled backlog is still pending for $n2: $after"
 has "$after" "$open1" && ok "and keeps pending an open item the handover file names" || fail "the open item $open1 is not pending for $n2: $after"
-has "$after" "$unseen" && ok "and an event raised after the handover file was written" || fail "the unseen event $unseen was marked for $n2"
+has "$after" "$unseen" && has "$after" "$same_second" \
+  && ok "and the events raised in the second the handover file was written and after" \
+  || fail "an event the picture may not cover was marked for $n2: $after"
 prog_after=$(pending_for alpha)
 ! has "$prog_after" "$done1" && ! has "$prog_after" "$done2" && has "$prog_after" "$open1" \
   && ok "the program-named target gets the same marks, a staged event becoming submitted" \
@@ -132,23 +147,9 @@ for t in operator-term alpha; do
     && ok "keeping the open items of --durable and of the handover file left behind" || fail "the resume marked an open item for $t: $r_after"
 done
 r_targets=$(targets)
-! has "$r_targets" "$n2" && ok "the resume leaves no retired holder a wake target" || fail "the resume left $n2 a target: $r_targets"
-
-# With no list of open items there is nothing to keep by, so a take leaves the
-# backlog as it was rather than marking an open item handled.
-emit blocker unlisted $((base + 50))
-unlisted=$EV
-ho launch --program alpha --brief "$tmp/brief.md" --asked
-n3=$(col successor 2)
-wait_done "$n3"
-ho verify --program alpha --session "$n3" --picture "$tmp/durable" --digest "$digest" --ledger - --durable "$tmp/durable"
-[ "$RC" = 0 ] || fail "fixture: the fileless verify exited $RC: $OUT $ERR"
-ho take --program alpha --session "$n3" --window 1s
-[ "$RC" = 0 ] || fail "the fileless take exited $RC: $OUT $ERR"
-has "$(pending_for "$n3")" "$unlisted" && has "$(pending_for alpha)" "$unlisted" \
-  && ok "a take with no handover file marks nothing" || fail "the fileless take marked $unlisted"
-case $ERR in *"no handover file"*) ok "and says why on stderr" ;; *) fail "the fileless take did not say it left the backlog: $ERR" ;; esac
-run mission-control-launch.sh retire "$n3"
+! has "$r_targets" "$n2" && has "$r_targets" alpha \
+  && ok "the resume leaves no retired holder a wake target, and the program-named one stays" \
+  || fail "the resume's wake targets: $r_targets"
 
 echo
 if [ "$failures" -gt 0 ]; then
