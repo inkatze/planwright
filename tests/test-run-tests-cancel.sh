@@ -115,8 +115,9 @@ cancel_case "TERM" "$tmp/term" TERM
 cancel_case "INT" "$tmp/int" INT
 cancel_case "HUP" "$tmp/hup" HUP
 cancel_case "TERM, serial" "$tmp/serial" TERM PLANWRIGHT_TEST_FORCE_SERIAL=1
-# With no timeout(1) the serial worker runs its file in the foreground, so its
-# own TERM trap waits on a file that ignores TERM: only the grace's KILL ends it.
+# With no timeout(1) the serial worker runs its file in a group of its own
+# through perl and passes TERM on to it; a file that ignores TERM ends only by
+# a KILL, the worker's own or the grace's.
 cc_prelude="trap '' TERM"
 cancel_case "TERM, serial, a file ignoring TERM, no timeout" "$tmp/serial-ignore" TERM \
   PLANWRIGHT_TEST_FORCE_SERIAL=1 PATH="$(no_timeout_path "$tmp/notimeout")"

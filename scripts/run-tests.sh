@@ -71,6 +71,16 @@
 # taking -k) costs one warning and unbounded files. A nested runner inherits
 # PLANWRIGHT_TEST_FILE_DEADLINE and bounds its own files the same way.
 #
+# Process groups: on a host with no usable bounder (stock macOS), each file
+# still gets a process group of its own, through perl, as GNU timeout gives it
+# elsewhere, and the worker passes a signal on to that group the same way,
+# KILL included. A file sharing the runner's group could leave a stopped
+# process there (a close freezing a fixture tree with SIGSTOP); once nothing
+# outside that group anchors it in its session, as under a CI runner a service
+# manager started, the kernel's orphaned-group rule sends SIGHUP to the whole
+# group: the runner, its caller and every other file. Its own group confines
+# that to the file. Without perl a file runs in the worker's group, as before.
+#
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
 # shard (ties to the lower shard) by the same duration table the queue order
@@ -145,6 +155,8 @@
 #                                  unbounded)
 #   PLANWRIGHT_TEST_BOUND_ENV      internal: an env taking --default-signal,
 #                                  or empty
+#   PLANWRIGHT_TEST_GROUP_TOOL     internal: the perl that gives an unbounded
+#                                  file its own process group, or empty
 #   PLANWRIGHT_TEST_SIGNALS_RESET  internal: the mark that a runner just
 #                                  re-executed itself with INT and QUIT at
 #                                  their defaults (dropped at once)
@@ -302,8 +314,9 @@ worker_signal() {
   ws_target=$ws_pid
   if [ -n "$ws_pid" ]; then
     # TERM whatever arrived: uutils' timeout answers a HUP by killing the file
-    # outright, with no chance to clean up. The group is timeout's own; the
-    # pid alone is the file under busybox, which makes no group.
+    # outright, with no chance to clean up. The group is timeout's own, or the
+    # file's under perl; the pid alone is the file under busybox, which makes
+    # no group.
     kill -s TERM -- "-$ws_pid" 2>/dev/null || kill -s TERM "$ws_pid" 2>/dev/null
     # busybox's timeout grants no grace for a TERM it did not send. One killer
     # at a time: a repeated signal re-enters here and the first handler never
@@ -365,14 +378,16 @@ if [ "${1:-}" = "--run-one" ]; then
   deadline="${PLANWRIGHT_TEST_BOUND_SECONDS:-}"
   deadline_tool="${PLANWRIGHT_TEST_BOUND_TOOL:-}"
   deadline_env="${PLANWRIGHT_TEST_BOUND_ENV:-}"
+  group_tool="${PLANWRIGHT_TEST_GROUP_TOOL:-}"
   case "$deadline" in
     '' | *[!0-9]* | 0*) deadline_tool="" ;;
   esac
+  [ -z "$deadline_tool" ] || group_tool=""
   # The traps pass an interrupt on to a bounded file and release the ticket; a
   # SIGKILL leaves the ticket to the next run's dead-holder reclaim. They
   # re-raise rather than exit (pw_lock_trap_install's form): a serial parent
   # that sees a plain exit assumes the file handled the interrupt and runs on.
-  if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ] || [ -n "$deadline_tool" ]; then
+  if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ] || [ -n "$deadline_tool" ] || [ -n "$group_tool" ]; then
     trap 'worker_signal INT' INT
     trap 'worker_signal TERM' TERM
     trap 'worker_signal HUP' HUP
@@ -445,21 +460,29 @@ if [ "${1:-}" = "--run-one" ]; then
   # A sibling can break the directory between the check above and these
   # redirects, so the shell's own complaint about a redirect is held back
   # until the directory is known to be healthy.
-  elif [ -n "$deadline_tool" ]; then
+  elif [ -n "$deadline_tool" ] || [ -n "$group_tool" ]; then
     # In the background, so a trapped signal ends the wait at once and the trap
-    # can pass it on: timeout's process group is not the terminal's, and the
-    # worker's trap would otherwise wait for the file. An asynchronous command
-    # starts with INT and QUIT ignored; the reset hands the file the defaults,
-    # and an env taking --default-signal restores them where an old bash (macOS
-    # /bin/bash) refuses the reset, since GNU timeout keeps an inherited ignore.
-    # Its stdin is /dev/null, as xargs gives it, so a read cannot stop the
-    # background group, timeout and its alarm included, on a terminal.
+    # can pass it on: the file's process group (timeout's, or the one perl
+    # makes) is not the terminal's, and the worker's trap would otherwise wait
+    # for the file. An asynchronous command starts with INT and QUIT ignored;
+    # the reset hands the file the defaults, and an env taking --default-signal
+    # (or perl) restores them where an old bash (macOS /bin/bash) refuses the
+    # reset, since GNU timeout keeps an inherited ignore. Its stdin is
+    # /dev/null, as xargs gives it, so a read cannot stop the background group,
+    # timeout and its alarm included, on a terminal. A failed setpgrp leaves
+    # the file in the worker's group, the fallback's own shape, rather than
+    # not running it.
     bounding=1
     {
       (
         trap - INT QUIT
-        exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
-          "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
+        if [ -n "$deadline_tool" ]; then
+          exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
+            "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
+        fi
+        # shellcheck disable=SC2016 # perl source, not shell
+        exec "$group_tool" -e '$SIG{INT} = "DEFAULT"; $SIG{QUIT} = "DEFAULT"; setpgrp(0, 0); exec @ARGV or exit 127' \
+          -- /bin/bash "$t"
       ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
     } 2>/dev/null
     child_pid=$!
@@ -473,7 +496,7 @@ if [ "${1:-}" = "--run-one" ]; then
     # does not follow a clock step). Without a clock reading, the statuses
     # timeout and busybox give an ended file stand in.
     ended="$(now_ms)"
-    if [ "$file_rc" -ne 0 ]; then
+    if [ "$file_rc" -ne 0 ] && [ -n "$deadline_tool" ]; then
       if [ -n "$started" ] && [ -n "$ended" ]; then
         [ $((ended - started)) -lt $((deadline * 1000)) ] || past_deadline=1
       else
@@ -1174,8 +1197,11 @@ for env_name in env genv; do
     break
   fi
 done
+# With no bounder to give each file a process group, perl does (see the header).
+group_tool=""
+[ -n "$deadline_tool" ] || group_tool="$(command -v perl 2>/dev/null)" || group_tool=""
 export PLANWRIGHT_TEST_BOUND_SECONDS="$deadline" PLANWRIGHT_TEST_BOUND_TOOL="$deadline_tool" \
-  PLANWRIGHT_TEST_BOUND_ENV="$deadline_env"
+  PLANWRIGHT_TEST_BOUND_ENV="$deadline_env" PLANWRIGHT_TEST_GROUP_TOOL="$group_tool"
 
 # Probe for a working `xargs -P` before relying on it; degrade to the
 # serial loop when it is absent or explicitly disabled.

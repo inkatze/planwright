@@ -10,6 +10,7 @@
 #   g1: with no bounder, a file leads its own process group.
 #   g2: a runner in a fresh session survives a file that orphans its own
 #       group while holding a stopped child, and the file passes.
+#   g3: with neither a bounder nor perl, files still run.
 set -u
 unset CDPATH
 
@@ -43,6 +44,7 @@ farm=$(no_timeout_path "$tmp/notimeout")
 
 # Every file reads its group from /proc where it exists, since busybox's ps
 # takes no -p; else from ps (macOS has no /proc).
+# shellcheck disable=SC2016 # expanded by the fixture file
 pgid_snippet='pgid_of() {
   if [ -r "/proc/$1/stat" ]; then
     sed "s/.*) //" "/proc/$1/stat" | awk "{ print \$3 }"
@@ -95,6 +97,21 @@ if [ "$rc" -eq 0 ] && grep -q '^ok: test-orphans-group.sh' "$tmp/g2.out"; then
   pass "g2: a file that orphans its own group with a stopped child leaves the runner running"
 else
   fail "g2: a file that orphans its own group with a stopped child leaves the runner running (exit $rc): $(cat "$tmp/g2.out")"
+fi
+
+# g3: the fallback, a host with neither a bounder nor perl, still runs its
+# files, in the worker's group.
+farm3=$(no_timeout_path "$tmp/noperl")
+rm -f "$farm3/perl"
+s3="$tmp/s3"
+mkdir -p "$s3"
+printf '#!/bin/bash\nexit 0\n' >"$s3/test-plain.sh"
+out=$(PATH="$farm3" PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r3.tsv" "$RUNNER" "$s3" 2>&1)
+rc=$?
+if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '^ok: test-plain.sh'; then
+  pass "g3: with neither a bounder nor perl, files still run"
+else
+  fail "g3: with neither a bounder nor perl, files still run (exit $rc): $out"
 fi
 
 if [ "$failures" -gt 0 ]; then
