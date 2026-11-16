@@ -482,7 +482,13 @@ back against the configured lists, read-only, by `scripts/step-run.sh audit
 --through <point>`: a point is covered by its newest run whose completion
 counts at the head, that run recording every required step passed, applied,
 or skipped (a recorded skip counts), so a point or step left with no record
-is caught whoever omitted it. The
+is caught whoever omitted it. A `skill` or `prompt` record passed or applied
+whose start equals its end and whose head did not move is no evidence the
+step ran (a model session cannot finish in zero seconds): the audit prints
+`gap<TAB><point><TAB>unrun<TAB><step>`. A `command` record is exempt, since
+a fast command may finish within a second; a record without an end head is
+judged by its times alone. A round that did not run is recorded `skipped`
+with reason `missing` in a fresh run; written records are never edited. The
 script's usage header states the freshness rule and the output.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
