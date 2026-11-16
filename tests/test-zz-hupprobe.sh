@@ -8,7 +8,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 if [ -z "${PROBE_INNER:-}" ]; then
   export PROBE_INNER=1
   for kind in fresh anchored; do
-    for t in none test-detached-run.sh test-fleet-streamjson-pid-identity.sh test-behavioral-eval-mission-control.sh; do
+    for t in none control test-detached-run.sh test-fleet-streamjson-pid-identity.sh test-behavioral-eval-mission-control.sh; do
       out=$(mktemp)
       if [ "$kind" = fresh ]; then
         perl -MPOSIX -e 'POSIX::setsid() or die "setsid: $!"; exec @ARGV or exit 127' -- \
@@ -30,7 +30,12 @@ trap 'echo CONT >>"$got"' CONT
 sleep 300 &
 stopped=$!
 kill -STOP "$stopped"
-if [ "$t" != none ]; then
+if [ "$t" = control ]; then
+  # A process of this group with a child left here moves to a group of its
+  # own, then exits: the group's last qualifying link goes with it.
+  perl -e 'my $c = fork(); if (!$c) { sleep 3; exit 0 } setpgrp(0, 0); sleep 1; exit 0'
+  echo "test rc=$?"
+elif [ "$t" != none ]; then
   /bin/bash "$here/$t" >"$got.out" 2>&1
   echo "test rc=$?"
 fi
