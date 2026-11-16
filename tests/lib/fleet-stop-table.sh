@@ -24,8 +24,9 @@
 #   c22b (REQ-B1.2): a SIGTERM-surviving grandchild reparented away from the
 #       tree is still closed.
 #   c24 (REQ-B1.2): a child the worker forks while the close runs is still
-#       closed, at the SIGTERM and at the SIGKILL; c25: a close interrupted
-#       mid-freeze, or unable to re-read the table, leaves the worker running.
+#       closed, at the SIGTERM and at the SIGKILL.
+#   c25 (REQ-B1.2): a close interrupted mid-freeze, or unable to re-read the
+#       table, leaves the worker and its child running.
 #   c22d-h (REQ-B1.3): a close from inside the worker's own tree is refused; a
 #       recycled pid in the closer's ancestry is not mistaken for one; a
 #       truncated-argv host fails closed; an unreadable process table refuses;
@@ -156,6 +157,7 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #   SHIM_FORKER       path the shim records the pid of each `sleep 137` child
 #                     it keeps forking in
 #   SHIM_FORKER_TERM=1   the forker survives SIGTERM
+#   SHIM_FORKER_PACE  seconds between forks (default 0.05)
 #   SHIM_IGNORE_TERM=1   survive SIGTERM, recording each one in <record>/signals
 #   SHIM_HOLDING      with SHIM_IGNORE_TERM, a path the shim writes its pid to
 #                     once its TERM handler is in place
@@ -191,7 +193,7 @@ if [ -n "${SHIM_FORKER:-}" ]; then
   while [ "$fk_i" -lt 600 ]; do
     sleep 137 &
     printf '%s\n' "$!" >>"$SHIM_FORKER"
-    sleep 0.05
+    sleep "${SHIM_FORKER_PACE:-0.05}"
     fk_i=$((fk_i + 1))
   done
 fi
@@ -553,6 +555,7 @@ forks_live_none() {
   [ -z "$fl_live" ]
 }
 
+# forks_live_some <file> — true while at least one is.
 forks_live_some() {
   [ -n "$(forks_live "$1")" ]
 }
@@ -566,6 +569,12 @@ pid_running() {
     pr_st=$(ps -o stat= -p "$1" 2>/dev/null | cut -c1)
   fi
   [ -n "$pr_st" ] && [ "$pr_st" != T ]
+}
+
+all_running() {
+  for ar_p in "$@"; do
+    pid_running "$ar_p" || return 1
+  done
 }
 
 all_gone() {
@@ -873,7 +882,9 @@ c24_leg() {
 # SIGKILL.
 c24() {
   c24_leg 24 'the SIGTERM ends it'
-  c24_leg 241 'only the SIGKILL ends it' SHIM_FORKER_TERM=1
+  # Slower: this forker runs on through the whole grace, and every child it
+  # adds is one more pid each later read has to check.
+  c24_leg 241 'only the SIGKILL ends it' SHIM_FORKER_TERM=1 SHIM_FORKER_PACE=0.2
   printf '%s\n' "ok: [$rung] c24 a child forked while the close runs is still closed (REQ-B1.2)"
 }
 
@@ -927,6 +938,9 @@ FPS
     SHIM_EVENTS="$ev_hold" SHIM_SLEEP=600 || fail "c25: detached launch exited non-zero"
   poll_until --what 'the worker up' -- w_up "$d" || fail "c25: the worker never came up"
   wrk=$(w_worker_pid "$d")
+  kid=''
+  poll_until --what "the worker's child" -- child_seen "$wrk" \
+    || fail "c25: the worker's own child never appeared"
 
   c25_close hang
   poll_until --what 'the worker frozen' -- test -e "$rec/frozen" \
@@ -934,16 +948,16 @@ FPS
   kill -TERM "$closer" 2>/dev/null
   poll_until --what 'the interrupted close to exit' -- sh -c "! kill -0 $closer 2>/dev/null" \
     || fail "c25: the interrupted close did not exit"
-  poll_until --deadline 20 --what 'the worker running again' -- pid_running "$wrk" \
-    || fail "c25: a close interrupted mid-freeze left the worker stopped"
+  poll_until --deadline 20 --what 'the worker running again' -- all_running "$wrk" "$kid" \
+    || fail "c25: a close interrupted mid-freeze left the worker or its child stopped"
   printf '%s\n' "ok: [$rung] c25 a close interrupted mid-freeze leaves the worker running (REQ-B1.2)"
 
   c25_close fail PLANWRIGHT_STOP_PROC_ROOT="$tmp/no-proc"
   poll_until --what 'the failed close to exit' -- sh -c "! kill -0 $closer 2>/dev/null" \
     || fail "c25: the failing close did not exit"
   [ -e "$rec/frozen" ] || fail "c25: the failing close never froze the worker: $(cat "$rec/c25.out")"
-  poll_until --deadline 20 --what 'the worker running again' -- pid_running "$wrk" \
-    || fail "c25: a close that could not re-read the table left the worker stopped"
+  poll_until --deadline 20 --what 'the worker running again' -- all_running "$wrk" "$kid" \
+    || fail "c25: a close that could not re-read the table left the worker or its child stopped"
   grep -q 'cannot read the process table' "$rec/c25.out" \
     || fail "c25: a close that could not re-read the table must say so, got: $(cat "$rec/c25.out")"
   renv "$home" "$rec" -- stop "$w" --grace 2 >/dev/null || fail "c25: the clean close failed"
