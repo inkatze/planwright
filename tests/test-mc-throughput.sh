@@ -16,6 +16,9 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY G
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+
 failures=0
 fail() {
   echo "FAIL: $1" >&2
@@ -292,7 +295,7 @@ printf '{"jobs":' >"$tmp/gh/jobs-102.json"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_out "malformed jobs are unknown, not an empty measurement" "source${tab}ci${tab}unknown${tab}the jobs of acme/widgets run 102 cannot be read"
 expect_no_out "and the jobs read before it are not shown" "ci${tab}ci / linux"
-if [ "$(id -u)" -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ] && hermetic_access_denied r "$sj/mc-alpha-worker-0000000002/journal" && hermetic_access_denied r "$steps/000002"; then
   expect_out "an unreadable journal is unknown" "source${tab}approvals${tab}unknown${tab}cannot read the journal of mc-alpha-worker-0000000002"
   expect_no_out "no approvals measurement is shown" "approvals${tab}permission"
   expect_out "unreadable step records are unknown" "source${tab}steps${tab}unknown${tab}cannot read the step records of $tmp/wt"
@@ -300,34 +303,52 @@ if [ "$(id -u)" -ne 0 ]; then
   chmod 644 "$sj/mc-alpha-worker-0000000002/journal"
   chmod 755 "$steps/000002"
 else
-  ok "unreadable journals and step records (skipped as root)"
+  echo "skip: unreadable journals and step records (the mode does not deny access here)"
+  chmod 644 "$sj/mc-alpha-worker-0000000002/journal"
+  chmod 755 "$steps/000002"
 fi
 # Whether a session is the program's, when that cannot be told, leaves its
 # sources unknown rather than passing the session over.
 if [ "$(id -u)" -ne 0 ]; then
   chmod 000 "$reg/mc-alpha-worker-0000000001"
-  mc_run mc-throughput.sh measure --program alpha --now "$NOW"
-  expect_out "a registry row that cannot be read leaves approvals unknown" \
-    "source${tab}approvals${tab}unknown${tab}cannot tell whether mc-alpha-worker-0000000001 is the program's"
+  if hermetic_access_denied r "$reg/mc-alpha-worker-0000000001"; then
+    mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+    expect_out "a registry row that cannot be read leaves approvals unknown" \
+      "source${tab}approvals${tab}unknown${tab}cannot tell whether mc-alpha-worker-0000000001 is the program's"
+  else
+    echo "skip: a registry row that cannot be read (the mode does not deny access here)"
+  fi
   chmod 644 "$reg/mc-alpha-worker-0000000001"
   chmod 000 "$sj/mc-alpha-worker-0000000002"
-  mc_run mc-throughput.sh measure --program alpha --now "$NOW"
-  expect_out "a session folder that cannot be searched leaves approvals unknown" \
-    "source${tab}approvals${tab}unknown${tab}cannot read the folder of mc-alpha-worker-0000000002"
+  if hermetic_access_denied r "$sj/mc-alpha-worker-0000000002"; then
+    mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+    expect_out "a session folder that cannot be searched leaves approvals unknown" \
+      "source${tab}approvals${tab}unknown${tab}cannot read the folder of mc-alpha-worker-0000000002"
+  else
+    echo "skip: a session folder that cannot be searched (the mode does not deny access here)"
+  fi
   chmod 755 "$sj/mc-alpha-worker-0000000002"
   # A linked session folder is passed over before it is judged, whatever
   # it points at.
   mkdir -p "$tmp/locked"
   chmod 000 "$tmp/locked"
   ln -s "$tmp/locked" "$sj/mc-alpha-worker-0000000030"
-  mc_run mc-throughput.sh measure --program alpha --now "$NOW"
-  expect_out "a linked session folder is passed over" "source${tab}approvals${tab}ok${tab}"
+  if hermetic_access_denied r "$tmp/locked"; then
+    mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+    expect_out "a linked session folder is passed over" "source${tab}approvals${tab}ok${tab}"
+  else
+    echo "skip: a linked session folder (the mode does not deny access here)"
+  fi
   rm -f "$sj/mc-alpha-worker-0000000030"
   chmod 700 "$tmp/locked"
   chmod 000 "$tmp/wt"
-  mc_run mc-throughput.sh measure --program alpha --now "$NOW"
-  expect_out "a worktree that cannot be searched leaves the steps unknown" \
-    "source${tab}steps${tab}unknown${tab}cannot read the worktree $tmp/wt"
+  if hermetic_access_denied r "$tmp/wt"; then
+    mc_run mc-throughput.sh measure --program alpha --now "$NOW"
+    expect_out "a worktree that cannot be searched leaves the steps unknown" \
+      "source${tab}steps${tab}unknown${tab}cannot read the worktree $tmp/wt"
+  else
+    echo "skip: a worktree that cannot be searched (the mode does not deny access here)"
+  fi
   chmod 755 "$tmp/wt"
 else
   ok "sessions that cannot be told apart (skipped as root)"
@@ -381,12 +402,17 @@ if [ "$(count_raised)" = 1 ]; then ok "a held bottleneck emits nothing"; else fa
 
 if [ "$(id -u)" -ne 0 ]; then
   chmod 000 "$steps/000002"
-  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 7200))
-  expect_rc "a watch that cannot read the step records" 0
-  expect_no_out "raises nothing" "raised${tab}step:"
-  chmod 755 "$steps/000002"
-  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 10800))
-  expect_out "a bottleneck its source could not see for a pass is held, not raised again" "held${tab}step:polish${tab}4800"
+  if hermetic_access_denied r "$steps/000002"; then
+    mc_run mc-throughput.sh watch --program alpha --now $((NOW + 7200))
+    expect_rc "a watch that cannot read the step records" 0
+    expect_no_out "raises nothing" "raised${tab}step:"
+    chmod 755 "$steps/000002"
+    mc_run mc-throughput.sh watch --program alpha --now $((NOW + 10800))
+    expect_out "a bottleneck its source could not see for a pass is held, not raised again" "held${tab}step:polish${tab}4800"
+  else
+    chmod 755 "$steps/000002"
+    echo "skip: a source unread for a pass (the mode does not deny access here)"
+  fi
 else
   ok "a source unread for a pass (skipped as root)"
 fi
@@ -415,10 +441,14 @@ if [ "$(id -u)" -ne 0 ]; then
   rm -f "$runtime/throughput-raised"
   mkdir "$runtime/throughput-raised"
   chmod 500 "$runtime/throughput-raised"
-  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 25200))
-  expect_rc "a memory that cannot be written fails the watch" 1
-  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 26100))
-  expect_eq "but the pass was stamped, so the next pass raises nothing again" "skipped${tab}interval"
+  if hermetic_access_denied w "$runtime/throughput-raised"; then
+    mc_run mc-throughput.sh watch --program alpha --now $((NOW + 25200))
+    expect_rc "a memory that cannot be written fails the watch" 1
+    mc_run mc-throughput.sh watch --program alpha --now $((NOW + 26100))
+    expect_eq "but the pass was stamped, so the next pass raises nothing again" "skipped${tab}interval"
+  else
+    echo "skip: a memory that cannot be written (the mode does not deny access here)"
+  fi
   chmod 700 "$runtime/throughput-raised"
   rmdir "$runtime/throughput-raised"
   # A pass that cannot stamp itself measures and emits nothing, so a runtime
@@ -428,11 +458,15 @@ if [ "$(id -u)" -ne 0 ]; then
   rm -f "$runtime/throughput-last"
   mkdir "$runtime/throughput-last"
   chmod 500 "$runtime/throughput-last"
-  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 27000))
-  expect_rc "a pass that cannot be stamped fails the watch" 1
-  expect_no_out "before it measures anything" "source${tab}"
-  events
-  if [ "$(count_raised)" = "$before" ]; then ok "and it emits nothing"; else fail "an unstamped pass emitted: $(count_raised) events, $before before"; fi
+  if hermetic_access_denied w "$runtime/throughput-last"; then
+    mc_run mc-throughput.sh watch --program alpha --now $((NOW + 27000))
+    expect_rc "a pass that cannot be stamped fails the watch" 1
+    expect_no_out "before it measures anything" "source${tab}"
+    events
+    if [ "$(count_raised)" = "$before" ]; then ok "and it emits nothing"; else fail "an unstamped pass emitted: $(count_raised) events, $before before"; fi
+  else
+    echo "skip: a pass that cannot be stamped (the mode does not deny access here)"
+  fi
   chmod 700 "$runtime/throughput-last"
   rm -rf "$runtime/throughput-last"
 else
@@ -470,18 +504,22 @@ if [ "$(id -u)" -ne 0 ]; then
   chmod 000 "$long/.claude/steps/000001"
   mkdir -p "$stall"
   printf '1793500000:t1\thash\t%s\tbusy-unchanged\n' $((NOW + 28800 - 7200)) >"$stall/mc-alpha-worker-0000000001"
-  rm -f "$runtime/throughput-last" "$runtime/throughput-raised"
-  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 28800))
-  expect_out "a stall raised beside an unread source with a long reason" "raised${tab}stalls${tab}7200"
-  events
-  ev=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "throughput-bottleneck" && $4 == "stalls" { t = $5 } END { print t }')
-  case $ev in
-    "Top bottleneck over the last 1d: Stalled or idle sessions: "*"(mc-alpha-worker-0000000001 busy-unchanged). Not measured: steps")
-      ok "the bottleneck is whole, and the unmeasured source is named"
-      ;;
-    *) fail "the bottleneck or the unmeasured source was cut: $ev" ;;
-  esac
-  if [ "${#ev}" -le 500 ]; then ok "within the event's text bound"; else fail "the event text is ${#ev} bytes"; fi
+  if hermetic_access_denied r "$long/.claude/steps/000001"; then
+    rm -f "$runtime/throughput-last" "$runtime/throughput-raised"
+    mc_run mc-throughput.sh watch --program alpha --now $((NOW + 28800))
+    expect_out "a stall raised beside an unread source with a long reason" "raised${tab}stalls${tab}7200"
+    events
+    ev=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "throughput-bottleneck" && $4 == "stalls" { t = $5 } END { print t }')
+    case $ev in
+      "Top bottleneck over the last 1d: Stalled or idle sessions: "*"(mc-alpha-worker-0000000001 busy-unchanged). Not measured: steps")
+        ok "the bottleneck is whole, and the unmeasured source is named"
+        ;;
+      *) fail "the bottleneck or the unmeasured source was cut: $ev" ;;
+    esac
+    if [ "${#ev}" -le 500 ]; then ok "within the event's text bound"; else fail "the event text is ${#ev} bytes"; fi
+  else
+    echo "skip: the unmeasured note under the text bound (the mode does not deny access here)"
+  fi
   chmod 755 "$long/.claude/steps/000001"
   git -C "$repo" worktree remove --force "$long" 2>/dev/null
   rm -rf "$stall"
@@ -644,13 +682,21 @@ expect_no_out "a capture of only a result frame adds no request" "request${tab}m
 expect_out "a request past its window lands in the top band" "curve${tab}100+%${tab}1${tab}120000${tab}120000"
 if [ "$(id -u)" -ne 0 ]; then
   chmod 000 "$sj"
-  mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
-  expect_out "an unreadable capture folder is unknown, not empty" "source${tab}cost${tab}unknown${tab}cannot read $sj"
+  if hermetic_access_denied r "$sj"; then
+    mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
+    expect_out "an unreadable capture folder is unknown, not empty" "source${tab}cost${tab}unknown${tab}cannot read $sj"
+  else
+    echo "skip: an unreadable capture folder (the mode does not deny access here)"
+  fi
   chmod 755 "$sj"
   chmod 000 "$reg/mc-alpha-worker-0000000001"
-  mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
-  expect_out "a capture whose session cannot be told apart leaves the cost unknown" \
-    "source${tab}cost${tab}unknown${tab}cannot tell whether mc-alpha-worker-0000000001 is the program's"
+  if hermetic_access_denied r "$reg/mc-alpha-worker-0000000001"; then
+    mc_run mc-throughput.sh curve --program alpha --now $((NOW + 60))
+    expect_out "a capture whose session cannot be told apart leaves the cost unknown" \
+      "source${tab}cost${tab}unknown${tab}cannot tell whether mc-alpha-worker-0000000001 is the program's"
+  else
+    echo "skip: a capture whose session cannot be told apart (the mode does not deny access here)"
+  fi
   chmod 644 "$reg/mc-alpha-worker-0000000001"
 else
   ok "an unreadable capture folder (skipped as root)"
@@ -769,10 +815,14 @@ unset GH_FIXTURE_FAIL
 if [ "$(id -u)" -ne 0 ]; then
   mkdir -p "$sj"
   chmod 000 "$sj"
-  rm -f "$runtime/throughput-last" "$runtime/throughput-raised"
-  mc_run mc-throughput.sh watch --program alpha --now $((NOW + 50000))
-  events
-  expect_out "an unreadable cost source is raised alone like any other" "throughput-unknown${tab}throughput-unknown-cost${tab}Not measured: cost (cannot read"
+  if hermetic_access_denied r "$sj"; then
+    rm -f "$runtime/throughput-last" "$runtime/throughput-raised"
+    mc_run mc-throughput.sh watch --program alpha --now $((NOW + 50000))
+    events
+    expect_out "an unreadable cost source is raised alone like any other" "throughput-unknown${tab}throughput-unknown-cost${tab}Not measured: cost (cannot read"
+  else
+    echo "skip: an unreadable cost source (the mode does not deny access here)"
+  fi
   chmod 755 "$sj"
   rm -rf "$sj"
 fi

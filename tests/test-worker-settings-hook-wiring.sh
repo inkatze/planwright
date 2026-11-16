@@ -159,7 +159,7 @@ expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready --undo:*)","Bash(gh pr r
 # The only entries the deny block gained since that baseline are the Read and
 # Edit path rules for execution-bearing paths, the guard's session record and
 # overlays, and other processes' environments (REQ-F1.6, REQ-G1.8, REQ-E1.6).
-expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(//**/githooks/**)","Edit(//**/.githooks/**)","Edit(.claude/**)","Edit(//**/.envrc)","Edit(//**/.tool-versions)","Edit(//**/.config/**)","Edit(//**/.mise/**)","Edit(//**/mise/config*.toml)","Edit(//**/mise/miserc*.toml)","Edit(//**/mise/conf.d/**)","Edit(//**/mise/tasks/**)","Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise.*.toml)","Edit(//**/.mise.*.toml)","Edit(//**/.miserc*.toml)","Edit(//**/mise-tasks/**)","Edit(//**/.mise-tasks/**)","Edit(//**/mise*.lock)","Edit(//**/.local/share/mise/**)","Edit(//**/.local/state/mise/**)","Edit(//**/.cache/mise/**)","Edit(//**/Library/Caches/mise/**)","Edit(//usr/local/share/mise/**)","Edit(//tmp/**/mise/**)","Edit(//var/folders/**/mise/**)","Edit(//private/tmp/**/mise/**)","Edit(//private/var/folders/**/mise/**)","Edit(//**/lefthook/**)","Edit(//**/lefthook.*)","Edit(//**/lefthook-local.*)","Edit(//**/.lefthook/**)","Edit(//**/.lefthook.*)","Edit(//**/.lefthook-local/**)","Edit(//**/.lefthook-local.*)","Edit(//**/session-records/*.record)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
+expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(//**/githooks/**)","Edit(//**/.githooks/**)","Edit(.claude/**)","Edit(//**/.envrc)","Edit(//**/.tool-versions)","Edit(//**/.config/**)","Edit(//**/.mise/**)","Edit(//**/mise/config*.toml)","Edit(//**/mise/miserc*.toml)","Edit(//**/mise/conf.d/**)","Edit(//**/mise/tasks/**)","Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise.*.toml)","Edit(//**/.mise.*.toml)","Edit(//**/.miserc*.toml)","Edit(//**/mise-tasks/**)","Edit(//**/.mise-tasks/**)","Edit(//**/mise*.lock)","Edit(//**/.local/share/mise/**)","Edit(//**/.local/state/mise/**)","Edit(//**/.cache/mise/**)","Edit(//**/Library/Caches/mise/**)","Edit(//usr/local/share/mise/**)","Edit(//tmp/**/mise/**)","Edit(//var/folders/**/mise/**)","Edit(//private/tmp/**/mise/**)","Edit(//private/var/folders/**/mise/**)","Edit(//**/lefthook/**)","Edit(//**/lefthook.*)","Edit(//**/lefthook-local.*)","Edit(//**/.lefthook/**)","Edit(//**/.lefthook.*)","Edit(//**/.lefthook-local/**)","Edit(//**/.lefthook-local.*)","Edit(//**/session-records/*.record)","Edit(//**/streamjson/*/mise-task-edit)","Edit(//**/streamjson/*/worker-settings.json)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
 path_rule_re='^(Read|Edit|Write|NotebookEdit)\('
 actual_deny="$(jq -cS --arg re "$path_rule_re" '[.permissions.deny[] | select(test($re) | not)]' "$worker_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
@@ -250,6 +250,22 @@ elif jq -e '
   fail "a plugin-global PreToolUse entry references the auto-approve hook — worker-scoping breached (REQ-C1.2)"
 else
   ok "no plugin-global PreToolUse entry references the auto-approve hook (REQ-C1.2)"
+fi
+
+# --- MCP allow entries: exact tool names only, never a wildcard -------------
+# The shipped read-only MCP allow list is empty; an adopter adds exact names
+# (docs/worker-mcp-reads.md), so a name pattern alone never approves a tool.
+mcp_wild_filter='[.permissions.allow[]? | select(startswith("mcp__") and contains("*"))] | length == 0'
+if jq -e "$mcp_wild_filter" "$worker_settings" >/dev/null 2>&1; then
+  ok "no mcp__ allow entry carries a wildcard"
+else
+  fail "an mcp__ allow entry carries a wildcard"
+fi
+# The filter must catch a wildcard entry (a check that never fails measures nothing).
+if printf '%s' '{"permissions":{"allow":["mcp__github__*"]}}' | jq -e "$mcp_wild_filter" >/dev/null 2>&1; then
+  fail "the mcp__ wildcard filter missed a wildcard entry"
+else
+  ok "the mcp__ wildcard filter catches a wildcard entry"
 fi
 
 # --- REQ-C1.3: _about documents the hook and its posture --------------------
