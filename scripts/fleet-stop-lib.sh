@@ -646,41 +646,41 @@ release_processes() {
 # stop_signal_tree <dir> <match> <pidfiles> <grace> — the signalling half of
 # release_processes, run with the thaw trap armed.
 stop_signal_tree() {
-  for rp_sig in TERM KILL; do
+  for sg_sig in TERM KILL; do
     # A table that cannot be re-read before the SIGTERM leaves the tree as it
     # was found; before the SIGKILL, what is known is still killed.
     if ! stop_freeze "$1" "$2" "$3"; then
-      if [ "$rp_sig" = TERM ]; then
+      if [ "$sg_sig" = TERM ]; then
         stop_thaw
         stop_unreadable 'the process class is left held'
         return 1
       fi
       stop_unreadable 'killing the processes already found'
     fi
-    for rp_p in $stop_tracked; do
-      kill "-$rp_sig" "$rp_p" 2>/dev/null || :
+    for sg_p in $stop_tracked; do
+      kill "-$sg_sig" "$sg_p" 2>/dev/null || :
     done
     # After the SIGTERM, never before it: a member continued first would run,
     # and could fork, before handling the signal.
-    [ "$rp_sig" = KILL ] || stop_thaw
-    case $rp_sig in
-      TERM) rp_wait=$4 ;;
-      *) rp_wait=$kill_settle ;;
+    [ "$sg_sig" = KILL ] || stop_thaw
+    case $sg_sig in
+      TERM) sg_wait=$4 ;;
+      *) sg_wait=$kill_settle ;;
     esac
-    rp_now=$(stop_now) || return 1
-    rp_until=$((rp_now + rp_wait))
+    sg_now=$(stop_now) || return 1
+    sg_until=$((sg_now + sg_wait))
     while :; do
-      rp_found=$(stop_candidates "$1" "$2" "$3") || return 1
-      stop_tracked=$(stop_live "$stop_tracked $rp_found")
+      sg_found=$(stop_candidates "$1" "$2" "$3") || return 1
+      stop_tracked=$(stop_live "$stop_tracked $sg_found")
       if [ -z "$stop_tracked" ]; then
         stop_process_closed "$1"
         return
       fi
-      rp_now=$(stop_now) || return 1
+      sg_now=$(stop_now) || return 1
       # `-le`, so the deadline is a floor: `date +%s` truncates, so a TERM sent
       # at x.999 would otherwise reach a `-lt` deadline a millisecond later and
       # escalate having given the worker no grace at all.
-      [ "$rp_now" -le "$rp_until" ] || break
+      [ "$sg_now" -le "$sg_until" ] || break
       sleep 0.1
     done
   done
