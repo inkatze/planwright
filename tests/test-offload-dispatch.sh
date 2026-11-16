@@ -249,6 +249,33 @@ if ! grep -qxF "PLANWRIGHT_ADOPTER_OVERLAY=$tmp/over lay" "$tmp/tmux-argv" \
 fi
 grep -q '^PLANWRIGHT_CONFIG_STRICT_OVERLAYS=' "$tmp/tmux-argv" \
   && fail "dispatch tmux --keep-config-env: an overlay that is not set reached the window"
+# Run the window's own command (everything after `-c <dir>`) against a fake
+# claude: the kept overlay must be in the launched session's environment,
+# not merely present on the argv.
+: >"$tmp/tmux-argv"
+mkdir -p "$tmp/keepbin"
+cat >"$tmp/keepbin/claude" <<EOF || exit 1
+#!/bin/sh
+printf '%s\n' "\${PLANWRIGHT_ADOPTER_OVERLAY-<unset>}" >"$tmp/keep-session-overlay"
+EOF
+chmod +x "$tmp/keepbin/claude" || exit 1
+PATH="$stubbin:$PATH" sandbox_env env PLANWRIGHT_ADOPTER_OVERLAY="$tmp/over lay" /bin/sh "$script" \
+  dispatch tmux "$promptfile" --keep-config-env >/dev/null \
+  || fail "dispatch tmux --keep-config-env without a profile exited nonzero"
+(
+  set --
+  kc_seen=0
+  while IFS= read -r kc_a; do
+    if [ "$kc_seen" = 0 ]; then
+      [ "$kc_a" = /bin/sh ] || continue
+      kc_seen=1
+    fi
+    set -- "$@" "$kc_a"
+  done <"$tmp/tmux-argv"
+  PATH="$tmp/keepbin:$PATH" PLANWRIGHT_ADOPTER_OVERLAY=from-the-server "$@"
+)
+[ "$(cat "$tmp/keep-session-overlay" 2>&1)" = "$tmp/over lay" ] \
+  || fail "dispatch tmux --keep-config-env: the launched session holds '$(cat "$tmp/keep-session-overlay" 2>&1)', not the kept overlay"
 : >"$tmp/tmux-argv"
 PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_ADOPTER_OVERLAY="$tmp/overlay" /bin/sh "$script" \
   dispatch tmux "$promptfile" --profile mission-control --name mc-alpha-mc-4 >/dev/null \
