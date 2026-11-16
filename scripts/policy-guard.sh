@@ -1831,7 +1831,9 @@ kickoff_git_reads() {
               [ $((j + 1)) -ge "${#SW[@]}" ] || bare=1
               break
               ;;
-            --op* | --ou* | --ext | --ext-* | --textc*) return 1 ;;
+            # git cat-file takes any unambiguous prefix of --textconv, down to
+            # --t, so git log's --text is refused beside the script too.
+            --op* | --ou* | --ext | --ext-* | --t | --te | --tex | --text | --textc*) return 1 ;;
             --no-ext-diff) noext=1 ;;
             --no-textconv) notext=1 ;;
             --patch* | --unified* | --binary | --remerge-diff | --dd | --cc | --stat* | --numstat | \
