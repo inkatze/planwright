@@ -983,7 +983,7 @@ cmd_audit() {
   # agree with the stored fields, and a head counts only in commit-id form.
   # Per point: `point`, then one `cand` per run holding its completion (newest
   # run first) with that run's step gaps, or `none` with the gaps over all runs.
-  : >"$work/side" || die 4 "cannot read the step records"
+  : >"$work/side" || die 4 "cannot write runner state"
   awk -F '\t' -v PTS="${points[*]}" -v SIDE="$work/side" '
     function hex(v) { return v ~ /^[0-9a-f]+$/ && (length(v) == 40 || length(v) == 64) }
     function flush(   ok) {
