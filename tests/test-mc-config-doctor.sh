@@ -468,9 +468,9 @@ expect_out "REQ-A1.9: drift: a rule with metacharacters is still a finding" "rul
 if [ ! -e "$sentinel" ]; then ok "REQ-A1.9: drift: rule text and comments run nothing"; else fail "drift: the audit executed rule or comment text"; fi
 for f in "$rules_file" "$adopter/planwright.yml" "$mlocal" "$tracked"; do
   case $sums_before in
-    *"$f absent$tab"*) fail "drift: $f was missing before the audit, so its checksum proves nothing" ;;
-    *"$f $(sum "$f")$tab"*) ok "REQ-A1.9: drift: $f is unchanged after the audit" ;;
-    *) fail "drift: the audit changed $f" ;;
+    *"$f absent$tab"*) fail "drift: ${f#"$tmp"/} was missing before the audit, so its checksum proves nothing" ;;
+    *"$f $(sum "$f")$tab"*) ok "REQ-A1.9: drift: ${f#"$tmp"/} is unchanged after the audit" ;;
+    *) fail "drift: the audit changed ${f#"$tmp"/}" ;;
   esac
 done
 rm -f "$mlocal" "$adopter/planwright.yml"
