@@ -1038,7 +1038,12 @@ supervisor.
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
 its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
-attention record the worker held. `--grace` takes a whole number of seconds
+attention record the worker held. Before each signal it stops the whole tree
+with SIGSTOP and re-reads it until nothing new appears, so a child forked while
+the close runs cannot be reparented out of reach; a close interrupted in that
+window continues the tree before it exits, and only a SIGKILL of the close
+itself can leave the tree stopped for the next `stop` to finish.
+`--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, the rate-limit
 reading, and the receipt journal survive a stop: they are the durable record,
