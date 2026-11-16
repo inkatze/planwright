@@ -615,21 +615,25 @@ reap_dispatch() {
   # shellcheck disable=SC2086 # a list of pids
   kill -s TERM $rd_tree 2>/dev/null
   kill -s CONT "$rd_pid" 2>/dev/null
-  # Reaped here: a dead child of this shell still answers kill -0 until waited.
-  wait "$rd_pid" 2>/dev/null
   rd_try=0
+  rd_alive=""
   while [ "$rd_try" -lt 60 ]; do
     rd_alive=""
     for rd_p in $rd_tree; do
+      # A dead child of this shell still answers kill -0 until the wait below.
       [ "$rd_p" != "$rd_pid" ] || continue
       ! kill -0 "$rd_p" 2>/dev/null || rd_alive="$rd_alive $rd_p"
     done
-    [ -n "$rd_alive" ] || return 0
+    [ -n "$rd_alive" ] || break
     sleep 0.2
     rd_try=$((rd_try + 1))
   done
+  # Waited only after the grace, and killed with the survivors: a serial worker
+  # running its file in the foreground holds its TERM trap until that file
+  # ends, which a file ignoring TERM never does.
   # shellcheck disable=SC2086 # a list of pids
-  kill -s KILL $rd_alive 2>/dev/null
+  [ -z "$rd_alive" ] || kill -s KILL $rd_alive "$rd_pid" 2>/dev/null
+  wait "$rd_pid" 2>/dev/null
   return 0
 }
 

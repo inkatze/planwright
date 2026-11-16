@@ -9,6 +9,8 @@ unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"
+# shellcheck source=tests/lib/no-timeout-path.sh
+. "$REPO_ROOT/tests/lib/no-timeout-path.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$REPO_ROOT/tests/lib/poll-until.sh"
 
@@ -46,7 +48,9 @@ stub_pids() {
 
 # cancel_case <label> <dir> <signal> [VAR=value...] — run the runner on two
 # slow stub files with INT and QUIT ignored, signal it, and require the run
-# and every stub process to be gone within the deadline.
+# and every stub process to be gone within the deadline. cc_prelude, when set,
+# is the stubs' first line.
+cc_prelude=""
 cancel_case() {
   cc_label=$1
   cc_dir=$2
@@ -58,6 +62,7 @@ cancel_case() {
   for cc_n in a b; do
     cat >"$cc_dir/suite/test-$cc_n.sh" <<EOF
 #!/bin/bash
+$cc_prelude
 echo \$\$ >"$cc_dir/pids/file-$cc_n"
 sleep 300 &
 echo \$! >"$cc_dir/pids/child-$cc_n"
@@ -97,6 +102,12 @@ cancel_case "TERM" "$tmp/term" TERM
 cancel_case "INT" "$tmp/int" INT
 cancel_case "HUP" "$tmp/hup" HUP
 cancel_case "TERM, serial" "$tmp/serial" TERM PLANWRIGHT_TEST_FORCE_SERIAL=1
+# With no timeout(1) the serial worker runs its file in the foreground, so its
+# own TERM trap waits on a file that ignores TERM: only the grace's KILL ends it.
+cc_prelude="trap '' TERM"
+cancel_case "TERM, serial, a file ignoring TERM, no timeout" "$tmp/serial-ignore" TERM \
+  PLANWRIGHT_TEST_FORCE_SERIAL=1 PATH="$(no_timeout_path "$tmp/notimeout")"
+cc_prelude=""
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
