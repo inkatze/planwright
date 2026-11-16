@@ -769,6 +769,9 @@ for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git show --grep a:b scripts/kickoff-spec-push.sh' \
   'git show --author a:b -- scripts/kickoff-spec-push.sh' \
   'git show HEAD:a scripts/kickoff-spec-push.sh' \
+  'git show :/two: :scripts/kickoff-spec-push.sh' \
+  'git show HEAD^{/one:} :scripts/kickoff-spec-push.sh' \
+  'git show HEAD@{12:00} :scripts/kickoff-spec-push.sh' \
   'git log -U1 -- scripts/kickoff-spec-push.sh' \
   'git log -nU1 -- scripts/kickoff-spec-push.sh' \
   'git log --unified=1 -- scripts/kickoff-spec-push.sh' \
@@ -778,12 +781,22 @@ for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
     expect deny "[$tier, task-1] a diff driver command or textconv filter runs on the file: $cmd"
   done
 done
+for cmd in 'git show main@{1}:scripts/kickoff-spec-push.sh' \
+  'git show HEAD^{commit}:scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
+    expect deny "[$tier, task-1] a blob named through a braced revision is refused, as a commit's name can hold a colon too: $cmd"
+  done
+done
 for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
   'git log -p --no-textconv -- scripts/kickoff-spec-push.sh' \
   'git add scripts/kickoff-spec-push.sh' \
   'git log --oneline -- scripts/kickoff-spec-push.sh' \
   'git log --follow -- scripts/kickoff-spec-push.sh' \
   'git show HEAD:scripts/kickoff-spec-push.sh' \
+  'git show :scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh --' \
+  'git show -q:x HEAD:scripts/kickoff-spec-push.sh' \
   'git status scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"

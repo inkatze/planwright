@@ -1842,6 +1842,9 @@ kickoff_git_reads() {
             -*[pucGSLU]*) patchy=1 ;;
             # An option word never names a blob, so a colon in it is no <rev>:<path>.
             -*) ;;
+            # A commit can be named with a colon in it (:/<text>, @{12:00},
+            # ^{/<text>}), so such a word is never read as a <rev>:<path>.
+            :/* | *\{*) bare=1 ;;
             *:*) colon=1 ;;
             *) bare=1 ;;
           esac
@@ -1851,7 +1854,7 @@ kickoff_git_reads() {
         # patches; git log alone and a blob (git show <rev>:<path>) are not.
         # The guard cannot tell an option's separate value (--author a:b) from
         # a <rev>:<path>, nor a bare rev from a path, so git show reads as a
-        # blob only when every word but its options holds a colon.
+        # blob only when every word but its options is a plain <rev>:<path>.
         [ "${SW[$k]}" != show ] || { [ "$colon" = 1 ] && [ "$bare" = 0 ]; } || patchy=1
         # The commands that format a file through a configured program: git diff
         # runs diff.external (or a diff.<driver>.command) on every file by
