@@ -1,21 +1,14 @@
 #!/bin/bash
-# Tests that no two macOS CI jobs running at once on one host can share mise's
-# directories. The self-hosted Mac runners on a host all run under one account,
-# so under mise's defaults every concurrent shard installs into one
-# ~/.local/share/mise and rewrites one bin/mise; a shard spawning mise mid-write
-# dies with "spawn Unknown system error -88" (EBADMACHO).
+# Tests that no two macOS CI jobs running at once on one host share a mise path.
+# The self-hosted Mac runners share one account, so by default concurrent jobs
+# write one bin/mise, and one spawning it mid-write dies with EBADMACHO.
 #
 # Every macOS job must run its `setup: per-runner mise directories` step before
-# mise-action, and that step, run for two runners, must export a different
-# MISE_DATA_DIR, MISE_CACHE_DIR and MISE_STATE_DIR for each. mise-action takes
-# its binary and cache path from MISE_DATA_DIR, so nothing else in the workflow
-# may set those variables or the action's `mise_dir` input. The step body is run
-# here with bash -e, as a GitHub `run:` is on a Mac, under a scratch HOME.
-#
-# mise-action also unpacks its download into os.tmpdir() under a fixed name
-# before moving bin/mise into place, and the account's temp directory is shared
-# too, so each macOS job's mise-action step must set TMPDIR to the runner's own
-# temp directory.
+# mise-action, exporting MISE_DATA_DIR, MISE_CACHE_DIR and MISE_STATE_DIR that
+# differ per runner (the body runs here with bash -e under a scratch HOME), and
+# nothing else may set them or the action's `mise_dir` input. Its mise-action
+# step must also set TMPDIR to runner.temp: the action unpacks its download into
+# the account-wide temp directory under a fixed name before moving bin/mise.
 set -u
 unset CDPATH
 LC_ALL=C
