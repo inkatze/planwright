@@ -205,6 +205,23 @@ settings.json
 EOF"
 refuse "echo x >| $H/kb/link-settings.md"
 
+echo "# an expansion or a dot-dot that points a home path at posture stays refused"
+# shellcheck disable=SC2016 # the expansions are the command under test
+DOTS='$(printf %s ../../../.claude)'
+for t in "$DOTS/settings.json" "\$D/settings.json" "\${D}/settings.json" \
+  'link-dir/settings.j*' 'link-dir/sett?ngs.json' 'link-dir/settings.[j]son' \
+  '*.md' 'link-*' '../../../.claude/settings*' "../../../.claude/plugins/data/planwright/planwright.y*" \
+  '../../../.claude/plugins/data/planwright/fleet/../planwright.yml'; do
+  refuse "D=../../../.claude; echo x >> $H/kb/$t"
+  refuse "D=../../../.claude; cat >> $H/kb/$t <<'EOF'
+settings.json
+EOF"
+  refuse "D=../../../.claude; W=\$(cat $H/kb/$t); echo \"\$W\""
+done
+refuse "echo x >> \$(cat $H/kb/real.md)"
+refuse "echo x >> \"$H/kb/\$(echo link-overlay.md)\""
+refuse "echo x | tee $H/kb/link-ov*"
+
 echo "# instruction files: the file tools and a name inside a home"
 pg_file mission-control Write "$UNIT/CLAUDE.md"
 expect deny "[mission-control] the file tool refuses CLAUDE.md"
