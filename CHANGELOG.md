@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.77.0](https://github.com/inkatze/planwright/compare/v0.76.1...v0.77.0) (2026-11-16)
+
+
+### Features
+
+* **mission-control:** state the cadence result at consequential moments ([#1073](https://github.com/inkatze/planwright/issues/1073)) ([a4787ce](https://github.com/inkatze/planwright/commit/a4787ce29562f170c53ecb0cfabd469f8e668ed4))
+* report a ready PR whose head still has an unfinished check ([#1029](https://github.com/inkatze/planwright/issues/1029)) ([0d9fd5d](https://github.com/inkatze/planwright/commit/0d9fd5d8bc99e7d461b0dcbb78e9152d8bc426b3))
+
+
+### Bug Fixes
+
+* **fleet:** show a pending prompt's owner and refuse a non-owner answer without --takeover ([#967](https://github.com/inkatze/planwright/issues/967)) ([d6dc575](https://github.com/inkatze/planwright/commit/d6dc5756563ce6cb30920bb40f498ed5ce1e334d))
+* **guard:** never auto-approve worker reads of secrets ([#954](https://github.com/inkatze/planwright/issues/954)) ([c7b2636](https://github.com/inkatze/planwright/commit/c7b2636295da5d90634a47434aff79c8cdc49c33))
+* pin CI's Claude Code CLI to the version contributors run ([#1000](https://github.com/inkatze/planwright/issues/1000)) ([6d45890](https://github.com/inkatze/planwright/commit/6d45890632052afbc9f0c4da2118e0328aa529dc))
+* recover keeps a launcher worker's row; row-less workers route by their dispatch owner ([#978](https://github.com/inkatze/planwright/issues/978)) ([7591149](https://github.com/inkatze/planwright/commit/75911492fec6fc2eeca8725ded89e183f0b8a4f0))
+* **tests:** stop test-poll-until's p7 kill from deleting the suite's scratch dir ([#1075](https://github.com/inkatze/planwright/issues/1075)) ([d7a3492](https://github.com/inkatze/planwright/commit/d7a34929afa3136a810987846aa022b29033f9f7))
+* **tests:** wait for c15's detached supervisor while it lives, not a fixed 60s ([#1064](https://github.com/inkatze/planwright/issues/1064)) ([213a9ec](https://github.com/inkatze/planwright/commit/213a9ecef6f2e753b0eee691b59a1645ee6569d2))
+
+## [0.76.1](https://github.com/inkatze/planwright/compare/v0.76.0...v0.76.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* a reissued process id no longer makes a dead worker look alive ([#1005](https://github.com/inkatze/planwright/issues/1005)) ([60cfce4](https://github.com/inkatze/planwright/commit/60cfce4320cd2dee312f6e225e6b53c219320014))
+* **ci:** retry a PR-Agent review the model left empty or unparseable ([#1067](https://github.com/inkatze/planwright/issues/1067)) ([bcf3ca3](https://github.com/inkatze/planwright/commit/bcf3ca30aa73a15580cbd66dc00a4713beeee432))
+* compare spec stable IDs against the merge base ([#1001](https://github.com/inkatze/planwright/issues/1001)) ([d42cee4](https://github.com/inkatze/planwright/commit/d42cee44400c13bc89a89252aa2a3b8de622a4e7))
+* **guard:** approve a worker's read line that starts with cd into its own worktree ([#1069](https://github.com/inkatze/planwright/issues/1069)) ([bfee4af](https://github.com/inkatze/planwright/commit/bfee4af2996b4a5cf2d81f75f30c1b4288346913))
+* measure the oracle TERM-compliant timeout by poll count, not wall clock ([#1019](https://github.com/inkatze/planwright/issues/1019)) ([6f1ef28](https://github.com/inkatze/planwright/commit/6f1ef28d6c7a98480c0d8b3bc373a9d231155f2c))
+* pin recorded tmux ids to their server and window name, and drop tab-separated tmux formats ([#1066](https://github.com/inkatze/planwright/issues/1066)) ([cae54f1](https://github.com/inkatze/planwright/commit/cae54f107401ab8ad4f025e5908fc612a9a8bcd4))
+* **policy-guard:** admit an amendment kickoff's own push and name the real refusal ([#1065](https://github.com/inkatze/planwright/issues/1065)) ([cf12fe5](https://github.com/inkatze/planwright/commit/cf12fe59a9b76b633ec3995d258b9b092f7aa189))
+* **readiness:** audit the PR head when the worktree is ahead of it ([#966](https://github.com/inkatze/planwright/issues/966)) ([8f82903](https://github.com/inkatze/planwright/commit/8f82903c3888aadc60f2012385eb24c15a37056a))
+* refuse a ready flip while any check on the head is still running ([#999](https://github.com/inkatze/planwright/issues/999)) ([647f14e](https://github.com/inkatze/planwright/commit/647f14e043ada46f1a16d84b224e5c800ddcacdf))
+
+## [0.76.0](https://github.com/inkatze/planwright/compare/v0.75.2...v0.76.0) (2026-11-14)
+
+
+### Features
+
+* **fleet:** version, capacity and stop verbs for the remote channel ([#968](https://github.com/inkatze/planwright/issues/968)) ([33337f2](https://github.com/inkatze/planwright/commit/33337f214612710bf58690396d39bd77b19a0a99))
+* let an opted-in worker edit its own worktree's mise task files ([#940](https://github.com/inkatze/planwright/issues/940)) ([0707378](https://github.com/inkatze/planwright/commit/070737854b1c130010287bbdb8cd1770c460a75a))
+* **mission-control:** the ledger records a done-condition and checks its triggers ([#997](https://github.com/inkatze/planwright/issues/997)) ([662b1e5](https://github.com/inkatze/planwright/commit/662b1e5cfc32f863a7eb671ed0325042da9153ee))
+* raise an alarm when a program's draft PRs sit with no ready flip ([#992](https://github.com/inkatze/planwright/issues/992)) ([aa59f35](https://github.com/inkatze/planwright/commit/aa59f35740311d0d390e784cc75f0c68ab3cc84b))
+* **remote-worker-rung:** machine-local host registry ([#969](https://github.com/inkatze/planwright/issues/969)) ([c68b883](https://github.com/inkatze/planwright/commit/c68b8832a800b583a9f8340a8373aef7b1e013aa))
+
+
+### Bug Fixes
+
+* **guard:** approve read-only gh, install-root reads and in-worktree edits in worker sessions ([#948](https://github.com/inkatze/planwright/issues/948)) ([c7c4e07](https://github.com/inkatze/planwright/commit/c7c4e079e494e9969c6b4c5e8dfdbe9fdf10e7ee))
+* **spec-status:** count a task whose squash dropped its trailer, and keep trailers on merge ([#1060](https://github.com/inkatze/planwright/issues/1060)) ([4158d83](https://github.com/inkatze/planwright/commit/4158d83651d388dbf3788515082fe2bab4392466))
+* word walk-time changelog lines so they stay true after sign-off ([#993](https://github.com/inkatze/planwright/issues/993)) ([09c7b2a](https://github.com/inkatze/planwright/commit/09c7b2a2c79fa707895ec185a3604abf63e4c730))
+
 ## [0.75.2](https://github.com/inkatze/planwright/compare/v0.75.0...v0.75.2) (2026-11-13)
 
 
