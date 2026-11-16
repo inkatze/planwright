@@ -8,14 +8,18 @@
 # A merge from the base among those commits carries all of the base's changes
 # since the branch last synced, so the review can run past its time bound.
 # PR-Agent skips only a merge whose message starts "Merge branch '<default>'";
-# a "Merge remote-tracking branch 'origin/main'" goes in whole. A full review
+# a "Merge remote-tracking branch 'origin/main'" goes in whole. Any commit with
+# more than one parent counts here, the skipped kind included. A full review
 # reads the PR's own diff against its base, so a merge adds nothing to it.
 #
 # The range mirrors PR-Agent 0.49.0's (github_provider.get_commit_range):
-# walking back from the head, the commits whose committer date is later than
-# the newest review comment's creation, stopping at the first that is not.
-# With no review comment PR-Agent reviews in full itself, so the incremental
-# command stands.
+# walking back from the head, the commits whose committer date (author date
+# when it has none) is later than the newest review comment's creation,
+# stopping at the first that is not. With no review comment PR-Agent reviews
+# in full itself, so the incremental command stands. A full review edits the
+# persistent review comment in place, which leaves its creation time where it
+# was, so once a merge is in range every later push on the PR gets the full
+# review too (PR-Agent's own default push command).
 #
 # Usage: pr-agent-push-commands.sh --pr <n> --output <file>
 #   Needs gh signed in and GITHUB_REPOSITORY. Appends one line,
@@ -72,7 +76,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || {
   exit 1
 }
 
-choose() {
+# finish <commands>: write the choice and exit.
+finish() {
   printf 'commands=%s\n' "$1" >>"$output" || {
     printf '::error title=PR-Agent push review::could not write the choice to %s\n' "$output"
     exit 1
@@ -80,11 +85,12 @@ choose() {
   exit 0
 }
 
-# full_on <reason>: a failed or unreadable lookup. The full review's cost is
-# bounded by the PR's own diff; an incremental one over a merge is not.
-full_on() {
+# finish_full <reason>: a failed or unreadable lookup; choose the full review
+# and exit. Its cost is bounded by the PR's own diff; an incremental one over a
+# merge is not.
+finish_full() {
   printf '::warning title=PR-Agent full review::%s, so this push gets a full review.\n' "$1"
-  choose "$FULL"
+  finish "$FULL"
 }
 
 # read_api <path> <jq program>: gh api's paginated output, bounded; fails on
@@ -99,22 +105,24 @@ read_api() {
 # comment_identity.comment_matches_identity decides: a marker, in either of
 # its stored forms, as a whole line among the first five, or a legacy header
 # the body starts with.
-reviews=$(read_api "issues/$pr/comments?per_page=100" "$REVIEW_FILTER") \
-  || full_on "Could not read the PR's comments"
-if [ -n "$reviews" ] && printf '%s\n' "$reviews" | grep -Evq "^$DATE\$"; then
-  full_on "The PR's comment list came back in a shape this script cannot read"
+review_times=$(read_api "issues/$pr/comments?per_page=100" "$REVIEW_FILTER") \
+  || finish_full "Could not read the PR's comments"
+if [ -n "$review_times" ] && printf '%s\n' "$review_times" | grep -Evq "^$DATE\$"; then
+  finish_full "The PR's comment list came back in a shape this script cannot read"
 fi
-last_review=$(printf '%s\n' "$reviews" | tail -n 1)
-[ -n "$last_review" ] || choose "$INCREMENTAL"
+last_review=$(printf '%s\n' "$review_times" | tail -n 1)
+[ -n "$last_review" ] || finish "$INCREMENTAL"
 
-commits=$(read_api "pulls/$pr/commits?per_page=100" '.[] | "\(.parents | length) \(.commit.committer.date // .commit.author.date)"') \
-  || full_on "Could not read the PR's commits"
-if printf '%s\n' "$commits" | grep -Evq "^[0-9]+ $DATE\$"; then
-  full_on "The PR's commit list came back in a shape this script cannot read"
+# One "<parent count> <date>" row per commit, oldest first.
+commit_rows=$(read_api "pulls/$pr/commits?per_page=100" '.[] | "\(.parents | length) \(.commit.committer.date // .commit.author.date)"') \
+  || finish_full "Could not read the PR's commits"
+if printf '%s\n' "$commit_rows" | grep -Evq "^[0-9]+ $DATE\$"; then
+  finish_full "The PR's commit list came back in a shape this script cannot read"
 fi
 
-# Same-shaped UTC timestamps order as strings.
-if printf '%s\n' "$commits" | awk -v since="$last_review" '
+# The date test ends the walk rather than filtering it, as in PR-Agent's range;
+# same-shaped UTC timestamps order as strings.
+if printf '%s\n' "$commit_rows" | awk -v since="$last_review" '
   { parents[NR] = $1; date[NR] = $2 }
   END {
     for (i = NR; i >= 1 && date[i] > since; i--)
@@ -122,6 +130,6 @@ if printf '%s\n' "$commits" | awk -v since="$last_review" '
     exit 1
   }'; then
   printf '::notice title=PR-Agent full review::A merge commit is among the commits since the last review, so this push gets a full review of the PR diff instead of an incremental one.\n'
-  choose "$FULL"
+  finish "$FULL"
 fi
-choose "$INCREMENTAL"
+finish "$INCREMENTAL"
