@@ -24,6 +24,7 @@ while [ "$i" -le "$runs" ]; do
   done
   wait_pids=$(jobs -p | grep -vx "$sent")
   for p in $wait_pids; do wait "$p"; echo "run $i pid $p rc=$?"; done
+  [ "$i" -gt 1 ] || grep -h FAIL "$log"/*.1.out
   if [ -s "$log/sentinel" ]; then
     echo "SIGNAL after run $i: $(tr '\n' ' ' <"$log/sentinel")"
     : >"$log/sentinel"
