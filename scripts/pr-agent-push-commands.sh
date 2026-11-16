@@ -44,7 +44,7 @@ REVIEW_FILTER='.[] | select(.user.login == "github-actions[bot]") | (.body // ""
         or . == "[pr-agent:review:incremental]: https://github.com/The-PR-Agent/pr-agent"))
     or ($b | startswith("## PR Reviewer Guide") or startswith("## Incremental PR Reviewer Guide")))
   | .created_at'
-DATE='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+DATE_RE='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
 
 die_usage() {
   printf 'pr-agent-push-commands: %s\n' "$1" >&2
@@ -107,7 +107,7 @@ read_api() {
 # the body starts with.
 review_times=$(read_api "issues/$pr/comments?per_page=100" "$REVIEW_FILTER") \
   || finish_full "Could not read the PR's comments"
-if [ -n "$review_times" ] && printf '%s\n' "$review_times" | grep -Evq "^$DATE\$"; then
+if [ -n "$review_times" ] && printf '%s\n' "$review_times" | grep -Evq "^$DATE_RE\$"; then
   finish_full "The PR's comment list came back in a shape this script cannot read"
 fi
 last_review=$(printf '%s\n' "$review_times" | tail -n 1)
@@ -116,7 +116,7 @@ last_review=$(printf '%s\n' "$review_times" | tail -n 1)
 # One "<parent count> <date>" row per commit, oldest first.
 commit_rows=$(read_api "pulls/$pr/commits?per_page=100" '.[] | "\(.parents | length) \(.commit.committer.date // .commit.author.date)"') \
   || finish_full "Could not read the PR's commits"
-if printf '%s\n' "$commit_rows" | grep -Evq "^[0-9]+ $DATE\$"; then
+if printf '%s\n' "$commit_rows" | grep -Evq "^[0-9]+ $DATE_RE\$"; then
   finish_full "The PR's commit list came back in a shape this script cannot read"
 fi
 
