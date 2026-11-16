@@ -54,10 +54,11 @@ EOF
 }
 
 # msp_pane_of <pid> <ps table> <panes>: the pane whose process is <pid> or an
-# ancestor of it; fails when none is.
+# ancestor of it; fails when none is. <panes> is `<pane id> <pane pid>` per
+# line: tmux prints a tab in a format as `_` under LC_ALL=C.
 msp_pane_of() {
   {
-    printf '%s\n' "$3" | awk -F '\t' 'NF == 2 && $1 ~ /^%[0-9]+$/ && $2 ~ /^[0-9]+$/ { print "pane\t" $1 "\t" $2 }'
+    printf '%s\n' "$3" | awk 'NF == 2 && $1 ~ /^%[0-9]+$/ && $2 ~ /^[0-9]+$/ { print "pane\t" $1 "\t" $2 }'
     printf '%s\n' "$2" | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { print "proc\t" $1 "\t" $2 }'
   } | S=$1 M=$MSP_ANCESTRY_MAX awk -F '\t' '
     $1 == "pane" { pane[$3] = $2 }

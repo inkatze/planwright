@@ -93,6 +93,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 drain="$here/../scripts/drain-gates.sh"
 
 fail() {
@@ -413,14 +415,15 @@ out2=$("$drain" --today 2026-06-12 "$tmp/specs2") \
 printf '%s\n' "$out2" | grep -F 'unmined: 1 (legacy: 1) - oldest: 2027-01-01 (0 days)' >/dev/null \
   || fail "future-dated observation age not clamped at zero"
 
-# 14. Permission failures are surfaced, not silently skipped (skipped when
-#     running as root, which bypasses permission bits).
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$tmp/specs3/gamma"
-  printf '%s\n' '# G' '' '**Status:** Active' \
-    >"$tmp/specs3/gamma/requirements.md"
-  printf '%s\n' '# G — Tasks' '' '**Format-version:** 1' >"$tmp/specs3/gamma/tasks.md"
-  chmod 000 "$tmp/specs3/gamma/tasks.md"
+# 14. Permission failures are surfaced, not silently skipped (each case skips
+#     where the running user is not denied, as root, which bypasses permission
+#     bits).
+mkdir -p "$tmp/specs3/gamma"
+printf '%s\n' '# G' '' '**Status:** Active' \
+  >"$tmp/specs3/gamma/requirements.md"
+printf '%s\n' '# G — Tasks' '' '**Format-version:** 1' >"$tmp/specs3/gamma/tasks.md"
+chmod 000 "$tmp/specs3/gamma/tasks.md"
+if hermetic_access_denied r "$tmp/specs3/gamma/tasks.md"; then
   out3=$("$drain" --today 2026-06-12 "$tmp/specs3") \
     || fail "unreadable tasks.md must not abort the sweep"
   chmod 644 "$tmp/specs3/gamma/tasks.md"
@@ -430,25 +433,38 @@ if [ "$(id -u)" -ne 0 ]; then
     && fail "unreadable tasks.md conflated with a missing one"
   printf '%s\n' "$out3" | grep -F 'errors: 1' >/dev/null \
     || fail "unreadable tasks.md not counted in the summary errors tally"
+else
+  printf '%s\n' "skip: unreadable tasks.md: the running user still reads $tmp/specs3/gamma/tasks.md under mode 000"
+fi
+chmod 644 "$tmp/specs3/gamma/tasks.md"
 
-  mkdir -p "$tmp/specs3/epsilon"
-  printf '%s\n' '# E' '' '**Status:** Active' \
-    >"$tmp/specs3/epsilon/requirements.md"
-  printf '%s\n' '# E — Tasks' '' '**Format-version:** 1' >"$tmp/specs3/epsilon/tasks.md"
-  chmod 000 "$tmp/specs3/epsilon/requirements.md"
+mkdir -p "$tmp/specs3/epsilon"
+printf '%s\n' '# E' '' '**Status:** Active' \
+  >"$tmp/specs3/epsilon/requirements.md"
+printf '%s\n' '# E — Tasks' '' '**Format-version:** 1' >"$tmp/specs3/epsilon/tasks.md"
+chmod 000 "$tmp/specs3/epsilon/requirements.md"
+if hermetic_access_denied r "$tmp/specs3/epsilon/requirements.md"; then
   out3b=$("$drain" --today 2026-06-12 "$tmp/specs3") \
     || fail "unreadable requirements.md must not abort the sweep"
   chmod 644 "$tmp/specs3/epsilon/requirements.md"
   printf '%s\n' "$out3b" | grep -F 'requirements.md unreadable' >/dev/null \
     || fail "unreadable requirements.md not noted"
+else
+  printf '%s\n' "skip: unreadable requirements.md: the running user still reads $tmp/specs3/epsilon/requirements.md under mode 000"
+fi
+chmod 644 "$tmp/specs3/epsilon/requirements.md"
 
-  mkdir -p "$tmp/specs4/delta"
-  chmod 444 "$tmp/specs4"
+mkdir -p "$tmp/specs4/delta"
+chmod 444 "$tmp/specs4"
+if hermetic_access_denied w "$tmp/specs4"; then
   rc=0
   "$drain" "$tmp/specs4" >/dev/null 2>&1 || rc=$?
   chmod 755 "$tmp/specs4"
   [ "$rc" -eq 1 ] || fail "non-searchable root: expected exit 1, got $rc"
+else
+  printf '%s\n' "skip: non-searchable root: the running user still writes $tmp/specs4 under mode 444"
 fi
+chmod 755 "$tmp/specs4"
 
 # 15. Skipped-directory notes are visible: a non-conforming name and an
 #     over-length name each leave a note rather than vanishing.
@@ -593,12 +609,13 @@ printf '%s\n' "$out11" | grep -F '== summary ==' >/dev/null \
   || fail "torn-read error prevented the report from completing"
 
 # 22. Permission failure on the observations log is surfaced and counted
-#     (skipped as root, which bypasses permission bits).
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$tmp/specs11/_observations"
-  printf '%s\n' '- 2026-06-10 [demo] Entry.' \
-    >"$tmp/specs11/_observations/opportunities.md"
-  chmod 000 "$tmp/specs11/_observations/opportunities.md"
+#     (skipped where the running user is not denied, as root, which bypasses
+#     permission bits).
+mkdir -p "$tmp/specs11/_observations"
+printf '%s\n' '- 2026-06-10 [demo] Entry.' \
+  >"$tmp/specs11/_observations/opportunities.md"
+chmod 000 "$tmp/specs11/_observations/opportunities.md"
+if hermetic_access_denied r "$tmp/specs11/_observations/opportunities.md"; then
   out12=$("$drain" --today 2026-06-12 "$tmp/specs11") \
     || fail "unreadable observations log must not abort the sweep"
   chmod 644 "$tmp/specs11/_observations/opportunities.md"
@@ -606,7 +623,10 @@ if [ "$(id -u)" -ne 0 ]; then
     || fail "unreadable observations log not surfaced"
   printf '%s\n' "$out12" | grep -F 'errors: 1' >/dev/null \
     || fail "unreadable observations log not counted in the errors tally"
+else
+  printf '%s\n' "skip: unreadable observations log: the running user still reads $tmp/specs11/_observations/opportunities.md under mode 000"
 fi
+chmod 644 "$tmp/specs11/_observations/opportunities.md"
 
 # 23. A bundle with no requirements.md at all: status atoms referencing it
 #     fail as unknown, and a note explains the missing status file.
@@ -797,35 +817,43 @@ fi
 # 32. An unreadable fragment is excluded and named, never an abort (REQ-C1.3,
 #     D-4). Regression (F1): the fragment loop lacked an -r guard, so the read
 #     open failed; under a strict-POSIX /bin/sh (dash, the CI shell) that
-#     aborts the whole sweep under set -e - no report emitted. Skip runs as
-#     root (mode 000 is still readable). The sweep must still report, count
-#     only the readable fragment, and name the unreadable one.
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$tmp/specs28/_observations/entries"
-  printf -- '- 2026-09-01 [planwright] readable and counted\n' \
-    >"$tmp/specs28/_observations/entries/2026-09-01-good-aaaaaaaa.md"
-  printf -- '- 2026-09-02 [planwright] cannot be read\n' \
-    >"$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
-  chmod 000 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+#     aborts the whole sweep under set -e - no report emitted. Skipped where
+#     the running user still reads mode 000, as root does. The sweep must still
+#     report, count only the readable fragment, and name the unreadable one.
+noread="$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+mkdir -p "$tmp/specs28/_observations/entries"
+printf -- '- 2026-09-01 [planwright] readable and counted\n' \
+  >"$tmp/specs28/_observations/entries/2026-09-01-good-aaaaaaaa.md"
+printf -- '- 2026-09-02 [planwright] cannot be read\n' >"$noread"
+chmod 000 "$noread"
+if hermetic_access_denied r "$noread"; then
   drc=0
   out28=$("$drain" --today 2026-09-10 "$tmp/specs28") || drc=$?
-  chmod 644 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+  chmod 644 "$noread"
   [ "$drc" -eq 0 ] \
     || fail "an unreadable fragment aborted the whole drain sweep (exit $drc)"
   printf '%s\n' "$out28" | grep -F 'unmined: 1 (fragments: 1)' >/dev/null \
     || fail "an unreadable fragment was counted, or the readable one was lost: $(printf '%s\n' "$out28" | grep -F unmined)"
   printf '%s\n' "$out28" | grep -F 'unreadable fragment' | grep -F '2026-09-02-noread-bbbbbbbb.md' >/dev/null \
     || fail "the unreadable fragment was not named in the report"
+else
+  printf '%s\n' "skip: unreadable fragment: the running user still reads $noread under mode 000"
+fi
+chmod 644 "$noread"
 
-  # Lock the CI-shell portability regression directly under dash.
-  if command -v dash >/dev/null 2>&1; then
-    chmod 000 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+# Lock the CI-shell portability regression directly under dash.
+if command -v dash >/dev/null 2>&1; then
+  chmod 000 "$noread"
+  if hermetic_access_denied r "$noread"; then
     drc=0
     dash "$drain" --today 2026-09-10 "$tmp/specs28" >/dev/null 2>&1 || drc=$?
-    chmod 644 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+    chmod 644 "$noread"
     [ "$drc" -eq 0 ] \
       || fail "an unreadable fragment aborts the drain sweep under dash (exit $drc)"
+  else
+    printf '%s\n' "skip: unreadable fragment under dash: the running user still reads $noread under mode 000"
   fi
+  chmod 644 "$noread"
 fi
 
 # 33. A dangling symlink fragment (target missing) is named as invalid, not

@@ -3,11 +3,11 @@
 #
 # Usage: kickoff-spec-push.sh <spec>
 #
-# The one push a kickoff session may make. The policy guard admits it only to
-# the worker launched as that spec's kickoff, on that spec's branch or one of
-# its amendment branches (planwright/<spec>/amendment-<n>, digits only); this
-# script checks the branch and runs one plain `git push -u origin`. It never
-# forces, deletes, or pushes another ref, and git refuses a non-fast-forward.
+# The one push a kickoff session may make, run alone or after cd only, which
+# the policy guard admits only for that spec's kickoff worker. It checks the
+# branch (planwright/<spec>/spec or an amendment branch, an amendment
+# kickoff's own alone) and the launch scope, then runs one plain `git push -u
+# origin` of that branch: never a force, a delete or another ref.
 #
 # Exit: 0 pushed; 1 refused here; otherwise git's own push status.
 set -u
@@ -57,7 +57,35 @@ case $current in
   *) die "this checkout is on '$current', not planwright/$spec/spec or planwright/$spec/amendment-<n>; run as $form from one of them" ;;
 esac
 
-if [ -n "$hook_lc_all" ]; then
-  exec env LC_ALL="$hook_lc_all" git push -u origin "$current"
+# A session's launch scope binds the push here, at run time, since the guard
+# reads the branch before a command runs and anything may move HEAD after it
+# or run this script where the guard never sees it. No scope is an attended
+# run, which the branch checks above govern alone.
+scope=${PLANWRIGHT_WORKER_SCOPE:-}
+not_kickoff="this session is not the kickoff for $spec (launch scope '$scope'), so it may not push; only a session launched with scope kickoff-$spec, or kickoff-$spec-a<n> on planwright/$spec/amendment-<n>, runs $form"
+if [ -n "$scope" ] && [ "$scope" != "kickoff-$spec" ]; then
+  case $scope in
+    "kickoff-$spec-a"[0-9]*) ;;
+    *) die "$not_kickoff" ;;
+  esac
+  rest=${scope#"kickoff-$spec-a"}
+  n=${rest%%[!0-9]*}
+  rest=${rest#"$n"}
+  case $rest in
+    '' | [a-z]) ;;
+    -*)
+      case ${rest#-} in '' | *[!a-z0-9]*) die "$not_kickoff" ;; esac
+      ;;
+    *) die "$not_kickoff" ;;
+  esac
+  [ "$current" = "planwright/$spec/amendment-$n" ] \
+    || die "amendment $n's kickoff for $spec pushes only planwright/$spec/amendment-$n, and this checkout is on '$current'; check that branch out and run $form"
 fi
-exec env -u LC_ALL git push -u origin "$current"
+
+# A full refspec: a short name is mapped through remote.origin.push, which can
+# carry an amendment branch onto the spec branch.
+refspec="refs/heads/$current:refs/heads/$current"
+if [ -n "$hook_lc_all" ]; then
+  exec env LC_ALL="$hook_lc_all" git push -u origin "$refspec"
+fi
+exec env -u LC_ALL git push -u origin "$refspec"

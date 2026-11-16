@@ -248,6 +248,7 @@ case $RC in 0 | 3) ok "a fixture claude quota hold" ;; *) fail "the fixture quot
 mc_run mc-event.sh emit --program alpha --now "$((now + 10))" -- session-landed mc-alpha-worker-a "acme/app#7 MERGED, retired"
 mc_run mc-event.sh emit --program alpha --now "$((now + 11))" -- alpha-item pr-9 "approve the release"
 mc_run mc-event.sh emit --program alpha --now "$((now + 12))" -- stall-dead mc-alpha-worker-b "worker: pid gone"
+mc_run mc-event.sh emit --program alpha --now "$((now + 12))" -- tmux-server-lost tmux-server "the tmux server was replaced; relaunch them"
 mc_run mc-event.sh emit --program alpha --now "$((now + 13))" -- pending-prompt mc-alpha-worker-c "a routine prompt"
 
 # ---------------------------------------------------------------------------
@@ -324,6 +325,7 @@ expect_rc "report" 0
 expect_out "a landing is reported" "landed${tab}mc-alpha-worker-a${tab}acme/app#7 MERGED, retired"
 expect_out "a decision is reported" "decision${tab}pr-9${tab}approve the release"
 expect_out "a failure is reported" "failed${tab}mc-alpha-worker-b${tab}"
+expect_out "a lost tmux server is reported as a failure" "failed${tab}tmux-server${tab}the tmux server was replaced"
 expect_out "a launch past the hold is reported" "bypass${tab}${limited}${tab}"
 expect_no_out "a routine event is not reported" "mc-alpha-worker-c"
 expect_no_out "a routine launch is not reported" "next-one"

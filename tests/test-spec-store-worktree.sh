@@ -11,6 +11,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
   GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 S="$REPO_ROOT/scripts"
 
 failures=0
@@ -403,13 +405,13 @@ else
 fi
 gitq -C "$H" rm -q "projects/demo-root/pre" && gitq -C "$H" commit -q -m "unlink pre" && gitq -C "$H" push -q origin trunk
 # The in-bundle scan fails closed: an unreadable directory could hide a
-# symlink. Root reads through a 000 directory, so the case needs a user.
+# symlink.
 sw "$W" unr
 unrdir="$H/.claude/worktrees/unr-spec/projects/demo-root/unr/hidden"
 mkdir -p "$unrdir"
 ln -s "$tmp/outside" "$unrdir/escape"
 chmod 000 "$unrdir"
-if [ "$(id -u)" -ne 0 ]; then
+if hermetic_access_denied r "$unrdir"; then
   sw "$W" unr
   if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not scan.*Permission denied'; then
     ok "an unreadable directory inside the bundle is refused, with find's reason"
@@ -417,7 +419,7 @@ if [ "$(id -u)" -ne 0 ]; then
     fail "unreadable bundle dir: rc=$rc out=$out err=$err"
   fi
 else
-  echo "skip: an unreadable directory inside the bundle (running as root)"
+  echo "skip: unreadable bundle dir: the running user still reads $unrdir under mode 000"
 fi
 chmod 755 "$unrdir"
 # A bundle file hardlinked to a file outside the holder.
@@ -444,14 +446,14 @@ else
   fail "nested hardlinked file: rc=$rc out=$out err=$err"
 fi
 # The link-count scan fails closed too: a directory that can be listed but
-# not entered hides a hard link from it. Needs a user, as above.
+# not entered hides a hard link from it.
 sw "$W" hlr
 hlrdir="$H/.claude/worktrees/hlr-spec/projects/demo-root/hlr/listed"
 mkdir -p "$hlrdir"
 printf 'outside\n' >"$tmp/outside5/hlr"
 ln "$tmp/outside5/hlr" "$hlrdir/requirements.md"
 chmod 400 "$hlrdir"
-if [ "$(id -u)" -ne 0 ]; then
+if hermetic_access_denied w "$hlrdir"; then
   sw "$W" hlr
   if [ "$rc" -eq 4 ] && [ -z "$out" ] && printf '%s' "$err" | grep -q 'could not scan.*Permission denied'; then
     ok "a hard link inside a non-traversable directory is refused, with find's reason"
@@ -459,7 +461,7 @@ if [ "$(id -u)" -ne 0 ]; then
     fail "hard link in a non-traversable dir: rc=$rc out=$out err=$err"
   fi
 else
-  echo "skip: as root, a hard link inside a non-traversable directory"
+  echo "skip: hard link in a non-traversable dir: the running user still writes $hlrdir under mode 400"
 fi
 chmod 755 "$hlrdir"
 # Nothing inside the bundle may be other than a directory or a regular file.
