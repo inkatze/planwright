@@ -636,6 +636,9 @@ release_processes() {
   stop_trap_arm
   rp_rc=0
   stop_signal_tree "$@" || rp_rc=$?
+  # A close that gives up past the SIGKILL may still hold a survivor it froze,
+  # one blocked in the kernel, say; continued, it dies of the pending kill.
+  [ "$rp_rc" = 0 ] || stop_thaw
   stop_trap_disarm
   return "$rp_rc"
 }
