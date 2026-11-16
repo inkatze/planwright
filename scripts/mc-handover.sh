@@ -156,7 +156,8 @@ Usage:
       retired predecessor and a stranded successor stop being wake targets
       (mc-wake.sh target remove), so neither is woken again for the
       program's events, and every event raised in an earlier second than
-      the handover file's written time is marked submitted (mc-event.sh
+      the handover file's written time (or the take's own, when that is
+      earlier) is marked submitted (mc-event.sh
       mark) for the taker and for the program-named target every mod
       holder wakes under, but for the open items (`item <id>`) the file
       lists; with no handover file, or none with a readable written time,
@@ -749,6 +750,9 @@ drop_targets() {
 # that process still runs.
 succeed() {
   s_to=$1 s_kind=$2 s_from=$3 s_from_kind=$4 s_expect=$5 s_wait=$6 s_cutoff=$7
+  # The items this run raises are stamped NOW, so a later cutoff would mark
+  # them handled unseen.
+  [ "$s_cutoff" = - ] || [ "$s_cutoff" -le "$NOW" ] || s_cutoff=$NOW
   s_how=none
   if [ "$s_from" != - ]; then
     if wait_release "$s_from" "$s_from_kind" "$s_to" "$s_wait"; then s_how=released; else s_how=retired; fi
@@ -1273,10 +1277,6 @@ case $verb in
     [ "$RETIRE_OK" -eq 1 ] || exit 1
     ;;
   resume)
-    # The resuming session built its --durable picture from the stores just
-    # before this run; an event raised in between comes after the operator's
-    # last prompt, so the changed lines below still name it.
-    resume_start=$(mc_now)
     need session "$session"
     need picture "$picture"
     need digest "$digest"
@@ -1311,7 +1311,10 @@ case $verb in
         raise handover-requested "$H_SESSION" "the operator resumed mission control for $program in $session; release the name"
       fi
     fi
-    succeed "$session" "$kind" "$from" "$from_kind" "$H_SESSION" "$secs" "$resume_start"
+    # The resuming session built its --durable picture from the stores just
+    # before this run; an event raised in between comes after the operator's
+    # last prompt, so the changed lines below still name it.
+    succeed "$session" "$kind" "$from" "$from_kind" "$H_SESSION" "$secs" "$NOW"
     own_request=''
     what_changed "${since:-0}"
     announce "$session" "$from"

@@ -100,10 +100,16 @@ run mission-control-launch.sh retire "$n1"
 run mc-wake.sh target add --program alpha "$n1"
 has "$(targets)" "$n1" || fail "fixture: the leftover target was not recorded: $(targets)"
 
-ho take --program alpha --session "$n2" --window 1s
+# The take runs on a clock behind the handover file's: what it raises in its
+# own second must not fall below the cutoff.
+emit handover-retire-failed take-second $((base + 8))
+own_second=$EV
+ho take --program alpha --session "$n2" --window 1s --now $((base + 8))
 [ "$RC" = 0 ] || fail "the take exited $RC: $OUT $ERR"
 holder_is "fixture: the successor holds the name" "$n2"
 after=$(pending_for "$n2")
+has "$after" "$own_second" && ok "an item raised in the take's own second stays pending, the cutoff held to the take's clock" \
+  || fail "the take marked an item of its own second: $after"
 ! has "$after" "$done1" && ! has "$after" "$done2" \
   && ok "the take marks the backlog its predecessor's picture accounts for submitted for the successor" \
   || fail "the handled backlog is still pending for $n2: $after"
