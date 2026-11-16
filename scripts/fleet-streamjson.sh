@@ -235,8 +235,9 @@
 #       rejects an empty deny and the worker dies); --response-file
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
-#       included, so escape them), 64 KiB at most; a deny body needs a
-#       non-empty message or it is refused. The worker's owner is the
+#       included, so escape them), 64 KiB at most; a deny body whose message
+#       holds nothing but whitespace or control bytes, written raw or as
+#       escapes, or that has no message, is refused. The worker's owner is the
 #       session its launch registered (`pending` shows it); an answer from a
 #       session whose $PLANWRIGHT_TOWER_ID differs is refused (exit 3, nothing
 #       written, the request stays pending) unless --takeover is passed. A
