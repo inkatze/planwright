@@ -452,6 +452,45 @@ ho take --program alpha --session "$r2" --window 1s --exit-wait 1s
 holder_is "the name rests with the successor" "$r2"
 kill "$pr" 2>/dev/null
 
+# ---------------------------------------------------------------------------
+# A successor keeps the program's context: launched from a worker's
+# worktree, it starts in the program's repository with the caller's adopter
+# overlay, where the program block lives; an explicit --cwd still decides.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/worker-wt" "$tmp/chosen"
+RUN_CWD="$tmp/worker-wt" ho launch --program alpha --brief "$tmp/brief.md" --asked
+c1=$(col successor 2)
+[ "$RC" = 0 ] && [ -n "$c1" ] || fail "the launch from a worker's worktree exited $RC: $OUT $ERR"
+wait_done "$c1"
+[ "$(cat "$tmp/shim/$c1.cwd" 2>&1)" = "$repo" ] \
+  && ok "a successor launched from a worker's worktree starts in the program's repository" \
+  || fail "the successor started in '$(cat "$tmp/shim/$c1.cwd" 2>&1)', not $repo"
+[ "$(cat "$tmp/shim/$c1.overlay" 2>&1)" = "$adopter" ] \
+  && ok "the successor is handed the caller's adopter overlay" \
+  || fail "the successor's adopter overlay is '$(cat "$tmp/shim/$c1.overlay" 2>&1)', not $adopter"
+run mission-control-launch.sh retire "$c1"
+rm -f "$fleet/mission-control/alpha/successor"
+
+RUN_CWD="$tmp/worker-wt" ho launch --program alpha --brief "$tmp/brief.md" --asked --cwd "$tmp/chosen"
+c2=$(col successor 2)
+wait_done "$c2"
+[ "$RC" = 0 ] && [ "$(cat "$tmp/shim/$c2.cwd" 2>&1)" = "$tmp/chosen" ] \
+  && ok "an explicit --cwd still names where the successor starts" \
+  || fail "the --cwd launch: exit $RC, started in '$(cat "$tmp/shim/$c2.cwd" 2>&1)': $ERR"
+run mission-control-launch.sh retire "$c2"
+rm -f "$fleet/mission-control/alpha/successor"
+
+cp "$tracked" "$tmp/tracked.keep"
+awk -v gone="$tmp/gone" '/^program_alpha_repositories:/ { print "program_alpha_repositories: [" gone "]"; next } { print }' \
+  "$tmp/tracked.keep" >"$tracked"
+RUN_CWD="$tmp/worker-wt" ho launch --program alpha --brief "$tmp/brief.md" --asked
+[ "$RC" = 1 ] && [ -z "$(col successor 2)" ] && case $ERR in *--cwd*) true ;; *) false ;; esac \
+  && ok "with no repository of the program on this machine the launch refuses, naming --cwd" \
+  || fail "the launch with no repository exited $RC: $OUT $ERR"
+[ ! -f "$fleet/mission-control/alpha/successor" ] && ok "and reserves nothing" \
+  || fail "the refused launch left a successor record: $(cat "$fleet/mission-control/alpha/successor")"
+cp "$tmp/tracked.keep" "$tracked"
+
 echo
 if [ "$failures" -gt 0 ]; then
   echo "test-mc-handover: $failures failure(s)" >&2
