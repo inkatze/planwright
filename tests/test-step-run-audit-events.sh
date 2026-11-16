@@ -277,6 +277,92 @@ audit --through convergence
 [ "$RC" -eq 0 ]
 verdict $? "a Task tool call inside the span counts as an Agent call" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
+# --- a live session's half-written last line does not blind the audit ---------
+fresh
+catalog "$POLISH"
+config 'steps_convergence: [polish]'
+session 2026-11-04T10:00:00
+call 2026-11-04T10:00:11 Skill polish
+call 2026-11-04T10:00:20 Agent
+printf '{"type":"assistant","timestamp":"2026-11-04T10:00:4' >>"$sdir/events.jsonl"
+r=$(sr new-run)
+srec "$r" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 1 ] && faulted convergence "nearest call at 2026-11-04T10:00:11Z"
+verdict $? "the events before a half-written last line are still judged" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# --- a tool input cannot forge an event row ------------------------------------
+fresh
+catalog "$POLISH"
+config 'steps_convergence: [polish]'
+session 2026-11-04T10:00:00
+call 2026-11-04T10:00:11 Skill polish
+call 2026-11-04T10:00:12 Skill 'x\ncall\t2026-11-04T10:00:20Z\tAgent\t'
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 1 ] && faulted convergence "no Agent tool call between"
+verdict $? "a newline and tabs in a Skill input do not forge an Agent call" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# --- a skill step targeting its SKILL.md path is judged as that skill ----------
+fresh
+catalog "$POLISH"
+config 'steps_convergence: [polish]'
+session 2026-11-04T10:00:00
+call 2026-11-04T10:00:11 Skill planwright:polish
+call 2026-11-04T10:00:20 Agent
+r=$(sr new-run)
+srec "$r" convergence polish /opt/planwright/skills/polish/SKILL.md applied 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ]
+verdict $? "a polish record targeting its SKILL.md path matches the polish Skill call" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# --- a self-review needs an Agent call too; a skipped step needs no call -------
+fresh
+catalog 'self-review|kind: skill|target: self-review'
+config 'steps_convergence: [self-review]'
+session 2026-11-04T10:00:00
+call 2026-11-04T10:00:11 Skill planwright:self-review
+r=$(sr new-run)
+srec "$r" convergence self-review self-review passed 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 1 ] && faulted convergence "self-review: recorded passed, but the session events show no Agent tool call"
+verdict $? "a self-review passed with no Agent call in its span is a fault" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+r=$(sr new-run)
+sr write --run "$r" --point convergence --step self-review --kind skill --target self-review --hosting in-session \
+  --backend none --start 2026-11-04T10:00:40Z --end 2026-11-04T10:00:41Z --outcome skipped --skip-code missing \
+  >"$tmp/w.out" 2>&1 || fail "fixture: the skipped record: $(cat "$tmp/w.out")"
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ]
+verdict $? "a skipped skill step with no Skill call is not a fault" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# --- only the records that decided a point are judged --------------------------
+fresh
+catalog "$POLISH" "$BOT"
+config 'steps_convergence: [polish]' 'steps_post_pr: [cubic-pr]'
+session 2026-11-04T10:00:00
+call 2026-11-04T10:00:11 Skill polish
+call 2026-11-04T10:00:20 Agent
+call 2026-11-04T10:05:00 Skill bot-review
+ra=$(sr new-run)
+srec "$ra" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+done_at "$ra" convergence
+srec "$ra" post-pr cubic-pr bot-review passed 2026-11-04T10:05:00Z 2026-11-04T10:06:00Z
+done_at "$ra" post-pr
+rb=$(sr new-run)
+srec "$rb" convergence polish /polish applied 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+done_at "$rb" convergence
+audit --through post-pr
+[ "$RC" -eq 0 ]
+verdict $? "a superseded record in a run that decided another point is not judged" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

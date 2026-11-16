@@ -74,12 +74,19 @@ if [ -s "$work/files" ]; then
   else
     set --
     while IFS= read -r f; do set -- "$@" "$f"; done <"$work/files"
+    # Line by line, so a live session's half-written last line drops only
+    # itself; a tool input is written by the session under audit, so it loses
+    # its tabs and line breaks before it can shape a row.
     # shellcheck disable=SC2016 # a jq program
-    if jq -r 'input_filename as $f | select(.timestamp != null) | (.timestamp[0:19] + "Z") as $t
+    if jq -R -r 'input_filename as $f | (fromjson? // empty) | objects
+      | select((.timestamp | type) == "string"
+          and (.timestamp | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$")))
+      | (.timestamp[0:19] + "Z") as $t
       | ("first\t" + $t + "\t" + $f),
         ((.message.content? // [])[]? | select(type == "object" and .type == "tool_use")
           | select(.name == "Skill" or .name == "Agent" or .name == "Task")
-          | "call\t" + $t + "\t" + .name + "\t" + ((.input.skill // "") | tostring))' \
+          | "call\t" + $t + "\t" + .name + "\t"
+            + ((.input.skill? // "") | tostring | gsub("[\t\n\r]"; " ")))' \
       "$@" >"$work/events.tsv"; then
       if grep -q '^first' "$work/events.tsv"; then
         have_events=1
@@ -105,8 +112,9 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
       + substr(t, 12, 2) * 3600 + substr(t, 15, 2) * 60 + substr(t, 18, 2)
   }
   function absdiff(a, b) { a = epoch(a) - epoch(b); return a < 0 ? -a : a }
-  function skill_name(t,   w) {
+  function skill_name(t,   w, n) {
     sub(/^\//, "", t); split(t, w, " "); t = w[1]
+    if (t ~ /\/SKILL\.md$/) { n = split(t, w, "/"); t = w[n - 1] }
     sub(/^[^:]*:/, "", t)
     return t
   }

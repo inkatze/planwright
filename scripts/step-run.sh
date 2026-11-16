@@ -115,12 +115,13 @@
 #           counts, then that run's step gaps; the judged run's step gaps;
 #           else `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB>
 #           <head>`, the head --head or the worktree's. Exit 0 complete, 1
-#           gaps, 2 usage (an unknown --base included), 4 the records or the
-#           cadence could not be read. Each judged run's in-session skill
-#           records are also held to the session's own events
+#           gaps, 2 usage (an unknown --base included), 4 the records, the
+#           cadence or the session events could not be read. The records
+#           that decided each point are also held to the session's own events
 #           (step-events-audit.sh): `gap<TAB><point><TAB>fault<TAB><detail>`
-#           per record whose start is off its Skill call, a polish passed or
-#           applied with no Agent call in its span or passed on a moved head,
+#           per record whose start is off its Skill call, a polish or
+#           self-review passed or applied with no Agent call in its span, a
+#           polish passed on a moved head,
 #           or a fix-round starting before the first event (unless it repeats
 #           an earlier run's record of that round); `note<TAB><point>
 #           <TAB>unverified<TAB><detail>` where the events are not reachable.
@@ -1071,7 +1072,7 @@ cmd_audit() {
       cand)
         [ -z "$decided" ] || continue
         if audit_fresh "$hd" "$head" "$([ "$pt" = "$last" ] && echo 1 || echo 0)" "$base"; then
-          decided=$gaps stale='' judged="$judged $jr"
+          decided=$gaps stale='' judged="$judged $jr:$cur"
         elif [ -z "$stale" ]; then
           stale="$hd$TAB$gaps"
         fi
@@ -1086,10 +1087,12 @@ cmd_audit() {
   finish_point
   set +f
   if [ -n "$judged" ]; then
-    for jr in $judged; do ev_runs+=(--run "$jr"); done
+    for jr in $judged; do ev_runs+=(--run "${jr%%:*}"); done
     /bin/sh "$SEA" --worktree "$worktree" --records "$work/records" "${ev_runs[@]}" >"$work/events" \
       || [ $? -eq 1 ] || die 4 "cannot judge the step records against the session events"
     while IFS=$TAB read -r kind ev_id pt gaps; do
+      # A run that decided one point can hold superseded records of another.
+      case " $judged " in *" ${ev_id%:*} "*) ;; *) continue ;; esac
       ev_pt=${ev_id#*:}
       ev_pt=${ev_pt%%:*}
       case $kind in
