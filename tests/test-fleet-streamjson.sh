@@ -1799,6 +1799,20 @@ for c17d in allow plain uesc lowu upperu; do
 done
 echo "ok: c17d a response-file body the deny check should pass is delivered unchanged"
 
+# c17e: every shape of real content opening a deny message passes the check.
+#     The check runs before the worker lookup, so against a worker that does
+#     not exist a passing body is refused as an unknown worker and a failing
+#     one by the deny-message check, with no launch needed.
+home="$tmp/h17e"
+mkdir -p "$home" "$tmp/r17e"
+for body17e in '{"behavior":"deny","message":"  no"}' '{"behavior":"deny","message":"\\u4e2d"}' '{"behavior":"deny","message":"\\u0100"}' '{"behavior":"deny","message":"\\u0041"}' '{"behavior":"deny","message":"\\u0080"}' '{"behavior":"deny","message":"\\u0000x"}' '{"behavior":"deny","message":"\\\\"}' '{"behavior":"deny","message":"\\/"}' '{"behavior":"deny","message":"\303\251"}'; do
+  printf '%b\n' "$body17e" >"$tmp/c17e.resp"
+  senv "$home" "$tmp/r17e" -- answer sjw17enone "$req_perm" --response-file "$tmp/c17e.resp" >/dev/null 2>"$tmp/c17e.err"
+  grep -q 'unknown worker' "$tmp/c17e.err" \
+    || fail "c17e: a deny message opening with real content must pass the check: $(cat "$tmp/c17e.resp"), got: $(cat "$tmp/c17e.err")"
+done
+echo "ok: c17e every opening of real content passes the response-file deny check"
+
 # ---------------------------------------------------------------------------
 # c18 (REQ-E1.5): the journal lock's break is decided by the holder's PROCESS
 #     and never by the lock's age. Both directions are asserted, because only
