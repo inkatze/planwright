@@ -123,6 +123,10 @@ walk_with "cadence stale" '-' "cadence${tab}gap${tab}post-pr${tab}stale${tab}222
 expect_out "a stale point names where it completed" "fail${tab}cadence${tab}post-pr: completed only at 222222222222"
 walk_with "cadence incomplete" '-' "cadence${tab}gap${tab}pre-ci${tab}incomplete${tab}-"
 expect_out "an incomplete point says so" "fail${tab}cadence${tab}pre-ci: no completion record"
+walk_with "cadence fault" '-' "cadence${tab}gap${tab}convergence${tab}fault${tab}000003:convergence:001 polish: start 2026-11-04T10:00:13Z is off"
+expect_out "a record the session events contradict reads as its detail" \
+  "fail${tab}cadence${tab}convergence: 000003:convergence:001 polish: start 2026-11-04T10:00:13Z is off"
+expect_no_out "and is not relabelled with its kind" "is off is fault"
 walk_with "cadence audited elsewhere" "s/^cadence\taudited\t$H/cadence\taudited\t2222222222222222222222222222222222222222/"
 expect_rc "a cadence audited at another head is refused" 4
 
