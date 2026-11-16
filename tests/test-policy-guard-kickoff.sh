@@ -780,6 +780,7 @@ for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git log --dd -- scripts/kickoff-spec-push.sh' \
   'git cat-file --t HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --te HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --tex HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --text HEAD:scripts/kickoff-spec-push.sh' \
   'git annotate scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
