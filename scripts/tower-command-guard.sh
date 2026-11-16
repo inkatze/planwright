@@ -936,7 +936,7 @@ guard_sed() {
       continue
     fi
     case $a in
-      -e) expect_e=1 ;;
+      -e | --expression) expect_e=1 ;;
       --expression=*)
         zsh_opt_word_ok "$i" && sed_script_safe "${a#--expression=}" || return 1
         script_taken=1
