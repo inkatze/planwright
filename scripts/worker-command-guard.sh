@@ -2445,7 +2445,7 @@ guard_sed() {
 # also read as a read-only script, since BSD sed takes the word after `-i` as
 # its suffix and so the first file as the script.
 guard_sed_inplace() {
-  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0 nn=0 operand=0
+  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0 nn=0 operand=0 ddash=0
   local -a words=() files=() nx=() nq=() nd=() ng=() nz=() nm=() ns=()
   ob_live || return 1
   for ((i = 0; i < cwn; i++)); do
@@ -2455,7 +2455,11 @@ guard_sed_inplace() {
       # `-e` anywhere but takes every word after `--` as a file, so a bare
       # word ahead of an `-e` would be a file this loop took for the script.
       case $a in
-        --) [ "$operand" = 0 ] && operand=1 || return 1 ;;
+        --)
+          [ "$ddash$nfiles" = 00 ] || return 1
+          ddash=1
+          operand=1
+          ;;
         -*) [ "$operand" = 0 ] || return 1 ;;
         *) operand=1 ;;
       esac

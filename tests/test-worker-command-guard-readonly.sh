@@ -142,8 +142,12 @@ case $OSTYPE in
   linux*)
     assert_allow "sed -i -- a tracked file" "sed -i -- 1p f" Bash "$WT"
     assert_allow "sed -i -e then -- a tracked file" "sed -i -e 1p -- f" Bash "$WT"
+    assert_allow "sed -i a script then -- a tracked file" "sed -i s/a/b/ -- f" Bash "$WT"
+    assert_allow "sed -i a script then -- two tracked files" "sed -i 1p -- f g" Bash "$WT"
     ;;
 esac
+assert_defer "sed -i a second -- after the script" "sed -i s/a/b/ -- -- f" Bash "$WT"
+assert_defer "sed -i -e after a script and --" "sed -i s/a/b/ -- -e 1p f" Bash "$WT"
 assert_defer "sed -i a file in .git" "sed -i s/a/b/ .git/config" Bash "$WT"
 assert_defer "sed -i a hook" "sed -i s/a/b/ githooks/pre-commit" Bash "$WT"
 assert_defer "sed -i under .claude" "sed -i s/a/b/ .claude/settings.json" Bash "$WT"
