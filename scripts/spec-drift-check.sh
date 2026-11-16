@@ -119,24 +119,48 @@ awk '
 if [ "$(g cat-file -t "$head_sha:$root" 2>/dev/null)" != tree ]; then
   exit 0
 fi
-g ls-tree --name-only "$head_sha:$root/" >"$tmp/entries" 2>/dev/null || die "cannot read the spec root $root at the head"
+# Listing the files first makes a listed file git cannot read an error,
+# never an absence that would read as a new, and so edited, bundle.
+g ls-tree -r --name-only "$head_sha:$root" >"$tmp/head-files" 2>/dev/null || die "cannot read the spec root $root at the head"
+base_root=$(g --literal-pathspecs ls-tree "$mb" -- "$root" 2>/dev/null) || die "cannot read the merge base"
+case $base_root in
+  *" tree "*) g ls-tree -r --name-only "$mb:$root" >"$tmp/base-files" 2>/dev/null || die "cannot read the spec root $root at the merge base" ;;
+  *) : >"$tmp/base-files" ;;
+esac
+awk -F / 'NF > 1 && !seen[$1]++ { print $1 }' "$tmp/head-files" >"$tmp/entries"
 
 : >"$tmp/listing"
 : >"$tmp/edited"
 files='requirements.md design.md tasks.md test-spec.md'
-export_bundle() { # export_bundle <commit> <bundle> <dir>: 0 all four files, 1 none, 2 some
+# export_bundle <commit> <bundle> <dir> <file list>: 0 all four files, 1 none, 2 some
+export_bundle() {
   local c=$1 b=$2 d=$3 f n=0
   mkdir -p "$d" || die "cannot create a scratch directory"
   for f in $files; do
-    if g cat-file blob "$c:$root/$b/$f" >"$d/$f" 2>/dev/null; then n=$((n + 1)); else rm -f "$d/$f"; fi
+    grep -qxF -- "$b/$f" "$4" || continue
+    g cat-file blob "$c:$root/$b/$f" >"$d/$f" 2>/dev/null || die "cannot read $root/$b/$f at $c"
+    n=$((n + 1))
   done
   case $n in 4) return 0 ;; 0) return 1 ;; *) return 2 ;; esac
 }
 while IFS= read -r b; do
   case $b in _*) continue ;; esac
   [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]] || continue
+  # A bundle whose tasks.md holds no changed path as text lists none of them,
+  # so it is skipped before the costly model and anchor reads.
+  grep -qxF -- "$b/tasks.md" "$tmp/head-files" || continue
+  g cat-file blob "$head_sha:$root/$b/tasks.md" >"$tmp/tasks" 2>/dev/null || die "cannot read $root/$b/tasks.md at the head"
   rc=0
-  export_bundle "$head_sha" "$b" "$tmp/head/$b" || rc=$?
+  awk 'FILENAME == ARGV[1] { if ($0 != "") c[++n] = $0; next }
+    { for (i = 1; i <= n; i++) if (index($0, c[i])) { hit = 1; exit } }
+    END { exit hit ? 0 : 1 }' "$tmp/changed" "$tmp/tasks" || rc=$?
+  case $rc in
+    0) ;;
+    1) continue ;;
+    *) die "cannot read $root/$b/tasks.md at the head" ;;
+  esac
+  rc=0
+  export_bundle "$head_sha" "$b" "$tmp/head/$b" "$tmp/head-files" || rc=$?
   case $rc in
     1) continue ;;
     2) die "the bundle $b is unreadable at the head (a spec file is missing)" ;;
@@ -152,9 +176,11 @@ while IFS= read -r b; do
         if (tok ~ /^[^ \t]+$/) { sub(/^\.\//, "", tok); print tok "\t" B "\t" $2 }
       }
     }' "$tmp/model" >>"$tmp/listing" || die "the bundle $b cannot be read"
+  # An untouched bundle is the same at both ends, so its anchor is unchanged.
+  P="$root/$b/" awk 'index($0, ENVIRON["P"]) == 1 { hit = 1; exit } END { exit hit ? 0 : 1 }' "$tmp/changed" || continue
   hanchor=$(/bin/sh "$script_dir/spec-anchor.sh" "$tmp/head/$b" 2>/dev/null) || die "the anchor of $b cannot be computed at the head"
   rc=0
-  export_bundle "$mb" "$b" "$tmp/base/$b" || rc=$?
+  export_bundle "$mb" "$b" "$tmp/base/$b" "$tmp/base-files" || rc=$?
   if [ "$rc" = 0 ]; then
     banchor=$(/bin/sh "$script_dir/spec-anchor.sh" "$tmp/base/$b" 2>/dev/null) || die "the anchor of $b cannot be computed at the base"
   else

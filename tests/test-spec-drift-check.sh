@@ -187,6 +187,47 @@ run ""
 expect_rc "an unreadable bundle at the head refuses" 2
 expect_err "naming the bundle" "bundle demo is unreadable"
 
+# Each bundle's edit excuses only the files that bundle lists.
+gitc checkout -q -B pr main
+mkdir -p "$repo/specs/other"
+for f in requirements.md design.md test-spec.md; do cp "$repo/specs/demo/$f" "$repo/specs/other/$f"; done
+sed 's/`scripts\/a.sh` and prose scripts\/prose.sh, plus `src\/b.c`/`src\/other.c`/; s/`lib\/c.sh`/`lib\/d.sh`/' \
+  "$repo/specs/demo/tasks.md" >"$repo/specs/other/tasks.md"
+gitc add -A >/dev/null
+gitc commit -q -m "add a second bundle"
+gitc branch -f main2 pr
+printf 'change\n' >>"$repo/scripts/a.sh"
+printf 'more\n' >>"$repo/specs/other/design.md"
+gitc add -A >/dev/null
+gitc commit -q -m "feat: a, with an edit to the other bundle"
+printf '' >"$tmp/body"
+out=$("$check" --repo "$repo" --base main2 --head pr --body-file "$tmp/body" 2>"$tmp/err")
+rc=$?
+expect_rc "an edit to another bundle does not excuse this bundle's deliverable" 4
+expect_out "the file stays flagged under its own task" "flagged${tab}scripts/a.sh${tab}demo/1"
+
+# A spec file at the merge base that is listed but cannot be read refuses,
+# never reads as a new bundle that excuses its deliverables.
+gitc checkout -q -B pr main
+sed 's/\*\*Status:\*\* Ready/**Status:** Active/' "$repo/specs/demo/requirements.md" >"$tmp/req" && cat "$tmp/req" >"$repo/specs/demo/requirements.md"
+printf 'change\n' >>"$repo/scripts/a.sh"
+gitc add -A >/dev/null
+gitc commit -q -m "feat: a with status only"
+if gitc diff --name-only main pr | grep -qx specs/demo/requirements.md; then ok "the status-only edit reached requirements.md"; else fail "the status-only edit did not happen"; fi
+rm -rf "$tmp/corrupt"
+cp -R "$repo" "$tmp/corrupt"
+blob=$(gitc rev-parse main:specs/demo/requirements.md)
+obj="$tmp/corrupt/.git/objects/$(printf '%s' "$blob" | cut -c1-2)/$(printf '%s' "$blob" | cut -c3-)"
+if [ -f "$obj" ]; then
+  rm -f "$obj"
+  out=$("$check" --repo "$tmp/corrupt" --base main --head pr --body-file "$tmp/body" 2>"$tmp/err")
+  rc=$?
+  expect_rc "an unreadable spec file at the merge base refuses" 2
+  expect_err "naming the file" "specs/demo/requirements.md"
+else
+  fail "the fixture's base blob is not a loose object"
+fi
+
 # The repository's own configuration runs nothing: a signed commit in the
 # range with log.showSignature set must not reach its gpg.program.
 pr "feat: change a" scripts/a.sh
