@@ -769,6 +769,9 @@ for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git show --grep a:b scripts/kickoff-spec-push.sh' \
   'git show --author a:b -- scripts/kickoff-spec-push.sh' \
   'git show HEAD:a scripts/kickoff-spec-push.sh' \
+  'git log -U1 -- scripts/kickoff-spec-push.sh' \
+  'git log -nU1 -- scripts/kickoff-spec-push.sh' \
+  'git log --unified=1 -- scripts/kickoff-spec-push.sh' \
   'git annotate scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
