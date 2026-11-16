@@ -458,21 +458,22 @@ printf '# temporary adopter note `touch %s` $(touch %s) ; touch %s\nmission_cont
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m \`touch $sentinel\` \$(touch $sentinel); touch $sentinel" --subject stall --source "operator, fixture" --date 2026-01-01
 expect_rc "REQ-A1.9: drift: a rule carrying metacharacters is stored" 0
 rules_file="$drift_home/rules.yaml"
-sums_before=""
-for f in "$rules_file" "$adopter/planwright.yml" "$mlocal" "$tracked"; do sums_before="$sums_before$f $(sum "$f")$tab"; done
+layer_sums() {
+  for f in "$rules_file" "$core/config/defaults.yml" "$adopter/planwright.yml" "$mlocal" "$tracked"; do
+    printf '%s %s\n' "${f#"$tmp"/}" "$(sum "$f")"
+  done
+}
+sums_before=$(layer_sums)
+case $sums_before in *" absent"*) fail "drift: a layer or the rules file was missing before the audit, so its checksum proves nothing: $sums_before" ;; esac
 cfg doctor --program drift
 expect_rc "REQ-A1.9: drift: metacharacters in a rule and a comment still audit" 0
 expect_out "REQ-A1.9: drift: a local comment with metacharacters is still a finding" "temporary${tab}$mlocal${tab}mission_control_stall_window${tab}marker interim"
 expect_out "REQ-A1.9: drift: an adopter comment with metacharacters is still a finding" "temporary${tab}$adopter/planwright.yml${tab}mission_control_handover_context${tab}marker temporary"
 expect_out "REQ-A1.9: drift: a rule with metacharacters is still a finding" "rule-knob${tab}r-10${tab}mission_control_stall_window${tab}30m${tab}20m"
-if [ ! -e "$sentinel" ]; then ok "REQ-A1.9: drift: rule text and comments run nothing"; else fail "drift: the audit executed rule or comment text"; fi
-for f in "$rules_file" "$adopter/planwright.yml" "$mlocal" "$tracked"; do
-  case $sums_before in
-    *"$f absent$tab"*) fail "drift: ${f#"$tmp"/} was missing before the audit, so its checksum proves nothing" ;;
-    *"$f $(sum "$f")$tab"*) ok "REQ-A1.9: drift: ${f#"$tmp"/} is unchanged after the audit" ;;
-    *) fail "drift: the audit changed ${f#"$tmp"/}" ;;
-  esac
-done
+if [ ! -e "$sentinel" ]; then ok "REQ-A1.9: drift: rule text and comments run nothing"; else fail "drift: storing the rule or auditing it executed rule or comment text"; fi
+sums_after=$(layer_sums)
+if [ "$sums_after" = "$sums_before" ]; then ok "REQ-A1.9: drift: the rule file and every layer are unchanged after the audit"
+else fail "drift: the audit changed a layer or the rules file; before: $sums_before; after: $sums_after"; fi
 rm -f "$mlocal" "$adopter/planwright.yml"
 
 cfg doctor --program gamma
