@@ -113,12 +113,17 @@ Usage:
       queue item pushed once and a dead worker's is settled), each request
       still overdue one pending-prompt-overdue event, subject the worker,
       announced once per request (a worker the launcher records for
-      another program left to that program), and a request that has just
+      another program left to that program, a row-less one's program being
+      the owner its dispatch record keeps; one no record owns is raised
+      once as a stream-json-worker-unowned event under the hub program
+      mission_control_escalation_hub names, or under the program whose
+      keeper found it when none is configured, never to every
+      program), and a request that has just
       arrived one pending-prompt event per pass that sees it (the requests
       new to that pass batched into the one event), and a dead worker this
       scan settled one stream-json-worker-dead
       event, whatever its program, printing
-        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
+        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned<TAB><worker>
       a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
       seconds, or a pending sweep that ends non-zero, is said on stderr and
       raised once as a keeper-sweep-failed event (the default age, 900,
@@ -501,6 +506,88 @@ run_pending_sweep() {
   return 1
 }
 
+# worker_program <worker> <launcher list> <fleet home>: the program a
+# stream-json worker belongs to: its launcher row's, else the owner its
+# dispatch record keeps (mission-control:<program>), which outlives a row that
+# was removed, provided that program is still configured: a record naming a
+# removed one would send the prompt to a keeper that no longer runs. Prints
+# nothing when neither names one.
+worker_program() {
+  wp_p=$(printf '%s\n' "$2" | W=$1 awk -F '\t' 'NF && $1 == ENVIRON["W"] { print $2; exit }')
+  if [ -z "$wp_p" ]; then
+    wp_m="$3/dispatch-markers/$1"
+    if [ -f "$wp_m" ] && [ ! -L "$wp_m" ]; then
+      wp_p=$(awk -F '\t' 'NR == 1 && index($3, "mission-control:") == 1 { print substr($3, 17) }' "$wp_m")
+      if [ -n "$wp_p" ]; then
+        wp_k=$(/bin/bash "$script_dir/mc-program.sh" list) || wp_k=""
+        case "
+$wp_k
+" in
+          *"
+$wp_p
+"*) ;;
+          *) wp_p="" ;;
+        esac
+      fi
+    fi
+  fi
+  mc_valid_program "$wp_p" && printf '%s\n' "$wp_p"
+  return 0
+}
+
+# shellcheck disable=SC2329 # mc_knob calls it by name
+parse_hub() {
+  [ "$1" = none ] || mc_valid_program "$1" || return 1
+  printf '%s\n' "$1"
+}
+
+# announce_unowned <worker> <fleet home>: a worker with no program to give its
+# prompts to is raised as one stream-json-worker-unowned event, however many
+# programs' keepers see it: the first to take the claim in the worker's
+# directory raises it, and a refused announce releases the claim so a later
+# pass retries. The event goes to the hub program
+# (mission_control_escalation_hub), whose mission control sees every program;
+# with none configured it stays with the program whose keeper found it. A hub
+# setting or program list that cannot be read fails the pass before the claim,
+# since the claim would fix a guessed destination for good.
+announce_unowned() {
+  au_dir="$2/streamjson/$1"
+  [ -d "$au_dir" ] && [ ! -L "$au_dir" ] || return 0
+  [ ! -e "$au_dir/unowned-announced" ] || return 0
+  au_hub=$(mc_knob mission_control_escalation_hub parse_hub) || return 1
+  au_known=$(/bin/bash "$script_dir/mc-program.sh" list) || return 1
+  au_target=$program
+  au_note=""
+  if [ "$au_hub" = none ]; then
+    au_note=" (no hub program is configured, so it is raised under $program, whose keeper found it)"
+  else
+    case "
+$au_known
+" in
+      *"
+$au_hub
+"*)
+        au_target=$au_hub
+        ;;
+      *) au_note=" (the hub program $au_hub is not a configured program, so it is raised under $program, whose keeper found it)" ;;
+    esac
+  fi
+  mkdir -p -- "$2/mission-control/$au_target" || return 1
+  if ! (
+    set -C
+    : >"$au_dir/unowned-announced"
+  ) 2>/dev/null; then
+    [ -e "$au_dir/unowned-announced" ] && return 0
+    return 1
+  fi
+  mc_announce "$au_target" "$2/mission-control/$au_target/keeper-unowned" "$1" stream-json-worker-unowned "$1" \
+    "stream-json worker $1 has a request waiting but no launcher row or dispatch record names the program it belongs to, so none announces its prompts; fleet-streamjson.sh pending $1 shows them, mission-control-launch.sh retire $1 closes it$au_note" \
+    || {
+      rm -f "$au_dir/unowned-announced"
+      return 1
+    }
+}
+
 # pending_prompts: the stream-json pending-age sweep over every worker on
 # this machine, whatever planwright version or verb launched it, since one
 # the launcher never registered has no other watcher once its own supervisor
@@ -509,19 +596,22 @@ run_pending_sweep() {
 # then one event, announced once, and a dead worker the scan settled is one
 # stream-json-worker-dead event, since its request row has just left the
 # queue. An overdue prompt of a worker the launcher records for another
-# program is that program's to announce; with the launcher's list unreadable
-# every one is announced here, as heard twice beats never.
+# program is that program's to announce, a row-less worker's program being the
+# owner its dispatch record keeps; one no record owns is raised once as
+# unowned, never to every program.
 pending_prompts() {
   NL='
 '
   pp_seen="$runtime/keeper-prompts"
   pp_out=$(/bin/sh "$script_dir/fleet-streamjson.sh" alarm-scan --once ${now:+--now "$now"} 2>/dev/null) || return 1
+  pp_home=$(mc_fleet_home) || return 1
+  pp_listed=1
   if pp_list=$(launcher list 2>/dev/null); then
     keeper_list=$pp_list
   else
     pp_list=""
+    pp_listed=''
   fi
-  pp_theirs=$(printf '%s\n' "$pp_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
   pp_live=""
   pp_rc=0
   while read -r pp_tag pp_w pp_id pp_age; do
@@ -538,7 +628,17 @@ pending_prompts() {
         || pp_rc=1
       continue
     fi
-    case "$NL$pp_theirs$NL" in *"$NL$pp_w$NL"*) continue ;; esac
+    pp_owner=$(worker_program "$pp_w" "$pp_list" "$pp_home")
+    # With the launcher's list unreadable a worker's row cannot be seen, so
+    # one with no record is announced here: heard twice beats never.
+    if [ -z "$pp_owner" ] && [ -z "$pp_listed" ]; then
+      pp_owner=$program
+    fi
+    if [ -z "$pp_owner" ]; then
+      announce_unowned "$pp_w" "$pp_home" || pp_rc=1
+      continue
+    fi
+    [ "$pp_owner" = "$program" ] || continue
     pp_key="$pp_w	$pp_id"
     pp_live="$pp_live$pp_key$NL"
     mc_announce "$program" "$pp_seen" "$pp_key" pending-prompt-overdue "$pp_w" \
@@ -836,9 +936,13 @@ pending_arrivals() {
   pa_seen="$runtime/keeper-arrivals"
   NL='
 '
-  pa_list=$(launcher list 2>/dev/null) || pa_list=""
-  pa_theirs=$(printf '%s\n' "$pa_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
+  pa_listed=1
+  pa_list=$(launcher list 2>/dev/null) || {
+    pa_list=""
+    pa_listed=''
+  }
   pa_fresh=""
+  pa_rc=0
   pa_live=""
   # The glob needs pathname expansion, which this script turns off (set -f).
   set +f
@@ -848,10 +952,22 @@ pending_arrivals() {
     pa_w=${pa_w##*/}
     mc_valid_handle "$pa_w" || continue
     pa_rows=$(awk -F '\t' '$4 == "pending" { print $1 "\t" $3 }' "$pa_j") || continue
+    [ -n "$pa_rows" ] || continue
+    pa_owner=$(worker_program "$pa_w" "$pa_list" "$pa_root")
+    # As in pending_prompts: an unreadable list announces a row-less worker here.
+    if [ -z "$pa_owner" ] && [ -z "$pa_listed" ]; then
+      pa_owner=$program
+    fi
     while IFS='	' read -r pa_id pa_recv; do
       [ -n "$pa_id" ] || continue
       mc_valid_uint "$pa_recv" || continue
-      case "$NL$pa_theirs$NL" in *"$NL$pa_w$NL"*) continue ;; esac
+      # An unowned worker's overdue request is pending_prompts' to raise,
+      # since only its scan knows whether the worker is still alive.
+      if [ -z "$pa_owner" ]; then
+        [ $((pa_now - pa_recv)) -gt "$pa_thr" ] || announce_unowned "$pa_w" "$pa_root" || pa_rc=1
+        continue
+      fi
+      [ "$pa_owner" = "$program" ] || continue
       pa_key="$pa_w	$pa_id"
       pa_live="$pa_live$pa_key$NL"
       [ $((pa_now - pa_recv)) -le "$pa_thr" ] || continue
@@ -862,7 +978,6 @@ $pa_rows
 EOF
   done
   set -f
-  pa_rc=0
   pa_first=$(printf '%s' "$pa_fresh" | awk 'NF { print; exit }')
   if [ -n "$pa_first" ]; then
     pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')

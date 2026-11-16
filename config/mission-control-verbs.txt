@@ -64,6 +64,7 @@ mc-proposals.sh show
 mc-radar.sh -
 mc-readiness.sh -
 mc-readiness.sh check
+mc-readiness.sh unfinished
 mc-rules.sh add
 mc-rules.sh load
 mc-rules.sh selfcheck

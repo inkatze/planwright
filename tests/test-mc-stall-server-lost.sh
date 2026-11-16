@@ -4,7 +4,7 @@
 # recorded under it is gone, the pass raises one tmux-server-lost event naming
 # those sessions instead of a window-gone death per session.
 #
-# The tmux server is a stub on PATH whose identity (`#{pid}:#{start_time}`)
+# The tmux server is a stub on PATH whose identity (`#{pid}.#{start_time}`)
 # and window table are fixture files; no real tmux server is reached.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
@@ -71,28 +71,31 @@ while [ "$#" -gt 0 ]; do
 done
 n=${w#@}
 [ -f "$TMUX_STUB/server" ] || { echo "no server running on /tmp/tmux-stub/default" >&2; exit 1; }
+srv=$(cat "$TMUX_STUB/server")
+# render <window number or empty> <format>: the format as the server prints it.
+render() {
+  rn='' rp=''
+  [ -z "$1" ] || { rn=$(cat "$TMUX_STUB/$1.name"); rp=$(cat "$TMUX_STUB/$1.pid"); }
+  printf '%s\n' "$2" | sed -e "s|#{pid}\.#{start_time}|$srv|g" -e "s|#{window_id}|@$1|g" \
+    -e "s|#{window_name}|$rn|g" -e "s|#{pane_pid}|$rp|g" -e 's|#{session_name}|stub|g'
+}
 case $verb in
   ls) exit 0 ;;
-  list-sessions)
-    case $fmt in
-      *'#{pid}'*'#{start_time}'*) cat "$TMUX_STUB/server"; cat "$TMUX_STUB/server" ;;
-      *) echo stub ;;
-    esac
-    ;;
   list-windows)
     for f in "$TMUX_STUB"/*.name; do
       [ -f "$f" ] || continue
       id=${f##*/}
-      printf '@%s\t%s\n' "${id%.name}" "$(cat "$f")"
+      render "${id%.name}" "${fmt:-#{window_id}}"
     done
     exit 0
     ;;
   display-message)
+    if [ -z "$w" ]; then
+      render '' "$fmt"
+      exit 0
+    fi
     [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
-    case $fmt in
-      *window_name*) printf '%s\t%s\n' "$(cat "$TMUX_STUB/$n.name")" "$(cat "$TMUX_STUB/$n.pid")" ;;
-      *) cat "$TMUX_STUB/$n.pid" ;;
-    esac
+    render "$n" "$fmt"
     ;;
   capture-pane)
     [ -f "$TMUX_STUB/$n.name" ] || { echo "can't find window: $w" >&2; exit 1; }
@@ -121,7 +124,7 @@ mkdir -p "$reg"
 # registry row as the launcher writes it, recording the window and the server
 # it was opened on.
 row() {
-  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\t%s\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts\nbackend\ttmux\nhandle\t%s\ntmux_server\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
+  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\t%s\npid\t1\nprogram\talpha\nowner\tmission-control:alpha\nkind\t%s\nscope\ts\nbackend\ttmux\nhandle\t%s\nserver\t%s\nprofile\tworker\ntier\t-\nbrief\t-\nlaunched\t0\n' \
     "$1" "${5:-t}" "$2" "$3" "$4" >"$reg/$1"
 }
 # window <n> <name>: the stub's window @n, alive, showing an idle pane.
@@ -148,16 +151,22 @@ dump() { printf '%s\n' "----- stdout -----" "$OUT" "----- stderr -----" "$ERR" "
 # --- the server was replaced and every window is gone ------------------------
 
 reset
-row mc-alpha-mission-control-old mission-control @1 100:5000
-row mc-alpha-mission-control-new mission-control @2 100:5000
-row mc-alpha-worker-a worker @3 100:5000
+row mc-alpha-mission-control-old mission-control @1 100.5000
+row mc-alpha-mission-control-new mission-control @2 100.5000
+row mc-alpha-worker-a worker @3 100.5000
 # The new server reuses window id @1 for an unrelated window.
-server 200:6000
+server 200.6000
 window 1 zsh
 stall scan --program alpha --now 1000
-[ "$RC" = 0 ] && ok "a scan after the server was replaced succeeds" || { fail "the scan exited $RC"; dump; }
+[ "$RC" = 0 ] && ok "a scan after the server was replaced succeeds" || {
+  fail "the scan exited $RC"
+  dump
+}
 [ "$(count tmux-server-lost)" = 1 ] && ok "a replaced server with every window gone raises one tmux-server-lost event" \
-  || { fail "expected one tmux-server-lost event, got $(count tmux-server-lost)"; dump; }
+  || {
+    fail "expected one tmux-server-lost event, got $(count tmux-server-lost)"
+    dump
+  }
 text=$(lost_text)
 for n in mc-alpha-mission-control-old mc-alpha-mission-control-new mc-alpha-worker-a; do
   case $text in
@@ -166,7 +175,10 @@ for n in mc-alpha-mission-control-old mc-alpha-mission-control-new mc-alpha-work
   esac
   [ "$(count stall-dead "$n")" = 0 ] && ok "no per-session stall-dead event for $n" \
     || fail "$n raised its own stall-dead event beside tmux-server-lost"
-  [ "$(state_of "$n")" = dead ] && ok "$n reads dead" || { fail "$n reads '$(state_of "$n")', not dead"; dump; }
+  [ "$(state_of "$n")" = dead ] && ok "$n reads dead" || {
+    fail "$n reads '$(state_of "$n")', not dead"
+    dump
+  }
   case $(reason_of "$n") in
     *'tmux server'*) ok "$n's reason names the lost server" ;;
     *) fail "$n's reason does not name the lost server: $(reason_of "$n")" ;;
@@ -188,7 +200,10 @@ stall scan --program alpha --now 1100
 # classify alone sees the same loss and raises nothing more.
 stall classify --program alpha --now 1200 mc-alpha-worker-a
 [ "$RC" = 0 ] && [ "$(state_of mc-alpha-worker-a)" = dead ] && ok "classify reads a session of a lost server dead" \
-  || { fail "classify after the loss: rc $RC"; dump; }
+  || {
+    fail "classify after the loss: rc $RC"
+    dump
+  }
 [ "$(count tmux-server-lost)" = 1 ] && [ "$(count stall-dead mc-alpha-worker-a)" = 0 ] \
   && ok "classify raises neither a second tmux-server-lost nor a stall-dead" \
   || fail "classify after the loss raised another event"
@@ -197,13 +212,16 @@ stall classify --program alpha --now 1200 mc-alpha-worker-a
 
 reset
 before_lost=$(count tmux-server-lost)
-server 200:6000
-row mc-alpha-worker-keep worker @4 200:6000
-row mc-alpha-worker-gone worker @5 200:6000
+server 200.6000
+row mc-alpha-worker-keep worker @4 200.6000
+row mc-alpha-worker-gone worker @5 200.6000
 window 4 mc-alpha-worker-keep
 stall scan --program alpha --now 2000
 [ "$(count stall-dead mc-alpha-worker-gone)" = 1 ] && ok "the same server with one window gone keeps the per-session death" \
-  || { fail "expected a stall-dead for mc-alpha-worker-gone"; dump; }
+  || {
+    fail "expected a stall-dead for mc-alpha-worker-gone"
+    dump
+  }
 case $(reason_of mc-alpha-worker-gone) in
   *'window @5 gone'*) ok "the death names the gone window" ;;
   *) fail "the death's reason: $(reason_of mc-alpha-worker-gone)" ;;
@@ -216,26 +234,32 @@ esac
 # Every window gone on an unchanged server is per-session deaths too.
 reset
 before_lost=$(count tmux-server-lost)
-server 200:6000
-row mc-alpha-worker-all1 worker @6 200:6000
-row mc-alpha-worker-all2 worker @7 200:6000
+server 200.6000
+row mc-alpha-worker-all1 worker @6 200.6000
+row mc-alpha-worker-all2 worker @7 200.6000
 stall scan --program alpha --now 2100
 [ "$(count stall-dead mc-alpha-worker-all1)" = 1 ] && [ "$(count stall-dead mc-alpha-worker-all2)" = 1 ] \
   && [ "$(count tmux-server-lost)" = "$before_lost" ] \
   && ok "every window gone on an unchanged server reads as per-session deaths" \
-  || { fail "every window gone on an unchanged server"; dump; }
+  || {
+    fail "every window gone on an unchanged server"
+    dump
+  }
 
 # --- a new server with a re-created session --------------------------------
 
 reset
 before_lost=$(count tmux-server-lost)
-server 300:7000
-row mc-alpha-mission-control-relaunched mission-control @1 300:7000
-row mc-alpha-worker-orphan worker @8 200:6000
+server 300.7000
+row mc-alpha-mission-control-relaunched mission-control @1 300.7000
+row mc-alpha-worker-orphan worker @8 200.6000
 window 1 mc-alpha-mission-control-relaunched
 stall scan --program alpha --now 3000
 [ "$(state_of mc-alpha-mission-control-relaunched)" = idle ] && ok "a session re-created on the new server reads idle" \
-  || { fail "the re-created session reads '$(state_of mc-alpha-mission-control-relaunched)'"; dump; }
+  || {
+    fail "the re-created session reads '$(state_of mc-alpha-mission-control-relaunched)'"
+    dump
+  }
 [ "$(count stall-dead mc-alpha-mission-control-relaunched)" = 0 ] && ok "the re-created session raises no death" \
   || fail "the re-created session raised a stall-dead"
 if [ "$(count tmux-server-lost)" -gt "$before_lost" ]; then
@@ -254,21 +278,29 @@ fi
 [ "$(count stall-dead mc-alpha-worker-orphan)" = 0 ] && ok "the old server's session raises no per-session death" \
   || fail "mc-alpha-worker-orphan raised a stall-dead beside tmux-server-lost"
 
-# A session of the old server whose window is still there: the server was not
-# proven lost, so every session keeps its own classification.
+# A window still carrying the name of a session the old server recorded: the
+# loss is unproven, so every session keeps its own classification, and that
+# session's pin (its id issued by an earlier server) reads it dead on its own.
 reset
 before_lost=$(count tmux-server-lost)
-server 300:7000
-row mc-alpha-worker-stays worker @2 200:6000
-row mc-alpha-worker-went worker @9 200:6000
+server 300.7000
+row mc-alpha-worker-stays worker @2 200.6000
+row mc-alpha-worker-went worker @9 200.6000
 window 2 mc-alpha-worker-stays
 stall scan --program alpha --now 3100
 [ "$(count tmux-server-lost)" = "$before_lost" ] && ok "a window of the old server still present raises no tmux-server-lost" \
   || fail "tmux-server-lost was raised while a window of the old server is present"
-[ "$(state_of mc-alpha-worker-stays)" = idle ] && ok "the still-present window reads idle" \
-  || fail "mc-alpha-worker-stays reads '$(state_of mc-alpha-worker-stays)'"
+[ "$(state_of mc-alpha-worker-stays)" = dead ] && [ "$(count stall-dead mc-alpha-worker-stays)" = 1 ] \
+  && ok "the still-named window reads dead by its own pin, with its own stall-dead" \
+  || {
+    fail "mc-alpha-worker-stays reads '$(state_of mc-alpha-worker-stays)' with $(count stall-dead mc-alpha-worker-stays) stall-dead"
+    dump
+  }
 [ "$(count stall-dead mc-alpha-worker-went)" = 1 ] && ok "the gone window beside it keeps its per-session death" \
-  || { fail "mc-alpha-worker-went raised no stall-dead"; dump; }
+  || {
+    fail "mc-alpha-worker-went raised no stall-dead"
+    dump
+  }
 
 # --- no identity to compare --------------------------------------------------
 
@@ -276,21 +308,40 @@ stall scan --program alpha --now 3100
 # before.
 reset
 before_lost=$(count tmux-server-lost)
-server 300:7000
+server 300.7000
 row mc-alpha-worker-legacy worker @10 -
 stall scan --program alpha --now 4000
 [ "$(count stall-dead mc-alpha-worker-legacy)" = 1 ] && [ "$(count tmux-server-lost)" = "$before_lost" ] \
   && ok "a row with no recorded server keeps the per-session death" \
-  || { fail "a row with no recorded server"; dump; }
+  || {
+    fail "a row with no recorded server"
+    dump
+  }
+
+# A garbled recorded identity proves nothing either: no false server-lost.
+reset
+before_lost=$(count tmux-server-lost)
+server 300.7000
+row mc-alpha-worker-garbled worker @12 not-an-identity
+stall scan --program alpha --now 4050
+[ "$(count stall-dead mc-alpha-worker-garbled)" = 1 ] && [ "$(count tmux-server-lost)" = "$before_lost" ] \
+  && ok "a row with a garbled recorded server keeps the per-session death and raises no tmux-server-lost" \
+  || {
+    fail "a row with a garbled recorded server"
+    dump
+  }
 
 # An unreachable server proves nothing: unknown, never lost.
 reset
 before_lost=$(count tmux-server-lost)
-row mc-alpha-worker-noserver worker @11 200:6000
+row mc-alpha-worker-noserver worker @11 200.6000
 stall scan --program alpha --now 4100
 [ "$(state_of mc-alpha-worker-noserver)" = unknown ] && [ "$(count tmux-server-lost)" = "$before_lost" ] \
   && ok "an unreachable server reads unknown and raises no tmux-server-lost" \
-  || { fail "an unreachable server"; dump; }
+  || {
+    fail "an unreachable server"
+    dump
+  }
 
 # --- the event class -------------------------------------------------------
 

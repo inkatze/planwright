@@ -28,6 +28,8 @@ unset CDPATH
 unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TQ="$here/../scripts/tower-queue.sh"
 
 fail() {
@@ -240,13 +242,19 @@ echo "ok: an unwritable store surfaces an error rather than a silent skip"
 run next --tower $A --now 6002 >/dev/null || fail "A knock g1"
 marker $A 6003
 chmod 0400 "$log_file"
+denied=0
+hermetic_access_denied w "$log_file" && denied=1
 rc=0
 out=$(run next --tower $A --now 6004 2>"$tmp/err") || rc=$?
 chmod 0600 "$log_file"
-[ "$rc" = 0 ] || fail "a delivery whose log append fails: exit $rc, expected 0 (fail-open)"
-[ "$(field "$out" 2)" = "$g1" ] || fail "the hand-over did not stand when the log append failed: '$out'"
-grep -q 'delivered' "$tmp/err" || fail "the failed delivery-line append was not surfaced"
-echo "ok: a failed delivery-line append is fail-open: the hand-over stands and the error is surfaced"
+if [ "$denied" = 1 ]; then
+  [ "$rc" = 0 ] || fail "a delivery whose log append fails: exit $rc, expected 0 (fail-open)"
+  [ "$(field "$out" 2)" = "$g1" ] || fail "the hand-over did not stand when the log append failed: '$out'"
+  grep -q 'delivered' "$tmp/err" || fail "the failed delivery-line append was not surfaced"
+  echo "ok: a failed delivery-line append is fail-open: the hand-over stands and the error is surfaced"
+else
+  echo "skip: failed delivery-line append: the running user still writes $log_file under mode 0400"
+fi
 
 # --- attention pointers: a re-forked row refreshes, a moved row refuses ----------------
 

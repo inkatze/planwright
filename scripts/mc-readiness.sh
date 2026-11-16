@@ -45,6 +45,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       not a check ready_base_state_checks
                                       names (it describes the base);
                                       SUCCESS, NEUTRAL and SKIPPED pass
+  bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
+                                      latest finished run did not pass: no
+                                      condition, but named by a ready walk
+                                      as the check the operator bypasses
+                                      at merge
   require<TAB>macos                   the repository's CI has macOS jobs, which
                                       run only on a ready or ci-macos
                                       labelled pull request; both must be
@@ -87,8 +92,9 @@ THE WALK refuses, each failure one line:
     has none), or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
   - where macOS is required, a macos-suite or macos-smoke check that never
-    ran, was skipped (a draft head) or is not SUCCESS, named with the
-    ci-macos label that starts it, so the flip never rests on a draft run;
+    ran, was skipped with no run of it at that head (a draft head) or is
+    not SUCCESS, named with the ci-macos label that starts it, so the flip
+    never rests on a draft run;
   - an open thread, an unanswered finding, a failed guard, a truncated
     read;
   - any screenshot whose judgment is not ok, or recorded at another head;
@@ -107,7 +113,8 @@ repo, labels and paths.
 
 Usage:
   mc-readiness.sh walk --evidence <file> (--program <p> | --conditions <file>)
-      ready<TAB><head>, or not-ready<TAB><head|-> then
+      ready<TAB><head> (then bypass<TAB><name><TAB><state> per check
+      the operator bypasses at merge), or not-ready<TAB><head|-> then
       fail<TAB><what><TAB><detail> per failure
   mc-readiness.sh collect --program <p> --repo <owner/name> --pr <n>
                           [--worktree <dir>] --out <file>
@@ -130,7 +137,9 @@ Usage:
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
-      out (neither read for a spec-only pull request), the recorded
+      out (neither read for a spec-only pull request; a worktree ahead of
+      the pull request's head is audited at that head, one behind or beside
+      it is unaudited), the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
       program's first repository, then the head read once more, a head that
@@ -142,6 +151,13 @@ Usage:
       red<TAB><head>, then fail<TAB>check<TAB><name> is <state> and
       diagnose<TAB><name> per red check (exit 4). The ready flip never uses it:
       walk refuses a pending or red check
+  mc-readiness.sh unfinished --evidence <file>
+      the finished-checks verdict over a collected evidence file, for a pull
+      request already marked ready: finished<TAB><head> (exit 0) when no check
+      is queued, pending or in progress; otherwise unfinished<TAB><head>, then
+      fail<TAB>check<TAB><name> is <state> per unfinished check (exit 4). A
+      check that finished red is not unfinished here: a red window-lock is the
+      operator's to bypass
   mc-readiness.sh check --program <p> --repo <owner/name> --pr <n>
                         [--worktree <dir>]
       collect, then walk, printing the walk
@@ -175,7 +191,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-readiness.sh walk|not-red|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
+  mc_usage_fail "usage: mc-readiness.sh walk|not-red|unfinished|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
 }
 
 case ${1:-} in
@@ -270,6 +286,24 @@ END {
 }' "$1"
 }
 
+# unfinished_awk <evidence>: the finished-checks verdict. Only a check still
+# queued, pending or running holds; one that finished red does not.
+unfinished_awk() {
+  awk -F '\t' '
+function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
+FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit 4 } ; next }
+$1 == "head" { head = $2 }
+$1 == "check" && pending_check($3) && $2 != "planwright/pre-ready-flip" && $2 != "planwright/pre-spec-ready-flip" { open[++no] = $2 " is " $3 }
+END {
+  if (badfmt) { print "unfinished\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
+  if (head == "") { print "unfinished\t-"; print "fail\thead\tno evidence at a head was collected"; exit 4 }
+  if (!no) { print "finished\t" head; exit 0 }
+  print "unfinished\t" head
+  for (i = 1; i <= no; i++) print "fail\tcheck\t" open[i]
+  exit 4
+}' "$1"
+}
+
 # walk <evidence> <conditions>: the verdict; returns 4 when not ready, 1
 # when the walk itself fails.
 walk() {
@@ -292,6 +326,7 @@ FILENAME == ARGV[1] {
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit } ; next }
 $1 == "head" { head = $2 }
 $1 == "check" { nc++; if (!pass_check($3)) fail("check", $2 " is " $3) }
+$1 == "bypass" { byp[++nb] = $2 "\t" $3 }
 $1 == "check" && ($2 == "macos-suite" || $2 == "macos-smoke" || $2 ~ /^macos-(suite|smoke) /) {
   j = ($2 ~ /^macos-suite/) ? "macos-suite" : "macos-smoke"
   macn[j]++
@@ -359,6 +394,7 @@ END {
     exit 4
   }
   print "ready\t" head
+  for (i = 1; i <= nb; i++) print "bypass\t" byp[i]
 }' "$(operand "$2")" "$(operand "$1")"
 }
 
@@ -570,6 +606,8 @@ collect() {
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
+    ((.statusCheckRollup // []) | bypassed_check_runs[]
+      | "bypass\t" + ((.name // "-") | clean) + "\t" + ((.conclusion // "") | if . == "" then "UNKNOWN" else . end | clean)),
     (.files[]? | "path\t" + (.path | clean) + "\t" + ((.changeType // "-") | clean)),
     ((.statusCheckRollup // []) | latest_check_runs[]
       | "check\t" + ((.name // .context // "-") | clean) + "\t"
@@ -621,10 +659,15 @@ collect() {
   fi
   cl_ciwt=$cl_wt
   if [ -n "$cl_wt" ]; then
-    # Records speak for the worktree's own head, so it must be the forge's.
+    # The audit judges the forge's head, never the worktree's: records carry
+    # their own heads, and the audit counts one only when its completion is
+    # at or behind that head. A worktree ahead of the head (a session still
+    # at work past what was pushed) holds the head, so it is audited at the
+    # head; one behind or off to the side cannot speak for it.
     cl_wthead=$(mc_untrusted_git -C "$cl_wt" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) || cl_wthead=''
-    if [ "$cl_wthead" != "$cl_head" ]; then
-      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head"
+    if [ "$cl_wthead" != "$cl_head" ] \
+      && { [ -z "$cl_wthead" ] || ! mc_untrusted_git -C "$cl_wt" merge-base --is-ancestor "$cl_head" "$cl_wthead" 2>/dev/null; }; then
+      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head and not ahead of it; the session using it may be mid-change, so retry once it has pushed or finished"
       cl_wt=''
     fi
   fi
@@ -745,6 +788,11 @@ case $verb in
     [ -n "$evidence" ] || usage
     [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
     not_red_awk "$evidence"
+    ;;
+  unfinished)
+    [ -n "$evidence" ] || usage
+    [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
+    unfinished_awk "$evidence"
     ;;
   collect | check)
     [ -n "$program" ] || usage

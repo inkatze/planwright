@@ -11,7 +11,7 @@ unset CDPATH
 
 prog=mc-stall
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-for lib in echo-safety.sh mc-lib.sh fleet-pane-vocabulary.sh lock-lib.sh; do
+for lib in echo-safety.sh mc-lib.sh fleet-pane-vocabulary.sh lock-lib.sh tmux-identity-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
     printf '%s\n' "$prog: $lib is missing or unreadable (broken install)" >&2
     exit 2
@@ -25,6 +25,8 @@ done
 . "$script_dir/fleet-pane-vocabulary.sh" || exit 2
 # shellcheck source=scripts/lock-lib.sh
 . "$script_dir/lock-lib.sh" || exit 2
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh" || exit 2
 
 ROW_FORMAT=1
 PANE_LINES=20
@@ -47,18 +49,24 @@ Usage:
 Liveness is positive evidence from the session's rung, through
 scripts/fleet-death-evidence.sh, never pane text or elapsed time:
   tmux         the window the launch recorded, which must still carry the
-               session's name, then the process in its pane
+               session's name and, where the launch recorded it, come from
+               the same tmux server, then the process in its pane
   stream-json  the worker's pid the supervisor records (worker.pid, else
-               supervisor.pid); a state directory holding neither pidfile
+               supervisor.pid), counted dead when the start recorded
+               beside it no longer matches the process holding that pid;
+               a state directory holding neither pidfile
                is a supervisor that has exited, since it removes both
 The states, first match wins:
   dead                   the predicate reports the window or process gone,
-                         or a stream-json state directory holds neither
+                         a window recorded with its tmux server now comes
+                         from another server or carries another name, or
+                         a stream-json state directory holds neither
                          pidfile
   unknown                no liveness evidence either way (no state
                          directory, an unreadable pidfile, an unreachable
-                         or unresponsive tmux server, a window id now naming
-                         another window); the reason says whether the pane
+                         or unresponsive tmux server, a window recorded
+                         without its server whose id now names another
+                         window); the reason says whether the pane
                          is absent, on its first sample, changing or stable
   open-selector          a dialog or select menu is open in the pane; the
                          reason names a permission prompt as one
@@ -91,9 +99,7 @@ busy-unchanged emits one event, kind stall-<state>, subject the session name
 relaunch under the same name starts a fresh sample.
 
 A tmux server that is replaced (a crash, a restart) takes every window with
-it, and a window id names its window only for its server's lifetime. The
-launcher records the server's identity (#{pid}:#{start_time}) beside the
-window. When the running server's identity differs from the one tmux rows
+it. When the running server's identity differs from the one tmux rows
 recorded, and the window of every such row is gone (absent, or its id now
 naming another window), the pass emits one tmux-server-lost event, subject
 tmux-server, naming those sessions and asking for their relaunch; each reads
@@ -143,24 +149,11 @@ valid_window() {
   [ "${#1}" -le 12 ]
 }
 
-# valid_server <id>: a tmux server identity, #{pid}:#{start_time}, as the
-# launcher records it.
-valid_server() {
-  case $1 in
-    [0-9]*:[0-9]*) ;;
-    *) return 1 ;;
-  esac
-  case $1 in
-    *[!0-9:]* | *:*:*) return 1 ;;
-  esac
-  [ "${#1}" -le 41 ]
-}
-
 # read_row <row>: set R_<field> from one read of a registry row.
 read_row() {
-  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_launched='' R_token='' R_tmux_server=''
+  R_format='' R_name='' R_state='' R_program='' R_kind='' R_backend='' R_handle='' R_server='' R_launched='' R_token=''
   rr_out=$(awk -F '\t' '
-    $1 ~ /^(format|name|state|program|kind|backend|handle|tmux_server|launched|token)$/ && !($1 in seen) {
+    $1 ~ /^(format|name|state|program|kind|backend|handle|server|launched|token)$/ && !($1 in seen) {
       seen[$1] = 1; v = substr($0, length($1) + 2); gsub(/[^[:print:]]/, "", v); print $1 "\t" v
     }' "$1" 2>/dev/null) || return 1
   while IFS='	' read -r rr_k rr_v; do
@@ -172,7 +165,7 @@ read_row() {
       kind) R_kind=$rr_v ;;
       backend) R_backend=$rr_v ;;
       handle) R_handle=$rr_v ;;
-      tmux_server) R_tmux_server=$rr_v ;;
+      server) R_server=$rr_v ;;
       launched) R_launched=$rr_v ;;
       token) R_token=$rr_v ;;
     esac
@@ -194,19 +187,31 @@ death() {
   esac
 }
 
-# liveness <name> <backend> <handle>: set L_STATE (dead, alive or unknown)
-# and L_REASON.
+# liveness <name> <backend> <handle> [<server>]: set L_STATE (dead, alive
+# or unknown) and L_REASON. A window recorded with the tmux server that
+# issued it is gone once that server, its id or its name differ; one
+# recorded without its server is live only while it still carries the
+# session's name.
 liveness() {
   L_STATE=unknown L_REASON='no liveness evidence'
+  lv_start=''
   case $2 in
     tmux)
       valid_window "$3" || {
         L_REASON='no window recorded'
         return 0
       }
-      case $(death tmux-window "$PROGRAM" "$3") in
+      lv_pin=''
+      if tmux_valid_server "${4:-}" && tmux_valid_name "$1"; then
+        lv_pin="$4/$3/$1"
+        lv_death=$(death tmux-window "$PROGRAM" "$3" "$4" "$1")
+      else
+        lv_death=$(death tmux-window "$PROGRAM" "$3")
+      fi
+      case $lv_death in
         dead)
           L_STATE=dead L_REASON="window $3 gone"
+          [ -z "$lv_pin" ] || L_REASON="window $3 gone, or no longer the one its tmux server issued for $1"
           return 0
           ;;
         unknown)
@@ -214,15 +219,29 @@ liveness() {
           return 0
           ;;
       esac
-      lv_line=$(bounded tmux display-message -p -t "$3" '#{window_name}	#{pane_pid}' 2>/dev/null) || {
+      # The pane pid first and the window name last: no tab, which tmux
+      # prints as `_` under LC_ALL=C, and a name may hold anything.
+      lv_line=$(bounded tmux display-message -p -t "$3" "#{pane_pid} $TMUX_SERVER_FORMAT/#{window_id}/#{window_name}" 2>/dev/null) || {
         L_REASON="window $3 unreadable"
         return 0
       }
-      if [ "${lv_line%%	*}" != "$1" ]; then
+      lv_pid=${lv_line%% *}
+      lv_now=${lv_line#* }
+      lv_id=${lv_now#*/}
+      lv_name=${lv_id#*/}
+      lv_id=${lv_id%%/*}
+      if [ "$lv_id" != "$3" ]; then
+        L_REASON="window $3 unreadable"
+        return 0
+      fi
+      if [ -n "$lv_pin" ] && [ "$lv_now" != "$lv_pin" ]; then
+        L_STATE=dead L_REASON="window $3 is no longer the one its tmux server issued for $1"
+        return 0
+      fi
+      if [ "$lv_name" != "$1" ]; then
         L_REASON="window $3 names another window"
         return 0
       fi
-      lv_pid=${lv_line#*	}
       ;;
     stream-json)
       mc_valid_handle "$3" || {
@@ -235,9 +254,16 @@ liveness() {
         return 0
       fi
       lv_pid=''
+      lv_start=''
       for lv_f in worker.pid supervisor.pid; do
         if [ -f "$lv_dir/$lv_f" ] && [ ! -L "$lv_dir/$lv_f" ]; then
           lv_pid=$(head -n 1 "$lv_dir/$lv_f" 2>/dev/null) || lv_pid=''
+          # The start the launch recorded beside the pid; a launch from before
+          # it recorded none, and the pid alone is read as it always was.
+          lv_sf="$lv_dir/${lv_f%.pid}.start"
+          if [ -f "$lv_sf" ] && [ ! -L "$lv_sf" ]; then
+            lv_start=$(head -n 1 "$lv_sf" 2>/dev/null) || lv_start=''
+          fi
           break
         fi
       done
@@ -258,7 +284,7 @@ liveness() {
     L_REASON='unreadable pid'
     return 0
   }
-  case $(death process "$lv_pid") in
+  case $(death process "$lv_pid" ${lv_start:+"$lv_start"}) in
     dead) L_STATE=dead L_REASON="pid $lv_pid gone" ;;
     alive) L_STATE=alive L_REASON="pid $lv_pid alive" ;;
     *) L_REASON="pid $lv_pid unreadable" ;;
@@ -322,8 +348,8 @@ question_above_input() {
 server_lost() {
   LOST_NAMES='' LOST_NOW='' LOST_EVENT=-
   [ -d "$REG" ] || return 0
-  sl_now=$(bounded tmux list-sessions -F '#{pid}:#{start_time}' 2>/dev/null </dev/null | head -n 1)
-  valid_server "$sl_now" || return 0
+  sl_now=$(bounded tmux display-message -p "$TMUX_SERVER_FORMAT" 2>/dev/null </dev/null) || return 0
+  tmux_valid_server "$sl_now" || return 0
   sl_names=''
   set +f
   set -- "$REG"/mc-*
@@ -333,18 +359,19 @@ server_lost() {
     valid_name "${sl_row##*/}" || continue
     row_ok "$sl_row" || continue
     [ "$R_state" = launched ] && [ "$R_backend" = tmux ] && [ "$R_name" = "${sl_row##*/}" ] || continue
-    if ! valid_window "$R_handle" || ! valid_server "$R_tmux_server"; then continue; fi
-    [ "$R_tmux_server" != "$sl_now" ] || continue
-    case $(death tmux-window "$PROGRAM" "$R_handle") in
-      dead) ;;
-      alive)
-        # The id may name a window of the new server; only one still carrying
-        # the session's name survived.
-        sl_line=$(bounded tmux display-message -p -t "$R_handle" '#{window_name}	#{pane_pid}' 2>/dev/null </dev/null) || return 0
-        [ "${sl_line%%	*}" != "$R_name" ] || return 0
-        ;;
-      *) return 0 ;;
-    esac
+    if ! valid_window "$R_handle" || ! tmux_valid_server "$R_server"; then continue; fi
+    [ "$R_server" != "$sl_now" ] || continue
+    if sl_out=$(bounded tmux display-message -p -t "$R_handle" "$TMUX_SERVER_FORMAT/#{window_id}/#{window_name}" 2>&1 </dev/null); then
+      sl_rest=${sl_out#*/}
+      # A window still carrying the session's name leaves the loss unproven,
+      # whatever its pin now reads.
+      if [ "${sl_rest%%/*}" = "$R_handle" ] && [ "${sl_rest#*/}" = "$R_name" ]; then return 0; fi
+    else
+      case $sl_out in
+        *"can't find"*) ;;
+        *) return 0 ;;
+      esac
+    fi
     sl_names="$sl_names$R_name
 "
   done
@@ -463,9 +490,9 @@ $c_name
   fi
 
   if [ "$c_lost" = 1 ]; then
-    L_STATE=dead L_REASON="tmux server lost: window $R_handle went with server $R_tmux_server (now $LOST_NOW)"
+    L_STATE=dead L_REASON="tmux server lost: window $R_handle went with server $R_server (now $LOST_NOW)"
   else
-    liveness "$c_name" "$R_backend" "$R_handle"
+    liveness "$c_name" "$R_backend" "$R_handle" "$R_server"
   fi
 
   c_footer=$(printf '%s\n' "$c_pane" | tail -n "$FOOTER_LINES")
