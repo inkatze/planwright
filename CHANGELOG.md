@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.77.0](https://github.com/inkatze/planwright/compare/v0.76.1...v0.77.0) (2026-11-16)
+
+
+### Features
+
+* **mission-control:** state the cadence result at consequential moments ([#1073](https://github.com/inkatze/planwright/issues/1073)) ([a4787ce](https://github.com/inkatze/planwright/commit/a4787ce29562f170c53ecb0cfabd469f8e668ed4))
+* report a ready PR whose head still has an unfinished check ([#1029](https://github.com/inkatze/planwright/issues/1029)) ([0d9fd5d](https://github.com/inkatze/planwright/commit/0d9fd5d8bc99e7d461b0dcbb78e9152d8bc426b3))
+
+
+### Bug Fixes
+
+* **fleet:** show a pending prompt's owner and refuse a non-owner answer without --takeover ([#967](https://github.com/inkatze/planwright/issues/967)) ([d6dc575](https://github.com/inkatze/planwright/commit/d6dc5756563ce6cb30920bb40f498ed5ce1e334d))
+* **guard:** never auto-approve worker reads of secrets ([#954](https://github.com/inkatze/planwright/issues/954)) ([c7b2636](https://github.com/inkatze/planwright/commit/c7b2636295da5d90634a47434aff79c8cdc49c33))
+* pin CI's Claude Code CLI to the version contributors run ([#1000](https://github.com/inkatze/planwright/issues/1000)) ([6d45890](https://github.com/inkatze/planwright/commit/6d45890632052afbc9f0c4da2118e0328aa529dc))
+* recover keeps a launcher worker's row; row-less workers route by their dispatch owner ([#978](https://github.com/inkatze/planwright/issues/978)) ([7591149](https://github.com/inkatze/planwright/commit/75911492fec6fc2eeca8725ded89e183f0b8a4f0))
+* **tests:** stop test-poll-until's p7 kill from deleting the suite's scratch dir ([#1075](https://github.com/inkatze/planwright/issues/1075)) ([d7a3492](https://github.com/inkatze/planwright/commit/d7a34929afa3136a810987846aa022b29033f9f7))
+* **tests:** wait for c15's detached supervisor while it lives, not a fixed 60s ([#1064](https://github.com/inkatze/planwright/issues/1064)) ([213a9ec](https://github.com/inkatze/planwright/commit/213a9ecef6f2e753b0eee691b59a1645ee6569d2))
+
 ## [0.76.1](https://github.com/inkatze/planwright/compare/v0.76.0...v0.76.1) (2026-11-15)
 
 
