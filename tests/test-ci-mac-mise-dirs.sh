@@ -11,6 +11,11 @@
 # its binary and cache path from MISE_DATA_DIR, so nothing else in the workflow
 # may set those variables or the action's `mise_dir` input. The step body is run
 # here with bash -e, as a GitHub `run:` is on a Mac, under a scratch HOME.
+#
+# mise-action also unpacks its download into os.tmpdir() under a fixed name
+# before moving bin/mise into place, and the account's temp directory is shared
+# too, so each macOS job's mise-action step must set TMPDIR to the runner's own
+# temp directory.
 set -u
 unset CDPATH
 LC_ALL=C
@@ -34,6 +39,7 @@ trap 'rm -rf "$tmp"' EXIT
 # One fact per line, tab-separated:
 #   M <job>                      a job whose runs-on names a Mac
 #   A <job> <line>               the job's mise-action step
+#   T <job> <line> <value>       a TMPDIR in the env: of the step at <line>
 #   S <job> <line> <from> <to>   the setup step and its run: body's lines
 #   V <job> <line>               a line outside comments and the setup
 #                                step's body naming a mise directory
@@ -46,7 +52,7 @@ function names_dir(s) { return s ~ /(MISE_DATA_DIR|MISE_CACHE_DIR|MISE_STATE_DIR
 function close_step(  i, n, k) {
   if (step_is_setup && body_from) printf "S\t%s\t%d\t%d\t%d\n", job, step_line, body_from, body_to
   if (step_is_setup) { n = split(step_keys, k, " "); for (i = 1; i <= n; i++) printf "X\t%s\t%s\n", job, k[i] }
-  step_is_setup = 0; body_from = 0; body_to = 0; in_body = 0; step_keys = ""
+  step_is_setup = 0; body_from = 0; body_to = 0; in_body = 0; step_keys = ""; in_step_env = 0
 }
 {
   line = $0
@@ -71,7 +77,12 @@ function close_step(  i, n, k) {
   stepkey = (step_line && indent == step_indent + 2)
   if (rest ~ /^- /) { close_step(); step_line = NR; step_indent = indent; rest = substr(rest, 3); stepkey = 1 }
   if (stepkey && match(rest, /^(if|shell|env|continue-on-error):/)) step_keys = step_keys " " substr(rest, 1, RLENGTH - 1)
-  if (rest ~ /^uses:[ \t]*jdx\/mise-action@/) printf "A\t%s\t%d\n", job, NR
+  if (stepkey) in_step_env = (rest ~ /^env:[ \t]*$/)
+  else if (in_step_env && indent > step_indent + 2 && rest ~ /^TMPDIR:/) {
+    v = rest; sub(/^TMPDIR:[ \t]*/, "", v); gsub(/^["']|["'][ \t]*$/, "", v)
+    printf "T\t%s\t%d\t%s\n", job, step_line, v
+  }
+  if (rest ~ /^uses:[ \t]*jdx\/mise-action@/) printf "A\t%s\t%d\n", job, step_line
   if (rest ~ /^name:/) {
     n = rest; sub(/^name:[ \t]*/, "", n); gsub(/^["']|["']$/, "", n)
     if (n == ENVIRON["SETUP_NAME"]) step_is_setup = 1
@@ -115,6 +126,11 @@ check() {
     if [ -z "$action" ]; then
       echo "$j: no jdx/mise-action step"
       continue
+    fi
+    tmpdir="$(awk -F'\t' -v j="$j" -v a="$action" '$1 == "T" && $2 == j && $3 == a { print $4; exit }' "$facts")"
+    # shellcheck disable=SC2016 # workflow expression text, not a shell expansion
+    if [ "$tmpdir" != '${{ runner.temp }}' ]; then
+      echo "$j: its mise-action step does not set TMPDIR to \${{ runner.temp }}, so concurrent runners unpack bin/mise into one shared temp path"
     fi
     if [ -z "$setup" ]; then
       echo "$j: no '$SETUP_NAME' step with a run: | body, so its shards share ~/.local/share/mise"
@@ -212,6 +228,13 @@ expect_caught "a later step resetting MISE_DATA_DIR is caught" "$tmp/override.ym
 
 awk -v name="$SETUP_NAME" '{ print } index($0, name) { print "        if: false" }' "$WORKFLOW" >"$tmp/gated.yml"
 expect_caught "an if: on the setup step is caught" "$tmp/gated.yml" "carries \`if:\`"
+
+grep -v 'TMPDIR:' "$WORKFLOW" >"$tmp/shared-tmp.yml"
+expect_caught "a mise-action step on the shared temp directory is caught" "$tmp/shared-tmp.yml" "one shared temp path"
+
+# shellcheck disable=SC2016 # the pattern is workflow text
+sed 's/TMPDIR: \${{ runner.temp }}/TMPDIR: \/tmp/' "$WORKFLOW" >"$tmp/fixed-tmp.yml"
+expect_caught "a TMPDIR every runner shares is caught" "$tmp/fixed-tmp.yml" "one shared temp path"
 
 if [ "$failures" -gt 0 ]; then
   printf '%d failure(s)\n' "$failures" >&2
