@@ -503,7 +503,7 @@ spec_home() {
 # giving the reason the check could not run. Nothing for a program whose spec
 # root lies outside the repository.
 drift_scope() {
-  local home rel repo b why rc=0
+  local home rel repo b why rc=0 rows
   home=$(spec_home "$1" "$2") || return 0
   rel=${home#*	} repo=${home%%	*}
   [ -n "$4" ] || {
@@ -523,12 +523,7 @@ drift_scope() {
     while IFS= read -r b; do
       # A bundle the pull request removes or moves has no sign-off to read.
       [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]] && [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b" 2>/dev/null)" != tree ] && continue
-      why=$(bundle_signoff "$repo" "$3" "$rel" "$b" "$6/touched-$b") || exit
-      if [ -n "$why" ]; then
-        printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"
-      else
-        printf 'signoff\t%s\tsigned\t-\n' "$b"
-      fi
+      signoff_row "$repo" "$3" "$rel" "$b" "$6/touched-$b" || exit
     done <"$6/touched"
   fi
   awk -F '\t' '$1 == "bodyline" { print substr($0, 10) }' "$5" >"$6/body"
@@ -548,7 +543,7 @@ drift_scope() {
 # own objects at the head, since collect writes nothing (no fetch) to any
 # repository.
 spec_scope() {
-  local home rel repo files b why
+  local home rel repo files b
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
   [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
   home=$(spec_home "$1" "$2") || return 0
@@ -575,13 +570,20 @@ spec_scope() {
   [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
   while IFS= read -r b; do
-    why=$(bundle_signoff "$repo" "$3" "$rel" "$b" "$5/bundle-$b") || exit
-    if [ -n "$why" ]; then
-      printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"
-    else
-      printf 'signoff\t%s\tsigned\t-\n' "$b"
-    fi
+    signoff_row "$repo" "$3" "$rel" "$b" "$5/bundle-$b" || exit
   done <"$5/bundles"
+}
+
+# signoff_row <repo> <head> <root rel> <bundle> <scratch dir>: the bundle's
+# `signoff` row at <head>.
+signoff_row() {
+  local why
+  why=$(bundle_signoff "$@") || return
+  if [ -n "$why" ]; then
+    printf 'signoff\t%s\tunsigned\t%s\n' "$4" "$why"
+  else
+    printf 'signoff\t%s\tsigned\t-\n' "$4"
+  fi
 }
 
 # bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir>: print why
