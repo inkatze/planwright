@@ -111,7 +111,9 @@ awk '
       p = substr(rest, 1, i - 1); rest = substr(rest, i)
     }
     sub(/^[ \t]*(\xe2\x80\x94|--|-|:)?[ \t]*/, "", rest)
-    if (rest ~ /[^ \t]/) { sub(/^\.\//, "", p); print p }
+    gsub(/\xe2\x80\x93|\xe2\x80\x94/, "", rest)
+    gsub(/[[:punct:][:space:]]/, "", rest)
+    if (rest != "") { sub(/^\.\//, "", p); print p }
   }' "$body" >"$tmp/notcovered" || die "cannot read the pull request body"
 
 # The bundles at the head: the directories directly under the root, those

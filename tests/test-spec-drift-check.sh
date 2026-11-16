@@ -111,6 +111,10 @@ run "Not covered: scripts/a.sh"
 expect_rc "a Not covered line with no reason does not excuse it" 4
 run "Not covered: scripts/a.sh —   "
 expect_rc "a Not covered line with a blank reason does not excuse it" 4
+run "Not covered: scripts/a.sh – "
+expect_rc "a reason that is only another dash does not excuse it" 4
+run "Not covered: scripts/a.sh - -"
+expect_rc "a reason made of separators alone does not excuse it" 4
 
 # A spec edit changing anchored content.
 pr "feat: change a and the spec" scripts/a.sh specs/demo/design.md
