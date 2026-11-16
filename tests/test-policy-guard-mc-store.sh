@@ -222,6 +222,18 @@ echo x > $FIXHOME/.claude/settings.json
 EOF"
 done
 
+echo "# a stored body is never handed to sed as a script"
+SEDBODY="cat >> $H/kb/x.md <<'EOF'
+1w $FIXHOME/.claude/settings.json
+EOF
+"
+for o in "-f$H/kb/x.md" "--file=$H/kb/x.md" "-f $H/kb/x.md" '--expression=1e' '-e1e' '-ne 1e' \
+  '-s' '--in-place=.b' '-i.b' '-E'; do
+  refuse "${SEDBODY}sed -n 1,5p $o $H/kb/real.md"
+  refuse "${SEDBODY}sed -n 1,5p $H/kb/real.md $o"
+done
+refuse "${SEDBODY}sed -n 1w $H/kb/real.md"
+
 echo "# an opener bash never reads as one keeps the whole text in view"
 refuse "echo \"cat <<'EOF'\"
 echo x > $FIXHOME/.claude/settings.json

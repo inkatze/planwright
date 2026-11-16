@@ -5547,8 +5547,12 @@ mc_doc_rest_safe() {
     case $LC in
       cat | head | tail | grep | egrep | fgrep | wc | ls | stat | diff | cmp | cut | tr | nl | tac | rev | echo | printf | true | ':') ;;
       sed)
-        # Only printing line ranges.
+        # Only printing line ranges; sed reads an option anywhere, and any
+        # but -n could hand it a script (a stored body) or a write.
         [[ $rest =~ ^[[:space:]]+-n[[:space:]]+[0-9,\$]+p([[:space:]]|$) ]] || return 1
+        for w in $rest; do
+          case $w in -n) ;; -*) return 1 ;; esac
+        done
         ;;
       *) return 1 ;;
     esac
