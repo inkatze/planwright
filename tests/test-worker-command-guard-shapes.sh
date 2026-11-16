@@ -425,8 +425,9 @@ assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
 assert_defer "mawk spelling is not allowlisted" "mawk '{print}' file"
 
 # The new screens must hold through every path that reaches them, not just the
-# bare-verb one: the `fish -c` recursor, sed's `-e` / `--expression=` value
-# positions, and inert value positions the screens must NOT read as program text.
+# bare-verb one: the `fish -c` recursor, sed's `-e`, `--expression` and
+# `--expression=` value positions, and inert value positions the screens must
+# NOT read as program text.
 assert_allow "awk via the fish recursor" "fish -c 'awk \"{print 1}\" f'"
 assert_defer "awk system() via the fish recursor" "fish -c 'awk \"BEGIN{system(1)}\" f'"
 assert_defer "awk output redirection via the fish recursor" "fish -c 'awk \"{print > 1}\" f'"
