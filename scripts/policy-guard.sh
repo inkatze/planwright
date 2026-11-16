@@ -1423,6 +1423,7 @@ segment_words() {
   SWL=()
   SW_WRAPPED=0
   SW_GITENV=0
+  SW_ASSIGN=0
   while [ "$k" -lt "$e" ]; do
     w=${W[$k]}
     case $w in
@@ -1452,6 +1453,7 @@ segment_words() {
           *[!A-Za-z0-9_+]*) ;;
           *)
             case ${w%%=*} in GIT_*) SW_GITENV=1 ;; esac
+            SW_ASSIGN=1
             k=$((k + 1))
             continue
             ;;
@@ -1689,14 +1691,17 @@ tower_wrapped_git_check() {
 # --------------------------------------------------------------------------
 # The kickoff sign-off push. scripts/kickoff-spec-push.sh pushes a spec's own
 # sign-off branch, which the protected set otherwise refuses to every agent
-# session. Only the worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
-# hook's environment, which a command's inline assignment cannot change) is
-# kickoff-<spec> may run it, and only from that spec's branch or one of its
-# amendment branches (planwright/<spec>/amendment-<n>). Every other
-# session is refused the push it would make, with the text a push to that
-# branch gets. A run the guard cannot read is refused. A mention that is no run
-# (a read, a stage or a printed note) passes to the ordinary rules, and what a
-# mention pipes into must itself only read or print it.
+# session. Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
+# hook's environment, which a command's inline assignment cannot change) names
+# that spec's kickoff may run it: kickoff-<spec>, from the spec branch or any of
+# its amendment branches (planwright/<spec>/amendment-<n>), or an amendment
+# kickoff's kickoff-<spec>-a<n> (kickoff_amendment_scope), from
+# planwright/<spec>/amendment-<n> alone. Any other session is refused: from the
+# spec branch with the text a push to that branch gets, elsewhere as not the
+# kickoff, naming the branch checked out (the one the helper pushes). A run
+# the guard cannot read is refused. A mention that is no run (a read, a stage
+# or a printed note) passes to the ordinary rules, and what a mention pipes
+# into must itself only read or print it.
 
 KICK_SEEN=0
 KICK_PASSED=0
@@ -1704,6 +1709,8 @@ KICK_PIPED=0
 KICK_VAR=0
 KICK_DIR=''
 KICK_DIR_OK=0
+KICK_HEAD_MOVED=0
+KICK_BESIDE=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
@@ -2031,7 +2038,7 @@ kickoff_fuzzy_name() {
 # mention that is no run of it is tallied for kickoff_text_check, and what a
 # mention pipes into must itself only read or print it.
 kickoff_segment() {
-  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct kick_ok piped=$KICK_PIPED
+  local dir=$1 dir_ok=$2 n=${#SW[@]} named=0 w spec='' b form=direct kick_ok piped=$KICK_PIPED scope_seen where
   KICK_PIPED=0
   KICK_DIR=$dir
   KICK_DIR_OK=$dir_ok
@@ -2066,6 +2073,7 @@ kickoff_segment() {
   fi
   [ "$named" = 1 ] || return 1
   KICK_SEEN=$((KICK_SEEN + 1))
+  [ "$SW_ASSIGN" = 0 ] || KICK_BESIDE=1
   [ "$GIT_ENV_SET" = 1 ] || [ "$SW_GITENV" = 1 ] \
     && deny_now 'this kickoff push runs with a GIT_ variable set, which could point it at another repository - refusing (fail closed). Run it with no GIT_ variable.' \
     && return 0
@@ -2090,28 +2098,202 @@ kickoff_segment() {
   [ -n "$spec" ] \
     || deny_now "this command runs scripts/kickoff-spec-push.sh with an argument the guard cannot read as a spec name - refusing (fail closed). Run it as $KICK_FORM, naming the spec in lowercase letters, digits and hyphens."
   [ -n "$spec" ] || return 0
-  if [ "$TIER" = worker ] && [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
+  # The branch is read before the command runs, so an earlier HEAD move makes
+  # what the helper will push unknown.
+  [ "$KICK_HEAD_MOVED" = 0 ] || dir_ok=0
+  kickoff_amendment_scope "$spec"
+  if [ "$TIER" = worker ] && { [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ] || [ -n "$KAS_N" ]; }; then
     [ "$dir_ok" = 1 ] \
-      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec or amendment branch checkout.'
+      || deny_now 'this kickoff push runs where the guard cannot place it (after a directory change it cannot follow, after a git command that may change the branch checked out, or in a directory that no longer exists), so it cannot read which branch it pushes from - refusing (fail closed). Run it on its own, from the spec or amendment branch checkout.'
     [ "$dir_ok" = 1 ] || return 0
     b=$(current_branch "$dir")
-    kick_ok=0
-    case $b in
-      "planwright/$spec/spec") kick_ok=1 ;;
-      "planwright/$spec/amendment-"*)
-        case ${b#"planwright/$spec/amendment-"} in
-          '' | *[!0-9]*) ;;
-          *) kick_ok=1 ;;
-        esac
-        ;;
-    esac
-    [ "$kick_ok" = 1 ] \
-      || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec) or one of its amendment branches (planwright/$spec/amendment-<n>), and this checkout has ${b:-no branch} checked out - refusing. Check out one of those in your worktree and run $KICK_FORM."
+    if [ -n "$KAS_N" ]; then
+      if [ "$b" = "planwright/$spec/amendment-$KAS_N" ]; then
+        kickoff_scope_unshared "$spec" "$dir" && return 0
+        deny_now "the launch scope ${PLANWRIGHT_WORKER_SCOPE} reads as amendment $KAS_N's kickoff for $spec, but $KSS_WHY - refusing (fail closed). $KSS_FIX"
+        return 0
+      fi
+    else
+      kick_ok=0
+      case $b in
+        "planwright/$spec/spec") kick_ok=1 ;;
+        "planwright/$spec/amendment-"*)
+          case ${b#"planwright/$spec/amendment-"} in
+            '' | *[!0-9]*) ;;
+            *) kick_ok=1 ;;
+          esac
+          ;;
+      esac
+      [ "$kick_ok" = 1 ] \
+        || deny_now "the kickoff push runs only from the spec branch of its kickoff (planwright/$spec/spec) or one of its amendment branches (planwright/$spec/amendment-<n>), and this checkout has ${b:-no branch} checked out - refusing. Check out one of those in your worktree and run $KICK_FORM."
+      return 0
+    fi
+  elif [ "$dir_ok" = 1 ]; then
+    b=$(current_branch "$dir")
+  else
+    b=''
+  fi
+  # The helper pushes the branch checked out, so only that one is a target.
+  if [ "$b" = "planwright/$spec/spec" ]; then
+    check_unprotected "$dir" 'this git push' "planwright/$spec/spec"
+    deny_now "this git push targets a protected branch (planwright/$spec/spec); the spec branch is never written by an agent session at any tier. Work on your own unit branch."
     return 0
   fi
-  check_unprotected "$dir" 'this git push' "planwright/$spec/spec"
-  deny_now "this git push targets a protected branch (planwright/$spec/spec); the spec branch is never written by an agent session at any tier. Work on your own unit branch."
+  if [ "$TIER" = worker ] && [ -n "$KAS_N" ]; then
+    deny_now "amendment $KAS_N's kickoff for $spec pushes only planwright/$spec/amendment-$KAS_N, and this checkout has ${b:-no branch} checked out - refusing. Check out planwright/$spec/amendment-$KAS_N in your worktree and run $KICK_FORM."
+    return 0
+  fi
+  scope_seen=${PLANWRIGHT_WORKER_SCOPE:-}
+  scope_seen=$(sanitize_printable "${scope_seen:0:128}" 'none')
+  if [ "$dir_ok" = 1 ]; then
+    where="this checkout has ${b:-no branch} checked out"
+  else
+    where='the guard cannot place where it runs, so cannot read which branch it would push'
+  fi
+  deny_now "this session is not the kickoff for $spec (tier $TIER, launch scope $scope_seen), so it may not run the kickoff push; $where - refusing. Only $spec's kickoff session runs it: a worker launched with scope kickoff-$spec, or kickoff-$spec-a<n> from planwright/$spec/amendment-<n>."
   return 0
+}
+
+# kickoff_amendment_scope <spec> — set KAS_N to <n> when the session's launch
+# scope is an amendment kickoff's for <spec>: kickoff-<spec>-a<n>, then nothing,
+# one lowercase letter, or -<word> of lowercase letters and digits. The
+# launcher names a session after its scope, so a relaunched or relayed
+# amendment kickoff takes a fresh scope in this form (a16-delta, a10b). Such a
+# session pushes only planwright/<spec>/amendment-<n>.
+KAS_N=''
+kickoff_amendment_scope() {
+  local s=${PLANWRIGHT_WORKER_SCOPE:-} rest n
+  KAS_N=''
+  case $s in "kickoff-$1-a"[0-9]*) ;; *) return 0 ;; esac
+  rest=${s#"kickoff-$1-a"}
+  n=${rest%%[!0-9]*}
+  rest=${rest#"$n"}
+  case $rest in
+    '' | [a-z]) ;;
+    -*)
+      case ${rest#-} in '' | *[!a-z0-9]*) return 0 ;; esac
+      ;;
+    *) return 0 ;;
+  esac
+  KAS_N=$n
+}
+
+# kickoff_scope_unshared <spec> <dir> — 0 when no other spec's kickoff can share
+# the amendment reading of the session's scope (KAS_N set for <spec>). 1, with
+# KSS_WHY set, when it may: a bundle lies under the spec root, in the
+# worktree's view or the primary checkout's, named for the scope's whole tail
+# (that spec's own kickoff scope), for <spec>-a<n> or for a shorter spec <spec>
+# extends with hyphens (when the scope also reads as one of that spec's
+# amendment kickoffs); or a root cannot be resolved. KSS_FIX is the remedy.
+KSS_WHY=''
+KSS_FIX=''
+kickoff_scope_unshared() {
+  local spec=$1 dir=$2 root rc view n=$KAS_N tail=${PLANWRIGHT_WORKER_SCOPE#kickoff-} sub_n pre=$1 shorter='' p
+  KSS_WHY=''
+  KSS_FIX=''
+  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-root.sh" ] || {
+    KSS_WHY='the spec-root resolver is missing beside this guard, so it cannot tell that scope from another spec'"'"'s kickoff'
+    KSS_FIX='Reinstall planwright.'
+    return 1
+  }
+  kickoff_amendment_scope "$spec-a$n"
+  sub_n=$KAS_N
+  while [ "${pre#*-}" != "$pre" ]; do
+    pre=${pre%-*}
+    kickoff_amendment_scope "$pre"
+    [ -z "$KAS_N" ] || shorter="$shorter $pre:$KAS_N"
+  done
+  KAS_N=$n
+  policy_root "$dir"
+  for view in '' --primary; do
+    need_timeout
+    rc=0
+    root=$(cd -- "$dir" 2>/dev/null && PLANWRIGHT_REPO_ROOT=$POLICY_ROOT "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-root.sh" spec $view 2>/dev/null </dev/null) || rc=$?
+    case $rc in
+      124 | 143)
+        KSS_WHY="reading the spec root did not finish within ${KNOB_B}s, so the guard cannot tell that scope from another spec's kickoff"
+        KSS_FIX='This is a timeout, not a policy decision: retry.'
+        return 1
+        ;;
+    esac
+    case $root in
+      /*) ;;
+      *) [ "$rc" != 0 ] || rc=empty ;;
+    esac
+    if [ "$rc" != 0 ]; then
+      KSS_WHY="the spec root could not be resolved (resolver exit $rc), so the guard cannot tell that scope from another spec's kickoff"
+      KSS_FIX='Repair spec_root, then retry.'
+      return 1
+    fi
+    KSS_FIX='Relaunch the kickoff with a scope no other spec'"'"'s kickoff can share.'
+    if [ -d "$root/$tail" ]; then
+      KSS_WHY="a spec named $tail exists, whose own kickoff that scope is"
+      return 1
+    fi
+    if [ -n "$sub_n" ] && [ -d "$root/$spec-a$n" ]; then
+      KSS_WHY="a spec named $spec-a$n exists, whose amendment $sub_n kickoff that scope is"
+      return 1
+    fi
+    for p in $shorter; do
+      if [ -d "$root/${p%%:*}" ]; then
+        KSS_WHY="a spec named ${p%%:*} exists, whose amendment ${p#*:} kickoff that scope is"
+        return 1
+      fi
+    done
+  done
+  return 0
+}
+
+# kickoff_head_moves — 0 when the segment runs git in a way that may change
+# which branch is checked out (the subcommands below, an alias, or a word the
+# guard cannot read). A later kickoff push in the same command then cannot be
+# placed, since its branch is read before anything runs. A move this cannot
+# see (a shell string, a script) is caught by the helper's own run-time check.
+kickoff_head_moves() {
+  local i=0 n=${#SW[@]} k sub
+  while [ "$i" -lt "$n" ]; do
+    case ${SW[$i]##*/} in [Gg][Ii][Tt]) sub=git ;; *) sub='' ;; esac
+    if [ "$sub" = git ]; then
+      k=$((i + 1))
+      while [ "$k" -lt "$n" ]; do
+        case ${SW[$k]} in
+          -C | -c | --config-env | --git-dir | --work-tree | --namespace | --super-prefix | --attr-source | --list-cmds)
+            k=$((k + 2))
+            ;;
+          -p | -P | --paginate | --no-pager | --no-replace-objects | --no-lazy-fetch | --no-optional-locks | \
+            --no-advice | --literal-pathspecs | --glob-pathspecs | --noglob-pathspecs | --icase-pathspecs | --bare | \
+            -C?* | -c?* | --*=*)
+            k=$((k + 1))
+            ;;
+          # These print and exit before any subcommand, as classify_git reads them.
+          --exec-path | --html-path | --man-path | --info-path | --version | --help | -v | -h) k=$n ;;
+          -*) return 0 ;;
+          *) break ;;
+        esac
+      done
+      if [ "$k" -lt "$n" ]; then
+        [ "${SWL[$k]}" = 1 ] || return 0
+        lc "${SW[$k]}"
+        sub=$LC
+        case " $GIT_BUILTINS " in *" $sub "*) ;; *) return 0 ;; esac
+        case $sub in
+          switch | checkout | worktree | symbolic-ref | rebase | bisect) return 0 ;;
+          update-ref | branch | stash)
+            k=$((k + 1))
+            while [ "$k" -lt "$n" ]; do
+              [ "${SWL[$k]}" = 1 ] || return 0
+              case $sub:${SW[$k]} in
+                update-ref:HEAD | update-ref:--stdin | stash:branch | branch:-m* | branch:-M* | branch:--move | branch:-[!-]*[mM]*) return 0 ;;
+              esac
+              k=$((k + 1))
+            done
+            ;;
+        esac
+      fi
+    fi
+    i=$((i + 1))
+  done
+  return 1
 }
 
 # kickoff_text_check — every spelling of the kickoff push's name in the command
@@ -2122,15 +2304,51 @@ kickoff_text_check() {
   kick_count "$P_CMD"
   [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
     || deny_now "this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
+  [ "$KICK_SEEN" = 0 ] || [ "$KICK_BESIDE" = 0 ] \
+    || deny_now "this kickoff push runs beside a command that is neither a cd nor a read, or with a variable assigned, which could change the branch it pushes or the launch scope the helper checks after the guard has read them - refusing (fail closed). Run the kickoff push on its own, or after cd only."
+}
+
+# kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
+# push, with no variable assigned and no word holding $ or a backtick: a cd, a
+# command kickoff_cmd_reads takes as only reading, staging or printing, or a
+# git read mc_git_reads accepts. printf, test and [ never do: printf -v
+# assigns, and test -v evaluates an expansion in a subscript.
+kickoff_beside_ok() {
+  local w
+  [ "$SW_ASSIGN" = 0 ] || return 1
+  for w in "${SW[@]}"; do
+    case $w in *'$'* | *'`'*) return 1 ;; esac
+  done
+  [ "${SW[0]}" = cd ] && [ "${SWL[0]}" = 1 ] && return 0
+  case ${SW[0]} in printf | test | '[') return 1 ;; esac
+  kickoff_cmd_reads "$1" && return 0
+  [ "${SW[0]}" = git ] && [ "${SWL[0]}" = 1 ] || return 1
+  [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
+  local k=1 n=${#SW[@]}
+  while [ "$k" -lt "$n" ]; do
+    case ${SW[$k]} in
+      -C) k=$((k + 2)) ;;
+      -P | --no-pager | --no-optional-locks) k=$((k + 1)) ;;
+      --exec-path | --html-path | --man-path | --info-path | --version | --help | -v | -h) return 0 ;;
+      *) break ;;
+    esac
+  done
+  [ "$k" -lt "$n" ] && [ "${SWL[$k]}" = 1 ] || return 1
+  lc "${SW[$k]}"
+  case " $GIT_BUILTINS " in *" $LC "*) ;; *) return 1 ;; esac
+  mc_git_reads "$LC" "$((k + 1))"
 }
 
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
-  local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0
+  local pt cd_seen=0 cd_cond=0 list_plain=1 prev_cd=0 kick_text=${P_CMD//\\"$NL"/}
+  kick_text=${kick_text//[\"\'\\]/}
   KICK_SEEN=0
   KICK_PASSED=0
   KICK_PIPED=0
   KICK_VAR=0
+  KICK_HEAD_MOVED=0
+  KICK_BESIDE=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0
@@ -2170,6 +2388,7 @@ classify_segments() {
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      KICK_BESIDE=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
         || deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run it as $KICK_FORM."
       KICK_PIPED=0
@@ -2206,6 +2425,13 @@ classify_segments() {
       si=$((si + 1))
       continue
     fi
+    [ "$KICK_BESIDE" = 1 ] || kickoff_beside_ok "$si" || KICK_BESIDE=1
+    # A HEAD move matters only to a later kickoff push, so the scan is skipped
+    # for a command that never names one and would otherwise refuse nothing,
+    # read as kick_count reads it (quotes and line splices dropped).
+    case $kick_text in
+      *[Kk][Ii][Cc][Kk][Oo][Ff][Ff]*) ! kickoff_head_moves || KICK_HEAD_MOVED=1 ;;
+    esac
     if [ "${SWL[0]}" != 1 ]; then
       # The command word is an expansion, so what runs cannot be read: only a
       # variable root followed by a literal script path is let through, and
@@ -4466,10 +4692,100 @@ base_merge_allowed() { # <dir> <what> [<remedy for a branch refusal>]
   base_of "$1"
 }
 
+# record_spec_branch — set SPEC_BRANCH to the spec PR branch the launch named,
+# or empty. The only carrier is spec_branch= in the worker's session record
+# (PLANWRIGHT_WORKER_SESSION_RECORD, written by the launcher outside the
+# worktree), never the command text. A record that is not this user's own
+# regular file, a symlink, oversized or inside the worktree (lexically or
+# physically, as macOS's /var -> /private/var makes them differ), a field given
+# twice, or a value outside planwright/<spec>/<name> (a task or flight branch,
+# or a protected one) names nothing.
+SPEC_BRANCH=''
+record_spec_branch() { # <worktree top>
+  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line n=0 v='' size top pdir ptop
+  local re='^planwright/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9.-]*$'
+  SPEC_BRANCH=''
+  [ "$TIER" = worker ] || return 0
+  case $p in /?*) ;; *) return 0 ;; esac
+  [ -f "$p" ] && [ ! -L "$p" ] && [ -r "$p" ] && [ -O "$p" ] || return 0
+  top=${1:-$UNIT_TOP}
+  case $p in "$top"/*) return 0 ;; esac
+  pdir=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd) || return 0
+  ptop=$(cd -P -- "$top" 2>/dev/null && pwd) || return 0
+  case "${pdir%/}/" in "${ptop%/}"/*) return 0 ;; esac
+  size=$(wc -c <"$p" 2>/dev/null) || return 0
+  [ "${size// /}" -le 4096 ] 2>/dev/null || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      spec_branch=*)
+        n=$((n + 1))
+        v=${line#spec_branch=}
+        ;;
+    esac
+  done <"$p"
+  [ "$n" = 1 ] || return 0
+  [[ $v =~ $re ]] || return 0
+  valid_branch "$v" || return 0
+  is_unit_branch "$v" && return 0
+  SPEC_BRANCH=$v
+}
+
+# is_spec_branch_ref <dir> <name> — 0 when the merge source is the launch's
+# spec PR branch as the base remote's remote-tracking ref, by name and by what
+# git resolves the name to (a local branch or tag of that name at another
+# commit fails closed, as for the own remote branch).
+is_spec_branch_ref() {
+  local d=$1 r=$2 want oid
+  [ -n "$SPEC_BRANCH" ] || return 1
+  case $r in
+    "$BASE_REMOTE/$SPEC_BRANCH" | "refs/remotes/$BASE_REMOTE/$SPEC_BRANCH" | "remotes/$BASE_REMOTE/$SPEC_BRANCH") ;;
+    *) return 1 ;;
+  esac
+  want=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$BASE_REMOTE/$SPEC_BRANCH^{commit}") || return 1
+  oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
+  [ -n "$want" ] && [ "$oid" = "$want" ] || return 1
+  check_unprotected "$d" 'this git merge of the launch-named spec branch' "$SPEC_BRANCH"
+}
+
+# spec_branch_checkout <dir> — 0 when the session's project directory is a
+# linked worktree with the launch-named spec branch checked out and <dir> is
+# that same checkout; sets SPEC_BRANCH. Any other state, a unit branch
+# included, is 1 and leaves the ordinary rules to decide.
+spec_branch_checkout() {
+  local d=$1 pdir=${CLAUDE_PROJECT_DIR:-} b top gd
+  [ "$TIER" = worker ] && [ -n "$pdir" ] && [ -d "$pdir" ] || return 1
+  b=$(current_branch "$pdir")
+  [ -n "$b" ] && ! is_unit_branch "$b" || return 1
+  checkout_of "$pdir" && [ "$CO_LINKED" = 1 ] || return 1
+  top=$CO_TOP gd=$CO_GD
+  record_spec_branch "$top"
+  [ -n "$SPEC_BRANCH" ] && [ "$b" = "$SPEC_BRANCH" ] || return 1
+  [ "$(current_branch "$d")" = "$b" ] || return 1
+  checkout_of "$d" && [ "$CO_TOP" = "$top" ] && [ "$CO_GD" = "$gd" ] || return 1
+  check_unprotected "$d" 'this git merge' "$b"
+}
+
 eval_merge() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s
-  [ "${rest%%"$TAB"*}" != 1 ] || remedy=$FF_REMEDY
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s ff=0
+  [ "${rest%%"$TAB"*}" != 1 ] || { remedy=$FF_REMEDY ff=1; }
   srcs=${rest#*"$TAB"}
+  if spec_branch_checkout "$dir"; then
+    # The launch-named spec branch, checked out in the session's own linked
+    # worktree, takes the PR base and nothing else; nothing is cached, so no
+    # later act of the command inherits the branch as a unit branch.
+    read_knob worker_base_merge "$dir" allow deny
+    [ "$KNOB_VAL" = allow ] \
+      || emit_deny "worker_base_merge is deny, so this git merge is refused; the operator syncs this branch with its base."
+    need_timeout
+    CUR_BRANCH=$SPEC_BRANCH
+    base_of "$dir"
+    [ -n "$srcs" ] || emit_deny "this git merge names no source, and the launch-named spec branch takes only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) - refusing. Name it: git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+    for s in $srcs; do
+      is_base_ref "$dir" "$s" \
+        || emit_deny "this session's launch names $(sanitize_printable "$SPEC_BRANCH" 'a spec branch') as the branch it syncs, which takes only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')), and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+    done
+    return 0
+  fi
   base_merge_allowed "$dir" 'this git merge' "$remedy"
   if [ -z "$srcs" ]; then
     upstream_of "$dir" "$CUR_BRANCH"
@@ -4480,6 +4796,10 @@ eval_merge() {
   local rc
   for s in $srcs; do
     is_base_ref "$dir" "$s" && continue
+    if [ "$ff" = 1 ] && [ "$srcs" = "$s" ]; then
+      record_spec_branch "$UNIT_TOP"
+      ! is_spec_branch_ref "$dir" "$s" || continue
+    fi
     rc=0
     is_own_remote_ref "$dir" "$s" || rc=$?
     [ "$rc" != 0 ] || continue

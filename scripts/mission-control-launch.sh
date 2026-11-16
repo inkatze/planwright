@@ -47,6 +47,12 @@ fi
 }
 # shellcheck source=scripts/lock-lib.sh
 . "$script_dir/lock-lib.sh"
+[ -r "$script_dir/tmux-identity-lib.sh" ] || {
+  printf '%s\n' "$me: tmux-identity-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+}
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh"
 NL='
 '
 
@@ -62,9 +68,9 @@ usage:
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
       [--remote-control <name>] [--model <alias>] [--effort <level>]
-      [--reserved] [--keep-config-env] [--mise-task-edit]
+      [--reserved] [--keep-config-env] [--mise-task-edit] [--spec-branch <branch>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
-  mission-control-launch.sh retire <name>|<worker>
+  mission-control-launch.sh retire <name>|<worker> [--force-parked]
   mission-control-launch.sh reparent <name> --program <dest>
       (--authority <decisions-log id> | --undo)
   mission-control-launch.sh wait <name> --on operator|ci|ready-flip
@@ -87,6 +93,11 @@ rung has no terminal to attach it to, so it drops the flag with a warning.
 refused otherwise) opts the session in to editing the mise task files inside
 its own worktree, under a per-launch settings profile; docs/permission-matcher-model.md
 states what that opens.
+`--spec-branch planwright/<spec>/<name>` (a worker-profile session on the
+stream-json rung only, and only for the head branch of an open pull request,
+checked with gh before the launch) records that spec PR branch in the session
+record, so the policy guard lets the session fast-forward its flight branch to
+it, and sync a worktree holding it with the PR base, and nothing wider.
 A stream-json mission-control launch also records the session as a wake
 target (scripts/mc-wake.sh target add) and retire removes it, so the
 runner's wakes reach a session that loads no mod.
@@ -106,9 +117,11 @@ and a --model or --effort the clamps would lower is refused, naming
 PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY and
 PLANWRIGHT_CONFIG_STRICT_OVERLAYS) steer its own tier resolution but are not
 handed to the session, which would otherwise keep a one-launch overlay for its
-whole life; --keep-config-env hands them on, on purpose. This is the
-stream-json rung's session: a tmux window starts from the tmux server's
-environment, never the launcher's. A --model or --effort on a kind whose tier
+whole life; --keep-config-env hands them on, on purpose (mc-handover.sh
+passes it, so a successor reads the program block where its predecessor
+did). A tmux window starts from the tmux server's environment, never the
+launcher's, so on that rung the kept ones are set on the window's command
+line. A --model or --effort on a kind whose tier
 is inherited (tower, mission-control, reviewer, ad-hoc) names both.
 
 Before anything is reserved, a launch runs the posture check
@@ -196,10 +209,17 @@ Output, tab separated:
 A launch reserves the name with a complete row (backend, launcher pid and a
 token) before it starts anything, and a session that started but could not
 be recorded is stopped. A mission-control session starts holding that token
-as PLANWRIGHT_MC_TOKEN, which no other kind is handed. A retire refuses a launch still in flight, closes the
+as PLANWRIGHT_MC_TOKEN, which no other kind is handed. A retire refuses a session with a live operator, ci or ready-flip wait
+(exit 4, naming the wait) unless given --force-parked: a parked session
+is waiting on someone, and its finished-looking turn is not a finished
+job. A retire refuses a launch still in flight, closes the
 process or window first, and releases the fleet record, the attention row
-and the row only once it is gone; a window counts as closed only when tmux
-lists the windows and that one is not among them. A session with no row
+and the row only once it is gone. A window is closed only while the tmux
+server that issued its id still runs it under the session's name, and counts
+as gone once tmux no longer has it or it is no longer that window (another
+server, or another name: nothing is done to tmux then, and stderr says so in
+one line); one recorded without its server is never closed by its id, only
+the windows carrying the session's name are. A session with no row
 (one an older planwright or /orchestrate launched, named by its worker
 handle) is retired through its stream-json runtime directory: the rung's
 final close, then its fleet record and attention row, over the classes
@@ -216,7 +236,8 @@ is in flight, a live session uses its worktree, another launch is placing
 its branch, or a dispatch holds it or cannot say (launch), or there is
 neither a row nor a stream-json worker of that name, a launch, recover,
 relaunch or another retire of it is in flight, or the caller runs inside
-its window (retire); 4 a launch refused before it started: a posture check
+its window (retire); 4 a retire of a session holding a live wait without
+--force-parked, or a launch refused before it started: a posture check
 (scripts/mc-posture.sh) that failed or did not run, no readable profile, an
 unresolvable rung knob with no --backend, no resolvable tier (an
 unreachable allocation store or a malformed tier knob), the admission gate
@@ -410,6 +431,20 @@ new_token() {
   printf '%s-%s\n' "$$" "$nt"
 }
 
+# refresh_row_copy <name> <row> <backend>: keep a stream-json worker's copy
+# of its row (what a recover restores a lost row from) current: every writer of
+# the row calls it after the row lands. Owner-only mode, like the row, which
+# carries the token. Best effort: a missing copy makes a recover refuse, never
+# restore stale values.
+refresh_row_copy() {
+  [ "$3" = stream-json ] || return 0
+  rc_dir="$FH/streamjson/$1"
+  [ -d "$rc_dir" ] && [ ! -L "$rc_dir" ] || return 0
+  (umask 077 && cp -- "$2" "$rc_dir/launcher-row.tmp.$$" && mv -f "$rc_dir/launcher-row.tmp.$$" "$rc_dir/launcher-row") 2>/dev/null \
+    || rm -f "$rc_dir/launcher-row.tmp.$$" "$rc_dir/launcher-row"
+  return 0
+}
+
 # row_write <row> <token> <state> — write the row from the launch variables,
 # into a temporary file renamed over the row only while the row on disk is
 # still this launch's (it carries <token>).
@@ -427,6 +462,7 @@ row_write() {
     printf 'scope\t%s\n' "$scope"
     printf 'backend\t%s\n' "$backend"
     printf 'handle\t%s\n' "$handle"
+    printf 'server\t%s\n' "${tmux_server:--}"
     printf 'profile\t%s\n' "$profile"
     printf 'tier\t%s\n' "$tier"
     printf 'reserved\t%s\n' "$([ "${ovr_reserved:-0}" = 1 ] && echo yes || echo -)"
@@ -454,6 +490,7 @@ row_write() {
     rm -f "$rw_tmp"
     return 1
   }
+  [ "$3" != launched ] || refresh_row_copy "$name" "$1" "$backend"
 }
 
 # stop_session <backend> <handle> — close a session this launch started; 0
@@ -471,7 +508,7 @@ stop_session() {
       return 1
       ;;
     tmux)
-      release_pane "$name" "$2"
+      release_pane "$name" "$2" "${tmux_server:--}"
       return
       ;;
   esac
@@ -831,7 +868,7 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
-  remote_control='' rc_given=0 mise_edit=0 ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=0
+  remote_control='' rc_given=0 mise_edit=0 spec_branch='' ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=''
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -868,12 +905,17 @@ cmd_launch() {
         mise_edit=1
         shift
         ;;
+      --spec-branch)
+        [ "$#" -ge 2 ] && [ -z "$spec_branch" ] || die "--spec-branch takes one planwright/<spec>/<name> branch, once"
+        spec_branch=$2
+        shift 2
+        ;;
       --reserved)
         ovr_reserved=1
         shift
         ;;
       --keep-config-env)
-        keep_env=1
+        keep_env=--keep-config-env
         shift
         ;;
       --model | --effort)
@@ -995,6 +1037,21 @@ cmd_launch() {
     [ "$K_PROFILE" = worker ] || die "--mise-task-edit applies to a worker-profile session only"
     [ "$backend" = stream-json ] || die "--mise-task-edit needs the stream-json rung: the per-launch settings profile is not passed by the tmux rung"
   fi
+  if [ -n "$spec_branch" ]; then
+    [ "$K_PROFILE" = worker ] || die "--spec-branch applies to a worker-profile session only"
+    [ "$backend" = stream-json ] || die "--spec-branch needs the stream-json rung: the session record is not passed by the tmux rung"
+    case $spec_branch in
+      planwright/flight/* | planwright/*/task-*) die "--spec-branch names a spec PR branch (planwright/<spec>/<name>), never a unit branch" ;;
+      planwright/[a-z0-9]*/[a-z0-9]*) ;;
+      *) die "--spec-branch must be planwright/<spec>/<name>" ;;
+    esac
+    case $spec_branch in
+      *[!a-z0-9/.-]* | */ | *//* | *..* | *.lock) die "--spec-branch is outside the branch grammar" ;;
+    esac
+    sb_open=$(cd -- "${repo:-${cwd:-.}}" 2>/dev/null && gh pr list --head "$spec_branch" --state open --json headRefName --jq "[.[] | select(.headRefName == \"$spec_branch\")] | length" 2>/dev/null </dev/null) || sb_open=''
+    [ "$sb_open" -ge 1 ] 2>/dev/null \
+      || die "refusing to launch $name: --spec-branch $spec_branch is not the head branch of an open pull request (or gh could not tell), so no session record names it"
+  fi
   if [ "$backend" = tmux ] && { [ -n "$ovr_model" ] || [ -n "$ovr_effort" ] || [ "$ovr_reserved" = 1 ]; }; then
     die "refusing to launch $name: --model, --effort and --reserved apply to the stream-json rung only; the tmux rung resolves its tier in offload-dispatch" 2
   fi
@@ -1016,6 +1073,7 @@ cmd_launch() {
   # A stream-json session is found by its name; a tmux one by the window id
   # the rung reports.
   handle=-
+  tmux_server=-
   [ "$backend" != stream-json ] || handle=$name
   token=$(new_token)
 
@@ -1138,8 +1196,10 @@ cmd_launch() {
   # for its whole life, so they are not handed on unless the caller asked.
   # Location variables (PLANWRIGHT_REPO_ROOT, CLAUDE_PLUGIN_ROOT/DATA) say
   # where config lives, not what it says, and are left alone.
+  # A tmux window starts from the tmux server's environment instead, so the
+  # rung sets them on the window's command line when they are kept.
   scrub='-u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS'
-  [ "$keep_env" != 1 ] || scrub=''
+  [ -z "$keep_env" ] || scrub=''
   # The row's token goes into the session, so a decided-by-mission-control
   # item it adds is bound to this row rather than to a name any caller can
   # type (tower-comms REQ-A1.14). It is handed to the rung as an explicit
@@ -1193,6 +1253,7 @@ cmd_launch() {
       [ "$ovr_reserved" != 1 ] || set -- "$@" --tier-reserved
       [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
       [ "$mise_edit" = 0 ] || set -- "$@" --mise-task-edit
+      [ -z "$spec_branch" ] || set -- "$@" --spec-branch "$spec_branch"
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
@@ -1221,7 +1282,8 @@ cmd_launch() {
       ;;
     tmux)
       out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
-        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" </dev/null)
+        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" \
+        ${keep_env:+"$keep_env"} </dev/null)
       dr=$?
       case $dr in
         0) ;;
@@ -1240,6 +1302,10 @@ cmd_launch() {
       esac
       handle=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "handle" { print $2; exit }')
       valid_window "$handle" || refuse "the tmux rung reported no usable window for $name" 1
+      # The server that issued the window id: without it a later retire
+      # never closes the window by its id.
+      tmux_server=$(printf '%s\n' "$out" | awk -F '\t' '$1 == "server" { print $2; exit }')
+      tmux_valid_server "$tmux_server" || tmux_server=-
       tier=rung
       ;;
   esac
@@ -1295,58 +1361,67 @@ cmd_name() {
   session_name "$program" "$kind" "$scope"
 }
 
-# windows_named <name> — print the ids of the tmux windows named <name>, or
-# return 1 when tmux cannot list them.
+# windows_named <name> — print `<server> <id>` for each tmux window named
+# <name>, the server being the one that listed it, or return 1 when tmux
+# cannot list them. No tab in the format: tmux prints one as `_` under
+# LC_ALL=C.
 windows_named() {
-  if ! wn_list=$(tmux list-windows -a -F '#{window_id} #{window_name}' 2>&1); then
+  if ! wn_list=$(tmux list-windows -a -F "$TMUX_SERVER_FORMAT #{window_id} #{window_name}" 2>&1); then
     # No server means no window: positive evidence, unlike other errors.
     case $wn_list in
       *'no server running'* | *'error connecting to'*'No such file or directory'*) return 0 ;;
     esac
     return 1
   fi
-  printf '%s\n' "$wn_list" | awk -v n="$1" '$2 == n && $1 ~ /^@[0-9]+$/ { print $1 }'
+  printf '%s\n' "$wn_list" | N=$1 awk '
+    { s = $1; i = $2; sub(/^[^ ]* [^ ]* /, "") }
+    $0 == ENVIRON["N"] && i ~ /^@[0-9]+$/ && s ~ /^[0-9]+[.][0-9]+$/ { print s " " i }'
 }
 
-# window_ids — print every live window id, or return 1 when tmux cannot list
-# them (no server: none).
-window_ids() {
-  if ! wi_list=$(tmux list-windows -a -F '#{window_id}' 2>&1); then
-    case $wi_list in
-      *'no server running'* | *'error connecting to'*'No such file or directory'*) return 0 ;;
-    esac
-    return 1
-  fi
-  printf '%s\n' "$wi_list"
-}
-
-# release_pane <name> <window-id or -> — close the session's window, setting
-# RP_IDS to the ids it closed. Released only on positive evidence that it is
-# gone: a listing that succeeds (or no server at all) and carries no window
-# of that id and name. A recorded id live under another name is held.
+# release_pane <name> <window-id or -> [<server or ->] — close the session's
+# window, setting RP_IDS to the ids it released. A window recorded with the
+# server that issued its id is closed only through that pin
+# (tmux_pin_close): one whose server, id or name no longer match is gone,
+# and nothing is done to tmux. One recorded without its server is never
+# closed by the recorded id, which a restarted server may have reissued to
+# another window: only the windows named <name> in a fresh listing are,
+# each pinned to the server that listed it. Released only once none is left.
 release_pane() {
-  rp_ids=$(windows_named "$1") || return 1
-  if [ "$2" != - ]; then
-    case "$NL$rp_ids$NL" in
-      *"$NL$2$NL"*) rp_ids=$2 ;;
-      *)
-        # Live under another name: renamed, or reused by another server.
-        # Either way it is not proven gone, and it is not killed.
-        rp_all=$(window_ids) || return 1
-        case "$NL$rp_all$NL" in *"$NL$2$NL"*) return 1 ;; esac
-        rp_ids=''
+  RP_IDS=''
+  if [ "$2" != - ] && tmux_valid_server "${3:--}"; then
+    rp_rc=0
+    tmux_pin_close window "$2" "$3" "$1" || rp_rc=$?
+    case $rp_rc in
+      0 | 3)
+        RP_IDS=$2
+        return 0
+        ;;
+      1)
+        printf '%s\n' "$me: $TP_WHY" >&2
+        RP_IDS=$2
+        return 0
         ;;
     esac
+    printf '%s\n' "$me: $TP_WHY" >&2
+    return 1
   fi
-  RP_IDS=$rp_ids
-  for rp_id in $rp_ids; do
-    tmux kill-window -t "$rp_id" >/dev/null 2>&1 || :
-  done
+  [ "$2" = - ] || printf '%s\n' "$me: not closing $2 by id: it was recorded without its tmux server; only windows named $1 are closed" >&2
+  rp_list=$(windows_named "$1") || return 1
+  rp_ids=''
+  while read -r rp_srv rp_id; do
+    [ -n "$rp_id" ] || continue
+    rp_rc=0
+    tmux_pin_close window "$rp_id" "$rp_srv" "$1" || rp_rc=$?
+    case $rp_rc in
+      0 | 3) rp_ids="$rp_ids $rp_id" ;;
+      *) return 1 ;;
+    esac
+  done <<EOF
+$rp_list
+EOF
+  RP_IDS=${rp_ids# }
   rp_left=$(windows_named "$1") || return 1
-  for rp_id in $rp_ids; do
-    case "$NL$rp_left$NL" in *"$NL$rp_id$NL"*) return 1 ;; esac
-  done
-  return 0
+  [ -z "$rp_left" ]
 }
 
 # retire_unregistered <name> — retire a session this launcher holds no row
@@ -1396,6 +1471,11 @@ retire_unregistered() {
 }
 
 cmd_retire() {
+  force_parked=0
+  if [ "$#" -eq 2 ] && [ "$2" = --force-parked ]; then
+    force_parked=1
+    set -- "$1"
+  fi
   [ "$#" -eq 1 ] || usage
   name=$1
   if ! valid_name "$name"; then
@@ -1417,6 +1497,11 @@ cmd_retire() {
   state=$(row_get "$row" state)
   backend=$(row_get "$row" backend)
   handle=$(row_get "$row" handle)
+  tmux_server=$(row_get "$row" server)
+  parked_on=$(row_get "$row" waiting)
+  if [ -n "$parked_on" ] && [ "$force_parked" != 1 ]; then
+    die "refusing to retire $name: it is parked, waiting on $(sanitize_printable "$parked_on") (unwait it first, or pass --force-parked to retire it anyway)" 4
+  fi
   released='' held=''
   add_released() { released="$released,$1"; }
   add_held() { held="$held,$1"; }
@@ -1442,7 +1527,7 @@ cmd_retire() {
         self=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}' 2>/dev/null) || self=''
         [ "$self" != "$handle" ] || die "refusing to retire $name from inside its own window" 3
       fi
-      if release_pane "$name" "$handle"; then add_released pane; else add_held pane; fi
+      if release_pane "$name" "$handle" "${tmux_server:--}"; then add_released pane; else add_held pane; fi
       ;;
     *) die "the registry row for $name names an unknown backend" 2 ;;
   esac
@@ -1489,7 +1574,14 @@ cmd_retire() {
         || printf '%s\n' "$me: the wake target for $name was not removed" >&2
     fi
     rm -rf "${LAUNCHES:?}/$name"
-    if [ -e "$LAUNCHES/$name" ]; then
+    # A recover restores a missing row from the kept copy, so a copy left
+    # behind would bring a retired session back into the registry.
+    copy_left=''
+    if [ "$backend" = stream-json ] && [ ! -L "$FH/streamjson/$name" ]; then
+      rm -f "$FH/streamjson/$name/launcher-row"
+      [ ! -e "$FH/streamjson/$name/launcher-row" ] || copy_left=1
+    fi
+    if [ -e "$LAUNCHES/$name" ] || [ -n "$copy_left" ]; then
       add_held row
     else
       rm -f "$row"
@@ -1610,6 +1702,7 @@ $rp_dest
     die "cannot rewrite the registry row for $rp_name; nothing changed" 2
   fi
 
+  refresh_row_copy "$rp_name" "$rp_row" "$(row_get "$rp_row" backend)"
   rp_unrecorded=''
   rp_note="moved from $rp_src to $rp_dest"
   rp_undo_id=-
@@ -1679,6 +1772,7 @@ row_set_waiting() {
     rm -f "$rs_tmp"
     return 1
   fi
+  refresh_row_copy "${1##*/}" "$1" "$(row_get "$1" backend)"
 }
 
 # wait_target <name> — lock and check the row of a session that may be marked

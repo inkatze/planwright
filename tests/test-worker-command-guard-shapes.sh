@@ -425,8 +425,9 @@ assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
 assert_defer "mawk spelling is not allowlisted" "mawk '{print}' file"
 
 # The new screens must hold through every path that reaches them, not just the
-# bare-verb one: the `fish -c` recursor, sed's `-e` / `--expression=` value
-# positions, and inert value positions the screens must NOT read as program text.
+# bare-verb one: the `fish -c` recursor, sed's `-e`, `--expression` and
+# `--expression=` value positions, and inert value positions the screens must
+# NOT read as program text.
 assert_allow "awk via the fish recursor" "fish -c 'awk \"{print 1}\" f'"
 assert_defer "awk system() via the fish recursor" "fish -c 'awk \"BEGIN{system(1)}\" f'"
 assert_defer "awk output redirection via the fish recursor" "fish -c 'awk \"{print > 1}\" f'"
@@ -434,6 +435,14 @@ assert_allow "sed bracket via --expression=" "sed --expression='s/[0-9]//' f"
 assert_defer "sed w flag via --expression=" "sed --expression='s/[0-9]/x/w out' f"
 assert_allow "sed bracket via -e value" "sed -e 's/[0-9]//' -e 's/[a-z]//' f"
 assert_defer "sed w command via the second -e value" "sed -e 's/[0-9]//' -e 'w out' f"
+assert_allow "sed bracket via --expression value" "sed --expression 's/[0-9]//' f"
+assert_defer "sed w flag via --expression value" "sed --expression 's/[0-9]/x/w out' f"
+assert_defer "sed W command via --expression value" "sed --expression '1W out' f"
+assert_defer "sed r command via --expression value" "sed --expression '1r /etc/passwd' f"
+assert_defer "sed e command via --expression value" "sed --expression 1e f"
+assert_defer "sed w command via --expression after -e" "sed -e p --expression 'w out' f"
+assert_defer "sed --expression with no value" "sed f --expression"
+assert_defer "sed brace via --expression value" "sed --expression 1{p} f"
 # A `>` inside an INERT value (a -v assignment, a -F separator) is not program
 # text and must not be screened as redirection; the program is what gets screened.
 assert_allow "awk -v value containing > is inert data" "awk -v x='> f' '{print x}' file"

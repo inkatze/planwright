@@ -98,7 +98,7 @@ awk '
     }
     sub(/^ +/, "", cur); if (cur != "" && cur != "nothing") print kind " " cur
   }
-  /^hooks: / { emit("hook", substr($0, 8)) }
+  /^hooks: / { l = substr($0, 8); gsub(/ \(default matcher key: [^)]*\)/, "", l); emit("hook", l) }
   /^calls: / { l = substr($0, 8); gsub(/ \(via [^)]*\)/, "", l); emit("call", l) }
   /^env reads: / { emit("env", substr($0, 12)) }
   /^env writes: / { emit("envwrite", substr($0, 13)) }

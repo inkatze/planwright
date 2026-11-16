@@ -364,7 +364,14 @@ subagent rungs. A record carries what closing a worker needs when the tower that
 launched it is gone: the handle, the **owner token** (which tower dispatched
 it), the backend, the state directory where the rung keeps one, and the death
 handle (`process <pid>`, `tmux-window <session> <window>`, or `none` for a rung
-that spawns no process).
+that spawns no process). A tmux window id names a window only for the life of
+the server that issued it, since a restarted server numbers from `@0` again, so
+the dispatch seams pin it: `tmux-window <session> <window> <server> <name>`,
+the server being `<pid>.<start time>` and the name the one the window was
+given. A pinned window is live only while all three still hold, and nothing
+closes it by id otherwise. A handle written before the pin is never closed by
+its id, and counts as live only in its recorded session and only when it was
+registered after the running server started.
 
 A column with nothing to put in it is written `-` and reads as the gap it is. An
 unowned record renders `unknown-owner` rather than being attributed to anyone,
@@ -862,8 +869,17 @@ watcher runs it as `alarm-scan --once` on every pass: an overdue request
 becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
 mission-control session as a `pending-prompt-overdue` event. A request that has
-just arrived wakes it sooner as a `pending-prompt` event, at most one per
-rate-limit window (`mc-keeper.sh` names it) so a burst is one wake.
+just arrived wakes it sooner as a `pending-prompt` event, one per pass so a
+burst is one wake (a batch whose names outgrow one event's text spans a
+few). The event names every request still waiting, worker and request id,
+and a request that arrives later is always a new event, never folded into
+one already read.
+Each goes to the worker's own program (its launcher row's, else the owner its
+dispatch record keeps). A worker that neither names is raised once, whichever
+keeper sees it first, as a `stream-json-worker-unowned` event under the hub
+program (`mission_control_escalation_hub`), so the stuck prompt still reaches
+a mission control; with no hub program configured the event stays with the
+program whose keeper found it, and its text says so.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends
 non-zero is named on stderr and wakes it once as a `keeper-sweep-failed` event;
@@ -877,7 +893,9 @@ request row it raised (a failure item stays), and prints
 worker is in flight, the scan neither settles nor escalates it, leaving its
 requests to a later scan. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
-crashed worker's session via `--resume`; `status` surfaces completion and
+crashed worker's session via `--resume`, first restoring a mission-control
+launcher worker's registry row from the copy its launch kept (refusing, exit 3,
+where the row is gone and no copy covers it); `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
@@ -1020,7 +1038,12 @@ supervisor.
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
 its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
-attention record the worker held. `--grace` takes a whole number of seconds
+attention record the worker held. Before each signal it stops the whole tree
+with SIGSTOP and re-reads it until nothing new appears, so a child forked while
+the close runs cannot be reparented out of reach; a close interrupted in that
+window continues the tree before it exits, and only a SIGKILL of the close
+itself can leave the tree stopped for the next `stop` to finish.
+`--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, the rate-limit
 reading, and the receipt journal survive a stop: they are the durable record,
@@ -2714,6 +2737,14 @@ record and attention row, printing the same `retire` line over the classes
 `process`, `registry` and `attention`. A name with neither a row nor a
 stream-json runtime directory is exit 3, and the refusal names the headless
 rung's `stop` and `tmux kill-window` as the closes that apply.
+
+A session with a live `operator`, `ci` or `ready-flip` wait (set with
+`wait <name> --on <why>`) is parked, not finished: `retire` refuses it with
+exit 4 naming the wait, `fleet-streamjson.sh status` prints `parked` for it
+(or for a turn that ended on a question) rather than `completed`, and no
+idle bound, completed-grace retire or process reap (`fleet-cleanup.sh
+process`, which also refuses a row whose wait it cannot read) touches it. `unwait`
+restores the plain retire; `retire <name> --force-parked` retires it anyway.
 
 The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's

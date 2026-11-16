@@ -201,7 +201,10 @@ skip on a plain draft push) and in an Alpine container
 (musl, dash, busybox; the planned count), and the `check` job, the status
 branch protection reads, passes only when every one of those jobs and shards
 does (the macOS jobs may be skipped on a plain draft) and the test-time budget
-gate passes over every Linux shard's timing report together. The install smoke
+gate passes over every Linux shard's timing report together. A ready flip
+whose head, base and `ci.yml` an earlier run already passed every suite job
+on skips the suite jobs and the timing gate, and `check` names that run
+([`ci-self-hosted-mac.md`](ci-self-hosted-mac.md)). The install smoke
 (`scripts/install-smoke.sh`, installing through both delivery modes and running
 an adopter entry point with PATH narrowed to the allowlist the script defines:
 sh and bash with the POSIX utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
