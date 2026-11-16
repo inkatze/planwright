@@ -337,6 +337,34 @@ gate w1 trig why
 expect 0 "the same session once its wait is cleared"
 echo "ok: a session with a live wait is never reaped, and is again once the wait is cleared"
 
+# A registry row whose wait cannot be read is not evidence of no wait: a row
+# that is a symbolic link, not a regular file, or unreadable is refused (5).
+printf 'format\t1\nname\tw1\nwaiting\toperator\n' >"$tmp/parked-row-target"
+ln -s "$tmp/parked-row-target" "$gate_home/mission-control/sessions/w1"
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead
+gate w1 trig why
+expect 5 "a session whose registry row is a symbolic link"
+never_stopped "a session whose registry row is a symbolic link"
+rm -f "$gate_home/mission-control/sessions/w1"
+mkdir "$gate_home/mission-control/sessions/w1"
+gate w1 trig why
+expect 5 "a session whose registry row is a directory"
+never_stopped "a session whose registry row is a directory"
+rmdir "$gate_home/mission-control/sessions/w1"
+printf 'format\t1\nname\tw1\nwaiting\toperator\n' >"$gate_home/mission-control/sessions/w1"
+chmod 000 "$gate_home/mission-control/sessions/w1"
+if [ ! -r "$gate_home/mission-control/sessions/w1" ]; then
+  gate w1 trig why
+  expect 5 "a session whose registry row cannot be read"
+  never_stopped "a session whose registry row cannot be read"
+  echo "ok: a registry row that cannot be read is refused, never taken for no wait"
+else
+  echo "skip: the unreadable registry row case (the mode does not deny reading here)"
+fi
+chmod 600 "$gate_home/mission-control/sessions/w1"
+rm -f "$gate_home/mission-control/sessions/w1" "$tmp/parked-row-target"
+echo "ok: a registry row that is a link or not a file is refused, never taken for no wait"
+
 # --- a live peer's worker is never touched, under any evidence (exit 7) -----
 for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success' \
   'unclassified completion-failed:exit=1' 'working runtime-running'; do

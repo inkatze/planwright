@@ -64,6 +64,9 @@
 #       identity from the environment as it always does. An errored or absent
 #       verdict, or a missing dispatch record, refuses first (exit 5); past
 #       those, refused in this order:
+#         a parked session, whose registry row records a wait, under any
+#           evidence, and a row whose wait cannot be read (a link, not a
+#           regular file, unreadable, or no resolvable fleet home) (exit 5);
 #         a `print`-backend unit, which spawned no process (exit 8);
 #         a worker owned by a live peer tower, under any evidence (exit 7);
 #         a backend with no process close, such as tmux (exit 5);
@@ -150,7 +153,8 @@
 #      dirty worktree, one whose commits are not provably safe — no upstream
 #      parity and no verified --merged-pr — or lost observability: neither a tmux
 #      server unreachable mid-probe nor an unusable `gh` is proof of absence),
-#      or the reclaim command itself failed; for `process`, also a partial or
+#      or the reclaim command itself failed; for `process`, also a parked
+#      session (or one whose registry row's wait cannot be read), a partial or
 #      interrupted close, which acted and is recorded (see its usage), and a
 #      reap that stood down with nothing signalled: another holds the worker's
 #      reap lock, the lock could not be taken, or the verdict read again under
@@ -837,10 +841,24 @@ EOF
       exit 5
     fi
     # A session parked on the operator, CI or a ready flip is not finished work
-    # whatever its last turn looked like: its registry row says so.
+    # whatever its last turn looked like: its registry row says so. A row whose
+    # wait cannot be read is not evidence of no wait, so only a row that is
+    # absent or read cleanly lets the reap go on.
     pk_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) || pk_root=""
-    if [ -n "$pk_root" ] && [ -f "$pk_root/mission-control/sessions/$worker" ] && [ ! -L "$pk_root/mission-control/sessions/$worker" ]; then
-      pk_why=$(awk -F "$TAB" '$1 == "waiting" { print $2; exit }' "$pk_root/mission-control/sessions/$worker" 2>/dev/null) || pk_why=""
+    if [ -z "$pk_root" ]; then
+      warn "refusing '$worker': the fleet home cannot be resolved, so whether it is parked on a wait cannot be read"
+      exit 5
+    fi
+    pk_row="$pk_root/mission-control/sessions/$worker"
+    if [ -L "$pk_row" ] || { [ -e "$pk_row" ] && [ ! -f "$pk_row" ]; }; then
+      warn "refusing '$worker': its registry row is not a regular file, so whether it is parked on a wait cannot be read"
+      exit 5
+    fi
+    if [ -e "$pk_row" ]; then
+      pk_why=$(awk -F "$TAB" '$1 == "waiting" { print $2; exit }' "$pk_row" 2>/dev/null) || {
+        warn "refusing '$worker': its registry row cannot be read, so whether it is parked on a wait cannot be read"
+        exit 5
+      }
       if [ -n "$pk_why" ]; then
         warn "refusing '$worker': it is parked, waiting on $(sanitize_printable "$pk_why" "-"); a parked session is never reaped"
         exit 5
