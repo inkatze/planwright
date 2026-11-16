@@ -106,7 +106,7 @@ fi
 last_review=$(printf '%s\n' "$reviews" | tail -n 1)
 [ -n "$last_review" ] || choose "$INCREMENTAL"
 
-commits=$(read_api "pulls/$pr/commits?per_page=100" '.[] | "\(.parents | length) \(.commit.committer.date)"') \
+commits=$(read_api "pulls/$pr/commits?per_page=100" '.[] | "\(.parents | length) \(.commit.committer.date // .commit.author.date)"') \
   || full_on "Could not read the PR's commits"
 if [ -z "$commits" ] || printf '%s\n' "$commits" | grep -Evq "^[0-9]+ $DATE\$"; then
   full_on "The PR's commit list came back in a shape this script cannot read"

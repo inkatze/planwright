@@ -213,6 +213,12 @@ new_case
 list "$(commit 1 2026-11-16T10:49:37Z)" >"$T/commits.json"
 run_case "$name" full FAIL_COMMITS=1 && grep -q '^::warning title=PR-Agent full review::' <<<"$OUT" && ok "$name"
 
+name="a commit with no committer date is placed by its author date, as PR-Agent places it"
+new_case
+list "$(commit 2 2026-11-14T06:00:00Z)" \
+  '{"parents": [{"sha": "p"}], "commit": {"committer": null, "author": {"date": "2026-11-16T10:49:37Z"}}}' >"$T/commits.json"
+run_case "$name" incremental && ok "$name"
+
 name="a commit list in a shape the script cannot read falls back to the full review"
 new_case
 printf '[{"parents": [], "commit": {"committer": {"date": "16 Nov 2026"}}}]\n' >"$T/commits.json"
