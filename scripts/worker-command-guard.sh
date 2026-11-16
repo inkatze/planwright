@@ -2443,12 +2443,22 @@ guard_sed() {
 # also read as a read-only script, since BSD sed takes the word after `-i` as
 # its suffix and so the first file as the script.
 guard_sed_inplace() {
-  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0 nn=0
+  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0 nn=0 operand=0 ddash=0
   local -a words=() files=() nx=() nq=() nd=() ng=() nz=() nm=() ns=()
   ob_live || return 1
   for ((i = 0; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$i" -gt 0 ] && [ "$expect_e" = 0 ]; then
+      # Every option must precede every operand and `--`: GNU sed reads an
+      # `-e` anywhere (and none after `--`), so a bare word ahead of it would
+      # be a file this loop took for the script and never screened.
+      case $a in
+        -*)
+          [ "$operand$ddash" = 00 ] || return 1
+          [ "$a" != -- ] || ddash=1
+          ;;
+        *) operand=1 ;;
+      esac
       case $a in
         -i | --in-place)
           inplace=1
