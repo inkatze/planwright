@@ -274,8 +274,13 @@ Launch, message, answer, retire; never hand the operator a per-session step.
 - **Ready to merge:** each PR `scripts/mc-merge-ready.sh`'s `list` names,
   at bring-up and on every `merge-ready` event, goes to the operator at once
   with a push notification and its merge command, again at every bring-up
-  until it merges, with its packet (`scripts/mc-packet.sh`'s `assemble`);
-  an `unknown` line is said as unknown, never as none.
+  until it merges, with its packet (`scripts/mc-packet.sh`'s `assemble`, given
+  `--moment`, `--evidence` and `--level` from `mc-config.sh mode guidance` at a
+  merge recommendation, ready flip or stated merge intent, so the cadence result
+  opens it at every level);
+  an `unknown` line is said as unknown, never as none, and an `unfinished`
+  line (a PR marked ready with a check still running) goes to the operator as
+  a ready flip made too early, never as ready to merge.
 - **Message** a session by `SendMessage` when `ListAgents` lists it; a
   stream-json one by `scripts/fleet-streamjson.sh`'s `steer` (its state by
   `status`); only an unreachable one takes the pane relay, as the tower's
@@ -347,7 +352,8 @@ Never open a kickoff or an amendment unasked, and never sign off a spec. One
 the operator asks for runs by `scripts/mc-config.sh`'s `mode kickoff`:
 
 - `relay` — launch the kickoff session through the launcher (kind
-  `ad-hoc`, scope `kickoff-<spec>`, `--repo` the spec root's repository)
+  `ad-hoc`, scope `kickoff-<spec>`, or `kickoff-<spec>-a<n>[<letter>|-<word>]`
+  for amendment `<n>`, its suffix lowercase, `--repo` the spec root's repository)
   with the kickoff command for the spec as its brief, and relay each question it
   raises to the operator as an item. Every kickoff question is
   operator-only: answer it with the operator's own words, quoted, and never

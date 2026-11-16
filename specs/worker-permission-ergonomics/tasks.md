@@ -14,6 +14,10 @@ form one deliberate chain so no two of them change that script at once; do
 not parallelize them. The dependency graph is the `Dependencies:` fields
 below; `scripts/spec-graph.sh` renders it on demand.
 
+Task 17 was delivered by PR #937, squash-merged without a
+`Planwright-Task:` trailer; the commit adding this paragraph carries the
+trailer so the status render counts the task complete.
+
 ## Tasks
 
 ### Task 1 — Implement and test the auto-approve hook

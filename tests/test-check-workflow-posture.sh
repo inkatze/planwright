@@ -19,6 +19,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 GUARD="$REPO_ROOT/scripts/check-workflow-posture.sh"
 
 failures=0
@@ -1408,18 +1410,18 @@ jobs:\r
       - run: echo x\r
 '
 
-# A workflow file the parser cannot READ is not a clean tree. Skipped under
-# root, where mode 000 does not deny a read and the case cannot be staged.
-if [ "$(id -u)" -ne 0 ]; then
-  d="$(mkdir_case fail-unreadable)"
-  printf 'name: x\n' >"$d/x.yml"
-  chmod 000 "$d/x.yml"
+# A workflow file the parser cannot READ is not a clean tree. Skipped where
+# mode 000 does not deny the running user a read and the case cannot be staged.
+d="$(mkdir_case fail-unreadable)"
+printf 'name: x\n' >"$d/x.yml"
+chmod 000 "$d/x.yml"
+if hermetic_access_denied r "$d/x.yml"; then
   out="$("$GUARD" "$d" 2>&1)"
   assert_exit "an unreadable workflow file fails closed" 1 $?
-  chmod 644 "$d/x.yml"
 else
-  echo "ok: an unreadable workflow file fails closed (skipped: running as root)"
+  echo "skip: unreadable workflow file: the running user still reads $d/x.yml under mode 000"
 fi
+chmod 644 "$d/x.yml"
 
 # ---------------------------------------------------------------------------
 # The same-repo exception: a job gated, at its own `if:`, on the PR's head
@@ -1734,6 +1736,10 @@ grep -qF 'MAC_RUN: ${{ needs.plan.outputs.mac_run }}' "$CI_YML"
 assert_exit "the aggregate check job reads the mac_run verdict" 0 $?
 grep -qE 'MACOS_RESULT" = skipped' "$CI_YML"
 assert_exit "the aggregate check job accepts a macOS skip only by that verdict" 0 $?
+n_suite="$(grep -cF "if: \${{ needs.plan.outputs.suite_run == 'true' }}" "$CI_YML")"
+suite_rc=1
+[ "$n_suite" = 2 ] && suite_rc=0
+assert_exit "ci.yml gates exactly the test and Alpine jobs on the plan job's suite_run" 0 "$suite_rc"
 
 # The default argument resolves to the repo's workflow directory, so a bare
 # invocation from anywhere gives the same verdict as the explicit one.
@@ -1851,6 +1857,29 @@ matrix_case "matrix: a branch filter on the macOS job fails" 1 "carries a job-le
 # shellcheck disable=SC2016 # a literal GitHub expression
 matrix_case "matrix: any job-level if on the Alpine job fails" 1 "carries a job-level" \
   'M_ALP_JOB=    if: ${{ !cancelled() }}'
+# The one job-level if the Alpine job may carry: the plan job's verdict that
+# the suite runs, false only on a ready flip reusing a prior run's evidence.
+# shellcheck disable=SC2016 # literal GitHub expressions
+{
+  matrix_case "matrix: the plan job's suite_run gate on the Alpine job passes" 0 \
+    "holds the platform matrix" \
+    "M_ALP_JOB=    if: \${{ needs.plan.outputs.suite_run == 'true' }}"
+  matrix_case "matrix: the bare suite_run gate on the Alpine job passes" 0 \
+    "holds the platform matrix" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+  matrix_case "matrix: suite_run joined to another condition on the Alpine job fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run == 'true' && github.head_ref == 'planwright/x'"
+  matrix_case "matrix: a suite_run gate spread over two lines with another condition fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: >-
+      needs.plan.outputs.suite_run == 'true'
+      || github.event_name == 'push'"
+  matrix_case "matrix: suite_run compared to anything but 'true' fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run != 'true'"
+  matrix_case "matrix: the suite_run gate on the macOS job fails" 1 "carries a job-level" \
+    "M_MAC_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+  matrix_case "matrix: the suite_run gate on the Ubuntu job leaves its install smoke gated" 1 "install smoke" \
+    "M_LINT_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+}
 matrix_case "matrix: a job-level if naming a platform fails" 1 "naming a platform" \
   "M_LINT_JOB=    if: runner.os == 'Linux'"
 matrix_case "matrix: a block-scalar job-level if naming a platform fails" 1 "naming a platform" \
@@ -2049,7 +2078,9 @@ assert_exit "matrix: the repo's own ci.yml holds the platform matrix" 0 $?
 # workflow's trigger types and the action's pr_actions must name the same set.
 # ---------------------------------------------------------------------------
 
-# pa_case <name> <types-flow-list> <pr_actions-line-or-empty>
+# pa_case <name> <types-flow-list> <pr_actions-line-or-empty> [<separator>]
+# The separator joins GITHUB_ACTION_CONFIG and PR_ACTIONS: "." by default, or
+# PR-Agent's other spelling, "__".
 pa_case() {
   d="$(mkdir_case "$1")"
   {
@@ -2058,7 +2089,7 @@ pa_case() {
       '    runs-on: ubuntu-latest' '    steps:' '      - name: Review' \
       '        uses: docker://pragent/pr-agent@sha256:0000' '        env:' \
       '          CONFIG.LOG_LEVEL: INFO'
-    [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG.PR_ACTIONS: '$3'"
+    [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG${4:-.}PR_ACTIONS: '$3'"
   } >"$d/pr-agent.yml"
 }
 PA_ALL='opened, synchronize, reopened, ready_for_review, review_requested'
@@ -2081,6 +2112,19 @@ pa_case pa-extra-action "[opened, synchronize, reopened]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
 assert_contains "pr-agent: the undelivered action is named" "ready_for_review" "$out"
+
+pa_case pa-dunder-agree "[$PA_ALL]" "$PA_ALL_JSON" __
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: the SECTION__KEY spelling of pr_actions is read" 0 $?
+
+pa_case pa-dunder-missing-sync "[$PA_ALL]" '["opened", "reopened", "ready_for_review", "review_requested"]' __
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a SECTION__KEY pr_actions without synchronize fails" 1 $?
+assert_contains "pr-agent: the missing SECTION__KEY action is named" "synchronize" "$out"
+
+pa_case pa-one-underscore "[$PA_ALL]" "$PA_ALL_JSON" _
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a single-underscore pr_actions, which PR-Agent ignores, fails" 1 $?
 
 pa_case pa-trailing-comment "[$PA_ALL] # see [docs]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"

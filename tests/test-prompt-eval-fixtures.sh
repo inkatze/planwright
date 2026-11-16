@@ -18,6 +18,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 FIX="$REPO_ROOT/tests/prompt-evals/fixtures"
 
 # Resolve the planwright plugin whose scripts grade the seeded bundle.
