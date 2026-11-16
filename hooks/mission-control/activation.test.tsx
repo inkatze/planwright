@@ -173,6 +173,7 @@ test('a record retired for exit stands the panel down and ends the session', asy
   await w.clock.advance(10_000)
   await w.clock.settle()
   expect(ran(w, 'mc-wake.sh', 'target').filter(r => !r.includes('--mod'))).toEqual([])
+  expect(ran(w, 'mc-wake.sh', 'target').some(r => r.includes('--mod'))).toBe(true)
   expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
   expect(w.commandRuns).toEqual(['exit'])
   await w.clock.advance(60_000)
