@@ -108,7 +108,11 @@ Usage:
       elsewhere (exit 4), where path names the operator act. A handover
       over a live registry holder whose row records the tmux rung
       defaults to the tmux rung too (no pane is recorded; retire closes
-      it). A stale holder is recorded as the predecessor. A tmux successor's
+      it). A stale holder is recorded as the predecessor. The successor
+      starts in --cwd, else the first of the program's repositories on
+      this machine (none refuses, exit 1), never the caller's directory,
+      and keeps the caller's config overlays (the launcher's
+      --keep-config-env), where the program block may live. A tmux successor's
       Remote Control follows mission_control_successor_remote_control:
       off (the default) starts none; on names the successor as itself;
       inherit carries the live predecessor's --remote-control (read from
@@ -306,6 +310,32 @@ home_path() {
     *) mc_fail "the program home is not absolute" ;;
   esac
   HANDOVER=$HOME_DIR/handover.tsv
+}
+
+# program_checkout: the first of the program's repositories present on this
+# machine, where a successor starts by default.
+program_checkout() {
+  pc_list=$(/bin/bash "$script_dir/mc-program.sh" get "$program" repositories 2>/dev/null)
+  pc_rc=$?
+  case $pc_rc in
+    0) ;;
+    2 | 3)
+      say "the repositories of program $program do not resolve (mc-program.sh exit $pc_rc)"
+      exit "$pc_rc"
+      ;;
+    *) mc_fail "the repositories of program $program do not resolve (mc-program.sh exit $pc_rc)" ;;
+  esac
+  PROGRAM_CHECKOUT=''
+  while IFS= read -r pc_r; do
+    if [ -n "$pc_r" ] && [ -d "$pc_r" ]; then
+      PROGRAM_CHECKOUT=$(cd "$pc_r" && pwd -P) && break
+      PROGRAM_CHECKOUT=''
+    fi
+  done <<EOF
+$pc_list
+EOF
+  [ -n "$PROGRAM_CHECKOUT" ] \
+    || mc_fail "no repository of program $program exists on this machine; pass --cwd to name where the successor starts"
 }
 
 row_exists() { [ -f "$SESSIONS/$1" ] && [ ! -L "$SESSIONS/$1" ]; }
@@ -954,6 +984,12 @@ case $verb in
     [ -f "$brief" ] && [ -r "$brief" ] && [ -s "$brief" ] || mc_usage_fail "--brief must name a readable, non-empty regular file"
     runtime_paths
     home_path
+    # The caller's own directory is often a worker's worktree, which is no
+    # place for the program's mission control to live.
+    if [ -z "$cwd" ]; then
+      program_checkout
+      cwd=$PROGRAM_CHECKOUT
+    fi
     lock
     read_holder
     if [ -f "$SUCC" ]; then
@@ -1071,9 +1107,11 @@ case $verb in
       drop_reservation
       mc_fail "cannot compose the successor's brief"
     }
-    set -- launch --program "$program" --kind mission-control --scope "$scope" --brief "$scratch"
+    # The program block may live only in the caller's config overlays
+    # (PLANWRIGHT_ADOPTER_OVERLAY and the rest), so the successor keeps them.
+    set -- launch --program "$program" --kind mission-control --scope "$scope" --brief "$scratch" \
+      --cwd "$cwd" --keep-config-env
     [ -z "$backend" ] || set -- "$@" --backend "$backend"
-    [ -z "$cwd" ] || set -- "$@" --cwd "$cwd"
     [ -z "$rc_name" ] || set -- "$@" --remote-control "$rc_name"
     lout=$(/bin/sh "$script_dir/mission-control-launch.sh" "$@" </dev/null)
     lrc=$?

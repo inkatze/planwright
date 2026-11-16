@@ -56,6 +56,11 @@
 #                    start the session with Remote Control under <name>, in the
 #                    stream-json-persistent handle grammar; any other profile
 #                    refuses it (exit 2)
+#         --keep-config-env  (tmux only) set this process's config overlays
+#                    (PLANWRIGHT_LOCAL_CONFIG, PLANWRIGHT_CONFIG_DEFAULTS,
+#                    PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_CONFIG_STRICT_OVERLAYS),
+#                    those set, on the window's command line, since a window
+#                    starts from the tmux server's environment
 #         --scope <scope>  (tmux only) the worker scope a worker-profile
 #                    session's identity carries beside --name (default
 #                    offload); the wrapper is pinned to this install's root
@@ -208,6 +213,7 @@ D_NAME=''
 D_REMOTE_CONTROL=''
 D_SCOPE=offload
 D_SCOPE_SET=0
+D_KEEP_ENV=0
 
 resolve_tier() {
   # $1 backend, $2 unit
@@ -498,8 +504,8 @@ cmd_dispatch() {
     exit 2
   fi
 
-  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ] || [ -n "$D_REMOTE_CONTROL" ]; }; then
-    printf '%s\n' "$me: dispatch: --profile, --name, --scope and --remote-control apply to the tmux rung only" >&2
+  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ] || [ -n "$D_REMOTE_CONTROL" ] || [ "$D_KEEP_ENV" = 1 ]; }; then
+    printf '%s\n' "$me: dispatch: --profile, --name, --scope, --remote-control and --keep-config-env apply to the tmux rung only" >&2
     exit 2
   fi
   if [ -n "$D_REMOTE_CONTROL" ] && [ "$D_PROFILE" != mission-control ]; then
@@ -584,6 +590,15 @@ cmd_dispatch() {
   win_name="offload-$$"
   [ -z "$D_NAME" ] || win_name=$D_NAME
   set -- offload-worker "$promptfile"
+  if [ "$D_KEEP_ENV" = 1 ]; then
+    ke_env=0
+    for ke_name in PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_CONFIG_STRICT_OVERLAYS; do
+      ke_val=$(printenv "$ke_name") || continue
+      [ "$ke_env" = 1 ] || set -- "$@" env
+      ke_env=1
+      set -- "$@" "$ke_name=$ke_val"
+    done
+  fi
   if [ -n "$launch_env" ]; then
     # The wrapper keeps an identity the tmux server's environment carries,
     # so a session that is no worker has it dropped here.
@@ -727,6 +742,10 @@ case "$sub" in
           ;;
         --strict-tier)
           D_STRICT=1
+          shift
+          ;;
+        --keep-config-env)
+          D_KEEP_ENV=1
           shift
           ;;
         --mc-token)

@@ -117,9 +117,11 @@ and a --model or --effort the clamps would lower is refused, naming
 PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY and
 PLANWRIGHT_CONFIG_STRICT_OVERLAYS) steer its own tier resolution but are not
 handed to the session, which would otherwise keep a one-launch overlay for its
-whole life; --keep-config-env hands them on, on purpose. This is the
-stream-json rung's session: a tmux window starts from the tmux server's
-environment, never the launcher's. A --model or --effort on a kind whose tier
+whole life; --keep-config-env hands them on, on purpose (mc-handover.sh
+passes it, so a successor reads the program block where its predecessor
+did). A tmux window starts from the tmux server's environment, never the
+launcher's, so on that rung the kept ones are set on the window's command
+line. A --model or --effort on a kind whose tier
 is inherited (tower, mission-control, reviewer, ad-hoc) names both.
 
 Before anything is reserved, a launch runs the posture check
@@ -1190,8 +1192,14 @@ cmd_launch() {
   # for its whole life, so they are not handed on unless the caller asked.
   # Location variables (PLANWRIGHT_REPO_ROOT, CLAUDE_PLUGIN_ROOT/DATA) say
   # where config lives, not what it says, and are left alone.
+  # A tmux window starts from the tmux server's environment instead, so the
+  # rung sets them on the window's command line when they are kept.
   scrub='-u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS'
-  [ "$keep_env" != 1 ] || scrub=''
+  keep_flag=''
+  if [ "$keep_env" = 1 ]; then
+    scrub=''
+    keep_flag=1
+  fi
   # The row's token goes into the session, so a decided-by-mission-control
   # item it adds is bound to this row rather than to a name any caller can
   # type (tower-comms REQ-A1.14). It is handed to the rung as an explicit
@@ -1274,7 +1282,8 @@ cmd_launch() {
       ;;
     tmux)
       out=$(cd "$cwd" && PLANWRIGHT_TOWER_ID=$owner /bin/sh "$script_dir/offload-dispatch.sh" dispatch tmux "$composed" --unit "$unit" \
-        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" </dev/null)
+        --key "$K_KEY" --strict-tier --profile "$K_PROFILE" ${mc_tok_flag:+--mc-token "$token"} --name "$name" ${remote_control:+--remote-control "$remote_control"} --scope "$scope" \
+        ${keep_flag:+--keep-config-env} </dev/null)
       dr=$?
       case $dr in
         0) ;;
