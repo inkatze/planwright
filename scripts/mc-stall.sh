@@ -102,13 +102,17 @@ relaunch under the same name starts a fresh sample.
 A tmux server that is replaced (a crash, a restart) takes every window with
 it. When the running server's identity differs from the one tmux rows
 recorded, and the window of every such row is gone (absent, or its id now
-naming another window), the pass emits one tmux-server-lost event, subject
-tmux-server, naming those sessions and asking for their relaunch; each reads
-dead with no event of its own, and the loss is raised once per server. A
-session of the replaced server whose window still carries its name proves
-no loss, so every session keeps its own classification; a session launched on
-the running server, or a row with no recorded server, is classified as
-always.
+naming another window), the pass emits a tmux-server-lost event, subject
+tmux-server, naming the sessions no earlier event for that server named and
+asking for their relaunch (a text past the event store's limit is cut and
+points at scan). Every lost session reads dead with no event of its own, and
+only the newly named ones carry the event's id; a later replacement of the
+server is a new loss. classify makes the same check when the session it
+classifies is a tmux one recorded on another server, so classifying one lost
+session raises the event for all of them. A session of the replaced server
+whose window still carries its name proves no loss, so every session keeps
+its own classification; a session launched on the running server, or a row
+with no recorded server, is classified as always.
 
 Output, one line per session, tab separated:
   <name> <kind> <state> <reason> <event id or ->
