@@ -32,6 +32,7 @@ unset CDPATH
 READ_BOUND=60
 INCREMENTAL='["/review -i"]'
 FULL='["/review"]'
+# shellcheck disable=SC2016 # a jq program; $b is jq's
 REVIEW_FILTER='.[] | select(.user.login == "github-actions[bot]") | (.body // "") as $b
   | select(([$b | split("\n") | .[:5][] | gsub("^\\s+|\\s+$"; "")]
       | any(. == "<!-- pr-agent:review:full -->" or . == "<!-- pr-agent:review:incremental -->"
