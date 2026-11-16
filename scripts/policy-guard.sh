@@ -1809,7 +1809,7 @@ kick_cfg_has() {
 # arguments: no option but -C before the subcommand (a -c could set a pager or
 # helper to the script), and a subcommand that does not run its arguments.
 kickoff_git_reads() {
-  local k=1 j moved=0 noext=0 notext=0 patchy=0 colon=0
+  local k=1 j moved=0 noext=0 notext=0 patchy=0 colon=0 bare=0
   while [ "$k" -lt "${#SW[@]}" ]; do
     case ${SW[$k]} in
       -C)
@@ -1826,7 +1826,11 @@ kickoff_git_reads() {
         j=$((k + 1))
         while [ "$j" -lt "${#SW[@]}" ]; do
           case ${SW[$j]} in
-            --) break ;;
+            --)
+              # A path after -- limits a commit's patch; a blob ignores it.
+              [ $((j + 1)) -ge "${#SW[@]}" ] || bare=1
+              break
+              ;;
             --op* | --ou* | --ext | --ext-* | --textc*) return 1 ;;
             --no-ext-diff) noext=1 ;;
             --no-textconv) notext=1 ;;
@@ -1838,12 +1842,16 @@ kickoff_git_reads() {
             # An option word never names a blob, so a colon in it is no <rev>:<path>.
             -*) ;;
             *:*) colon=1 ;;
+            *) bare=1 ;;
           esac
           j=$((j + 1))
         done
         # A commit shown by git show, and the history of git log -p, are
         # patches; git log alone and a blob (git show <rev>:<path>) are not.
-        [ "${SW[$k]}" != show ] || [ "$colon" = 1 ] || patchy=1
+        # The guard cannot tell an option's separate value (--author a:b) from
+        # a <rev>:<path>, nor a bare rev from a path, so git show reads as a
+        # blob only when every word but its options holds a colon.
+        [ "${SW[$k]}" != show ] || { [ "$colon" = 1 ] && [ "$bare" = 0 ]; } || patchy=1
         # The commands that format a file through a configured program: git diff
         # runs diff.external (or a diff.<driver>.command) on every file by
         # default, and --no-ext-diff is the only way to read it with one set; a
