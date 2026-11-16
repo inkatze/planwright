@@ -125,7 +125,10 @@
 # heads at that point) are computed here. A field the caller leaves unset is
 # filled, for a flight worker only, from the launch record in
 # PLANWRIGHT_WORKER_SESSION_RECORD (UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE),
-# so the worker runs this script with no variable prefix. Any other
+# and then, from git (scripts/step-context.sh), WORKTREE, BRANCH, BASE_BRANCH
+# (main), and UNIT_KIND from the branch namespace, so the worker runs this
+# script with no variable prefix. An exported value that disagrees with git
+# exits 2 naming both; SPEC, TASK_IDS, and PR_NUMBER stay as exported. Any other
 # PLANWRIGHT_STEP_* name in the environment (resolve-steps.sh --check-env
 # judges it) is a misspelling: every verb but resolve exits 2 naming it and
 # its right spelling, and resolve only warns.
@@ -240,6 +243,13 @@ launch_context() {
   return 0
 }
 launch_context
+# What git knows fills any field still unset; an exported one that disagrees
+# with git is refused.
+[ -r "$script_dir/step-context.sh" ] || die 2 "step-context.sh is missing or unreadable (broken install)"
+# shellcheck source=scripts/step-context.sh
+. "$script_dir/step-context.sh"
+
+[ "$verb" = audit ] || step_context_derive "$worktree" step-run || exit 2
 cache="$worktree/.claude/steps"
 
 sr() (
@@ -656,7 +666,7 @@ finish() {
   fi
   end_head=$(rgit rev-parse --verify -q 'HEAD^{commit}') || die 4 "cannot read the worktree's HEAD"
   [ -z "$SESSION" ] || session_args=(--session "$SESSION")
-  out=$(sr write --run "$RUN" --point "$CTX_POINT" --step "$STEP" --kind command \
+  out=$(PLANWRIGHT_RUNNER_HEAD=$HEAD0 sr write --run "$RUN" --point "$CTX_POINT" --step "$STEP" --kind command \
     --target "$ROW_TARGET" --hosting "$ROW_HOSTING" --backend "$BACKEND" ${session_args[@]+"${session_args[@]}"} \
     --head "$HEAD0" --end-head "$end_head" --start "$START" --outcome "$outcome" \
     --excerpt-file "$output" --output "$output" ${POOL_ARGS[@]+"${POOL_ARGS[@]}"} ${FP_ARGS[@]+"${FP_ARGS[@]}"} \

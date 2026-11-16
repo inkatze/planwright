@@ -36,7 +36,8 @@ rec() {
 }
 done_at() { sr write --completion --run "$1" --point "$2" --head "${3:-$(head_of)}" >/dev/null || fail "fixture: the $2 completion"; }
 audit() {
-  srun audit "$@" >"$tmp/audit" 2>"$tmp/audit.err"
+  # The fixture moves between branches; the context the branch exports would then disagree with git.
+  env_run env -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_UNIT_KIND "$RUN" --worktree "$wt" audit "$@" >"$tmp/audit" 2>"$tmp/audit.err"
   RC=$?
 }
 # forge <record> <head>: rewrite a record's head as a hand-edited cache would.
