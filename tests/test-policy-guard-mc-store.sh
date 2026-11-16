@@ -206,18 +206,21 @@ EOF"
 refuse "echo x >| $H/kb/link-settings.md"
 
 echo "# an expansion or a dot-dot that points a home path at posture stays refused"
+# Each target spells no posture name whole, so the refusal comes from the
+# expansion or the dot-dot step and not from the name screen.
 # shellcheck disable=SC2016 # the expansions are the command under test
-DOTS='$(printf %s ../../../.claude)'
-for t in "$DOTS/settings.json" "\$D/settings.json" "\${D}/settings.json" \
-  'link-dir/settings.j*' 'link-dir/sett?ngs.json' 'link-dir/settings.[j]son' \
-  '*.md' 'link-*' '../../../.claude/settings*' "../../../.claude/plugins/data/planwright/planwright.y*" \
-  '../../../.claude/plugins/data/planwright/fleet/../planwright.yml'; do
-  refuse "D=../../../.claude; echo x >> $H/kb/$t"
-  refuse "D=../../../.claude; cat >> $H/kb/$t <<'EOF'
-settings.json
+for t in '$(printf %s link-sett)ings.md' '$D-settings.md' '${D}-overlay.md' \
+  'link-dir/${S}ings.json' 'link-dir/sett?ngs.json' 'link-dir/settings.[j]son' \
+  'link-ov*' 'link-s*' '*.md' '$(printf %s ../../..)/.cla?de/sett?ngs.json' \
+  '../../../.cla?de/sett*' '../../../.c[l]aude/plugins/data/planwright/planwright.y*'; do
+  refuse "D=link S=sett; echo x >> $H/kb/$t"
+  refuse "D=link S=sett; cat >> $H/kb/$t <<'EOF'
+a plain note
 EOF"
-  refuse "D=../../../.claude; W=\$(cat $H/kb/$t); echo \"\$W\""
+  refuse "D=link S=sett; printf x | tee -a $H/kb/$t"
 done
+refuse "W=\$(cat $H/kb/../../../.claude/settings*); echo \"\$W\""
+refuse "W=\$(cat \$(printf %s $H/kb/../../..)/.claude/settings.json); echo \"\$W\""
 refuse "echo x >> \$(cat $H/kb/real.md)"
 refuse "echo x >> \"$H/kb/\$(echo link-overlay.md)\""
 refuse "echo x | tee $H/kb/link-ov*"
