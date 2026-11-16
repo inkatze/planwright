@@ -141,7 +141,10 @@ Usage:
       requirements.md status is Ready, Active or Done and its
       kickoff-brief.md's latest anchor recomputes over the bundle; a pull
       request touching only `_` accumulators or files directly under the
-      root has no bundle to sign off), the step
+      root has no bundle to sign off), for any other pull request the same
+      sign-off for each bundle it edits (one it removes aside) and the
+      spec-drift check (scripts/spec-drift-check.sh, from the base branch's
+      remote-tracking ref to the head, the body its statement), the step
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
