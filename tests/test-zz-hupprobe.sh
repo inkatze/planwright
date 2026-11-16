@@ -1,35 +1,43 @@
 #!/bin/bash
-# TEMPORARY diagnostic probe, never merged: run the shard-2 suspects in a
-# process group of their own beside a sentinel that logs every signal the
-# group receives.
+# TEMPORARY diagnostic probe, never merged: run the shard-2 suspects through
+# the real runner, in a mini suite, round after round, and report any round
+# whose runner ends by a signal.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-if [ -z "${PROBE_INNER:-}" ]; then
-  export PROBE_INNER=1
-  exec perl -e 'setpgrp(0, 0); exec @ARGV or exit 127' -- /bin/bash "$0" "$@"
-fi
-log=$(mktemp -d)
-trap 'echo "PROBE-GOT-HUP at run ${i:-?}"' HUP
-trap 'echo "PROBE-GOT-TERM at run ${i:-?}"' TERM
-bash -c '
-  for s in HUP INT TERM QUIT USR1 USR2; do trap "echo got-$s >>\"$1/sentinel\"" $s; done
-  while :; do sleep 0.2; done' sentinel "$log" &
-sent=$!
-echo "probe pid $$ pgid $(ps -o pgid= -p $$) sentinel $sent pgid $(ps -o pgid= -p $sent) sh=$(ls -l /bin/sh /private/var/select/sh 2>&1 | tr '\n' ' ')"
-runs=${PROBE_RUNS:-6}
+repo=$(cd "$here/.." && pwd)
+work=$(mktemp -d)
+mk_suite() {
+  rm -rf "$work/r"
+  mkdir -p "$work/r/tests"
+  ln -s "$repo/scripts" "$work/r/scripts"
+  ln -s "$repo/config" "$work/r/config"
+  for d in lib fixtures behavioral-evals; do ln -s "$repo/tests/$d" "$work/r/tests/$d"; done
+  for t in "$@"; do cp "$repo/tests/$t" "$work/r/tests/$t"; done
+}
+round() {
+  PLANWRIGHT_TEST_JOBS=3 PLANWRIGHT_TEST_SLOTS=3 PLANWRIGHT_TEST_SLOT_DIR="$work/slots" \
+    PLANWRIGHT_TEST_TIMING_REPORT="$work/rep.tsv" PLANWRIGHT_TEST_DURATIONS='' \
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" \
+    /bin/bash "$repo/scripts/run-tests.sh" "$work/r/tests" >"$work/round.out" 2>&1
+}
+echo "probe pid $$ pgid $(ps -o pgid= -p $$) sess-leader? $(ps -o sess= -p $$ 2>&1)"
+mode=${PROBE_MODE:-pid}
+case $mode in
+  pid) set -- test-fleet-streamjson-pid-identity.sh ;;
+  mix) set -- test-fleet-streamjson-pid-identity.sh test-detached-run.sh test-behavioral-eval-mission-control.sh ;;
+esac
+mk_suite "$@"
+runs=${PROBE_RUNS:-12}
+bad=0
 i=1
 while [ "$i" -le "$runs" ]; do
-  for t in test-detached-run.sh test-fleet-streamjson-pid-identity.sh test-behavioral-eval-mission-control.sh; do
-    /bin/bash "$here/$t" >"$log/$t.$i.out" 2>&1 &
-  done
-  wait_pids=$(jobs -p | grep -vx "$sent")
-  for p in $wait_pids; do wait "$p"; echo "run $i pid $p rc=$?"; done
-  [ "$i" -gt 1 ] || grep -h FAIL "$log"/*.1.out
-  if [ -s "$log/sentinel" ]; then
-    echo "SIGNAL after run $i: $(tr '\n' ' ' <"$log/sentinel")"
-    : >"$log/sentinel"
+  round
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    bad=$((bad + 1))
+    echo "round $i: runner rc=$rc"
+    tail -n 5 "$work/round.out"
   fi
   i=$((i + 1))
 done
-kill -KILL "$sent"
-echo "probe done"
+echo "probe done: $bad of $runs rounds failed ($mode)"
