@@ -278,3 +278,95 @@ deny	settings-write	bash	-	settings or configuration file	find /home/u/dev/p -na
 deny	settings-write	bash	-	settings or configuration file	find /home/u/dev/p -name planwright.yml -delete
 deny	settings-write	bash	-	settings or configuration file	sort -o /home/u/dev/p/.claude/planwright.yml /home/u/x
 deny	settings-write	bash	-	settings or configuration file	gh pr comment 226 --body-file /home/u/dev/p/.claude/planwright.yml
+# Writes through a link into posture. @SCRATCH@/kb holds links the suite makes
+# (lk-file, lk-dslash, lk-dotdot, lk-rel, lk-tilde, lk-chain, lk-overlay to a
+# posture file; lk-dir, lk-agents to a posture directory; lk-dangling to a
+# posture file not there yet; lk-plain to a plain file) and the plain real.md.
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-dslash
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-dotdot
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-rel
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-tilde
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-chain
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-overlay
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-dangling
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb//lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/./lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/../kb/lk-overlay
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-dir/agents/../agents/x.md
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-agents/x.md
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-agents/
+deny	settings-write	bash	-	settings or configuration file	printf x > @SCRATCH@/kb/lk-dir/commands
+deny	settings-write	bash	-	settings or configuration file	cd @SCRATCH@/kb && echo x >> lk-file
+deny	settings-write	bash	-	settings or configuration file	cd @SCRATCH@/kb; echo x >> lk-agents/x.md
+deny	settings-write	bash	-	settings or configuration file	tee -a @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-agents
+deny	settings-write	bash	-	settings or configuration file	cp -t @SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	settings or configuration file	cp --target-directory=@SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	settings or configuration file	cp --target-directory=@HOME@/.claude/agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	settings or configuration file	mv /tmp/hooks @HOME@/.claude
+deny	settings-write	bash	-	settings or configuration file	sed -i s/a/b/ @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	dd of=@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	mv @SCRATCH@/kb/lk-file @SCRATCH@/kb/moved.md
+deny	settings-write	bash	-	settings or configuration file	L=@SCRATCH@/kb/lk-file; echo x >> $L
+deny	settings-write	bash	-	settings or configuration file	echo x >> ~/notes.md
+deny	settings-write	bash	-	settings or configuration file	echo x >> ~/.claude/projects/p/memory/lk-mem
+deny	settings-write	bash	-	settings or configuration file	echo x >> $HOME/.claude/projects/p/memory/lk-mem
+deny	settings-write	bash	-	settings or configuration file	echo x >> ~nobody/notes.md
+# A write in a subshell or group.
+deny	settings-write	bash	-	settings or configuration file	(echo x > @SCRATCH@/kb/lk-file)
+deny	settings-write	bash	-	settings or configuration file	( echo x >> @SCRATCH@/kb/lk-file )
+deny	settings-write	bash	-	settings or configuration file	(cd @SCRATCH@/kb && echo x > lk-file)
+deny	settings-write	bash	-	settings or configuration file	(echo x)>@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	{ echo x > @SCRATCH@/kb/lk-file; }
+deny	settings-write	bash	-	settings or configuration file	echo a; (echo x >> @SCRATCH@/kb/lk-agents/x.md)
+deny	settings-write	bash	-	settings or configuration file	(echo x > @HOME@/.claude/agents)
+deny	settings-write	bash	-	settings or configuration file	(link @SCRATCH@/kb/lk-file @SCRATCH@/kb/h; echo x >> @SCRATCH@/kb/h)
+# A link made in the same command, then written through.
+deny	settings-write	bash	-	settings or configuration file	ln -s @HOME@/.claude @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	ln -s @HOME@/.claude @SCRATCH@/kb/c; echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	ln -s @HOME@/.claude/agents @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/x.md
+deny	settings-write	bash	-	settings or configuration file	ln -sfn @HOME@/.claude/ @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	ln -s @SCRATCH@/kb/lk-dir @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	ln -sf @SCRATCH@/kb/lk-file @SCRATCH@/kb/s.md && echo x >> @SCRATCH@/kb/s.md
+deny	settings-write	bash	-	settings or configuration file	ln -s ../../fixhome/.claude @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	ln -s @HOME@/.mcp.json @SCRATCH@/kb/m && echo x >> @SCRATCH@/kb/m
+deny	settings-write	bash	-	settings or configuration file	cp -s @SCRATCH@/kb/lk-file @SCRATCH@/kb/s.md && echo x >> @SCRATCH@/kb/s.md
+deny	settings-write	bash	-	settings or configuration file	link @SCRATCH@/kb/lk-file @SCRATCH@/kb/h && echo x >> @SCRATCH@/kb/h
+deny	settings-write	bash	-	settings or configuration file	cd @SCRATCH@/kb && ln -s lk-dir c && echo x >> c/agents/x.md
+# The fd-duplicating spellings aimed at a file.
+deny	settings-write	bash	-	settings or configuration file	echo x >&@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x >& @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x &>@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x &>>@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x 1>&@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x >|@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x >&"@SCRATCH@/kb/lk-file"
+deny	settings-write	bash	-	settings or configuration file	exec 3<>@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x >&@HOME@/.claude/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	echo x >|@HOME@/.claude/agents/x.md
+# Exposure: an expansion or a dot-dot that could reach posture stays refused.
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-f*
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-?ile
+deny	settings-write	bash	-	settings or configuration file	echo x >> $(echo @SCRATCH@/kb/lk-file)
+deny	settings-write	bash	-	settings or configuration file	echo x >> "$L"
+deny	settings-write	bash	-	settings or configuration file	echo x >&$L
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/../../fixhome/.claude/settings.json
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-dir/../.claude/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/nope/../kb/real.md
+# Plain writes, and writes through a link to a plain file, stay permitted.
+defer	read	bash	-	-	echo x >> @SCRATCH@/kb/real.md
+defer	read	bash	-	-	echo x >> @SCRATCH@/kb/lk-plain
+defer	read	bash	-	-	echo x >> @SCRATCH@/kb/new.md
+defer	read	bash	-	-	cd @SCRATCH@/kb && echo x >> real.md
+defer	read	bash	-	-	(echo x > @SCRATCH@/kb/real.md)
+defer	read	bash	-	-	echo x >&2
+defer	read	bash	-	-	echo x >& 2
+defer	read	bash	-	-	echo x >&-
+defer	read	bash	-	-	echo x 2>&1 >> @SCRATCH@/kb/real.md
+defer	read	bash	-	-	echo x &>@SCRATCH@/kb/real.md
+defer	read	bash	-	-	echo x >|@SCRATCH@/kb/real.md
+defer	read	bash	-	-	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/copy.md
+defer	read	bash	-	-	ln -s @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-new && echo x >> @SCRATCH@/kb/lk-new
+defer	read	bash	-	-	echo x >> ~/notes-plain.md

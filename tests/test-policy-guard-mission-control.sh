@@ -20,6 +20,30 @@ export HOME="$FIXHOME"
 gitq init --bare "$SCRATCH/bare.git"
 # A link to a .claude directory whose hooks directory does not exist yet.
 ln -s "$FIXHOME/.claude" "$SCRATCH/cl"
+# Links into posture from a plain directory, the link targets spelled every way
+# a target can be, for the table's write-through-a-link rows.
+KB="$SCRATCH/kb"
+MEM="$FIXHOME/.claude/projects/p/memory"
+mkdir -p "$KB" "$MEM" "$FIXHOME/.claude/agents" "$FIXHOME/.config/planwright"
+: >"$FIXHOME/.claude/settings.json"
+: >"$FIXHOME/.config/planwright/planwright.yml"
+: >"$KB/real.md"
+ln -s "$FIXHOME/.claude/settings.json" "$KB/lk-file"
+ln -s "$FIXHOME//.claude/./settings.json" "$KB/lk-dslash"
+ln -s "$FIXHOME/.claude/../.claude/settings.json" "$KB/lk-dotdot"
+ln -s ../../fixhome/.claude/settings.json "$KB/lk-rel"
+# A literal ~ in a link target is a relative name; this one leads home.
+ln -s "$FIXHOME" "$KB/~"
+# shellcheck disable=SC2088 # the target is the literal ~ name
+ln -s '~/.claude/settings.json' "$KB/lk-tilde"
+ln -s lk-file "$KB/lk-chain"
+ln -s "$FIXHOME/.config/planwright/planwright.yml" "$KB/lk-overlay"
+ln -s "$FIXHOME/.claude/agents/new.md" "$KB/lk-dangling"
+ln -s "$FIXHOME/.claude" "$KB/lk-dir"
+ln -s "$FIXHOME/.claude/agents" "$KB/lk-agents"
+ln -s "$KB/real.md" "$KB/lk-plain"
+ln -s "$FIXHOME/.claude/settings.json" "$FIXHOME/notes.md"
+ln -s "$FIXHOME/.claude/settings.json" "$MEM/lk-mem"
 TAB=$(printf '\t')
 
 # pg_file <tier> <tool> <path> — run the guard on a file-tool payload.
@@ -86,6 +110,40 @@ if [ "$denies" -gt 0 ] && [ "$defers" -gt 0 ]; then
 else
   fail "the table must hold both refused and permitted rows (refused $denies, permitted $defers)"
 fi
+
+echo "# a relative write target, followed from where the command runs"
+pg mission-control 'echo x >> lk-file' "$KB"
+expect deny "[mission-control] a relative write through a link into posture is refused"
+pg mission-control 'echo x >> ./lk-chain' "$KB"
+expect deny "[mission-control] a ./ write through a chained link is refused"
+pg mission-control 'echo x >> lk-dir/agents/x.md' "$KB"
+expect deny "[mission-control] a relative write through a link to a posture directory is refused"
+pg mission-control '(echo x > lk-file)' "$KB"
+expect deny "[mission-control] a relative write through a link inside a subshell is refused"
+pg mission-control 'ln -s lk-agents c && echo x >> c/x.md' "$KB"
+expect deny "[mission-control] a relative link source leading into posture is refused"
+pg mission-control 'cd kb && echo x >> real.md' "$SCRATCH"
+expect deny "[mission-control] a relative write after a directory change the guard cannot place is refused"
+pg mission-control 'cd - && echo x >> real.md' "$KB"
+expect deny "[mission-control] a relative write after cd - is refused"
+pg mission-control 'cd && echo x >> notes.md' "$KB"
+expect deny "[mission-control] a bare cd goes home, and a relative write there is followed"
+pg mission-control 'echo x >> real.md' "$KB"
+expect defer "[mission-control] a relative write to a plain file is permitted"
+pg mission-control "cd $KB && echo x >> lk-plain" "$UNIT"
+expect defer "[mission-control] a relative write through a link to a plain file is permitted"
+pg_payload mission-control bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"echo x >> real.md"}, cwd:7}')"
+expect deny "[mission-control] a relative write under a cwd the guard cannot read is refused"
+echo "# an expanding write target in a data place is followed too"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'echo x > "$TMPDIR/scratch/kb/lk-file"'
+expect deny "[mission-control] a \$TMPDIR write through a link into posture is refused"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'echo x > "${TMPDIR}/scratch/kb/lk-agents/x.md"'
+expect deny "[mission-control] a \${TMPDIR} write through a link to a posture directory is refused"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'echo x > "$TMPDIR/scratch/kb/real.md"'
+expect defer "[mission-control] a \$TMPDIR write to a plain file is permitted"
 
 echo "# what each refusal reads"
 pg mission-control 'git commit -m wip'
