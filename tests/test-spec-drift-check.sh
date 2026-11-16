@@ -218,6 +218,9 @@ printf 'change\n' >>"$repo/scripts/a.sh"
 gitc add -A >/dev/null
 gitc commit -q -m "feat: a with status only"
 if gitc diff --name-only main pr | grep -qx specs/demo/requirements.md; then ok "the status-only edit reached requirements.md"; else fail "the status-only edit did not happen"; fi
+out=$("$check" --repo "$repo/scripts" --base main --head pr --body-file "$tmp/body" 2>"$tmp/err")
+rc=$?
+expect_rc "a repository named by a subdirectory reads the same merge base" 4
 rm -rf "$tmp/corrupt"
 cp -R "$repo" "$tmp/corrupt"
 blob=$(gitc rev-parse main:specs/demo/requirements.md)

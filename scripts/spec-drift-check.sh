@@ -123,10 +123,10 @@ if [ "$(g cat-file -t "$head_sha:$root" 2>/dev/null)" != tree ]; then
 fi
 # Listing the files first makes a listed file git cannot read an error,
 # never an absence that would read as a new, and so edited, bundle.
-g ls-tree -r --name-only "$head_sha:$root" >"$tmp/head-files" 2>/dev/null || die "cannot read the spec root $root at the head"
-base_root=$(g --literal-pathspecs ls-tree "$mb" -- "$root" 2>/dev/null) || die "cannot read the merge base"
+g ls-tree --full-tree -r --name-only "$head_sha:$root" >"$tmp/head-files" 2>/dev/null || die "cannot read the spec root $root at the head"
+base_root=$(g --literal-pathspecs ls-tree --full-tree "$mb" -- "$root" 2>/dev/null) || die "cannot read the merge base"
 case $base_root in
-  *" tree "*) g ls-tree -r --name-only "$mb:$root" >"$tmp/base-files" 2>/dev/null || die "cannot read the spec root $root at the merge base" ;;
+  *" tree "*) g ls-tree --full-tree -r --name-only "$mb:$root" >"$tmp/base-files" 2>/dev/null || die "cannot read the spec root $root at the merge base" ;;
   *) : >"$tmp/base-files" ;;
 esac
 awk -F / 'NF > 1 && !seen[$1]++ { print $1 }' "$tmp/head-files" >"$tmp/entries"
