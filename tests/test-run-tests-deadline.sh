@@ -5,7 +5,8 @@
 # deadline is unaffected; a malformed value or 0 warns once and uses the
 # default; a host with no usable timeout or gtimeout warns once and runs files
 # unbounded; gtimeout alone bounds them; a signal to a worker reaches its
-# bounded file; a nested runner inherits the variable.
+# bounded file, or with no bounder the file's own group; a nested runner
+# inherits the variable.
 set -u
 unset CDPATH
 
@@ -83,12 +84,13 @@ if [ -n "$real_timeout" ]; then
 fi
 
 # hang_file <path> <dir> — a file that records its shell's pid in <dir>/pid
-# and its child's in <dir>/child, then outlives any deadline set here.
+# and its child's in <dir>/child, then outlives any deadline set here and any
+# poll_until wait (60s by default), so only a signal ends either in time.
 hang_file() {
   cat >"$1" <<EOF
 #!/bin/bash
 echo \$\$ >"$2/pid"
-sleep 60 &
+sleep 300 &
 echo \$! >"$2/child"
 wait
 EOF
@@ -318,92 +320,105 @@ fi
 # ---------------------------------------------------------------------------
 # 5. A signal to a worker reaches its bounded file as TERM, pooled and
 #    parallel, and serial and unpooled, where the run must not then go on to
-#    pass; a file that outlives that TERM is killed ten seconds later.
+#    pass; a file that outlives that TERM is killed ten seconds later. With no
+#    bounder, the file's own group that perl makes is reached the same way.
+# signal_case <label> <dir> <signal> <file-kind> [VAR=value...] — start a run
+# on one hung file (hang, or stubborn: it notes a TERM and runs on), send
+# <signal> to the worker holding it, and check the file and the run both end.
+signal_case() {
+  sc_label=$1
+  sc_dir=$2
+  sc_sig=$3
+  sc_kind=$4
+  shift 4
+  mkdir -p "$sc_dir/suite"
+  if [ "$sc_kind" = stubborn ]; then
+    stubborn_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
+  else
+    hang_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
+  fi
+  quick_file "$sc_dir/suite/test-later.sh"
+  env "$@" PLANWRIGHT_TEST_FILE_DEADLINE=60 PLANWRIGHT_TEST_JOBS=1 \
+    PLANWRIGHT_TEST_TIMING_REPORT="$sc_dir/r.tsv" "$RUNNER" "$sc_dir/suite" >"$sc_dir/out" 2>&1 &
+  sc_run=$!
+  if ! poll_until -- test -s "$sc_dir/child"; then
+    fail "$sc_label: the hung file started"
+    kill "$sc_run" 2>/dev/null
+    wait "$sc_run"
+    return
+  fi
+  # The worker is the nearest ancestor of the file running --run-one: its
+  # parent under GNU timeout, the file's own parent under busybox's, which
+  # becomes the file, or under perl.
+  sc_worker=""
+  sc_p=$(cat "$sc_dir/pid")
+  for _ in 1 2 3; do
+    sc_p=$(ppid_of "$sc_p")
+    [ -n "$sc_p" ] && [ "$sc_p" -gt 1 ] || break
+    case "$(args_of "$sc_p")" in
+      *xargs*) ;;
+      *--run-one*)
+        sc_worker=$sc_p
+        break
+        ;;
+    esac
+  done
+  if [ -n "$sc_worker" ]; then
+    kill -s "$sc_sig" "$sc_worker"
+  else
+    fail "$sc_label: the worker was found"
+  fi
+  if [ "$sc_kind" = stubborn ]; then
+    if poll_until -- pid_gone "$(cat "$sc_dir/pid")"; then
+      pass "$sc_label: the file is killed after the grace"
+    else
+      fail "$sc_label: the file is killed after the grace"
+    fi
+    if [ -e "$sc_dir/termed" ]; then
+      pass "$sc_label: the file got TERM first"
+    else
+      fail "$sc_label: the file got TERM first"
+    fi
+  else
+    check_hang_gone "$sc_label" "$sc_dir"
+  fi
+  # hermetic-exempt: the earlier wait on this pid sits on a branch that returns, so the run is still unreaped here
+  if poll_until -- pid_gone "$sc_run"; then
+    pass "$sc_label: the run ends"
+  else
+    fail "$sc_label: the run ends"
+    kill "$sc_run" 2>/dev/null
+  fi
+  # Whatever the outcome, nothing of the case outlives it.
+  kill -s KILL "$(cat "$sc_dir/pid")" "$(cat "$sc_dir/child")" 2>/dev/null
+  wait "$sc_run"
+  sc_rc=$?
+  if [ "$sc_rc" -ne 0 ]; then
+    pass "$sc_label: the run does not pass (exit $sc_rc)"
+  else
+    fail "$sc_label: the run does not pass ($(cat "$sc_dir/out"))"
+  fi
+}
 if [ -z "$real_timeout" ]; then
   pass "a worker passes a signal on (skipped: neither timeout nor gtimeout on this host)"
 else
-  # signal_case <label> <dir> <signal> <file-kind> [VAR=value...] — start a
-  # run on one hung file (hang, or stubborn: it notes a TERM and runs on),
-  # send <signal> to the worker holding it, and check the file and the run
-  # both end.
-  signal_case() {
-    sc_label=$1
-    sc_dir=$2
-    sc_sig=$3
-    sc_kind=$4
-    shift 4
-    mkdir -p "$sc_dir/suite"
-    if [ "$sc_kind" = stubborn ]; then
-      stubborn_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
-    else
-      hang_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
-    fi
-    quick_file "$sc_dir/suite/test-later.sh"
-    env "$@" PLANWRIGHT_TEST_FILE_DEADLINE=60 PLANWRIGHT_TEST_JOBS=1 \
-      PLANWRIGHT_TEST_TIMING_REPORT="$sc_dir/r.tsv" "$RUNNER" "$sc_dir/suite" >"$sc_dir/out" 2>&1 &
-    sc_run=$!
-    if ! poll_until -- test -s "$sc_dir/child"; then
-      fail "$sc_label: the hung file started"
-      kill "$sc_run" 2>/dev/null
-      wait "$sc_run"
-      return
-    fi
-    # The worker is the nearest ancestor of the file running --run-one: its
-    # parent under GNU timeout, the file's own parent under busybox's, which
-    # becomes the file.
-    sc_worker=""
-    sc_p=$(cat "$sc_dir/pid")
-    for _ in 1 2 3; do
-      sc_p=$(ppid_of "$sc_p")
-      [ -n "$sc_p" ] && [ "$sc_p" -gt 1 ] || break
-      case "$(args_of "$sc_p")" in
-        *xargs*) ;;
-        *--run-one*)
-          sc_worker=$sc_p
-          break
-          ;;
-      esac
-    done
-    if [ -n "$sc_worker" ]; then
-      kill -s "$sc_sig" "$sc_worker"
-    else
-      fail "$sc_label: the worker was found"
-    fi
-    if [ "$sc_kind" = stubborn ]; then
-      if poll_until -- pid_gone "$(cat "$sc_dir/pid")"; then
-        pass "$sc_label: the file is killed after the grace"
-      else
-        fail "$sc_label: the file is killed after the grace"
-      fi
-      if [ -e "$sc_dir/termed" ]; then
-        pass "$sc_label: the file got TERM first"
-      else
-        fail "$sc_label: the file got TERM first"
-      fi
-    else
-      check_hang_gone "$sc_label" "$sc_dir"
-    fi
-    # hermetic-exempt: the earlier wait on this pid sits on a branch that returns, so the run is still unreaped here
-    if poll_until -- pid_gone "$sc_run"; then
-      pass "$sc_label: the run ends"
-    else
-      fail "$sc_label: the run ends"
-      kill "$sc_run" 2>/dev/null
-    fi
-    # Whatever the outcome, nothing of the case outlives it.
-    kill -s KILL "$(cat "$sc_dir/pid")" "$(cat "$sc_dir/child")" 2>/dev/null
-    wait "$sc_run"
-    sc_rc=$?
-    if [ "$sc_rc" -ne 0 ]; then
-      pass "$sc_label: the run does not pass (exit $sc_rc)"
-    else
-      fail "$sc_label: the run does not pass ($(cat "$sc_dir/out"))"
-    fi
-  }
   signal_case "pooled worker" "$tmp/sig1" TERM hang
   signal_case "a HUP to a worker" "$tmp/sig3" HUP stubborn
   signal_case "serial unpooled worker" "$tmp/sig2" TERM hang PLANWRIGHT_TEST_FORCE_SERIAL=1 \
     PLANWRIGHT_TEST_IN_POOLED_FILE=1
+fi
+# Serial and unpooled, the one worker that traps nothing unless its file runs
+# grouped; the child's end shows the signal reached the group, not the file
+# alone.
+if command -v perl >/dev/null 2>&1; then
+  sc_bound=$group_bound
+  group_bound=1
+  signal_case "no bounder: serial unpooled worker" "$tmp/sig4" TERM hang \
+    PATH="$(no_timeout_path "$tmp/notimeout5")" PLANWRIGHT_TEST_FORCE_SERIAL=1 \
+    PLANWRIGHT_TEST_IN_POOLED_FILE=1
+  group_bound=$sc_bound
+else
+  pass "no bounder: a worker passes a signal on (skipped: no perl on this host)"
 fi
 
 # ---------------------------------------------------------------------------
