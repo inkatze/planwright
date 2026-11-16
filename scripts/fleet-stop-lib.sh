@@ -37,6 +37,12 @@
 #                        for a rung whose re-exec's argv finds everything the
 #                        seed would (see stop_candidates)
 #
+# WHAT THE RUNG MUST NOT HOLD. While it signals a tree the close owns the INT,
+# TERM and HUP traps (stop_trap_arm), so a rung keeps no handler of its own on
+# them across a close. The one it may have armed is the lock library's
+# (`pw_lock_trap_install`, which sets `PW_LOCK_TRAP_ARMED`), and only with that
+# library already sourced: the close re-arms it afterwards.
+#
 # THE MATCH. A process belongs to the worker when its argv carries the rung's
 # own re-exec marker for the worker's state directory (<match>), when a pid file
 # in that directory records it (<pidfiles>), or when it descends from either.
