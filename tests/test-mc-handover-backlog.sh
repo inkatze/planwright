@@ -149,7 +149,7 @@ printf '%s\n' "item $open2" >"$tmp/durable"
 # The resume runs on a clock an hour ahead: an event stamped after the real
 # clock it began on is one nobody has seen, so it stays pending.
 real=$(date +%s)
-emit blocker after-real-start $((real + 60))
+emit blocker after-real-start $((real + 600))
 ahead=$EV
 ho resume --program alpha --session operator-term --picture "$tmp/durable" --digest "$digest" --durable "$tmp/durable" --window 1s --now $((real + 3600))
 [ "$RC" = 0 ] || fail "the resume exited $RC: $OUT $ERR"
