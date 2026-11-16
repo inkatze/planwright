@@ -365,6 +365,37 @@ chmod 600 "$gate_home/mission-control/sessions/w1"
 rm -f "$gate_home/mission-control/sessions/w1" "$tmp/parked-row-target"
 echo "ok: a registry row that is a link or not a file is refused, never taken for no wait"
 
+# A registry directory that cannot be searched hides the row, so its absence
+# is not evidence of no wait either; nor is a fleet home that cannot be
+# resolved at all.
+printf 'format\t1\nname\tw1\nwaiting\toperator\n' >"$gate_home/mission-control/sessions/w1"
+chmod 000 "$gate_home/mission-control/sessions"
+if [ ! -x "$gate_home/mission-control/sessions" ]; then
+  gate w1 trig why
+  chmod 700 "$gate_home/mission-control/sessions"
+  expect 5 "a session whose registry directory cannot be searched"
+  never_stopped "a session whose registry directory cannot be searched"
+  echo "ok: a registry directory that cannot be searched is refused"
+else
+  chmod 700 "$gate_home/mission-control/sessions"
+  echo "skip: the unsearchable registry directory case (the mode does not deny searching here)"
+fi
+rm -f "$gate_home/mission-control/sessions/w1"
+reset_calls
+rc=0
+env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR= \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_REPO_ROOT="$repo_cfg" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" PLANWRIGHT_LOCAL_CONFIG="" \
+  env PATH="$sig_dir:$PATH" SIG_LOG="$tmp/sig-calls" SIG_RUNS="$tmp/sig-runs" \
+  /bin/sh -c "$sig_harness" "$gs/fleet-cleanup.sh" process w1 trig why >"$tmp/out" 2>"$tmp/err" || rc=$?
+err=$(cat "$tmp/err")
+expect 5 "a session whose fleet home cannot be resolved"
+never_stopped "a session whose fleet home cannot be resolved"
+case $err in
+  *"fleet home cannot be resolved"*) echo "ok: a fleet home that cannot be resolved is refused, never taken for no wait" ;;
+  *) fail "the unresolvable fleet home was refused for another reason: $err" ;;
+esac
+
 # --- a live peer's worker is never touched, under any evidence (exit 7) -----
 for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success' \
   'unclassified completion-failed:exit=1' 'working runtime-running'; do

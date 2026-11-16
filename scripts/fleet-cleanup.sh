@@ -66,7 +66,8 @@
 #       those, refused in this order:
 #         a parked session, whose registry row records a wait, under any
 #           evidence, and a row whose wait cannot be read (a link, not a
-#           regular file, unreadable, or no resolvable fleet home) (exit 5);
+#           regular file, unreadable, under a directory that cannot be
+#           searched, or no resolvable fleet home) (exit 5);
 #         a `print`-backend unit, which spawned no process (exit 8);
 #         a worker owned by a live peer tower, under any evidence (exit 7);
 #         a backend with no process close, such as tmux (exit 5);
@@ -849,6 +850,12 @@ EOF
       warn "refusing '$worker': the fleet home cannot be resolved, so whether it is parked on a wait cannot be read"
       exit 5
     fi
+    for pk_dir in "$pk_root" "$pk_root/mission-control" "$pk_root/mission-control/sessions"; do
+      if [ -e "$pk_dir" ] && { [ ! -d "$pk_dir" ] || [ ! -x "$pk_dir" ]; }; then
+        warn "refusing '$worker': $(sanitize_printable "$pk_dir" "-") cannot be searched, so whether it is parked on a wait cannot be read"
+        exit 5
+      fi
+    done
     pk_row="$pk_root/mission-control/sessions/$worker"
     if [ -L "$pk_row" ] || { [ -e "$pk_row" ] && [ ! -f "$pk_row" ]; }; then
       warn "refusing '$worker': its registry row is not a regular file, so whether it is parked on a wait cannot be read"
