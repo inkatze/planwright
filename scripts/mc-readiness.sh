@@ -69,8 +69,13 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   scope<TAB>spec-only<TAB><head>      every changed path lies under the
                                       program's spec root
   signoff<TAB><bundle><TAB>signed|unsigned<TAB><detail>
-                                      a touched spec bundle's kickoff
+                                      an edited spec bundle's kickoff
                                       sign-off at the head
+  drift<TAB><path><TAB><spec>/<task>...
+                                      a changed file a spec lists as a task
+                                      deliverable that no spec edit, Not
+                                      covered reason or task trailer covers
+  drift<TAB>*<TAB><reason>            the spec-drift check could not run
   evidence<TAB><kind><TAB><ref><TAB><head><TAB><judgment>
                                       smoke, walk or screenshot evidence;
                                       judgment ok, error or missing
@@ -105,7 +110,9 @@ THE WALK refuses, each failure one line:
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
     for its sign-off instead of the cadence and the required steps;
-  - each touched spec bundle not signed off;
+  - each edited spec bundle not signed off, on any pull request;
+  - each drift row: a changed deliverable no spec edit covers, or a drift
+    check that could not run (scripts/spec-drift-check.sh);
   - each required evidence kind (ready evidence) with no ok record at the
     head;
   - each required body text (ready body) absent from the body.
@@ -134,7 +141,10 @@ Usage:
       requirements.md status is Ready, Active or Done and its
       kickoff-brief.md's latest anchor recomputes over the bundle; a pull
       request touching only `_` accumulators or files directly under the
-      root has no bundle to sign off), the step
+      root has no bundle to sign off), for any other pull request the same
+      sign-off for each bundle it edits (one it removes aside) and the
+      spec-drift check (scripts/spec-drift-check.sh, from the base branch's
+      remote-tracking ref to the head, the body its statement), the step
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
@@ -352,6 +362,10 @@ $1 == "cadence" && $2 == "gap" {
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
 $1 == "scope" && $2 == "spec-only" { speconly_head = $3 }
 $1 == "signoff" && $3 != "signed" { fail("signoff", $2 ": " ($4 == "" ? "not signed off" : $4)) }
+$1 == "drift" {
+  if ($2 == "*") fail("drift", "the spec-drift check could not run: " $3)
+  else fail("drift", $2 " is a deliverable of " $3 " and no spec edit, Not covered reason or task trailer covers it")
+}
 $1 == "evidence" { ev[++ne] = $2 "\t" $3 "\t" $4 "\t" $5 }
 $1 == "bodyline" { body = body substr($0, 10) "\n" }
 END {
@@ -464,6 +478,77 @@ branch_worktree() {
 # been cut, and the walk refuses on a `truncated` line rather than pass.
 CAP=100
 
+# spec_home <program> <slug>: print `<repository><TAB><spec root relative to
+# it>` for the program's repository of <slug> that holds the spec root, or
+# fail when none does.
+spec_home() {
+  local root r top
+  root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 1
+  # Logical paths, so a symbolic link in a checkout cannot move the root; the
+  # head must then hold the root as a directory.
+  root=$(cd -L "$root" 2>/dev/null && pwd -L) || return 1
+  while IFS= read -r r; do
+    top=$(cd -L "$r" 2>/dev/null && pwd -L) || continue
+    case $root in
+      "$top"/?*)
+        printf '%s\t%s\n' "$r" "${root#"$top"/}"
+        return 0
+        ;;
+    esac
+  done < <(mc_slug_repos "$1" "$2" 2>/dev/null)
+  return 1
+}
+
+# drift_scope <program> <slug> <head> <base ref> <pr read> <scratch dir>: for
+# a pull request that is not spec-only, print a `signoff` line for each spec
+# bundle it edits and a `drift` line for each changed file the spec-drift
+# check flags (path and the tasks listing it), or one `drift<TAB>*` line
+# giving the reason the check could not run. Nothing for a program whose spec
+# root lies outside the repository.
+drift_scope() {
+  local home rel repo b why rc=0 rows
+  home=$(spec_home "$1" "$2") || return 0
+  rel=${home#*	} repo=${home%%	*}
+  [ -n "$4" ] || {
+    printf 'drift\t*\tthe pull request names no base branch\n'
+    return 0
+  }
+  # A bundle is any directory directly under the root that does not open with
+  # `_`, edited by any file under it.
+  SPEC_REL=$rel awk -F '\t' '
+    $1 == "path" {
+      p = $2; n = length(ENVIRON["SPEC_REL"])
+      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/") next
+      p = substr(p, n + 2)
+      if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; print b } }
+    }' "$5" >"$6/touched" || return 0
+  if mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
+    while IFS= read -r b; do
+      # A bundle the pull request removes or moves has no sign-off to read.
+      [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]] && [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b" 2>/dev/null)" != tree ] && continue
+      signoff_row "$repo" "$3" "$rel" "$b" "$6/touched-$b" || exit
+    done <"$6/touched"
+  fi
+  awk -F '\t' '$1 == "bodyline" { print substr($0, 10) }' "$5" >"$6/body"
+  /bin/bash "$script_dir/spec-drift-check.sh" --repo "$repo" --base "refs/remotes/origin/$4" --head "$3" \
+    --body-file "$6/body" --spec-root "$rel" >"$6/drift-out" 2>"$6/drift-err" || rc=$?
+  case $rc in
+    0) ;;
+    4)
+      rows=$(awk -F '\t' '$1 == "flagged" { print "drift\t" $2 "\t" $3 }' "$6/drift-out")
+      if [ -n "$rows" ]; then
+        printf '%s\n' "$rows"
+      else
+        printf 'drift\t*\tthe check reported drift but named no file\n'
+      fi
+      ;;
+    *)
+      why=$(sed 's/^spec-drift-check: //' "$6/drift-err" | head -n 1)
+      printf 'drift\t*\t%s\n' "${why:-the check exited $rc with no reason given}"
+      ;;
+  esac
+}
+
 # spec_scope <program> <slug> <head> <pr read> <scratch dir>: when every
 # changed path lies under the program's spec root inside the repository for
 # <slug>, print `scope<TAB>spec-only<TAB><head>` and one `signoff` line per
@@ -471,23 +556,11 @@ CAP=100
 # own objects at the head, since collect writes nothing (no fetch) to any
 # repository.
 spec_scope() {
-  local root r top rel='' repo='' files b why
+  local home rel repo files b
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
   [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
-  root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 0
-  # Logical paths, so a symbolic link in a checkout cannot move the root; the
-  # head must then hold the root as a directory.
-  root=$(cd -L "$root" 2>/dev/null && pwd -L) || return 0
-  while IFS= read -r r; do
-    top=$(cd -L "$r" 2>/dev/null && pwd -L) || continue
-    case $root in
-      "$top"/?*)
-        rel=${root#"$top"/} repo=$r
-        break
-        ;;
-    esac
-  done < <(mc_slug_repos "$1" "$2" 2>/dev/null)
-  [ -n "$rel" ] || return 0
+  home=$(spec_home "$1" "$2") || return 0
+  rel=${home#*	} repo=${home%%	*}
   # Each path must sit strictly under the root, with no `.`, `..` or empty
   # component, be prose (`.md`), and be added, modified or deleted: a rename
   # or copy names no source path. The bundles are the directories directly
@@ -510,13 +583,20 @@ spec_scope() {
   [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
   while IFS= read -r b; do
-    why=$(bundle_signoff "$repo" "$3" "$rel" "$b" "$5/bundle-$b") || exit
-    if [ -n "$why" ]; then
-      printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"
-    else
-      printf 'signoff\t%s\tsigned\t-\n' "$b"
-    fi
+    signoff_row "$repo" "$3" "$rel" "$b" "$5/bundle-$b" || exit
   done <"$5/bundles"
+}
+
+# signoff_row <repo> <head> <root rel> <bundle> <scratch dir>: the bundle's
+# `signoff` row at <head>.
+signoff_row() {
+  local why
+  why=$(bundle_signoff "$@") || return
+  if [ -n "$why" ]; then
+    printf 'signoff\t%s\tunsigned\t%s\n' "$4" "$why"
+  else
+    printf 'signoff\t%s\tsigned\t-\n' "$4"
+  fi
 }
 
 # bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir>: print why
@@ -645,6 +725,8 @@ collect() {
   cl_unaud=''
   : >"$cl_tmp/cadence"
   spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/scope"
+  : >"$cl_tmp/drift"
+  [ -s "$cl_tmp/scope" ] || drift_scope "$1" "$2" "$cl_head" "$cl_baseref" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/drift"
   if [ -s "$cl_tmp/scope" ]; then
     # A spec-only pull request is held for its sign-off, not the cadence, so
     # no worktree is needed and none is audited.
@@ -766,7 +848,7 @@ collect() {
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
     awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" { next } { print }' "$cl_tmp/pr"
-    cat "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/evidence"
+    cat "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/drift" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }
