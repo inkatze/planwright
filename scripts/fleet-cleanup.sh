@@ -366,18 +366,24 @@ case "$cmd" in
       warn "\$TMUX_PANE is unset — cannot reliably resolve the caller's own pane, refusing (fail closed)"
       exit 3
     fi
+    # No tab between fields: tmux prints one as `_` under LC_ALL=C. The id
+    # and index carry no space, a session name never carries a `:` (tmux
+    # replaces it), and the window name, which may hold anything, comes last.
     self=$(tmux display-message -p -t "$TMUX_PANE" \
-      "#{session_name}${TAB}#{window_id}${TAB}#{window_name}${TAB}#{window_index}" 2>/dev/null) || self=""
+      "#{window_id} #{window_index} #{session_name}:#{window_name}" 2>/dev/null) || self=""
+    self_wid=${self%% *}
+    self_rest=${self#* }
+    self_windex=${self_rest%% *}
+    self_rest=${self_rest#* }
+    self_session=${self_rest%%:*}
+    self_wname=${self_rest#*:}
+    case $self_wid in @[0-9]*) ;; *) self="" ;; esac
+    case $self_windex in '' | *[!0-9]*) self="" ;; esac
+    case $self_rest in *:*) ;; *) self="" ;; esac
     if [ -z "$self" ]; then
       warn "could not resolve the caller's own tmux window — cannot prove non-self-target, refusing (fail closed)"
       exit 3
     fi
-    self_session=${self%%"$TAB"*}
-    self_rest=${self#*"$TAB"}
-    self_wid=${self_rest%%"$TAB"*}
-    self_rest=${self_rest#*"$TAB"}
-    self_wname=${self_rest%%"$TAB"*}
-    self_windex=${self_rest#*"$TAB"}
 
     # The guard matches the target window against the caller's own window id,
     # name, OR index (all three are valid tmux window addresses), so no address

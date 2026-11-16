@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-10-02
+**Last reviewed:** 2026-11-13
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -492,3 +492,118 @@ unchanged: a worker that was actually stuck was actually detected and
 closed. Each rung is wedged in the one way it can really stall, and the held
 headless worker is still shown not to read as dead or finished, which is the
 misreading that would let the leak hide.
+
+### D-17: The floor extends to every session kind, as the same floor  (B, drafting 2026-11-13, altitude trigger)
+
+**Decision:** The lifecycle-closure floor is not widened by a second floor
+for sessions. Its quantifier already reads "every resource class a worker
+acquires"; the amendment makes the unit "every resource class a session the
+launcher opens acquires", adds the session classes to the class contract
+table, and adds the session kinds to the rungs-crossed-with-classes table so
+no kind is exempt by silence. The classes are the launched session's process
+and window, the launcher's registry row and launch directory, and the stall
+sample (REQ-L1.2 to REQ-L1.4), with the reclaim folder declared as the one
+class that has no automatic close (D-19).
+
+The altitude trigger fired at seed gathering: the note's claim that "nothing
+says a future rung or kind owes them a close or a detector" is an altitude
+assertion about the deliverable's nature, the shape D-1 pinned for the
+original floor. It resolves the same way: doctrine first (the floor and its
+two tables), the retire and detector changes beneath it as the proof that the
+declared classes are buildable.
+
+**Alternatives considered:**
+- Add a separate session-lifecycle floor in mission-control's bundle.
+  Rejected because: the open, close and detector contract is identical, and a
+  second floor lets the two drift while a future kind reads only one.
+- Change only `retire` to remove the stall sample, with no doctrine change.
+  Rejected because: this is D-1's mechanism-only alternative again; the next
+  session kind would owe nothing.
+
+**Chosen because:** the failure the floor exists for (a phase with no close)
+is not worker-specific, and one contract over one table keeps "no class is
+silently exempt" true as kinds are added.
+
+### D-18: Two detectors, each named as the detector of its own class  (B, drafting default 2026-11-13)
+
+**Decision:** The floor names `scripts/fleet-stuck-detector.sh` (four states,
+dispatched workers, crossed with owner attribution) and `scripts/mc-stall.sh`
+(the session states the script emits, cited from the script rather than
+copied) as separate detectors, and does not converge their vocabularies. The
+contract both satisfy is the one D-4 states: every state has its own positive
+signal. In the session classifier a stable pane corroborates a positively
+detected busy signature and never establishes a state alone, so the
+no-change-past-the-window state requires that signature, and `dead` rests on
+positive evidence (REQ-C1.5). The worker classifier has no pane signal.
+
+**Alternatives considered:**
+- Converge both on the four-state vocabulary. Rejected because: the worker
+  states answer "has this unit's work finished or stalled" from hook and
+  process signals, while the session states answer what an interactive pane is
+  showing; mapping the second onto the first drops states a human must see
+  (an open selector is `waiting-on-a-human`, but so are an operator question
+  and an unsubmitted prompt, which need different actions).
+- Converge on the session vocabulary. Rejected because: it has no
+  `finished-but-unreaped` and no attribution axis, both load-bearing for the
+  reaper (D-4).
+
+**Chosen because:** the floor requires positive, distinct signals, not one
+shared name, and convergence would cost information each consumer uses.
+
+### D-19: The reclaim folder is operator-owned work product, with no automatic close  (B, amended at kickoff)
+
+**Decision:** The folder `scripts/mc-reclaim.sh` opens under the program
+home is class-3 work product (mission-control D-8, storage-classes). The
+floor lists it as a declared class with no automatic close, and as the one
+declared exception to REQ-A1.1's deterministic close: it owes an open
+(the predicate-gated backup), a detector for integrity (the reclaim's own
+hash and size verification) and a detector for growth (a read-only check,
+run from the keeper's sweep, of its size and each backup's age, emitting one
+attention event on every run while the size is over a knob-set threshold and
+keeping no state), and names the operator as its owner. No `retire`, sweep
+or scheduled verb removes it. Its only close is an operator-invoked verb,
+kept off mission control's verb allow-list, that dry-runs by default and
+removes only backups named as arguments, inside the folder, never through a
+symlink, and only when their hash and size verify (or an explicit flag
+names them). The operator chose this at kickoff over a no-close
+declaration, to answer the bloat worry without any unprompted deletion.
+
+**Alternatives considered:**
+- Declare no close at all (the first draft). Rejected because: the operator
+  weighed unbounded growth at kickoff, and a growth detector with a manual
+  close answers it while keeping every deletion operator-initiated.
+- One event per threshold crossing with a marker. Rejected because: the
+  marker is a new resource that owes its own close; per-run events from a
+  stateless check cost only cadence-bounded noise.
+- Give it an automatic retention close (an age or count rule). Rejected because: the
+  folder holds copies of ignored audit files that exist nowhere else once the
+  worktree is gone, and an elapsed-time close is the silence-as-signal
+  failure REQ-A1.2 forbids.
+
+**Chosen because:** every class in the release set is reproducible (D-3); the
+reclaim folder is the opposite, so it must sit outside any automatic close,
+and declaring it removes the ambiguity rather than leaving a silent gap.
+
+### D-20: `retire` closes the stall sample; the sample's detector is residue  (B, drafting 2026-11-13)
+
+**Decision:** The launcher's `retire` removes the session's stall sample as
+part of its release set, under the sample's lock and after the process
+class, and reports it by class (`stall-sample`) alongside the others. A scan
+never creates a sample for a name with no row, so none reappears; `retire`
+of a name with no row still removes an orphan sample, which is how residue
+the read-only check lists, and residue already accumulated, is cleared. A relaunch
+under the same name keeps starting a fresh sample. The events the detector
+emits stay attention-store content pruned by `mission_control_event_retention`
+and are not closed per session.
+
+**Alternatives considered:**
+- Prune samples by age from `mc-stall.sh`. Rejected because: an age rule
+  frees a live session's sample whenever it is quiet, resetting the stall
+  window and hiding the very stall it measures.
+- Leave the sample to be overwritten on relaunch. Rejected because: a
+  session never relaunched under that name leaves its sample forever, the
+  residue the floor names a defect.
+
+**Chosen because:** the session's end is the one deterministic moment the
+sample's owner is gone, and `retire` already owns that moment for every
+sibling class.

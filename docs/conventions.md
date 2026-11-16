@@ -78,7 +78,7 @@ derived state:
 
 | Derived state | Target section |
 | --- | --- |
-| `completed` (merged PR, merge-reachable branch, or a `Planwright-Task` trailer) | `## Completed` |
+| `completed` (merged PR, merge-reachable branch, a `Planwright-Task` trailer, or that line in a merged PR's body) | `## Completed` |
 | `in-progress` (open PR, unmerged branch with commits locally or on its `origin` remote-tracking ref, or a fresh dispatch marker) | `## In progress` |
 | `ready` / `blocked` (by dependency state) | `## Forward plan` |
 

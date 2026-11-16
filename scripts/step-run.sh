@@ -121,8 +121,16 @@
 #           contradicts its outcome; any such gap withholds `covered`;
 #           else `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB>
 #           <head>`, the head --head or the worktree's. Exit 0 complete, 1
-#           gaps, 2 usage (an unknown --base included), 4 the records or the
-#           cadence could not be read.
+#           gaps, 2 usage (an unknown --base included), 4 the records, the
+#           cadence or the session events could not be read. The records
+#           that decided each point are also held to the session's own events
+#           (step-events-audit.sh): `gap<TAB><point><TAB>fault<TAB><detail>`
+#           per record whose start is off its Skill call, a polish or
+#           self-review passed or applied with no Agent call in its span, a
+#           polish passed on a moved head,
+#           or a fix-round starting before the first event (unless it repeats
+#           an earlier run's record of that round); `note<TAB><point>
+#           <TAB>unverified<TAB><detail>` where the events are not reachable.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
@@ -170,6 +178,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 SR="$script_dir/step-record.sh"
 SP="$script_dir/step-pool.sh"
 RS="$script_dir/resolve-steps.sh"
+SEA="$script_dir/step-events-audit.sh"
 CR="$script_dir/compute-route.sh"
 TAB=$'\t'
 NL=$'\n'
@@ -936,7 +945,7 @@ audit_fresh() {
 }
 
 cmd_audit() {
-  local through='' head='' base='' points=() p rc kind pt hd gaps run last='' cur='' decided='' stale='' drun='' dhd='' any=0 pg=0 g line
+  local through='' head='' base='' points=() p rc kind pt hd gaps jr judged='' ev_runs=() ev_id ev_pt last='' cur='' decided='' stale='' drun='' dhd='' any=0 pg=0 g line
   while [ $# -gt 0 ]; do
     case $1 in
       --through | --head | --base) [ $# -ge 2 ] || usage ;;
@@ -1036,7 +1045,7 @@ cmd_audit() {
         if (!c) print "none\t" p "\t-\t" gaps_of(p, "")
       }
     }' "$work/rows" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
-  while IFS=$TAB read -r kind pt hd gaps; do
+  while IFS=$TAB read -r kind pt hd gaps jr; do
     [ "$kind" != point ] || last=$pt
   done <"$work/plan"
   # emit_gaps <point> <gaps>: one line per gap the plan names.
@@ -1091,7 +1100,7 @@ cmd_audit() {
     if [ "$pg" -eq 0 ]; then printf 'covered\t%s\n' "$cur"; else any=1; fi
   }
   set -f
-  while IFS=$TAB read -r kind pt hd gaps run; do
+  while IFS=$TAB read -r kind pt hd gaps jr; do
     case $kind in
       point)
         finish_point
@@ -1100,7 +1109,7 @@ cmd_audit() {
       cand)
         [ -z "$decided" ] || continue
         if audit_fresh "$hd" "$head" "$([ "$pt" = "$last" ] && echo 1 || echo 0)" "$base"; then
-          decided=$gaps stale='' drun=$run dhd=$hd
+          decided=$gaps stale='' drun=$jr dhd=$hd judged="$judged $jr:$cur"
         elif [ -z "$stale" ]; then
           stale="$hd$TAB$gaps"
         fi
@@ -1114,6 +1123,24 @@ cmd_audit() {
   done <"$work/plan"
   finish_point
   set +f
+  if [ -n "$judged" ]; then
+    for jr in $judged; do ev_runs+=(--run "${jr%%:*}"); done
+    /bin/sh "$SEA" --worktree "$worktree" --records "$work/records" "${ev_runs[@]}" >"$work/events" \
+      || [ $? -eq 1 ] || die 4 "cannot judge the step records against the session events"
+    while IFS=$TAB read -r kind ev_id pt gaps; do
+      # A run that decided one point can hold superseded records of another.
+      case " $judged " in *" ${ev_id%:*} "*) ;; *) continue ;; esac
+      ev_pt=${ev_id#*:}
+      ev_pt=${ev_pt%%:*}
+      case $kind in
+        fault)
+          printf 'gap\t%s\tfault\t%s %s: %s\n' "$ev_pt" "$ev_id" "$pt" "$gaps"
+          any=1
+          ;;
+        unverified) printf 'note\t%s\tunverified\t%s %s: %s\n' "$ev_pt" "$ev_id" "$pt" "$gaps" ;;
+      esac
+    done <"$work/events"
+  fi
   line="audit${TAB}complete${TAB}$head"
   [ "$any" -eq 0 ] || line="audit${TAB}gaps${TAB}$head"
   printf '%s\n' "$line"
