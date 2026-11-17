@@ -50,6 +50,11 @@ ln -s "$FIXHOME/.claude/settings.json" "$KB/lk1"
 ln -s "$FIXHOME/.claude/hooks" "$KB/ld"
 ln -s loop "$KB/loop"
 ln -s "$FIXHOME/.claude/projects" "$KB/lk-projects"
+: >"$FIXHOME/.mcp.json"
+ln -s "$FIXHOME/.mcp.json" "$KB/lk-mcp"
+mkdir -p "$KB/sub" "$SCRATCH/x"
+# A plain file whose name is a link in kb, for a copy into kb.
+: >"$SCRATCH/x/lk-file"
 TAB=$(printf '\t')
 NL=$'\n'
 
@@ -155,6 +160,14 @@ pg mission-control "echo a #\"${NL}echo y >> $FIXHOME/.claude/agents/x.md #\""
 expect deny "[mission-control] quotes paired across a comment hide no redirect"
 pg mission-control "cat <<'EOF'${NL}\"${NL}EOF${NL}echo y >> $KB/lk-file${NL}cat <<'EOF'${NL}\"${NL}EOF"
 expect deny "[mission-control] quotes paired across here-documents hide no redirect"
+for c in "echo \"<<A\"${NL}cd $KB${NL}echo x > lk-file${NL}A" "echo \$((1<<2))${NL}cd $KB${NL}echo x > lk-file${NL}2" \
+  "echo hi # <<EOF${NL}cd $KB${NL}echo x > lk-file" "cat <<E\"O\"F${NL}x${NL}EOF${NL}cd $KB${NL}echo x > lk-file" \
+  "X=cd; \$X $KB${NL}echo x > lk-file" "\$'\\x63d' $KB${NL}echo x > lk-file"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a cd the guard cannot see past a here-document look-alike or a spelled command word: ${c//$NL/ / }"
+done
+pg mission-control "cat > $KB/note.md <<'EOF'${NL}cd somewhere and run \"x > y\"${NL}EOF" "$SCRATCH"
+expect defer "[mission-control] a cd inside a real here-document body is data"
 pg_payload mission-control bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"echo x >> lk-file"}}')"
 expect deny "[mission-control] a relative write with no cwd in the payload is refused"
 echo "# an expanding write target in a data place is followed too"
@@ -178,7 +191,10 @@ TMPDIR=$SANDBOX pg mission-control 'L=$(mktemp -d); echo x > $L/out.md'
 expect defer "[mission-control] a write into a fresh mktemp -d directory is permitted"
 # shellcheck disable=SC2016 # the guard must see the expansions literally
 TMPDIR='' pg mission-control 'echo x > "$TMPDIR/out"'
-expect deny "[mission-control] a \$TMPDIR write with TMPDIR empty is refused"
+expect defer "[mission-control] a \$TMPDIR write with TMPDIR empty lands where the shell puts it"
+# shellcheck disable=SC2016 # the guard must see the expansion literally
+TMPDIR='' pg mission-control 'echo x > "$TMPDIR'"$KB"'/lk-file"'
+expect deny "[mission-control] a \$TMPDIR write with TMPDIR empty is still followed through a link"
 # shellcheck disable=SC2016 # the guard must see the expansions literally
 TMPDIR=relative pg mission-control 'echo x > "$TMPDIR/out"'
 expect deny "[mission-control] a \$TMPDIR write with a relative TMPDIR is refused"

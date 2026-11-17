@@ -5196,8 +5196,18 @@ MC_TMP_REBOUND=0
 # Verbs that copy, move, link or unpack: in their command, a path that does
 # not exist yet may become a link before a write lands on it.
 RE_MC_COPYISH='(^|[^[:alnum:]_.-])(cp|mv|ln|link|rsync|tar|bsdtar|unzip|cpio|pax)([^[:alnum:]_-]|$)'
-# Command words that run the next word as the command.
+# Command words that run the next word as the command, whose options
+# mc_unwrap can skip.
 RE_MC_WRAPPER='^(env|nice|nohup|setsid|timeout|stdbuf|time|command|builtin|exec|sudo|doas|busybox|xargs)$'
+# Command words that run other text as a command, however they spell it: the
+# wrapper set the git classifier reads, the shells, and eval.
+RE_MC_RUNNER='^(env|sudo|doas|xargs|nohup|nice|ionice|timeout|gtimeout|stdbuf|setsid|chronic|exec|command|builtin|time|watch|flock|unbuffer|caffeinate|strace|ltrace|chroot|unshare|systemd-run|fakeroot|parallel|find|script|ssh|tmux|screen|source|\.|make|python.*|perl|ruby|node|awk|gawk|mawk|nawk|taskset|chrt|bash|sh|zsh|dash|ksh|mksh|fish|busybox|su|runuser|eval)$'
+# A write verb as a word. Keep it in step with mc_settings_screen's verb
+# dispatch: a verb missing here is screened bare but not behind a runner.
+RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-])(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|sort|c[u]rl|w[g]et|tar|unzip)([^[:alnum:]_-]|$)'
+MC_WRAPPED_DENY='mission control writes no settings or configuration file, and this command hands a write verb to another command (behind a wrapper, xargs, a shell or find) whose targets the guard cannot read - refusing (fail closed). Run the write verb on its own with its target spelled out.'
+# The hop bound for one link chain.
+readonly MC_HOP_MAX=40
 
 # mc_settings_named <text> — 0 at the mission-control tier when the text,
 # with its quote and escape characters removed, names a posture file.
@@ -5227,7 +5237,7 @@ mc_posture_word() {
 # mc_expands <word> — 0 when the word carries a shell expansion, glob or brace.
 mc_expands() {
   case $1 in
-    *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'*) return 0 ;;
+    *'$'* | *'`'* | *'*'* | *'?'* | *'['* | *'{'* | *'@('* | *'+('* | *'!('*) return 0 ;;
   esac
   return 1
 }
@@ -5359,18 +5369,20 @@ mc_phys_dir() {
 
 # mc_resolve_path <absolute path> — the path as the kernel reaches it, in
 # MC_PHYS: the existing directories resolved physically and a link at the end
-# followed hop by hop. MC_PHYS_MISSING is 1 when the last component does not
-# exist yet, 2 when a directory above it does not either (kept as written). 1
-# when it cannot be followed: an unreadable or dangling middle link, a . or ..
-# below a missing directory, a path through /proc or /dev/fd (which this
-# process would answer for itself), a chain past the hop bound, or more
-# follows than one command is allowed.
+# followed hop by hop, a missing remainder kept as written. Returns 1 when it
+# cannot be followed: an unreadable or dangling middle link, a . or .. below a
+# missing directory, a path through /proc or /dev/fd (which this process would
+# answer for itself), a chain past MC_HOP_MAX, more follows than
+# MC_FOLLOW_MAX, or the guard's deadline near. MC_PHYS_MISSING: 0 the path
+# exists, 1 only its last component is missing, 2 a directory above it is
+# missing too.
 mc_resolve_path() {
   local p=$1 n=0 dir leaf d rest phys tgt
   MC_PHYS_MISSING=0
   MC_FOLLOWS=$((MC_FOLLOWS + 1))
   [ "$MC_FOLLOWS" -le "$MC_FOLLOW_MAX" ] || return 1
-  while [ "$n" -lt 40 ]; do
+  [ "$SECONDS" -lt $((OVERALL_DEADLINE - 10)) ] || return 1
+  while [ "$n" -lt "$MC_HOP_MAX" ]; do
     n=$((n + 1))
     case $p in /*) ;; *) return 1 ;; esac
     while :; do
@@ -5441,19 +5453,17 @@ mc_phys_posture() {
   return "$rc"
 }
 
-# mc_target_posture <absolute path> <through> — mc_phys_posture. A path that
-# does not exist yet is kept in MC_MISS with the segment writing it
-# (MC_SEG), and a copy verb's destination in MC_DESTS, for
-# mc_copy_hazard. <through> is 1 for a write that opens the path (a
-# redirect, tee), 0 for a copy verb's destination, which may name a new file
-# but not sit under a missing directory, 2 for a copy verb's source, which it
-# only reads.
+# mc_target_posture <absolute path> <role> — mc_phys_posture, recording for
+# mc_copy_hazard. <role> is 1 for a write that opens the path (a redirect,
+# tee), 0 for the destination of a copy verb that can make a link (kept in
+# MC_DESTS with MC_SEG), 3 for a copy verb's plain destination, 2 for a copy
+# verb's source, which it only reads. Kept in MC_MISS: an opened path whose
+# last component is missing, and any path but a source with a missing
+# directory above it.
 mc_target_posture() {
   mc_phys_posture "$1" && return 0
   [ "$2" != 0 ] || MC_DESTS[${#MC_DESTS[@]}]=$MC_SEG$TAB$MC_PHYS
-  if [ "$MC_PHYS_MISSING" = 2 ] && [ "$2" != 2 ]; then
-    MC_MISS[${#MC_MISS[@]}]=$MC_SEG$TAB$MC_PHYS
-  elif [ "$MC_PHYS_MISSING" = 1 ] && [ "$2" = 1 ]; then
+  if { [ "$MC_PHYS_MISSING" = 2 ] && [ "$2" != 2 ]; } || { [ "$MC_PHYS_MISSING" = 1 ] && [ "$2" = 1 ]; }; then
     MC_MISS[${#MC_MISS[@]}]=$MC_SEG$TAB$MC_PHYS
   fi
   return 1
@@ -5553,12 +5563,13 @@ mc_reaches_posture() {
   return 1
 }
 
-# mc_env_rebound <name> — 0 when the command assigns, exports, reads or
-# otherwise rebinds the variable, so its value here is not the command's.
+# mc_env_rebound <name> — 0 when the command could rebind the variable, so its
+# value here is not the command's: an assignment, a declaring or reading verb
+# naming it as a bare word, a ${name:=} default, or an eval or source.
 mc_env_rebound() {
   local t=${MC_CMD//[\"\'\\]/} n=$1 re
-  re="(^|[^[:alnum:]_])${n}[+]?=|(read|for|declare|typeset|local|export|unset|mapfile|readarray|getopts|printf[[:space:]]+-v)[^;&|]*[^[:alnum:]_]$n([^[:alnum:]_]|\$)|[\$][{]${n}[:]?[=]"
-  [[ $t =~ $re || $t =~ $RE_MC_REBIND ]]
+  re="(^|[^[:alnum:]_])${n}[+]?=|(read|for|declare|typeset|local|export|unset|mapfile|readarray|getopts|printf[[:space:]]+-v)([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+${n}([[:space:]=;&|)]|\$)|[\$][{]${n}[:]?[=]|(^|[^[:alnum:]_])(eval|source)[[:space:]]"
+  [[ $t =~ $re ]]
 }
 
 # mc_rel_bases <text> — the directories a relative write target may be opened
@@ -5569,7 +5580,7 @@ mc_env_rebound() {
 # step (bash's cd is logical, this lookup physical), sits past a redirect or
 # a line break, or more directories than the bound.
 mc_rel_bases() {
-  local t=${1//[\"\'\\]/} cwd re seg w tgt b
+  local t=${1//[\"\'\\]/} cwd re seg w tgt b verb after
   MC_BASES=()
   MC_BASES_OK=1
   cwd=''
@@ -5580,16 +5591,24 @@ mc_rel_bases() {
   esac
   case $t in *--chdir* | *-execdir*) MC_BASES_OK=0 ;; esac
   [[ $t =~ (^|[^[:alnum:]_.-])env[[:space:]][^\;\&\|]*-[A-Za-z]*C ]] && MC_BASES_OK=0
+  # A command word spelled through an expansion or $'...' could be a cd.
+  re='(^|[;&|(){}!]|'$NL')[[:space:]]*\$'
+  [[ ${1//[\"\']/} =~ $re ]] && MC_BASES_OK=0
   re='(^|[^[:alnum:]_./~-])(cd|pushd|popd)([[:space:];&|()<>]|$)'
   while [[ $t =~ $re ]]; do
+    verb=${BASH_REMATCH[2]} after=${BASH_REMATCH[3]}
     t=${t#*"${BASH_REMATCH[0]}"}
-    if [ "${BASH_REMATCH[2]}" = popd ]; then
+    if [ "$verb" = popd ]; then
       MC_BASES_OK=0
       continue
     fi
-    case ${BASH_REMATCH[3]} in
-      "$NL") seg='' ;;
-      [[:space:]]) seg=${t%%[;&|()"$NL"]*} ;;
+    # A cd ending its line (or its statement) goes home; one before a
+    # redirect is not read.
+    case $after in
+      [[:space:]])
+        seg=''
+        [ "$after" = "$NL" ] || seg=${t%%[;&|()"$NL"]*}
+        ;;
       '<' | '>')
         MC_BASES_OK=0
         continue
@@ -5633,19 +5652,19 @@ mc_rel_bases() {
 }
 
 # mc_data_literal <word> — an expanding data-place target made literal, in
-# MC_DL: $TMPDIR from this environment, a scratch variable from the literal
-# the command assigned it. Returns 2 for a scratch variable assigned a fresh
-# mktemp -d (nothing exists under it yet), 1 when the target cannot be made
-# literal: it still expands, TMPDIR is unset or relative, or the command
-# rebinds TMPDIR (which mktemp reads too).
+# MC_DL: $TMPDIR from this environment (unset or empty, the shell's empty
+# word), a scratch variable from the literal the command assigned it. Returns
+# 2 for a scratch variable assigned a fresh mktemp -d (nothing exists under it
+# yet), 1 when the target cannot be made literal: it still expands, TMPDIR is
+# relative, or the command rebinds TMPDIR (which mktemp reads too).
 mc_data_literal() {
   local t=${1//[\"\'\\]/} n re
   # shellcheck disable=SC2016 # literal patterns
   case $t in
     '$TMPDIR/'* | '${TMPDIR}/'*)
       [ "$MC_TMP_REBOUND" = 0 ] || return 1
-      case ${TMPDIR-} in /?*) ;; *) return 1 ;; esac
-      t=$TMPDIR/${t#*/}
+      case ${TMPDIR-} in '' | /*) ;; *) return 1 ;; esac
+      t=${TMPDIR-}/${t#*/}
       ;;
     '$'*)
       [[ $t =~ $RE_MC_DATA_SCRATCHVAR ]] || return 1
@@ -5671,6 +5690,8 @@ mc_data_literal() {
 # mc_target_posture's. MC_REFUSAL is the reason to give.
 mc_write_word_refused() {
   local w=${1#of=} rc
+  # Each return 0 below gives the reason set last before it: keep a new check
+  # beside the assignment that names its reason.
   MC_REFUSAL=$MC_SETTINGS_DENY
   mc_posture_word "$w" && return 0
   MC_REFUSAL=$MC_LINK_DENY
@@ -5809,54 +5830,74 @@ mc_reader_segment() {
 
 # mc_drop_doc_bodies <text> — the text without its here-document bodies, in
 # MC_NODOC, for reading where the command's own statements change directory.
-# Text a shell is handed to run keeps its bodies, which may be statements.
+# Anything it cannot read as a plain here-document keeps the whole text: text
+# a shell is handed to run, a << after an open quote, a comment or an
+# arithmetic opener, a delimiter quoted in a way it does not parse, or a body
+# that never ends.
 mc_drop_doc_bodies() {
-  local line out='' m rest d dq=() tabs=() cur='' curtab=0
+  local line out='' m before pre dlm tab sq dqt pend=() pendtab=() cur='' curtab=0
+  local re='<<(-?)[[:space:]]*(["'\'']?)([A-Za-z0-9_.-]+)(["'\'']?)([[:space:];&|<>)]|$)'
   MC_NODOC=$1
   case $1 in *'<<'*) ;; *) return 0 ;; esac
   [[ $1 =~ $RE_MC_INTERPRETER ]] && return 0
-  local re='<<(-?)[[:space:]]*["'\'']?([A-Za-z0-9_.-]+)["'\'']?'
   while IFS= read -r line || [ -n "$line" ]; do
     if [ -n "$cur" ]; then
       m=$line
       [ "$curtab" = 0 ] || m=${m#"${m%%[!"$TAB"]*}"}
       if [ "$m" = "$cur" ]; then
         cur=''
-        if [ "${#dq[@]}" -gt 0 ]; then
-          cur=${dq[0]} curtab=${tabs[0]}
-          dq=("${dq[@]:1}")
-          tabs=("${tabs[@]:1}")
+        if [ "${#pend[@]}" -gt 0 ]; then
+          cur=${pend[0]} curtab=${pendtab[0]}
+          pend=("${pend[@]:1}")
+          pendtab=("${pendtab[@]:1}")
         fi
       fi
       continue
     fi
     out=$out$line$NL
-    rest=${line//<<</}
-    while [[ $rest =~ $re ]]; do
-      rest=${rest#*"${BASH_REMATCH[0]}"}
-      d=${BASH_REMATCH[2]}
+    before=''
+    m=${line//<<</}
+    while [[ $m == *'<<'* ]]; do
+      pre=$before${m%%'<<'*}
+      [[ $m =~ $re ]] || return 0
+      [ "${m%%"${BASH_REMATCH[0]}"*}" = "${m%%'<<'*}" ] || return 0
+      [ "${BASH_REMATCH[2]}" = "${BASH_REMATCH[4]}" ] || return 0
+      dlm=${BASH_REMATCH[3]} tab=0
+      [ -z "${BASH_REMATCH[1]}" ] || tab=1
+      sq=${pre//[!\']/} dqt=${pre//[!\"]/}
+      [ $((${#sq} % 2)) = 0 ] && [ $((${#dqt} % 2)) = 0 ] || return 0
+      case $pre in *'#'* | *'(('* | *'$['*) return 0 ;; esac
+      before=$pre${BASH_REMATCH[0]}
+      m=${m#*"${BASH_REMATCH[0]}"}
       if [ -z "$cur" ]; then
-        cur=$d
-        curtab=0
-        [ -z "${BASH_REMATCH[1]}" ] || curtab=1
+        cur=$dlm curtab=$tab
       else
-        dq[${#dq[@]}]=$d
-        if [ -n "${BASH_REMATCH[1]}" ]; then tabs[${#tabs[@]}]=1; else tabs[${#tabs[@]}]=0; fi
+        pend[${#pend[@]}]=$dlm
+        pendtab[${#pendtab[@]}]=$tab
       fi
     done
-  done <<XEOF4
+  done <<XEOF_DOC
 $1
-XEOF4
+XEOF_DOC
+  [ -z "$cur" ] || return 0
   MC_NODOC=$out
 }
 
-# mc_unwrap — the index in SW of the command a segment runs once wrapper words
-# (RE_MC_WRAPPER), their options, an option's value where it is a separate
-# word, an env assignment and timeout's duration are skipped, in MC_VI;
-# MC_XARGS=1 when xargs is among them.
+# mc_unwrap — in MC_VI, the index in SW of the command a segment runs, past
+# any wrapper words (RE_MC_WRAPPER) with their options, option values, env
+# assignments and timeout's duration, and past the options segment_words
+# leaves when it drops a leading command or exec. MC_XARGS=1 when xargs is
+# among the wrappers.
 mc_unwrap() {
   local i=0 n=${#SW[@]} wrap
   MC_XARGS=0
+  while [ "$i" -lt "$n" ]; do
+    case ${SW[$i]} in
+      -a) i=$((i + 2)) ;;
+      -*) i=$((i + 1)) ;;
+      *) break ;;
+    esac
+  done
   while [ "$i" -lt "$n" ]; do
     lc "${SW[$i]##*/}"
     [[ $LC =~ $RE_MC_WRAPPER ]] || break
@@ -5865,7 +5906,9 @@ mc_unwrap() {
     i=$((i + 1))
     while [ "$i" -lt "$n" ]; do
       case $wrap:${SW[$i]} in
-        env:-u | env:-C | env:-S | env:--unset | env:--chdir | env:--split-string | nice:-n | timeout:-s | timeout:-k | stdbuf:-[ioe] | exec:-a | sudo:-[ugCpUhrt] | xargs:-[ILnPdEas]) i=$((i + 2)) ;;
+        env:-u | env:-C | env:-S | env:--unset | env:--chdir | env:--split-string) i=$((i + 2)) ;;
+        nice:-n | timeout:-s | timeout:-k | stdbuf:-[ioe] | exec:-a) i=$((i + 2)) ;;
+        sudo:-[ugCpUhrt] | xargs:-[ILnPdEas]) i=$((i + 2)) ;;
         *:-* | env:*=* | sudo:*=*) i=$((i + 1)) ;;
         *) break ;;
       esac
@@ -5875,29 +5918,115 @@ mc_unwrap() {
   MC_VI=$i
 }
 
+# mc_outflag_screen <verb> <spec> <first index> — vet the value of each output
+# option in SW from <first index> on, for a writer whose other operands are
+# inputs or addresses. <spec> is the option's short letters, then its long
+# names; a short letter counts anywhere in a cluster (-sSo, -xzC), its value
+# the rest of the cluster or the next word. An unpack directory can come to
+# hold links (role 0); curl's --output-dir also takes each relative -o under
+# it; a dashless tar cluster naming C or f is not read, so it refuses.
+mc_outflag_screen() {
+  local verb=$1 short=${2%% *} long=" ${2#* } " k=$3 n=${#SW[@]} w key val have c j role outdir='' outvals=()
+  while [ "$k" -lt "$n" ]; do
+    w=${SW[$k]}
+    k=$((k + 1))
+    have=0 key='' val=''
+    case $w in
+      --*=*)
+        case $long in *" ${w%%=*} "*) key=${w%%=*} val=${w#*=} have=1 ;; esac
+        ;;
+      --*)
+        case $long in
+          *" $w "*)
+            key=$w
+            if [ "$k" -lt "$n" ]; then
+              val=${SW[$k]} have=1
+              k=$((k + 1))
+            fi
+            ;;
+        esac
+        ;;
+      -?*)
+        c=${w#-} j=0
+        while [ "$j" -lt "${#c}" ]; do
+          case $short in
+            *"${c:$j:1}"*)
+              key=-${c:$j:1}
+              j=$((j + 1))
+              if [ "$j" -lt "${#c}" ]; then
+                val=${c:$j} have=1
+              elif [ "$k" -lt "$n" ]; then
+                val=${SW[$k]} have=1
+                k=$((k + 1))
+              fi
+              break
+              ;;
+          esac
+          j=$((j + 1))
+        done
+        ;;
+      *)
+        if [ "$verb" = tar ] && [ "$k" = "$(($3 + 1))" ]; then
+          case $w in *[Cf]*) emit_deny "$MC_LINK_DENY" ;; esac
+        fi
+        ;;
+    esac
+    [ "$have" = 1 ] || continue
+    role=1
+    case $verb:$key in
+      tar:-C | tar:--directory | tar:--one-top-level | unzip:-d) role=0 ;;
+      *:--output-dir)
+        role=3
+        outdir=$val
+        ;;
+    esac
+    ! mc_write_word_refused "$val" "$role" || emit_deny "$MC_REFUSAL"
+    case $verb:$key in *:-o | *:--output) outvals[${#outvals[@]}]=$val ;; esac
+  done
+  [ -n "$outdir" ] || return 0
+  for w in ${outvals[@]+"${outvals[@]}"}; do
+    case $w in
+      /* | '~'*) ;;
+      *) ! mc_write_word_refused "${outdir%/}/$w" 1 || emit_deny "$MC_REFUSAL" ;;
+    esac
+  done
+  return 0
+}
+
 # mc_settings_screen <command> — refuse a command that writes a posture file:
 # one that names such a file in a form that is not a plain read (apart from
 # the text of a message flag), redirects to a posture path or to a target the
 # shell expands, or hands a posture path or an expanding word to a write verb
-# (cp, mv, install, ln, link, tee, dd, rsync, sed -i, truncate, and the output
-# operand of sort, curl, wget, tar and unzip), wrapped in env, nohup and the
-# like or not. A literal write target is also followed on disk, from the
-# payload cwd and every cd in the command, through links and dot-dots, and a
-# link maker may not point into a .claude or .mcp path; a target the guard
-# cannot follow is refused. An expansion in a read position is no write, and
-# one in a data place only when it can be made literal and followed. The disk
-# is read as it stands now: what another process changes later is out of a
-# text screen's sight.
+# (RE_MC_WRITE_WORDS; for sort, curl, wget, tar and unzip only the output
+# option's value), wrapped in env, nohup and the like or not. A runner
+# (RE_MC_RUNNER: a wrapper, xargs, a shell, find) that carries a write verb's
+# name among its other words refuses outright. A literal write target is also
+# followed on disk, from the payload cwd and every cd in the command, through
+# links and dot-dots, and a link maker may not point into a .claude or .mcp
+# path; a target the guard cannot follow is refused. An expansion in a read
+# position is no write, and one in a data place only when it can be made
+# literal and followed. The disk is read as it stands now: what another
+# process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r si=0 k named=0 w wg m verb sedscript inplace linkmk ops vi outflag through re tdir
+  local t=$1 r rs si=0 k named=0 w wg m verb sedscript inplace linkmk ops vi outflag through re tdir mklink
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_CMD=$t
   mc_settings_named "$t" && named=1
+  # A verb spelled with quotes, escapes or capitals still runs as the verb.
   # shellcheck disable=SC2016 # literal patterns
   case $t in
-    *'>'* | *'$('* | *'`'* | *cp* | *mv* | *install* | *ln* | *tee* | *dd* | *rsync* | *sed* | *truncate* | *sort* | *c[u]rl* | *w[g]et* | *tar* | *unzip*) ;;
-    *) [ "$named" = 1 ] || return 0 ;;
+    *'>'* | *'$('* | *'`'*) ;;
+    *)
+      if [ "$named" = 0 ]; then
+        k=1
+        shopt -s nocasematch
+        [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_WORDS ]] && k=0
+        shopt -u nocasematch
+        [ "$k" = 0 ] || return 0
+        k=0
+      fi
+      ;;
   esac
   [ "${#t}" -le "$MAX_CMD_LEN" ] || emit_deny "$MC_SETTINGS_DENY"
   MC_FOLLOWS=0
@@ -5912,6 +6041,7 @@ mc_settings_screen() {
   while [[ $r =~ $re ]]; do
     r=${r/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}${BASH_REMATCH[4]} ${BASH_REMATCH[3]}${BASH_REMATCH[6]}"}
   done
+  rs=$r
   [ "$named" = 0 ] || case $r in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
   # Quoted text is no redirect unless a shell is handed it to run or the quote
   # is part of a redirect's target. A backslash, a comment or a here-document
@@ -5929,11 +6059,13 @@ mc_settings_screen() {
     r=$out$q
   fi
   MC_COPYISH=0
-  [[ ${r//[\"\'\\]/} =~ $RE_MC_COPYISH ]] && MC_COPYISH=1
+  shopt -s nocasematch
+  [[ ${t//[\"\'\\]/} =~ $RE_MC_COPYISH ]] && MC_COPYISH=1
+  shopt -u nocasematch
   MC_MISS=()
   MC_DESTS=()
   MC_SEG=-1
-  mc_drop_doc_bodies "$t"
+  mc_drop_doc_bodies "$rs"
   mc_rel_bases "$MC_NODOC"
   # Every output redirect, >| and the >& and &> spellings included, its target
   # read as one shell word (quotes and escapes kept); a target in a subshell
@@ -5973,6 +6105,14 @@ mc_settings_screen() {
     # statement it opens counts.
     local re_link='(^|[;&|(){}'$'\n''])[[:space:]]*link[[:space:]]'
     [[ ${t//[\"\'\\]/} =~ $re_link ]] && emit_deny "$MC_LINKMAKE_DENY"
+    # The writers whose names are common words count with their output option
+    # (sort, curl, wget) or always (tar, unzip).
+    re='(^|[^[:alnum:]_.-])((sort|c[u]rl)[^;&|]*[[:space:]](-[A-Za-z]*o|--output)|w[g]et[^;&|]*[[:space:]](-[A-Za-z]*[OP]|--output-document|--directory-prefix)|(tar|unzip)([^[:alnum:]_-]|$))'
+    shopt -s nocasematch
+    k=1
+    [[ ${t//[\"\'\\]/} =~ $re ]] && k=0
+    shopt -u nocasematch
+    [ "$k" = 1 ] || emit_deny "$MC_SETTINGS_DENY"
     mc_copy_hazard 0
     return 0
   fi
@@ -6041,29 +6181,41 @@ mc_settings_screen() {
     fi
     mc_unwrap
     vi=$MC_VI
-    if [ "$vi" -gt 0 ]; then
-      # Behind a wrapper the option parse is a guess, and xargs takes the
-      # operands from its input: any write verb word among its words refuses.
+    # A runner (a wrapper, xargs, a shell, find and the like) hands text to
+    # another command: a write verb anywhere among its words refuses, bar the
+    # command mc_unwrap found, whose operands are vetted below. xargs feeds
+    # that command operands the guard never sees, so it refuses too.
+    lc "${SW[0]//[\"\'\\]/}"
+    if [ "$vi" -gt 0 ] || [[ ${LC##*/} =~ $RE_MC_RUNNER ]]; then
+      k=0
       for w in "${SW[@]:1}"; do
-        lc "${w##*/}"
-        case $LC in
-          cp | mv | install | ln | link | tee | dd | rsync | truncate | sed | sort | c[u]rl | w[g]et | tar | unzip)
-            [ "$MC_XARGS" = 0 ] || emit_deny "$MC_LINK_DENY"
-            [ "$w" = "${SW[$vi]:-}" ] || emit_deny "$MC_LINK_DENY"
-            ;;
-        esac
+        k=$((k + 1))
+        [ "$k" != "$vi" ] || [ "$MC_XARGS" = 1 ] || continue
+        m=1
+        shopt -s nocasematch
+        [[ ${w//[\"\'\\]/} =~ $RE_MC_WRITE_WORDS ]] && m=0
+        shopt -u nocasematch
+        [ "$m" = 1 ] || emit_deny "$MC_WRAPPED_DENY"
       done
     fi
     [ "$vi" -lt "${#SW[@]}" ] || continue
-    lc "${SW[$vi]##*/}"
-    verb=$LC
+    w=${SW[$vi]}
+    if mc_expands "$w"; then
+      # A command word the command assigned a literal is that literal.
+      mc_resolve_word "$w" || continue
+      w=$MC_RW
+    fi
+    lc "${w//[\"\'\\]/}"
+    verb=${LC##*/}
     inplace=0
     linkmk=0
+    mklink=0
     through=1
     outflag=''
     case $verb in
       ln | link)
         linkmk=1
+        mklink=1
         through=0
         ;;
       cp)
@@ -6071,25 +6223,53 @@ mc_settings_screen() {
         for w in "${SW[@]:$((vi + 1))}"; do
           case $w in
             -t*) ;;
-            --symbolic-link | --link) linkmk=1 ;;
-            -[!-]*) case $w in *[sl]*) linkmk=1 ;; esac ;;
+            --symbolic-link | --link)
+              linkmk=1
+              mklink=1
+              ;;
+            --archive | --no-dereference | --recursive | --preserve=*links*) mklink=1 ;;
+            -[!-]*)
+              case $w in *[sl]*) linkmk=1 ;; esac
+              case $w in *[sladPRr]*) mklink=1 ;; esac
+              ;;
           esac
         done
         ;;
-      mv | install | rsync) through=0 ;;
+      rsync)
+        through=0
+        for w in "${SW[@]:$((vi + 1))}"; do
+          case $w in
+            --archive | --links) mklink=1 ;;
+            -[!-]*) case $w in *[al]*) mklink=1 ;; esac ;;
+          esac
+        done
+        ;;
+      mv)
+        # mv carries over what each source is; a link, a directory or a
+        # source the guard cannot place could make the destination a link.
+        through=0
+        for w in "${SW[@]:$((vi + 1))}"; do
+          case $w in -*) continue ;; esac
+          w=${w//[\"\'\\]/}
+          if mc_expands "$w" || ! mc_tilde "$w"; then
+            mklink=1
+            continue
+          fi
+          w=$MC_TW
+          case $w in /*) ;; *) w=${MC_BASES[0]:-.}/$w ;; esac
+          if [ -L "$w" ] || [ -d "$w" ] || [ ! -e "$w" ]; then mklink=1; fi
+        done
+        ;;
+      install) through=0 ;;
       tee | dd | truncate) ;;
-      # The bracketed letters keep the static no-network-client check from
-      # reading these names as a client the guard runs.
-      sort | c[u]rl) outflag=' -o --output ' ;;
-      w[g]et) outflag=' -O --output-document -P --directory-prefix ' ;;
-      tar)
-        outflag=' -C --directory '
-        through=0
-        ;;
-      unzip)
-        outflag=' -d '
-        through=0
-        ;;
+      # Each output option: its short letters, then its long names. The
+      # bracketed letters keep the static no-network-client check from reading
+      # these names as a client the guard runs.
+      sort) outflag='o --output' ;;
+      c[u]rl) outflag='o --output --output-dir' ;;
+      w[g]et) outflag='OP --output-document --directory-prefix' ;;
+      tar) outflag='Cf --directory --file --one-top-level' ;;
+      unzip) outflag='d' ;;
       sed)
         for w in "${SW[@]:$((vi + 1))}"; do
           case $w in -i* | -[!-]*i* | --in-place*) inplace=1 ;; esac
@@ -6099,26 +6279,7 @@ mc_settings_screen() {
       *) continue ;;
     esac
     if [ -n "$outflag" ]; then
-      # Only the output option's value is written; the other operands are
-      # inputs or addresses.
-      k=$((vi + 1))
-      while [ "$k" -lt "${#SW[@]}" ]; do
-        w=${SW[$k]}
-        k=$((k + 1))
-        case $outflag in
-          *" $w "*)
-            [ "$k" -lt "${#SW[@]}" ] || continue
-            ! mc_write_word_refused "${SW[$k]}" "$through" || emit_deny "$MC_REFUSAL"
-            k=$((k + 1))
-            ;;
-          *" ${w%%=*} "*)
-            ! mc_write_word_refused "${w#*=}" "$through" || emit_deny "$MC_REFUSAL"
-            ;;
-          *" ${w:0:2} "*)
-            [ "${#w}" -le 2 ] || ! mc_write_word_refused "${w:2}" "$through" || emit_deny "$MC_REFUSAL"
-            ;;
-        esac
-      done
+      mc_outflag_screen "$verb" "$outflag" "$((vi + 1))"
       continue
     fi
     # sed's first plain word is its script, which is no path.
@@ -6166,15 +6327,35 @@ mc_settings_screen() {
       ops[${#ops[@]}]=$w
     done
     # A copy verb's destination is its target directory or its last operand;
-    # the rest it only reads.
+    # the rest it only reads. cp and rsync write each source into a
+    # destination directory under the source's own name, through any link
+    # already there.
     [ -z "$tdir" ] || ops[${#ops[@]}]=$tdir
     k=0
     for w in ${ops[@]+"${ops[@]}"}; do
       k=$((k + 1))
-      m=$through
-      [ "$through" != 0 ] || [ "$k" = "${#ops[@]}" ] || m=2
+      if [ "$through" = 1 ]; then
+        m=1
+      elif [ "$k" != "${#ops[@]}" ]; then
+        m=2
+      elif [ "$mklink" = 1 ]; then
+        m=0
+      else
+        m=3
+      fi
       ! mc_write_word_refused "$w" "$m" || emit_deny "$MC_REFUSAL"
     done
+    case $verb in
+      cp | rsync)
+        k=0
+        for w in ${ops[@]+"${ops[@]}"}; do
+          k=$((k + 1))
+          [ "$k" -lt "${#ops[@]}" ] || break
+          w=${w%/}
+          ! mc_write_word_refused "${ops[$((${#ops[@]} - 1))]%/}/${w##*/}" 1 || emit_deny "$MC_REFUSAL"
+        done
+        ;;
+    esac
     # A link made here could put a plain name on posture for a later write.
     if [ "$linkmk" = 1 ]; then
       for w in ${ops[@]+"${ops[@]}"}; do
