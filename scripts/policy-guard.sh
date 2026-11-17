@@ -1920,7 +1920,7 @@ kickoff_git_reads() {
           add | status | diff | restore | rm | commit | blame | annotate) filt=1 ;;
           ls-files)
             for w in "${SW[@]:$((k + 1))}"; do
-              case $w in --) break ;; --mo*) filt=1 ;; --*) ;; -*m*) filt=1 ;; esac
+              case $w in --) break ;; --m*) filt=1 ;; --*) ;; -*m*) filt=1 ;; esac
             done
             ;;
         esac

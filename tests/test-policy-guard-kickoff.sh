@@ -850,6 +850,7 @@ for key in clean smudge process; do
     'git ls-files --modified scripts/kickoff-spec-push.sh' \
     'git ls-files --mod scripts/kickoff-spec-push.sh' \
     'git ls-files --modi scripts/kickoff-spec-push.sh' \
+    'git ls-files --m scripts/kickoff-spec-push.sh' \
     'git checkout -- scripts/kickoff-spec-push.sh' \
     'git checkout HEAD -- scripts/kickoff-spec-push.sh' \
     'git stash push scripts/kickoff-spec-push.sh' \
