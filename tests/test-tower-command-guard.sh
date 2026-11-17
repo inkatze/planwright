@@ -336,6 +336,12 @@ for c in 'git diff --ext-diff HEAD' 'git log -p --textconv' 'git cat-file --filt
   'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff'; do
   assert_defer "driver option near-spelling: $c" "$c"
 done
+# The same prefix rule holds for the options that write a file or run a
+# command through the shell: `git grep --op=<cmd>` runs <cmd>.
+for c in 'git grep --op=id foo' 'git grep --open=id foo' 'git grep --open-files-in-p=id foo' \
+  'git log --ou=x' 'git diff --outp=x HEAD' 'git log --output-dir=x' 'git grep -Oid foo'; do
+  assert_defer "write or spawn option near-spelling: $c" "$c"
+done
 for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-diff' 'git diff --no-textconv' \
   'git rev-list --filter=blob:none HEAD' 'git log --tags --first-parent' 'git describe --tags' \
   'git ls-files --full-name' 'git log --follow -- f' 'git log --format=%h -3' 'git cat-file --batch'; do

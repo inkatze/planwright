@@ -1835,8 +1835,8 @@ guard_git() {
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       for ((i = subidx + 1; i < cwn; i++)); do
         case ${cw[i]} in
-          -o | --output | --output=* | --output-directory | --output-directory=*) return 1 ;;
-          -O | -O* | --open-files-in-pager | --open-files-in-pager=*) return 1 ;;
+          # git takes any unambiguous prefix of a long option (`--op=<cmd>`).
+          -o | --ou* | -O | -O* | --op*) return 1 ;;
         esac
         git_driver_opt "$sub" "${cw[i]}" && return 1
       done
