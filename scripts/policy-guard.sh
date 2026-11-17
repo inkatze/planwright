@@ -3785,7 +3785,7 @@ act_gate() {
 # git_state_after <sub> <first-arg-index> — record what this git segment
 # changes for the segments after it.
 git_state_after() {
-  local a pos=0 ro=0 rsub=''
+  local a pos=0 ro=0 rsub='' ren
   for a in "${SW[@]:$2}"; do
     case $a in -*) ;; *) [ -n "$rsub" ] || rsub=$a ;; esac
     case $a in
@@ -3797,17 +3797,30 @@ git_state_after() {
   case $1 in
     config)
       [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1
-      if [ "$ro" = 0 ] && [ "$pos" -ge 2 ]; then
-        # A filter section (renamed into place) or a program key, an include
-        # that may carry one, or a word the guard cannot read.
-        for a in "${SW[@]:$2}"; do
-          lc "$a"
-          case $LC in
-            filter.*.clean | filter.*.smudge | filter.*.process | include* | *'$'* | *'`'*) ST_FILT=1 ;;
-            filter.*) [[ ${LC#filter.} == *.* ]] || ST_FILT=1 ;;
-          esac
-        done
-      fi
+      # Every word is read whatever ro says, since a value or value-pattern
+      # can spell a read verb (git config filter.y.clean sh list writes the
+      # key). Any filter key but required may be a program, and a section
+      # renamed into filter.* brings its keys along; an include, an editor or
+      # a word the guard cannot read may set anything.
+      ren=0
+      for a in "${SW[@]:$2}"; do
+        case $a in --rename-section* | rename-section) ren=1 ;; esac
+      done
+      for a in "${SW[@]:$2}"; do
+        lc "$a"
+        case $LC in
+          -e | --edit | include* | *'$'* | *'`'*) ST_FILT=1 ;;
+          filter.*.required) [ "$ren" = 0 ] || ST_FILT=1 ;;
+          filter.*) ST_FILT=1 ;;
+        esac
+      done
+      ;;
+    # A clone or init writes configuration given with -c or --config, or
+    # copied from a template, into a directory that may already exist.
+    clone | init)
+      for a in "${SW[@]:$2}"; do
+        case $a in -c | -c?* | -[!-]*c | --c* | --te*) ST_FILT=1 ;; esac
+      done
       ;;
     # A remote's own name or URL may be a read word, so only the subcommand
     # decides.

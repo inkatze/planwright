@@ -952,7 +952,19 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git -C ~/x add scripts/kickoff-spec-push.sh' \
   'git -C ../filter-c* add scripts/kickoff-spec-push.sh' \
   'cd $X && git add scripts/kickoff-spec-push.sh' \
-  'git config --add filter.z.clean sh && git status scripts/kickoff-spec-push.sh'; do
+  'git config --add filter.z.clean sh && git status scripts/kickoff-spec-push.sh' \
+  'git config filter.z.clean sh list && git add scripts/kickoff-spec-push.sh' \
+  'git config --comment list filter.z.clean sh && git add scripts/kickoff-spec-push.sh' \
+  'git config filter.z.clean sh -v && git restore scripts/kickoff-spec-push.sh' \
+  'git config --rename-section foo.a.b filter.a.b && git add scripts/kickoff-spec-push.sh' \
+  'git config rename-section foo filter.a.required && git add scripts/kickoff-spec-push.sh' \
+  'git config --edit && git add scripts/kickoff-spec-push.sh' \
+  'git config -e; git status scripts/kickoff-spec-push.sh' \
+  'git config --get filter.z.clean && git add scripts/kickoff-spec-push.sh' \
+  "git clone -c filter.z.clean=sh $SANDBOX/origin.git $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  "git clone --config=filter.z.clean=sh $SANDBOX/origin.git $SANDBOX/empty && git -C $SANDBOX/empty status scripts/kickoff-spec-push.sh" \
+  "git clone -qc filter.z.clean=sh $SANDBOX/origin.git $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  "git init --template=$SANDBOX/tpl $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh"; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect deny "[$tier, task-1] a filter the guard cannot rule out could run on the file: $cmd"
