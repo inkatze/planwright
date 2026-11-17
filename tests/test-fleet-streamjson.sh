@@ -1686,6 +1686,134 @@ fi
 echo "ok: c17 a deny message with control characters delivers well-formed JSON (REQ-E1.4)"
 
 # ---------------------------------------------------------------------------
+# c17b: a deny always carries a non-empty message. The API rejects an error
+#     tool_result with empty content (400), which kills the worker. A bare
+#     --deny, an empty --message, and a whitespace-only or control-only
+#     --message each deliver a default; a given message is delivered unchanged.
+# ---------------------------------------------------------------------------
+for c17b in bare empty blank ctrl long given; do
+  home="$tmp/h17b$c17b"
+  rec="$tmp/r17b$c17b"
+  mkdir -p "$rec"
+  ev="$tmp/ev17b$c17b"
+  printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+  printf 'deny me\n' >"$tmp/prompt17b$c17b"
+  w17b="sjw17b$c17b"
+  senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+    launch "$w17b" execution-backends:4 --prompt-file "$tmp/prompt17b$c17b" --foreground &
+  launch17b=$!
+  poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$home/streamjson/$w17b/journal" \
+    || fail "c17b-$c17b: the pending journal row never appeared"
+  case $c17b in
+    bare) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny >/dev/null ;;
+    empty) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message '' >/dev/null ;;
+    blank) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message "$(printf '  \t \n ')" >/dev/null ;;
+    ctrl) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message "$(printf '\001\002')" >/dev/null ;;
+    long) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message "$(printf '%700s' '')x" >/dev/null ;;
+    given) senv "$home" "$rec" -- answer "$w17b" "$req_perm" --deny --message 'use the other path' >/dev/null ;;
+  esac || fail "c17b-$c17b: deny answer exited non-zero"
+  wait "$launch17b" || fail "c17b-$c17b: the worker run did not end cleanly"
+  grep control_response "$rec/stdin" | head -1 >"$tmp/c17b$c17b.line"
+  grep -q '"behavior":"deny"' "$tmp/c17b$c17b.line" || fail "c17b-$c17b: no deny delivered"
+  if [ "$c17b" = given ]; then
+    grep -qF '"message":"use the other path"' "$tmp/c17b$c17b.line" \
+      || fail "c17b-$c17b: a given message must be delivered unchanged"
+  else
+    grep -qF '"message":"Denied by the supervisor; no reason given."' "$tmp/c17b$c17b.line" \
+      || fail "c17b-$c17b: expected the default deny message, got: $(cat "$tmp/c17b$c17b.line")"
+  fi
+done
+echo "ok: c17b a deny always carries a non-empty message"
+
+# c17c: a --response-file deny body with an empty or missing message, or one
+#     whose message escapes decode only to whitespace or control bytes, is
+#     refused (exit 2, nothing written, request stays pending); one with a
+#     message is delivered.
+home="$tmp/h17c"
+rec="$tmp/r17c"
+mkdir -p "$rec"
+ev="$tmp/ev17c"
+printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+printf 'deny me\n' >"$tmp/prompt17c"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+  launch sjw17c execution-backends:4 --prompt-file "$tmp/prompt17c" --foreground &
+launch17c=$!
+poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$home/streamjson/sjw17c/journal" \
+  || fail "c17c: the pending journal row never appeared"
+for body17c in '{"behavior":"deny"}' '{"behavior":"deny","message":""}' '{"behavior":"deny","message":"   "}' '{ "behavior" : "deny" , "message" : "\n" }' '{"message":"","behavior":"deny"}' '{"behavior":"deny","message":null}'; do
+  printf '%s\n' "$body17c" >"$tmp/c17c.resp"
+  senv "$home" "$rec" -- answer sjw17c "$req_perm" --response-file "$tmp/c17c.resp" >/dev/null 2>"$tmp/c17c.err"
+  [ $? -eq 2 ] || fail "c17c: a deny body without a message must be refused: $body17c"
+  grep -q 'deny body needs a non-empty message' "$tmp/c17c.err" \
+    || fail "c17c: the refusal must be the deny-message check, got: $(cat "$tmp/c17c.err")"
+done
+# %b turns each \\ into the single backslash of a JSON escape.
+for esc17c in '{"behavior":"deny","message":"\\u0020"}' '{"behavior":"deny","message":"\\t\\r"}' '{"behavior":"deny","message":" \\f\\b\\u0001\\u007f"}' '{"behavior":"deny","message":"\\u001F\\u007F\\u000A"}'; do
+  printf '%b\n' "$esc17c" >"$tmp/c17c.resp"
+  senv "$home" "$rec" -- answer sjw17c "$req_perm" --response-file "$tmp/c17c.resp" >/dev/null 2>"$tmp/c17c.err"
+  [ $? -eq 2 ] || fail "c17c: a deny message of blank escapes must be refused: $(cat "$tmp/c17c.resp")"
+  grep -q 'deny body needs a non-empty message' "$tmp/c17c.err" \
+    || fail "c17c: the refusal must be the deny-message check, got: $(cat "$tmp/c17c.err")"
+done
+[ ! -s "$rec/stdin" ] || ! grep -q control_response "$rec/stdin" \
+  || fail "c17c: a refused deny body must write nothing to the worker"
+grep -q "^$req_perm$tab.*${tab}pending" "$home/streamjson/sjw17c/journal" \
+  || fail "c17c: a refused deny body must leave the request pending"
+printf '%s\n' '{"behavior":"deny","message":"\"quoted\" reason"}' >"$tmp/c17c.resp"
+senv "$home" "$rec" -- answer sjw17c "$req_perm" --response-file "$tmp/c17c.resp" >/dev/null \
+  || fail "c17c: a deny body whose message starts with an escape must be delivered"
+wait "$launch17c" || fail "c17c: the worker run did not end cleanly"
+grep control_response "$rec/stdin" | head -1 | grep -qF "\"response\":$(cat "$tmp/c17c.resp")}}" \
+  || fail "c17c: the delivered deny must reach the worker unchanged, got: $(grep control_response "$rec/stdin")"
+echo "ok: c17c a response-file deny without a message is refused"
+
+# c17d: the deny-message check refuses nothing it should deliver: a non-deny
+#     body with no message, a plain-text deny, a deny whose message opens with
+#     a blank escape before a \u escape of real content, and denies whose
+#     first real content is a \u escape just past a blank range (one of them
+#     after an upper-case blank escape), each reach the worker as sent.
+for c17d in allow plain uesc lowu upperu; do
+  home="$tmp/h17d$c17d"
+  rec="$tmp/r17d$c17d"
+  mkdir -p "$rec"
+  ev="$tmp/ev17d$c17d"
+  printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+  printf 'answer me\n' >"$tmp/prompt17d$c17d"
+  case $c17d in
+    allow) printf '%s\n' '{"behavior":"allow","updatedInput":{"file_path":"/x/y.txt"}}' >"$tmp/c17d$c17d.resp" ;;
+    plain) printf '%s\n' '{"behavior":"deny","message":"no"}' >"$tmp/c17d$c17d.resp" ;;
+    uesc) printf '%b\n' '{"behavior":"deny","message":"\\n\\u00e9"}' >"$tmp/c17d$c17d.resp" ;;
+    lowu) printf '%b\n' '{"behavior":"deny","message":"\\u0021"}' >"$tmp/c17d$c17d.resp" ;;
+    upperu) printf '%b\n' '{"behavior":"deny","message":"\\u007F\\u007E"}' >"$tmp/c17d$c17d.resp" ;;
+  esac
+  senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+    launch "sjw17d$c17d" execution-backends:4 --prompt-file "$tmp/prompt17d$c17d" --foreground &
+  launch17d=$!
+  poll_until --what 'the journal row' -- grep -q "^$req_perm$tab" "$home/streamjson/sjw17d$c17d/journal" \
+    || fail "c17d-$c17d: the pending journal row never appeared"
+  senv "$home" "$rec" -- answer "sjw17d$c17d" "$req_perm" --response-file "$tmp/c17d$c17d.resp" >/dev/null \
+    || fail "c17d-$c17d: the body must be delivered: $(cat "$tmp/c17d$c17d.resp")"
+  wait "$launch17d" || fail "c17d-$c17d: the worker run did not end cleanly"
+  grep control_response "$rec/stdin" | head -1 | grep -qF "\"response\":$(cat "$tmp/c17d$c17d.resp")}}" \
+    || fail "c17d-$c17d: the body must reach the worker unchanged, got: $(grep control_response "$rec/stdin")"
+done
+echo "ok: c17d a response-file body the deny check should pass is delivered unchanged"
+
+# c17e: every shape of real content opening a deny message passes the check.
+#     The check runs before the worker lookup, so against a worker that does
+#     not exist a passing body is refused as an unknown worker and a failing
+#     one by the deny-message check, with no launch needed.
+home="$tmp/h17e"
+mkdir -p "$home" "$tmp/r17e"
+for body17e in '{"behavior":"deny","message":"  no"}' '{"behavior":"deny","message":"\\u4e2d"}' '{"behavior":"deny","message":"\\u0100"}' '{"behavior":"deny","message":"\\u0041"}' '{"behavior":"deny","message":"\\u0080"}' '{"behavior":"deny","message":"\\u0000x"}' '{"behavior":"deny","message":"\\\\"}' '{"behavior":"deny","message":"\\/"}' '{"behavior":"deny","message":"\303\251"}'; do
+  printf '%b\n' "$body17e" >"$tmp/c17e.resp"
+  senv "$home" "$tmp/r17e" -- answer sjw17enone "$req_perm" --response-file "$tmp/c17e.resp" >/dev/null 2>"$tmp/c17e.err"
+  grep -q 'unknown worker' "$tmp/c17e.err" \
+    || fail "c17e: a deny message opening with real content must pass the check: $(cat "$tmp/c17e.resp"), got: $(cat "$tmp/c17e.err")"
+done
+echo "ok: c17e every opening of real content passes the response-file deny check"
+
+# ---------------------------------------------------------------------------
 # c18 (REQ-E1.5): the journal lock's break is decided by the holder's PROCESS
 #     and never by the lock's age. Both directions are asserted, because only
 #     the pair pins the rule: an implementation that broke every lock passes the
