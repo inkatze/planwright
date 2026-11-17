@@ -981,7 +981,8 @@ cmd_audit() {
     die 4 "the configured cadence did not resolve (resolve-steps exit $rc)"
   fi
   /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
-  /bin/sh "$SR" --worktree "$worktree" untrue >"$work/untrue" || die 4 "cannot read the step records"
+  /bin/sh "$SR" --worktree "$worktree" untrue >"$work/untrue" \
+    || die 4 "cannot run the step-record truth check over the step records (step-record.sh untrue)"
   # Records are untrusted: run, kind and point come from the path and must
   # agree with the stored fields, and a head counts only in commit-id form.
   # Per point: `point`, then one `cand` per run holding its completion (newest
