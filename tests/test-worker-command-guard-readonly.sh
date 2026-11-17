@@ -200,22 +200,28 @@ assert_defer "perl -pi with two statements" "perl -pi -e 's/a/b/;system(1)' f" B
 assert_defer "perl -e alone" "perl -e 's/a/b/' f" Bash "$WT"
 assert_defer "perl running a script" "perl x.pl" Bash "$WT"
 assert_defer "perl -pi with no file" "perl -pi -e 's/a/b/'" Bash "$WT"
-# Each option-like word exists as a regular file, so only its leading dash can
-# defer it: perl reads it as an option, and a second -e runs its next word.
-OPTLIKE=(-e 'system(1)' -MO=Deparse -i.bak -- -)
+# Every word in the file position exists as a regular file, so a missing file
+# never explains a defer: perl reads a dash-led word as an option, and a second
+# -e runs its next word. The dash-less twins prove the dash is what defers.
+OPTLIKE=(-e 'system(1)' -MO=Deparse -i.bak -- - e i.bak)
 for n in "${OPTLIKE[@]}"; do
-  printf 'a\n' >"$WT/$n"
+  printf 'a\n' >"$WT/$n" && [ -f "$WT/$n" ] || {
+    echo "FAIL: could not create the perl fixture $n" >&2
+    exit 1
+  }
 done
+assert_allow "perl -pi a file named like -e without its dash" "perl -pi -e 's/a/b/' e" Bash "$WT"
+assert_allow "perl -pi a file named like -i.bak without its dash" "perl -pi -e 's/a/b/' i.bak" Bash "$WT"
 assert_defer "perl -pi with a second -e in the file position" "perl -pi -e 's/a/b/' -e 'system(1)'" Bash "$WT"
 assert_defer "perl -pi with -e after a file" "perl -pi -e 's/a/b/' f -e 'system(1)'" Bash "$WT"
 assert_defer "perl -pi with a module option in the file position" "perl -pi -e 's/a/b/' -MO=Deparse f" Bash "$WT"
 assert_defer "perl -pi with a backup suffix in the file position" "perl -pi -e 's/a/b/' -i.bak f" Bash "$WT"
 assert_defer "perl -pi with -- in the file position" "perl -pi -e 's/a/b/' -- -e" Bash "$WT"
 assert_defer "perl -pi with - in the file position" "perl -pi -e 's/a/b/' -" Bash "$WT"
+assert_allow "perl -pi an ordinary file beside option-named files" "perl -pi -e 's/a/b/' f" Bash "$WT"
 for n in "${OPTLIKE[@]}"; do
   rm -f -- "${WT:?}/$n"
 done
-assert_allow "perl -pi an ordinary file" "perl -pi -e 's/a/b/' f" Bash "$WT"
 assert_allow "perl -pi two ordinary files" "perl -pi -e 's/a/b/' f g" Bash "$WT"
 HOOK_ENV=()
 assert_defer "perl -pi without the own-branch arm" "perl -pi -e 's/a/b/' f" Bash "$WT"
