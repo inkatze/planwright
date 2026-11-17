@@ -109,6 +109,8 @@ shared${TAB}defer${TAB}a gh auth status whose jq filter prints the environment${
 shared${TAB}defer${TAB}a gh read opening the browser${TAB}gh pr checks 5 --web
 shared${TAB}defer${TAB}a gh repo view opening the browser${TAB}gh repo view -w
 shared${TAB}defer${TAB}a gh auth status printing the token${TAB}gh auth status --show-token
+shared${TAB}allow${TAB}a gh search without a filter${TAB}gh search code foo --json path
+shared${TAB}allow${TAB}an own-branch perl -pi of an ordinary file${TAB}perl -pi -e 's/a/b/' notes.txt
 shared${TAB}defer${TAB}a declared line given another arg${TAB}$DECLARED --mode lax
 shared${TAB}defer${TAB}a declared line plus an extra arg${TAB}$DECLARED --mode strict --extra
 shared${TAB}defer${TAB}a declared location without its args${TAB}$DECLARED
@@ -121,6 +123,12 @@ adversarial${TAB}defer${TAB}a push of the unit branch${TAB}git push origin @B@
 adversarial${TAB}defer${TAB}a force push of the unit branch${TAB}git push --force origin @B@
 adversarial${TAB}defer${TAB}a ready flip of the unit's PR${TAB}gh pr ready 5
 adversarial${TAB}defer${TAB}a merge of the unit's PR${TAB}gh pr merge 5 --squash
+adversarial${TAB}defer${TAB}a gh search code jq filter reading the environment${TAB}gh search code foo --jq env
+adversarial${TAB}defer${TAB}a gh search issues short jq filter reading the environment${TAB}gh search issues foo -q env
+adversarial${TAB}defer${TAB}a gh search prs template reading the environment${TAB}gh search prs foo --template={{env}}
+adversarial${TAB}defer${TAB}a gh auth status jq filter reading the environment${TAB}gh auth status --json hosts --jq env
+adversarial${TAB}defer${TAB}a gh search attached jq filter ending in t reading the environment${TAB}gh search code foo '-qenv|test'
+adversarial${TAB}defer${TAB}a gh repo view opening the browser${TAB}gh repo view --web
 adversarial${TAB}defer${TAB}a switch to the base branch${TAB}git switch main
 adversarial${TAB}defer${TAB}a branch reset to the base${TAB}git reset --hard main
 adversarial${TAB}defer${TAB}an amend on the unit branch${TAB}git commit --amend -m 'x'
