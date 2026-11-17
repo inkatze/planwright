@@ -223,7 +223,8 @@ for c in 'git cat-file --t HEAD:f' 'git cat-file --te HEAD:f' 'git cat-file --te
   'git cat-file --filters=1 HEAD:f' 'git cat-file --batch --filt' \
   'git grep --textc -e foo' 'git grep --textconv=1 -e foo' 'git blame --textco f' \
   'git diff --ext HEAD' 'git diff --ext-diff=1 HEAD' 'git show --ext-d HEAD' 'git log --e -p' \
-  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff'; do
+  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff' \
+  'git cat-file --ext HEAD:f' 'git cat-file --e HEAD:f' 'git log --te -p' 'git log --f' 'git diff --fi HEAD'; do
   assert_defer "driver option near-spelling: $c" "$c"
 done
 for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-diff' 'git diff --no-textconv' \

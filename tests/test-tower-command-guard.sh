@@ -333,7 +333,8 @@ for c in 'git diff --ext-diff HEAD' 'git log -p --textconv' 'git cat-file --filt
   'git cat-file --filters=1 HEAD:f' 'git cat-file --batch --filt' \
   'git grep --textc -e foo' 'git grep --textconv=1 -e foo' 'git blame --textco f' \
   'git diff --ext HEAD' 'git diff --ext-diff=1 HEAD' 'git show --ext-d HEAD' 'git log --e -p' \
-  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff'; do
+  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff' \
+  'git cat-file --ext HEAD:f' 'git cat-file --e HEAD:f' 'git log --te -p' 'git log --f' 'git diff --fi HEAD'; do
   assert_defer "driver option near-spelling: $c" "$c"
 done
 # The same prefix rule holds for the options that write a file or run a
