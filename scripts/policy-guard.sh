@@ -1621,8 +1621,8 @@ tower_floor() {
 ST_CFG=0
 # A segment that may have set a filter program, or moved where git reads its
 # configuration: a git config naming a filter key, an include, an editor or a
-# word the shell may still expand; a clone or init; an alias; or a HOME or
-# XDG_CONFIG_HOME assigned or exported. It, ST_REF, ST_CFG and ST_HEAD are
+# word the shell may still expand; a clone or init; an alias; or a GIT_
+# variable, HOME or XDG_CONFIG_HOME assigned or exported. It, ST_REF, ST_CFG and ST_HEAD are
 # also read once every segment is classified (kickoff_text_check).
 ST_FILT=0
 ST_REF=0
@@ -2529,7 +2529,9 @@ classify_segments() {
     if [ "${#SW[@]}" = 0 ]; then
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
-      [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      # A GIT_ variable can carry configuration (GIT_CONFIG_COUNT) or point
+      # git at another repository.
+      [ "$SW_GITENV" = 0 ] || { GIT_ENV_SET=1 && ST_FILT=1; }
       [ "$SW_CFGENV" = 0 ] || ST_FILT=1
       KICK_BESIDE=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
@@ -2656,7 +2658,7 @@ classify_segments() {
       case $base_verb in
         export | declare | typeset | readonly | local | let | printf)
           case " ${SW[*]} " in
-            *" GIT_"*) GIT_ENV_SET=1 ;;
+            *" GIT_"*) GIT_ENV_SET=1 && ST_FILT=1 ;;
           esac
           case " ${SW[*]} " in
             *" HOME"* | *" XDG_CONFIG_HOME"*) ST_FILT=1 ;;

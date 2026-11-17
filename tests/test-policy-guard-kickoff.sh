@@ -925,6 +925,7 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
   'git status scripts/kickoff-spec-push.sh; git config user.name t' \
   'git config -a user.name && git add scripts/kickoff-spec-push.sh' \
   "cd $SANDBOX/nofilter && git add scripts/kickoff-spec-push.sh" \
+  'git log --oneline -- scripts/kickoff-spec-push.sh; cd ..' \
   'git log -p -- scripts/kickoff-spec-push.sh; git config filter.z.clean sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
@@ -994,6 +995,10 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git restore scripts/kickoff-spec-push.sh; git init x' \
   "for i in 1 2; do git add scripts/kickoff-spec-push.sh; cd $SANDBOX/filter-clean; done" \
   'git status scripts/kickoff-spec-push.sh; cd ..' \
+  'git add scripts/kickoff-spec-push.sh && pushd ..' \
+  'for i in 1 2; do git add scripts/kickoff-spec-push.sh; export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=filter.z.clean GIT_CONFIG_VALUE_0=sh; done' \
+  'while git status scripts/kickoff-spec-push.sh; do GIT_DIR=/tmp/q/.git; done' \
+  'git add scripts/kickoff-spec-push.sh & GIT_CONFIG_COUNT=1' \
   'git config -aef && git add scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
