@@ -1622,8 +1622,9 @@ ST_CFG=0
 # A segment that may have set a filter program, or moved where git reads its
 # configuration: a git config naming a filter key, an include, an editor or a
 # word the shell may still expand; a clone or init; an alias; or a GIT_
-# variable, HOME or XDG_CONFIG_HOME assigned or exported. It, ST_REF, ST_CFG and ST_HEAD are
-# also read once every segment is classified (kickoff_text_check).
+# variable, HOME or XDG_CONFIG_HOME assigned or exported. It, ST_REF, ST_CFG
+# and ST_HEAD are also read once every segment is classified
+# (kickoff_text_check).
 ST_FILT=0
 ST_REF=0
 ST_FETCH=0
@@ -2440,11 +2441,11 @@ kickoff_text_check() {
   # A filter set after the stage in the text can still run first: a loop runs
   # its body before its next condition, and a background job runs beside it.
   [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
-    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm or blame) on scripts/kickoff-spec-push.sh, and also may change git configuration or where git reads it (a git config naming a filter key, an include, an editor or a word the guard cannot read; a clone, init or alias; or a GIT_ variable, HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh, and also may change git configuration or where git reads it (a git config naming a filter key, an include, an editor or a word the guard cannot read; a clone, init or alias; or a GIT_ variable, HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
   [ "$KICK_INC_PASSED" = 0 ] || { [ "$ST_REF" = 0 ] && [ "$ST_CFG" = 0 ] && [ "$ST_HEAD" = 0 ]; } \
-    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm or blame) on scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes git configuration, the branch or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes git configuration, the branch or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
   [ "$KICK_CD_AFTER" = 0 ] \
-    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm or blame) on scripts/kickoff-spec-push.sh and changes directory after it, so a loop can run it again in a repository whose filter programs the guard never read - refusing (fail closed). Change directory first, or run it on its own."
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh and changes directory after it, so a loop can run it again in a repository whose filter programs the guard never read - refusing (fail closed). Change directory first, or run it on its own."
 }
 
 # kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
