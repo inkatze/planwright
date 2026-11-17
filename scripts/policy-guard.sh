@@ -2440,7 +2440,7 @@ kickoff_text_check() {
   # A filter set after the stage in the text can still run first: a loop runs
   # its body before its next condition, and a background job runs beside it.
   [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
-    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and also may change git configuration or where git reads it (a git config naming a filter key, an include or an editor, a clone, init or alias, or a HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
+    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and also may change git configuration or where git reads it (a git config naming a filter key, an include or an editor, a clone, init or alias, or a GIT_ variable, HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
   [ "$KICK_INC_PASSED" = 0 ] || { [ "$ST_REF" = 0 ] && [ "$ST_CFG" = 0 ] && [ "$ST_HEAD" = 0 ]; } \
     || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes the branch, the remotes or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
   [ "$KICK_CD_AFTER" = 0 ] \
