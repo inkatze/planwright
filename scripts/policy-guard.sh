@@ -28,11 +28,13 @@
 # names a settings, MCP or planwright configuration file, CLAUDE.md or
 # CLAUDE.local.md, or a shipped profile, lies under a .claude hooks, plugins,
 # agents, skills, commands or planwright directory, or lies inside a work tree
-# or bare repository denies; in Bash, a command naming a posture file passes
-# only as a plain read, as a message flag's quoted value, or inside a
-# quoted-delimiter heredoc body a plain cat writes to a program home, and a
-# word or redirect target that could expand into one, or a plain absolute one
-# that is or sits behind a link into one, denies (the directories are the file
+# or bare repository denies; in Bash, a command naming a settings, MCP or
+# planwright configuration file passes only as a plain read, as a message
+# flag's quoted value, or inside a quoted-delimiter heredoc body a plain cat
+# writes to a program home or a data place, an instruction file denies as a
+# redirect target or a write verb's argument, and a word or redirect target
+# that could expand into a posture file, or a plain absolute one that is or
+# sits behind a link into one, denies (the directories are the file
 # surface's alone: an installed planwright script runs from under
 # .claude/plugins). The program homes come from scripts/mc-program.sh, the one
 # read this screen makes; a failed read leaves no home and so no allowance.
@@ -5767,8 +5769,9 @@ mc_blank_quotes() {
 # or under a data place that is no program home, is no write. Out of a text
 # screen's sight: a relative name (after a cd, or against the session's cwd),
 # a link target spelled with //, /./ or /../, or a link the same command
-# makes; a write in a subshell to an instruction file; a quoted writer (an awk
-# program) naming one; and a >&file target.
+# makes; a write to an instruction file in a subshell, through a quoted part of
+# its target, or by a writer outside those verbs (sort -o, curl -o, truncate,
+# or a quoted program such as awk's); and a >&file target.
 mc_settings_screen() {
   local t=$1 r si=0 k named=0 w m verb sedscript inplace stripped=0 scan
   MC_DOC_T=''
