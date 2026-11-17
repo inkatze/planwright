@@ -337,6 +337,41 @@ cp "$tmp/tracked.keep" "$tracked"
 rm -rf "$fleet/streamjson/rl-hubbed" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned"
 
+# A stream-json supervisor a killed suite left behind, its state directory
+# and working directory removed with the suite's scratch tree, is raised once
+# two passes in a row have seen it, under one program only, and never
+# signalled. The stand-in ends itself once this suite is gone.
+mkdir -p "$tmp/orphan-fx/scripts" "$tmp/orphan-fx/gone/state" "$tmp/orphan-fx/gone/cwd"
+cat >"$tmp/orphan-fx/scripts/fleet-streamjson.sh" <<'EOF'
+#!/bin/sh
+while kill -0 "$FIXTURE_OWNER" 2>/dev/null; do sleep 1; done
+EOF
+(cd "$tmp/orphan-fx/gone/cwd" && FIXTURE_OWNER=$$ exec /bin/sh "$tmp/orphan-fx/scripts/fleet-streamjson.sh" \
+  _supervise mc-alpha-tower-orphaned "$tmp/orphan-fx/gone/state" init) &
+orphan_sup=$!
+sleep 0.3
+rm -rf "$tmp/orphan-fx/gone"
+keeper_as alpha 5300
+expect_no_out "an orphan one pass has seen is not raised yet" "mc-alpha-tower-orphaned"
+keeper_as alpha 5360
+expect_out "an orphan the next pass sees too is raised" "announced${tab}stream-json-worker-orphaned${tab}mc-alpha-tower-orphaned"
+keeper_as beta 5420
+expect_no_out "and not again, by any program's keeper" "mc-alpha-tower-orphaned"
+keeper_as alpha 5480
+expect_no_out "nor by its own" "mc-alpha-tower-orphaned"
+mc_run mc-event.sh list --program alpha
+expect_out "the event names the process and its gone state directory" "stream-json-worker-orphaned${tab}mc-alpha-tower-orphaned${tab}orphaned stream-json supervisor pid $orphan_sup"
+mc_run mc-event.sh list --program beta
+expect_no_out "and lands under one program" "mc-alpha-tower-orphaned"
+if kill -0 "$orphan_sup" 2>/dev/null; then
+  ok "the keeper never signals an orphan"
+else
+  fail "the orphaned stand-in $orphan_sup is gone after the keeper's passes"
+fi
+kill "$orphan_sup" 2>/dev/null
+wait "$orphan_sup" 2>/dev/null
+orphan_sup=''
+
 # A request that has just arrived is announced at once, as pending-prompt, so
 # the operator need not wait for the overdue bound; the requests new to one
 # pass are one event.

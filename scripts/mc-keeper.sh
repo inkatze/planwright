@@ -125,10 +125,14 @@ Usage:
       request still waiting, worker and request id, so a repeat ask is never
       folded into an event already read), and a dead worker this
       scan settled one stream-json-worker-dead
-      event, whatever its program, printing
-        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned<TAB><worker>
+      event, whatever its program; the orphan sweep: each process
+      scripts/mc-stall.sh orphans lists on two passes in a row is one
+      stream-json-worker-orphaned event, announced once for the machine
+      under the program the unowned event goes to, and never signalled,
+      printing
+        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned|stream-json-worker-orphaned<TAB><worker>
       a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
-      seconds, or a pending sweep that ends non-zero, is said on stderr and
+      seconds, or a pending or orphan sweep that ends non-zero, is said on stderr and
       raised once as a keeper-sweep-failed event (the default age, 900,
       stands in for a bad one)
       then the bounds, under their own lock: each retire done (re-checked
@@ -506,7 +510,7 @@ run_pending_sweep() {
   }
   printf '%s\n' "$prog: the $1 sweep failed" >&2
   mc_announce "$program" "$rs_seen" "$1" keeper-sweep-failed "$1" \
-    "the keeper's $1 sweep ended with an error, so prompts it covers may not be announced; run mc-keeper.sh watch by hand to see why" || true
+    "the keeper's $1 sweep ended with an error, so what it covers may not be announced; run mc-keeper.sh watch by hand to see why" || true
   return 1
 }
 
@@ -545,37 +549,46 @@ parse_hub() {
   printf '%s\n' "$1"
 }
 
+# keeper_target: the program a raise that belongs to no program goes to, as
+# KT_TARGET: the hub program (mission_control_escalation_hub), whose mission
+# control sees every program; with none configured, the program whose keeper
+# found it, KT_NOTE then saying so. A hub setting or program list that cannot
+# be read fails.
+keeper_target() {
+  kt_hub=$(mc_knob mission_control_escalation_hub parse_hub) || return 1
+  kt_known=$(/bin/bash "$script_dir/mc-program.sh" list) || return 1
+  KT_TARGET=$program
+  KT_NOTE=""
+  if [ "$kt_hub" = none ]; then
+    KT_NOTE=" (no hub program is configured, so it is raised under $program, whose keeper found it)"
+  else
+    case "
+$kt_known
+" in
+      *"
+$kt_hub
+"*)
+        KT_TARGET=$kt_hub
+        ;;
+      *) KT_NOTE=" (the hub program $kt_hub is not a configured program, so it is raised under $program, whose keeper found it)" ;;
+    esac
+  fi
+}
+
 # announce_unowned <worker> <fleet home>: a worker with no program to give its
 # prompts to is raised as one stream-json-worker-unowned event, however many
 # programs' keepers see it: the first to take the claim in the worker's
 # directory raises it, and a refused announce releases the claim so a later
-# pass retries. The event goes to the hub program
-# (mission_control_escalation_hub), whose mission control sees every program;
-# with none configured it stays with the program whose keeper found it. A hub
-# setting or program list that cannot be read fails the pass before the claim,
-# since the claim would fix a guessed destination for good.
+# pass retries. The event goes to keeper_target's program. Its failure fails
+# the pass before the claim, since the claim would fix a guessed destination
+# for good.
 announce_unowned() {
   au_dir="$2/streamjson/$1"
   [ -d "$au_dir" ] && [ ! -L "$au_dir" ] || return 0
   [ ! -e "$au_dir/unowned-announced" ] || return 0
-  au_hub=$(mc_knob mission_control_escalation_hub parse_hub) || return 1
-  au_known=$(/bin/bash "$script_dir/mc-program.sh" list) || return 1
-  au_target=$program
-  au_note=""
-  if [ "$au_hub" = none ]; then
-    au_note=" (no hub program is configured, so it is raised under $program, whose keeper found it)"
-  else
-    case "
-$au_known
-" in
-      *"
-$au_hub
-"*)
-        au_target=$au_hub
-        ;;
-      *) au_note=" (the hub program $au_hub is not a configured program, so it is raised under $program, whose keeper found it)" ;;
-    esac
-  fi
+  keeper_target || return 1
+  au_target=$KT_TARGET
+  au_note=$KT_NOTE
   mkdir -p -- "$2/mission-control/$au_target" || return 1
   if ! (
     set -C
@@ -590,6 +603,47 @@ $au_hub
       rm -f "$au_dir/unowned-announced"
       return 1
     }
+}
+
+# orphan_sweep: every stream-json process on this machine that nothing can
+# reach any more (scripts/mc-stall.sh orphans) is raised once, as a
+# stream-json-worker-orphaned event under keeper_target's program, and never
+# signalled: whether one is abandoned is the operator's call. Only a process
+# the previous pass listed too is raised, since a supervisor a suite is
+# tearing down, or one a stop is ending, reads as orphaned for an instant.
+# Both stores are the machine's, so one program's keeper raising it is enough.
+orphan_sweep() {
+  os_out=$(/bin/bash "$script_dir/mc-stall.sh" orphans) || return 1
+  os_home=$(mc_fleet_home) || return 1
+  keeper_target || return 1
+  os_store="$os_home/mission-control"
+  mkdir -p -- "$os_store/$KT_TARGET" || return 1
+  os_seen="$os_store/keeper-orphans"
+  os_prev="$os_store/keeper-orphans-listed"
+  os_lock="$os_store/.lock.keeper-orphans"
+  pw_lock_acquire "$os_lock" || return 1
+  os_nl='
+'
+  os_live=""
+  os_rc=0
+  while IFS='	' read -r os_tag os_pid os_start os_role os_worker os_why; do
+    [ "$os_tag" = orphan ] || continue
+    os_key="$os_pid	$os_start"
+    os_live="$os_live$os_key$os_nl"
+    [ -f "$os_prev" ] || continue
+    K=$os_key awk 'BEGIN { k = ENVIRON["K"] } $0 == k { f = 1; exit } END { exit !f }' "$os_prev" || continue
+    os_subject=$os_worker
+    mc_valid_handle "$os_subject" || os_subject=$(mc_subject orphan "$os_pid")
+    mc_announce "$KT_TARGET" "$os_seen" "$os_key" stream-json-worker-orphaned "$os_subject" \
+      "orphaned stream-json $os_role pid $os_pid ($os_worker), which nothing reaps or stops: once ps -o pid,args -p $os_pid shows it abandoned, kill $os_pid ends it$KT_NOTE. $os_why" \
+      || os_rc=1
+  done <<EOF
+$os_out
+EOF
+  printf '%s' "$os_live" | mc_write "$os_prev" || os_rc=1
+  mc_announce_prune "$os_seen" "$os_live" || os_rc=1
+  pw_lock_release "$os_lock" || os_rc=1
+  return "$os_rc"
 }
 
 # pending_prompts: the stream-json pending-age sweep over every worker on
@@ -1092,6 +1146,7 @@ case $verb in
       pending_age_setting || rc=1
       run_pending_sweep pending-prompts pending_prompts || rc=1
       run_pending_sweep pending-arrivals pending_arrivals || rc=1
+      run_pending_sweep orphans orphan_sweep || rc=1
       act_bounds "$scan_ok" || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"

@@ -45,6 +45,10 @@ Usage:
       file instead of capturing the session's tmux window.
   mc-stall.sh scan --program <p> [--now <epoch>]
       classify every launched session the program's registry rows name.
+  mc-stall.sh orphans
+      list every stream-json process on this machine that nothing can
+      reach any more, whatever fleet home or program started it. Read-only:
+      it never signals one, and stopping one is the operator's call.
 
 Liveness is positive evidence from the session's rung, through
 scripts/fleet-death-evidence.sh, never pane text or elapsed time:
@@ -117,9 +121,23 @@ with no recorded server, is classified as always.
 Output, one line per session, tab separated:
   <name> <kind> <state> <reason> <event id or ->
 
-Exit codes: 0 classified; 1 the registry, a sample or a lock could not be
-read or written, an event could not be emitted, the stall-window knob or the
-fleet home does not resolve; a scan classifies every other session first;
+An orphan is a fleet-streamjson.sh supervisor (its `_supervise <worker>
+<dir>` argv) whose state directory is gone, whose state directory records
+another supervisor, or whose working directory is gone; or a stream-json
+`claude -p` naming its worker (`--name`) whose parent is no supervisor. Such
+a worker's row also says whether the fleet home holds a record of it and
+whether its working directory is gone. A supervised worker is named in its
+supervisor's row instead. A supervisor whose directory records no
+supervisor yet is starting or exiting, and is not listed. orphans prints,
+tab separated:
+  orphan <pid> <start> <supervisor|claude> <worker> <reason>
+where <start> is the process's start time, which tells it from a later
+process given the same pid.
+
+Exit codes: 0 classified, or the orphans listed; 1 the registry, a sample or
+a lock could not be read or written, an event could not be emitted, the
+stall-window knob or the fleet home does not resolve, the process table
+cannot be read; a scan classifies every other session first;
 2 usage, a malformed name or a registry row of an unknown format; 3 the
 program is not configured, or no launched row names the session (none, a
 launch still in flight, or a row naming another session).
@@ -127,7 +145,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>]"
+  mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>] | orphans"
 }
 
 valid_name() {
@@ -613,6 +631,87 @@ row_ok() {
   [ "$R_program" = "$PROGRAM" ] || return 3
 }
 
+# proc_cwd <pid>: the process's working directory as here:<path>, or
+# gone:<path> once it was removed; nothing when it cannot be read.
+proc_cwd() {
+  if [ -e /proc/self/cwd ]; then
+    pc_dir=$(readlink "/proc/$1/cwd" 2>/dev/null) || return 0
+  elif command -v lsof >/dev/null 2>&1; then
+    pc_dir=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
+  else
+    return 0
+  fi
+  case $pc_dir in
+    '') return 0 ;;
+    *' (deleted)') printf 'gone:%s\n' "${pc_dir% (deleted)}" ;;
+    *) if [ -d "$pc_dir" ]; then printf 'here:%s\n' "$pc_dir"; else printf 'gone:%s\n' "$pc_dir"; fi ;;
+  esac
+}
+
+# stream_json_procs: one candidate per line from the process table, tab
+# separated: `S <pid> <start> <worker> <dir> <worker pids>` for a supervisor,
+# `C <pid> <start> <worker> <ppid>` for an unsupervised stream-json worker.
+stream_json_procs() {
+  sjp_table=$(ps -A -o pid= -o ppid= -o lstart= -o args=) || return 1
+  printf '%s\n' "$sjp_table" | awk '
+    function base(s) { sub(/.*\//, "", s); return s }
+    NF >= 8 {
+      pid = $1; ppid = $2; start = $3 "-" $4 "-" $5 "-" $6 "-" $7
+      for (i = 8; i < NF; i++) {
+        if (base($i) == "fleet-streamjson.sh" && $(i + 1) == "_supervise" && i + 3 <= NF) {
+          sup[pid] = start "\t" $(i + 2) "\t" $(i + 3); order[++n] = pid
+          next
+        }
+      }
+      shape = 0; name = ""
+      for (i = 8; i < NF; i++) {
+        if (base($i) == "claude" && $(i + 1) == "-p") shape = 1
+        if (shape && $i == "--input-format" && $(i + 1) == "stream-json") shape = 2
+        if ($i == "--name") name = $(i + 1)
+      }
+      if (shape == 2 && name != "") { cl[pid] = start "\t" name "\t" ppid; corder[++m] = pid; parent[pid] = ppid }
+    }
+    END {
+      for (k = 1; k <= m; k++) { p = corder[k]; if (parent[p] in sup) kids[parent[p]] = kids[parent[p]] (kids[parent[p]] == "" ? "" : ",") p }
+      for (k = 1; k <= n; k++) { p = order[k]; print "S\t" p "\t" sup[p] "\t" (kids[p] == "" ? "-" : kids[p]) }
+      for (k = 1; k <= m; k++) { p = corder[k]; if (!(parent[p] in sup)) print "C\t" p "\t" cl[p] }
+    }'
+}
+
+# list_orphans: the orphans verb's rows.
+list_orphans() {
+  lo_procs=$(stream_json_procs) || mc_fail "cannot read the process table (ps -A -o pid= -o ppid= -o lstart= -o args=)"
+  printf '%s\n' "$lo_procs" | while IFS="	" read -r lo_kind lo_pid lo_start lo_worker lo_a lo_b; do
+    lo_why=''
+    case $lo_kind in
+      S)
+        if [ ! -d "$lo_a" ]; then
+          lo_why="its state directory $lo_a is gone"
+        elif [ -f "$lo_a/supervisor.pid" ] && lo_rec=$(head -n 1 "$lo_a/supervisor.pid" 2>/dev/null) \
+          && [ -n "$lo_rec" ] && [ "$lo_rec" != "$lo_pid" ]; then
+          lo_why="its state directory $lo_a records supervisor $lo_rec"
+        fi
+        ;;
+      C)
+        lo_why="no supervisor (its parent is pid $lo_a)"
+        [ -d "$FLEET_HOME/streamjson/$lo_worker" ] || lo_why="$lo_why; no fleet record names it under $FLEET_HOME"
+        ;;
+      *) continue ;;
+    esac
+    lo_cwd=$(proc_cwd "$lo_pid")
+    case $lo_cwd in
+      gone:*) lo_why="${lo_why:+$lo_why; }its working directory ${lo_cwd#gone:} is gone" ;;
+    esac
+    [ -n "$lo_why" ] || continue
+    [ "$lo_kind" != S ] || [ "$lo_b" = - ] || lo_why="$lo_why; worker pid $(printf '%s' "$lo_b" | sed 's/,/, /g')"
+    lo_role=supervisor
+    [ "$lo_kind" = S ] || lo_role=claude
+    printf 'orphan\t%s\t%s\t%s\t%s\t%s\n' "$lo_pid" "$lo_start" "$lo_role" \
+      "$(sanitize_printable "$lo_worker")" "$(sanitize_printable "$lo_why")"
+  done
+  return 0
+}
+
 PROGRAM='' NOW_RAW='' PANE_FILE='' NAME='' LOST_NAMES='' LOST_NEW='' LOST_NOW='' LOST_EVENT=-
 [ $# -ge 1 ] || usage
 verb=$1
@@ -623,6 +722,12 @@ case $verb in
     exit 0
     ;;
   classify | scan) ;;
+  orphans)
+    [ $# -eq 0 ] || usage
+    FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+    list_orphans
+    exit
+    ;;
   *) usage ;;
 esac
 while [ $# -gt 0 ]; do
