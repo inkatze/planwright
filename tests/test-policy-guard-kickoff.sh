@@ -935,7 +935,9 @@ done
 # section rename, an include, an editor or a word the shell may still expand;
 # any clone or init; an alias or other non-builtin git subcommand; a cd or
 # git -C target the guard cannot read; and a missing git -C directory in a
-# command with other segments (which may make it) all count as a filter set.
+# command with other segments (which may make it) all count as a filter set,
+# even when the segment that may set one comes after the stage (a loop or a
+# background job can run it first).
 for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --filt HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --batch --filters scripts/kickoff-spec-push.sh' \

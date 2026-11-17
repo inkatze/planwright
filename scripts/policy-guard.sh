@@ -1619,8 +1619,11 @@ tower_floor() {
 # later one runs; every segment is checked against the state as it is now, so
 # a reserved act after such a change cannot be checked and is refused.
 ST_CFG=0
-# A git command that may have set a filter program: a git config naming a
-# filter key, an include or an editor, a clone or init, or an alias.
+# A segment that may have set a filter program, or moved where git reads its
+# configuration: a git config naming a filter key, an include, an editor or a
+# word the shell may still expand; a clone or init; an alias; or a HOME or
+# XDG_CONFIG_HOME assigned or exported. Unlike the flags beside it, it is also
+# read once every segment is classified (kickoff_text_check).
 ST_FILT=0
 ST_REF=0
 ST_FETCH=0
@@ -1818,7 +1821,8 @@ kickoff_verb_class() {
 
 # kick_cfg_has <moved> <key-regexp> — 0 when a configured key matches, or when
 # the repository the command reads cannot be placed (<moved> is 1, or the
-# directory is unknown) or its configuration read, where one could be set.
+# directory is unknown) or its configuration cannot be read, where one could
+# be set.
 kick_cfg_has() {
   [ "$1" = 0 ] && [ "$KICK_DIR_OK" = 1 ] || return 0
   # Whatever may set a filter program (ST_FILT, another global configuration)
@@ -1867,7 +1871,8 @@ kick_cfg_matches() {
 
 # kickoff_git_reads — 0 when the segment is a git read or stage of its
 # arguments: no option but -C before the subcommand (a -c could set a pager or
-# helper to the script), and a subcommand that does not run its arguments.
+# helper to the script), a subcommand that does not run its arguments, and no
+# diff driver or filter program that may run on them.
 kickoff_git_reads() {
   local k=1 j w moved=0 noext=0 notext=0 patchy=0 colon=0 bare=0 filt=0 fdir=$KICK_DIR fok=$KICK_DIR_OK
   while [ "$k" -lt "${#SW[@]}" ]; do
@@ -1954,11 +1959,11 @@ kickoff_git_reads() {
             ;;
         esac
         # A filter program (filter.<driver>.clean, smudge or process) runs on
-        # the file's content when one of these stages, restores, compares,
-        # removes or blames it, and git ls-files runs it to find modified
-        # files. .gitattributes is not read: an attribute can come from a file
-        # the guard does not read, or be written earlier in the same command,
-        # so any configured filter counts.
+        # the file's content when one of these stages, commits, restores,
+        # compares, removes or blames it, and git ls-files runs it to find
+        # modified files. .gitattributes is not read: an attribute can come
+        # from a file the guard does not read, or be written earlier in the
+        # same command, so any configured filter counts.
         case ${SW[$k]} in
           add | status | diff | restore | rm | commit | blame | annotate) filt=1 ;;
           ls-files)
@@ -2416,7 +2421,8 @@ kickoff_head_moves() {
 # kickoff_text_check — every spelling of the kickoff push's name in the command
 # must be a run, or a mention that only reads, stages or prints it, in the
 # segments read above; a name in a redirect, a -c string or a quoted or
-# spelled-out form is refused.
+# spelled-out form is refused. A stage a filter program would run for is
+# refused here when any segment, in any order, may set one.
 kickoff_text_check() {
   kick_count "$P_CMD"
   [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
@@ -2426,7 +2432,7 @@ kickoff_text_check() {
   # A filter set after the stage in the text can still run first: a loop runs
   # its body before its next condition, and a background job runs beside it.
   [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
-    || deny_now "this command stages, compares or restores scripts/kickoff-spec-push.sh and also runs a git command that may set a filter program, which a loop or a background job can run before the stage, and a filter program runs on the script's content - refusing (fail closed). Run the configuration change as its own command."
+    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and also changes git configuration or where git reads it (a git config write, a clone, init or alias, or a HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
   [ "$KICK_INC_PASSED" = 0 ] || { [ "$ST_REF" = 0 ] && [ "$ST_CFG" = 0 ] && [ "$ST_HEAD" = 0 ]; } \
     || deny_now "this command stages, compares or restores scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes the branch, the remotes or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
 }
