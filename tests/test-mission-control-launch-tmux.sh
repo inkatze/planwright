@@ -41,6 +41,25 @@ pane_name=$(field name)
 pane_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
 grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux/argv-$pane_handle" && fail "a tmux ad-hoc session was handed a mission-control token" \
   || ok "a tmux session of another kind holds no mission-control token"
+# The row records the server the window was opened on, so the stall pass can
+# tell a lost server from windows closed one by one.
+pane_server=$(awk -F "$TAB" '$1 == "server" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
+[ "$pane_server" = 4242.1700000000 ] && ok "a tmux launch records its server's pid and start time in the row" \
+  || fail "the tmux row records server '$pane_server', not the stub server's 4242.1700000000"
+printf '%s\n' not-an-identity >"$tmp/tmux/server"
+ml launch --program alpha --kind ad-hoc --scope server-garbled --brief "$tmp/brief.md" --backend tmux
+rm -f "$tmp/tmux/server"
+# The rung refuses a window it cannot pin to a readable server, so no row
+# ever records a garbled identity.
+garbled_rows=$(grep -rl 'not-an-identity' "$fleet/mission-control/sessions" 2>/dev/null)
+case $RC:$ERR in
+  0:*) fail "a garbled server identity launched: $OUT" ;;
+  *'unusable window id'*'did not start'*)
+    [ -z "$garbled_rows" ] && ok "an unreadable server identity refuses the launch and no row records it" \
+      || fail "a row records the garbled server identity: $garbled_rows"
+    ;;
+  *) fail "a garbled server identity: exit $RC, not the unusable-window refusal: $ERR" ;;
+esac
 ml launch --program alpha --kind mission-control --scope tmux-token --brief "$tmp/brief.md" --backend tmux
 [ "$RC" = 0 ] || fail "the tmux mission-control launch exited $RC: $ERR"
 mt_warns=$(printf '%s\n' "$ERR" | grep -c 'overrides mission_control_launch_backend')

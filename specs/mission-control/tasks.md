@@ -10,6 +10,10 @@ carry the graph. Tasks 6, 12 and 14 are routed work (amendments to owner
 bundles, and pending notes for follow-on bundles) and depend on nothing
 here, so they can run first.
 
+Task 31 was delivered by PR #851, squash-merged without a
+`Planwright-Task:` trailer; the commit adding this paragraph carries the
+trailer so the status render counts the task complete.
+
 ## Tasks
 
 ### Task 1 — Program and duty catalog seams

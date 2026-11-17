@@ -67,7 +67,8 @@
 # ANSI-C quoting, shell comments, named-fd redirects — all of which defer
 # (REQ-A1.9). The segments are read in run order, so the state one sets applies to those after it: a `cd` into the
 # session's own worktree moves the working directory later segments are
-# checked against (see cd_target_ok), and the time/timeout prefixes are looked
+# checked against (see cd_target_ok; a read line led by `cd <dir>;` is held to
+# the scoped read mode instead, see scoped_read_ok), and the time/timeout prefixes are looked
 # through to the command they wrap (see strip_prefixes); fin decides where
 # state may carry. The expansions the analyzer resolves itself are a variable
 # the same command assigned a plain literal (`f=a.md && grep x $f`; see
@@ -92,6 +93,9 @@
 # the hook degrades to deferring everything (REQ-B1.2), never a hand-rolled JSON
 # parse and never a false-allow.
 set -u
+# The shared engine's own-environment switch: never on for a worker, and set
+# here rather than inherited.
+GUARD_OWN_ENVIRON=0
 # Whether the environment the hook inherited sets a CDPATH, read before the
 # unset below: a `cd` the shell could resolve through it is never approved.
 HOOK_CDPATH_SET=0
@@ -2401,7 +2405,8 @@ sed_script_safe() {
 # `-i`/`--in-place`, `-f`/`--file` (an unverifiable external script file), any
 # bundled short-flag token, and any unrecognized flag all defer; only the
 # enumerated safe standalone flags pass, and every inline script (a bare
-# operand, a `-e` value, or a `--expression=` value) must be read-only.
+# operand, or a `-e`, `--expression` or `--expression=` value) must be
+# read-only.
 guard_sed() {
   local i a expect_e=0 script_taken=0
   for ((i = 1; i < cwn; i++)); do
@@ -2413,7 +2418,7 @@ guard_sed() {
       continue
     fi
     case $a in
-      -e) expect_e=1 ;;
+      -e | --expression) expect_e=1 ;;
       --expression=*)
         zsh_opt_word_ok "$i" && sed_script_safe "${a#--expression=}" || return 1
         script_taken=1
@@ -2433,18 +2438,31 @@ guard_sed() {
 }
 
 # guard_sed_inplace: a bare `-i` / `--in-place` (no backup suffix), which
-# edits files, only under the own-branch arm. Without the `-i` word the
+# edits files, only under the own-branch arm, with every option ahead of
+# every operand. Without the `-i` word the
 # command must pass guard_sed, the read-only screen the tower guard shares;
 # every file must then be an existing regular file ob_path admits, and must
 # also read as a read-only script, since BSD sed takes the word after `-i` as
 # its suffix and so the first file as the script.
 guard_sed_inplace() {
-  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0
-  local -a words=() files=()
+  local i a inplace=0 expect_e=0 script_taken=0 nfiles=0 nn=0 operand=0 ddash=0
+  local -a words=() files=() nx=() nq=() nd=() ng=() nz=() nm=() ns=()
   ob_live || return 1
   for ((i = 0; i < cwn; i++)); do
     a=${cw[i]}
     if [ "$i" -gt 0 ] && [ "$expect_e" = 0 ]; then
+      # Every option must precede every operand and `--`: GNU sed reads an
+      # `-e` anywhere but takes every word after `--` as a file, so a bare
+      # word ahead of an `-e` would be a file this loop took for the script.
+      case $a in
+        --)
+          [ "$ddash$nfiles" = 00 ] || return 1
+          ddash=1
+          operand=1
+          ;;
+        -*) [ "$operand" = 0 ] || return 1 ;;
+        *) operand=1 ;;
+      esac
       case $a in
         -i | --in-place)
           inplace=1
@@ -2452,7 +2470,17 @@ guard_sed_inplace() {
           ;;
       esac
     fi
-    words[${#words[@]}]=$a
+    # Every per-word flag array drops the `-i` word with `cw`, so a screen
+    # guard_sed runs by index reads the word it names, not its neighbour.
+    words[nn]=$a
+    nx[nn]=${cx[i]}
+    nq[nn]=${cqp[i]}
+    nd[nn]=${cdyn[i]}
+    ng[nn]=${cglob[i]}
+    nz[nn]=${cz[i]-0}
+    nm[nn]=${cqm[i]}
+    ns[nn]=${csub[i]-}
+    nn=$((nn + 1))
     [ "$i" -gt 0 ] || continue
     if [ "$expect_e" = 1 ]; then
       expect_e=0
@@ -2462,6 +2490,9 @@ guard_sed_inplace() {
     case $a in
       -e) expect_e=1 ;;
       --expression=*) script_taken=1 ;;
+      # guard_sed accepts this form; the in-place arm defers it rather than
+      # count its value as a file.
+      --expression) return 1 ;;
       -*) ;;
       *)
         if [ "$script_taken" = 0 ]; then
@@ -2474,11 +2505,87 @@ guard_sed_inplace() {
     esac
   done
   [ "$inplace" = 1 ] && [ "$nfiles" -ge 1 ] || return 1
-  local -a cw=("${words[@]}")
-  local cwn=${#words[@]}
+  local -a cw=("${words[@]}") cx=("${nx[@]}") cqp=("${nq[@]}") cdyn=("${nd[@]}")
+  local -a cglob=("${ng[@]}") cz=("${nz[@]}") cqm=("${nm[@]}") csub=("${ns[@]}")
+  local cwn=$nn
   guard_sed || return 1
   for a in "${files[@]}"; do
-    sed_script_safe "$a" && ob_path "$a" exists && [ -f "$OB_PATH" ] || return 1
+    # Only a BSD sed reads the first word after a bare `-i` as its suffix, so
+    # the first file as the script; GNU sed takes the suffix attached and the
+    # next word as the script, so a file name is never read as one.
+    case $OSTYPE in
+      linux*) ;;
+      *) sed_script_safe "$a" || return 1 ;;
+    esac
+    ob_path "$a" exists && [ -f "$OB_PATH" ] || return 1
+  done
+  ob_mark write
+}
+
+# perl_subst_safe <program>: a lone `s/RE/REPL/FLAGS` whose text no perl
+# feature can turn into code: delimiter `/`, `|` or `#` that never recurs
+# inside the parts, no escaped delimiter, no braces (code blocks, `\x{..}`,
+# `@{[..]}`), no `(?`, no `@`, no backtick, `$` only before a digit in the
+# replacement or ending the pattern, flags from [gimsx] only (never `e`).
+perl_subst_safe() {
+  local p=$1 d re repl flags rest
+  case $p in
+    s/*) d=/ ;;
+    's|'*) d='|' ;;
+    's#'*) d='#' ;;
+    *) return 1 ;;
+  esac
+  rest=${p#s?}
+  re=${rest%%"$d"*}
+  [ "$re" != "$rest" ] || return 1
+  rest=${rest#*"$d"}
+  repl=${rest%%"$d"*}
+  [ "$repl" != "$rest" ] || return 1
+  flags=${rest#*"$d"}
+  case $flags in
+    *[!gimsx]*) return 1 ;;
+  esac
+  case $re$repl in
+    *[{}@\`]* | *'(?'* | *$'\n'*) return 1 ;;
+  esac
+  case $re$repl in
+    *\\) return 1 ;;
+  esac
+  case $re in
+    *\\"$d"* | *\\) return 1 ;;
+    *'$'*) [[ $re == *'$' && ${re%\$} != *'$'* ]] || return 1 ;;
+  esac
+  case $repl in
+    *\\"$d"* | *\\) return 1 ;;
+  esac
+  local t=$repl
+  while [ "${t#*'$'}" != "$t" ]; do
+    t=${t#*'$'}
+    case $t in
+      [0-9]*) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_perl_inplace: `perl -pi -e <s///> <file>...` (or `-i -pe`), only under
+# the own-branch arm, a bare `-i` (a suffix would back up beside the file),
+# one substitution from perl_subst_safe, and every file an existing regular
+# file ob_path admits.
+guard_perl_inplace() {
+  local i prog n=$cwn
+  ob_live || return 1
+  case "${cw[1]-} ${cw[2]-}" in
+    '-pi -e' | '-i -pe') ;;
+    *) return 1 ;;
+  esac
+  [ "$n" -ge 5 ] || return 1
+  prog=${cw[3]}
+  [ "${cdyn[3]}" = 0 ] && [ "${cglob[3]}" = 0 ] || return 1
+  perl_subst_safe "$prog" || return 1
+  for ((i = 4; i < n; i++)); do
+    ob_path "${cw[i]}" exists && [ -f "$OB_PATH" ] || return 1
   done
   ob_mark write
 }
@@ -2819,19 +2926,27 @@ guard_jq() {
   return 0
 }
 
-# guard_env: bare `env` only. With NO operand, env prints the environment and
-# runs nothing; with one, it is an EXEC vector (`env VAR=x cmd`, `env -i cmd`,
-# `env -S '…'`), and since `-u`/`-C`/`-S` take values, "is this operand a
-# command" cannot be decided from the token shape alone. Requiring the bare form
-# sidesteps that entirely.
-#
-# Printing the environment exposes whatever secrets the worker's environment
-# carries, but it opens no new class: `echo` is already unguarded on this list,
-# so `echo $GH_TOKEN` is already approved. The awk screen's separate `ENVIRON`
-# reject is NOT the same call — there the environment read sits inside program
-# text whose use of the value the guard cannot see at all.
+# guard_env: `env` never auto-approves. Bare, it prints the whole environment,
+# whatever credentials the worker's session carries; with an operand it is an
+# EXEC vector (`env VAR=x cmd`, `env -i cmd`, `env -S '…'`). `env --version`
+# is approved earlier, as a version probe.
 guard_env() {
-  [ "$cwn" -eq 1 ]
+  return 1
+}
+
+# guard_printenv: `printenv NAME…` with names only, none credential-named:
+# the same read as `echo $VAR`. Bare, or with a flag, it prints every variable.
+guard_printenv() {
+  local i
+  [ "$cwn" -ge 2 ] || return 1
+  for ((i = 1; i < cwn; i++)); do
+    case ${cw[i]} in
+      # An operand the tracker could not resolve may name any variable.
+      -* | '' | *[\$\`]*) return 1 ;;
+    esac
+    ! secret_var_name "${cw[i]}" || return 1
+  done
+  return 0
 }
 
 # guard_sleep: `sleep <duration>…`, numeric durations only, within the cap.
@@ -3252,6 +3367,10 @@ guard_date() {
     a=${cw[i]}
     case $a in
       -s | -s* | --set | --set=*) return 1 ;;
+      # `-f FILE` echoes every line it cannot parse; short options bundle and
+      # long ones abbreviate.
+      -I*) ;;
+      -[fs]* | -[a-zA-Z]*[fs]* | --f*) return 1 ;;
     esac
   done
   return 0
@@ -3378,6 +3497,33 @@ guard_mise() {
   return 0
 }
 
+# gh_jq_ok: 0 unless a jq filter or Go template (`--jq`, `-q`, `--template`,
+# `-t`) mentions `env`: gojq's `env` and `$ENV` print the worker's
+# environment, tokens included, through any read verb that takes the flag. A
+# short word holding q or t is screened whole, since an attached value can
+# itself end in q or t (`-qenv|test`); one ending in q or t may also hand its
+# value to the next word, so that word is screened too.
+gh_jq_ok() {
+  local i jqv=0
+  for ((i = 2; i < cwn; i++)); do
+    if [ "$jqv" = 1 ]; then
+      ci_has "${cw[i]}" '*env*' && return 1
+      jqv=0
+    fi
+    case ${cw[i]} in
+      --jq | --template) jqv=1 ;;
+      --jq=* | --template=*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+      -[qt]* | -[!-]*[qt]*)
+        ci_has "${cw[i]}" '*env*' && return 1
+        case ${cw[i]} in
+          *[qt]) jqv=1 ;;
+        esac
+        ;;
+    esac
+  done
+  return 0
+}
+
 # gh_no_web: 0 unless a `--web`/`-w` flag is present. These read verbs print
 # to stdout, but `--web` instead launches $BROWSER — an inherited BROWSER is an
 # arbitrary program, and a headless opener stalls the worker. Raised by the
@@ -3455,6 +3601,9 @@ guard_gh() {
   esac
   local i g=${cw[1]-} s=${cw[2]-}
   case $g in
+    api | pr | issue | run | release | repo | search | auth) gh_jq_ok || return 1 ;;
+  esac
+  case $g in
     release)
       case $s in
         view | list) gh_release_ok || return 1 ;;
@@ -3483,10 +3632,36 @@ guard_gh() {
       # switches the request to POST as soon as one `-f`/`-F`/`--field`/
       # `--raw-field` is present, so a field flag is a write in disguise even
       # with no `-X`.
+      # A method-override header makes the server treat the GET as a write,
+      # and `--hostname` sends the request, token included, to another host:
+      # both defer, and so does a header value the guard cannot read.
+      # A full URL may name another host.
+      local hdr=0
       for ((i = 2; i < cwn; i++)); do
+        ci_has "${cw[i]}" '*method-override*' '*x-http-method*' '*x-method*' '*://*' && return 1
+        if [ "$hdr" = 1 ]; then
+          case ${cw[i]} in
+            *'$'*) return 1 ;;
+          esac
+          hdr=0
+        fi
+        case ${cw[i]} in
+          --header=*'$'* | -H*'$'*) return 1 ;;
+          --header | -*H) hdr=1 ;;
+        esac
         case ${cw[i]} in
           --) break ;; # end of flags: what follows is the endpoint
-          --method | --method=* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
+          --hostname | --hostname=*) return 1 ;;
+          # An explicit GET is the default spelled out. The value must be the
+          # next literal word, so a `-X`/`--method` with anything else (or
+          # nothing) stays a write.
+          --method=GET | -XGET) continue ;;
+          -X | --method)
+            [ "$((i + 1))" -lt "$cwn" ] && [ "${cw[i + 1]}" = GET ] && [ "${cqp[i + 1]}" -lt 0 ] || return 1
+            i=$((i + 1))
+            continue
+            ;;
+          --method=* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
           --input | --input=*) return 1 ;;
           --*) ;;
           # gh uses pflag, which bundles short flags, so a write flag can ride
@@ -3499,11 +3674,25 @@ guard_gh() {
       done
       return 0
       ;;
+    search)
+      case $s in
+        code | issues | prs) gh_no_web || return 1 ;;
+        *) return 1 ;;
+      esac
+      return 0
+      ;;
     auth)
-      [ "$s" = status ] && return 0 || return 1
+      [ "$s" = status ] || return 1
+      # `--show-token` / `-t` prints the token.
+      for ((i = 3; i < cwn; i++)); do
+        case ${cw[i]} in
+          --show* | -t* | -[!-]*t*) return 1 ;;
+        esac
+      done
+      return 0
       ;;
     repo)
-      [ "$s" = view ] && return 0 || return 1
+      [ "$s" = view ] && gh_no_web && return 0 || return 1
       ;;
     *) return 1 ;;
   esac
@@ -3548,9 +3737,37 @@ guard_git() {
       # configured driver (external-diff, textconv, or smudge/clean filter).
       for ((i = subidx + 1; i < cwn; i++)); do
         case ${cw[i]} in
-          -o | --output | --output=* | --output-directory | --output-directory=*) return 1 ;;
-          -O | -O* | --open-files-in-pager | --open-files-in-pager=*) return 1 ;;
-          --ext-diff | --textconv | --filters) return 1 ;;
+          # git takes any unambiguous prefix of a long option (`--out=`).
+          -o | --ou* | -O | -O* | --op*) return 1 ;;
+          --ext* | --textc* | --filters) return 1 ;;
+          # Content from outside the repository: any file (`diff --no-index`,
+          # `blame --contents`), and a list read from a named file
+          # (`--orderfile`, `ls-files -X`).
+          --no-i* | --or* | --exclude-f* | --exclude-p*) return 1 ;;
+        esac
+        case $sub in
+          ls-files)
+            case ${cw[i]} in
+              -X* | -[!-]*X*) return 1 ;;
+            esac
+            ;;
+          blame)
+            case ${cw[i]} in
+              --con* | --ignore-revs* | -S* | -[!-]*S*) return 1 ;;
+            esac
+            ;;
+          # Patterns read from a file: `-f`, alone or in a cluster.
+          grep)
+            case ${cw[i]} in
+              -f* | -[!-]*f*) return 1 ;;
+            esac
+            ;;
+          # Two paths, one outside the work tree, are an implicit --no-index.
+          diff)
+            case ${cw[i]} in
+              /* | \~* | .. | ../* | */../* | */..) return 1 ;;
+            esac
+            ;;
         esac
       done
       return 0
@@ -3579,6 +3796,8 @@ guard_git() {
         case $a in
           --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
           --add | --unset | --unset-all | --replace-all | --rename-section | --remove-section | -e | --edit | --set) writes=1 ;;
+          # Another file parsed as config prints its `key = value` lines.
+          -f* | --fil* | --bl*) return 1 ;;
           -*) ;; # scope/format flags (--global/--type/…) are read-safe
           *) positional=$((positional + 1)) ;;
         esac
@@ -4155,15 +4374,15 @@ opener_word_risky() {
 
 # Other processes' environments. /proc/<pid>/environ holds another
 # process's environment (credentials included), and /proc/<pid>/mem its
-# memory; only the reading process's own environ, through /proc/self or
-# /proc/thread-self, stays readable. A redirect source, or a word of a verb
+# memory; the reading process's own environ is the worker's environment
+# and defers with them. A redirect source, or a word of a verb
 # that opens its operands, whose last component is `environ` or `mem`
 # defers, since a `..`, /dev/fd, or a symlink can reach /proc from any
 # directory. So does a glob whose last component could match either, unless
 # its directory exists and canonicalizes outside /proc.
 
-# environ_word_risky <word> <globs>: 0 when the word could name another
-# process's environ or mem file.
+# environ_word_risky <word> <globs>: 0 when the word could name a secret
+# (secret_word_risky), or any process's environ or mem file.
 environ_word_risky() {
   local w=$1 last dir canon
   # `//proc` names /proc to the kernel, and bash's `cd -P` keeps the two
@@ -4171,11 +4390,13 @@ environ_word_risky() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
-  if [ "$2" = 0 ]; then
+  # The tower still reads its own environment; a worker defers.
+  if [ "$2" = 0 ] && [ "$GUARD_OWN_ENVIRON" = 1 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 1 ;;
     esac
   fi
+  secret_word_risky "$w" "$2" && return 0
   last=${w##*/}
   # `mem` holds the whole process's memory, its environment included.
   case $last in
@@ -4225,6 +4446,662 @@ environ_word_risky() {
   return 1
 }
 
+# Secret-bearing locations. Credentials live in a handful of home-directory
+# dotfiles and system files, and a file descriptor or process memory can hand
+# the reader whatever the worker's own process holds, so a reader meeting any
+# of them defers in every spelling: absolute, relative to the tracked cwd,
+# `~`, `$HOME`, repeated slashes, `..`, a symlinked directory or final
+# component, and a glob that could match one. Home-directory names are matched
+# as path components, so they hold for any account's home.
+
+# secret_lexical <path>: 0 when the path, read as written, names a secret.
+secret_lexical() {
+  local s=$1 had=1 hit=1
+  case $s in
+    /*) ;;
+    *) s=/$s ;;
+  esac
+  s=$s/
+  # A case-insensitive volume (macOS's default) opens `~/.SSH` as `~/.ssh`.
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  case $s in
+    */.ssh/* | */.gnupg/* | */.aws/* | */.netrc/* | */.npmrc/* | */.pypirc/* | */.git-credentials/* | \
+      */.kube/* | */.azure/* | */.password-store/* | */.docker/* | */.dockercfg/* | \
+      */.pgpass/* | */.my.cnf/* | */.s3cfg/* | */.boto/* | */.oci/* | */.m2/settings*.xml/* | \
+      */.composer/auth.json/* | */.config/composer/auth.json/* | */.config/containers/auth.json/* | \
+      */.local/share/keyrings/* | */Library/Keychains/* | \
+      */.config/gh/* | */.config/hub/* | */.config/op/* | */.config/gcloud/* | */.config/git/credentials/* | \
+      */.config/rclone/* | */.config/doctl/* | */.config/glab-cli/* | */.config/github-copilot/* | \
+      */.cargo/credentials* | */.gem/credentials/* | \
+      */.terraform.d/credentials* | */.vault-token/* | \
+      */.claude/.credentials* | */.claude.json/*) hit=0 ;;
+  esac
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  [ "$hit" -ne 0 ] || return 0
+  case $s in
+    /etc/letsencrypt/* | /etc/NetworkManager/system-connections/* | /etc/wireguard/* | /etc/pki/tls/private/* | \
+      /etc/master.passwd/* | /private/etc/master.passwd/* | *.keytab/*) return 0 ;;
+    /etc/shadow/* | /etc/gshadow/* | /etc/shadow-/* | /etc/gshadow-/* | /etc/ssh/ssh_host_*_key/* | /etc/sudoers/* | /etc/sudoers.d/* | /etc/ssl/private/*) return 0 ;;
+    # macOS keeps /etc under /private, which a resolved path reports.
+    /private/etc/shadow/* | /private/etc/gshadow/* | /private/etc/ssh/ssh_host_*_key/* | /private/etc/sudoers/* | /private/etc/sudoers.d/* | /private/etc/ssl/private/*) return 0 ;;
+    /proc/*/?* | /dev/fd/* | /dev/stdin/*) return 0 ;;
+    # Container and service secrets, and Debian's shadow backups.
+    /run/secrets/* | /var/run/secrets/* | /private/var/run/secrets/* | /run/credentials/* | /var/backups/*shadow* | /run/user/*/containers/auth.json/*) return 0 ;;
+  esac
+  return 1
+}
+
+# secret_glob <absolute-word>: 0 when a word with pattern characters could
+# match a secret: a literal sample of each system file, or a component that
+# starts with a dot and could match a secret directory name. Braces and zsh's
+# pattern operators defer when the word names a system directory or a dotted
+# component, since they are not matched here.
+secret_glob() {
+  secret_glob_word "$1" && return 0
+  # The word as written misses the samples when it has `.`, `..` or repeated
+  # slashes, so its lexical form is tested too.
+  lexical_path "$1"
+  [ "$LEX" != "$1" ] || return 1
+  secret_glob_word "$LEX"
+}
+
+# lexical_path <absolute-path>: the path with `.`, `..` and repeated slashes
+# resolved as text, `..` clamped at the root, left in LEX. Split by parameter
+# expansion, not `IFS=/ read`: macOS's bash 3.2 mis-splits that one-shot form
+# while a caller has IFS empty.
+lexical_path() {
+  local rest=$1/ comp
+  LEX=''
+  while [ -n "$rest" ]; do
+    comp=${rest%%/*}
+    rest=${rest#*/}
+    case $comp in
+      '' | .) ;;
+      ..) LEX=${LEX%/*} ;;
+      *) LEX=$LEX/$comp ;;
+    esac
+  done
+  [ -n "$LEX" ] || LEX=/
+}
+
+secret_glob_word() {
+  local w=$1 s c n IFS=/
+  local -a parts
+  case $w in
+    *[\{^#~]*)
+      case $w in
+        /etc* | /proc* | /dev* | */.* | *[\{,]\.*) return 0 ;;
+      esac
+      ;;
+  esac
+  case $w in
+    /proc/*/?*) return 0 ;;
+  esac
+  # A pattern in the top directory's name (`/pro[c]`, `/e?c`) could be any
+  # system root.
+  c=${w#/}
+  c=${c%%/*}
+  case $c in
+    *[*?[]*)
+      for n in proc etc dev run var root home Users private; do
+        # shellcheck disable=SC2053
+        [[ $n == $c ]] && return 0
+      done
+      ;;
+  esac
+  for s in /etc/shadow /etc/gshadow /etc/shadow- /etc/gshadow- /etc/sudoers /etc/ssl/private/k.pem /proc/1/mem /dev/fd/0 /dev/stdin \
+    /etc/ssh/ssh_host_rsa_key /etc/ssh/ssh_host_ed25519_key \
+    /run/secrets/x /var/run/secrets/x /run/credentials/x /var/backups/shadow.bak /var/backups/gshadow.bak /run/user/0/containers/auth.json; do
+    # shellcheck disable=SC2053 # the operand is the pattern under test
+    [[ $s == $w ]] && return 0
+  done
+  read -r -a parts <<<"$w"
+  for c in ${parts[@]+"${parts[@]}"}; do
+    case $c in
+      .*[*?[]*)
+        for n in .ssh .gnupg .aws .netrc .npmrc .pypirc .git-credentials .kube .azure .password-store .claude.json \
+          .docker .dockercfg .pgpass .my.cnf .s3cfg .boto .oci .vault-token; do
+          # shellcheck disable=SC2053
+          [[ $n == $c ]] && return 0
+        done
+        ;;
+    esac
+  done
+  return 1
+}
+
+# secret_home_glob <home-relative-pattern>: 0 when a pattern read from some
+# account's home (`~name/…`, `~+/…`, `~-/…`, whose home this guard cannot
+# expand) could match a well-known credential file, ignoring case as
+# secret_lexical does.
+secret_home_glob() {
+  local s had=1 hit=1
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  for s in /.ssh/id_rsa /.gnupg/pubring.kbx /.aws/credentials /.netrc /.npmrc /.git-credentials /.kube/config /.docker/config.json \
+    /.config/gh/hosts.yml /.config/gcloud/credentials.db /.config/op/config /.config/rclone/rclone.conf /.config/containers/auth.json \
+    /.config/git/credentials /.local/share/keyrings/login.keyring /.cargo/credentials.toml /.claude/.credentials.json \
+    /.pypirc /.azure/accessTokens.json /.password-store/x.gpg /.dockercfg /.pgpass /.my.cnf /.s3cfg /.boto /.oci/config \
+    /.m2/settings.xml /.composer/auth.json /.config/composer/auth.json /Library/Keychains/login.keychain-db /.config/hub/config \
+    /.config/doctl/config.yaml /.config/glab-cli/config.yml /.config/github-copilot/hosts.json /.gem/credentials \
+    /.terraform.d/credentials.tfrc.json /.vault-token /.claude.json; do
+    # shellcheck disable=SC2053 # the operand is the pattern under test
+    if [[ $s == $1 ]]; then
+      hit=0
+      break
+    fi
+  done
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  return "$hit"
+}
+
+# secret_word_risky <word> <globs>: 0 when the word, or the value an
+# `--option=value` word carries, could name a secret. The word has its
+# repeated slashes collapsed already.
+secret_word_risky() {
+  local w=$1
+  secret_path_risky "$w" "$2" && return 0
+  case $w in
+    -*=*) secret_path_risky "${w#*=}" "$2" && return 0 ;;
+    # A short option's attached operand (`-f/etc/shadow`, `-nf~/.ssh/k`).
+    -[!-]*[/~]*)
+      secret_path_risky "${w:2}" "$2" && return 0
+      case $w in
+        */*) secret_path_risky "/${w#*/}" "$2" && return 0 ;;
+      esac
+      case $w in
+        *\~*) secret_path_risky "~${w#*\~}" "$2" && return 0 ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+# secret_path_risky <path> <globs>: the path as written, then resolved from
+# the tracked cwd through its directory's canonical form and, for a symlink,
+# its target.
+secret_path_risky() {
+  local p=$1 abs dir last tgt link hop=0
+  case $p in
+    '~'*)
+      case $p in
+        */*) p=/${p#*/} ;;
+        *) return 1 ;;
+      esac
+      ;;
+    "\$HOME"/* | "\${HOME}"/*) p=/${p#*/} ;;
+  esac
+  secret_lexical "$p" && return 0
+  case $p in
+    /*) abs=$p ;;
+    *) abs=$HOOK_CWD/$p ;;
+  esac
+  while [ "${abs%/}" != "$abs" ] && [ "$abs" != / ]; do
+    abs=${abs%/}
+  done
+  if [ "$2" = 1 ]; then
+    # Braces and zsh operators are not expanded here: one that can leave the
+    # tracked cwd (an absolute word, a `..`) is not followed.
+    case $p in
+      *[\{^#~]*)
+        case $p in
+          /* | *..*) return 0 ;;
+        esac
+        ;;
+    esac
+    secret_glob "$abs" && return 0
+    case $1 in
+      '~'/*) ;;
+      # Another account's home, or `~+`/`~-`: no home to expand it against.
+      '~'?*/*)
+        case $p in
+          *..*) return 0 ;;
+        esac
+        secret_home_glob "$p" && return 0
+        ;;
+    esac
+    # The lexical tests read a home-relative word from `/`; its matches come
+    # from the home itself.
+    case $1 in
+      '~'/* | "\$HOME"/* | "\${HOME}"/*)
+        [ -n "$HOME" ] || return 0
+        glob_any_risky secret "$HOME$p"
+        return
+        ;;
+    esac
+    glob_any_risky secret "$abs"
+    return
+  fi
+  secret_lexical "$abs" && return 0
+  last=${abs##*/}
+  dir=${abs%/*}
+  [ -n "$dir" ] || dir=/
+  canon_dir_cached "$dir"
+  [ -n "$CANON" ] || return 1
+  case $CANON in
+    /) tgt=/$last ;;
+    *) tgt=$CANON/$last ;;
+  esac
+  secret_lexical "$tgt" && return 0
+  # A symlink chain followed link by link (`readlink -f` is GNU-only); one
+  # that loops or cannot be read defers.
+  while [ -L "$tgt" ]; do
+    hop=$((hop + 1))
+    [ "$hop" -le 16 ] || return 0
+    link=$(readlink -- "$tgt") || return 0
+    case $link in
+      /*) ;;
+      *) link=${tgt%/*}/$link ;;
+    esac
+    secret_lexical "$link" && return 0
+    dir=${link%/*}
+    [ -n "$dir" ] || dir=/
+    canon_dir_cached "$dir"
+    [ -n "$CANON" ] || return 1
+    tgt=${CANON%/}/${link##*/}
+    secret_lexical "$tgt" && return 0
+  done
+  return 1
+}
+
+# glob_any_risky <secret|broad> <absolute-pattern>: expands the pattern as the
+# shell would and screens every match as a plain path, so a pattern that
+# reaches a secret through `..`, a symlink or a glob in a system directory's
+# name (`/pro[c]`) is caught. More matches than are screened defer.
+glob_any_risky() {
+  local kind=$1 pat=$2 m n=0 IFS='' had_null=0 noglob=0
+  local -a ms
+  shopt -q nullglob && had_null=1
+  case $- in *f*) noglob=1 ;; esac
+  set +f
+  shopt -s nullglob
+  # shellcheck disable=SC2206 # the expansion is the point; IFS is empty
+  ms=($pat)
+  [ "$had_null" = 1 ] || shopt -u nullglob
+  [ "$noglob" = 0 ] || set -f
+  # The screens below assume the default IFS.
+  IFS=$' \t\n'
+  for m in ${ms[@]+"${ms[@]}"}; do
+    n=$((n + 1))
+    [ "$n" -le 2048 ] || return 0
+    case $kind in
+      secret) secret_path_risky "$m" 0 && return 0 ;;
+      *) broad_path_risky "$m" && return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# lists_operands <verb>: the verbs that print the names inside a directory
+# operand. A listing of a secret-bearing directory names the key files, so
+# they meet the secret screen too, though not the environ one. `date` joins
+# them: `-r FILE` and `--reference=FILE` report a file's modification time.
+lists_operands() {
+  case $1 in
+    ls | find | fd | date) return 0 ;;
+  esac
+  return 1
+}
+
+# secret_words_ok: no word of the current simple command could name a secret.
+secret_words_ok() {
+  local i g w
+  for ((i = 0; i < cwn; i++)); do
+    g=${cglob[i]}
+    [ "${cz[i]-0}" = 0 ] || g=1
+    w=${cw[i]}
+    while [ "${w#*//}" != "$w" ]; do
+      w=${w//\/\//\/}
+    done
+    secret_word_risky "$w" "$g" && return 1
+  done
+  return 0
+}
+
+# recursive_reader: the current simple command reads, or lists, everything
+# under its directory operands: `find`, `fd`, `tree` and `rg` always, `grep`
+# and `diff` with a recursive flag, `ls -R`.
+recursive_reader() {
+  local i w
+  case ${cw[0]} in
+    find | fd | tree | rg) return 0 ;;
+    grep | egrep | fgrep | diff | ls | file)
+      for ((i = 1; i < cwn; i++)); do
+        w=${cw[i]}
+        case $w in
+          # grep abbreviates a long option to any unambiguous prefix.
+          --rec* | --der* | --dir*=rec* | --dir | --dire | --direc | --direct | --directo | --director | --directories) return 0 ;;
+          --*) ;;
+          -d) return 0 ;;
+          -*[rRd]*) return 0 ;;
+        esac
+      done
+      ;;
+  esac
+  return 1
+}
+
+# broad_dir <absolute-dir>: a directory that holds secret-bearing locations
+# below it, so a recursive read of it reaches them: the filesystem and system
+# roots, every home directory, the account's own home, the parents of the
+# credential directories, and a secret location itself.
+broad_dir() {
+  local x=$1 had=1 hit=1
+  # Matched ignoring case, as secret_lexical is (`~/.CONFIG` on macOS).
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  case $x in
+    / | /etc | /etc/ssh | /etc/ssl | /etc/sudoers.d | /root | /home | /Users | /private | /private/etc | /proc | /proc/* | /dev | /dev/*) hit=0 ;;
+    # Runtime secrets, backups, and mounted volumes (another system's homes).
+    # Only a volume's root: a worktree may live further down one.
+    /run | /run/user | /run/user/* | /var | /var/run | /var/lib | /var/lib/* | /var/backups | /private/var | /private/var/run | /mnt | /media | /srv | /Volumes) hit=0 ;;
+    /mnt/*/* | /media/*/* | /Volumes/*/*) ;;
+    /mnt/* | /media/* | /Volumes/*) hit=0 ;;
+    /root/.claude | /root/.config | /home/*/.claude | /home/*/.config | /Users/*/.claude | /Users/*/.config) hit=0 ;;
+    /home/*/* | /Users/*/*) ;;
+    /home/* | /Users/*) hit=0 ;;
+  esac
+  if [ "$hit" -ne 0 ] && [ -n "$HOME" ]; then
+    case $x in
+      "$HOME" | "$HOME/.claude" | "$HOME/.config") hit=0 ;;
+    esac
+  fi
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  [ "$hit" -ne 0 ] || return 0
+  secret_lexical "$x"
+}
+
+# broad_canon <canonical-dir>: broad_dir, or the account's own home as its
+# canonical path (macOS's /tmp is /private/tmp).
+broad_canon() {
+  broad_dir "$1" && return 0
+  canon_dir_cached "$HOME"
+  if [ -n "$CANON" ]; then
+    case $1 in
+      "$CANON" | "$CANON/.claude" | "$CANON/.config") return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+# broad_path_risky <word>: the operand names a directory broad_dir flags,
+# written as is, through `~` or `$HOME`, with dot components, or through a
+# symlink.
+broad_path_risky() {
+  local p=$1 abs out root
+  while [ "${p#*//}" != "$p" ]; do
+    p=${p//\/\//\/}
+  done
+  case $p in
+    \~ | \~/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\~}
+      ;;
+    \$HOME | \$HOME/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\$HOME}
+      ;;
+    \$\{HOME\} | \$\{HOME\}/*)
+      [ -n "$HOME" ] || return 0
+      p=$HOME${p#\$\{HOME\}}
+      ;;
+    \~*) return 0 ;;
+  esac
+  case $p in
+    /*) abs=$p ;;
+    *) abs=$HOOK_CWD/$p ;;
+  esac
+  # A `..` after a symlink climbs from the link's target, not from the link.
+  case $abs in
+    */.. | */../*)
+      canon_dir_cached "$abs"
+      if [ -n "$CANON" ]; then
+        broad_path_risky "$CANON" && return 0
+      fi
+      ;;
+  esac
+  lexical_path "$abs"
+  out=$LEX
+  broad_dir "$out" && return 0
+  canon_dir_cached "$out"
+  out=$CANON
+  [ -n "$out" ] || return 1
+  broad_canon "$out" && return 0
+  # A parent of the worktree holds its siblings and, further up, the home.
+  # The payload's cwd names the worktree while HOOK_CWD follows a cd out of it.
+  root=$(repo_root_of "${HOOK_PAYLOAD_CWD:-$HOOK_CWD}") || return 0
+  [ "$out" != "$root" ] || return 1
+  case $root/ in
+    "$out"/*) return 0 ;;
+  esac
+  return 1
+}
+
+# broad_glob_risky <word>: a recursive operand with a pattern or brace: the
+# directory before the first pattern character is what is checked, and any
+# alternative that could leave it (`~`, `$`, `..`, an absolute path) defers.
+broad_glob_risky() {
+  local w=$1 lit dir
+  while [ "${w#*//}" != "$w" ]; do
+    w=${w//\/\//\/}
+  done
+  case $w in
+    *..* | *\$* | *\~* | *,/* | *\{/*) return 0 ;;
+  esac
+  lit=${w%%[\*\?\[\{]*}
+  case $lit in
+    */*) dir=${lit%/*} ;;
+    *) dir=. ;;
+  esac
+  [ -n "$dir" ] || dir=/
+  broad_path_risky "$dir" && return 0
+  case $w in
+    *[\{^#]*) return 1 ;;
+    /*) glob_any_risky broad "$w" ;;
+    *) glob_any_risky broad "$HOOK_CWD/$w" ;;
+  esac
+}
+
+# broad_words_ok: no operand of the current recursive reader names a broad
+# directory.
+broad_words_ok() {
+  local i
+  for ((i = 1; i < cwn; i++)); do
+    case ${cw[i]} in
+      # An option's attached directory (`--search-path=`, `--from-file=`).
+      -*=?*)
+        broad_path_risky "${cw[i]#*=}" && return 1
+        continue
+        ;;
+      -*) continue ;;
+    esac
+    # A variable the tracker could not resolve may name any directory; a
+    # word carrying substitution output is subst_reach_ok's to judge.
+    case ${cw[i]} in
+      *[\$\`]*)
+        if word_unresolved "${cw[i]}" "${cdyn[i]}" 0 "${cx[i]}"; then
+          word_tainted "$i" && [ "${TAINT_WEAK:-0}" = 0 ] || return 1
+        fi
+        ;;
+    esac
+    if [ "${cglob[i]}" != 0 ] || [ "${cz[i]-0}" != 0 ]; then
+      broad_glob_risky "${cw[i]}" && return 1
+    fi
+    broad_path_risky "${cw[i]}" && return 1
+  done
+  return 0
+}
+
+# link_follower: the current simple command follows a symbolic link it meets
+# inside a tree it reads recursively: `grep -R`, `rg -L`/`--follow`, and
+# `diff -r` (grep and ripgrep follow only a command-line link otherwise).
+link_follower() {
+  local i w
+  for ((i = 1; i < cwn; i++)); do
+    w=${cw[i]}
+    case ${cw[0]} in
+      grep | egrep | fgrep)
+        case $w in
+          --der*) return 0 ;;
+          --*) ;;
+          -*R*) return 0 ;;
+        esac
+        ;;
+      rg)
+        case $w in
+          --fo*) return 0 ;;
+          --*) ;;
+          -*L*) return 0 ;;
+        esac
+        ;;
+      # A directory pair compares same-named files through links, recursive or not.
+      diff) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# follow_links_ok: no symbolic link inside a directory operand of a
+# link_follower leads to a secret or a broad directory. Links met under a
+# linked directory are followed too, up to a few directories. diff reads a
+# linked file only against the same name in its other tree, so only a link
+# with a counterpart there counts. A glob operand, or more links than are
+# screened, defers; with no directory operand the reader scans the cwd.
+follow_links_ok() {
+  local i w d other rel l n=0 qi=0 k canon diff=0 rec=0 miss=0
+  local -a dirs=() queue=()
+  [ "${cw[0]}" != diff ] || diff=1
+  for ((i = 1; i < cwn; i++)); do
+    w=${cw[i]}
+    case $w in
+      --rec*) rec=1 ;;
+      # An absent file read as empty prints the other side's link target, and
+      # a --from-file or --to-file tree is paired with every other operand.
+      --new* | --unid*) miss=1 ;;
+      --from-file=* | --to-file=*)
+        miss=1
+        w=${w#*=}
+        ;;
+      --from-file | --to-file) miss=1 ;;
+      --*) ;;
+      -*)
+        case $w in *r*) rec=1 ;; esac
+        case $w in *[NP]*) miss=1 ;; esac
+        ;;
+    esac
+    case $w in -*) continue ;; esac
+    [ "${cglob[i]}" = 0 ] && [ "${cz[i]-0}" = 0 ] || return 1
+    case $w in
+      /*) d=$w ;;
+      *) d=$HOOK_CWD/$w ;;
+    esac
+    if [ -d "$d" ]; then
+      dirs[${#dirs[@]}]=$d
+    fi
+  done
+  # A plain diff reads no link unless a directory operand holds one.
+  [ "$diff" = 0 ] || [ "$rec" = 1 ] || [ "${#dirs[@]}" -gt 0 ] || return 0
+  [ "${#dirs[@]}" -gt 0 ] || dirs[0]=$HOOK_CWD
+  # Names are paired only for exactly two trees and no flag that reads a
+  # missing counterpart as empty; otherwise every link counts.
+  { [ "${#dirs[@]}" -eq 2 ] && [ "$miss" = 0 ]; } || diff=0
+  queue=("${dirs[@]}")
+  while [ "$qi" -lt "${#queue[@]}" ]; do
+    d=${queue[qi]}
+    other=''
+    # A tree reached through a link has no counterpart to pair against.
+    if [ "$diff" = 1 ] && [ "$qi" -lt 2 ]; then
+      [ "$qi" -ne 0 ] && other=${dirs[0]} || other=${dirs[1]}
+    fi
+    qi=$((qi + 1))
+    while IFS= read -r -d '' l; do
+      n=$((n + 1))
+      [ "$n" -le 512 ] || return 1
+      if [ -n "$other" ]; then
+        rel=${l#"${d%/}"/}
+        [ -e "$other/$rel" ] || [ -L "$other/$rel" ] || continue
+      fi
+      secret_path_risky "$l" 0 && return 1
+      broad_path_risky "$l" && return 1
+      if [ -d "$l" ]; then
+        canon_dir_cached "$l"
+        [ -n "$CANON" ] || continue
+        canon=$CANON
+        for ((k = 0; k < ${#queue[@]}; k++)); do
+          [ "${queue[k]}" != "$canon" ] || continue 2
+        done
+        [ "${#queue[@]}" -lt 16 ] || return 1
+        queue[${#queue[@]}]=$canon
+      fi
+    done < <(find -H "$d" -type l -print0 2>/dev/null)
+  done
+  return 0
+}
+
+# ci_has <word> <glob>...: whether the word matches any glob, ignoring case.
+# nocasematch rather than ${w,,}, which bash 3.2 (the macOS /bin/bash) lacks.
+ci_has() {
+  local w=$1 p hit=1 had=1
+  shift
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  for p in "$@"; do
+    # shellcheck disable=SC2254  # the glob is the argument, deliberately unquoted
+    case $w in $p) hit=0 ;; esac
+  done
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  return "$hit"
+}
+
+# secret_var_name <name>: whether a variable name looks like a credential.
+secret_var_name() {
+  ci_has "$1" '*TOKEN*' '*SECRET*' '*PASSWORD*' '*PASSWD*' '*PASSPHRASE*' '*CREDENTIAL*' '*APIKEY*' '*API_KEY*' \
+    '*ACCESS_KEY*' '*_KEY' '*_PAT' '*BEARER*' 'AUTH' '*_AUTH' '*AUTHORIZATION*' '*_PASS' '*_PWD' '*COOKIE*' \
+    '*_DSN' 'DSN' '*DATABASE_URL*' 'JWT' '*_JWT' 'JWT_*'
+}
+
+# secret_var_ref <word>: whether a word expands a credential-named variable
+# (any `$NAME`, `${NAME…}`, `${#NAME}`, zsh's `$=NAME`/`$^NAME`, or an
+# indirect `${!…}`). A quoted single-quote form cannot be told apart here, so
+# it defers too. The word is unquoted already, so a name that ended at a
+# quote or escape (`"$DEPLOY_KEY"1`) is looked for in the raw command.
+secret_var_ref() {
+  local w=$1 rest name k p
+  case $w in
+    *\$\{!*) return 0 ;;
+  esac
+  while [ "${w#*\$}" != "$w" ]; do
+    rest=${w#*\$}
+    w=$rest
+    rest=${rest#\{}
+    rest=${rest#[\#=^~+]}
+    name=${rest%%[!A-Za-z0-9_]*}
+    [ -n "$name" ] || continue
+    secret_var_name "$name" && return 0
+    for ((k = ${#name} - 1; k >= 2; k--)); do
+      p=${name:0:k}
+      case ${HOOK_RAW_CMD-} in
+        *"\$$p\""* | *"\$$p'"* | *"\$$p\\"*) secret_var_name "$p" && return 0 ;;
+      esac
+    done
+  done
+  return 1
+}
+
+# secret_vars_ok: no word of the current simple command expands a credential
+# variable, and no printenv operand names one.
+secret_vars_ok() {
+  local i
+  for ((i = 0; i < cwn; i++)); do
+    secret_var_ref "${cw[i]}" && return 1
+    if [ "${cw[0]}" = printenv ] && [ "$i" -ge 1 ]; then
+      secret_var_name "${cw[i]}" && return 1
+    fi
+  done
+  return 0
+}
+
 # canon_dir_cached <absolute-dir>: the directory's canonical path in CANON,
 # empty when it cannot be entered. Each lookup forks, and a loop re-walks
 # its body once per head word, so results are kept for the hook's run.
@@ -4261,7 +5138,8 @@ environ_words_ok() {
               opts=0
               continue
               ;;
-            --regexp* | --file*)
+            # GNU grep takes any unambiguous prefix (`--reg=`, `--fil`).
+            --reg* | --fil | --file | --file=*)
               given=1
               continue
               ;;
@@ -4295,7 +5173,8 @@ environ_words_ok() {
   return 0
 }
 
-# environ_redirect_ok <operand>: the same test for a redirect operand, which
+# environ_redirect_ok <operand>: the same tests (secrets and environ files)
+# for a redirect operand, which
 # the guard never expands, so any `$` in it could name anything. Any other
 # path under /proc defers too: a process directory on stdin lets a later
 # `/dev/fd/0/…` reach into it, out of the guard's sight.
@@ -4308,7 +5187,7 @@ environ_redirect_ok() {
   while [ "${w#*//}" != "$w" ]; do
     w=${w//\/\//\/}
   done
-  if [ "$g" = 0 ]; then
+  if [ "$g" = 0 ] && [ "$GUARD_OWN_ENVIRON" = 1 ]; then
     case $w in
       /proc/self/environ | /proc/thread-self/environ) return 0 ;;
     esac
@@ -4707,15 +5586,15 @@ classify_verb() {
     # Same class, added 2026-09-14 from the shapes real dispatched workers
     # stalled on. Each was checked for a write/exec vector across its whole
     # flag surface and has none: `readlink`/`nl`/`paste`/`column` and the
-    # checksum family report to stdout with no output-file or filter flag, and
-    # `printenv` exposes no more than the already-approved `echo $VAR`. `jq` is
+    # checksum family report to stdout with no output-file or filter flag.
+    # `printenv` is guarded below: bare, it prints every variable. `jq` is
     # NOT here: it passes the same write/exec test — its language has no exec
     # and no file-write primitive, and `-f`, `--rawfile`, `--slurpfile` and
     # `-L` only ever READ — but it carries PROGRAM TEXT, and a jq program can
     # read the environment (`env`, `$ENV`). Leaving it unscreened allowed
     # `jq -n env` while `awk 'BEGIN{print ENVIRON["X"]}'` deferred, which is
     # the same read through a different tool. It is guarded below.
-    printenv | readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum)
+    readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum)
       return 0
       ;;
     # Read-only analyzers (results to stdout only).
@@ -4733,10 +5612,12 @@ classify_verb() {
     file) guard_file ;;
     find) guard_find ;;
     sed) guard_sed || guard_sed_inplace ;;
+    perl) guard_perl_inplace ;;
     awk) guard_awk ;;
     jq) guard_jq ;;
     markdownlint | markdownlint-cli2) guard_mdlint ;;
     env) guard_env ;;
+    printenv) guard_printenv ;;
     read) guard_read ;;
     yq) guard_yq ;;
     shfmt) guard_shfmt ;;
@@ -5115,8 +5996,9 @@ verify_simple() {
   [ "$cwn" -eq 0 ] || ! floor_act_words "${sw[@]}" || return 1
   verify_known_simple && return 0
   # A declared step is an operator's exact line, never one around a
-  # substitution, and is not read-only inside one.
-  [ "$IN_SUBST" = 0 ] || return 1
+  # substitution, and is not read-only inside one. Nor is one judged in the
+  # scoped read mode, whose directory is one of two.
+  [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] || return 1
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] || return 1
   done
@@ -5298,8 +6180,369 @@ strip_nice() {
 # being fish's.
 cd_target_ok() {
   [ "$cwn" -eq 2 ] || return 1
-  own_dir_ok 1 || return 1
-  PENDING_CD=$OWN_DIR
+  if [ "$OUTSIDE_CD" = 0 ] && own_dir_ok 1; then
+    PENDING_CD=$OWN_DIR
+    return 0
+  fi
+  cd_outside_ok 1 || return 1
+  PENDING_OUT=1
+  PENDING_OUT_DIR=$OUT_DIR
+  return 0
+}
+
+# cd_outside_ok <word-index>: a `cd` to an existing directory outside the
+# worktree, for the read lines that start `cd /tmp; ...`. The guard does not
+# model the directory it lands in, so every later segment of the command is
+# held to the pure-read verbs (outside_cwd_verb) and to no file redirect: a
+# relative path in a write, a trusted script or a git command would otherwise
+# be judged against a directory the command is no longer in. Top level only,
+# an absolute canonical operand, never under /proc, /sys or /dev, and never a
+# secret or broad directory, since any read there may reach a key. The
+# directory is left in OUT_DIR.
+cd_outside_ok() {
+  local n=$1 t=${cw[$1]-} canon
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_CDPATH_SET" = 0 ] && [ "${ctl_depth:-1}" -eq 0 ] || return 1
+  word_unresolved "$t" "${cdyn[n]}" "${cglob[n]}" "${cx[n]}" && return 1
+  [ "${cz[n]-0}" = 0 ] || return 1
+  case $t in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case $t in
+    *[!A-Za-z0-9._/@%,:+-]*) return 1 ;;
+  esac
+  case /$t/ in
+    */../*) return 1 ;;
+  esac
+  canon=$(cd "$t" 2>/dev/null && pwd -P) || return 1
+  [ "$canon" = "$t" ] || [ "$canon/" = "$t" ] || return 1
+  case $canon in
+    /proc | /proc/* | /sys | /sys/* | /dev | /dev/*) return 1 ;;
+  esac
+  secret_path_risky "$canon" 0 && return 1
+  broad_canon "$canon" && return 1
+  OUT_DIR=$canon
+  return 0
+}
+
+# outside_cwd_verb <verb>: the verbs a segment may run after a `cd` outside
+# the worktree: readers whose operands never run or write anything.
+outside_cwd_verb() {
+  case $1 in
+    cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | seq | true | false | od | tr | stat | grep | ls | diff) classify_verb "$1" ;;
+    printenv | readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum) classify_verb "$1" ;;
+    sort | uniq | jq | gh | rg | sleep | test | '[' | printf) classify_verb "$1" ;;
+    sed) guard_sed ;;
+    *) return 1 ;;
+  esac
+}
+
+# The scoped read mode: the line a review subagent writes as `cd <own dir>;
+# <reads>`, or `cd <own dir> && <reads>` with a later `;` or `||`. Past that
+# point the directory is the cd's target or, had the cd failed, the one
+# before it, so both must lie in the session's own worktree and repository
+# (scoped_alt_ok), and every later segment is held to scoped_read_ok: a read
+# verb with no redirect and no substitution, each operand a path inside the
+# worktree, the session's own scratch root (the record's, and only while the
+# TMPDIR the hook inherited names it), or an installed planwright root, from
+# both directories. A sibling session's scratch root is in none of them.
+# The mode is stricter than the plain read rules: a segment it does not admit
+# defers the whole line rather than falling back to them.
+
+# is_abs <word>: the word is an absolute path.
+is_abs() {
+  case $1 in
+    /*) return 0 ;;
+  esac
+  return 1
+}
+
+# scoped_alt_ok <dir>: the directory is inside the worktree and its
+# repository; its canonical form is left in SCOPED_ALT.
+scoped_alt_ok() {
+  local c
+  [ -n "$REC_WT" ] && [ -n "$HOOK_WT_ROOT" ] || return 1
+  canon_dir_cached "$1"
+  c=$CANON
+  [ -n "$c" ] || return 1
+  case $c/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  [ "$c" = "$HOOK_WT_ROOT" ] || cd_same_repo "$c" || return 1
+  SCOPED_ALT=$c
+}
+
+# scoped_root_has <canonical-path>: the path is one of the roots or under one.
+scoped_root_has() {
+  local root
+  [ -n "$REC_WT" ] || return 1
+  case $1/ in
+    "$REC_WT"/*) return 0 ;;
+  esac
+  if [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ] && [ -n "$REC_SCRATCH" ]; then
+    case $1/ in
+      "$REC_SCRATCH"/*) return 0 ;;
+    esac
+  fi
+  cache_roots
+  while IFS= read -r root; do
+    [ -n "$root" ] && [ "$root" != / ] || continue
+    case $1/ in
+      "$root"/*) return 0 ;;
+    esac
+  done <<EOF
+$PW_ROOTS
+EOF
+  return 1
+}
+
+# scoped_under <absolute-path>: the path, its directory canonicalized and its
+# last component no symlink, lies in a root. canon_under's check against
+# several roots, through the per-call directory cache.
+scoped_under() {
+  local d=${1%/*} b=${1##*/} full
+  [ -n "$d" ] || d=/
+  canon_dir_cached "$d"
+  [ -n "$CANON" ] || return 1
+  case $b in
+    '' | .) full=$CANON ;;
+    *) full=${CANON%/}/$b ;;
+  esac
+  [ -L "$full" ] && return 1
+  scoped_root_has "$full"
+}
+
+# scoped_word_plain <index> [glob]: the word's value is its text: nothing
+# left unresolved, no zsh pattern character, no leading `=` zsh would expand
+# to a command's path, and no glob unless `glob` is given, then only an
+# unquoted `*` or `?` (never a brace, a bracket, a tilde, or a backslash).
+scoped_word_plain() {
+  local i=$1 w=${cw[$1]}
+  [ "${cz[i]-0}" = 0 ] || return 1
+  word_unresolved "$w" "${cdyn[i]}" 0 "${cx[i]}" && return 1
+  case $w in
+    =*) [ "${cqp[i]}" = 0 ] || return 1 ;;
+  esac
+  [ "${cglob[i]}" = 0 ] && return 0
+  [ "${2-}" = glob ] && [ "${cqp[i]}" -lt 0 ] || return 1
+  case $w in
+    *[{}~\[\\]*) return 1 ;;
+  esac
+  return 0
+}
+
+# scoped_opt_word_ok <index>: an option word; a glob may only follow its `=`
+# (`--include=*.sh`), so whatever it matches is still that option.
+scoped_opt_word_ok() {
+  local i=$1 w=${cw[$1]}
+  if [ "${cglob[i]}" = 0 ]; then
+    scoped_word_plain "$i"
+    return
+  fi
+  scoped_word_plain "$i" glob || return 1
+  case ${w%%[*?]*} in
+    --*=*) return 0 ;;
+  esac
+  return 1
+}
+
+# scoped_path_ok <index>: the operand names a path inside a root from every
+# directory the line may run in. A glob only in the last component, never
+# dot-led, in a directory holding no symlink a match could follow and no
+# name a match would turn into an option.
+scoped_path_ok() {
+  local i=$1 w=${cw[$1]} p rest e
+  scoped_word_plain "$i" glob || return 1
+  case /$w/ in
+    */../*) return 1 ;;
+  esac
+  p=$w
+  if [ "${cglob[i]}" = 1 ]; then
+    rest=${w##*/}
+    case $rest in
+      .*) return 1 ;;
+    esac
+    case ${w%"$rest"} in
+      *[*?]*) return 1 ;;
+    esac
+    p=${w%"$rest"}
+    [ -n "$p" ] || p=.
+  fi
+  if is_abs "$p"; then
+    set -- "$p"
+  else
+    set -- "$HOOK_CWD/$p"
+    [ -z "$SCOPED_ALT" ] || [ "$SCOPED_ALT" = "$HOOK_CWD" ] || set -- "$1" "$SCOPED_ALT/$p"
+  fi
+  for e in "$@"; do
+    scoped_under "$e" || return 1
+  done
+  [ "${cglob[i]}" = 1 ] || return 0
+  for p in "$@"; do
+    for e in "$p"/* "$p"/.[!.]* "$p"/..?*; do
+      [ -L "$e" ] && return 1
+      case ${e##*/} in
+        -*) return 1 ;;
+      esac
+    done
+  done
+  return 0
+}
+
+# scoped_git_ok: `git show`, `git diff` or `git log`, the only global option
+# an absolute `-C` into the worktree, every word plain, no `--no-index` or
+# orderfile, an absolute word only on an allowed path and no `..` component
+# (git diff reads two paths outside the repository as `--no-index`), and
+# guard_git's own screen on top.
+scoped_git_ok() {
+  local i s=1
+  if [ "${cw[1]-}" = -C ]; then
+    is_abs "${cw[2]-}" || return 1
+    s=3
+  fi
+  case ${cw[s]-} in
+    show | diff | log) ;;
+    *) return 1 ;;
+  esac
+  for ((i = 1; i < cwn; i++)); do
+    scoped_word_plain "$i" || return 1
+    case ${cw[i]} in
+      --no-index | --orderfile | --orderfile=*) return 1 ;;
+      /*) scoped_path_ok "$i" || return 1 ;;
+    esac
+    case /${cw[i]}/ in
+      */../*) return 1 ;;
+    esac
+  done
+  guard_git
+}
+
+# scoped_grep_opt <index>: one grep option word, from an allowlist (GNU grep
+# takes any unique prefix of a long option, so only whole names pass). Sets
+# SC_TAKE to `pat` or `num` when the next word is that option's value. `-f`,
+# `-R`, `-d` and `-D` are refused: a pattern file is a path read out of
+# sight, and the others follow links or devices.
+scoped_grep_opt() {
+  local w=${cw[$1]} c rest
+  case $w in
+    --regexp)
+      SC_TAKE=pat
+      return 0
+      ;;
+    --max-count | --context | --after-context | --before-context)
+      SC_TAKE=num
+      return 0
+      ;;
+    --regexp=* | --max-count=* | --context=* | --after-context=* | --before-context=* | --include=* | --exclude=* | --exclude-dir=* | --binary-files=* | --color=* | --colour=*) return 0 ;;
+    --line-number | --recursive | --ignore-case | --no-ignore-case | --count | --files-with-matches | --files-without-match | --only-matching | --no-filename | --with-filename | --word-regexp | --line-regexp | --invert-match | --extended-regexp | --fixed-strings | --perl-regexp | --basic-regexp | --quiet | --silent | --null | --null-data | --text | --byte-offset | --initial-tab | --no-messages | --color | --colour) return 0 ;;
+    --*) return 1 ;;
+  esac
+  rest=${w#-}
+  while [ -n "$rest" ]; do
+    c=${rest%"${rest#?}"}
+    rest=${rest#?}
+    case $c in
+      e)
+        [ -n "$rest" ] || SC_TAKE=pat
+        return 0
+        ;;
+      [ABCm])
+        if [ -n "$rest" ]; then
+          case $rest in
+            *[!0-9]*) return 1 ;;
+          esac
+        else
+          SC_TAKE=num
+        fi
+        return 0
+        ;;
+      [abcEFGhHiIlLnoqrsTUvwxyzZ0-9]) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# scoped_read_ok: the current simple command is one of the scoped read
+# verbs with every operand on an allowed path (see scoped_path_ok); the
+# caller has already refused its redirects and substitutions. grep's
+# pattern and sed's script are no path: the first operand unless an option
+# supplies one (both permute their arguments, so any option anywhere
+# counts). sed must run with `-n`; tail may not follow, which never ends.
+scoped_read_ok() {
+  local verb=${cw[0]} i w opts=1 first=1 quiet=0 given=0
+  local SC_TAKE=''
+  case $verb in
+    cat | head | tail | wc | ls | grep) ;;
+    sed) guard_sed || return 1 ;;
+    git)
+      scoped_git_ok
+      return
+      ;;
+    *) return 1 ;;
+  esac
+  for ((i = 1; i < cwn; i++)); do
+    w=${cw[i]}
+    [ "$w" = -- ] && break
+    case $verb:$w in
+      grep:--regexp | grep:--regexp=* | sed:-e | sed:--expression | sed:--expression=*) given=1 ;;
+      grep:--*) ;;
+      grep:-*e*) given=1 ;;
+    esac
+  done
+  [ "$given" = 0 ] || first=0
+  [ "$verb" = grep ] || [ "$verb" = sed ] || first=0
+  for ((i = 1; i < cwn; i++)); do
+    w=${cw[i]}
+    case $SC_TAKE in
+      pat)
+        scoped_word_plain "$i" || return 1
+        SC_TAKE=''
+        continue
+        ;;
+      num)
+        case $w in
+          '' | *[!0-9]*) return 1 ;;
+        esac
+        SC_TAKE=''
+        continue
+        ;;
+    esac
+    if [ "$opts" = 1 ]; then
+      case $w in
+        --)
+          opts=0
+          continue
+          ;;
+        -?*)
+          scoped_opt_word_ok "$i" || return 1
+          case $verb:$w in
+            grep:*) scoped_grep_opt "$i" || return 1 ;;
+            sed:-n | sed:--quiet | sed:--silent) quiet=1 ;;
+            sed:-e | sed:--expression) SC_TAKE=pat ;;
+            wc:--lines | wc:--words | wc:--bytes | wc:--chars | wc:--max-line-length | wc:--total=*) ;;
+            wc:--* | wc:-*[!lwcmL]*) return 1 ;;
+            ls:--de* | tail:--f* | tail:--r*) return 1 ;;
+            ls:--* | tail:--*) ;;
+            ls:-*L* | tail:-*[fF]*) return 1 ;;
+          esac
+          continue
+          ;;
+      esac
+    fi
+    if [ "$first" = 1 ]; then
+      first=0
+      scoped_word_plain "$i" || return 1
+      continue
+    fi
+    scoped_path_ok "$i" || return 1
+  done
+  [ -z "$SC_TAKE" ] || return 1
+  [ "$verb" != sed ] || [ "$quiet" = 1 ] || return 1
+  if opens_operands "$verb"; then
+    environ_words_ok || return 1
+  fi
   return 0
 }
 
@@ -5386,9 +6629,37 @@ version_tool() {
   return 1
 }
 
+# read_screens_ok: the current simple command's operands, read from HOOK_CWD,
+# reach no environ file, secret or broad directory.
+read_screens_ok() {
+  if opens_operands "${cw[0]}"; then
+    environ_words_ok || return 1
+  elif lists_operands "${cw[0]}"; then
+    secret_words_ok || return 1
+  fi
+  if recursive_reader; then
+    broad_words_ok || return 1
+  fi
+  if link_follower; then
+    follow_links_ok || return 1
+  fi
+  return 0
+}
+
 # verify_known_simple: the enumerated known-safe rules for one simple command.
 verify_known_simple() {
-  local i verb si
+  local i verb si sc_ok=0 here rc=0
+  # The scoped read mode takes no substitution and no redirect at all; a
+  # lead cd's chain still in the running notes whether this segment would
+  # pass it.
+  if [ "$SCOPED_RD" = 1 ] || [ "$SCOPED_CHAIN" = 1 ]; then
+    sc_ok=1
+    [ "$rn" -eq 0 ] || sc_ok=0
+    for ((i = 0; i < cwn; i++)); do
+      [ -z "${csub[i]-}" ] || sc_ok=0
+    done
+    [ "$SCOPED_RD" = 0 ] || [ "$sc_ok" = 1 ] || return 1
+  fi
   # Each substitution's own command runs whatever the words around it are,
   # so it must pass first, against the working directory it will run in.
   if [ "$SUBST_N" -gt 0 ]; then
@@ -5432,8 +6703,9 @@ verify_known_simple() {
     fi
     # The spec-root zone keeps its plain-literal rule: only the policy arms
     # read the expanded target.
-    classify_redirect "${ro[i]}" "${rt[i]}" || spec_zone_redirect "${ro[i]}" "${rt[i]}" \
-      || ob_redirect "${ro[i]}" "$rtw" || return 1
+    classify_redirect "${ro[i]}" "${rt[i]}" \
+      || { [ "$OUTSIDE_CD" = 0 ] && { spec_zone_redirect "${ro[i]}" "${rt[i]}" || ob_redirect "${ro[i]}" "$rtw"; }; } \
+      || return 1
     environ_redirect_ok "$rtw" || return 1
   done
   # A command with redirects but no words (pure `> file`) already handled;
@@ -5444,6 +6716,7 @@ verify_known_simple() {
   # words that follow; whether it is committed is verify_tokens' call. It is
   # read before substitution: a word that only becomes `NAME=value` through
   # an expansion is a command name, not an assignment.
+  secret_vars_ok || return 1
   if [ "$cwn" -eq 1 ] && track_assignment; then
     return 0
   fi
@@ -5466,12 +6739,31 @@ verify_known_simple() {
     esac
   fi
   if [ "$verb" = cd ]; then
+    [ "$SCOPED_RD" = 0 ] || return 1
     cd_target_ok
     return
   fi
-  if opens_operands "$verb"; then
-    environ_words_ok || return 1
+  if [ "$SCOPED_RD" = 1 ]; then
+    scoped_read_ok || return 1
+    SEG_SCOPED=1
+    return 0
   fi
+  if [ "$sc_ok" = 1 ] && scoped_read_ok; then
+    SEG_SCOPED=1
+  fi
+  if [ "$OUTSIDE_CD" = 1 ]; then
+    [ "$cwn" -ge 1 ] && outside_cwd_verb "$verb" || return 1
+    [ -n "$OUTSIDE_DIR" ] || return 1
+    # Relative operands name paths under the directory the cd landed in.
+    here=$HOOK_CWD
+    HOOK_CWD=$OUTSIDE_DIR
+    read_screens_ok || rc=1
+    HOOK_CWD=$here
+    [ "$rc" = 0 ] || return 1
+    subst_words_ok || return 1
+    return 0
+  fi
+  read_screens_ok || return 1
   subst_words_ok || return 1
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
   case $verb in
@@ -5521,6 +6813,10 @@ verify_tokens() {
   # for a reserved-word boundary), whether the previous segment carried state,
   # and whether a `cd` has: together they decide where state may carry (fin).
   local ctl_depth=0 seg_open='' prev_commit=0 cd_live=0
+  # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
+  # chain passes the scoped read check (SEG_SCOPED), with the directory it
+  # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
+  local SCOPED_CHAIN=0 SEG_SCOPED=0 cd_pre=''
   # Accumulators for the current simple command (dynamic scope: verify_simple
   # reads these): words, their literal-dollar, quote-start, expansion, glob,
   # zsh-option and mixed-quoting flags, substitution indexes, and the
@@ -5544,7 +6840,11 @@ verify_tokens() {
   # so it must close with `&&` or end the command, and once one is carried,
   # every later top-level operator must keep the walk inside its `&&` chain
   # (`&&`, or `|`, which binds tighter), since after `;`, `||`, or `&` the
-  # directory is no longer known.
+  # directory is no longer known. The one exception is the scoped read mode
+  # (see scoped_read_ok): a first-segment `cd` to an absolute directory of the
+  # worktree closed by `;`, or such a cd's `&&` chain of scoped reads closed
+  # by `;` or `||`, enters it, and every later segment is checked from both
+  # directories the line may then be in.
   fin() {
     local close=$1 placed=0
     PENDING_ASSIGN_N=''
@@ -5552,12 +6852,43 @@ verify_tokens() {
     PENDING_ASSIGN_O=0
     PENDING_ASSIGN_S=0
     PENDING_CD=''
+    PENDING_OUT=0
+    PENDING_OUT_DIR=''
+    SEG_SCOPED=0
     verify_simple || return 1
+    [ "$SEG_SCOPED" = 1 ] || SCOPED_CHAIN=0
+    # A `cd` outside the worktree is approved only as a top-level `cd X;`
+    # step: the `&&` chain and every other placement keep deferring.
+    if [ "$PENDING_OUT" = 1 ]; then
+      [ "$ctl_depth" -eq 0 ] || return 1
+      case $seg_open:$close in
+        ':;' | ';:;')
+          OUTSIDE_CD=1
+          OUTSIDE_DIR=$PENDING_OUT_DIR
+          ;;
+        *) return 1 ;;
+      esac
+    fi
     if [ "$cd_live" = 1 ] && [ "$ctl_depth" -eq 0 ]; then
       case $close in
         '&&' | '|' | ctl | end) ;;
+        ';' | '||')
+          [ "$SCOPED_CHAIN" = 1 ] && scoped_alt_ok "$cd_pre" || return 1
+          SCOPED_RD=1
+          SCOPED_CHAIN=0
+          cd_live=0
+          ;;
         *) return 1 ;;
       esac
+    fi
+    # The scoped read mode's own entry. A relative cd keeps the `&&`-only
+    # rule, and the cd itself may carry no redirect.
+    if [ -n "$PENDING_CD" ] && [ "$ctl_depth" -eq 0 ] && [ -z "$seg_open" ] && [ "$close" = ';' ] \
+      && [ "$rn" -eq 0 ] && is_abs "${cw[1]-}"; then
+      scoped_alt_ok "$HOOK_CWD" || return 1
+      SCOPED_RD=1
+      HOOK_CWD=$PENDING_CD
+      PENDING_CD=''
     fi
     if [ -n "$PENDING_ASSIGN_N" ] || [ -n "$PENDING_CD" ]; then
       if [ "$ctl_depth" -eq 0 ]; then
@@ -5579,6 +6910,10 @@ verify_tokens() {
       fi
       [ "$placed" = 1 ] || return 1
       if [ -n "$PENDING_CD" ]; then
+        if [ -z "$seg_open" ] && [ "$SCOPED_RD" = 0 ] && [ "$rn" -eq 0 ] && is_abs "${cw[1]-}"; then
+          SCOPED_CHAIN=1
+          cd_pre=$HOOK_CWD
+        fi
         HOOK_CWD=$PENDING_CD
         cd_live=1
       else
@@ -5620,8 +6955,10 @@ verify_tokens() {
 
     # The case head and pattern words below are skipped unverified, so a
     # substitution there would run unanalysed.
+    # Nor may they match on a credential, which leaks it a guess at a time.
     if [ "$mode" = casehead ] || [ "$mode" = casepat ]; then
       [ -z "${TOK_SUBS[idx]}" ] || return 1
+      ! secret_var_ref "$val" || return 1
     fi
     # case head: skip the matched word up to `in`.
     if [ "$mode" = casehead ]; then
@@ -5696,6 +7033,7 @@ verify_tokens() {
     # typ = W. A reserved word only in command position (no words accumulated
     # yet) is structural; otherwise it is an ordinary argument.
     if [ "$cwn" -eq 0 ] && is_reserved "$val"; then
+      [ "$SCOPED_RD" = 0 ] || return 1
       case $val in
         for)
           # Verify the body once per head word, the loop variable substituted
@@ -5807,6 +7145,9 @@ analyze_command() {
   local VAR_C=0 LW_N=0
   local LH_NAME='' LH_START=0 LH_COUNT=0 LH_NEXT=0
   local PENDING_ASSIGN_N='' PENDING_ASSIGN_V='' PENDING_ASSIGN_O=0 PENDING_ASSIGN_S=0 PENDING_CD='' PREFIXED=0
+  local OUTSIDE_CD=${OUTSIDE_CD:-0} PENDING_OUT=0 PENDING_OUT_DIR='' OUT_DIR=''
+  local OUTSIDE_DIR=${OUTSIDE_DIR-}
+  local SCOPED_RD=${SCOPED_RD:-0} SCOPED_ALT=${SCOPED_ALT:-}
   # Under the scratch arm, `$TMPDIR` is the recorded scratch root: the
   # launcher exported it, and assign_name_ok refuses re-pointing it. A
   # `fish -c` string is left to fish's own rules.
@@ -5914,7 +7255,7 @@ main() {
       ;;
     *) return 0 ;; # present but not a string: defer
   esac
-  local HOOK_CWD=$cwd HOOK_PAYLOAD_CWD=$cwd
+  local HOOK_CWD=$cwd HOOK_PAYLOAD_CWD=$cwd HOOK_RAW_CMD=$cmd
   # The session's own worktree, which a `cd` may not leave: the record's
   # (cd_target_ok).
   local HOOK_WT_ROOT='' HOOK_WT_GIT=''

@@ -64,6 +64,10 @@
 #       identity from the environment as it always does. An errored or absent
 #       verdict, or a missing dispatch record, refuses first (exit 5); past
 #       those, refused in this order:
+#         a parked session, whose registry row records a wait, under any
+#           evidence, and a row whose wait cannot be read (a link, not a
+#           regular file, unreadable, under a directory that cannot be
+#           searched, or no resolvable fleet home) (exit 5);
 #         a `print`-backend unit, which spawned no process (exit 8);
 #         a worker owned by a live peer tower, under any evidence (exit 7);
 #         a backend with no process close, such as tmux (exit 5);
@@ -150,7 +154,8 @@
 #      dirty worktree, one whose commits are not provably safe — no upstream
 #      parity and no verified --merged-pr — or lost observability: neither a tmux
 #      server unreachable mid-probe nor an unusable `gh` is proof of absence),
-#      or the reclaim command itself failed; for `process`, also a partial or
+#      or the reclaim command itself failed; for `process`, also a parked
+#      session (or one whose registry row's wait cannot be read), a partial or
 #      interrupted close, which acted and is recorded (see its usage), and a
 #      reap that stood down with nothing signalled: another holds the worker's
 #      reap lock, the lock could not be taken, or the verdict read again under
@@ -366,18 +371,24 @@ case "$cmd" in
       warn "\$TMUX_PANE is unset — cannot reliably resolve the caller's own pane, refusing (fail closed)"
       exit 3
     fi
+    # No tab between fields: tmux prints one as `_` under LC_ALL=C. The id
+    # and index carry no space, a session name never carries a `:` (tmux
+    # replaces it), and the window name, which may hold anything, comes last.
     self=$(tmux display-message -p -t "$TMUX_PANE" \
-      "#{session_name}${TAB}#{window_id}${TAB}#{window_name}${TAB}#{window_index}" 2>/dev/null) || self=""
+      "#{window_id} #{window_index} #{session_name}:#{window_name}" 2>/dev/null) || self=""
+    self_wid=${self%% *}
+    self_rest=${self#* }
+    self_windex=${self_rest%% *}
+    self_rest=${self_rest#* }
+    self_session=${self_rest%%:*}
+    self_wname=${self_rest#*:}
+    case $self_wid in @[0-9]*) ;; *) self="" ;; esac
+    case $self_windex in '' | *[!0-9]*) self="" ;; esac
+    case $self_rest in *:*) ;; *) self="" ;; esac
     if [ -z "$self" ]; then
       warn "could not resolve the caller's own tmux window — cannot prove non-self-target, refusing (fail closed)"
       exit 3
     fi
-    self_session=${self%%"$TAB"*}
-    self_rest=${self#*"$TAB"}
-    self_wid=${self_rest%%"$TAB"*}
-    self_rest=${self_rest#*"$TAB"}
-    self_wname=${self_rest%%"$TAB"*}
-    self_windex=${self_rest#*"$TAB"}
 
     # The guard matches the target window against the caller's own window id,
     # name, OR index (all three are valid tmux window addresses), so no address
@@ -829,6 +840,36 @@ EOF
     if [ "$registry" != present ]; then
       warn "no dispatch record for '$worker' (registry: $(sanitize_printable "$registry" "-")) — nothing says what it is or who owns it, refusing"
       exit 5
+    fi
+    # A session parked on the operator, CI or a ready flip is not finished work
+    # whatever its last turn looked like: its registry row says so. A row whose
+    # wait cannot be read is not evidence of no wait, so only a row that is
+    # absent or read cleanly lets the reap go on.
+    pk_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) || pk_root=""
+    if [ -z "$pk_root" ]; then
+      warn "refusing '$worker': the fleet home cannot be resolved, so whether it is parked on a wait cannot be read"
+      exit 5
+    fi
+    for pk_dir in "$pk_root" "$pk_root/mission-control" "$pk_root/mission-control/sessions"; do
+      if [ -e "$pk_dir" ] && { [ ! -d "$pk_dir" ] || [ ! -x "$pk_dir" ]; }; then
+        warn "refusing '$worker': $(sanitize_printable "$pk_dir" "-") cannot be searched, so whether it is parked on a wait cannot be read"
+        exit 5
+      fi
+    done
+    pk_row="$pk_root/mission-control/sessions/$worker"
+    if [ -L "$pk_row" ] || { [ -e "$pk_row" ] && [ ! -f "$pk_row" ]; }; then
+      warn "refusing '$worker': its registry row is not a regular file, so whether it is parked on a wait cannot be read"
+      exit 5
+    fi
+    if [ -e "$pk_row" ]; then
+      pk_why=$(awk -F "$TAB" '$1 == "waiting" { print $2; exit }' "$pk_row" 2>/dev/null) || {
+        warn "refusing '$worker': its registry row cannot be read, so whether it is parked on a wait cannot be read"
+        exit 5
+      }
+      if [ -n "$pk_why" ]; then
+        warn "refusing '$worker': it is parked, waiting on $(sanitize_printable "$pk_why" "-"); a parked session is never reaped"
+        exit 5
+      fi
     fi
     if [ "$backend" = print ]; then
       warn "refusing '$worker': a print-backend unit spawned no process, so there is nothing to reap (it stays registered)"

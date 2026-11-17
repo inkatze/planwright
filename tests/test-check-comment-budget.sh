@@ -8,6 +8,8 @@ unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 GUARD="$REPO_ROOT/scripts/check-comment-budget.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 
 failures=0
 ok() { echo "ok: $1"; }
@@ -498,8 +500,12 @@ if [ "$(id -u)" -ne 0 ]; then
   mkscript "$r/githooks/pre-commit" 30
   track "$r"
   chmod 000 "$r/githooks/pre-commit"
-  run "$r"
-  assert_exit "an unreadable extensionless hook fails closed, never skipped" 2 $?
+  if hermetic_access_denied r "$r/githooks/pre-commit"; then
+    run "$r"
+    assert_exit "an unreadable extensionless hook fails closed, never skipped" 2 $?
+  else
+    echo "skip: an unreadable extensionless hook: the file is still readable here"
+  fi
   chmod 644 "$r/githooks/pre-commit"
 fi
 

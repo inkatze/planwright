@@ -10,6 +10,8 @@ unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 RESOLVER="$REPO_ROOT/scripts/resolve-root.sh"
 # The resolver is POSIX sh and its callers exec it through /bin/sh, which is
 # dash on the Linux CI runners; run it there so a bash-ism fails here first.
@@ -130,17 +132,17 @@ run in_dir "$tmp/dashdir" base OLDPWD="$tmp/plain" PLANWRIGHT_ROOT=- "$SH" "$RES
 assert_eq "install: an arm named '-' is the directory of that name" "$tmp/dashdir/-" "$out"
 
 # A directory that cannot be entered is named as such, not as content-less.
-if [ "$(id -u)" -ne 0 ]; then
-  mktree "$tmp/sealed"
-  chmod 000 "$tmp/sealed"
+mktree "$tmp/sealed"
+chmod 000 "$tmp/sealed"
+if hermetic_access_denied r "$tmp/sealed"; then
   run base PLANWRIGHT_ROOT="$tmp/sealed" "$SH" "$RESOLVER" install
-  chmod 755 "$tmp/sealed"
   assert_eq "install: an unenterable arm falls through" "$REPO_ROOT" "$out"
   assert_contains "install: an unenterable arm is named as such" "cannot be entered" "$err"
 else
-  echo "SKIP: running as root, which enters any directory" >&2
+  echo "skip: install unenterable arm: the running user still reads $tmp/sealed under mode 000"
   skips=$((skips + 2))
 fi
+chmod 755 "$tmp/sealed"
 
 # An empty variable is unset, not an arm.
 run base PLANWRIGHT_ROOT= CLAUDE_PLUGIN_ROOT="$tmp/plugin" \

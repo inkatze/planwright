@@ -66,10 +66,321 @@ for bad in amendment- amendment-3-1; do
 done
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$AMEND" "$AMEND"
 expect deny "[worker, task-1] a different scope on the amendment branch denies"
-reason_has 'protected branch' "[worker, task-1] the amendment-branch refusal keeps today's protected-branch text"
+reason_has 'not the kickoff for demo' "[worker, task-1] the amendment-branch refusal says the session is not the kickoff"
+reason_has "planwright/demo/amendment-2 checked out" "[worker, task-1] the amendment-branch refusal names the branch checked out"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg tower "$KICKOFF_PUSH" "$AMEND" "$AMEND"
 expect deny "[tower, kickoff-demo] a non-worker tier on the amendment branch denies"
-reason_has 'protected branch' "[tower, kickoff-demo] the non-worker amendment-branch refusal keeps today's protected-branch text"
+reason_has 'not the kickoff for demo' "[tower, kickoff-demo] the non-worker amendment-branch refusal says the session is not the kickoff"
+reason_has "planwright/demo/amendment-2 checked out" "[tower, kickoff-demo] the non-worker amendment-branch refusal names the branch checked out"
+
+# An amendment kickoff on a branch that tracks its origin branch and is ahead
+# of it, the way a relayed amendment kickoff finds it after a first push. The
+# launcher derives a session's name from its scope, so a relaunched or relayed
+# kickoff takes a fresh scope: kickoff-<spec>-a<n>, then a letter or a -<word>.
+AMEND_UP="$SANDBOX/amend-up"
+gitq clone "$ORIGIN" "$AMEND_UP"
+gitq -C "$AMEND_UP" switch -c planwright/demo/amendment-2 main
+gitq -C "$AMEND_UP" commit --allow-empty -m "amendment sign-off"
+gitq -C "$AMEND_UP" push -u origin planwright/demo/amendment-2
+gitq -C "$AMEND_UP" commit --allow-empty -m "delta 1"
+gitq -C "$AMEND_UP" commit --allow-empty -m "delta 2"
+AMEND_STALE="$SANDBOX/amend-stale"
+gitq clone "$ORIGIN" "$AMEND_STALE"
+gitq -C "$AMEND_STALE" branch planwright/demo/spec main
+gitq -C "$AMEND_STALE" switch -c planwright/demo/amendment-2 origin/planwright/demo/amendment-2
+gitq -C "$AMEND_STALE" commit --allow-empty -m "delta 1"
+gitq -C "$AMEND_STALE" commit --allow-empty -m "delta 2"
+for scope in kickoff-demo kickoff-demo-a2 kickoff-demo-a2b kickoff-demo-a2-delta; do
+  for d in "$AMEND_UP" "$AMEND_STALE"; do
+    PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$d" "$d"
+    expect defer "[worker, $scope] the kickoff push on an amendment branch ahead of its origin branch defers (${d##*/})"
+  done
+done
+for scope in kickoff-demo-a2 kickoff-demo-a2-delta; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$SPEC" "$SPEC"
+  expect deny "[worker, $scope] an amendment kickoff's push from the spec branch denies"
+  reason_has 'protected branch' "[worker, $scope] the spec-branch refusal keeps today's protected-branch text"
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker 'git push origin HEAD:planwright/demo/spec' "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, $scope] a raw push of the amendment onto the spec branch denies"
+  reason_has 'protected branch' "[worker, $scope] the raw spec-branch refusal keeps today's text"
+done
+for scope in kickoff-demo-a3 kickoff-demo-a3-delta kickoff-demo-a22; do
+  n=${scope#kickoff-demo-a}
+  n=${n%%[!0-9]*}
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, $scope] another amendment's kickoff denies on amendment-2"
+  reason_has "amendment $n's kickoff for demo pushes only planwright/demo/amendment-$n," "[worker, $scope] the refusal names the one branch that kickoff pushes"
+  reason_has 'planwright/demo/amendment-2 checked out' "[worker, $scope] the refusal names the branch checked out"
+  reason_has 'CLAUDE_PLUGIN_ROOT.?/scripts/kickoff-spec-push[.]sh <spec>' "[worker, $scope] the wrong-branch refusal names the accepted form"
+done
+for scope in kickoff-demo-a kickoff-demo-a2- \
+  kickoff-demo-a2-Delta kickoff-demo-a2-x-y kickoff-demo-a2bc kickoff-demo-x kickoff-demox-a2 \
+  kickoff-demo-2 kickoff-other-a2 kickoff-push-target xkickoff-demo-a2 kickoff-demo-a2_x task-1; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, $scope] a session that is not amendment 2's kickoff denies on amendment-2"
+  reason_has 'not the kickoff for demo' "[worker, $scope] the refusal says the session is not the kickoff"
+  reason_has 'planwright/demo/amendment-2 checked out' "[worker, $scope] the refusal names the branch checked out"
+  if printf '%s' "$REASON" | grep -q 'targets a protected branch'; then
+    fail "[worker, $scope] the refusal claims a protected target the push would not reach: $REASON"
+  else
+    pass "[worker, $scope] the refusal claims no protected target"
+  fi
+done
+for scope in kickoff-demo-a2-d3 kickoff-demo-a2-9; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect defer "[worker, $scope] a -<word> of lowercase letters and digits is an amendment kickoff's scope"
+done
+for scope in kickoff-demo-a2B kickoff-demo-a2--x; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, $scope] a suffix outside the amendment scope grammar denies"
+  reason_has 'not the kickoff for demo' "[worker, $scope] the out-of-grammar refusal says the session is not the kickoff"
+done
+for d in "$UNIT" "$AMEND_OTHER"; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$KICKOFF_PUSH" "$d" "$d"
+  expect deny "[worker, kickoff-demo-a2] an amendment kickoff off its amendment branch denies (${d##*/})"
+  reason_has "amendment 2's kickoff for demo pushes only planwright/demo/amendment-2," "[worker, kickoff-demo-a2] the off-branch refusal names the one branch it pushes (${d##*/})"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "false && cd \"$AMEND_UP\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, kickoff-demo-a2] an amendment kickoff push the guard cannot place denies"
+reason_has 'cannot place it' "[worker, kickoff-demo-a2] the unplaced amendment kickoff push names why"
+# The guard reads the branch before the command runs, so a git command earlier
+# in the same command that may move HEAD leaves the push unplaceable.
+for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwright/demo/spec ;' \
+  'git checkout -b planwright/demo/amendment-9 ;' 'git -C . switch planwright/demo/spec &&' \
+  'git branch -m planwright/demo/amendment-9 &&' 'git symbolic-ref HEAD refs/heads/planwright/demo/amendment-9 &&' \
+  'git update-ref --no-deref HEAD HEAD &&' 'git worktree add ../w9 planwright/demo/amendment-9 &&' \
+  'env git switch planwright/demo/spec &&' 'git co planwright/demo/spec &&' \
+  'git branch -fm planwright/demo/amendment-9 &&' 'git branch --move planwright/demo/amendment-9 &&' \
+  'git branch -M planwright/demo/amendment-9 &&' 'GIT switch planwright/demo/spec &&' \
+  'git rebase main planwright/demo/spec ;' 'git bisect reset planwright/demo/spec &&' \
+  'git stash branch planwright/demo/amendment-9 &&' 'printf x | git update-ref --stdin &&'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, kickoff-demo-a2] a kickoff push after a git command that may move HEAD denies: $pre"
+  reason_has 'cannot place it' "[worker, kickoff-demo-a2] the refusal after a HEAD move names why: $pre"
+done
+for pre in 'git switch -c planwright/demo/amendment-9 &&' 'git checkout planwright/demo/spec ;'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, kickoff-demo] a kickoff push after a git command that may move HEAD denies: $pre"
+  reason_has 'cannot place it' "[worker, kickoff-demo] the refusal after a HEAD move names why: $pre"
+  PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, task-1] a non-kickoff push after a git command that may move HEAD denies: $pre"
+  reason_has 'not the kickoff for demo' "[worker, task-1] the non-kickoff refusal after a HEAD move says so: $pre"
+done
+# The shell drops the quotes and backslashes that split the name, so the
+# HEAD-move scan reads the command the way the shell will.
+for kp in '"$CLAUDE_PLUGIN_ROOT"/scripts/kick""off-spec-push.sh demo' '"$CLAUDE_PLUGIN_ROOT"/scripts/kick\off-spec-push.sh demo'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git switch planwright/demo/spec; $kp" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, kickoff-demo-a2] a split spelling of the push after a HEAD move denies: $kp"
+  reason_has 'cannot place it' "[worker, kickoff-demo-a2] the split-spelling refusal after a HEAD move names why: $kp"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git \$SUB planwright/demo/spec && $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, kickoff-demo-a2] a kickoff push after a git subcommand the guard cannot read denies"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "git symbolic-ref HEAD && $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, kickoff-demo-a2] a symbolic-ref read before the push stays refused (fail closed)"
+reason_has 'cannot place it' "[worker, kickoff-demo-a2] the symbolic-ref refusal is the unplaceable one"
+for pre in 'git status &&' 'git log -1 ;' 'git branch --show-current &&' 'git diff --stat HEAD &&' 'git stash list &&' \
+  'git --version &&' 'git -h ;' 'git --exec-path &&'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect defer "[worker, kickoff-demo-a2] a kickoff push after a git read still defers: $pre"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$KICKOFF_PUSH && git switch planwright/demo/spec" "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, kickoff-demo-a2] a HEAD move after the kickoff push denies, as anything but cd or a read beside it does"
+reason_has 'on its own, or after cd only' "[worker, kickoff-demo-a2] the trailing-move refusal says how to run it"
+# The helper reads the launch scope and the branch when it runs, so anything
+# beside the push but a cd or a read could change either after the guard's
+# read: a scope rewrite, a move the guard cannot see, or a loop back edge.
+for c in "PLANWRIGHT_WORKER_SCOPE=kickoff-demo $KICKOFF_PUSH" \
+  "export PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" \
+  "unset PLANWRIGHT_WORKER_SCOPE; $KICKOFF_PUSH" \
+  "PLANWRIGHT_WORKER_SCOPE= $KICKOFF_PUSH" \
+  "PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" \
+  "declare -x PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" \
+  "printf -v PLANWRIGHT_WORKER_SCOPE kickoff-demo; $KICKOFF_PUSH" \
+  "X=1 $KICKOFF_PUSH" \
+  "sh -c 'git symbolic-ref HEAD refs/heads/planwright/demo/spec'; export PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" \
+  "true && $KICKOFF_PUSH" \
+  "$KICKOFF_PUSH; git checkout planwright/demo/spec" \
+  "for i in 1 2; do $KICKOFF_PUSH; git checkout planwright/demo/spec; done"; do
+  for scope in kickoff-demo-a2 kickoff-demo; do
+    PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$c" "$AMEND_UP" "$AMEND_UP"
+    expect deny "[worker, $scope] a kickoff push beside a command that is neither cd nor a read denies: $c"
+    reason_has 'on its own, or after cd only' "[worker, $scope] the refusal says how to run it: $c"
+  done
+done
+# printf, test and [ never stand beside the push (printf -v assigns, and test
+# -v evaluates an expansion in a subscript), nor does any word holding $ or a
+# backtick, quoted or not.
+for c in "printf -vPLANWRIGHT_WORKER_SCOPE %s kickoff-demo; $KICKOFF_PUSH" \
+  "printf -bvX %s y; $KICKOFF_PUSH" \
+  "printf '%s\\n' ok; $KICKOFF_PUSH" \
+  "[ -v 'a[\$(git switch planwright/demo/spec)]' ]; $KICKOFF_PUSH" \
+  "test -v 'a[\$(git switch planwright/demo/spec)]'; $KICKOFF_PUSH" \
+  "test -v 'a[\`git switch planwright/demo/spec\`]'; $KICKOFF_PUSH" \
+  "test -f README.md && $KICKOFF_PUSH" \
+  "[ -d . ] && $KICKOFF_PUSH" \
+  "echo 'a\$(git switch planwright/demo/spec)'; $KICKOFF_PUSH" \
+  "git log --format='\$(x)' -1; $KICKOFF_PUSH" \
+  "sh -c 'git switch planwright/demo/spec'; $KICKOFF_PUSH" \
+  "[ -v 'a[\$(git switch planwright/demo/spec)]' ]; printf -vPLANWRIGHT_WORKER_SCOPE %s kickoff-demo; $KICKOFF_PUSH"; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$c" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[worker, kickoff-demo-a2] a kickoff push beside printf, test, [ or a word holding \$ or a backtick denies: $c"
+  reason_has 'on its own, or after cd only' "[worker, kickoff-demo-a2] the refusal says how to run it: $c"
+done
+for pre in 'echo ok;' 'git log --format=%H -1 &&'; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 pg worker "$pre $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect defer "[worker, kickoff-demo-a2] a kickoff push after a plain read defers: $pre"
+done
+for scope in kickoff-demo-a2 kickoff-demo-a2-delta kickoff-demo; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "cd \"$AMEND_UP\" && $KICKOFF_PUSH" "$UNIT" "$UNIT"
+  expect defer "[worker, $scope] the kickoff push after cd alone defers"
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH && git status" "$AMEND_UP" "$AMEND_UP"
+  expect defer "[worker, $scope] the kickoff push followed by a read defers"
+done
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "export PLANWRIGHT_WORKER_SCOPE=kickoff-demo; $KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, task-1] a non-kickoff session rewriting its scope stays refused"
+reason_has 'not the kickoff for demo' "[worker, task-1] the scope-rewrite refusal for a non-kickoff session says it is not the kickoff"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
+expect defer "[worker, kickoff-demo-a2-delta] a stale local spec branch beside the amendment does not move the decision"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$AMEND_STALE" "$AMEND_STALE"
+reason_has 'planwright/demo/amendment-2 checked out' "[worker, task-1] with a stale local spec branch, the refusal names the amendment branch"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, task-1] a non-kickoff session on a unit branch denies"
+reason_has 'not the kickoff for demo' "[worker, task-1] the unit-branch refusal says the session is not the kickoff"
+reason_has 'planwright/demo/task-1 checked out' "[worker, task-1] the unit-branch refusal names the branch checked out"
+for tier in tower mission-control; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg "$tier" "$KICKOFF_PUSH" "$AMEND_UP" "$AMEND_UP"
+  expect deny "[$tier, kickoff-demo-a2-delta] a non-worker tier never runs an amendment kickoff push"
+  reason_has 'not the kickoff for demo' "[$tier, kickoff-demo-a2-delta] the refusal says the session is not the kickoff"
+  if printf '%s' "$REASON" | grep -q 'targets a protected branch'; then
+    fail "[$tier, kickoff-demo-a2-delta] the refusal claims a protected target the push would not reach: $REASON"
+  else
+    pass "[$tier, kickoff-demo-a2-delta] the refusal claims no protected target"
+  fi
+done
+
+# A relayed amendment kickoff in a linked worktree with the
+# amendment branch checked out directly (no flight branch, no local spec
+# branch), tracking its origin branch and ahead of it.
+MC_PRIMARY="$SANDBOX/mc-primary"
+gitq clone "$ORIGIN" "$MC_PRIMARY"
+gitq -C "$MC_PRIMARY" switch -c planwright/mission-control/amendment-16 main
+gitq -C "$MC_PRIMARY" commit --allow-empty -m "amendment 16 sign-off"
+gitq -C "$MC_PRIMARY" push -u origin planwright/mission-control/amendment-16
+gitq -C "$MC_PRIMARY" switch main
+MC_A16="$SANDBOX/mc-a16"
+gitq -C "$MC_PRIMARY" worktree add "$MC_A16" planwright/mission-control/amendment-16
+gitq -C "$MC_A16" commit --allow-empty -m "delta 1"
+gitq -C "$MC_A16" commit --allow-empty -m "delta 2"
+MC_A17="$SANDBOX/mc-a17"
+gitq -C "$MC_PRIMARY" worktree add -b planwright/mission-control/amendment-17 "$MC_A17" main
+MC_A1="$SANDBOX/mc-a1"
+gitq -C "$MC_PRIMARY" worktree add -b planwright/mission-control/amendment-1 "$MC_A1" main
+KICK_MC='${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh mission-control'
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect defer "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the relayed amendment-16 kickoff push is admitted"
+reads none "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the admitted push reads no knob"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A17" "$MC_A17"
+expect deny "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the a16 scope on amendment-17 denies"
+reason_has 'planwright/mission-control/amendment-17 checked out' "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the amendment-17 refusal names the branch checked out"
+reason_has "amendment 16's kickoff for mission-control pushes only planwright/mission-control/amendment-16," "[worker, kickoff-mission-control-a16-delta] relayed amendment case: the amendment-17 refusal names the one branch amendment 16's kickoff pushes"
+for scope in kickoff-mission-control-a1 kickoff-mission-control-a160; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+  expect deny "[worker, $scope] another amendment number's scope denies on amendment-16"
+  reason_has "amendment ${scope#kickoff-mission-control-a}'s kickoff for mission-control pushes only" "[worker, $scope] the refusal names that scope's own amendment"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A1" "$MC_A1"
+expect deny "[worker, kickoff-mission-control-a16-delta] an a16 scope denies on amendment-1"
+reason_has 'planwright/mission-control/amendment-1 checked out' "[worker, kickoff-mission-control-a16-delta] the amendment-1 refusal names the branch checked out"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a10b pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a10b] amendment 10's relaunch scope denies on amendment-16"
+reason_has "amendment 10's kickoff for mission-control pushes only" "[worker, kickoff-mission-control-a10b] the refusal reads the relaunch scope as amendment 10's"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "git rebase main planwright/mission-control/amendment-17 ; $KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] a kickoff push after a two-argument rebase in a linked worktree denies"
+reason_has 'cannot place it' "[worker, kickoff-mission-control-a16-delta] the refusal after a rebase that checks out a branch names why"
+mkdir -p "$MC_A16/specs/mission-control"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect defer "[worker, kickoff-mission-control-a16-delta] relayed amendment case: admitted with its own spec under the spec root and no colliding one"
+
+# An amendment kickoff's scope that is also another spec's kickoff scope: a
+# spec named <spec>-a<n> (or the scope's whole tail) under the spec root.
+AMEND_COL="$SANDBOX/amend-col"
+gitq clone "$ORIGIN" "$AMEND_COL"
+gitq -C "$AMEND_COL" switch -c planwright/demo/amendment-2 main
+mkdir -p "$AMEND_COL/specs/demo" "$AMEND_COL/specs/demo-a2" "$AMEND_COL/specs/demo-a2b"
+for scope in kickoff-demo-a2 kickoff-demo-a2-a3 kickoff-demo-a2b; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICKOFF_PUSH" "$AMEND_COL" "$AMEND_COL"
+  expect deny "[worker, $scope] an amendment scope another spec's kickoff can share denies"
+  reason_has "reads as amendment 2's kickoff for demo, but a spec named demo-a2b? exists" "[worker, $scope] the collision refusal names the other spec"
+  reason_has 'Relaunch the kickoff with a scope no other spec' "[worker, $scope] the collision refusal's remedy is a fresh scope"
+done
+# A scope that also reads as an amendment kickoff of a shorter spec: demo's
+# amendment 1 with the word a2 is also demo-a1's amendment 2.
+AMEND_PRE="$SANDBOX/amend-pre"
+gitq clone "$ORIGIN" "$AMEND_PRE"
+gitq -C "$AMEND_PRE" switch -c planwright/demo-a1/amendment-2 main
+mkdir -p "$AMEND_PRE/specs/demo-a1"
+KICK_PRE='"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo-a1'
+for scope in kickoff-demo-a1-a2 kickoff-demo-a1-a2b; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICK_PRE" "$AMEND_PRE" "$AMEND_PRE"
+  expect defer "[worker, $scope] with no shorter spec it could belong to, the amendment kickoff push defers"
+done
+mkdir -p "$AMEND_PRE/specs/demo"
+for scope in kickoff-demo-a1-a2 kickoff-demo-a1-a2b; do
+  PLANWRIGHT_WORKER_SCOPE=$scope pg worker "$KICK_PRE" "$AMEND_PRE" "$AMEND_PRE"
+  expect deny "[worker, $scope] a scope a shorter spec's amendment kickoff can share denies"
+  reason_has "reads as amendment 2's kickoff for demo-a1, but a spec named demo exists, whose amendment 1 kickoff that scope is" "[worker, $scope] the shorter-spec collision names that spec and its amendment"
+  reason_has 'Relaunch the kickoff with a scope no other spec' "[worker, $scope] the shorter-spec collision's remedy is a fresh scope"
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a1-a2-x pg worker "$KICK_PRE" "$AMEND_PRE" "$AMEND_PRE"
+expect defer "[worker, kickoff-demo-a1-a2-x] a scope outside the shorter spec's amendment grammar still defers"
+# A colliding bundle the worktree does not hold but the primary checkout does.
+mkdir -p "$MC_PRIMARY/specs/mission-control-a16-delta"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] a colliding bundle only in the primary checkout denies"
+reason_has 'a spec named mission-control-a16-delta exists' "[worker, kickoff-mission-control-a16-delta] the primary-only collision names the other spec"
+rmdir "$MC_PRIMARY/specs/mission-control-a16-delta"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect defer "[worker, kickoff-mission-control-a16-delta] admitted again once the primary holds no colliding bundle"
+# The resolver's own failures each name their own remedy, never a relaunch.
+STUB_ROOT=empty PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] an empty spec-root answer denies"
+reason_has 'spec root could not be resolved' "[worker, kickoff-mission-control-a16-delta] the empty-answer refusal says why"
+reason_has 'Repair spec_root' "[worker, kickoff-mission-control-a16-delta] the empty-answer refusal's remedy is the spec_root repair"
+STUB_ROOT=hang PG_TIMEOUT=1 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] a spec-root read past its bound denies"
+reason_has 'did not finish within 1s' "[worker, kickoff-mission-control-a16-delta] the timeout refusal names the bound"
+reason_has 'retry' "[worker, kickoff-mission-control-a16-delta] the timeout refusal's remedy is a retry"
+mv "$S/resolve-root.sh" "$S/resolve-root.sh.away"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] a missing spec-root resolver denies"
+reason_has 'resolver is missing beside this guard' "[worker, kickoff-mission-control-a16-delta] the missing-resolver refusal says why"
+reason_has 'Reinstall planwright' "[worker, kickoff-mission-control-a16-delta] the missing-resolver refusal's remedy is a reinstall"
+mv "$S/resolve-root.sh.away" "$S/resolve-root.sh"
+for r in empty hang; do
+  STUB_ROOT=$r PG_TIMEOUT=1 PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+  if printf '%s' "$REASON" | grep -q 'Relaunch'; then
+    fail "[worker, kickoff-mission-control-a16-delta] a resolver failure ($r) prescribes a relaunch: $REASON"
+  else
+    pass "[worker, kickoff-mission-control-a16-delta] a resolver failure ($r) prescribes no relaunch"
+  fi
+done
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2-delta pg worker "$KICKOFF_PUSH" "$AMEND_COL" "$AMEND_COL"
+expect defer "[worker, kickoff-demo-a2-delta] a scope no existing spec's kickoff shares is admitted beside a demo-a2 spec"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$AMEND_COL" "$AMEND_COL"
+expect defer "[worker, kickoff-demo] the spec's own kickoff scope is admitted beside a demo-a2 spec"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow' "spec_root: $SANDBOX/no-such-spec-root"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control-a16-delta pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect deny "[worker, kickoff-mission-control-a16-delta] an amendment scope denies when the spec root cannot be resolved"
+reason_has 'spec root could not be resolved' "[worker, kickoff-mission-control-a16-delta] the unresolvable-root refusal says why"
+reason_has 'Repair spec_root' "[worker, kickoff-mission-control-a16-delta] the unresolvable-root refusal's remedy is the spec_root repair"
+PLANWRIGHT_WORKER_SCOPE=kickoff-mission-control pg worker "$KICK_MC" "$MC_A16" "$MC_A16"
+expect defer "[worker, kickoff-mission-control] the spec's own kickoff scope reads no spec root"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a2 "$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh demo' "$AMEND_UP" "$AMEND_UP"
+expect deny "[worker, task-1] an inline amendment-kickoff scope does not admit the push"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "false && cd \"$AMEND_UP\"; $KICKOFF_PUSH" "$UNIT" "$UNIT"
+expect deny "[worker, task-1] a non-kickoff push the guard cannot place denies"
+reason_has 'not the kickoff for demo' "[worker, task-1] the unplaced non-kickoff refusal says the session is not the kickoff"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$UNIT" "$UNIT"
 reason_has 'CLAUDE_PLUGIN_ROOT.?/scripts/kickoff-spec-push[.]sh <spec>' "[worker, kickoff-demo] the wrong-branch refusal names the accepted form"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker './kickoff-spec-push.sh demo' "$SPEC" "$SPEC"
@@ -140,8 +451,13 @@ expect deny "[worker, kickoff-demo] a kickoff push naming the flight namespace d
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "\"\$CLAUDE_PLUGIN_ROOT\"/scripts/kickoff-spec-push.sh $(printf 'a%.0s' $(seq 1 65))" "$SPEC" "$SPEC"
 expect deny "[worker, kickoff-demo] a kickoff push naming a spec over 64 characters denies"
 PLANWRIGHT_WORKER_SCOPE=task-1 pg worker '"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh kickoff-spec-push' "$SPEC" "$SPEC"
-expect deny "[worker, task-1] a spec named like the script is not a kickoff push, and its refusal keeps today's text"
-reason_has 'protected branch' "[worker, task-1] the spec-named-like-the-script refusal is the protected-branch text, not a spelling refusal"
+expect deny "[worker, task-1] a spec named like the script is not a kickoff push, and its refusal is the kickoff decision's text"
+reason_has 'not the kickoff for kickoff-spec-push ' "[worker, task-1] the spec-named-like-the-script refusal is the not-the-kickoff text for that spec, not a spelling refusal"
+if printf '%s' "$REASON" | grep -q 'spelling'; then
+  fail "[worker, task-1] the spec-named-like-the-script refusal is a spelling refusal: $REASON"
+else
+  pass "[worker, task-1] the spec-named-like-the-script refusal is no spelling refusal"
+fi
 for cmd in './kickoff-spec-push.sh demo' '/tmp/evil/kickoff-spec-push.sh demo' 'bash ./kickoff-spec-push.sh demo'; do
   PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$SPEC" "$SPEC"
   expect deny "[worker, kickoff-demo] a same-named file outside scripts/ is not the kickoff script: $cmd"
@@ -393,6 +709,11 @@ for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-sp
   'bash scripts/k*.sh demo' \
   'bash scripts/k*h demo' \
   'sh scripts/k?*.sh demo' \
+  'bash scripts/?*.sh demo' \
+  'bash scripts/*?.sh demo' \
+  'bash scripts/?*? demo' \
+  'env scripts/?*.sh demo' \
+  'cp scripts/?*.sh copy.sh' \
   'bash scripts/k${E}.sh demo' \
   'bash scripts/${E}k*.sh demo' \
   'env scripts/*k*.sh demo' \
@@ -441,10 +762,37 @@ for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git cat-file --textconv HEAD:a scripts/kickoff-spec-push.sh' \
   'git grep --textconv foo -- scripts/kickoff-spec-push.sh' \
   'git blame scripts/kickoff-spec-push.sh' \
+  'git show -L1:x scripts/kickoff-spec-push.sh' \
+  'git show -L1:x HEAD:scripts/kickoff-spec-push.sh' \
+  'git show -U1:x scripts/kickoff-spec-push.sh' \
+  "git show --author '.:*' scripts/kickoff-spec-push.sh" \
+  'git show --grep a:b scripts/kickoff-spec-push.sh' \
+  'git show --author a:b -- scripts/kickoff-spec-push.sh' \
+  'git show HEAD:a scripts/kickoff-spec-push.sh' \
+  'git show :/two: :scripts/kickoff-spec-push.sh' \
+  'git show HEAD^{/one:} :scripts/kickoff-spec-push.sh' \
+  'git show HEAD@{12:00} :scripts/kickoff-spec-push.sh' \
+  'git log -U1 -- scripts/kickoff-spec-push.sh' \
+  'git log -nU1 -- scripts/kickoff-spec-push.sh' \
+  'git log --unified=1 -- scripts/kickoff-spec-push.sh' \
+  'git log --binary -- scripts/kickoff-spec-push.sh' \
+  'git log --remerge-diff -- scripts/kickoff-spec-push.sh' \
+  'git log --dd -- scripts/kickoff-spec-push.sh' \
+  'git cat-file --t HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --te HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --tex HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --text HEAD:scripts/kickoff-spec-push.sh' \
   'git annotate scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
     expect deny "[$tier, task-1] a diff driver command or textconv filter runs on the file: $cmd"
+  done
+done
+for cmd in 'git show main@{1}:scripts/kickoff-spec-push.sh' \
+  'git show HEAD^{commit}:scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
+    expect deny "[$tier, task-1] a blob named through a braced revision is refused, as a commit's name can hold a colon too: $cmd"
   done
 done
 for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
@@ -453,6 +801,9 @@ for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
   'git log --oneline -- scripts/kickoff-spec-push.sh' \
   'git log --follow -- scripts/kickoff-spec-push.sh' \
   'git show HEAD:scripts/kickoff-spec-push.sh' \
+  'git show :scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh --' \
+  'git show -q:x HEAD:scripts/kickoff-spec-push.sh' \
   'git status scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
@@ -482,6 +833,11 @@ for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
   'shellcheck scripts/k*.sh' \
   'git add scripts/k*.sh' \
   'for f in scripts/*.sh; do shellcheck "$f"; done' \
+  'env scripts/*.sh' \
+  'cp scripts/*.sh copy.sh' \
+  'cp scripts/*.sh* copy.sh' \
+  'cp scripts/?.sh copy.sh' \
+  'env scripts/??.sh' \
   'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git diff scripts/other.sh' \
   'git config core.autocrlf false && git add scripts/kickoff-spec-push.sh' \

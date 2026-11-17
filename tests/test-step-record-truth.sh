@@ -44,7 +44,9 @@ git -C "$wt" add file.txt
 git -C "$wt" commit -q -m "chore: base"
 H1=$(git -C "$wt" rev-parse HEAD)
 printf 'two\n' >>"$wt/file.txt"
-git -C "$wt" commit -q -a -m "chore: two"
+# A past committer time: a commit-sourced --end after it must not be later than
+# the clock, which write refuses.
+GIT_COMMITTER_DATE="2026-11-01T11:21:43+00:00" git -C "$wt" commit -q -a -m "chore: two"
 H2=$(git -C "$wt" rev-parse HEAD)
 CT=$(git -C "$wt" log -1 --format=%ct "$H2")
 
@@ -91,8 +93,19 @@ refuses_full "a window of whole minutes" window-round-minutes --start \
 refuses_full "a start on seconds :00" start-round-minute --start \
   --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
   --start 2026-11-01T10:03:00Z --end 2026-11-01T10:09:41Z --outcome passed
+# Not polish: write refuses a polish passed over a moved head by its own rule
+# first, checked below.
 refuses_full "passed over a moved head" outcome-heads --outcome \
+  --step self-review --target self-review \
   --hosting in-session --backend in-session --head "$H1" --end-head "$H2" --start "$START" --end "$END" --outcome passed
+before=$(records)
+err=$(wr --hosting in-session --backend in-session --head "$H1" --end-head "$H2" --start "$START" --end "$END" --outcome passed 2>&1 >/dev/null)
+rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -q -- --outcome && [ "$before" = "$(records)" ]; then
+  ok "a polish passed over a moved head is refused as well"
+else
+  fail "a polish passed over a moved head: rc=$rc err=$err"
+fi
 refuses_full "applied over an unmoved head" outcome-heads --outcome \
   --hosting in-session --backend in-session --head "$H1" --end-head "$H1" --start "$START" --end "$END" --outcome applied
 refuses_full "a prompt step on seconds :00 as well" start-round-minute --start \
