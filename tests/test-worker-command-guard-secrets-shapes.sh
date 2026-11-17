@@ -116,6 +116,19 @@ for v in code issues prs; do
     assert_defer "secrets: gh search jq/template: $c" "$c"
   done
 done
+# An attached value ending in q or t is still the value, not a cluster that
+# hands its value to the next word.
+# shellcheck disable=SC2016 # the guard reads the words as written
+for c in "gh search code foo '-qenv|test'" "gh search issues foo '-q\$ENV|keys|sort'" "gh search prs foo '-qenv.GH_TOKEN|@text'" \
+  "gh pr view 1 '-qenv|test'" "gh api repos/o/r '-q\$ENV|tojson|test'" "gh run list '-qenv|@text'" \
+  "gh auth status --json hosts '--jq=env|test'"; do
+  assert_defer "secrets: gh attached filter ending in q or t: $c" "$c"
+done
+for c in "gh search code foo --json path -q '.[].path'" "gh search issues foo --json title -t '{{range .}}{{.title}}{{end}}'" \
+  "gh search prs foo --json title --template '{{range .}}{{.title}}{{end}}'" "gh search code foo --json path '-q.[].path'" \
+  'gh search prs foo -Ro/test'; do
+  assert_allow "secrets: gh search with a filter that reads no environment: $c" "$c"
+done
 # shellcheck disable=SC2016 # the guard reads the words as written
 for c in 'gh auth status --json hosts --jq env' 'gh auth status --jq=env' "gh auth status --jq '\$ENV'" \
   'gh auth status --template {{env}}' 'gh auth status --json hosts --template={{env}}' \

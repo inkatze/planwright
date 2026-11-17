@@ -119,6 +119,7 @@ adversarial${TAB}defer${TAB}a gh search code jq filter reading the environment${
 adversarial${TAB}defer${TAB}a gh search issues short jq filter reading the environment${TAB}gh search issues foo -q env
 adversarial${TAB}defer${TAB}a gh search prs template reading the environment${TAB}gh search prs foo --template={{env}}
 adversarial${TAB}defer${TAB}a gh auth status jq filter reading the environment${TAB}gh auth status --json hosts --jq env
+adversarial${TAB}defer${TAB}a gh search attached jq filter ending in t reading the environment${TAB}gh search code foo '-qenv|test'
 adversarial${TAB}defer${TAB}a switch to the base branch${TAB}git switch main
 adversarial${TAB}defer${TAB}a branch reset to the base${TAB}git reset --hard main
 adversarial${TAB}defer${TAB}an amend on the unit branch${TAB}git commit --amend -m 'x'
