@@ -72,7 +72,7 @@ refuses_full() {
   rc=$?
   after=$(records)
   if [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -q -- "$flag" \
-    && printf '%s' "$err" | grep -q "step-record truth check, rule $rule" && [ "$before" = "$after" ]; then
+    && printf '%s' "$err" | grep -q "step-record truth check, rule $rule: [a-z-]" && [ "$before" = "$after" ]; then
     ok "the truth check refuses $label"
   else
     fail "$label: rc=$rc before=$before after=$after err=$err"

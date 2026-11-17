@@ -972,7 +972,9 @@ truth_check() {
     BEGIN { print truth("write", ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6], ARGV[7], ARGV[8], ARGV[9]); exit }' \
     "$kind" "$outcome" "$hosting" "$backend" "$start" "$end" "$head" "$end_head" "$start_source") \
     || die 1 "cannot run the step-record truth check"
-  [ -z "$_t" ] || bad "${_t%%"$TAB"*}" "step-record truth check, rule ${_t#*"$TAB"}"
+  [ -n "$_t" ] || return 0
+  _r=${_t#*"$TAB"}
+  bad "${_t%%"$TAB"*}" "step-record truth check, rule ${_r%%"$TAB"*}: ${_r#*"$TAB"}"
 }
 
 # check_pool_fields: --pool with its --wait, and the other pool fields only
