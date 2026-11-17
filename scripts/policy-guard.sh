@@ -3856,7 +3856,7 @@ git_state_after() {
       for a in "${SW[@]:$2}"; do
         lc "$a"
         case $LC in
-          -e | -[!-]*e | --ed* | include* | *'$'* | *'`'* | *'{'*) ST_FILT=1 ;;
+          -e* | -[!-]*e* | --ed* | edit | include* | *'$'* | *'`'* | *'{'*) ST_FILT=1 ;;
           filter.*.required) [ "$renaming" = 0 ] || ST_FILT=1 ;;
           filter.*) ST_FILT=1 ;;
         esac
