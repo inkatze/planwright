@@ -654,10 +654,11 @@ proc_cwd() {
 # stream_json_procs: this user's candidates from the process table, one per
 # line, tab separated: `S <pid> <start> <worker> <dir> <worker pids>` for a
 # supervisor, `C <pid> <start> <worker> <ppid>` for a stream-json worker no
-# fleet-streamjson.sh launch, recover, relaunch or supervisor parents. A supervisor's own forks keep its
-# `_supervise` argv for a moment (a subshell, the worker before its exec), so
-# a candidate whose parent is a supervisor is that supervisor's, never its
-# own row; and `launch --foreground` supervises from the launch process.
+# fleet-streamjson.sh launch, recover, relaunch or supervisor parents. A
+# supervisor's own forks keep its `_supervise` argv for a moment (a
+# subshell, the worker before its exec), so a candidate whose parent is a
+# supervisor is that supervisor's, never its own row; and `launch
+# --foreground` supervises from the launch process.
 # ps joins the argv with spaces, so a state directory whose path holds one is
 # read short and reads as gone.
 stream_json_procs() {

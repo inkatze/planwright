@@ -669,7 +669,7 @@ orphan_raise() {
     fi
     or_subject=$or_worker
     mc_valid_handle "$or_subject" || or_subject=$(mc_subject orphan "$or_pid")
-    or_check="once ps -o pid,lstart,args -p $or_pid shows it started $(printf '%s' "$or_start" | tr '-' ' ') and abandoned, kill $or_pid ends it"
+    or_check="once ps -o pid,lstart,args -p $or_pid shows it started $(printf '%s' "$or_start" | sed 's/-/ /g') and abandoned, kill $or_pid ends it"
     [ "$or_role" = supervisor ] || or_check="it may be a session someone started by hand; $or_check"
     mc_announce "$or_target" "$os_seen" "$or_key" stream-json-worker-orphaned "$or_subject" \
       "orphaned stream-json $or_role pid $or_pid ($or_worker), which nothing reaps or stops; $or_check$KT_NOTE. $or_why" \
