@@ -1,7 +1,7 @@
 # Control plane — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-11-15
+**Status:** Ready
+**Last reviewed:** 2026-11-16
 **Format-version:** 2
 **Execution:** derived — see the status render
 

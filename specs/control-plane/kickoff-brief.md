@@ -13,7 +13,7 @@
   local mission-control amendment branches named in `requirements.md` Sources.
   Neither branch was touched.
 
-Signed off: pending the operator's approval
+Signed off: 2026-11-16
 
 ## 2. Goal and glossary
 
@@ -46,7 +46,7 @@ Operator decisions (2026-11-16, relayed):
   each class's shadow log and brings the operator a one-line evidence summary,
   which gates the operator's yes to enforce (REQ-C1.6, D-6).
 
-Signed off: pending the operator's approval
+Signed off: 2026-11-16
 
 ## 3. Requirements walkthrough
 
@@ -76,7 +76,7 @@ Nothing was dropped silently.
 Consolidated spec-edit list: see the two commits on the branch after the
 drafted bundle's commit.
 
-Signed off: pending the operator's approval
+Signed off: 2026-11-16
 
 ## 4. Design walkthrough
 
@@ -86,7 +86,7 @@ D-14 amended (floor acts defer under the kill switch); D-16 to D-18 settled
 (were open); D-19 to D-21 new. No decision contradicts a walked requirement
 after the lens fixes.
 
-Signed off: pending the operator's approval
+Signed off: 2026-11-16
 
 ## 5. Verification approach
 
@@ -96,7 +96,7 @@ found by the lens pass (checks no task built) were assigned to Tasks 2 to 5 and
 12; the stale test-spec entries for `release-run` and the class modes were
 corrected. CI runs the `[test]` entries; the operator sweeps `[manual]`.
 
-Signed off: pending the operator's approval
+Signed off: 2026-11-16
 
 ## 6. Task graph
 
@@ -108,7 +108,7 @@ Task 1 (the engine is built and fixtured before it is wired); Tasks 21 and 22
 do not gate Tasks 8 to 10 (the roots reader is needed by the queue consumers,
 and Task 22 gates only the slice-three walk).
 
-Signed off: pending the operator's approval
+Signed off: 2026-11-16
 
 ## 7. Risk register
 
@@ -148,8 +148,32 @@ Signed off: pending the operator's approval
 11. Panel pull requests wait on the operator's screenshot approval; the
     reconciler never flips them (REQ-G1.1, REQ-H1.9).
 
-Signed off: pending the operator's approval
+Signed off: 2026-11-16
 
 ## 8. Sign-off
 
-Pending the operator's approval of the summary put to them.
+Signed off by the operator, 2026-11-16, relayed through their mission control
+in their own words ("Approve (Recommended)"), including the hub reading the
+watch-only logs and bringing the one-line evidence summary as the gate.
+Validator: no errors, no warnings; markdown lint, count-versus-list and spec
+literal checks clean. Draft to Ready flipped on all four spec files.
+
+Lens pass: full-bundle Discovery-Rigor review on the spec lens set (contract
+correctness, ambiguity, citation and coverage, verification paths and
+testability, decision-domain gaps with the altitude and ship-gate checks,
+cross-file and glossary drift), one read-only agent per lens, run foreground.
+Performance, concurrency and error-handling code lenses are not applicable to a
+spec. Findings were applied as spec edits (the two commits after the drafted
+bundle), except the decision-domain gaps, recorded as risk rows 4 to 10; no
+finding was declined. Altitude: D-1 present and now cited from the Goal; the
+doctrine document is a Task 2 deliverable. Ship-gate: out-of-band follow-ups
+now carry Awaiting-input, Deferred or Out-of-scope entries.
+
+Class: meaning
+Lens-pass: section 8 above (full-bundle review, all findings dispositioned)
+Anchor: `342acb672c7dd4a36d2f75c9c15812c3b3b1d7fe` — computed as
+`scripts/spec-anchor.sh specs/control-plane`
+
+## 9. Amendment log
+
+(none yet)
