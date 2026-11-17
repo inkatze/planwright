@@ -1826,7 +1826,7 @@ kick_filter_set() {
 # its arguments: no option but -C before the subcommand (a -c could set a pager
 # or helper to the script), and a subcommand that does not run its arguments.
 kickoff_git_reads() {
-  local k=1 j w moved=0 noext=0 notext=0 patchy=0 colon=0 filt=0 fdir=$KICK_DIR fok=$KICK_DIR_OK
+  local k=1 j w moved=0 noext=0 notext=0 patchy=0 colon=0 bare=0 filt=0 fdir=$KICK_DIR fok=$KICK_DIR_OK
   while [ "$k" -lt "${#SW[@]}" ]; do
     case ${SW[$k]} in
       -C)
@@ -1852,24 +1852,44 @@ kickoff_git_reads() {
         j=$((k + 1))
         while [ "$j" -lt "${#SW[@]}" ]; do
           case ${SW[$j]} in
-            --) break ;;
-            --op* | --ou* | --ext | --ext-* | --textc*) return 1 ;;
+            --)
+              # A path after -- limits a commit's patch; a blob ignores it.
+              [ $((j + 1)) -ge "${#SW[@]}" ] || bare=1
+              break
+              ;;
+            # git cat-file takes any unambiguous prefix of --textconv, down to
+            # --t, so git log's --text is refused beside the script too.
+            --op* | --ou* | --ext | --ext-* | --t | --te | --tex | --text | --textc*) return 1 ;;
             --no-ext-diff) noext=1 ;;
             --no-textconv) notext=1 ;;
-            --patch* | --cc | --stat* | --numstat | --shortstat | --word-diff*) patchy=1 ;;
+            --patch* | --unified* | --binary | --remerge-diff | --dd | --cc | --stat* | --numstat | \
+              --shortstat | --word-diff*)
+              patchy=1
+              ;;
             # git cat-file --filters (in any abbreviation) runs a configured
             # filter program on the blob it prints.
             --fi*) [ "${SW[$k]}" != cat-file ] || return 1 ;;
             --*) ;;
             -*O*) return 1 ;;
-            -*[pucGS]*) patchy=1 ;;
+            # -L<range>:<file> prints a patch even beside a <rev>:<path>, and
+            # -U<n> implies one.
+            -*[pucGSLU]*) patchy=1 ;;
+            # An option word never names a blob, so a colon in it is no <rev>:<path>.
+            -*) ;;
+            # A commit can be named with a colon in it (:/<text>, @{12:00},
+            # ^{/<text>}), so such a word is never read as a <rev>:<path>.
+            :/* | *\{*) bare=1 ;;
             *:*) colon=1 ;;
+            *) bare=1 ;;
           esac
           j=$((j + 1))
         done
         # A commit shown by git show, and the history of git log -p, are
         # patches; git log alone and a blob (git show <rev>:<path>) are not.
-        [ "${SW[$k]}" != show ] || [ "$colon" = 1 ] || patchy=1
+        # The guard cannot tell an option's separate value (--author a:b) from
+        # a <rev>:<path>, nor a bare rev from a path, so git show reads as a
+        # blob only when every word but its options is a plain <rev>:<path>.
+        [ "${SW[$k]}" != show ] || { [ "$colon" = 1 ] && [ "$bare" = 0 ]; } || patchy=1
         # The commands that format a file through a configured program: git diff
         # runs diff.external (or a diff.<driver>.command) on every file by
         # default, and --no-ext-diff is the only way to read it with one set; a
@@ -2046,10 +2066,10 @@ kickoff_var_run() {
 # one of its redirects (which the tokenizer keeps apart, in SEG_RT), could
 # expand to the script's name through a glob or an expansion that sits inside
 # it (scripts/kick*ff-spec-push.sh, scripts/kic${E}koff-spec-push.sh, and
-# scripts/k*.sh), with at least one literal character besides the .sh, or a
-# name of ? marks alone, so that a name made of stars alone (scripts/*.sh,
-# which also matches every other script) stays an ordinary glob. Expansions and brace groups
-# (scripts/kick{off,x}-spec-push.sh) read as a wildcard.
+# scripts/k*.sh), with at least one literal character besides the .sh or at
+# least one ?, so that a name made of stars alone (scripts/*.sh, which also
+# matches every other script) stays an ordinary glob. Expansions and brace
+# groups (scripts/kick{off,x}-spec-push.sh) read as a wildcard.
 kickoff_fuzzy_name() {
   local words=("${W[@]:${SEG_S[$1]}:$((SEG_E[$1] - SEG_S[$1]))}") p lit
   local rt=${SEG_RT[$1]//[\"\'\\]/} extra=()
@@ -2065,8 +2085,9 @@ kickoff_fuzzy_name() {
     case $p in *[\*\?\[]*) ;; *) continue ;; esac
     lit=${p//[\*\?]/}
     lit=${lit%.sh}
-    # No literal at all passes only with a star: a run of ? is one name's length.
-    [ "${#lit}" -ge 1 ] || case $p in *'*'*) continue ;; esac
+    # Stars alone (scripts/*.sh) stay an ordinary glob; any ? beside them
+    # (scripts/?*.sh) still narrows the name enough to be tested.
+    [ "${#lit}" -ge 1 ] || [[ $p == *\?* ]] || continue
     # shellcheck disable=SC2053 # the glob is the point
     [[ $KICK_FILE == $p || $KICK_NAME == $p ]] && return 0
   done
