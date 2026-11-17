@@ -605,7 +605,9 @@ assert_contains "an unpinnable file fails once" "2 of 2 test file" "$out"
 
 # 23. A file never reaches the real claude CLI: the runner refuses it and
 #     fails the file, a stub of the file's own still answers, and only an
-#     explicit PLANWRIGHT_TEST_REAL_CLAUDE=1 passes through to the real one.
+#     explicit PLANWRIGHT_TEST_REAL_CLAUDE=1 passes through to the real one,
+#     past every runner's guard. The refusing file hides the guard's own
+#     stderr, so the failure line can only be the runner's.
 mkdir -p "$tmp/realbin" "$tmp/calls-claude" "$tmp/own-stub" "$tmp/opts-in"
 cat >"$tmp/realbin/claude" <<EOF
 #!/bin/sh
@@ -614,7 +616,7 @@ EOF
 chmod +x "$tmp/realbin/claude"
 cat >"$tmp/calls-claude/test-calls.sh" <<'EOF'
 #!/bin/bash
-claude -p --resume fixture-session
+claude -p --resume fixture-session 2>/dev/null
 exit 0
 EOF
 cat >"$tmp/own-stub/test-stubbed.sh" <<'EOF'
@@ -641,8 +643,11 @@ else
 fi
 out="$(PATH="$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/own-stub" 2>&1)"
 assert "a file whose own stub is first on PATH passes" 0 $?
-out="$(PATH="$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/opts-in" 2>&1)"
-assert "a file that opts in explicitly reaches the real claude CLI" 0 $?
+mkdir -p "$tmp/outer.claude-guard"
+printf '#!/bin/sh\nexit 9\n' >"$tmp/outer.claude-guard/claude"
+chmod +x "$tmp/outer.claude-guard/claude"
+out="$(PATH="$tmp/outer.claude-guard:$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/opts-in" 2>&1)"
+assert "a file that opts in explicitly reaches the real claude CLI, past an outer run's guard" 0 $?
 assert_contains "the opt-in passed the real CLI its arguments" "--version" "$(cat "$tmp/real-claude-ran" 2>&1)"
 
 if [ "$failures" -gt 0 ]; then

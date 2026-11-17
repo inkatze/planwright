@@ -340,11 +340,14 @@ write_claude_guard() {
   cat >"$1/claude" <<'GUARD' || return 1
 #!/bin/sh
 here=${0%/*}
+# Every runner's guard is skipped, a nested run's outer one included, which
+# would otherwise hand the call straight back.
 if [ "${PLANWRIGHT_TEST_REAL_CLAUDE:-}" = 1 ]; then
   set -f
   IFS=:
   for d in $PATH; do
-    [ -n "$d" ] && [ "$d" != "$here" ] && [ -f "$d/claude" ] && [ -x "$d/claude" ] || continue
+    case $d in '' | *.claude-guard) continue ;; esac
+    [ -f "$d/claude" ] && [ -x "$d/claude" ] || continue
     unset IFS
     exec "$d/claude" "$@"
   done
