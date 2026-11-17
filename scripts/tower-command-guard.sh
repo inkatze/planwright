@@ -1795,6 +1795,24 @@ guard_mise() {
   return 0
 }
 
+# git_driver_opt <verb> <word>: whether git can read <word> as an option that
+# runs a configured driver (`--ext-diff`, `--textconv`, `--filters`). git takes
+# any unambiguous prefix of a long option and the `--opt=value` spelling, so any
+# prefix of one matches, failing closed. `--text` and `--filter` name other
+# options exactly, except on cat-file: it has no `--text`, and git before its
+# own `--filter` reads that word as `--filters`.
+git_driver_opt() {
+  local n=${2%%=*}
+  case $n in
+    --?*) n=${n#--} ;;
+    *) return 1 ;;
+  esac
+  case $n in
+    text | filter) [ "$1" = cat-file ] || return 1 ;;
+  esac
+  [[ ext-diff == "$n"* || textconv == "$n"* || filters == "$n"* ]]
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution), and per-subcommand form guards on the
 # subcommands with a mutating twin. `update-ref` / `branch -f` are absent from
@@ -1819,8 +1837,8 @@ guard_git() {
         case ${cw[i]} in
           -o | --output | --output=* | --output-directory | --output-directory=*) return 1 ;;
           -O | -O* | --open-files-in-pager | --open-files-in-pager=*) return 1 ;;
-          --ext-diff | --textconv | --filters) return 1 ;;
         esac
+        git_driver_opt "$sub" "${cw[i]}" && return 1
       done
       return 0
       ;;

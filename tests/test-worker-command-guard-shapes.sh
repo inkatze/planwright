@@ -213,6 +213,24 @@ assert_defer "git show --textconv driver exec" "git show --textconv HEAD:f"
 assert_defer "git cat-file --filters driver exec" "git cat-file --filters --path=f HEAD:f"
 assert_allow "git cat-file batch still reads" "git cat-file --batch"
 assert_allow "git grep plain still allows" "git grep foo"
+# git reads any unambiguous prefix of a long option and the `--opt=value`
+# spelling; cat-file has no `--text`, so `--t`..`--text` there are textconv, and
+# git before cat-file grew `--filter` read `--filter` as `--filters`.
+for c in 'git cat-file --t HEAD:f' 'git cat-file --te HEAD:f' 'git cat-file --tex HEAD:f' \
+  'git cat-file --text HEAD:f' "git cat-file '--te' HEAD:f" 'git cat-file --textconv=1 HEAD:f' \
+  'git cat-file --f HEAD:f' 'git cat-file --fil HEAD:f' 'git cat-file --filt HEAD:f' \
+  'git cat-file --filter HEAD:f' 'git cat-file --filter=blob:none --batch-all-objects' \
+  'git cat-file --filters=1 HEAD:f' 'git cat-file --batch --filt' \
+  'git grep --textc -e foo' 'git grep --textconv=1 -e foo' 'git blame --textco f' \
+  'git diff --ext HEAD' 'git diff --ext-diff=1 HEAD' 'git show --ext-d HEAD' 'git log --e -p' \
+  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff'; do
+  assert_defer "driver option near-spelling: $c" "$c"
+done
+for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-diff' 'git diff --no-textconv' \
+  'git rev-list --filter=blob:none HEAD' 'git log --tags --first-parent' 'git describe --tags' \
+  'git ls-files --full-name' 'git log --follow -- f' 'git log --format=%h -3'; do
+  assert_allow "not a driver option: $c" "$c"
+done
 # GNU sed 'e' substitution flag executes the pattern space (no trailing space).
 assert_defer "sed s///e exec no-space" "sed 's/.*/id/e'"
 assert_defer "sed s///e exec with file" "sed 's/.*/whoami/e' scripts/ok.sh"
