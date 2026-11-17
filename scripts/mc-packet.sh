@@ -165,6 +165,8 @@ cadence_lines() {
       else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
       else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
       else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
+      else if ($4 == "fault") d = $5
+      else if ($4 == "unaudited") d = $5 " fails the step-record truth check"
       gaps = gaps (gaps == "" ? "" : "; ") $3 " (" d ")"
     }
     END {

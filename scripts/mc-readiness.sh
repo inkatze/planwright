@@ -64,6 +64,8 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       audit --through post-pr)
   cadence<TAB>gap<TAB><point><TAB><kind><TAB><detail>
                                       one per gap that audit printed
+                                      (kind unaudited: a record the step-record
+                                      truth check refuses; reads as not audited)
   cadence<TAB>covered<TAB><point>     one per point it found complete
   cadence<TAB>unaudited<TAB><why>     the audit could not run
   scope<TAB>spec-only<TAB><head>      every changed path lies under the
@@ -359,7 +361,8 @@ $1 == "cadence" && $2 == "gap" {
   else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
   else if ($4 == "fault") d = $5
-  cad[++ncad] = $3 ": " d
+  if ($4 == "unaudited") { d = $5 " fails the step-record truth check"; cad[++ncad] = "not audited: " $3 ": " d; unaud = 1 }
+  else cad[++ncad] = $3 ": " d
 }
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
 $1 == "scope" && $2 == "spec-only" { speconly_head = $3 }

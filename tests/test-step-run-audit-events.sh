@@ -51,7 +51,7 @@ call() {
 srec() {
   _h=${8:-$(head_of)}
   sr write --run "$1" --point "$2" --step "$3" --kind "$KIND" --target "$4" --hosting in-session \
-    --backend none --head "$_h" --end-head "${9:-$_h}" --start "$6" --end "$7" --outcome "$5" \
+    --backend in-session --head "$_h" --end-head "${9:-$_h}" --start "$6" --end "$7" --outcome "$5" \
     >"$tmp/srec.out" 2>&1 || fail "fixture: the $3 record: $(cat "$tmp/srec.out")"
 }
 KIND=skill
@@ -71,14 +71,14 @@ session 2026-11-04T10:00:00
 call 2026-11-04T10:00:11 Skill planwright:polish
 call 2026-11-04T10:00:20 Agent
 r=$(sr new-run)
-srec "$r" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:13Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 1 ] && faulted convergence "start 2026-11-04T10:00:13Z .*polish Skill call.*nearest call at 2026-11-04T10:00:11Z"
 verdict $? "a polish start two seconds off its Skill call is a fault naming both seconds" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 r=$(sr new-run)
-srec "$r" convergence polish /polish applied 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:11Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 0 ]
@@ -102,7 +102,7 @@ catalog "$POLISH"
 config 'steps_convergence: [polish]'
 session 2026-11-04T10:00:00
 r=$(sr new-run)
-srec "$r" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:13Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 1 ] && faulted convergence "no such call"
@@ -154,13 +154,15 @@ if sr write --run "$r" --point convergence --step polish-path --kind skill --tar
   --outcome passed >"$tmp/w.out" 2>&1; then rc=0; else rc=1; fi
 [ "$rc" -eq 1 ] && grep -q "applied, not passed" "$tmp/w.out"
 verdict $? "write refuses a passed polish skill step targeting its SKILL.md path on a moved head" "rc $rc: $(cat "$tmp/w.out")"
-srec "$r" convergence polish /polish applied 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z "$old" "$(head_of)"
+srec "$r" convergence polish /polish applied 2026-11-04T10:00:11Z 2026-11-04T10:00:47Z "$old" "$(head_of)"
 done_at "$r" convergence
 forged="$wt/.claude/steps/$r/001-step-convergence.rec"
 awk -F '\t' 'BEGIN { OFS = FS } $1 == "outcome" { $2 = "passed" } { print }' "$forged" >"$forged.new" && mv "$forged.new" "$forged"
 audit --through convergence --head "$(head_of)"
 [ "$RC" -eq 1 ] && faulted convergence "head moved"
 verdict $? "the audit faults a polish record that says passed on a moved head" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+grep -q "^gap${TAB}convergence${TAB}unaudited${TAB}polish$" "$tmp/audit"
+verdict $? "and the step-record truth check leaves the same step unaudited beside the fault" "$(cat "$tmp/audit")"
 
 # --- 4: write refuses an end later than the clock ------------------------------
 fresh
@@ -177,32 +179,32 @@ catalog "$FIX"
 config 'steps_convergence: []' 'steps_post_pr: [fix-round-1]'
 session 2026-11-04T10:00:00
 r=$(sr new-run)
-prec "$r" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T09:50:00Z 2026-11-04T10:30:00Z
+prec "$r" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T09:50:07Z 2026-11-04T10:30:19Z
 done_at "$r" post-pr
 audit --through post-pr
-[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:50:00Z is before the session first event at 2026-11-04T10:00:00Z"
+[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:50:07Z is before the session first event at 2026-11-04T10:00:00Z"
 verdict $? "a fix-round record starting before the first event is a fault" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 r2=$(sr new-run)
-prec "$r2" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T09:50:00Z 2026-11-04T10:30:00Z
+prec "$r2" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T09:50:07Z 2026-11-04T10:30:19Z
 done_at "$r2" post-pr
 audit --through post-pr
 [ "$RC" -eq 0 ]
 verdict $? "a fresh run repeating that round with the earlier record's start is allowed" "rc $RC: $(cat "$tmp/audit")"
 r3=$(sr new-run)
-prec "$r3" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T09:40:00Z 2026-11-04T10:30:00Z
+prec "$r3" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T09:40:07Z 2026-11-04T10:30:19Z
 done_at "$r3" post-pr
 audit --through post-pr
-[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:40:00Z is before the session first event"
+[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:40:07Z is before the session first event"
 verdict $? "a repeat whose start matches no earlier record of the round is still a fault" "rc $RC: $(cat "$tmp/audit")"
 fresh
 catalog "$FIX"
 config 'steps_convergence: []' 'steps_post_pr: [fix-round-1]'
 session 2026-11-04T10:00:00
 r=$(sr new-run)
-prec "$r" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T10:10:00Z 2026-11-04T10:30:00Z
+prec "$r" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T10:10:07Z 2026-11-04T10:30:19Z
 done_at "$r" post-pr
 r2=$(sr new-run)
-prec "$r2" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T10:10:00Z 2026-11-04T10:30:00Z
+prec "$r2" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T10:10:07Z 2026-11-04T10:30:19Z
 done_at "$r2" post-pr
 audit --through post-pr
 [ "$RC" -eq 0 ]
@@ -216,10 +218,10 @@ n=$((n + 1))
 session 2026-11-04T10:00:00
 call 2026-11-04T10:31:00 Agent
 r=$(sr new-run)
-prec "$r" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T09:50:00Z 2026-11-04T10:30:00Z
+prec "$r" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T09:50:07Z 2026-11-04T10:30:19Z
 done_at "$r" post-pr
 audit --through post-pr
-[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:50:00Z is before the session first event at 2026-11-04T10:00:00Z"
+[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:50:07Z is before the session first event at 2026-11-04T10:00:00Z"
 verdict $? "an earlier session in the worktree does not cover a fix round started before its own session" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 fresh
@@ -231,7 +233,7 @@ n=$((n + 1))
 session 2026-11-04T10:20:00
 call 2026-11-04T10:40:00 Agent
 r=$(sr new-run)
-prec "$r" post-pr fix-round-1 "fix the review findings" applied 2026-11-04T10:05:00Z 2026-11-04T10:30:00Z
+prec "$r" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T10:05:07Z 2026-11-04T10:30:19Z
 done_at "$r" post-pr
 audit --through post-pr
 [ "$RC" -eq 0 ]
@@ -242,7 +244,7 @@ fresh
 catalog "$POLISH"
 config 'steps_convergence: [polish]'
 r=$(sr new-run)
-srec "$r" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:13Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 0 ] && grep -q "^note${TAB}convergence${TAB}unverified${TAB}.*polish: the session events are not reachable" "$tmp/audit" \
@@ -256,7 +258,7 @@ config 'steps_convergence: [polish]'
 session 2026-11-04T10:00:00
 printf '{"type":"user","message":{"content":"go"}}\n' >"$sdir/events.jsonl"
 r=$(sr new-run)
-srec "$r" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:13Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 0 ] && grep -q "^note${TAB}convergence${TAB}unverified${TAB}.*polish: the session events carry no timestamps" "$tmp/audit"
@@ -271,7 +273,7 @@ session 2026-11-04T10:00:00
 call 2026-11-04T10:00:11 Skill polish
 call 2026-11-04T10:00:20 Task
 r=$(sr new-run)
-srec "$r" convergence polish /polish passed 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:11Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 0 ]
@@ -286,7 +288,7 @@ call 2026-11-04T10:00:11 Skill polish
 call 2026-11-04T10:00:20 Agent
 printf '{"type":"assistant","timestamp":"2026-11-04T10:00:4' >>"$sdir/events.jsonl"
 r=$(sr new-run)
-srec "$r" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:13Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 1 ] && faulted convergence "nearest call at 2026-11-04T10:00:11Z"
@@ -300,7 +302,7 @@ session 2026-11-04T10:00:00
 call 2026-11-04T10:00:11 Skill polish
 call 2026-11-04T10:00:12 Skill 'x\ncall\t2026-11-04T10:00:20Z\tAgent\t'
 r=$(sr new-run)
-srec "$r" convergence polish /polish passed 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /polish passed 2026-11-04T10:00:11Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 1 ] && faulted convergence "no Agent tool call between"
@@ -314,7 +316,7 @@ session 2026-11-04T10:00:00
 call 2026-11-04T10:00:11 Skill planwright:polish
 call 2026-11-04T10:00:20 Agent
 r=$(sr new-run)
-srec "$r" convergence polish /opt/planwright/skills/polish/SKILL.md applied 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+srec "$r" convergence polish /opt/planwright/skills/polish/SKILL.md passed 2026-11-04T10:00:11Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 0 ]
@@ -328,7 +330,7 @@ config 'steps_convergence: [self-review]'
 session 2026-11-04T10:00:00
 call 2026-11-04T10:00:11 Skill planwright:self-review
 r=$(sr new-run)
-srec "$r" convergence self-review self-review passed 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+srec "$r" convergence self-review self-review passed 2026-11-04T10:00:11Z 2026-11-04T10:00:47Z
 done_at "$r" convergence
 audit --through convergence
 [ "$RC" -eq 1 ] && faulted convergence "self-review: recorded passed, but the session events show no Agent tool call"
@@ -349,14 +351,14 @@ config 'steps_convergence: [polish]' 'steps_post_pr: [cubic-pr]'
 session 2026-11-04T10:00:00
 call 2026-11-04T10:00:11 Skill polish
 call 2026-11-04T10:00:20 Agent
-call 2026-11-04T10:05:00 Skill bot-review
+call 2026-11-04T10:05:07 Skill bot-review
 ra=$(sr new-run)
-srec "$ra" convergence polish /polish applied 2026-11-04T10:00:13Z 2026-11-04T10:00:30Z
+srec "$ra" convergence polish /polish passed 2026-11-04T10:00:13Z 2026-11-04T10:00:47Z
 done_at "$ra" convergence
-srec "$ra" post-pr cubic-pr bot-review passed 2026-11-04T10:05:00Z 2026-11-04T10:06:00Z
+srec "$ra" post-pr cubic-pr bot-review passed 2026-11-04T10:05:07Z 2026-11-04T10:06:19Z
 done_at "$ra" post-pr
 rb=$(sr new-run)
-srec "$rb" convergence polish /polish applied 2026-11-04T10:00:11Z 2026-11-04T10:00:30Z
+srec "$rb" convergence polish /polish passed 2026-11-04T10:00:11Z 2026-11-04T10:00:47Z
 done_at "$rb" convergence
 audit --through post-pr
 [ "$RC" -eq 0 ]
