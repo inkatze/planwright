@@ -467,7 +467,8 @@ deny	settings-write	bash	-	leads to one on disk|behind a wrapper	command -p tee 
 deny	settings-write	bash	-	leads to one on disk|behind a wrapper	command -- tee @SCRATCH@/kb/lk-file
 deny	settings-write	bash	-	leads to one on disk|behind a wrapper	exec -a x tee @SCRATCH@/kb/lk-file
 deny	settings-write	bash	-	leads to one on disk	T=tee; echo x | $T @SCRATCH@/kb/lk-file
-# Every runner: a wrapper, a shell, find; its write verb refuses.
+# Every runner: a wrapper, a shell, find; its write verb refuses, while a
+# wrapped writer whose output is a plain file passes.
 deny	settings-write	bash	-	leads to one on disk|behind a wrapper	sudo tee @SCRATCH@/kb/lk-file
 deny	settings-write	bash	-	leads to one on disk|behind a wrapper	command tee @SCRATCH@/kb/lk-file
 deny	settings-write	bash	-	leads to one on disk|behind a wrapper	time cp @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-file
@@ -499,15 +500,17 @@ deny	settings-write	bash	-	leads to one on disk	tar -cf @SCRATCH@/kb/lk-file @SC
 deny	settings-write	bash	-	leads to one on disk	tar --one-top-level=@SCRATCH@/kb/lk-agents -xf @SCRATCH@/a.tar
 deny	settings-write	bash	-	leads to one on disk	tar xCf @SCRATCH@/kb/lk-dir @SCRATCH@/a.tar
 deny	settings-write	bash	-	leads to one on disk	unzip -qd @SCRATCH@/kb/lk-agents @SCRATCH@/a.zip
-deny	settings-write	bash	-	names one	x=$(date); sort -o @SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
-deny	settings-write	bash	-	names one	echo $(date) | tar -C @SCRATCH@/kb/lk-dir -xf @SCRATCH@/a.tar
+deny	settings-write	bash	-	cannot parse	x=$(date); sort -o @SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	cannot parse	echo $(date) | tar -C @SCRATCH@/kb/lk-dir -xf @SCRATCH@/a.tar
 # cp and rsync into a directory write under each source's name.
 deny	settings-write	bash	-	leads to one on disk	cp @SCRATCH@/x/lk-file @SCRATCH@/kb
 deny	settings-write	bash	-	leads to one on disk	cp -t @SCRATCH@/kb @SCRATCH@/x/lk-file
 deny	settings-write	bash	-	leads to one on disk	rsync --inplace @SCRATCH@/x/lk-file @SCRATCH@/kb/
-# A here-document opener the guard cannot read keeps the text whole.
+# An extended glob in a target is an expansion.
 deny	settings-write	bash	-	names one|leads to one on disk	echo x >@SCRATCH@/kb/lk-fil@(e)
-# Copies that cannot make a link leave a later write alone.
+# Copies that cannot make a link leave a later write alone; a move of a
+# source the guard cannot place, or a link-preserving copy, does not. Then
+# cd flags, device files, and HOME use that rebinds nothing.
 defer	read	bash	-	-	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/b.md && echo x >> @SCRATCH@/kb/b.md
 defer	read	bash	-	-	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/sub/ && echo x > @SCRATCH@/kb/sub/new.md
 defer	read	bash	-	-	jq -r .x @SCRATCH@/kb/real.md > @SCRATCH@/kb/out.json && mv @SCRATCH@/kb/out.json @SCRATCH@/kb/final.json
@@ -522,3 +525,54 @@ defer	read	bash	-	-	cd /tmp >/dev/null; echo hi > @SCRATCH@/kb/out.txt
 defer	read	bash	-	-	export PATH=$HOME/bin:$PATH; echo x > ~/notes-plain.md
 deny	settings-write	bash	-	leads to one on disk	read -r HOME; echo x >> ~/notes.md
 deny	settings-write	bash	-	leads to one on disk	cd sub && echo x > f.txt
+# A substitution inside double quotes runs, so its redirect counts.
+deny	settings-write	bash	-	names one|leads to one on disk	echo "$(echo x > @SCRATCH@/kb/lk-file)"
+deny	settings-write	bash	-	names one|leads to one on disk	echo "`echo x > @SCRATCH@/kb/lk-file`"
+# Runners that store or run quoted text, and wrappers outside RE_MC_WRAPPER.
+deny	settings-write	bash	-	leads to one on disk	watch 'echo x > @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	trap 'echo x > @SCRATCH@/kb/lk-file' EXIT
+deny	settings-write	bash	-	behind a wrapper	trap 'cp /x @SCRATCH@/kb/lk-file' EXIT
+deny	settings-write	bash	-	behind a wrapper	alias w='cp /x @SCRATCH@/kb/lk-file'; w
+deny	settings-write	bash	-	behind a wrapper	mapfile -C 'cp /x @SCRATCH@/kb/lk-file' -c 1 < /etc/hostname
+deny	settings-write	bash	-	behind a wrapper	complete -C 'cp /x @SCRATCH@/kb/lk-file' foo
+deny	settings-write	bash	-	behind a wrapper	nsenter cp /x @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	behind a wrapper	setpriv --reuid 1 cp /x @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	declare -n h=HOME; h=@HOME@/.claude; echo x > ~/agents/new.md
+# Long options in any abbreviation getopt_long accepts, and side outputs.
+deny	settings-write	bash	-	leads to one on disk	sort --out=@SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	curl --out @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget --output-doc=@SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar --dir=@SCRATCH@/kb/lk-agents -xf @SCRATCH@/a.tar
+deny	settings-write	bash	-	leads to one on disk	cp --target=@SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	curl -D @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	curl -c @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	curl --trace @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget -o @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar -g @SCRATCH@/kb/lk-file -cf /tmp/x.tar @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	rsync --log-file=@SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md /tmp/y
+deny	settings-write	bash	-	leads to one on disk	rsync --write-batch @SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md /tmp/y
+deny	settings-write	bash	-	names one	tar --one-top-level -C @HOME@/.claude/agents -xf @SCRATCH@/a.tar
+# A clustered -t, and a recursive copy into a tree already there.
+deny	settings-write	bash	-	leads to one on disk	cp -rt @SCRATCH@/x2 @SCRATCH@/kb && echo x >> @SCRATCH@/x2/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	cp -a @SCRATCH@/x/. @SCRATCH@/kb/
+deny	settings-write	bash	-	leads to one on disk	cp -r @SCRATCH@/kb @SCRATCH@/
+deny	settings-write	bash	-	leads to one on disk	rsync --inplace -r @SCRATCH@/x/ @SCRATCH@/kb/
+# Link-preserving copies, then a write to the result.
+deny	settings-write	bash	-	leads to one on disk	cp --archive @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
+deny	settings-write	bash	-	leads to one on disk	cp --no-dereference @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
+deny	settings-write	bash	-	leads to one on disk	cp --recursive @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
+deny	settings-write	bash	-	leads to one on disk	cp --preserve=links @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
+deny	settings-write	bash	-	leads to one on disk	rsync --links @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b5 && echo x > @SCRATCH@/kb/b5
+deny	settings-write	bash	-	leads to one on disk	rsync -a @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b5 && echo x > @SCRATCH@/kb/b5
+# Narrowed permits: a package manager's install, a script named after a verb,
+# a variable-led path as the command word. The shapes beside each stay refused.
+defer	read	bash	-	-	make install
+defer	read	bash	-	-	env FOO=1 npm install
+defer	read	bash	-	-	fish -c "npm install"
+defer	read	bash	-	-	timeout 30 pip install -r requirements.txt
+defer	read	bash	-	-	bash scripts/install.sh
+defer	read	bash	-	-	python3 scripts/sort.py
+deny	settings-write	bash	-	behind a wrapper	bash -c 'install /x @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	behind a wrapper	fish -c "cp /x @SCRATCH@/kb/lk-file"
+deny	settings-write	bash	-	behind a wrapper	make install; bash -c 'tee @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	behind a wrapper	fish -c "npm install; cp /x @SCRATCH@/kb/lk-file"

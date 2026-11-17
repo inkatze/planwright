@@ -46,7 +46,8 @@ ln -s "$FIXHOME/.claude/settings.json" "$FIXHOME/notes.md"
 ln -s "$FIXHOME/.claude/settings.json" "$MEM/lk-mem"
 ln -s "$FIXHOME/.claude/settings.json" "$KB/a b"
 ln -s "$FIXHOME/.claude/settings.json" "$KB/lk1"
-# A link to a posture directory not made yet, and a link to itself.
+# A link to a posture directory not made yet, a link to itself, a link into
+# the projects folder, and a link to an MCP server list.
 ln -s "$FIXHOME/.claude/hooks" "$KB/ld"
 ln -s loop "$KB/loop"
 ln -s "$FIXHOME/.claude/projects" "$KB/lk-projects"
@@ -165,6 +166,26 @@ for c in "echo \"<<A\"${NL}cd $KB${NL}echo x > lk-file${NL}A" "echo \$((1<<2))${
   "X=cd; \$X $KB${NL}echo x > lk-file" "\$'\\x63d' $KB${NL}echo x > lk-file"; do
   pg mission-control "$c" "$SCRATCH"
   expect deny "[mission-control] a cd the guard cannot see past a here-document look-alike or a spelled command word: ${c//$NL/ / }"
+done
+for c in "echo a \\<<EOF${NL}cd $KB${NL}echo x > lk-file${NL}EOF" "mksh <<EOF${NL}cd $KB${NL}echo x > lk-file${NL}EOF" \
+  "echo hi # <<EOF${NL}cd $KB${NL}echo x > lk-file${NL}EOF" "echo \$[1<<2]${NL}cd $KB${NL}echo x > lk-file${NL}2" \
+  "\"\$X\" $KB${NL}echo x > lk-file" "\${X} $KB${NL}echo x > lk-file" "\$(echo cd) $KB${NL}echo x > lk-file" \
+  "\`echo cd\` $KB${NL}echo x > lk-file"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a cd hidden behind an escaped or run here-document or a spelled command word stays seen: ${c//$NL/ / }"
+done
+# shellcheck disable=SC2016 # the guard must see the expansion literally
+pg mission-control '$HOME/bin/x > out.txt' "$KB"
+expect defer "[mission-control] a variable-led path as the command word names a file, never cd"
+WT="$SANDBOX/repo/.claude/worktrees/w"
+mkdir -p "$WT"
+pg mission-control 'ln -s a b' "$WT"
+expect defer "[mission-control] a link made inside a .claude/worktrees checkout is permitted"
+pg mission-control "ln -s $WT /tmp/wt-link" "$UNIT"
+expect defer "[mission-control] a link to a .claude/worktrees checkout is permitted"
+for c in "ln -s $WT/.claude/settings.json b" "ln -s $SANDBOX/repo/.claude/worktreesX b" "ln -s $WT/../../agents b" "ln -s $SANDBOX/repo/.claude b"; do
+  pg mission-control "$c" "$WT"
+  expect deny "[mission-control] a link beside the worktree exemption stays refused: $c"
 done
 pg mission-control "cat > $KB/note.md <<'EOF'${NL}cd somewhere and run \"x > y\"${NL}EOF" "$SCRATCH"
 expect defer "[mission-control] a cd inside a real here-document body is data"
