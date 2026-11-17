@@ -334,6 +334,53 @@ assert_allow "sed read-only" "sed -n '1,5p' file"
 assert_allow "safe compound && (relay then observe)" "tmux load-buffer /tmp/b && tmux paste-buffer -t fleet:0"
 assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
 
+echo "### gh read verbs: an environment-reading filter, --web and --show-token DEFER"
+# gojq's env and $ENV print the environment, tokens included, through any
+# read verb taking --jq or --template; --web launches $BROWSER; and
+# --show-token prints the token. Every gh group the tower allows takes every
+# filter spelling, and every one but auth status every --web spelling,
+# including spellings gh would reject for that group: a refusal costs nothing
+# there.
+TOWER_GH_GROUPS=('pr view 5' 'pr list' 'pr status' 'pr diff 5' 'pr checks 5' 'auth status' 'repo view')
+# shellcheck disable=SC2016 # the guard reads the words as written
+for g in "${TOWER_GH_GROUPS[@]}"; do
+  for f in '--jq env' '--jq=env' "--jq '\$ENV'" "--jq='\$ENV.GH_TOKEN'" '--json title --jq env' \
+    '--json title --jq ".title, env"' '-q env' '-qenv' '-q=env' '-q ENV' "--template '{{env}}'" \
+    "--template='{{env}}'" "-t '{{env}}'" "-t'{{env}}'" "-t='{{env}}'" "'-qenv|test'" "-t'{{env}}t'" \
+    "-q'env|.q'"; do
+    assert_defer "gh $g $f" "gh $g $f"
+  done
+done
+for c in 'gh pr view 5 -cq env' 'gh pr view 5 -cqenv' "gh pr view 5 -ct '{{env}}'" 'gh pr status -cq env' \
+  'gh pr list -dq env' 'gh pr checks 5 --json name -q env' 'gh repo view o/r --json name -q env' \
+  'gh auth status --json hosts --jq env' 'gh auth status --json hosts --jq=env' "gh auth status --json hosts --template '{{env}}'" \
+  'gh auth status -a --json hosts --jq env'; do
+  assert_defer "$c" "$c"
+done
+for g in "${TOWER_GH_GROUPS[@]}"; do
+  [ "$g" = 'auth status' ] && continue
+  for f in '--web' '--web=true' '--web=1' '-w'; do
+    assert_defer "gh $g $f" "gh $g $f"
+  done
+done
+for c in 'gh pr view 5 -cw' 'gh pr list -dw' 'gh pr diff 5 --name-only -w' 'gh pr checks 5 --required -w' \
+  'gh repo view o/r -w' 'gh repo view o/r --web' 'gh auth status --show-token' 'gh auth status --show-token=true' \
+  'gh auth status -t' 'gh auth status -at' 'gh auth status -a -t' 'gh auth status -h github.com -t' \
+  'gh auth status --hostname github.com --show-token' 'gh auth status -ta'; do
+  assert_defer "$c" "$c"
+done
+
+echo "### gh read verbs without a filter, --web or --show-token still ALLOW"
+for c in 'gh pr view 5' 'gh pr view' 'gh pr view 5 --comments' 'gh pr view 5 --json title,state' \
+  'gh pr view environment --json title' 'gh pr view 5 --json title --jq .title' 'gh pr list' 'gh pr list --state open' \
+  'gh pr list -L 5 --json number,title' 'gh pr list --json number' 'gh pr status' 'gh pr status --json state' \
+  'gh pr diff 5' 'gh pr diff 5 --name-only' 'gh pr diff 5 --patch' 'gh pr checks 5' 'gh pr checks 5 --required' \
+  'gh pr checks 5 --json name,state' 'gh auth status' 'gh auth status -a' 'gh auth status --active' \
+  'gh auth status -h github.com' 'gh auth status --json hosts' 'gh repo view' 'gh repo view o/r' \
+  'gh repo view --json name' 'gh repo view o/r --json name,defaultBranchRef'; do
+  assert_allow "$c" "$c"
+done
+
 echo "### tower-front-door REQ-A1.3 — the front door's posture check: jq projections ALLOW"
 # The front door reads each settings layer by jq projection. jq has no exec or
 # file-write primitive; the screen is the worker guard's, kept byte-identical
@@ -1145,7 +1192,7 @@ assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
 loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok \
 opens_operands opener_word_risky environ_word_risky environ_words_ok environ_redirect_ok \
 canon_dir_cached secret_lexical secret_glob secret_glob_word secret_home_glob lexical_path glob_any_risky secret_word_risky secret_path_risky \
-broad_dir broad_canon broad_path_risky"
+broad_dir broad_canon broad_path_risky ci_has gh_jq_ok gh_no_web gh_no_token"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.
@@ -1183,7 +1230,9 @@ done
 # admits a narrow command substitution; the tower guard defers every one.
 # guard_rm and guard_mktemp differ because the worker's approve only removals
 # inside its recorded worktree or scratch root and creation inside that scratch
-# root, a policy the tower guard does not have.
+# root, a policy the tower guard does not have. guard_gh differs because the
+# tower allows fewer gh groups than the worker; the flag screens both call are
+# shared above.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
 guard_gh guard_git guard_mise guard_mktemp guard_rm is_planwright_script main \
 tokenize tok_push verify_simple verify_tokens"
@@ -1216,6 +1265,42 @@ parity() {
     fail "$label — shared-engine DRIFT: tower=$t worker=$w (an engine fix landed in one guard only)"
   fi
 }
+# parity_expect <verdict> <label> <command>: both guards reach the named
+# verdict, not merely the same one.
+parity_expect() {
+  local want="$1" label="$2" cmd="$3" t w
+  run_hook "$cmd"
+  check_invariants "$label" || return
+  run_worker_hook "$cmd"
+  is_allow && t=allow || t=defer
+  worker_is_allow && w=allow || w=defer
+  if [ "$t" = "$want" ] && [ "$w" = "$want" ]; then
+    pass "$label (both $want)"
+  else
+    fail "$label — expected both $want: tower=$t worker=$w"
+    if [ "$want" = defer ]; then
+      false_allows=$((false_allows + 1))
+    fi
+  fi
+}
+parity_expect defer "parity: gh pr view with an env jq filter defers" "gh pr view 5 --jq env"
+parity_expect defer "parity: gh pr view with a joined -q env filter defers" "gh pr view 5 -qenv"
+parity_expect defer "parity: gh pr list with an env template defers" "gh pr list --template '{{env}}'"
+parity_expect defer "parity: gh pr checks --web defers" "gh pr checks 5 --web"
+parity_expect defer "parity: gh pr view -w defers" "gh pr view 5 -w"
+parity_expect defer "parity: gh repo view with an env jq filter defers" "gh repo view --jq env"
+parity_expect defer "parity: gh repo view --web defers" "gh repo view --web"
+parity_expect defer "parity: gh auth status with an env jq filter defers" "gh auth status --json hosts --jq env"
+parity_expect defer "parity: gh auth status --show-token defers" "gh auth status --show-token"
+parity_expect defer "parity: gh auth status -t defers" "gh auth status -t"
+parity_expect defer "parity: gh auth status -at defers" "gh auth status -at"
+parity_expect defer "parity: gh auth status -ta defers" "gh auth status -ta"
+parity_expect defer "parity: gh pr view with an attached env filter ending in t defers" "gh pr view 5 '-qenv|test'"
+parity_expect defer "parity: gh pr view with a bundled attached env filter ending in t defers" "gh pr view 5 '-cqenv|test'"
+parity_expect allow "parity: gh pr view with a field filter allows" "gh pr view 5 --json title --jq .title"
+parity_expect allow "parity: gh pr diff allows" "gh pr diff 5"
+parity_expect allow "parity: gh auth status --json allows" "gh auth status --json hosts"
+parity_expect allow "parity: gh repo view --json allows" "gh repo view --json name"
 parity "parity: sed bracket class allows" "sed -E 's/[0-9]//' file"
 parity "parity: sed POSIX class allows" "sed -n '/[[:space:]]/p' file"
 parity "parity: sed leading-] member allows" "sed 's/[]a]/x/' file"

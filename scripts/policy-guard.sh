@@ -16,7 +16,7 @@
 # cannot be read denies at every surface.
 #
 # THE MISSION-CONTROL TIER is the tower tier with three differences, each
-# denying with no read. It runs no git mutation: a git subcommand outside a
+# denying with no knob read. It runs no git mutation: a git subcommand outside a
 # read-only set (the inspection commands and the listing forms of branch, tag,
 # stash, worktree, remote and config, an unknown option counting as a write),
 # a read flag that writes a file or runs a program (any abbreviation git
@@ -25,19 +25,25 @@
 # api branch write, and the gh commands that write a branch on the host or a
 # repository locally (pr checkout and update-branch, the repo and release
 # writes). It writes no posture file and no repository: a file-tool path that
-# names a settings, MCP or planwright configuration file or a shipped profile,
-# lies under a .claude hooks, plugins, agents, skills, commands or planwright
-# directory, or lies inside a work tree or bare repository denies; in Bash, a
-# command naming a posture file passes only as a plain read, and a write
-# target that names one, could expand into one, or leads to one on disk
-# (followed through links, dot-dots and directory changes, refused where it
-# cannot be followed) denies (an installed planwright script runs from under
-# .claude/plugins, so that prefix alone names nothing); so does a link maker
-# pointing into a .claude or .mcp path, a write verb handed to a runner
-# (a wrapper, xargs, a shell), and a writer in text the guard cannot parse.
-# The file surface refuses any link; Bash follows one, so a link to a plain
-# file stays writable there. Its flip, for a PR of the repository it runs in
-# or of a program-listed one it names with --repo,
+# names a settings, MCP or planwright configuration file, CLAUDE.md or
+# CLAUDE.local.md, or a shipped profile, lies under a .claude hooks, plugins,
+# agents, skills, commands or planwright directory, or lies inside a work tree
+# or bare repository denies; in Bash, a command naming a settings, MCP or
+# planwright configuration file passes only as a plain read, as a message
+# flag's quoted value, or inside a quoted-delimiter heredoc body a plain cat
+# writes to a program home or a data place; an instruction file denies as a
+# redirect target or a write verb's argument; and a write target that could
+# expand into a posture file, or leads to one on disk (followed through links,
+# dot-dots and directory changes, refused where it cannot be followed),
+# denies (an installed planwright script runs from under .claude/plugins, so
+# that prefix alone names nothing). So does a link maker pointing into a
+# .claude or .mcp path, a write verb handed to a runner (a wrapper, xargs, a
+# shell), and a writer in text the guard cannot parse. The file surface
+# refuses any link; Bash follows one, so a link to a plain file stays writable
+# there. The program homes come from scripts/mc-program.sh, the one read this
+# screen makes; a failed read leaves no home and so no allowance. Its flip,
+# for a PR of the repository it runs in or of a program-listed one it names
+# with --repo,
 # follows ready_flip_policy: unit-owner defers to the ready-guard's currency
 # check, human asks the operator; the MCP flip stays denied whole, as the
 # tower's is.
@@ -5174,6 +5180,9 @@ handle_mcp() {
 # planwright.local.yml, where ready_flip_policy lives). The bracketed letter
 # keeps the static no-model-client check from reading the name as a client.
 RE_MC_POSTURE_NAME='(^|[^[:alnum:]_.])(((managed-)?settings(\.local)?|\.c[l]aude|\.mcp)\.json|planwright(\.local)?\.yml)([^[:alnum:]_-]|$)'
+# An instruction file, project or user: it loads as posture, so a write to it is refused
+# (a read of it is no write).
+RE_MC_INSTRUCTIONS_NAME='(^|/)CLAUDE(\.local)?\.md/?$'
 # Directories whose files load as posture, the planwright fleet home among
 # them (a recorded launch profile lives there). The file surface alone checks
 # them: an installed planwright script runs from under .claude/plugins.
@@ -5258,7 +5267,7 @@ mc_settings_named() {
 mc_posture_word() {
   local t=${1//[\"\'\\]/} rc=1
   shopt -s nocasematch
-  if [[ $t =~ $RE_MC_POSTURE_NAME ]] || [[ $t =~ $RE_MC_POSTURE_REL_DIR ]]; then
+  if [[ $t =~ $RE_MC_POSTURE_NAME ]] || [[ $t =~ $RE_MC_POSTURE_REL_DIR ]] || [[ $t =~ $RE_MC_INSTRUCTIONS_NAME ]]; then
     rc=0
   elif [[ $t == *.c[l]aude* && ($t == *'/../'* || $t == *'/..') ]]; then
     rc=0
@@ -5728,6 +5737,306 @@ mc_data_literal() {
   return 0
 }
 
+# --------------------------------------------------------------------------
+# Mission control's own stores. A program home (resolved the way
+# scripts/mc-program.sh resolves it: the home root, and each program's own
+# home) holds the session's knowledge base, logs and handover notes. They are
+# data, not posture: a literal path under one is no settings file, and a
+# heredoc into one is data for cat alone. The roots come from the program
+# reader, read on first need; anything that cannot be read leaves no root, so
+# no allowance (fail closed).
+MC_STORE_ROOTS=()
+MC_STORE_LOADED=0
+# The path below a store root, each component with no leading dot, so no
+# dot-dot and no .claude or .mcp name.
+RE_MC_STORE_TAIL='(/[A-Za-z0-9@%+,=_-][A-Za-z0-9._@%+,=-]*)*/?'
+
+mc_store_add_root() {
+  local r=$1
+  case $r in /?*) ;; *) return 0 ;; esac
+  while [ "$r" != / ] && [ "${r%/}" != "$r" ]; do r=${r%/}; done
+  [[ $r =~ ^(/[A-Za-z0-9@%+,=_.-]+)+$ ]] || return 0
+  case /$r/ in */../* | */./*) return 0 ;; esac
+  mc_posture_word "$r/x" && return 0
+  MC_STORE_ROOTS[${#MC_STORE_ROOTS[@]}]=$r
+}
+
+mc_store_load() {
+  [ "$MC_STORE_LOADED" = 0 ] || return 0
+  MC_STORE_LOADED=1
+  local out p h rc=0
+  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/mc-program.sh" ] || return 0
+  need_timeout
+  out=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" default home 2>/dev/null </dev/null) || return 0
+  mc_store_add_root "$out"
+  need_timeout
+  out=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" list 2>/dev/null </dev/null) || rc=$?
+  [ "$rc" = 0 ] || return 0
+  for p in $out; do
+    need_timeout
+    h=$(cd -- "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/bash "$GUARD_DIR/mc-program.sh" get "$p" home 2>/dev/null </dev/null) || continue
+    mc_store_add_root "$h"
+  done
+  return 0
+}
+
+# mc_physical_dir <path> — the deepest existing directory of the path, resolved
+# physically, in MC_PHYS_DIR, with the missing remainder in MC_PHYS_REST.
+mc_physical_dir() {
+  local d=${1%/}
+  [ -n "$d" ] || d=/
+  while [ ! -d "$d" ]; do
+    d=${d%/*}
+    [ -n "$d" ] || d=/
+  done
+  MC_PHYS_DIR=$(cd -P -- "$d" 2>/dev/null && pwd) || return 1
+  MC_PHYS_REST=${1#"$d"}
+  return 0
+}
+
+# mc_store_path <word> — 0 when the word is a plain absolute path inside a
+# program home that no link leads out of; 2 when it starts at a home but is
+# not that (an expansion, a dot component, a link or a posture name); 1 when it
+# is no home path.
+mc_store_path() {
+  local w=${1//[\"\'\\]/} r rest phys
+  case $w in /*) ;; *) return 1 ;; esac
+  mc_store_load
+  for r in ${MC_STORE_ROOTS[@]+"${MC_STORE_ROOTS[@]}"}; do
+    case $w in "$r" | "$r"/*) ;; *) continue ;; esac
+    rest=${w#"$r"}
+    mc_posture_word "$w" && return 2
+    [[ $rest =~ ^$RE_MC_STORE_TAIL$ ]] || return 2
+    phys=$(cd -P -- "$r" 2>/dev/null && pwd) || return 2
+    [ ! -L "${w%/}" ] || return 2
+    mc_physical_dir "$w" || return 2
+    case $MC_PHYS_DIR in "$phys" | "$phys"/*) ;; *) return 2 ;; esac
+    mc_posture_word "${MC_PHYS_DIR%/}$MC_PHYS_REST" && return 2
+    return 0
+  done
+  return 1
+}
+
+# mc_write_via_link <word> — 0 when a plain absolute write target is a link, or
+# sits behind one, that leads to a posture file or directory.
+mc_write_via_link() {
+  local w=${1//[\"\'\\]/}
+  case $w in /*) ;; *) return 1 ;; esac
+  mc_expands "$w" && return 1
+  case $w in *//* | */./* | */../*) return 1 ;; esac
+  mc_physical_dir "$w" || return 1
+  [ "$MC_PHYS_DIR${MC_PHYS_REST}" != "$w" ] || [ -L "${w%/}" ] || return 1
+  if [ -L "${w%/}" ]; then
+    # Follow the link chain by hand: readlink -f is not portable.
+    local l=$w n=0 tgt
+    while [ -L "$l" ] && [ "$n" -lt 20 ]; do
+      tgt=$(readlink "$l") || return 0
+      case $tgt in /*) l=$tgt ;; *) l=${l%/*}/$tgt ;; esac
+      n=$((n + 1))
+    done
+    [ "$n" -lt 20 ] || return 0
+    mc_posture_word "$l" && return 0
+    mc_physical_dir "$l" || return 0
+    mc_posture_word "${MC_PHYS_DIR%/}$MC_PHYS_REST"
+    return
+  fi
+  mc_posture_word "${MC_PHYS_DIR%/}$MC_PHYS_REST"
+}
+
+# mc_doc_quotes_close <text> — 0 when every quote the text opens closes within
+# it and no # stands outside one, so a line scan reads its quoting as bash does.
+mc_doc_quotes_close() {
+  local s=$1 c
+  while [ -n "$s" ]; do
+    s=${s#"${s%%[\"\'#]*}"}
+    c=${s:0:1}
+    case $c in
+      '') return 0 ;;
+      '#') return 1 ;;
+    esac
+    s=${s:1}
+    case $s in *"$c"*) s=${s#*"$c"} ;; *) return 1 ;; esac
+  done
+  return 0
+}
+
+# mc_store_doc_strip <command> — a command whose here-document bodies are data
+# for cat alone: each is a quoted-delimiter document handed to a plain cat, and
+# every output redirect of the rest of the text lands in a program home or a
+# data place (mc_data_target). Sets MC_DOC_T to the command with those
+# bodies dropped and returns 0; anything else (a shell run, an unquoted
+# delimiter, a redirect elsewhere) returns 1 and the whole text is screened.
+mc_store_doc_strip() {
+  local t=$1 line out='' chk='' delim='' tabs=0 any=0 d m w q hdr
+  local re_open="(^|[^[:alnum:]_.-])cat([[:space:]][^<;&|()\`\$]*)?<<(-?)[[:space:]]*(['\"])([A-Za-z_][A-Za-z0-9_]*)['\"]"
+  case $t in *'<<'*) ;; *) return 1 ;; esac
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -n "$delim" ]; then
+      m=$line
+      [ "$tabs" = 0 ] || m=${m#"${m%%[!"$TAB"]*}"}
+      if [ "$m" = "$delim" ]; then
+        delim=''
+        out+="$line$NL"
+      fi
+      continue
+    fi
+    out+="$line$NL"
+    # The closing quote must be the opening one: ERE has no back-reference.
+    if [[ $line =~ $re_open ]] && [ "${BASH_REMATCH[0]: -1}" = "${BASH_REMATCH[4]}" ]; then
+      # The line's only document operator, outside any quote or comment, and
+      # a delimiter word that ends at its closing quote; bash reads anything
+      # else differently, so the body would not be the one dropped.
+      q=${line#*<<}
+      case $q in *'<<'*) return 1 ;; esac
+      mc_doc_quotes_close "${line%%<<*}" || return 1
+      q=${line#*"${BASH_REMATCH[0]}"}
+      case ${q:0:1} in '' | ' ' | "$TAB" | ';' | '|' | '&' | '<' | '>' | ')') ;; *) return 1 ;; esac
+      mc_doc_quotes_close "$q" || return 1
+      delim=${BASH_REMATCH[5]}
+      tabs=0
+      [ -z "${BASH_REMATCH[3]}" ] || tabs=1
+      any=1
+      # The line without its document operator, for the command check.
+      hdr=${line#*<<}
+      hdr=${hdr#*"$delim"}
+      chk+="${line%%<<*}${hdr#?}$NL"
+    elif [[ $line == *'<<'* ]]; then
+      return 1
+    else
+      mc_doc_quotes_close "$line" || return 1
+      chk+="$line$NL"
+    fi
+  done <<XEOF2
+$t
+XEOF2
+  [ "$any" = 1 ] && [ -z "$delim" ] || return 1
+  d=${out%"$NL"}
+  [[ $d =~ $RE_MC_INTERPRETER || $d == *\\* ]] && return 1
+  d=${d//&>\/dev\/null/}
+  d=${d//[0-9]>\/dev\/null/}
+  d=${d//>\/dev\/null/}
+  d=${d//[0-9]>&[0-9]/}
+  d=${d//>|/>}
+  mc_doc_rest_safe "$chk" || return 1
+  # mc_data_target reads the scratch variable's assignment from MC_CMD.
+  MC_CMD=$t
+  while [[ $d =~ \>+[[:space:]]*([^[:space:]\;\|\&\<\>]+) ]]; do
+    m=${BASH_REMATCH[0]}
+    w=${BASH_REMATCH[1]}
+    if ! mc_data_target "$w"; then
+      mc_store_path "$w" || return 1
+    fi
+    d=${d#*"$m"}
+  done
+  MC_DOC_T=${out%"$NL"}
+  return 0
+}
+
+# mc_doc_rest_safe <text> — 0 when every command of the text, apart from the
+# dropped document bodies, is a plain reader or printer, so nothing can run
+# what a body wrote: no shell, no source, no substitution (bar the scratch
+# directory's mktemp -d), no pipe into anything but a reader. A word the check
+# cannot place counts as unsafe.
+mc_doc_rest_safe() {
+  # shellcheck disable=SC2016 # literal patterns
+  local t=${1//'$(mktemp -d)'/MKTEMPD} piece w first rest sep='[;&|(){}]'
+  # shellcheck disable=SC2016 # literal patterns
+  case $t in *'$('* | *'`'* | *'<('* | *'>('*) return 1 ;; esac
+  t=${t//$sep/$NL}
+  while IFS= read -r piece || [ -n "$piece" ]; do
+    piece=${piece#"${piece%%[![:space:]]*}"}
+    # Leading redirects (a group's target) belong to no command of their own.
+    while [[ $piece =~ ^[0-9]*\>+[[:space:]]*[^[:space:]]+[[:space:]]*(.*)$ ]]; do
+      piece=${BASH_REMATCH[1]}
+    done
+    [ -n "$piece" ] || continue
+    first=${piece%%[[:space:]]*}
+    rest=${piece#"$first"}
+    # A plain assignment, never of a name a shell or loader reads.
+    if [[ $first =~ ^([A-Za-z_][A-Za-z0-9_]*)=([A-Za-z0-9_./+:@%,=-]*)$ ]]; then
+      case ${BASH_REMATCH[1]} in
+        BASH_ENV | ENV | PATH | IFS | CDPATH | SHELLOPTS | BASHOPTS | PROMPT_COMMAND | PS[0-9] | FPATH | LD_* | DYLD_* | HOME | TMPDIR) return 1 ;;
+      esac
+      [ -z "${rest//[[:space:]]/}" ] || return 1
+      continue
+    fi
+    lc "${first##*/}"
+    [ "$first" = "$LC" ] || return 1
+    case $LC in
+      cat | head | tail | grep | egrep | fgrep | wc | ls | stat | diff | cmp | cut | tr | nl | tac | rev | echo | printf | true | ':') ;;
+      sed)
+        # Only printing line ranges; sed reads an option anywhere, and any
+        # but -n could hand it a script (a stored body) or a write.
+        [[ $rest =~ ^[[:space:]]+-n[[:space:]]+[0-9,\$]+p([[:space:]]|$) ]] || return 1
+        for w in $rest; do
+          case $w in -n) ;; -*) return 1 ;; esac
+        done
+        ;;
+      *) return 1 ;;
+    esac
+    for w in $rest; do
+      case $w in -e | -f | --expression | --file | -i | --in-place) return 1 ;; esac
+    done
+  done <<XEOF3
+$t
+XEOF3
+  return 0
+}
+
+# mc_strip_safe_fragments <text> — MC_STRIPPED is the text with its plain
+# read-only paths removed: a literal path inside a program home, a path under
+# the fleet data directory, and a path under a .claude/worktrees directory. A
+# write to any of them is screened apart, by the redirect and write-verb rules.
+mc_strip_safe_fragments() {
+  local nr=$1 re m pre post r h pfx
+  h=${HOME:-}
+  # Under a worktrees directory: a repository checkout, not posture.
+  re='(^|[^[:alnum:]_.@%+,=/*~$-])[A-Za-z0-9._@%+,=*/~-]*/\.c[l]aude/worktrees(/[A-Za-z0-9@%+,=_*-][A-Za-z0-9._@%+,=*-]*)*/?($|[[:space:]"'"'"';&|)<>])'
+  while [[ $nr =~ $re ]]; do
+    m=${BASH_REMATCH[0]}
+    pre=${BASH_REMATCH[1]}
+    post=${BASH_REMATCH[3]}
+    nr=${nr/"$m"/"$pre$post"}
+  done
+  # The fleet data directory, which holds worker records and no overlay.
+  case $h in
+    /?*)
+      pfx=${h//[^A-Za-z0-9_\/-]/.}'/\.c[l]aude/plugins/data/[A-Za-z0-9._@-]+/fleet'
+      re='(^|[^[:alnum:]_.@%+,=/*~$-])('$pfx$RE_MC_STORE_TAIL')($|[[:space:]"'"'"';&|)<>])'
+      while [[ $nr =~ $re ]]; do
+        m=${BASH_REMATCH[0]}
+        pre=${BASH_REMATCH[1]}
+        post=${BASH_REMATCH[4]}
+        nr=${nr/"$m"/"$pre$post"}
+      done
+      ;;
+  esac
+  mc_store_load
+  for r in ${MC_STORE_ROOTS[@]+"${MC_STORE_ROOTS[@]}"}; do
+    re='(^|[^[:alnum:]_.@%+,=/*~$-])('"${r//[^A-Za-z0-9_\/-]/.}"$RE_MC_STORE_TAIL')($|[[:space:]"'"'"';&|)<>])'
+    while [[ $nr =~ $re ]]; do
+      m=${BASH_REMATCH[0]}
+      pre=${BASH_REMATCH[1]}
+      post=${BASH_REMATCH[4]}
+      mc_store_path "${BASH_REMATCH[2]}" || break
+      nr=${nr/"$m"/"$pre$post"}
+    done
+  done
+  MC_STRIPPED=$nr
+}
+
+# mc_under_store_root <word> — 0 when the word is a program home or starts
+# inside one.
+mc_under_store_root() {
+  local w=${1//[\"\'\\]/} r
+  case $w in /*) ;; *) return 1 ;; esac
+  mc_store_load
+  for r in ${MC_STORE_ROOTS[@]+"${MC_STORE_ROOTS[@]}"}; do
+    case $w in "$r" | "$r"/*) return 0 ;; esac
+  done
+  return 1
+}
+
 # mc_write_word_refused <word> [role] — 0 when a word in a write position
 # names a posture file or directory, could expand into one, leads to one on
 # disk, or cannot be followed there. <role> (default 1, a path the write
@@ -5746,7 +6055,13 @@ mc_write_word_refused() {
     w=$MC_RW
     mc_posture_word "$w" && return 0
   fi
+  MC_REFUSAL=$MC_LINK_DENY
+  mc_write_via_link "$w" && return 0
+  MC_REFUSAL=$MC_SETTINGS_DENY
   if mc_expands "$w"; then
+    # An expansion under a program home could assemble a link or a dot-dot
+    # step, whatever data place the home sits in.
+    mc_under_store_root "$w" && return 0
     mc_data_target "$w" || return 0
     MC_REFUSAL=$MC_LINK_DENY
     rc=0
@@ -6064,10 +6379,43 @@ mc_outflag_screen() {
   return 0
 }
 
+# mc_blank_quotes <text> <all|messages> — MC_BLANKED is the text with quoted
+# spans turned to Q: each span that is no redirect's target (all), or only the
+# quoted value of a message flag (messages). Text whose quoting a scan cannot
+# follow as bash does (a backslash, a # outside a quote, a quote left open)
+# keeps every span, so a redirect a stray quote would pair away stays in view.
+mc_blank_quotes() {
+  local s=$1 out='' plain c span
+  MC_BLANKED=$1
+  case $s in *\\*) return 0 ;; esac
+  while [ -n "$s" ]; do
+    plain=${s%%[\"\'#]*}
+    out+=$plain
+    s=${s#"$plain"}
+    c=${s:0:1}
+    case $c in
+      '') break ;;
+      '#') return 0 ;;
+    esac
+    s=${s:1}
+    case $s in *"$c"*) ;; *) return 0 ;; esac
+    span=$c${s%%"$c"*}$c
+    s=${s#*"$c"}
+    if [ "$2" = messages ]; then
+      [[ $out =~ (^|[[:space:]])--(text|act|message|body|note|reason|title)(=|[[:space:]]+)$ ]] && span=Q
+    else
+      [[ $out =~ \>[[:space:]]*$ ]] || span=Q
+    fi
+    out+=$span
+  done
+  MC_BLANKED=$out
+}
+
 # mc_settings_screen <command> — refuse a command that writes a posture file:
-# one that names such a file in a form that is not a plain read (apart from
-# the text of a message flag), redirects to a posture path or to a target the
-# shell expands, or hands a posture path or an expanding word to a write verb
+# one that names such a file in a form that is not a plain read (apart from a
+# message flag's quoted value and a store heredoc body mc_store_doc_strip
+# drops), redirects to a posture path or to a target the shell expands, or
+# hands a posture path or an expanding word to a write verb
 # (RE_MC_WRITE_WORDS; sed only with an in-place flag, and sort, curl, wget,
 # tar and unzip only their output options' values), wrapped
 # in env, nohup and the like or not. A runner (RE_MC_RUNNER: a wrapper, xargs,
@@ -6081,13 +6429,21 @@ mc_outflag_screen() {
 # already there, a here-document a runner reads that holds a write verb, and
 # a target the guard cannot follow are refused. Quoted text is scanned whole
 # where a runner or a substitution could run it. An expansion in a read
-# position is no write, and one in a data place only when it can be made
-# literal and followed. The disk is read as it stands now: what another
-# process changes later is out of a text screen's sight.
+# position is no write, and one in a data place that is no program home only
+# when it can be made literal and followed. The disk is read as it stands
+# now: what another process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c b dst dbases tmerge runner verb sedscript inplace makes_link ops vi outflag through re tdir dest_may_link
+  local t=$1 r rs si=0 k named=0 w wg m c b dst dbases tmerge runner verb sedscript inplace makes_link ops vi outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
+  MC_DOC_T=''
+  # The bound holds for the text as written: a strip must never bring an
+  # over-length command under it.
+  case $t in *'<<'*) [ "${#t}" -le "$MAX_CMD_LEN" ] || emit_deny "$MC_SETTINGS_DENY" ;; esac
+  if mc_store_doc_strip "$t"; then
+    t=$MC_DOC_T
+    stripped=1
+  fi
   MC_CMD=$t
   mc_settings_named "$t" && named=1
   # A verb spelled with quotes, escapes or capitals still runs as the verb.
@@ -6119,15 +6475,23 @@ mc_settings_screen() {
     r=${r/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}${BASH_REMATCH[4]} ${BASH_REMATCH[3]}${BASH_REMATCH[6]}"}
   done
   rs=$r
-  [ "$named" = 0 ] || case $r in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
   # Quoted text is no redirect unless a shell or a runner is handed it to run,
   # it carries a substitution (which runs inside double quotes), or the quote
-  # is part of a redirect's target. A backslash, a comment, a here-document or
-  # a substitution inside double quotes (whose own quotes nest) can desync the
-  # quote pairing, so such text is scanned whole.
+  # is part of a redirect's target. A backslash, a comment, a here-document
+  # body left in place (quote-free to bash), or a substitution inside double
+  # quotes (whose own quotes nest) can desync the quote pairing, so such text
+  # is scanned whole.
+  scan=1
   re='(^|[[:space:];&|])#'
   # shellcheck disable=SC2016 # literal patterns
-  if ! [[ $r =~ $RE_MC_INTERPRETER || $r == *\\* || $r == *'<<'* || $r =~ $re || $r =~ $RE_MC_RUNNER_CMD || $r == *'"$('* || $r == *'"`'* ]]; then
+  [[ $r =~ $RE_MC_INTERPRETER || $r == *\\* || $r =~ $re || $r =~ $RE_MC_RUNNER_CMD || $r == *'"$('* || $r == *'"`'* ]] && scan=0
+  case $r in *'<<'*) [ "$stripped" = 1 ] || scan=0 ;; esac
+  MC_BLANKED=$r
+  [ "$scan" = 0 ] || mc_blank_quotes "$r" messages
+  # Text that names a posture file next to a redirect refuses, unless the only
+  # redirect sign sits in a message flag's own quoted value.
+  [ "$named" = 0 ] || case $MC_BLANKED in *'>'*) emit_deny "$MC_SETTINGS_DENY" ;; esac
+  if [ "$scan" = 1 ]; then
     local q=$r out=''
     re='(>+[|&]?[[:space:]]*([^[:space:];|&<>"'\'']|"[^"]*"|'\''[^'\'']*'\'')+)|("[^"]*"|'\''[^'\'']*'\'')'
     while [[ $q =~ $re ]]; do
@@ -6198,7 +6562,12 @@ XEOF_RUN
       while [[ $nr =~ $MC_ROOT_RE ]]; do nr=${nr/"${BASH_REMATCH[0]}"/}; done
     fi
     case $nr in
-      *.c[l]aude* | *.mcp* | *settings* | *planwright.*) emit_deny "$MC_SETTINGS_DENY" ;;
+      *.c[l]aude* | *.mcp* | *settings* | *planwright.*)
+        mc_strip_safe_fragments "$nr"
+        case $MC_STRIPPED in
+          *.c[l]aude* | *.mcp* | *settings* | *planwright.*) emit_deny "$MC_SETTINGS_DENY" ;;
+        esac
+        ;;
     esac
     [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
     # link(1) makes a hard link, to a link too; prose says "link", so only a
@@ -6568,6 +6937,7 @@ mc_posture_path() {
   local rc=1
   shopt -s nocasematch
   [[ $1 =~ $RE_MC_POSTURE_DIR ]] && rc=0
+  [[ $1 =~ $RE_MC_INSTRUCTIONS_NAME ]] && rc=0
   shopt -u nocasematch
   if [ "$rc" = 0 ] || mc_settings_named "${1##*/}"; then
     emit_deny "mission control never writes a settings or configuration file, nor widens its own posture; this path $2 one. A settings change is handed to the operator ready to apply."

@@ -57,6 +57,11 @@ assert_allow "reads piped into jq" "gh pr view 5 --json state | jq -r .state" Ba
 TMPC=$(cd -P /tmp && pwd -P)
 assert_allow "cd /tmp then reads" "cd $TMPC; gh pr view 5 --json state; gh pr checks 5" Bash "$WT"
 assert_defer "gh search with --web" "gh search code foo --web" Bash "$WT"
+assert_defer "gh repo view with --web" "gh repo view --web" Bash "$WT"
+assert_defer "gh repo view with --web=true" "gh repo view o/r --web=true" Bash "$WT"
+assert_defer "gh repo view with -w" "gh repo view o/r -w" Bash "$WT"
+assert_allow "gh repo view --json name" "gh repo view o/r --json name" Bash "$WT"
+assert_allow "gh auth status --json" "gh auth status --json hosts" Bash "$WT"
 assert_allow "gh repo view of the current repo" "gh repo view" Bash "$WT"
 assert_allow "gh repo view --json" "gh repo view o/r --json name,url" Bash "$WT"
 for c in 'gh repo view --web' 'gh repo view -w' 'gh repo view o/r --web' 'gh repo view o/r -w' \
