@@ -3536,6 +3536,19 @@ gh_no_web() {
   return 0
 }
 
+# gh_no_token: 0 unless `gh auth status` carries `--show-token` or its `-t`,
+# alone or in a short bundle, which prints the token. A `t` read as part of
+# another flag's value only over-refuses.
+gh_no_token() {
+  local i
+  for ((i = 3; i < cwn; i++)); do
+    case ${cw[i]} in
+      --show* | -t* | -[!-]*t*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # gh_release_ok: `gh release view|list` with no `--web`/`-w` (it launches
 # $BROWSER) and no `--repo`/`-R` override (REQ-A1.17). `-R` and `-w` can ride
 # in a short cluster, and the value-taking short flags end one.
@@ -3595,9 +3608,7 @@ guard_gh() {
     -*) return 1 ;;
   esac
   local i g=${cw[1]-} s=${cw[2]-}
-  case $g in
-    api | pr | issue | run | release | repo) gh_jq_ok || return 1 ;;
-  esac
+  gh_jq_ok || return 1
   case $g in
     release)
       case $s in
@@ -3678,16 +3689,13 @@ guard_gh() {
       ;;
     auth)
       [ "$s" = status ] || return 1
-      # `--show-token` / `-t` prints the token.
-      for ((i = 3; i < cwn; i++)); do
-        case ${cw[i]} in
-          --show* | -t* | -[!-]*t*) return 1 ;;
-        esac
-      done
+      gh_no_token || return 1
       return 0
       ;;
     repo)
-      [ "$s" = view ] && return 0 || return 1
+      [ "$s" = view ] || return 1
+      gh_no_web || return 1
+      return 0
       ;;
     *) return 1 ;;
   esac
