@@ -811,8 +811,9 @@ for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
   done
 done
 # A filter program (filter.<driver>.clean, smudge or process) runs on the
-# file's content when git stages, restores, compares, removes or blames it, so
-# a filter of sh mapped to the script by .gitattributes runs the script.
+# file's content when git stages, commits, restores, compares, removes, blames
+# or lists it as modified, and cat-file --filters runs one on a blob, so a
+# filter of sh mapped to the script by .gitattributes runs the script.
 for key in clean smudge process; do
   FLTD="$SANDBOX/filter-$key"
   clone_on "$FLTD" planwright/demo/task-1 1

@@ -1819,11 +1819,12 @@ kick_cfg_has() {
 
 # kick_filter_set <dir> <dir-ok> — 0 when a filter program
 # (filter.<driver>.clean, smudge or process) may run in <dir>: one is
-# configured, a git config earlier in the same command may have set one, or
-# the directory cannot be placed. A missing directory runs nothing, since git
-# stops on it, but only when the command is this one segment: any other
-# segment, even one after it in a loop or beside it in the background, may
-# make it, with any configuration.
+# configured, or the configuration cannot be read; an earlier segment may
+# have set one (ST_FILT); git reads its global configuration from a HOME or
+# XDG_CONFIG_HOME the command sets; or the directory cannot be placed. A
+# missing directory runs nothing, since git stops on it, but only when the
+# command is this one segment: any other segment, even one after it in a loop
+# or beside it in the background, may make it, with any configuration.
 kick_filter_set() {
   [ "$ST_FILT" = 0 ] && [ "${SW_CFGENV:-0}" = 0 ] && [ "$2" = 1 ] || return 0
   if [ ! -d "$1" ]; then
