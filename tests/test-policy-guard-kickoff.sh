@@ -1000,6 +1000,20 @@ for cmd in "git -C $BADD add scripts/kickoff-spec-push.sh" \
     expect deny "[$tier, task-1] an unreadable configuration counts as a filter set: $cmd"
   done
 done
+for cmd in 'git log -p -- scripts/kickoff-spec-push.sh' \
+  'git show HEAD -- scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$BADD" "$BADD"
+    expect deny "[$tier, task-1] an unreadable configuration counts as a textconv filter set: $cmd"
+  done
+done
+for cmd in 'git log --oneline -- scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$BADD" "$BADD"
+    expect defer "[$tier, task-1] a read no filter reaches defers whatever the configuration: $cmd"
+  done
+done
 # git can read configuration the guard does not: a global one under another
 # HOME or XDG_CONFIG_HOME, or a conditional include that starts to apply once
 # an earlier segment changes the branch or the remotes.

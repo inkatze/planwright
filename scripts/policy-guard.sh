@@ -1811,10 +1811,10 @@ kickoff_verb_class() {
 
 # kick_cfg_has <moved> <key-regexp> — 0 when a configured key matches, or when
 # the repository the command reads cannot be placed (<moved> is 1, or the
-# directory is unknown), where one could be set.
+# directory is unknown) or its configuration read, where one could be set.
 kick_cfg_has() {
   [ "$1" = 0 ] && [ "$KICK_DIR_OK" = 1 ] || return 0
-  [ -n "$(gitq "$KICK_DIR" config --get-regexp "$2")" ]
+  kick_cfg_matches "$KICK_DIR" "$2"
 }
 
 # kick_filter_set <dir> <dir-ok> — 0 when a filter program
