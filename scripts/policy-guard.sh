@@ -1820,6 +1820,9 @@ kickoff_verb_class() {
 # directory is unknown) or its configuration read, where one could be set.
 kick_cfg_has() {
   [ "$1" = 0 ] && [ "$KICK_DIR_OK" = 1 ] || return 0
+  # Whatever may set a filter program (ST_FILT, another global configuration)
+  # may set a diff driver too.
+  [ "$ST_FILT" = 0 ] && [ "${SW_CFGENV:-0}" = 0 ] || return 0
   kick_cfg_matches "$KICK_DIR" "$2"
 }
 

@@ -1031,7 +1031,11 @@ for cmd in 'HOME=/tmp/h git add scripts/kickoff-spec-push.sh' \
   'XDG_CONFIG_HOME=/tmp/h; git status scripts/kickoff-spec-push.sh' \
   'declare -x XDG_CONFIG_HOME=/tmp/h; git restore scripts/kickoff-spec-push.sh' \
   'HOME+=/../../tmp/h git add scripts/kickoff-spec-push.sh' \
-  'XDG_CONFIG_HOME+=/x; git status scripts/kickoff-spec-push.sh'; do
+  'XDG_CONFIG_HOME+=/x; git status scripts/kickoff-spec-push.sh' \
+  'HOME=/tmp/h git log -p -- scripts/kickoff-spec-push.sh' \
+  'export XDG_CONFIG_HOME=/tmp/h; git show HEAD -- scripts/kickoff-spec-push.sh' \
+  "git clone $SANDBOX/origin.git $SANDBOX/empty && cd $SANDBOX/empty && git log -p -- scripts/kickoff-spec-push.sh" \
+  'git zz && git log -p -- scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect deny "[$tier, task-1] another global configuration could set a filter: $cmd"
@@ -1048,7 +1052,9 @@ for cmd in 'git switch -c b && git add scripts/kickoff-spec-push.sh' \
   expect deny "[worker, task-1] a conditional include may start to apply: $cmd"
 done
 for cmd in 'git add scripts/kickoff-spec-push.sh' \
-  'LANG=C git add scripts/kickoff-spec-push.sh'; do
+  'LANG=C git add scripts/kickoff-spec-push.sh' \
+  'LANG=C git log -p -- scripts/kickoff-spec-push.sh' \
+  'HOME=/tmp/h git log --oneline -- scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$INCD" "$INCD"
     expect defer "[$tier, task-1] with the branch and remotes unchanged, an include defers: $cmd"
