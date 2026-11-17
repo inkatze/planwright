@@ -1721,9 +1721,14 @@ KICK_DIR_OK=0
 KICK_HEAD_MOVED=0
 KICK_BESIDE=0
 # KGR_FILT: the last git read kickoff_cmd_reads passed is one a filter program
-# runs for. KICK_FILT_PASSED: a mention of the script passed as one.
+# runs for; KGR_INC: and its repository has a conditional include (KFS_INC,
+# from kick_filter_set). KICK_FILT_PASSED, KICK_INC_PASSED: a mention of the
+# script passed as such.
 KGR_FILT=0
+KGR_INC=0
+KFS_INC=0
 KICK_FILT_PASSED=0
+KICK_INC_PASSED=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
@@ -1827,16 +1832,23 @@ kick_cfg_has() {
 # command is this one segment: any other segment, even one after it in a loop
 # or beside it in the background, may make it, with any configuration.
 kick_filter_set() {
+  KFS_INC=0
   [ "$ST_FILT" = 0 ] && [ "${SW_CFGENV:-0}" = 0 ] && [ "$2" = 1 ] || return 0
   if [ ! -d "$1" ]; then
     [ "${#SEG_S[@]}" = 1 ] && return 1
     return 0
   fi
-  kick_cfg_matches "$1" '^filter\..*\.(clean|smudge|process)$' && return 0
+  local out rc=0
+  out=$(gitq "$1" config --name-only --get-regexp '^(filter\..*\.(clean|smudge|process)|includeif\..*)$') || rc=$?
+  [ "$rc" -le 1 ] || return 0
+  case $NL$out in *"${NL}filter."*) return 0 ;; esac
+  [ -n "$out" ] || return 1
   # A conditional include (onbranch, hasconfig:remote) can start to apply
-  # after an earlier segment changes the branch or the remotes.
-  [ "$ST_REF" = 1 ] || [ "$ST_CFG" = 1 ] || [ "$ST_HEAD" = 1 ] || return 1
-  kick_cfg_matches "$1" '^includeif\.'
+  # once another segment changes the branch, the remotes or the commit: one
+  # before this segment is read here, one after it (a loop or a background
+  # job can run it first) at kickoff_text_check.
+  KFS_INC=1
+  [ "$ST_REF" = 1 ] || [ "$ST_CFG" = 1 ] || [ "$ST_HEAD" = 1 ]
 }
 
 # kick_cfg_matches <dir> <key-regexp> — 0 when a key in <dir>'s configuration
@@ -1951,7 +1963,10 @@ kickoff_git_reads() {
             done
             ;;
         esac
-        [ "$filt" = 0 ] || ! kick_filter_set "$fdir" "$fok" || return 1
+        if [ "$filt" = 1 ]; then
+          ! kick_filter_set "$fdir" "$fok" || return 1
+          KGR_INC=$KFS_INC
+        fi
         KGR_FILT=$filt
         return 0
         ;;
@@ -2022,6 +2037,7 @@ kickoff_args_safe() {
 kickoff_cmd_reads() {
   local w
   KGR_FILT=0
+  KGR_INC=0
   [ "${SEG_RD[$1]:-0}" = 0 ] || return 1
   [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
   kickoff_verb_class "${SW[0]}"
@@ -2150,6 +2166,7 @@ kickoff_segment() {
   if kickoff_fuzzy_name "$3"; then
     if kickoff_cmd_reads "$3"; then
       [ "$KGR_FILT" = 0 ] || KICK_FILT_PASSED=1
+      [ "$KGR_INC" = 0 ] || KICK_INC_PASSED=1
     else
       deny_now "this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
     fi
@@ -2162,6 +2179,7 @@ kickoff_segment() {
   if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc" "$3"; then
     KICK_PASSED=$((KICK_PASSED + kc))
     [ "$KGR_FILT" = 0 ] || KICK_FILT_PASSED=1
+    [ "$KGR_INC" = 0 ] || KICK_INC_PASSED=1
     kickoff_var_set
     kickoff_pipe_on "$3"
     return 1
@@ -2405,6 +2423,8 @@ kickoff_text_check() {
   # its body before its next condition, and a background job runs beside it.
   [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
     || deny_now "this command stages, compares or restores scripts/kickoff-spec-push.sh and also runs a git command that may set a filter program, which a loop or a background job can run before the stage, and a filter program runs on the script's content - refusing (fail closed). Run the configuration change as its own command."
+  [ "$KICK_INC_PASSED" = 0 ] || { [ "$ST_REF" = 0 ] && [ "$ST_CFG" = 0 ] && [ "$ST_HEAD" = 0 ]; } \
+    || deny_now "this command stages, compares or restores scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes the branch, the remotes or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
 }
 
 # kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
@@ -2449,6 +2469,7 @@ classify_segments() {
   KICK_HEAD_MOVED=0
   KICK_BESIDE=0
   KICK_FILT_PASSED=0
+  KICK_INC_PASSED=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0

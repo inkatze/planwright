@@ -1039,7 +1039,10 @@ for cmd in 'HOME=/tmp/h git add scripts/kickoff-spec-push.sh' \
 done
 for cmd in 'git switch -c b && git add scripts/kickoff-spec-push.sh' \
   'git remote add o u && git add scripts/kickoff-spec-push.sh' \
-  'git commit -m x && git status scripts/kickoff-spec-push.sh'; do
+  'git commit -m x && git status scripts/kickoff-spec-push.sh' \
+  'for i in 1 2; do git add scripts/kickoff-spec-push.sh; git switch -c b; done' \
+  'git add scripts/kickoff-spec-push.sh & git remote add o u' \
+  'while git status scripts/kickoff-spec-push.sh; do git commit -m x; done'; do
   # The tower refuses a branch change or a commit on its own.
   PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$INCD" "$INCD"
   expect deny "[worker, task-1] a conditional include may start to apply: $cmd"
@@ -1052,7 +1055,9 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
   done
 done
 for cmd in 'git switch -c b && git add scripts/kickoff-spec-push.sh' \
-  'git remote add o u && git add scripts/kickoff-spec-push.sh'; do
+  'git remote add o u && git add scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh && git commit -m x' \
+  'for i in 1 2; do git add scripts/kickoff-spec-push.sh; git switch -c b; done'; do
   PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$NOFD" "$NOFD"
   expect defer "[worker, task-1] with no conditional include, a branch or remote change defers: $cmd"
 done
