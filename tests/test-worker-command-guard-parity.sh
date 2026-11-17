@@ -101,6 +101,14 @@ shared${TAB}allow${TAB}a declared line inside fish -c${TAB}fish -c '$DECLARED --
 shared${TAB}allow${TAB}a read-only git shape${TAB}git log --oneline -1
 shared${TAB}allow${TAB}an own-branch stage${TAB}git add notes.txt
 shared${TAB}allow${TAB}an own-branch commit${TAB}git commit -m 'x'
+shared${TAB}allow${TAB}a gh read with JSON fields${TAB}gh pr view 5 --json title,state
+shared${TAB}allow${TAB}a gh auth status read with JSON fields${TAB}gh auth status --json hosts
+shared${TAB}allow${TAB}a gh repo view read with JSON fields${TAB}gh repo view --json name
+shared${TAB}defer${TAB}a gh read whose jq filter prints the environment${TAB}gh pr view 5 --jq env
+shared${TAB}defer${TAB}a gh auth status whose jq filter prints the environment${TAB}gh auth status --json hosts --jq env
+shared${TAB}defer${TAB}a gh read opening the browser${TAB}gh pr checks 5 --web
+shared${TAB}defer${TAB}a gh repo view opening the browser${TAB}gh repo view -w
+shared${TAB}defer${TAB}a gh auth status printing the token${TAB}gh auth status --show-token
 shared${TAB}defer${TAB}a declared line given another arg${TAB}$DECLARED --mode lax
 shared${TAB}defer${TAB}a declared line plus an extra arg${TAB}$DECLARED --mode strict --extra
 shared${TAB}defer${TAB}a declared location without its args${TAB}$DECLARED
