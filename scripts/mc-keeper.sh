@@ -605,7 +605,7 @@ announce_unowned() {
     }
 }
 
-# orphan_sweep: every stream-json process on this machine that nothing can
+# orphan_sweep: every stream-json process of this user's that nothing can
 # reach any more (scripts/mc-stall.sh orphans) is raised once, as a
 # stream-json-worker-orphaned event under keeper_target's program, and never
 # signalled: whether one is abandoned is the operator's call. A process is
@@ -636,7 +636,9 @@ orphan_sweep() {
   return "$os_rc"
 }
 
-# orphan_raise <orphans rows>: orphan_sweep's pass, under its lock.
+# orphan_raise <orphans rows>: orphan_sweep's pass, under its lock, on the
+# stores and clock orphan_sweep set (os_store, os_seen, os_prev, os_now). A
+# raise it cannot route keeps every row listed, so no settle time is lost.
 orphan_raise() {
   or_nl='
 '
@@ -650,20 +652,24 @@ orphan_raise() {
     or_live="$or_live$or_key$or_nl"
     or_first=''
     [ ! -f "$os_prev" ] || or_first=$(K=$or_key awk -F '\t' 'BEGIN { k = ENVIRON["K"] } ($1 "\t" $2) == k { print $3; exit }' "$os_prev")
-    mc_valid_uint "$or_first" || or_first=$os_now
+    if ! mc_valid_uint "$or_first" || [ "$or_first" -gt "$os_now" ]; then
+      or_first=$os_now
+    fi
     or_listed="$or_listed$or_key	$or_first$or_nl"
     [ $((os_now - or_first)) -ge "$ORPHAN_SETTLE" ] || continue
     ! has_key "$os_seen" "$or_key" || continue
+    [ "$or_target" != - ] || continue
     if [ -z "$or_target" ]; then
       if ! keeper_target || ! mkdir -p -- "$os_store/$KT_TARGET"; then
         or_rc=1
-        break
+        or_target=-
+        continue
       fi
       or_target=$KT_TARGET
     fi
     or_subject=$or_worker
     mc_valid_handle "$or_subject" || or_subject=$(mc_subject orphan "$or_pid")
-    or_check="once ps -o pid,lstart,args -p $or_pid shows it started $or_start and abandoned, kill $or_pid ends it"
+    or_check="once ps -o pid,lstart,args -p $or_pid shows it started $(printf '%s' "$or_start" | tr '-' ' ') and abandoned, kill $or_pid ends it"
     [ "$or_role" = supervisor ] || or_check="it may be a session someone started by hand; $or_check"
     mc_announce "$or_target" "$os_seen" "$or_key" stream-json-worker-orphaned "$or_subject" \
       "orphaned stream-json $or_role pid $or_pid ($or_worker), which nothing reaps or stops; $or_check$KT_NOTE. $or_why" \

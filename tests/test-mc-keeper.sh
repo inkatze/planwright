@@ -355,6 +355,7 @@ while [ "$os_i" -lt 100 ]; do
   sleep 0.1
   os_i=$((os_i + 1))
 done
+[ "$os_i" -lt 100 ] || fail "the orphan stand-in never ran its supervise argv"
 rm -rf "$tmp/orphan-fx/gone"
 keeper_as alpha 5300
 expect_no_out "an orphan one pass has seen is not raised yet" "mc-alpha-tower-orphaned"
