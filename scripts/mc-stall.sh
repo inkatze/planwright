@@ -641,24 +641,31 @@ proc_cwd() {
   else
     return 0
   fi
-  case $pc_dir in
-    '') return 0 ;;
-    *' (deleted)') printf 'gone:%s\n' "${pc_dir% (deleted)}" ;;
-    *) if [ -d "$pc_dir" ]; then printf 'here:%s\n' "$pc_dir"; else printf 'gone:%s\n' "$pc_dir"; fi ;;
-  esac
+  [ -n "$pc_dir" ] || return 0
+  if [ -d "$pc_dir" ]; then
+    printf 'here:%s\n' "$pc_dir"
+  else
+    printf 'gone:%s\n' "${pc_dir% (deleted)}"
+  fi
 }
 
-# stream_json_procs: one candidate per line from the process table, tab
-# separated: `S <pid> <start> <worker> <dir> <worker pids>` for a supervisor,
-# `C <pid> <start> <worker> <ppid>` for an unsupervised stream-json worker.
+# stream_json_procs: this user's candidates from the process table, one per
+# line, tab separated: `S <pid> <start> <worker> <dir> <worker pids>` for a
+# supervisor, `C <pid> <start> <worker> <ppid>` for a stream-json worker no
+# fleet-streamjson.sh process parents. A supervisor's own forks keep its
+# `_supervise` argv for a moment (a subshell, the worker before its exec), so
+# a candidate whose parent is a supervisor is that supervisor's, never its
+# own row; and `launch --foreground` supervises from the launch process.
 # ps joins the argv with spaces, so a state directory whose path holds one is
 # read short and reads as gone.
 stream_json_procs() {
-  sjp_table=$(ps -A -o pid= -o ppid= -o lstart= -o args=) || return 1
+  sjp_table=$(ps -U "$(id -u)" -ww -o pid= -o ppid= -o lstart= -o args=) || return 1
   printf '%s\n' "$sjp_table" | awk '
     function base(s) { sub(/.*\//, "", s); return s }
     NF >= 8 {
       pid = $1; ppid = $2; start = $3 "-" $4 "-" $5 "-" $6 "-" $7
+      parent[pid] = ppid
+      for (i = 8; i <= NF; i++) if (base($i) == "fleet-streamjson.sh") { fsj[pid] = 1; break }
       for (i = 8; i < NF; i++) {
         if (base($i) == "fleet-streamjson.sh" && $(i + 1) == "_supervise" && i + 3 <= NF) {
           sup[pid] = start "\t" $(i + 2) "\t" $(i + 3); order[++n] = pid
@@ -671,27 +678,30 @@ stream_json_procs() {
         if (shape && $i == "--input-format" && $(i + 1) == "stream-json") shape = 2
         if ($i == "--name") name = $(i + 1)
       }
-      if (shape == 2 && name != "") { cl[pid] = start "\t" name "\t" ppid; corder[++m] = pid; parent[pid] = ppid }
+      if (shape == 2 && name != "") { cl[pid] = start "\t" name "\t" ppid; corder[++m] = pid }
     }
     END {
-      for (k = 1; k <= m; k++) { p = corder[k]; if (parent[p] in sup) kids[parent[p]] = kids[parent[p]] (kids[parent[p]] == "" ? "" : ",") p }
-      for (k = 1; k <= n; k++) { p = order[k]; print "S\t" p "\t" sup[p] "\t" (kids[p] == "" ? "-" : kids[p]) }
-      for (k = 1; k <= m; k++) { p = corder[k]; if (!(parent[p] in sup)) print "C\t" p "\t" cl[p] }
+      for (k = 1; k <= m; k++) { p = corder[k]; q = parent[p]; if (q in sup) kids[q] = kids[q] (kids[q] == "" ? "" : ",") p }
+      for (k = 1; k <= n; k++) { p = order[k]; if (!(parent[p] in sup)) print "S\t" p "\t" sup[p] "\t" (kids[p] == "" ? "-" : kids[p]) }
+      for (k = 1; k <= m; k++) { p = corder[k]; if (!(parent[p] in fsj)) print "C\t" p "\t" cl[p] }
     }'
 }
 
 # list_orphans: the orphans verb's rows.
 list_orphans() {
-  lo_procs=$(stream_json_procs) || mc_fail "cannot read the process table (ps -A -o pid= -o ppid= -o lstart= -o args=)"
-  printf '%s\n' "$lo_procs" | while IFS="	" read -r lo_kind lo_pid lo_start lo_worker lo_a lo_b; do
+  lo_procs=$(stream_json_procs) || mc_fail "cannot read the process table (ps -U <uid> -ww -o pid= -o ppid= -o lstart= -o args=)"
+  while IFS="	" read -r lo_kind lo_pid lo_start lo_worker lo_a lo_b; do
     lo_why=''
     case $lo_kind in
       S)
+        lo_rec=''
         if [ ! -d "$lo_a" ]; then
           lo_why="its state directory $lo_a is gone"
-        elif [ -f "$lo_a/supervisor.pid" ] && lo_rec=$(head -n 1 "$lo_a/supervisor.pid" 2>/dev/null) \
-          && [ -n "$lo_rec" ] && [ "$lo_rec" != "$lo_pid" ]; then
-          lo_why="its state directory $lo_a records supervisor $lo_rec"
+        elif [ -f "$lo_a/supervisor.pid" ] && [ ! -L "$lo_a/supervisor.pid" ]; then
+          IFS= read -r lo_rec <"$lo_a/supervisor.pid" 2>/dev/null || :
+          if mc_valid_uint "$lo_rec" && [ "$lo_rec" != "$lo_pid" ]; then
+            lo_why="its state directory $lo_a records supervisor $lo_rec"
+          fi
         fi
         ;;
       C)
@@ -711,9 +721,10 @@ list_orphans() {
     lo_role=supervisor
     [ "$lo_kind" = S ] || lo_role=claude
     printf 'orphan\t%s\t%s\t%s\t%s\t%s\n' "$lo_pid" "$lo_start" "$lo_role" \
-      "$(sanitize_printable "$lo_worker")" "$(sanitize_printable "$lo_why")"
-  done
-  return 0
+      "$(sanitize_printable "$lo_worker")" "$(sanitize_printable "$lo_why")" || return 1
+  done <<EOF
+$lo_procs
+EOF
 }
 
 PROGRAM='' NOW_RAW='' PANE_FILE='' NAME='' LOST_NAMES='' LOST_NEW='' LOST_NOW='' LOST_EVENT=-

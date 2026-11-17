@@ -41,11 +41,18 @@ reset_mc_fixture
 fx="$tmp/fx"
 mkdir -p "$fx/scripts" "$fx/bin"
 # The supervisor stand-in: `_supervise <worker> <dir> <init> <claude argv...>`
-# starts the worker as its child, as the real one does.
+# (or `launch <worker> <scope> --foreground <claude argv...>`) starts the
+# worker as its child, as the real one does; FIXTURE_FORK also starts a fork
+# that keeps the `_supervise` argv, as a real supervisor's subshells do.
 cat >"$fx/scripts/fleet-streamjson.sh" <<'EOF'
 #!/bin/sh
-shift 4
-"$@" &
+case $1 in
+  _supervise | launch)
+    [ -z "${FIXTURE_FORK:-}" ] || FIXTURE_FORK='' /bin/sh "$0" _supervise "$2" "$3" "$4" &
+    shift 4
+    ;;
+esac
+[ "$#" -eq 0 ] || "$@" &
 while kill -0 "$FIXTURE_OWNER" 2>/dev/null; do sleep 1; done
 EOF
 cat >"$fx/bin/claude" <<'EOF'
@@ -64,12 +71,24 @@ start_pair() {
   SUP=$!
   started="$started $SUP"
 }
-# start_bare <worker> <cwd>: a worker with no supervisor; sets BARE.
+# start_bare <worker> <cwd> [<input format>]: a worker with no supervisor;
+# sets BARE.
 start_bare() {
   mkdir -p "$2"
-  (cd "$2" && exec /bin/sh "$fx/bin/claude" -p --input-format stream-json --output-format stream-json --name "$1") &
+  (cd "$2" && exec /bin/sh "$fx/bin/claude" -p --input-format "${3:-stream-json}" --output-format stream-json --name "$1") &
   BARE=$!
   started="$started $BARE"
+}
+# wait_exec <pid> <needle>: wait until the process runs the command line the
+# case started, so no check races its exec.
+wait_exec() {
+  we_i=0
+  while [ "$we_i" -lt 100 ]; do
+    case $(ps -ww -o args= -p "$1" 2>&1) in *"$2"*) return 0 ;; esac
+    sleep 0.1
+    we_i=$((we_i + 1))
+  done
+  fail "pid $1 never ran $2"
 }
 # child_of <pid>: the worker the supervisor started, once it is up.
 child_of() {
@@ -97,22 +116,45 @@ start_pair mc-alpha-tower-orphan "$gone_dir" "$tmp/gone/repo"
 gone_sup=$SUP
 gone_worker=$(child_of "$gone_sup") || fail "the orphaned supervisor started no worker"
 # A healthy pair: its directory records it and its working directory stands.
+# Its fork, which keeps the supervisor's argv, belongs to it.
 live_dir="$fleet/streamjson/mc-alpha-worker-live"
 mkdir -p "$live_dir"
-start_pair mc-alpha-worker-live "$live_dir" "$tmp/live-cwd"
+FIXTURE_FORK=1 start_pair mc-alpha-worker-live "$live_dir" "$tmp/live-cwd"
 live_sup=$SUP
 printf '%s\n' "$live_sup" >"$live_dir/supervisor.pid"
-live_worker=$(child_of "$live_sup") || fail "the healthy supervisor started no worker"
+live_worker=$(ps -A -o pid= -o ppid= -o args= | awk -v p="$live_sup" '$2 == p && /bin\/claude/ { print $1; exit }')
+fe_i=0
+while [ -z "$live_worker" ] && [ "$fe_i" -lt 50 ]; do
+  sleep 0.1
+  fe_i=$((fe_i + 1))
+  live_worker=$(ps -A -o pid= -o ppid= -o args= | awk -v p="$live_sup" '$2 == p && /bin\/claude/ { print $1; exit }')
+done
+[ -n "$live_worker" ] || fail "the healthy supervisor started no worker"
+live_fork=$(ps -A -o pid= -o ppid= -o args= | awk -v p="$live_sup" '$2 == p && /_supervise/ { print $1; exit }')
+[ -n "$live_fork" ] || fail "the healthy supervisor started no fork"
+# A worker a foreground launch supervises from the launch process.
+(cd "$tmp/live-cwd" && exec /bin/sh "$fx/scripts/fleet-streamjson.sh" launch mc-alpha-worker-fg fg-scope --foreground \
+  "$fx/bin/claude" -p --input-format stream-json --output-format stream-json --name mc-alpha-worker-fg) &
+fg_launch=$!
+started="$started $fg_launch"
+fg_worker=$(child_of "$fg_launch") || fail "the foreground launch started no worker"
 # A second supervisor over a directory that records another one.
 dup_dir="$fleet/streamjson/mc-alpha-worker-dup"
 mkdir -p "$dup_dir"
 start_pair mc-alpha-worker-dup "$dup_dir" "$tmp/live-cwd"
 dup_sup=$SUP
 printf '%s\n' "$live_sup" >"$dup_dir/supervisor.pid"
-# A worker whose supervisor is gone and that no fleet record names.
+# A worker whose supervisor is gone and that no fleet record names; one the
+# fleet home still records; and a `claude -p` that is no stream-json worker.
 start_bare mc-alpha-worker-bare "$tmp/live-cwd"
 bare=$BARE
-sleep 0.5
+mkdir -p "$fleet/streamjson/mc-alpha-worker-known"
+start_bare mc-alpha-worker-known "$tmp/live-cwd"
+known=$BARE
+start_bare mc-alpha-worker-text "$tmp/live-cwd" text
+plain=$BARE
+wait_exec "$dup_sup" mc-alpha-worker-dup
+for p in "$bare" "$known" "$plain"; do wait_exec "$p" "bin/claude -p"; done
 rm -rf "$tmp/gone"
 
 mc_run mc-stall.sh orphans
@@ -135,6 +177,14 @@ unlisted() { # unlisted <pid> <label>
 unlisted "$gone_worker" "a supervised worker is reported through its supervisor"
 unlisted "$live_sup" "a supervisor its directory records is not listed"
 unlisted "$live_worker" "a supervised worker of a healthy pair is not listed"
+unlisted "$live_fork" "a supervisor's fork that keeps its argv is not listed"
+unlisted "$fg_worker" "a worker a foreground launch supervises is not listed"
+unlisted "$plain" "a claude -p that is no stream-json worker is not listed"
+case $(orphan_row "$known") in
+  *"no supervisor"*"no fleet record"*) fail "a worker the fleet home records was said to have no record" ;;
+  *"${tab}claude${tab}mc-alpha-worker-known${tab}"*"no supervisor"*) ok "a worker with no supervisor is listed, its fleet record noted" ;;
+  *) fail "the unsupervised recorded worker $known is not listed: $OUT" ;;
+esac
 case $(orphan_row "$dup_sup") in
   *"records supervisor $live_sup"*) ok "a supervisor its directory does not record is listed" ;;
   *) fail "the unrecorded supervisor $dup_sup is not listed: $OUT" ;;
