@@ -77,9 +77,9 @@ expect_out "REQ-F1.13: and carries guided's recommendation" "Recommend:"
 if [ "$(section_first)" = "$gapline" ]; then ok "REQ-F1.13: and opens with the line"; else fail "REQ-F1.13: no level lost the line"; fi
 
 # Each gap kind the audit prints is said with its step or head.
-printf '# format: 1\ncadence\taudited\t%s\ncadence\tgap\tpre-ci\tmissing\tlint\ncadence\tgap\tpre-ci\tfailed\ttest:failed\ncadence\tgap\tpost-pr\tstale\t%s\n' "$head" "$head" >"$tmp/kinds"
+printf '# format: 1\ncadence\taudited\t%s\ncadence\tgap\tpre-ci\tmissing\tlint\ncadence\tgap\tpre-ci\tfailed\ttest:failed\ncadence\tgap\tpost-pr\tstale\t%s\ncadence\tgap\tconvergence\tmismatch\thead:polish\n' "$head" "$head" >"$tmp/kinds"
 packet "$tmp/kinds" ready-flip --level expert
-want="Cadence: covered none; gap pre-ci (lint is missing); pre-ci (test recorded failed); post-pr (completed only at $(printf '%.12s' "$head"))"
+want="Cadence: covered none; gap pre-ci (lint is missing); pre-ci (test recorded failed); post-pr (completed only at $(printf '%.12s' "$head")); convergence (a record does not match its branch (head:polish))"
 if [ "$(section_first)" = "$want" ]; then ok "each gap names its step or head"; else fail "the gap kinds read '$(section_first)'"; fi
 packet "$tmp/clean" ready-flip --level expert
 if [ "$(section_first)" = "Cadence: all covered (pre-ci)" ]; then ok "only the points the audit names are covered"; else fail "a clean audit reads '$(section_first)'"; fi

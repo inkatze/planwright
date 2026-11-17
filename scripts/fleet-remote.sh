@@ -36,7 +36,8 @@ Verbs (each runs on the remote host, through its own planwright and tools):
                                 fleet-streamjson.sh stop (the remote supervisor's
                                 own close; --grace is a whole number of seconds,
                                 at most four digits)
-  retire <name-or-worker>       mission-control-launch.sh retire
+  retire <name-or-worker> [--force-parked]
+                                mission-control-launch.sh retire
   version                       print "version <remote planwright version>" then
                                 "verbs <the verbs of this list the remote's own
                                 supervisor and launcher offer>", each
@@ -217,8 +218,12 @@ case $verb in
     worker_ok "$1"
     stdin_verb=1
     ;;
-  status | retire)
+  status)
     [ $# -eq 1 ] || usage
+    worker_ok "$1"
+    ;;
+  retire)
+    [ $# -eq 1 ] || { [ $# -eq 2 ] && [ "$2" = --force-parked ]; } || usage
     worker_ok "$1"
     ;;
   compute)
