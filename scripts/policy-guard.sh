@@ -400,7 +400,7 @@ RE_MC_GIT_GREP_O='[[:space:]]grep[[:space:]](.*[[:space:]])?-[A-Za-z]*O'
 # Prefixes that only these subcommands give an executing meaning: every
 # abbreviation of --upload-pack in ls-remote, of --filters in cat-file.
 RE_MC_GIT_LSREMOTE_U='[[:space:]]ls-remote[[:space:]](.*[[:space:]])?--u'
-RE_MC_GIT_CATFILE_FIL='[[:space:]]cat-file[[:space:]](.*[[:space:]])?--fil'
+RE_MC_GIT_CATFILE_FIL='[[:space:]]cat-file[[:space:]](.*[[:space:]])?--fi'
 RE_MC_GIT_EXEC_FLAG='(^|[[:space:]])(--outp[^[:space:]]*|--ext[^[:space:]]*|--textc[^[:space:]]*|--op[^[:space:]]*|--exec[^[:space:]]*)'
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
