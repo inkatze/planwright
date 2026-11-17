@@ -127,9 +127,9 @@ another supervisor, or whose working directory is gone; or a stream-json
 `claude -p` naming its worker (`--name`) whose parent is no supervisor. Such
 a worker's row also says whether the fleet home holds a record of it and
 whether its working directory is gone. A supervised worker is named in its
-supervisor's row instead. A supervisor whose directory records no
-supervisor yet is starting or exiting, and is not listed. orphans prints,
-tab separated:
+supervisor's row instead. A directory that records no supervisor yet
+belongs to one starting or exiting, so that alone lists nothing. orphans
+prints, tab separated:
   orphan <pid> <start> <supervisor|claude> <worker> <reason>
 where <start> is the process's start time, which tells it from a later
 process given the same pid.
@@ -651,6 +651,8 @@ proc_cwd() {
 # stream_json_procs: one candidate per line from the process table, tab
 # separated: `S <pid> <start> <worker> <dir> <worker pids>` for a supervisor,
 # `C <pid> <start> <worker> <ppid>` for an unsupervised stream-json worker.
+# ps joins the argv with spaces, so a state directory whose path holds one is
+# read short and reads as gone.
 stream_json_procs() {
   sjp_table=$(ps -A -o pid= -o ppid= -o lstart= -o args=) || return 1
   printf '%s\n' "$sjp_table" | awk '
@@ -694,7 +696,9 @@ list_orphans() {
         ;;
       C)
         lo_why="no supervisor (its parent is pid $lo_a)"
-        [ -d "$FLEET_HOME/streamjson/$lo_worker" ] || lo_why="$lo_why; no fleet record names it under $FLEET_HOME"
+        if ! mc_valid_handle "$lo_worker" || [ ! -d "$FLEET_HOME/streamjson/$lo_worker" ]; then
+          lo_why="$lo_why; no fleet record names it under $FLEET_HOME"
+        fi
         ;;
       *) continue ;;
     esac
