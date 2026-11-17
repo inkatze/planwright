@@ -71,7 +71,10 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"0b6f0c1e-1111-422
 case " $* " in
   *" --resume "*)
     (
-      while kill -0 "$SHIM_OWNER" && kill -0 "$$"; do sleep 1; done
+      while kill -0 "$SHIM_OWNER"; do
+        kill -0 "$$" || exit 0
+        sleep 1
+      done
       kill "$$"
     ) >/dev/null 2>&1 </dev/null &
     while IFS= read -r line; do printf '%s\n' "$line" >>"$SHIM_DIR/resumed-stdin"; done
