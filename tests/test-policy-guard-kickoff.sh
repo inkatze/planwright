@@ -968,6 +968,8 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git config filter.z.clean sh -v && git restore scripts/kickoff-spec-push.sh' \
   'git config --rename-section foo.a.b filter.a.b && git add scripts/kickoff-spec-push.sh' \
   'git config rename-section foo filter.a.required && git add scripts/kickoff-spec-push.sh' \
+  'git config --rename-section foo filter.a.required && git add scripts/kickoff-spec-push.sh' \
+  'git config --ren foo filter.a.required && git add scripts/kickoff-spec-push.sh' \
   'git config --edit && git add scripts/kickoff-spec-push.sh' \
   'git config -e; git status scripts/kickoff-spec-push.sh' \
   'git config --get filter.z.clean && git add scripts/kickoff-spec-push.sh' \

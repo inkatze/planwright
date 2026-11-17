@@ -3897,7 +3897,7 @@ git_state_after() {
       # it is looked for first.
       renaming=0
       for a in "${SW[@]:$2}"; do
-        case $a in --rename-section* | rename-section) renaming=1 ;; esac
+        case $a in --ren* | rename-section) renaming=1 ;; esac
       done
       for a in "${SW[@]:$2}"; do
         lc "$a"
