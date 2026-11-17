@@ -1028,7 +1028,8 @@ for cmd in 'git log --oneline -- scripts/kickoff-spec-push.sh' \
 done
 # git can read configuration the guard does not: a global one under another
 # HOME or XDG_CONFIG_HOME, or a conditional include that starts to apply once
-# an earlier segment changes the branch or the remotes.
+# another segment, before the stage or after it in a loop or a background
+# job, changes the branch, the remotes or the commit.
 INCD="$SANDBOX/include"
 clone_on "$INCD" planwright/demo/task-1 1
 gitq -C "$INCD" config includeIf.onbranch:b.path "$SANDBOX/inc.cfg"

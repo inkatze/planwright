@@ -1622,8 +1622,8 @@ ST_CFG=0
 # A segment that may have set a filter program, or moved where git reads its
 # configuration: a git config naming a filter key, an include, an editor or a
 # word the shell may still expand; a clone or init; an alias; or a HOME or
-# XDG_CONFIG_HOME assigned or exported. Unlike the flags beside it, it is also
-# read once every segment is classified (kickoff_text_check).
+# XDG_CONFIG_HOME assigned or exported. It, ST_REF, ST_CFG and ST_HEAD are
+# also read once every segment is classified (kickoff_text_check).
 ST_FILT=0
 ST_REF=0
 ST_FETCH=0
@@ -1824,8 +1824,9 @@ kickoff_verb_class() {
 
 # kick_cfg_has <moved> <key-regexp> — 0 when a configured key matches, or when
 # the repository the command reads cannot be placed (<moved> is 1, or the
-# directory is unknown) or its configuration cannot be read, where one could
-# be set.
+# directory is unknown) or its configuration cannot be read, or another
+# segment or a HOME the command sets may have changed it, where one could be
+# set.
 kick_cfg_has() {
   [ "$1" = 0 ] && [ "$KICK_DIR_OK" = 1 ] || return 0
   # Whatever may set a filter program (ST_FILT, another global configuration)
@@ -1841,7 +1842,9 @@ kick_cfg_has() {
 # XDG_CONFIG_HOME the command sets; or the directory cannot be placed. A
 # missing directory runs nothing, since git stops on it, but only when the
 # command is this one segment: any other segment, even one after it in a loop
-# or beside it in the background, may make it, with any configuration.
+# or beside it in the background, may make it, with any configuration. Sets
+# KFS_INC when the configuration has a conditional include, which counts as a
+# filter set once ST_REF, ST_CFG or ST_HEAD is.
 kick_filter_set() {
   KFS_INC=0
   [ "$ST_FILT" = 0 ] && [ "${SW_CFGENV:-0}" = 0 ] && [ "$2" = 1 ] || return 0
@@ -1946,8 +1949,9 @@ kickoff_git_reads() {
         # default, and --no-ext-diff is the only way to read it with one set; a
         # diff.<driver>.textconv filter runs for these too, which --no-textconv
         # stops (blame has no such option). A git config change earlier in the
-        # same command may have set any of them, and where the repository
-        # cannot be read (git -C, an unplaced directory) they count as set.
+        # same command may have set any of them, as may whatever may set a
+        # filter program (kick_cfg_has), and where the repository cannot be
+        # read (git -C, an unplaced directory) they count as set.
         case ${SW[$k]} in
           diff | log | show | blame | annotate | whatchanged)
             [ "$ST_CFG" = 0 ] || return 1
@@ -2425,7 +2429,8 @@ kickoff_head_moves() {
 # must be a run, or a mention that only reads, stages or prints it, in the
 # segments read above; a name in a redirect, a -c string or a quoted or
 # spelled-out form is refused. A stage a filter program would run for is
-# refused here when any segment, in any order, may set one.
+# refused here when any segment, in any order, may set one, may make a
+# conditional include apply, or changes directory after it.
 kickoff_text_check() {
   kick_count "$P_CMD"
   [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
@@ -2435,7 +2440,7 @@ kickoff_text_check() {
   # A filter set after the stage in the text can still run first: a loop runs
   # its body before its next condition, and a background job runs beside it.
   [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
-    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and also changes git configuration or where git reads it (a git config write, a clone, init or alias, or a HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
+    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and also may change git configuration or where git reads it (a git config naming a filter key, an include or an editor, a clone, init or alias, or a HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
   [ "$KICK_INC_PASSED" = 0 ] || { [ "$ST_REF" = 0 ] && [ "$ST_CFG" = 0 ] && [ "$ST_HEAD" = 0 ]; } \
     || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes the branch, the remotes or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
   [ "$KICK_CD_AFTER" = 0 ] \
