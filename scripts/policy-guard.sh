@@ -398,9 +398,10 @@ RE_MC_GIT_ENV="(^|[[:space:];|&(\"'])GIT_[A-Za-z0-9_]*="
 RE_MC_GIT_CONFIG='[[:space:]](-c|--config-env)([[:space:]=]|$)'
 RE_MC_GIT_GREP_O='[[:space:]]grep[[:space:]](.*[[:space:]])?-[A-Za-z]*O'
 # Prefixes that only these subcommands give an executing meaning: every
-# abbreviation of --upload-pack in ls-remote, of --filters in cat-file.
+# abbreviation of --upload-pack in ls-remote, of --filters and --textconv in
+# cat-file.
 RE_MC_GIT_LSREMOTE_U='[[:space:]]ls-remote[[:space:]](.*[[:space:]])?--u'
-RE_MC_GIT_CATFILE_FIL='[[:space:]]cat-file[[:space:]](.*[[:space:]])?--fi'
+RE_MC_GIT_CATFILE_FIL='[[:space:]]cat-file[[:space:]](.*[[:space:]])?--(fi|t)'
 RE_MC_GIT_EXEC_FLAG='(^|[[:space:]])(--outp[^[:space:]]*|--ext[^[:space:]]*|--textc[^[:space:]]*|--op[^[:space:]]*|--exec[^[:space:]]*)'
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
@@ -3599,7 +3600,7 @@ mc_git_reads() {
       --outp* | --ext* | --textc*) return 1 ;;
     esac
     case $sub:$a in
-      grep:--op* | grep:-O* | grep:-[!-]*O* | ls-remote:--u* | ls-remote:--exec* | cat-file:--fi*) return 1 ;;
+      grep:--op* | grep:-O* | grep:-[!-]*O* | ls-remote:--u* | ls-remote:--exec* | cat-file:--fi* | cat-file:--t*) return 1 ;;
     esac
   done
   case " $MC_GIT_READS " in *" $sub "*) return 0 ;; esac
