@@ -775,6 +775,142 @@ for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
     expect defer "[$tier, task-1] a driver's filters stopped, or never reached, defer: $cmd"
   done
 done
+# A filter program (filter.<driver>.clean, smudge or process) runs on the
+# file's content when git stages, restores, compares, removes or blames it, so
+# a filter of sh mapped to the script by .gitattributes runs the script.
+for key in clean smudge process; do
+  FLTD="$SANDBOX/filter-$key"
+  clone_on "$FLTD" planwright/demo/task-1 1
+  gitq -C "$FLTD" config "filter.y.$key" sh
+  printf 'scripts/kickoff-spec-push.sh filter=y\n' >"$FLTD/.gitattributes"
+  for cmd in 'git add scripts/kickoff-spec-push.sh' \
+    'git add -n scripts/kickoff-spec-push.sh' \
+    'git add --chmod=+x -- scripts/kickoff-spec-push.sh' \
+    'git add scripts/kickoff-spec-push.sh*' \
+    "git add ':(glob)scripts/kickoff-spec-push.sh'" \
+    'git add scripts/k*.sh' \
+    'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
+    'git cat-file --filte HEAD:scripts/kickoff-spec-push.sh' \
+    'git cat-file --filt HEAD:scripts/kickoff-spec-push.sh' \
+    'git cat-file --fil HEAD:scripts/kickoff-spec-push.sh' \
+    'git cat-file --fi HEAD:scripts/kickoff-spec-push.sh' \
+    'git restore scripts/kickoff-spec-push.sh' \
+    'git restore -s HEAD~1 -- scripts/kickoff-spec-push.sh' \
+    'git restore --staged --worktree scripts/kickoff-spec-push.sh' \
+    'git diff scripts/kickoff-spec-push.sh' \
+    'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
+    'git diff --stat -- scripts/kickoff-spec-push.sh' \
+    'git diff --name-only scripts/kickoff-spec-push.sh' \
+    'git diff --no-index scripts/kickoff-spec-push.sh scripts/other.sh' \
+    'git status scripts/kickoff-spec-push.sh' \
+    'git status -s -- scripts/kickoff-spec-push.sh' \
+    'git rm --cached scripts/kickoff-spec-push.sh' \
+    'git rm -n scripts/kickoff-spec-push.sh' \
+    'git commit -m x scripts/kickoff-spec-push.sh' \
+    'git commit -m x -- scripts/kickoff-spec-push.sh' \
+    'git blame scripts/kickoff-spec-push.sh' \
+    'git annotate scripts/kickoff-spec-push.sh' \
+    'git ls-files -m scripts/kickoff-spec-push.sh' \
+    'git ls-files -tm scripts/kickoff-spec-push.sh' \
+    'git ls-files --modified scripts/kickoff-spec-push.sh' \
+    'git ls-files --mod scripts/kickoff-spec-push.sh' \
+    'git checkout -- scripts/kickoff-spec-push.sh' \
+    'git checkout HEAD -- scripts/kickoff-spec-push.sh' \
+    'git stash push scripts/kickoff-spec-push.sh' \
+    'git reset --hard -- scripts/kickoff-spec-push.sh' \
+    'git hash-object scripts/kickoff-spec-push.sh' \
+    'git archive HEAD scripts/kickoff-spec-push.sh' \
+    'git add scripts/other.sh scripts/kickoff-spec-push.sh' \
+    "git -C $FLTD add scripts/kickoff-spec-push.sh"; do
+    for tier in worker tower; do
+      PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$FLTD" "$FLTD"
+      expect deny "[$tier, task-1] a filter.y.$key program runs on the file: $cmd"
+    done
+  done
+  for cmd in 'git add scripts/other.sh' \
+    'git add -- scripts/other.sh' \
+    'git status scripts/other.sh' \
+    'git restore scripts/other.sh' \
+    'git diff scripts/other.sh' \
+    'git rm --cached scripts/other.sh' \
+    'git commit -m x scripts/other.sh' \
+    'git ls-files -m scripts/other.sh' \
+    'git cat-file -p HEAD:scripts/other.sh' \
+    'git log -p -- scripts/kickoff-spec-push.sh' \
+    'git log --oneline -- scripts/kickoff-spec-push.sh' \
+    'git show HEAD:scripts/kickoff-spec-push.sh' \
+    'git show HEAD -- scripts/kickoff-spec-push.sh' \
+    'git diff-tree -p HEAD scripts/kickoff-spec-push.sh' \
+    'git cat-file -p HEAD:scripts/kickoff-spec-push.sh' \
+    'git cat-file -s HEAD:scripts/kickoff-spec-push.sh' \
+    'git ls-files scripts/kickoff-spec-push.sh' \
+    "git ls-files -s '--format=%(objectmode)' scripts/kickoff-spec-push.sh" \
+    'git ls-tree HEAD scripts/kickoff-spec-push.sh' \
+    'git grep foo -- scripts/kickoff-spec-push.sh' \
+    'git check-ignore scripts/kickoff-spec-push.sh' \
+    'git log --first-parent --find-renames -- scripts/kickoff-spec-push.sh' \
+    'cat scripts/kickoff-spec-push.sh'; do
+    for tier in worker tower; do
+      PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$FLTD" "$FLTD"
+      expect defer "[$tier, task-1] with filter.y.$key set, what never filters the script defers: $cmd"
+    done
+  done
+done
+# With no filter program configured (a filter.<driver>.required key alone runs
+# nothing), the everyday stages and reads of the script still defer, even with
+# .gitattributes mapping it.
+NOFD="$SANDBOX/nofilter"
+clone_on "$NOFD" planwright/demo/task-1 1
+gitq -C "$NOFD" config filter.y.required true
+printf 'scripts/kickoff-spec-push.sh filter=y\n' >"$NOFD/.gitattributes"
+for cmd in 'git add scripts/kickoff-spec-push.sh' \
+  'git status scripts/kickoff-spec-push.sh' \
+  'git restore scripts/kickoff-spec-push.sh' \
+  'git restore --staged scripts/kickoff-spec-push.sh' \
+  'git diff scripts/kickoff-spec-push.sh' \
+  'git rm --cached scripts/kickoff-spec-push.sh' \
+  'git commit -m x scripts/kickoff-spec-push.sh' \
+  'git blame scripts/kickoff-spec-push.sh' \
+  'git ls-files -m scripts/kickoff-spec-push.sh' \
+  'git cat-file -p HEAD:scripts/kickoff-spec-push.sh' \
+  'git config user.name t && git add scripts/kickoff-spec-push.sh' \
+  'git config filter.y.required false && git add scripts/kickoff-spec-push.sh' \
+  'git config --get-regexp filter && git add scripts/kickoff-spec-push.sh' \
+  'git remote add o u; git status scripts/kickoff-spec-push.sh' \
+  "git -C $NOFD add scripts/kickoff-spec-push.sh" \
+  'git -C . status scripts/kickoff-spec-push.sh' \
+  'git -C /some/repo add scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
+    expect defer "[$tier, task-1] with no filter program configured, a stage or read of the script defers: $cmd"
+  done
+done
+# Deliberate over-blocks: cat-file --filters (in any abbreviation) is refused
+# whatever is configured; a git config write that may set a filter or an
+# include earlier in the same command, and a git -C the guard cannot place,
+# count as a filter set.
+for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --filt HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --batch --filters scripts/kickoff-spec-push.sh' \
+  'git config filter.z.clean sh && git add scripts/kickoff-spec-push.sh' \
+  'git config Filter.Z.Smudge sh; git restore scripts/kickoff-spec-push.sh' \
+  'git config set filter.z.process sh && git status scripts/kickoff-spec-push.sh' \
+  'git config --add filter.z.clean sh && git diff scripts/kickoff-spec-push.sh' \
+  'git config include.path ../x && git add scripts/kickoff-spec-push.sh' \
+  'git config --rename-section z filter.z && git rm --cached scripts/kickoff-spec-push.sh' \
+  'git config $K sh && git add scripts/kickoff-spec-push.sh' \
+  'git config filter.z.clean sh && git commit -m x scripts/kickoff-spec-push.sh' \
+  "git -C $SANDBOX/filter-clean add scripts/kickoff-spec-push.sh" \
+  'git -C ../filter-smudge restore scripts/kickoff-spec-push.sh' \
+  'git -C . -C ../filter-process status scripts/kickoff-spec-push.sh' \
+  'git -C $D add scripts/kickoff-spec-push.sh' \
+  'true; git -C /some/repo add scripts/kickoff-spec-push.sh' \
+  'ls && git -C /some/repo status scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
+    expect deny "[$tier, task-1] a filter the guard cannot rule out could run on the file: $cmd"
+  done
+done
 PAGD="$SANDBOX/pager"
 clone_on "$PAGD" planwright/demo/task-1 1
 gitq -C "$PAGD" config core.pager sh
