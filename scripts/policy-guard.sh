@@ -31,8 +31,8 @@
 # or bare repository denies; in Bash, a command naming a settings, MCP or
 # planwright configuration file passes only as a plain read, as a message
 # flag's quoted value, or inside a quoted-delimiter heredoc body a plain cat
-# writes to a program home or a data place, an instruction file denies as a
-# redirect target or a write verb's argument, and a word or redirect target
+# writes to a program home or a data place; an instruction file denies as a
+# redirect target or a write verb's argument; and a word or redirect target
 # that could expand into a posture file, or a plain absolute one that is or
 # sits behind a link into one, denies (the directories are the file
 # surface's alone: an installed planwright script runs from under
