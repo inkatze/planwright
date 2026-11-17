@@ -32,6 +32,15 @@ ln -s "$FIXHOME/.claude/settings.json" "$H/kb/link-settings.md"
 ln -s "$FIXHOME/.claude" "$H/kb/link-dir"
 ln -s "$UNIT/CLAUDE.md" "$H/kb/link-claude.md"
 ln -s "$FIXHOME/.claude/plugins/data/planwright/planwright.yml" "$H/kb/link-overlay.md"
+# Links whose own names spell no posture: a chain through a plain place, the
+# same chain spelled relative, a link outside every home, and one out of a home
+# to a harmless place.
+mkdir -p "$OUTSIDE/plain" "$OUTSIDE/harmless"
+ln -s "$FIXHOME/.claude/settings.json" "$OUTSIDE/plain/hop"
+ln -s "$OUTSIDE/plain/hop" "$H/kb/chain.md"
+ln -s ../../../plain/hop "$H/kb/rel-chain.md"
+ln -s "$FIXHOME/.claude/settings.json" "$OUTSIDE/plain/l"
+ln -s "$OUTSIDE/harmless" "$H/kb/out-dir"
 printf '/some/cwd\n' >"$H/streamjson/w/cwd"
 printf '/some/cwd\n' >"$FLEET/streamjson/w/cwd"
 
@@ -83,6 +92,29 @@ EOF
 tail -1 $H/kb/brief.md"
 allow "echo hi >> $H/kb/log.md"
 allow "echo hi > $H/handover.md"
+
+echo "# the strip's other openers and tails"
+allow "cat >> $H/kb/a.md <<-'EOF'"$'\n\t'"settings.json"$'\n\t'"EOF"
+allow "cat >> $H/kb/a.md <<'EOF' | wc -l
+settings.json
+EOF"
+allow "cat <<'EOF' >> $H/kb/a.md
+a
+EOF
+cat <<'EOF' >> $H/kb/b.md
+settings.json
+EOF"
+allow 'fleet-streamjson.sh answer --name w --deny --message="never > settings.json"'
+refuse "cat >> $H/kb/a.md <<'EOF'
+settings.json"
+refuse "cat >> $H/kb/a.md <<'EOF'
+settings.json
+EOF
+PATH=/x"
+refuse "cat >> $H/kb/a.md <<'EOF'
+settings.json
+EOF
+\`id\`"
 
 echo "# a compound brief write: scratch sed, a group with a heredoc, an append, a tail"
 # shellcheck disable=SC2016 # the scratch directory is made by the command under test
@@ -184,6 +216,13 @@ done
 refuse "cp /dev/null $H/kb/link-settings.md"
 refuse "echo x >> $H/kb/sub/../../../.claude/settings.json"
 refuse "echo x >> $H/\$NAME"
+refuse "echo x >> $H/kb/chain.md"
+refuse "echo x >> $H/kb/rel-chain.md"
+refuse "echo x >> $OUTSIDE/plain/l"
+allow "echo x >> $H/kb/out-dir/note.md"
+refuse "cat >> $H/kb/out-dir/note.md <<'EOF'
+settings.json
+EOF"
 
 echo "# a path no home resolves to earns nothing"
 mkdir -p "$OUTSIDE/stray"
@@ -317,8 +356,14 @@ refuse "echo x | tee $H/kb/link-ov*"
 echo "# instruction files: the file tools and a name inside a home"
 pg_file mission-control Write "$UNIT/CLAUDE.md"
 expect deny "[mission-control] the file tool refuses CLAUDE.md"
+reason_has 'settings or configuration file' "[mission-control] the CLAUDE.md refusal is the settings rule"
 pg_file mission-control Edit "$FIXHOME/.claude/CLAUDE.local.md"
 expect deny "[mission-control] the file tool refuses CLAUDE.local.md"
+reason_has 'settings or configuration file' "[mission-control] the CLAUDE.local.md refusal is the settings rule"
+# Outside every work tree, so the repository rule cannot be what refuses it.
+pg_file mission-control Write "$OUTSIDE/plain/CLAUDE.md"
+expect deny "[mission-control] the file tool refuses a CLAUDE.md outside any work tree"
+reason_has 'settings or configuration file' "[mission-control] that refusal is the settings rule"
 refuse "echo x >> $H/kb/CLAUDE.md"
 allow "cat $UNIT/CLAUDE.md"
 allow "echo \$(cat $H/kb/settings-notes.md)"
