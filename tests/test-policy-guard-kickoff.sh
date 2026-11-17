@@ -709,6 +709,11 @@ for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-sp
   'bash scripts/k*.sh demo' \
   'bash scripts/k*h demo' \
   'sh scripts/k?*.sh demo' \
+  'bash scripts/?*.sh demo' \
+  'bash scripts/*?.sh demo' \
+  'bash scripts/?*? demo' \
+  'env scripts/?*.sh demo' \
+  'cp scripts/?*.sh copy.sh' \
   'bash scripts/k${E}.sh demo' \
   'bash scripts/${E}k*.sh demo' \
   'env scripts/*k*.sh demo' \
@@ -757,10 +762,37 @@ for cmd in 'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git cat-file --textconv HEAD:a scripts/kickoff-spec-push.sh' \
   'git grep --textconv foo -- scripts/kickoff-spec-push.sh' \
   'git blame scripts/kickoff-spec-push.sh' \
+  'git show -L1:x scripts/kickoff-spec-push.sh' \
+  'git show -L1:x HEAD:scripts/kickoff-spec-push.sh' \
+  'git show -U1:x scripts/kickoff-spec-push.sh' \
+  "git show --author '.:*' scripts/kickoff-spec-push.sh" \
+  'git show --grep a:b scripts/kickoff-spec-push.sh' \
+  'git show --author a:b -- scripts/kickoff-spec-push.sh' \
+  'git show HEAD:a scripts/kickoff-spec-push.sh' \
+  'git show :/two: :scripts/kickoff-spec-push.sh' \
+  'git show HEAD^{/one:} :scripts/kickoff-spec-push.sh' \
+  'git show HEAD@{12:00} :scripts/kickoff-spec-push.sh' \
+  'git log -U1 -- scripts/kickoff-spec-push.sh' \
+  'git log -nU1 -- scripts/kickoff-spec-push.sh' \
+  'git log --unified=1 -- scripts/kickoff-spec-push.sh' \
+  'git log --binary -- scripts/kickoff-spec-push.sh' \
+  'git log --remerge-diff -- scripts/kickoff-spec-push.sh' \
+  'git log --dd -- scripts/kickoff-spec-push.sh' \
+  'git cat-file --t HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --te HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --tex HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file --text HEAD:scripts/kickoff-spec-push.sh' \
   'git annotate scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
     expect deny "[$tier, task-1] a diff driver command or textconv filter runs on the file: $cmd"
+  done
+done
+for cmd in 'git show main@{1}:scripts/kickoff-spec-push.sh' \
+  'git show HEAD^{commit}:scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
+    expect deny "[$tier, task-1] a blob named through a braced revision is refused, as a commit's name can hold a colon too: $cmd"
   done
 done
 for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
@@ -769,6 +801,9 @@ for cmd in 'git diff --no-ext-diff --no-textconv scripts/kickoff-spec-push.sh' \
   'git log --oneline -- scripts/kickoff-spec-push.sh' \
   'git log --follow -- scripts/kickoff-spec-push.sh' \
   'git show HEAD:scripts/kickoff-spec-push.sh' \
+  'git show :scripts/kickoff-spec-push.sh' \
+  'git show HEAD:scripts/kickoff-spec-push.sh --' \
+  'git show -q:x HEAD:scripts/kickoff-spec-push.sh' \
   'git status scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$DRVD" "$DRVD"
@@ -798,6 +833,11 @@ for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
   'shellcheck scripts/k*.sh' \
   'git add scripts/k*.sh' \
   'for f in scripts/*.sh; do shellcheck "$f"; done' \
+  'env scripts/*.sh' \
+  'cp scripts/*.sh copy.sh' \
+  'cp scripts/*.sh* copy.sh' \
+  'cp scripts/?.sh copy.sh' \
+  'env scripts/??.sh' \
   'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git diff scripts/other.sh' \
   'git config core.autocrlf false && git add scripts/kickoff-spec-push.sh' \
