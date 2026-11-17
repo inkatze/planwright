@@ -388,7 +388,7 @@ own binary variable (`PLANWRIGHT_STREAMJSON_CLI`, or `PLANWRIGHT_ORACLE_CLAUDE`
 for the liveness oracle), and make a stub that waits on its stdin end itself
 once the suite is gone, since a detached supervisor holds that stdin open. A
 call meant to reach the real CLI, such as an opt-in live probe, sets
-`PLANWRIGHT_TEST_REAL_CLAUDE=1`.
+`PLANWRIGHT_TEST_REAL_CLAUDE=1` itself; the runner clears one exported to it.
 
 ### Waits hold up on a busy machine
 

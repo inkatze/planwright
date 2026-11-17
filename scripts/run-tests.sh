@@ -134,7 +134,9 @@
 #   PLANWRIGHT_TEST_REAL_CLAUDE    1 on a call lets it through the refusing
 #                                  claude the runner puts first on every
 #                                  file's PATH (pinning on or off); any other
-#                                  call that reaches it fails the file
+#                                  call that reaches it fails the file. A file
+#                                  sets it itself: one exported to the runner
+#                                  is cleared, whatever PLANWRIGHT_TEST_PIN_ENV
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
 #   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
