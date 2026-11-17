@@ -81,6 +81,12 @@ printf '# format: 1\ncadence\taudited\t%s\ncadence\tgap\tpre-ci\tmissing\tlint\n
 packet "$tmp/kinds" ready-flip --level expert
 want="Cadence: covered none; gap pre-ci (lint is missing); pre-ci (test recorded failed); post-pr (completed only at $(printf '%.12s' "$head")); convergence (a record does not match its branch (head:polish))"
 if [ "$(section_first)" = "$want" ]; then ok "each gap names its step or head"; else fail "the gap kinds read '$(section_first)'"; fi
+# A record the step-record truth check refuses, and one the session events
+# contradict, read as mc-readiness.sh says them.
+printf '# format: 1\ncadence\taudited\t%s\ncadence\tgap\tconvergence\tunaudited\tpolish\ncadence\tgap\tpost-pr\tfault\t000003:post-pr:001 cubic-pr: start 2026-11-04T10:04:58Z is off\n' "$head" >"$tmp/truthkinds"
+packet "$tmp/truthkinds" ready-flip --level expert
+want="Cadence: covered none; gap convergence (polish fails the step-record truth check); post-pr (000003:post-pr:001 cubic-pr: start 2026-11-04T10:04:58Z is off)"
+if [ "$(section_first)" = "$want" ]; then ok "an unaudited or fault gap reads as the readiness check says it"; else fail "the unaudited and fault gaps read '$(section_first)'"; fi
 packet "$tmp/clean" ready-flip --level expert
 if [ "$(section_first)" = "Cadence: all covered (pre-ci)" ]; then ok "only the points the audit names are covered"; else fail "a clean audit reads '$(section_first)'"; fi
 
