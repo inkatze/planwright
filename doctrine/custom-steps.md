@@ -452,8 +452,9 @@ cache the repository's ignore list names (adopters add the line), keyed by a
 run id the helper issues, read by planwright only through the helper, its
 form unstable to a step reading the record `PREV_RECORD` names. Fields: the
 head SHA at start and at end, the run id, point, step id, kind, target,
-hosting, backend, session id where one exists, start and end times,
-outcome, a bounded excerpt (a session step's classification excerpt or a
+hosting, backend, session id where one exists, start and end times, the
+start source where one was given (the commit, comment, review, or check the
+start was read from), outcome, a bounded excerpt (a session step's classification excerpt or a
 command step's output tail, stored screened through the repository's secret
 screen and stripped of non-printable bytes), the full captured output's
 cache path where one exists (unscreened), and a skipped step's reason and
@@ -488,8 +489,11 @@ claims is refused as a `mismatch` gap, never counted: a stored run or point
 that differs from its path, a step whose start and end heads are not commits
 of the completion's branch in order, or an outcome its own fields contradict
 (a skip with no code or, short of a resume, a moved head, a code on a step
-that did not skip). The script's usage header states the freshness rule and
-the output.
+that did not skip). A skill or prompt record that overstates what happened
+(the step-record truth check, whose rules `scripts/step-record.sh`'s usage
+header states: `write` refuses such a record, and `untrue` names a stored
+one) leaves its step an `unaudited` gap, never done. The script's usage
+header states the freshness rule and the output.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
 

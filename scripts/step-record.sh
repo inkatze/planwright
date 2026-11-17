@@ -1452,8 +1452,8 @@ function ref() {
 '
 
 # AWK_TRUTH: the step-record truth check, the one rule set write applies to the
-# flags it is given (mode w, with NOW the clock in epoch seconds) and the
-# untrue verb applies to a stored record (mode a). truth() returns "" for a
+# flags it is given (mode "write", with NOW the clock in epoch seconds) and the
+# untrue verb applies to a stored record (mode "audit"). truth() returns "" for a
 # record that passes, else `<flag><TAB><rule id><TAB><what would pass>`. It
 # judges a session step (skill or prompt) that claims work done, outcome never
 # skipped; it never corrects a value. Floor and tolerance are in seconds.
