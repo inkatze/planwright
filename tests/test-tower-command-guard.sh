@@ -346,7 +346,8 @@ TOWER_GH_GROUPS=('pr view 5' 'pr list' 'pr status' 'pr diff 5' 'pr checks 5' 'au
 for g in "${TOWER_GH_GROUPS[@]}"; do
   for f in '--jq env' '--jq=env' "--jq '\$ENV'" "--jq='\$ENV.GH_TOKEN'" '--json title --jq env' \
     '--json title --jq ".title, env"' '-q env' '-qenv' '-q=env' '-q ENV' "--template '{{env}}'" \
-    "--template='{{env}}'" "-t '{{env}}'" "-t'{{env}}'" "-t='{{env}}'"; do
+    "--template='{{env}}'" "-t '{{env}}'" "-t'{{env}}'" "-t='{{env}}'" "'-qenv|test'" "-t'{{env}}t'" \
+    "-q'env|.q'"; do
     assert_defer "gh $g $f" "gh $g $f"
   done
 done
@@ -1294,6 +1295,8 @@ parity_expect defer "parity: gh auth status --show-token defers" "gh auth status
 parity_expect defer "parity: gh auth status -t defers" "gh auth status -t"
 parity_expect defer "parity: gh auth status -at defers" "gh auth status -at"
 parity_expect defer "parity: gh auth status -ta defers" "gh auth status -ta"
+parity_expect defer "parity: gh pr view with an attached env filter ending in t defers" "gh pr view 5 '-qenv|test'"
+parity_expect defer "parity: gh pr view with a bundled attached env filter ending in t defers" "gh pr view 5 '-cqenv|test'"
 parity_expect allow "parity: gh pr view with a field filter allows" "gh pr view 5 --json title --jq .title"
 parity_expect allow "parity: gh pr diff allows" "gh pr diff 5"
 parity_expect allow "parity: gh auth status --json allows" "gh auth status --json hosts"
