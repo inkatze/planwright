@@ -849,6 +849,7 @@ for key in clean smudge process; do
     'git ls-files -tm scripts/kickoff-spec-push.sh' \
     'git ls-files --modified scripts/kickoff-spec-push.sh' \
     'git ls-files --mod scripts/kickoff-spec-push.sh' \
+    'git ls-files --modi scripts/kickoff-spec-push.sh' \
     'git checkout -- scripts/kickoff-spec-push.sh' \
     'git checkout HEAD -- scripts/kickoff-spec-push.sh' \
     'git stash push scripts/kickoff-spec-push.sh' \
@@ -898,6 +899,9 @@ NOFD="$SANDBOX/nofilter"
 clone_on "$NOFD" planwright/demo/task-1 1
 gitq -C "$NOFD" config filter.y.required true
 printf 'scripts/kickoff-spec-push.sh filter=y\n' >"$NOFD/.gitattributes"
+# An existing empty directory a clone or init writes a repository into, and a
+# template directory whose config would be copied there.
+mkdir "$SANDBOX/empty" "$SANDBOX/tpl"
 for cmd in 'git add scripts/kickoff-spec-push.sh' \
   'git status scripts/kickoff-spec-push.sh' \
   'git restore scripts/kickoff-spec-push.sh' \
@@ -914,16 +918,20 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
   'git remote add o u; git status scripts/kickoff-spec-push.sh' \
   "git -C $NOFD add scripts/kickoff-spec-push.sh" \
   'git -C . status scripts/kickoff-spec-push.sh' \
-  'git -C /some/repo add scripts/kickoff-spec-push.sh'; do
+  'git -C /some/repo add scripts/kickoff-spec-push.sh' \
+  "git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  "git init $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh"; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect defer "[$tier, task-1] with no filter program configured, a stage or read of the script defers: $cmd"
   done
 done
 # Deliberate over-blocks: cat-file --filters (in any abbreviation) is refused
-# whatever is configured; a git config write that may set a filter or an
-# include earlier in the same command, and a git -C the guard cannot place,
-# count as a filter set.
+# whatever is configured. A git config write or read that names a filter key,
+# a filter section rename, an include or an editor, a clone or init that sets
+# configuration, a git -C the guard cannot place, and a missing git -C
+# directory in a command with other segments (which may make it) all count as
+# a filter set.
 for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --filt HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --batch --filters scripts/kickoff-spec-push.sh' \
@@ -940,7 +948,11 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git -C . -C ../filter-process status scripts/kickoff-spec-push.sh' \
   'git -C $D add scripts/kickoff-spec-push.sh' \
   'true; git -C /some/repo add scripts/kickoff-spec-push.sh' \
-  'ls && git -C /some/repo status scripts/kickoff-spec-push.sh'; do
+  'ls && git -C /some/repo status scripts/kickoff-spec-push.sh' \
+  'git -C ~/x add scripts/kickoff-spec-push.sh' \
+  'git -C ../filter-c* add scripts/kickoff-spec-push.sh' \
+  'cd $X && git add scripts/kickoff-spec-push.sh' \
+  'git config --add filter.z.clean sh && git status scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect deny "[$tier, task-1] a filter the guard cannot rule out could run on the file: $cmd"
