@@ -9,7 +9,7 @@ Origin-tag legend: `N` = new to this bundle; `C, <namespace> <id>` = carried
 from another bundle's decision, the foreign id namespace-qualified; `O` = an
 open question for kickoff, with its recommended default drafted.
 
-Slice one (D-4 to D-9, D-14) is designed in full. Slices two to four are
+Slice one (D-4 to D-9, D-14, D-19) is designed in full. Slices two to four are
 outlined (D-11, D-12, D-13); each carries a design walk (Tasks 6, 11, 16)
 whose output amends this bundle before any build task of that slice starts.
 
@@ -128,8 +128,12 @@ neutral contract keeps the language question (D-16) from blocking the slice.
 **Decision:** Each class carries `mode: off | shadow | enforce`, shipped as
 `shadow`. In shadow the engine records its verdict beside the actual answer and
 answers nothing. Enforcement is the operator's configuration of a class, taken
-when the shadow log shows agreement and no near-miss allowed. The `release-run`
-class ships `off` and the `host-act` register ships empty.
+when the shadow log shows agreement and no near-miss allowed. The hub reads
+each class's shadow log and brings the operator a one-line evidence summary
+(would-have answers against actual answers, and each mismatch); that summary is
+the gate for the operator's yes, so the operator reads no log. Every class,
+`release-run` included, ships in shadow, and the `host-act` register ships
+empty. Settled at kickoff (operator, 2026-11-16).
 
 **Alternatives considered:**
 - Ship the read-only class enforced. Rejected because: a first run in
@@ -304,15 +308,14 @@ its asks are cited by drop number and described by capability only.
 
 **Chosen because:** one design serves both, and the data-hygiene rule holds.
 
-### D-16: Implementation language — Go recommended, not decided here (O)
+### D-16: Implementation language — shell now behind a neutral contract, swap later (N)
 
-**Decision:** Open for kickoff. The universal-binary verdict draft (pull request
-1063, pending the operator's amendment kickoff) recommends Go for the library
-and skill-called tiers. Drafted default: this spec does not choose; its
-contract (REQ-I1.3, D-5) is language-neutral, and the engine and gate adopt
-whatever that amendment decides. If the amendment is not signed by the time
-Task 3 starts, the engine is written in the shell the plugin already uses behind
-the same contract and replaced later.
+**Decision:** Settled at kickoff (operator, 2026-11-16). Slice one is written in
+the shell the plugin already uses, behind the language-neutral contract
+(REQ-I1.3, D-5), so a later rewrite changes no fixture or policy file. The
+universal-binary verdict draft (pull request 1063, pending) recommends Go for
+the library and skill-called tiers; this spec does not choose, and the engine
+and gate adopt whatever that amendment decides.
 
 **Alternatives considered:**
 - Decide Go in this spec. Rejected because: the verdict is a draft in another
@@ -324,17 +327,19 @@ the same contract and replaced later.
 **Chosen because:** a neutral contract lets slice one proceed while the
 language question is settled where it belongs.
 
-### D-17: Cross-spec dependencies and a refused-push rename (O)
+### D-17: Cross-spec dependencies and a refused-push rename (N)
 
-**Decision:** Open for kickoff. Drafted defaults, from the local amendment
-branch to the invariant-tasks spec: edges cross specs only within the same spec
-root; only hard edges, written `<spec>:<id>`; the validator warns on a
-prose-form edge and never rewrites it; selection fails closed when the foreign
-bundle cannot be read; the amendment bumps the format version. A further
-question for this spec: when a push is refused and names the branch the helper
-accepts, and that branch does not exist, whether the refused push is renamed to
-it (recommended: yes). The queue (REQ-F1.2) reads a hard cross-spec edge under
-those defaults.
+**Decision:** Settled at kickoff (operator, 2026-11-16). Edges cross specs only
+within the same spec root; only hard edges, written `<spec>:<id>`; the
+validator warns on a prose-form edge and never rewrites it; selection fails
+closed when the foreign bundle cannot be read; the amendment that owns the edge
+syntax bumps the format version (the local branch to the invariant-tasks spec).
+The queue (REQ-F1.2) reads a hard cross-spec edge under those rules. A refused
+push whose message names the branch the helper accepts, when that branch does
+not exist, is renamed to it and retried (REQ-G1.7), with these limits: only to
+the exact name the refusal names, recorded, through the same guarded helper,
+never with force, never to a protected or shared branch, and at most once per
+refusal.
 
 **Alternatives considered:**
 - Allow edges across spec roots. Rejected because: the foreign bundle may not
@@ -345,12 +350,12 @@ those defaults.
 **Chosen because:** it keeps the queue's dependency read small and safe; the
 format change itself lives in the invariant-tasks amendment.
 
-### D-18: Main work and side work — hold with a lapse, or only alert (O)
+### D-18: Main work and side work — hold with a lapse (N)
 
-**Decision:** Open for kickoff. Drafted default (recommended): while a
+**Decision:** Settled at kickoff (operator, 2026-11-16). While a
 higher-ranked unit is ready, the dispatcher holds a lower-ranked launch and
-the hold lapses after an hour into a picklist for the operator; the
-alternative is to alert and launch. Source: the local main-work amendment
+the hold lapses after an hour into a picklist for the operator; alert-and-launch
+was the rejected alternative. Source: the local main-work amendment
 (Amendment 14, question one). The hold and its lapse are policy data
 (REQ-B1.5).
 
@@ -361,6 +366,65 @@ alternative is to alert and launch. Source: the local main-work amendment
 
 **Chosen because:** the hold is the code-enforced form of the focus rule, and
 the lapse stops it becoming a deadlock.
+
+### D-19: Slice one covers the kinds of request that dominate approvals (N)
+
+**Decision:** Beyond reads, own-branch pushes and bot replies, slice one ships
+`test-run`, `lint-run` and `evidence-and-wait` classes (REQ-C1.11), each bound
+to the worker's own worktree, each in shadow with near-miss fixtures. Slice one
+is built first, and within it the approval engine follows the policy data task
+directly; the baseline and the dedupe gate run beside it, not ahead of it.
+
+**Alternatives considered:**
+- Cover them through the `host-act` register of exact commands. Rejected
+  because: the operator would maintain a list of commands that a class with a
+  scope predicate describes once.
+- Leave them to a later slice. Rejected because: the approval record shows
+  them, with reads, to be nearly all of the roughly 1,100 daily requests and
+  about 36 waiting hours.
+
+**Chosen because:** the first slice should remove the bottleneck it was named
+for, not only its easiest part.
+
+### D-20: A program reads each repository's own spec root through one verb (C, mission-control D-100 to D-103)
+
+**Decision:** Folded from Amendment 19 by the operator's ruling. With the
+program's root unset, each listed repository's root is what the spec-root
+resolver answers there, so no map or registry is added; a set root wins and
+leaves every old configuration byte-identical. One program reader verb returns
+each root with its repository, and a check fails on any other read of the root
+field. An ambiguous spec name is refused until qualified by a repository alias,
+the one thing taken from the work-repository registry. The queue (D-11) is the
+reader that needs it.
+
+**Alternatives considered:**
+- Keep it a separate mission-control change. Rejected because: the operator
+  folded it here, and the queue is its main consumer.
+- A map from repository to root. Rejected because: it silently disagrees with
+  the repository's own answer.
+
+**Chosen because:** the root a session uses and the root the program reads
+cannot differ, with no flag day.
+
+### D-21: The panel reads from the queue; its changes are drafts until seen (C, mission-control D-85 to D-89)
+
+**Decision:** Folded from Amendment 18 by the operator's ruling, as outlined
+requirements for the last slice (REQ-H1.6 to REQ-H1.9) with its own design walk
+before any build: titles in place of identifiers, all work in motion with age
+and a fixed-vocabulary current step, an instrument and fuel-bar row, spend and
+budget, spec progress, accessibility and a CI type check. The panel reads queue
+rows rather than separate digests where the queue holds the fact. The standing
+condition travels with it: a panel change stays a draft until the operator has
+seen a screenshot of the real panel and said yes.
+
+**Alternatives considered:**
+- Keep it a separate mission-control change. Rejected because: the operator
+  folded it here; most of what the panel shows is queue state.
+- Build the panel before the queue. Rejected because: it would read a second
+  copy of state the queue is to hold.
+
+**Chosen because:** the panel is the operator-facing render of the state this
+spec moves into code.
 
 ## Cross-cutting concerns
 
@@ -422,17 +486,8 @@ only (REQ-I1.4).
 
 ## Open kickoff questions
 
-Drafted with their recommended default (each also a D-ID above); the kickoff
-walk settles them.
-
-1. Cross-spec dependencies (D-17): confirm the drafted defaults, and whether a
-   refused push renames to the helper-named branch when it does not exist
-   (recommended: yes).
-2. Main work and side work (D-18): hold with an hour's lapse into a picklist
-   (recommended), or only alert.
-3. Implementation language (D-16): Go recommended by the universal-binary
-   verdict draft (pull request 1063, pending); not decided here.
-4. Class modes (D-6): classes ship `shadow` and enforcement is the operator's
-   configuration (recommended), or `read-only` ships enforced.
-5. The `release-run` class (REQ-C1.3): ships off (recommended), or ships in
-   shadow.
+All settled at kickoff by the operator, 2026-11-16 (see the changelog in
+`requirements.md`): cross-spec dependencies and the refused-push rename (D-17),
+main versus side work (D-18), the language (D-16), class modes with the hub
+reading the shadow log (D-6), and the `release-run` class in shadow (REQ-C1.3).
+None remains open.

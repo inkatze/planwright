@@ -48,8 +48,10 @@ launch and bookkeeping change.
 ### In scope
 
 - The approval policy engine: a tested, data-driven allow-list that answers
-  routine worker prompts with no model turn, refuses the acts no policy may
-  reach, and hands everything else to a model and then the operator.
+  routine worker prompts (reads, single tests, lint, step-record writes and
+  bounded CI waits inside a worker's own worktree, among others) with no model
+  turn, refuses the acts no policy may reach, and hands everything else to a
+  model and then the operator. This slice is built first.
 - Event dedupe at the source: repeat, stale and off-order events dropped
   before they wake a session, routine events coalesced, and the drops counted.
 - Policy as data: schemas and layered configuration for allow-lists, limits,
@@ -73,9 +75,10 @@ launch and bookkeeping change.
 - **Leaf skills' judgment.** Review, polish, kickoff, drafting and execution
   keep their behavior; this spec changes how they are launched and how their
   bookkeeping is recorded, not what they decide.
-- **The implementation language.** Whether the engine is shell or a compiled
-  tier is an open design question tied to the universal-binary amendment
-  (D-16); the contract of this spec is language-neutral.
+- **Choosing the compiled-tier language.** Slice one is written in the shell
+  the plugin already uses, behind a language-neutral contract (D-16), so a
+  later rewrite changes no fixture or policy file; whether the core moves to a
+  compiled tier is the universal-binary amendment's decision.
 - **The operator-facing prose of mission control's guide** beyond the decision
   packet's shape; the guide's register stays with the mission-control spec.
 - **Per-project resource isolation** (databases, migration counters) and the
@@ -193,9 +196,12 @@ launch and bookkeeping change.
   rewrite); `automated-reviewer-reply` (a reply to, or the resolution of, a
   review thread whose author the configured bot patterns match in full, never
   a thread a person has replied in); `release-run` (the publish helper's run
-  after the operator merged the release pull request; shipped off); and
-  `host-act` (a register of exact commands the operator adds, shipped empty).
-  A class admits only what its scope predicate and argument-aware rules name.
+  after the operator merged the release pull request; shipped in shadow, so it
+  records what it would answer at every release and answers nothing until the
+  operator moves it to enforce); `host-act` (a register of exact commands the
+  operator adds, shipped empty); and the three worktree-bound classes of
+  REQ-C1.11. A class admits only what its scope predicate and argument-aware
+  rules name.
   *(Cites: D-4, D-6; the closed approval-answer drafts (Sources); the memo's
   routine-approvals row.)*
 - **REQ-C1.4** An allow SHALL be delivered only for a worker the asking
@@ -218,8 +224,13 @@ launch and bookkeeping change.
   shipped as `shadow`: in shadow the engine records what it would have
   answered beside what the session or operator actually answered and answers
   nothing; only the operator's configuration moves a class to `enforce`, and
-  the shadow log is the evidence for that move.
-  *(Cites: D-6; the memo's risks (Sources).)*
+  the shadow log is the evidence for that move. Every class ships in shadow,
+  none in enforce. The shadow log is read by the hub, never by the operator:
+  before a class moves to enforce, the hub SHALL bring the operator a one-line
+  evidence summary (the engine's would-have answers against the actual
+  answers, and each mismatch), and that summary is the gate for the operator's
+  yes.
+  *(Cites: D-6; the memo's risks (Sources); the class-mode ruling (Sources).)*
 - **REQ-C1.7** Every allowed class SHALL have at least one near-miss fixture,
   a request that resembles an allowed one and that the engine refuses or
   defers, and a check SHALL fail when a shipped class has none. Fixtures SHALL
@@ -245,6 +256,21 @@ launch and bookkeeping change.
   command one admits and the other refuses without a recorded reason, so the
   two classifications cannot drift apart.
   *(Cites: D-3; REQ-C1.3; the worker-permission-ergonomics spec (Sources).)*
+- **REQ-C1.11** The engine SHALL ship three more classes, each a data entry
+  with its own mode, shipped in shadow, and limited to the worker's own
+  worktree: `test-run` (a single test run named by the repository's own test
+  entry point, never a full-suite chain and never one that reaches outside
+  the worktree); `lint-run` (the repository's own lint or format-check entry
+  points, check mode only, never one that rewrites files outside the
+  worktree); and `evidence-and-wait` (a write of the worker's own step record
+  through the recorder helper, and a bounded wait on continuous integration
+  with a timeout no longer than the configured bound). They exist because the
+  approval record shows these, with plain reads, to be nearly all of the
+  requests the operator is asked about. Each SHALL have its near-miss fixtures
+  (REQ-C1.7), including a test or lint command that names a path outside the
+  worktree and a wait with no bound.
+  *(Cites: D-4, D-6, D-19; the approval-volume figures and the
+  slice-one-coverage ruling (Sources).)*
 
 ## REQ-D — Event dedupe at the source (slice one)
 
@@ -302,17 +328,20 @@ launch and bookkeeping change.
   evidence and be rebuildable from them, so that a lost or stale store is
   rebuilt and never trusted over the forge; it SHALL hold units of every kind
   (spec task, visual flight, ad-hoc fix, petition, pull-request-only) and
-  SHALL read a hard cross-spec dependency edge when the foreign bundle is
-  readable and fail closed when it is not (open question D-17).
+  SHALL read a hard cross-spec dependency edge only between specs under the
+  same spec root, written `<spec>:<id>`, and fail closed (the task is not
+  started) when the foreign bundle is not readable. A prose-form edge SHALL
+  draw a validator warning and never be rewritten.
   *(Cites: D-11, D-17; the dispatch-record issue and the offload petition
   issue (Sources).)*
 - **REQ-F1.3** The dispatcher SHALL admit or refuse a launch from the queue
   and the policy: a launch that breaks the landing order, the work-in-progress
   limit, the host-wide ceiling or the account, load and memory holds SHALL be
   refused by code, the refusal naming the rule and the blocker. Main work and
-  side work SHALL be told apart by the operator-kept rank list, and the
-  handling of a lower-ranked launch while a higher-ranked unit is ready is an
-  open question (D-18).
+  side work SHALL be told apart by the operator-kept rank list. While a
+  higher-ranked unit is ready, a lower-ranked launch SHALL be held, and the
+  hold SHALL lapse after a configured time (one hour by default) into a
+  choice put to the operator, never into a silent launch.
   *(Cites: D-11, D-18; REQ-B1.5; the launch-admission draft (Sources).)*
 - **REQ-F1.4** Every launch SHALL go through one launch seam that applies the
   fixed environment pins, resolves the fleet home from one resolver whatever
@@ -327,6 +356,30 @@ launch and bookkeeping change.
   be a row attribute, and a unit SHALL be reported done only after that check
   passes, not because its pull requests merged.
   *(Cites: D-11; the goals draft (Sources).)*
+- **REQ-F1.7** A program SHALL name one or more work repositories and MAY name
+  one spec root. With the root set, it is the root of every listed repository,
+  exactly as before. With it unset, each listed repository's root SHALL be the
+  one the spec-root resolver answers when run in that repository, in any
+  posture a spec root supports; when both could apply, the set value wins.
+  A program that sets the root SHALL validate and read with output identical
+  to before, and no existing configuration SHALL need an edit.
+  *(Cites: D-20; the spec-roots draft (Sources).)*
+- **REQ-F1.8** A unit's spec SHALL be read from the root of the repository it
+  belongs to. A spec name that exists under two of a program's roots SHALL be
+  refused as ambiguous until qualified by a repository alias, the refusal
+  naming both roots. Program validation SHALL flag a listed repository whose
+  root the resolver refuses or that is not a directory, naming the repository
+  and the resolver's reason.
+  *(Cites: D-20; the spec-roots draft (Sources).)*
+- **REQ-F1.9** Every reader of a program's spec roots (the queue, the
+  readiness check, the deadline scan, the setup and kickoff prose) SHALL obtain
+  them from one program reader verb that returns each root with its
+  repository, and a check SHALL fail on any script or skill instruction that
+  reads the program's root field by another route. The change SHALL add no root
+  registry, repository map or marker of its own, and SHALL leave the floor
+  unchanged: no edit to a repository, no launch or retirement, no gate
+  weakened.
+  *(Cites: D-20; the spec-roots draft (Sources).)*
 
 ## REQ-G — The reconciler (slice three, outlined; design walk before build)
 
@@ -340,6 +393,14 @@ launch and bookkeeping change.
   and retire workers whose unit has landed.
   *(Cites: D-12; the memo's slice three (Sources); the ready-flip policy issue
   (Sources).)*
+- **REQ-G1.7** When a push is refused and the refusal names the branch the
+  helper accepts, and that branch does not exist yet, the push SHALL be
+  renamed to that branch and retried through the same guarded helper, with
+  these limits: only to the exact name the refusal names; only when that
+  branch does not exist; the rename recorded; never with force; never to a
+  protected or shared branch; at most one rename per refusal, a second refusal
+  stopping and being reported with its exact text.
+  *(Cites: D-17; the refused-push ruling (Sources).)*
 - **REQ-G1.2** Evidence of a step SHALL be recorded from continuous
   integration and hooks by code: a step record whose start, head or outcome
   the recorder cannot establish from a machine SHALL be refused, rather than
@@ -397,6 +458,39 @@ launch and bookkeeping change.
   class so a rule about a tool release cites a source.
   *(Cites: D-2, D-13; the rule-enforcement and platform-class drafts
   (Sources).)*
+- **REQ-H1.6** The operator panel SHALL read from the queue and name every
+  item by its title (or its kind in words), never by a pull request number,
+  session, task, worker or launch identifier, hash, branch name or file path.
+  Its in-flight section SHALL list every piece of work in motion (each live
+  session grouped by what it is doing, each piece of work with no session
+  running grouped as waiting and saying in words why it waits), each item with
+  a state symbol and word and how long it has been in that state, keeping the
+  items that need the operator first when they do not all fit. A working
+  session SHALL show its current step in a few words from a fixed vocabulary
+  recorded by a hook, never from raw command text, and never a step older than
+  its current state. The checked merge command of a ready pull request SHALL
+  appear only in that row's opened detail.
+  *(Cites: D-21; the panel-gaps draft (Sources).)*
+- **REQ-H1.7** The panel SHALL draw context fill, each usage limit, host load
+  and memory as an instrument row with values and marks (a reading that cannot
+  be read shown as unknown, never zero or full); each usage limit's spend,
+  reset time and time remaining, the limit nearest its stop as a fuel bar; the
+  month's dollar spend and, where the operator sets a monthly budget (unset by
+  default), the share spent and its rate; and, per spec with work remaining,
+  tasks merged against its total and a count of pull requests per stage, each
+  read through an aged snapshot and never on the redraw path.
+  *(Cites: D-21; the panel-gaps draft (Sources).)*
+- **REQ-H1.8** No meaning in the panel SHALL rest on colour alone: every state
+  carries a symbol and a word; no colour is drawn when `NO_COLOR` is set or
+  the colour knob is off; the palette stays distinct for colour-blind
+  operators; and a plain mode (a knob) shows state words only, for a screen
+  reader. The panel mod's TypeScript SHALL be type-checked in CI, the check
+  failing on a seeded type error.
+  *(Cites: D-21; the panel-gaps draft (Sources).)*
+- **REQ-H1.9** A panel change SHALL stay a draft until the operator has seen a
+  screenshot of the real panel (rendered over fixture data) and said yes, and
+  the pull request SHALL quote that approval.
+  *(Cites: D-21; the panel-gaps draft's standing condition (Sources).)*
 
 ## REQ-I — Safety and rollout
 
@@ -428,6 +522,16 @@ launch and bookkeeping change.
   specified in full; slices two to four are outlined with task stubs, each
   gated on its own design walk. Three questions are open for kickoff
   (D-16, D-17, D-18) with their recommended defaults drafted.
+- 2026-11-16 — Kickoff walk. Settled by the operator: the language (shell now,
+  swap later, D-16); cross-spec edges (same root, hard, fail closed) and the
+  refused-push rename with its limits (D-17, REQ-G1.7); the main-versus-side
+  hold with an hour's lapse (D-18); every class ships in shadow with the hub
+  reading the log and the operator gating on its one-line summary, `release-run`
+  included (REQ-C1.6, REQ-C1.3); and tests, lint, step-record writes and
+  bounded CI waits join slice one (REQ-C1.11, D-19). Folded in as inputs:
+  Amendment 19's spec roots (REQ-F1.7 to REQ-F1.9, D-20) into the queue, and
+  Amendment 18's panel gaps (REQ-H1.6 to REQ-H1.9, D-21) into the last slice;
+  both mission-control drafts are marked superseded at sign-off.
 
 ## Sources
 
@@ -508,6 +612,27 @@ launch and bookkeeping change.
 - **The mission-control and universal-binary specs** — the layer this spec
   moves into code, and the verdict draft (pull request 1063, pending) that
   recommends Go for the library tier, recorded as the open question D-16.
+- **The spec-roots draft (Amendment 19)** — local branch
+  `planwright/mission-control/amend-spec-roots`, commit 7d457290: a program's
+  per-repository spec roots (its REQ-T1.1 to REQ-T1.5, D-100 to D-103, Tasks 130
+  to 132). Folded by the operator's ruling (2026-11-16) into the queue part as
+  REQ-F1.7 to REQ-F1.9 and D-20; the mission-control draft is superseded at
+  sign-off.
+- **The panel-gaps draft (Amendment 18)** — local branch
+  `planwright/mission-control/amend-panel-gaps`, commit f88cd454: the panel
+  shows what the operator feels is missing (its REQ-S1.1 to REQ-S1.10, D-85 to
+  D-89, Tasks 105 to 112, six gaps deferred). Folded by the operator's ruling
+  (2026-11-16) into the last part as REQ-H1.6 to REQ-H1.9 and D-21, with its
+  standing screenshot condition; the mission-control draft is superseded at
+  sign-off. Its deferred gaps (widget catalogue, density layouts, drill-down
+  keys, urgency-led band, proposed sections, panel-API docs) carry over as the
+  deferred items in the task list's Deferred section.
+- **The class-mode, slice-one-coverage and refused-push rulings** — the
+  operator, 2026-11-16, relayed by mission control: every class ships in
+  shadow and the hub reads the log (REQ-C1.6); tests, lint, step-record writes
+  and bounded CI waits join slice one (REQ-C1.11), on approval volume of about
+  1,100 requests and 36 waiting hours in a day, nearly all of those kinds;
+  `release-run` ships in shadow; the rename's limits (REQ-G1.7).
 - **The cross-spec dependency and main-work drafts** — the local branches
   `planwright/invariant-tasks/amend-cross-spec-edges` (commit 6e74b80c, with
   uncommitted edits in a sibling worktree) and

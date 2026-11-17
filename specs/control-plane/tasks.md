@@ -53,16 +53,18 @@ amendment only for its language (D-16); the contract is neutral.
 
 ### Task 3 — The approval engine and its classes, fixtures first
 
-- **Deliverables:** The engine verb behind the language-neutral contract (a
-  structured request on stdin, a verdict on stdout, fixed exit codes), the
-  quote-aware argument-vector matcher, the `read-only`, `own-branch-push`,
-  `automated-reviewer-reply`, `release-run` and `host-act` classes and the
+- **Deliverables:** The engine verb in shell behind the language-neutral
+  contract (a structured request on stdin, a verdict on stdout, fixed exit
+  codes), the quote-aware argument-vector matcher, the `read-only`,
+  `own-branch-push`, `automated-reviewer-reply`, `release-run`, `host-act`,
+  `test-run`, `lint-run` and `evidence-and-wait` classes (all in shadow) and the
   floor refusals, the owner check and the self-describing answer line, and the
   request-id keyed answer. The allow and near-miss fixtures for every class,
   written before the rule they test, and the drift check against the worker
   command guard's read-only set. Registration of the engine in the guard
   catalog.
-- **Done when:** every class's allow fixtures return allow and every near-miss
+- **Done when:** a test or lint command naming a path outside the worktree and
+  a CI wait with no bound each return defer; every class's allow fixtures return allow and every near-miss
   fixture returns defer or deny as recorded; every floor act returns deny with
   a message naming its entry; every input with a substitution, an unreadable
   construct, an unknown policy format or a missing request id defers; an answer
@@ -73,8 +75,8 @@ amendment only for its language (D-16); the contract is neutral.
   subprocess construction, path handling and authorization is recorded; the
   suite runs in CI.
 - **Dependencies:** Task 2
-- **Citations:** D-4, D-5, D-7 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4,
-  REQ-C1.5, REQ-C1.7, REQ-C1.10, REQ-I1.1, REQ-I1.3
+- **Citations:** D-4, D-5, D-7, D-16, D-19 · REQ-C1.1, REQ-C1.2, REQ-C1.3,
+  REQ-C1.4, REQ-C1.5, REQ-C1.7, REQ-C1.10, REQ-C1.11, REQ-I1.1, REQ-I1.3
 - **Estimated effort:** 4 days
 
 ### Task 4 — Wire the engine at the event source, in shadow, with the decision log
@@ -84,8 +86,9 @@ amendment only for its language (D-16); the contract is neutral.
   answer channel with its owner check; a defer raising the event as today;
   the per-class mode (off, shadow, enforce) honored; the redacted decision log
   with the policy digest; the denial counts by floor entry and class; the
-  shadow-versus-actual comparison report the operator reads before enforcing a
-  class; the token-shape scan of the log.
+  shadow-versus-actual comparison report the hub reads, and the one-line
+  evidence summary per class it brings the operator as the gate for enforcing
+  that class; the token-shape scan of the log.
 - **Done when:** in shadow no answer is sent and the log records the engine's
   verdict beside the actual answer; in enforce an allowed prompt is answered
   with no event raised, a deferred one raises the event unchanged, and a floor
@@ -195,12 +198,14 @@ amendment only for its language (D-16); the contract is neutral.
 - **Deliverables:** The level-triggered loop with the sync verb that refuses a
   diff beyond the pull request's own files, the start, cancel and
   no-double-run verbs, the macOS-on-draft run, the ready flip under policy once
-  every check has finished, and worker retirement on landing.
+  every check has finished, worker retirement on landing, and the refused-push
+  rename with its limits.
 - **Done when:** each verb is idempotent over a repeated or interrupted pass on
-  fixtures; a sync that would sweep in unrelated files is refused; to be
-  tightened by the walk.
+  fixtures; a sync that would sweep in unrelated files is refused; a refused
+  push renames once to the exact name it names when that branch is absent and
+  never with force, to a protected branch or twice; to be tightened by the walk.
 - **Dependencies:** Task 11
-- **Citations:** D-12 · REQ-G1.1
+- **Citations:** D-12, D-17 · REQ-G1.1, REQ-G1.7
 - **Estimated effort:** 5 days
 
 ### Task 13 — Evidence recorded by machines (stub; after Task 11)
@@ -302,13 +307,90 @@ amendment only for its language (D-16); the contract is neutral.
 - **Citations:** D-2 · REQ-A1.4, REQ-H1.5
 - **Estimated effort:** 3 days
 
+### Task 21 — A program reads each repository's own spec root (stub; after Task 6)
+
+- **Deliverables:** The program reader verb returning each listed repository
+  with its resolved root, the root field optional (set wins, old configurations
+  byte-identical), per-repository posture, the validation finding for a refused
+  or missing root, the ambiguity refusal naming both roots, and the options
+  rows. Tests of each.
+- **Done when:** a program with the root set reads byte-identically to before;
+  an unset one resolves each repository's own root; an ambiguous spec name is
+  refused naming both roots; a refused root is flagged naming the repository;
+  to be tightened by the walk.
+- **Dependencies:** Task 6
+- **Citations:** D-20 · REQ-F1.7, REQ-F1.8
+- **Estimated effort:** 1.5 days
+
+### Task 22 — The readers take the verb and a check closes the seam (stub; after Task 21)
+
+- **Deliverables:** The queue, the readiness check and the deadline scan moved
+  onto the verb; the repository-scoped check that fails on a direct read of the
+  program's root field; the skill prose and docs; a test that the resolver and
+  the work-repository registry are untouched and no root registry is written.
+- **Done when:** a three-repository program scans each repository from its own
+  root; the check goes red on a seeded direct read; to be tightened by the walk.
+- **Dependencies:** Task 21, Task 7
+- **Citations:** D-20 · REQ-F1.8, REQ-F1.9
+- **Estimated effort:** 1.5 days
+
+### Task 23 — Panel: titles, all work in motion and current steps (stub; after Task 16)
+
+- **Deliverables:** The panel naming every item by title with no identifiers,
+  the in-flight section read from the queue (grouped, with state, why waiting
+  and age, items needing the operator first), the step hook and fixed step
+  vocabulary, the merge command moved into the opened detail. A screenshot of
+  the real panel over fixture data for the operator.
+- **Done when:** fixtures show no identifier in any row; a waiting item says
+  why; a step older than its state is not shown; the screenshot is shown and
+  the operator's yes recorded before the pull request leaves draft; to be
+  tightened by the walk.
+- **Dependencies:** Task 17
+- **Citations:** D-21 · REQ-H1.6, REQ-H1.9
+- **Estimated effort:** 4 days
+
+### Task 24 — Panel: instruments, usage, spend and progress (stub; after Task 16)
+
+- **Deliverables:** The instrument row, the usage fuel bar with reset time,
+  dollar spend and the optional monthly budget, spec progress and
+  pull-request pipeline counts from aged snapshots off the redraw path, and the
+  screenshot for the operator.
+- **Done when:** an unreadable reading draws unknown; a redraw never waits on a
+  refresh; the screenshot is shown and the operator's yes recorded before the
+  pull request leaves draft; to be tightened by the walk.
+- **Dependencies:** Task 23
+- **Citations:** D-21 · REQ-H1.7, REQ-H1.9
+- **Estimated effort:** 5 days
+
+### Task 25 — Panel: accessibility and the CI type check (stub; after Task 16)
+
+- **Deliverables:** A symbol and a word for every state, no colour under
+  `NO_COLOR` or the colour knob, a colour-blind-safe palette, the plain mode
+  knob, and the panel mod's type check in CI with a seeded error it must fail
+  on.
+- **Done when:** the fixtures pass over every section; the type check goes red
+  on the seeded error; the screenshot is shown and the operator's yes recorded
+  before the pull request leaves draft; to be tightened by the walk.
+- **Dependencies:** Task 24
+- **Citations:** D-21 · REQ-H1.8, REQ-H1.9
+- **Estimated effort:** 2 days
+
 ## Awaiting input
 
 (none yet)
 
 ## Deferred
 
-(none yet)
+- **Panel gaps not folded now.** A widget catalogue with per-operator on, off
+  and order; density by guidance level and width layouts; drill-down keys on
+  every section; the band leading by urgency; proposed sections (burn-rate
+  sparkline, release, recent activity, other programs, observations backlog,
+  presence); docs on what the panel API cannot draw. Deferred because: no
+  operator has asked, each reshapes sections that do not yet exist, and
+  they land as widgets once the panel tasks have. Confidence: medium.
+  **Gate:** surfaced free-text condition — the operator asks to hide, reorder
+  or resize a panel section, or Tasks 23 to 25 have landed.
+  Citations: D-21.
 
 ## Out of scope
 

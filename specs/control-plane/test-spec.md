@@ -111,6 +111,10 @@ The stall-watcher fixture: an allowed prompt raises no event; a deferred one rai
 
 The drift check fails on a command one classification admits and the other refuses without a recorded reason.
 
+### REQ-C1.11 — test, lint and evidence-and-wait classes [test]
+
+Fixtures: a single test run and a lint check inside the worktree allow in shadow and record the would-have answer; a command naming a path outside the worktree, a full-suite chain, a lint run that rewrites files and a CI wait with no bound each defer. Run by the CI suite; each class has near-miss fixtures (REQ-C1.7).
+
 ## REQ-D — Event dedupe at the source
 
 ### REQ-D1.1 — one gate at the append point [test]
@@ -173,6 +177,18 @@ Outlined: a configured hook runs on its transition only.
 
 Outlined: a unit is not done until its confirmed check passes.
 
+### REQ-F1.7 — a program's per-repository roots [test]
+
+Outlined: a program with the root set reads byte-identically to before; with it unset each repository's own resolved root is read; the set value wins when both apply.
+
+### REQ-F1.8 — ambiguity refusal and root validation [test]
+
+Outlined: a spec name under two roots is refused naming both; a refused or missing root is flagged naming the repository and the resolver's reason.
+
+### REQ-F1.9 — one reader verb, no new registry [test]
+
+Outlined: the check goes red on a seeded direct read of the root field; the resolver and registry sources are unchanged and no root registry file is written.
+
 ## REQ-G — The reconciler (outlined)
 
 ### REQ-G1.1 — the reconciler loop [test]
@@ -199,6 +215,10 @@ Outlined: with the operator merging, no merge; the release label advances after 
 
 Outlined: a hung step is stopped; a handover is triggered by a reading; a live session is adopted.
 
+### REQ-G1.7 — refused-push rename within limits [test]
+
+Outlined: a refusal naming an absent branch renames and retries once through the helper; a refusal naming an existing, protected or shared branch, a second refusal, and any force spelling do not rename and stop with the exact text.
+
 ## REQ-H — Briefs from state and a thin hub (outlined)
 
 ### REQ-H1.1 — launch from a row with a generated brief [test]
@@ -220,6 +240,22 @@ Outlined: a wake class resolves its tier from policy; a size hint resolves the e
 ### REQ-H1.5 — rules say how enforced [test]
 
 Outlined: the doctor lists prose-only rules; the platform class validates.
+
+### REQ-H1.6 — titles, work in motion and current step [test]
+
+Outlined: no row carries an identifier, hash, branch or path; a waiting item says why; an overflow keeps operator-needed items first; a step older than its state is not shown and raw command text never reaches the step.
+
+### REQ-H1.7 — instruments, usage, spend and progress [test]
+
+Outlined: an unreadable reading draws unknown; spend shows with no budget and adds share and rate with one; a redraw does not wait on a snapshot refresh; a stale snapshot shows its age.
+
+### REQ-H1.8 — accessibility and the type check [test]
+
+Outlined: every state has a symbol and word; no colour under `NO_COLOR`; plain mode shows words only; the type check fails on a seeded error.
+
+### REQ-H1.9 — screenshot before leaving draft [manual]
+
+The operator sees a screenshot of the real panel over fixture data and says yes; the pull request quotes it. Swept by the operator at each panel pull request.
 
 ## REQ-I — Safety and rollout
 
