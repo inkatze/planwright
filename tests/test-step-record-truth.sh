@@ -82,11 +82,32 @@ refuses_full() {
 # Shapes the hub denied by hand.
 refuses_full "an in-session skill recorded with an adopter backend" hosting-backend --backend \
   --hosting in-session --backend adopter --head "$H1" --end-head "$H1" --start "$START" --end "$END" --outcome passed
+refuses_full "an in-session skill with a backend, whatever --degraded says" hosting-backend --backend \
+  --hosting in-session --backend adopter --degraded 'the adopter backend cannot spawn' \
+  --head "$H1" --end-head "$H1" --start "$START" --end "$END" --outcome passed
+path=$(sr write --run "$run" --point pre-implementation --step polish --kind skill --target polish \
+  --hosting in-session --backend in-session --degraded 'the adopter backend cannot spawn' \
+  --head "$H1" --end-head "$H1" --start "$START" --end "$END" --outcome passed) && [ -f "$path" ]
+verdict "a degraded in-session step recorded with backend in-session is stored" "the degraded in-session record was refused"
 refuses_full "a window of seconds on a skill that passed" window-floor --start \
   --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
   --start 2026-11-01T10:03:17Z --end 2026-11-01T10:03:21Z --outcome passed
-refuses_full "a start that is the clock at writing" start-from-clock --start \
-  --kind prompt --hosting in-session --backend in-session --head "$H1" --end-head "$H1" --start "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --outcome passed
+# The test reads the clock before write does; on a loaded host more than the
+# tolerance can pass between the two reads, so a miss is retried.
+seen=0
+for i in 1 2 3; do
+  before=$(records)
+  err=$(wr --step "clocknow$i" --kind prompt --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+    --start "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --outcome passed 2>&1 >/dev/null)
+  rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -q -- --start \
+    && printf '%s' "$err" | grep -q "step-record truth check, rule start-from-clock: [a-z-]" && [ "$before" = "$(records)" ]; then
+    seen=1
+    break
+  fi
+done
+[ "$seen" -eq 1 ]
+verdict "the truth check refuses a start that is the clock at writing" "a start that is the clock at writing: rc=$rc err=$err"
 refuses_full "a window of whole minutes" window-round-minutes --start \
   --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
   --start 2026-11-01T10:03:17Z --end 2026-11-01T10:08:17Z --outcome passed
@@ -137,6 +158,10 @@ err=$(sr write --run "$run" --point pre-ci --step polish --kind skill --target p
   --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
   --start 2026-11-01T10:03:17Z --end "$END" --start-source "commit:$H2" --outcome passed 2>&1 >/dev/null)
 if [ $? -eq 2 ] && printf '%s' "$err" | grep -q -- '--start-source'; then ok "a commit source whose time is not --start is refused"; else fail "a mismatched commit source passed: $err"; fi
+err=$(sr write --run "$run" --point pre-ci --step polish --kind skill --target polish \
+  --hosting in-session --backend in-session --head "$H1" --end-head "$H1" \
+  --start "$CT_TS" --end "$SRC_END" --start-source "commit:0000000000000000000000000000000000000000" --outcome passed 2>&1 >/dev/null)
+if [ $? -eq 2 ] && printf '%s' "$err" | grep -q -- '--start-source: names no commit'; then ok "a full commit id the repository lacks is refused as a source"; else fail "an unresolvable commit source passed: $err"; fi
 
 # A start a whole number of minutes before the clock (inside the hour) is
 # refused; the clock is read by write itself, so a second ticking between this
@@ -145,7 +170,12 @@ seen=0
 for i in 1 2 3 4 5; do
   nowe=$(date -u +%s)
   recent=$(date -u -d "@$((nowe - 600))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$((nowe - 600))" +%Y-%m-%dT%H:%M:%SZ)
-  case $recent in *:00Z) continue ;; esac
+  # A :00 start trips another rule first; wait out the second.
+  case $recent in *:00Z)
+    sleep 1
+    continue
+    ;;
+  esac
   err=$(sr write --run "$run" --point "pre-pr" --step "clockmin$i" --kind prompt --target x \
     --hosting in-session --backend in-session --head "$H1" --end-head "$H1" --start "$recent" --outcome passed 2>&1 >/dev/null)
   if printf '%s' "$err" | grep -q "rule start-round-minutes"; then

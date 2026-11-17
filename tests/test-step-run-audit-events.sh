@@ -161,6 +161,8 @@ awk -F '\t' 'BEGIN { OFS = FS } $1 == "outcome" { $2 = "passed" } { print }' "$f
 audit --through convergence --head "$(head_of)"
 [ "$RC" -eq 1 ] && faulted convergence "head moved"
 verdict $? "the audit faults a polish record that says passed on a moved head" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+grep -q "^gap${TAB}convergence${TAB}unaudited${TAB}polish$" "$tmp/audit"
+verdict $? "and the step-record truth check leaves the same step unaudited beside the fault" "$(cat "$tmp/audit")"
 
 # --- 4: write refuses an end later than the clock ------------------------------
 fresh
