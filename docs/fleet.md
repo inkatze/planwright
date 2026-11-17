@@ -884,8 +884,8 @@ The same watch lists every stream-json supervisor or `claude -p` worker on
 the machine that nothing can reach any more (`scripts/mc-stall.sh orphans`):
 a supervisor whose state directory is gone or records another supervisor,
 or whose working directory is gone, as a test suite killed before its
-cleanup leaves one, and a worker with no supervisor. One listed on two
-passes in a row is raised once for the machine as a
+cleanup leaves one, and a worker with no supervisor. One listed for a
+minute is raised once for the machine as a
 `stream-json-worker-orphaned` event, routed as the unowned one is. Nothing
 signals it: the event says how to check it and stop it by hand.
 A pending-age setting the sweeps cannot read

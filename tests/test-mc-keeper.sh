@@ -339,7 +339,7 @@ rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/
 
 # A stream-json supervisor a killed suite left behind, its state directory
 # and working directory removed with the suite's scratch tree, is raised once
-# two passes in a row have seen it, under one program only, and never
+# it has been listed for a minute, under one program only, and never
 # signalled. The stand-in ends itself once this suite is gone.
 mkdir -p "$tmp/orphan-fx/scripts" "$tmp/orphan-fx/gone/state" "$tmp/orphan-fx/gone/cwd"
 cat >"$tmp/orphan-fx/scripts/fleet-streamjson.sh" <<'EOF'
@@ -353,6 +353,8 @@ sleep 0.3
 rm -rf "$tmp/orphan-fx/gone"
 keeper_as alpha 5300
 expect_no_out "an orphan one pass has seen is not raised yet" "mc-alpha-tower-orphaned"
+keeper_as beta 5330
+expect_no_out "nor by another program's keeper a moment later, before it has settled" "mc-alpha-tower-orphaned"
 keeper_as alpha 5360
 expect_out "an orphan the next pass sees too is raised" "announced${tab}stream-json-worker-orphaned${tab}mc-alpha-tower-orphaned"
 keeper_as beta 5420
