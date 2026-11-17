@@ -1400,8 +1400,9 @@ ci_has() {
 # gh_jq_ok: 0 unless a jq filter or Go template (`--jq`, `-q`, `--template`,
 # `-t`) mentions `env`: gojq's `env` and `$ENV` print the session's
 # environment, tokens included, through any read verb that takes the flag. A
-# short bundle ending in q or t takes the next word; a later letter is the
-# value itself.
+# short word holding q or t is screened whole, since an attached value can
+# itself end in q or t (`-qenv|test`); one ending in q or t may also hand its
+# value to the next word, so that word is screened too.
 gh_jq_ok() {
   local i jqv=0
   for ((i = 2; i < cwn; i++)); do
@@ -1412,8 +1413,12 @@ gh_jq_ok() {
     case ${cw[i]} in
       --jq | --template) jqv=1 ;;
       --jq=* | --template=*) ci_has "${cw[i]}" '*env*' && return 1 ;;
-      -[qt] | -[!-]*[qt]) jqv=1 ;;
-      -[qt]* | -[!-]*[qt]*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+      -[qt]* | -[!-]*[qt]*)
+        ci_has "${cw[i]}" '*env*' && return 1
+        case ${cw[i]} in
+          *[qt]) jqv=1 ;;
+        esac
+        ;;
     esac
   done
   return 0
