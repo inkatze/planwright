@@ -1820,7 +1820,11 @@ kick_filter_set() {
     [ "${#SEG_S[@]}" = 1 ] && return 1
     return 0
   fi
-  [ -n "$(gitq "$1" config --get-regexp '^filter\..*\.(clean|smudge|process)$')" ]
+  # Exit 1 is no match; a configuration git cannot read proves nothing.
+  local out rc=0
+  out=$(gitq "$1" config --get-regexp '^filter\..*\.(clean|smudge|process)$') || rc=$?
+  [ "$rc" -le 1 ] || return 0
+  [ -n "$out" ]
 }
 
 # kickoff_git_reads — 0 when the segment is a git read or stage of its

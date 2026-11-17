@@ -973,6 +973,18 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
     expect deny "[$tier, task-1] a filter the guard cannot rule out could run on the file: $cmd"
   done
 done
+# A configuration the guard cannot read is no proof that no filter is set.
+BADD="$SANDBOX/badconfig"
+clone_on "$BADD" planwright/demo/task-1 1
+gitq -C "$BADD" config filter.y.clean sh
+printf '[core\n' >>"$BADD/.git/config"
+for cmd in "git -C $BADD add scripts/kickoff-spec-push.sh" \
+  "git -C $BADD status scripts/kickoff-spec-push.sh"; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
+    expect deny "[$tier, task-1] an unreadable configuration counts as a filter set: $cmd"
+  done
+done
 PAGD="$SANDBOX/pager"
 clone_on "$PAGD" planwright/demo/task-1 1
 gitq -C "$PAGD" config core.pager sh
