@@ -46,7 +46,7 @@ Usage:
   mc-stall.sh scan --program <p> [--now <epoch>]
       classify every launched session the program's registry rows name.
   mc-stall.sh orphans
-      list every stream-json process on this machine that nothing can
+      list every stream-json process of this user's that nothing can
       reach any more, whatever fleet home or program started it. Read-only:
       it never signals one, and stopping one is the operator's call.
 
@@ -124,10 +124,12 @@ Output, one line per session, tab separated:
 An orphan is a fleet-streamjson.sh supervisor (its `_supervise <worker>
 <dir>` argv) whose state directory is gone, whose state directory records
 another supervisor, or whose working directory is gone; or a stream-json
-`claude -p` naming its worker (`--name`) whose parent is no supervisor. Such
-a worker's row also says whether the fleet home holds a record of it and
-whether its working directory is gone. A supervised worker is named in its
-supervisor's row instead. A directory that records no supervisor yet
+`claude -p` naming its worker (`--name`) whose parent is no fleet-streamjson.sh
+launch, recover, relaunch or supervisor. Such a worker's row also says whether
+the fleet home holds a record of it and whether its working directory is gone.
+A supervised worker is named in its supervisor's row instead, and a process
+with the supervisor's argv whose parent is that supervisor is one of its own
+forks, never listed. A directory that records no supervisor yet
 belongs to one starting or exiting, so that alone lists nothing. orphans
 prints, tab separated:
   orphan <pid> <start> <supervisor|claude> <worker> <reason>
@@ -652,7 +654,7 @@ proc_cwd() {
 # stream_json_procs: this user's candidates from the process table, one per
 # line, tab separated: `S <pid> <start> <worker> <dir> <worker pids>` for a
 # supervisor, `C <pid> <start> <worker> <ppid>` for a stream-json worker no
-# fleet-streamjson.sh process parents. A supervisor's own forks keep its
+# fleet-streamjson.sh launch, recover, relaunch or supervisor parents. A supervisor's own forks keep its
 # `_supervise` argv for a moment (a subshell, the worker before its exec), so
 # a candidate whose parent is a supervisor is that supervisor's, never its
 # own row; and `launch --foreground` supervises from the launch process.
@@ -665,7 +667,7 @@ stream_json_procs() {
     NF >= 8 {
       pid = $1; ppid = $2; start = $3 "-" $4 "-" $5 "-" $6 "-" $7
       parent[pid] = ppid
-      for (i = 8; i <= NF; i++) if (base($i) == "fleet-streamjson.sh") { fsj[pid] = 1; break }
+      for (i = 8; i < NF; i++) if (base($i) == "fleet-streamjson.sh" && $(i + 1) ~ /^(launch|recover|relaunch|_supervise)$/) { fsj[pid] = 1; break }
       for (i = 8; i < NF; i++) {
         if (base($i) == "fleet-streamjson.sh" && $(i + 1) == "_supervise" && i + 3 <= NF) {
           sup[pid] = start "\t" $(i + 2) "\t" $(i + 3); order[++n] = pid

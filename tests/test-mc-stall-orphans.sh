@@ -47,7 +47,7 @@ mkdir -p "$fx/scripts" "$fx/bin"
 cat >"$fx/scripts/fleet-streamjson.sh" <<'EOF'
 #!/bin/sh
 case $1 in
-  _supervise | launch)
+  _supervise | launch | status)
     [ -z "${FIXTURE_FORK:-}" ] || FIXTURE_FORK='' /bin/sh "$0" _supervise "$2" "$3" "$4" &
     shift 4
     ;;
@@ -138,6 +138,12 @@ live_fork=$(ps -A -o pid= -o ppid= -o args= | awk -v p="$live_sup" '$2 == p && /
 fg_launch=$!
 started="$started $fg_launch"
 fg_worker=$(child_of "$fg_launch") || fail "the foreground launch started no worker"
+# A worker under a process that only names the launcher supervises nothing.
+(cd "$tmp/live-cwd" && exec /bin/sh "$fx/scripts/fleet-streamjson.sh" status mc-alpha-worker-st st-scope -- \
+  "$fx/bin/claude" -p --input-format stream-json --output-format stream-json --name mc-alpha-worker-st) &
+st_parent=$!
+started="$started $st_parent"
+st_worker=$(child_of "$st_parent") || fail "the status stand-in started no worker"
 # A second supervisor over a directory that records another one.
 dup_dir="$fleet/streamjson/mc-alpha-worker-dup"
 mkdir -p "$dup_dir"
@@ -180,6 +186,10 @@ unlisted "$live_worker" "a supervised worker of a healthy pair is not listed"
 unlisted "$live_fork" "a supervisor's fork that keeps its argv is not listed"
 unlisted "$fg_worker" "a worker a foreground launch supervises is not listed"
 unlisted "$plain" "a claude -p that is no stream-json worker is not listed"
+case $(orphan_row "$st_worker") in
+  *"${tab}claude${tab}mc-alpha-worker-st${tab}"*"no supervisor"*) ok "a worker whose parent only names the launcher is listed" ;;
+  *) fail "the worker $st_worker under a non-launching parent is not listed: $OUT" ;;
+esac
 case $(orphan_row "$known") in
   *"no supervisor"*"no fleet record"*) fail "a worker the fleet home records was said to have no record" ;;
   *"${tab}claude${tab}mc-alpha-worker-known${tab}"*"no supervisor"*) ok "a worker with no supervisor is listed, its fleet record noted" ;;
