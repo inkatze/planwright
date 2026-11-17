@@ -1612,6 +1612,8 @@ tower_floor() {
 # later one runs; every segment is checked against the state as it is now, so
 # a reserved act after such a change cannot be checked and is refused.
 ST_CFG=0
+# A git config write that may set a filter program or an include.
+ST_FILT=0
 ST_REF=0
 ST_FETCH=0
 ST_FETCHSPEC=0
@@ -1805,16 +1807,40 @@ kick_cfg_has() {
   [ -n "$(gitq "$KICK_DIR" config --get-regexp "$2")" ]
 }
 
-# kickoff_git_reads — 0 when the segment is a git read or stage of its
-# arguments: no option but -C before the subcommand (a -c could set a pager or
-# helper to the script), and a subcommand that does not run its arguments.
+# kick_filter_set <dir> <dir-ok> <segment> — 0 when a filter program
+# (filter.<driver>.clean, smudge or process) may run in <dir>: one is
+# configured, a git config earlier in the same command may have set one, or
+# the directory cannot be placed. A directory missing when no segment runs
+# before this one runs nothing, since git stops on it; after another segment it
+# may have been made, with any configuration.
+kick_filter_set() {
+  [ "$ST_FILT" = 0 ] && [ "$2" = 1 ] || return 0
+  if [ ! -d "$1" ]; then
+    [ "$3" = 0 ] && return 1
+    return 0
+  fi
+  [ -n "$(gitq "$1" config --get-regexp '^filter\..*\.(clean|smudge|process)$')" ]
+}
+
+# kickoff_git_reads <segment> — 0 when the segment is a git read or stage of
+# its arguments: no option but -C before the subcommand (a -c could set a pager
+# or helper to the script), and a subcommand that does not run its arguments.
 kickoff_git_reads() {
-  local k=1 j moved=0 noext=0 notext=0 patchy=0 colon=0
+  local k=1 j w moved=0 noext=0 notext=0 patchy=0 colon=0 filt=0 fdir=$KICK_DIR fok=$KICK_DIR_OK
   while [ "$k" -lt "${#SW[@]}" ]; do
     case ${SW[$k]} in
       -C)
         moved=1
-        k=$((k + 2))
+        k=$((k + 1))
+        if [ "${SWL[$k]:-0}" != 1 ]; then
+          fok=0
+        else
+          case ${SW[$k]} in
+            /*) fdir=${SW[$k]} ;;
+            *) fdir="$fdir/${SW[$k]}" ;;
+          esac
+        fi
+        k=$((k + 1))
         ;;
       -*) return 1 ;;
       add | diff | show | log | status | blame | annotate | ls-files | ls-tree | grep | rm | restore | commit | \
@@ -1831,6 +1857,9 @@ kickoff_git_reads() {
             --no-ext-diff) noext=1 ;;
             --no-textconv) notext=1 ;;
             --patch* | --cc | --stat* | --numstat | --shortstat | --word-diff*) patchy=1 ;;
+            # git cat-file --filters (in any abbreviation) runs a configured
+            # filter program on the blob it prints.
+            --fi*) [ "${SW[$k]}" != cat-file ] || return 1 ;;
             --*) ;;
             -*O*) return 1 ;;
             -*[pucGS]*) patchy=1 ;;
@@ -1861,6 +1890,21 @@ kickoff_git_reads() {
             fi
             ;;
         esac
+        # A filter program (filter.<driver>.clean, smudge or process) runs on
+        # the file's content when one of these stages, restores, compares,
+        # removes or blames it, and git ls-files runs it to find modified
+        # files. .gitattributes is not read: an attribute can come from a file
+        # the guard does not read, or be written earlier in the same command,
+        # so any configured filter counts.
+        case ${SW[$k]} in
+          add | status | diff | restore | rm | commit | blame | annotate) filt=1 ;;
+          ls-files)
+            for w in "${SW[@]:$((k + 1))}"; do
+              case $w in --) break ;; --mo*) filt=1 ;; --*) ;; -*m*) filt=1 ;; esac
+            done
+            ;;
+        esac
+        [ "$filt" = 0 ] || ! kick_filter_set "$fdir" "$fok" "$1" || return 1
         return 0
         ;;
       *) return 1 ;;
@@ -1935,7 +1979,7 @@ kickoff_cmd_reads() {
   case $KV in
     reader) kickoff_args_safe || return 1 ;;
     text) ;;
-    git) kickoff_git_reads || return 1 ;;
+    git) kickoff_git_reads "$1" || return 1 ;;
     *) return 1 ;;
   esac
   for w in "${SW[@]}"; do
@@ -3730,7 +3774,20 @@ git_state_after() {
     esac
   done
   case $1 in
-    config) [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1 ;;
+    config)
+      [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1
+      if [ "$ro" = 0 ] && [ "$pos" -ge 2 ]; then
+        # A filter section (renamed into place) or a program key, an include
+        # that may carry one, or a word the guard cannot read.
+        for a in "${SW[@]:$2}"; do
+          lc "$a"
+          case $LC in
+            filter.*.clean | filter.*.smudge | filter.*.process | include* | *'$'* | *'`'*) ST_FILT=1 ;;
+            filter.*) [[ ${LC#filter.} == *.* ]] || ST_FILT=1 ;;
+          esac
+        done
+      fi
+      ;;
     # A remote's own name or URL may be a read word, so only the subcommand
     # decides.
     remote)
