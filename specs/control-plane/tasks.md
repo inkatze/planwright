@@ -9,8 +9,12 @@ Tasks 1 to 5 are slice one, specified in full. Each later slice opens with a
 design walk task (a human-gated amendment of this bundle); its build tasks are
 stubs until that walk turns the outline into full requirements, and a stub's
 fields are a starting point the walk may rewrite. Every policy task starts with
-its failing fixtures (REQ-I1.1). Slice one waits on the universal-binary
-amendment only for its language (D-16); the contract is neutral.
+its failing fixtures (REQ-I1.1). Slice one is written in shell behind a neutral
+contract (D-16), so nothing waits on the language decision. A stub is not
+dispatchable until its slice's walk task rewrites its Done-when; the walk
+tasks' dependency edges make that mechanical. REQ-A1.1 to REQ-A1.3, REQ-A1.6
+and REQ-E1.3 hold across every task and are checked where Tasks 2, 3 and 5
+name them.
 
 ## Tasks
 
@@ -26,7 +30,7 @@ amendment only for its language (D-16); the contract is neutral.
   machine-local location; a check fails if a committed file holds a recorded
   figure; the method document names the metric per slice.
 - **Dependencies:** none
-- **Citations:** D-9 · REQ-E1.1, REQ-E1.2
+- **Citations:** D-9, D-15 · REQ-E1.1, REQ-E1.2, REQ-E1.3
 - **Estimated effort:** 1 day
 
 ### Task 2 — Policy data: schemas, shipped catalogs, floor and the kill switch
@@ -36,19 +40,28 @@ amendment only for its language (D-16); the contract is neutral.
   horizons and windows, and the merge-mode reach; the schema check wired into
   CI and at load; the layering through the catalog and configuration
   resolvers; the `explain` verb; the kill-switch setting; the options-reference
-  rows. The near-miss fixture directories (empty of rules, each class
-  declared) and the check that fails when a class has none.
+  rows. The near-miss fixtures for each class and the check that fails when a
+  class has none (the fixtures ship here, the rules that satisfy them in Task
+  3). A `doctrine/` document stating the three-layer line, the one-home rule
+  and the asymmetric-failure rule, registered in the doctrine index, and the
+  scans for a policy literal in code and a machine-specific value in a catalog
+  or fixture.
 - **Done when:** an entry failing its schema is dropped while the lower layers
-  stay in force, and a class-bounding failure makes the class refuse
-  everything (both shown by fixture); a layer entry allowing a floor act fails
+  stay in force, and a class-bounding failure makes the class defer
+  everything (both shown by fixture); a planted policy literal and a planted
+  machine path each fail their scan; a changed policy value changes the
+  digest; a machine-local `enforce` or merge-mode value is ignored and
+  reported; the doctrine document is indexed and a check proves it and the
+  mechanism name the same layers; a layer entry allowing a floor act fails
   the check by name; `explain` names the supplying layer for a fixture
   verdict; with the kill switch set every verb defers; the near-miss check
   fails against a class declared with no near-miss fixture and passes once one
   exists; the merge-mode reach value takes effect only from the shipped and
   adopter layers (a machine-local value is ignored and reported).
 - **Dependencies:** none
-- **Citations:** D-3, D-7, D-10, D-14 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4,
-  REQ-B1.6, REQ-B1.7, REQ-C1.7, REQ-I1.2
+- **Citations:** D-1, D-3, D-7, D-10, D-14 · REQ-A1.1, REQ-A1.4, REQ-B1.1,
+  REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.6, REQ-B1.7 (layer restriction only;
+  merge eligibility is Task 15), REQ-C1.7, REQ-I1.2
 - **Estimated effort:** 2 days
 
 ### Task 3 — The approval engine and its classes, fixtures first
@@ -63,20 +76,27 @@ amendment only for its language (D-16); the contract is neutral.
   written before the rule they test, and the drift check against the worker
   command guard's read-only set. Registration of the engine in the guard
   catalog.
-- **Done when:** a test or lint command naming a path outside the worktree and
-  a CI wait with no bound each return defer; every class's allow fixtures return allow and every near-miss
+- **Done when:** a test or lint command naming a path outside the worktree, a
+  full suite, a rewriting lint and a CI wait with no bound each return defer;
+  every class's allow fixtures return allow and every near-miss
   fixture returns defer or deny as recorded; every floor act returns deny with
-  a message naming its entry; every input with a substitution, an unreadable
-  construct, an unknown policy format or a missing request id defers; an answer
+  a message naming its entry and a bare deny is never emitted; every input with
+  a substitution, an unreadable construct, an unknown policy format, a request
+  built from pane text or a missing request id defers; the engine opens no
+  network socket and the engine, gate and dispatcher import no model client; no
+  verb invokes a merge or sign-off helper outside the merge mode; an answer
   for a worker the caller's program does not own is refused and changes
-  nothing; the near-miss check has been shown to fail against a deliberately
+  nothing, and an answer for a request no longer pending changes nothing and
+  the answer line names the worker, program and first command; the fixtures
+  hold no implementation-language code; the near-miss check has been shown to fail against a deliberately
   widened rule; the drift check fails on a command one classification admits
   and the other refuses; the write-time security pass for untrusted input,
   subprocess construction, path handling and authorization is recorded; the
-  suite runs in CI.
+  guard-catalog check lists the engine; the suite runs in CI.
 - **Dependencies:** Task 2
-- **Citations:** D-4, D-5, D-7, D-16, D-19 · REQ-C1.1, REQ-C1.2, REQ-C1.3,
-  REQ-C1.4, REQ-C1.5, REQ-C1.7, REQ-C1.10, REQ-C1.11, REQ-I1.1, REQ-I1.3
+- **Citations:** D-1, D-4, D-5, D-7, D-16, D-19 · REQ-A1.1, REQ-A1.2,
+  REQ-A1.3, REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.7,
+  REQ-C1.10, REQ-C1.11, REQ-I1.1, REQ-I1.3
 - **Estimated effort:** 4 days
 
 ### Task 4 — Wire the engine at the event source, in shadow, with the decision log
@@ -90,15 +110,21 @@ amendment only for its language (D-16); the contract is neutral.
   evidence summary per class it brings the operator as the gate for enforcing
   that class; the token-shape scan of the log.
 - **Done when:** in shadow no answer is sent and the log records the engine's
-  verdict beside the actual answer; in enforce an allowed prompt is answered
+  verdict beside the actual answer and its source, and an allow in shadow
+  records its would-have answer; in enforce an allowed prompt is answered
   with no event raised, a deferred one raises the event unchanged, and a floor
-  act is denied with a message; the answer-owner check has landed before this
-  wiring is enabled; the comparison report is produced from a fixture log; the
-  log scan fails on a planted token-shaped value; the kill switch returns
-  today's behavior; a fixture run counts the denials by entry.
-- **Dependencies:** Task 3
-- **Citations:** D-4, D-6, D-14 · REQ-C1.6, REQ-C1.8, REQ-C1.9, REQ-I1.2,
-  REQ-I1.4
+  act is denied with a message; the wiring refuses to enable, and says so,
+  when the answer-owner check is absent; the comparison report is produced
+  from a fixture log, and a fixture with N matches and M mismatches yields a
+  one-line summary per class carrying the counts and sample size with the
+  mismatches listed on request, and a class with no records says so; no class
+  mode moves from shadow without that summary; a log record holds its listed
+  fields and a command within its bound; the log scan fails on a planted
+  token-shaped value; the kill switch returns today's behavior and a switch
+  left on is reported; a fixture run counts the denials by entry and class.
+- **Dependencies:** Task 1, Task 3
+- **Citations:** D-4, D-6, D-14 · REQ-A1.6, REQ-C1.6, REQ-C1.8, REQ-C1.9,
+  REQ-C1.11, REQ-I1.2, REQ-I1.4
 - **Estimated effort:** 3 days
 
 ### Task 5 — The event dedupe gate and routine coalescing
@@ -113,10 +139,14 @@ amendment only for its language (D-16); the contract is neutral.
   event are each dropped and counted; the first decision, blocker, failure or
   landed event is delivered; an event whose state is unreadable is delivered;
   routine events inside one window produce one wake; the over-keen event fires
-  on a fixture that drops past the configured share; the ledger holds keys and
-  no payload; the suite runs in CI.
-- **Dependencies:** Task 2
-- **Citations:** D-8 · REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5
+  on a fixture that drops past the configured share and is itself never
+  dropped; a stale first failure event is delivered; every event writer calls
+  the gate (a check); an idle session is not woken by a timer; with the kill
+  switch set the gate delivers everything; the ledger holds keys and no
+  payload and the token-shape scan passes over it; the suite runs in CI.
+- **Dependencies:** Task 1, Task 2
+- **Citations:** D-8 · REQ-A1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4,
+  REQ-D1.5, REQ-I1.2, REQ-I1.4
 - **Estimated effort:** 3 days
 
 ### Task 6 — Slice two design walk: the queue (human-gated amendment)
@@ -124,9 +154,11 @@ amendment only for its language (D-16); the contract is neutral.
 - **Deliverables:** A walked amendment of this bundle that turns the queue
   outline into full requirements and decisions: the row schema, the lock and
   rebuild mechanics, the relation to the existing operator queue and
-  orchestration marker, the cross-spec edge read (D-17) and the main-versus-side
-  rule (D-18) settled, and the measured result of slice one recorded against
-  the baseline.
+  orchestration marker, a resource-claim field on the row (issue 343), the
+  spec-roots reader (D-20) and the settled cross-spec edge read (D-17) and
+  main-versus-side hold (D-18) turned into full requirements, and the measured
+  result of slice one recorded against the baseline (a re-run of the baseline
+  script after the shadow window).
 - **Done when:** the amendment is signed off by the operator through the
   kickoff ritual, the slice-one measured change is recorded (REQ-E1.2), and
   the slice-two build tasks are rewritten from stubs to full definitions.
@@ -140,8 +172,10 @@ amendment only for its language (D-16); the contract is neutral.
   rows written only through verbs, rebuildable from branch, pull request and
   merge evidence, with unit kinds of every sort.
 - **Done when:** a store deleted and rebuilt from fixture evidence equals the
-  original; an unknown format is refused; a hand edit is detected; to be
-  tightened by the walk.
+  original; an unknown format is refused; a hand edit is detected; a hard
+  same-root edge is read, and an edge to an unreadable or other-root spec
+  fails closed and is flagged; the token-shape scan passes over a fixture
+  store; to be tightened by the walk.
 - **Dependencies:** Task 6
 - **Citations:** D-11 · REQ-F1.1, REQ-F1.2
 - **Estimated effort:** 4 days
@@ -189,7 +223,7 @@ amendment only for its language (D-16); the contract is neutral.
   platform, which existing scripts it wraps, and the slice-two measured result.
 - **Done when:** signed off through the kickoff ritual, the slice-two measured
   change recorded, and the slice-three stubs rewritten to full definitions.
-- **Dependencies:** Task 8, Task 9, Task 10
+- **Dependencies:** Task 8, Task 9, Task 10, Task 22
 - **Citations:** D-12, D-13 · REQ-A1.5, REQ-E1.2
 - **Estimated effort:** 1 day
 
@@ -203,7 +237,8 @@ amendment only for its language (D-16); the contract is neutral.
 - **Done when:** each verb is idempotent over a repeated or interrupted pass on
   fixtures; a sync that would sweep in unrelated files is refused; a refused
   push renames once to the exact name it names when that branch is absent and
-  never with force, to a protected branch or twice; to be tightened by the walk.
+  never with force, to a protected branch or twice; the reconciler is listed in
+  the guard catalog; to be tightened by the walk.
 - **Dependencies:** Task 11
 - **Citations:** D-12, D-17 · REQ-G1.1, REQ-G1.7
 - **Estimated effort:** 5 days
@@ -251,8 +286,8 @@ amendment only for its language (D-16); the contract is neutral.
 
 - **Deliverables:** A walked amendment turning the slice-four outline into full
   requirements: the brief generation, the decision packet shape and its answer
-  record, the optional-supervisor topology, the per-wake tier policy, and the
-  slice-three measured result.
+  record, the optional-supervisor topology, the per-wake tier policy, the
+  panel requirements (D-21) and the slice-three measured result.
 - **Done when:** signed off through the kickoff ritual, the slice-three measured
   change recorded, and the slice-four stubs rewritten to full definitions.
 - **Dependencies:** Task 13, Task 14, Task 15
@@ -314,9 +349,10 @@ amendment only for its language (D-16); the contract is neutral.
   byte-identical), per-repository posture, the validation finding for a refused
   or missing root, the ambiguity refusal naming both roots, and the options
   rows. Tests of each.
-- **Done when:** a program with the root set reads byte-identically to before;
-  an unset one resolves each repository's own root; an ambiguous spec name is
-  refused naming both roots; a refused root is flagged naming the repository;
+- **Done when:** a program with the root set reads byte-identically to a
+  recorded golden output; an unset one resolves each repository's own root; an
+  ambiguous spec name is refused naming every root that holds it; a refused or
+  non-directory root is flagged naming the repository;
   to be tightened by the walk.
 - **Dependencies:** Task 6
 - **Citations:** D-20 · REQ-F1.7, REQ-F1.8
@@ -339,10 +375,13 @@ amendment only for its language (D-16); the contract is neutral.
 - **Deliverables:** The panel naming every item by title with no identifiers,
   the in-flight section read from the queue (grouped, with state, why waiting
   and age, items needing the operator first), the step hook and fixed step
-  vocabulary, the merge command moved into the opened detail. A screenshot of
-  the real panel over fixture data for the operator.
-- **Done when:** fixtures show no identifier in any row; a waiting item says
-  why; a step older than its state is not shown; the screenshot is shown and
+  vocabulary, the merge command moved into the opened detail. A script that
+  renders the real panel over fixture data to a screenshot for the operator
+  (reused by Tasks 24 and 25), and a check that a panel pull request body
+  quotes the operator's yes.
+- **Done when:** a scanner finds no identifier, hash, branch or path in any
+  fixture row, and the merge command appears only in the opened detail; a
+  waiting item says why and an overflow keeps operator-needed items first; a step older than its state is not shown; the screenshot is shown and
   the operator's yes recorded before the pull request leaves draft; to be
   tightened by the walk.
 - **Dependencies:** Task 17
@@ -377,7 +416,12 @@ amendment only for its language (D-16); the contract is neutral.
 
 ## Awaiting input
 
-(none yet)
+- **Task 4** Do the answer-owner draft and the operator-signed answer-verb
+  fixes (Sources) land before the wiring is enabled? The wiring refuses to
+  enable without the owner check.
+- **Task 7** Has the local invariant-tasks amendment (Sources) settled the
+  cross-spec edge syntax? The queue ships without cross-spec edges until it
+  has.
 
 ## Deferred
 
@@ -397,7 +441,12 @@ amendment only for its language (D-16); the contract is neutral.
 - **Merging, signing off and messaging a person by code.** Permanent: these are
   the operator's gates (REQ-A1.2); the engine's floor lists them. Citations:
   D-4; REQ-A1.2.
-- **Choosing the implementation language.** Left to the universal-binary
-  amendment; this bundle's contract is neutral. Citations: D-16; REQ-I1.3.
+- **Choosing the compiled-tier language.** Slice one is shell behind a neutral
+  contract; a later rewrite is the universal-binary amendment's decision.
+  Citations: D-16; REQ-I1.3.
+- **The window-lock design for dropped releases** (issue 380) stays with the
+  release-hardening spec. Citations: D-12.
+- **The Done concurrency spec's text amendment** (issue 88). A Done spec's
+  wording is its own amendment. Citations: D-11.
 - **The open issues the map in `design.md` names as out of scope.** Each has
   its stated reason there. Citations: D-2.

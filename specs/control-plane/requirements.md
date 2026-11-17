@@ -41,7 +41,8 @@ briefs from state with a thin hub) are specified as outlined requirements and
 design with task stubs, and each is marked for its own design walk, whose
 output amends this spec before any of its code is built. Leaf skills
 (execute-task, polish, the reviews, kickoff) stay as they are; only their
-launch and bookkeeping change.
+launch and bookkeeping change. The altitude (a layering line enforced by
+mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
 
 ## Scope
 
@@ -65,6 +66,10 @@ launch and bookkeeping change.
 - Folding in the closed mission-control drafts and the open issues this
   control plane addresses, each mapped to a requirement or a stated
   out-of-scope reason (*Sources*, the issue map in `design.md`).
+- Folded in at kickoff: a program's per-repository spec roots (REQ-F1.7 to
+  REQ-F1.9, with the queue), the operator panel's gaps (REQ-H1.6 to REQ-H1.9,
+  with the last slice) and the refused-push rename (REQ-G1.7, with the
+  reconciler), each an outline for its slice's design walk.
 
 ### Out of scope
 
@@ -145,7 +150,8 @@ launch and bookkeeping change.
   schema SHALL be dropped from its layer (never partly applied) while the
   other valid entries and the lower layers stay in force; a failure in a
   value that bounds a class (its scope, floor or limit) SHALL make the class
-  refuse everything until fixed.
+  defer everything until fixed (a malformed floor makes floor acts defer and
+  fails the check loudly).
   *(Cites: D-3, D-4; REQ-A1.3.)*
 - **REQ-B1.4** The approval floor SHALL ship as data that no overlay layer can
   remove or loosen: a layer may only narrow it. A layer entry that tries to
@@ -213,10 +219,13 @@ launch and bookkeeping change.
   *(Cites: D-4; the answer-owner draft and the operator-signed fixes of the
   answer amendment (Sources).)*
 - **REQ-C1.5** The floor SHALL be a list of acts the engine never allows under
-  any layer, class or mode: a merge, a push to a protected branch, a history
-  rewrite outside the operator's stated scope, a message to a person without
-  the operator's yes, a write of a secret, a change to the permission or hook
-  configuration, a sign-off, and a deletion of a remote branch. A floor act
+  any layer, class or mode (it binds what a worker asks the engine to approve,
+  not the reconciler's own recorded merge under REQ-B1.7): a merge, marking a
+  spec pull request ready, a push to a protected branch, a history rewrite
+  outside the operator's stated scope, a message to a person without the
+  operator's yes, showing the operator anything outside the render gate, a
+  write of a secret, a change to the permission or hook configuration, a
+  sign-off, and a deletion of a remote branch. A floor act
   SHALL be answered `deny` with a message naming the floor entry (never a bare
   deny, which kills the worker's session), and counted.
   *(Cites: D-4; the denial-friction draft (Sources); REQ-A1.2.)*
@@ -225,11 +234,18 @@ launch and bookkeeping change.
   answered beside what the session or operator actually answered and answers
   nothing; only the operator's configuration moves a class to `enforce`, and
   the shadow log is the evidence for that move. Every class ships in shadow,
-  none in enforce. The shadow log is read by the hub, never by the operator:
-  before a class moves to enforce, the hub SHALL bring the operator a one-line
-  evidence summary (the engine's would-have answers against the actual
-  answers, and each mismatch), and that summary is the gate for the operator's
-  yes.
+  none in enforce, and the floor is not a class and is always enforced. A
+  class's `enforce` mode SHALL be read from the shipped and adopter layers
+  only, as REQ-B1.7 reads the merge mode, never from a machine-local file a
+  session could write; a machine-local value is ignored and reported. The
+  shadow log is read by the hub (the operator's mission-control session), not
+  by the operator: before a class moves to enforce, the hub SHALL bring the
+  operator a one-line evidence summary computed by code (counts of the
+  engine's would-have answers against the actual answers, with the sample
+  size, and each mismatch listed beneath on request), and that summary is the
+  gate for the operator's yes. A summary over no records says so and gates
+  nothing. The actual answer is the first answer delivered on the request id,
+  with its source.
   *(Cites: D-6; the memo's risks (Sources); the class-mode ruling (Sources).)*
 - **REQ-C1.7** Every allowed class SHALL have at least one near-miss fixture,
   a request that resembles an allowed one and that the engine refuses or
@@ -240,14 +256,17 @@ launch and bookkeeping change.
   *(Cites: D-7; the memo's risks (Sources).)*
 - **REQ-C1.8** Every verdict SHALL append one redacted record to a decision
   log: the request digest, class, rule id, mode, verdict, policy digest and
-  outcome, with the command bounded in length and never holding a secret. The
+  outcome, with the command bounded in length and never holding a secret, and
+  the actual answer and its source where the wiring has recorded one (written
+  by the wiring, keyed by request id, never by the engine). The
   log feeds the denial counts and the self-audit, and the engine SHALL count
   denials by floor entry and by class so a rule that mostly blocks ordinary
   work is visible.
   *(Cites: D-4, D-7; the denial-friction draft (Sources).)*
 - **REQ-C1.9** The engine SHALL be consulted at the event source, before a
-  pending-prompt event is raised or a model turn is spent, and an allow SHALL
-  go through the worker's own answer channel with its owner check. A defer
+  pending-prompt event is raised or a model turn is spent, and an allow in an
+  enforced class SHALL go through the worker's own answer channel with its
+  owner check (in shadow nothing is answered, REQ-C1.6). A defer
   SHALL raise the event as it is raised today, so that a miss costs what it
   cost before and nothing more.
   *(Cites: D-4, D-6.)*
@@ -257,19 +276,24 @@ launch and bookkeeping change.
   two classifications cannot drift apart.
   *(Cites: D-3; REQ-C1.3; the worker-permission-ergonomics spec (Sources).)*
 - **REQ-C1.11** The engine SHALL ship three more classes, each a data entry
-  with its own mode, shipped in shadow, and limited to the worker's own
-  worktree: `test-run` (a single test run named by the repository's own test
-  entry point, never a full-suite chain and never one that reaches outside
-  the worktree); `lint-run` (the repository's own lint or format-check entry
-  points, check mode only, never one that rewrites files outside the
-  worktree); and `evidence-and-wait` (a write of the worker's own step record
-  through the recorder helper, and a bounded wait on continuous integration
-  with a timeout no longer than the configured bound). They exist because the
-  approval record shows these, with plain reads, to be nearly all of the
-  requests the operator is asked about. Each SHALL have its near-miss fixtures
-  (REQ-C1.7), including a test or lint command that names a path outside the
-  worktree and a wait with no bound.
-  *(Cites: D-4, D-6, D-19; the approval-volume figures and the
+  with its own mode, shipped in shadow, and limited to commands whose working
+  directory is the worker's own worktree. An entry point is one declared in the
+  repository's manifest at the base commit or in operator policy data, never in
+  a file the worker changed on its branch, and a path is judged on the argument
+  vector after resolving `..` and symlinks. `test-run` is one entry point
+  invoked once with an explicit filter naming a single test file, test or
+  package (the unfiltered entry point is a full suite and defers); `lint-run`
+  is a lint or format-check entry point in check mode with no fix or write flag
+  (a rewriting entry point defers even inside the worktree); `evidence-and-wait`
+  is a write of the step record whose task and branch equal those in the
+  request record, through the recorder helper, and a wait on continuous
+  integration carrying an explicit timeout in seconds no longer than a
+  configured bound (an unset bound refuses). They exist because the approval
+  record shows these, with plain reads, to be nearly all of the requests the
+  operator is asked about. Each SHALL have its near-miss fixtures (REQ-C1.7),
+  including a command naming a path outside the worktree, a full suite, a
+  rewriting lint and a wait with no bound.
+  *(Cites: D-4, D-6, D-19; the approval-volume record and the
   slice-one-coverage ruling (Sources).)*
 
 ## REQ-D — Event dedupe at the source (slice one)
@@ -287,7 +311,9 @@ launch and bookkeeping change.
   *(Cites: D-8.)*
 - **REQ-D1.3** The gate SHALL never drop the first occurrence of an event of
   the decision, blocker, failure or landed class, and SHALL deliver any event
-  whose state it cannot read (REQ-A1.3).
+  whose state it cannot read (REQ-A1.3). A first occurrence of those classes is
+  delivered even when it is stale, and an event the gate itself raises
+  (REQ-D1.4) bypasses the gate.
   *(Cites: D-8; REQ-A1.3.)*
 - **REQ-D1.4** Every drop SHALL be counted by reason and subject kind, with
   the key and no payload, in a ledger an audit reads; a gate that drops more
@@ -301,14 +327,19 @@ launch and bookkeeping change.
 
 ## REQ-E — Measure the claim
 
-- **REQ-E1.1** Before the first slice's code lands, a baseline SHALL be
-  recorded on the machine it will run on: model turns per day by session role,
+- **REQ-E1.1** Before the first slice's code is wired or enabled (the stall
+  watcher hook and the dedupe gate), a baseline SHALL be recorded on the machine it will run on: model turns per day by session role,
   the spend split, merges per day and operator interruptions. The recording
   SHALL be machine-local data, never committed with machine content.
   *(Cites: D-9; the memo's risks (Sources).)*
 - **REQ-E1.2** Every slice SHALL name the baseline number it is expected to
   move, and its landing SHALL record the measured change; a slice that moves
-  none is rethought before the next slice starts.
+  none is rethought before the next slice starts. Slice one's approval classes
+  answer nothing in shadow, so the number they move while in shadow is the
+  share of prompts the engine would have answered with no mismatch; the change
+  in model turns and operator interruptions is recorded at the first class's
+  move to enforce, and the dedupe gate's drops and wakes are measured at
+  landing.
   *(Cites: D-9, D-13; REQ-A1.5.)*
 - **REQ-E1.3** The control plane SHALL be machine-agnostic: every machine
   specific (paths, tracker or chat names, thresholds) lives in an overlay
@@ -330,7 +361,8 @@ launch and bookkeeping change.
   (spec task, visual flight, ad-hoc fix, petition, pull-request-only) and
   SHALL read a hard cross-spec dependency edge only between specs under the
   same spec root, written `<spec>:<id>`, and fail closed (the task is not
-  started) when the foreign bundle is not readable. A prose-form edge SHALL
+  started) when the foreign bundle is not readable or lies under another root,
+  flagging the edge. A prose-form edge SHALL
   draw a validator warning and never be rewritten.
   *(Cites: D-11, D-17; the dispatch-record issue and the offload petition
   issue (Sources).)*
@@ -357,28 +389,31 @@ launch and bookkeeping change.
   passes, not because its pull requests merged.
   *(Cites: D-11; the goals draft (Sources).)*
 - **REQ-F1.7** A program SHALL name one or more work repositories and MAY name
-  one spec root. With the root set, it is the root of every listed repository,
-  exactly as before. With it unset, each listed repository's root SHALL be the
-  one the spec-root resolver answers when run in that repository, in any
-  posture a spec root supports; when both could apply, the set value wins.
-  A program that sets the root SHALL validate and read with output identical
-  to before, and no existing configuration SHALL need an edit.
+  one spec root. With the root set, it is one path used as is for every listed
+  repository, exactly as before. With it unset, each listed repository's root
+  SHALL be the one the spec-root resolver answers when run in that repository,
+  in any posture the resolver supports. A program that sets the root SHALL
+  validate and read with the existing verbs' output byte-identical to before,
+  and no existing configuration SHALL need an edit.
   *(Cites: D-20; the spec-roots draft (Sources).)*
 - **REQ-F1.8** A unit's spec SHALL be read from the root of the repository it
-  belongs to. A spec name that exists under two of a program's roots SHALL be
-  refused as ambiguous until qualified by a repository alias, the refusal
-  naming both roots. Program validation SHALL flag a listed repository whose
-  root the resolver refuses or that is not a directory, naming the repository
-  and the resolver's reason.
+  belongs to (its row's repository attribute). A spec name that exists under
+  two or more of a program's roots SHALL be refused as ambiguous, the unit
+  unselectable, until qualified as `<alias>:<spec>` with the repository's name
+  in the work-repository registry, the refusal naming every root that holds
+  it. Program validation SHALL flag a listed repository whose root the resolver
+  refuses or whose root is not a directory, naming the repository and the
+  reason.
   *(Cites: D-20; the spec-roots draft (Sources).)*
 - **REQ-F1.9** Every reader of a program's spec roots (the queue, the
   readiness check, the deadline scan, the setup and kickoff prose) SHALL obtain
   them from one program reader verb that returns each root with its
   repository, and a check SHALL fail on any script or skill instruction that
-  reads the program's root field by another route. The change SHALL add no root
-  registry, repository map or marker of its own, and SHALL leave the floor
-  unchanged: no edit to a repository, no launch or retirement, no gate
-  weakened.
+  reads the program's root field by another route (the field name appearing
+  only in the verb and a named allowlist). The verb is additive, read-only and
+  has no side effects. The change SHALL add no root registry, repository map or
+  marker of its own, and SHALL leave the floor unchanged: no edit to a
+  repository, no launch or retirement, no gate weakened.
   *(Cites: D-20; the spec-roots draft (Sources).)*
 
 ## REQ-G — The reconciler (slice three, outlined; design walk before build)
@@ -389,18 +424,12 @@ launch and bookkeeping change.
   start and cancel continuous integration, cancelling a doomed run, never
   starting a second run on a flip that an earlier run on the same head already
   covers, and running the macOS shards on a draft before the flip; flip a pull
-  request ready only under the ready-flip policy once every check has finished;
-  and retire workers whose unit has landed.
+  request ready only under the ready-flip policy once every check has finished
+  (never a pull request carrying the screenshot condition of REQ-H1.9, and
+  never a spec pull request, REQ-A1.2); and retire workers whose unit has
+  landed.
   *(Cites: D-12; the memo's slice three (Sources); the ready-flip policy issue
   (Sources).)*
-- **REQ-G1.7** When a push is refused and the refusal names the branch the
-  helper accepts, and that branch does not exist yet, the push SHALL be
-  renamed to that branch and retried through the same guarded helper, with
-  these limits: only to the exact name the refusal names; only when that
-  branch does not exist; the rename recorded; never with force; never to a
-  protected or shared branch; at most one rename per refusal, a second refusal
-  stopping and being reported with its exact text.
-  *(Cites: D-17; the refused-push ruling (Sources).)*
 - **REQ-G1.2** Evidence of a step SHALL be recorded from continuous
   integration and hooks by code: a step record whose start, head or outcome
   the recorder cannot establish from a machine SHALL be refused, rather than
@@ -428,6 +457,17 @@ launch and bookkeeping change.
   a number and not a judgment, and adopt a live session it did not launch.
   *(Cites: D-12; the step-timeout, context-reading and adoption drafts
   (Sources); work-hub drop 0040 (Sources).)*
+- **REQ-G1.7** When a push is refused and the helper's refusal names the branch
+  it accepts, and that branch does not exist yet, the push SHALL be renamed to
+  that branch and retried through the same guarded helper (not an engine
+  `own-branch-push` consultation), with these limits: only to the exact name
+  the refusal's own structured field names; only when that branch does not
+  exist; the rename recorded in the decision log and the worker's record and
+  row updated to the new name together; never with force; never to a protected
+  or shared branch (a branch another worker's record names, or whose
+  protection cannot be confirmed, counts as protected); one rename per original
+  push, a refusal of the retry stopping and being reported with its exact text.
+  *(Cites: D-17; the refused-push ruling (Sources).)*
 
 ## REQ-H — Briefs from state and a thin hub (slice four, outlined; design walk before build)
 
@@ -464,8 +504,10 @@ launch and bookkeeping change.
   Its in-flight section SHALL list every piece of work in motion (each live
   session grouped by what it is doing, each piece of work with no session
   running grouped as waiting and saying in words why it waits), each item with
-  a state symbol and word and how long it has been in that state, keeping the
-  items that need the operator first when they do not all fit. A working
+  a state symbol and word and how long it has been in that state (from the
+  queue row's state-entered time), sorted with the items that need the
+  operator first and, when they do not all fit, an "and N more" count per
+  state. A working
   session SHALL show its current step in a few words from a fixed vocabulary
   recorded by a hook, never from raw command text, and never a step older than
   its current state. The checked merge command of a ready pull request SHALL
@@ -474,7 +516,8 @@ launch and bookkeeping change.
 - **REQ-H1.7** The panel SHALL draw context fill, each usage limit, host load
   and memory as an instrument row with values and marks (a reading that cannot
   be read shown as unknown, never zero or full); each usage limit's spend,
-  reset time and time remaining, the limit nearest its stop as a fuel bar; the
+  reset time and time remaining, the limit with the highest share used as a
+  fuel bar; the
   month's dollar spend and, where the operator sets a monthly budget (unset by
   default), the share spent and its rate; and, per spec with work remaining,
   tasks merged against its total and a count of pull requests per stage, each
@@ -483,8 +526,8 @@ launch and bookkeeping change.
 - **REQ-H1.8** No meaning in the panel SHALL rest on colour alone: every state
   carries a symbol and a word; no colour is drawn when `NO_COLOR` is set or
   the colour knob is off; the palette stays distinct for colour-blind
-  operators; and a plain mode (a knob) shows state words only, for a screen
-  reader. The panel mod's TypeScript SHALL be type-checked in CI, the check
+  operators; and a plain mode (a knob) shows state words in place of symbols
+  and drawing, titles and times unchanged, for a screen reader. The panel mod's TypeScript SHALL be type-checked in CI, the check
   failing on a seeded type error.
   *(Cites: D-21; the panel-gaps draft (Sources).)*
 - **REQ-H1.9** A panel change SHALL stay a draft until the operator has seen a
@@ -500,9 +543,11 @@ launch and bookkeeping change.
   the repository's guard catalog as safety-relevant code.
   *(Cites: D-7; the memo's risks (Sources).)*
 - **REQ-I1.2** One setting SHALL turn the whole control plane to defer
-  everything (the approval engine answers nothing, the dedupe gate delivers
-  everything, the dispatcher admits as today), restoring today's behavior, and
-  every verb SHALL read it first.
+  everything (the approval engine answers nothing, floor acts included, which
+  raise the event as today; the dedupe gate delivers everything; the dispatcher
+  leaves admission to today's host admission check), restoring today's
+  behavior, and every verb SHALL read it first. A kill switch left on SHALL be
+  reported at each wake.
   *(Cites: D-14.)*
 - **REQ-I1.3** The engine and gate contracts SHALL be language-neutral: a verb,
   a structured stdin record, a structured stdout verdict and exit codes, with
@@ -510,8 +555,9 @@ launch and bookkeeping change.
   without changing a fixture or a policy file.
   *(Cites: D-5, D-16.)*
 - **REQ-I1.4** The decision log, the drop ledger and the queue SHALL hold
-  identifiers, digests and bounded strings, and no secret, credential, message
-  body or work content, and a check SHALL scan them for token-shaped values.
+  identifiers, digests and bounded strings (the bounded command is the one
+  exempt free-text field), and no secret, credential, message body or other
+  work content, and a check SHALL scan them for token-shaped values.
   *(Cites: D-4; REQ-C1.8.)*
 
 ## Changelog
@@ -611,7 +657,8 @@ launch and bookkeeping change.
   approval path.
 - **The mission-control and universal-binary specs** — the layer this spec
   moves into code, and the verdict draft (pull request 1063, pending) that
-  recommends Go for the library tier, recorded as the open question D-16.
+  recommends Go for the library tier; slice one stays in shell behind a neutral
+  contract (D-16, settled).
 - **The spec-roots draft (Amendment 19)** — local branch
   `planwright/mission-control/amend-spec-roots`, commit 7d457290: a program's
   per-repository spec roots (its REQ-T1.1 to REQ-T1.5, D-100 to D-103, Tasks 130
@@ -630,11 +677,12 @@ launch and bookkeeping change.
 - **The class-mode, slice-one-coverage and refused-push rulings** — the
   operator, 2026-11-16, relayed by mission control: every class ships in
   shadow and the hub reads the log (REQ-C1.6); tests, lint, step-record writes
-  and bounded CI waits join slice one (REQ-C1.11), on approval volume of about
-  1,100 requests and 36 waiting hours in a day, nearly all of those kinds;
+  and bounded CI waits join slice one (REQ-C1.11), because the operator's
+  approval record shows those kinds to be nearly all of the requests asked
+  about (the figures stay machine-local, REQ-E1.1);
   `release-run` ships in shadow; the rename's limits (REQ-G1.7).
 - **The cross-spec dependency and main-work drafts** — the local branches
   `planwright/invariant-tasks/amend-cross-spec-edges` (commit 6e74b80c, with
   uncommitted edits in a sibling worktree) and
   `planwright/mission-control/amend-main-work` (commit b52466c9), whose
-  drafted defaults are the open questions D-17 and D-18.
+  drafted defaults were settled by the operator as D-17 and D-18.

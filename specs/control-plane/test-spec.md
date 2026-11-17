@@ -81,7 +81,7 @@ Near-miss fixtures with substitution, expansion, redirection and unreadable quot
 
 ### REQ-C1.3 — shipped classes [test]
 
-Allow and near-miss fixtures for each class; `release-run` ships off and `host-act` ships empty (asserted from the shipped catalog).
+Allow and near-miss fixtures for each class; `release-run` ships in shadow and `host-act` ships empty (asserted from the shipped catalog).
 
 ### REQ-C1.4 — owner check and self-describing answer [test]
 
@@ -93,7 +93,7 @@ Each floor entry has a fixture that returns deny with a message naming the entry
 
 ### REQ-C1.6 — modes, shipped shadow [test]
 
-Fixtures: shadow answers nothing and logs the pair; enforce answers; off defers; every shipped class is `shadow` or `off`.
+Fixtures: shadow answers nothing and logs the pair; enforce answers; off defers; every shipped class is `shadow`; a machine-local `enforce` is ignored and reported; a fixture log with N matches and M mismatches yields the one-line per-class summary (counts, sample size, mismatches on request), an empty log says so, and no class mode moves from shadow without the summary having been produced. The hub's bringing the summary to the operator is [manual], inventoried at each class's move to enforce.
 
 ### REQ-C1.7 — near-miss fixture for every class [test]
 

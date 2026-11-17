@@ -7,10 +7,10 @@
 
 Origin-tag legend: `N` = new to this bundle; `C, <namespace> <id>` = carried
 from another bundle's decision, the foreign id namespace-qualified; `O` = an
-open question for kickoff, with its recommended default drafted.
+open question for kickoff (none remain; all were settled at kickoff).
 
-Slice one (D-4 to D-9, D-14, D-19) is designed in full. Slices two to four are
-outlined (D-11, D-12, D-13); each carries a design walk (Tasks 6, 11, 16)
+Slice one (D-3 to D-10, D-14, D-16, D-19) is designed in full. Slices two to
+four are outlined (D-11, D-12, D-13, D-17, D-18, D-20, D-21); each carries a design walk (Tasks 6, 11, 16)
 whose output amends this bundle before any build task of that slice starts.
 
 ## Decision log
@@ -284,9 +284,12 @@ committing detail the evidence has yet to inform.
 ### D-14: One kill switch restores today's behavior (N)
 
 **Decision:** A single setting turns the control plane to defer everything:
-the engine answers nothing, the gate delivers everything, the dispatcher
-admits as today. Every verb reads it first, and the setting is readable from
-the machine-local layer because turning the control plane off only narrows it.
+the engine answers nothing (floor acts included, which raise the event as
+today), the gate delivers everything, the dispatcher leaves admission to
+today's host admission check. Every verb reads it first, and the setting is
+readable from the machine-local layer because turning the control plane off
+only hands decisions back to the layer above; a switch left on is reported at
+each wake.
 
 **Alternatives considered:**
 - Per-component switches only. Rejected because: in a fault the operator needs
@@ -380,8 +383,8 @@ directly; the baseline and the dedupe gate run beside it, not ahead of it.
   because: the operator would maintain a list of commands that a class with a
   scope predicate describes once.
 - Leave them to a later slice. Rejected because: the approval record shows
-  them, with reads, to be nearly all of the roughly 1,100 daily requests and
-  about 36 waiting hours.
+  them, with reads, to be nearly all of the requests the operator is asked
+  about (the figures stay machine-local).
 
 **Chosen because:** the first slice should remove the bottleneck it was named
 for, not only its easiest part.
