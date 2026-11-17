@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.78.0](https://github.com/inkatze/planwright/compare/v0.77.0...v0.78.0) (2026-11-16)
+
+
+### Features
+
+* **mission-control:** refuse spec drift at readiness ([#1042](https://github.com/inkatze/planwright/issues/1042)) ([0a0344b](https://github.com/inkatze/planwright/commit/0a0344b8766a3f1affe93b9145d7892879ffea2c))
+
+
+### Bug Fixes
+
+* a waiting prompt request is always named in a new event ([#1003](https://github.com/inkatze/planwright/issues/1003)) ([03e1c37](https://github.com/inkatze/planwright/commit/03e1c3716a8faa0fb83e5f766c554302f29c597c))
+* **fleet:** stop a worker's close from leaking processes forked while it runs ([#1077](https://github.com/inkatze/planwright/issues/1077)) ([acf159a](https://github.com/inkatze/planwright/commit/acf159a660d92703c3ed81b9caea586a6675c177))
+* flight slot counting and brief retirement skip the primary checkout ([#1053](https://github.com/inkatze/planwright/issues/1053)) ([5f01949](https://github.com/inkatze/planwright/commit/5f01949e49ea2171c32477c6b7d97c1038a33baa))
+* **guard:** close two sed -i false allows, one an outside-worktree write ([#1080](https://github.com/inkatze/planwright/issues/1080)) ([01abec2](https://github.com/inkatze/planwright/commit/01abec288493972d9c8448da05b6fc0f1fa58b45))
+* **guard:** read a space-separated sed --expression value as the script ([#1076](https://github.com/inkatze/planwright/issues/1076)) ([50b7a4f](https://github.com/inkatze/planwright/commit/50b7a4f68a09e67fb3bab20ec8288e19608ce61d))
+* **mission-control:** a handover stops replaying the old event backlog ([#1083](https://github.com/inkatze/planwright/issues/1083)) ([90261a0](https://github.com/inkatze/planwright/commit/90261a08916480b346bce09db99269056b9d85af))
+* **mission-control:** a successor keeps its config overlays and starts in the program repo ([#1082](https://github.com/inkatze/planwright/issues/1082)) ([2ef8506](https://github.com/inkatze/planwright/commit/2ef85067dfba3b352ac4206432cba7494388f897))
+* never retire a parked session, and report it as parked ([#1055](https://github.com/inkatze/planwright/issues/1055)) ([6459d14](https://github.com/inkatze/planwright/commit/6459d1492ab30f8370f148a757dfe68ff36f846c))
+* read a Task &lt;id&gt; Dependencies item as its id in the state engine ([#1047](https://github.com/inkatze/planwright/issues/1047)) ([d3c0e02](https://github.com/inkatze/planwright/commit/d3c0e02ee62e8fde4b0b96b7ae9b0bd28a4a4e47))
+* report a crashed tmux server as one event instead of a death per window ([#1078](https://github.com/inkatze/planwright/issues/1078)) ([7839619](https://github.com/inkatze/planwright/commit/7839619edbf9b78d971482d3e7d6c191fe981cf1))
+* **self-review:** give lens sub-agents the command shape so polish stops waiting on prompts ([#1084](https://github.com/inkatze/planwright/issues/1084)) ([ba6e037](https://github.com/inkatze/planwright/commit/ba6e0370a27ae6e324f332c8264da2814336f3b0))
+* **steps:** audit step records against the session's own events ([#963](https://github.com/inkatze/planwright/issues/963)) ([d6e9415](https://github.com/inkatze/planwright/commit/d6e94150c8f3b7de0fd2ccccc148d7050af3c820))
+* **tests:** run-tests.sh workers die with it when the job is cancelled ([#1023](https://github.com/inkatze/planwright/issues/1023)) ([08d0ba5](https://github.com/inkatze/planwright/commit/08d0ba59962edc8b60b48665d14748246ed5b2c8))
+
 ## [0.77.0](https://github.com/inkatze/planwright/compare/v0.76.1...v0.77.0) (2026-11-16)
 
 
