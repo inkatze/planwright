@@ -5769,9 +5769,10 @@ mc_blank_quotes() {
 # or under a data place that is no program home, is no write. Out of a text
 # screen's sight: a relative name (after a cd, or against the session's cwd),
 # a link target spelled with //, /./ or /../, or a link the same command
-# makes; a write to an instruction file in a subshell, through a quoted part of
-# its target, or by a writer outside those verbs (sort -o, curl -o, truncate,
-# or a quoted program such as awk's); and a >&file target.
+# makes; a write to an instruction file in a subshell or through a quoted part
+# of its target; a writer outside those verbs (sort -o, curl -o, truncate, or a
+# quoted program such as awk's) handed an instruction file or a link into
+# posture; and a >&file target.
 mc_settings_screen() {
   local t=$1 r si=0 k named=0 w m verb sedscript inplace stripped=0 scan
   MC_DOC_T=''
