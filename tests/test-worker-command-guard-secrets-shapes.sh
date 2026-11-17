@@ -126,7 +126,7 @@ for c in "gh search code foo '-qenv|test'" "gh search issues foo '-q\$ENV|keys|s
 done
 for c in "gh search code foo --json path -q '.[].path'" "gh search issues foo --json title -t '{{range .}}{{.title}}{{end}}'" \
   "gh search prs foo --json title --template '{{range .}}{{.title}}{{end}}'" "gh search code foo --json path '-q.[].path'" \
-  'gh search prs foo -Ro/test'; do
+  'gh search prs foo -Ro/test' "gh search code foo --json path '-q.a|test'" 'gh search prs foo -Ro/test --json url'; do
   assert_allow "secrets: gh search with a filter that reads no environment: $c" "$c"
 done
 # shellcheck disable=SC2016 # the guard reads the words as written
