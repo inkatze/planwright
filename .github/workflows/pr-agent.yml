@@ -75,6 +75,18 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts
 
+      # An incremental review takes in each new commit's files whole, so a
+      # merge from main among them brings all of main's changes into it; such
+      # a push gets a full review of the PR's own diff instead.
+      - name: Choose the push review
+        id: push
+        if: env.HAS_KEY == 'true' && github.event.action == 'synchronize'
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: /bin/bash scripts/pr-agent-push-commands.sh --pr "$PR" --output "$GITHUB_OUTPUT"
+
       # The wrapper retries a try whose model output came back empty or
       # unparseable (whether the action then exits 0 or 1) up to
       # PR_AGENT_REVIEW_RETRIES times, rate limits on a budget of their own,
@@ -140,7 +152,8 @@ jobs:
           # above; scripts/check-workflow-posture.sh enforces it.
           GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
           GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "true"
-          GITHUB_ACTION_CONFIG__PUSH_COMMANDS: '["/review -i"]'
+          # A push takes the push step's choice; no other event reads this.
+          GITHUB_ACTION_CONFIG__PUSH_COMMANDS: ${{ steps.push.outputs.commands || '["/review -i"]' }}
 
           PR_REVIEWER__INLINE_KEY_ISSUES: "true"
           PR_REVIEWER__NUM_MAX_FINDINGS: ${{ vars.PR_AGENT_MAX_FINDINGS || '10' }}
