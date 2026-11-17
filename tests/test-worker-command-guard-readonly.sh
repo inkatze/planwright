@@ -194,6 +194,8 @@ assert_defer "perl -pi with two statements" "perl -pi -e 's/a/b/;system(1)' f" B
 assert_defer "perl -e alone" "perl -e 's/a/b/' f" Bash "$WT"
 assert_defer "perl running a script" "perl x.pl" Bash "$WT"
 assert_defer "perl -pi with no file" "perl -pi -e 's/a/b/'" Bash "$WT"
+assert_allow "perl -pi an ordinary file" "perl -pi -e 's/a/b/' f" Bash "$WT"
+assert_allow "perl -pi two ordinary files" "perl -pi -e 's/a/b/' f g" Bash "$WT"
 HOOK_ENV=()
 assert_defer "perl -pi without the own-branch arm" "perl -pi -e 's/a/b/' f" Bash "$WT"
 

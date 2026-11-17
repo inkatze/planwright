@@ -110,6 +110,10 @@ assert_allow "secrets: gh pr view with a jq field" "gh pr view 1 --json title --
 assert_allow "secrets: gh run list with a jq filter" "gh run list --json name -q .name"
 assert_allow "secrets: gh repo view with a jq filter" "gh repo view --json name --jq .name"
 assert_allow "secrets: gh pr view of a branch named like an environment" "gh pr view environment --json title"
+for c in 'gh search code foo' 'gh search issues foo --repo o/r' 'gh search prs foo --state open' \
+  'gh search code foo --json path' 'gh search issues foo --json number -L 5' 'gh search prs foo --limit 5'; do
+  assert_allow "secrets: gh search without a filter: $c" "$c"
+done
 
 echo "### Other readers: file timestamps and abbreviated options"
 for c in 'date -r /home/someone/.aws/credentials' 'date -r ~/.ssh/id_rsa' 'date --reference=/etc/shadow' 'date --ref=/etc/shadow' \

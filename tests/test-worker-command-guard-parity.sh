@@ -101,6 +101,8 @@ shared${TAB}allow${TAB}a declared line inside fish -c${TAB}fish -c '$DECLARED --
 shared${TAB}allow${TAB}a read-only git shape${TAB}git log --oneline -1
 shared${TAB}allow${TAB}an own-branch stage${TAB}git add notes.txt
 shared${TAB}allow${TAB}an own-branch commit${TAB}git commit -m 'x'
+shared${TAB}allow${TAB}a gh search without a filter${TAB}gh search code foo --json path
+shared${TAB}allow${TAB}an own-branch perl -pi of an ordinary file${TAB}perl -pi -e 's/a/b/' notes.txt
 shared${TAB}defer${TAB}a declared line given another arg${TAB}$DECLARED --mode lax
 shared${TAB}defer${TAB}a declared line plus an extra arg${TAB}$DECLARED --mode strict --extra
 shared${TAB}defer${TAB}a declared location without its args${TAB}$DECLARED
