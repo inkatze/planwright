@@ -378,6 +378,18 @@ token, never a PID the test spawned and reaped. `check:test-hermeticity`
 fails each shape; a line it flags wrongly takes a
 `# hermetic-exempt: <reason>` comment.
 
+### No test runs the real claude CLI
+
+A launcher that falls through a suite's stub reaches the installed `claude`: a
+real session that spends tokens and that a killed suite leaves running. The
+runner puts a refusing `claude` first on every file's PATH and fails a file that
+calls it. Stub the CLI with a `claude` earlier on PATH or through the launcher's
+own binary variable (`PLANWRIGHT_STREAMJSON_CLI`, or `PLANWRIGHT_ORACLE_CLAUDE`
+for the liveness oracle), and make a stub that waits on its stdin end itself
+once the suite is gone, since a detached supervisor holds that stdin open. A
+call meant to reach the real CLI, such as an opt-in live probe, sets
+`PLANWRIGHT_TEST_REAL_CLAUDE=1`.
+
 ### Waits hold up on a busy machine
 
 A test that waits for an event (a file, a process exit, a log line) polls with

@@ -131,6 +131,10 @@
 #                                  values reach every file (the perturbed run);
 #                                  the switch itself is not passed on, so a
 #                                  nested run pins by default
+#   PLANWRIGHT_TEST_REAL_CLAUDE    1 on a call lets it through the refusing
+#                                  claude the runner puts first on every
+#                                  file's PATH (pinning on or off); any other
+#                                  call that reaches it fails the file
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
 #   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
