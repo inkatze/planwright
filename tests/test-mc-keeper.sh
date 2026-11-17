@@ -349,7 +349,12 @@ EOF
 (cd "$tmp/orphan-fx/gone/cwd" && FIXTURE_OWNER=$$ exec /bin/sh "$tmp/orphan-fx/scripts/fleet-streamjson.sh" \
   _supervise mc-alpha-tower-orphaned "$tmp/orphan-fx/gone/state" init) &
 orphan_sup=$!
-sleep 0.3
+os_i=0
+while [ "$os_i" -lt 100 ]; do
+  case $(ps -ww -o args= -p "$orphan_sup" 2>&1) in *_supervise*) break ;; esac
+  sleep 0.1
+  os_i=$((os_i + 1))
+done
 rm -rf "$tmp/orphan-fx/gone"
 keeper_as alpha 5300
 expect_no_out "an orphan one pass has seen is not raised yet" "mc-alpha-tower-orphaned"
