@@ -208,6 +208,15 @@ echo "### Red-team regressions — confirmed exec/write vectors (must DEFER)"
 # git grep --open-files-in-pager / -O runs a command through the shell.
 assert_defer "git grep -O bundled exec" "git grep -O'sh -c id' foo"
 assert_defer "git grep --open-files-in-pager exec" "git grep --open-files-in-pager=id foo"
+# -O inside a short cluster: `-nO<cmd>` is -n then -O with <cmd> as its value.
+assert_defer "git grep -nO clustered exec" "git grep -nOid foo"
+assert_defer "git grep -iO clustered exec" "git grep -iOid foo"
+assert_defer "git grep -nO clustered exec, quoted value" "git grep -nO'sh -c id' foo"
+# A short cluster carrying O defers wherever the O sits, so a pickaxe or regex
+# value holding an O prompts too: the accepted cost of not modelling each
+# verb's value-taking flags.
+assert_defer "accepted over-block: an O inside a short-flag value" "git log -SOops"
+assert_allow "a short cluster without O still allows" "git grep -niw foo"
 assert_defer "git log --ext-diff driver exec" "git log --ext-diff"
 assert_defer "git show --textconv driver exec" "git show --textconv HEAD:f"
 assert_defer "git cat-file --filters driver exec" "git cat-file --filters --path=f HEAD:f"

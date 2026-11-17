@@ -1837,6 +1837,9 @@ guard_git() {
         case ${cw[i]} in
           # git takes any unambiguous prefix of a long option (`--op=<cmd>`).
           -o | --ou* | -O | -O* | --op*) return 1 ;;
+          # `-nO<cmd>` is -n then -O with <cmd> as its value. Any O in a short
+          # cluster defers, a value holding one (`log -SOops`) included.
+          -[!-]*O*) return 1 ;;
         esac
         git_driver_opt "$sub" "${cw[i]}" && return 1
       done

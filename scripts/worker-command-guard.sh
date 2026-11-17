@@ -3757,6 +3757,9 @@ guard_git() {
         case ${cw[i]} in
           # git takes any unambiguous prefix of a long option (`--out=`).
           -o | --ou* | -O | -O* | --op*) return 1 ;;
+          # `-nO<cmd>` is -n then -O with <cmd> as its value. Any O in a short
+          # cluster defers, a value holding one (`log -SOops`) included.
+          -[!-]*O*) return 1 ;;
           # Content from outside the repository: any file (`diff --no-index`,
           # `blame --contents`), and a list read from a named file
           # (`--orderfile`, `ls-files -X`).
