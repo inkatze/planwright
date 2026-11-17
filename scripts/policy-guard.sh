@@ -2440,11 +2440,11 @@ kickoff_text_check() {
   # A filter set after the stage in the text can still run first: a loop runs
   # its body before its next condition, and a background job runs beside it.
   [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
-    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and also may change git configuration or where git reads it (a git config naming a filter key, an include or an editor, a clone, init or alias, or a GIT_ variable, HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm or blame) on scripts/kickoff-spec-push.sh, and also may change git configuration or where git reads it (a git config naming a filter key, an include, an editor or a word the guard cannot read; a clone, init or alias; or a GIT_ variable, HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
   [ "$KICK_INC_PASSED" = 0 ] || { [ "$ST_REF" = 0 ] && [ "$ST_CFG" = 0 ] && [ "$ST_HEAD" = 0 ]; } \
-    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes the branch, the remotes or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm or blame) on scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes git configuration, the branch or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
   [ "$KICK_CD_AFTER" = 0 ] \
-    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and changes directory after it, so a loop can run the stage again in a repository whose filter programs the guard never read - refusing (fail closed). Change directory first, or run the stage on its own."
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm or blame) on scripts/kickoff-spec-push.sh and changes directory after it, so a loop can run it again in a repository whose filter programs the guard never read - refusing (fail closed). Change directory first, or run it on its own."
 }
 
 # kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
@@ -2531,7 +2531,10 @@ classify_segments() {
       # the shell runs a prompt or startup hook's value as a command.
       # A GIT_ variable can carry configuration (GIT_CONFIG_COUNT) or point
       # git at another repository.
-      [ "$SW_GITENV" = 0 ] || { GIT_ENV_SET=1 && ST_FILT=1; }
+      if [ "$SW_GITENV" = 1 ]; then
+        GIT_ENV_SET=1
+        ST_FILT=1
+      fi
       [ "$SW_CFGENV" = 0 ] || ST_FILT=1
       KICK_BESIDE=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
@@ -2658,7 +2661,10 @@ classify_segments() {
       case $base_verb in
         export | declare | typeset | readonly | local | let | printf)
           case " ${SW[*]} " in
-            *" GIT_"*) GIT_ENV_SET=1 && ST_FILT=1 ;;
+            *" GIT_"*)
+              GIT_ENV_SET=1
+              ST_FILT=1
+              ;;
           esac
           case " ${SW[*]} " in
             *" HOME"* | *" XDG_CONFIG_HOME"*) ST_FILT=1 ;;

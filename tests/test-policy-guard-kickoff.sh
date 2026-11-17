@@ -939,7 +939,8 @@ done
 # git -C target the guard cannot read; and a missing git -C directory in a
 # command with other segments (which may make it) all count as a filter set,
 # even when the segment that may set one comes after the stage (a loop or a
-# background job can run it first).
+# background job can run it first), as do a GIT_ variable assigned or
+# exported beside the stage and a cd, pushd or popd after it.
 for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --filt HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --batch --filters scripts/kickoff-spec-push.sh' \
@@ -998,6 +999,9 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   "for i in 1 2; do git add scripts/kickoff-spec-push.sh; cd $SANDBOX/filter-clean; done" \
   'git status scripts/kickoff-spec-push.sh; cd ..' \
   'git add scripts/kickoff-spec-push.sh && pushd ..' \
+  'git add scripts/kickoff-spec-push.sh && popd' \
+  'readonly GIT_DIR=/x; git add scripts/kickoff-spec-push.sh' \
+  'typeset -x HOME=/tmp/h; git status scripts/kickoff-spec-push.sh' \
   'for i in 1 2; do git add scripts/kickoff-spec-push.sh; export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=filter.z.clean GIT_CONFIG_VALUE_0=sh; done' \
   'while git status scripts/kickoff-spec-push.sh; do GIT_DIR=/tmp/q/.git; done' \
   'git add scripts/kickoff-spec-push.sh & GIT_CONFIG_COUNT=1' \
