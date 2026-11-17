@@ -924,6 +924,7 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
   "git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
   'git status scripts/kickoff-spec-push.sh; git config user.name t' \
   'git config -a user.name && git add scripts/kickoff-spec-push.sh' \
+  "cd $SANDBOX/nofilter && git add scripts/kickoff-spec-push.sh" \
   'git log -p -- scripts/kickoff-spec-push.sh; git config filter.z.clean sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
@@ -990,7 +991,10 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'while git status scripts/kickoff-spec-push.sh; do git config filter.z.clean sh; done' \
   'git add scripts/kickoff-spec-push.sh & git config filter.z.clean sh' \
   'git add scripts/k*.sh; git config filter.z.clean sh' \
-  'git restore scripts/kickoff-spec-push.sh; git init x'; do
+  'git restore scripts/kickoff-spec-push.sh; git init x' \
+  "for i in 1 2; do git add scripts/kickoff-spec-push.sh; cd $SANDBOX/filter-clean; done" \
+  'git status scripts/kickoff-spec-push.sh; cd ..' \
+  'git config -aef && git add scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect deny "[$tier, task-1] a filter the guard cannot rule out could run on the file: $cmd"
@@ -1048,7 +1052,8 @@ for cmd in 'git switch -c b && git add scripts/kickoff-spec-push.sh' \
   'git commit -m x && git status scripts/kickoff-spec-push.sh' \
   'for i in 1 2; do git add scripts/kickoff-spec-push.sh; git switch -c b; done' \
   'git add scripts/kickoff-spec-push.sh & git remote add o u' \
-  'while git status scripts/kickoff-spec-push.sh; do git commit -m x; done'; do
+  'while git status scripts/kickoff-spec-push.sh; do git commit -m x; done' \
+  'git add scripts/k*.sh; git switch -c b'; do
   # The tower refuses a branch change or a commit on its own.
   PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$INCD" "$INCD"
   expect deny "[worker, task-1] a conditional include may start to apply: $cmd"

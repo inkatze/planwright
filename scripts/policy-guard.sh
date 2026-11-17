@@ -1733,6 +1733,9 @@ KGR_INC=0
 KFS_INC=0
 KICK_FILT_PASSED=0
 KICK_INC_PASSED=0
+# A directory change after such a mention: a loop can run the mention again
+# in a repository the guard never read.
+KICK_CD_AFTER=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
@@ -2434,7 +2437,9 @@ kickoff_text_check() {
   [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
     || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and also changes git configuration or where git reads it (a git config write, a clone, init or alias, or a HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
   [ "$KICK_INC_PASSED" = 0 ] || { [ "$ST_REF" = 0 ] && [ "$ST_CFG" = 0 ] && [ "$ST_HEAD" = 0 ]; } \
-    || deny_now "this command stages, compares or restores scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes the branch, the remotes or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
+    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes the branch, the remotes or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
+  [ "$KICK_CD_AFTER" = 0 ] \
+    || deny_now "this command stages, commits, compares or restores scripts/kickoff-spec-push.sh and changes directory after it, so a loop can run the stage again in a repository whose filter programs the guard never read - refusing (fail closed). Change directory first, or run the stage on its own."
 }
 
 # kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
@@ -2480,6 +2485,7 @@ classify_segments() {
   KICK_BESIDE=0
   KICK_FILT_PASSED=0
   KICK_INC_PASSED=0
+  KICK_CD_AFTER=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0
@@ -2693,6 +2699,7 @@ classify_segments() {
       case $base_verb in
         cd | pushd | popd)
           local term=${SEG_TERM[$si]}
+          [ "$KICK_FILT_PASSED" = 0 ] || KICK_CD_AFTER=1
           # Followed only where its list is sure to run it in this shell
           # before the acts after it: not after a || or in a pipeline, a
           # compound body or condition, or under compound_shape's other marks.
