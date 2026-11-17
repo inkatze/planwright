@@ -3692,7 +3692,7 @@ guard_gh() {
       return 0
       ;;
     repo)
-      [ "$s" = view ] && return 0 || return 1
+      [ "$s" = view ] && gh_no_web && return 0 || return 1
       ;;
     *) return 1 ;;
   esac
