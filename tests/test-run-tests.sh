@@ -641,6 +641,14 @@ if [ -e "$tmp/real-claude-ran" ]; then
 else
   echo "ok: the real claude CLI never ran"
 fi
+out="$(PATH="$tmp/realbin:$PATH" PLANWRIGHT_TEST_REAL_CLAUDE=1 /bin/bash "$RUNNER" "$tmp/calls-claude" 2>&1)"
+assert "an opt-in the caller exported reaches no file" 1 $?
+if [ -e "$tmp/real-claude-ran" ]; then
+  echo "FAIL: an exported opt-in let the real claude CLI run" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: an exported opt-in never reaches the real claude CLI"
+fi
 out="$(PATH="$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/own-stub" 2>&1)"
 assert "a file whose own stub is first on PATH passes" 0 $?
 mkdir -p "$tmp/outer.claude-guard"

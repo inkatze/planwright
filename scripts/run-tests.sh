@@ -473,7 +473,8 @@ if [ "${1:-}" = "--run-one" ]; then
   # A refusing `claude` heads PATH instead, so a file's own stub (earlier on
   # PATH, or named through PLANWRIGHT_STREAMJSON_CLI) still answers and any
   # other call fails the file; PLANWRIGHT_TEST_REAL_CLAUDE=1 on a call is the
-  # one way through.
+  # one way through, so one the caller exported is not passed on.
+  unset PLANWRIGHT_TEST_REAL_CLAUDE
   claude_guard="$PLANWRIGHT_TEST_LOG_DIR/$name.claude-guard"
   if write_claude_guard "$claude_guard"; then
     PATH="$claude_guard:$PATH"
