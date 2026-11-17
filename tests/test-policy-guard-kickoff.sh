@@ -1029,7 +1029,9 @@ gitq -C "$INCD" config includeIf.onbranch:b.path "$SANDBOX/inc.cfg"
 for cmd in 'HOME=/tmp/h git add scripts/kickoff-spec-push.sh' \
   'export HOME=/tmp/h; git add scripts/kickoff-spec-push.sh' \
   'XDG_CONFIG_HOME=/tmp/h; git status scripts/kickoff-spec-push.sh' \
-  'declare -x XDG_CONFIG_HOME=/tmp/h; git restore scripts/kickoff-spec-push.sh'; do
+  'declare -x XDG_CONFIG_HOME=/tmp/h; git restore scripts/kickoff-spec-push.sh' \
+  'HOME+=/../../tmp/h git add scripts/kickoff-spec-push.sh' \
+  'XDG_CONFIG_HOME+=/x; git status scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect deny "[$tier, task-1] another global configuration could set a filter: $cmd"

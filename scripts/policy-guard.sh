@@ -1455,8 +1455,9 @@ segment_words() {
           *)
             case ${w%%=*} in
               GIT_*) SW_GITENV=1 ;;
-              # Where git reads its global configuration from.
-              HOME | XDG_CONFIG_HOME) SW_CFGENV=1 ;;
+              # Where git reads its global configuration from, set or
+              # appended to.
+              HOME | HOME+ | XDG_CONFIG_HOME | XDG_CONFIG_HOME+) SW_CFGENV=1 ;;
             esac
             SW_ASSIGN=1
             k=$((k + 1))
