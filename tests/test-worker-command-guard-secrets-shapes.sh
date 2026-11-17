@@ -116,6 +116,13 @@ for v in code issues prs; do
     assert_defer "secrets: gh search jq/template: $c" "$c"
   done
 done
+# shellcheck disable=SC2016 # the guard reads the words as written
+for c in 'gh auth status --json hosts --jq env' 'gh auth status --jq=env' "gh auth status --jq '\$ENV'" \
+  'gh auth status --template {{env}}' 'gh auth status --json hosts --template={{env}}' \
+  'gh auth status -a --jq env' 'gh auth status -h github.com --jq=env'; do
+  assert_defer "secrets: gh auth status jq/template: $c" "$c"
+done
+assert_allow "secrets: gh auth status with a jq field" "gh auth status --json hosts --jq .hosts"
 assert_allow "secrets: gh pr view with a jq field" "gh pr view 1 --json title --jq .title"
 assert_allow "secrets: gh run list with a jq filter" "gh run list --json name -q .name"
 assert_allow "secrets: gh repo view with a jq filter" "gh repo view --json name --jq .name"

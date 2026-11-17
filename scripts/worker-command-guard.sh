@@ -3596,7 +3596,7 @@ guard_gh() {
   esac
   local i g=${cw[1]-} s=${cw[2]-}
   case $g in
-    api | pr | issue | run | release | repo | search) gh_jq_ok || return 1 ;;
+    api | pr | issue | run | release | repo | search | auth) gh_jq_ok || return 1 ;;
   esac
   case $g in
     release)
