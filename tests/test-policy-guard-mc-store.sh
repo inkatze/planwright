@@ -41,6 +41,13 @@ ln -s "$OUTSIDE/plain/hop" "$H/kb/chain.md"
 ln -s ../../../plain/hop "$H/kb/rel-chain.md"
 ln -s "$FIXHOME/.claude/settings.json" "$OUTSIDE/plain/l"
 ln -s "$OUTSIDE/harmless" "$H/kb/out-dir"
+# Without its link the out-dir allow row would pass as a plain home path.
+for l in "$H/kb/chain.md" "$H/kb/rel-chain.md" "$OUTSIDE/plain/l" "$H/kb/out-dir"; do
+  [ -L "$l" ] || {
+    echo "fixture link missing: $l" >&2
+    exit 1
+  }
+done
 printf '/some/cwd\n' >"$H/streamjson/w/cwd"
 printf '/some/cwd\n' >"$FLEET/streamjson/w/cwd"
 
@@ -104,7 +111,6 @@ EOF
 cat <<'EOF' >> $H/kb/b.md
 settings.json
 EOF"
-allow 'fleet-streamjson.sh answer --name w --deny --message="never > settings.json"'
 refuse "cat >> $H/kb/a.md <<'EOF'
 settings.json"
 refuse "cat >> $H/kb/a.md <<'EOF'
@@ -171,6 +177,7 @@ done
 echo "# quoted text is data, not a write"
 allow 'fleet-streamjson.sh answer --name w --deny --message "do not run echo x >> CLAUDE.md or cat >> settings.json; hand it to the operator"'
 allow 'mc-kb.sh append --text "never append >> CLAUDE.md or planwright.local.yml"'
+allow 'fleet-streamjson.sh answer --name w --deny --message="never > settings.json"'
 
 echo "# the same forms naming posture stay refused"
 refuse "echo x >> $UNIT/CLAUDE.md"
