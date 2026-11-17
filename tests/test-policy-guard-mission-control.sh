@@ -176,7 +176,20 @@ for c in "echo a \\<<EOF${NL}cd $KB${NL}echo x > lk-file${NL}EOF" "mksh <<EOF${N
 done
 # shellcheck disable=SC2016 # the guard must see the expansion literally
 pg mission-control '$HOME/bin/x > out.txt' "$KB"
-expect defer "[mission-control] a variable-led path as the command word names a file, never cd"
+expect defer "[mission-control] \$HOME/... as the command word names a file, never cd"
+for c in "X=\$'c\\x64 '; \$X$KB; echo x > lk-file" "HOME=/x; \$HOME/bin/x > lk-file" \
+  "bash <<EOF${NL}cp /x $KB/lk-file${NL}EOF" "xargs <<EOF${NL}cp /x $KB/lk-file${NL}EOF" \
+  "cat <<'EOF' | bash${NL}tee $KB/lk-file${NL}EOF"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a variable holding cd, or a here-document a shell reads, stays refused: ${c//$NL/ / }"
+done
+pg mission-control "gh pr create --title t --body \"\$(cat <<'EOF'${NL}Run cd sub then a -> b${NL}EOF${NL})\"" "$SCRATCH"
+expect defer "[mission-control] a PR body here-document mentioning cd is data"
+pg mission-control 'ln -s .claude/worktrees/x y' "$SANDBOX/repo"
+expect defer "[mission-control] a relative .claude/worktrees link source is a checkout"
+mkdir -p "$SCRATCH/cdx/dst/src" "$SCRATCH/cdx/src"
+pg mission-control 'cd '"$SCRATCH/cdx"' && cp -r src dst' "$UNIT"
+expect deny "[mission-control] a recursive copy into a tree already there is looked up from the cd directory"
 WT="$SANDBOX/repo/.claude/worktrees/w"
 mkdir -p "$WT"
 pg mission-control 'ln -s a b' "$WT"

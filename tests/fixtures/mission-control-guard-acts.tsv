@@ -537,6 +537,7 @@ deny	settings-write	bash	-	behind a wrapper	mapfile -C 'cp /x @SCRATCH@/kb/lk-fi
 deny	settings-write	bash	-	behind a wrapper	complete -C 'cp /x @SCRATCH@/kb/lk-file' foo
 deny	settings-write	bash	-	behind a wrapper	nsenter cp /x @SCRATCH@/kb/lk-file
 deny	settings-write	bash	-	behind a wrapper	setpriv --reuid 1 cp /x @SCRATCH@/kb/lk-file
+# A nameref can alias HOME.
 deny	settings-write	bash	-	leads to one on disk	declare -n h=HOME; h=@HOME@/.claude; echo x > ~/agents/new.md
 # Long options in any abbreviation getopt_long accepts, and side outputs.
 deny	settings-write	bash	-	leads to one on disk	sort --out=@SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
@@ -564,8 +565,9 @@ deny	settings-write	bash	-	leads to one on disk	cp --recursive @SCRATCH@/kb/lk-p
 deny	settings-write	bash	-	leads to one on disk	cp --preserve=links @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
 deny	settings-write	bash	-	leads to one on disk	rsync --links @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b5 && echo x > @SCRATCH@/kb/b5
 deny	settings-write	bash	-	leads to one on disk	rsync -a @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b5 && echo x > @SCRATCH@/kb/b5
-# Narrowed permits: a package manager's install, a script named after a verb,
-# a variable-led path as the command word. The shapes beside each stay refused.
+# Narrowed permits: a package manager's install, a script named after a verb
+# (the $HOME/... command word and .claude/worktrees links are in the suite).
+# The shapes beside each stay refused.
 defer	read	bash	-	-	make install
 defer	read	bash	-	-	env FOO=1 npm install
 defer	read	bash	-	-	fish -c "npm install"
@@ -576,3 +578,26 @@ deny	settings-write	bash	-	behind a wrapper	bash -c 'install /x @SCRATCH@/kb/lk-
 deny	settings-write	bash	-	behind a wrapper	fish -c "cp /x @SCRATCH@/kb/lk-file"
 deny	settings-write	bash	-	behind a wrapper	make install; bash -c 'tee @SCRATCH@/kb/lk-file'
 deny	settings-write	bash	-	behind a wrapper	fish -c "npm install; cp /x @SCRATCH@/kb/lk-file"
+deny	settings-write	bash	-	behind a wrapper	find @SCRATCH@/kb -name go -exec install /x @SCRATCH@/kb/lk-file ;
+# The final pass's shapes: path-qualified verbs behind a runner, a prefixed
+# runner, a substitution with its own quotes, cp -T and -f, rsync directories,
+# more side outputs, a here-document a shell reads.
+deny	settings-write	bash	-	behind a wrapper	sh -c 'true; /bin/cp /x @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	behind a wrapper	find @SCRATCH@/kb -exec /usr/bin/tee @SCRATCH@/kb/lk-file ;
+deny	settings-write	bash	-	leads to one on disk	X=1 watch 'echo x > @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	leads to one on disk	if true; then trap 'echo x > @SCRATCH@/kb/lk-file' EXIT; fi
+deny	settings-write	bash	-	leads to one on disk	/usr/bin/watch 'echo x > @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	names one|leads to one on disk	echo "$(echo "x" > @SCRATCH@/kb/lk-file)"
+deny	settings-write	bash	-	leads to one on disk	cp -rT @SCRATCH@/x @SCRATCH@/kb
+deny	settings-write	bash	-	leads to one on disk	cp --recursive --no-target-directory @SCRATCH@/x @SCRATCH@/kb
+deny	settings-write	bash	-	leads to one on disk	cp -f @SCRATCH@/x/lk-file @SCRATCH@/kb
+deny	settings-write	bash	-	leads to one on disk	rsync --backup-dir=@SCRATCH@/kb/lk-agents -b @SCRATCH@/kb/real.md /tmp/y
+deny	settings-write	bash	-	leads to one on disk	curl --etag-save @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget --rejected-log=@SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar --volno-file=@SCRATCH@/kb/lk-file -cf /tmp/x.tar @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	curl --dump-header @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget -a @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar --listed-incremental=@SCRATCH@/kb/lk-file -cf /tmp/x.tar @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	ln --target-dir=@SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+defer	read	bash	-	-	curl -sS --cookie sid=1 https://example.invalid
+defer	read	bash	-	-	echo "the source file" > $TMPDIR/x.txt
