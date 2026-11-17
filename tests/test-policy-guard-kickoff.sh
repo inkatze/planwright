@@ -950,6 +950,8 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git -C $D add scripts/kickoff-spec-push.sh' \
   'true; git -C /some/repo add scripts/kickoff-spec-push.sh' \
   'ls && git -C /some/repo status scripts/kickoff-spec-push.sh' \
+  'git -C /some/repo add scripts/kickoff-spec-push.sh & git init /some/repo' \
+  'while git -C /some/repo add scripts/kickoff-spec-push.sh; do mkdir -p /some/repo; done' \
   'git -C ~/x add scripts/kickoff-spec-push.sh' \
   'git -C ../filter-c* add scripts/kickoff-spec-push.sh' \
   'cd $X && git add scripts/kickoff-spec-push.sh' \

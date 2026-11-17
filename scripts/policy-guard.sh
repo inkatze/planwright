@@ -1807,24 +1807,25 @@ kick_cfg_has() {
   [ -n "$(gitq "$KICK_DIR" config --get-regexp "$2")" ]
 }
 
-# kick_filter_set <dir> <dir-ok> <segment> — 0 when a filter program
+# kick_filter_set <dir> <dir-ok> — 0 when a filter program
 # (filter.<driver>.clean, smudge or process) may run in <dir>: one is
 # configured, a git config earlier in the same command may have set one, or
-# the directory cannot be placed. A directory missing when no segment runs
-# before this one runs nothing, since git stops on it; after another segment it
-# may have been made, with any configuration.
+# the directory cannot be placed. A missing directory runs nothing, since git
+# stops on it, but only when the command is this one segment: any other
+# segment, even one after it in a loop or beside it in the background, may
+# make it, with any configuration.
 kick_filter_set() {
   [ "$ST_FILT" = 0 ] && [ "$2" = 1 ] || return 0
   if [ ! -d "$1" ]; then
-    [ "$3" = 0 ] && return 1
+    [ "${#SEG_S[@]}" = 1 ] && return 1
     return 0
   fi
   [ -n "$(gitq "$1" config --get-regexp '^filter\..*\.(clean|smudge|process)$')" ]
 }
 
-# kickoff_git_reads <segment> — 0 when the segment is a git read or stage of
-# its arguments: no option but -C before the subcommand (a -c could set a pager
-# or helper to the script), and a subcommand that does not run its arguments.
+# kickoff_git_reads — 0 when the segment is a git read or stage of its
+# arguments: no option but -C before the subcommand (a -c could set a pager or
+# helper to the script), and a subcommand that does not run its arguments.
 kickoff_git_reads() {
   local k=1 j w moved=0 noext=0 notext=0 patchy=0 colon=0 bare=0 filt=0 fdir=$KICK_DIR fok=$KICK_DIR_OK
   while [ "$k" -lt "${#SW[@]}" ]; do
@@ -1924,7 +1925,7 @@ kickoff_git_reads() {
             done
             ;;
         esac
-        [ "$filt" = 0 ] || ! kick_filter_set "$fdir" "$fok" "$1" || return 1
+        [ "$filt" = 0 ] || ! kick_filter_set "$fdir" "$fok" || return 1
         return 0
         ;;
       *) return 1 ;;
@@ -1999,7 +2000,7 @@ kickoff_cmd_reads() {
   case $KV in
     reader) kickoff_args_safe || return 1 ;;
     text) ;;
-    git) kickoff_git_reads "$1" || return 1 ;;
+    git) kickoff_git_reads || return 1 ;;
     *) return 1 ;;
   esac
   for w in "${SW[@]}"; do
