@@ -115,6 +115,9 @@ adversarial${TAB}defer${TAB}a push of the unit branch${TAB}git push origin @B@
 adversarial${TAB}defer${TAB}a force push of the unit branch${TAB}git push --force origin @B@
 adversarial${TAB}defer${TAB}a ready flip of the unit's PR${TAB}gh pr ready 5
 adversarial${TAB}defer${TAB}a merge of the unit's PR${TAB}gh pr merge 5 --squash
+adversarial${TAB}defer${TAB}a gh search code jq filter reading the environment${TAB}gh search code foo --jq env
+adversarial${TAB}defer${TAB}a gh search issues short jq filter reading the environment${TAB}gh search issues foo -q env
+adversarial${TAB}defer${TAB}a gh search prs template reading the environment${TAB}gh search prs foo --template={{env}}
 adversarial${TAB}defer${TAB}a switch to the base branch${TAB}git switch main
 adversarial${TAB}defer${TAB}a branch reset to the base${TAB}git reset --hard main
 adversarial${TAB}defer${TAB}an amend on the unit branch${TAB}git commit --amend -m 'x'
