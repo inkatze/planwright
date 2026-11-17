@@ -52,6 +52,7 @@ deny	git-mutation	bash	-	runs no git mutation	git ls-remote --upload-pack=/tmp/x
 deny	git-mutation	bash	-	runs no git mutation	git ls-remote --upl=/tmp/x.sh .
 deny	git-mutation	bash	-	runs no git mutation	git --exec-path=/tmp/x ls-remote https://example.invalid/r.git
 deny	git-mutation	bash	-	runs no git mutation	git cat-file --filters HEAD:README.md
+deny	git-mutation	bash	-	runs no git mutation	git cat-file --fi HEAD:README.md
 deny	git-mutation	bash	-	runs no git mutation	git grep --open-files-in-pager=/tmp/x.sh foo
 deny	git-mutation	bash	-	runs no git mutation	git -c core.fsmonitor=/tmp/x.sh status
 deny	git-mutation	bash	-	runs no git mutation	git -c diff.external=/tmp/x.sh diff

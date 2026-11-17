@@ -3537,7 +3537,7 @@ mc_git_reads() {
       --outp* | --ext* | --textc*) return 1 ;;
     esac
     case $sub:$a in
-      grep:--op* | grep:-O* | grep:-[!-]*O* | ls-remote:--u* | ls-remote:--exec* | cat-file:--fil*) return 1 ;;
+      grep:--op* | grep:-O* | grep:-[!-]*O* | ls-remote:--u* | ls-remote:--exec* | cat-file:--fi*) return 1 ;;
     esac
   done
   case " $MC_GIT_READS " in *" $sub "*) return 0 ;; esac
