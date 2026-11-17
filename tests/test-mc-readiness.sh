@@ -121,6 +121,9 @@ walk_with "cadence failed step" '-' "cadence${tab}gap${tab}convergence${tab}fail
 expect_out "a failed step reads with its outcome" "fail${tab}cadence${tab}convergence: polish recorded halted"
 walk_with "cadence stale" '-' "cadence${tab}gap${tab}post-pr${tab}stale${tab}2222222222222222222222222222222222222222"
 expect_out "a stale point names where it completed" "fail${tab}cadence${tab}post-pr: completed only at 222222222222"
+walk_with "cadence mismatch" '-' "cadence${tab}gap${tab}convergence${tab}mismatch${tab}head:polish"
+expect_out "a mismatched record names what it contradicts" \
+  "fail${tab}cadence${tab}convergence: a record does not match its branch (head:polish)"
 walk_with "cadence incomplete" '-' "cadence${tab}gap${tab}pre-ci${tab}incomplete${tab}-"
 expect_out "an incomplete point says so" "fail${tab}cadence${tab}pre-ci: no completion record"
 walk_with "cadence fault" '-' "cadence${tab}gap${tab}convergence${tab}fault${tab}000003:convergence:001 polish: start 2026-11-04T10:00:13Z is off"
