@@ -603,6 +603,48 @@ assert_contains "the unpinnable list is named" "could not pin the fleet home" "$
 assert_not_contains "a file the runner never ran is not blamed for a fleet-home write" "wrote into the fleet home" "$out"
 assert_contains "an unpinnable file fails once" "2 of 2 test file" "$out"
 
+# 23. A file never reaches the real claude CLI: the runner refuses it and
+#     fails the file, a stub of the file's own still answers, and only an
+#     explicit PLANWRIGHT_TEST_REAL_CLAUDE=1 passes through to the real one.
+mkdir -p "$tmp/realbin" "$tmp/calls-claude" "$tmp/own-stub" "$tmp/opts-in"
+cat >"$tmp/realbin/claude" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/real-claude-ran"
+EOF
+chmod +x "$tmp/realbin/claude"
+cat >"$tmp/calls-claude/test-calls.sh" <<'EOF'
+#!/bin/bash
+claude -p --resume fixture-session
+exit 0
+EOF
+cat >"$tmp/own-stub/test-stubbed.sh" <<'EOF'
+#!/bin/bash
+own=$(mktemp -d) || exit 1
+trap 'rm -rf "$own"' EXIT
+printf '#!/bin/sh\necho stub\n' >"$own/claude"
+chmod +x "$own/claude"
+[ "$(PATH="$own:$PATH" claude -p)" = stub ]
+EOF
+cat >"$tmp/opts-in/test-live.sh" <<'EOF'
+#!/bin/bash
+PLANWRIGHT_TEST_REAL_CLAUDE=1 claude --version
+EOF
+out="$(PATH="$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/calls-claude" 2>&1)"
+assert "a file that runs the real claude CLI fails the run" 1 $?
+assert_contains "the failure names the file" "test-calls.sh" "$out"
+assert_contains "the failure says the real claude CLI was refused" "refused the real claude CLI" "$out"
+if [ -e "$tmp/real-claude-ran" ]; then
+  echo "FAIL: the real claude CLI ran under the runner" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: the real claude CLI never ran"
+fi
+out="$(PATH="$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/own-stub" 2>&1)"
+assert "a file whose own stub is first on PATH passes" 0 $?
+out="$(PATH="$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/opts-in" 2>&1)"
+assert "a file that opts in explicitly reaches the real claude CLI" 0 $?
+assert_contains "the opt-in passed the real CLI its arguments" "--version" "$(cat "$tmp/real-claude-ran" 2>&1)"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
