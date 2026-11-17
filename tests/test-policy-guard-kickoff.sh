@@ -1000,6 +1000,40 @@ for cmd in "git -C $BADD add scripts/kickoff-spec-push.sh" \
     expect deny "[$tier, task-1] an unreadable configuration counts as a filter set: $cmd"
   done
 done
+# git can read configuration the guard does not: a global one under another
+# HOME or XDG_CONFIG_HOME, or a conditional include that starts to apply once
+# an earlier segment changes the branch or the remotes.
+INCD="$SANDBOX/include"
+clone_on "$INCD" planwright/demo/task-1 1
+gitq -C "$INCD" config includeIf.onbranch:b.path "$SANDBOX/inc.cfg"
+for cmd in 'HOME=/tmp/h git add scripts/kickoff-spec-push.sh' \
+  'export HOME=/tmp/h; git add scripts/kickoff-spec-push.sh' \
+  'XDG_CONFIG_HOME=/tmp/h; git status scripts/kickoff-spec-push.sh' \
+  'declare -x XDG_CONFIG_HOME=/tmp/h; git restore scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
+    expect deny "[$tier, task-1] another global configuration could set a filter: $cmd"
+  done
+done
+for cmd in 'git switch -c b && git add scripts/kickoff-spec-push.sh' \
+  'git remote add o u && git add scripts/kickoff-spec-push.sh' \
+  'git commit -m x && git status scripts/kickoff-spec-push.sh'; do
+  # The tower refuses a branch change or a commit on its own.
+  PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$INCD" "$INCD"
+  expect deny "[worker, task-1] a conditional include may start to apply: $cmd"
+done
+for cmd in 'git add scripts/kickoff-spec-push.sh' \
+  'LANG=C git add scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$INCD" "$INCD"
+    expect defer "[$tier, task-1] with the branch and remotes unchanged, an include defers: $cmd"
+  done
+done
+for cmd in 'git switch -c b && git add scripts/kickoff-spec-push.sh' \
+  'git remote add o u && git add scripts/kickoff-spec-push.sh'; do
+  PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$NOFD" "$NOFD"
+  expect defer "[worker, task-1] with no conditional include, a branch or remote change defers: $cmd"
+done
 PAGD="$SANDBOX/pager"
 clone_on "$PAGD" planwright/demo/task-1 1
 gitq -C "$PAGD" config core.pager sh

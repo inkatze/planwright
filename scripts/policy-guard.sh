@@ -1424,6 +1424,7 @@ segment_words() {
   SW_WRAPPED=0
   SW_GITENV=0
   SW_ASSIGN=0
+  SW_CFGENV=0
   while [ "$k" -lt "$e" ]; do
     w=${W[$k]}
     case $w in
@@ -1452,7 +1453,11 @@ segment_words() {
         case ${w%%=*} in
           *[!A-Za-z0-9_+]*) ;;
           *)
-            case ${w%%=*} in GIT_*) SW_GITENV=1 ;; esac
+            case ${w%%=*} in
+              GIT_*) SW_GITENV=1 ;;
+              # Where git reads its global configuration from.
+              HOME | XDG_CONFIG_HOME) SW_CFGENV=1 ;;
+            esac
             SW_ASSIGN=1
             k=$((k + 1))
             continue
@@ -1820,14 +1825,24 @@ kick_cfg_has() {
 # segment, even one after it in a loop or beside it in the background, may
 # make it, with any configuration.
 kick_filter_set() {
-  [ "$ST_FILT" = 0 ] && [ "$2" = 1 ] || return 0
+  [ "$ST_FILT" = 0 ] && [ "${SW_CFGENV:-0}" = 0 ] && [ "$2" = 1 ] || return 0
   if [ ! -d "$1" ]; then
     [ "${#SEG_S[@]}" = 1 ] && return 1
     return 0
   fi
-  # Exit 1 is no match; a configuration git cannot read proves nothing.
+  kick_cfg_matches "$1" '^filter\..*\.(clean|smudge|process)$' && return 0
+  # A conditional include (onbranch, hasconfig:remote) can start to apply
+  # after an earlier segment changes the branch or the remotes.
+  [ "$ST_REF" = 1 ] || [ "$ST_CFG" = 1 ] || [ "$ST_HEAD" = 1 ] || return 1
+  kick_cfg_matches "$1" '^includeif\.'
+}
+
+# kick_cfg_matches <dir> <key-regexp> — 0 when a key in <dir>'s configuration
+# matches, or when git cannot read that configuration (exit 1 is no match;
+# a malformed or unreadable file proves nothing).
+kick_cfg_matches() {
   local out rc=0
-  out=$(gitq "$1" config --get-regexp '^filter\..*\.(clean|smudge|process)$') || rc=$?
+  out=$(gitq "$1" config --get-regexp "$2") || rc=$?
   [ "$rc" -le 1 ] || return 0
   [ -n "$out" ]
 }
@@ -2471,6 +2486,7 @@ classify_segments() {
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      [ "$SW_CFGENV" = 0 ] || ST_FILT=1
       KICK_BESIDE=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
         || deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run it as $KICK_FORM."
@@ -2597,6 +2613,9 @@ classify_segments() {
         export | declare | typeset | readonly | local | let | printf)
           case " ${SW[*]} " in
             *" GIT_"*) GIT_ENV_SET=1 ;;
+          esac
+          case " ${SW[*]} " in
+            *" HOME"* | *" XDG_CONFIG_HOME"*) ST_FILT=1 ;;
           esac
           # A value the shell later runs (a startup or prompt hook, an
           # arithmetic subscript) is screened as a command; printf sets one
