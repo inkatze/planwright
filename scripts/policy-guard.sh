@@ -1714,6 +1714,10 @@ KICK_DIR=''
 KICK_DIR_OK=0
 KICK_HEAD_MOVED=0
 KICK_BESIDE=0
+# KGR_FILT: the last git read kickoff_cmd_reads passed is one a filter program
+# runs for. KICK_FILT_PASSED: a mention of the script passed as one.
+KGR_FILT=0
+KICK_FILT_PASSED=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
@@ -1931,6 +1935,7 @@ kickoff_git_reads() {
             ;;
         esac
         [ "$filt" = 0 ] || ! kick_filter_set "$fdir" "$fok" || return 1
+        KGR_FILT=$filt
         return 0
         ;;
       *) return 1 ;;
@@ -1999,6 +2004,7 @@ kickoff_args_safe() {
 # carry the name). Set KV to the command's class.
 kickoff_cmd_reads() {
   local w
+  KGR_FILT=0
   [ "${SEG_RD[$1]:-0}" = 0 ] || return 1
   [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
   kickoff_verb_class "${SW[0]}"
@@ -2124,8 +2130,12 @@ kickoff_segment() {
       deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run it as $KICK_FORM."
     fi
   fi
-  if kickoff_fuzzy_name "$3" && ! kickoff_cmd_reads "$3"; then
-    deny_now "this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
+  if kickoff_fuzzy_name "$3"; then
+    if kickoff_cmd_reads "$3"; then
+      [ "$KGR_FILT" = 0 ] || KICK_FILT_PASSED=1
+    else
+      deny_now "this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
+    fi
   fi
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
@@ -2134,6 +2144,7 @@ kickoff_segment() {
   local kc=$KC
   if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc" "$3"; then
     KICK_PASSED=$((KICK_PASSED + kc))
+    [ "$KGR_FILT" = 0 ] || KICK_FILT_PASSED=1
     kickoff_var_set
     kickoff_pipe_on "$3"
     return 1
@@ -2373,6 +2384,10 @@ kickoff_text_check() {
     || deny_now "this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
   [ "$KICK_SEEN" = 0 ] || [ "$KICK_BESIDE" = 0 ] \
     || deny_now "this kickoff push runs beside a command that is neither a cd nor a read, or with a variable assigned, which could change the branch it pushes or the launch scope the helper checks after the guard has read them - refusing (fail closed). Run the kickoff push on its own, or after cd only."
+  # A filter set after the stage in the text can still run first: a loop runs
+  # its body before its next condition, and a background job runs beside it.
+  [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
+    || deny_now "this command stages, compares or restores scripts/kickoff-spec-push.sh and also runs a git command that may set a filter program, which a loop or a background job can run before the stage, and a filter program runs on the script's content - refusing (fail closed). Run the configuration change as its own command."
 }
 
 # kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
@@ -2416,6 +2431,7 @@ classify_segments() {
   KICK_VAR=0
   KICK_HEAD_MOVED=0
   KICK_BESIDE=0
+  KICK_FILT_PASSED=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0

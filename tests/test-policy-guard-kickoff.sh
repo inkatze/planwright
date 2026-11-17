@@ -920,7 +920,9 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
   "git -C $NOFD add scripts/kickoff-spec-push.sh" \
   'git -C . status scripts/kickoff-spec-push.sh' \
   'git -C /some/repo add scripts/kickoff-spec-push.sh' \
-  "git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh"; do
+  "git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  'git status scripts/kickoff-spec-push.sh; git config user.name t' \
+  'git log -p -- scripts/kickoff-spec-push.sh; git config filter.z.clean sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect defer "[$tier, task-1] with no filter program configured, a stage or read of the script defers: $cmd"
@@ -975,7 +977,12 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git config --ed && git add scripts/kickoff-spec-push.sh' \
   'git config fil{t..t}er.z.clean sh && git add scripts/kickoff-spec-push.sh' \
   'git zz && git add scripts/kickoff-spec-push.sh' \
-  'git Config filter.z.clean sh && git status scripts/kickoff-spec-push.sh'; do
+  'git Config filter.z.clean sh && git status scripts/kickoff-spec-push.sh' \
+  'for i in 1 2; do git add scripts/kickoff-spec-push.sh; git config filter.z.clean sh; done' \
+  'while git status scripts/kickoff-spec-push.sh; do git config filter.z.clean sh; done' \
+  'git add scripts/kickoff-spec-push.sh & git config filter.z.clean sh' \
+  'git add scripts/k*.sh; git config filter.z.clean sh' \
+  'git restore scripts/kickoff-spec-push.sh; git init x'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect deny "[$tier, task-1] a filter the guard cannot rule out could run on the file: $cmd"
