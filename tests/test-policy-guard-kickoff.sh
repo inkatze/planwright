@@ -920,19 +920,18 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
   "git -C $NOFD add scripts/kickoff-spec-push.sh" \
   'git -C . status scripts/kickoff-spec-push.sh' \
   'git -C /some/repo add scripts/kickoff-spec-push.sh' \
-  "git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
-  "git init $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh"; do
+  "git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh"; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect defer "[$tier, task-1] with no filter program configured, a stage or read of the script defers: $cmd"
   done
 done
-# Deliberate over-blocks: cat-file --filters (in any abbreviation) is refused
-# whatever is configured. A git config write or read that names a filter key,
-# a filter section rename, an include or an editor, a clone or init that sets
-# configuration, a git -C the guard cannot place, and a missing git -C
-# directory in a command with other segments (which may make it) all count as
-# a filter set.
+# Deliberate over-blocks: cat-file --filters is refused whatever is
+# configured. A git config write or read that names a filter key, a filter
+# section rename, an include, an editor or a word the shell may still expand;
+# any clone or init; an alias or other non-builtin git subcommand; a cd or
+# git -C target the guard cannot read; and a missing git -C directory in a
+# command with other segments (which may make it) all count as a filter set.
 for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --filt HEAD:scripts/kickoff-spec-push.sh' \
   'git cat-file --batch --filters scripts/kickoff-spec-push.sh' \
@@ -967,7 +966,16 @@ for cmd in 'git cat-file --filters HEAD:scripts/kickoff-spec-push.sh' \
   "git clone -c filter.z.clean=sh $SANDBOX/origin.git $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
   "git clone --config=filter.z.clean=sh $SANDBOX/origin.git $SANDBOX/empty && git -C $SANDBOX/empty status scripts/kickoff-spec-push.sh" \
   "git clone -qc filter.z.clean=sh $SANDBOX/origin.git $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
-  "git init --template=$SANDBOX/tpl $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh"; do
+  "git init --template=$SANDBOX/tpl $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  "git clone -qcfilter.z.clean=sh $SANDBOX/origin.git $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  "git clone -cuser.name=t $SANDBOX/origin.git $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  "git -c init.templateDir=$SANDBOX/tpl init $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  "git init --t=$SANDBOX/tpl $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  "git init $SANDBOX/empty && git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
+  'git config --ed && git add scripts/kickoff-spec-push.sh' \
+  'git config fil{t..t}er.z.clean sh && git add scripts/kickoff-spec-push.sh' \
+  'git zz && git add scripts/kickoff-spec-push.sh' \
+  'git Config filter.z.clean sh && git status scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect deny "[$tier, task-1] a filter the guard cannot rule out could run on the file: $cmd"

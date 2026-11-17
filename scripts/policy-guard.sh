@@ -1612,7 +1612,8 @@ tower_floor() {
 # later one runs; every segment is checked against the state as it is now, so
 # a reserved act after such a change cannot be checked and is refused.
 ST_CFG=0
-# A git config write that may set a filter program or an include.
+# A git command that may have set a filter program: a git config naming a
+# filter key, an include or an editor, a clone or init, or an alias.
 ST_FILT=0
 ST_REF=0
 ST_FETCH=0
@@ -3734,6 +3735,9 @@ classify_git() {
   case " $GIT_BUILTINS " in
     *" $sub "*) ;;
     *)
+      # An alias or a git-<name> program may write any configuration,
+      # a filter program included.
+      ST_FILT=1
       if [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; then
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') runs where git configuration is set in the same command or its environment (a GIT_* variable, git config, or git remote), so the guard cannot tell what it runs - refusing (fail closed). Run the configuration change and the command separately."
         return 0
@@ -3790,7 +3794,7 @@ act_gate() {
 # git_state_after <sub> <first-arg-index> — record what this git segment
 # changes for the segments after it.
 git_state_after() {
-  local a pos=0 ro=0 rsub='' ren
+  local a pos=0 ro=0 rsub='' renaming
   for a in "${SW[@]:$2}"; do
     case $a in -*) ;; *) [ -n "$rsub" ] || rsub=$a ;; esac
     case $a in
@@ -3806,27 +3810,26 @@ git_state_after() {
       # can spell a read verb (git config filter.y.clean sh list writes the
       # key). Any filter key but required may be a program, and a section
       # renamed into filter.* brings its keys along; an include, an editor or
-      # a word the guard cannot read may set anything.
-      ren=0
+      # a word the shell may still expand (a brace sequence spells
+      # fil{t..t}er) may set anything. The rename word may follow the key, so
+      # it is looked for first.
+      renaming=0
       for a in "${SW[@]:$2}"; do
-        case $a in --rename-section* | rename-section) ren=1 ;; esac
+        case $a in --rename-section* | rename-section) renaming=1 ;; esac
       done
       for a in "${SW[@]:$2}"; do
         lc "$a"
         case $LC in
-          -e | --edit | include* | *'$'* | *'`'*) ST_FILT=1 ;;
-          filter.*.required) [ "$ren" = 0 ] || ST_FILT=1 ;;
+          -e | -[!-]*e | --ed* | include* | *'$'* | *'`'* | *'{'*) ST_FILT=1 ;;
+          filter.*.required) [ "$renaming" = 0 ] || ST_FILT=1 ;;
           filter.*) ST_FILT=1 ;;
         esac
       done
       ;;
-    # A clone or init writes configuration given with -c or --config, or
-    # copied from a template, into a directory that may already exist.
-    clone | init)
-      for a in "${SW[@]:$2}"; do
-        case $a in -c | -c?* | -[!-]*c | --c* | --te*) ST_FILT=1 ;; esac
-      done
-      ;;
+    # A clone or init writes configuration into a directory that may already
+    # exist: from -c or --config, before the subcommand or after it, or from a
+    # template that options, configuration or the environment can name.
+    clone | init) ST_FILT=1 ;;
     # A remote's own name or URL may be a read word, so only the subcommand
     # decides.
     remote)
