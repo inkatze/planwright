@@ -335,6 +335,7 @@ worker_signal() {
 # A refused call is recorded beside <dir> as <dir>.hit, where the worker
 # finds it once the file exits, whatever the file did with the stderr.
 write_claude_guard() {
+  # not-a-lock: the guard's directory is the file's own, made once
   mkdir -m 700 -- "$1" 2>/dev/null || return 1
   cat >"$1/claude" <<'GUARD' || return 1
 #!/bin/sh
