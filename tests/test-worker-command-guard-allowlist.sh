@@ -289,7 +289,12 @@ ORIG_PWD=$PWD
 cd "$CORPUS_BOX" || exit 1
 under "$REC" "scratch"
 assert_defer "a probe while TMPDIR is a relative path" "sh scratch/probe.d/ok.sh" Bash "$WT"
+under "$STATE/record.3" "scratch"
+assert_defer "the scratch arm while TMPDIR is a relative path" "touch \$TMPDIR/x" Bash "$WT"
 cd "$ORIG_PWD" || exit 1
+under "$REC" "$SC/"
+assert_allow "a probe while TMPDIR carries a trailing slash" "sh $SC/probe.d/ok.sh" Bash "$WT"
+assert_defer "a probe typed with a doubled slash" "sh $SC//probe.d/ok.sh" Bash "$WT"
 printf 'policy=\nunit_branch=%s\nworktree_root=%s\npr_base=origin/main\nworker_base_merge=allow\nscratch_root=%s\n' \
   "$CORPUS_UNIT_BRANCH" "$WT" "$SC" >"$STATE/nolog.record"
 under "$STATE/nolog.record"

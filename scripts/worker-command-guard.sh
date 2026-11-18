@@ -23,9 +23,9 @@
 #     included. The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
-#     shapes, trusted repo code, declared steps, a vetted scratch probe, the
-#     spec-root write zone) is
-#     always in force; the own-branch arm, which approves writes confined to
+#     shapes, trusted repo code, declared steps, the spec-root write zone) is
+#     always in force, and a vetted scratch probe is part of it once the record
+#     names a scratch root and an audit log; the own-branch arm, which approves writes confined to
 #     the unit branch and its worktree, and the scratch arm, which approves
 #     writes confined to the worker's scratch root, each only when the session
 #     record names it. The record is the launcher's (see session_record_load):
@@ -3478,10 +3478,12 @@ guard_bashsh() {
 # - the whole command is that one call, behind at most `time` and `timeout`,
 #   because any other segment (a redirect, `cp`, `tee`) could rewrite the file
 #   after this read and before the run;
+# - the record names the scratch root and an audit log, since an approval that
+#   runs a file from the scratch root must be traceable;
 # - the path is a plain absolute literal, spelled from the recorded root or
-#   from the session's own TMPDIR (which HOOK_TMPDIR_IS_SCRATCH proved names
-#   it), two levels down, no symlink or second hard link on the way, a file
-#   the session owns;
+#   from the session's own absolute TMPDIR (which HOOK_TMPDIR_IS_SCRATCH proved
+#   names it), two levels down, no symlink or second hard link on the way, a
+#   file the session owns;
 # - the file is read once, here, at most one byte past the cap, and refused
 #   when it holds a NUL or a control byte beyond newline and tab (the
 #   tokenizer and `sh` disagree on carriage return, form feed and vertical
@@ -3489,9 +3491,10 @@ guard_bashsh() {
 # - only leading blank lines, comments (the shebang included) and `set -e`/`-u`
 #   lines are set aside, judged on space and tab alone, so no quote can hide
 #   behind a comment; everything else, the original lines, runs through the
-#   analysis one level deeper, where no policy arm is live and no probe can
-#   nest, so a write, redirect, unlisted pipe or substitution defers. It
-#   shares MAX_SCANNED and the loop bound with the typed command.
+#   analysis one level deeper, where no policy arm and no spec-root write zone
+#   is live, no probe can nest, and the secret-variable screen reads the body,
+#   so a write, redirect, unlisted pipe or substitution defers. It shares
+#   MAX_SCANNED and the loop bound with the typed command.
 # A rewrite by another process between this read and the run is the one window
 # left open; the audit line carries the content's digest, so the approval can
 # be matched to what was judged.
@@ -7544,11 +7547,12 @@ session_record_load
 # The scratch arm resolves `$TMPDIR` to the recorded root, so it is live only
 # while the TMPDIR this hook inherited, which is the session's, names that
 # root: a sandbox, a settings env, or another launch's record would otherwise
-# point the shell elsewhere. Nor do the guard's own temp files belong in a
-# directory the worker may write to.
+# point the shell elsewhere. A relative TMPDIR resolves here from the hook's
+# directory and there from the payload's, so only an absolute one counts. Nor
+# do the guard's own temp files belong in a directory the worker may write to.
 HOOK_TMPDIR_IS_SCRATCH=0
 HOOK_TMP_BASE=${TMPDIR:-/tmp}
-if [ -n "$REC_SCRATCH" ] && [ -n "${TMPDIR:-}" ] \
+if [ -n "$REC_SCRATCH" ] && [ "${TMPDIR:-}" != "${TMPDIR#/}" ] \
   && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
   HOOK_TMPDIR_IS_SCRATCH=1
   HOOK_TMP_BASE=/tmp
