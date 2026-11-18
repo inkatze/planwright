@@ -534,5 +534,18 @@ git -C "$R" replace "$real" forged
 [ "$(mc_untrusted_git -C "$R" show "$real:a.txt")" = one ] || fail "replace ref: a guarded read returned forged content"
 echo "ok: a worker's replace ref does not change what a guarded read returns"
 
+# A grafts file the worker wrote must not make unpushed work read as pushed.
+mkrepo grafted local
+git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q -b work
+printf 'unpushed\n' >"$R/a.txt"
+git -C "$R" commit -qam unpushed
+printf '%s %s\n' "$(git -C "$R" rev-parse origin/main)" "$(git -C "$R" rev-parse HEAD)" >"$R/.git/info/grafts"
+[ "$(git -C "$R" rev-list --count HEAD --not --remotes 2>/dev/null)" = 0 ] \
+  || fail "grafts: the control read was not fooled by the grafts file (fixture is not live)"
+[ "$(mc_untrusted_git -C "$R" rev-list --count HEAD --not --remotes)" = 1 ] \
+  || fail "grafts: a guarded read let a grafts file hide an unpushed commit"
+echo "ok: a worker's grafts file does not hide an unpushed commit from a guarded read"
+
 [ "$failed" -eq 0 ] || exit 1
 echo "all untrusted-git tests passed"

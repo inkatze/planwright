@@ -29,8 +29,9 @@
 # textconv runs nothing but fails the diff, so a diff caller also passes
 # --no-ext-diff and --no-textconv, which skip the driver outright. A merge
 # driver is set to `false`, a conflict, and a config-defined hook is disabled.
-# The environment also shuts out any transport (GIT_ALLOW_PROTOCOL=none) and
-# replace refs (GIT_NO_REPLACE_OBJECTS=1), which every child git inherits.
+# The environment also shuts out any transport (GIT_ALLOW_PROTOCOL=none),
+# replace refs and a grafts file (GIT_NO_REPLACE_OBJECTS, GIT_GRAFT_FILE),
+# which every child git inherits.
 
 # Not covered, and a reader must not assume otherwise:
 #   - a driver in the operator's global or system configuration stays on: that
@@ -131,13 +132,15 @@ EOF
   # A protocol.<name>.allow outranks protocol.allow, and a git before 2.44
   # ignores GIT_NO_LAZY_FETCH, so a planted promisor remote is shut out by
   # the environment, which outranks both.
-  # A replace ref the worker wrote would make a read return forged content.
+  # A replace ref or a grafts file the worker wrote would make a read return
+  # forged content or history.
   GIT_NO_LAZY_FETCH=1
   GIT_ALLOW_PROTOCOL=none
   GIT_NO_REPLACE_OBJECTS=1
+  GIT_GRAFT_FILE=/dev/null
   GIT_PAGER='cat'
   PW_UNTRUSTED_GIT=1
-  export GIT_NO_LAZY_FETCH GIT_ALLOW_PROTOCOL GIT_NO_REPLACE_OBJECTS GIT_PAGER PW_UNTRUSTED_GIT
+  export GIT_NO_LAZY_FETCH GIT_ALLOW_PROTOCOL GIT_NO_REPLACE_OBJECTS GIT_GRAFT_FILE GIT_PAGER PW_UNTRUSTED_GIT
 }
 
 # _pw_ug_add <key> <value>: the next GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n pair.
