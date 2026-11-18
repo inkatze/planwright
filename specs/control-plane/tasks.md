@@ -1,7 +1,7 @@
 # Control plane — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-16
+**Last reviewed:** 2026-11-18
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -48,13 +48,14 @@ name them.
   or fixture.
 - **Done when:** an entry failing its schema is dropped while the lower layers
   stay in force, and a class-bounding failure makes the class defer
-  everything (both shown by fixture); a planted policy literal and a planted
+  everything (both shown by fixture), the drop counted, shown by `explain`
+  and exposed for the wake report Task 4 emits, naming its file and entry; a planted policy literal and a planted
   machine path each fail their scan; a changed policy value changes the
   digest; a machine-local `enforce` or merge-mode value is ignored and
   reported; the doctrine document is indexed and a check proves it and the
   mechanism name the same layers; a layer entry allowing a floor act fails
   the check by name; `explain` names the supplying layer for a fixture
-  verdict; with the kill switch set every verb defers; the near-miss check
+  verdict; with the kill switch set in a shipped or adopter layer every verb defers, and a machine-local value of it is ignored and reported; the near-miss check
   fails against a class declared with no near-miss fixture and passes once one
   exists; the merge-mode reach value takes effect only from the shipped and
   adopter layers (a machine-local value is ignored and reported).
@@ -120,11 +121,15 @@ name them.
   mismatches listed on request, and a class with no records says so; no class
   mode moves from shadow without that summary; a log record holds its listed
   fields and a command within its bound; the log scan fails on a planted
-  token-shaped value; the kill switch returns today's behavior and a switch
-  left on is reported; a fixture run counts the denials by entry and class.
+  token-shaped value; the log is appended one locked line per record, shown by
+  a separate-process concurrent-writer fixture, a torn-last-line fixture and a
+  lock-timeout fixture; the kill switch returns today's behavior and a switch
+  left on is reported at the wake, together with the count of dropped policy
+  entries and each one's file and entry (read from the `explain` data Task 2
+  exposes); a fixture run counts the denials by entry and class.
 - **Dependencies:** Task 1, Task 3
-- **Citations:** D-4, D-6, D-14 · REQ-A1.6, REQ-C1.6, REQ-C1.8, REQ-C1.9,
-  REQ-C1.11, REQ-I1.2, REQ-I1.4
+- **Citations:** D-3, D-4, D-6, D-14 · REQ-A1.6, REQ-B1.3, REQ-C1.6, REQ-C1.8,
+  REQ-C1.9, REQ-C1.11, REQ-I1.2, REQ-I1.4, REQ-I1.5
 - **Estimated effort:** 3 days
 
 ### Task 5 — The event dedupe gate and routine coalescing
@@ -143,10 +148,12 @@ name them.
   dropped; a stale first failure event is delivered; every event writer calls
   the gate (a check); an idle session is not woken by a timer; with the kill
   switch set the gate delivers everything; the ledger holds keys and no
-  payload and the token-shape scan passes over it; the suite runs in CI.
+  payload and the token-shape scan passes over it; the ledger is appended one
+  locked line per record, shown by the same concurrent-writer and
+  torn-last-line fixtures; the suite runs in CI.
 - **Dependencies:** Task 1, Task 2
 - **Citations:** D-8 · REQ-A1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4,
-  REQ-D1.5, REQ-I1.2, REQ-I1.4
+  REQ-D1.5, REQ-I1.2, REQ-I1.4, REQ-I1.5
 - **Estimated effort:** 3 days
 
 ### Task 6 — Slice two design walk: the queue (human-gated amendment)

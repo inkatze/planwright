@@ -176,4 +176,36 @@ Anchor: `342acb672c7dd4a36d2f75c9c15812c3b3b1d7fe` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Amendment 1, 2026-11-18
+
+Scope: three gaps a review bot raised on the spec pull request before it
+merged, delta walk only. Each decision was put to the operator one at a time
+through their mission control and answered in their own words ("Shipped + your
+config only (Recommended)", "Drop, report every wake (Recommended)", "Locked
+one-line appends (Recommended)"), then signed off ("Sign off (Recommended)").
+
+- Kill switch: read from the shipped and adopter layers only; a machine-local
+  value is ignored and reported (REQ-I1.2, D-14, Task 2).
+- Dropped policy entries: still dropped, now counted, shown by `explain` and
+  reported at each wake with file and entry, the wake line owned by Task 4
+  (REQ-B1.3, D-3, Task 2, Task 4). Risk row 8's pending signal is settled.
+- Decision log and drop ledger: one complete line per record appended under a
+  file lock, a torn last line skipped and repaired by the next write, a bounded
+  lock wait that never changes a verdict or a delivery (new REQ-I1.5, Task 4,
+  Task 5). Risk row 4's concurrency gap is settled for locking, append
+  atomicity and crash behavior; the queue's lock mechanics stay with the
+  slice-two walk.
+
+Lens pass: delta-scoped review by two read-only agents run foreground (contract
+and cross-file drift; verification paths and decision-domain gaps). Six findings,
+all applied as spec edits and none declined: test-spec heading order, an
+untested `explain` clause, the wake report's carrier (Task 4), the lock-failure
+behavior, a crash-simulating fixture and separate-process writers, and one
+re-wrap. None changed a decision the operator had signed.
+
+Validator: no errors after re-anchor.
+
+Class: meaning
+Lens-pass: this entry (delta review, all findings dispositioned)
+Anchor: `e266ba56d9c54a99aee982b66100ecff4b141c49` — computed as
+`scripts/spec-anchor.sh specs/control-plane`
