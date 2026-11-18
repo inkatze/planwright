@@ -218,6 +218,24 @@ digest. This is dev tooling
 only — planwright's **runtime** scripts stay plain portable bash with no mise
 dependency.
 
+### The bot review (PR-Agent)
+
+The PR-Agent workflow (`.github/workflows/pr-agent.yml`) is a paid review, so
+it runs once per pull request, on the run the ready flip fires
+(`ready_for_review`), and never on `opened`, `synchronize` or `reopened`;
+`scripts/check-workflow-posture.sh` refuses a trigger set that drifts. A draft
+therefore carries no PR-Agent run, the readiness check never asks for one
+before the flip, and the flip's own run counts as a run the flip started: a
+check created at or after the flip is the flip's to finish, one created before
+it and still running means the flip came too early. After the flip, wait for
+the runs it started, PR-Agent included, then settle its findings. A fix that
+changes code makes a new head, which needs one more run: request it with
+`scripts/request-reviewer.sh` (`review_requested` is the one explicit trigger,
+the same pull-request event, so the same-repository, dependabot and
+`skip-pr-agent` label conditions apply unchanged). A ready pull request is
+merge-ready only with a successful PR-Agent run on its final head and its
+findings answered.
+
 ### Opt-in suites, outside the gate
 
 Some checks need a live Claude session and spend model tokens, so nothing in

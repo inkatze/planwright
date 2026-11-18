@@ -10,6 +10,16 @@ name: PR-Agent
 # exception), so a fork PR never reaches the key. Never switch the trigger to
 # pull_request_target.
 #
+# When it runs: once per pull request, on the run the ready flip fires
+# (ready_for_review), and again only when a fix round after the flip changes
+# code and asks for one more by requesting a reviewer (review_requested, which
+# scripts/request-reviewer.sh sends). Never on opened, synchronize or reopened:
+# each paid review is a review of a head that is still changing. A review
+# request is the explicit trigger because it reaches this job as the same
+# pull_request event, so the same-repo head, dependabot and skip-pr-agent
+# conditions below apply unchanged and no new input surface exists.
+# scripts/check-workflow-posture.sh enforces the trigger set.
+#
 # Set the repository secret OPENROUTER_API_KEY to turn it on. Tune it with the
 # repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS,
 # PR_AGENT_MAX_FINDINGS and PR_AGENT_REVIEW_RETRIES, no code change needed. A
@@ -20,7 +30,7 @@ name: PR-Agent
 
 "on":
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, review_requested]
+    types: [ready_for_review, review_requested]
 
 permissions: {}
 
@@ -74,18 +84,6 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts
-
-      # An incremental review takes in each new commit's files whole, so a
-      # merge from main among them brings all of main's changes into it; such
-      # a push gets a full review of the PR's own diff instead.
-      - name: Choose the push review
-        id: push
-        if: env.HAS_KEY == 'true' && github.event.action == 'synchronize'
-        timeout-minutes: 5
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-        run: /bin/bash scripts/pr-agent-push-commands.sh --pr "$PR" --output "$GITHUB_OUTPUT"
 
       # The wrapper retries a try whose model output came back empty or
       # unparseable (whether the action then exits 0 or 1) up to
@@ -147,13 +145,11 @@ jobs:
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
           # The wrapper forwards no GITHUB_OUTPUT into the container.
           GITHUB_ACTION_CONFIG__ENABLE_OUTPUT: "false"
-          # The action's default leaves out synchronize, so it would skip every
-          # push after the PR opens. Keep this list equal to the trigger types
-          # above; scripts/check-workflow-posture.sh enforces it.
-          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
-          GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "true"
-          # A push takes the push step's choice; no other event reads this.
-          GITHUB_ACTION_CONFIG__PUSH_COMMANDS: ${{ steps.push.outputs.commands || '["/review -i"]' }}
+          # The action skips any action this list leaves out. Keep it equal to
+          # the trigger types above; scripts/check-workflow-posture.sh
+          # enforces it.
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["ready_for_review", "review_requested"]'
+          GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "false"
 
           PR_REVIEWER__INLINE_KEY_ISSUES: "true"
           PR_REVIEWER__NUM_MAX_FINDINGS: ${{ vars.PR_AGENT_MAX_FINDINGS || '10' }}
