@@ -45,16 +45,16 @@ unit with an open PR is a new run, REQ-A1.1), in this order (D-3):
 
 **Remote checks and `post-pr`.** A `post-pr` step that consumes no CI result
 runs while the PR's remote checks are still pending; it never waits for them.
-That covers a bot-review request, a review skill, a walk and the PR body. The
-repo's bot review (PR-Agent) is the flip's own run: it fires on the flip, so no
-step before it waits for one. After the flip, wait for the runs it started,
-settle the findings, and ask for one more run (`scripts/request-reviewer.sh`)
-only after a fix that changed code. Only
+That covers a bot-review request, a review skill, a walk and the PR body. Only
 the ready flip (`pre-ready-flip`, `scripts/ready-flip.sh`) needs every check
 green. A channel post or notice needs only that no check is red, and a red
 check goes straight to log diagnosis rather than to a wait. A step's record
 never reads as covering CI: a cadence that is done names its points and steps,
-not the checks.
+not the checks. The repo's own bot review (PR-Agent) is the flip's run, never
+a step's: it fires on the flip, so no step before the flip requests or waits
+for one. After the flip, wait for the runs it started, settle the findings,
+and request one more run (`scripts/request-reviewer.sh`) only after a fix that
+changed code.
 
 **Wired in `/spec-kickoff`:** `pre-spec-ready-flip`, after its push and PR
 step and before the terminal CI gate, on the head that flip lands on, once per

@@ -245,18 +245,23 @@ printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tPENDING\n' >"$tmp/evidence.13"
 : >"$tmp/walk.12"
 : >"$tmp/walk.13"
+printf 'state\tdraft\ncheck\tbuild\tFAILURE\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/evidence.14"
+: >"$tmp/walk.14"
 {
   row 12 true MERGEABLE FAILURE
   row 13 true MERGEABLE PENDING
+  row 14 true MERGEABLE FAILURE
 } | put $((T + 60 * HOUR))
 run $((T + 60 * HOUR))
 {
   row 12 true MERGEABLE FAILURE
   row 13 true MERGEABLE PENDING
+  row 14 true MERGEABLE FAILURE
 } | put $((T + 62 * HOUR))
 run $((T + 62 * HOUR))
 ev=$(mc_run_events | tail -n 1)
 case $ev in *"awaiting a flip (2): acme/web#12 acme/web#13"* | *"awaiting a flip (2): acme/web#13 acme/web#12"*) ok "a draft's failed or pending PR-Agent run is no stall reason" ;; *) fail "a draft's PR-Agent run held it: $ev" ;; esac
+case $ev in *"red check build (1): acme/web#14"*) ok "and a red ordinary check beside it still is" ;; *) fail "the exemption hid an ordinary red check: $ev" ;; esac
 
 # --- a stale or absent snapshot raises nothing ------------------------------
 rm -f "$runtime"/pipeline-stall* "$snapdir/forge"

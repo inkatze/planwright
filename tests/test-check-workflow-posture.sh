@@ -2115,7 +2115,7 @@ assert_contains "pr-agent: the undelivered action is named" "review_requested" "
 
 # The bot review runs once per pull request, on the ready flip, and again only
 # when asked for: a push-driven trigger burns the review budget on every commit.
-for pa_every in opened synchronize reopened; do
+for pa_every in opened synchronize reopened labeled edited; do
   pa_case "pa-every-$pa_every" "[$PA_ALL, $pa_every]" "[\"ready_for_review\", \"review_requested\", \"$pa_every\"]"
   out="$("$GUARD" "$d" 2>&1)"
   assert_exit "pr-agent: a trigger on $pa_every fails" 1 $?
@@ -2166,6 +2166,10 @@ grep -q "user.login != 'dependabot\[bot\]'" "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its dependabot exclusion" 0 $?
 grep -q "contains(github.event.pull_request.labels.\*.name, 'skip-pr-agent')" "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its skip-pr-agent label" 0 $?
+grep -qx '    name: PR-Agent' "$PA_REAL"
+assert_exit "pr-agent: the job keeps the name the readiness check and the stall reasons match" 0 $?
+grep -q 'github.event.pull_request.draft == false' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow skips a draft" 0 $?
 # shellcheck disable=SC2016 # the workflow's literal text
 grep -q 'group: pr-agent-${{ github.event.pull_request.number }}' "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its concurrency group" 0 $?

@@ -306,16 +306,25 @@ walk_with "ready, passed bot review" - "$(rowsof state,ready require,pr-agent ch
 expect_rc "a successful PR-Agent run on the head passes" 0
 walk_with "ready, unanswered bot finding" - "$(rowsof state,ready require,pr-agent check,PR-Agent,SUCCESS 'finding,github-actions[bot],t9,unanswered')"
 expect_rc "an unsettled PR-Agent finding is refused" 4
+expect_out "named by its thread" "fail${tab}finding${tab}github-actions[bot] t9 is unanswered"
 walk_with "ready, label opt-out" - "$(rowsof state,ready require,pr-agent check,PR-Agent,SKIPPED)"
 expect_rc "a skipped PR-Agent job (the skip-pr-agent label, a dependabot head) is the opt-out" 0
 walk_with "ready, repository without PR-Agent" - "state${tab}ready"
 expect_rc "a repository with no PR-Agent workflow needs no run" 0
-walk_with "old evidence" -
-expect_rc "evidence with no draft state keeps the old rules" 0
+walk_with "old evidence" - "require${tab}pr-agent"
+expect_rc "evidence with no draft state reads as ready: a required run missing is refused" 4
+expect_out "named" "fail${tab}bot-review${tab}no PR-Agent run at 111111111111"
+walk_with "old evidence, run present" - "$(rowsof require,pr-agent check,PR-Agent,SUCCESS)"
+expect_rc "and a successful run passes it" 0
+walk_with "ready, check refusal leads" - "$(rowsof state,ready require,pr-agent check,PR-Agent,FAILURE 'thread,t8,open')"
+case $OUT in
+  *"fail${tab}check${tab}PR-Agent is FAILURE"*"fail${tab}thread${tab}t8 is open"*) ok "a check refusal is listed before a thread's, as a stall reason takes the first" ;;
+  *) fail "the check refusal does not lead: $OUT" ;;
+esac
 
-# The flip's own runs, told from a too-early flip: #1091's flip was at
-# 2026-11-18T00:42:21Z and its pending ci and PR-Agent runs were created at
-# 00:42:23Z.
+# The flip's own runs, told from a too-early flip, with the timings of a real
+# flip: it was at 00:42:21Z and its pending ci and PR-Agent runs were created
+# at 00:42:23Z.
 FLIP_T=2026-11-18T00:42:21Z
 flip_rows() { # flip_rows <ci created> <pr-agent created>
   rowsof state,ready "flip,$FLIP_T" require,pr-agent check,ci,IN_PROGRESS check,PR-Agent,PENDING "born,ci,$1" "born,PR-Agent,$2"
@@ -520,7 +529,42 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 expect_rc "collect over a worktree that runs PR-Agent" 0
 c=$(cat "$tmp/collected-pa" 2>/dev/null)
 has "a repository running PR-Agent requires its run on a ready pull request" "require${tab}pr-agent"
+printf '# jobs:\n#   image: pragent/pr-agent@sha256:0\njobs: {}\n' >"$repo/.github/workflows/pr-agent.yml"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
+c=$(cat "$tmp/collected-pa" 2>/dev/null)
+hasnt "a workflow naming the PR-Agent image only in a comment states no bot-review requirement" "require${tab}pr-agent"
 rm -f "$repo/.github/workflows/pr-agent.yml"
+# The payload the ready-flip guard is asked about names the pull request and the
+# repository as two separate arguments of one format.
+if grep -qF "}}' \"\$3\" \"\$2\" >\"\$cl_tmp/payload\"" "$repo_root/scripts/mc-readiness.sh"; then ok "the guard payload takes the pull request and the repository as separate arguments"; else fail "the guard payload's printf arguments are malformed"; fi
+# A draft: its state is read, and the workflow-run read, which only a ready
+# pull request is judged by, is skipped.
+cp "$tmp/pr.json" "$tmp/pr.json.keep"
+sed -i.bak 's/"isDraft": false/"isDraft": true/' "$tmp/pr.json"
+: >"$tmp/gh.calls"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-draft"
+expect_rc "collect over a draft" 0
+c=$(cat "$tmp/collected-draft" 2>/dev/null)
+has "a draft is read as a draft" "state${tab}draft"
+hasnt "a draft has no run creation time read" "born${tab}"
+if grep -q '^api repos/acme/web/actions/runs' "$tmp/gh.calls"; then fail "a draft's workflow runs were read"; else ok "a draft's workflow-run read is skipped"; fi
+cp "$tmp/pr.json.keep" "$tmp/pr.json"
+# A failed run read leaves no creation time, and no failure.
+mv "$tmp/runs.json" "$tmp/runs.json.keep"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-noruns"
+expect_rc "collect when the workflow runs cannot be read" 0
+c=$(cat "$tmp/collected-noruns" 2>/dev/null)
+hasnt "a failed run read leaves no creation time" "born${tab}"
+has "and the checks are still read" "check${tab}build${tab}SUCCESS"
+mv "$tmp/runs.json.keep" "$tmp/runs.json"
+# A pull request opened ready has no ready_for_review event, so no flip time.
+cp "$tmp/threads.json" "$tmp/threads.json.keep"
+sed -i.bak '/"timelineItems"/d' "$tmp/threads.json"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-noflip"
+expect_rc "collect over a pull request never flipped" 0
+c=$(cat "$tmp/collected-noflip" 2>/dev/null)
+hasnt "a pull request with no ready event has no flip time" "flip${tab}"
+cp "$tmp/threads.json.keep" "$tmp/threads.json"
 c=$(cat "$tmp/collected" 2>/dev/null)
 # The stub cannot satisfy the guard's own reads, so it fails closed, and the
 # walk over the collection refuses on it.

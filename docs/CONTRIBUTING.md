@@ -224,17 +224,20 @@ The PR-Agent workflow (`.github/workflows/pr-agent.yml`) is a paid review, so
 it runs once per pull request, on the run the ready flip fires
 (`ready_for_review`), and never on `opened`, `synchronize` or `reopened`;
 `scripts/check-workflow-posture.sh` refuses a trigger set that drifts. A draft
-therefore carries no PR-Agent run, the readiness check never asks for one
-before the flip, and the flip's own run counts as a run the flip started: a
-check created at or after the flip is the flip's to finish, one created before
-it and still running means the flip came too early. After the flip, wait for
-the runs it started, PR-Agent included, then settle its findings. A fix that
-changes code makes a new head, which needs one more run: request it with
-`scripts/request-reviewer.sh` (`review_requested` is the one explicit trigger,
-the same pull-request event, so the same-repository, dependabot and
-`skip-pr-agent` label conditions apply unchanged). A ready pull request is
-merge-ready only with a successful PR-Agent run on its final head and its
-findings answered.
+never runs it (the job skips a draft), so open pull requests as drafts: the
+readiness check never asks for a run before the flip, and a check created at
+or after the flip is a run the flip started, the flip's to finish, while one
+created before it and still running means the flip came too early. After the
+flip, wait for the runs it started, PR-Agent included, then settle its
+findings. A fix that changes code makes a new head, which needs one more run:
+request a review from anyone on the ready pull request (the `review_requested`
+event does not say who, and `scripts/request-reviewer.sh --copilot` sends one).
+That is the explicit trigger: the same pull-request event, so the
+same-repository, dependabot and `skip-pr-agent` label conditions apply
+unchanged. A pull request opened ready has no flip, so it needs that request
+for its one run. A ready pull request is merge-ready only with a PR-Agent run
+on its final head that passed (or was skipped by the `skip-pr-agent` label or a
+dependabot head) and its findings answered.
 
 ### Opt-in suites, outside the gate
 

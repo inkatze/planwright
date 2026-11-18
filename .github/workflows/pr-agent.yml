@@ -17,7 +17,10 @@ name: PR-Agent
 # each paid review is a review of a head that is still changing. A review
 # request is the explicit trigger because it reaches this job as the same
 # pull_request event, so the same-repo head, dependabot and skip-pr-agent
-# conditions below apply unchanged and no new input surface exists.
+# conditions below apply unchanged and no new input surface exists. Any
+# reviewer's request counts, since the event does not say which; a draft never
+# runs (open as a draft, and request after the flip), and a pull request opened
+# ready needs a request to get its one run.
 # scripts/check-workflow-posture.sh enforces the trigger set.
 #
 # Set the repository secret OPENROUTER_API_KEY to turn it on. Tune it with the
@@ -41,6 +44,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.user.login != 'dependabot[bot]'
       && !contains(github.event.pull_request.labels.*.name, 'skip-pr-agent')
+      && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -149,6 +153,7 @@ jobs:
           # the trigger types above; scripts/check-workflow-posture.sh
           # enforces it.
           GITHUB_ACTION_CONFIG__PR_ACTIONS: '["ready_for_review", "review_requested"]'
+          # Nothing here reacts to a push, whatever the action's default.
           GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "false"
 
           PR_REVIEWER__INLINE_KEY_ISSUES: "true"

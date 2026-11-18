@@ -333,6 +333,10 @@ CHECK_FUNCS='
 function pass_check(s) { return s == "SUCCESS" || s == "NEUTRAL" || s == "SKIPPED" }
 function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
 function bot_check(n) { return n ~ /^PR-Agent( |$)/ }
+# stage(pending_only): from the collected check rows, count the checks that
+# count (nc), note a PR-Agent one (botseen) and queue each failing one, or each
+# pending one when pending_only, in ck[]. It runs once, at the END, so row
+# order in the evidence never matters.
 function stage(pending_only,    i) {
   for (i = 1; i <= nraw; i++) {
     if (state == "draft" && bot_check(rn[i])) continue
@@ -364,6 +368,7 @@ unfinished_awk() {
   awk -F '\t' "$CHECK_FUNCS$CHECK_ROWS"'
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit 4 } ; next }
 $1 == "head" { head = $2 }
+# The flip statuses are no check to wait for: drop the row CHECK_ROWS just kept.
 $1 == "check" && ($2 == "planwright/pre-ready-flip" || $2 == "planwright/pre-spec-ready-flip") { nraw-- }
 END {
   stage(1)
@@ -436,9 +441,11 @@ END {
   if (badfmt) { print "not-ready\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "not-ready\t-"; print "fail\thead\tno evidence at a head was collected; a session report alone never passes"; exit 4 }
   stage(0)
+  # The check refusals lead, as they did when each was read in file order: a
+  # caller that takes the first refusal as the reason sees the check first.
+  for (i = 1; i <= nck; i++) { split(ck[i], c, "\t"); r = describe(c[1], c[2]); k = index(r, "\t"); lead[++nlead] = "fail\t" substr(r, 1, k - 1) "\t" substr(r, k + 1) }
   if (!nc) fail("check", "no individual check context at the head")
-  for (i = 1; i <= nck; i++) { split(ck[i], c, "\t"); r = describe(c[1], c[2]); k = index(r, "\t"); fail(substr(r, 1, k - 1), substr(r, k + 1)) }
-  if (needbot && state != "draft" && !botseen) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; request one (the flip starts it, and a head pushed after the flip needs a review request)")
+  if (needbot && state != "draft" && !botseen) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)")
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
     hint = "; add the ci-macos label (or mark the pull request ready) so CI runs it"
@@ -470,8 +477,9 @@ END {
     if (!got) fail("evidence", k " is not recorded ok at " substr(head, 1, 12))
   }
   for (i = 1; i <= nn["body"]; i++) if (!index(body, need["body", i])) fail("body", "the body lacks \"" need["body", i] "\"")
-  if (nf) {
+  if (nf || nlead) {
     print "not-ready\t" head
+    for (i = 1; i <= nlead; i++) print lead[i]
     for (i = 1; i <= nf; i++) print fails[i]
     exit 4
   }
@@ -793,9 +801,10 @@ collect() {
     || mc_fail "the review thread read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   # When each check's workflow run was created, which a queued check run
   # cannot say (gh reports its start as the zero time). Advisory: a failed read
-  # leaves a pending check reading as plainly pending.
+  # leaves a pending check reading as plainly pending. A draft is never judged
+  # by it, so its read is skipped.
   : >"$cl_tmp/born"
-  if gh api "repos/$2/actions/runs?head_sha=$cl_head&per_page=100" --jq '.workflow_runs[] | "runat\t" + (.id | tostring) + "\t" + (.created_at // "")' >"$cl_tmp/runs" 2>"$cl_tmp/err"; then
+  if ! grep -qx "state$(printf '\t')draft" "$cl_tmp/pr" && gh api "repos/$2/actions/runs?head_sha=$cl_head&per_page=100" --jq '.workflow_runs[] | "runat\t" + (.id | tostring) + "\t" + (.created_at // "")' >"$cl_tmp/runs" 2>"$cl_tmp/err"; then
     awk -F '\t' '
       FILENAME == ARGV[1] { if ($1 == "runat" && $3 != "") at[$2] = $3; next }
       $1 == "runref" && ($3 in at) { print "born\t" $2 "\t" at[$3] }' "$cl_tmp/runs" "$cl_tmp/pr" >"$cl_tmp/born" || : >"$cl_tmp/born"
@@ -909,10 +918,10 @@ collect() {
   fi
   # The bot review is wanted on a ready pull request where the repository runs
   # PR-Agent; it runs on the flip, so the walk never wants it on a draft.
-  if [ -n "$(find "$cl_ci/.github/workflows" -name '*.yml' -exec grep -l 'pragent/pr-agent' {} + 2>/dev/null)" ]; then
+  if [ -n "$(find "$cl_ci/.github/workflows" -name '*.yml' -exec grep -lE '^[^#]*pragent/pr-agent' {} + 2>/dev/null)" ]; then
     printf 'require\tpr-agent\n' >>"$cl_tmp/require"
   fi
-  printf '{"tool_name":"Bash","tool_input":{"command":"gh pr ready %s --repo %s"}}'"$3" "$2" >"$cl_tmp/payload"
+  printf '{"tool_name":"Bash","tool_input":{"command":"gh pr ready %s --repo %s"}}' "$3" "$2" >"$cl_tmp/payload"
   if cl_verdict=$(cd "$cl_first" && /bin/bash "$script_dir/ready-guard.sh" <"$cl_tmp/payload" 2>/dev/null); then
     case $cl_verdict in
       *'"permissionDecision":"deny"'*)
