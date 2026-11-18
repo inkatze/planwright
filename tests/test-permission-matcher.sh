@@ -1154,11 +1154,13 @@ allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/githooks.md|a file merely 
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/config/defaults.yml|the repo's own config defaults stay editable
 allow|legit|Write|/work/repo/.claude/worktrees/w1/roles/osx/files/mise/offload.toml|a file under mise/ that mise never loads stays writable
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/mise/README.md|a mise/ file outside config, miserc, conf.d and tasks stays editable
-allow|legit|Edit|/work/repo/.claude/worktrees/w1/.gitconfig|a .gitconfig inside the worktree is not the user's; the home anchor leaves it editable
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/.gitconfig|a .gitconfig outside the home directory is not the user's; the home anchor leaves it editable
+allow|legit|Edit|/home/u/dev/.gitconfig.d/x|a nested .gitconfig.* directory below the home's top level stays editable; the directory rule is home-anchored
 allow|legit|Write|/home/u/.gitignore|a home file merely sharing the .git prefix stays editable
 allow|legit|Edit|/home/u/dev/repo/.gitconfig|a repository's .gitconfig under the home directory stays editable; the rule matches the home's top level only
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/etc/gitconfig-notes.md|a file inside an etc/ directory whose name merely starts with gitconfig stays editable
 allow|legit|Write|/etc/gitconfig.d/x|a file under an etc/gitconfig.d directory is not the system config; the rule is end-anchored
+deny|overblock|Write|/home/u/.gitconfigs-notes/x|the directory glob also covers a directory merely starting with .gitconfig; fail-safe
 deny|overblock|Write|/work/repo/.claude/worktrees/w1/roles/git/files/etc/gitconfig|a repository's own tracked etc/gitconfig is refused too: the rule is not anchored to the system root; fail-safe
 allow|legit|Read|/home/u/.gitconfig|the user-level git config stays readable
 allow|legit|Read|/work/repo/.claude/worktrees/w1/README.md|ordinary reads
