@@ -1136,6 +1136,8 @@ deny|load-bearing|Write|/home/u/.gitconfig|the Write tool on the user-level git 
 deny|load-bearing|Edit|/home/u/.gitconfig.local|a .gitconfig.* include target
 deny|load-bearing|Write|/home/u/.gitconfig.work|a not-yet-existing .gitconfig.* file an includeIf names, which a worker could create
 deny|load-bearing|Write|/home/u/.gitconfig-work|the dashed spelling of an include target
+deny|load-bearing|Write|/home/u/.gitconfig.d/work|a file inside a .gitconfig.* directory, a plausible includeIf target; a bare name does not cover what lies below it
+deny|load-bearing|Edit|/home/u/.gitconfig-work/sub/x|a nested file inside a dashed include directory
 deny|load-bearing|Edit|/etc/gitconfig|the system git config
 deny|load-bearing|Write|/usr/local/etc/gitconfig|the system git config under a prefix install
 deny|load-bearing|Write|/opt/homebrew/etc/gitconfig|the system git config under a Homebrew prefix

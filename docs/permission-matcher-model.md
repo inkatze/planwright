@@ -425,9 +425,10 @@ deny:
   mise task-file opt-in" below). An adopter
   whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
   of its own.
-- **User-level and system git config:** `~/.gitconfig` and its `~/.gitconfig*`
-  siblings, which closes an `includeIf` target with such a name before it
-  exists, and an `etc/gitconfig` at any depth, which covers `/etc/gitconfig`
+- **User-level and system git config:** `~/.gitconfig`, its `~/.gitconfig*`
+  siblings and everything inside a `~/.gitconfig*` directory (a bare name does
+  not cover what lies below it, MA-3), which closes an `includeIf` target with
+  such a name before it exists, and an `etc/gitconfig` at any depth, which covers `/etc/gitconfig`
   and prefixed installs such as `/usr/local/etc` and `/opt/homebrew/etc`. Git
   reads these for every session on the machine, so a filter, diff, textconv,
   fsmonitor, pager or gpg-program driver written there fires in all of them.
@@ -440,8 +441,7 @@ deny:
   only by an adopter-added `Edit(<path>)` deny in their own settings (the
   mechanism `core.hooksPath` uses; no shipped mechanism generates them): an
   `include.path` or `includeIf` target the rules do not name (a gitconfig in a
-  dotfiles checkout, the target of a symlinked `~/.gitconfig`, a file inside a
-  `~/.gitconfig*` directory), an `XDG_CONFIG_HOME` outside `~/.config`, another
+  dotfiles checkout, the target of a symlinked `~/.gitconfig`), an `XDG_CONFIG_HOME` outside `~/.config`, another
   account's home, and a recased spelling on a case-insensitive filesystem
   (MA-2). `GIT_CONFIG_GLOBAL` or `GIT_CONFIG_SYSTEM` in a process environment is
   out of the file tools' reach. Other execution-bearing user files
