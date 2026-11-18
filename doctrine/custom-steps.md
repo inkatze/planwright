@@ -503,11 +503,12 @@ supersede --record <run>:<point>:<seq> --start <ts> --source <source>`. It
 names the record it replaces, carries one corrected stamp (a record with both
 wrong takes two supersedes), and cites the session event that proves it
 (`event:<timestamp>` or `event-line:<n>` of the session's event log, checked
-against a top-level event timestamp), so the original stays on disk beside it. It corrects **timing only**: a changed outcome, step, kind, head,
-or end head, a missing or unverifiable source, a record that is not a step
-record, and a correction the step-record truth check would refuse (a skill
-window under its floor) are all refused, so it cannot be used to overstate
-what happened. Of several supersedes of one record the latest stands. The
+against a top-level event timestamp), so the original stays on disk beside
+it. It corrects **timing only**: a changed outcome, step, kind, head, or end
+head, a missing or unverifiable source, a record that is not a step record,
+and a correction the step-record truth check would refuse (a skill window
+under its floor) are all refused, so it cannot be used to overstate what
+happened. Of several supersedes of one record the latest stands. The
 cadence audit, the readiness check, and the rendered tables read that
 supersede's times in place of the record's own (`step-record.sh list
 --effective` is the audit's view; plain `list` shows both records), and the
