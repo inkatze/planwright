@@ -63,9 +63,9 @@
 # yet (`fork-answered`), a StopFailure push (`stop-failure`), and the two
 # completion cases above. A consumer treats it as "leave alone and surface".
 #
-# THE UNLANDED CHECK reads LOCAL git state only (REQ-C1.4), through the
-# plumbing that hashes no file content (`ls-files`, `diff-index --cached`)
-# so the target repository's own config can drive no command, and the commit
+# THE UNLANDED CHECK reads LOCAL git state only (REQ-C1.4), through plumbing
+# (`ls-files`, `diff-index --cached`) run with the target repository's own
+# fsmonitor, hook, filter and diff drivers blanked (git_ro), and the commit
 # count against the remote-tracking ref (the upstream when set, else every
 # remote-tracking ref). No fetch, no `gh`, no per-worker forge query — it is
 # cheap and works offline; whether a unit owes a PR is not inferred here.

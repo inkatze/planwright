@@ -47,7 +47,8 @@ Usage:
 repositories, proved from that repository's own git directory, never from
 the worktree's .git file alone. This script's git calls on the worktree
 name that git directory, and every git call that reads the worktree, the
-removal's included, runs with core.fsmonitor and hooks off. The
+removal's included, runs with the worktree's fsmonitor, hooks, filters,
+diff and merge drivers and signature programs off. The
 predicate's arms, each refusing on its own:
   live-user      a process the reclaim can see has its working directory
                  in the worktree, or the process table will not show even

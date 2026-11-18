@@ -215,7 +215,12 @@ for scope in worktree local; do
   expect_ran "gpg.program ($scope)"
   echo "ok: a signature program in $scope config does not run"
 
-  # merge-tree resolves a content conflict through the merge driver.
+  # merge-tree resolves a content conflict through the merge driver; its
+  # --write-tree form needs git 2.38.
+  if ! git -C "$R" merge-tree --write-tree HEAD HEAD >/dev/null 2>&1; then
+    echo "skip: merge driver ($scope): this git has no merge-tree --write-tree"
+    continue
+  fi
   mkrepo "merge-$scope" "$scope"
   git -C "$R" checkout -q -b side
   printf 'side\n' >"$R/a.txt"
@@ -227,6 +232,7 @@ for scope in worktree local; do
   plant merge.mark.driver "touch $M/merge; true"
   expect_fires "merge driver ($scope)" merge merge-tree --write-tree main side
   expect_silent "merge driver ($scope)" merge merge-tree --write-tree main side
+  [ "$ES_RC" -le 1 ] || fail "merge driver ($scope): the guarded merge-tree exited $ES_RC"
   echo "ok: a merge driver in $scope config does not run"
 done
 
@@ -242,7 +248,7 @@ git -C "$R" commit -qm c
 stat_dirty "$R/c.txt"
 [ -z "$(git -C "$R" status --porcelain)" ] || fail "normalising filter: the control tree is not clean through its own filter"
 stat_dirty "$R/c.txt"
-[ "$(mc_untrusted_git -C "$R" status --porcelain)" = " M c.txt" ] \
+mc_untrusted_git -C "$R" status --porcelain | grep -qx ' M c.txt' \
   || fail "normalising filter: a file its filter would have normalised did not read dirty"
 echo "ok: a normalising filter that is blanked reads dirty, never falsely clean"
 
@@ -269,8 +275,10 @@ for order in variable-first driver-first; do
   fired drvcmd && fail "collision ($order): the guarded diff ran the driver command"
   fired textconv && fail "collision ($order): the guarded diff ran the driver's textconv"
   rm -f "$M"/*
-  mc_untrusted_git -C "$R" diff --no-ext-diff HEAD >/dev/null 2>&1 || :
-  fired textconv && fail "collision ($order): the textconv ran under --no-ext-diff"
+  ES_RC=0
+  mc_untrusted_git -C "$R" diff --no-ext-diff --no-textconv HEAD >/dev/null 2>&1 || ES_RC=$?
+  fired textconv && fail "collision ($order): the textconv ran under the flags form"
+  expect_ran "collision ($order)"
 done
 echo "ok: diff.external and a driver named external are both blanked, in either order"
 
@@ -282,7 +290,8 @@ printf '* filter=my.drv.v2\n' >"$R/.gitattributes"
 stat_dirty
 expect_fires "env form" clean status --porcelain
 stat_dirty
-(cd "$R" && mc_untrusted_git_env && /bin/sh -c 'git status --porcelain' >/dev/null 2>&1) || :
+(cd "$R" && mc_untrusted_git_env && /bin/sh -c 'git status --porcelain' >/dev/null 2>&1) \
+  || fail "env form: a script's git failed under the exported environment"
 fired clean && fail "env form: a git started by a script ran the planted filter"
 echo "ok: the exported environment guards a git a script runs, odd driver names included"
 
@@ -324,12 +333,33 @@ mc_untrusted_git -C "$tmp/broken" diff --cached --quiet >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 128 ] || fail "an unreadable checkout config: a guarded diff --quiet returned $rc, expected 128"
 echo "ok: an unreadable checkout configuration fails closed with status 128"
 
-# An inherited bad GIT_CONFIG_COUNT does not break the listing.
+# The caller's own GIT_CONFIG_COUNT pairs are kept, ours win over them, and a
+# count that is not a number is dropped rather than breaking the listing.
 mkrepo inherited local
 rc=0
 GIT_CONFIG_COUNT=abc mc_untrusted_git -C "$R" rev-parse HEAD >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 0 ] || fail "an inherited bad GIT_CONFIG_COUNT broke a guarded git (exit $rc)"
-echo "ok: an inherited GIT_CONFIG_COUNT is replaced, not read"
+kept=$(GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=kept \
+  GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/tmp/inherited-hooks \
+  mc_untrusted_git -C "$R" config --get-all core.hooksPath)
+[ "$kept" = "$(printf '/tmp/inherited-hooks\n/dev/null')" ] || fail "inherited pairs were not kept ahead of ours: $kept"
+kept=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=kept \
+  mc_untrusted_git -C "$R" config user.name)
+[ "$kept" = kept ] || fail "an inherited GIT_CONFIG_COUNT pair was dropped: $kept"
+echo "ok: the caller's GIT_CONFIG_COUNT pairs are kept and ours follow them"
+
+# A scripts directory without the library refuses with exit 2.
+mkdir "$tmp/nolib"
+cp "$scripts/mc-lib.sh" "$scripts/echo-safety.sh" "$scripts/fleet-cleanup.sh" "$scripts/fleet-sweep.sh" "$tmp/nolib/"
+rc=0
+/bin/bash -c "prog=t; script_dir='$tmp/nolib'; . '$tmp/nolib/echo-safety.sh'; . '$tmp/nolib/mc-lib.sh'" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "mc-lib.sh without untrusted-git-lib.sh exited $rc, expected 2"
+for s in fleet-cleanup fleet-sweep; do
+  rc=0
+  /bin/bash "$tmp/nolib/$s.sh" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "$s.sh without untrusted-git-lib.sh exited $rc, expected 2"
+done
+echo "ok: a missing untrusted-git-lib.sh is a broken install, exit 2"
 
 # extract <script> <function>: define a function from the real script's text,
 # and fail loudly when it is not there.
@@ -394,8 +424,6 @@ plant core.fsmonitor "$tmp/fsmon-steprec.sh"
 plant filter.mark.clean "touch $M/clean; cat"
 stat_dirty
 expect_fires "step-record" clean status --porcelain
-git -C "$R" config --unset core.fsmonitor
-git -C "$R" config core.fsmonitor "$tmp/fsmon-steprec.sh"
 stat_dirty
 (mc_untrusted_git_env "$R" && /bin/bash "$scripts/step-record.sh" --worktree "$R" fingerprint --paths a.txt) >/dev/null 2>&1 || :
 fired fsmon && fail "step-record, called guarded, ran the planted fsmonitor"

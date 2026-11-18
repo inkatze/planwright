@@ -1,6 +1,7 @@
 # shellcheck shell=sh
 # untrusted-git-lib.sh — git reads of a checkout the calling session does not
-# own (sourced, never executed). Portable POSIX sh; needs git 2.26.
+# own (sourced, never executed). Portable POSIX sh; needs git 2.31, the first
+# with GIT_CONFIG_COUNT.
 #
 # A worker writes its checkout's configuration and attributes, so a program it
 # plants (fsmonitor, hook, clean or process filter, diff or merge driver,
@@ -42,8 +43,18 @@ pw_untrusted_git_env() {
   # An inherited repository selector would point git away from the checkout
   # the caller names, and inherited configuration would ride along.
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT \
-    GIT_EXTERNAL_DIFF
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_EXTERNAL_DIFF
+  # The caller's own GIT_CONFIG_COUNT pairs (a safe.directory, an identity)
+  # are kept and ours follow them, so ours win; a count this library set on
+  # an earlier call, or one that is not a number, is dropped.
+  ug_kept=0
+  if [ -z "${PW_UNTRUSTED_GIT:-}" ]; then
+    case ${GIT_CONFIG_COUNT:-} in
+      '' | *[!0-9]*) ;;
+      *) ug_kept=$GIT_CONFIG_COUNT ;;
+    esac
+  fi
+  unset GIT_CONFIG_COUNT
   [ $# -gt 0 ] || set -- .
   ug_list=''
   for ug_dir in "$@"; do
@@ -57,7 +68,7 @@ pw_untrusted_git_env() {
 '
   done
 
-  ug_n=0
+  ug_n=$ug_kept
   _pw_ug_add core.fsmonitor false
   _pw_ug_add core.hooksPath /dev/null
   _pw_ug_add protocol.allow never
