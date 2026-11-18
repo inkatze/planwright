@@ -6,6 +6,7 @@
 # test sets here and repo_root first.
 
 : "${here:?set here before sourcing}" "${repo_root:?set repo_root before sourcing}"
+unset CDPATH
 
 # shellcheck source=tests/lib/hermetic-env.sh
 . "$here/lib/hermetic-env.sh"
