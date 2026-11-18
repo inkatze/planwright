@@ -240,6 +240,7 @@ trap 'rm -f "$scratch_err"' EXIT
 PF_KEYS=" "
 PF_ROWS=""
 prefetch() {
+  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
   pf_out=$(/bin/sh "$script_dir/config-get.sh" --layers "$@" 2>"$scratch_err") || return 0
   [ ! -s "$scratch_err" ] || return 0
   PF_ROWS=$pf_out
