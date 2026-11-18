@@ -1,7 +1,8 @@
 #!/bin/bash
 # Tests for git reads of a checkout the reader does not own: the
-# untrusted-git-lib.sh helper, the mc_untrusted_git wrappers, and the fleet,
-# flight and reclaim scripts that read a worker's worktree.
+# untrusted-git-lib.sh helper, the mc_untrusted_git wrappers, and the fleet
+# and reclaim scripts that read a worker's worktree (fleet-cleanup's reclaim
+# checks also run end to end in tests/test-fleet-cleanup.sh).
 #
 # A worker writes its checkout's configuration and attributes, so a read of
 # it from another session must run none of the programs the configuration
@@ -472,17 +473,47 @@ plant core.fsmonitor "$tmp/fsmon-steprec.sh"
 plant filter.mark.clean "touch $M/clean; cat"
 stat_dirty
 rm -f "$M"/*
-/bin/bash "$scripts/step-record.sh" --worktree "$R" fingerprint --paths a.txt >/dev/null 2>&1 || :
+control=$(/bin/bash "$scripts/step-record.sh" --worktree "$R" fingerprint --paths a.txt 2>/dev/null) || :
 { fired clean && fired fsmon; } || fail "step-record: the unguarded control did not fire both planted programs"
 rm -f "$M"/*
 stat_dirty
-(mc_untrusted_git_env "$R" && /bin/bash "$scripts/step-record.sh" --worktree "$R" fingerprint --paths a.txt) >/dev/null 2>&1 || :
+guarded=$( (mc_untrusted_git_env "$R" && /bin/bash "$scripts/step-record.sh" --worktree "$R" fingerprint --paths a.txt) 2>/dev/null) || :
 fired fsmon && fail "step-record, called guarded, ran the planted fsmonitor"
 fired clean && fail "step-record, called guarded, ran the planted clean filter"
+[ -n "$guarded" ] && [ "$guarded" = "$control" ] || fail "step-record, called guarded, did not reach git: '$guarded' against '$control'"
 echo "ok: step-record keeps a guarded caller's environment"
 
-# fleet-cleanup's reclaim checks and flight-record's record checks run end to
-# end in tests/test-fleet-cleanup.sh and tests/test-flight-record.sh.
+# A promisor remote the worker planted (a protocol.<name>.allow outranks
+# protocol.allow, and a git before 2.44 ignores GIT_NO_LAZY_FETCH, so the
+# lazy fetch is emulated by clearing it) is shut out by GIT_ALLOW_PROTOCOL.
+mkrepo promisor local
+printf '#!/bin/sh\ntouch "%s/ext"\nexit 1\n' "$M" >"$tmp/ext-prog.sh"
+chmod +x "$tmp/ext-prog.sh"
+plant core.repositoryformatversion 1
+plant extensions.partialclone origin
+plant remote.origin.url "ext::$tmp/ext-prog.sh"
+plant remote.origin.promisor true
+plant protocol.ext.allow always
+blob=$(git -C "$R" rev-parse HEAD:b.dat)
+rm -f "$R/.git/objects/${blob%"${blob#??}"}/${blob#??}"
+rm -f "$M"/*
+git -C "$R" cat-file -p HEAD:b.dat >/dev/null 2>&1 || :
+if fired ext; then
+  rm -f "$M"/*
+  (mc_untrusted_git_env "$R" && unset GIT_NO_LAZY_FETCH && git -C "$R" cat-file -p HEAD:b.dat) >/dev/null 2>&1 || :
+  fired ext && fail "a planted promisor remote ran its program under the guard"
+  echo "ok: a planted promisor remote's program does not run, even where GIT_NO_LAZY_FETCH is ignored"
+else
+  echo "skip: promisor remote: this git did not lazy-fetch the missing blob"
+fi
+
+# A config-defined hook (git 2.54 and later) is blanked wherever it is listed.
+mkrepo confighook local
+plant hook.pre.command "touch $M/hook"
+plant hook.pre.enabled true
+[ "$(mc_untrusted_git -C "$R" config --get hook.pre.enabled)" = false ] \
+  || fail "a config-defined hook was not disabled under the guard"
+echo "ok: a config-defined hook is disabled under the guard"
 
 [ "$failed" -eq 0 ] || exit 1
 echo "all untrusted-git tests passed"

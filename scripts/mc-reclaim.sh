@@ -480,9 +480,7 @@ trap '' HUP INT TERM
 CREATED='' MADE=''
 set -- worktree "$WT" "mission-control reclaim" "program $PROGRAM: $PR_STATE PR #$PR_NUM, $n audit file(s) backed up"
 [ -z "$MERGED_PR" ] || set -- "$@" --merged-pr "$MERGED_PR"
-fc_err=$(cd "$MAIN" && GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
-  GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null \
-  /bin/sh "$script_dir/fleet-cleanup.sh" "$@" 2>&1 >/dev/null </dev/null)
+fc_err=$(cd "$MAIN" && /bin/sh "$script_dir/fleet-cleanup.sh" "$@" 2>&1 >/dev/null </dev/null)
 fc_rc=$?
 if [ "$fc_rc" != 0 ] && [ "$fc_rc" != 6 ]; then
   refuse removal "fleet-cleanup exit $fc_rc, copies kept: $(printf '%s' "$fc_err" | tail -n 1)"

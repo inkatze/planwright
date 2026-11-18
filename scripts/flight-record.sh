@@ -168,8 +168,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 4
 FLIGHT_ID="$script_dir/flight-id.sh"
 SCREEN="$script_dir/inception-secret-screen.sh"
 TEXT="$script_dir/flight-text.sh"
-UNTRUSTED_GIT="$script_dir/untrusted-git-lib.sh"
-for _h in "$FLIGHT_ID" "$SCREEN" "$TEXT" "$UNTRUSTED_GIT"; do
+for _h in "$FLIGHT_ID" "$SCREEN" "$TEXT"; do
   [ -f "$_h" ] && [ -r "$_h" ] || {
     printf '%s: required helper missing: %s\n' "$prog" "$_h" >&2
     exit 4
@@ -178,8 +177,6 @@ done
 
 # shellcheck source=scripts/flight-text.sh
 . "$TEXT"
-# shellcheck source=scripts/untrusted-git-lib.sh
-. "$UNTRUSTED_GIT"
 
 # Each worker input's cap; GitHub's PR-body limit, in characters, which a
 # byte count never undershoots; the grounds' cap, with room over dispatch's
@@ -1240,7 +1237,7 @@ is_mine() {
 # compared through git so line-ending conversion does not matter.
 matches_head() {
   _hb=$(git -C "$repo_root" rev-parse -q --verify "HEAD:$rel" 2>/dev/null) && [ -n "$_hb" ] \
-    && [ "$(pw_untrusted_git -C "$repo_root" hash-object --path="$rel" -- "$work/record.md" 2>/dev/null)" = "$_hb" ]
+    && [ "$(git -C "$repo_root" hash-object --path="$rel" -- "$work/record.md" 2>/dev/null)" = "$_hb" ]
 }
 
 # rollback — run on every exit, signals ignored so a second one cannot cut it
@@ -1281,7 +1278,7 @@ trap rollback EXIT
 
 report() {
   # The commit that added the record, not HEAD: a post-commit hook may commit again.
-  _sha=$(pw_untrusted_git -C "$repo_root" log -1 --format=%H -- "$rel" 2>/dev/null) && [ -n "$_sha" ] \
+  _sha=$(git -C "$repo_root" log -1 --format=%H -- "$rel" 2>/dev/null) && [ -n "$_sha" ] \
     || die 4 "cannot read the record commit"
   printf 'record\t%s\n' "$rel"
   printf 'commit\t%s\n' "$_sha"
@@ -1294,14 +1291,14 @@ render_to "$work/record.md" || die 4 "cannot write the record"
 if [ -e "$repo_root/$rel" ] || [ -L "$repo_root/$rel" ] \
   || git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
   # A re-run whose record is already committed, and checked out, as this render.
-  if matches_head && pw_untrusted_git -C "$repo_root" diff --quiet --no-ext-diff --no-textconv HEAD -- "$rel" 2>/dev/null; then
+  if matches_head && git -C "$repo_root" diff --quiet HEAD -- "$rel" 2>/dev/null; then
     report
     exit 0
   fi
   die 3 "$rel already exists: one flight, one record; nothing was written"
 fi
 _drc=0
-pw_untrusted_git -C "$repo_root" diff --cached --quiet --no-ext-diff --no-textconv 2>/dev/null || _drc=$?
+git -C "$repo_root" diff --cached --quiet 2>/dev/null || _drc=$?
 case $_drc in
   0) ;;
   1) die 3 "the index holds staged changes; the record commit carries the record alone, so commit or unstage them first; nothing was written" ;;
@@ -1329,7 +1326,7 @@ is_mine || die 3 "$rel appeared while land ran: one flight, one record; nothing 
 rm -f -- "$tmpname"
 tmpname=''
 staged=1
-if ! pw_untrusted_git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
+if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
   || ! hook_git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
   # A concurrent run that committed this same render has landed the record.
   if matches_head; then

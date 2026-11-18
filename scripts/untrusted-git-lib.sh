@@ -54,7 +54,7 @@ pw_untrusted_git_env() {
   for ug_dir in "$@"; do
     ug_rc=0
     ug_one=$(git -C "$ug_dir" config --show-scope --name-only --get-regexp \
-      '^(filter\..*\.(clean|smudge|process|required)|merge\..*\.driver|diff\.external|diff\..*\.(command|textconv))$' \
+      '^(filter\..*\.(clean|smudge|process|required)|merge\..*\.driver|hook\..*\.(command|enabled)|diff\.external|diff\..*\.(command|textconv))$' \
       2>/dev/null) || ug_rc=$?
     # 1 is "no such key"; anything else is a checkout git cannot read. The
     # listing treats a directory git refuses (another owner's, not a
@@ -112,6 +112,10 @@ pw_untrusted_git_env() {
         _pw_ug_add "$ug_base.required" false
         ;;
       merge.*) _pw_ug_add "$ug_base.driver" false ;;
+      hook.*)
+        _pw_ug_add "$ug_base.command" ''
+        _pw_ug_add "$ug_base.enabled" false
+        ;;
       diff.external) _pw_ug_add diff.external '' ;;
       diff.*)
         _pw_ug_add "$ug_base.command" ''
@@ -122,10 +126,14 @@ pw_untrusted_git_env() {
 $ug_list
 EOF
   export GIT_CONFIG_COUNT=$ug_n
+  # A protocol.<name>.allow outranks protocol.allow, and a git before 2.44
+  # ignores GIT_NO_LAZY_FETCH, so a planted promisor remote is shut out by
+  # the environment, which outranks both.
   GIT_NO_LAZY_FETCH=1
+  GIT_ALLOW_PROTOCOL=none
   GIT_PAGER='cat'
   PW_UNTRUSTED_GIT=1
-  export GIT_NO_LAZY_FETCH GIT_PAGER PW_UNTRUSTED_GIT
+  export GIT_NO_LAZY_FETCH GIT_ALLOW_PROTOCOL GIT_PAGER PW_UNTRUSTED_GIT
 }
 
 # _pw_ug_add <key> <value>: the next GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n pair.
