@@ -176,9 +176,10 @@ under "$(record_with nowt-sc scratch worktree_root=)"
 assert_allow "B1.8: no worktree root leaves the scratch arm working" "touch $SC/x" Bash "$WT"
 under "$(record_with nounit-sc scratch unit_branch=)"
 assert_allow "B1.8: no unit branch leaves the scratch arm working" "mkdir -p \$TMPDIR/u" Bash "$WT"
-# Each bad root is also the hook's TMPDIR, so only the record's own check
-# can keep the arm off.
-under "$(record_with relsc scratch scratch_root=scratch)" scratch
+# Each bad root is also the hook's TMPDIR (the relative one pairs with a good
+# absolute TMPDIR, since a relative TMPDIR is refused on its own), so only the
+# record's own check can keep the arm off.
+under "$(record_with relsc scratch scratch_root=scratch)" "$SC"
 assert_defer "B1.8: a relative scratch root is dropped" "touch \$TMPDIR/x" Bash "$WT"
 assert_defer "B1.8: a relative scratch root approves no mktemp" "mktemp -d" Bash "$WT"
 under "$(record_with missc scratch "scratch_root=$CORPUS_BOX/missing")" "$CORPUS_BOX/missing"

@@ -83,19 +83,20 @@ assert_defer "umask with a non-octal digit" "umask 028" Bash "$WT"
 assert_defer "umask with an expansion" "umask \$M" Bash "$WT"
 assert_defer "umask with a substitution" "umask \$(id)" Bash "$WT"
 assert_defer "umask with a second word" "umask 022 rm" Bash "$WT"
+assert_defer "umask -S with an operand" "umask -S 022" Bash "$WT"
+assert_defer "umask -p with an operand" "umask -p 022" Bash "$WT"
+assert_defer "umask with two flags" "umask -S -p" Bash "$WT"
 assert_defer "umask then a bare suite outside the repo" "umask 022 && bash $OUT_DIR/x.sh" Bash "$WT"
 
 echo "### a scratch file is never run"
-printf 'ls\n' >"$SC/run.d.sh"
+# tests/test-worker-command-guard-scratch.sh pins the scratch policy; these
+# rows add the empty policy and both arms.
 mkdir -p "$SC/d"
-printf 'ls\n' >"$SC/d/probe.sh"
+printf 'ls\n' >"$SC/d/script.sh"
 under
-assert_defer "sh of a scratch file under the empty policy" "sh $SC/d/probe.sh" Bash "$WT"
-under "$STATE/record.3"
-assert_defer "sh of a scratch file under the scratch policy" "sh $SC/d/probe.sh" Bash "$WT"
-assert_defer "sh of a file directly in the scratch root" "sh $SC/run.d.sh" Bash "$WT"
+assert_defer "sh of a scratch file under the empty policy" "sh $SC/d/script.sh" Bash "$WT"
 under "$STATE/record.4"
-assert_defer "sh of a scratch file under both arms" "sh $SC/d/probe.sh" Bash "$WT"
+assert_defer "sh of a scratch file under both arms" "sh $SC/d/script.sh" Bash "$WT"
 under
 
 echo "### the scratch arm trusts only an absolute TMPDIR"
@@ -128,6 +129,8 @@ mkdir -p "$SR_WT/scripts" "$SR_WT/tests"
 : >"$SR_WT/.git"
 : >"$SR_WT/tests/ok.sh"
 : >"$SR_WT/tests/test-ok.sh"
+mkdir -p "$SR_WT/tests/test-a"
+: >"$SR_WT/tests/test-a/b.sh"
 : >"$SR_WT/scripts/compute-route.sh"
 : >"$PLUGIN_ROOT/scripts/compute-route.sh"
 CR=$PLUGIN_ROOT/scripts/compute-route.sh
@@ -146,7 +149,8 @@ assert_defer "an = spelled kind flag" "$CR --task=lint -- mise run lint" Bash "$
 assert_defer "a task name outside the router's grammar" "$CR --task Lint -- mise run Lint" Bash "$SR_WT"
 assert_defer "a test path with a directory" "$CR --test tests/test-a/b.sh -- bash tests/test-a/b.sh" Bash "$SR_WT"
 assert_defer "the test form with an extra argument" "$CR --test tests/test-ok.sh -- bash tests/test-ok.sh arg" Bash "$SR_WT"
-assert_defer "the test form under /bin/bash" "$CR --test tests/test-ok.sh -- /bin/bash tests/test-ok.sh" Bash "$SR_WT"
+assert_allow "the directory path the pair refuses is approved on its own" "bash tests/test-a/b.sh" Bash "$SR_WT"
+assert_defer "the test form under /bin/bash, which the guard never approves as a verb""$CR --test tests/test-ok.sh -- /bin/bash tests/test-ok.sh" Bash "$SR_WT"
 assert_defer "the task form with extra command words" "$CR --task lint -- mise run lint x" Bash "$SR_WT"
 assert_defer "an environment prefix before the router" "FOO=1 $CR --check -- mise run check" Bash "$SR_WT"
 assert_defer "the check form naming another command" "$CR --check -- bash tests/ok.sh" Bash "$SR_WT"
@@ -191,6 +195,7 @@ assert_defer "step-run with a substitution that writes" "$SRUN audit --through \
 assert_defer "a step script of a root the guard does not trust" "$SANDBOX/install/planwright-evil/scripts/step-record.sh heads" Bash "$SR_WT"
 assert_defer "a step script of a decoy sibling root" "$PLUGIN_DECOY/scripts/step-record.sh heads" Bash "$SR_WT"
 
+under
 echo "### the profile's static entries"
 if jq -e '.permissions.allow | index("WebSearch") != null' "$PROFILE" >/dev/null 2>&1; then
   pass "WebSearch is allowed without a prompt"

@@ -6215,8 +6215,9 @@ strip_prefixes() {
 # only beside the one command the router itself maps to that kind, which is
 # what the bare form would have run: `--check -- mise run check`,
 # `--task <name> -- mise run <name>`, `--test tests/test-<name>.sh -- bash
-# tests/test-<name>.sh` (the router's own grammar). Any other pairing, two kinds, and a router with
-# nothing to run, or another router as that command, defer.
+# tests/test-<name>.sh` (the router's own grammar). Defer: any other pairing,
+# two kinds, a router with nothing to run, a bare router name (the shell looks
+# it up on PATH), and another router as the command.
 # is_trusted_script refuses the script as a verb, so no other spelling reaches
 # the router.
 strip_compute_route() {
