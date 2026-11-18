@@ -657,7 +657,7 @@ bundle_signoff() {
       ;;
     'git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin')
       gd=$(mc_untrusted_git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null) || gd=''
-      [ -z "$gd" ] || got=$(cd "$d" && mc_untrusted_git_env && export GIT_DIR="$gd" \
+      [ -z "$gd" ] || got=$(cd "$d" && mc_untrusted_git_env "$repo" && export GIT_DIR="$gd" \
         && git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin) 2>/dev/null || got=''
       ;;
     *)
@@ -774,7 +774,7 @@ collect() {
     fi
   fi
   if [ -n "$cl_wt" ]; then
-    (mc_untrusted_git_env && unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED \
+    (mc_untrusted_git_env "$cl_wt" && unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED \
       && /bin/bash "$script_dir/step-run.sh" --worktree "$cl_wt" audit --through post-pr --head "$cl_head" ${cl_base[@]+"${cl_base[@]}"}) \
       >"$cl_tmp/audit" 2>"$cl_tmp/err"
     case $? in
@@ -792,7 +792,7 @@ collect() {
   [ -z "$cl_unaud" ] || printf 'cadence\tunaudited\t%s\n' "$cl_unaud" >"$cl_tmp/cadence"
   if [ -n "$cl_wt" ]; then
     # The worktree is a worker's, so its git configuration runs nothing here.
-    if ! (mc_untrusted_git_env && /bin/bash "$script_dir/step-record.sh" --worktree "$cl_wt" list) >"$cl_tmp/records" 2>"$cl_tmp/err"; then
+    if ! (mc_untrusted_git_env "$cl_wt" && /bin/bash "$script_dir/step-record.sh" --worktree "$cl_wt" list) >"$cl_tmp/records" 2>"$cl_tmp/err"; then
       [ -z "$4" ] || mc_fail "the step records of $(sanitize_printable "$cl_wt") cannot be read"
       # A discovered worktree that cannot be read is a gap, never a crash.
       : >"$cl_tmp/records"

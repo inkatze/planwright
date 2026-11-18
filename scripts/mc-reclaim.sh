@@ -148,9 +148,10 @@ refuse() { # refuse <arm> <detail>
 }
 
 # g <args...>: git against the proved worktree, with the repository's git
-# directory named and the worktree-steerable exec hooks off.
+# directory named and the worktree's own exec hooks, filters, diff drivers and
+# signature programs off.
 g() {
-  git --git-dir="$GITDIR" --work-tree="$WT" -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+  (mc_untrusted_git_env "$WT" && git --git-dir="$GITDIR" --work-tree="$WT" "$@")
 }
 
 # parse_paths <raw>: an inline list of worktree-relative paths, one per

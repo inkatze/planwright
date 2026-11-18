@@ -188,6 +188,12 @@ if [ ! -r "$script_dir/tmux-identity-lib.sh" ]; then
 fi
 # shellcheck source=scripts/tmux-identity-lib.sh
 . "$script_dir/tmux-identity-lib.sh"
+if [ ! -r "$script_dir/untrusted-git-lib.sh" ]; then
+  printf '%s\n' "${0##*/}: untrusted-git-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$script_dir/untrusted-git-lib.sh"
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
 . "$script_dir/fleet-pane-vocabulary.sh"
 
@@ -647,13 +653,15 @@ last_record() {
 
 # git_ro <dir> <args...> — a read-only git query in a worktree the detector
 # did not create: the repository's own config is untrusted, so no optional
-# index lock (someone else's worktree, possibly mid-command) and no
-# fsmonitor; the callers use only plumbing that hashes no file content, so
-# no clean filter can run either.
+# index lock (someone else's worktree, possibly mid-command) and none of its
+# fsmonitor, hook, filter, diff or signature programs (`ls-files -m` hashes a
+# stat-dirty file through its clean filter).
 git_ro() {
-  gr_dir=$1
-  shift
-  GIT_OPTIONAL_LOCKS=0 git -C "$gr_dir" -c core.fsmonitor=false "$@"
+  (
+    GIT_OPTIONAL_LOCKS=0
+    export GIT_OPTIONAL_LOCKS
+    pw_untrusted_git -C "$@"
+  )
 }
 
 # is_git_toplevel <dir> — 0 iff <dir> is the top of a git working tree (not

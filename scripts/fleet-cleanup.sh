@@ -188,6 +188,12 @@ if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" 
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+if [ ! -r "$script_dir/untrusted-git-lib.sh" ]; then
+  printf '%s\n' "fleet-cleanup.sh: untrusted-git-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$script_dir/untrusted-git-lib.sh"
 
 GATE="$script_dir/fleet-daemon-gate.sh"
 AUDIT="$script_dir/fleet-audit.sh"
@@ -541,7 +547,7 @@ case "$cmd" in
     # is exactly this path, clean (no uncommitted changes), and carrying commits
     # that provably survive its removal — either evidence path in the block
     # below. Any missing piece is refused — reclaiming would lose work.
-    top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null) || top=""
+    top=$(pw_untrusted_git -C "$path" rev-parse --show-toplevel 2>/dev/null) || top=""
     if [ -z "$top" ]; then
       warn "'$path' is not a git worktree — refusing to remove an unknown directory"
       exit 5
@@ -551,7 +557,7 @@ case "$cmd" in
       warn "'$path' is not a worktree root (its toplevel is '$top') — refusing"
       exit 5
     fi
-    if [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then
+    if [ -n "$(pw_untrusted_git -C "$path" status --porcelain 2>/dev/null)" ]; then
       warn "'$path' has uncommitted changes — refusing to remove (would lose work)"
       exit 5
     fi
@@ -575,9 +581,9 @@ case "$cmd" in
     # nothing to bound the query with, a query that outruns that bound, an
     # unreadable field, a non-MERGED state, an oid mismatch — refuses.
     evidence=""
-    upstream=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || upstream=""
+    upstream=$(pw_untrusted_git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || upstream=""
     if [ -n "$upstream" ]; then
-      ahead=$(git -C "$path" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
+      ahead=$(pw_untrusted_git -C "$path" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
       case $ahead in
         "" | *[!0-9]*)
           warn "'$path' unpushed-commit count is unreadable — refusing (fail closed)"
@@ -620,7 +626,7 @@ case "$cmd" in
         warn "--merged-pr given but no timeout binary on PATH and no bundled bounded-run.sh — refusing rather than making an unbounded network call (fail closed)"
         exit 5
       fi
-      head_oid=$(git -C "$path" rev-parse HEAD 2>/dev/null) || head_oid=""
+      head_oid=$(pw_untrusted_git -C "$path" rev-parse HEAD 2>/dev/null) || head_oid=""
       case $head_oid in
         "" | *[!0-9a-f]*)
           warn "'$path' HEAD oid is unreadable — refusing (fail closed)"
@@ -684,7 +690,7 @@ case "$cmd" in
 
     # Reclaim, running the removal from the caller's own worktree (a sibling in
     # the same repo), never from inside the target.
-    if ! git -C "$self_wt" worktree remove "$path" 2>/dev/null; then
+    if ! (pw_untrusted_git_env "$self_wt" "$path" && git -C "$self_wt" worktree remove "$path") 2>/dev/null; then
       warn "git worktree remove '$path' failed — not reclaimed"
       exit 5
     fi

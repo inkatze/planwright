@@ -167,6 +167,12 @@ if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" 
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+if [ ! -r "$script_dir/untrusted-git-lib.sh" ]; then
+  printf '%s\n' "fleet-sweep.sh: untrusted-git-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$script_dir/untrusted-git-lib.sh"
 
 GATE="$script_dir/fleet-daemon-gate.sh"
 AUDIT="$script_dir/fleet-audit.sh"
@@ -326,15 +332,15 @@ tree_id() {
 # contention, not a repo) is uninspectable (never silently clean).
 inspect_tree() {
   it_t=$1
-  git -C "$it_t" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  pw_untrusted_git -C "$it_t" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
     printf 'uninspectable'
     return 0
   }
-  it_porc=$(git -C "$it_t" status --porcelain 2>/dev/null) || {
+  it_porc=$(pw_untrusted_git -C "$it_t" status --porcelain 2>/dev/null) || {
     printf 'uninspectable'
     return 0
   }
-  it_unpushed=$(git -C "$it_t" rev-list --count HEAD --not --remotes 2>/dev/null) || {
+  it_unpushed=$(pw_untrusted_git -C "$it_t" rev-list --count HEAD --not --remotes 2>/dev/null) || {
     printf 'uninspectable'
     return 0
   }

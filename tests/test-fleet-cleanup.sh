@@ -440,6 +440,36 @@ case $rows in
 esac
 echo "ok: a clean, pushed, non-self worktree is removed and audited"
 
+# 8b. A worker's own configuration runs nothing in the reclaim checks: an
+# fsmonitor and a clean filter planted in the worktree's config stay silent,
+# and the pushed, clean worktree is still reclaimed. The control (plain git
+# status on the same fixture) proves both planted programs are live.
+wt_drv="$tmp/wt-drv"
+drv_marks="$tmp/drv-marks"
+mkdir -p "$drv_marks"
+(cd "$main_repo" && git_env git worktree add -q -b feat-drv "$wt_drv" >/dev/null 2>&1)
+printf '* filter=mark\n' >"$wt_drv/.gitattributes"
+(cd "$wt_drv" && git_env git add .gitattributes && git_env git commit -qm attrs && git_env git push -q -u origin feat-drv)
+printf '#!/bin/sh\ntouch "%s/fsmon"\nexit 1\n' "$drv_marks" >"$tmp/drv-fsmon.sh"
+chmod +x "$tmp/drv-fsmon.sh"
+git -C "$main_repo" config extensions.worktreeConfig true
+git -C "$wt_drv" config --worktree core.fsmonitor "$tmp/drv-fsmon.sh"
+git -C "$wt_drv" config --worktree filter.mark.clean "touch $drv_marks/clean; cat"
+touch -t 200101010001 "$wt_drv/f"
+git -C "$wt_drv" status --porcelain >/dev/null 2>&1 || :
+{ [ -e "$drv_marks/fsmon" ] && [ -e "$drv_marks/clean" ]; } \
+  || fail "planted drivers: the control did not fire both programs (fixture is not live)"
+rm -f "$drv_marks"/*
+touch -t 200101010002 "$wt_drv/f"
+rc=0
+run_worktree "$main_repo" "$wt_drv" "merged branch" "reclaiming a worktree with planted drivers" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "planted drivers: exit $rc, expected 0 (reclaimed)"
+[ ! -e "$drv_marks/fsmon" ] || fail "planted drivers: the reclaim ran the worktree's fsmonitor"
+[ ! -e "$drv_marks/clean" ] || fail "planted drivers: the reclaim ran the worktree's clean filter"
+[ ! -d "$wt_drv" ] || fail "planted drivers: the worktree was not reclaimed"
+echo "ok: a worktree's planted fsmonitor and clean filter do not run in the reclaim checks"
+
 # 9. A worktree with uncommitted work is refused (would lose work).
 wt_dirty="$tmp/wt-dirty"
 (cd "$main_repo" && git_env git worktree add -q -b feat-dirty "$wt_dirty" >/dev/null 2>&1)

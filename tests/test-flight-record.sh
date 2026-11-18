@@ -707,7 +707,7 @@ printf '%s\n' "$OUT" | grep -q 'redacted: github-token' || fail "under a relativ
 # report this script cannot place has not cleared anything.
 mkdir -p "$tmp/foreign/scripts"
 cp "$ROOT/scripts/flight-record.sh" "$ROOT/scripts/flight-text.sh" "$ROOT/scripts/flight-id.sh" \
-  "$tmp/foreign/scripts/"
+  "$ROOT/scripts/untrusted-git-lib.sh" "$tmp/foreign/scripts/"
 printf '#!/bin/sh\nprintf "elsewhere.txt:1: github-token (value redacted)\\n" >&2\nexit 1\n' \
   >"$tmp/foreign/scripts/inception-secret-screen.sh"
 defaults
@@ -1018,6 +1018,29 @@ run_land
 [ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a matching re-run must commit nothing"
 printf '%s\n' "$OUT" | grep -qx "commit	$before" || fail "a matching re-run must report the record's commit: $OUT"
 printf '%s\n' "$OUT" | grep -qx "record	specs/_flights/$FID.md" || fail "a matching re-run must report the record path: $OUT"
+# The re-run's checks read the checkout, and the checkout's own configuration
+# is the worker's: a planted fsmonitor and clean filter run nothing, and the
+# re-run still matches. The control proves both programs are live.
+drv_marks="$tmp/drv-marks"
+mkdir -p "$drv_marks"
+printf '* filter=mark\n' >"$repo/.git/info/attributes"
+printf '#!/bin/sh\ntouch "%s/fsmon"\nexit 1\n' "$drv_marks" >"$tmp/drv-fsmon.sh"
+chmod +x "$tmp/drv-fsmon.sh"
+git -C "$repo" config core.fsmonitor "$tmp/drv-fsmon.sh"
+git -C "$repo" config filter.mark.clean "touch $drv_marks/clean; cat"
+touch -t 200101010001 "$repo/specs/_flights/$FID.md"
+git -C "$repo" diff --quiet HEAD -- "specs/_flights/$FID.md" 2>/dev/null || :
+{ [ -e "$drv_marks/fsmon" ] && [ -e "$drv_marks/clean" ]; } \
+  || fail "planted drivers: the control did not fire both programs (fixture is not live)"
+rm -f "$drv_marks"/*
+touch -t 200101010002 "$repo/specs/_flights/$FID.md"
+run_land
+[ "$RC" -eq 0 ] || fail "a matching re-run beside planted drivers must succeed (got $RC: $ERR)"
+[ ! -e "$drv_marks/fsmon" ] || fail "a re-run ran the checkout's fsmonitor"
+[ ! -e "$drv_marks/clean" ] || fail "a re-run ran the checkout's clean filter"
+git -C "$repo" config --unset core.fsmonitor
+git -C "$repo" config --unset filter.mark.clean
+rm -f "$repo/.git/info/attributes"
 printf 'A different account of the change.\n' >"$in/summary-other.md"
 run_land --summary-file "$in/summary-other.md"
 [ "$RC" -eq 3 ] || fail "a second record for one flight that differs must be refused with 3 (got $RC)"
@@ -1696,7 +1719,7 @@ no_private "land's report" "$OUT$(cat "$tmp/err")"
 # A missing helper is an environment failure, not a bad input.
 mkdir -p "$tmp/partial/scripts"
 cp "$ROOT/scripts/flight-record.sh" "$ROOT/scripts/flight-text.sh" "$ROOT/scripts/inception-secret-screen.sh" \
-  "$ROOT/scripts/echo-safety.sh" "$tmp/partial/scripts/"
+  "$ROOT/scripts/echo-safety.sh" "$ROOT/scripts/untrusted-git-lib.sh" "$tmp/partial/scripts/"
 defaults
 /bin/sh "$tmp/partial/scripts/flight-record.sh" render --home pr "${args[@]}" >/dev/null 2>"$tmp/err"
 RC=$?
