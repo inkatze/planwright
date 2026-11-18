@@ -30,19 +30,21 @@ mkdir -p "$tmp/bin"
 cat >"$tmp/pr.json" <<EOF
 {"headRefOid": "$head", "labels": [{"name": "ui"}], "files": [{"path": "src/app.c"}],
  "body": "## Summary\nAdds the thing.",
- "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"},
+ "isDraft": false,
+ "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS", "detailsUrl": "https://github.com/acme/web/actions/runs/111/job/1"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "pr-title", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:34:09Z"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "pr-title", "conclusion": "SUCCESS", "startedAt": "2026-11-05T19:51:51Z"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "pr-title", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:50:18Z"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "other-lint", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "conclusion": "SUCCESS", "startedAt": "2026-11-05T19:00:00Z"},
-   {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "status": "QUEUED", "conclusion": "", "startedAt": "0001-01-01T00:00:00Z"},
+   {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "status": "QUEUED", "conclusion": "", "startedAt": "0001-01-01T00:00:00Z", "detailsUrl": "https://github.com/acme/web/actions/runs/222/job/9"},
    {"__typename": "CheckRun", "name": "window-lock", "workflowName": "release-window", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "window-lock", "workflowName": "pr-checks", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"context": "deploy", "state": "PENDING", "conclusion": ""}]}
 EOF
 cat >"$tmp/threads.json" <<'EOF'
 {"data": {"repository": {"pullRequest": {"author": {"login": "me"},
+  "timelineItems": {"nodes": [{"createdAt": "2026-11-18T00:42:21Z"}]},
   "reviewThreads": {"pageInfo": {"hasNextPage": false}, "nodes": [
     {"id": "t1", "isResolved": true, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}}]}},
     {"id": "t2", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}},
@@ -53,6 +55,9 @@ cat >"$tmp/threads.json" <<'EOF'
     {"id": "t5", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}},
       {"author": null}]}}
   ]}}}}}
+EOF
+cat >"$tmp/runs.json" <<'EOF'
+{"workflow_runs": [{"id": 111, "created_at": "2026-11-18T00:42:23Z"}, {"id": 222, "created_at": "2026-11-18T00:42:24Z"}, {"id": 333, "created_at": "2026-11-18T00:00:00Z"}]}
 EOF
 cat >"$tmp/bin/gh" <<EOF
 #!/bin/sh
@@ -69,6 +74,7 @@ case "\$1 \$2" in
     *headRefOid*) cat "$tmp/headnow"; exit 0 ;;
   esac ;;
   "api graphql") exec jq -r "\$jqp" "$tmp/threads.json" ;;
+  "api repos/acme/web/actions/runs?"*) exec jq -r "\$jqp" "$tmp/runs.json" ;;
 esac
 exit 1
 EOF

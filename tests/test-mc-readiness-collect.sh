@@ -88,6 +88,11 @@ hasnt "evidence of another pull request is left out" "shots/other-pr.png"
 has "D-25: the ready-flip guard is composed" "guard${tab}ready-guard${tab}"
 hasnt "and it ran, its own verdict collected" "the guard did not run"
 has "the repository is named for the conditions" "repo${tab}acme/web"
+has "the draft state is read" "state${tab}ready"
+has "the ready flip time is read" "flip${tab}2026-11-18T00:42:21Z"
+has "a check carries its workflow run's creation time" "born${tab}build${tab}2026-11-18T00:42:23Z"
+has "a queued check, whose own start is the zero time, still does" "born${tab}rerun${tab}2026-11-18T00:42:24Z"
+hasnt "the run reference is only a join key" "runref"
 if grep -q 'pr ready' "$tmp/gh.calls" 2>/dev/null; then fail "a flip was attempted"; else ok "nothing flips a pull request"; fi
 hasnt "a worktree whose CI has no macOS jobs states no macOS requirement" "require${tab}macos"
 mkdir -p "$repo/.github/workflows"
@@ -97,6 +102,48 @@ expect_rc "collect over a worktree whose CI has the macOS jobs" 0
 c=$(cat "$tmp/collected-mac" 2>/dev/null)
 has "a worktree whose CI has the macOS jobs requires them green" "require${tab}macos"
 rm -f "$repo/.github/workflows/ci.yml"
+hasnt "a worktree whose CI has no PR-Agent workflow states no bot-review requirement" "require${tab}pr-agent"
+printf 'jobs:\n  review:\n    env:\n      PR_AGENT_IMAGE: pragent/pr-agent@sha256:0\n' >"$repo/.github/workflows/pr-agent.yml"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
+expect_rc "collect over a worktree that runs PR-Agent" 0
+c=$(cat "$tmp/collected-pa" 2>/dev/null)
+has "a repository running PR-Agent requires its run on a ready pull request" "require${tab}pr-agent"
+printf '# jobs:\n#   image: pragent/pr-agent@sha256:0\njobs: {}\n' >"$repo/.github/workflows/pr-agent.yml"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
+c=$(cat "$tmp/collected-pa" 2>/dev/null)
+hasnt "a workflow naming the PR-Agent image only in a comment states no bot-review requirement" "require${tab}pr-agent"
+rm -f "$repo/.github/workflows/pr-agent.yml"
+# The payload the ready-flip guard is asked about names the pull request and the
+# repository as two separate arguments of one format.
+if grep -qF "}}' \"\$3\" \"\$2\" >\"\$cl_tmp/payload\"" "$repo_root/scripts/mc-readiness.sh"; then ok "the guard payload takes the pull request and the repository as separate arguments"; else fail "the guard payload's printf arguments are malformed"; fi
+# A draft: its state is read, and the workflow-run read, which only a ready
+# pull request is judged by, is skipped.
+cp "$tmp/pr.json" "$tmp/pr.json.keep"
+sed -i.bak 's/"isDraft": false/"isDraft": true/' "$tmp/pr.json"
+: >"$tmp/gh.calls"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-draft"
+expect_rc "collect over a draft" 0
+c=$(cat "$tmp/collected-draft" 2>/dev/null)
+has "a draft is read as a draft" "state${tab}draft"
+hasnt "a draft has no run creation time read" "born${tab}"
+if grep -q '^api repos/acme/web/actions/runs' "$tmp/gh.calls"; then fail "a draft's workflow runs were read"; else ok "a draft's workflow-run read is skipped"; fi
+cp "$tmp/pr.json.keep" "$tmp/pr.json"
+# A failed run read leaves no creation time, and no failure.
+mv "$tmp/runs.json" "$tmp/runs.json.keep"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-noruns"
+expect_rc "collect when the workflow runs cannot be read" 0
+c=$(cat "$tmp/collected-noruns" 2>/dev/null)
+hasnt "a failed run read leaves no creation time" "born${tab}"
+has "and the checks are still read" "check${tab}build${tab}SUCCESS"
+mv "$tmp/runs.json.keep" "$tmp/runs.json"
+# A pull request opened ready has no ready_for_review event, so no flip time.
+cp "$tmp/threads.json" "$tmp/threads.json.keep"
+sed -i.bak '/"timelineItems"/d' "$tmp/threads.json"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-noflip"
+expect_rc "collect over a pull request never flipped" 0
+c=$(cat "$tmp/collected-noflip" 2>/dev/null)
+hasnt "a pull request with no ready event has no flip time" "flip${tab}"
+cp "$tmp/threads.json.keep" "$tmp/threads.json"
 c=$(cat "$tmp/collected" 2>/dev/null)
 # The stub cannot satisfy the guard's own reads, so it fails closed, and the
 # walk over the collection refuses on it.

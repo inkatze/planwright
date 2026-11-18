@@ -220,6 +220,94 @@ expect_rc "a screenshot judged ok at another head is refused, required or not" 4
 expect_out "named" "x.png was judged at another head"
 
 # ---------------------------------------------------------------------------
+# The bot review (PR-Agent) runs once, on the run the ready flip fires: a draft
+# is flipped with none, merge-ready needs a successful run on the final head.
+# ---------------------------------------------------------------------------
+nl=$(printf '\n_')
+nl=${nl%_}
+rowsof() { # rowsof <row>...: each row's commas are tabs, one row per line
+  out_rows=''
+  for r in "$@"; do out_rows="$out_rows${out_rows:+$nl}$(printf '%s' "$r" | tr ',' '\t')"; done
+  printf '%s' "$out_rows"
+}
+walk_with "draft, no bot review" - "$(rowsof state,draft require,pr-agent)"
+expect_rc "a draft with no PR-Agent run can still be flipped" 0
+walk_with "draft, failed bot review" - "$(rowsof state,draft require,pr-agent check,PR-Agent,FAILURE)"
+expect_rc "a draft's stale failed PR-Agent run does not hold the flip" 0
+walk_with "draft, pending bot review" - "$(rowsof state,draft require,pr-agent check,PR-Agent,PENDING)"
+expect_rc "a draft's pending PR-Agent run does not hold the flip either" 0
+walk_with "draft, failed ci" - "$(rowsof state,draft require,pr-agent check,lint,FAILURE)"
+expect_rc "a draft's failed ordinary check still holds the flip" 4
+
+walk_with "ready, no bot review" - "$(rowsof state,ready require,pr-agent)"
+expect_rc "merge-ready needs a PR-Agent run on the head: none is refused" 4
+expect_out "named with the head" "fail${tab}bot-review${tab}no PR-Agent run at 111111111111"
+walk_with "ready, failed bot review" - "$(rowsof state,ready require,pr-agent check,PR-Agent,FAILURE)"
+expect_rc "a head whose only PR-Agent run failed is refused" 4
+expect_out "named" "fail${tab}check${tab}PR-Agent is FAILURE"
+walk_with "ready, passed bot review" - "$(rowsof state,ready require,pr-agent check,PR-Agent,SUCCESS)"
+expect_rc "a successful PR-Agent run on the head passes" 0
+walk_with "ready, unanswered bot finding" - "$(rowsof state,ready require,pr-agent check,PR-Agent,SUCCESS 'finding,github-actions[bot],t9,unanswered')"
+expect_rc "an unsettled PR-Agent finding is refused" 4
+expect_out "named by its thread" "fail${tab}finding${tab}github-actions[bot] t9 is unanswered"
+walk_with "ready, label opt-out" - "$(rowsof state,ready require,pr-agent check,PR-Agent,SKIPPED)"
+expect_rc "a skipped PR-Agent job (the skip-pr-agent label, a dependabot head) is the opt-out" 0
+walk_with "ready, repository without PR-Agent" - "state${tab}ready"
+expect_rc "a repository with no PR-Agent workflow needs no run" 0
+walk_with "old evidence" - "require${tab}pr-agent"
+expect_rc "evidence with no draft state reads as ready: a required run missing is refused" 4
+expect_out "named" "fail${tab}bot-review${tab}no PR-Agent run at 111111111111"
+walk_with "old evidence, run present" - "$(rowsof require,pr-agent check,PR-Agent,SUCCESS)"
+expect_rc "and a successful run passes it" 0
+walk_with "ready, check refusal leads" - "$(rowsof state,ready require,pr-agent check,PR-Agent,FAILURE 'thread,t8,open')"
+case $OUT in
+  *"fail${tab}check${tab}PR-Agent is FAILURE"*"fail${tab}thread${tab}t8 is open"*) ok "a check refusal is listed before a thread's, as a stall reason takes the first" ;;
+  *) fail "the check refusal does not lead: $OUT" ;;
+esac
+
+# The flip's own runs, told from a too-early flip, with the timings of a real
+# flip: it was at 00:42:21Z and its pending ci and PR-Agent runs were created
+# at 00:42:23Z.
+FLIP_T=2026-11-18T00:42:21Z
+flip_rows() { # flip_rows <ci created> <pr-agent created>
+  rowsof state,ready "flip,$FLIP_T" require,pr-agent check,ci,IN_PROGRESS check,PR-Agent,PENDING "born,ci,$1" "born,PR-Agent,$2"
+}
+walk_with "flip-fired runs" - "$(flip_rows 2026-11-18T00:42:23Z 2026-11-18T00:42:23Z)"
+expect_rc "runs the flip fired still hold merge-ready until they finish" 4
+expect_out "ci is named as the flip's own run" "fail${tab}check${tab}ci is IN_PROGRESS (run created 2026-11-18T00:42:23Z, after the flip at $FLIP_T"
+expect_out "PR-Agent is named as the flip's own run" "fail${tab}check${tab}PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip at $FLIP_T"
+case $OUT in *too-early*) fail "a flip's own runs read as a too-early flip" ;; *) ok "a flip's own runs are no too-early flip" ;; esac
+walk_with "run at the flip second" - "$(flip_rows $FLIP_T $FLIP_T)"
+expect_out "a run created in the flip's own second is the flip's" "ci is IN_PROGRESS (run created $FLIP_T, after the flip"
+walk_with "too-early flip" - "$(flip_rows 2026-11-18T00:40:10Z 2026-11-18T00:42:23Z)"
+expect_rc "a run that predates the flip and still runs holds it" 4
+expect_out "named a too-early flip" "fail${tab}flip${tab}ci was still running at the flip (run created 2026-11-18T00:40:10Z, before the flip at $FLIP_T): a too-early flip"
+expect_out "the flip's own PR-Agent run is not blamed on it" "PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip"
+walk_with "unknown run time" - "$(rowsof state,ready "flip,$FLIP_T" check,ci,QUEUED)"
+expect_out "a run with no known creation time reads as plainly pending" "fail${tab}check${tab}ci is QUEUED"
+walk_with "no flip time" - "$(rowsof state,ready check,ci,QUEUED born,ci,2026-11-18T00:42:23Z)"
+expect_out "a run with no flip time to compare reads as plainly pending" "fail${tab}check${tab}ci is QUEUED"
+walk_with "draft with times" - "$(rowsof state,draft "flip,$FLIP_T" check,ci,QUEUED born,ci,2026-11-18T00:40:00Z)"
+expect_out "a draft's pending check is never a too-early flip" "fail${tab}check${tab}ci is QUEUED"
+
+{
+  complete
+  flip_rows 2026-11-18T00:40:10Z 2026-11-18T00:42:23Z
+  echo
+} >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "unfinished: a flip's runs are unfinished" 4
+expect_out "unfinished: the too-early run is named so" "fail${tab}flip${tab}ci was still running at the flip"
+expect_out "unfinished: the flip's own run is named so" "fail${tab}check${tab}PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip"
+{
+  complete
+  rowsof state,draft check,PR-Agent,PENDING
+  echo
+} >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "unfinished: a draft's PR-Agent run is none of its business" 0
+
+# ---------------------------------------------------------------------------
 # record: evidence the session opened and judged.
 # ---------------------------------------------------------------------------
 mc_run mc-readiness.sh record --program alpha --repo acme/web --pr 7 --head "$H" --kind screenshot --ref shots/home.png --judgment ok
