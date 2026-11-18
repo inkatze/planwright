@@ -114,11 +114,11 @@ wait_exec() {
 child_of() {
   co_i=0
   while [ "$co_i" -lt 50 ]; do
-    co=$(ps -A -o pid= -o ppid= | awk -v p="$1" '$2 == p { print $1; exit }')
-    [ -n "$co" ] && {
+    # The stand-in's own sleep is a child too; the worker is the CLI one.
+    if co=$(child_with "$1" bin/claude); then
       printf '%s\n' "$co"
       return 0
-    }
+    fi
     sleep 0.1
     co_i=$((co_i + 1))
   done
