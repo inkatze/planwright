@@ -638,8 +638,12 @@ row_ok() {
 # The procfs the listing reads, or nothing where there is none (macOS), when
 # ps answers instead. PLANWRIGHT_MC_PROC_ROOT moves it, so a test can stand
 # in a host with a table of its own, an empty one included.
-proc_root() {
+resolve_proc_root() {
   if [ -n "${PLANWRIGHT_MC_PROC_ROOT:-}" ]; then
+    case $PLANWRIGHT_MC_PROC_ROOT in
+      /*) ;;
+      *) mc_fail "PLANWRIGHT_MC_PROC_ROOT must be an absolute path" ;;
+    esac
     printf '%s\n' "$PLANWRIGHT_MC_PROC_ROOT"
   elif [ -r /proc/self/stat ]; then
     printf '%s\n' /proc
@@ -649,7 +653,7 @@ proc_root() {
 # proc_cwd <pid>: the process's working directory as here:<path>, or
 # gone:<path> once it was removed; nothing when it cannot be read.
 proc_cwd() {
-  if [ -n "$PROC_ROOT" ]; then
+  if [ -n "${PROC_ROOT:-}" ]; then
     pc_dir=$(readlink "$PROC_ROOT/$1/cwd" 2>/dev/null) || return 0
   elif command -v lsof >/dev/null 2>&1; then
     pc_dir=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
@@ -671,26 +675,32 @@ proc_cwd() {
 # has many; elsewhere from ps, its lstart joined by dashes. A procfs start is
 # the kernel's start tick, written t<ticks>.
 proc_rows() {
-  if [ -n "$PROC_ROOT" ]; then
+  if [ -n "${PROC_ROOT:-}" ]; then
     set +f
     pr_hits=$(grep -l -e fleet-streamjson.sh -e stream-json "$PROC_ROOT"/[0-9]*/cmdline 2>/dev/null)
     set -f
-    for pr_f in $pr_hits; do
+    while IFS= read -r pr_f; do
+      [ -n "$pr_f" ] || continue
       pr_d=${pr_f%/cmdline}
       [ -O "$pr_d" ] || continue
-      IFS= read -r pr_stat <"$pr_d/stat" 2>/dev/null || continue
-      # shellcheck disable=SC2086 # the fields after the command name, split
+      IFS= read -r pr_stat 2>/dev/null <"$pr_d/stat" || continue
+      # The fields after the command name; the start tick is the 20th.
+      # shellcheck disable=SC2086
       set -- ${pr_stat##*") "}
       [ "$#" -ge 20 ] || continue
       pr_ppid=$2
       shift 19
+      # One line per row: a control character inside an element would
+      # otherwise start a row of its own.
       pr_args=''
-      while IFS= read -r -d '' pr_a; do
-        pr_args="$pr_args $pr_a"
-      done <"$pr_f" 2>/dev/null
+      while IFS= read -r -d '' pr_a || [ -n "$pr_a" ]; do
+        pr_args="$pr_args ${pr_a//[[:cntrl:]]/ }"
+      done 2>/dev/null <"$pr_f"
       [ -n "$pr_args" ] || continue
       printf '%s %s t%s%s\n' "${pr_d##*/}" "$pr_ppid" "$1" "$pr_args"
-    done
+    done <<EOF
+$pr_hits
+EOF
     return 0
   fi
   pr_table=$(ps -U "$(id -u)" -ww -o pid= -o ppid= -o lstart= -o args=) || return 1
@@ -737,7 +747,7 @@ stream_json_procs() {
         p = corder[k]; q = parent[p]
         # A shell that forks before it runs a backgrounded command (bash 3.2)
         # leaves a fork of the supervisor between it and its worker.
-        while ((q in sup) && (parent[q] in sup)) q = parent[q]
+        for (hop = 0; hop < 8 && (q in sup) && (parent[q] in sup); hop++) q = parent[q]
         if (q in sup) kids[q] = kids[q] (kids[q] == "" ? "" : ",") p
       }
       for (k = 1; k <= n; k++) { p = order[k]; if (!(parent[p] in sup)) print "S\t" p "\t" sup[p] "\t" (kids[p] == "" ? "-" : kids[p]) }
@@ -798,7 +808,7 @@ case $verb in
   orphans)
     [ $# -eq 0 ] || usage
     FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
-    PROC_ROOT=$(proc_root)
+    PROC_ROOT=$(resolve_proc_root) || exit 1
     list_orphans
     exit
     ;;

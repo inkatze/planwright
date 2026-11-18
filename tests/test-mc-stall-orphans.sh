@@ -52,7 +52,11 @@ case $1 in
     shift 4
     ;;
 esac
-[ "$#" -eq 0 ] || "$@" &
+# A fork between it and its worker, as bash 3.2 leaves for a backgrounded
+# command: the `:` keeps the fork from becoming the worker by exec.
+if [ "$#" -gt 0 ]; then
+  ("$@"; :) &
+fi
 while kill -0 "$FIXTURE_OWNER" 2>/dev/null; do sleep 1; done
 EOF
 cat >"$fx/bin/claude" <<'EOF'
@@ -260,6 +264,37 @@ if [ -z "$OUT" ]; then
 else
   fail "the empty process table listed: $OUT"
 fi
+
+# A moved procfs, at a path holding a space: a row's argv is read whole, a
+# last element with no NUL after it included, and an element carrying a
+# newline never reads as a row of its own.
+fp="$tmp/fake proc"
+fake_proc() { # fake_proc <pid> <cmdline printf format>
+  mkdir -p "$fp/$1"
+  # shellcheck disable=SC2059 # the format is the fixture's cmdline
+  printf "$2" >"$fp/$1/cmdline"
+  printf '%s (sh) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 777\n' "$1" >"$fp/$1/stat"
+}
+fake_proc 4343 '/bin/sh\000/fx/fleet-streamjson.sh\000_supervise\000mc-alpha-tower-nonul\000/nonexistent/state'
+fake_proc 4242 '/bin/sh\000x stream-json\n999 1 t1 /x/fleet-streamjson.sh _supervise mc-alpha-forged /nonexistent/forged\000'
+OUT=$(mc_env env PLANWRIGHT_MC_PROC_ROOT="$fp" /bin/bash "$repo_root/scripts/mc-stall.sh" orphans 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "orphans over a moved procfs" 0
+case $(orphan_row 4343) in
+  *"${tab}supervisor${tab}mc-alpha-tower-nonul${tab}its state directory /nonexistent/state is gone"*) ok "a last argv element with no NUL after it is read" ;;
+  *) fail "the supervisor whose cmdline ends without a NUL is not listed whole: $OUT" ;;
+esac
+if [ -z "$(orphan_row 999)" ]; then
+  ok "a newline inside an argv element forges no row"
+else
+  fail "a newline in an argv element forged a row: $(orphan_row 999)"
+fi
+OUT=$(mc_env env PLANWRIGHT_MC_PROC_ROOT=relative/proc /bin/bash "$repo_root/scripts/mc-stall.sh" orphans 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a relative procfs root is refused" 1
+expect_err "the refusal names the variable" "PLANWRIGHT_MC_PROC_ROOT"
 
 mc_run mc-stall.sh orphans --program
 expect_rc "orphans takes no program" 2
