@@ -495,6 +495,25 @@ header states: `write` refuses such a record, and `untrue` names a stored
 one) leaves its step an `unaudited` gap, never done. The script's usage
 header states the freshness rule and the output.
 
+**Correcting a misdated record.** A record is never edited, and a point that
+completed takes no second record for it, so a start or end stamped wrong (a
+skill step started a few seconds off its Skill call is the usual case) is
+corrected by appending a **supersede record**, `scripts/step-record.sh
+supersede --record <run>:<point>:<seq> --start <ts> --source <source>`. It
+names the record it replaces, carries the corrected start and/or end, and
+cites the session event that proves the time (`event:<timestamp>` or
+`event-line:<n>` of the session's event log), so the original stays on disk
+beside it. It corrects **timing only**: a changed outcome, step, kind, head,
+or end head, a missing or unverifiable source, a record that is not a step
+record, and a correction the step-record truth check would refuse (a skill
+window under its floor) are all refused, so it cannot be used to overstate
+what happened. Of several supersedes of one record the latest stands. The
+cadence audit, the readiness check, and the rendered tables read that
+supersede's times in place of the record's own (`step-record.sh list
+--effective` is the audit's view; plain `list` shows both records), and the
+audit's advice for a misdated start names the verb. The script's usage header
+states the grammar.
+
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
 
 Any **agent-issued** draft-to-ready flip of a unit PR runs

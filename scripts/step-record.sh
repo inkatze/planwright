@@ -26,7 +26,12 @@
 #   step-record.sh [--worktree <dir>] write --full-suite --run <id>
 #       --pool <pool> --wait <seconds> --wait-outcome <outcome>
 #       [--holder <text>]... --start <ts> [--end <ts>]
+#   step-record.sh [--worktree <dir>] supersede --record <run>:<point>:<seq>
+#       [--start <ts>] [--end <ts>] --source <source>
+#       [--step <id>] [--kind <kind>] [--outcome <outcome>] [--head <sha>]
+#       [--end-head <sha>]
 #   step-record.sh [--worktree <dir>] list [--run <id>] [--point <point>]
+#       [--effective]
 #   step-record.sh [--worktree <dir>] render [--run <id>] [--point <point>]...
 #   step-record.sh [--worktree <dir>] regenerate --base <rev> --head <rev>
 #       [--run <id>] [--checklist-only]
@@ -72,11 +77,50 @@
 #                 leaves the record in place. A reader running while writers
 #                 are in flight may miss a record that lands during its read.
 #                 --excerpt-file resolves against the caller's directory.
+#   supersede     correct the start or end time of an existing step record
+#                 without touching it: write a supersede record (stored as
+#                 <seq>-fix-<point>.rec, the next sequence of the record's
+#                 run, after the point's completion where there is one) and
+#                 print its path. The correction names the record it
+#                 replaces (--record), carries the corrected --start and/or
+#                 --end (the other keeps the original's), and cites the
+#                 session event that proves the time (--source), so a start
+#                 stamped a few seconds off its Skill call is corrected, never
+#                 edited, and the original stays on disk. It corrects timing
+#                 only: --step, --kind, --outcome, --head, and --end-head are
+#                 accepted as assertions and refused (exit 2) when they differ
+#                 from the record's, and any other flag is a usage error; a
+#                 correction that changes neither time, a record that is not
+#                 a step record of the cache, a skipped record, and a source
+#                 that is missing or malformed are refused too. The corrected
+#                 record must pass the step-record truth check below as a
+#                 record with a start source, so a correction cannot buy a
+#                 window under a skill's floor or a moved head. Source
+#                 grammar: `event:<YYYY-MM-DDTHH:MM:SSZ>`, a timestamp the
+#                 session's event log holds that is the corrected --start or
+#                 --end, or `event-line:<n>`, that log's line n, which holds
+#                 a timestamp that is one of them. The log is the
+#                 stream-json events.jsonl of the session whose cwd is the
+#                 worktree (as scripts/step-events-audit.sh reads it); a
+#                 source that cannot be checked against one is refused. Of
+#                 several supersedes of one record the highest sequence
+#                 stands; a supersede cannot target another supersede.
+#                 `list --effective`, `render`, `untrue`, and with them the
+#                 cadence audit (step-run.sh audit, mc-readiness.sh) read the
+#                 standing supersede's times in place of the record's own and
+#                 render marks the row corrected; plain `list` shows both
+#                 records. A supersede record that fails to read as
+#                 well-formed (type, run, seq, point, the record it names,
+#                 and its times agreeing with its path) is ignored.
 #   list          print every record of the run (every run when --run is
 #                 absent), oldest first, optionally one point's only: a
 #                 `record<TAB><worktree-relative path>` line, the record's
 #                 stored lines with C0 control bytes and DEL dropped, then a
-#                 blank line.
+#                 blank line. --effective prints the view the cadence audit
+#                 reads: a step record's start and end replaced by its
+#                 standing supersede's, its start-source `supersede:<seq>`
+#                 and a `corrected-by<TAB><run>:<point>:<seq>` line added,
+#                 and the supersede records themselves left out.
 #   render        print one markdown table per point of the run, in the order
 #                 the points first recorded, or the named points in the order
 #                 given, each once. Without --run, every run renders, oldest
@@ -395,7 +439,7 @@
 # post that failed, no SHA-256 tool for args-digest, a new-run or status from
 # a plugin-cache copy the installed record no longer names) · 2 a usage or
 # field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
-# documented set on new-run, write, regenerate, or status (the other verbs,
+# documented set on new-run, write, supersede, regenerate, or status (the other verbs,
 # bar excerpt and args-digest, only warn; resolve-steps.sh --check-env judges it) · 3 lookup found no
 # record to stand on (or no unretired limited record), or heads found no move.
 #
@@ -1349,11 +1393,228 @@ write_full_suite() {
   claim "$run" suite full-suite "$work/body"
 }
 
-# --- list -----------------------------------------------------------------------
-cmd_list() {
-  run='' point=''
+# --- supersede ------------------------------------------------------------------
+# event_files: the events.jsonl of every stream-json session whose cwd is this
+# worktree, one a line (scripts/step-events-audit.sh finds them the same way).
+event_files() {
+  _root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
+  for _n in $(glob_names "$_root/streamjson" '*'); do
+    _d="$_root/streamjson/$_n/"
+    [ -f "${_d}cwd" ] && [ -f "${_d}events.jsonl" ] && [ ! -L "${_d}events.jsonl" ] || continue
+    _c=''
+    read -r _c <"${_d}cwd" || [ -n "$_c" ] || continue
+    [ "$_c" = "$worktree" ] && printf '%s\n' "${_d}events.jsonl"
+  done
+}
+
+# check_source <source> <stamp>...: the supersede's cited event must be on a
+# session event log of this worktree and sit on one of the corrected stamps.
+check_source() {
+  _src=$1
+  shift
+  scratch
+  event_files >"$work/event-files"
+  [ -s "$work/event-files" ] \
+    || bad --source "no session event log of this worktree is reachable, so the cited event cannot be checked"
+  case $_src in
+    event:*)
+      _ts=${_src#event:}
+      is_ts "$_ts" || bad --source "not event:<YYYY-MM-DDTHH:MM:SSZ> or event-line:<n>"
+      _hit=0
+      for _s in "$@"; do [ "$_s" != "$_ts" ] || _hit=1; done
+      [ "$_hit" -eq 1 ] || bad --source "the cited event is not the corrected start or end"
+      while IFS= read -r _f; do
+        if grep -Eq "\"timestamp\":\"${_ts%Z}[.Z]" "$_f"; then return 0; fi
+      done <"$work/event-files"
+      bad --source "no event of the session's log is stamped $_ts"
+      ;;
+    event-line:*)
+      _n=${_src#event-line:}
+      case $_n in '' | *[!0-9]* | 0*) bad --source "not event:<YYYY-MM-DDTHH:MM:SSZ> or event-line:<n>" ;; esac
+      [ "${#_n}" -le 9 ] || bad --source "not event:<YYYY-MM-DDTHH:MM:SSZ> or event-line:<n>"
+      while IFS= read -r _f; do
+        _ts=$(sed -n "${_n}p" "$_f" | sed -n 's/.*"timestamp":"\([0-9T:-]*\)[.Z].*/\1Z/p')
+        [ -n "$_ts" ] || continue
+        for _s in "$@"; do
+          [ "$_s" != "$_ts" ] || return 0
+        done
+      done <"$work/event-files"
+      bad --source "no event-log line $_n holds the corrected start or end"
+      ;;
+    *) bad --source "not event:<YYYY-MM-DDTHH:MM:SSZ> or event-line:<n>" ;;
+  esac
+}
+
+cmd_supersede() {
+  record='' start='' end='' source='' a_step='' a_kind='' a_outcome='' a_head='' a_end_head=''
+  g_start=0 g_end=0 g_step=0 g_kind=0 g_outcome=0 g_head=0 g_end_head=0
   while [ $# -gt 0 ]; do
     case $1 in
+      --record | --start | --end | --source | --step | --kind | --outcome | --head | --end-head)
+        [ $# -ge 2 ] || usage
+        ;;
+      *) usage ;;
+    esac
+    case $1 in
+      --record) record=$2 ;;
+      --start)
+        start=$2
+        g_start=1
+        ;;
+      --end)
+        end=$2
+        g_end=1
+        ;;
+      --source) source=$2 ;;
+      --step)
+        a_step=$2
+        g_step=1
+        ;;
+      --kind)
+        a_kind=$2
+        g_kind=1
+        ;;
+      --outcome)
+        a_outcome=$2
+        g_outcome=1
+        ;;
+      --head)
+        a_head=$2
+        g_head=1
+        ;;
+      --end-head)
+        a_end_head=$2
+        g_end_head=1
+        ;;
+    esac
+    shift 2
+  done
+  [ -n "$record" ] || bad --record "required"
+  is_ref "$record" || bad --record "not <run>:<point>:<seq>"
+  [ -d "$cache/$REF_RUN" ] && [ ! -L "$cache/$REF_RUN" ] && [ -f "$REF_PATH" ] && [ ! -L "$REF_PATH" ] \
+    || bad --record "names no step record in the cache"
+  valid_run "$REF_RUN"
+  [ -n "$source" ] || bad --source "required: the session event that proves the corrected time"
+  scratch
+  printf '%s\n' "$REF_PATH" >"$work/ref-path" || die 1 "cannot write a temporary file"
+  CACHE_DIR=$cache awk -v TAB="$TAB" "$AWK_RECORD"'
+    { if (!load($0) || !ok_step()) exit 3
+      print F["step"] TAB F["kind"] TAB F["outcome"] TAB F["hosting"] TAB F["backend"] TAB F["head"] TAB F["end-head"] TAB F["start"] TAB F["end"] }
+    END { if (err) exit 2 }' "$work/ref-path" >"$work/orig"
+  case $? in
+    0) ;;
+    3) bad --record "names no well-formed step record" ;;
+    *) die 1 "a record cannot be read" ;;
+  esac
+  IFS=$TAB read -r o_step o_kind o_outcome hosting backend o_head o_end_head o_start o_end <"$work/orig" \
+    || bad --record "names no well-formed step record"
+  [ "$o_outcome" != skipped ] || bad --record "a skipped step ran no window to correct"
+  [ "$g_step" -eq 0 ] || [ "$a_step" = "$o_step" ] || bad --step "a supersede corrects timing only; it cannot change the step"
+  [ "$g_kind" -eq 0 ] || [ "$a_kind" = "$o_kind" ] || bad --kind "a supersede corrects timing only; it cannot change the kind"
+  [ "$g_outcome" -eq 0 ] || [ "$a_outcome" = "$o_outcome" ] \
+    || bad --outcome "a supersede corrects timing only; it cannot change the outcome"
+  [ "$g_head" -eq 0 ] || [ "$a_head" = "$o_head" ] || bad --head "a supersede corrects timing only; it cannot change the head"
+  [ "$g_end_head" -eq 0 ] || [ "$a_end_head" = "$o_end_head" ] \
+    || bad --end-head "a supersede corrects timing only; it cannot change the end head"
+  [ "$g_start" -eq 0 ] || is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
+  [ "$g_end" -eq 0 ] || is_ts "$end" || bad --end "not YYYY-MM-DDTHH:MM:SSZ"
+  [ "$g_start" -eq 1 ] || start=$o_start
+  [ "$g_end" -eq 1 ] || end=$o_end
+  { [ "$start" != "$o_start" ] || [ "$end" != "$o_end" ]; } \
+    || bad --start "a supersede must correct the start or the end; this changes neither"
+  end_given=1
+  check_end
+  corrected=''
+  [ "$start" = "$o_start" ] || corrected="$start$LF"
+  [ "$end" = "$o_end" ] || corrected="$corrected$end$LF"
+  # shellcheck disable=SC2086 # the stamps split on newlines by design (IFS)
+  check_source "$source" $corrected
+  kind=$o_kind outcome=$o_outcome head=$o_head end_head=$o_end_head start_source=$source
+  truth_check
+  {
+    put point "$REF_POINT"
+    put supersedes "$record"
+    put start "$start"
+    put end "$end"
+    put from-start "$o_start"
+    put from-end "$o_end"
+    put source "$source"
+  } >"$work/body" || die 1 "cannot write a temporary file"
+  claim "$REF_RUN" "fix-$REF_POINT" supersede "$work/body"
+}
+
+# supersede_map <paths file>: $work/supmap, one `<ref><TAB><start><TAB><end>
+# <TAB><seq>` line per well-formed supersede record among the paths, in path
+# order, so a later line for one record stands. A record is read as untrusted:
+# its type, run, seq, point, and the record it names must agree with its path,
+# and its times be stamps, or it is ignored.
+supersede_map() {
+  scratch
+  : >"$work/supmap" || die 1 "cannot write a temporary file"
+  grep '/[0-9][0-9][0-9]-fix-[a-z][a-z-]*\.rec$' "$1" >"$work/fixfiles" || :
+  [ -s "$work/fixfiles" ] || return 0
+  # shellcheck disable=SC2046 # one path a line; IFS is a newline
+  awk -v TAB="$TAB" '
+    function ts(v) { return v ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ }
+    function flush(   n, parts, b, run, seq, point, q) {
+      if (path == "") return
+      n = split(path, parts, "/"); b = parts[n]; run = parts[n - 1]
+      seq = substr(b, 1, 3); point = substr(b, 9, length(b) - 12)
+      split(F["supersedes"], q, ":")
+      if (!bad && F["type"] == "supersede" && F["run"] == run && F["seq"] == seq && F["point"] == point \
+        && q[1] == run && q[2] == point && q[3] ~ /^[0-9][0-9][0-9]$/ && F["supersedes"] == q[1] ":" q[2] ":" q[3] \
+        && ts(F["start"]) && ts(F["end"]) && F["end"] >= F["start"])
+        print F["supersedes"] TAB F["start"] TAB F["end"] TAB seq
+    }
+    FNR == 1 { flush(); path = FILENAME; bad = 0; split("", F) }
+    { t = index($0, TAB); if (!t) { bad = 1; next }
+      k = substr($0, 1, t - 1); if (k in F) bad = 1; F[k] = substr($0, t + 1) }
+    END { flush() }' $(cat "$work/fixfiles") >"$work/supmap" || die 1 "a record cannot be read"
+}
+
+# --- list -----------------------------------------------------------------------
+# effective_view <map> <listing>: the listing as the cadence audit reads it
+# (see the header): each step record that has a standing supersede takes its
+# start and end, and the supersede records themselves are left out.
+effective_view() {
+  awk -F '\t' -v MAPF="$1" '
+    BEGIN {
+      while ((getline l < MAPF) > 0) { split(l, a, "\t"); S[a[1]] = a[2]; E[a[1]] = a[3]; Q[a[1]] = a[4] }
+      close(MAPF)
+    }
+    function flush(   i, ref, n, p, b, run) {
+      if (nb == 0) return
+      if (!drop) {
+        ref = ""
+        if (path != "") {
+          n = split(path, p, "/"); b = p[n]; run = p[n - 1]
+          if (b ~ /^[0-9][0-9][0-9]-step-[a-z][a-z-]*\.rec$/) ref = run ":" substr(b, 10, length(b) - 13) ":" substr(b, 1, 3)
+        }
+        for (i = 1; i <= nb; i++) {
+          if (ref != "" && (ref in S) && K[i] == "start") print "start\t" S[ref]
+          else if (ref != "" && (ref in S) && K[i] == "end") print "end\t" E[ref]
+          else if (ref != "" && (ref in S) && K[i] == "start-source") print "start-source\tsupersede:" Q[ref]
+          else print B[i]
+        }
+        if (ref != "" && (ref in S)) print "corrected-by\t" substr(ref, 1, length(ref) - 3) Q[ref]
+      }
+      nb = 0; drop = 0; path = ""
+    }
+    $1 == "record" { flush(); path = $2 }
+    { B[++nb] = $0; K[nb] = $1 }
+    $1 == "type" && $2 == "supersede" { drop = 1 }
+    END { flush() }' "$2"
+}
+
+cmd_list() {
+  run='' point='' effective=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --effective)
+        effective=1
+        shift
+        continue
+        ;;
       --run | --point) [ $# -ge 2 ] || usage ;;
       *) usage ;;
     esac
@@ -1366,17 +1627,29 @@ cmd_list() {
   [ -z "$run" ] || valid_run "$run"
   [ -z "$point" ] || is_point "$point" || bad --point "not a point of the vocabulary"
   if [ -n "$run" ]; then runs=$run; else runs=$(run_ids); fi
+  scratch
+  : >"$work/listing" || die 1 "cannot write a temporary file"
+  : >"$work/paths" || die 1 "cannot write a temporary file"
   for r in $runs; do
     check_run "$r"
+    record_files "$r" >>"$work/paths" || die 1 "cannot list the record cache"
     for f in $(record_files "$r"); do
       if [ -n "$point" ]; then
         grep -Fxq "point$TAB$point" "$f" || continue
       fi
-      printf 'record\t%s\n' "${f#"$worktree"/}"
-      tr -d '\000-\010\013-\037\177' <"$f" || die 1 "a record cannot be read"
-      printf '\n'
+      {
+        printf 'record\t%s\n' "${f#"$worktree"/}"
+        tr -d '\000-\010\013-\037\177' <"$f" || die 1 "a record cannot be read"
+        printf '\n'
+      } >>"$work/listing" || die 1 "a record cannot be read"
     done
   done
+  if [ "$effective" -eq 1 ]; then
+    supersede_map "$work/paths"
+    effective_view "$work/supmap" "$work/listing" || die 1 "cannot read the records"
+  else
+    cat "$work/listing" || die 1 "cannot print the records"
+  fi
 }
 
 # --- render ----------------------------------------------------------------------
@@ -1568,6 +1841,7 @@ render_run() {
         d = d "; args digest `" safe(short(F[i, "args-digest"])) "`"
       }
       if (F[i, "refire-of"] != "") d = d (d == "" ? "" : "; ") "re-fire of `" safe(F[i, "refire-of"]) "`"
+      if (i in corr) d = d (d == "" ? "" : "; ") corr[i]
       return d
     }
     FNR == 1 { k++ }
@@ -1578,19 +1852,37 @@ render_run() {
       else if (key == "holder") { nh[k]++; H[k, nh[k]] = val }
       else F[k, key] = val
     }
+    function ts(v) { return v ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ }
     END {
+      # A well-formed supersede (it names, in its own run and point, a step record
+      # that exists, and holds two stamps in order) replaces that record'"'"'s start
+      # and end; of several, the highest sequence stands.
+      for (i = 1; i <= k; i++) {
+        if (F[i, "type"] != "supersede") continue
+        if (F[i, "run"] != run || !ts(F[i, "start"]) || !ts(F[i, "end"]) || F[i, "end"] < F[i, "start"]) continue
+        ovr[F[i, "supersedes"]] = i
+      }
+      for (j = 1; j <= k; j++) {
+        if (F[j, "type"] != "step") continue
+        ref = run ":" F[j, "point"] ":" F[j, "seq"]
+        if (!(ref in ovr)) continue
+        i = ovr[ref]
+        if (F[i, "point"] != F[j, "point"]) continue
+        F[j, "start"] = F[i, "start"]; F[j, "end"] = F[i, "end"]
+        corr[j] = "start and end corrected by supersede `" safe(F[i, "seq"]) "` (" safe(F[i, "source"]) ")"
+      }
       m = split(want, Q, " "); np = 0
       for (i = 1; i <= m; i++) if (!(Q[i] in named)) { named[Q[i]] = 1; P[++np] = Q[i] }
       if (np == 0) {
         for (i = 1; i <= k; i++) {
-          if (F[i, "type"] == "full-suite" || (F[i, "point"] in seen)) continue
+          if (F[i, "type"] == "full-suite" || F[i, "type"] == "supersede" || (F[i, "point"] in seen)) continue
           seen[F[i, "point"]] = 1; P[++np] = F[i, "point"]
         }
       }
       first = 1
       for (p = 1; p <= np; p++) {
         pt = P[p]; any = 0
-        for (i = 1; i <= k; i++) if (F[i, "type"] != "full-suite" && F[i, "point"] == pt) any = 1
+        for (i = 1; i <= k; i++) if (F[i, "type"] != "full-suite" && F[i, "type"] != "supersede" && F[i, "point"] == pt) any = 1
         if (!any) continue
         if (!first) print ""
         first = 0
@@ -1599,7 +1891,7 @@ render_run() {
         print "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
         rows = 0; done = 0; nd = 0
         for (i = 1; i <= k; i++) {
-          if (F[i, "type"] == "full-suite" || F[i, "point"] != pt) continue
+          if (F[i, "type"] == "full-suite" || F[i, "type"] == "supersede" || F[i, "point"] != pt) continue
           if (F[i, "type"] == "completion") { done = i; continue }
           rows++
           outc = F[i, "outcome"]
@@ -2187,13 +2479,22 @@ cmd_heads() {
 
 # --- untrue ----------------------------------------------------------------------
 # cmd_untrue: the step-record truth check on every stored step record, so the
-# cadence audit can name a record whose values the check would have refused.
+# cadence audit can name a record whose values the check would have refused. A
+# record with a standing supersede is judged on the corrected times, as a
+# record that has a start source.
 cmd_untrue() {
   [ $# -eq 0 ] || usage
   all_records
-  CACHE_DIR=$cache awk -v TAB="$TAB" -v FLOOR="$TRUTH_FLOOR" -v TOL="$TRUTH_NOW_TOL" "$AWK_RECORD$AWK_TRUTH"'
+  supersede_map "$work/records"
+  CACHE_DIR=$cache awk -v TAB="$TAB" -v FLOOR="$TRUTH_FLOOR" -v TOL="$TRUTH_NOW_TOL" -v MAPF="$work/supmap" "$AWK_RECORD$AWK_TRUTH"'
+    BEGIN {
+      while ((getline l < MAPF) > 0) { split(l, a, TAB); S[a[1]] = a[2]; E[a[1]] = a[3]; Q[a[1]] = a[4] }
+      close(MAPF)
+    }
     {
       if (!load($0) || R_KIND != "step") next
+      rk = R_RUN ":" R_POINT ":" R_SEQ
+      if (rk in S) { F["start"] = S[rk]; F["end"] = E[rk]; F["start-source"] = "supersede:" Q[rk] }
       t = truth("audit", F["kind"], F["outcome"], F["hosting"], F["backend"], F["start"], F["end"], F["head"], F["end-head"], F["start-source"])
       if (t == "") next
       split(t, p, TAB)
@@ -2212,14 +2513,14 @@ fi
 
 # A PLANWRIGHT_STEP_* name outside the documented set (resolve-steps.sh
 # --check-env owns the list) is dropped without a word by anything that reads
-# the context: new-run, write, regenerate, and status refuse it, the other
+# the context: new-run, write, supersede, regenerate, and status refuse it, the other
 # verbs (bar excerpt and args-digest, which exit earlier) warn.
 env_rc=0
 env_msg=$("$script_dir/resolve-steps.sh" --check-env 2>&1) || env_rc=$?
 if [ "$env_rc" -eq 6 ]; then
   printf '%s\n' "$env_msg" >&2
   case $verb in
-    new-run | write | regenerate | status) exit 2 ;;
+    new-run | write | supersede | regenerate | status) exit 2 ;;
   esac
 fi
 
@@ -2227,6 +2528,7 @@ case $verb in
   status) cmd_status "$@" ;;
   new-run) cmd_new_run "$@" ;;
   write) cmd_write "$@" ;;
+  supersede) cmd_supersede "$@" ;;
   list) cmd_list "$@" ;;
   render) cmd_render "$@" ;;
   regenerate) cmd_regenerate "$@" ;;
