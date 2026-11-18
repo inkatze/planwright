@@ -77,6 +77,21 @@ mc_valid_text() {
   esac
 }
 
+# mc_strip_ctl <value> [placeholder]: sanitize_printable's result in
+# MC_STRIPPED, with no process started. A caller that sanitizes per row of a
+# store (a command substitution plus tr per call) forks thousands of times
+# for one read; this is the same C0, DEL and C1 byte strip as a parameter
+# expansion. The class is a byte range, so the sourcing script must run
+# under LC_ALL=C, as every script that sources this file does.
+MC_CTL_CLASS=$'\001-\037\177-\237'
+mc_strip_ctl() {
+  MC_STRIPPED=${1//[$MC_CTL_CLASS]/}
+  if [ -z "$MC_STRIPPED" ] && [ $# -ge 2 ]; then
+    MC_STRIPPED=$2
+  fi
+  return 0
+}
+
 # mc_seconds <cadence>: a positive count of s, m, h or d, in seconds.
 mc_seconds() {
   ms_n=${1%[smhd]}
