@@ -57,7 +57,10 @@ pw_untrusted_git_env() {
       '^(filter\..+\.(clean|smudge|process|required)|merge\..+\.driver|diff\.external|diff\..+\.(command|textconv))$' \
       2>/dev/null) || ug_rc=$?
     # 1 is "no such key"; anything else is a checkout git cannot read.
-    [ "$ug_rc" -le 1 ] || return 128
+    [ "$ug_rc" -le 1 ] || {
+      unset PW_UNTRUSTED_GIT
+      return 128
+    }
     ug_list=$ug_list$ug_one'
 '
   done

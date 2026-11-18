@@ -470,6 +470,22 @@ run_worktree "$main_repo" "$wt_drv" "merged branch" "reclaiming a worktree with 
 [ ! -d "$wt_drv" ] || fail "planted drivers: the worktree was not reclaimed"
 echo "ok: a worktree's planted fsmonitor and clean filter do not run in the reclaim checks"
 
+# 8c. A worktree whose status git cannot read is refused, not taken for clean:
+# a damaged index leaves rev-parse working and fails status.
+wt_bad="$tmp/wt-bad-index"
+(cd "$main_repo" && git_env git worktree add -q -b feat-badidx "$wt_bad" >/dev/null 2>&1)
+(cd "$wt_bad" && git_env git push -q -u origin feat-badidx)
+printf 'not an index\n' >"$(git -C "$wt_bad" rev-parse --path-format=absolute --git-path index)"
+if git -C "$wt_bad" status --porcelain >/dev/null 2>&1; then
+  fail "unreadable status: the damaged index did not break status (fixture is not live)"
+fi
+rc=0
+run_worktree "$main_repo" "$wt_bad" "merged branch" "reclaiming a worktree with a damaged index" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "unreadable status: exit $rc, expected 5 (refused)"
+[ -d "$wt_bad" ] || fail "unreadable status: the worktree was removed"
+echo "ok: a worktree whose status cannot be read is refused (exit 5)"
+
 # 9. A worktree with uncommitted work is refused (would lose work).
 wt_dirty="$tmp/wt-dirty"
 (cd "$main_repo" && git_env git worktree add -q -b feat-dirty "$wt_dirty" >/dev/null 2>&1)

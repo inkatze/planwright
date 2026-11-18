@@ -347,16 +347,18 @@ kept=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=dropped 
 plant filter.mark.clean "touch $M/clean; cat"
 stat_dirty
 rm -f "$M"/*
+rc=0
+GIT_TEST_ASSUME_DIFFERENT_OWNER=1 git -C "$R" status --porcelain >/dev/null 2>&1 || rc=$?
 GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$R" \
   git -C "$R" status --porcelain >/dev/null 2>&1 || :
-if fired clean; then
+if [ "$rc" -ne 0 ] && fired clean; then
   stat_dirty
   rm -f "$M"/*
   GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$R" \
     mc_untrusted_git -C "$R" status --porcelain >/dev/null 2>&1 || :
   fired clean && fail "a caller's safe.directory pair let the guarded git run the planted filter"
 else
-  echo "skip: safe.directory: this git has no GIT_TEST_ASSUME_DIFFERENT_OWNER"
+  echo "skip: safe.directory: this git does not treat the checkout as another user's"
 fi
 echo "ok: the caller's GIT_CONFIG_COUNT pairs are dropped, and cannot open a checkout the listing refused"
 
