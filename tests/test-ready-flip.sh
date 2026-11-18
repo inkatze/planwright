@@ -561,14 +561,14 @@ for ph in head other; do
   hd=$(gitf rev-parse HEAD)
   run=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
   /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run" --point post-pr --step cubic-pr \
-    --kind skill --target bot-review --hosting in-session --backend terminal --head "$hd" \
-    --start "$now" --end "$now" --outcome limited >/dev/null
+    --kind skill --target bot-review --hosting in-session --backend in-session --head "$hd" \
+    --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome limited >/dev/null
   run2=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
   eh=$hd
   [ "$ph" = head ] || eh=1111111111111111111111111111111111111111
   /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run2" --point post-pr --step pr-agent-pr \
-    --kind skill --target bot-review --hosting in-session --backend terminal --head "$eh" --end-head "$eh" \
-    --start "$now" --end "$now" --outcome passed >/dev/null
+    --kind skill --target bot-review --hosting in-session --backend in-session --head "$eh" --end-head "$eh" \
+    --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome passed >/dev/null
   run_helper flip --spec specs/demo --task 1
   if [ "$ph" = head ]; then
     check "a pr-agent-pr pass on the head retires the limited cubic-pr (exit 0)" [ "$CODE" = 0 ]
