@@ -1133,7 +1133,7 @@ deny|load-bearing|Write|/work/repo/.claude/planwright.local.yml|the machine-loca
 deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/overlay/planwright.yml|the adopter overlay (REQ-G1.8)
 deny|load-bearing|Edit|/home/u/.gitconfig|user-level git config, read by every session's git; a driver written here fires in all of them
 deny|load-bearing|Write|/home/u/.gitconfig|the Write tool on the user-level git config
-deny|load-bearing|Edit|/home/u/.gitconfig.local|an existing .gitconfig.* include target
+deny|load-bearing|Edit|/home/u/.gitconfig.local|a .gitconfig.* include target
 deny|load-bearing|Write|/home/u/.gitconfig.work|a not-yet-existing .gitconfig.* file an includeIf names, which a worker could create
 deny|load-bearing|Write|/home/u/.gitconfig-work|the dashed spelling of an include target
 deny|load-bearing|Edit|/etc/gitconfig|the system git config
@@ -1154,7 +1154,10 @@ allow|legit|Write|/work/repo/.claude/worktrees/w1/roles/osx/files/mise/offload.t
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/mise/README.md|a mise/ file outside config, miserc, conf.d and tasks stays editable
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/.gitconfig|a .gitconfig inside the worktree is not the user's; the home anchor leaves it editable
 allow|legit|Write|/home/u/.gitignore|a home file merely sharing the .git prefix stays editable
-allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/etc/gitconfig-notes.md|a file beside a docs etc/ directory that is not the config stays editable
+allow|legit|Edit|/home/u/dev/repo/.gitconfig|a repository's .gitconfig under the home directory stays editable; the rule matches the home's top level only
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/etc/gitconfig-notes.md|a file inside an etc/ directory whose name merely starts with gitconfig stays editable
+allow|legit|Write|/etc/gitconfig.d/x|a file under an etc/gitconfig.d directory is not the system config; the rule is end-anchored
+deny|overblock|Write|/work/repo/.claude/worktrees/w1/roles/git/files/etc/gitconfig|a repository's own tracked etc/gitconfig is refused too: the rule is not anchored to the system root; fail-safe
 allow|legit|Read|/home/u/.gitconfig|the user-level git config stays readable
 allow|legit|Read|/work/repo/.claude/worktrees/w1/README.md|ordinary reads
 allow|legit|Read|/proc/1234/status|a /proc read that is not an environment
