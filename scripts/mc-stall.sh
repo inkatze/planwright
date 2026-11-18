@@ -133,8 +133,10 @@ forks, never listed. A directory that records no supervisor yet
 belongs to one starting or exiting, so that alone lists nothing. orphans
 prints, tab separated:
   orphan <pid> <start> <supervisor|claude> <worker> <reason>
-where <start> is the process's start time, which tells it from a later
-process given the same pid.
+where <start>, which tells the process from a later one given the same pid,
+is its procfs start tick as t<ticks> (field 22 of /proc/<pid>/stat) where
+there is a procfs, else ps's lstart with its spaces turned to dashes. Where
+there is a procfs the listing reads it, not ps.
 
 Exit codes: 0 classified, or the orphans listed; 1 the registry, a sample or
 a lock could not be read or written, an event could not be emitted, the
@@ -651,6 +653,40 @@ proc_cwd() {
   fi
 }
 
+# proc_rows: this user's process rows that name the launcher or the
+# stream-json shape, as `<pid> <ppid> <start> <argv...>` with <start> one
+# token: procfs where there is one, since busybox's ps cuts argv short and
+# has no start time; elsewhere (macOS) ps, its lstart joined by dashes. A
+# procfs start is the kernel's start tick, written t<ticks>.
+proc_rows() {
+  if [ -r /proc/self/stat ]; then
+    pr_uid=$(id -u) || return 1
+    set +f
+    pr_hits=$(grep -l -e fleet-streamjson.sh -e stream-json /proc/[0-9]*/cmdline 2>/dev/null)
+    set -f
+    for pr_f in $pr_hits; do
+      pr_d=${pr_f%/cmdline}
+      pr_u=$(awk '$1 == "Uid:" { print $2; exit }' "$pr_d/status" 2>/dev/null) || continue
+      [ "$pr_u" = "$pr_uid" ] || continue
+      IFS= read -r pr_stat <"$pr_d/stat" 2>/dev/null || continue
+      # shellcheck disable=SC2086 # the fields after the command name, split
+      set -- ${pr_stat##*") "}
+      [ "$#" -ge 20 ] || continue
+      pr_ppid=$2
+      shift 19
+      pr_args=$(tr '\000' ' ' <"$pr_f" 2>/dev/null) || continue
+      [ -n "$pr_args" ] || continue
+      printf '%s %s t%s %s\n' "${pr_d#/proc/}" "$pr_ppid" "$1" "$pr_args"
+    done
+    return 0
+  fi
+  pr_table=$(ps -U "$(id -u)" -ww -o pid= -o ppid= -o lstart= -o args=) || return 1
+  printf '%s\n' "$pr_table" | awk 'NF >= 8 {
+    s = $3; for (k = 4; k <= 7; k++) s = s "-" $k
+    printf "%s %s %s", $1, $2, s; for (k = 8; k <= NF; k++) printf " %s", $k; print ""
+  }'
+}
+
 # stream_json_procs: this user's candidates from the process table, one per
 # line, tab separated: `S <pid> <start> <worker> <dir> <worker pids>` for a
 # supervisor, `C <pid> <start> <worker> <ppid>` for a stream-json worker no
@@ -659,24 +695,24 @@ proc_cwd() {
 # subshell, the worker before its exec), so a candidate whose parent is a
 # supervisor is that supervisor's, never its own row; and `launch
 # --foreground` supervises from the launch process.
-# ps joins the argv with spaces, so a state directory whose path holds one is
-# read short and reads as gone.
+# The argv arrives joined with spaces, so a state directory whose path holds
+# one is read short and reads as gone.
 stream_json_procs() {
-  sjp_table=$(ps -U "$(id -u)" -ww -o pid= -o ppid= -o lstart= -o args=) || return 1
+  sjp_table=$(proc_rows) || return 1
   printf '%s\n' "$sjp_table" | awk '
     function base(s) { sub(/.*\//, "", s); return s }
-    NF >= 8 {
-      pid = $1; ppid = $2; start = $3 "-" $4 "-" $5 "-" $6 "-" $7
+    NF >= 4 {
+      pid = $1; ppid = $2; start = $3
       parent[pid] = ppid
-      for (i = 8; i < NF; i++) if (base($i) == "fleet-streamjson.sh" && $(i + 1) ~ /^(launch|recover|relaunch|_supervise)$/) { fsj[pid] = 1; break }
-      for (i = 8; i < NF; i++) {
+      for (i = 4; i < NF; i++) if (base($i) == "fleet-streamjson.sh" && $(i + 1) ~ /^(launch|recover|relaunch|_supervise)$/) { fsj[pid] = 1; break }
+      for (i = 4; i < NF; i++) {
         if (base($i) == "fleet-streamjson.sh" && $(i + 1) == "_supervise" && i + 3 <= NF) {
           sup[pid] = start "\t" $(i + 2) "\t" $(i + 3); order[++n] = pid
           next
         }
       }
       shape = 0; name = ""
-      for (i = 8; i < NF; i++) {
+      for (i = 4; i < NF; i++) {
         if (base($i) == "claude" && $(i + 1) == "-p") shape = 1
         if (shape && $i == "--input-format" && $(i + 1) == "stream-json") shape = 2
         if ($i == "--name") name = $(i + 1)
@@ -692,7 +728,7 @@ stream_json_procs() {
 
 # list_orphans: the orphans verb's rows.
 list_orphans() {
-  lo_procs=$(stream_json_procs) || mc_fail "cannot read the process table (ps -U <uid> -ww -o pid= -o ppid= -o lstart= -o args=)"
+  lo_procs=$(stream_json_procs) || mc_fail "cannot read the process table (procfs, else ps -U <uid> -ww -o pid= -o ppid= -o lstart= -o args=)"
   while IFS="	" read -r lo_kind lo_pid lo_start lo_worker lo_a lo_b; do
     lo_why=''
     case $lo_kind in

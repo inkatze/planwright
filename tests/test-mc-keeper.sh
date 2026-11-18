@@ -351,7 +351,12 @@ EOF
 orphan_sup=$!
 os_i=0
 while [ "$os_i" -lt 100 ]; do
-  case $(ps -ww -o args= -p "$orphan_sup" 2>&1) in *_supervise*) break ;; esac
+  if [ -r "/proc/$orphan_sup/cmdline" ]; then
+    os_args=$(tr '\000' ' ' <"/proc/$orphan_sup/cmdline")
+  else
+    os_args=$(ps -ww -o args= -p "$orphan_sup" 2>&1)
+  fi
+  case $os_args in *_supervise*) break ;; esac
   sleep 0.1
   os_i=$((os_i + 1))
 done
@@ -369,6 +374,14 @@ keeper_as alpha 5480
 expect_no_out "nor by its own" "mc-alpha-tower-orphaned"
 mc_run mc-event.sh list --program alpha
 expect_out "the event names the process and its gone state directory" "stream-json-worker-orphaned${tab}mc-alpha-tower-orphaned${tab}orphaned stream-json supervisor pid $orphan_sup"
+expect_out "the event's reason names the gone state directory" "its state directory $tmp/orphan-fx/gone/state is gone"
+# The start it asks the operator to confirm is read the way the listing read it.
+if [ -r /proc/self/stat ]; then
+  orphan_tick=$(awk '{ sub(/.*\) /, ""); print $20 }' "/proc/$orphan_sup/stat")
+  expect_out "the event says where procfs keeps the start it names" "field 22 of /proc/$orphan_sup/stat still reads $orphan_tick"
+else
+  expect_out "the event says how ps shows the start it names" "ps -o pid,lstart,args -p $orphan_sup shows it started"
+fi
 mc_run mc-event.sh list --program beta
 expect_no_out "and lands under one program" "mc-alpha-tower-orphaned"
 if kill -0 "$orphan_sup" 2>/dev/null; then

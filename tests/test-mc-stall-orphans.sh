@@ -79,12 +79,32 @@ start_bare() {
   BARE=$!
   started="$started $BARE"
 }
+# proc_args <pid>: the process's argv, read from procfs where there is one,
+# since busybox's ps takes no -p and cuts argv short.
+proc_args() {
+  if [ -r "/proc/$1/cmdline" ]; then
+    tr '\000' ' ' <"/proc/$1/cmdline"
+  else
+    ps -ww -o args= -p "$1"
+  fi
+}
+# child_with <ppid> <needle>: a child of <ppid> whose argv holds <needle>.
+child_with() {
+  for cw in $(ps -A -o pid= -o ppid= | awk -v p="$1" '$2 == p { print $1 }'); do
+    case $(proc_args "$cw" 2>&1) in *"$2"*)
+      printf '%s\n' "$cw"
+      return 0
+      ;;
+    esac
+  done
+  return 1
+}
 # wait_exec <pid> <needle>: wait until the process runs the command line the
 # case started, so no check races its exec.
 wait_exec() {
   we_i=0
   while [ "$we_i" -lt 100 ]; do
-    case $(ps -ww -o args= -p "$1" 2>&1) in *"$2"*) return 0 ;; esac
+    case $(proc_args "$1" 2>&1) in *"$2"*) return 0 ;; esac
     sleep 0.1
     we_i=$((we_i + 1))
   done
@@ -122,15 +142,15 @@ mkdir -p "$live_dir"
 FIXTURE_FORK=1 start_pair mc-alpha-worker-live "$live_dir" "$tmp/live-cwd"
 live_sup=$SUP
 printf '%s\n' "$live_sup" >"$live_dir/supervisor.pid"
-live_worker=$(ps -A -o pid= -o ppid= -o args= | awk -v p="$live_sup" '$2 == p && /bin\/claude/ { print $1; exit }')
+live_worker=$(child_with "$live_sup" bin/claude)
 fe_i=0
 while [ -z "$live_worker" ] && [ "$fe_i" -lt 50 ]; do
   sleep 0.1
   fe_i=$((fe_i + 1))
-  live_worker=$(ps -A -o pid= -o ppid= -o args= | awk -v p="$live_sup" '$2 == p && /bin\/claude/ { print $1; exit }')
+  live_worker=$(child_with "$live_sup" bin/claude)
 done
 [ -n "$live_worker" ] || fail "the healthy supervisor started no worker"
-live_fork=$(ps -A -o pid= -o ppid= -o args= | awk -v p="$live_sup" '$2 == p && /_supervise/ { print $1; exit }')
+live_fork=$(child_with "$live_sup" _supervise)
 [ -n "$live_fork" ] || fail "the healthy supervisor started no fork"
 # A worker a foreground launch supervises from the launch process.
 (cd "$tmp/live-cwd" && exec /bin/sh "$fx/scripts/fleet-streamjson.sh" launch mc-alpha-worker-fg fg-scope --foreground \
