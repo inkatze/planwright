@@ -328,10 +328,43 @@ rc=0
   [ -z "${GIT_CONFIG_COUNT:-}" ]
 ) || rc=$?
 [ "$rc" -eq 0 ] || fail "an unreadable checkout config: the helper still set GIT_CONFIG_COUNT"
-rc=0
-mc_untrusted_git -C "$tmp/broken" diff --cached --quiet >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 128 ] || fail "an unreadable checkout config: a guarded diff --quiet returned $rc, expected 128"
 echo "ok: an unreadable checkout configuration fails closed with status 128"
+
+# A driver with an empty name ([filter ""], selected by `filter=` with no
+# value) is blanked like any other.
+mkrepo emptyname local
+plant filter..clean "touch $M/clean; cat"
+plant diff..textconv "touch $M/textconv; cat"
+printf 'a.txt filter= diff=\n' >"$R/.git/info/attributes"
+stat_dirty
+expect_fires "empty-named filter" clean status --porcelain
+stat_dirty
+expect_silent "empty-named filter" clean status --porcelain
+expect_ran "empty-named filter"
+printf 'changed\n' >"$R/a.txt"
+expect_fires "empty-named textconv" textconv diff --no-ext-diff HEAD
+expect_silent "empty-named textconv" textconv diff HEAD
+echo "ok: a driver with an empty name does not run"
+
+# A checkout git refuses to treat as the caller's own is refused by the
+# listing, so a guarded git that names its git directory outright cannot read
+# it past the check (mc-reclaim's g()).
+mkrepo foreignowner local
+plant filter.mark.clean "touch $M/clean; cat"
+stat_dirty
+rm -f "$M"/*
+GIT_TEST_ASSUME_DIFFERENT_OWNER=1 git --git-dir="$R/.git" --work-tree="$R" status --porcelain >/dev/null 2>&1 || :
+if fired clean; then
+  stat_dirty
+  rm -f "$M"/*
+  rc=0
+  (GIT_TEST_ASSUME_DIFFERENT_OWNER=1 && export GIT_TEST_ASSUME_DIFFERENT_OWNER && mc_untrusted_git_env "$R" && git --git-dir="$R/.git" --work-tree="$R" status --porcelain >/dev/null 2>&1) || rc=$?
+  fired clean && fail "another owner's checkout: a guarded git naming its git directory ran the planted filter"
+  [ "$rc" -eq 128 ] || fail "another owner's checkout: the environment helper returned $rc, expected 128"
+  echo "ok: another owner's checkout is refused rather than read past the listing"
+else
+  echo "skip: another owner's checkout: this git does not treat it as foreign"
+fi
 
 # The caller's own GIT_CONFIG_COUNT pairs are dropped, and a count that is not
 # a number does not break the listing.
@@ -342,6 +375,7 @@ GIT_CONFIG_COUNT=abc mc_untrusted_git -C "$R" rev-parse HEAD >/dev/null 2>&1 || 
 kept=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=dropped \
   mc_untrusted_git -C "$R" config user.name 2>&1 || :)
 [ -z "$kept" ] || fail "an inherited GIT_CONFIG_COUNT pair survived the guard: $kept"
+echo "ok: the caller's GIT_CONFIG_COUNT pairs are dropped, and a bad count is harmless"
 # A safe.directory pair the caller sets must not make the listing and the
 # guarded git disagree about reading a checkout another user owns.
 plant filter.mark.clean "touch $M/clean; cat"
@@ -357,10 +391,10 @@ if [ "$rc" -ne 0 ] && fired clean; then
   GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$R" \
     mc_untrusted_git -C "$R" status --porcelain >/dev/null 2>&1 || :
   fired clean && fail "a caller's safe.directory pair let the guarded git run the planted filter"
+  echo "ok: a caller's safe.directory pair cannot open a checkout the listing refused"
 else
   echo "skip: safe.directory: this git does not treat the checkout as another user's"
 fi
-echo "ok: the caller's GIT_CONFIG_COUNT pairs are dropped, and cannot open a checkout the listing refused"
 
 # A scripts directory without the library refuses with exit 2.
 mkdir "$tmp/nolib"

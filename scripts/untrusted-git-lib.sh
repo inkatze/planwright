@@ -54,13 +54,16 @@ pw_untrusted_git_env() {
   for ug_dir in "$@"; do
     ug_rc=0
     ug_one=$(git -C "$ug_dir" config --show-scope --name-only --get-regexp \
-      '^(filter\..+\.(clean|smudge|process|required)|merge\..+\.driver|diff\.external|diff\..+\.(command|textconv))$' \
+      '^(filter\..*\.(clean|smudge|process|required)|merge\..*\.driver|diff\.external|diff\..*\.(command|textconv))$' \
       2>/dev/null) || ug_rc=$?
-    # 1 is "no such key"; anything else is a checkout git cannot read.
-    [ "$ug_rc" -le 1 ] || {
+    # 1 is "no such key"; anything else is a checkout git cannot read. The
+    # listing treats a directory git refuses (another owner's, not a
+    # repository) as having no keys, so such a directory is refused here: a
+    # guarded git that names its repository outright would read it anyway.
+    if [ "$ug_rc" -gt 1 ] || ! git -C "$ug_dir" rev-parse --git-dir >/dev/null 2>&1; then
       unset PW_UNTRUSTED_GIT
       return 128
-    }
+    fi
     ug_list=$ug_list$ug_one'
 '
   done
