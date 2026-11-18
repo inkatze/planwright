@@ -22,6 +22,8 @@ export LC_ALL
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCAFFOLD="$REPO_ROOT/scripts/inception-scaffold.sh"
 
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/inception-fixture.sh
 . "$REPO_ROOT/tests/lib/inception-fixture.sh"
 # shellcheck source=tests/lib/emitter-lint.sh
@@ -229,29 +231,42 @@ if [ "$(id -u)" -ne 0 ]; then
   mkdir -p "$v"
   printf '# Ours\n' >"$v/CLAUDE.md"
   chmod 444 "$v/CLAUDE.md"
-  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
-  assert_eq "G1.8 read-only CLAUDE.md: the scaffold still succeeds" "0" "$?"
-  assert_contains "G1.8 read-only CLAUDE.md: said, with the line to add" "@sync-protocol.md to it by hand" "$out"
-  assert_file "G1.8 read-only CLAUDE.md: the wiring notes are still written" "$v/hygiene-wiring.md"
-  assert_eq "G1.8 read-only CLAUDE.md: left as it was" "# Ours" "$(cat "$v/CLAUDE.md")"
+  if hermetic_access_denied w "$v/CLAUDE.md"; then
+    out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+    assert_eq "G1.8 read-only CLAUDE.md: the scaffold still succeeds" "0" "$?"
+    assert_contains "G1.8 read-only CLAUDE.md: said, with the line to add" "@sync-protocol.md to it by hand" "$out"
+    assert_file "G1.8 read-only CLAUDE.md: the wiring notes are still written" "$v/hygiene-wiring.md"
+    assert_eq "G1.8 read-only CLAUDE.md: left as it was" "# Ours" "$(cat "$v/CLAUDE.md")"
+  else
+    echo "skip: the read-only CLAUDE.md case (the mode does not deny writing here)"
+  fi
 
   v="$tmp/writeonly-claude"
   mkdir -p "$v"
   printf '# Ours\n' >"$v/CLAUDE.md"
   chmod 200 "$v/CLAUDE.md"
-  "$SCAFFOLD" --rung local "$v" >/dev/null 2>&1
-  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
-  chmod 644 "$v/CLAUDE.md"
-  assert_eq "G1.8 unreadable CLAUDE.md: nothing appended blind" "# Ours" "$(cat "$v/CLAUDE.md")"
-  assert_contains "G1.8 unreadable CLAUDE.md: said" "not readable" "$out"
+  if hermetic_access_denied r "$v/CLAUDE.md"; then
+    "$SCAFFOLD" --rung local "$v" >/dev/null 2>&1
+    out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+    chmod 644 "$v/CLAUDE.md"
+    assert_eq "G1.8 unreadable CLAUDE.md: nothing appended blind" "# Ours" "$(cat "$v/CLAUDE.md")"
+    assert_contains "G1.8 unreadable CLAUDE.md: said" "not readable" "$out"
+  else
+    chmod 644 "$v/CLAUDE.md"
+    echo "skip: the unreadable CLAUDE.md case (the mode does not deny reading here)"
+  fi
 
   v="$tmp/readonly-imported-claude"
   mkdir -p "$v"
   printf '# Ours\n@sync-protocol.md\n' >"$v/CLAUDE.md"
   chmod 444 "$v/CLAUDE.md"
-  out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
-  assert_contains "G1.8 read-only CLAUDE.md that already imports: kept" "kept CLAUDE.md" "$out"
-  assert_not_contains "G1.8 read-only CLAUDE.md that already imports: no by-hand warning" "by hand" "$out"
+  if hermetic_access_denied w "$v/CLAUDE.md"; then
+    out="$("$SCAFFOLD" --rung local "$v" 2>&1)"
+    assert_contains "G1.8 read-only CLAUDE.md that already imports: kept" "kept CLAUDE.md" "$out"
+    assert_not_contains "G1.8 read-only CLAUDE.md that already imports: no by-hand warning" "by hand" "$out"
+  else
+    echo "skip: the read-only importing CLAUDE.md case (the mode does not deny writing here)"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

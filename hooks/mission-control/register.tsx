@@ -588,9 +588,9 @@ function cancelTimers() {
   radar = null
 }
 
-// The record was retired: the wake target goes back to the relay and the
-// panel stops drawing.
-async function standDown($: EngineInterface) {
+// The record was retired: the panel stops drawing and, unless the session is
+// ending, the wake target goes back to the relay.
+async function standDown($: EngineInterface, handBack = true) {
   const was = ctx
   if (!was) return
   cancelTimers()
@@ -599,7 +599,7 @@ async function standDown($: EngineInterface) {
   recordFailed = null
   await update($, panel, () => null)
   $.ui.status(undefined)
-  await release($, was)
+  if (handBack) await release($, was)
 }
 
 // Only a regular file counts, as for the acknowledgment.
@@ -621,7 +621,9 @@ async function endReleased($: EngineInterface, ids: string[]) {
   if (!ctx) return
   const program = ctx.program
   try {
-    await standDown($)
+    // A target handed back to the relay would be woken for the program's
+    // events after this session has ended; the successor's take removes it.
+    await standDown($, false)
   } finally {
     for (const id of ids) await runScript($, 'mc-panel.sh', ['retire', '--session', id])
     void $.command.run({ command: 'exit' }).catch(() =>

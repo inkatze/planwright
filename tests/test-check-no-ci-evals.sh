@@ -17,6 +17,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 GUARD="$REPO_ROOT/scripts/check-no-ci-evals.sh"
 
 failures=0
@@ -1360,37 +1362,41 @@ assert_exit "'-' skips the graph passes" 0 "$rc"
 assert_contains "says there is no task graph" "no task graph to close over" "$out"
 
 # ---- unreadable inputs fail closed rather than reading as empty ----
-# `chmod 000` does not stop root, so under a root test runner these two would
-# fail for a reason that says nothing about the guard.
-if [ "$(id -u)" -eq 0 ]; then
-  echo "ok: unreadable-input cases skipped (running as root)"
-else
-  mkdir -p "$TMP/unreadable/workflows"
-  cp "$TMP/depends-chain/workflows/ci.yml" "$TMP/unreadable/workflows/"
-  cp "$TMP/depends-chain/mise.toml" "$TMP/unreadable/"
+# `chmod 000` does not stop root, so each case probes the denial first and
+# skips by name where it does not hold.
+mkdir -p "$TMP/unreadable/workflows"
+cp "$TMP/depends-chain/workflows/ci.yml" "$TMP/unreadable/workflows/"
+cp "$TMP/depends-chain/mise.toml" "$TMP/unreadable/"
 
-  chmod 000 "$TMP/unreadable/workflows/ci.yml"
+chmod 000 "$TMP/unreadable/workflows/ci.yml"
+if hermetic_access_denied r "$TMP/unreadable/workflows/ci.yml"; then
   out="$(run_case unreadable)"
   rc=$?
-  chmod 644 "$TMP/unreadable/workflows/ci.yml"
   if [ "$rc" -eq 0 ]; then
     echo "FAIL: an unreadable workflow file passed vacuously" >&2
     failures=$((failures + 1))
   else
     assert_contains "an unreadable workflow file fails closed" "cannot be read" "$out"
   fi
+else
+  echo "skip: unreadable workflow file: the running user still reads $TMP/unreadable/workflows/ci.yml under mode 000"
+fi
+chmod 644 "$TMP/unreadable/workflows/ci.yml"
 
-  chmod 000 "$TMP/unreadable/workflows"
+chmod 000 "$TMP/unreadable/workflows"
+if hermetic_access_denied r "$TMP/unreadable/workflows"; then
   out="$(run_case unreadable)"
   rc=$?
-  chmod 755 "$TMP/unreadable/workflows"
   if [ "$rc" -eq 0 ]; then
     echo "FAIL: an unlistable workflow directory passed vacuously" >&2
     failures=$((failures + 1))
   else
     assert_contains "an unlistable workflow directory fails closed" "cannot be listed" "$out"
   fi
+else
+  echo "skip: unlistable workflow directory: the running user still lists $TMP/unreadable/workflows under mode 000"
 fi
+chmod 755 "$TMP/unreadable/workflows"
 
 # ---- usage errors are usage errors, not vacuous passes ----
 "$GUARD" --halp >/dev/null 2>&1

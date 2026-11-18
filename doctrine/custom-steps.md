@@ -147,7 +147,7 @@ pooled full suite gets it too (*Expensive checks*). Any other
 `PLANWRIGHT_STEP_*` name in the runner's environment is a misspelling that
 would be dropped unread: `resolve-steps.sh --check-env` names it and its
 right spelling. `step-run.sh` refuses it for every verb but `resolve`, and
-`step-record.sh` for `new-run`, `write`, `regenerate`, and `status`; the
+`step-record.sh` for `new-run`, `write`, `supersede`, `regenerate`, and `status`; the
 other verbs of either warn.
 
 Two channels deliver the context. A **command step** gets the twelve
@@ -195,11 +195,12 @@ never degraded, when the backend cannot resume the session it would attach to,
 that session's record holds no session id (an `in-session` predecessor
 excepted), or the predecessor was skipped for any other reason. An `isolated`
 skill or prompt step on a backend that cannot spawn a fresh session degrades
-to `in-session` and records it; a `timeout` on a skill or prompt step that
-becomes `in-session` at run time is unapplied and recorded. Model and effort
-come from the per-step allocation knobs keyed on the step id (hyphens as
-underscores), one-directional per model-allocation; an `in-session` step
-inherits the session's tier, recorded and not applied (REQ-C1.7).
+to `in-session` and records it (`--backend in-session`, the backend that could
+not spawn named in `--degraded`; `step-record.sh write` refuses any other); a
+`timeout` on a skill or prompt step that becomes `in-session` at run time is
+unapplied and recorded. Model and effort come from the per-step allocation
+knobs keyed on the step id (hyphens as underscores), one-directional per
+model-allocation; an `in-session` step inherits the session's tier, recorded and not applied (REQ-C1.7).
 
 ## Outcomes, posture, and timeout
 
@@ -453,8 +454,9 @@ cache the repository's ignore list names (adopters add the line), keyed by a
 run id the helper issues, read by planwright only through the helper, its
 form unstable to a step reading the record `PREV_RECORD` names. Fields: the
 head SHA at start and at end, the run id, point, step id, kind, target,
-hosting, backend, session id where one exists, start and end times,
-outcome, a bounded excerpt (a session step's classification excerpt or a
+hosting, backend, session id where one exists, start and end times, the
+start source where one was given (the commit, comment, review, or check the
+start was read from), outcome, a bounded excerpt (a session step's classification excerpt or a
 command step's output tail, stored screened through the repository's secret
 screen and stripped of non-printable bytes), the full captured output's
 cache path where one exists (unscreened), and a skipped step's reason and
@@ -484,8 +486,36 @@ back against the configured lists, read-only, by `scripts/step-run.sh audit
 --through <point>`: a point is covered by its newest run whose completion
 counts at the head, that run recording every required step passed, applied,
 or skipped (a recorded skip counts), so a point or step left with no record
-is caught whoever omitted it. The
-script's usage header states the freshness rule and the output.
+is caught whoever omitted it. A record that does not match the branch it
+claims is refused as a `mismatch` gap, never counted: a stored run or point
+that differs from its path, a step whose start and end heads are not commits
+of the completion's branch in order, or an outcome its own fields contradict
+(a skip with no code or, short of a resume, a moved head, a code on a step
+that did not skip). A skill or prompt record that overstates what happened
+(the step-record truth check, whose rules `scripts/step-record.sh`'s usage
+header states: `write` refuses such a record, and `untrue` names a stored
+one) leaves its step an `unaudited` gap, never done. The script's usage
+header states the freshness rule and the output.
+
+**Correcting a misdated record.** A record is never edited, and a point that
+completed takes no second record for it, so a start or end stamped wrong (a
+skill step started a few seconds off its Skill call is the usual case) is
+corrected by appending a **supersede record**, `scripts/step-record.sh
+supersede --record <run>:<point>:<seq> --start <ts> --source <source>`. It
+names the record it replaces, carries one corrected stamp (a record with both
+wrong takes two supersedes), and cites the session event that proves it
+(`event:<timestamp>` or `event-line:<n>` of the session's event log, checked
+against a top-level event timestamp), so the original stays on disk beside
+it. It corrects **timing only**: a changed outcome, step, kind, head, or end
+head, a missing or unverifiable source, a record that is not a step record,
+and a correction the step-record truth check would refuse (a skill window
+under its floor) are all refused, so it cannot be used to overstate what
+happened. Of several supersedes of one record the latest stands. The
+cadence audit, the readiness check, and the rendered tables read that
+supersede's times in place of the record's own (`step-record.sh list
+--effective` is the audit's view; plain `list` shows both records), and the
+audit's advice for a misdated start names the verb. The script's usage header
+states the grammar.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
 

@@ -20,6 +20,7 @@ conflict-predicted	blocker
 throughput-bottleneck	blocker
 keeper-sweep-failed	blocker
 throughput-unknown	failure
+pipeline-stalled	failure
 mission-control-escalated	blocker
 usage-probe	blocker
 blocker	blocker
@@ -27,7 +28,10 @@ conflict	blocker
 handover-failed	failure
 handover-retire-failed	failure
 stall-dead	failure
+tmux-server-lost	failure
 stream-json-worker-dead	failure
+stream-json-worker-unowned	failure
+stream-json-worker-orphaned	failure
 watcher-failing	failure
 rules-reinjection-failed	failure
 session-landed	landed

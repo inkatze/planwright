@@ -20,7 +20,44 @@ export HOME="$FIXHOME"
 gitq init --bare "$SCRATCH/bare.git"
 # A link to a .claude directory whose hooks directory does not exist yet.
 ln -s "$FIXHOME/.claude" "$SCRATCH/cl"
+# Links into posture from a plain directory, the link targets spelled every way
+# a target can be, for the table's write-through-a-link rows.
+KB="$SCRATCH/kb"
+MEM="$FIXHOME/.claude/projects/p/memory"
+mkdir -p "$KB" "$MEM" "$FIXHOME/.claude/agents" "$FIXHOME/.config/planwright"
+: >"$FIXHOME/.claude/settings.json"
+: >"$FIXHOME/.config/planwright/planwright.yml"
+: >"$KB/real.md"
+ln -s "$FIXHOME/.claude/settings.json" "$KB/lk-file"
+ln -s "$FIXHOME//.claude/./settings.json" "$KB/lk-dslash"
+ln -s "$FIXHOME/.claude/../.claude/settings.json" "$KB/lk-dotdot"
+ln -s ../../fixhome/.claude/settings.json "$KB/lk-rel"
+# A literal ~ in a link target is a relative name; this one leads home.
+ln -s "$FIXHOME" "$KB/~"
+# shellcheck disable=SC2088 # the target is the literal ~ name
+ln -s '~/.claude/settings.json' "$KB/lk-tilde"
+ln -s lk-file "$KB/lk-chain"
+ln -s "$FIXHOME/.config/planwright/planwright.yml" "$KB/lk-overlay"
+ln -s "$FIXHOME/.claude/agents/new.md" "$KB/lk-dangling"
+ln -s "$FIXHOME/.claude" "$KB/lk-dir"
+ln -s "$FIXHOME/.claude/agents" "$KB/lk-agents"
+ln -s "$KB/real.md" "$KB/lk-plain"
+ln -s "$FIXHOME/.claude/settings.json" "$FIXHOME/notes.md"
+ln -s "$FIXHOME/.claude/settings.json" "$MEM/lk-mem"
+ln -s "$FIXHOME/.claude/settings.json" "$KB/a b"
+ln -s "$FIXHOME/.claude/settings.json" "$KB/lk1"
+# A link to a posture directory not made yet, a link to itself, a link into
+# the projects folder, and a link to an MCP server list.
+ln -s "$FIXHOME/.claude/hooks" "$KB/ld"
+ln -s loop "$KB/loop"
+ln -s "$FIXHOME/.claude/projects" "$KB/lk-projects"
+: >"$FIXHOME/.mcp.json"
+ln -s "$FIXHOME/.mcp.json" "$KB/lk-mcp"
+mkdir -p "$KB/sub" "$SCRATCH/x"
+# A plain file whose name is a link in kb, for a copy into kb.
+: >"$SCRATCH/x/lk-file"
 TAB=$(printf '\t')
+NL=$'\n'
 
 # pg_file <tier> <tool> <path> — run the guard on a file-tool payload.
 pg_file() {
@@ -86,6 +123,115 @@ if [ "$denies" -gt 0 ] && [ "$defers" -gt 0 ]; then
 else
   fail "the table must hold both refused and permitted rows (refused $denies, permitted $defers)"
 fi
+
+echo "# a relative write target, followed from where the command runs"
+pg mission-control 'echo x >> lk-file' "$KB"
+expect deny "[mission-control] a relative write through a link into posture is refused"
+pg mission-control 'echo x >> ./lk-chain' "$KB"
+expect deny "[mission-control] a ./ write through a chained link is refused"
+pg mission-control 'echo x >> lk-dir/agents/x.md' "$KB"
+expect deny "[mission-control] a relative write through a link to a posture directory is refused"
+pg mission-control '(echo x > lk-file)' "$KB"
+expect deny "[mission-control] a relative write through a link inside a subshell is refused"
+pg mission-control 'ln -s lk-agents c && echo x >> c/x.md' "$KB"
+expect deny "[mission-control] a relative link source leading into posture is refused"
+pg mission-control 'cd kb && echo x >> real.md' "$SCRATCH"
+expect deny "[mission-control] a relative write after a directory change the guard cannot place is refused"
+pg mission-control 'cd - && echo x >> real.md' "$KB"
+expect deny "[mission-control] a relative write after cd - is refused"
+pg mission-control 'cd && echo x >> notes.md' "$KB"
+expect deny "[mission-control] a bare cd goes home, and a relative write there is followed"
+pg mission-control 'echo x >> real.md' "$KB"
+expect defer "[mission-control] a relative write to a plain file is permitted"
+pg mission-control "cd $KB && echo x >> lk-plain" "$UNIT"
+expect defer "[mission-control] a relative write through a link to a plain file is permitted"
+pg_payload mission-control bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"echo x >> real.md"}, cwd:7}')"
+expect deny "[mission-control] a relative write under a cwd the guard cannot read is refused"
+for c in 'echo x >&2' 'echo x >&-' '(echo x >&2)' 'echo x >&2-' 'echo x 2>&1'; do
+  pg mission-control "$c" "$FIXHOME/.claude/agents"
+  expect defer "[mission-control] a descriptor duplication opens no file, even from a posture directory: $c"
+done
+pg mission-control "cd$NL/bin$NL echo x >> notes.md" "$KB"
+expect deny "[mission-control] a cd ending its line goes home, never to the next line's word"
+pg mission-control "echo x >> $FIXHOME/.claude/settin\\${NL}gs.json"
+expect deny "[mission-control] a backslash-newline inside a target is joined as the shell joins it"
+pg mission-control "echo x > \\${NL}$KB/lk-file"
+expect deny "[mission-control] a backslash-newline before a target hides nothing"
+pg mission-control "echo a #\"${NL}echo y >> $FIXHOME/.claude/agents/x.md #\""
+expect deny "[mission-control] quotes paired across a comment hide no redirect"
+pg mission-control "cat <<'EOF'${NL}\"${NL}EOF${NL}echo y >> $KB/lk-file${NL}cat <<'EOF'${NL}\"${NL}EOF"
+expect deny "[mission-control] quotes paired across here-documents hide no redirect"
+for c in "echo \"<<A\"${NL}cd $KB${NL}echo x > lk-file${NL}A" "echo \$((1<<2))${NL}cd $KB${NL}echo x > lk-file${NL}2" \
+  "echo hi # <<EOF${NL}cd $KB${NL}echo x > lk-file" "cat <<E\"O\"F${NL}x${NL}EOF${NL}cd $KB${NL}echo x > lk-file" \
+  "X=cd; \$X $KB${NL}echo x > lk-file" "\$'\\x63d' $KB${NL}echo x > lk-file"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a cd the guard cannot see past a here-document look-alike or a spelled command word: ${c//$NL/ / }"
+done
+for c in "echo a \\<<EOF${NL}cd $KB${NL}echo x > lk-file${NL}EOF" "mksh <<EOF${NL}cd $KB${NL}echo x > lk-file${NL}EOF" \
+  "echo hi # <<EOF${NL}cd $KB${NL}echo x > lk-file${NL}EOF" "echo \$[1<<2]${NL}cd $KB${NL}echo x > lk-file${NL}2" \
+  "\"\$X\" $KB${NL}echo x > lk-file" "\${X} $KB${NL}echo x > lk-file" "\$(echo cd) $KB${NL}echo x > lk-file" \
+  "\`echo cd\` $KB${NL}echo x > lk-file"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a cd hidden behind an escaped or run here-document or a spelled command word stays seen: ${c//$NL/ / }"
+done
+# shellcheck disable=SC2016 # the guard must see the expansion literally
+pg mission-control '$HOME/bin/x > out.txt' "$KB"
+expect defer "[mission-control] \$HOME/... as the command word names a file, never cd"
+for c in "X=\$'c\\x64 '; \$X$KB; echo x > lk-file" "HOME=/x; \$HOME/bin/x > lk-file" \
+  "bash <<EOF${NL}cp /x $KB/lk-file${NL}EOF" "xargs <<EOF${NL}cp /x $KB/lk-file${NL}EOF" \
+  "cat <<'EOF' | bash${NL}tee $KB/lk-file${NL}EOF"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a variable holding cd, or a here-document a shell reads, stays refused: ${c//$NL/ / }"
+done
+pg mission-control "gh pr create --title t --body \"\$(cat <<'EOF'${NL}Run cd sub then a -> b${NL}EOF${NL})\"" "$SCRATCH"
+expect defer "[mission-control] a PR body here-document mentioning cd is data"
+pg mission-control 'ln -s .claude/worktrees/x y' "$SANDBOX/repo"
+expect defer "[mission-control] a relative .claude/worktrees link source is a checkout"
+mkdir -p "$SCRATCH/cdx/dst/src" "$SCRATCH/cdx/src"
+pg mission-control 'cd '"$SCRATCH/cdx"' && cp -r src dst' "$UNIT"
+expect deny "[mission-control] a recursive copy into a tree already there is looked up from the cd directory"
+WT="$SANDBOX/repo/.claude/worktrees/w"
+mkdir -p "$WT"
+pg mission-control 'ln -s a b' "$WT"
+expect defer "[mission-control] a link made inside a .claude/worktrees checkout is permitted"
+pg mission-control "ln -s $WT /tmp/wt-link" "$UNIT"
+expect defer "[mission-control] a link to a .claude/worktrees checkout is permitted"
+for c in "ln -s $WT/.claude/settings.json b" "ln -s $SANDBOX/repo/.claude/worktreesX b" "ln -s $WT/../../agents b" "ln -s $SANDBOX/repo/.claude b"; do
+  pg mission-control "$c" "$WT"
+  expect deny "[mission-control] a link beside the worktree exemption stays refused: $c"
+done
+pg mission-control "cat > $KB/note.md <<'EOF'${NL}cd somewhere and run \"x > y\"${NL}EOF" "$SCRATCH"
+expect defer "[mission-control] a cd inside a real here-document body is data"
+pg_payload mission-control bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"echo x >> lk-file"}}')"
+expect deny "[mission-control] a relative write with no cwd in the payload is refused"
+echo "# an expanding write target in a data place is followed too"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'echo x > "$TMPDIR/scratch/kb/lk-file"'
+expect deny "[mission-control] a \$TMPDIR write through a link into posture is refused"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'echo x > "${TMPDIR}/scratch/kb/lk-agents/x.md"'
+expect deny "[mission-control] a \${TMPDIR} write through a link to a posture directory is refused"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'echo x > "$TMPDIR/scratch/kb/real.md"'
+expect defer "[mission-control] a \$TMPDIR write to a plain file is permitted"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'echo x > "$TMPDIR/scratch/kb/lk-f"*'
+expect deny "[mission-control] a glob under \$TMPDIR cannot be followed and is refused"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'XL=$(mktemp -d); L=$TMPDIR/scratch/kb; echo x > $L/lk-file'
+expect deny "[mission-control] another variable's mktemp -d does not make this one fresh"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=$SANDBOX pg mission-control 'L=$(mktemp -d); echo x > $L/out.md'
+expect defer "[mission-control] a write into a fresh mktemp -d directory is permitted"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR='' pg mission-control 'echo x > "$TMPDIR/out"'
+expect defer "[mission-control] a \$TMPDIR write with TMPDIR empty lands where the shell puts it"
+# shellcheck disable=SC2016 # the guard must see the expansion literally
+TMPDIR='' pg mission-control 'echo x > "$TMPDIR'"$KB"'/lk-file"'
+expect deny "[mission-control] a \$TMPDIR write with TMPDIR empty is still followed through a link"
+# shellcheck disable=SC2016 # the guard must see the expansions literally
+TMPDIR=relative pg mission-control 'echo x > "$TMPDIR/out"'
+expect deny "[mission-control] a \$TMPDIR write with a relative TMPDIR is refused"
 
 echo "# what each refusal reads"
 pg mission-control 'git commit -m wip'

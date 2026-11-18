@@ -45,6 +45,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       not a check ready_base_state_checks
                                       names (it describes the base);
                                       SUCCESS, NEUTRAL and SKIPPED pass
+  bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
+                                      latest finished run did not pass: no
+                                      condition, but named by a ready walk
+                                      as the check the operator bypasses
+                                      at merge
   require<TAB>macos                   the repository's CI has macOS jobs, which
                                       run only on a ready or ci-macos
                                       labelled pull request; both must be
@@ -59,12 +64,20 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       audit --through post-pr)
   cadence<TAB>gap<TAB><point><TAB><kind><TAB><detail>
                                       one per gap that audit printed
+                                      (kind unaudited: a record the step-record
+                                      truth check refuses; reads as not audited)
+  cadence<TAB>covered<TAB><point>     one per point it found complete
   cadence<TAB>unaudited<TAB><why>     the audit could not run
   scope<TAB>spec-only<TAB><head>      every changed path lies under the
                                       program's spec root
   signoff<TAB><bundle><TAB>signed|unsigned<TAB><detail>
-                                      a touched spec bundle's kickoff
+                                      an edited spec bundle's kickoff
                                       sign-off at the head
+  drift<TAB><path><TAB><spec>/<task>...
+                                      a changed file a spec lists as a task
+                                      deliverable that no spec edit, Not
+                                      covered reason or task trailer covers
+  drift<TAB>*<TAB><reason>            the spec-drift check could not run
   evidence<TAB><kind><TAB><ref><TAB><head><TAB><judgment>
                                       smoke, walk or screenshot evidence;
                                       judgment ok, error or missing
@@ -87,8 +100,9 @@ THE WALK refuses, each failure one line:
     has none), or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
   - where macOS is required, a macos-suite or macos-smoke check that never
-    ran, was skipped (a draft head) or is not SUCCESS, named with the
-    ci-macos label that starts it, so the flip never rests on a draft run;
+    ran, was skipped with no run of it at that head (a draft head) or is
+    not SUCCESS, named with the ci-macos label that starts it, so the flip
+    never rests on a draft run;
   - an open thread, an unanswered finding, a failed guard, a truncated
     read;
   - any screenshot whose judgment is not ok, or recorded at another head;
@@ -98,7 +112,9 @@ THE WALK refuses, each failure one line:
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
     for its sign-off instead of the cadence and the required steps;
-  - each touched spec bundle not signed off;
+  - each edited spec bundle not signed off, on any pull request;
+  - each drift row: a changed deliverable no spec edit covers, or a drift
+    check that could not run (scripts/spec-drift-check.sh);
   - each required evidence kind (ready evidence) with no ok record at the
     head;
   - each required body text (ready body) absent from the body.
@@ -107,7 +123,8 @@ repo, labels and paths.
 
 Usage:
   mc-readiness.sh walk --evidence <file> (--program <p> | --conditions <file>)
-      ready<TAB><head>, or not-ready<TAB><head|-> then
+      ready<TAB><head> (then bypass<TAB><name><TAB><state> per check
+      the operator bypasses at merge), or not-ready<TAB><head|-> then
       fail<TAB><what><TAB><detail> per failure
   mc-readiness.sh collect --program <p> --repo <owner/name> --pr <n>
                           [--worktree <dir>] --out <file>
@@ -126,11 +143,16 @@ Usage:
       requirements.md status is Ready, Active or Done and its
       kickoff-brief.md's latest anchor recomputes over the bundle; a pull
       request touching only `_` accumulators or files directly under the
-      root has no bundle to sign off), the step
+      root has no bundle to sign off), for any other pull request the same
+      sign-off for each bundle it edits (one it removes aside) and the
+      spec-drift check (scripts/spec-drift-check.sh, from the base branch's
+      remote-tracking ref to the head, the body its statement), the step
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
-      out (neither read for a spec-only pull request), the recorded
+      out (neither read for a spec-only pull request; a worktree ahead of
+      the pull request's head is audited at that head, one behind or beside
+      it is unaudited), the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
       program's first repository, then the head read once more, a head that
@@ -142,6 +164,13 @@ Usage:
       red<TAB><head>, then fail<TAB>check<TAB><name> is <state> and
       diagnose<TAB><name> per red check (exit 4). The ready flip never uses it:
       walk refuses a pending or red check
+  mc-readiness.sh unfinished --evidence <file>
+      the finished-checks verdict over a collected evidence file, for a pull
+      request already marked ready: finished<TAB><head> (exit 0) when no check
+      is queued, pending or in progress; otherwise unfinished<TAB><head>, then
+      fail<TAB>check<TAB><name> is <state> per unfinished check (exit 4). A
+      check that finished red is not unfinished here: a red window-lock is the
+      operator's to bypass
   mc-readiness.sh check --program <p> --repo <owner/name> --pr <n>
                         [--worktree <dir>]
       collect, then walk, printing the walk
@@ -175,7 +204,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-readiness.sh walk|not-red|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
+  mc_usage_fail "usage: mc-readiness.sh walk|not-red|unfinished|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
 }
 
 case ${1:-} in
@@ -270,6 +299,24 @@ END {
 }' "$1"
 }
 
+# unfinished_awk <evidence>: the finished-checks verdict. Only a check still
+# queued, pending or running holds; one that finished red does not.
+unfinished_awk() {
+  awk -F '\t' '
+function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
+FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit 4 } ; next }
+$1 == "head" { head = $2 }
+$1 == "check" && pending_check($3) && $2 != "planwright/pre-ready-flip" && $2 != "planwright/pre-spec-ready-flip" { open[++no] = $2 " is " $3 }
+END {
+  if (badfmt) { print "unfinished\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
+  if (head == "") { print "unfinished\t-"; print "fail\thead\tno evidence at a head was collected"; exit 4 }
+  if (!no) { print "finished\t" head; exit 0 }
+  print "unfinished\t" head
+  for (i = 1; i <= no; i++) print "fail\tcheck\t" open[i]
+  exit 4
+}' "$1"
+}
+
 # walk <evidence> <conditions>: the verdict; returns 4 when not ready, 1
 # when the walk itself fails.
 walk() {
@@ -292,6 +339,7 @@ FILENAME == ARGV[1] {
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit } ; next }
 $1 == "head" { head = $2 }
 $1 == "check" { nc++; if (!pass_check($3)) fail("check", $2 " is " $3) }
+$1 == "bypass" { byp[++nb] = $2 "\t" $3 }
 $1 == "check" && ($2 == "macos-suite" || $2 == "macos-smoke" || $2 ~ /^macos-(suite|smoke) /) {
   j = ($2 ~ /^macos-suite/) ? "macos-suite" : "macos-smoke"
   macn[j]++
@@ -310,12 +358,19 @@ $1 == "cadence" && $2 == "gap" {
   d = $5 " is " $4
   if ($4 == "incomplete") d = "no completion record"
   else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
+  else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
-  cad[++ncad] = $3 ": " d
+  else if ($4 == "fault") d = $5
+  if ($4 == "unaudited") { d = $5 " fails the step-record truth check (if only its start or end is wrong, step-record.sh supersede corrects it)"; cad[++ncad] = "not audited: " $3 ": " d; unaud = 1 }
+  else cad[++ncad] = $3 ": " d
 }
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
 $1 == "scope" && $2 == "spec-only" { speconly_head = $3 }
 $1 == "signoff" && $3 != "signed" { fail("signoff", $2 ": " ($4 == "" ? "not signed off" : $4)) }
+$1 == "drift" {
+  if ($2 == "*") fail("drift", "the spec-drift check could not run: " $3)
+  else fail("drift", $2 " is a deliverable of " $3 " and no spec edit, Not covered reason or task trailer covers it")
+}
 $1 == "evidence" { ev[++ne] = $2 "\t" $3 "\t" $4 "\t" $5 }
 $1 == "bodyline" { body = body substr($0, 10) "\n" }
 END {
@@ -359,6 +414,7 @@ END {
     exit 4
   }
   print "ready\t" head
+  for (i = 1; i <= nb; i++) print "bypass\t" byp[i]
 }' "$(operand "$2")" "$(operand "$1")"
 }
 
@@ -427,6 +483,77 @@ branch_worktree() {
 # been cut, and the walk refuses on a `truncated` line rather than pass.
 CAP=100
 
+# spec_home <program> <slug>: print `<repository><TAB><spec root relative to
+# it>` for the program's repository of <slug> that holds the spec root, or
+# fail when none does.
+spec_home() {
+  local root r top
+  root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 1
+  # Logical paths, so a symbolic link in a checkout cannot move the root; the
+  # head must then hold the root as a directory.
+  root=$(cd -L "$root" 2>/dev/null && pwd -L) || return 1
+  while IFS= read -r r; do
+    top=$(cd -L "$r" 2>/dev/null && pwd -L) || continue
+    case $root in
+      "$top"/?*)
+        printf '%s\t%s\n' "$r" "${root#"$top"/}"
+        return 0
+        ;;
+    esac
+  done < <(mc_slug_repos "$1" "$2" 2>/dev/null)
+  return 1
+}
+
+# drift_scope <program> <slug> <head> <base ref> <pr read> <scratch dir>: for
+# a pull request that is not spec-only, print a `signoff` line for each spec
+# bundle it edits and a `drift` line for each changed file the spec-drift
+# check flags (path and the tasks listing it), or one `drift<TAB>*` line
+# giving the reason the check could not run. Nothing for a program whose spec
+# root lies outside the repository.
+drift_scope() {
+  local home rel repo b why rc=0 rows
+  home=$(spec_home "$1" "$2") || return 0
+  rel=${home#*	} repo=${home%%	*}
+  [ -n "$4" ] || {
+    printf 'drift\t*\tthe pull request names no base branch\n'
+    return 0
+  }
+  # A bundle is any directory directly under the root that does not open with
+  # `_`, edited by any file under it.
+  SPEC_REL=$rel awk -F '\t' '
+    $1 == "path" {
+      p = $2; n = length(ENVIRON["SPEC_REL"])
+      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/") next
+      p = substr(p, n + 2)
+      if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; print b } }
+    }' "$5" >"$6/touched" || return 0
+  if mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
+    while IFS= read -r b; do
+      # A bundle the pull request removes or moves has no sign-off to read.
+      [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]] && [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b" 2>/dev/null)" != tree ] && continue
+      signoff_row "$repo" "$3" "$rel" "$b" "$6/touched-$b" || exit
+    done <"$6/touched"
+  fi
+  awk -F '\t' '$1 == "bodyline" { print substr($0, 10) }' "$5" >"$6/body"
+  /bin/bash "$script_dir/spec-drift-check.sh" --repo "$repo" --base "refs/remotes/origin/$4" --head "$3" \
+    --body-file "$6/body" --spec-root "$rel" >"$6/drift-out" 2>"$6/drift-err" || rc=$?
+  case $rc in
+    0) ;;
+    4)
+      rows=$(awk -F '\t' '$1 == "flagged" { print "drift\t" $2 "\t" $3 }' "$6/drift-out")
+      if [ -n "$rows" ]; then
+        printf '%s\n' "$rows"
+      else
+        printf 'drift\t*\tthe check reported drift but named no file\n'
+      fi
+      ;;
+    *)
+      why=$(sed 's/^spec-drift-check: //' "$6/drift-err" | head -n 1)
+      printf 'drift\t*\t%s\n' "${why:-the check exited $rc with no reason given}"
+      ;;
+  esac
+}
+
 # spec_scope <program> <slug> <head> <pr read> <scratch dir>: when every
 # changed path lies under the program's spec root inside the repository for
 # <slug>, print `scope<TAB>spec-only<TAB><head>` and one `signoff` line per
@@ -434,23 +561,11 @@ CAP=100
 # own objects at the head, since collect writes nothing (no fetch) to any
 # repository.
 spec_scope() {
-  local root r top rel='' repo='' files b why
+  local home rel repo files b
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
   [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
-  root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 0
-  # Logical paths, so a symbolic link in a checkout cannot move the root; the
-  # head must then hold the root as a directory.
-  root=$(cd -L "$root" 2>/dev/null && pwd -L) || return 0
-  while IFS= read -r r; do
-    top=$(cd -L "$r" 2>/dev/null && pwd -L) || continue
-    case $root in
-      "$top"/?*)
-        rel=${root#"$top"/} repo=$r
-        break
-        ;;
-    esac
-  done < <(mc_slug_repos "$1" "$2" 2>/dev/null)
-  [ -n "$rel" ] || return 0
+  home=$(spec_home "$1" "$2") || return 0
+  rel=${home#*	} repo=${home%%	*}
   # Each path must sit strictly under the root, with no `.`, `..` or empty
   # component, be prose (`.md`), and be added, modified or deleted: a rename
   # or copy names no source path. The bundles are the directories directly
@@ -473,13 +588,20 @@ spec_scope() {
   [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
   while IFS= read -r b; do
-    why=$(bundle_signoff "$repo" "$3" "$rel" "$b" "$5/bundle-$b") || exit
-    if [ -n "$why" ]; then
-      printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"
-    else
-      printf 'signoff\t%s\tsigned\t-\n' "$b"
-    fi
+    signoff_row "$repo" "$3" "$rel" "$b" "$5/bundle-$b" || exit
   done <"$5/bundles"
+}
+
+# signoff_row <repo> <head> <root rel> <bundle> <scratch dir>: the bundle's
+# `signoff` row at <head>.
+signoff_row() {
+  local why
+  why=$(bundle_signoff "$@") || return
+  if [ -n "$why" ]; then
+    printf 'signoff\t%s\tunsigned\t%s\n' "$4" "$why"
+  else
+    printf 'signoff\t%s\tsigned\t-\n' "$4"
+  fi
 }
 
 # bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir>: print why
@@ -570,6 +692,8 @@ collect() {
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
+    ((.statusCheckRollup // []) | bypassed_check_runs[]
+      | "bypass\t" + ((.name // "-") | clean) + "\t" + ((.conclusion // "") | if . == "" then "UNKNOWN" else . end | clean)),
     (.files[]? | "path\t" + (.path | clean) + "\t" + ((.changeType // "-") | clean)),
     ((.statusCheckRollup // []) | latest_check_runs[]
       | "check\t" + ((.name // .context // "-") | clean) + "\t"
@@ -606,6 +730,8 @@ collect() {
   cl_unaud=''
   : >"$cl_tmp/cadence"
   spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/scope"
+  : >"$cl_tmp/drift"
+  [ -s "$cl_tmp/scope" ] || drift_scope "$1" "$2" "$cl_head" "$cl_baseref" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/drift"
   if [ -s "$cl_tmp/scope" ]; then
     # A spec-only pull request is held for its sign-off, not the cadence, so
     # no worktree is needed and none is audited.
@@ -621,10 +747,15 @@ collect() {
   fi
   cl_ciwt=$cl_wt
   if [ -n "$cl_wt" ]; then
-    # Records speak for the worktree's own head, so it must be the forge's.
+    # The audit judges the forge's head, never the worktree's: records carry
+    # their own heads, and the audit counts one only when its completion is
+    # at or behind that head. A worktree ahead of the head (a session still
+    # at work past what was pushed) holds the head, so it is audited at the
+    # head; one behind or off to the side cannot speak for it.
     cl_wthead=$(mc_untrusted_git -C "$cl_wt" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) || cl_wthead=''
-    if [ "$cl_wthead" != "$cl_head" ]; then
-      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head"
+    if [ "$cl_wthead" != "$cl_head" ] \
+      && { [ -z "$cl_wthead" ] || ! mc_untrusted_git -C "$cl_wt" merge-base --is-ancestor "$cl_head" "$cl_wthead" 2>/dev/null; }; then
+      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head and not ahead of it; the session using it may be mid-change, so retry once it has pushed or finished"
       cl_wt=''
     fi
   fi
@@ -649,6 +780,7 @@ collect() {
     case $? in
       0 | 1) awk -F '\t' -v H="$cl_head" '
           $1 == "gap" { print "cadence\tgap\t" $2 "\t" $3 "\t" $4 }
+          $1 == "covered" { print "cadence\tcovered\t" $2 }
           $1 == "audit" && $3 == H { print "cadence\taudited\t" H }' "$cl_tmp/audit" >"$cl_tmp/cadence" ;;
       *)
         cl_err=$(grep '^step-run: ' "$cl_tmp/err" | tail -n 1)
@@ -721,7 +853,7 @@ collect() {
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
     awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" { next } { print }' "$cl_tmp/pr"
-    cat "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/evidence"
+    cat "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/drift" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }
@@ -745,6 +877,11 @@ case $verb in
     [ -n "$evidence" ] || usage
     [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
     not_red_awk "$evidence"
+    ;;
+  unfinished)
+    [ -n "$evidence" ] || usage
+    [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
+    unfinished_awk "$evidence"
     ;;
   collect | check)
     [ -n "$program" ] || usage

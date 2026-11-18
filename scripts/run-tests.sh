@@ -7,17 +7,18 @@
 # one-line ok/FAIL markers share the parent's streams and stay whole
 # under PIPE_BUF). The gate semantics match the old serial loop: any failing
 # file fails the run; every failing file is named and its captured log is
-# printed at the end. The run never aborts midway: every file runs, to its
-# end or its deadline, so one failure never hides another. Completion
-# accounting is positive: a file that never produced a verdict marker
-# (worker killed, never dispatched) is a failure, never a silent green.
+# printed at the end. Short of a cancel (see Cancel), the run never aborts
+# midway: every file runs, to its end or its deadline, so one failure never
+# hides another. Completion accounting is positive: a file that never
+# produced a verdict marker (worker killed, never dispatched) is a failure,
+# never a silent green.
 #
-# The one mid-run stop is the runner's own breakage. Every worker checks the
-# run's scratch directory (the per-file logs and verdict markers) before and
-# after its file; once that directory is gone, unwritable or unsearchable no
-# verdict can be recorded, so files not yet started are skipped, and the run
-# ends with exit 2 naming the cause rather than blaming test files for the
-# loss.
+# The one mid-run stop besides a cancel is the runner's own breakage. Every
+# worker checks the run's scratch directory (the per-file logs and verdict
+# markers) before and after its file; once that directory is gone, unwritable
+# or unsearchable no verdict can be recorded, so files not yet started are
+# skipped, and the run ends with exit 2 naming the cause rather than blaming
+# test files for the loss.
 #
 # Parallelism comes from `xargs -P` (POSIX-optional but present on macOS
 # and GNU userlands alike); when the probe finds no working -P — or
@@ -92,7 +93,14 @@
 # Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
 #        error (bad suite dir, mktemp or self-path resolution failure, a
 #        timing report that cannot be persisted, the scratch directory gone,
-#        unwritable or unsearchable mid-run).
+#        unwritable or unsearchable mid-run) · 128+signal a cancelled run.
+#
+# Cancel: INT, TERM or HUP to the runner ends the run and takes its whole
+# worker tree with it (dispatcher, workers, files and what they started); the
+# runner re-executes itself first with INT and QUIT at their defaults, since
+# a shell without job control starts an asynchronous job with them ignored and
+# bash 3.2 cannot reset an inherited ignore. Only the runner's own tree is
+# ever signalled.
 #
 # Environment:
 #   PLANWRIGHT_TEST_JOBS           override the job count (default: core count)
@@ -113,9 +121,22 @@
 #   PLANWRIGHT_TEST_BUDGET         the budget file --plan-shards reads
 #                                  (default: <repo-root>/config/
 #                                  test-time-budget.yml)
-#   PLANWRIGHT_FLEET_STATE_DIR     replaced per file by a sentinel fleet home
-#   CLAUDE_PLUGIN_DATA, CLAUDE_DIR (the latter two only when set); a file that
+#   the variables tests/lib/hermetic-env.sh lists
+#                                  pinned per file: the cleared ones unset, the
+#                                  fleet home's chain (PLANWRIGHT_FLEET_STATE_DIR,
+#                                  and CLAUDE_PLUGIN_DATA and CLAUDE_DIR when
+#                                  set) replaced by a sentinel home; a file that
 #                                  creates anything in that home fails
+#   PLANWRIGHT_TEST_PIN_ENV        0 turns that pinning off, so the caller's
+#                                  values reach every file (the perturbed run);
+#                                  the switch itself is not passed on, so a
+#                                  nested run pins by default
+#   PLANWRIGHT_TEST_REAL_CLAUDE    1 on a call lets it through the refusing
+#                                  claude the runner puts first on every
+#                                  file's PATH (pinning on or off); any other
+#                                  call that reaches it fails the file. A file
+#                                  sets it itself: one exported to the runner
+#                                  is cleared, whatever PLANWRIGHT_TEST_PIN_ENV
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
 #   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
@@ -130,6 +151,9 @@
 #                                  unbounded)
 #   PLANWRIGHT_TEST_BOUND_ENV      internal: an env taking --default-signal,
 #                                  or empty
+#   PLANWRIGHT_TEST_SIGNALS_RESET  internal: the mark that a runner just
+#                                  re-executed itself with INT and QUIT at
+#                                  their defaults (dropped at once)
 set -u
 unset CDPATH
 
@@ -313,6 +337,36 @@ worker_signal() {
   kill -s "$1" "$$"
 }
 
+# write_claude_guard <dir>: the file's stand-in for the claude CLI, in <dir>.
+# A refused call is recorded beside <dir> as <dir>.hit, where the worker
+# finds it once the file exits, whatever the file did with the stderr.
+write_claude_guard() {
+  # not-a-lock: the guard's directory is the file's own, made once
+  mkdir -m 700 -- "$1" || return 1
+  cat >"$1/claude" <<'GUARD' || return 1
+#!/bin/sh
+here=${0%/*}
+# Every runner's guard is skipped, a nested run's outer one included, which
+# would otherwise hand the call straight back.
+if [ "${PLANWRIGHT_TEST_REAL_CLAUDE:-}" = 1 ]; then
+  set -f
+  IFS=:
+  for d in $PATH; do
+    case $d in '' | *.claude-guard) continue ;; esac
+    [ -f "$d/claude" ] && [ -x "$d/claude" ] || continue
+    unset IFS
+    exec "$d/claude" "$@"
+  done
+  printf '%s\n' "run-tests: PLANWRIGHT_TEST_REAL_CLAUDE=1, but no claude CLI is on PATH past the runner's guard" >&2
+  exit 127
+fi
+printf '%s\n' "$*" >>"$here.hit" 2>/dev/null
+printf '%s\n' "run-tests: refused the real claude CLI (claude $*): stub it, or set PLANWRIGHT_TEST_REAL_CLAUDE=1 on a call meant to reach it" >&2
+exit 126
+GUARD
+  chmod -- 755 "$1/claude"
+}
+
 # Worker mode: run ONE test file, capturing its output to the log dir the
 # parent exported. Always exits 0 — a test's own exit code (255 included,
 # which would otherwise make xargs abort the whole run) is recorded as a
@@ -323,6 +377,17 @@ worker_signal() {
 if [ "${1:-}" = "--run-one" ]; then
   t="$2"
   name="${t##*/}"
+  # The list of variables pinned below; a file run without it is a failure,
+  # never a run against whatever the caller exported.
+  # shellcheck source=tests/lib/hermetic-env.sh
+  if ! _hermetic_env_defer=1 . "${0%/*}/../tests/lib/hermetic-env.sh"; then
+    printf '%s\n' "run-tests: could not load tests/lib/hermetic-env.sh; $name not run" \
+      >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.fail"
+    echo "FAIL: $name (log printed at end)" >&2
+    exit 0
+  fi
   clock="${PLANWRIGHT_TEST_CLOCK:-}"
   [ -n "$clock" ] || clock="$(probe_clock)"
   wait_started="$(now_ms)"
@@ -379,26 +444,65 @@ if [ "${1:-}" = "--run-one" ]; then
   # whole rather than at the leaf the resolver derives under it, so the check
   # never depends on that layout: anything written there would have landed in
   # the caller's own directory.
+  #
+  # The cleared variables are unset for the same reason: a root or overlay
+  # path inherited from the caller would decide what the file reads. Turning
+  # the pinning off hands the caller's values through untouched and skips the
+  # sentinel check, so the perturbed run's decoys reach the suites.
   fleet_sentinel="$PLANWRIGHT_TEST_LOG_DIR/$name.fleet"
-  export PLANWRIGHT_FLEET_STATE_DIR="$fleet_sentinel/fleet"
-  # Workers' scratch roots lie outside the fleet home, under /tmp by default
-  # (scripts/fleet-scratch.sh), where a fixture home's would outlive it. Not
-  # `mkdir -p`: that would recreate a run directory something removed, which
-  # the checks around the file must see gone.
-  # not-a-lock: a sentinel that exists already keeps its own
-  mkdir -m 700 -- "$fleet_sentinel" "$fleet_sentinel/scratch-base" 2>/dev/null || :
-  export PLANWRIGHT_FLEET_SCRATCH_BASE="$fleet_sentinel/scratch-base"
-  # The usage gate prefers the operator's status-line mirror, which a fixture
-  # must never read; a suite that tests the mirror names its own.
-  export PLANWRIGHT_USAGE_MIRROR=""
-  [ -z "${CLAUDE_PLUGIN_DATA+set}" ] || export CLAUDE_PLUGIN_DATA="$fleet_sentinel/plugin-data"
-  [ -z "${CLAUDE_DIR+set}" ] || export CLAUDE_DIR="$fleet_sentinel/claude"
+  pin_env=1
+  [ "${PLANWRIGHT_TEST_PIN_ENV:-1}" != 0 ] || pin_env=0
+  # The switch is this run's alone: a suite that drives a nested runner must
+  # get its default pinning, not the outer run's opt-out.
+  unset PLANWRIGHT_TEST_PIN_ENV
+  pin_failed=0
+  if [ "$pin_env" -eq 1 ]; then
+    hermetic_env_clear
+    hermetic_env_sentinel "$fleet_sentinel" || pin_failed=1
+    # Workers' scratch roots lie outside the fleet home, under /tmp by default
+    # (scripts/fleet-scratch.sh), where a fixture home's would outlive it. Not
+    # `mkdir -p`: that would recreate a run directory something removed, which
+    # the checks around the file must see gone.
+    # not-a-lock: a sentinel that exists already keeps its own
+    mkdir -m 700 -- "$fleet_sentinel" "$fleet_sentinel/scratch-base" 2>/dev/null || :
+    export PLANWRIGHT_FLEET_SCRATCH_BASE="$fleet_sentinel/scratch-base"
+    # The usage gate prefers the operator's status-line mirror, which a fixture
+    # must never read; a suite that tests the mirror names its own.
+    export PLANWRIGHT_USAGE_MIRROR=""
+  fi
+  # A launcher that falls through a suite's stub reaches the installed claude
+  # CLI: a session that spends tokens, and that a killed file leaves running.
+  # A refusing `claude` heads PATH instead, so a file's own stub (earlier on
+  # PATH, or named through PLANWRIGHT_STREAMJSON_CLI) still answers and any
+  # other call fails the file; PLANWRIGHT_TEST_REAL_CLAUDE=1 on a call is the
+  # one way through, so one the caller exported is not passed on.
+  unset PLANWRIGHT_TEST_REAL_CLAUDE
+  claude_guard="$PLANWRIGHT_TEST_LOG_DIR/$name.claude-guard"
+  if cg_err=$(write_claude_guard "$claude_guard" 2>&1); then
+    PATH="$claude_guard:$PATH"
+    export PATH
+  else
+    # A directory broken under the run is the run's fault, not this file's.
+    ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
+    [ "$pin_failed" -ne 0 ] || pin_failed=2
+  fi
   started="$(now_ms)"
+  past_deadline=0
+  file_rc=0
+  if [ "$pin_failed" -eq 1 ]; then
+    printf '%s\n' "run-tests: could not pin the fleet home for $name (a pinned variable in tests/lib/hermetic-env.sh has no arm); not run" \
+      >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
+    file_rc=1
+  elif [ "$pin_failed" -eq 2 ]; then
+    printf '%s\n' "run-tests: could not write the claude guard for $name ($(printf '%s' "$cg_err" | tr '\n' ' ' | cut -c1-200)); not run" \
+      >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
+    file_rc=1
   # A sibling can break the directory between the check above and these
   # redirects, so the shell's own complaint about a redirect is held back
   # until the directory is known to be healthy.
-  past_deadline=0
-  if [ -n "$deadline_tool" ]; then
+  elif [ -n "$deadline_tool" ]; then
     # In the background, so a trapped signal ends the wait at once and the trap
     # can pass it on: timeout's process group is not the terminal's, and the
     # worker's trap would otherwise wait for the file. An asynchronous command
@@ -451,14 +555,16 @@ if [ "${1:-}" = "--run-one" ]; then
     printf '%s\n' "run-tests: $name ran past its ${deadline}s deadline (PLANWRIGHT_TEST_FILE_DEADLINE) and was ended" \
       >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
   fi
-  for fh in "$fleet_sentinel/fleet" "$fleet_sentinel/plugin-data" "$fleet_sentinel/claude"; do
-    if [ -e "$fh" ] || [ -L "$fh" ]; then
-      verdict="fail"
-      printf '%s\n' "run-tests: $name wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (tests/lib/fleet-home.sh)" \
-        >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
-      break
-    fi
-  done
+  if [ "$pin_env" -eq 1 ] && [ "$pin_failed" -eq 0 ] && hermetic_env_sentinel_written "$fleet_sentinel"; then
+    verdict="fail"
+    printf '%s\n' "run-tests: $name wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (fleet_home_pin, tests/lib/hermetic-env.sh)" \
+      >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+  fi
+  if [ -e "$claude_guard.hit" ]; then
+    verdict="fail"
+    printf '%s\n' "run-tests: the runner refused the real claude CLI to $name (claude $(head -n 1 "$claude_guard.hit" | cut -c1-200)); stub it, or set PLANWRIGHT_TEST_REAL_CLAUDE=1 on a call meant to reach it" \
+      >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+  fi
   finished="$(now_ms)"
   [ -z "$slot_path" ] || pw_lock_release "$slot_path" 2>/dev/null || :
   # The timing record is this worker's own file, written before the verdict
@@ -488,6 +594,130 @@ fi
 
 self_dir="${self%/*}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+# A runner started asynchronously by a shell without job control (a CI
+# runner's cancel path among them) inherits INT and QUIT ignored, which bash
+# cannot trap or reset, and everything it starts would inherit the ignore, so
+# an interrupt would never reach the run. The first pass re-executes itself
+# with the defaults restored; the mark is dropped at once so a nested runner
+# resets for itself.
+if [ -n "${PLANWRIGHT_TEST_SIGNALS_RESET:-}" ]; then
+  unset PLANWRIGHT_TEST_SIGNALS_RESET
+else
+  export PLANWRIGHT_TEST_SIGNALS_RESET=1
+  for env_name in env genv; do
+    env_path="$(command -v "$env_name" 2>/dev/null)" || continue
+    if "$env_path" --default-signal=INT,QUIT true >/dev/null 2>&1; then
+      exec "$env_path" --default-signal=INT,QUIT /bin/bash "$self" "$@"
+    fi
+  done
+  if command -v perl >/dev/null 2>&1; then
+    exec perl -e '$SIG{INT} = "DEFAULT"; $SIG{QUIT} = "DEFAULT"; exec @ARGV or exit 127' \
+      -- /bin/bash "$self" "$@"
+  fi
+  unset PLANWRIGHT_TEST_SIGNALS_RESET
+fi
+
+# A dispatched command starts with INT and QUIT at their defaults: through an
+# env taking --default-signal, else perl, else as inherited. reset_cmd is that
+# prefix.
+reset_cmd=()
+for env_name in env genv; do
+  env_path="$(command -v "$env_name" 2>/dev/null)" || continue
+  if "$env_path" --default-signal=INT,QUIT true >/dev/null 2>&1; then
+    # shellcheck disable=SC2054 # one env option, not array elements
+    reset_cmd=("$env_path" --default-signal=INT,QUIT)
+    break
+  fi
+done
+if [ "${#reset_cmd[@]}" -eq 0 ] && command -v perl >/dev/null 2>&1; then
+  # shellcheck disable=SC2016 # perl source, not shell
+  reset_cmd=(perl -e '$SIG{INT} = "DEFAULT"; $SIG{QUIT} = "DEFAULT"; exec @ARGV or exit 127' --)
+fi
+
+# children_of <pid> — direct children, from pgrep where it takes -P, else ps.
+children_of() {
+  pgrep -P "$1" 2>/dev/null
+  # 1 is pgrep's answer for no children; anything above it means no usable -P.
+  if [ "$?" -gt 1 ]; then
+    ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$1" '$2 == p { print $1 }'
+  fi
+}
+
+# tree_of <pid> — <pid> and every descendant, into tree_pids, parents first.
+tree_of() {
+  tree_pids=""
+  tree_frontier="$1"
+  while [ -n "$tree_frontier" ]; do
+    tree_next=""
+    for tree_p in $tree_frontier; do
+      tree_pids="$tree_pids $tree_p"
+      tree_next="$tree_next $(children_of "$tree_p")"
+    done
+    # shellcheck disable=SC2086,SC2116 # the echo re-splits the pid list onto one line
+    tree_frontier="$(echo $tree_next)"
+  done
+}
+
+# dispatch_pid is the run's one dispatcher (xargs, or the serial worker);
+# everything the run started is below it. reap_dispatch ends that tree: the
+# dispatcher is stopped so it starts nothing more, the tree is snapshotted (a
+# child reparents to init once its parent dies), every member gets TERM (a
+# worker passes it on to its file's group), and survivors of the grace are
+# killed. Only pids found below the dispatcher are ever signalled.
+dispatch_pid=""
+reap_dispatch() {
+  [ -n "$dispatch_pid" ] || return 0
+  rd_pid=$dispatch_pid
+  dispatch_pid=""
+  kill -0 "$rd_pid" 2>/dev/null || return 0
+  kill -s STOP "$rd_pid" 2>/dev/null
+  tree_of "$rd_pid"
+  rd_tree=$tree_pids
+  # shellcheck disable=SC2086 # a list of pids
+  kill -s TERM $rd_tree 2>/dev/null
+  kill -s CONT "$rd_pid" 2>/dev/null
+  rd_try=0
+  rd_alive=""
+  while [ "$rd_try" -lt 60 ]; do
+    rd_alive=""
+    for rd_p in $rd_tree; do
+      # A dead child of this shell still answers kill -0 until the wait below.
+      [ "$rd_p" != "$rd_pid" ] || continue
+      ! kill -0 "$rd_p" 2>/dev/null || rd_alive="$rd_alive $rd_p"
+    done
+    [ -n "$rd_alive" ] || break
+    sleep 0.2
+    rd_try=$((rd_try + 1))
+  done
+  # Waited only after the grace, and killed with the survivors: a serial worker
+  # running its file in the foreground holds its TERM trap until that file
+  # ends, which a file ignoring TERM never does.
+  # shellcheck disable=SC2086 # a list of pids
+  [ -z "$rd_alive" ] || kill -s KILL $rd_alive "$rd_pid" 2>/dev/null
+  wait "$rd_pid" 2>/dev/null
+  return 0
+}
+
+# A cancelled run (INT, TERM or HUP) takes its worker tree with it, then ends
+# with the conventional 128+signal status; the EXIT trap removes the scratch.
+cancel_run() {
+  # $! is unbound until the shell has started a background job.
+  set +u
+  cr_last=$!
+  set -u
+  trap '' INT TERM HUP
+  # A signal can land between the dispatcher's launch and the assignment of
+  # its pid; the launch's own pid is then still $!, trusted only while it is
+  # this shell's own child.
+  if [ -z "$dispatch_pid" ] && [ -n "$cr_last" ]; then
+    case " $(children_of "$$" | tr '\n' ' ') " in
+      *" $cr_last "*) dispatch_pid=$cr_last ;;
+    esac
+  fi
+  reap_dispatch
+  exit "$((128 + $1))"
+}
 
 usage_error() {
   echo "run-tests: $1 (usage: run-tests.sh [--shard <i>/<N> | --plan-shards] [suite-dir])" >&2
@@ -711,7 +941,15 @@ export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
 log_dir="$(mktemp -d "${TMPDIR:-/tmp}/run-tests.XXXXXX")" || exit 2
 # A file that made the directory unwritable or unsearchable would otherwise
 # leave it behind.
-trap '[ -L "$log_dir" ] || [ ! -d "$log_dir" ] || chmod u+rwx "$log_dir" 2>/dev/null; rm -rf "$log_dir"' EXIT
+on_exit() {
+  reap_dispatch
+  [ -L "$log_dir" ] || [ ! -d "$log_dir" ] || chmod u+rwx "$log_dir" 2>/dev/null
+  rm -rf "$log_dir"
+}
+trap on_exit EXIT
+trap 'cancel_run 2' INT
+trap 'cancel_run 15' TERM
+trap 'cancel_run 1' HUP
 export PLANWRIGHT_TEST_LOG_DIR="$log_dir"
 
 clock="$(probe_clock)"
@@ -1022,16 +1260,37 @@ if [ "$parallel" -eq 1 ]; then
   # A shard can be empty when it outnumbers the files, and xargs would still
   # run its command once on no input.
   if [ "${#queue[@]}" -gt 0 ]; then
-    printf '%s\0' "${queue[@]}" \
-      | xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one \
-      || dispatch_failed=1
+    printf '%s\0' "${queue[@]}" >"$log_dir/.queue" || {
+      echo "run-tests: cannot write the queue under the scratch directory $(sanitize_printable "$log_dir" "(unprintable path)")" >&2
+      exit 2
+    }
+    # In the background, so a trapped signal is acted on at once rather than
+    # once xargs ends; its stdin is the queue file, where it was a pipe.
+    # The group's 2>/dev/null only silences job-control noise: the dispatcher
+    # gets the run's own stderr back through fd 3.
+    {
+      (
+        exec ${reset_cmd[@]+"${reset_cmd[@]}"} \
+          xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one <"$log_dir/.queue"
+      ) 2>&3 3>&- &
+    } 3>&2 2>/dev/null
+    dispatch_pid=$!
+    wait "$dispatch_pid" || dispatch_failed=1
+    dispatch_pid=""
   fi
 else
   mode=serial
   echo "run-tests: $scope_desc, serial (no parallel primitive), $pool_desc, $deadline_desc"
   echo "run-tests: queue $order_desc"
   for t in ${queue[@]+"${queue[@]}"}; do
-    /bin/bash "$self" --run-one "$t" || dispatch_failed=1
+    {
+      (
+        exec ${reset_cmd[@]+"${reset_cmd[@]}"} /bin/bash "$self" --run-one "$t"
+      ) 2>&3 3>&- &
+    } 3>&2 2>/dev/null
+    dispatch_pid=$!
+    wait "$dispatch_pid" || dispatch_failed=1
+    dispatch_pid=""
   done
 fi
 suite_finished="$(now_ms)"
@@ -1083,6 +1342,8 @@ for t in ${files[@]+"${files[@]}"}; do
     echo ""
     echo "=== FAIL: $name ==="
     cat "$log_dir/$name.log" 2>/dev/null || echo "(no captured log)"
+    # A file refused before it ran has no timing to account for.
+    [ ! -e "$log_dir/$name.norun" ] || continue
   elif [ ! -e "$log_dir/$name.done" ]; then
     fails=$((fails + 1))
     echo ""

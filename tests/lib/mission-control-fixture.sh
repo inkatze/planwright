@@ -97,7 +97,9 @@ reset_mc_fixture() {
 }
 
 # mc_env <command...>: exec a command in the fixture's repository with every
-# layer pointed at the fixture and the host's plugin context cleared. It
+# layer pointed at the fixture and the host's plugin context cleared, the
+# orphan listing's process table empty (a case that lists real processes
+# clears PLANWRIGHT_MC_PROC_ROOT itself). It
 # replaces the shell it runs in, so call it only in a subshell: a command
 # substitution, or in the background, where $! is then the command itself.
 mc_env() {
@@ -107,7 +109,7 @@ mc_env() {
     -u PLANWRIGHT_MC_TARGET -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CONFIG_DIR -u PLANWRIGHT_MC_TOKEN \
     PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
     PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" CLAUDE_DIR="$tmp/claude" HOME="$fixhome" \
-    PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
+    PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_MC_PROC_ROOT="$tmp/no-procs" \
     "$@"
 }
 
