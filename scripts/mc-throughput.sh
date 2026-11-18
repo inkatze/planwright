@@ -628,7 +628,7 @@ EOF
 # <worktree>'s cache that ended inside the window, read through
 # scripts/step-record.sh, the cache's one reader.
 step_rows() {
-  sr_list=$(/bin/sh "$script_dir/step-record.sh" --worktree "$1" list 2>/dev/null </dev/null) || return 1
+  sr_list=$(/bin/sh "$script_dir/step-record.sh" --worktree "$1" list --effective 2>/dev/null </dev/null) || return 1
   printf '%s\n' "$sr_list" | B=$2 SINCE=$SINCE awk -F '\t' "$ISO_AWK"'
     # A branch name may carry C1 control bytes git allows; they never reach
     # a terminal or the store.

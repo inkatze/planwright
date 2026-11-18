@@ -481,7 +481,7 @@ TRUTH_FLOOR=30
 TRUTH_NOW_TOL=5
 # The mode the truth check judges in: a write's own clock rules, or `audit`
 # (a supersede, whose record already exists, is judged as a stored one).
-truth_mode=write
+truth_mode='write'
 
 # The byte sequences of the C1 controls, then the invisible and bidi-control
 # code points, deleted bytewise; the second list is flight-text.sh's.
@@ -1445,9 +1445,9 @@ check_source() {
     || bad --source "no session event log of this worktree is reachable, so the cited event cannot be checked"
   while IFS= read -r _f; do
     # shellcheck disable=SC2016 # a jq program
-    jq -R -r 'input_line_number as $n | (try (fromjson | select(type == "object") | .timestamp
-      | select(type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"))
-      | .[0:19] + "Z") catch empty) | ($n | tostring) + "\t" + .' "$_f" >"$work/stamps" \
+    jq -R -n -r 'foreach inputs as $l (0; . + 1; . as $n | $l | (try (fromjson | select(type == "object") | .timestamp
+      | select(type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"))
+      | .[0:19] + "Z") catch empty) | ($n | tostring) + "\t" + .)' "$_f" >"$work/stamps" \
       || bad --source "a session event log cannot be read"
     if [ -n "$_line" ]; then
       ! grep -Fxq "$_line$TAB$_want" "$work/stamps" || return 0
@@ -1523,7 +1523,8 @@ cmd_supersede() {
   o_ss=''
   IFS=$TAB read -r o_step o_kind o_outcome hosting backend o_head o_end_head o_start o_end o_ss <"$work/orig" \
     || bad --record "names no well-formed step record"
-  is_ts "$o_start" && is_ts "$o_end" || bad --record "names a record whose times are not timestamps"
+  is_ts "$o_start" || bad --record "names a record whose times are not timestamps"
+  is_ts "$o_end" || bad --record "names a record whose times are not timestamps"
   [ "$o_outcome" != skipped ] || bad --record "a skipped step ran no window to correct"
   [ "$g_step" -eq 0 ] || [ "$a_step" = "$o_step" ] || bad --step "a supersede corrects timing only; it cannot change the step"
   [ "$g_kind" -eq 0 ] || [ "$a_kind" = "$o_kind" ] || bad --kind "a supersede corrects timing only; it cannot change the kind"
@@ -1550,6 +1551,7 @@ cmd_supersede() {
   done <"$work/supmap"
   if [ "$g_start" -eq 1 ]; then
     [ "$start" != "$s_start" ] || bad --start "a supersede must change the standing start; this does not"
+    [ "$start" != "$o_start" ] || bad --start "that is the record's own start, which a supersede cannot restore"
     end=$s_end
     corrected=$start
   else
@@ -1630,12 +1632,12 @@ effective_view() {
         own = ""
         for (i = 1; i <= nb; i++) if (K[i] == "start") own = substr(B[i], 7)
         for (i = 1; i <= nb; i++) {
+          if (i == nb && B[i] == "" && ref != "" && (ref in S)) print "corrected-by\t" substr(ref, 1, length(ref) - 3) Q[ref]
           if (ref != "" && (ref in S) && K[i] == "start") print "start\t" S[ref]
           else if (ref != "" && (ref in S) && K[i] == "end") print "end\t" E[ref]
           else if (ref != "" && (ref in S) && K[i] == "start-source" && S[ref] != own) print "start-source\tsupersede:" Q[ref]
           else print B[i]
         }
-        if (ref != "" && (ref in S)) print "corrected-by\t" substr(ref, 1, length(ref) - 3) Q[ref]
       }
       nb = 0; drop = 0; path = ""
     }

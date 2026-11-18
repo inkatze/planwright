@@ -211,8 +211,12 @@ sr list --run "$r" --effective >"$tmp/list"
 grep -q "^start${TAB}2026-11-04T10:00:11Z$" "$tmp/list" && grep -q "^end${TAB}2026-11-04T10:00:52Z$" "$tmp/list"
 verdict $? "a later end correction keeps the start an earlier supersede corrected" "$(cat "$tmp/list")"
 sr render --run "$r" >"$tmp/render"
-grep -q "start and end corrected by supersede" "$tmp/render" || grep -q "end corrected by supersede" "$tmp/render"
-verdict $? "render says which stamps a supersede corrected" "$(cat "$tmp/render")"
+grep -Fq "start and end corrected by supersede" "$tmp/render"
+verdict $? "render says both stamps were corrected when two supersedes stood" "$(cat "$tmp/render")"
+sr list --run "$r" --effective >"$tmp/list"
+awk -F '\t' 'c { exit ($0 == "" ? 0 : 1) } $1 == "corrected-by" { c = 1 }' "$tmp/list" \
+  && grep -q "^corrected-by${TAB}$r:convergence:004$" "$tmp/list" && grep -q "^start-source${TAB}supersede:004$" "$tmp/list"
+verdict $? "list --effective names the standing supersede inside the stanza and rewrites the start source" "$(cat "$tmp/list")"
 
 # --- 9: one stamp a supersede, the one its source proves -----------------------
 misdated
@@ -256,6 +260,55 @@ verdict $? "a supersede with a repeated key corrects nothing, in list and in ren
 audit --through convergence
 [ "$RC" -eq 1 ]
 verdict $? "so the audit still fails the misdated record" "rc $RC: $(cat "$tmp/audit")"
+
+# --- 13: the source check reads the log as the audit does ----------------------
+misdated
+printf '{"type":"assistant","timestamp":"2026-11-04T10:00:12+05:00","message":{"content":"x"}}\n' >>"$sdir/events.jsonl"
+sup --record "$ref" --start 2026-11-04T10:00:12Z --source event:2026-11-04T10:00:12Z
+[ "$RC" -eq 2 ]
+verdict $? "an event whose timestamp the audit would not read is no source" "rc $RC: $(cat "$tmp/sup")"
+misdated
+# A live log's half-written tail has no newline: its line still counts as the next.
+printf '{"type":"assistant","timestamp":"2026-11-04T10:00:15.000Z","message":{"content":"x"}}' >>"$sdir/events.jsonl"
+sup --record "$ref" --start 2026-11-04T10:00:15Z --source event-line:4
+[ "$RC" -eq 0 ]
+verdict $? "an unterminated last log line is numbered as the line it is" "rc $RC: $(cat "$tmp/sup")"
+
+# --- 14: a supersede cannot restore the record's own start ---------------------
+misdated
+call 2026-11-04T10:00:08 Agent
+sup --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
+sup --record "$ref" --start 2026-11-04T10:00:08Z --source event:2026-11-04T10:00:08Z
+[ "$RC" -eq 2 ] && grep -q "own start" "$tmp/sup"
+verdict $? "a supersede restoring the original start is refused" "rc $RC: $(cat "$tmp/sup")"
+
+# --- 15: an end-only correction does not source the original start -------------
+# A start on seconds :00 over a whole-minute window is what the truth check
+# flags when nothing sources the start; correcting the end alone cannot clear it.
+fresh
+catalog "$POLISH"
+config 'steps_convergence: [polish]'
+session 2026-11-04T10:00:00
+call 2026-11-04T10:00:00 Skill planwright:polish
+call 2026-11-04T10:01:07 Agent
+call 2026-11-04T10:02:00 Agent
+r=$(sr new-run)
+h=$(head_of)
+# Written by hand: `write` itself refuses a round start and window with no source.
+printf 'type\tstep\nrun\t%s\nseq\t001\npoint\tconvergence\nstep\tpolish\nkind\tskill\ntarget\t/polish\nhosting\tin-session\nbackend\tin-session\nsession\t\nhead\t%s\nend-head\t%s\nstart\t2026-11-04T10:00:00Z\nend\t2026-11-04T10:01:00Z\nstart-source\t\noutcome\tpassed\noutput\t\nskip-code\t\nskip-reason\t\ndegraded\t\nstands-on\t\npool\t\nwait\t\nunpooled\t\nfingerprint\t\nargs-digest\t\nrefire-of\t\n' \
+  "$r" "$h" "$h" >"$wt/.claude/steps/$r/001-step-convergence.rec"
+sr untrue >"$tmp/untrue"
+grep -q "window-round-minutes" "$tmp/untrue"
+verdict $? "fixture: the round start and window is flagged by the truth check" "$(cat "$tmp/untrue")"
+sup --record "$r:convergence:001" --end 2026-11-04T10:02:00Z --source event:2026-11-04T10:02:00Z
+[ "$RC" -eq 2 ] && grep -q "window-round-minutes" "$tmp/sup"
+verdict $? "an end-only correction to another whole-minute window is refused: it sources the end, not the start" "rc $RC: $(cat "$tmp/sup")"
+sup --record "$r:convergence:001" --end 2026-11-04T10:01:07Z --source event:2026-11-04T10:01:07Z
+[ "$RC" -eq 0 ]
+verdict $? "an end-only correction to a window that is not whole minutes is written" "rc $RC: $(cat "$tmp/sup")"
+sr untrue >"$tmp/untrue"
+[ ! -s "$tmp/untrue" ]
+verdict $? "once the window is no longer whole minutes the record passes" "$(cat "$tmp/untrue")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
