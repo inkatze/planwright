@@ -3,7 +3,7 @@
 # lens agents run constantly (`ss` beside grep, cat, ls, md5sum, ps, file), the
 # routine polish commands (a suite under `umask 022`, the router's kind-flag
 # form, the step scripts of the installed root), the scratch arm's TMPDIR
-# rule, and the profile's static entries (WebSearch allowed; WebFetch and the
+# rule, and the profile's static entries (WebSearch, WebFetch and the
 # unclassifiable tools left to the prompt). Each allowed shape sits beside the
 # write, chain and redirect variants that must keep deferring.
 # tests/test-worker-command-guard.sh holds the suite's overview; every file
@@ -197,10 +197,10 @@ assert_defer "a step script of a decoy sibling root" "$PLUGIN_DECOY/scripts/step
 
 under
 echo "### the profile's static entries"
-if jq -e '.permissions.allow | index("WebSearch") != null' "$PROFILE" >/dev/null 2>&1; then
-  pass "WebSearch is allowed without a prompt"
+if jq -e '[.permissions.allow[] | select(startswith("WebSearch"))] | length == 0' "$PROFILE" >/dev/null 2>&1; then
+  pass "WebSearch keeps its prompt: a query can carry text off the machine"
 else
-  fail "WebSearch must be in the profile's allow list"
+  fail "WebSearch must have no static allow entry"
 fi
 if jq -e '[.permissions.allow[] | select(startswith("WebFetch"))] | length == 0' "$PROFILE" >/dev/null 2>&1; then
   pass "WebFetch keeps its prompt: a URL can carry data out"

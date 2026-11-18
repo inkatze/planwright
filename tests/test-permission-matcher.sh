@@ -1295,7 +1295,7 @@ fi
 
 # Non-Bash allow entries: a bare file-tool name is exercised by an allow path
 # row for that tool; the remaining tool names sit outside the model (MB-6).
-OUT_OF_MODEL_ALLOW='Grep Glob WebSearch'
+OUT_OF_MODEL_ALLOW='Grep Glob'
 while IFS= read -r entry; do
   case "$entry" in
     'Bash('*) continue ;;
