@@ -426,14 +426,16 @@ deny:
   whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
   of its own.
 - **User-level and system git config:** `~/.gitconfig`, its `~/.gitconfig*`
-  siblings and everything inside a `~/.gitconfig*` directory (a bare name does
-  not cover what lies below it, MA-3), which closes an `includeIf` target with
-  such a name before it exists, and an `etc/gitconfig` at any depth, which covers `/etc/gitconfig`
-  and prefixed installs such as `/usr/local/etc` and `/opt/homebrew/etc`. Git
-  reads these for every session on the machine, so a filter, diff, textconv,
+  siblings, and everything inside a `~/.gitconfig*` directory (a bare name does
+  not cover what lies below it, MA-3). A name like that is closed before it
+  exists, so a worker cannot create an `includeIf` target under it. The system
+  config is an `etc/gitconfig` at any depth, which covers `/etc/gitconfig` and
+  prefixed installs such as `/usr/local/etc` and `/opt/homebrew/etc`. Git reads
+  these for every session on the machine, so a filter, diff, textconv,
   fsmonitor, pager or gpg-program driver written there fires in all of them.
-  The XDG `~/.config/git/` is already under the `.config` rule. The `~/` rule
-  is home-anchored, so a `.gitconfig` inside a worktree stays editable; the
+  The guard refuses these writes by worktree containment, not by name. The XDG
+  `~/.config/git/` is already under the `.config` rule. The `~/` rules are
+  home-anchored, so a `.gitconfig` inside a worktree stays editable; the
   `etc/gitconfig` rule is not, and also refuses a repository's own tracked
   `etc/gitconfig`.
 
@@ -441,12 +443,14 @@ deny:
   only by an adopter-added `Edit(<path>)` deny in their own settings (the
   mechanism `core.hooksPath` uses; no shipped mechanism generates them): an
   `include.path` or `includeIf` target the rules do not name (a gitconfig in a
-  dotfiles checkout, the target of a symlinked `~/.gitconfig`), an `XDG_CONFIG_HOME` outside `~/.config`, another
-  account's home, and a recased spelling on a case-insensitive filesystem
-  (MA-2). `GIT_CONFIG_GLOBAL` or `GIT_CONFIG_SYSTEM` in a process environment is
-  out of the file tools' reach. Other execution-bearing user files
-  (`~/.ssh/config`, `init.templateDir` targets, gpg configuration, shell rc
-  files) stay open too: the profile denies named paths over open file tools.
+  dotfiles checkout, the target of a symlinked `~/.gitconfig`), an
+  `XDG_CONFIG_HOME` outside `~/.config`, another account's home, an alternate
+  spelling of the home directory (a symlinked or bind-mounted home), and a
+  recased spelling on a case-insensitive filesystem (MA-2).
+  `GIT_CONFIG_GLOBAL` or `GIT_CONFIG_SYSTEM` in a process environment is out of
+  the file tools' reach. Other execution-bearing user files (`~/.ssh/config`,
+  `init.templateDir` targets, gpg configuration, shell rc files) stay open too:
+  the profile denies named paths over open file tools.
 - **The guard's trust inputs** (REQ-G1.8): the launcher's session records
   (`session-records/*.record` under any fleet home) and the overlay config
   files the policy resolves through (`planwright.yml` and
@@ -462,20 +466,21 @@ deny:
   for them, and dropping those static rules so the guard decides, are a
   recorded follow-up.
 
-Every rule but two is anchored at the filesystem root (`//`), never at the
-settings file, whose directory is the plugin's `config/` (M10). Root-anchoring
-matters because mise and direnv read the config of every directory above the
-one they run in: a worktree under its primary checkout picks up the
+Every rule except the worktree's `.claude/` and the home-anchored git config
+rules is anchored at the filesystem root (`//`), never at the settings file,
+whose directory is the plugin's `config/` (M10). Root-anchoring matters because
+mise and direnv read the config of every directory above the one they run in: a
+worktree under its primary checkout picks up the
 primary's `mise.toml` and `mise.local.toml`, and a rule relative to the
 worktree would leave those open. The worktree's own `.claude/` is the
 exception, matched relative to the working directory on purpose: a worktree
 usually sits under its primary checkout's `.claude/worktrees/`, and a
-root-anchored `.claude` rule would refuse every file the worker edits. The
-other exception is the home-anchored user-level git config rule, whose files
-sit in the home directory itself. The same holds for the root-anchored directory rules: a worktree checked out
-beneath a directory named `.config`, `.mise`, `mise-tasks`, `.mise-tasks`,
-`mise/conf.d`, `mise/tasks`, one of mise's own directories below, a hooks
-directory, or a lefthook directory (a dotfiles checkout under `~/.config`,
+root-anchored `.claude` rule would refuse every file the worker edits. The git
+config rules are home-anchored because the files they name sit at the home
+directory's top level. The root-anchored directory rules cost the same kind of
+over-refusal: a worktree checked out beneath a directory named `.config`,
+`.mise`, `mise-tasks`, `.mise-tasks`, `mise/conf.d`, `mise/tasks`, one of
+mise's own directories below, a hooks directory, or a lefthook directory (a dotfiles checkout under `~/.config`,
 say) is refused every file-tool write, so such a repository is checked out
 elsewhere for workers.
 
@@ -511,9 +516,10 @@ The guard matches these names case-insensitively; the globs are
 case-sensitive (MA-2), so on a case-insensitive filesystem a recased
 spelling reaches the file tools. For mise that covers a recased entry of a
 `mise/` directory (`mise/Config.toml`) as much as a recased `Mise.toml`.
-Apart from the git config files above, writes the guard refuses elsewhere outside
-the worktree are not mirrored here: the file tools still reach them, which
-includes an installed planwright root when it is not under `~/.claude`.
+The git config files above are the one mirrored exception: the other writes
+the guard refuses outside the worktree are not mirrored here, so the file tools
+still reach them, which includes an installed planwright root when it is not
+under `~/.claude`.
 
 Claude Code already protects `.git`, `.claude`, `.envrc`, and the YAML
 lefthook config files (MB-8), and the overlays under `~/.claude` with them, but
