@@ -56,7 +56,9 @@ sup() {
   sr supersede "$@" >"$tmp/sup" 2>&1
   RC=$?
 }
-files_of() { ls "$wt/.claude/steps/$1" | tr '\n' ' '; }
+files_of() {
+  for _f in "$wt/.claude/steps/$1"/*; do printf '%s ' "${_f##*/}"; done
+}
 
 # A polish whose start was stamped three seconds before its Skill call, the
 # shape every real case took. The session event log holds the true second.
@@ -118,42 +120,29 @@ verdict $? "the corrected record passes the truth check" "$(cat "$tmp/untrue")"
 misdated
 n_before=$(files_of "$r")
 refused() {
-  _why=$1
-  shift
+  _msg=$1
+  _why=$2
+  shift 2
   sup "$@"
   [ "$RC" -eq 2 ] && [ "$(files_of "$r")" = "$n_before" ] && grep -q "$_why" "$tmp/sup"
   verdict $? "$_msg" "rc $RC, files '$(files_of "$r")': $(cat "$tmp/sup")"
 }
-_msg="a supersede that changes the outcome is refused" \
-  refused "outcome" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z --outcome applied
-_msg="a supersede that changes the step is refused" \
-  refused "step" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z --step self-review
-_msg="a supersede that changes the kind is refused" \
-  refused "kind" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z --kind prompt
-_msg="a supersede that changes the head is refused" \
-  refused "head" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z \
+refused "a supersede that changes the outcome is refused" "outcome" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z --outcome applied
+refused "a supersede that changes the step is refused" "step" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z --step self-review
+refused "a supersede that changes the kind is refused" "kind" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z --kind prompt
+refused "a supersede that changes the head is refused" "head" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z \
   --head 1111111111111111111111111111111111111111
-_msg="a supersede that changes the end head is refused" \
-  refused "end-head" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z \
+refused "a supersede that changes the end head is refused" "end-head" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z \
   --end-head 1111111111111111111111111111111111111111
-_msg="a supersede with no source is refused" \
-  refused "source" --record "$ref" --start 2026-11-04T10:00:11Z
-_msg="a supersede citing no event of the session is refused" \
-  refused "source" --record "$ref" --start 2026-11-04T10:00:12Z --source event:2026-11-04T10:00:12Z
-_msg="a supersede whose cited event is not the corrected time is refused" \
-  refused "source" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:20Z
-_msg="a supersede with a malformed source is refused" \
-  refused "source" --record "$ref" --start 2026-11-04T10:00:11Z --source 'my memory'
-_msg="a supersede that corrects nothing is refused" \
-  refused "start" --record "$ref" --source event:2026-11-04T10:00:11Z
-_msg="a supersede targeting a missing record is refused" \
-  refused "record" --record "$r:convergence:099" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
-_msg="a supersede targeting a completion record is refused" \
-  refused "record" --record "$r:convergence:002" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
-_msg="a supersede targeting a malformed reference is refused" \
-  refused "record" --record "convergence:001" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
-_msg="a corrected window the truth check refuses (a skill under the floor) is refused" \
-  refused "window-floor" --record "$ref" --start 2026-11-04T10:00:20Z --source event:2026-11-04T10:00:20Z
+refused "a supersede with no source is refused" "source" --record "$ref" --start 2026-11-04T10:00:11Z
+refused "a supersede citing no event of the session is refused" "source" --record "$ref" --start 2026-11-04T10:00:12Z --source event:2026-11-04T10:00:12Z
+refused "a supersede whose cited event is not the corrected time is refused" "source" --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:20Z
+refused "a supersede with a malformed source is refused" "source" --record "$ref" --start 2026-11-04T10:00:11Z --source 'my memory'
+refused "a supersede that corrects nothing is refused" "start" --record "$ref" --source event:2026-11-04T10:00:11Z
+refused "a supersede targeting a missing record is refused" "record" --record "$r:convergence:099" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
+refused "a supersede targeting a completion record is refused" "record" --record "$r:convergence:002" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
+refused "a supersede targeting a malformed reference is refused" "record" --record "convergence:001" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
+refused "a corrected window the truth check refuses (a skill under the floor) is refused" "window-floor" --record "$ref" --start 2026-11-04T10:00:20Z --source event:2026-11-04T10:00:20Z
 audit --through convergence
 [ "$RC" -eq 1 ]
 verdict $? "after every refusal the misdated record still fails the audit" "rc $RC: $(cat "$tmp/audit")"
