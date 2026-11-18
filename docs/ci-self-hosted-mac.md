@@ -87,7 +87,8 @@ layers keep it off, and only the last two hold against a hostile fork:
 Trigger review: `ci.yml` fires only on `pull_request` and on `push` to
 `main`. No workflow here uses `pull_request_target` (the posture guard bans
 it). The one `workflow_run` workflow (`release-please.yml`) runs on
-`ubuntu-latest`, never the Mac, and every other workflow does too. Any new
+`ubuntu-latest`, never the Mac, and every other workflow's Ubuntu jobs run on
+hosted runners too. Any new
 trigger that can carry another
 repository's code must stay on hosted runners. The hook refuses everything
 but `push` and `pull_request`, so a new trigger is refused there by default.
