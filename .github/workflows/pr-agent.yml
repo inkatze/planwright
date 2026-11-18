@@ -14,13 +14,10 @@ name: PR-Agent
 # (ready_for_review), and again only when a fix round after the flip changes
 # code and asks for one more by requesting a reviewer (review_requested, which
 # scripts/request-reviewer.sh sends). Never on opened, synchronize or reopened:
-# each paid review is a review of a head that is still changing. A review
-# request is the explicit trigger because it reaches this job as the same
-# pull_request event, so the same-repo head, dependabot and skip-pr-agent
-# conditions below apply unchanged and no new input surface exists. Any
+# each paid review is a review of a head that is still changing. The request is
+# the same pull_request event, so the conditions below apply unchanged. Any
 # reviewer's request counts, since the event does not say which; a draft never
-# runs (open as a draft, and request after the flip), and a pull request opened
-# ready needs a request to get its one run.
+# runs, and a pull request opened ready needs a request to get its one run.
 # scripts/check-workflow-posture.sh enforces the trigger set.
 #
 # Set the repository secret OPENROUTER_API_KEY to turn it on. Tune it with the
