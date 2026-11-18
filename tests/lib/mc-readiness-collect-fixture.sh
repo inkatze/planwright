@@ -6,7 +6,7 @@
 # that runs the script's own jq programs over it. After sourcing: head, prev,
 # has and hasnt (over the collection in c).
 
-: "${tmp:?}" "${repo:?}" "${core:?}" "${repo_root:?}" "${tab:?source mc-readiness-fixture.sh first}"
+: "${tab:?source tests/lib/mc-readiness-fixture.sh first}" "${tmp:?}" "${repo:?}" "${core:?}" "${repo_root:?}"
 
 c=''
 # The polish fixtures below are applied, so the head they began on must be a

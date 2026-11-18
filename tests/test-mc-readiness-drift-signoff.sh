@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests for scripts/mc-readiness.sh: spec edits covering a change, their sign-off
-# read at the head, and the drift and sign-off rows in the walk (REQ-D1.13).
+# read at the head, the drift and sign-off rows in the walk, and a spec root
+# that is the repository root (REQ-D1.13).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-mc-readiness-drift-signoff.sh

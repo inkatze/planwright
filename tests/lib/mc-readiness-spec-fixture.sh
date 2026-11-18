@@ -5,7 +5,7 @@
 # repository, bundle, commit_specs and spec_pr, an empty gate-conditions
 # file, and the origin remote the collector matches the repository by.
 
-: "${tmp:?}" "${repo:?}" "${tracked:?}" "${repo_root:?}" "${tab:?source the fixtures first}"
+: "${prev:?source tests/lib/mc-readiness-collect-fixture.sh first}" "${tmp:?}" "${repo:?}" "${tracked:?}" "${repo_root:?}" "${tab:?}"
 
 : >"$tmp/no-conditions"
 # The collector matches the pull request's repository by the origin remote.

@@ -1,9 +1,9 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034,SC2329 # tab, H and mchome are read by the sourcing test
-# Shared fixture for the mc-readiness tests: the failure counter, the scratch
-# tree, the mission-control fixture with program alpha over the fixture
-# repository, and the evidence helpers complete and walk_with. The sourcing
-# test sets here and repo_root first.
+# Shared fixture for the mc-readiness tests: the scratch tree, the
+# mission-control fixture with program alpha over the fixture repository, and
+# the evidence helpers complete and walk_with. The sourcing test sets here and
+# repo_root, and defines failures, fail and ok, before sourcing.
 
 : "${here:?set here before sourcing}" "${repo_root:?set repo_root before sourcing}"
 unset CDPATH

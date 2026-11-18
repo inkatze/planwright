@@ -2,11 +2,12 @@
 # shellcheck disable=SC2034,SC2329 # the helpers are used by the sourcing test
 # Drift fixture for the mc-readiness tests, sourced after
 # tests/lib/mc-readiness-spec-fixture.sh: a signed bundle whose task lists
-# two deliverables, a base commit with code, dr_pr (collect and check over the
-# forge's view of a pull request) and dr_a, a commit that changes a listed
-# deliverable.
+# two deliverables, a base commit with code (dr_base, also origin/main),
+# resign, dr_commit, dr_pr (collect and check over the forge's view of a pull
+# request) and dr_a, a commit that changes a listed deliverable.
 
-: "${tmp:?}" "${repo:?}" "${repo_root:?}" "${tab:?source the fixtures first}"
+[ "$(type -t bundle)" = function ] || : "${bundle:?source tests/lib/mc-readiness-spec-fixture.sh first}"
+: "${tmp:?}" "${repo:?}" "${repo_root:?}" "${tab:?}"
 
 # ---------------------------------------------------------------------------
 # REQ-D1.13: a pull request that is not spec-only is checked for spec drift,
