@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # converge-sync-main.sh — merge `origin/main` into the current worker branch,
 # once at the top of each `/execute-task` convergence pass, so the head the
-# convergence steps verify is `main`-current
+# convergence steps verify is `main`-current (a stacked PR's worker passes
+# --base to sync the base branch its launch record names instead)
 # (merge-currency-guard Task 3; D-4; REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.6,
 # REQ-D1.3, REQ-K1.1).
 #
@@ -71,8 +72,11 @@
 # fetched commit and the index's other merged entries are recorded in the git
 # dir at the conflict and checked again at the commit.
 #
-# Usage: converge-sync-main.sh [--need <reason>] [<repo-dir>]
+# Usage: converge-sync-main.sh [--need <reason>] [--base <branch>] [<repo-dir>]
 #                                                (default: the current directory)
+#        --base <branch> syncs a stacked PR's base branch instead of main: only the
+#        branch this session's launch record (stack_base, scripts/worker-session-record.sh)
+#        names, else exit 2
 #        converge-sync-main.sh --commit-resolution <spec>/<id>
 #          [--commit-resolution <spec>/<id> ...] [<repo-dir>]
 #
@@ -98,12 +102,14 @@
 # Exit codes:
 #   0  synced (already current, fast-forwarded, merged, skipped for want of a
 #      need, or denied by policy), or the resolution committed
-#   2  usage — bad arguments, a target that is not a git work tree, or a
+#   2  usage — bad arguments, a target that is not a git work tree, a --base
+#      the session's launch record does not name for this branch, or a
 #      missing `git`/`tr` or sibling script (reason `environment`)
 #   3  dirty-tree — tracked-file changes, or a merge/rebase/cherry-pick already
 #      in progress; no fetch is attempted
-#   4  fetch-failed — `git fetch origin main` failed (unreachable remote, no
-#      `origin`, no `main` on the remote, auth failure), or an ssh command
+#   4  fetch-failed — `git fetch origin main` (with --base, the named base)
+#      failed (unreachable remote, no `origin`, no such branch on the
+#      remote, auth failure), or an ssh command
 #      refused before the fetch for quoting or escaping up to its binary
 #   5  merge-conflict — an unresolvable merge under `halt`, aborted; the tree
 #      is clean
@@ -187,15 +193,21 @@ scrub() {
   tr -d '\000-\010\013-\037\177'
 }
 
-USAGE='usage: converge-sync-main.sh [--need <reason>] [--commit-resolution <spec>/<id> ...] [<repo-dir>]'
+USAGE='usage: converge-sync-main.sh [--need <reason>] [--base <branch>] [--commit-resolution <spec>/<id> ...] [<repo-dir>]'
 mode=sync
 task_refs=()
 need_arg=''
+base_arg=''
 while [ "$#" -gt 0 ]; do
   case $1 in
     --need)
       [ "$#" -ge 2 ] || die 2 usage "--need needs a reason; $USAGE"
       need_arg=$2
+      shift 2
+      ;;
+    --base)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || die 2 usage "--base needs a branch name; $USAGE"
+      base_arg=$2
       shift 2
       ;;
     --commit-resolution)
@@ -299,7 +311,7 @@ path_list() {
 # the guard does not screen this script's caller by tier, so widening it here
 # would widen what a tower could sync.
 is_unit_branch() {
-  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
+  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?(-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?)?$'
   local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
   case $1 in planwright/flight/task-*) return 1 ;; esac
   [[ $1 =~ $re_task ]] || [[ $1 =~ $re_flight ]]
@@ -329,6 +341,57 @@ if [ -d "$pdir" ] && [ "$(common_dir "$pdir")" = "$common" ]; then
     || die 10 off-branch "$branch_shown is not this session's unit branch ($(printf '%s' "${pbranch:-none}" | scrub)); run the sync in your own worktree"
 fi
 
+# The base this sync merges: main, or with --base the stacked PR's base branch,
+# which only this session's launch-time record may name (never live config, which
+# the worker can change). The record must be this user's own regular file, name
+# this unit branch, and carry exactly one stack_base equal to origin/<branch>.
+base_br=main
+if [ -n "$base_arg" ]; then
+  rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
+  rec_unit='' rec_base='' rec_dup='' rec_seen=" "
+  rec_top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || true)
+  case $base_arg in
+    -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *.) rec= ;;
+  esac
+  if [ -n "$rec_top" ] && [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ]; then
+    # Both sides resolved the same way: git's top level is already physical,
+    # while a record path may go through a symlinked directory (macOS /var).
+    rec_dir=$(cd -P -- "${rec%/*}/" 2>/dev/null && pwd -P) || rec_dir=''
+    rec_top=$(cd -P -- "$rec_top" 2>/dev/null && pwd -P) || rec_top=''
+    case $rec in
+      /*) ;;
+      *) rec_dir='' ;;
+    esac
+    case $rec_dir in
+      "$rec_top" | "$rec_top"/*) rec= ;;
+      /*) ;;
+      *) rec= ;;
+    esac
+  else
+    rec=
+  fi
+  if [ -n "$rec" ]; then
+    while IFS= read -r rline || [ -n "$rline" ]; do
+      case $rline in
+        unit_branch=*)
+          case $rec_seen in *" u "*) rec_dup=1 ;; esac
+          rec_seen="$rec_seen""u "
+          rec_unit=${rline#*=}
+          ;;
+        stack_base=*)
+          case $rec_seen in *" b "*) rec_dup=1 ;; esac
+          rec_seen="$rec_seen""b "
+          rec_base=${rline#*=}
+          ;;
+      esac
+    done <"$rec"
+  fi
+  [ -z "$rec_dup" ] && [ "$rec_unit" = "$branch" ] && [ "$rec_base" = "origin/$base_arg" ] \
+    || die 2 usage "--base $(printf '%s' "$base_arg" | tr '\n' ' ' | scrub) is not the stacked base this session's launch record names for $branch_shown; only that branch (and main, with no --base) can be synced"
+  base_br=$base_arg
+fi
+base_ref=origin/$base_br
+
 # The resolve record: the fetched commit's sha, then the conflicted names; and
 # beside it the index's merged entries outside them, as the conflict left
 # them, so the resolution commit can carry nothing else.
@@ -352,8 +415,8 @@ if [ "$mode" = commit ]; then
   merge_target=$(sed -n 1p "$resolve_state")
   [ "$(git -C "$repo" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" = "$merge_target" ] \
     || die 11 resolution-refused "the merge in progress is not the one the resolve-mode sync left; abort it and re-run the sync"
-  git -C "$repo" merge-base --is-ancestor "$merge_target" refs/remotes/origin/main 2>/dev/null \
-    || die 11 resolution-refused "the merge in progress does not merge origin/main; abort it and re-run the sync"
+  git -C "$repo" merge-base --is-ancestor "$merge_target" "refs/remotes/$base_ref" 2>/dev/null \
+    || die 11 resolution-refused "the merge in progress does not merge ${base_ref}; abort it and re-run the sync"
   read_knob worker_base_merge allow deny
   [ "$KNOB" = allow ] \
     || die 11 resolution-refused "worker_base_merge is deny, so the resolution is not committed; abort the merge (git merge --abort), and the operator syncs this branch"
@@ -388,7 +451,7 @@ EOF
     rm -f "$msg"
     die 12 resolution-failed "a scratch file could not be created"
   }
-  printf '%s\n' "Merge origin/main, resolving conflicts" "" \
+  printf '%s\n' "Merge ${base_ref}, resolving conflicts" "" \
     "Base-merge resolution: ${shown% }" \
     "Route reason: worker_merge_conflict_policy is resolve, so the agent resolved this base merge's conflicts; the resolution awaits the approval act." >"$msg"
   if ! (cd -- "$repo" && /bin/sh "$script_dir/planwright-commit-trailers.sh" "${task_refs[@]}" --base "$merge_target" --sign-off <"$msg" >"$stamped"); then
@@ -504,7 +567,9 @@ unset _ssh_cmd _ssh_bin _ssh_src _ssh_pre _ssh_rest _ssh_ws
 # resolve_left <target> <names> — print the resolve record and exit 8.
 resolve_left() {
   local msg
-  msg="origin/main conflicts with this branch on: $(path_list "$2")— worker_merge_conflict_policy is resolve, so the merge is left in progress: resolve and stage those paths, then run converge-sync-main.sh --commit-resolution <spec>/<id>"
+  local base_flag=''
+  [ "$base_br" = main ] || base_flag="--base $base_br "
+  msg="${base_ref} conflicts with this branch on: $(path_list "$2")— worker_merge_conflict_policy is resolve, so the merge is left in progress: resolve and stage those paths, then run converge-sync-main.sh ${base_flag}--commit-resolution <spec>/<id>"
   printf 'resolve\t%s\t%s\n' "$1" "$msg"
   die 8 merge-conflict-left "$msg"
 }
@@ -518,7 +583,7 @@ for op in MERGE_HEAD REBASE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
       read_knob worker_merge_conflict_policy halt resolve
       [ "$KNOB" != resolve ] || resolve_left "$(sed -n 1p "$resolve_state")" "$(sed 1d "$resolve_state")"
     fi
-    park 3 dirty-tree "an operation is already in progress ($op exists) — finish or abort it before the sync can merge origin/main"
+    park 3 dirty-tree "an operation is already in progress ($op exists) — finish or abort it before the sync can merge ${base_ref}"
   fi
 done
 
@@ -539,23 +604,27 @@ sync_mode=$KNOB
 dirty=$(git -C "$repo" status --porcelain --untracked-files=no 2>/dev/null || true)
 if [ -n "$dirty" ]; then
   count=$(printf '%s\n' "$dirty" | grep -c '' || true)
-  park 3 dirty-tree "the working tree has $count uncommitted tracked change(s) — commit or discard them before the sync can merge origin/main"
+  park 3 dirty-tree "the working tree has $count uncommitted tracked change(s) — commit or discard them before the sync can merge ${base_ref}"
 fi
 
 # --- fetch -------------------------------------------------------------------
 #
-# The remote and branch are literal: D-4 targets `origin/main` specifically, the
-# worker-convergence base by planwright convention. A PR on some other base is
-# the ready-guard's job, which reads each PR's real base server-side and needs
-# no per-base handling here.
+# The remote is literal; the branch is main, or the stacked base --base names
+# (checked above against the launch record). A PR on some other base is the
+# ready-guard's job.
 
-fetch_err=$(git -C "$repo" fetch origin main 2>&1 >/dev/null) || {
-  park 4 fetch-failed "git fetch origin main failed — the remote is unreachable, absent, or refused the read: $(printf '%s' "$fetch_err" | tr '\n' ' ' | scrub)"
+if [ "$base_br" = main ]; then
+  fetch_err=$(git -C "$repo" fetch origin main 2>&1 >/dev/null) || fetch_rc=$?
+else
+  fetch_err=$(git -C "$repo" fetch origin "$base_br" 2>&1 >/dev/null) || fetch_rc=$?
+fi
+[ "${fetch_rc:-0}" = 0 ] || {
+  park 4 fetch-failed "git fetch origin $base_br failed — the remote is unreachable, absent, or refused the read: $(printf '%s' "$fetch_err" | tr '\n' ' ' | scrub)"
 }
 
 target=$(git -C "$repo" rev-parse --verify FETCH_HEAD 2>/dev/null || true)
 [ -n "$target" ] \
-  || park 4 fetch-failed "git fetch origin main left no FETCH_HEAD to merge"
+  || park 4 fetch-failed "git fetch origin $base_br left no FETCH_HEAD to merge"
 
 # --- merge -------------------------------------------------------------------
 
@@ -594,7 +663,7 @@ if [ "$sync_mode" = on-need ]; then
       0) ;;
       1)
         need_kind=conflict
-        need_text='this branch conflicts with the fetched origin/main'
+        need_text="this branch conflicts with the fetched $base_ref"
         ;;
       *)
         need_kind=probe-failed
@@ -605,8 +674,8 @@ if [ "$sync_mode" = on-need ]; then
   if [ -z "$need_kind" ]; then
     head=$(git -C "$repo" rev-parse HEAD)
     behind=$(git -C "$repo" rev-list --count "HEAD..$target" 2>/dev/null || echo '?')
-    printf 'sync\tskipped\t%s\torigin/main is %s commit(s) ahead of this branch; the merge was skipped because no need held: no conflict with origin/main, no recorded need (--need), and ready_guard_behind_base is %s\n' \
-      "$head" "$behind" "$guard_value"
+    printf 'sync\tskipped\t%s\t%s is %s commit(s) ahead of this branch; the merge was skipped because no need held: no conflict with %s, no recorded need (--need), and ready_guard_behind_base is %s\n' \
+      "$head" "$base_ref" "$behind" "$base_ref" "$guard_value"
     exit 0
   fi
   printf 'need\t%s\t%s\n' "$need_kind" "$need_text"
@@ -647,16 +716,16 @@ merge_err=$(hook_git -C "$repo" -c merge.ff=true merge --no-edit FETCH_HEAD 2>&1
   # merge instead of the real cause (REQ-B1.3).
   if git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
     if ! git -C "$repo" merge --abort >/dev/null 2>&1; then
-      printf 'repair\tabort-failed\t%s\n' "no park: the origin/main merge failed and git merge --abort could not undo it; halt, and name this hand repair of the working tree in the handoff"
-      die 7 abort-failed "the origin/main merge failed AND git merge --abort could not undo it — the working tree is NOT clean and must be repaired by hand before this unit resumes"
+      printf 'repair\tabort-failed\t%s\n' "no park: the ${base_ref} merge failed and git merge --abort could not undo it; halt, and name this hand repair of the working tree in the handoff"
+      die 7 abort-failed "the ${base_ref} merge failed AND git merge --abort could not undo it — the working tree is NOT clean and must be repaired by hand before this unit resumes"
     fi
   fi
 
   if [ -n "$unmerged" ]; then
-    park 5 merge-conflict "origin/main conflicts with this branch on: $(path_list "$unmerged")— the merge was aborted and the tree is clean$unrecorded; land origin/main's changes here (or resolve upstream) before convergence resumes"
+    park 5 merge-conflict "${base_ref} conflicts with this branch on: $(path_list "$unmerged")— the merge was aborted and the tree is clean$unrecorded; land ${base_ref}'s changes here (or resolve upstream) before convergence resumes"
   fi
 
-  park 6 merge-failed "the origin/main merge was refused for a non-conflict reason: $(printf '%s' "$merge_err" | tr '\n' ' ' | scrub)"
+  park 6 merge-failed "the ${base_ref} merge was refused for a non-conflict reason: $(printf '%s' "$merge_err" | tr '\n' ' ' | scrub)"
 }
 
 head=$(git -C "$repo" rev-parse HEAD)
