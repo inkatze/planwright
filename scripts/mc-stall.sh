@@ -635,11 +635,22 @@ row_ok() {
   [ "$R_program" = "$PROGRAM" ] || return 3
 }
 
+# The procfs the listing reads, or nothing where there is none (macOS), when
+# ps answers instead. PLANWRIGHT_MC_PROC_ROOT moves it, so a test can stand
+# in a host with a table of its own, an empty one included.
+proc_root() {
+  if [ -n "${PLANWRIGHT_MC_PROC_ROOT:-}" ]; then
+    printf '%s\n' "$PLANWRIGHT_MC_PROC_ROOT"
+  elif [ -r /proc/self/stat ]; then
+    printf '%s\n' /proc
+  fi
+}
+
 # proc_cwd <pid>: the process's working directory as here:<path>, or
 # gone:<path> once it was removed; nothing when it cannot be read.
 proc_cwd() {
-  if [ -e /proc/self/cwd ]; then
-    pc_dir=$(readlink "/proc/$1/cwd" 2>/dev/null) || return 0
+  if [ -n "$PROC_ROOT" ]; then
+    pc_dir=$(readlink "$PROC_ROOT/$1/cwd" 2>/dev/null) || return 0
   elif command -v lsof >/dev/null 2>&1; then
     pc_dir=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
   else
@@ -655,28 +666,30 @@ proc_cwd() {
 
 # proc_rows: this user's process rows that name the launcher or the
 # stream-json shape, as `<pid> <ppid> <start> <argv...>` with <start> one
-# token: procfs where there is one, since busybox's ps cuts argv short and
-# has no start time; elsewhere (macOS) ps, its lstart joined by dashes. A
-# procfs start is the kernel's start tick, written t<ticks>.
+# token: from procfs where there is one, since busybox's ps cuts argv short
+# and has no start time, each row read with builtins alone, as a busy host
+# has many; elsewhere from ps, its lstart joined by dashes. A procfs start is
+# the kernel's start tick, written t<ticks>.
 proc_rows() {
-  if [ -r /proc/self/stat ]; then
-    pr_uid=$(id -u) || return 1
+  if [ -n "$PROC_ROOT" ]; then
     set +f
-    pr_hits=$(grep -l -e fleet-streamjson.sh -e stream-json /proc/[0-9]*/cmdline 2>/dev/null)
+    pr_hits=$(grep -l -e fleet-streamjson.sh -e stream-json "$PROC_ROOT"/[0-9]*/cmdline 2>/dev/null)
     set -f
     for pr_f in $pr_hits; do
       pr_d=${pr_f%/cmdline}
-      pr_u=$(awk '$1 == "Uid:" { print $2; exit }' "$pr_d/status" 2>/dev/null) || continue
-      [ "$pr_u" = "$pr_uid" ] || continue
+      [ -O "$pr_d" ] || continue
       IFS= read -r pr_stat <"$pr_d/stat" 2>/dev/null || continue
       # shellcheck disable=SC2086 # the fields after the command name, split
       set -- ${pr_stat##*") "}
       [ "$#" -ge 20 ] || continue
       pr_ppid=$2
       shift 19
-      pr_args=$(tr '\000' ' ' <"$pr_f" 2>/dev/null) || continue
+      pr_args=''
+      while IFS= read -r -d '' pr_a; do
+        pr_args="$pr_args $pr_a"
+      done <"$pr_f" 2>/dev/null
       [ -n "$pr_args" ] || continue
-      printf '%s %s t%s %s\n' "${pr_d#/proc/}" "$pr_ppid" "$1" "$pr_args"
+      printf '%s %s t%s%s\n' "${pr_d##*/}" "$pr_ppid" "$1" "$pr_args"
     done
     return 0
   fi
@@ -779,6 +792,7 @@ case $verb in
   orphans)
     [ $# -eq 0 ] || usage
     FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+    PROC_ROOT=$(proc_root)
     list_orphans
     exit
     ;;

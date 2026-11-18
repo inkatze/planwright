@@ -340,7 +340,12 @@ rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/
 # A stream-json supervisor a killed suite left behind, its state directory
 # and working directory removed with the suite's scratch tree, is raised once
 # it has been listed for a minute, under one program only, and never
-# signalled. The stand-in ends itself once this suite is gone.
+# signalled. The stand-in ends itself once this suite is gone. These passes
+# read the real process table, which every other case leaves empty.
+keeper_live() { # keeper_live <program> <now>
+  OUT=$(cd "$repo" && mc_env env -u PLANWRIGHT_MC_PROC_ROOT PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM="$1" \
+    /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now "$2" 2>/dev/null)
+}
 mkdir -p "$tmp/orphan-fx/scripts" "$tmp/orphan-fx/gone/state" "$tmp/orphan-fx/gone/cwd"
 cat >"$tmp/orphan-fx/scripts/fleet-streamjson.sh" <<'EOF'
 #!/bin/sh
@@ -362,15 +367,15 @@ while [ "$os_i" -lt 100 ]; do
 done
 [ "$os_i" -lt 100 ] || fail "the orphan stand-in never ran its supervise argv"
 rm -rf "$tmp/orphan-fx/gone"
-keeper_as alpha 5300
+keeper_live alpha 5300
 expect_no_out "an orphan one pass has seen is not raised yet" "mc-alpha-tower-orphaned"
-keeper_as beta 5330
+keeper_live beta 5330
 expect_no_out "nor by another program's keeper a moment later, before it has settled" "mc-alpha-tower-orphaned"
-keeper_as alpha 5360
+keeper_live alpha 5360
 expect_out "an orphan the next pass sees too is raised" "announced${tab}stream-json-worker-orphaned${tab}mc-alpha-tower-orphaned"
-keeper_as beta 5420
+keeper_live beta 5420
 expect_no_out "and not again, by any program's keeper" "mc-alpha-tower-orphaned"
-keeper_as alpha 5480
+keeper_live alpha 5480
 expect_no_out "nor by its own" "mc-alpha-tower-orphaned"
 mc_run mc-event.sh list --program alpha
 expect_out "the event names the process and its gone state directory" "stream-json-worker-orphaned${tab}mc-alpha-tower-orphaned${tab}orphaned stream-json supervisor pid $orphan_sup"

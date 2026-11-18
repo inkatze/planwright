@@ -183,7 +183,10 @@ wait_exec "$dup_sup" mc-alpha-worker-dup
 for p in "$bare" "$known" "$plain"; do wait_exec "$p" "bin/claude -p"; done
 rm -rf "$tmp/gone"
 
-mc_run mc-stall.sh orphans
+# The fixture empties the process table; these processes are real.
+OUT=$(mc_env env -u PLANWRIGHT_MC_PROC_ROOT /bin/bash "$repo_root/scripts/mc-stall.sh" orphans 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
 expect_rc "orphans lists" 0
 row=$(orphan_row "$gone_sup")
 case $row in
@@ -231,6 +234,14 @@ for p in "$gone_sup" "$gone_worker" "$dup_sup" "$bare"; do
     fail "listing signalled pid $p"
   fi
 done
+
+mc_run mc-stall.sh orphans
+expect_rc "orphans over the fixture's empty process table" 0
+if [ -z "$OUT" ]; then
+  ok "a moved process table that is empty lists nothing"
+else
+  fail "the empty process table listed: $OUT"
+fi
 
 mc_run mc-stall.sh orphans --program
 expect_rc "orphans takes no program" 2
