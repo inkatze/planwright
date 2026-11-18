@@ -409,10 +409,11 @@ RE_MC_GIT_ENV="(^|[[:space:];|&(\"'])GIT_[A-Za-z0-9_]*="
 RE_MC_GIT_CONFIG='[[:space:]](-c|--config-env)([[:space:]=]|$)'
 RE_MC_GIT_GREP_O='[[:space:]]grep[[:space:]](.*[[:space:]])?-[A-Za-z]*O'
 # Prefixes that only these subcommands give an executing meaning: every
-# abbreviation of --upload-pack in ls-remote, of --filters in cat-file.
+# abbreviation of --upload-pack in ls-remote, of --filters and --textconv in
+# cat-file.
 RE_MC_GIT_LSREMOTE_U='[[:space:]]ls-remote[[:space:]](.*[[:space:]])?--u'
-RE_MC_GIT_CATFILE_FIL='[[:space:]]cat-file[[:space:]](.*[[:space:]])?--fil'
-RE_MC_GIT_EXEC_FLAG='(^|[[:space:]])(--outp[^[:space:]]*|--ext[^[:space:]]*|--textc[^[:space:]]*|--op[^[:space:]]*|--exec[^[:space:]]*)'
+RE_MC_GIT_CATFILE_FIL='[[:space:]]cat-file[[:space:]](.*[[:space:]])?--(fi|t)'
+RE_MC_GIT_EXEC_FLAG='(^|[[:space:]])(--outp[^[:space:]]*|--ex?([^A-Za-z0-9_-]|$)|--ext[^[:space:]]*|--textc[^[:space:]]*|--op[^[:space:]]*|--exec[^[:space:]]*)'
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
 
@@ -1435,6 +1436,7 @@ segment_words() {
   SW_WRAPPED=0
   SW_GITENV=0
   SW_ASSIGN=0
+  SW_CFGENV=0
   while [ "$k" -lt "$e" ]; do
     w=${W[$k]}
     case $w in
@@ -1463,7 +1465,12 @@ segment_words() {
         case ${w%%=*} in
           *[!A-Za-z0-9_+]*) ;;
           *)
-            case ${w%%=*} in GIT_*) SW_GITENV=1 ;; esac
+            case ${w%%=*} in
+              GIT_*) SW_GITENV=1 ;;
+              # Where git reads its global configuration from, set or
+              # appended to.
+              HOME | HOME+ | XDG_CONFIG_HOME | XDG_CONFIG_HOME+) SW_CFGENV=1 ;;
+            esac
             SW_ASSIGN=1
             k=$((k + 1))
             continue
@@ -1623,6 +1630,13 @@ tower_floor() {
 # later one runs; every segment is checked against the state as it is now, so
 # a reserved act after such a change cannot be checked and is refused.
 ST_CFG=0
+# A segment that may have set a filter program, or moved where git reads its
+# configuration: a git config naming a filter key, an include, an editor or a
+# word the shell may still expand; a clone or init; an alias; or a GIT_
+# variable, HOME or XDG_CONFIG_HOME assigned or exported. It, ST_REF, ST_CFG
+# and ST_HEAD are also read once every segment is classified
+# (kickoff_text_check).
+ST_FILT=0
 ST_REF=0
 ST_FETCH=0
 ST_FETCHSPEC=0
@@ -1722,6 +1736,21 @@ KICK_DIR=''
 KICK_DIR_OK=0
 KICK_HEAD_MOVED=0
 KICK_BESIDE=0
+# KGR_FILT: the last git read kickoff_cmd_reads passed is one a filter program
+# runs for; KGR_INC: and its repository has a conditional include (KFS_INC,
+# from kick_filter_set); KGR_STEP: its subcommand. KICK_FILT_PASSED,
+# KICK_INC_PASSED: a mention of the script passed as such; KICK_FILT_STEP: the
+# subcommand of the first that did.
+KGR_FILT=0
+KGR_INC=0
+KGR_STEP=''
+KFS_INC=0
+KICK_FILT_PASSED=0
+KICK_INC_PASSED=0
+KICK_FILT_STEP=''
+# A directory change after such a mention: a loop can run the mention again
+# in a repository the guard never read.
+KICK_CD_AFTER=0
 KICK_NAME=kickoff-spec-push
 KICK_FILE=kickoff-spec-push.sh
 KICK_FORM="\${CLAUDE_PLUGIN_ROOT}/scripts/kickoff-spec-push.sh <spec>"
@@ -1810,22 +1839,77 @@ kickoff_verb_class() {
 
 # kick_cfg_has <moved> <key-regexp> — 0 when a configured key matches, or when
 # the repository the command reads cannot be placed (<moved> is 1, or the
-# directory is unknown), where one could be set.
+# directory is unknown) or its configuration cannot be read, or another
+# segment or a HOME the command sets may have changed it, where one could be
+# set.
 kick_cfg_has() {
   [ "$1" = 0 ] && [ "$KICK_DIR_OK" = 1 ] || return 0
-  [ -n "$(gitq "$KICK_DIR" config --get-regexp "$2")" ]
+  # Whatever may set a filter program (ST_FILT, another global configuration)
+  # may set a diff driver too.
+  [ "$ST_FILT" = 0 ] && [ "${SW_CFGENV:-0}" = 0 ] || return 0
+  kick_cfg_matches "$KICK_DIR" "$2"
+}
+
+# kick_filter_set <dir> <dir-ok> — 0 when a filter program
+# (filter.<driver>.clean, smudge or process) may run in <dir>: one is
+# configured, or the configuration cannot be read; an earlier segment may
+# have set one (ST_FILT); git reads its global configuration from a HOME or
+# XDG_CONFIG_HOME the command sets; or the directory cannot be placed. A
+# missing directory runs nothing, since git stops on it, but only when the
+# command is this one segment: any other segment, even one after it in a loop
+# or beside it in the background, may make it, with any configuration. Sets
+# KFS_INC when the configuration has a conditional include, which counts as a
+# filter set once ST_REF, ST_CFG or ST_HEAD is.
+kick_filter_set() {
+  KFS_INC=0
+  [ "$ST_FILT" = 0 ] && [ "${SW_CFGENV:-0}" = 0 ] && [ "$2" = 1 ] || return 0
+  if [ ! -d "$1" ]; then
+    [ "${#SEG_S[@]}" = 1 ] && return 1
+    return 0
+  fi
+  local out rc=0
+  out=$(gitq "$1" config --name-only --get-regexp '^(filter\..*\.(clean|smudge|process)|includeif\..*)$') || rc=$?
+  [ "$rc" -le 1 ] || return 0
+  case $NL$out in *"${NL}filter."*) return 0 ;; esac
+  [ -n "$out" ] || return 1
+  # A conditional include (onbranch, hasconfig:remote) can start to apply
+  # once another segment changes the branch, the remotes or the commit: one
+  # before this segment is read here, one after it (a loop or a background
+  # job can run it first) at kickoff_text_check.
+  KFS_INC=1
+  [ "$ST_REF" = 1 ] || [ "$ST_CFG" = 1 ] || [ "$ST_HEAD" = 1 ]
+}
+
+# kick_cfg_matches <dir> <key-regexp> — 0 when a key in <dir>'s configuration
+# matches, or when git cannot read that configuration (exit 1 is no match;
+# a malformed or unreadable file proves nothing).
+kick_cfg_matches() {
+  local out rc=0
+  out=$(gitq "$1" config --get-regexp "$2") || rc=$?
+  [ "$rc" -le 1 ] || return 0
+  [ -n "$out" ]
 }
 
 # kickoff_git_reads — 0 when the segment is a git read or stage of its
 # arguments: no option but -C before the subcommand (a -c could set a pager or
-# helper to the script), and a subcommand that does not run its arguments.
+# helper to the script), a subcommand that does not run its arguments, and no
+# diff driver or filter program that may run on them.
 kickoff_git_reads() {
-  local k=1 j moved=0 noext=0 notext=0 patchy=0 colon=0 bare=0
+  local k=1 j w moved=0 noext=0 notext=0 patchy=0 colon=0 bare=0 filt=0 fdir=$KICK_DIR fok=$KICK_DIR_OK
   while [ "$k" -lt "${#SW[@]}" ]; do
     case ${SW[$k]} in
       -C)
         moved=1
-        k=$((k + 2))
+        k=$((k + 1))
+        if [ "${SWL[$k]:-0}" != 1 ]; then
+          fok=0
+        else
+          case ${SW[$k]} in
+            /*) fdir=${SW[$k]} ;;
+            *) fdir="$fdir/${SW[$k]}" ;;
+          esac
+        fi
+        k=$((k + 1))
         ;;
       -*) return 1 ;;
       add | diff | show | log | status | blame | annotate | ls-files | ls-tree | grep | rm | restore | commit | \
@@ -1844,13 +1928,18 @@ kickoff_git_reads() {
               ;;
             # git cat-file takes any unambiguous prefix of --textconv, down to
             # --t, so git log's --text is refused beside the script too.
-            --op* | --ou* | --ext | --ext-* | --t | --te | --tex | --text | --textc*) return 1 ;;
+            --op* | --ou* | --e | --ex | --ext | --ext-* | --t | --te | --tex | --text | --textc*) return 1 ;;
             --no-ext-diff) noext=1 ;;
             --no-textconv) notext=1 ;;
             --patch* | --unified* | --binary | --remerge-diff | --dd | --cc | --stat* | --numstat | \
               --shortstat | --word-diff*)
               patchy=1
               ;;
+            # git cat-file --filters (in any abbreviation) runs a configured
+            # filter program on the blob it prints. A --filter spelling is
+            # refused on every subcommand, which git rejects outside cat-file.
+            --filter*) return 1 ;;
+            --fi*) [ "${SW[$k]}" != cat-file ] || return 1 ;;
             --*) ;;
             -*O*) return 1 ;;
             # -L<range>:<file> prints a patch even beside a <rev>:<path>, and
@@ -1877,8 +1966,9 @@ kickoff_git_reads() {
         # default, and --no-ext-diff is the only way to read it with one set; a
         # diff.<driver>.textconv filter runs for these too, which --no-textconv
         # stops (blame has no such option). A git config change earlier in the
-        # same command may have set any of them, and where the repository
-        # cannot be read (git -C, an unplaced directory) they count as set.
+        # same command may have set any of them, as may whatever may set a
+        # filter program (kick_cfg_has), and where the repository cannot be
+        # read (git -C, an unplaced directory) they count as set.
         case ${SW[$k]} in
           diff | log | show | blame | annotate | whatchanged)
             [ "$ST_CFG" = 0 ] || return 1
@@ -1892,6 +1982,26 @@ kickoff_git_reads() {
             fi
             ;;
         esac
+        # A filter program (filter.<driver>.clean, smudge or process) runs on
+        # the file's content when one of these stages, commits, restores,
+        # compares, removes or blames it, and git ls-files runs it to find
+        # modified files. .gitattributes is not read: an attribute can come
+        # from a file the guard does not read, or be written earlier in the
+        # same command, so any configured filter counts.
+        case ${SW[$k]} in
+          add | status | diff | restore | rm | commit | blame | annotate) filt=1 ;;
+          ls-files)
+            for w in "${SW[@]:$((k + 1))}"; do
+              case $w in --) break ;; --m*) filt=1 ;; --*) ;; -*m*) filt=1 ;; esac
+            done
+            ;;
+        esac
+        if [ "$filt" = 1 ]; then
+          ! kick_filter_set "$fdir" "$fok" || return 1
+          KGR_INC=$KFS_INC
+        fi
+        KGR_FILT=$filt
+        KGR_STEP=${SW[$k]}
         return 0
         ;;
       *) return 1 ;;
@@ -1960,6 +2070,9 @@ kickoff_args_safe() {
 # carry the name). Set KV to the command's class.
 kickoff_cmd_reads() {
   local w
+  KGR_FILT=0
+  KGR_INC=0
+  KGR_STEP=''
   [ "${SEG_RD[$1]:-0}" = 0 ] || return 1
   [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
   kickoff_verb_class "${SW[0]}"
@@ -1988,6 +2101,17 @@ RE_KICKOFF_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/kickoff-spec-push\.sh$'
 # kickoff_script_at <index> — 0 when the command word at <index> is RE_KICKOFF_SCRIPT.
 kickoff_script_at() {
   [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
+}
+
+# kickoff_filt_passed — after a mention passed kickoff_cmd_reads, carry its
+# KGR_* results into KICK_FILT_PASSED, KICK_INC_PASSED and, for the first
+# filter-capable step, KICK_FILT_STEP.
+kickoff_filt_passed() {
+  if [ "$KGR_FILT" = 1 ]; then
+    KICK_FILT_PASSED=1
+    [ -n "$KICK_FILT_STEP" ] || KICK_FILT_STEP=$KGR_STEP
+  fi
+  [ "$KGR_INC" = 0 ] || KICK_INC_PASSED=1
 }
 
 # kickoff_pipe_on <segment> — mark the next command as reading what this one
@@ -2085,8 +2209,12 @@ kickoff_segment() {
       deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a command that could run it - refusing (fail closed). Run it as $KICK_FORM."
     fi
   fi
-  if kickoff_fuzzy_name "$3" && ! kickoff_cmd_reads "$3"; then
-    deny_now "this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
+  if kickoff_fuzzy_name "$3"; then
+    if kickoff_cmd_reads "$3"; then
+      kickoff_filt_passed
+    else
+      deny_now "this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
+    fi
   fi
   for w in "${SW[@]}"; do
     kickoff_named "$w" && named=1
@@ -2095,6 +2223,7 @@ kickoff_segment() {
   local kc=$KC
   if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc" "$3"; then
     KICK_PASSED=$((KICK_PASSED + kc))
+    kickoff_filt_passed
     kickoff_var_set
     kickoff_pipe_on "$3"
     return 1
@@ -2327,13 +2456,30 @@ kickoff_head_moves() {
 # kickoff_text_check — every spelling of the kickoff push's name in the command
 # must be a run, or a mention that only reads, stages or prints it, in the
 # segments read above; a name in a redirect, a -c string or a quoted or
-# spelled-out form is refused.
+# spelled-out form is refused. A stage a filter program would run for is
+# refused here when any segment, in any order, may set one, may make a
+# conditional include apply, or changes directory after it, and in any case
+# when it shares its line with another command.
 kickoff_text_check() {
   kick_count "$P_CMD"
   [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
     || deny_now "this command names scripts/kickoff-spec-push.sh in a spelling the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
   [ "$KICK_SEEN" = 0 ] || [ "$KICK_BESIDE" = 0 ] \
     || deny_now "this kickoff push runs beside a command that is neither a cd nor a read, or with a variable assigned, which could change the branch it pushes or the launch scope the helper checks after the guard has read them - refusing (fail closed). Run the kickoff push on its own, or after cd only."
+  # A filter set after the stage in the text can still run first: a loop runs
+  # its body before its next condition, and a background job runs beside it.
+  [ "$KICK_FILT_PASSED" = 0 ] || [ "$ST_FILT" = 0 ] \
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh, and also may change git configuration or where git reads it (a git config naming a filter key, an include, an editor or a word the guard cannot read; a clone, init or alias; or a GIT_ variable, HOME or XDG_CONFIG_HOME), which can set a filter program that runs on the script's content, even from a later segment in a loop or a background job - refusing (fail closed). Run that change as its own command."
+  [ "$KICK_INC_PASSED" = 0 ] || { [ "$ST_REF" = 0 ] && [ "$ST_CFG" = 0 ] && [ "$ST_HEAD" = 0 ]; } \
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes git configuration, the branch or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
+  [ "$KICK_CD_AFTER" = 0 ] \
+    || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh and changes directory after it, so a loop can run it again in a repository whose filter programs the guard never read - refusing (fail closed). Change directory first, or run it on its own."
+  # Whatever else the line runs could set a filter program first in a way the
+  # checks above cannot read, so such a step stands alone. The checks above
+  # still run first, for their sharper reason, and the include one also
+  # catches a lone commit.
+  [ "$KICK_FILT_PASSED" = 0 ] || [ "${#SEG_S[@]}" = 1 ] \
+    || deny_now "this command runs git $KICK_FILT_STEP on scripts/kickoff-spec-push.sh beside other commands, and a git step that can run a filter program on the script must be the only command in its line, since another command in it could set one first - refusing. Split the line into separate commands, with git $KICK_FILT_STEP on scripts/kickoff-spec-push.sh as a command of its own."
 }
 
 # kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
@@ -2377,6 +2523,10 @@ classify_segments() {
   KICK_VAR=0
   KICK_HEAD_MOVED=0
   KICK_BESIDE=0
+  KICK_FILT_PASSED=0
+  KICK_INC_PASSED=0
+  KICK_FILT_STEP=''
+  KICK_CD_AFTER=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
   CS_NOCD=0
@@ -2415,7 +2565,13 @@ classify_segments() {
     if [ "${#SW[@]}" = 0 ]; then
       # A segment of assignments alone sets them for the rest of the command;
       # the shell runs a prompt or startup hook's value as a command.
-      [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      # A GIT_ variable can carry configuration (GIT_CONFIG_COUNT) or point
+      # git at another repository.
+      if [ "$SW_GITENV" = 1 ]; then
+        GIT_ENV_SET=1
+        ST_FILT=1
+      fi
+      [ "$SW_CFGENV" = 0 ] || ST_FILT=1
       KICK_BESIDE=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
         || deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run it as $KICK_FORM."
@@ -2541,7 +2697,13 @@ classify_segments() {
       case $base_verb in
         export | declare | typeset | readonly | local | let | printf)
           case " ${SW[*]} " in
-            *" GIT_"*) GIT_ENV_SET=1 ;;
+            *" GIT_"*)
+              GIT_ENV_SET=1
+              ST_FILT=1
+              ;;
+          esac
+          case " ${SW[*]} " in
+            *" HOME"* | *" XDG_CONFIG_HOME"*) ST_FILT=1 ;;
           esac
           # A value the shell later runs (a startup or prompt hook, an
           # arithmetic subscript) is screened as a command; printf sets one
@@ -2586,6 +2748,7 @@ classify_segments() {
       case $base_verb in
         cd | pushd | popd)
           local term=${SEG_TERM[$si]}
+          [ "$KICK_FILT_PASSED" = 0 ] || KICK_CD_AFTER=1
           # Followed only where its list is sure to run it in this shell
           # before the acts after it: not after a || or in a pipeline, a
           # compound body or condition, or under compound_shape's other marks.
@@ -3496,10 +3659,10 @@ mc_git_reads() {
     # git takes any unambiguous prefix of a long option, so the prefixes
     # refuse too.
     case $a in
-      --outp* | --ext* | --textc*) return 1 ;;
+      --outp* | --e | --ex | --ext* | --textc*) return 1 ;;
     esac
     case $sub:$a in
-      grep:--op* | grep:-O* | grep:-[!-]*O* | ls-remote:--u* | ls-remote:--exec* | cat-file:--fil*) return 1 ;;
+      grep:--op* | grep:-O* | grep:-[!-]*O* | ls-remote:--u* | ls-remote:--exec* | cat-file:--fi* | cat-file:--t*) return 1 ;;
     esac
   done
   case " $MC_GIT_READS " in *" $sub "*) return 0 ;; esac
@@ -3696,6 +3859,9 @@ classify_git() {
   case " $GIT_BUILTINS " in
     *" $sub "*) ;;
     *)
+      # An alias or a git-<name> program may write any configuration,
+      # a filter program included.
+      ST_FILT=1
       if [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; then
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') runs where git configuration is set in the same command or its environment (a GIT_* variable, git config, or git remote), so the guard cannot tell what it runs - refusing (fail closed). Run the configuration change and the command separately."
         return 0
@@ -3752,7 +3918,7 @@ act_gate() {
 # git_state_after <sub> <first-arg-index> — record what this git segment
 # changes for the segments after it.
 git_state_after() {
-  local a pos=0 ro=0 rsub=''
+  local a pos=0 ro=0 rsub='' renaming
   for a in "${SW[@]:$2}"; do
     case $a in -*) ;; *) [ -n "$rsub" ] || rsub=$a ;; esac
     case $a in
@@ -3762,7 +3928,32 @@ git_state_after() {
     esac
   done
   case $1 in
-    config) [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1 ;;
+    config)
+      [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1
+      # Every word is read whatever ro says, since a value or value-pattern
+      # can spell a read verb (git config filter.y.clean sh list writes the
+      # key). Any filter key but required may be a program, and a section
+      # renamed into filter.* brings its keys along; an include, an editor or
+      # a word the shell may still expand (a brace sequence spells
+      # fil{t..t}er) may set anything. The rename word may follow the key, so
+      # it is looked for first.
+      renaming=0
+      for a in "${SW[@]:$2}"; do
+        case $a in --ren* | rename-section) renaming=1 ;; esac
+      done
+      for a in "${SW[@]:$2}"; do
+        lc "$a"
+        case $LC in
+          -e* | -[!-]*e* | --ed* | edit | include* | *'$'* | *'`'* | *'{'*) ST_FILT=1 ;;
+          filter.*.required) [ "$renaming" = 0 ] || ST_FILT=1 ;;
+          filter.*) ST_FILT=1 ;;
+        esac
+      done
+      ;;
+    # A clone or init writes configuration into a directory that may already
+    # exist: from -c or --config, before the subcommand or after it, or from a
+    # template that options, configuration or the environment can name.
+    clone | init) ST_FILT=1 ;;
     # A remote's own name or URL may be a read word, so only the subcommand
     # decides.
     remote)
