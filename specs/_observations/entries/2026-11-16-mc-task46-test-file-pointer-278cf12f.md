@@ -1,0 +1,1 @@
+- 2026-11-16 [planwright] specs/mission-control/tasks.md Task 46 still names tests/test-mc-config.sh for its REQ-A1.9 tests, but they live in tests/test-mc-config-doctor.sh (test-spec.md REQ-A1.9 and line 7 of tests/test-mc-config.sh both say so); an expression-only fix with its changelog and re-anchor entry belongs in a mission-control spec bookkeeping PR.

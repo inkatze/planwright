@@ -122,7 +122,7 @@ case "${1:-}" in
         [ -z "${STUB_CHECKS_SLEEP:-}" ] || sleep "$STUB_CHECKS_SLEEP"
         rc=${STUB_CHECKS_RC:-0}
         [ "$rc" = 0 ] || exit "$rc"
-        printf '%s' "${STUB_CHECKS_JSON:-}"
+        printf '%s' "${STUB_CHECKS_JSON:-${STUB_VIEW_JSON2:-${STUB_VIEW_JSON:-}}}"
         exit 0
         ;;
     esac

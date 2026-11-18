@@ -16,6 +16,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 S="$here/../scripts"
 SJ="$S/fleet-streamjson.sh"
 FA="$S/fleet-attention.sh"
+# shellcheck source=tests/lib/poll-until.sh
+. "$here/lib/poll-until.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -408,12 +410,7 @@ mkreq "$piped" "$id1" 1000
 mkfifo "$piped/result"
 (fenv "$home" "$SJ" alarm-scan --once --now 5000 --threshold 900 >"$tmp/w7.out" 2>&1) &
 w7_pid=$!
-n=0
-while kill -0 "$w7_pid" 2>/dev/null && [ "$n" -lt 100 ]; do
-  sleep 0.1
-  n=$((n + 1))
-done
-if kill -0 "$w7_pid" 2>/dev/null; then
+if ! poll_until --what 'alarm-scan to finish' -- pid_gone "$w7_pid"; then
   kill "$w7_pid" 2>/dev/null
   : >"$piped/result" &
   fail "w7: alarm-scan hung reading a result that is a fifo"

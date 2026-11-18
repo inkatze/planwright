@@ -205,10 +205,10 @@ case $S_PID in
   ambiguous) refuse "more than one mission-control session of $PROGRAM is running" ;;
 esac
 [ "$S_PID" = "$rec_sess" ] || refuse "the running session of $PROGRAM is not the one whose dialog is on record"
-PANES=$(bounded tmux list-panes -a -F '#{pane_id}	#{pane_pid}' 2>/dev/null) || mc_fail "cannot list the tmux panes"
+PANES=$(bounded tmux list-panes -a -F '#{pane_id} #{pane_pid}' 2>/dev/null) || mc_fail "cannot list the tmux panes"
 PANE=$(msp_pane_of "$S_PID" "$PS_TABLE" "$PANES") || refuse "the session of $PROGRAM has no tmux pane"
 [ "${TMUX_PANE:-}" != "$PANE" ] || refuse "the pane is the caller's own"
-PANE_PID=$(printf '%s\n' "$PANES" | P=$PANE awk -F '\t' '$1 == ENVIRON["P"] { print $2; exit }')
+PANE_PID=$(printf '%s\n' "$PANES" | P=$PANE awk '$1 == ENVIRON["P"] { print $2; exit }')
 ! msp_ancestor "$PANE_PID" "$$" "$PS_TABLE" || refuse "the pane is one the caller runs under"
 
 # read_dialog: the pane's dialog now, refused unless it is the recorded one.
