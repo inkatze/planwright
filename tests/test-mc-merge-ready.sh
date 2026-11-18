@@ -86,10 +86,20 @@ case \$verb in
     n=\$(awk -F '\t' '\$1 == "stubpr" { print \$2 }' "\$ev")
     printf 'unfinished --pr %s\n' "\$n" >>"$tmp/unfinished.calls"
     h=\$(awk -F '\t' '\$1 == "head" { print \$2 }' "\$ev")
-    if [ "\$(cat "$tmp/unfinished.\$n" 2>/dev/null)" = yes ]; then
-      printf 'unfinished\t%s\nfail\tcheck\tmacos-suite 3 is QUEUED\n' "\$h"
-      exit 4
-    fi
+    case \$(cat "$tmp/unfinished.\$n" 2>/dev/null) in
+      yes)
+        printf 'unfinished\t%s\nfail\tcheck\tmacos-suite 3 is QUEUED\n' "\$h"
+        exit 4
+        ;;
+      early)
+        printf 'unfinished\t%s\nfail\tflip\tPR-Agent was still running at the flip (run created 2026-11-18T00:40:10Z, before the flip at 2026-11-18T00:42:21Z): a too-early flip\nfail\tcheck\tci is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)\n' "\$h"
+        exit 4
+        ;;
+      own)
+        printf 'unfinished\t%s\nfail\tcheck\tPR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)\n' "\$h"
+        exit 4
+        ;;
+    esac
     printf 'finished\t%s\n' "\$h"
     exit 0
     ;;
@@ -601,6 +611,14 @@ expect_out "the status form says it as a decision" "decision${tab}Marked ready w
 printf 'no\n' >"$tmp/unfinished.20"
 run list --program alpha --now "$T"
 expect_eq "once its checks finish it is quiet" "$(ready7 "$J")"
+printf 'own\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "the runs the flip itself fired are named as the flip's own, not as a too-early flip" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)"
+printf 'early\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "a run that predates the flip and was still running is named a too-early flip" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}PR-Agent was still running at the flip (run created 2026-11-18T00:40:10Z, before the flip at 2026-11-18T00:42:21Z): a too-early flip, ci is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)"
 printf 'broken\n' >"$tmp/verdict.20"
 printf 'yes\n' >"$tmp/unfinished.20"
 run list --program alpha --now "$T"

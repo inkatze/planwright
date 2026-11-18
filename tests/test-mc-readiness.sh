@@ -278,6 +278,94 @@ expect_rc "a screenshot judged ok at another head is refused, required or not" 4
 expect_out "named" "x.png was judged at another head"
 
 # ---------------------------------------------------------------------------
+# The bot review (PR-Agent) runs once, on the run the ready flip fires: a draft
+# is flipped with none, merge-ready needs a successful run on the final head.
+# ---------------------------------------------------------------------------
+nl=$(printf '\n_')
+nl=${nl%_}
+rowsof() { # rowsof <row>...: each row's commas are tabs, one row per line
+  out_rows=''
+  for r in "$@"; do out_rows="$out_rows${out_rows:+$nl}$(printf '%s' "$r" | tr ',' '\t')"; done
+  printf '%s' "$out_rows"
+}
+walk_with "draft, no bot review" - "$(rowsof state,draft require,pr-agent)"
+expect_rc "a draft with no PR-Agent run can still be flipped" 0
+walk_with "draft, failed bot review" - "$(rowsof state,draft require,pr-agent check,PR-Agent,FAILURE)"
+expect_rc "a draft's stale failed PR-Agent run does not hold the flip" 0
+walk_with "draft, pending bot review" - "$(rowsof state,draft require,pr-agent check,PR-Agent,PENDING)"
+expect_rc "a draft's pending PR-Agent run does not hold the flip either" 0
+walk_with "draft, failed ci" - "$(rowsof state,draft require,pr-agent check,lint,FAILURE)"
+expect_rc "a draft's failed ordinary check still holds the flip" 4
+
+walk_with "ready, no bot review" - "$(rowsof state,ready require,pr-agent)"
+expect_rc "merge-ready needs a PR-Agent run on the head: none is refused" 4
+expect_out "named with the head" "fail${tab}bot-review${tab}no PR-Agent run at 111111111111"
+walk_with "ready, failed bot review" - "$(rowsof state,ready require,pr-agent check,PR-Agent,FAILURE)"
+expect_rc "a head whose only PR-Agent run failed is refused" 4
+expect_out "named" "fail${tab}check${tab}PR-Agent is FAILURE"
+walk_with "ready, passed bot review" - "$(rowsof state,ready require,pr-agent check,PR-Agent,SUCCESS)"
+expect_rc "a successful PR-Agent run on the head passes" 0
+walk_with "ready, unanswered bot finding" - "$(rowsof state,ready require,pr-agent check,PR-Agent,SUCCESS 'finding,github-actions[bot],t9,unanswered')"
+expect_rc "an unsettled PR-Agent finding is refused" 4
+expect_out "named by its thread" "fail${tab}finding${tab}github-actions[bot] t9 is unanswered"
+walk_with "ready, label opt-out" - "$(rowsof state,ready require,pr-agent check,PR-Agent,SKIPPED)"
+expect_rc "a skipped PR-Agent job (the skip-pr-agent label, a dependabot head) is the opt-out" 0
+walk_with "ready, repository without PR-Agent" - "state${tab}ready"
+expect_rc "a repository with no PR-Agent workflow needs no run" 0
+walk_with "old evidence" - "require${tab}pr-agent"
+expect_rc "evidence with no draft state reads as ready: a required run missing is refused" 4
+expect_out "named" "fail${tab}bot-review${tab}no PR-Agent run at 111111111111"
+walk_with "old evidence, run present" - "$(rowsof require,pr-agent check,PR-Agent,SUCCESS)"
+expect_rc "and a successful run passes it" 0
+walk_with "ready, check refusal leads" - "$(rowsof state,ready require,pr-agent check,PR-Agent,FAILURE 'thread,t8,open')"
+case $OUT in
+  *"fail${tab}check${tab}PR-Agent is FAILURE"*"fail${tab}thread${tab}t8 is open"*) ok "a check refusal is listed before a thread's, as a stall reason takes the first" ;;
+  *) fail "the check refusal does not lead: $OUT" ;;
+esac
+
+# The flip's own runs, told from a too-early flip, with the timings of a real
+# flip: it was at 00:42:21Z and its pending ci and PR-Agent runs were created
+# at 00:42:23Z.
+FLIP_T=2026-11-18T00:42:21Z
+flip_rows() { # flip_rows <ci created> <pr-agent created>
+  rowsof state,ready "flip,$FLIP_T" require,pr-agent check,ci,IN_PROGRESS check,PR-Agent,PENDING "born,ci,$1" "born,PR-Agent,$2"
+}
+walk_with "flip-fired runs" - "$(flip_rows 2026-11-18T00:42:23Z 2026-11-18T00:42:23Z)"
+expect_rc "runs the flip fired still hold merge-ready until they finish" 4
+expect_out "ci is named as the flip's own run" "fail${tab}check${tab}ci is IN_PROGRESS (run created 2026-11-18T00:42:23Z, after the flip at $FLIP_T"
+expect_out "PR-Agent is named as the flip's own run" "fail${tab}check${tab}PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip at $FLIP_T"
+case $OUT in *too-early*) fail "a flip's own runs read as a too-early flip" ;; *) ok "a flip's own runs are no too-early flip" ;; esac
+walk_with "run at the flip second" - "$(flip_rows $FLIP_T $FLIP_T)"
+expect_out "a run created in the flip's own second is the flip's" "ci is IN_PROGRESS (run created $FLIP_T, after the flip"
+walk_with "too-early flip" - "$(flip_rows 2026-11-18T00:40:10Z 2026-11-18T00:42:23Z)"
+expect_rc "a run that predates the flip and still runs holds it" 4
+expect_out "named a too-early flip" "fail${tab}flip${tab}ci was still running at the flip (run created 2026-11-18T00:40:10Z, before the flip at $FLIP_T): a too-early flip"
+expect_out "the flip's own PR-Agent run is not blamed on it" "PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip"
+walk_with "unknown run time" - "$(rowsof state,ready "flip,$FLIP_T" check,ci,QUEUED)"
+expect_out "a run with no known creation time reads as plainly pending" "fail${tab}check${tab}ci is QUEUED"
+walk_with "no flip time" - "$(rowsof state,ready check,ci,QUEUED born,ci,2026-11-18T00:42:23Z)"
+expect_out "a run with no flip time to compare reads as plainly pending" "fail${tab}check${tab}ci is QUEUED"
+walk_with "draft with times" - "$(rowsof state,draft "flip,$FLIP_T" check,ci,QUEUED born,ci,2026-11-18T00:40:00Z)"
+expect_out "a draft's pending check is never a too-early flip" "fail${tab}check${tab}ci is QUEUED"
+
+{
+  complete
+  flip_rows 2026-11-18T00:40:10Z 2026-11-18T00:42:23Z
+  echo
+} >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "unfinished: a flip's runs are unfinished" 4
+expect_out "unfinished: the too-early run is named so" "fail${tab}flip${tab}ci was still running at the flip"
+expect_out "unfinished: the flip's own run is named so" "fail${tab}check${tab}PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip"
+{
+  complete
+  rowsof state,draft check,PR-Agent,PENDING
+  echo
+} >"$tmp/ev"
+mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
+expect_rc "unfinished: a draft's PR-Agent run is none of its business" 0
+
+# ---------------------------------------------------------------------------
 # record: evidence the session opened and judged.
 # ---------------------------------------------------------------------------
 mc_run mc-readiness.sh record --program alpha --repo acme/web --pr 7 --head "$H" --kind screenshot --ref shots/home.png --judgment ok
@@ -314,19 +402,21 @@ mkdir -p "$tmp/bin"
 cat >"$tmp/pr.json" <<EOF
 {"headRefOid": "$head", "labels": [{"name": "ui"}], "files": [{"path": "src/app.c"}],
  "body": "## Summary\nAdds the thing.",
- "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"},
+ "isDraft": false,
+ "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS", "detailsUrl": "https://github.com/acme/web/actions/runs/111/job/1"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "pr-title", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:34:09Z"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "pr-title", "conclusion": "SUCCESS", "startedAt": "2026-11-05T19:51:51Z"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "pr-title", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:50:18Z"},
    {"__typename": "CheckRun", "name": "title", "workflowName": "other-lint", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "conclusion": "SUCCESS", "startedAt": "2026-11-05T19:00:00Z"},
-   {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "status": "QUEUED", "conclusion": "", "startedAt": "0001-01-01T00:00:00Z"},
+   {"__typename": "CheckRun", "name": "rerun", "workflowName": "ci", "status": "QUEUED", "conclusion": "", "startedAt": "0001-01-01T00:00:00Z", "detailsUrl": "https://github.com/acme/web/actions/runs/222/job/9"},
    {"__typename": "CheckRun", "name": "window-lock", "workflowName": "release-window", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"__typename": "CheckRun", "name": "window-lock", "workflowName": "pr-checks", "conclusion": "FAILURE", "startedAt": "2026-11-05T19:00:00Z"},
    {"context": "deploy", "state": "PENDING", "conclusion": ""}]}
 EOF
 cat >"$tmp/threads.json" <<'EOF'
 {"data": {"repository": {"pullRequest": {"author": {"login": "me"},
+  "timelineItems": {"nodes": [{"createdAt": "2026-11-18T00:42:21Z"}]},
   "reviewThreads": {"pageInfo": {"hasNextPage": false}, "nodes": [
     {"id": "t1", "isResolved": true, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}}]}},
     {"id": "t2", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}},
@@ -337,6 +427,9 @@ cat >"$tmp/threads.json" <<'EOF'
     {"id": "t5", "isResolved": false, "comments": {"nodes": [{"author": {"__typename": "Bot", "login": "cubic-dev-ai"}},
       {"author": null}]}}
   ]}}}}}
+EOF
+cat >"$tmp/runs.json" <<'EOF'
+{"workflow_runs": [{"id": 111, "created_at": "2026-11-18T00:42:23Z"}, {"id": 222, "created_at": "2026-11-18T00:42:24Z"}, {"id": 333, "created_at": "2026-11-18T00:00:00Z"}]}
 EOF
 cat >"$tmp/bin/gh" <<EOF
 #!/bin/sh
@@ -353,6 +446,7 @@ case "\$1 \$2" in
     *headRefOid*) cat "$tmp/headnow"; exit 0 ;;
   esac ;;
   "api graphql") exec jq -r "\$jqp" "$tmp/threads.json" ;;
+  "api repos/acme/web/actions/runs?"*) exec jq -r "\$jqp" "$tmp/runs.json" ;;
 esac
 exit 1
 EOF
@@ -416,6 +510,11 @@ hasnt "evidence of another pull request is left out" "shots/other-pr.png"
 has "D-25: the ready-flip guard is composed" "guard${tab}ready-guard${tab}"
 hasnt "and it ran, its own verdict collected" "the guard did not run"
 has "the repository is named for the conditions" "repo${tab}acme/web"
+has "the draft state is read" "state${tab}ready"
+has "the ready flip time is read" "flip${tab}2026-11-18T00:42:21Z"
+has "a check carries its workflow run's creation time" "born${tab}build${tab}2026-11-18T00:42:23Z"
+has "a queued check, whose own start is the zero time, still does" "born${tab}rerun${tab}2026-11-18T00:42:24Z"
+hasnt "the run reference is only a join key" "runref"
 if grep -q 'pr ready' "$tmp/gh.calls" 2>/dev/null; then fail "a flip was attempted"; else ok "nothing flips a pull request"; fi
 hasnt "a worktree whose CI has no macOS jobs states no macOS requirement" "require${tab}macos"
 mkdir -p "$repo/.github/workflows"
@@ -425,6 +524,48 @@ expect_rc "collect over a worktree whose CI has the macOS jobs" 0
 c=$(cat "$tmp/collected-mac" 2>/dev/null)
 has "a worktree whose CI has the macOS jobs requires them green" "require${tab}macos"
 rm -f "$repo/.github/workflows/ci.yml"
+hasnt "a worktree whose CI has no PR-Agent workflow states no bot-review requirement" "require${tab}pr-agent"
+printf 'jobs:\n  review:\n    env:\n      PR_AGENT_IMAGE: pragent/pr-agent@sha256:0\n' >"$repo/.github/workflows/pr-agent.yml"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
+expect_rc "collect over a worktree that runs PR-Agent" 0
+c=$(cat "$tmp/collected-pa" 2>/dev/null)
+has "a repository running PR-Agent requires its run on a ready pull request" "require${tab}pr-agent"
+printf '# jobs:\n#   image: pragent/pr-agent@sha256:0\njobs: {}\n' >"$repo/.github/workflows/pr-agent.yml"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
+c=$(cat "$tmp/collected-pa" 2>/dev/null)
+hasnt "a workflow naming the PR-Agent image only in a comment states no bot-review requirement" "require${tab}pr-agent"
+rm -f "$repo/.github/workflows/pr-agent.yml"
+# The payload the ready-flip guard is asked about names the pull request and the
+# repository as two separate arguments of one format.
+if grep -qF "}}' \"\$3\" \"\$2\" >\"\$cl_tmp/payload\"" "$repo_root/scripts/mc-readiness.sh"; then ok "the guard payload takes the pull request and the repository as separate arguments"; else fail "the guard payload's printf arguments are malformed"; fi
+# A draft: its state is read, and the workflow-run read, which only a ready
+# pull request is judged by, is skipped.
+cp "$tmp/pr.json" "$tmp/pr.json.keep"
+sed -i.bak 's/"isDraft": false/"isDraft": true/' "$tmp/pr.json"
+: >"$tmp/gh.calls"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-draft"
+expect_rc "collect over a draft" 0
+c=$(cat "$tmp/collected-draft" 2>/dev/null)
+has "a draft is read as a draft" "state${tab}draft"
+hasnt "a draft has no run creation time read" "born${tab}"
+if grep -q '^api repos/acme/web/actions/runs' "$tmp/gh.calls"; then fail "a draft's workflow runs were read"; else ok "a draft's workflow-run read is skipped"; fi
+cp "$tmp/pr.json.keep" "$tmp/pr.json"
+# A failed run read leaves no creation time, and no failure.
+mv "$tmp/runs.json" "$tmp/runs.json.keep"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-noruns"
+expect_rc "collect when the workflow runs cannot be read" 0
+c=$(cat "$tmp/collected-noruns" 2>/dev/null)
+hasnt "a failed run read leaves no creation time" "born${tab}"
+has "and the checks are still read" "check${tab}build${tab}SUCCESS"
+mv "$tmp/runs.json.keep" "$tmp/runs.json"
+# A pull request opened ready has no ready_for_review event, so no flip time.
+cp "$tmp/threads.json" "$tmp/threads.json.keep"
+sed -i.bak '/"timelineItems"/d' "$tmp/threads.json"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-noflip"
+expect_rc "collect over a pull request never flipped" 0
+c=$(cat "$tmp/collected-noflip" 2>/dev/null)
+hasnt "a pull request with no ready event has no flip time" "flip${tab}"
+cp "$tmp/threads.json.keep" "$tmp/threads.json"
 c=$(cat "$tmp/collected" 2>/dev/null)
 # The stub cannot satisfy the guard's own reads, so it fails closed, and the
 # walk over the collection refuses on it.

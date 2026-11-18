@@ -2092,35 +2092,49 @@ pa_case() {
     [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG${4:-.}PR_ACTIONS: '$3'"
   } >"$d/pr-agent.yml"
 }
-PA_ALL='opened, synchronize, reopened, ready_for_review, review_requested'
-PA_ALL_JSON='["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
+PA_ALL='ready_for_review, review_requested'
+PA_ALL_JSON='["ready_for_review", "review_requested"]'
 
 pa_case pa-agree "[$PA_ALL]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: types and pr_actions naming the same set pass" 0 $?
 
-pa_case pa-missing-sync "[$PA_ALL]" '["opened", "reopened", "ready_for_review", "review_requested"]'
+pa_case pa-missing-action "[$PA_ALL]" '["ready_for_review"]'
 out="$("$GUARD" "$d" 2>&1)"
-assert_exit "pr-agent: a pr_actions without synchronize fails" 1 $?
-assert_contains "pr-agent: the missing action is named" "synchronize" "$out"
+assert_exit "pr-agent: a pr_actions that omits a trigger type fails" 1 $?
+assert_contains "pr-agent: the missing action is named" "review_requested" "$out"
 
 pa_case pa-no-actions "[$PA_ALL]" ""
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a workflow with no pr_actions fails" 1 $?
 
-pa_case pa-extra-action "[opened, synchronize, reopened]" "$PA_ALL_JSON"
+pa_case pa-extra-action "[ready_for_review]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
-assert_contains "pr-agent: the undelivered action is named" "ready_for_review" "$out"
+assert_contains "pr-agent: the undelivered action is named" "review_requested" "$out"
+
+# The bot review runs once per pull request, on the ready flip, and again only
+# when asked for: a push-driven trigger burns the review budget on every commit.
+for pa_every in opened synchronize reopened labeled edited; do
+  pa_case "pa-every-$pa_every" "[$PA_ALL, $pa_every]" "[\"ready_for_review\", \"review_requested\", \"$pa_every\"]"
+  out="$("$GUARD" "$d" 2>&1)"
+  assert_exit "pr-agent: a trigger on $pa_every fails" 1 $?
+  assert_contains "pr-agent: the push-driven type $pa_every is named" "must not trigger on '$pa_every'" "$out"
+done
+
+pa_case pa-no-flip-trigger "[review_requested]" '["review_requested"]'
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a workflow with no ready_for_review trigger fails" 1 $?
+assert_contains "pr-agent: the flip's own trigger is named" "ready_for_review" "$out"
 
 pa_case pa-dunder-agree "[$PA_ALL]" "$PA_ALL_JSON" __
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: the SECTION__KEY spelling of pr_actions is read" 0 $?
 
-pa_case pa-dunder-missing-sync "[$PA_ALL]" '["opened", "reopened", "ready_for_review", "review_requested"]' __
+pa_case pa-dunder-missing-action "[$PA_ALL]" '["ready_for_review"]' __
 out="$("$GUARD" "$d" 2>&1)"
-assert_exit "pr-agent: a SECTION__KEY pr_actions without synchronize fails" 1 $?
-assert_contains "pr-agent: the missing SECTION__KEY action is named" "synchronize" "$out"
+assert_exit "pr-agent: a SECTION__KEY pr_actions that omits a trigger type fails" 1 $?
+assert_contains "pr-agent: the missing SECTION__KEY action is named" "review_requested" "$out"
 
 pa_case pa-one-underscore "[$PA_ALL]" "$PA_ALL_JSON" _
 out="$("$GUARD" "$d" 2>&1)"
@@ -2139,6 +2153,26 @@ assert_exit "pr-agent: a workflow naming the image only in a comment is not chec
 
 out="$("$GUARD" "$REPO_ROOT/.github/workflows" 2>&1)"
 assert_exit "pr-agent: the repo's own workflows agree" 0 $?
+
+# The repo's own PR-Agent workflow: one run on the ready flip, one more only on
+# a review request, and the safety conditions that gate the job stay.
+PA_REAL="$REPO_ROOT/.github/workflows/pr-agent.yml"
+pa_types="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$PA_REAL" | head -n 1 | tr -d ' ')"
+[ "$pa_types" = "ready_for_review,review_requested" ]
+assert_exit "pr-agent: the repo's workflow triggers on the flip and a review request only (got: $pa_types)" 0 $?
+grep -q 'github.event.pull_request.head.repo.full_name == github.repository' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow keeps its same-repo head condition" 0 $?
+grep -q "user.login != 'dependabot\[bot\]'" "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow keeps its dependabot exclusion" 0 $?
+grep -q "contains(github.event.pull_request.labels.\*.name, 'skip-pr-agent')" "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow keeps its skip-pr-agent label" 0 $?
+grep -qx '    name: PR-Agent' "$PA_REAL"
+assert_exit "pr-agent: the job keeps the name the readiness check and the stall reasons match" 0 $?
+grep -q 'github.event.pull_request.draft == false' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow skips a draft" 0 $?
+# shellcheck disable=SC2016 # the workflow's literal text
+grep -q 'group: pr-agent-${{ github.event.pull_request.number }}' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow keeps its concurrency group" 0 $?
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2

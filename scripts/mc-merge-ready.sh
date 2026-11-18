@@ -67,7 +67,12 @@ Usage:
                                          (not a draft, its checks not all
                                          SUCCESS) whose head still has a
                                          check queued, pending or in
-                                         progress, named; a failed read of
+                                         progress, named, each saying whether
+                                         the flip itself started its run
+                                         (created at or after the flip: wait
+                                         for it) or the flip came too early
+                                         (created before it, still running at
+                                         it); a failed read of
                                          one is skipped, and a check that
                                          finished red is not unfinished
         unknown<TAB>-<TAB><why>          the snapshot or the store: the
@@ -498,7 +503,7 @@ EOF
       /bin/bash "$script_dir/mc-readiness.sh" collect --program "$program" --repo "$u_slug" --pr "$u_n" --out "$uevf" >/dev/null 2>"$errf" || continue
       [ "$(awk -F '\t' '$1 == "head" { print $2; exit }' "$uevf")" = "$u_head" ] || continue
       u_out=$(/bin/bash "$script_dir/mc-readiness.sh" unfinished --evidence "$uevf" 2>"$errf") && continue
-      u_names=$(printf '%s\n' "$u_out" | awk -F '\t' '$1 == "fail" && $2 == "check" { printf "%s%s", (n++ ? ", " : ""), $3 }')
+      u_names=$(printf '%s\n' "$u_out" | awk -F '\t' '$1 == "fail" && ($2 == "check" || $2 == "flip") { printf "%s%s", (n++ ? ", " : ""), $3 }')
       [ -z "$u_names" ] || printf 'unfinished\t%s#%s\t%s\t%s\n' "$u_slug" "$u_n" "$u_head" "$u_names"
     done <<EOF
 $unfinished_rows
