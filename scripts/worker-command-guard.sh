@@ -25,7 +25,8 @@
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared steps, the spec-root write zone) is
 #     always in force, and a vetted scratch probe is part of it once the record
-#     names a scratch root and an audit log; the own-branch arm, which approves writes confined to
+#     names a scratch root and an audit log and TMPDIR names that root; the
+#     own-branch arm, which approves writes confined to
 #     the unit branch and its worktree, and the scratch arm, which approves
 #     writes confined to the worker's scratch root, each only when the session
 #     record names it. The record is the launcher's (see session_record_load):
@@ -7551,12 +7552,16 @@ session_record_load
 # directory and there from the payload's, so only an absolute one counts. Nor
 # do the guard's own temp files belong in a directory the worker may write to.
 HOOK_TMPDIR_IS_SCRATCH=0
-HOOK_TMP_BASE=${TMPDIR:-/tmp}
-if [ -n "$REC_SCRATCH" ] && [ "${TMPDIR:-}" != "${TMPDIR#/}" ] \
-  && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
-  HOOK_TMPDIR_IS_SCRATCH=1
-  HOOK_TMP_BASE=/tmp
-fi
+HOOK_TMP_BASE=/tmp
+case ${TMPDIR:-} in
+  /*)
+    HOOK_TMP_BASE=$TMPDIR
+    if [ -n "$REC_SCRATCH" ] && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
+      HOOK_TMPDIR_IS_SCRATCH=1
+      HOOK_TMP_BASE=/tmp
+    fi
+    ;;
+esac
 # plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
 # resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
 # chain canonicalizes an arm, so a plugin cache root reached through a symlink

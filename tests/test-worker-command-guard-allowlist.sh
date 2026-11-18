@@ -288,10 +288,18 @@ assert_defer "a probe typed with a .. component through the root" "sh $SC/../scr
 ORIG_PWD=$PWD
 cd "$CORPUS_BOX" || exit 1
 under "$REC" "scratch"
-assert_defer "a probe while TMPDIR is a relative path" "sh scratch/probe.d/ok.sh" Bash "$WT"
+assert_defer "a probe typed relative while TMPDIR is a relative path" "sh scratch/probe.d/ok.sh" Bash "$WT"
+assert_defer "a probe typed absolute while TMPDIR is a relative path" "sh $SC/probe.d/ok.sh" Bash "$WT"
 under "$STATE/record.3" "scratch"
 assert_defer "the scratch arm while TMPDIR is a relative path" "touch \$TMPDIR/x" Bash "$WT"
 cd "$ORIG_PWD" || exit 1
+# An unset TMPDIR beside a record naming a scratch root must defer, not abort
+# the hook (it must exit 0 whatever the environment holds).
+HOOK_ENV=("${GIT_ISO[@]}" "PLANWRIGHT_WORKER_SESSION_RECORD=$REC")
+unset TMPDIR
+assert_defer "a probe while TMPDIR is unset" "sh $SC/probe.d/ok.sh" Bash "$WT"
+TMPDIR=/tmp
+export TMPDIR
 under "$REC" "$SC/"
 assert_allow "a probe while TMPDIR carries a trailing slash" "sh $SC/probe.d/ok.sh" Bash "$WT"
 assert_defer "a probe typed with a doubled slash" "sh $SC//probe.d/ok.sh" Bash "$WT"
