@@ -914,6 +914,7 @@ done
 # nothing), the everyday stages and reads of the script still defer, even with
 # .gitattributes mapping it.
 NOFD="$SANDBOX/nofilter"
+NLW=$'\n'
 clone_on "$NOFD" planwright/demo/task-1 1
 gitq -C "$NOFD" config filter.y.required true
 printf 'scripts/kickoff-spec-push.sh filter=y\n' >"$NOFD/.gitattributes"
@@ -932,6 +933,10 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
   'git cat-file -p HEAD:scripts/kickoff-spec-push.sh' \
   'git annotate scripts/kickoff-spec-push.sh' \
   'git ls-files --modified scripts/kickoff-spec-push.sh' \
+  'git add scripts/kickoff-spec-push.sh;' \
+  'git add scripts/kickoff-spec-push.sh &' \
+  'git add scripts/kickoff-spec-push.sh # stage it' \
+  "git add scripts/kickoff-spec-push.sh${NLW}" \
   "git -C $NOFD add scripts/kickoff-spec-push.sh" \
   'git -C . status scripts/kickoff-spec-push.sh' \
   'git -C /some/repo add scripts/kickoff-spec-push.sh' \
@@ -948,11 +953,10 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
     expect defer "[$tier, task-1] with no filter program configured, a stage or read of the script defers: $cmd"
   done
 done
-# Operator ruling 2026-11-18: a git step that can run a filter program on the
-# script must be the only command in its line, so nothing beside it can set a
-# filter program first. Every compound shape is refused, a one-line add and
-# commit included (accepted over-block), and the reason names the step.
-NLW=$'\n'
+# A git step that can run a filter program on the script must be the only
+# command in its line, so nothing beside it can set a filter program first.
+# Every compound shape is refused, a one-line add and commit included, and the
+# reason names the step.
 for cmd in 'git add scripts/kickoff-spec-push.sh && git commit -m x' \
   'git add scripts/kickoff-spec-push.sh; git commit -m x' \
   'git add scripts/kickoff-spec-push.sh || true' \
@@ -1147,11 +1151,24 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
     expect defer "[$tier, task-1] with the branch and remotes unchanged, an include defers: $cmd"
   done
 done
-for cmd in 'git switch -c b && git log -p -- scripts/kickoff-spec-push.sh' \
-  'git remote add o u && git cat-file -p HEAD:scripts/kickoff-spec-push.sh'; do
-  PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$NOFD" "$NOFD"
-  expect defer "[worker, task-1] with no conditional include, a branch or remote change defers: $cmd"
+for dir in "$NOFD" "$INCD"; do
+  for cmd in 'git switch -c b && git log -p -- scripts/kickoff-spec-push.sh' \
+    'git remote add o u && git cat-file -p HEAD:scripts/kickoff-spec-push.sh'; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$dir" "$dir"
+    expect defer "[worker, task-1] a read no filter reaches defers beside a branch or remote change, include or not: $cmd"
+  done
 done
+# The refusals ahead of the stand-alone one keep their own reason where they
+# decide: a change after the stage (a setter before it already makes the stage
+# no read).
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'git add scripts/kickoff-spec-push.sh && git switch -c b' "$INCD" "$INCD"
+reason_has 'conditional include' "[worker, task-1] a branch change after a stage under an include names the include"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'git commit -m x scripts/kickoff-spec-push.sh' "$INCD" "$INCD"
+reason_has 'conditional include' "[worker, task-1] a lone commit of the script under an include is refused for the include"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'git add scripts/kickoff-spec-push.sh; git config filter.z.clean sh' "$NOFD" "$NOFD"
+reason_has 'Run that change as its own command' "[worker, task-1] a filter set after a stage names the configuration change"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'git add scripts/kickoff-spec-push.sh && cd ..' "$NOFD" "$NOFD"
+reason_has 'changes directory after it' "[worker, task-1] a cd after a stage names the directory change"
 PAGD="$SANDBOX/pager"
 clone_on "$PAGD" planwright/demo/task-1 1
 gitq -C "$PAGD" config core.pager sh
