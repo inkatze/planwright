@@ -1131,6 +1131,16 @@ deny|load-bearing|Edit|/srv/fleet/streamjson/mc-w-1/worker-settings.json|an opte
 deny|load-bearing|Edit|/work/repo/.claude/planwright.yml|the repo-tracked overlay (REQ-G1.8)
 deny|load-bearing|Write|/work/repo/.claude/planwright.local.yml|the machine-local overlay (REQ-G1.8)
 deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/overlay/planwright.yml|the adopter overlay (REQ-G1.8)
+deny|load-bearing|Edit|/home/u/.gitconfig|user-level git config, read by every session's git; a driver written here fires in all of them
+deny|load-bearing|Write|/home/u/.gitconfig|the Write tool on the user-level git config
+deny|load-bearing|Edit|/home/u/.gitconfig.local|an existing .gitconfig.* include target
+deny|load-bearing|Write|/home/u/.gitconfig.work|a not-yet-existing .gitconfig.* file an includeIf names, which a worker could create
+deny|load-bearing|Write|/home/u/.gitconfig-work|the dashed spelling of an include target
+deny|load-bearing|Edit|/etc/gitconfig|the system git config
+deny|load-bearing|Write|/usr/local/etc/gitconfig|the system git config under a prefix install
+deny|load-bearing|Write|/opt/homebrew/etc/gitconfig|the system git config under a Homebrew prefix
+deny|load-bearing|Write|/home/u/.config/git/config|the default XDG git config, closed by the .config deny
+deny|load-bearing|Edit|/home/u/.config/git/attributes|the XDG git attributes file, closed by the .config deny
 deny|load-bearing|Read|/proc/1234/environ|another process's environment (REQ-E1.6)
 deny|load-bearing|Read|/proc/1234/task/1235/environ|a thread's environment (REQ-E1.6)
 deny|load-bearing|Edit|/proc/1234/environ|a Read deny blocks the edit tools on the same path too
@@ -1142,6 +1152,10 @@ allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/githooks.md|a file merely 
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/config/defaults.yml|the repo's own config defaults stay editable
 allow|legit|Write|/work/repo/.claude/worktrees/w1/roles/osx/files/mise/offload.toml|a file under mise/ that mise never loads stays writable
 allow|legit|Edit|/work/repo/.claude/worktrees/w1/mise/README.md|a mise/ file outside config, miserc, conf.d and tasks stays editable
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/.gitconfig|a .gitconfig inside the worktree is not the user's; the home anchor leaves it editable
+allow|legit|Write|/home/u/.gitignore|a home file merely sharing the .git prefix stays editable
+allow|legit|Edit|/work/repo/.claude/worktrees/w1/docs/etc/gitconfig-notes.md|a file beside a docs etc/ directory that is not the config stays editable
+allow|legit|Read|/home/u/.gitconfig|the user-level git config stays readable
 allow|legit|Read|/work/repo/.claude/worktrees/w1/README.md|ordinary reads
 allow|legit|Read|/proc/1234/status|a /proc read that is not an environment
 ROWS

@@ -425,6 +425,19 @@ deny:
   mise task-file opt-in" below). An adopter
   whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
   of its own.
+- **User-level and system git config:** `~/.gitconfig` and every `~/.gitconfig*`
+  sibling (a file an `includeIf` names that does not exist yet included), and
+  `etc/gitconfig` under any prefix. Git reads these for every session on the
+  machine, so a filter, diff, textconv, fsmonitor, pager or gpg-program driver
+  written there fires in all of them. The XDG `~/.config/git/` is already under
+  the `.config` rule. The `~/` rule is home-anchored, so a `.gitconfig` inside a
+  worktree stays editable. The profile cannot name the host-specific targets: an
+  `include.path` or `includeIf` target elsewhere (a gitconfig in a dotfiles
+  checkout) and an `XDG_CONFIG_HOME` outside `~/.config` are residuals, closed
+  only by an adopter-added `Edit(<path>)` deny in their own settings, the same
+  mechanism as for `core.hooksPath`. No shipped mechanism generates them, and
+  `GIT_CONFIG_GLOBAL` or `GIT_CONFIG_SYSTEM` in a process environment is out of
+  the file tools' reach.
 - **The guard's trust inputs** (REQ-G1.8): the launcher's session records
   (`session-records/*.record` under any fleet home) and the overlay config
   files the policy resolves through (`planwright.yml` and
