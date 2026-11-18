@@ -122,7 +122,8 @@
 #                 blank line. --effective prints the view the cadence audit
 #                 reads: a step record's start and end replaced by its
 #                 standing supersede's, its start-source `supersede:<seq>`
-#                 and a `corrected-by<TAB><run>:<point>:<seq>` line added,
+#                 where the start was corrected, and a
+#                 `corrected-by<TAB><run>:<point>:<seq>` line added,
 #                 and the supersede records themselves left out.
 #   render        print one markdown table per point of the run, in the order
 #                 the points first recorded, or the named points in the order
