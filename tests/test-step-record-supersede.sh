@@ -165,12 +165,15 @@ verdict $? "an event-log line holding another second is refused" "rc $RC: $(cat 
 # --- 5: the latest supersede wins ------------------------------------------------
 misdated
 call 2026-11-04T10:00:09 Skill planwright:polish
-# The second call is on the log from the start of the test; both are real events.
-sup --record "$ref" --start 2026-11-04T10:00:09Z --source event:2026-11-04T10:00:09Z
 sup --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
+[ "$RC" -eq 0 ]
+verdict $? "the first of two supersedes is written" "rc $RC: $(cat "$tmp/sup")"
+sup --record "$ref" --start 2026-11-04T10:00:09Z --source event:2026-11-04T10:00:09Z
+[ "$RC" -eq 0 ]
+verdict $? "the second of two supersedes is written" "rc $RC: $(cat "$tmp/sup")"
 sr list --run "$r" --effective >"$tmp/list"
-grep -q "^start${TAB}2026-11-04T10:00:11Z$" "$tmp/list" && ! grep -q "^start${TAB}2026-11-04T10:00:09Z$" "$tmp/list"
-verdict $? "of two supersedes of one record, the later one stands" "$(cat "$tmp/list")"
+grep -q "^start${TAB}2026-11-04T10:00:09Z$" "$tmp/list" && ! grep -q "^start${TAB}2026-11-04T10:00:11Z$" "$tmp/list"
+verdict $? "of two supersedes of one record, the later one stands, whatever its stamp" "$(cat "$tmp/list")"
 sup --record "$r:convergence:003" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
 [ "$RC" -eq 2 ]
 verdict $? "a supersede cannot target another supersede" "rc $RC: $(cat "$tmp/sup")"
@@ -194,6 +197,65 @@ rec "$r" convergence polish /polish passed 2026-11-04T10:00:08Z 2026-11-04T10:00
 sup --record "$r:convergence:001" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
 [ "$RC" -eq 2 ] && grep -q "event log" "$tmp/sup"
 verdict $? "a source that cannot be checked against any session event is refused" "rc $RC: $(cat "$tmp/sup")"
+
+# --- 8: a correction of one stamp never undoes the other ------------------------
+misdated
+call 2026-11-04T10:00:52 Agent
+sup --record "$ref" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
+[ "$RC" -eq 0 ]
+verdict $? "a start correction is written" "rc $RC: $(cat "$tmp/sup")"
+sup --record "$ref" --end 2026-11-04T10:00:52Z --source event:2026-11-04T10:00:52Z
+[ "$RC" -eq 0 ]
+verdict $? "an end correction after it is written" "rc $RC: $(cat "$tmp/sup")"
+sr list --run "$r" --effective >"$tmp/list"
+grep -q "^start${TAB}2026-11-04T10:00:11Z$" "$tmp/list" && grep -q "^end${TAB}2026-11-04T10:00:52Z$" "$tmp/list"
+verdict $? "a later end correction keeps the start an earlier supersede corrected" "$(cat "$tmp/list")"
+sr render --run "$r" >"$tmp/render"
+grep -q "start and end corrected by supersede" "$tmp/render" || grep -q "end corrected by supersede" "$tmp/render"
+verdict $? "render says which stamps a supersede corrected" "$(cat "$tmp/render")"
+
+# --- 9: one stamp a supersede, the one its source proves -----------------------
+misdated
+call 2026-11-04T10:00:52 Agent
+before9=$(files_of "$r")
+sup --record "$ref" --start 2026-11-04T10:00:11Z --end 2026-11-04T10:00:52Z --source event:2026-11-04T10:00:11Z
+[ "$RC" -eq 2 ] && [ "$(files_of "$r")" = "$before9" ] && grep -q "one stamp" "$tmp/sup"
+verdict $? "a supersede giving both stamps is refused, so one event cannot vouch for two" "rc $RC: $(cat "$tmp/sup")"
+
+# --- 10: only a top-level event timestamp is a source --------------------------
+misdated
+printf '{"type":"assistant","timestamp":"2026-11-04T10:00:30.000Z","message":{"content":[{"type":"tool_use","name":"Agent","input":{"timestamp":"2026-11-04T10:00:12.000Z"}}]}}\n' >>"$sdir/events.jsonl"
+sup --record "$ref" --start 2026-11-04T10:00:12Z --source event:2026-11-04T10:00:12Z
+[ "$RC" -eq 2 ]
+verdict $? "a timestamp inside a tool input is no event of the log" "rc $RC: $(cat "$tmp/sup")"
+sup --record "$ref" --start 2026-11-04T10:00:12Z --source event-line:4
+[ "$RC" -eq 2 ]
+verdict $? "nor is it by line number" "rc $RC: $(cat "$tmp/sup")"
+
+# --- 11: untrue and the readers judge a record on its corrected times ----------
+# A supersede written by hand (the verb would refuse it) puts the window under
+# the skill floor: only a reader that takes the supersede's stamps sees it.
+misdated
+sr untrue >"$tmp/untrue"
+[ ! -s "$tmp/untrue" ]
+verdict $? "the misdated record alone passes the truth check" "$(cat "$tmp/untrue")"
+printf 'type\tsupersede\nrun\t%s\nseq\t003\npoint\tconvergence\nsupersedes\t%s\nstart\t2026-11-04T10:00:40Z\nend\t2026-11-04T10:00:47Z\nfrom-start\t2026-11-04T10:00:08Z\nfrom-end\t2026-11-04T10:00:47Z\nsource\tevent:2026-11-04T10:00:40Z\n' \
+  "$r" "$ref" >"$wt/.claude/steps/$r/003-fix-convergence.rec"
+sr untrue >"$tmp/untrue"
+grep -q "^$ref${TAB}polish${TAB}--start${TAB}window-floor$" "$tmp/untrue"
+verdict $? "untrue judges a record on its standing supersede's stamps" "$(cat "$tmp/untrue")"
+
+# --- 12: a malformed supersede is ignored by every reader -----------------------
+misdated
+printf 'type\tsupersede\nrun\t%s\nseq\t003\npoint\tconvergence\nsupersedes\t%s\nstart\t2026-11-04T10:00:11Z\nstart\t2026-11-04T10:00:11Z\nend\t2026-11-04T10:00:47Z\nsource\tevent:2026-11-04T10:00:11Z\n' \
+  "$r" "$ref" >"$wt/.claude/steps/$r/003-fix-convergence.rec"
+sr list --run "$r" --effective >"$tmp/list"
+sr render --run "$r" >"$tmp/render"
+grep -q "^start${TAB}2026-11-04T10:00:08Z$" "$tmp/list" && ! grep -q "corrected" "$tmp/render" && grep -q "2026-11-04T10:00:08Z" "$tmp/render"
+verdict $? "a supersede with a repeated key corrects nothing, in list and in render" "$(cat "$tmp/list" "$tmp/render")"
+audit --through convergence
+[ "$RC" -eq 1 ]
+verdict $? "so the audit still fails the misdated record" "rc $RC: $(cat "$tmp/audit")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

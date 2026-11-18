@@ -145,7 +145,7 @@ pooled full suite gets it too (*Expensive checks*). Any other
 `PLANWRIGHT_STEP_*` name in the runner's environment is a misspelling that
 would be dropped unread: `resolve-steps.sh --check-env` names it and its
 right spelling. `step-run.sh` refuses it for every verb but `resolve`, and
-`step-record.sh` for `new-run`, `write`, `regenerate`, and `status`; the
+`step-record.sh` for `new-run`, `write`, `supersede`, `regenerate`, and `status`; the
 other verbs of either warn.
 
 Two channels deliver the context. A **command step** gets the twelve
@@ -500,10 +500,10 @@ completed takes no second record for it, so a start or end stamped wrong (a
 skill step started a few seconds off its Skill call is the usual case) is
 corrected by appending a **supersede record**, `scripts/step-record.sh
 supersede --record <run>:<point>:<seq> --start <ts> --source <source>`. It
-names the record it replaces, carries the corrected start and/or end, and
-cites the session event that proves the time (`event:<timestamp>` or
-`event-line:<n>` of the session's event log), so the original stays on disk
-beside it. It corrects **timing only**: a changed outcome, step, kind, head,
+names the record it replaces, carries one corrected stamp (a record with both
+wrong takes two supersedes), and cites the session event that proves it
+(`event:<timestamp>` or `event-line:<n>` of the session's event log, checked
+against a top-level event timestamp), so the original stays on disk beside it. It corrects **timing only**: a changed outcome, step, kind, head,
 or end head, a missing or unverifiable source, a record that is not a step
 record, and a correction the step-record truth check would refuse (a skill
 window under its floor) are all refused, so it cannot be used to overstate
