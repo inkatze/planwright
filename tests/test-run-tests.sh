@@ -657,6 +657,21 @@ chmod +x "$tmp/outer.claude-guard/claude"
 out="$(PATH="$tmp/outer.claude-guard:$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/opts-in" 2>&1)"
 assert "a file that opts in explicitly reaches the real claude CLI, past an outer run's guard" 0 $?
 assert_contains "the opt-in passed the real CLI its arguments" "--version" "$(cat "$tmp/real-claude-ran" 2>&1)"
+# A guard the runner cannot write leaves the file unrun, its line naming why.
+mkdir -p "$tmp/guard-blocked" "$tmp/guard-blocked-log"
+printf '#!/bin/bash\necho blocked-file-ran\n' >"$tmp/guard-blocked/test-blocked.sh"
+: >"$tmp/guard-blocked-log/test-blocked.sh.claude-guard"
+PLANWRIGHT_TEST_LOG_DIR="$tmp/guard-blocked-log" /bin/bash "$RUNNER" --run-one "$tmp/guard-blocked/test-blocked.sh" >"$tmp/guard-blocked.out" 2>&1
+gb_log=$(cat "$tmp/guard-blocked-log/test-blocked.sh.log" 2>&1)
+assert_contains "an unwritable guard is named with its cause" "could not write the claude guard for test-blocked.sh (" "$gb_log"
+assert_contains "the cause is the guard write's own error" "File exists" "$gb_log"
+assert_not_contains "a file whose guard could not be written never runs" "blocked-file-ran" "$gb_log"
+if [ -e "$tmp/guard-blocked-log/test-blocked.sh.norun" ] && [ -e "$tmp/guard-blocked-log/test-blocked.sh.fail" ]; then
+  echo "ok: the unrun file is marked not run and failed"
+else
+  echo "FAIL: the unrun file lacks its norun and fail markers" >&2
+  failures=$((failures + 1))
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
