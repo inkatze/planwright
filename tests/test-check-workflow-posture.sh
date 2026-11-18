@@ -2166,6 +2166,7 @@ grep -q "user.login != 'dependabot\[bot\]'" "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its dependabot exclusion" 0 $?
 grep -q "contains(github.event.pull_request.labels.\*.name, 'skip-pr-agent')" "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its skip-pr-agent label" 0 $?
+# shellcheck disable=SC2016 # the workflow's literal text
 grep -q 'group: pr-agent-${{ github.event.pull_request.number }}' "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its concurrency group" 0 $?
 

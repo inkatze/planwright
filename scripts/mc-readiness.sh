@@ -350,6 +350,7 @@ function describe(n, s,    b) {
   return "check\t" n " is " s
 }
 '
+# shellcheck disable=SC2016 # an awk program
 CHECK_ROWS='
 $1 == "state" { state = $2 }
 $1 == "flip" { flip = $2 }
