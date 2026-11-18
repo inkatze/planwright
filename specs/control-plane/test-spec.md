@@ -1,7 +1,7 @@
 # Control plane — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-16
+**Last reviewed:** 2026-11-18
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -51,7 +51,7 @@ Fixtures with a value in each layer assert the resolved value and that `explain`
 
 ### REQ-B1.3 — schema check, drop invalid entry [test]
 
-Fixtures: an invalid entry is dropped and the lower layer stays; an invalid class-bounding value makes the class refuse everything; the schema check runs in CI and at load.
+Fixtures: an invalid entry is dropped and the lower layer stays; an invalid class-bounding value makes the class refuse everything; the schema check runs in CI and at load; each dropped entry is counted and reported at the wake naming its file and entry, and again at the next wake while it stays dropped, and `explain` shows it.
 
 ### REQ-B1.4 — tighten-only floor [test]
 
@@ -265,7 +265,7 @@ Each policy task's Done-when names its fixtures written first; the guard catalog
 
 ### REQ-I1.2 — kill switch [test]
 
-With the setting on, the engine answers nothing, the gate delivers everything and the dispatcher admits as today (fixtures).
+With the setting on, the engine answers nothing, the gate delivers everything and the dispatcher admits as today (fixtures); a machine-local value of the setting is ignored and reported, and the floor refusals and limits stay in force.
 
 ### REQ-I1.3 — language-neutral contract [design-level]
 
@@ -274,3 +274,7 @@ The fixtures are data files with no implementation-language code; the contract i
 ### REQ-I1.4 — no secrets in logs and queue [test]
 
 The token-shape scan fails on a planted value in the log, ledger or queue fixture.
+
+### REQ-I1.5 — locked one-line appends [test]
+
+Fixtures: concurrent writers, run as separate processes, append to the log and the ledger and every record survives whole; a pre-seeded file ending without a newline (a simulated crash mid-write) is read without error, skipping the torn line, and the next write starts on a fresh line and leaves earlier records intact; a lock that cannot be taken within its bound leaves the verdict and the event delivery unchanged and the lost record counted and reported.
