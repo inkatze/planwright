@@ -1669,30 +1669,37 @@ cmd_list() {
   [ -z "$run" ] || valid_run "$run"
   [ -z "$point" ] || is_point "$point" || bad --point "not a point of the vocabulary"
   if [ -n "$run" ]; then runs=$run; else runs=$(run_ids); fi
+  if [ "$effective" -eq 0 ]; then
+    list_paths=''
+    list_records
+    return
+  fi
   scratch
-  : >"$work/listing" || die 1 "cannot write a temporary file"
-  : >"$work/paths" || die 1 "cannot write a temporary file"
+  list_paths="$work/paths"
+  : >"$list_paths" || die 1 "cannot write a temporary file"
+  list_records >"$work/listing" || die 1 "cannot write a temporary file"
+  supersede_map "$work/paths"
+  effective_view "$work/supmap" "$work/listing" || die 1 "cannot read the records"
+}
+
+# list_records: the listing of $runs (one point's only when $point is set) on
+# standard output, the paths of every record read appended to $list_paths when
+# that is set.
+list_records() {
   for r in $runs; do
     check_run "$r"
     files=$(record_files "$r") || die 1 "cannot list the record cache"
-    [ -z "$files" ] || printf '%s\n' "$files" >>"$work/paths" || die 1 "cannot write a temporary file"
+    [ -z "$list_paths" ] || [ -z "$files" ] || printf '%s\n' "$files" >>"$list_paths" \
+      || die 1 "cannot write a temporary file"
     for f in $files; do
       if [ -n "$point" ]; then
         grep -Fxq "point$TAB$point" "$f" || continue
       fi
-      {
-        printf 'record\t%s\n' "${f#"$worktree"/}"
-        tr -d '\000-\010\013-\037\177' <"$f" || die 1 "a record cannot be read"
-        printf '\n'
-      } >>"$work/listing" || die 1 "a record cannot be read"
+      printf 'record\t%s\n' "${f#"$worktree"/}"
+      tr -d '\000-\010\013-\037\177' <"$f" || die 1 "a record cannot be read"
+      printf '\n'
     done
   done
-  if [ "$effective" -eq 1 ]; then
-    supersede_map "$work/paths"
-    effective_view "$work/supmap" "$work/listing" || die 1 "cannot read the records"
-  else
-    cat "$work/listing" || die 1 "cannot print the records"
-  fi
 }
 
 # --- render ----------------------------------------------------------------------
@@ -1865,8 +1872,13 @@ render_run() {
   scratch
   want=''
   for _w in "$@"; do want="$want $_w"; done
-  printf '%s\n' "$files" >"$work/paths" || die 1 "cannot write a temporary file"
-  supersede_map "$work/paths"
+  case $files in
+    *-fix-*)
+      printf '%s\n' "$files" >"$work/paths" || die 1 "cannot write a temporary file"
+      supersede_map "$work/paths"
+      ;;
+    *) : >"$work/supmap" || die 1 "cannot write a temporary file" ;;
+  esac
   # shellcheck disable=SC2086 # split on newlines by design (IFS)
   awk -v run="$r" -v want="$want" -v TAB="$TAB" -v MAPF="$work/supmap" "$AWK_SAFE"'
     function short(h) { return substr(h, 1, 12) }
