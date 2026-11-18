@@ -321,6 +321,39 @@ assert_allow "git log" "git log --oneline -20"
 assert_allow "git diff" "git diff origin/main"
 assert_allow "git rev-parse" "git rev-parse HEAD"
 assert_allow "git branch list" "git branch -a"
+# A read-only git verb with an option that runs a configured diff, textconv or
+# filter driver defers, in any spelling git reads as that option: an
+# unambiguous prefix, `--opt=value`, and cat-file's `--t`..`--text` (it has no
+# `--text`) or `--filter` (read as `--filters` before cat-file grew `--filter`).
+for c in 'git diff --ext-diff HEAD' 'git log -p --textconv' 'git cat-file --filters HEAD:f' \
+  'git cat-file --t HEAD:f' 'git cat-file --te HEAD:f' 'git cat-file --tex HEAD:f' \
+  'git cat-file --text HEAD:f' "git cat-file '--te' HEAD:f" 'git cat-file --textconv=1 HEAD:f' \
+  'git cat-file --f HEAD:f' 'git cat-file --fil HEAD:f' 'git cat-file --filt HEAD:f' \
+  'git cat-file --filter HEAD:f' 'git cat-file --filter=blob:none --batch-all-objects' \
+  'git cat-file --filters=1 HEAD:f' 'git cat-file --batch --filt' \
+  'git grep --textc -e foo' 'git grep --textconv=1 -e foo' 'git blame --textco f' \
+  'git diff --ext HEAD' 'git diff --ext-diff=1 HEAD' 'git show --ext-d HEAD' 'git log --e -p' \
+  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff' \
+  'git cat-file --ext HEAD:f' 'git cat-file --e HEAD:f' 'git log --te -p' 'git log --f' 'git diff --fi HEAD'; do
+  assert_defer "driver option near-spelling: $c" "$c"
+done
+# The same prefix rule holds for the options that write a file or run a
+# command through the shell: `git grep --op=<cmd>` runs <cmd>.
+for c in 'git grep --op=id foo' 'git grep --open=id foo' 'git grep --open-files-in-p=id foo' \
+  'git log --ou=x' 'git diff --outp=x HEAD' 'git log --output-dir=x' 'git grep -Oid foo' \
+  'git grep -nOid foo' 'git grep -iOid foo' "git grep -nO'sh -c id' foo"; do
+  assert_defer "write or spawn option near-spelling: $c" "$c"
+done
+# A short cluster carrying O defers wherever the O sits, so a pickaxe or regex
+# value holding an O prompts too: the accepted cost of not modelling each
+# verb's value-taking flags.
+assert_defer "accepted over-block: an O inside a short-flag value" "git log -SOops"
+assert_allow "a short cluster without O still allows" "git grep -niw foo"
+for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-diff' 'git diff --no-textconv' \
+  'git rev-list --filter=blob:none HEAD' 'git log --tags --first-parent' 'git describe --tags' \
+  'git ls-files --full-name' 'git log --follow -- f' 'git log --format=%h -3' 'git cat-file --batch'; do
+  assert_allow "not a driver option: $c" "$c"
+done
 assert_allow "gh pr view" "gh pr view 5"
 assert_allow "gh pr list" "gh pr list"
 assert_allow "gh pr checks" "gh pr checks"
@@ -1183,7 +1216,7 @@ echo "### Shared-engine parity — the duplicated sed/awk screens must agree in 
 # namespace in prose (B1.3 vs C1.3); everything else, trailing comments on code
 # lines included, must match byte for byte.
 echo "### Shared-engine parity — STRUCTURAL: the shared functions are byte-identical"
-SHARED_FNS="awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
+SHARED_FNS="git_driver_opt awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
 sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \

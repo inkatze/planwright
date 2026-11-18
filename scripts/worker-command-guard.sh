@@ -3706,6 +3706,24 @@ guard_gh() {
   esac
 }
 
+# git_driver_opt <verb> <word>: whether git can read <word> as an option that
+# runs a configured driver (`--ext-diff`, `--textconv`, `--filters`). git takes
+# any unambiguous prefix of a long option and the `--opt=value` spelling, so any
+# prefix of one matches, failing closed. `--text` and `--filter` name other
+# options exactly, except on cat-file: it has no `--text`, and git before its
+# own `--filter` reads that word as `--filters`.
+git_driver_opt() {
+  local n=${2%%=*}
+  case $n in
+    --?*) n=${n#--} ;;
+    *) return 1 ;;
+  esac
+  case $n in
+    text | filter) [ "$1" = cat-file ] || return 1 ;;
+  esac
+  [[ ext-diff == "$n"* || textconv == "$n"* || filters == "$n"* ]]
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution, REQ-A1.8), and per-subcommand form
 # guards on the subcommands with a mutating twin (REQ-A1.5).
@@ -3747,12 +3765,15 @@ guard_git() {
         case ${cw[i]} in
           # git takes any unambiguous prefix of a long option (`--out=`).
           -o | --ou* | -O | -O* | --op*) return 1 ;;
-          --ext* | --textc* | --filters) return 1 ;;
+          # `-nO<cmd>` is -n then -O with <cmd> as its value. Any O in a short
+          # cluster defers, a value holding one (`log -SOops`) included.
+          -[!-]*O*) return 1 ;;
           # Content from outside the repository: any file (`diff --no-index`,
           # `blame --contents`), and a list read from a named file
           # (`--orderfile`, `ls-files -X`).
           --no-i* | --or* | --exclude-f* | --exclude-p*) return 1 ;;
         esac
+        git_driver_opt "$sub" "${cw[i]}" && return 1
         case $sub in
           ls-files)
             case ${cw[i]} in
