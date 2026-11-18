@@ -384,6 +384,7 @@ expect_out "the event's reason names the gone state directory" "its state direct
 if [ -r /proc/self/stat ]; then
   orphan_tick=$(awk '{ sub(/.*\) /, ""); print $20 }' "/proc/$orphan_sup/stat")
   expect_out "the event says where procfs keeps the start it names" "field 22 of /proc/$orphan_sup/stat still reads $orphan_tick"
+  expect_out "and where to read what it runs, with no ps flag busybox lacks" "/proc/$orphan_sup/cmdline shows it abandoned"
 else
   expect_out "the event says how ps shows the start it names" "ps -o pid,lstart,args -p $orphan_sup shows it started"
 fi
