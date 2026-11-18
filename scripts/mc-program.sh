@@ -667,7 +667,7 @@ case $verb in
     esac
     if valid_name "$1"; then
       case $2 in
-        home) prefetch mission_control_programs "$(key_of "$1" home)" mission_control_home_root ;;
+        home) prefetch mission_control_programs "$(key_of "$1" home)" mission_control_home_root "$(key_of "$1" repositories)" ;;
         duties) prefetch mission_control_programs "$(key_of "$1" duties)" mission_control_default_duties ;;
         sources) prefetch mission_control_programs "$(key_of "$1" sources)" mission_control_default_sources ;;
         *) prefetch mission_control_programs "$(key_of "$1" "$2")" ;;
