@@ -150,7 +150,7 @@ assert_defer "a task name outside the router's grammar" "$CR --task Lint -- mise
 assert_defer "a test path with a directory" "$CR --test tests/test-a/b.sh -- bash tests/test-a/b.sh" Bash "$SR_WT"
 assert_defer "the test form with an extra argument" "$CR --test tests/test-ok.sh -- bash tests/test-ok.sh arg" Bash "$SR_WT"
 assert_allow "the directory path the pair refuses is approved on its own" "bash tests/test-a/b.sh" Bash "$SR_WT"
-assert_defer "the test form under /bin/bash, which the guard never approves as a verb""$CR --test tests/test-ok.sh -- /bin/bash tests/test-ok.sh" Bash "$SR_WT"
+assert_defer "the test form under /bin/bash, which the guard never approves as a verb" "$CR --test tests/test-ok.sh -- /bin/bash tests/test-ok.sh" Bash "$SR_WT"
 assert_defer "the task form with extra command words" "$CR --task lint -- mise run lint x" Bash "$SR_WT"
 assert_defer "an environment prefix before the router" "FOO=1 $CR --check -- mise run check" Bash "$SR_WT"
 assert_defer "the check form naming another command" "$CR --check -- bash tests/ok.sh" Bash "$SR_WT"
