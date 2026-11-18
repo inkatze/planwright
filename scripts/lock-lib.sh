@@ -1302,16 +1302,16 @@ _pw_lock_aside_note() {
 
 # _pw_lock_aside_drop <token> — forget every aside recorded for <token>.
 _pw_lock_aside_drop() {
-  _pwa_out=''
-  _pwa_rest=$PW_LOCK_ASIDES
-  while [ -n "$_pwa_rest" ]; do
-    _pwa_line=${_pwa_rest%%"$PW_LOCK_NL"*}
-    _pwa_rest=${_pwa_rest#*"$PW_LOCK_NL"}
-    [ -n "$_pwa_line" ] || continue
-    [ "${_pwa_line%% *}" = "$1" ] && continue
-    _pwa_out="$_pwa_out$_pwa_line$PW_LOCK_NL"
+  _pwad_out=''
+  _pwad_rest=$PW_LOCK_ASIDES
+  while [ -n "$_pwad_rest" ]; do
+    _pwad_line=${_pwad_rest%%"$PW_LOCK_NL"*}
+    _pwad_rest=${_pwad_rest#*"$PW_LOCK_NL"}
+    [ -n "$_pwad_line" ] || continue
+    [ "${_pwad_line%% *}" = "$1" ] && continue
+    _pwad_out="$_pwad_out$_pwad_line$PW_LOCK_NL"
   done
-  PW_LOCK_ASIDES=$_pwa_out
+  PW_LOCK_ASIDES=$_pwad_out
 }
 
 # _pw_lock_aside_find <lock> <token> — set _pw_lock_aside_out to the aside this
@@ -1319,17 +1319,17 @@ _pw_lock_aside_drop() {
 # must sit beside <lock> under the taken kind and still carry the token.
 _pw_lock_aside_find() {
   _pw_lock_aside_out=''
-  _pwa_rest=$PW_LOCK_ASIDES
-  while [ -n "$_pwa_rest" ]; do
-    _pwa_line=${_pwa_rest%%"$PW_LOCK_NL"*}
-    _pwa_rest=${_pwa_rest#*"$PW_LOCK_NL"}
-    [ -n "$_pwa_line" ] || continue
-    [ "${_pwa_line%% *}" = "$2" ] || continue
-    _pwa_path=${_pwa_line#* }
-    case $_pwa_path in
+  _pwaf_rest=$PW_LOCK_ASIDES
+  while [ -n "$_pwaf_rest" ]; do
+    _pwaf_line=${_pwaf_rest%%"$PW_LOCK_NL"*}
+    _pwaf_rest=${_pwaf_rest#*"$PW_LOCK_NL"}
+    [ -n "$_pwaf_line" ] || continue
+    [ "${_pwaf_line%% *}" = "$2" ] || continue
+    _pwaf_path=${_pwaf_line#* }
+    case $_pwaf_path in
       "$1#taken#"*)
-        if [ -L "$_pwa_path" ] && [ "$(readlink "$_pwa_path" 2>/dev/null)" = "$2" ]; then
-          _pw_lock_aside_out=$_pwa_path
+        if [ -L "$_pwaf_path" ] && [ "$(readlink "$_pwaf_path" 2>/dev/null)" = "$2" ]; then
+          _pw_lock_aside_out=$_pwaf_path
           return 0
         fi
         ;;
