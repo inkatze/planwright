@@ -70,7 +70,7 @@ mc_valid_uint() {
 }
 # Text with no C0 or DEL byte. A byte in the C1 range is let through, since
 # it is also a UTF-8 continuation byte; every reader strips C1 on the way to
-# a terminal (sanitize_printable, mc_clean).
+# a terminal (sanitize_printable, mc_strip_ctl, mc_clean).
 mc_valid_text() {
   case $1 in
     *[[:cntrl:]]*) return 1 ;;
@@ -82,10 +82,17 @@ mc_valid_text() {
 # store (a command substitution plus tr per call) forks thousands of times
 # for one read; this is the same C0, DEL and C1 byte strip as a parameter
 # expansion. The class is a byte range, so the sourcing script must run
-# under LC_ALL=C, as every script that sources this file does.
+# under LC_ALL=C, as every script that sources this file does. The expansion
+# is quadratic on a long value dense with matches (a corrupted store file), so
+# a value past MC_STRIP_LONG bytes takes the one-process tr instead.
 MC_CTL_CLASS=$'\001-\037\177-\237'
+MC_STRIP_LONG=4096
 mc_strip_ctl() {
-  MC_STRIPPED=${1//[$MC_CTL_CLASS]/}
+  if [ "${#1}" -gt "$MC_STRIP_LONG" ]; then
+    MC_STRIPPED=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')
+  else
+    MC_STRIPPED=${1//[$MC_CTL_CLASS]/}
+  fi
   if [ -z "$MC_STRIPPED" ] && [ $# -ge 2 ]; then
     MC_STRIPPED=$2
   fi

@@ -497,7 +497,7 @@ counted_get() {
   [ ! -f "$tmp/config-get.log" ] || GETS=$(grep -c run "$tmp/config-get.log")
 }
 alpha_block
-for field in repositories spec_root home sources duties; do
+for field in repositories spec_root home sources duties budget; do
   mc_run mc-program.sh get alpha "$field"
   want_out=$OUT
   want_rc=$RC
@@ -515,15 +515,20 @@ for field in repositories spec_root home sources duties; do
   fi
 done
 
-# Nothing is kept between runs: an edit to the tracked layer shows on the next read.
-alpha_block "$repo"
+# The batched read serves the configured values, not just the same ones as
+# the code it replaced: a read that served nothing would answer the same and
+# exit 3 after one run.
 counted_get spec_root
-if [ "$OUT" = "$repo" ]; then
-  ok "an edited layer shows on the next read"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$repo/specs" ]; then
+  ok "the batched read answers the configured spec root"
 else
-  fail "a read after an edit answered '$OUT', not the edited spec root"
+  fail "the batched read answered '$OUT' (exit $RC), not the configured spec root"
 fi
-alpha_block
+counted_get repositories
+case $OUT in
+  "$repo"*) ok "and the configured repositories" ;;
+  *) fail "the batched read answered repositories '$OUT'" ;;
+esac
 
 # A prefetch that spoke on stderr is dropped and the per-key reads run: a
 # malformed adopter layer is warned about on every read, as it always was.

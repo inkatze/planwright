@@ -245,13 +245,21 @@ EOF
 chmod +x "$shim/tr"
 store_ev=$fleet/attention/mission-control/alpha/events
 store_mk=$fleet/attention/mission-control/alpha/marks/worker-1
-printf '90000\tsan-kind\tsan-one\ta\205b\237c\240d\n' >"$store_ev/e90000.0001ab"
+printf '90000\tsan-kind\tsan-one\ta\205b\237c\200\240d\n' >"$store_ev/e90000.0001ab"
 printf '90000\tsan-kind\tsan-two\tplain\n' >"$store_ev/e90000.0002ab"
 printf '90000\tsan-kind\tsan-three\tplain\n' >"$store_ev/e90000.0003ab"
 printf '90000\tsan-kind\tsan-four\tplain\n' >"$store_ev/e90000.0004ab"
-printf '\205\237\n' >"$store_mk/e90000.0001ab"
-printf 'sta\033g\205ed\n' >"$store_mk/e90000.0002ab"
+printf '\001\177\200\205\237\n' >"$store_mk/e90000.0001ab"
+printf 'sta\001\033g\177\205\037\200ed\n' >"$store_mk/e90000.0002ab"
 printf 'submitted\n' >"$store_mk/e90000.0003ab"
+# The shim must be able to fail the check below: a direct tr run logs.
+rm -f "$tmp/tr.log"
+printf 'x' | PATH="$shim:$PATH" tr x y >/dev/null
+if [ -s "$tmp/tr.log" ]; then
+  ok "the tr shim logs a tr start"
+else
+  fail "the tr shim did not log a direct tr run, so a quiet log proves nothing"
+fi
 rm -f "$tmp/tr.log"
 PATH="$shim:$PATH" mc_run mc-event.sh list --program alpha --target worker-1 e90000.0001ab e90000.0002ab e90000.0003ab e90000.0004ab
 expect_rc "list with a target over sanitized rows" 0
@@ -273,6 +281,18 @@ if [ "$OUT" = "$(printf 'e90000.0001ab\t90000\tsan-kind\tsan-one\tabc\240d')" ] 
   ok "list without a target strips the same bytes and starts no tr"
 else
   fail "list without a target: got $(printf '%s' "$OUT" | od -An -c | head -c 300), tr log: $(cat "$tmp/tr.log" 2>&1)"
+fi
+
+# A mark file past the bound is sanitized by one tr rather than by the
+# quadratic expansion; the answer is the same.
+printf '90000\tsan-kind\tsan-five\tplain\n' >"$store_ev/e90000.0005ab"
+printf '%05000d\n' 0 | "$real_tr" 0 '\205' >"$store_mk/e90000.0005ab"
+rm -f "$tmp/tr.log"
+PATH="$shim:$PATH" mc_run mc-event.sh list --program alpha --target worker-1 e90000.0005ab
+if [ "$OUT" = "$(printf 'e90000.0005ab\t90000\tsan-kind\tsan-five\tplain\t-')" ] && [ -s "$tmp/tr.log" ]; then
+  ok "a mark past the bound reads the same and is stripped by tr"
+else
+  fail "a long mark: got $(printf '%s' "$OUT" | od -An -c | head -c 200), tr log: $(cat "$tmp/tr.log" 2>&1)"
 fi
 
 if [ "$failures" -ne 0 ]; then
