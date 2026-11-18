@@ -361,7 +361,7 @@ $1 == "cadence" && $2 == "gap" {
   else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
   else if ($4 == "fault") d = $5
-  if ($4 == "unaudited") { d = $5 " fails the step-record truth check"; cad[++ncad] = "not audited: " $3 ": " d; unaud = 1 }
+  if ($4 == "unaudited") { d = $5 " fails the step-record truth check (if only its start or end is wrong, step-record.sh supersede corrects it)"; cad[++ncad] = "not audited: " $3 ": " d; unaud = 1 }
   else cad[++ncad] = $3 ": " d
 }
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }

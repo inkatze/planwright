@@ -145,7 +145,7 @@ pooled full suite gets it too (*Expensive checks*). Any other
 `PLANWRIGHT_STEP_*` name in the runner's environment is a misspelling that
 would be dropped unread: `resolve-steps.sh --check-env` names it and its
 right spelling. `step-run.sh` refuses it for every verb but `resolve`, and
-`step-record.sh` for `new-run`, `write`, `regenerate`, and `status`; the
+`step-record.sh` for `new-run`, `write`, `supersede`, `regenerate`, and `status`; the
 other verbs of either warn.
 
 Two channels deliver the context. A **command step** gets the twelve
@@ -494,6 +494,26 @@ that did not skip). A skill or prompt record that overstates what happened
 header states: `write` refuses such a record, and `untrue` names a stored
 one) leaves its step an `unaudited` gap, never done. The script's usage
 header states the freshness rule and the output.
+
+**Correcting a misdated record.** A record is never edited, and a point that
+completed takes no second record for it, so a start or end stamped wrong (a
+skill step started a few seconds off its Skill call is the usual case) is
+corrected by appending a **supersede record**, `scripts/step-record.sh
+supersede --record <run>:<point>:<seq> --start <ts> --source <source>`. It
+names the record it replaces, carries one corrected stamp (a record with both
+wrong takes two supersedes), and cites the session event that proves it
+(`event:<timestamp>` or `event-line:<n>` of the session's event log, checked
+against a top-level event timestamp), so the original stays on disk beside
+it. It corrects **timing only**: a changed outcome, step, kind, head, or end
+head, a missing or unverifiable source, a record that is not a step record,
+and a correction the step-record truth check would refuse (a skill window
+under its floor) are all refused, so it cannot be used to overstate what
+happened. Of several supersedes of one record the latest stands. The
+cadence audit, the readiness check, and the rendered tables read that
+supersede's times in place of the record's own (`step-record.sh list
+--effective` is the audit's view; plain `list` shows both records), and the
+audit's advice for a misdated start names the verb. The script's usage header
+states the grammar.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
 

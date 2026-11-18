@@ -122,6 +122,7 @@ expect_out "a failed step reads with its outcome" "fail${tab}cadence${tab}conver
 walk_with "cadence unaudited step" '-' "cadence${tab}gap${tab}convergence${tab}unaudited${tab}polish"
 expect_rc "a cadence with a record the step-record truth check refuses is refused" 4
 expect_out "and reads as not audited, not done" "fail${tab}cadence${tab}not audited: convergence: polish fails the step-record truth check"
+expect_out "and names the verb that corrects a wrong start or end" "step-record.sh supersede corrects it"
 walk_with "cadence stale" '-' "cadence${tab}gap${tab}post-pr${tab}stale${tab}2222222222222222222222222222222222222222"
 expect_out "a stale point names where it completed" "fail${tab}cadence${tab}post-pr: completed only at 222222222222"
 walk_with "cadence mismatch" '-' "cadence${tab}gap${tab}convergence${tab}mismatch${tab}head:polish"

@@ -112,7 +112,9 @@
 #           completion in any run, then `...missing<TAB><step>` or
 #           `...failed<TAB><step>:<outcome>` over all runs, or
 #           `...unaudited<TAB><step>` for a record the step-record truth
-#           check (step-record.sh untrue) would refuse;
+#           check (step-record.sh untrue) would refuse; a record's start and
+#           end are those of its standing supersede (step-record.sh supersede)
+#           when it has one;
 #           `...stale<TAB><head>` naming the newest completion when none
 #           counts, then that run's step gaps; the judged run's step gaps;
 #           ahead of those, `...mismatch<TAB>run` for a record of the judged
@@ -980,7 +982,7 @@ cmd_audit() {
     cat "$work/resolve.err" >&2
     die 4 "the configured cadence did not resolve (resolve-steps exit $rc)"
   fi
-  /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
+  /bin/sh "$SR" --worktree "$worktree" list --effective >"$work/records" || die 4 "cannot read the step records"
   /bin/sh "$SR" --worktree "$worktree" untrue >"$work/untrue" \
     || die 4 "cannot run the step-record truth check over the step records (step-record.sh untrue)"
   # Records are untrusted: run, kind and point come from the path and must
