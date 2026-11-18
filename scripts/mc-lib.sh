@@ -78,7 +78,7 @@ mc_valid_text() {
 }
 
 # mc_strip_ctl <value> [placeholder]: sanitize_printable's result in
-# MC_STRIPPED, with no process started. A caller that sanitizes per row of a
+# MC_STRIPPED, with no process started for any value within MC_STRIP_LONG. A caller that sanitizes per row of a
 # store (a command substitution plus tr per call) forks thousands of times
 # for one read; this is the same C0, DEL and C1 byte strip as a parameter
 # expansion. The class is a byte range, so the sourcing script must run
