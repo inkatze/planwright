@@ -14,7 +14,7 @@
 #                                        to read (default: the current one)
 #
 # Both return 128, git's own error status, when a checkout's configuration
-# cannot be read: nothing is set and no git runs, and a caller that reads
+# cannot be read: no setting is made and no git runs, and a caller that reads
 # status 1 as "no" (check-ignore, diff --quiet) is not misled. An exported
 # environment also sets PW_UNTRUSTED_GIT=1, which scripts that scrub git's
 # environment on entry honour.
@@ -44,16 +44,10 @@ pw_untrusted_git_env() {
   # the caller names, and inherited configuration would ride along.
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
     GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_EXTERNAL_DIFF
-  # The caller's own GIT_CONFIG_COUNT pairs (a safe.directory, an identity)
-  # are kept and ours follow them, so ours win; a count this library set on
-  # an earlier call, or one that is not a number, is dropped.
-  ug_kept=0
-  if [ -z "${PW_UNTRUSTED_GIT:-}" ]; then
-    case ${GIT_CONFIG_COUNT:-} in
-      '' | *[!0-9]*) ;;
-      *) ug_kept=$GIT_CONFIG_COUNT ;;
-    esac
-  fi
+  # The caller's own GIT_CONFIG_COUNT pairs are dropped, not kept: one such as
+  # a safe.directory would let the listing below and the guarded git disagree
+  # about whether the checkout may be read, and a driver listed as absent
+  # would then run.
   unset GIT_CONFIG_COUNT
   [ $# -gt 0 ] || set -- .
   ug_list=''
@@ -68,7 +62,7 @@ pw_untrusted_git_env() {
 '
   done
 
-  ug_n=$ug_kept
+  ug_n=0
   _pw_ug_add core.fsmonitor false
   _pw_ug_add core.hooksPath /dev/null
   _pw_ug_add protocol.allow never

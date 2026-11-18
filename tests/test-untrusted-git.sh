@@ -333,20 +333,32 @@ mc_untrusted_git -C "$tmp/broken" diff --cached --quiet >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 128 ] || fail "an unreadable checkout config: a guarded diff --quiet returned $rc, expected 128"
 echo "ok: an unreadable checkout configuration fails closed with status 128"
 
-# The caller's own GIT_CONFIG_COUNT pairs are kept, ours win over them, and a
-# count that is not a number is dropped rather than breaking the listing.
+# The caller's own GIT_CONFIG_COUNT pairs are dropped, and a count that is not
+# a number does not break the listing.
 mkrepo inherited local
 rc=0
 GIT_CONFIG_COUNT=abc mc_untrusted_git -C "$R" rev-parse HEAD >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 0 ] || fail "an inherited bad GIT_CONFIG_COUNT broke a guarded git (exit $rc)"
-kept=$(GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=kept \
-  GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/tmp/inherited-hooks \
-  mc_untrusted_git -C "$R" config --get-all core.hooksPath)
-[ "$kept" = "$(printf '/tmp/inherited-hooks\n/dev/null')" ] || fail "inherited pairs were not kept ahead of ours: $kept"
-kept=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=kept \
-  mc_untrusted_git -C "$R" config user.name)
-[ "$kept" = kept ] || fail "an inherited GIT_CONFIG_COUNT pair was dropped: $kept"
-echo "ok: the caller's GIT_CONFIG_COUNT pairs are kept and ours follow them"
+kept=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=dropped \
+  mc_untrusted_git -C "$R" config user.name 2>&1 || :)
+[ -z "$kept" ] || fail "an inherited GIT_CONFIG_COUNT pair survived the guard: $kept"
+# A safe.directory pair the caller sets must not make the listing and the
+# guarded git disagree about reading a checkout another user owns.
+plant filter.mark.clean "touch $M/clean; cat"
+stat_dirty
+rm -f "$M"/*
+GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$R" \
+  git -C "$R" status --porcelain >/dev/null 2>&1 || :
+if fired clean; then
+  stat_dirty
+  rm -f "$M"/*
+  GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$R" \
+    mc_untrusted_git -C "$R" status --porcelain >/dev/null 2>&1 || :
+  fired clean && fail "a caller's safe.directory pair let the guarded git run the planted filter"
+else
+  echo "skip: safe.directory: this git has no GIT_TEST_ASSUME_DIFFERENT_OWNER"
+fi
+echo "ok: the caller's GIT_CONFIG_COUNT pairs are dropped, and cannot open a checkout the listing refused"
 
 # A scripts directory without the library refuses with exit 2.
 mkdir "$tmp/nolib"
@@ -423,7 +435,10 @@ chmod +x "$tmp/fsmon-steprec.sh"
 plant core.fsmonitor "$tmp/fsmon-steprec.sh"
 plant filter.mark.clean "touch $M/clean; cat"
 stat_dirty
-expect_fires "step-record" clean status --porcelain
+rm -f "$M"/*
+/bin/bash "$scripts/step-record.sh" --worktree "$R" fingerprint --paths a.txt >/dev/null 2>&1 || :
+{ fired clean && fired fsmon; } || fail "step-record: the unguarded control did not fire both planted programs"
+rm -f "$M"/*
 stat_dirty
 (mc_untrusted_git_env "$R" && /bin/bash "$scripts/step-record.sh" --worktree "$R" fingerprint --paths a.txt) >/dev/null 2>&1 || :
 fired fsmon && fail "step-record, called guarded, ran the planted fsmonitor"

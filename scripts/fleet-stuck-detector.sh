@@ -1052,8 +1052,8 @@ read_events() {
 }
 
 # check_worktree <dir> — sets tree (clean | dirty | unverifiable), unpushed
-# (<n> | unverifiable) from local git state, through plumbing that hashes no
-# content: a touched-but-identical file reads dirty (the fail-closed side).
+# (<n> | unverifiable) from local git state, through git_ro (a repository whose
+# configuration cannot be read is unverifiable, the fail-closed side).
 check_worktree() {
   tree=unverifiable
   unpushed=unverifiable
