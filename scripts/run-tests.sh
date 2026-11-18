@@ -342,7 +342,7 @@ worker_signal() {
 # finds it once the file exits, whatever the file did with the stderr.
 write_claude_guard() {
   # not-a-lock: the guard's directory is the file's own, made once
-  mkdir -m 700 -- "$1" 2>/dev/null || return 1
+  mkdir -m 700 -- "$1" || return 1
   cat >"$1/claude" <<'GUARD' || return 1
 #!/bin/sh
 here=${0%/*}
@@ -478,7 +478,7 @@ if [ "${1:-}" = "--run-one" ]; then
   # one way through, so one the caller exported is not passed on.
   unset PLANWRIGHT_TEST_REAL_CLAUDE
   claude_guard="$PLANWRIGHT_TEST_LOG_DIR/$name.claude-guard"
-  if write_claude_guard "$claude_guard" 2>/dev/null; then
+  if cg_err=$(write_claude_guard "$claude_guard" 2>&1); then
     PATH="$claude_guard:$PATH"
     export PATH
   else
@@ -495,7 +495,7 @@ if [ "${1:-}" = "--run-one" ]; then
     : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
     file_rc=1
   elif [ "$pin_failed" -eq 2 ]; then
-    printf '%s\n' "run-tests: could not write the claude guard for $name; not run" \
+    printf '%s\n' "run-tests: could not write the claude guard for $name ($(printf '%s' "$cg_err" | tr '\n' ' ' | cut -c1-200)); not run" \
       >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
     : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
     file_rc=1
