@@ -11,13 +11,6 @@ unset CDPATH
 # shellcheck source=tests/lib/hermetic-env.sh
 . "$here/lib/hermetic-env.sh"
 
-failures=0
-fail() {
-  echo "FAIL: $1" >&2
-  failures=$((failures + 1))
-}
-ok() { echo "ok: $1"; }
-
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-mc-readiness.XXXXXX") || exit 1
 tmp=$(cd "$tmp" && pwd -P) || exit 1
 # A run stopped while a directory is mode-restricted must still clean up.

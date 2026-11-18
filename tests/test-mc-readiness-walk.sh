@@ -15,6 +15,14 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY G
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
+
+failures=0
+fail() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
+ok() { echo "ok: $1"; }
+
 # shellcheck source=tests/lib/mc-readiness-fixture.sh
 . "$here/lib/mc-readiness-fixture.sh"
 
