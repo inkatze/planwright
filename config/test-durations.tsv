@@ -53,6 +53,7 @@ test-mc-watch.sh	27.560
 test-tasks-pr-sync.sh	27.485
 test-policy-guard-rewrites.sh	26.700
 test-fleet-sweep-reap.sh	26.363
+test-mc-readiness-spec-only.sh	25.890
 test-merge-class.sh	25.669
 test-fleet-attention.sh	25.567
 test-check-duties.sh	25.185
@@ -67,6 +68,7 @@ test-turn-shape-eval.sh	23.271
 test-inception-fanout.sh	23.197
 test-tower-loop-comms.sh	23.157
 test-mc-snapshot.sh	23.107
+test-mc-readiness-cadence.sh	22.880
 test-tower-queue-lease.sh	22.878
 test-tmux-launch-confirm.sh	22.758
 test-flight-sweep.sh	22.465
@@ -78,8 +80,10 @@ test-merge-admitted.sh	20.788
 test-coordination-hygiene.sh	20.623
 test-allocation-clamps.sh	20.574
 test-mc-rules.sh	20.206
+test-mc-readiness-walk.sh	19.560
 test-flight-relaunch.sh	19.360
 test-fleet-stop-hl.sh	18.972
+test-mc-readiness-collect.sh	18.950
 test-fleet-stop-sj.sh	18.714
 test-mission-control-launch.sh	18.277
 test-tower-queue-next.sh	18.024
@@ -92,7 +96,6 @@ test-fleet-dispatch-reconcile.sh	17.029
 test-fleet-adversarial-concurrency.sh	16.868
 test-inception-secret-screen.sh	16.791
 test-behavioral-eval-tower.sh	16.562
-test-mc-readiness.sh	16.427
 test-tower-queue-review.sh	16.404
 test-quota-hold.sh	16.354
 test-check-instructions.sh	16.109
@@ -103,6 +106,7 @@ test-inception-validate.sh	15.676
 test-spec-store-worktree.sh	15.522
 test-orchestrate-select-deps.sh	15.516
 test-check-test-hermeticity.sh	15.500
+test-mc-readiness-drift-signoff.sh	15.360
 test-inception-scaffold.sh	15.189
 test-fleet-tower-watchdog.sh	15.042
 test-check-guard-wiring.sh	14.851
@@ -112,11 +116,13 @@ test-step-run-resume.sh	14.610
 test-ready-guard.sh	14.541
 test-mc-stall.sh	14.515
 test-allocation-petition.sh	14.451
+test-mc-readiness-drift-base.sh	14.400
 test-orchestrate-lock.sh	14.209
 test-run-tests.sh	14.169
 test-worker-command-guard-policy.sh	13.942
 test-full-suite-run.sh	13.770
 test-resolve-vendors.sh	13.767
+test-mc-readiness-drift-covered.sh	13.560
 test-inception-review-cycle.sh	13.472
 test-tower-queue-store.sh	13.457
 test-work-repo-registry.sh	13.434
