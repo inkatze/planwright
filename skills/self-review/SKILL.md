@@ -124,10 +124,9 @@ Apply the `discovery-rigor` doc against the diff:
   other command run as one plain command per Bash call, with no `cd` (the
   sub-agent starts in the worktree) and no chains, pipes, assignments or
   substitutions; a probe needing more written as one POSIX sh script in
-  its own `mktemp -d` directory and run as `sh <path>` alone (no arguments, no
-  chain), approved when it holds only read-only commands; a targeted test
-  run through the resolved literal path of `compute-route.sh -- <command>`;
-  and the shared tooling
+  its own `mktemp -d` directory and run as `sh <path>`, the one shape that
+  still waits on a prompt; a targeted test run through the resolved
+  literal path of `compute-route.sh -- <command>`; and the shared tooling
   output taken as given, never re-running the project's suites or sweeps.
   Walk the lenses inline only when the diff is small and narrow (a few
   files, mostly prose or config, a few hundred changed lines at most);

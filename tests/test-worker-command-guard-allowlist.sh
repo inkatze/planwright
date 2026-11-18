@@ -1,13 +1,13 @@
 #!/bin/bash
 # Tests for the worker's read-only allow-list: the read verbs a worker and its
 # lens agents run constantly (`ss` beside grep, cat, ls, md5sum, ps, file), the
-# routine polish commands (a suite under `umask 022`, a read-only probe script
-# in the worker's own scratch directory, the router's kind-flag form, the step
-# scripts of the installed root) and the profile's static entries (WebSearch
-# allowed; WebFetch and the unclassifiable tools left to the prompt). Each
-# allowed shape sits beside the write, chain and redirect variants that must
-# keep deferring. tests/test-worker-command-guard.sh holds the suite's
-# overview; every file sources tests/lib/worker-command-guard-harness.sh.
+# routine polish commands (a suite under `umask 022`, the router's kind-flag
+# form, the step scripts of the installed root), the scratch arm's TMPDIR
+# rule, and the profile's static entries (WebSearch allowed; WebFetch and the
+# unclassifiable tools left to the prompt). Each allowed shape sits beside the
+# write, chain and redirect variants that must keep deferring.
+# tests/test-worker-command-guard.sh holds the suite's overview; every file
+# sources tests/lib/worker-command-guard-harness.sh.
 # shellcheck disable=SC2016 # the single-quoted rows are literal command text under test
 # shellcheck disable=SC2034 # HOOK_ENV is read by the sourced harness
 set -u
@@ -85,253 +85,41 @@ assert_defer "umask with a substitution" "umask \$(id)" Bash "$WT"
 assert_defer "umask with a second word" "umask 022 rm" Bash "$WT"
 assert_defer "umask then a bare suite outside the repo" "umask 022 && bash $OUT_DIR/x.sh" Bash "$WT"
 
-echo "### a probe script in the worker's own scratch directory"
-mkdir -p "$SC/probe.d" "$OUT_DIR/probe.d"
-printf '#!/bin/sh\nset -eu\n# a read-only probe\ngrep -n x f\nls -la\n' >"$SC/probe.d/ok.sh"
-printf 'if [ -f f ]; then cat f; fi\nfor n in a b; do ls "$n"; done\n' >"$SC/probe.d/ctl.sh"
-printf 'grep -n x f\nrm g\n' >"$SC/probe.d/write.sh"
-printf 'grep -n x f > out.txt\n' >"$SC/probe.d/redir.sh"
-printf 'grep -n x f | sh\n' >"$SC/probe.d/pipe.sh"
-printf 'curl http://example.invalid\n' >"$SC/probe.d/curl.sh"
-printf 'echo $(rm g)\n' >"$SC/probe.d/subst.sh"
-printf 'cat f && rm g\n' >"$SC/probe.d/chain.sh"
-printf 'cat /proc/1/environ\n' >"$SC/probe.d/environ.sh"
-printf 'sh %s/probe.d/self.sh\n' "$SC" >"$SC/probe.d/self.sh"
-printf 'sh %s/probe.d/write.sh\n' "$SC" >"$SC/probe.d/inner-write.sh"
-printf 'sh %s/probe.d/ok.sh\n' "$SC" >"$SC/probe.d/inner-ok.sh"
-printf '# only a comment\n' >"$SC/probe.d/empty.sh"
-: >"$SC/probe.d/zero.sh"
-printf 'grep -n x f\n' >"$SC/probe.d/ok.txt"
-printf 'grep -n x f\x00rm g\n' >"$SC/probe.d/nul.sh"
-{
-  printf 'grep -n x f\n'
-  i=0
-  while [ "$i" -lt 2000 ]; do
-    printf 'ls -la\n'
-    i=$((i + 1))
-  done
-} >"$SC/probe.d/big.sh"
-printf 'grep -n x f\n' >"$SC/ok.sh"
-printf 'grep -n x f\n' >"$OUT_DIR/probe.d/ok.sh"
-ln -sf "$SC/probe.d/ok.sh" "$SC/probe.d/link.sh"
-ln -sf "$OUT_DIR/probe.d/ok.sh" "$SC/probe.d/outlink.sh"
-ln -f "$OUT_DIR/probe.d/ok.sh" "$SC/probe.d/hard.sh"
-mkdir -p "$SC/probe.d/deeper"
-printf 'grep -n x f\n' >"$SC/probe.d/deeper/ok.sh"
-mkdir -p "$SC/.hidden"
-printf 'grep -n x f\n' >"$SC/.hidden/ok.sh"
-printf 'grep -n x f\n' >"$SC/probe.d/.dot.sh"
-printf 'grep -n x f\n' >"$SC/probe.d/we ird.sh"
-printf 'grep -n x f\n' >"$OUT_DIR/ok.sh"
-mkdir -p "${SC}-evil/probe.d"
-printf 'grep -n x f\n' >"${SC}-evil/probe.d/ok.sh"
-# A leading line carrying a control byte that sh counts as part of a word
-# (form feed, vertical tab, carriage return), which hides a command from a
-# reader that trims it as blank space.
-printf '\f# x; rm g\nls\n' >"$SC/probe.d/ff.sh"
-printf '\v# x; rm g\nls\n' >"$SC/probe.d/vt.sh"
-printf '\r# x; rm g\nls\n' >"$SC/probe.d/cr.sh"
-printf '#!/bin/sh\r\nset -eu\r\ngrep -n x f\r\n' >"$SC/probe.d/crlf.sh"
-printf 'cat f\rrm g\n' >"$SC/probe.d/midcr.sh"
-printf '\t# a tab-indented comment\n\tset -eu\n\n  grep -n x f\n' >"$SC/probe.d/tabs.sh"
-printf 'grep -n x f\nset -eu\n' >"$SC/probe.d/midset.sh"
-printf 'grep -n x f\n# a comment after the first command\nls\n' >"$SC/probe.d/midcomment.sh"
-printf "grep -n x f\\n# it's\\nrm g\\n# '\\n" >"$SC/probe.d/quote.sh"
-printf 'cat <<EOF\nx\nEOF\n' >"$SC/probe.d/heredoc.sh"
-# The size cap: a file of exactly the cap is read whole, one byte past it is
-# refused even when its body, past the comments, is small.
-printf '#%8187s\nls\n' '' >"$SC/probe.d/cap.sh"
-printf '#%8188s\nls\n' '' >"$SC/probe.d/overcap.sh"
-{
-  i=0
-  while [ "$i" -lt 400 ]; do
-    printf '# padding padding\n'
-    i=$((i + 1))
-  done
-  printf 'ls\n'
-} >"$SC/probe.d/commented.sh"
-{
-  i=0
-  while [ "$i" -lt 700 ]; do
-    printf '# padding padding\n'
-    i=$((i + 1))
-  done
-  printf 'ls\n'
-} >"$SC/probe.d/overcommented.sh"
-
+echo "### a scratch file is never run"
+printf 'ls\n' >"$SC/run.d.sh"
+mkdir -p "$SC/d"
+printf 'ls\n' >"$SC/d/probe.sh"
 under
-assert_allow "sh of a scratch probe" "sh $SC/probe.d/ok.sh" Bash "$WT"
-assert_allow "sh of a scratch probe with control structures" "sh $SC/probe.d/ctl.sh" Bash "$WT"
-assert_allow "sh of a scratch probe from a directory outside the worktree" "sh $SC/probe.d/ok.sh" Bash "$OUT_DIR"
-assert_allow "sh of a probe behind timeout" "timeout 30 sh $SC/probe.d/ok.sh" Bash "$WT"
-assert_allow "sh of a probe behind time" "time sh $SC/probe.d/ok.sh" Bash "$WT"
-assert_allow "sh of a probe with tab-indented leading lines" "sh $SC/probe.d/tabs.sh" Bash "$WT"
-assert_allow "sh of a probe of exactly the size cap" "sh $SC/probe.d/cap.sh" Bash "$WT"
-assert_allow "sh of a probe with many leading comment lines under the cap" "sh $SC/probe.d/commented.sh" Bash "$WT"
-assert_defer "a probe one byte past the size cap" "sh $SC/probe.d/overcap.sh" Bash "$WT"
-assert_defer "a probe over the cap whose body past the comments is small" "sh $SC/probe.d/overcommented.sh" Bash "$WT"
-assert_defer "a probe whose first line is form feed then a comment then a command" "sh $SC/probe.d/ff.sh" Bash "$WT"
-assert_defer "a probe whose first line is vertical tab then a comment then a command" "sh $SC/probe.d/vt.sh" Bash "$WT"
-assert_defer "a probe whose first line is carriage return then a comment then a command" "sh $SC/probe.d/cr.sh" Bash "$WT"
-assert_defer "a probe with CRLF line ends" "sh $SC/probe.d/crlf.sh" Bash "$WT"
-assert_defer "a probe with a carriage return inside a line" "sh $SC/probe.d/midcr.sh" Bash "$WT"
-assert_defer "a probe whose set line is not at the head" "sh $SC/probe.d/midset.sh" Bash "$WT"
-assert_defer "a probe with a comment after the first command" "sh $SC/probe.d/midcomment.sh" Bash "$WT"
-assert_defer "a probe hiding a command behind comment quotes" "sh $SC/probe.d/quote.sh" Bash "$WT"
-assert_defer "a probe with a here-document" "sh $SC/probe.d/heredoc.sh" Bash "$WT"
-assert_defer "a probe that runs another read-only probe" "sh $SC/probe.d/inner-ok.sh" Bash "$WT"
-assert_defer "a probe typed with a quoted path" "sh \"$SC/probe.d/ok.sh\"" Bash "$WT"
-assert_defer "a probe typed through \$TMPDIR" "sh \$TMPDIR/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe typed through \${TMPDIR}" "sh \${TMPDIR}/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe behind nice" "nice -n 5 sh $SC/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe behind timeout and a chain" "timeout 5 sh $SC/probe.d/ok.sh && rm g" Bash "$WT"
-assert_defer "a probe in the background" "sh $SC/probe.d/ok.sh &" Bash "$WT"
-assert_defer "a probe in a subshell" "(sh $SC/probe.d/ok.sh)" Bash "$WT"
-assert_defer "a probe with its stderr redirected" "sh $SC/probe.d/ok.sh 2>&1" Bash "$WT"
-assert_defer "a probe fed from a file" "sh $SC/probe.d/ok.sh < f" Bash "$WT"
-assert_defer "a probe in a loop" "for n in a b; do sh $SC/probe.d/ok.sh; done" Bash "$WT"
-assert_defer "a probe in fish -c" "fish -c 'sh $SC/probe.d/ok.sh'" Bash "$WT"
-# Each neighbour here is itself approvable, so only the lone-call rule can
-# defer these.
-assert_defer "a read before the probe" "ls && sh $SC/probe.d/ok.sh" Bash "$WT"
-assert_defer "a read after the probe" "sh $SC/probe.d/ok.sh; ls" Bash "$WT"
-assert_defer "the probe piped into a read" "sh $SC/probe.d/ok.sh | grep x" Bash "$WT"
-assert_defer "a read and the probe on separate lines" "$(printf 'ls\nsh %s/probe.d/ok.sh' "$SC")" Bash "$WT"
-assert_defer "the probe and a read on separate lines" "$(printf 'sh %s/probe.d/ok.sh\nls' "$SC")" Bash "$WT"
-assert_defer "a probe under || with a read" "ls || sh $SC/probe.d/ok.sh" Bash "$WT"
-# A body that only a policy arm or the spec-root zone could approve defers
-# inside a probe, where neither is live.
-printf 'touch %s/probe.d/made\n' "$SC" >"$SC/probe.d/arm-touch.sh"
-printf 'printf x > %s/probe.d/made\n' "$SC" >"$SC/probe.d/arm-redirect.sh"
-printf 'mkdir -p %s/probe.d/sub\n' "$SC" >"$SC/probe.d/arm-mkdir.sh"
-printf 'cd %s\nls\n' "$WT" >"$SC/probe.d/arm-cd.sh"
-printf 'rm -f %s/probe.d/made\n' "$SC" >"$SC/probe.d/arm-rm.sh"
-printf 'echo "$DEPLOY_KEY"1\n' >"$SC/probe.d/secretvar.sh"
-printf 'ls "$MY_PAT"x\n' >"$SC/probe.d/secretvar2.sh"
-for f in arm-touch arm-redirect arm-mkdir arm-cd arm-rm secretvar secretvar2; do
-  assert_defer "a probe body that only a policy arm could approve, or that names a secret variable: $f" "sh $SC/probe.d/$f.sh" Bash "$WT"
-done
-ZONE=$SANDBOX/zone/specs
-mkdir -p "$ZONE/demo"
-printf 'project: fixture\nlayout: 1\n' >"$ZONE/planwright-spec-root.yml"
-printf '# Demo\n' >"$ZONE/demo/requirements.md"
-printf 'ls > %s/demo/note.md\n' "$ZONE" >"$SC/probe.d/zone.sh"
-HOOK_ENV=("${GIT_ISO[@]}" "TMPDIR=$SC" "PLANWRIGHT_WORKER_SESSION_RECORD=$REC" "PLANWRIGHT_WORKER_SPEC_ROOT=$ZONE")
-assert_allow "the spec-root zone approves a typed redirect (the control for the next row)" "ls > $ZONE/demo/note.md" Bash "$WT"
-assert_defer "the spec-root zone does not reach a probe body" "sh $SC/probe.d/zone.sh" Bash "$WT"
+assert_defer "sh of a scratch file under the empty policy" "sh $SC/d/probe.sh" Bash "$WT"
+under "$STATE/record.3"
+assert_defer "sh of a scratch file under the scratch policy" "sh $SC/d/probe.sh" Bash "$WT"
+assert_defer "sh of a file directly in the scratch root" "sh $SC/run.d.sh" Bash "$WT"
+under "$STATE/record.4"
+assert_defer "sh of a scratch file under both arms" "sh $SC/d/probe.sh" Bash "$WT"
 under
-assert_defer "a probe holding a write" "sh $SC/probe.d/write.sh" Bash "$WT"
-assert_defer "a probe holding a redirect" "sh $SC/probe.d/redir.sh" Bash "$WT"
-assert_defer "a probe holding a pipe into a shell" "sh $SC/probe.d/pipe.sh" Bash "$WT"
-assert_defer "a probe holding curl" "sh $SC/probe.d/curl.sh" Bash "$WT"
-assert_defer "a probe holding a writing substitution" "sh $SC/probe.d/subst.sh" Bash "$WT"
-assert_defer "a probe holding a chain into a write" "sh $SC/probe.d/chain.sh" Bash "$WT"
-assert_defer "a probe reading another process's environment" "sh $SC/probe.d/environ.sh" Bash "$WT"
-assert_defer "a probe that runs itself" "sh $SC/probe.d/self.sh" Bash "$WT"
-assert_defer "a probe that runs a writing probe" "sh $SC/probe.d/inner-write.sh" Bash "$WT"
-assert_defer "a comment-only probe" "sh $SC/probe.d/empty.sh" Bash "$WT"
-assert_defer "an empty probe" "sh $SC/probe.d/zero.sh" Bash "$WT"
-assert_defer "a probe with a NUL byte" "sh $SC/probe.d/nul.sh" Bash "$WT"
-assert_defer "a probe past the size cap" "sh $SC/probe.d/big.sh" Bash "$WT"
-assert_defer "a probe not ending in .sh" "sh $SC/probe.d/ok.txt" Bash "$WT"
-assert_defer "a probe directly in the scratch root, not in a directory of its own" "sh $SC/ok.sh" Bash "$WT"
-assert_defer "a probe two directories down" "sh $SC/probe.d/deeper/ok.sh" Bash "$WT"
-assert_defer "a probe in a hidden directory" "sh $SC/.hidden/ok.sh" Bash "$WT"
-assert_defer "a hidden probe" "sh $SC/probe.d/.dot.sh" Bash "$WT"
-assert_defer "a probe named with a space" "sh '$SC/probe.d/we ird.sh'" Bash "$WT"
-assert_defer "a symlinked probe" "sh $SC/probe.d/link.sh" Bash "$WT"
-assert_defer "a probe symlinked to outside the root" "sh $SC/probe.d/outlink.sh" Bash "$WT"
-assert_defer "a probe hard-linked to a file outside the root" "sh $SC/probe.d/hard.sh" Bash "$WT"
-assert_defer "a probe through the symlinked directory that leaves the root" "sh $SC/escape/ok.sh" Bash "$WT"
-assert_defer "a probe outside the scratch root" "sh $OUT_DIR/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe in a sibling directory of the same name prefix" "sh ${SC}-evil/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe through a .. component" "sh $SC/probe.d/../probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe that does not exist" "sh $SC/probe.d/missing.sh" Bash "$WT"
-assert_defer "a probe in the worktree" "sh $WT/f" Bash "$WT"
-assert_defer "a relative probe path" "sh probe.d/ok.sh" Bash "$SC"
-assert_defer "a probe with an argument" "sh $SC/probe.d/ok.sh arg" Bash "$WT"
-assert_defer "a probe with an option" "sh -x $SC/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe under bash" "bash $SC/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe through sh -c" "sh -c 'sh $SC/probe.d/ok.sh'" Bash "$WT"
-assert_defer "a probe with a redirect" "sh $SC/probe.d/ok.sh > out.txt" Bash "$WT"
-assert_defer "a probe with a chain into a write" "sh $SC/probe.d/ok.sh && rm g" Bash "$WT"
-assert_defer "a probe with a leading write" "rm g && sh $SC/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe with a pipe into a shell" "sh $SC/probe.d/ok.sh | sh" Bash "$WT"
-assert_defer "a probe with a trailing command after ;" "sh $SC/probe.d/ok.sh; rm g" Bash "$WT"
-assert_defer "a probe through a substitution" "sh \$(printf %s $SC/probe.d/ok.sh)" Bash "$WT"
-assert_defer "a probe through a variable the shell expands" "P=$SC/probe.d/ok.sh; sh \$P; rm g" Bash "$WT"
-assert_defer "a probe run as the verb" "$SC/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe sourced" ". $SC/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe under bats" "bats $SC/probe.d/ok.sh" Bash "$WT"
 
-# The recorded scratch root is the only one trusted, and only while the
-# session's own TMPDIR names it.
-under "$REC" "$OUT_DIR"
-assert_defer "a probe while TMPDIR names another directory" "sh $SC/probe.d/ok.sh" Bash "$WT"
-HOOK_ENV=("${GIT_ISO[@]}" "TMPDIR=$SC")
-assert_defer "a probe with no session record" "sh $SC/probe.d/ok.sh" Bash "$WT"
-HOOK_ENV=("${GIT_ISO[@]}" "TMPDIR=$SC" "PLANWRIGHT_WORKER_SESSION_RECORD=$STATE/missing.record")
-assert_defer "a probe with an unreadable session record" "sh $SC/probe.d/ok.sh" Bash "$WT"
-printf 'policy=\nunit_branch=%s\nworktree_root=%s\npr_base=origin/main\nworker_base_merge=allow\n' \
-  "$CORPUS_UNIT_BRANCH" "$WT" >"$STATE/noscratch.record"
-under "$STATE/noscratch.record"
-assert_defer "a probe when the record names no scratch root" "sh $SC/probe.d/ok.sh" Bash "$WT"
-ln -s "$SC" "$CORPUS_BOX/scratch.link"
-under "$REC" "$CORPUS_BOX/scratch.link"
-assert_allow "a probe while TMPDIR reaches the root through a symlink" "sh $SC/probe.d/ok.sh" Bash "$WT"
-assert_allow "a probe typed through the TMPDIR spelling of the root" "sh $CORPUS_BOX/scratch.link/probe.d/ok.sh" Bash "$WT"
-under "$REC" "$SC"
-assert_defer "a probe typed through a symlink that is not the session's TMPDIR" "sh $CORPUS_BOX/scratch.link/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe typed with a .. component through the root" "sh $SC/../scratch/probe.d/ok.sh" Bash "$WT"
-# A relative TMPDIR names the root only from the hook's own directory; the
-# shell runs the command from the payload's, so it is never trusted.
+echo "### the scratch arm trusts only an absolute TMPDIR"
+# A relative TMPDIR resolves from the hook's directory in the guard and from the
+# payload's in the shell, so the root it names could differ; unset must defer,
+# never abort the hook (it exits 0 whatever the environment holds).
+under "$STATE/record.3" "$SC"
+assert_allow "the scratch arm with an absolute TMPDIR" "touch \$TMPDIR/made" Bash "$WT"
+under "$STATE/record.3" "$SC/"
+assert_allow "the scratch arm with a trailing slash on TMPDIR" "touch \$TMPDIR/made" Bash "$WT"
 ORIG_PWD=$PWD
 cd "$CORPUS_BOX" || exit 1
-under "$REC" "scratch"
-assert_defer "a probe typed relative while TMPDIR is a relative path" "sh scratch/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe typed absolute while TMPDIR is a relative path" "sh $SC/probe.d/ok.sh" Bash "$WT"
 under "$STATE/record.3" "scratch"
 assert_defer "the scratch arm while TMPDIR is a relative path" "touch \$TMPDIR/x" Bash "$WT"
+assert_defer "a literal scratch write while TMPDIR is a relative path" "touch $SC/x" Bash "$WT"
 cd "$ORIG_PWD" || exit 1
-# An unset TMPDIR beside a record naming a scratch root must defer, not abort
-# the hook (it must exit 0 whatever the environment holds).
-HOOK_ENV=("${GIT_ISO[@]}" "PLANWRIGHT_WORKER_SESSION_RECORD=$REC")
+under "$STATE/record.3" ""
+assert_defer "the scratch arm while TMPDIR is empty" "touch \$TMPDIR/x" Bash "$WT"
+HOOK_ENV=("${GIT_ISO[@]}" "PLANWRIGHT_WORKER_SESSION_RECORD=$STATE/record.3")
 unset TMPDIR
-assert_defer "a probe while TMPDIR is unset" "sh $SC/probe.d/ok.sh" Bash "$WT"
+assert_defer "the scratch arm while TMPDIR is unset" "touch \$TMPDIR/x" Bash "$WT"
+assert_allow "a plain read while TMPDIR is unset" "ls -la" Bash "$WT"
 TMPDIR=/tmp
 export TMPDIR
-under "$REC" "$SC/"
-assert_allow "a probe while TMPDIR carries a trailing slash" "sh $SC/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe typed with a doubled slash" "sh $SC//probe.d/ok.sh" Bash "$WT"
-printf 'policy=\nunit_branch=%s\nworktree_root=%s\npr_base=origin/main\nworker_base_merge=allow\nscratch_root=%s\n' \
-  "$CORPUS_UNIT_BRANCH" "$WT" "$SC" >"$STATE/nolog.record"
-under "$STATE/nolog.record"
-assert_defer "a probe when the record names no audit log home" "sh $SC/probe.d/ok.sh" Bash "$WT"
-under
-
-echo "### a probe beside a writer in the same command, under each write policy"
-# The hook reads the probe before an earlier segment of the same command could
-# rewrite it, so a probe approved beside any other segment would run content
-# that was never judged. The scratch arm is what makes those writers approvable.
-for col in 3 4; do
-  under "$STATE/record.$col"
-  assert_allow "policy column $col: the lone probe" "sh $SC/probe.d/ok.sh" Bash "$WT"
-  want=$(sha256sum <"$SC/probe.d/ok.sh")
-  want=${want%% *}
-  if grep -q " probe_sha256=$want\$" "$STATE/audit.$col/record.$col.log"; then
-    pass "policy column $col: the audit line carries the digest of the probe's text"
-  else
-    fail "policy column $col: the audit line must carry the SHA-256 of the probe's text"
-  fi
-  assert_defer "policy column $col: a redirect rewrites it, then it runs" "printf 'rm g\\n' > $SC/probe.d/ok.sh && sh $SC/probe.d/ok.sh" Bash "$WT"
-  assert_defer "policy column $col: the same with ;" "printf 'rm g\\n' > $SC/probe.d/ok.sh; sh $SC/probe.d/ok.sh" Bash "$WT"
-  assert_defer "policy column $col: through \$TMPDIR" "printf 'rm g\\n' > \$TMPDIR/probe.d/ok.sh && sh \$TMPDIR/probe.d/ok.sh" Bash "$WT"
-  assert_defer "policy column $col: tee rewrites it" "printf 'rm g\\n' | tee $SC/probe.d/ok.sh && sh $SC/probe.d/ok.sh" Bash "$WT"
-  assert_defer "policy column $col: cp rewrites it" "cp $SC/probe.d/write.sh $SC/probe.d/ok.sh && sh $SC/probe.d/ok.sh" Bash "$WT"
-  assert_defer "policy column $col: mv rewrites it" "mv $SC/probe.d/write.sh $SC/probe.d/ok.sh && sh $SC/probe.d/ok.sh" Bash "$WT"
-  assert_defer "policy column $col: a loop rewrites it after the first run" "for n in 1 2; do sh $SC/probe.d/ok.sh; cp $SC/probe.d/write.sh $SC/probe.d/ok.sh; done" Bash "$WT"
-  assert_defer "policy column $col: it runs, then a writer follows" "sh $SC/probe.d/ok.sh && printf 'x' > $SC/probe.d/ok.sh" Bash "$WT"
-done
 under
 
 echo "### the router's kind-flag form"

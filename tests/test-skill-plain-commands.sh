@@ -147,7 +147,7 @@ else
     'no chains, pipes, assignments or substitutions' \
     'one POSIX sh script' \
     '`mktemp -d` directory and run as `sh <path>`' \
-    'approved when it holds only read-only commands' \
+    'the one shape that still waits on a prompt' \
     'resolved literal path of `compute-route.sh -- <command>`' \
     'output taken as given' \
     'never re-running the project'"'"'s suites'; do

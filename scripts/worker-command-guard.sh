@@ -5,8 +5,7 @@
 # config/worker-settings.json (Task 2), it reads a Claude Code PreToolUse
 # payload on stdin and prints a `permissionDecision: allow` decision for an
 # ENUMERATED set of known-safe Bash command shapes (read-only shapes, trusted
-# repo code, a vetted scratch probe script, and the spec-root write zone) —
-# silencing the
+# repo code, and the spec-root write zone) — silencing the
 # permission-prompt flood on the shapes /execute-task actually issues (plugin
 # scripts, `for`/`while` loops, read-only git/coreutil pipelines) — and DEFERS
 # everything else to Claude Code's normal permission flow.
@@ -24,9 +23,7 @@
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared steps, the spec-root write zone) is
-#     always in force, and a vetted scratch probe is part of it once the record
-#     names a scratch root and an audit log and TMPDIR names that root; the
-#     own-branch arm, which approves writes confined to
+#     always in force; the own-branch arm, which approves writes confined to
 #     the unit branch and its worktree, and the scratch arm, which approves
 #     writes confined to the worker's scratch root, each only when the session
 #     record names it. The record is the launcher's (see session_record_load):
@@ -114,17 +111,16 @@ export LC_ALL
 # over the command — a ~40 KiB command takes ~8 s. MAX_CMD_LEN caps that at a
 # fraction of a second (~0.5 s) PER analyze_command entry so the hook can never
 # hang a worker's tool call; a longer command simply defers (never worse than
-# the normal prompt). Three routes re-enter analyze_command on text inside the
-# command, a `fish -c "<inner>"` string, a command substitution's inner
-# text and a vetted probe script's body (guard_probe), and a loop body is
-# walked once per head word, each walk costing in proportion to its words'
-# length. So MAX_SCANNED caps the text one hook call
+# the normal prompt). Two routes re-enter analyze_command on text inside the
+# command, a `fish -c "<inner>"` string and a command substitution's inner
+# text, and a loop body is walked once per head word, each walk costing in
+# proportion to its words' length. So MAX_SCANNED caps the text one hook call
 # may tokenize and walk together, every entry and loop pass counted: past it
 # the command defers, which keeps the end-to-end cost near that of a few
 # full-length entries, plus STEPS_DEADLINE when a segment reaches the
 # declared-step fallback. A substitution's verdict is kept for the working
 # directory it last passed in, so a loop pass there does not analyse it again. 8 KiB is far above any
-# real worker command shape. MAX_DEPTH caps `fish -c` and probe recursion so a
+# real worker command shape. MAX_DEPTH caps `fish -c` recursion so a
 # nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
 readonly MAX_SCANNED=$((MAX_CMD_LEN * 4))
@@ -161,27 +157,11 @@ emit_allow() {
 # reset per hook call. Read-only is whatever approval set neither.
 AUDIT_OB=0
 AUDIT_SC=0
-# The SHA-256 of a probe script's text when guard_probe approved one.
-AUDIT_PROBE=''
-
-# sha256_hex <text>: the digest of the text, `-` when no tool can compute it.
-sha256_hex() {
-  local h
-  if command -v sha256sum >/dev/null 2>&1; then
-    h=$(printf '%s' "$1" | sha256sum 2>/dev/null) || h=-
-  else
-    h=$(printf '%s' "$1" | shasum -a 256 2>/dev/null) || h=-
-  fi
-  h=${h%% *}
-  [[ $h =~ ^[0-9a-f]{64}$ ]] || h=-
-  printf '%s' "$h"
-}
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
 # trailing newlines already removed, is recorded only as its SHA-256, never
-# as text, since commands carry what workers type; a vetted probe script's
-# text is recorded the same way, beside it. One append write, so
+# as text, since commands carry what workers type. One append write, so
 # concurrent hook calls interleave whole lines; a write that fails is dropped and the approval stands. The log is
 # checked again here because a FIFO in its place would hang the hook.
 audit_append() {
@@ -192,13 +172,19 @@ audit_append() {
   [ -n "$arm" ] || arm=read-only
   [[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]] || sid=-
   t=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || t=-
-  h=$(sha256_hex "$1")
+  if command -v sha256sum >/dev/null 2>&1; then
+    h=$(printf '%s' "$1" | sha256sum 2>/dev/null) || h=-
+  else
+    h=$(printf '%s' "$1" | shasum -a 256 2>/dev/null) || h=-
+  fi
+  h=${h%% *}
+  [[ $h =~ ^[0-9a-f]{64}$ ]] || h=-
   if [ -e "$f" ] || [ -L "$f" ]; then
     [ -f "$f" ] && [ ! -L "$f" ] || return 0
   fi
   (
     umask 077
-    printf '%s\n' "time=$t session=$sid arm=$arm cmd_sha256=$h${AUDIT_PROBE:+ probe_sha256=$AUDIT_PROBE}" >>"$f"
+    printf '%s\n' "time=$t session=$sid arm=$arm cmd_sha256=$h" >>"$f"
   ) 2>/dev/null || :
 }
 
@@ -1390,9 +1376,9 @@ floor_act_words() {
 # whose every target canonicalizes strictly inside the scratch root and
 # outside the trusted names ob_excluded_name lists, and resolves a literal
 # `$TMPDIR` to that root (analyze_command). The root comes from the record;
-# the inherited TMPDIR only has to agree with it. Nothing there is trusted to
-# run beyond the one probe script guard_probe vets: the script runners admit
-# only repository and installed-plugin code.
+# the inherited TMPDIR only has to agree with it. Nothing there is ever
+# trusted to run: the script runners admit only repository and
+# installed-plugin code.
 OB_ON=0
 SC_ON=0
 OB_WROTE=0
@@ -3460,101 +3446,14 @@ guard_mdlint() {
 }
 
 guard_bashsh() {
-  # `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo code
-  # or an installed planwright root's scripts/; any option (notably -c /
-  # -ec) defers (REQ-A1.5, REQ-A1.9). `sh <probe>` also runs a probe script
-  # the worker wrote in its own scratch directory (guard_probe).
+  # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
+  # code or an installed planwright root's scripts/; any option (notably -c /
+  # -ec) defers (REQ-A1.5, REQ-A1.9).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
     -*) return 1 ;;
   esac
-  is_trusted_script "${cw[1]}" "$HOOK_CWD" && return 0
-  [ "${cw[0]}" = sh ] && [ "$cwn" -eq 2 ] && guard_probe
-}
-
-# guard_probe: `sh <scratch>/<dir>/<name>.sh`, a probe script the worker wrote
-# in a directory of its own under the scratch root its session record names,
-# approved when what it holds is itself approved. It is the one run of a file
-# from the scratch root, so it is held tight:
-# - the whole command is that one call, behind at most `time` and `timeout`,
-#   because any other segment (a redirect, `cp`, `tee`) could rewrite the file
-#   after this read and before the run;
-# - the record names the scratch root and an audit log, since an approval that
-#   runs a file from the scratch root must be traceable;
-# - the path is a plain absolute literal, spelled from the recorded root or
-#   from the session's own absolute TMPDIR (which HOOK_TMPDIR_IS_SCRATCH proved
-#   names it), two levels down, no symlink or second hard link on the way, a
-#   file the session owns;
-# - the file is read once, here, at most one byte past the cap, and refused
-#   when it holds a NUL or a control byte beyond newline and tab (the
-#   tokenizer and `sh` disagree on carriage return, form feed and vertical
-#   tab);
-# - only leading blank lines, comments (the shebang included) and `set -e`/`-u`
-#   lines are set aside, judged on space and tab alone, so no quote can hide
-#   behind a comment; everything else, the original lines, runs through the
-#   analysis one level deeper, where no policy arm and no spec-root write zone
-#   is live, no probe can nest, and the secret-variable screen reads the body,
-#   so a write, redirect, unlisted pipe or substitution defers. It shares
-#   MAX_SCANNED and the loop bound with the typed command.
-# A rewrite by another process between this read and the run is the one window
-# left open; the audit line carries the content's digest, so the approval can
-# be matched to what was judged.
-guard_probe() {
-  local p=${cw[1]} base rel d content='' line body='' t rc lead=1
-  local re_name='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.sh$'
-  local re_cmd='^[[:blank:]]*(([[:blank:]]*(time|timeout[[:blank:]]+[0-9]+[smhd]?)[[:blank:]]+)*)sh[[:blank:]]+([^[:space:]]+)[[:blank:]]*$'
-  local re_set='^set -[eu]+$'
-  [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ] && [ -n "$REC_SCRATCH" ] && [ -n "$REC_AUDIT_LOG" ] && [ "$HOOK_DEPTH" -eq 0 ] || return 1
-  [[ $HOOK_RAW_CMD =~ $re_cmd ]] && [ "${BASH_REMATCH[4]}" = "$p" ] || return 1
-  [ "${cqp[1]}" -lt 0 ] && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" || return 1
-  case $p in
-    "$REC_SCRATCH"/?*) base=$REC_SCRATCH ;;
-    *)
-      base=${TMPDIR%/}
-      case $base in
-        /?*) ;;
-        *) return 1 ;;
-      esac
-      case $p in
-        "$base"/?*) ;;
-        *) return 1 ;;
-      esac
-      ;;
-  esac
-  rel=${p#"$base"/}
-  [[ $rel =~ $re_name ]] || return 1
-  d=${rel%%/*}
-  [ -d "$base/$d" ] && [ ! -L "$base/$d" ] && [ "$(cd -P -- "$base/$d" 2>/dev/null && pwd -P)" = "$REC_SCRATCH/$d" ] || return 1
-  [ -f "$p" ] && [ ! -L "$p" ] && [ -O "$p" ] && [ -r "$p" ] || return 1
-  [ "$(find "$p" -maxdepth 0 -links 1 2>/dev/null)" = "$p" ] || return 1
-  # With -d '' the read stops at a NUL byte or at the length cap and succeeds;
-  # only the end of the file, whole, makes it fail with status 1.
-  IFS= read -r -d '' -n "$((MAX_CMD_LEN + 1))" content <"$p"
-  rc=$?
-  [ "$rc" = 1 ] && [ -n "$content" ] || return 1
-  t=${content//$'\n'/}
-  t=${t//$'\t'/}
-  case $t in
-    *[[:cntrl:]]*) return 1 ;;
-  esac
-  while IFS= read -r line; do
-    if [ "$lead" = 1 ]; then
-      t=${line#"${line%%[![:blank:]]*}"}
-      case $t in
-        '' | '#'*) continue ;;
-      esac
-      [[ $t =~ $re_set ]] && continue
-      lead=0
-    fi
-    body="$body$line"$'\n'
-  done <<<"$content"
-  [ -n "$body" ] || return 1
-  # The body is what runs, so the secret-variable screen reads it, not the
-  # typed `sh` line, and no spec-root write zone reaches it.
-  local HOOK_RAW_CMD=$body SPEC_ZONE=''
-  analyze_command "$body" "$((HOOK_DEPTH + 1))" || return 1
-  AUDIT_PROBE=$(sha256_hex "$content")
-  return 0
+  is_trusted_script "${cw[1]}" "$HOOK_CWD"
 }
 
 guard_fish() {
@@ -7502,7 +7401,6 @@ main() {
   IN_SUBST=0
   AUDIT_OB=0
   AUDIT_SC=0
-  AUDIT_PROBE=''
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
