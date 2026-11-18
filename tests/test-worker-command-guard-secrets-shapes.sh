@@ -103,7 +103,11 @@ for c in 'gh pr view 1 --json title --jq env' 'gh pr view 1 --jq=env' 'gh pr vie
   'gh pr view 1 --template={{env}}' 'gh issue view 1 --jq env' 'gh issue list --jq=env' 'gh run view 1 --jq env' \
   'gh run list --json name --jq env' 'gh repo view --jq env' 'gh repo view --json name -q env' \
   'gh release view v1 --jq env' 'gh release list --jq=env' 'gh pr status --jq env' 'gh pr checks 1 --jq=env' \
-  'gh api repos/o/r --template {{env}}' 'gh api repos/o/r --template={{env}}'; do
+  'gh api repos/o/r --template {{env}}' 'gh api repos/o/r --template={{env}}' \
+  'gh auth status --json hosts --jq env' 'gh auth status --jq=env' "gh auth status --json hosts --jq '\$ENV'" \
+  'gh auth status --template {{env}}' 'gh auth status --template={{env}}' 'gh auth status -a --json hosts --jq env' \
+  'gh search code foo --json path --jq env' 'gh search code foo -qenv' 'gh search issues foo --jq=env' \
+  "gh search issues foo -t '{{env}}'" 'gh search prs foo --template={{env}}' 'gh search prs foo --json number -q env'; do
   assert_defer "secrets: gh jq/template: $c" "$c"
 done
 # shellcheck disable=SC2016 # the guard reads the words as written
@@ -139,6 +143,7 @@ assert_allow "secrets: gh auth status with a jq field" "gh auth status --json ho
 assert_allow "secrets: gh pr view with a jq field" "gh pr view 1 --json title --jq .title"
 assert_allow "secrets: gh run list with a jq filter" "gh run list --json name -q .name"
 assert_allow "secrets: gh repo view with a jq filter" "gh repo view --json name --jq .name"
+assert_allow "secrets: gh search prs with a jq filter" "gh search prs foo --json number --jq '.[].number'"
 assert_allow "secrets: gh pr view of a branch named like an environment" "gh pr view environment --json title"
 for c in 'gh search code foo' 'gh search issues foo --repo o/r' 'gh search prs foo --state open' \
   'gh search code foo --json path' 'gh search issues foo --json number -L 5' 'gh search prs foo --limit 5'; do

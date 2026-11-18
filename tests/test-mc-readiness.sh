@@ -119,6 +119,9 @@ expect_rc "a cadence that could not be audited is refused" 4
 expect_out "with the reason" "fail${tab}cadence${tab}not audited: no worktree holds the branch"
 walk_with "cadence failed step" '-' "cadence${tab}gap${tab}convergence${tab}failed${tab}polish:halted"
 expect_out "a failed step reads with its outcome" "fail${tab}cadence${tab}convergence: polish recorded halted"
+walk_with "cadence unaudited step" '-' "cadence${tab}gap${tab}convergence${tab}unaudited${tab}polish"
+expect_rc "a cadence with a record the step-record truth check refuses is refused" 4
+expect_out "and reads as not audited, not done" "fail${tab}cadence${tab}not audited: convergence: polish fails the step-record truth check"
 walk_with "cadence stale" '-' "cadence${tab}gap${tab}post-pr${tab}stale${tab}2222222222222222222222222222222222222222"
 expect_out "a stale point names where it completed" "fail${tab}cadence${tab}post-pr: completed only at 222222222222"
 walk_with "cadence mismatch" '-' "cadence${tab}gap${tab}convergence${tab}mismatch${tab}head:polish"
@@ -289,6 +292,10 @@ expect_rc "a short head is a usage error" 2
 # collect: the forge read, the step records and the guard, at the head. The
 # gh stub runs the script's own jq programs over fixture JSON.
 # ---------------------------------------------------------------------------
+# The polish fixtures below are applied, so the head they began on must be a
+# real ancestor of the one they ended on.
+git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m zero
+prev=$(git -C "$repo" rev-parse HEAD)
 git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m one
 head=$(git -C "$repo" rev-parse HEAD)
 rec() { mc_run mc-readiness.sh record --program alpha --repo "$1" --pr "$2" --head "$3" --kind screenshot --ref "$4" --judgment "$5"; }
@@ -298,8 +305,8 @@ rec acme/web 7 "$H" shots/stale.png ok
 rec acme/web 8 "$head" shots/other-pr.png ok
 (cd "$repo" && PLANWRIGHT_ROOT="$core" /bin/bash "$repo_root/scripts/step-record.sh" new-run >/dev/null \
   && /bin/bash "$repo_root/scripts/step-record.sh" write --run 000001 --point convergence --step polish --kind skill \
-    --target polish --hosting isolated --backend none --head "$head" --end-head "$head" \
-    --start 2026-10-28T00:00:00Z --end 2026-10-28T00:01:00Z --outcome applied >/dev/null \
+    --target polish --hosting isolated --backend none --head "$prev" --end-head "$head" \
+    --start 2026-10-28T00:00:07Z --end 2026-10-28T00:01:19Z --outcome applied >/dev/null \
   && /bin/bash "$repo_root/scripts/step-record.sh" write --completion --run 000001 --point convergence --head "$head" >/dev/null) \
   || fail "the fixture step record"
 mkdir -p "$tmp/bin"
@@ -479,8 +486,8 @@ git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt
 # holds the head: the audit judges the records against the pull request's head.
 (cd "$tmp/feature-wt" && PLANWRIGHT_ROOT="$core" /bin/bash "$repo_root/scripts/step-record.sh" new-run >/dev/null \
   && /bin/bash "$repo_root/scripts/step-record.sh" write --run 000001 --point convergence --step polish --kind skill \
-    --target polish --hosting isolated --backend none --head "$head" --end-head "$head" \
-    --start 2026-10-28T00:00:00Z --end 2026-10-28T00:01:00Z --outcome applied >/dev/null \
+    --target polish --hosting isolated --backend none --head "$prev" --end-head "$head" \
+    --start 2026-10-28T00:00:07Z --end 2026-10-28T00:01:19Z --outcome applied >/dev/null \
   && /bin/bash "$repo_root/scripts/step-record.sh" write --completion --run 000001 --point convergence --head "$head" >/dev/null) \
   || fail "the fixture step record in the feature worktree"
 git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed

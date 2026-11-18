@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.79.0](https://github.com/inkatze/planwright/compare/v0.78.0...v0.79.0) (2026-11-18)
+
+
+### Features
+
+* refuse a step record that overstates what happened (step-record truth check) ([#1037](https://github.com/inkatze/planwright/issues/1037)) ([0726af6](https://github.com/inkatze/planwright/commit/0726af6316c07f090e11c8d7a1e796c3ca407f69))
+* **spec:** control-plane kickoff sign-off ([#1087](https://github.com/inkatze/planwright/issues/1087)) ([d535036](https://github.com/inkatze/planwright/commit/d535036b774a1058d9066129721a0dbffcd35a29))
+
+
+### Bug Fixes
+
+* a deny answer always carries a non-empty message ([#1022](https://github.com/inkatze/planwright/issues/1022)) ([d05f743](https://github.com/inkatze/planwright/commit/d05f7432f7b8a3e3cc7725046abd923f33f367a3))
+* **ci:** give PR-Agent a full review on a push that brings in a merge ([#1085](https://github.com/inkatze/planwright/issues/1085)) ([5e867a3](https://github.com/inkatze/planwright/commit/5e867a3769cd06c285af37b588a32d8dd19a54f9))
+* close two kickoff-push detection gaps in the policy guard ([#991](https://github.com/inkatze/planwright/issues/991)) ([40347ed](https://github.com/inkatze/planwright/commit/40347ed631b8f90bfb710ee940a8628b36e1ef9f))
+* let mission control write and read its own program-home stores ([#1024](https://github.com/inkatze/planwright/issues/1024)) ([d16165a](https://github.com/inkatze/planwright/commit/d16165a8f345832de887a46bb7769cd6551cd1ad))
+* **steps:** refuse a step record that does not match its branch ([#1052](https://github.com/inkatze/planwright/issues/1052)) ([35346cb](https://github.com/inkatze/planwright/commit/35346cb65d2d0c3690957a37a98a6da6f2b3dcfb))
+* stop the command guards auto-allowing near-spellings of git exec options ([#1093](https://github.com/inkatze/planwright/issues/1093)) ([58a7782](https://github.com/inkatze/planwright/commit/58a7782fe00f3bfc149ebe3d55674a272c15e16d))
+* stop the tower guard approving gh reads that print the token or environment or open a browser ([#1090](https://github.com/inkatze/planwright/issues/1090)) ([bde8f32](https://github.com/inkatze/planwright/commit/bde8f32e3fa60f0fae5f8b44253a130073ec966b))
+* stop the worker guard approving gh reads that print the environment or open a browser ([#1089](https://github.com/inkatze/planwright/issues/1089)) ([de51428](https://github.com/inkatze/planwright/commit/de514288757d9c97ddd268d4169bb34187ab2cb7))
+
 ## [0.78.0](https://github.com/inkatze/planwright/compare/v0.77.0...v0.78.0) (2026-11-16)
 
 
