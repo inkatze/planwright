@@ -2103,8 +2103,9 @@ kickoff_script_at() {
   [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
 }
 
-# kickoff_filt_passed — record what the git read kickoff_cmd_reads just passed
-# leaves for kickoff_text_check.
+# kickoff_filt_passed — after a mention passed kickoff_cmd_reads, carry its
+# KGR_* results into KICK_FILT_PASSED, KICK_INC_PASSED and, for the first
+# filter-capable step, KICK_FILT_STEP.
 kickoff_filt_passed() {
   if [ "$KGR_FILT" = 1 ]; then
     KICK_FILT_PASSED=1
@@ -2457,7 +2458,8 @@ kickoff_head_moves() {
 # segments read above; a name in a redirect, a -c string or a quoted or
 # spelled-out form is refused. A stage a filter program would run for is
 # refused here when any segment, in any order, may set one, may make a
-# conditional include apply, or changes directory after it.
+# conditional include apply, or changes directory after it, and in any case
+# when it shares its line with another command.
 kickoff_text_check() {
   kick_count "$P_CMD"
   [ "$KC" = "$((KICK_SEEN + KICK_PASSED))" ] \
@@ -2473,7 +2475,9 @@ kickoff_text_check() {
   [ "$KICK_CD_AFTER" = 0 ] \
     || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh and changes directory after it, so a loop can run it again in a repository whose filter programs the guard never read - refusing (fail closed). Change directory first, or run it on its own."
   # Whatever else the line runs could set a filter program first in a way the
-  # checks above cannot read, so such a step stands alone.
+  # checks above cannot read, so such a step stands alone. The checks above
+  # still run first, for their sharper reason, and the include one also
+  # catches a lone commit.
   [ "$KICK_FILT_PASSED" = 0 ] || [ "${#SEG_S[@]}" = 1 ] \
     || deny_now "this command runs git $KICK_FILT_STEP on scripts/kickoff-spec-push.sh beside other commands, and a git step that can run a filter program on the script must be the only command in its line, since another command in it could set one first - refusing. Split the line into separate commands, with git $KICK_FILT_STEP on scripts/kickoff-spec-push.sh as a command of its own."
 }
