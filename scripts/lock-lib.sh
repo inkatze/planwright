@@ -1311,6 +1311,22 @@ _pw_lock_take_link() {
   _pwm_lock=$1
   _pwm_token=$2
   if [ "$(readlink "$_pwm_lock" 2>/dev/null)" != "$_pwm_token" ]; then
+    # A signal can land after this shell moved its own link aside and before it
+    # removed it, and a handler that releases re-enters here: the lock path no
+    # longer holds the token, but the aside still does. Finishing that removal
+    # is the release the interrupted call owed; forgetting the hold and leaving
+    # would strand the aside under a name that reads as a lock. The aside is
+    # ours only when it sits beside this lock under the taken kind and carries
+    # this very token, which a stranger's link never does.
+    case ${_pw_lock_displaced:-} in
+      "$_pwm_lock#taken#"*)
+        if [ "$(readlink "$_pw_lock_displaced" 2>/dev/null)" = "$_pwm_token" ]; then
+          rm -f "$_pw_lock_displaced" 2>/dev/null || return 2
+          _pw_lock_forget "$_pwm_lock" "$_pwm_token"
+          return 0
+        fi
+        ;;
+    esac
     _pw_lock_forget "$_pwm_lock" "$_pwm_token"
     return 1
   fi

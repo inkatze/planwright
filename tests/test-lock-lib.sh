@@ -2446,6 +2446,54 @@ kill "$broken_live" 2>/dev/null
 wait "$broken_live" 2>/dev/null
 rm -f "$tmp"/busy.lock*
 
+# ---------------------------------------------------------------------------
+# 62. A signal inside a release's unlink leaves nothing behind
+# ---------------------------------------------------------------------------
+#
+# A release moves the link aside before it removes it. A second signal landing
+# in between (a group-wide HUP followed by the parent's TERM) runs the handler
+# inside that release: the lock path no longer holds the token, but the aside
+# still does, and the handler used to forget the hold and leave, stranding the
+# aside under a name that reads as a lock.
+
+# sig_in_unlink <lock> <handler> — acquire <lock>, then deliver one TERM at the
+# moment the release removes its displaced link, under the given trap handler.
+sig_in_unlink() {
+  run_sh x 'cd "$1" || exit 9
+    '"$2"'
+    pw_lock_acquire ./'"$1"' >/dev/null || exit 9
+    fired=""
+    rm() {
+      case $* in *"#taken#"*)
+        if [ -z "$fired" ]; then fired=1; kill -s TERM $$; fi ;;
+      esac
+      command rm "$@"
+    }
+    pw_lock_release ./'"$1"'
+    printf "survived\n"' 2>/dev/null
+}
+sig_in_unlink sg.lock 'pw_lock_trap_install' >/dev/null
+left="$(find "$tmp" -maxdepth 1 -name 'sg.lock*' | wc -l | tr -d ' ')"
+assert_eq "a TERM inside the unlink leaves no lock name behind" "0" "$left"
+rm -rf "$tmp"/sg.lock*
+# The handler a holder writes for itself (release, then leave) is the same case.
+sig_in_unlink sg2.lock "trap 'pw_lock_release_all; exit 143' TERM" >/dev/null
+left="$(find "$tmp" -maxdepth 1 -name 'sg2.lock*' | wc -l | tr -d ' ')"
+assert_eq "and so does a handler that calls pw_lock_release_all itself" "0" "$left"
+rm -rf "$tmp"/sg2.lock*
+# What the handler must not do is take a stranger's link with it: a lock that
+# changed hands while this shell's release was in flight stays with its holder.
+out="$(run_sh x 'cd "$1" || exit 9
+  pw_lock_acquire ./sg3.lock >/dev/null || exit 9
+  mine=$PW_LOCK_TOKEN
+  rm -f ./sg3.lock
+  ln -s "999999-1-1-999999-1" ./sg3.lock
+  pw_lock_release_all
+  printf "%s\n" "$(readlink ./sg3.lock)"')"
+assert_eq "a hold broken underneath its holder leaves the new holder's lock alone" \
+  "999999-1-1-999999-1" "$out"
+rm -rf "$tmp"/sg3.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
