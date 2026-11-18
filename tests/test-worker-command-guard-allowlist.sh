@@ -67,6 +67,7 @@ assert_allow "umask 022, then a repo suite" "umask 022 && bash tests/ok.sh" Bash
 assert_allow "umask 0022, then a repo suite" "umask 0022 && bash tests/ok.sh" Bash "$WT"
 assert_allow "a bare umask" "umask" Bash "$WT"
 assert_allow "umask -S" "umask -S" Bash "$WT"
+assert_allow "umask -p" "umask -p" Bash "$WT"
 assert_allow "umask 077" "umask 077 && bash tests/ok.sh" Bash "$WT"
 assert_allow "umask 002" "umask 002 && bash tests/ok.sh" Bash "$WT"
 for c in 'umask 0' 'umask 000' 'umask 0000' 'umask 2' 'umask 22' 'umask 021' 'umask 020' 'umask 00000'; do
@@ -190,6 +191,35 @@ assert_defer "a probe with its stderr redirected" "sh $SC/probe.d/ok.sh 2>&1" Ba
 assert_defer "a probe fed from a file" "sh $SC/probe.d/ok.sh < f" Bash "$WT"
 assert_defer "a probe in a loop" "for n in a b; do sh $SC/probe.d/ok.sh; done" Bash "$WT"
 assert_defer "a probe in fish -c" "fish -c 'sh $SC/probe.d/ok.sh'" Bash "$WT"
+# Each neighbour here is itself approvable, so only the lone-call rule can
+# defer these.
+assert_defer "a read before the probe" "ls && sh $SC/probe.d/ok.sh" Bash "$WT"
+assert_defer "a read after the probe" "sh $SC/probe.d/ok.sh; ls" Bash "$WT"
+assert_defer "the probe piped into a read" "sh $SC/probe.d/ok.sh | grep x" Bash "$WT"
+assert_defer "a read and the probe on separate lines" "$(printf 'ls\nsh %s/probe.d/ok.sh' "$SC")" Bash "$WT"
+assert_defer "the probe and a read on separate lines" "$(printf 'sh %s/probe.d/ok.sh\nls' "$SC")" Bash "$WT"
+assert_defer "a probe under || with a read" "ls || sh $SC/probe.d/ok.sh" Bash "$WT"
+# A body that only a policy arm or the spec-root zone could approve defers
+# inside a probe, where neither is live.
+printf 'touch %s/probe.d/made\n' "$SC" >"$SC/probe.d/arm-touch.sh"
+printf 'printf x > %s/probe.d/made\n' "$SC" >"$SC/probe.d/arm-redirect.sh"
+printf 'mkdir -p %s/probe.d/sub\n' "$SC" >"$SC/probe.d/arm-mkdir.sh"
+printf 'cd %s\nls\n' "$WT" >"$SC/probe.d/arm-cd.sh"
+printf 'rm -f %s/probe.d/made\n' "$SC" >"$SC/probe.d/arm-rm.sh"
+printf 'echo "$DEPLOY_KEY"1\n' >"$SC/probe.d/secretvar.sh"
+printf 'ls "$MY_PAT"x\n' >"$SC/probe.d/secretvar2.sh"
+for f in arm-touch arm-redirect arm-mkdir arm-cd arm-rm secretvar secretvar2; do
+  assert_defer "a probe body that only a policy arm could approve, or that names a secret variable: $f" "sh $SC/probe.d/$f.sh" Bash "$WT"
+done
+ZONE=$SANDBOX/zone/specs
+mkdir -p "$ZONE/demo"
+printf 'project: fixture\nlayout: 1\n' >"$ZONE/planwright-spec-root.yml"
+printf '# Demo\n' >"$ZONE/demo/requirements.md"
+printf 'ls > %s/demo/note.md\n' "$ZONE" >"$SC/probe.d/zone.sh"
+HOOK_ENV=("${GIT_ISO[@]}" "TMPDIR=$SC" "PLANWRIGHT_WORKER_SESSION_RECORD=$REC" "PLANWRIGHT_WORKER_SPEC_ROOT=$ZONE")
+assert_allow "the spec-root zone approves a typed redirect (the control for the next row)" "ls > $ZONE/demo/note.md" Bash "$WT"
+assert_defer "the spec-root zone does not reach a probe body" "sh $SC/probe.d/zone.sh" Bash "$WT"
+under
 assert_defer "a probe holding a write" "sh $SC/probe.d/write.sh" Bash "$WT"
 assert_defer "a probe holding a redirect" "sh $SC/probe.d/redir.sh" Bash "$WT"
 assert_defer "a probe holding a pipe into a shell" "sh $SC/probe.d/pipe.sh" Bash "$WT"
@@ -250,7 +280,20 @@ ln -s "$SC" "$CORPUS_BOX/scratch.link"
 under "$REC" "$CORPUS_BOX/scratch.link"
 assert_allow "a probe while TMPDIR reaches the root through a symlink" "sh $SC/probe.d/ok.sh" Bash "$WT"
 assert_allow "a probe typed through the TMPDIR spelling of the root" "sh $CORPUS_BOX/scratch.link/probe.d/ok.sh" Bash "$WT"
-assert_defer "a probe typed through a symlink that is not the session's TMPDIR" "sh $SC/../scratch.link/probe.d/ok.sh" Bash "$WT"
+under "$REC" "$SC"
+assert_defer "a probe typed through a symlink that is not the session's TMPDIR" "sh $CORPUS_BOX/scratch.link/probe.d/ok.sh" Bash "$WT"
+assert_defer "a probe typed with a .. component through the root" "sh $SC/../scratch/probe.d/ok.sh" Bash "$WT"
+# A relative TMPDIR names the root only from the hook's own directory; the
+# shell runs the command from the payload's, so it is never trusted.
+ORIG_PWD=$PWD
+cd "$CORPUS_BOX" || exit 1
+under "$REC" "scratch"
+assert_defer "a probe while TMPDIR is a relative path" "sh scratch/probe.d/ok.sh" Bash "$WT"
+cd "$ORIG_PWD" || exit 1
+printf 'policy=\nunit_branch=%s\nworktree_root=%s\npr_base=origin/main\nworker_base_merge=allow\nscratch_root=%s\n' \
+  "$CORPUS_UNIT_BRANCH" "$WT" "$SC" >"$STATE/nolog.record"
+under "$STATE/nolog.record"
+assert_defer "a probe when the record names no audit log home" "sh $SC/probe.d/ok.sh" Bash "$WT"
 under
 
 echo "### a probe beside a writer in the same command, under each write policy"
@@ -260,10 +303,12 @@ echo "### a probe beside a writer in the same command, under each write policy"
 for col in 3 4; do
   under "$STATE/record.$col"
   assert_allow "policy column $col: the lone probe" "sh $SC/probe.d/ok.sh" Bash "$WT"
-  if grep -q ' probe_sha256=[0-9a-f]\{64\}$' "$STATE/audit.$col/record.$col.log"; then
-    pass "policy column $col: the audit line carries the probe's digest"
+  want=$(sha256sum <"$SC/probe.d/ok.sh")
+  want=${want%% *}
+  if grep -q " probe_sha256=$want\$" "$STATE/audit.$col/record.$col.log"; then
+    pass "policy column $col: the audit line carries the digest of the probe's text"
   else
-    fail "policy column $col: the audit line must carry the probe's digest"
+    fail "policy column $col: the audit line must carry the SHA-256 of the probe's text"
   fi
   assert_defer "policy column $col: a redirect rewrites it, then it runs" "printf 'rm g\\n' > $SC/probe.d/ok.sh && sh $SC/probe.d/ok.sh" Bash "$WT"
   assert_defer "policy column $col: the same with ;" "printf 'rm g\\n' > $SC/probe.d/ok.sh; sh $SC/probe.d/ok.sh" Bash "$WT"
@@ -318,7 +363,13 @@ assert_defer "a kind flag with nothing to run" "$CR --check --" Bash "$SR_WT"
 assert_defer "a kind flag then a chain" "$CR --check -- mise run check && rm g" Bash "$SR_WT"
 assert_defer "a kind flag then a redirect" "$CR --check -- mise run check > out" Bash "$SR_WT"
 assert_defer "a kind flag then a pipe into a shell" "$CR --check -- mise run check | sh" Bash "$SR_WT"
-assert_defer "a kind flag and a router as the command" "$CR --check -- $CR --check -- mise run check" Bash "$SR_WT"
+assert_defer "a kind flag with no value" "$CR --task -- mise run x" Bash "$SR_WT"
+assert_defer "a task kind flag with nothing after it" "$CR --task" Bash "$SR_WT"
+assert_defer "a test kind flag with nothing after it" "$CR --test" Bash "$SR_WT"
+assert_defer "a quoted router word" "\"$CR\" --check -- mise run check" Bash "$SR_WT"
+assert_defer "the task form naming check, which the router maps to --check" "$CR --task check -- mise run check" Bash "$SR_WT"
+assert_defer "a router run by the router, bare" "$CR -- $CR -- bash tests/ok.sh" Bash "$SR_WT"
+assert_defer "a kind flag whose command is not the one it maps to, a router" "$CR --check -- $CR --check -- mise run check" Bash "$SR_WT"
 assert_defer "the checkout's own copy of the router with a kind flag" "scripts/compute-route.sh --check -- mise run check" Bash "$SR_WT"
 assert_defer "a kind flag through a variable" "$CR --check -- mise run \$T" Bash "$SR_WT"
 

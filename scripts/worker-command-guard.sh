@@ -5,7 +5,8 @@
 # config/worker-settings.json (Task 2), it reads a Claude Code PreToolUse
 # payload on stdin and prints a `permissionDecision: allow` decision for an
 # ENUMERATED set of known-safe Bash command shapes (read-only shapes, trusted
-# repo code, and the spec-root write zone) — silencing the
+# repo code, a vetted scratch probe script, and the spec-root write zone) —
+# silencing the
 # permission-prompt flood on the shapes /execute-task actually issues (plugin
 # scripts, `for`/`while` loops, read-only git/coreutil pipelines) — and DEFERS
 # everything else to Claude Code's normal permission flow.
@@ -22,7 +23,8 @@
 #     included. The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
-#     shapes, trusted repo code, declared steps, the spec-root write zone) is
+#     shapes, trusted repo code, declared steps, a vetted scratch probe, the
+#     spec-root write zone) is
 #     always in force; the own-branch arm, which approves writes confined to
 #     the unit branch and its worktree, and the scratch arm, which approves
 #     writes confined to the worker's scratch root, each only when the session
@@ -113,8 +115,9 @@ export LC_ALL
 # hang a worker's tool call; a longer command simply defers (never worse than
 # the normal prompt). Three routes re-enter analyze_command on text inside the
 # command, a `fish -c "<inner>"` string, a command substitution's inner
-# text and a vetted probe script's body (guard_probe), and a loop body is walked once per head word, each walk costing in
-# proportion to its words' length. So MAX_SCANNED caps the text one hook call
+# text and a vetted probe script's body (guard_probe), and a loop body is
+# walked once per head word, each walk costing in proportion to its words'
+# length. So MAX_SCANNED caps the text one hook call
 # may tokenize and walk together, every entry and loop pass counted: past it
 # the command defers, which keeps the end-to-end cost near that of a few
 # full-length entries, plus STEPS_DEADLINE when a segment reaches the
@@ -176,7 +179,8 @@ sha256_hex() {
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
 # trailing newlines already removed, is recorded only as its SHA-256, never
-# as text, since commands carry what workers type. One append write, so
+# as text, since commands carry what workers type; a vetted probe script's
+# text is recorded the same way, beside it. One append write, so
 # concurrent hook calls interleave whole lines; a write that fails is dropped and the approval stands. The log is
 # checked again here because a FIFO in its place would hang the hook.
 audit_append() {
@@ -3403,11 +3407,8 @@ guard_file() {
 # dumps raw data to a file, `-F`/`--filter` reads one, `-N`/`--net` enters a
 # namespace, `-b`/`--bpf` loads a program, `-r`/`--resolve` queries DNS, and
 # `-E`/`--events` never returns. Only the enumerated display and selection
-# flags pass (short letters: n numeric, t tcp, u udp, l listening, a all,
-# x unix, w raw, d dccp, S sctp, s summary, i info, e extended, m memory,
-# p processes, o options, H no header, 4 6 0 families, O one line), and a
-# filter expression only as plain words, so nothing is read from a variable, a
-# substitution or a glob.
+# flags pass, and a filter expression only as plain words, so nothing is read
+# from a variable, a substitution or a glob.
 guard_ss() {
   local i a body
   for ((i = 1; i < cwn; i++)); do
@@ -3499,14 +3500,17 @@ guard_probe() {
   local re_name='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.sh$'
   local re_cmd='^[[:blank:]]*(([[:blank:]]*(time|timeout[[:blank:]]+[0-9]+[smhd]?)[[:blank:]]+)*)sh[[:blank:]]+([^[:space:]]+)[[:blank:]]*$'
   local re_set='^set -[eu]+$'
-  [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ] && [ -n "$REC_SCRATCH" ] && [ "$HOOK_DEPTH" -eq 0 ] || return 1
+  [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ] && [ -n "$REC_SCRATCH" ] && [ -n "$REC_AUDIT_LOG" ] && [ "$HOOK_DEPTH" -eq 0 ] || return 1
   [[ $HOOK_RAW_CMD =~ $re_cmd ]] && [ "${BASH_REMATCH[4]}" = "$p" ] || return 1
   [ "${cqp[1]}" -lt 0 ] && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" || return 1
   case $p in
     "$REC_SCRATCH"/?*) base=$REC_SCRATCH ;;
     *)
       base=${TMPDIR%/}
-      [ -n "$base" ] || return 1
+      case $base in
+        /?*) ;;
+        *) return 1 ;;
+      esac
       case $p in
         "$base"/?*) ;;
         *) return 1 ;;
@@ -3541,6 +3545,9 @@ guard_probe() {
     body="$body$line"$'\n'
   done <<<"$content"
   [ -n "$body" ] || return 1
+  # The body is what runs, so the secret-variable screen reads it, not the
+  # typed `sh` line, and no spec-root write zone reaches it.
+  local HOOK_RAW_CMD=$body SPEC_ZONE=''
   analyze_command "$body" "$((HOOK_DEPTH + 1))" || return 1
   AUDIT_PROBE=$(sha256_hex "$content")
   return 0
@@ -6305,8 +6312,7 @@ strip_prefixes() {
 # only beside the one command the router itself maps to that kind, which is
 # what the bare form would have run: `--check -- mise run check`,
 # `--task <name> -- mise run <name>`, `--test tests/test-<name>.sh -- bash
-# tests/test-<name>.sh` (the router's own grammar in scripts/compute-route.sh,
-# which these patterns keep mirroring). Any other pairing, two kinds, and a router with
+# tests/test-<name>.sh` (the router's own grammar). Any other pairing, two kinds, and a router with
 # nothing to run, or another router as that command, defer.
 # is_trusted_script refuses the script as a verb, so no other spelling reaches
 # the router.
@@ -6344,7 +6350,7 @@ strip_compute_route() {
       ;;
     task)
       end=$((n + 4))
-      [[ $val =~ $re_task ]] && [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = mise ] && [ "${cw[n + 2]}" = run ] && [ "${cw[n + 3]}" = "$val" ] || return 1
+      [[ $val =~ $re_task ]] && [ "$val" != check ] && [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = mise ] && [ "${cw[n + 2]}" = run ] && [ "${cw[n + 3]}" = "$val" ] || return 1
       ;;
     test)
       end=$((n + 3))
