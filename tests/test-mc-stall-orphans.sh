@@ -195,7 +195,10 @@ case $row in
 esac
 case $row in *"state directory"*"is gone"*) ok "the reason names the state directory" ;; *) fail "the reason does not name the gone state directory: $row" ;; esac
 case $row in *"working directory"*"is gone"*) ok "the reason names the working directory" ;; *) fail "the reason does not name the gone working directory: $row" ;; esac
-case $row in *"worker pid $gone_worker"*) ok "the reason names the worker it holds" ;; *) fail "the reason does not name worker $gone_worker: $row" ;; esac
+case $row in
+  *"worker pid $gone_worker"*) ok "the reason names the worker it holds" ;;
+  *) fail "the reason does not name worker $gone_worker: $row; the worker runs: $(ps -o pid=,ppid=,args= -p "$gone_worker" 2>&1)" ;;
+esac
 unlisted() { # unlisted <pid> <label>
   if [ -z "$(orphan_row "$1")" ]; then
     ok "$2"
