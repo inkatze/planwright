@@ -413,7 +413,7 @@ RE_MC_GIT_GREP_O='[[:space:]]grep[[:space:]](.*[[:space:]])?-[A-Za-z]*O'
 # cat-file.
 RE_MC_GIT_LSREMOTE_U='[[:space:]]ls-remote[[:space:]](.*[[:space:]])?--u'
 RE_MC_GIT_CATFILE_FIL='[[:space:]]cat-file[[:space:]](.*[[:space:]])?--(fi|t)'
-RE_MC_GIT_EXEC_FLAG='(^|[[:space:]])(--outp[^[:space:]]*|--ext[^[:space:]]*|--textc[^[:space:]]*|--op[^[:space:]]*|--exec[^[:space:]]*)'
+RE_MC_GIT_EXEC_FLAG='(^|[[:space:]])(--outp[^[:space:]]*|--ex?([^A-Za-z0-9_-]|$)|--ext[^[:space:]]*|--textc[^[:space:]]*|--op[^[:space:]]*|--exec[^[:space:]]*)'
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
 
@@ -1738,13 +1738,16 @@ KICK_HEAD_MOVED=0
 KICK_BESIDE=0
 # KGR_FILT: the last git read kickoff_cmd_reads passed is one a filter program
 # runs for; KGR_INC: and its repository has a conditional include (KFS_INC,
-# from kick_filter_set). KICK_FILT_PASSED, KICK_INC_PASSED: a mention of the
-# script passed as such.
+# from kick_filter_set); KGR_STEP: its subcommand. KICK_FILT_PASSED,
+# KICK_INC_PASSED: a mention of the script passed as such; KICK_FILT_STEP: the
+# subcommand of the first that did.
 KGR_FILT=0
 KGR_INC=0
+KGR_STEP=''
 KFS_INC=0
 KICK_FILT_PASSED=0
 KICK_INC_PASSED=0
+KICK_FILT_STEP=''
 # A directory change after such a mention: a loop can run the mention again
 # in a repository the guard never read.
 KICK_CD_AFTER=0
@@ -1925,7 +1928,7 @@ kickoff_git_reads() {
               ;;
             # git cat-file takes any unambiguous prefix of --textconv, down to
             # --t, so git log's --text is refused beside the script too.
-            --op* | --ou* | --ext | --ext-* | --t | --te | --tex | --text | --textc*) return 1 ;;
+            --op* | --ou* | --e | --ex | --ext | --ext-* | --t | --te | --tex | --text | --textc*) return 1 ;;
             --no-ext-diff) noext=1 ;;
             --no-textconv) notext=1 ;;
             --patch* | --unified* | --binary | --remerge-diff | --dd | --cc | --stat* | --numstat | \
@@ -1933,7 +1936,9 @@ kickoff_git_reads() {
               patchy=1
               ;;
             # git cat-file --filters (in any abbreviation) runs a configured
-            # filter program on the blob it prints.
+            # filter program on the blob it prints. A --filter spelling is
+            # refused on every subcommand, which git rejects outside cat-file.
+            --filter*) return 1 ;;
             --fi*) [ "${SW[$k]}" != cat-file ] || return 1 ;;
             --*) ;;
             -*O*) return 1 ;;
@@ -1996,6 +2001,7 @@ kickoff_git_reads() {
           KGR_INC=$KFS_INC
         fi
         KGR_FILT=$filt
+        KGR_STEP=${SW[$k]}
         return 0
         ;;
       *) return 1 ;;
@@ -2066,6 +2072,7 @@ kickoff_cmd_reads() {
   local w
   KGR_FILT=0
   KGR_INC=0
+  KGR_STEP=''
   [ "${SEG_RD[$1]:-0}" = 0 ] || return 1
   [ "$GIT_ENV_SET" = 0 ] && [ "$SW_GITENV" = 0 ] || return 1
   kickoff_verb_class "${SW[0]}"
@@ -2094,6 +2101,16 @@ RE_KICKOFF_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/kickoff-spec-push\.sh$'
 # kickoff_script_at <index> — 0 when the command word at <index> is RE_KICKOFF_SCRIPT.
 kickoff_script_at() {
   [[ ${SW[$1]} =~ $RE_KICKOFF_SCRIPT ]]
+}
+
+# kickoff_filt_passed — record what the git read kickoff_cmd_reads just passed
+# leaves for kickoff_text_check.
+kickoff_filt_passed() {
+  if [ "$KGR_FILT" = 1 ]; then
+    KICK_FILT_PASSED=1
+    [ -n "$KICK_FILT_STEP" ] || KICK_FILT_STEP=$KGR_STEP
+  fi
+  [ "$KGR_INC" = 0 ] || KICK_INC_PASSED=1
 }
 
 # kickoff_pipe_on <segment> — mark the next command as reading what this one
@@ -2193,8 +2210,7 @@ kickoff_segment() {
   fi
   if kickoff_fuzzy_name "$3"; then
     if kickoff_cmd_reads "$3"; then
-      [ "$KGR_FILT" = 0 ] || KICK_FILT_PASSED=1
-      [ "$KGR_INC" = 0 ] || KICK_INC_PASSED=1
+      kickoff_filt_passed
     else
       deny_now "this command names scripts/kickoff-spec-push.sh through a glob or an expansion the guard cannot read as a run of it - refusing (fail closed). Run it as $KICK_FORM."
     fi
@@ -2206,8 +2222,7 @@ kickoff_segment() {
   local kc=$KC
   if { [ "$kc" -gt 0 ] || [ "$named" = 1 ]; } && kickoff_mention_passes "$kc" "$3"; then
     KICK_PASSED=$((KICK_PASSED + kc))
-    [ "$KGR_FILT" = 0 ] || KICK_FILT_PASSED=1
-    [ "$KGR_INC" = 0 ] || KICK_INC_PASSED=1
+    kickoff_filt_passed
     kickoff_var_set
     kickoff_pipe_on "$3"
     return 1
@@ -2457,6 +2472,10 @@ kickoff_text_check() {
     || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh in a repository with a conditional include, and also changes git configuration, the branch or the commit, which can make that include apply (with a filter program in it) before the stage runs - refusing (fail closed). Run the change as its own command."
   [ "$KICK_CD_AFTER" = 0 ] \
     || deny_now "this command runs a git command that a filter program runs for (a stage, commit, status, diff, restore, rm, blame, annotate or ls-files -m) on scripts/kickoff-spec-push.sh and changes directory after it, so a loop can run it again in a repository whose filter programs the guard never read - refusing (fail closed). Change directory first, or run it on its own."
+  # Whatever else the line runs could set a filter program first in a way the
+  # checks above cannot read, so such a step stands alone.
+  [ "$KICK_FILT_PASSED" = 0 ] || [ "${#SEG_S[@]}" = 1 ] \
+    || deny_now "this command runs git $KICK_FILT_STEP on scripts/kickoff-spec-push.sh beside other commands, and a git step that can run a filter program on the script must be the only command in its line, since another command in it could set one first - refusing. Split the line into separate commands, with git $KICK_FILT_STEP on scripts/kickoff-spec-push.sh as a command of its own."
 }
 
 # kickoff_beside_ok <seg> — 0 when the segment may stand beside a kickoff
@@ -2502,6 +2521,7 @@ classify_segments() {
   KICK_BESIDE=0
   KICK_FILT_PASSED=0
   KICK_INC_PASSED=0
+  KICK_FILT_STEP=''
   KICK_CD_AFTER=0
   [ -d "$eff" ] || eff_ok=0
   CS_DEPTH=0
@@ -3635,7 +3655,7 @@ mc_git_reads() {
     # git takes any unambiguous prefix of a long option, so the prefixes
     # refuse too.
     case $a in
-      --outp* | --ext* | --textc*) return 1 ;;
+      --outp* | --e | --ex | --ext* | --textc*) return 1 ;;
     esac
     case $sub:$a in
       grep:--op* | grep:-O* | grep:-[!-]*O* | ls-remote:--u* | ls-remote:--exec* | cat-file:--fi* | cat-file:--t*) return 1 ;;

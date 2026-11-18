@@ -43,6 +43,11 @@ deny	git-mutation	bash	-	runs no git mutation	git update-ref refs/heads/x HEAD
 deny	git-mutation	bash	-	runs no git mutation	git stash list --output=.git/HEAD
 deny	git-mutation	bash	-	runs no git mutation	git log --output out.txt
 deny	git-mutation	bash	-	runs no git mutation	git diff --ext-diff
+deny	git-mutation	bash	-	runs no git mutation	git diff --e
+deny	git-mutation	bash	-	runs no git mutation	git log -p --ex
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git diff --e'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git log -p --ex HEAD'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	timeout 30 git diff --ex
 deny	git-mutation	bash	-	runs no git mutation	git show --textconv HEAD
 deny	git-mutation	bash	-	runs no git mutation	git grep -Orm x
 deny	git-mutation	bash	-	runs no git mutation	git grep -rO x

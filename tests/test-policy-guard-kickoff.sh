@@ -484,7 +484,7 @@ for cmd in 'bash tests/test-kickoff-spec-push.sh' \
   'shellcheck scripts/kickoff-spec-push.sh' \
   'wc -l scripts/kickoff-spec-push.sh tests/test-kickoff-spec-push.sh' \
   'timeout 500 bash tests/test-kickoff-spec-push.sh' \
-  'bash tests/test-kickoff-spec-push.sh && git add scripts/kickoff-spec-push.sh' \
+  'bash tests/test-kickoff-spec-push.sh && git cat-file -p HEAD:scripts/kickoff-spec-push.sh' \
   'fleet-remote.sh --host mac compute --worktree /some/worktree --test tests/test-kickoff-spec-push.sh --timeout 540' \
   'git log --oneline fix/kickoff-spec-push-quoting' \
   'bash tests/kickoff-spec-push-helpers.sh' \
@@ -729,6 +729,22 @@ for cmd in "bash scripts/kickoff-spec-${SPL}push.sh demo; cat scripts/kickoff-sp
     expect deny "[$tier, task-1] a hidden run of the kickoff push is refused: $cmd"
   done
 done
+# --e and --ex are refused as abbreviations of --ext-diff, and any --filter
+# spelling as one of cat-file's --filters, on every subcommand: git 2.53
+# rejects them outside cat-file, so this over-blocks only spellings that fail.
+for cmd in 'git diff --e scripts/kickoff-spec-push.sh' \
+  'git diff --ex scripts/kickoff-spec-push.sh' \
+  'git log -p --ex -- scripts/kickoff-spec-push.sh' \
+  'git show --e HEAD:scripts/kickoff-spec-push.sh' \
+  'git show --filter=blob:none HEAD:scripts/kickoff-spec-push.sh' \
+  'git log --filters -- scripts/kickoff-spec-push.sh' \
+  'git diff --filter scripts/kickoff-spec-push.sh' \
+  'git cat-file --filter=blob:none HEAD:scripts/kickoff-spec-push.sh'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
+    expect deny "[$tier, task-1] an ext-diff or filter abbreviation is refused beside the script: $cmd"
+  done
+done
 EXTD="$SANDBOX/extdiff"
 clone_on "$EXTD" planwright/demo/task-1 1
 gitq -C "$EXTD" config diff.external sh
@@ -914,24 +930,76 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
   'git blame scripts/kickoff-spec-push.sh' \
   'git ls-files -m scripts/kickoff-spec-push.sh' \
   'git cat-file -p HEAD:scripts/kickoff-spec-push.sh' \
-  'git config user.name t && git add scripts/kickoff-spec-push.sh' \
-  'git config filter.y.required false && git add scripts/kickoff-spec-push.sh' \
-  'git config --get-regexp filter && git add scripts/kickoff-spec-push.sh' \
-  'git remote add o u; git status scripts/kickoff-spec-push.sh' \
+  'git annotate scripts/kickoff-spec-push.sh' \
+  'git ls-files --modified scripts/kickoff-spec-push.sh' \
   "git -C $NOFD add scripts/kickoff-spec-push.sh" \
   'git -C . status scripts/kickoff-spec-push.sh' \
   'git -C /some/repo add scripts/kickoff-spec-push.sh' \
   "git -C $SANDBOX/empty add scripts/kickoff-spec-push.sh" \
-  'git status scripts/kickoff-spec-push.sh; git config user.name t' \
-  'git config -a user.name && git add scripts/kickoff-spec-push.sh' \
-  "cd $SANDBOX/nofilter && git add scripts/kickoff-spec-push.sh" \
   'git log --oneline -- scripts/kickoff-spec-push.sh; cd ..' \
-  'git log -p -- scripts/kickoff-spec-push.sh; git config filter.z.clean sh'; do
+  'git log -p -- scripts/kickoff-spec-push.sh; git config filter.z.clean sh' \
+  'git config user.name t && git cat-file -p HEAD:scripts/kickoff-spec-push.sh' \
+  'git cat-file -p HEAD:scripts/kickoff-spec-push.sh | head -5' \
+  'cat scripts/kickoff-spec-push.sh && git show HEAD:scripts/kickoff-spec-push.sh' \
+  'git add scripts/other.sh && git commit -m x' \
+  'git commit -m x && git log -1'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
     expect defer "[$tier, task-1] with no filter program configured, a stage or read of the script defers: $cmd"
   done
 done
+# Operator ruling 2026-11-18: a git step that can run a filter program on the
+# script must be the only command in its line, so nothing beside it can set a
+# filter program first. Every compound shape is refused, a one-line add and
+# commit included (accepted over-block), and the reason names the step.
+NLW=$'\n'
+for cmd in 'git add scripts/kickoff-spec-push.sh && git commit -m x' \
+  'git add scripts/kickoff-spec-push.sh; git commit -m x' \
+  'git add scripts/kickoff-spec-push.sh || true' \
+  "git add scripts/kickoff-spec-push.sh${NLW}git commit -m x" \
+  'git status scripts/kickoff-spec-push.sh | cat' \
+  'echo x | git add scripts/kickoff-spec-push.sh' \
+  '( git add scripts/kickoff-spec-push.sh )' \
+  '{ git add scripts/kickoff-spec-push.sh; }' \
+  'if git status scripts/kickoff-spec-push.sh; then true; fi' \
+  'cd . && git add scripts/kickoff-spec-push.sh' \
+  "cd $SANDBOX/nofilter && git add scripts/kickoff-spec-push.sh" \
+  'true && git restore scripts/kickoff-spec-push.sh' \
+  'git diff scripts/kickoff-spec-push.sh; echo done' \
+  'git rm --cached scripts/kickoff-spec-push.sh && git commit -m x' \
+  'git commit -m x scripts/kickoff-spec-push.sh && git log -1' \
+  'git blame scripts/kickoff-spec-push.sh | head -5' \
+  'git annotate scripts/kickoff-spec-push.sh; true' \
+  'git ls-files -m scripts/kickoff-spec-push.sh | wc -l' \
+  'git config user.name t && git add scripts/kickoff-spec-push.sh' \
+  'git config filter.y.required false && git add scripts/kickoff-spec-push.sh' \
+  'git config --get-regexp filter && git add scripts/kickoff-spec-push.sh' \
+  'git remote add o u; git status scripts/kickoff-spec-push.sh' \
+  'git status scripts/kickoff-spec-push.sh; git config user.name t' \
+  'git config -a user.name && git add scripts/kickoff-spec-push.sh' \
+  'git config core.autocrlf false && git add scripts/kickoff-spec-push.sh' \
+  'git remote add o u; git add scripts/kickoff-spec-push.sh' \
+  "git add scripts/kickoff-spec-push.sh; ls ${SPL}-l" \
+  "git diff scripts/kickoff-spec-push.sh; echo a${SPL}b" \
+  'git switch -c b && git add scripts/kickoff-spec-push.sh' \
+  'git remote add o u && git add scripts/kickoff-spec-push.sh' \
+  'bash tests/test-kickoff-spec-push.sh && git add scripts/kickoff-spec-push.sh' \
+  'for i in 1 2; do git add scripts/kickoff-spec-push.sh; git switch -c b; done'; do
+  for tier in worker tower; do
+    PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd" "$NOFD" "$NOFD"
+    expect deny "[$tier, task-1] a filter-capable git step on the script must stand alone: $cmd"
+  done
+done
+for cmd in 'git add scripts/kickoff-spec-push.sh && git commit -m x' \
+  'git status scripts/kickoff-spec-push.sh | cat' \
+  'git ls-files -m scripts/kickoff-spec-push.sh | wc -l'; do
+  PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$NOFD" "$NOFD"
+  reason_has 'must be the only command in its line' "[worker, task-1] the stand-alone refusal says why: $cmd"
+done
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'git add scripts/kickoff-spec-push.sh && git commit -m x' "$NOFD" "$NOFD"
+reason_has 'separate commands, with git add on scripts/kickoff-spec-push.sh as a command of its own' "[worker, task-1] the stand-alone refusal names the step to split out"
+PLANWRIGHT_WORKER_SCOPE=task-1 pg worker 'git ls-files -m scripts/kickoff-spec-push.sh | wc -l' "$NOFD" "$NOFD"
+reason_has 'with git ls-files on scripts/kickoff-spec-push.sh as a command of its own' "[worker, task-1] the stand-alone refusal names an ls-files -m step"
 # Deliberate over-blocks: cat-file --filters is refused whatever is
 # configured. A git config write or read that names a filter key, a filter
 # section rename, an include, an editor or a word the shell may still expand;
@@ -1079,10 +1147,8 @@ for cmd in 'git add scripts/kickoff-spec-push.sh' \
     expect defer "[$tier, task-1] with the branch and remotes unchanged, an include defers: $cmd"
   done
 done
-for cmd in 'git switch -c b && git add scripts/kickoff-spec-push.sh' \
-  'git remote add o u && git add scripts/kickoff-spec-push.sh' \
-  'git add scripts/kickoff-spec-push.sh && git commit -m x' \
-  'for i in 1 2; do git add scripts/kickoff-spec-push.sh; git switch -c b; done'; do
+for cmd in 'git switch -c b && git log -p -- scripts/kickoff-spec-push.sh' \
+  'git remote add o u && git cat-file -p HEAD:scripts/kickoff-spec-push.sh'; do
   PLANWRIGHT_WORKER_SCOPE=task-1 pg worker "$cmd" "$NOFD" "$NOFD"
   expect defer "[worker, task-1] with no conditional include, a branch or remote change defers: $cmd"
 done
@@ -1092,8 +1158,6 @@ gitq -C "$PAGD" config core.pager sh
 gitq -C "$PAGD" config diff.algorithm patience
 for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
   "cat scripts/kickoff-spec-push.sh; echo a${SPL}b" \
-  "git add scripts/kickoff-spec-push.sh; ls ${SPL}-l" \
-  "git diff scripts/kickoff-spec-push.sh; echo a${SPL}b" \
   "printf -v x 'scripts/kickoff-spec-push.sh demo'" \
   "printf -v x 'scripts/kickoff-spec-push.sh demo'; echo \"\$x\"" \
   "printf -v x 'scripts/kickoff-spec-push.sh demo'; cat \"\$x\"" \
@@ -1116,8 +1180,7 @@ for cmd in "bash tests/test-kickoff-spec-${SPL}push.sh" \
   'env scripts/??.sh' \
   'git diff --no-ext-diff scripts/kickoff-spec-push.sh' \
   'git diff scripts/other.sh' \
-  'git config core.autocrlf false && git add scripts/kickoff-spec-push.sh' \
-  'git remote add o u; git add scripts/kickoff-spec-push.sh' \
+  'git config core.autocrlf false && git cat-file -p HEAD:scripts/kickoff-spec-push.sh' \
   'git diff --ext-diff scripts/other.sh'; do
   for tier in worker tower; do
     PLANWRIGHT_WORKER_SCOPE=task-1 pg "$tier" "$cmd"
