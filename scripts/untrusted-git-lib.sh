@@ -40,7 +40,10 @@
 #     and the guarded git is not blanked (pw_untrusted_git lists right before
 #     each git; an exported environment lasts as long as its script);
 #   - a submodule's own configuration is not listed, and status asks each
-#     submodule for its state.
+#     submodule for its state;
+#   - a worker-written shallow file can cut history a guarded merge-base or
+#     rev-list walks (it only removes reachability); GIT_SHALLOW_FILE is left
+#     alone because a legitimately shallow clone would then fail to read.
 
 pw_untrusted_git_env() {
   # An inherited repository selector would point git away from the checkout
@@ -76,6 +79,8 @@ pw_untrusted_git_env() {
   _pw_ug_add core.hooksPath /dev/null
   _pw_ug_add protocol.allow never
   _pw_ug_add log.showSignature false
+  _pw_ug_add core.commitGraph false
+  _pw_ug_add advice.graftFileDeprecated false
   _pw_ug_add gpg.program /dev/null
   _pw_ug_add gpg.openpgp.program /dev/null
   _pw_ug_add gpg.x509.program /dev/null

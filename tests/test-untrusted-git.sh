@@ -547,5 +547,13 @@ printf '%s %s\n' "$(git -C "$R" rev-parse origin/main)" "$(git -C "$R" rev-parse
   || fail "grafts: a guarded read let a grafts file hide an unpushed commit"
 echo "ok: a worker's grafts file does not hide an unpushed commit from a guarded read"
 
+# The commit graph is derived data git trusts without checking it against the
+# commits, so the guard turns it off; the grafts deprecation hint stays quiet.
+[ "$(mc_untrusted_git -C "$R" config --get core.commitGraph)" = false ] \
+  || fail "the guard left the commit graph on"
+hint=$(mc_untrusted_git -C "$R" rev-list --count HEAD 2>&1 >/dev/null || :)
+[ -z "$hint" ] || fail "a guarded read printed on stderr: $hint"
+echo "ok: the commit graph is off and a guarded read is quiet"
+
 [ "$failed" -eq 0 ] || exit 1
 echo "all untrusted-git tests passed"
