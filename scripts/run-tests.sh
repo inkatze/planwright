@@ -364,7 +364,7 @@ printf '%s\n' "$*" >>"$here.hit" 2>/dev/null
 printf '%s\n' "run-tests: refused the real claude CLI (claude $*): stub it, or set PLANWRIGHT_TEST_REAL_CLAUDE=1 on a call meant to reach it" >&2
 exit 126
 GUARD
-  chmod 755 -- "$1/claude"
+  chmod -- 755 "$1/claude"
 }
 
 # Worker mode: run ONE test file, capturing its output to the log dir the
