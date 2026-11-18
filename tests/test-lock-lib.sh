@@ -2512,6 +2512,20 @@ out="$(run_sh x 'cd "$1" || exit 9
 assert_eq "a hold broken underneath its holder leaves the new holder's lock alone" \
   "999999-1-1-999999-1 888888-1-1-888888-1" "$out"
 rm -rf "$tmp"/sg3.lock*
+# The list of asides a shell still owes is bounded: ordinary releases and the
+# break of a dead owner's lock both leave it empty, however often they repeat.
+sg_dead=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
+ln -s "$sg_dead-0-1" "$tmp/sg4.lock"
+out="$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./sg4.lock || exit 9
+  pw_lock_release ./sg4.lock
+  for i in 1 2 3; do
+    pw_lock_acquire ./sg4.lock >/dev/null || exit 9
+    pw_lock_release ./sg4.lock
+  done
+  printf "[%s]\n" "$PW_LOCK_ASIDES"')"
+assert_eq "a break and repeated releases leave no aside on the owed list" "[]" "$out"
+rm -rf "$tmp"/sg4.lock*
 
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."

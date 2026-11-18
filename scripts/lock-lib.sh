@@ -691,9 +691,12 @@ _pw_lock_work_path() {
   done
 }
 
-# _pw_lock_displace <path> <kind> <token> — move <path> out of the way onto a
-# scratch name of this caller's own, and set _pw_lock_displaced to where it
-# went. 0 moved, 1 it was not there to move, 2 no free name could be derived.
+# _pw_lock_displace <path> <kind> <token> [note] — move <path> out of the way
+# onto a scratch name of this caller's own, and set _pw_lock_displaced to where
+# it went. 0 moved, 1 it was not there to move, 2 no free name could be derived.
+# A non-empty [note] also records the name in PW_LOCK_ASIDES before the move,
+# for the one caller that owes its removal and must be able to finish it from a
+# signal handler; the caller drops the record when it is done.
 #
 # THE ONLY PLACE ANYTHING IS MOVED ASIDE, and the rule it holds is: NEVER
 # REMOVE WHAT YOU ARE ABOUT TO MOVE ONTO. The rename is the exclusion, and a
@@ -715,7 +718,7 @@ _pw_lock_displace() {
     return 2
   fi
   _pw_lock_displaced=$_pw_lock_work_path_out
-  [ "$2" != taken ] || _pw_lock_aside_note "$3" "$_pw_lock_displaced"
+  [ -z "${4:-}" ] || _pw_lock_aside_note "$3" "$_pw_lock_displaced"
   # `-f` because `mv` PROMPTS before replacing a destination it cannot write,
   # and the prompt reads stdin: a caller that inherited a terminal would stop
   # here, inside the step this whole family serializes on, with the question
@@ -743,11 +746,11 @@ _pw_lock_displace() {
       # whole family exists to prevent.
       _pwds_stuck=$_pw_lock_displaced/$_pwds_base
       if _pw_lock_work_path "$1" "$2" "$3" \
+        && { [ -z "${4:-}" ] || _pw_lock_aside_note "$3" "$_pw_lock_work_path_out"; } \
         && mv -f "$_pwds_stuck" "$_pw_lock_work_path_out" 2>/dev/null \
         && ! { [ -d "$_pw_lock_work_path_out" ] \
           && { [ -e "$_pw_lock_work_path_out/$_pwds_base" ] || [ -L "$_pw_lock_work_path_out/$_pwds_base" ]; }; }; then
         _pw_lock_displaced=$_pw_lock_work_path_out
-        [ "$2" != taken ] || _pw_lock_aside_note "$3" "$_pw_lock_displaced"
         return 0
       fi
       printf '%s\n' "lock-lib: $1 was filed inside $_pwds_stuck and could not be taken back out; it is left there rather than removed" >&2
@@ -1386,7 +1389,7 @@ _pw_lock_take_link() {
     return 1
   fi
   _pwm_rc=0
-  _pw_lock_displace "$_pwm_lock" taken "$_pwm_token" || _pwm_rc=$?
+  _pw_lock_displace "$_pwm_lock" taken "$_pwm_token" note || _pwm_rc=$?
   if [ "$_pwm_rc" -ne 0 ]; then
     _pw_lock_aside_drop "$_pwm_token"
     return "$_pwm_rc"
