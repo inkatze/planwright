@@ -22,7 +22,8 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
-  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_EXTERNAL_DIFF
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_EXTERNAL_DIFF GIT_NO_LAZY_FETCH \
+  GIT_ALLOW_PROTOCOL GIT_NO_REPLACE_OBJECTS PW_UNTRUSTED_GIT
 
 here=$(cd "$(dirname "$0")" && pwd)
 scripts=${UNTRUSTED_GIT_SCRIPTS:-$here/../scripts}
@@ -500,8 +501,12 @@ rm -f "$M"/*
 git -C "$R" cat-file -p HEAD:b.dat >/dev/null 2>&1 || :
 if fired ext; then
   rm -f "$M"/*
-  (mc_untrusted_git_env "$R" && unset GIT_NO_LAZY_FETCH && git -C "$R" cat-file -p HEAD:b.dat) >/dev/null 2>&1 || :
+  refusal=$( (mc_untrusted_git_env "$R" && unset GIT_NO_LAZY_FETCH && git -C "$R" cat-file -p HEAD:b.dat) 2>&1 >/dev/null || :)
   fired ext && fail "a planted promisor remote ran its program under the guard"
+  case $refusal in
+    *"not allowed"*) ;;
+    *) fail "a planted promisor remote: the lazy fetch was not refused as a disallowed transport: $refusal" ;;
+  esac
   echo "ok: a planted promisor remote's program does not run, even where GIT_NO_LAZY_FETCH is ignored"
 else
   echo "skip: promisor remote: this git did not lazy-fetch the missing blob"
@@ -513,7 +518,21 @@ plant hook.pre.command "touch $M/hook"
 plant hook.pre.enabled true
 [ "$(mc_untrusted_git -C "$R" config --get hook.pre.enabled)" = false ] \
   || fail "a config-defined hook was not disabled under the guard"
+[ -z "$(mc_untrusted_git -C "$R" config --get hook.pre.command)" ] \
+  || fail "a config-defined hook's command was not blanked under the guard"
 echo "ok: a config-defined hook is disabled under the guard"
+
+# A replace ref the worker wrote must not make a guarded read return forged
+# content.
+mkrepo replaced local
+real=$(git -C "$R" rev-parse HEAD)
+git -C "$R" checkout -q -b forged
+printf 'forged\n' >"$R/a.txt"
+git -C "$R" commit -qam forged
+git -C "$R" replace "$real" forged
+[ "$(git -C "$R" show "$real:a.txt")" = forged ] || fail "replace ref: the control read did not return the forged content"
+[ "$(mc_untrusted_git -C "$R" show "$real:a.txt")" = one ] || fail "replace ref: a guarded read returned forged content"
+echo "ok: a worker's replace ref does not change what a guarded read returns"
 
 [ "$failed" -eq 0 ] || exit 1
 echo "all untrusted-git tests passed"
