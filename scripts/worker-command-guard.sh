@@ -3388,6 +3388,50 @@ guard_file() {
   return 0
 }
 
+# guard_ss: ss reads the kernel's socket tables and writes nothing by default,
+# but a few options write, kill, switch namespace, run a filter program or
+# resolve names off the machine: `-K`/`--kill` closes sockets, `-D`/`--diag`
+# dumps raw data to a file, `-F`/`--filter` reads one, `-N`/`--net` enters a
+# namespace, `-b`/`--bpf` loads a program, `-r`/`--resolve` queries DNS, and
+# `-E`/`--events` never returns. Only the enumerated display and selection
+# flags pass, and a filter expression only as plain words, so nothing is read
+# from a variable, a substitution or a glob.
+guard_ss() {
+  local i a body
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --listening | --all | --tcp | --udp | --raw | --unix | --sctp | --dccp | --packet | --numeric | --processes | --summary | --extended | --info | --options | --memory | --ipv4 | --ipv6 | --no-header | --oneline) ;;
+      -- | --*) return 1 ;;
+      -?*)
+        body=${a#-}
+        case $body in
+          *[!ntulaxwdSsiempoH460O]*) return 1 ;;
+        esac
+        ;;
+      '' | *[!A-Za-z0-9_.:=!\<\>/@%,-]*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_umask: the mask of the shell the command runs in, which only changes
+# the mode of files made after it: bare, `-S`, `-p`, or an octal literal.
+guard_umask() {
+  local re='^[0-7]{1,4}$'
+  case $cwn in
+    1) return 0 ;;
+    2)
+      case ${cw[1]} in
+        -S | -p) return 0 ;;
+      esac
+      [[ ${cw[1]} =~ $re ]]
+      return
+      ;;
+  esac
+  return 1
+}
+
 guard_mdlint() {
   local i a
   for ((i = 1; i < cwn; i++)); do
@@ -3400,14 +3444,64 @@ guard_mdlint() {
 }
 
 guard_bashsh() {
-  # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
-  # code or an installed planwright root's scripts/; any option (notably -c /
-  # -ec) defers (REQ-A1.5, REQ-A1.9).
+  # `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo code
+  # or an installed planwright root's scripts/; any option (notably -c /
+  # -ec) defers (REQ-A1.5, REQ-A1.9). `sh <probe>` also runs a read-only probe
+  # the worker wrote in its own scratch directory (guard_probe).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
     -*) return 1 ;;
   esac
-  is_trusted_script "${cw[1]}" "$HOOK_CWD"
+  is_trusted_script "${cw[1]}" "$HOOK_CWD" && return 0
+  [ "${cw[0]}" = sh ] && [ "$cwn" -eq 2 ] && guard_probe
+}
+
+# guard_probe: `sh <scratch>/<dir>/<name>.sh`, a probe script the worker wrote
+# in a directory of its own under the scratch root its session record names,
+# approved when what it holds is itself approved. The path is a plain absolute
+# literal two levels under the recorded root, whose TMPDIR the hook inherited
+# (HOOK_TMPDIR_IS_SCRATCH), with no symlink or second hard link, owned by the
+# session, small, and free of NUL bytes. The script is read once, here: its
+# leading shebang, comments, blank lines and `set -e`/`-u` lines are set aside
+# (a comment past the first command stays, so no quote can hide behind one) and
+# the rest runs through the analysis one level deeper, where no policy arm is
+# live, so any write, redirect, pipe into an unlisted command or substitution in
+# it defers. The file is the worker's own, so a rewrite between this read and
+# the run is the one window left open; a script that runs itself is cut off by
+# the depth bound.
+guard_probe() {
+  local p=${cw[1]} rel dir f size line body='' lead=1 re='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.sh$'
+  local sets_re='^set -[eu]+$'
+  [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ] && [ -n "$REC_SCRATCH" ] || return 1
+  [ "${cqp[1]}" -lt 0 ] && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" || return 1
+  case $p in
+    "$REC_SCRATCH"/?*) rel=${p#"$REC_SCRATCH"/} ;;
+    *) return 1 ;;
+  esac
+  [[ $rel =~ $re ]] || return 1
+  dir=$REC_SCRATCH/${rel%%/*}
+  f=$p
+  [ -d "$dir" ] && [ ! -L "$dir" ] && [ "$(cd -P -- "$dir" 2>/dev/null && pwd -P)" = "$dir" ] || return 1
+  [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] && [ -r "$f" ] || return 1
+  [ "$(find "$f" -maxdepth 0 -links 1 2>/dev/null)" = "$f" ] || return 1
+  size=$(wc -c <"$f" 2>/dev/null) || return 1
+  size=${size//[[:space:]]/}
+  [ "$size" -gt 0 ] && [ "$size" -le "$MAX_CMD_LEN" ] 2>/dev/null || return 1
+  # tr drops NUL bytes: a file that differs from its own filtered copy held one.
+  [ "$(tr -d '\000' <"$f" | wc -c | tr -d '[:space:]')" = "$size" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$lead" = 1 ]; then
+      line=${line#"${line%%[![:space:]]*}"}
+      case $line in
+        '' | '#'*) continue ;;
+      esac
+      [[ $line =~ $sets_re ]] && continue
+      lead=0
+    fi
+    body="$body$line"$'\n'
+  done <"$f"
+  [ -n "$body" ] || return 1
+  analyze_command "$body" "$((HOOK_DEPTH + 1))"
 }
 
 guard_fish() {
@@ -5639,6 +5733,8 @@ classify_verb() {
     uniq) guard_uniq ;;
     date) guard_date ;;
     file) guard_file ;;
+    ss) guard_ss ;;
+    umask) guard_umask ;;
     find) guard_find ;;
     sed) guard_sed || guard_sed_inplace ;;
     perl) guard_perl_inplace ;;
@@ -6160,23 +6256,59 @@ strip_prefixes() {
 }
 
 # strip_compute_route: drop a leading `<installed root>/scripts/compute-route.sh
-# --`, setting PREFIXED, so the command it routes is verified as if it stood
-# alone: the router only chooses where an approved command runs. A copy in the
-# checkout is a worker-authored script, so only the installed one counts. Only
-# the bare form is
-# transparent (no kind flag, which would name a different command to the host
-# than the one run here), and a router with nothing to run, or another router
-# as that command, defers. is_trusted_script refuses the script as a verb, so
-# no other spelling reaches the router.
+# [<kind>] --`, setting PREFIXED, so the command it routes is verified as if it
+# stood alone: the router only chooses where an approved command runs. A copy in
+# the checkout is a worker-authored script, so only the installed one counts. A
+# kind flag names to the host the command it runs there, so it is transparent
+# only beside the one command the router itself maps to that kind, which is
+# what the bare form would have run: `--check -- mise run check`,
+# `--task <name> -- mise run <name>`, `--test tests/test-<name>.sh -- bash
+# tests/test-<name>.sh`. Any other pairing, two kinds, and a router with
+# nothing to run, or another router as that command, defer.
+# is_trusted_script refuses the script as a verb, so no other spelling reaches
+# the router.
 strip_compute_route() {
+  local n=1 kind='' val='' i end re_task='^[a-z][a-z0-9:_-]*$' re_test='^tests/test-[A-Za-z0-9._-]+\.sh$'
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) ;;
     *) return 0 ;;
   esac
-  [ "$cwn" -ge 3 ] && [ "${cw[1]}" = -- ] && [ "${cqp[0]}" -lt 0 ] && [ "${cqp[1]}" -lt 0 ] \
-    && ! word_unresolved "${cw[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" || return 1
+  case ${cw[1]-} in
+    --check)
+      kind=check
+      n=2
+      ;;
+    --task | --test)
+      kind=${cw[1]#--}
+      val=${cw[2]-}
+      n=3
+      ;;
+  esac
+  [ "$cwn" -ge $((n + 2)) ] && [ "${cw[n]}" = -- ] || return 1
+  for ((i = 0; i <= n; i++)); do
+    [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+  done
   is_planwright_script "${cw[0]}" "$HOOK_CWD" || return 1
-  shift_words 2
+  case $kind in
+    check)
+      end=$((n + 4))
+      [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = mise ] && [ "${cw[n + 2]}" = run ] && [ "${cw[n + 3]}" = check ] || return 1
+      ;;
+    task)
+      end=$((n + 4))
+      [[ $val =~ $re_task ]] && [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = mise ] && [ "${cw[n + 2]}" = run ] && [ "${cw[n + 3]}" = "$val" ] || return 1
+      ;;
+    test)
+      end=$((n + 3))
+      [[ $val =~ $re_test ]] && [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = bash ] && [ "${cw[n + 2]}" = "$val" ] || return 1
+      ;;
+  esac
+  if [ -n "$kind" ]; then
+    for ((i = n + 1; i < cwn; i++)); do
+      [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+    done
+  fi
+  shift_words $((n + 1))
   PREFIXED=1
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) return 1 ;;
