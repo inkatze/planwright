@@ -83,6 +83,7 @@ case "$1 $2" in
           green) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"lint","state":"SUCCESS"}]' ;;
           failing) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           pending) roll='[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":""}]' ;;
+          pending-macos) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"macos-suite (shard 2/4)","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z"}]' ;;
           none) roll='[]' ;;
           own-status-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"FAILURE"},{"__typename":"StatusContext","context":"planwright/pre-spec-ready-flip","state":"PENDING"}]' ;;
           own-status-only) roll='[{"__typename":"StatusContext","context":"planwright/pre-ready-flip","state":"SUCCESS"}]' ;;
@@ -90,6 +91,11 @@ case "$1 $2" in
           tied-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
           superseded-red-first) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}]' ;;
           capped) roll=$(i=0; printf '['; while [ $i -lt 100 ]; do [ $i = 0 ] || printf ','; printf '{"__typename":"CheckRun","name":"c%s","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' "$i"; i=$((i + 1)); done; printf ']') ;;
+          window-lock-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          window-lock-pending) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"IN_PROGRESS","conclusion":""}]' ;;
+          window-lock-and-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          window-lock-foreign) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          window-lock-only) roll='[{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           own-name-checkrun-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
         esac
         printf '{"headRefOid":"%s","statusCheckRollup":%s}\n' "$head" "$roll"
@@ -518,10 +524,9 @@ echo "# a failed review step under the record fails review-converged"
 fixture
 set_policy unit-owner
 run=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
-now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run" --point convergence --step polish \
-  --kind skill --target polish --hosting in-session --backend terminal --head "$(gitf rev-parse HEAD)" \
-  --start "$now" --end "$now" --outcome failed >/dev/null
+  --kind skill --target polish --hosting in-session --backend in-session --head "$(gitf rev-parse HEAD)" \
+  --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome failed >/dev/null
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --completion --run "$run" --point convergence \
   --head "$(gitf rev-parse HEAD)" >/dev/null
 run_helper flip --spec specs/demo --task 1
@@ -532,10 +537,9 @@ echo "# an unretired limited record ending on the head fails review-converged (R
 fixture
 set_policy unit-owner
 run=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
-now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run" --point post-pr --step cubic \
-  --kind skill --target bot-review --hosting in-session --backend terminal --head "$(gitf rev-parse HEAD)" \
-  --start "$now" --end "$now" --outcome limited >/dev/null
+  --kind skill --target bot-review --hosting in-session --backend in-session --head "$(gitf rev-parse HEAD)" \
+  --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome limited >/dev/null
 run_helper flip --spec specs/demo --task 1
 check "a limited post-pr record on the head parks (exit 4)" [ "$CODE" = 4 ]
 check "the park names review-converged" grep -q 'review-converged' <<<"$(bullet)"
@@ -544,9 +548,9 @@ fixture
 set_policy unit-owner
 run=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run" --point post-pr --step cubic \
-  --kind skill --target bot-review --hosting in-session --backend terminal \
+  --kind skill --target bot-review --hosting in-session --backend in-session \
   --head 1111111111111111111111111111111111111111 --end-head 1111111111111111111111111111111111111111 \
-  --start "$now" --end "$now" --outcome limited >/dev/null
+  --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome limited >/dev/null
 run_helper flip --spec specs/demo --task 1
 check "a limited record ending on another head does not block (exit 0)" [ "$CODE" = 0 ]
 
@@ -559,6 +563,18 @@ check "a rollup still pending at the bound parks (exit 4)" [ "$CODE" = 4 ]
 check "the wait polled to its bound" [ "$(rollups)" = 3 ]
 fixture
 set_policy unit-owner
+echo pending-macos >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a queued macOS shard keeps the flip parked (exit 4)" [ "$CODE" = 4 ]
+check "the flip is not made over a queued macOS shard" [ "$(calls 'pr ready')" = 0 ]
+fixture
+set_policy unit-owner
+echo pending-macos >"$GHS/ci"
+handp="$SANDBOX/handp-$RANDOM"
+run_helper evaluate --spec specs/demo --task 1 --out "$handp"
+check "the evaluation names the pending macOS shard" grep -q 'macos-suite (shard 2/4)' "$handp"
+fixture
+set_policy unit-owner
 echo none >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "an empty rollup is not green (exit 4)" [ "$CODE" = 4 ]
@@ -567,7 +583,7 @@ set_policy unit-owner
 echo 2 >"$GHS/rollup_fail_until"
 run_helper flip --spec specs/demo --task 1
 check "a transient host failure inside the wait is retried, then flips" [ "$CODE" = 0 ]
-check "the failed reads were retried" [ "$(rollups)" = 3 ]
+check "the failed reads were retried" [ "$(rollups)" = 4 ]
 fixture
 set_policy unit-owner
 echo 9 >"$GHS/rollup_fail_until"
@@ -603,6 +619,37 @@ set_policy unit-owner
 echo superseded-red >"$GHS/ci"
 run_helper evaluate --spec specs/demo --task 1
 check "the green count is one per check context, not per run" grep -q 'ci-rollup	pass	1 check(s) green' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo window-lock-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a red window-lock beside green checks never holds the flip" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo window-lock-red >"$GHS/ci"
+run_helper evaluate --spec specs/demo --task 1
+check "the evaluation names window-lock as the check the operator bypasses" grep -q 'ci-rollup	pass	1 check(s) green.*bypasses at merge: window-lock' <<<"$OUT"
+fixture
+set_policy unit-owner
+echo window-lock-pending >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a window-lock still running holds the flip (exit 4)" [ "$CODE" = 4 ]
+check "no flip is made over a window-lock still running" [ "$(calls 'pr ready')" = 0 ]
+fixture
+set_policy unit-owner
+echo window-lock-and-red >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a red window-lock beside another red check still refuses (exit 4)" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
+echo window-lock-foreign >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a window-lock from another workflow still refuses (exit 4)" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
+echo window-lock-only >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a red window-lock alone is no positive green (exit 4)" [ "$CODE" = 4 ]
 fixture
 set_policy unit-owner
 echo tied-red >"$GHS/ci"
@@ -706,6 +753,31 @@ check "the tree is clean" [ -z "$(gitf status --porcelain --untracked-files=no)"
 check "no commit was left behind" [ "$(gitf rev-parse HEAD)" = "$before" ]
 check "the handoff names the unwritten park" grep -qi 'park.*not written\|could not write' <<<"$OUT"
 
+echo "# the park's commit and push run the adopter's hooks under the caller's locale"
+fixture
+set_policy unit-owner
+echo failing >"$GHS/ci"
+mkdir -p "$F/hooks"
+for hook in pre-commit pre-push; do
+  # shellcheck disable=SC2016 # literal hook source, expanded by the hook
+  printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\nprintf "%%s\\n" "$l" >>"%s/locale.%s"\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
+    "$F" "$hook" >"$F/hooks/$hook"
+  chmod +x "$F/hooks/$hook"
+done
+gitf config core.hooksPath "$F/hooks"
+before=$(origin_head)
+(
+  unset LC_ALL LC_CTYPE
+  export LANG=C.UTF-8
+  run_helper flip --spec specs/demo --task 1
+  printf '%s\n' "$CODE" >"$F/loc.code"
+)
+CODE=$(cat "$F/loc.code")
+check "a park whose hooks demand UTF-8 still lands under a UTF-8 caller (exit 4)" [ "$CODE" = 4 ]
+check "the park was pushed past the pre-push hook" [ "$(commits_since "$before")" = 1 ]
+check "the pre-commit hook saw the caller's locale" [ "$(cat "$F/locale.pre-commit")" = C.UTF-8 ]
+check "the pre-push hook saw the caller's locale" [ "$(cat "$F/locale.pre-push")" = C.UTF-8 ]
+
 echo "# a tasks.md that cannot be written is never committed"
 fixture
 set_policy unit-owner
@@ -768,7 +840,7 @@ check "the hand-in names the head" grep -q "^head	$(gitf rev-parse HEAD)$" "$han
 before=$(rollups)
 run_helper flip --spec specs/demo --task 1 --preconditions "$hand"
 check "a flip with a matching hand-in flips" [ "$CODE" = 0 ]
-check "a matching hand-in still reads the rollup once, without waiting" [ "$(rollups)" = "$((before + 1))" ]
+check "a matching hand-in still reads the rollup once, without waiting" [ "$(rollups)" = "$((before + 2))" ]
 
 echo "# a hand-in skips only the wait, never a check"
 fixture
@@ -812,7 +884,7 @@ gitf push -q origin "$BRANCH" 2>/dev/null
 record_review
 run_helper flip --spec specs/demo --task 1 --preconditions "$hand2"
 check "a hand-in for another head still flips after re-evaluating" [ "$CODE" = 0 ]
-check "a hand-in for another head is not trusted: the CI wait re-runs" [ "$(rollups)" = 2 ]
+check "a hand-in for another head is not trusted: the CI wait re-runs" [ "$(rollups)" = 4 ]
 
 echo "# reconcile alone"
 fixture
@@ -930,7 +1002,7 @@ echo pending >"$GHS/ci"
 echo 3 >"$GHS/ci_green_from"
 run_polled 3 '' flip --spec specs/demo --task 1
 check "checks going green by the deadline flip (exit 0)" [ "$CODE" = 0 ]
-check "a 6s wait polled every 3s reads at 0s, 3s and 6s" [ "$(rollups)" = 3 ]
+check "a 6s wait polled every 3s reads at 0s, 3s and 6s" [ "$(rollups)" = 4 ]
 
 echo "# a wait that is not a multiple of the poll interval still reads at its deadline"
 fixture
@@ -948,7 +1020,7 @@ echo pending >"$GHS/ci"
 echo 2 >"$GHS/ci_green_from"
 run_polled 00 2 flip --spec specs/demo --task 1
 check "a poll interval of 00 behaves as 0 (exit 0)" [ "$CODE" = 0 ]
-check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 2 ]
+check "a poll interval of 00 makes the max-polls reads" [ "$(rollups)" = 3 ]
 check "a poll interval of 00 raises no arithmetic error" not grep -qi 'division\|syntax error\|value too great' <<<"$OUT"
 fixture
 set_policy unit-owner

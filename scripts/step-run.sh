@@ -110,13 +110,29 @@
 #           in commit-id form only). Per point with a required step:
 #           `gap<TAB><point><TAB>incomplete<TAB>-` with no counted
 #           completion in any run, then `...missing<TAB><step>` or
-#           `...failed<TAB><step>:<outcome>` over all runs;
+#           `...failed<TAB><step>:<outcome>` over all runs, or
+#           `...unaudited<TAB><step>` for a record the step-record truth
+#           check (step-record.sh untrue) would refuse;
 #           `...stale<TAB><head>` naming the newest completion when none
 #           counts, then that run's step gaps; the judged run's step gaps;
+#           ahead of those, `...mismatch<TAB>run` for a record of the judged
+#           run whose stored run or point differs from its path, and
+#           `...mismatch<TAB>head:<step>` or `outcome:<step>` for a step's
+#           latest record whose heads are not on the completion's branch in
+#           order, or whose skip code or moved head (a resume skip aside)
+#           contradicts its outcome; any such gap withholds `covered`;
 #           else `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB>
 #           <head>`, the head --head or the worktree's. Exit 0 complete, 1
-#           gaps, 2 usage (an unknown --base included), 4 the records or the
-#           cadence could not be read.
+#           gaps, 2 usage (an unknown --base included), 4 the records, the
+#           cadence or the session events could not be read. The records
+#           that decided each point are also held to the session's own events
+#           (step-events-audit.sh): `gap<TAB><point><TAB>fault<TAB><detail>`
+#           per record whose start is off its Skill call, a polish or
+#           self-review passed or applied with no Agent call in its span, a
+#           polish passed on a moved head,
+#           or a fix-round starting before the first event (unless it repeats
+#           an earlier run's record of that round); `note<TAB><point>
+#           <TAB>unverified<TAB><detail>` where the events are not reachable.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
@@ -164,6 +180,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 SR="$script_dir/step-record.sh"
 SP="$script_dir/step-pool.sh"
 RS="$script_dir/resolve-steps.sh"
+SEA="$script_dir/step-events-audit.sh"
 CR="$script_dir/compute-route.sh"
 TAB=$'\t'
 NL=$'\n'
@@ -930,7 +947,7 @@ audit_fresh() {
 }
 
 cmd_audit() {
-  local through='' head='' base='' points=() p rc kind pt hd gaps last='' cur='' decided='' stale='' any=0 pg=0 g line
+  local through='' head='' base='' points=() p rc kind pt hd gaps jr judged='' ev_runs=() ev_id ev_pt last='' cur='' decided='' stale='' drun='' dhd='' any=0 pg=0 g line
   while [ $# -gt 0 ]; do
     case $1 in
       --through | --head | --base) [ $# -ge 2 ] || usage ;;
@@ -964,16 +981,20 @@ cmd_audit() {
     die 4 "the configured cadence did not resolve (resolve-steps exit $rc)"
   fi
   /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
+  /bin/sh "$SR" --worktree "$worktree" untrue >"$work/untrue" \
+    || die 4 "cannot run the step-record truth check over the step records (step-record.sh untrue)"
   # Records are untrusted: run, kind and point come from the path and must
   # agree with the stored fields, and a head counts only in commit-id form.
   # Per point: `point`, then one `cand` per run holding its completion (newest
   # run first) with that run's step gaps, or `none` with the gaps over all runs.
-  awk -F '\t' -v PTS="${points[*]}" '
+  : >"$work/side" || die 4 "cannot write runner state"
+  awk -F '\t' -v PTS="${points[*]}" -v SIDE="$work/side" '
     function hex(v) { return v ~ /^[0-9a-f]+$/ && (length(v) == 40 || length(v) == 64) }
     function flush(   ok) {
       if (!inrec) return
       inrec = 0
-      if (bad || F["run"] != R || F["point"] != K) return
+      if (bad) return
+      if (F["run"] != R || F["point"] != K) { if (!((R, K) in runbad)) { runbad[R, K] = 1; print "run\t" R "\t" K >SIDE }; return }
       if (T == "done" && F["type"] == "completion") {
         if (hex(F["head"])) { done[R, K] = F["head"]; if (!(R in hasrun)) { hasrun[R] = 1; runs[++nruns] = R } }
         return
@@ -982,7 +1003,13 @@ cmd_audit() {
       if (T != "step" || F["type"] != "step" || F["step"] !~ /^[a-z][a-z0-9-]*$/ || F["refire-of"] != "") return
       o = F["outcome"]
       if (o !~ /^[a-z]+$/) o = "malformed"
+      key = R SUBSEP K SUBSEP F["step"]
+      if (!(key in S)) ord[++no] = key
+      S[key] = "step\t" R "\t" K "\t" F["step"] "\t" (hex(F["head"]) ? F["head"] : "-") "\t" (hex(F["end-head"]) ? F["end-head"] : "-") "\t" o "\t" (F["skip-code"] == "" ? "-" : F["skip-code"])
       ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
+      # A record the step-record truth check would refuse covers nothing: the
+      # step is reported unaudited, not done.
+      if (ok && ((R ":" K ":" substr(b, 1, 3), F["step"]) in untrue)) { ok = 0; o = "unaudited" }
       st[R, K, F["step"]] = ok ? "ok" : o
       seen_any[K, F["step"]] = 1
       if (ok) ever[K, F["step"]] = 1
@@ -995,7 +1022,7 @@ cmd_audit() {
         if (r != "") s = ((r, p, id) in st) ? st[r, p, id] : ""
         else s = ever[p, id] ? "ok" : (((p, id) in seen_any) ? lastbad[p, id] : "")
         if (s == "ok") continue
-        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : "failed:" id ":" s)
+        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : s == "unaudited" ? "unaudited:" id : "failed:" id ":" s)
       }
       return out == "" ? "-" : out
     }
@@ -1003,6 +1030,7 @@ cmd_audit() {
       if ($1 != "skip" && $2 != "" && !(($3, $2) in want)) { want[$3, $2] = 1; req[$3, ++nr[$3]] = $2 }
       next
     }
+    FILENAME == ARGV[2] { untrue[$1, $2] = 1; next }
     $1 == "record" {
       flush(); inrec = 1; bad = 0; split("", F)
       n = split($2, part, "/"); b = part[n]; R = part[n - 1]; T = ""; K = ""
@@ -1014,17 +1042,18 @@ cmd_audit() {
     inrec { k = $1; if ((k in F) && k != "excerpt" && k != "warning" && k != "holder") bad = 1; F[k] = substr($0, length(k) + 2) }
     END {
       flush()
+      for (i = 1; i <= no; i++) print S[ord[i]] >SIDE
       np = split(PTS, P, " ")
       for (i = 1; i <= np; i++) {
         p = P[i]
         if (!nr[p]) continue
         print "point\t" p
         c = 0
-        for (r = nruns; r >= 1; r--) if ((runs[r], p) in done) { print "cand\t" p "\t" done[runs[r], p] "\t" gaps_of(p, runs[r]); c++ }
+        for (r = nruns; r >= 1; r--) if ((runs[r], p) in done) { print "cand\t" p "\t" done[runs[r], p] "\t" gaps_of(p, runs[r]) "\t" runs[r]; c++ }
         if (!c) print "none\t" p "\t-\t" gaps_of(p, "")
       }
-    }' "$work/rows" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
-  while IFS=$TAB read -r kind pt hd gaps; do
+    }' "$work/rows" "$work/untrue" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
+  while IFS=$TAB read -r kind pt hd gaps jr; do
     [ "$kind" != point ] || last=$pt
   done <"$work/plan"
   # emit_gaps <point> <gaps>: one line per gap the plan names.
@@ -1035,12 +1064,38 @@ cmd_audit() {
       case $w in
         missing:*) printf 'gap\t%s\tmissing\t%s\n' "$1" "${w#missing:}" ;;
         failed:*) printf 'gap\t%s\tfailed\t%s\n' "$1" "${w#failed:}" ;;
+        unaudited:*) printf 'gap\t%s\tunaudited\t%s\n' "$1" "${w#unaudited:}" ;;
       esac
     done
+  }
+  # emit_mismatches <point> <run> <completion-head>: a record of the deciding
+  # run that does not match the branch it claims (head, run or outcome).
+  emit_mismatches() {
+    local k r q s sh eh o sc
+    while IFS=$TAB read -r k r q s sh eh o sc; do
+      [ "$r" = "$2" ] && [ "$q" = "$1" ] || continue
+      if [ "$k" = run ]; then
+        printf 'gap\t%s\tmismatch\trun\n' "$1"
+      elif [ "$k" != step ]; then
+        continue
+      elif [ "$eh" != - ] && ! git_keep_config merge-base --is-ancestor "$eh" "$3" 2>/dev/null; then
+        printf 'gap\t%s\tmismatch\thead:%s\n' "$1" "$s"
+      elif [ "$sh" != - ] && [ "$eh" != - ] && ! git_keep_config merge-base --is-ancestor "$sh" "$eh" 2>/dev/null; then
+        printf 'gap\t%s\tmismatch\thead:%s\n' "$1" "$s"
+      elif [ "$o" = skipped ] && { [ "$sc" = - ] || { [ "$sc" != resume ] && [ "$sh" != - ] && [ "$sh" != "$eh" ]; }; }; then
+        printf 'gap\t%s\tmismatch\toutcome:%s\n' "$1" "$s"
+      elif [ "$o" != skipped ] && [ "$sc" != - ]; then
+        printf 'gap\t%s\tmismatch\toutcome:%s\n' "$1" "$s"
+      else
+        continue
+      fi
+      pg=1
+    done <"$work/side"
   }
   # finish_point: report the point the loop was reading.
   finish_point() {
     [ -n "$cur" ] || return 0
+    [ -z "$drun" ] || emit_mismatches "$cur" "$drun" "$dhd"
     g=${decided:--}
     if [ -z "$decided" ] && [ -n "$stale" ]; then
       printf 'gap\t%s\tstale\t%s\n' "$cur" "${stale%%"$TAB"*}"
@@ -1054,16 +1109,16 @@ cmd_audit() {
     if [ "$pg" -eq 0 ]; then printf 'covered\t%s\n' "$cur"; else any=1; fi
   }
   set -f
-  while IFS=$TAB read -r kind pt hd gaps; do
+  while IFS=$TAB read -r kind pt hd gaps jr; do
     case $kind in
       point)
         finish_point
-        cur=$pt decided='' stale='' pg=0
+        cur=$pt decided='' stale='' drun='' dhd='' pg=0
         ;;
       cand)
         [ -z "$decided" ] || continue
         if audit_fresh "$hd" "$head" "$([ "$pt" = "$last" ] && echo 1 || echo 0)" "$base"; then
-          decided=$gaps stale=''
+          decided=$gaps stale='' drun=$jr dhd=$hd judged="$judged $jr:$cur"
         elif [ -z "$stale" ]; then
           stale="$hd$TAB$gaps"
         fi
@@ -1077,6 +1132,24 @@ cmd_audit() {
   done <"$work/plan"
   finish_point
   set +f
+  if [ -n "$judged" ]; then
+    for jr in $judged; do ev_runs+=(--run "${jr%%:*}"); done
+    /bin/sh "$SEA" --worktree "$worktree" --records "$work/records" "${ev_runs[@]}" >"$work/events" \
+      || [ $? -eq 1 ] || die 4 "cannot judge the step records against the session events"
+    while IFS=$TAB read -r kind ev_id pt gaps; do
+      # A run that decided one point can hold superseded records of another.
+      case " $judged " in *" ${ev_id%:*} "*) ;; *) continue ;; esac
+      ev_pt=${ev_id#*:}
+      ev_pt=${ev_pt%%:*}
+      case $kind in
+        fault)
+          printf 'gap\t%s\tfault\t%s %s: %s\n' "$ev_pt" "$ev_id" "$pt" "$gaps"
+          any=1
+          ;;
+        unverified) printf 'note\t%s\tunverified\t%s %s: %s\n' "$ev_pt" "$ev_id" "$pt" "$gaps" ;;
+      esac
+    done <"$work/events"
+  fi
   line="audit${TAB}complete${TAB}$head"
   [ "$any" -eq 0 ] || line="audit${TAB}gaps${TAB}$head"
   printf '%s\n' "$line"

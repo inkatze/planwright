@@ -139,6 +139,23 @@
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
+# LC_ALL=C below is for this script's own parsing only: git hooks run under the
+# caller's locale (C.UTF-8 when it sets none), since a C locale breaks UTF-8
+# file names in the hooked tools.
+if [ -n "${LC_ALL:-}" ]; then
+  hook_lc_all=$LC_ALL
+elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
+  hook_lc_all=
+else
+  hook_lc_all=C.UTF-8
+fi
+hook_git() {
+  if [ -n "$hook_lc_all" ]; then
+    env LC_ALL="$hook_lc_all" git "$@"
+  else
+    env -u LC_ALL git "$@"
+  fi
+}
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -1310,7 +1327,7 @@ rm -f -- "$tmpname"
 tmpname=''
 staged=1
 if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
-  || ! git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
+  || ! hook_git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
   # A concurrent run that committed this same render has landed the record.
   if matches_head; then
     report

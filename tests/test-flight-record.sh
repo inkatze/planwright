@@ -65,6 +65,8 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 ROOT=$(cd "$here/.." && pwd -P)
 SCRIPT="$ROOT/scripts/flight-record.sh"
 [ -r "$ROOT/tests/lib/emitter-lint.sh" ] || {
@@ -1322,10 +1324,18 @@ NOX=noenter-0a1b2c3d
 gitc "$repo" checkout -q -b "planwright/flight/$NOX" main
 mkdir -p "$repo/specs"
 chmod 000 "$repo/specs"
-run_land --flight-id "$NOX"
+nox_denied=0
+if hermetic_access_denied r "$repo/specs"; then
+  nox_denied=1
+  run_land --flight-id "$NOX"
+else
+  echo "skip: unenterable record directory: the running user still reads $repo/specs under mode 000"
+fi
 chmod 755 "$repo/specs"
-[ "$RC" -eq 4 ] || fail "a directory land cannot enter must fail with 4 (got $RC: $ERR)"
-printf '%s\n' "$ERR" | grep -q 'symlink' && fail "a directory land cannot enter is not a symlink: $ERR"
+if [ "$nox_denied" = 1 ]; then
+  [ "$RC" -eq 4 ] || fail "a directory land cannot enter must fail with 4 (got $RC: $ERR)"
+  printf '%s\n' "$ERR" | grep -q 'symlink' && fail "a directory land cannot enter is not a symlink: $ERR"
+fi
 rm -rf "$repo/specs"
 
 # A pre-commit hook that rewrites the record and then refuses the commit
@@ -1515,6 +1525,30 @@ run_land --repo-root "$repo/sub"
 mkdir -p "$tmp/not-git"
 run_land --repo-root "$tmp/not-git"
 [ "$RC" -eq 4 ] || fail "a --repo-root outside git must fail with 4 (got $RC)"
+
+# The record's commit runs the adopter's pre-commit hook under the caller's
+# locale, not the script's LC_ALL=C (a C locale breaks UTF-8 file names in the
+# hooked tools).
+LOCFID=hooklocale-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$LOCFID" main
+# shellcheck disable=SC2016 # literal hook source, expanded by the hook
+printf '#!/bin/sh\nl=${LC_ALL:-${LC_CTYPE:-${LANG:-C}}}\ncase $l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac\necho "non-UTF-8 locale: $l" >&2\nexit 1\n' \
+  >"$repo/.git/hooks/pre-commit"
+chmod +x "$repo/.git/hooks/pre-commit"
+(
+  unset LC_ALL LC_CTYPE
+  export LANG=C.UTF-8
+  run_land --flight-id "$LOCFID"
+  printf '%s\n' "$RC" >"$tmp/loc.rc"
+  printf '%s\n' "$ERR" >"$tmp/loc.err"
+)
+RC=$(cat "$tmp/loc.rc")
+ERR=$(cat "$tmp/loc.err")
+[ "$RC" -eq 0 ] || fail "land under a UTF-8 caller was refused by a UTF-8-asserting pre-commit hook ($RC): $ERR"
+git -C "$repo" cat-file -e "HEAD:specs/_flights/$LOCFID.md" 2>/dev/null || fail "land under a UTF-8 caller did not commit the record"
+rm -f "$repo/.git/hooks/pre-commit"
+rm -rf "$repo/specs"
+gitc "$repo" checkout -q main
 
 # --- 7: a public summary stands in for a private ask --------------------------
 # REQ-E1.6, REQ-E1.7, REQ-E1.8, REQ-E1.11: with --public-summary-file the

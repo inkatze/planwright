@@ -131,6 +131,23 @@
 # No model in the decision path: every predicate is a comparison.
 set -u
 unset CDPATH
+# LC_ALL=C below is for this script's own parsing only: git hooks run under the
+# caller's locale (C.UTF-8 when it sets none), since a C locale breaks UTF-8
+# file names in the hooked tools.
+if [ -n "${LC_ALL:-}" ]; then
+  hook_lc_all=$LC_ALL
+elif [ -n "${LC_CTYPE:-}${LANG:-}" ]; then
+  hook_lc_all=
+else
+  hook_lc_all=C.UTF-8
+fi
+hook_git() {
+  if [ -n "$hook_lc_all" ]; then
+    env LC_ALL="$hook_lc_all" git "$@"
+  else
+    env -u LC_ALL git "$@"
+  fi
+}
 LC_ALL=C
 export LC_ALL
 
@@ -148,6 +165,8 @@ CHECK_RUNS_JQ=$(cat -- "$SCRIPTS/check-runs.jq" 2>/dev/null) || {
   exit 2
 }
 readonly CHECK_RUNS_JQ
+BASE_STATE_CHECKS=$(/bin/sh "$SCRIPTS/base-state-checks.sh" 2>/dev/null) || BASE_STATE_CHECKS='[]'
+readonly BASE_STATE_CHECKS=${BASE_STATE_CHECKS:-[]}
 
 readonly LEAD='pending ready-flip:'
 readonly DASH='—'
@@ -475,7 +494,7 @@ commit_tasks() {
     COMMIT_ERR='the commit trailers could not be stamped'
     return 1
   fi
-  if ! git commit -q -F "$msg" -- "$TASKS" >/dev/null 2>&1; then
+  if ! hook_git commit -q -F "$msg" -- "$TASKS" >/dev/null 2>&1; then
     git checkout -q -- "$TASKS" 2>/dev/null
     COMMIT_ERR='the commit failed'
     return 1
@@ -486,7 +505,7 @@ commit_tasks() {
   }
 }
 
-push_branch() { git push -q "$REMOTE" "$BRANCH" >/dev/null 2>&1; }
+push_branch() { hook_git push -q "$REMOTE" "$BRANCH" >/dev/null 2>&1; }
 
 # unpushed — 0 when the branch holds commits its remote-tracking ref lacks,
 # such as a park whose push failed last run. A branch the remote does not
@@ -807,22 +826,25 @@ ROLLUP_JQ='
   elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | latest_check_runs[]
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
+    | (.name // .context // "-" | tostring) as $n
     | if .__typename == "StatusContext" then
-        (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
+        (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending \($n)" else "failing" end)
       else
-        (if .status != "COMPLETED" then "pending" elif .conclusion == "SUCCESS" then "green"
+        (if .status != "COMPLETED" then "pending \($n)" elif .conclusion == "SUCCESS" then "green"
          elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "neutral" else "failing" end)
       end ] as $v
+  | ([(.statusCheckRollup // []) | bypassed_check_runs[] | (.name // "-" | tostring)] | join(", ")) as $bypass
   | if any($v[]; . == "failing") then "failing"
-    elif any($v[]; . == "pending") then "pending"
-    elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)"
+    elif any($v[]; startswith("pending")) then
+      "pending " + ([$v[] | select(startswith("pending ")) | ltrimstr("pending ")] | join(", "))
+    elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)|\($bypass)"
     else "none" end end'
 
 # Set when the host keeps reporting another head: someone else moved the
 # branch, so a park could not be pushed on top of it and none is attempted.
 HEAD_MOVED=0
 pred_ci() {
-  local i=0 raw oid verdict last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
+  local i=0 raw oid verdict bypass greens last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
   # The read count bounds the wait, and so does the clock: every nap here ends
   # by the deadline, so only a head re-read, which naps on its own, can
   # overrun it, by that re-read's pauses.
@@ -851,12 +873,16 @@ pred_ci() {
         verdict=moved
         last="the PR head did not settle on the pinned head ${HEAD_SHA:0:12}"
       else
-        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$CHECK_RUNS_JQ
+        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" --argjson base_state "$BASE_STATE_CHECKS" "$CHECK_RUNS_JQ
 $ROLLUP_JQ" 2>/dev/null) || verdict=''
       fi
       case $verdict in
         green\ *)
-          set_pred ci-rollup pass "${verdict#green } check(s) green on ${HEAD_SHA:0:12}"
+          # The verdict is `green <count>|<bypassed checks>`.
+          bypass=${verdict#*|}
+          greens=${verdict#green }
+          greens=${greens%%|*}
+          set_pred ci-rollup pass "$greens check(s) green on ${HEAD_SHA:0:12}${bypass:+; the operator bypasses at merge: $bypass}"
           return
           ;;
         failing)
@@ -868,7 +894,7 @@ $ROLLUP_JQ" 2>/dev/null) || verdict=''
           return
           ;;
         moved) ;;
-        pending) last='checks still pending' ;;
+        pending\ *) last="checks still pending: ${verdict#pending }" ;;
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
       esac

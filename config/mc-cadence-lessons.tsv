@@ -1,0 +1,13 @@
+# moment<TAB>level<TAB>kind<TAB>text: the lesson and recommendation
+# scripts/mc-packet.sh prints when the cadence audit named a gap; its usage
+# names the moments and levels. kind is lesson or recommend; expert has no
+# rows because it prints neither. Core data, not an overlay catalog.
+merge-recommendation	guided	lesson	A cadence step with no record means that review or check never ran on this exact change, so a problem it would catch can reach main unseen.
+merge-recommendation	guided	recommend	Close the gap before merging: run the missing step, record it, and re-check.
+merge-recommendation	standard	recommend	Close the gap before merging.
+ready-flip	guided	lesson	Marking a pull request ready tells reviewers and CI the work is finished; with a step missing, that claim is not yet true.
+ready-flip	guided	recommend	Close the gap before the pull request is marked ready.
+ready-flip	standard	recommend	Close the gap before marking it ready.
+merge-intent	guided	lesson	Merging with a step missing sends the change to main without that review, and an undone merge costs more than the step would have.
+merge-intent	guided	recommend	Close the gap first, then merge.
+merge-intent	standard	recommend	Close the gap first.

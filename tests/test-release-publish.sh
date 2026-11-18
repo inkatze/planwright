@@ -365,6 +365,35 @@ else
 fi
 assert_contains "first release: warns that no signing is configured" "$ERR" "no signing configured"
 
+# The adopter's pre-push hook runs under the caller's locale, not the script's
+# LC_ALL=C (a C locale breaks UTF-8 file names in the hooked tools).
+hook_locale_log="$tmp/hook-locale"
+install_locale_hook() {
+  cat >"$1/.git/hooks/pre-push" <<HOOK
+#!/bin/sh
+l=\${LC_ALL:-\${LC_CTYPE:-\${LANG:-C}}}
+printf '%s\n' "\$l" >"$hook_locale_log"
+case \$l in *[Uu][Tt][Ff]-8*) exit 0 ;; esac
+echo "pre-push: non-UTF-8 locale: \$l" >&2
+exit 1
+HOOK
+  chmod +x "$1/.git/hooks/pre-push"
+}
+r="$tmp/hook-lang"
+new_repo "$r"
+seed_version "$r" 0.1.0
+install_locale_hook "$r"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 LC_ALL= LC_CTYPE= LANG=C.UTF-8
+assert_eq "hook locale: a caller with only LANG set publishes past a UTF-8-asserting pre-push hook" "$RC" "0"
+assert_eq "hook locale: the hook saw the caller's LANG" "$(cat "$hook_locale_log")" "C.UTF-8"
+r="$tmp/hook-lcall"
+new_repo "$r"
+seed_version "$r" 0.1.0
+install_locale_hook "$r"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 LC_ALL=de_DE.UTF-8
+assert_eq "hook locale: a caller's LC_ALL publishes past the hook" "$RC" "0"
+assert_eq "hook locale: the hook saw the caller's LC_ALL" "$(cat "$hook_locale_log")" "de_DE.UTF-8"
+
 # ===========================================================================
 # 3. Tags the observed release-merge SHA, not HEAD, under a post-merge race
 #    (REQ-D1.2, REQ-E1.4).

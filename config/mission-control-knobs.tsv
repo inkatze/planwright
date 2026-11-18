@@ -35,6 +35,7 @@ handover-due-compaction-ceiling	mission_control_handover_compactions	scripts/mc-
 handover-release-window	mission_control_handover_window	scripts/mc-handover.sh
 worker-lifetime-bound	mission_control_worker_lifetime	scripts/mc-keeper.sh
 worker-idle-bound	mission_control_worker_idle	scripts/mc-keeper.sh
+worker-completed-grace	mission_control_worker_completed_grace	scripts/mc-keeper.sh
 snapshot-cadence	mission_control_snapshot_cadence	scripts/mc-snapshot.sh
 forge-tracked-set	mission_control_forge_tracked	scripts/mc-adapter-forge.sh
 radar-events-per-pass	mission_control_radar_max_events	scripts/mc-radar.sh
@@ -62,6 +63,7 @@ throughput-window	mission_control_throughput_window	scripts/mc-throughput.sh
 throughput-ci-runs	mission_control_throughput_ci_runs	scripts/mc-throughput.sh
 throughput-thresholds	mission_control_throughput_thresholds	scripts/mc-throughput.sh
 throughput-worsen	mission_control_throughput_worsen	scripts/mc-throughput.sh
+stalled-pipeline-window	mission_control_stalled_pipeline_window	scripts/mc-pipeline-stall.sh
 draft-clipboard	mission_control_clipboard	scripts/mc-inbox.sh
 guidance-level	mission_control_guidance	scripts/mc-config.sh
 kickoff-mode	mission_control_kickoff_mode	scripts/mc-config.sh

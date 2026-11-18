@@ -22,6 +22,7 @@ test-reserved-control-spellings.sh	43.023
 test-spec-validate.sh	42.698
 test-policy-guard.sh	41.777
 test-flight-dispatch-paths.sh	41.535
+test-policy-guard-kickoff.sh	39.600
 test-allocation-adapt.sh	37.855
 test-tower-queue-presence.sh	37.186
 test-check-lock-primitive.sh	36.975
@@ -30,6 +31,7 @@ test-worker-command-guard-shapes.sh	35.819
 test-step-record.sh	35.743
 test-mc-snapshot-adapters.sh	35.194
 test-inception-venture.sh	34.446
+test-worker-command-guard-mise-tasks.sh	34.0
 test-worker-command-guard-steps.sh	33.825
 test-orchestrate-meta-step.sh	33.260
 test-tower-queue-settle.sh	32.960
@@ -49,6 +51,7 @@ test-mc-handover-recovery.sh	28.630
 test-step-run.sh	28.364
 test-mc-watch.sh	27.560
 test-tasks-pr-sync.sh	27.485
+test-policy-guard-rewrites.sh	26.700
 test-fleet-sweep-reap.sh	26.363
 test-merge-class.sh	25.669
 test-fleet-attention.sh	25.567
@@ -99,6 +102,7 @@ test-check-mc-knobs.sh	15.731
 test-inception-validate.sh	15.676
 test-spec-store-worktree.sh	15.522
 test-orchestrate-select-deps.sh	15.516
+test-check-test-hermeticity.sh	15.500
 test-inception-scaffold.sh	15.189
 test-fleet-tower-watchdog.sh	15.042
 test-check-guard-wiring.sh	14.851
@@ -265,6 +269,7 @@ test-fleet-liveness-idle-edge.sh	3.079
 test-check-launch-shape.sh	3.078
 test-substrate-baseline.sh	3.035
 test-check-script-modes.sh	3.008
+test-worker-settings-generate.sh	3.0
 test-worker-session-record.sh	2.981
 test-sign-off-checklist.sh	2.975
 test-offload-dispatch.sh	2.973
@@ -387,6 +392,7 @@ test-fleet-daemon-gate.sh	0.362
 test-inception-doctrine.sh	0.350
 test-fleet-death-evidence.sh	0.339
 test-skill-v2-reconciliation.sh	0.334
+test-hermetic-env.sh	0.330
 test-planwright-commit-trailers.sh	0.326
 test-release-lib.sh	0.322
 test-fleet-dispatch-env.sh	0.311
@@ -395,7 +401,6 @@ test-settings-fragment-hook-expansion.sh	0.254
 test-check-glob-allow-rules.sh	0.219
 test-obs-consume-legacy.sh	0.218
 test-docs-inversion.sh	0.216
-test-fleet-home.sh	0.169
 test-pr-title-trigger.sh	0.156
 test-resolve-installed-roots.sh	0.153
 test-check-doctrine-manifest.sh	0.152
