@@ -557,7 +557,11 @@ case "$cmd" in
       warn "'$path' is not a worktree root (its toplevel is '$top') — refusing"
       exit 5
     fi
-    if [ -n "$(pw_untrusted_git -C "$path" status --porcelain 2>/dev/null)" ]; then
+    if ! porcelain=$(pw_untrusted_git -C "$path" status --porcelain 2>/dev/null); then
+      warn "'$path' status is unreadable — refusing to remove (fail closed)"
+      exit 5
+    fi
+    if [ -n "$porcelain" ]; then
       warn "'$path' has uncommitted changes — refusing to remove (would lose work)"
       exit 5
     fi

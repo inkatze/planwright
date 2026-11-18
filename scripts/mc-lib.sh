@@ -2,12 +2,20 @@
 # shellcheck disable=SC2034,SC2154 # prog and script_dir are the sourcing script's; MC_FORMAT is read there
 # mc-lib.sh — helpers mission control's runtime scripts share (sourced, never
 # executed). The sourcing script sets `prog` and `script_dir` and has sourced
-# echo-safety.sh first. Sourcing it runs one check: mc_warn_if_stale, below.
+# echo-safety.sh first. Sourcing it sources untrusted-git-lib.sh beside it
+# (exit 2 when missing) and runs one check: mc_warn_if_stale, below.
 # Portable bash 3.2 / BSD tooling.
 
 MC_FORMAT=1
 
 unset CDPATH
+
+if [ ! -r "$script_dir/untrusted-git-lib.sh" ]; then
+  printf '%s\n' "$prog: untrusted-git-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$script_dir/untrusted-git-lib.sh"
 
 # mc_warn_if_stale: a script run from an older cached copy, by a session
 # that kept its root across an upgrade, warns on stderr. Checked once per
@@ -640,9 +648,6 @@ mc_announce_prune() {
 # outranks the repository's configuration, so they reach a git a called script
 # runs too: export them with mc_untrusted_git_env [<dir>], run in the checkout
 # or naming it. untrusted-git-lib.sh has the mechanism and its limits.
-[ -r "$script_dir/untrusted-git-lib.sh" ] || mc_fail "untrusted-git-lib.sh is missing or unreadable (broken install)"
-# shellcheck source=scripts/untrusted-git-lib.sh
-. "$script_dir/untrusted-git-lib.sh"
 mc_untrusted_git_env() { pw_untrusted_git_env "$@"; }
 mc_untrusted_git() { pw_untrusted_git "$@"; }
 

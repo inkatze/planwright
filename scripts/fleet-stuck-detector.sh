@@ -658,9 +658,11 @@ last_record() {
 # stat-dirty file through its clean filter).
 git_ro() {
   (
+    gr_dir=$1
+    shift
     GIT_OPTIONAL_LOCKS=0
     export GIT_OPTIONAL_LOCKS
-    pw_untrusted_git -C "$@"
+    pw_untrusted_git_env "$gr_dir" && git -C "$gr_dir" "$@"
   )
 }
 

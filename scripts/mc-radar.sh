@@ -135,9 +135,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Branches are pushed by workers, so every git read here runs as it would in
-# a worker's checkout.
-mc_untrusted_git_env
+# Branches are pushed by workers, so every git read here goes through
+# mc_untrusted_git, naming the repository it reads.
 
 valid_ref() {
   case $1 in
@@ -152,14 +151,14 @@ valid_ref() {
 # Returns 3 when the branch shares no history with the base, 1 when a git
 # read fails.
 hunks() {
-  git -C "$1" rev-parse --verify --quiet "$3^{commit}" >/dev/null 2>&1 || return 1
+  mc_untrusted_git -C "$1" rev-parse --verify --quiet "$3^{commit}" >/dev/null 2>&1 || return 1
   # merge-base exits 1 for no common ancestor; anything else is a failed read.
-  hk_mb=$(git -C "$1" merge-base "$2" "$3" 2>/dev/null) || {
+  hk_mb=$(mc_untrusted_git -C "$1" merge-base "$2" "$3" 2>/dev/null) || {
     [ $? -eq 1 ] && return 3
     return 1
   }
-  hk_names=$(git -C "$1" diff --name-only --no-color --no-ext-diff --no-renames "$hk_mb" "$3" -- 2>/dev/null) || return 1
-  hk_diff=$(git -C "$1" diff -U0 --no-prefix --no-color --no-ext-diff --no-renames --no-textconv "$hk_mb" "$3" -- 2>/dev/null) || return 1
+  hk_names=$(mc_untrusted_git -C "$1" diff --name-only --no-color --no-ext-diff --no-renames "$hk_mb" "$3" -- 2>/dev/null) || return 1
+  hk_diff=$(mc_untrusted_git -C "$1" diff -U0 --no-prefix --no-color --no-ext-diff --no-renames --no-textconv "$hk_mb" "$3" -- 2>/dev/null) || return 1
   [ -z "$hk_names" ] || printf '%s\n' "$hk_names" | B=$3 awk '{ print ENVIRON["B"] "\t" $0 "\t0\t0" }'
   # Paths come from a file's header only: in a -U0 diff a removed line
   # reading `-- x` prints as `--- x`, and must not be taken for one. Git
@@ -187,7 +186,7 @@ overlap() {
   ov_repo=$1
   ov_base=$2
   shift 2
-  git -C "$ov_repo" rev-parse --verify --quiet "$ov_base^{commit}" >/dev/null 2>&1 || {
+  mc_untrusted_git -C "$ov_repo" rev-parse --verify --quiet "$ov_base^{commit}" >/dev/null 2>&1 || {
     printf '%s\n' "$prog: the base $(sanitize_printable "$ov_base") is not a commit here" >&2
     return 1
   }
@@ -377,7 +376,7 @@ case $verb in
     rc=0
     while IFS= read -r r; do
       [ -n "$r" ] || continue
-      def=$(git -C "$r" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || {
+      def=$(mc_untrusted_git -C "$r" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || {
         printf '%s\n' "$prog: $(sanitize_printable "$r"): no origin default branch (refs/remotes/origin/HEAD)" >&2
         rc=1
         continue
@@ -385,7 +384,7 @@ case $verb in
       def=${def#refs/remotes/}
       # Every origin branch with its tip, the most recently committed first, so
       # long-dead ones do not crowd live work out of the cap.
-      list=$(git -C "$r" for-each-ref --sort=-committerdate --format='%(refname:short)	%(objectname)' refs/remotes/origin/ 2>/dev/null) || {
+      list=$(mc_untrusted_git -C "$r" for-each-ref --sort=-committerdate --format='%(refname:short)	%(objectname)' refs/remotes/origin/ 2>/dev/null) || {
         printf '%s\n' "$prog: $(sanitize_printable "$r"): the branch list cannot be read" >&2
         rc=1
         continue
@@ -394,7 +393,7 @@ case $verb in
 "
       # The pull requests of this repository: the snapshot rows naming its
       # slug, so a branch of another repository never matches.
-      url=$(git -C "$r" remote get-url origin 2>/dev/null) || url=""
+      url=$(mc_untrusted_git -C "$r" remote get-url origin 2>/dev/null) || url=""
       slug=$(printf '%s\n' "$url" | sed -e 's#^git@[^:]*:##' -e 's#^[a-z+]*://[^/]*/##' -e 's#\.git$##')
       repo_prs=$(printf '%s\n' "$snap" | SLUG=$slug awk -F '\t' '
         $1 == "pr" && $2 == ENVIRON["SLUG"] {

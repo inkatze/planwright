@@ -151,7 +151,7 @@ refuse() { # refuse <arm> <detail>
 # directory named and the worktree's own exec hooks, filters, diff drivers and
 # signature programs off.
 g() {
-  (mc_untrusted_git_env "$WT" && git --git-dir="$GITDIR" --work-tree="$WT" "$@")
+  (mc_untrusted_git_env "$GITDIR" && git --git-dir="$GITDIR" --work-tree="$WT" "$@")
 }
 
 # parse_paths <raw>: an inline list of worktree-relative paths, one per
