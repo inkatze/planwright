@@ -478,11 +478,13 @@ if [ "${1:-}" = "--run-one" ]; then
   # one way through, so one the caller exported is not passed on.
   unset PLANWRIGHT_TEST_REAL_CLAUDE
   claude_guard="$PLANWRIGHT_TEST_LOG_DIR/$name.claude-guard"
-  if write_claude_guard "$claude_guard"; then
+  if write_claude_guard "$claude_guard" 2>/dev/null; then
     PATH="$claude_guard:$PATH"
     export PATH
-  elif [ "$pin_failed" -eq 0 ]; then
-    pin_failed=2
+  else
+    # A directory broken under the run is the run's fault, not this file's.
+    ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
+    [ "$pin_failed" -ne 0 ] || pin_failed=2
   fi
   started="$(now_ms)"
   past_deadline=0
