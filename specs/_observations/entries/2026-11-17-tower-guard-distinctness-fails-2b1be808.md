@@ -1,0 +1,1 @@
+- 2026-11-17 [planwright] tests/test-tower-command-guard.sh fails one case, 'distinctness — mktemp: tower=allow worker=allow', when run under scripts/run-tests.sh from a stream-json worker session on 2026-11-17, identically on an origin/main tree (d05f7432) and on a branch that does not touch either guard; the cause was not traced.
