@@ -338,12 +338,20 @@ expect_out "a run with no flip time to compare reads as plainly pending" "fail${
 walk_with "draft with times" - "$(rowsof state,draft "flip,$FLIP_T" check,ci,QUEUED born,ci,2026-11-18T00:40:00Z)"
 expect_out "a draft's pending check is never a too-early flip" "fail${tab}check${tab}ci is QUEUED"
 
-{ complete; flip_rows 2026-11-18T00:40:10Z 2026-11-18T00:42:23Z; echo; } >"$tmp/ev"
+{
+  complete
+  flip_rows 2026-11-18T00:40:10Z 2026-11-18T00:42:23Z
+  echo
+} >"$tmp/ev"
 mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
 expect_rc "unfinished: a flip's runs are unfinished" 4
 expect_out "unfinished: the too-early run is named so" "fail${tab}flip${tab}ci was still running at the flip"
 expect_out "unfinished: the flip's own run is named so" "fail${tab}check${tab}PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip"
-{ complete; rowsof state,draft check,PR-Agent,PENDING; echo; } >"$tmp/ev"
+{
+  complete
+  rowsof state,draft check,PR-Agent,PENDING
+  echo
+} >"$tmp/ev"
 mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
 expect_rc "unfinished: a draft's PR-Agent run is none of its business" 0
 

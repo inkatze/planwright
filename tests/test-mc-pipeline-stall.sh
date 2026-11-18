@@ -245,9 +245,15 @@ printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tPENDING\n' >"$tmp/evidence.13"
 : >"$tmp/walk.12"
 : >"$tmp/walk.13"
-{ row 12 true MERGEABLE FAILURE; row 13 true MERGEABLE PENDING; } | put $((T + 60 * HOUR))
+{
+  row 12 true MERGEABLE FAILURE
+  row 13 true MERGEABLE PENDING
+} | put $((T + 60 * HOUR))
 run $((T + 60 * HOUR))
-{ row 12 true MERGEABLE FAILURE; row 13 true MERGEABLE PENDING; } | put $((T + 62 * HOUR))
+{
+  row 12 true MERGEABLE FAILURE
+  row 13 true MERGEABLE PENDING
+} | put $((T + 62 * HOUR))
 run $((T + 62 * HOUR))
 ev=$(mc_run_events | tail -n 1)
 case $ev in *"awaiting a flip (2): acme/web#12 acme/web#13"* | *"awaiting a flip (2): acme/web#13 acme/web#12"*) ok "a draft's failed or pending PR-Agent run is no stall reason" ;; *) fail "a draft's PR-Agent run held it: $ev" ;; esac
