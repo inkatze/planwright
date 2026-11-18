@@ -88,11 +88,26 @@ proc_args() {
     ps -ww -o args= -p "$1"
   fi
 }
-# child_with <ppid> <needle>: a child of <ppid> whose argv holds <needle>.
-child_with() {
-  for cw in $(ps -A -o pid= -o ppid= | awk -v p="$1" '$2 == p { print $1 }'); do
-    case $(proc_args "$cw" 2>&1) in *"$2"*)
-      printf '%s\n' "$cw"
+# desc_with <pid> <prefix>: a descendant of <pid> whose argv starts with
+# <prefix>. A descendant, since bash 3.2 forks before it runs a backgrounded
+# command, and that fork's argv, the supervisor's, names the CLI too.
+desc_with() {
+  dw_table=$(ps -A -o pid= -o ppid=)
+  dw_set=" $1 "
+  dw_grew=1
+  while [ -n "$dw_grew" ]; do
+    dw_grew=''
+    for dw_p in $(printf '%s\n' "$dw_table" | awk -v s="$dw_set" 'index(s, " " $2 " ") && !index(s, " " $1 " ") { print $1 }'); do
+      dw_set="$dw_set$dw_p "
+      dw_grew=1
+    done
+  done
+  for dw_p in $dw_set; do
+    [ "$dw_p" != "$1" ] || continue
+    dw_a=$(proc_args "$dw_p" 2>&1)
+    dw_a=${dw_a#"${dw_a%%[! ]*}"}
+    case $dw_a in "$2"*)
+      printf '%s\n' "$dw_p"
       return 0
       ;;
     esac
@@ -115,7 +130,7 @@ child_of() {
   co_i=0
   while [ "$co_i" -lt 50 ]; do
     # The stand-in's own sleep is a child too; the worker is the CLI one.
-    if co=$(child_with "$1" bin/claude); then
+    if co=$(desc_with "$1" "/bin/sh $fx/bin/claude "); then
       printf '%s\n' "$co"
       return 0
     fi
@@ -142,15 +157,15 @@ mkdir -p "$live_dir"
 FIXTURE_FORK=1 start_pair mc-alpha-worker-live "$live_dir" "$tmp/live-cwd"
 live_sup=$SUP
 printf '%s\n' "$live_sup" >"$live_dir/supervisor.pid"
-live_worker=$(child_with "$live_sup" bin/claude)
+live_worker=$(desc_with "$live_sup" "/bin/sh $fx/bin/claude ")
 fe_i=0
 while [ -z "$live_worker" ] && [ "$fe_i" -lt 50 ]; do
   sleep 0.1
   fe_i=$((fe_i + 1))
-  live_worker=$(child_with "$live_sup" bin/claude)
+  live_worker=$(desc_with "$live_sup" "/bin/sh $fx/bin/claude ")
 done
 [ -n "$live_worker" ] || fail "the healthy supervisor started no worker"
-live_fork=$(child_with "$live_sup" _supervise)
+live_fork=$(desc_with "$live_sup" "/bin/sh $fx/scripts/fleet-streamjson.sh _supervise")
 [ -n "$live_fork" ] || fail "the healthy supervisor started no fork"
 # A worker a foreground launch supervises from the launch process.
 (cd "$tmp/live-cwd" && exec /bin/sh "$fx/scripts/fleet-streamjson.sh" launch mc-alpha-worker-fg fg-scope --foreground \

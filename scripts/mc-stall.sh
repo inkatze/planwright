@@ -733,7 +733,13 @@ stream_json_procs() {
       if (shape == 2 && name != "") { cl[pid] = start "\t" name "\t" ppid; corder[++m] = pid }
     }
     END {
-      for (k = 1; k <= m; k++) { p = corder[k]; q = parent[p]; if (q in sup) kids[q] = kids[q] (kids[q] == "" ? "" : ",") p }
+      for (k = 1; k <= m; k++) {
+        p = corder[k]; q = parent[p]
+        # A shell that forks before it runs a backgrounded command (bash 3.2)
+        # leaves a fork of the supervisor between it and its worker.
+        while ((q in sup) && (parent[q] in sup)) q = parent[q]
+        if (q in sup) kids[q] = kids[q] (kids[q] == "" ? "" : ",") p
+      }
       for (k = 1; k <= n; k++) { p = order[k]; if (!(parent[p] in sup)) print "S\t" p "\t" sup[p] "\t" (kids[p] == "" ? "-" : kids[p]) }
       for (k = 1; k <= m; k++) { p = corder[k]; if (!(parent[p] in fsj)) print "C\t" p "\t" cl[p] }
     }'
