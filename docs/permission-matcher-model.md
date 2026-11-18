@@ -199,7 +199,7 @@ file-tool path rules (M10) are the only non-Bash rules modeled. The tower
 profile's `mcp__*__` deny entries rely on deny-rule tool-name globs, which
 this model does not cover; `tests/test-tower-settings-hook-wiring.sh` checks
 them against a shell-glob stand-in instead. Bare tool-name allow entries other
-than the file tools (`Grep`, `Glob`) are declared outside the model by name in
+than the file tools (`Grep`, `Glob`, `WebSearch`) are declared outside the model by name in
 the test.
 
 **MB-7 — `case` statements.** The structured reading does not parse a

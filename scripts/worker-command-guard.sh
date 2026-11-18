@@ -111,16 +111,16 @@ export LC_ALL
 # over the command — a ~40 KiB command takes ~8 s. MAX_CMD_LEN caps that at a
 # fraction of a second (~0.5 s) PER analyze_command entry so the hook can never
 # hang a worker's tool call; a longer command simply defers (never worse than
-# the normal prompt). Two routes re-enter analyze_command on text inside the
-# command, a `fish -c "<inner>"` string and a command substitution's inner
-# text, and a loop body is walked once per head word, each walk costing in
+# the normal prompt). Three routes re-enter analyze_command on text inside the
+# command, a `fish -c "<inner>"` string, a command substitution's inner
+# text and a vetted probe script's body (guard_probe), and a loop body is walked once per head word, each walk costing in
 # proportion to its words' length. So MAX_SCANNED caps the text one hook call
 # may tokenize and walk together, every entry and loop pass counted: past it
 # the command defers, which keeps the end-to-end cost near that of a few
 # full-length entries, plus STEPS_DEADLINE when a segment reaches the
 # declared-step fallback. A substitution's verdict is kept for the working
 # directory it last passed in, so a loop pass there does not analyse it again. 8 KiB is far above any
-# real worker command shape. MAX_DEPTH caps `fish -c` recursion so a
+# real worker command shape. MAX_DEPTH caps `fish -c` and probe recursion so a
 # nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
 readonly MAX_SCANNED=$((MAX_CMD_LEN * 4))
@@ -157,6 +157,21 @@ emit_allow() {
 # reset per hook call. Read-only is whatever approval set neither.
 AUDIT_OB=0
 AUDIT_SC=0
+# The SHA-256 of a probe script's text when guard_probe approved one.
+AUDIT_PROBE=''
+
+# sha256_hex <text>: the digest of the text, `-` when no tool can compute it.
+sha256_hex() {
+  local h
+  if command -v sha256sum >/dev/null 2>&1; then
+    h=$(printf '%s' "$1" | sha256sum 2>/dev/null) || h=-
+  else
+    h=$(printf '%s' "$1" | shasum -a 256 2>/dev/null) || h=-
+  fi
+  h=${h%% *}
+  [[ $h =~ ^[0-9a-f]{64}$ ]] || h=-
+  printf '%s' "$h"
+}
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -172,19 +187,13 @@ audit_append() {
   [ -n "$arm" ] || arm=read-only
   [[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]] || sid=-
   t=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || t=-
-  if command -v sha256sum >/dev/null 2>&1; then
-    h=$(printf '%s' "$1" | sha256sum 2>/dev/null) || h=-
-  else
-    h=$(printf '%s' "$1" | shasum -a 256 2>/dev/null) || h=-
-  fi
-  h=${h%% *}
-  [[ $h =~ ^[0-9a-f]{64}$ ]] || h=-
+  h=$(sha256_hex "$1")
   if [ -e "$f" ] || [ -L "$f" ]; then
     [ -f "$f" ] && [ ! -L "$f" ] || return 0
   fi
   (
     umask 077
-    printf '%s\n' "time=$t session=$sid arm=$arm cmd_sha256=$h" >>"$f"
+    printf '%s\n' "time=$t session=$sid arm=$arm cmd_sha256=$h${AUDIT_PROBE:+ probe_sha256=$AUDIT_PROBE}" >>"$f"
   ) 2>/dev/null || :
 }
 
@@ -1376,9 +1385,9 @@ floor_act_words() {
 # whose every target canonicalizes strictly inside the scratch root and
 # outside the trusted names ob_excluded_name lists, and resolves a literal
 # `$TMPDIR` to that root (analyze_command). The root comes from the record;
-# the inherited TMPDIR only has to agree with it. Nothing there is ever
-# trusted to run: the script runners admit only repository and
-# installed-plugin code.
+# the inherited TMPDIR only has to agree with it. Nothing there is trusted to
+# run beyond the one probe script guard_probe vets: the script runners admit
+# only repository and installed-plugin code.
 OB_ON=0
 SC_ON=0
 OB_WROTE=0
@@ -3394,8 +3403,11 @@ guard_file() {
 # dumps raw data to a file, `-F`/`--filter` reads one, `-N`/`--net` enters a
 # namespace, `-b`/`--bpf` loads a program, `-r`/`--resolve` queries DNS, and
 # `-E`/`--events` never returns. Only the enumerated display and selection
-# flags pass, and a filter expression only as plain words, so nothing is read
-# from a variable, a substitution or a glob.
+# flags pass (short letters: n numeric, t tcp, u udp, l listening, a all,
+# x unix, w raw, d dccp, S sctp, s summary, i info, e extended, m memory,
+# p processes, o options, H no header, 4 6 0 families, O one line), and a
+# filter expression only as plain words, so nothing is read from a variable, a
+# substitution or a glob.
 guard_ss() {
   local i a body
   for ((i = 1; i < cwn; i++)); do
@@ -3416,9 +3428,11 @@ guard_ss() {
 }
 
 # guard_umask: the mask of the shell the command runs in, which only changes
-# the mode of files made after it: bare, `-S`, `-p`, or an octal literal.
+# the mode of files made after it: bare, `-S`, `-p`, or an octal literal that
+# keeps the other-write bit masked, so a later step never makes a
+# world-writable file.
 guard_umask() {
-  local re='^[0-7]{1,4}$'
+  local re='^0?[0-7]{2}[2367]$'
   case $cwn in
     1) return 0 ;;
     2)
@@ -3446,7 +3460,7 @@ guard_mdlint() {
 guard_bashsh() {
   # `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo code
   # or an installed planwright root's scripts/; any option (notably -c /
-  # -ec) defers (REQ-A1.5, REQ-A1.9). `sh <probe>` also runs a read-only probe
+  # -ec) defers (REQ-A1.5, REQ-A1.9). `sh <probe>` also runs a probe script
   # the worker wrote in its own scratch directory (guard_probe).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
@@ -3458,50 +3472,78 @@ guard_bashsh() {
 
 # guard_probe: `sh <scratch>/<dir>/<name>.sh`, a probe script the worker wrote
 # in a directory of its own under the scratch root its session record names,
-# approved when what it holds is itself approved. The path is a plain absolute
-# literal two levels under the recorded root, whose TMPDIR the hook inherited
-# (HOOK_TMPDIR_IS_SCRATCH), with no symlink or second hard link, owned by the
-# session, small, and free of NUL bytes. The script is read once, here: its
-# leading shebang, comments, blank lines and `set -e`/`-u` lines are set aside
-# (a comment past the first command stays, so no quote can hide behind one) and
-# the rest runs through the analysis one level deeper, where no policy arm is
-# live, so any write, redirect, pipe into an unlisted command or substitution in
-# it defers. The file is the worker's own, so a rewrite between this read and
-# the run is the one window left open; a script that runs itself is cut off by
-# the depth bound.
+# approved when what it holds is itself approved. It is the one run of a file
+# from the scratch root, so it is held tight:
+# - the whole command is that one call, behind at most `time` and `timeout`,
+#   because any other segment (a redirect, `cp`, `tee`) could rewrite the file
+#   after this read and before the run;
+# - the path is a plain absolute literal, spelled from the recorded root or
+#   from the session's own TMPDIR (which HOOK_TMPDIR_IS_SCRATCH proved names
+#   it), two levels down, no symlink or second hard link on the way, a file
+#   the session owns;
+# - the file is read once, here, at most one byte past the cap, and refused
+#   when it holds a NUL or a control byte beyond newline and tab (the
+#   tokenizer and `sh` disagree on carriage return, form feed and vertical
+#   tab);
+# - only leading blank lines, comments (the shebang included) and `set -e`/`-u`
+#   lines are set aside, judged on space and tab alone, so no quote can hide
+#   behind a comment; everything else, the original lines, runs through the
+#   analysis one level deeper, where no policy arm is live and no probe can
+#   nest, so a write, redirect, unlisted pipe or substitution defers. It
+#   shares MAX_SCANNED and the loop bound with the typed command.
+# A rewrite by another process between this read and the run is the one window
+# left open; the audit line carries the content's digest, so the approval can
+# be matched to what was judged.
 guard_probe() {
-  local p=${cw[1]} rel dir f size line body='' lead=1 re='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.sh$'
-  local sets_re='^set -[eu]+$'
-  [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ] && [ -n "$REC_SCRATCH" ] || return 1
+  local p=${cw[1]} base rel d content='' line body='' t rc lead=1
+  local re_name='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.sh$'
+  local re_cmd='^[[:blank:]]*(([[:blank:]]*(time|timeout[[:blank:]]+[0-9]+[smhd]?)[[:blank:]]+)*)sh[[:blank:]]+([^[:space:]]+)[[:blank:]]*$'
+  local re_set='^set -[eu]+$'
+  [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ] && [ -n "$REC_SCRATCH" ] && [ "$HOOK_DEPTH" -eq 0 ] || return 1
+  [[ $HOOK_RAW_CMD =~ $re_cmd ]] && [ "${BASH_REMATCH[4]}" = "$p" ] || return 1
   [ "${cqp[1]}" -lt 0 ] && ! word_unresolved "${cw[1]}" "${cdyn[1]}" "${cglob[1]}" "${cx[1]}" || return 1
   case $p in
-    "$REC_SCRATCH"/?*) rel=${p#"$REC_SCRATCH"/} ;;
-    *) return 1 ;;
+    "$REC_SCRATCH"/?*) base=$REC_SCRATCH ;;
+    *)
+      base=${TMPDIR%/}
+      [ -n "$base" ] || return 1
+      case $p in
+        "$base"/?*) ;;
+        *) return 1 ;;
+      esac
+      ;;
   esac
-  [[ $rel =~ $re ]] || return 1
-  dir=$REC_SCRATCH/${rel%%/*}
-  f=$p
-  [ -d "$dir" ] && [ ! -L "$dir" ] && [ "$(cd -P -- "$dir" 2>/dev/null && pwd -P)" = "$dir" ] || return 1
-  [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] && [ -r "$f" ] || return 1
-  [ "$(find "$f" -maxdepth 0 -links 1 2>/dev/null)" = "$f" ] || return 1
-  size=$(wc -c <"$f" 2>/dev/null) || return 1
-  size=${size//[[:space:]]/}
-  [ "$size" -gt 0 ] && [ "$size" -le "$MAX_CMD_LEN" ] 2>/dev/null || return 1
-  # tr drops NUL bytes: a file that differs from its own filtered copy held one.
-  [ "$(tr -d '\000' <"$f" | wc -c | tr -d '[:space:]')" = "$size" ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
+  rel=${p#"$base"/}
+  [[ $rel =~ $re_name ]] || return 1
+  d=${rel%%/*}
+  [ -d "$base/$d" ] && [ ! -L "$base/$d" ] && [ "$(cd -P -- "$base/$d" 2>/dev/null && pwd -P)" = "$REC_SCRATCH/$d" ] || return 1
+  [ -f "$p" ] && [ ! -L "$p" ] && [ -O "$p" ] && [ -r "$p" ] || return 1
+  [ "$(find "$p" -maxdepth 0 -links 1 2>/dev/null)" = "$p" ] || return 1
+  # With -d '' the read stops at a NUL byte or at the length cap and succeeds;
+  # only the end of the file, whole, makes it fail with status 1.
+  IFS= read -r -d '' -n "$((MAX_CMD_LEN + 1))" content <"$p"
+  rc=$?
+  [ "$rc" = 1 ] && [ -n "$content" ] || return 1
+  t=${content//$'\n'/}
+  t=${t//$'\t'/}
+  case $t in
+    *[[:cntrl:]]*) return 1 ;;
+  esac
+  while IFS= read -r line; do
     if [ "$lead" = 1 ]; then
-      line=${line#"${line%%[![:space:]]*}"}
-      case $line in
+      t=${line#"${line%%[![:blank:]]*}"}
+      case $t in
         '' | '#'*) continue ;;
       esac
-      [[ $line =~ $sets_re ]] && continue
+      [[ $t =~ $re_set ]] && continue
       lead=0
     fi
     body="$body$line"$'\n'
-  done <"$f"
+  done <<<"$content"
   [ -n "$body" ] || return 1
-  analyze_command "$body" "$((HOOK_DEPTH + 1))"
+  analyze_command "$body" "$((HOOK_DEPTH + 1))" || return 1
+  AUDIT_PROBE=$(sha256_hex "$content")
+  return 0
 }
 
 guard_fish() {
@@ -6263,7 +6305,8 @@ strip_prefixes() {
 # only beside the one command the router itself maps to that kind, which is
 # what the bare form would have run: `--check -- mise run check`,
 # `--task <name> -- mise run <name>`, `--test tests/test-<name>.sh -- bash
-# tests/test-<name>.sh`. Any other pairing, two kinds, and a router with
+# tests/test-<name>.sh` (the router's own grammar in scripts/compute-route.sh,
+# which these patterns keep mirroring). Any other pairing, two kinds, and a router with
 # nothing to run, or another router as that command, defer.
 # is_trusted_script refuses the script as a verb, so no other spelling reaches
 # the router.
@@ -6272,6 +6315,11 @@ strip_compute_route() {
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) ;;
     *) return 0 ;;
+  esac
+  # A bare name is looked up on PATH by the shell, not beside this hook's root.
+  case ${cw[0]} in
+    */*) ;;
+    *) return 1 ;;
   esac
   case ${cw[1]-} in
     --check)
@@ -7444,6 +7492,7 @@ main() {
   IN_SUBST=0
   AUDIT_OB=0
   AUDIT_SC=0
+  AUDIT_PROBE=''
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
