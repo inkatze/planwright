@@ -471,6 +471,75 @@ expect_rc "an unknown field is a usage error" 2
 mc_run mc-program.sh bogus
 expect_rc "an unknown verb is a usage error" 2
 
+# A field read resolves the config layers once, not once per key: every run
+# of config-get.sh pays the whole root and overlay resolution chain, and the
+# panel reads fields on every redraw. The count comes from a copy of the
+# scripts directory whose config-get.sh logs each run and hands over to the
+# real one; the answers are the real script's.
+counted=$tmp/scripts-counted
+mkdir -p "$counted"
+for f in "$repo_root"/scripts/*; do
+  [ "${f##*/}" = config-get.sh ] || ln -s "$f" "$counted/${f##*/}"
+done
+cat >"$counted/config-get.sh" <<EOF
+#!/bin/sh
+echo run >>"$tmp/config-get.log"
+exec /bin/sh "$repo_root/scripts/config-get.sh" "\$@"
+EOF
+# counted_get <field>: OUT/RC of a get through the counting copy, the number
+# of config-get.sh runs it took in GETS.
+counted_get() {
+  rm -f "$tmp/config-get.log"
+  OUT=$(mc_env /bin/bash "$counted/mc-program.sh" get alpha "$1" 2>"$tmp/stderr")
+  RC=$?
+  ERR=$(cat "$tmp/stderr")
+  GETS=0
+  [ ! -f "$tmp/config-get.log" ] || GETS=$(grep -c run "$tmp/config-get.log")
+}
+alpha_block
+for field in repositories spec_root home sources duties; do
+  mc_run mc-program.sh get alpha "$field"
+  want_out=$OUT
+  want_rc=$RC
+  want_err=$ERR
+  counted_get "$field"
+  if [ "$OUT" = "$want_out" ] && [ "$RC" -eq "$want_rc" ] && [ "$ERR" = "$want_err" ]; then
+    ok "get alpha $field answers the same through the batched read"
+  else
+    fail "get alpha $field differs (exit $RC vs $want_rc): $OUT / $ERR vs $want_out / $want_err"
+  fi
+  if [ "$GETS" -eq 1 ]; then
+    ok "get alpha $field runs config-get.sh once"
+  else
+    fail "get alpha $field ran config-get.sh $GETS times"
+  fi
+done
+
+# Nothing is kept between runs: an edit to the tracked layer shows on the next read.
+alpha_block "$repo"
+counted_get spec_root
+if [ "$OUT" = "$repo" ]; then
+  ok "an edited layer shows on the next read"
+else
+  fail "a read after an edit answered '$OUT', not the edited spec root"
+fi
+alpha_block
+
+# A prefetch that spoke on stderr is dropped and the per-key reads run: a
+# malformed adopter layer is warned about on every read, as it always was.
+mkdir -p "$adopter"
+printf 'nested:\n  child: 1\n' >"$adopter/planwright.yml"
+mc_run mc-program.sh get alpha spec_root
+want_out=$OUT
+want_err=$ERR
+counted_get spec_root
+if [ "$OUT" = "$want_out" ] && [ "$ERR" = "$want_err" ] && [ "$GETS" -gt 1 ]; then
+  ok "a read that warns falls back to the per-key reads and says the same"
+else
+  fail "a read with a malformed adopter layer: ran config-get.sh $GETS times, stderr '$ERR' vs '$want_err'"
+fi
+rm -f "$adopter/planwright.yml"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-program: $failures failure(s)" >&2
   exit 1
