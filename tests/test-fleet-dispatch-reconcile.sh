@@ -95,6 +95,9 @@ EOF
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+# The liveness oracle (fleet-liveness.sh) would ask the installed CLI for the
+# operator's own sessions; it stays absent here, as on a host without one.
+export PLANWRIGHT_ORACLE_CLAUDE="$tmp/no-claude"
 tab=$(printf '\t')
 
 # No case may reach the host's tmux server: the death-evidence probes would
