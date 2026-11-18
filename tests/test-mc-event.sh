@@ -230,6 +230,51 @@ else
   fail "a refused event left a file behind"
 fi
 
+# list sanitizes each row's text and mark without starting a process per row:
+# a store of hundreds of events is read on every panel redraw, so a fork per
+# row is a fork storm. The shim logs every tr start; none may happen, and the
+# bytes printed are the ones the sanitizing tr gave.
+shim=$tmp/shim
+mkdir -p "$shim" "$fleet/attention/mission-control/alpha/marks/worker-1"
+real_tr=$(command -v tr)
+cat >"$shim/tr" <<EOF
+#!/bin/sh
+echo started >>"$tmp/tr.log"
+exec "$real_tr" "\$@"
+EOF
+chmod +x "$shim/tr"
+store_ev=$fleet/attention/mission-control/alpha/events
+store_mk=$fleet/attention/mission-control/alpha/marks/worker-1
+printf '90000\tsan-kind\tsan-one\ta\205b\237c\240d\n' >"$store_ev/e90000.0001ab"
+printf '90000\tsan-kind\tsan-two\tplain\n' >"$store_ev/e90000.0002ab"
+printf '90000\tsan-kind\tsan-three\tplain\n' >"$store_ev/e90000.0003ab"
+printf '90000\tsan-kind\tsan-four\tplain\n' >"$store_ev/e90000.0004ab"
+printf '\205\237\n' >"$store_mk/e90000.0001ab"
+printf 'sta\033g\205ed\n' >"$store_mk/e90000.0002ab"
+printf 'submitted\n' >"$store_mk/e90000.0003ab"
+rm -f "$tmp/tr.log"
+PATH="$shim:$PATH" mc_run mc-event.sh list --program alpha --target worker-1 e90000.0001ab e90000.0002ab e90000.0003ab e90000.0004ab
+expect_rc "list with a target over sanitized rows" 0
+want=$(printf 'e90000.0001ab\t90000\tsan-kind\tsan-one\tabc\240d\t-\ne90000.0002ab\t90000\tsan-kind\tsan-two\tplain\tstaged\ne90000.0003ab\t90000\tsan-kind\tsan-three\tplain\tsubmitted\ne90000.0004ab\t90000\tsan-kind\tsan-four\tplain\t-')
+if [ "$OUT" = "$want" ]; then
+  ok "list strips control and C1 bytes from text and mark, and a mark with none left reads -"
+else
+  fail "list sanitized rows differently: got $(printf '%s' "$OUT" | od -An -c | tr -s ' ' | head -c 600)"
+fi
+if [ ! -s "$tmp/tr.log" ]; then
+  ok "list starts no tr per row"
+else
+  fail "list started tr $(grep -c . "$tmp/tr.log") times over four rows"
+fi
+rm -f "$tmp/tr.log"
+PATH="$shim:$PATH" mc_run mc-event.sh list --program alpha e90000.0001ab
+expect_rc "list with no target over a sanitized row" 0
+if [ "$OUT" = "$(printf 'e90000.0001ab\t90000\tsan-kind\tsan-one\tabc\240d')" ] && [ ! -s "$tmp/tr.log" ]; then
+  ok "list without a target strips the same bytes and starts no tr"
+else
+  fail "list without a target: got $(printf '%s' "$OUT" | od -An -c | head -c 300), tr log: $(cat "$tmp/tr.log" 2>&1)"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-event: $failures failure(s)" >&2
   exit 1
