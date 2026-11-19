@@ -41,7 +41,7 @@ row() { # row <label> <want>: the demo bundle's signoff row is exactly <want>
 legacy() { # legacy: the demo bundle's requirements.md in the pre-pipeline form, with no Status line
   printf '# Demo Requirements\n\n## Section\n\n- The system shall do the thing.\n' >"$repo/specs/demo/requirements.md"
 }
-legacy_row="unsigned${tab}its requirements.md has no **Status:** line at the head (a legacy bundle no kickoff signed off): add **Status:** Draft to the header of specs/demo/requirements.md and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request"
+legacy_row="unsigned${tab}its requirements.md has no **Status:** value in its header at the head, as a legacy bundle has: add **Status:** Draft to the header of specs/demo/requirements.md and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request"
 
 bundle demo Ready signed
 spec_pr "$(commit_specs)" specs/demo/design.md
@@ -89,12 +89,24 @@ spec_pr "$sh_lost" specs/demo/design.md
 row "a requirements.md whose object git cannot read is told apart from a missing one" \
   "unsigned${tab}its requirements.md cannot be read at the head (git could not read specs/demo/requirements.md)"
 mv "$tmp/lost-object" "$lost_obj"
+lost=$(git -C "$repo" rev-parse "$sh_lost:specs/demo")
+lost_obj="$repo/.git/objects/$(printf '%s' "$lost" | cut -c1-2)/$(printf '%s' "$lost" | cut -c3-)"
+mv "$lost_obj" "$tmp/lost-object"
+spec_pr "$sh_lost" specs/demo/design.md
+row "a bundle whose tree git cannot list is not reported missing" \
+  "unsigned${tab}its requirements.md cannot be read at the head (git could not list specs/demo/requirements.md)"
+mv "$tmp/lost-object" "$lost_obj"
 
 bundle demo Ready signed
 printf '# demo\n\n**Status:** Ready\n\nA NUL \000 byte.\n' >"$repo/specs/demo/requirements.md"
 spec_pr "$(commit_specs)" specs/demo/design.md
 row "a NUL-bearing requirements.md is unreadable, its path named" \
-  "unsigned${tab}its requirements.md cannot be read at the head (specs/demo/requirements.md holds a NUL byte)"
+  "unsigned${tab}its requirements.md cannot be read at the head (specs/demo/requirements.md holds a NUL byte or cannot be read)"
+
+bundle demo Ready signed
+printf '# demo\n\n**Status:**\n\nBody.\n' >"$repo/specs/demo/requirements.md"
+spec_pr "$(commit_specs)" specs/demo/design.md
+row "a Status line with no value reads as no Status value" "$legacy_row"
 
 bundle demo Ready signed
 printf '# demo\n\n**Status:** Ready\n**Status:** Draft\n\nBody.\n' >"$repo/specs/demo/requirements.md"
@@ -117,6 +129,8 @@ for dir in "$elsewhere" "$other"; do
   MC_ENV_CWD=$dir TMPDIR=scratch spec_pr "$sh_ready" specs/demo/design.md
   row "a Ready bundle is signed off when readiness is launched from $dir" "signed${tab}-"
 done
+MC_ENV_CWD=$elsewhere TMPDIR=does-not-exist spec_pr "$sh_ready" specs/demo/design.md
+row "a relative TMPDIR that does not resolve falls back to a usable one" "signed${tab}-"
 bundle demo Ready none
 legacy
 sh_legacy=$(commit_specs)

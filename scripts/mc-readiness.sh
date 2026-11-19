@@ -30,11 +30,13 @@ done
 case ${TMPDIR:-} in
   '' | /*) ;;
   *)
-    abs_tmp=$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P) || mc_fail "TMPDIR is relative and does not resolve from this directory: $(sanitize_printable "$TMPDIR")"
-    TMPDIR=$abs_tmp
-    export TMPDIR
+    if abs_tmp=$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P); then
+      TMPDIR=$abs_tmp
+      export TMPDIR
+    fi
     ;;
 esac
+mc_usable_tmpdir
 
 help_text() {
   cat <<'HELP'
@@ -747,7 +749,11 @@ bundle_signoff() {
   req=$(sanitize_printable "$rel/$b/requirements.md")
   # A path git does not hold, one that is no regular file, a file git cannot
   # hand over, and a file with no Status line each need a different fix.
-  mode=$(mc_untrusted_git -C "$repo" --literal-pathspecs ls-tree -z "$head" -- "$rel/$b/requirements.md" 2>/dev/null | tr '\0' '\n' | awk '{ print $1; exit }')
+  if ! mode=$(mc_untrusted_git -C "$repo" --literal-pathspecs ls-tree "$head" -- "$rel/$b/requirements.md" 2>/dev/null); then
+    printf 'its requirements.md cannot be read at the head (git could not list %s)' "$req"
+    return 0
+  fi
+  mode=${mode%% *}
   case $mode in
     '')
       printf 'it has no requirements.md at the head (%s)' "$req"
@@ -768,8 +774,7 @@ bundle_signoff() {
   case $rc in
     0) ;;
     1)
-      # The copy was just written, so the parse's read refusal is its NUL screen.
-      printf 'its requirements.md cannot be read at the head (%s holds a NUL byte)' "$req"
+      printf 'its requirements.md cannot be read at the head (%s holds a NUL byte or cannot be read)' "$req"
       return 0
       ;;
     3)
@@ -783,7 +788,7 @@ bundle_signoff() {
   esac
   if [ -z "$st" ]; then
     # Never a pass: a bundle from before the pipeline carries no sign-off.
-    printf 'its requirements.md has no **Status:** line at the head (a legacy bundle no kickoff signed off): add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
+    printf 'its requirements.md has no **Status:** value in its header at the head, as a legacy bundle has: add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
     return 0
   fi
   case $st in
