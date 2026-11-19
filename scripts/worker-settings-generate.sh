@@ -5,18 +5,15 @@
 # Usage: worker-settings-generate.sh [--mise-task-edit] [--lefthook-edit]
 #          <worker-settings.json> <worktree> <out-file>
 #
-# Each opt-in names a set of broad path denies and replaces them with literal
-# denies of the same names in every ancestor folder of the worktree and in the
-# primary checkout, so only the worktree's own files of that kind open, and a
-# PreToolUse hook on the file tools (worker-mise-edit-guard.sh) refuses every
-# such path outside the worktree, which no path rule can express. Every other
-# rule stays as shipped.
-#   --mise-task-edit  the four mise task-file denies (mise.toml, .mise.toml,
-#                     mise-tasks/, .mise-tasks/ at any depth). With neither
-#                     flag, this is the form.
-#   --lefthook-edit   the two lefthook config denies (lefthook/, lefthook.*
-#                     at any depth); lefthook-local, the dotted variants and
-#                     the hook directories stay denied.
+# Each opt-in's broad path denies are replaced by literal denies of the same
+# names in every ancestor folder of the worktree and in the primary checkout,
+# so only the worktree's own files of that kind open, and a PreToolUse hook on
+# the file tools (worker-mise-edit-guard.sh) refuses every such path outside
+# the worktree, which no path rule can express. Every other rule stays as
+# shipped.
+#   --mise-task-edit  the four mise task-file names; the form with neither flag
+#   --lefthook-edit   lefthook/ and lefthook.* (lefthook-local and the dotted
+#                     variants stay denied)
 # A worktree or primary path holding a pattern character, or a primary checkout
 # that cannot be named, is refused. Output: whole by rename, owner-only,
 # outside the worktree. What each opens and the residual risk:
