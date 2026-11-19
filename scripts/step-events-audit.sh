@@ -3,7 +3,9 @@
 # Emits tab-separated lines, one per fault or unverifiable record.
 #
 # Usage: step-events-audit.sh --worktree <dir> --records <file> [--run <id>]...
-#   --records  the output of `step-record.sh list`; --run restricts the runs.
+#   --records  the output of `step-record.sh list --effective` (a start or end
+#              corrected by step-record.sh supersede is the one judged);
+#              --run restricts the runs.
 #
 # A record is hand-written by the session it describes, so its claims are held
 # against that session's stream-json events.jsonl (the one whose `cwd` is the
@@ -99,7 +101,8 @@ if [ -s "$work/files" ]; then
   fi
 fi
 
-awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
+hint='; a misdated start is corrected, not re-recorded, with step-record.sh supersede (cite the session event)'
+awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" -v HINT="$hint" '
   function days(y, m, d,   era, yoe, doy, doe) {
     if (m <= 2) y--
     era = int(y / 400); yoe = y - era * 400
@@ -139,7 +142,7 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
         d = absdiff(skt[sk, i], s)
         if (best < 0 || d < best) { best = d; near = skt[sk, i] }
       }
-      if (!got) fault("start " s " is not the second of the " sk " Skill call; the session events show " (nsk[sk] ? "its nearest call at " near : "no such call"))
+      if (!got) fault("start " s " is not the second of the " sk " Skill call; the session events show " (nsk[sk] ? "its nearest call at " near : "no such call") HINT)
     }
     if (need2) {
       span = 0
@@ -150,7 +153,7 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" '
       floor = ""
       for (i in sf) if (sf[i] <= e && sl[i] >= e && (floor == "" || sf[i] < floor)) floor = sf[i]
       if (floor == "") floor = first
-      if (floor != "" && s < floor && !(((F["step"] SUBSEP s) in rstart) && rstart[F["step"] SUBSEP s] != curun)) fault("start " s " is before the session first event at " floor)
+      if (floor != "" && s < floor && !(((F["step"] SUBSEP s) in rstart) && rstart[F["step"] SUBSEP s] != curun)) fault("start " s " is before the session first event at " floor HINT)
     }
   }
   # A round repeated in a later run by a fresh records worker keeps the start of

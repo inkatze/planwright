@@ -218,6 +218,10 @@
 # per line, always newline-terminated. Path comes last because it is the only
 # field that may contain a space.
 PW_LOCK_HELD=''
+# The taken-kind asides this shell has moved a link onto and not yet removed:
+# one "<token> <aside>" record per line. A release a signal interrupted after
+# the move finishes from here.
+PW_LOCK_ASIDES=''
 # The caller's handle on its own hold: every verb that takes a lock publishes
 # the token here so a cross-process release can prove ownership.
 PW_LOCK_TOKEN=''
@@ -687,9 +691,12 @@ _pw_lock_work_path() {
   done
 }
 
-# _pw_lock_displace <path> <kind> <token> — move <path> out of the way onto a
-# scratch name of this caller's own, and set _pw_lock_displaced to where it
-# went. 0 moved, 1 it was not there to move, 2 no free name could be derived.
+# _pw_lock_displace <path> <kind> <token> [note] — move <path> out of the way
+# onto a scratch name of this caller's own, and set _pw_lock_displaced to where
+# it went. 0 moved, 1 it was not there to move, 2 no free name could be derived.
+# A non-empty [note] also records the name in PW_LOCK_ASIDES before the move,
+# for the one caller that owes its removal and must be able to finish it from a
+# signal handler; the caller drops the record when it is done.
 #
 # THE ONLY PLACE ANYTHING IS MOVED ASIDE, and the rule it holds is: NEVER
 # REMOVE WHAT YOU ARE ABOUT TO MOVE ONTO. The rename is the exclusion, and a
@@ -711,6 +718,7 @@ _pw_lock_displace() {
     return 2
   fi
   _pw_lock_displaced=$_pw_lock_work_path_out
+  [ -z "${4:-}" ] || _pw_lock_aside_note "$3" "$_pw_lock_displaced"
   # `-f` because `mv` PROMPTS before replacing a destination it cannot write,
   # and the prompt reads stdin: a caller that inherited a terminal would stop
   # here, inside the step this whole family serializes on, with the question
@@ -738,6 +746,7 @@ _pw_lock_displace() {
       # whole family exists to prevent.
       _pwds_stuck=$_pw_lock_displaced/$_pwds_base
       if _pw_lock_work_path "$1" "$2" "$3" \
+        && { [ -z "${4:-}" ] || _pw_lock_aside_note "$3" "$_pw_lock_work_path_out"; } \
         && mv -f "$_pwds_stuck" "$_pw_lock_work_path_out" 2>/dev/null \
         && ! { [ -d "$_pw_lock_work_path_out" ] \
           && { [ -e "$_pw_lock_work_path_out/$_pwds_base" ] || [ -L "$_pw_lock_work_path_out/$_pwds_base" ]; }; }; then
@@ -1284,9 +1293,55 @@ _pw_lock_forget() {
   fi
 }
 
+# _pw_lock_aside_note <token> <aside> — record a taken-kind aside this shell is
+# about to move a link onto. Written before the move, so a signal landing right
+# after it can find the aside.
+_pw_lock_aside_note() {
+  PW_LOCK_ASIDES="$PW_LOCK_ASIDES$1 $2$PW_LOCK_NL"
+}
+
+# _pw_lock_aside_drop <token> — forget every aside recorded for <token>.
+_pw_lock_aside_drop() {
+  _pwad_out=''
+  _pwad_rest=$PW_LOCK_ASIDES
+  while [ -n "$_pwad_rest" ]; do
+    _pwad_line=${_pwad_rest%%"$PW_LOCK_NL"*}
+    _pwad_rest=${_pwad_rest#*"$PW_LOCK_NL"}
+    [ -n "$_pwad_line" ] || continue
+    [ "${_pwad_line%% *}" = "$1" ] && continue
+    _pwad_out="$_pwad_out$_pwad_line$PW_LOCK_NL"
+  done
+  PW_LOCK_ASIDES=$_pwad_out
+}
+
+# _pw_lock_aside_find <lock> <token> — set _pw_lock_aside_out to the aside this
+# shell moved <token>'s link onto and has not yet removed. 0 found, 1 none. It
+# must sit beside <lock> under the taken kind and still carry the token.
+_pw_lock_aside_find() {
+  _pw_lock_aside_out=''
+  _pwaf_rest=$PW_LOCK_ASIDES
+  while [ -n "$_pwaf_rest" ]; do
+    _pwaf_line=${_pwaf_rest%%"$PW_LOCK_NL"*}
+    _pwaf_rest=${_pwaf_rest#*"$PW_LOCK_NL"}
+    [ -n "$_pwaf_line" ] || continue
+    [ "${_pwaf_line%% *}" = "$2" ] || continue
+    _pwaf_path=${_pwaf_line#* }
+    case $_pwaf_path in
+      "$1#taken#"*)
+        if [ -L "$_pwaf_path" ] && [ "$(readlink "$_pwaf_path" 2>/dev/null)" = "$2" ]; then
+          _pw_lock_aside_out=$_pwaf_path
+          return 0
+        fi
+        ;;
+    esac
+  done
+  return 1
+}
+
 # _pw_lock_take_link <lock> <token> — remove the lock, but only if it is this
-# token's. 0 removed, 1 it is not this token's (including: already gone), 2 a
-# real error.
+# token's. 0 removed (or finished: an interrupted release of this token had
+# already moved the link aside, and the aside is removed now), 1 it is not this
+# token's (including: already gone), 2 a real error.
 #
 # TWO STEPS, AND THE ORDER IS THE WHOLE POINT.
 #
@@ -1295,7 +1350,9 @@ _pw_lock_forget() {
 # all: the rename below VACATES the path, so renaming before knowing whose the
 # link was hands the path to anyone watching, in the common case, and the
 # restore then has nowhere to put it back. That destroys the one copy of a live
-# holder's lock through the verb that exists to protect it.
+# holder's lock through the verb that exists to protect it. (The one write the
+# look branch can make is removing this token's own leftover aside, which
+# touches nothing at the lock path.)
 #
 # Second, having seen our own token, take the link by renaming it to a path of
 # this caller's own. That is the exclusive act — a second caller's rename finds
@@ -1311,17 +1368,41 @@ _pw_lock_take_link() {
   _pwm_lock=$1
   _pwm_token=$2
   if [ "$(readlink "$_pwm_lock" 2>/dev/null)" != "$_pwm_token" ]; then
+    # A signal can land after this shell moved its own link aside and before it
+    # removed it, and a handler that releases re-enters here: the lock path no
+    # longer holds the token, but the aside still does. Finishing that removal
+    # is the release the interrupted call owed; forgetting the hold and leaving
+    # would strand the aside under a name that reads as a lock. The aside comes
+    # from this shell's own list of the ones it moved, never from
+    # _pw_lock_displaced (the latest displacement of any lock, which a handler
+    # releasing an older hold first has already overwritten) and never from a
+    # scan of the directory (a sibling subshell shares this token and its
+    # in-flight aside is not ours to finish).
+    if _pw_lock_aside_find "$_pwm_lock" "$_pwm_token"; then
+      rm -f "$_pw_lock_aside_out" 2>/dev/null || return 2
+      _pw_lock_aside_drop "$_pwm_token"
+      _pw_lock_forget "$_pwm_lock" "$_pwm_token"
+      return 0
+    fi
+    _pw_lock_aside_drop "$_pwm_token"
     _pw_lock_forget "$_pwm_lock" "$_pwm_token"
     return 1
   fi
-  _pw_lock_displace "$_pwm_lock" taken "$_pwm_token" || return $?
+  _pwm_rc=0
+  _pw_lock_displace "$_pwm_lock" taken "$_pwm_token" note || _pwm_rc=$?
+  if [ "$_pwm_rc" -ne 0 ]; then
+    _pw_lock_aside_drop "$_pwm_token"
+    return "$_pwm_rc"
+  fi
   _pwm_taken=$_pw_lock_displaced
   if [ "$(readlink "$_pwm_taken" 2>/dev/null)" != "$_pwm_token" ]; then
     _pw_lock_restore_or_keep "$_pwm_taken" "$_pwm_lock" || :
+    _pw_lock_aside_drop "$_pwm_token"
     _pw_lock_forget "$_pwm_lock" "$_pwm_token"
     return 1
   fi
   rm -f "$_pwm_taken" 2>/dev/null || return 2
+  _pw_lock_aside_drop "$_pwm_token"
   _pw_lock_forget "$_pwm_lock" "$_pwm_token"
   return 0
 }

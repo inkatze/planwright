@@ -1,7 +1,7 @@
 # Control plane — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-16
+**Last reviewed:** 2026-11-18
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -62,8 +62,11 @@ merge reach are YAML catalogs resolved through the existing catalog and
 configuration resolvers (core seed, adopter, repository-tracked, machine-local),
 each with a schema checked in CI and at load. An invalid entry is dropped from
 its layer and the lower layers stay in force, except that an invalid value that
-bounds a class makes the class refuse everything. The approval floor ships as
-data no layer can loosen, and a layer entry that allows a floor act fails the
+bounds a class makes the class refuse everything. A dropped entry is never
+silent: it is counted and reported at each wake with its file and entry, so a
+typo cannot leave a rule quietly unenforced (rejected: failing the whole file
+for one bad entry, which lets one typo disable that file's other rules). The
+approval floor ships as data no layer can loosen, and a layer entry that allows a floor act fails the
 schema check. Scalar limits stay in `config/defaults.yml` with the options
 reference; list-shaped policy (classes, ranks, order) is catalog data. Every
 verdict records the policy digest, and `explain` names the supplying layer.
@@ -287,13 +290,18 @@ committing detail the evidence has yet to inform.
 the engine answers nothing (floor acts included, which raise the event as
 today), the gate delivers everything, the dispatcher leaves admission to
 today's host admission check. Every verb reads it first, and the setting is
-readable from the machine-local layer because turning the control plane off
-only hands decisions back to the layer above; a switch left on is reported at
-each wake.
+read from the shipped and adopter layers only, never from the machine-local
+layer: a file a worker session can write would let a worker turn off the floor
+refusals and the launch limits. A machine-local value is ignored and reported;
+a switch left on is reported at each wake.
 
 **Alternatives considered:**
 - Per-component switches only. Rejected because: in a fault the operator needs
   one act, not four.
+- Read the switch from the machine-local layer too. Rejected because: a
+  session-writable file could disable every safeguard, the floor included.
+- A machine-local off that defers only the approval engine. Rejected because:
+  it splits the switch's meaning and no longer restores today's behavior whole.
 
 **Chosen because:** a control plane that cannot be turned off is a risk of its
 own, and off is the safe direction.
@@ -486,6 +494,18 @@ command): the write-time security pass for untrusted input, subprocess
 construction, path handling and authorization applies to every slice-one task.
 The decision log and drop ledger hold identifiers, digests and bounded strings
 only (REQ-I1.4).
+
+### Log concurrency
+
+Concurrent watchers write the decision log and drop ledger, so each writer
+appends one complete record as a single line while holding a file lock. A
+reader skips a torn final line, and the next write starts on a fresh line,
+repairing it; a crash loses at most the record in flight, and a lock wait is
+bounded, a timeout or failed write never changing a verdict or a delivery
+(REQ-I1.5). Rejected:
+one file per watcher merged on read, which trades the lock for more files and a
+merging reader, and leaving the question to the build, which keeps the gap
+open.
 
 ## Open kickoff questions
 

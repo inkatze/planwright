@@ -53,7 +53,9 @@ cut off however many drafts there are). The reasons, in this order:
   merge conflict           the snapshot reads it CONFLICTING
   red check <name>         a check on its head finished red
   no CI on its head        no check context at all
-  checks pending           a check still running
+  checks pending           a check still running (a draft's PR-Agent run
+                           never counts here or in a red check: it runs
+                           on the flip)
   flip-gate refusal <w>    the readiness walk refused it: <w> is `ready-guard`
                            for the guard, else `readiness` and the first
                            refusal
@@ -201,16 +203,17 @@ reason() {
     fi
     return 0
   fi
-  r_red=$(awk -F '\t' '$1 == "check" && $3 != "SUCCESS" && $3 != "NEUTRAL" && $3 != "SKIPPED" && $3 != "PENDING" && $3 != "QUEUED" && $3 != "IN_PROGRESS" { print $2; exit }' "$evf")
+  # A draft's PR-Agent run (or none) is no reason: it runs on the flip.
+  r_red=$(awk -F '\t' '$1 == "check" && $2 !~ /^PR-Agent( |$)/ && $3 != "SUCCESS" && $3 != "NEUTRAL" && $3 != "SKIPPED" && $3 != "PENDING" && $3 != "QUEUED" && $3 != "IN_PROGRESS" { print $2; exit }' "$evf")
   if [ -n "$r_red" ]; then
     printf 'red check %s\n' "$(printf '%s' "$r_red" | tr '\t\n\r' '   ' | mc_clean_text)"
     return 0
   fi
-  if ! awk -F '\t' '$1 == "check" { f = 1 } END { exit !f }' "$evf"; then
+  if ! awk -F '\t' '$1 == "check" && $2 !~ /^PR-Agent( |$)/ { f = 1 } END { exit !f }' "$evf"; then
     printf 'no CI on its head\n'
     return 0
   fi
-  if awk -F '\t' '$1 == "check" && ($3 == "PENDING" || $3 == "QUEUED" || $3 == "IN_PROGRESS") { f = 1 } END { exit !f }' "$evf"; then
+  if awk -F '\t' '$1 == "check" && $2 !~ /^PR-Agent( |$)/ && ($3 == "PENDING" || $3 == "QUEUED" || $3 == "IN_PROGRESS") { f = 1 } END { exit !f }' "$evf"; then
     printf 'checks pending\n'
     return 0
   fi
