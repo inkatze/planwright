@@ -54,6 +54,13 @@ reads protected_branches "[worker] the \$CLAUDE_PLUGIN_ROOT spelling ran the ful
 sync '${CLAUDE_PLUGIN_ROOT}/scripts/worker-branch-sync.sh reset origin/'"$B"
 expect defer "[worker] the braced \$CLAUDE_PLUGIN_ROOT spelling defers"
 reads protected_branches "[worker] the braced spelling ran the full check"
+sync "$H --help"
+expect defer "[worker] the helper's usage text defers"
+reads none "[worker] the usage text reads nothing"
+PLANWRIGHT_WORKER_SESSION_RECORD='' pg worker "$H --help" "$OTHER" "$OTHER"
+expect defer "[worker] the usage text needs no record or unit branch"
+sync "$H --help push"
+expect deny "[worker] the usage flag beside a verb denies"
 no_gh_calls
 
 echo "# near spellings of push"

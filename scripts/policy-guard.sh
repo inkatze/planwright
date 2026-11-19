@@ -3890,7 +3890,7 @@ classify_git() {
 act_gate() {
   local what=$1 kind=$2
   if [ "$G_FOREIGN" = 1 ]; then
-    deny_now "$what carries --git-dir, --work-tree, --namespace, --attr-source, or --bare, which the guard does not follow - refusing (fail closed). Use git -C <dir> instead."
+    deny_now "$what carries --git-dir, --work-tree, --namespace, --attr-source, or --bare, which the guard does not follow - refusing (fail closed). Run it from inside the worktree instead (cd into it as a command of its own, then plain git): the profiles deny git -C <dir> before push, commit and reset."
     return 1
   fi
   if [ "$GIT_ENV" = 1 ]; then
@@ -4189,7 +4189,7 @@ all_literal() {
 need_dir() { # <dir_ok> <what>
   [ "$1" = 1 ] \
     || {
-      deny_now "$2 runs after a directory change, or with a git -C target, that the guard cannot follow, so it cannot read that repository - refusing (fail closed). Issue it on its own from the worktree, or with git -C <literal path>."
+      deny_now "$2 runs after a directory change, or with a git -C target, that the guard cannot follow, so it cannot read that repository - refusing (fail closed). Issue it on its own from inside the worktree, after a cd into it as a command of its own."
       return 1
     }
 }
@@ -7331,6 +7331,10 @@ branch_sync_check() {
   for a in "${SWL[@]:1}"; do
     [ "$a" = 1 ] || sync_refuse "this command passes scripts/worker-branch-sync.sh an argument that is not a plain literal - refusing (fail closed)."
   done
+  # Its usage text acts on nothing.
+  case "${SW[1]:-}:${#SW[@]}" in
+    --help:2 | -h:2) return 0 ;;
+  esac
 
   on_unit_branch "$eff" 'this run of scripts/worker-branch-sync.sh'
   record_usable "$UNIT_TOP" \

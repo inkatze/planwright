@@ -826,6 +826,14 @@ count you, and run \`$cs_root/scripts/mission-control-launch.sh unwait $1\`
 before working again. Exit 3 can mean the name is
 locked for a moment: run it again a few times; a 3 that persists means the
 name is wrong.
+
+Run git from this worktree as your working directory, never with
+\`git -C <dir>\` (denied before push, commit and reset). To publish a rewrite
+of your own unit branch while its PR is a draft, reset its clean worktree to
+its own remote branch, or fast-forward it to a descendant commit, run
+\`$cs_root/scripts/worker-branch-sync.sh\` (\`push --force-with-lease=<branch>:<sha> --force-if-includes\`,
+\`reset origin/<branch>\` or \`ff <sha>\`) as its own command; its
+\`--help\` states what it refuses.
 EOF
 }
 

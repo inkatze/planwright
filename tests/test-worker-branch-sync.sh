@@ -469,5 +469,10 @@ for v in '' bogus rebase merge; do
   [ "$RC" = 2 ] || fail "the verb '$v' did not exit as a usage error (exit $RC): $OUT"
 done
 pass "an unknown or missing verb is a usage error"
+REC=''
+run "$tmp" --help
+[ "$RC" = 0 ] || fail "--help exited $RC: $OUT"
+has 'force-if-includes' "the usage text names the push grammar"
+pass "--help prints the usage, anywhere and with no record"
 
 printf '\npasses: %s\n' "$passes"
