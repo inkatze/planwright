@@ -1162,7 +1162,7 @@ mkdir -p "$tmp/we*ird"
 git init -q "$tmp/we*ird"
 : >"$rec/argv"
 senv "$home" "$rec" -- \
-  launch sjw9l5execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
+  launch sjw9l5 execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
 l_rc=$?
 { [ "$l_rc" -eq 7 ] && [ ! -s "$rec/argv" ]; } || fail "c9l: an opted-in launch in a glob-character path must be refused (exit 7) before a spawn (exit $l_rc, argv: $(cat "$rec/argv"))"
 [ ! -e "$home/streamjson/sjw9l5/lefthook-edit" ] || fail "c9l: a refused opted-in launch must record no opt-in"
