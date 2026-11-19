@@ -131,6 +131,12 @@
 #                                  values reach every file (the perturbed run);
 #                                  the switch itself is not passed on, so a
 #                                  nested run pins by default
+#   PLANWRIGHT_TEST_REAL_CLAUDE    1 on a call lets it through the refusing
+#                                  claude the runner puts first on every
+#                                  file's PATH (pinning on or off); any other
+#                                  call that reaches it fails the file. A file
+#                                  sets it itself: one exported to the runner
+#                                  is cleared, whatever PLANWRIGHT_TEST_PIN_ENV
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
 #   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
@@ -331,6 +337,36 @@ worker_signal() {
   kill -s "$1" "$$"
 }
 
+# write_claude_guard <dir>: the file's stand-in for the claude CLI, in <dir>.
+# A refused call is recorded beside <dir> as <dir>.hit, where the worker
+# finds it once the file exits, whatever the file did with the stderr.
+write_claude_guard() {
+  # not-a-lock: the guard's directory is the file's own, made once
+  mkdir -m 700 -- "$1" || return 1
+  cat >"$1/claude" <<'GUARD' || return 1
+#!/bin/sh
+here=${0%/*}
+# Every runner's guard is skipped, a nested run's outer one included, which
+# would otherwise hand the call straight back.
+if [ "${PLANWRIGHT_TEST_REAL_CLAUDE:-}" = 1 ]; then
+  set -f
+  IFS=:
+  for d in $PATH; do
+    case $d in '' | *.claude-guard) continue ;; esac
+    [ -f "$d/claude" ] && [ -x "$d/claude" ] || continue
+    unset IFS
+    exec "$d/claude" "$@"
+  done
+  printf '%s\n' "run-tests: PLANWRIGHT_TEST_REAL_CLAUDE=1, but no claude CLI is on PATH past the runner's guard" >&2
+  exit 127
+fi
+printf '%s\n' "$*" >>"$here.hit" 2>/dev/null
+printf '%s\n' "run-tests: refused the real claude CLI (claude $*): stub it, or set PLANWRIGHT_TEST_REAL_CLAUDE=1 on a call meant to reach it" >&2
+exit 126
+GUARD
+  chmod -- 755 "$1/claude"
+}
+
 # Worker mode: run ONE test file, capturing its output to the log dir the
 # parent exported. Always exits 0 — a test's own exit code (255 included,
 # which would otherwise make xargs abort the whole run) is recorded as a
@@ -434,11 +470,32 @@ if [ "${1:-}" = "--run-one" ]; then
     # must never read; a suite that tests the mirror names its own.
     export PLANWRIGHT_USAGE_MIRROR=""
   fi
+  # A launcher that falls through a suite's stub reaches the installed claude
+  # CLI: a session that spends tokens, and that a killed file leaves running.
+  # A refusing `claude` heads PATH instead, so a file's own stub (earlier on
+  # PATH, or named through PLANWRIGHT_STREAMJSON_CLI) still answers and any
+  # other call fails the file; PLANWRIGHT_TEST_REAL_CLAUDE=1 on a call is the
+  # one way through, so one the caller exported is not passed on.
+  unset PLANWRIGHT_TEST_REAL_CLAUDE
+  claude_guard="$PLANWRIGHT_TEST_LOG_DIR/$name.claude-guard"
+  if cg_err=$(write_claude_guard "$claude_guard" 2>&1); then
+    PATH="$claude_guard:$PATH"
+    export PATH
+  else
+    # A directory broken under the run is the run's fault, not this file's.
+    ! scratch_fault "$PLANWRIGHT_TEST_LOG_DIR" || exit 0
+    [ "$pin_failed" -ne 0 ] || pin_failed=2
+  fi
   started="$(now_ms)"
   past_deadline=0
   file_rc=0
   if [ "$pin_failed" -eq 1 ]; then
     printf '%s\n' "run-tests: could not pin the fleet home for $name (a pinned variable in tests/lib/hermetic-env.sh has no arm); not run" \
+      >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
+    file_rc=1
+  elif [ "$pin_failed" -eq 2 ]; then
+    printf '%s\n' "run-tests: could not write the claude guard for $name ($(printf '%s' "$cg_err" | tr '\n' ' ' | cut -c1-200)); not run" \
       >"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
     : >"$PLANWRIGHT_TEST_LOG_DIR/$name.norun"
     file_rc=1
@@ -501,6 +558,11 @@ if [ "${1:-}" = "--run-one" ]; then
   if [ "$pin_env" -eq 1 ] && [ "$pin_failed" -eq 0 ] && hermetic_env_sentinel_written "$fleet_sentinel"; then
     verdict="fail"
     printf '%s\n' "run-tests: $name wrote into the fleet home it inherited (under a fleet worker, the operator's real one); pin a fixture home per case (fleet_home_pin, tests/lib/hermetic-env.sh)" \
+      >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
+  fi
+  if [ -e "$claude_guard.hit" ]; then
+    verdict="fail"
+    printf '%s\n' "run-tests: the runner refused the real claude CLI to $name (claude $(head -n 1 "$claude_guard.hit" | cut -c1-200)); stub it, or set PLANWRIGHT_TEST_REAL_CLAUDE=1 on a call meant to reach it" \
       >>"$PLANWRIGHT_TEST_LOG_DIR/$name.log"
   fi
   finished="$(now_ms)"
