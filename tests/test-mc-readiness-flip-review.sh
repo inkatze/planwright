@@ -79,7 +79,10 @@ walk_rows() { # walk_rows <label> <row>...
 }
 lacks() { # lacks <label> <needle>
   case $OUT in
-    *"$2"*) fail "$1: stdout holds '$2'"; printf '%s\n' "$OUT" >&2 ;;
+    *"$2"*)
+      fail "$1: stdout holds '$2'"
+      printf '%s\n' "$OUT" >&2
+      ;;
     *) ok "$1" ;;
   esac
 }
