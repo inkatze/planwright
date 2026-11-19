@@ -134,7 +134,7 @@
 #           polish passed on a moved head,
 #           or a fix-round starting before the first event (unless it repeats
 #           an earlier run's record of that round); `note<TAB><point>
-#           <TAB>unverified<TAB><detail>` where the events are not reachable.
+#           <TAB>unverified<TAB><detail>` where the events cannot settle the record.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's

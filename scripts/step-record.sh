@@ -104,7 +104,8 @@
 #                 `timestamp` is the corrected stamp. The log is the
 #                 stream-json events.jsonl of a session whose cwd is the
 #                 worktree or whose events name its path, read with jq as
-#                 scripts/step-events-audit.sh reads it; a source that cannot be checked against one is refused.
+#                 scripts/step-events-audit.sh reads it; a source that
+#                 cannot be checked against one is refused.
 #                 Of several supersedes of one record the highest sequence
 #                 stands, each one starting from the stamps standing before
 #                 it; a supersede cannot target another supersede.
@@ -1421,15 +1422,13 @@ cwd_is_worktree() {
 # together.
 event_files() {
   _root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
-  set --
   for _n in $(glob_names "$_root/streamjson" '*'); do
     _f="$_root/streamjson/$_n/events.jsonl"
     [ -f "$_f" ] && [ ! -L "$_f" ] || continue
-    set -- "$@" "$_f"
-    ! cwd_is_worktree "$_f" || printf '%s\n' "$_f"
+    if cwd_is_worktree "$_f"; then printf '%s\n' "$_f"; fi
   done
-  [ $# -gt 0 ] || return 0
-  grep -Fl -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -e "$worktree'" -e "$worktree;" -e "$worktree)" -- "$@" 2>/dev/null | while IFS= read -r _f; do
+  find "$_root/streamjson" -maxdepth 2 -name events.jsonl -type f \
+    -exec grep -aFl -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -e "$worktree'" -e "$worktree;" -e "$worktree)" -- {} + 2>/dev/null | while IFS= read -r _f; do
     cwd_is_worktree "$_f" || printf '%s\n' "$_f"
   done
 }
@@ -1459,6 +1458,9 @@ check_source() {
   [ -s "$work/event-files" ] \
     || bad --source "no session event log of this worktree is reachable, so the cited event cannot be checked"
   while IFS= read -r _f; do
+    # A log that never holds the second cannot hold the stamp (a hub log that
+    # names the worktree is megabytes).
+    [ -n "$_line" ] || grep -aFq -- "${_want%Z}" "$_f" || continue
     # shellcheck disable=SC2016 # a jq program
     jq -R -n -r 'foreach inputs as $l (0; . + 1; . as $n | $l | (try (fromjson | select(type == "object") | .timestamp
       | select(type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"))

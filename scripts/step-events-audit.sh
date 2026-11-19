@@ -1,14 +1,14 @@
 #!/bin/sh
 # step-events-audit.sh — judge step records against the session that wrote them.
-#
 # Usage: step-events-audit.sh --worktree <dir> --records <file> [--run <id>]...
 #   --records  `step-record.sh list --effective` output (a start or end corrected
 #              by step-record.sh supersede is the one judged); --run restricts
 #              the runs.
 # A record is hand-written by the session it describes, so its claims are held
-# against that session's stream-json events.jsonl (`cwd` the worktree, or
-# launched elsewhere with events naming its path: it vouches for a Skill start
-# and its own Agent calls, never the fix-round floor). Faults:
+# against that session's stream-json events.jsonl: one whose `cwd` is the
+# worktree, or one launched elsewhere whose events name its path (it vouches for
+# a Skill start and the Agent calls of the session holding that Skill call,
+# never the fix-round floor). Faults:
 #   - an in-session skill step starts on the second of its Skill tool call;
 #   - a polish or self-review recorded passed or applied has an Agent tool
 #     call inside its span;
@@ -20,7 +20,8 @@
 # Output:
 #   fault<TAB><run>:<point>:<seq><TAB><step><TAB><message>
 #   unverified<TAB><run>:<point>:<seq><TAB><step><TAB><why>
-# unverified: events unreachable, unreadable or without timestamps.
+# unverified: events unreachable, unreadable or without timestamps, or no
+# session launched in the worktree to set a fix-round floor.
 # Exit 0 no fault, 1 a fault, 2 usage, 4 the records cannot be read.
 set -u
 LC_ALL=C
@@ -54,9 +55,9 @@ worktree=$(cd -P -- "$worktree" && pwd -P) || die 2 "--worktree: not a directory
 work=$(mktemp -d "${TMPDIR:-/tmp}/step-events-audit.XXXXXX") || die 4 "cannot create a temporary directory"
 trap 'rm -rf "$work"' EXIT
 
-# find_events: print the events file of every stream-json session whose cwd is
-# this worktree, one a line, or nothing.
-find_events() {
+# find_own_events: print the events file of every stream-json session whose cwd
+# is this worktree, one a line, or nothing.
+find_own_events() {
   root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
   for d in "$root"/streamjson/*/; do
     [ -f "${d}cwd" ] && [ -f "${d}events.jsonl" ] && [ ! -L "${d}events.jsonl" ] || continue
@@ -67,17 +68,16 @@ find_events() {
 }
 
 # find_named_events: print the events file of every other stream-json session
-# whose events name this worktree's path, one a line, or nothing. One grep over
-# all sessions: a fork per session costs seconds on a host with many. The path
-# must end where a path ends (a separator, a quote, a space or an escape), so a
-# longer path that begins with it is not this worktree. step-record.sh's
-# event_files uses the same patterns; change both together.
+# whose events name this worktree's path, one a line, or nothing. Batched greps
+# over all sessions (a fork per session costs seconds on a host with many;
+# find also skips links and non-files). The path must end where a path ends (a
+# separator, a quote, a space or an escape), so a longer path that begins with
+# it is not this worktree. step-record.sh's event_files uses the same
+# patterns; change both together.
 find_named_events() {
   root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
-  set -- "$root"/streamjson/*/events.jsonl
-  [ -e "$1" ] || return 0
-  grep -Fl -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -e "$worktree'" -e "$worktree;" -e "$worktree)" -- "$@" 2>/dev/null | while IFS= read -r f; do
-    [ ! -L "$f" ] || continue
+  find "$root/streamjson" -maxdepth 2 -name events.jsonl -type f \
+    -exec grep -aFl -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -e "$worktree'" -e "$worktree;" -e "$worktree)" -- {} + 2>/dev/null | while IFS= read -r f; do
     c=''
     if [ -f "${f%events.jsonl}cwd" ]; then read -r c <"${f%events.jsonl}cwd" || [ -n "$c" ] || c=''; fi
     [ "$c" = "$worktree" ] || printf '%s\n' "$f"
@@ -109,7 +109,7 @@ events_rows() {
 
 : >"$work/events.tsv"
 have_events=0 why='the session events are not reachable' have_first=0
-find_events >"$work/files"
+find_own_events >"$work/files"
 find_named_events >"$work/named"
 if [ -s "$work/files" ] || [ -s "$work/named" ]; then
   if [ -z "$(command -v jq)" ]; then
@@ -122,9 +122,10 @@ if [ -s "$work/files" ] || [ -s "$work/named" ]; then
       events_rows true own "$@" >>"$work/events.tsv" || ok=0
     fi
     # Only the lines that can make a call row are parsed: a long hub session
-    # that names the worktree is megabytes of other events.
+    # that names the worktree is megabytes of other events. The harness writes
+    # compact JSON, which these patterns assume.
     while [ "$ok" -eq 1 ] && IFS= read -r f; do
-      grep -F -e '"name":"Skill"' -e '"name":"Agent"' -e '"name":"Task"' -- "$f" 2>/dev/null \
+      grep -aF -e '"name":"Skill"' -e '"name":"Agent"' -e '"name":"Task"' -- "$f" 2>/dev/null \
         | events_rows false "$f" >>"$work/events.tsv" || ok=0
     done <"$work/named"
     if [ "$ok" -eq 0 ]; then
@@ -190,13 +191,17 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v HAVEF="$have_first" -v WHY
         d = absdiff(skt[sk, i], s)
         if (best < 0 || d < best) { best = d; near = skt[sk, i] }
       }
+      # With no session launched in the worktree, sessions that merely name it
+      # cannot prove a call absent.
+      if (!got && !HAVEF) { print "unverified\t" id "\t" F["step"] "\t" WHYF; return }
       if (!got) fault("start " s " is not the second of the " sk " Skill call; the session events show " (nsk[sk] ? "its nearest call at " near : "no such call") HINT)
     }
     if (need2) {
       span = 0
       # A session that only names the worktree vouches for an Agent call only
-      # when it is the one whose Skill call vouched for the start.
-      for (i = 1; i <= nag; i++) if (agt[i] >= s && agt[i] <= e && (ags[i] == "own" || (ags[i] in from))) { span = 1; break }
+      # when it is the one whose Skill call vouched for the start (a start that
+      # matched no call is already a fault).
+      for (i = 1; i <= nag; i++) if (agt[i] >= s && agt[i] <= e && (ags[i] == "own" || !got || (ags[i] in from))) { span = 1; break }
       if (!span) fault("recorded " o ", but the session events show no Agent tool call between " s " and " e)
     }
     if (need5) {
