@@ -1,5 +1,5 @@
 #!/bin/bash
-# Adversarial suite for scripts/policy-guard.sh: the shapes that ran the kickoff push past the matching, and the git filter programs.
+# Adversarial suite for scripts/policy-guard.sh: the shapes that ran the kickoff push past the matching, and the ext-diff, diff-driver and filter programs.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
