@@ -498,6 +498,10 @@ hold_text() {
       '#'*) line='' ;;
       *[$' \t']'#'*) line=${line%%[$' \t']#*} ;;
     esac
+    # shellcheck disable=SC2295 # seps is a bracket pattern on purpose
+    case $line in
+      *$seps'#'*) line=${line%%$seps#*} ;;
+    esac
     out=$out$line$'\n'
   done <<EOF
 $t
@@ -525,7 +529,8 @@ EOF
     set +f
     while [ "$#" -gt 0 ]; do
       case $1 in
-        do | then | else | '!' | while | until | if) shift ;;
+        do | then | else | elif | '!' | while | until | if | time) shift ;;
+        [A-Za-z_]*=* | [0-9]*[\<\>]* | [\<\>]*) shift ;;
         *) break ;;
       esac
     done
