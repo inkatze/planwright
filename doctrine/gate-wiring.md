@@ -233,8 +233,8 @@ attendance (interactive asks, headless parks), never a loop trigger.
 A gate failure on a pushed commit failing the commit-range lint names its
 repair in the entry and the handoff: such a commit is reworded only through
 the tower's force-push path (`scripts/tower-force-push.sh`, on the operator's
-request, [Human Gates](human-gates.md)), so name that path as the reason and
-add no commit for it.
+request) or a worker's draft-rewrite route ([Human Gates](human-gates.md)),
+so name it and add no commit.
 
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent
