@@ -13,8 +13,8 @@
 # single inode per suite, so a macOS Gatekeeper first-exec assessment of it
 # happens at most once per suite. The suites run standalone under /bin/bash (bash
 # 3.2).
-# suite reports the leak check as a case (c37); the others run it silently.
-set -u
+# 3.2). Only the status suite reports the leak check as a case (c37); the
+# others run it silently.
 LC_ALL=C
 export LC_ALL
 unset CDPATH
@@ -89,7 +89,7 @@ tab=$(printf '\t')
 
 # --- fixtures ---------------------------------------------------------------
 
-# The single env-driven CLI shim. One inode for the whole run of a suite.
+# The single env-driven CLI shim. One inode per suite.
 mkdir -p "$tmp/bin"
 mkdir -m 700 "$tmp/scratch-base"
 # Every launch, through senv or not, keeps its scratch root in the
