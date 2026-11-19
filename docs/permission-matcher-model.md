@@ -411,9 +411,9 @@ refused there by the policy guard, which is wired into the tower profile too.
 
 The worker profile allows the `Read`, `Edit`, and `Write` tools everywhere, and
 those calls never reach the worker command guard. So the paths the guard's
-own-branch arm refuses by name, the profile refuses to the file tools with
-`Edit(...)` denies, and the one read the guard refuses gets a `Read(...)`
-deny:
+own-branch arm refuses, by name or by worktree containment, the profile refuses
+to the file tools with `Edit(...)` denies, and the one read the guard refuses
+gets a `Read(...)` deny:
 
 - **Execution-bearing paths** (worker-permission-ergonomics REQ-F1.6): `.git`
   wherever it sits (the worktree's `.git` entry and the common git directory,
@@ -475,14 +475,14 @@ primary's `mise.toml` and `mise.local.toml`, and a rule relative to the
 worktree would leave those open. The worktree's own `.claude/` is the
 exception, matched relative to the working directory on purpose: a worktree
 usually sits under its primary checkout's `.claude/worktrees/`, and a
-root-anchored `.claude` rule would refuse every file the worker edits. The git
-config rules are home-anchored because the files they name sit at the home
-directory's top level. The root-anchored directory rules cost the same kind of
-over-refusal: a worktree checked out beneath a directory named `.config`,
+root-anchored `.claude` rule would refuse every file the worker edits. The two
+`~/` git config rules are home-anchored because the files they name sit at the
+home directory's top level. The root-anchored directory rules cost the same kind
+of over-refusal: a worktree checked out beneath a directory named `.config`,
 `.mise`, `mise-tasks`, `.mise-tasks`, `mise/conf.d`, `mise/tasks`, one of
-mise's own directories below, a hooks directory, or a lefthook directory (a dotfiles checkout under `~/.config`,
-say) is refused every file-tool write, so such a repository is checked out
-elsewhere for workers.
+mise's own directories below, a hooks directory, or a lefthook directory (a
+dotfiles checkout under `~/.config`, say) is refused every file-tool write, so
+such a repository is checked out elsewhere for workers.
 
 The mise rules follow the paths mise documents loading, not every path with a
 `mise` component: its project and global config names and `conf.d`
@@ -516,10 +516,9 @@ The guard matches these names case-insensitively; the globs are
 case-sensitive (MA-2), so on a case-insensitive filesystem a recased
 spelling reaches the file tools. For mise that covers a recased entry of a
 `mise/` directory (`mise/Config.toml`) as much as a recased `Mise.toml`.
-The git config files above are the one mirrored exception: the other writes
-the guard refuses outside the worktree are not mirrored here, so the file tools
-still reach them, which includes an installed planwright root when it is not
-under `~/.claude`.
+Writes the guard refuses outside the worktree beyond the paths listed above are
+not mirrored here, so the file tools still reach them, which includes an
+installed planwright root when it is not under `~/.claude`.
 
 Claude Code already protects `.git`, `.claude`, `.envrc`, and the YAML
 lefthook config files (MB-8), and the overlays under `~/.claude` with them, but
