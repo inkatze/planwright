@@ -624,11 +624,19 @@ nothing else:
 - **Sync it with its base.** In a linked worktree that is the session's
   project directory with the named spec branch checked out, `git merge
   origin/main` (the PR base alone, by name and by what git resolves it to) is
-  admitted. Any other source, a pull, a spec branch the record does not name,
-  and every other act on that branch (commit, amend, rebase, reset) keep the
-  unit-branch refusal; the merge caches nothing, so a later act in the same
-  command does not inherit the branch as a unit branch. `worker_base_merge:
-  deny` refuses it as it does for a unit branch.
+  admitted, and so is `git merge --ff-only origin/<spec branch>`, the branch's
+  own remote-tracking ref as the single source, which brings a reused worktree
+  up to its PR head first. A merge of that ref without `--ff-only`, a local
+  name, a tag, or a local branch or tag of the ref's name at another commit
+  keeps the refusal, as do any other source, a pull, a spec branch the record
+  does not name, and every other act on that branch (commit, amend, rebase,
+  reset); the merge caches nothing, so a later act in the same command does
+  not inherit the branch as a unit branch. `worker_base_merge: deny` refuses
+  it as it does for a unit branch. A refusal on this path (a pull there, another
+  source, or the spec branch merged into a flight branch without
+  `--ff-only`) names the route: `git switch <spec branch>` in the worker's own
+  worktree when it is elsewhere, then the fast-forward to the PR head, then
+  the base merge.
 
 No force, reset or rebase is admitted by either act.
 
@@ -640,7 +648,7 @@ for the hook) names its spec branches. `kickoff-<spec>` names
 `kickoff-<spec>-a<n>` names `planwright/<spec>/amendment-<n>` alone, and is
 refused when another spec's kickoff could share that scope, as for its push.
 Checked out in the session's own linked worktree, such a branch takes the same
-base merge under the same rules. `planwright/<spec>/spec` sits in the
+base merge and fast-forward to its PR head under the same rules. `planwright/<spec>/spec` sits in the
 protected floor, which governs pushes and is reached only through the kickoff
 push helper, which reads no protected set for it, so its kickoff's local merge
 there skips the protected set as that push does, `protected_branches`
