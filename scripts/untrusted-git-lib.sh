@@ -47,9 +47,12 @@
 
 pw_untrusted_git_env() {
   # An inherited repository selector would point git away from the checkout
-  # the caller names, and inherited configuration would ride along.
+  # the caller names, and inherited configuration would ride along. GIT_CONFIG
+  # would point the driver listing alone at another file, which the guarded
+  # git ignores, so the checkout's own drivers would go unlisted and run.
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_EXTERNAL_DIFF
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS GIT_EXTERNAL_DIFF \
+    GIT_CONFIG
   # The caller's own GIT_CONFIG_COUNT pairs are dropped, not kept: one such as
   # a safe.directory would let the listing below and the guarded git disagree
   # about whether the checkout may be read, and a driver listed as absent

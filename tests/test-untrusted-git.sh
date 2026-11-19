@@ -398,6 +398,19 @@ else
   echo "skip: safe.directory: this git does not treat the checkout as another user's"
 fi
 
+# An inherited GIT_CONFIG points `git config`, and so the driver listing, at
+# another file, while the guarded git still reads the checkout's own drivers.
+mkrepo gitconfigenv local
+plant filter.mark.clean "touch $M/clean; cat"
+: >"$tmp/other-config"
+stat_dirty
+expect_fires "inherited GIT_CONFIG" clean status --porcelain
+stat_dirty
+GIT_CONFIG="$tmp/other-config" mc_untrusted_git -C "$R" status --porcelain >/dev/null 2>&1 \
+  || fail "inherited GIT_CONFIG: the guarded git failed on a readable checkout"
+fired clean && fail "an inherited GIT_CONFIG let the guarded git run the planted clean filter"
+echo "ok: an inherited GIT_CONFIG does not hide the checkout's drivers from the listing"
+
 # A scripts directory without the library refuses with exit 2.
 mkdir "$tmp/nolib"
 cp "$scripts/mc-lib.sh" "$scripts/echo-safety.sh" "$scripts/fleet-cleanup.sh" "$scripts/fleet-sweep.sh" "$tmp/nolib/"
@@ -411,10 +424,11 @@ for s in fleet-cleanup fleet-sweep; do
 done
 echo "ok: a missing untrusted-git-lib.sh is a broken install, exit 2"
 
-# extract <script> <function>: define a function from the real script's text,
-# and fail loudly when it is not there.
+# extract <script> <function>: define a function from the real script's text
+# (a one-line definition ends on its own line), and fail loudly when it is not
+# there.
 extract() {
-  eval "$(awk -v fn="$2" '$0 ~ "^" fn "\\(\\) \\{" { on = 1 } on { print } on && /^}/ { exit }' "$scripts/$1")"
+  eval "$(awk -v fn="$2" '$0 ~ "^" fn "\\(\\) \\{" { on = 1; print; if (/; }$/) exit; next } on { print } on && /^}/ { exit }' "$scripts/$1")"
   command -v "$2" >/dev/null 2>&1 || fail "$1: no function $2 to test"
 }
 
@@ -430,6 +444,21 @@ verdict=$(inspect_tree "$R")
 fired clean && fail "fleet-sweep inspect_tree ran the planted clean filter"
 [ "$verdict" = clean ] || fail "fleet-sweep inspect_tree: a clean pushed tree read $verdict"
 echo "ok: fleet-sweep's tree inspection runs no clean filter and keeps its verdict"
+
+# fleet-sweep's check whether the repository tracks its machine-local file. A
+# worker's linked worktree writes the configuration this checkout shares.
+mkrepo sweeplocal local
+printf '#!/bin/sh\ntouch "%s/fsmon"\nexit 1\n' "$M" >"$tmp/fsmon-sweeplocal.sh"
+chmod +x "$tmp/fsmon-sweeplocal.sh"
+plant core.fsmonitor "$tmp/fsmon-sweeplocal.sh"
+mkdir -p "$R/.claude"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s/.claude"\n' "$R" >"$tmp/overlay-stub.sh"
+extract fleet-sweep.sh local_file_distrust
+expect_fires "fleet-sweep local file" fsmon ls-files --error-unmatch -- ':(icase).claude/planwright.local.yml'
+why=$(repo=$R OVERLAY=$tmp/overlay-stub.sh PLANWRIGHT_LOCAL_CONFIG='' local_file_distrust)
+fired fsmon && fail "fleet-sweep local_file_distrust ran the planted fsmonitor"
+[ -z "$why" ] || fail "fleet-sweep local_file_distrust: an untracked local file read as distrusted: $why"
+echo "ok: fleet-sweep's local-file check runs no fsmonitor and keeps its verdict"
 
 # fleet-stuck-detector's read-only query.
 mkrepo detector local
@@ -533,6 +562,23 @@ git -C "$R" replace "$real" forged
 [ "$(git -C "$R" show "$real:a.txt")" = forged ] || fail "replace ref: the control read did not return the forged content"
 [ "$(mc_untrusted_git -C "$R" show "$real:a.txt")" = one ] || fail "replace ref: a guarded read returned forged content"
 echo "ok: a worker's replace ref does not change what a guarded read returns"
+
+# spec-drift-check reads a worker's pushed head for mission control's
+# readiness, so its git takes the whole guard, not a hand-rolled subset.
+extract spec-drift-check.sh g
+# shellcheck disable=SC2034 # read by the extracted g()
+repo=$R
+[ "$(g show "$real:a.txt")" = one ] || fail "spec-drift-check: its git returned a replace ref's forged content"
+mkrepo driftfilter local
+plant filter.mark.clean "touch $M/clean; cat"
+stat_dirty
+expect_fires "spec-drift-check" clean status --porcelain
+stat_dirty
+# shellcheck disable=SC2034
+repo=$R
+g status --porcelain >/dev/null 2>&1 || fail "spec-drift-check g failed on a readable checkout"
+fired clean && fail "spec-drift-check g ran the planted clean filter"
+echo "ok: spec-drift-check's git ignores replace refs and runs no planted filter"
 
 # A grafts file the worker wrote must not make unpushed work read as pushed.
 mkrepo grafted local

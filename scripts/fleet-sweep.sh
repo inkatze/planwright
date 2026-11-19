@@ -676,7 +676,8 @@ local_file_distrust() {
   elif [ -e "${lf_dir%/*}/.git" ]; then
     # With no repository beside it, none can have supplied the file; with
     # one, anything git cannot answer is distrusted.
-    git -C "${lf_dir%/*}" ls-files --error-unmatch -- ':(icase).claude/planwright.local.yml' \
+    # A worker's linked worktree writes the configuration this checkout shares.
+    pw_untrusted_git -C "${lf_dir%/*}" ls-files --error-unmatch -- ':(icase).claude/planwright.local.yml' \
       >/dev/null 2>&1 </dev/null
     case $? in
       0) printf 'the repository tracks that file' ;;
