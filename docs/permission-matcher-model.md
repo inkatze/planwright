@@ -642,8 +642,9 @@ refused when another spec's kickoff could share that scope, as for its push.
 Checked out in the session's own linked worktree, such a branch takes the same
 base merge under the same rules. `planwright/<spec>/spec` sits in the
 protected floor, which governs pushes and is reached only through the kickoff
-push helper, so its kickoff's local merge there skips the floor; every other
-branch still reads the protected set. Whichever names the branch, the merge
+push helper, which reads no protected set for it, so its kickoff's local merge
+there skips the protected set as that push does, `protected_branches`
+additions included; every other branch still reads the set. Whichever names the branch, the merge
 must be plain: an option outside the message, output, signing, hook and
 fast-forward ones (a squash, a strategy or strategy option, unrelated
 histories, `--no-commit`, `--autostash`), an abbreviated option or an expanded

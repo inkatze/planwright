@@ -5041,8 +5041,9 @@ kickoff_scope_names() {
 # is that same checkout; sets SBC_BRANCH. Any other state, a unit branch
 # included, is 1 and leaves the ordinary rules to decide. A kickoff's own
 # planwright/<spec>/spec is in the protected floor, which governs pushes; its
-# sign-off push reaches it through the kickoff push helper alone, so the
-# local merge there skips the floor, and every other branch reads the set.
+# sign-off push reaches it through the kickoff push helper alone, which reads
+# no protected set for it, so the local merge there skips the whole set read
+# (protected_branches additions included), and every other branch reads it.
 SBC_BRANCH=''
 spec_branch_checkout() {
   local d=$1 pdir=${CLAUDE_PROJECT_DIR:-} b top gd kick=0
