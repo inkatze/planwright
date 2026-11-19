@@ -25,6 +25,17 @@ done
 # shellcheck source=scripts/spec-parse.sh
 . "$script_dir/spec-parse.sh" || exit 2
 
+# The sign-off read enters the program's repository with its scratch paths in
+# hand, so a TMPDIR relative to the caller's directory would point elsewhere.
+case ${TMPDIR:-} in
+  '' | /*) ;;
+  *)
+    abs_tmp=$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P) || mc_fail "TMPDIR is relative and does not resolve from this directory: $(sanitize_printable "$TMPDIR")"
+    TMPDIR=$abs_tmp
+    export TMPDIR
+    ;;
+esac
+
 help_text() {
   cat <<'HELP'
 mc-readiness.sh — the readiness-check duty: walk the primary evidence at a
@@ -180,7 +191,9 @@ Usage:
       directory under the root not opening with `_`, is signed off when,
       read from that repository's objects at the head with no fetch, its
       requirements.md status is Ready, Active or Done and its
-      kickoff-brief.md's latest anchor recomputes over the bundle; a pull
+      kickoff-brief.md's latest anchor recomputes over the bundle (a
+      requirements.md missing, unreadable or with no Status line, as a
+      legacy bundle has, is unsigned, each named apart with its path); a pull
       request touching only `_` accumulators or files directly under the
       root has no bundle to sign off), for any other pull request the same
       sign-off for each bundle it edits (one it removes aside) and the
@@ -725,16 +738,52 @@ signoff_row() {
 # <bundle> is not signed off at <head>, read from <repo>'s objects, or
 # nothing when it is.
 bundle_signoff() {
-  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd
+  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd req mode
   if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
     printf 'not a spec identifier'
     return 0
   fi
   mkdir -p "$d" || mc_fail "cannot create a scratch directory"
-  # cat-file blob refuses a tree or a missing path, so a partial file is removed.
-  mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null || rm -f "$d/requirements.md"
-  if ! st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || [ -z "$st" ]; then
-    printf 'its requirements.md status cannot be read at the head'
+  req=$(sanitize_printable "$rel/$b/requirements.md")
+  # A path git does not hold, one that is no regular file, a file git cannot
+  # hand over, and a file with no Status line each need a different fix.
+  mode=$(mc_untrusted_git -C "$repo" --literal-pathspecs ls-tree -z "$head" -- "$rel/$b/requirements.md" 2>/dev/null | tr '\0' '\n' | awk '{ print $1; exit }')
+  case $mode in
+    '')
+      printf 'it has no requirements.md at the head (%s)' "$req"
+      return 0
+      ;;
+    100644 | 100755) ;;
+    *)
+      printf 'its requirements.md cannot be read at the head (%s is not a file)' "$req"
+      return 0
+      ;;
+  esac
+  if ! mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null; then
+    printf 'its requirements.md cannot be read at the head (git could not read %s)' "$req"
+    return 0
+  fi
+  rc=0
+  st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || rc=$?
+  case $rc in
+    0) ;;
+    1)
+      # The copy was just written, so the parse's read refusal is its NUL screen.
+      printf 'its requirements.md cannot be read at the head (%s holds a NUL byte)' "$req"
+      return 0
+      ;;
+    3)
+      printf 'its requirements.md declares **Status:** more than once at the head (%s)' "$req"
+      return 0
+      ;;
+    *)
+      printf 'its requirements.md cannot be read at the head (%s does not parse)' "$req"
+      return 0
+      ;;
+  esac
+  if [ -z "$st" ]; then
+    # Never a pass: a bundle from before the pipeline carries no sign-off.
+    printf 'its requirements.md has no **Status:** line at the head (a legacy bundle no kickoff signed off): add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
     return 0
   fi
   case $st in
