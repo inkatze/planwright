@@ -52,7 +52,8 @@ OPT_DUP=$(record_with optdup "own-branch scratch" lefthook_edit=1 lefthook_edit=
 OPT_BLANK=$(record_with optblank "own-branch scratch" lefthook_edit=)
 
 mkdir -p "$WT/lefthook" "$WT/sub" "$WT/tree-ok/lefthook" "$WT/tree-bad/lefthook" "$WT/.githooks" \
-  "$WT/.lefthook" "$WT/.lefthook-local" "$WT/tree-mise" "$WT/tree-envrc" "$WT/tree-dot" "$WT/tree-scratch"
+  "$WT/.lefthook" "$WT/.lefthook-local" "$WT/tree-mise" "$WT/tree-envrc" "$WT/tree-dot" "$WT/tree-scratch" "$WT/tree-clean"
+: >"$WT/tree-clean/plain.txt"
 : >"$WT/tree-mise/lefthook.yml"
 : >"$WT/tree-mise/mise.toml"
 : >"$WT/tree-envrc/lefthook.yml"
@@ -157,6 +158,8 @@ assert_defer "lefthook opt-in alone: touch mise.toml inside a nested directory" 
 echo "### an opt-in's names move only inside the worktree, never into scratch"
 assert_defer "copy a tree holding lefthook.yml into scratch" "cp -r tree-scratch \$TMPDIR/copy" Bash "$WT"
 assert_defer "move a tree holding lefthook.yml into scratch" "mv tree-scratch \$TMPDIR/moved" Bash "$WT"
+assert_allow "copy a clean tree into scratch (the refusals above come from the tree's names)" "cp -r tree-clean \$TMPDIR/clean-copy" Bash "$WT"
+assert_allow "move a clean tree into scratch" "mv tree-clean \$TMPDIR/clean-moved" Bash "$WT"
 assert_allow "copy the same tree inside the worktree" "cp -r tree-scratch tree-scratch2" Bash "$WT"
 assert_allow "move the same tree inside the worktree" "mv tree-scratch tree-moved" Bash "$WT"
 echo "### the two opt-ins compose"

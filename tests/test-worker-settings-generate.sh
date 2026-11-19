@@ -268,6 +268,14 @@ cp "$GEN" "$T/lone/worker-settings-generate.sh"
   && fail "a generator with no hook script beside it was accepted" \
   || { grep -q 'hook' "$T/err" && ok "a generator with no hook script beside it is refused for that reason" || fail "the missing-hook refusal did not name the hook: $(cat "$T/err")"; }
 [ ! -e "$T/out/lone.json" ] && ok "and writes nothing" || fail "a refused no-hook run wrote a file"
+# The copy checked is the one the worker will run: $CLAUDE_PLUGIN_ROOT, not the one beside the generator.
+mkdir -p "$T/otherroot/scripts"
+CLAUDE_PLUGIN_ROOT=$T/otherroot /bin/sh "$GEN" --lefthook-edit "$PROFILE" "$WT" "$T/out/otherroot.json" >/dev/null 2>"$T/err" \
+  && fail "a launch whose plugin root lacks the hook was accepted" || ok "a plugin root without the hook script refuses the launch"
+mkdir -p "$T/goodroot/scripts"
+cp "$REPO_ROOT/scripts/worker-mise-edit-guard.sh" "$T/goodroot/scripts/"
+CLAUDE_PLUGIN_ROOT=$T/goodroot /bin/sh "$GEN" --lefthook-edit "$PROFILE" "$WT" "$T/out/goodroot.json" >/dev/null 2>"$T/err" \
+  && ok "a plugin root holding an executable hook script is accepted" || fail "a plugin root with the hook was refused: $(cat "$T/err")"
 # A profile that lacks the lefthook denies cannot be opened up; a repeated flag is usage.
 jq 'del(.permissions.deny[] | select(. == "Edit(//**/lefthook.*)"))' "$PROFILE" >"$T/nolh.json"
 /bin/sh "$GEN" --lefthook-edit "$T/nolh.json" "$WT" "$T/out/nolh.out.json" >/dev/null 2>&1 \

@@ -538,7 +538,12 @@ neither (it passes the shipped profile itself, byte for byte):
   this worktree" and beats every allow, so the hook refuses any task-file path
   that lies outside the worktree, whatever the spelling: another worktree or
   repository, a `..` escape, or a symlinked directory or file that resolves
-  out. A hook that cannot read its input refuses every file-tool call, task path or not.
+  out. A hook that cannot read its input (no `jq`, a payload that is not JSON,
+  a field holding the payload's own separator byte) refuses every file-tool
+  call, task path or not. The generator itself refuses the launch when the
+  hook script is missing or not executable under `$CLAUDE_PLUGIN_ROOT` (the
+  copy the worker will run), since the broad denies it replaced would then
+  leave the names open outside the ancestors.
 - **The guard's own-branch arm** admits writes to those four names inside the
   worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
   recursive-act screen `ob_tree_clean`), only when the record carries exactly
@@ -550,7 +555,7 @@ folder (`streamjson/<worker>/`), which the profile's path denies refuse to the
 file tools (`mise-task-edit`, `lefthook-edit`, `worker-settings.json`), as they do the session
 records, so a worker cannot opt itself in for its next recover.
 
-Residual risk: the hook compares paths case-sensitively and works from the
+Residual risk: the hook compares the mise names case-sensitively and works from the
 payload's own spelling and the filesystem, so it is a fail-closed second layer
 rather than a proof; the worker's scratch root holds no task files the hook
 admits. The ancestor folder names are matched case-sensitively (MA-2), where
@@ -614,7 +619,8 @@ one of them needs its own opt-in.
 Residual risk, and the reason the opt-in is a sign-off item: a lefthook job is a
 shell command, and it runs outside the command guard. The worker's own commits
 fire it through git, and the guard approves `lefthook run <job>` as repository
-code (`guard_lefthook` refuses only `-c`/`--config` and other subcommands), so a
+code (`guard_lefthook` refuses a config override, any flag before the
+subcommand, and every subcommand but `run`), so a
 worker that edits a job and then runs it executes that command in its own
 session at once, before anyone reviews the diff, with the session's privileges.
 Every "stays closed" line above governs the worker's file tools and the guard's

@@ -14,8 +14,9 @@
 #   --mise-task-edit  the four mise task-file names; the form with neither flag
 #   --lefthook-edit   lefthook/ and lefthook.* (lefthook-local and the dotted
 #                     variants stay denied)
-# A worktree or primary path holding a pattern character, or a primary checkout
-# that cannot be named, is refused. Output: whole by rename, owner-only,
+# A worktree or primary path holding a pattern character, a primary checkout
+# that cannot be named, or a missing or non-executable hook script is refused.
+# Output: whole by rename, owner-only,
 # outside the worktree. What each opens and the residual risk:
 # docs/permission-matcher-model.md, "The mise task-file opt-in" and "The
 # lefthook config opt-in".
@@ -52,7 +53,7 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
-# The flagless call predates --mise-task-edit and means it.
+# No flag means --mise-task-edit, the form a call without flags uses.
 [ "$want_mise" = 1 ] || [ "$want_lefthook" = 1 ] || want_mise=1
 [ "$#" -eq 3 ] || die "$usage" 2
 profile=$1
@@ -79,8 +80,11 @@ if [ "$want_lefthook" = 1 ]; then
 fi
 # The hook is the only thing that closes these names outside the ancestors; a
 # missing or non-executable one is a launch the broad denies no longer cover.
-hook_script=$(dirname -- "$0")/worker-mise-edit-guard.sh
-[ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable beside the generator; the opt-in would leave its names open outside the worktree's ancestors"
+# The generated command runs it under $CLAUDE_PLUGIN_ROOT, so that is the copy
+# checked, the one beside the generator only when the variable is unset.
+hook_script=${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}
+hook_script=${hook_script:-$(dirname -- "$0")}/worker-mise-edit-guard.sh
+[ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable where the worker will run it; the opt-in would leave its names open outside the worktree's ancestors"
 jq -e --argjson b "$broad" '(.permissions.deny | type == "array") and ([$b[] as $r | (.permissions.deny | index($r))] | all(. != null))' \
   "$profile" >/dev/null 2>&1 || die "the profile is not JSON, or does not carry the broad deny rules the requested opt-ins replace"
 

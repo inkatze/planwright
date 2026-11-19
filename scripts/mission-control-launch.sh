@@ -98,7 +98,8 @@ states what that opens.
 rung only, off by default, recorded in the session record, never read from
 config, the checkout or the environment) opts the session in to editing the
 lefthook config inside its own worktree (lefthook.<ext>, lefthook/), which
-lets it change which hooks run on its own commits; lefthook-local, the dotted
+lets it write the commands its own commits and `lefthook run` execute, outside
+the command guard; lefthook-local, the dotted
 variants, the hook directories, .git and .claude stay closed, and so does
 every path outside the worktree. It composes with --mise-task-edit and takes
 effect only by relaunch; docs/permission-matcher-model.md ("The lefthook

@@ -15,8 +15,9 @@
 #   A named path is judged by its spelling and by where it resolves (`..`
 #   components, symlinked directories and a symlinked leaf included); it is
 #   allowed only when both lie inside the worktree. What cannot be read (no
-#   jq, a payload that is not JSON, an unusable worktree argument) refuses
-#   a named path rather than letting it through, and a path that cannot be
+#   jq, a payload that is not JSON, a field holding the payload separator, an
+#   unusable worktree argument) refuses the call rather than letting a named
+#   path through, and a path that cannot be
 #   resolved (a symlink chain past the bound, an unreadable folder) is
 #   refused whatever its spelling, since it may resolve to a named file.
 # Exit: 0 always. POSIX sh; jq reads the payload.

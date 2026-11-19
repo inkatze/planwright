@@ -243,10 +243,11 @@ case " $last " in
 esac
 echo "ok: r2 a relaunch resumes the persisted session under the installed profile in its launch directory, rewriting the record and keeping the scratch root (REQ-G1.3, REQ-G1.2)"
 
-# A worker launched with the lefthook opt-in keeps it across a relaunch: the
-# per-launch profile is regenerated from the recorded marker and the session
-# record carries the field again.
+# A worker launched with both opt-ins keeps them across a relaunch: the
+# per-launch profile is regenerated from the recorded markers and the session
+# record carries both fields again.
 printf '1\n' >"$wdir/lefthook-edit"
+printf '1\n' >"$wdir/mise-task-edit"
 out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r2: the opted-in relaunch exited non-zero: $(cat "$tmp/err")"
 alive "$npid" && fail "r2: the pre-opt-in worker is still running"
 npid=$(pid_of worker.pid)
@@ -256,12 +257,14 @@ case " $last " in
   *" --settings $wdir/worker-settings.json "*) ;;
   *) fail "r2: the opted-in relaunch must pass the worker's per-launch profile: $last" ;;
 esac
-jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("Edit(//**/mise.toml)") != null)' "$wdir/worker-settings.json" >/dev/null \
-  || fail "r2: the regenerated profile must open the lefthook names only"
-grep -qx 'lefthook_edit=1' "$record" && ! grep -q '^mise_task_edit=' "$record" \
-  || fail "r2: the rewritten session record must carry lefthook_edit=1 alone: $(cat "$record")"
-rm -f "$wdir/lefthook-edit"
-echo "ok: r2 a relaunch keeps a recorded lefthook opt-in, regenerating the profile and the record"
+jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("Edit(//**/mise.toml)") == null)' "$wdir/worker-settings.json" >/dev/null \
+  || fail "r2: the regenerated profile must replace the mise and the lefthook broad denies"
+jq -e '[.hooks.PreToolUse[].hooks[].command] | any(endswith("worker-mise-edit-guard.sh '"'$wt'"' mise lefthook"))' "$wdir/worker-settings.json" >/dev/null \
+  || fail "r2: the regenerated profile's hook must judge both name sets"
+grep -qx 'lefthook_edit=1' "$record" && grep -qx 'mise_task_edit=1' "$record" \
+  || fail "r2: the rewritten session record must carry both opt-in fields: $(cat "$record")"
+rm -f "$wdir/lefthook-edit" "$wdir/mise-task-edit"
+echo "ok: r2 a relaunch keeps recorded opt-ins, regenerating the profile and the record"
 
 # ---------------------------------------------------------------------------
 # r3: a resume that fails after the stop, then a worker that is not running.

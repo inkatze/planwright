@@ -1034,7 +1034,7 @@ REC_BASE_MERGE=''
 REC_SCRATCH=''
 REC_AUDIT_LOG=''
 # The launch's opt-ins to editing the worktree's own trusted names, as the
-# letters ob_excluded_name reads: m (the record's mise_task_edit=1, the mise
+# letters ob_excluded_name and ob_tree_clean read: m (the record's mise_task_edit=1, the mise
 # task files), l (lefthook_edit=1, the lefthook config).
 REC_OPEN=''
 
@@ -1757,7 +1757,8 @@ guard_touch() {
 # zone; a copied one is read, so the worktree or, under the scratch arm, the
 # scratch root); the destination is a new path, or an existing directory
 # whose entry for each source is checked as the target. A directory copied
-# or moved holds no excluded path, in either zone. A recursive copy lands only
+# or moved holds no excluded path, in either zone, an opt-in's names excepted
+# when the destination is the worktree. A recursive copy lands only
 # where nothing exists yet, so it never writes through an existing file.
 ob_copy_move() {
   local verb=$1 rec=$2 zones=$3 n dst s b final src src_dir

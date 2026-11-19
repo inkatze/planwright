@@ -1131,7 +1131,7 @@ cmp -s "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" "$
 : >"$rec/argv"
 : >"$rec/env"
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
-  launch sjw9l2execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --lefthook-edit --cwd "$tmp/mwt" --foreground \
+  launch sjw9l2 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --lefthook-edit --cwd "$tmp/mwt" --foreground \
   || fail "c9l: a launch with both opt-ins exited non-zero"
 b_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
 jq -e '.permissions.deny | [index("Edit(//**/mise.toml)"), index("Edit(//**/lefthook.*)")] | all(. == null)' "$b_settings" >/dev/null \
