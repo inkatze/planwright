@@ -1,11 +1,12 @@
 # Control plane — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-18
+**Last reviewed:** 2026-11-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Tasks 1 to 5 are slice one, specified in full. Each later slice opens with a
+Tasks 1 to 5.4 are slice one, specified in full (Tasks 5.1 to 5.4 are the
+request ledger). Each later slice opens with a
 design walk task (a human-gated amendment of this bundle); its build tasks are
 stubs until that walk turns the outline into full requirements, and a stub's
 fields are a starting point the walk may rewrite. Every policy task starts with
@@ -139,10 +140,15 @@ name them.
   the never-drop rule for the first decision, blocker, failure and landed
   event; delivery on unreadable state; the drop ledger and the
   over-keen-gate event; the routine coalescing window per session and the
-  no-timer-wake rule; fixtures for each, written first.
+  no-timer-wake rule; the rule that an event carrying a request is never
+  dropped and only coalesced, read from the class registry's request-bearing
+  flag; fixtures for each, written first.
 - **Done when:** a repeat inside the horizon, a stale event and an off-order
   event are each dropped and counted; the first decision, blocker, failure or
-  landed event is delivered; an event whose state is unreadable is delivered;
+  landed event is delivered; a repeated, a stale and an off-order
+  request-bearing event are each delivered, never dropped, and a burst of them
+  inside one window yields one wake naming every request id, counted as
+  coalesced and not as a drop; an event whose state is unreadable is delivered;
   routine events inside one window produce one wake; the over-keen event fires
   on a fixture that drops past the configured share and is itself never
   dropped; a stale first failure event is delivered; every event writer calls
@@ -152,8 +158,112 @@ name them.
   locked line per record, shown by the same concurrent-writer and
   torn-last-line fixtures; the suite runs in CI.
 - **Dependencies:** Task 1, Task 2
-- **Citations:** D-8 · REQ-A1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4,
-  REQ-D1.5, REQ-I1.2, REQ-I1.4, REQ-I1.5
+- **Citations:** D-8, D-27 · REQ-A1.3, REQ-D1.1, REQ-D1.2, REQ-D1.4,
+  REQ-D1.5, REQ-D1.6, REQ-I1.2, REQ-I1.4, REQ-I1.5
+- **Estimated effort:** 3.5 days
+
+### Task 5.1 — The request ledger store and its capture seams, probe first
+
+- **Deliverables:** A probe, recorded in a research note, of which hook sees
+  each kind of arrival (an operator prompt, a delivered cross-session message,
+  a pane relay, a stream-json steer) on each launch rung, and whether a sender
+  can name the receiver's program. The ledger: the append-only monthly log in
+  the program's knowledge base through the existing segment writer (arrival,
+  link and close records, the derived open set, the id form the handover
+  picture takes); the arrival record's fields with the bounded, sanitized,
+  redacted excerpt and the transcript pointer. The capture seams: the
+  prompt-submit hook for sessions that hold a program name, the event writer
+  for request-bearing kinds (the flag in the event class registry), the two
+  send scripts and a hook on the model's send tool; the linker; the
+  per-session spool and its capture-failed event; the doctor line for a kind
+  no seam sees; the token-shape check over the stored log; the knobs in
+  `config/defaults.yml` with their options rows (scalars, so this task needs
+  none of Task 2's catalogs). Fixtures first.
+- **Done when:** an operator prompt, a cross-session message and a
+  request-bearing event each append one arrival with its own id before the
+  turn acts, shown by fixture for each seam the probe found; a session that
+  holds no program name appends nothing; one message seen on both sides
+  yields two sightings linked under one open request, and a pair the linker
+  cannot match stays two open requests; two identical messages sent in one
+  burst keep two ids; a failed append leaves a spool line counted as open, is
+  retried, raises its event and never blocks or changes the prompt; a planted
+  token in a message is redacted in the excerpt by the existing secret screen
+  and the log's token-shape check fails on a token planted past the screen;
+  an excerpt past its bound is cut; a separate-process
+  concurrent-writer fixture and a torn-last-line fixture keep every record
+  whole; a kind the probe found no seam for is named by the doctor; nothing
+  is written inside a repository; the suite runs in CI.
+- **Dependencies:** none
+- **Citations:** D-22, D-23, D-24 · REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4,
+  REQ-I1.4, REQ-I1.5
+- **Estimated effort:** 3 days
+
+### Task 5.2 — Close with checked evidence, and the turn-end hold
+
+- **Deliverables:** The close verb, owner-checked against the holder record,
+  taking one or more ids and one evidence of the kinds D-25 names, each
+  verified against its source before the close is written; the code close of
+  a request-bearing event whose subject resolved by machine evidence; the
+  `noask` listing in the next status; the turn-end hook's single hold; the
+  verbs list, the mission-control skill's prose inside its instruction
+  budget, and the guide.
+- **Done when:** each evidence kind closes a fixture request when its source
+  confirms it and is refused when it does not (an unmerged pull request, an
+  answer older than the arrival, a quote absent from the cited message, an
+  unknown follow-up id); a close from a session that does not hold the
+  program is refused; a request is never closed by age, by deletion or by
+  delivery; a pending prompt the stall watcher records as no longer pending
+  closes by code citing that record (and its answer record where one
+  exists); a `noask` close of an operator message appears in the next status;
+  a turn ending with an open request from that turn is held once, naming it,
+  and the second stop ends the turn and the request is raised at the next
+  wake; the instruction-budget and verbs checks pass; the suite runs in CI.
+- **Dependencies:** Task 5.1
+- **Citations:** D-25 · REQ-J1.5, REQ-J1.6
+- **Estimated effort:** 2.5 days
+
+### Task 5.3 — The handover refuses what the successor's picture lacks
+
+- **Deliverables:** Verify, take, resume and the rules self-check reading the
+  ledger's open set and spools from the store at the moment each runs; take's
+  second read after the release wait; the refusal naming each missing id;
+  take's backlog marking skipping events whose request is open; an unreadable
+  ledger refusing the take through the existing handover failure.
+- **Done when:** a successor's picture missing an open request fails verify
+  and take, naming the id, and passes once the picture holds it; a request
+  appended between a passing verify and the take refuses the take until a
+  second verify includes it (the mid-handover relay as the fixture); a
+  spooled arrival counts as open; a picture checked against a handover file
+  that lacks a request the ledger holds still fails; take marks no event
+  whose request is open; an unreadable ledger refuses the take and leaves the
+  predecessor holding the name; the existing handover suites pass; the suite
+  runs in CI.
+- **Dependencies:** Task 5.1
+- **Citations:** D-26 · REQ-J1.7
+- **Estimated effort:** 2 days
+
+### Task 5.4 — Every wake re-reads the ledger; the panel; the unanswered raise
+
+- **Deliverables:** The one composer verb for the wake's open-request block
+  and its call from every wake path, with the check that fails on a path that
+  does not; the panel and text-panel line beside the overdue follow-ups; the
+  `request-unanswered` event in the class registry (blocker class) raised past
+  each kind's window and repeated; the kill-switch behavior of REQ-J1.10; the
+  landing measures of REQ-J1.11 as machine-local data. A preview of the real
+  panel and text panel rendered over fixture data for the operator.
+- **Done when:** a wake composed over a fixture ledger lists every open
+  request oldest first with its age and an "and N more" past the bound, and
+  an unreadable ledger shows as unreadable; the check goes red on a seeded
+  wake path that skips the composer; a request past its window raises one
+  blocker event naming it and repeats each interval while open, never as a
+  routine line; with the kill switch set, capture still appends and the hold,
+  the handover refusal and the raises stand down to one wake line naming the
+  open count; the measures are written only to the machine-local location;
+  the operator has seen the preview and said yes before the pull request
+  leaves draft; the suite runs in CI.
+- **Dependencies:** Task 2, Task 5.1, Task 5.2, Task 5.3
+- **Citations:** D-28 · REQ-J1.8, REQ-J1.9, REQ-J1.10, REQ-J1.11, REQ-D1.5,
+  REQ-I1.2
 - **Estimated effort:** 3 days
 
 ### Task 6 — Slice two design walk: the queue (human-gated amendment)
@@ -165,11 +275,12 @@ name them.
   spec-roots reader (D-20) and the settled cross-spec edge read (D-17) and
   main-versus-side hold (D-18) turned into full requirements, and the measured
   result of slice one recorded against the baseline (a re-run of the baseline
-  script after the shadow window).
+  script after the shadow window, and the request ledger's measures of
+  REQ-J1.11).
 - **Done when:** the amendment is signed off by the operator through the
   kickoff ritual, the slice-one measured change is recorded (REQ-E1.2), and
   the slice-two build tasks are rewritten from stubs to full definitions.
-- **Dependencies:** Task 4, Task 5
+- **Dependencies:** Task 4, Task 5, Task 5.4
 - **Citations:** D-11, D-13, D-17, D-18 · REQ-A1.5, REQ-E1.2
 - **Estimated effort:** 1 day
 
@@ -294,11 +405,12 @@ name them.
 - **Deliverables:** A walked amendment turning the slice-four outline into full
   requirements: the brief generation, the decision packet shape and its answer
   record, the optional-supervisor topology, the per-wake tier policy, the
-  panel requirements (D-21) and the slice-three measured result.
+  panel requirements (D-21), the handover's reading of the queue and the
+  request ledger together (D-22) and the slice-three measured result.
 - **Done when:** signed off through the kickoff ritual, the slice-three measured
   change recorded, and the slice-four stubs rewritten to full definitions.
 - **Dependencies:** Task 13, Task 14, Task 15
-- **Citations:** D-13 · REQ-A1.5, REQ-E1.2
+- **Citations:** D-13, D-22 · REQ-A1.5, REQ-E1.2
 - **Estimated effort:** 1 day
 
 ### Task 17 — Brief generation and queue reporting (stub; after Task 16)
@@ -429,6 +541,10 @@ name them.
 - **Task 7** Has the local invariant-tasks amendment (Sources) settled the
   cross-spec edge syntax? The queue ships without cross-spec edges until it
   has.
+- **Task 5.2** Has the mission-control bundle recorded its Task 51 (the
+  intake rows of its REQ-F1.19) as carried by this spec (D-22)? Until it
+  has, both bundles list the same work as undone and either could be
+  dispatched for it.
 
 ## Deferred
 

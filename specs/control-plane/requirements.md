@@ -1,7 +1,7 @@
 # Control plane — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-18
+**Last reviewed:** 2026-11-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -39,7 +39,12 @@ before the first. **Slice one, the approval policy engine and event dedupe,
 is specified in full here.** Slices two to four (the queue, the reconciler,
 briefs from state with a thin hub) are specified as outlined requirements and
 design with task stubs, and each is marked for its own design walk, whose
-output amends this spec before any of its code is built. Leaf skills
+output amends this spec before any of its code is built. Slice one also
+carries the request ledger (REQ-J, D-22): every operator message and
+cross-session message a program's session receives is recorded by code on
+arrival, closes only with cited evidence, gates the handover and is re-read
+at every wake, so a request is never lost to a busy session, a handover or a
+dedupe drop. Leaf skills
 (execute-task, polish, the reviews, kickoff) stay as they are; only their
 launch and bookkeeping change. The altitude (a layering line enforced by
 mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
@@ -55,6 +60,12 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   model and then the operator. This slice is built first.
 - Event dedupe at the source: repeat, stale and off-order events dropped
   before they wake a session, routine events coalesced, and the drops counted.
+- The request ledger (slice one, Amendment 2): capture by code on arrival of
+  every operator message, cross-session message and request-bearing event a
+  program's session receives; closure only by an act citing what settled it;
+  the handover check against the ledger; the open requests read from the
+  store at every wake and on the panel; and the dedupe gate's rule that no
+  request is ever dropped, only coalesced with every id kept.
 - Policy as data: schemas and layered configuration for allow-lists, limits,
   landing order, merge mode and the floor of acts no layer may loosen.
 - The measurement baseline and the per-slice measured claim.
@@ -90,6 +101,14 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   other open issues the map names as out of scope, with their reasons.
 - **Work-machine content.** Nothing from the work machine's data crosses into
   this spec; its asks are used for the kind of capability they request only.
+- **Reading a request's meaning by code.** The ledger records and tracks a
+  request; it never decides what was asked, whether a reply settles it, or
+  what to do. That judgment stays the session's, and the ledger only refuses
+  to let it pass unrecorded. *(Cites: REQ-J1.5, D-25.)*
+- **A worker's own inbound steers and answers.** A worker session's received
+  messages stay with the messaging transport's persisted answer artifact and,
+  later, briefs from state (REQ-H1.1); the request ledger covers sessions that
+  hold a program name. *(Cites: REQ-J1.1, D-22.)*
 
 ## REQ-A — The three layers and the line between them
 
@@ -317,6 +336,20 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   delivered even when it is stale, and an event the gate itself raises
   (REQ-D1.4) bypasses the gate.
   *(Cites: D-8; REQ-A1.3.)*
+  **Superseded-by: REQ-D1.6** (2026-11-19)
+- **REQ-D1.6** (supersedes REQ-D1.3) The gate SHALL never drop the first
+  occurrence of an event of the decision, blocker, failure or landed class,
+  and SHALL never drop, as a repeat, a stale event or an off-order event
+  (REQ-D1.2), any event that carries a request (an operator message, a
+  cross-session message or a request-bearing event kind, REQ-J1.1). Events
+  that carry requests MAY be coalesced into one wake, but every request id
+  SHALL stay in the request ledger and be shown in that wake, and a coalesced
+  event is counted as coalesced, never as a drop. The gate SHALL deliver any
+  event whose state it cannot read (REQ-A1.3). A first occurrence of the four
+  classes is delivered even when it is stale, and an event the gate itself
+  raises (REQ-D1.4) bypasses the gate.
+  *(Cites: D-8, D-27; REQ-A1.3, REQ-J1.1; the request-ledger order
+  (Sources).)*
 - **REQ-D1.4** Every drop SHALL be counted by reason and subject kind, with
   the key and no payload, in a ledger an audit reads; a gate that drops more
   than a configured share of a class SHALL raise its own event, so a gate
@@ -573,6 +606,110 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   and the lost record SHALL be counted and reported.
   *(Cites: D-4; REQ-C1.8, REQ-D1.4.)*
 
+## REQ-J — The request ledger (slice one)
+
+A request is anything a program's session is asked that it owes a response
+to. The ledger is the record of every one, kept by code; a session's context
+and a handover file are never that record.
+
+- **REQ-J1.1** Every operator message to a session that holds a program name
+  (a mission-control session, the hub included, attended or launched), every
+  cross-session message to such a session, and every event of a
+  request-bearing kind raised to its program (a worker's pending prompt, a
+  relayed question) SHALL be appended to that program's request ledger by
+  code (a hook or the script that sends or emits it) before the receiving
+  model turn acts on it, never by the model. Each arrival SHALL get its own
+  id. Recording a request on arrival is a routine move under REQ-A1.1.
+  *(Cites: D-22, D-24; REQ-A1.1; the request-ledger order (Sources); the
+  spec-pipeline evidence (Sources); mission-control REQ-F1.19 (Sources).)*
+- **REQ-J1.2** Capture SHALL be taken on the receiving side where a hook sees
+  the arrival and on the sending side where planwright's send scripts or a
+  hook on the model's send tool see the send. Where both sides see one
+  message, the two sightings SHALL be linked into one request keeping both
+  ids; a pair the linker cannot match stays two open requests, never one
+  dropped. Which side sees which kind on each launch rung SHALL be
+  established by a probe recorded with the build, and a kind of arrival no
+  seam sees SHALL be named by the doctor as uncaptured, never assumed
+  captured.
+  *(Cites: D-24; REQ-A1.3; the messaging-transport doctrine (Sources).)*
+- **REQ-J1.3** A capture hook SHALL never block, delay or change the prompt
+  or message it records. A failed append SHALL be written to a per-session
+  spool, retried at the next capture or wake, and raised as a failure-class
+  event, and a spooled arrival SHALL count as an open request for every check
+  in this group.
+  *(Cites: D-24; REQ-A1.3, REQ-I1.5.)*
+- **REQ-J1.4** An arrival record SHALL hold its id, time, kind (operator,
+  session or event), sender, receiving session and program, a digest of the
+  content, a pointer to the content in the session's transcript, and one
+  excerpt bounded in length with token-shaped values redacted at write. The
+  ledger SHALL live in the program home, never in a repository, and be
+  appended one locked line per record as REQ-I1.5 requires; the excerpt is its
+  one free-text field, and a check SHALL scan the stored log for token-shaped
+  values as REQ-I1.4 scans the decision log.
+  *(Cites: D-23; REQ-I1.4, REQ-I1.5.)*
+- **REQ-J1.5** A request SHALL close only by an explicit close record that
+  cites what settled it: a merged pull request; an answer (a captured
+  outbound message, or a reply turn in the receiving session's transcript,
+  later than the arrival); the operator's own words in a later captured
+  operator message, quoted; the follow-up item it became (mission-control's
+  follow-up ledger); another open or closed request it repeats; or, for a
+  message that asks for nothing, a stated no-ask reason. Code SHALL check
+  each cited evidence against its source before it writes the close and
+  refuse one it cannot verify. A request is never closed by age, deletion,
+  delivery or a session's word alone, and a no-ask close of an operator
+  message SHALL be listed in the session's next status. A request-bearing
+  event whose subject has resolved by machine evidence (a prompt no longer
+  pending, as the stall watcher records, or its answer record keyed by the
+  request id where the wiring writes one, REQ-C1.8) SHALL be closed by code
+  citing that evidence.
+  *(Cites: D-25; mission-control REQ-F1.25 (Sources); the request-ledger
+  order (Sources).)*
+- **REQ-J1.6** A program session's turn SHALL NOT end silently while a
+  request it received during that turn has no close: the turn-end hook holds
+  the first stop, naming each open request, and a second stop in the same
+  turn ends it and raises each still-open request at the next wake.
+  *(Cites: D-25; mission-control REQ-F1.19 (Sources).)*
+- **REQ-J1.7** The handover's verify, take and resume (and the rules
+  self-check they run) SHALL read the ledger's open set from the store at the
+  moment each runs and refuse when an open request or a spooled arrival is
+  missing from the successor's held picture, naming each id; the handover
+  file alone SHALL never be the reference. Take SHALL read the ledger again
+  after its release wait, so a request that arrived between verify and take
+  refuses the take until the successor verifies again with it. An unreadable
+  ledger SHALL refuse the take, raised as the handover's existing failure.
+  Take's backlog marking SHALL never mark as handled an event whose request
+  is open.
+  *(Cites: D-26; mission-control REQ-L1.6, REQ-F1.21 (Sources); the
+  spec-pipeline evidence (Sources); obs:28d0df97; obs:e818e699.)*
+- **REQ-J1.8** Every wake a program session receives SHALL carry the open
+  requests read from the store when the wake is composed (a count, then one
+  line each, oldest first: who asked, when, the excerpt and its age, with an
+  "and N more" past a bound), composed by one verb that every wake path calls
+  (a check fails on a path that does not). The panel and the text panel SHALL
+  show the open count and the oldest request beside the overdue follow-up
+  items that lead the status (mission-control REQ-F1.20). An unreadable
+  ledger SHALL show as unreadable, never as none open.
+  *(Cites: D-28; REQ-D1.5; mission-control REQ-F1.20 (Sources).)*
+- **REQ-J1.9** A request open past its kind's unanswered window SHALL raise a
+  blocker-class event naming it, its sender, its age and its excerpt, pushed
+  to the operator through the notification channel and repeated each repeat
+  interval while it stays open, never shown as a routine line. The windows
+  and the interval are policy data (REQ-B1.1).
+  *(Cites: D-28; REQ-B1.1; mission-control REQ-P1.2 (Sources); the
+  spec-pipeline evidence (Sources).)*
+- **REQ-J1.10** Under the kill switch (REQ-I1.2) capture SHALL continue, and
+  the ledger's refusals (the turn-end hold, the handover refusal) and its
+  raises SHALL stand down to one line in each wake that names the open count.
+  This is the one exception to REQ-I1.2's restoring of today's behavior: a
+  record that only grows changes no answer, approval, admission or delivery.
+  *(Cites: D-28; REQ-I1.2.)*
+- **REQ-J1.11** The ledger's landing SHALL record what it moved (REQ-E1.2):
+  the operator interruptions in the baseline, the misses of the dropped-request
+  kind in mission-control's miss ledger, and from landing on, per day, the
+  requests captured, closed by each evidence kind, raised as unanswered and
+  handovers refused, kept as machine-local data.
+  *(Cites: D-22; REQ-E1.1, REQ-E1.2; mission-control REQ-P1.13 (Sources).)*
+
 ## Changelog
 
 - 2026-11-15 — Drafted from the operator-approved control-plane design memo
@@ -596,6 +733,19 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   (REQ-I1.2, D-14); a dropped policy entry is counted and reported at each
   wake (REQ-B1.3, D-3); the decision log and drop ledger take locked one-line
   appends with torn-line repair (REQ-I1.5).
+- 2026-11-19 — Amendment 2 (meaning-class, Draft on the Ready bundle, drafted
+  in the spec-pipeline program on the operator's order): the request ledger
+  joins slice one (REQ-J1.1 to REQ-J1.11, D-22 to D-28). Every operator
+  message, cross-session message and request-bearing event a program's
+  session receives is recorded by code on arrival, closes only with cited and
+  checked evidence, holds a silent turn end, refuses a handover whose
+  successor's picture lacks it, is re-read at every wake and on the panel,
+  and is raised when it sits unanswered. REQ-D1.6 supersedes REQ-D1.3 so the
+  dedupe gate never drops a request, only coalesces it with every id kept.
+  Task 5 gains the gate's request fixtures; Tasks 5.1 to 5.4 build the
+  ledger; Task 6 waits on them; Task 16's walk reads the ledger beside the
+  queue. Carries mission-control REQ-F1.19's unbuilt intake rows (its Task
+  51).
 
 ## Sources
 
@@ -704,3 +854,45 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   uncommitted edits in a sibling worktree) and
   `planwright/mission-control/amend-main-work` (commit b52466c9), whose
   drafted defaults were settled by the operator as D-17 and D-18.
+- **The request-ledger order** — the operator, 2026-11-19, through the hub,
+  relayed by mission control: fold a request ledger into the core revamp. In
+  the operator's words: "If multiple requests/responses are sent in fast
+  succession some get dropped and forgotten, even worse if a handover happens
+  in between... even worse when it looks 'recorded' but it then has zero
+  recollection about it." The scope was settled with the order: capture on
+  arrival by code, never the model; close with evidence; the handover take
+  and self-check refuse what the successor's picture lacks; open items read
+  from the store at every wake and shown on the panel, a stale or unanswered
+  one raised; and no operator or cross-session request ever dropped by the
+  dedupe gate, at most coalesced with each id kept. Framed REQ-J, REQ-D1.6 and
+  D-22 to D-28. **Pinned altitude claim:** "a hook or other code, never the
+  model" places the capture on the code side of D-1's line, and "looks
+  recorded" names the failure as session memory standing in for a record;
+  resolved in D-22.
+- **The spec-pipeline evidence** — observed 2026-11-18 and 2026-11-19 in
+  program spec-pipeline: two worker permission prompts went unseen for about
+  two hours; a peer relay arrived mid-handover, while the successor was
+  between verify and take; relay notices repeated the same event many times
+  while others arrived only as backlog lists, and because the successor's
+  picture came from the handover file alone, nothing tied an incoming
+  cross-session message to a ledger item. Framed REQ-J1.1, REQ-J1.7,
+  REQ-J1.9 and D-26, D-27.
+- **mission-control's follow-up ledger and intake rows** — the follow-up
+  ledger (`scripts/mc-kb.sh followup`: owner, trigger, done-conditions, `ack`,
+  `close --evidence`, the audit) and its signed requirements (mission-control
+  REQ-F1.19 to REQ-F1.25, REQ-P1.1 to REQ-P1.3, REQ-P1.13, D-56, D-65), the
+  handover (REQ-L1.6, `scripts/mc-handover.sh`) and the event class registry
+  (`config/mc-event-classes.tsv`). REQ-F1.19's intake rows and turn-end check
+  (its Task 51) were specified and never built: nothing in the scripts writes
+  an intake row. Fold detection found them the nearest mechanism; D-22 carries
+  them here and reuses the rest.
+- **obs:28d0df97** — the handover take left the program's whole event backlog
+  for the successor; the fix marks the pre-take backlog handled except the
+  items the handover file lists, which is the step that can mark a request the
+  file missed as handled (REQ-J1.7).
+- **obs:e818e699** — a retired session can be submitted one more wake and
+  mark the shared target's events handled, so the successor never receives
+  them: delivery is not a record (REQ-J1.7, D-26).
+- **The messaging-transport doctrine** — a cross-session message is a signal,
+  never a record, and the record is a file; the request ledger is that file
+  for what a program's session is asked (REQ-J1.2, D-24).
