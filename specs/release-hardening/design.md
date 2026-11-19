@@ -418,6 +418,11 @@ this work.
   misses a regenerated proposal that re-adds an old version heading without
   citing commits. Each condition covers a shape the other cannot, so the check
   fails on either.
+- Count only entries that cite a commit hash for condition (b). Rejected
+  because: an entry citing only a PR number (or no hash) would slip past the
+  ancestry condition. The operator chose on 2026-11-19 to broaden (b) to resolve
+  a PR number to its merge commit; evidence: 2 of the last 200 CHANGELOG entries
+  carry no commit link, one citing only a PR number (#859).
 - Rely on human review of each release PR. Rejected because: the failure mode is
   precisely that a bootstrapped diff looks plausible — #339 was 124 entries of
   real, correctly-formatted, already-released history.

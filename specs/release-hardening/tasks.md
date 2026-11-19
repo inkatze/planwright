@@ -264,10 +264,12 @@ and knob changes that share the file.
   diff adds a version heading at or below the latest release tag (compared by
   SemVer precedence through `rl_latest_release_tag` / `rl_version_gt` rather
   than by dates) or adds an entry citing a commit already contained in the
-  latest tag (commit ancestry), either condition failing it, wired into
-  `mise run check` and therefore into CI. The ancestry condition needs the
+  latest tag (commit ancestry, including an entry that cites only a PR number
+  whose merge commit is in the latest tag), either condition failing it, wired
+  into `mise run check` and therefore into CI. The ancestry condition needs the
   history and tags to resolve a cited commit, so the check fetches what it
-  needs and fails, never passes, on a commit it cannot resolve. It SHALL judge
+  needs and fails, never passes, on any state it cannot read: no latest tag, an
+  unreadable diff, or a commit it cannot resolve. It SHALL judge
   the proposal artifact alone, with no dependence on why release-please
   misread the history. Plus the
   REQ-H1.3 finding: verify what release-please 17.6.0 does when

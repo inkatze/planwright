@@ -218,7 +218,7 @@ producing no proposal between version-PR merge and signed-tag publication.
 
 ### REQ-H1.2 — a bootstrapped or backdated release proposal fails CI [test]
 
-Four fixtures, all required. Negative, ancestry: a proposal whose `CHANGELOG.md`
+Five fixtures, all required. Negative, ancestry: a proposal whose `CHANGELOG.md`
 diff adds one fresh, higher version heading over entries citing commits already
 contained in the latest release tag — the #339 shape — fails the check, and is
 confirmed to fail on the ancestry condition rather than incidentally (the
@@ -228,7 +228,9 @@ the latest tag by SemVer precedence, citing no already-released commits, fails
 on the heading condition. Positive: a proposal covering only commits since the
 latest tag passes. A fourth fixture pins the comparison basis: a proposal whose
 headings carry fresh dates but already-released versions still fails, so a
-date-based implementation cannot pass the suite. The check reads the proposal artifact
+date-based implementation cannot pass the suite. A fifth fixture pins the PR-only case: an added entry
+citing only a PR number (no commit hash) whose merge commit is contained in the
+latest tag fails the check on the ancestry condition. The check reads the proposal artifact
 only, so no fixture may depend on how release-please was induced to misread
 history.
 
