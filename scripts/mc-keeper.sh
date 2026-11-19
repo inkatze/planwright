@@ -789,8 +789,9 @@ EOF
 # stream-json-worker-dead event, since its request row has just left the
 # queue. An overdue prompt of a worker the launcher records for another
 # program is that program's to announce, a row-less worker's program being the
-# owner its dispatch record keeps; one no record owns is raised once as
-# unowned, never to every program.
+# owner its dispatch record keeps; each request of one no record owns, or of
+# one whose program has no live mission control, is raised once as unowned,
+# never to every program.
 pending_prompts() {
   NL='
 '

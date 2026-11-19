@@ -46,9 +46,9 @@ Usage:
   mc-stall.sh scan --program <p> [--now <epoch>]
       classify every launched session the program's registry rows name.
   mc-stall.sh liveness --program <p> <name>
-      print `<name> <dead|alive|unknown> <reason>` for one launched
-      session, by the liveness evidence below alone: no pane is read, no
-      sample is kept and no event is emitted.
+      print, tab separated, `<name> <dead|alive|unknown> <reason>` for
+      one launched session, by the liveness evidence below alone: no pane
+      is read, no sample is kept and no event is emitted.
   mc-stall.sh orphans
       list every stream-json process of this user's that nothing can
       reach any more, and every tail -f /dev/null or sleep infinity holder
@@ -151,7 +151,7 @@ is its procfs start tick as t<ticks> (field 22 of /proc/<pid>/stat) where
 there is a procfs, else ps's lstart with its spaces turned to dashes. Where
 there is a procfs the listing reads it, not ps.
 
-Exit codes: 0 classified, or the orphans listed; 1 the registry, a sample or
+Exit codes: 0 classified, the liveness printed, or the orphans listed; 1 the registry, a sample or
 a lock could not be read or written, an event could not be emitted, the
 stall-window knob or the fleet home does not resolve, the process table
 cannot be read; a scan classifies every other session first;
