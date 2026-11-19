@@ -130,9 +130,12 @@ the fleet home holds a record of it and whether its working directory is gone.
 A supervised worker is named in its supervisor's row instead, and a process
 with the supervisor's argv whose parent is that supervisor is one of its own
 forks, never listed. A directory that records no supervisor yet
-belongs to one starting or exiting, so that alone lists nothing. orphans
-prints, tab separated:
-  orphan <pid> <start> <supervisor|claude> <worker> <reason>
+belongs to one starting or exiting, so that alone lists nothing. A holder is
+a `tail -f /dev/null` or `sleep infinity` that init (or systemd, as a
+subreaper) has adopted: the command or test that started it is gone and
+nothing will end it, and its worker column reads `-`. One whose parent still
+runs is its parent's, never listed. orphans prints, tab separated:
+  orphan <pid> <start> <supervisor|claude|holder> <worker> <reason>
 where <start>, which tells the process from a later one given the same pid,
 is its procfs start tick as t<ticks> (field 22 of /proc/<pid>/stat) where
 there is a procfs, else ps's lstart with its spaces turned to dashes. Where
@@ -677,7 +680,7 @@ proc_cwd() {
 proc_rows() {
   if [ -n "${PROC_ROOT:-}" ]; then
     set +f
-    pr_hits=$(grep -l -e fleet-streamjson.sh -e stream-json "$PROC_ROOT"/[0-9]*/cmdline 2>/dev/null)
+    pr_hits=$(grep -l -e fleet-streamjson.sh -e stream-json -e /dev/null -e infinity "$PROC_ROOT"/[0-9]*/cmdline 2>/dev/null)
     set -f
     while IFS= read -r pr_f; do
       [ -n "$pr_f" ] || continue
@@ -727,6 +730,20 @@ stream_json_procs() {
     NF >= 4 {
       pid = $1; ppid = $2; start = $3
       parent[pid] = ppid
+      # A process kept open on purpose: tail -f /dev/null or sleep infinity,
+      # run directly or as a script by a shell (a stand-in names its own).
+      hi = (base($4) ~ /^(sh|bash|dash|zsh)$/) ? 5 : 4
+      if (hi <= NF && base($hi) == "tail") {
+        hf = 0; hz = 0
+        for (i = hi + 1; i <= NF; i++) {
+          if ($i == "--follow" || $i ~ /^--follow=/) hf = 1
+          else if ($i !~ /^--/ && $i ~ /^-[A-Za-z]*[fF]/) hf = 1
+          if ($i == "/dev/null") hz = 1
+        }
+        if (hf && hz) { hold[pid] = start "\t-\t" ppid; horder[++h] = pid }
+      } else if (hi <= NF && base($hi) == "sleep" && ($(hi + 1) == "infinity" || $(hi + 1) == "inf") && hi + 1 == NF) {
+        hold[pid] = start "\t-\t" ppid; horder[++h] = pid
+      }
       for (i = 4; i < NF; i++) if (base($i) == "fleet-streamjson.sh" && $(i + 1) ~ /^(launch|recover|relaunch|_supervise)$/) { fsj[pid] = 1; break }
       for (i = 4; i < NF; i++) {
         if (base($i) == "fleet-streamjson.sh" && $(i + 1) == "_supervise" && i + 3 <= NF) {
@@ -752,6 +769,7 @@ stream_json_procs() {
       }
       for (k = 1; k <= n; k++) { p = order[k]; if (!(parent[p] in sup)) print "S\t" p "\t" sup[p] "\t" (kids[p] == "" ? "-" : kids[p]) }
       for (k = 1; k <= m; k++) { p = corder[k]; if (!(parent[p] in fsj)) print "C\t" p "\t" cl[p] }
+      for (k = 1; k <= h; k++) { p = horder[k]; print "H\t" p "\t" hold[p] }
     }'
 }
 
@@ -778,6 +796,22 @@ list_orphans() {
           lo_why="$lo_why; no fleet record names it under $FLEET_HOME"
         fi
         ;;
+      H)
+        # Held open by nothing: its command or test is gone and init, or a
+        # subreaper acting as it, adopted it. One whose parent still runs
+        # belongs to that parent.
+        lo_adopter=''
+        if [ "$lo_a" = 1 ]; then
+          lo_adopter=init
+        elif [ -n "${PROC_ROOT:-}" ] && mc_valid_uint "$lo_a"; then
+          IFS= read -r lo_comm <"$PROC_ROOT/$lo_a/comm" 2>/dev/null || lo_comm=''
+          case $lo_comm in
+            systemd | init | launchd) lo_adopter=$lo_comm ;;
+          esac
+        fi
+        [ -n "$lo_adopter" ] || continue
+        lo_why="a tail -f /dev/null or sleep infinity holder that nothing owns (adopted by $lo_adopter, pid $lo_a)"
+        ;;
       *) continue ;;
     esac
     lo_cwd=$(proc_cwd "$lo_pid")
@@ -786,8 +820,11 @@ list_orphans() {
     esac
     [ -n "$lo_why" ] || continue
     [ "$lo_kind" != S ] || [ "$lo_b" = - ] || lo_why="$lo_why; worker pid $(printf '%s' "$lo_b" | sed 's/,/, /g')"
-    lo_role=supervisor
-    [ "$lo_kind" = S ] || lo_role=claude
+    case $lo_kind in
+      S) lo_role=supervisor ;;
+      H) lo_role=holder ;;
+      *) lo_role=claude ;;
+    esac
     printf 'orphan\t%s\t%s\t%s\t%s\t%s\n' "$lo_pid" "$lo_start" "$lo_role" \
       "$(sanitize_printable "$lo_worker")" "$(sanitize_printable "$lo_why")" || return 1
   done <<EOF

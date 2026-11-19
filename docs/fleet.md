@@ -884,7 +884,9 @@ The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
 a supervisor whose state directory is gone or records another supervisor,
 or whose working directory is gone, as a test suite killed before its
-cleanup leaves one, and a worker with no supervisor. One listed for a
+cleanup leaves one, a worker with no supervisor, and a `tail -f /dev/null`
+or `sleep infinity` holder that init adopted once its command ended (uutils
+`tail` busy-wakes on `/dev/null`, so a leaked one burns a core). One listed for a
 minute is raised once for the machine as a
 `stream-json-worker-orphaned` event, routed as the unowned one is. Nothing
 signals it: the event says how to check it and stop it by hand.

@@ -408,6 +408,91 @@ DEVNULL_REASON='a redirect to, or read of, /dev/null does nothing for the comman
 TMP_REASON='a fixed or shared name under /tmp is raced and clobbered by other sessions. Use a file inside your own scratch directory from mktemp -d, and use full paths'
 MKTEMP_REASON='mktemp -u only names a shared path without creating it. Use mktemp -d for your own scratch directory, and write files inside it'
 HEAD_REASON='head with a count of zero prints nothing. Remove it'
+HOLD_REASON='tail -f on /dev/null and sleep infinity hold a process open forever, nothing reaps it when the command ends, and uutils tail also busy-wakes on /dev/null. Wait with sleep N for a bounded number of seconds, or follow a real log file as timeout N tail -f <file>'
+
+# What a held-open process looks like as text: a substitution word or a shell
+# -c body can start one without it being the segment's verb.
+HOLD_BODY_RE='(^|[^[:alnum:]_./-])(tail[[:space:]]+(-[A-Za-z]*[fF][A-Za-z]*|--follow[^[:space:]]*)[[:space:]]+/dev/null|sleep[[:space:]]+inf(inity)?)([^[:alnum:]_./-]|$)'
+
+# hold_shape: succeeds when the segment (verb in $verb, arguments in AW and
+# an, words in SW, redirect targets in RT) starts a process held open on
+# purpose: tail -f on /dev/null or sleep infinity (behind timeout, nohup,
+# setsid, exec or command too), the same inside a shell -c body, or inside a
+# substitution word. A bounded `timeout N tail -f <file>` is a real follow and
+# does not match.
+hold_shape() {
+  local hv=$verb ha=0 a i follow=0 null=0 shell_c=0
+  while :; do
+    case $hv in
+      timeout)
+        while [ "$ha" -lt "$an" ]; do
+          case ${AW[ha]} in
+            -s | -k | --signal | --kill-after) ha=$((ha + 2)) ;;
+            -*) ha=$((ha + 1)) ;;
+            *) break ;;
+          esac
+        done
+        ha=$((ha + 1))
+        ;;
+      nohup | setsid | exec | command)
+        while [ "$ha" -lt "$an" ] && [[ ${AW[ha]} == -* ]]; do ha=$((ha + 1)); done
+        ;;
+      *) break ;;
+    esac
+    if [ "$ha" -lt "$an" ]; then
+      hv=${AW[ha]}
+      ha=$((ha + 1))
+    else
+      hv=''
+      break
+    fi
+  done
+  case $hv in
+    tail)
+      for ((i = ha; i < an; i++)); do
+        a=${AW[i]}
+        case $a in
+          --follow | --follow=*) follow=1 ;;
+          --*) ;;
+          -*[fF]*) follow=1 ;;
+          /dev/null) null=1 ;;
+        esac
+      done
+      [ "$follow" = 1 ] && [ "$null" = 1 ] && return 0
+      ;;
+    sleep)
+      for ((i = ha; i < an; i++)); do
+        case ${AW[i]} in
+          inf | infinity) return 0 ;;
+        esac
+      done
+      ;;
+    bash | sh | dash | zsh | ksh)
+      for ((i = ha; i < an; i++)); do
+        case ${AW[i]} in
+          -c | -[a-z]*c*) shell_c=1 ;;
+        esac
+      done
+      if [ "$shell_c" = 1 ]; then
+        for ((i = ha; i < an; i++)); do
+          [[ ${AW[i]} =~ $HOLD_BODY_RE ]] && return 0
+        done
+      fi
+      ;;
+  esac
+  for ((i = 0; i < SN; i++)); do
+    [ "${SQ[i]}" = 0 ] || continue
+    case ${SW[i]} in
+      *'$('* | *'<('* | *'>('*) [[ ${SW[i]} =~ $HOLD_BODY_RE ]] && return 0 ;;
+    esac
+  done
+  for ((i = 0; i < RN; i++)); do
+    case ${RT[i]:-} in
+      '<('* | '>('*) [[ ${RT[i]} =~ $HOLD_BODY_RE ]] && return 0 ;;
+    esac
+  done
+  return 1
+}
 
 # check_segment <prev-op> <next-op>: sets REASON and returns 0 on a shape.
 SW=()
@@ -446,6 +531,11 @@ check_segment() {
     an=$((an + 1))
     k=$((k + 1))
   done
+
+  if hold_shape; then
+    REASON=$HOLD_REASON
+    return 0
+  fi
 
   has_out=0
   has_in=0

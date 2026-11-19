@@ -296,6 +296,47 @@ ERR=$(cat "$tmp/stderr")
 expect_rc "a relative procfs root is refused" 1
 expect_err "the refusal names the variable" "PLANWRIGHT_MC_PROC_ROOT"
 
+# A held-open process (tail -f /dev/null, sleep infinity) its command left
+# behind: listed once init, or systemd as a subreaper, has adopted it; never
+# while a live parent still has it, and never a tail that follows a real file.
+hp="$tmp/holder proc"
+fake_holder() { # fake_holder <pid> <ppid> <cmdline printf format>
+  mkdir -p "$hp/$1"
+  # shellcheck disable=SC2059 # the format is the fixture's cmdline
+  printf "$3" >"$hp/$1/cmdline"
+  printf '%s (tail) S %s 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 777\n' "$1" "$2" >"$hp/$1/stat"
+}
+fake_holder 5001 1 'tail\000-f\000/dev/null\000'
+fake_holder 5002 1 '/bin/sh\000/fx/bin/tail\000-f\000/dev/null\000'
+fake_holder 5003 1 'sleep\000infinity\000'
+fake_holder 5004 7000 'tail\000-F\000/dev/null\000'
+fake_holder 5005 7001 'tail\000-f\000/dev/null\000'
+fake_holder 5006 1 'tail\000-f\000/var/log/run.log\000'
+fake_holder 5007 1 'sleep\00030\000'
+fake_holder 5008 1 'tail\000-n\0005\000/dev/null\000'
+fake_holder 5009 1 'tail\000--follow=name\000/dev/null\000'
+mkdir -p "$hp/7000" "$hp/7001"
+printf 'systemd\n' >"$hp/7000/comm"
+printf 'bash\n' >"$hp/7001/comm"
+OUT=$(mc_env env PLANWRIGHT_MC_PROC_ROOT="$hp" /bin/bash "$repo_root/scripts/mc-stall.sh" orphans 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "orphans over a procfs holding holders" 0
+for hold_pid in 5001 5002 5003 5004 5009; do
+  case $(orphan_row "$hold_pid") in
+    *"${tab}holder${tab}-${tab}a tail -f /dev/null or sleep infinity holder that nothing owns"*) ok "an adopted holder is listed (pid $hold_pid)" ;;
+    *) fail "the adopted holder $hold_pid is not listed: $OUT" ;;
+  esac
+done
+case $(orphan_row 5004) in
+  *"adopted by systemd, pid 7000"*) ok "a holder a systemd subreaper adopted names its adopter" ;;
+  *) fail "the systemd-adopted holder does not name its adopter: $(orphan_row 5004)" ;;
+esac
+unlisted 5005 "a holder whose parent still runs is its parent's"
+unlisted 5006 "a tail following a real file is no holder"
+unlisted 5007 "a bounded sleep is no holder"
+unlisted 5008 "a tail that does not follow is no holder"
+
 mc_run mc-stall.sh orphans --program
 expect_rc "orphans takes no program" 2
 

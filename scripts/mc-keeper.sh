@@ -675,9 +675,13 @@ orphan_raise() {
       t*) or_check="once field 22 of /proc/$or_pid/stat still reads ${or_start#t} and /proc/$or_pid/cmdline shows it abandoned, kill $or_pid ends it" ;;
       *) or_check="once ps -o pid,lstart,args -p $or_pid shows it started $(printf '%s' "$or_start" | sed 's/-/ /g') and abandoned, kill $or_pid ends it" ;;
     esac
-    [ "$or_role" = supervisor ] || or_check="it may be a session someone started by hand; $or_check"
+    or_what="stream-json $or_role pid $or_pid ($or_worker)"
+    case $or_role in
+      claude) or_check="it may be a session someone started by hand; $or_check" ;;
+      holder) or_what="held-open process pid $or_pid" ;;
+    esac
     mc_announce "$or_target" "$os_seen" "$or_key" stream-json-worker-orphaned "$or_subject" \
-      "orphaned stream-json $or_role pid $or_pid ($or_worker), which nothing reaps or stops; $or_check$KT_NOTE. $or_why" \
+      "orphaned $or_what, which nothing reaps or stops; $or_check$KT_NOTE. $or_why" \
       || or_rc=1
   done <<EOF
 $1
