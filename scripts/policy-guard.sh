@@ -125,7 +125,8 @@
 #               rewritten commit. A rebase with -x/--exec denies: its
 #               command runs below this hook. A commit with an expansion among
 #               its options denies: it could spell an amend.
-#   push       a force or bulk push denies; every other push reads the
+#   push       a force or bulk push denies (the branch-sync helper below runs
+#               its leased push itself); every other push reads the
 #               protected set and denies a target inside it.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
@@ -140,6 +141,15 @@
 #   force-push helper  running scripts/tower-force-push.sh. worker: deny,
 #               with no read. tower: defer, so it reaches the permission
 #               prompt (the tower's command guard never approves it).
+#   branch sync running scripts/worker-branch-sync.sh, the one route by which
+#               a worker publishes a leased rewrite of its draft unit branch,
+#               resets it hard to its own remote branch, or fast-forwards it
+#               to a commit. tower and mission-control: deny. worker: only as
+#               its own command or after one plain cd, by the installed copy,
+#               with literal arguments in its grammar, on the unit branch in
+#               the session's own checkout, outside the protected set, where
+#               the session record names both; setting that record's variable
+#               in a command denies. The helper checks the rest at run time.
 #   ref-surgery tower only: `git filter-branch`, `git filter-repo`, a forced
 #               `git branch` (-f, --force, and the -M and -C force shorthands)
 #               outside delete mode, and `git update-ref` deny with no read.
@@ -4912,17 +4922,11 @@ base_merge_allowed() { # <dir> <what> [<remedy for a branch refusal>]
   base_of "$1"
 }
 
-# record_spec_branch — set SPEC_BRANCH to the spec PR branch the launch named,
-# or empty. The only carrier is spec_branch= in the worker's session record
+# record_usable <worktree top> — 0 when the worker's session record
 # (PLANWRIGHT_WORKER_SESSION_RECORD, written by the launcher outside the
-# worktree), never the command text. A record that is not this user's own
-# regular file, a symlink, oversized or inside the worktree (lexically or
-# physically, as macOS's /var -> /private/var makes them differ), a field given
-# twice, or a value outside planwright/<spec>/<name> (a task or flight branch,
-# or a protected one) names nothing.
-SPEC_BRANCH=''
-# record_usable <worktree top> — 0 when the session record is one the guard
-# reads at all, by the rules above (the field rules aside).
+# worktree) is one the guard reads at all: this user's own regular file, no
+# symlink, at most 4096 bytes, outside the worktree lexically and physically
+# (as macOS's /var -> /private/var makes them differ).
 record_usable() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} size top=$1 pdir ptop
   [ "$TIER" = worker ] || return 1
@@ -4955,7 +4959,13 @@ record_field() {
   }
 }
 
-record_spec_branch() { # <worktree top>
+# record_spec_branch <worktree top> — set SPEC_BRANCH to the spec PR branch the
+# launch named, or empty. The only carrier is spec_branch= in the session
+# record, never the command text. A record record_usable refuses, a field
+# given twice, or a value outside planwright/<spec>/<name> (a task or flight
+# branch, or a protected one) names nothing.
+SPEC_BRANCH=''
+record_spec_branch() {
   local v
   local re='^planwright/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9.-]*$'
   SPEC_BRANCH=''
@@ -7248,34 +7258,112 @@ SYNC_FILE=worker-branch-sync.sh
 SYNC_FORM="<installed root>/scripts/worker-branch-sync.sh push --force-with-lease=<branch>:<full sha> --force-if-includes, reset origin/<branch>, or ff <full sha>"
 RE_SYNC_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/worker-branch-sync\.sh$'
 
-# branch_sync_run <text> — 0 when the text runs the helper as a command, read
-# with line splices and quotes dropped (raw_force_push_call reads a quote as a
-# word break, which would split "$ROOT"/scripts/... from its root).
+# branch_sync_run <text> — 0 when the text runs the helper as a command. A
+# command the tokenizer reads is judged by its segments: a command word naming
+# the helper, a wrapper or shell with a word naming it, or a shell or runner
+# reading its script from stdin. Any other text falls back to the raw reading,
+# with line splices, quotes and backslashes dropped first.
+SYNC_WRAPPERS=' bash sh zsh dash ksh mksh fish busybox env sudo doas xargs nohup nice ionice timeout gtimeout stdbuf setsid chronic watch flock unbuffer caffeinate strace ltrace chroot unshare systemd-run fakeroot parallel find script ssh tmux screen source . make python perl ruby node awk gawk mawk nawk eval su runuser trap alias '
+SYNC_STDIN=' bash sh zsh dash ksh mksh fish busybox eval source . xargs parallel '
 branch_sync_run() {
-  local t=${1//\\"$NL"/} rc=1
-  t=${t//[\"\']/}
-  shopt -s nocasematch
-  case $t in
-    *worker-branch-sync*) ! raw_force_push_call "$t" worker-branch-sync || rc=0 ;;
-  esac
-  shopt -u nocasematch
-  return "$rc"
+  local t=${1//\\"$NL"/} si=0 w b rc=1
+  t=${t//[\"\'\\]/}
+  case $t in *[Ww][Oo][Rr][Kk][Ee][Rr]-[Bb][Rr][Aa][Nn][Cc][Hh]-[Ss][Yy][Nn][Cc]*) ;; *) return 1 ;; esac
+  if ! tokenize "$1"; then
+    shopt -s nocasematch
+    ! raw_force_push_call "$t" worker-branch-sync || rc=0
+    shopt -u nocasematch
+    return "$rc"
+  fi
+  while [ "$si" -lt "${#SEG_S[@]}" ]; do
+    segment_words "$si"
+    si=$((si + 1))
+    [ "${#SW[@]}" -gt 0 ] || continue
+    lc "${SW[0]##*/}"
+    b=$LC
+    case $b in worker-branch-sync*) return 0 ;; esac
+    case $SYNC_WRAPPERS in *" ${b%%[0-9.]*} "* | *" $b "*) ;; *) continue ;; esac
+    for w in "${SW[@]:1}"; do
+      lc "$w"
+      case $LC in
+        *[[:space:]\;\&\|\(\)\`]*)
+          # A command string (a shell's -c text) is read as text.
+          shopt -s nocasematch
+          ! raw_force_push_call "${LC//[\"\'\\]/}" worker-branch-sync || rc=0
+          shopt -u nocasematch
+          [ "$rc" = 1 ] || return 0
+          ;;
+        *)
+          case ${LC##*/} in worker-branch-sync*) return 0 ;; esac
+          ;;
+      esac
+    done
+    case $SYNC_STDIN in *" $b "*) [ "${#SW[@]}" -gt 1 ] || return 0 ;; esac
+  done
+  return 1
 }
 
-# sync_installed <path> — 0 when the absolute path is the helper of this
-# guard's own install or of a root Claude Code installed planwright at.
+# sync_installed <path> — 0 when the absolute path, read physically, is the
+# helper in this guard's own install or in a root Claude Code installed
+# planwright at. A link or a second hard link elsewhere names the same file but
+# runs from another directory, whose protected-branch.sh the helper would run.
 sync_installed() {
-  local p=$1 r
-  [ -f "$p" ] || return 1
-  [ -z "$GUARD_DIR" ] || [ ! "$p" -ef "$GUARD_DIR/$SYNC_FILE" ] || return 0
-  [ -z "${CLAUDE_PLUGIN_ROOT:-}" ] || [ ! "$p" -ef "$CLAUDE_PLUGIN_ROOT/scripts/$SYNC_FILE" ] || return 0
+  local p=$1 d r want
+  [ -f "$p" ] && [ ! -L "$p" ] || return 1
+  d=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd) || return 1
+  lc "${p##*/}"
+  [ "$LC" = "$SYNC_FILE" ] || return 1
+  for r in "${GUARD_DIR:+$GUARD_DIR/..}" "${CLAUDE_PLUGIN_ROOT:-}"; do
+    [ -n "$r" ] || continue
+    want=$(cd -P -- "$r/scripts" 2>/dev/null && pwd) || continue
+    [ "$d" != "$want" ] || return 0
+  done
   [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-installed-roots.sh" ] || return 1
   while IFS= read -r r; do
     case $r in /?*) ;; *) continue ;; esac
-    [ ! "$p" -ef "$r/scripts/$SYNC_FILE" ] || return 0
+    want=$(cd -P -- "$r/scripts" 2>/dev/null && pwd) || continue
+    [ "$d" != "$want" ] || return 0
   done <<EOF
 $("$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-installed-roots.sh" 2>/dev/null </dev/null)
 EOF
+  return 1
+}
+
+# sync_record_set <text> — 0 when a worker's command sets, exports, reads into
+# or clears the session-record variable: the record is the launcher's, and the
+# helper trusts the one the session started with.
+SYNC_REC=PLANWRIGHT_WORKER_SESSION_RECORD
+SYNC_SETTERS=' export declare typeset readonly local read unset readarray mapfile getopts env printf '
+sync_record_set() {
+  local t=${1//[\"\'\\]/} si=0 k e w b
+  case $t in *"$SYNC_REC"*) ;; *) return 1 ;; esac
+  if ! tokenize "$1"; then
+    [[ $t =~ $SYNC_REC\+?= ]] && return 0
+    [[ $t =~ (^|[^A-Za-z0-9_])(export|declare|typeset|readonly|local|read|unset|readarray|mapfile|getopts|-v)[[:space:]][^\;\&\|]*$SYNC_REC ]]
+    return
+  fi
+  while [ "$si" -lt "${#SEG_S[@]}" ]; do
+    k=${SEG_S[$si]} e=${SEG_E[$si]}
+    while [ "$k" -lt "$e" ]; do
+      case ${W[$k]} in
+        "$SYNC_REC="* | "$SYNC_REC+="*) return 0 ;;
+        [A-Za-z_]*=*) k=$((k + 1)) ;;
+        *) break ;;
+      esac
+    done
+    segment_words "$si"
+    si=$((si + 1))
+    [ "${#SW[@]}" -gt 0 ] || continue
+    b=${SW[0]##*/}
+    case $SYNC_SETTERS in
+      *" $b "*)
+        for w in "${SW[@]:1}"; do
+          case $w in "$SYNC_REC" | "$SYNC_REC="* | "$SYNC_REC+="*) return 0 ;; esac
+        done
+        ;;
+    esac
+    case $SYNC_STDIN in *" $b "*) [ "${#SW[@]}" -gt 1 ] || return 0 ;; esac
+  done
   return 1
 }
 
@@ -7394,7 +7482,7 @@ handle_bash() {
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push* | *kickoff-spec* | *worker-branch-sync*) hit=1 ;;
+    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push* | *kickoff-spec* | *worker-branch-sync* | *_session_record*) hit=1 ;;
     # A glob or brace word could still name the merge helper.
     *admitted* | *'*'* | *'?'* | *'['* | *'{'*) hit=1 ;;
     *'$'* | *'`'*)
@@ -7421,8 +7509,15 @@ handle_bash() {
       return 0
       ;;
   esac
-  if branch_sync_run "$cmd"; then
-    [ "${#cmd}" -le "$MAX_CMD_LEN" ] || sync_refuse 'this command is too long for the guard to analyze, and it runs scripts/worker-branch-sync.sh - refusing.'
+  [ "$TIER" != worker ] || ! sync_record_set "$cmd" \
+    || emit_deny 'this command sets or clears PLANWRIGHT_WORKER_SESSION_RECORD, the session record the launcher wrote, which scripts/worker-branch-sync.sh trusts - refusing. Run commands under the record the session started with.'
+  if [ "${#cmd}" -gt "$MAX_CMD_LEN" ]; then
+    case $bare in
+      *[Ww][Oo][Rr][Kk][Ee][Rr]-[Bb][Rr][Aa][Nn][Cc][Hh]-[Ss][Yy][Nn][Cc]*)
+        sync_refuse 'this command is too long for the guard to analyze, and it names scripts/worker-branch-sync.sh - refusing.'
+        ;;
+    esac
+  elif branch_sync_run "$cmd"; then
     branch_sync_check "$cmd"
     return 0
   fi
