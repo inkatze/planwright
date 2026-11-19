@@ -5,6 +5,7 @@
 # sets REPO_ROOT, HELPER and STEP_RECORD, and defines passes, failures, pass,
 # fail, check and not, before sourcing.
 
+unset CDPATH
 [ -r "$REPO_ROOT/tests/lib/emitter-lint.sh" ] || {
   echo "FAIL: tests/lib/emitter-lint.sh missing" >&2
   exit 1
@@ -243,7 +244,7 @@ changed_since() { git --git-dir="$F/origin.git" diff --name-only "$1" "refs/head
 
 if [ ! -f "$HELPER" ]; then
   fail "the helper exists at scripts/ready-flip.sh"
-  echo "ready-flip: $passes passed, $failures failed" >&2
+  printf 'ready-flip: %s passed, %s failed\n' "$passes" "$failures" >&2
   exit 1
 fi
 
