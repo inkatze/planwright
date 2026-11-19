@@ -52,6 +52,7 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
+# The flagless call predates --mise-task-edit and means it.
 [ "$want_mise" = 1 ] || [ "$want_lefthook" = 1 ] || want_mise=1
 [ "$#" -eq 3 ] || die "$usage" 2
 profile=$1
@@ -72,11 +73,14 @@ fi
 if [ "$want_lefthook" = 1 ]; then
   broad=$(printf '%s' "$broad" | jq -c '. + ["Edit(//**/lefthook/**)","Edit(//**/lefthook.*)"]')
   names=$(printf '%s' "$names" | jq -c '. + ["lefthook/**","lefthook.*"]')
-fi
-if [ "$want_lefthook" = 1 ]; then
+  # The mise-only form passes the hook no argument: its default is mise.
   hook_args=' lefthook'
   [ "$want_mise" = 0 ] || hook_args=' mise lefthook'
 fi
+# The hook is the only thing that closes these names outside the ancestors; a
+# missing or non-executable one is a launch the broad denies no longer cover.
+hook_script=$(dirname -- "$0")/worker-mise-edit-guard.sh
+[ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable beside the generator; the opt-in would leave its names open outside the worktree's ancestors"
 jq -e --argjson b "$broad" '(.permissions.deny | type == "array") and ([$b[] as $r | (.permissions.deny | index($r))] | all(. != null))' \
   "$profile" >/dev/null 2>&1 || die "the profile is not JSON, or does not carry the broad deny rules the requested opt-ins replace"
 

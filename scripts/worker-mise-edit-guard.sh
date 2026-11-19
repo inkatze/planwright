@@ -109,10 +109,10 @@ phys() {
   done
 }
 
-# is_task <normalized path>: some component is a name of a judged set: a mise
+# is_optin_name <normalized path>: some component is a name of a judged set: a mise
 # task-file name, or a lefthook config name (`lefthook` or `lefthook.*`, any
 # letter case, since a case-insensitive filesystem reads them alike).
-is_task() {
+is_optin_name() {
   if [ "$want_mise" = 1 ]; then
     case $1 in
       */mise.toml | */.mise.toml | */mise-tasks | */.mise-tasks | */mise.toml/* | */.mise.toml/* | */mise-tasks/* | */.mise-tasks/*) return 0 ;;
@@ -131,7 +131,8 @@ command -v jq >/dev/null 2>&1 || deny
 payload=$(cat) || deny
 fields=$(printf '%s' "$payload" | jq -r '
   (.tool_input.file_path // .tool_input.notebook_path // "") as $p
-  | [(.tool_name // ""), $p, (.cwd // "")] | join("\u0001")' 2>/dev/null) || deny
+  | [(.tool_name // ""), $p, (.cwd // "")]
+  | if any(.[]; contains("\u0001")) then error("separator in a field") else join("\u0001") end' 2>/dev/null) || deny
 tool=${fields%%"$(printf '\001')"*}
 rest=${fields#*"$(printf '\001')"}
 path=${rest%%"$(printf '\001')"*}
@@ -146,18 +147,18 @@ esac
 case $path in
   # The file tools may expand a leading ~ to the home folder, a place this
   # hook cannot resolve; a task-named path there is never inside the worktree.
-  '~' | '~'/*) is_task "/$path" && deny || exit 0 ;;
+  '~' | '~'/*) is_optin_name "/$path" && deny || exit 0 ;;
   /*) abs=$path ;;
   *) [ -n "$cwd" ] && abs=$cwd/$path || abs=$path ;;
 esac
 case $abs in
   /*) ;;
-  *) is_task "/$abs" && deny || exit 0 ;;
+  *) is_optin_name "/$abs" && deny || exit 0 ;;
 esac
 lex=$(norm "$abs")
 real=$(phys "$lex") || deny
 [ -n "$real" ] || deny
-is_task "$lex" || is_task "$real" || exit 0
+is_optin_name "$lex" || { [ "$real" != "$lex" ] && is_optin_name "$real"; } || exit 0
 
 [ -n "$wt_arg" ] || deny
 wt=$(cd -P -- "$wt_arg" 2>/dev/null && pwd -P) || deny

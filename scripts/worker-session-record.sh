@@ -55,7 +55,7 @@
 #                      config names (lefthook.<ext>, lefthook/) inside the
 #                      worktree, and nothing else. Same provenance and
 #                      lifecycle as mise_task_edit, and independent of it
-#   spec_branch       the spec PR branch (planwright/<spec>/<name>) a launch given
+#   spec_branch        the spec PR branch (planwright/<spec>/<name>) a launch given
 #                      --spec-branch names, omitted otherwise: the policy guard
 #                      lets that session fast-forward its flight branch to it and
 #                      sync the checked-out branch with the PR base, and nothing

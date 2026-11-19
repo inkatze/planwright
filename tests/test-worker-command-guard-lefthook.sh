@@ -51,7 +51,15 @@ OPT_WORD=$(record_with optword "own-branch scratch" lefthook_edit=yes)
 OPT_DUP=$(record_with optdup "own-branch scratch" lefthook_edit=1 lefthook_edit=1)
 OPT_BLANK=$(record_with optblank "own-branch scratch" lefthook_edit=)
 
-mkdir -p "$WT/lefthook" "$WT/sub" "$WT/tree-ok/lefthook" "$WT/tree-bad/lefthook" "$WT/.githooks"
+mkdir -p "$WT/lefthook" "$WT/sub" "$WT/tree-ok/lefthook" "$WT/tree-bad/lefthook" "$WT/.githooks" \
+  "$WT/.lefthook" "$WT/.lefthook-local" "$WT/tree-mise" "$WT/tree-envrc" "$WT/tree-dot" "$WT/tree-scratch"
+: >"$WT/tree-mise/lefthook.yml"
+: >"$WT/tree-mise/mise.toml"
+: >"$WT/tree-envrc/lefthook.yml"
+: >"$WT/tree-envrc/.envrc"
+: >"$WT/tree-dot/lefthook.yml"
+: >"$WT/tree-dot/.lefthook.yml"
+: >"$WT/tree-scratch/lefthook.yml"
 : >"$WT/lefthook.yml"
 : >"$WT/lefthook/pre-commit.yml"
 : >"$WT/sub/lefthook.yml"
@@ -125,11 +133,15 @@ under "$OPT_SC"
 assert_defer "scratch only, opted in: no worktree write" "touch lefthook.yml" Bash "$WT"
 
 echo "### a record without exactly one lefthook_edit=1 gets the shipped arm"
-for r in "$NOOPT" "$OPT_ZERO" "$OPT_WORD" "$OPT_DUP" "$OPT_BLANK"; do
+for r in "$OPT_ZERO" "$OPT_WORD" "$OPT_DUP" "$OPT_BLANK"; do
   under "$r"
-  for c in "${OPEN_CMDS[@]}"; do
+  for c in "echo x >> lefthook.yml" "mkdir -p lefthook" "touch sub/lefthook.yml" "rm -r tree-ok"; do
     assert_defer "[$(basename "$r")] shipped arm: $c" "$c" Bash "$WT"
   done
+done
+under "$NOOPT"
+for c in "${OPEN_CMDS[@]}"; do
+  assert_defer "no opt-in, shipped arm: $c" "$c" Bash "$WT"
 done
 
 echo "### the mise opt-in does not open lefthook names, nor this one the mise names"
@@ -137,6 +149,16 @@ under "$OPT_MISE"
 for c in "touch lefthook.yml" "mkdir -p lefthook" "rm -r tree-ok"; do
   assert_defer "mise opt-in alone: $c" "$c" Bash "$WT"
 done
+under "$OPT"
+for c in "rm -r tree-mise" "rm -r tree-envrc" "rm -r tree-dot"; do
+  assert_defer "lefthook opt-in alone, a tree holding another excluded name: $c" "$c" Bash "$WT"
+done
+assert_defer "lefthook opt-in alone: touch mise.toml inside a nested directory" "touch sub/mise.toml" Bash "$WT"
+echo "### an opt-in's names move only inside the worktree, never into scratch"
+assert_defer "copy a tree holding lefthook.yml into scratch" "cp -r tree-scratch \$TMPDIR/copy" Bash "$WT"
+assert_defer "move a tree holding lefthook.yml into scratch" "mv tree-scratch \$TMPDIR/moved" Bash "$WT"
+assert_allow "copy the same tree inside the worktree" "cp -r tree-scratch tree-scratch2" Bash "$WT"
+assert_allow "move the same tree inside the worktree" "mv tree-scratch tree-moved" Bash "$WT"
 echo "### the two opt-ins compose"
 under "$OPT_BOTH"
 for c in "touch lefthook.yml" "touch mise.toml" "mkdir -p mise-tasks" "mkdir -p lefthook"; do
@@ -153,6 +175,10 @@ for c in "touch .githooks/pre-commit" "mkdir -p .githooks/x" "echo x > .githooks
   assert_defer "hooks path .githooks, both opt-ins: $c" "$c" Bash "$WT"
 done
 assert_allow "hooks path .githooks, both opt-ins: lefthook.yml still opens" "touch lefthook.yml" Bash "$WT"
+git -C "$WT" config core.hooksPath lefthook
+for c in "touch lefthook/x.yml" "echo x > lefthook/pre-commit.yml" "rm lefthook/pre-commit.yml" "rm -r lefthook"; do
+  assert_defer "a hooks path named like a lefthook directory stays closed: $c" "$c" Bash "$WT"
+done
 git -C "$WT" config core.hooksPath githooks
 
 echo "### the opt-in is not read from the environment, the checkout or config"

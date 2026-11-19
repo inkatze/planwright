@@ -664,6 +664,12 @@ if [ "$RC" -eq 0 ] && [ "$(field lefthook_edit)" = 1 ] && [ "$(field mise_task_e
 else
   fail "lefthook opt-in: the combined form failed (rc=$RC, $(cat "$T/err"))"
 fi
+REC=$(/bin/sh "$WRITER" write "$WT" --mise-task-edit 2>"$T/err")
+if [ -s "$REC" ] && [ "$(field mise_task_edit)" = 1 ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: the mise flag alone writes no lefthook field"
+else
+  fail "lefthook opt-in: the mise flag leaked into the lefthook field"
+fi
 /bin/sh "$WRITER" write "$WT" --lefthook-edit --lefthook-edit >/dev/null 2>&1
 if [ "$?" -eq 2 ]; then
   pass "lefthook opt-in: a repeated flag is a usage error"

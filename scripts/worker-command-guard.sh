@@ -1463,8 +1463,8 @@ EOF
 # mise reads a config from whatever directory it starts in. <open> is REC_OPEN
 # or a subset of it: with `m`, the four task-file names (mise.toml, .mise.toml,
 # mise-tasks, .mise-tasks) are let through; with `l`, the lefthook config
-# names (lefthook, lefthook.*, which lefthook-local.* and the dotted variants
-# are not). Only the worktree zone of an opted-in session asks for either.
+# names (lefthook, lefthook.*; lefthook-local.* and the dotted variants stay
+# excluded). Only the worktree zone of an opted-in session asks for either.
 ob_excluded_name() {
   local low
   low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
@@ -1540,8 +1540,9 @@ EOF
   ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT" "$REC_OPEN"
 }
 
-# ob_tree_clean <canonical-dir>: 0 when nothing under the directory is an
-# excluded path, for a recursive act on it.
+# ob_tree_clean <canonical-dir> [<open>]: 0 when nothing under the directory is
+# an excluded path, for a recursive act on it. <open> is ob_excluded_name's:
+# the opt-in names let through, given only where the act lands in the worktree.
 ob_tree_clean() {
   local dir=$1 low d hit
   low=$(printf '%s' "$dir" | tr '[:upper:]' '[:lower:]')
@@ -1553,8 +1554,8 @@ ob_tree_clean() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  # The same names ob_excluded_name lists, as find primaries, less the ones an
-  # opt-in lets through.
+  # The same names ob_excluded_name lists (keep the two in step), as find
+  # primaries, less the ones an opt-in lets through.
   local -a names=(-iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions
     -o -iname .config -o -iname .mise
     -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml'
@@ -1562,11 +1563,11 @@ EOF
     -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks'
     -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*'
     -o -iname '.lefthook-local' -o -iname '.lefthook-local.*')
-  case $REC_OPEN in
+  case ${2:-} in
     *m*) ;;
     *) names+=(-o -iname mise.toml -o -iname .mise.toml -o -iname mise-tasks -o -iname .mise-tasks) ;;
   esac
-  case $REC_OPEN in
+  case ${2:-} in
     *l*) ;;
     *) names+=(-o -iname lefthook -o -iname 'lefthook.*') ;;
   esac
@@ -1666,7 +1667,7 @@ ob_path() {
 # act on a worktree directory, nothing excluded beneath it.
 ob_target() {
   ob_path "$1" "$2" "${4-wt}" || return 1
-  [ "$3" = 1 ] && [ "$OB_ZONE" = wt ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" && return 1
+  [ "$3" = 1 ] && [ "$OB_ZONE" = wt ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" "$REC_OPEN" && return 1
   return 0
 }
 
@@ -1791,7 +1792,12 @@ ob_copy_move() {
       return 1
     fi
     if [ -n "$src_dir" ]; then
-      ob_tree_clean "$src_dir" || return 1
+      # An opt-in's names move only within the worktree, never into scratch.
+      if [ "$OB_ZONE" = wt ]; then
+        ob_tree_clean "$src_dir" "$REC_OPEN" || return 1
+      else
+        ob_tree_clean "$src_dir" || return 1
+      fi
     fi
   done
   return 0

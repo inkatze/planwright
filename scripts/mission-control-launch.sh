@@ -103,7 +103,7 @@ variants, the hook directories, .git and .claude stay closed, and so does
 every path outside the worktree. It composes with --mise-task-edit and takes
 effect only by relaunch; docs/permission-matcher-model.md ("The lefthook
 config opt-in") states what it opens.
-`--spec-branchplanwright/<spec>/<name>` (a worker-profile session on the
+`--spec-branch planwright/<spec>/<name>` (a worker-profile session on the
 stream-json rung only, and only for the head branch of an open pull request,
 checked with gh before the launch) records that spec PR branch in the session
 record, so the policy guard lets the session fast-forward its flight branch to

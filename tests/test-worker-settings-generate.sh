@@ -260,6 +260,14 @@ mise_cmd=$(jq -r '[.hooks.PreToolUse[] | select(.matcher == "Edit|Write|MultiEdi
 # --mise-task-edit alone is the legacy form.
 /bin/sh "$GEN" --mise-task-edit "$PROFILE" "$WT" "$T/out/m.json" >/dev/null 2>&1 && cmp -s "$T/out/m.json" "$OUT" \
   && ok "--mise-task-edit alone writes the same bytes as the flagless form" || fail "--mise-task-edit alone differs from the flagless form"
+# A generator without its hook script beside it is refused rather than leaving
+# every opted-in name outside the ancestors editable.
+mkdir -p "$T/lone"
+cp "$GEN" "$T/lone/worker-settings-generate.sh"
+/bin/sh "$T/lone/worker-settings-generate.sh" --lefthook-edit "$PROFILE" "$WT" "$T/out/lone.json" >/dev/null 2>"$T/err" \
+  && fail "a generator with no hook script beside it was accepted" \
+  || { grep -q 'hook' "$T/err" && ok "a generator with no hook script beside it is refused for that reason" || fail "the missing-hook refusal did not name the hook: $(cat "$T/err")"; }
+[ ! -e "$T/out/lone.json" ] && ok "and writes nothing" || fail "a refused no-hook run wrote a file"
 # A profile that lacks the lefthook denies cannot be opened up; a repeated flag is usage.
 jq 'del(.permissions.deny[] | select(. == "Edit(//**/lefthook.*)"))' "$PROFILE" >"$T/nolh.json"
 /bin/sh "$GEN" --lefthook-edit "$T/nolh.json" "$WT" "$T/out/nolh.out.json" >/dev/null 2>&1 \

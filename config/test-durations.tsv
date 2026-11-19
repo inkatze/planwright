@@ -32,7 +32,7 @@ test-step-record.sh	35.743
 test-mc-snapshot-adapters.sh	35.194
 test-inception-venture.sh	34.446
 test-worker-command-guard-mise-tasks.sh	34.0
-test-worker-command-guard-lefthook.sh	34.0
+test-worker-command-guard-lefthook.sh	20.0
 test-worker-command-guard-steps.sh	33.825
 test-orchestrate-meta-step.sh	33.260
 test-tower-queue-settle.sh	32.960

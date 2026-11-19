@@ -2459,7 +2459,7 @@ cmd_launch() {
   if [ "$mise_edit" = 1 ] || [ "$lefthook_edit" = 1 ]; then
     gen_flags=''
     [ "$mise_edit" = 0 ] || gen_flags=--mise-task-edit
-    [ "$lefthook_edit" = 0 ] || gen_flags="$gen_flags --lefthook-edit"
+    [ "$lefthook_edit" = 0 ] || gen_flags="${gen_flags:+$gen_flags }--lefthook-edit"
     # shellcheck disable=SC2086 # a word list of the generator's own flags
     if ! gen_out=$(/bin/sh "$script_dir/worker-settings-generate.sh" $gen_flags "$launch_settings" "${run_cwd:-$PWD}" "$dir/worker-settings.json" </dev/null); then
       rm -f "$init_msg"
@@ -3316,7 +3316,7 @@ cmd_relaunch() {
   rx_gen_flags=''
   if [ "$rx_profile" = worker ]; then
     [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" != 1 ] || rx_gen_flags=--mise-task-edit
-    [ "$(cat "$dir/lefthook-edit" 2>/dev/null)" != 1 ] || rx_gen_flags="$rx_gen_flags --lefthook-edit"
+    [ "$(cat "$dir/lefthook-edit" 2>/dev/null)" != 1 ] || rx_gen_flags="${rx_gen_flags:+$rx_gen_flags }--lefthook-edit"
   fi
   if [ -n "$rx_gen_flags" ]; then
     rx_shipped=$(profile_settings_path worker) || exit 7

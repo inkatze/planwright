@@ -1131,15 +1131,19 @@ cmp -s "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" "$
 : >"$rec/argv"
 : >"$rec/env"
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
-  launch sjw9l2 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --lefthook-edit --cwd "$tmp/mwt" --foreground \
+  launch sjw9l2execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --lefthook-edit --cwd "$tmp/mwt" --foreground \
   || fail "c9l: a launch with both opt-ins exited non-zero"
 b_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
 jq -e '.permissions.deny | [index("Edit(//**/mise.toml)"), index("Edit(//**/lefthook.*)")] | all(. == null)' "$b_settings" >/dev/null \
   || fail "c9l: both opt-ins must replace the mise and lefthook broad denies"
 { [ "$(cat "$home/streamjson/sjw9l2/lefthook-edit" 2>/dev/null)" = 1 ] && [ "$(cat "$home/streamjson/sjw9l2/mise-task-edit" 2>/dev/null)" = 1 ]; } \
   || fail "c9l: both opt-ins must be recorded"
+b_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ grep -qx 'lefthook_edit=1' "$b_rec" && grep -qx 'mise_task_edit=1' "$b_rec"; } \
+  || fail "c9l: the session record must carry both fields when both opt-ins are given: $b_rec"
 # The mise opt-in alone never opens the lefthook names.
 : >"$rec/argv"
+: >"$rec/env"
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   launch sjw9l3 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --cwd "$tmp/mwt" --foreground \
   || fail "c9l: a mise-only launch exited non-zero"
@@ -1147,6 +1151,9 @@ jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") != null) and (index("
   "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" >/dev/null \
   || fail "c9l: the mise opt-in alone must leave the broad lefthook denies in place"
 [ ! -e "$home/streamjson/sjw9l3/lefthook-edit" ] || fail "c9l: the mise opt-in alone must record no lefthook opt-in"
+m_only_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ grep -qx 'mise_task_edit=1' "$m_only_rec" && ! grep -q '^lefthook_edit=' "$m_only_rec"; } \
+  || fail "c9l: the mise opt-in alone must leave lefthook_edit out of the session record: $m_only_rec"
 # Only the worker profile opts in, and a repeated flag is a usage error.
 for kind in tower mission-control; do
   : >"$rec/argv"

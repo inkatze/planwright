@@ -1521,6 +1521,10 @@ allow|legit|Write|$GWT/sub/lefthook/x.yml|a nested lefthook/ directory inside it
 allow|legit|Edit|$GWT/scripts/x.sh|ordinary edits stay allowed
 deny|load-bearing|Edit|/work/unrelated/lefthook.yml|an unrelated repository's lefthook.yml stays closed: only the worker's own worktree opens
 deny|load-bearing|Write|/work/unrelated/lefthook/x.yml|an unrelated repository's lefthook/ stays closed
+deny|load-bearing|Write|/work/unrelated/lefthook|a bare lefthook leaf outside the worktree stays closed
+deny|load-bearing|Write|/work/unrelated/LEFTHOOK.YML|an upper-case spelling outside the worktree stays closed through the hook's case fold
+deny|load-bearing|Write|/work/unrelated/Lefthook/x.yml|a mixed-case lefthook/ directory outside the worktree stays closed
+deny|load-bearing|Write|/work/unrelated/lefthook.d/x.yml|a lefthook.* directory component outside the worktree stays closed
 deny|load-bearing|Write|$GMAIN/.claude/worktrees/w2/lefthook.yml|a sibling worktree's lefthook.yml stays closed
 deny|load-bearing|Edit|$GMAIN/.claude/worktrees/w2/lefthook/x.yml|a sibling worktree's lefthook/ stays closed
 deny|load-bearing|Write|$GBOX/other/lefthook.yml|another repository's lefthook.yml stays closed
@@ -1602,6 +1606,54 @@ EOF
     *'Edit(//**/lefthook.*)'* | *'Edit(//**/lefthook/**)'*) fail "pass J: a broad lefthook deny survived in the generated profile" ;;
     *) ok "pass J: no broad lefthook deny survives in the generated profile" ;;
   esac
+  # The hook's name-set arguments, run directly: none judges mise only, `mise
+  # lefthook` both, a word it does not know both, and a field holding the
+  # payload separator is refused rather than misread.
+  hook_verdict() {
+    local args=$1 tool=$2 path=$3 out
+    # shellcheck disable=SC2086 # a word list of the hook's own arguments
+    out=$(printf '{"tool_name":"%s","tool_input":{"file_path":"%s"},"cwd":"%s"}' "$tool" "$path" "$GWT" | "$MISE_GUARD" "$GWT" $args)
+    case $out in
+      *'"permissionDecision":"deny"'*) printf 'deny' ;;
+      *) printf 'allow' ;;
+    esac
+  }
+  if [ -x "$MISE_GUARD" ]; then
+    for row in \
+      "|/work/unrelated/mise.toml|deny" \
+      "|/work/unrelated/lefthook.yml|allow" \
+      "mise|/work/unrelated/lefthook.yml|allow" \
+      "lefthook|/work/unrelated/mise.toml|allow" \
+      "lefthook|/work/unrelated/lefthook.yml|deny" \
+      "mise lefthook|/work/unrelated/mise-tasks/x|deny" \
+      "mise lefthook|/work/unrelated/lefthook.yml|deny" \
+      "lefthook mise|/work/unrelated/mise.toml|deny" \
+      "bogus|/work/unrelated/mise.toml|deny" \
+      "bogus|/work/unrelated/lefthook.yml|deny" \
+      "lefthook|$GWT/lefthook.yml|allow" \
+      "mise lefthook|$GWT/mise.toml|allow"; do
+      args=${row%%|*}
+      rest=${row#*|}
+      p=${rest%%|*}
+      want=${rest##*|}
+      got=$(hook_verdict "$args" Write "$p")
+      [ "$got" = "$want" ] && ok "pass J: hook [$args] $p is $want" || fail "pass J: hook [$args] $p expected $want, got $got"
+    done
+    got=$(hook_verdict lefthook MultiEdit "/work/unrelated/lefthook.yml")
+    [ "$got" = deny ] && ok "pass J: the hook judges MultiEdit" || fail "pass J: the hook let a MultiEdit of an outside lefthook.yml through"
+    got=$(printf '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/work/unrelated/lefthook.yml"},"cwd":"%s"}' "$GWT" | "$MISE_GUARD" "$GWT" lefthook)
+    case $got in
+      *'"permissionDecision":"deny"'*) ok "pass J: the hook judges a NotebookEdit path" ;;
+      *) fail "pass J: the hook let a NotebookEdit of an outside lefthook.yml through" ;;
+    esac
+    got=$(printf '{"tool_name":"Write","tool_input":{"file_path":"/work/a\\u0001/../zz/lefthook.yml"},"cwd":"%s"}' "$GWT" | "$MISE_GUARD" "$GWT" lefthook)
+    case $got in
+      *'"permissionDecision":"deny"'*) ok "pass J: a payload separator inside the path is refused" ;;
+      *) fail "pass J: a payload separator inside the path blinded the hook" ;;
+    esac
+  else
+    fail "pass J: the hook script is not executable"
+  fi
 else
   fail "pass J: the generated rules did not load into the model"
 fi
