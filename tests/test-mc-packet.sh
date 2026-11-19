@@ -85,7 +85,7 @@ if [ "$(section_first)" = "$want" ]; then ok "each gap names its step or head"; 
 # session events contradict reads as its detail, in mc-readiness.sh's words.
 printf '# format: 1\ncadence\taudited\t%s\ncadence\tgap\tconvergence\tunaudited\tpolish\ncadence\tgap\tpost-pr\tfault\t000003:post-pr:001 cubic-pr: start 2026-11-04T10:04:58Z is off\n' "$head" >"$tmp/truthkinds"
 packet "$tmp/truthkinds" ready-flip --level expert
-want="Cadence: covered none; gap convergence (polish fails the step-record truth check); post-pr (000003:post-pr:001 cubic-pr: start 2026-11-04T10:04:58Z is off)"
+want="Cadence: covered none; gap convergence (polish fails the step-record truth check (if only its start or end is wrong, step-record.sh supersede corrects it)); post-pr (000003:post-pr:001 cubic-pr: start 2026-11-04T10:04:58Z is off)"
 if [ "$(section_first)" = "$want" ]; then ok "an unaudited gap names the truth check and a fault gap reads as its detail"; else fail "the unaudited and fault gaps read '$(section_first)'"; fi
 packet "$tmp/clean" ready-flip --level expert
 if [ "$(section_first)" = "Cadence: all covered (pre-ci)" ]; then ok "only the points the audit names are covered"; else fail "a clean audit reads '$(section_first)'"; fi
@@ -161,6 +161,21 @@ for rd in readiness notready; do
   done
   case $base in *"$(cat "$tmp/$rd")"*) ok "REQ-F1.15: $rd: the gate result is identical at every level" ;; *) fail "REQ-F1.15: $rd: the walk is not carried whole" ;; esac
 done
+
+# The flip verdict (a draft whose only gap is the bot review its flip fires)
+# is a walk result a packet carries, whole.
+printf 'flip-for-review\t%s\npending\tpost-pr\tno completion record\n' "$head" >"$tmp/flipreview"
+printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tincomplete\t-\n' "$head" "$head" >"$tmp/flipgap"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
+  --evidence "$tmp/flipgap" --moment ready-flip --level guided
+expect_rc "a flip-for-review readiness result assembles" 0
+expect_out "and the packet carries its first line" "flip-for-review${tab}$head"
+expect_out "and its pending row" "pending${tab}post-pr${tab}no completion record"
+expect_out "the cadence line holds the post-pr gap as pending the flip" "Cadence: covered pre-pr; pending the flip: post-pr (no completion record)"
+expect_no_out "and gives no close-the-gap advice for it" "Recommend:"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
+  --evidence "$tmp/flipgap" --moment ready-flip --level standard
+expect_out "a not-ready walk still names the post-pr gap as a gap" "Cadence: covered pre-pr; gap post-pr (no completion record)"
 
 # Without a moment the packet is unchanged: the walk is the first line.
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/readiness"

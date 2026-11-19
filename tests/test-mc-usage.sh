@@ -38,6 +38,7 @@ cleanup() {
     env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
       stop "$(basename "$d")" --grace 1 >/dev/null 2>&1 || :
   done
+  [ -z "${tether_owner:-}" ] || kill "$tether_owner" 2>/dev/null || :
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -52,7 +53,10 @@ export PLANWRIGHT_USAGE_MIRROR="$mirror"
 
 # The launcher needs the shipped defaults and profiles; the shim stands in
 # for claude. A resumed session stays up reading its stdin, so a handover
-# steered into it is recorded.
+# steered into it is recorded. Its supervisor holds that stdin open for as
+# long as the shim runs, so the shim ends itself once SHIM_OWNER (this suite)
+# is gone: a suite killed before its cleanup would otherwise leave the pair
+# running for good.
 reset_mc_fixture
 write_mc_posture_pass
 cp "$repo_root/config/defaults.yml" "$core/config/defaults.yml"
@@ -66,6 +70,13 @@ printf '%s\n' "$*" >>"$SHIM_DIR/argv"
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"0b6f0c1e-1111-4222-8333-444455556666"}'
 case " $* " in
   *" --resume "*)
+    (
+      while kill -0 "$SHIM_OWNER"; do
+        kill -0 "$$" || exit 0
+        sleep 1
+      done
+      kill "$$"
+    ) >/dev/null 2>&1 </dev/null &
     while IFS= read -r line; do printf '%s\n' "$line" >>"$SHIM_DIR/resumed-stdin"; done
     ;;
   *)
@@ -76,7 +87,7 @@ esac
 exit 0
 SHIM
 chmod +x "$tmp/bin/claude"
-export PATH="$tmp/bin:$PATH" SHIM_DIR="$tmp/shim"
+export PATH="$tmp/bin:$PATH" SHIM_DIR="$tmp/shim" SHIM_OWNER=$$
 write_tracked() { # write_tracked [<extra line>]
   cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
@@ -452,6 +463,33 @@ grep -q '^mission_control_default_duties:.*usage-window' "$repo_root/config/defa
   || fail "usage-window is not in the default duties"
 grep -q '^mission_control_usage_hold: 90$' "$repo_root/config/defaults.yml" \
   || fail "the shipped hold threshold is not 90"
+
+# ---------------------------------------------------------------------------
+# A resumed shim ends with the process that owns it, so a suite killed before
+# its cleanup runs leaves no supervisor behind.
+# ---------------------------------------------------------------------------
+sleep 600 &
+tether_owner=$!
+SHIM_OWNER=$tether_owner mc_run fleet-streamjson.sh launch mc-alpha-tether-one tether \
+  --prompt-file "$tmp/brief.md" --profile tower -- --resume 0b6f0c1e-1111-4222-8333-444455556666
+expect_rc "a resumed shim launches" 0
+tdir="$fleet/streamjson/mc-alpha-tether-one"
+tsup=$(head -n 1 "$tdir/supervisor.pid" 2>/dev/null)
+kill "$tether_owner" 2>/dev/null || :
+wait "$tether_owner" 2>/dev/null
+tether_owner=''
+pf_i=0
+while [ "$pf_i" -lt 100 ] && [ -n "$tsup" ] && kill -0 "$tsup" 2>/dev/null; do
+  sleep 0.1
+  pf_i=$((pf_i + 1))
+done
+if [ -z "$tsup" ]; then
+  fail "the tethered launch recorded no supervisor"
+elif kill -0 "$tsup" 2>/dev/null; then
+  fail "the supervisor of a resumed shim outlived the process that owns the shim"
+else
+  ok "a resumed shim and its supervisor end with the shim's owner"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

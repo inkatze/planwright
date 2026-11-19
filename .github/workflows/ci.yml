@@ -44,7 +44,8 @@ env:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-26.04 runs the suites about 1.6x slower; revisit when 24.04 nears end of life.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -196,7 +197,7 @@ jobs:
   # runner type, since the prediction divides by this machine's cores, and
   # needs no toolchain: the planner reads two files and runs nothing.
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # actions: read lets the reuse lookup list this workflow's runs, their
     # jobs and their artifacts.
@@ -316,7 +317,7 @@ jobs:
   evidence:
     needs: plan
     if: ${{ needs.plan.outputs.evidence != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - env:
@@ -339,7 +340,7 @@ jobs:
     name: test (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     needs: plan
     if: ${{ needs.plan.outputs.suite_run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -394,7 +395,7 @@ jobs:
   check:
     needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - id: gate
@@ -616,7 +617,7 @@ jobs:
     # The one job-level `if:` check:workflow-posture accepts here: the plan
     # job's verdict, false only on a ready flip reusing a prior run.
     if: ${{ needs.plan.outputs.suite_run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false

@@ -2446,6 +2446,93 @@ kill "$broken_live" 2>/dev/null
 wait "$broken_live" 2>/dev/null
 rm -f "$tmp"/busy.lock*
 
+# ---------------------------------------------------------------------------
+# 62. A signal inside a release's unlink leaves nothing behind
+# ---------------------------------------------------------------------------
+#
+# A release moves the link aside before it removes it. A second signal landing
+# in between (a group-wide HUP followed by the parent's TERM) runs the handler
+# inside that release: the lock path no longer holds the token, but the aside
+# still does, and a handler that forgot the hold and left would strand the
+# aside under a name that reads as a lock.
+
+# sig_in_unlink <handler> <lock>... — acquire every <lock> in order, then deliver
+# one TERM at the moment the release of the last one removes its displaced link,
+# under the given trap handler. Leaves sgfired.mark behind when the TERM went
+# out, so a helper whose shim stopped intercepting cannot pass by doing nothing.
+sig_in_unlink() {
+  sg_handler=$1
+  shift
+  sg_acquire=''
+  for sg_last; do
+    sg_acquire="$sg_acquire pw_lock_acquire ./$sg_last >/dev/null || exit 9;"
+  done
+  run_sh x 'cd "$1" || exit 9
+    '"$sg_handler"'
+    '"$sg_acquire"'
+    fired=""
+    rm() {
+      case $* in *"#taken#"*)
+        if [ -z "$fired" ]; then fired=1; : >./sgfired.mark; kill -s TERM $$; fi ;;
+      esac
+      command rm "$@"
+    }
+    pw_lock_release ./'"$sg_last"'
+    printf "survived\n"' 2>/dev/null
+}
+# sg_left <glob> — how many names under $tmp match the glob.
+sg_left() {
+  find "$tmp" -maxdepth 1 -name "$1" | wc -l | tr -d ' '
+}
+sg_fired() {
+  if [ -e "$tmp/sgfired.mark" ]; then echo yes; else echo no; fi
+}
+sig_in_unlink 'pw_lock_trap_install' sg.lock >/dev/null
+assert_eq "the TERM went out inside the unlink" "yes" "$(sg_fired)"
+assert_eq "a TERM inside the unlink leaves no lock name behind" "0" "$(sg_left 'sg.lock*')"
+rm -rf "$tmp"/sg.lock* "$tmp"/sgfired.mark
+# The handler a holder writes for itself (release, then leave) is the same case.
+sig_in_unlink "trap 'pw_lock_release_all; exit 143' TERM" sg2.lock >/dev/null
+assert_eq "the TERM went out under a handler of the holder's own" "yes" "$(sg_fired)"
+assert_eq "and so does a handler that calls pw_lock_release_all itself" "0" "$(sg_left 'sg2.lock*')"
+rm -rf "$tmp"/sg2.lock* "$tmp"/sgfired.mark
+# A holder of several locks releases an older one first, and that release moves
+# its own link aside, so the interrupted lock's aside is not the latest one.
+sig_in_unlink 'pw_lock_trap_install' sgm1.lock sgm2.lock >/dev/null
+assert_eq "the TERM went out in the second of two releases" "yes" "$(sg_fired)"
+assert_eq "a holder of two locks, interrupted in the second release, strands neither" \
+  "0" "$(sg_left 'sgm*.lock*')"
+rm -rf "$tmp"/sgm*.lock* "$tmp"/sgfired.mark
+# What the handler must not do is take a stranger's link with it: a lock that
+# changed hands while this shell's release was in flight stays with its holder,
+# and a link recorded under the taken name that now carries another token is
+# not this hold's to remove.
+out="$(run_sh x 'cd "$1" || exit 9
+  pw_lock_acquire ./sg3.lock >/dev/null || exit 9
+  rm -f ./sg3.lock
+  ln -s "999999-1-1-999999-1" ./sg3.lock
+  ln -s "888888-1-1-888888-1" "./sg3.lock#taken#888888-1"
+  _pw_lock_aside_note "$PW_LOCK_TOKEN" "./sg3.lock#taken#888888-1"
+  pw_lock_release_all
+  printf "%s %s\n" "$(readlink ./sg3.lock)" "$(readlink "./sg3.lock#taken#888888-1")"')"
+assert_eq "a hold broken underneath its holder leaves the new holder's lock alone" \
+  "999999-1-1-999999-1 888888-1-1-888888-1" "$out"
+rm -rf "$tmp"/sg3.lock*
+# The list of asides a shell still owes is bounded: ordinary releases and the
+# break of a dead owner's lock both leave it empty, however often they repeat.
+sg_dead=$(dead_owner_pid) || fail "no PID is free to stand for a dead owner"
+ln -s "$sg_dead-0-1" "$tmp/sg4.lock"
+out="$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./sg4.lock || exit 9
+  pw_lock_release ./sg4.lock
+  for i in 1 2 3; do
+    pw_lock_acquire ./sg4.lock >/dev/null || exit 9
+    pw_lock_release ./sg4.lock
+  done
+  printf "[%s]\n" "$PW_LOCK_ASIDES"')"
+assert_eq "a break and repeated releases leave no aside on the owed list" "[]" "$out"
+rm -rf "$tmp"/sg4.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

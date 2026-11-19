@@ -1,7 +1,7 @@
 # Control plane — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-16
+**Last reviewed:** 2026-11-18
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -151,7 +151,9 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   other valid entries and the lower layers stay in force; a failure in a
   value that bounds a class (its scope, floor or limit) SHALL make the class
   defer everything until fixed (a malformed floor makes floor acts defer and
-  fails the check loudly).
+  fails the check loudly). Every dropped entry SHALL be counted and reported at
+  each wake, naming its file and entry, for as long as it stays dropped, and
+  SHALL be readable through `explain`.
   *(Cites: D-3, D-4; REQ-A1.3.)*
 - **REQ-B1.4** The approval floor SHALL ship as data that no overlay layer can
   remove or loosen: a layer may only narrow it. A layer entry that tries to
@@ -546,8 +548,10 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   everything (the approval engine answers nothing, floor acts included, which
   raise the event as today; the dedupe gate delivers everything; the dispatcher
   leaves admission to today's host admission check), restoring today's
-  behavior, and every verb SHALL read it first. A kill switch left on SHALL be
-  reported at each wake.
+  behavior, and every verb SHALL read it first. The setting SHALL be read from
+  the shipped and adopter layers only, never from a machine-local file a
+  session could write; a machine-local value SHALL be ignored and reported. A
+  kill switch left on SHALL be reported at each wake.
   *(Cites: D-14.)*
 - **REQ-I1.3** The engine and gate contracts SHALL be language-neutral: a verb,
   a structured stdin record, a structured stdout verdict and exit codes, with
@@ -559,6 +563,15 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   exempt free-text field), and no secret, credential, message body or other
   work content, and a check SHALL scan them for token-shaped values.
   *(Cites: D-4; REQ-C1.8.)*
+- **REQ-I1.5** Every writer of the decision log and the drop ledger SHALL
+  append one complete record as a single line while holding a file lock, so
+  concurrent watchers never interleave or lose a record. A reader SHALL skip a
+  torn final line without failing, and the next write SHALL repair it by
+  starting on a fresh line. A crash mid-write loses at most the record being
+  written, never an earlier one. The lock wait SHALL be bounded; on a timeout
+  or a failed write the verdict and the event delivery SHALL proceed unchanged
+  and the lost record SHALL be counted and reported.
+  *(Cites: D-4; REQ-C1.8, REQ-D1.4.)*
 
 ## Changelog
 
@@ -578,6 +591,11 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   Amendment 19's spec roots (REQ-F1.7 to REQ-F1.9, D-20) into the queue, and
   Amendment 18's panel gaps (REQ-H1.6 to REQ-H1.9, D-21) into the last slice;
   both mission-control drafts are marked superseded at sign-off.
+- 2026-11-18 — Amendment 1 (see the brief's amendment log). Settled by the
+  operator: the kill switch is read from the shipped and adopter layers only
+  (REQ-I1.2, D-14); a dropped policy entry is counted and reported at each
+  wake (REQ-B1.3, D-3); the decision log and drop ledger take locked one-line
+  appends with torn-line repair (REQ-I1.5).
 
 ## Sources
 
