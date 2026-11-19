@@ -632,6 +632,23 @@ nothing else:
 
 No force, reset or rebase is admitted by either act.
 
+A kickoff session needs no record for the second act: its launch scope
+(`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change
+for the hook) names its spec branches. `kickoff-<spec>` names
+`planwright/<spec>/spec`, `planwright/<spec>/spec-rework` and
+`planwright/<spec>/amendment-<n>`; an amendment kickoff's
+`kickoff-<spec>-a<n>` names `planwright/<spec>/amendment-<n>` alone, and is
+refused when another spec's kickoff could share that scope, as for its push.
+Checked out in the session's own linked worktree, such a branch takes the same
+base merge under the same rules. `planwright/<spec>/spec` sits in the
+protected floor, which governs pushes and is reached only through the kickoff
+push helper, so its kickoff's local merge there skips the floor; every other
+branch still reads the protected set. Whichever names the branch, the merge
+must be plain: an option outside the message, output, signing, hook and
+fast-forward ones (a squash, a strategy or strategy option, unrelated
+histories, `--no-commit`, `--autostash`), an abbreviated option or an expanded
+one refuses.
+
 ## Changing any of this
 
 1. Change the deny list and the fixture table in the same commit. The test's
