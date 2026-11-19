@@ -427,7 +427,22 @@ keeper_as alpha 5080
 expect_out "another program's keeper raises it" "announced${tab}stream-json-worker-unowned${tab}og-hub"
 mc_run mc-event.sh list --program alpha
 expect_out "under that keeper's program, saying why" "stream-json-worker-unowned${tab}og-hub${tab}stream-json worker og-hub has request aaaa1111-bbbb-cccc-dddd-eeee00000001 waiting but the mission control of its program hub is gone"
-rm -rf "$fleet/streamjson/rl-many" "$fleet/streamjson/og-beta" "$fleet/streamjson/og-alpha" "$fleet/streamjson/og-hub" "$fleet/dispatch-markers"
+# A request that has just arrived, inside the pending bound, on a worker whose
+# mission control is dead is raised too, not only an overdue one.
+mc_row beta dead
+pp_req og-fresh mission-control:beta
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000005\tpermission\t5085\tpending\n' >"$fleet/streamjson/og-fresh/journal"
+keeper_as alpha 5090
+expect_out "a fresh request on a worker whose mission control is dead is raised" "announced${tab}stream-json-worker-unowned${tab}og-fresh"
+# A mission control whose liveness cannot be told counts as live, so its
+# workers' requests are left to it rather than raised to the hub.
+mc_row beta live
+rm -rf "$fleet/streamjson/mc-beta-mission-control-00000000aa"
+pp_req og-unknown mission-control:beta
+keeper_as alpha 5100
+expect_no_out "a mission control with no liveness evidence is not taken for gone" "og-unknown"
+mc_row beta live
+rm -rf "$fleet/streamjson/rl-many" "$fleet/streamjson/og-beta" "$fleet/streamjson/og-alpha" "$fleet/streamjson/og-hub" "$fleet/streamjson/og-fresh" "$fleet/streamjson/og-unknown" "$fleet/dispatch-markers"
 cp "$tmp/tracked.keep" "$tracked"
 rm -rf "$fleet/streamjson/rl-hubbed" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned"
