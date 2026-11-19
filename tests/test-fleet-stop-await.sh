@@ -40,6 +40,8 @@ me=test-fleet-stop-await
 script_dir=$REPO_ROOT/scripts
 # shellcheck source=scripts/fleet-stop-lib.sh
 . "$REPO_ROOT/scripts/fleet-stop-lib.sh"
+# The rungs run with globbing off.
+set -f
 
 now_s() { date +%s; }
 
@@ -74,26 +76,27 @@ wait "$delayed"
 # delay, and a table read that finds nothing new, leave the process stopped
 # on return only if the freeze waited before it went on.
 kill -CONT "$victim"
-kill() {
-  if [ "${1:-}" = -STOP ]; then
-    (
-      sleep 1
+(
+  kill() {
+    if [ "${1:-}" = -STOP ]; then
+      (
+        sleep 1
+        command kill "$@"
+      ) 2>>"$T/noise" &
+    else
       command kill "$@"
-    ) 2>>"$T/noise" &
-  else
-    command kill "$@"
-  fi
-}
-stop_candidates() { :; }
-stop_tracked=$victim
-stop_freeze dir match files
+    fi
+  }
+  stop_candidates() { :; }
+  stop_tracked=$victim
+  stop_freeze dir match files
+)
 state=$(stop_state "$victim")
 if [ "$state" = T ]; then
   pass "stop_freeze returns with a member whose stop was slow to land stopped"
 else
   fail "stop_freeze returned with the process in state '$state'"
 fi
-unset -f kill stop_candidates
 
 # A member that never stops is waited for only to the bound, then skipped for
 # the rest of the freeze.

@@ -70,7 +70,7 @@ grace_default=5
 # will not settle anyway.
 freeze_rounds_max=20
 
-# The longest a freeze waits, per process, for a signalled one to actually
+# The longest each freeze round waits for its signalled processes to actually
 # stop.
 freeze_settle=5
 
@@ -579,13 +579,15 @@ stop_state() {
 # has run to the point of stopping, and a loaded host can leave a runnable
 # target going for a good while: a re-read of the table then races a process
 # that can still fork. A member that is gone, a zombie, or whose state cannot
-# be read counts as settled. One that does not stop within `freeze_settle`
-# seconds (blocked in the kernel, say) is added to `sf_skip`, so the rest of
-# the freeze does not wait on it again, and the freeze goes on without it.
+# be read counts as settled, so a host where no state can be read gets no wait
+# at all. The whole wait is bounded by `freeze_settle` seconds, and a member
+# still running at the bound (blocked in the kernel, say) is added to
+# `sf_skip`, which `stop_freeze` owns, so the rest of the freeze does not wait
+# on it again, and the freeze goes on without it.
 stop_await_stopped() {
+  saw_until=''
   for saw_p in $stop_tracked; do
     case $sf_skip in *" $saw_p "*) continue ;; esac
-    saw_until=''
     while :; do
       saw_s=$(stop_state "$saw_p")
       case $saw_s in T | t | Z | X | '') break ;; esac
