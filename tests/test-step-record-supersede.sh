@@ -329,7 +329,7 @@ call 2026-11-04T10:05:11 Skill planwright:polish
 wt=$wtb
 r=$(sr new-run)
 rec "$r" convergence polish /polish passed 2026-11-04T10:00:08Z 2026-11-04T10:00:47Z
-sup --record "$r:convergence:001" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:05:11Z
+sup --record "$r:convergence:001" --end 2026-11-04T10:05:11Z --source event:2026-11-04T10:05:11Z
 [ "$RC" -eq 2 ] && grep -q "no event of the session's log is stamped" "$tmp/sup"
 verdict $? "an event only a session that never names B holds is refused as a source" "rc $RC: $(cat "$tmp/sup")"
 sup --record "$r:convergence:001" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z

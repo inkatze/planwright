@@ -107,7 +107,7 @@ events_rows() {
 }
 
 : >"$work/events.tsv"
-have_events=0 why='the session events are not reachable' have_first=0
+have_events=0 why='the session events are not reachable' have_own=0
 find_own_events >"$work/files"
 find_named_events >"$work/named"
 if [ -s "$work/files" ] || [ -s "$work/named" ]; then
@@ -131,25 +131,28 @@ if [ -s "$work/files" ] || [ -s "$work/named" ]; then
       why='the session events cannot be parsed'
     elif [ -s "$work/events.tsv" ]; then
       have_events=1
-    else
+    elif [ -s "$work/files" ]; then
       why='the session events carry no timestamps'
+    else
+      why='no session that names the worktree holds a Skill or Agent call'
     fi
   fi
 fi
-# The fix-round floor rests on the worktree's own sessions alone.
-why_first=$why
+# The fix-round floor, and the proof that a call is absent, rest on the
+# worktree's own sessions alone.
+why_own=$why
 if [ "$have_events" -eq 1 ]; then
   if grep -q '^first' "$work/events.tsv"; then
-    have_first=1
+    have_own=1
   elif [ -s "$work/files" ]; then
-    why_first='the session events carry no timestamps'
+    why_own='the session events carry no timestamps'
   else
-    why_first='no session was launched in the worktree, so no floor can be set and no call shown absent'
+    why_own='no session was launched in the worktree, so no floor can be set and no call shown absent'
   fi
 fi
 
 hint='; a misdated start is corrected, not re-recorded, with step-record.sh supersede (cite the session event)'
-awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v HAVEF="$have_first" -v WHY="$why" -v WHYF="$why_first" -v HINT="$hint" '
+awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v HAVEOWN="$have_own" -v WHY="$why" -v WHYOWN="$why_own" -v HINT="$hint" '
   function days(y, m, d,   era, yoe, doy, doe) {
     if (m <= 2) y--
     era = int(y / 400); yoe = y - era * 400
@@ -169,7 +172,7 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v HAVEF="$have_first" -v WHY
     return t
   }
   function fault(msg) { print "fault\t" id "\t" F["step"] "\t" msg; bad = 1 }
-  function unverified() { print "unverified\t" id "\t" F["step"] "\t" WHY }
+  function unverified(why) { print "unverified\t" id "\t" F["step"] "\t" why }
   function judge(   sk, o, near, d, best, i, got, span, s, e, floor) {
     o = F["outcome"]
     sk = F["kind"] == "skill" ? skill_name(F["target"]) : ""
@@ -181,8 +184,8 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v HAVEF="$have_first" -v WHY
     need2 = need1 && (sk == "polish" || sk == "self-review") && (o == "passed" || o == "applied")
     need5 = F["step"] ~ /^fix-round/
     if (!(need1 || need5)) return
-    if (!HAVE) { unverified(); return }
-    if (need5 && !HAVEF) { print "unverified\t" id "\t" F["step"] "\t" WHYF; return }
+    if (!HAVE) { unverified(WHY); return }
+    if (need5 && !HAVEOWN) { unverified(WHYOWN); return }
     if (need1) {
       best = -1; got = 0; split("", from)
       for (i = 1; i <= nsk[sk]; i++) {
@@ -192,7 +195,7 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v HAVEF="$have_first" -v WHY
       }
       # With no session launched in the worktree, sessions that merely name it
       # cannot prove a call absent.
-      if (!got && !HAVEF) { print "unverified\t" id "\t" F["step"] "\t" WHYF; return }
+      if (!got && !HAVEOWN) { unverified(WHYOWN); return }
       if (!got) fault("start " s " is not the second of the " sk " Skill call; the session events show " (nsk[sk] ? "its nearest call at " near : "no such call") HINT)
     }
     if (need2) {

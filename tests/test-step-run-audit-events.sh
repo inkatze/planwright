@@ -457,11 +457,8 @@ verdict $? "another named session's Agent call does not stand in for the reviewe
 # The same Agent call inside the reviewer's own session satisfies it.
 sdir=$reviewer_dir
 call 2026-11-04T10:30:20 Agent
-r=$(sr new-run)
-srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
-done_at "$r" convergence
 audit --through convergence
-[ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit"
+[ "$RC" -eq 0 ] && ! grep -q -e "^gap" -e "^note" "$tmp/audit"
 verdict $? "the Agent call inside the reviewer's own session satisfies the span" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
 # A named session never sets the fix-round floor: with no session launched in
@@ -517,11 +514,8 @@ verdict $? "a named session's Agent call does not vouch for a Skill call of B's 
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 sdir="$tmp/fleet/streamjson/s$((n - 1))"
 call 2026-11-04T10:30:25 Agent
-r=$(sr new-run)
-srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
-done_at "$r" convergence
 audit --through convergence
-[ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit"
+[ "$RC" -eq 0 ] && ! grep -q -e "^gap" -e "^note" "$tmp/audit"
 verdict $? "while an Agent call of B's own session does" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
 # A named session's Skill call with an Agent call in B's own session passes.
@@ -553,6 +547,7 @@ wt=$wta
 n=$((n + 1))
 session 2026-11-04T09:00:00
 names_b "step-record.sh --worktree $wtb list"
+call 2026-11-04T09:00:05 Skill planwright:mission-control
 wt=$wtb
 r=$(sr new-run)
 prec "$r" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T09:30:07Z 2026-11-04T09:45:19Z
@@ -564,6 +559,10 @@ verdict $? "an earlier named session does not lower the fix-round floor" "rc $RC
 # Each way a path ends in an event names it. B has no session of its own, so a
 # session not found leaves the step unverified: a note counts as a miss.
 two_worktrees
+wt=$wtb
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
+done_at "$r" convergence
 for term in quote slash newline apostrophe semicolon paren; do
   wt=$wta
   session 2026-11-04T10:20:00
@@ -578,9 +577,6 @@ for term in quote slash newline apostrophe semicolon paren; do
   call 2026-11-04T10:30:11 Skill planwright:polish
   call 2026-11-04T10:30:20 Agent
   wt=$wtb
-  r=$(sr new-run)
-  srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
-  done_at "$r" convergence
   audit --through convergence
   [ "$RC" -eq 0 ] && ! grep -q -e "^gap" -e "^note" "$tmp/audit"
   verdict $? "a session naming B ending in a $term counts for B's records" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
