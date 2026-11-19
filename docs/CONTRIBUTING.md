@@ -225,7 +225,10 @@ it runs once per pull request, on the run the ready flip fires
 (`ready_for_review`), and never on `opened`, `synchronize` or `reopened`;
 `scripts/check-workflow-posture.sh` refuses a trigger set that drifts. A draft
 never runs it (the job skips a draft), so open pull requests as drafts: the
-readiness check never asks for a run before the flip, and a check created at
+readiness check never asks for a run before the flip (a draft whose only gap
+is the `post-pr` point, which waits on that run, gets the
+`flip-for-review <head>` verdict, telling the caller to flip; any other gap
+keeps it not-ready), and a check created at
 or after the flip is a run the flip started, the flip's to finish, while one
 created before it and still running means the flip came too early. After the
 flip, wait for the runs it started, PR-Agent included, then settle its
@@ -236,8 +239,10 @@ That is the explicit trigger: the same pull-request event, so the
 same-repository, dependabot and `skip-pr-agent` label conditions apply
 unchanged. A pull request opened ready has no flip, so it needs that request
 for its one run. A ready pull request is merge-ready only with a PR-Agent run
-on its final head that passed (or was skipped by the `skip-pr-agent` label or a
-dependabot head) and its findings answered.
+on its final head, created at or after the flip where there is one, that passed (or was skipped by
+the `skip-pr-agent` label or a dependabot head) and its findings answered; a
+run that predates the flip is not the flip's, and a ready pull request whose
+flip-fired run is still running is never merge-ready.
 
 ### Opt-in suites, outside the gate
 
