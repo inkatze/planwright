@@ -142,6 +142,9 @@ cleanup() {
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+# The liveness oracle (fleet-liveness.sh) would ask the installed CLI for the
+# operator's own sessions; it stays absent here, as on a host without one.
+export PLANWRIGHT_ORACLE_CLAUDE="$tmp/no-claude"
 tab=$(printf '\t')
 
 # A fleet home per case, so one case's records never leak into another's.

@@ -52,9 +52,12 @@
 #
 # A separate consistency check, not a posture assertion: a workflow running the
 # PR-Agent image must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or the dotted
-# spelling) to the same set as its first flow-style `types: [..]` list,
-# because the action's default list omits `synchronize` and it silently skips
-# any action its list leaves out.
+# spelling) to the same set as its first flow-style `types: [..]` list, since
+# the action silently skips any action its list leaves out. The types list
+# must carry ready_for_review (the run the ready flip fires) and nothing but
+# that and review_requested: the bot review runs once per pull request, not on
+# every push or edit, and a fix round after the flip asks for one more through
+# review_requested.
 #
 # Cache and artifact posture beyond assertion 4 carries no standing check: an
 # accepted residual recorded in D-6, covered by the REQ-C1.1 audit only.
@@ -1099,8 +1102,17 @@ for ((i = 0; i < nfiles; i++)); do
   if [ -z "$trig" ]; then
     fail "$file: a PR-Agent workflow needs a flow-style pull_request 'types: [..]' list the guard can read"
   elif [ -z "$acts" ]; then
-    fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or GITHUB_ACTION_CONFIG.PR_ACTIONS) as a JSON list; the default omits synchronize, so pushes after the PR opens are skipped"
+    fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or GITHUB_ACTION_CONFIG.PR_ACTIONS) as a JSON list naming the trigger types, because the action skips any action its list leaves out and its default list differs"
   else
+    # The bot review is paid for per run: it runs once per pull request, on the
+    # run the ready flip fires, and again only when asked for.
+    while IFS= read -r a; do
+      case $a in
+        ready_for_review | review_requested) ;;
+        *) fail "$file: a PR-Agent workflow must not trigger on '$a': it runs once per pull request, on ready_for_review, and again only on an explicit review_requested" ;;
+      esac
+    done <<<"$trig"
+    printf '%s\n' "$trig" | grep -qx -- ready_for_review || fail "$file: a PR-Agent workflow must trigger on ready_for_review, the one run the ready flip starts"
     while IFS= read -r a; do
       printf '%s\n' "$acts" | grep -qx -- "$a" || fail "$file: PR_ACTIONS omits '$a', which the workflow triggers on, so PR-Agent skips it"
     done <<<"$trig"

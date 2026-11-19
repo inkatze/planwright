@@ -880,6 +880,14 @@ keeper sees it first, as a `stream-json-worker-unowned` event under the hub
 program (`mission_control_escalation_hub`), so the stuck prompt still reaches
 a mission control; with no hub program configured the event stays with the
 program whose keeper found it, and its text says so.
+The same watch lists every stream-json supervisor or `claude -p` worker of
+the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
+a supervisor whose state directory is gone or records another supervisor,
+or whose working directory is gone, as a test suite killed before its
+cleanup leaves one, and a worker with no supervisor. One listed for a
+minute is raised once for the machine as a
+`stream-json-worker-orphaned` event, routed as the unowned one is. Nothing
+signals it: the event says how to check it and stop it by hand.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends
 non-zero is named on stderr and wakes it once as a `keeper-sweep-failed` event;
