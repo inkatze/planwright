@@ -8,8 +8,11 @@
 #              --run restricts the runs.
 #
 # A record is hand-written by the session it describes, so its claims are held
-# against that session's stream-json events.jsonl (the one whose `cwd` is the
-# worktree). Faults name the record, the expected value and the observed one:
+# against that session's stream-json events.jsonl: a session whose `cwd` is the
+# worktree, or whose events name the worktree's path (a session launched in
+# another directory that reviews this branch writes records here too; its
+# calls vouch for Skill starts and Agent spans, never for the fix-round floor).
+# Faults name the record, the expected value and the observed one:
 #   - an in-session skill step starts on the second of its Skill tool call;
 #   - a polish or self-review recorded passed or applied has an Agent tool
 #     call inside its span;
@@ -67,36 +70,70 @@ find_events() {
   done
 }
 
+# find_named_events: print the events file of every other stream-json session
+# whose events name this worktree's path, one a line, or nothing. A record is
+# attributed by the worktree it is written into, so a session launched
+# elsewhere that reviews this worktree's branch holds the Skill and Agent
+# calls its records claim. The path must end where a path ends (a separator,
+# a quote, a space or an escape), so a longer path that begins with it is not
+# this worktree.
+find_named_events() {
+  root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
+  for d in "$root"/streamjson/*/; do
+    [ -f "${d}events.jsonl" ] && [ ! -L "${d}events.jsonl" ] || continue
+    grep -Fq -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -- "${d}events.jsonl" || continue
+    c=''
+    if [ -f "${d}cwd" ]; then read -r c <"${d}cwd" || [ -n "$c" ] || c=''; fi
+    [ "$c" = "$worktree" ] || printf '%s\n' "${d}events.jsonl"
+  done
+}
+
+# events_rows <firsts: true|false> <file>...: the rows of the sessions' events.
+# Line by line, so a live session's half-written last line drops only itself;
+# a tool input is written by the session under audit, so it loses its tabs and
+# line breaks before it can shape a row. The `first` rows (when a session
+# opened and closed) come from the worktree's own sessions only: the fix-round
+# floor rests on them.
+events_rows() {
+  _firsts=$1
+  shift
+  # shellcheck disable=SC2016 # a jq program
+  jq -R -r --argjson firsts "$_firsts" 'input_filename as $f | (fromjson? // empty) | objects
+    | select((.timestamp | type) == "string"
+        and (.timestamp | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$")))
+    | (.timestamp[0:19] + "Z") as $t
+    | (if $firsts then "first\t" + $t + "\t" + $f else empty end),
+      ((.message.content? // [])[]? | select(type == "object" and .type == "tool_use")
+        | select(.name == "Skill" or .name == "Agent" or .name == "Task")
+        | "call\t" + $t + "\t" + .name + "\t"
+          + ((.input.skill? // "") | tostring | gsub("[\t\n\r]"; " ")))' "$@"
+}
+
 : >"$work/events.tsv"
 have_events=0 why='the session events are not reachable'
 find_events >"$work/files"
-if [ -s "$work/files" ]; then
+find_named_events >"$work/named"
+if [ -s "$work/files" ] || [ -s "$work/named" ]; then
   if [ -z "$(command -v jq)" ]; then
     why='jq is not installed, so the session events cannot be read'
   else
-    set --
-    while IFS= read -r f; do set -- "$@" "$f"; done <"$work/files"
-    # Line by line, so a live session's half-written last line drops only
-    # itself; a tool input is written by the session under audit, so it loses
-    # its tabs and line breaks before it can shape a row.
-    # shellcheck disable=SC2016 # a jq program
-    if jq -R -r 'input_filename as $f | (fromjson? // empty) | objects
-      | select((.timestamp | type) == "string"
-          and (.timestamp | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$")))
-      | (.timestamp[0:19] + "Z") as $t
-      | ("first\t" + $t + "\t" + $f),
-        ((.message.content? // [])[]? | select(type == "object" and .type == "tool_use")
-          | select(.name == "Skill" or .name == "Agent" or .name == "Task")
-          | "call\t" + $t + "\t" + .name + "\t"
-            + ((.input.skill? // "") | tostring | gsub("[\t\n\r]"; " ")))' \
-      "$@" >"$work/events.tsv"; then
-      if grep -q '^first' "$work/events.tsv"; then
-        have_events=1
-      else
-        why='the session events carry no timestamps'
-      fi
-    else
+    ok=1
+    if [ -s "$work/files" ]; then
+      set --
+      while IFS= read -r f; do set -- "$@" "$f"; done <"$work/files"
+      events_rows true "$@" >>"$work/events.tsv" || ok=0
+    fi
+    if [ "$ok" -eq 1 ] && [ -s "$work/named" ]; then
+      set --
+      while IFS= read -r f; do set -- "$@" "$f"; done <"$work/named"
+      events_rows false "$@" >>"$work/events.tsv" || ok=0
+    fi
+    if [ "$ok" -eq 0 ]; then
       why='the session events cannot be parsed'
+    elif [ -s "$work/events.tsv" ]; then
+      have_events=1
+    else
+      why='the session events carry no timestamps'
     fi
   fi
 fi

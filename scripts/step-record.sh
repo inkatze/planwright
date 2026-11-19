@@ -102,8 +102,8 @@
 #                 top-level `timestamp` of the session's event log must hold,
 #                 or `event-line:<n>`, that log's line n, whose top-level
 #                 `timestamp` is the corrected stamp. The log is the
-#                 stream-json events.jsonl of the session whose cwd is the
-#                 worktree, read with jq as scripts/step-events-audit.sh reads
+#                 stream-json events.jsonl of a session whose cwd is the
+#                 worktree or whose events name its path, read with jq as scripts/step-events-audit.sh reads
 #                 it; a source that cannot be checked against one is refused.
 #                 Of several supersedes of one record the highest sequence
 #                 stands, each one starting from the stamps standing before
@@ -1409,15 +1409,19 @@ write_full_suite() {
 
 # --- supersede ------------------------------------------------------------------
 # event_files: the events.jsonl of every stream-json session whose cwd is this
-# worktree, one a line (scripts/step-events-audit.sh finds them the same way).
+# worktree or whose events name its path, one a line (scripts/step-events-audit.sh
+# finds them the same way).
 event_files() {
   _root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
   for _n in $(glob_names "$_root/streamjson" '*'); do
     _d="$_root/streamjson/$_n/"
-    [ -f "${_d}cwd" ] && [ -f "${_d}events.jsonl" ] && [ ! -L "${_d}events.jsonl" ] || continue
+    [ -f "${_d}events.jsonl" ] && [ ! -L "${_d}events.jsonl" ] || continue
     _c=''
-    read -r _c <"${_d}cwd" || [ -n "$_c" ] || continue
-    [ "$_c" = "$worktree" ] && printf '%s\n' "${_d}events.jsonl"
+    if [ -f "${_d}cwd" ]; then read -r _c <"${_d}cwd" || [ -n "$_c" ] || _c=''; fi
+    if [ "$_c" = "$worktree" ] \
+      || grep -Fq -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -- "${_d}events.jsonl"; then
+      printf '%s\n' "${_d}events.jsonl"
+    fi
   done
 }
 

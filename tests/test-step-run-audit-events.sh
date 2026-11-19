@@ -365,6 +365,67 @@ audit --through post-pr
 verdict $? "a superseded record in a run that decided another point is not judged" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
+# --- a run is attributed by the worktree it is recorded in, not the session's launch directory
+# One reviewer session launched in worktree A records a review run into
+# worktree B (the pull request's own worktree, where an earlier session of its
+# author ran). B's audit counts the run; A's, holding no such run, does not.
+fresh
+catalog "$POLISH"
+config 'steps_convergence: [polish]'
+wta=$wt
+wtb="$tmp/wtb$n"
+git -C "$wta" worktree add -q -b planwright/flight/review-b "$wtb" || fail "fixture: worktree B"
+git -C "$wtb" config user.name Fixture
+git -C "$wtb" config user.email fixture@example.invalid
+printf 'b\n' >>"$wtb/src/a.txt" && git -C "$wtb" add -A && git -C "$wtb" commit -q -m "fix: b work"
+# B's author session: launched in B, never saw the review.
+wt=$wtb
+session 2026-11-04T10:00:00
+call 2026-11-04T10:00:05 Skill planwright:execute-task
+# The reviewer session: launched in A, reviews B's branch.
+wt=$wta
+n=$((n + 1))
+session 2026-11-04T10:20:00
+printf '{"type":"assistant","timestamp":"2026-11-04T10:20:03.000Z","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"step-record.sh --worktree %s list"}}]}}\n' "$wtb" >>"$sdir/events.jsonl"
+call 2026-11-04T10:30:11 Skill planwright:polish
+call 2026-11-04T10:30:20 Agent
+reviewer_dir=$sdir
+wt=$wtb
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit" && grep -q "^audit${TAB}complete${TAB}" "$tmp/audit"
+verdict $? "a review run recorded in B by a session launched in A counts for B's audit" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+wt=$wta
+audit --through convergence
+[ "$RC" -eq 1 ] && grep -q "^gap${TAB}convergence${TAB}incomplete${TAB}" "$tmp/audit"
+verdict $? "and does not count for A's audit, which holds no such run" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+# The attribution does not loosen the timing: a start off every Skill call is still a fault.
+wt=$wtb
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:30:13Z 2026-11-04T10:30:47Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 1 ] && faulted convergence "start 2026-11-04T10:30:13Z .*polish Skill call"
+verdict $? "a start two seconds off the other session's Skill call is still a fault" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+# A session that never touched B cannot have written its records.
+printf '{"type":"user","timestamp":"2026-11-04T10:20:00.100Z","message":{"content":"go"}}\n' >"$reviewer_dir/events.jsonl"
+printf '{"type":"assistant","timestamp":"2026-11-04T10:30:11.700Z","message":{"content":[{"type":"tool_use","name":"Skill","input":{"skill":"polish"}}]}}\n' >>"$reviewer_dir/events.jsonl"
+printf '{"type":"assistant","timestamp":"2026-11-04T10:30:20.700Z","message":{"content":[{"type":"tool_use","name":"Agent","input":{}}]}}\n' >>"$reviewer_dir/events.jsonl"
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 1 ] && faulted convergence "no such call"
+verdict $? "a session whose events never name B is not counted toward B's records" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+# A session naming a longer path that merely starts with B's is not B's either.
+printf '{"type":"assistant","timestamp":"2026-11-04T10:20:03.000Z","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls %s0/src"}}]}}\n' "$wtb" >>"$reviewer_dir/events.jsonl"
+audit --through convergence
+[ "$RC" -eq 1 ] && faulted convergence "no such call"
+verdict $? "nor one naming only a longer path that begins with B's" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1
