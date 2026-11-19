@@ -2,13 +2,13 @@
 # worker-branch-sync.sh - a dispatched worker's routine sync of its own unit
 # branch: the three acts the worker profile's deny floor keeps from raw git.
 #
-# Usage, from the worker's own worktree, by the installed script's path:
-#   worker-branch-sync.sh push --force-with-lease=<branch>:<sha> --force-if-includes
-#   worker-branch-sync.sh reset origin/<branch>
+# Usage (from the worker's own worktree, by the installed script's path):
+#   worker-branch-sync.sh push --force-with-lease=<branch:sha> --force-if-includes
+#   worker-branch-sync.sh reset <origin/branch>
 #   worker-branch-sync.sh ff <sha>
 #
 # push publishes a rewrite of <branch>, leased on <sha> (the full id of the tip
-# the rewrite started from), only while the branch heads one open draft PR of
+# the rewrite started from; the lease is written <branch>:<sha>), only while the branch heads one open draft PR of
 # this repository; reset is git reset --hard to origin/<branch> as fetched; ff
 # is git merge --ff-only to a full commit id descending from HEAD.
 #
