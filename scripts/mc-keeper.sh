@@ -1162,6 +1162,7 @@ pending_arrivals() {
   pa_all=""
   pa_rc=0
   pa_live=""
+  pa_pend=""
   # The glob needs pathname expansion, which this script turns off (set -f).
   set +f
   for pa_j in "$pa_root"/streamjson/*/journal; do
@@ -1179,6 +1180,7 @@ pending_arrivals() {
     fi
     while IFS='	' read -r pa_id pa_recv; do
       [ -n "$pa_id" ] || continue
+      pa_pend="$pa_pend$pa_w	$pa_id$NL"
       mc_valid_uint "$pa_recv" || continue
       # An unowned worker's overdue request is pending_prompts' to raise,
       # since only its scan knows whether the worker is still alive.
@@ -1246,6 +1248,10 @@ EOF
     fi
   done
   mc_announce_prune "$pa_seen" "$pa_live" || pa_rc=1
+  # Any keeper may raise into this program's unowned set, so it keeps every
+  # request still pending fleet-wide; a request's claim, not this set, is what
+  # stops a second raise.
+  mc_announce_prune "$runtime/keeper-unowned" "$pa_pend" || pa_rc=1
   return "$pa_rc"
 }
 

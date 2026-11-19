@@ -391,6 +391,12 @@ if [ "$rl_many_claims" = 0 ]; then
 else
   fail "claims outlive their settled requests: $(ls "$fleet/streamjson/rl-many/")"
 fi
+keeper_as hub 5150
+if grep -q "^rl-many${tab}" "$fleet/mission-control/hub/keeper-unowned" 2>/dev/null; then
+  fail "the hub's unowned set keeps settled requests: $(cat "$fleet/mission-control/hub/keeper-unowned")"
+else
+  ok "and the program's unowned set drops them too, so it never outgrows what is pending"
+fi
 
 # A worker whose program has no live mission control (no launched row, or
 # every one positively dead) has each request raised to the hub as well, so
