@@ -103,8 +103,8 @@
 #                 or `event-line:<n>`, that log's line n, whose top-level
 #                 `timestamp` is the corrected stamp. The log is the
 #                 stream-json events.jsonl of a session whose cwd is the
-#                 worktree or whose events name its path, read with jq as scripts/step-events-audit.sh reads
-#                 it; a source that cannot be checked against one is refused.
+#                 worktree or whose events name its path, read with jq as
+#                 scripts/step-events-audit.sh reads it; a source that cannot be checked against one is refused.
 #                 Of several supersedes of one record the highest sequence
 #                 stands, each one starting from the stamps standing before
 #                 it; a supersede cannot target another supersede.
@@ -1408,20 +1408,29 @@ write_full_suite() {
 }
 
 # --- supersede ------------------------------------------------------------------
+# cwd_is_worktree <events file>: whether the session's cwd file names this worktree.
+cwd_is_worktree() {
+  _c=''
+  [ ! -f "${1%events.jsonl}cwd" ] || read -r _c <"${1%events.jsonl}cwd" || [ -n "$_c" ] || _c=''
+  [ "$_c" = "$worktree" ]
+}
+
 # event_files: the events.jsonl of every stream-json session whose cwd is this
-# worktree or whose events name its path, one a line (scripts/step-events-audit.sh
-# finds them the same way).
+# worktree, then of every other whose events name its path, one a line. The
+# patterns are scripts/step-events-audit.sh's (find_named_events); change both
+# together.
 event_files() {
   _root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
+  set --
   for _n in $(glob_names "$_root/streamjson" '*'); do
-    _d="$_root/streamjson/$_n/"
-    [ -f "${_d}events.jsonl" ] && [ ! -L "${_d}events.jsonl" ] || continue
-    _c=''
-    if [ -f "${_d}cwd" ]; then read -r _c <"${_d}cwd" || [ -n "$_c" ] || _c=''; fi
-    if [ "$_c" = "$worktree" ] \
-      || grep -Fq -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -- "${_d}events.jsonl"; then
-      printf '%s\n' "${_d}events.jsonl"
-    fi
+    _f="$_root/streamjson/$_n/events.jsonl"
+    [ -f "$_f" ] && [ ! -L "$_f" ] || continue
+    set -- "$@" "$_f"
+    ! cwd_is_worktree "$_f" || printf '%s\n' "$_f"
+  done
+  [ $# -gt 0 ] || return 0
+  grep -Fl -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -e "$worktree'" -e "$worktree;" -e "$worktree)" -- "$@" 2>/dev/null | while IFS= read -r _f; do
+    cwd_is_worktree "$_f" || printf '%s\n' "$_f"
   done
 }
 

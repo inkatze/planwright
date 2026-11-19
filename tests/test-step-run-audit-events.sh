@@ -426,6 +426,84 @@ audit --through convergence
 [ "$RC" -eq 1 ] && faulted convergence "no such call"
 verdict $? "nor one naming only a longer path that begins with B's" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
+# --- what a session that only names B may vouch for ---------------------------
+# two_worktrees: a fresh A and a second worktree B of it ($wta, $wtb), $wt left at A.
+two_worktrees() {
+  fresh
+  catalog "$POLISH" "$FIX"
+  config 'steps_convergence: [polish]' 'steps_post_pr: [fix-round-1]'
+  wta=$wt
+  wtb="$tmp/wtb$n"
+  git -C "$wta" worktree add -q -b planwright/flight/review-b "$wtb" || fail "fixture: worktree B"
+}
+# names_b <command text>: an event of the session in $sdir running that text.
+names_b() {
+  printf '{"type":"assistant","timestamp":"2026-11-04T10:20:03.000Z","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"%s"}}]}}\n' "$1" >>"$sdir/events.jsonl"
+}
+# An Agent call of another session that only names B does not satisfy the span:
+# only the session whose Skill call vouched for the start may.
+two_worktrees
+session 2026-11-04T10:20:00
+names_b "step-record.sh --worktree $wtb list"
+call 2026-11-04T10:30:11 Skill planwright:polish
+reviewer_dir=$sdir
+n=$((n + 1))
+session 2026-11-04T10:20:00
+names_b "git worktree list: $wtb  abcdef0 [review-b]"
+call 2026-11-04T10:30:20 Agent
+wt=$wtb
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 1 ] && faulted convergence "no Agent tool call between 2026-11-04T10:30:11Z and 2026-11-04T10:30:47Z"
+verdict $? "another named session's Agent call does not stand in for the reviewer's own" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+# The same Agent call inside the reviewer's own session satisfies it.
+sdir=$reviewer_dir
+call 2026-11-04T10:30:20 Agent
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit"
+verdict $? "the Agent call inside the reviewer's own session satisfies the span" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# A named session never sets the fix-round floor: with no session launched in
+# B, a fix-round start is unverified, not passed.
+two_worktrees
+config 'steps_convergence: []' 'steps_post_pr: [fix-round-1]'
+session 2026-11-04T10:20:00
+names_b "step-record.sh --worktree $wtb list"
+call 2026-11-04T10:30:11 Skill planwright:polish
+wt=$wtb
+r=$(sr new-run)
+prec "$r" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T09:00:07Z 2026-11-04T09:30:19Z
+done_at "$r" post-pr
+audit --through post-pr
+[ "$RC" -eq 0 ] && grep -q "^note${TAB}post-pr${TAB}unverified${TAB}.*fix-round-1: no session was launched in the worktree" "$tmp/audit"
+verdict $? "a fix round with only a named session is unverified, not silently passed" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# Each way a path ends in an event names it: a quote, a slash, a JSON newline.
+for term in quote slash newline; do
+  two_worktrees
+  session 2026-11-04T10:20:00
+  case $term in
+    quote) printf '{"type":"assistant","timestamp":"2026-11-04T10:20:03.000Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"cwd":"%s"}}]}}\n' "$wtb" >>"$sdir/events.jsonl" ;;
+    slash) names_b "ls $wtb/src" ;;
+    newline) names_b "cd $wtb\\\\npwd" ;;
+  esac
+  call 2026-11-04T10:30:11 Skill planwright:polish
+  call 2026-11-04T10:30:20 Agent
+  wt=$wtb
+  r=$(sr new-run)
+  srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
+  done_at "$r" convergence
+  audit --through convergence
+  [ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit"
+  verdict $? "a session naming B as $term-terminated counts for B's records" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+done
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

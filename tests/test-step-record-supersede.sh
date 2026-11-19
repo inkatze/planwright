@@ -310,6 +310,37 @@ sr untrue >"$tmp/untrue"
 [ ! -s "$tmp/untrue" ]
 verdict $? "once the window is no longer whole minutes the record passes" "$(cat "$tmp/untrue")"
 
+# --- 16: a session launched elsewhere that names the worktree is a source ------
+fresh
+catalog "$POLISH"
+config 'steps_convergence: [polish]'
+wta=$wt
+wtb="$tmp/wtb$n"
+git -C "$wta" worktree add -q -b planwright/flight/review-b "$wtb" || fail "fixture: worktree B"
+# The reviewer's session, launched in A, names B in a command it ran.
+session 2026-11-04T10:00:00
+printf '{"type":"assistant","timestamp":"2026-11-04T10:00:03.000Z","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"step-record.sh --worktree %s list"}}]}}\n' "$wtb" >>"$sdir/events.jsonl"
+call 2026-11-04T10:00:11 Skill planwright:polish
+call 2026-11-04T10:00:20 Agent
+# A session that never names B, with an event at a second only it holds.
+n=$((n + 1))
+session 2026-11-04T10:05:00
+call 2026-11-04T10:05:11 Skill planwright:polish
+wt=$wtb
+r=$(sr new-run)
+rec "$r" convergence polish /polish passed 2026-11-04T10:00:08Z 2026-11-04T10:00:47Z
+sup --record "$r:convergence:001" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:05:11Z
+[ "$RC" -eq 2 ] && grep -q "no event of the session's log is stamped" "$tmp/sup"
+verdict $? "an event only a session that never names B holds is refused as a source" "rc $RC: $(cat "$tmp/sup")"
+sup --record "$r:convergence:001" --start 2026-11-04T10:00:11Z --source event:2026-11-04T10:00:11Z
+[ "$RC" -eq 0 ]
+verdict $? "an event of the reviewer session launched in A that names B is a source for B's record" "rc $RC: $(cat "$tmp/sup")"
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit"
+verdict $? "and B's audit reads the corrected record against that session's Skill call and Agent call" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

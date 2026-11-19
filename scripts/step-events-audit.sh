@@ -1,18 +1,14 @@
 #!/bin/sh
 # step-events-audit.sh — judge step records against the session that wrote them.
-# Emits tab-separated lines, one per fault or unverifiable record.
 #
 # Usage: step-events-audit.sh --worktree <dir> --records <file> [--run <id>]...
-#   --records  the output of `step-record.sh list --effective` (a start or end
-#              corrected by step-record.sh supersede is the one judged);
-#              --run restricts the runs.
-#
+#   --records  `step-record.sh list --effective` output (a start or end corrected
+#              by step-record.sh supersede is the one judged); --run restricts
+#              the runs.
 # A record is hand-written by the session it describes, so its claims are held
-# against that session's stream-json events.jsonl: a session whose `cwd` is the
-# worktree, or whose events name the worktree's path (a session launched in
-# another directory that reviews this branch writes records here too; its
-# calls vouch for Skill starts and Agent spans, never for the fix-round floor).
-# Faults name the record, the expected value and the observed one:
+# against that session's stream-json events.jsonl (`cwd` the worktree, or
+# launched elsewhere with events naming its path: it vouches for a Skill start
+# and its own Agent calls, never the fix-round floor). Faults:
 #   - an in-session skill step starts on the second of its Skill tool call;
 #   - a polish or self-review recorded passed or applied has an Agent tool
 #     call inside its span;
@@ -71,34 +67,36 @@ find_events() {
 }
 
 # find_named_events: print the events file of every other stream-json session
-# whose events name this worktree's path, one a line, or nothing. A record is
-# attributed by the worktree it is written into, so a session launched
-# elsewhere that reviews this worktree's branch holds the Skill and Agent
-# calls its records claim. The path must end where a path ends (a separator,
-# a quote, a space or an escape), so a longer path that begins with it is not
-# this worktree.
+# whose events name this worktree's path, one a line, or nothing. One grep over
+# all sessions: a fork per session costs seconds on a host with many. The path
+# must end where a path ends (a separator, a quote, a space or an escape), so a
+# longer path that begins with it is not this worktree. step-record.sh's
+# event_files uses the same patterns; change both together.
 find_named_events() {
   root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
-  for d in "$root"/streamjson/*/; do
-    [ -f "${d}events.jsonl" ] && [ ! -L "${d}events.jsonl" ] || continue
-    grep -Fq -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -- "${d}events.jsonl" || continue
+  set -- "$root"/streamjson/*/events.jsonl
+  [ -e "$1" ] || return 0
+  grep -Fl -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -e "$worktree'" -e "$worktree;" -e "$worktree)" -- "$@" 2>/dev/null | while IFS= read -r f; do
+    [ ! -L "$f" ] || continue
     c=''
-    if [ -f "${d}cwd" ]; then read -r c <"${d}cwd" || [ -n "$c" ] || c=''; fi
-    [ "$c" = "$worktree" ] || printf '%s\n' "${d}events.jsonl"
+    if [ -f "${f%events.jsonl}cwd" ]; then read -r c <"${f%events.jsonl}cwd" || [ -n "$c" ] || c=''; fi
+    [ "$c" = "$worktree" ] || printf '%s\n' "$f"
   done
 }
 
-# events_rows <firsts: true|false> <file>...: the rows of the sessions' events.
-# Line by line, so a live session's half-written last line drops only itself;
-# a tool input is written by the session under audit, so it loses its tabs and
-# line breaks before it can shape a row. The `first` rows (when a session
-# opened and closed) come from the worktree's own sessions only: the fix-round
-# floor rests on them.
+# events_rows <firsts: true|false> <source> [<file>...]: the rows of events read
+# from the files or standard input. Line by line, so a live session's
+# half-written last line drops only itself; a tool input is written by the
+# session under audit, so it loses its tabs and line breaks before it can shape
+# a row. `first` rows (when a session opened and closed) come from the
+# worktree's own sessions only: the fix-round floor rests on them. Each call
+# row carries its source, `own` or the events file of a session that only names
+# the worktree.
 events_rows() {
-  _firsts=$1
-  shift
+  firsts=$1 src=$2
+  shift 2
   # shellcheck disable=SC2016 # a jq program
-  jq -R -r --argjson firsts "$_firsts" 'input_filename as $f | (fromjson? // empty) | objects
+  jq -R -r --argjson firsts "$firsts" --arg src "$src" 'input_filename as $f | (fromjson? // empty) | objects
     | select((.timestamp | type) == "string"
         and (.timestamp | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$")))
     | (.timestamp[0:19] + "Z") as $t
@@ -106,11 +104,11 @@ events_rows() {
       ((.message.content? // [])[]? | select(type == "object" and .type == "tool_use")
         | select(.name == "Skill" or .name == "Agent" or .name == "Task")
         | "call\t" + $t + "\t" + .name + "\t"
-          + ((.input.skill? // "") | tostring | gsub("[\t\n\r]"; " ")))' "$@"
+          + ((.input.skill? // "") | tostring | gsub("[\t\n\r]"; " ")) + "\t" + $src)' "$@"
 }
 
 : >"$work/events.tsv"
-have_events=0 why='the session events are not reachable'
+have_events=0 why='the session events are not reachable' have_first=0
 find_events >"$work/files"
 find_named_events >"$work/named"
 if [ -s "$work/files" ] || [ -s "$work/named" ]; then
@@ -121,13 +119,14 @@ if [ -s "$work/files" ] || [ -s "$work/named" ]; then
     if [ -s "$work/files" ]; then
       set --
       while IFS= read -r f; do set -- "$@" "$f"; done <"$work/files"
-      events_rows true "$@" >>"$work/events.tsv" || ok=0
+      events_rows true own "$@" >>"$work/events.tsv" || ok=0
     fi
-    if [ "$ok" -eq 1 ] && [ -s "$work/named" ]; then
-      set --
-      while IFS= read -r f; do set -- "$@" "$f"; done <"$work/named"
-      events_rows false "$@" >>"$work/events.tsv" || ok=0
-    fi
+    # Only the lines that can make a call row are parsed: a long hub session
+    # that names the worktree is megabytes of other events.
+    while [ "$ok" -eq 1 ] && IFS= read -r f; do
+      grep -F -e '"name":"Skill"' -e '"name":"Agent"' -e '"name":"Task"' -- "$f" 2>/dev/null \
+        | events_rows false "$f" >>"$work/events.tsv" || ok=0
+    done <"$work/named"
     if [ "$ok" -eq 0 ]; then
       why='the session events cannot be parsed'
     elif [ -s "$work/events.tsv" ]; then
@@ -137,9 +136,20 @@ if [ -s "$work/files" ] || [ -s "$work/named" ]; then
     fi
   fi
 fi
+# The fix-round floor rests on the worktree's own sessions alone.
+why_first=$why
+if [ "$have_events" -eq 1 ]; then
+  if grep -q '^first' "$work/events.tsv"; then
+    have_first=1
+  elif [ -s "$work/files" ]; then
+    why_first='the session events carry no timestamps'
+  else
+    why_first='no session was launched in the worktree, so the session floor cannot be checked'
+  fi
+fi
 
 hint='; a misdated start is corrected, not re-recorded, with step-record.sh supersede (cite the session event)'
-awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" -v HINT="$hint" '
+awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v HAVEF="$have_first" -v WHY="$why" -v WHYF="$why_first" -v HINT="$hint" '
   function days(y, m, d,   era, yoe, doy, doe) {
     if (m <= 2) y--
     era = int(y / 400); yoe = y - era * 400
@@ -172,10 +182,11 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" -v HINT="$hint"
     need5 = F["step"] ~ /^fix-round/
     if (!(need1 || need5)) return
     if (!HAVE) { unverified(); return }
+    if (need5 && !HAVEF) { print "unverified\t" id "\t" F["step"] "\t" WHYF; return }
     if (need1) {
-      best = -1; got = 0
+      best = -1; got = 0; split("", from)
       for (i = 1; i <= nsk[sk]; i++) {
-        if (skt[sk, i] == s) { got = 1; break }
+        if (skt[sk, i] == s) { got = 1; from[sks[sk, i]] = 1; continue }
         d = absdiff(skt[sk, i], s)
         if (best < 0 || d < best) { best = d; near = skt[sk, i] }
       }
@@ -183,7 +194,9 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" -v HINT="$hint"
     }
     if (need2) {
       span = 0
-      for (i = 1; i <= nag; i++) if (agt[i] >= s && agt[i] <= e) { span = 1; break }
+      # A session that only names the worktree vouches for an Agent call only
+      # when it is the one whose Skill call vouched for the start.
+      for (i = 1; i <= nag; i++) if (agt[i] >= s && agt[i] <= e && (ags[i] == "own" || (ags[i] in from))) { span = 1; break }
       if (!span) fault("recorded " o ", but the session events show no Agent tool call between " s " and " e)
     }
     if (need5) {
@@ -216,8 +229,8 @@ awk -F '\t' -v RUNS="$runs" -v HAVE="$have_events" -v WHY="$why" -v HINT="$hint"
       if (!($3 in sf) || $2 < sf[$3]) sf[$3] = $2
       if (!($3 in sl) || $2 > sl[$3]) sl[$3] = $2
     }
-    else if ($1 == "call" && $3 == "Skill") { sk = $4; sub(/^[^:]*:/, "", sk); skt[sk, ++nsk[sk]] = $2 }
-    else if ($1 == "call") agt[++nag] = $2
+    else if ($1 == "call" && $3 == "Skill") { sk = $4; sub(/^[^:]*:/, "", sk); skt[sk, ++nsk[sk]] = $2; sks[sk, nsk[sk]] = $5 }
+    else if ($1 == "call") { agt[++nag] = $2; ags[nag] = $5 }
     next
   }
   $1 == "record" { flush(); inrec = 1; path = $2; split("", F); next }

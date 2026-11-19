@@ -127,7 +127,7 @@
 #           <head>`, the head --head or the worktree's. Exit 0 complete, 1
 #           gaps, 2 usage (an unknown --base included), 4 the records, the
 #           cadence or the session events could not be read. The records
-#           that decided each point are also held to the session's own events
+#           that decided each point are also held to the session events
 #           (step-events-audit.sh): `gap<TAB><point><TAB>fault<TAB><detail>`
 #           per record whose start is off its Skill call, a polish or
 #           self-review passed or applied with no Agent call in its span, a
