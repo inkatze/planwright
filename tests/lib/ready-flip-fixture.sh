@@ -3,7 +3,10 @@
 # Shared fixture for the ready-flip suites: the gh stub, the throwaway origin and
 # unit clone, and the helpers that drive scripts/ready-flip.sh. The sourcing test
 # sets REPO_ROOT, HELPER and STEP_RECORD, and defines passes, failures, pass,
-# fail, check and not, before sourcing.
+# fail, check and not, before sourcing. Sourcing creates SANDBOX and installs the
+# only EXIT trap (it removes SANDBOX), builds the template fixture, and exits
+# 1 when the helper is missing; it leaves F, GHS, BRANCH and TASKS for the
+# cases to read.
 
 unset CDPATH
 [ -r "$REPO_ROOT/tests/lib/emitter-lint.sh" ] || {
@@ -244,7 +247,7 @@ changed_since() { git --git-dir="$F/origin.git" diff --name-only "$1" "refs/head
 
 if [ ! -f "$HELPER" ]; then
   fail "the helper exists at scripts/ready-flip.sh"
-  printf 'ready-flip: %s passed, %s failed\n' "$passes" "$failures" >&2
+  printf '%s: %s passed, %s failed\n' "${0##*/}" "$passes" "$failures" >&2
   exit 1
 fi
 

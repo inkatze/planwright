@@ -9,7 +9,7 @@ unset CDPATH
 # shellcheck source=tests/lib/policy-guard-clones.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/policy-guard-clones.sh"
 
-# Four shapes that ran the script past the matching above. Each is refused, and
+# Four shapes that ran the script past the run matching. Each is refused, and
 # the nearest forms that run nothing still defer.
 echo "# the kickoff push: a line splice, a variable, a short glob, a persisted config"
 SPL=$'\\\n'

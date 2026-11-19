@@ -1,6 +1,7 @@
 #!/bin/bash
-# Suite for scripts/ready-flip.sh: every precondition, the PR record and its
-# ordering against the flip, and the parking segment and its composition.
+# Suite for scripts/ready-flip.sh: the all-pass path (the PR record and its
+# ordering against the flip), the format version, and the parking segment and
+# its composition.
 #
 # Hermetic: each case builds a throwaway origin (a bare repository) and a unit
 # clone on a task branch, and a stub `gh` answers from files, reporting the
