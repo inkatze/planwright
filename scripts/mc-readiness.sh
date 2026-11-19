@@ -469,8 +469,8 @@ END {
   if (!nc) fail("check", "no individual check context at the head")
   if (needbot && state != "draft" && !botseen) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)")
   # After the flip the run it fired is the one wanted: a run created before
-  # the flip (every PR-Agent run there is) is not it, and the flip's own run
-  # has not shown up yet.
+  # the flip (every PR-Agent run there is) is not it, and the run the flip
+  # fires has not shown up yet. No apostrophe here: this is a shell string.
   if (needbot && state == "ready" && botseen && flip != "") {
     allpre = 1; newest = ""
     for (i = 1; i <= nraw; i++) if (bot_check(rn[i])) {
