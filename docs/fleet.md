@@ -1192,7 +1192,7 @@ in that directory at the allocation key and unit the launch recorded
 none, and the resumed session gets `--model` and `--effort` for each dimension
 that does not resolve to `inherit`; a tier model, effort or reservation the
 launch recorded is handed back to that plan as an override. A launch's
-`--mise-task-edit` opt-in is kept too: the relaunch regenerates the worker's
+`--mise-task-edit` and `--lefthook-edit` opt-ins are kept too: the relaunch regenerates the worker's
 per-launch settings profile, and a profile it cannot generate is exit `7`.
 Any other extra argument the original launch passed after `--` is not carried
 over. (`recover --cwd <dir>` is
@@ -2721,6 +2721,10 @@ settings file generated for that worker from `config/worker-settings.json`
 `mise_task_edit=1`; a launch without the flag passes the shipped profile
 unchanged. What it opens and the residual risk are in
 [the permission-matcher model](permission-matcher-model.md#the-mise-task-file-opt-in).
+`--lefthook-edit` is the same opt-in for the worktree's lefthook config
+(`lefthook.<ext>`, `lefthook/`), recorded as `lefthook_edit=1`; it composes with
+the mise one and is described in
+[the lefthook config opt-in](permission-matcher-model.md#the-lefthook-config-opt-in).
 A worker, reviewer or ad-hoc launch never starts
 in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
 --no-attach` create its worktree, or reuses the one holding its branch when

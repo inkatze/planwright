@@ -68,7 +68,8 @@ usage:
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
       [--remote-control <name>] [--model <alias>] [--effort <level>]
-      [--reserved] [--keep-config-env] [--mise-task-edit] [--spec-branch <branch>]
+      [--reserved] [--keep-config-env] [--mise-task-edit] [--lefthook-edit]
+      [--spec-branch <branch>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker> [--force-parked]
   mission-control-launch.sh reparent <name> --program <dest>
@@ -93,7 +94,16 @@ rung has no terminal to attach it to, so it drops the flag with a warning.
 refused otherwise) opts the session in to editing the mise task files inside
 its own worktree, under a per-launch settings profile; docs/permission-matcher-model.md
 states what that opens.
-`--spec-branch planwright/<spec>/<name>` (a worker-profile session on the
+`--lefthook-edit` (same limits: a worker-profile session on the stream-json
+rung only, off by default, recorded in the session record, never read from
+config, the checkout or the environment) opts the session in to editing the
+lefthook config inside its own worktree (lefthook.<ext>, lefthook/), which
+lets it change which hooks run on its own commits; lefthook-local, the dotted
+variants, the hook directories, .git and .claude stay closed, and so does
+every path outside the worktree. It composes with --mise-task-edit and takes
+effect only by relaunch; docs/permission-matcher-model.md ("The lefthook
+config opt-in") states what it opens.
+`--spec-branchplanwright/<spec>/<name>` (a worker-profile session on the
 stream-json rung only, and only for the head branch of an open pull request,
 checked with gh before the launch) records that spec PR branch in the session
 record, so the policy guard lets the session fast-forward its flight branch to
@@ -868,7 +878,7 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
-  remote_control='' rc_given=0 mise_edit=0 spec_branch='' ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=''
+  remote_control='' rc_given=0 mise_edit=0 lefthook_edit=0 spec_branch='' ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=''
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -903,6 +913,10 @@ cmd_launch() {
         ;;
       --mise-task-edit)
         mise_edit=1
+        shift
+        ;;
+      --lefthook-edit)
+        lefthook_edit=1
         shift
         ;;
       --spec-branch)
@@ -1036,6 +1050,10 @@ cmd_launch() {
   if [ "$mise_edit" = 1 ]; then
     [ "$K_PROFILE" = worker ] || die "--mise-task-edit applies to a worker-profile session only"
     [ "$backend" = stream-json ] || die "--mise-task-edit needs the stream-json rung: the per-launch settings profile is not passed by the tmux rung"
+  fi
+  if [ "$lefthook_edit" = 1 ]; then
+    [ "$K_PROFILE" = worker ] || die "--lefthook-edit applies to a worker-profile session only"
+    [ "$backend" = stream-json ] || die "--lefthook-edit needs the stream-json rung: the per-launch settings profile is not passed by the tmux rung"
   fi
   if [ -n "$spec_branch" ]; then
     [ "$K_PROFILE" = worker ] || die "--spec-branch applies to a worker-profile session only"
@@ -1253,6 +1271,7 @@ cmd_launch() {
       [ "$ovr_reserved" != 1 ] || set -- "$@" --tier-reserved
       [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
       [ "$mise_edit" = 0 ] || set -- "$@" --mise-task-edit
+      [ "$lefthook_edit" = 0 ] || set -- "$@" --lefthook-edit
       [ -z "$spec_branch" ] || set -- "$@" --spec-branch "$spec_branch"
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"

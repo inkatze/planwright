@@ -634,6 +634,49 @@ else
   fail "mise opt-in: the field outlived its launch"
 fi
 
+echo "### the lefthook config opt-in is a launch-time field"
+write "$WT"
+if [ "$RC" -eq 0 ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: a launch without the flag writes no field"
+else
+  fail "lefthook opt-in: the field appeared without the flag"
+fi
+set_layer machine-local 'lefthook_edit: true'
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: config never sets it"
+else
+  fail "lefthook opt-in: a config line reached the record"
+fi
+set_layer machine-local ''
+REC=$(/bin/sh "$WRITER" write "$WT" --lefthook-edit 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field lefthook_edit)" = 1 ] && [ "$(grep -c '^lefthook_edit=' "$REC")" -eq 1 ] \
+  && ! grep -q '^mise_task_edit=' "$REC"; then
+  pass "lefthook opt-in: the flag writes lefthook_edit=1 once, and no mise field"
+else
+  fail "lefthook opt-in: the flag wrote '$(field lefthook_edit)' (rc=$RC)"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session demo-1 --scratch --mise-task-edit --lefthook-edit 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field lefthook_edit)" = 1 ] && [ "$(field mise_task_edit)" = 1 ]; then
+  pass "lefthook opt-in: it combines with a session, the scratch root and the mise opt-in"
+else
+  fail "lefthook opt-in: the combined form failed (rc=$RC, $(cat "$T/err"))"
+fi
+/bin/sh "$WRITER" write "$WT" --lefthook-edit --lefthook-edit >/dev/null 2>&1
+if [ "$?" -eq 2 ]; then
+  pass "lefthook opt-in: a repeated flag is a usage error"
+else
+  fail "lefthook opt-in: a repeated flag was accepted"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: a relaunch without the flag drops the field"
+else
+  fail "lefthook opt-in: the field outlived its launch"
+fi
+
 echo "### launch backend: a headless launch is recorded for the dispatcher to read"
 write "$WT"
 if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then

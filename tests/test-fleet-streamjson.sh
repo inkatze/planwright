@@ -1082,6 +1082,90 @@ senv "$home" "$rec" -- \
 [ ! -s "$rec/argv" ] || fail "c9m: the refused opted-in launch must never spawn the worker"
 [ ! -e "$home/streamjson/sjw9m4/mise-task-edit" ] || fail "c9m: a refused opted-in launch must record no opt-in"
 echo "ok: c9m mise task-file opt-in: per-launch profile, recorded for recover, shipped profile byte for byte without it"
+# c9l (lefthook config opt-in): `launch --lefthook-edit` on the worker profile
+#    passes a per-launch settings file whose two broad lefthook denies are
+#    replaced, records the opt-in for the guard and for a recover, composes
+#    with --mise-task-edit without opening the mise names, and is refused for
+#    every other profile and every path the literal denies cannot name.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9l1 execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --cwd "$tmp/mwt" --foreground \
+  || fail "c9l: an opted-in launch exited non-zero"
+l_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+case $l_settings in
+  "$home/streamjson/sjw9l1/"*) : ;;
+  *) fail "c9l: the opted-in launch must pass a settings file in the worker's own state folder: $l_settings" ;;
+esac
+jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("Edit(//**/lefthook/**)") == null)' "$l_settings" >/dev/null \
+  || fail "c9l: the per-launch profile still carries a broad lefthook deny"
+jq -e '.permissions.deny | (index("Edit(//**/mise.toml)") != null) and (index("Edit(//**/lefthook-local.*)") != null) and (index("Edit(//**/githooks/**)") != null)' "$l_settings" >/dev/null \
+  || fail "c9l: the per-launch profile opened more than the lefthook names"
+[ "$(cat "$home/streamjson/sjw9l1/lefthook-edit" 2>/dev/null)" = 1 ] \
+  || fail "c9l: the launch must record the opt-in for its recover"
+[ ! -e "$home/streamjson/sjw9l1/mise-task-edit" ] || fail "c9l: the lefthook opt-in must not record the mise opt-in"
+l_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ grep -qx 'lefthook_edit=1' "$l_rec" && ! grep -q '^mise_task_edit=' "$l_rec"; } \
+  || fail "c9l: the session record must carry lefthook_edit=1 and no mise field: $l_rec"
+# A recover relaunches under the recorded opt-in, regenerating the file.
+rm -f "$l_settings"
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9l1 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+l_settings2=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+{ [ "$l_settings2" = "$l_settings" ] && [ -s "$l_settings2" ] \
+  && jq -e '.permissions.deny | index("Edit(//**/lefthook.*)") | not' "$l_settings2" >/dev/null; } \
+  || fail "c9l: a recover must regenerate the per-launch profile: $l_settings2"
+grep -qx 'lefthook_edit=1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || fail "c9l: a recover must rewrite the session record with the opt-in"
+# A fresh launch without the flag drops the marker and passes the shipped profile.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9l1 execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/mwt" --foreground \
+  || fail "c9l: a plain relaunch of the same worker exited non-zero"
+cmp -s "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" "$shipped_profile" \
+  || fail "c9l: a launch without the opt-in must pass the shipped profile byte for byte"
+[ ! -e "$home/streamjson/sjw9l1/lefthook-edit" ] || fail "c9l: a fresh launch without the flag must drop the recorded opt-in"
+# Both opt-ins.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9l2 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --lefthook-edit --cwd "$tmp/mwt" --foreground \
+  || fail "c9l: a launch with both opt-ins exited non-zero"
+b_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+jq -e '.permissions.deny | [index("Edit(//**/mise.toml)"), index("Edit(//**/lefthook.*)")] | all(. == null)' "$b_settings" >/dev/null \
+  || fail "c9l: both opt-ins must replace the mise and lefthook broad denies"
+{ [ "$(cat "$home/streamjson/sjw9l2/lefthook-edit" 2>/dev/null)" = 1 ] && [ "$(cat "$home/streamjson/sjw9l2/mise-task-edit" 2>/dev/null)" = 1 ]; } \
+  || fail "c9l: both opt-ins must be recorded"
+# The mise opt-in alone never opens the lefthook names.
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9l3 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --cwd "$tmp/mwt" --foreground \
+  || fail "c9l: a mise-only launch exited non-zero"
+jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") != null) and (index("Edit(//**/lefthook/**)") != null)' \
+  "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" >/dev/null \
+  || fail "c9l: the mise opt-in alone must leave the broad lefthook denies in place"
+[ ! -e "$home/streamjson/sjw9l3/lefthook-edit" ] || fail "c9l: the mise opt-in alone must record no lefthook opt-in"
+# Only the worker profile opts in, and a repeated flag is a usage error.
+for kind in tower mission-control; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch "sjw9l-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --lefthook-edit --foreground >/dev/null 2>&1
+  [ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9l: --lefthook-edit with the $kind profile must be refused (exit 2) before a spawn"
+done
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9l4 execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --lefthook-edit --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9l: a repeated --lefthook-edit must be a usage error"
+mkdir -p "$tmp/we*ird"
+git init -q "$tmp/we*ird"
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9l5execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9l: an opted-in launch in a glob-character path must be refused (exit 7) before a spawn"
+[ ! -e "$home/streamjson/sjw9l5/lefthook-edit" ] || fail "c9l: a refused opted-in launch must record no opt-in"
+echo "ok: c9l lefthook config opt-in: per-launch profile, recorded for recover, composes with the mise opt-in, refused elsewhere"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.
 mc='mc-beta-tower-0123456789'

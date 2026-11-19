@@ -562,6 +562,69 @@ one row. `tests/test-worker-command-guard-mise-tasks.sh` pins the guard half,
 `tests/test-worker-settings-generate.sh` the generator, and
 `tests/test-fleet-streamjson.sh` (c9m) the launcher.
 
+## The lefthook config opt-in
+
+The shipped profile also denies the file tools the lefthook config at any depth
+(`lefthook.<ext>`, `lefthook/`, the local and dotted variants), so a worker whose
+unit is fixing a slow or wrong pre-commit hook cannot edit the repository's own
+hook config. `--lefthook-edit` opens exactly the tracked config names inside the
+worker's own worktree and nothing else. It has the mise opt-in's shape in every
+respect: a launch argument of `scripts/fleet-streamjson.sh launch` and
+`scripts/mission-control-launch.sh launch` (worker profile, stream-json rung,
+refused anywhere else, off by default), recorded as `lefthook_edit=1` in the
+session record and as the `lefthook-edit` marker in the worker's state folder,
+never read from live config, the checkout or the environment, dropped by a fresh
+launch without the flag and kept by a recover or relaunch. The two opt-ins are
+independent: each opens only its own names, and a launch may carry both. A
+change to the opt-in reaches a worker only by relaunch.
+
+What an opted-in launch gets:
+
+- **A generated profile** (`scripts/worker-settings-generate.sh --lefthook-edit`):
+  the two broad denies `lefthook/**` and `lefthook.*` are replaced by literal
+  denies of the same two names in every ancestor folder of the worktree and in the
+  primary checkout, exactly as for the mise names. Every other rule is the
+  shipped one, in order.
+- **The same file-tool hook** (`scripts/worker-mise-edit-guard.sh`, told to judge
+  the lefthook names by a `lefthook` argument after the worktree, or `mise
+  lefthook` for a launch with both opt-ins): a lefthook name outside the
+  worktree, by spelling or by where it resolves, is refused. It matches the names
+  in any letter case.
+- **The guard's own-branch arm** admits writes to `lefthook`, `lefthook.*` and
+  anything under a `lefthook/` directory inside the worktree (`ob_excluded_name`
+  reading the `l` letter of the record's opt-ins, and the recursive-act screen
+  `ob_tree_clean`), only when the record carries exactly one `lefthook_edit=1`.
+
+Still closed under the opt-in: `lefthook-local.*` and the `.lefthook`,
+`.lefthook.*`, `.lefthook-local` and `.lefthook-local.*` variants, `.githooks/`
+and `githooks/` (denied to the file tools by name), whichever directory
+`core.hooksPath` names (excluded from the arm by what git reports, so it follows
+the setting), `.git`,
+`.claude`, the mise names unless `--mise-task-edit` is also given, the scratch
+zone, and every write outside the worktree, the primary checkout's lefthook
+config included. The local variant stays closed because it is the gitignored,
+per-machine override: a change there never lands in the pull request, so review
+could not see it, where the tracked config shows up in the diff. The dotted
+variants and the dotted script directories are further lookup names beyond what
+fixing the tracked hook config needs; a repository that keeps its config under
+one of them needs its own opt-in.
+
+Residual risk, and the reason the opt-in is a sign-off item: a lefthook job is a
+shell command that git runs on the worker's own commits and that the command
+guard never sees, so a worker given this opt-in can change which commands run on
+its own commits, and the next contributor's commits too once the change merges.
+The boundary is that the change is the tracked file, in the worker's own
+worktree, visible in the pull request diff for review before it runs anywhere
+else; the primary checkout's hook config and every per-machine override stay
+untouched, and the flag is the operator's launch-time choice for one named worker,
+never ambient. The hook's case-folding and the per-launch profile's
+case-sensitive ancestor names carry the same caveats as the mise opt-in.
+`tests/test-permission-matcher.sh` (pass J) runs the generated rules through the
+model, `tests/test-worker-command-guard-lefthook.sh` pins the guard half,
+`tests/test-worker-settings-generate.sh` the generator, and
+`tests/test-fleet-streamjson.sh` (c9l) and
+`tests/test-mission-control-launch-tmux.sh` the launchers.
+
 ## The spec-branch launch record
 
 A spec PR that falls behind `main` needs its branch

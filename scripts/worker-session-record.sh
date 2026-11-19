@@ -3,7 +3,8 @@
 # launch-time inputs its command guard trusts.
 #
 # Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>]
-#          [--scratch | --fresh-scratch] [--mise-task-edit] [--spec-branch <branch>]
+#          [--scratch | --fresh-scratch] [--mise-task-edit] [--lefthook-edit]
+#          [--spec-branch <branch>]
 #
 # Resolves, once, from the worktree the worker will run in:
 #   policy             worker_self_approval through the overlay layers,
@@ -49,7 +50,12 @@
 #                      the checkout or the environment; omitted otherwise, and a
 #                      fresh launch without the flag drops it, a recover or
 #                      relaunch keeps what its launch recorded
-#   spec_branch        the spec PR branch (planwright/<spec>/<name>) a launch given
+#   lefthook_edit      `1` only for a launch given --lefthook-edit, the launch-time
+#                      opt-in that lets the own-branch arm write the lefthook
+#                      config names (lefthook.<ext>, lefthook/) inside the
+#                      worktree, and nothing else. Same provenance and
+#                      lifecycle as mise_task_edit, and independent of it
+#   spec_branch       the spec PR branch (planwright/<spec>/<name>) a launch given
 #                      --spec-branch names, omitted otherwise: the policy guard
 #                      lets that session fast-forward its flight branch to it and
 #                      sync the checked-out branch with the PR base, and nothing
@@ -99,7 +105,7 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch] [--mise-task-edit] [--spec-branch <branch>]"
+usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>]"
 [ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
 wt_arg=$2
 shift 2
@@ -108,6 +114,7 @@ have_id=0
 session=''
 want_scratch=0
 mise_task_edit=0
+lefthook_edit=0
 spec_branch=
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -120,6 +127,11 @@ while [ "$#" -gt 0 ]; do
     --mise-task-edit)
       [ "$mise_task_edit" = 0 ] || die "$usage" 2
       mise_task_edit=1
+      shift
+      ;;
+    --lefthook-edit)
+      [ "$lefthook_edit" = 0 ] || die "$usage" 2
+      lefthook_edit=1
       shift
       ;;
     --spec-branch)
@@ -370,6 +382,7 @@ if ! {
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
   [ -z "$hook_exclude" ] || printf 'hook_exclude=%s\n' "$hook_exclude"
   [ "$mise_task_edit" = 0 ] || printf 'mise_task_edit=1\n'
+  [ "$lefthook_edit" = 0 ] || printf 'lefthook_edit=1\n'
   [ -z "$spec_branch" ] || printf 'spec_branch=%s\n' "$spec_branch"
   case ${PLANWRIGHT_LAUNCH_BACKEND:-} in
     stream-json | headless-oneshot) printf 'launch_backend=%s\n' "$PLANWRIGHT_LAUNCH_BACKEND" ;;

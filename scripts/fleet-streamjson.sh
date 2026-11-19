@@ -84,6 +84,7 @@
 #                    back; absent otherwise
 #   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
 #                    recover and a relaunch read back; absent otherwise
+#   lefthook-edit    the same for --lefthook-edit
 #   worker-settings.json  the per-launch settings profile of an opted-in
 #                    worker (scripts/worker-settings-generate.sh), rewritten
 #                    by every launch, recover and relaunch of it
@@ -198,7 +199,7 @@
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
 #       [--tier-key <key>] [--tier-unit <unit>]
 #       [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved]
-#       [--cwd <dir>] [--mise-task-edit] [--spec-branch <branch>] [--foreground] [-- <extra claude args>...]
+#       [--cwd <dir>] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
 #       --profile (default worker). --mise-task-edit (worker profile only,
 #       off by default, recorded for a recover) opts the worker in to editing
@@ -206,6 +207,9 @@
 #       profile generated for it (scripts/worker-settings-generate.sh) and the
 #       session record carries mise_task_edit=1 for the command guard
 #       (docs/permission-matcher-model.md, "The mise task-file opt-in").
+#       --lefthook-edit is the same for the lefthook config names
+#       (lefthook.<ext>, lefthook/): it records lefthook_edit=1 and
+#       composes with --mise-task-edit ("The lefthook config opt-in").
 #       --spec-branch (worker profile only, recorded for a recover) names the
 #       spec PR branch the session record carries as spec_branch for the policy
 #       guard (docs/permission-matcher-model.md, "The spec-branch launch
@@ -513,7 +517,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--spec-branch <branch>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>]) [--takeover]"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
@@ -2126,6 +2130,7 @@ cmd_launch() {
   tier_key=''
   tier_unit=''
   mise_edit=0
+  lefthook_edit=0
   spec_branch=''
   tier_model=''
   tier_effort=''
@@ -2153,6 +2158,12 @@ cmd_launch() {
         # recorded.
         [ "$mise_edit" = 0 ] || usage
         mise_edit=1
+        shift
+        ;;
+      --lefthook-edit)
+        # Like --mise-task-edit: a launch argument and nothing else.
+        [ "$lefthook_edit" = 0 ] || usage
+        lefthook_edit=1
         shift
         ;;
       --tier-model | --tier-effort)
@@ -2281,10 +2292,15 @@ cmd_launch() {
     printf '%s\n' "$me: --mise-task-edit applies to the worker profile only" >&2
     exit 2
   fi
-  # A recover relaunches under the opt-in its launch recorded.
+  if [ "$lefthook_edit" = 1 ] && [ "$profile" != worker ]; then
+    printf '%s\n' "$me: --lefthook-edit applies to the worker profile only" >&2
+    exit 2
+  fi
+  # A recover relaunches under the opt-ins its launch recorded.
   if [ -n "$resume_sid" ] && [ "$profile" = worker ]; then
     pf_dir=$(worker_dir "$worker") || exit 2
     [ "$(cat "$pf_dir/mise-task-edit" 2>/dev/null)" != 1 ] || mise_edit=1
+    [ "$(cat "$pf_dir/lefthook-edit" 2>/dev/null)" != 1 ] || lefthook_edit=1
     [ -n "$spec_branch" ] || spec_branch=$(cat "$pf_dir/spec-branch" 2>/dev/null) || spec_branch=''
   fi
   if [ -n "$spec_branch" ] && [ "$profile" != worker ]; then
@@ -2440,10 +2456,14 @@ cmd_launch() {
   # state folder, so every launch and recover of it reads the same shape; any
   # other launch passes the shipped profile itself. A profile the generator
   # cannot produce refuses the launch rather than falling back.
-  if [ "$mise_edit" = 1 ]; then
-    if ! gen_out=$(/bin/sh "$script_dir/worker-settings-generate.sh" "$launch_settings" "${run_cwd:-$PWD}" "$dir/worker-settings.json" </dev/null); then
+  if [ "$mise_edit" = 1 ] || [ "$lefthook_edit" = 1 ]; then
+    gen_flags=''
+    [ "$mise_edit" = 0 ] || gen_flags=--mise-task-edit
+    [ "$lefthook_edit" = 0 ] || gen_flags="$gen_flags --lefthook-edit"
+    # shellcheck disable=SC2086 # a word list of the generator's own flags
+    if ! gen_out=$(/bin/sh "$script_dir/worker-settings-generate.sh" $gen_flags "$launch_settings" "${run_cwd:-$PWD}" "$dir/worker-settings.json" </dev/null); then
       rm -f "$init_msg"
-      printf '%s\n' "$me: refusing to launch $worker: cannot generate its per-launch settings profile for --mise-task-edit" >&2
+      printf '%s\n' "$me: refusing to launch $worker: cannot generate its per-launch settings profile for the opt-in ($gen_flags)" >&2
       exit 7
     fi
     launch_settings=$gen_out
@@ -2455,6 +2475,11 @@ cmd_launch() {
       printf '1\n' >"$dir/mise-task-edit.tmp" && mv -f "$dir/mise-task-edit.tmp" "$dir/mise-task-edit" || exit 2
     else
       rm -f "$dir/mise-task-edit"
+    fi
+    if [ "$lefthook_edit" = 1 ]; then
+      printf '1\n' >"$dir/lefthook-edit.tmp" && mv -f "$dir/lefthook-edit.tmp" "$dir/lefthook-edit" || exit 2
+    else
+      rm -f "$dir/lefthook-edit"
     fi
     if [ -n "$spec_branch" ]; then
       printf '%s\n' "$spec_branch" >"$dir/spec-branch.tmp" && mv -f "$dir/spec-branch.tmp" "$dir/spec-branch" || exit 2
@@ -2531,7 +2556,9 @@ cmd_launch() {
   unset PLANWRIGHT_WORKER_SESSION_RECORD
   mt_flag=''
   [ "$mise_edit" = 0 ] || mt_flag=--mise-task-edit
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} ${spec_branch:+--spec-branch "$spec_branch"} 2>/dev/null </dev/null) || session_record=''
+  lh_flag=''
+  [ "$lefthook_edit" = 0 ] || lh_flag=--lefthook-edit
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} ${lh_flag:+"$lh_flag"} ${spec_branch:+--spec-branch "$spec_branch"} 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
@@ -3286,9 +3313,15 @@ cmd_relaunch() {
   run_cwd=$rx_cwd
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
-  if [ "$rx_profile" = worker ] && [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" = 1 ]; then
+  rx_gen_flags=''
+  if [ "$rx_profile" = worker ]; then
+    [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" != 1 ] || rx_gen_flags=--mise-task-edit
+    [ "$(cat "$dir/lefthook-edit" 2>/dev/null)" != 1 ] || rx_gen_flags="$rx_gen_flags --lefthook-edit"
+  fi
+  if [ -n "$rx_gen_flags" ]; then
     rx_shipped=$(profile_settings_path worker) || exit 7
-    /bin/sh "$script_dir/worker-settings-generate.sh" "$rx_shipped" "$rx_cwd" "$dir/worker-settings.json" >/dev/null </dev/null || {
+    # shellcheck disable=SC2086 # a word list of the generator's own flags
+    /bin/sh "$script_dir/worker-settings-generate.sh" $rx_gen_flags "$rx_shipped" "$rx_cwd" "$dir/worker-settings.json" >/dev/null </dev/null || {
       printf '%s\n' "$me: relaunch refused for $worker: its per-launch settings profile cannot be generated now" >&2
       exit 7
     }
