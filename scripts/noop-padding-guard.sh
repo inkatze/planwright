@@ -482,6 +482,7 @@ hold_shape() {
   esac
   for ((i = 0; i < SN; i++)); do
     [ "${SQ[i]}" = 0 ] || continue
+    # shellcheck disable=SC2016 # a literal $( in the word, not an expansion
     case ${SW[i]} in
       *'$('* | *'<('* | *'>('*) [[ ${SW[i]} =~ $HOLD_BODY_RE ]] && return 0 ;;
     esac
