@@ -98,12 +98,23 @@ POST_PR_GAP="cadence,gap,post-pr,incomplete,-"
 walk_rows "draft, post-pr incomplete" $DRAFT "$POST_PR_GAP"
 expect_rc "a draft whose only gap is post-pr is not merge-ready" 4
 expect_eq "the verdict is the flip token with the head, then what waits" "flip-for-review${tab}$H
-pending${tab}post-pr${tab}no completion record; the ready flip fires the bot review (PR-Agent) it waits on"
+pending${tab}post-pr${tab}no completion record; pending the flip, which fires the bot review (PR-Agent) a post-pr step may wait on"
 lacks "and names no failure" "fail${tab}"
 # shellcheck disable=SC2086
 walk_rows "draft, post-pr step missing" $DRAFT "cadence,gap,post-pr,missing,bot-review"
 expect_eq "a post-pr step never recorded reads the same" "flip-for-review${tab}$H
-pending${tab}post-pr${tab}bot-review is missing; the ready flip fires the bot review (PR-Agent) it waits on"
+pending${tab}post-pr${tab}bot-review is missing; pending the flip, which fires the bot review (PR-Agent) a post-pr step may wait on"
+# shellcheck disable=SC2086
+walk_rows "draft, two post-pr gaps" $DRAFT "$POST_PR_GAP" "cadence,gap,post-pr,missing,peer-review"
+expect_out "each pending row is printed" "pending${tab}post-pr${tab}no completion record"
+expect_out "the second too" "pending${tab}post-pr${tab}peer-review is missing"
+# shellcheck disable=SC2086
+walk_rows "draft, bypass check" $DRAFT "$POST_PR_GAP" "bypass,window-lock,FAILURE"
+expect_out "a bypass row follows the flip verdict, as it does a ready one" "may wait on
+bypass${tab}window-lock${tab}FAILURE"
+# shellcheck disable=SC2086
+walk_rows "draft, spec-only" $DRAFT "$POST_PR_GAP" "scope,spec-only,$H"
+expect_eq "a spec-only pull request is held for its sign-off, never told to flip" "ready${tab}$H"
 # shellcheck disable=SC2086
 walk_rows "draft, pending PR-Agent run" $DRAFT "$POST_PR_GAP" "check,PR-Agent,PENDING"
 case $(first_line) in "flip-for-review${tab}$H") ok "a draft's own PR-Agent check is left out of the walk" ;; *) fail "a draft's PR-Agent check held the flip verdict: $OUT" ;; esac
@@ -132,6 +143,9 @@ other_gap "open thread" "fail${tab}thread${tab}t9 is open" "thread,t9,open"
 other_gap "unanswered finding" "fail${tab}finding${tab}cubic-dev-ai[bot] t9 is unanswered" "finding,cubic-dev-ai[bot],t9,unanswered"
 other_gap "pre-pr gap" "fail${tab}cadence${tab}pre-pr: no completion record" "cadence,gap,pre-pr,incomplete,-"
 other_gap "macOS never ran" "fail${tab}macos${tab}macos-suite never ran at 111111111111" "require,macos"
+other_gap "unaudited cadence" "fail${tab}cadence${tab}not audited: no worktree holds the branch" "cadence,unaudited,no worktree holds the branch"
+other_gap "post-pr record the truth check refuses" "fail${tab}cadence${tab}not audited: post-pr: bot-review fails the step-record truth check" "cadence,gap,post-pr,unaudited,bot-review"
+other_gap "cadence audited at another head" "fail${tab}cadence${tab}the configured cadence was not audited at 111111111111" "cadence,audited,2222222222222222222222222222222222222222"
 other_gap "failed post-pr step" "fail${tab}cadence${tab}post-pr: bot-review recorded halted" "cadence,gap,post-pr,failed,bot-review:halted"
 
 # A post-pr gap that is not the wait for the flip's run stays a gap.
@@ -167,7 +181,18 @@ walk_rows "ready, run predates the flip" $READY "check,PR-Agent,SUCCESS" "born,P
 expect_rc "a green PR-Agent run from before the flip is not the run the flip fired" 4
 expect_out "named, with when the run was created and when the flip was" "fail${tab}bot-review${tab}the only PR-Agent run at 111111111111 was created 2026-11-18T00:40:10Z, before the flip at $FLIP_T; wait for the run the flip fires"
 # shellcheck disable=SC2086
-walk_rows "ready, flip-fired run finished" $READY "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:42:23Z"
+walk_rows "ready, run time unread" $READY "check,PR-Agent,SUCCESS"
+expect_rc "a green run whose creation time was not read cannot be told from a pre-flip one" 4
+expect_out "named, asking for another read" "fail${tab}bot-review${tab}the creation time of the PR-Agent run at 111111111111 is unknown"
+# shellcheck disable=SC2086
+walk_rows "ready, no flip time" "state,ready" "require,pr-agent" "check,PR-Agent,SUCCESS"
+expect_rc "a pull request opened ready has no flip to date the run against" 0
+# shellcheck disable=SC2086
+walk_rows "ready, pre-flip run and a re-run after" $READY "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:42:23Z" "check,PR-Agent (review),FAILURE" "born,PR-Agent (review),2026-11-18T00:40:10Z"
+expect_out "a run of the flip is enough for the bot-review condition, the pre-flip red run still counts as a check" "fail${tab}check${tab}PR-Agent (review) is FAILURE"
+lacks "and the bot-review refusal is not raised" "fail${tab}bot-review"
+# shellcheck disable=SC2086
+walk_rows "ready, flip-fired run finished"$READY "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:42:23Z"
 expect_rc "a finished flip-fired run with nothing owing is merge-ready" 0
 expect_eq "and reads ready" "ready${tab}$H"
 # shellcheck disable=SC2086

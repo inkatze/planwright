@@ -47,9 +47,9 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       SUCCESS, NEUTRAL and SKIPPED pass
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
-                                      condition, but named by a ready walk
-                                      as the check the operator bypasses
-                                      at merge
+                                      condition, but named by a ready or
+                                      flip-for-review walk as the check
+                                      the operator bypasses at merge
   require<TAB>macos                   the repository's CI has macOS jobs, which
                                       run only on a ready or ci-macos
                                       labelled pull request; both must be
@@ -115,10 +115,10 @@ THE WALK refuses, each failure one line:
     The run, like any check, must be green, and its findings answered; a code
     change on a finding is a new head and needs one more run. A skipped run
     (the skip-pr-agent label, a dependabot head) is the opt-out. The run must
-    be the one the flip fired: where the flip time and the run's creation time
-    are known, a PR-Agent run created before the flip is not it, and a ready
-    pull request whose only runs predate the flip is refused until the flip's
-    own run exists and finishes;
+    be the one the flip fired: where the flip time is known, a PR-Agent run
+    created before the flip is not it (nor is one whose creation time is
+    unread), and a ready pull request with no run created at or after the flip
+    is refused until the flip's own run exists and finishes;
   - a pending check on a ready pull request, told by its run's creation time:
     created at or after the flip, it is the flip's own run and only has to
     finish; created before the flip and still running at it, the flip came
@@ -472,13 +472,15 @@ END {
   # the flip (every PR-Agent run there is) is not it, and the run the flip
   # fires has not shown up yet. No apostrophe here: this is a shell string.
   if (needbot && state == "ready" && botseen && flip != "") {
-    allpre = 1; newest = ""
+    fired = 0; unk = 0; newest = ""
     for (i = 1; i <= nraw; i++) if (bot_check(rn[i])) {
       b = born[rn[i]]
-      if (b == "" || b >= flip) allpre = 0
+      if (b == "") unk = 1
+      else if (b >= flip) fired = 1
       else if (b > newest) newest = b
     }
-    if (allpre) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires")
+    if (!fired && unk) fail("bot-review", "the creation time of the PR-Agent run at " substr(head, 1, 12) " is unknown, so it cannot be told from a run before the flip at " flip "; read it again")
+    else if (!fired) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires")
   }
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
@@ -524,7 +526,7 @@ END {
   }
   if (np) {
     print "flip-for-review\t" head
-    for (i = 1; i <= np; i++) print "pending\tpost-pr\t" pend[i] "; the ready flip fires the bot review (PR-Agent) it waits on"
+    for (i = 1; i <= np; i++) print "pending\tpost-pr\t" pend[i] "; pending the flip, which fires the bot review (PR-Agent) a post-pr step may wait on"
     for (i = 1; i <= nb; i++) print "bypass\t" byp[i]
     exit 4
   }

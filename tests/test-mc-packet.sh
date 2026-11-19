@@ -165,10 +165,17 @@ done
 # The flip verdict (a draft whose only gap is the bot review its flip fires)
 # is a walk result a packet carries, whole.
 printf 'flip-for-review\t%s\npending\tpost-pr\tno completion record\n' "$head" >"$tmp/flipreview"
+printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tincomplete\t-\n' "$head" "$head" >"$tmp/flipgap"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
-  --evidence "$tmp/gap" --moment ready-flip --level standard
+  --evidence "$tmp/flipgap" --moment ready-flip --level guided
 expect_rc "a flip-for-review readiness result assembles" 0
-expect_out "and the packet carries it whole" "flip-for-review${tab}$head"
+expect_out "and the packet carries its first line" "flip-for-review${tab}$head"
+expect_out "and its pending row" "pending${tab}post-pr${tab}no completion record"
+expect_out "the cadence line holds the post-pr gap as pending the flip" "Cadence: covered pre-pr; pending the flip: post-pr (no completion record)"
+expect_no_out "and gives no close-the-gap advice for it" "Recommend:"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
+  --evidence "$tmp/flipgap" --moment ready-flip --level standard
+expect_out "a not-ready walk still names the post-pr gap as a gap" "Cadence: covered pre-pr; gap post-pr (no completion record)"
 
 # Without a moment the packet is unchanged: the walk is the first line.
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/readiness"

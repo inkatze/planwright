@@ -239,7 +239,7 @@ That is the explicit trigger: the same pull-request event, so the
 same-repository, dependabot and `skip-pr-agent` label conditions apply
 unchanged. A pull request opened ready has no flip, so it needs that request
 for its one run. A ready pull request is merge-ready only with a PR-Agent run
-on its final head, created at or after the flip, that passed (or was skipped by
+on its final head, created at or after the flip where there is one, that passed (or was skipped by
 the `skip-pr-agent` label or a dependabot head) and its findings answered; a
 run that predates the flip is not the flip's, and a ready pull request whose
 flip-fired run is still running is never merge-ready.

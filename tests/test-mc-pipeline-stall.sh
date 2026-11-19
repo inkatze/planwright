@@ -156,6 +156,8 @@ expect_out "a window later it raises again" "raised${tab}pipeline-stalled"
 if [ "$(stalled_events)" = 2 ]; then ok "two events in all"; else fail "expected two events, got $(stalled_events)"; fi
 
 # --- launch holds ----------------------------------------------------------
+# Draft 11 now reads flip-for-review, so the holds cover that walk's branch too.
+: >"$tmp/flip.11"
 : >"$tmp/usage-held"
 drafts | put $((T + 6 * HOUR))
 run $((T + 6 * HOUR))
@@ -168,6 +170,7 @@ run $((T + 8 * HOUR))
 ev=$(mc_run_events)
 case $ev in *"launch hold (host bound) (1): acme/web#11"*) ok "the host bound at its limit is a launch hold" ;; *) fail "no host bound reason: $ev" ;; esac
 printf 'bound\t8\t2\t0\n' >"$tmp/bound"
+rm -f "$tmp/flip.11"
 
 # --- thirty drafts still name every reason inside the event's byte cap ------
 for n in $(seq 100 129); do
