@@ -231,8 +231,9 @@ CI is the enforcement.
 ### REQ-E1.3 — docs state the review-step posture [test]
 
 The docs check asserts `docs/allocation.md` names both review keys as shipping
-`sonnet`, the `execute_step` gate, and that quality is unmeasured and the saving an
-estimate; the shipped-posture list matches `config/defaults.yml`.
+`sonnet`, the `execute_step` gate, that a review step's model applies only when
+strictly cheaper than the unit's model, and that quality is unmeasured and the saving
+an estimate; the shipped-posture list matches `config/defaults.yml`.
 
 ## REQ-F — Observability and feedback
 

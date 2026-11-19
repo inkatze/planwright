@@ -363,10 +363,12 @@ Anchor: `c6f738145626060c125e93301446f17cf8fd73aa` — computed as
 say in plain words that a review step's model takes effect only when it is strictly
 cheaper than the unit's model, which is what `scripts/allocation-adapt.sh` already
 applies. Nothing new is decided: no REQ or D-ID was added, removed, or given a new
-meaning. Approved by the operator 2026-11-19 (ruling on the PR-Agent finding, "Fix
-the wording (Recommended)", relayed by the hub).
+meaning. The REQ-E1.3 entry in `test-spec.md` carries the paired edit: the docs check
+also asserts the docs state that a review step's model applies only when strictly
+cheaper than the unit's model. Approved by the operator 2026-11-19 (ruling on the
+PR-Agent finding, "Fix the wording (Recommended)", relayed by the hub).
 
 Class: expression-only
 Changelog: requirements.md `## Changelog`, entry dated 2026-11-19
-Anchor: `597f9b30276c22b2e0bfa4a30b01a9f35f0614ea` — computed as
+Anchor: `9abb6f924e7ebc80d7b41510a4b5b86026df840e` — computed as
 `scripts/spec-anchor.sh specs/model-allocation`
