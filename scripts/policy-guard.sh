@@ -417,14 +417,15 @@ RE_MC_GIT_EXEC_FLAG='(^|[[:space:]])(--outp[^[:space:]]*|--ex?([^A-Za-z0-9_-]|$)
 RE_MERGE_HELPER='(^|[^[:alnum:]_.-])merge-ad'
 RE_FOR_MERGE='(^|[^[:alnum:]_-])--for-merge([^[:alnum:]_-]|$)'
 
-# raw_force_push_call <text> — 0 when the text runs the force-push helper as a
-# command: a command's first word, or any word after a wrapper (a shell, sudo,
-# env, xargs, an interpreter, ...), where a shell's -c text and eval's text
-# start a command of their own. The name anywhere else (a grep pattern, a
-# test file's name) runs nothing. Called with nocasematch on: a
-# case-insensitive filesystem runs Tower-Force-Push.sh.
+# raw_force_push_call <text> [<stem>] — 0 when the text runs the force-push
+# helper (or the script whose file name starts with <stem>) as a command: a
+# command's first word, or any word after a wrapper (a shell, sudo, env,
+# xargs, an interpreter, ...), where a shell's -c text and eval's text start a
+# command of their own. The name anywhere else (a grep pattern, a test file's
+# name) runs nothing. Called with nocasematch on: a case-insensitive
+# filesystem runs Tower-Force-Push.sh.
 raw_force_push_call() {
-  local t=$1 w cmd=1 wrapped=0 skip=0
+  local t=$1 stem=${2:-tower-force-push} w cmd=1 wrapped=0 skip=0
   local -a words
   t=${t//$'\n'/ ; }
   t=${t//;/ ; }
@@ -446,7 +447,7 @@ raw_force_push_call() {
       continue
     fi
     [ "$cmd" = 1 ] || [ "$wrapped" != 0 ] || continue
-    [[ ${w##*/} != tower-force-push* ]] || return 0
+    [[ ${w##*/} != "$stem"* ]] || return 0
     case $w in
       '>' | '>>' | '<' | '<<' | [0-9]'>' | [0-9]'>>' | [0-9]'<')
         skip=1
@@ -4920,29 +4921,47 @@ base_merge_allowed() { # <dir> <what> [<remedy for a branch refusal>]
 # twice, or a value outside planwright/<spec>/<name> (a task or flight branch,
 # or a protected one) names nothing.
 SPEC_BRANCH=''
-record_spec_branch() { # <worktree top>
-  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line n=0 v='' size top pdir ptop
-  local re='^planwright/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9.-]*$'
-  SPEC_BRANCH=''
-  [ "$TIER" = worker ] || return 0
-  case $p in /?*) ;; *) return 0 ;; esac
-  [ -f "$p" ] && [ ! -L "$p" ] && [ -r "$p" ] && [ -O "$p" ] || return 0
-  top=${1:-$UNIT_TOP}
-  case $p in "$top"/*) return 0 ;; esac
-  pdir=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd) || return 0
-  ptop=$(cd -P -- "$top" 2>/dev/null && pwd) || return 0
-  case "${pdir%/}/" in "${ptop%/}"/*) return 0 ;; esac
-  size=$(wc -c <"$p" 2>/dev/null) || return 0
-  [ "${size// /}" -le 4096 ] 2>/dev/null || return 0
+# record_usable <worktree top> — 0 when the session record is one the guard
+# reads at all, by the rules above (the field rules aside).
+record_usable() {
+  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} size top=$1 pdir ptop
+  [ "$TIER" = worker ] || return 1
+  case $p in /?*) ;; *) return 1 ;; esac
+  [ -f "$p" ] && [ ! -L "$p" ] && [ -r "$p" ] && [ -O "$p" ] || return 1
+  case $p in "$top"/*) return 1 ;; esac
+  pdir=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd) || return 1
+  ptop=$(cd -P -- "$top" 2>/dev/null && pwd) || return 1
+  case "${pdir%/}/" in "${ptop%/}"/*) return 1 ;; esac
+  size=$(wc -c <"$p" 2>/dev/null) || return 1
+  [ "${size// /}" -le 4096 ] 2>/dev/null
+}
+
+# record_field <key> — set RF to the value of the record's one <key>= line;
+# 1, RF empty, when there is none or more than one.
+record_field() {
+  local line n=0
+  RF=''
   while IFS= read -r line || [ -n "$line" ]; do
     case $line in
-      spec_branch=*)
+      "$1="*)
         n=$((n + 1))
-        v=${line#spec_branch=}
+        RF=${line#"$1="}
         ;;
     esac
-  done <"$p"
-  [ "$n" = 1 ] || return 0
+  done <"$PLANWRIGHT_WORKER_SESSION_RECORD"
+  [ "$n" = 1 ] || {
+    RF=''
+    return 1
+  }
+}
+
+record_spec_branch() { # <worktree top>
+  local v
+  local re='^planwright/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9.-]*$'
+  SPEC_BRANCH=''
+  record_usable "${1:-$UNIT_TOP}" || return 0
+  record_field spec_branch || return 0
+  v=$RF
   [[ $v =~ $re ]] || return 0
   valid_branch "$v" || return 0
   is_unit_branch "$v" && return 0
@@ -7210,6 +7229,152 @@ mc_unparsed_command_names() {
   return 0
 }
 
+# --------------------------------------------------------------------------
+# The worker's own branch sync. scripts/worker-branch-sync.sh runs the three
+# acts the worker profile's deny floor keeps from raw git (a leased rewrite
+# push, git reset --hard to the branch's own remote-tracking ref, and a
+# fast-forward to a descendant commit), so the floor stays as it is and this
+# arm admits only the helper: at the worker tier, run as its own command or
+# after cd only, by the installed copy's path (or $CLAUDE_PLUGIN_ROOT's), with
+# literal arguments in its own grammar, in the session's own checkout on its
+# unit branch outside the protected set, where the launch-written session
+# record names that checkout and branch. The helper repeats these checks and
+# adds the ones only the moment of the act can answer (the draft PR, the
+# reflog, a shared branch, a clean tree). Any other run is refused; a mention
+# that runs nothing (a read, a stage, a test of it) passes to the ordinary
+# rules.
+
+SYNC_FILE=worker-branch-sync.sh
+SYNC_FORM="<installed root>/scripts/worker-branch-sync.sh push --force-with-lease=<branch>:<full sha> --force-if-includes, reset origin/<branch>, or ff <full sha>"
+RE_SYNC_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/worker-branch-sync\.sh$'
+
+# branch_sync_run <text> — 0 when the text runs the helper as a command, read
+# with line splices and quotes dropped (raw_force_push_call reads a quote as a
+# word break, which would split "$ROOT"/scripts/... from its root).
+branch_sync_run() {
+  local t=${1//\\"$NL"/} rc=1
+  t=${t//[\"\']/}
+  shopt -s nocasematch
+  case $t in
+    *worker-branch-sync*) ! raw_force_push_call "$t" worker-branch-sync || rc=0 ;;
+  esac
+  shopt -u nocasematch
+  return "$rc"
+}
+
+# sync_installed <path> — 0 when the absolute path is the helper of this
+# guard's own install or of a root Claude Code installed planwright at.
+sync_installed() {
+  local p=$1 r
+  [ -f "$p" ] || return 1
+  [ -z "$GUARD_DIR" ] || [ ! "$p" -ef "$GUARD_DIR/$SYNC_FILE" ] || return 0
+  [ -z "${CLAUDE_PLUGIN_ROOT:-}" ] || [ ! "$p" -ef "$CLAUDE_PLUGIN_ROOT/scripts/$SYNC_FILE" ] || return 0
+  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-installed-roots.sh" ] || return 1
+  while IFS= read -r r; do
+    case $r in /?*) ;; *) continue ;; esac
+    [ ! "$p" -ef "$r/scripts/$SYNC_FILE" ] || return 0
+  done <<EOF
+$("$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-installed-roots.sh" 2>/dev/null </dev/null)
+EOF
+  return 1
+}
+
+sync_refuse() {
+  emit_deny "$1 Run it as $SYNC_FORM, as its own command or after cd only."
+}
+
+# branch_sync_check <command> — deny every run of the helper but the admitted
+# one, which returns with no decision.
+branch_sync_check() {
+  local cmd=$1 si=0 eff=$PAYLOAD_CWD w a lease=0 inc=0 rtop
+  [ "$TIER" = worker ] \
+    || emit_deny "scripts/worker-branch-sync.sh syncs a dispatched worker's own unit branch and runs under the worker profile only; it is refused at this tier. A pushed branch is rewritten by the tower, through scripts/tower-force-push.sh, on the operator's request."
+  need_timeout
+  tokenize "$cmd" || sync_refuse "this command runs scripts/worker-branch-sync.sh in a form the guard will not parse - refusing (fail closed)."
+  [ "$HEREDOC_SUBST" = 0 ] || sync_refuse "this command runs scripts/worker-branch-sync.sh beside a here-document - refusing."
+  case ${#SEG_S[@]} in
+    1) ;;
+    2)
+      segment_words 0
+      [ "${SEG_TERM[0]}" = '&&' ] && [ "${SEG_RD[0]}" = 0 ] && [ -z "${SEG_DOC[0]:-}" ] && [ "$SW_ASSIGN" = 0 ] \
+        && [ "${#SW[@]}" = 2 ] && [ "${W[${SEG_S[0]}]}" = cd ] && [ "${SW[0]}" = cd ] && [ "${SWL[1]}" = 1 ] \
+        || sync_refuse "this command runs scripts/worker-branch-sync.sh after something other than one plain cd joined by && - refusing."
+      case ${SW[1]} in
+        /*) eff=${SW[1]} ;;
+        -*) sync_refuse "this command runs scripts/worker-branch-sync.sh after a cd the guard cannot place - refusing." ;;
+        *) eff="$PAYLOAD_CWD/${SW[1]}" ;;
+      esac
+      [ -d "$eff" ] && [ -x "$eff" ] \
+        || sync_refuse "this command runs scripts/worker-branch-sync.sh after a cd into a directory that cannot be entered - refusing."
+      si=1
+      ;;
+    *) sync_refuse "this command runs scripts/worker-branch-sync.sh beside other commands - refusing." ;;
+  esac
+  segment_words "$si"
+  [ "${#SW[@]}" -gt 0 ] && [ "${W[${SEG_S[$si]}]}" = "${SW[0]}" ] && [ "$SW_ASSIGN" = 0 ] && [ "$SW_WRAPPED" = 0 ] \
+    && [ "${SEG_RD[$si]}" = 0 ] && [ -z "${SEG_DOC[$si]:-}" ] && [ -z "${SEG_TERM[$si]}" ] \
+    || sync_refuse "this command runs scripts/worker-branch-sync.sh through a prefix, an assignment, a redirect or a wrapper - refusing."
+  w=${SW[0]}
+  if [ "${SWL[0]}" = 1 ]; then
+    case $w in
+      /*) ;;
+      *) sync_refuse "this command names scripts/worker-branch-sync.sh by a relative path, which could be a worktree copy - refusing." ;;
+    esac
+    lc "${w##*/}"
+    if [ "$LC" != "$SYNC_FILE" ] || ! sync_installed "$w"; then
+      sync_refuse "this command runs a $(sanitize_printable "${w##*/}" 'script') that is not the installed scripts/worker-branch-sync.sh (a copy in a worktree or elsewhere carries none of its checks) - refusing."
+    fi
+  else
+    [[ $w =~ $RE_SYNC_SCRIPT ]] \
+      || sync_refuse "this command names scripts/worker-branch-sync.sh through an expansion other than \$CLAUDE_PLUGIN_ROOT - refusing (fail closed)."
+  fi
+  for a in "${SWL[@]:1}"; do
+    [ "$a" = 1 ] || sync_refuse "this command passes scripts/worker-branch-sync.sh an argument that is not a plain literal - refusing (fail closed)."
+  done
+
+  on_unit_branch "$eff" 'this run of scripts/worker-branch-sync.sh'
+  record_usable "$UNIT_TOP" \
+    || emit_deny "scripts/worker-branch-sync.sh runs only for a dispatched worker whose launch-written session record (PLANWRIGHT_WORKER_SESSION_RECORD, this user's own file outside the worktree) names its worktree and unit branch, and this session has no usable one - refusing. Leave the sync to the operator and name it in your handoff."
+  record_field unit_branch && [ "$RF" = "$UNIT_BRANCH" ] \
+    || emit_deny "this session's record does not name $(sanitize_printable "$UNIT_BRANCH" 'the unit branch') as its one unit branch, so scripts/worker-branch-sync.sh is refused here."
+  record_field worktree_root \
+    && rtop=$(cd -P -- "$RF" 2>/dev/null && pwd) && [ "$rtop" = "$(cd -P -- "$UNIT_TOP" 2>/dev/null && pwd)" ] \
+    || emit_deny "this session's record does not name this checkout ($(sanitize_printable "$UNIT_TOP" 'the worktree')) as its one worktree, so scripts/worker-branch-sync.sh is refused here."
+
+  case ${SW[1]:-} in
+    push)
+      [ "${#SW[@]}" = 4 ] || sync_refuse "push takes the lease and --force-if-includes and nothing else (no force without a lease, no remote, refspec or + form) - refusing."
+      for a in "${SW[@]:2}"; do
+        case $a in
+          "--force-with-lease=$UNIT_BRANCH:"*)
+            a=${a#"--force-with-lease=$UNIT_BRANCH:"}
+            case $a in *[!0-9a-f]*) a='' ;; esac
+            { [ "${#a}" = 40 ] || [ "${#a}" = 64 ]; } \
+              || sync_refuse "the lease must name $(sanitize_printable "$UNIT_BRANCH" 'the unit branch') with the full SHA of the tip the rewrite started from - refusing."
+            lease=$((lease + 1))
+            ;;
+          --force-if-includes) inc=$((inc + 1)) ;;
+          *) sync_refuse "push takes --force-with-lease=$(sanitize_printable "$UNIT_BRANCH" '<branch>'):<full sha> and --force-if-includes only; $(sanitize_printable "$a" 'an argument') is refused (a lease with no SHA, another branch, a force, a remote or a + refspec)." ;;
+        esac
+      done
+      [ "$lease" = 1 ] && [ "$inc" = 1 ] \
+        || sync_refuse "push needs exactly one --force-with-lease=<branch>:<full sha> paired with one --force-if-includes - refusing."
+      ;;
+    reset)
+      [ "${#SW[@]}" = 3 ] && [ "${SW[2]}" = "origin/$UNIT_BRANCH" ] \
+        || sync_refuse "reset takes origin/$(sanitize_printable "$UNIT_BRANCH" '<branch>'), this branch's own remote-tracking ref, and nothing else - refusing."
+      ;;
+    ff)
+      a=${SW[2]:-}
+      case $a in *[!0-9a-f]*) a='' ;; esac
+      if [ "${#SW[@]}" != 3 ] || { [ "${#a}" != 40 ] && [ "${#a}" != 64 ]; }; then
+        sync_refuse "ff takes the full SHA of a commit descending from HEAD, and nothing else - refusing."
+      fi
+      ;;
+    *) sync_refuse "scripts/worker-branch-sync.sh has the verbs push, reset and ff only - refusing." ;;
+  esac
+}
+
 handle_bash() {
   local cmd=$P_CMD
   if [ "$P_CMD_OK" != 1 ] || [ -z "$cmd" ]; then
@@ -7225,7 +7390,7 @@ handle_bash() {
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
-    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push* | *kickoff-spec*) hit=1 ;;
+    *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push* | *kickoff-spec* | *worker-branch-sync*) hit=1 ;;
     # A glob or brace word could still name the merge helper.
     *admitted* | *'*'* | *'?'* | *'['* | *'{'*) hit=1 ;;
     *'$'* | *'`'*)
@@ -7252,6 +7417,11 @@ handle_bash() {
       return 0
       ;;
   esac
+  if branch_sync_run "$cmd"; then
+    [ "${#cmd}" -le "$MAX_CMD_LEN" ] || sync_refuse 'this command is too long for the guard to analyze, and it runs scripts/worker-branch-sync.sh - refusing.'
+    branch_sync_check "$cmd"
+    return 0
+  fi
   # Where the parse is unavailable the whole text is screened, here-document
   # bodies included: only the parse can tell a body bash runs from one it
   # hands to a command as data.
