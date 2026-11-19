@@ -101,6 +101,7 @@ fi
 # A member that never stops is waited for only to the bound, then skipped for
 # the rest of the freeze.
 kill -CONT "$victim"
+stop_tracked=$victim
 sf_skip=''
 freeze_settle=1
 start=$(now_s)
@@ -123,6 +124,41 @@ if [ "$elapsed" -le 1 ]; then
 else
   fail "a skipped member still took ${elapsed} s"
 fi
+
+# One deadline covers every member of a round: two members that never stop
+# cost one bound together, not one each. The clock is a counter that moves one
+# tick per read and the sleep does nothing, so the count is exact.
+first=$victim
+start_victim
+second=$victim
+(
+  stop_state() { printf R; }
+  stop_now() {
+    tick=$(cat "$T/clock")
+    tick=$((tick + 1))
+    printf '%s\n' "$tick" >"$T/clock"
+    printf '%s' "$tick"
+  }
+  sleep() { :; }
+  printf '%s\n' 0 >"$T/clock"
+  stop_tracked="$first $second"
+  sf_skip=''
+  freeze_settle=3
+  stop_await_stopped
+  printf '%s %s\n' "$(cat "$T/clock")" "$sf_skip" >"$T/clock-result"
+)
+read -r ticks skipped <"$T/clock-result"
+# Alone, the first member reads ticks 1 to 5 (the deadline is tick 1 plus 3,
+# and it is passed at tick 5) and the second one tick after that.
+if [ "$ticks" = 6 ]; then
+  pass "members of one round share a single deadline"
+else
+  fail "two stuck members took $ticks clock ticks, not the 6 one shared deadline takes"
+fi
+case $skipped in
+  *"$first"*"$second"* | *"$second"*"$first"*) pass "every member past the deadline is skipped" ;;
+  *) fail "members past the deadline were not all skipped: '$skipped'" ;;
+esac
 
 # A member that is gone is settled at once.
 gone=$(dead_owner_pid) || gone=''
