@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # noop-padding-guard.sh — the PreToolUse hook that refuses a worker's Bash
 # command carrying no-op padding: a segment that does nothing, apparently
-# written to change how the command is classified, or a shared fixed name
-# under /tmp.
+# written to change how the command is classified, a shared fixed name under
+# /tmp, or a process held open for nothing (`tail -f /dev/null`, `sleep infinity`).
 #
 # Usage: noop-padding-guard.sh < <PreToolUse payload>
 # Output: a permissionDecision "deny" with a plain reason naming the shape and
@@ -11,8 +11,8 @@
 #
 # Posture: worker-command-guard.sh is allow-only, so this is a separate,
 # deny-emitting hook like background-job-guard.sh, wired beside it. Every
-# shape here is a pure no-op (or a shared name) with a mechanical alternative,
-# so refusing fits better than deferring: a deferred call reaches the
+# shape here is a pure no-op, a shared name or a holder, each with a
+# mechanical alternative, so refusing fits better than deferring: a deferred call reaches the
 # supervisor, which is exactly the hand-denial this hook replaces. The reason
 # is fixed text per shape and never reflects the command.
 #
@@ -20,7 +20,8 @@
 # command is split into segments quote- and heredoc-aware, and a construct the
 # splitter does not follow (a subshell, a backtick, a substitution inside
 # double quotes, an unterminated quote) defers the whole command. Text inside
-# quotes, heredoc bodies and substitutions is never read as a command.
+# quotes, heredoc bodies and substitutions is never read as a command, bar the
+# holder check, which reads a shell -c body and substitution words.
 # shellcheck disable=SC1003
 set -u
 unset CDPATH
@@ -410,86 +411,125 @@ MKTEMP_REASON='mktemp -u only names a shared path without creating it. Use mktem
 HEAD_REASON='head with a count of zero prints nothing. Remove it'
 HOLD_REASON='tail -f on /dev/null and sleep infinity hold a process open forever, nothing reaps it when the command ends, and uutils tail also busy-wakes on /dev/null. Wait with sleep N for a bounded number of seconds, or follow a real log file as timeout N tail -f <file>'
 
-# What a held-open process looks like as text: a substitution word or a shell
-# -c body can start one without it being the segment's verb.
-HOLD_BODY_RE='(^|[^[:alnum:]_./-])(tail[[:space:]]+(-[A-Za-z]*[fF][A-Za-z]*|--follow[^[:space:]]*)[[:space:]]+/dev/null|sleep[[:space:]]+inf(inity)?)([^[:alnum:]_./-]|$)'
-
-# hold_shape: succeeds when the segment (verb in $verb, arguments in AW and
-# an, words in SW, redirect targets in RT) starts a process held open on
-# purpose: tail -f on /dev/null or sleep infinity (behind timeout, nohup,
-# setsid, exec or command too), the same inside a shell -c body, or inside a
-# substitution word. A bounded `timeout N tail -f <file>` is a real follow and
-# does not match.
-hold_shape() {
-  local hv=$verb ha=0 a i follow=0 null=0 shell_c=0
-  while :; do
-    case $hv in
+# hold_cmd <word>...: succeeds when the command these words spell holds a
+# process open on purpose: tail following /dev/null, or sleep infinity, run
+# directly or behind timeout, nohup, setsid or exec, or by a shell -c whose
+# body does. A bounded `timeout N tail -f <file>` is a real follow and does
+# not match. The awk in mc-stall.sh's stream_json_procs recognises the same
+# two commands in a process table; keep them in step.
+hold_cmd() {
+  local a w follow=0 null=0 bounded=0 c=0
+  while [ "$#" -gt 0 ]; do
+    case ${1##*/} in
       timeout)
-        while [ "$ha" -lt "$an" ]; do
-          case ${AW[ha]} in
-            -s | -k | --signal | --kill-after) ha=$((ha + 2)) ;;
-            -*) ha=$((ha + 1)) ;;
+        shift
+        while [ "$#" -gt 0 ]; do
+          case $1 in
+            -s | -k | --signal | --kill-after) shift 2 || return 1 ;;
+            -*) shift ;;
             *) break ;;
           esac
         done
-        ha=$((ha + 1))
+        [ "$#" -eq 0 ] || shift
         ;;
-      nohup | setsid | exec | command)
-        while [ "$ha" -lt "$an" ] && [[ ${AW[ha]} == -* ]]; do ha=$((ha + 1)); done
+      nohup | setsid | exec)
+        shift
+        while [ "$#" -gt 0 ]; do
+          case $1 in
+            -a) shift 2 || return 1 ;;
+            -*) shift ;;
+            *) break ;;
+          esac
+        done
         ;;
       *) break ;;
     esac
-    if [ "$ha" -lt "$an" ]; then
-      hv=${AW[ha]}
-      ha=$((ha + 1))
-    else
-      hv=''
-      break
-    fi
   done
-  case $hv in
+  [ "$#" -gt 0 ] || return 1
+  a=${1##*/}
+  shift
+  case $a in
     tail)
-      for ((i = ha; i < an; i++)); do
-        a=${AW[i]}
-        case $a in
+      for w in "$@"; do
+        case $w in
+          --pid | --pid=*) bounded=1 ;;
           --follow | --follow=*) follow=1 ;;
           --*) ;;
           -*[fF]*) follow=1 ;;
           /dev/null) null=1 ;;
         esac
       done
-      [ "$follow" = 1 ] && [ "$null" = 1 ] && return 0
+      [ "$follow" = 1 ] && [ "$null" = 1 ] && [ "$bounded" = 0 ] && return 0
       ;;
     sleep)
-      for ((i = ha; i < an; i++)); do
-        case ${AW[i]} in
-          inf | infinity) return 0 ;;
+      for w in "$@"; do
+        w=${w#+}
+        case $w in
+          [Ii][Nn][Ff] | [Ii][Nn][Ff][Ii][Nn][Ii][Tt][Yy]) return 0 ;;
         esac
       done
       ;;
     bash | sh | dash | zsh | ksh)
-      for ((i = ha; i < an; i++)); do
-        case ${AW[i]} in
-          -c | -[a-z]*c*) shell_c=1 ;;
+      while [ "$#" -gt 0 ]; do
+        case $1 in
+          --) shift && break ;;
+          --*) shift ;;
+          -*c*) c=1 && shift ;;
+          -*) shift ;;
+          *) break ;;
         esac
       done
-      if [ "$shell_c" = 1 ]; then
-        for ((i = ha; i < an; i++)); do
-          [[ ${AW[i]} =~ $HOLD_BODY_RE ]] && return 0
-        done
-      fi
+      [ "$c" = 1 ] && [ "$#" -gt 0 ] && hold_text "$1" && return 0
       ;;
   esac
+  return 1
+}
+
+# hold_text <text>: succeeds when a command in the text, taken as the words
+# between its separators, is a holder. The text is split without quote
+# awareness, so it is read only where a command is in play: a shell -c body, a
+# command substitution word or a process substitution.
+hold_text() {
+  local t=$1 line seps='[;&|(){}]' IFS=$' \t'
+  t=${t//$seps/$'\n'}
+  while IFS= read -r line; do
+    set -f
+    # shellcheck disable=SC2086 # word splitting is the point, globbing is off
+    set -- $line
+    set +f
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        do | then | else | '!' | while | until | if) shift ;;
+        *) break ;;
+      esac
+    done
+    [ "$#" -eq 0 ] || ! hold_cmd "$@" || return 0
+  done <<EOF
+$t
+EOF
+  return 1
+}
+
+# hold_shape: succeeds when the segment (verb in $verb, arguments in AW and
+# an, words in SW, redirect targets in RT) starts a holder, or carries one in
+# a substitution word.
+hold_shape() {
+  local i
+  if [ -n "$verb" ]; then
+    set -- "$verb"
+    for ((i = 0; i < an; i++)); do set -- "$@" "${AW[i]}"; done
+    hold_cmd "$@" && return 0
+  fi
   for ((i = 0; i < SN; i++)); do
     [ "${SQ[i]}" = 0 ] || continue
     # shellcheck disable=SC2016 # a literal $( in the word, not an expansion
     case ${SW[i]} in
-      *'$('* | *'<('* | *'>('*) [[ ${SW[i]} =~ $HOLD_BODY_RE ]] && return 0 ;;
+      *'$('* | *'<('* | *'>('*) ! hold_text "${SW[i]}" || return 0 ;;
     esac
   done
   for ((i = 0; i < RN; i++)); do
     case ${RT[i]:-} in
-      '<('* | '>('*) [[ ${RT[i]} =~ $HOLD_BODY_RE ]] && return 0 ;;
+      '<('* | '>('*) ! hold_text "${RT[i]}" || return 0 ;;
     esac
   done
   return 1

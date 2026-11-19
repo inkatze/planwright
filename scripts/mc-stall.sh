@@ -47,7 +47,8 @@ Usage:
       classify every launched session the program's registry rows name.
   mc-stall.sh orphans
       list every stream-json process of this user's that nothing can
-      reach any more, whatever fleet home or program started it. Read-only:
+      reach any more, and every tail -f /dev/null or sleep infinity holder
+      init has adopted, whatever fleet home or program started it. Read-only:
       it never signals one, and stopping one is the operator's call.
 
 Liveness is positive evidence from the session's rung, through
@@ -131,10 +132,15 @@ A supervised worker is named in its supervisor's row instead, and a process
 with the supervisor's argv whose parent is that supervisor is one of its own
 forks, never listed. A directory that records no supervisor yet
 belongs to one starting or exiting, so that alone lists nothing. A holder is
-a `tail -f /dev/null` or `sleep infinity` that init (or systemd, as a
-subreaper) has adopted: the command or test that started it is gone and
-nothing will end it, and its worker column reads `-`. One whose parent still
-runs is its parent's, never listed. orphans prints, tab separated:
+a `tail -f /dev/null` or `sleep infinity` (spelled so, the row prefilter
+matching nothing else) that init has adopted: its parent is pid 1, or, where
+there is a procfs, a process named systemd, init or launchd. The command or
+test that started it is usually gone and nothing will end it, but a service
+manager that runs one on purpose is listed too, so the listing says what it
+read and leaves the call to the operator. Its worker column reads `-`, and it
+is listed by its parent alone, never by its working directory. One whose
+parent still runs is its parent's, never listed. orphans prints, tab
+separated:
   orphan <pid> <start> <supervisor|claude|holder> <worker> <reason>
 where <start>, which tells the process from a later one given the same pid,
 is its procfs start tick as t<ticks> (field 22 of /proc/<pid>/stat) where
@@ -671,8 +677,9 @@ proc_cwd() {
   fi
 }
 
-# proc_rows: this user's process rows that name the launcher or the
-# stream-json shape, as `<pid> <ppid> <start> <argv...>` with <start> one
+# proc_rows: this user's process rows that name the launcher, the
+# stream-json shape, /dev/null or infinity (the holder candidates), as
+# `<pid> <ppid> <start> <argv...>` with <start> one
 # token: from procfs where there is one, since busybox's ps cuts argv short
 # and has no start time, each row read with builtins alone, as a busy host
 # has many; elsewhere from ps, its lstart joined by dashes. A procfs start is
@@ -716,7 +723,9 @@ EOF
 # stream_json_procs: this user's candidates from the process table, one per
 # line, tab separated: `S <pid> <start> <worker> <dir> <worker pids>` for a
 # supervisor, `C <pid> <start> <worker> <ppid>` for a stream-json worker no
-# fleet-streamjson.sh launch, recover, relaunch or supervisor parents. A
+# fleet-streamjson.sh launch, recover, relaunch or supervisor parents, and
+# `H <pid> <start> - <ppid>` for a holder (tail -f /dev/null, sleep
+# infinity), whatever its parent. A
 # supervisor's own forks keep its `_supervise` argv for a moment (a
 # subshell, the worker before its exec), so a candidate whose parent is a
 # supervisor is that supervisor's, never its own row; and `launch
@@ -730,18 +739,21 @@ stream_json_procs() {
     NF >= 4 {
       pid = $1; ppid = $2; start = $3
       parent[pid] = ppid
-      # A process kept open on purpose: tail -f /dev/null or sleep infinity,
-      # run directly or as a script by a shell (a stand-in names its own).
+      # A holder: tail -f /dev/null or sleep infinity, run directly or as a
+      # script by a shell (a stand-in names its own). hold_cmd in
+      # noop-padding-guard.sh refuses the same two commands; keep them in
+      # step, bar the spellings of infinity the row prefilter cannot match.
       hi = (base($4) ~ /^(sh|bash|dash|zsh)$/) ? 5 : 4
       if (hi <= NF && base($hi) == "tail") {
-        hf = 0; hz = 0
+        hf = 0; hz = 0; hp = 0
         for (i = hi + 1; i <= NF; i++) {
-          if ($i == "--follow" || $i ~ /^--follow=/) hf = 1
+          if ($i ~ /^--pid(=|$)/) hp = 1
+          else if ($i == "--follow" || $i ~ /^--follow=/) hf = 1
           else if ($i !~ /^--/ && $i ~ /^-[A-Za-z]*[fF]/) hf = 1
           if ($i == "/dev/null") hz = 1
         }
-        if (hf && hz) { hold[pid] = start "\t-\t" ppid; horder[++h] = pid }
-      } else if (hi <= NF && base($hi) == "sleep" && ($(hi + 1) == "infinity" || $(hi + 1) == "inf") && hi + 1 == NF) {
+        if (hf && hz && !hp) { hold[pid] = start "\t-\t" ppid; horder[++h] = pid }
+      } else if (hi <= NF && base($hi) == "sleep" && $(hi + 1) == "infinity" && hi + 1 == NF) {
         hold[pid] = start "\t-\t" ppid; horder[++h] = pid
       }
       for (i = 4; i < NF; i++) if (base($i) == "fleet-streamjson.sh" && $(i + 1) ~ /^(launch|recover|relaunch|_supervise)$/) { fsj[pid] = 1; break }
@@ -803,8 +815,10 @@ list_orphans() {
         lo_adopter=''
         if [ "$lo_a" = 1 ]; then
           lo_adopter=init
-        elif [ -n "${PROC_ROOT:-}" ] && mc_valid_uint "$lo_a"; then
-          IFS= read -r lo_comm <"$PROC_ROOT/$lo_a/comm" 2>/dev/null || lo_comm=''
+        elif [ -n "${PROC_ROOT:-}" ] && mc_valid_uint "$lo_a" && [ "$lo_a" -gt 1 ]; then
+          # The redirect sits inside the group so a parent that is gone says
+          # nothing; the row is then skipped until a later pass.
+          { IFS= read -r lo_comm <"$PROC_ROOT/$lo_a/comm"; } 2>/dev/null || lo_comm=''
           case $lo_comm in
             systemd | init | launchd) lo_adopter=$lo_comm ;;
           esac
@@ -814,7 +828,8 @@ list_orphans() {
         ;;
       *) continue ;;
     esac
-    lo_cwd=$(proc_cwd "$lo_pid")
+    lo_cwd=''
+    [ "$lo_kind" = H ] || lo_cwd=$(proc_cwd "$lo_pid")
     case $lo_cwd in
       gone:*) lo_why="${lo_why:+$lo_why; }its working directory ${lo_cwd#gone:} is gone" ;;
     esac

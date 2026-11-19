@@ -2,7 +2,8 @@
 # Tests for scripts/mc-stall.sh's orphans verb: a stream-json supervisor or
 # `claude -p` worker nothing can reach any more (its state directory gone or
 # naming another supervisor, its working directory gone, or a worker with no
-# supervisor and no fleet record) is listed, and never signalled.
+# supervisor and no fleet record) is listed, and never signalled; so is a
+# tail -f /dev/null or sleep infinity holder once init has adopted it.
 #
 # The processes are real: stand-in scripts named as the launcher and the CLI,
 # so their command lines take the shape a real pair has. Each ends itself once
@@ -315,14 +316,28 @@ fake_holder 5006 1 'tail\000-f\000/var/log/run.log\000'
 fake_holder 5007 1 'sleep\00030\000'
 fake_holder 5008 1 'tail\000-n\0005\000/dev/null\000'
 fake_holder 5009 1 'tail\000--follow=name\000/dev/null\000'
-mkdir -p "$hp/7000" "$hp/7001"
+fake_holder 5010 7002 'sleep\000infinity\000'
+fake_holder 5011 7003 'tail\000-f\000/dev/null\000'
+fake_holder 5012 7999 'tail\000-f\000/dev/null\000'
+fake_holder 5013 0 'tail\000-f\000/dev/null\000'
+fake_holder 5014 1 'sleep\000infinity\000extra\000'
+fake_holder 5015 1 'tail\000--pid=4242\000-f\000/dev/null\000'
+fake_holder 5016 1 'sleep\000inf\000'
+mkdir -p "$hp/7000" "$hp/7001" "$hp/7002" "$hp/7003"
 printf 'systemd\n' >"$hp/7000/comm"
 printf 'bash\n' >"$hp/7001/comm"
+printf 'init\n' >"$hp/7002/comm"
+printf 'launchd\n' >"$hp/7003/comm"
 OUT=$(mc_env env PLANWRIGHT_MC_PROC_ROOT="$hp" /bin/bash "$repo_root/scripts/mc-stall.sh" orphans 2>"$tmp/stderr")
 RC=$?
 ERR=$(cat "$tmp/stderr")
 expect_rc "orphans over a procfs holding holders" 0
-for hold_pid in 5001 5002 5003 5004 5009; do
+if [ -z "$ERR" ]; then
+  ok "a holder whose parent is gone, or pid 0, says nothing on stderr"
+else
+  fail "the listing wrote to stderr: $ERR"
+fi
+for hold_pid in 5001 5002 5003 5004 5009 5010 5011; do
   case $(orphan_row "$hold_pid") in
     *"${tab}holder${tab}-${tab}a tail -f /dev/null or sleep infinity holder that nothing owns"*) ok "an adopted holder is listed (pid $hold_pid)" ;;
     *) fail "the adopted holder $hold_pid is not listed: $OUT" ;;
@@ -336,6 +351,15 @@ unlisted 5005 "a holder whose parent still runs is its parent's"
 unlisted 5006 "a tail following a real file is no holder"
 unlisted 5007 "a bounded sleep is no holder"
 unlisted 5008 "a tail that does not follow is no holder"
+unlisted 5012 "a holder whose parent's directory is gone waits for a later pass"
+unlisted 5013 "a holder at ppid 0 (a container's own init) is not adopted"
+unlisted 5014 "sleep infinity with another argument is no holder"
+unlisted 5015 "a follow bounded by --pid is no holder"
+unlisted 5016 "sleep inf is not a spelling the listing matches"
+case $(orphan_row 5010) in
+  *"adopted by init, pid 7002"*) ok "a holder an init-named parent adopted names its adopter" ;;
+  *) fail "the init-adopted holder does not name its adopter: $(orphan_row 5010)" ;;
+esac
 
 mc_run mc-stall.sh orphans --program
 expect_rc "orphans takes no program" 2

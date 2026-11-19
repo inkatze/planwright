@@ -884,9 +884,13 @@ The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
 a supervisor whose state directory is gone or records another supervisor,
 or whose working directory is gone, as a test suite killed before its
-cleanup leaves one, a worker with no supervisor, and a `tail -f /dev/null`
-or `sleep infinity` holder that init adopted once its command ended (uutils
-`tail` busy-wakes on `/dev/null`, so a leaked one burns a core). One listed for a
+cleanup leaves one, and a worker with no supervisor. It also lists a
+`tail -f /dev/null` or `sleep infinity` holder whose parent is pid 1 (or, on
+a host with procfs, a process named systemd, init or launchd), as a leaked
+wait loop leaves them (uutils `tail` busy-wakes on `/dev/null`, so each
+burns a core); a service manager that runs one on purpose reads the same, so
+the event names what was read and the call stays the operator's. Each is its
+own event, by process. One listed for a
 minute is raised once for the machine as a
 `stream-json-worker-orphaned` event, routed as the unowned one is. Nothing
 signals it: the event says how to check it and stop it by hand.
@@ -1027,18 +1031,26 @@ hook root has no `scripts/background-job-guard.sh`.
 
 The worker profile also wires `scripts/noop-padding-guard.sh` beside it, a
 deny-emitting hook (the command guard is allow-only) that refuses a Bash
-command whose only effect is to look different to the permission check:
+command carrying no-op padding, which only looks different to the permission
+check, or a process held open for nothing:
 a redirect to or read of the null device, `|| true` or `; true`, a
 pass-through `| cat`, an empty heredoc, `cat >` with no input, a placeholder
 write, an empty function, a bare `echo` or `echo ok`, `true` or `:` as a step,
 `python3 -c 1`, `cd .`, `cd X || cd X`, `cd X; cd -`, a zero-count `head` or
-`sed -n 1,0p`, and a fixed or `mktemp -u` name under `/tmp`. Each refusal
+`sed -n 1,0p`, a fixed or `mktemp -u` name under `/tmp`, and `tail -f` on
+`/dev/null` or `sleep infinity` (a holder nothing reaps; uutils `tail`
+busy-wakes on `/dev/null` too). Each refusal
 names the shape and the alternative: send output you do not need to a file in
-your own `mktemp -d` scratch directory, and use full paths. It reads the command
+your own `mktemp -d` scratch directory, and use full paths; wait with `sleep N`,
+or follow a real log file as `timeout N tail -f <file>`. It reads the command
 quote- and heredoc-aware, so the same words inside a string, a heredoc body or
 a file's content pass, and a command it cannot follow (a subshell, a backtick,
 a substitution inside double quotes) is deferred whole, as is a command that
-hides the padded verb behind a wrapper such as `env` or `sudo`. A `/tmp` path
+hides the padded verb behind a wrapper such as `env` or `sudo`. The holder
+check looks through `timeout`, `nohup`, `setsid` and `exec`, and reads a shell
+`-c` body and a command or process substitution word for a holder at a command
+position, so `bash -c 'sleep infinity'` is refused and `bash -c 'echo sleep
+infinity'` is not. A `/tmp` path
 is refused only as an unquoted word or a redirect target. The launch
 preflight does not check for this guard's script. It cannot judge an
 unused variable, a `mkdir -p` of a directory that exists, or a `sed` that

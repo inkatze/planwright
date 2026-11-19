@@ -606,7 +606,8 @@ announce_unowned() {
 }
 
 # orphan_sweep: every stream-json process of this user's that nothing can
-# reach any more (scripts/mc-stall.sh orphans) is raised once, as a
+# reach any more, and every holder init adopted (scripts/mc-stall.sh
+# orphans), is raised once, as a
 # stream-json-worker-orphaned event under keeper_target's program, and never
 # signalled: whether one is abandoned is the operator's call. A process is
 # raised only once it has been listed for ORPHAN_SETTLE seconds across
