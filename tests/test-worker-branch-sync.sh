@@ -15,9 +15,11 @@ export LC_ALL
 unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE GIT_PREFIX \
-  PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_LOCAL_CONFIG
+  PLANWRIGHT_WORKER_SESSION_RECORD
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 SCRIPT="$here/../scripts/worker-branch-sync.sh"
 
 passes=0

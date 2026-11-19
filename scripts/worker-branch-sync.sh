@@ -7,44 +7,20 @@
 #   worker-branch-sync.sh reset origin/<branch>
 #   worker-branch-sync.sh ff <sha>
 #
-#   push   publish a rewrite of <branch> to origin, leased on <sha>, the full
-#          id of the tip the rewrite started from.
-#   reset  git reset --hard to origin/<branch> as the remote-tracking ref
-#          stands (fetch first), naming every local commit it drops.
-#   ff     git merge --ff-only to <sha>, a full commit id descending from HEAD.
+# push publishes a rewrite of <branch>, leased on <sha> (the full id of the tip
+# the rewrite started from), only while the branch heads one open draft PR of
+# this repository; reset is git reset --hard to origin/<branch> as fetched; ff
+# is git merge --ff-only to a full commit id descending from HEAD.
 #
-# Every verb runs only when all of these hold, checked here at run time:
-#   - the directory lies in a linked worktree, never a primary checkout;
-#   - the session record the launcher wrote (PLANWRIGHT_WORKER_SESSION_RECORD:
-#     this user's own regular file outside the worktree, no symlink, writable
-#     by no one else) names that worktree as worktree_root and the branch
-#     checked out there as unit_branch, each exactly once;
-#   - that branch is a task or flight branch outside the protected set (main,
-#     master, spec branches, and the protected_branches additions);
-#   - the branch is not shared: no other worktree holds it, and no process
-#     outside this run's own ancestry works in the worktree (another session).
-#     Own ancestry is this script's parent chain for as long as each process
-#     in it works in the worktree, and their descendants; a process table this
-#     script cannot read counts as shared.
-# reset and ff also need a clean tree (nothing staged, changed or untracked)
-# and no merge, rebase, cherry-pick, revert or bisect in progress. push also
-# needs the lease to name the branch checked out with a full SHA, paired with
-# --force-if-includes, and nothing else; the lease must be a tip the branch's
-# own reflog records (git turns --force-if-includes off for an explicit lease,
-# so this is that check: a SHA read from the remote-tracking ref after someone
-# else pushed was never a tip here) and not HEAD or an ancestor of it (a plain
-# push suffices); and the branch must head exactly one open pull request from
-# this repository, a draft. A rewrite never publishes once the PR is ready,
-# which also keeps the narrower work-repository line (only before ready).
-#
-# A push the remote refuses because the branch moved past the lease is a
-# refusal: someone else pushed, so the branch is shared from then on; never
-# retry it with another lease.
-#
-# The policy guard (scripts/policy-guard.sh) admits this script, run as its own
-# command or after cd only, for a worker whose launch-time record names the
-# branch; these checks repeat its own at run time and add the ones only the
-# moment of the act can answer.
+# Every verb refuses unless it runs in a linked worktree that the session
+# record (PLANWRIGHT_WORKER_SESSION_RECORD, the user's own file outside the
+# worktree) names, on the unit branch it names; that task or flight branch is
+# outside the protected set; and no other worktree, nor any process outside
+# this run's own ancestry, works on it. reset and ff need a clean tree. The
+# lease must be a tip the branch's reflog records: git turns
+# --force-if-includes off for an explicit lease, so this is that check. A push
+# the remote refuses for a moved branch means someone else pushed: the branch
+# is shared, and the push is never retried with another lease.
 #
 # Exit: 0 done; 1 refused; 2 usage; 3 a git or gh failure.
 set -uf
@@ -250,6 +226,9 @@ dir_users() {
     /^n/ { c = substr($0, 2) "/"; if (index(c, ENVIRON["D"]) == 1) print pid }'
 }
 
+# This run's own ancestry is its parent chain for as long as each process works
+# in the worktree (a session's runner and its claude both do), with their
+# descendants; any other process there is another session.
 own=" $$ "
 p=$(ppid_of $$)
 n=0
