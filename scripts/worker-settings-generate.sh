@@ -53,7 +53,7 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
-# No flag means --mise-task-edit, the form a call without flags uses.
+# Callers that pass no flag are the mise opt-in's, so none means --mise-task-edit.
 [ "$want_mise" = 1 ] || [ "$want_lefthook" = 1 ] || want_mise=1
 [ "$#" -eq 3 ] || die "$usage" 2
 profile=$1
@@ -80,11 +80,12 @@ if [ "$want_lefthook" = 1 ]; then
 fi
 # The hook is the only thing that closes these names outside the ancestors; a
 # missing or non-executable one is a launch the broad denies no longer cover.
-# The generated command runs it under $CLAUDE_PLUGIN_ROOT, so that is the copy
-# checked, the one beside the generator only when the variable is unset.
+# The check reads the launcher's $CLAUDE_PLUGIN_ROOT, else the copy beside the
+# generator; a worker's dispatch environment may substitute another install, so
+# this catches a missing hook, not every mismatched one.
 hook_script=${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}
 hook_script=${hook_script:-$(dirname -- "$0")}/worker-mise-edit-guard.sh
-[ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable where the worker will run it; the opt-in would leave its names open outside the worktree's ancestors"
+[ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable under the launcher's plugin root; the opt-in would leave its names open outside the worktree's ancestors"
 jq -e --argjson b "$broad" '(.permissions.deny | type == "array") and ([$b[] as $r | (.permissions.deny | index($r))] | all(. != null))' \
   "$profile" >/dev/null 2>&1 || die "the profile is not JSON, or does not carry the broad deny rules the requested opt-ins replace"
 

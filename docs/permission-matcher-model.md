@@ -541,9 +541,11 @@ neither (it passes the shipped profile itself, byte for byte):
   out. A hook that cannot read its input (no `jq`, a payload that is not JSON,
   a field holding the payload's own separator byte) refuses every file-tool
   call, task path or not. The generator itself refuses the launch when the
-  hook script is missing or not executable under `$CLAUDE_PLUGIN_ROOT` (the
-  copy the worker will run), since the broad denies it replaced would then
-  leave the names open outside the ancestors.
+  hook script is missing or not executable under the launcher's
+  `$CLAUDE_PLUGIN_ROOT` (the copy beside the generator when it is unset), since
+  the broad denies it replaced would then leave the names open outside the
+  ancestors; a worker's dispatch environment may substitute another install,
+  so this catches a missing hook, not every mismatched one.
 - **The guard's own-branch arm** admits writes to those four names inside the
   worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
   recursive-act screen `ob_tree_clean`), only when the record carries exactly
