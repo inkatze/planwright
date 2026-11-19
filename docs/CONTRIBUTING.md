@@ -226,9 +226,9 @@ it runs once per pull request, on the run the ready flip fires
 `scripts/check-workflow-posture.sh` refuses a trigger set that drifts. A draft
 never runs it (the job skips a draft), so open pull requests as drafts: the
 readiness check never asks for a run before the flip (a draft whose only gap
-is the `post-pr` point, which waits on that run, gets the `flip-for-review
-<head>` verdict, telling the caller to flip; any other gap keeps it
-not-ready), and a check created at
+is the `post-pr` point, which waits on that run, gets the
+`flip-for-review <head>` verdict, telling the caller to flip; any other gap
+keeps it not-ready), and a check created at
 or after the flip is a run the flip started, the flip's to finish, while one
 created before it and still running means the flip came too early. After the
 flip, wait for the runs it started, PR-Agent included, then settle its
