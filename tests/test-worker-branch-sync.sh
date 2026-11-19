@@ -215,12 +215,18 @@ run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
 refused "a ready PR"
 has 'draft' "the ready refusal names the draft rule"
 nothing_moved "a ready PR"
-for st in none two fork fail; do
-  pr "$st"
+for st in none:'no open pull request' fork:'no open pull request' two:'more than one'; do
+  pr "${st%%:*}"
   run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-  refused "the PR lookup state $st"
-  nothing_moved "the PR lookup state $st"
+  refused "the PR lookup state ${st%%:*}"
+  has "${st#*:}" "the ${st%%:*} refusal says why"
+  nothing_moved "the PR lookup state ${st%%:*}"
 done
+pr fail
+run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+[ "$RC" = 3 ] || fail "a failed PR lookup did not exit as a gh failure (exit $RC): $OUT"
+has 'nothing was pushed' "the failed lookup says nothing was pushed"
+nothing_moved "a failed PR lookup"
 printf '%s\n' planwright/flight/other >"$tmp/pr-head"
 pr draft
 run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
@@ -237,6 +243,9 @@ run "$wt" push "--force-with-lease=$B:$(g -C "$wt" rev-parse HEAD)" --force-if-i
 refused "a lease at the current tip"
 nothing_moved "a fast-forward"
 pass "a fast-forward or a lease at the tip itself is refused (a plain push suffices)"
+run "$wt" push "--force-with-lease=$B:0123456789abcdef0123456789abcdef01234567" --force-if-includes
+refused "a lease that is no commit here"
+has 'not a commit' "the unknown-lease refusal says why"
 g -C "$wt" reset -q --hard "$lease"
 g -C "$wt" commit -q --amend --allow-empty -m "a rewrite again"
 
@@ -272,6 +281,7 @@ REC="$tmp/fleet/session-records/main.record"
 record "$REC" main "$dmain"
 run "$dmain" push "--force-with-lease=main:$(g -C "$dmain" rev-parse HEAD)" --force-if-includes
 refused "main"
+has 'not a unit branch' "the main refusal says why"
 run "$dmain" reset origin/main
 refused "a reset on main"
 REC=$rec
@@ -368,10 +378,29 @@ done
 
 # --- the leased push, refused cases done: it still publishes ------------------
 
+ln -s "$SCRIPT" "$tmp/linked-sync.sh"
+RC=0
+OUT=$(cd "$wt" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC "$tmp/linked-sync.sh" push "--force-with-lease=$B:$lease" --force-if-includes 2>&1) || RC=$?
+refused "a run through a symbolic link"
+has 'symbolic link' "the link refusal says why"
+nothing_moved "a run through a symbolic link"
+pass "a run through a symbolic link to the helper is refused"
+
+g -C "$wt" switch -q --detach
+run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+refused "a detached HEAD"
+has 'detached' "the detached refusal says why"
+g -C "$wt" switch -q "$B"
+pass "a detached HEAD is refused"
+
 run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
 [ "$RC" = 0 ] || fail "the leased push after the refusals did not succeed: $OUT"
 [ "$(remote_tip "$B")" = "$(g -C "$wt" rev-parse HEAD)" ] || fail "origin is not at the rewritten tip"
 pass "after every refusal, the own leased rewrite still publishes"
+run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+[ "$RC" = 0 ] || fail "a repeat of a push that landed was not read as done (exit $RC): $OUT"
+has '^pushed' "the repeat reports the push"
+pass "a repeat of a push that already landed reports it as done, not as a shared branch"
 
 # --- reset -------------------------------------------------------------------
 
@@ -395,8 +424,22 @@ g -C "$wt" add tracked.txt
 run "$wt" reset "origin/$B"
 refused "a reset with a staged change"
 g -C "$wt" reset -q
-rm -f "$wt/tracked.txt"
-pass "a reset in a dirty tree (staged or untracked) is refused and moves nothing"
+g -C "$wt" add tracked.txt
+g -C "$wt" commit -q -m "a tracked file"
+keep=$(g -C "$wt" rev-parse HEAD)
+printf 'changed\n' >"$wt/tracked.txt"
+run "$wt" reset "origin/$B"
+refused "a reset with an unstaged change"
+g -C "$wt" checkout -q -- tracked.txt
+merge_head=$(g -C "$wt" rev-parse --git-path MERGE_HEAD)
+case $merge_head in /*) ;; *) merge_head="$wt/$merge_head" ;; esac
+printf '%s\n' "$keep" >"$merge_head"
+run "$wt" reset "origin/$B"
+refused "a reset with a merge in progress"
+has 'in progress' "the in-progress refusal says why"
+rm -f "$merge_head"
+[ "$(g -C "$wt" rev-parse HEAD)" = "$keep" ] || fail "a refused reset moved HEAD"
+pass "a reset in a dirty tree (staged, unstaged or untracked) or mid-merge is refused and moves nothing"
 
 for t in origin/main origin/planwright/flight/other "$B" "refs/remotes/origin/$B" "origin/$B~1" HEAD; do
   run "$wt" reset "$t"

@@ -38,9 +38,22 @@ export LC_ALL
 unset CDPATH
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_NAMESPACE GIT_PREFIX
+# A headless worker has no one to answer a credential prompt.
+GIT_TERMINAL_PROMPT=0
+GH_PROMPT_DISABLED=1
+export GIT_TERMINAL_PROMPT GH_PROMPT_DISABLED
 
 me=worker-branch-sync
-script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 3
+# Run through a link, the directory of $0 would be the link's, where a planted
+# protected-branch.sh would stand in for the real one.
+if [ -L "$0" ]; then
+  printf '%s: %s\n' "$me" "run the installed script by its own path, not through a symbolic link" >&2
+  exit 1
+fi
+script_dir=$(cd "$(dirname "$0")" && pwd -P) || {
+  printf '%s: %s\n' "$me" "the script's own directory could not be entered" >&2
+  exit 3
+}
 NL='
 '
 TAB=$(printf '\t')
@@ -127,6 +140,7 @@ case $common in
 esac
 
 branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || refuse "HEAD is detached; check out the unit branch first"
+# policy-guard.sh's is_unit_branch grammar; keep the two in step.
 re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
 re_flight='^planwright/flight/[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
 case $branch in planwright/flight/task-*) refuse "'$(safe "$branch")' is not a unit branch" ;; esac
@@ -142,9 +156,9 @@ case $rec in /?*) ;; *) refuse "the session record path is not absolute: $no_rec
   || refuse "the session record is not this user's own readable regular file (or is a symlink): $no_rec names this worktree and branch"
 [ -z "$(find "$rec" -prune \( -perm -020 -o -perm -002 \) -print 2>/dev/null)" ] \
   || refuse "the session record is writable by other users; refusing it"
-case $rec in "$top"/*) refuse "the session record lies inside the worktree, where the worker could write it; refusing it" ;; esac
+case $rec in "$top"/*) refuse "the session record's path lies inside the worktree, where the worker could write it; refusing it" ;; esac
 rec_dir=$(cd "${rec%/*}/" 2>/dev/null && pwd -P) || refuse "the session record's directory could not be entered"
-case "$rec_dir/" in "$top"/*) refuse "the session record lies inside the worktree, where the worker could write it; refusing it" ;; esac
+case "$rec_dir/" in "$top"/*) refuse "the session record's directory resolves inside the worktree, where the worker could write it; refusing it" ;; esac
 size=$(wc -c <"$rec" 2>/dev/null | tr -d ' ') || size=''
 [ -n "$size" ] && [ "$size" -le 4096 ] 2>/dev/null || refuse "the session record is unreadable or oversized; refusing it"
 # field <key> — the value of the one <key>= line, or nothing when there is
@@ -214,8 +228,8 @@ dir_users() {
   if [ -L /proc/self/cwd ]; then
     readlink "/proc/$$/cwd" >/dev/null 2>&1 || return 1
     du_glob=$(printf '%s' "$top" | sed 's/[][*?\\]/\\&/g')
-    find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$du_glob" -o -lname "$du_glob/*" \) 2>/dev/null \
-      | awk -F / '$3 ~ /^[0-9]+$/ { print $3 }'
+    du_out=$(find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$du_glob" -o -lname "$du_glob/*" \) 2>/dev/null)
+    printf '%s\n' "$du_out" | awk -F / '$3 ~ /^[0-9]+$/ { print $3 }'
     return 0
   fi
   command -v lsof >/dev/null 2>&1 || return 1
@@ -239,7 +253,13 @@ while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null && [ "$n" -lt 64 ]; do
   p=$(ppid_of "$p")
   n=$((n + 1))
 done
-users=$(dir_users) || refuse "this host's process table cannot be read, so whether another session works in $(safe "$top") is unknown; refusing"
+users=$(dir_users) || users=''
+# This script works in the worktree itself, so a scan that misses it read
+# nothing (a find or lsof that failed or lacks a flag).
+case " $(printf '%s' "$users" | tr '\n' ' ') " in
+  *" $$ "*) ;;
+  *) refuse "this host's process table cannot be read, so whether another session works in $(safe "$top") is unknown; refusing" ;;
+esac
 for u in $users; do
   case $own in *" $u "*) continue ;; esac
   q=$u
@@ -255,8 +275,12 @@ for u in $users; do
     n=$((n + 1))
   done
   [ "$mine" = 0 ] || continue
-  # Gone since the scan, or the tmux server that hosts panes (not a session).
-  comm=$(ps -o comm= -p "$u" 2>/dev/null) || continue
+  # Skipped only when gone since the scan, or the tmux server that hosts panes
+  # (not a session); a process ps cannot name still counts.
+  if ! comm=$(ps -o comm= -p "$u" 2>/dev/null); then
+    kill -0 "$u" 2>/dev/null || [ -d "/proc/$u" ] || continue
+    comm=unknown
+  fi
   case ${comm##*/} in tmux*) continue ;; esac
   refuse "process $u ($(safe "${comm##*/}")) works in $(safe "$top") and is no part of this session, so another session may be on $(safe "$branch"); refusing as shared"
 done
@@ -288,27 +312,33 @@ case $verb in
       || refuse "the lease $lease is a tip $(safe "$branch") never held (its reflog does not record it), so it was read from elsewhere, such as the remote-tracking ref at push time; lease on the tip the rewrite started from"
     git remote get-url origin >/dev/null 2>&1 || refuse "there is no remote named origin"
     command -v jq >/dev/null 2>&1 || broken "jq is required to read the pull request"
-    prs=$(gh pr list --head "$branch" --state open --json number,isDraft,headRefName,isCrossRepository 2>/dev/null </dev/null) \
-      || refuse "gh could not list the open pull requests for $(safe "$branch"), so whether its PR is a draft is unknown; refusing"
+    prs=$(gh pr list --head "$branch" --state open --json number,isDraft,headRefName,isCrossRepository 2>&1 </dev/null) \
+      || broken "gh could not list the open pull requests for $(safe "$branch") ($(safe "$prs" | cut -c1-200)), so whether its PR is a draft is unknown; nothing was pushed"
     drafts=$(printf '%s' "$prs" | jq -r --arg b "$branch" \
       '[.[] | select(.headRefName == $b and .isCrossRepository == false)] | if length == 1 then (.[0].isDraft | tostring) else "count:\(length)" end' 2>/dev/null) \
-      || refuse "gh's answer for $(safe "$branch") could not be read; refusing"
+      || broken "gh's answer for $(safe "$branch") could not be read; nothing was pushed"
     case $drafts in
       true) ;;
       false) refuse "the pull request for $(safe "$branch") is ready for review, not a draft; a rewrite publishes only while the PR is a draft. Add new commits instead" ;;
       count:0) refuse "$(safe "$branch") heads no open pull request from this repository; a rewrite publishes only while its PR is a draft, so open the draft PR first" ;;
-      *) refuse "$(safe "$branch") heads more than one open pull request; refusing" ;;
+      count:*) refuse "$(safe "$branch") heads more than one open pull request; refusing" ;;
+      *) broken "gh reported no draft state for the pull request of $(safe "$branch"); nothing was pushed" ;;
     esac
     out=$(hook_git push --porcelain --force-with-lease="refs/heads/$branch:$lease" --force-if-includes \
       origin "refs/heads/$branch:refs/heads/$branch" 2>&1 </dev/null)
     prc=$?
     if [ "$prc" != 0 ]; then
       printf '%s\n' "$out" | tr -d '\000-\010\013-\037\177' >&2
-      case $out in
-        *'stale info'* | *'[rejected]'* | *'fetch first'*)
-          refuse "origin/$(safe "$branch") moved past the lease $lease, so someone else pushed to it: treat the branch as shared from now on and never retry with another lease"
-          ;;
-      esac
+      # Read only git's own porcelain status line for the ref, never hook text.
+      if printf '%s\n' "$out" | grep -q "^!${TAB}refs/heads/$branch:refs/heads/$branch${TAB}\\[rejected\\]"; then
+        now=$(git ls-remote origin "refs/heads/$branch" 2>/dev/null </dev/null | awk -v r="refs/heads/$branch" '$2 == r { print $1; exit }')
+        if [ "$now" = "$head" ]; then
+          # An earlier run of this same push landed; only its report was lost.
+          printf 'pushed\t%s\t%s\t%s\n' "$(safe "$branch")" "$lease" "$head"
+          exit 0
+        fi
+        refuse "origin/$(safe "$branch") moved past the lease $lease, so someone else pushed to it: treat the branch as shared from now on and never retry with another lease"
+      fi
       broken "git push failed (exit $prc)"
     fi
     printf 'pushed\t%s\t%s\t%s\n' "$(safe "$branch")" "$lease" "$head"
@@ -319,7 +349,8 @@ case $verb in
     to=$(git rev-parse --verify --quiet "refs/remotes/origin/$branch^{commit}") \
       || refuse "origin/$(safe "$branch") does not resolve; fetch it first (git fetch origin $(safe "$branch"))"
     clean_or_refuse
-    drops=$(git log --no-show-signature --format="%H$TAB%s" "$to..$head" -- 2>/dev/null)
+    drops=$(git log --no-show-signature --format="%H$TAB%s" "$to..$head" -- 2>/dev/null) \
+      || broken "the commits the reset would drop could not be listed; nothing was reset"
     hook_git reset --hard --quiet "$to" </dev/null || broken "git reset failed"
     printf 'reset\t%s\t%s\t%s\n' "$(safe "$branch")" "$head" "$to"
     printf '%s\n' "$drops" | while IFS="$TAB" read -r sha subj; do
