@@ -409,7 +409,7 @@ DEVNULL_REASON='a redirect to, or read of, /dev/null does nothing for the comman
 TMP_REASON='a fixed or shared name under /tmp is raced and clobbered by other sessions. Use a file inside your own scratch directory from mktemp -d, and use full paths'
 MKTEMP_REASON='mktemp -u only names a shared path without creating it. Use mktemp -d for your own scratch directory, and write files inside it'
 HEAD_REASON='head with a count of zero prints nothing. Remove it'
-HOLD_REASON='tail -f on /dev/null and sleep infinity hold a process open forever, nothing reaps it when the command ends, and uutils tail also busy-wakes on /dev/null. Wait with sleep N for a bounded number of seconds, or follow a real log file as timeout N tail -f <file>'
+HOLD_REASON='tail -f on /dev/null and sleep infinity hold a process open with nothing to end it, nothing reaps it when the command ends, and uutils tail also busy-wakes on /dev/null. Wait with sleep N for a bounded number of seconds, or follow a real log file as timeout N tail -f <file>'
 
 # hold_cmd <word>...: succeeds when the command these words spell holds a
 # process open on purpose: tail following /dev/null, or sleep infinity, run
@@ -490,12 +490,38 @@ hold_cmd() {
 # awareness, so it is read only where a command is in play: a shell -c body, a
 # command substitution word or a process substitution.
 hold_text() {
-  local t=$1 line seps='[;&|(){}]' IFS=$' \t'
-  t=${t//$seps/$'\n'}
+  local t=$1 line w out seps='[;&|(){}]' skip IFS=$' \t'
+  # A comment runs to the end of its line, ahead of any separator inside it.
+  out=''
   while IFS= read -r line; do
+    case $line in
+      '#'*) line='' ;;
+      *[$' \t']'#'*) line=${line%%[$' \t']#*} ;;
+    esac
+    out=$out$line$'\n'
+  done <<EOF
+$t
+EOF
+  t=${out//$seps/$'\n'}
+  while IFS= read -r line; do
+    # A redirect's target is no argument: `2> /dev/null` spaced out leaves the
+    # operator ending a word, and the target the next.
+    out=''
+    skip=0
     set -f
     # shellcheck disable=SC2086 # word splitting is the point, globbing is off
-    set -- $line
+    for w in $line; do
+      if [ "$skip" = 1 ]; then
+        skip=0
+      else
+        case $w in
+          *[\<\>]) skip=1 ;;
+          *) out="$out $w" ;;
+        esac
+      fi
+    done
+    # shellcheck disable=SC2086
+    set -- $out
     set +f
     while [ "$#" -gt 0 ]; do
       case $1 in
