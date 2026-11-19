@@ -202,8 +202,18 @@ chmod 700 "$rsteps" "$mchome/reclaimed/repo/old/feature/.claude/steps"
 # ---------------------------------------------------------------------------
 # Each measurement.
 # ---------------------------------------------------------------------------
+# A worker's checkout plants an fsmonitor; the step-record read of its
+# worktree must not run it (the plain read does, so the fixture is live).
+printf '#!/bin/sh\ntouch "%s/fsmon-fired"\nexit 1\n' "$tmp" >"$tmp/fsmon.sh"
+chmod +x "$tmp/fsmon.sh"
+git -C "$repo" config core.fsmonitor "$tmp/fsmon.sh"
+/bin/sh "$repo_root/scripts/step-record.sh" --worktree "$tmp/wt" list >/dev/null 2>&1 || :
+if [ -e "$tmp/fsmon-fired" ]; then ok "a plain step-record read runs the planted fsmonitor"; else fail "a plain step-record read did not run the planted fsmonitor (the fixture is not live)"; fi
+rm -f "$tmp/fsmon-fired"
 mc_run mc-throughput.sh measure --program alpha --now "$NOW"
 expect_rc "measure" 0
+if [ -e "$tmp/fsmon-fired" ]; then fail "measuring ran a worker's planted fsmonitor"; else ok "measuring runs no planted fsmonitor"; fi
+git -C "$repo" config --unset core.fsmonitor
 expect_out "the CI source reads, naming the repositories it could not measure" \
   "source${tab}ci${tab}ok${tab}1 repositories; no GitHub remote: $tmp/plain; not on this machine: $tmp/gone"
 expect_out "CI queue against run time per workflow and job" "ci${tab}ci / macos-suite${tab}2${tab}1500${tab}3000${tab}1800${tab}900"

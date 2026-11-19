@@ -58,27 +58,14 @@ case $root in
   '' | /* | . | .. | ../* | */.. | */../*) die "--spec-root takes a path inside the repository" ;;
 esac
 root=${root%/}
-for f in spec-model.sh spec-anchor.sh; do
+for f in spec-model.sh spec-anchor.sh untrusted-git-lib.sh; do
   [ -r "$script_dir/$f" ] || die "$f is missing or unreadable (broken install)"
 done
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$script_dir/untrusted-git-lib.sh"
 
 # The repository is a worker's: its own configuration runs nothing here.
-g() {
-  (
-    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS
-    GIT_CONFIG_COUNT=5 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
-    GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
-    GIT_CONFIG_KEY_2=core.quotepath GIT_CONFIG_VALUE_2=false
-    GIT_CONFIG_KEY_3=protocol.allow GIT_CONFIG_VALUE_3=never
-    GIT_CONFIG_KEY_4=log.showSignature GIT_CONFIG_VALUE_4=false
-    GIT_NO_LAZY_FETCH=1
-    export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1 \
-      GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2 GIT_CONFIG_KEY_3 GIT_CONFIG_VALUE_3 \
-      GIT_CONFIG_KEY_4 GIT_CONFIG_VALUE_4 GIT_NO_LAZY_FETCH
-    git -C "$repo" "$@"
-  )
-}
+g() { pw_untrusted_git -C "$repo" -c core.quotepath=false "$@"; }
 
 head_sha=$(g rev-parse --verify -q "$head^{commit}" 2>/dev/null) || die "the head $head is not a commit of the repository"
 base_sha=$(g rev-parse --verify -q "$base^{commit}" 2>/dev/null) || die "the base $base is not a commit of the repository"
