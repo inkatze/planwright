@@ -20,8 +20,8 @@
 # Output:
 #   fault<TAB><run>:<point>:<seq><TAB><step><TAB><message>
 #   unverified<TAB><run>:<point>:<seq><TAB><step><TAB><why>
-# unverified: events unreachable, unreadable or without timestamps, or no session
-# launched in the worktree (no fix-round floor; no Skill call shown absent).
+# unverified: events unreachable, unreadable, without timestamps or Skill/Agent
+# calls, or no session launched in the worktree (no floor; no call shown absent).
 # Exit 0 no fault, 1 a fault, 2 usage, 4 the records cannot be read.
 set -u
 LC_ALL=C
@@ -134,7 +134,7 @@ if [ -s "$work/files" ] || [ -s "$work/named" ]; then
     elif [ -s "$work/files" ]; then
       why='the session events carry no timestamps'
     else
-      why='no session that names the worktree holds a Skill or Agent call'
+      why='no session that names the worktree holds a timestamped Skill or Agent call'
     fi
   fi
 fi

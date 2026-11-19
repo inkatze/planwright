@@ -493,6 +493,20 @@ audit --through convergence
 verdict $? "a hub session naming B with no matching Skill call leaves a skill step unverified, not faulted" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
+# A session that names B but holds no Skill or Agent call at all gives no
+# evidence either way: the step is unverified, with that reason.
+two_worktrees
+session 2026-11-04T10:20:00
+names_b "git worktree list: $wtb  abcdef0 [review-b]"
+wt=$wtb
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && grep -q "^note${TAB}convergence${TAB}unverified${TAB}.*polish: no session that names the worktree holds a timestamped Skill or Agent call" "$tmp/audit"
+verdict $? "a named session with no Skill or Agent call leaves a skill step unverified, saying so" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
 # B's own session holds the Skill call and the reviewer session (named) the
 # Agent call: the Agent call vouches only for a Skill call of its own session.
 two_worktrees
