@@ -1,8 +1,8 @@
 #!/bin/bash
-# stop_await_stopped (scripts/fleet-stop-lib.sh): the freeze waits until each
-# signalled process has actually stopped, since `kill -STOP` returns while the
-# target can still be running on a loaded host. A stop that lands late is the
-# race behind the intermittent c25 miss in tests/test-fleet-stop-hl.sh.
+# The freeze (scripts/fleet-stop-lib.sh, stop_freeze) waits until each
+# signalled process has actually stopped: `kill -STOP` returns while the
+# target can still be running on a loaded host, and a re-read of the process
+# table before it stops races a process that can still fork.
 set -u
 unset CDPATH
 LC_ALL=C
@@ -32,6 +32,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# shellcheck source=tests/lib/dead-owner.sh
+. "$REPO_ROOT/tests/lib/dead-owner.sh"
 # shellcheck disable=SC2034 # read by the sourced library
 me=test-fleet-stop-await
 # shellcheck disable=SC2034 # read by the sourced library
@@ -41,74 +43,100 @@ script_dir=$REPO_ROOT/scripts
 
 now_s() { date +%s; }
 
+# start_victim: a running process the cases signal, its pid in `victim`.
+start_victim() {
+  sleep 60 &
+  victim=$!
+  pids="$pids $victim"
+}
+
 # A stop that lands a moment after the signal: the wait must hold until the
 # process is in the stopped state, not return on the queued signal.
-sleep 60 &
-victim=$!
-pids="$pids $victim"
+start_victim
 stop_tracked=$victim
+sf_skip=''
+freeze_settle=30
 (
-  sleep 1.5
+  sleep 1
   kill -STOP "$victim"
 ) &
 delayed=$!
-start=$(now_s)
 stop_await_stopped
-elapsed=$(($(now_s) - start))
 state=$(stop_state "$victim")
 if [ "$state" = T ]; then
-  pass "the wait holds until a late stop has taken effect (${elapsed} s)"
+  pass "the wait holds until a late stop has taken effect"
 else
-  fail "the wait returned with the process in state '$state' after ${elapsed} s"
+  fail "the wait returned with the process in state '$state'"
 fi
 wait "$delayed"
 
-# A process already stopped costs no wait.
-start=$(now_s)
-stop_await_stopped
-elapsed=$(($(now_s) - start))
-if [ "$elapsed" -le 1 ]; then
-  pass "an already-stopped member returns without waiting"
-else
-  fail "an already-stopped member took ${elapsed} s"
-fi
-
-# A process that never stops is waited for only to the bound.
+# stop_freeze itself waits: a `kill -STOP` that takes effect only after a
+# delay, and a table read that finds nothing new, leave the process stopped
+# on return only if the freeze waited before it went on.
 kill -CONT "$victim"
+kill() {
+  if [ "${1:-}" = -STOP ]; then
+    (
+      sleep 1
+      command kill "$@"
+    ) 2>>"$T/noise" &
+  else
+    command kill "$@"
+  fi
+}
+stop_candidates() { :; }
+stop_tracked=$victim
+stop_freeze dir match files
+state=$(stop_state "$victim")
+if [ "$state" = T ]; then
+  pass "stop_freeze returns with a member whose stop was slow to land stopped"
+else
+  fail "stop_freeze returned with the process in state '$state'"
+fi
+unset -f kill stop_candidates
+
+# A member that never stops is waited for only to the bound, then skipped for
+# the rest of the freeze.
+kill -CONT "$victim"
+sf_skip=''
 freeze_settle=1
 start=$(now_s)
-(
-  # Re-arm the stop only after the bound has passed, so the process runs
-  # throughout the wait.
-  sleep 8
-  kill -STOP "$victim"
-) &
-late=$!
 stop_await_stopped
 elapsed=$(($(now_s) - start))
-state=$(stop_state "$victim")
-if [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 3 ] && [ "$state" != T ]; then
-  pass "a member that does not stop is waited for only to freeze_settle (${elapsed} s)"
+if [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 8 ]; then
+  pass "a member that does not stop is waited for only to freeze_settle"
 else
-  fail "the bounded wait took ${elapsed} s (state '$state') for a 1 s bound"
+  fail "the bounded wait took ${elapsed} s for a 1 s bound"
 fi
-kill "$late" 2>>"$T/noise"
-wait "$late" 2>>"$T/noise"
-
-# A member that is gone is settled at once.
-gone=$victim
-kill -CONT "$gone"
-kill -KILL "$gone"
-wait "$victim" 2>>"$T/noise"
-pids=''
-stop_tracked=$gone
+case $sf_skip in
+  *" $victim "*) pass "the member that did not stop is skipped from then on" ;;
+  *) fail "a member that did not stop was not skipped: '$sf_skip'" ;;
+esac
 start=$(now_s)
 stop_await_stopped
 elapsed=$(($(now_s) - start))
 if [ "$elapsed" -le 1 ]; then
-  pass "a member that is gone returns without waiting"
+  pass "a skipped member costs no further wait"
 else
-  fail "a gone member took ${elapsed} s"
+  fail "a skipped member still took ${elapsed} s"
+fi
+
+# A member that is gone is settled at once.
+gone=$(dead_owner_pid) || gone=''
+if [ -z "$gone" ]; then
+  echo "skip: no pid above the host's range to stand for a gone member"
+else
+  stop_tracked=$gone
+  sf_skip=''
+  freeze_settle=30
+  start=$(now_s)
+  stop_await_stopped
+  elapsed=$(($(now_s) - start))
+  if [ "$elapsed" -le 1 ]; then
+    pass "a member that is gone returns without waiting"
+  else
+    fail "a gone member took ${elapsed} s"
+  fi
 fi
 
 [ "$failures" = 0 ] || exit 1

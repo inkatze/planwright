@@ -70,8 +70,9 @@ grace_default=5
 # will not settle anyway.
 freeze_rounds_max=20
 
-# The longest a freeze waits for a signalled process to actually stop.
-freeze_settle=2
+# The longest a freeze waits, per process, for a signalled one to actually
+# stop.
+freeze_settle=5
 
 stop_lf='
 '
@@ -546,66 +547,77 @@ stop_live() {
   printf '%s' "${sl_out# }"
 }
 
-# stop_state <pid> — the first letter of the process's state, empty when it
+# stop_state <pid>: the first letter of the process's state, empty when it
 # cannot be read. procfs first, where `ps -o stat=` is not needed.
 stop_state() {
-  if { IFS= read -r ss_line <"/proc/$1/stat"; } 2>/dev/null; then
-    ss_rest=${ss_line##*) }
-    ss_rest=${ss_rest%% *}
-    # A command name holding a newline splits the line; fall through to ps.
-    case $ss_rest in
+  sst_pid=$1
+  if { IFS= read -r sst_line <"/proc/$sst_pid/stat"; } 2>/dev/null; then
+    # shellcheck disable=SC2086 # the fields after the command name, split
+    set -- ${sst_line##*) }
+    # A command name holding a newline splits the first line, so the whole
+    # file has every field after the last `) `.
+    if [ "$#" -lt 20 ]; then
+      sst_line=$(cat "/proc/$sst_pid/stat" 2>/dev/null) || sst_line=''
+      # shellcheck disable=SC2086 # the fields after the command name, split
+      set -- ${sst_line##*) }
+    fi
+    case ${1:-} in
       [A-Za-z])
-        printf '%s' "$ss_rest"
+        printf '%s' "$1"
         return 0
         ;;
     esac
   fi
-  ss_line=$(ps -o stat= -p "$1" 2>/dev/null) || ss_line=''
+  sst_line=$(ps -o stat= -p "$sst_pid" 2>/dev/null) || sst_line=''
   # shellcheck disable=SC2086 # drop the padding some ps prints
-  set -- $ss_line
+  set -- $sst_line
   printf '%s' "${1:-}" | cut -c1
 }
 
-# stop_await_stopped — wait, bounded by `freeze_settle` seconds of wall clock,
-# until every process in `stop_tracked` has actually stopped. `kill -STOP`
-# returns once the signal is queued, not once the target has run to the point
-# of stopping, and a loaded host can leave a runnable target going for a good
-# while: a re-read of the table then races a process that can still fork. A
-# member that is gone, a zombie, or whose state cannot be read counts as
-# settled, as does one that stays unstoppable (blocked in the kernel) past the
-# bound; the freeze proceeds with what it has, as it always did.
+# stop_await_stopped: wait until every process in `stop_tracked` has actually
+# stopped. `kill -STOP` returns once the signal is queued, not once the target
+# has run to the point of stopping, and a loaded host can leave a runnable
+# target going for a good while: a re-read of the table then races a process
+# that can still fork. A member that is gone, a zombie, or whose state cannot
+# be read counts as settled. One that does not stop within `freeze_settle`
+# seconds (blocked in the kernel, say) is added to `sf_skip`, so the rest of
+# the freeze does not wait on it again, and the freeze goes on without it.
 stop_await_stopped() {
-  sw_until=''
-  for sw_p in $stop_tracked; do
+  for saw_p in $stop_tracked; do
+    case $sf_skip in *" $saw_p "*) continue ;; esac
+    saw_until=''
     while :; do
-      sw_s=$(stop_state "$sw_p")
-      case $sw_s in T | t | Z | X | '') break ;; esac
-      if [ -z "$sw_until" ]; then
-        sw_now=$(stop_now) || return 0
-        sw_until=$((sw_now + freeze_settle))
+      saw_s=$(stop_state "$saw_p")
+      case $saw_s in T | t | Z | X | '') break ;; esac
+      saw_now=$(stop_now) || return 0
+      [ -n "$saw_until" ] || saw_until=$((saw_now + freeze_settle))
+      if [ "$saw_now" -gt "$saw_until" ]; then
+        sf_skip="$sf_skip $saw_p "
+        break
       fi
-      sw_now=$(stop_now) || return 0
-      [ "$sw_now" -le "$sw_until" ] || break
       sleep 0.05
     done
   done
 }
 
-# stop_freeze <dir> <match> <pidfiles> — SIGSTOP every process in
-# `stop_tracked`, re-read the tree, and repeat until a read adds no member. A
-# signal sent to a snapshot misses a child forked after the read by a parent
-# the signal then kills: reparented out of the tree, it is out of reach of any
-# later read, and runs on. A stopped process cannot fork, and a child forked
-# just before its parent stopped is found by the next read while that parent
-# is held; only a member that exits on its own between two reads can still
-# leave a child behind. Non-zero only when the process table cannot be read.
+# stop_freeze <dir> <match> <pidfiles>: SIGSTOP every process in
+# `stop_tracked`, wait for each to be stopped, re-read the tree, and repeat
+# until a read adds no member. A signal sent to a snapshot misses a child
+# forked after the read by a parent the signal then kills: reparented out of
+# the tree, it is out of reach of any later read, and runs on. A stopped
+# process cannot fork, and a child forked just before its parent stopped is
+# found by the next read while that parent is held; only a member that exits
+# on its own between two reads, or one that never reaches the stopped state,
+# can still leave a child behind. Non-zero only when the process table cannot
+# be read.
 stop_freeze() {
   sf_round=0
+  sf_skip=''
   while :; do
     # Every member every round, not only the new ones: a second close of the
     # same worker may have continued what this one already stopped.
     for sf_p in $stop_tracked; do
-      kill -STOP "$sf_p" 2>/dev/null || :
+      kill -STOP "$sf_p" 2>/dev/null || sf_skip="$sf_skip $sf_p "
     done
     stop_await_stopped
     [ "$sf_round" -lt "$freeze_rounds_max" ] || return 0
