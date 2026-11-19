@@ -45,6 +45,10 @@ Usage:
       file instead of capturing the session's tmux window.
   mc-stall.sh scan --program <p> [--now <epoch>]
       classify every launched session the program's registry rows name.
+  mc-stall.sh liveness --program <p> <name>
+      print `<name> <dead|alive|unknown> <reason>` for one launched
+      session, by the liveness evidence below alone: no pane is read, no
+      sample is kept and no event is emitted.
   mc-stall.sh orphans
       list every stream-json process of this user's that nothing can
       reach any more, and every tail -f /dev/null or sleep infinity holder
@@ -158,7 +162,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>] | orphans"
+  mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>] | liveness --program <p> <name> | orphans"
 }
 
 valid_name() {
@@ -856,7 +860,7 @@ case $verb in
     help_text
     exit 0
     ;;
-  classify | scan) ;;
+  classify | scan | liveness) ;;
   orphans)
     [ $# -eq 0 ] || usage
     FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
@@ -882,7 +886,7 @@ while [ $# -gt 0 ]; do
       ;;
     -*) usage ;;
     *)
-      [ "$verb" = classify ] && [ -z "$NAME" ] || usage
+      [ "$verb" != scan ] && [ -z "$NAME" ] || usage
       NAME=$1
       shift
       ;;
@@ -904,23 +908,35 @@ STALL_DIR="$RUNTIME/stall"
 mkdir -p "$STALL_DIR" 2>/dev/null || mc_fail "cannot create $(sanitize_printable "$STALL_DIR")"
 pw_lock_trap_install
 
-case $verb in
-  classify)
-    row="$REG/$NAME"
-    row_ok "$row"
-    case $? in
-      0) ;;
-      2) mc_usage_fail "refusing the registry row $NAME: its format field is $(sanitize_printable "${R_format:-missing}"), not $ROW_FORMAT" ;;
-      4) mc_fail "cannot read the registry row $NAME" ;;
-      *)
-        printf '%s\n' "$prog: no session of program $PROGRAM is registered as $NAME" >&2
-        exit 3
-        ;;
-    esac
-    if [ "$R_state" != launched ]; then
-      printf '%s\n' "$prog: $NAME is not launched (its row reads $(sanitize_printable "${R_state:-no state}"))" >&2
+# launched_row: read the named session's row, or exit as classify and
+# liveness do when it is not a launched row of this program.
+launched_row() {
+  row="$REG/$NAME"
+  row_ok "$row"
+  case $? in
+    0) ;;
+    2) mc_usage_fail "refusing the registry row $NAME: its format field is $(sanitize_printable "${R_format:-missing}"), not $ROW_FORMAT" ;;
+    4) mc_fail "cannot read the registry row $NAME" ;;
+    *)
+      printf '%s\n' "$prog: no session of program $PROGRAM is registered as $NAME" >&2
       exit 3
-    fi
+      ;;
+  esac
+  if [ "$R_state" != launched ]; then
+    printf '%s\n' "$prog: $NAME is not launched (its row reads $(sanitize_printable "${R_state:-no state}"))" >&2
+    exit 3
+  fi
+}
+
+case $verb in
+  liveness)
+    launched_row
+    liveness "$NAME" "$R_backend" "$R_handle" "$R_server"
+    printf '%s\t%s\t%s\n' "$NAME" "$L_STATE" "$(sanitize_printable "$L_REASON")"
+    exit 0
+    ;;
+  classify)
+    launched_row
     lost_rc=0
     if [ "$R_backend" = tmux ] && tmux_valid_server "$R_server"; then
       server_lost "$R_server" || lost_rc=1
