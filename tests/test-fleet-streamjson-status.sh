@@ -24,7 +24,7 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/fleet-streamjson-fixture.sh
-. "$here/lib/fleet-streamjson-fixture.sh"
+. "$here/lib/fleet-streamjson-fixture.sh" || exit 1
 
 # ---------------------------------------------------------------------------
 # c25 (obs:917e384e): `launch` elects a single initiator, so two concurrent

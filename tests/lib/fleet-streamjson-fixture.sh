@@ -9,9 +9,10 @@
 # calling assert_nothing_left_running.
 #
 # Hermetic: every case pins PLANWRIGHT_FLEET_STATE_DIR to a case-local home
-# and PLANWRIGHT_STREAMJSON_CLI to a single env-driven shim (one inode, so a
-# macOS Gatekeeper first-exec assessment happens at most once). Runs
-# standalone under /bin/bash (bash 3.2).
+# and PLANWRIGHT_STREAMJSON_CLI to a single env-driven shim (one inode per
+# suite, so a macOS Gatekeeper first-exec assessment happens at most once per
+# suite). The suites run standalone under /bin/bash (bash 3.2). Only the status
+# suite reports the leak check as a case (c37); the others run it silently.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -68,7 +69,7 @@ cleanup() {
     senv "${cl_dir%/streamjson/*}" "$tmp/reap" -- stop "${cl_dir##*/}" --grace 2 >/dev/null 2>&1
   done
   fixture_reap "$tmp/"
-  # A root outside the fixture (c39's default base) outlives it otherwise.
+  # A root outside the fixture (the spec-root case's default base) outlives it otherwise.
   for cl_rec in "$tmp"/h*/scratch/*.tmpdir; do
     [ -f "$cl_rec" ] || continue
     cl_home=${cl_rec%/scratch/*}
@@ -87,11 +88,11 @@ tab=$(printf '\t')
 
 # --- fixtures ---------------------------------------------------------------
 
-# The single env-driven CLI shim. One inode for the whole suite.
+# The single env-driven CLI shim. One inode for the whole run of a suite.
 mkdir -p "$tmp/bin"
 mkdir -m 700 "$tmp/scratch-base"
-# Every launch below, through senv or not, keeps its scratch root in the
-# fixture; c39's second worker alone takes the default base, on purpose.
+# Every launch, through senv or not, keeps its scratch root in the
+# fixture; the spec-root case's second worker alone takes the default base, on purpose.
 export PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
@@ -233,13 +234,13 @@ ps_rows() {
 # published in `planted_token` for cases that assert the lock was left alone.
 plant_lock() {
   planted_token="$2-$(date +%s)-1"
-  rm -rf "$1"
-  ln -s "$planted_token" "$1" || fail "cannot plant a lock at $1"
+  rm -rf -- "$1"
+  ln -s -- "$planted_token" "$1" || fail "cannot plant a lock at $1"
 }
 
 # A pid that is deterministically dead: above every host's pid ceiling, so no
 # process can hold it. A reaped child's pid would not do: the host can hand it
-# out again while the cases below still read it as gone.
+# out again while the cases still read it as gone.
 dead_pid=999999999
 
 # live_pids <worker-dir> — make a worker whose run has ended read as live, with
@@ -251,7 +252,7 @@ live_pids() {
   printf '%s\n' "$$" >"$1/worker.pid"
 }
 unlive_pids() {
-  rm -f "$1/supervisor.pid" "$1/worker.pid"
+  rm -f -- "$1/supervisor.pid" "$1/worker.pid"
 }
 
 # assert_nothing_left_running — the suite leaves nothing running. Every
@@ -263,5 +264,5 @@ unlive_pids() {
 # deadline, so a close that missed one is still caught.
 assert_nothing_left_running() {
   poll_until --what 'no fixture process left' -- fixture_none "$tmp/" \
-    || fail "c37: fixture process(es) still running after every case: $(fixture_report "$tmp/")"
+    || fail "fixture process(es) still running after every case: $(fixture_report "$tmp/")"
 }

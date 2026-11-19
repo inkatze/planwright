@@ -36,7 +36,7 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/fleet-streamjson-fixture.sh
-. "$here/lib/fleet-streamjson-fixture.sh"
+. "$here/lib/fleet-streamjson-fixture.sh" || exit 1
 
 # ---------------------------------------------------------------------------
 # c1 (REQ-E1.1, REQ-A1.3): a can_use_tool receipt produces exactly one

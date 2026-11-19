@@ -19,7 +19,7 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/fleet-streamjson-fixture.sh
-. "$here/lib/fleet-streamjson-fixture.sh"
+. "$here/lib/fleet-streamjson-fixture.sh" || exit 1
 
 # ---------------------------------------------------------------------------
 # c11 (REQ-A1.9 launch): a prompt larger than the pipe buffer must not
