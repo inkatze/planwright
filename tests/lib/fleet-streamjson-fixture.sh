@@ -9,9 +9,10 @@
 # calling assert_nothing_left_running.
 #
 # Hermetic: every case pins PLANWRIGHT_FLEET_STATE_DIR to a case-local home
-# and PLANWRIGHT_STREAMJSON_CLI to a single env-driven shim (one inode per
-# suite, so a macOS Gatekeeper first-exec assessment happens at most once per
-# suite). The suites run standalone under /bin/bash (bash 3.2). Only the status
+# and PLANWRIGHT_STREAMJSON_CLI to an env-driven shim; the shared one is a
+# single inode per suite, so a macOS Gatekeeper first-exec assessment of it
+# happens at most once per suite. The suites run standalone under /bin/bash (bash
+# 3.2).
 # suite reports the leak check as a case (c37); the others run it silently.
 set -u
 LC_ALL=C
