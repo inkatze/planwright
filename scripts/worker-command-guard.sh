@@ -19,8 +19,11 @@
 #     a simple command that a `Bash(…)` rule of the worker profile's deny
 #     block matches, or that is a reserved act (a push, rebase, reset, amend,
 #     hook skip, squash, or `gh` write), defers, declared steps' lines
-#     included. The guard reads the deny block itself rather than trusting
-#     Claude Code's evaluation order, and approves nothing when it cannot.
+#     included, save two own-unit acts (see own_unit_act): a push of the
+#     recorded unit branch to origin and a body edit of its own open pull
+#     request. The
+#     guard reads the deny block itself rather than trusting Claude Code's
+#     evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared steps, the spec-root write zone) is
 #     always in force; the own-branch arm, which approves writes confined to
@@ -157,6 +160,7 @@ emit_allow() {
 # reset per hook call. Read-only is whatever approval set neither.
 AUDIT_OB=0
 AUDIT_SC=0
+AUDIT_OU=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -169,6 +173,7 @@ audit_append() {
   [ -n "$f" ] || return 0
   [ "$AUDIT_OB" = 0 ] || arm=own-branch
   [ "$AUDIT_SC" = 0 ] || arm=${arm:+$arm,}scratch
+  [ "$AUDIT_OU" = 0 ] || arm=${arm:+$arm,}own-unit
   [ -n "$arm" ] || arm=read-only
   [[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]] || sid=-
   t=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || t=-
@@ -1209,7 +1214,8 @@ session_record_load() {
 # the worker profile's deny block matches, and the reserved acts (any push, a
 # rebase or branch reset, an amend, fixup, squash, or hook skip on a commit, a
 # squash merge, and every `gh` act but the read-only ones the guard
-# enumerates), are never approved, whatever the policy. The arms below carry
+# enumerates), are never approved, whatever the policy, the own-unit acts
+# excepted (own_unit_act, below the floor). The arms below carry
 # the rest of the floor themselves: a write target outside the worktree or
 # inside an excluded path never passes ob_path.
 #
@@ -1353,6 +1359,144 @@ floor_act_words() {
   local -a cw=("$@")
   local cwn=$#
   floor_act
+}
+
+# --------------------------------------------------------------------------
+# The own-unit acts: three a session may run on its own unit that no other
+# arm approves (the push and the edit being floor acts), approved whatever
+# the record's policy, but only under
+# a record carrying the unit branch, the worktree root and a usable audit
+# log, with the session's directory inside that worktree, for the session's
+# own top-level command (never inside a substitution or a `fish -c` string),
+# with no redirect, prefix or leading assignment:
+#   export PLANWRIGHT_STEP_<field>=<literal>...   the step context, its
+#       values held to strip_step_context's rules and its worktree, when
+#       given, canonically the recorded one;
+#   gh pr edit <n> --body-file <file>   <n> the open, same-repository pull
+#       request whose head is the unit branch, as one bounded `gh pr view`
+#       read from the session's directory says, and <file> a regular file
+#       canonically inside the recorded scratch root;
+#   git push origin <unit> | git push origin <unit>:<unit>   nothing else.
+# Every word but the body file is a bare literal as written. Anything else
+# is left to the floor, which reserves it as before.
+
+# own_unit_candidate: the unsubstituted words (`sw`) open one of the
+# reserved own-unit acts, so verify_simple defers its floor to
+# verify_known_simple's exact check.
+own_unit_candidate() {
+  [ "${sw[0]-}" = git ] && [ "${sw[1]-}" = push ] && return 0
+  [ "${sw[0]-}" = gh ] && [ "${sw[1]-}" = pr ] && [ "${sw[2]-}" = edit ]
+}
+
+# own_unit_words_bare <from> <to>: words <from>..<to>-1 are bare literals,
+# unchanged by any expansion.
+own_unit_words_bare() {
+  local i
+  for ((i = $1; i < $2; i++)); do
+    [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "${sw[i]}" ] || return 1
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
+  return 0
+}
+
+# own_unit_act: 0 when the current simple command, after the tracked
+# assignments are resolved, is exactly one own-unit act.
+own_unit_act() {
+  local i here
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] && [ "$OUTSIDE_CD" = 0 ] || return 1
+  [ "$rn" -eq 0 ] && [ "$cwn" -eq "$swn" ] && [ "$cwn" -ge 2 ] || return 1
+  [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] && [ -n "$REC_AUDIT_LOG" ] || return 1
+  for ((i = 0; i < cwn; i++)); do
+    [ -z "${csub[i]-}" ] || return 1
+  done
+  here=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  case $here/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  deny_hit "${cw[@]}" && return 1
+  case ${cw[0]} in
+    export) own_step_export_ok ;;
+    git) own_push_ok ;;
+    gh) own_pr_edit_ok "$here" ;;
+    *) return 1 ;;
+  esac
+}
+
+own_step_export_ok() {
+  local i w f v
+  own_unit_words_bare 0 "$cwn" || return 1
+  for ((i = 1; i < cwn; i++)); do
+    w=${cw[i]}
+    case $w in
+      PLANWRIGHT_STEP_?*=*) ;;
+      *) return 1 ;;
+    esac
+    f=${w%%=*}
+    f=${f#PLANWRIGHT_STEP_}
+    case " $STEP_CONTEXT_FIELDS " in
+      *" $f "*) ;;
+      *) return 1 ;;
+    esac
+    v=${w#*=}
+    case $v in
+      *[!A-Za-z0-9._/:@%,+-]*) return 1 ;;
+    esac
+    step_context_value_ok "$f" "$v" || return 1
+    if [ "$f" = WORKTREE ]; then
+      case $v in
+        /*) ;;
+        *) return 1 ;;
+      esac
+      case $v/ in
+        */./* | */../*) return 1 ;;
+      esac
+      [ "$(cd "$v" 2>/dev/null && pwd -P)" = "$REC_WT" ] || return 1
+    fi
+  done
+  return 0
+}
+
+own_push_ok() {
+  [ "$cwn" -eq 4 ] && own_unit_words_bare 0 4 || return 1
+  [ "${cw[1]}" = push ] && [ "${cw[2]}" = origin ] || return 1
+  case ${cw[3]} in
+    "$REC_UNIT" | "$REC_UNIT:$REC_UNIT") return 0 ;;
+  esac
+  return 1
+}
+
+# own_pr_edit_ok <canonical cwd>
+own_pr_edit_ok() {
+  local n f d out
+  [ "$cwn" -eq 6 ] && own_unit_words_bare 0 5 || return 1
+  [ "${cw[1]}" = pr ] && [ "${cw[2]}" = edit ] && [ "${cw[4]}" = --body-file ] || return 1
+  n=${cw[3]}
+  [[ $n =~ ^[1-9][0-9]{0,8}$ ]] || return 1
+  [ -n "$REC_SCRATCH" ] && [ "${swq[5]}" -lt 0 ] || return 1
+  f=${cw[5]}
+  case $f in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case $f in
+    *[!A-Za-z0-9._/@%,+:=-]* | */./* | */../* | */.. | */.) return 1 ;;
+  esac
+  [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || return 1
+  d=$(cd "${f%/*}" 2>/dev/null && pwd -P) || return 1
+  case $d/ in
+    "$REC_SCRATCH"/*) ;;
+    *) return 1 ;;
+  esac
+  # The read is bounded by the runner beside this guard, so a hung forge
+  # defers instead of outlasting the hook's timeout.
+  [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/bounded-run.sh" ] || return 1
+  out=$(cd "$1" && /bin/sh "$HOOK_SELF_ROOT/scripts/bounded-run.sh" 15 \
+    env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 GH_PAGER=cat \
+    gh pr view "$n" --json headRefName,isCrossRepository,state 2>/dev/null </dev/null) || return 1
+  [ "${#out}" -le 4096 ] || return 1
+  printf '%s' "$out" | jq -e --arg b "$REC_UNIT" \
+    'type == "object" and .headRefName == $b and .isCrossRepository == false and .state == "OPEN"' >/dev/null 2>&1
 }
 
 # --------------------------------------------------------------------------
@@ -6068,10 +6212,17 @@ verify_simple() {
     sw[i]=${cw[i]}
     swq[i]=${cqp[i]}
   done
-  # The floor comes before every arm and the declared steps.
+  # The floor comes before every arm and the declared steps. An own-unit act
+  # it reserves is weighed exactly by verify_known_simple, and nothing else
+  # may approve it.
+  local own_cand=0
   [ "$cwn" -eq 0 ] || ! deny_hit "${sw[@]}" || return 1
-  [ "$cwn" -eq 0 ] || ! floor_act_words "${sw[@]}" || return 1
+  if [ "$cwn" -gt 0 ] && floor_act_words "${sw[@]}"; then
+    own_unit_candidate || return 1
+    own_cand=1
+  fi
   verify_known_simple && return 0
+  [ "$own_cand" = 0 ] || return 1
   # A declared step is an operator's exact line, never one around a
   # substitution, and is not read-only inside one. Nor is one judged in the
   # scoped read mode, whose directory is one of two.
@@ -6844,6 +6995,10 @@ verify_known_simple() {
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
+  if own_unit_act; then
+    AUDIT_OU=1
+    return 0
+  fi
   strip_step_context
   strip_prefixes || return 1
   # The floor again, on the words the shell will run.
@@ -7402,6 +7557,7 @@ main() {
   IN_SUBST=0
   AUDIT_OB=0
   AUDIT_SC=0
+  AUDIT_OU=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
