@@ -337,7 +337,7 @@ sup --record "$r:convergence:001" --start 2026-11-04T10:00:11Z --source event:20
 verdict $? "an event of the reviewer session launched in A that names B is a source for B's record" "rc $RC: $(cat "$tmp/sup")"
 done_at "$r" convergence
 audit --through convergence
-[ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit"
+[ "$RC" -eq 0 ] && ! grep -q -e "^gap" -e "^note" "$tmp/audit"
 verdict $? "and B's audit reads the corrected record against that session's Skill call and Agent call" \
   "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 

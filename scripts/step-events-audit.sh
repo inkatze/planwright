@@ -20,8 +20,8 @@
 # Output:
 #   fault<TAB><run>:<point>:<seq><TAB><step><TAB><message>
 #   unverified<TAB><run>:<point>:<seq><TAB><step><TAB><why>
-# unverified: events unreachable, unreadable or without timestamps, or no
-# session launched in the worktree to set a fix-round floor.
+# unverified: events unreachable, unreadable or without timestamps, or no session
+# launched in the worktree (no fix-round floor; no Skill call shown absent).
 # Exit 0 no fault, 1 a fault, 2 usage, 4 the records cannot be read.
 set -u
 LC_ALL=C
@@ -69,11 +69,10 @@ find_own_events() {
 
 # find_named_events: print the events file of every other stream-json session
 # whose events name this worktree's path, one a line, or nothing. Batched greps
-# over all sessions (a fork per session costs seconds on a host with many;
-# find also skips links and non-files). The path must end where a path ends (a
-# separator, a quote, a space or an escape), so a longer path that begins with
-# it is not this worktree. step-record.sh's event_files uses the same
-# patterns; change both together.
+# over all sessions (a fork per session costs seconds on a host with many). The
+# path must end where a path ends (a separator, quote, space, escape or shell
+# delimiter), so a longer path that begins with it is not this worktree.
+# step-record.sh's event_files uses the same patterns; change both together.
 find_named_events() {
   root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
   find "$root/streamjson" -maxdepth 2 -name events.jsonl -type f \
@@ -145,7 +144,7 @@ if [ "$have_events" -eq 1 ]; then
   elif [ -s "$work/files" ]; then
     why_first='the session events carry no timestamps'
   else
-    why_first='no session was launched in the worktree, so the session floor cannot be checked'
+    why_first='no session was launched in the worktree, so no floor can be set and no call shown absent'
   fi
 fi
 

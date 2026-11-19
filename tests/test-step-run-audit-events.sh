@@ -524,9 +524,48 @@ audit --through convergence
 [ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit"
 verdict $? "while an Agent call of B's own session does" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 
-# Each way a path ends in an event names it.
+# A named session's Skill call with an Agent call in B's own session passes.
+two_worktrees
+wt=$wtb
+session 2026-11-04T10:00:00
+call 2026-11-04T10:30:25 Agent
+wt=$wta
+n=$((n + 1))
+session 2026-11-04T10:20:00
+names_b "step-record.sh --worktree $wtb list"
+call 2026-11-04T10:30:11 Skill planwright:polish
+wt=$wtb
+r=$(sr new-run)
+srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
+done_at "$r" convergence
+audit --through convergence
+[ "$RC" -eq 0 ] && ! grep -q -e "^gap" -e "^note" "$tmp/audit"
+verdict $? "a named session's Skill call is enough when B's own session holds the Agent call" \
+  "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# A named session that opened earlier does not lower the fix-round floor: the
+# fix round starts before B's own session opened, so it faults.
+two_worktrees
+config 'steps_convergence: []' 'steps_post_pr: [fix-round-1]'
+wt=$wtb
+session 2026-11-04T10:10:00
+wt=$wta
+n=$((n + 1))
+session 2026-11-04T09:00:00
+names_b "step-record.sh --worktree $wtb list"
+wt=$wtb
+r=$(sr new-run)
+prec "$r" post-pr fix-round-1 "fix the review findings" passed 2026-11-04T09:30:07Z 2026-11-04T09:45:19Z
+done_at "$r" post-pr
+audit --through post-pr
+[ "$RC" -eq 1 ] && faulted post-pr "start 2026-11-04T09:30:07Z is before the session first event at 2026-11-04T10:10:00Z"
+verdict $? "an earlier named session does not lower the fix-round floor" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
+
+# Each way a path ends in an event names it. B has no session of its own, so a
+# session not found leaves the step unverified: a note counts as a miss.
+two_worktrees
 for term in quote slash newline apostrophe semicolon paren; do
-  two_worktrees
+  wt=$wta
   session 2026-11-04T10:20:00
   case $term in
     quote) printf '{"type":"assistant","timestamp":"2026-11-04T10:20:03.000Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"cwd":"%s"}}]}}\n' "$wtb" >>"$sdir/events.jsonl" ;;
@@ -543,7 +582,7 @@ for term in quote slash newline apostrophe semicolon paren; do
   srec "$r" convergence polish /polish passed 2026-11-04T10:30:11Z 2026-11-04T10:30:47Z
   done_at "$r" convergence
   audit --through convergence
-  [ "$RC" -eq 0 ] && ! grep -q "^gap${TAB}" "$tmp/audit"
+  [ "$RC" -eq 0 ] && ! grep -q -e "^gap" -e "^note" "$tmp/audit"
   verdict $? "a session naming B ending in a $term counts for B's records" "rc $RC: $(cat "$tmp/audit" "$tmp/audit.err")"
 done
 
