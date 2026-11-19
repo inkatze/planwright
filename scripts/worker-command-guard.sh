@@ -21,9 +21,8 @@
 #     hook skip, squash, or `gh` write), defers, declared steps' lines
 #     included, save two own-unit acts (see own_unit_act): a push of the
 #     recorded unit branch to origin and a body edit of its own open pull
-#     request. The
-#     guard reads the deny block itself rather than trusting Claude Code's
-#     evaluation order, and approves nothing when it cannot.
+#     request. The guard reads the deny block itself rather than trusting
+#     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared steps, the spec-root write zone) is
 #     always in force; the own-branch arm, which approves writes confined to
@@ -157,10 +156,12 @@ emit_allow() {
 
 # The policy arms whose checks admitted part of the command being approved:
 # set by ob_path, ob_git_ready, guard_mktemp, and expand_word's `$TMPDIR`,
-# reset per hook call. Read-only is whatever approval set neither.
+# reset per hook call; AUDIT_OU, by own_unit_act. Read-only is whatever
+# approval set none of them.
 AUDIT_OB=0
 AUDIT_SC=0
 AUDIT_OU=0
+OU_EXPORTED=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -1364,11 +1365,13 @@ floor_act_words() {
 # --------------------------------------------------------------------------
 # The own-unit acts: three a session may run on its own unit that no other
 # arm approves (the push and the edit being floor acts), approved whatever
-# the record's policy, but only under
-# a record carrying the unit branch, the worktree root and a usable audit
-# log, with the session's directory inside that worktree, for the session's
-# own top-level command (never inside a substitution or a `fish -c` string),
-# with no redirect, prefix or leading assignment:
+# the record's policy, but only under a record carrying the unit branch, the
+# worktree root and a usable audit log, with the session's directory in that
+# worktree's own repository, for the session's own command at the top level
+# (never inside a substitution, a `fish -c` string, a loop, an if or case
+# body, a pipeline or a background job, nor after `||`), with no redirect,
+# prefix or leading assignment, and no later re-assignment of a name an
+# approved export set:
 #   export PLANWRIGHT_STEP_<field>=<literal>...   the step context, its
 #       values held to strip_step_context's rules and its worktree, when
 #       given, canonically the recorded one;
@@ -1403,7 +1406,23 @@ own_unit_words_bare() {
 # assignments are resolved, is exactly one own-unit act.
 own_unit_act() {
   local i here
+  case ${cw[0]-} in
+    export | git | gh) ;;
+    *) return 1 ;;
+  esac
   [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] && [ "$OUTSIDE_CD" = 0 ] || return 1
+  # Top level and unconditional: no loop, if or case body, no pipeline, no
+  # background job, and not run only on an earlier failure. `seg_open`,
+  # `close` and `ctl_depth` are verify_tokens' and fin's walk state.
+  [ "${ctl_depth:-1}" -eq 0 ] || return 1
+  case ${seg_open-x}:${close-x} in
+    :* | ';':* | '&&':*) ;;
+    *) return 1 ;;
+  esac
+  case ${close-x} in
+    ';' | '&&' | '||' | end) ;;
+    *) return 1 ;;
+  esac
   [ "$rn" -eq 0 ] && [ "$cwn" -eq "$swn" ] && [ "$cwn" -ge 2 ] || return 1
   [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] && [ -n "$REC_AUDIT_LOG" ] || return 1
   for ((i = 0; i < cwn; i++)); do
@@ -1416,11 +1435,19 @@ own_unit_act() {
   esac
   deny_hit "${cw[@]}" && return 1
   case ${cw[0]} in
-    export) own_step_export_ok ;;
-    git) own_push_ok ;;
-    gh) own_pr_edit_ok "$here" ;;
+    export) own_step_export_ok && own_unit_same_repo "$here" && OU_EXPORTED=1 ;;
+    git) own_push_ok && own_unit_same_repo "$here" ;;
+    gh) own_unit_same_repo "$here" && own_pr_edit_ok "$here" ;;
     *) return 1 ;;
   esac
+}
+
+# own_unit_same_repo <canonical dir>: under the worktree path is not enough,
+# since a nested repository or a .git pointing elsewhere is another
+# repository with its own origin. Checked last, as it runs git.
+own_unit_same_repo() {
+  HOOK_WT_ROOT=$REC_WT
+  cd_same_repo "$1"
 }
 
 own_step_export_ok() {
@@ -1443,16 +1470,6 @@ own_step_export_ok() {
       *[!A-Za-z0-9._/:@%,+-]*) return 1 ;;
     esac
     step_context_value_ok "$f" "$v" || return 1
-    if [ "$f" = WORKTREE ]; then
-      case $v in
-        /*) ;;
-        *) return 1 ;;
-      esac
-      case $v/ in
-        */./* | */../*) return 1 ;;
-      esac
-      [ "$(cd "$v" 2>/dev/null && pwd -P)" = "$REC_WT" ] || return 1
-    fi
   done
   return 0
 }
@@ -4223,6 +4240,13 @@ assign_name_ok() {
   case $name in
     '' | *[!A-Za-z0-9_]* | [0-9]*) return 1 ;;
   esac
+  # Once an own-unit export has run, the step names are exported: assigning
+  # one again would change what later step calls read around its checks.
+  if [ "$OU_EXPORTED" = 1 ]; then
+    case $name in
+      PLANWRIGHT_STEP_*) return 1 ;;
+    esac
+  fi
   # Beside the names the shell consumes, this refuses the ones bash evaluates
   # as arithmetic on assignment (a subscript in the value runs a command),
   # keeps readonly, or rewrites by itself (`read` with no NAME sets REPLY), so
@@ -5937,6 +5961,20 @@ step_context_value_ok() {
         *[!0-9]*) return 1 ;;
       esac
       ;;
+    WORKTREE)
+      # Under a record, the step context names the session's own worktree
+      # alone, however it is spelled.
+      if [ -n "$REC_WT" ]; then
+        case $v in
+          /*) ;;
+          *) return 1 ;;
+        esac
+        case $v/ in
+          */./* | */../*) return 1 ;;
+        esac
+        [ "$(cd "$v" 2>/dev/null && pwd -P)" = "$REC_WT" ] || return 1
+      fi
+      ;;
     PREV_HEAD | NEW_HEAD)
       case $v in
         *[!0-9a-f]*) return 1 ;;
@@ -7558,6 +7596,7 @@ main() {
   AUDIT_OB=0
   AUDIT_SC=0
   AUDIT_OU=0
+  OU_EXPORTED=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0

@@ -200,6 +200,46 @@ assert_defer "inside bash -c" "bash -c 'git push origin $B'" Bash "$WT"
 assert_defer "a session sitting in another worktree" "git push origin $B" Bash "$OTHER_WT"
 assert_defer "a cd out of the worktree first" "cd $OTHER_WT && git push origin $B" Bash "$WT"
 
+echo "### the act stands at the top level of the session's own repository"
+# A nested repository, and a directory whose .git points at another one, lie
+# under the worktree path but are other repositories.
+env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
+  GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 git init -q "$WT/nested" || exit 1
+mkdir -p "$WT/pointer"
+env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
+  GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 git init -q "$CS/foreign" || exit 1
+printf 'gitdir: %s\n' "$CS/foreign/.git" >"$WT/pointer/.git"
+assert_defer "a push from a nested repository" "git push origin $B" Bash "$WT/nested"
+assert_defer "a body edit from a nested repository" "gh pr edit 12 --body-file $SCR/body.md" Bash "$WT/nested"
+assert_defer "an export from a nested repository" "export $CTX && $SREC write --run 1" Bash "$WT/nested"
+assert_defer "a push from a gitdir pointer to another repository" "git push origin $B" Bash "$WT/pointer"
+assert_defer "inside a while loop" "while true; do git push origin $B; done" Bash "$WT"
+assert_defer "inside a for loop" "for x in a; do git push origin $B; done" Bash "$WT"
+assert_defer "inside an if body" "if git status; then git push origin $B; fi" Bash "$WT"
+assert_defer "inside a case body" "case x in x) git push origin $B ;; esac" Bash "$WT"
+assert_defer "after ||" "git status || git push origin $B" Bash "$WT"
+assert_defer "piped into a reader" "git push origin $B | cat" Bash "$WT"
+assert_defer "at the end of a pipeline" "git status | git push origin $B" Bash "$WT"
+assert_defer "backgrounded" "git push origin $B &" Bash "$WT"
+assert_defer "a body edit backgrounded" "gh pr edit 12 --body-file $SCR/body.md & git status" Bash "$WT"
+assert_defer "an export inside a loop" "for x in a; do export $CTX; done && $SREC write --run 1" Bash "$WT"
+assert_allow "followed by a read after ;" "git push origin $B; git status" Bash "$WT"
+assert_allow "followed by || on its failure" "git push origin $B || git status" Bash "$WT"
+
+echo "### an exported step name keeps its checked value"
+assert_defer "a re-assignment after the export" \
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && $SREC write --run 1" Bash "$WT"
+assert_defer "a re-assignment of another exported name" \
+  "export PLANWRIGHT_STEP_BRANCH=$B && PLANWRIGHT_STEP_BRANCH=x; $SREC write --run 1" Bash "$WT"
+assert_defer "a loop over an exported name" \
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && for PLANWRIGHT_STEP_WORKTREE in $OTHER_WT; do $SREC write --run 1; done" Bash "$WT"
+assert_allow "a second checked export" "export PLANWRIGHT_STEP_BRANCH=$B && export PLANWRIGHT_STEP_WORKTREE=$WT && $SREC new-run" Bash "$WT"
+
+echo "### the step worktree is pinned in every spelling under a record"
+assert_defer "the prefix spelling naming another worktree" "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT $SREC write --run 1" Bash "$WT"
+assert_defer "the env spelling naming another worktree" "env PLANWRIGHT_STEP_WORKTREE=$OTHER_WT $SREC write --run 1" Bash "$WT"
+assert_allow "the prefix spelling naming the session's own" "PLANWRIGHT_STEP_WORKTREE=$WT $SREC write --run 1" Bash "$WT"
+
 echo "### every class needs a usable session record"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PATH=$STUB:$PATH")
 assert_defer "no record: push" "git push origin $B" Bash "$WT"
