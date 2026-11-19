@@ -70,6 +70,9 @@ grace_default=5
 # will not settle anyway.
 freeze_rounds_max=20
 
+# The longest a freeze waits for a signalled process to actually stop.
+freeze_settle=2
+
 stop_lf='
 '
 
@@ -543,6 +546,51 @@ stop_live() {
   printf '%s' "${sl_out# }"
 }
 
+# stop_state <pid> — the first letter of the process's state, empty when it
+# cannot be read. procfs first, where `ps -o stat=` is not needed.
+stop_state() {
+  if { IFS= read -r ss_line <"/proc/$1/stat"; } 2>/dev/null; then
+    ss_rest=${ss_line##*) }
+    ss_rest=${ss_rest%% *}
+    # A command name holding a newline splits the line; fall through to ps.
+    case $ss_rest in
+      [A-Za-z])
+        printf '%s' "$ss_rest"
+        return 0
+        ;;
+    esac
+  fi
+  ss_line=$(ps -o stat= -p "$1" 2>/dev/null) || ss_line=''
+  # shellcheck disable=SC2086 # drop the padding some ps prints
+  set -- $ss_line
+  printf '%s' "${1:-}" | cut -c1
+}
+
+# stop_await_stopped — wait, bounded by `freeze_settle` seconds of wall clock,
+# until every process in `stop_tracked` has actually stopped. `kill -STOP`
+# returns once the signal is queued, not once the target has run to the point
+# of stopping, and a loaded host can leave a runnable target going for a good
+# while: a re-read of the table then races a process that can still fork. A
+# member that is gone, a zombie, or whose state cannot be read counts as
+# settled, as does one that stays unstoppable (blocked in the kernel) past the
+# bound; the freeze proceeds with what it has, as it always did.
+stop_await_stopped() {
+  sw_until=''
+  for sw_p in $stop_tracked; do
+    while :; do
+      sw_s=$(stop_state "$sw_p")
+      case $sw_s in T | t | Z | X | '') break ;; esac
+      if [ -z "$sw_until" ]; then
+        sw_now=$(stop_now) || return 0
+        sw_until=$((sw_now + freeze_settle))
+      fi
+      sw_now=$(stop_now) || return 0
+      [ "$sw_now" -le "$sw_until" ] || break
+      sleep 0.05
+    done
+  done
+}
+
 # stop_freeze <dir> <match> <pidfiles> — SIGSTOP every process in
 # `stop_tracked`, re-read the tree, and repeat until a read adds no member. A
 # signal sent to a snapshot misses a child forked after the read by a parent
@@ -559,6 +607,7 @@ stop_freeze() {
     for sf_p in $stop_tracked; do
       kill -STOP "$sf_p" 2>/dev/null || :
     done
+    stop_await_stopped
     [ "$sf_round" -lt "$freeze_rounds_max" ] || return 0
     sf_round=$((sf_round + 1))
     sf_before=" $stop_tracked "
