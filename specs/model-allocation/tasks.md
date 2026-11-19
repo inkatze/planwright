@@ -190,7 +190,8 @@
 ### Task 9 — Review-step posture in the operator docs
 
 - **Deliverables:** `docs/allocation.md` states that the review steps ship `sonnet`,
-  that the per-step model takes effect only once `execute_step` carries a tier, that
+  that the per-step model takes effect only once `execute_step` carries a tier and
+  only when it is cheaper than the unit's model, that
   review quality on Sonnet is unmeasured, and that the saving is an estimate; the
   shipped-posture list and the example block match `config/defaults.yml`; the docs
   check pins the statement.

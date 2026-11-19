@@ -82,7 +82,9 @@ default-preserving configuration — shipped defaults change no behavior at any 
   Because the per-step application is one-directional and gated by its surface's own
   tier, the review-step model takes effect at run time only while the
   `allocation_model_execute_step` surface carries a tier; at its shipped `inherit`
-  the resolver applies nothing and records the inheritance.
+  the resolver applies nothing and records the inheritance. A review step's model
+  takes effect only when it is strictly cheaper than the unit's model; a step model
+  at or above the unit's tier is not applied.
   *(Cites: D-14, D-13; Sources: the seed note, the token-spend research note, the
   operator's 2026-11-09 call.)*
 - **REQ-A1.3** New policy knobs SHALL live in a general, surface-agnostic
@@ -234,6 +236,11 @@ default-preserving configuration — shipped defaults change no behavior at any 
 
 ## Changelog
 
+- 2026-11-19 — Amendment, wording only, operator-approved (the operator's ruling of
+  2026-11-19 on the PR-Agent finding, "Fix the wording (Recommended)", relayed by
+  the hub): REQ-A1.5 and Task 9 now state that a review step's model takes effect
+  only when it is strictly cheaper than the unit's model, matching what
+  `scripts/allocation-adapt.sh` applies. No REQ or D-ID added or removed.
 - 2026-11-13 — Amendment, extend mode (reopens the bundle to Draft): REQ-A1.5
   (supersedes REQ-A1.2 in part, the two review-step models ship `sonnet`) and
   REQ-E1.3 minted, D-14 (supersedes D-13 in part), Tasks 8 and 9 appended. The

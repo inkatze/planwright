@@ -358,3 +358,15 @@ Lens-pass: delta-scoped inline lens review recorded in this entry (one finding,
 dispositioned: applied)
 Anchor: `c6f738145626060c125e93301446f17cf8fd73aa` — computed as
 `scripts/spec-anchor.sh specs/model-allocation`
+
+**2026-11-19 — Review-step tier wording, expression-only.** REQ-A1.5 and Task 9 now
+say in plain words that a review step's model takes effect only when it is strictly
+cheaper than the unit's model, which is what `scripts/allocation-adapt.sh` already
+applies. Nothing new is decided: no REQ or D-ID was added, removed, or given a new
+meaning. Approved by the operator 2026-11-19 (ruling on the PR-Agent finding, "Fix
+the wording (Recommended)", relayed by the hub).
+
+Class: expression-only
+Changelog: requirements.md `## Changelog`, entry dated 2026-11-19
+Anchor: `597f9b30276c22b2e0bfa4a30b01a9f35f0614ea` — computed as
+`scripts/spec-anchor.sh specs/model-allocation`
