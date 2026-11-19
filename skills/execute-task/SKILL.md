@@ -407,9 +407,8 @@ classify the edit on the amendment axis:
    checklist (`step-record.sh regenerate --base origin/<base> --head
    origin/<branch> --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
    else park naming the post-pr steps (custom-steps REQ-E1.2); a failed
-   re-fire under `halt` then parks. A post-pr step waiting on the bot review
-   the flip fires leaves readiness at `flip-for-review`: flip, wait for that
-   run, settle its findings, record post-pr. Earlier points never re-run. When `ready_flip_policy` resolves `unit-owner`, run
+   re-fire under `halt` then parks. Earlier points
+   never re-run. When `ready_flip_policy` resolves `unit-owner`, run
    `scripts/ready-flip.sh`'s header sequence. Under `merge_policy:
    policy-class`, `scripts/merge-admitted.sh`'s follows.
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
