@@ -52,7 +52,9 @@ check goes straight to log diagnosis rather than to a wait. A step's record
 never reads as covering CI: a cadence that is done names its points and steps,
 not the checks. The repo's own bot review (PR-Agent) is the flip's run, never
 a step's: it fires on the flip, so no step before the flip requests or waits
-for one. After the flip, wait for the runs it started, settle the findings,
+for one, so a draft whose only gap is `post-pr` reads `flip-for-review` to the
+readiness check, a go-ahead to flip. After the flip, wait for the runs it
+started, settle the findings, complete a `post-pr` that was held for that run,
 and request one more run (`scripts/request-reviewer.sh`) only after a fix that
 changed code.
 

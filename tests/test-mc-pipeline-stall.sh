@@ -64,6 +64,7 @@ case \$verb in
   walk)
     n=\$(awk -F '\t' '\$1 == "stubpr" { print \$2 }' "\$ev")
     if [ -s "$tmp/walk.\$n" ]; then printf 'not-ready\tabc\n'; cat "$tmp/walk.\$n"; exit 4; fi
+    if [ -f "$tmp/flip.\$n" ]; then printf 'flip-for-review\tabc\npending\tpost-pr\tno completion record\n'; exit 4; fi
     printf 'ready\tabc\n'
     ;;
 esac
@@ -155,6 +156,8 @@ expect_out "a window later it raises again" "raised${tab}pipeline-stalled"
 if [ "$(stalled_events)" = 2 ]; then ok "two events in all"; else fail "expected two events, got $(stalled_events)"; fi
 
 # --- launch holds ----------------------------------------------------------
+# Draft 11 now reads flip-for-review, so the holds cover that walk's branch too.
+: >"$tmp/flip.11"
 : >"$tmp/usage-held"
 drafts | put $((T + 6 * HOUR))
 run $((T + 6 * HOUR))
@@ -167,6 +170,7 @@ run $((T + 8 * HOUR))
 ev=$(mc_run_events)
 case $ev in *"launch hold (host bound) (1): acme/web#11"*) ok "the host bound at its limit is a launch hold" ;; *) fail "no host bound reason: $ev" ;; esac
 printf 'bound\t8\t2\t0\n' >"$tmp/bound"
+rm -f "$tmp/flip.11"
 
 # --- thirty drafts still name every reason inside the event's byte cap ------
 for n in $(seq 100 129); do
@@ -247,20 +251,31 @@ printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tPENDING\n' >"$tmp/
 : >"$tmp/walk.13"
 printf 'state\tdraft\ncheck\tbuild\tFAILURE\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/evidence.14"
 : >"$tmp/walk.14"
+# A draft whose only gap is the post-pr point is told to flip: the flip verdict
+# has no failure line, and it reads as awaiting a flip, not a refusal.
+printf 'state\tdraft\ncheck\tbuild\tSUCCESS\n' >"$tmp/evidence.15"
+: >"$tmp/walk.15"
+: >"$tmp/flip.15"
 {
   row 12 true MERGEABLE FAILURE
   row 13 true MERGEABLE PENDING
   row 14 true MERGEABLE FAILURE
+  row 15 true MERGEABLE SUCCESS
 } | put $((T + 60 * HOUR))
 run $((T + 60 * HOUR))
 {
   row 12 true MERGEABLE FAILURE
   row 13 true MERGEABLE PENDING
   row 14 true MERGEABLE FAILURE
+  row 15 true MERGEABLE SUCCESS
 } | put $((T + 62 * HOUR))
 run $((T + 62 * HOUR))
 ev=$(mc_run_events | tail -n 1)
-case $ev in *"awaiting a flip (2): acme/web#12 acme/web#13"* | *"awaiting a flip (2): acme/web#13 acme/web#12"*) ok "a draft's failed or pending PR-Agent run is no stall reason" ;; *) fail "a draft's PR-Agent run held it: $ev" ;; esac
+case $ev in *"awaiting a flip (3): "*) ok "a draft's failed or pending PR-Agent run is no stall reason" ;; *) fail "a draft's PR-Agent run held it: $ev" ;; esac
+for n in 12 13 15; do
+  case $ev in *"acme/web#$n"*) ok "acme/web#$n awaits a flip" ;; *) fail "acme/web#$n is not among the drafts awaiting a flip: $ev" ;; esac
+done
+case $ev in *"flip-gate refusal readiness"*) fail "the flip verdict read as a refusal: $ev" ;; *) ok "the flip-for-review verdict is no refusal reason" ;; esac
 case $ev in *"red check build (1): acme/web#14"*) ok "and a red ordinary check beside it still is" ;; *) fail "the exemption hid an ordinary red check: $ev" ;; esac
 
 # --- a stale or absent snapshot raises nothing ------------------------------
