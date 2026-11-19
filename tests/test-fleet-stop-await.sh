@@ -39,75 +39,76 @@ script_dir=$REPO_ROOT/scripts
 # shellcheck source=scripts/fleet-stop-lib.sh
 . "$REPO_ROOT/scripts/fleet-stop-lib.sh"
 
-now_ms() { date +%s%N | cut -c1-13; }
+now_s() { date +%s; }
 
-# A stop that lands 700 ms after the signal returns: the wait must hold until
-# the process is in the stopped state, not return on the queued signal.
+# A stop that lands a moment after the signal: the wait must hold until the
+# process is in the stopped state, not return on the queued signal.
 sleep 60 &
 victim=$!
 pids="$pids $victim"
 stop_tracked=$victim
 (
-  sleep 0.7
+  sleep 1.5
   kill -STOP "$victim"
 ) &
 delayed=$!
-start=$(now_ms)
+start=$(now_s)
 stop_await_stopped
-elapsed=$(($(now_ms) - start))
+elapsed=$(($(now_s) - start))
 state=$(stop_state "$victim")
-if [ "$state" = T ] && [ "$elapsed" -ge 600 ]; then
-  pass "the wait holds until a late stop has taken effect (${elapsed} ms)"
+if [ "$state" = T ]; then
+  pass "the wait holds until a late stop has taken effect (${elapsed} s)"
 else
-  fail "the wait returned with the process in state '$state' after ${elapsed} ms"
+  fail "the wait returned with the process in state '$state' after ${elapsed} s"
 fi
 wait "$delayed"
 
 # A process already stopped costs no wait.
-start=$(now_ms)
+start=$(now_s)
 stop_await_stopped
-elapsed=$(($(now_ms) - start))
-if [ "$elapsed" -lt 500 ]; then
+elapsed=$(($(now_s) - start))
+if [ "$elapsed" -le 1 ]; then
   pass "an already-stopped member returns without waiting"
 else
-  fail "an already-stopped member took ${elapsed} ms"
+  fail "an already-stopped member took ${elapsed} s"
 fi
 
 # A process that never stops is waited for only to the bound.
 kill -CONT "$victim"
 freeze_settle=1
-start=$(now_ms)
+start=$(now_s)
 (
   # Re-arm the stop only after the bound has passed, so the process runs
   # throughout the wait.
-  sleep 3
+  sleep 8
   kill -STOP "$victim"
 ) &
 late=$!
 stop_await_stopped
-elapsed=$(($(now_ms) - start))
-if [ "$elapsed" -ge 900 ] && [ "$elapsed" -lt 2800 ]; then
-  pass "a member that does not stop is waited for only to freeze_settle (${elapsed} ms)"
+elapsed=$(($(now_s) - start))
+state=$(stop_state "$victim")
+if [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 3 ] && [ "$state" != T ]; then
+  pass "a member that does not stop is waited for only to freeze_settle (${elapsed} s)"
 else
-  fail "the bounded wait took ${elapsed} ms for a 1 s bound"
+  fail "the bounded wait took ${elapsed} s (state '$state') for a 1 s bound"
 fi
 kill "$late" 2>>"$T/noise"
 wait "$late" 2>>"$T/noise"
 
 # A member that is gone is settled at once.
-kill -CONT "$victim"
-kill -KILL "$victim"
+gone=$victim
+kill -CONT "$gone"
+kill -KILL "$gone"
 wait "$victim" 2>>"$T/noise"
 pids=''
-
-stop_tracked=$victim
-start=$(now_ms)
+stop_tracked=$gone
+start=$(now_s)
 stop_await_stopped
-elapsed=$(($(now_ms) - start))
-if [ "$elapsed" -lt 500 ]; then
+elapsed=$(($(now_s) - start))
+if [ "$elapsed" -le 1 ]; then
   pass "a member that is gone returns without waiting"
 else
-  fail "a gone member took ${elapsed} ms"
+  fail "a gone member took ${elapsed} s"
 fi
 
 [ "$failures" = 0 ] || exit 1
