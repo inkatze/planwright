@@ -4073,7 +4073,9 @@ git_alias_check() {
 # the words from <start>, setting GP_POS[] (positionals with GP_POSL[]),
 # GP_LONG (space-joined long option names seen, values dropped), GP_SHORT
 # (short flag chars seen), and GP_LITLONG and GP_LITSHORT, the same from
-# literal words only. Returns 1 with GP_ERR when a flag cannot be read.
+# literal words only; GP_VALUNLIT is 1 when a separate value word is not
+# literal, since the shell may split it into further options. Returns 1 with
+# GP_ERR when a flag cannot be read.
 parse_git_opts() {
   local k=$1 vlong=" $2 " vshort=$3 ovshort=$4 n=${#SW[@]} w lit name endopts=0 b c
   GP_POS=()
@@ -4082,6 +4084,7 @@ parse_git_opts() {
   GP_SHORT=''
   GP_LITLONG=' '
   GP_LITSHORT=''
+  GP_VALUNLIT=0
   GP_VALS=()
   GP_ERR=''
   while [ "$k" -lt "$n" ]; do
@@ -4111,6 +4114,7 @@ parse_git_opts() {
               GP_ERR="--$name has no value"
               return 1
             }
+            [ "${SWL[$k]}" = 1 ] || GP_VALUNLIT=1
             GP_LONG="$GP_LONG$name "
             [ "$lit" != 1 ] || GP_LITLONG="$GP_LITLONG$name "
             ;;
@@ -4143,6 +4147,7 @@ parse_git_opts() {
                   GP_ERR="-$c has no value"
                   return 1
                 }
+                [ "${SWL[$k]}" = 1 ] || GP_VALUNLIT=1
                 GP_VALS[${#GP_VALS[@]}]="$c=${SW[$k]}"
               else
                 GP_VALS[${#GP_VALS[@]}]="$c=$b"
@@ -4511,11 +4516,12 @@ MERGE_VLONG='message file strategy strategy-option into-name cleanup'
 MERGE_PLAIN_LONG=' message file no-edit edit quiet verbose stat no-stat summary no-summary log no-log signoff no-signoff gpg-sign no-gpg-sign ff no-ff ff-only commit verify no-verify progress no-progress cleanup into-name rerere-autoupdate no-rerere-autoupdate '
 MERGE_PLAIN_SHORT='mFqvneS'
 
-# merge_plain_seen — 0 when every option parse_git_opts read is literal and
-# in the plain set above; an abbreviation counts as outside it.
+# merge_plain_seen — 0 when every option parse_git_opts read, and every value
+# word it consumed, is literal, and each option is in the plain set above; an
+# abbreviation counts as outside it.
 merge_plain_seen() {
   local t c s
-  [ "$GP_LONG" = "$GP_LITLONG" ] && [ "$GP_SHORT" = "$GP_LITSHORT" ] || return 1
+  [ "$GP_VALUNLIT" = 0 ] && [ "$GP_LONG" = "$GP_LITLONG" ] && [ "$GP_SHORT" = "$GP_LITSHORT" ] || return 1
   for t in $GP_LONG; do
     case $MERGE_PLAIN_LONG in *" $t "*) ;; *) return 1 ;; esac
   done

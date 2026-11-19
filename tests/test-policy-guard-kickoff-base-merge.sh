@@ -57,7 +57,8 @@ for w in "$W_RW" "$W_SPEC" "$W_AM"; do
   expect defer "[worker, kickoff-demo] the PR base merges into ${w##*/}"
 done
 for cmd in 'git merge --no-edit origin/main' "git merge --no-ff -m 'sync main' origin/main" \
-  'git merge refs/remotes/origin/main' 'git merge --quiet --no-edit origin/main'; do
+  'git merge refs/remotes/origin/main' 'git merge --quiet --no-edit origin/main' \
+  'git merge -S --no-verify origin/main' "git merge --message 'sync main' --cleanup=strip origin/main"; do
   kk kickoff-demo "$cmd" "$W_RW"
   expect defer "[worker, kickoff-demo] a plain spelling of the base merge defers: $cmd"
 done
@@ -128,6 +129,12 @@ for cmd in 'git merge --squash origin/main' 'git merge --sq origin/main' 'git me
   expect deny "[worker, kickoff-demo] a meaning-changing or unreadable option refuses: $cmd"
 done
 reason_has 'plain merge' "[worker, kickoff-demo] the option refusal names the plain merge it admits"
+for cmd in "X='a --squash'; git merge -m \$X origin/main" "X='a -s ours'; git merge --message \$X origin/main" \
+  "X='--no-commit'; git merge -F \$X origin/main" "X='a --strategy=ours'; git merge --cleanup \$X origin/main" \
+  "X='a --allow-unrelated-histories'; git merge --into-name \$X origin/main"; do
+  kk kickoff-demo "$cmd" "$W_RW"
+  expect deny "[worker, kickoff-demo] an option value the shell may split refuses: $cmd"
+done
 
 echo "# no history rewrite rides along"
 for cmd in 'git rebase origin/main' 'git pull --rebase origin main' 'git merge origin/main && git rebase origin/main' \
@@ -154,7 +161,8 @@ mkdir -p "$SANDBOX/records"
 printf '%s\n' "spec_branch=$AM" >"$REC"
 PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker 'git merge origin/main' "$W_AM" "$W_AM"
 expect defer "[worker, record] the launch-named spec branch still merges the PR base"
-for cmd in 'git merge --squash origin/main' 'git merge -s ours origin/main'; do
+for cmd in 'git merge --squash origin/main' 'git merge -s ours origin/main' \
+  "X='a --squash'; git merge -m \$X origin/main"; do
   PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker "$cmd" "$W_AM" "$W_AM"
   expect deny "[worker, record] the launch-named spec branch refuses: $cmd"
 done
