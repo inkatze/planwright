@@ -33,8 +33,9 @@ v=\$(cat "$tmp/pr-view" 2>/dev/null) || exit 1
 printf '%s\n' "\$v"
 EOF
 chmod +x "$tmp/bin/gh"
-view() { # <head> [<state>] [<cross-repo>]
-  printf '{"headRefName":"%s","state":"%s","isCrossRepository":%s}\n' "$1" "${2:-OPEN}" "${3:-false}" >"$tmp/pr-view"
+view() { # <head> [<state>] [<cross-repo>] [<head oid>]
+  printf '{"headRefName":"%s","headRefOid":"%s","state":"%s","isCrossRepository":%s}\n' \
+    "$1" "${4:-${work:-}}" "${2:-OPEN}" "${3:-false}" >"$tmp/pr-view"
 }
 
 PRB=planwright/flight/fix-thing-1a2b3c4d
@@ -66,6 +67,10 @@ else
     || fail "the --pr launch created a branch: $(git -C "$repo" for-each-ref --format='%(refname)' refs/heads/planwright/flight/)"
   grep -q 'pr view 12 --json' "$tmp/gh.log" && ok "the launch asks gh for pull request 12's head" \
     || fail "gh was not asked about the PR: $(cat "$tmp/gh.log" 2>/dev/null)"
+  pr_brief=$(field brief)
+  grep -q 'scripts/worker-branch-sync.sh' "$pr_brief" && grep -q 'never with' "$pr_brief" \
+    && ok "the brief names the branch-sync helper and the cwd form of git" \
+    || fail "the brief lacks the branch-sync paragraph: $(cat "$pr_brief" 2>/dev/null | tail -n 8)"
   pr_name=$(field name)
   wait_done "$pr_name"
   wait_cwd_free "$pr_wt"
@@ -77,6 +82,14 @@ fi
 gitc worktree remove --force "$pr_wt" || fail "fixture: the PR worktree '$pr_wt' could not be removed"
 ! git -C "$repo" worktree list --porcelain | grep -qFx "branch refs/heads/$PRB" \
   || fail "fixture: a worktree still holds $PRB"
+view "$PRB" OPEN false 0123456789abcdef0123456789abcdef01234567
+rec="$tmp/rec-pr-stale"
+mkdir -p "$rec"
+SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope fix-pr-12s --pr 12 --brief "$tmp/brief.md"
+[ "$RC" = 4 ] && [ ! -e "$rec/cwd" ] && case $ERR in *"not at pull request #12's head"*) true ;; *) false ;; esac \
+  && ok "a local PR branch behind the PR's head is refused, not placed" \
+  || fail "a stale local PR branch: exit $RC: $ERR"
+view "$PRB"
 rec="$tmp/rec-pr-placed"
 mkdir -p "$rec"
 SHIM_RECORD_DIR=$rec ml launch --program alpha --kind worker --scope fix-pr-12b --pr 12 --brief "$tmp/brief.md"
@@ -119,8 +132,12 @@ refused_launch "a PR branch no worktree holds and no local branch carries is ref
 git -C "$repo" show-ref --verify --quiet refs/heads/planwright/flight/nowhere-0000aaaa \
   && fail "the refused launch created the missing branch" || ok "the refused launch created no branch"
 view planwright/demo/task-9
-refused_launch "an unheld task branch is refused, naming --cwd" 4 --scope fix-task --pr 12
-case $ERR in *--cwd*) ok "the unheld task-branch refusal names --cwd" ;; *) fail "the refusal does not name --cwd: $ERR" ;; esac
+refused_launch "a task-branch head is refused" 4 --scope fix-task --pr 12
+case $ERR in *'task-<id> scope'*) ok "the task-branch refusal names the task scope" ;; *) fail "the refusal does not name the task scope: $ERR" ;; esac
+for bad in planwright/flight/legacy-name planwright/flight/task-3-1a2b3c4d planwright/a/b/task-1 'planwright/flight/Bad-1a2b3c4d'; do
+  view "$bad"
+  refused_launch "the head $bad, outside the session record's unit grammar, is refused" 4 --scope fix-gram --pr 12
+done
 view "$PRB"
 refused_launch "--pr with --cwd is a usage error" 2 --scope fix-cwd --pr 12 --cwd "$tmp"
 refused_launch "--pr with a task scope is a usage error" 2 --scope demo:task-1 --pr 12
