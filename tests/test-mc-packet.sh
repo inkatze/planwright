@@ -162,6 +162,14 @@ for rd in readiness notready; do
   case $base in *"$(cat "$tmp/$rd")"*) ok "REQ-F1.15: $rd: the gate result is identical at every level" ;; *) fail "REQ-F1.15: $rd: the walk is not carried whole" ;; esac
 done
 
+# The flip verdict (a draft whose only gap is the bot review its flip fires)
+# is a walk result a packet carries, whole.
+printf 'flip-for-review\t%s\npending\tpost-pr\tno completion record\n' "$head" >"$tmp/flipreview"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
+  --evidence "$tmp/gap" --moment ready-flip --level standard
+expect_rc "a flip-for-review readiness result assembles" 0
+expect_out "and the packet carries it whole" "flip-for-review${tab}$head"
+
 # Without a moment the packet is unchanged: the walk is the first line.
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/readiness"
 if [ "$(section_first)" = "ready${tab}$head" ]; then ok "no moment, no cadence line"; else fail "a packet with no moment changed"; fi

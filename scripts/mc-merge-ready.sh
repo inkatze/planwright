@@ -36,7 +36,9 @@ not a draft, MERGEABLE, with no open thread, its checks SUCCESS and its
 review decision neither CHANGES_REQUESTED nor REVIEW_REQUIRED. Each is
 walked as scripts/mc-readiness.sh check walks it (collect, then walk), and
 is ready only when the walk passes at the snapshot's own head (a head that
-moved since is judged again once the snapshot catches up) and the
+moved since is judged again once the snapshot catches up; a walk that does
+not pass, flip-for-review included, is not ready, and a candidate marked
+ready waits on its flip-fired PR-Agent run and its findings) and the
 program's merge conditions (scripts/mc-gates.sh resolve, for the
 repository, labels and paths collected) recommend it: `recommend approved`
 waits for an APPROVED review decision. The verdict is kept in <runtime>/merge-ready.tsv against

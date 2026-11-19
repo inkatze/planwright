@@ -67,7 +67,8 @@ Usage:
       config/mc-cadence-lessons.tsv (--lessons names another file); no level
       changes the walk or marks an option
       a section with no input reads `- none`; a readiness file that does
-      not open with ready or not-ready is refused, so no packet goes out
+      not open with ready, not-ready or flip-for-review is refused, so no
+      packet goes out
       without its readiness result
 
 Exit codes: 0 done; 1 a refused input or a store that cannot be read or
@@ -215,8 +216,8 @@ case $verb in
     cp "$readiness" "$scratch/readiness" || mc_fail "the readiness result is unreadable: $(sanitize_printable "$readiness")"
     readiness=$scratch/readiness
     case $(head -n 1 "$readiness" | cut -f1) in
-      ready | not-ready) ;;
-      *) mc_fail "the readiness result does not open with ready or not-ready; no packet without it" ;;
+      ready | not-ready | flip-for-review) ;;
+      *) mc_fail "the readiness result does not open with ready, not-ready or flip-for-review; no packet without it" ;;
     esac
     for f in "$focus" "$risks" "$order"; do
       [ -z "$f" ] || [ -r "$f" ] || mc_fail "unreadable: $(sanitize_printable "$f")"

@@ -223,7 +223,15 @@ reason() {
       if [ -n "$HOLD" ]; then printf 'launch hold (%s)\n' "$HOLD"; else printf 'awaiting a flip\n'; fi
       return 0
       ;;
-    4) ;;
+    4)
+      # flip-for-review: the only gap is the bot review the flip fires.
+      case $r_walk in
+        flip-for-review*)
+          if [ -n "$HOLD" ]; then printf 'launch hold (%s)\n' "$HOLD"; else printf 'awaiting a flip\n'; fi
+          return 0
+          ;;
+      esac
+      ;;
     *)
       printf 'evidence unread\n'
       return 0
