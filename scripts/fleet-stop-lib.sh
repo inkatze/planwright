@@ -583,7 +583,8 @@ stop_state() {
 # at all. The whole wait is bounded by `freeze_settle` seconds, and a member
 # still running at the bound (blocked in the kernel, say) is added to
 # `sf_skip`, which `stop_freeze` owns, so the rest of the freeze does not wait
-# on it again, and the freeze goes on without it.
+# on it again, and the freeze goes on without it. A member `kill -STOP` could
+# not signal (gone, or not ours) is skipped the same way.
 stop_await_stopped() {
   saw_until=''
   for saw_p in $stop_tracked; do
