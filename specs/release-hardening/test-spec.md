@@ -1,7 +1,7 @@
 # Release Hardening — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -226,12 +226,15 @@ heading condition alone passes this fixture, so the test proves ancestry is what
 caught it). Negative, heading: a proposal adding a version heading at or below
 the latest tag by SemVer precedence, citing no already-released commits, fails
 on the heading condition. Positive: a proposal covering only commits since the
-latest tag passes. A fourth fixture pins the comparison basis: a proposal whose
-headings carry fresh dates but already-released versions still fails, so a
-date-based implementation cannot pass the suite. A fifth fixture pins the PR-only case: an added entry
-citing only a PR number (no commit hash) whose merge commit is contained in the
-latest tag fails the check on the ancestry condition. The check reads the proposal artifact
-only, so no fixture may depend on how release-please was induced to misread
+latest tag passes, and it includes an entry citing only a PR number merged after
+the latest tag and an entry citing neither a commit nor a PR number, so a
+broadened ancestry condition cannot false-fail either shape. A fourth fixture
+pins the comparison basis: a proposal whose headings carry fresh dates but
+already-released versions still fails, so a date-based implementation cannot
+pass the suite. A fifth fixture pins the PR-only case: an added entry citing
+only a PR number (no commit hash) whose merge commit is contained in the latest
+tag fails the check on the ancestry condition. The check reads the proposal
+artifact only, so no fixture may depend on how release-please was induced to misread
 history.
 
 ### REQ-H1.3 — bootstrap-sha behaviour established and recorded [manual + design-level]

@@ -1,7 +1,7 @@
 # Release Hardening — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -320,11 +320,13 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   by entry date, which a regenerated changelog restamps; or (b) it adds an
   entry that cites a commit already contained in the latest release tag
   (commit ancestry, not version order), including an entry that cites only a PR
-  number whose merge commit is already contained in the latest release tag. Condition (b) is the one that catches a
-  bootstrapped proposal: such a proposal adds a single fresh, higher version
-  heading (so (a) passes it) over many entries re-listing already-released
-  commits. A state the check cannot read (no latest tag, an unreadable diff)
-  SHALL fail it, never pass it. This check SHALL be
+  number whose merge commit is already contained in the latest release tag. An
+  entry that cites neither a commit nor a PR number is outside condition (b)
+  and passes it. Condition (b) is the one that catches a bootstrapped proposal:
+  such a proposal adds a single fresh, higher version heading (so (a) passes
+  it) over many entries re-listing already-released commits. A state the check
+  cannot read (no latest tag, an unreadable diff, or a commit or PR number it
+  cannot resolve) SHALL fail it, never pass it. This check SHALL be
   cause-agnostic: it judges the proposal itself, not the conditions that
   produced it, so it holds for any reason release-please fails to see the
   latest release.
@@ -342,13 +344,16 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 ## Changelog
 
 - 2026-11-19 — Meaning-class: REQ-H1.2 condition (b) now also fails an added
-  entry that cites only a PR number (or no commit hash) whose merge commit is
-  already contained in the latest release tag, so such an entry cannot slip past
-  the ancestry condition. The operator ruled "Broaden" on a PR-Agent thread; the
-  evidence is that 2 of the last 200 CHANGELOG entries carry no commit link, one
-  citing only a PR number (#859). D-14, Task 10 and the REQ-H1.2 test-spec entry
-  follow. Task 10's unreadable-state wording is aligned to REQ-H1.2 (no latest
-  tag, an unreadable diff, or a commit it cannot resolve), expression-only.
+  entry that cites only a PR number whose merge commit is already contained in
+  the latest release tag, so such an entry cannot slip past the ancestry
+  condition; an entry citing neither a commit nor a PR number (release-please's
+  breaking-change notes) passes (b). A commit or PR number the check cannot
+  resolve joins REQ-H1.2's unreadable states, which fail it. The operator ruled
+  "Broaden" on a PR-Agent thread; the evidence is that 2 of the last 200
+  CHANGELOG entries carry no commit link, one citing only a PR number (#859).
+  D-14, Task 10 and the REQ-H1.2 test-spec entry follow, and Task 10's
+  unreadable-state wording now matches REQ-H1.2's. Walked as Amendment 5 in
+  `kickoff-brief.md`.
 - 2026-11-13 — Meaning-class: REQ-H1.2 now fails a release proposal on either
   of two conditions, an added version heading at or below the latest release tag
   (SemVer precedence, as before) or an added entry citing a commit already in

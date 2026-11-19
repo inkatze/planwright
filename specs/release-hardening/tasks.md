@@ -1,7 +1,7 @@
 # Release Hardening — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -269,10 +269,10 @@ and knob changes that share the file.
   into `mise run check` and therefore into CI. The ancestry condition needs the
   history and tags to resolve a cited commit, so the check fetches what it
   needs and fails, never passes, on any state it cannot read: no latest tag, an
-  unreadable diff, or a commit it cannot resolve. It SHALL judge
-  the proposal artifact alone, with no dependence on why release-please
-  misread the history. Plus the
-  REQ-H1.3 finding: verify what release-please 17.6.0 does when
+  unreadable diff, or a commit or PR number it cannot resolve. An entry citing
+  neither a commit nor a PR number is outside the ancestry condition. It SHALL
+  judge the proposal artifact alone, with no dependence on why release-please
+  misread the history. Plus the REQ-H1.3 finding: verify what release-please 17.6.0 does when
   `bootstrap-sha` is absent from `release-please-config.json`, and record the
   verified behaviour in the bundle changelog — removal is out of scope for this
   task unless the finding shows it is safe, in which case propose it as its own

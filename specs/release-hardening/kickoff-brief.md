@@ -672,3 +672,59 @@ Class: meaning
 Lens-pass: delta-scoped, 2 findings, all dispositioned (applied)
 Anchor: `a0135b54082f817c2388e22f4b915fcce38cb76e` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Amendment 5 — PR-only entries and unresolvable citations (2026-11-19)
+
+Delta re-walkthrough of the Ready bundle, relayed through mission control,
+entered on two PR-Agent threads on the spec PR. Scope: REQ-H1.2 condition (b),
+D-14, the REQ-H1.2 test-spec entry, and Task 10. Task 10 is still
+unimplemented, so it builds against this wording.
+
+**Rulings (operator, via the hub).** "Broaden": condition (b) also fails an
+added entry citing only a PR number whose merge commit is already in the latest
+release tag; evidence, 2 of the last 200 `CHANGELOG.md` entries carry no commit
+link, one citing only #859 (re-derived at sign-off). "Align wording": Task 10's
+fail-closed clause covers any state the check cannot read. "Yes, one amendment":
+both walked as one meaning-class entry. "Yes, it passes": an entry citing
+neither a commit nor a PR number is outside (b) and passes it, because
+release-please writes breaking-change notes without links, so failing them
+would block every breaking release; a bootstrapped proposal is still caught by
+its linked entries. "Apply all four": the follow-on findings below.
+
+**Edits applied.** `requirements.md`: REQ-H1.2 broadened (PR-only entries, the
+citation-less carve-out, a commit or PR number it cannot resolve as an
+unreadable state) and the dated `## Changelog` entry. `design.md`: D-14
+Decision restates the same, and a new rejected alternative (hash-only
+counting) records the evidence and the carve-out. `test-spec.md`: five
+required fixtures; the fifth pins the PR-only negative, and the positive one
+now carries a post-tag PR-only entry and a citation-less entry. `tasks.md`:
+Task 10 Deliverables follow REQ-H1.2's wording. `Last reviewed:` moved on all
+four files.
+
+**Lens pass (delta-scoped, walked inline: the delta is one condition of one
+requirement and its dependents).** Five findings, all applied.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 1 | a citation-less entry was ambiguous (REQ-H1.2 named PR-only entries; the D-14 note and changelog said "or no hash"); ruled outside (b) |
+| Security | none | a cited PR number is data resolved to a commit, never executed |
+| Error handling and failure modes | 1 | an unresolvable commit or PR number added to REQ-H1.2's unreadable states, so Task 10 and the changelog match it |
+| Performance | none | one resolution and ancestry query per cited entry |
+| Concurrency / state | none | read-only |
+| Naming, readability, structure | 1 | over-long delta lines reflowed |
+| Documentation | 1 | D-14's Decision paragraph named only the hash case; now names the PR-only and citation-less cases |
+| Tests / verification | 1 | the positive fixture gained a post-tag PR-only entry and a citation-less entry, so the broadened condition cannot false-fail; Task 10's Done when leaves the fixture list to the test-spec entry, as it did for the fourth fixture |
+| Cross-file consistency | none | stale-reference sweep over the four files and this brief found the old wording only in Amendment 4, which is history and stays |
+
+Altitude check: not applicable (no altitude trigger in this delta). Ship-gate
+check: no out-of-band fix named. Decision-domains gap check: unchanged by this
+delta. Out-of-scope observation recorded: the status render credits Task 10 to
+its halt PR (#361) by trailer and derives the bundle Done.
+
+**Cites the changelog line:** the 2026-11-19 `## Changelog` entry in
+`requirements.md`.
+
+Class: meaning
+Lens-pass: delta-scoped, 5 findings, all dispositioned (applied)
+Anchor: `3d84a553406edd1007a7f5832e4d71b58cab74fa` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
