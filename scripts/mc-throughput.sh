@@ -706,7 +706,9 @@ measure_steps() {
         st_n=$((st_n + 1))
         continue
       fi
-      st_out=$(step_rows "$st_wt" "$st_branch") || {
+      # A listed worktree is a worker's checkout; a reclaimed copy below is
+      # mission control's own folder, not a repository the guard can list.
+      st_out=$(mc_untrusted_git_env "$st_wt" && step_rows "$st_wt" "$st_branch") || {
         [ -d "$st_wt/.claude/steps" ] || continue
         unknown steps "cannot read the step records of $st_wt"
         return 0
