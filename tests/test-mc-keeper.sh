@@ -314,7 +314,18 @@ expect_out "a request that has just arrived on a worker no one owns is raised as
 pp_req rl-gone mission-control:removedprog
 keeper_as alpha 5260
 expect_out "a worker whose record names a program no longer configured is raised as unowned" "announced${tab}stream-json-worker-unowned${tab}rl-gone"
-rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/streamjson/rl-gone" "$fleet/dispatch-markers"
+# A program never escalates to itself: with no hub, the request of a worker
+# whose own mission control is dead is raised by another program's keeper.
+mc_row beta dead
+pp_req rl-self mission-control:beta
+keeper_as beta 5270
+expect_no_out "the dead program's own keeper does not raise its worker to itself" "stream-json-worker-unowned${tab}rl-self"
+keeper_as alpha 5280
+expect_out "another program's keeper raises it" "announced${tab}stream-json-worker-unowned${tab}rl-self"
+mc_run mc-event.sh list --program beta
+expect_no_out "and nothing is raised into the dead program's own queue" "stream-json-worker-unowned${tab}rl-self"
+mc_row beta live
+rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/streamjson/rl-gone" "$fleet/streamjson/rl-self" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-prompts" "$fleet/mission-control/alpha/keeper-unowned"
 
 # The ruling: the unowned event goes to the hub program, the one whose mission
@@ -407,7 +418,16 @@ expect_out "its own program announces it" "announced${tab}pending-prompt${tab}og
 expect_no_out "and no keeper raises it as well" "stream-json-worker-unowned"
 keeper_as alpha 5060
 expect_no_out "nor another program's" "og-beta"
-rm -rf "$fleet/streamjson/rl-many" "$fleet/streamjson/og-beta" "$fleet/streamjson/og-alpha" "$fleet/dispatch-markers"
+# The hub's own mission control gone, a hub worker's request is raised by
+# another program's keeper under its own program, never into the hub's queue.
+pp_req og-hub mission-control:hub
+keeper_as hub 5070
+expect_no_out "the hub's keeper does not raise its own worker to itself" "stream-json-worker-unowned${tab}og-hub"
+keeper_as alpha 5080
+expect_out "another program's keeper raises it" "announced${tab}stream-json-worker-unowned${tab}og-hub"
+mc_run mc-event.sh list --program alpha
+expect_out "under that keeper's program, saying why" "stream-json-worker-unowned${tab}og-hub${tab}stream-json worker og-hub has request aaaa1111-bbbb-cccc-dddd-eeee00000001 waiting but the mission control of its program hub is gone"
+rm -rf "$fleet/streamjson/rl-many" "$fleet/streamjson/og-beta" "$fleet/streamjson/og-alpha" "$fleet/streamjson/og-hub" "$fleet/dispatch-markers"
 cp "$tmp/tracked.keep" "$tracked"
 rm -rf "$fleet/streamjson/rl-hubbed" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned"

@@ -585,7 +585,8 @@ $kt_hub
 # it: the first to take the request's claim in the worker's directory raises
 # it, and a refused announce releases the claim so a later pass retries. Each
 # request has a claim of its own, so one arriving after the first is raised
-# too. The event goes to keeper_target's program. Its failure fails the pass
+# too. The event goes to keeper_target's program, or to this keeper's own
+# when that would be <program> itself. Its failure fails the pass
 # before the claim, since the claim would fix a guessed destination for good.
 announce_unowned() {
   au_dir="$2/streamjson/$1"
@@ -598,6 +599,14 @@ announce_unowned() {
   keeper_target || return 1
   au_target=$KT_TARGET
   au_note=$KT_NOTE
+  # A program never escalates to itself: its own queue is the one no live
+  # mission control reads, and a claim taken for it would keep every other
+  # keeper from raising the request where it is heard.
+  if [ -n "${4:-}" ] && [ "$au_target" = "$4" ]; then
+    [ "$program" != "$4" ] || return 0
+    au_target=$program
+    au_note=" (its program $4 is the hub program, so it is raised under $program, whose keeper found it)"
+  fi
   mkdir -p -- "$2/mission-control/$au_target" || return 1
   if ! (
     set -C
