@@ -75,9 +75,9 @@ literal command prefix followed by plain arguments. So a line such as
 as a prompt even when every command in it is routine. Issue **one plain
 command per Bash call** instead:
 
-- **No `cd`.** Pass the directory as an argument (`git -C <dir>`, a script's
-  `--checkout <dir>`), or rely on the session's working directory, which for a
-  dispatched worker is its own worktree.
+- **No `cd`.** Rely on the session's working directory, a dispatched
+  worker's worktree, and run git writes there; `git -C <dir>` (denied before
+  push, commit, reset) and `--checkout <dir>` serve reads.
 - **No variable assignments.** Substitute every resolved value literally, the
   way the root is substituted above. A value one command prints (a config
   value, a SHA) is read from that call's result and written literally into the

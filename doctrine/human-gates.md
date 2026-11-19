@@ -34,7 +34,7 @@ cannot be named does not ship.
 | Signing off a Needs-sign-off finding | Human gate | Approval arm; given by the approval act below, never by the flip |
 | Signing off a spec at kickoff | Human gate | Approval arm; no skill acts on a spec that is neither Ready nor Active, and `/orchestrate` never chains into `/spec-kickoff` |
 | Publishing a release | Human gate | Irreversible arm; the release tooling automates up to it, never through it |
-| Force-pushing a branch outside the protected set | Human gate | Irreversible arm; only on the operator's explicit request in the same turn, never from a standing decision, executed by the tower after naming the remote commits it drops |
+| Force-pushing a branch outside the protected set | Human gate | Irreversible arm; only on the operator's explicit request in the same turn, never from a standing decision, executed by the tower after naming the remote commits it drops; the draft-rewrite row below is the one exception |
 | Purging a leaked secret from history | Human gate | Irreversible arm; human-run, the tower may prepare the command and a rotation checklist |
 | Rewriting main, a protected branch, or a spec branch | Human gate | Irreversible arm; no tier under any value |
 | Executing an authorized merge | Policy | `merge_policy`, default `human`; `on-approval` lets the host merge once the human enables auto-merge, `policy-class` admits a declared class of task-branch PRs from the base repository, merged only through `scripts/merge-admitted.sh`; a release PR is never a class admission, so its merge stays a human approval act under every value |
@@ -43,6 +43,7 @@ cannot be named does not ship.
 | The draft→ready flip of a spec PR | Policy | `mark_spec_pr_ready_on_kickoff`, default `true` |
 | Merging the PR base or the branch's own remote branch into the owned branch | Policy | `worker_base_merge`, default `allow`; conflicts by `worker_merge_conflict_policy`, default `halt` |
 | Reshaping never-pushed commits on the owned unit branch | Policy | `unpushed_rewrite`, default `allow` |
+| Publishing a rewrite of the owned unit branch while its PR is a draft | Composition contract | `/execute-task` or a standalone `/self-review` in a dispatched worker, only through `scripts/worker-branch-sync.sh push`, leased on the explicit pre-rewrite SHA with `--force-if-includes`, on a branch no other worktree or live session holds; its `reset` and `ff` sync that branch's clean worktree to its own remote branch or a descendant commit. A ready PR takes new commits |
 | Branches protected beyond the core floor | Policy | `protected_branches`, default empty; it adds to `main`, `master`, and `planwright/*/spec`, never removes |
 | Pushing the unit branch and opening its draft PR | Composition contract | `/execute-task`, or a standalone `/self-review`; `/polish` and every `--nested` review skill never push |
 | Pushing a spec branch and opening its draft PR | Composition contract | `/spec-kickoff`, run attended under no tier profile, or as the relayed kickoff session under the worker profile (scope `kickoff-<spec>`, or `kickoff-<spec>-a<n>` with an optional lowercase letter or `-<word>` suffix, for amendment `<n>` alone and only where no other spec's kickoff could share that scope), which pushes only the one spec branch its launch record names, or that spec's own amendment branch (`planwright/<spec>/amendment-<n>`), through `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>`, run as its own command or after cd only: a plain, non-forced push, never forced; no other agent session may push a spec branch; a plain push of a spec branch is not a gate, and rewriting one stays a human gate |
@@ -57,7 +58,7 @@ base-merge denies under every value: those are the tower tier's refusals.
 Separately, at every tier and with no knob read, the policy guard denies the
 `gh api` spelling of the flip, its undo, a PR merge, a base merge, or a forced
 ref update (REQ-G1.7). Pushed history stays append-only outside
-the force-push and secret-purge rows of the list. A doc stating this floor
+the force-push, draft-rewrite and secret-purge rows of the list. A doc stating this floor
 cites this section; it does not restate an unconditional never.
 
 ## The approval act
@@ -76,5 +77,5 @@ mechanics live in [Gate Wiring](gate-wiring.md).
 bootstrap D-26 stays the origin of the reserved-control list, superseded by
 this doc where the list changed; its unchanged rules are the "Signing off a
 spec at kickoff" row. Its merge floor now reads as the floor section; its
-rewrite rule as the force-push, secret-purge, main-rewrite, and never-pushed
-rows; its all-drafts rule as the two flip rows.
+rewrite rule as the force-push, draft-rewrite, secret-purge, main-rewrite, and
+never-pushed rows; its all-drafts rule as the two flip rows.
