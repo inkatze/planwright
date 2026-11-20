@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-19
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -674,6 +674,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   the same command that assigns or exports an exported name again. Each
   approval SHALL be written to the audit log under the arm label `own-unit`.
   *(Cites: D-37; REQ-E1.7; operator kickoff answer (2026-11-19).)*
+  *(Read with REQ-F1.11 (2026-11-20): the position rule is REQ-F1.11's, so
+  the export may follow a chain partner.)*
 
 ## REQ-F — The self-approval policy
 
@@ -821,6 +823,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   set) govern independently of it.
   *(Cites: D-13, D-37; the operator's live-run delegation (Sources);
   operator kickoff answers (2026-11-19).)*
+  *(Read with REQ-F1.11 (2026-11-20): the own-unit acts are REQ-F1.11's,
+  which keeps REQ-F1.10's acts unchanged.)*
 - **REQ-F1.10** The guard SHALL approve the own-unit acts below under every
   self-approval policy value, the empty list included, and only when all of
   these hold: the session record names the unit branch, the worktree root,
@@ -861,6 +865,70 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   (REQ-H1.4) under the arm label `own-unit`. The `own-branch` and `scratch`
   arms gain nothing from this requirement.
   *(Cites: D-37; REQ-F1.9; operator kickoff answers (2026-11-19).)*
+  **Superseded-by: REQ-F1.11** (2026-11-20) — the acts are unchanged; a
+  `git add`, a commit and a gate task may now share their command.
+- **REQ-F1.11** (supersedes REQ-F1.10) The guard SHALL approve the own-unit
+  acts below under every self-approval policy value, the empty list included,
+  and only when all of these hold: the session record names the unit branch,
+  the worktree root, and a usable audit-log home (REQ-G1.8, REQ-H1.4); the
+  payload's working directory canonicalizes inside the recorded worktree with
+  no `.git` entry between it and the worktree root (a nested repository
+  defers), decided without running `git` there; the act is a top-level
+  segment of the command, never inside a substitution, a `fish -c` string, a
+  subshell, a loop, a pipeline, a background job, or an `if` or `case` body,
+  and never after `||`; it carries no redirect, prefix, or leading
+  assignment; every word but the body file is a bare literal as written; and
+  every other segment of the command is one the guard approves on its own and
+  is one of: a `cd` into the recorded worktree, a read-only segment, a
+  REQ-E1.10 export, an installed step script, or a chain partner. The acts
+  are exactly:
+  - `git push origin <unit>` or `git push origin <unit>:<unit>`, where
+    `<unit>` is the recorded unit branch, with no flag (`-u`, every force
+    spelling, and `--delete` included), no `+` refspec, and no other remote
+    or ref; a push the profile's `deny` block refuses (a recorded unit of
+    `main`, `master`, or a spec branch) gets no approval, and
+    `policy-guard.sh` refuses a push into the human-gates protected set
+    independently, so the guard reads no protected set itself;
+  - `gh pr edit <n> --body-file <file>` with `--body-file` and `<file>` as two
+    words and no other flag, where `<n>` is a decimal integer, `<file>` is an
+    absolute path as written or as resolved from a tracked plain assignment
+    or the recorded `$TMPDIR`, naming a regular file, not a symlink, that
+    canonicalizes inside the recorded scratch root, and `<n>` is a pull
+    request that one read from GitHub, bounded at 15 seconds, reports open,
+    not from a fork, and with the recorded unit branch as its head; the read
+    runs in the payload's working directory and the hook's own environment,
+    which the approved command cannot change (it carries no prefix,
+    assignment, or export of another name), so it resolves the repository
+    the edit will; a timeout, an error, or any other answer defers.
+
+  A chain partner is exactly one of: a `git add` or `git commit` that the
+  policy in force approves on its own (the `own-branch` arm's shapes and its
+  unit-branch check, REQ-F1.3), so under a policy without that arm the
+  command defers; or a trusted repository task the guard approves on its own
+  under every policy (a `mise run` task, `lefthook run`, `bats`, a
+  repository `tests/*.sh` or `scripts/*.sh` run directly or through `bash`
+  or `sh`, a declared check command (REQ-A1.18), or a declared command-step
+  line). Every chain partner SHALL sit before the first own-unit act at the
+  command's top level, and every operator from the first chain partner to
+  that act SHALL be `&&` (no `;`, line break, `||`, or `&` between them), so
+  the act runs only when every partner succeeded; a partner after an act
+  defers the command. No other write or `git` act shares a command with an
+  own-unit act: a file writer, an in-place edit, or a write-redirect of
+  either arm, a spec-root write, `git rm`, `git mv`, `git restore`,
+  `git checkout`, `git fetch`, `git merge`, and a plugin script other than
+  an installed step script each defer it. A `git add` or `git commit`
+  partner adds its `own-branch` label to the approval's audit line
+  (`own-branch,own-unit`); a trusted-task partner adds none, so the line
+  reads `own-unit`.
+
+  The check matches the branch, not the worker: a launch or relaunch onto an
+  existing pull request's worktree SHALL record that pull request's head
+  branch as the unit branch, so a respawned worker on the same branch passes
+  and no other does. Each act's approval SHALL be written to the audit log
+  (REQ-H1.4) under the arm label `own-unit`. The `own-branch` and `scratch`
+  arms gain nothing from this requirement.
+  *(Cites: D-37, D-38; REQ-F1.9; operator kickoff answers (2026-11-19,
+  2026-11-20).)*
 
 ## REQ-G — Profiles, delivery, and the unattended contract
 
@@ -1111,6 +1179,11 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   request's body edit under every policy value (REQ-F1.9 supersedes
   REQ-F1.5; REQ-F1.10; D-37) and an export of the step-context names
   (REQ-E1.10). Task 21.
+- 2026-11-20 — Delta re-walkthrough via `/spec-kickoff` (brief Amendment 8),
+  meaning-class: an own-unit act may share its command with a `git add` or
+  `git commit` the policy approves alone and with a trusted repository task,
+  joined by `&&` before the act (REQ-F1.11 supersedes REQ-F1.10; D-38).
+  Task 22.
 
 ## Sources
 

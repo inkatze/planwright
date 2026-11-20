@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-19
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -681,3 +681,25 @@ field's check, a `WORKTREE` naming another directory or holding `..`, a
 later segment re-assigning an exported name, the export inside a loop or a
 substitution, and a record with no audit-log home defer. Each approval
 writes one audit line with arm `own-unit`.
+
+## 2026-11-20 delta
+
+### REQ-F1.11 — An own-unit act may follow a commit or a gate task [test]
+
+Supersedes REQ-F1.10's entry, which it keeps unchanged.
+`tests/test-worker-command-guard-own-unit.sh` (Task 22): under a policy with
+the `own-branch` arm, `git add -A && git commit -m <msg> && git push origin
+<unit>` and `git commit -m <msg> && git push origin <unit>` allow; under one
+without it they defer. At every policy value, `mise run <task> && git push
+origin <unit>`, `bash tests/<x>.sh && git push origin <unit>`, a `lefthook
+run`, `bats`, direct `scripts/<x>.sh` and declared command-step partner, and a
+gate task before the body edit and before the step export allow; a commit
+before them allows under the `own-branch` arm. These defer: a partner joined
+by `;`, `||` or `&`, `mise run <task> && echo ok; git push origin <unit>`, a
+partner after the act, a file writer, in-place edit or write-redirect, a
+spec-root write, `git rm`, `git mv`, `git restore`, `git checkout`,
+`git fetch`, `git merge` or a plugin script other than a step script in the
+same command, a commit carrying a flag the `own-branch` arm refuses, and a
+commit with another branch checked out. A commit chain's audit line reads
+`own-branch,own-unit`; a gate chain's reads `own-unit`. Once Task 20 has
+landed, a declared check command partner allows too.
