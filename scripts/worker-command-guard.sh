@@ -164,6 +164,8 @@ AUDIT_OU=0
 OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
+# 1 once the own-branch or scratch arm approved a write or git act.
+ARM_ACT=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -1843,8 +1845,8 @@ ob_path() {
   fi
   OB_PATH=$acc
   case $OB_ZONE in
-    wt) ! ob_live || AUDIT_OB=1 ;;
-    sc) AUDIT_SC=1 ;;
+    wt) ! ob_live || { AUDIT_OB=1 && ARM_ACT=1; } ;;
+    sc) AUDIT_SC=1 ARM_ACT=1 ;;
   esac
 }
 
@@ -2085,6 +2087,7 @@ guard_mktemp() {
     ob_path "$a" leaf sc || return 1
   done
   AUDIT_SC=1
+  ARM_ACT=1
   ob_mark write
 }
 
@@ -2098,6 +2101,7 @@ ob_git_ready() {
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
   [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
   AUDIT_OB=1
+  ARM_ACT=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -7655,9 +7659,15 @@ main() {
   AUDIT_OU=0
   OU_EXPORTED=0
   OU_EXP_NAMES=''
+  ARM_ACT=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
+  # An own-unit act shares its command only with a cd into the worktree, a
+  # read-only segment, a step-context export or an installed step script:
+  # never with a write or git act the own-branch or scratch arm approved, so
+  # a worker pushes in a call of its own after committing.
+  [ "$AUDIT_OU" = 0 ] || [ "$ARM_ACT" = 0 ] || return 0
   audit_append "$cmd" "$sid"
   emit_allow
   return 0

@@ -295,6 +295,20 @@ assert_defer "the prefix spelling naming another worktree" "PLANWRIGHT_STEP_WORK
 assert_defer "the env spelling naming another worktree" "env PLANWRIGHT_STEP_WORKTREE=$OTHER_WT $SREC write --run 1" Bash "$WT"
 assert_allow "the prefix spelling naming the session's own" "PLANWRIGHT_STEP_WORKTREE=$WT $SREC write --run 1" Bash "$WT"
 
+echo "### an own-unit act never shares a command with a policy-arm act"
+ARMS="$CS/records/arms.record"
+record "$ARMS" "own-branch scratch"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$ARMS" "PATH=$STUB:$PATH" "TMPDIR=$SCR")
+assert_allow "the scratch arm's write alone (control)" "mkdir $SCR/made" Bash "$WT"
+assert_allow "the own-branch arm's write alone (control)" "touch $WT/made" Bash "$WT"
+assert_allow "the push alone under the arms (control)" "git push origin $B" Bash "$WT"
+assert_defer "a push chained after a scratch-arm write" "mkdir $SCR/made2 && git push origin $B" Bash "$WT"
+assert_defer "a push chained after an own-branch write" "touch $WT/made2 && git push origin $B" Bash "$WT"
+assert_defer "a body edit chained after a scratch-arm write" "mkdir $SCR/made3 && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+assert_defer "an export chained before an own-branch write" "export $CTX && touch $WT/made3" Bash "$WT"
+assert_allow "a scratch read beside a push stays allowed" "cat \$TMPDIR/body.md && git push origin $B" Bash "$WT"
+HOOK_ENV=("${USE_ENV[@]}")
+
 echo "### every class needs a usable session record"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PATH=$STUB:$PATH")
 assert_defer "no record: push" "git push origin $B" Bash "$WT"
