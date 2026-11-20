@@ -36,7 +36,9 @@ not a draft, MERGEABLE, with no open thread, its checks SUCCESS and its
 review decision neither CHANGES_REQUESTED nor REVIEW_REQUIRED. Each is
 walked as scripts/mc-readiness.sh check walks it (collect, then walk), and
 is ready only when the walk passes at the snapshot's own head (a head that
-moved since is judged again once the snapshot catches up) and the
+moved since is judged again once the snapshot catches up; a walk that does
+not pass is not ready, so a candidate waits on its flip-fired PR-Agent run
+and its findings) and the
 program's merge conditions (scripts/mc-gates.sh resolve, for the
 repository, labels and paths collected) recommend it: `recommend approved`
 waits for an APPROVED review decision. The verdict is kept in <runtime>/merge-ready.tsv against
@@ -49,13 +51,32 @@ unknown. The merge command is built afresh on every read:
   gh pr merge <n> --repo <owner/name> --squash|--merge|--rebase --match-head-commit <sha>
 its method the merge conditions' `method`, else the repository's default
 (gh repo view's viewerDefaultMergeMethod, read once per repository per
-judgment).
+judgment). When the body declares tasks (a `Planwright-Task: <spec>/<id>`
+line at column 0, outside a fenced block, its value in the task grammar)
+and the method is squash or merge, the declarations become the merge
+commit's body, so the task stays complete however the forge words the
+message:
+  printf '%s\n' 'Planwright-Task: <spec>/<id>' ... | gh pr merge <n> ... --body-file - --match-head-commit <sha>
+Only grammar-checked values reach the command, never other body text.
 
 Usage:
   mc-merge-ready.sh list --program <p> [--as-status] [--now <epoch>]
       one line per candidate that is ready or could not be judged:
         ready<TAB><owner/name>#<n><TAB><head><TAB><merge command>
         unknown<TAB><owner/name>#<n><TAB><why>
+        unfinished<TAB><owner/name>#<n><TAB><head><TAB><checks>
+                                         a pull request already marked ready
+                                         (not a draft, its checks not all
+                                         SUCCESS) whose head still has a
+                                         check queued, pending or in
+                                         progress, named, each saying whether
+                                         the flip itself started its run
+                                         (created at or after the flip: wait
+                                         for it) or the flip came too early
+                                         (created before it, still running at
+                                         it); a failed read of
+                                         one is skipped, and a check that
+                                         finished red is not unfinished
         unknown<TAB>-<TAB><why>          the snapshot or the store: the
                                          source map unresolved, no
                                          snapshot taken yet, one
@@ -64,6 +85,7 @@ Usage:
                                          or the store not written
       with --as-status, each line as a scripts/mc-inbox.sh status line:
         decision<TAB>Ready to merge: <owner/name>#<n> at <head:12>, run: <command>
+        decision<TAB>Marked ready with unfinished checks: <owner/name>#<n> at <head:12>: <checks>
         decision<TAB>Could not tell whether <owner/name>#<n> is ready to merge: <why>
         decision<TAB>Could not tell which pull requests are ready to merge: <why>
       A program with no code-state snapshot source lists nothing. --now
@@ -177,11 +199,38 @@ mc_now_arg "$now_raw"
 mc_require_program "$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
 # A `state<TAB><token><TAB><epoch>` line, then one row per candidate:
-# <owner/name>#<n> <key> ready|not-ready|moved|unknown <epoch> <method|-> <why|->.
+# <owner/name>#<n> <key> ready|not-ready|moved|unknown <epoch> <method|-> <why|->
+# <tasks|->, tasks the body's declared <spec>/<id> values, comma-joined.
 store="$runtime/merge-ready.tsv"
 RECHECK_AFTER=1800
 COUNT_FRESH=3600
 MOVED_WHY="its head moved since the snapshot; judged again once the snapshot catches up"
+# The commit trailer's value grammar, as scripts/orchestrate-state.sh reads it.
+TASK_VALUE='[a-z0-9][a-z0-9-]*/[0-9]+(\.[0-9]+)?'
+TASKS_RE="^(-|$TASK_VALUE(,$TASK_VALUE)*)\$"
+
+valid_tasks() { printf '%s\n' "$1" | grep -Eqx -- "$TASKS_RE"; }
+
+# merge_command <n> <owner/name> <method> <head> <tasks|->: the operator's
+# command. Every value is grammar-checked before it gets here, so none needs
+# quoting beyond the single quotes the task lines carry.
+merge_command() {
+  mc_body="" mc_flag=""
+  if [ "$5" != - ] && [ "$3" != rebase ]; then
+    mc_body="printf '%s\n'"
+    mc_rest=$5
+    while [ -n "$mc_rest" ]; do
+      mc_body="$mc_body 'Planwright-Task: ${mc_rest%%,*}'"
+      case $mc_rest in
+        *,*) mc_rest=${mc_rest#*,} ;;
+        *) mc_rest="" ;;
+      esac
+    done
+    mc_body="$mc_body | "
+    mc_flag=" --body-file -"
+  fi
+  printf '%sgh pr merge %s --repo %s --%s%s --match-head-commit %s\n' "$mc_body" "$1" "$2" "$3" "$mc_flag" "$4"
+}
 
 # fresh_check <owner/name> <n> <head>: one forge read of whether an event for
 # the head may still be pushed. Prints stale, pending or unknown with its
@@ -278,19 +327,21 @@ if [ "$verb" = commands ]; then
   printf '%s\n' "$cm_map" | awk -F '\t' '$1 == "code-state" && $3 == "snapshot" { f = 1 } END { exit !f }' || exit 0
   [ -e "$store" ] || exit 0
   [ -f "$store" ] && [ -r "$store" ] && [ ! -L "$store" ] || mc_fail "the merge-ready store cannot be read"
-  # <slug> <number> <method> <head> per ready row of a store that is ok and fresh.
-  cm_rows=$(N=$NOW F=$COUNT_FRESH awk -F '\t' '
+  # <slug> <number> <method> <head> <tasks> per ready row of a store that is
+  # ok and fresh. A row with no valid tasks field (one written before the
+  # field existed) prints nothing rather than a command that drops them.
+  cm_rows=$(N=$NOW F=$COUNT_FRESH R=$TASKS_RE awk -F '\t' '
     $1 == "state" { ok = ($2 == "ok" && $3 ~ /^[0-9]+$/ && ENVIRON["N"] - $3 >= 0 && ENVIRON["N"] - $3 <= ENVIRON["F"] + 0) }
-    $3 == "ready" && $1 ~ /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+$/ && $5 ~ /^(squash|merge|rebase)$/ {
+    $3 == "ready" && $1 ~ /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+$/ && $5 ~ /^(squash|merge|rebase)$/ && $7 ~ ENVIRON["R"] {
       split($2, k, "|")
       if (k[1] !~ /^[0-9a-f]{40}$/) next
       at = index($1, "#")
-      rows[++r] = substr($1, 1, at - 1) "\t" substr($1, at + 1) "\t" $5 "\t" k[1]
+      rows[++r] = substr($1, 1, at - 1) "\t" substr($1, at + 1) "\t" $5 "\t" k[1] "\t" $7
     }
     END { if (ok) for (i = 1; i <= r; i++) print rows[i] }' "$store") || mc_fail "the merge-ready store cannot be read"
-  while IFS='	' read -r c_slug c_n c_method c_head; do
+  while IFS='	' read -r c_slug c_n c_method c_head c_tasks; do
     [ -n "$c_slug" ] || continue
-    printf 'ready\t%s#%s\tgh pr merge %s --repo %s --%s --match-head-commit %s\n' "$c_slug" "$c_n" "$c_n" "$c_slug" "$c_method" "$c_head"
+    printf 'ready\t%s#%s\t%s\n' "$c_slug" "$c_n" "$(merge_command "$c_n" "$c_slug" "$c_method" "$c_head" "$c_tasks")"
   done <<EOF
 $cm_rows
 EOF
@@ -367,9 +418,26 @@ EOF
 # judge <owner/name> <n> <head> <review decision>: J_VERDICT (ready,
 # not-ready, moved or unknown), J_METHOD and J_WHY for one candidate.
 judge() {
-  J_VERDICT=unknown J_METHOD=- J_WHY=-
+  J_VERDICT=unknown J_METHOD=- J_WHY=- J_TASKS=-
   /bin/bash "$script_dir/mc-readiness.sh" collect --program "$program" --repo "$1" --pr "$2" --out "$evf" >/dev/null 2>"$errf" || {
     J_WHY="its readiness evidence could not be collected: $(why "$errf")"
+    return 0
+  }
+  # The body's task declarations, read as orchestrate-state.sh reads a PR
+  # body: column 0, outside a fence, any key case; a value outside the
+  # grammar (or a flight's) is dropped, never quoted into the command.
+  J_TASKS=$(R="^$TASK_VALUE\$" awk -F '\t' '
+    $1 != "bodyline" { next }
+    { l = substr($0, 10) }
+    l ~ /^ *(```|~~~)/ { fence = !fence; next }
+    fence || tolower(l) !~ /^planwright-task:/ { next }
+    {
+      sub(/^[^:]*:[ ]*/, "", l)
+      sub(/ +$/, "", l)
+      if (l ~ ENVIRON["R"] && l !~ /^flight\// && !seen[l]++) out = out (out == "" ? "" : ",") l
+    }
+    END { print (out == "" ? "-" : out) }' "$evf") || {
+    J_WHY="its body could not be read"
     return 0
   }
   if [ "$(awk -F '\t' '$1 == "head" { print $2; exit }' "$evf")" != "$3" ]; then
@@ -477,11 +545,12 @@ scan() {
       continue
     fi
     c_pr="$c_slug#$c_n"
-    IFS='	' read -r _ _ verdict at method reason <<EOF
+    IFS='	' read -r _ _ verdict at method reason tasks <<EOF
 $(printf '%s\n' "$old" | P=$c_pr K=$c_key awk -F '\t' '$1 == ENVIRON["P"] && $2 == ENVIRON["K"] { print; exit }')
 EOF
     case $verdict:$method in
-      ready:squash | ready:merge | ready:rebase | not-ready:- | moved:-) ;;
+      ready:squash | ready:merge | ready:rebase) valid_tasks "$tasks" || verdict="" ;;
+      not-ready:- | moved:-) tasks=- ;;
       *) verdict="" ;;
     esac
     if [ -n "$verdict" ]; then
@@ -494,17 +563,17 @@ EOF
     if [ -z "$verdict" ]; then
       at=$NOW
       if [ "$held" -eq 1 ]; then
-        verdict=unknown method=- reason="the forge is holding reads for its rate limit"
+        verdict=unknown method=- reason="the forge is holding reads for its rate limit" tasks=-
       else
         judge "$c_slug" "$c_n" "$c_head" "$c_decision"
-        verdict=$J_VERDICT method=$J_METHOD reason=$J_WHY
+        verdict=$J_VERDICT method=$J_METHOD reason=$J_WHY tasks=$J_TASKS
       fi
     fi
     [ "$verdict" != moved ] || reason=$MOVED_WHY
-    kept="$kept$c_pr	$c_key	$verdict	$at	$method	$reason
+    kept="$kept$c_pr	$c_key	$verdict	$at	$method	$reason	$tasks
 "
     case $verdict in
-      ready) printf 'ready\t%s\t%s\tgh pr merge %s --repo %s --%s --match-head-commit %s\n' "$c_pr" "$c_head" "$c_n" "$c_slug" "$method" "$c_head" ;;
+      ready) printf 'ready\t%s\t%s\t%s\n' "$c_pr" "$c_head" "$(merge_command "$c_n" "$c_slug" "$method" "$c_head" "$tasks")" ;;
       unknown | moved)
         printf 'unknown\t%s\t%s\n' "$c_pr" "$reason"
         SCAN_RC=1
@@ -513,6 +582,24 @@ EOF
   done <<EOF
 $candidates
 EOF
+  # A pull request already marked ready whose head still has a check queued,
+  # pending or running slipped through a flip that waits for every check to
+  # finish; say so each read, with the checks. Advisory: a read that fails
+  # here is skipped, never a failure of the scan.
+  if [ "$held" -eq 0 ]; then
+    unfinished_rows=$(printf '%s\n' "$MC_CS_ROWS" | awk -F '\t' '$1 == "pr" && $5 == "false" && $9 != "SUCCESS" { print $2 "\t" $3 "\t" $4 }')
+    while IFS='	' read -r u_slug u_n u_head; do
+      [ -n "$u_slug" ] || continue
+      if ! { mc_valid_slug "$u_slug" && mc_valid_uint "$u_n" && mc_valid_sha "$u_head"; }; then continue; fi
+      /bin/bash "$script_dir/mc-readiness.sh" collect --program "$program" --repo "$u_slug" --pr "$u_n" --out "$uevf" >/dev/null 2>"$errf" || continue
+      [ "$(awk -F '\t' '$1 == "head" { print $2; exit }' "$uevf")" = "$u_head" ] || continue
+      u_out=$(/bin/bash "$script_dir/mc-readiness.sh" unfinished --evidence "$uevf" 2>"$errf") && continue
+      u_names=$(printf '%s\n' "$u_out" | awk -F '\t' '$1 == "fail" && ($2 == "check" || $2 == "flip") { printf "%s%s", (n++ ? ", " : ""), $3 }')
+      [ -z "$u_names" ] || printf 'unfinished\t%s#%s\t%s\t%s\n' "$u_slug" "$u_n" "$u_head" "$u_names"
+    done <<EOF
+$unfinished_rows
+EOF
+  fi
   # A malformed row has no verdict to keep, so the state marks the count partial.
   state=ok
   [ "$malformed" -eq 0 ] || state=malformed
@@ -526,8 +613,10 @@ EOF
 out=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || mc_fail "cannot create a temporary file"
 errf=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || errf=""
 evf=$(mktemp "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || evf=""
-trap 'rm -f "$out" "$errf" "$evf"' EXIT
-[ -n "$errf" ] && [ -n "$evf" ] || mc_fail "cannot create a temporary file"
+uevd=$(mktemp -d "${TMPDIR:-/tmp}/mc-merge-ready.XXXXXX") || uevd=""
+uevf="$uevd/evidence.unf"
+trap 'rm -f "$out" "$errf" "$evf"; [ -z "$uevd" ] || rm -rf "$uevd"' EXIT
+[ -n "$errf" ] && [ -n "$evf" ] && [ -n "$uevd" ] || mc_fail "cannot create a temporary file"
 scan >"$out"
 
 case $verb in
@@ -535,6 +624,7 @@ case $verb in
     if [ "$as_status" -eq 1 ]; then
       awk -F '\t' '
         $1 == "ready" { print "decision\tReady to merge: " $2 " at " substr($3, 1, 12) ", run: " $4 }
+        $1 == "unfinished" { print "decision\tMarked ready with unfinished checks: " $2 " at " substr($3, 1, 12) ": " $4 }
         $1 == "unknown" && $2 == "-" { print "decision\tCould not tell which pull requests are ready to merge: " $3 }
         $1 == "unknown" && $2 != "-" { print "decision\tCould not tell whether " $2 " is ready to merge: " $3 }' "$out"
     else

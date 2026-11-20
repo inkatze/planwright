@@ -12,6 +12,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 repo_root=$(cd "$here/.." && pwd)
 GUARD="$repo_root/scripts/check-mc-knobs.sh"
 
@@ -153,14 +155,16 @@ for consumer in scripts/linked.sh linked-dir/reader.sh; do
   expect_out "the linked consumer is named: $consumer" "$consumer, which resolves outside the core root"
 done
 
-if [ "$(id -u)" -ne 0 ]; then
-  reset_fixture
-  chmod 000 "$core/scripts/mc-duties.sh"
+reset_fixture
+chmod 000 "$core/scripts/mc-duties.sh"
+if hermetic_access_denied r "$core/scripts/mc-duties.sh"; then
   run_fixture
   expect_rc "an unreadable scanned file is an input the check cannot read" 2
   expect_out "the unreadable file is named" "scripts/mc-duties.sh"
-  chmod 644 "$core/scripts/mc-duties.sh"
+else
+  echo "skip: unreadable scanned file: the running user still reads $core/scripts/mc-duties.sh under mode 000"
 fi
+chmod 644 "$core/scripts/mc-duties.sh"
 
 # REQ-J1.1: every key resolves with its default and is claimed by a behaviour.
 # row <knob>: an options-reference row naming its evidence, so a case fails

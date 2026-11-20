@@ -248,6 +248,8 @@ cat >"$tmp/fakebin/tmux" <<'EOF'
 d=$FAKE_TMUX_DIR
 printf '%s\n' "$*" >>"$d/log"
 case "$1" in
+  # Session mc holds one window, named 3, unless gone-window says otherwise.
+  list-windows) [ -f "$d/gone-window" ] || printf '@3 3\n' ;;
   capture-pane) cat "$d/pane" ;;
   load-buffer) cat >"$d/buffer" ;;
   paste-buffer)
@@ -330,6 +332,18 @@ mc_run mc-wake.sh tick --program alpha --now 10060
 expect_out "REQ-E1.3: no second tick inside the cadence" "not-due${tab}240"
 mc_run mc-wake.sh relay --program alpha
 expect_out "the relay does not stage an event twice" "idle${tab}tw"
+# A recorded window no longer in its recorded session (a restarted server
+# may have reissued it to another) is never typed into.
+: >"$tmp/tmux/gone-window"
+: >"$tmp/tmux/log"
+mc_run mc-wake.sh relay --program alpha
+expect_out "a recorded window gone from its session is unreachable" "unreachable${tab}tw${tab}the recorded tmux window is gone, or is no longer the one recorded"
+if grep -q -e paste-buffer -e load-buffer "$tmp/tmux/log"; then
+  fail "a wake was staged into a window gone from its session"
+else
+  ok "and nothing is pasted into it"
+fi
+rm -f "$tmp/tmux/gone-window"
 # The human submitted the staged line without the session acknowledging:
 # the next tick stages it again.
 printf '%s\n' "$idle_pane" >"$tmp/tmux/pane"

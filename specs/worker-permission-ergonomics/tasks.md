@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -13,6 +13,10 @@ pending to enforced. The tasks that edit the worker guard (6, 7, 9, 10, 11)
 form one deliberate chain so no two of them change that script at once; do
 not parallelize them. The dependency graph is the `Dependencies:` fields
 below; `scripts/spec-graph.sh` renders it on demand.
+
+Task 17 was delivered by PR #937, squash-merged without a
+`Planwright-Task:` trailer; the commit adding this paragraph carries the
+trailer so the status render counts the task complete.
 
 ## Tasks
 
@@ -457,10 +461,80 @@ below; `scripts/spec-graph.sh` renders it on demand.
   match) and a malformed declaration.
 - **Done when:** the REQ-A1.18 test-spec entry's fixtures pass and the
   `deny` match wins over every declaration; the knob, options-reference and
-  parity checks pass.
+  parity checks pass; when Task 22 has landed first, a declared check
+  command before an own-unit act also allows, as REQ-F1.11 states.
 - **Dependencies:** 17
-- **Citations:** D-36 · REQ-A1.18, REQ-A1.19, REQ-A1.16
+- **Citations:** D-36 · REQ-A1.18, REQ-A1.19, REQ-A1.16, REQ-F1.11
 - **Estimated effort:** 1–2 days
+
+### Task 21 — Pre-approve a worker's own push, PR body edit, and step-context export
+
+- **Deliverables:** in `scripts/worker-command-guard.sh`, the own-unit acts
+  of REQ-F1.10 and the step-context export of REQ-E1.10, weighed after the
+  `deny` block and the rest of the floor and audited as `own-unit`; the
+  launcher recording a relaunch's pull-request head branch as the unit
+  branch, where it does not already; the profile's `_about` text in
+  `config/worker-settings.json` (REQ-G1.7) and the `docs/options-reference.md`
+  `worker_self_approval` row (its "no value approves the floor" sentence
+  names the own-unit acts and says they hold under the empty list) and any
+  other row saying the guard approves no push or `gh` write; the real-prompt
+  corpus rows, with the corpus's any-push floor row narrowed to exclude the
+  own-unit shapes, and the policy and parity suites' rows.
+- **Done when:** each approved shape (the plain push and the
+  `<unit>:<unit>` push, alone, after `cd <worktree> &&` and after
+  `git status &&`; the body edit alone, through a tracked assignment, and
+  after a step write; the export before `step-record.sh write` and
+  `step-run.sh resolve|audit`) is first shown deferring against the
+  pre-change guard and allowing against the changed one; these defer: `-u`,
+  every force spelling, a `+` refspec, `<unit>:main`, `--delete`, another
+  remote, a recorded unit of `main`, a push inside a loop, a pipeline, a
+  background job, an `if` body or after `||`; a body edit with another flag,
+  a body file outside the scratch root or a symlink, a pull request of
+  another branch, from a fork or closed, and a GitHub read that times out or
+  fails; an export of another name, a value with `$`, a foreign worktree,
+  and a later re-assignment of an exported name; a working directory outside
+  the worktree or in a nested repository, and a record lacking the unit
+  branch or the audit-log home; each approval appears in the audit log as
+  `own-unit`; a relaunch onto a pull request's worktree records its head
+  branch as the unit branch; the `_about` text and the options-reference row
+  describe the own-unit acts; the suite and lints pass.
+- **Dependencies:** 9, 10, 11, 12, 13
+- **Citations:** D-37 · REQ-F1.9, REQ-F1.10, REQ-E1.10, REQ-G1.7, REQ-G1.8,
+  REQ-H1.4
+- **Estimated effort:** 1–2 days
+
+### Task 22 — Let an own-unit act follow a commit or a gate task
+
+- **Deliverables:** in `scripts/worker-command-guard.sh`, REQ-F1.11's chain
+  partners: a `git add` or `git commit` the policy in force approves on its
+  own and a trusted repository task, each before the first own-unit act with
+  only `&&` from the first partner to the act, judged per segment (the
+  global arm and task flags cannot tell a partner from a file write or an
+  installed plugin script); the audit labels REQ-F1.11 names; the profile's
+  `_about` text (REQ-G1.7), `docs/fleet.md` and the
+  `docs/options-reference.md` `worker_self_approval` row describing the
+  chains; the own-unit suite's rows. A declared check command partner and
+  its row come with whichever of Task 20 and this task lands second.
+- **Done when:** each of these is first shown deferring against the
+  pre-change guard and allowing against the changed one, under a policy
+  with the `own-branch` arm: `git add -A && git commit -m <msg> && git push
+  origin <unit>`, `git commit -m <msg> && git push origin <unit>`,
+  `mise run <task> && git push origin <unit>`, `bash tests/<x>.sh && git
+  push origin <unit>`, a `lefthook run`, `bats`, direct `scripts/<x>.sh` and
+  declared command-step partner, and a commit or gate task before the body
+  edit and before the step export; the gate chains also allow under a policy
+  without that arm, and the commit chains defer there; these defer: a
+  partner joined by `;`, `||` or `&`, `mise run <task> && echo ok; git push
+  origin <unit>`, a partner after the act, a file writer, in-place edit or
+  write-redirect, a spec-root write, `git rm`, `git mv`, `git restore`,
+  `git checkout`, `git fetch`, `git merge`, or a plugin script other than a
+  step script in the command, and a commit with a flag the arm refuses or
+  off the unit branch; a commit chain's audit line reads
+  `own-branch,own-unit` and a gate chain's `own-unit`; the `_about` text and
+  the docs describe the chains; the suite and lints pass.
+- **Dependencies:** 21
+- **Citations:** D-38 · REQ-F1.11, REQ-G1.7
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 

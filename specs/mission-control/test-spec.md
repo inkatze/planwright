@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -671,6 +671,16 @@ dismissing it with a reason, lets the turn end; an item with no
 done-condition is refused at add; the handover self-check fails naming an
 open intake row and passes once none is open; a message arriving while the
 turn is ending is stored first, never lost.
+
+### REQ-F1.26 — Asks are recorded in the request ledger; work taken on is an item [test]
+
+`tests/test-mc-kb.sh` (Task 50): an item with no done-condition is refused
+at add, naming the missing field; a done-condition outside the grammar is
+refused. Capture of each arrival, closing with checked evidence, the hold on
+a turn's first stop and the handover's refusal are verified by
+control-plane's REQ-J1.1 to REQ-J1.7 test entries (control-plane Tasks 5.1
+to 5.3, Sources). This entry carries the normative text for the
+supersession of REQ-F1.19.
 
 ### REQ-F1.20 — Overdue items lead the status [test]
 

@@ -553,6 +553,41 @@ has_record "$dout" malformed-deps 2 \
 echo "ok: dependency-grammar hardening keeps real ids and surfaces malformed lines"
 
 # ---------------------------------------------------------------------------
+# 6h2. a `Task <id>` item is the same dependency as the bare id, dotted ids
+#      included, with no malformed record; a non-task word is still flagged.
+# ---------------------------------------------------------------------------
+trepo="$tmp/depprefix"
+tspec="$trepo/specs/demo"
+mkdir -p "$tspec"
+gitc_init "$trepo"
+cat >"$tspec/tasks.md" <<'EOT'
+# Demo — Tasks
+## Forward plan
+### Task 1 — completed via trailer
+- **Dependencies:** none
+### Task 4.2 — completed via trailer
+- **Dependencies:** none
+### Task 2 — prefixed list
+- **Dependencies:** Task 1, Task 4.2
+### Task 3 — bare list
+- **Dependencies:** 1, 4.2
+### Task 5 — prefixed id still blocked by an unmet one
+- **Dependencies:** Task 1, Task 9
+### Task 6 — a non-task word
+- **Dependencies:** Task 1, Story 4.2
+EOT
+gitc "$trepo" add -A
+gitc "$trepo" commit -q -m "base" -m "Planwright-Task: demo/1" -m "Planwright-Task: demo/4.2"
+tout=$("$STATE" "$tspec") || fail "dep-prefix: engine exited non-zero"
+assert_state "$tout" 2 ready "dep-prefix: 'Task 1, Task 4.2' resolves like the bare ids"
+assert_state "$tout" 3 ready "dep-prefix: bare ids resolve the same"
+assert_state "$tout" 5 blocked "dep-prefix: an unmet prefixed id still blocks"
+has_record "$tout" malformed-deps 2 && fail "dep-prefix: 'Task <id>' flagged as malformed"
+has_record "$tout" malformed-deps 5 && fail "dep-prefix: unmet prefixed id flagged as malformed"
+has_record "$tout" malformed-deps 6 || fail "dep-prefix: a non-task word is no longer flagged"
+echo "ok: a 'Task <id>' dependency reads as its id; a non-task word is still malformed"
+
+# ---------------------------------------------------------------------------
 # 6i. dependency tokenization must not pathname-expand — a Dependencies line
 #     containing a glob metacharacter is literal text (surfaced as malformed),
 #     never expanded against the run directory into a phantom numeric dependency.
