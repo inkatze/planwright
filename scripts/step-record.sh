@@ -590,14 +590,18 @@ set_head_from_worktree() {
 
 # git_wt <args>: git in the worktree with every inherited variable that would
 # point it at another repository, index, object store, or pathspec reading
-# cleared; pathspecs are literal unless GW_LITERAL is 0 (check-ignore refuses
-# literal pathspecs; the --paths grammar admits no pathspec magic anyway).
+# cleared (a guarded caller's driver settings excepted); pathspecs are literal
+# unless GW_LITERAL is 0 (check-ignore refuses literal pathspecs; the --paths
+# grammar admits no pathspec magic anyway).
 git_wt() {
   (
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
       GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE \
-      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_GLOB_PATHSPECS \
+      GIT_CONFIG_PARAMETERS GIT_GLOB_PATHSPECS \
       GIT_NOGLOB_PATHSPECS GIT_ICASE_PATHSPECS
+    # A caller reading a worker's worktree set the driver settings in the
+    # environment (untrusted-git-lib.sh); clearing them here would undo that.
+    [ "${PW_UNTRUSTED_GIT:-}" = 1 ] || unset GIT_CONFIG_COUNT
     if [ "${GW_LITERAL:-1}" = 1 ]; then
       GIT_LITERAL_PATHSPECS=1
       export GIT_LITERAL_PATHSPECS

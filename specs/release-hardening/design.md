@@ -1,7 +1,7 @@
 # Release Hardening — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-11-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -390,10 +390,16 @@ this bundle exists to remove.
 ### D-14: Judge the proposal, not only the trigger  (N)
 
 **Decision:** Add a cause-agnostic check that fails when a release proposal's
-`CHANGELOG.md` diff adds entries at or below the latest release tag by SemVer
+`CHANGELOG.md` diff meets either of two conditions, judged independently: it
+adds a version heading at or below the latest release tag by SemVer
 precedence — the same `rl_latest_release_tag` / `rl_version_gt` definition the
 rest of the pipeline reads, never the entries' dates, which a regenerated
-changelog restamps (REQ-H1.2) — and separately establish and record what
+changelog restamps — or it adds an entry citing a commit already contained in
+the latest tag, by commit ancestry (REQ-H1.2). An entry citing only a PR number
+is judged by that PR's merge commit; an entry citing neither a commit nor a PR
+number is outside the ancestry condition. A state the check cannot read,
+including a commit or PR number it cannot resolve, fails it rather than
+passing. Separately establish and record what
 release-please 17.6.0 does
 when `bootstrap-sha` is absent (REQ-H1.3), without removing the key as part of
 this work.
@@ -408,13 +414,28 @@ this work.
   because: release-please 17.6.0's behaviour with the key absent is unverified,
   and swapping a known-bad fallback for an unknown one is not an improvement.
   The obligation is therefore to establish the fact first.
+- Commit ancestry alone, or the SemVer heading check alone. Rejected because:
+  the heading check alone passes #339 (one added heading, `0.34.0`, above the
+  then-latest `v0.33.0`), so it would not catch the state it exists for;
+  ancestry alone drops the pipeline's single version-order definition and
+  misses a regenerated proposal that re-adds an old version heading without
+  citing commits. Each condition covers a shape the other cannot, so the check
+  fails on either.
+- Count only entries that cite a commit hash for condition (b). Rejected
+  because: an entry citing only a PR number would slip past the ancestry
+  condition. An entry citing neither a commit nor a PR number stays outside (b):
+  release-please writes breaking-change notes that way, so failing them would
+  block every breaking release, and a bootstrapped proposal is still caught by
+  its linked entries. The operator chose on 2026-11-19 to broaden (b) to resolve
+  a PR number to its merge commit; evidence: 2 of the last 200 CHANGELOG entries
+  carry no commit link, one citing only a PR number (#859).
 - Rely on human review of each release PR. Rejected because: the failure mode is
   precisely that a bootstrapped diff looks plausible — #339 was 124 entries of
   real, correctly-formatted, already-released history.
 
 **Chosen because:** a check on the artifact holds regardless of cause. A
-proposal that adds changelog entries at or below the latest tag is wrong however
-it was produced. This mirrors the fixture-count floors in
+proposal that adds a version at or below the latest tag, or re-lists commits
+the latest tag already contains, is wrong however it was produced. This mirrors the fixture-count floors in
 `tests/test-permission-matcher.sh`: an assertion on the shape of the output
 catches regressions that the generating logic can otherwise hide.
 

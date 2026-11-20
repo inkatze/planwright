@@ -2,12 +2,20 @@
 # shellcheck disable=SC2034,SC2154 # prog and script_dir are the sourcing script's; MC_FORMAT is read there
 # mc-lib.sh — helpers mission control's runtime scripts share (sourced, never
 # executed). The sourcing script sets `prog` and `script_dir` and has sourced
-# echo-safety.sh first. Sourcing it runs one check: mc_warn_if_stale, below.
+# echo-safety.sh first. Sourcing it sources untrusted-git-lib.sh beside it
+# (exit 2 when missing) and runs one check: mc_warn_if_stale, below.
 # Portable bash 3.2 / BSD tooling.
 
 MC_FORMAT=1
 
 unset CDPATH
+
+if [ ! -r "$script_dir/untrusted-git-lib.sh" ]; then
+  printf '%s\n' "$prog: untrusted-git-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$script_dir/untrusted-git-lib.sh"
 
 # mc_warn_if_stale: a script run from an older cached copy, by a session
 # that kept its root across an upgrade, warns on stderr. Checked once per
@@ -656,26 +664,14 @@ mc_announce_prune() {
 }
 
 # mc_untrusted_git <args>: git with what a worker-written checkout's own
-# configuration could run turned off (fsmonitor, hooks, a lazy fetch through
-# a remote helper or ssh command, signature display) and no inherited
-# repository selector. The settings ride the environment, which outranks the
-# repository's configuration, so they reach a git a called script runs too:
-# export them with mc_untrusted_git_env.
-mc_untrusted_git_env() {
-  # An inherited repository selector would point git away from the checkout
-  # the caller names, and inherited configuration would ride along.
-  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS
-  GIT_CONFIG_COUNT=4
-  GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
-  GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
-  GIT_CONFIG_KEY_2=protocol.allow GIT_CONFIG_VALUE_2=never
-  GIT_CONFIG_KEY_3=log.showSignature GIT_CONFIG_VALUE_3=false
-  GIT_NO_LAZY_FETCH=1
-  export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1 \
-    GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2 GIT_CONFIG_KEY_3 GIT_CONFIG_VALUE_3 GIT_NO_LAZY_FETCH
-}
-mc_untrusted_git() { (mc_untrusted_git_env && git "$@"); }
+# configuration could run turned off (fsmonitor, hooks, filters, diff drivers,
+# signature programs, a lazy fetch through a remote helper or ssh command) and
+# no inherited repository selector. The settings ride the environment, which
+# outranks the repository's configuration, so they reach a git a called script
+# runs too: export them with mc_untrusted_git_env [<dir>], run in the checkout
+# or naming it. untrusted-git-lib.sh has the mechanism and its limits.
+mc_untrusted_git_env() { pw_untrusted_git_env "$@"; }
+mc_untrusted_git() { pw_untrusted_git "$@"; }
 
 # mc_subject <prefix> <key>: a stable event subject for a key outside the
 # subject grammar, <prefix>-<checksum>; the readable key goes in the event's
