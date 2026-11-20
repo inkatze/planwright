@@ -70,7 +70,9 @@ EOF" "printf '%s\\n' '$PUSH' | bash" "cat $SANDBOX/x | sh # worker-branch-sync" 
   "timeout -s KILL 10 $H ff $SHA" "env -u FOO $H ff $SHA" "flock /tmp/l $H ff $SHA" "ssh host $H ff $SHA" \
   "bash -eo pipefail $H ff $SHA" "trap $H EXIT" "eval $H" \
   "find . -exec bash $H {} ;" "find . -exec env $H {} ;" "find . -exec timeout 5 $H ;" \
-  "echo $H | env bash" "echo $H | timeout 5 sh" "echo $H | busybox sh" "taskset -c 0 $H ff $SHA"; do
+  "echo $H | env bash" "echo $H | timeout 5 sh" "echo $H | busybox sh" "taskset -c 0 $H ff $SHA" \
+  "find . -exec cat {} \\; -exec $H ff $SHA \\;" "nice find . -exec wc {} + -exec $H ff $SHA \\;" \
+  "find . -exec grep x {} \\; -exec bash -c '$H ff $SHA' \\;"; do
   sync "$c"
   expect deny "[worker] the hidden run '$(printf '%s' "$c" | tr '\n' ' ' | cut -c1-70)' denies"
 done
@@ -108,7 +110,7 @@ for c in "grep -n lease $H" "cat $H" "shellcheck scripts/worker-branch-sync.sh" 
   "find -iname 'worker-branch-sync*' -print" "timeout 30 git diff $H" "env -u X git diff $H" \
   "timeout 5 sed -n 1,5p $H" "timeout 5 find . -name worker-branch-sync.sh" "env bash -n $H" \
   "timeout 60 bash -n $H" "env -u FOO grep x $H" "timeout -s KILL 10 shellcheck $H" \
-  "flock /tmp/l shellcheck $H" "ssh host cat $H" \
+  "flock /tmp/l shellcheck $H" "ssh host cat $H" "find . -name worker-branch-sync.sh -exec cat {} \\;" \
   "bash tests/test-worker-branch-sync.sh" "git log --oneline -- scripts/worker-branch-sync.sh" \
   "git add scripts/worker-branch-sync.sh" "sed -n 1,20p scripts/worker-branch-sync.sh"; do
   sync "$c"

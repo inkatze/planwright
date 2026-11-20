@@ -7308,7 +7308,7 @@ sync_kind() { # <word> — set SK to the kind sync_wrapped_run reads it as
   esac
 }
 sync_wrapped_run() {
-  local b=$1 k=1 n=${#SW[@]} w kind first='' noexec=0 opt_c=0 skip=0 rc=1 SK
+  local b=$1 k=1 n=${#SW[@]} w kind first='' noexec=0 opt_c=0 skip=0 rc=1 SK infind=0
   sync_kind "$b"
   kind=$SK
   while [ "$k" -lt "$n" ]; do
@@ -7318,6 +7318,16 @@ sync_wrapped_run() {
     if [ "$skip" = 1 ]; then
       skip=0
       continue
+    fi
+    # A find action's command ends at its ; or +, where find's own words resume.
+    if [ "$infind" = 1 ]; then
+      case $w in
+        ';' | '\;' | '+')
+          kind='find'
+          first=''
+          continue
+          ;;
+      esac
     fi
     case $w in
       *[[:space:]\;\&\|\(\)\`]*)
@@ -7329,6 +7339,7 @@ sync_wrapped_run() {
         ;;
     esac
     case $kind in
+      reader) ;;
       shell)
         [ -z "$first" ] || continue
         case $w in
@@ -7347,7 +7358,11 @@ sync_wrapped_run() {
         ;;
       find)
         # An -exec family action's command is wrapped like any other.
-        case $w in -exec | -execdir | -ok | -okdir) kind=wrap ;; esac
+        case $w in -exec | -execdir | -ok | -okdir)
+          kind=wrap
+          infind=1
+          ;;
+        esac
         ;;
       interp) ;;
       first)
@@ -7359,7 +7374,13 @@ sync_wrapped_run() {
       *)
         case $w in -* | [A-Za-z_]*=*) continue ;; esac
         case ${w##*/} in worker-branch-sync*) return 0 ;; esac
-        case $SYNC_READERS in *" ${w##*/} "*) return 1 ;; esac
+        case $SYNC_READERS in
+          *" ${w##*/} "*)
+            [ "$infind" = 1 ] || return 1
+            kind=reader
+            continue
+            ;;
+        esac
         sync_kind "${w##*/}"
         [ "$SK" = wrap ] || kind=$SK
         ;;
