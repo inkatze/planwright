@@ -5018,7 +5018,7 @@ spec_route() {
   printf '%s' "Reach its PR head with git merge --ff-only $(sanitize_printable "$BASE_REMOTE/$SBC_BRANCH" 'origin/<spec branch>'), then sync it with git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')"
 }
 
-# kickoff_scope_names <branch> <dir> — 0 when the session's launch scope is
+# kickoff_scope_names <branch> <dir> [<act, for a refusal>] — 0 when the session's launch scope is
 # the kickoff of the spec whose spec PR branch <branch> is: kickoff-<spec>
 # names planwright/<spec>/spec, planwright/<spec>/spec-rework and
 # planwright/<spec>/amendment-<n>; an amendment kickoff's scope
@@ -5048,12 +5048,12 @@ kickoff_scope_names() {
     kickoff_amendment_scope "$spec"
     [ -n "$KAS_N" ] && [ "$name" = "amendment-$KAS_N" ] || return 1
     kickoff_scope_unshared "$spec" "$2" \
-      || emit_deny "the launch scope $(sanitize_printable "${PLANWRIGHT_WORKER_SCOPE:0:128}" 'unprintable') reads as amendment $KAS_N's kickoff for $spec, but $KSS_WHY - refusing this git merge (fail closed). $KSS_FIX"
+      || emit_deny "the launch scope $(sanitize_printable "${PLANWRIGHT_WORKER_SCOPE:0:128}" 'unprintable') reads as amendment $KAS_N's kickoff for $spec, but $KSS_WHY - refusing ${3:-this git merge} (fail closed). $KSS_FIX"
   fi
   KSN_NAME=$name
 }
 
-# spec_branch_checkout <dir> — 0 when the session's project directory is a
+# spec_branch_checkout <dir> [<act, for a refusal>] — 0 when the session's project directory is a
 # linked worktree with a spec branch its launch names checked out (the session
 # record's spec_branch, or its kickoff scope's, kickoff_scope_names) and <dir>
 # is that same checkout; sets SBC_BRANCH. Any other state, a unit branch
@@ -5064,7 +5064,7 @@ kickoff_scope_names() {
 # (protected_branches additions included), and every other branch reads it.
 SBC_BRANCH=''
 spec_branch_checkout() {
-  local d=$1 pdir=${CLAUDE_PROJECT_DIR:-} b top gd kick=0
+  local d=$1 what=${2:-this git merge} pdir=${CLAUDE_PROJECT_DIR:-} b top gd kick=0
   SBC_BRANCH=''
   [ "$TIER" = worker ] && [ -n "$pdir" ] && [ -d "$pdir" ] || return 1
   b=$(current_branch "$pdir")
@@ -5073,13 +5073,13 @@ spec_branch_checkout() {
   top=$CO_TOP gd=$CO_GD
   record_spec_branch "$top"
   if [ -z "$SPEC_BRANCH" ] || [ "$b" != "$SPEC_BRANCH" ]; then
-    kickoff_scope_names "$b" "$pdir" || return 1
+    kickoff_scope_names "$b" "$pdir" "$what" || return 1
     kick=1
   fi
   [ "$(current_branch "$d")" = "$b" ] || return 1
   checkout_of "$d" && [ "$CO_TOP" = "$top" ] && [ "$CO_GD" = "$gd" ] || return 1
   SBC_BRANCH=$b
-  [ "$kick" = 1 ] && [ "$KSN_NAME" = spec ] || check_unprotected "$d" 'this git merge' "$b"
+  [ "$kick" = 1 ] && [ "$KSN_NAME" = spec ] || check_unprotected "$d" "$what" "$b"
 }
 
 eval_merge() {
@@ -5117,14 +5117,15 @@ eval_merge() {
     return 0
   fi
   local rc
+  record_spec_branch "$UNIT_TOP"
   for s in $srcs; do
     is_base_ref "$dir" "$s" && continue
     if [ "$ff" = 1 ] && [ "$srcs" = "$s" ]; then
-      record_spec_branch "$UNIT_TOP"
       ! is_spec_branch_ref "$dir" "$s" || continue
     fi
-    record_spec_branch "$UNIT_TOP"
-    ! spec_ref_named "$s" "$SPEC_BRANCH" \
+    # With --ff-only the refusal lies elsewhere (another source, a missing or
+    # shadowed ref), so this route text would misdirect.
+    [ "$ff" = 1 ] || ! spec_ref_named "$s" "$SPEC_BRANCH" \
       || emit_deny "this session's launch names $(sanitize_printable "$SPEC_BRANCH" 'a spec branch'), and merging it into $(sanitize_printable "$CUR_BRANCH" 'this branch') is admitted only with --ff-only, which git refuses once this branch holds a commit the spec branch lacks - refusing. Sync the spec branch in its own checkout: git switch $(sanitize_printable "$SPEC_BRANCH" '<spec branch>') in your own worktree, then git merge --ff-only $(sanitize_printable "$BASE_REMOTE/$SPEC_BRANCH" 'origin/<spec branch>') and git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main') there."
     rc=0
     is_own_remote_ref "$dir" "$s" || rc=$?
@@ -5148,7 +5149,10 @@ eval_pull() {
     || emit_deny 'this git pull names more than one refspec - refusing. Pull the PR base alone: git pull origin main.'
   ref=${2:-}
   need_timeout
-  if spec_branch_checkout "$dir"; then
+  if spec_branch_checkout "$dir" 'this git pull'; then
+    read_knob worker_base_merge "$dir" allow deny
+    [ "$KNOB_VAL" = allow ] \
+      || emit_deny "worker_base_merge is deny, so this git pull is refused; the operator syncs this branch with its base."
     CUR_BRANCH=$SBC_BRANCH
     base_of "$dir"
     emit_deny "this git pull runs on $(sanitize_printable "$SBC_BRANCH" 'a spec branch'), a spec branch this session's launch names, which syncs only by a plain git merge, never a pull - refusing. $(spec_route)."

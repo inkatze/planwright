@@ -633,7 +633,7 @@ nothing else:
   reset); the merge caches nothing, so a later act in the same command does
   not inherit the branch as a unit branch. `worker_base_merge: deny` refuses
   it as it does for a unit branch. A refusal on this path (a pull there, another
-  source, or the spec branch merged into a flight branch without
+  source, or the spec branch merged into a task or flight branch without
   `--ff-only`) names the route: `git switch <spec branch>` in the worker's own
   worktree when it is elsewhere, then the fast-forward to the PR head, then
   the base merge.

@@ -100,6 +100,20 @@ rec "git merge origin/$CARRY" "$FL"
 expect deny "[rec, flight] merging the spec branch into the flight branch still refuses"
 reason_has "git switch $CARRY" "[rec, flight] the refusal names switching to the spec branch"
 reason_has "git merge --ff-only origin/$CARRY" "[rec, flight] the refusal names the fast-forward there"
+for cmd in "git merge --ff-only origin/$CARRY origin/main" "git merge --ff-only origin/$CARRY HEAD"; do
+  rec "$cmd" "$FL"
+  expect deny "[rec, flight] an --ff-only merge with a second source refuses: $cmd"
+  if printf '%s' "$REASON" | grep -q 'admitted only with --ff-only'; then
+    fail "[rec, flight] the refusal of a command that already used --ff-only tells it to use --ff-only: $cmd"
+  else
+    pass "[rec, flight] the refusal does not tell an --ff-only command to add --ff-only: $cmd"
+  fi
+done
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: deny' 'unpushed_rewrite: allow'
+rec 'git pull origin main'
+expect deny "[rec] worker_base_merge deny refuses a pull on the spec branch"
+reason_has 'the operator syncs' "[rec] under deny the pull refusal hands the sync to the operator, not to a refused merge"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 
 echo "# end to end: the head, then main, each run only once the guard admits it"
 kick "git merge --ff-only origin/$CARRY"
