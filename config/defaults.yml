@@ -1186,7 +1186,8 @@ mission_control_radar_max_events: 20
 # Which branches the conflict radar pairs: authored (the pull requests the
 # forge snapshot holds, their base branches, and the program's own unit
 # branches), watched (the branches in mission_control_radar_watched), or all
-# (every origin branch). Merge-queue refs never pair.
+# (every origin branch). Merge-queue refs never pair, and under every scope a
+# branch pairs only while it is the head of an open pull request.
 mission_control_radar_scope: authored
 # The branches the watched scope pairs, a list of branch names.
 mission_control_radar_watched: []

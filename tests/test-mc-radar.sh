@@ -257,6 +257,30 @@ EOF
     done
   } >"$snap/forge"
 }
+# The forge's open pull requests: a gh stub answering `pr list --state open`
+# from $gh_open (one head branch per line), logging each call, and failing
+# when $gh_fail exists.
+mkdir -p "$tmp/bin"
+gh_open="$tmp/gh-open"
+gh_log="$tmp/gh-log"
+gh_fail="$tmp/gh-fail"
+cat >"$tmp/bin/gh" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$GH_LOG"
+[ ! -e "$GH_FAIL" ] || { echo "gh: simulated forge failure" >&2; exit 1; }
+case $* in
+  "pr list --repo acme/widgets --state open "*) cat "$GH_OPEN" ;;
+  *) echo "gh stub: unexpected call: $*" >&2; exit 2 ;;
+esac
+STUB
+chmod +x "$tmp/bin/gh"
+PATH="$tmp/bin:$PATH"
+GH_OPEN=$gh_open GH_LOG=$gh_log GH_FAIL=$gh_fail
+export PATH GH_OPEN GH_LOG GH_FAIL
+# set_open <branch>...: the branches with an open pull request
+set_open() { printf '%s\n' "$@" >"$gh_open"; }
+set_open feat-a feat-b feat-d teammate planwright/flight/unit-x planwright/flight/multi-a planwright/flight/multi-b \
+  trunk-merge/pr-7/uuid-1 gh-readonly-queue/main/pr-8
 write_forge 1:feat-a:main 2:feat-b:main 3:trunk-merge/pr-7/uuid-1:main
 printf 'mission_control_radar_max_events: 1\n' >>"$tracked"
 OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-radar.sh" 2>"$tmp/stderr")
@@ -387,6 +411,72 @@ case $(stored_events) in
   *"trunk-merge"* | *"gh-readonly-queue"*) fail "the all scope paired a merge-queue ref" ;;
   *) ok "the all scope never pairs a merge-queue ref" ;;
 esac
+
+# Only branches with an open pull request pair: one whose pull request is
+# closed and one with none drop out, however the scope picked them.
+edit planwright/flight/dead-closed main 10 dead1
+edit planwright/flight/dead-nopr main 10 dead2
+g checkout -q main
+git -C "$tmp/clone" fetch -q "$tmp/work" '+refs/heads/*:refs/remotes/origin/*'
+set_scope
+radar_fresh 1:feat-a:main 2:feat-b:main 9:planwright/flight/dead-closed:main
+set_open feat-a feat-b
+: >"$gh_log"
+radar_pass
+expect_rc "a pass over open and dead branches" 0
+case $(stored_events) in
+  *"dead-closed"* | *"dead-nopr"*) fail "a branch without an open pull request paired: $(stored_events)" ;;
+  *) ok "a closed pull request's branch and a branch with no pull request raise no event" ;;
+esac
+if [ "$(stored_events | grep -c 'feat-a+origin/feat-b\|feat-b+origin/feat-a')" -eq 1 ]; then
+  ok "two open pull requests that overlap still raise one event"
+else
+  fail "the open pair raised $(stored_events | grep -c 'feat-a+origin/feat-b\|feat-b+origin/feat-a') events, want 1: $(stored_events)"
+fi
+if [ "$(stored_events | wc -l | tr -d ' ')" -eq 1 ]; then
+  ok "nothing else pairs"
+else
+  fail "other events were raised: $(stored_events)"
+fi
+if [ "$(wc -l <"$gh_log" | tr -d ' ')" -eq 1 ]; then
+  ok "the forge is read once per repository per pass"
+else
+  fail "the forge was read $(wc -l <"$gh_log" | tr -d ' ') times in one pass: $(cat "$gh_log")"
+fi
+
+# The same under the all scope.
+set_scope 'mission_control_radar_scope: all'
+radar_fresh 1:feat-a:main 2:feat-b:main
+radar_pass
+case $(stored_events) in
+  *"dead-"* | *"teammate"* | *"unit-x"* | *"multi-"*) fail "a branch without an open pull request paired under the all scope: $(stored_events)" ;;
+  *) ok "the all scope pairs only branches with an open pull request" ;;
+esac
+
+# A forge that cannot be read is said, never guessed: the run fails, no
+# event is raised and the pairs already announced stay announced.
+: >"$gh_fail"
+radar_fresh 1:feat-a:main 2:feat-b:main 9:planwright/flight/dead-closed:main
+printf '%s\n' "$tmp/clone	origin/feat-a	x	origin/feat-b	y" >"$fleet/mission-control/alpha/radar-announced"
+radar_pass
+if [ "$RC" -eq 1 ]; then ok "an unreadable forge fails the run (exit 1)"; else fail "an unreadable forge exited $RC, want 1"; fi
+if grep -q 'open pull requests cannot be read' "$tmp/stderr"; then
+  ok "an unreadable forge is named"
+else
+  fail "an unreadable forge was not named: $(cat "$tmp/stderr")"
+fi
+if [ -z "$(stored_events)" ]; then
+  ok "an unreadable forge raises no event"
+else
+  fail "an unreadable forge raised events: $(stored_events)"
+fi
+if [ "$(wc -l <"$fleet/mission-control/alpha/radar-announced" | tr -d ' ')" -eq 1 ]; then
+  ok "an unreadable forge leaves the announced pairs as they were"
+else
+  fail "an unreadable forge changed the announced pairs"
+fi
+rm -f "$gh_fail"
+set_open feat-a feat-b feat-d teammate planwright/flight/unit-x planwright/flight/multi-a planwright/flight/multi-b
 
 # Dedupe across wakes: a pair raised once, then marked submitted, is never
 # raised again while both branches stay where they are, however the tracked

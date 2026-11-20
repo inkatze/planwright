@@ -63,7 +63,12 @@ Usage:
           planwright/<spec>/task-* branches;
         watched: the branches named in mission_control_radar_watched;
         all: every origin branch.
-      The merge-queue refs (trunk-merge/*, gh-readonly-queue/*) never pair.
+      The merge-queue refs (trunk-merge/*, gh-readonly-queue/*) never pair,
+      and neither does a branch without an open pull request: whatever the
+      scope, a branch pairs only while it is the head of one (a branch with
+      no pull request, or whose pull request merged or closed, drops out).
+      The open pull requests are read once per repository per pass; a read
+      that fails is reported and fails the run, never guessed.
       One conflict-predicted event per branch pair with a same-line overlap,
       its text `<repo>:<a>+<b> <path> lines <first>-<last>` (more overlaps in
       the pair are counted), printing
@@ -357,6 +362,8 @@ case $verb in
     [ -n "$program" ] || usage
     mc_require_program "$program"
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
+    OPEN_BOUND=60
+    OPEN_LIMIT=1000
     seen="$runtime/radar-announced"
     [ -f "$seen" ] || : >"$seen" || mc_fail "cannot create $seen"
     cap=$(mc_knob mission_control_radar_max_events mc_parse_count) || exit 1
@@ -400,10 +407,30 @@ case $verb in
           if ($14 != "" && $14 != "-") print "origin/" $14
           if ($13 != "" && $13 != "-") print "origin/" $13
         }')
-      # The branches in scope: never the default, never a merge-queue ref.
-      picked=$(printf '%s\n' "$list" | SCOPE=$scope PRS=$repo_prs WATCHED=$watched D=$def awk -F '\t' '
+      # The heads of this repository's open pull requests, one forge read per
+      # pass: a branch with no pull request, or one whose pull request merged
+      # or closed, is dead work and never pairs. A full page cannot be told
+      # from a cut one, so it counts as unreadable.
+      open_heads=$(
+        cd "$runtime" 2>/dev/null && [ -n "$slug" ] && /bin/sh "$script_dir/bounded-run.sh" "$OPEN_BOUND" gh pr list --repo "$slug" --state open --limit "$OPEN_LIMIT" \
+          --json headRefName,isCrossRepository \
+          --jq '.[] | select(.isCrossRepository | not) | .headRefName' 2>/dev/null </dev/null
+      ) || {
+        printf '%s\n' "$prog: $(sanitize_printable "$r"): the open pull requests cannot be read" >&2
+        rc=1
+        continue
+      }
+      if [ "$(printf '%s' "$open_heads" | grep -c '^')" -ge "$OPEN_LIMIT" ]; then
+        printf '%s\n' "$prog: $(sanitize_printable "$r"): the open pull requests cannot be read whole (over $OPEN_LIMIT)" >&2
+        rc=1
+        continue
+      fi
+      # The branches in scope: never the default, never a merge-queue ref,
+      # always the head of an open pull request.
+      picked=$(printf '%s\n' "$list" | SCOPE=$scope PRS=$repo_prs OPEN=$open_heads WATCHED=$watched D=$def awk -F '\t' '
         BEGIN {
           scope = ENVIRON["SCOPE"]
+          n = split(ENVIRON["OPEN"], q, "\n"); for (i = 1; i <= n; i++) if (q[i] != "") open["origin/" q[i]] = 1
           n = split(ENVIRON["PRS"], p, "\n"); for (i = 1; i <= n; i++) if (p[i] != "") pr[p[i]] = 1
           n = split(ENVIRON["WATCHED"], w, "\n"); for (i = 1; i <= n; i++) if (w[i] != "") watch["origin/" w[i]] = 1
         }
@@ -415,7 +442,7 @@ case $verb in
           else if (scope == "watched") ok = ($1 in watch)
           else ok = ($1 in pr) || $1 ~ /^origin\/planwright\/flight\// || $1 ~ /^origin\/planwright\/[^\/]+\/task-/
         }
-        ok && ++k <= 50 { print $1 "	" $2 }')
+        ok && ($1 in open) && ++k <= 50 { print $1 "	" $2 }')
       names=$(printf '%s\n' "$picked" | cut -f1)
       set --
       while IFS= read -r b; do
