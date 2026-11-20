@@ -324,7 +324,7 @@ worker_signal() {
     [ -z "$ws_killer" ] || kill -s USR1 "$ws_killer" 2>/dev/null
     (
       trap 'kill "$wk_sleep" 2>/dev/null; exit 0' USR1
-      sleep 10 &
+      sleep "$ws_grace" &
       wk_sleep=$!
       wait "$wk_sleep" || {
         kill "$wk_sleep" 2>/dev/null
@@ -400,6 +400,7 @@ if [ "${1:-}" = "--run-one" ]; then
   bounding=0
   ws_target=""
   ws_killer=""
+  ws_grace=10
   lock_loaded=0
   # The parent hands over a normalized value; anything else runs unbounded.
   deadline="${PLANWRIGHT_TEST_BOUND_SECONDS:-}"
@@ -521,6 +522,11 @@ if [ "${1:-}" = "--run-one" ]; then
     inner=()
     case "${deadline_tool##*/}" in
       bounded-run.sh)
+        # Its own KILL follows its grace of ten seconds, which takes longer
+        # than that where reading the process table is slow; the worker's
+        # backup KILL, which would end it first and leave the file running,
+        # waits longer.
+        ws_grace=25
         if [ -n "$deadline_env" ]; then
           # shellcheck disable=SC2054 # one env option, not array elements
           inner=("$deadline_env" --default-signal=INT,QUIT)
