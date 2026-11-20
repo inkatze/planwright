@@ -1553,7 +1553,7 @@ own_pr_edit_ok() {
   # The read is bounded by the runner beside this guard, so a hung forge
   # defers instead of outlasting the hook's timeout.
   [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/bounded-run.sh" ] || return 1
-  out=$(cd "$1" && /bin/sh "$HOOK_SELF_ROOT/scripts/bounded-run.sh" 15 \
+  out=$(cd -- "$1" && /bin/sh "$HOOK_SELF_ROOT/scripts/bounded-run.sh" 15 \
     env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 GH_PAGER=cat \
     gh pr view "$n" --json headRefName,isCrossRepository,state 2>/dev/null </dev/null) || return 1
   [ "${#out}" -le 4096 ] || return 1
@@ -4287,13 +4287,6 @@ assign_name_ok() {
   case $name in
     '' | *[!A-Za-z0-9_]* | [0-9]*) return 1 ;;
   esac
-  # Once an own-unit export has run, the step names are exported: assigning
-  # one again would change what later step calls read around its checks.
-  if [ "$OU_EXPORTED" = 1 ]; then
-    case $name in
-      PLANWRIGHT_STEP_*) return 1 ;;
-    esac
-  fi
   # Beside the names the shell consumes, this refuses the ones bash evaluates
   # as arithmetic on assignment (a subscript in the value runs a command),
   # keeps readonly, or rewrites by itself (`read` with no NAME sets REPLY), so
@@ -4407,6 +4400,13 @@ track_assignment() {
   name=${w%%=*}
   value=${w#*=}
   eqpos=${#name}
+  # Once an own-unit export has run, the step names are exported: assigning
+  # one again would change what later step calls read around its checks.
+  if [ "$OU_EXPORTED" = 1 ]; then
+    case $name in
+      PLANWRIGHT_STEP_*) return 1 ;;
+    esac
+  fi
   # The name and the `=` must be bare: a word quoted from its start is a
   # command whose name merely contains `=`, not an assignment.
   if [ "$qpos" -ge 0 ] && [ "$qpos" -le "$eqpos" ]; then
@@ -7428,6 +7428,13 @@ verify_tokens() {
           # (REQ-E1.1); `done` loops the walk back to the body for the next one.
           fin ctl || return 1
           loop_enter || return 1
+          # A loop over a name an own-unit export set re-assigns it, as
+          # track_assignment refuses for a plain assignment.
+          if [ "$OU_EXPORTED" = 1 ]; then
+            case $LH_NAME in
+              PLANWRIGHT_STEP_*) return 1 ;;
+            esac
+          fi
           loop_fits || return 1
           continue
           ;;
