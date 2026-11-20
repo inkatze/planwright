@@ -81,8 +81,7 @@ fi
 # The hook is the only thing that closes these names outside the ancestors; a
 # missing or non-executable one is a launch the broad denies no longer cover.
 # The check reads the launcher's $CLAUDE_PLUGIN_ROOT, else the copy beside the
-# generator; a worker's dispatch environment may substitute another install, so
-# this catches a missing hook, not every mismatched one.
+# generator; the launch preflight proves the copy under the worker's own root.
 hook_script=${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}
 hook_script=${hook_script:-$(dirname -- "$0")}/worker-mise-edit-guard.sh
 [ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable under the launcher's plugin root; the opt-in would leave its names open outside the worktree's ancestors"
@@ -110,7 +109,7 @@ common=$(GIT_OPTIONAL_LOCKS=0 git -C "$wt" rev-parse --path-format=absolute --gi
 case $common in
   /*/.git) primary=${common%/.git} ;;
 esac
-[ -n "$primary" ] && [ -d "$primary" ] || die "cannot name the primary checkout (its git directory is not <checkout>/.git); its task files would stay open"
+[ -n "$primary" ] && [ -d "$primary" ] || die "cannot name the primary checkout (its git directory is not <checkout>/.git); its opted-in names would stay open"
 primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || die "the primary checkout does not resolve"
 unsafe_path "$primary" && die "the primary checkout path holds a character a path rule would read as a pattern"
 

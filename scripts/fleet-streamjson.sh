@@ -1667,14 +1667,17 @@ dispatch_env_path() {
   printf '%s\n' "$de_path"
 }
 
-# guard_preflight <dispatch-env> <cwd> — the LAUNCH PREFLIGHT (see the
-# header): prove the wired hook approves a worker's opening plugin-script call
-# under every root it could name, before anything is spawned. Prints nothing
-# on success; on a refusal names each root that failed and returns 9 (or 0 with
-# the same message when PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn).
+# guard_preflight <dispatch-env> <cwd> [mise] [lefthook] — the LAUNCH PREFLIGHT
+# (see the header): prove the wired hook approves a worker's opening
+# plugin-script call under every root it could name, and, for each opt-in name
+# set given, that the file-tool hook under the worker's root refuses one of its
+# names outside the worktree, before anything is spawned. Prints nothing on
+# success; on a refusal names what failed and returns 9 (or 0 with the same
+# message when PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn).
 guard_preflight() {
   gp_env=$1
   gp_cwd=$2
+  shift 2
   gp_mode=${PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT:-refuse}
   case $gp_mode in
     refuse | warn) ;;
@@ -1719,6 +1722,42 @@ guard_preflight() {
     printf '%s\n' "$me: launch preflight: the policy guard $gp_hook_root/scripts/policy-guard.sh is missing or not executable; the worker's merges and history rewrites would go unchecked" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
+  fi
+  # An opt-in's profile drops the broad denies of its names and leaves them to
+  # this root's file-tool hook, so a copy that does not judge them (one from
+  # before the opt-in ignores the argument) leaves them open everywhere.
+  if [ "$#" -gt 0 ]; then
+    gp_probe=$(mktemp -d "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || gp_probe=''
+    if [ -z "$gp_probe" ] || ! mkdir "$gp_probe/wt" "$gp_probe/out"; then
+      [ -z "$gp_probe" ] || rm -rf "$gp_probe"
+      printf '%s\n' "$me: launch preflight: cannot create a folder to prove the file-tool hook in (TMPDIR=${TMPDIR:-/tmp})" >&2
+      [ "$gp_mode" = warn ] && return 0
+      return 2
+    fi
+    gp_bad=''
+    for gp_set in "$@"; do
+      case $gp_set in
+        mise) gp_name=mise.toml ;;
+        lefthook) gp_name=lefthook.yml ;;
+        *) gp_name='' ;;
+      esac
+      gp_out=''
+      if [ -n "$gp_name" ]; then
+        gp_payload=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"%s"},"cwd":"%s"}' \
+          "$(printf '%s' "$gp_probe/out/$gp_name" | json_escape)" "$(printf '%s' "$gp_probe/wt" | json_escape)")
+        gp_out=$(printf '%s\n' "$gp_payload" | "$gp_env" "$gp_hook_root/scripts/worker-mise-edit-guard.sh" "$gp_probe/wt" "$@" 2>/dev/null) || gp_out=''
+      fi
+      case $gp_out in
+        *'"permissionDecision":"deny"'*) ;;
+        *) gp_bad="$gp_bad $gp_set" ;;
+      esac
+    done
+    rm -rf "$gp_probe"
+    if [ -n "$gp_bad" ]; then
+      printf '%s\n' "$me: launch preflight: the file-tool hook $gp_hook_root/scripts/worker-mise-edit-guard.sh does not refuse the opted-in names outside the worktree (${gp_bad# }); the opt-in would leave them open in every other checkout (an install from before the opt-in, or a missing hook)" >&2
+      [ "$gp_mode" = warn ] && return 0
+      return 9
+    fi
   fi
   gp_tmp=$(mktemp "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || {
     printf '%s\n' "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
@@ -2263,6 +2302,12 @@ cmd_launch() {
     printf '%s\n' "$me: invalid --resume-session id" >&2
     exit 2
   fi
+  # A resume reads its opt-ins from the markers its launch recorded; one given
+  # here would open the profile with no marker for the next recover to keep.
+  if [ -n "$resume_sid" ] && { [ "$mise_edit" = 1 ] || [ "$lefthook_edit" = 1 ]; }; then
+    printf '%s\n' "$me: --resume-session takes no opt-in (--mise-task-edit, --lefthook-edit); a recover keeps the ones its launch recorded" >&2
+    exit 2
+  fi
   if [ -z "$resume_sid" ]; then
     valid_field "${scope:-}" || {
       printf '%s\n' "$me: invalid scope: $SCOPE_SHAPE" >&2
@@ -2313,7 +2358,11 @@ cmd_launch() {
   # profile wires; the other profiles' approvals are pinned statically by
   # tests/test-launch-profiles.sh.
   gp_rc=0
-  [ "$profile" != worker ] || guard_preflight "$dispatch_env" "${run_cwd:-$PWD}" || gp_rc=$?
+  gp_sets=''
+  [ "$mise_edit" != 1 ] || gp_sets=mise
+  [ "$lefthook_edit" != 1 ] || gp_sets="${gp_sets:+$gp_sets }lefthook"
+  # shellcheck disable=SC2086 # a word list of the hook's own name sets
+  [ "$profile" != worker ] || guard_preflight "$dispatch_env" "${run_cwd:-$PWD}" $gp_sets || gp_rc=$?
   [ "$gp_rc" -eq 0 ] || exit "$gp_rc"
 
   dir=$(worker_dir "$worker") || exit 2
@@ -3314,9 +3363,16 @@ cmd_relaunch() {
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
   rx_gen_flags=''
+  rx_sets=''
   if [ "$rx_profile" = worker ]; then
-    [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" != 1 ] || rx_gen_flags=--mise-task-edit
-    [ "$(cat "$dir/lefthook-edit" 2>/dev/null)" != 1 ] || rx_gen_flags="${rx_gen_flags:+$rx_gen_flags }--lefthook-edit"
+    if [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" = 1 ]; then
+      rx_gen_flags=--mise-task-edit
+      rx_sets=mise
+    fi
+    if [ "$(cat "$dir/lefthook-edit" 2>/dev/null)" = 1 ]; then
+      rx_gen_flags="${rx_gen_flags:+$rx_gen_flags }--lefthook-edit"
+      rx_sets="${rx_sets:+$rx_sets }lefthook"
+    fi
   fi
   if [ -n "$rx_gen_flags" ]; then
     rx_shipped=$(profile_settings_path worker) || exit 7
@@ -3327,7 +3383,8 @@ cmd_relaunch() {
     }
   fi
   rx_gp=0
-  [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" || rx_gp=$?
+  # shellcheck disable=SC2086 # a word list of the hook's own name sets
+  [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" $rx_sets || rx_gp=$?
   [ "$rx_gp" -eq 0 ] || exit "$rx_gp"
   # The tier is re-resolved from current allocation config at the key and unit
   # the launch recorded, else at the single-spec dispatch surface's key under

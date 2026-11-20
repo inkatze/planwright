@@ -1004,7 +1004,13 @@ executable, or a proof that could not run at all, refuses the same way. So
 does a hook root (the plugin root the wrapper exports) without an executable
 `scripts/policy-guard.sh`: the worker
 profile leaves merges and history rewrites to that guard, and a hook that
-cannot run refuses nothing.
+cannot run refuses nothing. A launch or relaunch given `--mise-task-edit` or
+`--lefthook-edit` also proves that hook root's `scripts/worker-mise-edit-guard.sh`
+refuses a write of each opted-in name set outside the worktree (`mise.toml`,
+`lefthook.yml`): the generated profile drops those names' broad denies, so a
+copy that does not judge them (one from before the opt-in, or a missing one)
+refuses the launch with exit 9. A resume (`--resume-session`) takes neither
+flag: it keeps the opt-ins its launch recorded.
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
 downgrades every refusal to a warning and launches, `off` skips the proof, and
 any other value is a usage error. The installed roots the proof covers are

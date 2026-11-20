@@ -580,8 +580,9 @@ neither (it passes the shipped profile itself, byte for byte):
   hook script is missing or not executable under the launcher's
   `$CLAUDE_PLUGIN_ROOT` (the copy beside the generator when it is unset), since
   the broad denies it replaced would then leave the names open outside the
-  ancestors; a worker's dispatch environment may substitute another install,
-  so this catches a missing hook, not every mismatched one.
+  ancestors. A worker's dispatch environment may substitute another install,
+  so the launch preflight also proves the hook under the worker's own root
+  refuses an opted-in name outside the worktree (`docs/fleet.md`).
 - **The guard's own-branch arm** admits writes to those four names inside the
   worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
   recursive-act screen `ob_tree_clean`), only when the record carries exactly

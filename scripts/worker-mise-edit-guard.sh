@@ -120,9 +120,8 @@ is_optin_name() {
     esac
   fi
   if [ "$want_lefthook" = 1 ]; then
-    _l=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-    case $_l in
-      */lefthook | */lefthook/* | */lefthook.*) return 0 ;;
+    case $1 in
+      */[Ll][Ee][Ff][Tt][Hh][Oo][Oo][Kk] | */[Ll][Ee][Ff][Tt][Hh][Oo][Oo][Kk]/* | */[Ll][Ee][Ff][Tt][Hh][Oo][Oo][Kk].*) return 0 ;;
     esac
   fi
   return 1

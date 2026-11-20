@@ -926,6 +926,45 @@ senv "$home" "$rec" -- \
 l_rc=$?
 { [ "$l_rc" -eq 7 ] && [ ! -s "$rec/argv" ]; } || fail "c9l: an opted-in launch in a glob-character path must be refused (exit 7) before a spawn (exit $l_rc, argv: $(cat "$rec/argv"))"
 [ ! -e "$home/streamjson/sjw9l5/lefthook-edit" ] || fail "c9l: a refused opted-in launch must record no opt-in"
+# The internal resume seam never takes an opt-in: it would open the profile
+# without recording the marker its next recover reads.
+for flag in --lefthook-edit --mise-task-edit; do
+  : >"$rec/argv"
+  senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
+    launch sjw9l1 --resume-session "$sid" "$flag" --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l6.err"
+  l_rc=$?
+  { [ "$l_rc" -eq 2 ] && [ ! -s "$rec/argv" ] && grep -q -- "--resume-session takes no opt-in" "$tmp/c9l6.err"; } \
+    || fail "c9l: --resume-session with $flag must be refused (exit 2) before a spawn (exit $l_rc: $(cat "$tmp/c9l6.err"))"
+done
+# A hook root whose file-tool hook ignores the lefthook argument (a copy from
+# before the opt-in judges the mise names only) would leave the lefthook names
+# open outside the worktree once the broad denies are gone: the launch refuses.
+mkdir -p "$tmp/oldeh"
+cp -R "$here/../scripts" "$tmp/oldeh/scripts"
+cp -R "$here/../config" "$tmp/oldeh/config"
+mv "$tmp/oldeh/scripts/worker-mise-edit-guard.sh" "$tmp/oldeh/scripts/worker-mise-edit-guard.real.sh"
+# shellcheck disable=SC2016 # expanded by the stub when it runs
+printf '#!/bin/sh\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1" mise\n' \
+  >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+chmod +x "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+for flag in --lefthook-edit --mise-task-edit; do
+  : >"$rec/argv"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
+    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" \
+    /bin/sh "$tmp/oldeh/scripts/fleet-streamjson.sh" \
+    launch sjw9l7 execution-backends:4 --prompt-file "$tmp/prompt9" "$flag" --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l7.err"
+  l_rc=$?
+  case $flag in
+    --lefthook-edit)
+      { [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ]; } \
+        || fail "c9l: a hook that ignores the lefthook argument must fail the preflight (exit 9) before a spawn (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+      [ ! -e "$home/streamjson/sjw9l7/lefthook-edit" ] || fail "c9l: a launch refused at the preflight must record no opt-in"
+      ;;
+    --mise-task-edit)
+      [ "$l_rc" -eq 0 ] || fail "c9l: the same hook still judges the mise names, so a mise-only launch passes (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+      ;;
+  esac
+done
 echo "ok: c9l lefthook config opt-in: per-launch profile, recorded for recover, composes with the mise opt-in, refused elsewhere"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.
