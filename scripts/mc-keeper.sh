@@ -654,7 +654,7 @@ announce_unowned() {
 unowned_claims_prune() {
   # A linked worker directory would aim the removals somewhere else.
   [ -d "$1" ] && [ ! -L "$1" ] || return 0
-  rm -f "$1/unowned-announced"
+  rm -f -- "$1/unowned-announced"
   set +f
   for uc_f in "$1"/unowned-announced.*; do
     [ -f "$uc_f" ] && [ ! -L "$uc_f" ] || continue
