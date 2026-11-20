@@ -13,6 +13,13 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/compute-route-test.XXXXXX")" || exit 1
 tmp=$(cd -P "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
+# A direct run inherits the operator's plugin-data home, whose adopter overlay
+# can set fleet_compute_host; the gate runner pins it per file, a bare run does
+# not. Clear the config roots and point the plugin-data home at the fixture.
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
+hermetic_env_sentinel "$tmp/home" || exit 1
+
 failures=0
 ok() { echo "ok: $1"; }
 fail() {
@@ -192,6 +199,14 @@ has "as the named test file" "--host mac compute --worktree $tmp/wt --test tests
 : >"$local_cfg"
 run -- bash tests/test-x.sh
 assert_eq "knob local keeps the plain test run off the channel" "" "$LOG"
+
+# The pinned file is the machine-local layer: a local file under the repo root
+# does not move a run whose knob is pinned local.
+mkdir -p "$tmp/.claude"
+printf 'fleet_compute_host: mac\n' >"$tmp/.claude/planwright.local.yml"
+run --check -- "$tmp/lcmd" a
+assert_eq "a repo-root local file does not move a pinned knob" "local ran a" "$OUT"
+assert_eq "and never touches the channel" "" "$LOG"
 
 # Workers learn the form from the instructions they load.
 root="$here/.."
