@@ -1446,10 +1446,19 @@ own_unit_act() {
 
 # own_unit_same_repo <canonical dir>: under the worktree path is not enough,
 # since a nested repository or a .git pointing elsewhere is another
-# repository with its own origin. Checked last, as it runs git.
+# repository with its own origin. Decided from the path alone, with no git
+# run there, whose config a nested repository's author controls: no .git
+# entry of any kind between <dir> and the worktree root.
 own_unit_same_repo() {
-  HOOK_WT_ROOT=$REC_WT
-  cd_same_repo "$1"
+  local d=$1
+  while [ "$d" != "$REC_WT" ]; do
+    [ ! -e "$d/.git" ] && [ ! -L "$d/.git" ] || return 1
+    d=${d%/*}
+    case $d/ in
+      "$REC_WT"/*) ;;
+      *) return 1 ;;
+    esac
+  done
 }
 
 own_step_export_ok() {
@@ -1501,6 +1510,16 @@ own_pr_edit_ok() {
   [[ $n =~ ^[1-9][0-9]{0,8}$ ]] || return 1
   [ -n "$REC_SCRATCH" ] && [ "${swq[5]}" -lt 0 ] || return 1
   f=${cw[5]}
+  # The recorded `$TMPDIR` names the scratch root under every policy here,
+  # as the launcher exported it; the scratch arm already resolved it when
+  # in force.
+  if [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ]; then
+    # shellcheck disable=SC2016 # the unexpanded spelling is what is matched
+    case $f in
+      '$TMPDIR/'*) f=$REC_SCRATCH/${f#'$TMPDIR/'} ;;
+      '${TMPDIR}/'*) f=$REC_SCRATCH/${f#'${TMPDIR}/'} ;;
+    esac
+  fi
   case $f in
     /*) ;;
     *) return 1 ;;

@@ -102,6 +102,14 @@ echo "### (b) gh pr edit <n> --body-file <file>, the session's own open PR"
 assert_allow "the own PR, a body file in the scratch root" "gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
 assert_allow "the body file named through a tracked assignment" "D=$SCR && gh pr edit 12 --body-file \$D/body.md" Bash "$WT"
 assert_allow "chained after a step write" "$SREC write --run 1 && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+HOOK_ENV=("${USE_ENV[@]}" "TMPDIR=$SCR")
+assert_allow "the body file through the recorded \$TMPDIR, under the empty policy" "gh pr edit 12 --body-file \$TMPDIR/body.md" Bash "$WT"
+assert_allow "the body file through \${TMPDIR}" "gh pr edit 12 --body-file \${TMPDIR}/body.md" Bash "$WT"
+assert_defer "a dot-dot out of \$TMPDIR" "gh pr edit 12 --body-file \$TMPDIR/../../elsewhere/body.md" Bash "$WT"
+assert_defer "a quoted \$TMPDIR" "gh pr edit 12 --body-file \"\$TMPDIR/body.md\"" Bash "$WT"
+HOOK_ENV=("${USE_ENV[@]}" "TMPDIR=$OUT_DIR")
+assert_defer "\$TMPDIR when the inherited TMPDIR is not the recorded root" "gh pr edit 12 --body-file \$TMPDIR/body.md" Bash "$WT"
+HOOK_ENV=("${USE_ENV[@]}")
 if grep -q 'edit' "$SANDBOX/gh.log"; then
   fail "the guard ran a gh write: $(cat "$SANDBOX/gh.log")"
 else
@@ -213,6 +221,20 @@ assert_defer "a push from a nested repository" "git push origin $B" Bash "$WT/ne
 assert_defer "a body edit from a nested repository" "gh pr edit 12 --body-file $SCR/body.md" Bash "$WT/nested"
 assert_defer "an export from a nested repository" "export $CTX && $SREC write --run 1" Bash "$WT/nested"
 assert_defer "a push from a gitdir pointer to another repository" "git push origin $B" Bash "$WT/pointer"
+# The nested check runs no git there: a repository whose config would run a
+# program on any git read is never read.
+mkdir -p "$WT/planted/sub"
+env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
+  GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 git init -q "$WT/planted" || exit 1
+printf '#!/bin/sh\n: >"%s/planted-ran"\n' "$CS" >"$CS/planted.sh"
+chmod +x "$CS/planted.sh"
+printf '[core]\n\tfsmonitor = %s\n[alias]\n\trev-parse = !%s\n' "$CS/planted.sh" "$CS/planted.sh" >>"$WT/planted/.git/config"
+assert_defer "a push from inside a planted nested repository" "git push origin $B" Bash "$WT/planted/sub"
+if [ -e "$CS/planted-ran" ]; then
+  fail "the nested-repository check ran the planted repository's program"
+else
+  pass "the nested-repository check runs no git in the planted repository"
+fi
 assert_defer "inside a while loop" "while true; do git push origin $B; done" Bash "$WT"
 assert_defer "inside a for loop" "for x in a; do git push origin $B; done" Bash "$WT"
 assert_defer "inside an if body" "if git status; then git push origin $B; fi" Bash "$WT"
