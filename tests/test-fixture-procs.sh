@@ -12,6 +12,8 @@
 #       pathless descendant included once its parent's death reparents it.
 #   f4: an unusable process table fails the guard instead of passing it.
 #   f5: only the sourcing shell counts as the owner, not a subshell of it.
+#   f6: a continuation line, a non-numeric pid, a short line, or a control byte
+#       in one process's argv does not void an otherwise readable table.
 # shellcheck disable=SC2016 # the fixtures' scripts are literal sh source, expanded by the child
 set -u
 LC_ALL=C
@@ -124,11 +126,35 @@ PATH="$tmp/bin:$PATH" fixture_none "$tmp/" 2>/dev/null \
   && fail "f4: fixture_none passed on a table with no pid rows"
 PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" >/dev/null 2>&1
 [ $? = 2 ] || fail "f4: fixture_procs did not refuse an unusable table"
+# A short line or a header with no numeric pid and ppid pair is no table either.
+printf '#!/bin/sh\nprintf "%%s\\n" "PID PPID COMMAND" "abc def ghi" "42"\n' >"$tmp/bin/ps"
+PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" >/dev/null 2>&1
+[ $? = 2 ] || fail "f4: fixture_procs did not refuse a table of non-row lines"
 echo "ok: f4 an unusable process table fails the guard"
 
 # f5
 fixture_is_owner || fail "f5: the sourcing shell is not recognised as the owner"
 (fixture_is_owner) && fail "f5: a subshell was taken for the owner"
 echo "ok: f5 only the sourcing shell owns the teardown"
+
+# f6: a continuation line, a non-numeric pid, a short line, or a control byte in
+# one process's argv (busybox ps on Alpine can print a newline in argv across
+# lines) must not void the table, and a match on a continuation still counts.
+printf '%s\n' \
+  ' 4100     1 sh -c job '"$tmp"'/a' \
+  'a continuation that names nothing' \
+  ' 4101  4100 sleep 300' \
+  'abc def ghi' \
+  '4103' \
+  ' 4102     1 sh -c job' \
+  "$tmp/b is on a continuation line" \
+  ' 4104     1 sh -c ctl '"$(printf 'x\001\r')" \
+  ' 4105     1 sleep 1' >"$tmp/planted.table"
+printf '#!/bin/sh\ncat "%s"\n' "$tmp/planted.table" >"$tmp/bin/ps"
+planted_pids=$(PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" 2>"$tmp/planted.err" | awk '{ printf "%s ", $1 }')
+[ "$planted_pids" = "4100 4101 4102 " ] \
+  || fail "f6: the planted table matched '$planted_pids', want '4100 4101 4102 ': $(cat "$tmp/planted.err")"
+PATH="$tmp/bin:$PATH" fixture_none "$tmp/" 2>/dev/null && fail "f6: fixture_none passed on a planted live match"
+echo "ok: f6 one malformed line does not void the process table"
 
 echo "all fixture-procs tests passed"

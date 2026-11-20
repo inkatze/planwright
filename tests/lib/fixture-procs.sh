@@ -86,13 +86,28 @@ _fp_needle_ok() {
   return 1
 }
 
-# Every row leads with a numeric pid and ppid, or this is not a process table.
-_fp_table_ok() {
-  printf '%s\n' "$1" | awk 'NF { n++; if ($1 !~ /^[0-9]+$/ || $2 !~ /^[0-9]+$/) bad = 1 } END { exit (n && !bad) ? 0 : 1 }'
+# _fp_rows — one `<pid> <ppid> <args>` row per process from a `ps` snapshot on
+# stdin. A row leads with a numeric pid and ppid; any other line is a
+# continuation of the row before it (an argv holding a newline, which a ps may
+# print across lines) and joins that row's args with a space, so a match on a
+# continuation still counts and one odd line never voids the table. A line
+# before the first row has nothing to join and is dropped. Prints nothing when
+# no line is a row, which is how a table that is not a process table reads.
+# Control bytes and carriage returns become spaces.
+_fp_rows() {
+  LC_ALL=C awk '
+    { gsub(/[\001-\037\177]/, " ") }
+    /^[ \t]*[0-9]+[ \t]+[0-9]+([ \t]|$)/ {
+      if (row != "") print row
+      row = $0
+      next
+    }
+    row != "" && NF { row = row " " $0 }
+    END { if (row != "") print row }'
 }
 
 fixture_procs() {
-  local needle=$1 snap
+  local needle=$1 snap rows
   _fp_needle_ok "$needle" || {
     printf '%s\n' "fixture_procs: refusing needle '$needle': not an existing directory under a fixture_scratch directory" >&2
     return 2
@@ -101,11 +116,14 @@ fixture_procs() {
   # busybox ps has no -ww (it cuts argv at a fixed length, far past any
   # fixture needle).
   [ -n "$snap" ] || snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || snap=''
-  _fp_table_ok "$snap" || {
-    echo "fixture_procs: no usable process table on this host" >&2
+  rows=$(printf '%s\n' "$snap" | _fp_rows)
+  [ -n "$rows" ] || {
+    # The head of what ps printed, control bytes made visible, so a table this
+    # reader still cannot parse shows its bytes in the failure.
+    printf '%s\n' "fixture_procs: no usable process table on this host (ps printed: $(printf '%s' "$snap" | head -c 400 | tr '\n' '|' | LC_ALL=C sed 's/[^[:print:]]/?/g'))" >&2
     return 2
   }
-  printf '%s\n' "$snap" | FP_NEEDLE=$needle FP_SELF=$_fp_owner awk '
+  printf '%s\n' "$rows" | FP_NEEDLE=$needle FP_SELF=$_fp_owner awk '
     NF {
       pid[NR] = $1; ppid[NR] = $2
       args = $0
