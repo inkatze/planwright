@@ -113,7 +113,12 @@
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
-#               base or the unit branch's own branch on the base remote. When
+#               base or the unit branch's own branch on the base remote. A
+#               spec branch the launch names (the session record's, or a
+#               kickoff scope's: spec_branch_checkout), checked out in the
+#               session's own linked worktree, takes a plain merge of the PR
+#               base, or a plain --ff-only merge of its own remote-tracking
+#               ref alone, under the same knob. When
 #               an --ff-only spelling is refused at the tower tier or for
 #               running off the unit branch, the reason also names
 #               scripts/main-currency.sh ff-primary, the sanctioned way to
@@ -4069,7 +4074,9 @@ git_alias_check() {
 # the words from <start>, setting GP_POS[] (positionals with GP_POSL[]),
 # GP_LONG (space-joined long option names seen, values dropped), GP_SHORT
 # (short flag chars seen), and GP_LITLONG and GP_LITSHORT, the same from
-# literal words only. Returns 1 with GP_ERR when a flag cannot be read.
+# literal words only; GP_VALUNLIT is 1 when a separate value word is not
+# literal, since the shell may split it into further options. Returns 1 with
+# GP_ERR when a flag cannot be read.
 parse_git_opts() {
   local k=$1 vlong=" $2 " vshort=$3 ovshort=$4 n=${#SW[@]} w lit name endopts=0 b c
   GP_POS=()
@@ -4078,6 +4085,7 @@ parse_git_opts() {
   GP_SHORT=''
   GP_LITLONG=' '
   GP_LITSHORT=''
+  GP_VALUNLIT=0
   GP_VALS=()
   GP_ERR=''
   while [ "$k" -lt "$n" ]; do
@@ -4107,6 +4115,7 @@ parse_git_opts() {
               GP_ERR="--$name has no value"
               return 1
             }
+            [ "${SWL[$k]}" = 1 ] || GP_VALUNLIT=1
             GP_LONG="$GP_LONG$name "
             [ "$lit" != 1 ] || GP_LITLONG="$GP_LITLONG$name "
             ;;
@@ -4139,6 +4148,7 @@ parse_git_opts() {
                   GP_ERR="-$c has no value"
                   return 1
                 }
+                [ "${SWL[$k]}" = 1 ] || GP_VALUNLIT=1
                 GP_VALS[${#GP_VALS[@]}]="$c=${SW[$k]}"
               else
                 GP_VALS[${#GP_VALS[@]}]="$c=$b"
@@ -4501,8 +4511,32 @@ ff_only_seen() {
 }
 
 MERGE_VLONG='message file strategy strategy-option into-name cleanup'
+# The options a spec branch's base merge may carry, by full name: each changes
+# only the message, the output, signing, hooks, or whether git fast-forwards,
+# never which tree or parents the merge commit gets.
+MERGE_PLAIN_LONG=' message file no-edit edit quiet verbose stat no-stat summary no-summary log no-log signoff no-signoff gpg-sign no-gpg-sign ff no-ff ff-only commit verify no-verify progress no-progress cleanup into-name rerere-autoupdate no-rerere-autoupdate '
+MERGE_PLAIN_SHORT='mFqvneS'
+
+# merge_plain_seen — 0 when every option parse_git_opts read, and every value
+# word it consumed, is literal, and each option is in the plain set above; an
+# abbreviation counts as outside it.
+merge_plain_seen() {
+  local t c s
+  [ "$GP_VALUNLIT" = 0 ] && [ "$GP_LONG" = "$GP_LITLONG" ] && [ "$GP_SHORT" = "$GP_LITSHORT" ] || return 1
+  for t in $GP_LONG; do
+    case $MERGE_PLAIN_LONG in *" $t "*) ;; *) return 1 ;; esac
+  done
+  s=$GP_SHORT
+  while [ -n "$s" ]; do
+    c=${s:0:1}
+    s=${s:1}
+    case $MERGE_PLAIN_SHORT in *"$c"*) ;; *) return 1 ;; esac
+  done
+  return 0
+}
+
 classify_git_merge() {
-  local k=$1 dir=$2 dir_ok=$3 ff=0 remedy=''
+  local k=$1 dir=$2 dir_ok=$3 ff=0 remedy='' plain=0
   parse_git_opts "$k" "$MERGE_VLONG" 'mFsX' 'S' \
     || {
       tower_refuses 'git merge' || deny_now "this git merge carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
@@ -4522,7 +4556,8 @@ classify_git_merge() {
     deny_now 'this git merge names its source through an expansion the guard cannot read - refusing (fail closed). Name the PR base literally (origin/main).'
     return 0
   }
-  PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB${GP_POS[*]-}"
+  ! merge_plain_seen || plain=1
+  PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB$plain$TAB${GP_POS[*]-}"
 }
 
 PULL_VLONG='strategy strategy-option depth deepen shallow-since shallow-exclude upload-pack server-option negotiation-tip jobs refmap cleanup'
@@ -4954,54 +4989,123 @@ record_spec_branch() { # <worktree top>
 # git resolves the name to (a local branch or tag of that name at another
 # commit fails closed, as for the own remote branch).
 is_spec_branch_ref() {
-  local d=$1 r=$2 want oid
-  [ -n "$SPEC_BRANCH" ] || return 1
-  case $r in
-    "$BASE_REMOTE/$SPEC_BRANCH" | "refs/remotes/$BASE_REMOTE/$SPEC_BRANCH" | "remotes/$BASE_REMOTE/$SPEC_BRANCH") ;;
-    *) return 1 ;;
-  esac
-  want=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$BASE_REMOTE/$SPEC_BRANCH^{commit}") || return 1
-  oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
-  [ -n "$want" ] && [ "$oid" = "$want" ] || return 1
-  check_unprotected "$d" 'this git merge of the launch-named spec branch' "$SPEC_BRANCH"
+  spec_remote_ref "$1" "$2" "$SPEC_BRANCH" || return 1
+  check_unprotected "$1" 'this git merge of the launch-named spec branch' "$SPEC_BRANCH"
 }
 
-# spec_branch_checkout <dir> — 0 when the session's project directory is a
-# linked worktree with the launch-named spec branch checked out and <dir> is
-# that same checkout; sets SPEC_BRANCH. Any other state, a unit branch
-# included, is 1 and leaves the ordinary rules to decide.
+# spec_remote_ref <dir> <name> <branch> — 0 when <name> spells <branch>'s
+# remote-tracking ref on the base remote and resolves to that ref's commit.
+spec_remote_ref() {
+  local d=$1 r=$2 b=$3 want oid
+  [ -n "$b" ] || return 1
+  spec_ref_named "$r" "$b" || return 1
+  want=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$BASE_REMOTE/$b^{commit}") || return 1
+  oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
+  [ -n "$want" ] && [ "$oid" = "$want" ]
+}
+
+spec_ref_named() { # <name> <branch>
+  [ -n "$2" ] || return 1
+  case $1 in
+    "$BASE_REMOTE/$2" | "refs/remotes/$BASE_REMOTE/$2" | "remotes/$BASE_REMOTE/$2") return 0 ;;
+  esac
+  return 1
+}
+
+# spec_route — the sync route of the spec branch spec_branch_checkout found,
+# for a refusal's text.
+spec_route() {
+  printf '%s' "Reach its PR head with git merge --ff-only $(sanitize_printable "$BASE_REMOTE/$SBC_BRANCH" 'origin/<spec branch>'), then sync it with git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')"
+}
+
+# kickoff_scope_names <branch> <dir> [<act, for a refusal>] — 0 when the
+# session's launch scope is the kickoff of the spec whose spec PR branch
+# <branch> is: kickoff-<spec> names planwright/<spec>/spec, planwright/<spec>/spec-rework and
+# planwright/<spec>/amendment-<n>; an amendment kickoff's scope
+# (kickoff_amendment_scope) names planwright/<spec>/amendment-<n> alone, and
+# denies when another spec's kickoff could share that scope. 1 otherwise.
+# KSN_NAME: the branch's last component, set when 0.
+KSN_NAME=''
+kickoff_scope_names() {
+  local b=$1 rest spec name
+  KSN_NAME=''
+  case $b in planwright/?*/?*) ;; *) return 1 ;; esac
+  rest=${b#planwright/}
+  spec=${rest%%/*}
+  name=${rest#*/}
+  case $spec in [!a-z0-9]* | *[!a-z0-9-]*) return 1 ;; esac
+  case $name in */*) return 1 ;; esac
+  [ "${#spec}" -le 64 ] && [ "$spec" != flight ] || return 1
+  if [ "${PLANWRIGHT_WORKER_SCOPE:-}" = "kickoff-$spec" ]; then
+    case $name in
+      spec | spec-rework) ;;
+      amendment-[0-9]*)
+        case ${name#amendment-} in *[!0-9]*) return 1 ;; esac
+        ;;
+      *) return 1 ;;
+    esac
+  else
+    kickoff_amendment_scope "$spec"
+    [ -n "$KAS_N" ] && [ "$name" = "amendment-$KAS_N" ] || return 1
+    kickoff_scope_unshared "$spec" "$2" \
+      || emit_deny "the launch scope $(sanitize_printable "${PLANWRIGHT_WORKER_SCOPE:0:128}" 'unprintable') reads as amendment $KAS_N's kickoff for $spec, but $KSS_WHY - refusing ${3:-this git merge} (fail closed). $KSS_FIX"
+  fi
+  KSN_NAME=$name
+}
+
+# spec_branch_checkout <dir> [<act, for a refusal>] — 0 when the session's
+# project directory is a linked worktree with a spec branch its launch names
+# checked out (the session record's spec_branch, or its kickoff scope's,
+# kickoff_scope_names) and <dir> is that same checkout; sets SBC_BRANCH. Any other state, a unit branch
+# included, is 1 and leaves the ordinary rules to decide. A kickoff's own
+# planwright/<spec>/spec is in the protected floor, which governs pushes; its
+# sign-off push reaches it through the kickoff push helper alone, which reads
+# no protected set for it, so the local merge there skips the whole set read
+# (protected_branches additions included), and every other branch reads it.
+SBC_BRANCH=''
 spec_branch_checkout() {
-  local d=$1 pdir=${CLAUDE_PROJECT_DIR:-} b top gd
+  local d=$1 what=${2:-this git merge} pdir=${CLAUDE_PROJECT_DIR:-} b top gd kick=0
+  SBC_BRANCH=''
   [ "$TIER" = worker ] && [ -n "$pdir" ] && [ -d "$pdir" ] || return 1
   b=$(current_branch "$pdir")
   [ -n "$b" ] && ! is_unit_branch "$b" || return 1
   checkout_of "$pdir" && [ "$CO_LINKED" = 1 ] || return 1
   top=$CO_TOP gd=$CO_GD
   record_spec_branch "$top"
-  [ -n "$SPEC_BRANCH" ] && [ "$b" = "$SPEC_BRANCH" ] || return 1
+  if [ -z "$SPEC_BRANCH" ] || [ "$b" != "$SPEC_BRANCH" ]; then
+    kickoff_scope_names "$b" "$pdir" "$what" || return 1
+    kick=1
+  fi
   [ "$(current_branch "$d")" = "$b" ] || return 1
   checkout_of "$d" && [ "$CO_TOP" = "$top" ] && [ "$CO_GD" = "$gd" ] || return 1
-  check_unprotected "$d" 'this git merge' "$b"
+  SBC_BRANCH=$b
+  [ "$kick" = 1 ] && [ "$KSN_NAME" = spec ] || check_unprotected "$d" "$what" "$b"
 }
 
 eval_merge() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s ff=0
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s ff=0 plain
   [ "${rest%%"$TAB"*}" != 1 ] || { remedy=$FF_REMEDY ff=1; }
+  rest=${rest#*"$TAB"}
+  plain=${rest%%"$TAB"*}
   srcs=${rest#*"$TAB"}
   if spec_branch_checkout "$dir"; then
-    # The launch-named spec branch, checked out in the session's own linked
-    # worktree, takes the PR base and nothing else; nothing is cached, so no
-    # later act of the command inherits the branch as a unit branch.
+    # A spec branch the launch names, checked out in the session's own linked
+    # worktree, takes a plain merge of the PR base, or a plain fast-forward to
+    # its own remote-tracking ref alone, and nothing else; nothing is cached,
+    # so no later act of the command inherits the branch as a unit branch.
     read_knob worker_base_merge "$dir" allow deny
     [ "$KNOB_VAL" = allow ] \
       || emit_deny "worker_base_merge is deny, so this git merge is refused; the operator syncs this branch with its base."
     need_timeout
-    CUR_BRANCH=$SPEC_BRANCH
+    CUR_BRANCH=$SBC_BRANCH
     base_of "$dir"
-    [ -n "$srcs" ] || emit_deny "this git merge names no source, and the launch-named spec branch takes only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) - refusing. Name it: git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+    [ "$plain" = 1 ] \
+      || emit_deny "this git merge carries an option that can change the commit it makes (a squash, a strategy or strategy option, unrelated histories, no commit, an autostash, an abbreviated or expanded option, or an expanded option value), and the spec branch $(sanitize_printable "$SBC_BRANCH" 'this session syncs') takes only a plain merge - refusing. Spell options in full. $(spec_route)."
+    [ -n "$srcs" ] || emit_deny "this git merge names no source, and the spec branch $(sanitize_printable "$SBC_BRANCH" 'this session syncs') takes only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or a fast-forward to its own PR head - refusing. Name the source. $(spec_route)."
     for s in $srcs; do
-      is_base_ref "$dir" "$s" \
-        || emit_deny "this session's launch names $(sanitize_printable "$SPEC_BRANCH" 'a spec branch') as the branch it syncs, which takes only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')), and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+      is_base_ref "$dir" "$s" && continue
+      [ "$ff" = 1 ] && [ "$srcs" = "$s" ] && spec_remote_ref "$dir" "$s" "$SBC_BRANCH" && continue
+      emit_deny "this session's launch names $(sanitize_printable "$SBC_BRANCH" 'a spec branch') as the branch it syncs, which takes only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or, with --ff-only and as the single source, its own PR head ($(sanitize_printable "$BASE_REMOTE/$SBC_BRANCH" 'its remote-tracking ref'), which a local branch or tag of that name at another commit fails), and this merge names $(sanitize_printable "$s" 'another source') - refusing. $(spec_route)."
     done
     return 0
   fi
@@ -5013,12 +5117,16 @@ eval_merge() {
     return 0
   fi
   local rc
+  record_spec_branch "$UNIT_TOP"
   for s in $srcs; do
     is_base_ref "$dir" "$s" && continue
     if [ "$ff" = 1 ] && [ "$srcs" = "$s" ]; then
-      record_spec_branch "$UNIT_TOP"
       ! is_spec_branch_ref "$dir" "$s" || continue
     fi
+    # With --ff-only the refusal lies elsewhere (another source, a missing or
+    # shadowed ref), so this route text would misdirect.
+    [ "$ff" = 1 ] || ! spec_ref_named "$s" "$SPEC_BRANCH" \
+      || emit_deny "this session's launch names $(sanitize_printable "$SPEC_BRANCH" 'a spec branch'), and merging it into $(sanitize_printable "$CUR_BRANCH" 'this branch') is admitted only with --ff-only, which git refuses once this branch holds a commit the spec branch lacks - refusing. Sync the spec branch in its own checkout: git switch $(sanitize_printable "$SPEC_BRANCH" '<spec branch>') in your own worktree, then git merge --ff-only $(sanitize_printable "$BASE_REMOTE/$SPEC_BRANCH" 'origin/<spec branch>') and git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main') there."
     rc=0
     is_own_remote_ref "$dir" "$s" || rc=$?
     [ "$rc" != 0 ] || continue
@@ -5041,6 +5149,14 @@ eval_pull() {
     || emit_deny 'this git pull names more than one refspec - refusing. Pull the PR base alone: git pull origin main.'
   ref=${2:-}
   need_timeout
+  if spec_branch_checkout "$dir" 'this git pull'; then
+    read_knob worker_base_merge "$dir" allow deny
+    [ "$KNOB_VAL" = allow ] \
+      || emit_deny "worker_base_merge is deny, so this git pull is refused; the operator syncs this branch with its base."
+    CUR_BRANCH=$SBC_BRANCH
+    base_of "$dir"
+    emit_deny "this git pull runs on $(sanitize_printable "$SBC_BRANCH" 'a spec branch'), a spec branch this session's launch names, which syncs only by a plain git merge, never a pull - refusing. $(spec_route)."
+  fi
   if [ -z "$mode" ]; then
     # The branch key wins over pull.rebase when present, as in git (a
     # detached HEAD has none), read by git's own bool parser: a key with no
