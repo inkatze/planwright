@@ -562,7 +562,7 @@ flat() {
     | tr '\n\t' '  ' | tr -s ' ' | tr '[:upper:]' '[:lower:]'
 }
 # shellcheck disable=SC2016 # the backticks are markdown, matched literally
-REWORD='such a commit is reworded only through the tower'"'"'s force-push path (`scripts/tower-force-push.sh`, on the operator'"'"'s request) or a worker'"'"'s draft-rewrite route ([human gates](human-gates.md)), so name it and add no commit.'
+REWORD='such a commit is reworded only through the tower'"'"'s force-push path (`scripts/tower-force-push.sh`, on the operator'"'"'s request, [human gates](human-gates.md)), so name that path as the reason and add no commit for it.'
 # /execute-task halts a logic CI failure through gate-wiring's pause protocol,
 # which it loads at that point, so the rule lives there.
 section=$(flat "$here/../doctrine/gate-wiring.md" '## Pause protocol' '## Loop-end handoff')

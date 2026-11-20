@@ -829,13 +829,13 @@ locked for a moment: run it again a few times; a 3 that persists means the
 name is wrong.
 
 Run git from this worktree as your working directory, never with
-\`git -C <dir>\` (denied before push, commit and reset). For the acts plain git
-is denied on your own unit branch, run \`$cs_root/scripts/worker-branch-sync.sh\`
-as its own command: \`push --force-with-lease=<branch>:<sha> --force-if-includes\`
-publishes a rewrite while the PR is a draft, leased on the tip the rewrite
-started from; \`reset origin/<branch>\` resets the clean worktree to the
-fetched remote branch, dropping local commits; \`ff <sha>\` fast-forwards to
-a descendant commit. Its \`--help\` states what it refuses.
+\`git -C <dir>\` (denied before push, commit and reset). For the worktree acts
+plain git is denied on your own unit branch, run
+\`$cs_root/scripts/worker-branch-sync.sh\` as its own command:
+\`reset origin/<branch>\` resets the clean worktree to the fetched remote
+branch, dropping local commits; \`ff <sha>\` fast-forwards to a descendant
+commit. It pushes nothing: a pushed branch takes new commits. Its \`--help\`
+states what it refuses.
 EOF
 }
 
