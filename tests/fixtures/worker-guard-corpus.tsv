@@ -10,7 +10,7 @@
 #   row   <class> <none> <own-branch> <scratch> <own-branch scratch> <command>
 #
 # <task> is the task whose landing ships the class; floor and uncovered name
-# the task that began enforcing them, and 0 marks a class no task shipped.
+# the task that began enforcing them.
 #
 # The four verdict columns are `allow` or `defer`, one per policy value: the
 # empty list, `own-branch`, `scratch`, and both. A row of a `pending` class
@@ -46,7 +46,7 @@ class	floor	5	shipped	reserved acts the guard approves under no policy value
 class	uncovered	5	shipped	shapes no arm covers: interpreters, self-written scripts, runners, escapes
 class	prompt-shape	11	shipped	command shapes that prompted workers only for their spelling: git -C into the own worktree, a plain fetch, and the near misses
 class	read-wrappers	20	shipped	nice -n <0..19> as a prefix, gitleaks detect and gh release view/list as reads, and the near misses
-class	own-unit	0	shipped	the reserved acts a session may run on its own unit under any policy: a plain push of the unit branch to origin
+class	own-unit	21	shipped	the reserved acts a session may run on its own unit under any policy: a plain push of the unit branch to origin
 
 # --- baseline: first-tool-call shapes that stalled dispatched workers ---
 row	baseline	allow	allow	allow	allow	grep -n '^## \|^### ' specs/demo/test-spec.md | head -40; for r in A1.1 A1.2 A1.3; do echo "=== $r"; awk -v r="REQ-$r" 'index($0,"**"r"**")||index($0,"### "r)||index($0,"- "r" ")||index($0,"**"r)==1{p=1;print;next} p&&/^- \*\*REQ-|^### REQ-|^## /{p=0} p{print}' specs/demo/test-spec.md; done
