@@ -611,11 +611,6 @@ name them.
 - **Task 7** Has the local invariant-tasks amendment (Sources) settled the
   cross-spec edge syntax? The queue ships without cross-spec edges until it
   has.
-- **Task 5.1** Has the mission-control bundle recorded its Task 51 (the
-  intake rows, turn-end check and handover self-check of its REQ-F1.19) as
-  carried by this spec (D-22)? Until it has, both bundles list the same work
-  as undone and either could be dispatched for it; the hold sits on the
-  first ledger task, so no ledger task starts before it clears.
 
 ## Deferred
 
