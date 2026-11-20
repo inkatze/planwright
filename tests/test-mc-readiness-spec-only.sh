@@ -126,7 +126,7 @@ has "a bundle edited after its sign-off is not signed off" "signoff${tab}demo${t
 bundle demo Ready signed
 printf '# demo\n\nBody.\n' >"$repo/specs/demo/requirements.md"
 spec_pr "$(commit_specs)" specs/demo/requirements.md
-has "a requirements.md with no status is not signed off" "signoff${tab}demo${tab}unsigned${tab}its requirements.md status cannot be read at the head"
+has "a requirements.md with no status is not signed off" "signoff${tab}demo${tab}unsigned${tab}its requirements.md has no **Status:** value in its header at the head"
 bundle demo Ready signed
 printf '# Brief\n\nAnchor: not a hash\n' >"$repo/specs/demo/kickoff-brief.md"
 spec_pr "$(commit_specs)" specs/demo/kickoff-brief.md
