@@ -62,7 +62,9 @@ cut off however many drafts there are). The reasons, in this order:
   launch hold (usage)      the draft is otherwise clear and a usage hold
                            (scripts/mc-usage.sh held) keeps launches back
   launch hold (host bound) the same, the host-wide bound at its limit
-  awaiting a flip          otherwise clear and nothing holds launches
+  awaiting a flip          otherwise clear (a flip-for-review walk, the post-pr
+                           gap waiting on the flip's bot review, included) and
+                           nothing holds launches
   evidence unread          its readiness evidence could not be collected
 The reasons come from scripts/mc-readiness.sh (collect, then walk) over at
 most 40 drafts a pass; the rest are counted. The event is raised again each
@@ -223,7 +225,15 @@ reason() {
       if [ -n "$HOLD" ]; then printf 'launch hold (%s)\n' "$HOLD"; else printf 'awaiting a flip\n'; fi
       return 0
       ;;
-    4) ;;
+    4)
+      # flip-for-review: the only gap is the bot review the flip fires.
+      case $r_walk in
+        flip-for-review*)
+          if [ -n "$HOLD" ]; then printf 'launch hold (%s)\n' "$HOLD"; else printf 'awaiting a flip\n'; fi
+          return 0
+          ;;
+      esac
+      ;;
     *)
       printf 'evidence unread\n'
       return 0

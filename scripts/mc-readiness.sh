@@ -25,6 +25,19 @@ done
 # shellcheck source=scripts/spec-parse.sh
 . "$script_dir/spec-parse.sh" || exit 2
 
+# The sign-off read enters the program's repository with its scratch paths in
+# hand, so a TMPDIR relative to the caller's directory would point elsewhere.
+case ${TMPDIR:-} in
+  '' | /*) ;;
+  *)
+    if abs_tmp=$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P); then
+      TMPDIR=$abs_tmp
+      export TMPDIR
+    fi
+    ;;
+esac
+mc_usable_tmpdir
+
 help_text() {
   cat <<'HELP'
 mc-readiness.sh — the readiness-check duty: walk the primary evidence at a
@@ -47,9 +60,9 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       SUCCESS, NEUTRAL and SKIPPED pass
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
-                                      condition, but named by a ready walk
-                                      as the check the operator bypasses
-                                      at merge
+                                      condition, but named by a ready or
+                                      flip-for-review walk as the check
+                                      the operator bypasses at merge
   require<TAB>macos                   the repository's CI has macOS jobs, which
                                       run only on a ready or ci-macos
                                       labelled pull request; both must be
@@ -114,7 +127,11 @@ THE WALK refuses, each failure one line:
     green, red or pending, is left out of the walk: the flip fires the run).
     The run, like any check, must be green, and its findings answered; a code
     change on a finding is a new head and needs one more run. A skipped run
-    (the skip-pr-agent label, a dependabot head) is the opt-out;
+    (the skip-pr-agent label, a dependabot head) is the opt-out. The run must
+    be the one the flip fired: where the flip time is known, a PR-Agent run
+    created before the flip is not it (nor is one whose creation time is
+    unread), and a ready pull request with no run created at or after the flip
+    is refused until the flip's own run exists and finishes;
   - a pending check on a ready pull request, told by its run's creation time:
     created at or after the flip, it is the flip's own run and only has to
     finish; created before the flip and still running at it, the flip came
@@ -132,7 +149,13 @@ THE WALK refuses, each failure one line:
   - a cadence not audited at the head, and each gap the audit named: the
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
-    for its sign-off instead of the cadence and the required steps;
+    for its sign-off instead of the cadence and the required steps. The
+    exception is a post-pr gap (no completion, or a step never recorded) on a
+    draft where PR-Agent is required: that point waits on the bot review the
+    flip fires, so it is pending the flip, not a gap. When it is the only
+    thing the walk holds, the verdict is flip-for-review (below); with any
+    other refusal the verdict stays not-ready and names that refusal. On a
+    ready pull request the post-pr gap is a gap again;
   - each edited spec bundle not signed off, on any pull request;
   - each drift row: a changed deliverable no spec edit covers, or a drift
     check that could not run (scripts/spec-drift-check.sh);
@@ -146,7 +169,15 @@ Usage:
   mc-readiness.sh walk --evidence <file> (--program <p> | --conditions <file>)
       ready<TAB><head> (then bypass<TAB><name><TAB><state> per check
       the operator bypasses at merge), or not-ready<TAB><head|-> then
-      fail<TAB><what><TAB><detail> per failure
+      fail<TAB><what><TAB><detail> per failure, or, for a draft whose only
+      gap is the post-pr point that waits on the bot review the flip fires,
+      flip-for-review<TAB><head> then pending<TAB>post-pr<TAB><detail> (and
+      any bypass lines): flip the pull request to start the review, then wait
+      for the run it fires, answer its findings and record post-pr against it.
+      flip-for-review exits 4 like not-ready, so a caller that only checks
+      for exit 0 never reads it as merge-ready; a caller that parses the
+      first field names the flip. Once ready, the walk is ready only with the
+      flip's run finished and its findings answered
   mc-readiness.sh collect --program <p> --repo <owner/name> --pr <n>
                           [--worktree <dir>] --out <file>
       write the evidence at the pull request's current head: one gh read
@@ -162,7 +193,9 @@ Usage:
       directory under the root not opening with `_`, is signed off when,
       read from that repository's objects at the head with no fetch, its
       requirements.md status is Ready, Active or Done and its
-      kickoff-brief.md's latest anchor recomputes over the bundle; a pull
+      kickoff-brief.md's latest anchor recomputes over the bundle (a
+      requirements.md missing, unreadable or with no Status line, as a
+      legacy bundle has, is unsigned, each named apart with its path); a pull
       request touching only `_` accumulators or files directly under the
       root has no bundle to sign off), for any other pull request the same
       sign-off for each bundle it edits (one it removes aside) and the
@@ -220,7 +253,7 @@ Usage:
       characters, say) falls back to pr-<checksum>, the slug in the text.
 
 Exit codes: 0 ready, or done; 1 a failed read, store or event; 2 usage; 3
-the program is not configured; 4 not ready.
+the program is not configured; 4 not ready (flip-for-review included).
 
 Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
 HELP
@@ -426,7 +459,11 @@ $1 == "cadence" && $2 == "gap" {
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
   else if ($4 == "fault") d = $5
   if ($4 == "unaudited") { d = $5 " fails the step-record truth check (if only its start or end is wrong, step-record.sh supersede corrects it)"; cad[++ncad] = "not audited: " $3 ": " d; unaud = 1 }
-  else cad[++ncad] = $3 ": " d
+  else {
+    cad[++ncad] = $3 ": " d
+    # A post-pr step may wait on the bot review the ready flip fires.
+    if ($3 == "post-pr" && ($4 == "incomplete" || $4 == "missing")) cadpf[ncad] = d
+  }
 }
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
 $1 == "scope" && $2 == "spec-only" { speconly_head = $3 }
@@ -446,6 +483,20 @@ END {
   for (i = 1; i <= nck; i++) { split(ck[i], c, "\t"); r = describe(c[1], c[2]); k = index(r, "\t"); lead[++nlead] = "fail\t" substr(r, 1, k - 1) "\t" substr(r, k + 1) }
   if (!nc) fail("check", "no individual check context at the head")
   if (needbot && state != "draft" && !botseen) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)")
+  # After the flip the run it fired is the one wanted: a run created before
+  # the flip (every PR-Agent run there is) is not it, and the run the flip
+  # fires has not shown up yet. No apostrophe here: this is a shell string.
+  if (needbot && state == "ready" && botseen && flip != "") {
+    fired = 0; unk = 0; newest = ""
+    for (i = 1; i <= nraw; i++) if (bot_check(rn[i])) {
+      b = born[rn[i]]
+      if (b == "") unk = 1
+      else if (b >= flip) fired = 1
+      else if (b > newest) newest = b
+    }
+    if (!fired && unk) fail("bot-review", "the creation time of the PR-Agent run at " substr(head, 1, 12) " is unknown, so it cannot be told from a run before the flip at " flip "; read it again")
+    else if (!fired) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires")
+  }
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
     hint = "; add the ci-macos label (or mark the pull request ready) so CI runs it"
@@ -458,7 +509,12 @@ END {
     }
   }
   if (!speconly) {
-    for (i = 1; i <= ncad; i++) fail("cadence", cad[i])
+    for (i = 1; i <= ncad; i++) {
+      # On a draft the bot review does not exist yet: the flip fires it, so a
+      # post-pr gap is pending the flip, not a gap, where the repository runs it.
+      if ((i in cadpf) && state == "draft" && needbot) pend[++np] = cadpf[i]
+      else fail("cadence", cad[i])
+    }
     if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))
   }
   for (i = 1; i <= ne; i++) {
@@ -481,6 +537,12 @@ END {
     print "not-ready\t" head
     for (i = 1; i <= nlead; i++) print lead[i]
     for (i = 1; i <= nf; i++) print fails[i]
+    exit 4
+  }
+  if (np) {
+    print "flip-for-review\t" head
+    for (i = 1; i <= np; i++) print "pending\tpost-pr\t" pend[i] "; pending the flip, which fires the bot review (PR-Agent) a post-pr step may wait on"
+    for (i = 1; i <= nb; i++) print "bypass\t" byp[i]
     exit 4
   }
   print "ready\t" head
@@ -678,16 +740,55 @@ signoff_row() {
 # <bundle> is not signed off at <head>, read from <repo>'s objects, or
 # nothing when it is.
 bundle_signoff() {
-  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd
+  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd req mode
   if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
     printf 'not a spec identifier'
     return 0
   fi
   mkdir -p "$d" || mc_fail "cannot create a scratch directory"
-  # cat-file blob refuses a tree or a missing path, so a partial file is removed.
-  mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null || rm -f "$d/requirements.md"
-  if ! st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || [ -z "$st" ]; then
-    printf 'its requirements.md status cannot be read at the head'
+  req=$(sanitize_printable "$rel/$b/requirements.md")
+  # A path git does not hold, one that is no regular file, a file git cannot
+  # hand over, and a file with no Status line each need a different fix.
+  if ! mode=$(mc_untrusted_git -C "$repo" --literal-pathspecs ls-tree "$head" -- "$rel/$b/requirements.md" 2>/dev/null); then
+    printf 'its requirements.md cannot be read at the head (git could not list %s)' "$req"
+    return 0
+  fi
+  mode=${mode%% *}
+  case $mode in
+    '')
+      printf 'it has no requirements.md at the head (%s)' "$req"
+      return 0
+      ;;
+    100644 | 100755) ;;
+    *)
+      printf 'its requirements.md cannot be read at the head (%s is not a file)' "$req"
+      return 0
+      ;;
+  esac
+  if ! mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null; then
+    printf 'its requirements.md cannot be read at the head (git could not read %s)' "$req"
+    return 0
+  fi
+  rc=0
+  st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || rc=$?
+  case $rc in
+    0) ;;
+    1)
+      printf 'its requirements.md cannot be read at the head (%s holds a NUL byte or cannot be read)' "$req"
+      return 0
+      ;;
+    3)
+      printf 'its requirements.md declares **Status:** more than once at the head (%s)' "$req"
+      return 0
+      ;;
+    *)
+      printf 'its requirements.md cannot be read at the head (%s does not parse)' "$req"
+      return 0
+      ;;
+  esac
+  if [ -z "$st" ]; then
+    # Never a pass: a bundle from before the pipeline carries no sign-off.
+    printf 'its requirements.md has no **Status:** value in its header at the head, as a legacy bundle has: add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
     return 0
   fi
   case $st in
@@ -727,7 +828,7 @@ bundle_signoff() {
       ;;
     'git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin')
       gd=$(mc_untrusted_git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null) || gd=''
-      [ -z "$gd" ] || got=$(cd "$d" && mc_untrusted_git_env && export GIT_DIR="$gd" \
+      [ -z "$gd" ] || got=$(cd "$d" && mc_untrusted_git_env "$repo" && export GIT_DIR="$gd" \
         && git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin) 2>/dev/null || got=''
       ;;
     *)
@@ -860,7 +961,7 @@ collect() {
     fi
   fi
   if [ -n "$cl_wt" ]; then
-    (mc_untrusted_git_env && unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED \
+    (mc_untrusted_git_env "$cl_wt" && unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED \
       && /bin/bash "$script_dir/step-run.sh" --worktree "$cl_wt" audit --through post-pr --head "$cl_head" ${cl_base[@]+"${cl_base[@]}"}) \
       >"$cl_tmp/audit" 2>"$cl_tmp/err"
     case $? in
@@ -878,7 +979,7 @@ collect() {
   [ -z "$cl_unaud" ] || printf 'cadence\tunaudited\t%s\n' "$cl_unaud" >"$cl_tmp/cadence"
   if [ -n "$cl_wt" ]; then
     # The worktree is a worker's, so its git configuration runs nothing here.
-    if ! (mc_untrusted_git_env && /bin/bash "$script_dir/step-record.sh" --worktree "$cl_wt" list) >"$cl_tmp/records" 2>"$cl_tmp/err"; then
+    if ! (mc_untrusted_git_env "$cl_wt" && /bin/bash "$script_dir/step-record.sh" --worktree "$cl_wt" list) >"$cl_tmp/records" 2>"$cl_tmp/err"; then
       [ -z "$4" ] || mc_fail "the step records of $(sanitize_printable "$cl_wt") cannot be read"
       # A discovered worktree that cannot be read is a gap, never a crash.
       : >"$cl_tmp/records"

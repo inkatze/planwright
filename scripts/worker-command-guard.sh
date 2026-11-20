@@ -3409,6 +3409,52 @@ guard_file() {
   return 0
 }
 
+# guard_ss: ss reads the kernel's socket tables and writes nothing by default,
+# but a few options write, kill, switch namespace, run a filter program or
+# resolve names off the machine: `-K`/`--kill` closes sockets, `-D`/`--diag`
+# dumps raw data to a file, `-F`/`--filter` reads one, `-N`/`--net` enters a
+# namespace, `-b`/`--bpf` loads a program, `-r`/`--resolve` queries DNS, and
+# `-E`/`--events` never returns. Only the enumerated display and selection
+# flags pass, and a filter expression only as plain words, so nothing is read
+# from a variable, a substitution or a glob.
+guard_ss() {
+  local i a body
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --listening | --all | --tcp | --udp | --raw | --unix | --sctp | --dccp | --packet | --numeric | --processes | --summary | --extended | --info | --options | --memory | --ipv4 | --ipv6 | --no-header | --oneline) ;;
+      -- | --*) return 1 ;;
+      -?*)
+        body=${a#-}
+        case $body in
+          *[!ntulaxwdSsiempoH460O]*) return 1 ;;
+        esac
+        ;;
+      '' | *[!A-Za-z0-9_.:=!\<\>/@%,-]*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_umask: the mask of the shell the command runs in, which only changes
+# the mode of files made after it: bare, `-S`, `-p`, or an octal literal that
+# keeps the other-write bit masked, so a later step never makes a
+# world-writable file.
+guard_umask() {
+  local re='^0?[0-7]{2}[2367]$'
+  case $cwn in
+    1) return 0 ;;
+    2)
+      case ${cw[1]} in
+        -S | -p) return 0 ;;
+      esac
+      [[ ${cw[1]} =~ $re ]]
+      return
+      ;;
+  esac
+  return 1
+}
+
 guard_mdlint() {
   local i a
   for ((i = 1; i < cwn; i++)); do
@@ -5660,6 +5706,8 @@ classify_verb() {
     uniq) guard_uniq ;;
     date) guard_date ;;
     file) guard_file ;;
+    ss) guard_ss ;;
+    umask) guard_umask ;;
     find) guard_find ;;
     sed) guard_sed || guard_sed_inplace ;;
     perl) guard_perl_inplace ;;
@@ -6181,23 +6229,65 @@ strip_prefixes() {
 }
 
 # strip_compute_route: drop a leading `<installed root>/scripts/compute-route.sh
-# --`, setting PREFIXED, so the command it routes is verified as if it stood
-# alone: the router only chooses where an approved command runs. A copy in the
-# checkout is a worker-authored script, so only the installed one counts. Only
-# the bare form is
-# transparent (no kind flag, which would name a different command to the host
-# than the one run here), and a router with nothing to run, or another router
-# as that command, defers. is_trusted_script refuses the script as a verb, so
-# no other spelling reaches the router.
+# [<kind>] --`, setting PREFIXED, so the command it routes is verified as if it
+# stood alone: the router only chooses where an approved command runs. A copy in
+# the checkout is a worker-authored script, so only the installed one counts. A
+# kind flag names to the host the command it runs there, so it is transparent
+# only beside the one command the router itself maps to that kind, which is
+# what the bare form would have run: `--check -- mise run check`,
+# `--task <name> -- mise run <name>`, `--test tests/test-<name>.sh -- bash
+# tests/test-<name>.sh` (the router's own grammar). Defer: any other pairing,
+# two kinds, a router with nothing to run, a bare router name (the shell looks
+# it up on PATH), and another router as the command.
+# is_trusted_script refuses the script as a verb, so no other spelling reaches
+# the router.
 strip_compute_route() {
+  local n=1 kind='' val='' i end re_task='^[a-z][a-z0-9:_-]*$' re_test='^tests/test-[A-Za-z0-9._-]+\.sh$'
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) ;;
     *) return 0 ;;
   esac
-  [ "$cwn" -ge 3 ] && [ "${cw[1]}" = -- ] && [ "${cqp[0]}" -lt 0 ] && [ "${cqp[1]}" -lt 0 ] \
-    && ! word_unresolved "${cw[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" || return 1
+  # A bare name is looked up on PATH by the shell, not beside this hook's root.
+  case ${cw[0]} in
+    */*) ;;
+    *) return 1 ;;
+  esac
+  case ${cw[1]-} in
+    --check)
+      kind=check
+      n=2
+      ;;
+    --task | --test)
+      kind=${cw[1]#--}
+      val=${cw[2]-}
+      n=3
+      ;;
+  esac
+  [ "$cwn" -ge $((n + 2)) ] && [ "${cw[n]}" = -- ] || return 1
+  for ((i = 0; i <= n; i++)); do
+    [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+  done
   is_planwright_script "${cw[0]}" "$HOOK_CWD" || return 1
-  shift_words 2
+  case $kind in
+    check)
+      end=$((n + 4))
+      [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = mise ] && [ "${cw[n + 2]}" = run ] && [ "${cw[n + 3]}" = check ] || return 1
+      ;;
+    task)
+      end=$((n + 4))
+      [[ $val =~ $re_task ]] && [ "$val" != check ] && [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = mise ] && [ "${cw[n + 2]}" = run ] && [ "${cw[n + 3]}" = "$val" ] || return 1
+      ;;
+    test)
+      end=$((n + 3))
+      [[ $val =~ $re_test ]] && [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = bash ] && [ "${cw[n + 2]}" = "$val" ] || return 1
+      ;;
+  esac
+  if [ -n "$kind" ]; then
+    for ((i = n + 1; i < cwn; i++)); do
+      [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+    done
+  fi
+  shift_words $((n + 1))
   PREFIXED=1
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) return 1 ;;
@@ -7378,15 +7468,20 @@ session_record_load
 # The scratch arm resolves `$TMPDIR` to the recorded root, so it is live only
 # while the TMPDIR this hook inherited, which is the session's, names that
 # root: a sandbox, a settings env, or another launch's record would otherwise
-# point the shell elsewhere. Nor do the guard's own temp files belong in a
-# directory the worker may write to.
+# point the shell elsewhere. A relative TMPDIR resolves here from the hook's
+# directory and there from the payload's, so only an absolute one counts. Nor
+# do the guard's own temp files belong in a directory the worker may write to.
 HOOK_TMPDIR_IS_SCRATCH=0
-HOOK_TMP_BASE=${TMPDIR:-/tmp}
-if [ -n "$REC_SCRATCH" ] && [ -n "${TMPDIR:-}" ] \
-  && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
-  HOOK_TMPDIR_IS_SCRATCH=1
-  HOOK_TMP_BASE=/tmp
-fi
+HOOK_TMP_BASE=/tmp
+case ${TMPDIR:-} in
+  /*)
+    HOOK_TMP_BASE=$TMPDIR
+    if [ -n "$REC_SCRATCH" ] && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
+      HOOK_TMPDIR_IS_SCRATCH=1
+      HOOK_TMP_BASE=/tmp
+    fi
+    ;;
+esac
 # plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
 # resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
 # chain canonicalizes an arm, so a plugin cache root reached through a symlink

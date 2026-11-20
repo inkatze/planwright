@@ -102,9 +102,10 @@
 #                 top-level `timestamp` of the session's event log must hold,
 #                 or `event-line:<n>`, that log's line n, whose top-level
 #                 `timestamp` is the corrected stamp. The log is the
-#                 stream-json events.jsonl of the session whose cwd is the
-#                 worktree, read with jq as scripts/step-events-audit.sh reads
-#                 it; a source that cannot be checked against one is refused.
+#                 stream-json events.jsonl of a session whose cwd is the
+#                 worktree or whose events name its path, read with jq as
+#                 scripts/step-events-audit.sh reads it; a source that
+#                 cannot be checked against one is refused.
 #                 Of several supersedes of one record the highest sequence
 #                 stands, each one starting from the stamps standing before
 #                 it; a supersede cannot target another supersede.
@@ -157,7 +158,8 @@
 #                 end head is --head, retired once a higher run holds a
 #                 passed, applied, or `resume`-skipped record of the same
 #                 step id ending there (a skip only when the record it names
-#                 would qualify for lookup resume). Records are read as lookup reads
+#                 would qualify for lookup resume; a pr-agent-pr one also
+#                 retires a limited cubic-pr). Records are read as lookup reads
 #                 them, a run's order taken from its directory: a malformed
 #                 record retires nothing and, recording limited (or, in the
 #                 attempt, anything; or any outcome but passed, applied,
@@ -588,14 +590,18 @@ set_head_from_worktree() {
 
 # git_wt <args>: git in the worktree with every inherited variable that would
 # point it at another repository, index, object store, or pathspec reading
-# cleared; pathspecs are literal unless GW_LITERAL is 0 (check-ignore refuses
-# literal pathspecs; the --paths grammar admits no pathspec magic anyway).
+# cleared (a guarded caller's driver settings excepted); pathspecs are literal
+# unless GW_LITERAL is 0 (check-ignore refuses literal pathspecs; the --paths
+# grammar admits no pathspec magic anyway).
 git_wt() {
   (
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
       GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE \
-      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_GLOB_PATHSPECS \
+      GIT_CONFIG_PARAMETERS GIT_GLOB_PATHSPECS \
       GIT_NOGLOB_PATHSPECS GIT_ICASE_PATHSPECS
+    # A caller reading a worker's worktree set the driver settings in the
+    # environment (untrusted-git-lib.sh); clearing them here would undo that.
+    [ "${PW_UNTRUSTED_GIT:-}" = 1 ] || unset GIT_CONFIG_COUNT
     if [ "${GW_LITERAL:-1}" = 1 ]; then
       GIT_LITERAL_PATHSPECS=1
       export GIT_LITERAL_PATHSPECS
@@ -1407,16 +1413,27 @@ write_full_suite() {
 }
 
 # --- supersede ------------------------------------------------------------------
+# cwd_is_worktree <events file>: whether the session's cwd file names this worktree.
+cwd_is_worktree() {
+  _c=''
+  [ ! -f "${1%events.jsonl}cwd" ] || read -r _c <"${1%events.jsonl}cwd" || [ -n "$_c" ] || _c=''
+  [ "$_c" = "$worktree" ]
+}
+
 # event_files: the events.jsonl of every stream-json session whose cwd is this
-# worktree, one a line (scripts/step-events-audit.sh finds them the same way).
+# worktree, then of every other whose events name its path, one a line. The
+# patterns are scripts/step-events-audit.sh's (find_named_events); change both
+# together.
 event_files() {
   _root=$(/bin/sh "$script_dir/fleet-state.sh" root) || return 0
   for _n in $(glob_names "$_root/streamjson" '*'); do
-    _d="$_root/streamjson/$_n/"
-    [ -f "${_d}cwd" ] && [ -f "${_d}events.jsonl" ] && [ ! -L "${_d}events.jsonl" ] || continue
-    _c=''
-    read -r _c <"${_d}cwd" || [ -n "$_c" ] || continue
-    [ "$_c" = "$worktree" ] && printf '%s\n' "${_d}events.jsonl"
+    _f="$_root/streamjson/$_n/events.jsonl"
+    [ -f "$_f" ] && [ ! -L "$_f" ] || continue
+    if cwd_is_worktree "$_f"; then printf '%s\n' "$_f"; fi
+  done
+  find "$_root/streamjson" -maxdepth 2 -name events.jsonl -type f \
+    -exec grep -aFl -e "$worktree/" -e "$worktree\"" -e "$worktree " -e "$worktree\\" -e "$worktree'" -e "$worktree;" -e "$worktree)" -- {} + 2>/dev/null | while IFS= read -r _f; do
+    cwd_is_worktree "$_f" || printf '%s\n' "$_f"
   done
 }
 
@@ -1445,6 +1462,9 @@ check_source() {
   [ -s "$work/event-files" ] \
     || bad --source "no session event log of this worktree is reachable, so the cited event cannot be checked"
   while IFS= read -r _f; do
+    # A log that never holds the second cannot hold the stamp (a hub log that
+    # names the worktree is megabytes).
+    [ -n "$_line" ] || grep -aFq -- "${_want%Z}" "$_f" || continue
     # shellcheck disable=SC2016 # a jq program
     jq -R -n -r 'foreach inputs as $l (0; . + 1; . as $n | $l | (try (fromjson | select(type == "object") | .timestamp
       | select(type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"))
@@ -1828,7 +1848,10 @@ function truth(mode, kind, outcome, hosting, backend, start, end, head, endhead,
 # limit_open(i) holds for each of the NL limited records still unretired, LK[i]
 # naming it. A malformed limited record counts and retires nothing.
 AWK_LIMIT='
-function retire(s, r) { if (!(s in last) || r > last[s]) last[s] = r }
+function retire1(s, r) { if (!(s in last) || r > last[s]) last[s] = r }
+# A pr-agent-pr pass also retires cubic-pr: PR-Agent is the bot review when
+# cubic refuses, so its pass settles what a limited cubic-pr left open.
+function retire(s, r) { retire1(s, r); if (s == "pr-agent-pr") retire1("cubic-pr", r) }
 function limit_scan(    s, r, q) {
   if (R_KIND != "step" || F["end-head"] != H) return
   if (F["outcome"] == "limited") {

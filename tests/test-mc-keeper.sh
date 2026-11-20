@@ -399,6 +399,29 @@ kill "$orphan_sup" 2>/dev/null
 wait "$orphan_sup" 2>/dev/null
 orphan_sup=''
 
+# A holder init adopted (tail -f /dev/null) is raised the same way once it has
+# been listed for a minute, worded as a held-open process and not as a
+# stream-json session; one whose parent still runs is not.
+hold_proc="$tmp/hold-proc"
+mkdir -p "$hold_proc/5101" "$hold_proc/5102" "$hold_proc/5103"
+printf 'tail\000-f\000/dev/null\000' >"$hold_proc/5101/cmdline"
+printf 'tail\000-f\000/dev/null\000' >"$hold_proc/5102/cmdline"
+printf '5101 (tail) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 888\n' >"$hold_proc/5101/stat"
+printf '5102 (tail) S 5103 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 889\n' >"$hold_proc/5102/stat"
+printf 'bash\n' >"$hold_proc/5103/comm"
+keeper_hold() { # keeper_hold <now>
+  OUT=$(cd "$repo" && mc_env env PLANWRIGHT_MC_PROC_ROOT="$hold_proc" PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha \
+    /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now "$1" 2>/dev/null)
+}
+keeper_hold 5600
+expect_no_out "a holder one pass has seen is not raised yet" "held-open"
+keeper_hold 5670
+expect_out "a holder the next pass sees a minute on is raised" "announced${tab}stream-json-worker-orphaned"
+mc_run mc-event.sh list --program alpha
+expect_out "the event words it as a held-open process" "orphaned held-open process pid 5101, which nothing reaps or stops"
+expect_no_out "and never as a session someone started by hand" "pid 5101 (-)"
+expect_no_out "a holder whose parent runs is not raised" "pid 5102"
+
 # A request that has just arrived is announced at once, as pending-prompt, so
 # the operator need not wait for the overdue bound; the requests new to one
 # pass are one event.
