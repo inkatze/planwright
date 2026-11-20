@@ -64,8 +64,8 @@ defaults="$tmp/defaults.yml"
 local_cfg="$tmp/local.yml"
 printf 'fleet_compute_host: local\nfleet_compute_load_cap: 0.4\nfleet_compute_timeout:\n' >"$defaults"
 export PLANWRIGHT_CONFIG_DEFAULTS="$defaults" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_REPO_ROOT="$tmp"
-# Pinned too: with no plugin-data home, the adopter overlay falls back to one
-# under the real home directory.
+# Pinned independently of the plugin-data home, which the sentinel redirects
+# only when it is set; the adopter overlay otherwise falls back to the real home.
 mkdir -p "$tmp/adopter"
 export PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter"
 
