@@ -9,7 +9,6 @@
 # <id> --log`, CI mode prints every file; several runs give each file its
 # median) or a tests/.timing-report.tsv.
 test-flight-lifecycle.sh	77.521
-test-fleet-streamjson.sh	74.709
 test-flight-record.sh	60.182
 test-resolve-steps.sh	52.250
 test-tower-queue-picklist.sh	49.798
@@ -55,8 +54,10 @@ test-mc-handover-recovery.sh	28.630
 test-step-run.sh	28.364
 test-mc-watch.sh	27.560
 test-tasks-pr-sync.sh	27.485
+test-fleet-streamjson.sh	27.000
 test-policy-guard-rewrites.sh	26.700
 test-fleet-sweep-reap.sh	26.363
+test-fleet-streamjson-delivery.sh	26.000
 test-mc-readiness-spec-only.sh	25.890
 test-merge-class.sh	25.669
 test-fleet-attention.sh	25.567
@@ -78,6 +79,7 @@ test-tmux-launch-confirm.sh	22.758
 test-flight-sweep.sh	22.465
 test-ready-flip-ci.sh	21.900
 test-fleet-dispatch-worktree.sh	21.793
+test-fleet-streamjson-status.sh	21.700
 test-release-publish.sh	21.567
 test-tmux-detached-launch.sh	21.109
 test-mc-handover.sh	20.993

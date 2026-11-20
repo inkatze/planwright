@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.80.0](https://github.com/inkatze/planwright/compare/v0.79.0...v0.80.0) (2026-11-19)
+
+
+### Features
+
+* a PR-Agent pass retires a limited cubic-pr on the same head ([#1009](https://github.com/inkatze/planwright/issues/1009)) ([eaef767](https://github.com/inkatze/planwright/commit/eaef7671a0ab4bc017f384df5a9a279c4f3e71ed))
+* approve more routine worker commands without a prompt ([#1105](https://github.com/inkatze/planwright/issues/1105)) ([175d55f](https://github.com/inkatze/planwright/commit/175d55fb4eb37795e66cd2bffe93953a0730c1f3))
+* let a misdated step record be corrected by an append-only supersede ([#1098](https://github.com/inkatze/planwright/issues/1098)) ([1971ed8](https://github.com/inkatze/planwright/commit/1971ed8ea6727adb61b719958c3422d0eb650d80))
+
+
+### Bug Fixes
+
+* cut the process starts in mission control's panel digest ([#1107](https://github.com/inkatze/planwright/issues/1107)) ([c5d080a](https://github.com/inkatze/planwright/commit/c5d080a0bf7d8715af0b5f9efcb4e811aa27e938))
+* let readiness flip a draft whose only gap is the bot review its flip fires ([#1108](https://github.com/inkatze/planwright/issues/1108)) ([0c8b7bd](https://github.com/inkatze/planwright/commit/0c8b7bd6468572809fbaf6718383e14376615857))
+* **lock-lib:** finish a release a second signal interrupted, so the pool test leaves no stray lock ([#1106](https://github.com/inkatze/planwright/issues/1106)) ([d998a14](https://github.com/inkatze/planwright/commit/d998a148a109da83d7d19c5536939308ae4666c1))
+* **policy-guard:** stop mission-control writes reaching settings through links and redirects ([#1091](https://github.com/inkatze/planwright/issues/1091)) ([eb0c3fe](https://github.com/inkatze/planwright/commit/eb0c3fe36163a61c8fed842890dcc20fe113137e))
+* refuse git commands that run a filter program on the kickoff push script ([#1092](https://github.com/inkatze/planwright/issues/1092)) ([f0ffd7d](https://github.com/inkatze/planwright/commit/f0ffd7d0ad94bf95fb11fbc37052173a7d0998c5))
+* refuse tail -f /dev/null and sleep infinity holders, and report adopted ones ([#1111](https://github.com/inkatze/planwright/issues/1111)) ([c487d72](https://github.com/inkatze/planwright/commit/c487d7282ebbab5b874650a891a6e4330d30f60e))
+* run PR-Agent once per pull request, on the run the ready flip fires ([#1104](https://github.com/inkatze/planwright/issues/1104)) ([d6eddf3](https://github.com/inkatze/planwright/commit/d6eddf3a431de80af0ab9e4434ec7d33d8a6b9ab))
+* stop test suites leaking stream-json sessions, and report orphaned ones ([#1095](https://github.com/inkatze/planwright/issues/1095)) ([e75fd2f](https://github.com/inkatze/planwright/commit/e75fd2f24372be57f21883054e105e5e03191e66))
+* stop workers editing user-level and system git config through the file tools ([#1099](https://github.com/inkatze/planwright/issues/1099)) ([510d234](https://github.com/inkatze/planwright/commit/510d234e49dc9f80cc833d38c2056c6051a3cc43))
+
 ## [0.79.0](https://github.com/inkatze/planwright/compare/v0.78.0...v0.79.0) (2026-11-18)
 
 

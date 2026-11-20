@@ -1062,7 +1062,8 @@ hits=$(printf '%s\n' "$code" | grep -nE "/(usr/)?s?bin/(${sig_tools// /|})([^[:a
 [ -z "$hits" ] || fail "kill-path audit: fleet-cleanup.sh reaches a tool the harness cannot see: $hits"
 sourced=$(printf '%s\n' "$code" | grep -E '(^|[;&])[[:space:]]*(\.|source)[[:space:]]' || :)
 # shellcheck disable=SC2016 # the script's own source text, matched literally
-[ "$sourced" = '. "$script_dir/echo-safety.sh"' ] || fail "source audit: fleet-cleanup.sh sources more than echo-safety.sh: $sourced"
+[ "$sourced" = '. "$script_dir/echo-safety.sh"
+. "$script_dir/untrusted-git-lib.sh"' ] || fail "source audit: fleet-cleanup.sh sources more than echo-safety.sh and untrusted-git-lib.sh: $sourced"
 arm=$(awk '/^  process\)$/ { on = 1 } on { print } on && /^    ;;$/ { exit }' "$FC_REAL" \
   | sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//')
 [ -n "$arm" ] || fail "source audit: no process arm found in fleet-cleanup.sh"
