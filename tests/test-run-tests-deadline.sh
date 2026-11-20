@@ -319,14 +319,15 @@ chmod +x "$farm/timeout"
 no_tool_bounded "timeout-without-k"
 rm -f "$farm/timeout"
 # bounded-run.sh takes six digits of seconds, the knob nine: a larger value is
-# clamped rather than failing every file.
+# clamped for it rather than failing every file.
 s4c="$tmp/s4c"
 mkdir -p "$s4c"
 quick_file "$s4c/test-quick.sh"
 out=$(PATH="$farm" PLANWRIGHT_TEST_FILE_DEADLINE=999999999 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4c.tsv" \
   "$RUNNER" "$s4c" 2>&1)
 assert_exit "no bounding tool: a nine-digit deadline still runs files" 0 "$?"
-assert_contains "no bounding tool: a nine-digit deadline is clamped" "deadline 999999s per file" "$out"
+assert_contains "no bounding tool: a nine-digit deadline is read as given" "deadline 999999999s per file" "$out"
+assert_contains "no bounding tool: the file ran bounded" "ok: test-quick.sh" "$out"
 
 # A runner with no bounded-run.sh beside it, on the same PATH: one warning and
 # unbounded files.

@@ -520,6 +520,7 @@ if [ "${1:-}" = "--run-one" ]; then
     # bounded-run.sh starts its command asynchronously from a POSIX sh, which
     # ignores INT and QUIT for it, so the reset goes between the two.
     inner=()
+    bound_secs=$deadline
     case "${deadline_tool##*/}" in
       bounded-run.sh)
         # Its own KILL follows its grace of ten seconds, counted in polls of
@@ -527,6 +528,8 @@ if [ "${1:-}" = "--run-one" ]; then
         # worker's backup KILL, which would end it first and leave the file
         # running, is for a wedged runner only and waits well past that.
         ws_grace=120
+        # It takes at most six digits of seconds, where the knob takes nine.
+        [ "$deadline" -le 999999 ] || bound_secs=999999
         if [ -n "$deadline_env" ]; then
           # shellcheck disable=SC2054 # one env option, not array elements
           inner=("$deadline_env" --default-signal=INT,QUIT)
@@ -540,7 +543,7 @@ if [ "${1:-}" = "--run-one" ]; then
       (
         trap - INT QUIT
         exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
-          "$deadline_tool" -k 10 "$deadline" ${inner[@]+"${inner[@]}"} /bin/bash "$t"
+          "$deadline_tool" -k 10 "$bound_secs" ${inner[@]+"${inner[@]}"} /bin/bash "$t"
       ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
     } 2>/dev/null
     child_pid=$!
@@ -1247,8 +1250,6 @@ done
 if [ -z "$deadline_tool" ] && [ -x "$self_dir/bounded-run.sh" ] \
   && "$self_dir/bounded-run.sh" -k 1 5 true >/dev/null 2>&1; then
   deadline_tool="$self_dir/bounded-run.sh"
-  # It takes at most six digits of seconds, where the knob takes nine.
-  [ "$deadline" -le 999999 ] || deadline=999999
 fi
 if [ -n "$deadline_tool" ]; then
   deadline_desc="deadline ${deadline}s per file"
