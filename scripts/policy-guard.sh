@@ -125,8 +125,7 @@
 #               rewritten commit. A rebase with -x/--exec denies: its
 #               command runs below this hook. A commit with an expansion among
 #               its options denies: it could spell an amend.
-#   push       a force or bulk push denies (the branch-sync helper below runs
-#               its leased push itself); every other push reads the
+#   push       a force or bulk push denies; every other push reads the
 #               protected set and denies a target inside it.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
@@ -142,9 +141,9 @@
 #               with no read. tower: defer, so it reaches the permission
 #               prompt (the tower's command guard never approves it).
 #   branch sync running scripts/worker-branch-sync.sh, the one route by which
-#               a worker publishes a leased rewrite of its draft unit branch,
-#               resets it hard to its own remote branch, or fast-forwards it
-#               to a commit. tower and mission-control: deny. worker: only as
+#               a worker resets its unit branch's worktree hard to its own
+#               remote branch or fast-forwards it to a commit; it publishes
+#               nothing. tower and mission-control: deny. worker: only as
 #               its own command or after one plain cd, by the installed copy,
 #               with literal arguments in its grammar, on the unit branch in
 #               the session's own checkout, outside the protected set, where
@@ -7240,22 +7239,22 @@ mc_unparsed_command_names() {
 }
 
 # --------------------------------------------------------------------------
-# The worker's own branch sync. scripts/worker-branch-sync.sh runs the three
-# acts the worker profile's deny floor keeps from raw git (a leased rewrite
-# push, git reset --hard to the branch's own remote-tracking ref, and a
-# fast-forward to a descendant commit), so the floor stays as it is and this
+# The worker's own branch sync. scripts/worker-branch-sync.sh runs the two
+# worktree acts the worker profile's deny floor keeps from raw git (git reset
+# --hard to the branch's own remote-tracking ref, and a fast-forward to a
+# descendant commit); it writes no remote. The floor stays as it is and this
 # arm admits only the helper: at the worker tier, run as its own command or
 # after cd only, by the installed copy's path (or $CLAUDE_PLUGIN_ROOT's), with
 # literal arguments in its own grammar, in the session's own checkout on its
 # unit branch outside the protected set, where the launch-written session
 # record names that checkout and branch. The helper repeats these checks and
-# adds the ones only the moment of the act can answer (the draft PR, the
-# reflog, a shared branch, a clean tree). Any other run is refused; a mention
+# adds the ones only the moment of the act can answer (a shared branch, a
+# clean tree, unpushed_rewrite before a reset drops a local commit). Any other run is refused; a mention
 # that runs nothing (a read, a stage, a test of it) passes to the ordinary
 # rules.
 
 SYNC_FILE=worker-branch-sync.sh
-SYNC_FORM="<installed root>/scripts/worker-branch-sync.sh push --force-with-lease=<branch>:<full sha> --force-if-includes, reset origin/<branch>, or ff <full sha>"
+SYNC_FORM="<installed root>/scripts/worker-branch-sync.sh reset origin/<branch> or ff <full sha>"
 RE_SYNC_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/worker-branch-sync\.sh$'
 
 # branch_sync_run <text> — 0 when the text runs the helper as a command. A
@@ -7458,7 +7457,7 @@ sync_refuse() {
 # branch_sync_check <command> — deny every run of the helper but the admitted
 # one, which returns with no decision.
 branch_sync_check() {
-  local cmd=$1 si=0 eff=$PAYLOAD_CWD w a lease=0 inc=0 rtop
+  local cmd=$1 si=0 eff=$PAYLOAD_CWD w a rtop
   [ "$TIER" = worker ] \
     || emit_deny "scripts/worker-branch-sync.sh syncs a dispatched worker's own unit branch and runs under the worker profile only; it is refused at this tier. A pushed branch is rewritten by the tower, through scripts/tower-force-push.sh, on the operator's request."
   need_timeout
@@ -7518,24 +7517,6 @@ branch_sync_check() {
     || emit_deny "this session's record does not name this checkout ($(sanitize_printable "$UNIT_TOP" 'the worktree')) as its one worktree, so scripts/worker-branch-sync.sh is refused here."
 
   case ${SW[1]:-} in
-    push)
-      [ "${#SW[@]}" = 4 ] || sync_refuse "push takes the lease and --force-if-includes and nothing else (no force without a lease, no remote, refspec or + form) - refusing."
-      for a in "${SW[@]:2}"; do
-        case $a in
-          "--force-with-lease=$UNIT_BRANCH:"*)
-            a=${a#"--force-with-lease=$UNIT_BRANCH:"}
-            case $a in *[!0-9a-f]*) a='' ;; esac
-            { [ "${#a}" = 40 ] || [ "${#a}" = 64 ]; } \
-              || sync_refuse "the lease must name $(sanitize_printable "$UNIT_BRANCH" 'the unit branch') with the full SHA of the tip the rewrite started from - refusing."
-            lease=$((lease + 1))
-            ;;
-          --force-if-includes) inc=$((inc + 1)) ;;
-          *) sync_refuse "push takes --force-with-lease=$(sanitize_printable "$UNIT_BRANCH" '<branch>'):<full sha> and --force-if-includes only; $(sanitize_printable "$a" 'an argument') is refused (a lease with no SHA, another branch, a force, a remote or a + refspec)." ;;
-        esac
-      done
-      [ "$lease" = 1 ] && [ "$inc" = 1 ] \
-        || sync_refuse "push needs exactly one --force-with-lease=<branch>:<full sha> paired with one --force-if-includes - refusing."
-      ;;
     reset)
       [ "${#SW[@]}" = 3 ] && [ "${SW[2]}" = "origin/$UNIT_BRANCH" ] \
         || sync_refuse "reset takes origin/$(sanitize_printable "$UNIT_BRANCH" '<branch>'), this branch's own remote-tracking ref, and nothing else - refusing."
@@ -7547,7 +7528,7 @@ branch_sync_check() {
         sync_refuse "ff takes the full SHA of a commit descending from HEAD, and nothing else - refusing."
       fi
       ;;
-    *) sync_refuse "scripts/worker-branch-sync.sh has the verbs push, reset and ff only - refusing." ;;
+    *) sync_refuse "scripts/worker-branch-sync.sh has the verbs reset and ff only; it publishes nothing, and a rewrite of a pushed branch stays the tower's, on the operator's request - refusing." ;;
   esac
 }
 

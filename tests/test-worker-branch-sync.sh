@@ -1,8 +1,8 @@
 #!/bin/bash
 # Tests for scripts/worker-branch-sync.sh, the routes a dispatched worker syncs
-# its own unit branch by: a leased rewrite push while its PR is a draft, a hard
-# reset to its own remote branch, and a fast-forward to a descendant commit,
-# each only in its own clean worktree on the branch its session record names.
+# its own unit branch's worktree by: a hard reset to its own remote branch and
+# a fast-forward to a descendant commit, each only in its own clean worktree on
+# the branch its session record names. It publishes nothing: push is refused.
 # The policy guard decides which commands may run it
 # (tests/test-policy-guard-branch-sync.sh); these cases pin what the script
 # itself will and will not do.
@@ -49,29 +49,6 @@ printf 'protected_branches: planwright/flight/prot\n' >"$PLANWRIGHT_LOCAL_CONFIG
 g() {
   git -c init.defaultBranch=main -c user.name=t -c user.email=t@example.invalid -c commit.gpgSign=false "$@"
 }
-
-# The gh stub answers the draft lookup from $tmp/pr-state: draft, ready, none,
-# two (two open PRs for the branch), or fail.
-cat >"$tmp/bin/gh" <<EOF
-#!/bin/sh
-printf '%s\n' "gh \$*" >>"$tmp/gh.log"
-state=\$(cat "$tmp/pr-state" 2>/dev/null) || state=draft
-head=\$(cat "$tmp/pr-head" 2>/dev/null) || head=planwright/flight/demo
-case \$state in
-  draft) printf '[{"number":7,"isDraft":true,"headRefName":"%s","isCrossRepository":false}]\n' "\$head" ;;
-  ready) printf '[{"number":7,"isDraft":false,"headRefName":"%s","isCrossRepository":false}]\n' "\$head" ;;
-  fork) printf '[{"number":7,"isDraft":true,"headRefName":"%s","isCrossRepository":true}]\n' "\$head" ;;
-  nulldraft) printf '[{"number":7,"isDraft":null,"headRefName":"%s","isCrossRepository":false}]\n' "\$head" ;;
-  two) printf '[{"number":7,"isDraft":true,"headRefName":"%s","isCrossRepository":false},{"number":8,"isDraft":true,"headRefName":"%s","isCrossRepository":false}]\n' "\$head" "\$head" ;;
-  none) printf '[]\n' ;;
-  *) exit 1 ;;
-esac
-EOF
-chmod +x "$tmp/bin/gh"
-PATH="$tmp/bin:$PATH"
-export PATH
-pr() { printf '%s\n' "$1" >"$tmp/pr-state"; }
-pr draft
 
 origin="$tmp/origin.git"
 seed="$tmp/seed"
@@ -124,135 +101,26 @@ remote_tip() { g -C "$origin" rev-parse "$1"; }
 
 B=planwright/flight/demo
 
-# --- push: the one allowed shape ----------------------------------------------
+# --- the helper publishes nothing ----------------------------------------------
 
 g -C "$wt" commit -q --allow-empty -m "work 1"
 g -C "$wt" push -q origin "$B"
 lease=$(g -C "$wt" rev-parse HEAD)
 g -C "$wt" commit -q --amend --allow-empty -m "work 1, reworded"
-new=$(g -C "$wt" rev-parse HEAD)
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-[ "$RC" = 0 ] || fail "the leased rewrite of the own draft branch did not succeed (exit $RC): $OUT"
-[ "$(remote_tip "$B")" = "$new" ] || fail "origin does not hold the rewritten tip after the push"
-pass "a rewrite of the own unit branch, leased on its pre-rewrite tip, publishes while the PR is a draft"
-grep -q -- '--head planwright/flight/demo' "$tmp/gh.log" || fail "the draft lookup did not name the branch: $(cat "$tmp/gh.log")"
-pass "the draft lookup asks gh about the unit branch"
-
-run "$wt" --force-if-includes push "--force-with-lease=$B:$lease"
-[ "$RC" = 2 ] || fail "an option before the verb was not a usage error (exit $RC): $OUT"
-pass "the verb comes first"
-
-# A fresh rewrite for the refusals below; nothing they run may move origin.
-lease=$new
-g -C "$wt" commit -q --amend --allow-empty -m "work 1, reworded again"
 tip_before=$(remote_tip "$B")
 nothing_moved() { [ "$(remote_tip "$B")" = "$tip_before" ] || fail "$1: a refused run moved origin's branch"; }
-
-run "$wt" push --force
-refused "force with no lease"
-nothing_moved "force with no lease"
-run "$wt" push -f
-refused "-f with no lease"
-run "$wt" push --force-if-includes
-refused "--force-if-includes alone"
-run "$wt" push "--force-with-lease=$B:$lease"
-refused "a lease without --force-if-includes"
-has 'force-if-includes' "the missing pairing is named"
-pass "a force with no lease, and a lease with no --force-if-includes, are refused"
-
-for bad in --force-with-lease "--force-with-lease=$B" "--force-with-lease=$B:" "--force-with-lease=$B:${lease%????????????????????????????????}" \
-  "--force-with-lease=:$lease" "--force-with-lease=$B:HEAD" "--force-with-lease=$B:origin/$B" "--force-with-lease=refs/heads/$B:$lease"; do
-  run "$wt" push "$bad" --force-if-includes
-  refused "the lease spelling $bad"
+for args in "push --force-with-lease=$B:$lease --force-if-includes" "push --force" "push"; do
+  # shellcheck disable=SC2086 # the words are the arguments under test
+  run "$wt" $args
+  refused "$args"
+  has 'no verb of this helper' "the push refusal says why"
 done
-nothing_moved "a malformed lease"
-pass "a lease with no SHA, a short or symbolic SHA, or another spelling of the branch is refused"
+nothing_moved "push"
+pass "push in every spelling is refused: a rewrite of a pushed branch stays the tower's"
 
-run "$wt" push "--force-with-lease=planwright/flight/other:$lease" --force-if-includes
-refused "a lease naming another branch"
-has 'planwright/flight/demo' "the refusal names the checked-out branch"
-pass "a lease naming another branch than the one checked out is refused"
-
-for extra in "+$B" "+HEAD:main" "origin" "$B" "--force" "--no-verify" "--mirror"; do
-  run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes "$extra"
-  refused "the extra argument $extra"
-done
-nothing_moved "an extra argument"
-pass "a + refspec, a remote, a branch or any other extra argument is refused"
-
-# A lease the branch never held, read from the remote-tracking ref after
-# someone else pushed: the rewrite would drop their commit.
-other_clone="$tmp/other-clone"
-g clone -q "$origin" "$other_clone"
-g -C "$other_clone" switch -q "$B"
-g -C "$other_clone" commit -q --allow-empty -m "someone else's commit"
-g -C "$other_clone" push -q origin "$B"
-theirs=$(remote_tip "$B")
-g -C "$wt" fetch -q origin
-tracked=$(g -C "$wt" rev-parse "origin/$B")
-[ "$tracked" = "$theirs" ] || fail "fixture: the tracking ref did not pick up the other push"
-run "$wt" push "--force-with-lease=$B:$tracked" --force-if-includes
-refused "a lease read from the remote-tracking ref"
-has 'reflog|never held' "the remote-tracking refusal says the branch never held the lease"
-[ "$(remote_tip "$B")" = "$theirs" ] || fail "the remote-tracking lease moved origin"
-pass "a lease SHA the branch never held (read from the remote-tracking ref at push time) is refused"
-
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-refused "a lease that the remote has moved past"
-has 'shared|moved' "the stale-lease refusal says the branch moved"
-[ "$(remote_tip "$B")" = "$theirs" ] || fail "the stale lease moved origin"
-pass "a lease the remote moved past is refused by git and reported as shared, not retried"
-
-# Adopt their commit, then rewrite on top of it: the lease is now a tip the
-# branch held.
-run "$wt" reset "origin/$B"
-[ "$RC" = 0 ] || fail "fixture: the reset to the own remote branch failed: $OUT"
-g -C "$wt" commit -q --amend --allow-empty -m "their commit, reworded"
-tip_before=$theirs
-lease=$theirs
-
-pr ready
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-refused "a ready PR"
-has 'draft' "the ready refusal names the draft rule"
-nothing_moved "a ready PR"
-for st in none:'no open pull request' fork:'no open pull request' two:'more than one'; do
-  pr "${st%%:*}"
-  run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-  refused "the PR lookup state ${st%%:*}"
-  has "${st#*:}" "the ${st%%:*} refusal says why"
-  nothing_moved "the PR lookup state ${st%%:*}"
-done
-pr fail
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-[ "$RC" = 3 ] || fail "a failed PR lookup did not exit as a gh failure (exit $RC): $OUT"
-has 'nothing was pushed' "the failed lookup says nothing was pushed"
-nothing_moved "a failed PR lookup"
-pr nulldraft
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-[ "$RC" = 3 ] || fail "a PR with no draft state did not exit as a gh failure (exit $RC): $OUT"
-nothing_moved "a PR with no draft state"
-printf '%s\n' planwright/flight/other >"$tmp/pr-head"
-pr draft
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-refused "a draft PR whose head is another branch"
-rm -f "$tmp/pr-head"
-pass "a ready PR, no PR, two PRs, a fork's PR, another head or a failed lookup is refused"
-
-g -C "$wt" reset -q --hard "$lease"
-g -C "$wt" commit -q --allow-empty -m "a plain descendant"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-refused "a fast-forward"
-has 'plain push' "the fast-forward refusal names the plain push"
-run "$wt" push "--force-with-lease=$B:$(g -C "$wt" rev-parse HEAD)" --force-if-includes
-refused "a lease at the current tip"
-nothing_moved "a fast-forward"
-pass "a fast-forward or a lease at the tip itself is refused (a plain push suffices)"
-run "$wt" push "--force-with-lease=$B:0123456789abcdef0123456789abcdef01234567" --force-if-includes
-refused "a lease that is no commit here"
-has 'not a commit' "the unknown-lease refusal says why"
-g -C "$wt" reset -q --hard "$lease"
-g -C "$wt" commit -q --amend --allow-empty -m "a rewrite again"
+run "$wt" --force-if-includes reset "origin/$B"
+[ "$RC" = 2 ] || fail "an option before the verb was not a usage error (exit $RC): $OUT"
+pass "the verb comes first"
 
 # --- the branch and the session record ----------------------------------------
 
@@ -261,20 +129,18 @@ for sub in demo-spec:planwright/demo/spec prot:planwright/flight/prot; do
   br=${sub#*:}
   worktree "$d" "$br"
   g -C "$d" commit -q --allow-empty -m one
-  lease_x=$(g -C "$d" rev-parse HEAD)
-  g -C "$d" commit -q --amend --allow-empty -m one-amended
   REC="$tmp/fleet/session-records/${sub%%:*}.record"
   record "$REC" "$br" "$d"
-  before=$(remote_tip "$br")
-  run "$d" push "--force-with-lease=$br:$lease_x" --force-if-includes
-  refused "the branch $br"
+  before=$(g -C "$d" rev-parse HEAD)
+  run "$d" reset "origin/$br"
+  refused "a reset on $br"
   case $br in
     */spec) has 'not a unit branch' "the spec-branch refusal says why" ;;
     *) has 'protected set' "the protected-branch refusal says why" ;;
   esac
-  [ "$(remote_tip "$br")" = "$before" ] || fail "the branch $br moved"
-  run "$d" reset "origin/$br"
-  refused "a reset on $br"
+  [ "$(g -C "$d" rev-parse HEAD)" = "$before" ] || fail "a refused reset moved $br"
+  run "$d" ff "$(g -C "$d" commit-tree -p HEAD -m next "HEAD^{tree}")"
+  refused "a fast-forward on $br"
 done
 pass "a spec branch and a protected branch are refused, even when the session record names them"
 REC=$rec
@@ -284,45 +150,43 @@ g -C "$primary" worktree add -q --detach "$dmain" origin/main
 g -C "$dmain" switch -q --ignore-other-worktrees main
 REC="$tmp/fleet/session-records/main.record"
 record "$REC" main "$dmain"
-run "$dmain" push "--force-with-lease=main:$(g -C "$dmain" rev-parse HEAD)" --force-if-includes
-refused "main"
-has 'not a unit branch' "the main refusal says why"
 run "$dmain" reset origin/main
 refused "a reset on main"
+has 'not a unit branch' "the main refusal says why"
 REC=$rec
 pass "main is refused, even when the session record names it"
 
 REC=''
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "no session record"
 has 'session record' "the missing-record refusal names the record"
 REC="$wt/inside.record"
 record "$REC" "$B" "$wt"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "a record inside the worktree"
 has "record's path lies inside" "the inside-the-worktree refusal names the path check"
 rm -f "$wt/inside.record"
 REC="$tmp/fleet/session-records/wrong-top.record"
 record "$REC" "$B" "$tmp/elsewhere"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "a record naming another worktree"
 REC="$tmp/fleet/session-records/wrong-branch.record"
 record "$REC" planwright/flight/other "$wt"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "a record naming another branch"
 REC="$tmp/fleet/session-records/twice.record"
 record "$REC" "$B" "$wt"
 printf 'unit_branch=%s\n' "$B" >>"$REC"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "a record naming the branch twice"
 REC="$tmp/fleet/session-records/loose.record"
 record "$REC" "$B" "$wt"
 chmod 666 "$REC"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "a record others can write"
 REC="$tmp/fleet/session-records/link.record"
 ln -s "$rec" "$REC"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "a record that is a symlink"
 REC=$rec
 pass "no record, or one inside the worktree, naming another worktree or branch, malformed, loose or linked, is refused"
@@ -338,8 +202,6 @@ REC=$rec
 pass "a primary checkout is refused: the helper works in a linked worktree only"
 
 g -C "$wt" switch -q -c planwright/flight/side
-run "$wt" push "--force-with-lease=planwright/flight/side:$lease" --force-if-includes
-refused "another branch checked out in the own worktree"
 run "$wt" reset origin/planwright/flight/side
 refused "a reset on another branch"
 g -C "$wt" switch -q "$B"
@@ -349,7 +211,7 @@ pass "another branch checked out in the own worktree is refused"
 
 twin="$tmp/wt-twin"
 g -C "$primary" worktree add -q --force "$twin" "$B"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "another worktree holding the branch"
 has 'another worktree|wt-twin' "the shared refusal names the other worktree"
 run "$wt" reset "origin/$B"
@@ -371,7 +233,7 @@ while [ -z "$sleeper" ] && [ "$i" -lt 50 ]; do
   i=$((i + 1))
 done
 [ -n "$sleeper" ] || fail "fixture: the foreign process did not start in the worktree"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 kill "$sleeper" 2>/dev/null || :
 refused "a live process of another session in the worktree"
 has "process $sleeper" "the live-session refusal names the process"
@@ -382,49 +244,34 @@ while kill -0 "$sleeper" 2>/dev/null && [ "$i" -lt 50 ]; do
   i=$((i + 1))
 done
 
-# --- the leased push, refused cases done: it still publishes ------------------
-
-# A pre-push hook that fails printing the words of a rejection is no shared
-# branch: only git's own status line for the ref says that.
-mkdir -p "$tmp/hooks"
-printf '#!/bin/sh\necho "! [rejected] (stale info) from a linter"\nexit 1\n' >"$tmp/hooks/pre-push"
-chmod +x "$tmp/hooks/pre-push"
-g -C "$wt" config core.hooksPath "$tmp/hooks"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-g -C "$wt" config --unset core.hooksPath
-[ "$RC" = 3 ] || fail "a failing pre-push hook was not reported as a push failure (exit $RC): $OUT"
-printf '%s' "$OUT" | grep -q 'shared' && fail "a failing hook was reported as a shared branch: $OUT"
-nothing_moved "a failing pre-push hook"
-pass "a failing pre-push hook that prints rejection words is a push failure, not a shared branch"
+# --- links and a detached HEAD ------------------------------------------------
 
 ln -s "$SCRIPT" "$tmp/linked-sync.sh"
 RC=0
-OUT=$(cd "$wt" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC "$tmp/linked-sync.sh" push "--force-with-lease=$B:$lease" --force-if-includes 2>&1) || RC=$?
+OUT=$(cd "$wt" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC "$tmp/linked-sync.sh" reset "origin/$B" 2>&1) || RC=$?
 refused "a run through a symbolic link"
 has 'symbolic link' "the link refusal says why"
 nothing_moved "a run through a symbolic link"
 pass "a run through a symbolic link to the helper is refused"
 
 g -C "$wt" switch -q --detach
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+run "$wt" reset "origin/$B"
 refused "a detached HEAD"
 has 'detached' "the detached refusal says why"
 g -C "$wt" switch -q "$B"
 pass "a detached HEAD is refused"
 
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-[ "$RC" = 0 ] || fail "the leased push after the refusals did not succeed: $OUT"
-[ "$(remote_tip "$B")" = "$(g -C "$wt" rev-parse HEAD)" ] || fail "origin is not at the rewritten tip"
-pass "after every refusal, the own leased rewrite still publishes"
-run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
-[ "$RC" = 0 ] || fail "a repeat of a push that landed was not read as done (exit $RC): $OUT"
-has '^pushed' "the repeat reports the push"
-pass "a repeat of a push that already landed reports it as done, not as a shared branch"
-
 # --- reset -------------------------------------------------------------------
 
 g -C "$wt" commit -q --allow-empty -m "a local commit to drop"
 dropped=$(g -C "$wt" rev-parse HEAD)
+printf 'protected_branches: planwright/flight/prot\nunpushed_rewrite: deny\n' >"$PLANWRIGHT_LOCAL_CONFIG"
+run "$wt" reset "origin/$B"
+refused "a reset dropping local commits under unpushed_rewrite deny"
+has 'unpushed_rewrite is deny' "the unpushed_rewrite refusal says why"
+[ "$(g -C "$wt" rev-parse HEAD)" = "$dropped" ] || fail "a refused reset moved HEAD"
+printf 'protected_branches: planwright/flight/prot\n' >"$PLANWRIGHT_LOCAL_CONFIG"
+pass "a reset that would drop local commits needs unpushed_rewrite to allow it"
 run "$wt" reset "origin/$B"
 [ "$RC" = 0 ] || fail "the reset to the own remote branch did not succeed: $OUT"
 [ "$(g -C "$wt" rev-parse HEAD)" = "$(g -C "$wt" rev-parse "origin/$B")" ] || fail "the reset did not land on origin/$B"
@@ -536,7 +383,7 @@ pass "an unknown or missing verb is a usage error"
 REC=''
 run "$tmp" --help
 [ "$RC" = 0 ] || fail "--help exited $RC: $OUT"
-has 'force-if-includes' "the usage text names the push grammar"
+has 'reset <origin/branch>' "the usage text names the reset grammar"
 pass "--help prints the usage, anywhere and with no record"
 
 printf '\npasses: %s\n' "$passes"

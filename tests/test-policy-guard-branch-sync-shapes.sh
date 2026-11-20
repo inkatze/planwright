@@ -20,16 +20,16 @@ unset CDPATH
 . "$(cd "$(dirname "$0")" && pwd)/lib/policy-guard-branch-sync.sh"
 
 echo "# the shape of the command"
-for c in "PLANWRIGHT_WORKER_SESSION_RECORD=/tmp/x.record $PUSH" "GIT_DIR=/x $PUSH" \
-  "env $PUSH" "bash $PUSH" "sh $PUSH" "nohup $PUSH" "command $PUSH" "exec $PUSH" "time $PUSH" "! $PUSH" \
-  "$PUSH; git status" "$PUSH && echo done" "git status && $PUSH" "true || $PUSH" "$PUSH &" \
-  "$PUSH > $SANDBOX/out" "$PUSH 2>&1" "$PUSH | cat" "echo \$($PUSH)" "bash -c '$PUSH'" \
-  "cd \"$UNIT\"; $PUSH" "cd \"$UNIT\" || $PUSH" "false && cd \"$UNIT\" && $PUSH" \
-  "if true; then $PUSH; fi" "for i in 1; do $PUSH; done" "x=1 && $PUSH" \
-  "cd -P \"$UNIT\" && $PUSH" "cd \"$SANDBOX/nope\" && $PUSH" "cd \$D && $PUSH" "cd \"$UNIT\" && cd . && $PUSH" \
+for c in "PLANWRIGHT_WORKER_SESSION_RECORD=/tmp/x.record $RUN" "GIT_DIR=/x $RUN" \
+  "env $RUN" "bash $RUN" "sh $RUN" "nohup $RUN" "command $RUN" "exec $RUN" "time $RUN" "! $RUN" \
+  "$RUN; git status" "$RUN && echo done" "git status && $RUN" "true || $RUN" "$RUN &" \
+  "$RUN > $SANDBOX/out" "$RUN 2>&1" "$RUN | cat" "echo \$($RUN)" "bash -c '$RUN'" \
+  "cd \"$UNIT\"; $RUN" "cd \"$UNIT\" || $RUN" "false && cd \"$UNIT\" && $RUN" \
+  "if true; then $RUN; fi" "for i in 1; do $RUN; done" "x=1 && $RUN" \
+  "cd -P \"$UNIT\" && $RUN" "cd \"$SANDBOX/nope\" && $RUN" "cd \$D && $RUN" "cd \"$UNIT\" && cd . && $RUN" \
   "$H push --force-with-lease=$B:\$SHA --force-if-includes" "$H ff \"\$X\"" \
   "$S/worker-branch-\\
-sync.sh ff $SHA; git status" "x=\$(true) $PUSH" \
+sync.sh ff $SHA; git status" "x=\$(true) $RUN" \
   "find . -name x -exec $H ff $SHA ;" "$S/\"worker-branch-sync.sh\" ff $SHA; true"; do
   sync "$c"
   expect deny "[worker] the shape '$(printf '%s' "$c" | tr '\n' ' ' | cut -c1-80)' denies"
@@ -74,8 +74,8 @@ echo "# spellings that hide the run"
 for c in "sh -c '$S/worker-branch-s\\ync.sh ff $SHA'" "bash -c 'cd /tmp && $S/worker-branch-sync.sh ff $SHA'" \
   "bash -c '$S/worker-branch-sync.sh ff /tmp/x'" "env X=1 $S/worker-branch-s\\ync.sh ff $SHA" \
   "bash <<'EOF'
-$PUSH
-EOF" "printf '%s\\n' '$PUSH' | bash" "cat $SANDBOX/x | sh # worker-branch-sync" \
+$RUN
+EOF" "printf '%s\\n' '$RUN' | bash" "cat $SANDBOX/x | sh # worker-branch-sync" \
   "timeout 60 $H ff $SHA" "bash -o posix $H ff $SHA" "source $H" "nice -n 5 $H ff $SHA" \
   "find . -name x -execdir $H ff $SHA ;" "sh -e $H ff $SHA" \
   "env bash $H ff $SHA" "timeout 60 bash $H ff $SHA" "busybox sh $H ff $SHA" "nohup sh $H ff $SHA" \

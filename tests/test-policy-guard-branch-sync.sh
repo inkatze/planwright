@@ -18,18 +18,14 @@ unset CDPATH
 . "$(cd "$(dirname "$0")" && pwd)/lib/policy-guard-branch-sync.sh"
 
 echo "# the admitted runs"
-sync "$PUSH"
-expect defer "[worker] the leased push of the own unit branch defers to the helper"
-reads protected_branches "[worker] the admitted push reads only the protected set"
-sync "$H push --force-if-includes --force-with-lease=$B:$SHA"
-expect defer "[worker] the two push options in either order defer"
 sync "$H reset origin/$B"
 expect defer "[worker] the reset to the own remote-tracking ref defers to the helper"
-sync "$H ff $SHA"
+reads protected_branches "[worker] the admitted reset reads only the protected set"
+sync "$RUN"
 expect defer "[worker] the fast-forward to a full SHA defers to the helper"
-sync "cd \"$UNIT\" && $PUSH" "$SANDBOX" "$UNIT"
-expect defer "[worker] the push after a plain cd into the own worktree defers"
-reads protected_branches "[worker] the push after a cd ran the full check"
+sync "cd \"$UNIT\" && $RUN" "$SANDBOX" "$UNIT"
+expect defer "[worker] the fast-forward after a plain cd into the own worktree defers"
+reads protected_branches "[worker] the fast-forward after a cd ran the full check"
 sync '"$CLAUDE_PLUGIN_ROOT"/scripts/worker-branch-sync.sh ff '"$SHA"
 expect defer "[worker] the \$CLAUDE_PLUGIN_ROOT spelling defers"
 reads protected_branches "[worker] the \$CLAUDE_PLUGIN_ROOT spelling ran the full check"
@@ -45,8 +41,9 @@ sync "$H --help push"
 expect deny "[worker] the usage flag beside a verb denies"
 no_gh_calls
 
-echo "# near spellings of push"
-for args in "push --force" "push -f" "push --force-if-includes" \
+echo "# push, in every spelling: the helper publishes nothing"
+for args in "push --force-with-lease=$B:$SHA --force-if-includes" "push --force-if-includes --force-with-lease=$B:$SHA" \
+  "push --force" "push -f" "push --force-if-includes" \
   "push --force-with-lease --force-if-includes" \
   "push --force-with-lease=$B --force-if-includes" \
   "push --force-with-lease=$B: --force-if-includes" \
@@ -64,10 +61,9 @@ for args in "push --force" "push -f" "push --force-if-includes" \
   sync "$H $args"
   expect deny "[worker] $args denies"
 done
-sync "$H push --force-with-lease=$B:$SHA --force-if-includes +$B"
-reason_has 'worker-branch-sync[.]sh push --force-with-lease=<branch>' "[worker] a + refspec refusal names the accepted form"
-sync "$H push --force-with-lease=$B --force-if-includes"
-reason_has 'full (SHA|sha)' "[worker] a lease without a SHA names the full SHA"
+sync "$PUSH"
+reason_has 'publishes nothing' "[worker] the push refusal says the helper publishes nothing"
+reason_has 'worker-branch-sync[.]sh reset origin/<branch> or ff' "[worker] the push refusal names the accepted forms"
 sync "$S/worker-branch-\\
 sync.sh ff $SHA"
 expect defer "[worker] the helper's path split by a line continuation is the same run, and defers"
@@ -85,27 +81,27 @@ done
 echo "# the session record"
 REC_SAVED=$REC
 REC=''
-sync "$PUSH"
+sync "$RUN"
 expect deny "[worker] no session record denies"
 reason_has 'session record' "[worker] the missing-record refusal names the record"
 REC=$(record task-2.record planwright/demo/task-2 "$UNIT_P")
-sync "$PUSH"
+sync "$RUN"
 expect deny "[worker] a record naming another branch denies"
 REC=$(record other-top.record "$B" "$SANDBOX/other")
-sync "$PUSH"
+sync "$RUN"
 expect deny "[worker] a record naming another worktree denies"
 REC=$(record twice.record "$B" "$UNIT_P")
 printf 'unit_branch=%s\n' "$B" >>"$REC"
-sync "$PUSH"
+sync "$RUN"
 expect deny "[worker] a record naming the branch twice denies"
 REC="$UNIT/inside.record"
 printf 'unit_branch=%s\nworktree_root=%s\n' "$B" "$UNIT_P" >"$REC"
-sync "$PUSH"
+sync "$RUN"
 expect deny "[worker] a record inside the worktree denies"
 rm -f "$UNIT/inside.record"
 ln -s "$REC_SAVED" "$RECS/link.record"
 REC="$RECS/link.record"
-sync "$PUSH"
+sync "$RUN"
 expect deny "[worker] a record that is a symlink denies"
 REC=$REC_SAVED
 
@@ -126,13 +122,13 @@ expect deny "[worker] main denies, even when the record names it"
 reason_has 'never rewrites history|unit branch' "[worker] the main refusal is the unit-branch rule's"
 REC=$REC_SAVED
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow' "protected_branches: $B"
-sync "$PUSH"
+sync "$RUN"
 expect deny "[worker] a protected unit branch denies"
 reason_has 'protected branch' "[worker] the protected refusal keeps the protected-branch text"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 
 echo "# other tiers"
-PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg tower "$PUSH"
+PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg tower "$RUN"
 expect deny "[tower] the helper denies at the tower tier"
 reason_has 'worker profile only' "[tower] the tower refusal names the worker tier"
 PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg mission-control "$H reset origin/$B"

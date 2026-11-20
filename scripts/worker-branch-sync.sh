@@ -1,28 +1,24 @@
 #!/bin/sh
 # worker-branch-sync.sh - a dispatched worker's routine sync of its own unit
-# branch: the three acts the worker profile's deny floor keeps from raw git.
+# branch's worktree: the two acts the worker profile's deny floor keeps from
+# raw git. Neither writes a remote.
 #
 # Usage (from the worker's own worktree, by the installed script's path):
-#   worker-branch-sync.sh push --force-with-lease=<branch:sha> --force-if-includes
 #   worker-branch-sync.sh reset <origin/branch>
 #   worker-branch-sync.sh ff <sha>
 #
-# The lease is written <branch>:<sha>, <sha> the full id of the tip the
-# rewrite started from. push publishes the rewrite only while the branch heads
-# one open draft PR of this repository; reset is git reset --hard to
-# origin/<branch> as fetched; ff is git merge --ff-only to a full commit id
+# reset is git reset --hard to origin/<branch> as fetched, naming every local
+# commit it drops; dropping one reshapes never-pushed history, so it needs
+# unpushed_rewrite to allow it. ff is git merge --ff-only to a full commit id
 # descending from HEAD.
 #
 # Every verb refuses unless it runs in a linked worktree that the session
 # record (PLANWRIGHT_WORKER_SESSION_RECORD, the user's own file outside the
 # worktree) names, on the unit branch it names; that task or flight branch is
-# outside the protected set; and no other worktree, nor any process outside
-# this run's own ancestry, works on it. reset and ff need a clean tree. The
-# lease must be a tip the branch's reflog records: git turns
-# --force-if-includes off for an explicit lease, so this is that check. A push
-# the remote refuses for a moved branch means someone else pushed: the branch
-# is shared, and the push is never retried with another lease. Exit: 0 done;
-# 1 refused; 2 usage; 3 a git or gh failure.
+# outside the protected set; no other worktree, nor any process outside this
+# run's own ancestry, works on it; and the tree is clean.
+#
+# Exit: 0 done; 1 refused; 2 usage; 3 a git failure.
 set -uf
 # LC_ALL=C is for this script's own parsing only; git hooks run under the
 # caller's locale (C.UTF-8 when it sets none).
@@ -61,7 +57,7 @@ TAB=$(printf '\t')
 safe() { printf '%s' "$1" | tr -d '\000-\037\177'; }
 usage() {
   printf '%s: %s\n' "$me" "$1" >&2
-  printf '%s\n' "usage: worker-branch-sync.sh push --force-with-lease=<branch>:<sha> --force-if-includes | reset origin/<branch> | ff <sha>" >&2
+  printf '%s\n' "usage: worker-branch-sync.sh reset origin/<branch> | ff <sha>" >&2
   exit 2
 }
 refuse() {
@@ -89,32 +85,9 @@ full_sha() {
 [ "$#" -ge 1 ] || usage "a verb is required"
 verb=$1
 shift
-lease_arg='' includes=0 target=''
+target=''
 case $verb in
-  push)
-    for a in "$@"; do
-      case $a in
-        --force-with-lease=*)
-          [ -z "$lease_arg" ] || refuse "--force-with-lease is given twice"
-          lease_arg=${a#--force-with-lease=}
-          ;;
-        --force-if-includes)
-          [ "$includes" = 0 ] || refuse "--force-if-includes is given twice"
-          includes=1
-          ;;
-        *) refuse "push takes --force-with-lease=<branch>:<sha> and --force-if-includes and nothing else; '$(safe "$a")' is refused (no remote, refspec, + form or other option)" ;;
-      esac
-    done
-    [ -n "$lease_arg" ] || refuse "push needs --force-with-lease=<branch>:<sha>, the full id of the tip the rewrite started from; a force with no lease is refused"
-    [ "$includes" = 1 ] || refuse "push needs --force-if-includes beside the lease, always paired"
-    case $lease_arg in
-      *:*) ;;
-      *) refuse "the lease names no SHA; give --force-with-lease=<branch>:<sha>, the full id of the tip the rewrite started from" ;;
-    esac
-    lease_branch=${lease_arg%%:*}
-    lease=${lease_arg#*:}
-    full_sha "$lease" || refuse "the lease SHA must be the full commit id the rewrite started from (40 or 64 lowercase hex digits), not '$(safe "$lease")'"
-    ;;
+  push) refuse "push is no verb of this helper: publishing a rewrite of a pushed branch is the tower's, on the operator's request; add new commits instead" ;;
   reset | ff)
     [ "$#" = 1 ] || refuse "$verb takes exactly one argument (see the usage)"
     target=$1
@@ -312,50 +285,6 @@ clean_or_refuse() {
 head=$(git rev-parse --verify --quiet 'HEAD^{commit}') || broken "HEAD does not resolve"
 
 case $verb in
-  push)
-    [ "$lease_branch" = "$branch" ] \
-      || refuse "the lease names $(safe "$lease_branch"), and $(safe "$branch") is checked out; the helper pushes only the checked-out unit branch, so name it exactly"
-    git cat-file -e "$lease^{commit}" 2>/dev/null \
-      || refuse "the lease $lease is not a commit in this repository; give the tip the rewrite started from"
-    [ "$lease" != "$head" ] || refuse "the lease is HEAD itself, so there is nothing to rewrite; a plain push suffices"
-    if git merge-base --is-ancestor "$lease" "$head" 2>/dev/null; then
-      refuse "HEAD contains the lease, so this is a fast-forward and a plain push suffices"
-    fi
-    git reflog show --format=%H "refs/heads/$branch" -- 2>/dev/null | grep -qxF "$lease" \
-      || refuse "the lease $lease is a tip $(safe "$branch") never held (its reflog does not record it), so it was read from elsewhere, such as the remote-tracking ref at push time; lease on the tip the rewrite started from"
-    git remote get-url origin >/dev/null 2>&1 || refuse "there is no remote named origin"
-    command -v jq >/dev/null 2>&1 || broken "jq is required to read the pull request"
-    prs=$(gh pr list --head "$branch" --state open --json number,isDraft,headRefName,isCrossRepository 2>&1 </dev/null) \
-      || broken "gh could not list the open pull requests for $(safe "$branch") ($(safe "$prs" | cut -c1-200)), so whether its PR is a draft is unknown; nothing was pushed"
-    drafts=$(printf '%s' "$prs" | jq -r --arg b "$branch" \
-      '[.[] | select(.headRefName == $b and .isCrossRepository == false)] | if length == 1 then (.[0].isDraft | tostring) else "count:\(length)" end' 2>/dev/null) \
-      || broken "gh's answer for $(safe "$branch") could not be read; nothing was pushed"
-    case $drafts in
-      true) ;;
-      false) refuse "the pull request for $(safe "$branch") is ready for review, not a draft; a rewrite publishes only while the PR is a draft. Add new commits instead" ;;
-      count:0) refuse "$(safe "$branch") heads no open pull request from this repository; a rewrite publishes only while its PR is a draft, so open the draft PR first" ;;
-      count:*) refuse "$(safe "$branch") heads more than one open pull request; refusing" ;;
-      *) broken "gh reported no draft state for the pull request of $(safe "$branch"); nothing was pushed" ;;
-    esac
-    out=$(hook_git push --porcelain --force-with-lease="refs/heads/$branch:$lease" --force-if-includes \
-      origin "refs/heads/$branch:refs/heads/$branch" 2>&1 </dev/null)
-    prc=$?
-    if [ "$prc" != 0 ]; then
-      printf '%s\n' "$out" | tr -d '\000-\010\013-\037\177' >&2
-      # Read only git's own porcelain status line for the ref, never hook text.
-      if printf '%s\n' "$out" | grep -q "^!${TAB}refs/heads/$branch:refs/heads/$branch${TAB}\\[rejected\\]"; then
-        now=$(git ls-remote origin "refs/heads/$branch" 2>/dev/null </dev/null | awk -v r="refs/heads/$branch" '$2 == r { print $1; exit }')
-        if [ "$now" = "$head" ]; then
-          # An earlier run of this same push landed; only its report was lost.
-          printf 'pushed\t%s\t%s\t%s\n' "$(safe "$branch")" "$lease" "$head"
-          exit 0
-        fi
-        refuse "origin/$(safe "$branch") moved past the lease $lease, so someone else pushed to it: treat the branch as shared from now on and never retry with another lease"
-      fi
-      broken "git push failed (exit $prc)"
-    fi
-    printf 'pushed\t%s\t%s\t%s\n' "$(safe "$branch")" "$lease" "$head"
-    ;;
   reset)
     [ "$target" = "origin/$branch" ] \
       || refuse "reset takes origin/$(safe "$branch"), this branch's own remote-tracking ref, and nothing else; '$(safe "$target")' is refused"
@@ -364,6 +293,14 @@ case $verb in
     clean_or_refuse
     drops=$(git log --no-show-signature --format="%H$TAB%s" "$to..$head" -- 2>/dev/null) \
       || broken "the commits the reset would drop could not be listed; nothing was reset"
+    if [ -n "$drops" ]; then
+      # Dropping a local commit reshapes never-pushed history, which the
+      # policy allows only under unpushed_rewrite, read at the primary checkout.
+      rk=$(cd "$primary" && PLANWRIGHT_REPO_ROOT=$primary /bin/sh "$script_dir/resolve-policy-knob.sh" unpushed_rewrite 2>/dev/null </dev/null) \
+        || refuse "unpushed_rewrite could not be read, and this reset would drop local commits; refusing (fail closed)"
+      [ "$rk" = allow ] \
+        || refuse "unpushed_rewrite is $(safe "$rk"), and this reset would drop local commits; leave them, or ask the operator"
+    fi
     hook_git reset --hard --quiet "$to" </dev/null || broken "git reset failed"
     printf 'reset\t%s\t%s\t%s\n' "$(safe "$branch")" "$head" "$to"
     printf '%s\n' "$drops" | while IFS="$TAB" read -r sha subj; do

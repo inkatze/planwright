@@ -20,6 +20,8 @@ record() {
 }
 REC=$(record unit.record "$B" "$UNIT_P")
 PUSH="$H push --force-with-lease=$B:$SHA --force-if-includes"
+# An admitted run: the shape cases change only what surrounds it.
+RUN="$H ff $SHA"
 
 # sync <command> [cwd] [project-dir] — the worker tier under the record.
 sync() {
