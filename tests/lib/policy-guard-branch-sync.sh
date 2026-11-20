@@ -4,6 +4,7 @@
 # (sourced after policy-guard-harness.sh and policy-guard-clones.sh, never
 # executed): the helper copied beside the sandbox guard, a session record for
 # the harness unit clone, and the sync runner that sends a command under it.
+unset CDPATH
 cp "$REAL_SCRIPTS/worker-branch-sync.sh" "$S/"
 H="$S/worker-branch-sync.sh"
 B=planwright/demo/task-1

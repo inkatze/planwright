@@ -7400,12 +7400,9 @@ sync_installed() {
   d=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd) || return 1
   lc "${p##*/}"
   [ "$LC" = "$SYNC_FILE" ] || return 1
-  for r in "${GUARD_DIR:+$GUARD_DIR/..}" "${CLAUDE_PLUGIN_ROOT:-}"; do
-    [ -n "$r" ] || continue
-    want=$(cd -P -- "$r/scripts" 2>/dev/null && pwd) || continue
-    [ "$d" != "$want" ] || return 0
-  done
-  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-installed-roots.sh" ] || return 1
+  [ -n "$GUARD_DIR" ] || return 1
+  want=$(cd -P -- "$GUARD_DIR" 2>/dev/null && pwd) && [ "$d" = "$want" ] && return 0
+  [ -r "$GUARD_DIR/resolve-installed-roots.sh" ] || return 1
   while IFS= read -r r; do
     case $r in /?*) ;; *) continue ;; esac
     want=$(cd -P -- "$r/scripts" 2>/dev/null && pwd) || continue
@@ -7566,7 +7563,9 @@ handle_bash() {
   # anywhere, even with quotes and escapes removed, and no expansion beside
   # a reserved subcommand: nothing this guard classifies, so no parse and no
   # read.
-  local bare=${cmd//[\"\'\\]/} hit=0
+  # A line splice joins the words on either side, so it goes before the quotes.
+  local bare=${cmd//\\"$NL"/} hit=0
+  bare=${bare//[\"\'\\]/}
   shopt -s nocasematch
   case $bare in
     # The last two are the branch-sync screens' (sync_record_set, branch_sync_run).
