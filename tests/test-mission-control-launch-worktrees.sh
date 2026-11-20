@@ -147,7 +147,10 @@ if [ -n "$task_wt" ] && [ -d /proc/self ]; then
     && ok "a process running in the worktree holds it as a live session" \
     || fail "a launch beside a live process in the worktree: exit $RC, $ERR"
   [ "$(cwd_holder "$task_wt")" = "/proc/$sleeper/cwd" ] \
-    && [ "$(find() { return 1; }; cwd_holder "$task_wt")" = "/proc/$sleeper/cwd" ] \
+    && [ "$(
+      find() { return 1; }
+      cwd_holder "$task_wt"
+    )" = "/proc/$sleeper/cwd" ] \
     && ok "the wait's scan finds a process in the worktree, with and without find -lname" \
     || fail "the wait's scan did not name the process in the worktree"
   kill "$sleeper" 2>/dev/null
