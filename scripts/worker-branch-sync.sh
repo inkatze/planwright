@@ -21,9 +21,8 @@
 # lease must be a tip the branch's reflog records: git turns
 # --force-if-includes off for an explicit lease, so this is that check. A push
 # the remote refuses for a moved branch means someone else pushed: the branch
-# is shared, and the push is never retried with another lease.
-#
-# Exit: 0 done; 1 refused; 2 usage; 3 a git or gh failure.
+# is shared, and the push is never retried with another lease. Exit: 0 done;
+# 1 refused; 2 usage; 3 a git or gh failure.
 set -uf
 # LC_ALL=C is for this script's own parsing only; git hooks run under the
 # caller's locale (C.UTF-8 when it sets none).
@@ -230,6 +229,19 @@ dir_users() {
     readlink "/proc/$$/cwd" >/dev/null 2>&1 || return 1
     du_glob=$(printf '%s' "$top" | sed 's/[][*?\\]/\\&/g')
     du_out=$(find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$du_glob" -o -lname "$du_glob/*" \) 2>/dev/null)
+    case $du_out in
+      */proc/$$/cwd*) ;;
+      *)
+        # busybox find has no -lname: read each process's directory instead.
+        du_out=''
+        set +f
+        for du_c in /proc/[0-9]*/cwd; do
+          du_t=$(readlink "$du_c" 2>/dev/null) || continue
+          in_top "$du_t" && du_out="$du_out$NL$du_c"
+        done
+        set -f
+        ;;
+    esac
     printf '%s\n' "$du_out" | awk -F / '$3 ~ /^[0-9]+$/ { print $3 }'
     return 0
   fi
