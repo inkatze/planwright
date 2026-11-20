@@ -141,6 +141,8 @@ done
 view "$PRB"
 refused_launch "--pr with --cwd is a usage error" 2 --scope fix-cwd --pr 12 --cwd "$tmp"
 refused_launch "--pr with a task scope is a usage error" 2 --scope demo:task-1 --pr 12
+refused_launch "--pr with --spec-branch is a usage error" 2 --scope fix-spec --pr 12 --spec-branch planwright/demo/spec
+case $ERR in *'one or the other'*) ok "the --pr and --spec-branch refusal says why" ;; *) fail "the --pr and --spec-branch refusal does not say why: $ERR" ;; esac
 for bad in 0 012 12a -1 1234567890; do
   refused_launch "--pr $bad is a usage error" 2 --scope fix-bad --pr "$bad"
 done

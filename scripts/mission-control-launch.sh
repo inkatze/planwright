@@ -1004,6 +1004,7 @@ cmd_launch() {
     [ -z "$cwd" ] || { [ -z "$repo" ] && [ -z "$task" ] && [ -z "$pr" ]; } \
       || die "--cwd names the worktree itself, so it takes neither --repo nor a task scope nor --pr"
     [ -z "$pr" ] || [ -z "$task" ] || die "--pr names the branch itself, so it takes no task scope"
+    [ -z "$pr" ] || [ -z "$spec_branch" ] || die "--pr puts the session on a pull request's flight branch, and --spec-branch names a spec branch for it; give one or the other"
     [ -z "$repo" ] || repo=$(abs_dir --repo "$repo") || exit 2
   else
     [ -z "$repo" ] || die "a $kind starts where it is launched and takes no --repo"
