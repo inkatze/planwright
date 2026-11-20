@@ -4084,7 +4084,10 @@ ls_remote_url_ok() {
 #     that carried state (an assignment or a `cd`); closed by `;`, `&&`, `||`
 #     or the end. Anywhere else (a pipeline, the background, after a real
 #     command's `&&` or `||`, a loop/if/case body) the shell may not set it for
-#     what follows, so the whole command defers.
+#     what follows, so the whole command defers;
+#   * a later top-level `&` that backgrounds the and-or list holding it
+#     (`D=x && true & …`) drops it again: the list ran in a subshell, so
+#     what follows sees the value from before that list, or none.
 # A value holding a space is substituted only inside double quotes, where it
 # stays one word in every shell; unquoted, bash splits it and zsh (the Bash
 # tool's shell on macOS) does not, so there it stays unresolved. An empty
@@ -6953,6 +6956,10 @@ verify_tokens() {
   # for a reserved-word boundary), whether the previous segment carried state,
   # and whether a `cd` has: together they decide where state may carry (fin).
   local ctl_depth=0 seg_open='' prev_commit=0 cd_live=0
+  # The VAR table's size when the current top-level and-or list began, so a
+  # trailing `&` can drop what that list assigned, and whether the last `;`
+  # was a newline continuing that list (fin).
+  local list_var=$VAR_C list_cont=0
   # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
   # chain passes the scoped read check (SEG_SCOPED), with the directory it
   # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
@@ -6986,7 +6993,8 @@ verify_tokens() {
   # by `;` or `||`, enters it, and every later segment is checked from both
   # directories the line may then be in.
   fin() {
-    local close=$1 placed=0
+    local close=$1 placed=0 empty=0
+    [ "$cwn" -gt 0 ] || [ "$rn" -gt 0 ] || empty=1
     PENDING_ASSIGN_N=''
     PENDING_ASSIGN_V=''
     PENDING_ASSIGN_O=0
@@ -7071,6 +7079,24 @@ verify_tokens() {
       [ -z "${csub[0]-}" ] || prev_commit=0
     else
       prev_commit=0
+    fi
+    # A top-level `&` runs the whole and-or list since the last top-level `;`,
+    # newline or `&` in a background subshell, not just its last command, so
+    # nothing that list assigned reaches the commands after it. The tokenizer
+    # reads a newline as `;`, and newlines straight after `&&`, `||` or `|`
+    # continue the list instead of ending it.
+    if [ "$ctl_depth" -eq 0 ]; then
+      local cont=0
+      if [ "$close" = ';' ] && [ "$empty" = 1 ]; then
+        case $list_cont:$seg_open in
+          1:';' | *:'&&' | *:'||' | *:'|') cont=1 ;;
+        esac
+      fi
+      case $close in
+        '&') VAR_C=$list_var ;;
+        ';') [ "$cont" = 1 ] || list_var=$VAR_C ;;
+      esac
+      list_cont=$cont
     fi
     seg_open=$close
     cw=()

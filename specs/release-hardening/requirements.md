@@ -1,7 +1,7 @@
 # Release Hardening — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-19
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -61,6 +61,10 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   reaches past the five scripts, onto the proposal end of the same pipeline.
   *(Amended at the 2026-08-25 bootstrap-race amendment: bullet added with
   REQ-H.)*
+- Release-window gaps from the 0.75.1 cycle: an uncancellable CI run for
+  release commits, a verifier that the window check is required while a
+  release is pending, and a recorded-skip mechanism the comparator and the
+  window check honour (REQ-I).
 
 ### Out of scope
 
@@ -341,8 +345,75 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   release into a plausible-looking merge-ready proposal.
   *(Cites: D-14; obs:fd6c2f4f.)*
 
+## REQ-I — release-window gaps found in the 0.75.1 cycle
+
+- **REQ-I1.1** A CI run on a release commit (a push to the default branch
+  whose head commit message begins `chore: release`, a space and a digit,
+  release-please's release title shape) SHALL run in a
+  concurrency group of its own, keyed by that commit, with cancellation
+  disabled, so no later merge to the default branch can cancel it. A cancelled
+  run leaves the release commit with no positive CI verdict, which
+  `rl_ci_state` correctly refuses (REQ-C1.1), so the release cannot publish.
+  Every other push keeps today's per-ref cancel-in-progress grouping, so the
+  fast-feedback property for ordinary pushes is unchanged.
+  *(Cites: D-15; REQ-C1.1; drafting-session decision (2026-11-13), evidence
+  the 0.75.1 release run cancelled by the merge of #977.)*
+
+- **REQ-I1.2** A read-only verifier SHALL report whether the window check is
+  a required status check on the default branch, by exit status: 0 when a
+  ruleset or classic branch protection requires it, 1 when neither does (an
+  unprotected branch included), and 2 when either source cannot be read
+  (usage error, query failure, an unparseable answer), which fails closed and
+  never reads as "required". While the window is open, the release proposal
+  workflow and the release bookkeeping report SHALL surface exit 1 and exit 2,
+  with distinct messages, inside their existing contracts: the workflow adds a
+  warning and a step-summary line and stays green (REQ-H1.1), and the report
+  adds a line and still exits 0. Making the check required, so a pending
+  release cannot be bypassed by merging other work, is the operator's
+  administrator setting: the verifier SHALL NOT change any repository setting,
+  because `GITHUB_TOKEN` neither holds nor should hold that authority.
+  *(Cites: D-16; REQ-A1.3; REQ-H1.1; drafting-session decision (2026-11-13).)*
+
+- **REQ-I1.3** The release comparator and the window check SHALL honour a
+  recorded skip, so "pending" means a version of truth ahead of the latest
+  release tag and not recorded as skipped. A skip record names one version and
+  the commit on the default branch where the version file became that
+  version, by its full SHA (an abbreviated SHA is malformed). Records live in
+  `.release-skips` at the repository root, a tracked file changed only
+  through a reviewed, human-merged change; an absent or comment-only file
+  records no skips. A record closes the window for exactly that version at
+  that commit: a later version of truth, or the same version at a different
+  commit, is pending again, and deleting the line through a reviewed change
+  un-skips it. A file that is present but unparseable fails closed (exit 2).
+  `release-publish.sh` SHALL refuse to tag a version recorded as skipped at
+  the commit it would tag. The skip procedure SHALL document that the skip PR
+  merges by the operator's admin bypass, since the window check stays red on
+  it until the skip is on the default branch, and that the abandoned release
+  PR's `autorelease: pending` label is removed, since release-please otherwise
+  aborts the next cycle (D-10). Without this, a release abandoned on the
+  operator's ruling holds the window open forever and `release-please`
+  proposes nothing, so recovery needs a hand-made version reset.
+  *(Cites: D-17; D-10; REQ-A1.3; REQ-H1.1; drafting-session decision
+  (2026-11-13), evidence 0.75.1 skipped at fb7c1c49 and recovered through
+  #987, released as #995.)*
+
 ## Changelog
 
+- 2026-11-20 — Amendment (meaning-class): new
+  **REQ-I** (release-window gaps found in the 0.75.1 cycle) with **D-15**,
+  **D-16**, **D-17** and Tasks 11-13. Three gaps: a later merge to the default
+  branch cancelled the release commit's CI run (#977 cancelled 0.75.1), so it
+  could not publish; nothing checked that the window check was a required
+  check while a release is pending; and the window check had no way to record
+  a skipped release (0.75.1, fb7c1c49, never tagged), so release-please
+  proposed nothing and a `Release-As` footer alone could not pass. The stopgap
+  was a manual PR resetting the version files to 0.75.0 with
+  `Release-As: 0.75.2` (#987, released as #995). The operator's rulings: the
+  uncancellable group matches release-please's exact title shape; the
+  verifier reads rulesets and classic branch protection; a skip binds a
+  version to the full SHA where it landed; the skip PR merges by admin bypass.
+  The test-time 80% warning band is out of scope (drafted in the
+  guard-coverage amendment). Walked as Amendment 6 in `kickoff-brief.md`.
 - 2026-11-19 — Meaning-class: REQ-H1.2 condition (b) now also fails an added
   entry that cites only a PR number whose merge commit is already contained in
   the latest release tag, so such an entry cannot slip past the ancestry
@@ -561,3 +632,11 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   v0.14.1) that confirmed every item above valid; verdict ledger held in the
   drafting session's scratch reference. Grounding for the "confirmed backlog"
   framing.
+- **0.75.1 release cycle (2026-11-13, drafting-session decision)** — the
+  operator's brief for the REQ-I amendment: #977's merge cancelled the 0.75.1
+  release CI run; 0.75.1 (fb7c1c49) was skipped on the operator's ruling and
+  never tagged, yet the guard still counted it pending, so release-please
+  proposed no next version and a `Release-As` footer alone could not pass; the
+  stopgap was a manual PR resetting the version files to 0.75.0 with
+  `Release-As: 0.75.2` (#987, released as #995). Grounding for REQ-I / D-15,
+  D-16, D-17.

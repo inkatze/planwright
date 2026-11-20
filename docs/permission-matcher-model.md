@@ -389,6 +389,14 @@ a value can grant a worker left the deny list with human-gates Task 6:
 - the never-pushed rewrites (amend, squash, fixup, rebase, at every prefix git
   accepts, and `git -* rebase*`), granted by `unpushed_rewrite`.
 
+The hard-reset deny stays whole. The one route past it is
+`scripts/worker-branch-sync.sh`, which runs its reset to the branch's own
+remote branch and its fast-forward inside its own process, below every hook:
+no Bash rule sees those git commands, so none is narrowed for it, and the
+helper pushes nothing. The policy guard decides which runs of the helper reach
+it, and the helper re-checks the rest at run time (the worktree-sync row of
+`doctrine/human-gates.md`).
+
 `scripts/policy-guard.sh`, wired into the same profile with the `worker` tier,
 is the deny-emitting layer for those acts: it reads the knob, the session's
 unit branch, the merge source, and (for a rewrite) the refreshed upstream, and
