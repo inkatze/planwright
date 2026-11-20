@@ -1,7 +1,7 @@
 # Release Hardening — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-19
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -243,3 +243,46 @@ The verified behaviour of release-please 17.6.0 with `bootstrap-sha` absent is
 recorded in the bundle changelog, together with the evidence that established
 it. Satisfied by the record existing and being sourced; removal of the key is
 explicitly not required by this REQ.
+
+## REQ-I — release-window gaps found in the 0.75.1 cycle
+
+### REQ-I1.1 — release commit CI is uncancellable [test + manual]
+
+`tests/test-check-workflow-posture.sh` reads `ci.yml` and asserts it selects
+group `ci-release-<sha>` with `cancel-in-progress: false` for a
+release-commit push, keeps `ci-<ref>` with cancellation otherwise, carries
+all ten digit terms of the `startsWith` predicate (so near-miss titles such
+as `chore: release-window tweak` and `chore: release notes` land in the
+ordinary group), and derives both from the same predicate (mutating either
+expression alone, or dropping a digit term, fails the test). `[manual]`: on
+the next release cycle, a later merge to the default branch does not cancel
+the release commit's run.
+
+### REQ-I1.2 — the verifier reports whether the window check is required [test + manual]
+
+`tests/test-release-window-enforced.sh` stubs the ruleset and classic
+branch-protection queries through a PATH-stubbed `gh` and asserts exit 0 when
+either source requires the check (one fixture per source), 1 when neither
+does (an unprotected branch included), and 2 when either query fails or
+either answer is unparseable, with 2 never collapsing into 0. Cases in
+`tests/test-release-bookkeeping.sh` and `tests/test-release-please.sh` assert
+the report and the proposal guard surface exit 1 and exit 2 with distinct
+messages while the window is open, the guard staying green and the report
+exiting 0, and stay silent against a closed-window fixture. Runs under
+`mise run check`. `[manual]`: a workflow run linked in Task 12's PR shows both
+endpoints answer under the workflow token.
+
+### REQ-I1.3 — a recorded skip closes the window for that version only [test + manual]
+
+Fixtures over `release-pending.sh`, `release-window-check.sh` (both paths) and
+`release-publish.sh`: a version of truth recorded as skipped at its landing
+commit is not pending; a later version is pending; the same version landing
+at a different commit is pending; a record present only in the working tree
+is not honoured on the `--ref` path; an absent or comment-only file records
+no skips; an unparseable skip file, an abbreviated SHA included, exits 2;
+publish refuses a version recorded as skipped at the commit it would tag. A
+negative control proves the skipped fixture is pending when the record is
+removed, so the pass is the record's doing. Runs under `mise run check`.
+`[manual]`: after the first real skip, the next release proposal opens (the
+abandoned release PR's `autorelease: pending` label removed per the
+procedure) and passes REQ-H1.2.

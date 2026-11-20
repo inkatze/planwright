@@ -728,3 +728,102 @@ Class: meaning
 Lens-pass: delta-scoped, 5 findings, all dispositioned (applied)
 Anchor: `3d84a553406edd1007a7f5832e4d71b58cab74fa` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Amendment 6 — release-window gaps from the 0.75.1 cycle (2026-11-20)
+
+Amendment walk of the Active bundle (Tasks 1-10 merged), relayed through
+mission control. The draft was written on an older head of the spec PR and
+carried onto `main` after Amendment 5 merged; the only conflict was the
+changelog list, and Amendment 5's text is unchanged. Scope: new REQ-I1.1,
+REQ-I1.2 and REQ-I1.3, D-15, D-16 and D-17, Tasks 11-13, the REQ-I test-spec
+entries, the scope bullet, the Sources entry and the changelog entry. No
+earlier REQ, D-ID or task changes meaning. Tasks 11-13 are unimplemented, so
+they build against this wording.
+
+**Rulings (operator, via the hub).** "Yes, one amendment": the three gaps
+walked as one meaning-class entry. "Exact release title": the uncancellable
+CI group matches release-please's title shape, `chore: release`, a space and a
+digit, not the looser prefix. "Yes, read both": the verifier counts
+`window-lock` as required when a ruleset or classic branch protection
+requires it, either source unreadable failing closed. "Version + commit": a
+skip binds a version to the full 40-hex SHA where it landed. "Admin bypass,
+documented": the skip PR merges by the operator's admin bypass, because the
+window check judges `main` and stays red on it. "Apply all ten": the batch
+below. Signed off with "Yes, sign off", asked with no option preselected.
+
+**Evidence re-checked at kickoff.** `fb7c1c49` is the 0.75.1 release commit
+(#976) and was never tagged; #977 is the next first-parent commit; the
+stopgap reset was #987, released as #995. `main`'s ruleset requires `check`
+and `title` only, and the branch endpoint's classic protection summary is
+readable without admin rights.
+
+**Lens pass (delta-scoped, fanned out: one read-only agent per spec-set lens,
+artifact class spec).** Findings, validated against the code, merged and
+deduplicated:
+
+1. Predicate matched any `chore: release` prefix (correctness): ruling.
+2. Verifier read rulesets only, false "not required" on classic protection
+   (correctness): ruling.
+3. Abbreviated SHA could turn ambiguous (ambiguity): ruling.
+4. The skip PR is blocked by the very lock it clears once `window-lock` is
+   required (correctness): ruling.
+5. The skip's commit was undefined; now the landing-commit scan publish
+   already runs, lifted into `release-lib.sh` (correctness): applied.
+6. GitHub expressions have no regex; the predicate is ten `startsWith`
+   terms, with a no-digit near-miss test and the squash-merge assumption
+   stated (correctness): applied.
+7. "Surface as a defect" pinned inside the guard's green-pending and the
+   report's exit-0 contracts, with distinct messages (ambiguity): applied.
+8. REQ-I1.2 reports rather than mandates a repository setting; an
+   unprotected branch reads as not required; the adopter template is
+   unchanged (ambiguity): applied.
+9. Skip file at a fixed root path, absent or comment-only meaning no skips,
+   un-skip by deleting the line, "pending" restated (ambiguity): applied.
+10. Publish refusal binds to the commit it would tag (ambiguity): applied.
+11. The abandoned release PR's `autorelease: pending` label must go or
+    release-please aborts the next cycle, D-10's failure (correctness):
+    applied.
+12. Task 12's Dependencies line was unparseable and the shared-file notes
+    misnamed the files Tasks 12 and 13 share (citation and coverage):
+    applied.
+13. Stopgap misattributed to #995 instead of #987, and D-16's REQ-G1.4 claim
+    overstated (citation and coverage): applied.
+14. Task 11's Done when depended on a future release; tags now
+    `[test + manual]`, Task 12's token check names its evidence, and test
+    homes are named (testability): applied.
+15. A claim that the brief's amendment log stops at Amendment 3 (cross-file
+    consistency): declined, Amendment 5 is present.
+16. A missing `.md` suffix on one doctrine citation (documentation):
+    declined, a preference with no reader acting differently.
+
+| Lens (spec set) | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and consistency | 6 | items 1, 2, 4, 5, 6, 11 |
+| Ambiguity and interpretation forks | 5 | items 3, 7, 8, 9, 10 |
+| Citation and coverage integrity | 2 | items 12, 13; every new REQ is cited by a D, a task and a test entry |
+| Dead verification paths | none | every named test file exists or is named as new; each `[manual]` part is tagged |
+| Decision-domain gaps | none | the one gap found (skip-file path configurability) is merged into item 9 |
+| Testability | 1 | item 14 |
+| Cross-file consistency | 1 | item 15, declined |
+| Documentation and glossary drift | 1 | item 16, declined; the "pending" restatement is item 9 |
+| Rendered-content safety | n/a | the bundle is not rendered into an executing or markup context |
+
+Post-lens stale-reference sweep over the four files and this brief: no
+leftover wording from the superseded phrasing. Altitude check: not applicable
+(no altitude trigger in this delta). Ship-gate check: no out-of-band fix
+named. Decision-domains gap check: authorization stays decided (the verifier
+is read-only and CI gains no admin scope); configuration decided by item 9.
+Validator: only the stale-anchor error before this record, which it replaces.
+`Last reviewed:` moved on all four files.
+
+**Operator follow-up, outside the spec:** `main`'s ruleset does not require
+`window-lock`, so the verifier will report "not required" on the next pending
+release until the operator adds it while no release is pending.
+
+**Cites the changelog line:** the 2026-11-20 `## Changelog` entry in
+`requirements.md`.
+
+Class: meaning
+Lens-pass: delta-scoped, 16 findings, all dispositioned (14 applied, 2 declined)
+Anchor: `676015dfbdd9bb8e904363f7139fd22c04d70f5a` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
