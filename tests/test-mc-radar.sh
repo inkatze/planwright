@@ -292,6 +292,10 @@ chmod +x "$tmp/bin/gh"
 PATH="$tmp/bin:$PATH"
 GH_OPEN=$gh_open GH_LOG=$gh_log GH_FAIL=$gh_fail
 export PATH GH_OPEN GH_LOG GH_FAIL
+command -v jq >/dev/null 2>&1 || {
+  echo "FAIL: jq is required to run the gh stub's --jq program" >&2
+  exit 1
+}
 # set_open <branch>...: the pull requests open on the forge, by head branch;
 # a head written fork:<branch> belongs to a fork.
 set_open() {
@@ -446,12 +450,13 @@ case $(stored_events) in
 esac
 
 # Only branches with an open pull request pair: one whose pull request is
-# closed, one with none, and one only a fork's pull request names drop out,
-# however the scope picked them.
+# closed and one whose only pull request is a fork's drop out, however the
+# scope picked them.
 edit planwright/flight/dead-closed main 10 dead1
 edit planwright/flight/dead-nopr main 10 dead2
 g checkout -q main
 git -C "$tmp/clone" fetch -q "$tmp/work" '+refs/heads/*:refs/remotes/origin/*'
+bulk() { awk -v n="$1" 'BEGIN { for (i = 1; i <= n; i++) print "bulk-" i }'; }
 open_pair() { grep -c 'feat-a+origin/feat-b\|feat-b+origin/feat-a'; }
 set_scope
 radar_fresh 1:feat-a:main 2:feat-b:main 9:planwright/flight/dead-closed:main
@@ -462,7 +467,7 @@ ev=$(stored_events)
 expect_rc "a pass over open and dead branches" 0
 case $ev in
   *"dead-closed"* | *"dead-nopr"*) fail "a branch without an open pull request paired: $ev" ;;
-  *) ok "a closed pull request's branch, one with none and one a fork's pull request names raise no event" ;;
+  *) ok "a closed pull request's branch and one only a fork's pull request names raise no event" ;;
 esac
 pair_events=$(printf '%s\n' "$ev" | open_pair)
 if [ "$pair_events" -eq 1 ]; then
@@ -518,12 +523,12 @@ if [ -z "$(stored_events)" ]; then ok "no open pull request raises no event"; el
 # a cut one: one short of the page is read, the page itself is refused.
 radar_fresh 1:feat-a:main 2:feat-b:main
 # shellcheck disable=SC2046
-set_open feat-a feat-b $(seq -f 'bulk-%g' 1 997)
+set_open feat-a feat-b fork:fk-1 $(bulk 996)
 radar_pass
 expect_rc "a page one short of full is read whole" 0
 radar_fresh 1:feat-a:main 2:feat-b:main
 # shellcheck disable=SC2046
-set_open feat-a feat-b $(seq -f 'bulk-%g' 1 998)
+set_open feat-a feat-b fork:fk-1 $(bulk 997)
 radar_pass
 expect_rc "a full page is refused" 1
 if grep -q '1000 or more open pull requests' "$tmp/stderr" && [ -z "$(stored_events)" ]; then

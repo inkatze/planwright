@@ -414,18 +414,19 @@ case $verb in
           if ($14 != "" && $14 != "-") print "origin/" $14
           if ($13 != "" && $13 != "-") print "origin/" $13
         }')
-      # The heads of this repository's open pull requests, one forge read per
-      # pass. A cross-repository head prints as "-", so the count below is of
-      # every row the page held and a cut page cannot pass as whole.
       mc_valid_slug "$slug" || {
         printf '%s\n' "$prog: $(sanitize_printable "$r"): origin names no owner/name repository, so its open pull requests cannot be read" >&2
         rc=1
         continue
       }
+      # The heads of this repository's open pull requests, one forge read per
+      # pass. A cross-repository head prints as "*", which no branch is named,
+      # so the count below is of every row the page held and a cut page cannot
+      # pass as whole.
       open_heads=$(
         cd "$runtime" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" "$GH_BOUND" gh pr list --repo "$slug" --state open --limit "$OPEN_LIMIT" \
           --json headRefName,isCrossRepository \
-          --jq '.[] | if .isCrossRepository then "-" else .headRefName end' 2>/dev/null </dev/null
+          --jq '.[] | if .isCrossRepository then "*" else .headRefName end' 2>/dev/null </dev/null
       ) || {
         printf '%s\n' "$prog: $(sanitize_printable "$r"): the open pull requests cannot be read" >&2
         rc=1
@@ -441,7 +442,7 @@ case $verb in
       picked=$(printf '%s\n' "$list" | SCOPE=$scope PRS=$repo_prs OPEN_HEADS=$open_heads WATCHED=$watched D=$def awk -F '\t' '
         BEGIN {
           scope = ENVIRON["SCOPE"]
-          n = split(ENVIRON["OPEN_HEADS"], q, "\n"); for (i = 1; i <= n; i++) if (q[i] != "" && q[i] != "-") openhead["origin/" q[i]] = 1
+          n = split(ENVIRON["OPEN_HEADS"], q, "\n"); for (i = 1; i <= n; i++) if (q[i] != "") openhead["origin/" q[i]] = 1
           n = split(ENVIRON["PRS"], p, "\n"); for (i = 1; i <= n; i++) if (p[i] != "") pr[p[i]] = 1
           n = split(ENVIRON["WATCHED"], w, "\n"); for (i = 1; i <= n; i++) if (w[i] != "") watch["origin/" w[i]] = 1
         }
