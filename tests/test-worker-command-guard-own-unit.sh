@@ -76,6 +76,7 @@ assert_allow "export of the step context, then step-record.sh write" \
 assert_allow "the shape a worker stalled on: tracked root, export, writes, audit, rc echo" \
   "S=$PLUGIN_ROOT/scripts && export $CTX PLANWRIGHT_STEP_SPEC= PLANWRIGHT_STEP_TASK_IDS= PLANWRIGHT_STEP_PR_NUMBER=268 && \$S/step-record.sh write --run 000003 --point post-pr --step bot-review --outcome passed && \$S/step-record.sh write --completion --run 000003 --point post-pr && \$S/step-run.sh audit --through post-pr --base origin/main; echo rc=\$?" Bash "$WT"
 assert_allow "export without a worktree field, then step-run.sh" "export PLANWRIGHT_STEP_BRANCH=$B && $SRUN audit --through pre-pr" Bash "$WT"
+assert_allow "export, then step-run.sh resolve" "export $CTX && $SRUN resolve --run 000001 pre-pr --unattended" Bash "$WT"
 assert_allow "from a subdirectory of the worktree" "export $CTX && $SREC new-run" Bash "$WT/sub"
 assert_defer "another worker's run store" "export PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && $SREC write --run 1" Bash "$WT"
 assert_defer "a worktree spelled through a dot-dot" "export PLANWRIGHT_STEP_WORKTREE=$WT/../other && $SREC write --run 1" Bash "$WT"
