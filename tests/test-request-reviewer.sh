@@ -47,6 +47,12 @@ fi
 # when a review is requested; view_fail_at.<n> fails the nth view and
 # view_json.<n> answers it verbatim; request_rc
 # and undo_rc are the exits of the request and the re-draft.
+# The review requests the GraphQL read answers: $GHS/events holds the
+# timeline's review-request events (`<id> <login>` lines) and $GHS/pending the
+# requested reviewers' logins. A request that succeeds lands an event for its
+# reviewer unless no_land exists; pending_only lands it as a pending reviewer
+# with no event; land_at holds the read from which a landed request shows;
+# gq_fail_at.<n> fails the nth read.
 cat >"$MP_STUBBIN/gh" <<'GHSTUB'
 #!/bin/sh
 {
@@ -78,7 +84,39 @@ case "$1 $2" in
     rc=0
     [ ! -f "$GHS/request_rc" ] || rc=$(cat "$GHS/request_rc")
     [ ! -f "$GHS/undraft_on_request" ] || : >"$GHS/ready"
+    if [ "$rc" = 0 ] && [ ! -f "$GHS/no_land" ]; then
+      who=copilot-pull-request-reviewer
+      for a in "$@"; do
+        case $a in 'reviewers[]='*) who=${a#reviewers\[\]=} who=${who%\[bot\]} ;; esac
+      done
+      if [ -f "$GHS/pending_only" ]; then
+        echo "$who" >>"$GHS/landed_pending"
+      else
+        echo "RRE_new$$ $who" >>"$GHS/landed_events"
+      fi
+    fi
     exit "$rc"
+    ;;
+  'api graphql')
+    n=0
+    [ ! -f "$GHS/gq_n" ] || n=$(cat "$GHS/gq_n")
+    n=$((n + 1))
+    echo "$n" >"$GHS/gq_n"
+    if [ -f "$GHS/gq_fail_at.$n" ]; then
+      echo 'HTTP 502: Bad Gateway' >&2
+      exit 1
+    fi
+    show=1
+    [ ! -f "$GHS/land_at" ] || [ "$n" -ge "$(cat "$GHS/land_at")" ] || show=0
+    events=$(cat "$GHS/events" 2>/dev/null)
+    pending=$(cat "$GHS/pending" 2>/dev/null)
+    if [ "$show" = 1 ]; then
+      events=$(printf '%s\n%s' "$events" "$(cat "$GHS/landed_events" 2>/dev/null)")
+      pending=$(printf '%s\n%s' "$pending" "$(cat "$GHS/landed_pending" 2>/dev/null)")
+    fi
+    ev=$(printf '%s\n' "$events" | awk 'NF { printf "%s{\"id\":\"%s\",\"requestedReviewer\":{\"login\":\"%s\"}}", (c++ ? "," : ""), $1, $2 }')
+    pe=$(printf '%s\n' "$pending" | awk 'NF { printf "%s{\"requestedReviewer\":{\"login\":\"%s\"}}", (c++ ? "," : ""), $1 }')
+    printf '{"data":{"repository":{"pullRequest":{"reviewRequests":{"nodes":[%s]},"timelineItems":{"nodes":[%s]}}}}}\n' "$pe" "$ev"
     ;;
   'pr ready')
     case " $* " in
@@ -95,7 +133,9 @@ esac
 GHSTUB
 chmod +x "$MP_STUBBIN/gh"
 
+export PLANWRIGHT_REQUEST_REVIEWER_POLL_SECONDS=0 PLANWRIGHT_REQUEST_REVIEWER_MAX_POLLS=3
 run() { mp_run "$HELPER" --repo acme/widgets --pr 42 "$@"; }
+gq_reads() { cat "$GHS/gq_n" 2>/dev/null || echo 0; }
 undos() { mp_calls 'pr ready 42 --repo acme/widgets --undo'; }
 requests() { grep -c '^CALL \(pr edit\|api -X POST\)' "$GHS/log" 2>/dev/null || true; }
 is_draft() { [ ! -f "$GHS/ready" ]; }
@@ -240,6 +280,100 @@ run --reviewer 'copilot-pull-request-reviewer[bot]'
 check "an App login is accepted (exit 0)" [ "$CODE" = 0 ]
 check "the REST body carries the [bot] login" \
   [ "$(mp_calls 'api -X POST repos/acme/widgets/pulls/42/requested_reviewers -f reviewers\[\]=copilot-pull-request-reviewer\[bot\]')" = 1 ]
+
+echo "# an accepted request that never lands is refused, naming the fallback"
+fixture
+: >"$GHS/ready"
+: >"$GHS/no_land"
+run --copilot
+check "an accepted request with no review request landing exits 6" [ "$CODE" = 6 ]
+check "the landing wait is bounded: one read before the request, the poll cap after" [ "$(gq_reads)" = 4 ]
+check "the refusal is one line" [ "$(grep -c 'did not land' <<<"$OUT")" = 1 ]
+check "the refusal names what did not land" \
+  grep -q 'the review request to Copilot on PR #42 did not land: no review_requested event and no pending request' <<<"$OUT"
+check "the refusal names the draft-and-ready fallback that fires PR-Agent" \
+  grep -q 'convert PR #42 to draft and mark it ready again' <<<"$OUT"
+check "the refusal never claims the review was requested" not grep -q 'requested a review from' <<<"$OUT"
+check "a ready PR is not re-drafted over a request that did not land" [ "$(undos)" = 0 ]
+
+echo "# a request that lands a few reads later passes, and the wait stops there"
+fixture
+: >"$GHS/ready"
+echo 3 >"$GHS/land_at"
+run --copilot
+check "a request whose review_requested event lands exits 0" [ "$CODE" = 0 ]
+check "the wait stops at the read that saw it land" [ "$(gq_reads)" = 3 ]
+check "the handoff says the request landed" grep -q 'requested a review from Copilot on PR #42' <<<"$OUT"
+
+echo "# an earlier request's event is not this request landing"
+fixture
+: >"$GHS/ready"
+: >"$GHS/no_land"
+echo 'RRE_old copilot-pull-request-reviewer' >"$GHS/events"
+run --copilot
+check "an event from before the request does not count as landing (exit 6)" [ "$CODE" = 6 ]
+
+echo "# a reviewer newly among the requested reviewers has landed"
+fixture
+: >"$GHS/ready"
+: >"$GHS/pending_only"
+run --reviewer 'cubic-dev-ai[bot]'
+check "a request that shows only as a pending reviewer exits 0" [ "$CODE" = 0 ]
+fixture
+: >"$GHS/ready"
+: >"$GHS/no_land"
+echo cubic-dev-ai >"$GHS/pending"
+run --reviewer 'cubic-dev-ai[bot]'
+check "a reviewer already pending before the request is not a landing (exit 6)" [ "$CODE" = 6 ]
+
+echo "# another reviewer's request landing is not this one"
+fixture
+: >"$GHS/ready"
+: >"$GHS/no_land"
+printf '%s\n' 'RRE_x cubic-dev-ai' >"$GHS/landed_events"
+echo 2 >"$GHS/land_at"
+run --copilot
+check "only the requested reviewer's event counts (exit 6)" [ "$CODE" = 6 ]
+
+echo "# on a draft, a request that does not land points at the ready flip"
+fixture
+: >"$GHS/no_land"
+run --copilot
+check "a draft whose request does not land exits 6" [ "$CODE" = 6 ]
+check "the draft state is still checked after the request" [ "$(mp_calls 'pr view')" = 2 ]
+check "the draft refusal names the ready flip as what fires PR-Agent" \
+  grep -q 'marking PR #42 ready fires PR-Agent' <<<"$OUT"
+
+echo "# a request that does not land on a draft that came back ready is still re-drafted"
+fixture
+: >"$GHS/no_land"
+: >"$GHS/undraft_on_request"
+echo 1 >"$GHS/undo_rc"
+run --copilot
+check "a failed re-draft outranks a request that did not land (exit 5)" [ "$CODE" = 5 ]
+check "the handoff still names the request that did not land" grep -q 'did not land' <<<"$OUT"
+
+echo "# unreadable review requests before the request make no request"
+fixture
+: >"$GHS/gq_fail_at.1"
+run --copilot
+check "unreadable review requests before the request skip (exit 3)" [ "$CODE" = 3 ]
+check "no request is made when its landing could not be told" [ "$(requests)" = 0 ]
+
+echo "# a read that fails while waiting is waited past"
+fixture
+: >"$GHS/ready"
+: >"$GHS/gq_fail_at.2"
+run --copilot
+check "a failed read during the wait does not end it (exit 0)" [ "$CODE" = 0 ]
+check "the wait read again after the failed read" [ "$(gq_reads)" = 3 ]
+
+echo "# a failed request is not waited on"
+fixture
+: >"$GHS/ready"
+echo 1 >"$GHS/request_rc"
+run --copilot
+check "a failed request reads the review requests only before it" [ "$(gq_reads)" = 1 ]
 
 echo "# a PR that is not open makes no request"
 fixture
