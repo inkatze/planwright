@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-19
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1007,6 +1007,34 @@ residual: the body file is checked when the hook runs and read later by
 readable file, and publish that file's content in its pull request body.
 That opens no new route: the `Read` and `Write` tools already let a worker
 copy any file it can read into its scratch root, which the check accepts.
+*(Extended by D-38 (2026-11-20): a commit or gate task may share the act's
+command.)*
+
+### D-38: An own-unit act may follow a commit or a gate task the guard approves alone  (N, extends D-37)
+
+**Decision:** The own-unit acts keep their shapes, but may now close an `&&`
+chain of chain partners: a `git add` or `git commit` the policy in force
+approves on its own, and the trusted repository tasks the guard approves
+under every policy. Partners come before the first act and are joined only
+by `&&`. File writes, spec-root writes and every other `git` act still keep
+the act's command prompting. Each partner is audited under its own arm.
+
+**Alternatives considered:**
+- Admit `git add` and `git commit` beside an act under every policy.
+  Rejected because: a command would become guard-approved only because it
+  sits in a chain; under the shipped default those acts prompt alone.
+- Gate tasks only, no `git add` or `git commit`. Rejected because:
+  commit-then-push is the commonest waiting shape and the operator asked for
+  it.
+- Admit `;` between a partner and the act. Rejected because: the push would
+  run after a failed gate or commit.
+
+**Chosen because:** workers combine commit-then-push and gate-then-push in
+one call, and each one waited on a prompt although every segment is
+approvable alone. Approving the chain adds no approvable shape, and `&&`
+keeps the push behind a passing gate. Cites the operator's kickoff answer
+(2026-11-20), and the mission-control report of the waiting shapes after
+Task 21's implementation.
 
 ## Cross-cutting concerns
 
