@@ -162,6 +162,7 @@ AUDIT_OB=0
 AUDIT_SC=0
 AUDIT_OU=0
 OU_EXPORTED=0
+OU_SEG=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -1369,7 +1370,8 @@ floor_act_words() {
 # worktree root and a usable audit log, with the session's directory in that
 # worktree's own repository, for the session's own command at the top level
 # (never inside a substitution, a `fish -c` string, a loop, an if or case
-# body, a pipeline or a background job, nor after `||`), with no redirect,
+# body, a pipeline or a background job, the whole and-or list a later `&`
+# backgrounds included, nor after `||`), with no redirect,
 # prefix or leading assignment, and no later re-assignment of a name an
 # approved export set:
 #   export PLANWRIGHT_STEP_<field>=<literal>...   the step context, its
@@ -7035,6 +7037,7 @@ verify_known_simple() {
   [ "$cwn" -ge 1 ] || return 0
   if own_unit_act; then
     AUDIT_OU=1
+    OU_SEG=1
     return 0
   fi
   strip_step_context
@@ -7125,6 +7128,9 @@ verify_tokens() {
   # for a reserved-word boundary), whether the previous segment carried state,
   # and whether a `cd` has: together they decide where state may carry (fin).
   local ctl_depth=0 seg_open='' prev_commit=0 cd_live=0
+  # 1 while the top-level and-or list since the last `;` or line break holds
+  # an own-unit act: a trailing `&` would background the whole list.
+  local ou_list=0
   # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
   # chain passes the scoped read check (SEG_SCOPED), with the directory it
   # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
@@ -7167,7 +7173,18 @@ verify_tokens() {
     PENDING_OUT=0
     PENDING_OUT_DIR=''
     SEG_SCOPED=0
+    OU_SEG=0
     verify_simple || return 1
+    [ "$OU_SEG" = 0 ] || ou_list=1
+    if [ "$ctl_depth" -eq 0 ]; then
+      [ "$close" != '&' ] || [ "$ou_list" = 0 ] || return 1
+      # The tokenizer reads every line break as `;`, but one right after
+      # `&&`, `||` or `|` (an empty segment) continues the list.
+      case $close in
+        end) ou_list=0 ;;
+        ';') [ "$cwn" -eq 0 ] && [ "$rn" -eq 0 ] || ou_list=0 ;;
+      esac
+    fi
     [ "$SEG_SCOPED" = 1 ] || SCOPED_CHAIN=0
     # A `cd` outside the worktree is approved only as a top-level `cd X;`
     # step: the `&&` chain and every other placement keep deferring.

@@ -223,6 +223,20 @@ assert_defer "at the end of a pipeline" "git status | git push origin $B" Bash "
 assert_defer "backgrounded" "git push origin $B &" Bash "$WT"
 assert_defer "a body edit backgrounded" "gh pr edit 12 --body-file $SCR/body.md & git status" Bash "$WT"
 assert_defer "an export inside a loop" "for x in a; do export $CTX; done && $SREC write --run 1" Bash "$WT"
+# A trailing `&` backgrounds the whole and-or list since the last top-level
+# `;` or newline, so an act earlier in that list is backgrounded too.
+assert_defer "a list a later & backgrounds, after &&" "git push origin $B && git status &" Bash "$WT"
+assert_defer "a list a later & backgrounds, after ||" "git push origin $B || git status &" Bash "$WT"
+assert_defer "a list a later & backgrounds, through a pipeline" "git push origin $B && git status | cat &" Bash "$WT"
+assert_defer "a list a later & backgrounds, with more after it" "git push origin $B && git status & git log" Bash "$WT"
+assert_defer "a list a later & backgrounds, through a loop" "git push origin $B && for x in a; do git status; done &" Bash "$WT"
+assert_defer "a list a later & backgrounds, over a line break" "git push origin $B &&
+git status &" Bash "$WT"
+assert_defer "a body edit in a list a later & backgrounds" "gh pr edit 12 --body-file $SCR/body.md && git status &" Bash "$WT"
+assert_defer "an export in a list a later & backgrounds" "export $CTX && $SREC new-run &" Bash "$WT"
+assert_allow "a list ended by ; before a later background job" "git push origin $B; git status &" Bash "$WT"
+assert_allow "a list ended by a line break before a later background job" "git push origin $B
+git status &" Bash "$WT"
 assert_allow "followed by a read after ;" "git push origin $B; git status" Bash "$WT"
 assert_allow "followed by || on its failure" "git push origin $B || git status" Bash "$WT"
 
