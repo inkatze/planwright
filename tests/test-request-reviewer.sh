@@ -2,7 +2,8 @@
 # Suite for scripts/request-reviewer.sh, the reviewer request that leaves a
 # draft PR draft (human-gates REQ-C1.7, REQ-C1.8): the request, the draft-state
 # check after it, the re-draft when the PR came back ready, a failed check
-# treated as un-drafted, and a failed re-draft parking the unit.
+# treated as un-drafted, a failed re-draft parking the unit, and the wait that
+# refuses an accepted request that never lands.
 #
 # Hermetic: tests/lib/merge-policy-fixture.sh builds a throwaway origin and a
 # unit clone; the stub gh below replaces its stub and answers from files.
@@ -292,7 +293,7 @@ fixture
 run --copilot
 check "an accepted request with no review request landing exits 6" [ "$CODE" = 6 ]
 check "the landing wait is bounded: one read before the request, the poll cap after" [ "$(gq_reads)" = 4 ]
-check "the refusal is the whole output, one line" [ "$(wc -l <<<"$OUT")" = 1 ]
+check "the refusal is the whole output, one line" [ "$(grep -c . <<<"$OUT")" = 1 ]
 check "the refusal names what did not land" \
   grep -q 'the review request to Copilot on PR #42 did not land: no review_requested event and no pending request' <<<"$OUT"
 check "the refusal names the draft-and-ready fallback that fires PR-Agent" \
@@ -393,6 +394,15 @@ printf '%s\n' 'RRE_older copilot-pull-request-reviewer' 'RRE_old copilot-pull-re
 run --copilot
 check "a new event after earlier ones for the reviewer exits 0" [ "$CODE" = 0 ]
 
+echo "# Copilot's request lands under either of its logins"
+fixture
+: >"$GHS/ready"
+: >"$GHS/no_land"
+echo 'RRE_x Copilot' >"$GHS/landed_events"
+echo 2 >"$GHS/land_at"
+run --copilot
+check "an event for the Copilot login counts as Copilot's (exit 0)" [ "$CODE" = 0 ]
+
 echo "# a named bot lands by its event, whatever the login's case"
 fixture
 : >"$GHS/ready"
@@ -476,6 +486,14 @@ SLEEPSTUB
 chmod +x "$MP_STUBBIN/sleep"
 PLANWRIGHT_REQUEST_REVIEWER_POLL_SECONDS=2 run --copilot
 check "three reads sleep twice, never after the last" [ "$(grep -c '^SLEEP 2$' "$GHS/log")" = 2 ]
+for case in '08 8' 'abc 3' '12345 3'; do
+  read -r knob want <<<"$case"
+  fixture
+  : >"$GHS/ready"
+  : >"$GHS/no_land"
+  PLANWRIGHT_REQUEST_REVIEWER_POLL_SECONDS=$knob run --copilot
+  check "POLL_SECONDS=$knob sleeps $want between reads" [ "$(grep -c "^SLEEP $want\$" "$GHS/log")" = 2 ]
+done
 rm -f "$MP_STUBBIN/sleep"
 for case in '0 11' 'abc 11' '08 9'; do
   read -r knob want <<<"$case"

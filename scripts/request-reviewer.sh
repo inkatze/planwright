@@ -28,17 +28,17 @@
 #      host may have acted before failing.
 #   3. On a PR that was a draft, read the draft state again at once. A PR
 #      reported ready, or a read that fails, gets `gh pr ready --undo`.
-#   4. A request the host accepted is not proof: GitHub has answered success
+#   4. A re-draft that fails parks the unit under `## Awaiting input`
+#      (ready-flip.sh park, reason `redraft-pr-<n>`), naming the PR, in this
+#      checkout, which must be on the PR's head branch; with no unit given, or
+#      a checkout on another branch, it is named in the output alone.
+#   5. A request the host accepted is not proof: GitHub has answered success
 #      while adding no reviewer, and PR-Agent runs on review_requested, so a
 #      request that never lands loses that run silently. Poll until the
 #      reviewer has a review_requested event newer than step 1's, or is a
 #      requested reviewer it was not in step 1, up to the bound below; a read
 #      that fails is polled past. A reviewer already requested in step 1
 #      with no newer event has not landed: no new event fired PR-Agent.
-#   5. A re-draft that fails parks the unit under `## Awaiting input`
-#      (ready-flip.sh park, reason `redraft-pr-<n>`), naming the PR, in this
-#      checkout, which must be on the PR's head branch; with no unit given, or
-#      a checkout on another branch, it is named in the output alone.
 #
 # The check stays wired whether or not the host un-drafts on request today,
 # so a host change is caught.
@@ -215,7 +215,7 @@ else
 fi
 req_rc=$?
 
-# redraft_check — steps 3 and 5: returns 0 when the draft state held or was
+# redraft_check — steps 3 and 4: returns 0 when the draft state held or was
 # restored, else the exit code (4, 5).
 redraft_check() {
   local after why now here park_out park_rc park_why
@@ -236,7 +236,7 @@ redraft_check() {
     return 0
   fi
 
-  # 5. The re-draft failed: the PR may be ready with no one having flipped it.
+  # 4. The re-draft failed: the PR may be ready with no one having flipped it.
   say "the re-draft failed: PR #$PR $now, and no one marked it ready"
   if [ "${#UNIT[@]}" = 0 ]; then
     say 'no unit was named, so nothing was parked; put the PR back to draft by hand'
@@ -269,7 +269,7 @@ if [ "$was_draft" = true ]; then
   redraft=$?
 fi
 
-# 4. An accepted request must land.
+# 5. An accepted request must land.
 nap() { [ "$POLL" = 0 ] || sleep "$POLL"; }
 landed=0 reads=0 n=0
 while [ "$req_rc" = 0 ] && [ "$n" -lt "$ATTEMPTS" ]; do
