@@ -39,8 +39,9 @@
 # descendants. Reading the marker rather than comparing against $TMPDIR keeps
 # the rule independent of where mktemp chose to put the directory.
 # `ps -ww` is read first: a narrower table can cut the path out of an argv, and a
-# guard reading it would pass on processes it never saw. A ps without -ww (busybox)
-# is read in its place, as it also is when the -ww output holds no row.
+# guard reading it would pass on processes it never saw. A ps without -ww (busybox,
+# which cuts an argv at a length far past any fixture needle) is read in its
+# place, as it also is when the -ww output holds no row.
 # Rows are normalised: control bytes and tabs in an argv read as spaces, and a
 # line that does not lead with a numeric pid and ppid joins the row before it.
 # An argv whose continuation line itself reads `<n> <m> ...` is taken for a row
@@ -114,10 +115,11 @@ _fp_rows() {
 
 # _fp_snapshot — the process rows, read with -ww when this ps takes it.
 _fp_snapshot() {
-  local wide snap table
+  local wide snap seen='' table
   for wide in -ww ''; do
     # shellcheck disable=SC2086 # an empty $wide must vanish, not become an argument
     snap=$(ps -A $wide -o pid=,ppid=,args= 2>/dev/null) || snap=''
+    seen="$seen$snap"
     table=$(printf '%s\n' "$snap" | _fp_rows)
     [ -z "$table" ] || {
       printf '%s\n' "$table"
@@ -126,7 +128,7 @@ _fp_snapshot() {
   done
   # The head of what ps printed, control bytes made visible, so a table this
   # reader cannot parse shows its bytes in the failure.
-  printf '%s\n' "fixture_procs: no usable process table on this host (ps printed: $(printf '%s' "$snap" | head -c 400 | tr '\n' '|' | LC_ALL=C sed 's/[^[:print:]]/?/g'))" >&2
+  printf '%s\n' "fixture_procs: no usable process table on this host (ps printed: $(printf '%s' "$seen" | head -c 400 | tr '\n' '|' | LC_ALL=C sed 's/[^[:print:]]/?/g'))" >&2
   return 1
 }
 

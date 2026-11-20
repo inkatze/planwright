@@ -163,6 +163,17 @@ planted_pids=$(PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" 2>"$tmp/planted.err" 
 PATH="$tmp/bin:$PATH" fixture_none "$tmp/" 2>/dev/null && fail "f6: fixture_none passed on a planted live match"
 printf '#!/bin/sh\necho " 9000106     1 sleep 1"\n' >"$tmp/bin/ps"
 PATH="$tmp/bin:$PATH" fixture_none "$tmp/" || fail "f6: fixture_none failed on a readable table with no match"
+# The refusal names the bytes ps printed, control bytes shown as `?`.
+printf '#!/bin/sh\nprintf "bad\\001line\\n"\n' >"$tmp/bin/ps"
+refusal=$(PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" 2>&1 >/dev/null)
+case $refusal in
+  *"no usable process table"*"ps printed: bad?line"*) ;;
+  *) fail "f6: the refusal did not carry the bytes ps printed: '$refusal'" ;;
+esac
+# A ps that rejects -ww and serves rows without it is read through the retry.
+printf '#!/bin/sh\ncase " $* " in *" -ww "*) echo "usage: ps"; exit 1 ;; esac\necho " 9000107     1 sh -c %s/d"\n' "$tmp" >"$tmp/bin/ps"
+retried=$(PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" 2>"$tmp/planted.err" | awk '{ printf "%s ", $1 }')
+[ "$retried" = "9000107 " ] || fail "f6: the narrow retry after a refused -ww matched '$retried': $(cat "$tmp/planted.err")"
 echo "ok: f6 one malformed line does not void the process table"
 
 echo "all fixture-procs tests passed"
