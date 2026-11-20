@@ -521,9 +521,28 @@ run_sweep() {
 # stream-json worker belongs to: its launcher row's, else the owner its
 # dispatch record keeps (mission-control:<program>), which outlives a row that
 # was removed, provided that program is still configured: a record naming a
-# removed one would send the prompt to a keeper that no longer runs. Prints
-# nothing when neither names one.
+# removed one would send the prompt to a keeper that no longer runs. A worker
+# neither names takes its parent's (the worker it was launched from inside,
+# as fleet-streamjson.sh records it), but only from the parent's own row or
+# record, never the parent's parent: the launching process sets the parent,
+# so it counts only while a record the launcher wrote vouches for it, and a
+# retired parent has neither. Prints nothing when none names one.
 worker_program() {
+  wp_own=$(worker_program_own "$1" "$2" "$3")
+  if [ -z "$wp_own" ]; then
+    wp_f="$3/streamjson/$1/parent"
+    if [ -f "$wp_f" ] && [ ! -L "$wp_f" ]; then
+      wp_par=$(head -n 1 "$wp_f")
+      if mc_valid_handle "$wp_par" && [ "$wp_par" != "$1" ]; then
+        wp_own=$(worker_program_own "$wp_par" "$2" "$3")
+      fi
+    fi
+  fi
+  [ -z "$wp_own" ] || printf '%s\n' "$wp_own"
+  return 0
+}
+
+worker_program_own() {
   wp_p=$(printf '%s\n' "$2" | W=$1 awk -F '\t' 'NF && $1 == ENVIRON["W"] { print $2; exit }')
   if [ -z "$wp_p" ]; then
     wp_m="$3/dispatch-markers/$1"
@@ -633,6 +652,8 @@ announce_unowned() {
 # earlier keepers left, so a worker's directory holds a claim only while its
 # request waits.
 unowned_claims_prune() {
+  # A linked worker directory would aim the removals somewhere else.
+  [ -d "$1" ] && [ ! -L "$1" ] || return 0
   rm -f "$1/unowned-announced"
   set +f
   for uc_f in "$1"/unowned-announced.*; do

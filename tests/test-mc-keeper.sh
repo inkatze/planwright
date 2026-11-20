@@ -314,6 +314,36 @@ expect_out "a request that has just arrived on a worker no one owns is raised as
 pp_req rl-gone mission-control:removedprog
 keeper_as alpha 5260
 expect_out "a worker whose record names a program no longer configured is raised as unowned" "announced${tab}stream-json-worker-unowned${tab}rl-gone"
+# A step session launched from inside a worker names it as its parent, and is
+# its parent's program's to announce while the parent's own record names one.
+parent_of() { printf '%s\n' "$2" >"$fleet/streamjson/$1/parent"; }
+own_worker rl-step-parent mission-control:alpha
+pp_req rl-step none
+parent_of rl-step rl-step-parent
+keeper_as alpha 5300
+expect_out "a step session is announced to its parent's program" "announced${tab}pending-prompt-overdue${tab}rl-step"
+expect_no_out "and is not raised as unowned" "stream-json-worker-unowned${tab}rl-step"
+keeper_as beta 5310
+expect_no_out "nor by another program" "rl-step"
+pp_req rl-step-ghost none
+parent_of rl-step-ghost rl-step-nobody
+keeper_as alpha 5320
+expect_out "a parent with no row or record leaves the session unowned" "announced${tab}stream-json-worker-unowned${tab}rl-step-ghost"
+own_worker rl-step-retired mission-control:alpha
+rm -f "$fleet/dispatch-markers/rl-step-retired"
+pp_req rl-step-late none
+parent_of rl-step-late rl-step-retired
+keeper_as alpha 5330
+expect_out "a retired parent leaves the session unowned" "announced${tab}stream-json-worker-unowned${tab}rl-step-late"
+pp_req rl-step-grand none
+parent_of rl-step-grand rl-step
+keeper_as alpha 5340
+expect_out "a parent that is itself only a child is not followed further" "announced${tab}stream-json-worker-unowned${tab}rl-step-grand"
+pp_req rl-step-self none
+parent_of rl-step-self rl-step-self
+keeper_as alpha 5350
+expect_out "a session naming itself as parent stays unowned" "announced${tab}stream-json-worker-unowned${tab}rl-step-self"
+rm -rf "$fleet/streamjson/rl-step" "$fleet/streamjson/rl-step-ghost" "$fleet/streamjson/rl-step-late" "$fleet/streamjson/rl-step-grand" "$fleet/streamjson/rl-step-self"
 # A program never escalates to itself: with no hub, the request of a worker
 # whose own mission control is dead is raised by another program's keeper.
 mc_row beta dead
@@ -391,6 +421,18 @@ if [ "$rl_many_claims" = 0 ]; then
 else
   fail "claims outlive their settled requests: $(ls "$fleet/streamjson/rl-many/")"
 fi
+# A worker directory that is a link is never pruned through.
+mkdir -p "$tmp/linked-worker"
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000009\tpermission\t1000\tanswered\t1100\n' >"$tmp/linked-worker/journal"
+: >"$tmp/linked-worker/unowned-announced.aaaa1111-bbbb-cccc-dddd-eeee00000009"
+ln -s "$tmp/linked-worker" "$fleet/streamjson/rl-linked"
+keeper_as alpha 5150
+if [ -e "$tmp/linked-worker/unowned-announced.aaaa1111-bbbb-cccc-dddd-eeee00000009" ]; then
+  ok "a linked worker directory's files are left alone"
+else
+  fail "the prune removed a file through a linked worker directory"
+fi
+rm -f "$fleet/streamjson/rl-linked"
 keeper_as hub 5150
 if grep -q "^rl-many${tab}" "$fleet/mission-control/hub/keeper-unowned" 2>/dev/null; then
   fail "the hub's unowned set keeps settled requests: $(cat "$fleet/mission-control/hub/keeper-unowned")"
