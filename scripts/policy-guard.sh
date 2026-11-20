@@ -7288,22 +7288,33 @@ branch_sync_run() {
   return 1
 }
 
-# sync_wrapped_run <wrapper> — 0 when the wrapper segment in SW runs the helper:
-# the word in the place it executes (a shell's script operand, the command
-# after another wrapper's options, a find action's command), or a command
-# string naming it. A shell with -n runs nothing; one with no script operand
-# reads stdin, which counts.
+# sync_wrapped_run <wrapper> — 0 when the wrapper segment in SW may run the
+# helper. Any command string naming it counts, read as text. A shell runs its
+# script operand (with -n nothing, with none its stdin); find runs only its
+# -exec family's commands; an interpreter reads its operand as a program; eval,
+# source, trap and alias run their first operand. Any other wrapper fails
+# closed: a later word naming the helper counts, whatever option values or
+# further wrappers stand between, unless the command it wraps is a read-only
+# tool (SYNC_READERS) whose arguments are only files.
+SYNC_READERS=' shellcheck shfmt wc cat grep egrep fgrep rg head tail ls stat file diff cmp md5sum sha1sum sha256sum shasum b2sum nl od cut tr realpath readlink basename dirname '
 sync_wrapped_run() {
-  local b=$1 k=1 n=${#SW[@]} w first='' shell=0 noexec=0 opt_c=0 next=0 rc=1
-  case $SYNC_STDIN in *" $b "*) shell=1 ;; esac
-  case $b in eval | source | . | xargs | parallel) shell=0 ;; esac
+  local b=$1 k=1 n=${#SW[@]} w kind=wrap first='' noexec=0 opt_c=0 next=0 skip=0 rc=1
+  case $b in
+    bash | sh | zsh | dash | ksh | mksh | fish) kind=shell ;;
+    find) kind='find' ;;
+    awk | gawk | mawk | nawk | perl | ruby | node | python | make) kind=interp ;;
+    eval | source | . | trap | alias) kind=first ;;
+  esac
   while [ "$k" -lt "$n" ]; do
     lc "${SW[$k]}"
     w=$LC
     k=$((k + 1))
+    if [ "$skip" = 1 ]; then
+      skip=0
+      continue
+    fi
     case $w in
       *[[:space:]\;\&\|\(\)\`]*)
-        # A command string (a shell's -c text, ssh's command) is read as text.
         shopt -s nocasematch
         ! raw_force_push_call "${w//[\"\'\\]/}" worker-branch-sync || rc=0
         shopt -u nocasematch
@@ -7316,38 +7327,49 @@ sync_wrapped_run() {
       case ${w##*/} in worker-branch-sync*) return 0 ;; esac
       continue
     fi
-    if [ "$shell" = 1 ] && [ -z "$first" ]; then
-      case $w in
-        -o | +o | -O | +O | --rcfile | --init-file)
-          k=$((k + 1))
-          continue
-          ;;
-        +*) continue ;;
-      esac
-    fi
-    case $w in
-      -exec | -execdir | -ok | -okdir) next=1 ;;
-      -*)
-        if [ "$shell" = 1 ] && [ -z "$first" ]; then
-          case $w in --*) ;; *n*) noexec=1 ;; esac
-          case $w in --*) ;; *c*) opt_c=1 ;; esac
-        fi
+    case $kind in
+      shell)
+        [ -z "$first" ] || continue
+        case $w in
+          -o | +o | -O | +O | --rcfile | --init-file) skip=1 ;;
+          --*) ;;
+          [-+]*)
+            case $w in *n*) noexec=1 ;; esac
+            case $w in *c*) opt_c=1 ;; esac
+            case $w in *o | *O) skip=1 ;; esac
+            ;;
+          *)
+            first=$w
+            case ${w##*/} in worker-branch-sync*) [ "$noexec" = 1 ] || return 0 ;; esac
+            ;;
+        esac
         ;;
-      [A-Za-z_]*=*) ;;
+      find)
+        case $w in -exec | -execdir | -ok | -okdir) next=1 ;; esac
+        ;;
+      interp) ;;
+      first)
+        [ -z "$first" ] || continue
+        case $w in -*) continue ;; esac
+        first=$w
+        case ${w##*/} in worker-branch-sync*) return 0 ;; esac
+        ;;
       *)
+        case $w in -* | [A-Za-z_]*=*) continue ;; esac
         if [ -z "$first" ]; then
-          # A wrapper's number (timeout's duration, nice's niceness) is no
-          # command, and an interpreter's operand is a program it reads, not
-          # one it runs; only a command string names a run there.
-          case "$shell:$w" in 0:[0-9]*) continue ;; esac
-          case $b in awk | gawk | mawk | nawk | perl | ruby | node | python | make | trap | alias) continue ;; esac
-          first=$w
-          case ${w##*/} in worker-branch-sync*) [ "$noexec" = 1 ] || return 0 ;; esac
+          case $w in
+            [0-9]*) ;;
+            *)
+              first=$w
+              case $SYNC_READERS in *" ${w##*/} "*) return 1 ;; esac
+              ;;
+          esac
         fi
+        case ${w##*/} in worker-branch-sync*) return 0 ;; esac
         ;;
     esac
   done
-  [ "$shell" = 1 ] && [ -z "$first" ] && [ "$opt_c" = 0 ] && [ "$noexec" = 0 ] && return 0
+  [ "$kind" = shell ] && [ -z "$first" ] && [ "$opt_c" = 0 ] && [ "$noexec" = 0 ] && return 0
   return 1
 }
 

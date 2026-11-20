@@ -146,7 +146,10 @@ for c in "sh -c '$S/worker-branch-s\\ync.sh ff $SHA'" "bash -c 'cd /tmp && $S/wo
 $PUSH
 EOF" "printf '%s\\n' '$PUSH' | bash" "cat $SANDBOX/x | sh # worker-branch-sync" \
   "timeout 60 $H ff $SHA" "bash -o posix $H ff $SHA" "source $H" "nice -n 5 $H ff $SHA" \
-  "find . -name x -execdir $H ff $SHA ;" "sh -e $H ff $SHA"; do
+  "find . -name x -execdir $H ff $SHA ;" "sh -e $H ff $SHA" \
+  "env bash $H ff $SHA" "timeout 60 bash $H ff $SHA" "busybox sh $H ff $SHA" "nohup sh $H ff $SHA" \
+  "timeout -s KILL 10 $H ff $SHA" "env -u FOO $H ff $SHA" "flock /tmp/l $H ff $SHA" "ssh host $H ff $SHA" \
+  "bash -eo pipefail $H ff $SHA" "trap $H EXIT" "eval $H"; do
   sync "$c"
   expect deny "[worker] the hidden run '$(printf '%s' "$c" | tr '\n' ' ' | cut -c1-70)' denies"
 done
@@ -236,7 +239,8 @@ for c in "grep -n lease $H" "cat $H" "shellcheck scripts/worker-branch-sync.sh" 
   "git commit -m 'fix(worker-branch-sync): a; b | c & d'" "grep -rn 'x;worker-branch-sync' docs" \
   "bash -n scripts/worker-branch-sync.sh" "sh -n $H" "find . -name worker-branch-sync.sh" \
   "timeout 60 shellcheck scripts/worker-branch-sync.sh" "awk 1 scripts/worker-branch-sync.sh" \
-  "xargs wc -l scripts/worker-branch-sync.sh" \
+  "xargs wc -l scripts/worker-branch-sync.sh" "find -name worker-branch-sync.sh" \
+  "find -iname 'worker-branch-sync*' -print" \
   "bash tests/test-worker-branch-sync.sh" "git log --oneline -- scripts/worker-branch-sync.sh" \
   "git add scripts/worker-branch-sync.sh" "sed -n 1,20p scripts/worker-branch-sync.sh"; do
   sync "$c"
