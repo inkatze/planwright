@@ -151,7 +151,6 @@ cap_launch malformed
 # held by the bound, so a host full of heavy units still takes a cheap
 # read-only session; every kind under the worker profile stays held, and the
 # exemption leaves no bypass event.
-set_cap 2
 kind_launch() { # <kind> <scope> [extra launch args...]
   kl_kind=$1
   kl_scope=$2
@@ -160,6 +159,16 @@ kind_launch() { # <kind> <scope> [extra launch args...]
   mkdir -p "$rec"
   SHIM_RECORD_DIR=$rec ml_cap launch --program alpha --kind "$kl_kind" --scope "$kl_scope" --brief "$tmp/brief.md" --cwd "$repo" "$@"
 }
+# An exempt kind never reads the bound, so the malformed value above leaves
+# it free to launch.
+kind_launch tower light-malformed
+if [ "$RC" = 0 ]; then
+  ok "a malformed bound does not refuse an exempt kind"
+  wait_done "$(field name)"
+else
+  fail "a tower launch under a malformed bound exited $RC: $ERR"
+fi
+set_cap 2
 for light_kind in tower orchestrator; do
   kind_launch "$light_kind" "light-$light_kind"
   if [ "$RC" = 0 ]; then
