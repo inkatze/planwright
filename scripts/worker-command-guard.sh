@@ -1455,6 +1455,13 @@ own_unit_same_repo() {
 own_step_export_ok() {
   local i w f v
   own_unit_words_bare 0 "$cwn" || return 1
+  # A step name the command assigned earlier, exported or not, could reach
+  # the step call around the checks below.
+  for ((i = 0; i < VAR_C; i++)); do
+    case ${VAR_N[i]} in
+      PLANWRIGHT_STEP_*) return 1 ;;
+    esac
+  done
   for ((i = 1; i < cwn; i++)); do
     w=${cw[i]}
     case $w in

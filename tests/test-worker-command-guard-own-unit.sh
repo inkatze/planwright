@@ -247,6 +247,16 @@ assert_defer "a re-assignment of another exported name" \
   "export PLANWRIGHT_STEP_BRANCH=$B && PLANWRIGHT_STEP_BRANCH=x; $SREC write --run 1" Bash "$WT"
 assert_defer "a loop over an exported name" \
   "export PLANWRIGHT_STEP_WORKTREE=$WT && for PLANWRIGHT_STEP_WORKTREE in $OTHER_WT; do $SREC write --run 1; done" Bash "$WT"
+assert_defer "a plain step assignment before the export" \
+  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT; export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --run 1" Bash "$WT"
+assert_defer "a plain step assignment chained before the export" \
+  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --run 1" Bash "$WT"
+HOOK_ENV=("${USE_ENV[@]}" "PLANWRIGHT_STEP_WORKTREE=$WT")
+assert_defer "a plain re-assignment of an inherited exported step name before the export" \
+  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT; export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --run 1" Bash "$WT"
+HOOK_ENV=("${USE_ENV[@]}")
+assert_allow "a non-step assignment before the export" \
+  "S=$PLUGIN_ROOT/scripts && export PLANWRIGHT_STEP_BRANCH=$B && \$S/step-record.sh new-run" Bash "$WT"
 assert_allow "a second checked export" "export PLANWRIGHT_STEP_BRANCH=$B && export PLANWRIGHT_STEP_WORKTREE=$WT && $SREC new-run" Bash "$WT"
 
 echo "### the step worktree is pinned in every spelling under a record"
