@@ -68,6 +68,10 @@ mkdir -p "$WT/lefthook" "$WT/sub" "$WT/tree-ok/lefthook" "$WT/tree-bad/lefthook"
 : >"$WT/tree-ok/lefthook.yml"
 : >"$WT/tree-bad/lefthook/t.yml"
 : >"$WT/tree-bad/lefthook-local.yml"
+mkdir -p "$WT/tree-link" "$SC/from-scratch"
+ln -s "$OUT_DIR" "$WT/tree-link/lefthook"
+ln -s "$OUT_DIR/x" "$WT/tree-link/lefthook.yml"
+: >"$SC/from-scratch/lefthook.yml"
 
 OPEN_CMDS=(
   "echo x >> lefthook.yml"
@@ -112,6 +116,19 @@ SHUT_CMDS=(
   "cp f \$TMPDIR/lefthook.yml"
   "mkdir -p \$TMPDIR/lefthook"
   "touch \$TMPDIR/lefthook.yml"
+  "touch Lefthook-Local.yml"
+  "touch .LEFTHOOK.yml"
+  "touch $CORPUS_BOX/main/lefthook.yml"
+  "cd $CORPUS_BOX/main && touch lefthook.yml"
+  "touch $CORPUS_BOX/other/lefthook.yml"
+  "touch outlink/lefthook.yml"
+  "touch sub/../lefthook.yml"
+  "touch ../outside/lefthook.yml"
+  "touch tree-link/lefthook/pre-commit.yml"
+  "echo x > tree-link/lefthook.yml"
+  "mv lefthook.yml lefthook-local.yml"
+  "cp lefthook.yml .lefthook.yml"
+  "mv lefthook .lefthook"
 )
 
 echo "### an opted-in record opens the lefthook config names inside the worktree"
@@ -126,6 +143,8 @@ done
 assert_allow "opt-in: a floor-clean read is unaffected" "git status" Bash "$WT"
 assert_defer "opt-in: the floor still refuses a push" "git push origin HEAD:main" Bash "$WT"
 assert_defer "opt-in: the floor still refuses a hook-skipping commit" "git commit --no-verify -m x" Bash "$WT"
+assert_defer "opt-in, run from the primary checkout: touch lefthook.yml" "touch lefthook.yml" Bash "$CORPUS_BOX/main"
+assert_defer "opt-in, run from a sibling repository: touch lefthook.yml" "touch lefthook.yml" Bash "$CORPUS_BOX/other"
 
 echo "### the opt-in needs the own-branch arm"
 under "$OPT_OB"
@@ -162,6 +181,7 @@ assert_allow "copy a clean tree into scratch (the refusals above come from the t
 assert_allow "move a clean tree into scratch" "mv tree-clean \$TMPDIR/clean-moved" Bash "$WT"
 assert_allow "copy the same tree inside the worktree" "cp -r tree-scratch tree-scratch2" Bash "$WT"
 assert_allow "move the same tree inside the worktree" "mv tree-scratch tree-moved" Bash "$WT"
+assert_allow "copy a scratch tree holding lefthook.yml into the worktree" "cp -r \$TMPDIR/from-scratch from-scratch-copy" Bash "$WT"
 echo "### the two opt-ins compose"
 under "$OPT_BOTH"
 for c in "touch lefthook.yml" "touch mise.toml" "mkdir -p mise-tasks" "mkdir -p lefthook"; do

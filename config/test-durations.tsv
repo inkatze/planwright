@@ -39,7 +39,6 @@ test-mc-snapshot-adapters.sh	35.194
 test-policy-guard-kickoff.sh	34.500
 test-inception-venture.sh	34.446
 test-worker-command-guard-mise-tasks.sh	34.0
-test-worker-command-guard-lefthook.sh	20.0
 test-worker-command-guard-steps.sh	33.825
 test-orchestrate-meta-step.sh	33.260
 test-policy-guard-kickoff-gitconfig.sh	33.200
@@ -57,6 +56,7 @@ test-worker-command-guard.sh	30.420
 test-tower-queue-away.sh	30.393
 test-fleet-liveness.sh	30.381
 test-mc-config.sh	30.347
+test-worker-command-guard-lefthook.sh	30.194
 test-allocation-feedback-callsites.sh	30.092
 test-tower-queue-batch.sh	29.584
 test-mission-control-launch-host.sh	28.773
