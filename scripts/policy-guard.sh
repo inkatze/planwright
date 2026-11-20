@@ -7263,7 +7263,7 @@ RE_SYNC_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/worker-branch-sync\.sh$'
 # the helper, a wrapper or shell with a word naming it, or a shell or runner
 # reading its script from stdin. Any other text falls back to the raw reading,
 # with line splices, quotes and backslashes dropped first.
-SYNC_WRAPPERS=' bash sh zsh dash ksh mksh fish busybox env sudo doas xargs nohup nice ionice timeout gtimeout stdbuf setsid chronic watch flock unbuffer caffeinate strace ltrace chroot unshare systemd-run fakeroot parallel find script ssh tmux screen source . make python perl ruby node awk gawk mawk nawk eval su runuser trap alias '
+SYNC_WRAPPERS=' bash sh zsh dash ksh mksh fish busybox env sudo doas xargs nohup nice ionice taskset chrt prlimit numactl timeout gtimeout stdbuf setsid chronic watch flock unbuffer caffeinate strace ltrace chroot unshare systemd-run fakeroot parallel find script ssh tmux screen source . make python perl ruby node awk gawk mawk nawk eval su runuser trap alias '
 SYNC_STDIN=' bash sh zsh dash ksh mksh fish busybox eval source . xargs parallel '
 branch_sync_run() {
   local t=${1//\\"$NL"/} si=0 w b rc=1
@@ -7293,18 +7293,24 @@ branch_sync_run() {
 # script operand (with -n nothing, with none its stdin); find runs only its
 # -exec family's commands; an interpreter reads its operand as a program; eval,
 # source, trap and alias run their first operand. Any other wrapper fails
-# closed: a later word naming the helper counts, whatever option values or
-# further wrappers stand between, unless the command it wraps is a read-only
-# tool (SYNC_READERS) whose arguments are only files.
-SYNC_READERS=' shellcheck shfmt wc cat grep egrep fgrep rg head tail ls stat file diff cmp md5sum sha1sum sha256sum shasum b2sum nl od cut tr realpath readlink basename dirname '
-sync_wrapped_run() {
-  local b=$1 k=1 n=${#SW[@]} w kind=wrap first='' noexec=0 opt_c=0 next=0 skip=0 rc=1
-  case $b in
-    bash | sh | zsh | dash | ksh | mksh | fish) kind=shell ;;
-    find) kind='find' ;;
-    awk | gawk | mawk | nawk | perl | ruby | node | python | make) kind=interp ;;
-    eval | source | . | trap | alias) kind=first ;;
+# closed: a later word naming the helper counts, whatever option values stand
+# between, until a word names what it wraps: a shell, find, an interpreter or
+# eval-like word is then read as that kind, and a read-only tool
+# (SYNC_READERS), whose arguments are only files, runs nothing.
+SYNC_READERS=' shellcheck shfmt wc cat grep egrep fgrep rg head tail sed less ls stat file diff cmp git md5sum sha1sum sha256sum shasum b2sum nl od cut tr realpath readlink basename dirname '
+sync_kind() { # <word> — set SK to the kind sync_wrapped_run reads it as
+  case $1 in
+    bash | sh | zsh | dash | ksh | mksh | fish) SK=shell ;;
+    find) SK='find' ;;
+    awk | gawk | mawk | nawk | perl | ruby | node | python | make) SK=interp ;;
+    eval | source | . | trap | alias) SK=first ;;
+    *) SK=wrap ;;
   esac
+}
+sync_wrapped_run() {
+  local b=$1 k=1 n=${#SW[@]} w kind first='' noexec=0 opt_c=0 skip=0 rc=1 SK
+  sync_kind "$b"
+  kind=$SK
   while [ "$k" -lt "$n" ]; do
     lc "${SW[$k]}"
     w=$LC
@@ -7322,11 +7328,6 @@ sync_wrapped_run() {
         continue
         ;;
     esac
-    if [ "$next" = 1 ]; then
-      next=0
-      case ${w##*/} in worker-branch-sync*) return 0 ;; esac
-      continue
-    fi
     case $kind in
       shell)
         [ -z "$first" ] || continue
@@ -7345,7 +7346,8 @@ sync_wrapped_run() {
         esac
         ;;
       find)
-        case $w in -exec | -execdir | -ok | -okdir) next=1 ;; esac
+        # An -exec family action's command is wrapped like any other.
+        case $w in -exec | -execdir | -ok | -okdir) kind=wrap ;; esac
         ;;
       interp) ;;
       first)
@@ -7356,16 +7358,10 @@ sync_wrapped_run() {
         ;;
       *)
         case $w in -* | [A-Za-z_]*=*) continue ;; esac
-        if [ -z "$first" ]; then
-          case $w in
-            [0-9]*) ;;
-            *)
-              first=$w
-              case $SYNC_READERS in *" ${w##*/} "*) return 1 ;; esac
-              ;;
-          esac
-        fi
         case ${w##*/} in worker-branch-sync*) return 0 ;; esac
+        case $SYNC_READERS in *" ${w##*/} "*) return 1 ;; esac
+        sync_kind "${w##*/}"
+        [ "$SK" = wrap ] || kind=$SK
         ;;
     esac
   done
