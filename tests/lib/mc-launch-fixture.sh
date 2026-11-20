@@ -255,6 +255,26 @@ wait_done() {
   done
 }
 
+# cwd_holder <dir> — the cwd link of one process working in <dir> or below it,
+# empty when none does. busybox find has no -lname, where an erroring find
+# would read as no holder, so it falls back to a readlink per process.
+cwd_holder() {
+  if [ -n "$(find /proc/self/cwd -prune -lname '*' 2>/dev/null)" ]; then
+    ch_glob=$(printf '%s' "$1" | sed 's/[][*?\\]/\\&/g')
+    find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$ch_glob" -o -lname "$ch_glob/*" \) 2>/dev/null | head -n 1
+    return 0
+  fi
+  for ch_c in /proc/[0-9]*/cwd; do
+    ch_t=$(readlink "$ch_c" 2>/dev/null) || continue
+    case $ch_t in
+      "$1" | "$1"/*)
+        printf '%s\n' "$ch_c"
+        return 0
+        ;;
+    esac
+  done
+}
+
 # wait_cwd_free <dir> — until no process runs with <dir> as its working
 # directory (bounded at 60s, the load-tolerant wait for an exit). Where procfs
 # is absent there is no portable scan, so it returns at once.
@@ -262,7 +282,7 @@ wait_cwd_free() {
   [ -d /proc/self ] || return 0
   wc_end=$(($(date +%s) + 60))
   while [ "$(date +%s)" -lt "$wc_end" ]; do
-    held=$(find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$1" -o -lname "$1/*" \) 2>/dev/null | head -n 1)
+    held=$(cwd_holder "$1")
     [ -n "$held" ] || return 0
     sleep 0.1
   done

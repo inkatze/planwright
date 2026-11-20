@@ -74,7 +74,7 @@ first_wt=$(cat "$rec/cwd" 2>/dev/null)
 # The result file lands while the supervisor is still winding down in the
 # worktree; the launcher refuses a worktree a process still holds, so the
 # relaunch waits for the first run's processes to leave it.
-wait_cwd_free "$first_wt"
+[ -z "$first_wt" ] || wait_cwd_free "$first_wt"
 ml retire "$(field name)"
 rec="$tmp/rec-wt-again"
 mkdir -p "$rec"
@@ -321,6 +321,7 @@ fi
   || ok "a kind that changes no repository gets no cadence section"
 printf '%s\n' '/planwright:execute-task 1 demo' >"$tmp/unit-skill-brief.md"
 ml retire "$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind reviewer --scope demo:task-1)"
+[ -z "$task_wt" ] || wait_cwd_free "$task_wt"
 rec="$tmp/rec-unit-skill"
 mkdir -p "$rec"
 SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/unit-skill-brief.md"
