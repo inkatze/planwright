@@ -130,6 +130,10 @@ fi
 ml retire "${task_name:-unset}"
 marker_present 1 && fail "retiring the unit's session left its dispatch marker" \
   || ok "retiring a task session clears its dispatch marker"
+# The first launch's supervisor writes its result while still winding down in
+# the worktree, so what follows waits for it to leave: the sleeper must be the
+# only process there, and the reuse launch must not be refused for the supervisor.
+wait_cwd_free "$task_wt"
 if [ -n "$task_wt" ] && [ -d /proc/self ]; then
   (cd "$task_wt" && exec sleep 60) &
   sleeper=$!
@@ -151,9 +155,6 @@ if [ -n "$task_wt" ] && [ -d /proc/self ]; then
 else
   ok "skip: no /proc to place a live process in the worktree"
 fi
-# The first launch's supervisor writes its result while still winding down in
-# the worktree, so the reuse launch waits for it to leave.
-wait_cwd_free "$task_wt"
 SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/brief.md"
 [ "$RC" = 0 ] && [ "$(launched_in "$rec")" = "$task_wt" ] \
   && ok "a worktree holding the branch with no live session is reused" \
