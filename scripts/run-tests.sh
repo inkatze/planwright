@@ -56,7 +56,8 @@
 # report never carries a silent hole.
 #
 # Per-file deadline: each file runs under timeout(1), or gtimeout where only
-# Homebrew's coreutils provides it, so one file that never returns cannot hold
+# Homebrew's coreutils provides it, or scripts/bounded-run.sh where a host has
+# neither (stock macOS), so one file that never returns cannot hold
 # its ticket, or the whole-suite lock its run sits under, indefinitely. The
 # bound counts from the moment the file holds its ticket. A file still running
 # at the deadline gets TERM, then KILL ten seconds later if the file itself is
@@ -64,12 +65,15 @@
 # deadline; its ticket is returned as for any other file. GNU timeout signals
 # the file's whole process group; busybox's signals the file alone, leaving
 # anything it started to run on, and passes on its status, so a file that
-# traps that TERM and exits 0 counts as passed. GNU's group is not the
-# terminal's, so a worker that gets INT, TERM or HUP passes TERM on to its
-# file, and KILL ten seconds later, before it releases the ticket and dies of
-# the signal itself. A host with no usable tool (neither installed, or none
-# taking -k) costs one warning and unbounded files. A nested runner inherits
-# PLANWRIGHT_TEST_FILE_DEADLINE and bounds its own files the same way.
+# traps that TERM and exits 0 counts as passed. bounded-run.sh signals the
+# file and every process under it, read from the process table, so a process
+# that left the tree before the deadline is out of its reach. GNU's group is
+# not the terminal's, so a worker that gets INT, TERM or HUP passes TERM on to
+# its file, and KILL ten seconds later, before it releases the ticket and dies
+# of the signal itself. A host with no usable tool (none installed, or none
+# taking -k, and no bounded-run.sh beside the runner) costs one warning and
+# unbounded files. A nested runner inherits PLANWRIGHT_TEST_FILE_DEADLINE and
+# bounds its own files the same way.
 #
 # Sharding: --shard <i>/<N> runs only shard i of N, so CI can split the suite
 # across parallel jobs. The split is longest-first onto the least-loaded
@@ -512,11 +516,25 @@ if [ "${1:-}" = "--run-one" ]; then
     # Its stdin is /dev/null, as xargs gives it, so a read cannot stop the
     # background group, timeout and its alarm included, on a terminal.
     bounding=1
+    # bounded-run.sh starts its command asynchronously from a POSIX sh, which
+    # ignores INT and QUIT for it, so the reset goes between the two.
+    inner=()
+    case "${deadline_tool##*/}" in
+      bounded-run.sh)
+        if [ -n "$deadline_env" ]; then
+          # shellcheck disable=SC2054 # one env option, not array elements
+          inner=("$deadline_env" --default-signal=INT,QUIT)
+        elif command -v perl >/dev/null 2>&1; then
+          # shellcheck disable=SC2016 # perl source, not shell
+          inner=(perl -e '$SIG{INT} = "DEFAULT"; $SIG{QUIT} = "DEFAULT"; exec @ARGV or exit 127' --)
+        fi
+        ;;
+    esac
     {
       (
         trap - INT QUIT
         exec ${deadline_env:+"$deadline_env" --default-signal=INT,QUIT} \
-          "$deadline_tool" -k 10 "$deadline" /bin/bash "$t"
+          "$deadline_tool" -k 10 "$deadline" ${inner[@]+"${inner[@]}"} /bin/bash "$t"
       ) >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1 </dev/null &
     } 2>/dev/null
     child_pid=$!
@@ -1218,6 +1236,12 @@ for tool_name in timeout gtimeout; do
     break
   fi
 done
+# Neither found: the sh bounder beside the runner, which takes timeout's
+# arguments and exit contract.
+if [ -z "$deadline_tool" ] && [ -x "$self_dir/bounded-run.sh" ] \
+  && "$self_dir/bounded-run.sh" -k 1 5 true >/dev/null 2>&1; then
+  deadline_tool="$self_dir/bounded-run.sh"
+fi
 if [ -n "$deadline_tool" ]; then
   deadline_desc="deadline ${deadline}s per file"
 else
