@@ -1007,10 +1007,13 @@ profile leaves merges and history rewrites to that guard, and a hook that
 cannot run refuses nothing. A launch or relaunch given `--mise-task-edit` or
 `--lefthook-edit` also proves that hook root's `scripts/worker-mise-edit-guard.sh`
 refuses a write of each opted-in name set outside the worktree (`mise.toml`,
-`lefthook.yml`): the generated profile drops those names' broad denies, so a
-copy that does not judge them (one from before the opt-in, or a missing one)
-refuses the launch with exit 9. A resume (`--resume-session`) takes neither
-flag: it keeps the opt-ins its launch recorded.
+`lefthook.yml`) and passes a plain file there: the generated profile drops
+those names' broad denies, so a copy that does not judge them (one from before
+the opt-in, or a missing one) refuses the launch with exit 9. That proof guards
+containment rather than approvals, so the knob below neither skips nor softens
+it; a relaunch runs it before regenerating the worker's profile. A resume
+(`--resume-session`) takes neither flag: it keeps the opt-ins its launch
+recorded.
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
 downgrades every refusal to a warning and launches, `off` skips the proof, and
 any other value is a usage error. The installed roots the proof covers are

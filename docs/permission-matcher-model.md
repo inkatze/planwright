@@ -680,9 +680,9 @@ worker can already run a command it wrote, and through it write any path the
 file-tool denies close, this opt-in's marker, another worktree's lefthook config
 and the primary checkout's included. What the path rules and the opt-in govern is
 a worker's ordinary file-tool and shell edits, not one working around them; the
-mise opt-in has the same exposure. The hook matches the lefthook names in any ASCII letter case,
-where the mise names are matched case-sensitively; both leave non-ASCII
-case-folding on a case-insensitive filesystem unhandled, and the per-launch
+mise opt-in has the same exposure. The hook matches the lefthook names in any
+ASCII letter case, where the mise names are matched case-sensitively; both
+leave non-ASCII case-folding on a case-insensitive filesystem unhandled, and the per-launch
 profile's ancestor names are case-sensitive for both.
 `tests/test-permission-matcher.sh` (pass J) runs the generated rules through the
 model, `tests/test-worker-command-guard-lefthook.sh` pins the guard half,

@@ -947,24 +947,38 @@ mv "$tmp/oldeh/scripts/worker-mise-edit-guard.sh" "$tmp/oldeh/scripts/worker-mis
 printf '#!/bin/sh\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1" mise\n' \
   >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
 chmod +x "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
-for flag in --lefthook-edit --mise-task-edit; do
+launch_oldeh() {
   : >"$rec/argv"
   env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
-    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" \
+    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" "$@" \
     /bin/sh "$tmp/oldeh/scripts/fleet-streamjson.sh" \
     launch sjw9l7 execution-backends:4 --prompt-file "$tmp/prompt9" "$flag" --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l7.err"
+}
+# The knob that softens the approval proof neither skips nor softens this one.
+for mode in refuse warn off; do
+  flag=--lefthook-edit
+  launch_oldeh PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT="$mode"
   l_rc=$?
-  case $flag in
-    --lefthook-edit)
-      { [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ]; } \
-        || fail "c9l: a hook that ignores the lefthook argument must fail the preflight (exit 9) before a spawn (exit $l_rc: $(cat "$tmp/c9l7.err"))"
-      [ ! -e "$home/streamjson/sjw9l7/lefthook-edit" ] || fail "c9l: a launch refused at the preflight must record no opt-in"
-      ;;
-    --mise-task-edit)
-      [ "$l_rc" -eq 0 ] || fail "c9l: the same hook still judges the mise names, so a mise-only launch passes (exit $l_rc: $(cat "$tmp/c9l7.err"))"
-      ;;
-  esac
+  { [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ] && grep -q "does not judge the opted-in names (failed: lefthook)" "$tmp/c9l7.err"; } \
+    || fail "c9l: under preflight mode $mode, a hook that ignores the lefthook argument must refuse the launch (exit 9) before a spawn (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+  [ ! -e "$home/streamjson/sjw9l7/lefthook-edit" ] || fail "c9l: a launch refused at the preflight must record no opt-in"
 done
+flag=--mise-task-edit
+launch_oldeh
+l_rc=$?
+[ "$l_rc" -eq 0 ] || fail "c9l: the same hook still judges the mise names, so a mise-only launch passes (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+# A hook that refuses every write proves nothing about the names: the plain
+# file is the control.
+cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
+#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}'
+EOF
+flag=--lefthook-edit
+launch_oldeh
+l_rc=$?
+{ [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ] && grep -q "failed: the-control-file" "$tmp/c9l7.err"; } \
+  || fail "c9l: a hook that refuses a plain file too must refuse the launch (exit 9) before a spawn (exit $l_rc: $(cat "$tmp/c9l7.err"))"
 echo "ok: c9l lefthook config opt-in: per-launch profile, recorded for recover, composes with the mise opt-in, refused elsewhere"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.
