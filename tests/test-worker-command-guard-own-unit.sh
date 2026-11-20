@@ -307,15 +307,21 @@ NOAUDIT="$CS/records/noaudit.record"
 record "$NOAUDIT" '' "$B" "$SCR" ''
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$NOAUDIT" "PATH=$STUB:$PATH")
 assert_defer "a record with no audit home: push" "git push origin $B" Bash "$WT"
+assert_defer "a record with no audit home: body edit" "gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+assert_defer "a record with no audit home: export" "export $CTX && $SREC new-run" Bash "$WT"
 
 echo "### the approval is audited under its own arm"
 HOOK_ENV=("${USE_ENV[@]}")
 rm -f "$REC.audit/own.log"
 assert_allow "a push, for the audit line" "git push origin $B" Bash "$WT"
-if grep -q ' arm=own-unit ' "$REC.audit/own.log" 2>/dev/null; then
-  pass "the audit line names the own-unit arm"
+for ou_act in "gh pr edit 12 --body-file $SCR/body.md" "export $CTX"; do
+  assert_allow "$ou_act, for the audit line" "$ou_act" Bash "$WT"
+done
+ou_lines=$(grep -c ' arm=own-unit ' "$REC.audit/own.log" 2>/dev/null)
+if [ "$ou_lines" = 3 ]; then
+  pass "each own-unit approval (push, body edit, export) is audited under the own-unit arm"
 else
-  fail "no own-unit audit line: $(cat "$REC.audit/own.log" 2>&1)"
+  fail "expected 3 own-unit audit lines, got ${ou_lines:-none}: $(cat "$REC.audit/own.log" 2>&1)"
 fi
 
 finish_suite worker-command-guard-own-unit
