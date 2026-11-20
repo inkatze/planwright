@@ -3879,7 +3879,7 @@ classify_git() {
       fi
       # git reads aliases from a repository the guard cannot place here.
       if [ "$dir_ok" = 0 ] || { [ "$TIER" = tower ] && [ "$foreign" = 1 ]; }; then
-        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, a cd it cannot follow, or a -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, or use git -C <literal path>."
+        deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, a cd it cannot follow, or a -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, from inside the repository's worktree."
         return 0
       fi
       git_alias_check "$sub" "$dir"
@@ -7283,23 +7283,71 @@ branch_sync_run() {
     b=$LC
     case $b in worker-branch-sync*) return 0 ;; esac
     case $SYNC_WRAPPERS in *" ${b%%[0-9.]*} "* | *" $b "*) ;; *) continue ;; esac
-    for w in "${SW[@]:1}"; do
-      lc "$w"
-      case $LC in
-        *[[:space:]\;\&\|\(\)\`]*)
-          # A command string (a shell's -c text) is read as text.
-          shopt -s nocasematch
-          ! raw_force_push_call "${LC//[\"\'\\]/}" worker-branch-sync || rc=0
-          shopt -u nocasematch
-          [ "$rc" = 1 ] || return 0
-          ;;
-        *)
-          case ${LC##*/} in worker-branch-sync*) return 0 ;; esac
-          ;;
-      esac
-    done
-    case $SYNC_STDIN in *" $b "*) [ "${#SW[@]}" -gt 1 ] || return 0 ;; esac
+    sync_wrapped_run "$b" && return 0
   done
+  return 1
+}
+
+# sync_wrapped_run <wrapper> — 0 when the wrapper segment in SW runs the helper:
+# the word in the place it executes (a shell's script operand, the command
+# after another wrapper's options, a find action's command), or a command
+# string naming it. A shell with -n runs nothing; one with no script operand
+# reads stdin, which counts.
+sync_wrapped_run() {
+  local b=$1 k=1 n=${#SW[@]} w first='' shell=0 noexec=0 opt_c=0 next=0 rc=1
+  case $SYNC_STDIN in *" $b "*) shell=1 ;; esac
+  case $b in eval | source | . | xargs | parallel) shell=0 ;; esac
+  while [ "$k" -lt "$n" ]; do
+    lc "${SW[$k]}"
+    w=$LC
+    k=$((k + 1))
+    case $w in
+      *[[:space:]\;\&\|\(\)\`]*)
+        # A command string (a shell's -c text, ssh's command) is read as text.
+        shopt -s nocasematch
+        ! raw_force_push_call "${w//[\"\'\\]/}" worker-branch-sync || rc=0
+        shopt -u nocasematch
+        [ "$rc" = 1 ] || return 0
+        continue
+        ;;
+    esac
+    if [ "$next" = 1 ]; then
+      next=0
+      case ${w##*/} in worker-branch-sync*) return 0 ;; esac
+      continue
+    fi
+    if [ "$shell" = 1 ] && [ -z "$first" ]; then
+      case $w in
+        -o | +o | -O | +O | --rcfile | --init-file)
+          k=$((k + 1))
+          continue
+          ;;
+        +*) continue ;;
+      esac
+    fi
+    case $w in
+      -exec | -execdir | -ok | -okdir) next=1 ;;
+      -*)
+        if [ "$shell" = 1 ] && [ -z "$first" ]; then
+          case $w in --*) ;; *n*) noexec=1 ;; esac
+          case $w in --*) ;; *c*) opt_c=1 ;; esac
+        fi
+        ;;
+      [A-Za-z_]*=*) ;;
+      *)
+        if [ -z "$first" ]; then
+          # A wrapper's number (timeout's duration, nice's niceness) is no
+          # command, and an interpreter's operand is a program it reads, not
+          # one it runs; only a command string names a run there.
+          case "$shell:$w" in 0:[0-9]*) continue ;; esac
+          case $b in awk | gawk | mawk | nawk | perl | ruby | node | python | make | trap | alias) continue ;; esac
+          first=$w
+          case ${w##*/} in worker-branch-sync*) [ "$noexec" = 1 ] || return 0 ;; esac
+        fi
+        ;;
+    esac
+  done
+  [ "$shell" = 1 ] && [ -z "$first" ] && [ "$opt_c" = 0 ] && [ "$noexec" = 0 ] && return 0
   return 1
 }
 
@@ -7482,6 +7530,7 @@ handle_bash() {
   local bare=${cmd//[\"\'\\]/} hit=0
   shopt -s nocasematch
   case $bare in
+    # The last two are the branch-sync screens' (sync_record_set, branch_sync_run).
     *git* | *gh* | *merge-ad* | *--for-merge* | *tower-force-push* | *kickoff-spec* | *worker-branch-sync* | *_session_record*) hit=1 ;;
     # A glob or brace word could still name the merge helper.
     *admitted* | *'*'* | *'?'* | *'['* | *'{'*) hit=1 ;;
@@ -7509,15 +7558,18 @@ handle_bash() {
       return 0
       ;;
   esac
-  [ "$TIER" != worker ] || ! sync_record_set "$cmd" \
-    || emit_deny 'this command sets or clears PLANWRIGHT_WORKER_SESSION_RECORD, the session record the launcher wrote, which scripts/worker-branch-sync.sh trusts - refusing. Run commands under the record the session started with.'
+  # Neither screen below tokenizes a command past the length bound.
   if [ "${#cmd}" -gt "$MAX_CMD_LEN" ]; then
     case $bare in
-      *[Ww][Oo][Rr][Kk][Ee][Rr]-[Bb][Rr][Aa][Nn][Cc][Hh]-[Ss][Yy][Nn][Cc]*)
-        sync_refuse 'this command is too long for the guard to analyze, and it names scripts/worker-branch-sync.sh - refusing.'
+      *[Ww][Oo][Rr][Kk][Ee][Rr]-[Bb][Rr][Aa][Nn][Cc][Hh]-[Ss][Yy][Nn][Cc]* | *"$SYNC_REC"*)
+        sync_refuse 'this command is too long for the guard to analyze, and it names scripts/worker-branch-sync.sh or its session-record variable - refusing.'
         ;;
     esac
-  elif branch_sync_run "$cmd"; then
+  else
+    [ "$TIER" != worker ] || ! sync_record_set "$cmd" \
+      || emit_deny 'this command sets or clears PLANWRIGHT_WORKER_SESSION_RECORD, the session record the launcher wrote, which scripts/worker-branch-sync.sh trusts - refusing. Run commands under the record the session started with.'
+  fi
+  if [ "${#cmd}" -le "$MAX_CMD_LEN" ] && branch_sync_run "$cmd"; then
     branch_sync_check "$cmd"
     return 0
   fi

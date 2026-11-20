@@ -144,7 +144,9 @@ for c in "sh -c '$S/worker-branch-s\\ync.sh ff $SHA'" "bash -c 'cd /tmp && $S/wo
   "bash -c '$S/worker-branch-sync.sh ff /tmp/x'" "env X=1 $S/worker-branch-s\\ync.sh ff $SHA" \
   "bash <<'EOF'
 $PUSH
-EOF" "printf '%s\\n' '$PUSH' | bash" "cat $SANDBOX/x | sh # worker-branch-sync"; do
+EOF" "printf '%s\\n' '$PUSH' | bash" "cat $SANDBOX/x | sh # worker-branch-sync" \
+  "timeout 60 $H ff $SHA" "bash -o posix $H ff $SHA" "source $H" "nice -n 5 $H ff $SHA" \
+  "find . -name x -execdir $H ff $SHA ;" "sh -e $H ff $SHA"; do
   sync "$c"
   expect deny "[worker] the hidden run '$(printf '%s' "$c" | tr '\n' ' ' | cut -c1-70)' denies"
 done
@@ -155,11 +157,18 @@ echo "# the record variable"
 for c in "PLANWRIGHT_WORKER_SESSION_RECORD=/tmp/x.record $S/worker-branch-\$'sync'.sh ff $SHA" \
   "export PLANWRIGHT_WORKER_SESSION_RECORD=/tmp/x.record" "unset PLANWRIGHT_WORKER_SESSION_RECORD" \
   "env PLANWRIGHT_WORKER_SESSION_RECORD=/tmp/x.record true" "declare -x PLANWRIGHT_WORKER_SESSION_RECORD=/x" \
-  "read PLANWRIGHT_WORKER_SESSION_RECORD </tmp/x"; do
+  "read PLANWRIGHT_WORKER_SESSION_RECORD </tmp/x" "PLANWRIGHT_WORKER_SESSION_RECORD=/x" \
+  "true && PLANWRIGHT_WORKER_SESSION_RECORD+=x true" "printf -v PLANWRIGHT_WORKER_SESSION_RECORD %s /x" \
+  "typeset PLANWRIGHT_WORKER_SESSION_RECORD=/x" "readonly PLANWRIGHT_WORKER_SESSION_RECORD" \
+  "echo \$(true) && export PLANWRIGHT_WORKER_SESSION_RECORD=/x"; do
   sync "$c"
   expect deny "[worker] '$c' denies"
+  reason_has 'sets or clears PLANWRIGHT_WORKER_SESSION_RECORD' "[worker] '$c' is refused by the record-variable screen"
 done
-reason_has 'session record' "[worker] the record-variable refusal names the record"
+long=$(printf 'x%.0s' $(seq 1 17000))
+sync "echo PLANWRIGHT_WORKER_SESSION_RECORD $long"
+expect deny "[worker] an over-long command naming the record variable denies without a parse"
+reason_has 'too long' "[worker] the over-long refusal says why"
 for c in "printenv PLANWRIGHT_WORKER_SESSION_RECORD" "grep -n 'PLANWRIGHT_WORKER_SESSION_RECORD=' scripts/policy-guard.sh" \
   "echo \"\$PLANWRIGHT_WORKER_SESSION_RECORD\""; do
   sync "$c"
@@ -225,6 +234,9 @@ expect deny "[mission-control] the helper denies at the mission-control tier"
 echo "# mentions that run nothing"
 for c in "grep -n lease $H" "cat $H" "shellcheck scripts/worker-branch-sync.sh" \
   "git commit -m 'fix(worker-branch-sync): a; b | c & d'" "grep -rn 'x;worker-branch-sync' docs" \
+  "bash -n scripts/worker-branch-sync.sh" "sh -n $H" "find . -name worker-branch-sync.sh" \
+  "timeout 60 shellcheck scripts/worker-branch-sync.sh" "awk 1 scripts/worker-branch-sync.sh" \
+  "xargs wc -l scripts/worker-branch-sync.sh" \
   "bash tests/test-worker-branch-sync.sh" "git log --oneline -- scripts/worker-branch-sync.sh" \
   "git add scripts/worker-branch-sync.sh" "sed -n 1,20p scripts/worker-branch-sync.sh"; do
   sync "$c"

@@ -7,10 +7,11 @@
 #   worker-branch-sync.sh reset <origin/branch>
 #   worker-branch-sync.sh ff <sha>
 #
-# push publishes a rewrite of <branch>, leased on <sha> (the full id of the tip
-# the rewrite started from; the lease is written <branch>:<sha>), only while the branch heads one open draft PR of
-# this repository; reset is git reset --hard to origin/<branch> as fetched; ff
-# is git merge --ff-only to a full commit id descending from HEAD.
+# The lease is written <branch>:<sha>, <sha> the full id of the tip the
+# rewrite started from. push publishes the rewrite only while the branch heads
+# one open draft PR of this repository; reset is git reset --hard to
+# origin/<branch> as fetched; ff is git merge --ff-only to a full commit id
+# descending from HEAD.
 #
 # Every verb refuses unless it runs in a linked worktree that the session
 # record (PLANWRIGHT_WORKER_SESSION_RECORD, the user's own file outside the

@@ -61,6 +61,7 @@ case \$state in
   draft) printf '[{"number":7,"isDraft":true,"headRefName":"%s","isCrossRepository":false}]\n' "\$head" ;;
   ready) printf '[{"number":7,"isDraft":false,"headRefName":"%s","isCrossRepository":false}]\n' "\$head" ;;
   fork) printf '[{"number":7,"isDraft":true,"headRefName":"%s","isCrossRepository":true}]\n' "\$head" ;;
+  nulldraft) printf '[{"number":7,"isDraft":null,"headRefName":"%s","isCrossRepository":false}]\n' "\$head" ;;
   two) printf '[{"number":7,"isDraft":true,"headRefName":"%s","isCrossRepository":false},{"number":8,"isDraft":true,"headRefName":"%s","isCrossRepository":false}]\n' "\$head" "\$head" ;;
   none) printf '[]\n' ;;
   *) exit 1 ;;
@@ -227,6 +228,10 @@ run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
 [ "$RC" = 3 ] || fail "a failed PR lookup did not exit as a gh failure (exit $RC): $OUT"
 has 'nothing was pushed' "the failed lookup says nothing was pushed"
 nothing_moved "a failed PR lookup"
+pr nulldraft
+run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+[ "$RC" = 3 ] || fail "a PR with no draft state did not exit as a gh failure (exit $RC): $OUT"
+nothing_moved "a PR with no draft state"
 printf '%s\n' planwright/flight/other >"$tmp/pr-head"
 pr draft
 run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
@@ -295,6 +300,7 @@ REC="$wt/inside.record"
 record "$REC" "$B" "$wt"
 run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
 refused "a record inside the worktree"
+has "record's path lies inside" "the inside-the-worktree refusal names the path check"
 rm -f "$wt/inside.record"
 REC="$tmp/fleet/session-records/wrong-top.record"
 record "$REC" "$B" "$tmp/elsewhere"
@@ -377,6 +383,19 @@ while kill -0 "$sleeper" 2>/dev/null && [ "$i" -lt 50 ]; do
 done
 
 # --- the leased push, refused cases done: it still publishes ------------------
+
+# A pre-push hook that fails printing the words of a rejection is no shared
+# branch: only git's own status line for the ref says that.
+mkdir -p "$tmp/hooks"
+printf '#!/bin/sh\necho "! [rejected] (stale info) from a linter"\nexit 1\n' >"$tmp/hooks/pre-push"
+chmod +x "$tmp/hooks/pre-push"
+g -C "$wt" config core.hooksPath "$tmp/hooks"
+run "$wt" push "--force-with-lease=$B:$lease" --force-if-includes
+g -C "$wt" config --unset core.hooksPath
+[ "$RC" = 3 ] || fail "a failing pre-push hook was not reported as a push failure (exit $RC): $OUT"
+printf '%s' "$OUT" | grep -q 'shared' && fail "a failing hook was reported as a shared branch: $OUT"
+nothing_moved "a failing pre-push hook"
+pass "a failing pre-push hook that prints rejection words is a push failure, not a shared branch"
 
 ln -s "$SCRIPT" "$tmp/linked-sync.sh"
 RC=0
