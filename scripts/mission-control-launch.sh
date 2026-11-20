@@ -1200,8 +1200,9 @@ cmd_launch() {
   # The host-wide bound counts every program's registered sessions that
   # reserved before this launch (an earlier time, or the same second and an
   # earlier name), so concurrent launches near the bound admit the first and
-  # never refuse each other; mission-control sessions are never counted or
-  # held. A row of a session that died stays counted until it is retired.
+  # never refuse each other. Only worker-profile kinds are held; a tower or
+  # orchestrator row is still counted, a mission-control row never. A row of
+  # a session that died stays counted until it is retired.
   if runs_local_work "$K_PROFILE"; then
     hc_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
       || refuse "refusing to launch $name: fleet_host_max_live_workers cannot be resolved to a number or off" 4
