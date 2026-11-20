@@ -162,6 +162,7 @@ AUDIT_OB=0
 AUDIT_SC=0
 AUDIT_OU=0
 OU_EXPORTED=0
+OU_EXP_NAMES=''
 OU_SEG=0
 
 # audit_append <command> <session-id>: append the approval's line to the
@@ -1416,7 +1417,7 @@ own_unit_act() {
   # Top level and unconditional: no loop, if or case body, no pipeline, no
   # background job, and not run only on an earlier failure. `seg_open`,
   # `close` and `ctl_depth` are verify_tokens' and fin's walk state.
-  [ "${ctl_depth:-1}" -eq 0 ] || return 1
+  [ "${ctl_depth:-1}" -eq 0 ] && [ "${ou_or:-1}" = 0 ] || return 1
   case ${seg_open-x}:${close-x} in
     :* | ';':* | '&&':*) ;;
     *) return 1 ;;
@@ -1437,7 +1438,13 @@ own_unit_act() {
   esac
   deny_hit "${cw[@]}" && return 1
   case ${cw[0]} in
-    export) own_step_export_ok && own_unit_same_repo "$here" && OU_EXPORTED=1 ;;
+    export)
+      own_step_export_ok && own_unit_same_repo "$here" || return 1
+      OU_EXPORTED=1
+      for ((i = 1; i < cwn; i++)); do
+        OU_EXP_NAMES="$OU_EXP_NAMES ${cw[i]%%=*}"
+      done
+      ;;
     git) own_push_ok && own_unit_same_repo "$here" ;;
     gh) own_unit_same_repo "$here" && own_pr_edit_ok "$here" ;;
     *) return 1 ;;
@@ -1478,6 +1485,10 @@ own_step_export_ok() {
       *) return 1 ;;
     esac
     f=${w%%=*}
+    # Exporting a name an earlier own-unit export set is a re-assignment.
+    case "$OU_EXP_NAMES " in
+      *" $f "*) return 1 ;;
+    esac
     f=${f#PLANWRIGHT_STEP_}
     case " $STEP_CONTEXT_FIELDS " in
       *" $f "*) ;;
@@ -7157,6 +7168,8 @@ verify_tokens() {
   # 1 while the top-level and-or list since the last `;` or line break holds
   # an own-unit act: a trailing `&` would background the whole list.
   local ou_list=0
+  # 1 once that list has passed a top-level `||`: an act after it is after `||`.
+  local ou_or=0
   # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
   # chain passes the scoped read check (SEG_SCOPED), with the directory it
   # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
@@ -7207,8 +7220,9 @@ verify_tokens() {
       # The tokenizer reads every line break as `;`, but one right after
       # `&&`, `||` or `|` (an empty segment) continues the list.
       case $close in
-        end) ou_list=0 ;;
-        ';') [ "$cwn" -eq 0 ] && [ "$rn" -eq 0 ] || ou_list=0 ;;
+        end) ou_list=0 ou_or=0 ;;
+        ';') [ "$cwn" -eq 0 ] && [ "$rn" -eq 0 ] || ou_list=0 ou_or=0 ;;
+        '||') ou_or=1 ;;
       esac
     fi
     [ "$SEG_SCOPED" = 1 ] || SCOPED_CHAIN=0
@@ -7640,6 +7654,7 @@ main() {
   AUDIT_SC=0
   AUDIT_OU=0
   OU_EXPORTED=0
+  OU_EXP_NAMES=''
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0

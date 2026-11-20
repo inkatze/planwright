@@ -241,6 +241,10 @@ assert_defer "inside a for loop" "for x in a; do git push origin $B; done" Bash 
 assert_defer "inside an if body" "if git status; then git push origin $B; fi" Bash "$WT"
 assert_defer "inside a case body" "case x in x) git push origin $B ;; esac" Bash "$WT"
 assert_defer "after ||" "git status || git push origin $B" Bash "$WT"
+assert_defer "after || and a later &&" "git status || git status && git push origin $B" Bash "$WT"
+assert_defer "after || over a line break" "git status ||
+git status && git push origin $B" Bash "$WT"
+assert_allow "after a list ended by ; that held ||" "git status || git status; git push origin $B" Bash "$WT"
 assert_defer "piped into a reader" "git push origin $B | cat" Bash "$WT"
 assert_defer "at the end of a pipeline" "git status | git push origin $B" Bash "$WT"
 assert_defer "backgrounded" "git push origin $B &" Bash "$WT"
@@ -280,6 +284,10 @@ assert_defer "a plain re-assignment of an inherited exported step name before th
 HOOK_ENV=("${USE_ENV[@]}")
 assert_allow "a non-step assignment before the export" \
   "S=$PLUGIN_ROOT/scripts && export PLANWRIGHT_STEP_BRANCH=$B && \$S/step-record.sh new-run" Bash "$WT"
+assert_defer "a re-export of an exported name, same value" \
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && export PLANWRIGHT_STEP_WORKTREE=$WT && $SREC new-run" Bash "$WT"
+assert_defer "a re-export of an exported name after ;" \
+  "export PLANWRIGHT_STEP_BRANCH=$B; export PLANWRIGHT_STEP_BRANCH=x; $SREC new-run" Bash "$WT"
 assert_allow "a second checked export" "export PLANWRIGHT_STEP_BRANCH=$B && export PLANWRIGHT_STEP_WORKTREE=$WT && $SREC new-run" Bash "$WT"
 
 echo "### the step worktree is pinned in every spelling under a record"
