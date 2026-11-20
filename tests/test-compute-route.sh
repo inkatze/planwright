@@ -15,7 +15,10 @@ trap 'rm -rf "$tmp"' EXIT
 
 # A direct run inherits the operator's plugin-data home, whose adopter overlay
 # can set fleet_compute_host; the gate runner pins it per file, a bare run does
-# not. Clear the config roots and point the plugin-data home at the fixture.
+# not. The decoy stands in for that inherited overlay.
+mkdir -p "$tmp/decoy/overlay"
+printf 'fleet_compute_host: mac\n' >"$tmp/decoy/overlay/planwright.yml"
+export CLAUDE_PLUGIN_DATA="$tmp/decoy"
 # shellcheck source=tests/lib/hermetic-env.sh
 . "$here/lib/hermetic-env.sh"
 hermetic_env_sentinel "$tmp/home" || exit 1
@@ -61,6 +64,10 @@ defaults="$tmp/defaults.yml"
 local_cfg="$tmp/local.yml"
 printf 'fleet_compute_host: local\nfleet_compute_load_cap: 0.4\nfleet_compute_timeout:\n' >"$defaults"
 export PLANWRIGHT_CONFIG_DEFAULTS="$defaults" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_REPO_ROOT="$tmp"
+# Pinned too: with no plugin-data home, the adopter overlay falls back to one
+# under the real home directory.
+mkdir -p "$tmp/adopter"
+export PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter"
 
 mkdir -p "$tmp/wt"
 cd "$tmp/wt" || exit 1
@@ -200,13 +207,16 @@ has "as the named test file" "--host mac compute --worktree $tmp/wt --test tests
 run -- bash tests/test-x.sh
 assert_eq "knob local keeps the plain test run off the channel" "" "$LOG"
 
-# The pinned file is the machine-local layer: a local file under the repo root
-# does not move a run whose knob is pinned local.
-mkdir -p "$tmp/.claude"
-printf 'fleet_compute_host: mac\n' >"$tmp/.claude/planwright.local.yml"
-run --check -- "$tmp/lcmd" a
-assert_eq "a repo-root local file does not move a pinned knob" "local ran a" "$OUT"
+# The explicit local-config file wins over the repo-root one, which resolves
+# here because the scratch repo is a git toplevel.
+git init -q "$tmp/repo" || exit 1
+mkdir -p "$tmp/repo/.claude"
+printf 'fleet_compute_host: mac\n' >"$tmp/repo/.claude/planwright.local.yml"
+PLANWRIGHT_REPO_ROOT="$tmp/repo" run --check -- "$tmp/lcmd" a
+assert_eq "an explicit local config outranks the repo-root file" "local ran a" "$OUT"
 assert_eq "and never touches the channel" "" "$LOG"
+env -u PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_REPO_ROOT="$tmp/repo" /bin/sh "$script" --check -- "$tmp/lcmd" a >"$tmp/derived.out" 2>&1
+has "without it the repo-root file does move the knob" "remote ran" "$(cat "$tmp/derived.out")"
 
 # Workers learn the form from the instructions they load.
 root="$here/.."
