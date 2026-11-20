@@ -3388,6 +3388,52 @@ guard_file() {
   return 0
 }
 
+# guard_ss: ss reads the kernel's socket tables and writes nothing by default,
+# but a few options write, kill, switch namespace, run a filter program or
+# resolve names off the machine: `-K`/`--kill` closes sockets, `-D`/`--diag`
+# dumps raw data to a file, `-F`/`--filter` reads one, `-N`/`--net` enters a
+# namespace, `-b`/`--bpf` loads a program, `-r`/`--resolve` queries DNS, and
+# `-E`/`--events` never returns. Only the enumerated display and selection
+# flags pass, and a filter expression only as plain words, so nothing is read
+# from a variable, a substitution or a glob.
+guard_ss() {
+  local i a body
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --listening | --all | --tcp | --udp | --raw | --unix | --sctp | --dccp | --packet | --numeric | --processes | --summary | --extended | --info | --options | --memory | --ipv4 | --ipv6 | --no-header | --oneline) ;;
+      -- | --*) return 1 ;;
+      -?*)
+        body=${a#-}
+        case $body in
+          *[!ntulaxwdSsiempoH460O]*) return 1 ;;
+        esac
+        ;;
+      '' | *[!A-Za-z0-9_.:=!\<\>/@%,-]*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_umask: the mask of the shell the command runs in, which only changes
+# the mode of files made after it: bare, `-S`, `-p`, or an octal literal that
+# keeps the other-write bit masked, so a later step never makes a
+# world-writable file.
+guard_umask() {
+  local re='^0?[0-7]{2}[2367]$'
+  case $cwn in
+    1) return 0 ;;
+    2)
+      case ${cw[1]} in
+        -S | -p) return 0 ;;
+      esac
+      [[ ${cw[1]} =~ $re ]]
+      return
+      ;;
+  esac
+  return 1
+}
+
 guard_mdlint() {
   local i a
   for ((i = 1; i < cwn; i++)); do
@@ -3500,8 +3546,9 @@ guard_mise() {
 # gh_jq_ok: 0 unless a jq filter or Go template (`--jq`, `-q`, `--template`,
 # `-t`) mentions `env`: gojq's `env` and `$ENV` print the worker's
 # environment, tokens included, through any read verb that takes the flag. A
-# short bundle ending in q or t takes the next word; a later letter is the
-# value itself.
+# short word holding q or t is screened whole, since an attached value can
+# itself end in q or t (`-qenv|test`); one ending in q or t may also hand its
+# value to the next word, so that word is screened too.
 gh_jq_ok() {
   local i jqv=0
   for ((i = 2; i < cwn; i++)); do
@@ -3512,8 +3559,12 @@ gh_jq_ok() {
     case ${cw[i]} in
       --jq | --template) jqv=1 ;;
       --jq=* | --template=*) ci_has "${cw[i]}" '*env*' && return 1 ;;
-      -[qt] | -[!-]*[qt]) jqv=1 ;;
-      -[qt]* | -[!-]*[qt]*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+      -[qt]* | -[!-]*[qt]*)
+        ci_has "${cw[i]}" '*env*' && return 1
+        case ${cw[i]} in
+          *[qt]) jqv=1 ;;
+        esac
+        ;;
     esac
   done
   return 0
@@ -3531,6 +3582,19 @@ gh_no_web() {
       --web | --web=*) return 1 ;;
       --*) ;;
       -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# gh_no_token: 0 unless `gh auth status` carries `--show-token` or its `-t`,
+# alone or in a short bundle, which prints the token. A `t` read as part of
+# another flag's value only over-refuses.
+gh_no_token() {
+  local i
+  for ((i = 3; i < cwn; i++)); do
+    case ${cw[i]} in
+      --show* | -t* | -[!-]*t*) return 1 ;;
     esac
   done
   return 0
@@ -3595,9 +3659,7 @@ guard_gh() {
     -*) return 1 ;;
   esac
   local i g=${cw[1]-} s=${cw[2]-}
-  case $g in
-    api | pr | issue | run | release | repo) gh_jq_ok || return 1 ;;
-  esac
+  gh_jq_ok || return 1
   case $g in
     release)
       case $s in
@@ -3678,19 +3740,34 @@ guard_gh() {
       ;;
     auth)
       [ "$s" = status ] || return 1
-      # `--show-token` / `-t` prints the token.
-      for ((i = 3; i < cwn; i++)); do
-        case ${cw[i]} in
-          --show* | -t* | -[!-]*t*) return 1 ;;
-        esac
-      done
+      gh_no_token || return 1
       return 0
       ;;
     repo)
-      [ "$s" = view ] && return 0 || return 1
+      [ "$s" = view ] || return 1
+      gh_no_web || return 1
+      return 0
       ;;
     *) return 1 ;;
   esac
+}
+
+# git_driver_opt <verb> <word>: whether git can read <word> as an option that
+# runs a configured driver (`--ext-diff`, `--textconv`, `--filters`). git takes
+# any unambiguous prefix of a long option and the `--opt=value` spelling, so any
+# prefix of one matches, failing closed. `--text` and `--filter` name other
+# options exactly, except on cat-file: it has no `--text`, and git before its
+# own `--filter` reads that word as `--filters`.
+git_driver_opt() {
+  local n=${2%%=*}
+  case $n in
+    --?*) n=${n#--} ;;
+    *) return 1 ;;
+  esac
+  case $n in
+    text | filter) [ "$1" = cat-file ] || return 1 ;;
+  esac
+  [[ ext-diff == "$n"* || textconv == "$n"* || filters == "$n"* ]]
 }
 
 # git: read-only subcommands only, no pre-subcommand global option (which can
@@ -3734,12 +3811,15 @@ guard_git() {
         case ${cw[i]} in
           # git takes any unambiguous prefix of a long option (`--out=`).
           -o | --ou* | -O | -O* | --op*) return 1 ;;
-          --ext* | --textc* | --filters) return 1 ;;
+          # `-nO<cmd>` is -n then -O with <cmd> as its value. Any O in a short
+          # cluster defers, a value holding one (`log -SOops`) included.
+          -[!-]*O*) return 1 ;;
           # Content from outside the repository: any file (`diff --no-index`,
           # `blame --contents`), and a list read from a named file
           # (`--orderfile`, `ls-files -X`).
           --no-i* | --or* | --exclude-f* | --exclude-p*) return 1 ;;
         esac
+        git_driver_opt "$sub" "${cw[i]}" && return 1
         case $sub in
           ls-files)
             case ${cw[i]} in
@@ -3983,7 +4063,10 @@ ls_remote_url_ok() {
 #     that carried state (an assignment or a `cd`); closed by `;`, `&&`, `||`
 #     or the end. Anywhere else (a pipeline, the background, after a real
 #     command's `&&` or `||`, a loop/if/case body) the shell may not set it for
-#     what follows, so the whole command defers.
+#     what follows, so the whole command defers;
+#   * a later top-level `&` that backgrounds the and-or list holding it
+#     (`D=x && true & …`) drops it again: the list ran in a subshell, so
+#     what follows sees the value from before that list, or none.
 # A value holding a space is substituted only inside double quotes, where it
 # stays one word in every shell; unquoted, bash splits it and zsh (the Bash
 # tool's shell on macOS) does not, so there it stays unresolved. An empty
@@ -5605,6 +5688,8 @@ classify_verb() {
     uniq) guard_uniq ;;
     date) guard_date ;;
     file) guard_file ;;
+    ss) guard_ss ;;
+    umask) guard_umask ;;
     find) guard_find ;;
     sed) guard_sed || guard_sed_inplace ;;
     perl) guard_perl_inplace ;;
@@ -6126,23 +6211,65 @@ strip_prefixes() {
 }
 
 # strip_compute_route: drop a leading `<installed root>/scripts/compute-route.sh
-# --`, setting PREFIXED, so the command it routes is verified as if it stood
-# alone: the router only chooses where an approved command runs. A copy in the
-# checkout is a worker-authored script, so only the installed one counts. Only
-# the bare form is
-# transparent (no kind flag, which would name a different command to the host
-# than the one run here), and a router with nothing to run, or another router
-# as that command, defers. is_trusted_script refuses the script as a verb, so
-# no other spelling reaches the router.
+# [<kind>] --`, setting PREFIXED, so the command it routes is verified as if it
+# stood alone: the router only chooses where an approved command runs. A copy in
+# the checkout is a worker-authored script, so only the installed one counts. A
+# kind flag names to the host the command it runs there, so it is transparent
+# only beside the one command the router itself maps to that kind, which is
+# what the bare form would have run: `--check -- mise run check`,
+# `--task <name> -- mise run <name>`, `--test tests/test-<name>.sh -- bash
+# tests/test-<name>.sh` (the router's own grammar). Defer: any other pairing,
+# two kinds, a router with nothing to run, a bare router name (the shell looks
+# it up on PATH), and another router as the command.
+# is_trusted_script refuses the script as a verb, so no other spelling reaches
+# the router.
 strip_compute_route() {
+  local n=1 kind='' val='' i end re_task='^[a-z][a-z0-9:_-]*$' re_test='^tests/test-[A-Za-z0-9._-]+\.sh$'
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) ;;
     *) return 0 ;;
   esac
-  [ "$cwn" -ge 3 ] && [ "${cw[1]}" = -- ] && [ "${cqp[0]}" -lt 0 ] && [ "${cqp[1]}" -lt 0 ] \
-    && ! word_unresolved "${cw[0]}" "${cdyn[0]}" "${cglob[0]}" "${cx[0]}" || return 1
+  # A bare name is looked up on PATH by the shell, not beside this hook's root.
+  case ${cw[0]} in
+    */*) ;;
+    *) return 1 ;;
+  esac
+  case ${cw[1]-} in
+    --check)
+      kind=check
+      n=2
+      ;;
+    --task | --test)
+      kind=${cw[1]#--}
+      val=${cw[2]-}
+      n=3
+      ;;
+  esac
+  [ "$cwn" -ge $((n + 2)) ] && [ "${cw[n]}" = -- ] || return 1
+  for ((i = 0; i <= n; i++)); do
+    [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+  done
   is_planwright_script "${cw[0]}" "$HOOK_CWD" || return 1
-  shift_words 2
+  case $kind in
+    check)
+      end=$((n + 4))
+      [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = mise ] && [ "${cw[n + 2]}" = run ] && [ "${cw[n + 3]}" = check ] || return 1
+      ;;
+    task)
+      end=$((n + 4))
+      [[ $val =~ $re_task ]] && [ "$val" != check ] && [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = mise ] && [ "${cw[n + 2]}" = run ] && [ "${cw[n + 3]}" = "$val" ] || return 1
+      ;;
+    test)
+      end=$((n + 3))
+      [[ $val =~ $re_test ]] && [ "$cwn" -eq "$end" ] && [ "${cw[n + 1]}" = bash ] && [ "${cw[n + 2]}" = "$val" ] || return 1
+      ;;
+  esac
+  if [ -n "$kind" ]; then
+    for ((i = n + 1; i < cwn; i++)); do
+      [ "${cqp[i]}" -lt 0 ] && ! word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" || return 1
+    done
+  fi
+  shift_words $((n + 1))
   PREFIXED=1
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) return 1 ;;
@@ -6808,6 +6935,10 @@ verify_tokens() {
   # for a reserved-word boundary), whether the previous segment carried state,
   # and whether a `cd` has: together they decide where state may carry (fin).
   local ctl_depth=0 seg_open='' prev_commit=0 cd_live=0
+  # The VAR table's size when the current top-level and-or list began, so a
+  # trailing `&` can drop what that list assigned, and whether the last `;`
+  # was a newline continuing that list (fin).
+  local list_var=$VAR_C list_cont=0
   # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
   # chain passes the scoped read check (SEG_SCOPED), with the directory it
   # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
@@ -6841,7 +6972,8 @@ verify_tokens() {
   # by `;` or `||`, enters it, and every later segment is checked from both
   # directories the line may then be in.
   fin() {
-    local close=$1 placed=0
+    local close=$1 placed=0 empty=0
+    [ "$cwn" -gt 0 ] || [ "$rn" -gt 0 ] || empty=1
     PENDING_ASSIGN_N=''
     PENDING_ASSIGN_V=''
     PENDING_ASSIGN_O=0
@@ -6926,6 +7058,24 @@ verify_tokens() {
       [ -z "${csub[0]-}" ] || prev_commit=0
     else
       prev_commit=0
+    fi
+    # A top-level `&` runs the whole and-or list since the last top-level `;`,
+    # newline or `&` in a background subshell, not just its last command, so
+    # nothing that list assigned reaches the commands after it. The tokenizer
+    # reads a newline as `;`, and newlines straight after `&&`, `||` or `|`
+    # continue the list instead of ending it.
+    if [ "$ctl_depth" -eq 0 ]; then
+      local cont=0
+      if [ "$close" = ';' ] && [ "$empty" = 1 ]; then
+        case $list_cont:$seg_open in
+          1:';' | *:'&&' | *:'||' | *:'|') cont=1 ;;
+        esac
+      fi
+      case $close in
+        '&') VAR_C=$list_var ;;
+        ';') [ "$cont" = 1 ] || list_var=$VAR_C ;;
+      esac
+      list_cont=$cont
     fi
     seg_open=$close
     cw=()
@@ -7323,15 +7473,20 @@ session_record_load
 # The scratch arm resolves `$TMPDIR` to the recorded root, so it is live only
 # while the TMPDIR this hook inherited, which is the session's, names that
 # root: a sandbox, a settings env, or another launch's record would otherwise
-# point the shell elsewhere. Nor do the guard's own temp files belong in a
-# directory the worker may write to.
+# point the shell elsewhere. A relative TMPDIR resolves here from the hook's
+# directory and there from the payload's, so only an absolute one counts. Nor
+# do the guard's own temp files belong in a directory the worker may write to.
 HOOK_TMPDIR_IS_SCRATCH=0
-HOOK_TMP_BASE=${TMPDIR:-/tmp}
-if [ -n "$REC_SCRATCH" ] && [ -n "${TMPDIR:-}" ] \
-  && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
-  HOOK_TMPDIR_IS_SCRATCH=1
-  HOOK_TMP_BASE=/tmp
-fi
+HOOK_TMP_BASE=/tmp
+case ${TMPDIR:-} in
+  /*)
+    HOOK_TMP_BASE=$TMPDIR
+    if [ -n "$REC_SCRATCH" ] && [ "$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P)" = "$REC_SCRATCH" ]; then
+      HOOK_TMPDIR_IS_SCRATCH=1
+      HOOK_TMP_BASE=/tmp
+    fi
+    ;;
+esac
 # plugin_root_unlinked <scripts-dir>: $CLAUDE_PLUGIN_ROOT, or nothing when
 # resolve-installed-roots.sh's symlink rule refuses it (or cannot be run). The
 # chain canonicalizes an arm, so a plugin cache root reached through a symlink

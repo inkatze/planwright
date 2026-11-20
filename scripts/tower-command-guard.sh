@@ -1382,26 +1382,104 @@ guard_setsid() {
   is_planwright_script "${cw[i]}" "$HOOK_CWD"
 }
 
+# ci_has <word> <glob>...: whether the word matches any glob, ignoring case.
+# nocasematch rather than ${w,,}, which bash 3.2 (the macOS /bin/bash) lacks.
+ci_has() {
+  local w=$1 p hit=1 had=1
+  shift
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  for p in "$@"; do
+    # shellcheck disable=SC2254  # the glob is the argument, deliberately unquoted
+    case $w in $p) hit=0 ;; esac
+  done
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  return "$hit"
+}
+
+# gh_jq_ok: 0 unless a jq filter or Go template (`--jq`, `-q`, `--template`,
+# `-t`) mentions `env`: gojq's `env` and `$ENV` print the session's
+# environment, tokens included, through any read verb that takes the flag. A
+# short word holding q or t is screened whole, since an attached value can
+# itself end in q or t (`-qenv|test`); one ending in q or t may also hand its
+# value to the next word, so that word is screened too.
+gh_jq_ok() {
+  local i jqv=0
+  for ((i = 2; i < cwn; i++)); do
+    if [ "$jqv" = 1 ]; then
+      ci_has "${cw[i]}" '*env*' && return 1
+      jqv=0
+    fi
+    case ${cw[i]} in
+      --jq | --template) jqv=1 ;;
+      --jq=* | --template=*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+      -[qt]* | -[!-]*[qt]*)
+        ci_has "${cw[i]}" '*env*' && return 1
+        case ${cw[i]} in
+          *[qt]) jqv=1 ;;
+        esac
+        ;;
+    esac
+  done
+  return 0
+}
+
+# gh_no_web: 0 unless a `--web`/`-w` flag is present. These read verbs print
+# to stdout, but `--web` instead launches $BROWSER, an arbitrary program when
+# inherited.
+gh_no_web() {
+  local i
+  for ((i = 2; i < cwn; i++)); do
+    case ${cw[i]} in
+      --) break ;;
+      --web | --web=*) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# gh_no_token: 0 unless `gh auth status` carries `--show-token` or its `-t`,
+# alone or in a short bundle, which prints the token. A `t` read as part of
+# another flag's value only over-refuses.
+gh_no_token() {
+  local i
+  for ((i = 3; i < cwn; i++)); do
+    case ${cw[i]} in
+      --show* | -t* | -[!-]*t*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # gh: read-only gh only. A leading flag, or any non-enumerated group/sub pair,
 # defers — notably `gh pr merge` / `gh pr ready` are absent and so defer (the
-# deny block denies them regardless; the guard simply never allows them).
+# deny block denies them regardless; the guard simply never allows them). The
+# flag screens are the worker guard's, kept byte-identical.
 guard_gh() {
   case ${cw[1]-} in
     -*) return 1 ;;
   esac
   local g=${cw[1]-} s=${cw[2]-}
+  gh_jq_ok || return 1
   case $g in
     pr)
       case $s in
-        view | list | status | diff | checks) return 0 ;;
+        view | list | status | diff | checks) gh_no_web || return 1 ;;
         *) return 1 ;;
       esac
+      return 0
       ;;
     auth)
-      [ "$s" = status ] && return 0 || return 1
+      [ "$s" = status ] || return 1
+      gh_no_token || return 1
+      return 0
       ;;
     repo)
-      [ "$s" = view ] && return 0 || return 1
+      [ "$s" = view ] || return 1
+      gh_no_web || return 1
+      return 0
       ;;
     *) return 1 ;;
   esac
@@ -1795,6 +1873,24 @@ guard_mise() {
   return 0
 }
 
+# git_driver_opt <verb> <word>: whether git can read <word> as an option that
+# runs a configured driver (`--ext-diff`, `--textconv`, `--filters`). git takes
+# any unambiguous prefix of a long option and the `--opt=value` spelling, so any
+# prefix of one matches, failing closed. `--text` and `--filter` name other
+# options exactly, except on cat-file: it has no `--text`, and git before its
+# own `--filter` reads that word as `--filters`.
+git_driver_opt() {
+  local n=${2%%=*}
+  case $n in
+    --?*) n=${n#--} ;;
+    *) return 1 ;;
+  esac
+  case $n in
+    text | filter) [ "$1" = cat-file ] || return 1 ;;
+  esac
+  [[ ext-diff == "$n"* || textconv == "$n"* || filters == "$n"* ]]
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution), and per-subcommand form guards on the
 # subcommands with a mutating twin. `update-ref` / `branch -f` are absent from
@@ -1817,10 +1913,13 @@ guard_git() {
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       for ((i = subidx + 1; i < cwn; i++)); do
         case ${cw[i]} in
-          -o | --output | --output=* | --output-directory | --output-directory=*) return 1 ;;
-          -O | -O* | --open-files-in-pager | --open-files-in-pager=*) return 1 ;;
-          --ext-diff | --textconv | --filters) return 1 ;;
+          # git takes any unambiguous prefix of a long option (`--op=<cmd>`).
+          -o | --ou* | -O | -O* | --op*) return 1 ;;
+          # `-nO<cmd>` is -n then -O with <cmd> as its value. Any O in a short
+          # cluster defers, a value holding one (`log -SOops`) included.
+          -[!-]*O*) return 1 ;;
         esac
+        git_driver_opt "$sub" "${cw[i]}" && return 1
       done
       return 0
       ;;

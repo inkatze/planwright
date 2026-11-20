@@ -78,6 +78,7 @@ case \$verb in
     case \$(cat "$tmp/verdict.\$n") in
       ready) printf 'ready\t-\n'; exit 0 ;;
       not-ready) printf 'not-ready\t-\nfail\tcheck\tci is PENDING\n'; exit 4 ;;
+      flip-for-review) printf 'flip-for-review\t-\npending\tpost-pr\tno completion record\n'; exit 4 ;;
     esac
     printf 'walk broke\n' >&2
     exit 1
@@ -86,10 +87,20 @@ case \$verb in
     n=\$(awk -F '\t' '\$1 == "stubpr" { print \$2 }' "\$ev")
     printf 'unfinished --pr %s\n' "\$n" >>"$tmp/unfinished.calls"
     h=\$(awk -F '\t' '\$1 == "head" { print \$2 }' "\$ev")
-    if [ "\$(cat "$tmp/unfinished.\$n" 2>/dev/null)" = yes ]; then
-      printf 'unfinished\t%s\nfail\tcheck\tmacos-suite 3 is QUEUED\n' "\$h"
-      exit 4
-    fi
+    case \$(cat "$tmp/unfinished.\$n" 2>/dev/null) in
+      yes)
+        printf 'unfinished\t%s\nfail\tcheck\tmacos-suite 3 is QUEUED\n' "\$h"
+        exit 4
+        ;;
+      early)
+        printf 'unfinished\t%s\nfail\tflip\tPR-Agent was still running at the flip (run created 2026-11-18T00:40:10Z, before the flip at 2026-11-18T00:42:21Z): a too-early flip\nfail\tcheck\tci is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)\n' "\$h"
+        exit 4
+        ;;
+      own)
+        printf 'unfinished\t%s\nfail\tcheck\tPR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)\n' "\$h"
+        exit 4
+        ;;
+    esac
     printf 'finished\t%s\n' "\$h"
     exit 0
     ;;
@@ -151,7 +162,8 @@ for n in 7 8 9 10 11 12 13 14 15; do
   printf '%s\n' "$H" >"$tmp/head.$n"
   printf 'ready\n' >"$tmp/verdict.$n"
 done
-printf 'not-ready\n' >"$tmp/verdict.12"
+# A walk that says flip-for-review (exit 4) is not a merge-ready verdict.
+printf 'flip-for-review\n' >"$tmp/verdict.12"
 cmd() { printf 'gh pr merge %s --repo acme/web --%s --match-head-commit %s' "$1" "${3:-squash}" "$2"; }
 cmd7=$(cmd 7 "$H")
 ready7() { printf 'ready\tacme/web#7\t%s\t%s' "$1" "$(cmd 7 "$1" "${2:-squash}")"; }
@@ -601,6 +613,14 @@ expect_out "the status form says it as a decision" "decision${tab}Marked ready w
 printf 'no\n' >"$tmp/unfinished.20"
 run list --program alpha --now "$T"
 expect_eq "once its checks finish it is quiet" "$(ready7 "$J")"
+printf 'own\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "the runs the flip itself fired are named as the flip's own, not as a too-early flip" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)"
+printf 'early\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "a run that predates the flip and was still running is named a too-early flip" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}PR-Agent was still running at the flip (run created 2026-11-18T00:40:10Z, before the flip at 2026-11-18T00:42:21Z): a too-early flip, ci is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)"
 printf 'broken\n' >"$tmp/verdict.20"
 printf 'yes\n' >"$tmp/unfinished.20"
 run list --program alpha --now "$T"

@@ -75,9 +75,9 @@ literal command prefix followed by plain arguments. So a line such as
 as a prompt even when every command in it is routine. Issue **one plain
 command per Bash call** instead:
 
-- **No `cd`.** Pass the directory as an argument (`git -C <dir>`, a script's
-  `--checkout <dir>`), or rely on the session's working directory, which for a
-  dispatched worker is its own worktree.
+- **No `cd` in a line.** Run git writes from the working directory, a
+  worker's worktree (elsewhere, a lone `cd` first); `git -C <dir>`
+  (denied before push, commit, reset) and `--checkout` serve reads.
 - **No variable assignments.** Substitute every resolved value literally, the
   way the root is substituted above. A value one command prints (a config
   value, a SHA) is read from that call's result and written literally into the
@@ -107,8 +107,9 @@ Start every test or lint run, and a lefthook run, with the router:
 `timeout <secs>` or `nice -n <n>` prefix. With `fleet_compute_host` set it
 runs there; otherwise, or when the host is unreachable, busy or the tree has
 uncommitted changes, it runs here as written. The guard approves the form
-only when the command after `--` is one it approves on its own; a kind flag
-or a router run any other way prompts.
+only when the command after `--` is one it approves on its own, and a kind
+flag only beside the command the router maps to it (`--check` with
+`mise run check`); a router run any other way prompts.
 
 ## Invoke by the shebang
 

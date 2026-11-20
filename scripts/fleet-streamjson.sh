@@ -230,10 +230,14 @@
 #       [--takeover]
 #       Deliver the recorded answer for a pending request. --allow composes
 #       behavior=allow with updatedInput sliced from the stored envelope;
-#       --deny composes behavior=deny (optional message); --response-file
+#       --deny composes behavior=deny; its message is never empty (a bare
+#       --deny, or a blank --message, sends a default reason, because the API
+#       rejects an empty deny and the worker dies); --response-file
 #       supplies the full response body (AskUserQuestion answers use this):
 #       one JSON object on one line with no raw control byte (TAB and DEL
-#       included, so escape them), 64 KiB at most. The worker's owner is the
+#       included, so escape them), 64 KiB at most; a deny body whose message
+#       holds nothing but whitespace or control bytes, written raw or as
+#       escapes, or that has no message, is refused. The worker's owner is the
 #       session its launch registered (`pending` shows it); an answer from a
 #       session whose $PLANWRIGHT_TOWER_ID differs is refused (exit 3, nothing
 #       written, the request stays pending) unless --takeover is passed. A
@@ -339,8 +343,8 @@
 #       or `stop <worker> already-closed`; the periodic sweep's observing mode
 #       records its would-have close from this.
 #   fleet-streamjson.sh status <worker>
-#       Print `status <worker> <running|awaiting-input|completed|ended|limited|
-#       dead|unknown> <detail>` from the recorded pids, the receipt journal and
+#       Print `status <worker> <running|awaiting-input|parked|completed|ended|
+#       limited|dead|unknown> <detail>` from the recorded pids, the receipt journal and
 #       the captured event stream; an `ended` or `limited` detail names the
 #       recorded cause. `awaiting-input` is a live worker with a pending
 #       control_request: the detail carries `pending=<n> oldest=<age>s
@@ -349,7 +353,12 @@
 #       that cannot proceed never reads as a healthy `running`. It outranks a
 #       recorded `result`, which a persistent worker writes at the end of every
 #       turn and outlives, so an earlier turn's `completed` never hides a later
-#       request.
+#       request. `parked` is a turn that ended without the session being done:
+#       its registry row records a live operator, ci or ready-flip wait
+#       (`parked wait=<why> result=<subtype>`), or the turn's final text ends
+#       in a question to the operator (`parked question result=<subtype>`,
+#       read from the event log's last line, so it needs that line to be the
+#       result). A reaper keyed on `completed` therefore never closes it.
 #   fleet-streamjson.sh pending [<worker>...]
 #       Read-only view of the journaled requests `status` counts (a spooled
 #       receipt is counted there but listed here only once it is journaled,
@@ -2689,6 +2698,20 @@ cmd_answer() {
       printf '%s\n' "$me: --response-file must be single-line JSON (embedded newline refused)" >&2
       exit 2
     fi
+    # A deny body with no message makes an error tool_result with empty
+    # content, which the API rejects and which kills the worker. A text check,
+    # not a parse (no jq here): it looks for a message holding something
+    # besides whitespace and the escapes that decode to whitespace or a
+    # control byte (\n \t \r \f \b, and a \u escape of 0000 through 0020 or
+    # 007f), the same bytes the --deny path counts as blank, and refuses the
+    # body whole.
+    blank_esc='\\[ntrfb]|\\u00[01][0-9a-fA-F]|\\u0020|\\u007[fF]'
+    real_esc='\\["\\/]|\\u([1-9a-fA-F][0-9a-fA-F]{3}|0[1-9a-fA-F][0-9a-fA-F]{2}|002[1-9a-fA-F]|00[3-689a-fA-F][0-9a-fA-F]|007[0-9a-eA-E])'
+    if printf '%s' "$body" | grep -Eq '"behavior"[[:space:]]*:[[:space:]]*"deny"' \
+      && ! printf '%s' "$body" | grep -Eq "\"message\"[[:space:]]*:[[:space:]]*\"($blank_esc|[[:space:]])*([^\"\\\\[:space:]]|$real_esc)"; then
+      printf '%s\n' "$me: --response-file deny body needs a non-empty message (an empty deny kills the worker)" >&2
+      exit 2
+    fi
   fi
   dir=$(worker_dir "$worker") || exit 2
   [ -d "$dir" ] || {
@@ -2753,7 +2776,15 @@ cmd_answer() {
       fi
       ;;
     deny)
-      deny_esc=$(printf '%s' "$deny_msg" | head -c 512 | json_escape)
+      # The API rejects an error tool_result with empty content (400) and the
+      # worker dies, so a deny never carries a blank message: whitespace and
+      # control bytes (which json_escape strips) count as blank, judged after
+      # the cut so a long blank prefix cannot leave an empty remainder.
+      deny_msg=$(printf '%s' "$deny_msg" | head -c 512)
+      if [ -z "$(printf '%s' "$deny_msg" | tr -d '[:space:]\000-\037\177')" ]; then
+        deny_msg='Denied by the supervisor; no reason given.'
+      fi
+      deny_esc=$(printf '%s' "$deny_msg" | json_escape)
       body=$(printf '{"behavior":"deny","message":"%s"}' "$deny_esc")
       ;;
   esac
@@ -3801,6 +3832,35 @@ status_awaiting() {
     "$1" "$sa_pend" "$sa_age" "$3" "$4"
 }
 
+# parked_why <worker> <dir> — print `wait=<why>` when the worker's registry row
+# records a live wait, or `question` when its last turn's final text ends in a
+# question; nothing otherwise.
+parked_why() {
+  pk_root=${2%/streamjson/*}
+  pk_row="$pk_root/mission-control/sessions/$1"
+  if [ -n "$pk_root" ] && [ -f "$pk_row" ] && [ ! -L "$pk_row" ]; then
+    pk_w=$(awk -F '\t' '$1 == "waiting" { print $2; exit }' "$pk_row" 2>/dev/null) || pk_w=''
+    case $pk_w in
+      operator | ci | ready-flip)
+        printf 'wait=%s' "$pk_w"
+        return 0
+        ;;
+    esac
+  fi
+  pk_ev=$(tail -n 1 "$2/events.jsonl" 2>/dev/null) || return 0
+  case $pk_ev in *'"type":"result"'*) ;; *) return 0 ;; esac
+  pk_t=$(json_field "$pk_ev" result)
+  while :; do
+    case $pk_t in
+      *'\n' | *'\t' | *'\r') pk_t=${pk_t%??} ;;
+      *' ') pk_t=${pk_t% } ;;
+      *) break ;;
+    esac
+  done
+  case $pk_t in *'?') printf 'question' ;; esac
+  return 0
+}
+
 cmd_status() {
   [ $# -eq 1 ] || usage
   worker=$1
@@ -3878,7 +3938,12 @@ cmd_status() {
     elif { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
       printf 'status %s ended %s\n' "$worker" "$detail"
     else
-      printf 'status %s completed %s\n' "$worker" "$detail"
+      st_park=$(parked_why "$worker" "$dir")
+      if [ -n "$st_park" ]; then
+        printf 'status %s parked %s %s\n' "$worker" "$st_park" "$detail"
+      else
+        printf 'status %s completed %s\n' "$worker" "$detail"
+      fi
     fi
     return 0
   fi

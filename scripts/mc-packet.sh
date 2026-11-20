@@ -67,7 +67,8 @@ Usage:
       config/mc-cadence-lessons.tsv (--lessons names another file); no level
       changes the walk or marks an option
       a section with no input reads `- none`; a readiness file that does
-      not open with ready or not-ready is refused, so no packet goes out
+      not open with ready, not-ready or flip-for-review is refused, so no
+      packet goes out
       without its readiness result
 
 Exit codes: 0 done; 1 a refused input or a store that cannot be read or
@@ -153,7 +154,10 @@ section() { # section <title> <file|"">
 # named was never checked. Gap wording follows scripts/mc-readiness.sh's walk.
 cadence_lines() {
   cl_rc=0
-  H=$1 awk -F '\t' '
+  # A flip-for-review walk holds a post-pr gap as pending the flip, not as a gap.
+  cl_flip=0
+  [ "$(head -n 1 "$readiness" | cut -f1)" != flip-for-review ] || cl_flip=1
+  F=$cl_flip H=$1 awk -F '\t' '
     $1 == "scope" && $2 == "spec-only" && $3 == ENVIRON["H"] { speconly = 1 }
     $1 != "cadence" { next }
     $2 == "audited" { audited = $3 }
@@ -163,15 +167,20 @@ cadence_lines() {
       d = $5 " is " $4
       if ($4 == "incomplete") d = "no completion record"
       else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
+      else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
       else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
-      gaps = gaps (gaps == "" ? "" : "; ") $3 " (" d ")"
+      else if ($4 == "fault") d = $5
+      else if ($4 == "unaudited") d = $5 " fails the step-record truth check (if only its start or end is wrong, step-record.sh supersede corrects it)"
+      if (ENVIRON["F"] == 1 && $3 == "post-pr" && ($4 == "incomplete" || $4 == "missing")) pend = pend (pend == "" ? "" : "; ") $3 " (" d ")"
+      else gaps = gaps (gaps == "" ? "" : "; ") $3 " (" d ")"
     }
     END {
       if (why != "") { print "Cadence: not audited: " why; exit }
       if (speconly && audited == "") { print "Cadence: not required: a spec-only pull request is held for its sign-off"; exit }
       if (audited == "") { print "Cadence: not audited: no audit result was collected"; exit }
       if (audited != ENVIRON["H"]) { print "Cadence: not audited: the audit ran at " substr(audited, 1, 12) ", not the walked head " substr(ENVIRON["H"], 1, 12); exit }
-      if (gaps == "") print "Cadence: all covered (" (cov == "" ? "no point has a configured step" : cov) ")"
+      if (gaps == "" && pend != "") print "Cadence: covered " (cov == "" ? "none" : cov) "; pending the flip: " pend
+      else if (gaps == "") print "Cadence: all covered (" (cov == "" ? "no point has a configured step" : cov) ")"
       else { print "Cadence: covered " (cov == "" ? "none" : cov) "; gap " gaps; exit 3 }
     }' <"$evidence" || cl_rc=$?
   [ "$cl_rc" -eq 0 ] || [ "$cl_rc" -eq 3 ] || mc_fail "the cadence evidence cannot be read: $(sanitize_printable "$evidence")"
@@ -212,8 +221,8 @@ case $verb in
     cp "$readiness" "$scratch/readiness" || mc_fail "the readiness result is unreadable: $(sanitize_printable "$readiness")"
     readiness=$scratch/readiness
     case $(head -n 1 "$readiness" | cut -f1) in
-      ready | not-ready) ;;
-      *) mc_fail "the readiness result does not open with ready or not-ready; no packet without it" ;;
+      ready | not-ready | flip-for-review) ;;
+      *) mc_fail "the readiness result does not open with ready, not-ready or flip-for-review; no packet without it" ;;
     esac
     for f in "$focus" "$risks" "$order"; do
       [ -z "$f" ] || [ -r "$f" ] || mc_fail "unreadable: $(sanitize_printable "$f")"

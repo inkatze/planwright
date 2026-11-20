@@ -337,6 +337,91 @@ cp "$tmp/tracked.keep" "$tracked"
 rm -rf "$fleet/streamjson/rl-hubbed" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned"
 
+# A stream-json supervisor a killed suite left behind, its state directory
+# and working directory removed with the suite's scratch tree, is raised once
+# it has been listed for a minute, under one program only, and never
+# signalled. The stand-in ends itself once this suite is gone. These passes
+# read the real process table, which every other case leaves empty.
+keeper_live() { # keeper_live <program> <now>
+  OUT=$(cd "$repo" && mc_env env -u PLANWRIGHT_MC_PROC_ROOT PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM="$1" \
+    /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now "$2" 2>/dev/null)
+}
+mkdir -p "$tmp/orphan-fx/scripts" "$tmp/orphan-fx/gone/state" "$tmp/orphan-fx/gone/cwd"
+cat >"$tmp/orphan-fx/scripts/fleet-streamjson.sh" <<'EOF'
+#!/bin/sh
+while kill -0 "$FIXTURE_OWNER" 2>/dev/null; do sleep 1; done
+EOF
+(cd "$tmp/orphan-fx/gone/cwd" && FIXTURE_OWNER=$$ exec /bin/sh "$tmp/orphan-fx/scripts/fleet-streamjson.sh" \
+  _supervise mc-alpha-tower-orphaned "$tmp/orphan-fx/gone/state" init) &
+orphan_sup=$!
+os_i=0
+while [ "$os_i" -lt 100 ]; do
+  if [ -r "/proc/$orphan_sup/cmdline" ]; then
+    os_args=$(tr '\000' ' ' <"/proc/$orphan_sup/cmdline")
+  else
+    os_args=$(ps -ww -o args= -p "$orphan_sup" 2>&1)
+  fi
+  case $os_args in *_supervise*) break ;; esac
+  sleep 0.1
+  os_i=$((os_i + 1))
+done
+[ "$os_i" -lt 100 ] || fail "the orphan stand-in never ran its supervise argv"
+rm -rf "$tmp/orphan-fx/gone"
+keeper_live alpha 5300
+expect_no_out "an orphan one pass has seen is not raised yet" "mc-alpha-tower-orphaned"
+keeper_live beta 5330
+expect_no_out "nor by another program's keeper a moment later, before it has settled" "mc-alpha-tower-orphaned"
+keeper_live alpha 5360
+expect_out "an orphan the next pass sees too is raised" "announced${tab}stream-json-worker-orphaned${tab}mc-alpha-tower-orphaned"
+keeper_live beta 5420
+expect_no_out "and not again, by any program's keeper" "mc-alpha-tower-orphaned"
+keeper_live alpha 5480
+expect_no_out "nor by its own" "mc-alpha-tower-orphaned"
+mc_run mc-event.sh list --program alpha
+expect_out "the event names the process and its gone state directory" "stream-json-worker-orphaned${tab}mc-alpha-tower-orphaned${tab}orphaned stream-json supervisor pid $orphan_sup"
+expect_out "the event's reason names the gone state directory" "its state directory $tmp/orphan-fx/gone/state is gone"
+# The start it asks the operator to confirm is read the way the listing read it.
+if [ -r /proc/self/stat ]; then
+  orphan_tick=$(awk '{ sub(/.*\) /, ""); print $20 }' "/proc/$orphan_sup/stat")
+  expect_out "the event says where procfs keeps the start it names" "field 22 of /proc/$orphan_sup/stat still reads $orphan_tick"
+  expect_out "and where to read what it runs, with no ps flag busybox lacks" "/proc/$orphan_sup/cmdline shows it abandoned"
+else
+  expect_out "the event says how ps shows the start it names" "ps -o pid,lstart,args -p $orphan_sup shows it started"
+fi
+mc_run mc-event.sh list --program beta
+expect_no_out "and lands under one program" "mc-alpha-tower-orphaned"
+if kill -0 "$orphan_sup" 2>/dev/null; then
+  ok "the keeper never signals an orphan"
+else
+  fail "the orphaned stand-in $orphan_sup is gone after the keeper's passes"
+fi
+kill "$orphan_sup" 2>/dev/null
+wait "$orphan_sup" 2>/dev/null
+orphan_sup=''
+
+# A holder init adopted (tail -f /dev/null) is raised the same way once it has
+# been listed for a minute, worded as a held-open process and not as a
+# stream-json session; one whose parent still runs is not.
+hold_proc="$tmp/hold-proc"
+mkdir -p "$hold_proc/5101" "$hold_proc/5102" "$hold_proc/5103"
+printf 'tail\000-f\000/dev/null\000' >"$hold_proc/5101/cmdline"
+printf 'tail\000-f\000/dev/null\000' >"$hold_proc/5102/cmdline"
+printf '5101 (tail) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 888\n' >"$hold_proc/5101/stat"
+printf '5102 (tail) S 5103 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 889\n' >"$hold_proc/5102/stat"
+printf 'bash\n' >"$hold_proc/5103/comm"
+keeper_hold() { # keeper_hold <now>
+  OUT=$(cd "$repo" && mc_env env PLANWRIGHT_MC_PROC_ROOT="$hold_proc" PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha \
+    /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now "$1" 2>/dev/null)
+}
+keeper_hold 5600
+expect_no_out "a holder one pass has seen is not raised yet" "held-open"
+keeper_hold 5670
+expect_out "a holder the next pass sees a minute on is raised" "announced${tab}stream-json-worker-orphaned"
+mc_run mc-event.sh list --program alpha
+expect_out "the event words it as a held-open process" "orphaned held-open process pid 5101, which nothing reaps or stops"
+expect_no_out "and never as a session someone started by hand" "pid 5101 (-)"
+expect_no_out "a holder whose parent runs is not raised" "pid 5102"
+
 # A request that has just arrived is announced at once, as pending-prompt, so
 # the operator need not wait for the overdue bound; the requests new to one
 # pass are one event.
@@ -762,6 +847,42 @@ fi
 expect_no_out "a running stream-json worker is untouched" "mc-alpha-worker-sjrunning"
 expect_no_out "a tmux worker is untouched by the completed rule" "mc-alpha-worker-tmuxgrace"
 chmod 600 "$fleet/streamjson/mc-alpha-worker-sjunread/result"
+
+# A session with a live wait (operator, ci or ready-flip) is parked, not
+# finished: no bound retires it, whichever rung it runs on and however long
+# its last turn ended ago. Clearing the wait makes it retire as any other.
+sj_row mc-alpha-worker-sjparked "$t1" "$t1" "Done: walked the spec."
+printf 'waiting\toperator\n' >>"$sessions/mc-alpha-worker-sjparked"
+sj_row mc-alpha-worker-sjci "$t1" "$t1" "Done."
+printf 'waiting\tci\n' >>"$sessions/mc-alpha-worker-sjci"
+bound_row mc-alpha-worker-tmuxparked worker 34 "$t1" "$tmp/idle.pane"
+printf 'waiting\tready-flip\n' >>"$sessions/mc-alpha-worker-tmuxparked"
+printf '%s:t\th\t%s\tidle\n' "$t1" "$t1" >"$fleet/mission-control/alpha/stall/mc-alpha-worker-tmuxparked"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
+expect_no_out "a completed stream-json session with an operator wait is never retired" "retire${tab}mc-alpha-worker-sjparked"
+expect_no_out "nor one with a ci wait" "retire${tab}mc-alpha-worker-sjci"
+expect_no_out "nor an idle tmux session with a ready-flip wait" "retire${tab}mc-alpha-worker-tmuxparked"
+awk -F '\t' '$1 != "waiting"' "$sessions/mc-alpha-worker-sjci" >"$sessions/mc-alpha-worker-sjci.new" && mv -f "$sessions/mc-alpha-worker-sjci.new" "$sessions/mc-alpha-worker-sjci"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
+expect_out "clearing the wait restores the retire" "retire${tab}mc-alpha-worker-sjci${tab}${t1}${tab}completed result=success"
+rm -f "$sessions/mc-alpha-worker-sjci" && rm -rf "$fleet/streamjson/mc-alpha-worker-sjci"
+bound_row mc-alpha-worker-tmuxfree worker 35 "$t1" "$tmp/idle.pane"
+printf '%s:t\th\t%s\tidle\n' "$t1" "$t1" >"$fleet/mission-control/alpha/stall/mc-alpha-worker-tmuxfree"
+OUT=$(bound_env /bin/bash "$repo_root/scripts/mc-keeper.sh" bounds --program alpha --now "$t2" 2>"$tmp/stderr")
+expect_out "an idle tmux session with no wait retires, so the parked one's stay is the wait's doing" "retire${tab}mc-alpha-worker-tmuxfree${tab}${t1}${tab}idle"
+rm -f "$sessions/mc-alpha-worker-tmuxfree" "$tmp/tmux/35.name"
+
+# A landed unit ends its session's wait: the landing sweep retires a session
+# whose row still records a ci wait, rather than holding it as parked.
+sj_row mc-alpha-worker-sjlanded "$t1" "$t1" "Waiting on CI."
+printf 'waiting\tci\n' >>"$sessions/mc-alpha-worker-sjlanded"
+mc_run mc-keeper.sh track --program alpha --session mc-alpha-worker-sjlanded --repo acme/web --pr 7
+echo MERGED >"$tmp/state7"
+PATH="$tmp/bin:$PATH" mc_run mc-keeper.sh sweep --program alpha
+expect_out "a landed session with a stale wait is retired by the landing sweep" "retired${tab}mc-alpha-worker-sjlanded"
+expect_no_out "and is not held as parked" "held${tab}mc-alpha-worker-sjlanded"
+if [ ! -e "$sessions/mc-alpha-worker-sjlanded" ]; then ok "and its row released"; else fail "the landed parked session's row stayed: $OUT $ERR"; fi
+rm -rf "$fleet/streamjson/mc-alpha-worker-sjlanded"
 for s in mc-alpha-worker-sjunread mc-alpha-worker-sjrunning mc-alpha-worker-tmuxgrace; do rm -f "$sessions/$s" && rm -rf "$fleet/streamjson/$s"; done
 
 # The bounds are knobs.
@@ -786,6 +907,17 @@ else
 fi
 expect_out "an idle stream-json session is retired too" "announced${tab}worker-retired-idle${tab}mc-alpha-worker-sjidle"
 if [ ! -e "$sessions/mc-alpha-worker-sjidle" ]; then ok "and its row released"; else fail "the stream-json session's row stayed: $ERR"; fi
+expect_no_out "a parked session is not retired by the watch" "worker-retired-idle${tab}mc-alpha-worker-sjparked"
+expect_no_out "nor a parked tmux session" "worker-retired-idle${tab}mc-alpha-worker-tmuxparked"
+if [ -e "$sessions/mc-alpha-worker-sjparked" ] && [ -e "$sessions/mc-alpha-worker-tmuxparked" ] && [ -d "$fleet/streamjson/mc-alpha-worker-sjparked" ] && [ -e "$tmp/tmux/34.name" ]; then
+  ok "and both stay, row, runtime and window"
+else
+  fail "a parked session was retired by the watch: $(ls "$sessions") $ERR"
+fi
+case $ERR in
+  *"mc-alpha-worker-sjparked"* | *"mc-alpha-worker-tmuxparked"*) fail "a parked session was reported as a failed retire: $ERR" ;;
+  *) ok "and the watch reports nothing of them" ;;
+esac
 expect_out "the lifetime handover is announced" "announced${tab}worker-handover-due${tab}mc-alpha-reviewer-old"
 expect_out "each session's own" "announced${tab}worker-handover-due${tab}mc-alpha-worker-old"
 expect_no_out "input since the scan stops the retire" "worker-retired-idle${tab}mc-alpha-worker-typed"

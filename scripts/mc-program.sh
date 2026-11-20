@@ -184,7 +184,7 @@ expand_path() {
   esac
 }
 
-key_of() { printf 'program_%s_%s' "$(printf '%s' "$1" | tr - _)" "$2"; }
+key_of() { printf 'program_%s_%s' "${1//-/_}" "$2"; }
 
 # The placeholder name under which the shipped defaults are read alone.
 DEFAULTS="(defaults)"
@@ -230,22 +230,63 @@ STRICT=0
 scratch_err=$(mktemp "${TMPDIR:-/tmp}/mc-program.XXXXXX") || exit 2
 trap 'rm -f "$scratch_err"' EXIT
 
+# Resolving the layers costs a process chain per config-get.sh run (the core
+# root, the installed roots, the overlay roots, git), and a read of one field
+# takes the program list, the program's key and a default: three runs, each
+# paying it again. prefetch reads every key of the read ahead in one run, and
+# layered serves from that read. A prefetch that printed anything on stderr
+# or exited non-zero is dropped, so the per-key reads run as they always did
+# and say what they always said.
+PF_KEYS=" "
+PF_ROWS=""
+prefetch() {
+  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
+  pf_out=$(/bin/sh "$script_dir/config-get.sh" --layers "$@" 2>"$scratch_err") || return 0
+  [ ! -s "$scratch_err" ] || return 0
+  PF_ROWS=$pf_out
+  PF_KEYS=" $* "
+}
+
+# pf_pick <key>: the prefetched layer lines of <key> in ly_lines, in the
+# `<layer>\t<value>` form a single-key read prints; fails for a key that
+# was not prefetched.
+pf_pick() {
+  case $PF_KEYS in
+    *" $1 "*) ;;
+    *) return 1 ;;
+  esac
+  ly_lines=""
+  pk_tab='	'
+  while IFS= read -r pk_row; do
+    [ "${pk_row%%"$pk_tab"*}" = "$1" ] || continue
+    ly_lines="$ly_lines${pk_row#*"$pk_tab"}
+"
+  done <<EOF
+$PF_ROWS
+EOF
+  ly_lines=${ly_lines%?}
+}
+
 # layered <name> <field> <key> <parser>: the value of <key>, parsed by
 # `<parser> <name> <raw>`. Status 0 printed; 3 no layer sets a valid value;
 # 1 a failure, named on stderr.
 layered() {
-  # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
-  ly_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$3" 2>"$scratch_err")
-  ly_rc=$?
-  cat "$scratch_err" >&2
-  case $ly_rc in
-    0) ;;
-    3) return 3 ;;
-    *)
-      problem "$1" "$2" "reading $3 failed (config-get.sh exit $ly_rc)"
-      return 1
-      ;;
-  esac
+  if pf_pick "$3"; then
+    [ -n "$ly_lines" ] || return 3
+  else
+    # shell-config-pin: mission control's knobs live in the overlay layers of the checkout it runs from
+    ly_lines=$(/bin/sh "$script_dir/config-get.sh" --layers "$3" 2>"$scratch_err")
+    ly_rc=$?
+    cat "$scratch_err" >&2
+    case $ly_rc in
+      0) ;;
+      3) return 3 ;;
+      *)
+        problem "$1" "$2" "reading $3 failed (config-get.sh exit $ly_rc)"
+        return 1
+        ;;
+    esac
+  fi
   ly_rev=$(printf '%s\n' "$ly_lines" | awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }')
   ly_won=""
   ly_bad=0
@@ -625,6 +666,14 @@ case $verb in
         exit 2
         ;;
     esac
+    if valid_name "$1"; then
+      case $2 in
+        home) prefetch mission_control_programs "$(key_of "$1" home)" mission_control_home_root "$(key_of "$1" repositories)" ;;
+        duties) prefetch mission_control_programs "$(key_of "$1" duties)" mission_control_default_duties ;;
+        sources) prefetch mission_control_programs "$(key_of "$1" sources)" mission_control_default_sources ;;
+        *) prefetch mission_control_programs "$(key_of "$1" "$2")" ;;
+      esac
+    fi
     require_program "$1"
     "field_$2" "$1"
     ;;

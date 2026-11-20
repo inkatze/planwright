@@ -57,6 +57,17 @@ assert_allow "reads piped into jq" "gh pr view 5 --json state | jq -r .state" Ba
 TMPC=$(cd -P /tmp && pwd -P)
 assert_allow "cd /tmp then reads" "cd $TMPC; gh pr view 5 --json state; gh pr checks 5" Bash "$WT"
 assert_defer "gh search with --web" "gh search code foo --web" Bash "$WT"
+assert_defer "gh repo view with --web" "gh repo view --web" Bash "$WT"
+assert_defer "gh repo view with --web=true" "gh repo view o/r --web=true" Bash "$WT"
+assert_defer "gh repo view with -w" "gh repo view o/r -w" Bash "$WT"
+assert_allow "gh repo view --json name" "gh repo view o/r --json name" Bash "$WT"
+assert_allow "gh auth status --json" "gh auth status --json hosts" Bash "$WT"
+assert_allow "gh repo view of the current repo" "gh repo view" Bash "$WT"
+assert_allow "gh repo view --json" "gh repo view o/r --json name,url" Bash "$WT"
+for c in 'gh repo view --web' 'gh repo view -w' 'gh repo view o/r --web' 'gh repo view o/r -w' \
+  'gh repo view --web=true' 'gh repo view o/r -bmain -w'; do
+  assert_defer "gh repo view opening the browser: $c" "$c" Bash "$WT"
+done
 assert_defer "gh search commits unlisted" "gh search commits foo" Bash "$WT"
 assert_defer "gh pr merge" "gh pr merge 5 --squash" Bash "$WT"
 assert_defer "gh pr ready" "gh pr ready 5" Bash "$WT"
@@ -194,6 +205,29 @@ assert_defer "perl -pi with two statements" "perl -pi -e 's/a/b/;system(1)' f" B
 assert_defer "perl -e alone" "perl -e 's/a/b/' f" Bash "$WT"
 assert_defer "perl running a script" "perl x.pl" Bash "$WT"
 assert_defer "perl -pi with no file" "perl -pi -e 's/a/b/'" Bash "$WT"
+# Every word in the file position exists as a regular file, so a missing file
+# never explains a defer: perl reads a dash-led word as an option, and a second
+# -e runs its next word. The dash-less twins prove the dash is what defers.
+OPTLIKE=(-e 'system(1)' -MO=Deparse -i.bak -- - e i.bak)
+for n in "${OPTLIKE[@]}"; do
+  printf 'a\n' >"$WT/$n" && [ -f "$WT/$n" ] || {
+    echo "FAIL: could not create the perl fixture $n" >&2
+    exit 1
+  }
+done
+assert_allow "perl -pi a file named like -e without its dash" "perl -pi -e 's/a/b/' e" Bash "$WT"
+assert_allow "perl -pi a file named like -i.bak without its dash" "perl -pi -e 's/a/b/' i.bak" Bash "$WT"
+assert_defer "perl -pi with a second -e in the file position" "perl -pi -e 's/a/b/' -e 'system(1)'" Bash "$WT"
+assert_defer "perl -pi with -e after a file" "perl -pi -e 's/a/b/' f -e 'system(1)'" Bash "$WT"
+assert_defer "perl -pi with a module option in the file position" "perl -pi -e 's/a/b/' -MO=Deparse f" Bash "$WT"
+assert_defer "perl -pi with a backup suffix in the file position" "perl -pi -e 's/a/b/' -i.bak f" Bash "$WT"
+assert_defer "perl -pi with -- in the file position" "perl -pi -e 's/a/b/' -- -e" Bash "$WT"
+assert_defer "perl -pi with - in the file position" "perl -pi -e 's/a/b/' -" Bash "$WT"
+assert_allow "perl -pi an ordinary file beside option-named files" "perl -pi -e 's/a/b/' f" Bash "$WT"
+for n in "${OPTLIKE[@]}"; do
+  rm -f -- "${WT:?}/$n"
+done
+assert_allow "perl -pi two ordinary files" "perl -pi -e 's/a/b/' f g" Bash "$WT"
 HOOK_ENV=()
 assert_defer "perl -pi without the own-branch arm" "perl -pi -e 's/a/b/' f" Bash "$WT"
 
@@ -333,6 +367,10 @@ assert_defer "scoped: git -C /etc" "cd $WT; git -C /etc log -1" Bash "$WT"
 assert_defer "scoped: git diff --ext-diff" "cd $WT; git diff --ext-diff main" Bash "$WT"
 assert_defer "scoped: git log --textconv" "cd $WT; git log -p --textconv -1" Bash "$WT"
 assert_defer "scoped: git show --textconv" "cd $WT; git show --textconv HEAD" Bash "$WT"
+assert_defer "scoped: git -C the worktree, diff --ext" "cd $WT; git -C $WT diff --ext main" Bash "$WT"
+assert_defer "scoped: git -C the worktree, log --textc" "cd $WT; git -C $WT log -p --textc -1" Bash "$WT"
+assert_defer "scoped: git -C the worktree, show --textconv=1" "cd $WT; git -C $WT show --textconv=1 HEAD" Bash "$WT"
+assert_allow "scoped: git -C the worktree, log --text" "cd $WT; git -C $WT log -p --text -1" Bash "$WT"
 assert_defer "scoped: git diff --no-index on a sibling TMPDIR" "cd $WT; git diff --no-index $OTHER_TMP/diff.patch f" Bash "$WT"
 assert_defer "scoped: git with an unresolved word" "cd $WT; git log \$X" Bash "$WT"
 assert_defer "scoped: git with a glob" "cd $WT; git diff main -- *" Bash "$WT"
