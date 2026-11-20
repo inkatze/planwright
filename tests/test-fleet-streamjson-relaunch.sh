@@ -432,3 +432,19 @@ step_env sjr-step launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd 
 [ ! -e "$sdir/parent" ] || fail "r8: a launch naming itself as the launching worker recorded a parent"
 senv -- stop sjr-step --grace 2 >/dev/null 2>&1
 echo "ok: r8 a recover keeps the parent, and a session is never its own parent"
+
+# ---------------------------------------------------------------------------
+# r9: a relaunch onto a pull request's worktree records that pull request's
+# head branch, the one checked out there, as the unit branch.
+# ---------------------------------------------------------------------------
+pr_head=planwright/flight/pr-head-0123abcd
+git -C "$wt2" checkout -q -b "$pr_head" || fail "r9: setup: cannot check out the pull request's head branch"
+(cd "$wt2" && senv -- recover sjr-step --cwd "$wt2") >/dev/null 2>&1 || fail "r9: the recover onto the pull request's worktree exited non-zero"
+poll_until --what 'the relaunched step session' -- test -s "$sdir/worker.pid" || fail "r9: setup: the relaunched session never started"
+r9_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+if [ -f "$r9_rec" ] && grep -qx "unit_branch=$pr_head" "$r9_rec"; then
+  echo "ok: r9 a relaunch onto a pull request's worktree records its head branch as the unit branch"
+else
+  fail "r9: the relaunch recorded: $(tr '\n' ' ' <"$r9_rec" 2>&1)"
+fi
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
