@@ -1658,10 +1658,18 @@ EOF
       p=${rest%%|*}
       want=${rest##*|}
       got=$(hook_verdict "$args" Write "$p")
-      [ "$got" = "$want" ] && ok "pass J: hook [$args] $p is $want" || fail "pass J: hook [$args] $p expected $want, got $got"
+      if [ "$got" = "$want" ]; then
+        ok "pass J: hook [$args] $p is $want"
+      else
+        fail "pass J: hook [$args] $p expected $want, got $got"
+      fi
     done
     got=$(hook_verdict lefthook MultiEdit "/work/unrelated/lefthook.yml")
-    [ "$got" = deny ] && ok "pass J: the hook judges MultiEdit" || fail "pass J: the hook let a MultiEdit of an outside lefthook.yml through"
+    if [ "$got" = deny ]; then
+      ok "pass J: the hook judges MultiEdit"
+    else
+      fail "pass J: the hook let a MultiEdit of an outside lefthook.yml through"
+    fi
     got=$(printf '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/work/unrelated/lefthook.yml"},"cwd":"%s"}' "$GWT" | "$MISE_GUARD" "$GWT" lefthook)
     case $got in
       *'"permissionDecision":"deny"'*) ok "pass J: the hook judges a NotebookEdit path" ;;

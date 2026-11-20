@@ -261,7 +261,7 @@ jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("
   || fail "r2: the regenerated profile must replace the mise and the lefthook broad denies"
 jq -e '[.hooks.PreToolUse[].hooks[].command] | any(endswith("worker-mise-edit-guard.sh '"'$wt'"' mise lefthook"))' "$wdir/worker-settings.json" >/dev/null \
   || fail "r2: the regenerated profile's hook must judge both name sets"
-grep -qx 'lefthook_edit=1' "$record" && grep -qx 'mise_task_edit=1' "$record" \
+{ grep -qx 'lefthook_edit=1' "$record" && grep -qx 'mise_task_edit=1' "$record"; } \
   || fail "r2: the rewritten session record must carry both opt-in fields: $(cat "$record")"
 rm -f "$wdir/lefthook-edit" "$wdir/mise-task-edit"
 echo "ok: r2 a relaunch keeps recorded opt-ins, regenerating the profile and the record"
