@@ -591,7 +591,10 @@ neither (it passes the shipped profile itself, byte for byte):
 The generated profile and its opt-in marker sit in the worker's fleet state
 folder (`streamjson/<worker>/`), which the profile's path denies refuse to the
 file tools (`mise-task-edit`, `lefthook-edit`, `worker-settings.json`), as they do the session
-records, so a worker cannot opt itself in for its next recover.
+records, so a worker cannot opt itself in for its next recover through its file
+tools. Those denies match one spelling (MA-2), and a script the worker writes
+is not held to them (the lefthook section's residual risk), so neither is a
+boundary against a worker set on opting itself in.
 
 Residual risk: the hook compares the mise names case-sensitively and works from the
 payload's own spelling and the filesystem, so it is a fail-closed second layer
@@ -662,15 +665,21 @@ subcommand, and every subcommand but `run`), so a
 worker that edits a job and then runs it executes that command in its own
 session at once, before anyone reviews the diff, with the session's privileges.
 Every "stays closed" line above governs the worker's file tools and the guard's
-own arm; a job it writes is not held to them. The opt-in therefore moves the
-worker from "runs reviewed repository commands" to "may run commands it wrote",
-for the worktree it was launched in. What bounds it is the operator's
-launch-time choice for one named worker whose unit is the hook fix, and the
-tracked file landing in the pull request diff, where review sees what will run
-for every later contributor. It is not a sandbox: the guard also trusts the
-installed planwright scripts, the launchers and the session-record writer among
-them, so a worker looking for a wider record may reach one; the mise opt-in has
-the same exposure. The hook matches the lefthook names in any ASCII letter case,
+own arm; a job it writes is not held to them. The opt-in therefore lets the
+worker change what runs on its own commits, for the worktree it was launched in.
+What bounds it is the operator's launch-time choice for one named worker whose
+unit is the hook fix, and the tracked file landing in the pull request diff,
+where review sees what will run for every later contributor.
+
+None of this is a sandbox, for an opted-in worker or any other. The guard
+approves any `scripts/*.sh` or `tests/*.sh` inside the repository as repository
+code, one the worker has just written included, and trusts the installed
+planwright scripts, the launchers and the session-record writer among them. A
+worker can already run a command it wrote, and through it write any path the
+file-tool denies close, this opt-in's marker, another worktree's lefthook config
+and the primary checkout's included. What the path rules and the opt-in govern is
+a worker's ordinary file-tool and shell edits, not one working around them; the
+mise opt-in has the same exposure. The hook matches the lefthook names in any ASCII letter case,
 where the mise names are matched case-sensitively; both leave non-ASCII
 case-folding on a case-insensitive filesystem unhandled, and the per-launch
 profile's ancestor names are case-sensitive for both.
