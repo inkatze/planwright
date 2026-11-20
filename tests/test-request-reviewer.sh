@@ -469,7 +469,10 @@ echo "# the wait sleeps between reads only, and its knobs fall back when malform
 fixture
 : >"$GHS/ready"
 : >"$GHS/no_land"
-printf '#!/bin/sh\necho "SLEEP $*" >>"$GHS/log"\n' >"$MP_STUBBIN/sleep"
+cat >"$MP_STUBBIN/sleep" <<'SLEEPSTUB'
+#!/bin/sh
+echo "SLEEP $*" >>"$GHS/log"
+SLEEPSTUB
 chmod +x "$MP_STUBBIN/sleep"
 PLANWRIGHT_REQUEST_REVIEWER_POLL_SECONDS=2 run --copilot
 check "three reads sleep twice, never after the last" [ "$(grep -c '^SLEEP 2$' "$GHS/log")" = 2 ]
