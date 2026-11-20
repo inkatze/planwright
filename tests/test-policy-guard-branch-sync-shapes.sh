@@ -29,11 +29,23 @@ for c in "PLANWRIGHT_WORKER_SESSION_RECORD=/tmp/x.record $PUSH" "GIT_DIR=/x $PUS
   "cd -P \"$UNIT\" && $PUSH" "cd \"$SANDBOX/nope\" && $PUSH" "cd \$D && $PUSH" "cd \"$UNIT\" && cd . && $PUSH" \
   "$H push --force-with-lease=$B:\$SHA --force-if-includes" "$H ff \"\$X\"" \
   "$S/worker-branch-\\
-sync.sh ff $SHA; git status" "${H//worker/WORKER} ff $SHA" "x=\$(true) $PUSH" \
+sync.sh ff $SHA; git status" "x=\$(true) $PUSH" \
   "find . -name x -exec $H ff $SHA ;" "$S/\"worker-branch-sync.sh\" ff $SHA; true"; do
   sync "$c"
   expect deny "[worker] the shape '$(printf '%s' "$c" | tr '\n' ' ' | cut -c1-80)' denies"
 done
+
+# The helper's name in another case: on a case-insensitive filesystem (macOS)
+# that path is the installed helper itself, so it is admitted only after the
+# full check; where no such file exists, it denies.
+UPPER="${H//worker/WORKER}"
+sync "$UPPER ff $SHA"
+if [ -e "$UPPER" ]; then
+  expect defer "[worker] the helper's name in another case, on a case-insensitive filesystem, is the installed helper and defers"
+  reads protected_branches "[worker] the other-case spelling ran the full check"
+else
+  expect deny "[worker] the helper's name in another case, where no such file exists, denies"
+fi
 
 echo "# the copy that runs"
 mkdir -p "$UNIT/scripts" "$SANDBOX/elsewhere"
