@@ -7,9 +7,9 @@
 #   worker-branch-sync.sh reset <origin/branch>
 #   worker-branch-sync.sh ff <sha>
 #
-# reset is git reset --hard to origin/<branch> as fetched, naming every local
-# commit it drops; dropping one reshapes never-pushed history, so it needs
-# unpushed_rewrite to allow it. ff is git merge --ff-only to a full commit id
+# reset refreshes origin/<branch>, then is git reset --hard to it, naming every
+# local commit it drops; dropping one reshapes never-pushed history, so it
+# needs unpushed_rewrite to allow it. ff is git merge --ff-only to a full commit id
 # descending from HEAD.
 #
 # Every verb refuses unless it runs in a linked worktree that the session
@@ -288,6 +288,9 @@ case $verb in
   reset)
     [ "$target" = "origin/$branch" ] \
       || refuse "reset takes origin/$(safe "$branch"), this branch's own remote-tracking ref, and nothing else; '$(safe "$target")' is refused"
+    # Refreshed first, so the commits it drops are the ones no remote holds.
+    git fetch --quiet --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch" </dev/null \
+      || refuse "origin/$(safe "$branch") could not be refreshed, so which local commits the reset would drop is unknown; refusing (fail closed)"
     to=$(git rev-parse --verify --quiet "refs/remotes/origin/$branch^{commit}") \
       || refuse "origin/$(safe "$branch") does not resolve; fetch it first (git fetch origin $(safe "$branch"))"
     clean_or_refuse

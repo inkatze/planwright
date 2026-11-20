@@ -7249,9 +7249,9 @@ mc_unparsed_command_names() {
 # unit branch outside the protected set, where the launch-written session
 # record names that checkout and branch. The helper repeats these checks and
 # adds the ones only the moment of the act can answer (a shared branch, a
-# clean tree, unpushed_rewrite before a reset drops a local commit). Any other run is refused; a mention
-# that runs nothing (a read, a stage, a test of it) passes to the ordinary
-# rules.
+# clean tree, unpushed_rewrite before a reset drops a local commit). Any other
+# run is refused; a mention that runs nothing (a read, a stage, a test of it)
+# passes to the ordinary rules.
 
 SYNC_FILE=worker-branch-sync.sh
 SYNC_FORM="<installed root>/scripts/worker-branch-sync.sh reset origin/<branch> or ff <full sha>"

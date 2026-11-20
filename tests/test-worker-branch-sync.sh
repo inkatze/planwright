@@ -326,6 +326,27 @@ run "$other_wt" reset "origin/$B"
 refused "a reset naming the own branch from another worktree"
 pass "a reset outside the own worktree is refused"
 
+# The reset refreshes the remote branch itself: a commit pushed elsewhere and
+# never fetched here is where it lands.
+other_clone="$tmp/other-clone"
+g clone -q "$origin" "$other_clone"
+g -C "$other_clone" switch -q "$B"
+g -C "$other_clone" commit -q --allow-empty -m "someone else's commit"
+g -C "$other_clone" push -q origin "$B"
+theirs=$(g -C "$origin" rev-parse "$B")
+[ "$(g -C "$wt" rev-parse "origin/$B")" != "$theirs" ] || fail "fixture: the worktree already had the other push"
+run "$wt" reset "origin/$B"
+[ "$RC" = 0 ] || fail "the refreshing reset did not succeed: $OUT"
+[ "$(g -C "$wt" rev-parse HEAD)" = "$theirs" ] || fail "the reset did not land on the freshly fetched tip"
+pass "a reset refreshes origin/<own branch> first and lands on its current tip"
+url=$(g -C "$wt" remote get-url origin)
+g -C "$wt" remote set-url origin "$tmp/no-such-origin.git"
+run "$wt" reset "origin/$B"
+g -C "$wt" remote set-url origin "$url"
+refused "a reset whose remote branch cannot be refreshed"
+has 'could not be refreshed' "the refresh refusal says why"
+pass "a reset whose remote branch cannot be refreshed is refused"
+
 # --- ff ----------------------------------------------------------------------
 
 desc=$(g -C "$wt" commit-tree -p HEAD -m "a descendant" "HEAD^{tree}")
