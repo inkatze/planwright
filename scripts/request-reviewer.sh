@@ -19,14 +19,22 @@
 #               them; given, a failed re-draft parks it
 #
 # The sequence:
-#   1. Read the PR's draft state and base. An unreadable state, or a PR that
-#      is not open, skips with no request: the run could not tell afterwards
-#      whether a ready PR was its own doing.
-#   2. Request the review. A failed request still runs step 3, since the
+#   1. Read the PR's draft state and base, and the reviewer's newest
+#      review_requested timeline event and whether it is a requested
+#      reviewer. Any of these unreadable, or a PR that is not open, skips
+#      with no request: the run could not tell afterwards whether a ready PR
+#      was its own doing, or whether its request landed.
+#   2. Request the review. A failed request still runs step 4, since the
 #      host may have acted before failing.
-#   3. On a PR that was a draft, read the draft state again. A PR reported
+#   3. A request the host accepted is not proof: GitHub has answered success
+#      while adding no reviewer, and PR-Agent runs on review_requested, so a
+#      request that never lands loses that run silently. Poll until the
+#      reviewer has a review_requested event newer than step 1's, or is a
+#      requested reviewer it was not in step 1, up to the bound below; a read
+#      that fails is polled past.
+#   4. On a PR that was a draft, read the draft state again. A PR reported
 #      ready, or a read that fails, gets `gh pr ready --undo`.
-#   4. A re-draft that fails parks the unit under `## Awaiting input`
+#   5. A re-draft that fails parks the unit under `## Awaiting input`
 #      (ready-flip.sh park, reason `redraft-pr-<n>`), naming the PR, in this
 #      checkout, which must be on the PR's head branch; with no unit given, or
 #      a checkout on another branch, it is named in the output alone.
@@ -34,11 +42,19 @@
 # The check stays wired whether or not the host un-drafts on request today,
 # so a host change is caught.
 #
-# Exit: 0 requested, the draft state held or restored; 1 the request failed,
-# the draft state held or restored; 2 usage, a repository other than origin's
-# or a reviewer that is not a bot, or a broken install; 3 skipped, no request
-# made; 4 the re-draft failed and the unit is parked; 5 the re-draft failed
-# and the park did not complete (the output names why).
+# Exit: 0 requested and landed, the draft state held or restored; 1 the
+# request failed, the draft state held or restored; 2 usage, a repository
+# other than origin's or a reviewer that is not a bot, or a broken install;
+# 3 skipped, no request made; 4 the re-draft failed and the unit is parked;
+# 5 the re-draft failed and the park did not complete (the output names why);
+# 6 the host accepted the request but none landed within the bound, the draft
+# state held or restored. The output names the fallback that fires PR-Agent:
+# on a ready PR, converting it to draft and marking it ready again; on a
+# draft, its ready flip. A re-draft failure (4, 5) outranks 1 and 6.
+#
+# Environment: PLANWRIGHT_REQUEST_REVIEWER_POLL_SECONDS (default 3) is the
+# landing poll interval and PLANWRIGHT_REQUEST_REVIEWER_MAX_POLLS (default 10)
+# the most reads after the request.
 #
 # No model in the decision path: every step is a comparison.
 set -u
@@ -110,6 +126,20 @@ if [ -n "$SPEC" ] || [ "${#UNIT[@]}" -gt 0 ]; then
     || usage '--spec must be a relative path inside the checkout'
   case "/$SPEC/" in */../* | */./*) usage '--spec must not climb out of the checkout' ;; esac
 fi
+POLL=${PLANWRIGHT_REQUEST_REVIEWER_POLL_SECONDS:-3}
+[[ $POLL =~ ^[0-9]{1,4}$ ]] || POLL=3
+# Base 10 explicitly: bash arithmetic reads a leading zero as octal.
+POLL=$((10#$POLL))
+POLLS=${PLANWRIGHT_REQUEST_REVIEWER_MAX_POLLS:-10}
+[[ $POLLS =~ ^[0-9]{1,3}$ ]] && [ "$((10#$POLLS))" -ge 1 ] || POLLS=10
+POLLS=$((10#$POLLS))
+# The logins the reviewer shows under: GraphQL drops the `[bot]` suffix REST
+# carries, and Copilot's request lands as its reviewer App.
+if [ "$COPILOT" = 1 ]; then
+  LOGINS='copilot-pull-request-reviewer copilot'
+else
+  LOGINS=$(printf '%s' "${REVIEWER%\[bot\]}" | tr '[:upper:]' '[:lower:]')
+fi
 
 if ! command -v gh >/dev/null 2>&1; then
   say 'skipped: gh is not installed, so no review was requested'
@@ -133,6 +163,23 @@ state() {
     | "\(.isDraft) \(.state) \(.baseRefName) \(.headRefName)"' 2>/dev/null
 }
 
+# requested — print `<pending> <event id>`: whether the reviewer is among the
+# requested reviewers, and the id of its newest review_requested timeline
+# event (`none` without one); non-zero when unreadable.
+# shellcheck disable=SC2016 # GraphQL variables, not shell expansions
+RQ='query($owner:String!,$name:String!,$number:Int!){ repository(owner:$owner,name:$name){ pullRequest(number:$number){ reviewRequests(first:100){ nodes{ requestedReviewer{ ... on Bot{ login } ... on User{ login } } } } timelineItems(itemTypes:[REVIEW_REQUESTED_EVENT],last:100){ nodes{ ... on ReviewRequestedEvent{ id requestedReviewer{ ... on Bot{ login } ... on User{ login } } } } } } } }'
+requested() {
+  local j
+  j=$(gh api graphql -f query="$RQ" -F owner="${REPO%%/*}" -F name="${REPO#*/}" -F number="$PR" 2>/dev/null) || return 1
+  printf '%s' "$j" | jq -er --arg who "$LOGINS" '
+    def mine: ((.requestedReviewer.login // "") | ascii_downcase | sub("\\[bot\\]$"; "")) as $l
+      | $l != "" and ($who | split(" ") | any(. == $l));
+    .data.repository.pullRequest
+    | select(type == "object" and (.reviewRequests.nodes | type) == "array"
+      and (.timelineItems.nodes | type) == "array")
+    | "\([.reviewRequests.nodes[] | select(mine)] | length > 0) \(([.timelineItems.nodes[] | select(mine) | .id | strings | gsub("[^A-Za-z0-9_=-]"; "")] | last) // "none")"' 2>/dev/null
+}
+
 # 1. Where the PR stands before the request.
 if ! before=$(state); then
   say "skipped: the draft state of PR #$PR could not be read, so no review was requested"
@@ -145,6 +192,13 @@ if [ "$pr_state" != OPEN ]; then
   say "skipped: PR #$PR is $(sanitize_printable "$pr_state" '?'), not open, so no review was requested"
   exit 3
 fi
+if ! asked=$(requested); then
+  say "skipped: the review requests on PR #$PR could not be read, so no review was requested"
+  exit 3
+fi
+read -r pending_before event_before <<EOF
+$asked
+EOF
 
 # 2. The request.
 if [ "$COPILOT" = 1 ]; then
@@ -155,9 +209,37 @@ else
   gh api -X POST "repos/$REPO/pulls/$PR/requested_reviewers" -f "reviewers[]=$REVIEWER" >/dev/null 2>&1
 fi
 req_rc=$?
+
+# 3. An accepted request must land.
+landed=0
 if [ "$req_rc" = 0 ]; then
+  n=0
+  while [ "$n" -lt "$POLLS" ]; do
+    n=$((n + 1))
+    if now=$(requested); then
+      read -r pending_now event_now <<EOF
+$now
+EOF
+      if { [ "$event_now" != none ] && [ "$event_now" != "$event_before" ]; } \
+        || { [ "$pending_now" = true ] && [ "$pending_before" != true ]; }; then
+        landed=1
+        break
+      fi
+    fi
+    [ "$n" -ge "$POLLS" ] || [ "$POLL" = 0 ] || sleep "$POLL"
+  done
+fi
+if [ "$landed" = 1 ]; then
   say "requested a review from $who on PR #$PR"
   outcome=0
+elif [ "$req_rc" = 0 ]; then
+  if [ "$was_draft" = true ]; then
+    fallback="marking PR #$PR ready fires PR-Agent"
+  else
+    fallback="to fire PR-Agent, convert PR #$PR to draft and mark it ready again"
+  fi
+  say "the review request to $who on PR #$PR did not land: no review_requested event and no pending request after the host accepted it; $fallback"
+  outcome=6
 else
   say "the review request to $who on PR #$PR failed (gh exit $req_rc)"
   outcome=1
@@ -166,7 +248,7 @@ if [ "$was_draft" != true ]; then
   exit "$outcome"
 fi
 
-# 3. A draft must still be one.
+# 4. A draft must still be one.
 if after=$(state); then
   case $after in
     'true '*) exit "$outcome" ;;
@@ -183,7 +265,7 @@ if gh pr ready "$PR" --repo "$REPO" --undo >/dev/null 2>&1; then
   exit "$outcome"
 fi
 
-# 4. The re-draft failed: the PR may be ready with no one having flipped it.
+# 5. The re-draft failed: the PR may be ready with no one having flipped it.
 say "the re-draft failed: PR #$PR $now, and no one marked it ready"
 if [ "${#UNIT[@]}" = 0 ]; then
   say 'no unit was named, so nothing was parked; put the PR back to draft by hand'
