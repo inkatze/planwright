@@ -11,6 +11,10 @@ export LC_ALL
 unset CDPATH
 
 prog=mc-radar
+# A forge read that hangs must not stall the pass. The page size doubles as
+# the sentinel for a list cut short: a full page is never taken as the whole.
+GH_BOUND=60
+OPEN_LIMIT=1000
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 for lib in echo-safety.sh mc-lib.sh; do
   if [ ! -r "$script_dir/$lib" ]; then
@@ -56,7 +60,8 @@ Usage:
       the duty's watcher (also what a run with no arguments does under the
       runner): in each of the program's repositories, the origin branches
       in the program's scope (mission_control_radar_scope) compared against
-      the default, the 50 most recently committed of them:
+      the default, the 50 most recently committed of them that head an open
+      pull request:
         authored (the default): the head and base branches of the pull
           requests the forge snapshot holds (mission_control_forge_tracked
           chose them), and the program's own planwright/flight/* and
@@ -64,6 +69,14 @@ Usage:
         watched: the branches named in mission_control_radar_watched;
         all: every origin branch.
       The merge-queue refs (trunk-merge/*, gh-readonly-queue/*) never pair.
+      Under every scope a branch pairs only while it is the head of an open
+      pull request in its own repository (a fork's head does not count): a
+      branch with no pull request, or whose pull request merged or closed,
+      drops out, a base branch no open pull request heads included. gh reads
+      the open pull requests once per repository per pass; a repository
+      whose read fails, whose origin names no owner/name, or that holds 1000
+      open pull requests or more, is reported and fails the run, never
+      guessed.
       One conflict-predicted event per branch pair with a same-line overlap,
       its text `<repo>:<a>+<b> <path> lines <first>-<last>` (more overlaps in
       the pair are counted), printing
@@ -83,9 +96,9 @@ skipped; every other line is
 <repo> a name the program uses for the repository, <dependencies> `-` or
 a comma list of <repo>:<branch> naming other units in any repository.
 
-Exit codes: 0 done; 1 a git read that failed or an unknown branch, an
-invalid graph, an unknown merged unit, or an event the store refused; 2
-usage; 3 the program is not configured (watch).
+Exit codes: 0 done; 1 a git or forge read that failed or an unknown branch,
+an invalid graph, an unknown merged unit, an event the store refused, or no
+gh on PATH (watch); 2 usage; 3 the program is not configured (watch).
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -357,6 +370,7 @@ case $verb in
     [ -n "$program" ] || usage
     mc_require_program "$program"
     runtime=$(mc_runtime "$program") || mc_fail "cannot resolve the runtime directory"
+    command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"
     seen="$runtime/radar-announced"
     [ -f "$seen" ] || : >"$seen" || mc_fail "cannot create $seen"
     cap=$(mc_knob mission_control_radar_max_events mc_parse_count) || exit 1
@@ -394,16 +408,41 @@ case $verb in
       # The pull requests of this repository: the snapshot rows naming its
       # slug, so a branch of another repository never matches.
       url=$(mc_untrusted_git -C "$r" remote get-url origin 2>/dev/null) || url=""
-      slug=$(printf '%s\n' "$url" | sed -e 's#^git@[^:]*:##' -e 's#^[a-z+]*://[^/]*/##' -e 's#\.git$##')
+      slug=$(printf '%s\n' "$url" | sed -e 's#^git@[^:]*:##' -e 's#^[a-z+]*://[^/]*/##' -e 's#/$##' -e 's#\.git$##')
       repo_prs=$(printf '%s\n' "$snap" | SLUG=$slug awk -F '\t' '
         $1 == "pr" && $2 == ENVIRON["SLUG"] {
           if ($14 != "" && $14 != "-") print "origin/" $14
           if ($13 != "" && $13 != "-") print "origin/" $13
         }')
-      # The branches in scope: never the default, never a merge-queue ref.
-      picked=$(printf '%s\n' "$list" | SCOPE=$scope PRS=$repo_prs WATCHED=$watched D=$def awk -F '\t' '
+      mc_valid_slug "$slug" || {
+        printf '%s\n' "$prog: $(sanitize_printable "$r"): origin names no owner/name repository, so its open pull requests cannot be read" >&2
+        rc=1
+        continue
+      }
+      # The heads of this repository's open pull requests, one forge read per
+      # pass. A cross-repository head prints as "*", which no branch is named,
+      # so the count below is of every row the page held and a cut page cannot
+      # pass as whole.
+      open_heads=$(
+        cd "$runtime" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" "$GH_BOUND" gh pr list --repo "$slug" --state open --limit "$OPEN_LIMIT" \
+          --json headRefName,isCrossRepository \
+          --jq '.[] | if .isCrossRepository then "*" else .headRefName end' 2>/dev/null </dev/null
+      ) || {
+        printf '%s\n' "$prog: $(sanitize_printable "$r"): the open pull requests cannot be read" >&2
+        rc=1
+        continue
+      }
+      if [ "$(printf '%s' "$open_heads" | grep -c '^')" -ge "$OPEN_LIMIT" ]; then
+        printf '%s\n' "$prog: $(sanitize_printable "$r"): $OPEN_LIMIT or more open pull requests, more than one read returns" >&2
+        rc=1
+        continue
+      fi
+      # The branches in scope: never the default, never a merge-queue ref,
+      # always the head of an open pull request.
+      picked=$(printf '%s\n' "$list" | SCOPE=$scope PRS=$repo_prs OPEN_HEADS=$open_heads WATCHED=$watched D=$def awk -F '\t' '
         BEGIN {
           scope = ENVIRON["SCOPE"]
+          n = split(ENVIRON["OPEN_HEADS"], q, "\n"); for (i = 1; i <= n; i++) if (q[i] != "") openhead["origin/" q[i]] = 1
           n = split(ENVIRON["PRS"], p, "\n"); for (i = 1; i <= n; i++) if (p[i] != "") pr[p[i]] = 1
           n = split(ENVIRON["WATCHED"], w, "\n"); for (i = 1; i <= n; i++) if (w[i] != "") watch["origin/" w[i]] = 1
         }
@@ -415,7 +454,11 @@ case $verb in
           else if (scope == "watched") ok = ($1 in watch)
           else ok = ($1 in pr) || $1 ~ /^origin\/planwright\/flight\// || $1 ~ /^origin\/planwright\/[^\/]+\/task-/
         }
-        ok && ++k <= 50 { print $1 "	" $2 }')
+        ok && ($1 in openhead) && ++k <= 50 { print $1 "	" $2 }') || {
+        printf '%s\n' "$prog: $(sanitize_printable "$r"): the branches in scope cannot be picked" >&2
+        rc=1
+        continue
+      }
       names=$(printf '%s\n' "$picked" | cut -f1)
       set --
       while IFS= read -r b; do
