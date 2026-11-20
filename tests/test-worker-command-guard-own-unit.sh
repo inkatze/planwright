@@ -272,6 +272,18 @@ assert_defer "a re-assignment after the export" \
   "export PLANWRIGHT_STEP_WORKTREE=$WT && PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && $SREC write --run 1" Bash "$WT"
 assert_defer "a re-assignment of another exported name" \
   "export PLANWRIGHT_STEP_BRANCH=$B && PLANWRIGHT_STEP_BRANCH=x; $SREC write --run 1" Bash "$WT"
+assert_defer "a read into an exported name" \
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && read -r PLANWRIGHT_STEP_WORKTREE && $SREC write --run 1" Bash "$WT"
+for ou_setter in "read -a PLANWRIGHT_STEP_WORKTREE" "read PLANWRIGHT_STEP_WORKTREE" "mapfile PLANWRIGHT_STEP_WORKTREE" \
+  "readarray PLANWRIGHT_STEP_WORKTREE" "printf -v PLANWRIGHT_STEP_WORKTREE %s $OTHER_WT" \
+  "declare PLANWRIGHT_STEP_WORKTREE=$OTHER_WT" "declare -x PLANWRIGHT_STEP_WORKTREE=$OTHER_WT" \
+  "typeset PLANWRIGHT_STEP_WORKTREE=$OTHER_WT" "local PLANWRIGHT_STEP_WORKTREE=$OTHER_WT" \
+  "unset PLANWRIGHT_STEP_WORKTREE"; do
+  assert_defer "$ou_setter after the export" \
+    "export PLANWRIGHT_STEP_WORKTREE=$WT && $ou_setter && $SREC write --run 1" Bash "$WT"
+done
+assert_allow "a read into another name after the export (control)" \
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && read -r X && $SREC write --run 1" Bash "$WT"
 assert_defer "a loop over an exported name" \
   "export PLANWRIGHT_STEP_WORKTREE=$WT && for PLANWRIGHT_STEP_WORKTREE in $OTHER_WT; do $SREC write --run 1; done" Bash "$WT"
 assert_defer "a plain step assignment before the export" \

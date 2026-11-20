@@ -3285,6 +3285,13 @@ guard_read() {
       -*) return 1 ;;
       *)
         assign_name_ok "$a" || return 1
+        # As track_assignment refuses: a read into a name an own-unit export
+        # set would replace the value the export was checked against.
+        if [ "$OU_EXPORTED" = 1 ]; then
+          case $a in
+            PLANWRIGHT_STEP_*) return 1 ;;
+          esac
+        fi
         for ((v = 0; v < VAR_C; v++)); do
           [ "${VAR_N[v]}" = "$a" ] && return 1
         done
