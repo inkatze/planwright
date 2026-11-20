@@ -1,7 +1,7 @@
 # Release Hardening — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-19
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -10,9 +10,10 @@ derived on demand, never stored here (see the status render). Dependency edges
 are the sole source of truth for the task graph. Guard-first note: Task 1
 establishes the comparator test home (`tests/test-release-lib.sh`) that Task 2
 extends, so the test surface for the fail-closed comparator exists before its
-fix lands. The three tasks that touch `release-publish.sh` (Task 3, Task 4,
-Task 6) carry edges so the shared `rl_ci_state` helper lands before the resume
-and knob changes that share the file.
+fix lands. Of the four tasks that touch `release-publish.sh`, three (Task 3,
+Task 4, Task 6) carry edges so the shared `rl_ci_state` helper lands before
+the resume and knob changes that share the file; Task 13 came after all three
+merged and needs none.
 
 ## Tasks
 
@@ -293,15 +294,20 @@ and knob changes that share the file.
 
 - **Deliverables:** `.github/workflows/ci.yml` selects its concurrency `group`
   and `cancel-in-progress` from one predicate: a push to the default branch
-  whose head commit message starts with `chore: release` gets group
+  whose head commit message starts with `chore: release`, a space and a digit
+  (release-please's title shape, D-15) gets group
   `ci-release-<sha>` and no cancellation; everything else keeps `ci-<ref>`
-  with cancellation. The header comment states why. A case in the workflow
-  tests (new or extending the existing workflow test) pinning both branches of
-  the predicate and that the group and the cancel flag use the same predicate.
+  with cancellation. The header comment states why. Cases in
+  `tests/test-check-workflow-posture.sh` (which already reads `ci.yml`
+  structurally) pin both branches of the predicate, the ten-digit
+  `startsWith` form D-15 names, near-miss titles (`chore: release-window
+  tweak`, `chore: release notes`) landing in the ordinary group, and that the
+  group and the cancel flag use the same predicate.
 - **Done when:** the workflow carries the predicate; tests fail if either
-  branch is removed or the two expressions diverge; yamllint is green; the
-  next release commit's CI run survives a later merge to the default branch;
-  `mise run check` is green.
+  branch is removed, a digit term is dropped, or the two expressions diverge;
+  yamllint is green; `mise run check` is green. That the next release
+  commit's run survives a later merge is checked after the next release
+  (test-spec REQ-I1.1, `[manual]`), not at this task's PR.
 - **Dependencies:** none
 - **Citations:** D-15 · REQ-I1.1 · drafting-session decision (2026-11-13)
 - **Estimated effort:** 0.5 day
@@ -311,40 +317,63 @@ and knob changes that share the file.
 - **Deliverables:** `scripts/release-window-enforced.sh` with the 0/1/2
   contract of REQ-I1.2, read-only, bash 3.2 portable, with the diagnostic
   routed through `sanitize_printable`. `release-bookkeeping.sh` and the
-  `release-please.yml` guard call it while the window is open and surface exit
-  1 or 2. `templates/release-window/README.md` restates the adoption advice
-  (required before the next release PR merges, never enabled mid-window).
-  Tests in a new `tests/test-release-window-enforced.sh` using a stubbed
-  query: required, not required, query failure, unparseable answer.
-- **Done when:** each of the four cases returns its status and a failing query
-  never returns 0; the bookkeeping report and the workflow guard surface a
-  non-zero status while the window is open and stay quiet when it is closed;
-  the rules endpoint is confirmed readable under the workflow token or the
-  workflow-side call is dropped per D-16; `mise run check` is green.
-- **Dependencies:** Task 13 (the verifier is consulted only while the window is
-  open, and a recorded skip closes it)
-- **Citations:** D-16 · REQ-I1.2, REQ-A1.3, REQ-G1.4 · drafting-session
+  `release-please.yml` guard call it while the window is open and surface
+  exit 1 and exit 2 with distinct messages, inside their contracts (D-16): the
+  guard adds a warning annotation and a step-summary line and stays green,
+  and the report adds a line and still exits 0. The adopter release-please
+  template is unchanged (it carries no window guard).
+  `templates/release-window/README.md` step 4, its heading and its closing
+  "Publish any open release first" sentence included, is restated per D-16.
+  Tests in a new `tests/test-release-window-enforced.sh` stubbing both
+  queries through a PATH-stubbed `gh` with per-endpoint fixtures (rulesets and
+  classic branch protection): required by a ruleset only, required by classic
+  protection only, required by neither, an unprotected branch (not required),
+  either query failing, and either answer unparseable. The surfacing cases
+  extend `tests/test-release-bookkeeping.sh` and
+  `tests/test-release-please.sh`, each against both an open-window and a
+  closed-window fixture so "quiet when closed" cannot pass vacuously.
+  The verifier is consulted only while the window is open, and a recorded
+  skip closes it, hence the edge on Task 13.
+- **Done when:** each case returns its status and a failing or unparseable
+  answer from either source never returns 0; the bookkeeping report and the
+  workflow guard surface each non-zero status while the window is open and
+  stay quiet when it is closed; a workflow run linked in the PR shows both
+  endpoints readable under the workflow token, or the workflow-side call is
+  dropped per D-16; `mise run check` is green.
+- **Dependencies:** Task 13
+- **Citations:** D-16 · REQ-I1.2, REQ-A1.3, REQ-H1.1 · drafting-session
   decision (2026-11-13)
 - **Estimated effort:** 1 day
 
 ### Task 13 — Recorded skip honoured by comparator, window check and publish
 
-- **Deliverables:** `rl_release_skipped` in `release-lib.sh` and a parser for
-  the skip file (path guards and canonicalization shared with the version
-  file, D-5). `release-pending.sh` and `release-window-check.sh` (both the
-  working-tree and `--ref` paths) report a recorded skip as not pending; a
-  malformed skip file exits 2. `release-publish.sh` refuses a recorded-skipped
-  version with a message naming the record. `templates/release-window/README.md`
-  and `doctrine/release-tagging.md` gain the skip procedure. Tests extending
-  `tests/test-release-pending.sh`, `tests/test-release-window-check.sh` and
-  the publish tests: skipped version passes, later version pending, same
-  version at a different commit pending, malformed file exits 2, publish
-  refuses.
+- **Deliverables:** `rl_release_skipped` in `release-lib.sh`, a parser for
+  `.release-skips` (path guards and canonicalization shared with the version
+  file, D-5), and the landing-commit scan lifted from `release-publish.sh`
+  into `release-lib.sh` so the skip's commit has one definition (D-17).
+  `release-pending.sh` and `release-window-check.sh` (both the working-tree
+  and `--ref` paths) report a recorded skip as not pending; a malformed skip
+  file exits 2. `release-publish.sh` refuses a version recorded as skipped at
+  the commit it would tag, with a message naming the record.
+  `templates/release-window/README.md` and `doctrine/release-tagging.md` gain
+  the skip procedure: write the record, merge the skip PR by the operator's
+  admin bypass, remove `autorelease: pending` from the abandoned release PR,
+  and un-skip by deleting the line (D-17); `doctrine/release-tagging.md`'s
+  "until its tag is published" window sentence gains the skip exit. Tests
+  extending `tests/test-release-pending.sh`,
+  `tests/test-release-window-check.sh` and `tests/test-release-publish.sh`:
+  skipped version passes, later version pending, same version at a different
+  commit pending, a record present only in the working tree not honoured on
+  the `--ref` path, absent and comment-only files recording no skips,
+  malformed file (an abbreviated SHA included) exits 2, publish refuses.
 - **Done when:** the 0.75.1 shape (version ahead of the latest tag, recorded
-  as skipped) leaves the window closed and the `release-please` guard
-  proceeds; every negative case above holds; `mise run check` is green.
+  as skipped) leaves the window closed, with `release-window-check.sh --ref`
+  exiting 0 on it; every negative case above holds; `mise run check` is
+  green. That the first proposal after a real skip opens and passes REQ-H1.2
+  is checked on that cycle (test-spec REQ-I1.3, `[manual]`).
 - **Dependencies:** none
-- **Citations:** D-17 · REQ-I1.3, REQ-A1.3, REQ-D1.1 · drafting-session decision (2026-11-13)
+- **Citations:** D-17, D-10 · REQ-I1.3, REQ-A1.3, REQ-D1.1 ·
+  drafting-session decision (2026-11-13)
 - **Estimated effort:** 1 day
 
 ## Awaiting input
