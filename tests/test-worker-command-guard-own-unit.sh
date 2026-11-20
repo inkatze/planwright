@@ -323,6 +323,17 @@ assert_defer "a push after another installed plugin script" "$PLUGIN_ROOT/script
 assert_defer "a body edit after a mise task" "mise run check && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
 assert_defer "an export before a repo script" "export $CTX && scripts/check.sh" Bash "$WT"
 assert_allow "an installed step script beside a push stays allowed" "$SREC write --run 1 && git push origin $B" Bash "$WT"
+# Nor with a write the spec-root zone approves under any policy.
+SZ="$CS/specroot"
+mkdir -p "$SZ/demo"
+: >"$SZ/planwright-spec-root.yml"
+: >"$SZ/demo/requirements.md"
+HOOK_ENV=("${USE_ENV[@]}" "PLANWRIGHT_WORKER_SPEC_ROOT=$SZ")
+assert_allow "a spec-root write alone (control)" "mkdir -p $SZ/demo/sub" Bash "$WT"
+assert_defer "a push after a spec-root mkdir" "mkdir -p $SZ/demo/sub2 && git push origin $B" Bash "$WT"
+assert_defer "a push after a spec-root redirect" "echo x > $SZ/demo/notes.md && git push origin $B" Bash "$WT"
+assert_defer "a body edit after a spec-root tee" "echo x | tee $SZ/demo/n.md && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+HOOK_ENV=("${USE_ENV[@]}")
 
 echo "### every class needs a usable session record"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PATH=$STUB:$PATH")

@@ -164,8 +164,9 @@ AUDIT_OU=0
 OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
-# 1 once the own-branch or scratch arm approved a write or git act, and once
-# trusted repository code was approved (main reads both).
+# 1 once the own-branch or scratch arm or the spec-root zone approved a write
+# or git act, and once trusted repository code or a declared step was
+# approved (main reads both).
 ARM_ACT=0
 TASK_ACT=0
 
@@ -943,6 +944,7 @@ in_spec_zone() {
       return 1
     fi
   fi
+  ARM_ACT=1
   return 0
 }
 
@@ -6313,7 +6315,8 @@ verify_simple() {
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] || return 1
   done
-  declared_line_ok
+  declared_line_ok || return 1
+  TASK_ACT=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -7678,10 +7681,10 @@ main() {
   analyze_command "$cmd" 0 || return 0
   # An own-unit act shares its command only with a cd into the worktree, a
   # read-only segment, a step-context export or an installed step script:
-  # never with a write or git act the own-branch or scratch arm approved, nor
-  # with trusted repository code (a mise or lefthook task, bats, a repo or
-  # other plugin script), so a worker commits or runs its gate, then pushes
-  # in a call of its own.
+  # never with a write or git act the own-branch or scratch arm or the
+  # spec-root zone approved, nor with trusted repository code (a mise or
+  # lefthook task, bats, a repo or other plugin script, a declared step), so
+  # a worker commits or runs its gate, then pushes in a call of its own.
   [ "$AUDIT_OU" = 0 ] || { [ "$ARM_ACT" = 0 ] && [ "$TASK_ACT" = 0 ]; } || return 0
   audit_append "$cmd" "$sid"
   emit_allow
