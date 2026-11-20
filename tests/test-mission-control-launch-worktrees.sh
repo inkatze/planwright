@@ -74,7 +74,7 @@ first_wt=$(cat "$rec/cwd" 2>/dev/null)
 # The result file lands while the supervisor is still winding down in the
 # worktree; the launcher refuses a worktree a process still holds, so the
 # relaunch waits for the first run's processes to leave it.
-[ -z "$first_wt" ] || wait_cwd_free "$first_wt"
+wait_cwd_free "$first_wt"
 ml retire "$(field name)"
 rec="$tmp/rec-wt-again"
 mkdir -p "$rec"
@@ -142,6 +142,10 @@ if [ -n "$task_wt" ] && [ -d /proc/self ]; then
   [ "$RC" = 3 ] && case $ERR in *"process "*"runs in $task_wt"*) true ;; *) false ;; esac && no_session demo:task-1 reviewer \
     && ok "a process running in the worktree holds it as a live session" \
     || fail "a launch beside a live process in the worktree: exit $RC, $ERR"
+  [ "$(cwd_holder "$task_wt")" = "/proc/$sleeper/cwd" ] \
+    && [ "$(find() { return 1; }; cwd_holder "$task_wt")" = "/proc/$sleeper/cwd" ] \
+    && ok "the wait's scan finds a process in the worktree, with and without find -lname" \
+    || fail "the wait's scan did not name the process in the worktree"
   kill "$sleeper" 2>/dev/null
   wait "$sleeper" 2>/dev/null
 else
@@ -149,7 +153,7 @@ else
 fi
 # The first launch's supervisor writes its result while still winding down in
 # the worktree, so the reuse launch waits for it to leave.
-[ -z "$task_wt" ] || wait_cwd_free "$task_wt"
+wait_cwd_free "$task_wt"
 SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/brief.md"
 [ "$RC" = 0 ] && [ "$(launched_in "$rec")" = "$task_wt" ] \
   && ok "a worktree holding the branch with no live session is reused" \
@@ -321,7 +325,7 @@ fi
   || ok "a kind that changes no repository gets no cadence section"
 printf '%s\n' '/planwright:execute-task 1 demo' >"$tmp/unit-skill-brief.md"
 ml retire "$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind reviewer --scope demo:task-1)"
-[ -z "$task_wt" ] || wait_cwd_free "$task_wt"
+wait_cwd_free "$task_wt"
 rec="$tmp/rec-unit-skill"
 mkdir -p "$rec"
 SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/unit-skill-brief.md"
