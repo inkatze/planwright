@@ -520,7 +520,8 @@ expect_rc "a repository with no open pull request" 0
 if [ -z "$(stored_events)" ]; then ok "no open pull request raises no event"; else fail "events with no open pull request: $(stored_events)"; fi
 
 # A page holding every open pull request the forge returns cannot be told from
-# a cut one: one short of the page is read, the page itself is refused.
+# a cut one: one short of the page is read, the page itself is refused. A
+# fork's row sits on both pages, since it counts toward the page like any other.
 radar_fresh 1:feat-a:main 2:feat-b:main
 # shellcheck disable=SC2046
 set_open feat-a feat-b fork:fk-1 $(bulk 996)
