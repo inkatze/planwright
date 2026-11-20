@@ -164,8 +164,10 @@ AUDIT_OU=0
 OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
-# 1 once the own-branch or scratch arm approved a write or git act.
+# 1 once the own-branch or scratch arm approved a write or git act, and once
+# trusted repository code was approved (main reads both).
 ARM_ACT=0
+TASK_ACT=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -7139,14 +7141,24 @@ verify_known_simple() {
   # path-prefixed verb defers (REQ-A1.9, REQ-A1.10).
   case $verb in
     */*)
-      is_trusted_script "$verb" "$HOOK_CWD" && return 0
-      return 1
+      is_trusted_script "$verb" "$HOOK_CWD" || return 1
+      # Trusted code that may write, which no own-unit act may share a
+      # command with; an installed step script is the one exception.
+      case $verb in
+        */step-run.sh | */step-record.sh) is_planwright_script "$verb" "$HOOK_CWD" || TASK_ACT=1 ;;
+        *) TASK_ACT=1 ;;
+      esac
+      return 0
       ;;
   esac
   if [ "$cwn" -eq 2 ] && [ "${cw[1]}" = --version ] && version_tool "$verb"; then
     return 0
   fi
-  classify_verb "$verb"
+  classify_verb "$verb" || return 1
+  case $verb in
+    mise | lefthook | bats | bash | sh) TASK_ACT=1 ;;
+  esac
+  return 0
 }
 
 # --------------------------------------------------------------------------
@@ -7660,14 +7672,17 @@ main() {
   OU_EXPORTED=0
   OU_EXP_NAMES=''
   ARM_ACT=0
+  TASK_ACT=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
   # An own-unit act shares its command only with a cd into the worktree, a
   # read-only segment, a step-context export or an installed step script:
-  # never with a write or git act the own-branch or scratch arm approved, so
-  # a worker pushes in a call of its own after committing.
-  [ "$AUDIT_OU" = 0 ] || [ "$ARM_ACT" = 0 ] || return 0
+  # never with a write or git act the own-branch or scratch arm approved, nor
+  # with trusted repository code (a mise or lefthook task, bats, a repo or
+  # other plugin script), so a worker commits or runs its gate, then pushes
+  # in a call of its own.
+  [ "$AUDIT_OU" = 0 ] || { [ "$ARM_ACT" = 0 ] && [ "$TASK_ACT" = 0 ]; } || return 0
   audit_append "$cmd" "$sid"
   emit_allow
   return 0

@@ -308,6 +308,21 @@ assert_defer "a body edit chained after a scratch-arm write" "mkdir $SCR/made3 &
 assert_defer "an export chained before an own-branch write" "export $CTX && touch $WT/made3" Bash "$WT"
 assert_allow "a scratch read beside a push stays allowed" "cat \$TMPDIR/body.md && git push origin $B" Bash "$WT"
 HOOK_ENV=("${USE_ENV[@]}")
+# Nor with trusted repository code, which may write: the gate runs, then the
+# push goes in a call of its own.
+mkdir -p "$WT/scripts" "$WT/tests"
+: >"$WT/scripts/check.sh"
+: >"$WT/tests/x.sh"
+assert_allow "a mise task alone (control)" "mise run check" Bash "$WT"
+assert_allow "a repo test alone (control)" "bash tests/x.sh" Bash "$WT"
+assert_allow "a repo script alone (control)" "scripts/check.sh" Bash "$WT"
+assert_defer "a push after a mise task" "mise run check && git push origin $B" Bash "$WT"
+assert_defer "a push after a repo test run by bash" "bash tests/x.sh && git push origin $B" Bash "$WT"
+assert_defer "a push after a repo script" "scripts/check.sh && git push origin $B" Bash "$WT"
+assert_defer "a push after another installed plugin script" "$PLUGIN_ROOT/scripts/plug.sh && git push origin $B" Bash "$WT"
+assert_defer "a body edit after a mise task" "mise run check && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+assert_defer "an export before a repo script" "export $CTX && scripts/check.sh" Bash "$WT"
+assert_allow "an installed step script beside a push stays allowed" "$SREC write --run 1 && git push origin $B" Bash "$WT"
 
 echo "### every class needs a usable session record"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PATH=$STUB:$PATH")
