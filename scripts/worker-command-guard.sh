@@ -165,8 +165,8 @@ OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
 # 1 once the own-branch or scratch arm or the spec-root zone approved a write
-# or git act, and once trusted repository code or a declared step was
-# approved (main reads both).
+# or git act, a plain fetch was approved, and once trusted repository code or
+# a declared step was approved (main reads both).
 ARM_ACT=0
 TASK_ACT=0
 
@@ -4204,7 +4204,8 @@ guard_git() {
       # objects. Not through -C.
       if [ "$viac" = 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ]; then
         HOOK_WT_ROOT=$REC_WT
-        cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && return 0
+        # It writes remote-tracking refs, so it is no own-unit partner.
+        cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && ARM_ACT=1 && return 0
       fi
       ob_git "$sub" "$subidx"
       ;;

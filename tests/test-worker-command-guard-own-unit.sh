@@ -320,6 +320,16 @@ assert_defer "a body edit chained after a scratch-arm write" "mkdir $SCR/made3 &
 assert_defer "an export chained before an own-branch write" "export $CTX && touch $WT/made3" Bash "$WT"
 assert_allow "a scratch read beside a push stays allowed" "cat \$TMPDIR/body.md && git push origin $B" Bash "$WT"
 HOOK_ENV=("${USE_ENV[@]}")
+# A fetch writes remote-tracking refs: it is no read-only segment, so it
+# never shares a command with an own-unit act, under any policy.
+env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
+  GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 \
+  git -C "$WT" remote add origin "$CS/no-such-origin.git" || exit 1
+assert_allow "a plain fetch alone (control)" "git fetch origin" Bash "$WT"
+assert_defer "a push after a fetch" "git fetch origin && git push origin $B" Bash "$WT"
+assert_defer "a body edit after a fetch" "git fetch origin && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+assert_defer "an export after a fetch" "git fetch origin && export $CTX && $SREC write --run 1" Bash "$WT"
+assert_defer "a push after a fetch of its branch" "git fetch origin $B && git push origin $B" Bash "$WT"
 # Nor with trusted repository code, which may write: the gate runs, then the
 # push goes in a call of its own.
 mkdir -p "$WT/scripts" "$WT/tests"
