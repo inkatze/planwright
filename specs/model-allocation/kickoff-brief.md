@@ -338,3 +338,37 @@ Class: expression-only
 Changelog: requirements.md `## Changelog`, second entry dated 2026-09-05
 Anchor: `3827ce2f27413b3a6ac060b846341b0398d5dc03` — computed as
 `scripts/spec-anchor.sh specs/model-allocation`
+
+**2026-11-14 — Review steps default to Sonnet, delta re-walkthrough (reopened
+bundle).** Scope: REQ-A1.5 (supersedes REQ-A1.2 in part), REQ-E1.3, D-14
+(supersedes D-13 in part), Tasks 8 and 9. The two review-step model keys ship
+`sonnet`; every other shipped default keeps D-13's no-change meaning. Walked with the
+operator; one decision: `allocation_model_execute_step` keeps shipping `inherit`, so
+the review-step model stays inert at run time until a tier is set there, a later
+decision (recorded in D-14, the requirements changelog and Task 8's removal from
+Awaiting input). Review quality on Sonnet is unmeasured and the saving is the
+research note's estimate. Lens review walked inline (small, narrow delta): one finding,
+that `tests/test-allocation-adapt.sh` 15i already pins the shipped values, applied as
+a Task 8 note (the dedicated test stays, adding the defaults-only resolver fixture).
+Validator clean after the Draft→Ready flip and `Last reviewed:` bump on all four files.
+Approved by the operator 2026-11-14.
+
+Class: meaning
+Lens-pass: delta-scoped inline lens review recorded in this entry (one finding,
+dispositioned: applied)
+Anchor: `c6f738145626060c125e93301446f17cf8fd73aa` — computed as
+`scripts/spec-anchor.sh specs/model-allocation`
+
+**2026-11-19 — Review-step tier wording, expression-only.** REQ-A1.5 and Task 9 now
+say in plain words that a review step's model takes effect only when it is strictly
+cheaper than the unit's model, which is what `scripts/allocation-adapt.sh` already
+applies. Nothing new is decided: no REQ or D-ID was added, removed, or given a new
+meaning. The REQ-E1.3 entry in `test-spec.md` carries the paired edit: the docs check
+also asserts the docs state that a review step's model applies only when strictly
+cheaper than the unit's model. Approved by the operator 2026-11-19 (ruling on the
+PR-Agent finding, "Fix the wording (Recommended)", relayed by the hub).
+
+Class: expression-only
+Changelog: requirements.md `## Changelog`, entry dated 2026-11-19
+Anchor: `9abb6f924e7ebc80d7b41510a4b5b86026df840e` — computed as
+`scripts/spec-anchor.sh specs/model-allocation`
