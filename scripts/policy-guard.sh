@@ -5018,9 +5018,9 @@ spec_route() {
   printf '%s' "Reach its PR head with git merge --ff-only $(sanitize_printable "$BASE_REMOTE/$SBC_BRANCH" 'origin/<spec branch>'), then sync it with git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')"
 }
 
-# kickoff_scope_names <branch> <dir> [<act, for a refusal>] — 0 when the session's launch scope is
-# the kickoff of the spec whose spec PR branch <branch> is: kickoff-<spec>
-# names planwright/<spec>/spec, planwright/<spec>/spec-rework and
+# kickoff_scope_names <branch> <dir> [<act, for a refusal>] — 0 when the
+# session's launch scope is the kickoff of the spec whose spec PR branch
+# <branch> is: kickoff-<spec> names planwright/<spec>/spec, planwright/<spec>/spec-rework and
 # planwright/<spec>/amendment-<n>; an amendment kickoff's scope
 # (kickoff_amendment_scope) names planwright/<spec>/amendment-<n> alone, and
 # denies when another spec's kickoff could share that scope. 1 otherwise.
@@ -5053,10 +5053,10 @@ kickoff_scope_names() {
   KSN_NAME=$name
 }
 
-# spec_branch_checkout <dir> [<act, for a refusal>] — 0 when the session's project directory is a
-# linked worktree with a spec branch its launch names checked out (the session
-# record's spec_branch, or its kickoff scope's, kickoff_scope_names) and <dir>
-# is that same checkout; sets SBC_BRANCH. Any other state, a unit branch
+# spec_branch_checkout <dir> [<act, for a refusal>] — 0 when the session's
+# project directory is a linked worktree with a spec branch its launch names
+# checked out (the session record's spec_branch, or its kickoff scope's,
+# kickoff_scope_names) and <dir> is that same checkout; sets SBC_BRANCH. Any other state, a unit branch
 # included, is 1 and leaves the ordinary rules to decide. A kickoff's own
 # planwright/<spec>/spec is in the protected floor, which governs pushes; its
 # sign-off push reaches it through the kickoff push helper alone, which reads
