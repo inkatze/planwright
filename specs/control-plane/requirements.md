@@ -65,7 +65,8 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   program's session receives; closure only by an act citing what settled it;
   the handover check against the ledger; the open requests read from the
   store at every wake and on the panel; and the dedupe gate's rule that no
-  request is ever dropped, only coalesced with every id kept.
+  open request is ever dropped, only coalesced with every id kept, and an
+  echo of a closed one is dropped and counted.
 - Policy as data: schemas and layered configuration for allow-lists, limits,
   landing order, merge mode and the floor of acts no layer may loosen.
 - The measurement baseline and the per-slice measured claim.
@@ -338,13 +339,16 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
   *(Cites: D-8; REQ-A1.3.)*
   **Superseded-by: REQ-D1.6** (2026-11-19)
 - **REQ-D1.6** (supersedes REQ-D1.3) The gate SHALL never drop the first
-  occurrence of an event of the decision, blocker, failure or landed class,
-  and SHALL never drop, as a repeat, a stale event or an off-order event
-  (REQ-D1.2), any event that carries a request (an operator message, a
-  cross-session message or a request-bearing event kind, REQ-J1.1). Events
-  that carry requests MAY be coalesced into one wake, but every request id
-  SHALL stay in the request ledger and be shown in that wake, and a coalesced
-  event is counted as coalesced, never as a drop. The gate SHALL deliver any
+  occurrence of an event of the decision, blocker, failure or landed class.
+  The gate SHALL never drop an event that carries an open request (an
+  operator message, a cross-session message or a request-bearing event kind,
+  REQ-J1.1) as a repeat, as stale or as off-order (REQ-D1.2). Once the request
+  ledger has closed with checked evidence (REQ-J1.5) every request an event
+  carries, a repeat, stale or off-order event for those requests SHALL be
+  dropped by REQ-D1.2's rules and counted as a drop. Events that carry open
+  requests MAY be coalesced into one wake, but every request id SHALL stay in
+  the request ledger and be shown in that wake, and a coalesced event is
+  counted as coalesced, never as a drop. The gate SHALL deliver any
   event whose state it cannot read (REQ-A1.3). A first occurrence of the four
   classes is delivered even when it is stale, and an event the gate itself
   raises (REQ-D1.4) bypasses the gate.
@@ -608,9 +612,21 @@ mechanism, not one more script) is resolved in D-1 and stated in REQ-A.
 
 ## REQ-J — The request ledger (slice one)
 
-A request is anything a program's session is asked that it owes a response
-to. The ledger is the record of every one, kept by code; a session's context
-and a handover file are never that record.
+A request is every arrival REQ-J1.1 lists, whether or not it asks for
+anything; one that asks for nothing closes with a no-ask reason (REQ-J1.5).
+The ledger is the record of every one, kept by code; a session's context and
+a handover file are never that record. A session **holds a program name**
+when it is that program's live holder (mission-control REQ-A1.1, recorded in
+the handover's holder record, REQ-L1.6): one session per program at a time. A **request-bearing kind** is
+an event kind flagged so in the event class registry, as data; the shipped
+flagged kinds are a worker's pending prompt and a relayed question. A
+**turn** is one stop-to-stop cycle of the session; a request received during
+a turn includes the arrival that began it and every arrival before its stop.
+A **wake** is any prompt, steer or relay that planwright code delivers to the
+session. An **operator message** is text typed into the session, or a hub
+relay whose arrival is linked (REQ-J1.2) to a send-side sighting by the hub
+program's live holder; any other message that says it relays the operator is
+a cross-session message.
 
 - **REQ-J1.1** Every operator message to a session that holds a program name
   (a mission-control session, the hub included, attended or launched), every
@@ -619,7 +635,10 @@ and a handover file are never that record.
   relayed question) SHALL be appended to that program's request ledger by
   code (a hook or the script that sends or emits it) before the receiving
   model turn acts on it, never by the model. Each arrival SHALL get its own
-  id. Recording a request on arrival is a routine move under REQ-A1.1.
+  id. Text that planwright's wake composer writes (REQ-J1.8) or a hook injects
+  is never captured as an arrival; a relay that carries a cross-session
+  message is captured as that message's arrival. Recording a request on
+  arrival is a routine move under REQ-A1.1.
   *(Cites: D-22, D-24; REQ-A1.1; the request-ledger order (Sources); the
   spec-pipeline evidence (Sources); mission-control REQ-F1.19 (Sources).)*
 - **REQ-J1.2** Capture SHALL be taken on the receiving side where a hook sees
@@ -634,26 +653,36 @@ and a handover file are never that record.
   *(Cites: D-24; REQ-A1.3; the messaging-transport doctrine (Sources).)*
 - **REQ-J1.3** A capture hook SHALL never block, delay or change the prompt
   or message it records. A failed append SHALL be written to a per-session
-  spool, retried at the next capture or wake, and raised as a failure-class
-  event, and a spooled arrival SHALL count as an open request for every check
-  in this group.
+  spool under the program home carrying the id allocated at capture, retried
+  at the next capture or wake, and raised as a failure-class event; a spooled
+  arrival SHALL count as an open request for every check in this group, every
+  spool under the program home is read, and a spooled arrival closes with the
+  same close verb.
   *(Cites: D-24; REQ-A1.3, REQ-I1.5.)*
 - **REQ-J1.4** An arrival record SHALL hold its id, time, kind (operator,
   session or event), sender, receiving session and program, a digest of the
   content, a pointer to the content in the session's transcript, and one
-  excerpt bounded in length with token-shaped values redacted at write. The
-  ledger SHALL live in the program home, never in a repository, and be
-  appended one locked line per record as REQ-I1.5 requires; the excerpt is its
-  one free-text field, and a check SHALL scan the stored log for token-shaped
-  values as REQ-I1.4 scans the decision log.
+  excerpt bounded in length with token-shaped values, email addresses and
+  phone numbers redacted at write; redaction runs over the whole content
+  before the cut, so a value split by the cut cannot escape it. When the
+  redaction cannot run or fails, the arrival SHALL be written without its
+  excerpt (every other field kept, the request open) and the failure raised
+  as a failure-class event; unredacted text is never stored. The ledger
+  SHALL live in the program home, never in a repository, and be appended one
+  locked line per record as REQ-I1.5 requires. The excerpt and a close
+  record's quoted words and no-ask reason (REQ-J1.5) are its only free-text
+  fields; each is bounded and redacted the same way, and a check SHALL scan
+  the stored log for token-shaped values, email addresses and phone numbers
+  as REQ-I1.4 scans the decision log.
   *(Cites: D-23; REQ-I1.4, REQ-I1.5.)*
 - **REQ-J1.5** A request SHALL close only by an explicit close record that
   cites what settled it: a merged pull request; an answer (a captured
-  outbound message, or a reply turn in the receiving session's transcript,
-  later than the arrival); the operator's own words in a later captured
-  operator message, quoted; the follow-up item it became (mission-control's
-  follow-up ledger); another open or closed request it repeats; or, for a
-  message that asks for nothing, a stated no-ask reason. Code SHALL check
+  outbound message addressed to the request's sender, or a reply turn in the
+  receiving session's transcript, later than the arrival); the operator's own
+  words in a later captured operator message, quoted; the follow-up item it
+  became (mission-control's follow-up ledger); another request it repeats,
+  itself not closed as a repeat; or, for a message that asks for nothing, a
+  stated, non-empty no-ask reason. Code SHALL check
   each cited evidence against its source before it writes the close and
   refuse one it cannot verify. A request is never closed by age, deletion,
   delivery or a session's word alone, and a no-ask close of an operator
@@ -661,13 +690,15 @@ and a handover file are never that record.
   event whose subject has resolved by machine evidence (a prompt no longer
   pending, as the stall watcher records, or its answer record keyed by the
   request id where the wiring writes one, REQ-C1.8) SHALL be closed by code
-  citing that evidence.
+  citing that evidence, recorded as its own machine evidence kind.
   *(Cites: D-25; mission-control REQ-F1.25 (Sources); the request-ledger
   order (Sources).)*
 - **REQ-J1.6** A program session's turn SHALL NOT end silently while a
   request it received during that turn has no close: the turn-end hook holds
-  the first stop, naming each open request, and a second stop in the same
-  turn ends it and raises each still-open request at the next wake.
+  the first stop once per turn, naming each open request received during that
+  turn, and any later stop in the same turn ends it; each request still open
+  is marked as held past a turn end and listed so in the next wake's open
+  requests (REQ-J1.8).
   *(Cites: D-25; mission-control REQ-F1.19 (Sources).)*
 - **REQ-J1.7** The handover's verify, take and resume (and the rules
   self-check they run) SHALL read the ledger's open set from the store at the
@@ -683,32 +714,59 @@ and a handover file are never that record.
   spec-pipeline evidence (Sources); obs:28d0df97; obs:e818e699.)*
 - **REQ-J1.8** Every wake a program session receives SHALL carry the open
   requests read from the store when the wake is composed (a count, then one
-  line each, oldest first: who asked, when, the excerpt and its age, with an
-  "and N more" past a bound), composed by one verb that every wake path calls
-  (a check fails on a path that does not). The panel and the text panel SHALL
+  line each, oldest first: who asked, the excerpt and its age, with an "and N
+  more" past a bound that is a knob), composed by one verb that every wake
+  path calls, the dedupe gate's coalesced wake included (a check fails on a
+  path that does not). A request's age runs from its earliest sighting's
+  recorded time. The panel and the text panel SHALL
   show the open count and the oldest request beside the overdue follow-up
   items that lead the status (mission-control REQ-F1.20). An unreadable
   ledger SHALL show as unreadable, never as none open.
   *(Cites: D-28; REQ-D1.5; mission-control REQ-F1.20 (Sources).)*
 - **REQ-J1.9** A request open past its kind's unanswered window SHALL raise a
   blocker-class event naming it, its sender, its age and its excerpt, pushed
-  to the operator through the notification channel and repeated each repeat
-  interval while it stays open, never shown as a routine line. The windows
-  and the interval are policy data (REQ-B1.1).
-  *(Cites: D-28; REQ-B1.1; mission-control REQ-P1.2 (Sources); the
+  to the operator through the notification channel once, when it first goes
+  overdue. While any overdue request stays open, one combined blocker-class
+  repeat per program SHALL be pushed each repeat interval (counted from the
+  previous repeat), naming how many are open and the oldest. Neither is ever
+  shown as a routine line. The window runs until the close, whether or not the
+  session is working on the request. A relayed question takes the
+  cross-session window. The windows and the interval are knobs (D-28), and
+  each repeat carries a new state version so the gate never drops it as a
+  repeat (REQ-D1.2). Every ledger knob (the windows, the interval, the
+  excerpt bound, the link window and the wake-list bound) SHALL be read from
+  the shipped and adopter layers only; a machine-local value SHALL be ignored
+  and reported, as REQ-I1.2 reads the kill switch.
+  *(Cites: D-28; mission-control REQ-P1.2 (Sources); the
   spec-pipeline evidence (Sources).)*
 - **REQ-J1.10** Under the kill switch (REQ-I1.2) capture SHALL continue, and
   the ledger's refusals (the turn-end hold, the handover refusal) and its
-  raises SHALL stand down to one line in each wake that names the open count.
+  unanswered-request raises SHALL stand down to one line in each wake that
+  names the open count. A capture failure (a failed append, REQ-J1.3, or a
+  failed redaction, REQ-J1.4) SHALL still be raised under the switch.
   This is the one exception to REQ-I1.2's restoring of today's behavior: a
   record that only grows changes no answer, approval, admission or delivery.
   *(Cites: D-28; REQ-I1.2.)*
 - **REQ-J1.11** The ledger's landing SHALL record what it moved (REQ-E1.2):
   the operator interruptions in the baseline, the misses of the dropped-request
-  kind in mission-control's miss ledger, and from landing on, per day, the
-  requests captured, closed by each evidence kind, raised as unanswered and
-  handovers refused, kept as machine-local data.
+  kind in mission-control's miss ledger (recorded as unavailable until that
+  ledger, mission-control Task 83, has landed), and from Task 5.4's merge on,
+  per local calendar day, the requests captured, closed by each evidence
+  kind, raised as unanswered and handovers refused, kept as machine-local
+  data.
   *(Cites: D-22; REQ-E1.1, REQ-E1.2; mission-control REQ-P1.13 (Sources).)*
+- **REQ-J1.12** The turn-end hold (REQ-J1.6) and the handover refusal
+  (REQ-J1.7) SHALL each carry a mode, `shadow` or `enforce`, shipped as
+  `shadow`: in shadow each records the hold or refusal it would have made and
+  holds or refuses nothing. Only the operator's configuration moves either to
+  `enforce`, read from the shipped and adopter layers only (a machine-local
+  value is ignored and reported), and before the move the hub brings the
+  operator a one-line evidence summary computed by code from the shadow
+  record, as REQ-C1.6 gates an approval class. Capture, closes, the wake's
+  open requests, the panel line and the unanswered raise run from landing.
+  Requests already open at landing are not copied into the ledger; the
+  handover file's items keep covering them until they close.
+  *(Cites: D-29; REQ-C1.6, REQ-J1.6, REQ-J1.7.)*
 
 ## Changelog
 
@@ -741,11 +799,19 @@ and a handover file are never that record.
   checked evidence, holds a silent turn end, refuses a handover whose
   successor's picture lacks it, is re-read at every wake and on the panel,
   and is raised when it sits unanswered. REQ-D1.6 supersedes REQ-D1.3 so the
-  dedupe gate never drops a request, only coalesces it with every id kept.
+  dedupe gate never drops an open request, only coalesces it with every id
+  kept, and drops and counts an echo of a closed one.
   Task 5 gains the gate's request fixtures; Tasks 5.1 to 5.4 build the
   ledger; Task 6 waits on them; Task 16's walk reads the ledger beside the
   queue. Carries mission-control REQ-F1.19's unbuilt intake rows (its Task
-  51).
+  51). Walked the same day (see the kickoff brief's amendment log): the
+  operator's answers made the ledger wait on the baseline and Task 5 wait on
+  the ledger, held the first ledger task on mission-control's Task 51,
+  extended the excerpt's redaction to email addresses and phone numbers, made
+  the hold and the handover refusal obey the kill switch from landing and
+  ship record-only until the operator's yes (REQ-J1.12, D-29), and dropped
+  and counted an echo of a closed request; the review pass's fixes are listed
+  there.
 
 ## Sources
 

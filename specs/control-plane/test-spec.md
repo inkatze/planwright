@@ -127,7 +127,7 @@ One fixture per reason asserts the drop and its count.
 
 ### REQ-D1.3 — never drop the first, deliver on doubt [test] (superseded by REQ-D1.6)
 
-Fixtures: the first decision, blocker, failure and landed events are delivered; an event with unreadable state is delivered.
+Fixtures: the first decision, blocker, failure and landed events are delivered; an event with unreadable state is delivered. Not run on its own: the REQ-D1.6 entry carries these fixtures.
 
 ### REQ-D1.4 — drop ledger and over-keen event [test]
 
@@ -137,9 +137,9 @@ The ledger holds keys and no payload; a fixture past the configured share raises
 
 Fixture: routine events inside one window yield one wake; an idle session with nothing pending is not woken.
 
-### REQ-D1.6 — never drop a request, only coalesce it [test]
+### REQ-D1.6 — never drop an open request, only coalesce it [test]
 
-Fixtures: the first decision, blocker, failure and landed events are delivered, a stale first occurrence included; a repeated, a stale and an off-order request-bearing event are each delivered; a burst of request-bearing events in one window yields one wake that names every request id the ledger holds for them, and the drop ledger counts them as coalesced with no drop; an event with unreadable state is delivered. Run by the CI suite (Task 5).
+Fixtures: the first decision, blocker, failure and landed events are delivered, a stale first occurrence included; for an operator message, a cross-session message and a request-bearing event kind, a repeated, a stale and an off-order event are each delivered while the request is open, and each is dropped and counted as a drop once the ledger has closed every request it carries (a fixture ledger seeded with close records); a burst of request-bearing events in one window yields one coalesced event carrying every request id the ledger holds for them, and the drop ledger counts them as coalesced with no drop; an event with unreadable state is delivered. Run by the CI suite (Task 5).
 
 ## REQ-E — Measure the claim
 
@@ -289,44 +289,48 @@ Slice one's ledger is verified by `[test]` fixtures run in the repository's CI s
 
 ### REQ-J1.1 — capture on arrival, by code [test]
 
-Fixtures: an operator prompt, a cross-session message and a request-bearing event (a pending prompt) each append one arrival with its own id before the turn's first tool call; a session holding no program name appends nothing; a check asserts no skill instruction asks the model to write an arrival. Run by the CI suite (Task 5.1).
+Fixtures: an operator prompt, a cross-session message and a request-bearing event (a pending prompt) each append one arrival with its own id before the receiving model turn acts on it (observed as before the turn's first tool call or reply); composer-written and hook-injected text appends nothing; a session holding no program name appends nothing; a check asserts no skill instruction asks the model to write an arrival, and goes red on a seeded one. Run by the CI suite (Task 5.1).
 
 ### REQ-J1.2 — both sides captured, linked, probed [test + manual]
 
-Fixtures: one message seen by the receiving hook and by the send script yields two sightings linked under one open request; a pair the linker cannot match stays two open requests; two identical sends in one burst keep two ids. The probe of which hook sees which arrival on each launch rung is `[manual]`, recorded in the research note; a fixture with a kind no seam sees makes the doctor name it. Run by the CI suite (Task 5.1).
+Fixtures: one message seen by the receiving hook and by the send script yields two sightings linked under one open request; a pair the linker cannot match stays two open requests; two identical sends in one burst keep two ids. The probe of which hook sees which arrival on each launch rung is `[manual]`, run by Task 5.1's worker and committed as the research note before the fixtures, which derive from it; a fixture with a kind no seam sees makes the doctor name it. Run by the CI suite (Task 5.1).
 
 ### REQ-J1.3 — capture never blocks; failures spool and raise [test]
 
-Fixtures: an unwritable ledger leaves the prompt unchanged and unblocked, writes a spool line that counts as open, is retried at the next capture and raises a failure-class event. Run by the CI suite (Task 5.1).
+Fixtures: an unwritable ledger leaves the prompt unchanged and unblocked, writes a spool line carrying its id that counts as open, is retried at the next capture and at the next wake, and raises a failure-class event; a held lock delays the prompt no longer than the hook's bound. Run by the CI suite (Task 5.1).
 
 ### REQ-J1.4 — the arrival record and its excerpt [test]
 
-Fixtures: an arrival holds each listed field; an excerpt past its bound is cut; a planted token-shaped value is redacted at write, and the log's token-shape check fails on a value planted past the screen; a separate-process concurrent-writer fixture and a torn-last-line fixture keep every record whole; nothing is written inside a repository. Run by the CI suite (Task 5.1).
+Fixtures: an arrival holds each listed field; an excerpt past its bound is cut on a character boundary; a planted token-shaped value, email address and phone number are each redacted at write, a token straddling the cut included, and so are a close record's quoted words and reason; with the screen or the pattern pass failing or missing, the arrival is written with no excerpt, counted open, and a failure-class event raised; and the log's check fails on each planted past the screen; a separate-process concurrent-writer fixture and a torn-last-line fixture keep every record whole; nothing is written inside a repository. Run by the CI suite (Task 5.1).
 
 ### REQ-J1.5 — close only with checked evidence [test]
 
-Fixtures: each evidence kind closes a request when its source confirms it and is refused when it does not (an unmerged pull request, an answer older than the arrival, a quote absent from the cited message, an unknown follow-up id); a close from a session that does not hold the program is refused; no path closes a request by age, deletion or delivery; a pending prompt the stall watcher records as no longer pending is closed by code citing that record; a `noask` close of an operator message appears in the next status. Run by the CI suite (Task 5.2).
+Fixtures: each evidence kind closes a request when its source confirms it and is refused when it does not (an unmerged pull request; an answer older than the arrival or addressed to someone other than the sender; a quote absent from the cited message; a quote from a relay with no matching send record by the hub's live holder, while one typed into the session or from a matched hub relay closes; an unknown follow-up id; a repeat citing an unknown id, itself or a request closed as a repeat; an empty no-ask reason); a close with no evidence is refused; a close from a session that does not hold the program is refused; a request aged past every window, its log line truncated and its event delivered and handed over stays open; a spooled arrival closes with the same verb; a pending prompt the stall watcher records as no longer pending is closed by code as a machine evidence citing that record, and by a seeded answer record; a `noask` close of an operator message appears in the next status. Run by the CI suite (Task 5.2).
 
 ### REQ-J1.6 — a silent turn end is held once [test]
 
-Fixtures: a turn ending with an open request from that turn is held once, naming it; the second stop ends the turn and the request is raised at the next wake; a turn whose requests are all closed is not held. Run by the CI suite (Task 5.2).
+Fixtures: a turn ending with an open request from that turn (the arrival that began it, or a spooled one) is held once, naming it; any later stop ends the turn and the request is marked as held past a turn end, which the next wake lists (Task 5.4); a turn whose requests are all closed is not held. Run by the CI suite (Task 5.2).
 
 ### REQ-J1.7 — the handover checks the ledger, at verify and at take [test]
 
-Fixtures: a picture missing an open request fails verify and take, naming the id; a request appended between a passing verify and the take refuses the take until a second verify includes it (the mid-handover relay of the spec-pipeline evidence); a spooled arrival counts as open; a handover file that lacks a request the ledger holds does not rescue a picture that lacks it; take marks no event whose request is open; an unreadable ledger refuses the take and the predecessor keeps the name. Run by the CI suite (Task 5.3).
+Fixtures: a picture missing an open request fails verify, take, resume and the rules self-check, naming the id; a request appended between a passing verify and the take refuses the take until a second verify includes it (the mid-handover relay of the spec-pipeline evidence); a spooled arrival counts as open; a handover file that lacks a request the ledger holds does not rescue a picture that lacks it; take marks no event whose request is open; an unreadable ledger refuses the take with the handover's existing failure and the predecessor keeps the name. Run by the CI suite (Task 5.3).
 
 ### REQ-J1.8 — every wake re-reads the ledger [test + manual]
 
-Fixtures: a wake composed over a fixture ledger lists every open request oldest first with its age, and an "and N more" past the bound; an unreadable ledger shows as unreadable; the wake-path check goes red on a seeded path that skips the composer. The panel and text-panel line is `[manual]`: the operator sees a preview of the real render over fixture data and says yes before the pull request leaves draft. Run by the CI suite (Task 5.4).
+Fixtures: a wake composed over a fixture ledger shows the count, then every open request oldest first with its sender, excerpt and age, a held-past-turn-end mark where set and a spooled arrival among them, and an "and N more" past the bound; an unreadable ledger shows as unreadable; the wake-path check goes red on a seeded path that skips the composer, the gate's coalesced wake included; the panel line's render over fixture data shows the open count and the oldest request, and unreadable when the ledger is. The look of the panel and text-panel line is `[manual]`: the operator sees a preview of the real render over fixture data, the unreadable state included, and says yes before the pull request leaves draft, the yes recorded in the pull request. Run by the CI suite (Task 5.4).
 
 ### REQ-J1.9 — an unanswered request is raised [test]
 
-Fixtures: a request past its kind's window raises one blocker-class event naming it, its sender, age and excerpt, repeated each interval while open and never rendered as a routine line; a request closed before its window raises nothing. Run by the CI suite (Task 5.4).
+Fixtures, on an injected clock: a request past its kind's window raises one blocker-class event naming it, its sender, age and excerpt, handed to the notification channel once; with several requests overdue, each interval from the previous repeat yields one combined repeat naming the open count and the oldest, delivered through the gate, until the last closes; neither is rendered as a routine line; a request closed before its window raises nothing; the shipped knob defaults equal D-28's; for each ledger knob (the windows, the interval, the excerpt bound, the link window, the wake-list bound) a machine-local value is ignored and reported while a shipped or adopter value is read (Tasks 5.1 and 5.4). Run by the CI suite (Task 5.4).
 
 ### REQ-J1.10 — the kill switch keeps capture [test]
 
-Fixtures: with the kill switch set in a shipped or adopter layer, capture still appends, and the turn-end hold, the handover refusal and the raises stand down to one wake line naming the open count. Run by the CI suite (Task 5.4).
+Fixtures: with the kill switch set in a shipped or adopter layer, capture still appends, the turn-end hold, the handover refusal and the unanswered raises stand down to one wake line naming the open count, and a failed append and a failed redaction are still raised. Run by the CI suite (the hold in Task 5.2, the handover refusal in Task 5.3, the raises, the capture-failure raises and the wake line in Task 5.4).
 
 ### REQ-J1.11 — the measured claim [manual + test]
 
-At the ledger's landing the operator interruptions and the dropped-request misses are compared with the baseline and recorded (`[manual]`); a fixture run writes the daily counts (captured, closed by evidence kind, raised, handovers refused) only to the machine-local location (`[test]`, Task 5.4).
+At Task 6's walk the operator compares the operator interruptions and the dropped-request misses with the baseline and the comparison is recorded (`[manual]`; the misses are recorded as unavailable until mission-control's miss ledger, its Task 83, has landed); a fixture run writes the daily counts (captured, closed by evidence kind, raised, handovers refused) with their values only to the machine-local location (`[test]`, Task 5.4).
+
+### REQ-J1.12 — the hold and the refusal ship record-only [test + manual]
+
+Fixtures: in the shipped `shadow` mode, a turn that `enforce` would hold is not held and a picture `enforce` would refuse passes, each named in its would-have record; a machine-local `enforce` is ignored and reported; an adopter-layer `enforce` turns each on; the one-line summary is computed from the record. The move to `enforce` is `[manual]`: the operator says yes on the hub's summary. Run by the CI suite (the hold in Task 5.2, the refusal in Task 5.3).

@@ -10,7 +10,7 @@ from another bundle's decision, the foreign id namespace-qualified; `O` = an
 open question for kickoff (none remain; all were settled at kickoff).
 
 Slice one (D-3 to D-10, D-14, D-16, D-19, and the request ledger's D-22 to
-D-28) is designed in full. Slices two to
+D-29) is designed in full. Slices two to
 four are outlined (D-11, D-12, D-13, D-17, D-18, D-20, D-21); each carries a design walk (Tasks 6, 11, 16)
 whose output amends this bundle before any build task of that slice starts.
 
@@ -187,8 +187,9 @@ read. A gate that drops a large share of a class raises its own event.
 saving, and an asymmetric failure rule keeps the gate's errors on the harmless
 side.
 
-*(Amended at Amendment 2 draft 2026-11-19: an event that carries a request is
-never dropped, only coalesced with every id kept, D-27, REQ-D1.6.)*
+*(Amended at Amendment 2, 2026-11-19: an event that carries an open request
+is never dropped, only coalesced with every id kept, and an echo of a closed
+one is dropped and counted, D-27, REQ-D1.6.)*
 
 ### D-9: The claim is measured against a machine-local baseline (N)
 
@@ -489,20 +490,33 @@ guarantees.
 **Decision:** The ledger is a monthly-segmented, append-only log under the
 program's knowledge base (`kb/requests-<YYYY-MM>.log` with its seal sidecar),
 written only through verbs, one locked line per record (REQ-I1.5). Three
-record kinds: an arrival, a link (two sightings, or a coalesced burst, joined
-under the first id), and a close. The open set is derived: arrivals with no
-close, a linked member covered by its lead. Ids follow the log's id form
+record kinds: an arrival, a link (two sightings of one message, joined under
+the first id), and a close. The open set is derived: arrivals with no close,
+a linked sighting covered by its lead. A coalesced burst is a matter of wake
+composition only, never a link: each of its requests stays open until its own
+close and is listed in the wake. Ids follow the log's id form
 (`requests-<YYYYMM>-<n>`), so the handover picture's `item <id>` grammar takes
 them unchanged. An arrival holds the fields REQ-J1.4 lists; the excerpt is
-bounded by a knob (`request_ledger_excerpt_bytes`, proposed default 280),
-sanitized to printable text, and token-shaped values are replaced at write by
+bounded by a knob (`request_ledger_excerpt_bytes`, default 280), cut on a
+character boundary after redaction runs over the whole content, control
+characters replaced by a space, and token-shaped values are replaced at write by
 the repository's existing secret screen (the one the inception and flight
-records use), with a check that scans the stored log as REQ-I1.4 scans the
-decision log. The program home is machine-local and never
-inside a repository, so no request text is committed. Inbound content is
-untrusted (the inbox socket is writable by any process of the same user): a
-wake or panel shows an excerpt as quoted data, labelled with its sender, never
-as instruction text, and the screen that bounds it runs before it is stored.
+records use), which matches credential shapes only, so email addresses and
+phone numbers are replaced at write by a personal-data pattern set the ledger
+adds beside it; a check scans the stored log for all three as REQ-I1.4 scans
+the decision log. Names and other free-form personal detail are not pattern
+matched; the bound and the machine-local home are what limit them. A close
+record's quoted words and no-ask reason are bounded and redacted the same way.
+When the secret screen or the pattern pass errors or is missing, the arrival
+is written with no excerpt text (id, sender, time, digest and pointer kept,
+the request open) and a failure-class event is raised: the ask is never lost
+and unredacted text is never stored (settled by the operator at the
+Amendment 2 walk, "Record, no text (Recommended)").
+The program home is machine-local and never inside a repository, so no
+request text is committed. Inbound content is untrusted (the inbox socket is
+writable by any process of the same user): a wake or panel shows an excerpt
+as quoted data, labelled with its sender, never as instruction text, and the
+redaction and the cut run before anything is stored.
 
 **Alternatives considered:**
 - Hold only ids, digests and the transcript pointer, as REQ-I1.4 holds the
@@ -526,7 +540,10 @@ safely, and the excerpt is the smallest content that lets a successor act.
 program name appends an arrival for each prompt it sees (the hook path the
 tower reply hook already runs on), and the event writer appends one for each
 request-bearing event kind it emits (the kinds flagged in the event class
-registry as data, REQ-B1.1). Sending side: the planwright send scripts
+registry as data, REQ-B1.1: a request-bearing column the ledger adds to
+`config/mc-event-classes.tsv`, shipped with the pending prompt and the relayed
+question flagged). The hook skips text the wake composer wrote or a hook
+injected, so a wake never records itself. Sending side: the planwright send scripts
 (`scripts/fleet-messaging.sh`, `scripts/orchestrate-relay.sh`) and a hook on
 the model's send tool append an arrival to the receiving program's ledger when
 the receiver holds a program name. The linker joins a receiving and a sending
@@ -537,8 +554,9 @@ launch rung (attended, tmux, stream-json), which hook sees an operator prompt,
 a delivered cross-session message, a pane relay and a stream-json steer, and
 whether the sender can name the receiver's program; the doctor names every
 kind no seam sees. A hook that fails to append writes a per-session spool
-line, never blocks the prompt (the hook discipline the reply hook follows),
-and the failure is raised.
+line under the program home carrying the id allocated at capture, never
+blocks the prompt (the hook discipline the reply hook follows), and the
+failure is raised.
 
 **Alternatives considered:**
 - Receiving side only. Rejected because: whether every harness delivery of a
@@ -561,21 +579,30 @@ unknown into a recorded fact before anything relies on it.
 against the holder record, never the environment), takes one or more ids and
 one evidence: `pr:<owner>/<repo>#<n>` (merged, read from the forge, the
 follow-up ledger's form), `answer:<ref>` (a
-captured outbound message, or a reply turn in the receiving transcript, later
-than the arrival), `quote:<id> <words>` (the words appear in a later captured
-operator message), `followup:<id>` (an item the request became, which then
-carries the done-condition), `repeat:<id>` (another request it repeats) or
-`noask:<reason>` (a message that asks nothing, such as a report or a thanks).
-Code verifies each before writing the close and refuses what it cannot verify.
+captured outbound message addressed to the request's sender, or a reply turn
+in the receiving transcript, later than the arrival), `quote:<id> <words>`
+(the words appear in a later captured operator message: text typed into the
+session, or a hub relay linked to a send-side sighting by the hub program's
+live holder, since the inbox socket lets any same-user process claim to be a
+relay; settled by the operator at the Amendment 2 walk, "Typed or matching
+relay (Recommended)"), `followup:<id>` (an
+item the request became, which then carries the done-condition),
+`repeat:<id>` (another request it repeats, itself not closed as a repeat, so
+no cycle closes both) or `noask:<reason>` (a non-empty reason for a message
+that asks nothing, such as a report or a thanks). The quoted words and the
+reason are bounded and redacted as the excerpt is (D-23). Code verifies each
+before writing the close and refuses what it cannot verify.
 A `noask` close of an operator message is listed in the next status, so the
 operator sees what was judged to ask nothing. A request-bearing event whose
 subject resolved by machine evidence (the pending prompt no longer pending, as
 the stall watcher records, or its answer record keyed by request id once
-Task 4's wiring writes one, REQ-C1.8) is closed by code citing it, so the
-ledger does not wait on the approval wiring. The
-turn-end hook holds the first stop of a turn while a request that arrived in
-that turn has no close, naming each; the second stop ends the turn and the
-request is raised at the next wake, so the hold can never trap a session.
+Task 4's wiring writes one, REQ-C1.8) is closed by code citing it as a
+`machine:<record>` evidence, so the ledger does not wait on the approval
+wiring. The turn-end hook holds the first stop of a turn, once per turn,
+while a request received in that turn (the arrival that began it included)
+has no close, naming each; any later stop ends the turn, and each request
+still open is marked as held past a turn end and listed so in the next wake's
+open requests (D-28), so the hold can never trap a session.
 Deciding whether an answer settled a request stays the session's judgment;
 code only refuses a close with no checkable evidence.
 
@@ -619,16 +646,21 @@ lines, but it is no longer the reference the picture is checked against.
 **Chosen because:** reading the store at the act is the only check that sees a
 request that arrived a moment before it.
 
-### D-27: The dedupe gate never drops a request; it may coalesce one and keeps every id (N)
+### D-27: The dedupe gate never drops an open request; it may coalesce one and keeps every id (N)
 
 **Decision:** REQ-D1.6 supersedes REQ-D1.3: in addition to the first
-occurrence of the four owed classes, no event that carries a request is ever
-dropped as a repeat, stale or off-order event. Such events may coalesce into
-one wake, the wake listing every request id the ledger holds for them, and a
-coalesced event is counted as coalesced in the drop ledger's counts, never as
-a drop. A request-bearing event is marked in the class registry as data. A
-request is a stale subject only when the ledger has closed it; until then,
-an event about it is never treated as stale. Because the wake shows the
+occurrence of the four owed classes, no event that carries an open request is
+ever dropped as a repeat, stale or off-order event. Such events may coalesce into
+one wake: the gate attaches the request ids the ledger holds for them to the
+coalesced event, the wake composer (D-28) lists each, and a coalesced event is
+counted as coalesced in the drop ledger's counts, never as a drop. A request-bearing event is marked in the class registry as data. A
+request becomes a droppable subject only when the ledger has closed it with
+checked evidence; until then, an event about it is never dropped, and an
+event carrying several requests is droppable only when every one is closed.
+After the close, an echo of it (a repeat, a stale or an off-order event for the same
+request, such as a pending-prompt event re-sent after the prompt was
+answered) is dropped and counted as a drop, so a settled request does not
+wake the session again. Because the wake shows the
 ledger's open set (D-28), a relay that repeats one event many times shows one
 line, and one that arrives as a backlog list shows each request it carries.
 
@@ -646,20 +678,40 @@ impossible at the gate while keeping the gate's saving on routine events.
 ### D-28: Every wake re-reads the ledger, an unanswered request is raised, and the kill switch keeps capture on (N)
 
 **Decision:** One composer verb reads the open set from the store and renders
-the wake block (a count, then oldest first: sender, time, excerpt, age, and
-"and N more" past a bound); every wake path (the mod's wake, the relay
-prompt, a launched session's steer) calls it, and a check fails on a path
-that does not. The panel and the text panel show the open count and the
+the wake block (a count, then oldest first: sender, excerpt, age from the
+earliest sighting, a held-past-turn-end mark where the turn-end hold set one,
+and "and N more" past `request_ledger_wake_lines`, default 10); every wake
+path (the mod's wake, the relay prompt, a launched session's steer, the
+dedupe gate's coalesced wake) calls it, and a check fails on a path that does
+not. The panel and the text panel show the open count and the
 oldest request next to the overdue follow-up items that lead the status; that
 change is operator-visible, so it follows the preview-before-ready rule
 (mission-control REQ-F1.18). A request open past its kind's window raises a
-blocker-class `request-unanswered` event, pushed and repeated as overdue
-follow-ups are (mission-control REQ-P1.2). Proposed defaults, all knobs: an
-operator message 15 minutes, a cross-session message 20 minutes, a pending
-prompt 10 minutes, repeated every 30 minutes. Under the kill switch capture
-continues and the hold, the handover refusal and the raises stand down to one
-wake line naming the open count: the switch exists to stop the control plane
-from acting, and a record that only grows does not act.
+blocker-class `request-unanswered` event, pushed as overdue follow-ups are
+(mission-control REQ-P1.2), once per request when it first goes overdue; the
+repeats merge into one combined push per program each interval naming how
+many are open and the oldest, so a session that falls behind does not flood
+the operator (settled by the operator at the Amendment 2 walk, "One combined
+repeat (Recommended)"). The raise is emitted by the
+keeper's sweep (`scripts/mc-keeper.sh`, which already raises overdue pending
+prompts), not by a timer wake; each repeat carries its raise number as the
+state version, so the gate never drops it as a repeat. Defaults, all knobs
+in `config/defaults.yml`: an operator message 15 minutes, a cross-session
+message (a relayed question included) 20 minutes, a pending prompt 10
+minutes, repeated every 30 minutes from the previous raise; the window runs
+until the close. Every ledger knob (these, the excerpt bound, the link window
+and the wake-list bound) is read from the shipped and adopter layers only, a
+machine-local value ignored and reported as the kill switch's is (D-14), so a
+session cannot stretch its own windows or widen its own excerpt; settled by
+the operator at the Amendment 2 walk ("Defaults + repo config
+(Recommended)"). Under the kill switch capture
+continues and the hold, the handover refusal and the unanswered raises stand
+down to one wake line naming the open count: the switch exists to stop the
+control plane from acting, and a record that only grows does not act. A
+capture failure (a failed append or a failed redaction) is still raised under
+the switch, since capture is the part still running and a fault is when it is
+likeliest to break (settled by the operator at the Amendment 2 walk, "Yes,
+still alert (Recommended)").
 
 **Alternatives considered:**
 - Carry the open list in the handover file and the first wake only. Rejected
@@ -675,6 +727,33 @@ from acting, and a record that only grows does not act.
 **Chosen because:** reading the store at every wake makes session memory
 irrelevant to what is open, and the raise turns a silent loss into a blocker
 the operator sees.
+
+### D-29: The hold and the handover refusal ship record-only and enforce on the operator's yes (N)
+
+**Decision:** The turn-end hold and the handover refusal each carry a
+`shadow` or `enforce` mode, shipped as `shadow`, on the same terms as an
+approval class (D-6, REQ-C1.6): in shadow each records what it would have
+held or refused, the hub reads that record and brings the operator a
+one-line summary computed by code, and only the operator's configuration in
+a shipped or adopter layer moves either to `enforce`. Capture, closes, the
+wake block, the panel line and the unanswered raise are not refusals and run
+from landing. No backfill: asks open before landing stay with the handover
+file's items until they close. Settled by the operator at the Amendment 2
+walk ("Record-only first (Recommended)").
+
+**Alternatives considered:**
+- Enforce as soon as each task lands. Rejected because: sessions pick up a
+  new hook only when they reload, so for a while some program sessions
+  capture and others do not, and a refusal against a ledger that missed an
+  ask, or a hold on a mis-sorted arrival, would stop a live session on bad
+  data.
+- Backfill open asks from handover files and follow-up items. Rejected
+  because: those are prose copies the ledger exists to replace; they drain
+  on their own as the asks close.
+
+**Chosen because:** it reuses the engine's proven path from shadow to
+enforce, so the first refusal a session meets is one the record has already
+shown to be right.
 
 ## Cross-cutting concerns
 
@@ -761,9 +840,5 @@ main versus side work (D-18), the language (D-16), class modes with the hub
 reading the shadow log (D-6), and the `release-run` class in shadow (REQ-C1.3).
 None remains open.
 
-Amendment 2's decisions (D-22 to D-28) are drafted with their recommended
-choices and go to the operator at its walk; the calls the operator's order
-did not settle are named there: the excerpt kept in the ledger (D-23), the
-single turn-end hold (D-25), capture staying on under the kill switch and the
-proposed windows (D-28), and the worker's pending prompt counted as a request
-(REQ-J1.1).
+Amendment 2's decisions (D-22 to D-29) were settled by the operator at its
+walk, 2026-11-19 (see the kickoff brief's amendment log). None remains open.
