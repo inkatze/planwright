@@ -69,6 +69,7 @@ usage:
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
       [--remote-control <name>] [--model <alias>] [--effort <level>]
       [--reserved] [--keep-config-env] [--mise-task-edit] [--spec-branch <branch>]
+      [--pr <number>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
   mission-control-launch.sh retire <name>|<worker> [--force-parked]
   mission-control-launch.sh reparent <name> --program <dest>
@@ -156,12 +157,19 @@ current directory), on the unit's branch when it exists, off the default
 branch otherwise. A scope with one colon, <spec>:task-<id>, names a task
 unit (branch planwright/<spec>/task-<id>; a one-colon scope of that shape
 outside the task grammar is refused); any other scope gets a flight branch
-derived from the name. A
+derived from the name. `--pr <number>` puts a session onto an open pull
+request of that repository instead: its branch is the PR's head, read
+through gh (a flight branch planwright/flight/<name>-<8 hex> of the
+repository itself; a task branch takes its <spec>:task-<id> scope, and any
+other head --cwd), never a fresh flight branch
+at the base, and the worktree holding that branch is the one reused; with
+none, a local branch at the PR's head gets a worktree placed on it, and
+anything else is refused. A
 worktree already holding that branch is reused only when no live session
 runs there: another registered launch, or a process working in it other
 than the launcher, its callers and tmux. --cwd names a worktree instead,
 accepted only when it is not a primary checkout and no live session uses
-it; it takes neither --repo nor a task scope. Such a launch's brief, unless
+it; it takes neither --repo nor a task scope nor --pr. Such a launch's brief, unless
 its first line is a skill command (`/<name>`, alone or before a space),
 also carries the verification cadence: the in-run points and the
 `step-run.sh audit` that readiness repeats. Every other kind starts in
@@ -718,6 +726,12 @@ place_worktree() {
   if [ -n "$task" ]; then
     pw_branch="planwright/${task%/*}/task-${task#*/}"
     set -- dispatch "${task%/*}" "${task#*/}"
+  elif [ -n "$pr_branch" ]; then
+    # A pull request's own branch: the worktree holding it is reused below,
+    # and with none a local flight branch is adopted onto a placed worktree.
+    # A fresh branch at the base would start the PR's work over.
+    pw_branch=$pr_branch
+    set -- dispatch --flight "${pr_branch#planwright/flight/}"
   else
     # Derived from the name, so a relaunch finds the branch its predecessor
     # started; eight hex digits are the flight-id grammar's uid.
@@ -745,6 +759,13 @@ place_worktree() {
       fi
     fi
     return 0
+  fi
+  if [ -n "$pr_branch" ]; then
+    pw_tip=$(git -C "$pw_primary" rev-parse --verify --quiet "refs/heads/$pr_branch^{commit}" </dev/null) \
+      || refuse "refusing to launch $name: no worktree holds $pr_branch, the head of pull request #$pr, and no local branch of that name exists to place one on; fetch it (git fetch origin $pr_branch:$pr_branch) and launch again" 4
+    # A stale local branch would start the session behind its own PR.
+    [ "$pw_tip" = "$pr_oid" ] \
+      || refuse "refusing to launch $name: the local $pr_branch is at $(printf '%s' "$pw_tip" | cut -c1-12), not at pull request #$pr's head ($(printf '%s' "$pr_oid" | cut -c1-12)); update it (git fetch origin $pr_branch:$pr_branch) and launch again" 4
   fi
   pw_out=$(cd "$pw_primary" && /bin/sh "$script_dir/fleet-dispatch-worktree.sh" "$@" \
     --repo-root "$pw_primary" --no-attach </dev/null)
@@ -806,6 +827,15 @@ count you, and run \`$cs_root/scripts/mission-control-launch.sh unwait $1\`
 before working again. Exit 3 can mean the name is
 locked for a moment: run it again a few times; a 3 that persists means the
 name is wrong.
+
+Run git from this worktree as your working directory, never with
+\`git -C <dir>\` (denied before push, commit and reset). For the worktree acts
+plain git is denied on your own unit branch, run
+\`$cs_root/scripts/worker-branch-sync.sh\` as its own command:
+\`reset origin/<branch>\` resets the clean worktree to the fetched remote
+branch, dropping local commits; \`ff <sha>\` fast-forwards to a descendant
+commit. It pushes nothing: a pushed branch takes new commits. Its \`--help\`
+states what it refuses.
 EOF
 }
 
@@ -870,6 +900,7 @@ posture_gate() {
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
   remote_control='' rc_given=0 mise_edit=0 spec_branch='' ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=''
+  pr='' pr_branch='' pr_oid='' pr_ok=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -909,6 +940,15 @@ cmd_launch() {
       --spec-branch)
         [ "$#" -ge 2 ] && [ -z "$spec_branch" ] || die "--spec-branch takes one planwright/<spec>/<name> branch, once"
         spec_branch=$2
+        shift 2
+        ;;
+      --pr)
+        [ "$#" -ge 2 ] && [ -z "$pr" ] || die "--pr takes one pull request number, once"
+        case $2 in
+          '' | 0* | *[!0-9]*) die "--pr takes a pull request number (digits, no leading zero)" ;;
+        esac
+        [ "${#2}" -le 9 ] || die "--pr takes a pull request number of at most nine digits"
+        pr=$2
         shift 2
         ;;
       --reserved)
@@ -961,11 +1001,14 @@ cmd_launch() {
           || die "refusing the scope $scope: a task scope is <spec>:task-<id>, the spec lowercase letters, digits and - (at most 64), the id <n> or <n>.<m>"
         ;;
     esac
-    [ -z "$cwd" ] || { [ -z "$repo" ] && [ -z "$task" ]; } \
-      || die "--cwd names the worktree itself, so it takes neither --repo nor a task scope"
+    [ -z "$cwd" ] || { [ -z "$repo" ] && [ -z "$task" ] && [ -z "$pr" ]; } \
+      || die "--cwd names the worktree itself, so it takes neither --repo nor a task scope nor --pr"
+    [ -z "$pr" ] || [ -z "$task" ] || die "--pr names the branch itself, so it takes no task scope"
+    [ -z "$pr" ] || [ -z "$spec_branch" ] || die "--pr puts the session on a pull request's flight branch, and --spec-branch names a spec branch for it; give one or the other"
     [ -z "$repo" ] || repo=$(abs_dir --repo "$repo") || exit 2
   else
     [ -z "$repo" ] || die "a $kind starts where it is launched and takes no --repo"
+    [ -z "$pr" ] || die "a $kind starts where it is launched and takes no --pr"
     [ -n "$cwd" ] || cwd=$(pwd -P) || die "cannot resolve the current directory"
   fi
   [ -z "$cwd" ] || cwd=$(abs_dir --cwd "$cwd") || exit 2
@@ -1052,6 +1095,26 @@ cmd_launch() {
     sb_open=$(cd -- "${repo:-${cwd:-.}}" 2>/dev/null && gh pr list --head "$spec_branch" --state open --json headRefName --jq "[.[] | select(.headRefName == \"$spec_branch\")] | length" 2>/dev/null </dev/null) || sb_open=''
     [ "$sb_open" -ge 1 ] 2>/dev/null \
       || die "refusing to launch $name: --spec-branch $spec_branch is not the head branch of an open pull request (or gh could not tell), so no session record names it"
+  fi
+  if [ -n "$pr" ]; then
+    command -v gh >/dev/null 2>&1 || die "refusing to launch $name: --pr needs gh to read pull request #$pr" 4
+    command -v jq >/dev/null 2>&1 || die "refusing to launch $name: --pr needs jq to read pull request #$pr" 4
+    pr_json=$(cd -- "${repo:-.}" 2>/dev/null && gh pr view "$pr" --json headRefName,headRefOid,state,isCrossRepository 2>&1 </dev/null) \
+      || die "refusing to launch $name: gh could not read pull request #$pr ($(sanitize_printable "$pr_json" | cut -c1-200))" 4
+    pr_branch=$(printf '%s' "$pr_json" | jq -r 'if .state == "OPEN" and .isCrossRepository == false then .headRefName else empty end' 2>/dev/null) || pr_branch=''
+    pr_oid=$(printf '%s' "$pr_json" | jq -r '.headRefOid // empty' 2>/dev/null) || pr_oid=''
+    [ -n "$pr_branch" ] \
+      || die "refusing to launch $name: pull request #$pr is not an open pull request from this repository's own branches" 4
+    # The flight grammar the session record keeps as unit_branch; a head the
+    # record drops would leave the session no branch-sync route.
+    case $pr_branch in
+      planwright/flight/task-*) pr_ok=0 ;;
+      planwright/flight/*) printf '%s\n' "$pr_branch" | grep -Eq '^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$' && pr_ok=1 || pr_ok=0 ;;
+      planwright/*/task-*) die "refusing to launch $name: pull request #$pr's head, $(sanitize_printable "$pr_branch"), is a task branch; launch with its <spec>:task-<id> scope, which reuses the worktree holding it and marks the unit in flight" 4 ;;
+      *) pr_ok=0 ;;
+    esac
+    [ "$pr_ok" = 1 ] \
+      || die "refusing to launch $name: pull request #$pr's head, $(sanitize_printable "$pr_branch"), is not a flight branch (planwright/flight/<name>-<8 hex>); launch with --cwd <the worktree holding it>" 4
   fi
   if [ "$backend" = tmux ] && { [ -n "$ovr_model" ] || [ -n "$ovr_effort" ] || [ "$ovr_reserved" = 1 ]; }; then
     die "refusing to launch $name: --model, --effort and --reserved apply to the stream-json rung only; the tmux rung resolves its tier in offload-dispatch" 2
