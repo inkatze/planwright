@@ -158,9 +158,10 @@ branch otherwise. A scope with one colon, <spec>:task-<id>, names a task
 unit (branch planwright/<spec>/task-<id>; a one-colon scope of that shape
 outside the task grammar is refused); any other scope gets a flight branch
 derived from the name. `--pr <number>` puts a session onto an open pull
-request of that repository instead: its branch is the PR's head (a flight
-branch of the repository itself, which gh reports before the launch; a
-task branch takes its <spec>:task-<id> scope), never a fresh flight branch
+request of that repository instead: its branch is the PR's head, read
+through gh (a flight branch planwright/flight/<name>-<8 hex> of the
+repository itself; a task branch takes its <spec>:task-<id> scope, and any
+other head --cwd), never a fresh flight branch
 at the base, and the worktree holding that branch is the one reused; with
 none, a local branch at the PR's head gets a worktree placed on it, and
 anything else is refused. A
@@ -828,12 +829,13 @@ locked for a moment: run it again a few times; a 3 that persists means the
 name is wrong.
 
 Run git from this worktree as your working directory, never with
-\`git -C <dir>\` (denied before push, commit and reset). To publish a rewrite
-of your own unit branch while its PR is a draft, reset its clean worktree to
-its own remote branch, or fast-forward it to a descendant commit, run
-\`$cs_root/scripts/worker-branch-sync.sh\` (\`push --force-with-lease=<branch>:<sha> --force-if-includes\`,
-\`reset origin/<branch>\` or \`ff <sha>\`) as its own command; its
-\`--help\` states what it refuses.
+\`git -C <dir>\` (denied before push, commit and reset). For the acts plain git
+is denied on your own unit branch, run \`$cs_root/scripts/worker-branch-sync.sh\`
+as its own command: \`push --force-with-lease=<branch>:<sha> --force-if-includes\`
+publishes a rewrite while the PR is a draft, leased on the tip the rewrite
+started from; \`reset origin/<branch>\` resets the clean worktree to the
+fetched remote branch, dropping local commits; \`ff <sha>\` fast-forwards to
+a descendant commit. Its \`--help\` states what it refuses.
 EOF
 }
 
