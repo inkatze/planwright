@@ -276,16 +276,16 @@ no_tool_bounded() {
   quick_file "$s4/test-quick.sh"
   cp "$s2/test-int-default.sh" "$s4/test-int-default.sh"
   start=$(date +%s)
-  out=$(PATH="${2:-$farm}" PLANWRIGHT_TEST_FILE_DEADLINE=2 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4.tsv" \
+  out=$(PATH="${2:-$farm}" PLANWRIGHT_TEST_FILE_DEADLINE=4 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4.tsv" \
     "$RUNNER" "$s4" 2>&1)
   rc=$?
   took=$(($(date +%s) - start))
   assert_exit "$1: the hung file fails the run" 1 "$rc"
   assert_contains "$1: the hung file is named with its deadline" \
-    "test-hang.sh ran past its 2s deadline" "$out"
+    "test-hang.sh ran past its 4s deadline" "$out"
   assert_contains "$1: the quick file still passes" "ok: test-quick.sh" "$out"
   assert_contains "$1: INT is at its default in the file" "ok: test-int-default.sh" "$out"
-  assert_contains "$1: the header shows the deadline" "deadline 2s per file" "$out"
+  assert_contains "$1: the header shows the deadline" "deadline 4s per file" "$out"
   assert_not_contains "$1: no unbounded warning" "WARNING no usable timeout" "$out"
   if [ "$took" -lt 40 ]; then
     pass "$1: the run ends near the deadline, not at the file's own end (${took}s)"
@@ -318,6 +318,15 @@ printf '#!/bin/sh\n[ "$1" = -k ] && exit 125\nexec "$@"\n' >"$farm/timeout"
 chmod +x "$farm/timeout"
 no_tool_bounded "timeout-without-k"
 rm -f "$farm/timeout"
+# bounded-run.sh takes six digits of seconds, the knob nine: a larger value is
+# clamped rather than failing every file.
+s4c="$tmp/s4c"
+mkdir -p "$s4c"
+quick_file "$s4c/test-quick.sh"
+out=$(PATH="$farm" PLANWRIGHT_TEST_FILE_DEADLINE=999999999 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4c.tsv" \
+  "$RUNNER" "$s4c" 2>&1)
+assert_exit "no bounding tool: a nine-digit deadline still runs files" 0 "$?"
+assert_contains "no bounding tool: a nine-digit deadline is clamped" "deadline 999999s per file" "$out"
 
 # A runner with no bounded-run.sh beside it, on the same PATH: one warning and
 # unbounded files.
@@ -331,6 +340,7 @@ printf '#!/bin/bash\nsleep 2\n' >"$s4/test-slow-2.sh"
 out=$(PATH="$farm" PLANWRIGHT_TEST_FILE_DEADLINE=1 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4b.tsv" \
   "$bare/scripts/run-tests.sh" "$s4" 2>&1)
 assert_exit "no tool at all: files past the deadline still pass" 0 "$?"
+assert_contains "no tool at all: the slow files ran" "ok: test-slow-2.sh" "$out"
 n=$(count_lines "WARNING no usable timeout(1) or gtimeout" "$out")
 if [ "$n" -eq 1 ]; then
   pass "no tool at all: warns exactly once"
@@ -366,6 +376,8 @@ else
     fail "gtimeout alone: the file ran under gtimeout (${n:-0} use(s))"
   fi
   check_hang_gone "gtimeout alone" "$h5"
+  # The stub would otherwise stand in for a missing timeout on $farm below.
+  rm -f "$farm/gtimeout"
 fi
 
 # ---------------------------------------------------------------------------

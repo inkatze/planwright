@@ -522,11 +522,11 @@ if [ "${1:-}" = "--run-one" ]; then
     inner=()
     case "${deadline_tool##*/}" in
       bounded-run.sh)
-        # Its own KILL follows its grace of ten seconds, which takes longer
-        # than that where reading the process table is slow; the worker's
-        # backup KILL, which would end it first and leave the file running,
-        # waits longer.
-        ws_grace=25
+        # Its own KILL follows its grace of ten seconds, counted in polls of
+        # the process table, so it comes later where that read is slow. The
+        # worker's backup KILL, which would end it first and leave the file
+        # running, is for a wedged runner only and waits well past that.
+        ws_grace=120
         if [ -n "$deadline_env" ]; then
           # shellcheck disable=SC2054 # one env option, not array elements
           inner=("$deadline_env" --default-signal=INT,QUIT)
@@ -1247,13 +1247,15 @@ done
 if [ -z "$deadline_tool" ] && [ -x "$self_dir/bounded-run.sh" ] \
   && "$self_dir/bounded-run.sh" -k 1 5 true >/dev/null 2>&1; then
   deadline_tool="$self_dir/bounded-run.sh"
+  # It takes at most six digits of seconds, where the knob takes nine.
+  [ "$deadline" -le 999999 ] || deadline=999999
 fi
 if [ -n "$deadline_tool" ]; then
   deadline_desc="deadline ${deadline}s per file"
 else
   # Worded so scripts/classify-ci-failure.sh does not read a bare "timeout"
   # in it as a network failure.
-  echo "run-tests: WARNING no usable timeout(1) or gtimeout (none installed, or none taking -k); test files run with no per-file deadline" >&2
+  echo "run-tests: WARNING no usable timeout(1) or gtimeout (none installed, or none taking -k, and no bounded-run.sh beside the runner); test files run with no per-file deadline" >&2
   deadline_desc="no per-file deadline"
 fi
 # GNU env (env, or genv beside Homebrew's gtimeout), for a bounded file's
