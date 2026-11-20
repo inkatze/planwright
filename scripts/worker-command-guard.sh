@@ -165,10 +165,11 @@ OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
 # 1 once the own-branch or scratch arm or the spec-root zone approved a write
-# or git act, and once trusted repository code or a declared step was
-# approved (main reads both).
+# or a git act other than add and commit (main reads it).
 ARM_ACT=0
-TASK_ACT=0
+# 1 while the segment being verified is an own-unit partner: git add or
+# commit through the own-branch arm, or a gate task (fin reads it).
+OU_PARTNER=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -2105,7 +2106,6 @@ ob_git_ready() {
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
   [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
   AUDIT_OB=1
-  ARM_ACT=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -4204,13 +4204,26 @@ guard_git() {
       # objects. Not through -C.
       if [ "$viac" = 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ]; then
         HOOK_WT_ROOT=$REC_WT
-        cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && return 0
+        # A fetch is no own-unit partner, whichever arm approves it.
+        cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && ARM_ACT=1 && return 0
       fi
-      ob_git "$sub" "$subidx"
+      ob_git "$sub" "$subidx" && ARM_ACT=1
       ;;
-    add | rm | mv | restore | checkout | commit | merge) ob_git "$sub" "$subidx" ;;
+    add | commit) ob_git_partner "$sub" "$subidx" ;;
+    rm | mv | restore | checkout | merge) ob_git "$sub" "$subidx" && ARM_ACT=1 ;;
     *) return 1 ;;
   esac
+}
+
+# ob_git_partner <sub> <index>: ob_git for the own-branch arm's `git add` and
+# `git commit`, the two git acts that may come before an own-unit act in its
+# chain (OU_PARTNER): a read their checks make (a `commit -F` file) is no
+# write, so it leaves ARM_ACT as it was.
+ob_git_partner() {
+  local arm=$ARM_ACT
+  ob_git "$1" "$2" || return 1
+  ARM_ACT=$arm
+  OU_PARTNER=1
 }
 
 # ls_remote_url_ok <remote>: 0 only when `git ls-remote <remote>` would use a
@@ -6323,7 +6336,7 @@ verify_simple() {
     [ -z "${csub[i]-}" ] || return 1
   done
   declared_line_ok || return 1
-  TASK_ACT=1
+  OU_PARTNER=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -7152,11 +7165,12 @@ verify_known_simple() {
   case $verb in
     */*)
       is_trusted_script "$verb" "$HOOK_CWD" || return 1
-      # Trusted code that may write, which no own-unit act may share a
-      # command with; an installed step script is the one exception.
+      # Trusted code that may write: a gate task, which may come before an
+      # own-unit act only as a partner in its chain; an installed step
+      # script is the one script free of that rule.
       case $verb in
-        */step-run.sh | */step-record.sh) is_planwright_script "$verb" "$HOOK_CWD" || TASK_ACT=1 ;;
-        *) TASK_ACT=1 ;;
+        */step-run.sh | */step-record.sh) is_planwright_script "$verb" "$HOOK_CWD" || OU_PARTNER=1 ;;
+        *) OU_PARTNER=1 ;;
       esac
       return 0
       ;;
@@ -7166,7 +7180,7 @@ verify_known_simple() {
   fi
   classify_verb "$verb" || return 1
   case $verb in
-    mise | lefthook | bats | bash | sh) TASK_ACT=1 ;;
+    mise | lefthook | bats | bash | sh) OU_PARTNER=1 ;;
   esac
   return 0
 }
@@ -7196,6 +7210,11 @@ verify_tokens() {
   local ou_list=0
   # 1 once that list has passed a top-level `||`: an act after it is after `||`.
   local ou_or=0
+  # An own-unit act's partners (OU_PARTNER: git add or commit, a gate task)
+  # come before it in one top-level `&&` chain. ou_chain: a partner was seen
+  # and its chain is still open; ou_bad: one was seen anywhere else, or after
+  # an act (ou_seen), so no act in this command is approved.
+  local ou_chain=0 ou_bad=0 ou_seen=0
   # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
   # chain passes the scoped read check (SEG_SCOPED), with the directory it
   # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
@@ -7239,8 +7258,31 @@ verify_tokens() {
     PENDING_OUT_DIR=''
     SEG_SCOPED=0
     OU_SEG=0
+    OU_PARTNER=0
     verify_simple || return 1
     [ "$OU_SEG" = 0 ] || ou_list=1
+    if [ "$OU_PARTNER" = 1 ]; then
+      if [ "$ctl_depth" -ne 0 ] || [ "$close" != '&&' ] || [ "$ou_seen" = 1 ] || [ "$ou_or" = 1 ]; then
+        ou_bad=1
+      fi
+      case $seg_open in
+        '' | ';' | '&&') ;;
+        *) ou_bad=1 ;;
+      esac
+      ou_chain=1
+    elif [ "$OU_SEG" = 0 ] && [ "$ou_chain" = 1 ] && [ "$ou_seen" = 0 ] && [ "$ctl_depth" -eq 0 ]; then
+      # A segment between a partner and the act keeps the chain only by `&&`;
+      # an empty one is a line break after `&&`, which continues it.
+      case $close in
+        '&&') ;;
+        *) [ "$cwn" -eq 0 ] && [ "$rn" -eq 0 ] && [ "$close" = ';' ] || ou_bad=1 ;;
+      esac
+    fi
+    if [ "$OU_SEG" = 1 ]; then
+      ou_seen=1
+      [ "$ou_bad" = 0 ] || return 1
+    fi
+    [ "$ou_seen" = 0 ] || [ "$ou_bad" = 0 ] || return 1
     if [ "$ctl_depth" -eq 0 ]; then
       [ "$close" != '&' ] || [ "$ou_list" = 0 ] || return 1
       # The tokenizer reads every line break as `;`, but one right after
@@ -7689,17 +7731,14 @@ main() {
   OU_EXPORTED=0
   OU_EXP_NAMES=''
   ARM_ACT=0
-  TASK_ACT=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
-  # An own-unit act shares its command only with a cd into the worktree, a
-  # read-only segment, a step-context export or an installed step script:
-  # never with a write or git act the own-branch or scratch arm or the
-  # spec-root zone approved, nor with trusted repository code (a mise or
-  # lefthook task, bats, a repo or other plugin script, a declared step), so
-  # a worker commits or runs its gate, then pushes in a call of its own.
-  [ "$AUDIT_OU" = 0 ] || { [ "$ARM_ACT" = 0 ] && [ "$TASK_ACT" = 0 ]; } || return 0
+  # An own-unit act shares its command only with a cd into the worktree,
+  # read-only segments, a step-context export, an installed step script, and
+  # the partners verify_tokens places before it (git add or commit, a gate
+  # task): never with a file write, another git act or a spec-root write.
+  [ "$AUDIT_OU" = 0 ] || [ "$ARM_ACT" = 0 ] || return 0
   audit_append "$cmd" "$sid"
   emit_allow
   return 0
