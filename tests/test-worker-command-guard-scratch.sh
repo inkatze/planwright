@@ -135,6 +135,7 @@ assert_defer "F1.4: nor when it is a loop" "D=$SC && for x in a; do true; done &
 assert_defer "F1.4: nor across a newline" "D=$SC && true &"$'\n'"rm -r \$D/work" Bash "$WT"
 assert_defer "F1.4: nor with the list continued past a newline" "D=$SC &&"$'\n'"true & rm -r \$D/work" Bash "$WT"
 assert_defer "F1.4: nor past a blank line" "D=$SC ||"$'\n\n'"true & rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor with a pipeline continued past a newline" "D=$SC && true |"$'\n'"cat & rm -r \$D/work" Bash "$WT"
 assert_defer "F1.4: nor a reassignment, which leaves the earlier value" "D=$OUT_DIR; D=$SC && true & rm -r \$D/work" Bash "$WT"
 assert_defer "F1.4: no .git under the root" "mkdir -p \$TMPDIR/r/.git" Bash "$WT"
 assert_defer "F1.4: no mise config under the root" "echo x > \$TMPDIR/mise.toml" Bash "$WT"
