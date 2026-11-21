@@ -101,6 +101,13 @@ assert_allow "bare target's resolved location approved" "$FX/bin/fixture-tool --
 assert_allow "declared line with no args approved" "$OTHER" Bash "$FXC"
 assert_allow "declared line chained with a known-safe segment approved" \
   "$DECLARED --mode strict && git status" Bash "$FXC"
+# A declared step may write, so an own-unit push never shares its command.
+OU_B=planwright/flight/demo-0123abcd
+write_record "$FX/own.record" "$FXC" '' "$OU_B"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_allow "the own-unit push alone under a record (control)" "git push origin $OU_B" Bash "$FXC"
+assert_defer "an own-unit push after a declared line" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 # The declarations resolve from the payload cwd, so after a `cd` a declared
 # line's relative args would name other files than the ones declared.
 # Regression-only here: this catalog's relative step already fails to resolve

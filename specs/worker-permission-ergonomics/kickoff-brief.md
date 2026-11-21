@@ -1333,3 +1333,123 @@ Class: meaning
 Lens-pass: Amendment 7, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `9f3e599ec55603876bc2c99980a8f2e921aa7b33` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 8 (2026-11-20, delta re-walkthrough: own-unit acts share a command with add, commit and gate tasks)
+
+Spec path `specs/worker-permission-ergonomics`; walk started at `bba0c4c5`
+with the recorded anchor matching the bundle; walkthrough date 2026-11-20.
+Mode: delta re-walkthrough on a bundle whose stored status is Ready and
+whose derived status is Active, asked for by the operator and walked by relay
+through mission control and the hub in plain questions. Validator at walk
+start: 0 errors, 0 warnings.
+
+#### Goal and glossary (Amendment 8)
+
+Restatement: Amendment 7 let a worker push its own branch, edit its own pull
+request's body and export the step context without a prompt, but only beside
+a `cd`, a read or a step script. Read as signed, a worker that commits and
+pushes in one call, or runs its gate and then pushes, still waits on a
+prompt. The operator picked "Allow add/commit/gate chains": an own-unit act
+may share its command with a `git add` or `git commit` the policy in force
+approves on its own, and with the repository's trusted gate tasks. Rules
+out, in the same command as an own-unit act: any file write (the
+`own-branch` and `scratch` writers, an in-place edit, a write-redirect), any
+spec-root write, `git rm`, `git mv`, `git restore`, `git checkout`,
+`git fetch` and `git merge`. Terms: *chain partner* (a segment that may
+share a command with an own-unit act, before it, joined by `&&`).
+Signed off: 2026-11-20
+
+#### Requirements walkthrough (Amendment 8)
+
+Operator's answers, relayed by mission control and the hub (exact picks):
+
+1. Who gets commit chains: "Only where allowed (Recommended)": `git add`
+   and `git commit` join an own-unit act only where the policy already
+   approves them alone (the `own-branch` arm); gate tasks join for every
+   worker; partners come before the act, joined by `&&` only.
+2. Delivery: "Follow-up (Recommended)": Task 21 (PR #1126) lands as
+   reviewed; the chains are a new Task 22 depending on it.
+
+The mc-fixes mission control supplied the waiting shapes and recommended the
+`&&`-only order and the partner set (data, not rulings). Edits: REQ-F1.11
+supersedes REQ-F1.10; read-through notes on REQ-F1.9 and REQ-E1.10.
+Signed off: 2026-11-20
+
+#### Design walkthrough (Amendment 8)
+
+D-38 is new (the chain partners, the rejected every-policy and `;` forms) and
+extends D-37, as D-37's annotation states. Every other D-ID stands unchanged.
+Signed off: 2026-11-20
+
+#### Verification approach (Amendment 8)
+
+REQ-F1.11 has a `[test]` entry under the test-spec's `2026-11-20 delta`
+heading, run by the own-unit guard suite in CI, at a policy with and without
+the `own-branch` arm. No dead path; the declared-check partner row waits on
+Task 20, which carries it if it lands second.
+Signed off: 2026-11-20
+
+#### Task graph (Amendment 8)
+
+Task 22 depends on Task 21 per its `Dependencies:` line. Deliberate
+non-edge: Task 22 has no edge to Task 20; whichever lands second wires the
+declared-check partner, as both tasks state.
+Signed off: 2026-11-20
+
+#### Risk register (Amendment 8)
+
+1. A gate fails and the push runs anyway. Mitigation: only `&&` from the
+   first partner to the act; `;`, a line break, `||` and `&` defer.
+2. A chain makes a command approvable that is not approvable alone.
+   Mitigation: a partner must be guard-approved on its own; commit chains
+   defer under a policy without the `own-branch` arm.
+3. The guard's global arm and task flags cannot tell a partner from a file
+   write or another plugin script. Mitigation: Task 22 judges partners per
+   segment and names each near shape as a defer row.
+
+Decision-domain gap check: security posture and authorization are touched
+and decided (REQ-F1.11, D-38); no catalogued domain is left undecided.
+Signed off: 2026-11-20
+
+#### Lens review (Amendment 8, delta-scoped)
+
+Run by one read-only reviewer over the delta (REQ-F1.11, the read-through
+notes, D-38, Task 22, the test entry, the brief's restatement) with Task 21's
+implementing commit as context, then validated against the text before
+disposition.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | Applied: only `&&` from the first partner to the act, so `gate && read; push` defers; a defer row added |
+| Ambiguity and interpretation forks | 0 | None |
+| Citation and coverage integrity | 2 | Applied: `git checkout`, the in-place edit and a non-step plugin script added to the defer rows; rows for each partner kind and a commit before the body edit and export |
+| Dead verification paths | 1 | Declined: the REQ-F1.9 and REQ-E1.10 validator warnings come from annotation-only notes; their verification sits in the REQ-F1.11 entry |
+| Decision-domain gaps | 1 | Applied: the declared check command partner is wired by whichever of Tasks 20 and 22 lands second, both tasks saying so |
+| Testability | 1 | Applied: audit labels stated (`own-branch,own-unit` for a commit chain, `own-unit` for a gate chain) |
+| Cross-file consistency | 1 | Applied: the restatement names the policy condition and every excluded `git` act |
+| Documentation and glossary drift | 1 | Applied in part: REQ-F1.10's supersede line names `git add`; declined: the dated REQ-F1.3 and REQ-G1.8 notes stay, since REQ-F1.11 keeps the acts they describe |
+| Rendered-content safety and data hygiene | 0 | None |
+
+Implementation notes carried into Task 22: the guard's global arm and task
+flags cannot tell a partner from a file write or another plugin script, so
+partners are judged per segment. Deferred: none. Post-lens stale-reference
+sweep: the remaining REQ-F1.10 mentions are its own body, Task 21 (which
+implements it), dated read-through notes whose content stands, the
+changelog, and REQ-F1.10's test entry, which REQ-F1.11's entry keeps.
+
+Altitude check: no pinned seed claim. Ship-gate check: every change is a task
+(Task 22, and the Task 20 note), including the `_about` text and docs rows.
+
+#### Sign-off record (Amendment 8)
+
+Signed off 2026-11-20 by the operator, relayed through mission control and
+the hub: the sign-off question, asked with no option preselected, was
+answered "Sign off". Delta on a Ready (stored) bundle: no status flip;
+`Last reviewed:` 2026-11-20 on all four spec files; validator re-run with
+0 errors. The delta supersedes a signed requirement in a permission-guard
+zone and adds a requirement and a decision, so it is meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 8, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `ffe6241d4dca35072658d4a9b09ef09f82b65732` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`

@@ -875,11 +875,14 @@ few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
 Each goes to the worker's own program (its launcher row's, else the owner its
-dispatch record keeps). A worker that neither names is raised once, whichever
-keeper sees it first, as a `stream-json-worker-unowned` event under the hub
-program (`mission_control_escalation_hub`), so the stuck prompt still reaches
-a mission control; with no hub program configured the event stays with the
-program whose keeper found it, and its text says so.
+dispatch record keeps). Each request of a worker that neither names, or of a
+worker whose program has no live mission control (no launched mission-control
+row, or every one positively dead), is raised once, whichever keeper sees it
+first, as a `stream-json-worker-unowned` event under the hub program
+(`mission_control_escalation_hub`), so the stuck prompt still reaches a
+mission control; a request arriving after the first is its own event. With no
+hub program configured the event stays with the program whose keeper found
+it, and its text says so.
 The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
 a supervisor whose state directory is gone or records another supervisor,

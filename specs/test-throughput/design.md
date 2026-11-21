@@ -1,7 +1,7 @@
 # Test throughput — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-02
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -764,6 +764,11 @@ runner exempted by REQ-A1.8 inherits the variable like any other.
 **Chosen because:** the observed stall is one file that never returns,
 and a per-file bound ends exactly that while naming it.
 
+**Superseded-by: D-23** (2026-11-20), in part — with neither tool on the
+host the runner bounds each file through `scripts/bounded-run.sh`; only a
+host without that helper runs files unbounded. Every other property above
+stands.
+
 ### D-22: The detached runner catches SIGHUP instead of ignoring it through `nohup`  (N, supersedes D-8 in part)
 
 **Decision:** The Task 12 helper detaches the suite as a background job
@@ -787,6 +792,29 @@ verb, never removing an earlier run's log, and reuse of
 unlike an ignored one, so the run survives its terminal without changing
 what the tests observe; probed on Linux under `sh`, `bash` and `dash`
 (kickoff brief, Amendment 2).
+
+### D-23: With neither timeout tool, the runner bounds each file through `scripts/bounded-run.sh`  (N, supersedes D-21 in part)
+
+**Decision:** When the host has no usable `timeout` or `gtimeout` (none
+installed, or none taking `-k`, each probed by running it),
+`scripts/run-tests.sh` runs each file under `scripts/bounded-run.sh`
+beside it, which takes `timeout`'s arguments and exit codes and, at the
+deadline, ends the file and every process under it as read from the
+process table. Only a host where that helper is also missing or fails the
+same probe warns once and runs files unbounded. Every other D-21 property
+stands: the variable, its default and malformed-value handling, the
+failure message naming the file and the deadline, the returned ticket, and
+a nested runner's inheritance.
+
+**Alternatives considered:**
+- Keep warn-and-run-unbounded on a host with neither tool, as D-21 states.
+  Rejected because: stock macOS, the macOS CI runners included, has
+  neither tool, so files there ran with no deadline and one hung file
+  could hold a CI shard until the job's own timeout (obs:9e55a84a).
+
+**Chosen because:** the helper is already in the repository and bounds a
+whole process tree under `timeout`'s contract, so the per-file deadline
+holds on stock macOS without a new dependency.
 
 ## Cross-cutting concerns
 

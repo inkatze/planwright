@@ -242,6 +242,21 @@ pp_req() { # pp_req <worker> [<owner>|none]: an overdue pending request under li
   printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
   [ "${2:-}" = none ] || own_worker "$1" "${2:-mission-control:alpha}"
 }
+mc_row() { # mc_row <program> live|dead|none: the program's launched mission-control row, its stream-json pid alive or gone, or no row
+  mr_n="mc-$1-mission-control-00000000aa"
+  rm -rf "$fleet/mission-control/sessions/$mr_n" "$fleet/streamjson/$mr_n"
+  [ "$2" != none ] || return 0
+  mkdir -p "$fleet/mission-control/sessions" "$fleet/streamjson/$mr_n"
+  printf 'format\t1\nname\t%s\nstate\tlaunched\nprogram\t%s\nkind\tmission-control\nscope\tx\nbackend\tstream-json\nhandle\t%s\nlaunched\t1\n' \
+    "$mr_n" "$1" "$mr_n" >"$fleet/mission-control/sessions/$mr_n"
+  if [ "$2" = live ]; then
+    printf '%s\n' "$$" >"$fleet/streamjson/$mr_n/worker.pid"
+  else
+    printf '999999999\n' >"$fleet/streamjson/$mr_n/worker.pid"
+  fi
+}
+mc_row alpha live
+mc_row beta live
 pp_req cp-old
 pp_req mc-beta-worker-0123456789
 mkdir -p "$fleet/mission-control/sessions"
@@ -283,7 +298,7 @@ expect_out "a worker no row or record owns is raised once, as unowned" "announce
 expect_no_out "and its prompt is not announced as the program's own" "pending-prompt-overdue${tab}rl-orphan"
 keeper_as alpha 5060
 expect_no_out "and the unowned event is not raised again" "stream-json-worker-unowned"
-if [ -e "$fleet/streamjson/rl-orphan/unowned-announced" ]; then
+if [ -e "$fleet/streamjson/rl-orphan/unowned-announced.aaaa1111-bbbb-cccc-dddd-eeee00000001" ]; then
   ok "the raise is claimed in the worker's directory, for every keeper to see"
 else
   fail "the unowned raise left no claim in the worker's directory"
@@ -299,7 +314,48 @@ expect_out "a request that has just arrived on a worker no one owns is raised as
 pp_req rl-gone mission-control:removedprog
 keeper_as alpha 5260
 expect_out "a worker whose record names a program no longer configured is raised as unowned" "announced${tab}stream-json-worker-unowned${tab}rl-gone"
-rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/streamjson/rl-gone" "$fleet/dispatch-markers"
+# A step session launched from inside a worker names it as its parent, and is
+# its parent's program's to announce while the parent's own record names one.
+parent_of() { printf '%s\n' "$2" >"$fleet/streamjson/$1/parent"; }
+own_worker rl-step-parent mission-control:alpha
+pp_req rl-step none
+parent_of rl-step rl-step-parent
+keeper_as alpha 5300
+expect_out "a step session is announced to its parent's program" "announced${tab}pending-prompt-overdue${tab}rl-step"
+expect_no_out "and is not raised as unowned" "stream-json-worker-unowned${tab}rl-step"
+keeper_as beta 5310
+expect_no_out "nor by another program" "rl-step"
+pp_req rl-step-ghost none
+parent_of rl-step-ghost rl-step-nobody
+keeper_as alpha 5320
+expect_out "a parent with no row or record leaves the session unowned" "announced${tab}stream-json-worker-unowned${tab}rl-step-ghost"
+own_worker rl-step-retired mission-control:alpha
+rm -f "$fleet/dispatch-markers/rl-step-retired"
+pp_req rl-step-late none
+parent_of rl-step-late rl-step-retired
+keeper_as alpha 5330
+expect_out "a retired parent leaves the session unowned" "announced${tab}stream-json-worker-unowned${tab}rl-step-late"
+pp_req rl-step-grand none
+parent_of rl-step-grand rl-step
+keeper_as alpha 5340
+expect_out "a parent that is itself only a child is not followed further" "announced${tab}stream-json-worker-unowned${tab}rl-step-grand"
+pp_req rl-step-self none
+parent_of rl-step-self rl-step-self
+keeper_as alpha 5350
+expect_out "a session naming itself as parent stays unowned" "announced${tab}stream-json-worker-unowned${tab}rl-step-self"
+rm -rf "$fleet/streamjson/rl-step" "$fleet/streamjson/rl-step-ghost" "$fleet/streamjson/rl-step-late" "$fleet/streamjson/rl-step-grand" "$fleet/streamjson/rl-step-self"
+# A program never escalates to itself: with no hub, the request of a worker
+# whose own mission control is dead is raised by another program's keeper.
+mc_row beta dead
+pp_req rl-self mission-control:beta
+keeper_as beta 5270
+expect_no_out "the dead program's own keeper does not raise its worker to itself" "stream-json-worker-unowned${tab}rl-self"
+keeper_as alpha 5280
+expect_out "another program's keeper raises it" "announced${tab}stream-json-worker-unowned${tab}rl-self"
+mc_run mc-event.sh list --program beta
+expect_no_out "and nothing is raised into the dead program's own queue" "stream-json-worker-unowned${tab}rl-self"
+mc_row beta live
+rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/streamjson/rl-gone" "$fleet/streamjson/rl-self" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-prompts" "$fleet/mission-control/alpha/keeper-unowned"
 
 # The ruling: the unowned event goes to the hub program, the one whose mission
@@ -333,6 +389,108 @@ mc_run mc-event.sh list --program alpha
 expect_no_out "never under the finding program" "rl-hubbed"
 mc_run mc-event.sh list --program beta
 expect_no_out "nor under another" "rl-hubbed"
+
+# Every request an unowned worker holds is raised, each once, so a request
+# arriving after the first is never left unseen behind the first one's claim.
+pp_req rl-many none
+keeper_as alpha 5000
+expect_out "an unowned worker's first request is raised" "announced${tab}stream-json-worker-unowned${tab}rl-many"
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000003\tpermission\t5100\tpending\n' >>"$fleet/streamjson/rl-many/journal"
+keeper_as beta 5110
+expect_out "a later request on it is raised too, by whichever keeper sees it" "announced${tab}stream-json-worker-unowned${tab}rl-many"
+keeper_as hub 5120
+expect_no_out "and each request only once" "rl-many"
+mc_run mc-event.sh list --program hub
+rl_many_n=$(printf '%s\n' "$OUT" | grep -c "stream-json-worker-unowned${tab}rl-many${tab}")
+if [ "$rl_many_n" = 2 ]; then
+  ok "the hub holds one event per request"
+else
+  fail "the hub holds $rl_many_n unowned events for rl-many, not 2: $OUT"
+fi
+expect_out "each event names its request" "stream-json-worker-unowned${tab}rl-many${tab}stream-json worker rl-many has request aaaa1111"
+expect_out "and the later one is named too" "request aaaa1111-bbbb-cccc-dddd-eeee00000003"
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000001\tpermission\t1000\tanswered\t5130\naaaa1111-bbbb-cccc-dddd-eeee00000003\tpermission\t5100\tanswered\t5130\n' \
+  >"$fleet/streamjson/rl-many/journal"
+keeper_as alpha 5140
+rl_many_claims=0
+for rl_c in "$fleet/streamjson/rl-many/"unowned-announced*; do
+  [ ! -e "$rl_c" ] || rl_many_claims=$((rl_many_claims + 1))
+done
+if [ "$rl_many_claims" = 0 ]; then
+  ok "a settled request's claim is dropped"
+else
+  fail "claims outlive their settled requests: $(ls "$fleet/streamjson/rl-many/")"
+fi
+# A worker directory that is a link is never pruned through.
+mkdir -p "$tmp/linked-worker"
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000009\tpermission\t1000\tanswered\t1100\n' >"$tmp/linked-worker/journal"
+: >"$tmp/linked-worker/unowned-announced.aaaa1111-bbbb-cccc-dddd-eeee00000009"
+ln -s "$tmp/linked-worker" "$fleet/streamjson/rl-linked"
+keeper_as alpha 5150
+if [ -e "$tmp/linked-worker/unowned-announced.aaaa1111-bbbb-cccc-dddd-eeee00000009" ]; then
+  ok "a linked worker directory's files are left alone"
+else
+  fail "the prune removed a file through a linked worker directory"
+fi
+rm -f "$fleet/streamjson/rl-linked"
+keeper_as hub 5150
+if grep -q "^rl-many${tab}" "$fleet/mission-control/hub/keeper-unowned" 2>/dev/null; then
+  fail "the hub's unowned set keeps settled requests: $(cat "$fleet/mission-control/hub/keeper-unowned")"
+else
+  ok "and the program's unowned set drops them too, so it never outgrows what is pending"
+fi
+
+# A worker whose program has no live mission control (no launched row, or
+# every one positively dead) has each request raised to the hub as well, so
+# its prompts still reach a mission control. One whose mission control lives
+# is left to its own program, never announced twice.
+mc_row beta dead
+pp_req og-beta mission-control:beta
+keeper_as alpha 5000
+expect_out "a worker whose program's mission control is dead is raised to the hub" "announced${tab}stream-json-worker-unowned${tab}og-beta"
+keeper_as hub 5010
+expect_no_out "once, whichever keeper sees it" "og-beta"
+mc_run mc-event.sh list --program hub
+expect_out "the event says the owner's mission control is gone" "the mission control of its program beta is gone"
+mc_row alpha none
+pp_req og-alpha
+keeper_as hub 5020
+expect_out "a worker whose program has no mission-control row is raised to the hub" "announced${tab}stream-json-worker-unowned${tab}og-alpha"
+mc_row alpha live
+mc_row beta live
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000004\tpermission\t5030\tpending\n' >>"$fleet/streamjson/og-beta/journal"
+keeper_as hub 5040
+expect_no_out "a request on a worker whose mission control lives is not raised to the hub" "og-beta"
+keeper_as beta 5050
+expect_out "its own program announces it" "announced${tab}pending-prompt${tab}og-beta"
+expect_no_out "and no keeper raises it as well" "stream-json-worker-unowned"
+keeper_as alpha 5060
+expect_no_out "nor another program's" "og-beta"
+# The hub's own mission control gone, a hub worker's request is raised by
+# another program's keeper under its own program, never into the hub's queue.
+pp_req og-hub mission-control:hub
+keeper_as hub 5070
+expect_no_out "the hub's keeper does not raise its own worker to itself" "stream-json-worker-unowned${tab}og-hub"
+keeper_as alpha 5080
+expect_out "another program's keeper raises it" "announced${tab}stream-json-worker-unowned${tab}og-hub"
+mc_run mc-event.sh list --program alpha
+expect_out "under that keeper's program, saying why" "stream-json-worker-unowned${tab}og-hub${tab}stream-json worker og-hub has request aaaa1111-bbbb-cccc-dddd-eeee00000001 waiting but the mission control of its program hub is gone"
+# A request that has just arrived, inside the pending bound, on a worker whose
+# mission control is dead is raised too, not only an overdue one.
+mc_row beta dead
+pp_req og-fresh mission-control:beta
+printf 'aaaa1111-bbbb-cccc-dddd-eeee00000005\tpermission\t5085\tpending\n' >"$fleet/streamjson/og-fresh/journal"
+keeper_as alpha 5090
+expect_out "a fresh request on a worker whose mission control is dead is raised" "announced${tab}stream-json-worker-unowned${tab}og-fresh"
+# A mission control whose liveness cannot be told counts as live, so its
+# workers' requests are left to it rather than raised to the hub.
+mc_row beta live
+rm -rf "$fleet/streamjson/mc-beta-mission-control-00000000aa"
+pp_req og-unknown mission-control:beta
+keeper_as alpha 5100
+expect_no_out "a mission control with no liveness evidence is not taken for gone" "og-unknown"
+mc_row beta live
+rm -rf "$fleet/streamjson/rl-many" "$fleet/streamjson/og-beta" "$fleet/streamjson/og-alpha" "$fleet/streamjson/og-hub" "$fleet/streamjson/og-fresh" "$fleet/streamjson/og-unknown" "$fleet/dispatch-markers"
 cp "$tmp/tracked.keep" "$tracked"
 rm -rf "$fleet/streamjson/rl-hubbed" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned"

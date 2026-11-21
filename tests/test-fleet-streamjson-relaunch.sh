@@ -485,3 +485,54 @@ case $guide in
   *) fail "r4: docs/fleet.md does not document the relaunch verb" ;;
 esac
 echo "ok: r4 the fleet guide states that permissions load at session start and documents relaunch (REQ-G1.3)"
+
+# ---------------------------------------------------------------------------
+# r8: a fresh launch from inside a worker records that worker as its parent;
+# one from outside a worker records none, and a recover keeps what the launch
+# recorded.
+# ---------------------------------------------------------------------------
+[ ! -e "$wdir/parent" ] || fail "r8: a launch from outside a worker recorded a parent: $(cat "$wdir/parent")"
+wt2="$tmp/wt2"
+git -c init.defaultBranch=main init -q "$wt2" || fail "r8: cannot create the second work repository"
+sdir="$home/streamjson/sjr-step"
+# senv scrubs the worker identity, so the launching worker's is set after it.
+step_env() {
+  env "${env_scrub[@]}" PLANWRIGHT_WORKER_HANDLE="$1" \
+    PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" \
+    GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    /bin/sh "$SJ" "${@:2}"
+}
+step_env sjr1 launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8: the launch from inside a worker exited non-zero"
+if [ "$(cat "$sdir/parent" 2>/dev/null)" = sjr1 ]; then
+  echo "ok: r8 a launch from inside a worker records it as the parent"
+else
+  fail "r8: the launch from inside worker sjr1 recorded parent '$(cat "$sdir/parent" 2>&1)'"
+fi
+poll_until --what 'the step session' -- test -s "$sdir/session" || fail "r8: setup: the step session never started"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1 || fail "r8: setup: the stop of sjr-step failed"
+(cd "$wt2" && senv -- recover sjr-step --cwd "$wt2") >/dev/null 2>&1 || fail "r8: the recover of sjr-step exited non-zero"
+[ "$(cat "$sdir/parent" 2>/dev/null)" = sjr1 ] || fail "r8: a recover from outside a worker dropped the recorded parent"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+step_env sjr-step launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8: the self-named relaunch exited non-zero"
+[ ! -e "$sdir/parent" ] || fail "r8: a launch naming itself as the launching worker recorded a parent"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+echo "ok: r8 a recover keeps the parent, and a session is never its own parent"
+
+# ---------------------------------------------------------------------------
+# r9: a relaunch onto a pull request's worktree records that pull request's
+# head branch, the one checked out there, as the unit branch.
+# ---------------------------------------------------------------------------
+pr_head=planwright/flight/pr-head-0123abcd
+git -C "$wt2" checkout -q -b "$pr_head" || fail "r9: setup: cannot check out the pull request's head branch"
+(cd "$wt2" && senv -- recover sjr-step --cwd "$wt2") >/dev/null 2>&1 || fail "r9: the recover onto the pull request's worktree exited non-zero"
+poll_until --what 'the relaunched step session' -- test -s "$sdir/worker.pid" || fail "r9: setup: the relaunched session never started"
+r9_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+if [ -f "$r9_rec" ] && grep -qx "unit_branch=$pr_head" "$r9_rec"; then
+  echo "ok: r9 a relaunch onto a pull request's worktree records its head branch as the unit branch"
+else
+  fail "r9: the relaunch recorded: $(tr '\n' ' ' <"$r9_rec" 2>&1)"
+fi
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
