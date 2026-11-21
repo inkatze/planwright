@@ -41,7 +41,7 @@ row() { # row <label> <want>: the demo bundle's signoff row is exactly <want>
 legacy() { # legacy: the demo bundle's requirements.md in the pre-pipeline form, with no Status line
   printf '# Demo Requirements\n\n## Section\n\n- The system shall do the thing.\n' >"$repo/specs/demo/requirements.md"
 }
-legacy_row="unsigned${tab}its requirements.md has no **Status:** value in its header at the head, as a legacy bundle has: add **Status:** Draft to the header of specs/demo/requirements.md and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request"
+legacy_row="unsigned${tab}its requirements.md has no **Status:** value in its header at the head, as a pre-pipeline bundle has: add **Status:** Draft to the header of specs/demo/requirements.md and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request"
 
 bundle demo Ready signed
 spec_pr "$(commit_specs)" specs/demo/design.md
