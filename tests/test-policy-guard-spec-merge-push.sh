@@ -519,6 +519,36 @@ PG_PATH="$OLDGIT:$PATH" pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect deny "[worker, record] a git without --attr-source refuses the push"
 reason_has '2\.40' "[worker, record] the refusal names the git version it needs"
 
+echo "# the merge line starts on the PR head itself"
+# Once main holds the PR head, a merge onto an older commit of the branch
+# still fast-forwards it, reaching the head only through main.
+OLD_MAIN=$(git --git-dir="$ORIGIN" rev-parse main)
+gitq -C "$SEED" switch main
+gitq -C "$SEED" fetch origin
+gitq -C "$SEED" reset --hard origin/main
+gitq -C "$SEED" merge --no-edit "origin/$SB"
+gitq -C "$SEED" push -q origin main
+gitq -C "$K" fetch origin
+PR_HEAD=$(git -C "$W" rev-parse "origin/$SB")
+gitq -C "$W" reset --hard "$PR_HEAD^"
+gitq -C "$W" merge --no-edit --no-ff origin/main
+if [ "$(git -C "$W" rev-parse HEAD^1)" = "$(git -C "$W" rev-parse "$PR_HEAD^")" ] && git -C "$W" merge-base --is-ancestor "$PR_HEAD" HEAD; then
+  pass "the rewind fixture merged main onto the head's parent"
+else
+  fail "the rewind fixture did not build its merge"
+fi
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a merge onto an older commit than the PR head refuses"
+reason_has 'oldest merge' "[worker, record] the refusal names the merge's starting point"
+gitq -C "$SEED" push -q --force origin "$OLD_MAIN:refs/heads/main"
+gitq -C "$SEED" reset --hard "$OLD_MAIN"
+gitq -C "$K" fetch origin
+if [ "$(git -C "$K" rev-parse origin/main)" = "$OLD_MAIN" ]; then
+  pass "the rewind fixture restored main"
+else
+  fail "the rewind fixture did not restore main"
+fi
+
 echo "# merge drivers and attributes never stand in for a hand resolution"
 # The PR head and main now both change src.txt, so their merge conflicts.
 gitq -C "$SEED" switch "$SB"

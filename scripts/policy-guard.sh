@@ -5492,7 +5492,7 @@ signoff_transport_stock() {
 # the clean merge of its parents. SPC_WHY says why not.
 SPC_WHY=''
 signoff_push_check() {
-  local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 want base hoid roid moid lroid lmoid all fp fpm c line ls lines n=0 rc=0
+  local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 want base hoid roid moid lroid lmoid all fp fpm c line ls lines oldest_p1='' n=0 rc=0
   local -a par
   SPC_WHY=''
   [ "$del" = 0 ] || {
@@ -5606,11 +5606,18 @@ EOF
       SPC_WHY="it adds a merge whose result is not the clean merge of its parents, a conflict resolved by hand or an edit inside the merge ($(sanitize_printable "${c:0:12}" 'a commit'))"
       return 1
     }
+    oldest_p1=${par[1]}
   done <<EOF
 $lines
 EOF
   [ "$n" = "$fp" ] || {
     SPC_WHY='the commits it adds could not be listed'
+    return 1
+  }
+  # The line must start on the PR head itself, not on an older commit the
+  # head descends from (the head then reached only through main).
+  [ "$n" = 0 ] || [ "$oldest_p1" = "$roid" ] || {
+    SPC_WHY="its oldest merge sits on $(sanitize_printable "${oldest_p1:0:12}" 'an older commit'), not on the pull request head, so it builds on an older commit rather than syncing the head"
     return 1
   }
   return 0
