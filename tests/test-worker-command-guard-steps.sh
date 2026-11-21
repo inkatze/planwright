@@ -110,6 +110,9 @@ assert_allow "the own-unit push alone under a record (control)" "git push origin
 assert_allow "an own-unit push after a declared line" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
 assert_defer "a declared line after an own-unit push" "git push origin $OU_B && $DECLARED --mode strict" Bash "$FXC"
 assert_defer "a declared line joined to an own-unit push by ;" "$DECLARED --mode strict; git push origin $OU_B" Bash "$FXC"
+write_record "$FX/own-arm.record" "$FXC" own-branch "$OU_B"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own-arm.record")
+assert_allow "an own-unit push after a declared line under the own-branch arm" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 # The declarations resolve from the payload cwd, so after a `cd` a declared
 # line's relative args would name other files than the ones declared.
