@@ -460,7 +460,10 @@ gets a `Read(...)` deny:
   `init.templateDir` targets, gpg configuration, shell rc files) stay open too:
   the profile denies named paths over open file tools.
 - **The guard's trust inputs** (REQ-G1.8): the launcher's session records
-  (`session-records/*.record` under any fleet home) and the overlay config
+  (`session-records/*.record` under any fleet home), the stream-json
+  launcher's per-worker state folders (`streamjson/<worker>/`), which a
+  recover and a relaunch read the worker's profile, scope, directory and
+  opt-ins back from, and the overlay config
   files the policy resolves through (`planwright.yml` and
   `planwright.local.yml`, wherever they sit).
 - **Other processes' environments** (REQ-E1.6): `/proc/<pid>/environ` and
@@ -645,9 +648,11 @@ offload host's included), where the profile's case-sensitive denies do not:
 
 `worker-settings.json` is regenerated from the shipped profile by every launch,
 recover and relaunch of an opted-in worker before it is read, so a rewrite of it
-is never used. The session records and the state folder's other files are not
-covered by this: the records keep their `session-records/*.record` deny, which
-a recased spelling passes on a case-insensitive filesystem (MA-2).
+is never used. The state folder's other files, which a recover and a relaunch
+read back too (`profile`, `scope`, `cwd`, the tier fields), have only the deny
+of the whole folder (`Edit(//**/streamjson/**)`), and the session records only
+their `session-records/*.record` deny: a recased spelling of a folder or name
+passes both on a case-insensitive filesystem (MA-2).
 
 Residual risk: the hook compares paths case-sensitively and works from the
 payload's own spelling and the filesystem, so it is a fail-closed second layer

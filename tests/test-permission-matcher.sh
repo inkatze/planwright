@@ -1129,6 +1129,9 @@ deny|load-bearing|Write|/srv/fleet/session-records/0123abcd-89ef0123456789ab.rec
 deny|load-bearing|Write|/home/u/.claude/plugins/data/planwright-planwright/fleet/streamjson/mc-w-1/planwright-opt-in.0123456789abcdef0123456789abcdef01234567|the persisted launch opt-ins a recover reads back
 deny|load-bearing|Write|/home/u/.claude/plugins/data/planwright-planwright/fleet/StreamJson/mc-w-1/planwright-opt-in.0123456789abcdef0123456789abcdef01234567|the opt-in name under a recased folder above it, which a case-insensitive filesystem resolves to the real one
 deny|load-bearing|Edit|/srv/fleet/streamjson/mc-w-1/worker-settings.json|an opted-in worker's per-launch settings profile
+deny|load-bearing|Write|/home/u/.claude/plugins/data/planwright-planwright/fleet/streamjson/mc-w-1/profile|the settings profile a recover resumes the worker under
+deny|load-bearing|Write|/srv/fleet/streamjson/mc-w-1/scope|the worker scope a recover exports
+deny|load-bearing|Edit|/srv/fleet/streamjson/mc-w-1/cwd|the directory a relaunch resumes in
 deny|load-bearing|Edit|/work/repo/.claude/planwright.yml|the repo-tracked overlay (REQ-G1.8)
 deny|load-bearing|Write|/work/repo/.claude/planwright.local.yml|the machine-local overlay (REQ-G1.8)
 deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/overlay/planwright.yml|the adopter overlay (REQ-G1.8)
