@@ -539,6 +539,11 @@ esac
 fresh 33 OPEN "$H" "$H" 0
 run watch --program alpha --now "$T"
 expect_eq "the head is announced once its bot round completes" "announced${tab}merge-ready${tab}acme:web:33"
+reads30() { awk '/api graphql/ && / number=30( |$)/ { n++ } END { print n + 0 }' "$tmp/gh.calls"; }
+before=$(reads30)
+run watch --program alpha --now "$T"
+expect_eq "an announced head raises nothing more" ""
+[ "$(reads30)" = "$before" ] && ok "and is not read from the forge again" || fail "an announced head was read again: $(reads30) reads, $before before"
 run fresh --program alpha --repo acme/web --pr 31 --head "$H"
 expect_rc "the fresh verb says a merged pull request is stale" 4
 run fresh --program alpha --repo acme/web --pr 30 --head "$H"

@@ -108,10 +108,11 @@ Usage:
       per ready head, subject <owner>:<name>:<n> (pr-<checksum> outside the
       subject grammar), its text the merge command, printing
         announced<TAB>merge-ready<TAB><subject>
-      and each unknown on stderr. A ready row is read from the forge once
-      more first, and raises nothing when the pull request is no longer
-      open or its head moved (see `fresh`), or while the bot round on its
-      head is unfinished; a read that fails is an unknown. The same event, its text naming this
+      and each unknown on stderr. A ready row not yet raised everywhere it
+      goes is read from the forge once more first, and raises nothing when
+      the pull request is no longer open or its head moved (see `fresh`),
+      or while the bot round on its head is unfinished; a read that fails
+      is an unknown. The same event, its text naming this
       program as the judge, goes to every other configured program whose
       repositories include the pull request's (by origin remote) and whose
       duties leave out readiness-check, such as a hub over several
@@ -395,6 +396,12 @@ method_of() {
 "
 }
 
+# raised <store> <key>: the key is a whole line of the announce store.
+raised() {
+  [ -f "$1" ] && [ -r "$1" ] || return 1
+  K=$2 awk 'BEGIN { k = ENVIRON["K"] } $0 == k { f = 1; exit } END { exit !f }' "$1" </dev/null
+}
+
 # covering <owner/name>: CV_PROGRAMS, the other configured programs ($others)
 # whose repositories include <owner/name> and whose duties leave out the
 # readiness check, one per line: a hub over several programs judges none
@@ -672,6 +679,17 @@ case $verb in
     COVER=""
     while IFS='	' read -r w_kind w_pr w_head w_command; do
       [ "$w_kind" = ready ] || continue
+      covering "${w_pr%#*}" || rc=1
+      # Raised everywhere already: a forge read would change nothing.
+      if raised "$seen" "$w_pr	$w_head"; then
+        w_left=0
+        while IFS= read -r w_q; do
+          [ -z "$w_q" ] || raised "$forwarded" "$w_q	$w_pr	$w_head" || w_left=1
+        done <<EOF
+$CV_PROGRAMS
+EOF
+        [ "$w_left" -eq 1 ] || continue
+      fi
       w_why=$(fresh_check "${w_pr%#*}" "${w_pr##*#}" "$w_head")
       case $? in
         0) ;;
@@ -685,7 +703,6 @@ case $verb in
       w_subject=$(mc_pr_subject "${w_pr%#*}" "${w_pr##*#}")
       mc_announce "$program" "$seen" "$w_pr	$w_head" merge-ready "$w_subject" \
         "$w_pr is ready to merge: $w_command" || rc=1
-      covering "${w_pr%#*}" || rc=1
       while IFS= read -r w_q; do
         [ -n "$w_q" ] || continue
         if w_fw=$(mc_announce "$w_q" "$forwarded" "$w_q	$w_pr	$w_head" merge-ready "$w_subject" \
