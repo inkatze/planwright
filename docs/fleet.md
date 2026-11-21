@@ -874,12 +874,17 @@ burst is one wake (a batch whose names outgrow one event's text spans a
 few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
-Each goes to the worker's own program (its launcher row's, else the owner its
-dispatch record keeps). A worker that neither names is raised once, whichever
-keeper sees it first, as a `stream-json-worker-unowned` event under the hub
-program (`mission_control_escalation_hub`), so the stuck prompt still reaches
-a mission control; with no hub program configured the event stays with the
-program whose keeper found it, and its text says so.
+Each goes to the worker's own program: its launcher row's, else the owner its
+dispatch record keeps, else the configured program its name carries under the
+launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
+polish pass adding `-<suffix>`). A live worker with no row is raised once to
+that program as a `stream-json-worker-unregistered` event, so its mission
+control can retire it or launch it afresh. A worker none of these owns has its
+prompts raised to the hub program (`mission_control_escalation_hub`), marked
+unowned, and is raised once, whichever keeper sees it first, as a
+`stream-json-worker-unowned` event there; with no hub program configured the
+program whose keeper found it first takes both, and the event says so. Routing
+only decides who hears a prompt: who may answer it is unchanged.
 The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
 a supervisor whose state directory is gone or records another supervisor,
