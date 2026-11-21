@@ -278,7 +278,8 @@
 #       then relaunch with `--resume <session_id>`, in --cwd when given and
 #       otherwise in the caller's directory (a session resumes only from the
 #       directory it started in). A missing session halts
-#       with exit 4, a failed resume with exit 5 — both surfaced as
+#       with exit 4, a failed resume with exit 5 (a launch opt-in record the
+#       resume cannot trust among them: launch the worker fresh) — both surfaced as
 #       attention items (the Awaiting-input halt of the affected unit; the
 #       tower and other workers continue).
 #   fleet-streamjson.sh relaunch <worker> [--grace <secs>]
@@ -1761,7 +1762,7 @@ guard_preflight() {
   fi
   [ -n "$gp_failed" ] || return 0
   printf '%s\n' "$gp_failed" | while IFS= read -r gp_root; do
-    printf '%s\n' "$me: launch preflight: the auto-approve hook does not approve '$gp_root/scripts/resolve-rule-doc.sh spec-format' - a worker whose skill resolves to that root stalls on its first doctrine call (check jq is installed, and that the hook resolves the root: PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / scripts/resolve-installed-roots.sh)" >&2
+    printf '%s\n' "$me: launch preflight: the auto-approve hook does not approve '$gp_root/scripts/resolve-rule-doc.sh spec-format' - a worker whose skill resolves to that root stalls on its first doctrine call (check jq is installed, that the hook resolves the root: PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / scripts/resolve-installed-roots.sh, and, for a root that is a git checkout, that the script there is committed unchanged)" >&2
   done
   if [ "$gp_mode" = warn ]; then
     printf '%s\n' "$me: launch preflight: continuing anyway (PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn)" >&2
@@ -1862,7 +1863,7 @@ stop_pidfiles='supervisor.pid worker.pid'
 # worker's scratch root is not here: it belongs to the worktree, outlives a
 # plain stop for the recover that may follow, and goes with a final close or
 # the worktree's reclaim (scripts/worker-session-record.sh).
-scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* *.lock#* *.broken.*'
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* .opt-in.* *.lock#* *.broken.*'
 
 # stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
 # The handle and the directory together are what keep a sibling whose handle
@@ -2125,13 +2126,14 @@ recorded_profile() {
 # rewrite the file in place through that spelling, which breaks the id.
 OPT_IN_PREFIX=planwright-opt-in.
 
-# opt_in_id <dir> <file>: the blob id of <file>, hashed from <dir> so a launch
-# and a recover started in different repositories name it alike.
+# opt_in_id <dir> <lines>: the blob id of <lines> as the record stores them
+# (each line newline-terminated), hashed from <dir> so a launch and a recover
+# started in different repositories name it alike.
 opt_in_id() {
-  (
+  printf '%s\n' "$2" | (
     cd -- "$1" || exit 1
-    unset GIT_DIR GIT_WORK_TREE
-    git hash-object --no-filters -- "$2"
+    unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+    git hash-object --no-filters --stdin
   ) 2>/dev/null
 }
 
@@ -2149,10 +2151,14 @@ valid_spec_branch() {
 }
 
 # opt_in_read <dir>: print the opt-in lines recorded in <dir>, nothing when it
-# records none. Status 1 when the record is unusable: two files, a name whose
-# id the content does not hash to, or a line outside the grammar.
+# records none. Status 1 when the record is unusable: more than one, a name
+# whose id the content does not hash to, a line outside the grammar or a key
+# twice, or a marker of the one-file-per-opt-in layout this record replaced,
+# which a worker could have written and so is never read, only refused. The
+# content is read once and that copy both hashed and parsed.
 opt_in_read() {
   [ -d "$1" ] || return 0
+  [ -z "$(find "$1" -maxdepth 1 \( -name mise-task-edit -o -name spec-branch \) -type f -print 2>/dev/null)" ] || return 1
   oi_f=$(find "$1" -maxdepth 1 -name "$OPT_IN_PREFIX*" -type f -print 2>/dev/null) || return 1
   [ -n "$oi_f" ] || return 0
   case $oi_f in
@@ -2164,8 +2170,8 @@ opt_in_read() {
     '' | *[!0-9a-f]*) return 1 ;;
   esac
   [ "${#oi_id}" -eq 40 ] || [ "${#oi_id}" -eq 64 ] || return 1
-  [ "$(opt_in_id "$1" "$oi_f")" = "$oi_id" ] || return 1
-  oi_body=$(cat "$oi_f") || return 1
+  oi_body=$(cat -- "$oi_f") || return 1
+  [ -n "$oi_body" ] && [ "$(opt_in_id "$1" "$oi_body")" = "$oi_id" ] || return 1
   oi_seen=' '
   while IFS= read -r oi_line; do
     case $oi_line in
@@ -2184,32 +2190,39 @@ EOF
 }
 
 # opt_in_write <dir> <lines>: record <lines> (empty: none) as the opt-in set,
-# whole. When the set changes, the session it was not launched with is retired
-# first, so a launch that fails after this leaves nothing for a recover to
-# resume under the new set. Status 1, the earlier set kept, when it cannot.
+# whole. A set that reads back unchanged is left alone with its session. A
+# changed one retires that session first, then every record under any casing
+# (on a case-insensitive filesystem a recased one is the name the new record
+# would take) and the retired layout's markers, and renames the new record in
+# last. Status 1 when it cannot: before the session is retired the earlier set
+# stands; after, there is no session for a recover to resume under either set.
 opt_in_write() {
   ow_old=$(opt_in_read "$1") || ow_old='unusable
 '
   [ "$ow_old" != "$2" ] || return 0
+  find "$1" -maxdepth 1 -name '.opt-in.*' -type f -exec rm -f -- {} + 2>/dev/null || :
   ow_tmp=''
   if [ -n "$2" ]; then
     ow_tmp=$(mktemp -- "$1/.opt-in.XXXXXX") || return 1
-    if ! printf '%s\n' "$2" >"$ow_tmp" || ! ow_id=$(opt_in_id "$1" "$ow_tmp") || [ -z "$ow_id" ]; then
+    if ! printf '%s\n' "$2" >"$ow_tmp" || ! ow_id=$(opt_in_id "$1" "$2") || [ -z "$ow_id" ]; then
       rm -f -- "$ow_tmp"
       return 1
     fi
   fi
-  if ! rm -f -- "$1/session"; then
+  if ! rm -f -- "$1/session" \
+    || ! find "$1" -maxdepth 1 \( -iname "$OPT_IN_PREFIX*" -o -name mise-task-edit -o -name spec-branch \) \
+      -type f -exec rm -f -- {} + 2>/dev/null; then
     [ -z "$ow_tmp" ] || rm -f -- "$ow_tmp"
     return 1
   fi
-  if ! find "$1" -maxdepth 1 -name "$OPT_IN_PREFIX*" -exec rm -f -- {} + 2>/dev/null; then
-    [ -z "$ow_tmp" ] || rm -f -- "$ow_tmp"
-    return 1
+  [ -n "$ow_tmp" ] || return 0
+  # A directory or link left at the name would take the record inside it or
+  # through it, where the read never looks.
+  if [ ! -e "$1/$OPT_IN_PREFIX$ow_id" ] && [ ! -L "$1/$OPT_IN_PREFIX$ow_id" ]; then
+    mv -f -- "$ow_tmp" "$1/$OPT_IN_PREFIX$ow_id" && return 0
   fi
-  # The one-file-per-opt-in layout this replaced, which is no longer read.
-  rm -f -- "$1/mise-task-edit" "$1/spec-branch"
-  [ -z "$ow_tmp" ] || mv -f -- "$ow_tmp" "$1/$OPT_IN_PREFIX$ow_id"
+  rm -f -- "$ow_tmp"
+  return 1
 }
 
 # --- subcommands ------------------------------------------------------------
@@ -2378,7 +2391,7 @@ cmd_launch() {
   if [ -n "$resume_sid" ] && [ "$profile" = worker ]; then
     pf_dir=$(worker_dir "$worker") || exit 2
     pf_opt=$(opt_in_read "$pf_dir") || {
-      printf '%s\n' "$me: refusing to recover $worker: its recorded launch opt-ins are unusable (two records, or one its name's id does not match)" >&2
+      printf '%s\n' "$me: refusing to recover $worker: its launch opt-in record cannot be trusted (more than one, content that does not hash to its name, a line outside the grammar, or a marker from before the record); launch it fresh to rewrite it" >&2
       exit 7
     }
     case $pf_opt in
@@ -3388,7 +3401,7 @@ cmd_relaunch() {
   rx_opt=''
   if [ "$rx_profile" = worker ]; then
     rx_opt=$(opt_in_read "$dir") || {
-      printf '%s\n' "$me: relaunch refused for $worker: its recorded launch opt-ins are unusable (two records, or one its name's id does not match)" >&2
+      printf '%s\n' "$me: relaunch refused for $worker: its launch opt-in record cannot be trusted (more than one, content that does not hash to its name, a line outside the grammar, or a marker from before the record); stop it and launch it fresh to rewrite it" >&2
       exit 7
     }
   fi
