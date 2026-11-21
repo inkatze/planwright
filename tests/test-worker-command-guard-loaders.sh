@@ -198,6 +198,8 @@ printf '# NL\n' >"$R/docs/a
 b/c.md"
 assert_defer "a folder name holding a newline" "markdownlint-cli2 'docs/a
 b/c.md'" Bash "$R"
+assert_defer "a working directory whose name holds a newline" 'markdownlint-cli2 c.md' Bash "$R/docs/a
+b"
 rm -rf "$R/docs/a
 b"
 assert_defer "markdownlint-cli2 in no checkout" 'markdownlint-cli2 n.md' Bash "$SCR"
