@@ -1739,6 +1739,7 @@ edit_hook_preflight() {
   ep_bad=''
   ep_control=0
   ep_norun=''
+  ep_err=''
   # The plain file is the control: a hook that refuses it refuses by something
   # other than the names, so its refusal of the named files proves nothing.
   for ep_name in plain.txt "$@"; do
@@ -1751,7 +1752,7 @@ edit_hook_preflight() {
       "$(printf '%s' "$ep_probe/out/$ep_file" | json_escape)" "$ep_wt_json")
     ep_rc=0
     # shellcheck disable=SC2086 # a word list of the hook's own name sets
-    ep_out=$(printf '%s\n' "$ep_payload" | "$ep_env" "$ep_hook" "$ep_probe/wt" $ep_args 2>/dev/null) || ep_rc=$?
+    ep_out=$(printf '%s\n' "$ep_payload" | "$ep_env" "$ep_hook" "$ep_probe/wt" $ep_args 2>"$ep_probe/err") || ep_rc=$?
     # Only the one line the hook emits counts as its refusal: Claude Code
     # ignores a decision it cannot parse as hook JSON.
     if [ "$ep_name" = plain.txt ]; then
@@ -1760,7 +1761,10 @@ edit_hook_preflight() {
         # Exit 2 with nothing on stdout is also what a shell error gives
         # under dash, so it reads as a broken hook, not a refusal.
         0:* | 2:?*) ep_control=1 ;;
-        *) ep_norun=$ep_rc ;;
+        *)
+          ep_norun=$ep_rc
+          ep_err=$(head -n 1 "$ep_probe/err" 2>/dev/null | tr -d '\000-\037\177' | cut -c1-200) || ep_err=''
+          ;;
       esac
       continue
     fi
@@ -1776,7 +1780,14 @@ edit_hook_preflight() {
   done
   rm -rf "$ep_probe"
   if [ -n "$ep_norun" ]; then
-    printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook did not run or is broken (exit $ep_norun on a plain file): missing, not executable, or failing with a shell error, so the opted-in names would stay open in every other checkout" >&2
+    # Claude Code reads exit 2 as a block, so such a hook closes every write
+    # rather than leaving the names open; any other failure blocks nothing.
+    if [ "$ep_norun" = 2 ]; then
+      ep_what="exited 2 on a plain file with nothing on stdout: a shell error, or a hook that blocks every write"
+    else
+      ep_what="did not run or is broken (exit $ep_norun on a plain file): missing, not executable or failing, so the opted-in names would stay open in every other checkout"
+    fi
+    printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook $ep_what${ep_err:+ (its stderr: $ep_err)}" >&2
     return 9
   fi
   if [ "$ep_control" = 1 ]; then

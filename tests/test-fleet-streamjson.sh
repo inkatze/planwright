@@ -1010,11 +1010,16 @@ oldeh_refused "a hook that refuses a plain file too" "refused a plain file outsi
 # hook is named broken, not a refusal of the plain file.
 printf '#!/bin/sh\ncat >/dev/null\nexit 2\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
 launch_oldeh --lefthook-edit
-oldeh_refused "a hook that exits 2 with no output" "did not run or is broken (exit 2"
-# shellcheck disable=SC2016 # expanded by the stub when it runs
-printf '#!/bin/sh\nset -u\ncat >/dev/null\nprintf "%%s\\n" "$undefined_in_hook"\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+oldeh_refused "a hook that exits 2 with no output" "exited 2 on a plain file with nothing on stdout"
+# A syntax error exits 2 under dash and bash alike; its stderr is named.
+printf '#!/bin/sh\ncat >/dev/null\nif then fi\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
 launch_oldeh --lefthook-edit
-oldeh_refused "a hook that dies on a shell error" "did not run or is broken (exit"
+oldeh_refused "a hook that dies on a shell error" "exited 2 on a plain file with nothing on stdout"
+grep -qF "(its stderr: " "$tmp/c9l7.err" || fail "c9l: a broken hook's refusal must carry its stderr: $(cat "$tmp/c9l7.err")"
+# Exit 2 with something on stdout refused the plain file.
+printf '#!/bin/sh\ncat >/dev/null\necho refused\nexit 2\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook that refuses a plain file with exit 2 and output" "refused a plain file outside the worktree"
 # Only the single line of hook JSON, with exit 0, counts as a refusal.
 cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
 #!/bin/sh
