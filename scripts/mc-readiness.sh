@@ -201,8 +201,9 @@ Usage:
       a Done bundle with no kickoff-brief.md at the head is a legacy one,
       finished before kickoff existed, and signed with the detail `legacy,
       no kickoff brief`, unless the pull request deletes its brief, the
-      base branch's remote-tracking ref holds one, or that ref is not in the
-      repository; a brief that is present never makes a bundle legacy); a pull
+      base branch's remote-tracking ref holds one, or the pull request names
+      no base or that ref cannot be read; a brief that is present never
+      makes a bundle legacy); a pull
       request touching only `_` accumulators or files directly under the
       root has no bundle to sign off), for any other pull request the same
       sign-off for each bundle it edits (one it removes aside) and the

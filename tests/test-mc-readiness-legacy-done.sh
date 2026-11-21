@@ -55,11 +55,13 @@ nobrief="unsigned${tab}it has no kickoff brief at the head"
 # A legacy Done bundle, briefless at the base and the head, is accepted.
 bundle demo Done none
 base_at "$(commit_specs)"
-spec_pr "$(edit)" specs/demo/design.md
+sha_legacy=$(edit)
+spec_pr "$sha_legacy" specs/demo/design.md
 row "a Done bundle with no kickoff brief at the head or the base is accepted as legacy" \
   "signed${tab}legacy, no kickoff brief"
 walk_collected
-expect_no_out "the walk raises no sign-off failure for the legacy bundle" "fail${tab}signoff"
+expect_out "the walk judged that head" "${tab}$sha_legacy"
+expect_no_out "and raises no sign-off failure for the legacy bundle" "fail${tab}signoff"
 mkdir -p "$repo/app"
 printf 'run\n' >"$repo/app/run.sh"
 git -C "$repo" add app
@@ -85,6 +87,8 @@ for st in Active Ready Draft; do
     *) row "an $st bundle with no kickoff brief is refused" "$nobrief" ;;
   esac
 done
+walk_collected
+expect_out "the walk refuses the briefless bundle the row refused" "fail${tab}signoff${tab}demo: its status at the head is Draft"
 
 # A Done bundle whose brief exists but fails its anchor is never legacy.
 bundle demo Done stale
@@ -106,6 +110,14 @@ spec_pr "$(edit)" specs/demo/design.md
 row "a Done bundle whose kickoff-brief.md is a directory is not legacy" \
   "unsigned${tab}its kickoff-brief.md cannot be read at the head (specs/demo/kickoff-brief.md is not a file)"
 rm -rf "$repo/specs/demo/kickoff-brief.md"
+bundle demo Done none
+printf '# Brief\n' >"$repo/specs/demo/elsewhere.md"
+ln -s elsewhere.md "$repo/specs/demo/kickoff-brief.md"
+base_at "$(commit_specs)"
+spec_pr "$(edit)" specs/demo/design.md
+row "a Done bundle whose kickoff-brief.md is a symbolic link is not legacy" \
+  "unsigned${tab}its kickoff-brief.md cannot be read at the head (specs/demo/kickoff-brief.md is not a file)"
+rm -f "$repo/specs/demo/kickoff-brief.md" "$repo/specs/demo/elsewhere.md"
 
 # The deletion path: a brief the base holds, or the diff deletes, is not legacy.
 bundle demo Done signed
@@ -122,6 +134,21 @@ base_at "$sh_deleted"
 spec_pr "$sh_deleted" 'specs/demo/kickoff-brief.md|DELETED'
 row "a deletion the forge's file list shows is refused even when the base lacks the brief" \
   "unsigned${tab}it has no kickoff brief at the head, and the pull request deletes specs/demo/kickoff-brief.md"
+spec_pr "$sh_deleted" 'specs/demo/kickoff-brief.md|DELETED' 'app/run.sh|MODIFIED'
+hasnt "a pull request that also changes code is no spec-only scope" "scope${tab}"
+row "and the deletion refuses there too" \
+  "unsigned${tab}it has no kickoff brief at the head, and the pull request deletes specs/demo/kickoff-brief.md"
+
+# A pull request naming no base branch refuses rather than guesses.
+bundle demo Done none
+spec_pr "$(commit_specs)" specs/demo/design.md
+sed 's/"baseRefName": "main"/"baseRefName": ""/' "$tmp/pr.json" >"$tmp/pr-nobase.json" && mv "$tmp/pr-nobase.json" "$tmp/pr.json"
+rm -f "$tmp/collected"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+expect_rc "collect over a pull request with no base branch" 0
+c=$(cat "$tmp/collected" 2>/dev/null)
+row "a Done bundle in a pull request naming no base branch is refused" \
+  "unsigned${tab}it has no kickoff brief at the head, and the pull request names no base branch to rule out a deleted one"
 
 # A base that cannot be read refuses rather than guesses.
 bundle demo Done none
@@ -130,6 +157,11 @@ git -C "$repo" update-ref -d refs/remotes/origin/main
 spec_pr "$sh_unread" specs/demo/design.md
 row "a Done bundle whose base is not in the repository is refused, the fetch named" \
   "unsigned${tab}it has no kickoff brief at the head, and the pull request's base origin/main is not in this repository to rule out a deleted one; fetch it"
+printf 'tree 1111111111111111111111111111111111111111\nauthor t <t@example.invalid> 0 +0000\ncommitter t <t@example.invalid> 0 +0000\n\ntreeless\n' >"$tmp/treeless"
+base_at "$(git -C "$repo" hash-object --literally -w -t commit "$tmp/treeless")"
+spec_pr "$sh_unread" specs/demo/design.md
+row "a Done bundle whose base commit's tree git cannot list is refused" \
+  "unsigned${tab}it has no kickoff brief at the head, and git could not list specs/demo/kickoff-brief.md at the pull request's base origin/main"
 
 # A Done bundle with a brief that recomputes is signed off as before.
 bundle demo Done signed
