@@ -106,6 +106,9 @@ assert_defer "A1.18: a working directory outside the worktree" "mix test test/a_
 echo "### REQ-A1.19 — the deny block and the floor win over every declaration"
 assert_defer "A1.19: a declared shape the deny block matches" "git reset --hard origin" Bash "$WT"
 assert_defer "A1.19: a declared gh write" "gh pr merge 12" Bash "$WT"
+assert_allow "F1.10: the own push alone still allows" "git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.10: a check command never shares a command with the own push" \
+  "mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 
 echo "### REQ-A1.18 — a malformed declaration drops alone"
 assert_defer "A1.18: an unknown placeholder" "mix lint x" Bash "$WT"

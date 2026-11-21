@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.81.0](https://github.com/inkatze/planwright/compare/v0.80.0...v0.81.0) (2026-11-20)
+
+
+### Features
+
+* let workers reset and fast-forward their own branch's worktree through one guarded helper ([#1119](https://github.com/inkatze/planwright/issues/1119)) ([8943054](https://github.com/inkatze/planwright/commit/89430540362e48c1b6bd4079376d54606c03d6a2))
+
+
+### Bug Fixes
+
+* attribute a step run to the worktree it is recorded in, not the session's launch directory ([#1110](https://github.com/inkatze/planwright/issues/1110)) ([d50f8e1](https://github.com/inkatze/planwright/commit/d50f8e1b0e6612cb885a1c821e1473aff8df60f0))
+* let a spec PR's own session merge main and fast-forward to its PR head ([#1118](https://github.com/inkatze/planwright/issues/1118)) ([35c827e](https://github.com/inkatze/planwright/commit/35c827e88f81ae1ba0f2a454289ab29cbb2487ef))
+* name each way readiness cannot read a bundle's status, and read it the same from any directory ([#1115](https://github.com/inkatze/planwright/issues/1115)) ([64720e4](https://github.com/inkatze/planwright/commit/64720e44c51e20064b4cdaa9ce37dd9eb8cb435a))
+* predict conflicts only between branches with an open pull request ([#1120](https://github.com/inkatze/planwright/issues/1120)) ([bba0c4c](https://github.com/inkatze/planwright/commit/bba0c4c544c6164685321dbbf4fb7b96053ef78d))
+* read the fixture process table past a malformed ps line ([#1125](https://github.com/inkatze/planwright/issues/1125)) ([67aab29](https://github.com/inkatze/planwright/commit/67aab2952081e5af8c8af21555102daa012353a4))
+* refuse a review request that GitHub accepts but never adds ([#1130](https://github.com/inkatze/planwright/issues/1130)) ([48134db](https://github.com/inkatze/planwright/commit/48134dbea114567743f76d37be163d8357707aed))
+* stop approving a command that trusts an assignment a later & backgrounds ([#1123](https://github.com/inkatze/planwright/issues/1123)) ([b4b2da4](https://github.com/inkatze/planwright/commit/b4b2da4fe660894b42bd3913466b666f848b59d2))
+* stop git reads of a worker's checkout from running what the worker planted ([#1112](https://github.com/inkatze/planwright/issues/1112)) ([d9a1b77](https://github.com/inkatze/planwright/commit/d9a1b772e5b08cc00b1461f8ba488622051de1f5))
+* **tests:** give every test file a deadline on macOS, where timeout(1) is missing ([#1122](https://github.com/inkatze/planwright/issues/1122)) ([c96bbcc](https://github.com/inkatze/planwright/commit/c96bbccceeb399eafff1973406de5111ff16683f))
+* wait for a stopped worker to actually stop before the close re-reads the tree (flaky c25) ([#1113](https://github.com/inkatze/planwright/issues/1113)) ([6b9bd00](https://github.com/inkatze/planwright/commit/6b9bd004df4fb93bdee54b0cf6926efdb085a378))
+* wait for the last launch to leave the worktree before a reuse launch in tests ([#1128](https://github.com/inkatze/planwright/issues/1128)) ([cf9f873](https://github.com/inkatze/planwright/commit/cf9f87337840715df57998ac54e60e1ccfe7b816))
+
 ## [0.80.0](https://github.com/inkatze/planwright/compare/v0.79.0...v0.80.0) (2026-11-19)
 
 
