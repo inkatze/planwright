@@ -1133,7 +1133,7 @@ mission_control_panel_mascot: animated
 # harness measures no context (a wake is one duty trigger or one operator
 # turn), and the compaction count that raises it whichever of the two
 # applies.
-mission_control_handover_context: 70
+mission_control_handover_context: 40
 mission_control_handover_wakes: 150
 mission_control_handover_compactions: 2
 # The panel's health line (scripts/mc-panel.sh health): the bounds past which

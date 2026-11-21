@@ -45,10 +45,10 @@ printf '%s\n' "item q-1" >"$tmp/picture-short"
 # REQ-L1.3, REQ-L1.5: each trigger source fires from its fixture; the
 # compaction ceiling fires whatever the other two read.
 # ---------------------------------------------------------------------------
-ho due --program alpha --context 70 --wakes 0 --compactions 0
-[ "$OUT" = "due${tab}context at 70%" ] && ok "context at the threshold triggers the handover" || fail "context at 70: $OUT $ERR"
-ho due --program alpha --context 69 --wakes 999 --compactions 0
-[ "$OUT" = not-due ] && ok "a context reading below the threshold is not due, whatever the wakes" || fail "context at 69: $OUT"
+ho due --program alpha --context 40 --wakes 0 --compactions 0
+[ "$OUT" = "due${tab}context at 40%" ] && ok "context at the threshold triggers the handover" || fail "context at 40: $OUT $ERR"
+ho due --program alpha --context 39 --wakes 999 --compactions 0
+[ "$OUT" = not-due ] && ok "a context reading below the threshold is not due, whatever the wakes" || fail "context at 39: $OUT"
 ho due --program alpha --context - --wakes 150 --compactions 0
 [ "$OUT" = "due${tab}150 wakes" ] && ok "with no context reading the wake count triggers it" || fail "150 wakes: $OUT $ERR"
 ho due --program alpha --context - --wakes 149 --compactions 1
