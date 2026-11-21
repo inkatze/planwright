@@ -1730,7 +1730,7 @@ edit_hook_preflight() {
   ep_made=$(mktemp -d "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || ep_made=''
   ep_probe=''
   [ -z "$ep_made" ] || ep_probe=$(cd -P -- "$ep_made" 2>/dev/null && pwd -P) || ep_probe=''
-  if [ -z "$ep_probe" ] || ! mkdir "$ep_probe/wt" "$ep_probe/out"; then
+  if [ -z "$ep_probe" ] || ! mkdir -p -- "$ep_probe/wt" "$ep_probe/out"; then
     [ -z "$ep_made" ] || rm -rf "$ep_made"
     printf '%s\n' "$me: launch preflight: cannot create a folder to prove the file-tool hook in (TMPDIR=${TMPDIR:-/tmp})" >&2
     return 9

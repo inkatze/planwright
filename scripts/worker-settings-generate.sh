@@ -80,11 +80,10 @@ if [ "$want_lefthook" = 1 ]; then
 fi
 # The hook is the only thing that closes these names outside the ancestors; a
 # missing or non-executable one is a launch the broad denies no longer cover.
-# The check reads the launcher's $CLAUDE_PLUGIN_ROOT, else the copy beside the
-# generator; the launch preflight proves the copy under the worker's own root.
-hook_script=${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts}
-hook_script=${hook_script:-$(dirname -- "$0")}/worker-mise-edit-guard.sh
-[ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable under the launcher's plugin root; the opt-in would leave its names open outside the worktree's ancestors"
+# The check reads the copy beside the generator; the launch preflight proves
+# the copy under the worker's own root, the one the profile runs.
+hook_script=$(dirname -- "$0")/worker-mise-edit-guard.sh
+[ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable beside this generator; the opt-in would leave its names open outside the worktree's ancestors"
 jq -e --argjson b "$broad" '(.permissions.deny | type == "array") and ([$b[] as $r | (.permissions.deny | index($r))] | all(. != null))' \
   "$profile" >/dev/null 2>&1 || die "the profile is not JSON, or does not carry the broad deny rules the requested opt-ins replace"
 
