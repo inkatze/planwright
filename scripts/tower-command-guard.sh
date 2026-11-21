@@ -1895,7 +1895,9 @@ git_driver_opt() {
 # that writes config or opens an editor on it. git takes any unambiguous prefix
 # of a long option (`--remove-sec`), so any prefix of one matches, the
 # ambiguous ones git refuses (`--u`, `--re`, `--e`) included; a short cluster
-# carrying `e` is `-e` (`-ze`), a `-t` value holding one included.
+# carrying `e` is `-e` (`-ze`), a `-t` value holding an e included. `--comment`
+# applies only to a write, and its value can be a read flag: `git config
+# --comment --list a.b v` sets a.b.
 git_config_write_opt() {
   local n o
   case $1 in
@@ -1906,7 +1908,7 @@ git_config_write_opt() {
     -*e*) return 0 ;;
     *) return 1 ;;
   esac
-  for o in add unset unset-all replace-all rename-section remove-section edit; do
+  for o in add unset unset-all replace-all rename-section remove-section edit comment; do
     [[ $o == "$n"* ]] && return 0
   done
   return 1

@@ -252,10 +252,19 @@ for c in 'git config --global --unset-al a.b' 'git config --global --unset- a.b'
   'git config --global --a a.b 9' 'git config --global --ed' 'git config --global --edi' 'git config --global --e' \
   'git config --global --ed=1' 'git config --global -ze' 'git config -ez --global' \
   'git config edit --global' 'git config edit' 'git config unset --global a.b' 'git config unset --global --al a.b' \
-  'git config remove-section core' 'git config rename-section core zz' 'git config set --global a.b 1'; do
+  'git config remove-section core' 'git config rename-section core zz' 'git config set --global a.b 1' \
+  'git config --global --unset a.b' 'git config --global --unset-all a.b' 'git config --global --remove-section core' \
+  'git config --global --rename-s core' 'git config --global --edit' 'git config --global -e'; do
   assert_defer "git config write near-spelling: $c" "$c"
 done
+# `--comment` applies only to a write, and its value can be a read flag that
+# would otherwise mark the line a read: git sets a.b here.
+for c in 'git config --comment --list a.b 9' 'git config --global --comment --get-all a.b 9' \
+  'git config --c --list a.b 9' 'git config --comm=hi --get a.b 9'; do
+  assert_defer "git config --comment write: $c" "$c"
+done
 assert_defer "git config -f inside a short cluster reads another file" "git config -zf other.cfg --list"
+assert_defer "git config -f ending a short cluster reads another file" "git config -lf other.cfg"
 # A short cluster carrying e defers wherever the e sits, so a -t value holding
 # one prompts too: the accepted cost of not modelling -t's value.
 assert_defer "accepted over-block: an e inside a -t value" "git config -texpiry-date --get gc.pruneExpire"
