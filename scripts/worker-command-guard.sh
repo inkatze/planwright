@@ -1423,7 +1423,7 @@ own_unit_act() {
   # Top level and unconditional: no loop, if or case body, no pipeline, no
   # background job, and not run only on an earlier failure. `seg_open`,
   # `close` and `ctl_depth` are verify_tokens' and fin's walk state.
-  [ "${ctl_depth:-1}" -eq 0 ] && [ "${ou_or:-1}" = 0 ] || return 1
+  [ "${ctl_depth:-1}" -eq 0 ] && [ "${ou_or:-1}" = 0 ] && [ "${ou_pipe:-1}" = 0 ] || return 1
   case ${seg_open-x}:${close-x} in
     :* | ';':* | '&&':*) ;;
     *) return 1 ;;
@@ -7200,6 +7200,9 @@ verify_tokens() {
   local ou_list=0
   # 1 once that list has passed a top-level `||`: an act after it is after `||`.
   local ou_or=0
+  # 1 while the segment about to be read is piped: the last close was `|`,
+  # with only line breaks (empty `;` segments) since.
+  local ou_pipe=0
   # The VAR table's size when the current top-level and-or list began, so a
   # trailing `&` can drop what that list assigned, and whether the last `;`
   # was a newline continuing that list (fin).
@@ -7249,6 +7252,11 @@ verify_tokens() {
     SEG_SCOPED=0
     OU_SEG=0
     verify_simple || return 1
+    if [ "$close" = '|' ]; then
+      ou_pipe=1
+    elif [ "$empty" = 0 ] || [ "$close" != ';' ]; then
+      ou_pipe=0
+    fi
     [ "$OU_SEG" = 0 ] || ou_list=1
     if [ "$ctl_depth" -eq 0 ]; then
       [ "$close" != '&' ] || [ "$ou_list" = 0 ] || return 1

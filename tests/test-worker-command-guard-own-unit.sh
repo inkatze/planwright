@@ -247,6 +247,15 @@ git status && git push origin $B" Bash "$WT"
 assert_allow "after a list ended by ; that held ||" "git status || git status; git push origin $B" Bash "$WT"
 assert_defer "piped into a reader" "git push origin $B | cat" Bash "$WT"
 assert_defer "at the end of a pipeline" "git status | git push origin $B" Bash "$WT"
+assert_defer "at the end of a pipeline over a line break" "git status |
+git push origin $B" Bash "$WT"
+assert_defer "at the end of a chained pipeline over a line break" "git status && git status |
+git push origin $B" Bash "$WT"
+assert_defer "at the end of a pipeline over two line breaks" "git status |
+
+git push origin $B" Bash "$WT"
+assert_allow "after a pipeline the line break ends (control)" "git status | cat
+git push origin $B" Bash "$WT"
 assert_defer "backgrounded" "git push origin $B &" Bash "$WT"
 assert_defer "a body edit backgrounded" "gh pr edit 12 --body-file $SCR/body.md & git status" Bash "$WT"
 assert_defer "an export inside a loop" "for x in a; do export $CTX; done && $SREC write --run 1" Bash "$WT"
