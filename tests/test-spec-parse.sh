@@ -1714,6 +1714,11 @@ rc=0
 spec_parse_latest_anchor_entry "$tmp/b-malformeddup.md" --record >/dev/null 2>&1 || rc=$?
 eq "a malformed Class field in the record block still counts toward a duplicate" 2 "$rc"
 # shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meanin\nClass: expression-onl\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-malformedpair.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-malformedpair.md" --record >/dev/null 2>&1 || rc=$?
+eq "two malformed Class fields in the record block refuse" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
 printf '%s\nClass: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$prose" "$h1" >"$tmp/b-proseblock.md"
 rc=0
 spec_parse_latest_anchor_entry "$tmp/b-proseblock.md" --record >/dev/null 2>&1 || rc=$?
