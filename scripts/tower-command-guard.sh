@@ -1891,6 +1891,27 @@ git_driver_opt() {
   [[ ext-diff == "$n"* || textconv == "$n"* || filters == "$n"* ]]
 }
 
+# git_config_write_opt <word>: whether git config can read <word> as an option
+# that writes config or opens an editor on it. git takes any unambiguous prefix
+# of a long option (`--remove-sec`), so any prefix of one matches, the
+# ambiguous ones git refuses (`--u`, `--re`, `--e`) included; a short cluster
+# carrying `e` is `-e` (`-ze`), a `-t` value holding one included.
+git_config_write_opt() {
+  local n o
+  case $1 in
+    --?*)
+      n=${1%%=*}
+      n=${n#--}
+      ;;
+    -*e*) return 0 ;;
+    *) return 1 ;;
+  esac
+  for o in add unset unset-all replace-all rename-section remove-section edit; do
+    [[ $o == "$n"* ]] && return 0
+  done
+  return 1
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution), and per-subcommand form guards on the
 # subcommands with a mutating twin. `update-ref` / `branch -f` are absent from
@@ -1938,17 +1959,20 @@ guard_git() {
       return 0
       ;;
     config)
-      local writes=0 positional=0 read_flag=0
+      local positional=0 read_flag=0
+      # git reads a subcommand only as the word right after `config`.
+      case ${cw[subidx + 1]-} in
+        set | unset | rename-section | remove-section | edit) return 1 ;;
+      esac
       for ((i = subidx + 1; i < cwn; i++)); do
         a=${cw[i]}
+        git_config_write_opt "$a" && return 1
         case $a in
           --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
-          --add | --unset | --unset-all | --replace-all | --rename-section | --remove-section | -e | --edit | --set) writes=1 ;;
           -*) ;; # scope/format flags (--global/--type/…) are read-safe
           *) positional=$((positional + 1)) ;;
         esac
       done
-      [ "$writes" = 1 ] && return 1
       [ "$read_flag" = 1 ] && return 0
       [ "$positional" -ge 2 ] && return 1 # `git config key value` sets
       return 0

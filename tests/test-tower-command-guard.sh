@@ -354,6 +354,28 @@ for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-dif
   'git ls-files --full-name' 'git log --follow -- f' 'git log --format=%h -3' 'git cat-file --batch'; do
   assert_allow "not a driver option: $c" "$c"
 done
+# git config reads any unambiguous prefix of its write options (`--remove-sec
+# core` drops core.hooksPath), `-e` inside a short cluster, and the write
+# subcommands. One row per prefix class; the ambiguous prefixes git refuses
+# (`--u`, `--re`, `--e`) defer too, failing closed.
+for c in 'git config --global --unset-al a.b' 'git config --global --unset- a.b' \
+  'git config --global --u a.b' 'git config --global --remove-sec core' 'git config --global --rem core' \
+  'git config --global --rename-s core zz' 'git config --global --ren core zz' 'git config --global --re core' \
+  'git config --global --replace-a a.b 9' 'git config --global --rep a.b 9' 'git config --global --ad a.b 9' \
+  'git config --global --a a.b 9' 'git config --global --ed' 'git config --global --edi' 'git config --global --e' \
+  'git config --global --ed=1' 'git config --global -ze' 'git config -ez --global' \
+  'git config edit --global' 'git config edit' 'git config unset --global a.b' 'git config unset --global --al a.b' \
+  'git config remove-section core' 'git config rename-section core zz' 'git config set --global a.b 1'; do
+  assert_defer "git config write near-spelling: $c" "$c"
+done
+# A short cluster carrying e defers wherever the e sits, so a -t value holding
+# one prompts too: the accepted cost of not modelling -t's value.
+assert_defer "accepted over-block: an e inside a -t value" "git config -texpiry-date --get gc.pruneExpire"
+for c in 'git config --get user.name' 'git config --global --get-all a.b' 'git config --global --exp --get gc.pruneExpire' \
+  'git config -zl' 'git config -z --list' 'git config list --global --show-o' 'git config --name-only --list' \
+  'git config -tbool --get a.b' 'git config --show-scope --get user.name' 'git config --get-colorbool color.ui'; do
+  assert_allow "git config read: $c" "$c"
+done
 assert_allow "gh pr view" "gh pr view 5"
 assert_allow "gh pr list" "gh pr list"
 assert_allow "gh pr checks" "gh pr checks"
@@ -1216,7 +1238,7 @@ echo "### Shared-engine parity — the duplicated sed/awk screens must agree in 
 # namespace in prose (B1.3 vs C1.3); everything else, trailing comments on code
 # lines included, must match byte for byte.
 echo "### Shared-engine parity — STRUCTURAL: the shared functions are byte-identical"
-SHARED_FNS="git_driver_opt awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
+SHARED_FNS="git_driver_opt git_config_write_opt awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
 sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
