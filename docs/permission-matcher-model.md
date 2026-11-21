@@ -517,8 +517,8 @@ cannot follow an `override_config_filenames` value, a `MISE_*` or `XDG_*`
 variable, or a `PLANWRIGHT_FLEET_SCRATCH_BASE` outside the temporary trees
 that moves or renames what mise reads, an idiomatic version file such as
 `.nvmrc` once a tool enables it, or a file the repo's own config points at
-(an `_.source` script, an included task file), which is trusted repo code
-like `scripts/`.
+(an `_.source` script, an included task file), which mise runs by location,
+however it was last written.
 
 The guard matches these names case-insensitively; the globs are
 case-sensitive (MA-2), so on a case-insensitive filesystem a recased
@@ -543,26 +543,37 @@ The Write tool reaches `scripts/` and `tests/`, so where a script sits proves
 nothing about who wrote it. The command guard approves a repository script
 (a `.sh` under `scripts/` or `tests/`), a `bats` file, and a script under a
 planwright root that is a git checkout only when the checkout's HEAD commits
-it with the same bytes (`scripts/worker-command-guard.sh`, `committed_blob`);
-an install copy, which is no checkout of its own, is trusted by location. A
-script a worker wrote or edited and has not committed prompts, whichever
-spelling reaches it (`sh`, `bash`, a direct path, a symlinked folder, a `..`
-walk, inside `fish -c` or a loop), and so does `bats` on a folder. So a worker
-cannot write a script and run it unprompted to reach a path its file tools are
-refused: the local and primary-checkout hook config, the fleet state folder's
-opt-in record, the session records.
+it with the same bytes (`scripts/worker-command-guard.sh`, `committed_blob`),
+and so is a declared command step whose location lies inside the repository
+(`declared_location_ok`); an install copy, which is no checkout of its own,
+is trusted by location. A script a worker wrote or edited and has not
+committed prompts, whichever spelling reaches it (`sh`, `bash`, a direct
+path, a symlinked folder, a `..` walk, inside `fish -c` or a loop), and so
+does `bats` on a folder. The check reads the file as it is before the command
+runs, so a command that relies on it and also makes a write the own-branch
+arm admits defers as a whole (`cp f scripts/ok.sh && sh scripts/ok.sh`, and
+equally `touch build/x && bash tests/ok.sh`). So a worker cannot write a
+script and run it unprompted to reach a path its file tools are refused: the
+local and primary-checkout hook config, the fleet state folder's opt-in
+record, the session records.
 
 What still runs code a worker wrote without a prompt:
 
-- **A script it committed.** The own-branch arm approves a commit, after
-  which HEAD holds the script. The commit sits on the unit branch and in its
-  PR, where review sees it.
+- **A script it committed, or one HEAD holds on another branch.** The
+  own-branch arm approves a commit, after which HEAD holds the script, and the
+  static allows for `git checkout` and `git switch` let the worktree move
+  HEAD. A commit sits on a branch and, on the unit branch, in its PR, where
+  review sees it.
 - **The repository's tasks and hooks.** `mise run <task>` and `lefthook run
   <hook>` run config the path denies protect, and whatever that config runs,
   the test files a worker wrote among them: the gate has to run what the
   worker wrote.
-- **A committed script handed a path.** The guard checks the script it runs,
-  not what that script goes on to execute.
+- **What a committed script reaches.** The guard checks the script it runs,
+  not a path it is handed, a sibling it sources or calls, or a test file it
+  globs, any of which a worker may have written or edited.
+- **An install copy outside `~/.claude`.** Under `~/.claude` a file-tool write
+  prompts (MB-8); elsewhere the file tools reach an install copy, which is
+  trusted by location (see the residual above).
 
 ## The mise task-file opt-in
 
@@ -575,8 +586,8 @@ must edit the repository's own task files is therefore launched with
 rung; worker profile only, off by default). The opt-in is a launch argument and
 nothing else: it is recorded as `mise_task_edit=1` in the session record the
 launcher writes outside the worktree (`scripts/worker-session-record.sh`) and
-in the launch's opt-in record for a recover (below), and is never read from live config,
-the checkout or the environment. A fresh launch without the flag drops it; a
+in the launch's opt-in record for a recover (below), and is never read from
+live config, the checkout or the environment. A fresh launch without the flag drops it; a
 recover or relaunch keeps what its launch recorded.
 
 An opted-in launch gets three things, and a launch without the flag gets
@@ -611,13 +622,16 @@ The generated profile and the launch's opt-in record sit in the worker's fleet
 state folder (`streamjson/<worker>/`). The record holds every opt-in the launch
 was given (`mise_task_edit=1`, `spec_branch=<branch>`), one line each, in one
 file named `planwright-opt-in.<blob id>`, the git blob id of its own content
-(`scripts/fleet-streamjson.sh`, `OPT_IN_PREFIX`). A fresh launch writes it by
-one rename, and when the set changes it first removes the old `session`, so a
-launch that fails part way leaves either the earlier set with its session or
-no session at all, never a session beside a set its launch did not ask for. A
-recover or relaunch reads only an entry spelled exactly that way whose content
-still hashes to its name, and refuses (exit 7) on two records or a mismatch.
-That is what holds on a case-insensitive filesystem (default APFS, the Mac
+(`scripts/fleet-streamjson.sh`, `OPT_IN_PREFIX`). A fresh launch whose set
+changes removes the old `session` first, then every earlier record, and
+renames the new one in last, so a launch that fails part way leaves either the
+earlier set with its session or no session at all, never a session beside a
+set its launch did not ask for. A recover or relaunch reads only an entry
+spelled exactly that way whose content, read once, still hashes to its name,
+and refuses (exit 7; a recover reports it as a failed resume) on more than one
+record, a mismatch, a line outside the grammar, or a `mise-task-edit` or
+`spec-branch` marker of the layout the record replaced, which a worker could
+write and so is never read: launch such a worker fresh. That is what holds on a case-insensitive filesystem (default APFS, the Mac
 offload host's included), where the profile's case-sensitive denies do not:
 
 - **Created through a recased folder above it** (`StreamJson/<w>/...`): the

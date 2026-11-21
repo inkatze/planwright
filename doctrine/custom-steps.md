@@ -441,7 +441,9 @@ pipeline-entry: execute-task orchestrate drain spec-draft spec-kickoff offload t
 **Permissions (D-11).** Catalogs and lists are read only from the
 human-owned layers: core and adopter sit outside the worktree and a
 dispatched worker's write set; repo-tracked and machine-local sit inside it,
-inheriting the guard's trusted-repository-code posture for `scripts/`; the
+inheriting the guard's trusted-repository-code posture for `scripts/`, which
+trusts a file inside the repository, a declared location included, only as
+the checkout's HEAD commits it; the
 worker profile is unchanged (REQ-G1.2). The worker command guard
 auto-approves, allow-only, a segment whose words, minus leading
 `PLANWRIGHT_STEP_*` assignments in the resolver's exact form, equal a
