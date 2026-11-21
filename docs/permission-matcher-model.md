@@ -670,8 +670,11 @@ on that pull request can land a forward merge of `main` and nothing else:
   receive-pack, ssh or proxy override, or a remote-helper URL refuses. So
   does local state that changes what git reads of history or of a merge:
   replace refs (every read here ignores replace objects, as the push's
-  pack does), a grafts file, a shallow repository, a configured merge
-  driver, or a non-empty `info/attributes`. The
+  pack does), a shallow repository, a configured merge driver, and an
+  `info/grafts` or `info/attributes` that is anything but absent or an empty
+  regular file (one with content, a link, a FIFO or other special file, or
+  under a linked `info` directory, since git reads through what a size test
+  sees as empty). The
   guard reads the PR head and the remote's default branch from the remote
   itself (`git ls-remote --symref`), then fetches both with a bounded fetch
   and requires the fetched refs to match, so no local ref, `origin/HEAD`

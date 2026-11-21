@@ -462,6 +462,42 @@ pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect deny "[worker, record] a graft hiding a direct spec edit refuses"
 reason_has 'grafts' "[worker, record] the refusal names the grafts file"
 rm -f "$GRAFTS"
+# A link or special file reads as empty to a size test while git reads
+# through it; each refuses even under a clean merge.
+merged "$W"
+INFO_ATTRS=$(git -C "$W" rev-parse --path-format=absolute --git-path info/attributes)
+mkdir -p "$(dirname "$INFO_ATTRS")"
+if [ -r /proc/self/cmdline ]; then
+  ln -s /proc/self/cmdline "$INFO_ATTRS"
+  pw "git push origin HEAD:refs/heads/$SB" "$W"
+  expect deny "[worker, record] info/attributes linked to a procfs file refuses"
+  reason_has 'info/attributes' "[worker, record] the refusal names the linked attributes file"
+  rm -f "$INFO_ATTRS"
+else
+  pass "no procfs here: the procfs-link case does not apply"
+fi
+mkfifo "$INFO_ATTRS"
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] info/attributes as a FIFO refuses"
+reason_has 'info/attributes' "[worker, record] the refusal names the FIFO before git reads it"
+rm -f "$INFO_ATTRS"
+for f in "$INFO_ATTRS" "$GRAFTS"; do
+  ln -s "$SANDBOX/nowhere" "$f"
+  pw "git push origin HEAD:refs/heads/$SB" "$W"
+  expect deny "[worker, record] a dangling link at ${f##*/} refuses"
+  rm -f "$f"
+done
+: >"$INFO_ATTRS"
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+push_ok "[worker, record] an empty regular info/attributes still defers"
+rm -f "$INFO_ATTRS"
+INFO_DIR=$(dirname "$INFO_ATTRS")
+mv "$INFO_DIR" "$INFO_DIR.real"
+ln -s "$INFO_DIR.real" "$INFO_DIR"
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a linked info directory refuses"
+rm -f "$INFO_DIR"
+mv "$INFO_DIR.real" "$INFO_DIR"
 K3="$SANDBOX/kick-shallow"
 gitq clone --depth 1 --branch "$SB" "file://$ORIGIN" "$K3"
 gitq -C "$K3" remote set-head origin main

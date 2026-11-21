@@ -5416,7 +5416,7 @@ signoff_merge_clean() {
 # the empty tree. SPC_WHY says why not.
 SPC_EMPTY=''
 signoff_local_trusted() {
-  local d=$1 p
+  local d=$1 p common
   SPC_EMPTY=$(sgitq "$d" hash-object -t tree /dev/null) || SPC_EMPTY=''
   { [ -n "$SPC_EMPTY" ] && sgitq "$d" --attr-source="$SPC_EMPTY" rev-parse --git-dir >/dev/null; } || {
     SPC_WHY="this git ($(sanitize_printable "$(git version 2>/dev/null)" 'unknown version')) cannot read attributes from an empty tree (--attr-source, git 2.40 or later), which the clean-merge check needs"
@@ -5430,12 +5430,21 @@ signoff_local_trusted() {
     SPC_WHY='the repository is shallow, or its history could not be read, so the guard cannot see the whole history the push builds on'
     return 1
   }
+  # A link or a special file can read as empty while git reads content
+  # through it (a procfs file, a FIFO), so only an absent path or an empty
+  # regular file passes. The path is built from the common directory, since
+  # --git-path resolves a link in its last component away.
+  common=$(sgitq "$d" rev-parse --path-format=absolute --git-common-dir) || common=''
   for p in info/grafts info/attributes; do
-    p=$(sgitq "$d" rev-parse --path-format=absolute --git-path "$p") || p=''
-    { [ -n "$p" ] && [ ! -s "$p" ]; } || {
-      SPC_WHY="the repository has $(sanitize_printable "${p:-a grafts or attributes file}" 'a grafts or attributes file') (or it could not be located), which changes what git reads of history or of a merge"
+    if [ -n "$common" ] && [ ! -L "$common/info" ]; then
+      p=$common/$p
+    else
+      p=''
+    fi
+    if [ -z "$p" ] || [ -L "$p" ] || { [ -e "$p" ] && { [ ! -f "$p" ] || [ -s "$p" ]; }; }; then
+      SPC_WHY="the repository has $(sanitize_printable "${p:-a grafts or attributes file}" 'a grafts or attributes file') with content, as a link or special file, or it could not be located; that file changes what git reads of history or of a merge"
       return 1
-    }
+    fi
   done
   [ -z "$(sgitq "$d" config --get-regexp '^merge\..*\.driver$')" ] || {
     SPC_WHY='a merge driver is configured (merge.<name>.driver), which can make a hand resolution read as a clean merge'
