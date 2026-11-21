@@ -127,6 +127,14 @@ done
 for c in $'git status "--he\\\nlp"' $'find sub "-de\\\nlete"'; do
   assert_defer "backslash-newline inside double quotes: ${c%%\\*}" "$c"
 done
+# fish's read updates a variable where it already lives, a universal one
+# included, and fish saves those to disk: every later fish session would get
+# the planted PATH.
+for c in "echo /tmp/evil | fish -c 'read fish_user_paths'" "fish -c 'read -r x'" "fish -c 'git status; read x'"; do
+  assert_defer "read inside fish -c: $c" "$c"
+done
+assert_allow "read outside fish still allowed" "echo a | read -r x"
+assert_allow "the word read as an argument inside fish -c" "fish -c 'git log --grep read'"
 assert_allow "fish -c with braces and no comma" "fish -c 'git log HEAD@{1}'"
 assert_allow "double-quoted fish -c string" 'fish -c "git log --oneline -3"'
 assert_defer "fish --command long form" "fish --command 'git status'"

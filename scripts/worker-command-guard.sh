@@ -3691,6 +3691,9 @@ guard_fish() {
   case ${cw[2]} in
     *\\* | *'{'*','*) return 1 ;;
   esac
+  # fish's read updates a variable where it already lives, a universal one
+  # included, and fish saves those to disk, so no read runs inside.
+  local FISH_INNER=1
   analyze_command "${cw[2]}" "$((HOOK_DEPTH + 1))"
 }
 
@@ -5995,7 +5998,7 @@ classify_verb() {
     markdownlint | markdownlint-cli2) guard_mdlint ;;
     env) guard_env ;;
     printenv) guard_printenv ;;
-    read) guard_read ;;
+    read) [ -z "${FISH_INNER-}" ] && guard_read ;;
     yq) guard_yq ;;
     shfmt) guard_shfmt ;;
     rg) guard_rg ;;
