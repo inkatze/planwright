@@ -1,7 +1,7 @@
 # Test throughput — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-02
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -317,7 +317,7 @@ changed in D-15, which supersedes it in part.
   so a hung file cannot hold its ticket, or any whole-suite lock its run
   holds, past the deadline. With no way to bound a process on the host, the
   runner SHALL run files unbounded and warn once.
-  *(Cites: D-21, obs:9393af12.)*
+  *(Cites: D-21, D-23, obs:9393af12, obs:9e55a84a.)*
 
 ## REQ-E — macOS portability fixes and guards
 
@@ -476,6 +476,13 @@ changed in D-15, which supersedes it in part.
   suites that assert on it fail. Task 12's deliverables, Done-when and
   citations and REQ-B1.10's citation follow. Recorded in the brief's
   Amendment 2.
+- 2026-11-20 — Amendment (meaning-class). D-23 supersedes D-21 in part: on
+  a host with neither `timeout` nor `gtimeout` the runner bounds each file
+  through `scripts/bounded-run.sh`, as it has since the macOS deadline fix,
+  and only a host without that helper runs files unbounded. REQ-D1.4 gains
+  the citation, its text unchanged since the helper is a way to bound a
+  process, and its test-spec entry follows. Recorded in the brief's
+  Amendment 3.
 
 ## Sources
 
@@ -562,6 +569,9 @@ changed in D-15, which supersedes it in part.
   while iterating and the full suite once at a strategic point.
 - **obs:9393af12** — a full gate holding the host lock for over 40 minutes
   behind one hung test file, with no per-file deadline.
+- **obs:9e55a84a** — the per-file deadline absent on stock macOS, where
+  neither `timeout` nor `gtimeout` exists, and `scripts/bounded-run.sh`
+  already able to bound a whole process tree there.
 - **custom-steps D-3, REQ-A1.1** — the attachment-point moments that
   place `pre-ci` before the run's first full CI run and `convergence`
   after it is green, which REQ-F1.8 waits on.

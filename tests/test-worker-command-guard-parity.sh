@@ -119,7 +119,8 @@ shared${TAB}defer${TAB}a declared line behind a non-context assignment${TAB}LD_P
 shared${TAB}defer${TAB}a declared line chained with a write outside the worktree${TAB}$DECLARED --mode strict; rm -rf $SANDBOX/outside
 shared${TAB}defer${TAB}a declared line inside a substitution${TAB}echo \$($DECLARED --mode strict)
 shared${TAB}defer${TAB}a declared reserved act${TAB}$WT/tools/gh pr ready 5
-adversarial${TAB}defer${TAB}a push of the unit branch${TAB}git push origin @B@
+adversarial${TAB}allow${TAB}a plain push of the unit branch (an own-unit act)${TAB}git push origin @B@
+adversarial${TAB}defer${TAB}a push of the unit branch setting its upstream${TAB}git push -u origin @B@
 adversarial${TAB}defer${TAB}a force push of the unit branch${TAB}git push --force origin @B@
 adversarial${TAB}defer${TAB}a ready flip of the unit's PR${TAB}gh pr ready 5
 adversarial${TAB}defer${TAB}a merge of the unit's PR${TAB}gh pr merge 5 --squash
