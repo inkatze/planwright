@@ -6571,6 +6571,9 @@ strip_compute_route() {
   fi
   shift_words $((n + 1))
   PREFIXED=1
+  # The router is a plugin script other than a step script: whatever it
+  # routes, it keeps an own-unit act out of its command.
+  ARM_ACT=1
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) return 1 ;;
   esac

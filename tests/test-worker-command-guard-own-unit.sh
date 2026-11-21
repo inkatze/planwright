@@ -375,6 +375,14 @@ assert_defer "a gate joined to the push by &" "mise run check && git status & gi
 assert_defer "a plugin script other than a step script before the push" "$PLUGIN_ROOT/scripts/plug.sh && git push origin $B" Bash "$WT"
 assert_defer "bash running a plugin script before the push" "bash $PLUGIN_ROOT/scripts/plug.sh && git push origin $B" Bash "$WT"
 assert_defer "a plugin script after the push" "git push origin $B && $PLUGIN_ROOT/scripts/plug.sh" Bash "$WT"
+# The compute router is a plugin script too: a routed gate stays a call of its own.
+: >"$PLUGIN_ROOT/scripts/compute-route.sh"
+CR=$PLUGIN_ROOT/scripts/compute-route.sh
+assert_allow "a routed gate alone (control)" "$CR --check -- mise run check" Bash "$WT"
+assert_defer "a push after a routed check gate" "$CR --check -- mise run check && git push origin $B" Bash "$WT"
+assert_defer "a push after a routed test gate" "$CR --test tests/x.sh -- bash tests/x.sh && git push origin $B" Bash "$WT"
+assert_defer "a body edit after a routed gate" "$CR --check -- mise run check && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+assert_defer "an export after a routed gate" "$CR --check -- mise run check && export $CTX && $SREC write --run 1" Bash "$WT"
 rm -f "$REC.audit/own.log"
 assert_allow "a gate chain, for its audit line" "mise run check && git push origin $B" Bash "$WT"
 if grep -q ' arm=own-unit ' "$REC.audit/own.log" 2>/dev/null; then
