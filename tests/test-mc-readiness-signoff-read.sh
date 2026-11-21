@@ -38,19 +38,19 @@ row() { # row <label> <want>: the demo bundle's signoff row is exactly <want>
     fail "$1: want 'signoff${tab}demo${tab}$2', got: $(printf '%s\n' "$c" | grep "^signoff${tab}" | head -n 3)"
   fi
 }
-legacy() { # legacy: the demo bundle's requirements.md in the pre-pipeline form, with no Status line
+prepipeline() { # prepipeline: the demo bundle's requirements.md in the pre-pipeline form, with no Status line
   printf '# Demo Requirements\n\n## Section\n\n- The system shall do the thing.\n' >"$repo/specs/demo/requirements.md"
 }
-legacy_row="unsigned${tab}its requirements.md has no **Status:** value in its header at the head, as a pre-pipeline bundle has: add **Status:** Draft to the header of specs/demo/requirements.md and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request"
+prepipeline_row="unsigned${tab}its requirements.md has no **Status:** value in its header at the head, as a pre-pipeline bundle has: add **Status:** Draft to the header of specs/demo/requirements.md and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request"
 
 bundle demo Ready signed
 spec_pr "$(commit_specs)" specs/demo/design.md
 row "a current-format Ready bundle is signed off" "signed${tab}-"
 
 bundle demo Ready none
-legacy
+prepipeline
 spec_pr "$(commit_specs)" specs/demo/design.md
-row "a legacy bundle with no Status line is refused by name, the line to add and its path given" "$legacy_row"
+row "a pre-pipeline bundle with no Status line is refused by name, the line to add and its path given" "$prepipeline_row"
 
 bundle demo Ready signed
 rm "$repo/specs/demo/requirements.md"
@@ -106,7 +106,7 @@ row "a NUL-bearing requirements.md is unreadable, its path named" \
 bundle demo Ready signed
 printf '# demo\n\n**Status:**\n\nBody.\n' >"$repo/specs/demo/requirements.md"
 spec_pr "$(commit_specs)" specs/demo/design.md
-row "a Status line with no value reads as no Status value" "$legacy_row"
+row "a Status line with no value reads as no Status value" "$prepipeline_row"
 
 bundle demo Ready signed
 printf '# demo\n\n**Status:** Ready\n**Status:** Draft\n\nBody.\n' >"$repo/specs/demo/requirements.md"
@@ -132,10 +132,10 @@ done
 MC_ENV_CWD=$elsewhere TMPDIR=does-not-exist spec_pr "$sh_ready" specs/demo/design.md
 row "a relative TMPDIR that does not resolve falls back to a usable one" "signed${tab}-"
 bundle demo Ready none
-legacy
-sh_legacy=$(commit_specs)
-MC_ENV_CWD=$other TMPDIR=scratch spec_pr "$sh_legacy" specs/demo/design.md
-row "a legacy bundle is read from the program's repository, not the caller's" "$legacy_row"
+prepipeline
+sh_prepipeline=$(commit_specs)
+MC_ENV_CWD=$other TMPDIR=scratch spec_pr "$sh_prepipeline" specs/demo/design.md
+row "a pre-pipeline bundle is read from the program's repository, not the caller's" "$prepipeline_row"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-readiness-signoff-read: $failures failure(s)" >&2
