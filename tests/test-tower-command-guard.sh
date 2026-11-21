@@ -397,6 +397,23 @@ for c in 'git config --get user.name' 'git config --global --get-all a.b' 'git c
   'git config -tbool --get a.b' 'git config --show-scope --get user.name' 'git config --get-colorbool color.ui'; do
   assert_allow "git config read: $c" "$c"
 done
+# `git <verb> --help` and `git help <verb>` open the man page through a pager
+# (or a browser), and a pager runs commands (`!cmd` in less). git opens it only
+# for an exact `--help` right after the verb, but any word git could read as
+# --help or --help-all, an abbreviation included, defers, failing closed.
+for c in 'git log --help' 'git status --help' 'git diff --help' 'git show --help' 'git rev-parse --help' \
+  'git grep --help' 'git ls-files --help' 'git branch --help' 'git config --help' 'git tag --help' \
+  'git stash --help' 'git remote --help' 'git reflog --help' 'git worktree --help' 'git symbolic-ref --help' \
+  'git log --oneline --help' 'git log --hel' 'git log --he' 'git log --h' 'git log --help-all' 'git log --help-a' \
+  'git log --help=x' 'git branch --list --help' 'git config --get --help' 'git log -- --help' \
+  'git help log' 'git help' 'git help -a' 'git help -w log'; do
+  assert_defer "git help opens a pager: $c" "$c"
+done
+# -h prints the short usage with no pager, and is grep's no-filename flag.
+for c in 'git log -h' 'git status -h' 'git grep -h foo' 'git show-ref --heads' \
+  'git log --oneline -- help' 'git log --grep=help' 'git grep -n help'; do
+  assert_allow "not a help request: $c" "$c"
+done
 assert_allow "gh pr view" "gh pr view 5"
 assert_allow "gh pr list" "gh pr list"
 assert_allow "gh pr checks" "gh pr checks"
@@ -1259,7 +1276,7 @@ echo "### Shared-engine parity — the duplicated sed/awk screens must agree in 
 # namespace in prose (B1.3 vs C1.3); everything else, trailing comments on code
 # lines included, must match byte for byte.
 echo "### Shared-engine parity — STRUCTURAL: the shared functions are byte-identical"
-SHARED_FNS="git_driver_opt git_config_write_opt awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
+SHARED_FNS="git_driver_opt git_config_write_opt git_help_req awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
 sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \

@@ -281,6 +281,24 @@ for c in 'git config --get user.name' 'git config --global --get-all a.b' 'git c
   'git config -tbool --get a.b' 'git config --show-scope --get user.name' 'git config --get-colorbool color.ui'; do
   assert_allow "git config read: $c" "$c"
 done
+# `git <verb> --help` and `git help <verb>` open the man page through a pager
+# (or a browser), and a pager runs commands (`!cmd` in less). git opens it only
+# for an exact `--help` right after the verb, but any word git could read as
+# --help or --help-all, an abbreviation included, defers, failing closed.
+for c in 'git log --help' 'git status --help' 'git diff --help' 'git show --help' 'git rev-parse --help' \
+  'git grep --help' 'git ls-files --help' 'git branch --help' 'git config --help' 'git tag --help' \
+  'git stash --help' 'git remote --help' 'git reflog --help' 'git worktree --help' 'git ls-remote --help' \
+  'git symbolic-ref --help' 'git check-ignore --help' 'git commit --help' 'git add --help' 'git fetch --help' \
+  'git log --oneline --help' 'git log --hel' 'git log --he' 'git log --h' 'git log --help-all' 'git log --help-a' \
+  'git log --help=x' 'git branch --list --help' 'git config --get --help' 'git log -- --help' \
+  'git help log' 'git help' 'git help -a' 'git help -w log'; do
+  assert_defer "git help opens a pager: $c" "$c"
+done
+# -h prints the short usage with no pager, and is grep's no-filename flag.
+for c in 'git log -h' 'git status -h' 'git grep -h foo' 'git show-ref --heads' \
+  'git log --oneline -- help' 'git log --grep=help' 'git grep -n help'; do
+  assert_allow "not a help request: $c" "$c"
+done
 # GNU sed 'e' substitution flag executes the pattern space (no trailing space).
 assert_defer "sed s///e exec no-space" "sed 's/.*/id/e'"
 assert_defer "sed s///e exec with file" "sed 's/.*/whoami/e' scripts/ok.sh"

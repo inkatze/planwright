@@ -4008,6 +4008,23 @@ git_config_write_opt() {
   return 1
 }
 
+# git_help_req <verb>: whether the git line asks for help, which opens the man
+# page through a pager or a browser, and a pager runs commands (`!cmd` in
+# less). git opens it for the `help` verb and an exact `--help` right after
+# the verb, but any word git could read as --help or --help-all, wherever it
+# sits and abbreviated or not, counts, failing closed.
+git_help_req() {
+  local i n
+  [ "$1" = help ] && return 0
+  for ((i = 1; i < cwn; i++)); do
+    n=${cw[i]%%=*}
+    case $n in
+      --?*) [[ help-all == "${n#--}"* ]] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution, REQ-A1.8), and per-subcommand form
 # guards on the subcommands with a mutating twin (REQ-A1.5).
@@ -4032,6 +4049,7 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  git_help_req "$sub" && return 1
   if [ "$viac" = 1 ]; then
     case $sub in
       status | diff | log | show) ;;
