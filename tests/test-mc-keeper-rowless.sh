@@ -53,6 +53,9 @@ program_hub_home: $tmp/mchome
 program_hub_budget: {host_load: 1000000}
 EOF
 mkdir -p "$tmp/bin" "$fleet/mission-control/sessions"
+# A forge stub that answers nothing, so no pass can reach the real gh.
+printf '#!/bin/sh\nexit 1\n' >"$tmp/bin/gh"
+chmod +x "$tmp/bin/gh"
 
 own_worker() { # own_worker <worker> <owner>: the dispatch record's owner
   mkdir -p "$fleet/dispatch-markers"
