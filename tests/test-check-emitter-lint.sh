@@ -247,16 +247,24 @@ if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
   if real_node=$(command -v node); then
     mkdir -p "$tmp/nodeshim" || exit 1
     # It leaves PATH before handing over, since a real shim it hands to
-    # falls back along PATH and would find this one again.
-    printf '#!/bin/sh\n[ "$HOME" = "%s" ] || { echo "mise ERROR Config files are not trusted" >&2; exit 1; }\nPATH=${PATH#"%s:"}\nexport PATH\nexec "%s" "$@"\n' \
-      "$HOME" "$tmp/nodeshim" "$real_node" >"$tmp/nodeshim/node"
+    # falls back along PATH and would find this one again. Its marker shows
+    # the launcher reached it: one that ships its own interpreter never does.
+    printf '#!/bin/sh\n: >"%s"\n[ "$HOME" = "%s" ] || { echo "mise ERROR Config files are not trusted" >&2; exit 1; }\nPATH=${PATH#"%s:"}\nexport PATH\nexec "%s" "$@"\n' \
+      "$tmp/nodeshim.ran" "$HOME" "$tmp/nodeshim" "$real_node" >"$tmp/nodeshim/node"
     chmod +x "$tmp/nodeshim/node"
+    rm -f "$tmp/nodeshim.ran"
     out=$(
       hash -r
       CI='' HOME="$tmp/emptyhome" PATH="$tmp/nodeshim:$PATH" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
     )
     case "$?:$out" in
-      1:*MD022*) pass "a linter whose interpreter is behind a broken shim still lints" ;;
+      1:*MD022*)
+        if [ -f "$tmp/nodeshim.ran" ]; then
+          pass "a linter whose interpreter is behind a broken shim still lints"
+        else
+          printf '%s\n' "skip: interpreter behind a broken shim: the linter's launcher does not reach node through PATH"
+        fi
+        ;;
       *) fail "a linter whose interpreter is behind a broken shim did not lint: $out" ;;
     esac
   elif [ -n "${CI:-}" ]; then
