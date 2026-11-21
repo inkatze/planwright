@@ -22,8 +22,9 @@ le_home=${HOME:-}
 #             shebang's, else sh) and shellcheck in that dialect
 # An sh caller sets EMITTER_LINT_ROOT to the repository before calling.
 # Status 0 clean; 1 a lint finding or a tool missing or unable to run in CI; 0
-# with a skip line when the tool is missing or unable to run outside CI. <emitter> names the script whose output
-# this is; the guard reads it, the lint does not.
+# with a skip line when the tool is missing or unable to run outside CI.
+# <emitter> names the script whose output this is; the guard reads it, the
+# lint does not.
 lint_emitted() {
   le_fmt=$1 le_emitter=$2 le_file=$3 le_dialect=${4:-}
   le_repo=${EMITTER_LINT_ROOT:-}
@@ -102,7 +103,7 @@ lint_emitted() {
   return "$le_rc"
 }
 
-# le_need <tool> <emitter>: 0 with le_bin set to a copy of the tool that runs
+# le_need <tool> <emitter>: 0 with le_bin set to the path of a tool that runs
 # from the lint's scratch directory under le_runhome; otherwise a skip line
 # and status 2 outside CI, a failure line and status 1 in it. The tool
 # resolves from the repository before PATH: a shim passes command -v, then
