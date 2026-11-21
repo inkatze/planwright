@@ -1002,13 +1002,29 @@ naming the root and the command, because the worker would otherwise pend on
 exactly that call with nothing to say so; a hook that is missing or not
 executable, or a proof that could not run at all, refuses the same way. So
 does a hook root (the plugin root the wrapper exports) without an executable
-`scripts/policy-guard.sh`: the worker
-profile leaves merges and history rewrites to that guard, and a hook that
-cannot run refuses nothing.
+`scripts/policy-guard.sh`: the worker profile leaves merges and history
+rewrites to that guard, and a hook that cannot run refuses nothing. So does an
+exported plugin root that does not resolve from the worker's directory, since
+none of the worker's hooks would run from it; the refusal names that root.
+
+A launch or relaunch given `--mise-task-edit` or `--lefthook-edit` also proves
+that hook root's `scripts/worker-mise-edit-guard.sh` judges the opted-in names:
+a write of each name set outside the worktree (`mise.toml`, `lefthook.yml`)
+must be refused with exit 0 and the hook's one line of hook JSON, and a plain
+file there must pass. The generated profile drops those names' broad denies,
+so a copy that does not judge them (one from before the opt-in, a missing one,
+or one that refuses everything) refuses the launch with exit 9, as does an
+unresolvable root. That proof guards containment rather than approvals, so the
+knob below neither skips nor softens it. A relaunch runs it and checks the
+profile still generates, into a scratch folder, before the stop, so a refused
+relaunch leaves the running worker's profile as it was. A resume
+(`--resume-session`) takes neither flag: it keeps the opt-ins its launch
+recorded.
+
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
-downgrades every refusal to a warning and launches, `off` skips the proof, and
-any other value is a usage error. The installed roots the proof covers are
-read through the same resolver the hook trusts them from, so that set cannot
+downgrades every approval refusal above to a warning and launches, `off` skips
+the approval proof, and any other value is a usage error. The installed roots
+the proof covers are read through the same resolver the hook trusts them from, so that set cannot
 diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
@@ -1206,7 +1222,7 @@ in that directory at the allocation key and unit the launch recorded
 none, and the resumed session gets `--model` and `--effort` for each dimension
 that does not resolve to `inherit`; a tier model, effort or reservation the
 launch recorded is handed back to that plan as an override. A launch's
-`--mise-task-edit` opt-in is kept too: the relaunch regenerates the worker's
+`--mise-task-edit` and `--lefthook-edit` opt-ins are kept too: the relaunch regenerates the worker's
 per-launch settings profile, and a profile it cannot generate is exit `7`.
 Any other extra argument the original launch passed after `--` is not carried
 over. (`recover --cwd <dir>` is
@@ -2735,6 +2751,10 @@ settings file generated for that worker from `config/worker-settings.json`
 `mise_task_edit=1`; a launch without the flag passes the shipped profile
 unchanged. What it opens and the residual risk are in
 [the permission-matcher model](permission-matcher-model.md#the-mise-task-file-opt-in).
+`--lefthook-edit` is the same opt-in for the worktree's lefthook config
+(`lefthook.<ext>`, `lefthook/`), recorded as `lefthook_edit=1`; it composes with
+the mise one and is described in
+[the lefthook config opt-in](permission-matcher-model.md#the-lefthook-config-opt-in).
 A worker, reviewer or ad-hoc launch never starts
 in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
 --no-attach` create its worktree, or reuses the one holding its branch when

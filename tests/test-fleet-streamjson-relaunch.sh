@@ -243,6 +243,94 @@ case " $last " in
 esac
 echo "ok: r2 a relaunch resumes the persisted session under the installed profile in its launch directory, rewriting the record and keeping the scratch root (REQ-G1.3, REQ-G1.2)"
 
+# A worker launched with both opt-ins keeps them across a relaunch: the
+# per-launch profile is regenerated from the recorded markers and the session
+# record carries both fields again.
+printf '1\n' >"$wdir/lefthook-edit"
+printf '1\n' >"$wdir/mise-task-edit"
+out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r2: the opted-in relaunch exited non-zero: $(cat "$tmp/err")"
+alive "$npid" && fail "r2: the pre-opt-in worker is still running"
+npid=$(pid_of worker.pid)
+alive "$npid" || fail "r2: the opted-in resumed worker is not running"
+last=$(tail -n 1 "$rec/argv")
+case " $last " in
+  *" --settings $wdir/worker-settings.json "*) ;;
+  *) fail "r2: the opted-in relaunch must pass the worker's per-launch profile: $last" ;;
+esac
+jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("Edit(//**/mise.toml)") == null)' "$wdir/worker-settings.json" >/dev/null \
+  || fail "r2: the regenerated profile must replace the mise and the lefthook broad denies"
+jq -e '[.hooks.PreToolUse[].hooks[].command] | any(endswith("worker-mise-edit-guard.sh '"'$wt'"' mise lefthook"))' "$wdir/worker-settings.json" >/dev/null \
+  || fail "r2: the regenerated profile's hook must judge both name sets"
+{ grep -qx 'lefthook_edit=1' "$record" && grep -qx 'mise_task_edit=1' "$record"; } \
+  || fail "r2: the rewritten session record must carry both opt-in fields: $(cat "$record")"
+rm -f "$wdir/mise-task-edit"
+# A relaunch whose hook root's file-tool hook ignores the lefthook argument is
+# refused before it regenerates the profile the running worker reads.
+mkdir -p "$tmp/oldeh"
+cp -R "$here/../scripts" "$tmp/oldeh/scripts"
+cp -R "$here/../config" "$tmp/oldeh/config"
+mv "$tmp/oldeh/scripts/worker-mise-edit-guard.sh" "$tmp/oldeh/scripts/worker-mise-edit-guard.real.sh"
+# shellcheck disable=SC2016 # expanded by the stub when it runs
+printf '#!/bin/sh\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1" mise\n' \
+  >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+chmod +x "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+cp "$wdir/worker-settings.json" "$tmp/settings-before"
+n=$(argv_lines)
+rx_err=$(cd "$tmp" && env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  /bin/sh "$tmp/oldeh/scripts/fleet-streamjson.sh" relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rx_rc=$?
+[ "$rx_rc" -eq 9 ] || fail "r2: a relaunch whose file-tool hook ignores the lefthook argument must be refused (exit 9), got $rx_rc: $rx_err"
+case $rx_err in
+  *"does not judge the opted-in names (failed: lefthook)"*) ;;
+  *) fail "r2: the refusal must name the file-tool hook proof: $rx_err" ;;
+esac
+alive "$npid" || fail "r2: a relaunch refused at the file-tool proof stopped the worker"
+[ "$(argv_lines)" = "$n" ] || fail "r2: a relaunch refused at the file-tool proof spawned a session"
+cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
+  || fail "r2: a relaunch refused at the file-tool proof rewrote the running worker's profile"
+# A refusal after the profile check (here the approval proof, its command
+# guard gone) leaves the running worker's profile as it was too.
+mkdir -p "$tmp/nowg"
+cp -R "$here/../scripts" "$tmp/nowg/scripts"
+cp -R "$here/../config" "$tmp/nowg/config"
+rm -f "$tmp/nowg/scripts/worker-command-guard.sh"
+# The generator stub records where the relaunch asks for its check profile.
+cat >"$tmp/nowg/scripts/worker-settings-generate.sh" <<EOF
+#!/bin/sh
+for a; do out=\$a; done
+printf '%s\n' "\$out" >>'$tmp/gen-out'
+printf '{}\n' >"\$out"
+EOF
+mkdir -p "$tmp/rxtmp"
+rx_err=$(cd "$tmp" && env "${env_scrub[@]}" TMPDIR="$tmp/rxtmp" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  /bin/sh "$tmp/nowg/scripts/fleet-streamjson.sh" relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rx_rc=$?
+case $rx_rc:$rx_err in
+  9:*"auto-approve hook"*"missing or not executable"*) ;;
+  *) fail "r2: a relaunch whose command guard is gone must be refused at the approval proof (exit 9), got $rx_rc: $rx_err" ;;
+esac
+alive "$npid" || fail "r2: a relaunch refused at the approval proof stopped the worker"
+[ "$(argv_lines)" = "$n" ] || fail "r2: a relaunch refused at the approval proof spawned a session"
+cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
+  || fail "r2: a relaunch refused after its profile check rewrote the running worker's profile"
+# The check profile went to a scratch folder it removed, never beside the
+# worker's state where the worker's file tools reach.
+case $(cat "$tmp/gen-out" 2>/dev/null) in
+  "$tmp/rxtmp/"*/worker-settings.json) ;;
+  *) fail "r2: the relaunch must check its profile in a scratch folder under TMPDIR, not $(cat "$tmp/gen-out" 2>/dev/null)" ;;
+esac
+[ -z "$(ls -A "$tmp/rxtmp")" ] || fail "r2: the relaunch left its scratch behind: $(ls -A "$tmp/rxtmp")"
+for f in "$wdir"/*; do
+  case ${f##*/} in
+    worker-settings.json | lefthook-edit) ;;
+    *.json) fail "r2: the relaunch wrote a profile into the worker's state folder: $f" ;;
+  esac
+done
+rm -f "$wdir/lefthook-edit"
+echo "ok: r2 a relaunch keeps recorded opt-ins, regenerating the profile and the record, and refuses one a stale file-tool hook would leave open"
+
 # ---------------------------------------------------------------------------
 # r3: a resume that fails after the stop, then a worker that is not running.
 # A worker with no recorded scope passes every check before the stop and

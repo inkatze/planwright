@@ -429,8 +429,9 @@ gets a `Read(...)` deny:
   `.githooks/`, the worktree's `.claude/`, and the mise, lefthook, direnv, and
   tool-version config names the guard refuses (`scripts/worker-command-guard.sh`,
   `ob_excluded_name` and `ob_excluded_mise_child`, owns the list; a launch given
-  `--mise-task-edit` opens four of those names inside its worktree, see "The
-  mise task-file opt-in" below). An adopter
+  `--mise-task-edit` opens four of those names inside its worktree, and one
+  given `--lefthook-edit` opens `lefthook`, `lefthook.*` and `lefthook/`; see
+  "The mise task-file opt-in" and "The lefthook config opt-in" below). An adopter
   whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
   of its own.
 - **User-level and system git config:** `~/.gitconfig`, its `~/.gitconfig*`
@@ -573,7 +574,14 @@ neither (it passes the shipped profile itself, byte for byte):
   this worktree" and beats every allow, so the hook refuses any task-file path
   that lies outside the worktree, whatever the spelling: another worktree or
   repository, a `..` escape, or a symlinked directory or file that resolves
-  out. A hook that cannot read its input refuses every file-tool call, task path or not.
+  out. A hook that cannot read its input (no `jq`, a payload that is not JSON,
+  a field holding the payload's own separator byte) refuses every file-tool
+  call, task path or not. The generator itself refuses the launch when the
+  hook script beside it is missing or not executable, since the broad denies
+  it replaced would then leave the names open outside the ancestors. The
+  worker runs the copy under its own plugin root, which its dispatch
+  environment may point at another install, so the launch preflight proves
+  that copy refuses an opted-in name outside the worktree (`docs/fleet.md`).
 - **The guard's own-branch arm** admits writes to those four names inside the
   worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
   recursive-act screen `ob_tree_clean`), only when the record carries exactly
@@ -582,10 +590,13 @@ neither (it passes the shipped profile itself, byte for byte):
 
 The generated profile and its opt-in marker sit in the worker's fleet state
 folder (`streamjson/<worker>/`), which the profile's path denies refuse to the
-file tools (`mise-task-edit`, `worker-settings.json`), as they do the session
-records, so a worker cannot opt itself in for its next recover.
+file tools (`mise-task-edit`, `lefthook-edit`, `worker-settings.json`), as they do the session
+records, so a worker cannot opt itself in for its next recover through its file
+tools. Those denies match one spelling (MA-2), and a script the worker writes
+is not held to them (the lefthook section's residual risk), so neither is a
+boundary against a worker set on opting itself in.
 
-Residual risk: the hook compares paths case-sensitively and works from the
+Residual risk: the hook compares the mise names case-sensitively and works from the
 payload's own spelling and the filesystem, so it is a fail-closed second layer
 rather than a proof; the worker's scratch root holds no task files the hook
 admits. The ancestor folder names are matched case-sensitively (MA-2), where
@@ -597,6 +608,86 @@ stay denied, and each literal ancestor deny is the only rule blocking at least
 one row. `tests/test-worker-command-guard-mise-tasks.sh` pins the guard half,
 `tests/test-worker-settings-generate.sh` the generator, and
 `tests/test-fleet-streamjson.sh` (c9m) the launcher.
+
+## The lefthook config opt-in
+
+The shipped profile also denies the file tools the lefthook config at any depth
+(`lefthook.<ext>`, `lefthook/`, the local and dotted variants), so a worker whose
+unit is fixing a slow or wrong pre-commit hook cannot edit the repository's own
+hook config. `--lefthook-edit` opens exactly the tracked config names inside the
+worker's own worktree and nothing else. It has the mise opt-in's shape in every
+respect: a launch argument of `scripts/fleet-streamjson.sh launch` and
+`scripts/mission-control-launch.sh launch` (worker profile, stream-json rung,
+refused anywhere else, off by default), recorded as `lefthook_edit=1` in the
+session record and as the `lefthook-edit` marker in the worker's state folder,
+never read from live config, the checkout or the environment, dropped by a fresh
+launch without the flag and kept by a recover or relaunch. The two opt-ins are
+independent: each opens only its own names, and a launch may carry both. A
+change to the opt-in reaches a worker only by relaunch.
+
+What an opted-in launch gets:
+
+- **A generated profile** (`scripts/worker-settings-generate.sh --lefthook-edit`):
+  the two broad denies `lefthook/**` and `lefthook.*` are replaced by literal
+  denies of the same two names in every ancestor folder of the worktree and in the
+  primary checkout, exactly as for the mise names. Every other rule is the
+  shipped one, in order.
+- **The same file-tool hook** (`scripts/worker-mise-edit-guard.sh`, told to judge
+  the lefthook names by a `lefthook` argument after the worktree, or `mise
+  lefthook` for a launch with both opt-ins): a lefthook name outside the
+  worktree, by spelling or by where it resolves, is refused. It matches the names
+  in any letter case.
+- **The guard's own-branch arm** admits writes to `lefthook`, `lefthook.*` and
+  anything under a `lefthook/` directory inside the worktree (`ob_excluded_name`
+  reading the `l` letter of the record's opt-ins, and the recursive-act screen
+  `ob_tree_clean`), only when the record carries exactly one `lefthook_edit=1`.
+
+Still closed under the opt-in: `lefthook-local.*` and the `.lefthook`,
+`.lefthook.*`, `.lefthook-local` and `.lefthook-local.*` variants, `.githooks/`
+and `githooks/` (denied to the file tools by name), whichever directory
+`core.hooksPath` names (excluded from the arm by what git reports, so it follows
+the setting; the file tools know only the two names above, so a hooks path named
+otherwise is an adopter's own `Edit` deny, as under "What the path rules close"),
+`.git`, `.claude`, the mise names unless `--mise-task-edit` is also given, the scratch
+zone, and every write outside the worktree, the primary checkout's lefthook
+config included. The local variant stays closed because it is the gitignored,
+per-machine override: a change there never lands in the pull request, so review
+could not see it, where the tracked config shows up in the diff. The dotted
+variants and the dotted script directories are further lookup names beyond what
+fixing the tracked hook config needs; a repository that keeps its config under
+one of them needs its own opt-in.
+
+Residual risk, and the reason the opt-in is a sign-off item: a lefthook job is a
+shell command, and it runs outside the command guard. The worker's own commits
+fire it through git, and the guard approves `lefthook run <job>` as repository
+code (`guard_lefthook` refuses a config override, any flag before the
+subcommand, and every subcommand but `run`), so a
+worker that edits a job and then runs it executes that command in its own
+session at once, before anyone reviews the diff, with the session's privileges.
+Every "stays closed" line above governs the worker's file tools and the guard's
+own arm; a job it writes is not held to them. The opt-in therefore lets the
+worker change what runs on its own commits, for the worktree it was launched in.
+What bounds it is the operator's launch-time choice for one named worker whose
+unit is the hook fix, and the tracked file landing in the pull request diff,
+where review sees what will run for every later contributor.
+
+None of this is a sandbox, for an opted-in worker or any other. The guard
+approves any `scripts/*.sh` or `tests/*.sh` inside the repository as repository
+code, one the worker has just written included, and trusts the installed
+planwright scripts, the launchers and the session-record writer among them. A
+worker can already run a command it wrote, and through it write any path the
+file-tool denies close, this opt-in's marker, another worktree's lefthook config
+and the primary checkout's included. What the path rules and the opt-in govern is
+a worker's ordinary file-tool and shell edits, not one working around them; the
+mise opt-in has the same exposure. The hook matches the lefthook names in any
+ASCII letter case, where the mise names are matched case-sensitively; both
+leave non-ASCII case-folding on a case-insensitive filesystem unhandled, and the per-launch
+profile's ancestor names are case-sensitive for both.
+`tests/test-permission-matcher.sh` (pass J) runs the generated rules through the
+model, `tests/test-worker-command-guard-lefthook.sh` pins the guard half,
+`tests/test-worker-settings-generate.sh` the generator, and
+`tests/test-fleet-streamjson.sh` (c9l) and
+`tests/test-mission-control-launch-tmux.sh` the launchers.
 
 ## The spec-branch launch record
 
