@@ -991,6 +991,20 @@ by the resolved literal path (`<root>/scripts/fleet-streamjson.sh pending`, per
 [plugin-script invocation](../doctrine/plugin-script-invocation.md)); a `~` path
 or an unexpanded `$CLAUDE_PLUGIN_ROOT` falls to the permission prompt instead.
 
+So that a worker's routine closing moves raise no prompt at all, its command
+guard approves three own-unit acts under every self-approval policy: a plain
+`git push origin <unit branch>`, a `gh pr edit <n> --body-file <file>` of its
+own open pull request, and an `export` of its step context. An act may close
+an `&&` chain of partners that each pass the guard on their own: a
+`git add` or `git commit` the `own-branch` arm approves, and a gate task
+(`mise run`, `lefthook run`, `bats`, a repository `tests/` or `scripts/`
+script, a declared command step), so `git commit -m <msg> && git push origin
+<unit branch>` and `mise run check && git push origin <unit branch>` run
+unprompted. A partner joined by `;`, a line break, `||` or `&`, a partner after
+the act, and any file write, other git act or non-step plugin script in the
+command keep it prompting. `docs/options-reference.md`
+(`worker_self_approval`) has the full conditions.
+
 Before spawning a worker-profile session, `launch` proves the auto-approve
 hook the worker will run (`scripts/worker-command-guard.sh` under the plugin
 root the dispatch-env wrapper exports, run through that wrapper so it sees the
