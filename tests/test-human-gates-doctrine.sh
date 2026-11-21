@@ -225,17 +225,25 @@ else
 fi
 rm -rf "$fx"
 
-# The class-test checks fail a fixture copy without the four arms.
+# The class-test checks fail a fixture copy without the four arms and the
+# named-outward-effect clause, naming each one missing.
 fx=$(mktemp -d "${TMPDIR:-/tmp}/human-gates.XXXXXX") || exit 1
 grep -vF -e '**Mechanical membership.**' -e '**Verifiable on the current head.**' \
   -e '**Undone by one revert PR.**' -e '**No harm outside the maintainers.**' \
+  -e 'names the outward effect' \
   "$DOC" >"$fx/human-gates.md"
 if fx_out=$(HUMAN_GATES_DOC="$fx/human-gates.md" /bin/bash "$0" --doc-only 2>&1); then
   fail "the doc checks passed a fixture copy without the class test's arms"
-elif printf '%s\n' "$fx_out" | grep -qF 'FAIL: the class test does not name **Mechanical membership.**'; then
-  ok "the doc checks fail a fixture copy without the class test's arms"
 else
-  fail "the doc checks failed the arms-less fixture for another reason: $fx_out"
+  for phrase in '**Mechanical membership.**' '**Verifiable on the current head.**' \
+    '**Undone by one revert PR.**' '**No harm outside the maintainers.**' \
+    'names the outward effect'; do
+    if printf '%s\n' "$fx_out" | grep -qF -- "FAIL: the class test does not name $phrase"; then
+      ok "the doc checks fail a fixture copy without $phrase"
+    else
+      fail "the doc checks did not report $phrase missing from the fixture: $fx_out"
+    fi
+  done
 fi
 rm -rf "$fx"
 
@@ -243,6 +251,7 @@ rm -rf "$fx"
 # always a human act without the class exception. Each passage names the
 # release class through auto_merge_classes, and none keeps the retired
 # "never a class admission" phrasing.
+# shellcheck disable=SC2016 # the backticks are the passages' markdown
 for f in doctrine/release-tagging.md doctrine/guard-catalog.md docs/getting-started.md \
   docs/options-reference.md templates/release-please/README.md \
   templates/release-please/release-please.yml templates/release-please/release-please-config.json \
@@ -251,7 +260,7 @@ for f in doctrine/release-tagging.md doctrine/guard-catalog.md docs/getting-star
   flat=$(tr '\n' ' ' <"$REPO_ROOT/$f" | tr -s ' #' ' ')
   if printf '%s\n' "$flat" | grep -qF 'never a class admission'; then
     fail "$f still states a release PR is never a class admission"
-  elif printf '%s\n' "$flat" | grep -qE 'release.{0,200}auto_merge_classes|auto_merge_classes.{0,200}release'; then
+  elif printf '%s\n' "$flat" | grep -qF '`release` class in `auto_merge_classes`'; then
     ok "$f states the release class exception"
   else
     fail "$f describes the release approval without the auto_merge_classes exception"
