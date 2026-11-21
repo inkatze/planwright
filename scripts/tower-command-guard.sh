@@ -1869,7 +1869,7 @@ guard_mise() {
 
 # mise_run_args_ok <from>: 0 unless a word from index <from> on is an option
 # that changes what a task runs, turning the trusted repo-task runner into an
-# arbitrary-command runner (REQ-A1.6): --shell runs the task through any
+# arbitrary-command runner: --shell runs the task through any
 # command, --cd takes it from another directory's config, --env loads a
 # mise.<env>.toml beside the config, and --tool puts a tool on its PATH. mise
 # reads no abbreviation of a long option, but a short-flag cluster can carry
@@ -1944,6 +1944,15 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  # `stash list`, `stash show` and `reflog show` hand their options to git log
+  # or git diff, --output among them, so the read verbs' screen applies to the
+  # words after the subcommand.
+  case $sub:${cw[subidx + 1]-} in
+    stash:list | stash:show | reflog:show)
+      sub=log
+      subidx=$((subidx + 1))
+      ;;
+  esac
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       for ((i = subidx + 1; i < cwn; i++)); do

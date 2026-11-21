@@ -757,10 +757,9 @@ canon_contained() {
 
 # committed_blob <root> <rel> <full>: 0 when <full> (the canonical path of
 # <rel> under the work tree <root>) is a regular file whose bytes are exactly
-# the blob HEAD records for <rel>, as a plain or executable file. A file being
-# under scripts/ proves nothing about who wrote it: a worker may Write one and
-# run it, and through it reach paths its file tools are refused, so trusted
-# code is code a commit holds, and a file written or edited since prompts.
+# the blob HEAD records for <rel>, as a plain or executable file. Where a file
+# sits proves nothing about who wrote it, since a worker may Write it, so a
+# file the guard trusts by its content is trusted only as a commit holds it.
 # Plumbing only, so no index refresh (no write, no index.lock race with a
 # concurrent commit) and no filter or textconv driver runs. A verdict is kept
 # per path for the rest of the hook call, since a loop re-checks its body.
@@ -768,7 +767,7 @@ canon_contained() {
 # COMMITTED_USED records that the approval leans on such a check, which holds
 # only for the file as it is before the command runs: main refuses a command
 # that also makes a write the own-branch arm admits, since that write could
-# land on the script before the shell reaches it.
+# land on the file before the shell reaches it.
 COMMITTED_OK=''
 COMMITTED_USED=0
 committed_blob() {
@@ -3720,15 +3719,15 @@ guard_umask() {
 
 # guard_mdlint <verb>: markdownlint-cli2 and markdownlint load their config
 # from the folder of each file they lint, the working directory and the folders
-# above, and a config runs code: a .cjs or .mjs one is a module, and a JSON or
-# YAML one can name custom-rule and plugin modules. A worker can Write any of
-# those, so a run is approved only when every config file it could load is one
-# a git checkout commits unchanged (mdlint_configs_ok), and only on named files
-# inside the repository, since a glob or a folder reaches folders this does
-# not check. An option defers (it can name a config, a rule module or an
-# output file, or fix files), but for `--no-globs` and markdownlint's `-q`.
+# above, and a config can run code: a .cjs or .mjs one is a module, and an
+# options file can name custom-rule, plugin and formatter modules. A worker can
+# Write any of those, so a run is approved only on named files inside the
+# repository, since a glob or a folder reaches folders this does not check,
+# and only when mdlint_configs_ok clears every folder. An option defers (it
+# can name a config, a rule module or an output file, or fix files), but for
+# `--no-globs` and markdownlint's `-q`.
 guard_mdlint() {
-  local verb=$1 i a p full root ends=0 nog=0 n=0 dirs=''
+  local verb=$1 i a p full root ends=0 nog=0 dirs=()
   root=$(repo_root_of "$HOOK_CWD") || return 1
   [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
   for ((i = 1; i < cwn; i++)); do
@@ -3750,60 +3749,96 @@ guard_mdlint() {
     p=$a
     # markdownlint-cli2 reads a leading `:` as "a literal path".
     [ "$verb" != markdownlint-cli2 ] || p=${p#:}
+    # Glob and extended-glob syntax, and a newline, which no folder walk below
+    # could follow.
     case $p in
-      '' | -* | '#'* | '!'* | '~'* | *[][*?{}]*) return 1 ;;
+      '' | -* | '#'* | '!'* | '~'* | *[][*?{}\(\)\|\\]* | *$'\n'*) return 1 ;;
     esac
     case /$p/ in
       */../*) return 1 ;;
     esac
+    mdlint_unlinked "$p" || return 1
     full=$(canon_under "$p" "$HOOK_CWD" "$root") || return 1
     [ -f "$full" ] || return 1
-    dirs=$dirs${full%/*}$'\n'
-    n=$((n + 1))
+    dirs+=("${full%/*}")
   done
-  [ "$n" -ge 1 ] || return 1
-  mdlint_configs_ok "$verb" "$nog" "$dirs"
+  [ "${#dirs[@]}" -ge 1 ] || return 1
+  mdlint_configs_ok "$verb" "$nog" "${dirs[@]}"
 }
 
-# The config files markdownlint-cli2 and markdownlint read from a folder.
-MDLINT_CONFIGS=(.markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.yml
-  .markdownlint-cli2.cjs .markdownlint-cli2.mjs .markdownlint.jsonc .markdownlint.json
-  .markdownlint.yaml .markdownlint.yml .markdownlint.cjs .markdownlint.mjs .markdownlintrc package.json)
+# mdlint_unlinked <operand>: 0 unless a folder the operand names on its way to
+# the file is a symbolic link. The linters look for config along the path as
+# written, so a linked folder's own config would lie off the canonical walk.
+mdlint_unlinked() {
+  local d
+  case $1 in
+    */*) d=${1%/*} ;;
+    *) return 0 ;;
+  esac
+  while [ -n "$d" ]; do
+    case $d in
+      /*) [ ! -L "$d" ] || return 1 ;;
+      *) [ ! -L "$HOOK_CWD/$d" ] || return 1 ;;
+    esac
+    case $d in
+      */*) d=${d%/*} ;;
+      *) d='' ;;
+    esac
+  done
+  return 0
+}
 
-# mdlint_configs_ok <verb> <no-globs> <dirs>: 0 when every config file in the
-# working directory, each folder of <dirs> (one per line), and every folder
-# above them is one a git checkout commits unchanged. Without --no-globs, an
+# The files markdownlint-cli2 and markdownlint read from a folder, by what
+# they can do: a module runs whatever it imports, an options file can name
+# modules to import and, in the working directory, add globs, and a config
+# file holds rule settings only (its `extends` reads another such file).
+MDLINT_MODULES=(.markdownlint-cli2.cjs .markdownlint-cli2.mjs .markdownlint.cjs .markdownlint.mjs)
+MDLINT_OPTIONS=(.markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.yml package.json)
+MDLINT_SETTINGS=(.markdownlint.jsonc .markdownlint.json .markdownlint.yaml .markdownlint.yml .markdownlintrc)
+
+# mdlint_configs_ok <verb> <no-globs> <dir>...: 0 when the working directory,
+# each <dir> and every folder above them hold no module config, and every
+# options and settings file there is one a git checkout commits unchanged.
+# A committed module may still import a file the worker wrote, so it defers
+# too, and so does an options file naming a module key or holding a
+# backslash, through which an escape could spell one. Without --no-globs, an
 # options file in the working directory may add globs reaching folders this
 # does not walk, so one there defers. The verdict holds only for the folders as
 # they are before the command runs, so the approval leans on a committed check
 # (COMMITTED_USED) and main refuses it beside an own-branch write.
 mdlint_configs_ok() {
   local verb=$1 nog=$2 d f seen=$'\n' cwdp
+  shift 2
   cwdp=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
   if [ "$verb" = markdownlint-cli2 ] && [ "$nog" = 0 ]; then
-    for f in .markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.yml \
-      .markdownlint-cli2.cjs .markdownlint-cli2.mjs package.json; do
+    for f in "${MDLINT_OPTIONS[@]}"; do
       [ ! -e "$cwdp/$f" ] && [ ! -L "$cwdp/$f" ] || return 1
     done
   fi
-  while IFS= read -r d; do
-    [ -n "$d" ] || continue
+  for d in "$cwdp" "$@"; do
     while :; do
       case $seen in
         *$'\n'"$d"$'\n'*) break ;;
       esac
       seen=$seen$d$'\n'
-      for f in "${MDLINT_CONFIGS[@]}"; do
+      for f in "${MDLINT_MODULES[@]}"; do
+        [ ! -e "$d/$f" ] && [ ! -L "$d/$f" ] || return 1
+      done
+      for f in "${MDLINT_OPTIONS[@]}" "${MDLINT_SETTINGS[@]}"; do
         [ -e "$d/$f" ] || [ -L "$d/$f" ] || continue
         committed_in_checkout "${d%/}/$f" || return 1
       done
+      for f in "${MDLINT_OPTIONS[@]}"; do
+        [ -f "$d/$f" ] || continue
+        # grep exits 1 only on a file read whole with no match.
+        LC_ALL=C grep -a -q -E 'customRules|markdownItPlugins|outputFormatters|modulePaths|[\]' -- "$d/$f"
+        [ $? -eq 1 ] || return 1
+      done
       [ "$d" != / ] || break
-      d=$(dirname -- "$d")
+      d=${d%/*}
+      [ -n "$d" ] || d=/
     done
-  done <<EOF
-$cwdp
-$3
-EOF
+  done
   COMMITTED_USED=1
   return 0
 }
@@ -3873,7 +3908,7 @@ guard_mise() {
       # `mise tasks` and the display leaves (`ls`/`info`/`deps`) list tasks, but
       # `edit` launches $EDITOR (arbitrary exec), `add` writes a task file, and
       # `run` is an alias of `mise run` (so it can carry the options that
-      # change what a task runs, REQ-A1.6). Enumerate the read-only leaves, route
+      # change what a task runs). Enumerate the read-only leaves, route
       # `run` through the run-option screen below, and defer edit/add/unknown.
       leaf=''
       for ((j = i + 1; j < cwn; j++)); do
@@ -3899,7 +3934,7 @@ guard_mise() {
 
 # mise_run_args_ok <from>: 0 unless a word from index <from> on is an option
 # that changes what a task runs, turning the trusted repo-task runner into an
-# arbitrary-command runner (REQ-A1.6): --shell runs the task through any
+# arbitrary-command runner: --shell runs the task through any
 # command, --cd takes it from another directory's config, --env loads a
 # mise.<env>.toml beside the config, and --tool puts a tool on its PATH. mise
 # reads no abbreviation of a long option, but a short-flag cluster can carry
@@ -4195,6 +4230,15 @@ guard_git() {
       *) return 1 ;;
     esac
   fi
+  # `stash list`, `stash show` and `reflog show` hand their options to git log
+  # or git diff, --output among them, so the read verbs' screen applies to the
+  # words after the subcommand.
+  case $sub:${cw[subidx + 1]-} in
+    stash:list | stash:show | reflog:show)
+      sub=log
+      subidx=$((subidx + 1))
+      ;;
+  esac
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       # Read-only, but reject a following flag that WRITES a file

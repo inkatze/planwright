@@ -409,9 +409,17 @@ assert_allow "mise run with a display flag" "mise run -n check"
 for c in "mise run --shell 'sh x' t" "mise run -s 'sh x' t" "mise run -C /tmp/x t" \
   "mise run --cd /tmp/x t" "mise run --cd=/tmp/x t" "mise run -nC /tmp/x t" "mise run -E evil t" \
   "mise run --env=evil t" "mise run -t node@20 t" "mise run --tool node@20 t" \
-  "mise tasks -C /tmp/x run t" "mise tasks run -C /tmp/x t"; do
+  "mise tasks -C /tmp/x run t" "mise tasks run -C /tmp/x t" "mise tasks -E run t" \
+  "mise tasks --shell run t" "mise run -Eevil t" "mise run check -C /tmp/x"; do
   assert_defer "mise run option changing what runs: $c" "$c"
 done
+assert_allow "mise run with a second task" "mise run check ::: lint"
+# These hand their options to git log or git diff, which write to --output.
+for c in "git stash show --output=/tmp/x" "git stash list --output=/tmp/x" "git reflog show --output=/tmp/x"; do
+  assert_defer "git read verb writing through --output: $c" "$c"
+done
+assert_allow "git stash list" "git stash list"
+assert_allow "git reflog show" "git reflog show -3"
 assert_allow "cat" "cat README.md"
 assert_allow "grep recursive" "grep -rn foo specs/"
 assert_allow "ls" "ls -la"

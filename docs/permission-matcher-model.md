@@ -545,10 +545,11 @@ write to any path or a run of code the worker chose (pass G of
 plain forms:
 
 - **git's log and diff family** (`git show`, `git diff`, `git log` and the
-  rest) writes its output to the path `--output` names, a path the file tools
-  refuse included (a worker's fleet state folder, its opt-in record). The
-  guard defers `--output` in every spelling git accepts, and `git
-  format-patch` whole.
+  rest, `git stash list`, `git stash show` and `git reflog show` among them,
+  which hand their options to it) writes its output to the path `--output`
+  names, a path the file tools refuse included (a worker's fleet state
+  folder, its opt-in record). The guard defers `--output` in every spelling
+  git accepts, and `git format-patch` whole.
 - **`mise run`**, and `mise tasks run`, which is the same command: `--shell`
   runs the task through any command, `--cd` runs a task another directory's
   config defines, `--env` loads a `mise.<env>.toml`, and `--tool` puts a tool
@@ -556,24 +557,33 @@ plain forms:
   anywhere on the line.
 - **`markdownlint-cli2` and `markdownlint`** read a config from the working
   directory and from the folder of each file they lint (probed on
-  markdownlint-cli2 0.19.0), and a config runs code: a `.cjs` or `.mjs` one is
-  a module, and a JSON or YAML one can name custom-rule and markdown-it plugin
-  modules. The guard approves a run only on named files inside the repository,
-  with no option but `--no-globs` (and markdownlint's `-q`), and only when
-  every config file in those folders and every folder above them is one a git
-  checkout commits unchanged, the check `committed_blob` makes for a script.
-  An explicit `--config` naming a committed file would not do instead: each
+  markdownlint-cli2 0.19.0), and a config can run code: a `.cjs` or `.mjs`
+  one is a module, and an options file (`.markdownlint-cli2.jsonc` or
+  `.yaml`, or `package.json`) can name custom-rule, markdown-it plugin and
+  formatter modules. The guard approves a run only on named files inside the
+  repository, reached through no linked folder, with no option but
+  `--no-globs` (and markdownlint's `-q`). Every folder those files sit in,
+  the working directory, and every folder above them must hold no module
+  config, committed or not, since a committed one may import a file the
+  worker wrote, and only options and settings files a git checkout commits
+  unchanged (the `committed_blob` check), no options file naming a module
+  key or holding a backslash, through which an escape could spell one. An
+  explicit `--config` naming a committed file would not do instead: each
   folder's own config still loads beside it. A glob or folder operand defers,
   and so, without `--no-globs`, does an options file in the working directory,
   since either reaches folders the guard does not walk. The check reads the
   folders before the command runs, so a lint beside a write the own-branch
-  arm admits defers. A rule module a committed config names by package
-  resolves through `node_modules`, which a worker can write, and runs as the
-  config says, like a file the repository's mise config points at.
+  arm admits defers. What still passes: a settings file the worker committed
+  in an earlier call counts as committed, as any committed file does (the
+  commit sits on the branch, where review sees it), and a settings file's
+  `extends` may read a file the worker wrote, which holds rule settings only.
 - **A declared command step** run through `scripts/step-run.sh` runs its
   location, and a session-hosted step's line is printed, only as the git
-  checkout holding it commits it; otherwise the step is recorded `failed`. A
-  location in no checkout, an installed tool, keeps the declaration's trust.
+  checkout holding it commits it; otherwise, or when git cannot answer for
+  that checkout, the step is recorded `failed`. A location with no `.git`
+  entry above it, an installed tool, keeps the declaration's trust. The
+  guard's own approval of a declared line typed in the session is a separate
+  check.
 
 ## The mise task-file opt-in
 

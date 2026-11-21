@@ -74,7 +74,9 @@
 #           the slot released only once it is gone; a signal then exits
 #           128+n after the record. A refused context value, location, or
 #           args word (resolve-steps.sh --line's checks) fails the step
-#           without running it. A re-fire must name a step whose row
+#           without running it, and so does a location in a git checkout
+#           that is not as HEAD commits it (committed_location), here and at
+#           begin. A re-fire must name a step whose row
 #           declares refire post-pr that this run has not re-fired. In its
 #           own group the check has no terminal: one that reads /dev/tty
 #           under a controlling terminal stops, as any background job does.
@@ -208,7 +210,7 @@ is_in_run_point() {
 # step inherits them untouched (REQ-A1.6 forbids scrubbing its environment).
 no_git_selectors() {
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES
 }
 rgit() (
   no_git_selectors
@@ -221,8 +223,10 @@ rgit() (
 # checkout's HEAD commits it: a regular file whose bytes are the blob HEAD
 # records at that path. A location spelled inside the unit's worktree is held
 # to it even when a symlinked folder resolves it elsewhere, and so is refused.
-# A location in no checkout (an installed tool) keeps the declaration's trust;
-# one inside a repository's own git folder does not.
+# A location with no `.git` entry in any folder above it (an installed tool)
+# keeps the declaration's trust; any other is held to the checkout that entry
+# marks, so a git that cannot answer for it (a broken or foreign `.git`, a
+# location inside a git folder) refuses rather than trusts.
 committed_location() {
   local loc=$1 d full root line meta want have
   d=$(cd -P -- "$(dirname -- "$loc")" 2>/dev/null && pwd -P) || return 1
@@ -230,10 +234,13 @@ committed_location() {
   case $loc in
     "$worktree"/*) root=$worktree ;;
     *)
-      if ! root=$(rgit -C "$d" rev-parse --show-toplevel 2>/dev/null); then
-        ! rgit -C "$d" rev-parse --git-dir >/dev/null 2>&1
-        return
-      fi
+      root=$d
+      while [ ! -e "$root/.git" ] && [ ! -L "$root/.git" ]; do
+        [ "$root" != / ] || return 0
+        root=${root%/*}
+        [ -n "$root" ] || root=/
+      done
+      [ "$(rgit -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
       ;;
   esac
   case $full in
