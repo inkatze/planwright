@@ -133,7 +133,8 @@ Usage:
       a stream-json-worker-unregistered event under the program its record
       or name gives, else as a stream-json-worker-unowned event where its
       prompts go; neither while the launcher's list, the program list, the
-      session kinds or the hub setting cannot be read. The
+      session kinds or the hub setting cannot be read, nor for a worker whose
+      registry file the list skipped (another format's row). The
       orphan sweep: each process
       scripts/mc-stall.sh orphans has listed for a minute is one
       stream-json-worker-orphaned event, announced once for the machine
@@ -544,12 +545,15 @@ owner_inputs() {
   [ -z "${oi_read:-}" ] || return 0
   oi_read=1
   OI_OK=1
-  oi_target="" oi_programs="" KT_HUBBED="" KT_WHY=""
+  oi_target="" oi_hubbed="" oi_why=""
   if keeper_target; then
     oi_target=$KT_TARGET
     oi_programs=$KT_KNOWN
+    oi_hubbed=$KT_HUBBED
+    oi_why=$KT_WHY
   else
     OI_OK=""
+    oi_programs=$(/bin/bash "$script_dir/mc-program.sh" list 2>/dev/null) || oi_programs=""
   fi
   oi_kinds=$(launcher kinds 2>/dev/null) || OI_OK=""
   oi_kinds=$(printf '%s\n' "$oi_kinds" | awk -F '\t' 'NF { print $1 }')
@@ -609,7 +613,7 @@ worker_program() {
 unowned_program() {
   UP_PROGRAM=$oi_target
   UP_NOTE=""
-  [ -z "$KT_HUBBED" ] || return 0
+  [ -z "$oi_hubbed" ] || return 0
   up_d="$2/streamjson/$1"
   up_f="$up_d/unowned-program"
   up_p=""
@@ -624,13 +628,13 @@ unowned_program() {
       up_p=$(head -c 65 "$up_f" 2>/dev/null | head -n 1)
     fi
   fi
-  up_how="whose keeper found it first"
+  up_how="the program whose keeper found it first"
   if ! mc_valid_program "$up_p" || ! listed "$up_p" "$oi_programs"; then
     up_p=$(printf '%s\n' "$oi_programs" | awk 'NF { print; exit }')
     up_how="the first configured program"
   fi
   UP_PROGRAM=$up_p
-  UP_NOTE=" ($KT_WHY, so it is raised under $UP_PROGRAM, $up_how)"
+  UP_NOTE=" ($oi_why; $UP_PROGRAM is $up_how)"
 }
 
 # owner_of <worker> <launcher list> <listed> <fleet home>: sets OW_PROGRAM,
@@ -663,7 +667,7 @@ owner_of() {
     [ "$ow_src" != row ] || return 0
     # A dispatch record is the launcher's own write; a name is the worker's
     # say-so, so only its prompts are marked.
-    [ "$ow_src" != name ] || OW_LABEL=" (no launcher row)"
+    [ "$ow_src" != name ] || [ -z "$ow_once" ] || OW_LABEL=" (no launcher row)"
     [ "$OW_PROGRAM" = "$program" ] && [ -n "$ow_once" ] || return 0
     ow_by="its name"
     [ "$ow_src" = name ] || ow_by="its dispatch record"
@@ -676,7 +680,7 @@ owner_of() {
   OW_LABEL=" (unowned)"
   [ -n "$ow_once" ] || return 0
   announce_once "$1" "$4" "$UP_PROGRAM" unowned \
-    "stream-json worker $1 is live with no launcher row and no dispatch record or name gives its program, so its prompts are raised under $UP_PROGRAM as unowned$UP_NOTE; mission-control-launch.sh retire $1 closes it"
+    "stream-json worker $1 is live with no launcher row, and no dispatch record or name gives its program, so its prompts are raised under $UP_PROGRAM as unowned$UP_NOTE; mission-control-launch.sh retire $1 closes it"
 }
 
 # shellcheck disable=SC2329 # mc_knob calls it by name
@@ -744,6 +748,8 @@ announce_once() {
     return 1
   fi
   rm -f "$ao_t"
+  # A directory raced into place takes the link inside it: not this claim.
+  [ -f "$ao_claim" ] && [ ! -L "$ao_claim" ] || return 0
   mc_announce "$3" "$ao_seen" "$1" "stream-json-worker-$4" "$1" "$5" || {
     rm -f "$ao_claim"
     return 1

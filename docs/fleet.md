@@ -887,7 +887,8 @@ configured program (`none`, or a program not configured), the program whose
 keeper found it first takes both, recorded in the worker's directory so no
 other keeper raises them too (the first configured program when that record
 is unusable), and the event says so. None of these one-time events is raised
-while the launcher's list or the keeper's other inputs cannot be read. Routing
+while the launcher's list or the keeper's other inputs cannot be read, nor for
+a worker whose registry file the list skipped (another format's row). Routing
 only decides who hears a prompt: who may answer it is unchanged.
 The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
