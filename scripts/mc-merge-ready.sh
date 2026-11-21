@@ -129,7 +129,9 @@ Usage:
       closed, or the head moved); 5 not yet, printing `pending<TAB><why>`
       (no bot review of the head, or an open bot thread); 1 the read failed,
       printing `unknown<TAB><why>`. A bot is an account the forge types Bot
-      or whose login ends in [bot].
+      or whose login ends in [bot]. PR-Agent posts comments, not a review,
+      so a PR-Agent check run finished SUCCESS at the head is a bot review
+      of it too.
 
 Exit codes: 0 done; 1 a failed read, check, store or event, or anything
 left unknown (watch: but a stale snapshot or none yet); 2 usage; 3 the
@@ -247,7 +249,9 @@ fresh_check() {
         state headRefOid
         reviews(last: 100) { pageInfo { hasPreviousPage } nodes { author { __typename login } commit { oid } } }
         reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved
-          comments(first: 1) { nodes { author { __typename login } } } } } } } }' --jq '
+          comments(first: 1) { nodes { author { __typename login } } } } }
+        commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {
+          pageInfo { hasNextPage } nodes { __typename ... on CheckRun { name status conclusion } } } } } } } } } }' --jq '
     def bot: ((.author.__typename // "") == "Bot") or ((.author.login // "") | endswith("[bot]"));
     .data.repository.pullRequest as $p
     | if $p == null then empty else
@@ -255,6 +259,11 @@ fresh_check() {
       (if $p.reviewThreads.pageInfo.hasNextPage then "truncated\tthreads" else empty end),
       (if $p.reviews.pageInfo.hasPreviousPage then "truncated\treviews" else empty end),
       ($p.reviews.nodes[]? | select(bot) | "botreview\t" + (.commit.oid // "-")),
+      ($p.commits.nodes[0].commit? // {} | . as $c
+        | (if $c.statusCheckRollup.contexts.pageInfo.hasNextPage then "truncated\tchecks" else empty end),
+          ($c.statusCheckRollup.contexts.nodes[]?
+            | select(.__typename == "CheckRun" and ((.name // "") | test("^PR-Agent( |$)")) and .status == "COMPLETED" and .conclusion == "SUCCESS")
+            | "botreview\t" + ($c.oid // "-"))),
       ($p.reviewThreads.nodes[]? | select((.isResolved | not) and (.comments.nodes[0] // {} | bot)) | "botthread\topen")
       end' 2>"$fc_err" </dev/null) || {
     fc_why=$(tail -n 1 "$fc_err" | mc_clean | tr '\t' ' ' | cut -c1-200)
@@ -284,6 +293,10 @@ fresh_check() {
   if ! printf '%s\n' "$fc_out" | H=$3 awk -F '\t' '$1 == "botreview" && $2 == ENVIRON["H"] { f = 1 } END { exit !f }'; then
     if printf '%s\n' "$fc_out" | grep -q '^truncated.reviews'; then
       printf 'unknown\tits reviews exceed the last page, so a bot review of this head cannot be ruled out\n'
+      return 1
+    fi
+    if printf '%s\n' "$fc_out" | grep -q '^truncated.checks'; then
+      printf 'unknown\tits checks exceed the first page, so a PR-Agent run at this head cannot be ruled out\n'
       return 1
     fi
     printf 'pending\tno bot review of this head yet\n'

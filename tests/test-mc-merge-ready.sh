@@ -546,6 +546,23 @@ expect_rc "and a live one is live" 0
 printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"pageInfo":{"hasPreviousPage":true},"nodes":[]},"reviewThreads":{"nodes":[]}}}}}' "$H" >"$tmp/fresh.38"
 run fresh --program alpha --repo acme/web --pr 38 --head "$H"
 expect_rc "no bot review on a truncated review page is unknown, never pending" 1
+# PR-Agent posts comments, never a review: its check run at the head stands
+# for the bot review.
+pragent() { # pragent <n> <head> <check's commit> <status> <conclusion|null>
+  printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[{"__typename":"CheckRun","name":"PR-Agent","status":"%s","conclusion":%s}]}}}}]}}}}}' "$2" "$3" "$4" "$5" >"$tmp/fresh.$1"
+}
+pragent 39 "$H" "$H" COMPLETED '"SUCCESS"'
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a finished PR-Agent run at the head is the bot review" 0
+pragent 39 "$H" "$H" IN_PROGRESS null
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a PR-Agent run still going is pending" 5
+pragent 39 "$H" "$J" COMPLETED '"SUCCESS"'
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a PR-Agent run on another commit is pending" 5
+printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":true},"nodes":[]}}}}]}}}}}' "$H" "$H" >"$tmp/fresh.39"
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "no PR-Agent run on a truncated check page is unknown, never pending" 1
 rm -f "$tmp"/fresh.3? "$store"
 
 # ---------------------------------------------------------------------------
