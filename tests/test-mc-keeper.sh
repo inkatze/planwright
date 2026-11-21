@@ -234,13 +234,21 @@ own_worker() { # own_worker <worker> <owner>: the dispatch record's owner
   mkdir -p "$fleet/dispatch-markers"
   printf '%s\t%s\t%s\tstream-json-persistent\t%s\t-\n' "$1" "demo:task-9" "$2" "$fleet/streamjson/$1" >"$fleet/dispatch-markers/$1"
 }
-pp_req() { # pp_req <worker> [<owner>|none]: an overdue pending request under live pids, owned by alpha unless said
+pp_req() { # pp_req <worker> [<owner>|-|none]: an overdue pending request under live pids, owned by alpha unless said; - a record naming no owner, none no record
   mkdir -p "$fleet/streamjson/$1"
   printf 'aaaa1111-bbbb-cccc-dddd-eeee00000001\tpermission\t1000\tpending\n' >"$fleet/streamjson/$1/journal"
   printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
   printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
   printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
   [ "${2:-}" = none ] || own_worker "$1" "${2:-mission-control:alpha}"
+}
+pp_fresh() { # pp_fresh <worker> <request-suffix> <received> [none]: as pp_req, the request fresh; none leaves no record
+  mkdir -p "$fleet/streamjson/$1"
+  printf 'bbbb2222-bbbb-cccc-dddd-eeee0000000%s\tpermission\t%s\tpending\n' "$2" "$3" >"$fleet/streamjson/$1/journal"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
+  printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
+  printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
+  [ "${4:-}" = none ] || own_worker "$1" mission-control:alpha
 }
 pp_req cp-old
 pp_req mc-beta-worker-0123456789
@@ -280,7 +288,7 @@ expect_out "a row-less worker its record gives to this program is announced" "an
 pp_req rl-orphan none
 keeper_as alpha 5000
 expect_out "a worker no row or record owns is raised once, as unowned" "announced${tab}stream-json-worker-unowned${tab}rl-orphan"
-expect_no_out "and its prompt is not announced as the program's own" "pending-prompt-overdue${tab}rl-orphan"
+expect_out "with no hub program, its prompt is raised by the keeper that found it" "announced${tab}pending-prompt-overdue${tab}rl-orphan"
 keeper_as alpha 5060
 expect_no_out "and the unowned event is not raised again" "stream-json-worker-unowned"
 if [ -e "$fleet/streamjson/rl-orphan/unowned-announced" ]; then
@@ -299,6 +307,15 @@ expect_out "a request that has just arrived on a worker no one owns is raised as
 pp_req rl-gone mission-control:removedprog
 keeper_as alpha 5260
 expect_out "a worker whose record names a program no longer configured is raised as unowned" "announced${tab}stream-json-worker-unowned${tab}rl-gone"
+# A first-finder record that names a program no longer configured gives the
+# first configured program, so the prompt still goes to one program only.
+pp_req rl-stale none
+printf 'removedprog\n' >"$fleet/streamjson/rl-stale/unowned-program"
+keeper_as beta 5270
+expect_no_out "a stale first-finder record does not hand the prompt to every keeper" "pending-prompt-overdue${tab}rl-stale"
+keeper_as alpha 5280
+expect_out "it goes to the first configured program instead" "announced${tab}pending-prompt-overdue${tab}rl-stale"
+rm -rf "$fleet/streamjson/rl-stale"
 rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/streamjson/rl-gone" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-prompts" "$fleet/mission-control/alpha/keeper-unowned"
 
@@ -326,16 +343,144 @@ expect_out "an unowned worker is raised once" "announced${tab}stream-json-worker
 keeper_as beta 5060
 expect_no_out "and not again by another program's keeper" "rl-hubbed"
 keeper_as hub 5120
-expect_no_out "nor by the hub's own" "rl-hubbed"
+expect_no_out "nor by the hub's own" "stream-json-worker-unowned${tab}rl-hubbed"
+expect_out "whose keeper raises the unowned worker's prompt" "announced${tab}pending-prompt-overdue${tab}rl-hubbed"
 mc_run mc-event.sh list --program hub
 expect_out "the event lands under the hub program" "rl-hubbed"
 mc_run mc-event.sh list --program alpha
 expect_no_out "never under the finding program" "rl-hubbed"
 mc_run mc-event.sh list --program beta
 expect_no_out "nor under another" "rl-hubbed"
-cp "$tmp/tracked.keep" "$tracked"
 rm -rf "$fleet/streamjson/rl-hubbed" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned"
+
+# A live worker no launcher row names (launched outside the launcher, its row
+# lost, or a polish session a worker spawned, whose dispatch record names no
+# owner) still has its prompts heard: by the program its name carries under
+# the launcher's grammar, else by the hub as unowned, plus one event saying it
+# has no row. Who may answer is unchanged. Runs under the alpha, beta and hub
+# configuration above.
+ev_of() { # ev_of <program> <worker>: that program's stored events for the worker
+  mc_run mc-event.sh list --program "$1"
+  printf '%s\n' "$OUT" | awk -F '\t' -v w="$2" '$4 == w'
+}
+pp_req mc-alpha-worker-0a1b2c3d4e-polish -
+keeper_as alpha 5000
+expect_out "an unregistered worker whose name carries its program raises its prompt to that program" "announced${tab}pending-prompt-overdue${tab}mc-alpha-worker-0a1b2c3d4e-polish"
+expect_out "and one event says it has no registry row" "announced${tab}stream-json-worker-unregistered${tab}mc-alpha-worker-0a1b2c3d4e-polish"
+case $(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish) in
+  *"stream-json-worker-unregistered${tab}mc-alpha-worker-0a1b2c3d4e-polish${tab}"*"no launcher row"*"retire mc-alpha-worker-0a1b2c3d4e-polish"*) ok "the no-row event names the worker and how to retire it" ;;
+  *) fail "the no-row event: $(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish)" ;;
+esac
+keeper_as beta 5030
+expect_no_out "another program's keeper leaves it alone" "mc-alpha-worker-0a1b2c3d4e-polish"
+keeper_as hub 5040
+expect_no_out "and so does the hub's" "mc-alpha-worker-0a1b2c3d4e-polish"
+keeper_as alpha 5060
+expect_no_out "the no-row event fires once" "stream-json-worker-unregistered"
+expect_no_out "and the overdue prompt is not announced again" "pending-prompt-overdue${tab}mc-alpha-worker-0a1b2c3d4e-polish"
+if [ "$(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish | awk -F '\t' '$3 == "stream-json-worker-unregistered"' | wc -l | tr -d ' ')" = 1 ]; then
+  ok "the store holds the no-row event once"
+else
+  fail "the no-row events stored: $(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish)"
+fi
+pp_fresh mc-alpha-worker-0a1b2c3d4e-polish2 4 5070 none
+pp_req mc-alpha-worker-0a1b2c3d4e-polish3 none
+# No pid file and no result: not provably dead, so its prompt is raised, but
+# the rung does not report it waiting, so no one-time event is.
+pp_req mc-alpha-worker-0a1b2c3d4e-polish4 none
+rm -f "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish4/supervisor.pid" "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish4/worker.pid"
+bad_names="mc-gamma-worker-0a1b2c3d4e mc-alpha-painter-0a1b2c3d4e mc-alpha-worker-fedcba987 mc-alpha-worker-0a1b2c3d4eX"
+for bad in $bad_names; do pp_req "$bad" none; done
+keeper_as alpha 5080
+expect_out "a fresh request on an unregistered sub-session is announced as it arrives" "announced${tab}pending-prompt${tab}mc-alpha-worker-0a1b2c3d4e-polish2"
+expect_out "and its own no-row event fires" "announced${tab}stream-json-worker-unregistered${tab}mc-alpha-worker-0a1b2c3d4e-polish2"
+expect_out "a name with no dispatch record at all still routes by its program" "announced${tab}pending-prompt-overdue${tab}mc-alpha-worker-0a1b2c3d4e-polish3"
+expect_out "a worker the rung cannot show waiting still has its prompt raised" "announced${tab}pending-prompt-overdue${tab}mc-alpha-worker-0a1b2c3d4e-polish4"
+expect_no_out "but no one-time event calls it live" "stream-json-worker-unregistered${tab}mc-alpha-worker-0a1b2c3d4e-polish4"
+for bad in $bad_names; do
+  expect_no_out "a name outside the grammar or naming no configured program derives no owner: $bad" "pending-prompt-overdue${tab}$bad"
+  rm -rf "${fleet:?}/streamjson/$bad"
+done
+case $(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish3) in
+  *"stream-json worker mc-alpha-worker-0a1b2c3d4e-polish3 (no launcher row) has waited"*) ok "a row-less worker's prompt says it has no launcher row" ;;
+  *) fail "the row-less prompt's text: $(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish3)" ;;
+esac
+
+# A launcher list that cannot be read cannot tell a row from its absence, so
+# a registered worker is never called row-less, though its prompt is raised.
+pp_req mc-alpha-worker-1111111111
+printf 'format\t1\nname\tmc-alpha-worker-1111111111\nprogram\talpha\nkind\tworker\nscope\tx\nbackend\tstream-json\nlaunched\t1\n' \
+  >"$fleet/mission-control/sessions/mc-alpha-worker-1111111111"
+printf 'format\t1\nname\tmc-alpha-worker-2222222222\n' >"$fleet/mission-control/sessions/mc-alpha-worker-2222222222"
+chmod 000 "$fleet/mission-control/sessions/mc-alpha-worker-2222222222"
+if hermetic_access_denied r "$fleet/mission-control/sessions/mc-alpha-worker-2222222222"; then
+  keeper_as alpha 5150
+  expect_out "with the launcher's list unreadable, a registered worker's prompt is still raised" "announced${tab}pending-prompt-overdue${tab}mc-alpha-worker-1111111111"
+  expect_no_out "and it is not called row-less" "stream-json-worker-unregistered${tab}mc-alpha-worker-1111111111"
+else
+  echo "skip: the unreadable launcher list case (the mode does not deny reading here)"
+fi
+chmod 600 "$fleet/mission-control/sessions/mc-alpha-worker-2222222222"
+rm -f "$fleet/mission-control/sessions/mc-alpha-worker-2222222222" "$fleet/mission-control/sessions/mc-alpha-worker-1111111111"
+rm -rf "$fleet/streamjson/mc-alpha-worker-1111111111"
+
+# No owner derivable: the hub hears the prompt, as unowned, naming the worker.
+pp_req stray-polish none
+keeper_as alpha 5200
+expect_out "an unowned worker's no-row event is raised" "announced${tab}stream-json-worker-unowned${tab}stray-polish"
+expect_no_out "but its prompt is not the finding program's" "pending-prompt-overdue${tab}stray-polish"
+keeper_as hub 5210
+expect_out "the hub raises an unowned worker's prompt" "announced${tab}pending-prompt-overdue${tab}stray-polish"
+expect_no_out "and the unowned event once only" "stream-json-worker-unowned"
+case $(ev_of hub stray-polish) in
+  *"pending-prompt-overdue${tab}stray-polish${tab}"*unowned*) ok "the hub's event names the worker as unowned" ;;
+  *) fail "the hub's events for the unowned worker: $(ev_of hub stray-polish)" ;;
+esac
+pp_fresh stray-fresh 5 5250 none
+keeper_as hub 5260
+expect_out "a fresh request on an unowned worker reaches the hub as it arrives" "announced${tab}pending-prompt${tab}stray-fresh"
+case $(ev_of hub stray-fresh) in
+  *"pending-prompt${tab}stray-fresh${tab}"*"stray-fresh (unowned) bbbb2222"*) ok "the arrival event marks the worker unowned" ;;
+  *) fail "the hub's arrival event: $(ev_of hub stray-fresh)" ;;
+esac
+keeper_as beta 5270
+expect_no_out "and no other program's keeper raises its prompts" "pending-prompt"
+
+# A registered worker is unchanged: its row's program hears it, with no no-row event.
+pp_req mc-beta-worker-0123456789 -
+printf 'format\t1\nname\tmc-beta-worker-0123456789\nprogram\tbeta\nkind\tworker\nscope\tx\nbackend\tstream-json\nlaunched\t1\n' \
+  >"$fleet/mission-control/sessions/mc-beta-worker-0123456789"
+keeper_as beta 5300
+expect_out "a registered worker's prompt reaches its row's program" "announced${tab}pending-prompt-overdue${tab}mc-beta-worker-0123456789"
+expect_no_out "with no no-row event" "stream-json-worker-unregistered"
+expect_no_out "nor an unowned one" "stream-json-worker-unowned"
+keeper_as alpha 5310
+expect_no_out "and no other program hears it" "mc-beta-worker-0123456789"
+
+# A dead worker's leftover directory raises no prompt and no no-row event.
+pp_req mc-alpha-worker-dead0dead0-polish -
+printf '999999999\n' >"$fleet/streamjson/mc-alpha-worker-dead0dead0-polish/supervisor.pid"
+printf '999999999\n' >"$fleet/streamjson/mc-alpha-worker-dead0dead0-polish/worker.pid"
+keeper_as alpha 5400
+expect_no_out "a dead worker's request is not raised as a prompt" "pending-prompt-overdue${tab}mc-alpha-worker-dead0dead0-polish"
+expect_no_out "nor as a worker with no row" "stream-json-worker-unregistered${tab}mc-alpha-worker-dead0dead0-polish"
+keeper_as alpha 5460
+expect_no_out "and its leftover directory raises nothing on a later pass" "mc-alpha-worker-dead0dead0-polish"
+pp_req stray-dead none
+printf '999999999\n' >"$fleet/streamjson/stray-dead/supervisor.pid"
+printf '999999999\n' >"$fleet/streamjson/stray-dead/worker.pid"
+keeper_as hub 5500
+expect_no_out "an unowned dead worker raises no prompt" "pending-prompt-overdue${tab}stray-dead"
+expect_no_out "and no unowned event" "stream-json-worker-unowned${tab}stray-dead"
+cp "$tmp/tracked.keep" "$tracked"
+rm -rf "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish" "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish2" \
+  "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish3" "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish4" "$fleet/streamjson/stray-polish" "$fleet/streamjson/stray-fresh" \
+  "$fleet/streamjson/mc-beta-worker-0123456789" "$fleet/streamjson/mc-alpha-worker-dead0dead0-polish" "$fleet/streamjson/stray-dead" \
+  "$fleet/dispatch-markers" "$fleet/mission-control/sessions/mc-beta-worker-0123456789"
+rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned" \
+  "$fleet/mission-control/alpha/keeper-prompts" "$fleet/mission-control/hub/keeper-prompts" "$fleet/mission-control/beta/keeper-prompts" \
+  "$fleet/mission-control/alpha/keeper-arrivals" "$fleet/mission-control/hub/keeper-arrivals"
 
 # A stream-json supervisor a killed suite left behind, its state directory
 # and working directory removed with the suite's scratch tree, is raised once
@@ -425,14 +570,6 @@ expect_no_out "a holder whose parent runs is not raised" "pid 5102"
 # A request that has just arrived is announced at once, as pending-prompt, so
 # the operator need not wait for the overdue bound; the requests new to one
 # pass are one event.
-pp_fresh() { # pp_fresh <worker> <request-suffix> <received>
-  mkdir -p "$fleet/streamjson/$1"
-  printf 'bbbb2222-bbbb-cccc-dddd-eeee0000000%s\tpermission\t%s\tpending\n' "$2" "$3" >"$fleet/streamjson/$1/journal"
-  printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
-  printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
-  printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
-  own_worker "$1" mission-control:alpha
-}
 pp_fresh cp-fresh-a 1 6990
 pp_fresh cp-fresh-b 2 6995
 OUT=$(cd "$repo" && mc_env env PATH="$tmp/bin:$PATH" PLANWRIGHT_MC_PROGRAM=alpha PLANWRIGHT_STREAMJSON_PENDING_AGE=900 /bin/bash "$repo_root/scripts/mc-keeper.sh" watch --now 7000 2>/dev/null)

@@ -874,12 +874,22 @@ burst is one wake (a batch whose names outgrow one event's text spans a
 few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
-Each goes to the worker's own program (its launcher row's, else the owner its
-dispatch record keeps). A worker that neither names is raised once, whichever
-keeper sees it first, as a `stream-json-worker-unowned` event under the hub
-program (`mission_control_escalation_hub`), so the stuck prompt still reaches
-a mission control; with no hub program configured the event stays with the
-program whose keeper found it, and its text says so.
+Each goes to the worker's own program: its launcher row's, else the owner its
+dispatch record keeps, else the configured program its name carries under the
+launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
+polish pass adding `-<suffix>`). A live worker with no row is raised once to
+that program as a `stream-json-worker-unregistered` event, so its mission
+control can retire it or launch it afresh. A worker none of these owns has its
+prompts raised to the hub program (`mission_control_escalation_hub`), marked
+unowned, and is raised once, whichever keeper sees it first, as a
+`stream-json-worker-unowned` event there. When the hub setting names no
+configured program (`none`, or a program not configured), the program whose
+keeper found it first takes both, recorded in the worker's directory so no
+other keeper raises them too (the first configured program when that record
+is unusable), and the event says so. None of these one-time events is raised
+while the launcher's list or the keeper's other inputs cannot be read, nor for
+a worker whose registry file the list skipped (another format's row). Routing
+only decides who hears a prompt: who may answer it is unchanged.
 The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
 a supervisor whose state directory is gone or records another supervisor,
@@ -892,7 +902,8 @@ burns a core); a service manager that runs one on purpose reads the same, so
 the event names what was read and the call stays the operator's. Each is its
 own event, by process. One listed for a
 minute is raised once for the machine as a
-`stream-json-worker-orphaned` event, routed as the unowned one is. Nothing
+`stream-json-worker-orphaned` event under the hub program, else the program
+whose keeper found it. Nothing
 signals it: the event says how to check it and stop it by hand.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends

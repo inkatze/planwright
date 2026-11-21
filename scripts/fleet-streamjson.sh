@@ -97,6 +97,13 @@
 #                    fleet-stop-lib.sh, stop_scratch_root_release)
 #   alarmed-<id>     the mark of a request whose overdue push has been made,
 #                    until the journal no longer reads it pending
+#   unregistered-announced / unowned-announced  the session-keeper's claim
+#                    that its one-time event about a worker with no launcher
+#                    row was raised (scripts/mc-keeper.sh announce_once)
+#   unowned-program  with no usable hub program, the program whose keeper
+#                    first found a worker nothing owns, which hears its
+#                    prompts; `unowned-program.*` and `.claim.*` the staging
+#                    temps of it and of the claims
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.* / .ratelimit.*
 #                    mktemp-beside-target staging

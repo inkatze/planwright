@@ -41,6 +41,7 @@ merge-ready	landed
 ready-to-merge	landed
 pr-merged	landed
 pending-prompt	act
+stream-json-worker-unregistered	act
 stall-open-selector	act
 followup-due	act
 stall-unsubmitted-prompt	act
