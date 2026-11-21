@@ -312,6 +312,72 @@ env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$tmp/launch.record" "$RUN" --workt
 grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=task' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/demo/task-1' "$tmp/show.show.env"
 verdict $? "a context the caller exports is never replaced by the record's" "env: $(cat "$tmp/show.show.env" 2>&1)"
 
+# --- a location in a git checkout runs only as that checkout's HEAD commits it -------------
+# The declaration names a file, not its content, and a worker can Write any
+# file in its worktree, so a location written or edited since HEAD is refused.
+fresh
+mkdir -p "$wt/tools" "$tmp/elsewhere"
+printf '#!/bin/sh\nprintf ran >>"%s/ran"\n' "$tmp" >"$wt/tools/mark.sh"
+chmod +x "$wt/tools/mark.sh"
+git -C "$wt" add tools && git -C "$wt" commit -q -m "chore: a step"
+cp "$wt/tools/mark.sh" "$tmp/elsewhere/mark.sh"
+ln -s "$tmp/elsewhere" "$wt/linked"
+loc_run() {
+  rm -f "$tmp/ran"
+  catalog "loc|kind: command|target: $1"
+  config 'steps_pre_ci: [loc]'
+  _lr=$(sr new-run)
+  srun resolve --run "$_lr" pre-ci --unattended >/dev/null 2>"$tmp/err"
+  srun command --run "$_lr" --point pre-ci --step loc >"$tmp/loc.out" 2>"$tmp/loc.err"
+}
+loc_refused() {
+  _rc=$?
+  [ "$_rc" -ne 0 ] && [ ! -e "$tmp/ran" ] && grep -q '^failed' "$tmp/loc.out" \
+    && grep -q 'not as HEAD commits it' "$tmp/loc.err"
+}
+loc_run "$wt/tools/mark.sh"
+[ $? -eq 0 ] && [ -s "$tmp/ran" ] && grep -q '^passed' "$tmp/loc.out"
+verdict $? "a committed, unmodified location runs" "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+loc_run tools/mark.sh
+[ $? -eq 0 ] && [ -s "$tmp/ran" ]
+verdict $? "a committed location named relative to the worktree runs" "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+cp "$wt/tools/mark.sh" "$tmp/mark.orig"
+printf 'printf pwned >>"%s/ran"\n' "$tmp" >>"$wt/tools/mark.sh"
+loc_run "$wt/tools/mark.sh"
+loc_refused
+verdict $? "a location edited since HEAD is refused before it runs" "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+git -C "$wt" add tools/mark.sh
+loc_run "$wt/tools/mark.sh"
+loc_refused
+verdict $? "a location staged but not committed is refused" "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+git -C "$wt" reset -q -- tools/mark.sh
+cp "$tmp/mark.orig" "$wt/tools/mark.sh"
+cp "$tmp/mark.orig" "$wt/tools/new.sh"
+chmod +x "$wt/tools/new.sh"
+loc_run "$wt/tools/new.sh"
+loc_refused
+verdict $? "a location HEAD does not hold is refused" "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+loc_run "$wt/linked/mark.sh"
+loc_refused
+verdict $? "a location spelled inside the worktree through a folder linked out of it is refused" \
+  "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+loc_run "$tmp/elsewhere/mark.sh"
+[ $? -eq 0 ] && [ -s "$tmp/ran" ]
+verdict $? "a location in no checkout keeps the declaration's trust" "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+catalog "loc|kind: command|target: $wt/tools/new.sh|hosting: in-session"
+config 'steps_pre_ci: [loc]'
+r=$(sr new-run)
+rm -f "$tmp/ran"
+srun resolve --run "$r" pre-ci --unattended >/dev/null 2>"$tmp/err"
+srun begin --run "$r" --point pre-ci --step loc --owner "$(owner)" >"$tmp/loc.out" 2>"$tmp/loc.err"
+loc_refused
+verdict $? "a session-hosted step's begin refuses the location too, printing no line to run" \
+  "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+cp "$tmp/mark.orig" "$wt/tools/mark.sh"
+loc_run "$wt/tools/mark.sh"
+[ $? -eq 0 ] && [ -s "$tmp/ran" ]
+verdict $? "the location put back byte for byte runs again" "out: $(cat "$tmp/loc.out" "$tmp/loc.err")"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

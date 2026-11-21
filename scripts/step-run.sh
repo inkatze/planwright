@@ -215,6 +215,46 @@ rgit() (
   exec git "$@"
 )
 
+# committed_location <abs-path>: 0 when a step's location may run. The
+# declaration names a file, not its content, and a worker can Write any file
+# in its worktree, so a location in a git checkout runs only as that
+# checkout's HEAD commits it: a regular file whose bytes are the blob HEAD
+# records at that path. A location spelled inside the unit's worktree is held
+# to it even when a symlinked folder resolves it elsewhere, and so is refused.
+# A location in no checkout (an installed tool) keeps the declaration's trust;
+# one inside a repository's own git folder does not.
+committed_location() {
+  local loc=$1 d full root line meta want have
+  d=$(cd -P -- "$(dirname -- "$loc")" 2>/dev/null && pwd -P) || return 1
+  full="$d/$(basename -- "$loc")"
+  case $loc in
+    "$worktree"/*) root=$worktree ;;
+    *)
+      if ! root=$(rgit -C "$d" rev-parse --show-toplevel 2>/dev/null); then
+        ! rgit -C "$d" rev-parse --git-dir >/dev/null 2>&1
+        return
+      fi
+      ;;
+  esac
+  case $full in
+    "$root"/*) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$full" ] && [ ! -L "$full" ] || return 1
+  line=$(rgit -C "$root" -c core.quotePath=false ls-tree --full-tree HEAD -- "${full#"$root"/}" 2>/dev/null) || return 1
+  case $line in
+    *"$NL"* | '') return 1 ;;
+  esac
+  meta=${line%%"$TAB"*}
+  [ "${line#*"$TAB"}" = "${full#"$root"/}" ] || return 1
+  case $meta in
+    '100644 blob '* | '100755 blob '*) want=${meta##* } ;;
+    *) return 1 ;;
+  esac
+  have=$(rgit -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
+  [ -n "$want" ] && [ "$want" = "$have" ]
+}
+
 worktree=''
 if [ "${1:-}" = --worktree ]; then
   [ $# -ge 2 ] || usage
@@ -724,6 +764,13 @@ render_line() {
   if ! LINE=$("$RS" "$CTX_POINT" ${MARK_ARGS[@]+"${MARK_ARGS[@]}"} --line "${ARGV[@]}" 2>"$work/ctx.err"); then
     cat "$work/ctx.err" >>"$1"
     cat "$work/ctx.err" >&2
+    finish failed "$1"
+  fi
+  if ! committed_location "$ROW_LOCATION"; then
+    printf 'step-run: step %s not run: its location %s is in a git checkout, but not as HEAD commits it; commit it or put it back\n' \
+      "$STEP" "$ROW_LOCATION" >"$work/loc.err"
+    cat "$work/loc.err" >>"$1"
+    cat "$work/loc.err" >&2
     finish failed "$1"
   fi
 }
