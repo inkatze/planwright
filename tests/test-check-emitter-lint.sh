@@ -236,8 +236,10 @@ if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
   # the config its HOME trusts: under a scratch HOME it refuses.
   if real_node=$(command -v node); then
     mkdir -p "$tmp/nodeshim" || exit 1
-    printf '#!/bin/sh\n[ "$HOME" = "%s" ] || { echo "mise ERROR Config files are not trusted" >&2; exit 1; }\nexec "%s" "$@"\n' \
-      "$HOME" "$real_node" >"$tmp/nodeshim/node"
+    # It leaves PATH before handing over, since a real shim it hands to
+    # falls back along PATH and would find this one again.
+    printf '#!/bin/sh\n[ "$HOME" = "%s" ] || { echo "mise ERROR Config files are not trusted" >&2; exit 1; }\nPATH=${PATH#"%s:"}\nexport PATH\nexec "%s" "$@"\n' \
+      "$HOME" "$tmp/nodeshim" "$real_node" >"$tmp/nodeshim/node"
     chmod +x "$tmp/nodeshim/node"
     out=$(
       hash -r
