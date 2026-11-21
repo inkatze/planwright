@@ -685,7 +685,7 @@ classify_redirect() {
 # --------------------------------------------------------------------------
 # Repo-root discovery and path containment (REQ-A1.10). repo_root walks up from
 # the payload cwd looking for a `.git` entry (a dir in a normal checkout, a file
-# in a worktree). canon_contained canonicalizes a script/bats path (resolving
+# in a worktree). canon_under canonicalizes a script/bats path (resolving
 # `..` and symlinks on its directory) and checks it resolves INSIDE the repo.
 repo_root_of() {
   local d=$1
@@ -733,17 +733,43 @@ canon_under() {
   esac
 }
 
-# canon_contained <path> <cwd>: canon_under against the repo root — prints the
-# canonical path and returns 0 only when it resolves inside the repository;
-# non-zero (DEFER) otherwise, including when the repo root cannot be resolved.
-canon_contained() {
-  local root
-  root=$(repo_root_of "$2") || return 1
-  canon_under "$1" "$2" "$root"
+# committed_blob <root> <rel> <full>: 0 when <full> (the canonical path of
+# <rel> under the work tree <root>) is a regular file whose bytes are exactly
+# the blob HEAD records for <rel>, as a plain or executable file. A file being
+# under scripts/ proves nothing about who wrote it: a worker may Write one and
+# run it, and through it reach paths its file tools are refused, so trusted
+# code is code a commit holds, and a file written or edited since prompts.
+# Plumbing only, so no index refresh (no write, no index.lock race with a
+# concurrent commit) and no filter or textconv driver runs. A verdict is kept
+# per path for the rest of the hook call, since a loop re-checks its body.
+COMMITTED_OK=''
+committed_blob() {
+  local root=$1 rel=$2 full=$3 key line meta path want have
+  key=$'\n'"$full"$'\n'
+  case $COMMITTED_OK in
+    *"$key"*) return 0 ;;
+  esac
+  [ -f "$full" ] && [ ! -L "$full" ] || return 1
+  line=$(git -C "$root" ls-tree --full-tree HEAD -- "$rel" 2>/dev/null) || return 1
+  case $line in
+    *$'\n'*) return 1 ;;
+  esac
+  meta=${line%%$'\t'*}
+  path=${line#*$'\t'}
+  [ "$path" = "$rel" ] || return 1
+  case $meta in
+    '100644 blob '* | '100755 blob '*) want=${meta##* } ;;
+    *) return 1 ;;
+  esac
+  have=$(git -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
+  [ -n "$want" ] && [ "$want" = "$have" ] || return 1
+  COMMITTED_OK=$COMMITTED_OK$key
+  return 0
 }
 
 # is_repo_script <path> <cwd>: 0 when <path> is a `.sh` under a scripts/ or
-# tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10).
+# tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10)
+# and matches what HEAD commits there (committed_blob).
 is_repo_script() {
   local p=$1 cwd=$2 full rel root
   case $p in
@@ -756,9 +782,10 @@ is_repo_script() {
   [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
   rel=${full#"$root"/}
   case $rel in
-    scripts/* | tests/* | */scripts/* | */tests/*) return 0 ;;
+    scripts/* | tests/* | */scripts/* | */tests/*) ;;
     *) return 1 ;;
   esac
+  committed_blob "$root" "$rel" "$full"
 }
 
 # planwright_roots: print, one per line and canonicalized, every planwright
@@ -852,7 +879,16 @@ is_planwright_script() {
     [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
     rel=${full#"$root"/}
     case $rel in
-      scripts/*) return 0 ;;
+      scripts/*)
+        # A root that is a git checkout (a tower or mission control run from
+        # one) lies outside the worktree, where the file tools still write,
+        # so it is held to what its HEAD commits, as the repository is. A
+        # root that is no checkout of its own is an install copy.
+        [ -e "$root/.git" ] || return 0
+        [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
+        committed_blob "$root" "$rel" "$full"
+        return
+        ;;
     esac
   done <<EOF
 $PW_ROOTS
@@ -877,10 +913,15 @@ is_trusted_script() {
 }
 
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
-# (used for `bats <file>`, which need not sit under scripts/ or tests/, and which
-# stays REPO-scoped — an install ships no test files to run).
+# and is a file HEAD commits there unchanged (used for `bats <file>`, which need
+# not sit under scripts/ or tests/, and which stays REPO-scoped — an install
+# ships no test files to run). A directory operand fails, since bats would run
+# whatever files it holds.
 is_contained_file() {
-  canon_contained "$1" "$2" >/dev/null
+  local root full
+  root=$(repo_root_of "$2") || return 1
+  full=$(canon_under "$1" "$2" "$root") || return 1
+  committed_blob "$root" "${full#"$root"/}" "$full"
 }
 
 # --------------------------------------------------------------------------

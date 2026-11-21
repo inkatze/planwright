@@ -558,7 +558,7 @@ repo_root_of() {
 # (an already-canonical root); returns non-zero (DEFER) otherwise — including
 # when <base> is empty, the path's directory cannot be resolved, or the final
 # component is a symlink (which could point OUT of <base>). Mirrors the worker
-# guard's canon_contained, generalized to an arbitrary containment root.
+# guard's canon_under.
 canon_under() {
   local p=$1 cwd=$2 base=$3 d b cd full
   [ -n "$base" ] || return 1

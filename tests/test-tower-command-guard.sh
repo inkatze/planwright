@@ -66,7 +66,7 @@ if [ ! -f "$WORKER_HOOK" ]; then
   exit 1
 fi
 
-# Default cwd for containment: a scratch repo with a .git marker and a
+# Default cwd for containment: a scratch git repository committing a
 # scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
 SANDBOX="$(mktemp -d)" || exit 1
 # A separate fake plugin root with a scripts/ dir, for the resolved-literal-path
@@ -84,7 +84,6 @@ mkdir -p "$LOOKALIKE/scripts"
 : >"$LOOKALIKE/scripts/fleet-streamjson.sh"
 : >"$LOOKALIKE/scripts/orchestrate-relay.sh"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
-: >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
 : >"$SANDBOX/scripts/tower-force-push.sh"
 ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias.sh"
@@ -95,6 +94,10 @@ ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
+# The worker guard behind the distinctness checks trusts only what HEAD commits.
+# shellcheck source=tests/lib/committed-fixture.sh
+. "$REPO_ROOT/tests/lib/committed-fixture.sh"
+fixture_commit "$SANDBOX" scripts tests || exit 1
 mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-select.sh"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
