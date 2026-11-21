@@ -636,8 +636,9 @@ spelled exactly that way whose content, read once, still hashes to its name,
 and refuses (exit 7; a recover reports it as a failed resume) on more than one
 record, a mismatch, a line outside the grammar, or a `mise-task-edit` or
 `spec-branch` marker of the layout the record replaced, which a worker could
-write and so is never read: launch such a worker fresh. That is what holds on a case-insensitive filesystem (default APFS, the Mac
-offload host's included), where the profile's case-sensitive denies do not:
+write and so is never read: launch such a worker fresh. That is what holds on
+a case-insensitive filesystem (default APFS, the Mac offload host's
+included), where the profile's case-sensitive denies do not:
 
 - **Created through a recased folder above it** (`StreamJson/<w>/...`): the
   name lands exactly, so the deny names it at any depth

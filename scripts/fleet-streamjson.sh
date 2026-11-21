@@ -2179,7 +2179,7 @@ opt_in_read() {
     '' | *[!0-9a-f]*) return 1 ;;
   esac
   [ "${#oi_id}" -eq 40 ] || [ "${#oi_id}" -eq 64 ] || return 1
-  oi_snap=$(mktemp) || return 1
+  oi_snap=$(mktemp "${TMPDIR:-/tmp}/planwright-opt-in-read.XXXXXX") || return 1
   if ! cp -- "$oi_f" "$oi_snap" || [ "$(opt_in_id "$1" --file "$oi_snap")" != "$oi_id" ] \
     || ! oi_body=$(cat -- "$oi_snap"); then
     rm -f -- "$oi_snap"
