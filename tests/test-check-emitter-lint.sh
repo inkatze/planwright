@@ -265,6 +265,17 @@ if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
 else
   printf '%s\n' "skip: pinned linter past a broken shim: mise resolves no markdownlint-cli2 here"
 fi
+printf 'key: value\n' >"$tmp/artifact"
+out=$(
+  unset HOME
+  . "$REPO_ROOT/tests/lib/emitter-lint.sh"
+  set -u
+  lint_emitted "$yml" fixture "$tmp/artifact" 2>&1
+)
+case "$?:$out" in
+  0:*) pass "a HOME unset at sourcing and at the call is not an unbound variable" ;;
+  *) fail "a HOME unset at sourcing and at the call broke the lint: $out" ;;
+esac
 bogus=nonsense
 if lint_emitted "$bogus" fixture "$tmp/artifact" 2>/dev/null; then
   fail "an unknown format was accepted"

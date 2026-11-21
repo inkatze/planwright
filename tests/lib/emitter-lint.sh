@@ -110,7 +110,7 @@ lint_emitted() {
 # under the HOME at sourcing, since a launcher that reaches its interpreter
 # through a shim refuses under a scratch HOME too.
 le_need() {
-  le_bin='' le_runhome=${le_home:-$HOME}
+  le_bin='' le_runhome=${le_home:-${HOME:-}}
   if command -v mise >/dev/null 2>&1; then
     le_bin=$(cd "$le_repo" && HOME=$le_runhome mise which "$1" 2>"$le_dir/probe") || le_bin=''
   fi
