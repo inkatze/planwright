@@ -947,8 +947,8 @@ mv "$tmp/oldeh/scripts/worker-mise-edit-guard.sh" "$tmp/oldeh/scripts/worker-mis
 printf '#!/bin/sh\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1" mise\n' \
   >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
 chmod +x "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
-# launch_oldeh <opt-in flag> [<VAR=value>...] — launch through the copied root;
-# sets l_rc to the launch's exit status.
+# launch_oldeh <opt-in flag or ''> [<VAR=value>...] — launch through the
+# copied root; sets l_rc to the launch's exit status.
 launch_oldeh() {
   lo_flag=$1
   shift
@@ -956,7 +956,7 @@ launch_oldeh() {
   env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" "$@" \
     /bin/sh "$tmp/oldeh/scripts/fleet-streamjson.sh" \
-    launch sjw9l7 execution-backends:4 --prompt-file "$tmp/prompt9" "$lo_flag" --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l7.err"
+    launch sjw9l7 execution-backends:4 --prompt-file "$tmp/prompt9" ${lo_flag:+"$lo_flag"} --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l7.err"
   l_rc=$?
 }
 # oldeh_refused <what> <stderr needle> — the last launch_oldeh refused (exit 9)
@@ -982,6 +982,14 @@ launch_oldeh --lefthook-edit CLAUDE_PLUGIN_ROOT="$tmp/no-such-root"
 oldeh_refused "an exported plugin root that does not resolve" "exports for the worker's hooks ($tmp/no-such-root) does not resolve"
 launch_oldeh --lefthook-edit CLAUDE_PLUGIN_ROOT="$tmp/no-such-root" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off
 oldeh_refused "an unresolvable plugin root with the approval proof off" "the plugin root the worker's hooks run from ($tmp/no-such-root) does not resolve"
+# warn softens the approval proof's refusal of it, never the file-tool one.
+launch_oldeh --lefthook-edit CLAUDE_PLUGIN_ROOT="$tmp/no-such-root" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn
+oldeh_refused "an unresolvable plugin root under warn, opted in" "the plugin root the worker's hooks run from ($tmp/no-such-root) does not resolve"
+grep -qF "exports for the worker's hooks ($tmp/no-such-root) does not resolve" "$tmp/c9l7.err" \
+  || fail "c9l: under warn the approval proof must still report the unresolvable root: $(cat "$tmp/c9l7.err")"
+launch_oldeh '' CLAUDE_PLUGIN_ROOT="$tmp/no-such-root" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn
+{ [ "$l_rc" -eq 0 ] && [ -s "$rec/argv" ] && grep -qF "($tmp/no-such-root) does not resolve" "$tmp/c9l7.err"; } \
+  || fail "c9l: under warn a launch with no opt-in must warn about an unresolvable root and launch (exit $l_rc: $(cat "$tmp/c9l7.err"))"
 # A mise-only profile wires the hook with no name-set argument, and that is
 # the call the proof makes: this hook judges only that call.
 # shellcheck disable=SC2016 # expanded by the stub when it runs

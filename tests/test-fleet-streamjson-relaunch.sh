@@ -295,6 +295,13 @@ mkdir -p "$tmp/nowg"
 cp -R "$here/../scripts" "$tmp/nowg/scripts"
 cp -R "$here/../config" "$tmp/nowg/config"
 rm -f "$tmp/nowg/scripts/worker-command-guard.sh"
+# The generator stub records where the relaunch asks for its check profile.
+cat >"$tmp/nowg/scripts/worker-settings-generate.sh" <<EOF
+#!/bin/sh
+for a; do out=\$a; done
+printf '%s\n' "\$out" >>'$tmp/gen-out'
+printf '{}\n' >"\$out"
+EOF
 mkdir -p "$tmp/rxtmp"
 rx_err=$(cd "$tmp" && env "${env_scrub[@]}" TMPDIR="$tmp/rxtmp" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
   SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
@@ -310,6 +317,10 @@ cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
   || fail "r2: a relaunch refused after its profile check rewrote the running worker's profile"
 # The check profile went to a scratch folder it removed, never beside the
 # worker's state where the worker's file tools reach.
+case $(cat "$tmp/gen-out" 2>/dev/null) in
+  "$tmp/rxtmp/"*/worker-settings.json) ;;
+  *) fail "r2: the relaunch must check its profile in a scratch folder under TMPDIR, not $(cat "$tmp/gen-out" 2>/dev/null)" ;;
+esac
 [ -z "$(ls -A "$tmp/rxtmp")" ] || fail "r2: the relaunch left its scratch behind: $(ls -A "$tmp/rxtmp")"
 for f in "$wdir"/*; do
   case ${f##*/} in
