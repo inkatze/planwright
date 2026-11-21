@@ -382,6 +382,7 @@ for c in 'git config a.c --list' 'git config --global core.hooksPath -x' 'git co
   'git config a.b -l' 'git config a.b -' 'git config --end-of-options --a.b --list'; do
   assert_defer "git config dashed value: $c" "$c"
 done
+assert_defer "git config display option negated back off sets" "git config --name-only --no-name-only a.b 9"
 assert_allow "git config read with a dashed value pattern" "git config --get-all a.b -x"
 # Another file or blob parsed as config prints its `key = value` lines.
 for c in 'git config -f other.cfg --list' 'git config --file=other.cfg --get a.b' 'git config --fil other.cfg -l' \

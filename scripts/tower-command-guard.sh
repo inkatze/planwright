@@ -1979,7 +1979,9 @@ guard_git() {
           continue
         fi
         case $a in
-          --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
+          # Actions only: a display option such as --name-only is negatable
+          # (`--name-only --no-name-only a.b v` sets a.b).
+          --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool) read_flag=1 ;;
           # Another file parsed as config prints its `key = value` lines.
           -f* | -[!-]*f* | --fil* | --bl*) return 1 ;;
           -- | --end-of-options) operands=1 ;;
