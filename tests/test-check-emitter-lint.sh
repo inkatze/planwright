@@ -232,9 +232,12 @@ if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
     1:*MD022*) pass "a HOME isolated after sourcing still lints with the pinned linter" ;;
     *) fail "a HOME isolated after sourcing did not lint with the pinned linter: $out" ;;
   esac
-  if (cd "$REPO_ROOT" && mise which node) >"$tmp/which" 2>&1; then
+  # A shim that falls back to a system interpreter, but only after reading
+  # the config its HOME trusts: under a scratch HOME it refuses.
+  if real_node=$(command -v node); then
     mkdir -p "$tmp/nodeshim" || exit 1
-    printf '#!/bin/sh\necho "mise ERROR No version is set for shim: node" >&2\nexit 1\n' >"$tmp/nodeshim/node"
+    printf '#!/bin/sh\n[ "$HOME" = "%s" ] || { echo "mise ERROR Config files are not trusted" >&2; exit 1; }\nexec "%s" "$@"\n' \
+      "$HOME" "$real_node" >"$tmp/nodeshim/node"
     chmod +x "$tmp/nodeshim/node"
     out=$(
       hash -r
@@ -245,7 +248,7 @@ if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
       *) fail "a linter whose interpreter is behind a broken shim did not lint: $out" ;;
     esac
   else
-    printf '%s\n' "skip: interpreter behind a broken shim: mise resolves no node here"
+    printf '%s\n' "skip: interpreter behind a broken shim: no node on PATH"
   fi
 else
   printf '%s\n' "skip: pinned linter past a broken shim: mise resolves no markdownlint-cli2 here"

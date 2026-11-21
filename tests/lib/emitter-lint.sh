@@ -54,7 +54,7 @@ lint_emitted() {
             "$le_repo" '"MD033": { "allowed_elements": ["details", "summary"] }'
         fi >"$le_dir/.markdownlint.jsonc"
         cp -- "$le_file" "$le_dir/emitted.md" || le_rc=1
-        [ "$le_rc" -ne 0 ] || (cd "$le_dir" && PATH=$le_path "$le_bin" emitted.md >"$le_dir/out" 2>&1) || {
+        [ "$le_rc" -ne 0 ] || (cd "$le_dir" && HOME=$le_runhome "$le_bin" emitted.md >"$le_dir/out" 2>&1) || {
           le_rc=1
           sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
         }
@@ -65,7 +65,7 @@ lint_emitted() {
     yaml)
       if le_need yamllint "$le_emitter"; then
         printf 'extends: %s/.yamllint\nrules:\n  document-start: disable\n' "$le_repo" >"$le_dir/config"
-        PATH=$le_path "$le_bin" --strict -c "$le_dir/config" "$le_file" >"$le_dir/out" 2>&1 || {
+        HOME=$le_runhome "$le_bin" --strict -c "$le_dir/config" "$le_file" >"$le_dir/out" 2>&1 || {
           le_rc=1
           sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
         }
@@ -85,7 +85,7 @@ lint_emitted() {
         sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
       }
       if le_need shellcheck "$le_emitter"; then
-        PATH=$le_path "$le_bin" -s "$le_dialect" "$le_file" >"$le_dir/out" 2>&1 || {
+        HOME=$le_runhome "$le_bin" -s "$le_dialect" "$le_file" >"$le_dir/out" 2>&1 || {
           le_rc=1
           sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
         }
@@ -103,24 +103,21 @@ lint_emitted() {
 }
 
 # le_need <tool> <emitter>: 0 with le_bin set to a copy of the tool that runs
-# from the lint's scratch directory under le_path; otherwise a skip line and
-# status 2 outside CI, a failure line and status 1 in it. The tool resolves
-# on the PATH mise gives the repository before the caller's: a shim passes
-# command -v, then refuses to run outside the checkout whose config pins its
-# version, and so does a launcher that reaches its interpreter through one.
-# Auto-install stays off so a lint never installs a tool.
+# from the lint's scratch directory under le_runhome; otherwise a skip line
+# and status 2 outside CI, a failure line and status 1 in it. The tool
+# resolves from the repository before PATH: a shim passes command -v, then
+# refuses to run outside the checkout whose config pins its version. It runs
+# under the HOME at sourcing, since a launcher that reaches its interpreter
+# through a shim refuses under a scratch HOME too.
 le_need() {
-  le_bin='' le_path=$PATH
+  le_bin='' le_runhome=${le_home:-$HOME}
   if command -v mise >/dev/null 2>&1; then
-    # shellcheck disable=SC2016 # the expansion belongs to the shell mise runs
-    le_path=$(cd "$le_repo" && HOME=${le_home:-$HOME} MISE_EXEC_AUTO_INSTALL=false \
-      mise exec -- sh -c 'printf "%s\n" "$PATH"' 2>"$le_dir/probe") || le_path=''
-    [ -n "$le_path" ] || le_path=$PATH
+    le_bin=$(cd "$le_repo" && HOME=$le_runhome mise which "$1" 2>"$le_dir/probe") || le_bin=''
   fi
-  le_bin=$(PATH=$le_path command -v "$1") || le_bin=''
+  [ -n "$le_bin" ] || le_bin=$(command -v "$1") || le_bin=''
   if [ -z "$le_bin" ]; then
     le_why="is not on PATH"
-  elif (cd "$le_dir" && PATH=$le_path "$le_bin" --version) >"$le_dir/probe" 2>&1; then
+  elif (cd "$le_dir" && HOME=$le_runhome "$le_bin" --version) >"$le_dir/probe" 2>&1; then
     return 0
   else
     le_why="does not run outside the repository: $le_bin: $(head -n 1 "$le_dir/probe")"
