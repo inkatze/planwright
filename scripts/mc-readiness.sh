@@ -200,10 +200,12 @@ Usage:
       pre-pipeline bundle has, is unsigned, each named apart with its path;
       a Done bundle with no kickoff-brief.md at the head is a legacy one,
       finished before kickoff existed, and signed with the detail `legacy,
-      no kickoff brief`, unless the pull request deletes its brief, the
-      base branch's remote-tracking ref holds one, or the pull request names
-      no base or that ref cannot be read; a brief that is present never
-      makes a bundle legacy); a pull
+      no kickoff brief`, when the base branch's remote-tracking ref already
+      holds the bundle as Done or with no Status line and holds no brief for
+      it, and the pull request deletes none; a bundle the pull request adds
+      or marks Done, a pull request naming no base, and a ref that cannot be
+      read all refuse, and a brief that is present never makes a bundle
+      legacy); a pull
       request touching only `_` accumulators or files directly under the
       root has no bundle to sign off), for any other pull request the same
       sign-off for each bundle it edits (one it removes aside) and the
@@ -827,7 +829,7 @@ bundle_signoff() {
   case $mode in
     '')
       if [ "$st" = Done ]; then
-        legacy_bundle "$repo" "$rel" "$b" "$6" "$7"
+        legacy_bundle "$repo" "$rel" "$b" "$6" "$7" "$d"
         return
       fi
       printf 'it has no kickoff brief at the head'
@@ -884,13 +886,15 @@ bundle_signoff() {
   fi
 }
 
-# legacy_bundle <repo> <root rel> <bundle> <base ref> <pr read>: for a Done
-# bundle with no kickoff brief at the head, return 5 when it finished before
-# kickoff existed, or print why that cannot be told: the pull request deletes
-# its brief, the base holds one, or the base cannot be read. Deleting a brief
-# must never turn a signed bundle legacy.
+# legacy_bundle <repo> <root rel> <bundle> <base ref> <pr read> <scratch dir>:
+# for a Done bundle with no kickoff brief at the head, return 5 when it
+# finished before kickoff existed, or print why that cannot be told: the pull
+# request deletes its brief, the base holds one, the base cannot be read, or
+# the base does not hold the bundle as Done or from before the pipeline (no
+# Status line). Deleting a brief, adding a bundle, or marking one Done in the
+# pull request must never make it legacy.
 legacy_bundle() {
-  local p="$2/$3/kickoff-brief.md" kb name mode rc=0
+  local p="$2/$3/kickoff-brief.md" req="$2/$3/requirements.md" kb name mode st rc=0
   kb=$(sanitize_printable "$p")
   P=$p awk -F '\t' '$1 == "path" && $2 == ENVIRON["P"] && $3 == "DELETED" { found = 1; exit } END { exit !found }' "$5" || rc=$?
   case $rc in
@@ -921,7 +925,32 @@ legacy_bundle() {
     printf "it has no kickoff brief at the head, but the pull request's base %s holds one (%s)" "$name" "$kb"
     return 0
   fi
-  return 5
+  if ! mode=$(mc_untrusted_git -C "$1" --literal-pathspecs ls-tree "$4" -- "$req" 2>/dev/null); then
+    printf "it has no kickoff brief at the head, and git could not list %s at the pull request's base %s" "$(sanitize_printable "$req")" "$name"
+    return 0
+  fi
+  case ${mode%% *} in
+    '')
+      printf "it has no kickoff brief at the head, and the pull request's base %s does not hold the bundle, so it cannot have finished before kickoff" "$name"
+      return 0
+      ;;
+    100644 | 100755) ;;
+    *)
+      printf "it has no kickoff brief at the head, and its requirements.md at the pull request's base %s cannot be read for its status" "$name"
+      return 0
+      ;;
+  esac
+  rc=0
+  mc_untrusted_git -C "$1" cat-file blob "$4:$req" >"$6/base-requirements.md" 2>/dev/null \
+    && st=$(spec_parse_header_value "$6/base-requirements.md" Status 2>/dev/null) || rc=1
+  if [ "$rc" != 0 ]; then
+    printf "it has no kickoff brief at the head, and its requirements.md at the pull request's base %s cannot be read for its status" "$name"
+    return 0
+  fi
+  case $st in
+    '' | Done) return 5 ;;
+  esac
+  printf "it has no kickoff brief at the head, and the pull request's base %s holds it at status %s, so it did not finish before kickoff" "$name" "$(sanitize_printable "$st")"
 }
 
 # collect <program> <slug> <pr> <worktree> <out>

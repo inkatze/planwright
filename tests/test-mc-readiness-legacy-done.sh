@@ -70,12 +70,34 @@ hasnt "a pull request that also changes code is no spec-only scope" "scope${tab}
 row "and the legacy bundle it edits is accepted there too" "signed${tab}legacy, no kickoff brief"
 git -C "$repo" rm -rq app
 
-# A base that does not hold the bundle at all is briefless too.
+# Legacy means finished before kickoff: the base must already hold the bundle,
+# Done or from before the pipeline (no Status line).
 git -C "$repo" rm -rq specs/demo
 base_at "$(commit_specs)"
 bundle demo Done none
 spec_pr "$(commit_specs)" 'specs/demo/requirements.md|ADDED' 'specs/demo/design.md|ADDED'
-row "a legacy Done bundle the base lacks is accepted" "signed${tab}legacy, no kickoff brief"
+row "a Done bundle the pull request adds is not legacy" \
+  "unsigned${tab}it has no kickoff brief at the head, and the pull request's base origin/main does not hold the bundle, so it cannot have finished before kickoff"
+for st in Draft Ready Active; do
+  bundle demo "$st" none
+  base_at "$(commit_specs)"
+  bundle demo Done none
+  spec_pr "$(commit_specs)" specs/demo/requirements.md
+  row "a briefless $st bundle the pull request marks Done is not legacy" \
+    "unsigned${tab}it has no kickoff brief at the head, and the pull request's base origin/main holds it at status $st, so it did not finish before kickoff"
+done
+bundle demo Done none
+printf '# Demo Requirements\n\n## Section\n\n- The system shall do the thing.\n' >"$repo/specs/demo/requirements.md"
+base_at "$(commit_specs)"
+bundle demo Done none
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+row "a pre-pipeline bundle the pull request marks Done is legacy" "signed${tab}legacy, no kickoff brief"
+printf '# demo\n\n**Status:** Done\n**Status:** Draft\n\nBody.\n' >"$repo/specs/demo/requirements.md"
+base_at "$(commit_specs)"
+bundle demo Done none
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+row "a base requirements.md whose Status does not parse is not read as legacy" \
+  "unsigned${tab}it has no kickoff brief at the head, and its requirements.md at the pull request's base origin/main cannot be read for its status"
 
 # Only Done is legacy.
 for st in Active Ready Draft; do
