@@ -2129,7 +2129,7 @@ OPT_IN_PREFIX=planwright-opt-in.
 # and a recover started in different repositories name it alike.
 opt_in_id() {
   (
-    cd "$1" || exit 1
+    cd -- "$1" || exit 1
     unset GIT_DIR GIT_WORK_TREE
     git hash-object --no-filters -- "$2"
   ) 2>/dev/null
@@ -2193,23 +2193,23 @@ opt_in_write() {
   [ "$ow_old" != "$2" ] || return 0
   ow_tmp=''
   if [ -n "$2" ]; then
-    ow_tmp=$(mktemp "$1/.opt-in.XXXXXX") || return 1
+    ow_tmp=$(mktemp -- "$1/.opt-in.XXXXXX") || return 1
     if ! printf '%s\n' "$2" >"$ow_tmp" || ! ow_id=$(opt_in_id "$1" "$ow_tmp") || [ -z "$ow_id" ]; then
-      rm -f "$ow_tmp"
+      rm -f -- "$ow_tmp"
       return 1
     fi
   fi
-  if ! rm -f "$1/session"; then
-    [ -z "$ow_tmp" ] || rm -f "$ow_tmp"
+  if ! rm -f -- "$1/session"; then
+    [ -z "$ow_tmp" ] || rm -f -- "$ow_tmp"
     return 1
   fi
-  if ! find "$1" -maxdepth 1 -name "$OPT_IN_PREFIX*" -exec rm -f {} + 2>/dev/null; then
-    [ -z "$ow_tmp" ] || rm -f "$ow_tmp"
+  if ! find "$1" -maxdepth 1 -name "$OPT_IN_PREFIX*" -exec rm -f -- {} + 2>/dev/null; then
+    [ -z "$ow_tmp" ] || rm -f -- "$ow_tmp"
     return 1
   fi
   # The one-file-per-opt-in layout this replaced, which is no longer read.
-  rm -f "$1/mise-task-edit" "$1/spec-branch"
-  [ -z "$ow_tmp" ] || mv -f "$ow_tmp" "$1/$OPT_IN_PREFIX$ow_id"
+  rm -f -- "$1/mise-task-edit" "$1/spec-branch"
+  [ -z "$ow_tmp" ] || mv -f -- "$ow_tmp" "$1/$OPT_IN_PREFIX$ow_id"
 }
 
 # --- subcommands ------------------------------------------------------------
