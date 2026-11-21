@@ -263,6 +263,13 @@ for c in 'git config --comment --list a.b 9' 'git config --global --comment --ge
   'git config --c --list a.b 9' 'git config --comm=hi --get a.b 9'; do
   assert_defer "git config --comment write: $c" "$c"
 done
+# git stops reading options at the first operand or `--`, so a dashed word
+# after it is a value and each of these sets a key.
+for c in 'git config a.c --list' 'git config --global core.hooksPath -x' 'git config --global -- a.d --get' \
+  'git config a.b -l' 'git config a.b -'; do
+  assert_defer "git config dashed value: $c" "$c"
+done
+assert_allow "git config read with a dashed value pattern" "git config --get-all a.b -x"
 assert_defer "git config -f inside a short cluster reads another file" "git config -zf other.cfg --list"
 assert_defer "git config -f ending a short cluster reads another file" "git config -lf other.cfg"
 # A short cluster carrying e defers wherever the e sits, so a -t value holding

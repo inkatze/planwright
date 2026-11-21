@@ -3888,20 +3888,32 @@ guard_git() {
       return 0
       ;;
     config)
-      local positional=0 read_flag=0
-      # git reads a subcommand only as the word right after `config`.
-      case ${cw[subidx + 1]-} in
+      local positional=0 read_flag=0 operands=0 first=$((subidx + 1))
+      # git reads a subcommand only as the word right after `config`; `list`
+      # takes its own options after it.
+      case ${cw[first]-} in
         set | unset | rename-section | remove-section | edit) return 1 ;;
+        list) first=$((first + 1)) ;;
       esac
-      for ((i = subidx + 1; i < cwn; i++)); do
+      for ((i = first; i < cwn; i++)); do
         a=${cw[i]}
         git_config_write_opt "$a" && return 1
+        # git stops reading options at the first operand or `--`, so a dashed
+        # word after it is an operand: `git config core.hooksPath -x` sets it.
+        if [ "$operands" = 1 ]; then
+          positional=$((positional + 1))
+          continue
+        fi
         case $a in
           --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
           # Another file parsed as config prints its `key = value` lines.
           -f* | -[!-]*f* | --fil* | --bl*) return 1 ;;
-          -*) ;; # scope/format flags (--global/--type/…) are read-safe
-          *) positional=$((positional + 1)) ;;
+          --) operands=1 ;;
+          -?*) ;; # scope/format flags (--global/--type/…) are read-safe
+          *)
+            operands=1
+            positional=$((positional + 1))
+            ;;
         esac
       done
       [ "$read_flag" = 1 ] && return 0
