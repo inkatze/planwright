@@ -259,9 +259,13 @@ if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
       1:*MD022*) pass "a linter whose interpreter is behind a broken shim still lints" ;;
       *) fail "a linter whose interpreter is behind a broken shim did not lint: $out" ;;
     esac
+  elif [ -n "${CI:-}" ]; then
+    fail "interpreter behind a broken shim: no node on PATH in CI"
   else
     printf '%s\n' "skip: interpreter behind a broken shim: no node on PATH"
   fi
+elif [ -n "${CI:-}" ]; then
+  fail "pinned linter past a broken shim: mise resolves no markdownlint-cli2 in CI: $(cat "$tmp/which")"
 else
   printf '%s\n' "skip: pinned linter past a broken shim: mise resolves no markdownlint-cli2 here"
 fi
