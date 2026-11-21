@@ -1011,11 +1011,14 @@ refuses a write of each opted-in name set outside the worktree (`mise.toml`,
 those names' broad denies, so a copy that does not judge them (one from before
 the opt-in, or a missing one) refuses the launch with exit 9. That proof guards
 containment rather than approvals, so the knob below neither skips nor softens
-it; a relaunch runs it before regenerating the worker's profile. A resume
+it. A relaunch runs it and checks the profile still generates, into a file
+aside, before the stop, so a refused relaunch leaves the running worker's
+profile as it was. A resume
 (`--resume-session`) takes neither flag: it keeps the opt-ins its launch
 recorded.
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
-downgrades every refusal to a warning and launches, `off` skips the proof, and
+downgrades every approval refusal above to a warning and launches, `off` skips
+the approval proof, and
 any other value is a usage error. The installed roots the proof covers are
 read through the same resolver the hook trusts them from, so that set cannot
 diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,

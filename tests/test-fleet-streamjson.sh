@@ -947,38 +947,62 @@ mv "$tmp/oldeh/scripts/worker-mise-edit-guard.sh" "$tmp/oldeh/scripts/worker-mis
 printf '#!/bin/sh\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1" mise\n' \
   >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
 chmod +x "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+# launch_oldeh <opt-in flag> [<VAR=value>...] — launch through the copied root.
 launch_oldeh() {
+  lo_flag=$1
+  shift
   : >"$rec/argv"
   env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" "$@" \
     /bin/sh "$tmp/oldeh/scripts/fleet-streamjson.sh" \
-    launch sjw9l7 execution-backends:4 --prompt-file "$tmp/prompt9" "$flag" --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l7.err"
+    launch sjw9l7 execution-backends:4 --prompt-file "$tmp/prompt9" "$lo_flag" --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l7.err"
+}
+# oldeh_refused <what> <stderr needle> — the last launch_oldeh refused (exit 9)
+# before a spawn, naming the needle, and recorded no opt-in.
+oldeh_refused() {
+  { [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ] && grep -qF -- "$2" "$tmp/c9l7.err"; } \
+    || fail "c9l: $1 must refuse the launch (exit 9) before a spawn, naming '$2' (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+  [ ! -e "$home/streamjson/sjw9l7/lefthook-edit" ] || fail "c9l: $1: a launch refused at the preflight must record no opt-in"
 }
 # The knob that softens the approval proof neither skips nor softens this one.
 for mode in refuse warn off; do
-  flag=--lefthook-edit
-  launch_oldeh PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT="$mode"
+  launch_oldeh --lefthook-edit PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT="$mode"
   l_rc=$?
-  { [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ] && grep -q "does not judge the opted-in names (failed: lefthook)" "$tmp/c9l7.err"; } \
-    || fail "c9l: under preflight mode $mode, a hook that ignores the lefthook argument must refuse the launch (exit 9) before a spawn (exit $l_rc: $(cat "$tmp/c9l7.err"))"
-  [ ! -e "$home/streamjson/sjw9l7/lefthook-edit" ] || fail "c9l: a launch refused at the preflight must record no opt-in"
+  oldeh_refused "under preflight mode $mode, a hook that ignores the lefthook argument" "does not judge the opted-in names (failed: lefthook)"
 done
-flag=--mise-task-edit
-launch_oldeh
+launch_oldeh --mise-task-edit
 l_rc=$?
 [ "$l_rc" -eq 0 ] || fail "c9l: the same hook still judges the mise names, so a mise-only launch passes (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+# The approval proof, which also needs TMPDIR, is off so this one is reached.
+launch_oldeh --lefthook-edit TMPDIR="$tmp/no-such-dir" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off
+l_rc=$?
+oldeh_refused "a proof with nowhere to run" "cannot create a folder to prove the file-tool hook in"
 # A hook that refuses every write proves nothing about the names: the plain
 # file is the control.
 cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
 #!/bin/sh
 cat >/dev/null
-printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}'
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"x"}}'
 EOF
-flag=--lefthook-edit
-launch_oldeh
+launch_oldeh --lefthook-edit
 l_rc=$?
-{ [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ] && grep -q "failed: the-control-file" "$tmp/c9l7.err"; } \
-  || fail "c9l: a hook that refuses a plain file too must refuse the launch (exit 9) before a spawn (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+oldeh_refused "a hook that refuses a plain file too" "refused a plain file outside the worktree"
+# Only the single line of hook JSON counts as a refusal.
+cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
+#!/bin/sh
+p=$(cat)
+case $p in
+  *plain.txt*) exit 0 ;;
+esac
+printf '%s\n' 'debug: judging' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"x"}}'
+EOF
+launch_oldeh --lefthook-edit
+l_rc=$?
+oldeh_refused "a hook whose refusal is not one line of hook JSON" "does not judge the opted-in names (failed: lefthook)"
+rm -f "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --lefthook-edit
+l_rc=$?
+oldeh_refused "a missing file-tool hook" "did not run (exit"
 echo "ok: c9l lefthook config opt-in: per-launch profile, recorded for recover, composes with the mise opt-in, refused elsewhere"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.
