@@ -127,11 +127,12 @@ Usage:
       read: exit 0 live (open, at that head, a bot review of that head and
       no open bot review thread); 4 stale, printing `stale<TAB><why>` (merged,
       closed, or the head moved); 5 not yet, printing `pending<TAB><why>`
-      (no bot review of the head, or an open bot thread); 1 the read failed,
-      printing `unknown<TAB><why>`. A bot is an account the forge types Bot
-      or whose login ends in [bot]. PR-Agent posts comments, not a review,
-      so a PR-Agent check run finished SUCCESS at the head is a bot review
-      of it too.
+      (no bot review of the head, or an open bot thread); 1 the read failed
+      or named no known state, printing `unknown<TAB><why>`. A bot is an
+      account the forge types Bot or whose login ends in [bot]. PR-Agent
+      posts comments, not a review, so a PR-Agent check run at the head
+      finished SUCCESS, NEUTRAL or SKIPPED (its opt-out, as
+      scripts/mc-readiness.sh reads it) is a bot review of it too.
 
 Exit codes: 0 done; 1 a failed read, check, store or event, or anything
 left unknown (watch: but a stale snapshot or none yet); 2 usage; 3 the
@@ -262,7 +263,8 @@ fresh_check() {
       ($p.commits.nodes[0].commit? // {} | . as $c
         | (if $c.statusCheckRollup.contexts.pageInfo.hasNextPage then "truncated\tchecks" else empty end),
           ($c.statusCheckRollup.contexts.nodes[]?
-            | select(.__typename == "CheckRun" and ((.name // "") | test("^PR-Agent( |$)")) and .status == "COMPLETED" and .conclusion == "SUCCESS")
+            | select(.__typename == "CheckRun" and ((.name // "") | test("^PR-Agent( |$)")) and .status == "COMPLETED"
+              and (.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED"))
             | "botreview\t" + ($c.oid // "-"))),
       ($p.reviewThreads.nodes[]? | select((.isResolved | not) and (.comments.nodes[0] // {} | bot)) | "botthread\topen")
       end' 2>"$fc_err" </dev/null) || {

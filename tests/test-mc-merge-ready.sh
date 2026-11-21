@@ -116,7 +116,7 @@ case "\$1 \$2" in
 esac
 if [ "\$1 \$2" = "api graphql" ]; then
   # The fresh read: raw JSON from fresh.<n> (default: an open pull request at
-  # head.<n> with a bot review of that head and every bot thread resolved),
+  # head.<n> whose PR-Agent check run there passed and with no bot thread),
   # run through the caller's own --jq program.
   n="" q=""
   while [ \$# -gt 0 ]; do
@@ -130,7 +130,7 @@ if [ "\$1 \$2" = "api graphql" ]; then
   if [ ! -f "\$f" ]; then
     h=\$(cat "$tmp/head.\$n" 2>/dev/null) || { printf 'HTTP 502\n' >&2; exit 1; }
     f="$tmp/fresh.default"
-    printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[{"author":{"__typename":"Bot","login":"pr-agent[bot]"},"commit":{"oid":"%s"}}]},"reviewThreads":{"nodes":[]}}}}}' "\$h" "\$h" >"\$f"
+    printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","name":"PR-Agent","status":"COMPLETED","conclusion":"SUCCESS"}]}}}}]}}}}}' "\$h" "\$h" >"\$f"
   fi
   [ "\$(cat "\$f")" != fail ] || { printf 'HTTP 502\n' >&2; exit 1; }
   jq -r "\$q" "\$f"
@@ -563,6 +563,12 @@ expect_rc "a PR-Agent run on another commit is pending" 5
 printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":true},"nodes":[]}}}}]}}}}}' "$H" "$H" >"$tmp/fresh.39"
 run fresh --program alpha --repo acme/web --pr 39 --head "$H"
 expect_rc "no PR-Agent run on a truncated check page is unknown, never pending" 1
+pragent 39 "$H" "$H" COMPLETED '"SKIPPED"'
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a skipped PR-Agent run, its opt-out, is the bot review" 0
+pragent 39 "$H" "$H" COMPLETED '"FAILURE"'
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a failed PR-Agent run is not" 5
 fresh 39 OPEN "$J" "$J" 0
 run fresh --program alpha --repo acme/web --pr 39 --head "$H"
 expect_rc "a pull request whose head moved is stale" 4
