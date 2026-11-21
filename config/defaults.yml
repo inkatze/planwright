@@ -898,8 +898,8 @@ tower_picklist_window: 30m
 tower_batch_max: 3
 
 # How a tower's bring-up is to respond to running in a checkout's main tree
-# rather than its own linked worktree; no bring-up reads it yet, so today no
-# value changes what a tower does. `warn` says so once and continues; `refuse`
+# rather than its own linked worktree; the bring-up of /tower and /orchestrate
+# reads it. `warn` says so once and continues; `refuse`
 # holds repo-mutating routes and relay until the tower moves or the operator
 # acknowledges; `allow` says nothing, and is how a dedicated tower clone (which
 # git cannot tell from the primary checkout) declares itself, set in that
