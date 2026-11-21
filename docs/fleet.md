@@ -1207,7 +1207,9 @@ none, and the resumed session gets `--model` and `--effort` for each dimension
 that does not resolve to `inherit`; a tier model, effort or reservation the
 launch recorded is handed back to that plan as an override. A launch's
 `--mise-task-edit` opt-in is kept too: the relaunch regenerates the worker's
-per-launch settings profile, and a profile it cannot generate is exit `7`.
+per-launch settings profile, and a profile it cannot generate is exit `7`, as
+is an opt-in record a recover or relaunch cannot trust (see
+[the permission-matcher model](permission-matcher-model.md#the-mise-task-file-opt-in)).
 Any other extra argument the original launch passed after `--` is not carried
 over. (`recover --cwd <dir>` is
 available on its own; without it a recover

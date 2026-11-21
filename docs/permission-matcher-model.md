@@ -537,6 +537,33 @@ lockfiles, the hooks directories, the
 local and non-YAML lefthook config, the session records, and repo-side
 overlays are not protected at all.
 
+### Code a worker runs unprompted
+
+The Write tool reaches `scripts/` and `tests/`, so where a script sits proves
+nothing about who wrote it. The command guard approves a repository script
+(a `.sh` under `scripts/` or `tests/`), a `bats` file, and a script under a
+planwright root that is a git checkout only when the checkout's HEAD commits
+it with the same bytes (`scripts/worker-command-guard.sh`, `committed_blob`);
+an install copy, which is no checkout of its own, is trusted by location. A
+script a worker wrote or edited and has not committed prompts, whichever
+spelling reaches it (`sh`, `bash`, a direct path, a symlinked folder, a `..`
+walk, inside `fish -c` or a loop), and so does `bats` on a folder. So a worker
+cannot write a script and run it unprompted to reach a path its file tools are
+refused: the local and primary-checkout hook config, the fleet state folder's
+opt-in record, the session records.
+
+What still runs code a worker wrote without a prompt:
+
+- **A script it committed.** The own-branch arm approves a commit, after
+  which HEAD holds the script. The commit sits on the unit branch and in its
+  PR, where review sees it.
+- **The repository's tasks and hooks.** `mise run <task>` and `lefthook run
+  <hook>` run config the path denies protect, and whatever that config runs,
+  the test files a worker wrote among them: the gate has to run what the
+  worker wrote.
+- **A committed script handed a path.** The guard checks the script it runs,
+  not what that script goes on to execute.
+
 ## The mise task-file opt-in
 
 The shipped profile denies the file tools every mise task-file name
@@ -548,7 +575,7 @@ must edit the repository's own task files is therefore launched with
 rung; worker profile only, off by default). The opt-in is a launch argument and
 nothing else: it is recorded as `mise_task_edit=1` in the session record the
 launcher writes outside the worktree (`scripts/worker-session-record.sh`) and
-beside the worker's state for a recover, and is never read from live config,
+in the launch's opt-in record for a recover (below), and is never read from live config,
 the checkout or the environment. A fresh launch without the flag drops it; a
 recover or relaunch keeps what its launch recorded.
 
@@ -580,10 +607,33 @@ neither (it passes the shipped profile itself, byte for byte):
   one `mise_task_edit=1`. The scratch zone, anything outside the worktree, and
   every other excluded name stay closed.
 
-The generated profile and its opt-in marker sit in the worker's fleet state
-folder (`streamjson/<worker>/`), which the profile's path denies refuse to the
-file tools (`mise-task-edit`, `worker-settings.json`), as they do the session
-records, so a worker cannot opt itself in for its next recover.
+The generated profile and the launch's opt-in record sit in the worker's fleet
+state folder (`streamjson/<worker>/`). The record holds every opt-in the launch
+was given (`mise_task_edit=1`, `spec_branch=<branch>`), one line each, in one
+file named `planwright-opt-in.<blob id>`, the git blob id of its own content
+(`scripts/fleet-streamjson.sh`, `OPT_IN_PREFIX`). A fresh launch writes it by
+one rename, and when the set changes it first removes the old `session`, so a
+launch that fails part way leaves either the earlier set with its session or
+no session at all, never a session beside a set its launch did not ask for. A
+recover or relaunch reads only an entry spelled exactly that way whose content
+still hashes to its name, and refuses (exit 7) on two records or a mismatch.
+That is what holds on a case-insensitive filesystem (default APFS, the Mac
+offload host's included), where the profile's case-sensitive denies do not:
+
+- **Created through a recased folder above it** (`StreamJson/<w>/...`): the
+  name lands exactly, so the deny names it at any depth
+  (`Edit(//**/planwright-opt-in.*)`), never under a folder a recasing escapes.
+- **Created under a recased name of its own** (`Planwright-Opt-In.<id>`): the
+  deny misses it, and the read, which matches the directory entry exactly
+  (`find -name`, never a path open), never sees it.
+- **Rewritten in place through a recased name**: the content no longer hashes
+  to the name, which refuses the recover rather than honour it.
+
+`worker-settings.json` is regenerated from the shipped profile by every launch,
+recover and relaunch of an opted-in worker before it is read, so a rewrite of it
+is never used. The session records and the state folder's other files are not
+covered by this: the records keep their `session-records/*.record` deny, which
+a recased spelling passes on a case-insensitive filesystem (MA-2).
 
 Residual risk: the hook compares paths case-sensitively and works from the
 payload's own spelling and the filesystem, so it is a fail-closed second layer
@@ -596,7 +646,8 @@ lockfile row and each ancestor's task files, the primary checkout's included,
 stay denied, and each literal ancestor deny is the only rule blocking at least
 one row. `tests/test-worker-command-guard-mise-tasks.sh` pins the guard half,
 `tests/test-worker-settings-generate.sh` the generator, and
-`tests/test-fleet-streamjson.sh` (c9m) the launcher.
+`tests/test-fleet-streamjson.sh` the launcher (c9m, with c9o for the record's
+single write and c9q for its exact-entry read).
 
 ## The spec-branch launch record
 
