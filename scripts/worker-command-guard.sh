@@ -440,7 +440,9 @@ tokenize() {
             # bash keeps the backslash before any other character, and
             # guard_fish must see it.
             case $dn in
-              '$' | '`' | '"' | "\\" | "$NL") k="$k$dn" ;;
+              '$' | '`' | '"' | "\\") k="$k$dn" ;;
+              # bash drops a backslash-newline whole, joining the word's halves.
+              "$NL") return 1 ;;
               *) k="$k\\$dn" ;;
             esac
             j=$((j + 2))

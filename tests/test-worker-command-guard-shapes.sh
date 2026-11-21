@@ -118,8 +118,14 @@ done
 # fish keeps reading its options after the string: a second -c or an
 # --init-command runs, -o/-p write a file, and --help opens fish's man page.
 for c in "fish -c 'git status' -c 'touch pwned'" "fish -c 'git status' --init-command 'touch pwned'" \
-  "fish -c 'git status' -C 'touch pwned'" "fish -c 'git status' -o out.txt" "fish -c 'git status' --help"; do
+  "fish -c 'git status' -C 'touch pwned'" "fish -c 'git status' -o out.txt" "fish -c 'git status' -p out.prof" \
+  "fish -c 'git status' --profile=out.prof" "fish -c 'git status' --help"; do
   assert_defer "fish option after the string: $c" "$c"
+done
+# Inside double quotes bash drops a backslash-newline whole, so the word's
+# halves join: git gets `--help`, find gets `-delete`.
+for c in $'git status "--he\\\nlp"' $'find sub "-de\\\nlete"'; do
+  assert_defer "backslash-newline inside double quotes: ${c%%\\*}" "$c"
 done
 assert_allow "fish -c with braces and no comma" "fish -c 'git log HEAD@{1}'"
 assert_allow "double-quoted fish -c string" 'fish -c "git log --oneline -3"'

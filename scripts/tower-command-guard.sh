@@ -300,6 +300,8 @@ tokenize() {
           if [ "$dc" = "\\" ]; then
             dn=${s:j+1:1}
             [ -n "$dn" ] || return 1
+            # bash drops a backslash-newline whole, joining the word's halves.
+            [ "$dn" = "$NL" ] && return 1
             [ "$dn" = '$' ] && curx=1 # \$ inside double quotes is literal
             k="$k$dn"
             j=$((j + 2))

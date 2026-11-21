@@ -410,6 +410,11 @@ for c in 'git log --oneline --help' 'git log --hel' 'git log --he' 'git log --h'
   assert_defer "git could read it as --help, fails closed: $c" "$c"
 done
 assert_defer "accepted over-block: --help as a pathspec" "git log -- --help"
+# Inside double quotes bash drops a backslash-newline whole, so the word's
+# halves join: git gets `--help`, find gets `-delete`.
+for c in $'git status "--he\\\nlp"' $'find sub "-de\\\nlete"'; do
+  assert_defer "backslash-newline inside double quotes: ${c%%\\*}" "$c"
+done
 # Regression rows: these verbs' own screens already deferred them.
 for c in 'git branch --help' 'git branch --list --help' 'git tag --help' 'git stash --help' 'git remote --help' \
   'git reflog --help' 'git worktree --help' 'git symbolic-ref --help' \
