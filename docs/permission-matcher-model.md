@@ -692,9 +692,11 @@ on that pull request can land a forward merge of `main` and nothing else:
   resolved by hand or any edit inside the merge refuses, spec files or not,
   and so do a direct spec edit, any non-merge commit, a merge of anything but
   `main`, a delete, a failed git read, and a push from a session with no
-  record or another pull request's. The sign-off branch skips the
-  protected-set read on this path only, as the kickoff push does; every
-  other target of the same push is still read.
+  record or another pull request's. For both acts the protected-set read
+  exempts only the floor's own `planwright/*/spec` entry: a
+  `protected_branches` addition that matches the sign-off branch, a
+  duplicate of that entry included, still refuses them. Every other target
+  of the same push is read as usual.
 
 A kickoff session needs no record for the sync act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change

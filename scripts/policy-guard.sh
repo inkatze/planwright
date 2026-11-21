@@ -5110,10 +5110,79 @@ kickoff_scope_names() {
 #
 # SBC_SIGNOFF is 1 when the branch is a sign-off branch (planwright/<spec>/spec)
 # named by the launch record rather than a kickoff scope. Its protected-set
-# read is skipped as the kickoff's is: the push from it is decided by
-# signoff_push_check, and eval_merge admits it the one bare base merge.
+# read exempts the floor's own entry alone (signoff_added_protection): the push
+# from it is decided by signoff_push_check, and eval_merge admits it the one
+# bare base merge.
 SBC_BRANCH=''
 SBC_SIGNOFF=0
+
+# signoff_seg_match <pattern> <branch> — protected-branch.sh's matching, both
+# names case-folded: segment by segment, `*` within one segment, the same
+# number of segments.
+signoff_seg_match() {
+  local p=$1 n=$2 ph nh pm nm
+  while :; do
+    case $p in
+      */*)
+        ph=${p%%/*}
+        p=${p#*/}
+        pm=1
+        ;;
+      *)
+        ph=$p
+        pm=0
+        ;;
+    esac
+    case $n in
+      */*)
+        nh=${n%%/*}
+        n=${n#*/}
+        nm=1
+        ;;
+      *)
+        nh=$n
+        nm=0
+        ;;
+    esac
+    # shellcheck disable=SC2254 # the pattern is the protected-set entry
+    case $nh in
+      $ph) ;;
+      *) return 1 ;;
+    esac
+    [ "$pm" = "$nm" ] || return 1
+    [ "$pm" = 1 ] || return 0
+  done
+}
+
+# signoff_added_protection <dir> <what> <branch> — the protected-set read for
+# a sign-off branch the launch record names: deny when any entry but the
+# floor's own planwright/*/spec matches it, so an operator's protected_branches
+# addition still protects the branch from this route.
+signoff_added_protection() {
+  local dir=$1 what=$2 set rc=0 entry floor=1 lb
+  need_timeout
+  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-policy-knob.sh" ] \
+    || emit_deny "the policy resolver is missing beside this guard - refusing $what (fail closed). Reinstall planwright."
+  policy_root "$dir"
+  set=$(cd -- "$POLICY_ROOT" 2>/dev/null && PLANWRIGHT_REPO_ROOT=$POLICY_ROOT "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" protected_branches 2>/dev/null </dev/null) || rc=$?
+  case $rc in
+    0) ;;
+    124 | 143) emit_deny "reading the protected set did not finish within ${KNOB_B}s - refusing $what (fail closed). This is a timeout, not a policy decision: retry." ;;
+    *) emit_deny "the protected set could not be read (exit $rc), so $what is refused (fail closed). Repair protected_branches, then retry." ;;
+  esac
+  lc "$3"
+  lb=$LC
+  for entry in $set; do
+    lc "$entry"
+    entry=${LC#refs/heads/}
+    if [ "$floor" = 1 ] && [ "$entry" = 'planwright/*/spec' ]; then
+      floor=0
+      continue
+    fi
+    ! signoff_seg_match "$entry" "$lb" \
+      || emit_deny "$what targets $(sanitize_printable "$3" 'a sign-off branch'), which the protected_branches entry $(sanitize_printable "$entry" 'unprintable') protects beyond the floor, so the sign-off sync route does not reach it - refusing. The operator syncs this branch."
+  done
+}
 
 # is_signoff_branch <branch> — 0 for a spec's sign-off branch, given a name
 # already in the planwright/<spec>/<name> shape (record_spec_branch, or the
@@ -5140,6 +5209,7 @@ spec_branch_checkout() {
   checkout_of "$d" && [ "$CO_TOP" = "$top" ] && [ "$CO_GD" = "$gd" ] || return 1
   SBC_BRANCH=$b
   if [ "$kick" = 0 ] && is_signoff_branch "$b"; then
+    signoff_added_protection "$d" "$what" "$b"
     SBC_SIGNOFF=1
     return 0
   fi

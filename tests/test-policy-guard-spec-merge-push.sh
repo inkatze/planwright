@@ -163,6 +163,20 @@ expect deny "[worker, record] a push run from another checkout of the branch tha
 at_pr_head "$W"
 pw "git push origin HEAD:refs/heads/$SB" "$W"
 push_ok "[worker, record] a push adding nothing defers"
+for added in 'planwright/demo/*' 'planwright/*/spec' 'planwright/*/*'; do
+  set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow' "protected_branches: $added"
+  pw "git push origin HEAD:refs/heads/$SB" "$W"
+  expect deny "[worker, record] a protected_branches addition ($added) still protects the sign-off branch from the push"
+  reason_has 'protected_branches entry' "[worker, record] the push refusal names the addition ($added)"
+  pw 'git merge origin/main' "$W"
+  expect deny "[worker, record] a protected_branches addition ($added) still protects the sign-off branch from the merge"
+done
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow' 'protected_branches: release/*'
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+push_ok "[worker, record] a protected_branches addition that does not match the branch leaves the push admitted"
+pw 'git merge origin/main' "$W"
+expect defer "[worker, record] a protected_branches addition that does not match the branch leaves the merge admitted"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 # A second merge of main after main moves again.
 merged "$W"
 gitq -C "$SEED" switch main
