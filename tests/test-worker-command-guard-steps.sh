@@ -73,8 +73,19 @@ steps:
   - id: reserved
     kind: command
     target: $FX/repo/tools/gh
+  - id: linked
+    kind: command
+    target: $FX/repo/linked/declared.sh
+    args: --mode strict
 YAML
-printf 'steps_pre_ci: [declared, bare, rel, pooled]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+printf 'steps_pre_ci: [declared, bare, rel, pooled, linked]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+# A folder of the repository linked to one outside it, whose script the
+# sandbox checkout commits: spelled inside the repository, it is held to the
+# repository's HEAD, which never holds a file reached through a link.
+mkdir -p "$FX/outside"
+cp "$DECLARED" "$FX/outside/declared.sh"
+ln -s "$FX/outside" "$FX/repo/linked"
+fixture_commit "$SANDBOX" "${FX#"$(cd "$SANDBOX" && pwd -P)"/}/outside" || exit 1
 cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
 steps:
   - id: traversal
@@ -129,6 +140,8 @@ printf 'printf pwned\n' >>"$DECLARED"
 assert_defer "a declared location edited since HEAD deferred" "$DECLARED --mode strict" Bash "$FXC"
 cp "$FX/declared.orig" "$DECLARED"
 assert_allow "the declared location put back approved again" "$DECLARED --mode strict" Bash "$FXC"
+assert_defer "a declared location behind a symlinked repository folder deferred" \
+  "$FX/repo/linked/declared.sh --mode strict" Bash "$FXC"
 assert_defer "declared line behind a non-context assignment deferred" \
   "LD_PRELOAD=/x.so $DECLARED --mode strict" Bash "$FXC"
 assert_defer "declared line behind a context assignment carrying an expansion deferred" \
