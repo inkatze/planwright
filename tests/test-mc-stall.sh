@@ -336,6 +336,32 @@ printf '%s\n' "$live_tok" >"$fleet/streamjson/mc-alpha-worker-same/worker.start"
 stall classify --program alpha --now 1000 mc-alpha-worker-same
 expect_state "a recorded pid whose start still matches reads live" mc-alpha-worker-same live
 
+# liveness reads the same evidence alone: no sample, no event.
+row mc-alpha-mission-control-lv mission-control stream-json mc-alpha-mission-control-lv
+sj mc-alpha-mission-control-lv "$live_pid"
+lv_events_before=$(events | wc -l)
+stall liveness --program alpha mc-alpha-mission-control-lv
+expect_rc "liveness of a launched session" 0
+expect_eq "a live pid reads alive" "mc-alpha-mission-control-lv	alive	pid $live_pid alive"
+sj mc-alpha-mission-control-lv "$dead_pid"
+stall liveness --program alpha mc-alpha-mission-control-lv
+expect_eq "a dead pid reads dead" "mc-alpha-mission-control-lv	dead	pid $dead_pid gone"
+sj mc-alpha-mission-control-lv none
+stall liveness --program alpha mc-alpha-mission-control-lv
+expect_out "no state directory reads unknown" "mc-alpha-mission-control-lv	unknown	no state directory"
+if find "$tmp" -path '*/stall/mc-alpha-mission-control-lv' | grep -q .; then
+  fail "liveness wrote a sample"
+else
+  ok "liveness keeps no sample"
+fi
+[ "$(events | wc -l)" = "$lv_events_before" ] && ok "liveness emits no event" || fail "liveness emitted an event"
+stall liveness --program alpha mc-alpha-mission-control-nope
+expect_rc "liveness of no registered session" 3
+row mc-alpha-mission-control-lv mission-control stream-json mc-alpha-mission-control-lv launching
+stall liveness --program alpha mc-alpha-mission-control-lv
+expect_rc "liveness of a session not yet launched" 3
+rm -f "$reg/mc-alpha-mission-control-lv"
+
 # --- stall states, every kind (REQ-D1.3) -----------------------------------
 
 row mc-alpha-orchestrator-sel orchestrator tmux @1

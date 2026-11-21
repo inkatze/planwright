@@ -19,7 +19,9 @@
 #     a simple command that a `Bash(…)` rule of the worker profile's deny
 #     block matches, or that is a reserved act (a push, rebase, reset, amend,
 #     hook skip, squash, or `gh` write), defers, declared steps' lines
-#     included. The guard reads the deny block itself rather than trusting
+#     included, save two own-unit acts (see own_unit_act): a push of the
+#     recorded unit branch to origin and a body edit of its own open pull
+#     request. The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared steps, the spec-root write zone) is
@@ -154,9 +156,19 @@ emit_allow() {
 
 # The policy arms whose checks admitted part of the command being approved:
 # set by ob_path, ob_git_ready, guard_mktemp, and expand_word's `$TMPDIR`,
-# reset per hook call. Read-only is whatever approval set neither.
+# reset per hook call; AUDIT_OU, by own_unit_act. Read-only is whatever
+# approval set none of them.
 AUDIT_OB=0
 AUDIT_SC=0
+AUDIT_OU=0
+OU_EXPORTED=0
+OU_EXP_NAMES=''
+OU_SEG=0
+# 1 once the own-branch or scratch arm or the spec-root zone approved a write
+# or git act, a plain fetch was approved, and once trusted repository code or
+# a declared step was approved (main reads both).
+ARM_ACT=0
+TASK_ACT=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -169,6 +181,7 @@ audit_append() {
   [ -n "$f" ] || return 0
   [ "$AUDIT_OB" = 0 ] || arm=own-branch
   [ "$AUDIT_SC" = 0 ] || arm=${arm:+$arm,}scratch
+  [ "$AUDIT_OU" = 0 ] || arm=${arm:+$arm,}own-unit
   [ -n "$arm" ] || arm=read-only
   [[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]] || sid=-
   t=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || t=-
@@ -931,6 +944,7 @@ in_spec_zone() {
       return 1
     fi
   fi
+  ARM_ACT=1
   return 0
 }
 
@@ -1209,7 +1223,8 @@ session_record_load() {
 # the worker profile's deny block matches, and the reserved acts (any push, a
 # rebase or branch reset, an amend, fixup, squash, or hook skip on a commit, a
 # squash merge, and every `gh` act but the read-only ones the guard
-# enumerates), are never approved, whatever the policy. The arms below carry
+# enumerates), are never approved, whatever the policy, the own-unit acts
+# excepted (own_unit_act, below the floor). The arms below carry
 # the rest of the floor themselves: a write target outside the worktree or
 # inside an excluded path never passes ob_path.
 #
@@ -1353,6 +1368,197 @@ floor_act_words() {
   local -a cw=("$@")
   local cwn=$#
   floor_act
+}
+
+# --------------------------------------------------------------------------
+# The own-unit acts: three a session may run on its own unit that no other
+# arm approves (the push and the edit being floor acts), approved whatever
+# the record's policy, but only under a record carrying the unit branch, the
+# worktree root and a usable audit log, with the session's directory in that
+# worktree's own repository, for the session's own command at the top level
+# (never inside a substitution, a `fish -c` string, a loop, an if or case
+# body, a pipeline or a background job, the whole and-or list a later `&`
+# backgrounds included, nor after `||`), with no redirect,
+# prefix or leading assignment, and no later re-assignment of a name an
+# approved export set:
+#   export PLANWRIGHT_STEP_<field>=<literal>...   the step context, its
+#       values held to strip_step_context's rules and its worktree, when
+#       given, canonically the recorded one;
+#   gh pr edit <n> --body-file <file>   <n> the open, same-repository pull
+#       request whose head is the unit branch, as one bounded `gh pr view`
+#       read from the session's directory says, and <file> a regular file
+#       canonically inside the recorded scratch root;
+#   git push origin <unit> | git push origin <unit>:<unit>   nothing else.
+# Every word but the body file is a bare literal as written. Anything else
+# is left to the floor, which reserves it as before.
+
+# own_unit_candidate: the unsubstituted words (`sw`) open one of the
+# reserved own-unit acts, so verify_simple defers its floor to
+# verify_known_simple's exact check.
+own_unit_candidate() {
+  [ "${sw[0]-}" = git ] && [ "${sw[1]-}" = push ] && return 0
+  [ "${sw[0]-}" = gh ] && [ "${sw[1]-}" = pr ] && [ "${sw[2]-}" = edit ]
+}
+
+# own_unit_words_bare <from> <to>: words <from>..<to>-1 are bare literals,
+# unchanged by any expansion.
+own_unit_words_bare() {
+  local i
+  for ((i = $1; i < $2; i++)); do
+    [ "${swq[i]}" -lt 0 ] && [ "${cw[i]}" = "${sw[i]}" ] || return 1
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
+  return 0
+}
+
+# own_unit_act: 0 when the current simple command, after the tracked
+# assignments are resolved, is exactly one own-unit act.
+own_unit_act() {
+  local i here
+  case ${cw[0]-} in
+    export | git | gh) ;;
+    *) return 1 ;;
+  esac
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] && [ "$OUTSIDE_CD" = 0 ] || return 1
+  # Top level and unconditional: no loop, if or case body, no pipeline, no
+  # background job, and not run only on an earlier failure. `seg_open`,
+  # `close` and `ctl_depth` are verify_tokens' and fin's walk state.
+  [ "${ctl_depth:-1}" -eq 0 ] && [ "${ou_or:-1}" = 0 ] && [ "${ou_pipe:-1}" = 0 ] || return 1
+  case ${seg_open-x}:${close-x} in
+    :* | ';':* | '&&':*) ;;
+    *) return 1 ;;
+  esac
+  case ${close-x} in
+    ';' | '&&' | '||' | end) ;;
+    *) return 1 ;;
+  esac
+  [ "$rn" -eq 0 ] && [ "$cwn" -eq "$swn" ] && [ "$cwn" -ge 2 ] || return 1
+  [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] && [ -n "$REC_AUDIT_LOG" ] || return 1
+  for ((i = 0; i < cwn; i++)); do
+    [ -z "${csub[i]-}" ] || return 1
+  done
+  here=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  case $here/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  deny_hit "${cw[@]}" && return 1
+  case ${cw[0]} in
+    export)
+      own_step_export_ok && own_unit_same_repo "$here" || return 1
+      OU_EXPORTED=1
+      for ((i = 1; i < cwn; i++)); do
+        OU_EXP_NAMES="$OU_EXP_NAMES ${cw[i]%%=*}"
+      done
+      ;;
+    git) own_push_ok && own_unit_same_repo "$here" ;;
+    gh) own_unit_same_repo "$here" && own_pr_edit_ok "$here" ;;
+    *) return 1 ;;
+  esac
+}
+
+# own_unit_same_repo <canonical dir>: under the worktree path is not enough,
+# since a nested repository or a .git pointing elsewhere is another
+# repository with its own origin. Decided from the path alone, with no git
+# run there, whose config a nested repository's author controls: no .git
+# entry of any kind between <dir> and the worktree root.
+own_unit_same_repo() {
+  local d=$1
+  while [ "$d" != "$REC_WT" ]; do
+    [ ! -e "$d/.git" ] && [ ! -L "$d/.git" ] || return 1
+    d=${d%/*}
+    case $d/ in
+      "$REC_WT"/*) ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+own_step_export_ok() {
+  local i w f v
+  own_unit_words_bare 0 "$cwn" || return 1
+  # A step name the command assigned earlier, exported or not, could reach
+  # the step call around the checks below.
+  for ((i = 0; i < VAR_C; i++)); do
+    case ${VAR_N[i]} in
+      PLANWRIGHT_STEP_*) return 1 ;;
+    esac
+  done
+  for ((i = 1; i < cwn; i++)); do
+    w=${cw[i]}
+    case $w in
+      PLANWRIGHT_STEP_?*=*) ;;
+      *) return 1 ;;
+    esac
+    f=${w%%=*}
+    # Exporting a name an earlier own-unit export set is a re-assignment.
+    case "$OU_EXP_NAMES " in
+      *" $f "*) return 1 ;;
+    esac
+    f=${f#PLANWRIGHT_STEP_}
+    case " $STEP_CONTEXT_FIELDS " in
+      *" $f "*) ;;
+      *) return 1 ;;
+    esac
+    v=${w#*=}
+    case $v in
+      *[!A-Za-z0-9._/:@%,+-]*) return 1 ;;
+    esac
+    step_context_value_ok "$f" "$v" || return 1
+  done
+  return 0
+}
+
+own_push_ok() {
+  [ "$cwn" -eq 4 ] && own_unit_words_bare 0 4 || return 1
+  [ "${cw[1]}" = push ] && [ "${cw[2]}" = origin ] || return 1
+  case ${cw[3]} in
+    "$REC_UNIT" | "$REC_UNIT:$REC_UNIT") return 0 ;;
+  esac
+  return 1
+}
+
+# own_pr_edit_ok <canonical cwd>
+own_pr_edit_ok() {
+  local n f d out
+  [ "$cwn" -eq 6 ] && own_unit_words_bare 0 5 || return 1
+  [ "${cw[1]}" = pr ] && [ "${cw[2]}" = edit ] && [ "${cw[4]}" = --body-file ] || return 1
+  n=${cw[3]}
+  [[ $n =~ ^[1-9][0-9]{0,8}$ ]] || return 1
+  [ -n "$REC_SCRATCH" ] && [ "${swq[5]}" -lt 0 ] || return 1
+  f=${cw[5]}
+  # The recorded `$TMPDIR` names the scratch root under every policy here,
+  # as the launcher exported it; the scratch arm already resolved it when
+  # in force.
+  if [ "$HOOK_TMPDIR_IS_SCRATCH" = 1 ]; then
+    # shellcheck disable=SC2016 # the unexpanded spelling is what is matched
+    case $f in
+      '$TMPDIR/'*) f=$REC_SCRATCH/${f#'$TMPDIR/'} ;;
+      '${TMPDIR}/'*) f=$REC_SCRATCH/${f#'${TMPDIR}/'} ;;
+    esac
+  fi
+  case $f in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case $f in
+    *[!A-Za-z0-9._/@%,+:=-]* | */./* | */../* | */.. | */.) return 1 ;;
+  esac
+  [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || return 1
+  d=$(cd "${f%/*}" 2>/dev/null && pwd -P) || return 1
+  case $d/ in
+    "$REC_SCRATCH"/*) ;;
+    *) return 1 ;;
+  esac
+  # The read is bounded by the runner beside this guard, so a hung forge
+  # defers instead of outlasting the hook's timeout.
+  [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/bounded-run.sh" ] || return 1
+  out=$(cd -- "$1" && /bin/sh "$HOOK_SELF_ROOT/scripts/bounded-run.sh" 15 \
+    env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 GH_PAGER=cat \
+    gh pr view "$n" --json headRefName,isCrossRepository,state 2>/dev/null </dev/null) || return 1
+  [ "${#out}" -le 4096 ] || return 1
+  printf '%s' "$out" | jq -e --arg b "$REC_UNIT" \
+    'type == "object" and .headRefName == $b and .isCrossRepository == false and .state == "OPEN"' >/dev/null 2>&1
 }
 
 # --------------------------------------------------------------------------
@@ -1643,8 +1849,8 @@ ob_path() {
   fi
   OB_PATH=$acc
   case $OB_ZONE in
-    wt) ! ob_live || AUDIT_OB=1 ;;
-    sc) AUDIT_SC=1 ;;
+    wt) ! ob_live || { AUDIT_OB=1 && ARM_ACT=1; } ;;
+    sc) AUDIT_SC=1 ARM_ACT=1 ;;
   esac
 }
 
@@ -1885,6 +2091,7 @@ guard_mktemp() {
     ob_path "$a" leaf sc || return 1
   done
   AUDIT_SC=1
+  ARM_ACT=1
   ob_mark write
 }
 
@@ -1898,6 +2105,7 @@ ob_git_ready() {
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
   [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
   AUDIT_OB=1
+  ARM_ACT=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -3077,6 +3285,13 @@ guard_read() {
       -*) return 1 ;;
       *)
         assign_name_ok "$a" || return 1
+        # As track_assignment refuses: a read into a name an own-unit export
+        # set would replace the value the export was checked against.
+        if [ "$OU_EXPORTED" = 1 ]; then
+          case $a in
+            PLANWRIGHT_STEP_*) return 1 ;;
+          esac
+        fi
         for ((v = 0; v < VAR_C; v++)); do
           [ "${VAR_N[v]}" = "$a" ] && return 1
         done
@@ -3989,7 +4204,8 @@ guard_git() {
       # objects. Not through -C.
       if [ "$viac" = 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ]; then
         HOOK_WT_ROOT=$REC_WT
-        cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && return 0
+        # It writes remote-tracking refs, so it is no own-unit partner.
+        cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && ARM_ACT=1 && return 0
       fi
       ob_git "$sub" "$subidx"
       ;;
@@ -4195,6 +4411,13 @@ track_assignment() {
   name=${w%%=*}
   value=${w#*=}
   eqpos=${#name}
+  # Once an own-unit export has run, the step names are exported: assigning
+  # one again would change what later step calls read around its checks.
+  if [ "$OU_EXPORTED" = 1 ]; then
+    case $name in
+      PLANWRIGHT_STEP_*) return 1 ;;
+    esac
+  fi
   # The name and the `=` must be bare: a word quoted from its start is a
   # command whose name merely contains `=`, not an assignment.
   if [ "$qpos" -ge 0 ] && [ "$qpos" -le "$eqpos" ]; then
@@ -5796,6 +6019,20 @@ step_context_value_ok() {
         *[!0-9]*) return 1 ;;
       esac
       ;;
+    WORKTREE)
+      # Under a record, the step context names the session's own worktree
+      # alone, however it is spelled.
+      if [ -n "$REC_WT" ]; then
+        case $v in
+          /*) ;;
+          *) return 1 ;;
+        esac
+        case $v/ in
+          */./* | */../*) return 1 ;;
+        esac
+        [ "$(cd "$v" 2>/dev/null && pwd -P)" = "$REC_WT" ] || return 1
+      fi
+      ;;
     PREV_HEAD | NEW_HEAD)
       case $v in
         *[!0-9a-f]*) return 1 ;;
@@ -6071,10 +6308,17 @@ verify_simple() {
     sw[i]=${cw[i]}
     swq[i]=${cqp[i]}
   done
-  # The floor comes before every arm and the declared steps.
+  # The floor comes before every arm and the declared steps. An own-unit act
+  # it reserves is weighed exactly by verify_known_simple, and nothing else
+  # may approve it.
+  local own_cand=0
   [ "$cwn" -eq 0 ] || ! deny_hit "${sw[@]}" || return 1
-  [ "$cwn" -eq 0 ] || ! floor_act_words "${sw[@]}" || return 1
+  if [ "$cwn" -gt 0 ] && floor_act_words "${sw[@]}"; then
+    own_unit_candidate || return 1
+    own_cand=1
+  fi
   verify_known_simple && return 0
+  [ "$own_cand" = 0 ] || return 1
   # A declared step is an operator's exact line, never one around a
   # substitution, and is not read-only inside one. Nor is one judged in the
   # scoped read mode, whose directory is one of two.
@@ -6082,7 +6326,8 @@ verify_simple() {
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] || return 1
   done
-  declared_line_ok
+  declared_line_ok || return 1
+  TASK_ACT=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -6847,6 +7092,11 @@ verify_known_simple() {
   # the words the shell will run. Words carrying a literal `$` are left alone.
   [ "$VAR_C" -eq 0 ] || expand_words
   [ "$cwn" -ge 1 ] || return 0
+  if own_unit_act; then
+    AUDIT_OU=1
+    OU_SEG=1
+    return 0
+  fi
   strip_step_context
   strip_prefixes || return 1
   # The floor again, on the words the shell will run.
@@ -6905,14 +7155,24 @@ verify_known_simple() {
   # path-prefixed verb defers (REQ-A1.9, REQ-A1.10).
   case $verb in
     */*)
-      is_trusted_script "$verb" "$HOOK_CWD" && return 0
-      return 1
+      is_trusted_script "$verb" "$HOOK_CWD" || return 1
+      # Trusted code that may write, which no own-unit act may share a
+      # command with; an installed step script is the one exception.
+      case $verb in
+        */step-run.sh | */step-record.sh) is_planwright_script "$verb" "$HOOK_CWD" || TASK_ACT=1 ;;
+        *) TASK_ACT=1 ;;
+      esac
+      return 0
       ;;
   esac
   if [ "$cwn" -eq 2 ] && [ "${cw[1]}" = --version ] && version_tool "$verb"; then
     return 0
   fi
-  classify_verb "$verb"
+  classify_verb "$verb" || return 1
+  case $verb in
+    mise | lefthook | bats | bash | sh) TASK_ACT=1 ;;
+  esac
+  return 0
 }
 
 # --------------------------------------------------------------------------
@@ -6935,6 +7195,14 @@ verify_tokens() {
   # for a reserved-word boundary), whether the previous segment carried state,
   # and whether a `cd` has: together they decide where state may carry (fin).
   local ctl_depth=0 seg_open='' prev_commit=0 cd_live=0
+  # 1 while the top-level and-or list since the last `;` or line break holds
+  # an own-unit act: a trailing `&` would background the whole list.
+  local ou_list=0
+  # 1 once that list has passed a top-level `||`: an act after it is after `||`.
+  local ou_or=0
+  # 1 while the segment about to be read is piped: the last close was `|`,
+  # with only line breaks (empty `;` segments) since.
+  local ou_pipe=0
   # The VAR table's size when the current top-level and-or list began, so a
   # trailing `&` can drop what that list assigned, and whether the last `;`
   # was a newline continuing that list (fin).
@@ -6982,7 +7250,24 @@ verify_tokens() {
     PENDING_OUT=0
     PENDING_OUT_DIR=''
     SEG_SCOPED=0
+    OU_SEG=0
     verify_simple || return 1
+    if [ "$close" = '|' ]; then
+      ou_pipe=1
+    elif [ "$empty" = 0 ] || [ "$close" != ';' ]; then
+      ou_pipe=0
+    fi
+    [ "$OU_SEG" = 0 ] || ou_list=1
+    if [ "$ctl_depth" -eq 0 ]; then
+      [ "$close" != '&' ] || [ "$ou_list" = 0 ] || return 1
+      # The tokenizer reads every line break as `;`, but one right after
+      # `&&`, `||` or `|` (an empty segment) continues the list.
+      case $close in
+        end) ou_list=0 ou_or=0 ;;
+        ';') [ "$empty" = 1 ] || ou_list=0 ou_or=0 ;;
+        '||') ou_or=1 ;;
+      esac
+    fi
     [ "$SEG_SCOPED" = 1 ] || SCOPED_CHAIN=0
     # A `cd` outside the worktree is approved only as a top-level `cd X;`
     # step: the `&&` chain and every other placement keep deferring.
@@ -7185,6 +7470,13 @@ verify_tokens() {
           # (REQ-E1.1); `done` loops the walk back to the body for the next one.
           fin ctl || return 1
           loop_enter || return 1
+          # A loop over a name an own-unit export set re-assigns it, as
+          # track_assignment refuses for a plain assignment.
+          if [ "$OU_EXPORTED" = 1 ]; then
+            case $LH_NAME in
+              PLANWRIGHT_STEP_*) return 1 ;;
+            esac
+          fi
           loop_fits || return 1
           continue
           ;;
@@ -7428,9 +7720,21 @@ main() {
   IN_SUBST=0
   AUDIT_OB=0
   AUDIT_SC=0
+  AUDIT_OU=0
+  OU_EXPORTED=0
+  OU_EXP_NAMES=''
+  ARM_ACT=0
+  TASK_ACT=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
+  # An own-unit act shares its command only with a cd into the worktree, a
+  # read-only segment, a step-context export or an installed step script:
+  # never with a write or git act the own-branch or scratch arm or the
+  # spec-root zone approved, nor with trusted repository code (a mise or
+  # lefthook task, bats, a repo or other plugin script, a declared step), so
+  # a worker commits or runs its gate, then pushes in a call of its own.
+  [ "$AUDIT_OU" = 0 ] || { [ "$ARM_ACT" = 0 ] && [ "$TASK_ACT" = 0 ]; } || return 0
   audit_append "$cmd" "$sid"
   emit_allow
   return 0
