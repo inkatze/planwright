@@ -69,7 +69,9 @@ would-be prompt to Awaiting input), implied for non-interactive sessions.
 
 Run in order. Any halt records the unit (when one is selected) and ends the step,
 per **Halt → Awaiting input** below; simultaneous ones batch into the step
-report (D-45).
+report (D-45). Once per session, and at each on-request posture check, run
+`scripts/tower-session.sh activate`: the plugin hook marks the session an
+orchestrator and refuses it, never running it.
 
 1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional bare
    `<spec>` (alias `specs/<spec>`, one trailing slash allowed; `--meta`
