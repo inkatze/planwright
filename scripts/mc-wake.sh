@@ -188,8 +188,9 @@ targets="$runtime/wake-targets"
 # (scripts/mc-merge-ready.sh fresh). One whose pull request merged, closed
 # or moved on is marked submitted unsent, so it never wakes; one whose bot
 # round is unfinished, or whose state cannot be read, is left out of this
-# wake and unmarked, so a later wake can still carry it. An event whose text
-# names no pull request and head is left as it is.
+# wake and unmarked, so a later wake can still carry it, the unreadable one
+# named on stderr. An event whose text names no pull request and head is
+# left as it is.
 drop_stale_merge_ready() {
   ds_keep="" ds_gone=""
   while IFS= read -r ds_row; do
@@ -204,15 +205,21 @@ drop_stale_merge_ready() {
         *) ds_head="" ;;
       esac
       if [ -n "$ds_head" ]; then
-        /bin/bash "$script_dir/mc-merge-ready.sh" fresh --program "$program" \
-          --repo "${ds_pr%#*}" --pr "${ds_pr##*#}" --head "$ds_head" >/dev/null 2>&1 </dev/null
-        case $? in
+        ds_why=$(/bin/bash "$script_dir/mc-merge-ready.sh" fresh --program "$program" \
+          --repo "${ds_pr%#*}" --pr "${ds_pr##*#}" --head "$ds_head" 2>/dev/null </dev/null)
+        ds_rc=$?
+        case $ds_rc in
           0) ;;
           4)
             ds_gone="$ds_gone $(printf '%s\n' "$ds_row" | cut -f1)"
             continue
             ;;
-          *) continue ;;
+          5) continue ;;
+          *)
+            printf '%s: %s: held: %s\n' "$prog" "$(sanitize_printable "$ds_pr" -)" \
+              "$(sanitize_printable "${ds_why#*	}" "fresh exited $ds_rc")" >&2
+            continue
+            ;;
         esac
       fi
     fi

@@ -499,29 +499,45 @@ jq -r "\$q" "$tmp/fresh.\$n"
 EOF
 chmod +x "$ghbin/gh"
 mrh=1111111111111111111111111111111111111111
-mrfresh() { # mrfresh <n> <state>: a bot review of the head, no thread
-  printf '{"data":{"repository":{"pullRequest":{"state":"%s","headRefOid":"%s","reviews":{"nodes":[{"author":{"__typename":"Bot","login":"pr-agent[bot]"},"commit":{"oid":"%s"}}]},"reviewThreads":{"nodes":[]}}}}}' "$2" "$mrh" "$mrh" >"$tmp/fresh.$1"
+mrfresh() { # mrfresh <n> <state> [<head>] [<PR-Agent conclusion>]: PR-Agent's check run on the head, no thread
+  printf '{"data":{"repository":{"pullRequest":{"state":"%s","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","name":"PR-Agent","status":"COMPLETED","conclusion":"%s"}]}}}}]}}}}}' "$2" "${3:-$mrh}" "${3:-$mrh}" "${4:-SUCCESS}" >"$tmp/fresh.$1"
 }
 mrfresh 51 MERGED
 mrfresh 52 OPEN
+mrfresh 54 OPEN "$mrh" FAILURE
+mrfresh 55 OPEN 2222222222222222222222222222222222222222
 mremit() { mc_run mc-event.sh emit --program alpha merge-ready "acme:web:$1" "acme/web#$1 is ready to merge: gh pr merge $1 --repo acme/web --squash --match-head-commit $mrh"; }
 mremit 51
 mr_ev_51=$OUT
 mremit 52
 mremit 53
 mr_ev_53=$OUT
+mremit 54
+mr_ev_54=$OUT
+mremit 55
+mr_ev_55=$OUT
 OUT=$(PATH="$ghbin:$PATH" mc_env /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha tw 2>"$tmp/stderr")
 ERR=$(cat "$tmp/stderr")
 expect_out "a merge-ready event for a live pull request wakes" "- merge-ready acme:web:52"
 expect_no_out "one for a merged pull request is not pushed" "acme:web:51"
 expect_no_out "nor one whose state cannot be read" "acme:web:53"
+expect_no_out "nor one whose bot round is unfinished" "acme:web:54"
+expect_no_out "nor one whose head moved" "acme:web:55"
+expect_err "a held unreadable one is named on stderr" "acme/web#53: held: its state could not be read from the forge"
+case $ERR in
+  *acme/web#54*) fail "a pending hold was named on stderr: $ERR" ;;
+  *) ok "a pending hold is quiet" ;;
+esac
 marked "the stale one is marked submitted unsent" "$mr_ev_51"
+marked "and so is the moved one" "$mr_ev_55"
 mc_run mc-event.sh list --program alpha --target tw
-if printf '%s\n' "$OUT" | awk -F '\t' -v id="$mr_ev_53" '$1 == id && $NF == "-" { f = 1 } END { exit !f }'; then
-  ok "the unreadable one stays unmarked for the next wake"
-else
-  fail "the unreadable one was marked: $OUT"
-fi
+for mr_id in "$mr_ev_53" "$mr_ev_54"; do
+  if printf '%s\n' "$OUT" | awk -F '\t' -v id="$mr_id" '$1 == id && $NF == "-" { f = 1 } END { exit !f }'; then
+    ok "a held one stays unmarked for the next wake ($mr_id)"
+  else
+    fail "a held one was marked: $mr_id: $OUT"
+  fi
+done
 
 # Every event a duty starts on, wakes with or raises as an item has a class
 # row, and the table names each kind once with a known class.
