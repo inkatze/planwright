@@ -1002,10 +1002,10 @@ naming the root and the command, because the worker would otherwise pend on
 exactly that call with nothing to say so; a hook that is missing or not
 executable, or a proof that could not run at all, refuses the same way. So
 does a hook root (the plugin root the wrapper exports) without an executable
-`scripts/policy-guard.sh`: the worker
-profile leaves merges and history rewrites to that guard, and a hook that
-cannot run refuses nothing. So does an exported plugin root that does not
-resolve, since none of the worker's hooks would run from it.
+`scripts/policy-guard.sh`: the worker profile leaves merges and history
+rewrites to that guard, and a hook that cannot run refuses nothing. So does an
+exported plugin root that does not resolve from the worker's directory, since
+none of the worker's hooks would run from it; the refusal names that root.
 
 A launch or relaunch given `--mise-task-edit` or `--lefthook-edit` also proves
 that hook root's `scripts/worker-mise-edit-guard.sh` judges the opted-in names:
@@ -1023,8 +1023,8 @@ recorded.
 
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
 downgrades every approval refusal above to a warning and launches, `off` skips
-the approval proof, and any other value is a usage error. The installed roots the proof covers are
-read through the same resolver the hook trusts them from, so that set cannot
+the approval proof, and any other value is a usage error. The installed roots
+the proof covers are read through the same resolver the hook trusts them from, so that set cannot
 diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.

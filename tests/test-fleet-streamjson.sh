@@ -979,9 +979,9 @@ oldeh_refused "a proof with nowhere to run" "cannot create a folder to prove the
 # An exported plugin root that does not resolve runs none of the worker's
 # hooks: both proofs refuse rather than proving the launcher's copies.
 launch_oldeh --lefthook-edit CLAUDE_PLUGIN_ROOT="$tmp/no-such-root"
-oldeh_refused "an exported plugin root that does not resolve" "exports for the worker's hooks does not resolve"
+oldeh_refused "an exported plugin root that does not resolve" "exports for the worker's hooks ($tmp/no-such-root) does not resolve"
 launch_oldeh --lefthook-edit CLAUDE_PLUGIN_ROOT="$tmp/no-such-root" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off
-oldeh_refused "an unresolvable plugin root with the approval proof off" "the plugin root the worker's hooks run from does not resolve"
+oldeh_refused "an unresolvable plugin root with the approval proof off" "the plugin root the worker's hooks run from ($tmp/no-such-root) does not resolve"
 # A mise-only profile wires the hook with no name-set argument, and that is
 # the call the proof makes: this hook judges only that call.
 # shellcheck disable=SC2016 # expanded by the stub when it runs
@@ -998,6 +998,11 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDe
 EOF
 launch_oldeh --lefthook-edit
 oldeh_refused "a hook that refuses a plain file too" "refused a plain file outside the worktree"
+# A blocking exit (2) on the plain file is a refusal of it, not a hook that
+# did not run.
+printf '#!/bin/sh\ncat >/dev/null\nexit 2\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook that blocks a plain file with exit 2" "refused a plain file outside the worktree"
 # Only the single line of hook JSON, with exit 0, counts as a refusal.
 cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
 #!/bin/sh

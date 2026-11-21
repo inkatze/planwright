@@ -1684,23 +1684,25 @@ dispatch_env_path() {
 # set, in which case another install's copy gates the worker. Read in the
 # worker's directory: which install is current there can depend on a
 # project-scoped record entry.
-#   Returns 1 (still printing the launcher's root) when the wrapper exports a
-#   root that does not resolve: the worker's hooks would then not run at all.
+#   When the wrapper exports a root that does not resolve from the worker's
+#   directory, the worker's hooks would not run at all: it prints that value
+#   instead (control bytes stripped) and returns 1.
 hook_root_of() {
   hr_dir=$(cd -- "$(dirname "$1")" 2>/dev/null && pwd -P) || hr_dir=$(dirname "$1")
   hr_launcher=$(cd -- "$hr_dir/.." 2>/dev/null && pwd -P) || hr_launcher=''
-  hr_root=$(
+  hr_raw=$(
     cd -- "$2" 2>/dev/null || :
     "$1" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1
   )
-  [ -n "$hr_root" ] || hr_root=$hr_launcher
-  hr_rc=0
-  hr_root=$(cd -- "$hr_root" 2>/dev/null && pwd -P) || {
-    hr_root=$hr_launcher
-    hr_rc=1
+  [ -n "$hr_raw" ] || hr_raw=$hr_launcher
+  hr_root=$(
+    cd -- "$2" 2>/dev/null || :
+    cd -- "$hr_raw" 2>/dev/null && pwd -P
+  ) || {
+    printf '%s\n' "$hr_raw" | tr -d '\000-\011\013-\037\177'
+    return 1
   }
   printf '%s\n' "$hr_root"
-  return "$hr_rc"
 }
 
 # edit_hook_preflight <dispatch-env> <cwd> <set>... — for an opted-in launch
@@ -1717,7 +1719,7 @@ edit_hook_preflight() {
   ep_cwd=$2
   shift 2
   ep_root=$(hook_root_of "$ep_env" "$ep_cwd") || {
-    printf '%s\n' "$me: launch preflight: the plugin root the worker's hooks run from does not resolve, so its file-tool hook would not run and the opted-in names would stay open" >&2
+    printf '%s\n' "$me: launch preflight: the plugin root the worker's hooks run from ($ep_root) does not resolve, so its file-tool hook would not run and the opted-in names would stay open; launch from a session whose CLAUDE_PLUGIN_ROOT is unset or names the installed root" >&2
     return 9
   }
   ep_hook="$ep_root/scripts/worker-mise-edit-guard.sh"
@@ -1807,7 +1809,7 @@ guard_preflight() {
   # roots through the resolver beside it, so the proof is of what the worker is
   # actually gated by.
   gp_hook_root=$(hook_root_of "$gp_env" "$gp_cwd") || {
-    printf '%s\n' "$me: launch preflight: the plugin root the dispatch-env wrapper exports for the worker's hooks does not resolve, so none of them would run (its command guard and policy guard included)" >&2
+    printf '%s\n' "$me: launch preflight: the plugin root the dispatch-env wrapper exports for the worker's hooks ($gp_hook_root) does not resolve, so none of them would run (its command guard and policy guard included); launch from a session whose CLAUDE_PLUGIN_ROOT is unset or names the installed root" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
   }
