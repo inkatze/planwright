@@ -266,7 +266,7 @@ done
 # git stops reading options at the first operand or `--`, so a dashed word
 # after it is a value and each of these sets a key.
 for c in 'git config a.c --list' 'git config --global core.hooksPath -x' 'git config --global -- a.d --get' \
-  'git config a.b -l' 'git config a.b -'; do
+  'git config a.b -l' 'git config a.b -' 'git config --end-of-options --a.b --list'; do
   assert_defer "git config dashed value: $c" "$c"
 done
 assert_allow "git config read with a dashed value pattern" "git config --get-all a.b -x"

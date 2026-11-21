@@ -1971,8 +1971,9 @@ guard_git() {
       for ((i = first; i < cwn; i++)); do
         a=${cw[i]}
         git_config_write_opt "$a" && return 1
-        # git stops reading options at the first operand or `--`, so a dashed
-        # word after it is an operand: `git config core.hooksPath -x` sets it.
+        # git stops reading options at the first operand, `--` or
+        # `--end-of-options`, so a dashed word after it is an operand:
+        # `git config core.hooksPath -x` sets it.
         if [ "$operands" = 1 ]; then
           positional=$((positional + 1))
           continue
@@ -1981,7 +1982,7 @@ guard_git() {
           --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
           # Another file parsed as config prints its `key = value` lines.
           -f* | -[!-]*f* | --fil* | --bl*) return 1 ;;
-          --) operands=1 ;;
+          -- | --end-of-options) operands=1 ;;
           -?*) ;; # scope/format flags (--global/--type/…) are read-safe
           *)
             operands=1
