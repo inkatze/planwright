@@ -383,6 +383,11 @@ for c in 'git config a.c --list' 'git config --global core.hooksPath -x' 'git co
   assert_defer "git config dashed value: $c" "$c"
 done
 assert_allow "git config read with a dashed value pattern" "git config --get-all a.b -x"
+# Another file or blob parsed as config prints its `key = value` lines.
+for c in 'git config -f other.cfg --list' 'git config --file=other.cfg --get a.b' 'git config --fil other.cfg -l' \
+  'git config --blob HEAD:x --list' 'git config --bl=HEAD:x --list' 'git config -zf other.cfg --list' 'git config -lf other.cfg'; do
+  assert_defer "git config reads another file: $c" "$c"
+done
 # A short cluster carrying e defers wherever the e sits, so a -t value holding
 # one prompts too: the accepted cost of not modelling -t's value.
 assert_defer "accepted over-block: an e inside a -t value" "git config -texpiry-date --get gc.pruneExpire"

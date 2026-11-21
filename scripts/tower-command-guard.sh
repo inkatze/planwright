@@ -1979,6 +1979,8 @@ guard_git() {
         fi
         case $a in
           --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
+          # Another file parsed as config prints its `key = value` lines.
+          -f* | -[!-]*f* | --fil* | --bl*) return 1 ;;
           --) operands=1 ;;
           -?*) ;; # scope/format flags (--global/--type/…) are read-safe
           *)
