@@ -3676,6 +3676,11 @@ guard_fish() {
   # within the depth bound (REQ-A1.5, REQ-B1.3).
   [ "$cwn" -ge 3 ] || return 1
   [ "${cw[1]}" = '-c' ] || return 1
+  # The inner string is read with bash's quoting, but fish decodes escapes
+  # bash does not (`--he\x6cp` is `--help` to fish), so any backslash defers.
+  case ${cw[2]} in
+    *\\*) return 1 ;;
+  esac
   analyze_command "${cw[2]}" "$((HOOK_DEPTH + 1))"
 }
 

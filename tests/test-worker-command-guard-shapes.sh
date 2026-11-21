@@ -102,6 +102,14 @@ assert_allow "fish -c safe inner" "fish -c 'git status'"
 assert_defer "fish -c unsafe inner" "fish -c 'rm -rf x'"
 assert_defer "fish -c buried unsafe" "fish -c 'fish -c \"rm -rf x\"'"
 assert_defer "fish bare-paren substitution" "fish -c 'echo (rm -rf x)'"
+# fish decodes \xHH, \XHH, \ooo, \uXXXX and \UXXXXXXXX in an unquoted word,
+# where bash only drops the backslash, so the inner string's words are not the
+# ones the screens read: fish hands git `--help` and `--ext-diff` here.
+for c in "fish -c 'git log --he\\x6cp'" "fish -c 'git log --he\\X6cp'" "fish -c 'git log --hel\\160'" \
+  "fish -c 'git log --he\\u006cp'" "fish -c 'git log --he\\U0000006cp'" "fish -c 'git diff --ext\\x2ddiff'" \
+  "fish -c 'git log \\x2d\\x2dhelp'" "fish -c 'git status --hel\\x70'"; do
+  assert_defer "fish escape the screens would misread: $c" "$c"
+done
 assert_defer "fish --command long form" "fish --command 'git status'"
 
 echo "### REQ-A1.4 — every-segment-safe compound analysis"
