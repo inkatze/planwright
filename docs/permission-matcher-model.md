@@ -615,8 +615,8 @@ worktree, never from the command text, the checkout, config or the
 environment. A record that is a symlink, is not this user's own regular file,
 sits inside the worktree, names the field twice, or names anything outside
 `planwright/<spec>/<name>` (a task or flight branch, a branch in the protected
-set) names no branch. Only the worker tier reads it. Two acts open, and
-nothing else:
+set other than a sign-off branch, below) names no branch. Only the worker
+tier reads it. Two acts open, and nothing else:
 
 - **Bring the branch in.** On the session's own flight branch,
   `git merge --ff-only origin/<spec branch>` (also spelled
@@ -647,6 +647,34 @@ nothing else:
   the base merge.
 
 No force, reset or rebase is admitted by either act.
+
+A spec's sign-off branch (`planwright/<spec>/spec`) sits in the protected
+floor, and only its kickoff writes the spec there. A record naming it opens a
+narrower pair, so a worker launched on that pull request can land a forward
+merge of `main` and nothing else:
+
+- **Build the merge.** In the worktree holding the branch, as above,
+  `git merge origin/main` alone (bare or with `--no-edit`, the PR base by name
+  and by what git resolves it to), as the command's only act. Any other
+  source, option, the fast-forward to the PR head, or a second command on the
+  line refuses.
+- **Push it.** A push by explicit refspec (`git push origin HEAD:refs/heads/<spec
+  branch>`, the branch by name, or `HEAD`), from any checkout, as the
+  command's only act, with a `HEAD` or local-branch source. The guard first
+  refreshes the PR head and `main` from that remote with a bounded fetch, so
+  a tracking ref moved locally hides nothing. It then admits the push only
+  when it fast-forwards that head and every commit it adds that `main` lacks
+  lies on the first-parent line. Each such commit must be a two-parent merge
+  whose second parent `main` holds, and it must leave every spec-bundle file
+  (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md` and
+  `kickoff-brief.md`, which holds the sign-off record, matched by name at any
+  depth) as a clean three-way merge would. A merge that edits, adds or
+  deletes one, resolves a conflict in one, or drops `main`'s change to one
+  refuses, and so do a direct spec edit, any non-merge commit, a merge of
+  anything but `main`, a delete, and a push from a session with no record or
+  another pull request's. The sign-off branch skips the protected-set read
+  on this path only, as the kickoff push does; every other target of the same
+  push is still read.
 
 A kickoff session needs no record for the second act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change

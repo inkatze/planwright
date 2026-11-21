@@ -118,7 +118,10 @@
 #               kickoff scope's: spec_branch_checkout), checked out in the
 #               session's own linked worktree, takes a plain merge of the PR
 #               base, or a plain --ff-only merge of its own remote-tracking
-#               ref alone, under the same knob. When
+#               ref alone, under the same knob; a spec's sign-off branch
+#               (planwright/<spec>/spec) the session record names takes only
+#               `git merge <base>`, bare or with --no-edit, as the command's
+#               only act. When
 #               an --ff-only spelling is refused at the tower tier or for
 #               running off the unit branch, the reason also names
 #               scripts/main-currency.sh ff-primary, the sanctioned way to
@@ -131,7 +134,12 @@
 #               command runs below this hook. A commit with an expansion among
 #               its options denies: it could spell an amend.
 #   push       a force or bulk push denies; every other push reads the
-#               protected set and denies a target inside it.
+#               protected set and denies a target inside it. The one
+#               exception is the sign-off branch the session record names,
+#               pushed by explicit refspec as the command's only act: it reads
+#               no protected set and is decided by signoff_push_check, a
+#               fast-forward of nothing but merges of main that leave the
+#               spec bundle as a clean merge would.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -4567,7 +4575,13 @@ classify_git_merge() {
     return 0
   }
   ! merge_plain_seen || plain=1
-  PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB$plain$TAB${GP_POS[*]-}"
+  # bare: the command is this one merge, of one source, with no option but
+  # --no-edit (the one form a sign-off spec branch takes, eval_merge).
+  local bare=0
+  if [ "${#SEG_S[@]}" = 1 ] && [ "${#GP_POS[@]}" = 1 ] && [ -z "$GP_SHORT" ] && [ "$GP_LONG" = "$GP_LITLONG" ]; then
+    case $GP_LONG in ' ' | ' no-edit ') bare=1 ;; esac
+  fi
+  PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB$plain$TAB$bare$TAB${GP_POS[*]-}"
 }
 
 PULL_VLONG='strategy strategy-option depth deepen shallow-since shallow-exclude upload-pack server-option negotiation-tip jobs refmap cleanup'
@@ -4883,7 +4897,9 @@ classify_git_push() {
   done
   act_gate 'this git push' push || return 0
   need_dir "$dir_ok" 'this git push' || return 0
-  PENDING[${#PENDING[@]}]="push$TAB$dir$TAB$del$TAB${pos[0]:-}$TAB${refs[*]-}"
+  local alone=0
+  [ "${#SEG_S[@]}" != 1 ] || alone=1
+  PENDING[${#PENDING[@]}]="push$TAB$dir$TAB$del$TAB$alone$TAB${pos[0]:-}$TAB${refs[*]-}"
 }
 
 # --------------------------------------------------------------------------
@@ -5090,10 +5106,17 @@ kickoff_scope_names() {
 # sign-off push reaches it through the kickoff push helper alone, which reads
 # no protected set for it, so the local merge there skips the whole set read
 # (protected_branches additions included), and every other branch reads it.
+#
+# SBC_SIGNOFF is 1 when the branch is a sign-off branch (planwright/<spec>/spec)
+# named by the launch record rather than a kickoff scope. Its protected-set
+# read is skipped as the kickoff's is: the push from it is decided by
+# signoff_push_check, and eval_merge admits it the one bare base merge.
 SBC_BRANCH=''
+SBC_SIGNOFF=0
 spec_branch_checkout() {
   local d=$1 what=${2:-this git merge} pdir=${CLAUDE_PROJECT_DIR:-} b top gd kick=0
   SBC_BRANCH=''
+  SBC_SIGNOFF=0
   [ "$TIER" = worker ] && [ -n "$pdir" ] && [ -d "$pdir" ] || return 1
   b=$(current_branch "$pdir")
   [ -n "$b" ] && ! is_unit_branch "$b" || return 1
@@ -5107,16 +5130,36 @@ spec_branch_checkout() {
   [ "$(current_branch "$d")" = "$b" ] || return 1
   checkout_of "$d" && [ "$CO_TOP" = "$top" ] && [ "$CO_GD" = "$gd" ] || return 1
   SBC_BRANCH=$b
+  if [ "$kick" = 0 ] && [ "${b##*/}" = spec ]; then
+    SBC_SIGNOFF=1
+    return 0
+  fi
   [ "$kick" = 1 ] && [ "$KSN_NAME" = spec ] || check_unprotected "$d" "$what" "$b"
 }
 
 eval_merge() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s ff=0 plain
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} remedy='' srcs s ff=0 plain bare
   [ "${rest%%"$TAB"*}" != 1 ] || { remedy=$FF_REMEDY ff=1; }
   rest=${rest#*"$TAB"}
   plain=${rest%%"$TAB"*}
+  rest=${rest#*"$TAB"}
+  bare=${rest%%"$TAB"*}
   srcs=${rest#*"$TAB"}
   if spec_branch_checkout "$dir"; then
+    if [ "$SBC_SIGNOFF" = 1 ]; then
+      # The sign-off branch a launch record names builds a forward-merge of
+      # the PR base and nothing else; what it may push is checked at the push
+      # (signoff_push_check).
+      read_knob worker_base_merge "$dir" allow deny
+      [ "$KNOB_VAL" = allow ] \
+        || emit_deny "worker_base_merge is deny, so this git merge is refused; the operator syncs this branch with its base."
+      need_timeout
+      CUR_BRANCH=$SBC_BRANCH
+      base_of "$dir"
+      { [ "$bare" = 1 ] && [ "$srcs" = "$BASE_REMOTE/$BASE_BRANCH" ] && is_base_ref "$dir" "$srcs"; } \
+        || emit_deny "$(sanitize_printable "$SBC_BRANCH" 'this spec branch') is a spec's sign-off branch, which a session launched on its pull request syncs only by git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main') (optionally with --no-edit), run as the command's only act - refusing. Run exactly that, on its own."
+      return 0
+    fi
     # A spec branch the launch names, checked out in the session's own linked
     # worktree, takes a plain merge of the PR base, or a plain fast-forward to
     # its own remote-tracking ref alone, and nothing else; nothing is cached,
@@ -5333,9 +5376,146 @@ check_root_unpushed() {
     || emit_deny 'this history rewrite names a commit a remote-tracking ref already contains; pushed history stays append-only - refusing. Add a new commit instead.'
 }
 
+# The spec-bundle files, by basename: the four authored files and the kickoff
+# brief that holds the sign-off record. Matched at any depth, so a custom spec
+# root needs no resolving here; a same-named file elsewhere only refuses more.
+SIGNOFF_BUNDLE=' requirements.md design.md tasks.md test-spec.md kickoff-brief.md '
+
+# signoff_blob <dir> <commit> <path> — the object id at <path>, or empty.
+signoff_blob() {
+  gitq "$1" rev-parse --verify --quiet "$2:$3" || printf ''
+}
+
+# signoff_merge_clean <dir> <merge> <p1> <p2> — 0 when the merge leaves every
+# spec-bundle path exactly as a clean three-way merge would: the branch's side
+# where main did not touch it, main's side where the branch did not. A
+# conflict resolved by hand, an edit, an addition or a deletion refuses.
+signoff_merge_clean() {
+  local d=$1 m=$2 p1=$3 p2=$4 base p name vb v1 v2 vm
+  base=$(gitq "$d" merge-base --all "$p1" "$p2") || base=''
+  case $base in '' | *"$NL"*) return 1 ;; esac
+  while IFS= read -r -d '' p; do
+    lc "${p##*/}"
+    name=$LC
+    case $SIGNOFF_BUNDLE in *" $name "*) ;; *) continue ;; esac
+    vb=$(signoff_blob "$d" "$base" "$p")
+    v1=$(signoff_blob "$d" "$p1" "$p")
+    v2=$(signoff_blob "$d" "$p2" "$p")
+    vm=$(signoff_blob "$d" "$m" "$p")
+    if [ "$vm" = "$v1" ] && { [ "$v2" = "$vb" ] || [ "$v2" = "$v1" ]; }; then
+      continue
+    fi
+    [ "$vm" = "$v2" ] && [ "$v1" = "$vb" ] && continue
+    return 1
+  done < <(
+    gitq "$d" diff-tree -r -z --no-renames --name-only "$p1" "$m"
+    gitq "$d" diff-tree -r -z --no-renames --name-only "$p2" "$m"
+  )
+  return 0
+}
+
+# signoff_push_check <dir> <del> <alone> <remote> <src> <branch> — 0 when a
+# push to the sign-off branch the launch record names is a forward-merge of
+# main and nothing else: the command's only act, no delete, a plain remote, a
+# HEAD or local-branch source, and, against the PR head and main refreshed
+# from that remote, a fast-forward whose every new commit off main lies on the
+# first-parent line and is a two-parent merge of a main commit that leaves the
+# spec bundle as a clean merge would. SPC_WHY says why not.
+SPC_WHY=''
+signoff_push_check() {
+  local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 head base hoid roid moid all fp fpm c line rc=0
+  local -a par
+  SPC_WHY=''
+  [ "$del" = 0 ] || {
+    SPC_WHY='this push deletes'
+    return 1
+  }
+  [ "$alone" = 1 ] || {
+    SPC_WHY='this push is not the command'"'"'s only act, so what it pushes may change after the guard reads it; run it on its own'
+    return 1
+  }
+  [[ $rem =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ -n "$(gitq "$d" config --get "remote.$rem.url")" ] || {
+    SPC_WHY='this push names no configured remote by a plain name'
+    return 1
+  }
+  case $src in
+    HEAD | @) hoid=$(gitq "$d" rev-parse --verify --quiet 'HEAD^{commit}') || hoid='' ;;
+    *)
+      src=${src#refs/heads/}
+      if valid_branch "$src"; then
+        hoid=$(gitq "$d" rev-parse --verify --quiet "refs/heads/$src^{commit}") || hoid=''
+      else
+        hoid=''
+      fi
+      ;;
+  esac
+  [ -n "$hoid" ] || {
+    SPC_WHY='its source is not HEAD or a local branch the guard can read'
+    return 1
+  }
+  head=$(gitq "$d" symbolic-ref --quiet --short "refs/remotes/$rem/HEAD") || head=''
+  base=${head#"$rem"/}
+  [ -n "$head" ] && [ "$base" != "$head" ] || base=main
+  valid_branch "$base" || {
+    SPC_WHY='the remote'"'"'s default branch is not a name the guard will fetch'
+    return 1
+  }
+  need_timeout
+  GIT_TERMINAL_PROMPT=0 "$TB" -k 2 "$FETCH_B" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
+    fetch --quiet --no-tags --no-write-fetch-head --no-recurse-submodules "$rem" \
+    "+refs/heads/$sb:refs/remotes/$rem/$sb" "+refs/heads/$base:refs/remotes/$rem/$base" \
+    </dev/null >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 0 ] || {
+    SPC_WHY="refreshing the pull request head and $base from $rem failed (exit $rc), so the guard cannot read what the push adds; retry when the remote is reachable"
+    return 1
+  }
+  roid=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$rem/$sb^{commit}") || roid=''
+  moid=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$rem/$base^{commit}") || moid=''
+  [ -n "$roid" ] && [ -n "$moid" ] || {
+    SPC_WHY='the pull request head or the base could not be read after the refresh'
+    return 1
+  }
+  gitq "$d" merge-base --is-ancestor "$roid" "$hoid" || {
+    SPC_WHY='the push would not fast-forward the pull request head as the remote holds it; merge the current head first'
+    return 1
+  }
+  all=$(gitq "$d" rev-list --count "$hoid" --not "$roid" "$moid") || all=''
+  fp=$(gitq "$d" rev-list --count --first-parent "$hoid" --not "$roid") || fp=''
+  fpm=$(gitq "$d" rev-list --count --first-parent "$hoid" --not "$roid" "$moid") || fpm=''
+  case "$all:$fp:$fpm" in
+    *[!0-9:]* | :* | *::* | *:) SPC_WHY='the commits it adds could not be listed' && return 1 ;;
+  esac
+  [ "$all" = "$fp" ] && [ "$fp" = "$fpm" ] || {
+    SPC_WHY='it adds commits that are not merges of main onto the pull request head'
+    return 1
+  }
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    read -r -a par <<<"$line"
+    c=${par[0]}
+    [ "${#par[@]}" = 3 ] || {
+      SPC_WHY="it adds a commit that is not a two-parent merge of main ($(sanitize_printable "${c:0:12}" 'a commit'))"
+      return 1
+    }
+    gitq "$d" merge-base --is-ancestor "${par[2]}" "$moid" || {
+      SPC_WHY="it adds a merge of something other than main ($(sanitize_printable "${c:0:12}" 'a commit'))"
+      return 1
+    }
+    signoff_merge_clean "$d" "$c" "${par[1]}" "${par[2]}" || {
+      SPC_WHY="it adds a merge that changes a spec-bundle file beyond what merging main brings ($(sanitize_printable "${c:0:12}" 'a commit'))"
+      return 1
+    }
+  done <<EOF
+$(gitq "$d" rev-list --parents --first-parent "$hoid" --not "$roid")
+EOF
+  return 0
+}
+
 eval_push() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del remote refs r dst targets=() cb
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb signoff=''
   del=${rest%%"$TAB"*}
+  rest=${rest#*"$TAB"}
+  alone=${rest%%"$TAB"*}
   rest=${rest#*"$TAB"}
   remote=${rest%%"$TAB"*}
   refs=${rest#*"$TAB"}
@@ -5368,10 +5548,20 @@ eval_push() {
     upstream_of "$dir" "$cb"
     [ -z "$UP_BRANCH" ] || targets[${#targets[@]}]=$UP_BRANCH
   else
+    if [ "$TIER" = worker ] && checkout_of "$dir"; then
+      record_spec_branch "$CO_TOP"
+      [ "${SPEC_BRANCH##*/}" != spec ] || signoff=$SPEC_BRANCH
+    fi
     for r in $refs; do
       case $r in
-        *:*) dst=${r#*:} ;;
-        *) dst=$r ;;
+        *:*)
+          src=${r%%:*}
+          dst=${r#*:}
+          ;;
+        *)
+          src=$r
+          dst=$r
+          ;;
       esac
       [ -n "$dst" ] || emit_deny 'this git push carries a refspec with an empty destination, which the guard does not read - refusing (fail closed).'
       case $dst in
@@ -5385,6 +5575,11 @@ eval_push() {
       esac
       valid_branch "$dst" \
         || emit_deny "this git push names a destination the guard will not check ($(sanitize_printable "$dst" 'unprintable')) - refusing (fail closed)."
+      if [ -n "$signoff" ] && [ "$dst" = "$signoff" ]; then
+        signoff_push_check "$dir" "$del" "$alone" "$remote" "$src" "$dst" \
+          || emit_deny "this git push to $(sanitize_printable "$dst" 'a spec sign-off branch') is refused: $SPC_WHY. Only that spec's kickoff writes its sign-off branch; a session launched on its pull request pushes there only a fast-forward that adds nothing but merges of main and changes no spec-bundle file, as the command's only act. Leave spec edits to the kickoff session."
+        continue
+      fi
       targets[${#targets[@]}]=$dst
     done
   fi
