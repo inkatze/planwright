@@ -378,11 +378,20 @@ assert_defer "a plugin script after the push" "git push origin $B && $PLUGIN_ROO
 # The compute router is a plugin script too: a routed gate stays a call of its own.
 : >"$PLUGIN_ROOT/scripts/compute-route.sh"
 CR=$PLUGIN_ROOT/scripts/compute-route.sh
+# The router routes only a tests/test-*.sh suite.
+: >"$WT/tests/test-x.sh"
 assert_allow "a routed gate alone (control)" "$CR --check -- mise run check" Bash "$WT"
+assert_allow "a routed test gate alone (control)" "$CR --test tests/test-x.sh -- bash tests/test-x.sh" Bash "$WT"
 assert_defer "a push after a routed check gate" "$CR --check -- mise run check && git push origin $B" Bash "$WT"
-assert_defer "a push after a routed test gate" "$CR --test tests/x.sh -- bash tests/x.sh && git push origin $B" Bash "$WT"
+assert_defer "a push after a routed test gate" "$CR --test tests/test-x.sh -- bash tests/test-x.sh && git push origin $B" Bash "$WT"
 assert_defer "a body edit after a routed gate" "$CR --check -- mise run check && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
 assert_defer "an export after a routed gate" "$CR --check -- mise run check && export $CTX && $SREC write --run 1" Bash "$WT"
+assert_allow "a timeout-wrapped routed gate alone (control)" "timeout 600 $CR --check -- mise run check" Bash "$WT"
+assert_allow "umask before a routed gate alone (control)" "umask 022 && $CR --test tests/test-x.sh -- bash tests/test-x.sh" Bash "$WT"
+assert_defer "a push after a timeout-wrapped routed gate" "timeout 600 $CR --check -- mise run check && git push origin $B" Bash "$WT"
+assert_defer "a push after a niced routed gate" "nice -n 10 $CR --check -- mise run check && git push origin $B" Bash "$WT"
+assert_defer "a push after umask and a routed gate" "umask 022 && $CR --test tests/test-x.sh -- bash tests/test-x.sh && git push origin $B" Bash "$WT"
+assert_defer "a routed gate after the push" "git push origin $B && $CR --check -- mise run check" Bash "$WT"
 rm -f "$REC.audit/own.log"
 assert_allow "a gate chain, for its audit line" "mise run check && git push origin $B" Bash "$WT"
 if grep -q ' arm=own-unit ' "$REC.audit/own.log" 2>/dev/null; then
