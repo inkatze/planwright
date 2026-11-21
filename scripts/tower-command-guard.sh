@@ -1914,8 +1914,8 @@ git_config_write_opt() {
   return 1
 }
 
-# git_help_req <verb>: whether the git line asks for help, which opens the man
-# page through a pager or a browser, and a pager runs commands (`!cmd` in
+# git_help_req <verb>: whether the git line in cw asks for help, which opens the
+# man page through a pager or a browser, and a pager runs commands (`!cmd` in
 # less). git opens it for the `help` verb and an exact `--help` right after
 # the verb, but any word git could read as --help or --help-all, wherever it
 # sits and abbreviated or not, counts, failing closed.
