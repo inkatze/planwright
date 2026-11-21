@@ -166,6 +166,16 @@ lint_case "$sh_" "a clean shell script passes" 0 "$(printf '#!/bin/sh\nprintf "%
 lint_case "$sh_" "a shell script that does not parse fails" 1 "$(printf '#!/bin/sh\nif true; then\n')"
 lint_case "$sh_" "an unquoted expansion fails shellcheck" 1:SC2086 "$(printf '#!/bin/sh\nrm $1\n')"
 lint_case "$sh_" "a bash-only construct under the sh dialect fails" 1:SC3030 "$(printf 'a=(1 2)\nprintf "%%s\\\\n" "${a[0]}"\n')" sh
+# The linter runs under the operator's HOME, so no rc file may relax it.
+mkdir -p "$tmp/rcdir" || exit 1
+printf 'disable=SC2086\n' >"$tmp/rcdir/.shellcheckrc"
+printf '#!/bin/sh\nrm $1\n' >"$tmp/rcdir/emitted.sh"
+lint_emitted "$sh_" fixture "$tmp/rcdir/emitted.sh" >"$tmp/lint.out" 2>&1
+case "$?:$(cat "$tmp/lint.out")" in
+  *skip:*) printf '%s\n' "skip: a shellcheckrc beside the file: $(cat "$tmp/lint.out")" ;;
+  1:*SC2086*) pass "a shellcheckrc beside the emitted file relaxes nothing" ;;
+  *) fail "a shellcheckrc beside the emitted file relaxed the lint: $(cat "$tmp/lint.out")" ;;
+esac
 # A linter missing in CI is a failure, never a skip; outside CI, a skip line.
 # hash -r: bash 3.2 keeps hashed paths under a PATH prefix on a function call.
 printf 'key: value\n' >"$tmp/artifact"

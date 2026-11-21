@@ -85,7 +85,7 @@ lint_emitted() {
         sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
       }
       if le_need shellcheck "$le_emitter"; then
-        HOME=$le_runhome "$le_bin" -s "$le_dialect" "$le_file" >"$le_dir/out" 2>&1 || {
+        HOME=$le_runhome "$le_bin" --norc -s "$le_dialect" "$le_file" >"$le_dir/out" 2>&1 || {
           le_rc=1
           sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
         }
