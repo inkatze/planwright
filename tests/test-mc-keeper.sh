@@ -504,10 +504,10 @@ rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/
 
 # A live worker no launcher row names (launched outside the launcher, its row
 # lost, or a polish session a worker spawned, whose dispatch record names no
-# owner) still has its prompts heard: by the program its name carries under
-# the launcher's grammar, else by the hub as unowned, plus one event saying it
-# has no row. Who may answer is unchanged. Runs under the alpha, beta and hub
-# configuration above.
+# owner) still has its prompts heard: by its record's, parent's or name's
+# program, plus one event there saying it has no row; else each request goes
+# to the hub as unowned. Who may answer is unchanged. Runs under the alpha,
+# beta and hub configuration above.
 ev_of() { # ev_of <program> <worker>: that program's stored events for the worker
   mc_run mc-event.sh list --program "$1"
   printf '%s\n' "$OUT" | awk -F '\t' -v w="$2" '$4 == w'

@@ -133,8 +133,8 @@ Usage:
       event, whatever its program. A live worker with a request waiting, no
       launcher row and a program its record, parent or name gives is raised
       once more, as a stream-json-worker-unregistered event under that
-      program; not while the launcher's list, the program list, the session
-      kinds or the hub setting cannot be read, nor for a worker whose
+      program; not while the launcher's list, the program list or the
+      session kinds cannot be read, nor for a worker whose
       registry file the list skipped (another format's row). The
       orphan sweep: each process
       scripts/mc-stall.sh orphans has listed for a minute is one
@@ -620,16 +620,19 @@ worker_program_name() {
   return 0
 }
 
-# owner_of <worker> <launcher list> <listed> <fleet home>: sets OW_PROGRAM,
+# owner_of <worker> <launcher list> <list read> <fleet home>, <list read>
+# non-empty when the launcher's list was read: sets OW_PROGRAM,
 # the program that hears the worker's prompts (empty: none, so each request
 # is raised as unowned), and OW_LABEL, the label its prompt events carry after
 # its name. A live worker no row names whose record, parent or name gives
 # this program also has its one-time stream-json-worker-unregistered event
-# raised here. With the launcher's list or owner_inputs' reads failed, a row
-# cannot be told from its absence: a worker nothing else owns is this
-# program's (heard twice beats never), no one-time event is raised, and a
-# failed owner_inputs fails it, so the sweep says so. A registry file the
-# list skipped (another format's row) still counts as a row for that event.
+# raised here. With the launcher's list or owner_inputs' reads failed, no
+# one-time event is raised. With the list unreadable a row cannot be told
+# from its absence, so a worker nothing else owns is this program's (heard
+# twice beats never); with only owner_inputs failed it stays unowned, raised
+# once per request, and owner_of fails, so the sweep says so. A registry file
+# the list skipped (another format's row) still counts as a row for that
+# event.
 owner_of() {
   owner_inputs
   OW_LABEL=""
@@ -637,7 +640,7 @@ owner_of() {
   OW_PROGRAM=${ow_got%%	*}
   ow_src=${ow_got#*	}
   if [ -z "$3" ] || [ -z "$OI_OK" ]; then
-    [ -n "$OW_PROGRAM" ] || OW_PROGRAM=$program
+    [ -n "$OW_PROGRAM" ] || [ -n "$3" ] || OW_PROGRAM=$program
     if [ -n "$OI_OK" ]; then return 0; fi
     return 1
   fi
@@ -656,7 +659,7 @@ owner_of() {
     *) ow_by="its name" ;;
   esac
   announce_once "$1" "$4" "$program" unregistered \
-    "stream-json worker $1 is live with no launcher row, so nothing retires or relaunches it; its prompts are raised here, since $ow_by gives $program; mission-control-launch.sh retire $1 closes it, a fresh launch replaces it"
+    "stream-json worker $1 is live with no launcher row of its own, so the launcher does not retire or relaunch it; its prompts are raised here, since $ow_by gives $program; mission-control-launch.sh retire $1 closes it, a fresh launch replaces it"
 }
 
 # shellcheck disable=SC2329 # mc_knob calls it by name
@@ -685,10 +688,10 @@ keeper_target() {
 }
 
 # announce_once <worker> <fleet home> <program> <stem> <text>: the one-time
-# stream-json-worker-<stem> event about a live worker, raised once however
-# many programs' keepers see it: the first to take the <stem>-announced claim
-# in the worker's directory raises it under <program>, and a refused announce
-# releases the claim so a later pass retries. The claim is the dedupe, so the
+# stream-json-worker-<stem> event about a live worker, raised under <program>
+# by the pass that takes the <stem>-announced claim in the worker's
+# directory, so no later pass raises it again; a refused announce releases
+# the claim so a later pass retries. The claim is the dedupe, so the
 # seen file mc_announce needs, keeper-<stem>, is emptied after each raise
 # rather than growing by every row-less worker. A worker the rung does not
 # report waiting on a request is left to a later pass, since a dead one's

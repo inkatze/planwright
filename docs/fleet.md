@@ -878,10 +878,11 @@ Each goes to the worker's own program: its launcher row's, else the owner its
 dispatch record keeps, else its parent's row or record (the worker it was
 launched from inside), else the configured program its name carries under the
 launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
-polish pass adding `-<suffix>`). A live worker with no row is raised once to
-that program as a `stream-json-worker-unregistered` event, so its mission
-control can retire it or launch it afresh; not while the launcher's list or
-the keeper's other inputs cannot be read, nor for a worker whose registry file
+polish pass adding `-<suffix>`). A live worker with a request waiting and no
+row of its own is raised once to the program its record, parent or name gives,
+as a `stream-json-worker-unregistered` event, so its mission control can
+retire it or launch it afresh; not while the launcher's list, the program list
+or the session kinds cannot be read, nor for a worker whose registry file
 the list skipped (another format's row). Each request of a worker none of
 these owns, or of a worker whose program has no live mission control (no
 launched mission-control row, or every one positively dead), is raised once,
