@@ -135,7 +135,7 @@ Usage:
 
 Exit codes: 0 done; 1 a failed read, check, store or event, or anything
 left unknown (watch: but a stale snapshot or none yet); 2 usage; 3 the
-program is not configured.
+program is not configured; 4 and 5 (fresh only) stale and not yet.
 
 Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
 HELP
@@ -274,12 +274,18 @@ fresh_check() {
   rm -f "$fc_err"
   fc_state=$(printf '%s\n' "$fc_out" | awk -F '\t' '$1 == "state" { print $2; exit }')
   fc_head=$(printf '%s\n' "$fc_out" | awk -F '\t' '$1 == "head" { print $2; exit }')
+  # A state outside these three is unknown, never stale: the relay marks a
+  # stale event submitted for good.
+  case $fc_state in
+    OPEN | MERGED | CLOSED) ;;
+    *) fc_state="" ;;
+  esac
   if [ -z "$fc_state" ] || ! mc_valid_sha "$fc_head"; then
-    printf 'unknown\tits state could not be read from the forge: the answer named no state or head\n'
+    printf 'unknown\tits state could not be read from the forge: the answer named no known state or no head\n'
     return 1
   fi
   if [ "$fc_state" != OPEN ]; then
-    printf 'stale\tit is %s\n' "$(printf '%s' "$fc_state" | mc_clean | cut -c1-20)"
+    printf 'stale\tit is %s\n' "$fc_state"
     return 4
   fi
   if [ "$fc_head" != "$3" ]; then
@@ -290,7 +296,7 @@ fresh_check() {
     printf 'unknown\tits review threads exceed the first page, so the bot round cannot be confirmed\n'
     return 1
   fi
-  if ! printf '%s\n' "$fc_out" | H=$3 awk -F '\t' '$1 == "botreview" && $2 == ENVIRON["H"] { f = 1 } END { exit !f }'; then
+  if ! printf '%s\n' "$fc_out" | H=$3 awk -F '\t' '$1 == "botreview" && $2 "" == ENVIRON["H"] "" { f = 1 } END { exit !f }'; then
     if printf '%s\n' "$fc_out" | grep -q '^truncated.reviews'; then
       printf 'unknown\tits reviews exceed the last page, so a bot review of this head cannot be ruled out\n'
       return 1

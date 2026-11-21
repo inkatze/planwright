@@ -563,6 +563,19 @@ expect_rc "a PR-Agent run on another commit is pending" 5
 printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":true},"nodes":[]}}}}]}}}}}' "$H" "$H" >"$tmp/fresh.39"
 run fresh --program alpha --repo acme/web --pr 39 --head "$H"
 expect_rc "no PR-Agent run on a truncated check page is unknown, never pending" 1
+fresh 39 OPEN "$J" "$J" 0
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a pull request whose head moved is stale" 4
+expect_eq "and says where it went" "stale${tab}its head moved to $J"
+printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"pageInfo":{"hasNextPage":true},"nodes":[]}}}}}' "$H" >"$tmp/fresh.39"
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "review threads past the first page are unknown" 1
+fresh 39 LOCKED "$H" "$H" 0
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a state outside open, merged and closed is unknown, never stale" 1
+printf '{"data":{"repository":{"pullRequest":null}}}' >"$tmp/fresh.39"
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a pull request the forge does not return is unknown" 1
 rm -f "$tmp"/fresh.3? "$store"
 
 # ---------------------------------------------------------------------------
