@@ -106,6 +106,53 @@ else
   fail "hook skip list: a malformed list reached the record: $(field hook_exclude)"
 fi
 set_layer machine-local ''
+
+echo "### REQ-A1.18 — the check commands, read at the primary checkout"
+write "$WT"
+if ! grep -q '^check_commands=' "$REC"; then
+  pass "A1.18: no worker_check_commands, no record field"
+else
+  fail "A1.18: the record carried check_commands with no config"
+fi
+set_layer repo-tracked 'worker_check_commands: mix test <path>... ;; mix format --check-formatted ;'
+write "$WT"
+if [ "$(field check_commands)" = "mix test <path>...;mix format --check-formatted" ]; then
+  pass "A1.18: the declarations reach the record, trimmed, empty ones skipped"
+else
+  fail "A1.18: read '$(field check_commands)'"
+fi
+mkdir -p "$WT/.claude"
+printf '%s\n' 'worker_check_commands: rm -rf <path>' >"$WT/.claude/planwright.local.yml"
+printf '%s\n' 'worker_check_commands: rm -rf <path>' >"$WT/.claude/planwright.yml"
+write "$WT"
+if [ "$(field check_commands)" = "mix test <path>...;mix format --check-formatted" ]; then
+  pass "A1.18: a declaration in a file the worker can write is ignored"
+else
+  fail "A1.18: the worktree's own overlay reached the record: '$(field check_commands)'"
+fi
+rm -f "$WT/.claude/planwright.local.yml" "$WT/.claude/planwright.yml"
+set_layer machine-local 'worker_check_commands: mix test <path>'
+printf '%s\n' 'not flat' >>"$MAIN/.claude/planwright.local.yml"
+write "$WT"
+if [ "$RC" -eq 0 ] && ! grep -q '^check_commands=' "$REC"; then
+  pass "A1.18: a malformed machine-local layer drops the list, not a fall back to a lower one"
+else
+  fail "A1.18: a malformed layer left '$(field check_commands)' (rc=$RC)"
+fi
+long=''
+for i in $(seq 1 200); do long="${long}mix t$i <path>; "; done
+set_layer machine-local "worker_check_commands: $long"
+write "$WT"
+got=$(field check_commands)
+if [ "$RC" -eq 0 ] && [ "${#got}" -le 2048 ] && [ "${got%%;*}" = "mix t1 <path>" ] \
+  && grep -q 'dropped' "$T/err" && [ "$(wc -c <"$REC")" -le 4096 ]; then
+  pass "A1.18: declarations past the bound drop with a warning, the record stays readable"
+else
+  fail "A1.18: long list (len=${#got}, rc=$RC, $(cat "$T/err"))"
+fi
+set_layer machine-local ''
+set_layer repo-tracked ''
+
 set_layer repo-tracked 'worker_self_approval: own-branch'
 write "$WT"
 if [ "$(field policy)" = own-branch ]; then

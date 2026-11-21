@@ -2751,6 +2751,34 @@ starting a session under the operator's own settings. On Claude Code 2.1.303,
 two `-p` launches given the same `--name` both start and both carry that name: the CLI neither renames
 nor refuses, so a duplicate shows up only in the session listing.
 
+**A repository's own check commands.** A worker may not edit the mise
+configuration, so a repository whose tests run through their own runner
+(`mix test`, `cargo test`, a `bin/check` script) would otherwise prompt on
+every run. Declare those commands in `worker_check_commands` and the worker's
+command guard approves them by shape. A declaration is literal words plus the
+placeholders `<word>` (a token with no `/`), `<int>` and `<path>` (a path
+inside the worktree, never a hooks, git or tool configuration path), the last
+one optionally suffixed `...` for one or more words; declarations are
+separated by `;`. For a mix-based repository, in its
+`.claude/planwright.yml` or the machine-local overlay:
+
+```yaml
+worker_check_commands: mix test <path>...; mix test --seed <int> <path>; mix format --check-formatted; mise exec -- mix credo --strict
+```
+
+That approves `mix test test/a_test.exs test/b_test.exs:12` and
+`mise exec -- mix credo --strict`, and still prompts on `mix test --trace x`
+(an undeclared flag), `mix test ../other` (a path outside the worktree),
+`mise exec -- mix deps.get` (a runner prefix admits only its own declared
+sequence) and any word holding a metacharacter or an expansion. The `deny`
+block is read first, so no declaration lifts it, and a malformed declaration
+is dropped alone. The launcher reads the knob at the primary checkout into the
+session record, so an edit inside the worker's own worktree changes nothing
+and a change reaches a worker only by relaunch. Running a declared command
+runs the repository's own code, the trust the guard already gives its
+`scripts/`. The full rules are in
+[the options reference](options-reference.md).
+
 The launcher's `retire <name>` closes what it launched from its registry row.
 A stream-json worker launched without it (by an older planwright, by
 `/orchestrate`, or by hand) has no row, so `retire <worker>` takes it by its

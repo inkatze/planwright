@@ -58,6 +58,12 @@
 #                      when unset or when any member falls outside
 #                      [A-Za-z0-9_-]; the launcher exports it as
 #                      LEFTHOOK_EXCLUDE (scripts/fleet-dispatch-env.sh)
+#   check_commands     worker_check_commands, last value wins, read at the
+#                      primary checkout like the policy, a malformed overlay
+#                      layer or a failed read dropping it; its `;`-separated
+#                      declarations trimmed, empty ones skipped, and those past
+#                      2048 bytes dropped with a warning. The guard parses each
+#                      declaration and drops a malformed one. Omitted when empty
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
@@ -92,6 +98,9 @@ export LC_ALL
 unset CDPATH
 
 me=worker-session-record.sh
+# The check_commands bound, scripts/worker-command-guard.sh's MAX_CHECKS_LEN
+# (they change together).
+MAX_CHECKS_LEN=2048
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 
 die() {
@@ -220,6 +229,35 @@ if [ -n "$primary" ]; then
       *) hook_exclude="${hook_exclude:+$hook_exclude,}$m" ;;
     esac
   done
+fi
+
+# The check commands, read strictly: a malformed overlay layer drops the whole
+# list rather than letting a lower layer's wider list through.
+check_commands=''
+if [ -n "$primary" ]; then
+  raw=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 \
+    /bin/sh "$script_dir/config-get.sh" worker_check_commands 2>/dev/null </dev/null) || raw=''
+  case $raw in
+    *[[:cntrl:]]*) raw='' ;;
+  esac
+  dropped=0
+  while [ -n "$raw" ]; do
+    decl=${raw%%;*}
+    case $raw in
+      *';'*) raw=${raw#*;} ;;
+      *) raw='' ;;
+    esac
+    decl=$(printf '%s' "$decl" | sed 's/^ *//; s/ *$//')
+    [ -n "$decl" ] || continue
+    next=${check_commands:+$check_commands;}$decl
+    if [ "${#next}" -gt "$MAX_CHECKS_LEN" ]; then
+      dropped=1
+      continue
+    fi
+    check_commands=$next
+  done
+  [ "$dropped" = 0 ] \
+    || printf '%s: worker_check_commands is longer than %s bytes; the declarations past it are dropped\n' "$me" "$MAX_CHECKS_LEN" >&2
 fi
 
 unit=$(gitq "$wt" symbolic-ref --quiet --short HEAD) || unit=''
@@ -369,6 +407,7 @@ if ! {
   [ -z "$scratch" ] || printf 'scratch_root=%s\n' "$scratch"
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
   [ -z "$hook_exclude" ] || printf 'hook_exclude=%s\n' "$hook_exclude"
+  [ -z "$check_commands" ] || printf 'check_commands=%s\n' "$check_commands"
   [ "$mise_task_edit" = 0 ] || printf 'mise_task_edit=1\n'
   [ -z "$spec_branch" ] || printf 'spec_branch=%s\n' "$spec_branch"
   case ${PLANWRIGHT_LAUNCH_BACKEND:-} in

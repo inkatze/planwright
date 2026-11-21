@@ -1035,6 +1035,15 @@ worker_self_approval: scratch
 # [A-Za-z0-9_-] drops the whole list.
 worker_hook_exclude:
 
+# A repository's own check and test commands a dispatched worker's command
+# guard approves by shape, `;` separated: literal words, plus the
+# placeholders <word>, <int> and <path> (worktree-relative), the last one
+# optionally suffixed `...` for one or more words, e.g.
+# `mix test <path>...; mix format --check-formatted`. Resolved once into the
+# worker's session record at launch from the primary checkout, like the
+# policy; a malformed declaration is dropped alone. Empty approves none.
+worker_check_commands:
+
 # How many days a worker's audit log of allow decisions is kept under the
 # fleet home's allow-audit directory. The guard only appends; each worker
 # launch (scripts/worker-session-record.sh) prunes the logs older than this.

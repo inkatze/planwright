@@ -84,7 +84,8 @@
 # for itself (REQ-A1.10; see is_planwright_script — the reason this needs no
 # per-machine, version-pinned allow entry). `fish -c "<inner>"` recurses the same
 # analysis on the inner string within a bounded depth.
-# A segment none of these shapes approve is still approved when it is exactly
+# A segment none of these shapes approve is still approved when it matches a
+# check command the repository declares (see check_command_ok), or is exactly
 # a command step an operator declared (see declared_line_ok).
 #
 # Portable bash (3.2 floor / BSD compatible), no dependency on python, fish,
@@ -1036,6 +1037,12 @@ REC_AUDIT_LOG=''
 # 1 when the launch opted in to editing the worktree's own mise task files
 # (the record's mise_task_edit=1); see ob_excluded_name.
 REC_MISE_TASKS=0
+# The repository's declared check commands, `;` separated, as the launcher
+# resolved worker_check_commands; see check_command_ok. The length bound is
+# scripts/worker-session-record.sh's (they change together), which keeps the
+# record under the size every record reader accepts.
+REC_CHECKS=''
+readonly MAX_CHECKS_LEN=2048
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
 # grammar (is_unit_branch) narrowed to flight names carrying the id every
@@ -1066,7 +1073,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' mt=''
+  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' mt='' cc=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1094,6 +1101,7 @@ session_record_load() {
       scratch_root) sr=$v ;;
       audit_log_home) ah=$v ;;
       mise_task_edit) mt=$v ;;
+      check_commands) cc=$v ;;
     esac
   done <"$p"
   case $dup in *" policy "*) policy='' ;; esac
@@ -1104,6 +1112,11 @@ session_record_load() {
   case $dup in *" scratch_root "*) sr='' ;; esac
   case $dup in *" audit_log_home "*) ah='' ;; esac
   case $dup in *" mise_task_edit "*) mt='' ;; esac
+  case $dup in *" check_commands "*) cc='' ;; esac
+  case $cc in
+    *[[:cntrl:]]*) cc='' ;;
+  esac
+  [ "${#cc}" -le "$MAX_CHECKS_LEN" ] || cc=''
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
     /?*) ;;
@@ -1201,6 +1214,8 @@ session_record_load() {
   REC_SCRATCH=$sr
   REC_MISE_TASKS=0
   [ "$mt" != 1 ] || REC_MISE_TASKS=1
+  REC_CHECKS=''
+  [ -z "$wt" ] || REC_CHECKS=$cc
 }
 
 # --------------------------------------------------------------------------
@@ -5727,6 +5742,151 @@ classify_verb() {
 }
 
 # --------------------------------------------------------------------------
+# Declared check commands (worker_check_commands). A segment no rule above
+# approved is still approved when its words match a check command the
+# repository declares, so its own test and check runners need no mise task.
+# A declaration is a word sequence: literal words, matched exactly (a flag is
+# admitted only where it is spelled out), and the placeholders `<word>` (a
+# token with no `/`), `<int>` and `<path>` (worktree-relative, resolved from
+# the working directory, inside the worktree and outside every path the
+# own-branch arm excludes, so naming no hooks, git or tool configuration
+# path), the last of them optionally suffixed `...` to match one or more
+# words. No placeholder matches a leading dash, a shell metacharacter or an
+# expansion. A runner prefix (`mise exec --`) is literal words like any other,
+# so it admits its own sequence and never the runner in general. A
+# declaration holding anything else is malformed and dropped alone. The
+# declarations come from the session record, read by the launcher at the
+# primary checkout, never from a file the worker can write; the floor is read
+# before them (verify_simple). Running one runs repository code, the same
+# trust the guard gives the repository's scripts/.
+
+readonly MAX_CHECK_WORDS=32
+readonly MAX_CHECK_ARG=512
+
+# check_word_ok <word>: the `<word>` placeholder.
+check_word_ok() {
+  case $1 in
+    '' | -* | *[!A-Za-z0-9._:@%,+=-]* | . | ..) return 1 ;;
+  esac
+  [ "${#1}" -le "$MAX_CHECK_ARG" ]
+}
+
+# check_int_ok <word>: the `<int>` placeholder.
+check_int_ok() {
+  case $1 in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "${#1}" -le 18 ]
+}
+
+# check_path_ok <word> <canonical-cwd>: the `<path>` placeholder.
+check_path_ok() {
+  local p=$1 c low d
+  case $p in
+    '' | -* | /* | *[!A-Za-z0-9._/:@%,+=-]*) return 1 ;;
+  esac
+  [ "${#p}" -le "$MAX_CHECK_ARG" ] || return 1
+  case /$p/ in
+    */../*) return 1 ;;
+  esac
+  [ ! -L "$2/${p%/}" ] || return 1
+  c=$(canon_loose "$2/${p%/}") || return 1
+  [ "$c" = "$REC_WT" ] && return 0
+  case $c/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  ob_excl_load || return 1
+  low=$(printf '%s' "$c" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    case $low/ in
+      "$d"/*) return 1 ;;
+    esac
+  done <<EOF
+$OB_EXCL_DIRS
+EOF
+  ! ob_excluded_rel "${c#"$REC_WT"/}" "$REC_WT" 0
+}
+
+# check_decl_match <declaration> <canonical-cwd>: 0 when the declaration is
+# well formed and the current simple command's words (`sw` / `swn`, via
+# dynamic scope) match it.
+check_decl_match() {
+  local -a dw=()
+  local n j i=0 d ph last
+  IFS=' ' read -r -a dw <<<"$1"
+  n=${#dw[@]}
+  [ "$n" -ge 1 ] && [ "$n" -le "$MAX_CHECK_WORDS" ] || return 1
+  # The whole declaration is checked before any word is matched, so a
+  # malformed one never matches on a prefix.
+  for ((j = 0; j < n; j++)); do
+    d=${dw[j]}
+    case $d in
+      '<word>' | '<int>' | '<path>')
+        [ "$j" -gt 0 ] || return 1
+        ;;
+      '<word>...' | '<int>...' | '<path>...')
+        [ "$j" -gt 0 ] && [ "$j" -eq $((n - 1)) ] || return 1
+        ;;
+      *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;
+      *=*) [ "$j" -gt 0 ] || return 1 ;;
+    esac
+  done
+  for ((j = 0; j < n; j++)); do
+    d=${dw[j]}
+    case $d in
+      '<'*)
+        ph=${d%...}
+        last=$i
+        [ "$d" = "$ph" ] || last=$((swn - 1))
+        [ "$i" -le "$last" ] || return 1
+        while [ "$i" -le "$last" ]; do
+          [ "$i" -lt "$swn" ] || return 1
+          case $ph in
+            '<word>') check_word_ok "${sw[i]}" || return 1 ;;
+            '<int>') check_int_ok "${sw[i]}" || return 1 ;;
+            '<path>') check_path_ok "${sw[i]}" "$2" || return 1 ;;
+          esac
+          i=$((i + 1))
+        done
+        ;;
+      *)
+        [ "$i" -lt "$swn" ] && [ "${sw[i]}" = "$d" ] || return 1
+        i=$((i + 1))
+        ;;
+    esac
+  done
+  [ "$i" -eq "$swn" ]
+}
+
+# check_command_ok: 0 when the current simple command (`sw` / `swn`, the
+# redirect arrays `ro` / `rt` / `rn`, via dynamic scope) matches a declared
+# check command, run from inside the recorded worktree with no redirect but
+# a read, an fd duplication or one to /dev/null.
+check_command_ok() {
+  local i cwd decl
+  local -a decls=()
+  [ -n "$REC_CHECKS" ] && [ -n "$REC_WT" ] && [ "$swn" -gt 0 ] || return 1
+  for ((i = 0; i < rn; i++)); do
+    case ${rt[i]} in
+      *'$'*) return 1 ;;
+    esac
+    classify_redirect "${ro[i]}" "${rt[i]}" || return 1
+  done
+  cwd=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  case $cwd/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  IFS=';' read -r -a decls <<<"$REC_CHECKS"
+  for decl in ${decls[@]+"${decls[@]}"}; do
+    check_decl_match "$decl" "$cwd" && return 0
+  done
+  return 1
+}
+
+# --------------------------------------------------------------------------
 # Declared command steps (custom-steps REQ-G1.2, REQ-G1.3). A segment no rule
 # above approved is still approved when its words equal a command step an
 # operator declared at a named point: the step's location exactly as
@@ -6082,6 +6242,7 @@ verify_simple() {
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] || return 1
   done
+  check_command_ok && return 0
   declared_line_ok
 }
 
