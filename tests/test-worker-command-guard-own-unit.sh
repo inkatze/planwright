@@ -346,6 +346,8 @@ assert_defer "a push after a fetch of its branch" "git fetch origin $B && git pu
 mkdir -p "$WT/scripts" "$WT/tests"
 : >"$WT/scripts/check.sh"
 : >"$WT/tests/x.sh"
+# Repository code is trusted only as HEAD commits it.
+fixture_git -C "$WT" add scripts/check.sh tests/x.sh && fixture_git -C "$WT" commit -q -m fixture || exit 1
 assert_allow "a mise task alone (control)" "mise run check" Bash "$WT"
 assert_allow "a repo test alone (control)" "bash tests/x.sh" Bash "$WT"
 assert_allow "a repo script alone (control)" "scripts/check.sh" Bash "$WT"
