@@ -98,6 +98,15 @@ bundle demo Done none
 spec_pr "$(commit_specs)" specs/demo/requirements.md
 row "a base requirements.md whose Status does not parse is not read as legacy" \
   "unsigned${tab}it has no kickoff brief at the head, and its requirements.md at the pull request's base origin/main cannot be read for its status"
+printf '# demo\n\n**Status:** Done\n\nBody.\n' >"$repo/specs/demo/elsewhere.md"
+rm "$repo/specs/demo/requirements.md"
+ln -s elsewhere.md "$repo/specs/demo/requirements.md"
+base_at "$(commit_specs)"
+rm -f "$repo/specs/demo/requirements.md" "$repo/specs/demo/elsewhere.md"
+bundle demo Done none
+spec_pr "$(commit_specs)" specs/demo/requirements.md
+row "a base requirements.md that is a symbolic link to a Done file is not followed" \
+  "unsigned${tab}it has no kickoff brief at the head, and its requirements.md at the pull request's base origin/main cannot be read for its status"
 
 # Only Done is legacy.
 for st in Active Ready Draft; do

@@ -202,10 +202,11 @@ Usage:
       finished before kickoff existed, and signed with the detail `legacy,
       no kickoff brief`, when the base branch's remote-tracking ref already
       holds the bundle as Done or with no Status line and holds no brief for
-      it, and the pull request deletes none; a bundle the pull request adds
-      or marks Done, a pull request naming no base, and a ref that cannot be
-      read all refuse, and a brief that is present never makes a bundle
-      legacy); a pull
+      it, and the pull request deletes none (so a pre-pipeline bundle the
+      pull request marks Done is legacy); a bundle the base lacks or holds
+      at another status, a pull request naming no base, and a base that
+      cannot be read all refuse, and a brief that is present never makes a
+      bundle legacy); a pull
       request touching only `_` accumulators or files directly under the
       root has no bundle to sign off), for any other pull request the same
       sign-off for each bundle it edits (one it removes aside) and the
@@ -891,8 +892,8 @@ bundle_signoff() {
 # finished before kickoff existed, or print why that cannot be told: the pull
 # request deletes its brief, the base holds one, the base cannot be read, or
 # the base does not hold the bundle as Done or from before the pipeline (no
-# Status line). Deleting a brief, adding a bundle, or marking one Done in the
-# pull request must never make it legacy.
+# Status line). Deleting a brief, adding a bundle, or marking a Draft, Ready
+# or Active one Done in the pull request must never make it legacy.
 legacy_bundle() {
   local p="$2/$3/kickoff-brief.md" req="$2/$3/requirements.md" kb name mode st rc=0
   kb=$(sanitize_printable "$p")
