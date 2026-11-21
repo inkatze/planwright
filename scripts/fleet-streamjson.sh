@@ -434,8 +434,11 @@
 # the tower command guard instead, so its launch runs no preflight. A launch
 # or relaunch given --mise-task-edit or --lefthook-edit also proves the
 # file-tool hook under that root (edit_hook_preflight): it must refuse a write
-# of each opted-in name outside a scratch worktree and pass a plain file. That
-# proof guards containment, so it refuses with exit 9 whatever the knob says.
+# of each opted-in name outside a scratch worktree, each with exit 0 and its one
+# line of hook JSON, and pass a plain file. That proof guards containment, so
+# it refuses with exit 9 whatever the knob says. An exported plugin root that
+# does not resolve refuses both proofs with exit 9 (warn softening only the
+# approval one): none of the worker's hooks would run.
 #
 # ESCALATION TICK. The pending-age alarm used to be scan-only (`alarm-scan`),
 # and nothing in the fleet ran the scan, so a worker parked on an unanswerable
@@ -1722,10 +1725,11 @@ edit_hook_preflight() {
   # default), the sets otherwise.
   ep_args="$*"
   [ "$ep_args" != mise ] || ep_args=''
-  ep_probe=$(mktemp -d "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || ep_probe=''
-  [ -z "$ep_probe" ] || ep_probe=$(cd -P -- "$ep_probe" 2>/dev/null && pwd -P) || ep_probe=''
+  ep_made=$(mktemp -d "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || ep_made=''
+  ep_probe=''
+  [ -z "$ep_made" ] || ep_probe=$(cd -P -- "$ep_made" 2>/dev/null && pwd -P) || ep_probe=''
   if [ -z "$ep_probe" ] || ! mkdir "$ep_probe/wt" "$ep_probe/out"; then
-    [ -z "$ep_probe" ] || rm -rf "$ep_probe"
+    [ -z "$ep_made" ] || rm -rf "$ep_made"
     printf '%s\n' "$me: launch preflight: cannot create a folder to prove the file-tool hook in (TMPDIR=${TMPDIR:-/tmp})" >&2
     return 9
   fi
@@ -1748,12 +1752,21 @@ edit_hook_preflight() {
     ep_out=$(printf '%s\n' "$ep_payload" | "$ep_env" "$ep_hook" "$ep_probe/wt" $ep_args 2>/dev/null) || ep_rc=$?
     # Only the one line the hook emits counts as its refusal: Claude Code
     # ignores a decision it cannot parse as hook JSON.
-    case $ep_name:$ep_rc:$ep_out in
-      plain.txt:0:) ;;
-      plain.txt:0:*) ep_control=1 ;;
-      plain.txt:*) ep_norun=$ep_rc ;;
+    if [ "$ep_name" = plain.txt ]; then
+      case $ep_rc:$ep_out in
+        0:) ;;
+        0:* | 2:*) ep_control=1 ;;
+        *) ep_norun=$ep_rc ;;
+      esac
+      continue
+    fi
+    if [ "$ep_rc" -ne 0 ]; then
+      ep_bad="$ep_bad $ep_name"
+      continue
+    fi
+    case $ep_out in
       *"$NL"*) ep_bad="$ep_bad $ep_name" ;;
-      *:0:'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",'*'}}') ;;
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",'*'}}') ;;
       *) ep_bad="$ep_bad $ep_name" ;;
     esac
   done
@@ -1767,7 +1780,7 @@ edit_hook_preflight() {
     return 9
   fi
   [ -n "$ep_bad" ] || return 0
-  printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook does not judge the opted-in names (failed:${ep_bad}); it must refuse each outside the worktree, or the opt-in leaves them open in every other checkout (an install from before the opt-in, or a missing hook)" >&2
+  printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook does not judge the opted-in names (failed:${ep_bad}); it must refuse each outside the worktree with its one line of hook JSON, or the opt-in leaves them open in every other checkout (an install from before the opt-in)" >&2
   return 9
 }
 
@@ -1793,7 +1806,11 @@ guard_preflight() {
   # Prove the hook under the root that gates the worker, and read the installed
   # roots through the resolver beside it, so the proof is of what the worker is
   # actually gated by.
-  gp_hook_root=$(hook_root_of "$gp_env" "$gp_cwd")
+  gp_hook_root=$(hook_root_of "$gp_env" "$gp_cwd") || {
+    printf '%s\n' "$me: launch preflight: the plugin root the dispatch-env wrapper exports for the worker's hooks does not resolve, so none of them would run (its command guard and policy guard included)" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 9
+  }
   # Warned before the refusals below, so warn mode reports it too: without it
   # a backgrounded command stalls the worker, and nothing else breaks.
   [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
@@ -3438,14 +3455,17 @@ cmd_relaunch() {
     rx_shipped=$(profile_settings_path worker) || exit 7
     # Generated aside, never over the profile the running worker reads: the
     # relaunch may still be refused below, and the resumed launch writes its own.
-    rx_check="$dir/worker-settings.relaunch-check.json"
+    rx_check=$(mktemp -d "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || {
+      printf '%s\n' "$me: relaunch refused for $worker: no folder to check its per-launch settings profile in (TMPDIR=${TMPDIR:-/tmp})" >&2
+      exit 7
+    }
     # shellcheck disable=SC2086 # a word list of the generator's own flags
-    /bin/sh "$script_dir/worker-settings-generate.sh" $rx_gen_flags "$rx_shipped" "$rx_cwd" "$rx_check" >/dev/null </dev/null || {
-      rm -f "$rx_check"
+    /bin/sh "$script_dir/worker-settings-generate.sh" $rx_gen_flags "$rx_shipped" "$rx_cwd" "$rx_check/worker-settings.json" >/dev/null </dev/null || {
+      rm -rf "$rx_check"
       printf '%s\n' "$me: relaunch refused for $worker: its per-launch settings profile cannot be generated now" >&2
       exit 7
     }
-    rm -f "$rx_check"
+    rm -rf "$rx_check"
   fi
   rx_gp=0
   [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" || rx_gp=$?

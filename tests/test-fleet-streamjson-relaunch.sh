@@ -289,6 +289,24 @@ alive "$npid" || fail "r2: a relaunch refused at the file-tool proof stopped the
 [ "$(argv_lines)" = "$n" ] || fail "r2: a relaunch refused at the file-tool proof spawned a session"
 cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
   || fail "r2: a relaunch refused at the file-tool proof rewrote the running worker's profile"
+# A refusal after the profile check (here the approval proof, its command
+# guard gone) leaves the running worker's profile as it was too.
+mkdir -p "$tmp/nowg"
+cp -R "$here/../scripts" "$tmp/nowg/scripts"
+cp -R "$here/../config" "$tmp/nowg/config"
+rm -f "$tmp/nowg/scripts/worker-command-guard.sh"
+rx_err=$(cd "$tmp" && env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  /bin/sh "$tmp/nowg/scripts/fleet-streamjson.sh" relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rx_rc=$?
+case $rx_rc:$rx_err in
+  9:*"auto-approve hook"*"missing or not executable"*) ;;
+  *) fail "r2: a relaunch whose command guard is gone must be refused at the approval proof (exit 9), got $rx_rc: $rx_err" ;;
+esac
+alive "$npid" || fail "r2: a relaunch refused at the approval proof stopped the worker"
+[ "$(argv_lines)" = "$n" ] || fail "r2: a relaunch refused at the approval proof spawned a session"
+cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
+  || fail "r2: a relaunch refused after its profile check rewrote the running worker's profile"
 rm -f "$wdir/lefthook-edit"
 echo "ok: r2 a relaunch keeps recorded opt-ins, regenerating the profile and the record, and refuses one a stale file-tool hook would leave open"
 

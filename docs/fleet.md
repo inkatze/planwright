@@ -1004,22 +1004,26 @@ executable, or a proof that could not run at all, refuses the same way. So
 does a hook root (the plugin root the wrapper exports) without an executable
 `scripts/policy-guard.sh`: the worker
 profile leaves merges and history rewrites to that guard, and a hook that
-cannot run refuses nothing. A launch or relaunch given `--mise-task-edit` or
-`--lefthook-edit` also proves that hook root's `scripts/worker-mise-edit-guard.sh`
-refuses a write of each opted-in name set outside the worktree (`mise.toml`,
-`lefthook.yml`) and passes a plain file there: the generated profile drops
-those names' broad denies, so a copy that does not judge them (one from before
-the opt-in, or a missing one) refuses the launch with exit 9. That proof guards
-containment rather than approvals, so the knob below neither skips nor softens
-it. A relaunch runs it and checks the profile still generates, into a file
-aside, before the stop, so a refused relaunch leaves the running worker's
-profile as it was. A resume
+cannot run refuses nothing. So does an exported plugin root that does not
+resolve, since none of the worker's hooks would run from it.
+
+A launch or relaunch given `--mise-task-edit` or `--lefthook-edit` also proves
+that hook root's `scripts/worker-mise-edit-guard.sh` judges the opted-in names:
+a write of each name set outside the worktree (`mise.toml`, `lefthook.yml`)
+must be refused with exit 0 and the hook's one line of hook JSON, and a plain
+file there must pass. The generated profile drops those names' broad denies,
+so a copy that does not judge them (one from before the opt-in, a missing one,
+or one that refuses everything) refuses the launch with exit 9, as does an
+unresolvable root. That proof guards containment rather than approvals, so the
+knob below neither skips nor softens it. A relaunch runs it and checks the
+profile still generates, into a scratch folder, before the stop, so a refused
+relaunch leaves the running worker's profile as it was. A resume
 (`--resume-session`) takes neither flag: it keeps the opt-ins its launch
 recorded.
+
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
 downgrades every approval refusal above to a warning and launches, `off` skips
-the approval proof, and
-any other value is a usage error. The installed roots the proof covers are
+the approval proof, and any other value is a usage error. The installed roots the proof covers are
 read through the same resolver the hook trusts them from, so that set cannot
 diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
