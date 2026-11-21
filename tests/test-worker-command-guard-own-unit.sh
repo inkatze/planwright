@@ -256,6 +256,8 @@ assert_defer "at the end of a pipeline over two line breaks" "git status |
 git push origin $B" Bash "$WT"
 assert_allow "after a pipeline the line break ends (control)" "git status | cat
 git push origin $B" Bash "$WT"
+assert_defer "at the end of a pipeline a loop opens, over a line break" "while false; do git status; done |
+git push origin $B" Bash "$WT"
 assert_defer "backgrounded" "git push origin $B &" Bash "$WT"
 assert_defer "a body edit backgrounded" "gh pr edit 12 --body-file $SCR/body.md & git status" Bash "$WT"
 assert_defer "an export inside a loop" "for x in a; do export $CTX; done && $SREC write --run 1" Bash "$WT"
