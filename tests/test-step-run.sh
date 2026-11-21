@@ -316,22 +316,24 @@ verdict $? "a context the caller exports is never replaced by the record's" "env
 # The declaration names a file, not its content, and a worker can Write any
 # file in its worktree, so a location written or edited since HEAD is refused.
 fresh
-# The worktree by its own name: `wt` is set in a subshell further up.
+# The worktree by its own name: `wt` is also assigned inside a subshell further
+# up, which shellcheck reads as a change that may be lost.
 lw=$tmp/wt$n
 mkdir -p "$lw/tools" "$tmp/elsewhere" "$tmp/other/tools"
 printf '#!/bin/sh\nprintf ran >>"%s/ran"\n' "$tmp" >"$lw/tools/mark.sh"
 chmod +x "$lw/tools/mark.sh"
+# A committed symbolic link, so only the link itself is the reason to refuse.
+ln -s mark.sh "$lw/tools/lnk.sh"
 git -C "$lw" add tools && git -C "$lw" commit -q -m "chore: a step"
 cp "$lw/tools/mark.sh" "$tmp/elsewhere/mark.sh"
 ln -s "$tmp/elsewhere" "$lw/linked"
-ln -s mark.sh "$lw/tools/lnk.sh"
 # Another checkout, as the primary a worktree sits under is.
 cp "$lw/tools/mark.sh" "$tmp/other/tools/mark.sh"
 cp "$lw/tools/mark.sh" "$tmp/other/tools/kept.sh"
 git init -q "$tmp/other"
 git -C "$tmp/other" add tools
 git -C "$tmp/other" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
-  commit -q -m "chore: tools"
+  -c core.hooksPath=/dev/null commit -q -m "chore: tools"
 cp "$lw/tools/mark.sh" "$tmp/other/.git/inside.sh"
 loc_out() { printf 'out: %s' "$(cat "$tmp/loc.out" "$tmp/loc.err")"; }
 loc_run() {

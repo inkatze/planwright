@@ -3810,6 +3810,10 @@ mdlint_configs_ok() {
   local verb=$1 nog=$2 d f seen=$'\n' cwdp
   shift 2
   cwdp=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  # A newline in a folder name would forge an entry of the walk's seen list.
+  case $cwdp in
+    *$'\n'*) return 1 ;;
+  esac
   if [ "$verb" = markdownlint-cli2 ] && [ "$nog" = 0 ]; then
     for f in "${MDLINT_OPTIONS[@]}"; do
       [ ! -e "$cwdp/$f" ] && [ ! -L "$cwdp/$f" ] || return 1
@@ -4364,11 +4368,9 @@ guard_git() {
       return 0
       ;;
     stash)
-      # Only the read-only subcommands; bare `git stash` PUSHES, so it defers.
-      case ${cw[subidx + 1]-} in
-        list | show) return 0 ;;
-        *) return 1 ;;
-      esac
+      # `stash list` and `stash show` arrive above as `log`; bare `git stash`
+      # PUSHES, and every other subcommand writes, so it defers.
+      return 1
       ;;
     symbolic-ref)
       # `git symbolic-ref <name>` READS a ref, but `git symbolic-ref HEAD <ref>`
@@ -4386,10 +4388,10 @@ guard_git() {
       return 0
       ;;
     reflog)
-      # `git reflog` / `reflog show` / `reflog exists` READ; `expire`/`delete`
-      # destroy recovery data.
+      # `git reflog` and `reflog exists` READ (`reflog show` arrives above as
+      # `log`); `expire`/`delete` destroy recovery data.
       case ${cw[subidx + 1]-} in
-        '' | show | exists) return 0 ;;
+        '' | exists) return 0 ;;
         *) return 1 ;;
       esac
       ;;

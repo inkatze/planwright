@@ -558,8 +558,8 @@ plain forms:
 - **`markdownlint-cli2` and `markdownlint`** read a config from the working
   directory and from the folder of each file they lint (probed on
   markdownlint-cli2 0.19.0), and a config can run code: a `.cjs` or `.mjs`
-  one is a module, and an options file (`.markdownlint-cli2.jsonc` or
-  `.yaml`, or `package.json`) can name custom-rule, markdown-it plugin and
+  one is a module, and an options file (`.markdownlint-cli2.jsonc`, `.yaml`
+  or `.yml`, or `package.json`) can name custom-rule, markdown-it plugin and
   formatter modules. The guard approves a run only on named files inside the
   repository, reached through no linked folder, with no option but
   `--no-globs` (and markdownlint's `-q`). Every folder those files sit in,
@@ -575,8 +575,10 @@ plain forms:
   folders before the command runs, so a lint beside a write the own-branch
   arm admits defers. What still passes: a settings file the worker committed
   in an earlier call counts as committed, as any committed file does (the
-  commit sits on the branch, where review sees it), and a settings file's
-  `extends` may read a file the worker wrote, which holds rule settings only.
+  commit sits on the branch, where review sees it), and a committed settings
+  file's `extends` reads the file it names, which a parse error prints part
+  of, so a worker that commits one naming another readable file can see that
+  file's start.
 - **A declared command step** run through `scripts/step-run.sh` runs its
   location, and a session-hosted step's line is printed, only as the git
   checkout holding it commits it; otherwise, or when git cannot answer for

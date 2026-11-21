@@ -226,7 +226,7 @@ rgit() (
 # A location with no `.git` entry in any folder above it (an installed tool)
 # keeps the declaration's trust; any other is held to the checkout that entry
 # marks, so a git that cannot answer for it (a broken or foreign `.git`, a
-# location inside a git folder) refuses rather than trusts.
+# location inside a checkout's git folder) refuses rather than trusts.
 committed_location() {
   local loc=$1 d full root line meta want have
   d=$(cd -P -- "$(dirname -- "$loc")" 2>/dev/null && pwd -P) || return 1
@@ -774,7 +774,7 @@ render_line() {
     finish failed "$1"
   fi
   if ! committed_location "$ROW_LOCATION"; then
-    printf 'step-run: step %s not run: its location %s is in a git checkout, but not as HEAD commits it; commit it or put it back\n' \
+    printf 'step-run: step %s not run: its location %s is in a git checkout, but not as HEAD commits it, or git cannot answer for that checkout; commit it or put it back\n' \
       "$STEP" "$ROW_LOCATION" >"$work/loc.err"
     cat "$work/loc.err" >>"$1"
     cat "$work/loc.err" >&2

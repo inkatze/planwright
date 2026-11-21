@@ -38,10 +38,10 @@ d=$OUTER
 while [ "$d" != / ]; do
   d=${d%/*}
   [ -n "$d" ] || d=/
-  for n in .markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.cjs .markdownlint-cli2.mjs \
-    .markdownlint.jsonc .markdownlint.json .markdownlint.yaml .markdownlint.yml .markdownlint.cjs \
-    .markdownlint.mjs .markdownlintrc package.json; do
-    if [ -e "$d/$n" ]; then
+  for n in .markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.yml .markdownlint-cli2.cjs \
+    .markdownlint-cli2.mjs .markdownlint.jsonc .markdownlint.json .markdownlint.yaml .markdownlint.yml \
+    .markdownlint.cjs .markdownlint.mjs .markdownlintrc package.json; do
+    if [ -e "$d/$n" ] || [ -L "$d/$n" ]; then
       echo "FAIL: the host holds $d/$n above the fixture, which the guard rightly refuses; remove it to run this suite" >&2
       exit 1
     fi
@@ -179,8 +179,14 @@ for c in 'markdownlint-cli2 --config x.jsonc README.md' 'markdownlint-cli2 --fix
   'markdownlint-cli2 docs' 'markdownlint docs' 'markdownlint-cli2' 'markdownlint-cli2 missing.md' \
   "markdownlint-cli2 $SCR/n.md" 'markdownlint-cli2 ../repo/README.md' 'markdownlint-cli2 ~/x.md' \
   'markdownlint-cli2 -q README.md' 'markdownlint-cli2 -- -x.md' 'markdownlint-cli2 --no-globs' \
-  'markdownlint-cli2 "!README.md"' 'markdownlint-cli2 "docs/@(a).md"' 'markdownlint-cli2 "docs/+(a).md"'; do
+  'markdownlint-cli2 "!README.md"'; do
   assert_defer "markdownlint shape: $c" "$c" Bash "$R"
+done
+# Extended-glob syntax, on files that exist, so the syntax alone is the reason.
+for n in '@(a).md' '+(a).md' 'a|b.md' 'a\b.md'; do
+  printf '# X\n' >"$R/docs/$n"
+  assert_defer "an operand holding glob syntax: docs/$n" "markdownlint-cli2 'docs/$n'" Bash "$R"
+  rm -f "$R/docs/$n"
 done
 assert_allow "markdownlint --quiet" 'markdownlint --quiet README.md' Bash "$R"
 printf '# Hash\n' >"$R/#hash.md"

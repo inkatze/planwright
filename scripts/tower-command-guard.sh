@@ -2042,10 +2042,8 @@ guard_git() {
       return 0
       ;;
     stash)
-      case ${cw[subidx + 1]-} in
-        list | show) return 0 ;;
-        *) return 1 ;;
-      esac
+      # `stash list` and `stash show` arrive above as `log`.
+      return 1
       ;;
     symbolic-ref)
       local positional=0
@@ -2061,8 +2059,9 @@ guard_git() {
       return 0
       ;;
     reflog)
+      # `reflog show` arrives above as `log`.
       case ${cw[subidx + 1]-} in
-        '' | show | exists) return 0 ;;
+        '' | exists) return 0 ;;
         *) return 1 ;;
       esac
       ;;
