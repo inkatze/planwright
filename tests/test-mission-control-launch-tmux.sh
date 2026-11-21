@@ -113,7 +113,7 @@ ml launch --program alpha --kind ad-hoc --scope mise-yes --brief "$tmp/brief.md"
 [ "$RC" = 0 ] || fail "the stream-json launch with --mise-task-edit exited $RC: $ERR"
 mise_yes=$(field name)
 wait_done "$mise_yes"
-[ "$(cat "$fleet/streamjson/$mise_yes/mise-task-edit" 2>/dev/null)" = 1 ] && ok "an accepted --mise-task-edit launch reaches the stream-json launcher, which records the opt-in" \
+[ "$(find "$fleet/streamjson/$mise_yes" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = mise_task_edit=1 ] && ok "an accepted --mise-task-edit launch reaches the stream-json launcher, which records the opt-in" \
   || fail "the opt-in did not reach the stream-json launcher for $mise_yes"
 ml launch --program alpha --kind mission-control --scope rc-hostile --brief "$tmp/brief.md" --backend tmux --remote-control 'mc;rm'
 [ "$RC" = 2 ] && ! grep -q 'rc-hostile' "$tmp/tmux/calls" && ok "a --remote-control name outside the session-name grammar is refused before a window opens" \

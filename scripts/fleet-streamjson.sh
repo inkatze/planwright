@@ -80,10 +80,11 @@
 #                    where `relaunch` resumes it
 #   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
 #                    and --tier-unit named, which `relaunch` resolves at
-#   spec-branch      the --spec-branch a launch named, which a recover reads
-#                    back; absent otherwise
-#   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
-#                    recover and a relaunch read back; absent otherwise
+#   planwright-opt-in.<blob id>  the opt-ins a launch was given, one
+#                    `<key>=<value>` line each (mise_task_edit=1 for
+#                    --mise-task-edit, spec_branch=<branch> for --spec-branch),
+#                    which a recover and a relaunch read back; absent when it
+#                    was given none (see OPT_IN_PREFIX)
 #   worker-settings.json  the per-launch settings profile of an opted-in
 #                    worker (scripts/worker-settings-generate.sh), rewritten
 #                    by every launch, recover and relaunch of it
@@ -2112,6 +2113,105 @@ recorded_profile() {
   printf '%s\n' worker
 }
 
+# The opt-ins a launch was given (--mise-task-edit, --spec-branch), which a
+# recover and a relaunch read back, are one file of `<key>=<value>` lines,
+# named OPT_IN_PREFIX and the git blob id of its content. One rename writes the
+# whole set, so a launch that fails part way leaves the earlier set or the new
+# one, never a mix of the two. The name carries the id because the profile's
+# path denies match case-sensitively and a default macOS filesystem does not:
+# a worker could create the file through another spelling of a folder above it,
+# which the deny of the name at any depth refuses, or through another spelling
+# of the name itself, which leaves an entry find does not match exactly, or
+# rewrite the file in place through that spelling, which breaks the id.
+OPT_IN_PREFIX=planwright-opt-in.
+
+# opt_in_id <dir> <file>: the blob id of <file>, hashed from <dir> so a launch
+# and a recover started in different repositories name it alike.
+opt_in_id() {
+  (
+    cd "$1" || exit 1
+    unset GIT_DIR GIT_WORK_TREE
+    git hash-object --no-filters -- "$2"
+  ) 2>/dev/null
+}
+
+# valid_spec_branch <branch>: the spec PR branch grammar --spec-branch accepts.
+valid_spec_branch() {
+  case $1 in
+    planwright/flight/* | planwright/*/task-*) return 1 ;;
+    planwright/[a-z0-9]*/[a-z0-9]*) ;;
+    *) return 1 ;;
+  esac
+  case $1 in
+    *[!a-z0-9/.-]* | */ | *//* | *..* | *.lock) return 1 ;;
+  esac
+  return 0
+}
+
+# opt_in_read <dir>: print the opt-in lines recorded in <dir>, nothing when it
+# records none. Status 1 when the record is unusable: two files, a name whose
+# id the content does not hash to, or a line outside the grammar.
+opt_in_read() {
+  [ -d "$1" ] || return 0
+  oi_f=$(find "$1" -maxdepth 1 -name "$OPT_IN_PREFIX*" -type f -print 2>/dev/null) || return 1
+  [ -n "$oi_f" ] || return 0
+  case $oi_f in
+    *'
+'*) return 1 ;;
+  esac
+  oi_id=${oi_f##*/"$OPT_IN_PREFIX"}
+  case $oi_id in
+    '' | *[!0-9a-f]*) return 1 ;;
+  esac
+  [ "${#oi_id}" -eq 40 ] || [ "${#oi_id}" -eq 64 ] || return 1
+  [ "$(opt_in_id "$1" "$oi_f")" = "$oi_id" ] || return 1
+  oi_body=$(cat "$oi_f") || return 1
+  oi_seen=' '
+  while IFS= read -r oi_line; do
+    case $oi_line in
+      mise_task_edit=1) ;;
+      spec_branch=*) valid_spec_branch "${oi_line#spec_branch=}" || return 1 ;;
+      *) return 1 ;;
+    esac
+    case $oi_seen in
+      *" ${oi_line%%=*} "*) return 1 ;;
+    esac
+    oi_seen="$oi_seen${oi_line%%=*} "
+  done <<EOF
+$oi_body
+EOF
+  printf '%s\n' "$oi_body"
+}
+
+# opt_in_write <dir> <lines>: record <lines> (empty: none) as the opt-in set,
+# whole. When the set changes, the session it was not launched with is retired
+# first, so a launch that fails after this leaves nothing for a recover to
+# resume under the new set. Status 1, the earlier set kept, when it cannot.
+opt_in_write() {
+  ow_old=$(opt_in_read "$1") || ow_old='unusable
+'
+  [ "$ow_old" != "$2" ] || return 0
+  ow_tmp=''
+  if [ -n "$2" ]; then
+    ow_tmp=$(mktemp "$1/.opt-in.XXXXXX") || return 1
+    if ! printf '%s\n' "$2" >"$ow_tmp" || ! ow_id=$(opt_in_id "$1" "$ow_tmp") || [ -z "$ow_id" ]; then
+      rm -f "$ow_tmp"
+      return 1
+    fi
+  fi
+  if ! rm -f "$1/session"; then
+    [ -z "$ow_tmp" ] || rm -f "$ow_tmp"
+    return 1
+  fi
+  if ! find "$1" -maxdepth 1 -name "$OPT_IN_PREFIX*" -exec rm -f {} + 2>/dev/null; then
+    [ -z "$ow_tmp" ] || rm -f "$ow_tmp"
+    return 1
+  fi
+  # The one-file-per-opt-in layout this replaced, which is no longer read.
+  rm -f "$1/mise-task-edit" "$1/spec-branch"
+  [ -z "$ow_tmp" ] || mv -f "$ow_tmp" "$1/$OPT_IN_PREFIX$ow_id"
+}
+
 # --- subcommands ------------------------------------------------------------
 
 cmd_launch() {
@@ -2136,14 +2236,7 @@ cmd_launch() {
         # A launch argument and nothing else, like --mise-task-edit; the
         # record writer holds the grammar and a refused one refuses the launch.
         [ $# -ge 2 ] && [ -z "$spec_branch" ] || usage
-        case $2 in
-          planwright/flight/* | planwright/*/task-*) usage ;;
-          planwright/[a-z0-9]*/[a-z0-9]*) ;;
-          *) usage ;;
-        esac
-        case $2 in
-          *[!a-z0-9/.-]* | */ | *//* | *..* | *.lock) usage ;;
-        esac
+        valid_spec_branch "$2" || usage
         spec_branch=$2
         shift 2
         ;;
@@ -2284,8 +2377,14 @@ cmd_launch() {
   # A recover relaunches under the opt-in its launch recorded.
   if [ -n "$resume_sid" ] && [ "$profile" = worker ]; then
     pf_dir=$(worker_dir "$worker") || exit 2
-    [ "$(cat "$pf_dir/mise-task-edit" 2>/dev/null)" != 1 ] || mise_edit=1
-    [ -n "$spec_branch" ] || spec_branch=$(cat "$pf_dir/spec-branch" 2>/dev/null) || spec_branch=''
+    pf_opt=$(opt_in_read "$pf_dir") || {
+      printf '%s\n' "$me: refusing to recover $worker: its recorded launch opt-ins are unusable (two records, or one its name's id does not match)" >&2
+      exit 7
+    }
+    case $pf_opt in
+      *mise_task_edit=1*) mise_edit=1 ;;
+    esac
+    [ -n "$spec_branch" ] || spec_branch=$(printf '%s\n' "$pf_opt" | sed -n 's/^spec_branch=//p')
   fi
   if [ -n "$spec_branch" ] && [ "$profile" != worker ]; then
     printf '%s\n' "$me: --spec-branch applies to the worker profile only" >&2
@@ -2449,18 +2548,18 @@ cmd_launch() {
     launch_settings=$gen_out
   fi
   # Recorded only once the launch can no longer be refused, so a refused fresh
-  # launch leaves a recover of the earlier session its own opt-in.
+  # launch leaves a recover of the earlier session its own opt-in. A further
+  # opt-in joins these lines, so the set stays one write.
   if [ -z "$resume_sid" ]; then
-    if [ "$mise_edit" = 1 ]; then
-      printf '1\n' >"$dir/mise-task-edit.tmp" && mv -f "$dir/mise-task-edit.tmp" "$dir/mise-task-edit" || exit 2
-    else
-      rm -f "$dir/mise-task-edit"
-    fi
-    if [ -n "$spec_branch" ]; then
-      printf '%s\n' "$spec_branch" >"$dir/spec-branch.tmp" && mv -f "$dir/spec-branch.tmp" "$dir/spec-branch" || exit 2
-    else
-      rm -f "$dir/spec-branch"
-    fi
+    opt_lines=''
+    [ "$mise_edit" = 0 ] || opt_lines='mise_task_edit=1'
+    [ -z "$spec_branch" ] || opt_lines="${opt_lines:+$opt_lines
+}spec_branch=$spec_branch"
+    opt_in_write "$dir" "$opt_lines" || {
+      rm -f "$init_msg"
+      printf '%s\n' "$me: refusing to launch $worker: cannot record its launch opt-ins" >&2
+      exit 2
+    }
   fi
 
   # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
@@ -3286,7 +3385,18 @@ cmd_relaunch() {
   run_cwd=$rx_cwd
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
-  if [ "$rx_profile" = worker ] && [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" = 1 ]; then
+  rx_opt=''
+  if [ "$rx_profile" = worker ]; then
+    rx_opt=$(opt_in_read "$dir") || {
+      printf '%s\n' "$me: relaunch refused for $worker: its recorded launch opt-ins are unusable (two records, or one its name's id does not match)" >&2
+      exit 7
+    }
+  fi
+  case $rx_opt in
+    *mise_task_edit=1*) rx_mise=1 ;;
+    *) rx_mise=0 ;;
+  esac
+  if [ "$rx_mise" = 1 ]; then
     rx_shipped=$(profile_settings_path worker) || exit 7
     /bin/sh "$script_dir/worker-settings-generate.sh" "$rx_shipped" "$rx_cwd" "$dir/worker-settings.json" >/dev/null </dev/null || {
       printf '%s\n' "$me: relaunch refused for $worker: its per-launch settings profile cannot be generated now" >&2

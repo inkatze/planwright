@@ -732,6 +732,11 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resu
 #    records the opt-in for the guard and for a recover; a launch without it
 #    passes the shipped profile untouched; every other shape is refused.
 shipped_profile="$here/../config/worker-settings.json"
+# opt_in_of <worker>: the launch opt-ins its state folder records, one
+# `<key>=<value>` per line, from the one file named for its own blob id.
+opt_in_of() {
+  find "$home/streamjson/$1" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +
+}
 mkdir -p "$tmp/mwt"
 git init -q "$tmp/mwt" || fail "c9m: cannot build the fixture worktree"
 : >"$rec/argv"
@@ -751,7 +756,7 @@ jq -e '.permissions.deny | index("Edit(//**/mise.toml)") | not' "$m_settings" >/
   || fail "c9m: the per-launch profile still carries the broad mise.toml deny"
 jq -e '.permissions.deny | index("Edit(//**/mise.local.toml)") // index("Edit(//**/mise.*.toml)")' "$m_settings" >/dev/null \
   || fail "c9m: the per-launch profile dropped the local-file deny"
-[ "$(cat "$home/streamjson/sjw9m1/mise-task-edit" 2>/dev/null)" = 1 ] \
+[ "$(opt_in_of sjw9m1)" = mise_task_edit=1 ] \
   || fail "c9m: the launch must record the opt-in for its recover"
 m_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
 grep -qx 'mise_task_edit=1' "$m_rec" || fail "c9m: the session record must carry mise_task_edit=1: $m_rec"
@@ -773,7 +778,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   || fail "c9m: a plain launch exited non-zero"
 m_plain=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
 cmp -s "$m_plain" "$shipped_profile" || fail "c9m: a launch without the opt-in must pass the shipped profile byte for byte: $m_plain"
-[ ! -e "$home/streamjson/sjw9m2/mise-task-edit" ] || fail "c9m: a plain launch must record no opt-in"
+[ -z "$(opt_in_of sjw9m2)" ] || fail "c9m: a plain launch must record no opt-in"
 m_plain_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
 { [ -s "$m_plain_rec" ] && ! grep -q '^mise_task_edit=' "$m_plain_rec"; } \
   || fail "c9m: a plain launch's session record must exist and carry no opt-in"
@@ -801,7 +806,7 @@ done
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   launch sjw9n1 execution-backends:4 --prompt-file "$tmp/prompt9" --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground \
   || fail "c9n: a launch with --spec-branch exited non-zero"
-[ "$(cat "$home/streamjson/sjw9n1/spec-branch" 2>/dev/null)" = planwright/demo/amendment-1 ] \
+[ "$(opt_in_of sjw9n1)" = spec_branch=planwright/demo/amendment-1 ] \
   || fail "c9n: the launch must record the spec branch for its recover"
 grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
   || fail "c9n: the session record must carry spec_branch"
@@ -813,7 +818,7 @@ grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$r
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   launch sjw9n2 execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/mwt" --foreground \
   || fail "c9n: a plain launch exited non-zero"
-{ [ ! -e "$home/streamjson/sjw9n2/spec-branch" ] && ! grep -q '^spec_branch=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
+{ [ -z "$(opt_in_of sjw9n2)" ] && ! grep -q '^spec_branch=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
   || fail "c9n: a plain launch must carry no spec branch"
 for bad in main planwright/flight/x-0123abcd planwright/demo/task-2 planwright/demo/../x; do
   : >"$rec/argv"
@@ -833,8 +838,72 @@ senv "$home" "$rec" -- \
   launch sjw9m4 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
 [ $? -eq 7 ] || fail "c9m: an opted-in launch in a glob-character path must be refused (exit 7)"
 [ ! -s "$rec/argv" ] || fail "c9m: the refused opted-in launch must never spawn the worker"
-[ ! -e "$home/streamjson/sjw9m4/mise-task-edit" ] || fail "c9m: a refused opted-in launch must record no opt-in"
+[ -z "$(opt_in_of sjw9m4)" ] || fail "c9m: a refused opted-in launch must record no opt-in"
 echo "ok: c9m mise task-file opt-in: per-launch profile, recorded for recover, shipped profile byte for byte without it"
+
+# c9o (the opt-in set is written whole): a fresh launch that cannot write its
+#    opt-ins leaves the set it found and no session to resume under it, so a
+#    later recover halts instead of resuming with a set no launch asked for.
+#    The launch that then succeeds records every opt-in it was given.
+o_dir=$home/streamjson/sjw9o1
+mkdir -p "$o_dir"
+printf 'execution-backends:4\n' >"$o_dir/scope"
+printf 'worker\n' >"$o_dir/profile"
+printf '%s\n' "$sid" >"$o_dir/session"
+mkdir "$o_dir/planwright-opt-in.blocker"
+: >"$o_dir/planwright-opt-in.blocker/x"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit \
+  --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9o: a launch that cannot record its opt-ins must be refused (exit 2) before the worker spawns"
+[ -z "$(opt_in_of sjw9o1)" ] || fail "c9o: a refused write must leave the set it found: $(opt_in_of sjw9o1)"
+[ ! -e "$o_dir/session" ] || fail "c9o: the old session must not survive beside a changed opt-in set"
+[ -z "$(find "$o_dir" -maxdepth 1 -name '.opt-in.*')" ] || fail "c9o: a refused write must remove its temporary file"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- recover sjw9o1 --foreground >/dev/null 2>&1
+[ $? -eq 4 ] || fail "c9o: a recover after the refused launch must halt on the retired session (exit 4)"
+rm -rf "$o_dir/planwright-opt-in.blocker"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit \
+  --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1 \
+  || fail "c9o: the launch after the blocker is gone exited non-zero"
+[ "$(opt_in_of sjw9o1)" = "mise_task_edit=1
+spec_branch=planwright/demo/amendment-1" ] || fail "c9o: the launch must record both opt-ins as one set: $(opt_in_of sjw9o1)"
+[ "$(find "$o_dir" -maxdepth 1 -name 'planwright-opt-in.*' | wc -l | tr -d ' ')" = 1 ] \
+  || fail "c9o: the set must be one file"
+echo "ok: c9o the launch opt-ins are one set, written whole, and never left beside a session they were not launched with"
+
+# c9q (an opt-in is read only from its own exact entry): a file under another
+#    spelling, one rewritten in place so its content no longer hashes to its
+#    name, and the retired one-file-per-opt-in markers are never honoured.
+#    These hold on any filesystem; on a case-insensitive one the recased names
+#    are what a worker's Write reaches past the profile's case-sensitive denies.
+q_dir=$home/streamjson/sjw9q1
+mkdir -p "$q_dir"
+printf 'execution-backends:4\n' >"$q_dir/scope"
+printf 'worker\n' >"$q_dir/profile"
+printf 'mise_task_edit=1\n' >"$q_dir/planted"
+q_id=$(cd "$q_dir" && git hash-object --no-filters -- planted)
+mv "$q_dir/planted" "$q_dir/Planwright-Opt-In.$q_id"
+printf '1\n' >"$q_dir/mise-task-edit"
+printf 'planwright/demo/amendment-1\n' >"$q_dir/spec-branch"
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9q1 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+q_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+cmp -s "$q_settings" "$shipped_profile" || fail "c9q: a recased or retired marker must not opt the recover in: $q_settings"
+q_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ [ -s "$q_rec" ] && ! grep -q '^mise_task_edit=\|^spec_branch=' "$q_rec"; } \
+  || fail "c9q: the recovered session record must carry no opt-in: $q_rec"
+# The exact name whose content was rewritten in place refuses the recover. The
+# recased file goes first: on a case-insensitive filesystem it is this file.
+rm -f "$q_dir/Planwright-Opt-In.$q_id"
+printf 'mise_task_edit=1\n' >"$q_dir/planwright-opt-in.$q_id"
+printf 'spec_branch=planwright/demo/amendment-2\n' >>"$q_dir/planwright-opt-in.$q_id"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9q1 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+[ $? -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9q: an opt-in record whose content no longer matches its name must refuse the recover (exit 7)"
+echo "ok: c9q an opt-in is read only from its own exact, unaltered entry"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.
 mc='mc-beta-tower-0123456789'
