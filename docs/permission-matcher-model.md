@@ -680,7 +680,9 @@ on that pull request can land a forward merge of `main` and nothing else:
   and requires the fetched refs to match, so no local ref, `origin/HEAD`
   included, decides what counts as `main`. It admits the push only when it
   fast-forwards that head and every commit it adds that `main` lacks lies on
-  the first-parent line. Each such commit must be a two-parent merge whose
+  a first-parent line that starts on the PR head itself (a merge onto an
+  older commit of the branch refuses, even once `main` holds the head). Each
+  such commit must be a two-parent merge whose
   second parent `main` holds and whose tree is exactly the clean merge of its
   parents (`git merge-tree --write-tree`, reading attributes from an empty
   tree, so neither a worktree `.gitattributes` nor `core.attributesFile`
