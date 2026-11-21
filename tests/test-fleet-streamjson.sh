@@ -1006,11 +1006,15 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDe
 EOF
 launch_oldeh --lefthook-edit
 oldeh_refused "a hook that refuses a plain file too" "refused a plain file outside the worktree"
-# A blocking exit (2) on the plain file is a refusal of it, not a hook that
-# did not run.
+# Exit 2 with nothing on stdout is what a shell error gives under dash: the
+# hook is named broken, not a refusal of the plain file.
 printf '#!/bin/sh\ncat >/dev/null\nexit 2\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
 launch_oldeh --lefthook-edit
-oldeh_refused "a hook that blocks a plain file with exit 2" "refused a plain file outside the worktree"
+oldeh_refused "a hook that exits 2 with no output" "did not run or is broken (exit 2"
+# shellcheck disable=SC2016 # expanded by the stub when it runs
+printf '#!/bin/sh\nset -u\ncat >/dev/null\nprintf "%%s\\n" "$undefined_in_hook"\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook that dies on a shell error" "did not run or is broken (exit"
 # Only the single line of hook JSON, with exit 0, counts as a refusal.
 cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
 #!/bin/sh
@@ -1035,7 +1039,7 @@ launch_oldeh --lefthook-edit
 oldeh_refused "a hook whose refusal exits non-zero" "does not judge the opted-in names (failed: lefthook)"
 rm -f "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
 launch_oldeh --lefthook-edit
-oldeh_refused "a missing file-tool hook" "did not run (exit"
+oldeh_refused "a missing file-tool hook" "did not run or is broken (exit"
 echo "ok: c9l lefthook config opt-in: per-launch profile, recorded for recover, composes with the mise opt-in, refused elsewhere"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.

@@ -1757,7 +1757,9 @@ edit_hook_preflight() {
     if [ "$ep_name" = plain.txt ]; then
       case $ep_rc:$ep_out in
         0:) ;;
-        0:* | 2:*) ep_control=1 ;;
+        # Exit 2 with nothing on stdout is also what a shell error gives
+        # under dash, so it reads as a broken hook, not a refusal.
+        0:* | 2:?*) ep_control=1 ;;
         *) ep_norun=$ep_rc ;;
       esac
       continue
@@ -1774,7 +1776,7 @@ edit_hook_preflight() {
   done
   rm -rf "$ep_probe"
   if [ -n "$ep_norun" ]; then
-    printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook did not run (exit $ep_norun): missing, not executable or broken, so the opted-in names would stay open in every other checkout" >&2
+    printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook did not run or is broken (exit $ep_norun on a plain file): missing, not executable, or failing with a shell error, so the opted-in names would stay open in every other checkout" >&2
     return 9
   fi
   if [ "$ep_control" = 1 ]; then
