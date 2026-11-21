@@ -1863,7 +1863,7 @@ stop_pidfiles='supervisor.pid worker.pid'
 # worker's scratch root is not here: it belongs to the worktree, outlives a
 # plain stop for the recover that may follow, and goes with a final close or
 # the worktree's reclaim (scripts/worker-session-record.sh).
-scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* .opt-in.* *.lock#* *.broken.*'
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* .ratelimit.* .deferred.* *.lock#* *.broken.*'
 
 # stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
 # The handle and the directory together are what keep a sibling whose handle
@@ -2126,11 +2126,19 @@ recorded_profile() {
 # rewrite the file in place through that spelling, which breaks the id.
 OPT_IN_PREFIX=planwright-opt-in.
 
-# opt_in_id <dir> <lines>: the blob id of <lines> as the record stores them
-# (each line newline-terminated), hashed from <dir> so a launch and a recover
-# started in different repositories name it alike.
+# opt_in_id <dir> <lines> | opt_in_id <dir> --file <path>: the blob id of
+# <lines> as the record stores them (each line newline-terminated), or of the
+# bytes of <path>, hashed from <dir> so a launch and a recover started in
+# different repositories name it alike.
 opt_in_id() {
-  printf '%s\n' "$2" | (
+  if [ "$2" = --file ]; then
+    oid_in=$3
+  else
+    oid_in=-
+  fi
+  {
+    if [ "$oid_in" = - ]; then printf '%s\n' "$2"; else cat -- "$oid_in"; fi
+  } | (
     cd -- "$1" || exit 1
     unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
     git hash-object --no-filters --stdin
@@ -2155,7 +2163,8 @@ valid_spec_branch() {
 # whose id the content does not hash to, a line outside the grammar or a key
 # twice, or a marker of the one-file-per-opt-in layout this record replaced,
 # which a worker could have written and so is never read, only refused. The
-# content is read once and that copy both hashed and parsed.
+# record is copied once to a private file, whose exact bytes are hashed and
+# parsed, so nothing rewritten between the two is honoured.
 opt_in_read() {
   [ -d "$1" ] || return 0
   [ -z "$(find "$1" -maxdepth 1 \( -name mise-task-edit -o -name spec-branch \) -type f -print 2>/dev/null)" ] || return 1
@@ -2170,7 +2179,14 @@ opt_in_read() {
     '' | *[!0-9a-f]*) return 1 ;;
   esac
   [ "${#oi_id}" -eq 40 ] || [ "${#oi_id}" -eq 64 ] || return 1
-  oi_body=$(cat -- "$oi_f") || return 1
+  oi_snap=$(mktemp) || return 1
+  if ! cp -- "$oi_f" "$oi_snap" || [ "$(opt_in_id "$1" --file "$oi_snap")" != "$oi_id" ] \
+    || ! oi_body=$(cat -- "$oi_snap"); then
+    rm -f -- "$oi_snap"
+    return 1
+  fi
+  rm -f -- "$oi_snap"
+  # The id covers the bytes; the lines must also be exactly what a write stores.
   [ -n "$oi_body" ] && [ "$(opt_in_id "$1" "$oi_body")" = "$oi_id" ] || return 1
   oi_seen=' '
   while IFS= read -r oi_line; do
@@ -2560,9 +2576,11 @@ cmd_launch() {
     fi
     launch_settings=$gen_out
   fi
-  # Recorded only once the launch can no longer be refused, so a refused fresh
-  # launch leaves a recover of the earlier session its own opt-in. A further
-  # opt-in joins these lines, so the set stays one write.
+  # Recorded after every refusal above, so a launch refused there leaves a
+  # recover of the earlier session its own opt-in. A changed set retires that
+  # session as it is written, so a failure after this (the cd below, a
+  # supervisor that never starts) leaves no session to resume under either
+  # set. A further opt-in joins these lines, so the set stays one write.
   if [ -z "$resume_sid" ]; then
     opt_lines=''
     [ "$mise_edit" = 0 ] || opt_lines='mise_task_edit=1'

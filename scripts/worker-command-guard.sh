@@ -756,7 +756,7 @@ committed_blob() {
   key=$'\n'"$full"$'\n'
   case $COMMITTED_OK in
     *"$key"*)
-      COMMITTED_USED=1
+      committed_used "$full"
       return 0
       ;;
   esac
@@ -775,8 +775,16 @@ committed_blob() {
   have=$(git_plain -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
   [ -n "$want" ] && [ "$want" = "$have" ] || return 1
   COMMITTED_OK=$COMMITTED_OK$key
-  COMMITTED_USED=1
+  committed_used "$full"
   return 0
+}
+
+# committed_used <full>: note a committed check the approval leans on, when the
+# file lies in the recorded worktree, the only place an own-branch write lands.
+committed_used() {
+  case $1 in
+    "$REC_WT"/*) [ -z "$REC_WT" ] || COMMITTED_USED=1 ;;
+  esac
 }
 
 # git_plain <args>: git answering about the repository its -C names, never one
@@ -6113,18 +6121,22 @@ declared_line_ok() {
   return 1
 }
 
-# declared_location_ok <abs-path>: a declared step's location inside the
-# repository is held to what HEAD commits there, as a script run by its path
-# is: the declaration names the file, not its content, and the worker can
-# Write the file.
+# declared_location_ok <abs-path>: a declared step's location in a git checkout
+# (the session's repository, or another such as the primary) is held to what
+# that checkout's HEAD commits, as a script run by its path is: the declaration
+# names the file, not its content, and the worker can Write the file. A
+# location spelled inside the session's repository counts as in it even when a
+# symlinked folder resolves it elsewhere, and so defers. A location in no
+# checkout keeps the declaration's trust.
 declared_location_ok() {
   local root d full
-  root=$(repo_root_of "$HOOK_PAYLOAD_CWD") || return 0
   d=$(cd -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
-  case $d/ in
-    "$root"/*) ;;
-    *) return 0 ;;
-  esac
+  if root=$(repo_root_of "$HOOK_PAYLOAD_CWD"); then
+    case $1 in
+      "$root"/*) d=$root ;;
+    esac
+  fi
+  root=$(repo_root_of "$d") || return 0
   full=$(canon_under "$1" / "$root") || return 1
   committed_blob "$root" "${full#"$root"/}" "$full"
 }

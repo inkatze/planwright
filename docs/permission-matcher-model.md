@@ -547,9 +547,9 @@ nothing about who wrote it. The command guard approves a repository script
 (a `.sh` under `scripts/` or `tests/`), a `bats` file, and a script under a
 planwright root that is a git checkout only when the checkout's HEAD commits
 it with the same bytes (`scripts/worker-command-guard.sh`, `committed_blob`),
-and so is a declared command step whose location lies inside the repository
-(`declared_location_ok`); an install copy, which is no checkout of its own,
-is trusted by location. A script a worker wrote or edited and has not
+and so is a declared command step whose location lies in a git checkout, the
+repository or another (`declared_location_ok`); an install copy, which is no
+checkout of its own, is trusted by location. A script a worker wrote or edited and has not
 committed prompts, whichever spelling reaches it (`sh`, `bash`, a direct
 path, a symlinked folder, a `..` walk, inside `fish -c` or a loop), and so
 does `bats` on a folder. The check reads the file as it is before the command
@@ -573,7 +573,9 @@ What still runs code a worker wrote without a prompt:
   worker wrote.
 - **What a committed script reaches.** The guard checks the script it runs,
   not a path it is handed, a sibling it sources or calls, or a test file it
-  globs, any of which a worker may have written or edited.
+  globs, any of which a worker may have written or edited. That includes
+  `scripts/step-run.sh`, which runs a declared step's target itself: a step
+  run through it is not held to HEAD the way the same line typed out is.
 - **An install copy outside `~/.claude`.** Under `~/.claude` a file-tool write
   prompts (MB-8); elsewhere the file tools reach an install copy, which is
   trusted by location (see the residual above).

@@ -870,13 +870,25 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
 senv "$home" "$rec" SHIM_READ_FIRST=0 -- recover sjw9o1 --foreground >/dev/null 2>&1
 [ $? -eq 4 ] || fail "c9o: a recover after the refused launch must halt on the retired session (exit 4)"
 rmdir "$o_dir/$(opt_in_name "$o_dir" "$o_both")"
+# A dangling link at the name would carry the record somewhere the read never looks.
+ln -s "$tmp/nowhere" "$o_dir/$(opt_in_name "$o_dir" "$o_both")"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit \
+  --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] && [ ! -e "$tmp/nowhere" ] || fail "c9o: a link at the record's name must refuse the write, not be followed"
+rm -f "$o_dir/$(opt_in_name "$o_dir" "$o_both")"
+# Leftovers a changed write clears: a stale temp, a recased record, old markers.
+: >"$o_dir/.opt-in.stale1"
+printf 'spec_branch=planwright/demo/amendment-9\n' >"$o_dir/Planwright-Opt-In.0123456789abcdef0123456789abcdef01234567"
+printf '1\n' >"$o_dir/mise-task-edit"
+printf 'planwright/demo/amendment-9\n' >"$o_dir/spec-branch"
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit \
   --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1 \
   || fail "c9o: the launch after the blocker is gone exited non-zero"
 [ "$(opt_in_of sjw9o1)" = "$o_both" ] || fail "c9o: the launch must record both opt-ins as one set: $(opt_in_of sjw9o1)"
-[ "$(find "$o_dir" -maxdepth 1 -name 'planwright-opt-in.*' | wc -l | tr -d ' ')" = 1 ] \
-  || fail "c9o: the set must be one file"
+[ "$(find "$o_dir" -maxdepth 1 \( -iname 'planwright-opt-in.*' -o -name '.opt-in.*' -o -name mise-task-edit -o -name spec-branch \) | wc -l | tr -d ' ')" = 1 ] \
+  || fail "c9o: the set must be one file, every leftover cleared: $(ls -a "$o_dir")"
 # The rest of the launch fails after the opt-ins are recorded (its --cwd is
 # gone). An unchanged set keeps the session it was launched with; a changed
 # one, here to none, retires it and leaves no record.
@@ -941,7 +953,7 @@ q_clear
 printf '1\n' >"$q_dir/mise-task-edit"
 q_recover
 [ "$q_rc" -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9q: a marker of the retired layout must refuse the recover (exit 7), got $q_rc"
-for q_case in mismatch two short grammar duplicate badbranch; do
+for q_case in mismatch two short grammar duplicate badbranch empty upperhex badvalue blanktail; do
   q_clear
   case $q_case in
     mismatch)
@@ -957,6 +969,15 @@ for q_case in mismatch two short grammar duplicate badbranch; do
     duplicate) q_plant planwright-opt-in "spec_branch=planwright/demo/amendment-1
 spec_branch=planwright/demo/amendment-2" ;;
     badbranch) q_plant planwright-opt-in spec_branch=main ;;
+    empty) : >"$q_dir/planwright-opt-in.$(git hash-object --no-filters --stdin </dev/null)" ;;
+    upperhex) printf 'mise_task_edit=1\n' >"$q_dir/planwright-opt-in.$(opt_in_name "$q_dir" mise_task_edit=1 | sed 's/^planwright-opt-in\.//' | tr a-f A-F)" ;;
+    badvalue) q_plant planwright-opt-in mise_task_edit=2 ;;
+    blanktail)
+      # The id of the bytes, blank line included: only the lines check refuses it.
+      printf 'mise_task_edit=1\n\n' >"$q_dir/bt"
+      q_bt=$(cd "$q_dir" && git hash-object --no-filters -- bt)
+      mv "$q_dir/bt" "$q_dir/planwright-opt-in.$q_bt"
+      ;;
   esac
   q_recover
   [ "$q_rc" -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9q: an untrusted record ($q_case) must refuse the recover (exit 7), got $q_rc"

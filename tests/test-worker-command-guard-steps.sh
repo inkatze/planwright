@@ -38,6 +38,9 @@ done
 fixture_commit "$FX/repo" tools || exit 1
 printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
 chmod +x "$FX/bin/fixture-tool"
+# The sandbox is itself a checkout, and a declared location in one is held to
+# its HEAD.
+fixture_commit "$SANDBOX" "${FX#"$(cd "$SANDBOX" && pwd -P)"/}/bin" || exit 1
 DECLARED="$FX/repo/tools/declared.sh"
 OTHER="$FX/repo/tools/other.sh"
 POOLED="$FX/repo/tools/pooled.sh"

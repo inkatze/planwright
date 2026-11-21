@@ -87,6 +87,21 @@ assert_defer "bats beside a committed file" "bats tests/clean.bats tests/new.bat
 assert_defer "bats on a directory, which runs whatever it holds" "bats tests" Bash "$R"
 ln -s new.sh "$R/scripts/lnk.sh"
 assert_defer "a symlinked script, whatever it points at" "bash scripts/lnk.sh" Bash "$R"
+# A committed file replaced on disk by a symlink to a committed script of the
+# same bytes: the hash would match, so only the symlink test refuses it.
+cp "$R/tests/clean.sh" "$SANDBOX/tclean.orig"
+rm -f "$R/tests/clean.sh"
+ln -s ../scripts/clean.sh "$R/tests/clean.sh"
+assert_defer "a committed file swapped for a symlink" "bash tests/clean.sh" Bash "$R"
+rm -f "$R/tests/clean.sh"
+cp "$SANDBOX/tclean.orig" "$R/tests/clean.sh"
+# The hook may run under a git hook that exported another repository: the
+# verdict still comes from the repository the script lies in.
+HOOK_ENV+=("GIT_DIR=$SANDBOX/.git" "GIT_WORK_TREE=$SANDBOX")
+assert_allow "a committed script under an inherited GIT_DIR" "bash scripts/clean.sh" Bash "$R"
+assert_defer "an untracked script under an inherited GIT_DIR" "bash scripts/new.sh" Bash "$R"
+HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1"
+  "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/committed.record")
 assert_defer "another spelling of a committed name" "bash scripts/CLEAN.sh" Bash "$R"
 
 echo "### the edit is undone or committed"
