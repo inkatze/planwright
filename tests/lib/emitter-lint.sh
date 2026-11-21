@@ -109,7 +109,8 @@ lint_emitted() {
 # resolves from the repository before PATH: a shim passes command -v, then
 # refuses to run outside the checkout whose config pins its version. It runs
 # under the HOME at sourcing, since a launcher that reaches its interpreter
-# through a shim refuses under a scratch HOME too.
+# through a shim refuses under a scratch HOME too. It reads lint_emitted's
+# le_repo and le_dir, so only lint_emitted calls it.
 le_need() {
   le_bin='' le_runhome=${le_home:-${HOME:-}}
   if command -v mise >/dev/null 2>&1; then
