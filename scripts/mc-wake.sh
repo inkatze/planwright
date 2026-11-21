@@ -71,6 +71,11 @@ and mark it submitted for the target (compose's one mark), since the
 script that emitted it already acted and nothing in it is for the
 operator; it stays listable. With the table unreadable every event wakes,
 said on stderr.
+A merge-ready event is checked against the forge before it wakes
+(scripts/mc-merge-ready.sh fresh): one whose pull request merged, closed
+or moved to another head is marked submitted unsent; one whose bot round is
+unfinished, or whose state cannot be read, is left out of that wake and
+stays pending for a later one.
 One wake per target carries 20 of its pending events, oldest first and,
 in the tick, never-sent ones ahead of staged ones (the rest wait for a
 later wake), naming each one's kind and subject, re-checked against
@@ -178,6 +183,59 @@ mc_require_program "$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory for '$program'"
 targets="$runtime/wake-targets"
 
+# drop_stale_merge_ready <target>: SEL_ROWS without the merge-ready events
+# that must not be pushed now, each checked against the forge once more
+# (scripts/mc-merge-ready.sh fresh). One whose pull request merged, closed
+# or moved on is marked submitted unsent, so it never wakes; one whose bot
+# round is unfinished, or whose state cannot be read, is left out of this
+# wake and unmarked, so a later wake can still carry it, the unreadable one
+# named on stderr. An event whose text names no pull request and head is
+# left as it is.
+drop_stale_merge_ready() {
+  ds_keep="" ds_gone=""
+  while IFS= read -r ds_row; do
+    [ -n "$ds_row" ] || continue
+    ds_kind=$(printf '%s\n' "$ds_row" | cut -f3)
+    if [ "$ds_kind" = merge-ready ]; then
+      ds_text=$(printf '%s\n' "$ds_row" | cut -f5)
+      ds_pr=${ds_text%% *}
+      ds_head=$(printf '%s\n' "$ds_text" | sed -n 's/.*--match-head-commit \([0-9a-f]\{40\}\).*/\1/p')
+      case $ds_pr in
+        */*#[0-9]*) ;;
+        *) ds_head="" ;;
+      esac
+      if [ -n "$ds_head" ]; then
+        ds_why=$(/bin/bash "$script_dir/mc-merge-ready.sh" fresh --program "$program" \
+          --repo "${ds_pr%#*}" --pr "${ds_pr##*#}" --head "$ds_head" 2>/dev/null </dev/null)
+        ds_rc=$?
+        case $ds_rc in
+          0) ;;
+          4)
+            ds_gone="$ds_gone $(printf '%s\n' "$ds_row" | cut -f1)"
+            continue
+            ;;
+          5) continue ;;
+          *)
+            printf '%s: %s: held: %s\n' "$prog" "$(sanitize_printable "$ds_pr" -)" \
+              "$(sanitize_printable "${ds_why#*	}" "fresh exited $ds_rc")" >&2
+            continue
+            ;;
+        esac
+      fi
+    fi
+    ds_keep="$ds_keep$ds_row
+"
+  done <<EOF
+$SEL_ROWS
+EOF
+  SEL_ROWS=$(printf '%s' "$ds_keep")
+  if [ -n "$ds_gone" ]; then
+    # shellcheck disable=SC2086 # one event id per word
+    mc_event mark --program "$program" --target "$1" submitted $ds_gone
+    case $? in 0 | 3) ;; *) return 1 ;; esac
+  fi
+}
+
 # select_events <target> unmarked|unsubmitted: the target's events for one
 # wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (all but the routine
 # ones), SEL_N and SEL_IDS (space separated).
@@ -197,6 +255,7 @@ select_events() {
     done || return 1
   fi
   SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes)
+  drop_stale_merge_ready "$1" || return 1
   if [ "$2" = unsubmitted ]; then
     # Never-sent events first, so a backlog of staged ones nobody has
     # acknowledged cannot keep a newer event out of every wake.

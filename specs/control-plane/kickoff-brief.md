@@ -274,7 +274,7 @@ it. The operator chose "Yes, wait for ledger (Recommended)": Task 5 now waits
 on Task 5.1. Task 6 already waited on Task 5.4, so the path to slice two is
 unchanged; the gate now sits behind Task 5.1's mission-control hold.
 
-Class: the operator classified the delta "Changes what's built
+The operator classified the delta "Changes what's built
 (Recommended)" (meaning-class).
 
 Lens pass (spec artifact class, delta-scoped): one read-only agent per lens,

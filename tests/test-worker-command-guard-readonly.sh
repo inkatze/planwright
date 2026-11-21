@@ -371,6 +371,7 @@ assert_defer "scoped: git -C the worktree, diff --ext" "cd $WT; git -C $WT diff 
 assert_defer "scoped: git -C the worktree, log --textc" "cd $WT; git -C $WT log -p --textc -1" Bash "$WT"
 assert_defer "scoped: git -C the worktree, show --textconv=1" "cd $WT; git -C $WT show --textconv=1 HEAD" Bash "$WT"
 assert_allow "scoped: git -C the worktree, log --text" "cd $WT; git -C $WT log -p --text -1" Bash "$WT"
+assert_defer "scoped: git -C the worktree, config --remove-sec" "cd $WT; git -C $WT config --global --remove-sec core" Bash "$WT"
 assert_defer "scoped: git diff --no-index on a sibling TMPDIR" "cd $WT; git diff --no-index $OTHER_TMP/diff.patch f" Bash "$WT"
 assert_defer "scoped: git with an unresolved word" "cd $WT; git log \$X" Bash "$WT"
 assert_defer "scoped: git with a glob" "cd $WT; git diff main -- *" Bash "$WT"
