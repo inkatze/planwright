@@ -437,7 +437,12 @@ tokenize() {
             dn=${s:j+1:1}
             [ -n "$dn" ] || return 1
             [ "$dn" = '$' ] && curx=1 # \$ inside double quotes is literal
-            k="$k$dn"
+            # bash keeps the backslash before any other character, and
+            # guard_fish must see it.
+            case $dn in
+              '$' | '`' | '"' | "\\" | "$NL") k="$k$dn" ;;
+              *) k="$k\\$dn" ;;
+            esac
             j=$((j + 2))
             continue
           fi
@@ -3674,12 +3679,15 @@ guard_bashsh() {
 guard_fish() {
   # Only `fish -c "<inner>"`; recurse the same analysis on the inner string
   # within the depth bound (REQ-A1.5, REQ-B1.3).
-  [ "$cwn" -ge 3 ] || return 1
+  # fish keeps reading its own options after the string, and a second `-c`
+  # or `--init-command` runs too.
+  [ "$cwn" -eq 3 ] || return 1
   [ "${cw[1]}" = '-c' ] || return 1
   # The inner string is read with bash's quoting, but fish decodes escapes
-  # bash does not (`--he\x6cp` is `--help` to fish), so any backslash defers.
+  # bash does not (`--he\x6cp` is `--help` to fish), and expands `{a, b}`
+  # across the space into two words, so either defers.
   case ${cw[2]} in
-    *\\*) return 1 ;;
+    *\\* | *'{'*','*) return 1 ;;
   esac
   analyze_command "${cw[2]}" "$((HOOK_DEPTH + 1))"
 }

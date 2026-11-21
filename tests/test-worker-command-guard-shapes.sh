@@ -107,9 +107,22 @@ assert_defer "fish bare-paren substitution" "fish -c 'echo (rm -rf x)'"
 # ones the screens read: fish hands git `--help` and `--ext-diff` here.
 for c in "fish -c 'git log --he\\x6cp'" "fish -c 'git log --he\\X6cp'" "fish -c 'git log --hel\\160'" \
   "fish -c 'git log --he\\u006cp'" "fish -c 'git log --he\\U0000006cp'" "fish -c 'git diff --ext\\x2ddiff'" \
-  "fish -c 'git log \\x2d\\x2dhelp'" "fish -c 'git status --hel\\x70'"; do
+  "fish -c 'git log \\x2d\\x2dhelp'" "fish -c 'git status --hel\\x70'" \
+  'fish -c "git log --he\x6cp"' 'fish -c "git diff --ext\x2ddiff"' "fish -c 'git log '\"--he\\x6cp\""; do
   assert_defer "fish escape the screens would misread: $c" "$c"
 done
+# fish expands `{a, b}` across the space into two words.
+for c in "fish -c 'git log {--help, HEAD}'" "fish -c 'git diff {--ext-diff, HEAD}'"; do
+  assert_defer "fish spaced brace expansion: $c" "$c"
+done
+# fish keeps reading its options after the string: a second -c or an
+# --init-command runs, -o/-p write a file, and --help opens fish's man page.
+for c in "fish -c 'git status' -c 'touch pwned'" "fish -c 'git status' --init-command 'touch pwned'" \
+  "fish -c 'git status' -C 'touch pwned'" "fish -c 'git status' -o out.txt" "fish -c 'git status' --help"; do
+  assert_defer "fish option after the string: $c" "$c"
+done
+assert_allow "fish -c with braces and no comma" "fish -c 'git log HEAD@{1}'"
+assert_allow "double-quoted fish -c string" 'fish -c "git log --oneline -3"'
 assert_defer "fish --command long form" "fish --command 'git status'"
 
 echo "### REQ-A1.4 — every-segment-safe compound analysis"
