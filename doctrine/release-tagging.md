@@ -11,7 +11,8 @@ concrete scripts, workflows, and config knobs that implement it are cited here
 by name and defined in their own tasks.
 
 Citations: autopilot-reflex REQ-B1.1, REQ-B1.2 · autopilot-reflex D-2, D-3,
-D-5, D-7, D-13 · human-gates REQ-D1.6, REQ-D1.9 · human-gates D-15.
+D-5, D-7, D-13 · human-gates REQ-D1.6, REQ-D1.9, REQ-D1.10 · human-gates D-15,
+D-20.
 
 ## The five policy points
 
@@ -61,7 +62,8 @@ close the gap without crossing a human gate.
    two irreversible, externally-visible acts, approving the release (merge) and
    cutting the signed tag and Release (publish), are conscious human acts: the
    merge authorized under the merge policy [Human Gates](human-gates.md) states,
-   a per-PR human act under every value, since a release PR merges only through
+   a per-PR human act under every value unless the operator's standing
+   authorization enables the class, since a release PR merges only through
    the `release` class in `auto_merge_classes`, otherwise only by a human, and
    the publish a human gate with no knob. planwright automates everything up to them and
    nothing through them: no merge outside a configured policy, no background
