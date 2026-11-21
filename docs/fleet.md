@@ -882,8 +882,12 @@ that program as a `stream-json-worker-unregistered` event, so its mission
 control can retire it or launch it afresh. A worker none of these owns has its
 prompts raised to the hub program (`mission_control_escalation_hub`), marked
 unowned, and is raised once, whichever keeper sees it first, as a
-`stream-json-worker-unowned` event there; with no hub program configured the
-program whose keeper found it first takes both, and the event says so. Routing
+`stream-json-worker-unowned` event there. When the hub setting names no
+configured program (`none`, or a program not configured), the program whose
+keeper found it first takes both, recorded in the worker's directory so no
+other keeper raises them too (the first configured program when that record
+is unusable), and the event says so. None of these one-time events is raised
+while the launcher's list or the keeper's other inputs cannot be read. Routing
 only decides who hears a prompt: who may answer it is unchanged.
 The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
@@ -897,7 +901,8 @@ burns a core); a service manager that runs one on purpose reads the same, so
 the event names what was read and the call stays the operator's. Each is its
 own event, by process. One listed for a
 minute is raised once for the machine as a
-`stream-json-worker-orphaned` event, routed as the unowned one is. Nothing
+`stream-json-worker-orphaned` event under the hub program, else the program
+whose keeper found it. Nothing
 signals it: the event says how to check it and stop it by hand.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends

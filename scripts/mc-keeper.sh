@@ -119,8 +119,9 @@ Usage:
       name carries as mc-<program>-<kind>-<10 hex>[-<suffix>], as a polish
       session a worker spawns does; one none of them owns has its prompts
       raised, marked unowned, under the hub program
-      mission_control_escalation_hub names, or under the program whose
-      keeper found it first when none is configured, never to every
+      mission_control_escalation_hub names, or, with no configured hub
+      program, under the program whose keeper found it first (the first
+      configured program when that record is unusable), never to every
       program), and a request that has just
       arrived one pending-prompt event per pass that sees it (the requests
       new to that pass batched into the one event, which names every
@@ -131,11 +132,13 @@ Usage:
       no launcher row is raised once more, whichever keeper sees it first: as
       a stream-json-worker-unregistered event under the program its record
       or name gives, else as a stream-json-worker-unowned event where its
-      prompts go; neither while the launcher's list cannot be read. The
+      prompts go; neither while the launcher's list, the program list, the
+      session kinds or the hub setting cannot be read. The
       orphan sweep: each process
       scripts/mc-stall.sh orphans has listed for a minute is one
       stream-json-worker-orphaned event, announced once for the machine
-      under the program the unowned event goes to, and never signalled,
+      under the hub program, else the program whose keeper found it, and
+      never signalled,
       printing
         announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned|stream-json-worker-unregistered|stream-json-worker-orphaned<TAB><worker>
       a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
@@ -541,17 +544,15 @@ owner_inputs() {
   [ -z "${oi_read:-}" ] || return 0
   oi_read=1
   OI_OK=1
-  oi_programs=$(/bin/bash "$script_dir/mc-program.sh" list 2>/dev/null) || OI_OK=""
-  oi_kinds=$(launcher kinds 2>/dev/null) || OI_OK=""
-  oi_kinds=$(printf '%s\n' "$oi_kinds" | awk -F '\t' 'NF { print $1 }')
-  oi_target="" oi_hub="" oi_hubbed=""
+  oi_target="" oi_programs="" KT_HUBBED="" KT_WHY=""
   if keeper_target; then
     oi_target=$KT_TARGET
-    oi_hub=$kt_hub
-    [ -n "$KT_NOTE" ] || oi_hubbed=1
+    oi_programs=$KT_KNOWN
   else
     OI_OK=""
   fi
+  oi_kinds=$(launcher kinds 2>/dev/null) || OI_OK=""
+  oi_kinds=$(printf '%s\n' "$oi_kinds" | awk -F '\t' 'NF { print $1 }')
 }
 
 # worker_program <worker> <launcher list> <fleet home>: the program a
@@ -608,22 +609,19 @@ worker_program() {
 unowned_program() {
   UP_PROGRAM=$oi_target
   UP_NOTE=""
-  [ -z "$oi_hubbed" ] || return 0
+  [ -z "$KT_HUBBED" ] || return 0
   up_d="$2/streamjson/$1"
   up_f="$up_d/unowned-program"
   up_p=""
   if [ -d "$up_d" ] && [ ! -L "$up_d" ]; then
-    if [ ! -e "$up_f" ] && [ ! -L "$up_f" ]; then
-      if (
-        set -C
-        printf '%s\n' "$program" >"$up_f.$$"
-      ) 2>/dev/null; then
-        ln "$up_f.$$" "$up_f" 2>/dev/null || :
-      fi
-      rm -f "$up_f.$$"
+    # mktemp's exclusive create, never a redirect: a FIFO planted at a
+    # guessable name would block the pass for good.
+    if [ ! -e "$up_f" ] && [ ! -L "$up_f" ] && up_t=$(mktemp "$up_f.XXXXXX" 2>/dev/null); then
+      printf '%s\n' "$program" >"$up_t" && ln "$up_t" "$up_f" 2>/dev/null
+      rm -f "$up_t"
     fi
     if [ -f "$up_f" ] && [ ! -L "$up_f" ]; then
-      up_p=$(head -n 1 "$up_f" 2>/dev/null) || up_p=""
+      up_p=$(head -c 65 "$up_f" 2>/dev/null | head -n 1)
     fi
   fi
   up_how="whose keeper found it first"
@@ -632,9 +630,7 @@ unowned_program() {
     up_how="the first configured program"
   fi
   UP_PROGRAM=$up_p
-  up_why="no hub program is configured"
-  [ "$oi_hub" = none ] || up_why="the hub program $oi_hub is not a configured program"
-  UP_NOTE=" ($up_why, so it is raised under $UP_PROGRAM, $up_how)"
+  UP_NOTE=" ($KT_WHY, so it is raised under $UP_PROGRAM, $up_how)"
 }
 
 # owner_of <worker> <launcher list> <listed> <fleet home>: sets OW_PROGRAM,
@@ -646,7 +642,8 @@ unowned_program() {
 # list or owner_inputs' reads failed, a row cannot be told from its absence:
 # a worker nothing else owns is this program's (heard twice beats never), no
 # one-time event is raised, and a failed owner_inputs fails it, so the sweep
-# says so.
+# says so. A registry file the list skipped (another format's row) still
+# counts as a row for the one-time events.
 owner_of() {
   owner_inputs
   OW_LABEL=""
@@ -655,13 +652,19 @@ owner_of() {
   ow_src=${ow_got#*	}
   if [ -z "$3" ] || [ -z "$OI_OK" ]; then
     [ -n "$OW_PROGRAM" ] || OW_PROGRAM=$program
-    [ -n "$OI_OK" ]
-    return
+    if [ -n "$OI_OK" ]; then return 0; fi
+    return 1
+  fi
+  ow_once=1
+  if [ -e "$4/mission-control/sessions/$1" ] || [ -L "$4/mission-control/sessions/$1" ]; then
+    ow_once=""
   fi
   if [ -n "$OW_PROGRAM" ]; then
     [ "$ow_src" != row ] || return 0
+    # A dispatch record is the launcher's own write; a name is the worker's
+    # say-so, so only its prompts are marked.
     [ "$ow_src" != name ] || OW_LABEL=" (no launcher row)"
-    [ "$OW_PROGRAM" = "$program" ] || return 0
+    [ "$OW_PROGRAM" = "$program" ] && [ -n "$ow_once" ] || return 0
     ow_by="its name"
     [ "$ow_src" = name ] || ow_by="its dispatch record"
     announce_once "$1" "$4" "$program" unregistered \
@@ -671,8 +674,9 @@ owner_of() {
   unowned_program "$1" "$4"
   OW_PROGRAM=$UP_PROGRAM
   OW_LABEL=" (unowned)"
+  [ -n "$ow_once" ] || return 0
   announce_once "$1" "$4" "$UP_PROGRAM" unowned \
-    "stream-json worker $1 is live with no launcher row, and no dispatch record or name gives the program it belongs to, so its prompts are raised under $UP_PROGRAM as unowned; fleet-streamjson.sh pending $1 shows them, mission-control-launch.sh retire $1 closes it$UP_NOTE"
+    "stream-json worker $1 is live with no launcher row and no dispatch record or name gives its program, so its prompts are raised under $UP_PROGRAM as unowned$UP_NOTE; mission-control-launch.sh retire $1 closes it"
 }
 
 # shellcheck disable=SC2329 # mc_knob calls it by name
@@ -683,60 +687,68 @@ parse_hub() {
 
 # keeper_target: the program a raise that belongs to no program goes to, as
 # KT_TARGET: the hub program (mission_control_escalation_hub), whose mission
-# control sees every program; with none configured, the program whose keeper
-# found it, KT_NOTE then saying so. A hub setting or program list that cannot
-# be read fails.
+# control sees every program, KT_HUBBED then set; with none usable, the
+# program whose keeper found it, KT_WHY naming why and KT_NOTE saying so.
+# KT_KNOWN is the configured programs it read. A hub setting or program list
+# that cannot be read fails.
 keeper_target() {
   kt_hub=$(mc_knob mission_control_escalation_hub parse_hub) || return 1
-  kt_known=$(/bin/bash "$script_dir/mc-program.sh" list) || return 1
+  KT_KNOWN=$(/bin/bash "$script_dir/mc-program.sh" list) || return 1
   KT_TARGET=$program
   KT_NOTE=""
+  KT_WHY=""
+  KT_HUBBED=""
   if [ "$kt_hub" = none ]; then
-    KT_NOTE=" (no hub program is configured, so it is raised under $program, whose keeper found it)"
+    KT_WHY="no hub program is configured"
+  elif listed "$kt_hub" "$KT_KNOWN"; then
+    KT_TARGET=$kt_hub
+    KT_HUBBED=1
+    return 0
   else
-    case "
-$kt_known
-" in
-      *"
-$kt_hub
-"*)
-        KT_TARGET=$kt_hub
-        ;;
-      *) KT_NOTE=" (the hub program $kt_hub is not a configured program, so it is raised under $program, whose keeper found it)" ;;
-    esac
+    KT_WHY="the hub program $kt_hub is not a configured program"
   fi
+  KT_NOTE=" ($KT_WHY, so it is raised under $program, whose keeper found it)"
 }
 
 # announce_once <worker> <fleet home> <program> <stem> <text>: the one-time
 # stream-json-worker-<stem> event about a live worker, raised once however
 # many programs' keepers see it: the first to take the <stem>-announced claim
-# in the worker's directory raises it under <program>, seen file
-# keeper-<stem>, and a refused announce releases the claim so a later pass
-# retries. A worker the rung does not report waiting on a request is left to a
-# later pass, since a dead one's requests are the pending-age scan's to settle.
+# in the worker's directory raises it under <program>, and a refused announce
+# releases the claim so a later pass retries. The claim is the dedupe, so the
+# seen file mc_announce needs, keeper-<stem>, is emptied after each raise
+# rather than growing by every row-less worker. A worker the rung does not
+# report waiting on a request is left to a later pass, since a dead one's
+# requests are the pending-age scan's to settle.
 announce_once() {
   ao_dir="$2/streamjson/$1"
   ao_claim="$ao_dir/$4-announced"
+  ao_seen="$2/mission-control/$3/keeper-$4"
   [ -d "$ao_dir" ] && [ ! -L "$ao_dir" ] || return 0
-  [ ! -e "$ao_claim" ] || return 0
+  [ ! -e "$ao_claim" ] && [ ! -L "$ao_claim" ] || return 0
   case $(/bin/sh "$script_dir/fleet-streamjson.sh" status "$1" 2>/dev/null) in
     "status $1 awaiting-input"*) ;;
     *) return 0 ;;
   esac
   mkdir -p -- "$2/mission-control/$3" || return 1
-  if ! (
-    set -C
-    : >"$ao_claim"
-  ) 2>/dev/null; then
-    if [ -e "$ao_claim" ] || [ ! -d "$ao_dir" ]; then
+  # Claimed by linking a fresh file into place, which never opens what is
+  # already there (a FIFO there would block an open for good).
+  ao_t=$(mktemp "$ao_dir/.claim.XXXXXX" 2>/dev/null) || {
+    [ -d "$ao_dir" ] || return 0
+    return 1
+  }
+  if ! ln "$ao_t" "$ao_claim" 2>/dev/null; then
+    rm -f "$ao_t"
+    if [ -e "$ao_claim" ] || [ -L "$ao_claim" ] || [ ! -d "$ao_dir" ]; then
       return 0
     fi
     return 1
   fi
-  mc_announce "$3" "$2/mission-control/$3/keeper-$4" "$1" "stream-json-worker-$4" "$1" "$5" || {
+  rm -f "$ao_t"
+  mc_announce "$3" "$ao_seen" "$1" "stream-json-worker-$4" "$1" "$5" || {
     rm -f "$ao_claim"
     return 1
   }
+  mc_announce_prune "$ao_seen" ""
 }
 
 # orphan_sweep: every stream-json process of this user's that nothing can
@@ -1242,7 +1254,7 @@ EOF
           len += w
           if (len > 370 && started) { c++; len = w }
           started = 1
-          print c + 0 "\t" (pass ? "-" : "F") "\t" kv[1] "\t" kv[2]
+          print c + 0 "\t" (pass ? "-" : "F") "\t" kv[1] "\t" kv[2] "\t" lab[kv[1]]
         }
     }' <<EOF
 $pa_all
@@ -1252,9 +1264,7 @@ EOF
   for pa_c in $pa_cs; do
     pa_rowsc=$(printf '%s\n' "$pa_chunks" | C=$pa_c awk -F '\t' '$1 == ENVIRON["C"]')
     pa_n=$(printf '%s\n' "$pa_rowsc" | awk 'NF { n++ } END { print n + 0 }')
-    pa_names=$(printf '%s\n' "$pa_rowsc" | L=$pa_labels awk -F '\t' '
-      BEGIN { n = split(ENVIRON["L"], l, "\n"); for (i = 1; i <= n; i++) if (split(l[i], lv, "\t") == 2) lab[lv[1]] = lv[2] }
-      NF { printf "%s%s%s %s", sep, $3, lab[$3], $4; sep = "; " }')
+    pa_names=$(printf '%s\n' "$pa_rowsc" | awk -F '\t' 'NF { printf "%s%s%s %s", sep, $3, $5, $4; sep = "; " }')
     pa_fresh_c=$(printf '%s\n' "$pa_rowsc" | awk -F '\t' '$2 == "F" { print $3 "\t" $4 }')
     pa_first=$(printf '%s\n' "$pa_fresh_c" | awk 'NF { print; exit }')
     pa_fw=${pa_first%%	*}

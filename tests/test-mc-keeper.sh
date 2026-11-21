@@ -242,13 +242,13 @@ pp_req() { # pp_req <worker> [<owner>|-|none]: an overdue pending request under 
   printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
   [ "${2:-}" = none ] || own_worker "$1" "${2:-mission-control:alpha}"
 }
-pp_fresh() { # pp_fresh <worker> <request-suffix> <received>
+pp_fresh() { # pp_fresh <worker> <request-suffix> <received> [none]: as pp_req, the request fresh; none leaves no record
   mkdir -p "$fleet/streamjson/$1"
   printf 'bbbb2222-bbbb-cccc-dddd-eeee0000000%s\tpermission\t%s\tpending\n' "$2" "$3" >"$fleet/streamjson/$1/journal"
   printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
   printf '%s\n' "$$" >"$fleet/streamjson/$1/worker.pid"
   printf 'demo:task-9\n' >"$fleet/streamjson/$1/scope"
-  own_worker "$1" mission-control:alpha
+  [ "${4:-}" = none ] || own_worker "$1" mission-control:alpha
 }
 pp_req cp-old
 pp_req mc-beta-worker-0123456789
@@ -384,17 +384,20 @@ if [ "$(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish | awk -F '\t' '$3 == "stre
 else
   fail "the no-row events stored: $(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish)"
 fi
-pp_fresh mc-alpha-worker-0a1b2c3d4e-polish2 4 5070
-rm -f "$fleet/dispatch-markers/mc-alpha-worker-0a1b2c3d4e-polish2"
+pp_fresh mc-alpha-worker-0a1b2c3d4e-polish2 4 5070 none
+pp_req mc-alpha-worker-0a1b2c3d4e-polish3 none
+# No pid file and no result: not provably dead, so its prompt is raised, but
+# the rung does not report it waiting, so no one-time event is.
+pp_req mc-alpha-worker-0a1b2c3d4e-polish4 none
+rm -f "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish4/supervisor.pid" "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish4/worker.pid"
+bad_names="mc-gamma-worker-0a1b2c3d4e mc-alpha-painter-0a1b2c3d4e mc-alpha-worker-fedcba987 mc-alpha-worker-0a1b2c3d4eX"
+for bad in $bad_names; do pp_req "$bad" none; done
 keeper_as alpha 5080
 expect_out "a fresh request on an unregistered sub-session is announced as it arrives" "announced${tab}pending-prompt${tab}mc-alpha-worker-0a1b2c3d4e-polish2"
 expect_out "and its own no-row event fires" "announced${tab}stream-json-worker-unregistered${tab}mc-alpha-worker-0a1b2c3d4e-polish2"
-pp_req mc-alpha-worker-0a1b2c3d4e-polish3 none
-keeper_as alpha 5090
 expect_out "a name with no dispatch record at all still routes by its program" "announced${tab}pending-prompt-overdue${tab}mc-alpha-worker-0a1b2c3d4e-polish3"
-bad_names="mc-gamma-worker-0a1b2c3d4e mc-alpha-painter-0a1b2c3d4e mc-alpha-worker-0a1b2c3d4 mc-alpha-worker-0a1b2c3d4eX"
-for bad in $bad_names; do pp_req "$bad" none; done
-keeper_as alpha 5100
+expect_out "a worker the rung cannot show waiting still has its prompt raised" "announced${tab}pending-prompt-overdue${tab}mc-alpha-worker-0a1b2c3d4e-polish4"
+expect_no_out "but no one-time event calls it live" "stream-json-worker-unregistered${tab}mc-alpha-worker-0a1b2c3d4e-polish4"
 for bad in $bad_names; do
   expect_no_out "a name outside the grammar or naming no configured program derives no owner: $bad" "pending-prompt-overdue${tab}$bad"
   rm -rf "${fleet:?}/streamjson/$bad"
@@ -434,8 +437,7 @@ case $(ev_of hub stray-polish) in
   *"pending-prompt-overdue${tab}stray-polish${tab}"*unowned*) ok "the hub's event names the worker as unowned" ;;
   *) fail "the hub's events for the unowned worker: $(ev_of hub stray-polish)" ;;
 esac
-pp_fresh stray-fresh 5 5250
-rm -f "$fleet/dispatch-markers/stray-fresh"
+pp_fresh stray-fresh 5 5250 none
 keeper_as hub 5260
 expect_out "a fresh request on an unowned worker reaches the hub as it arrives" "announced${tab}pending-prompt${tab}stray-fresh"
 case $(ev_of hub stray-fresh) in
@@ -473,7 +475,7 @@ expect_no_out "an unowned dead worker raises no prompt" "pending-prompt-overdue$
 expect_no_out "and no unowned event" "stream-json-worker-unowned${tab}stray-dead"
 cp "$tmp/tracked.keep" "$tracked"
 rm -rf "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish" "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish2" \
-  "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish3" "$fleet/streamjson/stray-polish" "$fleet/streamjson/stray-fresh" \
+  "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish3" "$fleet/streamjson/mc-alpha-worker-0a1b2c3d4e-polish4" "$fleet/streamjson/stray-polish" "$fleet/streamjson/stray-fresh" \
   "$fleet/streamjson/mc-beta-worker-0123456789" "$fleet/streamjson/mc-alpha-worker-dead0dead0-polish" "$fleet/streamjson/stray-dead" \
   "$fleet/dispatch-markers" "$fleet/mission-control/sessions/mc-beta-worker-0123456789"
 rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/keeper-unowned" \

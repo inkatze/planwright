@@ -100,9 +100,10 @@
 #   unregistered-announced / unowned-announced  the session-keeper's claim
 #                    that its one-time event about a worker with no launcher
 #                    row was raised (scripts/mc-keeper.sh announce_once)
-#   unowned-program  with no hub program configured, the program whose
-#                    keeper first found a worker nothing owns, which hears
-#                    its prompts; `.$$` its staging temp
+#   unowned-program  with no usable hub program, the program whose keeper
+#                    first found a worker nothing owns, which hears its
+#                    prompts; `unowned-program.*` and `.claim.*` the staging
+#                    temps of it and of the claims
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.* / .ratelimit.*
 #                    mktemp-beside-target staging
