@@ -28,6 +28,10 @@ PUSH_OK=deny
 if git --attr-source="$(git hash-object -t tree /dev/null)" version >/dev/null 2>&1; then
   PUSH_OK=defer
 fi
+push_ok() { # <label>: a push the check admits, or refuses for the git version
+  expect "$PUSH_OK" "$1"
+  [ "$PUSH_OK" = defer ] || reason_has '2\.40' "$1 (refused for this git's version)"
+}
 REAL_GIT=$(command -v git)
 
 SB=planwright/demo/spec
@@ -146,16 +150,16 @@ echo "# a push adding only merges of main fast-forwards the spec branch"
 merged "$W"
 for cmd in "${PUSHES[@]}"; do
   pw "$cmd" "$W"
-  expect "$PUSH_OK" "[worker, record] a merge-only push defers: $cmd"
+  push_ok "[worker, record] a merge-only push defers: $cmd"
 done
 gitq -C "$FL" reset --hard "$(git -C "$W" rev-parse HEAD)"
 pw "git push origin HEAD:refs/heads/$SB" "$FL"
-expect "$PUSH_OK" "[worker, record] the same merge pushed from the flight branch defers"
+push_ok "[worker, record] the same merge pushed from the flight branch defers"
 pw "git push origin $SB" "$FL"
-expect "$PUSH_OK" "[worker, record] the local spec branch pushed by name from the flight checkout defers"
+push_ok "[worker, record] the local spec branch pushed by name from the flight checkout defers"
 at_pr_head "$W"
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect "$PUSH_OK" "[worker, record] a push adding nothing defers"
+push_ok "[worker, record] a push adding nothing defers"
 # A second merge of main after main moves again.
 merged "$W"
 gitq -C "$SEED" switch main
@@ -170,7 +174,7 @@ else
   fail "the two-merge fixture did not build two merges"
 fi
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect "$PUSH_OK" "[worker, record] two merges of main in a row defer"
+push_ok "[worker, record] two merges of main in a row defer"
 
 echo "# a merge whose tree is not the clean merge of its parents refuses"
 for f in requirements.md design.md tasks.md test-spec.md kickoff-brief.md; do
@@ -301,7 +305,7 @@ gitq -C "$K" fetch origin
 merged "$W"
 gitq -C "$W" update-ref "refs/remotes/origin/$SB" HEAD
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect "$PUSH_OK" "[worker, record] a tracking ref moved locally is refreshed before the check"
+push_ok "[worker, record] a tracking ref moved locally is refreshed before the check"
 put "$W" specs/demo/tasks.md 'edited after a forged tracking ref'
 gitq -C "$W" commit -am 'spec edit'
 gitq -C "$W" update-ref "refs/remotes/origin/$SB" HEAD
@@ -414,7 +418,7 @@ expect deny "[worker, record] an unreachable remote refuses"
 reason_has 'reading the pull request head' "[worker, record] the refusal names the failed remote read"
 gitq -C "$K" config remote.origin.url "$ORIGIN"
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect "$PUSH_OK" "[worker, record] with the remote restored the merge-only push defers again"
+push_ok "[worker, record] with the remote restored the merge-only push defers again"
 
 echo "# local state that changes what git reads of history refuses"
 merged "$W"
@@ -443,12 +447,13 @@ at_pr_head "$W"
 put "$W" specs/demo/tasks.md 'a direct spec edit a graft hides'
 gitq -C "$W" commit -qam 'a direct spec edit'
 SIDE_EDIT=$(git -C "$W" rev-parse HEAD)
-HIDDEN=$(git -C "$W" commit-tree "$CLEAN_TREE" -p "$SIDE_EDIT" -p origin/main -m 'a merge over a hidden edit')
+HIDDEN=$(git -c user.name=t -c user.email=t@example.invalid -C "$W" commit-tree "$CLEAN_TREE" -p "$SIDE_EDIT" -p origin/main -m 'a merge over a hidden edit')
+[ -n "$HIDDEN" ] || fail "the grafts fixture could not build its merge"
 gitq -C "$W" reset --hard "$HIDDEN"
 GRAFTS=$(git -C "$W" rev-parse --path-format=absolute --git-path info/grafts)
 mkdir -p "$(dirname "$GRAFTS")"
 printf '%s %s %s\n' "$HIDDEN" "$(git -C "$W" rev-parse "origin/$SB")" "$(git -C "$W" rev-parse origin/main)" >"$GRAFTS"
-if [ "$(git -C "$W" rev-list --count --first-parent "origin/$SB..HEAD")" = 1 ]; then
+if [ "$(git -C "$W" rev-parse HEAD)" = "$HIDDEN" ] && [ "$(git -C "$W" rev-list --count --first-parent "origin/$SB..HEAD")" = 1 ]; then
   pass "the grafts fixture hides the direct edit from history reads"
 else
   fail "the grafts fixture did not take effect"
@@ -508,16 +513,26 @@ printf '%s\n' 'src.txt merge=evil' >"$ATTRS"
 resolved EVIL
 pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect deny "[worker, record] a merge driver standing in for a hand resolution refuses"
+reason_has 'info/attributes' "[worker, record] the driver attack refuses on the attributes file first"
+rm -f "$ATTRS"
+put "$W" .gitattributes 'src.txt merge=evil'
+resolved EVIL
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a configured merge driver alone refuses"
+reason_has 'merge driver' "[worker, record] the refusal names the merge driver"
+rm -f "$W/.gitattributes"
 gitq -C "$K" config --unset merge.evil.driver
 printf '%s\n' 'src.txt merge=ours' >"$ATTRS"
 resolved 'spec side'
 pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect deny "[worker, record] a merge=ours attribute in info/attributes refuses"
+reason_has 'info/attributes' "[worker, record] the refusal names the attributes file"
 rm -f "$ATTRS"
 put "$W" .gitattributes 'src.txt merge=ours'
 resolved 'spec side'
 pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect deny "[worker, record] a merge=ours attribute in the worktree refuses"
+reason_has 'clean merge' "[worker, record] the worktree attribute is ignored, so the merge is no clean merge"
 rm -f "$W/.gitattributes"
 
 echo "# the knob and a kickoff scope beside the record"
@@ -532,7 +547,8 @@ expect defer "[worker, kickoff-demo, record] the bare base merge defers"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker 'git merge --no-ff origin/main' "$W" "$W"
 expect deny "[worker, kickoff-demo, record] the record's narrower merge governs: --no-ff refuses"
 
-echo "# an edited merge whose tree object is missing refuses (last: it damages the repository)"at_pr_head "$W"
+echo "# an edited merge whose tree object is missing refuses (last: it damages the repository)"
+at_pr_head "$W"
 gitq -C "$W" merge --no-commit --no-ff origin/main
 put "$W" specs/demo/tasks.md 'edited inside a merge whose tree goes missing'
 gitq -C "$W" add -A
