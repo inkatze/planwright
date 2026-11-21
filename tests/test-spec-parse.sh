@@ -1676,6 +1676,53 @@ eq "a NUL-bearing brief is refused" 1 "$rc"
 rc=0
 spec_parse_latest_anchor_entry "$tmp/b-two.md" --bogus >/dev/null 2>&1 || rc=$?
 eq "an unknown flag is a usage refusal" 2 "$rc"
+
+# A prose paragraph that opens with the word `Class:` is not the record's
+# field: spec-format's record is the block of lines ending at the Anchor line,
+# and its Class field names a grammar value. The prose is kept verbatim from a
+# real kickoff brief's amendment entry, which the gate used to refuse.
+prose='Class: the operator classified the delta "Changes what'"'"'s built
+(Recommended)" (meaning-class).'
+# shellcheck disable=SC2016 # literal backticks: the record format
+{
+  printf 'The gate now sits behind the hold.\n\n%s\n\n' "$prose"
+  printf 'Lens pass (delta-scoped): one agent per lens.\n\n'
+  printf 'Signed off by the operator.\n\n'
+  printf 'Class: meaning\nLens-pass: this entry\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1"
+} >"$tmp/b-prose.md"
+eq "a prose paragraph opening with Class: leaves the field's class standing" \
+  "$h1	scripts/spec-anchor.sh specs/x	meaning	this entry" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-prose.md" --record)"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf '%s\n\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$prose" "$h1" >"$tmp/b-proseonly.md"
+eq "a prose Class: paragraph alone reads as no class" \
+  "$h1	scripts/spec-anchor.sh specs/x		" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-proseonly.md" --record)"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\n\nClass: expression-only\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-dupsep.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-dupsep.md" --record >/dev/null 2>&1 || rc=$?
+eq "two grammar-valued Class lines refuse even a blank line apart" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meanin\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-malformed.md"
+eq "a malformed Class field in the record block is still read as the class" \
+  "$h1	scripts/spec-anchor.sh specs/x	meanin	" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-malformed.md" --record)"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\n\nClass: meanin\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-malformeddup.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-malformeddup.md" --record >/dev/null 2>&1 || rc=$?
+eq "a malformed Class field in the record block still counts toward a duplicate" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf '%s\nClass: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$prose" "$h1" >"$tmp/b-proseblock.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-proseblock.md" --record >/dev/null 2>&1 || rc=$?
+eq "a Class: line with no blank line before the Anchor stays a field" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Signed off.\n\nLens-pass: §8\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-noclass.md"
+eq "an entry without a Class line reads an empty class" \
+  "$h1	scripts/spec-anchor.sh specs/x		§8" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-noclass.md" --record)"
 echo "ok: the anchor-entry parse reads the newest entry, its own labels, and refuses the undecidable"
 
 # --- The declared Format-version to rule-arm map (invariant-tasks REQ-F1.7,
