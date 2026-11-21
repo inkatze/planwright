@@ -114,6 +114,9 @@ gitq -C "$W" tag base-tag origin/main
 pw 'git merge base-tag' "$W"
 expect deny "[worker, record] a tag at the PR base's commit refuses"
 gitq -C "$W" tag -d base-tag
+pw 'git pull origin main' "$W"
+expect deny "[worker, record] a pull on the sign-off branch refuses"
+reason_has 'sign-off branch' "[worker, record] the pull refusal names the sign-off route"
 
 echo "# the merge builds for the PR's own launch, in its own checkout, alone"
 rm -f "$REC"
@@ -172,7 +175,7 @@ for f in requirements.md design.md tasks.md test-spec.md kickoff-brief.md; do
   pw "git push origin HEAD:refs/heads/$SB" "$W"
   expect deny "[worker, record] a merge that edits $f refuses"
 done
-reason_has 'spec-bundle' "[worker, record] the refusal names the spec-bundle edit"
+reason_has 'clean merge' "[worker, record] the refusal names the edit inside the merge"
 at_pr_head "$W"
 gitq -C "$W" merge --no-commit --no-ff origin/main
 put "$W" specs/demo/notes/tasks.md 'a bundle-named file anywhere'
@@ -199,7 +202,19 @@ put "$W" src.txt 'code resolved inside the merge'
 gitq -C "$W" add -A
 gitq -C "$W" commit --no-edit
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect defer "[worker, record] a merge that changes only non-bundle files defers"
+expect deny "[worker, record] a merge that edits a file outside the bundle refuses too"
+reason_has 'clean merge' "[worker, record] the refusal names the clean merge"
+at_pr_head "$W"
+gitq -C "$W" merge --no-commit --no-ff origin/main
+gitq -C "$W" update-index --chmod=+x specs/demo/tasks.md
+gitq -C "$W" commit --no-edit
+if [ "$(git -C "$W" ls-tree HEAD specs/demo/tasks.md | cut -c1-6)" = 100755 ]; then
+  pass "the mode-change fixture made tasks.md executable"
+else
+  fail "the mode-change fixture did not change the mode"
+fi
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a merge that changes only a bundle file's mode refuses"
 
 echo "# a direct spec edit, or any commit that is no merge of main, refuses"
 merged "$W"
@@ -302,6 +317,97 @@ pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect deny "[worker, record] a forged main tracking ref hides no spec edit"
 reason_has 'not merges of main' "[worker, record] the forged main refuses as no merge of main"
 gitq -C "$K" fetch origin
+
+echo "# the base is the remote's own default branch, never a local origin/HEAD"
+gitq -C "$FL" reset --hard origin/main
+put "$FL" specs/other/tasks.md 'smuggled through a repointed origin/HEAD'
+gitq -C "$FL" commit -qam 'a spec edit on a flight branch'
+gitq -C "$FL" push -q origin "$MYFL"
+gitq -C "$K" remote set-head origin "$MYFL"
+at_pr_head "$W"
+gitq -C "$W" merge --no-edit "origin/$MYFL"
+if [ "$(git -C "$W" rev-parse HEAD^2)" = "$(git -C "$FL" rev-parse HEAD)" ]; then
+  pass "the repointed-HEAD fixture merged the flight branch"
+else
+  fail "the repointed-HEAD fixture did not build its merge"
+fi
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a merge of what a repointed origin/HEAD names refuses"
+reason_has 'not merges of main' "[worker, record] the repointed origin/HEAD refuses as no merge of main"
+gitq -C "$K" remote set-head origin main
+
+echo "# the refs the guard reads are the ones the push meets"
+FAKE="$SANDBOX/fake.git"
+gitq clone --bare "$ORIGIN" "$FAKE"
+gitq -C "$W" switch -q --detach origin/main
+put "$W" specs/other/tasks.md 'smuggled through a second remote'
+gitq -C "$W" commit -qam 'forged main on another remote'
+gitq -C "$W" push -q "$FAKE" HEAD:refs/heads/main
+gitq -C "$W" switch -q "$SB"
+diverged() { # <label>: merge the fake main and push, expecting the refusal
+  gitq -C "$K" fetch origin
+  at_pr_head "$W"
+  gitq -C "$W" merge --no-edit origin/main
+  if [ "$(git -C "$W" rev-parse HEAD^2)" = "$(git --git-dir="$FAKE" rev-parse main)" ]; then
+    pass "the $1 fixture merged the other remote's main"
+  else
+    fail "the $1 fixture did not build its merge"
+  fi
+  pw "git push origin HEAD:refs/heads/$SB" "$W"
+  expect deny "[worker, record] a fetch and push that reach different repositories refuse ($1)"
+}
+gitq -C "$K" config remote.origin.url "$FAKE"
+gitq -C "$K" config remote.origin.pushurl "$ORIGIN"
+diverged pushurl
+reason_has 'pushurl' "[worker, record] the refusal names the push URL"
+gitq -C "$K" config --unset remote.origin.pushurl
+gitq -C "$K" config remote.origin.url "$ORIGIN"
+gitq -C "$K" config "url.$FAKE.insteadOf" "$ORIGIN"
+gitq -C "$K" config "url.$ORIGIN.pushInsteadOf" "$ORIGIN"
+if [ "$(git -C "$K" remote get-url origin)" = "$FAKE" ] && [ "$(git -C "$K" remote get-url --push origin)" = "$ORIGIN" ]; then
+  pass "the rewrite fixture sends fetches and pushes to different repositories"
+else
+  fail "the rewrite fixture did not split the URLs"
+fi
+diverged insteadOf
+reason_has 'insteadOf' "[worker, record] the refusal names the URL rewrite"
+gitq -C "$K" config --remove-section "url.$FAKE"
+gitq -C "$K" config --remove-section "url.$ORIGIN"
+gitq -C "$K" fetch origin
+merged "$W"
+gitq -C "$K" config remote.origin.uploadpack git-upload-pack
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] an upload-pack override refuses"
+gitq -C "$K" config --unset remote.origin.uploadpack
+gitq -C "$K" remote add mirror "$ORIGIN"
+gitq -C "$K" fetch mirror
+pw "git push mirror HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a push to a remote other than the branch's own refuses"
+gitq -C "$K" remote remove mirror
+gitq -C "$K" config remote.origin.url "$SANDBOX/missing.git"
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] an unreachable remote refuses"
+reason_has 'reading the pull request head' "[worker, record] the refusal names the failed remote read"
+gitq -C "$K" config remote.origin.url "$ORIGIN"
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect defer "[worker, record] with the remote restored the merge-only push defers again"
+
+echo "# a git read that fails refuses (last: it damages the repository)"
+at_pr_head "$W"
+gitq -C "$W" merge --no-commit --no-ff origin/main
+put "$W" specs/demo/tasks.md 'edited inside a merge whose tree goes missing'
+gitq -C "$W" add -A
+gitq -C "$W" commit --no-edit
+TREE=$(git -C "$W" rev-parse 'HEAD^{tree}')
+LOOSE="$K/.git/objects/${TREE:0:2}/${TREE:2}"
+if [ -f "$LOOSE" ]; then
+  rm -f "$LOOSE"
+  pass "the missing-tree fixture removed the merge's tree"
+else
+  fail "the missing-tree fixture found no loose tree to remove"
+fi
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a merge whose tree cannot be read refuses"
 
 no_gh_calls
 finish
