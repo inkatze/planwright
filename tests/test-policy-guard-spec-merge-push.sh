@@ -24,6 +24,14 @@ XDG_CONFIG_HOME=$SANDBOX/xdg
 GIT_CONFIG_GLOBAL=$SANDBOX/gitconfig
 export HOME XDG_CONFIG_HOME GIT_CONFIG_GLOBAL
 
+# A git older than 2.40 cannot read attributes from an empty tree, which the
+# clean-merge check needs, so there every push it would admit refuses instead.
+PUSH_OK=deny
+if git --attr-source="$(git hash-object -t tree /dev/null)" version >/dev/null 2>&1; then
+  PUSH_OK=defer
+fi
+REAL_GIT=$(command -v git)
+
 SB=planwright/demo/spec
 OTHER_SB=planwright/other/spec
 MYFL=planwright/flight/spec-sync-0123abcd
@@ -140,16 +148,16 @@ echo "# a push adding only merges of main fast-forwards the spec branch"
 merged "$W"
 for cmd in "${PUSHES[@]}"; do
   pw "$cmd" "$W"
-  expect defer "[worker, record] a merge-only push defers: $cmd"
+  expect "$PUSH_OK" "[worker, record] a merge-only push defers: $cmd"
 done
 gitq -C "$FL" reset --hard "$(git -C "$W" rev-parse HEAD)"
 pw "git push origin HEAD:refs/heads/$SB" "$FL"
-expect defer "[worker, record] the same merge pushed from the flight branch defers"
+expect "$PUSH_OK" "[worker, record] the same merge pushed from the flight branch defers"
 pw "git push origin $SB" "$FL"
-expect defer "[worker, record] the local spec branch pushed by name from the flight checkout defers"
+expect "$PUSH_OK" "[worker, record] the local spec branch pushed by name from the flight checkout defers"
 at_pr_head "$W"
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect defer "[worker, record] a push adding nothing defers"
+expect "$PUSH_OK" "[worker, record] a push adding nothing defers"
 # A second merge of main after main moves again.
 merged "$W"
 gitq -C "$SEED" switch main
@@ -164,7 +172,7 @@ else
   fail "the two-merge fixture did not build two merges"
 fi
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect defer "[worker, record] two merges of main in a row defer"
+expect "$PUSH_OK" "[worker, record] two merges of main in a row defer"
 
 echo "# a merge carrying a spec-bundle edit refuses"
 for f in requirements.md design.md tasks.md test-spec.md kickoff-brief.md; do
@@ -295,7 +303,7 @@ gitq -C "$K" fetch origin
 merged "$W"
 gitq -C "$W" update-ref "refs/remotes/origin/$SB" HEAD
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect defer "[worker, record] a tracking ref moved locally is refreshed before the check"
+expect "$PUSH_OK" "[worker, record] a tracking ref moved locally is refreshed before the check"
 put "$W" specs/demo/tasks.md 'edited after a forged tracking ref'
 gitq -C "$W" commit -am 'spec edit'
 gitq -C "$W" update-ref "refs/remotes/origin/$SB" HEAD
@@ -392,7 +400,111 @@ expect deny "[worker, record] an unreachable remote refuses"
 reason_has 'reading the pull request head' "[worker, record] the refusal names the failed remote read"
 gitq -C "$K" config remote.origin.url "$ORIGIN"
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect defer "[worker, record] with the remote restored the merge-only push defers again"
+expect "$PUSH_OK" "[worker, record] with the remote restored the merge-only push defers again"
+
+echo "# local state that changes what git reads of history refuses"
+merged "$W"
+CLEAN=$(git -C "$W" rev-parse HEAD)
+at_pr_head "$W"
+gitq -C "$W" merge --no-commit --no-ff origin/main
+put "$W" specs/demo/tasks.md 'edited inside a merge a replace ref hides'
+gitq -C "$W" add -A
+gitq -C "$W" commit --no-edit
+EVIL=$(git -C "$W" rev-parse HEAD)
+gitq -C "$W" replace "$EVIL" "$CLEAN"
+if [ "$(git -C "$W" rev-parse 'HEAD^{tree}')" = "$(git -C "$W" rev-parse "$CLEAN^{tree}")" ]; then
+  pass "the replace fixture makes git read the edited merge as the clean one"
+else
+  fail "the replace fixture did not take effect"
+fi
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a replace ref hiding an edited merge refuses"
+reason_has 'replace refs' "[worker, record] the refusal names the replace refs"
+gitq -C "$W" replace -d "$EVIL"
+# A clean-merge tree committed on a direct spec edit, grafted to read as a
+# merge of the PR head and main.
+merged "$W"
+CLEAN_TREE=$(git -C "$W" rev-parse 'HEAD^{tree}')
+at_pr_head "$W"
+put "$W" specs/demo/tasks.md 'a direct spec edit a graft hides'
+gitq -C "$W" commit -qam 'a direct spec edit'
+SIDE_EDIT=$(git -C "$W" rev-parse HEAD)
+HIDDEN=$(git -C "$W" commit-tree "$CLEAN_TREE" -p "$SIDE_EDIT" -p origin/main -m 'a merge over a hidden edit')
+gitq -C "$W" reset --hard "$HIDDEN"
+GRAFTS=$(git -C "$W" rev-parse --path-format=absolute --git-path info/grafts)
+mkdir -p "$(dirname "$GRAFTS")"
+printf '%s %s %s\n' "$HIDDEN" "$(git -C "$W" rev-parse "origin/$SB")" "$(git -C "$W" rev-parse origin/main)" >"$GRAFTS"
+if [ "$(git -C "$W" rev-list --count --first-parent "origin/$SB..HEAD")" = 1 ]; then
+  pass "the grafts fixture hides the direct edit from history reads"
+else
+  fail "the grafts fixture did not take effect"
+fi
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a graft hiding a direct spec edit refuses"
+reason_has 'grafts' "[worker, record] the refusal names the grafts file"
+rm -f "$GRAFTS"
+K3="$SANDBOX/kick-shallow"
+gitq clone --depth 1 --branch "$SB" "file://$ORIGIN" "$K3"
+gitq -C "$K3" remote set-head origin main
+pw "git push origin HEAD:refs/heads/$SB" "$K3"
+expect deny "[worker, record] a push from a shallow clone refuses"
+reason_has 'shallow' "[worker, record] the refusal names the shallow history"
+OLDGIT="$SANDBOX/oldgit"
+mkdir -p "$OLDGIT"
+cat >"$OLDGIT/git" <<EOF
+#!/bin/sh
+for a in "\$@"; do
+  case \$a in --attr-source=*) printf '%s\n' "unknown option: \$a" >&2 && exit 129 ;; esac
+done
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$OLDGIT/git"
+merged "$W"
+PG_PATH="$OLDGIT:$PATH" pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a git without --attr-source refuses the push"
+reason_has '2\.40' "[worker, record] the refusal names the git version it needs"
+
+echo "# merge drivers and attributes never stand in for a hand resolution"
+# The PR head and main now both change src.txt, so their merge conflicts.
+gitq -C "$SEED" switch "$SB"
+gitq -C "$SEED" pull -q --no-rebase origin "$SB"
+put "$SEED" src.txt 'spec side'
+gitq -C "$SEED" commit -qam 'the spec branch edits a file main also edits'
+gitq -C "$SEED" push -q origin "$SB"
+gitq -C "$K" fetch origin
+resolved() { # <content>: the conflicting merge, resolved by hand to <content>
+  at_pr_head "$W"
+  gitq -C "$W" merge --no-edit origin/main
+  put "$W" src.txt "$1"
+  gitq -C "$W" add src.txt
+  gitq -C "$W" commit --no-edit
+  if [ "$(git -C "$W" rev-list --count --merges "origin/$SB..HEAD")" = 1 ]; then
+    pass "the hand-resolved merge fixture built its merge ($1)"
+  else
+    fail "the hand-resolved merge fixture did not build its merge ($1)"
+  fi
+}
+resolved 'resolved by hand'
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a hand-resolved conflict refuses"
+ATTRS=$(git -C "$W" rev-parse --path-format=absolute --git-path info/attributes)
+mkdir -p "$(dirname "$ATTRS")"
+gitq -C "$K" config merge.evil.driver 'printf EVIL >%A'
+printf '%s\n' 'src.txt merge=evil' >"$ATTRS"
+resolved EVIL
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a merge driver standing in for a hand resolution refuses"
+gitq -C "$K" config --unset merge.evil.driver
+printf '%s\n' 'src.txt merge=ours' >"$ATTRS"
+resolved 'spec side'
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a merge=ours attribute in info/attributes refuses"
+rm -f "$ATTRS"
+put "$W" .gitattributes 'src.txt merge=ours'
+resolved 'spec side'
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a merge=ours attribute in the worktree refuses"
+rm -f "$W/.gitattributes"
 
 echo "# the knob and a kickoff scope beside the record"
 at_pr_head "$W"

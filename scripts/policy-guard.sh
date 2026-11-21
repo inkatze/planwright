@@ -5387,15 +5387,60 @@ check_root_unpushed() {
     || emit_deny 'this history rewrite names a commit a remote-tracking ref already contains; pushed history stays append-only - refusing. Add a new commit instead.'
 }
 
-# signoff_merge_clean <dir> <merge> <p1> <p2> — 0 when the merge commit's tree
-# is exactly the clean merge of its parents, as git merge-tree computes it: no
-# conflict resolved by hand and no edit inside the merge, in any file.
+# sgitq — gitq blind to replace objects, as pack-objects is when the push
+# sends the real ones; every sign-off read goes through it.
+sgitq() {
+  GIT_NO_REPLACE_OBJECTS=1 gitq "$@"
+}
+
+# signoff_merge_clean <dir> <merge> <p1> <p2> <empty tree> — 0 when the merge
+# commit's tree is exactly the clean merge of its parents, as git merge-tree
+# computes it with no attributes the session could have set (so no merge
+# driver or merge= attribute stands in for a hand resolution): no conflict
+# resolved by hand and no edit inside the merge, in any file or mode.
 signoff_merge_clean() {
   local d=$1 m=$2 clean tree
   need_timeout
-  clean=$(GIT_OPTIONAL_LOCKS=0 "$TB" -k 2 "$FETCH_B" git -C "$d" merge-tree --write-tree --no-messages "$3" "$4" </dev/null 2>/dev/null) || return 1
-  tree=$(gitq "$d" rev-parse --verify --quiet "$m^{tree}") || return 1
+  clean=$(GIT_OPTIONAL_LOCKS=0 GIT_NO_REPLACE_OBJECTS=1 GIT_ATTR_NOSYSTEM=1 "$TB" -k 2 "$FETCH_B" \
+    git --attr-source="$5" -c core.attributesFile=/dev/null -C "$d" \
+    merge-tree --write-tree --no-messages "$3" "$4" </dev/null 2>/dev/null) || return 1
+  tree=$(sgitq "$d" rev-parse --verify --quiet "$m^{tree}") || return 1
   [ -n "$clean" ] && [ "$clean" = "$tree" ]
+}
+
+# signoff_local_trusted <dir> — 0 when no local state the session controls can
+# make the guard's reads of history or of a merge differ from what the push
+# sends: no replace refs, no grafts, no shallow history, no configured merge
+# driver, no repository-wide attributes file, and a git that can read
+# attributes from an empty tree (--attr-source, git 2.40). Sets SPC_EMPTY to
+# the empty tree. SPC_WHY says why not.
+SPC_EMPTY=''
+signoff_local_trusted() {
+  local d=$1 p
+  SPC_EMPTY=$(sgitq "$d" hash-object -t tree /dev/null) || SPC_EMPTY=''
+  { [ -n "$SPC_EMPTY" ] && sgitq "$d" --attr-source="$SPC_EMPTY" rev-parse --git-dir >/dev/null; } || {
+    SPC_WHY="this git ($(sanitize_printable "$(git version 2>/dev/null)" 'unknown version')) cannot read attributes from an empty tree (--attr-source, git 2.40 or later), which the clean-merge check needs"
+    return 1
+  }
+  [ -z "$(sgitq "$d" for-each-ref --count=1 --format='%(refname)' refs/replace/)" ] || {
+    SPC_WHY='the repository has replace refs (refs/replace/), which make git read other objects than the push sends'
+    return 1
+  }
+  [ "$(sgitq "$d" rev-parse --is-shallow-repository)" = false ] || {
+    SPC_WHY='the repository is shallow, or its history could not be read, so the guard cannot see the whole history the push builds on'
+    return 1
+  }
+  for p in info/grafts info/attributes; do
+    p=$(sgitq "$d" rev-parse --path-format=absolute --git-path "$p") || p=''
+    { [ -n "$p" ] && [ ! -s "$p" ]; } || {
+      SPC_WHY="the repository has $(sanitize_printable "${p:-a grafts or attributes file}" 'a grafts or attributes file') (or it could not be located), which changes what git reads of history or of a merge"
+      return 1
+    }
+  done
+  [ -z "$(sgitq "$d" config --get-regexp '^merge\..*\.driver$')" ] || {
+    SPC_WHY='a merge driver is configured (merge.<name>.driver), which can make a hand resolution read as a clean merge'
+    return 1
+  }
 }
 
 # signoff_transport_stock <dir> <remote> — 0 when the remote fetches and
@@ -5430,7 +5475,8 @@ signoff_transport_stock() {
 # signoff_push_check <dir> <del> <alone> <remote> <src> <branch> — 0 when a
 # push to the sign-off branch the launch record names is a forward-merge of
 # main and nothing else: the command's only act, no delete, the branch's own
-# remote over a stock transport, a HEAD or local-branch source, and, against
+# remote over a stock transport, no local state that changes git's reads
+# (signoff_local_trusted), a HEAD or local-branch source, and, against
 # the PR head and the remote's default branch as the remote itself reports
 # them, a fast-forward whose every new commit off that base lies on the
 # first-parent line and is a two-parent merge of a base commit whose tree is
@@ -5455,12 +5501,13 @@ signoff_push_check() {
     return 1
   }
   signoff_transport_stock "$d" "$rem" || return 1
+  signoff_local_trusted "$d" || return 1
   case $src in
-    HEAD | @) hoid=$(gitq "$d" rev-parse --verify --quiet 'HEAD^{commit}') || hoid='' ;;
+    HEAD | @) hoid=$(sgitq "$d" rev-parse --verify --quiet 'HEAD^{commit}') || hoid='' ;;
     *)
       src=${src#refs/heads/}
       if valid_branch "$src"; then
-        hoid=$(gitq "$d" rev-parse --verify --quiet "refs/heads/$src^{commit}") || hoid=''
+        hoid=$(sgitq "$d" rev-parse --verify --quiet "refs/heads/$src^{commit}") || hoid=''
       else
         hoid=''
       fi
@@ -5473,7 +5520,7 @@ signoff_push_check() {
   # The base and the PR head come from the remote itself: a local
   # remote-tracking ref, origin/HEAD included, is the session's to move.
   need_timeout
-  ls=$(GIT_TERMINAL_PROMPT=0 "$TB" -k 2 "$FETCH_B" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
+  ls=$(GIT_TERMINAL_PROMPT=0 GIT_NO_REPLACE_OBJECTS=1 "$TB" -k 2 "$FETCH_B" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
     ls-remote --symref "$rem" HEAD "refs/heads/$sb" </dev/null 2>/dev/null) || rc=$?
   [ "$rc" = 0 ] || {
     SPC_WHY="reading the pull request head and the default branch from $rem failed (exit $rc), so the guard cannot read what the push adds; retry when the remote is reachable"
@@ -5498,7 +5545,7 @@ EOF
   }
   need_timeout
   rc=0
-  GIT_TERMINAL_PROMPT=0 "$TB" -k 2 "$FETCH_B" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
+  GIT_TERMINAL_PROMPT=0 GIT_NO_REPLACE_OBJECTS=1 "$TB" -k 2 "$FETCH_B" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
     fetch --quiet --no-tags --no-write-fetch-head --no-recurse-submodules "$rem" \
     "+refs/heads/$sb:refs/remotes/$rem/$sb" "+refs/heads/$base:refs/remotes/$rem/$base" \
     </dev/null >/dev/null 2>&1 || rc=$?
@@ -5506,19 +5553,19 @@ EOF
     SPC_WHY="refreshing the pull request head and $base from $rem failed (exit $rc: the remote may be unreachable, or another git holds a ref lock), so the guard cannot read what the push adds; retry"
     return 1
   }
-  lroid=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$rem/$sb^{commit}") || lroid=''
-  lmoid=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$rem/$base^{commit}") || lmoid=''
+  lroid=$(sgitq "$d" rev-parse --verify --quiet "refs/remotes/$rem/$sb^{commit}") || lroid=''
+  lmoid=$(sgitq "$d" rev-parse --verify --quiet "refs/remotes/$rem/$base^{commit}") || lmoid=''
   { [ "$lroid" = "$roid" ] && [ "$lmoid" = "$moid" ]; } || {
     SPC_WHY='the remote moved while the guard read it; retry'
     return 1
   }
-  gitq "$d" merge-base --is-ancestor "$roid" "$hoid" || {
+  sgitq "$d" merge-base --is-ancestor "$roid" "$hoid" || {
     SPC_WHY='the push would not fast-forward the pull request head as the remote holds it; merge the current head first'
     return 1
   }
-  all=$(gitq "$d" rev-list --count "$hoid" --not "$roid" "$moid") || all=''
-  fp=$(gitq "$d" rev-list --count --first-parent "$hoid" --not "$roid") || fp=''
-  fpm=$(gitq "$d" rev-list --count --first-parent "$hoid" --not "$roid" "$moid") || fpm=''
+  all=$(sgitq "$d" rev-list --count "$hoid" --not "$roid" "$moid") || all=''
+  fp=$(sgitq "$d" rev-list --count --first-parent "$hoid" --not "$roid") || fp=''
+  fpm=$(sgitq "$d" rev-list --count --first-parent "$hoid" --not "$roid" "$moid") || fpm=''
   case "$all:$fp:$fpm" in
     *[!0-9:]* | :* | *::* | *:)
       SPC_WHY='the commits it adds could not be listed'
@@ -5529,7 +5576,7 @@ EOF
     SPC_WHY="it adds commits that are not merges of $base onto the pull request head"
     return 1
   }
-  lines=$(gitq "$d" rev-list --parents --first-parent "$hoid" --not "$roid") || {
+  lines=$(sgitq "$d" rev-list --parents --first-parent "$hoid" --not "$roid") || {
     SPC_WHY='the commits it adds could not be listed'
     return 1
   }
@@ -5542,11 +5589,11 @@ EOF
       SPC_WHY="it adds a commit that is not a two-parent merge of $base ($(sanitize_printable "${c:0:12}" 'a commit'))"
       return 1
     }
-    gitq "$d" merge-base --is-ancestor "${par[2]}" "$moid" || {
+    sgitq "$d" merge-base --is-ancestor "${par[2]}" "$moid" || {
       SPC_WHY="it adds a merge of something other than $base ($(sanitize_printable "${c:0:12}" 'a commit'))"
       return 1
     }
-    signoff_merge_clean "$d" "$c" "${par[1]}" "${par[2]}" || {
+    signoff_merge_clean "$d" "$c" "${par[1]}" "${par[2]}" "$SPC_EMPTY" || {
       SPC_WHY="it adds a merge whose result is not the clean merge of its parents, a conflict resolved by hand or an edit inside the merge ($(sanitize_printable "${c:0:12}" 'a commit'))"
       return 1
     }
@@ -5626,7 +5673,7 @@ eval_push() {
         || emit_deny "this git push names a destination the guard will not check ($(sanitize_printable "$dst" 'unprintable')) - refusing (fail closed)."
       if [ -n "$signoff" ] && [ "$dst" = "$signoff" ]; then
         signoff_push_check "$dir" "$del" "$alone" "$remote" "$src" "$dst" \
-          || emit_deny "this git push to $(sanitize_printable "$dst" 'a spec sign-off branch') is refused: $SPC_WHY. Only that spec's kickoff writes its sign-off branch; a session launched on its pull request pushes there only a fast-forward that adds nothing but clean merges of main, as the command's only act. Leave spec edits to the kickoff session."
+          || emit_deny "this git push to $(sanitize_printable "$dst" 'a spec sign-off branch') is refused: $SPC_WHY. Only that spec's kickoff writes its sign-off branch; a session launched on its pull request pushes there only a fast-forward that adds nothing but clean merges of main, as the command's only act."
         continue
       fi
       targets[${#targets[@]}]=$dst
