@@ -79,9 +79,11 @@
 # expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
-# path canonicalizes INSIDE the repository, and an INSTALLED planwright root's
+# path canonicalizes INSIDE the repository and HEAD commits the file unchanged
+# (committed_blob; a `bats` directory defers), and an INSTALLED planwright root's
 # `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
-# for itself (REQ-A1.10; see is_planwright_script — the reason this needs no
+# for itself, held to that root's HEAD the same way when the root is a git
+# checkout (REQ-A1.10; see is_planwright_script — the reason this needs no
 # per-machine, version-pinned allow entry). `fish -c "<inner>"` recurses the same
 # analysis on the inner string within a bounded depth.
 # A segment none of these shapes approve is still approved when it is exactly
@@ -742,15 +744,24 @@ canon_under() {
 # Plumbing only, so no index refresh (no write, no index.lock race with a
 # concurrent commit) and no filter or textconv driver runs. A verdict is kept
 # per path for the rest of the hook call, since a loop re-checks its body.
+#
+# COMMITTED_USED records that the approval leans on such a check, which holds
+# only for the file as it is before the command runs: main refuses a command
+# that also makes a write the own-branch arm admits, since that write could
+# land on the script before the shell reaches it.
 COMMITTED_OK=''
+COMMITTED_USED=0
 committed_blob() {
   local root=$1 rel=$2 full=$3 key line meta path want have
   key=$'\n'"$full"$'\n'
   case $COMMITTED_OK in
-    *"$key"*) return 0 ;;
+    *"$key"*)
+      COMMITTED_USED=1
+      return 0
+      ;;
   esac
   [ -f "$full" ] && [ ! -L "$full" ] || return 1
-  line=$(git -C "$root" ls-tree --full-tree HEAD -- "$rel" 2>/dev/null) || return 1
+  line=$(git_plain -C "$root" -c core.quotePath=false ls-tree --full-tree HEAD -- "$rel" 2>/dev/null) || return 1
   case $line in
     *$'\n'*) return 1 ;;
   esac
@@ -761,10 +772,17 @@ committed_blob() {
     '100644 blob '* | '100755 blob '*) want=${meta##* } ;;
     *) return 1 ;;
   esac
-  have=$(git -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
+  have=$(git_plain -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
   [ -n "$want" ] && [ "$want" = "$have" ] || return 1
   COMMITTED_OK=$COMMITTED_OK$key
+  COMMITTED_USED=1
   return 0
+}
+
+# git_plain <args>: git answering about the repository its -C names, never one
+# a GIT_DIR, GIT_WORK_TREE or index variable inherited from a git hook points at.
+git_plain() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR -u GIT_OBJECT_DIRECTORY git "$@"
 }
 
 # is_repo_script <path> <cwd>: 0 when <path> is a `.sh` under a scripts/ or
@@ -885,7 +903,7 @@ is_planwright_script() {
         # so it is held to what its HEAD commits, as the repository is. A
         # root that is no checkout of its own is an install copy.
         [ -e "$root/.git" ] || return 0
-        [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
+        [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
         committed_blob "$root" "$rel" "$full"
         return
         ;;
@@ -3488,7 +3506,8 @@ guard_mdlint() {
 
 guard_bashsh() {
   # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
-  # code or an installed planwright root's scripts/; any option (notably -c /
+  # code HEAD commits unchanged or an installed planwright root's scripts/
+  # (is_trusted_script); any option (notably -c /
   # -ec) defers (REQ-A1.5, REQ-A1.9).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
@@ -3507,7 +3526,8 @@ guard_fish() {
 
 guard_bats() {
   # `bats [safe-flags] <file...>`: each file operand must resolve inside the
-  # repo (REQ-A1.10), and ONLY no-value display/selection flags are allowed.
+  # repo (REQ-A1.10) to a file HEAD commits unchanged (a directory defers), and
+  # ONLY no-value display/selection flags are allowed.
   # Any value-taking or unrecognized flag defers — a `--formatter`/`--output`/
   # `--report-formatter`/`--setup-suite-file` flag (and its `=<path>` form) can
   # carry a path bats would execute or write OUTSIDE the containment check, so
@@ -5775,7 +5795,8 @@ classify_verb() {
 # after any leading context assignments in the runner's form. The declaration
 # carries the trust (its overlay layer is human-owned, and the repo-tracked
 # and machine-local layers inherit the trust already given to the repo's
-# scripts/), so the match is exact: a segment sharing only the first word, a
+# scripts/, which holds a location inside the repository to what HEAD commits
+# there: declared_location_ok), so the match is exact: a segment sharing only the first word, a
 # bare target, or an extra arg defers. The declarations are resolved at most
 # once per hook call, by one resolver run over every wired point, only when a
 # segment reaches this fallback with a declared line's shape and the file name
@@ -6082,14 +6103,30 @@ declared_line_ok() {
   # line can never claim a pool hold its step was not given.
   if [ -n "$mark_pool" ]; then
     case $NL$DECL_LINES in
-      *"$NL$key$TAB$mark_pool$NL"*) return 0 ;;
+      *"$NL$key$TAB$mark_pool$NL"*) declared_location_ok "${sw[i0]}" && return 0 ;;
     esac
     return 1
   fi
   case $NL$DECL_LINES in
-    *"$NL$key$TAB"*) return 0 ;;
+    *"$NL$key$TAB"*) declared_location_ok "${sw[i0]}" && return 0 ;;
   esac
   return 1
+}
+
+# declared_location_ok <abs-path>: a declared step's location inside the
+# repository is held to what HEAD commits there, as a script run by its path
+# is: the declaration names the file, not its content, and the worker can
+# Write the file.
+declared_location_ok() {
+  local root d full
+  root=$(repo_root_of "$HOOK_PAYLOAD_CWD") || return 0
+  d=$(cd -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
+  case $d/ in
+    "$root"/*) ;;
+    *) return 0 ;;
+  esac
+  full=$(canon_under "$1" / "$root") || return 1
+  committed_blob "$root" "${full#"$root"/}" "$full"
 }
 
 # verify_simple: verify one simple command — known-safe by the rules below, or
@@ -7469,9 +7506,11 @@ main() {
   IN_SUBST=0
   AUDIT_OB=0
   AUDIT_SC=0
+  COMMITTED_USED=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
+  [ "$COMMITTED_USED" = 0 ] || [ "$AUDIT_OB" = 0 ] || return 0
   audit_append "$cmd" "$sid"
   emit_allow
   return 0

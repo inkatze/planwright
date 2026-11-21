@@ -34,6 +34,8 @@ for t in declared.sh other.sh undeclared.sh pooled.sh; do
   printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/$t"
   chmod +x "$FX/repo/tools/$t"
 done
+# A declared location inside the repository is held to what HEAD commits.
+fixture_commit "$FX/repo" tools || exit 1
 printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
 chmod +x "$FX/bin/fixture-tool"
 DECLARED="$FX/repo/tools/declared.sh"
@@ -117,6 +119,13 @@ assert_defer "path target with a traversal segment deferred" \
 assert_defer "declared line chained with an unsafe segment deferred" \
   "$DECLARED --mode strict; rm -rf x" Bash "$FXC"
 assert_defer "declared line with a write redirect deferred" "$DECLARED --mode strict > out" Bash "$FXC"
+# The declaration names a file, not its content: an edit the worker has not
+# committed takes the line back to a prompt, and putting it back restores it.
+cp "$DECLARED" "$FX/declared.orig"
+printf 'printf pwned\n' >>"$DECLARED"
+assert_defer "a declared location edited since HEAD deferred" "$DECLARED --mode strict" Bash "$FXC"
+cp "$FX/declared.orig" "$DECLARED"
+assert_allow "the declared location put back approved again" "$DECLARED --mode strict" Bash "$FXC"
 assert_defer "declared line behind a non-context assignment deferred" \
   "LD_PRELOAD=/x.so $DECLARED --mode strict" Bash "$FXC"
 assert_defer "declared line behind a context assignment carrying an expansion deferred" \
@@ -270,6 +279,7 @@ assert_defer "REQ-A1.11: a declared line a deny rule matches deferred" "$DECLARE
 # absolute path as a declared step names it (REQ-F1.5); the read-only form
 # of the same program still approves, so the refusal is the floor's.
 cp "$DECLARED" "$FX/repo/tools/gh"
+fixture_commit "$FX/repo" tools/gh || exit 1
 stub_reserved() {
   stub_scripts "$1"
   cat >"$1/scripts/resolve-steps.sh" <<STUB

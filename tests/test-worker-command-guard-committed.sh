@@ -19,6 +19,7 @@ printf '#!/bin/sh\nprintf ok\\n\n' >"$R/tests/clean.sh"
 printf '#!/bin/sh\nprintf ok\\n\n' >"$R/scripts/edited.sh"
 printf '#!/bin/sh\nprintf ok\\n\n' >"$R/tests/edited.sh"
 printf '#!/bin/sh\nprintf ok\\n\n' >"$R/sub/scripts/clean.sh"
+printf '#!/bin/sh\nprintf ok\\n\n' >"$R/scripts/caf$(printf '\303\251').sh"
 printf '@test x { true; }\n' >"$R/tests/clean.bats"
 printf '@test x { true; }\n' >"$R/tests/edited.bats"
 chmod +x "$R/scripts/clean.sh" "$R/tests/clean.sh"
@@ -59,6 +60,7 @@ assert_allow "inside fish -c" "fish -c 'bash scripts/clean.sh'" Bash "$R"
 assert_allow "behind timeout" "timeout 60 bash tests/clean.sh" Bash "$R"
 assert_allow "in a loop" "for f in scripts/clean.sh tests/clean.sh; do bash \$f; done" Bash "$R"
 assert_allow "bats on a committed file" "bats tests/clean.bats" Bash "$R"
+assert_allow "a committed script with a non-ASCII name" "bash scripts/caf$(printf '\303\251').sh" Bash "$R"
 
 echo "### a script the worker wrote or edited prompts"
 for f in scripts/new.sh tests/new.sh sub/scripts/new.sh scripts/edited.sh tests/edited.sh \
@@ -83,6 +85,9 @@ assert_defer "bats on an untracked file" "bats tests/new.bats" Bash "$R"
 assert_defer "bats on an edited file" "bats tests/edited.bats" Bash "$R"
 assert_defer "bats beside a committed file" "bats tests/clean.bats tests/new.bats" Bash "$R"
 assert_defer "bats on a directory, which runs whatever it holds" "bats tests" Bash "$R"
+ln -s new.sh "$R/scripts/lnk.sh"
+assert_defer "a symlinked script, whatever it points at" "bash scripts/lnk.sh" Bash "$R"
+assert_defer "another spelling of a committed name" "bash scripts/CLEAN.sh" Bash "$R"
 
 echo "### the edit is undone or committed"
 cp "$R/scripts/clean.sh" "$R/scripts/edited.sh"
@@ -114,6 +119,19 @@ HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_ROOT
 assert_allow "a committed root script" "bash $C/scripts/plug.sh" Bash "$SANDBOX/elsewhere"
 assert_defer "a script planted in the root" "bash $C/scripts/planted.sh" Bash "$SANDBOX/elsewhere"
 assert_defer "a script planted in the root, run directly" "$C/scripts/planted.sh" Bash "$SANDBOX/elsewhere"
+cp "$C/scripts/plug.sh" "$SANDBOX/plug.orig"
+printf '%b' "$pw" >>"$C/scripts/plug.sh"
+assert_defer "a committed root script edited since" "bash $C/scripts/plug.sh" Bash "$SANDBOX/elsewhere"
+cp "$SANDBOX/plug.orig" "$C/scripts/plug.sh"
+assert_allow "the root script put back" "bash $C/scripts/plug.sh" Bash "$SANDBOX/elsewhere"
+# A root holding a .git that is no repository of its own: git answers from the
+# repository around it, whose HEAD commits a script of the same bytes at the
+# same relative path, which must not count for this root.
+F=$(cd "$SANDBOX" && pwd -P)/fakeroot
+mkdir -p "$F/scripts" "$F/.git"
+: >"$F/scripts/ok.sh"
+HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_ROOT=$F")
+assert_defer "a root whose .git is not its own checkout" "bash $F/scripts/ok.sh" Bash "$SANDBOX/elsewhere"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
 assert_allow "an install copy with no checkout of its own keeps its approval" \
   "bash $PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
