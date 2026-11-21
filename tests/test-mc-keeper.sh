@@ -234,7 +234,7 @@ own_worker() { # own_worker <worker> <owner>: the dispatch record's owner
   mkdir -p "$fleet/dispatch-markers"
   printf '%s\t%s\t%s\tstream-json-persistent\t%s\t-\n' "$1" "demo:task-9" "$2" "$fleet/streamjson/$1" >"$fleet/dispatch-markers/$1"
 }
-pp_req() { # pp_req <worker> [<owner>|none]: an overdue pending request under live pids, owned by alpha unless said
+pp_req() { # pp_req <worker> [<owner>|-|none]: an overdue pending request under live pids, owned by alpha unless said; - a record naming no owner, none no record
   mkdir -p "$fleet/streamjson/$1"
   printf 'aaaa1111-bbbb-cccc-dddd-eeee00000001\tpermission\t1000\tpending\n' >"$fleet/streamjson/$1/journal"
   printf '%s\n' "$$" >"$fleet/streamjson/$1/supervisor.pid"
@@ -307,6 +307,15 @@ expect_out "a request that has just arrived on a worker no one owns is raised as
 pp_req rl-gone mission-control:removedprog
 keeper_as alpha 5260
 expect_out "a worker whose record names a program no longer configured is raised as unowned" "announced${tab}stream-json-worker-unowned${tab}rl-gone"
+# A first-finder record that names a program no longer configured gives the
+# first configured program, so the prompt still goes to one program only.
+pp_req rl-stale none
+printf 'removedprog\n' >"$fleet/streamjson/rl-stale/unowned-program"
+keeper_as beta 5270
+expect_no_out "a stale first-finder record does not hand the prompt to every keeper" "pending-prompt-overdue${tab}rl-stale"
+keeper_as alpha 5280
+expect_out "it goes to the first configured program instead" "announced${tab}pending-prompt-overdue${tab}rl-stale"
+rm -rf "$fleet/streamjson/rl-stale"
 rm -rf "$fleet/streamjson/rl-beta" "$fleet/streamjson/rl-alpha" "$fleet/streamjson/rl-orphan" "$fleet/streamjson/rl-fresh-orphan" "$fleet/streamjson/rl-gone" "$fleet/dispatch-markers"
 rm -f "$fleet/mission-control/alpha/keeper-prompts" "$fleet/mission-control/alpha/keeper-unowned"
 
@@ -349,7 +358,8 @@ rm -f "$fleet/mission-control/alpha/keeper-unowned" "$fleet/mission-control/hub/
 # lost, or a polish session a worker spawned, whose dispatch record names no
 # owner) still has its prompts heard: by the program its name carries under
 # the launcher's grammar, else by the hub as unowned, plus one event saying it
-# has no row. Who may answer is unchanged.
+# has no row. Who may answer is unchanged. Runs under the alpha, beta and hub
+# configuration above.
 ev_of() { # ev_of <program> <worker>: that program's stored events for the worker
   mc_run mc-event.sh list --program "$1"
   printf '%s\n' "$OUT" | awk -F '\t' -v w="$2" '$4 == w'
@@ -382,12 +392,35 @@ expect_out "and its own no-row event fires" "announced${tab}stream-json-worker-u
 pp_req mc-alpha-worker-0a1b2c3d4e-polish3 none
 keeper_as alpha 5090
 expect_out "a name with no dispatch record at all still routes by its program" "announced${tab}pending-prompt-overdue${tab}mc-alpha-worker-0a1b2c3d4e-polish3"
-for bad in mc-gamma-worker-0a1b2c3d4e mc-alpha-painter-0a1b2c3d4e mc-alpha-worker-0a1b2c3d4 mc-alpha-worker-0a1b2c3d4eX; do
-  pp_req "$bad" none
-  keeper_as alpha 5100
+bad_names="mc-gamma-worker-0a1b2c3d4e mc-alpha-painter-0a1b2c3d4e mc-alpha-worker-0a1b2c3d4 mc-alpha-worker-0a1b2c3d4eX"
+for bad in $bad_names; do pp_req "$bad" none; done
+keeper_as alpha 5100
+for bad in $bad_names; do
   expect_no_out "a name outside the grammar or naming no configured program derives no owner: $bad" "pending-prompt-overdue${tab}$bad"
   rm -rf "${fleet:?}/streamjson/$bad"
 done
+case $(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish3) in
+  *"stream-json worker mc-alpha-worker-0a1b2c3d4e-polish3 (no launcher row) has waited"*) ok "a row-less worker's prompt says it has no launcher row" ;;
+  *) fail "the row-less prompt's text: $(ev_of alpha mc-alpha-worker-0a1b2c3d4e-polish3)" ;;
+esac
+
+# A launcher list that cannot be read cannot tell a row from its absence, so
+# a registered worker is never called row-less, though its prompt is raised.
+pp_req mc-alpha-worker-1111111111
+printf 'format\t1\nname\tmc-alpha-worker-1111111111\nprogram\talpha\nkind\tworker\nscope\tx\nbackend\tstream-json\nlaunched\t1\n' \
+  >"$fleet/mission-control/sessions/mc-alpha-worker-1111111111"
+printf 'format\t1\nname\tmc-alpha-worker-2222222222\n' >"$fleet/mission-control/sessions/mc-alpha-worker-2222222222"
+chmod 000 "$fleet/mission-control/sessions/mc-alpha-worker-2222222222"
+if hermetic_access_denied r "$fleet/mission-control/sessions/mc-alpha-worker-2222222222"; then
+  keeper_as alpha 5150
+  expect_out "with the launcher's list unreadable, a registered worker's prompt is still raised" "announced${tab}pending-prompt-overdue${tab}mc-alpha-worker-1111111111"
+  expect_no_out "and it is not called row-less" "stream-json-worker-unregistered${tab}mc-alpha-worker-1111111111"
+else
+  echo "skip: the unreadable launcher list case (the mode does not deny reading here)"
+fi
+chmod 600 "$fleet/mission-control/sessions/mc-alpha-worker-2222222222"
+rm -f "$fleet/mission-control/sessions/mc-alpha-worker-2222222222" "$fleet/mission-control/sessions/mc-alpha-worker-1111111111"
+rm -rf "$fleet/streamjson/mc-alpha-worker-1111111111"
 
 # No owner derivable: the hub hears the prompt, as unowned, naming the worker.
 pp_req stray-polish none
