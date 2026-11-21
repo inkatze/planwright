@@ -627,8 +627,10 @@ tier reads it. Two acts open, and nothing else:
   tag of the same name at another commit. Merging `origin/main` afterwards is
   the ordinary base merge, and the push of the result to the spec branch is an
   ordinary push by explicit refspec (`git push origin HEAD:refs/heads/<spec
-  branch>`) that the guard never refused: the spec branch is outside the
+  branch>`) that the guard never refused: such a spec branch is outside the
   protected set, and the profile's force and `+` denies still refuse a force.
+  A sign-off branch is in the protected set and takes neither act; it has its
+  own pair, below.
 - **Sync it with its base.** In a linked worktree that is the session's
   project directory with the named spec branch checked out, `git merge
   origin/main` (the PR base alone, by name and by what git resolves it to) is
@@ -649,34 +651,38 @@ tier reads it. Two acts open, and nothing else:
 No force, reset or rebase is admitted by either act.
 
 A spec's sign-off branch (`planwright/<spec>/spec`) sits in the protected
-floor, and only its kickoff writes the spec there. A record naming it opens a
-narrower pair, so a worker launched on that pull request can land a forward
-merge of `main` and nothing else:
+floor, and only its kickoff writes the spec's content there. A record naming
+it opens a narrower pair instead of the two acts above, so a worker launched
+on that pull request can land a forward merge of `main` and nothing else:
 
-- **Build the merge.** In the worktree holding the branch, as above,
-  `git merge origin/main` alone (bare or with `--no-edit`, the PR base by name
-  and by what git resolves it to), as the command's only act. Any other
-  source, option, the fast-forward to the PR head, or a second command on the
+- **Build the merge.** In a linked worktree that is the session's project
+  directory with the branch checked out, `git merge origin/main` alone (bare
+  or with `--no-edit`, the PR base by that spelling and by what git resolves
+  it to), as the command's only act. Any other source or spelling, any other
+  option, the fast-forward to the PR head, a pull, or a second command on the
   line refuses.
 - **Push it.** A push by explicit refspec (`git push origin HEAD:refs/heads/<spec
   branch>`, the branch by name, or `HEAD`), from any checkout, as the
-  command's only act, with a `HEAD` or local-branch source. The guard first
-  refreshes the PR head and `main` from that remote with a bounded fetch, so
-  a tracking ref moved locally hides nothing. It then admits the push only
-  when it fast-forwards that head and every commit it adds that `main` lacks
-  lies on the first-parent line. Each such commit must be a two-parent merge
-  whose second parent `main` holds, and it must leave every spec-bundle file
-  (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md` and
-  `kickoff-brief.md`, which holds the sign-off record, matched by name at any
-  depth) as a clean three-way merge would. A merge that edits, adds or
-  deletes one, resolves a conflict in one, or drops `main`'s change to one
-  refuses, and so do a direct spec edit, any non-merge commit, a merge of
-  anything but `main`, a delete, and a push from a session with no record or
-  another pull request's. The sign-off branch skips the protected-set read
-  on this path only, as the kickoff push does; every other target of the same
-  push is still read.
+  command's only act, with a `HEAD` or local-branch source, to the branch's
+  own remote. That remote must fetch and push through its one URL: a push
+  URL, an `insteadOf` or `pushInsteadOf` rewrite, an upload-pack,
+  receive-pack, ssh or proxy override, or a remote-helper URL refuses. The
+  guard reads the PR head and the remote's default branch from the remote
+  itself (`git ls-remote --symref`), then fetches both with a bounded fetch
+  and requires the fetched refs to match, so no local ref, `origin/HEAD`
+  included, decides what counts as `main`. It admits the push only when it
+  fast-forwards that head and every commit it adds that `main` lacks lies on
+  the first-parent line. Each such commit must be a two-parent merge whose
+  second parent `main` holds and whose tree is exactly the clean merge of its
+  parents (`git merge-tree --write-tree`), in every file and mode. A conflict
+  resolved by hand or any edit inside the merge refuses, spec files or not,
+  and so do a direct spec edit, any non-merge commit, a merge of anything but
+  `main`, a delete, a failed git read, and a push from a session with no
+  record or another pull request's. The sign-off branch skips the
+  protected-set read on this path only, as the kickoff push does; every
+  other target of the same push is still read.
 
-A kickoff session needs no record for the second act: its launch scope
+A kickoff session needs no record for the sync act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change
 for the hook) names its spec branches. `kickoff-<spec>` names
 `planwright/<spec>/spec`, `planwright/<spec>/spec-rework` and
@@ -685,8 +691,8 @@ for the hook) names its spec branches. `kickoff-<spec>` names
 refused when another spec's kickoff could share that scope, as for its push.
 Checked out in the session's own linked worktree, such a branch takes the same
 base merge and fast-forward to its PR head under the same rules. `planwright/<spec>/spec` sits in the
-protected floor, which governs pushes and is reached only through the kickoff
-push helper, which reads no protected set for it, so its kickoff's local merge
+protected floor, which governs pushes; its kickoff reaches it through the
+kickoff push helper, which reads no protected set for it, so its kickoff's local merge
 there skips the protected set as that push does, `protected_branches`
 additions included; every other branch still reads the set. Whichever names the branch, the merge
 must be plain: an option outside the message, output, signing, hook and

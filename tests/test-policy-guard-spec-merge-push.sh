@@ -110,6 +110,7 @@ for cmd in "git merge origin/planwright/demo/task-2" "git merge origin/$OTHER_SB
   pw "$cmd" "$W"
   expect deny "[worker, record] the spec branch refuses: $cmd"
 done
+reason_has 'sign-off branch' "[worker, record] the merge refusals name the sign-off route"
 gitq -C "$W" tag base-tag origin/main
 pw 'git merge base-tag' "$W"
 expect deny "[worker, record] a tag at the PR base's commit refuses"
@@ -273,6 +274,7 @@ for cmd in "git push origin HEAD:refs/heads/$SB HEAD:refs/heads/main" "git push 
   pw "$cmd" "$W"
   expect deny "[worker, record] refuses: $cmd"
 done
+reason_has 'protected branch' "[worker, record] a push naming no refspec keeps the protected-set refusal"
 for cmd in "git push --force origin HEAD:refs/heads/$SB" "git push -f origin HEAD:refs/heads/$SB" \
   "git push --force-with-lease origin HEAD:refs/heads/$SB" "git push origin +HEAD:refs/heads/$SB" \
   "git push --delete origin $SB" "git push origin :refs/heads/$SB"; do
@@ -391,6 +393,18 @@ reason_has 'reading the pull request head' "[worker, record] the refusal names t
 gitq -C "$K" config remote.origin.url "$ORIGIN"
 pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect defer "[worker, record] with the remote restored the merge-only push defers again"
+
+echo "# the knob and a kickoff scope beside the record"
+at_pr_head "$W"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: deny' 'unpushed_rewrite: allow'
+pw 'git merge origin/main' "$W"
+expect deny "[worker, record] worker_base_merge deny refuses the sign-off merge"
+reason_has 'worker_base_merge is deny' "[worker, record] the refusal names the knob"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker 'git merge origin/main' "$W" "$W"
+expect defer "[worker, kickoff-demo, record] the bare base merge defers"
+PLANWRIGHT_WORKER_SCOPE=kickoff-demo PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker 'git merge --no-ff origin/main' "$W" "$W"
+expect deny "[worker, kickoff-demo, record] the record's narrower merge governs: --no-ff refuses"
 
 echo "# a git read that fails refuses (last: it damages the repository)"
 at_pr_head "$W"
