@@ -170,7 +170,7 @@ lint_case "$sh_" "a bash-only construct under the sh dialect fails" 1:SC3030 "$(
 # hash -r: bash 3.2 keeps hashed paths under a PATH prefix on a function call.
 printf 'key: value\n' >"$tmp/artifact"
 mkdir -p "$tmp/notools" || exit 1
-for tool in mktemp rm dirname cat sed head; do
+for tool in mktemp rm dirname cat sed head cp; do
   t_path=$(command -v "$tool") && ln -sf "$t_path" "$tmp/notools/$tool"
 done
 out=$(
@@ -189,6 +189,43 @@ case "$?:$out" in
   0:*"skip: lint_emitted: fixture: yamllint is not on PATH"*) pass "a linter missing outside CI is a named skip" ;;
   *) fail "a linter missing outside CI was not a named skip: $out" ;;
 esac
+# A version-manager shim passes command -v yet refuses to run outside the
+# checkout that pins its version, which is where the lint runs.
+mkdir -p "$tmp/shim" || exit 1
+printf '#!/bin/sh\necho "mise ERROR No version is set for shim: markdownlint-cli2" >&2\nexit 1\n' \
+  >"$tmp/shim/markdownlint-cli2"
+chmod +x "$tmp/shim/markdownlint-cli2"
+printf '## Heading\ntext right below\n' >"$tmp/artifact"
+out=$(
+  hash -r
+  CI='' PATH="$tmp/shim:$tmp/notools" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+)
+case "$?:$out" in
+  0:*"skip: lint_emitted: fixture: markdownlint-cli2 does not run"*"No version is set"*)
+    pass "a shim that cannot run outside the repository is a named skip"
+    ;;
+  *) fail "a shim that cannot run outside the repository was not a named skip: $out" ;;
+esac
+out=$(
+  hash -r
+  CI=1 PATH="$tmp/shim:$tmp/notools" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+)
+case "$?:$out" in
+  1:*"markdownlint-cli2 does not run"*"in CI"*) pass "a shim that cannot run fails the lint in CI" ;;
+  *) fail "a shim that cannot run did not fail the lint in CI: $out" ;;
+esac
+if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
+  out=$(
+    hash -r
+    CI='' PATH="$tmp/shim:$PATH" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+  )
+  case "$?:$out" in
+    1:*MD022*) pass "the repository's pinned linter still lints past a broken shim ahead of it" ;;
+    *) fail "the repository's pinned linter did not lint past a broken shim: $out" ;;
+  esac
+else
+  printf '%s\n' "skip: pinned linter past a broken shim: mise resolves no markdownlint-cli2 here"
+fi
 bogus=nonsense
 if lint_emitted "$bogus" fixture "$tmp/artifact" 2>/dev/null; then
   fail "an unknown format was accepted"

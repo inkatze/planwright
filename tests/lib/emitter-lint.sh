@@ -17,8 +17,8 @@ unset CDPATH
 #   shell     a parse with the dialect's shell (sh, or bash; default: the
 #             shebang's, else sh) and shellcheck in that dialect
 # An sh caller sets EMITTER_LINT_ROOT to the repository before calling.
-# Status 0 clean; 1 a lint finding or a tool missing in CI; 0 with a skip line
-# when the tool is missing outside CI. <emitter> names the script whose output
+# Status 0 clean; 1 a lint finding or a tool missing or unable to run in CI; 0
+# with a skip line when the tool is missing or unable to run outside CI. <emitter> names the script whose output
 # this is; the guard reads it, the lint does not.
 lint_emitted() {
   le_fmt=$1 le_emitter=$2 le_file=$3 le_dialect=${4:-}
@@ -50,7 +50,7 @@ lint_emitted() {
             "$le_repo" '"MD033": { "allowed_elements": ["details", "summary"] }'
         fi >"$le_dir/.markdownlint.jsonc"
         cp -- "$le_file" "$le_dir/emitted.md" || le_rc=1
-        [ "$le_rc" -ne 0 ] || (cd "$le_dir" && markdownlint-cli2 emitted.md >"$le_dir/out" 2>&1) || {
+        [ "$le_rc" -ne 0 ] || (cd "$le_dir" && "$le_bin" emitted.md >"$le_dir/out" 2>&1) || {
           le_rc=1
           sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
         }
@@ -61,7 +61,7 @@ lint_emitted() {
     yaml)
       if le_need yamllint "$le_emitter"; then
         printf 'extends: %s/.yamllint\nrules:\n  document-start: disable\n' "$le_repo" >"$le_dir/config"
-        yamllint --strict -c "$le_dir/config" "$le_file" >"$le_dir/out" 2>&1 || {
+        "$le_bin" --strict -c "$le_dir/config" "$le_file" >"$le_dir/out" 2>&1 || {
           le_rc=1
           sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
         }
@@ -81,7 +81,7 @@ lint_emitted() {
         sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
       }
       if le_need shellcheck "$le_emitter"; then
-        shellcheck -s "$le_dialect" "$le_file" >"$le_dir/out" 2>&1 || {
+        "$le_bin" -s "$le_dialect" "$le_file" >"$le_dir/out" 2>&1 || {
           le_rc=1
           sed "s|^|lint_emitted: $le_emitter: |" "$le_dir/out" >&2
         }
@@ -98,14 +98,28 @@ lint_emitted() {
   return "$le_rc"
 }
 
-# le_need <tool> <emitter>: 0 the tool is on PATH; otherwise a skip line and
-# status 2 outside CI, a failure line and status 1 in it.
+# le_need <tool> <emitter>: 0 with le_bin set to a copy of the tool that runs
+# from the lint's scratch directory; otherwise a skip line and status 2
+# outside CI, a failure line and status 1 in it. The tool resolves from the
+# repository before PATH: a version-manager shim passes command -v, then
+# refuses to run outside the checkout whose config pins its version.
 le_need() {
-  command -v "$1" >/dev/null 2>&1 && return 0
+  le_bin=''
+  if command -v mise >/dev/null 2>&1; then
+    le_bin=$(cd "$le_repo" && mise which "$1" 2>"$le_dir/probe") || le_bin=''
+  fi
+  [ -n "$le_bin" ] || le_bin=$(command -v "$1") || le_bin=''
+  if [ -z "$le_bin" ]; then
+    le_why="is not on PATH"
+  elif (cd "$le_dir" && "$le_bin" --version) >"$le_dir/probe" 2>&1; then
+    return 0
+  else
+    le_why="does not run outside the repository: $le_bin: $(head -n 1 "$le_dir/probe")"
+  fi
   if [ -n "${CI:-}" ]; then
-    printf '%s\n' "lint_emitted: $2: $1 is not on PATH in CI" >&2
+    printf '%s\n' "lint_emitted: $2: $1 $le_why in CI" >&2
     return 1
   fi
-  printf '%s\n' "skip: lint_emitted: $2: $1 is not on PATH"
+  printf '%s\n' "skip: lint_emitted: $2: $1 $le_why"
   return 2
 }
