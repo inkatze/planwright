@@ -616,7 +616,8 @@ environment. A record that is a symlink, is not this user's own regular file,
 sits inside the worktree, names the field twice, or names anything outside
 `planwright/<spec>/<name>` (a task or flight branch, a branch in the protected
 set other than a sign-off branch, below) names no branch. Only the worker
-tier reads it. Two acts open, and nothing else:
+tier reads it. Two acts open (a sign-off branch takes the separate pair
+below instead), and nothing else:
 
 - **Bring the branch in.** On the session's own flight branch,
   `git merge --ff-only origin/<spec branch>` (also spelled
@@ -666,7 +667,11 @@ on that pull request can land a forward merge of `main` and nothing else:
   command's only act, with a `HEAD` or local-branch source, to the branch's
   own remote. That remote must fetch and push through its one URL: a push
   URL, an `insteadOf` or `pushInsteadOf` rewrite, an upload-pack,
-  receive-pack, ssh or proxy override, or a remote-helper URL refuses. The
+  receive-pack, ssh or proxy override, or a remote-helper URL refuses. So
+  does local state that changes what git reads of history or of a merge:
+  replace refs (every read here ignores replace objects, as the push's
+  pack does), a grafts file, a shallow repository, a configured merge
+  driver, or a non-empty `info/attributes`. The
   guard reads the PR head and the remote's default branch from the remote
   itself (`git ls-remote --symref`), then fetches both with a bounded fetch
   and requires the fetched refs to match, so no local ref, `origin/HEAD`
@@ -674,7 +679,10 @@ on that pull request can land a forward merge of `main` and nothing else:
   fast-forwards that head and every commit it adds that `main` lacks lies on
   the first-parent line. Each such commit must be a two-parent merge whose
   second parent `main` holds and whose tree is exactly the clean merge of its
-  parents (`git merge-tree --write-tree`), in every file and mode. A conflict
+  parents (`git merge-tree --write-tree`, reading attributes from an empty
+  tree, so neither a worktree `.gitattributes` nor `core.attributesFile`
+  stands in for a hand resolution; that needs git 2.40 or later, and an
+  older git refuses with that reason), in every file and mode. A conflict
   resolved by hand or any edit inside the merge refuses, spec files or not,
   and so do a direct spec edit, any non-merge commit, a merge of anything but
   `main`, a delete, a failed git read, and a push from a session with no

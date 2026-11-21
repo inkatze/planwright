@@ -53,7 +53,9 @@
 #                      --spec-branch names, omitted otherwise: the policy guard
 #                      lets that session fast-forward its flight branch to it and
 #                      sync the checked-out branch with the PR base, and nothing
-#                      else. Never read from config, the checkout or the command
+#                      else; a sign-off branch (planwright/<spec>/spec) takes
+#                      only a lone base merge and a clean-merge push instead
+#                      (docs/permission-matcher-model.md). Never read from config, the checkout or the command
 #   hook_exclude       worker_hook_exclude as a comma-joined list, omitted
 #                      when unset or when any member falls outside
 #                      [A-Za-z0-9_-]; the launcher exports it as

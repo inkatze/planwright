@@ -1,12 +1,10 @@
 #!/bin/bash
-# Adversarial suite for scripts/policy-guard.sh: a worker launched on a spec's
-# own sign-off PR (its session record's spec_branch is planwright/<spec>/spec,
-# a protected branch) landing a forward-merge of main there. It may build the
-# merge with a plain git merge of the PR base in the worktree holding that
-# branch, and push the branch, each as the command's only act, when every
-# commit the push adds is a merge of main that changes no spec-bundle file and
-# the push fast-forwards. Anything else on that branch still refuses, and the
-# kickoff remains the only session that writes the spec itself.
+# Adversarial suite for scripts/policy-guard.sh: a worker whose session record
+# names a spec's protected sign-off branch (planwright/<spec>/spec) landing a
+# forward-merge of main there, as docs/permission-matcher-model.md states it:
+# a lone base merge in the worktree holding the branch, and a lone push of
+# clean merges of main, judged against the remote's own refs with no local
+# state able to steer git's reads. Anything else on that branch refuses.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
@@ -118,7 +116,7 @@ for cmd in "git merge origin/planwright/demo/task-2" "git merge origin/$OTHER_SB
   pw "$cmd" "$W"
   expect deny "[worker, record] the spec branch refuses: $cmd"
 done
-reason_has 'sign-off branch' "[worker, record] the merge refusals name the sign-off route"
+reason_has 'sign-off branch' "[worker, record] the last merge refusal (a second command on the line) names the sign-off route"
 gitq -C "$W" tag base-tag origin/main
 pw 'git merge base-tag' "$W"
 expect deny "[worker, record] a tag at the PR base's commit refuses"
@@ -174,7 +172,7 @@ fi
 pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect "$PUSH_OK" "[worker, record] two merges of main in a row defer"
 
-echo "# a merge carrying a spec-bundle edit refuses"
+echo "# a merge whose tree is not the clean merge of its parents refuses"
 for f in requirements.md design.md tasks.md test-spec.md kickoff-brief.md; do
   at_pr_head "$W"
   gitq -C "$W" merge --no-commit --no-ff origin/main
@@ -282,7 +280,7 @@ for cmd in "git push origin HEAD:refs/heads/$SB HEAD:refs/heads/main" "git push 
   pw "$cmd" "$W"
   expect deny "[worker, record] refuses: $cmd"
 done
-reason_has 'protected branch' "[worker, record] a push naming no refspec keeps the protected-set refusal"
+reason_has 'protected branch' "[worker, record] the last push refusal (no refspec at all) keeps the protected-set refusal"
 for cmd in "git push --force origin HEAD:refs/heads/$SB" "git push -f origin HEAD:refs/heads/$SB" \
   "git push --force-with-lease origin HEAD:refs/heads/$SB" "git push origin +HEAD:refs/heads/$SB" \
   "git push --delete origin $SB" "git push origin :refs/heads/$SB"; do
@@ -394,6 +392,22 @@ gitq -C "$K" fetch mirror
 pw "git push mirror HEAD:refs/heads/$SB" "$W"
 expect deny "[worker, record] a push to a remote other than the branch's own refuses"
 gitq -C "$K" remote remove mirror
+for kv in remote.origin.receivepack=git-receive-pack core.sshCommand=ssh core.gitProxy=nc \
+  remote.origin.vcs=x remote.origin.proxy=http://proxy.invalid; do
+  gitq -C "$K" config "${kv%%=*}" "${kv#*=}"
+  pw "git push origin HEAD:refs/heads/$SB" "$W"
+  expect deny "[worker, record] a transport override refuses: ${kv%%=*}"
+  reason_has "$(printf '%s' "${kv%%=*}" | tr '[:upper:]' '[:lower:]')" "[worker, record] the refusal names ${kv%%=*}"
+  gitq -C "$K" config --unset "${kv%%=*}"
+done
+gitq -C "$K" config --add remote.origin.url "$ORIGIN"
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a remote with two URLs refuses"
+gitq -C "$K" config --unset-all remote.origin.url
+gitq -C "$K" config remote.origin.url "ext::git-remote-ext-is-never-run %S"
+pw "git push origin HEAD:refs/heads/$SB" "$W"
+expect deny "[worker, record] a remote-helper URL refuses"
+reason_has 'remote helper' "[worker, record] the refusal names the remote helper"
 gitq -C "$K" config remote.origin.url "$SANDBOX/missing.git"
 pw "git push origin HEAD:refs/heads/$SB" "$W"
 expect deny "[worker, record] an unreachable remote refuses"
@@ -518,8 +532,7 @@ expect defer "[worker, kickoff-demo, record] the bare base merge defers"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker 'git merge --no-ff origin/main' "$W" "$W"
 expect deny "[worker, kickoff-demo, record] the record's narrower merge governs: --no-ff refuses"
 
-echo "# a git read that fails refuses (last: it damages the repository)"
-at_pr_head "$W"
+echo "# an edited merge whose tree object is missing refuses (last: it damages the repository)"at_pr_head "$W"
 gitq -C "$W" merge --no-commit --no-ff origin/main
 put "$W" specs/demo/tasks.md 'edited inside a merge whose tree goes missing'
 gitq -C "$W" add -A
@@ -533,7 +546,7 @@ else
   fail "the missing-tree fixture found no loose tree to remove"
 fi
 pw "git push origin HEAD:refs/heads/$SB" "$W"
-expect deny "[worker, record] a merge whose tree cannot be read refuses"
+expect deny "[worker, record] an edited merge whose tree object is missing refuses"
 
 no_gh_calls
 finish
