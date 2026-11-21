@@ -5,6 +5,9 @@
 # declaring `# Emits: <format>` to a test calling lint_emitted with its name.
 
 unset CDPATH
+# The HOME at sourcing, before a test isolates its own: mise resolves the
+# pinned linter from the operator's state, which a scratch HOME does not hold.
+le_home=${HOME:-}
 
 # lint_emitted <format> <emitter> <file> [<dialect>]
 #   markdown  markdownlint-cli2 under the repository baseline, with the rules
@@ -106,7 +109,7 @@ lint_emitted() {
 le_need() {
   le_bin=''
   if command -v mise >/dev/null 2>&1; then
-    le_bin=$(cd "$le_repo" && mise which "$1" 2>"$le_dir/probe") || le_bin=''
+    le_bin=$(cd "$le_repo" && HOME=${le_home:-$HOME} mise which "$1" 2>"$le_dir/probe") || le_bin=''
   fi
   [ -n "$le_bin" ] || le_bin=$(command -v "$1") || le_bin=''
   if [ -z "$le_bin" ]; then

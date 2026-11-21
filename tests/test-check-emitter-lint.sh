@@ -223,6 +223,15 @@ if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
     1:*MD022*) pass "the repository's pinned linter still lints past a broken shim ahead of it" ;;
     *) fail "the repository's pinned linter did not lint past a broken shim: $out" ;;
   esac
+  mkdir -p "$tmp/emptyhome" || exit 1
+  out=$(
+    hash -r
+    CI='' HOME="$tmp/emptyhome" PATH="$tmp/shim:$PATH" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+  )
+  case "$?:$out" in
+    1:*MD022*) pass "a HOME isolated after sourcing still lints with the pinned linter" ;;
+    *) fail "a HOME isolated after sourcing did not lint with the pinned linter: $out" ;;
+  esac
 else
   printf '%s\n' "skip: pinned linter past a broken shim: mise resolves no markdownlint-cli2 here"
 fi
