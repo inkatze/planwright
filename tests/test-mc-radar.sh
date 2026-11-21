@@ -257,6 +257,67 @@ EOF
     done
   } >"$snap/forge"
 }
+# The forge's open pull requests: a gh stub that holds the call to the shape
+# the radar must make, answers it by running the call's own --jq program over
+# the pull requests in $gh_open, logs each call, and fails while $gh_fail
+# exists.
+mkdir -p "$tmp/bin"
+gh_open="$tmp/gh-open"
+gh_log="$tmp/gh-log"
+gh_fail="$tmp/gh-fail"
+cat >"$tmp/bin/gh" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$GH_LOG"
+[ ! -e "$GH_FAIL" ] || { echo "gh: simulated forge failure" >&2; exit 1; }
+unexpected() { echo "gh stub: unexpected call: $*" >&2; exit 2; }
+[ "${1:-} ${2:-}" = "pr list" ] || unexpected "$@"
+shift 2
+repo='' state='' limit='' json='' jq=''
+while [ $# -gt 0 ]; do
+  [ $# -ge 2 ] || unexpected "$@"
+  case $1 in
+    --repo) repo=$2 ;;
+    --state) state=$2 ;;
+    --limit) limit=$2 ;;
+    --json) json=$2 ;;
+    --jq) jq=$2 ;;
+    *) unexpected "$@" ;;
+  esac
+  shift 2
+done
+[ "$repo" = acme/widgets ] && [ "$state" = open ] && [ "$limit" = 1000 ] && [ "$json" = headRefName,isCrossRepository ] && [ -n "$jq" ] || unexpected "$repo $state $limit $json"
+exec jq -r "$jq" "$GH_OPEN"
+STUB
+chmod +x "$tmp/bin/gh"
+PATH="$tmp/bin:$PATH"
+GH_OPEN=$gh_open GH_LOG=$gh_log GH_FAIL=$gh_fail
+export PATH GH_OPEN GH_LOG GH_FAIL
+command -v jq >/dev/null 2>&1 || {
+  echo "FAIL: jq is required to run the gh stub's --jq program" >&2
+  exit 1
+}
+# set_open <branch>...: the pull requests open on the forge, by head branch;
+# a head written fork:<branch> belongs to a fork.
+set_open() {
+  so_sep=''
+  {
+    printf '['
+    for so_b in "$@"; do
+      case $so_b in
+        fork:*) so_fork=true so_b=${so_b#fork:} ;;
+        *) so_fork=false ;;
+      esac
+      printf '%s{"headRefName":"%s","isCrossRepository":%s}' "$so_sep" "$so_b" "$so_fork"
+      so_sep=,
+    done
+    printf ']\n'
+  } >"$gh_open"
+}
+set_open_default() {
+  set_open feat-a feat-b feat-d teammate planwright/flight/unit-x planwright/flight/multi-a planwright/flight/multi-b \
+    trunk-merge/pr-7/uuid-1 gh-readonly-queue/main/pr-8
+}
+set_open_default
 write_forge 1:feat-a:main 2:feat-b:main 3:trunk-merge/pr-7/uuid-1:main
 printf 'mission_control_radar_max_events: 1\n' >>"$tracked"
 OUT=$(mc_env env PLANWRIGHT_MC_PROGRAM=alpha /bin/bash "$repo_root/scripts/mc-radar.sh" 2>"$tmp/stderr")
@@ -387,6 +448,133 @@ case $(stored_events) in
   *"trunk-merge"* | *"gh-readonly-queue"*) fail "the all scope paired a merge-queue ref" ;;
   *) ok "the all scope never pairs a merge-queue ref" ;;
 esac
+
+# Only branches with an open pull request pair: one whose pull request is
+# closed and one whose only pull request is a fork's drop out, however the
+# scope picked them.
+edit planwright/flight/dead-closed main 10 dead1
+edit planwright/flight/dead-nopr main 10 dead2
+g checkout -q main
+git -C "$tmp/clone" fetch -q "$tmp/work" '+refs/heads/*:refs/remotes/origin/*'
+bulk() { awk -v n="$1" 'BEGIN { for (i = 1; i <= n; i++) print "bulk-" i }'; }
+open_pair() { grep -c 'feat-a+origin/feat-b\|feat-b+origin/feat-a'; }
+set_scope
+radar_fresh 1:feat-a:main 2:feat-b:main 9:planwright/flight/dead-closed:main
+set_open feat-a feat-b fork:planwright/flight/dead-nopr
+: >"$gh_log"
+radar_pass
+ev=$(stored_events)
+expect_rc "a pass over open and dead branches" 0
+case $ev in
+  *"dead-closed"* | *"dead-nopr"*) fail "a branch without an open pull request paired: $ev" ;;
+  *) ok "a closed pull request's branch and one only a fork's pull request names raise no event" ;;
+esac
+pair_events=$(printf '%s\n' "$ev" | open_pair)
+if [ "$pair_events" -eq 1 ]; then
+  ok "two open pull requests that overlap still raise one event"
+else
+  fail "the open pair raised $pair_events events, want 1: $ev"
+fi
+if [ "$(printf '%s\n' "$ev" | wc -l | tr -d ' ')" -eq 1 ]; then
+  ok "the open pair is the only event"
+else
+  fail "other events were raised: $ev"
+fi
+gh_reads=$(wc -l <"$gh_log" | tr -d ' ')
+if [ "$gh_reads" -eq 1 ]; then
+  ok "the forge is read once per repository per pass"
+else
+  fail "the forge was read $gh_reads times in one pass: $(cat "$gh_log")"
+fi
+
+# The same under the all scope, where every origin branch is a candidate.
+set_scope 'mission_control_radar_scope: all'
+radar_fresh 1:feat-a:main 2:feat-b:main
+set_open feat-a feat-b
+radar_pass
+ev=$(stored_events)
+if [ "$(printf '%s\n' "$ev" | open_pair)" -eq 1 ] && [ "$(printf '%s\n' "$ev" | wc -l | tr -d ' ')" -eq 1 ]; then
+  ok "the all scope pairs only the branches with an open pull request"
+else
+  fail "the all scope paired a branch without an open pull request: $ev"
+fi
+
+# So does the watched scope: a named branch with no open pull request drops out.
+set_scope 'mission_control_radar_scope: watched' 'mission_control_radar_watched: [feat-a, feat-b]'
+radar_fresh
+set_open feat-a
+radar_pass
+expect_rc "a watched pass with one branch open" 0
+if [ -z "$(stored_events)" ]; then
+  ok "a watched branch with no open pull request pairs with nothing"
+else
+  fail "a watched branch with no open pull request paired: $(stored_events)"
+fi
+
+# No open pull request at all is an answer, not a failure.
+set_scope
+radar_fresh 1:feat-a:main 2:feat-b:main
+set_open
+radar_pass
+expect_rc "a repository with no open pull request" 0
+if [ -z "$(stored_events)" ]; then ok "no open pull request raises no event"; else fail "events with no open pull request: $(stored_events)"; fi
+
+# A page holding every open pull request the forge returns cannot be told from
+# a cut one: one short of the page is read, the page itself is refused. A
+# fork's row sits on both pages, since it counts toward the page like any other.
+radar_fresh 1:feat-a:main 2:feat-b:main
+# shellcheck disable=SC2046
+set_open feat-a feat-b fork:fk-1 $(bulk 996)
+radar_pass
+expect_rc "a page one short of full is read whole" 0
+radar_fresh 1:feat-a:main 2:feat-b:main
+# shellcheck disable=SC2046
+set_open feat-a feat-b fork:fk-1 $(bulk 997)
+radar_pass
+expect_rc "a full page is refused" 1
+if grep -q '1000 or more open pull requests' "$tmp/stderr" && [ -z "$(stored_events)" ]; then
+  ok "a full page is named, and raises nothing"
+else
+  fail "a full page was not refused cleanly: $(cat "$tmp/stderr") $(stored_events)"
+fi
+
+# A forge that cannot be read is said, never guessed: the run fails, no event
+# is raised and the pairs already announced stay announced.
+: >"$gh_fail"
+radar_fresh 1:feat-a:main 2:feat-b:main 9:planwright/flight/dead-closed:main
+printf '%s\n' "$tmp/clone	origin/feat-a	x	origin/feat-b	y" >"$fleet/mission-control/alpha/radar-announced"
+radar_pass
+if [ "$RC" -eq 1 ]; then ok "an unreadable forge fails the run (exit 1)"; else fail "an unreadable forge exited $RC, want 1"; fi
+if grep -q 'open pull requests cannot be read' "$tmp/stderr"; then
+  ok "an unreadable forge is named"
+else
+  fail "an unreadable forge was not named: $(cat "$tmp/stderr")"
+fi
+if [ -z "$(stored_events)" ]; then
+  ok "an unreadable forge raises no event"
+else
+  fail "an unreadable forge raised events: $(stored_events)"
+fi
+if [ "$(wc -l <"$fleet/mission-control/alpha/radar-announced" | tr -d ' ')" -eq 1 ]; then
+  ok "an unreadable forge leaves the announced pairs as they were"
+else
+  fail "an unreadable forge changed the announced pairs"
+fi
+rm -f "$gh_fail"
+
+# An origin that names no owner/name repository cannot be asked; the failure
+# says so rather than asking the forge about a path.
+git -C "$tmp/clone" remote set-url origin /srv/git/widgets.git
+radar_fresh 1:feat-a:main 2:feat-b:main
+set_open_default
+radar_pass
+if [ "$RC" -eq 1 ] && grep -q 'names no owner/name repository' "$tmp/stderr"; then
+  ok "an origin with no owner/name fails the run, named"
+else
+  fail "an origin with no owner/name exited $RC: $(cat "$tmp/stderr")"
+fi
+git -C "$tmp/clone" remote set-url origin git@github.com:acme/widgets.git
+set_open_default
 
 # Dedupe across wakes: a pair raised once, then marked submitted, is never
 # raised again while both branches stay where they are, however the tracked

@@ -208,11 +208,39 @@ echo "### Red-team regressions — confirmed exec/write vectors (must DEFER)"
 # git grep --open-files-in-pager / -O runs a command through the shell.
 assert_defer "git grep -O bundled exec" "git grep -O'sh -c id' foo"
 assert_defer "git grep --open-files-in-pager exec" "git grep --open-files-in-pager=id foo"
+# -O inside a short cluster: `-nO<cmd>` is -n then -O with <cmd> as its value.
+assert_defer "git grep -nO clustered exec" "git grep -nOid foo"
+assert_defer "git grep -iO clustered exec" "git grep -iOid foo"
+assert_defer "git grep -nO clustered exec, quoted value" "git grep -nO'sh -c id' foo"
+# A short cluster carrying O defers wherever the O sits, so a pickaxe or regex
+# value holding an O prompts too: the accepted cost of not modelling each
+# verb's value-taking flags.
+assert_defer "accepted over-block: an O inside a short-flag value" "git log -SOops"
+assert_allow "a short cluster without O still allows" "git grep -niw foo"
 assert_defer "git log --ext-diff driver exec" "git log --ext-diff"
 assert_defer "git show --textconv driver exec" "git show --textconv HEAD:f"
 assert_defer "git cat-file --filters driver exec" "git cat-file --filters --path=f HEAD:f"
 assert_allow "git cat-file batch still reads" "git cat-file --batch"
 assert_allow "git grep plain still allows" "git grep foo"
+# git reads any unambiguous prefix of a long option and the `--opt=value`
+# spelling; cat-file has no `--text`, so `--t`..`--text` there are textconv, and
+# git before cat-file grew `--filter` read `--filter` as `--filters`.
+for c in 'git cat-file --t HEAD:f' 'git cat-file --te HEAD:f' 'git cat-file --tex HEAD:f' \
+  'git cat-file --text HEAD:f' "git cat-file '--te' HEAD:f" 'git cat-file --textconv=1 HEAD:f' \
+  'git cat-file --f HEAD:f' 'git cat-file --fil HEAD:f' 'git cat-file --filt HEAD:f' \
+  'git cat-file --filter HEAD:f' 'git cat-file --filter=blob:none --batch-all-objects' \
+  'git cat-file --filters=1 HEAD:f' 'git cat-file --batch --filt' \
+  'git grep --textc -e foo' 'git grep --textconv=1 -e foo' 'git blame --textco f' \
+  'git diff --ext HEAD' 'git diff --ext-diff=1 HEAD' 'git show --ext-d HEAD' 'git log --e -p' \
+  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff' \
+  'git cat-file --ext HEAD:f' 'git cat-file --e HEAD:f' 'git log --te -p' 'git log --f' 'git diff --fi HEAD'; do
+  assert_defer "driver option near-spelling: $c" "$c"
+done
+for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-diff' 'git diff --no-textconv' \
+  'git rev-list --filter=blob:none HEAD' 'git log --tags --first-parent' 'git describe --tags' \
+  'git ls-files --full-name' 'git log --follow -- f' 'git log --format=%h -3'; do
+  assert_allow "not a driver option: $c" "$c"
+done
 # GNU sed 'e' substitution flag executes the pattern space (no trailing space).
 assert_defer "sed s///e exec no-space" "sed 's/.*/id/e'"
 assert_defer "sed s///e exec with file" "sed 's/.*/whoami/e' scripts/ok.sh"
@@ -425,8 +453,9 @@ assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
 assert_defer "mawk spelling is not allowlisted" "mawk '{print}' file"
 
 # The new screens must hold through every path that reaches them, not just the
-# bare-verb one: the `fish -c` recursor, sed's `-e` / `--expression=` value
-# positions, and inert value positions the screens must NOT read as program text.
+# bare-verb one: the `fish -c` recursor, sed's `-e`, `--expression` and
+# `--expression=` value positions, and inert value positions the screens must
+# NOT read as program text.
 assert_allow "awk via the fish recursor" "fish -c 'awk \"{print 1}\" f'"
 assert_defer "awk system() via the fish recursor" "fish -c 'awk \"BEGIN{system(1)}\" f'"
 assert_defer "awk output redirection via the fish recursor" "fish -c 'awk \"{print > 1}\" f'"
@@ -434,6 +463,14 @@ assert_allow "sed bracket via --expression=" "sed --expression='s/[0-9]//' f"
 assert_defer "sed w flag via --expression=" "sed --expression='s/[0-9]/x/w out' f"
 assert_allow "sed bracket via -e value" "sed -e 's/[0-9]//' -e 's/[a-z]//' f"
 assert_defer "sed w command via the second -e value" "sed -e 's/[0-9]//' -e 'w out' f"
+assert_allow "sed bracket via --expression value" "sed --expression 's/[0-9]//' f"
+assert_defer "sed w flag via --expression value" "sed --expression 's/[0-9]/x/w out' f"
+assert_defer "sed W command via --expression value" "sed --expression '1W out' f"
+assert_defer "sed r command via --expression value" "sed --expression '1r /etc/passwd' f"
+assert_defer "sed e command via --expression value" "sed --expression 1e f"
+assert_defer "sed w command via --expression after -e" "sed -e p --expression 'w out' f"
+assert_defer "sed --expression with no value" "sed f --expression"
+assert_defer "sed brace via --expression value" "sed --expression 1{p} f"
 # A `>` inside an INERT value (a -v assignment, a -F separator) is not program
 # text and must not be screened as redirection; the program is what gets screened.
 assert_allow "awk -v value containing > is inert data" "awk -v x='> f' '{print x}' file"

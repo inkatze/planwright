@@ -21,13 +21,17 @@
 #   10. The report names an installed worker root, its version, and any skew,
 #       with escape text in a version kept inert; CRLF grounds are one line.
 #   11. A dispatch from a linked worktree reads the primary's config and
-#       places the flight beside the primary.
+#       places the flight beside the primary. A flight branch checked out in
+#       the primary holds no slot and keeps its brief; a newline in a
+#       worktree path forges no live flight.
 #   12. A spec root outside the checkout refuses a file home before anything
 #       is minted or placed.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/flight-dispatch-fixture.sh
 . "$here/lib/flight-dispatch-fixture.sh"
 
@@ -351,14 +355,22 @@ done
 rm -rf "$c/primary/.claude/worktrees/flight-$fb"
 age "$c/fleet/flights/$fb"
 chmod 500 "$c/fleet/attention"
-run retire --repo-root "$c/primary"
-chmod 700 "$c/fleet/attention"
-if [ "$RC" -eq 0 ] || ! printf '%s\n' "$ERR" | grep -q "could not clear the attention row"; then
-  fail "a lifecycle row retire could not clear must fail the retire, not pass silently (rc $RC: $ERR)"
+denied=0
+if hermetic_access_denied w "$c/fleet/attention"; then
+  denied=1
+  run retire --repo-root "$c/primary"
+else
+  echo "skip: retire whose row clear fails: the running user still writes $c/fleet/attention under mode 500"
 fi
-# The brief stays until its row is cleared, so the next retire retries it.
-[ -f "$c/fleet/flights/$fb/brief.md" ] || fail "a retire whose row clear failed must keep the brief for the next retire"
-printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" && fail "a retire whose row clear failed must not report the flight retired (out: $OUT)"
+chmod 700 "$c/fleet/attention"
+if [ "$denied" = 1 ]; then
+  if [ "$RC" -eq 0 ] || ! printf '%s\n' "$ERR" | grep -q "could not clear the attention row"; then
+    fail "a lifecycle row retire could not clear must fail the retire, not pass silently (rc $RC: $ERR)"
+  fi
+  # The brief stays until its row is cleared, so the next retire retries it.
+  [ -f "$c/fleet/flights/$fb/brief.md" ] || fail "a retire whose row clear failed must keep the brief for the next retire"
+  printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" && fail "a retire whose row clear failed must not report the flight retired (out: $OUT)"
+fi
 run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "the retry retire exited $RC: $ERR"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "retire must retire a prunable flight (out: $OUT)"
@@ -490,14 +502,22 @@ case $ERR in *"newline"*) ;; *) fail "the newline refusal must say why: $ERR" ;;
 rmdir "$c/fleet/flights/x
 $fr"
 chmod 300 "$c/fleet/flights"
-run retire --repo-root "$c/primary"
-[ "$RC" -eq 4 ] || fail "retire must fail when the flights directory cannot be listed (rc $RC)"
-case $ERR in *"cannot list"*) ;; *) fail "the unlistable flights refusal must say why: $ERR" ;; esac
+if hermetic_access_denied r "$c/fleet/flights"; then
+  run retire --repo-root "$c/primary"
+  [ "$RC" -eq 4 ] || fail "retire must fail when the flights directory cannot be listed (rc $RC)"
+  case $ERR in *"cannot list"*) ;; *) fail "the unlistable flights refusal must say why: $ERR" ;; esac
+else
+  echo "skip: unlistable flights directory: the running user still reads $c/fleet/flights under mode 300"
+fi
 chmod 700 "$c/fleet/flights"
 chmod 500 "$c/fleet/flights/$fr"
-run retire --repo-root "$c/primary"
-[ "$RC" -eq 4 ] || fail "retire must fail when a retired brief cannot be removed (rc $RC)"
-case $ERR in *"could not remove"*"$fr"*) ;; *) fail "a failed removal must be named: $ERR" ;; esac
+if hermetic_access_denied w "$c/fleet/flights/$fr"; then
+  run retire --repo-root "$c/primary"
+  [ "$RC" -eq 4 ] || fail "retire must fail when a retired brief cannot be removed (rc $RC)"
+  case $ERR in *"could not remove"*"$fr"*) ;; *) fail "a failed removal must be named: $ERR" ;; esac
+else
+  echo "skip: unremovable retired brief: the running user still writes $c/fleet/flights/$fr under mode 500"
+fi
 chmod 700 "$c/fleet/flights/$fr"
 age "$c/fleet/flights/$fr"
 run retire --repo-root "$c/primary"
@@ -560,6 +580,39 @@ primary_phys=$(cd "$c/primary" && pwd -P)
 [ "$(field "$OUT" worktree)" = "$primary_phys/.claude/worktrees/flight-$wfid" ] \
   || fail "a worktree dispatch placed the flight at '$(field "$OUT" worktree)', not under the primary"
 echo "ok: a flight dispatched from a linked worktree reads the primary's config and lands beside it"
+
+# --- 11b. the primary checkout is no flight; worktree lists are NUL-safe ------
+# A flight branch checked out in the primary checkout holds no slot and its
+# brief is not retired, and a worktree path carrying a newline cannot forge a
+# `worktree` line that counts as a live flight.
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"
+gitc "$c/primary" checkout -q -b planwright/flight/pri-0123abcd
+primary_phys=$(cd "$c/primary" && pwd -P)
+mkdir -p "$c/fleet/flights/pri-0123abcd"
+printf '%s\n' "$primary_phys" >"$c/fleet/flights/pri-0123abcd/checkout"
+age "$c/fleet/flights/pri-0123abcd"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "REQ-E1.2: retire exited $RC: $ERR"
+[ -d "$c/fleet/flights/pri-0123abcd" ] \
+  || fail "REQ-E1.2: retire removed the brief of a flight branch checked out in the primary checkout"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "REQ-E1.2: a flight branch in the primary checkout held a slot (rc $RC: $OUT $ERR)"
+gitc "$c/primary" checkout -q main
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"
+nlpath="$c/primary/.claude/worktrees/a
+worktree $c/forged/.claude/worktrees/flight-forged-0123abcd
+b"
+gitc "$c/primary" worktree add -q --detach "$nlpath"
+dispatch_print
+# Only a git with `worktree list -z` (2.36 and later) can resist the forgery.
+if git -C "$c/primary" worktree list --porcelain -z >/dev/null 2>&1; then
+  [ "$RC" -eq 0 ] || fail "REQ-E1.2: a newline in a worktree path forged a live flight (rc $RC: $OUT $ERR)"
+fi
+echo "ok: the primary checkout holds no flight slot and keeps its brief; a newline path forges nothing"
 
 # --- 12. a spec root outside the checkout --------------------------------------
 # A file-home record is committed on the flight's branch, so it cannot live in

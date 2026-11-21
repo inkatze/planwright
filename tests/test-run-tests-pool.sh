@@ -8,6 +8,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$REPO_ROOT/tests/lib/poll-until.sh"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"
@@ -293,19 +295,19 @@ if [ "$n" -eq 1 ]; then pass "a lock-library error warns once"; else fail "a loc
 assert_contains "the lock-library warning names the cause" "not a lock symlink" "$out"
 assert_contains "the lock-library warning counts the unpooled files" "3 file(s) ran unpooled" "$out"
 
-if [ "$(id -u)" -eq 0 ]; then
-  pass "unwritable-pool case skipped (running as root)"
-else
-  mkdir -p "$tmp/ro-pool"
-  chmod 500 "$tmp/ro-pool"
+mkdir -p "$tmp/ro-pool"
+chmod 500 "$tmp/ro-pool"
+if hermetic_access_denied w "$tmp/ro-pool"; then
   out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/ro-pool" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
   assert_exit "an unwritable pool still passes" 0 $?
   n="$(count_lines 'WARNING test pool' "$out")"
   if [ "$n" -eq 1 ]; then pass "an unwritable pool warns once"; else fail "an unwritable pool warned $n times: $out"; fi
   assert_contains "the unwritable warning names the cause" "not writable" "$out"
   assert_contains "the unwritable run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
-  chmod 700 "$tmp/ro-pool"
+else
+  echo "skip: unwritable pool: the running user still writes $tmp/ro-pool under mode 500"
 fi
+chmod 700 "$tmp/ro-pool"
 
 # ---------------------------------------------------------------------------
 # 7. Waiting is not test time: a file that waits on a held ticket reports the
@@ -329,8 +331,13 @@ assert_contains "the report is version 2" "planwright-test-timing	2	" "$(head -n
 exec_t="$(awk -F'\t' '$1 == "file" && $2 == "test-quick.sh" { print $3 }' "$rep")"
 wait_t="$(awk -F'\t' '$1 == "file" && $2 == "test-quick.sh" { print $4 }' "$rep")"
 if awk -v w="$wait_t" 'BEGIN { exit !(w != "" && w >= 1.0) }'; then pass "the wait field records the wait ($wait_t)"; else fail "the wait field did not record the wait: '$wait_t'"; fi
-if awk -v e="$exec_t" 'BEGIN { exit !(e != "" && e < 1.0) }'; then pass "the execution time excludes the wait ($exec_t)"; else fail "the execution time includes the wait: '$exec_t'"; fi
-printf -- '---\nper_file_seconds: 1\nsuite_mean_file_seconds: 600\nshard_wall_seconds: 600\n' >"$tmp/budget.yml"
+# Relative to the wait: a run that counted the wait would read at least as long
+# as it, while a busy machine can stretch an empty file's own run past any
+# fixed bound (python3's clock probe alone starts slowly under load).
+if awk -v e="$exec_t" -v w="$wait_t" 'BEGIN { exit !(e != "" && e < w) }'; then pass "the execution time excludes the wait ($exec_t)"; else fail "the execution time includes the wait: '$exec_t'"; fi
+# One millisecond under the wait: the wait would break this budget, the execution time cannot.
+cap="$(awk -v w="$wait_t" 'BEGIN { c = w - 0.001; printf "%.3f", (c > 0.001 ? c : 0.001) }')"
+printf -- '---\nper_file_seconds: %s\nsuite_mean_file_seconds: 600\nshard_wall_seconds: 600\n' "$cap" >"$tmp/budget.yml"
 printf -- 'shard_target_seconds: 300\nshard_count_max: 4\nuntimed_warn_percent: 5\n' >>"$tmp/budget.yml"
 out="$(/bin/bash "$REPO_ROOT/scripts/check-test-time.sh" --mode ci --suite "$tmp/quick" \
   --report "$rep" --budget "$tmp/budget.yml" 2>&1)"

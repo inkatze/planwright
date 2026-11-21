@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -9,6 +9,10 @@ Tasks in dependency order, which is presentation; the `Dependencies:` lines
 carry the graph. Tasks 6, 12 and 14 are routed work (amendments to owner
 bundles, and pending notes for follow-on bundles) and depend on nothing
 here, so they can run first.
+
+Task 31 was delivered by PR #851, squash-merged without a
+`Planwright-Task:` trailer; the commit adding this paragraph carries the
+trailer so the status render counts the task complete.
 
 ## Tasks
 
@@ -1435,6 +1439,10 @@ fixed-string check.)*
 
 - **Task 30** — superseded by Task 33 (2026-11-07): an attended session
   hands over beside itself rather than compacting (D-43, REQ-L1.9).
+- **Task 51** — carried by control-plane Tasks 5.1 to 5.3 (2026-11-20):
+  control-plane's request ledger builds the intake rows, the turn-end check
+  and the handover self-check, holding a turn's first stop once
+  (control-plane D-22, D-25; REQ-F1.26 supersedes REQ-F1.19).
 
 - The review desk, spec currency, the environment broker, the night shift
   and the state-source adapters as duties in this bundle: follow-on bundles

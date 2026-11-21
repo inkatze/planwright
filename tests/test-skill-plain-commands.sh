@@ -18,6 +18,8 @@
 #     its rules (no cd, no assignments, no chains, no display pipes, exit
 #     status from the call's own result);
 #   - each of the four skills states it and points at that doctrine doc;
+#   - /self-review's fan-out bullet has each lens brief carry the command
+#     shape to its sub-agent;
 #   - no inline code span or fenced line in the four skills, or in
 #     doctrine/orchestration-modes.md (the meta step's command shapes), opens
 #     with a command and carries a compound marker: `$(`, `&&`, `||`, `; `,
@@ -89,7 +91,8 @@ else
     'No chains' \
     'No display pipes' \
     'Exit status from the result' \
-    'exactly as the resolver prints it'; do
+    'exactly as the resolver prints it' \
+    'get these rules through its lens brief'; do
     if printf '%s' "$flat" | grep -qF "$phrase"; then
       ok "doctrine doc states: $phrase"
     else
@@ -117,6 +120,44 @@ for name in orchestrate execute-task polish self-review; do
     fail "$name: compound command shape(s): $hits"
   fi
 done
+
+# A lens sub-agent loads none of the skill's doctrine, so /self-review's lens
+# brief has to carry the command shape itself. The bullet is read alone, with
+# whitespace runs collapsed so a reflow of its lines cannot split a phrase.
+sr="$REPO_ROOT/skills/self-review/SKILL.md"
+fanout=''
+[ -f "$sr" ] && fanout="$(awk '
+  /^## / { ind = ($0 == "## Discovery"); inb = 0; next }
+  ind && /^- \*\*Fan out by default\.\*\*/ { inb = 1; print; next }
+  inb && /^  / { print; next }
+  { inb = 0 }' "$sr" | tr -s '[:space:]' ' ')"
+if [ -z "$fanout" ]; then
+  fail "self-review: no Fan out by default bullet under ## Discovery"
+else
+  # Backticks below are literal markdown.
+  # shellcheck disable=SC2016
+  for phrase in \
+    'the brief carries the command shape' \
+    'file-reading tool' \
+    'searched with the search tool' \
+    'one plain `grep` where the session has none' \
+    'one plain command per Bash call' \
+    'no `cd`' \
+    'starts in the worktree' \
+    'no chains, pipes, assignments or substitutions' \
+    'one POSIX sh script' \
+    '`mktemp -d` directory and run as `sh <path>`' \
+    'the one shape that still waits on a prompt' \
+    'resolved literal path of `compute-route.sh -- <command>`' \
+    'output taken as given' \
+    'never re-running the project'"'"'s suites'; do
+    if printf '%s' "$fanout" | grep -qF "$phrase"; then
+      ok "self-review lens brief states: $phrase"
+    else
+      fail "self-review lens brief missing: $phrase"
+    fi
+  done
+fi
 
 modes="$REPO_ROOT/doctrine/orchestration-modes.md"
 if [ ! -f "$modes" ]; then

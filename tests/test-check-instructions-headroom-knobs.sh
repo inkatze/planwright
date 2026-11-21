@@ -20,6 +20,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 CHECKER="$REPO_ROOT/scripts/check-instructions.sh"
 
 failures=0
@@ -305,10 +307,14 @@ t15u="$tmproot/t15u"
 scaffold "$t15u"
 make_skill "$t15u" small 100
 chmod 000 "$t15u/config/defaults.yml"
-out="$(/bin/bash "$CHECKER" --root "$t15u" 2>&1)"
-rc=$?
+if hermetic_access_denied r "$t15u/config/defaults.yml"; then
+  out="$(/bin/bash "$CHECKER" --root "$t15u" 2>&1)"
+  rc=$?
+  assert_exit "an unreadable core-defaults file is fail-closed" 1 "$rc"
+else
+  echo "skip: unreadable core-defaults file: the running user still reads $t15u/config/defaults.yml under mode 000"
+fi
 chmod 644 "$t15u/config/defaults.yml" # restore so the trap's rm can clean up
-assert_exit "an unreadable core-defaults file is fail-closed" 1 "$rc"
 
 # 15v. the floor KNOB VALUE (not a hardcoded constant) drives the comparison: a
 #      below-target that fires at the default floor disappears when the floor is

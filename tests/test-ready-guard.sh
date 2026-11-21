@@ -35,6 +35,8 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 HOOK="$REPO_ROOT/scripts/ready-guard.sh"
 HOOKS_JSON="$REPO_ROOT/hooks/hooks.json"
 
@@ -1020,6 +1022,12 @@ run_checks "checks (default): a skipped macOS job (a draft run) is not a pass" d
 # shellcheck disable=SC2016 # the matrix expression is the literal check name
 run_checks "checks (default): a stale skipped macOS shard beside green shards of the same job passes" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-suite (shard 1/4)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:10:00Z"}'
+run_checks "checks (default): a macOS skip after a pass of the same job at the head passes" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:30:00Z"}'
+run_checks "checks (default): a macOS skip after a failure of the same job at the head denies" deny \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:30:00Z"}' 'macos-smoke is FAILURE'
+run_checks "checks (default): a macOS pass after a skip of the same job passes" defer \
+  '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"},{"name":"macos-smoke","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}'
 run_checks "checks (default): a skipped non-macOS job still passes" defer \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:00:00Z"},{"name":"docs","workflowName":"ci","status":"COMPLETED","conclusion":"SKIPPED","startedAt":"2026-11-05T19:00:00Z"}'
 run_checks "checks (default): a queued re-run, its start the zero time gh reports, is the latest" deny \
@@ -1116,11 +1124,53 @@ reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42')"
 assert_defer "checks (default): a current PR defers as before"
-if grep -q 'statusCheckRollup' "$STATE/argv.log"; then
-  fail "checks (default): a current PR paid for a check read"
-else
-  pass "checks (default): a current PR makes no check read"
-fi
+
+# A current PR still waits for its checks: a check queued or running on the
+# head, a macOS shard included, refuses the flip and is named. Everything
+# finished (green, or red apart from a base-state check) passes this guard.
+current_checks() { # current_checks <rollup entries JSON>: a check read for the current head
+  printf '{"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","statusCheckRollup":[%s]}' "$1"
+}
+GREEN_RUN='{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-13T10:00:00Z"}'
+MAC_QUEUED='{"__typename":"CheckRun","name":"macos-suite (shard 2/4)","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z"}'
+CTX_PENDING='{"__typename":"StatusContext","context":"ci/external","state":"PENDING"}'
+WINDOW_RED='{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-13T10:00:00Z"}'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,$MAC_QUEUED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "pending: a current PR with a queued macOS shard denies, naming it" 'macos-suite .shard 2/4.'
+assert_reason_lacks "pending: the denial does not blame base currency" 'behind'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,$CTX_PENDING")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "pending: a pending status context denies, naming it" 'ci/external'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,$WINDOW_RED")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "pending: a finished red check is not this guard's to hold"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN,${WINDOW_RED/COMPLETED/QUEUED}")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "pending: a window-lock still running is no base-state exception" 'window-lock'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+STUB_CHECKS_JSON=$(current_checks "$GREEN_RUN")
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "pending: a current PR with every check finished defers"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0 STUB_CHECKS_RC=1
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "pending: an unreadable check list denies (fail closed)" 'could not be read'
 
 reset_stub_env
 knob_adopter checks
@@ -1280,23 +1330,22 @@ run_stubbed_resolver "the guard drops the repo-side layers before calling the re
   deny 'if [ "${PLANWRIGHT_REPO_ROOT-}" = none ] && [ -z "${PLANWRIGHT_LOCAL_CONFIG-}" ]; then echo refuse; else echo conflict-only; fi'
 
 # An unreadable resolver applies refuse: the same stub the positive control
-# shows relaxing when readable. Root reads a mode-000 file, so the case
-# cannot be staged there.
-if [ "$(id -u)" != 0 ]; then
-  printf '%s\n' "printf 'conflict-only\n'" >"$STUBBED/resolve-policy-knob.sh"
-  chmod 000 "$STUBBED/resolve-policy-knob.sh"
+# shows relaxing when readable.
+printf '%s\n' "printf 'conflict-only\n'" >"$STUBBED/resolve-policy-knob.sh"
+chmod 000 "$STUBBED/resolve-policy-knob.sh"
+if hermetic_access_denied r "$STUBBED/resolve-policy-knob.sh"; then
   reset_stub_env
   STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=7 STUB_CHECKS_JSON=$CHECKS_GREEN
   SAVED_HOOK=$HOOK
   HOOK="$STUBBED/ready-guard.sh"
   run_hook "$(bash_payload 'gh pr ready 42')"
   HOOK=$SAVED_HOOK
-  chmod 644 "$STUBBED/resolve-policy-knob.sh"
   assert_deny_because "an unreadable resolver beside the guard applies refuse" '7 commit'
   assert_no_sentinels "an unreadable resolver beside the guard: no git/curl/wget/claude ran"
 else
-  echo "skip: the unreadable-resolver case needs a non-root user"
+  echo "skip: unreadable resolver: the running user still reads $STUBBED/resolve-policy-knob.sh under mode 000"
 fi
+chmod 644 "$STUBBED/resolve-policy-knob.sh"
 
 # The knob is read only for a behind PR: a marker-writing stub resolver leaves
 # no marker for a current PR and leaves one for a behind PR.

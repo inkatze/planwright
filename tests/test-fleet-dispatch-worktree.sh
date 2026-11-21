@@ -65,6 +65,8 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 PRIM="$here/../scripts/fleet-dispatch-worktree.sh"
 SETTINGS="$here/../config/tower-settings.json"
 TOWER_HOOK="$here/../scripts/tower-command-guard.sh"
@@ -1386,13 +1388,13 @@ c32() {
   # Only meaningful where the mode change really blocks entry (not as root,
   # nor under a namespace that can still traverse it).
   chmod 000 "$_shared"
-  if (cd "$_shared") 2>/dev/null; then
-    chmod 755 "$_shared"
-    echo "skip: c32 unreadable-shared-home case (this user can still enter a mode-000 dir)"
-  else
+  if hermetic_access_denied r "$_shared"; then
     run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
     chmod 755 "$_shared"
     [ "$RC" -eq 3 ] || fail "c32: an unreadable shared home must read as in-flight (exit 3), got $RC"
+  else
+    chmod 755 "$_shared"
+    echo "skip: c32 unreadable-shared-home case: the running user still reads $_shared under mode 000"
   fi
   # The dispatching checkout's own markers keep their old symlink tolerance:
   # a dangling one holds nothing, one to a fresh marker holds the unit.
@@ -1590,7 +1592,30 @@ EOF
   esac
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34 c35; do
+# c36 — a tower running in a linked worktree dispatches a unit worktree under
+# the PRIMARY checkout's .claude/worktrees, never nested under its own tree
+# (tower-placement REQ-E1.1).
+c36() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c36.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  gitc "$tmp/primary" worktree add -q -b tower-branch "$tmp/tower-tree" 2>/dev/null \
+    || fail "c36: fixture: could not add the tower's linked worktree"
+  OUT=$(cd "$tmp/tower-tree" && "$PRIM" dispatch demo 60 --no-attach </dev/null 2>/dev/null)
+  RC=$?
+  [ "$RC" -eq 0 ] || {
+    fail "c36: a dispatch from a linked-worktree tower exited $RC"
+    return
+  }
+  _phys=$(cd "$tmp/primary" && pwd -P)
+  [ "$(dfield "$OUT" worktree)" = "$_phys/.claude/worktrees/demo-task-60" ] \
+    || fail "c36: the unit worktree is at '$(dfield "$OUT" worktree)', not under the primary"
+  [ ! -e "$tmp/tower-tree/.claude/worktrees" ] \
+    || fail "c36: a worktree was nested under the tower's own tree"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31 c32 c33 c34 c35 c36; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

@@ -1,11 +1,15 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { boot, PANE, ran, world } from './fixture'
+import { boot, digestText, PANE, ran, world } from './fixture'
 
 const tab = (...f: string[]) => f.join('\t')
 const ROOT_66 = '/plugins/cache/planwright/planwright/0.66.0'
 const toasted = (toasts: string[]) => toasts.filter(t => /planwright/.test(t))
+// The mascot off, for the tests that run the clock for minutes: a moving one
+// repaints every half second, which is most of their run time and none of
+// their subject.
+const MASCOT_OFF = digestText({ extra: ['knob\tmascot\t0'] })
 
 const faultOf = async ($: Engine) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -17,7 +21,7 @@ const faultOf = async ($: Engine) => {
 // A session that outlives an upgrade must learn of it: the copy it runs is
 // checked against the program's record at every start and reload.
 test('every start and reload checks the planwright copy against the record', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { digest: MASCOT_OFF })
   await boot($, w)
   expect(ran(w, 'mc-panel.sh', 'install')).toHaveLength(1)
   expect(ran(w, 'mc-panel.sh', 'install')[0]?.slice(3)).toEqual(['--program', 'alpha'])
@@ -71,7 +75,7 @@ test('a malformed answer is a fault, never a reading', async ($, on) => {
 })
 
 test('a failed check names the fault and is tried again a minute later, until it lands', async ($, on) => {
-  const w = world(on, { installExit: 1 })
+  const w = world(on, { installExit: 1, digest: MASCOT_OFF })
   await boot($, w)
   expect(await faultOf($)).toMatch(/planwright version could not be checked: store unreadable/)
   w.set({ installExit: 0 })

@@ -77,6 +77,9 @@ assert_allow "F1.4: a read through \$TMPDIR" "grep -n x \$TMPDIR/f.orig" Bash "$
 assert_allow "F1.4: from a payload directory outside the worktree" "touch $SC/y" Bash "$OUT_DIR"
 assert_allow "F1.4: a write, then a read of it" "grep -n x f > \$TMPDIR/o && wc -l \$TMPDIR/o" Bash "$WT"
 assert_allow "F1.4: a redirect through a tracked variable" "d=$SC && echo x > \$d/o" Bash "$WT"
+assert_allow "F1.4: rm -r through a tracked variable" "D=$SC && rm -r \$D/work" Bash "$WT"
+assert_allow "F1.4: a background job on an earlier line leaves a later assignment tracked" "true &"$'\n'"D=$SC; rm -r \$D/work" Bash "$WT"
+assert_allow "F1.4: a backgrounded list reads its own assignment" "D=$SC && rm -r \$D/work &" Bash "$WT"
 
 echo "### REQ-F1.4 — what the arm still defers"
 assert_defer "F1.4: a write to /tmp outside the root" "mkdir -p /tmp/other" Bash "$WT"
@@ -122,6 +125,18 @@ assert_defer "F1.4: sed -i is not a scratch writer" "sed -i s/a/b/ \$TMPDIR/f.or
 assert_defer "F1.4: a redirect on an assignment takes the new value" "X=$SC/ok; X=$OUT_DIR/x >\$X" Bash "$WT"
 assert_defer "F1.4: a tracked variable naming outside the root" "d=/tmp && echo x > \$d/o" Bash "$WT"
 assert_defer "F1.4: a tracked value holding a space stays unresolved" "d='$SC/a b' && echo x > \$d" Bash "$WT"
+# A trailing `&` runs the whole and-or list in a background subshell, so an
+# assignment anywhere in that list never reaches the commands after it and
+# `$D/work` is `/work` there.
+assert_defer "F1.4: an assignment in a list a later & backgrounds" "D=$SC && true & rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor through ||" "D=$SC || true & rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor when the backgrounded tail is a pipeline" "D=$SC && true | cat & rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor when it is a loop" "D=$SC && for x in a; do true; done & rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor across a newline" "D=$SC && true &"$'\n'"rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor with the list continued past a newline" "D=$SC &&"$'\n'"true & rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor past a blank line" "D=$SC ||"$'\n\n'"true & rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor with a pipeline continued past a newline" "D=$SC && true |"$'\n'"cat & rm -r \$D/work" Bash "$WT"
+assert_defer "F1.4: nor a reassignment, which leaves the earlier value" "D=$OUT_DIR; D=$SC && true & rm -r \$D/work" Bash "$WT"
 assert_defer "F1.4: no .git under the root" "mkdir -p \$TMPDIR/r/.git" Bash "$WT"
 assert_defer "F1.4: no mise config under the root" "echo x > \$TMPDIR/mise.toml" Bash "$WT"
 assert_defer "F1.4: no lefthook config under the root" "touch \$TMPDIR/r/lefthook.yml" Bash "$WT"
@@ -176,9 +191,10 @@ under "$(record_with nowt-sc scratch worktree_root=)"
 assert_allow "B1.8: no worktree root leaves the scratch arm working" "touch $SC/x" Bash "$WT"
 under "$(record_with nounit-sc scratch unit_branch=)"
 assert_allow "B1.8: no unit branch leaves the scratch arm working" "mkdir -p \$TMPDIR/u" Bash "$WT"
-# Each bad root is also the hook's TMPDIR, so only the record's own check
-# can keep the arm off.
-under "$(record_with relsc scratch scratch_root=scratch)" scratch
+# Each bad root is also the hook's TMPDIR, so only the record's own check can
+# keep the arm off. The relative root pairs with a good absolute TMPDIR
+# instead, since a relative TMPDIR is refused on its own.
+under "$(record_with relsc scratch scratch_root=scratch)" "$SC"
 assert_defer "B1.8: a relative scratch root is dropped" "touch \$TMPDIR/x" Bash "$WT"
 assert_defer "B1.8: a relative scratch root approves no mktemp" "mktemp -d" Bash "$WT"
 under "$(record_with missc scratch "scratch_root=$CORPUS_BOX/missing")" "$CORPUS_BOX/missing"

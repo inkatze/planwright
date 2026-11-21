@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -368,6 +368,9 @@ rule, as it did before this extension.
 consulting the policy cannot be configured into approving it, and the
 existing deny-emitting layers stay authoritative. Cites the operator's
 live-run delegation (Sources), human-gates Task 10 (Sources).
+
+*(Narrowed in part by D-37 (2026-11-19): the own-unit push and body edit
+leave the floor.)*
 
 ### D-14: A launcher-created scratch root, writes only (N)
 
@@ -964,6 +967,74 @@ a general admission.
 **Chosen because:** a shape pins what may vary (a path, a word, an integer)
 and everything else stays literal, so a repository's runner needs no manual
 step and the approval stays as narrow as the declaration.
+
+### D-37: A worker's own push, PR body edit, and step-context export are pre-approved under every policy  (N, narrows D-13 in part)
+
+**Decision:** Two floor acts leave the floor for the session's own unit
+alone: a push of the recorded unit branch to `origin` with no flag, and a
+`--body-file` edit of the open, same-repository pull request whose head is
+that branch, confirmed by one time-boxed GitHub read. They and an export of
+the step-context names are approved under every policy value, outside every
+arm, only at the command's top level, after the `deny` block and the rest of
+the floor are read, and each approval is audited as `own-unit`. The match is
+by branch, so a relaunched worker on the same branch qualifies.
+
+**Alternatives considered:**
+- A new `own-unit` member of `worker_self_approval`, off by default.
+  Rejected because: planwright's own workers run the `scratch` value and would
+  keep prompting until a config change, and the profile's static rules
+  already let every worker run a standalone `git push origin …` and
+  `gh pr create`, which are wider than these shapes.
+- Put them in the `own-branch` arm. Rejected for the same reason.
+- Approve a body edit by its file's location alone. Rejected because: a
+  worker could then rewrite any pull request in the repository.
+- Admit `-u` beside the plain push. Rejected because: the standalone
+  `git push -u origin` spelling already runs under the static rule
+  (REQ-G1.6), and a narrower guard shape keeps the second refusal D-13 wants
+  for every other spelling.
+
+**Chosen because:** workers waited hours on these prompts with no session to
+answer them; the shapes are narrower than what the static profile already
+admits, the protected-branch and rewrite floors stay with the `deny` block
+and `policy-guard.sh`, and the GitHub read is the only trustworthy source
+for whether a pull request number is the unit's own, since it is known only
+after launch. Cites the operator's kickoff answers (2026-11-19).
+
+**Trust inputs.** The GitHub read is the one live input beside the session
+record (D-23); it can only narrow an approval, and it fails closed. Accepted
+residual: the body file is checked when the hook runs and read later by
+`gh`, so a worker could swap it in between, even for a symlink to another
+readable file, and publish that file's content in its pull request body.
+That opens no new route: the `Read` and `Write` tools already let a worker
+copy any file it can read into its scratch root, which the check accepts.
+*(Extended by D-38 (2026-11-20): a commit or gate task may share the act's
+command.)*
+
+### D-38: An own-unit act may follow a commit or a gate task the guard approves alone  (N, extends D-37)
+
+**Decision:** The own-unit acts keep their shapes, but may now close an `&&`
+chain of chain partners: a `git add` or `git commit` the policy in force
+approves on its own, and the trusted repository tasks the guard approves
+under every policy. Partners come before the first act and are joined only
+by `&&`. File writes, spec-root writes and every other `git` act still keep
+the act's command prompting. Each partner is audited under its own arm.
+
+**Alternatives considered:**
+- Admit `git add` and `git commit` beside an act under every policy.
+  Rejected because: a command would become guard-approved only because it
+  sits in a chain; under the shipped default those acts prompt alone.
+- Gate tasks only, no `git add` or `git commit`. Rejected because:
+  commit-then-push is the commonest waiting shape and the operator asked for
+  it.
+- Admit `;` between a partner and the act. Rejected because: the push would
+  run after a failed gate or commit.
+
+**Chosen because:** workers combine commit-then-push and gate-then-push in
+one call, and each one waited on a prompt although every segment is
+approvable alone. Approving the chain adds no approvable shape, and `&&`
+keeps the push behind a passing gate. Cites the operator's kickoff answer
+(2026-11-20), and the mission-control report of the waiting shapes after
+Task 21's implementation.
 
 ## Cross-cutting concerns
 

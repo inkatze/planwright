@@ -136,11 +136,11 @@ while :; do sleep 0.05; done"
   [ "$(pgrep -P $$ -x -f "sleep $b" | wc -l | tr -d ' ')" -eq 0 ] \
     || fail "h1: a run that returned must not leave its timer running"
 
-  tlh_run_bounded tmux new-session -d -s quick -P -F "#{session_name}${TAB}#{window_id}" -c "$wt" -- sleep 30
+  tlh_run_bounded tmux new-session -d -s quick -P -F "#{window_id} #{session_name}" -c "$wt" -- sleep 30
   tlh_expect_returned "h1: a returning launch"
   [ "$TLH_RC" -eq 0 ] || fail "h1: a returning launch must keep its own status, got $TLH_RC: $TLH_ERR"
   case $TLH_OUT in
-    "quick${TAB}@"[0-9]*) ;;
+    "@"[0-9]*" quick") ;;
     *) fail "h1: -P -F must print the session name and window id, got: $TLH_OUT" ;;
   esac
   tlh_run_bounded tmux has-session -t =nosuch

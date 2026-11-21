@@ -25,6 +25,19 @@ done
 # shellcheck source=scripts/spec-parse.sh
 . "$script_dir/spec-parse.sh" || exit 2
 
+# The sign-off read enters the program's repository with its scratch paths in
+# hand, so a TMPDIR relative to the caller's directory would point elsewhere.
+case ${TMPDIR:-} in
+  '' | /*) ;;
+  *)
+    if abs_tmp=$(cd -P -- "$TMPDIR" 2>/dev/null && pwd -P); then
+      TMPDIR=$abs_tmp
+      export TMPDIR
+    fi
+    ;;
+esac
+mc_usable_tmpdir
+
 help_text() {
   cat <<'HELP'
 mc-readiness.sh — the readiness-check duty: walk the primary evidence at a
@@ -45,10 +58,25 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       not a check ready_base_state_checks
                                       names (it describes the base);
                                       SUCCESS, NEUTRAL and SKIPPED pass
+  bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
+                                      latest finished run did not pass: no
+                                      condition, but named by a ready or
+                                      flip-for-review walk as the check
+                                      the operator bypasses at merge
   require<TAB>macos                   the repository's CI has macOS jobs, which
                                       run only on a ready or ci-macos
                                       labelled pull request; both must be
                                       SUCCESS, a skip or absence is unmet
+  require<TAB>pr-agent                the repository runs PR-Agent, the bot
+                                      review: once per pull request, on the
+                                      run the ready flip fires, and again
+                                      only when a review is requested
+  state<TAB>draft|ready               whether the pull request is a draft
+  flip<TAB><time>                     when the pull request was last marked
+                                      ready (its ready_for_review event)
+  born<TAB><name><TAB><time>          when the workflow run of a check was
+                                      created, which a queued check cannot
+                                      say itself
   thread<TAB><id><TAB>open|resolved   one per review thread
   finding<TAB><reviewer><TAB><id><TAB>answered|unanswered
                                       an automated reviewer's thread
@@ -59,12 +87,20 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       audit --through post-pr)
   cadence<TAB>gap<TAB><point><TAB><kind><TAB><detail>
                                       one per gap that audit printed
+                                      (kind unaudited: a record the step-record
+                                      truth check refuses; reads as not audited)
+  cadence<TAB>covered<TAB><point>     one per point it found complete
   cadence<TAB>unaudited<TAB><why>     the audit could not run
   scope<TAB>spec-only<TAB><head>      every changed path lies under the
                                       program's spec root
   signoff<TAB><bundle><TAB>signed|unsigned<TAB><detail>
-                                      a touched spec bundle's kickoff
+                                      an edited spec bundle's kickoff
                                       sign-off at the head
+  drift<TAB><path><TAB><spec>/<task>...
+                                      a changed file a spec lists as a task
+                                      deliverable that no spec edit, Not
+                                      covered reason or task trailer covers
+  drift<TAB>*<TAB><reason>            the spec-drift check could not run
   evidence<TAB><kind><TAB><ref><TAB><head><TAB><judgment>
                                       smoke, walk or screenshot evidence;
                                       judgment ok, error or missing
@@ -86,9 +122,25 @@ THE WALK refuses, each failure one line:
     out of the evidence, so a pull request whose only check is that one
     has none), or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
+  - where PR-Agent is required, a ready pull request with no PR-Agent run at
+    its head (a draft is never asked for one, and a draft's PR-Agent check,
+    green, red or pending, is left out of the walk: the flip fires the run).
+    The run, like any check, must be green, and its findings answered; a code
+    change on a finding is a new head and needs one more run. A skipped run
+    (the skip-pr-agent label, a dependabot head) is the opt-out. The run must
+    be the one the flip fired: where the flip time is known, a PR-Agent run
+    created before the flip is not it (nor is one whose creation time is
+    unread), and a ready pull request with no run created at or after the flip
+    is refused until the flip's own run exists and finishes;
+  - a pending check on a ready pull request, told by its run's creation time:
+    created at or after the flip, it is the flip's own run and only has to
+    finish; created before the flip and still running at it, the flip came
+    too early (`fail flip`). A run whose creation time, or a flip time, is
+    unknown reads as plainly pending;
   - where macOS is required, a macos-suite or macos-smoke check that never
-    ran, was skipped (a draft head) or is not SUCCESS, named with the
-    ci-macos label that starts it, so the flip never rests on a draft run;
+    ran, was skipped with no run of it at that head (a draft head) or is
+    not SUCCESS, named with the ci-macos label that starts it, so the flip
+    never rests on a draft run;
   - an open thread, an unanswered finding, a failed guard, a truncated
     read;
   - any screenshot whose judgment is not ok, or recorded at another head;
@@ -97,8 +149,16 @@ THE WALK refuses, each failure one line:
   - a cadence not audited at the head, and each gap the audit named: the
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
-    for its sign-off instead of the cadence and the required steps;
-  - each touched spec bundle not signed off;
+    for its sign-off instead of the cadence and the required steps. The
+    exception is a post-pr gap (no completion, or a step never recorded) on a
+    draft where PR-Agent is required: that point waits on the bot review the
+    flip fires, so it is pending the flip, not a gap. When it is the only
+    thing the walk holds, the verdict is flip-for-review (below); with any
+    other refusal the verdict stays not-ready and names that refusal. On a
+    ready pull request the post-pr gap is a gap again;
+  - each edited spec bundle not signed off, on any pull request;
+  - each drift row: a changed deliverable no spec edit covers, or a drift
+    check that could not run (scripts/spec-drift-check.sh);
   - each required evidence kind (ready evidence) with no ok record at the
     head;
   - each required body text (ready body) absent from the body.
@@ -107,8 +167,17 @@ repo, labels and paths.
 
 Usage:
   mc-readiness.sh walk --evidence <file> (--program <p> | --conditions <file>)
-      ready<TAB><head>, or not-ready<TAB><head|-> then
-      fail<TAB><what><TAB><detail> per failure
+      ready<TAB><head> (then bypass<TAB><name><TAB><state> per check
+      the operator bypasses at merge), or not-ready<TAB><head|-> then
+      fail<TAB><what><TAB><detail> per failure, or, for a draft whose only
+      gap is the post-pr point that waits on the bot review the flip fires,
+      flip-for-review<TAB><head> then pending<TAB>post-pr<TAB><detail> (and
+      any bypass lines): flip the pull request to start the review, then wait
+      for the run it fires, answer its findings and record post-pr against it.
+      flip-for-review exits 4 like not-ready, so a caller that only checks
+      for exit 0 never reads it as merge-ready; a caller that parses the
+      first field names the flip. Once ready, the walk is ready only with the
+      flip's run finished and its findings answered
   mc-readiness.sh collect --program <p> --repo <owner/name> --pr <n>
                           [--worktree <dir>] --out <file>
       write the evidence at the pull request's current head: one gh read
@@ -124,13 +193,20 @@ Usage:
       directory under the root not opening with `_`, is signed off when,
       read from that repository's objects at the head with no fetch, its
       requirements.md status is Ready, Active or Done and its
-      kickoff-brief.md's latest anchor recomputes over the bundle; a pull
+      kickoff-brief.md's latest anchor recomputes over the bundle (a
+      requirements.md missing, unreadable or with no Status line, as a
+      legacy bundle has, is unsigned, each named apart with its path); a pull
       request touching only `_` accumulators or files directly under the
-      root has no bundle to sign off), the step
+      root has no bundle to sign off), for any other pull request the same
+      sign-off for each bundle it edits (one it removes aside) and the
+      spec-drift check (scripts/spec-drift-check.sh, from the base branch's
+      remote-tracking ref to the head, the body its statement), the step
       records of --worktree (scripts/step-record.sh list) and the cadence
       audit there, --worktree defaulting to the one worktree of the
       program's repositories that has the pull request's branch checked
-      out (neither read for a spec-only pull request), the recorded
+      out (neither read for a spec-only pull request; a worktree ahead of
+      the pull request's head is audited at that head, one behind or beside
+      it is unaudited), the recorded
       evidence for that head, and the ready-flip guard
       (scripts/ready-guard.sh, given the flip it would refuse) run from the
       program's first repository, then the head read once more, a head that
@@ -142,6 +218,15 @@ Usage:
       red<TAB><head>, then fail<TAB>check<TAB><name> is <state> and
       diagnose<TAB><name> per red check (exit 4). The ready flip never uses it:
       walk refuses a pending or red check
+  mc-readiness.sh unfinished --evidence <file>
+      the finished-checks verdict over a collected evidence file, for a pull
+      request already marked ready: finished<TAB><head> (exit 0) when no check
+      is queued, pending or in progress; otherwise unfinished<TAB><head>, then
+      fail<TAB>check<TAB><name> is <state> per unfinished check, saying a run
+      the flip itself started is that (exit 4); a run created before the flip
+      and still running at it is fail<TAB>flip<TAB>... a too-early flip. A
+      check that finished red is not unfinished here: a red window-lock is the
+      operator's to bypass
   mc-readiness.sh check --program <p> --repo <owner/name> --pr <n>
                         [--worktree <dir>]
       collect, then walk, printing the walk
@@ -168,14 +253,14 @@ Usage:
       characters, say) falls back to pr-<checksum>, the slug in the text.
 
 Exit codes: 0 ready, or done; 1 a failed read, store or event; 2 usage; 3
-the program is not configured; 4 not ready.
+the program is not configured; 4 not ready (flip-for-review included).
 
 Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
 HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-readiness.sh walk|not-red|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
+  mc_usage_fail "usage: mc-readiness.sh walk|not-red|unfinished|collect|check|record|watch ...; mc-readiness.sh --help for each verb"
 }
 
 case ${1:-} in
@@ -270,6 +355,65 @@ END {
 }' "$1"
 }
 
+# The awk both verdicts share. A check named PR-Agent is the bot review: it
+# runs on the flip, so a draft's run (or none) is no business of the flip, and
+# a ready pull request's pending run is told apart by when it was created. A
+# run created before the flip that was still running at it means the flip came
+# too early; one created at or after the flip is the flip's own and only has
+# to finish. Without a state, a flip time or a run's creation time, a pending
+# check reads as plainly pending.
+CHECK_FUNCS='
+function pass_check(s) { return s == "SUCCESS" || s == "NEUTRAL" || s == "SKIPPED" }
+function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
+function bot_check(n) { return n ~ /^PR-Agent( |$)/ }
+# stage(pending_only): from the collected check rows, count the checks that
+# count (nc), note a PR-Agent one (botseen) and queue each failing one, or each
+# pending one when pending_only, in ck[]. It runs once, at the END, so row
+# order in the evidence never matters.
+function stage(pending_only,    i) {
+  for (i = 1; i <= nraw; i++) {
+    if (state == "draft" && bot_check(rn[i])) continue
+    nc++
+    if (bot_check(rn[i])) botseen = 1
+    if (pending_only ? pending_check(rs[i]) : !pass_check(rs[i])) ck[++nck] = rn[i] "\t" rs[i]
+  }
+}
+function describe(n, s,    b) {
+  b = born[n]
+  if (pending_check(s) && state == "ready" && flip != "" && b != "") {
+    if (b >= flip) return "check\t" n " is " s " (run created " b ", after the flip at " flip ": the run the flip started, wait for it)"
+    return "flip\t" n " was still running at the flip (run created " b ", before the flip at " flip "): a too-early flip"
+  }
+  return "check\t" n " is " s
+}
+'
+# shellcheck disable=SC2016 # an awk program
+CHECK_ROWS='
+$1 == "state" { state = $2 }
+$1 == "flip" { flip = $2 }
+$1 == "born" { born[$2] = $3 }
+$1 == "check" { rn[++nraw] = $2; rs[nraw] = $3 }
+'
+
+# unfinished_awk <evidence>: the finished-checks verdict. Only a check still
+# queued, pending or running holds; one that finished red does not.
+unfinished_awk() {
+  awk -F '\t' "$CHECK_FUNCS$CHECK_ROWS"'
+FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit 4 } ; next }
+$1 == "head" { head = $2 }
+# The flip statuses are no check to wait for: drop the row CHECK_ROWS just kept.
+$1 == "check" && ($2 == "planwright/pre-ready-flip" || $2 == "planwright/pre-spec-ready-flip") { nraw-- }
+END {
+  stage(1)
+  if (badfmt) { print "unfinished\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
+  if (head == "") { print "unfinished\t-"; print "fail\thead\tno evidence at a head was collected"; exit 4 }
+  if (!nck) { print "finished\t" head; exit 0 }
+  print "unfinished\t" head
+  for (i = 1; i <= nck; i++) { split(ck[i], c, "\t"); print "fail\t" describe(c[1], c[2]) }
+  exit 4
+}' "$1"
+}
+
 # walk <evidence> <conditions>: the verdict; returns 4 when not ready, 1
 # when the walk itself fails.
 walk() {
@@ -282,16 +426,17 @@ walk() {
   return 1
 }
 walk_awk() {
-  awk -F '\t' '
+  awk -F '\t' "$CHECK_FUNCS"'
 function fail(what, detail) { fails[++nf] = "fail\t" what "\t" detail }
-function pass_check(s) { return s == "SUCCESS" || s == "NEUTRAL" || s == "SKIPPED" }
 FILENAME == ARGV[1] {
   if ($1 == "ready" && ($2 == "steps" || $2 == "evidence" || $2 == "body")) need[$2, ++nn[$2]] = $3
   next
 }
+'"$CHECK_ROWS"'
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit } ; next }
 $1 == "head" { head = $2 }
-$1 == "check" { nc++; if (!pass_check($3)) fail("check", $2 " is " $3) }
+$1 == "require" && $2 == "pr-agent" { needbot = 1 }
+$1 == "bypass" { byp[++nb] = $2 "\t" $3 }
 $1 == "check" && ($2 == "macos-suite" || $2 == "macos-smoke" || $2 ~ /^macos-(suite|smoke) /) {
   j = ($2 ~ /^macos-suite/) ? "macos-suite" : "macos-smoke"
   macn[j]++
@@ -310,18 +455,48 @@ $1 == "cadence" && $2 == "gap" {
   d = $5 " is " $4
   if ($4 == "incomplete") d = "no completion record"
   else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
+  else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
-  cad[++ncad] = $3 ": " d
+  else if ($4 == "fault") d = $5
+  if ($4 == "unaudited") { d = $5 " fails the step-record truth check (if only its start or end is wrong, step-record.sh supersede corrects it)"; cad[++ncad] = "not audited: " $3 ": " d; unaud = 1 }
+  else {
+    cad[++ncad] = $3 ": " d
+    # A post-pr step may wait on the bot review the ready flip fires.
+    if ($3 == "post-pr" && ($4 == "incomplete" || $4 == "missing")) cadpf[ncad] = d
+  }
 }
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
 $1 == "scope" && $2 == "spec-only" { speconly_head = $3 }
 $1 == "signoff" && $3 != "signed" { fail("signoff", $2 ": " ($4 == "" ? "not signed off" : $4)) }
+$1 == "drift" {
+  if ($2 == "*") fail("drift", "the spec-drift check could not run: " $3)
+  else fail("drift", $2 " is a deliverable of " $3 " and no spec edit, Not covered reason or task trailer covers it")
+}
 $1 == "evidence" { ev[++ne] = $2 "\t" $3 "\t" $4 "\t" $5 }
 $1 == "bodyline" { body = body substr($0, 10) "\n" }
 END {
   if (badfmt) { print "not-ready\t-"; print "fail\tformat\tthe evidence file lacks \"# format: 1\""; exit 4 }
   if (head == "") { print "not-ready\t-"; print "fail\thead\tno evidence at a head was collected; a session report alone never passes"; exit 4 }
+  stage(0)
+  # The check refusals lead, as they did when each was read in file order: a
+  # caller that takes the first refusal as the reason sees the check first.
+  for (i = 1; i <= nck; i++) { split(ck[i], c, "\t"); r = describe(c[1], c[2]); k = index(r, "\t"); lead[++nlead] = "fail\t" substr(r, 1, k - 1) "\t" substr(r, k + 1) }
   if (!nc) fail("check", "no individual check context at the head")
+  if (needbot && state != "draft" && !botseen) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)")
+  # After the flip the run it fired is the one wanted: a run created before
+  # the flip (every PR-Agent run there is) is not it, and the run the flip
+  # fires has not shown up yet. No apostrophe here: this is a shell string.
+  if (needbot && state == "ready" && botseen && flip != "") {
+    fired = 0; unk = 0; newest = ""
+    for (i = 1; i <= nraw; i++) if (bot_check(rn[i])) {
+      b = born[rn[i]]
+      if (b == "") unk = 1
+      else if (b >= flip) fired = 1
+      else if (b > newest) newest = b
+    }
+    if (!fired && unk) fail("bot-review", "the creation time of the PR-Agent run at " substr(head, 1, 12) " is unknown, so it cannot be told from a run before the flip at " flip "; read it again")
+    else if (!fired) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires")
+  }
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
     hint = "; add the ci-macos label (or mark the pull request ready) so CI runs it"
@@ -334,7 +509,12 @@ END {
     }
   }
   if (!speconly) {
-    for (i = 1; i <= ncad; i++) fail("cadence", cad[i])
+    for (i = 1; i <= ncad; i++) {
+      # On a draft the bot review does not exist yet: the flip fires it, so a
+      # post-pr gap is pending the flip, not a gap, where the repository runs it.
+      if ((i in cadpf) && state == "draft" && needbot) pend[++np] = cadpf[i]
+      else fail("cadence", cad[i])
+    }
     if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))
   }
   for (i = 1; i <= ne; i++) {
@@ -353,12 +533,20 @@ END {
     if (!got) fail("evidence", k " is not recorded ok at " substr(head, 1, 12))
   }
   for (i = 1; i <= nn["body"]; i++) if (!index(body, need["body", i])) fail("body", "the body lacks \"" need["body", i] "\"")
-  if (nf) {
+  if (nf || nlead) {
     print "not-ready\t" head
+    for (i = 1; i <= nlead; i++) print lead[i]
     for (i = 1; i <= nf; i++) print fails[i]
     exit 4
   }
+  if (np) {
+    print "flip-for-review\t" head
+    for (i = 1; i <= np; i++) print "pending\tpost-pr\t" pend[i] "; pending the flip, which fires the bot review (PR-Agent) a post-pr step may wait on"
+    for (i = 1; i <= nb; i++) print "bypass\t" byp[i]
+    exit 4
+  }
   print "ready\t" head
+  for (i = 1; i <= nb; i++) print "bypass\t" byp[i]
 }' "$(operand "$2")" "$(operand "$1")"
 }
 
@@ -427,6 +615,77 @@ branch_worktree() {
 # been cut, and the walk refuses on a `truncated` line rather than pass.
 CAP=100
 
+# spec_home <program> <slug>: print `<repository><TAB><spec root relative to
+# it>` for the program's repository of <slug> that holds the spec root, or
+# fail when none does.
+spec_home() {
+  local root r top
+  root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 1
+  # Logical paths, so a symbolic link in a checkout cannot move the root; the
+  # head must then hold the root as a directory.
+  root=$(cd -L "$root" 2>/dev/null && pwd -L) || return 1
+  while IFS= read -r r; do
+    top=$(cd -L "$r" 2>/dev/null && pwd -L) || continue
+    case $root in
+      "$top"/?*)
+        printf '%s\t%s\n' "$r" "${root#"$top"/}"
+        return 0
+        ;;
+    esac
+  done < <(mc_slug_repos "$1" "$2" 2>/dev/null)
+  return 1
+}
+
+# drift_scope <program> <slug> <head> <base ref> <pr read> <scratch dir>: for
+# a pull request that is not spec-only, print a `signoff` line for each spec
+# bundle it edits and a `drift` line for each changed file the spec-drift
+# check flags (path and the tasks listing it), or one `drift<TAB>*` line
+# giving the reason the check could not run. Nothing for a program whose spec
+# root lies outside the repository.
+drift_scope() {
+  local home rel repo b why rc=0 rows
+  home=$(spec_home "$1" "$2") || return 0
+  rel=${home#*	} repo=${home%%	*}
+  [ -n "$4" ] || {
+    printf 'drift\t*\tthe pull request names no base branch\n'
+    return 0
+  }
+  # A bundle is any directory directly under the root that does not open with
+  # `_`, edited by any file under it.
+  SPEC_REL=$rel awk -F '\t' '
+    $1 == "path" {
+      p = $2; n = length(ENVIRON["SPEC_REL"])
+      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/") next
+      p = substr(p, n + 2)
+      if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; print b } }
+    }' "$5" >"$6/touched" || return 0
+  if mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
+    while IFS= read -r b; do
+      # A bundle the pull request removes or moves has no sign-off to read.
+      [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]] && [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b" 2>/dev/null)" != tree ] && continue
+      signoff_row "$repo" "$3" "$rel" "$b" "$6/touched-$b" || exit
+    done <"$6/touched"
+  fi
+  awk -F '\t' '$1 == "bodyline" { print substr($0, 10) }' "$5" >"$6/body"
+  /bin/bash "$script_dir/spec-drift-check.sh" --repo "$repo" --base "refs/remotes/origin/$4" --head "$3" \
+    --body-file "$6/body" --spec-root "$rel" >"$6/drift-out" 2>"$6/drift-err" || rc=$?
+  case $rc in
+    0) ;;
+    4)
+      rows=$(awk -F '\t' '$1 == "flagged" { print "drift\t" $2 "\t" $3 }' "$6/drift-out")
+      if [ -n "$rows" ]; then
+        printf '%s\n' "$rows"
+      else
+        printf 'drift\t*\tthe check reported drift but named no file\n'
+      fi
+      ;;
+    *)
+      why=$(sed 's/^spec-drift-check: //' "$6/drift-err" | head -n 1)
+      printf 'drift\t*\t%s\n' "${why:-the check exited $rc with no reason given}"
+      ;;
+  esac
+}
+
 # spec_scope <program> <slug> <head> <pr read> <scratch dir>: when every
 # changed path lies under the program's spec root inside the repository for
 # <slug>, print `scope<TAB>spec-only<TAB><head>` and one `signoff` line per
@@ -434,23 +693,11 @@ CAP=100
 # own objects at the head, since collect writes nothing (no fetch) to any
 # repository.
 spec_scope() {
-  local root r top rel='' repo='' files b why
+  local home rel repo files b
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
   [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
-  root=$(/bin/bash "$script_dir/mc-program.sh" get "$1" spec_root 2>/dev/null) || return 0
-  # Logical paths, so a symbolic link in a checkout cannot move the root; the
-  # head must then hold the root as a directory.
-  root=$(cd -L "$root" 2>/dev/null && pwd -L) || return 0
-  while IFS= read -r r; do
-    top=$(cd -L "$r" 2>/dev/null && pwd -L) || continue
-    case $root in
-      "$top"/?*)
-        rel=${root#"$top"/} repo=$r
-        break
-        ;;
-    esac
-  done < <(mc_slug_repos "$1" "$2" 2>/dev/null)
-  [ -n "$rel" ] || return 0
+  home=$(spec_home "$1" "$2") || return 0
+  rel=${home#*	} repo=${home%%	*}
   # Each path must sit strictly under the root, with no `.`, `..` or empty
   # component, be prose (`.md`), and be added, modified or deleted: a rename
   # or copy names no source path. The bundles are the directories directly
@@ -473,29 +720,75 @@ spec_scope() {
   [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
   while IFS= read -r b; do
-    why=$(bundle_signoff "$repo" "$3" "$rel" "$b" "$5/bundle-$b") || exit
-    if [ -n "$why" ]; then
-      printf 'signoff\t%s\tunsigned\t%s\n' "$b" "$why"
-    else
-      printf 'signoff\t%s\tsigned\t-\n' "$b"
-    fi
+    signoff_row "$repo" "$3" "$rel" "$b" "$5/bundle-$b" || exit
   done <"$5/bundles"
+}
+
+# signoff_row <repo> <head> <root rel> <bundle> <scratch dir>: the bundle's
+# `signoff` row at <head>.
+signoff_row() {
+  local why
+  why=$(bundle_signoff "$@") || return
+  if [ -n "$why" ]; then
+    printf 'signoff\t%s\tunsigned\t%s\n' "$4" "$why"
+  else
+    printf 'signoff\t%s\tsigned\t-\n' "$4"
+  fi
 }
 
 # bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir>: print why
 # <bundle> is not signed off at <head>, read from <repo>'s objects, or
 # nothing when it is.
 bundle_signoff() {
-  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd
+  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd req mode
   if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
     printf 'not a spec identifier'
     return 0
   fi
   mkdir -p "$d" || mc_fail "cannot create a scratch directory"
-  # cat-file blob refuses a tree or a missing path, so a partial file is removed.
-  mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null || rm -f "$d/requirements.md"
-  if ! st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || [ -z "$st" ]; then
-    printf 'its requirements.md status cannot be read at the head'
+  req=$(sanitize_printable "$rel/$b/requirements.md")
+  # A path git does not hold, one that is no regular file, a file git cannot
+  # hand over, and a file with no Status line each need a different fix.
+  if ! mode=$(mc_untrusted_git -C "$repo" --literal-pathspecs ls-tree "$head" -- "$rel/$b/requirements.md" 2>/dev/null); then
+    printf 'its requirements.md cannot be read at the head (git could not list %s)' "$req"
+    return 0
+  fi
+  mode=${mode%% *}
+  case $mode in
+    '')
+      printf 'it has no requirements.md at the head (%s)' "$req"
+      return 0
+      ;;
+    100644 | 100755) ;;
+    *)
+      printf 'its requirements.md cannot be read at the head (%s is not a file)' "$req"
+      return 0
+      ;;
+  esac
+  if ! mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/requirements.md" >"$d/requirements.md" 2>/dev/null; then
+    printf 'its requirements.md cannot be read at the head (git could not read %s)' "$req"
+    return 0
+  fi
+  rc=0
+  st=$(spec_parse_header_value "$d/requirements.md" Status 2>/dev/null) || rc=$?
+  case $rc in
+    0) ;;
+    1)
+      printf 'its requirements.md cannot be read at the head (%s holds a NUL byte or cannot be read)' "$req"
+      return 0
+      ;;
+    3)
+      printf 'its requirements.md declares **Status:** more than once at the head (%s)' "$req"
+      return 0
+      ;;
+    *)
+      printf 'its requirements.md cannot be read at the head (%s does not parse)' "$req"
+      return 0
+      ;;
+  esac
+  if [ -z "$st" ]; then
+    # Never a pass: a bundle from before the pipeline carries no sign-off.
+    printf 'its requirements.md has no **Status:** value in its header at the head, as a legacy bundle has: add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
     return 0
   fi
   case $st in
@@ -535,7 +828,7 @@ bundle_signoff() {
       ;;
     'git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin')
       gd=$(mc_untrusted_git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null) || gd=''
-      [ -z "$gd" ] || got=$(cd "$d" && mc_untrusted_git_env && export GIT_DIR="$gd" \
+      [ -z "$gd" ] || got=$(cd "$d" && mc_untrusted_git_env "$repo" && export GIT_DIR="$gd" \
         && git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin) 2>/dev/null || got=''
       ;;
     *)
@@ -561,19 +854,25 @@ collect() {
   cl_base=$(/bin/sh "$script_dir/base-state-checks.sh") || cl_base='[]'
   cl_runs="${cl_base:-[]} as \$base_state | $cl_runs"
   # shellcheck disable=SC2016 # a jq program
-  gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,labels,files,body,statusCheckRollup --jq "$cl_runs"'
+  gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,isDraft,labels,files,body,statusCheckRollup --jq "$cl_runs"'
     def clean: tostring | gsub("[\t\r\n]"; " ");
     "head\t" + .headRefOid,
+    "state\t" + (if .isDraft == true then "draft" else "ready" end),
     "branch\t" + ((.headRefName // "") | clean),
     "base\t" + ((.baseRefName // "") | clean),
     "count\tfiles\t" + ((.files // []) | length | tostring),
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
+    ((.statusCheckRollup // []) | bypassed_check_runs[]
+      | "bypass\t" + ((.name // "-") | clean) + "\t" + ((.conclusion // "") | if . == "" then "UNKNOWN" else . end | clean)),
     (.files[]? | "path\t" + (.path | clean) + "\t" + ((.changeType // "-") | clean)),
     ((.statusCheckRollup // []) | latest_check_runs[]
       | "check\t" + ((.name // .context // "-") | clean) + "\t"
       + (if (.conclusion // "") != "" then .conclusion else (.state // "PENDING") end | clean)),
+    ((.statusCheckRollup // []) | latest_check_runs[]
+      | ((.detailsUrl // "") | capture("/actions/runs/(?<id>[0-9]+)")? // empty) as $r
+      | "runref\t" + ((.name // .context // "-") | clean) + "\t" + $r.id),
     ((.body // "") | split("\n")[] | "bodyline\t" + (gsub("[\t\r]"; " ")))' >"$cl_tmp/pr" 2>"$cl_tmp/err" \
     || mc_fail "the pull request read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   cl_head=$(awk -F '\t' '$1 == "head" { print $2; exit }' "$cl_tmp/pr")
@@ -586,11 +885,13 @@ collect() {
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
         author { login }
+        timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } }
         reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { id isResolved
           comments(first: 50) { nodes { author { __typename login } } } } } } } }' --jq '
     def bot: ((.author.__typename // "") == "Bot") or ((.author.login // "") | endswith("[bot]"));
     .data.repository.pullRequest as $p | ($p.author.login // "") as $me
-    | (if $p.reviewThreads.pageInfo.hasNextPage then "truncated\treview threads" else empty end),
+    | ($p.timelineItems.nodes[0].createdAt // empty | "flip\t" + .),
+      (if $p.reviewThreads.pageInfo.hasNextPage then "truncated\treview threads" else empty end),
       ($p.reviewThreads.nodes[] | . as $t
       | "thread\t" + $t.id + "\t" + (if $t.isResolved then "resolved" else "open" end),
         (if ($t.comments.nodes[0] // {} | bot) then
@@ -599,6 +900,16 @@ collect() {
              then "answered" else "unanswered" end)
          else empty end))' >"$cl_tmp/threads" 2>"$cl_tmp/err" \
     || mc_fail "the review thread read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
+  # When each check's workflow run was created, which a queued check run
+  # cannot say (gh reports its start as the zero time). Advisory: a failed read
+  # leaves a pending check reading as plainly pending. A draft is never judged
+  # by it, so its read is skipped.
+  : >"$cl_tmp/born"
+  if ! grep -qx "state$(printf '\t')draft" "$cl_tmp/pr" && gh api "repos/$2/actions/runs?head_sha=$cl_head&per_page=100" --jq '.workflow_runs[] | "runat\t" + (.id | tostring) + "\t" + (.created_at // "")' >"$cl_tmp/runs" 2>"$cl_tmp/err"; then
+    awk -F '\t' '
+      FILENAME == ARGV[1] { if ($1 == "runat" && $3 != "") at[$2] = $3; next }
+      $1 == "runref" && ($3 in at) { print "born\t" $2 "\t" at[$3] }' "$cl_tmp/runs" "$cl_tmp/pr" >"$cl_tmp/born" || : >"$cl_tmp/born"
+  fi
   : >"$cl_tmp/steps"
   cl_wt=$4
   cl_branch=$(awk -F '\t' '$1 == "branch" { print $2; exit }' "$cl_tmp/pr")
@@ -606,6 +917,8 @@ collect() {
   cl_unaud=''
   : >"$cl_tmp/cadence"
   spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/scope"
+  : >"$cl_tmp/drift"
+  [ -s "$cl_tmp/scope" ] || drift_scope "$1" "$2" "$cl_head" "$cl_baseref" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/drift"
   if [ -s "$cl_tmp/scope" ]; then
     # A spec-only pull request is held for its sign-off, not the cadence, so
     # no worktree is needed and none is audited.
@@ -621,10 +934,15 @@ collect() {
   fi
   cl_ciwt=$cl_wt
   if [ -n "$cl_wt" ]; then
-    # Records speak for the worktree's own head, so it must be the forge's.
+    # The audit judges the forge's head, never the worktree's: records carry
+    # their own heads, and the audit counts one only when its completion is
+    # at or behind that head. A worktree ahead of the head (a session still
+    # at work past what was pushed) holds the head, so it is audited at the
+    # head; one behind or off to the side cannot speak for it.
     cl_wthead=$(mc_untrusted_git -C "$cl_wt" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) || cl_wthead=''
-    if [ "$cl_wthead" != "$cl_head" ]; then
-      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head"
+    if [ "$cl_wthead" != "$cl_head" ] \
+      && { [ -z "$cl_wthead" ] || ! mc_untrusted_git -C "$cl_wt" merge-base --is-ancestor "$cl_head" "$cl_wthead" 2>/dev/null; }; then
+      cl_unaud="the worktree $(sanitize_printable "$cl_wt") is at ${cl_wthead:-no commit}, not the pull request's head $cl_head and not ahead of it; the session using it may be mid-change, so retry once it has pushed or finished"
       cl_wt=''
     fi
   fi
@@ -643,12 +961,13 @@ collect() {
     fi
   fi
   if [ -n "$cl_wt" ]; then
-    (mc_untrusted_git_env && unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED \
+    (mc_untrusted_git_env "$cl_wt" && unset PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED \
       && /bin/bash "$script_dir/step-run.sh" --worktree "$cl_wt" audit --through post-pr --head "$cl_head" ${cl_base[@]+"${cl_base[@]}"}) \
       >"$cl_tmp/audit" 2>"$cl_tmp/err"
     case $? in
       0 | 1) awk -F '\t' -v H="$cl_head" '
           $1 == "gap" { print "cadence\tgap\t" $2 "\t" $3 "\t" $4 }
+          $1 == "covered" { print "cadence\tcovered\t" $2 }
           $1 == "audit" && $3 == H { print "cadence\taudited\t" H }' "$cl_tmp/audit" >"$cl_tmp/cadence" ;;
       *)
         cl_err=$(grep '^step-run: ' "$cl_tmp/err" | tail -n 1)
@@ -660,7 +979,7 @@ collect() {
   [ -z "$cl_unaud" ] || printf 'cadence\tunaudited\t%s\n' "$cl_unaud" >"$cl_tmp/cadence"
   if [ -n "$cl_wt" ]; then
     # The worktree is a worker's, so its git configuration runs nothing here.
-    if ! (mc_untrusted_git_env && /bin/bash "$script_dir/step-record.sh" --worktree "$cl_wt" list) >"$cl_tmp/records" 2>"$cl_tmp/err"; then
+    if ! (mc_untrusted_git_env "$cl_wt" && /bin/bash "$script_dir/step-record.sh" --worktree "$cl_wt" list) >"$cl_tmp/records" 2>"$cl_tmp/err"; then
       [ -z "$4" ] || mc_fail "the step records of $(sanitize_printable "$cl_wt") cannot be read"
       # A discovered worktree that cannot be read is a gap, never a crash.
       : >"$cl_tmp/records"
@@ -698,6 +1017,11 @@ collect() {
   if [ -n "$(find "$cl_ci/.github/workflows" -name '*.yml' -exec grep -lE '^  macos-(suite|smoke):' {} + 2>/dev/null)" ]; then
     printf 'require\tmacos\n' >"$cl_tmp/require"
   fi
+  # The bot review is wanted on a ready pull request where the repository runs
+  # PR-Agent; it runs on the flip, so the walk never wants it on a draft.
+  if [ -n "$(find "$cl_ci/.github/workflows" -name '*.yml' -exec grep -lE '^[^#]*pragent/pr-agent' {} + 2>/dev/null)" ]; then
+    printf 'require\tpr-agent\n' >>"$cl_tmp/require"
+  fi
   printf '{"tool_name":"Bash","tool_input":{"command":"gh pr ready %s --repo %s"}}' "$3" "$2" >"$cl_tmp/payload"
   if cl_verdict=$(cd "$cl_first" && /bin/bash "$script_dir/ready-guard.sh" <"$cl_tmp/payload" 2>/dev/null); then
     case $cl_verdict in
@@ -720,8 +1044,8 @@ collect() {
   fi
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
-    awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" { next } { print }' "$cl_tmp/pr"
-    cat "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/evidence"
+    awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" || $1 == "runref" { next } { print }' "$cl_tmp/pr"
+    cat "$cl_tmp/born" "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/drift" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }
@@ -745,6 +1069,11 @@ case $verb in
     [ -n "$evidence" ] || usage
     [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
     not_red_awk "$evidence"
+    ;;
+  unfinished)
+    [ -n "$evidence" ] || usage
+    [ -r "$evidence" ] || mc_fail "the evidence file is unreadable: $(sanitize_printable "$evidence")"
+    unfinished_awk "$evidence"
     ;;
   collect | check)
     [ -n "$program" ] || usage

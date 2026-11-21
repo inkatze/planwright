@@ -125,9 +125,11 @@ branch, so the skills read, validate, and anchor it through the printed
 `bundle` path, never the holder's primary checkout; `/spec-walkthrough`
 reads the root's primary view, so it shows a holder bundle only once its
 spec PR has merged. Before writing, check `git -C <worktree> status
---porcelain` and ask on a dirty tree, as in the work repository. Commit with
-`git -C <worktree>`, push with `git -C <worktree> push -u origin
-planwright/<spec>/spec`, and give `gh` the holder with `-R` (`gh pr create -R
+--porcelain` and ask on a dirty tree, as in the work repository. Commit and
+push from inside the worktree (cd into it as a command of its own, then plain
+`git commit` and the kickoff push), never with `git -C <worktree>`, which the
+tier profiles deny before push and commit, and give `gh` the holder with `-R`
+(`gh pr create -R
 <holder origin URL> --head planwright/<spec>/spec --draft`, the URL from
 `git -C <worktree> remote get-url origin`). The work repository gains no
 commit or branch. A holder should ignore `.claude/worktrees/`, as a work

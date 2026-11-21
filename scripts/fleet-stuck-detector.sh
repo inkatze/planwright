@@ -63,9 +63,9 @@
 # yet (`fork-answered`), a StopFailure push (`stop-failure`), and the two
 # completion cases above. A consumer treats it as "leave alone and surface".
 #
-# THE UNLANDED CHECK reads LOCAL git state only (REQ-C1.4), through the
-# plumbing that hashes no file content (`ls-files`, `diff-index --cached`)
-# so the target repository's own config can drive no command, and the commit
+# THE UNLANDED CHECK reads LOCAL git state only (REQ-C1.4), through plumbing
+# (`ls-files`, `diff-index --cached`) run with the target repository's own
+# fsmonitor, hook, filter and diff drivers blanked (git_ro), and the commit
 # count against the remote-tracking ref (the upstream when set, else every
 # remote-tracking ref). No fetch, no `gh`, no per-worker forge query — it is
 # cheap and works offline; whether a unit owes a PR is not inferred here.
@@ -182,6 +182,18 @@ for helper in echo-safety.sh fleet-pane-vocabulary.sh; do
 done
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+if [ ! -r "$script_dir/tmux-identity-lib.sh" ]; then
+  printf '%s\n' "${0##*/}: tmux-identity-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh"
+if [ ! -r "$script_dir/untrusted-git-lib.sh" ]; then
+  printf '%s\n' "${0##*/}: untrusted-git-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$script_dir/untrusted-git-lib.sh"
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
 . "$script_dir/fleet-pane-vocabulary.sh"
 
@@ -271,7 +283,8 @@ valid_pid() {
 }
 
 # The registry's death-handle grammar (fleet-state.sh valid_death_handle):
-# `none`, `process <pid>`, or `tmux-window <session> <window>`. A
+# `none`, `process <pid>`, or `tmux-window <session> <window>` with the
+# optional server pin (`<server> <name>`, scripts/tmux-identity-lib.sh). A
 # pseudo-evidence class (`timeout 30`) fails here, so it can never reach the
 # predicate — which would refuse it anyway (REQ-A1.7).
 valid_death_handle() {
@@ -279,12 +292,10 @@ valid_death_handle() {
     none) return 0 ;;
     "process "*) valid_pid "${1#process }" ;;
     "tmux-window "*)
-      vdh_rest=${1#tmux-window }
-      case $vdh_rest in
-        *" "*) ;;
-        *) return 1 ;;
-      esac
-      valid_tmux_token "${vdh_rest%% *}" && valid_tmux_token "${vdh_rest#* }"
+      # <session> <window>, then the issuing server and window name where
+      # the writer pinned them (tmux-identity-lib.sh).
+      tmux_handle_parse "${1#tmux-window }" || return 1
+      valid_tmux_token "$TH_SESSION" && valid_tmux_token "$TH_WINDOW"
       ;;
     *) return 1 ;;
   esac
@@ -474,7 +485,7 @@ if [ "$cmd" = classify ]; then
     exit 2
   fi
   if [ -n "$death_handle" ] && ! valid_death_handle "$death_handle"; then
-    err "refusing malformed --death-handle (none | process <pid> | tmux-window <session> <window>; a timeout or heartbeat age is not evidence, REQ-A1.7)"
+    err "refusing malformed --death-handle (none | process <pid> | tmux-window <session> <window> [<server> <name>]; a timeout or heartbeat age is not evidence, REQ-A1.7)"
     exit 2
   fi
   if [ -n "$worktree" ] && ! valid_abs_dir "$worktree"; then
@@ -642,13 +653,17 @@ last_record() {
 
 # git_ro <dir> <args...> — a read-only git query in a worktree the detector
 # did not create: the repository's own config is untrusted, so no optional
-# index lock (someone else's worktree, possibly mid-command) and no
-# fsmonitor; the callers use only plumbing that hashes no file content, so
-# no clean filter can run either.
+# index lock (someone else's worktree, possibly mid-command) and none of its
+# fsmonitor, hook, filter, diff or signature programs (`ls-files -m` hashes a
+# stat-dirty file through its clean filter).
 git_ro() {
-  gr_dir=$1
-  shift
-  GIT_OPTIONAL_LOCKS=0 git -C "$gr_dir" -c core.fsmonitor=false "$@"
+  (
+    gr_dir=$1
+    shift
+    GIT_OPTIONAL_LOCKS=0
+    export GIT_OPTIONAL_LOCKS
+    pw_untrusted_git_env "$gr_dir" && git -C "$gr_dir" "$@"
+  )
 }
 
 # is_git_toplevel <dir> — 0 iff <dir> is the top of a git working tree (not
@@ -1037,8 +1052,8 @@ read_events() {
 }
 
 # check_worktree <dir> — sets tree (clean | dirty | unverifiable), unpushed
-# (<n> | unverifiable) from local git state, through plumbing that hashes no
-# content: a touched-but-identical file reads dirty (the fail-closed side).
+# (<n> | unverifiable) from local git state, through git_ro (a repository whose
+# configuration cannot be read is unverifiable, the fail-closed side).
 check_worktree() {
   tree=unverifiable
   unpushed=unverifiable

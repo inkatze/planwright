@@ -107,6 +107,9 @@ got=$(jq -c '
   && ok "the generated profile carries exactly one file-tool guard hook" \
   || fail "the generated profile must carry exactly one file-tool guard hook"
 [ "$want" = "$got" ] && ok "allow list, hooks and every other key are the shipped ones" || fail "a non-deny key differs from the shipped profile"
+jq -e '.permissions.allow | (index("WebSearch") == null) and (index("WebFetch") == null)' "$OUT" >/dev/null \
+  && ok "the generated profile leaves WebSearch and WebFetch to the prompt" \
+  || fail "the generated profile must allow neither WebSearch nor WebFetch"
 rest=$(jq -c '[.permissions.deny[] | select(
   . != "Edit(//**/mise.toml)" and . != "Edit(//**/.mise.toml)"
   and . != "Edit(//**/mise-tasks/**)" and . != "Edit(//**/.mise-tasks/**)")]' "$PROFILE")

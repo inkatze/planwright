@@ -66,6 +66,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
 FL="$here/../scripts/fleet-liveness.sh"
@@ -943,18 +945,22 @@ echo "ok: disabled outranks paused, and the disable escalation self-heals on che
 #     instead of lying with exit 0. Skipped under root, which bypasses the
 #     directory permission and lets rm succeed anyway (repo convention).
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" -ne 0 ]; then
-  home32="$tmp/h32"
-  run "$home32" crash-record "$w" "$s" --now 1000 >/dev/null || fail "reset-fail setup"
-  chmod 555 "$home32/liveness/crash" || fail "reset-fail: chmod failed"
+home32="$tmp/h32"
+run "$home32" crash-record "$w" "$s" --now 1000 >/dev/null || fail "reset-fail setup"
+chmod 555 "$home32/liveness/crash" || fail "reset-fail: chmod failed"
+denied=0
+if hermetic_access_denied w "$home32/liveness/crash"; then
+  denied=1
   rc=0
   run "$home32" crash-reset "$w" >/dev/null 2>&1 || rc=$?
-  chmod 755 "$home32/liveness/crash"
+else
+  echo "skip: crash-reset removal failure: the running user still writes $home32/liveness/crash under mode 555"
+fi
+chmod 755 "$home32/liveness/crash"
+if [ "$denied" = 1 ]; then
   [ "$rc" = 2 ] || fail "crash-reset with unwritable dir: exit $rc, expected 2"
   [ -e "$home32/liveness/crash/$w" ] || fail "reset-fail: record vanished despite the failure exit"
   echo "ok: a failed crash-reset is surfaced, never reported as success"
-else
-  echo "skip: crash-reset removal-failure test (running as root bypasses dir permissions)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1106,17 +1112,21 @@ echo "ok: a missing daemon gate fails as a broken install; a gate hard-fail prop
 #     which reads through chmod 000 and would make classify succeed (repo
 #     convention).
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" -ne 0 ]; then
-  home38="$tmp/h38"
-  attn "$home38" heartbeat "$w" "$s" working >/dev/null || fail "unreadable-store setup"
-  chmod 000 "$home38/attention/state" || fail "unreadable-store: chmod failed"
+home38="$tmp/h38"
+attn "$home38" heartbeat "$w" "$s" working >/dev/null || fail "unreadable-store setup"
+chmod 000 "$home38/attention/state" || fail "unreadable-store: chmod failed"
+denied=0
+if hermetic_access_denied r "$home38/attention/state"; then
+  denied=1
   rc=0
   out=$(run "$home38" classify "$w" "$s" --now 10000 --heartbeat 9990 2>/dev/null) || rc=$?
-  chmod 644 "$home38/attention/state"
+else
+  echo "skip: unreadable attention store: the running user still reads $home38/attention/state under mode 000"
+fi
+chmod 644 "$home38/attention/state"
+if [ "$denied" = 1 ]; then
   [ "$rc" = 2 ] || fail "unreadable store: classify exit $rc ('$out'), expected 2 (fail closed)"
   echo "ok: an unreadable attention store fails the classification closed"
-else
-  echo "skip: unreadable-store test (running as root reads through chmod 000)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1436,20 +1446,34 @@ t1=$(date +%s)
 [ $((t1 - t0)) -lt 30 ] || fail "oracle TERM-resistant: took $((t1 - t0))s, expected KILL escalation to bound it"
 # the TERM-COMPLIANT timeout path resolves promptly: the supervisor's trap
 # publishes the done flag after reaping, so the parent skips the KILL grace
-# ladder entirely (the broken shape burned ~timeout+4s and fired a stale
-# kill -9 at a freed pid; with a 2s timeout the ladder floor is >=6s, so the
-# <6s bound discriminates while leaving ~3.5s of load margin)
-t0=$(date +%s)
+# ladder. Count the parent's `sleep 0.1` polls rather than wall seconds: host
+# load stretches elapsed time but not the poll count. The bounds mirror the
+# loop limits in oracle_fetch: the timeout wait, then one TERM grace window
+# that a skipped ladder never exhausts.
+oracle_timeout_s=2
+wait_polls=$((oracle_timeout_s * 10))
+grace_polls=20
+sleepdir="$odir/sleepbin"
+mkdir -p "$sleepdir"
+real_sleep=$(command -v sleep)
+{
+  echo '#!/bin/sh'
+  echo "[ \"\$1\" = 0.1 ] && echo >>\"$odir/sleep-polls\""
+  echo "exec \"$real_sleep\" \"\$@\""
+} >"$sleepdir/sleep"
+chmod +x "$sleepdir/sleep"
+: >"$odir/sleep-polls"
 rc=0
-env PLANWRIGHT_ORACLE_TIMEOUT=2 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
+env PATH="$sleepdir:$PATH" PLANWRIGHT_ORACLE_TIMEOUT="$oracle_timeout_s" PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
   PLANWRIGHT_ORACLE_CLAUDE="$slowshim" \
   /bin/sh "$FL" oracle --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
-t1=$(date +%s)
+polls=$(wc -l <"$odir/sleep-polls" | tr -d ' ')
 [ "$rc" = 1 ] || fail "oracle TERM-compliant timeout: exit $rc, expected 1 (unavailable)"
-[ $((t1 - t0)) -lt 6 ] \
-  || fail "oracle TERM-compliant timeout: took $((t1 - t0))s, expected the done-flag publish to skip the KILL grace ladder"
+[ "$polls" -ge "$wait_polls" ] || fail "oracle TERM-compliant timeout: only $polls polls, expected the full $wait_polls-poll timeout wait (counting shim not in effect, or the probe ended early?)"
+[ "$polls" -lt $((wait_polls + grace_polls)) ] \
+  || fail "oracle TERM-compliant timeout: $polls polls, expected the done-flag publish to skip the KILL grace ladder"
 # a malformed / zero timeout override falls back to the default, never a
 # kill-everything zero bound
 printf '[\n {"pid": 100, "cwd": "/wt/alpha", "kind": "interactive", "sessionId": "aaaa-1111", "name": "a", "status": "busy"}\n]\n' >"$ofix"
