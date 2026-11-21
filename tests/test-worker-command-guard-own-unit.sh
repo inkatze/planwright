@@ -341,21 +341,85 @@ assert_defer "a push after a fetch" "git fetch origin && git push origin $B" Bas
 assert_defer "a body edit after a fetch" "git fetch origin && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
 assert_defer "an export after a fetch" "git fetch origin && export $CTX && $SREC write --run 1" Bash "$WT"
 assert_defer "a push after a fetch of its branch" "git fetch origin $B && git push origin $B" Bash "$WT"
-# Nor with trusted repository code, which may write: the gate runs, then the
-# push goes in a call of its own.
+# Chain partners: a git add or commit the policy approves on its own, and a
+# trusted repository task, may come before the act, joined to it by `&&`.
 mkdir -p "$WT/scripts" "$WT/tests"
 : >"$WT/scripts/check.sh"
 : >"$WT/tests/x.sh"
+: >"$WT/f"
 assert_allow "a mise task alone (control)" "mise run check" Bash "$WT"
 assert_allow "a repo test alone (control)" "bash tests/x.sh" Bash "$WT"
 assert_allow "a repo script alone (control)" "scripts/check.sh" Bash "$WT"
-assert_defer "a push after a mise task" "mise run check && git push origin $B" Bash "$WT"
-assert_defer "a push after a repo test run by bash" "bash tests/x.sh && git push origin $B" Bash "$WT"
-assert_defer "a push after a repo script" "scripts/check.sh && git push origin $B" Bash "$WT"
-assert_defer "a push after another installed plugin script" "$PLUGIN_ROOT/scripts/plug.sh && git push origin $B" Bash "$WT"
-assert_defer "a body edit after a mise task" "mise run check && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
-assert_defer "an export before a repo script" "export $CTX && scripts/check.sh" Bash "$WT"
+assert_allow "a push after a mise task" "mise run check && git push origin $B" Bash "$WT"
+assert_allow "a push after a repo test run by bash" "bash tests/x.sh && git push origin $B" Bash "$WT"
+assert_allow "a push after a repo script" "scripts/check.sh && git push origin $B" Bash "$WT"
+assert_allow "a body edit after a mise task" "mise run check && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
 assert_allow "an installed step script beside a push stays allowed" "$SREC write --run 1 && git push origin $B" Bash "$WT"
+assert_defer "an export before a repo script (a partner after the act)" "export $CTX && scripts/check.sh" Bash "$WT"
+assert_defer "a gate after the push" "git push origin $B && mise run check" Bash "$WT"
+assert_defer "a gate joined to the push by ;" "mise run check; git push origin $B" Bash "$WT"
+assert_defer "a gate joined by a chain the ; breaks" "mise run check && git status; git push origin $B" Bash "$WT"
+assert_defer "a gate piped" "mise run check | cat && git push origin $B" Bash "$WT"
+assert_defer "a gate backgrounded" "mise run check & git push origin $B" Bash "$WT"
+assert_defer "a gate in a loop" "for x in a; do mise run check; done && git push origin $B" Bash "$WT"
+assert_defer "a gate after ||" "git status || mise run check && git push origin $B" Bash "$WT"
+assert_defer "a gate chain over a line break" "mise run check &&
+git push origin $B" Bash "$WT"
+: >"$WT/tests/x.bats"
+assert_allow "a push after lefthook run" "lefthook run pre-commit && git push origin $B" Bash "$WT"
+assert_allow "a push after bats" "bats tests/x.bats && git push origin $B" Bash "$WT"
+assert_allow "a push after a repo test run by sh" "sh tests/x.sh && git push origin $B" Bash "$WT"
+assert_allow "an export after a gate" "mise run check && export $CTX && $SREC write --run 1" Bash "$WT"
+assert_defer "a gate, a read and ; before the push" "mise run check && echo ok; git push origin $B" Bash "$WT"
+assert_defer "a gate joined to the push by &" "mise run check && git status & git push origin $B" Bash "$WT"
+assert_defer "a plugin script other than a step script before the push" "$PLUGIN_ROOT/scripts/plug.sh && git push origin $B" Bash "$WT"
+assert_defer "bash running a plugin script before the push" "bash $PLUGIN_ROOT/scripts/plug.sh && git push origin $B" Bash "$WT"
+assert_defer "a plugin script after the push" "git push origin $B && $PLUGIN_ROOT/scripts/plug.sh" Bash "$WT"
+rm -f "$REC.audit/own.log"
+assert_allow "a gate chain, for its audit line" "mise run check && git push origin $B" Bash "$WT"
+if grep -q ' arm=own-unit ' "$REC.audit/own.log" 2>/dev/null; then
+  pass "a gate chain's audit line reads own-unit"
+else
+  fail "a gate chain's audit line: $(cat "$REC.audit/own.log" 2>&1)"
+fi
+assert_defer "a commit chain under a policy without the own-branch arm" "git commit -m x && git push origin $B" Bash "$WT"
+# git add and commit need the own-branch arm on the unit branch.
+env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
+  GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 git -C "$WT" checkout -q -b "$B" || exit 1
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$ARMS" "PATH=$STUB:$PATH" "TMPDIR=$SCR")
+assert_allow "git add and commit alone (control)" "git add -A && git commit -m x" Bash "$WT"
+assert_allow "a push after add and commit" "git add -A && git commit -m x && git push origin $B" Bash "$WT"
+assert_allow "a push after a commit and a gate" "git commit -m x && mise run check && git push origin $B" Bash "$WT"
+assert_allow "a body edit after a commit" "git commit -m x && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+assert_allow "an export after a commit" "git commit -m x && export $CTX && $SREC write --run 1" Bash "$WT"
+assert_defer "a commit joined to the push by ;" "git commit -m x; git push origin $B" Bash "$WT"
+assert_defer "a commit after the push" "git push origin $B && git commit -m x" Bash "$WT"
+assert_defer "a commit backgrounded" "git commit -m x & git push origin $B" Bash "$WT"
+assert_defer "a commit piped" "git commit -m x | cat && git push origin $B" Bash "$WT"
+assert_defer "a commit after ||" "git status || git commit -m x && git push origin $B" Bash "$WT"
+assert_defer "a file write between the commit and the push" "git commit -m x && touch $WT/made4 && git push origin $B" Bash "$WT"
+assert_defer "an in-place edit before the push" "sed -i s/a/b/ f && git push origin $B" Bash "$WT"
+assert_defer "a write-redirect before the push" "git status > $WT/out && git push origin $B" Bash "$WT"
+assert_defer "a commit with a message file outside the worktree" "git commit -F $OUT_DIR/body.md && git push origin $B" Bash "$WT"
+for ou_off in "git rm -q f" "git restore f" "git checkout -- f" "git fetch origin" "git merge origin/main" "git mv f g"; do
+  assert_defer "$ou_off before a push (not a partner)" "$ou_off && git push origin $B" Bash "$WT"
+done
+ARMS_LOG="$ARMS.audit/arms.log"
+rm -f "$ARMS_LOG"
+assert_allow "a commit chain, for its audit line" "git add -A && git commit -m x && git push origin $B" Bash "$WT"
+if grep -q ' arm=own-branch,own-unit ' "$ARMS_LOG" 2>/dev/null; then
+  pass "a commit chain's audit line reads own-branch,own-unit"
+else
+  fail "a commit chain's audit line: $(cat "$ARMS_LOG" 2>&1)"
+fi
+# Off the unit branch the arm approves no commit, so no chain either. The
+# fixture repository has no commits, so HEAD is moved by symbolic-ref.
+env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
+  GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 git -C "$WT" symbolic-ref HEAD refs/heads/off-unit || exit 1
+assert_defer "a commit chain off the unit branch" "git commit -m x && git push origin $B" Bash "$WT"
+env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
+  GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 git -C "$WT" symbolic-ref HEAD "refs/heads/$B" || exit 1
+HOOK_ENV=("${USE_ENV[@]}")
 # Nor with a write the spec-root zone approves under any policy.
 SZ="$CS/specroot"
 mkdir -p "$SZ/demo"
