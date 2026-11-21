@@ -541,6 +541,7 @@ run watch --program alpha --now "$T"
 expect_eq "the head is announced once its bot round completes" "announced${tab}merge-ready${tab}acme:web:33"
 reads30() { awk '/api graphql/ && / number=30( |$)/ { n++ } END { print n + 0 }' "$tmp/gh.calls"; }
 before=$(reads30)
+[ "$before" -gt 0 ] || fail "the forge reads of #30 are not in the call log, so the next check measures nothing"
 run watch --program alpha --now "$T"
 expect_eq "an announced head raises nothing more" ""
 if [ "$(reads30)" = "$before" ]; then
