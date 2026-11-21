@@ -240,6 +240,46 @@ for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-dif
   'git ls-files --full-name' 'git log --follow -- f' 'git log --format=%h -3'; do
   assert_allow "not a driver option: $c" "$c"
 done
+# git config reads any unambiguous prefix of its write options (`--remove-sec
+# core` drops core.hooksPath), `-e` inside a short cluster, and the write
+# subcommands. One row per prefix class; the ambiguous prefixes git refuses
+# (`--u`, `--re`, `--e`) defer too, failing closed.
+for c in 'git config --global --unset-al a.b' 'git config --global --unset- a.b' \
+  'git config --global --u a.b' 'git config --global --remove-sec core' 'git config --global --rem core' \
+  'git config --global --rename-s core zz' 'git config --global --ren core zz' 'git config --global --re core' \
+  'git config --global --replace-a a.b 9' 'git config --global --rep a.b 9' 'git config --global --ad a.b 9' \
+  'git config --global --a a.b 9' 'git config --global --ed' 'git config --global --edi' 'git config --global --e' \
+  'git config --global --ed=1' 'git config --global -ze' 'git config -ez --global' \
+  'git config edit --global' 'git config edit' 'git config unset --global a.b' 'git config unset --global --al a.b' \
+  'git config remove-section core' 'git config rename-section core zz' 'git config set --global a.b 1' \
+  'git config --global --unset a.b' 'git config --global --unset-all a.b' 'git config --global --remove-section core' \
+  'git config --global --rename-s core' 'git config --global --edit' 'git config --global -e'; do
+  assert_defer "git config write near-spelling: $c" "$c"
+done
+# `--comment` applies only to a write, and its value can be a read flag that
+# would otherwise mark the line a read: git sets a.b here.
+for c in 'git config --comment --list a.b 9' 'git config --global --comment --get-all a.b 9' \
+  'git config --c --list a.b 9' 'git config --comm=hi --get a.b 9'; do
+  assert_defer "git config --comment write: $c" "$c"
+done
+# git stops reading options at the first operand or `--`, so a dashed word
+# after it is a value and each of these sets a key.
+for c in 'git config a.c --list' 'git config --global core.hooksPath -x' 'git config --global -- a.d --get' \
+  'git config a.b -l' 'git config a.b -' 'git config --end-of-options --a.b --list'; do
+  assert_defer "git config dashed value: $c" "$c"
+done
+assert_defer "git config display option negated back off sets" "git config --name-only --no-name-only a.b 9"
+assert_allow "git config read with a dashed value pattern" "git config --get-all a.b -x"
+assert_defer "git config -f inside a short cluster reads another file" "git config -zf other.cfg --list"
+assert_defer "git config -f ending a short cluster reads another file" "git config -lf other.cfg"
+# A short cluster carrying e defers wherever the e sits, so a -t value holding
+# one prompts too: the accepted cost of not modelling -t's value.
+assert_defer "accepted over-block: an e inside a -t value" "git config -texpiry-date --get gc.pruneExpire"
+for c in 'git config --get user.name' 'git config --global --get-all a.b' 'git config --global --exp --get gc.pruneExpire' \
+  'git config -zl' 'git config -z --list' 'git config list --global --show-o' 'git config --name-only --list' \
+  'git config -tbool --get a.b' 'git config --show-scope --get user.name' 'git config --get-colorbool color.ui'; do
+  assert_allow "git config read: $c" "$c"
+done
 # GNU sed 'e' substitution flag executes the pattern space (no trailing space).
 assert_defer "sed s///e exec no-space" "sed 's/.*/id/e'"
 assert_defer "sed s///e exec with file" "sed 's/.*/whoami/e' scripts/ok.sh"

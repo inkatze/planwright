@@ -80,6 +80,10 @@
 #                    where `relaunch` resumes it
 #   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
 #                    and --tier-unit named, which `relaunch` resolves at
+#   parent           the worker a fresh launch was made from inside (its
+#                    PLANWRIGHT_WORKER_HANDLE), which mission control's
+#                    keeper may route this session's prompts by; absent
+#                    otherwise, and kept by a recover
 #   spec-branch      the --spec-branch a launch named, which a recover reads
 #                    back; absent otherwise
 #   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
@@ -2372,6 +2376,15 @@ cmd_launch() {
     record_tier_field "$dir" tier_model "$tier_model" || exit 2
     record_tier_field "$dir" tier_effort "$tier_effort" || exit 2
     record_tier_field "$dir" tier_reserved "$tier_reserved" || exit 2
+    # A session launched from inside a worker (an isolated step's, say)
+    # records that worker as its parent, which the keeper routes its prompts
+    # by while the parent's own record names a program. Read before this
+    # launch exports its own identity below.
+    launch_parent=${PLANWRIGHT_WORKER_HANDLE:-}
+    if ! valid_field "$launch_parent" || [ "$launch_parent" = "$worker" ]; then
+      launch_parent=''
+    fi
+    record_tier_field "$dir" parent "$launch_parent" || exit 2
   fi
   # The worker identity its hooks key on (attention rows, liveness, and its
   # self-registration), and the inbound layer the messaging probe reads beside
