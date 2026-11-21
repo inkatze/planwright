@@ -5483,7 +5483,8 @@ signoff_transport_stock() {
 
 # signoff_push_check <dir> <del> <alone> <remote> <src> <branch> — 0 when a
 # push to the sign-off branch the launch record names is a forward-merge of
-# main and nothing else: the command's only act, no delete, the branch's own
+# main and nothing else: the command's only act, no delete, run in the
+# worktree holding the branch (spec_branch_checkout), the branch's own
 # remote over a stock transport, no local state that changes git's reads
 # (signoff_local_trusted), a HEAD or local-branch source, and, against
 # the PR head and the remote's default branch as the remote itself reports
@@ -5501,6 +5502,10 @@ signoff_push_check() {
   }
   [ "$alone" = 1 ] || {
     SPC_WHY='this push is not the command'"'"'s only act, so what it pushes may change after the guard reads it; run it on its own'
+    return 1
+  }
+  { spec_branch_checkout "$d" 'this git push' && [ "$SBC_SIGNOFF" = 1 ] && [ "$SBC_BRANCH" = "$sb" ]; } || {
+    SPC_WHY="it runs outside the worktree holding $(sanitize_printable "$sb" 'the sign-off branch') (the session's own linked worktree, with that branch checked out); push from there"
     return 1
   }
   want=$(gitq "$d" config --get "branch.$sb.remote") || want=''

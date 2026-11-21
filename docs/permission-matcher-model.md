@@ -663,8 +663,9 @@ on that pull request can land a forward merge of `main` and nothing else:
   option, the fast-forward to the PR head, a pull, or a second command on the
   line refuses.
 - **Push it.** A push by explicit refspec (`git push origin HEAD:refs/heads/<spec
-  branch>`, the branch by name, or `HEAD`), from any checkout, as the
-  command's only act, with a `HEAD` or local-branch source, to the branch's
+  branch>`, the branch by name, or `HEAD`), from the same worktree the merge
+  is built in (a flight checkout or another clone refuses), as the command's
+  only act, with a `HEAD` or local-branch source, to the branch's
   own remote. That remote must fetch and push through its one URL: a push
   URL, an `insteadOf` or `pushInsteadOf` rewrite, an upload-pack,
   receive-pack, ssh or proxy override, or a remote-helper URL refuses. So
