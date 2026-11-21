@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -776,6 +776,26 @@ later planwright bundles implement, D-12).
   own confirmation. An item with no done-condition is refused at add.
   *(Cites: D-56; REQ-F1.10; the follow-up ledger report (2026-11-10,
   Sources).)*
+  **Superseded-by: REQ-F1.26** (2026-11-20)
+- **REQ-F1.26** (supersedes REQ-F1.19; extends REQ-F1.10) Every operator
+  ask that carries an action, and every duty or promise mission control
+  takes on, SHALL be recorded by code and not from the session's memory.
+  Asks SHALL be recorded in control-plane's request ledger, as control-plane
+  REQ-J1.1 to REQ-J1.7 specify: each arrival is captured by code before the
+  model acts on it, closes only with evidence it cites (the follow-up item
+  the ask became among them), holds the first stop of a turn that received
+  it while it is open, and makes the handover refuse while it is open; the
+  hold and the refusal ship recording only and enforce on the operator's
+  configuration (control-plane REQ-J1.12). That
+  ledger is the one code home for the record, replacing this bundle's own
+  intake rows, and it is the store REQ-F1.24's register names for asks. Work
+  mission control takes on SHALL be a follow-up ledger item carrying an
+  owner, a trigger and a done-condition: a command whose exit status says
+  done, an event of an emitted class (REQ-F1.22), a date, or the operator's
+  own confirmation. An item with no done-condition is refused at add.
+  *(Cites: D-56; REQ-F1.10, REQ-F1.22, REQ-F1.24; control-plane REQ-J1.1 to
+  REQ-J1.7, REQ-J1.12, D-22, D-25 (Sources); the follow-up ledger report
+  (2026-11-10, Sources).)*
 - **REQ-F1.20** Overdue items SHALL lead the status. An item is overdue when
   its trigger has fired and it is still open and unacknowledged
   (REQ-F1.21). The panel and every plain-language status answer list the
@@ -1640,6 +1660,17 @@ the runner works, never a list that grows and is forgotten.
   with a miss ledger and a caught-by report (REQ-P1.11 to REQ-P1.14, D-69,
   Tasks 82 and 83), the unrelayed-question case as the audit's first
   fixture.
+- 2026-11-20 — Amendment 20 (meaning-class, on the Active bundle, relayed
+  by the hub): control-plane's request ledger, signed in its Amendment 2,
+  builds this bundle's unbuilt intake rows, turn-end check and handover
+  self-check. REQ-F1.26 supersedes REQ-F1.19 and points asks at the
+  request ledger (control-plane REQ-J1.1 to REQ-J1.7), whose turn-end
+  check holds the first stop of a turn once rather than every stop
+  (control-plane D-25). The follow-up item rules REQ-F1.19 carried are
+  kept, unchanged. Task 51 is parked out of scope as carried by
+  control-plane Tasks 5.1 to 5.3; D-56 gains a note (see the kickoff
+  brief's Amendment 20). Numbering follows the open amendment branches
+  (Amendments 11 to 19 are unmerged).
 
 ## Sources
 
@@ -1709,6 +1740,15 @@ the runner works, never a list that grows and is forgotten.
   custom-steps, human-gates, model-allocation, quota-handling,
   custom-spec-location, interaction-style, autopilot-reflex, bootstrap
   (REQ-K1.8 options reference; D-21 fold rule), security-posture.
+- **control-plane Amendment 2 (2026-11-19)** — the request ledger in
+  `specs/control-plane/`, signed 2026-11-19 and merged 2026-11-20: capture
+  of every arrival by code, closes that cite checked evidence, a hold on a
+  turn's first stop, and the handover's check against the ledger
+  (control-plane REQ-J1.1 to REQ-J1.7, REQ-J1.12, D-22 to D-26, Tasks 5.1
+  to 5.3), the hold and the refusal shipping recording only. Its
+  D-22 carries REQ-F1.19's unbuilt intake rows and records this bundle's
+  own amendment as the point Task 51 is marked carried; its D-25 rejects
+  holding every stop.
 - **The mission-control audit (2026-11-04)** — a read-only audit of the
   shipped mission control at release 0.65.0, kept with the operator's
   records, listing gaps between the bundle and what an operator meets.

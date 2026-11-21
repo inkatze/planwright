@@ -237,8 +237,12 @@ request a review from anyone on the ready pull request (the `review_requested`
 event does not say who, and `scripts/request-reviewer.sh --copilot` sends one).
 That is the explicit trigger: the same pull-request event, so the
 same-repository, dependabot and `skip-pr-agent` label conditions apply
-unchanged. A pull request opened ready has no flip, so it needs that request
-for its one run. A ready pull request is merge-ready only with a PR-Agent run
+unchanged. GitHub can accept a request and add no reviewer, which fires
+nothing, so the helper waits for the request to land and exits 6 when none
+does; converting the pull request to draft and marking it ready again then
+fires the run instead (the re-draft is the operator's: the policy guard keeps
+it from agents). A pull request opened ready has no flip, so it needs that
+request for its one run. A ready pull request is merge-ready only with a PR-Agent run
 on its final head, created at or after the flip where there is one, that passed (or was skipped by
 the `skip-pr-agent` label or a dependabot head) and its findings answered; a
 run that predates the flip is not the flip's, and a ready pull request whose

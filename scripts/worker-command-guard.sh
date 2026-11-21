@@ -165,11 +165,10 @@ OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
 # 1 once the own-branch or scratch arm or the spec-root zone approved a write
-# or a git act other than add and commit (main reads it).
+# or git act, a plain fetch was approved, and once trusted repository code or
+# a declared step was approved (main reads both).
 ARM_ACT=0
-# 1 while the segment being verified is an own-unit partner: git add or
-# commit through the own-branch arm, or a gate task (fin reads it).
-OU_PARTNER=0
+TASK_ACT=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -1424,7 +1423,7 @@ own_unit_act() {
   # Top level and unconditional: no loop, if or case body, no pipeline, no
   # background job, and not run only on an earlier failure. `seg_open`,
   # `close` and `ctl_depth` are verify_tokens' and fin's walk state.
-  [ "${ctl_depth:-1}" -eq 0 ] && [ "${ou_or:-1}" = 0 ] || return 1
+  [ "${ctl_depth:-1}" -eq 0 ] && [ "${ou_or:-1}" = 0 ] && [ "${ou_pipe:-1}" = 0 ] || return 1
   case ${seg_open-x}:${close-x} in
     :* | ';':* | '&&':*) ;;
     *) return 1 ;;
@@ -2106,6 +2105,7 @@ ob_git_ready() {
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
   [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
   AUDIT_OB=1
+  ARM_ACT=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -3985,6 +3985,29 @@ git_driver_opt() {
   [[ ext-diff == "$n"* || textconv == "$n"* || filters == "$n"* ]]
 }
 
+# git_config_write_opt <word>: whether git config can read <word> as an option
+# that writes config or opens an editor on it. git takes any unambiguous prefix
+# of a long option (`--remove-sec`), so any prefix of one matches, the
+# ambiguous ones git refuses (`--u`, `--re`, `--e`) included; a short cluster
+# carrying `e` is `-e` (`-ze`), a `-t` value holding an e included. `--comment`
+# applies only to a write, and its value can be a read flag: `git config
+# --comment --list a.b v` sets a.b.
+git_config_write_opt() {
+  local n o
+  case $1 in
+    --?*)
+      n=${1%%=*}
+      n=${n#--}
+      ;;
+    -*e*) return 0 ;;
+    *) return 1 ;;
+  esac
+  for o in add unset unset-all replace-all rename-section remove-section edit comment; do
+    [[ $o == "$n"* ]] && return 0
+  done
+  return 1
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution, REQ-A1.8), and per-subcommand form
 # guards on the subcommands with a mutating twin (REQ-A1.5).
@@ -4080,19 +4103,37 @@ guard_git() {
       return 0
       ;;
     config)
-      local writes=0 positional=0 read_flag=0
-      for ((i = subidx + 1; i < cwn; i++)); do
+      local positional=0 read_flag=0 operands=0 first=$((subidx + 1))
+      # git reads a subcommand only as the word right after `config`; `list`
+      # takes its own options after it.
+      case ${cw[first]-} in
+        set | unset | rename-section | remove-section | edit) return 1 ;;
+        list) first=$((first + 1)) ;;
+      esac
+      for ((i = first; i < cwn; i++)); do
         a=${cw[i]}
+        git_config_write_opt "$a" && return 1
+        # git stops reading options at the first operand, `--` or
+        # `--end-of-options`, so a dashed word after it is an operand:
+        # `git config core.hooksPath -x` sets it.
+        if [ "$operands" = 1 ]; then
+          positional=$((positional + 1))
+          continue
+        fi
         case $a in
-          --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
-          --add | --unset | --unset-all | --replace-all | --rename-section | --remove-section | -e | --edit | --set) writes=1 ;;
+          # Actions only: a display option such as --name-only is negatable
+          # (`--name-only --no-name-only a.b v` sets a.b).
+          --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool) read_flag=1 ;;
           # Another file parsed as config prints its `key = value` lines.
-          -f* | --fil* | --bl*) return 1 ;;
-          -*) ;; # scope/format flags (--global/--type/…) are read-safe
-          *) positional=$((positional + 1)) ;;
+          -f* | -[!-]*f* | --fil* | --bl*) return 1 ;;
+          -- | --end-of-options) operands=1 ;;
+          -?*) ;; # scope/format flags (--global/--type/…) are read-safe
+          *)
+            operands=1
+            positional=$((positional + 1))
+            ;;
         esac
       done
-      [ "$writes" = 1 ] && return 1
       [ "$read_flag" = 1 ] && return 0
       [ "$positional" -ge 2 ] && return 1 # `git config key value` sets
       return 0
@@ -4204,26 +4245,14 @@ guard_git() {
       # objects. Not through -C.
       if [ "$viac" = 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ]; then
         HOOK_WT_ROOT=$REC_WT
-        # A fetch is no own-unit partner, whichever arm approves it.
+        # It writes remote-tracking refs, so it is no own-unit partner.
         cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && ARM_ACT=1 && return 0
       fi
-      ob_git "$sub" "$subidx" && ARM_ACT=1
+      ob_git "$sub" "$subidx"
       ;;
-    add | commit) ob_git_partner "$sub" "$subidx" ;;
-    rm | mv | restore | checkout | merge) ob_git "$sub" "$subidx" && ARM_ACT=1 ;;
+    add | rm | mv | restore | checkout | commit | merge) ob_git "$sub" "$subidx" ;;
     *) return 1 ;;
   esac
-}
-
-# ob_git_partner <sub> <index>: ob_git for the own-branch arm's `git add` and
-# `git commit`, the two git acts that may come before an own-unit act in its
-# chain (OU_PARTNER): a read their checks make (a `commit -F` file) is no
-# write, so it leaves ARM_ACT as it was.
-ob_git_partner() {
-  local arm=$ARM_ACT
-  ob_git "$1" "$2" || return 1
-  ARM_ACT=$arm
-  OU_PARTNER=1
 }
 
 # ls_remote_url_ok <remote>: 0 only when `git ls-remote <remote>` would use a
@@ -4291,7 +4320,10 @@ ls_remote_url_ok() {
 #     that carried state (an assignment or a `cd`); closed by `;`, `&&`, `||`
 #     or the end. Anywhere else (a pipeline, the background, after a real
 #     command's `&&` or `||`, a loop/if/case body) the shell may not set it for
-#     what follows, so the whole command defers.
+#     what follows, so the whole command defers;
+#   * a later top-level `&` that backgrounds the and-or list holding it
+#     (`D=x && true & …`) drops it again: the list ran in a subshell, so
+#     what follows sees the value from before that list, or none.
 # A value holding a space is substituted only inside double quotes, where it
 # stays one word in every shell; unquoted, bash splits it and zsh (the Bash
 # tool's shell on macOS) does not, so there it stays unresolved. An empty
@@ -6336,7 +6368,7 @@ verify_simple() {
     [ -z "${csub[i]-}" ] || return 1
   done
   declared_line_ok || return 1
-  OU_PARTNER=1
+  TASK_ACT=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -7165,12 +7197,11 @@ verify_known_simple() {
   case $verb in
     */*)
       is_trusted_script "$verb" "$HOOK_CWD" || return 1
-      # Trusted code that may write: a gate task, which may come before an
-      # own-unit act only as a partner in its chain; an installed step
-      # script is the one script free of that rule.
+      # Trusted code that may write, which no own-unit act may share a
+      # command with; an installed step script is the one exception.
       case $verb in
-        */step-run.sh | */step-record.sh) is_planwright_script "$verb" "$HOOK_CWD" || OU_PARTNER=1 ;;
-        *) OU_PARTNER=1 ;;
+        */step-run.sh | */step-record.sh) is_planwright_script "$verb" "$HOOK_CWD" || TASK_ACT=1 ;;
+        *) TASK_ACT=1 ;;
       esac
       return 0
       ;;
@@ -7180,7 +7211,7 @@ verify_known_simple() {
   fi
   classify_verb "$verb" || return 1
   case $verb in
-    mise | lefthook | bats | bash | sh) OU_PARTNER=1 ;;
+    mise | lefthook | bats | bash | sh) TASK_ACT=1 ;;
   esac
   return 0
 }
@@ -7210,11 +7241,13 @@ verify_tokens() {
   local ou_list=0
   # 1 once that list has passed a top-level `||`: an act after it is after `||`.
   local ou_or=0
-  # An own-unit act's partners (OU_PARTNER: git add or commit, a gate task)
-  # come before it in one top-level `&&` chain. ou_chain: a partner was seen
-  # and its chain is still open; ou_bad: one was seen anywhere else, or after
-  # an act (ou_seen), so no act in this command is approved.
-  local ou_chain=0 ou_bad=0 ou_seen=0
+  # 1 while the segment about to be read is piped: the last close was `|`,
+  # with only line breaks (empty `;` segments) since.
+  local ou_pipe=0
+  # The VAR table's size when the current top-level and-or list began, so a
+  # trailing `&` can drop what that list assigned, and whether the last `;`
+  # was a newline continuing that list (fin).
+  local list_var=$VAR_C list_cont=0
   # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
   # chain passes the scoped read check (SEG_SCOPED), with the directory it
   # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
@@ -7248,7 +7281,8 @@ verify_tokens() {
   # by `;` or `||`, enters it, and every later segment is checked from both
   # directories the line may then be in.
   fin() {
-    local close=$1 placed=0
+    local close=$1 placed=0 empty=0
+    [ "$cwn" -gt 0 ] || [ "$rn" -gt 0 ] || empty=1
     PENDING_ASSIGN_N=''
     PENDING_ASSIGN_V=''
     PENDING_ASSIGN_O=0
@@ -7258,38 +7292,20 @@ verify_tokens() {
     PENDING_OUT_DIR=''
     SEG_SCOPED=0
     OU_SEG=0
-    OU_PARTNER=0
     verify_simple || return 1
+    if [ "$close" = '|' ]; then
+      ou_pipe=1
+    elif [ "$empty" = 0 ] || [ "$close" != ';' ]; then
+      ou_pipe=0
+    fi
     [ "$OU_SEG" = 0 ] || ou_list=1
-    if [ "$OU_PARTNER" = 1 ]; then
-      if [ "$ctl_depth" -ne 0 ] || [ "$close" != '&&' ] || [ "$ou_seen" = 1 ] || [ "$ou_or" = 1 ]; then
-        ou_bad=1
-      fi
-      case $seg_open in
-        '' | ';' | '&&') ;;
-        *) ou_bad=1 ;;
-      esac
-      ou_chain=1
-    elif [ "$OU_SEG" = 0 ] && [ "$ou_chain" = 1 ] && [ "$ou_seen" = 0 ] && [ "$ctl_depth" -eq 0 ]; then
-      # A segment between a partner and the act keeps the chain only by `&&`;
-      # an empty one is a line break after `&&`, which continues it.
-      case $close in
-        '&&') ;;
-        *) [ "$cwn" -eq 0 ] && [ "$rn" -eq 0 ] && [ "$close" = ';' ] || ou_bad=1 ;;
-      esac
-    fi
-    if [ "$OU_SEG" = 1 ]; then
-      ou_seen=1
-      [ "$ou_bad" = 0 ] || return 1
-    fi
-    [ "$ou_seen" = 0 ] || [ "$ou_bad" = 0 ] || return 1
     if [ "$ctl_depth" -eq 0 ]; then
       [ "$close" != '&' ] || [ "$ou_list" = 0 ] || return 1
       # The tokenizer reads every line break as `;`, but one right after
       # `&&`, `||` or `|` (an empty segment) continues the list.
       case $close in
         end) ou_list=0 ou_or=0 ;;
-        ';') [ "$cwn" -eq 0 ] && [ "$rn" -eq 0 ] || ou_list=0 ou_or=0 ;;
+        ';') [ "$empty" = 1 ] || ou_list=0 ou_or=0 ;;
         '||') ou_or=1 ;;
       esac
     fi
@@ -7368,6 +7384,24 @@ verify_tokens() {
       [ -z "${csub[0]-}" ] || prev_commit=0
     else
       prev_commit=0
+    fi
+    # A top-level `&` runs the whole and-or list since the last top-level `;`,
+    # newline or `&` in a background subshell, not just its last command, so
+    # nothing that list assigned reaches the commands after it. The tokenizer
+    # reads a newline as `;`, and newlines straight after `&&`, `||` or `|`
+    # continue the list instead of ending it.
+    if [ "$ctl_depth" -eq 0 ]; then
+      local cont=0
+      if [ "$close" = ';' ] && [ "$empty" = 1 ]; then
+        case $list_cont:$seg_open in
+          1:';' | *:'&&' | *:'||' | *:'|') cont=1 ;;
+        esac
+      fi
+      case $close in
+        '&') VAR_C=$list_var ;;
+        ';') [ "$cont" = 1 ] || list_var=$VAR_C ;;
+      esac
+      list_cont=$cont
     fi
     seg_open=$close
     cw=()
@@ -7731,14 +7765,17 @@ main() {
   OU_EXPORTED=0
   OU_EXP_NAMES=''
   ARM_ACT=0
+  TASK_ACT=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
-  # An own-unit act shares its command only with a cd into the worktree,
-  # read-only segments, a step-context export, an installed step script, and
-  # the partners verify_tokens places before it (git add or commit, a gate
-  # task): never with a file write, another git act or a spec-root write.
-  [ "$AUDIT_OU" = 0 ] || [ "$ARM_ACT" = 0 ] || return 0
+  # An own-unit act shares its command only with a cd into the worktree, a
+  # read-only segment, a step-context export or an installed step script:
+  # never with a write or git act the own-branch or scratch arm or the
+  # spec-root zone approved, nor with trusted repository code (a mise or
+  # lefthook task, bats, a repo or other plugin script, a declared step), so
+  # a worker commits or runs its gate, then pushes in a call of its own.
+  [ "$AUDIT_OU" = 0 ] || { [ "$ARM_ACT" = 0 ] && [ "$TASK_ACT" = 0 ]; } || return 0
   audit_append "$cmd" "$sid"
   emit_allow
   return 0
