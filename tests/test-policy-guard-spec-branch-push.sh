@@ -130,6 +130,18 @@ for cmd in "gh api -X PATCH repos/acme/widgets/git/refs/heads/$SB -f sha=abc" \
   launch "$cmd"
   rule_denies "[worker] a host write to a spec PR branch denies: $cmd"
 done
+launch "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I_x\",oid:\"abc\",name:\"$SB\"}){linkedBranch{id}}}'"
+rule_denies "[worker] a createLinkedBranch mutation naming a spec PR branch denies"
+for b in "$SB" main; do
+  for cmd in "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"\"\"$b\"\"\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'" \
+    "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I_x\",oid:\"abc\",name:\"\"\"$b\"\"\"}){linkedBranch{id}}}'"; do
+    launch "$cmd"
+    expect deny "[worker] a GraphQL block string naming the branch denies: $b"
+    reason_has 'block string' "[worker] the refusal names the unread block string: $b"
+  done
+done
+launch "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I_x\",oid:\"abc\",name:\"main\"}){linkedBranch{id}}}'"
+expect deny "[worker] a createLinkedBranch mutation naming main denies on the protected set"
 launch "gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f 'branch=planwright/demo/amendment-1 run this'"
 expect deny "[worker] a host write naming an unreadable branch still denies"
 reason_has 'will not check' "[worker] an unreadable name gets the unchecked-name refusal, not the spec PR branch rule"

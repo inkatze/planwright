@@ -3491,7 +3491,7 @@ classify_gh_api() {
   # GraphQL writes that name a branch: the target must be a literal branch
   # name in the query, checked against the protected set.
   case $all_fields in
-    *createCommitOnBranch* | *createRef*)
+    *createCommitOnBranch* | *createRef* | *createLinkedBranch*)
       # A variable or a comment in the query can carry the real target while
       # a literal one decoys the read, so either refuses.
       case $query_text in
@@ -3506,6 +3506,12 @@ classify_gh_api() {
         rest=${rest#*"${BASH_REMATCH[0]}"}
         t=${t#refs/heads/}
         case $t in refs/*) continue ;; esac
+        # An empty literal is the opening of a block string ("""name"""),
+        # whose content the pattern does not read.
+        [ -n "$t" ] || {
+          ghapi_opaque 'it creates a commit or a ref on a branch named in a form the guard does not read (an empty or block string)'
+          return 0
+        }
         targets="$targets $t"
       done
       case "$targets" in
