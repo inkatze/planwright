@@ -261,10 +261,10 @@ misroute() {
   printf '%s\t%s\t%s\t%s\t%s\n' "$NOW" "$1" "$2" "$mr_s" "$4" >>"$misroutes" || :
 }
 
-# require_mission_control_caller <verb> <target>: exits 4 when the caller
+# require_mc_caller <verb> <target>: exits 4 when the caller
 # carries a worker identity whose session is not mission control: a panel
 # mod that activated in a worker must neither take the target nor its wake.
-require_mission_control_caller() {
+require_mc_caller() {
   rc_h=${PLANWRIGHT_WORKER_HANDLE:-}
   [ -n "$rc_h" ] || return 0
   session_kind "$rc_h"
@@ -542,7 +542,7 @@ case $verb in
         w=${args[0]}
         mc_valid_handle "$w" || mc_usage_fail "invalid worker '$(sanitize_printable "$w")'"
         [ "$sub" = add ] || [ "$mod" -eq 0 ] || usage
-        [ "$mod" -eq 0 ] || require_mission_control_caller claim "$w"
+        [ "$mod" -eq 0 ] || require_mc_caller claim "$w"
         line=""
         if [ "$sub" = add ]; then
           if [ "$mod" -eq 1 ]; then line="$w	mod"; else line="$w	no-mod"; fi
@@ -596,7 +596,7 @@ case $verb in
     w=${args[0]}
     mc_valid_handle "$w" || mc_usage_fail "invalid target '$(sanitize_printable "$w")'"
     mc_gate_or_exit mc-wake
-    require_mission_control_caller compose "$w"
+    require_mc_caller compose "$w"
     select_events "$w" unsubmitted || mc_fail "cannot read the events for '$w'"
     if [ "$SEL_TOTAL" -eq 0 ]; then
       printf 'idle\n'
