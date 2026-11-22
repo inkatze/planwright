@@ -594,8 +594,9 @@ misroutes="$fleet/mission-control/alpha/wake-misroutes"
 setup
 mc_run fleet-state.sh register wk mission-control:alpha --backend stream-json --death-handle none
 mc_run fleet-state.sh register nr mission-control:alpha --backend stream-json --death-handle none
-# The prompt's subject must be a live session, or the wake drops its event
-# as gone before any routing check runs.
+# The allowed compose below must carry this prompt, so its subject is a live
+# session; a second prompt's subject is gone, and only a target the routing
+# lets through may mark it.
 mc_run fleet-state.sh register mc-beta-worker-1 mission-control:alpha --backend stream-json --death-handle none
 launcher_row wk worker
 launcher_row mcs mission-control
@@ -603,12 +604,18 @@ mc_run mc-wake.sh target add --program alpha wk
 mc_run mc-wake.sh target add --program alpha nr
 mc_run mc-event.sh emit --program alpha pending-prompt-overdue mc-beta-worker-1 "a prompt waits"
 mis_ev=$OUT
+mc_run mc-event.sh emit --program alpha pending-prompt-overdue mc-retired-x "a retired worker's prompt"
+gone_ev=$OUT
 mc_run mc-wake.sh relay --program alpha
 expect_out "the relay refuses a target whose session is a worker" "misroute${tab}wk${tab}worker"
 expect_out "and one whose kind no launcher row names" "misroute${tab}nr${tab}unknown"
 expect_err "the refusal is named on stderr" "refusing to wake wk"
 mc_run mc-event.sh list --program alpha --target wk "$mis_ev"
 expect_out "the refused target's events stay unmarked" "a prompt waits${tab}-"
+mc_run mc-event.sh list --program alpha --target wk "$gone_ev"
+expect_out "a gone one included: the refusal comes before the gone check" "a retired worker's prompt${tab}-"
+mc_run mc-event.sh list --program alpha --target nr "$gone_ev"
+expect_out "for a target with no launcher row too" "a retired worker's prompt${tab}-"
 if [ -f "$misroutes" ] && grep -q "${tab}relay${tab}wk${tab}wk${tab}worker\$" "$misroutes"; then
   ok "the refusal is logged"
 else
@@ -651,6 +658,8 @@ expect_eq "and composes nothing" ""
 expect_err "the refusal names the worker and its kind" "wk (kind worker)"
 mc_run mc-event.sh list --program alpha --target alpha "$mis_ev"
 expect_out "the target's events stay unsent" "a prompt waits${tab}-"
+mc_run mc-event.sh list --program alpha --target alpha "$gone_ev"
+expect_out "the gone one stays unmarked after a refused compose" "a retired worker's prompt${tab}-"
 if grep -q "${tab}compose${tab}alpha${tab}wk${tab}worker\$" "$misroutes"; then
   ok "the compose refusal is logged"
 else
@@ -673,6 +682,9 @@ OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=mcs /bin/bash "$repo_root/scripts/mc-w
 RC=$?
 expect_rc "a mission-control session's compose is allowed" 0
 expect_out "and carries the wake" "- pending-prompt-overdue mc-beta-worker-1"
+expect_no_out "but not the gone prompt" "mc-retired-x"
+mc_run mc-event.sh list --program alpha --target alpha "$gone_ev"
+expect_out "which the allowed compose marks submitted" "a retired worker's prompt${tab}submitted"
 mc_run mc-wake.sh compose --program alpha alpha
 expect_out "a session with no worker identity still composes" "- pending-prompt-overdue mc-beta-worker-1"
 # Two relay refusals, two compose refusals and one claim refusal.
