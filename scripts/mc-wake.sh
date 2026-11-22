@@ -79,7 +79,7 @@ verb, target, session and kind is logged in <runtime>/wake-misroutes
 wake-misroute event.
 A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
 `routine`) never wakes: relay, tick and compose leave it out of the wake
-and mark it submitted for the target (compose's one mark), since the
+and mark it submitted for the target, since the
 script that emitted it already acted and nothing in it is for the
 operator; it stays listable. With the table unreadable every event wakes,
 said on stderr.
@@ -151,9 +151,9 @@ Usage:
       the wake a session with the mod submits itself: `idle`, or
       `wake<TAB><n><TAB><id> <id>...` then the wake's text, over the
       target's events not yet submitted (the tick's selection); or
-      `paused` (`blocked`) as the relay. Sends nothing and marks only
-      routine events: the mod marks the ids submitted once its prompt is
-      in.
+      `paused` (`blocked`) as the relay. Sends nothing and marks only the
+      events it leaves out (routine, gone-subject and stale merge-ready
+      ones): the mod marks the ids submitted once its prompt is in.
 
 Exit codes: 0 done (a refused or unreachable target is reported, not a
 failure); 1 a store that cannot be read or written (the fleet registry
@@ -339,14 +339,15 @@ EOF
 }
 
 # select_events <target> unmarked|unsubmitted: the target's events for one
-# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (all but the routine
-# ones and those whose subject is gone), SEL_N and SEL_IDS (space separated).
+# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (every event the wake
+# may carry, before the LISTED_MAX cut), SEL_N and SEL_IDS (space separated).
 select_events() {
   SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending --limit 100000) || return 1
   # A routine event, and one whose subject is gone (a retired session, a
   # merged pull request, a past holder), is marked submitted unsent, so it
-  # leaves the pending set (the next listing) instead of piling up there. Marked in batches, so a large backlog never outgrows the
-  # argument list and holds back the events that do wake.
+  # leaves the pending set (the next listing) instead of piling up there.
+  # Marked in batches, so a large backlog never outgrows the argument list
+  # and holds back the events that do wake.
   sel_routine=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes --routine | awk -F '\t' '{ print $1 }')
   sel_gone=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes | mc_event_gone "$program")
   sel_ids=$(printf '%s\n%s\n' "$sel_routine" "$sel_gone" | awk 'NF && !seen[$0]++')

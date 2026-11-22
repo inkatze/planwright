@@ -1,10 +1,11 @@
 #!/bin/sh
 # mc-session-names.sh — the names of the sessions that exist now, one per
-# line: every launched mission-control session and every fleet registry
-# worker whose last row is not retired. Read-only; it starts nothing.
+# line: every session the mission-control launcher lists, whatever its kind,
+# and every fleet registry worker whose last row is not retired. Read-only;
+# it starts nothing.
 #
-# Exit 0 with the names (none at all reads as an unreadable source, exit 1);
-# 1 when either source cannot be read.
+# Exit 0 with the names; 1 when either source cannot be read or together
+# they name no session.
 set -u
 LC_ALL=C
 export LC_ALL
