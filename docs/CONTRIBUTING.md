@@ -394,7 +394,8 @@ its fixture.
 ### Tests pass on the code, not on the host
 
 A suite run by hand inherits whoever runs it, so a root or overlay variable
-from that shell can decide what the code under test reads.
+from that shell, or a launched worker's session variables, can decide what
+the code under test reads.
 [`tests/lib/hermetic-env.sh`](../tests/lib/hermetic-env.sh) holds the one
 list of those variables and clears them when sourced; the runner pins the
 same list per file (`PLANWRIGHT_TEST_PIN_ENV=0` turns that off). A suite that
