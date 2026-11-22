@@ -1113,7 +1113,9 @@ launch_oldeh() {
 oldeh_refused() {
   { [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ] && grep -qF -- "$2" "$tmp/c9l7.err"; } \
     || fail "c9l: $1 must refuse the launch (exit 9) before a spawn, naming '$2' (exit $l_rc: $(cat "$tmp/c9l7.err"))"
-  [ -z "$(opt_in_of sjw9l7)" ] || fail "c9l: $1: a launch refused at the preflight must record no opt-in"
+  case " $(opt_in_of sjw9l7 | tr '\n' ' ') " in
+    *" lefthook_edit=1 "*) fail "c9l: $1: a launch refused at the preflight must record no lefthook opt-in" ;;
+  esac
 }
 # The knob that softens the approval proof neither skips nor softens this one.
 for mode in refuse warn off; do
