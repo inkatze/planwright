@@ -932,15 +932,31 @@ and stays up for the next, so `awaiting-input` outranks an earlier turn's
 `completed`, and the stuck detector likewise keeps such a worker
 `waiting-on-a-human` rather than finished.
 
+A worker that parks itself on the operator (`mission-control-launch.sh wait
+<name> --on operator`, then ends its turn) has no request pending, so the
+prompt alarm never sees it. The same watch raises it instead: a stream-json
+worker, reviewer or ad-hoc session of the program whose row records that
+wait, with a pidfile left and its event log still ending at its last turn's
+result, parked longer than `mission_control_worker_completed_grace`, wakes its
+mission control as one `worker-parked-on-operator` event. The event names the
+worker and ends with the first lines of that result, so the reader sees what
+it waits on without opening anything. It is raised once per park: the park
+starts at the later of that result and the moment the wait was set (the
+launcher records it as the row's `waited` field), a message that starts the
+worker's next turn ends it, and a turn that ends parked again is a new park.
+A wait on CI or a ready flip is no park, and a kickoff relay, which waits on
+the operator by design, is left out.
+
 **When the mission control itself does not answer.** The alarm's wake reaches
 the one session that should answer, which helps nothing when that session is
 stuck. A second session-keeper watcher, `scripts/mc-escalate.sh`, raises what
 a program's mission control leaves unanswered one level up, with no model in
-the path. Two things qualify: a request of one of the program's own live
-workers still pending `mission_control_escalation_window` past the alarm,
-and the mission control's own tmux pane showing an open dialog for that
-long. Auto mode's confirmation after blocked actions is one such dialog, and
-Remote Control does not show it. Either becomes a `mission-control-escalated`
+the path. Three things qualify: a request of one of the program's own live
+workers still pending `mission_control_escalation_window` past the alarm, a
+worker still parked on the operator that long past its park alarm, and the
+mission control's own tmux pane showing an open dialog for that long. Auto
+mode's confirmation after blocked actions is one such dialog, and Remote
+Control does not show it. Each becomes a `mission-control-escalated`
 event in the hub program's store (`mission_control_escalation_hub`, when its
 holder is live), and at twice the window a push to the operator through the
 notification seam. With no live hub, or for the hub's own items, the first
