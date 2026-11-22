@@ -588,6 +588,12 @@ plain forms:
   guard's own approval of a declared line typed in the session is a separate
   check.
 
+The screens above hold for commands the guard judges by their words. A
+command step or a check command the repository declares (`worker_check_commands`)
+is approved by its declaration, as repository code is, so a declared
+`markdownlint-cli2 <path>` check runs whatever config its folders hold: a
+repository that declares one takes that on.
+
 ## The mise task-file opt-in
 
 The shipped profile denies the file tools every mise task-file name
