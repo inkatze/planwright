@@ -147,7 +147,16 @@ expect_rc "a draft holding it is not merge-ready" 4
 case $OUT in "flip-for-review${tab}$head"*) ok "a draft holding only another unit's post-pr is told to flip" ;; *) fail "a draft holding another unit's post-pr reads: $OUT" ;; esac
 walk_collected "state,ready" "flip,2026-11-18T00:42:21Z" "require,pr-agent" "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:42:23Z"
 expect_rc "a ready pull request holding it is not merge-ready" 4
-expect_out "it names the post-pr gap" "fail${tab}cadence${tab}post-pr: completed only outside the history of this pull request, newest at ${other_unit%"${other_unit#????????????}"}"
+other_unit_short=$(printf '%.12s' "$other_unit")
+expect_out "it names the post-pr gap" "fail${tab}cadence${tab}post-pr: completed only outside the history of this pull request, newest at $other_unit_short"
+# A shallow repository cuts the history the check walks, so it never says foreign.
+shallow="$repo/.git/shallow"
+printf '%s\n' "$head" >"$shallow"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+rm -f "$shallow"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "in a shallow repository the same completion stays stale" "cadence${tab}gap${tab}post-pr${tab}stale${tab}$other_unit"
+hasnt "never foreign" "cadence${tab}gap${tab}post-pr${tab}foreign"
 post_pr_at "$prev"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 c=$(cat "$tmp/collected" 2>/dev/null)
@@ -164,7 +173,9 @@ hasnt "so the point is not foreign" "cadence${tab}gap${tab}post-pr${tab}foreign"
 rm -rf "$tmp/feature-wt/.claude/steps"
 post_pr_at "$prev"
 own_done="$tmp/feature-wt/.claude/steps/000001/002-done-post-pr.rec"
-if [ -f "$own_done" ] && printf '%s' "$(cat "$own_done")" >"$own_done.new" && mv "$own_done.new" "$own_done"; then
+# The command substitution drops the final newline; a plain copy would not.
+if [ -f "$own_done" ] && printf '%s' "$(cat "$own_done")" >"$own_done.new" && mv "$own_done.new" "$own_done" \
+  && [ -n "$(tail -c 1 "$own_done")" ]; then
   post_pr_at "$other_unit"
   PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
   c=$(cat "$tmp/collected" 2>/dev/null)
