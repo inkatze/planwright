@@ -568,10 +568,13 @@ What still runs code a worker wrote without a prompt:
   static allows for `git checkout` and `git switch` let the worktree move
   HEAD. A commit sits on a branch and, on the unit branch, in its PR, where
   review sees it.
-- **The repository's tasks and hooks.** `mise run <task>` and `lefthook run
-  <hook>` run config the path denies protect, and whatever that config runs,
-  the test files a worker wrote among them: the gate has to run what the
-  worker wrote.
+- **The repository's tasks, hooks and check commands.** `mise run <task>`,
+  `lefthook run <hook>` and a check command the repository declares in
+  `worker_check_commands` run config the path denies protect, and whatever
+  that config or a check command's `<path>` names, the test files a worker
+  wrote among them: the gate has to run what the worker wrote. A declaration
+  whose `<path>` is the script it runs (`bash <path>`) admits any file in the
+  worktree, committed or not, so it is the repository's own choice to make.
 - **What a committed script reaches.** The guard checks the script it runs,
   not a path it is handed, a sibling it sources or calls, or a test file it
   globs, any of which a worker may have written or edited. That includes
