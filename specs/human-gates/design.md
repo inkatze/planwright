@@ -1058,7 +1058,7 @@ routed as D-18's and D-25's are.
 gate test puts it and hands only the mechanics to a session whose acts the
 guard bounds to two.
 
-### D-27: A launched worker publishes a leased rewrite of its own draft branch, off by default  (N, the operator's ruling on PR #1119)
+### D-27: A launched worker publishes a leased rewrite of its own draft branch, off by default  (N, the operator's ruling on PR #1119; supersedes D-8 in part, scopes D-9)
 
 **Decision:** Under a `draft_rewrite` knob (`deny` by default, `allow`), a
 worker mission control launched may reshape commits it has already pushed
