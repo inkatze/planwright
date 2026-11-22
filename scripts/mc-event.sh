@@ -101,8 +101,8 @@ Usage:
       which removes nothing. A filter is required with --dry-run.
 
 Exit codes: 0 done; 1 the store cannot be read or written, an invalid
-retention knob, or no scratch directory for --gone; 2 usage or a value outside its grammar; 3 an id that names
-no event (mark).
+retention knob, or no scratch directory for --gone; 2 usage or a value
+outside its grammar; 3 an id that names no event (mark).
 
 Portable bash 3.2 / BSD tooling.
 HELP

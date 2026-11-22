@@ -79,10 +79,9 @@ verb, target, session and kind is logged in <runtime>/wake-misroutes
 wake-misroute event.
 A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
 `routine`) never wakes: relay, tick and compose leave it out of the wake
-and mark it submitted for the target, since the
-script that emitted it already acted and nothing in it is for the
-operator; it stays listable. With the table unreadable every event wakes,
-said on stderr.
+and mark it submitted for the target, since the script that emitted it
+already acted and nothing in it is for the operator; it stays listable.
+With the table unreadable every event wakes, said on stderr.
 AN EVENT WHOSE SUBJECT IS GONE never wakes either: relay, tick and compose
 mark it submitted unsent (mc-event.sh prune --gone, run by hand, clears the
 same ones from the store). Gone is a pending-prompt-overdue for a session
