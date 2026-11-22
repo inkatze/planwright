@@ -150,6 +150,25 @@ if [ "$RC" -eq 0 ] && [ "${#got}" -le 2048 ] && [ "${got%%;*}" = "mix t1 <path>"
 else
   fail "A1.18: long list (len=${#got}, rc=$RC, $(cat "$T/err"))"
 fi
+hooks=''
+for i in $(seq 1 220); do hooks="${hooks}hook-name-$i "; done
+set_layer machine-local "worker_check_commands: $long
+worker_hook_exclude: $hooks"
+write "$WT"
+if [ "$RC" -eq 0 ] && ! grep -q '^check_commands=' "$REC" && grep -q '^hook_exclude=' "$REC" \
+  && [ "$(wc -c <"$REC")" -le 4096 ] && grep -q 'would pass' "$T/err"; then
+  pass "A1.18: a record that would pass the readers' size bound drops the check commands, not the record"
+else
+  fail "A1.18: oversize record (rc=$RC, size=$(wc -c <"$REC"), $(cat "$T/err"))"
+fi
+set_layer machine-local 'worker_check_commands: mix test <path>
+not flat'
+write "$WT"
+if grep -q 'could not be read' "$T/err"; then
+  pass "A1.18: a failed read is warned about"
+else
+  fail "A1.18: no warning on a failed read: $(cat "$T/err")"
+fi
 set_layer machine-local ''
 set_layer repo-tracked ''
 

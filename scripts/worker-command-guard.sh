@@ -18,13 +18,14 @@
 #   * The floor first: before any approval is weighed,
 #     a simple command that a `Bash(…)` rule of the worker profile's deny
 #     block matches, or that is a reserved act (a push, rebase, reset, amend,
-#     hook skip, squash, or `gh` write), defers, declared steps' lines
-#     included, save two own-unit acts (see own_unit_act): a push of the
+#     hook skip, squash, or `gh` write), defers, declared check commands and
+#     steps' lines included, save two own-unit acts (see own_unit_act): a push of the
 #     recorded unit branch to origin and a body edit of its own open pull
 #     request. The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
-#     shapes, trusted repo code, declared steps, the spec-root write zone) is
+#     shapes, trusted repo code, declared check commands and steps, the
+#     spec-root write zone) is
 #     always in force; the own-branch arm, which approves writes confined to
 #     the unit branch and its worktree, and the scratch arm, which approves
 #     writes confined to the worker's scratch root, each only when the session
@@ -1633,6 +1634,24 @@ ob_mark() {
   esac
 }
 
+# lower <text>: the text with A-Z lowercased into LOWER, as `tr` does under
+# the C locale, without a fork: a fork that failed would leave an empty
+# string, which matches no excluded name and so would admit the path.
+lower() {
+  local s=$1 out='' c k i u=ABCDEFGHIJKLMNOPQRSTUVWXYZ l=abcdefghijklmnopqrstuvwxyz
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    case $c in
+      [A-Z])
+        k=${u%%"$c"*}
+        c=${l:${#k}:1}
+        ;;
+    esac
+    out=$out$c
+  done
+  LOWER=$out
+}
+
 # canon_loose <abs>: the canonical form of an absolute path whose trailing
 # components may not exist yet.
 canon_loose() {
@@ -1671,7 +1690,8 @@ ob_excl_load() {
 $raw
 EOF
   [ -n "$out" ] || return 1
-  OB_EXCL_DIRS=$(printf '%s' "$out" | tr '[:upper:]' '[:lower:]')
+  lower "$out"
+  OB_EXCL_DIRS=$LOWER
   OB_EXCL_STATE=1
 }
 
@@ -1682,7 +1702,8 @@ EOF
 # are let through: only the worktree zone of an opted-in session asks for it.
 ob_excluded_name() {
   local low
-  low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  lower "$1"
+  low=$LOWER
   if [ "${2:-0}" = 1 ]; then
     case $low in
       mise.toml | .mise.toml | mise-tasks | .mise-tasks) return 1 ;;
@@ -1698,7 +1719,8 @@ ob_excluded_name() {
 # loads, matched case-insensitively. Anything else there is never read.
 ob_excluded_mise_child() {
   local low
-  low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  lower "$1"
+  low=$LOWER
   case $low in
     config*.toml | miserc*.toml | conf.d | tasks) return 0 ;;
   esac
@@ -1713,7 +1735,8 @@ ob_excluded_mise_child() {
 ob_excluded_rel() {
   local comp prev last=''
   local -a comps=()
-  prev=$(printf '%s' "${2##*/}" | tr '[:upper:]' '[:lower:]')
+  lower "${2##*/}"
+  prev=$LOWER
   IFS=/ read -r -a comps <<<"$1"
   for comp in ${comps[@]+"${comps[@]}"}; do
     case $comp in
@@ -1723,7 +1746,8 @@ ob_excluded_rel() {
     if [ "$prev" = mise ] && ob_excluded_mise_child "$comp"; then
       return 0
     fi
-    prev=$(printf '%s' "$comp" | tr '[:upper:]' '[:lower:]')
+    lower "$comp"
+    prev=$LOWER
     last=$prev
   done
   [ "$last" = mise ]
@@ -1734,7 +1758,8 @@ ob_excluded_rel() {
 ob_excluded() {
   local full=$1 low d
   ob_excl_load || return 0
-  low=$(printf '%s' "$full" | tr '[:upper:]' '[:lower:]')
+  lower "$full"
+  low=$LOWER
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     case $low/ in
@@ -1750,7 +1775,8 @@ EOF
 # excluded path, for a recursive act on it.
 ob_tree_clean() {
   local dir=$1 low d hit
-  low=$(printf '%s' "$dir" | tr '[:upper:]' '[:lower:]')
+  lower "$dir"
+  low=$LOWER
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     case $d/ in
@@ -1848,7 +1874,8 @@ ob_path() {
     # read them as its own configuration. The root is the worker's TMPDIR,
     # so its mise/ is mise's own temporary directory.
     ob_excluded_rel "${acc#"$REC_SCRATCH"/}" "$REC_SCRATCH" && return 1
-    case $(printf '%s' "${acc#"$REC_SCRATCH"/}" | tr '[:upper:]' '[:lower:]') in
+    lower "${acc#"$REC_SCRATCH"/}"
+    case $LOWER in
       mise | mise/*) return 1 ;;
     esac
     OB_ZONE=sc
@@ -6016,7 +6043,7 @@ classify_verb() {
 # own-branch arm excludes, so naming no hooks, git or tool configuration
 # path), the last of them optionally suffixed `...` to match one or more
 # words. No placeholder matches a leading dash, a shell metacharacter or an
-# expansion. A runner prefix (`mise exec --`) is literal words like any other,
+# expansion, and the working directory is held to the `<path>` rules. A runner prefix (`mise exec --`) is literal words like any other,
 # so it admits its own sequence and never the runner in general. A
 # declaration holding anything else is malformed and dropped alone. The
 # declarations come from the session record, read by the launcher at the
@@ -6026,11 +6053,23 @@ classify_verb() {
 
 readonly MAX_CHECK_WORDS=32
 readonly MAX_CHECK_ARG=512
+# The `<path>` words one hook call may check: each walks and canonicalizes a
+# path, a cost the command-length bounds do not cap.
+readonly MAX_CHECK_PATHS=64
+CHECK_PATHS_N=0
+# The well-formed declarations, parsed once per hook call (check_decls_load),
+# with their first words; the working directory last checked, and its verdict.
+CHECK_STATE=0
+CHECK_DECLS=()
+CHECK_FIRST=()
+CHECK_CWD_FOR=''
+CHECK_CWD=''
 
-# check_word_ok <word>: the `<word>` placeholder.
+# check_word_ok <word>: the `<word>` placeholder. A leading `=` is refused
+# because zsh expands `=name` to a command's absolute path.
 check_word_ok() {
   case $1 in
-    '' | -* | *[!A-Za-z0-9._:@%,+=-]* | . | ..) return 1 ;;
+    '' | -* | =* | *[!A-Za-z0-9._:@%,+=-]* | . | ..) return 1 ;;
   esac
   [ "${#1}" -le "$MAX_CHECK_ARG" ]
 }
@@ -6043,28 +6082,20 @@ check_int_ok() {
   [ "${#1}" -le 18 ]
 }
 
-# check_path_ok <word> <canonical-cwd>: the `<path>` placeholder.
-check_path_ok() {
-  local p=$1 c low d
-  case $p in
-    '' | -* | /* | *[!A-Za-z0-9._/:@%,+=-]*) return 1 ;;
-  esac
-  [ "${#p}" -le "$MAX_CHECK_ARG" ] || return 1
-  case /$p/ in
-    */../*) return 1 ;;
-  esac
-  [ ! -L "$2/${p%/}" ] || return 1
-  c=$(canon_loose "$2/${p%/}") || return 1
+# check_dir_open <canonical-path>: 0 when the path is the worktree root or
+# lies inside it, outside every path the own-branch arm excludes.
+check_dir_open() {
+  local c=$1 d
   [ "$c" = "$REC_WT" ] && return 0
   case $c/ in
     "$REC_WT"/*) ;;
     *) return 1 ;;
   esac
   ob_excl_load || return 1
-  low=$(printf '%s' "$c" | tr '[:upper:]' '[:lower:]')
+  lower "$c"
   while IFS= read -r d; do
     [ -n "$d" ] || continue
-    case $low/ in
+    case $LOWER/ in
       "$d"/*) return 1 ;;
     esac
   done <<EOF
@@ -6073,19 +6104,52 @@ EOF
   ! ob_excluded_rel "${c#"$REC_WT"/}" "$REC_WT" 0
 }
 
-# check_decl_match <declaration> <canonical-cwd>: 0 when the declaration is
-# well formed and the current simple command's words (`sw` / `swn`, via
-# dynamic scope) match it.
-check_decl_match() {
-  local -a dw=()
-  local n j i=0 d ph last
-  IFS=' ' read -r -a dw <<<"$1"
-  n=${#dw[@]}
+# check_path_in <relative-path> <canonical-cwd>: 0 when no existing component
+# of the path is a symlink and it resolves inside the worktree, outside every
+# excluded path.
+check_path_in() {
+  local rest=$1 acc=$2 comp c
+  case /$rest/ in
+    */../*) return 1 ;;
+  esac
+  while [ -n "$rest" ]; do
+    comp=${rest%%/*}
+    case $rest in
+      */*) rest=${rest#*/} ;;
+      *) rest='' ;;
+    esac
+    case $comp in
+      '' | .) continue ;;
+    esac
+    acc=$acc/$comp
+    [ ! -L "$acc" ] || return 1
+    [ -e "$acc" ] || break
+  done
+  c=$(canon_loose "$2/${1%/}") || return 1
+  check_dir_open "$c"
+}
+
+# check_path_ok <word> <canonical-cwd>: the `<path>` placeholder. A runner may
+# read `<file>:<line>`, so the part before the first `:` is held to the same
+# rules as the whole word.
+check_path_ok() {
+  local p=$1
+  case $p in
+    '' | -* | /* | *[!A-Za-z0-9._/:+-]*) return 1 ;;
+  esac
+  [ "${#p}" -le "$MAX_CHECK_ARG" ] || return 1
+  CHECK_PATHS_N=$((CHECK_PATHS_N + 1))
+  [ "$CHECK_PATHS_N" -le "$MAX_CHECK_PATHS" ] || return 1
+  [ -n "${p%%:*}" ] || return 1
+  check_path_in "$p" "$2" || return 1
+  [ "${p%%:*}" = "$p" ] || check_path_in "${p%%:*}" "$2"
+}
+
+# check_decl_ok <word>...: 0 when the words form a well-formed declaration.
+check_decl_ok() {
+  local n=$# j=0 d
   [ "$n" -ge 1 ] && [ "$n" -le "$MAX_CHECK_WORDS" ] || return 1
-  # The whole declaration is checked before any word is matched, so a
-  # malformed one never matches on a prefix.
-  for ((j = 0; j < n; j++)); do
-    d=${dw[j]}
+  for d in "$@"; do
     case $d in
       '<word>' | '<int>' | '<path>')
         [ "$j" -gt 0 ] || return 1
@@ -6096,7 +6160,40 @@ check_decl_match() {
       *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;
       *=*) [ "$j" -gt 0 ] || return 1 ;;
     esac
+    j=$((j + 1))
   done
+}
+
+# check_decls_load: parse REC_CHECKS into CHECK_DECLS and CHECK_FIRST, once per
+# hook call, dropping each malformed declaration alone, so a malformed one
+# never matches on a prefix.
+check_decls_load() {
+  local decl w key
+  local -a all=() dw=()
+  CHECK_STATE=1
+  IFS=';' read -r -a all <<<"$REC_CHECKS"
+  for decl in ${all[@]+"${all[@]}"}; do
+    dw=()
+    IFS=' ' read -r -a dw <<<"$decl"
+    [ "${#dw[@]}" -ge 1 ] || continue
+    check_decl_ok "${dw[@]}" || continue
+    key=''
+    for w in "${dw[@]}"; do
+      key="${key:+$key }$w"
+    done
+    CHECK_DECLS[${#CHECK_DECLS[@]}]=$key
+    CHECK_FIRST[${#CHECK_FIRST[@]}]=${dw[0]}
+  done
+}
+
+# check_decl_match <declaration> <canonical-cwd>: 0 when the current simple
+# command's words (`sw` / `swn`, via dynamic scope) match the well-formed
+# declaration.
+check_decl_match() {
+  local -a dw=()
+  local n j i=0 d ph last
+  IFS=' ' read -r -a dw <<<"$1"
+  n=${#dw[@]}
   for ((j = 0; j < n; j++)); do
     d=${dw[j]}
     case $d in
@@ -6129,23 +6226,29 @@ check_decl_match() {
 # check command, run from inside the recorded worktree with no redirect but
 # a read, an fd duplication or one to /dev/null.
 check_command_ok() {
-  local i cwd decl
-  local -a decls=()
+  local i k c
   [ -n "$REC_CHECKS" ] && [ -n "$REC_WT" ] && [ "$swn" -gt 0 ] || return 1
+  [ "$swn" -le $((MAX_CHECK_WORDS + MAX_CHECK_PATHS)) ] || return 1
   for ((i = 0; i < rn; i++)); do
     case ${rt[i]} in
       *'$'*) return 1 ;;
     esac
     classify_redirect "${ro[i]}" "${rt[i]}" || return 1
   done
-  cwd=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
-  case $cwd/ in
-    "$REC_WT"/*) ;;
-    *) return 1 ;;
-  esac
-  IFS=';' read -r -a decls <<<"$REC_CHECKS"
-  for decl in ${decls[@]+"${decls[@]}"}; do
-    check_decl_match "$decl" "$cwd" && return 0
+  # The working directory is held to the `<path>` rules: a declared command
+  # never runs from inside a hooks, git or tool-configuration directory.
+  if [ "$CHECK_CWD_FOR" != "$HOOK_CWD" ]; then
+    CHECK_CWD_FOR=$HOOK_CWD
+    CHECK_CWD=''
+    if c=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) && check_dir_open "$c"; then
+      CHECK_CWD=$c
+    fi
+  fi
+  [ -n "$CHECK_CWD" ] || return 1
+  [ "$CHECK_STATE" = 1 ] || check_decls_load
+  for ((k = 0; k < ${#CHECK_DECLS[@]}; k++)); do
+    [ "${CHECK_FIRST[k]}" = "${sw[0]}" ] || continue
+    check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" && return 0
   done
   return 1
 }
@@ -6520,8 +6623,8 @@ verify_simple() {
   fi
   verify_known_simple && return 0
   [ "$own_cand" = 0 ] || return 1
-  # A declared step is an operator's exact line, never one around a
-  # substitution, and is not read-only inside one. Nor is one judged in the
+  # A declared check command or step is an operator's line, never one around
+  # a substitution, and is not read-only inside one. Nor is one judged in the
   # scoped read mode, whose directory is one of two.
   [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] || return 1
   for ((i = 0; i < cwn; i++)); do
@@ -7934,8 +8037,8 @@ main() {
   # never with a write or git act the own-branch or scratch arm or the
   # spec-root zone approved, nor with trusted repository code (a mise or
   # lefthook task, bats, a repo or other plugin script, a declared check
-  # command or step), so
-  # a worker commits or runs its gate, then pushes in a call of its own.
+  # command or step), so a worker commits or runs its gate, then pushes in a
+  # call of its own.
   [ "$AUDIT_OU" = 0 ] || { [ "$ARM_ACT" = 0 ] && [ "$TASK_ACT" = 0 ]; } || return 0
   audit_append "$cmd" "$sid"
   emit_allow

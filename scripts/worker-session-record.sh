@@ -101,6 +101,9 @@ me=worker-session-record.sh
 # The check_commands bound, scripts/worker-command-guard.sh's MAX_CHECKS_LEN
 # (they change together).
 MAX_CHECKS_LEN=2048
+# The record size every reader accepts (scripts/worker-command-guard.sh,
+# scripts/policy-guard.sh, scripts/worker-branch-sync.sh; they change together).
+MAX_RECORD_SIZE=4096
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 
 die() {
@@ -236,10 +239,22 @@ fi
 check_commands=''
 if [ -n "$primary" ]; then
   raw=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 \
-    /bin/sh "$script_dir/config-get.sh" worker_check_commands 2>/dev/null </dev/null) || raw=''
+    /bin/sh "$script_dir/config-get.sh" worker_check_commands 2>/dev/null </dev/null) || {
+    raw=''
+    printf '%s: worker_check_commands could not be read (a malformed overlay layer?); the worker gets no check commands\n' "$me" >&2
+  }
   case $raw in
-    *[[:cntrl:]]*) raw='' ;;
+    *[[:cntrl:]]*)
+      raw=''
+      printf '%s: worker_check_commands holds a control character; the worker gets no check commands\n' "$me" >&2
+      ;;
   esac
+  # Past four times the bound the list is dropped whole, which keeps the
+  # split below from running long over a runaway value.
+  if [ "${#raw}" -gt $((MAX_CHECKS_LEN * 4)) ]; then
+    raw=''
+    printf '%s: worker_check_commands is far past %s bytes; the worker gets no check commands\n' "$me" "$MAX_CHECKS_LEN" >&2
+  fi
   dropped=0
   while [ -n "$raw" ]; do
     decl=${raw%%;*}
@@ -397,8 +412,7 @@ audit_make() {
 audit=$(audit_make "$home/allow-audit") || audit=''
 [ -n "$audit" ] \
   || printf '%s: the audit-log home is unusable; the worker gets no write arm\n' "$me" >&2
-tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
-if ! {
+record_lines() {
   printf 'policy=%s\n' "$policy"
   [ -z "$unit" ] || printf 'unit_branch=%s\n' "$unit"
   printf 'worktree_root=%s\n' "$wt"
@@ -413,8 +427,26 @@ if ! {
   case ${PLANWRIGHT_LAUNCH_BACKEND:-} in
     stream-json | headless-oneshot) printf 'launch_backend=%s\n' "$PLANWRIGHT_LAUNCH_BACKEND" ;;
   esac
-} >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
+}
+tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
+record_lines >"$tmp" || {
   rm -f -- "$tmp"
   die "cannot write the record"
+}
+# Every reader refuses a record past MAX_RECORD_SIZE whole, so the check
+# commands give way rather than the record.
+size=$(wc -c <"$tmp") || size=''
+size=${size##* }
+if [ -n "$check_commands" ] && { [ -z "$size" ] || [ "$size" -gt "$MAX_RECORD_SIZE" ]; }; then
+  check_commands=''
+  printf '%s: the session record would pass %s bytes; the worker gets no check commands\n' "$me" "$MAX_RECORD_SIZE" >&2
+  record_lines >"$tmp" || {
+    rm -f -- "$tmp"
+    die "cannot write the record"
+  }
 fi
+mv -f -- "$tmp" "$rec" || {
+  rm -f -- "$tmp"
+  die "cannot write the record"
+}
 printf '%s\n' "$rec"
