@@ -554,7 +554,7 @@ for cmd in "scripts/tower-force-push.sh push --branch $BR --to $NEW --lease $TIP
 done
 [ "$failures" = 0 ] && ok "a standing decision covering scripts/ never answers the force-push path"
 
-# --- the gate-failure handoff names the path (REQ-F1.3, the CI grep half) -------
+# --- the gate-failure handoff names the path that applies (REQ-F1.10, the CI grep half)
 # flat <file> [<from heading> <to heading>] — the section collapsed to one
 # line, lowercased, so a statement matches however the markdown wraps it.
 flat() {
@@ -562,14 +562,31 @@ flat() {
     | tr '\n\t' '  ' | tr -s ' ' | tr '[:upper:]' '[:lower:]'
 }
 # shellcheck disable=SC2016 # the backticks are markdown, matched literally
-REWORD='such a commit is reworded only through the tower'"'"'s force-push path (`scripts/tower-force-push.sh`, on the operator'"'"'s request, [human gates](human-gates.md)), so name that path as the reason and add no commit for it.'
+REWORD='names its repair in its entry and handoff, adding no commit: a reword through `scripts/worker-branch-sync.sh push` while the pr is a draft its launch record allows, else the tower'"'"'s `scripts/tower-force-push.sh` ([human gates](human-gates.md))'
+LEGACY='naming each legacy checklist id it changed.'
 # /execute-task halts a logic CI failure through gate-wiring's pause protocol,
 # which it loads at that point, so the rule lives there.
-section=$(flat "$here/../doctrine/gate-wiring.md" '## Pause protocol' '## Loop-end handoff')
-case $section in
-  *"$(printf '%s' "$REWORD" | tr '[:upper:]' '[:lower:]')"*) ok "the gate-failure handoff rule names the tower reword path" ;;
-  *) fail "gate-wiring's pause protocol does not name the tower reword path" ;;
-esac
+gw_section() { flat "$1" '## Pause protocol' '## Loop-end handoff'; }
+# gw_names <file> — 0 when the section names both paths and the legacy ids.
+gw_names() {
+  local s
+  s=$(gw_section "$1")
+  case $s in *"$REWORD"*) ;; *) return 1 ;; esac
+  case $s in *"$LEGACY"*) ;; *) return 1 ;; esac
+}
+if gw_names "$here/../doctrine/gate-wiring.md"; then
+  ok "the gate-failure handoff rule names the draft-branch path, the tower path, and the re-identified legacy ids"
+else
+  fail "gate-wiring's pause protocol does not name the path that applies and the re-identified legacy ids"
+fi
+gwfx=$(mktemp -d "${TMPDIR:-/tmp}/gate-wiring.XXXXXX") || exit 1
+sed 's|`scripts/worker-branch-sync.sh push` while the PR is a draft its launch|the draft-branch path while the PR is a draft its launch|' "$here/../doctrine/gate-wiring.md" >"$gwfx/gate-wiring.md"
+if gw_names "$gwfx/gate-wiring.md"; then
+  fail "the handoff check passed a fixture copy without the draft-branch path"
+else
+  ok "the handoff check fails a fixture copy without the draft-branch path"
+fi
+rm -rf "$gwfx"
 tower=$(flat "$here/../skills/tower/SKILL.md" '## Refusals' '## Survival')
 # shellcheck disable=SC2016 # the backticks are markdown, matched literally
 for want in 'scripts/tower-force-push.sh`'"'"'s `confirm' 'never from a standing decision' 'run its `push` line only on the yes, in the same turn' 'its `purge` prints; the operator runs it'; do

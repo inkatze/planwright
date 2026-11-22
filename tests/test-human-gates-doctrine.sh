@@ -106,7 +106,7 @@ kind_rows() {
 # Each knob sits in a Policy row, not merely somewhere in the table.
 policy_rows=$(kind_rows Policy)
 for knob in ready_flip_policy mark_spec_pr_ready_on_kickoff merge_policy \
-  worker_base_merge worker_merge_conflict_policy unpushed_rewrite protected_branches \
+  worker_base_merge worker_merge_conflict_policy unpushed_rewrite draft_rewrite protected_branches \
   ready_guard_behind_base; do
   if printf '%s\n' "$policy_rows" | grep -q "\`$knob\`"; then
     ok "$knob is a policy row"
@@ -203,6 +203,31 @@ else
   fail "the merge-execution row still states a release PR is never a class admission, or omits auto_merge_classes"
 fi
 
+# REQ-A1.11: the draft-branch rewrite is a Policy row naming its knob, its
+# deny default and the helper as the one route; the force-push row names it
+# as its one exception and the tower path as the ready-PR path; the floor
+# sentence names it beside the force-push and secret-purge rows.
+# shellcheck disable=SC2016 # the backticks are the rows' markdown
+draft_row=$(printf '%s\n' "$policy_rows" | grep -F '| Publishing a rewrite of the owned unit branch while its PR is a draft |')
+# shellcheck disable=SC2016 # the backticks are the row's markdown
+if [ -n "$draft_row" ] && case "$(field "$draft_row" 4)" in '`draft_rewrite`, default `deny`'*) true ;; *) false ;; esac \
+  && printf '%s\n' "$draft_row" | grep -qF 'the one route is `scripts/worker-branch-sync.sh push --force-with-lease=<branch>:<sha> --force-if-includes`'; then
+  ok "the draft-branch rewrite is a policy row with draft_rewrite, its deny default, and the helper as the one route"
+else
+  fail "no policy row for the draft-branch rewrite naming draft_rewrite, its deny default, and the helper as the one route"
+fi
+fp_row=$(printf '%s\n' "$gate_rows" | grep -F '| Force-pushing a branch outside the protected set |')
+if printf '%s\n' "$fp_row" | grep -qF 'the tower path is the one for a ready PR, and the draft-branch rewrite row below is its one exception'; then
+  ok "the force-push row names the draft-branch rewrite as its one exception and the tower path as the ready-PR path"
+else
+  fail "the force-push row does not name the draft-branch rewrite as its one exception"
+fi
+if tr '\n' ' ' <"$DOC" | tr -s ' ' | grep -qF 'append-only outside the force-push, draft-branch rewrite, and secret-purge rows'; then
+  ok "the floor sentence names the draft-branch rewrite row"
+else
+  fail "the floor sentence does not name the draft-branch rewrite row"
+fi
+
 if [ "$doc_only" -eq 1 ]; then
   if [ "$failures" -ne 0 ]; then
     echo "$failures failure(s)" >&2
@@ -222,6 +247,26 @@ elif printf '%s\n' "$fx_out" | grep -qF 'FAIL: no composition-contract row for p
   ok "the doc checks fail a fixture copy without the spec-branch push row"
 else
   fail "the doc checks failed the fixture copy for another reason: $fx_out"
+fi
+rm -rf "$fx"
+
+# The draft-branch rewrite checks fail a fixture copy without the row, the
+# force-push row's exception, and the floor sentence's naming of it.
+fx=$(mktemp -d "${TMPDIR:-/tmp}/human-gates.XXXXXX") || exit 1
+grep -vF '| Publishing a rewrite of the owned unit branch while its PR is a draft |' "$DOC" \
+  | sed -e 's/; the tower path is the one for a ready PR, and the draft-branch rewrite row below is its one exception//' \
+    -e 's/the force-push, draft-branch rewrite, and secret-purge rows/the force-push and secret-purge rows/' >"$fx/human-gates.md"
+if fx_out=$(HUMAN_GATES_DOC="$fx/human-gates.md" /bin/bash "$0" --doc-only 2>&1); then
+  fail "the doc checks passed a fixture copy without the draft-branch rewrite rows"
+else
+  for want in 'no policy row for the draft-branch rewrite' 'the force-push row does not name the draft-branch rewrite' \
+    'the floor sentence does not name the draft-branch rewrite row'; do
+    if printf '%s\n' "$fx_out" | grep -qF -- "FAIL: $want"; then
+      ok "the doc checks fail a fixture copy: $want"
+    else
+      fail "the doc checks did not report '$want' for the fixture: $fx_out"
+    fi
+  done
 fi
 rm -rf "$fx"
 
