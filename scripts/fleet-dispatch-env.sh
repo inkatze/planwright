@@ -144,11 +144,11 @@
 #                                           2026-07-19 bare launch that dropped
 #                                           the pin.
 #
-# Every exec'ing form also drops an inherited PLANWRIGHT_COPY_CHECKED and
+# Every exec'ing form also drops an inherited PLANWRIGHT_COPY_CHECKED,
+# PLANWRIGHT_MC_PROGRAM, PLANWRIGHT_MC_TARGET, PLANWRIGHT_MC_DUTY and
 # PLANWRIGHT_SESSION_BACKEND, then sets PLANWRIGHT_SESSION_BACKEND=stream-json
 # only when PLANWRIGHT_LAUNCH_BACKEND (dropped too) asks for it, as the
-# stream-json rung does. It drops PLANWRIGHT_MC_PROGRAM, PLANWRIGHT_MC_TARGET
-# and PLANWRIGHT_MC_DUTY too. PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT, when they come
+# stream-json rung does. PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT, when they come
 # from the environment or this wrapper's own location rather than --root, are
 # swapped for the installed root where they name an older plugin-cache copy.
 #

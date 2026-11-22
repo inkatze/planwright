@@ -663,6 +663,32 @@ expect_rc "a mission-control session's compose is allowed" 0
 expect_out "and carries the wake" "- pending-prompt-overdue mc-beta-worker-1"
 mc_run mc-wake.sh compose --program alpha alpha
 expect_out "a session with no worker identity still composes" "- pending-prompt-overdue mc-beta-worker-1"
+# Two relay refusals, two compose refusals and one claim refusal.
+if [ "$(wc -l <"$misroutes" | tr -d ' ')" -eq 5 ]; then
+  ok "each new verb, target, session and kind is logged once"
+else
+  fail "expected five misroute lines: $(cat "$misroutes")"
+fi
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=mcs /bin/bash "$repo_root/scripts/mc-wake.sh" target add --program alpha alpha --mod 2>"$tmp/stderr")
+RC=$?
+expect_rc "a mission-control session's mod still claims the target" 0
+mc_run mc-wake.sh target list --program alpha
+expect_out "and the claim is recorded" "alpha${tab}mod"
+mc_run mc-wake.sh tick --program alpha --now 99999
+expect_out "the tick refuses a worker target too" "misroute${tab}wk${tab}worker"
+mc_run mc-event.sh list --program alpha --target wk "$mis_ev"
+expect_out "and leaves its events unmarked" "a prompt waits${tab}-"
+# A row reached through a symlink, or naming a kind outside the grammar,
+# names no kind.
+launcher_row real-mc mission-control
+rm -f "$fleet/mission-control/sessions/wk"
+ln -s"$fleet/mission-control/sessions/real-mc" "$fleet/mission-control/sessions/wk"
+mc_run mc-wake.sh relay --program alpha
+expect_out "a symlinked launcher row is no mission-control session" "misroute${tab}wk${tab}unknown"
+rm -f "$fleet/mission-control/sessions/wk"
+printf 'format\t1\nkind\tMission-Control\n' >"$fleet/mission-control/sessions/wk"
+mc_run mc-wake.sh relay --program alpha
+expect_out "a kind outside the grammar is unknown" "misroute${tab}wk${tab}unknown"
 
 # ---------------------------------------------------------------------------
 # A session with the mod is left to the mod; unreachable targets are named;

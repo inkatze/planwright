@@ -77,6 +77,8 @@ let ackedFor: string | null = null
 // the record on disk is then not this activation's, so it is neither
 // acknowledged nor switched to, and the recording is tried again instead.
 let recordFailed: 'variable' | 'reload' | 'clear' | null = null
+// Set at each session.start: a worker session never becomes mission control.
+let isWorker = false
 
 // Stderr reaches the pane, the status line and the event store: control
 // bytes dropped, one short line.
@@ -522,7 +524,7 @@ async function resolveDir($: EngineInterface): Promise<string | null> {
 }
 
 async function checkRecord($: EngineInterface) {
-  if (isChecking) return
+  if (isChecking || isWorker) return
   isChecking = true
   try {
     const dir = await resolveDir($)
@@ -747,12 +749,16 @@ export const register: Register = on => {
     // mission control: a program variable it inherited, a record or a panel
     // a reload brings back would hand it that program's wakes.
     const worker = await $.env.get('PLANWRIGHT_WORKER_HANDLE')
-    if (worker !== undefined && worker !== '') {
+    isWorker = worker !== undefined && worker !== ''
+    if (isWorker) {
       stopWatch()
       if (!ctx && !prior) return started
-      if (ctx) await standDown($)
+      // Never handed back: the target row is the real mission control's
+      // claim, which a hand-back would overwrite.
+      if (ctx) await standDown($, false)
       else await update($, panel, () => null)
-      await runScript($, 'mc-panel.sh', ['retire', '--session', await $.session.id()])
+      const sessionId = await $.session.id()
+      $.clock.after(0, () => void runScript($, 'mc-panel.sh', ['retire', '--session', sessionId]))
       return started
     }
     const named = await $.env.get('PLANWRIGHT_MC_PROGRAM')

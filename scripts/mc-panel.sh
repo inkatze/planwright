@@ -75,8 +75,8 @@ reads them once, clears them, and records the activation itself. No
 session the fleet launches inherits them (scripts/fleet-dispatch-env.sh
 drops them), and a session carrying a worker identity
 (PLANWRIGHT_WORKER_HANDLE) never activates, by the variables, a record or
-a reload. Under
-<fleet-home>/mission-control/_panel/, owner-only, no symlink followed:
+a reload. Under <fleet-home>/mission-control/_panel/, owner-only, no
+symlink followed:
   sessions/<host pid>        format, session, written: which session the
                              host process carries, rewritten at every
                              session start (a /clear included)

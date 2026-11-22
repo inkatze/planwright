@@ -309,19 +309,29 @@ test('a worker session that inherited the program variable takes no wake', async
   expect(ran(w, 'mc-panel.sh', 'presence')).toEqual([])
 })
 
-test('a worker session never activates from a record either', async ($, on) => {
-  const w = world(on, { env: { PLANWRIGHT_WORKER_HANDLE: WORKER } })
+test('a worker session never activates from a record, on the timer or at a turn or prompt', async ($, on) => {
+  const w = world(on, {
+    env: { PLANWRIGHT_WORKER_HANDLE: WORKER },
+    records: { [SESSION]: recordFor('alpha') },
+    digest: digestText({ pending: 1 }),
+    wake: WAKE,
+  })
   await boot($, w)
-  w.set({ records: { [SESSION]: recordFor('alpha') }, digest: digestText({ pending: 1 }), wake: WAKE })
   await w.clock.advance(60_000)
-  expect(w.submitted).toEqual([])
+  await $.prompt.submit({ text: 'next', origin: { kind: 'composer' }, wait: false })
+  await $.turn.start(turn('t1'))
+  await $.turn.complete(done('t1'))
+  await w.clock.settle()
+  expect(w.submitted).toEqual(['next'])
+  expect(ran(w, 'mc-panel.sh', 'lookup')).toEqual([])
   expect(ran(w, 'mc-panel.sh', 'digest')).toEqual([])
   expect(ran(w, 'mc-panel.sh', 'ack')).toEqual([])
 })
 
-test('a worker session reloading a panel it carried stands it down', async ($, on) => {
+test('a worker session reloading a panel it carried stands it down without touching the target', async ($, on) => {
   const w = world(on)
   await boot($, w)
+  const claims = ran(w, 'mc-wake.sh', 'target').length
   w.set({ env: { PLANWRIGHT_MC_PROGRAM: 'alpha', PLANWRIGHT_WORKER_HANDLE: WORKER } })
   await boot($, w)
   const composed = ran(w, 'mc-wake.sh', 'compose').length
@@ -329,7 +339,16 @@ test('a worker session reloading a panel it carried stands it down', async ($, o
   await w.clock.advance(60_000)
   expect(w.submitted).toEqual([])
   expect(ran(w, 'mc-wake.sh', 'compose')).toHaveLength(composed)
-  expect(ran(w, 'mc-wake.sh', 'target').at(-1)).not.toContain('--mod')
+  expect(ran(w, 'mc-wake.sh', 'target')).toHaveLength(claims)
+  expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
+})
+
+test('an empty worker identity is no worker', async ($, on) => {
+  const w = world(on, { env: { PLANWRIGHT_MC_PROGRAM: 'alpha', PLANWRIGHT_WORKER_HANDLE: '' } })
+  await boot($, w)
+  w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
+  await w.clock.advance(10_000)
+  expect(w.submitted[0]).toBe('mission control (alpha): 1 event(s) pending.\n- pr-ready pr-7')
 })
 
 test('a session that activated the program-named target from its record still takes its wake', async ($, on) => {

@@ -197,56 +197,64 @@ runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory
 targets="$runtime/wake-targets"
 misroutes="$runtime/wake-misroutes"
 
-# session_kind <name>: the kind the mission-control launcher's registry row
-# records for a session, or `unknown` with no readable row: only a session
-# the launcher started as mission control is one.
+# session_kind <name>: SK_KIND, the kind the mission-control launcher's
+# registry row records for a session, or `unknown` with no readable row:
+# only a session the launcher started as mission control is one. Set, not
+# printed, so the fleet home is resolved once per run.
 session_kind() {
-  sk_kind=unknown
-  if mc_valid_handle "$1"; then
-    if [ -z "${SK_ROOT:-}" ]; then
-      SK_ROOT=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || SK_ROOT=""
-    fi
-    sk_row=$SK_ROOT/mission-control/sessions/$1
-    if [ -n "$SK_ROOT" ] && [ -f "$sk_row" ] && [ ! -L "$sk_row" ] && [ -r "$sk_row" ]; then
-      sk_kind=$(awk -F '\t' '$1 == "kind" { print $2; exit }' "$sk_row")
-      case $sk_kind in
-        "" | -* | *[!a-z0-9-]*) sk_kind=unknown ;;
-      esac
-    fi
+  SK_KIND=unknown
+  mc_valid_handle "$1" || return 0
+  if [ -z "${SK_ROOT+x}" ]; then
+    SK_ROOT=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || SK_ROOT=""
   fi
-  printf '%s\n' "$sk_kind"
+  sk_row=$SK_ROOT/mission-control/sessions/$1
+  [ -n "$SK_ROOT" ] && [ -f "$sk_row" ] && [ ! -L "$sk_row" ] && [ -r "$sk_row" ] || return 0
+  while IFS='	' read -r sk_key sk_val || [ -n "$sk_key" ]; do
+    [ "$sk_key" = kind ] || continue
+    case $sk_val in
+      "" | -* | *[!a-z0-9-]*) ;;
+      *) SK_KIND=$sk_val ;;
+    esac
+    break
+  done <"$sk_row"
 }
 
 # misroute <verb> <target> <session> <kind>: a wake that would have reached
 # a session that is not mission control, refused. Named on stderr each time;
-# logged in <runtime>/wake-misroutes and raised as one wake-misroute event
+# raised as one wake-misroute event and logged in <runtime>/wake-misroutes
 # the first time each verb, target, session and kind are seen together, so
 # a relay that meets it at every pass neither grows the log nor floods the
-# store.
+# store. The line is written only once the event is in, so a failed emit is
+# tried again at the next refusal.
 misroute() {
   mr_s=$3
   mc_valid_handle "$mr_s" || mr_s=-
-  printf '%s: refusing to wake %s for %s: %s (kind %s) is not a mission-control session\n' \
-    "$prog" "$mr_s" "$2" "$mr_s" "$4" >&2
+  mr_for=""
+  [ "$2" = "$mr_s" ] || mr_for=" for $2"
+  printf '%s: refusing to wake %s (kind %s)%s: not a mission-control session\n' \
+    "$prog" "$mr_s" "$4" "$mr_for" >&2
   if [ -f "$misroutes" ] && awk -F '\t' -v v="$1" -v t="$2" -v s="$mr_s" -v k="$4" \
     '$2 == v && $3 == t && $4 == s && $5 == k { f = 1; exit } END { exit !f }' "$misroutes"; then
     return 0
   fi
   [ ! -L "$misroutes" ] || return 0
-  printf '%s\t%s\t%s\t%s\t%s\n' "$NOW" "$1" "$2" "$mr_s" "$4" >>"$misroutes" || return 0
-  mc_event emit --program "$program" -- wake-misroute "$mr_s" \
-    "a $1 wake for $2 would have reached $mr_s, a $4 session; refused" >/dev/null 2>&1 </dev/null || :
+  # A session name outside the handle grammar cannot be an event's subject.
+  mr_subject=$mr_s
+  [ "$mr_subject" != - ] || mr_subject=$2
+  mc_event emit --program "$program" -- wake-misroute "$mr_subject" \
+    "a $1 wake for $2 would have reached $mr_s, a $4 session; refused" >/dev/null 2>&1 </dev/null || return 0
+  printf '%s\t%s\t%s\t%s\t%s\n' "$NOW" "$1" "$2" "$mr_s" "$4" >>"$misroutes" || :
 }
 
-# caller_is_mission_control <verb> <target>: refuse a caller carrying a
-# worker identity whose session is not mission control (exit 4): a panel
+# require_mission_control_caller <verb> <target>: exits 4 when the caller
+# carries a worker identity whose session is not mission control: a panel
 # mod that activated in a worker must neither take the target nor its wake.
-caller_is_mission_control() {
-  ci_h=${PLANWRIGHT_WORKER_HANDLE:-}
-  [ -n "$ci_h" ] || return 0
-  ci_kind=$(session_kind "$ci_h")
-  [ "$ci_kind" != mission-control ] || return 0
-  misroute "$1" "$2" "$ci_h" "$ci_kind"
+require_mission_control_caller() {
+  rc_h=${PLANWRIGHT_WORKER_HANDLE:-}
+  [ -n "$rc_h" ] || return 0
+  session_kind "$rc_h"
+  [ "$SK_KIND" != mission-control ] || return 0
+  misroute "$1" "$2" "$rc_h" "$SK_KIND"
   exit 4
 }
 
@@ -419,10 +427,10 @@ send() {
       return 0
       ;;
   esac
-  sd_kind=$(session_kind "$sd_w")
-  if [ "$sd_kind" != mission-control ]; then
-    misroute relay "$sd_w" "$sd_w" "$sd_kind"
-    printf 'misroute\t%s\t%s\n' "$sd_w" "$sd_kind"
+  session_kind "$sd_w"
+  if [ "$SK_KIND" != mission-control ]; then
+    misroute relay "$sd_w" "$sd_w" "$SK_KIND"
+    printf 'misroute\t%s\t%s\n' "$sd_w" "$SK_KIND"
     return 0
   fi
   select_events "$sd_w" "$2" || return 1
@@ -514,7 +522,7 @@ case $verb in
         w=${args[0]}
         mc_valid_handle "$w" || mc_usage_fail "invalid worker '$(sanitize_printable "$w")'"
         [ "$sub" = add ] || [ "$mod" -eq 0 ] || usage
-        [ "$mod" -eq 0 ] || caller_is_mission_control claim "$w"
+        [ "$mod" -eq 0 ] || require_mission_control_caller claim "$w"
         line=""
         if [ "$sub" = add ]; then
           if [ "$mod" -eq 1 ]; then line="$w	mod"; else line="$w	no-mod"; fi
@@ -568,7 +576,7 @@ case $verb in
     w=${args[0]}
     mc_valid_handle "$w" || mc_usage_fail "invalid target '$(sanitize_printable "$w")'"
     mc_gate_or_exit mc-wake
-    caller_is_mission_control compose "$w"
+    require_mission_control_caller compose "$w"
     select_events "$w" unsubmitted || mc_fail "cannot read the events for '$w'"
     if [ "$SEL_TOTAL" -eq 0 ]; then
       printf 'idle\n'
