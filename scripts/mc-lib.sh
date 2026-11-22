@@ -577,28 +577,50 @@ mc_lookup() {
 # mc_kv <file> <key>: the value of a record's key<TAB>value line, if any.
 mc_kv() { K=$2 awk -F '\t' '$1 == ENVIRON["K"] { print substr($0, length($1) + 2); exit }' "$1"; }
 
-# mc_operator_park <fleet home> <worker>: the epoch a stream-json worker's
-# park on the operator began, else nothing. It is parked while its registry
-# row records an operator wait, a pidfile is left (with neither it is
-# positively dead and nothing can answer it), and its event log still ends at
-# the clean result its last turn recorded: an event after that result is a
-# message it is reading, so an answer ends the park. The result's epoch is
-# the start, so a turn that ends parked again is a new park.
+# mc_park_candidates <program> <launcher list>: the sessions a park on the
+# operator is raised for, one name per line: the program's stream-json
+# worker, reviewer and ad-hoc sessions, the kinds the keeper's bounds hold to.
+# A kickoff relay waits on the operator by design, so it is left out.
+mc_park_candidates() {
+  printf '%s\n' "$2" | P=$1 awk -F '\t' '
+    $2 == ENVIRON["P"] && ($3 == "worker" || $3 == "reviewer" || $3 == "ad-hoc") \
+      && $5 == "stream-json" && index($4, "kickoff-") != 1 { print $1 }'
+}
+
+# mc_operator_park <fleet home> <worker>: `parked<TAB><epoch>` while a
+# stream-json worker is parked on the operator, <epoch> when the park began;
+# `unknown` while its row records the wait but its turn's end cannot be read
+# (a steer sets the result record aside while it sends, putting it back when
+# nothing was delivered), so a caller keeps what it raised for the worker;
+# else nothing. Parked: the row records an operator wait, a pidfile is left
+# (with neither it is positively dead and nothing can answer it), and the
+# event log still ends at the clean result of a turn of this launch. An event
+# after that result is a message the worker is reading, so an answer ends the
+# park. The park begins at the later of that result and the wait's own epoch,
+# so a turn that ends parked again is a new park, and a wait set long after a
+# turn ended counts from the wait.
 mc_operator_park() {
   mop_row="$1/mission-control/sessions/$2"
   mop_dir="$1/streamjson/$2"
   [ -f "$mop_row" ] && [ ! -L "$mop_row" ] && [ -d "$mop_dir" ] && [ ! -L "$mop_dir" ] || return 0
   [ "$(mc_kv "$mop_row" waiting 2>/dev/null)" = operator ] || return 0
   [ -e "$mop_dir/worker.pid" ] || [ -e "$mop_dir/supervisor.pid" ] || return 0
-  [ -f "$mop_dir/result" ] && [ ! -L "$mop_dir/result" ] || return 0
-  [ -f "$mop_dir/events.jsonl" ] && [ ! -L "$mop_dir/events.jsonl" ] || return 0
-  mop_kind="" mop_at="" mop_err=""
-  IFS='	' read -r mop_kind _ mop_at mop_err _ <"$mop_dir/result" 2>/dev/null || :
-  [ "$mop_kind" = result ] && [ "$mop_err" != true ] && mc_valid_uint "$mop_at" || return 0
-  case $(tail -n 1 "$mop_dir/events.jsonl" 2>/dev/null) in
-    *'"type":"result"'*) printf '%s\n' "$mop_at" ;;
-  esac
-  return 0
+  mop_kind="" mop_at="" mop_err="" mop_last=""
+  if [ -f "$mop_dir/result" ] && [ ! -L "$mop_dir/result" ] && [ -f "$mop_dir/events.jsonl" ] && [ ! -L "$mop_dir/events.jsonl" ]; then
+    IFS='	' read -r mop_kind _ mop_at mop_err _ <"$mop_dir/result" 2>/dev/null || :
+    mop_last=$(tail -n 1 "$mop_dir/events.jsonl" 2>/dev/null) || mop_kind=""
+  fi
+  if [ "$mop_kind" != result ] || ! mc_valid_uint "$mop_at"; then
+    printf 'unknown\n'
+    return 0
+  fi
+  [ "$mop_err" != true ] || return 0
+  mop_l=$(mc_kv "$mop_row" launched 2>/dev/null)
+  if mc_valid_uint "$mop_l" && [ "$mop_at" -lt "$mop_l" ]; then return 0; fi
+  case $mop_last in *'"type":"result"'*) ;; *) return 0 ;; esac
+  mop_w=$(mc_kv "$mop_row" waited 2>/dev/null)
+  if mc_valid_uint "$mop_w" && [ "$mop_w" -gt "$mop_at" ]; then mop_at=$mop_w; fi
+  printf 'parked\t%s\n' "$mop_at"
 }
 
 # mc_valid_sha <sha>: a full 40-hex commit id.

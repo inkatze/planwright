@@ -132,18 +132,19 @@ Usage:
       scripts/mc-stall.sh orphans has listed for a minute is one
       stream-json-worker-orphaned event, announced once for the machine
       under the program the unowned event goes to, and never signalled;
-      the park sweep: each stream-json session of the program parked on
-      the operator (its registry row records an operator wait, a pidfile
-      is left, and its event log still ends at its last turn's clean
-      result, whose epoch starts the park) past
+      the park sweep: each stream-json worker, reviewer or ad-hoc session
+      of the program parked on the operator (its registry row records an
+      operator wait, a pidfile is left, and its event log still ends at
+      the clean result of a turn of this launch; the park starts at the
+      later of that result and the wait's own epoch) past
       mission_control_worker_completed_grace is one
       worker-parked-on-operator event, subject the session, raised once
-      per park and quoting the first lines of that result; a kickoff
+      per park and ending with the first lines of that result; a kickoff
       relay is left out, and a wait on ci or a ready flip is no park;
       printing
         announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned|stream-json-worker-orphaned|worker-parked-on-operator<TAB><worker>
       a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
-      seconds, or a pending or orphan sweep that ends non-zero, is said on stderr and
+      seconds, or a pending, orphan or park sweep that ends non-zero, is said on stderr and
       raised once as a keeper-sweep-failed event (the default age, 900,
       stands in for a bad one)
       then the bounds, under their own lock: each retire done (re-checked
@@ -1288,44 +1289,64 @@ EOF
 PARK_QUOTE_LINES=3
 PARK_QUOTE_MAX=280
 # park_quote <worker dir>: the first lines of the worker's last result, joined
-# with " / " and cut to leave the event room for what to do about it.
+# with " / ", cut to fit the event, and stripped of the zero-width and
+# direction-override characters that could hide or reorder part of it.
 park_quote() {
   command -v jq >/dev/null 2>&1 || {
     printf '(reading it needs jq)'
     return 0
   }
+  [ -f "$1/events.jsonl" ] && [ ! -L "$1/events.jsonl" ] || {
+    printf '(it cannot be read)'
+    return 0
+  }
   pq_t=$(tail -n 1 "$1/events.jsonl" 2>/dev/null | jq -r '.result // empty' 2>/dev/null \
-    | N=$PARK_QUOTE_LINES awk '{ sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "") }
+    | N=$PARK_QUOTE_LINES awk '{
+        gsub(/\342\200[\213-\217\250-\256]|\342\201[\240-\251]|\357\273\277/, "")
+        sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "")
+      }
       $0 != "" { printf "%s%s", s, $0; s = " / "; if (++c >= ENVIRON["N"] + 0) exit }' \
     | tr '\t\r' '  ' | mc_clean_text | cut -c1-"$PARK_QUOTE_MAX")
   printf '%s' "${pq_t:-(it has no text)}"
 }
 
 # operator_parks: each stream-json session of this program parked on the
-# operator (mc_operator_park) past mission_control_worker_completed_grace, the
-# bound past which the keeper acts on a finished turn, is one
-# worker-parked-on-operator event per park, quoting its last result so the
-# reader sees what it waits on. A kickoff relay waits on the operator by
-# design, so it is left out, as the bounds leave it. A park still unanswered
-# a window later is scripts/mc-escalate.sh's to raise to the hub.
+# operator (mc_park_candidates, mc_operator_park) past
+# mission_control_worker_completed_grace, the bound past which the keeper acts
+# on a finished turn, is one worker-parked-on-operator event per park. The
+# worker's own words come last, so the event's cap only ever shortens them. A
+# park whose state cannot be read keeps its record, so it is not raised again
+# once it reads. One still unanswered a window later is scripts/mc-escalate.sh's
+# to raise to the hub.
 operator_parks() {
   if [ -n "${keeper_list+x}" ]; then
     op_list=$keeper_list
   else
     op_list=$(launcher list) || return 1
   fi
+  op_seen="$runtime/keeper-parks"
+  op_ws=$(mc_park_candidates "$program" "$op_list")
+  if [ -z "$op_ws" ]; then
+    mc_announce_prune "$op_seen" ""
+    return $?
+  fi
   op_home=$(mc_fleet_home) || return 1
   op_grace=$(bound_secs mission_control_worker_completed_grace) || return 1
   op_now=${now:-$(mc_now)}
-  op_seen="$runtime/keeper-parks"
   op_live=""
   op_rc=0
-  op_ws=$(printf '%s\n' "$op_list" | P=$program awk -F '\t' '
-    $2 == ENVIRON["P"] && $3 != "mission-control" && $5 == "stream-json" && index($4, "kickoff-") != 1 { print $1 }')
   for op_w in $op_ws; do
     mc_valid_handle "$op_w" || continue
-    op_since=$(mc_operator_park "$op_home" "$op_w")
-    [ -n "$op_since" ] || continue
+    op_park=$(mc_operator_park "$op_home" "$op_w")
+    case $op_park in
+      unknown)
+        [ ! -f "$op_seen" ] || op_live="$op_live$(W=$op_w awk -F '\t' '$1 == ENVIRON["W"]' "$op_seen")
+"
+        continue
+        ;;
+      parked*) op_since=${op_park#parked	} ;;
+      *) continue ;;
+    esac
     op_age=$((op_now - op_since))
     [ "$op_age" -ge "$op_grace" ] || continue
     op_key="$op_w	$op_since"
@@ -1333,7 +1354,7 @@ operator_parks() {
 "
     has_key "$op_seen" "$op_key" && continue
     mc_announce "$program" "$op_seen" "$op_key" worker-parked-on-operator "$op_w" \
-      "worker $op_w has been parked on the operator ${op_age}s, past the ${op_grace}s alarm; its last result begins: \"$(park_quote "$op_home/streamjson/$op_w")\". Relay what it needs to the operator, then answer it with fleet-streamjson.sh steer $op_w --message-file <file>" \
+      "worker $op_w has been parked on the operator ${op_age}s, past the ${op_grace}s alarm: relay what it waits on to the operator, then answer it with fleet-streamjson.sh steer $op_w --message-file <file>. Its last result, in its own words, begins: $(park_quote "$op_home/streamjson/$op_w")" \
       || op_rc=1
   done
   mc_announce_prune "$op_seen" "$op_live" || op_rc=1

@@ -60,17 +60,19 @@ mission_control_escalation_window (W):
               age plus W, the operator at that age plus 2W. A worker with
               neither pidfile left is the keeper's alarm scan's to settle,
               never raised here.
-  a park      a stream-json worker the launcher records for this program
-              parked on the operator, as the session-keeper reads it
-              (mc_operator_park in scripts/mc-lib.sh: an operator wait in
-              its registry row, a pidfile left, its event log still ending
-              at its last turn's result), a kickoff relay left out. Its age
-              counts from that result, against
-              mission_control_worker_completed_grace, the keeper's own
-              alarm for it: the hub hears it at that age plus W, the
+  a park      a stream-json worker, reviewer or ad-hoc session the
+              launcher records for this program parked on the operator, as
+              the session-keeper reads it (mc_operator_park in
+              scripts/mc-lib.sh: an operator wait in its registry row, a
+              pidfile left, its event log still ending at a turn of this
+              launch's result), a kickoff relay left out. Its age counts
+              from the later of that result and the wait's own epoch,
+              against mission_control_worker_completed_grace, the keeper's
+              own alarm for it: the hub hears it at that age plus W, the
               operator at plus 2W. A message that starts its next turn
               ends the park; a turn that ends parked again starts a new
-              one.
+              one. A park whose state cannot be read keeps its record; one
+              whose alarm cannot be read keeps it too, and fails the pass.
   the dialog  this program's mission control showing an open dialog in its
               tmux pane: a permission prompt, a select menu, or auto mode's
               own confirmation after blocked actions (kind auto-mode), which
@@ -182,8 +184,6 @@ if [ -z "$ALARM" ] || [ "${#ALARM}" -gt 15 ]; then
   printf '%s\n' "$prog: warning: PLANWRIGHT_STREAMJSON_PENDING_AGE is not a positive whole number; using ${ALARM_DEFAULT}s" >&2
   ALARM=$ALARM_DEFAULT
 fi
-PARK_ALARM_RAW=$(mc_knob mission_control_worker_completed_grace mc_parse_cadence) || exit 1
-PARK_ALARM=$(mc_seconds "$PARK_ALARM_RAW")
 FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
 RUNTIME="$FLEET_HOME/mission-control/$PROGRAM"
 ESC_DIR="$RUNTIME/escalate"
@@ -323,7 +323,7 @@ rank_of() { # rank_of <seconds past the start>: sets RANK (0, 1 or 2) and LEVEL
 CARRY_ALL_REQUESTS=0
 CARRY_WORKERS=""
 if ! LIST=$(/bin/bash "$script_dir/mission-control-launch.sh" list 2>/dev/null); then
-  printf '%s\n' "$prog: the launcher's list cannot be read; no request is raised this pass" >&2
+  printf '%s\n' "$prog: the launcher's list cannot be read; no request or park is raised this pass" >&2
   failed=1
   CARRY_ALL_REQUESTS=1
   LIST=""
@@ -372,12 +372,32 @@ $WORKERS
 EOF
 
 # --- parks -----------------------------------------------------------------
-PARKERS=$(printf '%s\n' "$LIST" | P=$PROGRAM awk -F '\t' '
-  NF && $2 == ENVIRON["P"] && $3 != "mission-control" && $5 == "stream-json" && index($4, "kickoff-") != 1 { print $1 }')
-for w in $PARKERS; do
+# The park alarm is read at the first park, so a bad value fails this section
+# alone, never the requests or the dialog.
+PARK_ALARM=""
+for w in $(mc_park_candidates "$PROGRAM" "$LIST"); do
   mc_valid_handle "$w" || continue
-  since=$(mc_operator_park "$FLEET_HOME" "$w")
-  [ -n "$since" ] || continue
+  park=$(mc_operator_park "$FLEET_HOME" "$w")
+  case $park in
+    unknown)
+      CARRY_WORKERS="$CARRY_WORKERS$w$NL"
+      continue
+      ;;
+    parked*) since=${park#parked	} ;;
+    *) continue ;;
+  esac
+  if [ -z "$PARK_ALARM" ]; then
+    if park_raw=$(mc_knob mission_control_worker_completed_grace mc_parse_cadence); then
+      PARK_ALARM=$(mc_seconds "$park_raw")
+    else
+      PARK_ALARM=-
+    fi
+  fi
+  if [ "$PARK_ALARM" = - ]; then
+    failed=1
+    CARRY_WORKERS="$CARRY_WORKERS$w$NL"
+    continue
+  fi
   age=$((NOW - since))
   [ "$age" -ge 0 ] || age=0
   rank_of $((age - PARK_ALARM))
