@@ -373,7 +373,7 @@ mc_event_gone() {
   [ -n "$meg_rows" ] || return 0
   meg_sess_state=0 meg_sess=""
   meg_hold_state=0 meg_hold=""
-  meg_prs=""
+  meg_prs="" meg_forge_down=0
   while IFS='	' read -r meg_id _ meg_kind meg_subject _; do
     [ -n "$meg_id" ] || continue
     case $meg_kind in
@@ -409,9 +409,11 @@ mc_event_gone() {
         case $meg_name in '' | *:*) continue ;; esac
         [ -n "$meg_owner" ] || continue
         meg_state=$(printf '%s' "$meg_prs" | S=$meg_subject awk -F '\t' '$1 == ENVIRON["S"] { print $2; exit }')
-        if [ -z "$meg_state" ]; then
-          meg_state=$(/bin/sh "$script_dir/bounded-run.sh" 30 gh pr view "$meg_num" --repo "$meg_owner/$meg_name" --json state --jq .state 2>/dev/null </dev/null) || meg_state=unknown
-          [ -n "$meg_state" ] || meg_state=unknown
+        # After one failed read the rest are kept unread: a hung forge must
+        # not hold a wake past the panel mod's compose timeout.
+        if [ -z "$meg_state" ] && [ "$meg_forge_down" -eq 0 ]; then
+          meg_state=$(/bin/sh "$script_dir/bounded-run.sh" 10 gh pr view "$meg_num" --repo "$meg_owner/$meg_name" --json state --jq .state 2>/dev/null </dev/null) || meg_state=""
+          [ -n "$meg_state" ] || { meg_state=unknown; meg_forge_down=1; }
           meg_prs="$meg_prs$meg_subject	$meg_state
 "
         fi

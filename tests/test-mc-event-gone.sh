@@ -39,12 +39,13 @@ cat >"$tmp/fakebin/gh" <<'GHEOF'
 #!/bin/sh
 # gh pr view <n> --repo <slug> --json state --jq .state
 [ "$1 $2" = "pr view" ] || exit 2
+printf '%s\n' "$3" >>"$GH_LOG"
 [ "$4 $5" = "--repo acme/widgets" ] || exit 1
 [ ! -f "$GH_FAIL" ] || exit 1
 awk -v n="$3" '$1 == n { print $2; f = 1 } END { exit !f }' "$GH_STATES"
 GHEOF
 chmod +x "$tmp/fakebin/gh"
-export GH_STATES="$tmp/gh-states" GH_FAIL="$tmp/gh-fail"
+export GH_STATES="$tmp/gh-states" GH_FAIL="$tmp/gh-fail" GH_LOG="$tmp/gh-log"
 printf '%s\n' "11 OPEN" "12 MERGED" "13 CLOSED" >"$GH_STATES"
 PATH="$tmp/fakebin:$PATH"
 
@@ -153,8 +154,14 @@ ok "only the gone events were pruned"
 setup
 backlog
 : >"$GH_FAIL"
+: >"$GH_LOG"
 mc_run mc-event.sh prune --program alpha --gone --dry-run
 case $OUT in "would-prune${tab}3") ok "a failing forge keeps every pull request event" ;; *) fail "prune with a failing forge said '$OUT'" ;; esac
+if [ "$(wc -l <"$GH_LOG" | tr -d ' ')" -eq 1 ]; then
+  ok "and is asked once, the rest kept unread"
+else
+  fail "a failing forge was asked $(wc -l <"$GH_LOG" | tr -d ' ') times"
+fi
 mc_run mc-wake.sh compose --program alpha tw
 case $OUT in
   *"$gone_b"*"$gone_c"* | *"$gone_c"*"$gone_b"*) ok "the unjudged pull request events still wake" ;;
