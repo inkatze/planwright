@@ -34,6 +34,7 @@ stream-json-worker-unowned	failure
 stream-json-worker-orphaned	failure
 watcher-failing	failure
 rules-reinjection-failed	failure
+wake-misroute	failure
 session-landed	landed
 readiness-due	landed
 ready-offer	landed

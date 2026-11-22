@@ -743,6 +743,18 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     const prior = await view($)
+    // Only a worker launch carries the worker identity, and a worker is never
+    // mission control: a program variable it inherited, a record or a panel
+    // a reload brings back would hand it that program's wakes.
+    const worker = await $.env.get('PLANWRIGHT_WORKER_HANDLE')
+    if (worker !== undefined && worker !== '') {
+      stopWatch()
+      if (!ctx && !prior) return started
+      if (ctx) await standDown($)
+      else await update($, panel, () => null)
+      await runScript($, 'mc-panel.sh', ['retire', '--session', await $.session.id()])
+      return started
+    }
     const named = await $.env.get('PLANWRIGHT_MC_PROGRAM')
     const isNamed = named !== undefined && isProgram(named)
     const program = isNamed ? named : prior?.program

@@ -65,6 +65,16 @@ registry records for the worker, and it never types into a session:
             server or name, or, recorded without its server, gone from its
             session) is unreachable, nothing sent
   any other backend, or a retired worker: unreachable, nothing sent
+A WAKE REACHES ONLY MISSION CONTROL: a reachable target whose row in the
+mission-control launcher's registry (<fleet-home>/mission-control/sessions/)
+names another kind, or that has no row, is refused (`misroute`), and so are
+`compose` and a `target add --mod` claim run with a worker identity
+(PLANWRIGHT_WORKER_HANDLE) whose row is not a mission-control session's,
+since a panel mod in such a session would take another session's events.
+Each refusal is named on stderr; the first of each verb, target, session
+and kind is logged in <runtime>/wake-misroutes
+(<epoch><TAB><verb><TAB><target><TAB><session><TAB><kind>) and raised as a
+wake-misroute event.
 A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
 `routine`) never wakes: relay, tick and compose leave it out of the wake
 and mark it submitted for the target (compose's one mark), since the
@@ -110,6 +120,8 @@ Usage:
         mod<TAB><worker>                     the mod wakes it
         idle<TAB><worker>                    nothing to send
         unreachable<TAB><worker><TAB><why>
+        misroute<TAB><worker><TAB><kind>     not a mission-control session;
+                                             nothing sent
         refused<TAB><worker><TAB><exit>      the relay declined (a dialog
                                              open, an earlier wake staged,
                                              a message shaped like a new
@@ -133,7 +145,8 @@ Usage:
 Exit codes: 0 done (a refused or unreachable target is reported, not a
 failure); 1 a store that cannot be read or written (the fleet registry
 included), a failed target, or a blocked daemon gate; 2 usage; 3 the
-program is not configured.
+program is not configured; 4 a compose or claim refused because the caller
+is not a mission-control session.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -182,6 +195,60 @@ mc_now_arg "$now"
 mc_require_program "$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory for '$program'"
 targets="$runtime/wake-targets"
+misroutes="$runtime/wake-misroutes"
+
+# session_kind <name>: the kind the mission-control launcher's registry row
+# records for a session, or `unknown` with no readable row: only a session
+# the launcher started as mission control is one.
+session_kind() {
+  sk_kind=unknown
+  if mc_valid_handle "$1"; then
+    if [ -z "${SK_ROOT:-}" ]; then
+      SK_ROOT=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || SK_ROOT=""
+    fi
+    sk_row=$SK_ROOT/mission-control/sessions/$1
+    if [ -n "$SK_ROOT" ] && [ -f "$sk_row" ] && [ ! -L "$sk_row" ] && [ -r "$sk_row" ]; then
+      sk_kind=$(awk -F '\t' '$1 == "kind" { print $2; exit }' "$sk_row")
+      case $sk_kind in
+        "" | -* | *[!a-z0-9-]*) sk_kind=unknown ;;
+      esac
+    fi
+  fi
+  printf '%s\n' "$sk_kind"
+}
+
+# misroute <verb> <target> <session> <kind>: a wake that would have reached
+# a session that is not mission control, refused. Named on stderr each time;
+# logged in <runtime>/wake-misroutes and raised as one wake-misroute event
+# the first time each verb, target, session and kind are seen together, so
+# a relay that meets it at every pass neither grows the log nor floods the
+# store.
+misroute() {
+  mr_s=$3
+  mc_valid_handle "$mr_s" || mr_s=-
+  printf '%s: refusing to wake %s for %s: %s (kind %s) is not a mission-control session\n' \
+    "$prog" "$mr_s" "$2" "$mr_s" "$4" >&2
+  if [ -f "$misroutes" ] && awk -F '\t' -v v="$1" -v t="$2" -v s="$mr_s" -v k="$4" \
+    '$2 == v && $3 == t && $4 == s && $5 == k { f = 1; exit } END { exit !f }' "$misroutes"; then
+    return 0
+  fi
+  [ ! -L "$misroutes" ] || return 0
+  printf '%s\t%s\t%s\t%s\t%s\n' "$NOW" "$1" "$2" "$mr_s" "$4" >>"$misroutes" || return 0
+  mc_event emit --program "$program" -- wake-misroute "$mr_s" \
+    "a $1 wake for $2 would have reached $mr_s, a $4 session; refused" >/dev/null 2>&1 </dev/null || :
+}
+
+# caller_is_mission_control <verb> <target>: refuse a caller carrying a
+# worker identity whose session is not mission control (exit 4): a panel
+# mod that activated in a worker must neither take the target nor its wake.
+caller_is_mission_control() {
+  ci_h=${PLANWRIGHT_WORKER_HANDLE:-}
+  [ -n "$ci_h" ] || return 0
+  ci_kind=$(session_kind "$ci_h")
+  [ "$ci_kind" != mission-control ] || return 0
+  misroute "$1" "$2" "$ci_h" "$ci_kind"
+  exit 4
+}
 
 # drop_stale_merge_ready <target>: SEL_ROWS without the merge-ready events
 # that must not be pushed now, each checked against the forge once more
@@ -352,6 +419,12 @@ send() {
       return 0
       ;;
   esac
+  sd_kind=$(session_kind "$sd_w")
+  if [ "$sd_kind" != mission-control ]; then
+    misroute relay "$sd_w" "$sd_w" "$sd_kind"
+    printf 'misroute\t%s\t%s\n' "$sd_w" "$sd_kind"
+    return 0
+  fi
   select_events "$sd_w" "$2" || return 1
   sd_rows=$SEL_ROWS
   sd_total=$SEL_TOTAL
@@ -441,6 +514,7 @@ case $verb in
         w=${args[0]}
         mc_valid_handle "$w" || mc_usage_fail "invalid worker '$(sanitize_printable "$w")'"
         [ "$sub" = add ] || [ "$mod" -eq 0 ] || usage
+        [ "$mod" -eq 0 ] || caller_is_mission_control claim "$w"
         line=""
         if [ "$sub" = add ]; then
           if [ "$mod" -eq 1 ]; then line="$w	mod"; else line="$w	no-mod"; fi
@@ -494,6 +568,7 @@ case $verb in
     w=${args[0]}
     mc_valid_handle "$w" || mc_usage_fail "invalid target '$(sanitize_printable "$w")'"
     mc_gate_or_exit mc-wake
+    caller_is_mission_control compose "$w"
     select_events "$w" unsubmitted || mc_fail "cannot read the events for '$w'"
     if [ "$SEL_TOTAL" -eq 0 ]; then
       printf 'idle\n'

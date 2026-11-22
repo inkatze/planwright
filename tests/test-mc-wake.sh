@@ -51,6 +51,13 @@ trap cleanup EXIT
 
 tab=$(printf '\t')
 
+# launcher_row <name> <kind>: the mission-control launcher's registry row
+# for a session, which names its kind.
+launcher_row() {
+  mkdir -p "$fleet/mission-control/sessions"
+  printf 'format\t1\nname\t%s\nprogram\talpha\nkind\t%s\n' "$1" "$2" >"$fleet/mission-control/sessions/$1"
+}
+
 setup() {
   reset_mc_fixture
   rm -rf "$fleet"
@@ -198,6 +205,7 @@ sj() {
 }
 if poll_until --what "the worker's first turn" -- grep -q '"type":"user"' "$tmp/rec/stdin"; then
   ok "a fixture stream-json worker is live"
+  launcher_row sjw mission-control
   mc_run mc-wake.sh target add --program alpha sjw
   expect_rc "a wake target is registered" 0
   mc_run mc-event.sh emit --program alpha pr-ready pr-9 "nine is ready"
@@ -287,6 +295,7 @@ tmux_target() { # tmux_target: a fresh program with the tmux session tw
   rm -f "$tmp/tmux/paste-drops" "$tmp/tmux/pasted"
   mc_run fleet-state.sh register tw mission-control:alpha --backend tmux --death-handle "tmux-window mc 3"
   expect_rc "a tmux session in the fleet registry" 0
+  launcher_row tw mission-control
   mc_run mc-wake.sh target add --program alpha tw
   : >"$tmp/tmux/log"
 }
@@ -574,6 +583,86 @@ else
 fi
 
 PATH=$saved_path
+
+# ---------------------------------------------------------------------------
+# A wake reaches only a mission-control session: the relay refuses a target
+# whose launcher row names another kind, or none, and the mod's compose
+# refuses a caller carrying a worker identity; each refusal is logged once
+# and raised as one event.
+# ---------------------------------------------------------------------------
+misroutes="$fleet/mission-control/alpha/wake-misroutes"
+setup
+mc_run fleet-state.sh register wk mission-control:alpha --backend stream-json --death-handle none
+mc_run fleet-state.sh register nr mission-control:alpha --backend stream-json --death-handle none
+launcher_row wk worker
+launcher_row mcs mission-control
+mc_run mc-wake.sh target add --program alpha wk
+mc_run mc-wake.sh target add --program alpha nr
+mc_run mc-event.sh emit --program alpha pending-prompt-overdue mc-beta-worker-1 "a prompt waits"
+mis_ev=$OUT
+mc_run mc-wake.sh relay --program alpha
+expect_out "the relay refuses a target whose session is a worker" "misroute${tab}wk${tab}worker"
+expect_out "and one whose kind no launcher row names" "misroute${tab}nr${tab}unknown"
+expect_err "the refusal is named on stderr" "refusing to wake wk"
+mc_run mc-event.sh list --program alpha --target wk "$mis_ev"
+expect_out "the refused target's events stay unmarked" "a prompt waits${tab}-"
+if [ -f "$misroutes" ] && grep -q "${tab}relay${tab}wk${tab}wk${tab}worker\$" "$misroutes"; then
+  ok "the refusal is logged"
+else
+  fail "the relay's refusal was not logged: $(cat "$misroutes" 2>&1)"
+fi
+mc_run mc-event.sh list --program alpha
+n_mis=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
+if [ "$n_mis" -eq 2 ]; then
+  ok "each refusal raises one event"
+else
+  fail "expected two wake-misroute events, got $n_mis: $OUT"
+fi
+mc_run mc-wake.sh relay --program alpha
+expect_out "a second relay still refuses" "misroute${tab}wk${tab}worker"
+mc_run mc-event.sh list --program alpha
+n_mis=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
+if [ "$n_mis" -eq 2 ]; then
+  ok "a repeated refusal raises no second event"
+else
+  fail "a repeated refusal raised another event ($n_mis)"
+fi
+if [ "$(wc -l <"$misroutes" | tr -d ' ')" -eq 2 ]; then
+  ok "nor a second log line"
+else
+  fail "a repeated refusal was logged again: $(cat "$misroutes")"
+fi
+
+# The program-named target with the mod: a worker that inherited the
+# program's variable composes for it and is refused; mission control's own
+# session, and a session with no worker identity, still compose.
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=wk /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a worker's compose for the program-named target is refused" 4
+expect_eq "and composes nothing" ""
+expect_err "the refusal names the worker and its kind" "wk (kind worker)"
+mc_run mc-event.sh list --program alpha --target alpha "$mis_ev"
+expect_out "the target's events stay unsent" "a prompt waits${tab}-"
+if grep -q "${tab}compose${tab}alpha${tab}wk${tab}worker\$" "$misroutes"; then
+  ok "the compose refusal is logged"
+else
+  fail "the compose refusal was not logged: $(cat "$misroutes")"
+fi
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=ghost-worker /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
+RC=$?
+expect_rc "a worker identity no launcher row names is refused too" 4
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=wk /bin/bash "$repo_root/scripts/mc-wake.sh" target add --program alpha alpha --mod 2>"$tmp/stderr")
+RC=$?
+expect_rc "a worker's mod cannot claim the target" 4
+mc_run mc-wake.sh target list --program alpha
+expect_no_out "the refused claim records nothing" "alpha${tab}mod"
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=mcs /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
+RC=$?
+expect_rc "a mission-control session's compose is allowed" 0
+expect_out "and carries the wake" "- pending-prompt-overdue mc-beta-worker-1"
+mc_run mc-wake.sh compose --program alpha alpha
+expect_out "a session with no worker identity still composes" "- pending-prompt-overdue mc-beta-worker-1"
 
 # ---------------------------------------------------------------------------
 # A session with the mod is left to the mod; unreachable targets are named;
