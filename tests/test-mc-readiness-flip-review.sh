@@ -158,6 +158,22 @@ lacks "and no flip token" "flip-for-review"
 walk_rows "draft, stale post-pr" $DRAFT "cadence,gap,post-pr,stale,2222222222222222222222222222222222222222"
 expect_out "a post-pr completion at another head stays a gap" "fail${tab}cadence${tab}post-pr: completed only at 222222222222"
 lacks "and no flip token either" "flip-for-review"
+# A post-pr completion outside the pull request's own history (another unit's,
+# left in a reused worktree) is no completion at this head.
+FOREIGN_GAP="cadence,gap,post-pr,foreign,2222222222222222222222222222222222222222"
+FOREIGN_DETAIL="no completion record on the history of this pull request (the only one is at 222222222222, outside it)"
+# shellcheck disable=SC2086
+walk_rows "draft, foreign post-pr" $DRAFT "$FOREIGN_GAP"
+expect_rc "a draft whose only post-pr completion is another unit's is not merge-ready" 4
+expect_eq "it is pending the flip, naming the foreign head" "flip-for-review${tab}$H
+pending${tab}post-pr${tab}$FOREIGN_DETAIL; pending the flip, which fires the bot review (PR-Agent) a post-pr step may wait on"
+# shellcheck disable=SC2086
+walk_rows "draft, foreign post-pr, no PR-Agent" "state,draft" "$FOREIGN_GAP"
+expect_out "without PR-Agent it stays a gap" "fail${tab}cadence${tab}post-pr: $FOREIGN_DETAIL"
+lacks "with no flip token" "flip-for-review"
+# shellcheck disable=SC2086
+walk_rows "draft, foreign post-pr beside another gap" $DRAFT "$FOREIGN_GAP" "check,lint,FAILURE"
+case $(first_line) in "not-ready${tab}$H") ok "a foreign post-pr beside a red check stays not-ready" ;; *) fail "foreign post-pr beside a red check opens '$(first_line)'" ;; esac
 
 # ---------------------------------------------------------------------------
 # After the flip the run it fired is required, finished and answered.
@@ -168,6 +184,11 @@ walk_rows "ready, post-pr incomplete" $READY "$POST_PR_GAP" "check,PR-Agent,SUCC
 expect_rc "a ready pull request with the post-pr gap is not merge-ready" 4
 expect_out "named" "fail${tab}cadence${tab}post-pr: no completion record"
 lacks "and no flip token: it is already flipped" "flip-for-review"
+# shellcheck disable=SC2086
+walk_rows "ready, foreign post-pr" $READY "$FOREIGN_GAP" "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:42:23Z"
+expect_rc "a ready pull request whose only post-pr completion is another unit's is not merge-ready" 4
+expect_out "named as a gap" "fail${tab}cadence${tab}post-pr: $FOREIGN_DETAIL"
+lacks "and no flip token" "flip-for-review"
 # shellcheck disable=SC2086
 walk_rows "ready, run still running" $READY "check,PR-Agent,IN_PROGRESS" "born,PR-Agent,2026-11-18T00:42:23Z"
 expect_rc "a flip-fired run still running is not merge-ready" 4

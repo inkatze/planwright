@@ -231,8 +231,9 @@ a configured step its run did not record passed, applied, or skipped, one
 whose record the step-record truth check refuses (reported unaudited), or a
 record that does not match its branch (`mismatch`), is a gap, whatever
 launched the session and whatever its brief said. On a draft where PR-Agent
-runs, a `post-pr` gap (no completion, or a step unrecorded) is pending the
-flip, which fires the bot review: with nothing else held the walk says
+runs, a `post-pr` gap (no completion, one only off its history, or a step
+unrecorded) is pending the flip, which fires the bot review: with nothing
+else held the walk says
 `flip-for-review <head>` (exit 4; the flip still follows `ready_flip_policy`),
 and once flipped it is `ready` only with the flip's run finished, its findings
 answered and `post-pr` complete. A

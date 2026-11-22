@@ -88,7 +88,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   cadence<TAB>gap<TAB><point><TAB><kind><TAB><detail>
                                       one per gap that audit printed
                                       (kind unaudited: a record the step-record
-                                      truth check refuses; reads as not audited)
+                                      truth check refuses; reads as not audited),
+                                      except that a post-pr stale whose every
+                                      post-pr completion lies outside the pull
+                                      request's history (not behind its head,
+                                      or held by its base) is kind foreign
   cadence<TAB>covered<TAB><point>     one per point it found complete
   cadence<TAB>unaudited<TAB><why>     the audit could not run
   scope<TAB>spec-only<TAB><head>      every changed path lies under the
@@ -152,8 +156,9 @@ THE WALK refuses, each failure one line:
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
     for its sign-off instead of the cadence and the required steps. The
-    exception is a post-pr gap (no completion, or a step never recorded) on a
-    draft where PR-Agent is required: that point waits on the bot review the
+    exception is a post-pr gap (no completion, one only on heads outside the
+    pull request's history such as another unit's in a reused worktree, or a
+    step never recorded) on a draft where PR-Agent is required: that point waits on the bot review the
     flip fires, so it is pending the flip, not a gap. When it is the only
     thing the walk holds, the verdict is flip-for-review (below); with any
     other refusal the verdict stays not-ready and names that refusal. On a
@@ -466,6 +471,7 @@ $1 == "cadence" && $2 == "gap" {
   d = $5 " is " $4
   if ($4 == "incomplete") d = "no completion record"
   else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
+  else if ($4 == "foreign") d = "no completion record on the history of this pull request (the only one is at " substr($5, 1, 12) ", outside it)"
   else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
   else if ($4 == "fault") d = $5
@@ -473,7 +479,7 @@ $1 == "cadence" && $2 == "gap" {
   else {
     cad[++ncad] = $3 ": " d
     # A post-pr step may wait on the bot review the ready flip fires.
-    if ($3 == "post-pr" && ($4 == "incomplete" || $4 == "missing")) cadpf[ncad] = d
+    if ($3 == "post-pr" && ($4 == "incomplete" || $4 == "missing" || $4 == "foreign")) cadpf[ncad] = d
   }
 }
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
@@ -577,6 +583,32 @@ conditions_for() {
 $(awk -F '\t' '($1 == "label" || $1 == "path") && NF >= 2 { print $1 "\t" $2 }' "$cf_ev")
 EOF
   /bin/bash "$script_dir/mc-gates.sh" resolve --program "$1" ${cf_args[@]+"${cf_args[@]}"} >"$3"
+}
+
+# post_pr_foreign <worktree> <head> <base rev or empty> <records>: whether
+# every post-pr completion the records hold is on a head outside the pull
+# request's own history: not behind <head>, or already held by the base it
+# branched from. Such a completion is another unit's, left in a reused
+# worktree, so it is no completion at <head>. Any completion on the pull
+# request's own history, or a head git cannot place, keeps the point stale.
+post_pr_foreign() {
+  awk -F '\t' '
+    $1 == "record" { t = p = h = "" }
+    $1 == "type" { t = $2 } $1 == "point" { p = $2 } $1 == "head" { h = $2 }
+    /^$/ { if (t == "completion" && p == "post-pr") print h; t = "" }
+    END { if (t == "completion" && p == "post-pr") print h }' "$4" | {
+    n=0
+    while IFS= read -r h; do
+      [[ $h =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || exit 1
+      n=$((n + 1))
+      mc_untrusted_git -C "$1" merge-base --is-ancestor "$h" "$2" 2>/dev/null
+      rc=$?
+      [ "$rc" -ne 1 ] || continue
+      [ "$rc" -eq 0 ] && [ -n "$3" ] || exit 1
+      mc_untrusted_git -C "$1" merge-base --is-ancestor "$h" "$3" 2>/dev/null || exit 1
+    done
+    [ "$n" -gt 0 ]
+  }
 }
 
 # branch_worktree <program> <slug> <branch> <head>: find the worktree of the
@@ -1062,9 +1094,11 @@ collect() {
     # merge after the last point counts only when the base already holds it.
     # A base the worktree does not hold would let any clean merge pass.
     cl_base=()
+    cl_baserev=''
     if [ -n "$cl_baseref" ]; then
       if mc_untrusted_git -C "$cl_wt" rev-parse --verify -q "refs/remotes/origin/$cl_baseref^{commit}" >/dev/null 2>&1; then
-        cl_base=(--base "refs/remotes/origin/$cl_baseref")
+        cl_baserev="refs/remotes/origin/$cl_baseref"
+        cl_base=(--base "$cl_baserev")
       else
         cl_unaud="the worktree $(sanitize_printable "$cl_wt") does not hold the base origin/$cl_baseref; fetch it"
         cl_wt=''
@@ -1102,6 +1136,13 @@ collect() {
       /^$/ { if (t == "step" && s != "") print "step\t" s "\t" o "\t" h; t = "" }
       END { if (t == "step" && s != "") print "step\t" s "\t" o "\t" h }' "$cl_tmp/records" >"$cl_tmp/steps" \
       || mc_fail "the step records cannot be parsed"
+    if awk -F '\t' '$2 == "gap" && $3 == "post-pr" && $4 == "stale" { f = 1 } END { exit !f }' "$cl_tmp/cadence" \
+      && post_pr_foreign "$cl_wt" "$cl_head" "$cl_baserev" "$cl_tmp/records"; then
+      if ! awk -F '\t' 'BEGIN { OFS = FS } $2 == "gap" && $3 == "post-pr" && $4 == "stale" { $4 = "foreign" } { print }' \
+        "$cl_tmp/cadence" >"$cl_tmp/cadence.new" || ! mv "$cl_tmp/cadence.new" "$cl_tmp/cadence"; then
+        mc_fail "the cadence evidence cannot be rewritten"
+      fi
+    fi
   fi
   cl_store=$(evidence_store "$1") || exit 1
   : >"$cl_tmp/evidence"
