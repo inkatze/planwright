@@ -1202,19 +1202,18 @@ check_unprotected() {
 # spec_pr_branch_hit <branch...> — 0, with SPB_HIT set to the first, when a
 # branch is a spec PR branch outside the protected floor: an amendment
 # (planwright/<spec>/amendment-*) or rework (planwright/<spec>/spec-rework*)
-# branch, `refs/heads/` stripped and case folded as the protected set is. The
-# floor leaves them off because the kickoff push helper publishes them, and
-# its own push runs below this hook; no other agent write reaches one.
+# branch, `refs/heads/` stripped and case folded as the protected set is; the
+# flight namespace names no spec. The floor leaves these branches off because
+# the kickoff push helper publishes them from below this hook.
 SPB_HIT=''
 spec_pr_branch_hit() {
-  local b n
+  local b LC # local: lc sets it, and a caller may hold its own
   SPB_HIT=''
   for b in "$@"; do
-    n=$(lower "$b")
-    n=${n#refs/heads/}
-    case $n in
-      planwright/*/*/*) ;;
-      planwright/?*/amendment-* | planwright/?*/spec-rework | planwright/?*/spec-rework-*)
+    lc "$b"
+    case ${LC#refs/heads/} in
+      planwright/*/*/* | planwright/flight/*) ;;
+      planwright/?*/amendment-* | planwright/?*/spec-rework*)
         SPB_HIT=$b
         return 0
         ;;
@@ -3660,12 +3659,22 @@ classify_gh_api() {
   return 0
 }
 
-# queue_host_write <eff> <eff_ok> <what> <branch...> — a host ref write:
-# queue_protected, after refusing a spec PR branch target outright.
+# queue_host_write <eff> <eff_ok> <what> <branch...> — a host ref write. A
+# name the guard will not check, and the mission-control tier, keep
+# queue_protected's own refusal, so no unchecked name reaches a reason.
 queue_host_write() {
-  if spec_pr_branch_hit "${@:4}"; then
-    deny_now "$(spec_pr_branch_text "$3")"
-    return 0
+  local b
+  if [ "$TIER" != mission-control ]; then
+    for b in "${@:4}"; do
+      valid_branch "$b" || {
+        queue_protected "$@"
+        return 0
+      }
+    done
+    if spec_pr_branch_hit "${@:4}"; then
+      deny_now "$(spec_pr_branch_text "$3")"
+      return 0
+    fi
   fi
   queue_protected "$@"
 }
@@ -5430,9 +5439,11 @@ eval_push() {
       targets[${#targets[@]}]=$dst
     done
   fi
-  [ "${#targets[@]}" = 0 ] || ! spec_pr_branch_hit "${targets[@]}" \
-    || emit_deny "$(spec_pr_branch_text 'this git push')"
-  [ "${#targets[@]}" = 0 ] || check_unprotected "$dir" 'this git push' "${targets[@]}"
+  [ "${#targets[@]}" != 0 ] || return 0
+  if spec_pr_branch_hit "${targets[@]}"; then
+    emit_deny "$(spec_pr_branch_text 'this git push')"
+  fi
+  check_unprotected "$dir" 'this git push' "${targets[@]}"
 }
 
 # --------------------------------------------------------------------------
