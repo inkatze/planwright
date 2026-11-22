@@ -429,8 +429,9 @@ gets a `Read(...)` deny:
   `.githooks/`, the worktree's `.claude/`, and the mise, lefthook, direnv, and
   tool-version config names the guard refuses (`scripts/worker-command-guard.sh`,
   `ob_excluded_name` and `ob_excluded_mise_child`, owns the list; a launch given
-  `--mise-task-edit` opens four of those names inside its worktree, see "The
-  mise task-file opt-in" below). An adopter
+  `--mise-task-edit` opens four of those names inside its worktree, and one
+  given `--lefthook-edit` opens `lefthook`, `lefthook.*` and `lefthook/`; see
+  "The mise task-file opt-in" and "The lefthook config opt-in" below). An adopter
   whose `core.hooksPath` names another directory adds an `Edit(<dir>/**)` deny
   of its own.
 - **User-level and system git config:** `~/.gitconfig`, its `~/.gitconfig*`
@@ -616,7 +617,14 @@ neither (it passes the shipped profile itself, byte for byte):
   this worktree" and beats every allow, so the hook refuses any task-file path
   that lies outside the worktree, whatever the spelling: another worktree or
   repository, a `..` escape, or a symlinked directory or file that resolves
-  out. A hook that cannot read its input refuses every file-tool call, task path or not.
+  out. A hook that cannot read its input (no `jq`, a payload that is not JSON,
+  a field holding the payload's own separator byte) refuses every file-tool
+  call, task path or not. The generator itself refuses the launch when the
+  hook script beside it is missing or not executable, since the broad denies
+  it replaced would then leave the names open outside the ancestors. The
+  worker runs the copy under its own plugin root, which its dispatch
+  environment may point at another install, so the launch preflight proves
+  that copy refuses an opted-in name outside the worktree (`docs/fleet.md`).
 - **The guard's own-branch arm** admits writes to those four names inside the
   worktree (`ob_excluded_name`, third argument of `ob_excluded_rel`, and the
   recursive-act screen `ob_tree_clean`), only when the record carries exactly
@@ -625,7 +633,8 @@ neither (it passes the shipped profile itself, byte for byte):
 
 The generated profile and the launch's opt-in record sit in the worker's fleet
 state folder (`streamjson/<worker>/`). The record holds every opt-in the launch
-was given (`mise_task_edit=1`, `spec_branch=<branch>`), one line each, in one
+was given (`mise_task_edit=1`, `lefthook_edit=1`, `spec_branch=<branch>`), one
+line each, in one
 file named `planwright-opt-in.<blob id>`, the git blob id of its own content
 (`scripts/fleet-streamjson.sh`, `OPT_IN_PREFIX`). A fresh launch whose set
 changes removes the old `session` first, then every earlier record, and
@@ -634,8 +643,8 @@ earlier set with its session or no session at all, never a session beside a
 set its launch did not ask for. A recover or relaunch reads only an entry
 spelled exactly that way whose content, read once, still hashes to its name,
 and refuses (exit 7; a recover reports it as a failed resume) on more than one
-record, a mismatch, a line outside the grammar, or a `mise-task-edit` or
-`spec-branch` marker of the layout the record replaced, which a worker could
+record, a mismatch, a line outside the grammar, or a `mise-task-edit`,
+`lefthook-edit` or `spec-branch` marker of the layout the record replaced, which a worker could
 write and so is never read: launch such a worker fresh. That is what holds on
 a case-insensitive filesystem (default APFS, the Mac offload host's
 included), where the profile's case-sensitive denies do not:
@@ -655,9 +664,12 @@ is never used. The state folder's other files, which a recover and a relaunch
 read back too (`profile`, `scope`, `cwd`, the tier fields), have only the deny
 of the whole folder (`Edit(//**/streamjson/**)`), and the session records only
 their `session-records/*.record` deny: a recased spelling of a folder or name
-passes both on a case-insensitive filesystem (MA-2).
+passes both on a case-insensitive filesystem (MA-2). A script the worker
+writes no longer runs unprompted to reach them ("Code a worker runs
+unprompted"), but the routes that section lists still do, so neither layer
+is a boundary against a worker set on opting itself in.
 
-Residual risk: the hook compares paths case-sensitively and works from the
+Residual risk: the hook compares the mise names case-sensitively and works from the
 payload's own spelling and the filesystem, so it is a fail-closed second layer
 rather than a proof; the worker's scratch root holds no task files the hook
 admits. The ancestor folder names are matched case-sensitively (MA-2), where
@@ -670,6 +682,86 @@ one row. `tests/test-worker-command-guard-mise-tasks.sh` pins the guard half,
 `tests/test-worker-settings-generate.sh` the generator, and
 `tests/test-fleet-streamjson.sh` the launcher (c9m, with c9o for the record's
 single write and c9q for its exact-entry read).
+
+## The lefthook config opt-in
+
+The shipped profile also denies the file tools the lefthook config at any depth
+(`lefthook.<ext>`, `lefthook/`, the local and dotted variants), so a worker whose
+unit is fixing a slow or wrong pre-commit hook cannot edit the repository's own
+hook config. `--lefthook-edit` opens exactly the tracked config names inside the
+worker's own worktree and nothing else. It has the mise opt-in's shape in every
+respect: a launch argument of `scripts/fleet-streamjson.sh launch` and
+`scripts/mission-control-launch.sh launch` (worker profile, stream-json rung,
+refused anywhere else, off by default), recorded as `lefthook_edit=1` in the
+session record and as `lefthook_edit=1` in the launch's opt-in record,
+never read from live config, the checkout or the environment, dropped by a fresh
+launch without the flag and kept by a recover or relaunch. The two opt-ins are
+independent: each opens only its own names, and a launch may carry both. A
+change to the opt-in reaches a worker only by relaunch.
+
+What an opted-in launch gets:
+
+- **A generated profile** (`scripts/worker-settings-generate.sh --lefthook-edit`):
+  the two broad denies `lefthook/**` and `lefthook.*` are replaced by literal
+  denies of the same two names in every ancestor folder of the worktree and in the
+  primary checkout, exactly as for the mise names. Every other rule is the
+  shipped one, in order.
+- **The same file-tool hook** (`scripts/worker-mise-edit-guard.sh`, told to judge
+  the lefthook names by a `lefthook` argument after the worktree, or `mise
+  lefthook` for a launch with both opt-ins): a lefthook name outside the
+  worktree, by spelling or by where it resolves, is refused. It matches the names
+  in any letter case.
+- **The guard's own-branch arm** admits writes to `lefthook`, `lefthook.*` and
+  anything under a `lefthook/` directory inside the worktree (`ob_excluded_name`
+  reading the `l` letter of the record's opt-ins, and the recursive-act screen
+  `ob_tree_clean`), only when the record carries exactly one `lefthook_edit=1`.
+
+Still closed under the opt-in: `lefthook-local.*` and the `.lefthook`,
+`.lefthook.*`, `.lefthook-local` and `.lefthook-local.*` variants, `.githooks/`
+and `githooks/` (denied to the file tools by name), whichever directory
+`core.hooksPath` names (excluded from the arm by what git reports, so it follows
+the setting; the file tools know only the two names above, so a hooks path named
+otherwise is an adopter's own `Edit` deny, as under "What the path rules close"),
+`.git`, `.claude`, the mise names unless `--mise-task-edit` is also given, the scratch
+zone, and every write outside the worktree, the primary checkout's lefthook
+config included. The local variant stays closed because it is the gitignored,
+per-machine override: a change there never lands in the pull request, so review
+could not see it, where the tracked config shows up in the diff. The dotted
+variants and the dotted script directories are further lookup names beyond what
+fixing the tracked hook config needs; a repository that keeps its config under
+one of them needs its own opt-in.
+
+Residual risk, and the reason the opt-in is a sign-off item: a lefthook job is a
+shell command, and it runs outside the command guard. The worker's own commits
+fire it through git, and the guard approves `lefthook run <job>` as repository
+code (`guard_lefthook` refuses a config override, any flag before the
+subcommand, and every subcommand but `run`), so a
+worker that edits a job and then runs it executes that command in its own
+session at once, before anyone reviews the diff, with the session's privileges.
+Every "stays closed" line above governs the worker's file tools and the guard's
+own arm; a job it writes is not held to them. The opt-in therefore lets the
+worker change what runs on its own commits, for the worktree it was launched in.
+What bounds it is the operator's launch-time choice for one named worker whose
+unit is the hook fix, and the tracked file landing in the pull request diff,
+where review sees what will run for every later contributor.
+
+None of this is a sandbox, for an opted-in worker or any other. The guard no
+longer approves a repository script the worker wrote or edited and has not
+committed ("Code a worker runs unprompted"), but a lefthook job is exactly the
+route that section leaves open: a job the worker writes runs on its next commit
+or `lefthook run`, and through it the worker can write any path the file-tool
+denies close, the opt-in record, another worktree's lefthook config and the
+primary checkout's included. What the path rules and the opt-in govern is a
+worker's ordinary file-tool and shell edits, not one working around them; the
+mise opt-in has the same exposure through the tasks it opens. The hook matches the lefthook names in any
+ASCII letter case, where the mise names are matched case-sensitively; both
+leave non-ASCII case-folding on a case-insensitive filesystem unhandled, and the per-launch
+profile's ancestor names are case-sensitive for both.
+`tests/test-permission-matcher.sh` (pass J) runs the generated rules through the
+model, `tests/test-worker-command-guard-lefthook.sh` pins the guard half,
+`tests/test-worker-settings-generate.sh` the generator, and
+`tests/test-fleet-streamjson.sh` (c9l) and
+`tests/test-mission-control-launch-tmux.sh` the launchers.
 
 ## The spec-branch launch record
 

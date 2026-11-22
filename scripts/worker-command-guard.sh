@@ -439,7 +439,14 @@ tokenize() {
             dn=${s:j+1:1}
             [ -n "$dn" ] || return 1
             [ "$dn" = '$' ] && curx=1 # \$ inside double quotes is literal
-            k="$k$dn"
+            # bash keeps the backslash before any other character, and
+            # guard_fish must see it.
+            case $dn in
+              '$' | '`' | '"' | "\\") k="$k$dn" ;;
+              # bash drops a backslash-newline whole, joining the word's halves.
+              "$NL") return 1 ;;
+              *) k="$k\\$dn" ;;
+            esac
             j=$((j + 2))
             continue
           fi
@@ -1114,9 +1121,10 @@ REC_BASE=''
 REC_BASE_MERGE=''
 REC_SCRATCH=''
 REC_AUDIT_LOG=''
-# 1 when the launch opted in to editing the worktree's own mise task files
-# (the record's mise_task_edit=1); see ob_excluded_name.
-REC_MISE_TASKS=0
+# The launch's opt-ins to editing the worktree's own trusted names, as the
+# letters ob_excluded_name and ob_tree_clean read: m (the record's mise_task_edit=1, the mise
+# task files), l (lefthook_edit=1, the lefthook config).
+REC_OPEN=''
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
 # grammar (is_unit_branch) narrowed to flight names carrying the id every
@@ -1147,7 +1155,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' mt=''
+  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' mt='' lh=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1175,6 +1183,7 @@ session_record_load() {
       scratch_root) sr=$v ;;
       audit_log_home) ah=$v ;;
       mise_task_edit) mt=$v ;;
+      lefthook_edit) lh=$v ;;
     esac
   done <"$p"
   case $dup in *" policy "*) policy='' ;; esac
@@ -1185,6 +1194,7 @@ session_record_load() {
   case $dup in *" scratch_root "*) sr='' ;; esac
   case $dup in *" audit_log_home "*) ah='' ;; esac
   case $dup in *" mise_task_edit "*) mt='' ;; esac
+  case $dup in *" lefthook_edit "*) lh='' ;; esac
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
     /?*) ;;
@@ -1280,8 +1290,9 @@ session_record_load() {
   REC_BASE=$base
   REC_BASE_MERGE=$bm
   REC_SCRATCH=$sr
-  REC_MISE_TASKS=0
-  [ "$mt" != 1 ] || REC_MISE_TASKS=1
+  REC_OPEN=''
+  [ "$mt" != 1 ] || REC_OPEN=${REC_OPEN}m
+  [ "$lh" != 1 ] || REC_OPEN=${REC_OPEN}l
 }
 
 # --------------------------------------------------------------------------
@@ -1727,19 +1738,30 @@ EOF
   OB_EXCL_STATE=1
 }
 
-# ob_excluded_name <component> [<task-open>]: the names a tool runs or trusts
+# ob_excluded_name <component> [<open>]: the names a tool runs or trusts
 # without a further prompt, matched case-insensitively at any depth, since
-# mise reads a config from whatever directory it starts in. With <task-open>
-# 1, the four task-file names (mise.toml, .mise.toml, mise-tasks, .mise-tasks)
-# are let through: only the worktree zone of an opted-in session asks for it.
+# mise reads a config from whatever directory it starts in. <open> is REC_OPEN
+# or a subset of it: with `m`, the four task-file names (mise.toml, .mise.toml,
+# mise-tasks, .mise-tasks) are let through; with `l`, the lefthook config
+# names (lefthook, lefthook.*; lefthook-local.* and the dotted variants stay
+# excluded). Only the worktree zone of an opted-in session asks for either.
 ob_excluded_name() {
   local low
   low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-  if [ "${2:-0}" = 1 ]; then
-    case $low in
-      mise.toml | .mise.toml | mise-tasks | .mise-tasks) return 1 ;;
-    esac
-  fi
+  case ${2:-} in
+    *m*)
+      case $low in
+        mise.toml | .mise.toml | mise-tasks | .mise-tasks) return 1 ;;
+      esac
+      ;;
+  esac
+  case ${2:-} in
+    *l*)
+      case $low in
+        lefthook | lefthook.*) return 1 ;;
+      esac
+      ;;
+  esac
   case $low in
     .git | .claude | .envrc | .tool-versions | .config | .mise | mise.toml | .mise.toml | mise.*.toml | .mise.*.toml | .miserc*.toml | mise-tasks | .mise-tasks | mise*.lock | lefthook | lefthook.* | lefthook-local.* | .lefthook | .lefthook.* | .lefthook-local | .lefthook-local.*) return 0 ;;
   esac
@@ -1757,7 +1779,7 @@ ob_excluded_mise_child() {
   return 1
 }
 
-# ob_excluded_rel <relative-path> <root> [<task-open>]: 0 when a component of the path
+# ob_excluded_rel <relative-path> <root> [<open>]: 0 when a component of the path
 # under <root> is an excluded name, a `mise/` entry mise loads (the root's own
 # name counting as its parent), or the last component is `mise` itself:
 # moving a directory onto that name would turn its config.toml or conf.d into
@@ -1771,7 +1793,7 @@ ob_excluded_rel() {
     case $comp in
       '' | .) continue ;;
     esac
-    ob_excluded_name "$comp" "${3:-0}" && return 0
+    ob_excluded_name "$comp" "${3:-}" && return 0
     if [ "$prev" = mise ] && ob_excluded_mise_child "$comp"; then
       return 0
     fi
@@ -1795,11 +1817,12 @@ ob_excluded() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT" "$REC_MISE_TASKS"
+  ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT" "$REC_OPEN"
 }
 
-# ob_tree_clean <canonical-dir>: 0 when nothing under the directory is an
-# excluded path, for a recursive act on it.
+# ob_tree_clean <canonical-dir> [<open>]: 0 when nothing under the directory is
+# an excluded path, for a recursive act on it. <open> is ob_excluded_name's:
+# the opt-in names let through, given only where the act lands in the worktree.
 ob_tree_clean() {
   local dir=$1 low d hit
   low=$(printf '%s' "$dir" | tr '[:upper:]' '[:lower:]')
@@ -1811,25 +1834,24 @@ ob_tree_clean() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  if [ "$REC_MISE_TASKS" = 1 ]; then
-    hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
-      -o -iname .config -o -iname .mise \
-      -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' \
-      -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
-      -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
-      -o -iname lefthook -o -iname 'lefthook.*' \
-      -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
-      -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
-  else
-    hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
-      -o -iname .config -o -iname .mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
-      -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' -o -iname mise-tasks \
-      -o -iname .mise-tasks -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
-      -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
-      -o -iname lefthook -o -iname 'lefthook.*' \
-      -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
-      -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
-  fi
+  # The same names ob_excluded_name lists (keep the two in step), as find
+  # primaries, less the ones an opt-in lets through.
+  local -a names=(-iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions
+    -o -iname .config -o -iname .mise
+    -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml'
+    -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml'
+    -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks'
+    -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*'
+    -o -iname '.lefthook-local' -o -iname '.lefthook-local.*')
+  case ${2:-} in
+    *m*) ;;
+    *) names+=(-o -iname mise.toml -o -iname .mise.toml -o -iname mise-tasks -o -iname .mise-tasks) ;;
+  esac
+  case ${2:-} in
+    *l*) ;;
+    *) names+=(-o -iname lefthook -o -iname 'lefthook.*') ;;
+  esac
+  hit=$(find "$dir" \( "${names[@]}" \) -print -quit 2>/dev/null) || return 1
   [ -z "$hit" ]
 }
 
@@ -1925,7 +1947,7 @@ ob_path() {
 # act on a worktree directory, nothing excluded beneath it.
 ob_target() {
   ob_path "$1" "$2" "${4-wt}" || return 1
-  [ "$3" = 1 ] && [ "$OB_ZONE" = wt ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" && return 1
+  [ "$3" = 1 ] && [ "$OB_ZONE" = wt ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" "$REC_OPEN" && return 1
   return 0
 }
 
@@ -2015,7 +2037,8 @@ guard_touch() {
 # zone; a copied one is read, so the worktree or, under the scratch arm, the
 # scratch root); the destination is a new path, or an existing directory
 # whose entry for each source is checked as the target. A directory copied
-# or moved holds no excluded path, in either zone. A recursive copy lands only
+# or moved holds no excluded path, in either zone, an opt-in's names excepted
+# when the destination is the worktree. A recursive copy lands only
 # where nothing exists yet, so it never writes through an existing file.
 ob_copy_move() {
   local verb=$1 rec=$2 zones=$3 n dst s b final src src_dir
@@ -2050,7 +2073,12 @@ ob_copy_move() {
       return 1
     fi
     if [ -n "$src_dir" ]; then
-      ob_tree_clean "$src_dir" || return 1
+      # An opt-in's names move only within the worktree, never into scratch.
+      if [ "$OB_ZONE" = wt ]; then
+        ob_tree_clean "$src_dir" "$REC_OPEN" || return 1
+      else
+        ob_tree_clean "$src_dir" || return 1
+      fi
     fi
   done
   return 0
@@ -3742,8 +3770,19 @@ guard_bashsh() {
 guard_fish() {
   # Only `fish -c "<inner>"`; recurse the same analysis on the inner string
   # within the depth bound (REQ-A1.5, REQ-B1.3).
-  [ "$cwn" -ge 3 ] || return 1
+  # fish keeps reading its own options after the string, and a second `-c`
+  # or `--init-command` runs too.
+  [ "$cwn" -eq 3 ] || return 1
   [ "${cw[1]}" = '-c' ] || return 1
+  # The inner string is read with bash's quoting, but fish decodes escapes
+  # bash does not (`--he\x6cp` is `--help` to fish), and expands `{a, b}`
+  # across the space into two words, so either defers.
+  case ${cw[2]} in
+    *\\* | *'{'*','*) return 1 ;;
+  esac
+  # fish's read updates a variable where it already lives, a universal one
+  # included, and fish saves those to disk, so no read runs inside.
+  local FISH_INNER=1
   analyze_command "${cw[2]}" "$((HOOK_DEPTH + 1))"
 }
 
@@ -4077,6 +4116,23 @@ git_config_write_opt() {
   return 1
 }
 
+# git_help_req <verb>: whether the git line in cw asks for help, which opens the
+# man page through a pager or a browser, and a pager runs commands (`!cmd` in
+# less). git opens it for the `help` verb and an exact `--help` right after
+# the verb, but any word git could read as --help or --help-all, wherever it
+# sits and abbreviated or not, counts, failing closed.
+git_help_req() {
+  local i n
+  [ "$1" = help ] && return 0
+  for ((i = 1; i < cwn; i++)); do
+    n=${cw[i]%%=*}
+    case $n in
+      --?*) [[ help-all == "${n#--}"* ]] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution, REQ-A1.8), and per-subcommand form
 # guards on the subcommands with a mutating twin (REQ-A1.5).
@@ -4101,6 +4157,7 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  git_help_req "$sub" && return 1
   if [ "$viac" = 1 ]; then
     case $sub in
       status | diff | log | show) ;;
@@ -6031,7 +6088,7 @@ classify_verb() {
     markdownlint | markdownlint-cli2) guard_mdlint ;;
     env) guard_env ;;
     printenv) guard_printenv ;;
-    read) guard_read ;;
+    read) [ -z "${FISH_INNER-}" ] && guard_read ;;
     yq) guard_yq ;;
     shfmt) guard_shfmt ;;
     rg) guard_rg ;;

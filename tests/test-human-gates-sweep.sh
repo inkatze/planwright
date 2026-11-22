@@ -195,24 +195,24 @@ done
 deferred=$(awk '/^## Deferred/ { on = 1; next } on && /^## / { exit } on' "$REPO_ROOT/specs/human-gates/tasks.md")
 # bundle record replacing-ids, one row per pointer a Deferred bullet carries.
 pins='tower-front-door REQ-G1.1 REQ-D1.6
-tower-front-door REQ-G1.3 REQ-F1.1,REQ-F1.2
+tower-front-door REQ-G1.3 REQ-F1.6,REQ-F1.7
 tower-front-door REQ-G1.4 REQ-B1.1,REQ-C1.1
 tower-front-door REQ-H1.3 REQ-C1.1
 tower-front-door D-5 D-6
 fleet-lifecycle-closure REQ-J1.1 REQ-D1.6
-fleet-lifecycle-closure REQ-J1.2 REQ-F1.1,REQ-F1.2
+fleet-lifecycle-closure REQ-J1.2 REQ-F1.6,REQ-F1.7
 operator-dialogue REQ-F1.4 REQ-D1.6
-tower-comms REQ-H1.1 REQ-F1.2
+tower-comms REQ-H1.1 REQ-F1.7
 tower-placement REQ-G1.1 REQ-C1.9
-tower-placement REQ-G1.3 REQ-F1.1,REQ-F1.2
+tower-placement REQ-G1.3 REQ-F1.6,REQ-F1.7
 merge-currency-guard REQ-B1.4 REQ-C1.1,REQ-C1.9
 merge-currency-guard D-9 D-4
 test-throughput D-5 D-4,D-6
 test-throughput D-15 D-4
 custom-steps D-2 D-4
 fleet-messaging REQ-G1.3 REQ-D1.6
-guard-coverage REQ-A1.2 REQ-F1.1
-concurrent-orchestrator-coordination REQ-B1.2 REQ-F1.1,REQ-F1.2
+guard-coverage REQ-A1.2 REQ-F1.6
+concurrent-orchestrator-coordination REQ-B1.2 REQ-F1.6,REQ-F1.7
 concurrent-orchestrator-coordination REQ-D1.3 REQ-C1.1,REQ-D1.6'
 for b in tower-front-door fleet-lifecycle-closure operator-dialogue tower-comms tower-placement \
   merge-currency-guard test-throughput custom-steps fleet-messaging \
