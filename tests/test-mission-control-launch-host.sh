@@ -271,10 +271,29 @@ case $(cat "$capreg/$w1") in
 esac
 [ "$(grep -c "^waiting${TAB}" "$capreg/$w1")" = 1 ] && ok "a row holds one waiting field" || fail "a row holds several waiting fields"
 
+# The wait's epoch: written with it, kept when the same reason is marked
+# again (a repeated wait must not restart a park), renewed with a new reason.
+waited_of() { awk -F '\t' '$1 == "waited" { print $2 }' "$capreg/$w1"; }
+w_now=$(date +%s)
+w_at=$(waited_of)
+if [ "$(grep -c "^waited${TAB}" "$capreg/$w1")" = 1 ] && [ -n "$w_at" ] && [ $((w_now - w_at)) -ge 0 ] && [ $((w_now - w_at)) -le 60 ]; then
+  ok "a wait records the epoch it was set"
+else
+  fail "the row's waited field: $(cat "$capreg/$w1")"
+fi
+awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "waited" { $2 = 1000 } { print }' "$capreg/$w1" >"$capreg/$w1.new" && mv -f "$capreg/$w1.new" "$capreg/$w1"
+ml wait "$w1" --on ready-flip
+[ "$(waited_of)" = 1000 ] && ok "marking the same reason again keeps its epoch" || fail "a repeated wait moved its epoch: $(waited_of)"
+ml wait "$w1" --on operator
+w_at=$(waited_of)
+[ -n "$w_at" ] && [ "$w_at" -gt 1000 ] && ok "a new reason takes a new epoch" || fail "a new reason kept the old epoch: $(waited_of)"
+[ "$(grep -c "^waited${TAB}" "$capreg/$w1")" = 1 ] && ok "a row holds one waited field" || fail "a row holds several waited fields"
+
 ml unwait "$w1"
 [ "$RC" = 0 ] && ok "unwait returns a worker to the count" || fail "unwait exited $RC: $ERR"
 [ "$OUT" = "wait${TAB}${w1}${TAB}working" ] && ok "unwait prints its name and the working state" || fail "unwait printed: $OUT"
 grep -q "^waiting${TAB}" "$capreg/$w1" && fail "unwait left the waiting field" || ok "unwait clears the waiting field"
+grep -q "^waited${TAB}" "$capreg/$w1" && fail "unwait left the waited field" || ok "unwait clears the waited field"
 cmp -s "$capreg/$w1" "$fleet/streamjson/$w1/launcher-row" \
   && ok "the kept copy of the row follows wait and unwait" \
   || fail "the kept copy of the row went stale after wait or unwait"

@@ -1836,15 +1836,18 @@ host_live_counts() {
 }
 
 # row_set_waiting <row> <reason> — rewrite a registry row with its waiting
-# field set to <reason> and its waited field to the epoch it was set, or with
-# neither when <reason> is empty. The session-keeper counts a park on the
-# operator from the later of that epoch and the worker's last turn end.
+# field set to <reason> and its waited field to the epoch that reason was
+# first set, or with neither when <reason> is empty. Marking the same reason
+# again keeps the epoch: the session-keeper counts a park on the operator
+# from the later of it and the worker's last turn end, so a repeated wait
+# must not restart the park.
 row_set_waiting() {
   rs_tmp="$1.tmp.$$"
   if ! (umask 077 && awk -F '\t' -v r="$2" -v t="$(date +%s)" '
-    $1 == "waiting" || $1 == "waited" { next }
+    $1 == "waiting" { if (ow == "") ow = substr($0, 9); next }
+    $1 == "waited" { if (ot == "") ot = $2; next }
     { print }
-    END { if (r != "") print "waiting\t" r "\nwaited\t" t }' "$1" >"$rs_tmp") 2>/dev/null \
+    END { if (r != "") print "waiting\t" r "\nwaited\t" ((ow == r && ot ~ /^[1-9][0-9]*$/) ? ot : t) }' "$1" >"$rs_tmp") 2>/dev/null \
     || ! mv -f -- "$rs_tmp" "$1" 2>/dev/null; then
     rm -f "$rs_tmp"
     return 1
