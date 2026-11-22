@@ -229,6 +229,13 @@ opf "$knob_on" 8 --bogus
 [ "$rc" -eq 2 ] || fail "8: an unknown argument was not a usage error (exit $rc)"
 printf '%s\n' "$errout" | grep -q "unexpected argument '--bogus'" || fail "8: the bad argument was not named: $errout"
 [ ! -s "$PW_GIT_LOG" ] || fail "8: git ran on a usage error"
+opf "$knob_on" 8 --checkout ""
+[ "$rc" -eq 2 ] || fail "8: an empty --checkout was not a usage error (exit $rc)"
+printf '%s\n' "$errout" | grep -q 'needs a value' || fail "8: the empty --checkout was not named: $errout"
+opf "$knob_on" 8 --checkout "$tmp/no-such-checkout"
+[ "$rc" -eq 2 ] || fail "8: a missing --checkout directory was not a usage error (exit $rc)"
+printf '%s\n' "$errout" | grep -q 'cannot enter checkout directory' || fail "8: the missing directory was not named: $errout"
+[ ! -s "$PW_GIT_LOG" ] || fail "8: git ran for a checkout that does not exist"
 
 # 9. Knob on, no origin configured: the solo verdict, nothing moves.
 root=$(new_fixture solo)
