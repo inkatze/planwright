@@ -56,6 +56,7 @@ test-worker-command-guard.sh	30.420
 test-tower-queue-away.sh	30.393
 test-fleet-liveness.sh	30.381
 test-mc-config.sh	30.347
+test-worker-command-guard-lefthook.sh	30.194
 test-allocation-feedback-callsites.sh	30.092
 test-tower-queue-batch.sh	29.584
 test-mission-control-launch-host.sh	28.773

@@ -835,6 +835,217 @@ senv "$home" "$rec" -- \
 [ ! -s "$rec/argv" ] || fail "c9m: the refused opted-in launch must never spawn the worker"
 [ ! -e "$home/streamjson/sjw9m4/mise-task-edit" ] || fail "c9m: a refused opted-in launch must record no opt-in"
 echo "ok: c9m mise task-file opt-in: per-launch profile, recorded for recover, shipped profile byte for byte without it"
+# c9l (lefthook config opt-in): `launch --lefthook-edit` on the worker profile
+#    passes a per-launch settings file whose two broad lefthook denies are
+#    replaced, records the opt-in for the guard and for a recover, composes
+#    with --mise-task-edit without opening the mise names, and is refused for
+#    every other profile and every path the literal denies cannot name.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9l1 execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --cwd "$tmp/mwt" --foreground \
+  || fail "c9l: an opted-in launch exited non-zero"
+l_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+case $l_settings in
+  "$home/streamjson/sjw9l1/"*) : ;;
+  *) fail "c9l: the opted-in launch must pass a settings file in the worker's own state folder: $l_settings" ;;
+esac
+jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("Edit(//**/lefthook/**)") == null)' "$l_settings" >/dev/null \
+  || fail "c9l: the per-launch profile still carries a broad lefthook deny"
+jq -e '.permissions.deny | (index("Edit(//**/mise.toml)") != null) and (index("Edit(//**/lefthook-local.*)") != null) and (index("Edit(//**/githooks/**)") != null)' "$l_settings" >/dev/null \
+  || fail "c9l: the per-launch profile opened more than the lefthook names"
+[ "$(cat "$home/streamjson/sjw9l1/lefthook-edit" 2>/dev/null)" = 1 ] \
+  || fail "c9l: the launch must record the opt-in for its recover"
+[ ! -e "$home/streamjson/sjw9l1/mise-task-edit" ] || fail "c9l: the lefthook opt-in must not record the mise opt-in"
+l_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ grep -qx 'lefthook_edit=1' "$l_rec" && ! grep -q '^mise_task_edit=' "$l_rec"; } \
+  || fail "c9l: the session record must carry lefthook_edit=1 and no mise field: $l_rec"
+# A recover relaunches under the recorded opt-in, regenerating the file.
+rm -f "$l_settings"
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9l1 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+l_settings2=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+{ [ "$l_settings2" = "$l_settings" ] && [ -s "$l_settings2" ] \
+  && jq -e '.permissions.deny | index("Edit(//**/lefthook.*)") | not' "$l_settings2" >/dev/null; } \
+  || fail "c9l: a recover must regenerate the per-launch profile: $l_settings2"
+grep -qx 'lefthook_edit=1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || fail "c9l: a recover must rewrite the session record with the opt-in"
+# A fresh launch without the flag drops the marker and passes the shipped profile.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9l1 execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/mwt" --foreground \
+  || fail "c9l: a plain relaunch of the same worker exited non-zero"
+cmp -s "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" "$shipped_profile" \
+  || fail "c9l: a launch without the opt-in must pass the shipped profile byte for byte"
+[ ! -e "$home/streamjson/sjw9l1/lefthook-edit" ] || fail "c9l: a fresh launch without the flag must drop the recorded opt-in"
+# Both opt-ins.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9l2 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --lefthook-edit --cwd "$tmp/mwt" --foreground \
+  || fail "c9l: a launch with both opt-ins exited non-zero"
+b_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+jq -e '.permissions.deny | [index("Edit(//**/mise.toml)"), index("Edit(//**/lefthook.*)")] | all(. == null)' "$b_settings" >/dev/null \
+  || fail "c9l: both opt-ins must replace the mise and lefthook broad denies"
+{ [ "$(cat "$home/streamjson/sjw9l2/lefthook-edit" 2>/dev/null)" = 1 ] && [ "$(cat "$home/streamjson/sjw9l2/mise-task-edit" 2>/dev/null)" = 1 ]; } \
+  || fail "c9l: both opt-ins must be recorded"
+b_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ grep -qx 'lefthook_edit=1' "$b_rec" && grep -qx 'mise_task_edit=1' "$b_rec"; } \
+  || fail "c9l: the session record must carry both fields when both opt-ins are given: $b_rec"
+# The mise opt-in alone never opens the lefthook names.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9l3 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --cwd "$tmp/mwt" --foreground \
+  || fail "c9l: a mise-only launch exited non-zero"
+jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") != null) and (index("Edit(//**/lefthook/**)") != null)' \
+  "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" >/dev/null \
+  || fail "c9l: the mise opt-in alone must leave the broad lefthook denies in place"
+[ ! -e "$home/streamjson/sjw9l3/lefthook-edit" ] || fail "c9l: the mise opt-in alone must record no lefthook opt-in"
+m_only_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ grep -qx 'mise_task_edit=1' "$m_only_rec" && ! grep -q '^lefthook_edit=' "$m_only_rec"; } \
+  || fail "c9l: the mise opt-in alone must leave lefthook_edit out of the session record: $m_only_rec"
+# Only the worker profile opts in, and a repeated flag is a usage error.
+for kind in tower mission-control; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch "sjw9l-$kind" mission-control:3 --prompt-file "$tmp/prompt9" --profile "$kind" --lefthook-edit --foreground >/dev/null 2>&1
+  [ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9l: --lefthook-edit with the $kind profile must be refused (exit 2) before a spawn"
+done
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9l4 execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --lefthook-edit --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9l: a repeated --lefthook-edit must be a usage error"
+mkdir -p "$tmp/we*ird"
+git init -q "$tmp/we*ird"
+: >"$rec/argv"
+senv "$home" "$rec" -- \
+  launch sjw9l5 execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
+l_rc=$?
+{ [ "$l_rc" -eq 7 ] && [ ! -s "$rec/argv" ]; } || fail "c9l: an opted-in launch in a glob-character path must be refused (exit 7) before a spawn (exit $l_rc, argv: $(cat "$rec/argv"))"
+[ ! -e "$home/streamjson/sjw9l5/lefthook-edit" ] || fail "c9l: a refused opted-in launch must record no opt-in"
+# The internal resume seam never takes an opt-in: it would open the profile
+# without recording the marker its next recover reads.
+for flag in --lefthook-edit --mise-task-edit; do
+  : >"$rec/argv"
+  senv "$home" "$rec" SHIM_READ_FIRST=0 -- \
+    launch sjw9l1 --resume-session "$sid" "$flag" --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l6.err"
+  l_rc=$?
+  { [ "$l_rc" -eq 2 ] && [ ! -s "$rec/argv" ] && grep -q -- "--resume-session takes no opt-in" "$tmp/c9l6.err"; } \
+    || fail "c9l: --resume-session with $flag must be refused (exit 2) before a spawn (exit $l_rc: $(cat "$tmp/c9l6.err"))"
+done
+# A hook root whose file-tool hook ignores the lefthook argument (a copy from
+# before the opt-in judges the mise names only) would leave the lefthook names
+# open outside the worktree once the broad denies are gone: the launch refuses.
+mkdir -p "$tmp/oldeh"
+cp -R "$here/../scripts" "$tmp/oldeh/scripts"
+cp -R "$here/../config" "$tmp/oldeh/config"
+mv "$tmp/oldeh/scripts/worker-mise-edit-guard.sh" "$tmp/oldeh/scripts/worker-mise-edit-guard.real.sh"
+# shellcheck disable=SC2016 # expanded by the stub when it runs
+printf '#!/bin/sh\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1" mise\n' \
+  >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+chmod +x "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+# launch_oldeh <opt-in flag or ''> [<VAR=value>...] — launch through the
+# copied root; sets l_rc to the launch's exit status.
+launch_oldeh() {
+  lo_flag=$1
+  shift
+  : >"$rec/argv"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_FLEET_SCRATCH_BASE="$tmp/scratch-base" \
+    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" "$@" \
+    /bin/sh "$tmp/oldeh/scripts/fleet-streamjson.sh" \
+    launch sjw9l7 execution-backends:4 --prompt-file "$tmp/prompt9" ${lo_flag:+"$lo_flag"} --cwd "$tmp/mwt" --foreground >/dev/null 2>"$tmp/c9l7.err"
+  l_rc=$?
+}
+# oldeh_refused <what> <stderr needle> — the last launch_oldeh refused (exit 9)
+# before a spawn, naming the needle, and recorded no opt-in.
+oldeh_refused() {
+  { [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ] && grep -qF -- "$2" "$tmp/c9l7.err"; } \
+    || fail "c9l: $1 must refuse the launch (exit 9) before a spawn, naming '$2' (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+  [ ! -e "$home/streamjson/sjw9l7/lefthook-edit" ] || fail "c9l: $1: a launch refused at the preflight must record no opt-in"
+}
+# The knob that softens the approval proof neither skips nor softens this one.
+for mode in refuse warn off; do
+  launch_oldeh --lefthook-edit PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT="$mode"
+  oldeh_refused "under preflight mode $mode, a hook that ignores the lefthook argument" "does not judge the opted-in names (failed: lefthook)"
+done
+launch_oldeh --mise-task-edit
+[ "$l_rc" -eq 0 ] || fail "c9l: the same hook still judges the mise names, so a mise-only launch passes (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+# The approval proof, which also needs TMPDIR, is off so this one is reached.
+launch_oldeh --lefthook-edit TMPDIR="$tmp/no-such-dir" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off
+oldeh_refused "a proof with nowhere to run" "cannot create a folder to prove the file-tool hook in"
+# An exported plugin root that does not resolve runs none of the worker's
+# hooks: both proofs refuse rather than proving the launcher's copies.
+launch_oldeh --lefthook-edit CLAUDE_PLUGIN_ROOT="$tmp/no-such-root"
+oldeh_refused "an exported plugin root that does not resolve" "exports for the worker's hooks ($tmp/no-such-root) does not resolve"
+launch_oldeh --lefthook-edit CLAUDE_PLUGIN_ROOT="$tmp/no-such-root" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off
+oldeh_refused "an unresolvable plugin root with the approval proof off" "the plugin root the worker's hooks run from ($tmp/no-such-root) does not resolve"
+# warn softens the approval proof's refusal of it, never the file-tool one.
+launch_oldeh --lefthook-edit CLAUDE_PLUGIN_ROOT="$tmp/no-such-root" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn
+oldeh_refused "an unresolvable plugin root under warn, opted in" "the plugin root the worker's hooks run from ($tmp/no-such-root) does not resolve"
+grep -qF "exports for the worker's hooks ($tmp/no-such-root) does not resolve" "$tmp/c9l7.err" \
+  || fail "c9l: under warn the approval proof must still report the unresolvable root: $(cat "$tmp/c9l7.err")"
+launch_oldeh '' CLAUDE_PLUGIN_ROOT="$tmp/no-such-root" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn
+{ [ "$l_rc" -eq 0 ] && [ -s "$rec/argv" ] && grep -qF "($tmp/no-such-root) does not resolve" "$tmp/c9l7.err"; } \
+  || fail "c9l: under warn a launch with no opt-in must warn about an unresolvable root and launch (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+# A mise-only profile wires the hook with no name-set argument, and that is
+# the call the proof makes: this hook judges only that call.
+# shellcheck disable=SC2016 # expanded by the stub when it runs
+printf '#!/bin/sh\n[ "$#" -eq 1 ] || { cat >/dev/null; exit 0; }\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1"\n' \
+  >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --mise-task-edit
+[ "$l_rc" -eq 0 ] || fail "c9l: a mise-only proof must call the hook as the profile does, with no name-set argument (exit $l_rc: $(cat "$tmp/c9l7.err"))"
+# A hook that refuses every write proves nothing about the names: the plain
+# file is the control.
+cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
+#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"x"}}'
+EOF
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook that refuses a plain file too" "refused a plain file outside the worktree"
+# Exit 2 with nothing on stdout is what a shell error gives under dash: the
+# hook is named broken, not a refusal of the plain file.
+printf '#!/bin/sh\ncat >/dev/null\nexit 2\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook that exits 2 with no output" "exited 2 on a plain file with nothing on stdout"
+# A syntax error exits 2 under dash and bash alike; its stderr is named.
+printf '#!/bin/sh\ncat >/dev/null\nif then fi\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook that dies on a shell error" "exited 2 on a plain file with nothing on stdout"
+grep -qF "(its stderr: " "$tmp/c9l7.err" || fail "c9l: a broken hook's refusal must carry its stderr: $(cat "$tmp/c9l7.err")"
+# Exit 2 with something on stdout refused the plain file.
+printf '#!/bin/sh\ncat >/dev/null\necho refused\nexit 2\n' >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook that refuses a plain file with exit 2 and output" "refused a plain file outside the worktree"
+# Only the single line of hook JSON, with exit 0, counts as a refusal.
+cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
+#!/bin/sh
+p=$(cat)
+case $p in
+  *plain.txt*) exit 0 ;;
+esac
+printf '%s\n' 'debug: judging' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"x"}}'
+EOF
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook whose refusal is not one line of hook JSON" "does not judge the opted-in names (failed: lefthook)"
+cat >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh" <<'EOF'
+#!/bin/sh
+p=$(cat)
+case $p in
+  *plain.txt*) exit 0 ;;
+esac
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"x"}}'
+exit 1
+EOF
+launch_oldeh --lefthook-edit
+oldeh_refused "a hook whose refusal exits non-zero" "does not judge the opted-in names (failed: lefthook)"
+rm -f "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+launch_oldeh --lefthook-edit
+oldeh_refused "a missing file-tool hook" "did not run or is broken (exit"
+echo "ok: c9l lefthook config opt-in: per-launch profile, recorded for recover, composes with the mise opt-in, refused elsewhere"
 # A mission-control recover holds its own row's token, never the caller's,
 # and none at all when the row carries none.
 mc='mc-beta-tower-0123456789'

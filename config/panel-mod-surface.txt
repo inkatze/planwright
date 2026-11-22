@@ -59,5 +59,7 @@ call $.ui.toast
 
 env PLANWRIGHT_MC_PROGRAM
 env PLANWRIGHT_MC_TARGET
+# A worker launch's identity: a session carrying it never activates.
+env PLANWRIGHT_WORKER_HANDLE
 envwrite PLANWRIGHT_MC_PROGRAM
 envwrite PLANWRIGHT_MC_TARGET
