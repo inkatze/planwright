@@ -77,7 +77,10 @@ report (D-45).
    the anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8)
    **before** it appears in any path or command; a failing token is never
    interpolated.
-2. **Resolve the spec path**, in order: (a) an explicit spec argument (in a
+2. **Resolve the spec path**, first running `scripts/orchestrate-primary-ff.sh`
+   (opt-in, `orchestrate_fast_forward_primary`: fast-forwards a clean, lagging
+   primary checkout, else refuses untouched); its `fast-forward` or `refused`
+   line is step-report state, never a halt. Then, in order: (a) an explicit spec argument (in a
    holder, the bundle's path under its marked root);
    (b) the current branch parsed against `planwright/<spec>/task-<ids>` (D-36),
    giving `<root>/<spec>/`, `<root>` the primary view `scripts/resolve-root.sh
