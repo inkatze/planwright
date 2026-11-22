@@ -358,13 +358,15 @@ mc_event_wakes() {
 }
 
 # mc_event_gone <program>: the ids of the event rows on stdin (`mc-event.sh
-# list` lines) whose subject no longer exists, one per line: a session that
-# is not among mc-session-names.sh's names
-# (pending-prompt, pending-prompt-overdue), a handover or announce naming a session that is
-# not the program's holder, a pull request that is merged or closed (named
-# <owner>:<name>:<n>). Every read that fails or comes back empty (no holder,
-# no session), and every subject it cannot resolve, keeps its event: a wrong keep costs a turn, a wrong drop hides a
-# live alert.
+# list` lines) whose subject no longer exists, one per line: a
+# pending-prompt-overdue whose session is not among mc-session-names.sh's
+# names, a handover-requested or mission-control-announce naming a session
+# that is not the program's holder, a pull request that is merged or closed
+# (named <owner>:<name>:<n>). Every read that fails or comes back empty (no
+# holder, no session), and every subject it cannot resolve, keeps its event:
+# a wrong keep costs a turn, a wrong drop hides a live alert.
+# A pending-prompt is never judged: one event carries a whole chunk of
+# requests, other workers' included, under its first worker's name.
 mc_event_gone() {
   meg_prog=$1
   meg_rows=$(cat)
@@ -375,7 +377,7 @@ mc_event_gone() {
   while IFS='	' read -r meg_id _ meg_kind meg_subject _; do
     [ -n "$meg_id" ] || continue
     case $meg_kind in
-      pending-prompt | pending-prompt-overdue)
+      pending-prompt-overdue)
         if [ "$meg_sess_state" -eq 0 ]; then
           meg_sess_state=2
           if meg_n=$(/bin/sh "$script_dir/mc-session-names.sh" 2>/dev/null </dev/null); then

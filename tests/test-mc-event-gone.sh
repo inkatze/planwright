@@ -78,8 +78,10 @@ backlog() {
   live_a=$OUT
   emit pending-prompt-overdue regw "live registry worker"
   live_b=$OUT
-  emit pending-prompt mc-retired-9 "retired worker"
+  emit pending-prompt-overdue mc-retired-9 "retired worker"
   gone_a=$OUT
+  emit pending-prompt mc-retired-8 "a chunk that also names a live worker's request"
+  live_i=$OUT
   emit merge-ready acme:widgets:11 "open pr"
   live_c=$OUT
   emit merge-ready acme:widgets:12 "merged pr"
@@ -98,9 +100,9 @@ backlog() {
   live_g=$OUT
   emit pr-merged acme:widgets:12 "the landing notice itself"
   live_h=$OUT
-  emit pending-prompt retw "a retired registry worker"
+  emit pending-prompt-overdue retw "a retired registry worker"
   gone_e=$OUT
-  live_ids="$live_a $live_b $live_c $live_d $live_e $live_f $live_g $live_h"
+  live_ids="$live_a $live_b $live_c $live_d $live_e $live_f $live_g $live_h $live_i"
   gone_ids="$gone_a $gone_b $gone_c $gone_d $gone_e"
 }
 
@@ -114,8 +116,8 @@ setup
 backlog
 mc_run mc-wake.sh compose --program alpha tw
 case $OUT in
-  "wake${tab}8${tab}"*) ok "the wake carries the live events only" ;;
-  *) fail "expected a wake of 8 events, got: $OUT" ;;
+  "wake${tab}9${tab}"*) ok "the wake carries the live events only" ;;
+  *) fail "expected a wake of 9 events, got: $OUT" ;;
 esac
 for id in $live_ids; do
   case $OUT in *"$id"*) ;; *) fail "live event $id missing from the wake" ;; esac
@@ -128,14 +130,14 @@ for id in $gone_ids; do
   case $OUT in *"$id"*) fail "gone event $id is still pending" ;; esac
 done
 ok "the gone events left the pending set"
-if [ "$(count_events)" -eq 13 ]; then ok "and stay listable"; else fail "the wake deleted events"; fi
+if [ "$(count_events)" -eq 14 ]; then ok "and stay listable"; else fail "the wake deleted events"; fi
 
 # The prune mode removes only the gone-subject events.
 setup
 backlog
 mc_run mc-event.sh prune --program alpha --gone --dry-run
 case $OUT in "would-prune${tab}5") ok "--gone --dry-run counts the gone events" ;; *) fail "dry run said '$OUT'" ;; esac
-if [ "$(count_events)" -eq 13 ]; then ok "a dry run removes nothing"; else fail "a dry run removed events"; fi
+if [ "$(count_events)" -eq 14 ]; then ok "a dry run removes nothing"; else fail "a dry run removed events"; fi
 mc_run mc-event.sh prune --program alpha --gone
 case $OUT in "pruned${tab}5") ok "--gone prunes the gone events" ;; *) fail "prune said '$OUT'" ;; esac
 mc_run mc-event.sh list --program alpha
@@ -181,6 +183,20 @@ else
   echo "skip: unreadable session list: the running user still reads $sess under mode 000"
 fi
 chmod 755 "$sess"
+
+# An unreadable fleet registry keeps the session events too, though the
+# launcher's list alone still names a session.
+setup
+backlog
+chmod 000 "$fleet/registry"
+if [ ! -r "$fleet/registry" ]; then
+  mc_run mc-event.sh prune --program alpha --gone
+  mc_run mc-event.sh list --program alpha
+  case $OUT in *"$live_b"*) ok "a live registry worker's event is kept while the registry cannot be read" ;; *) fail "a live registry worker's event was dropped on an unreadable registry" ;; esac
+else
+  echo "skip: unreadable registry: the running user still reads $fleet/registry under mode 000"
+fi
+chmod 600 "$fleet/registry"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-event-gone: $failures failure(s)" >&2

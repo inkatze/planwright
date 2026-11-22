@@ -84,13 +84,16 @@ script that emitted it already acted and nothing in it is for the
 operator; it stays listable. With the table unreadable every event wakes,
 said on stderr.
 AN EVENT WHOSE SUBJECT IS GONE never wakes either: relay, tick and compose
-mark it submitted unsent (mc-event.sh prune --gone clears the same ones from
-the store). Gone is a session that scripts/mc-session-names.sh does not name
-(pending-prompt, pending-prompt-overdue), a
-handover-requested or announce naming a session that is not the program's
-holder, and a merged or closed pull request (merge-ready, readiness-due,
-ready-to-merge, ready-offer). A read that fails or comes back empty, or a
-subject that cannot be resolved, keeps the event: it wakes.
+mark it submitted unsent (mc-event.sh prune --gone, run by hand, clears the
+same ones from the store). Gone is a pending-prompt-overdue for a session
+scripts/mc-session-names.sh does not name, a handover-requested or
+mission-control-announce naming a session that is not the program's holder,
+and a merged or closed pull request (merge-ready, readiness-due,
+ready-to-merge, ready-offer), judged before the merge-ready check below. A
+pending-prompt is never judged gone, since one carries several workers'
+requests under the first one's name. A read that fails or comes back empty,
+or a subject that cannot be resolved, keeps the event: it is not dropped as
+gone.
 A merge-ready event is checked against the forge before it wakes
 (scripts/mc-merge-ready.sh fresh): one whose pull request merged, closed
 or moved to another head is marked submitted unsent; one whose bot round is

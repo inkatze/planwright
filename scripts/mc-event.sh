@@ -89,11 +89,14 @@ Usage:
       drop the events matching every filter given (their kind, older than a
       duration such as 1h, or submitted by the target and by every target
       that holds marks for the store, so no target loses an event it has not
-      received, or whose subject is gone: a session neither listed by the
-      launcher nor live in the fleet registry (pending-prompt, pending-prompt-overdue), a
-      handover or announce naming a session that is not the program's
-      holder, a pull request that is merged or closed; a read that fails or
-      a subject that cannot be resolved keeps the event), and their marks;
+      received; or whose subject is gone: a pending-prompt-overdue for a
+      session neither listed by the launcher nor live in the fleet
+      registry, a handover-requested or mission-control-announce naming a
+      session that is not the program's holder, a merge-ready,
+      readiness-due, ready-to-merge or ready-offer whose pull request
+      (<owner>:<name>:<n>) is merged or closed; a read that fails or comes
+      back empty, or a subject that cannot be resolved, keeps the event),
+      and their marks;
       prints `pruned<TAB><n>`, or `would-prune<TAB><n>` with --dry-run,
       which removes nothing. A filter is required with --dry-run.
 

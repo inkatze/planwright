@@ -12,6 +12,11 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 1
 launched=$(/bin/sh "$script_dir/mission-control-launch.sh" list 2>/dev/null </dev/null) || exit 1
+# fleet-state.sh registry exits 0 when its cat fails, so a registry it cannot
+# read would otherwise read as one naming no worker.
+root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || exit 1
+[ -n "$root" ] || exit 1
+[ ! -e "$root/registry" ] || [ -r "$root/registry" ] || exit 1
 registry=$(/bin/sh "$script_dir/fleet-state.sh" registry 2>/dev/null </dev/null) || exit 1
 names=$(
   {
